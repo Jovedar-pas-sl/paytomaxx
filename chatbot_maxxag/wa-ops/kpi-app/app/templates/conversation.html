@@ -1,0 +1,548 @@
+{% extends "base.html" %}
+{% block title %}{{ header.contact_name or 'Conversación' }} — Maxxag Ops{% endblock %}
+
+{# ── WhatsApp-style palette ────────────────────────────────────── #}
+{% set wa_bg       = '#0b141a' %}
+{% set wa_panel    = '#202c33' %}
+{% set wa_out      = '#005c4b' %}  {# outgoing bubble (mamai) #}
+{% set wa_in       = '#202c33' %}  {# incoming bubble (cliente) #}
+{% set wa_text     = '#e9edef' %}
+{% set wa_muted    = '#8696a0' %}
+{% set wa_accent   = '#00a884' %}
+
+{% block content %}
+<div class="mb-3 flex items-end justify-between">
+  <a href="/casas/{{ header.account_id }}?tab=chats" class="text-xs text-muted hover:text-text">← {{ header.account_name }}</a>
+</div>
+
+{# Auto-suggested merge banner — when the conv is one-sided and a sibling complements it #}
+{% if suggested_merge %}
+<div class="mb-3 flex items-center gap-3 rounded-lg border border-blue/30 bg-blue/5 p-3">
+  <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue/20 text-blue text-sm">💡</div>
+  <div class="min-w-0 flex-1 text-sm">
+    <div class="font-medium">Parece el mismo contacto dividido</div>
+    <div class="text-xs text-muted">
+      Esta conversación solo tiene mensajes {% if header.messages and header.messages[0].message_type == 1 %}salientes{% else %}entrantes{% endif %}.
+      Puede unirse con <strong class="text-text">{{ suggested_merge.label }}</strong> (que tiene los del otro lado).
+    </div>
+  </div>
+  <form method="post" action="/conversation/{{ header.id }}/merge-into/{{ suggested_merge.id }}">
+    <button type="submit" class="rounded-md bg-blue px-3 py-1.5 text-xs font-semibold text-bg hover:opacity-90 whitespace-nowrap">
+      Fusionar
+    </button>
+  </form>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_20rem]">
+
+  {# ═══════ CHAT (WhatsApp look) ═══════════════════════════════ #}
+  <section class="overflow-hidden rounded-xl border border-border"
+           style="background: {{ wa_bg }};">
+    {# Header: avatar + contact #}
+    <div class="flex items-center gap-3 border-b border-black/30 px-4 py-2.5"
+         style="background: {{ wa_panel }};">
+      {# Avatar circle with initials #}
+      {% set initials = (header.contact_name or '?')[:1] | upper %}
+      <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full font-semibold text-white"
+           style="background: {{ wa_accent }};">
+        {{ initials }}
+      </div>
+      <div class="min-w-0 flex-1">
+        <div class="truncate font-medium" style="color: {{ wa_text }};">
+          {{ header.contact_name or header.phone_number or 'Contacto sin nombre' }}
+        </div>
+        <div class="truncate text-[11px] mono" style="color: {{ wa_muted }};">
+          {% if header.phone_number %}{{ header.phone_number }}{% else %}Contacto privado{% endif %}
+          <span class="mx-1">·</span>
+          {{ header.account_name }}
+        </div>
+      </div>
+      <button type="button"
+              hx-get="/widget/conversation/{{ header.id }}/messages"
+              hx-target="#msg-stream"
+              hx-swap="outerHTML"
+              class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full hover:bg-white/10 transition"
+              title="Actualizar mensajes"
+              style="color: {{ wa_muted }};">
+        <svg class="h-4 w-4 [.htmx-request_&]:animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+      </button>
+    </div>
+
+    {# Messages — auto-refreshes every 3s via HTMX #}
+    {% set conversation_id = header.id %}
+    {% include "partials/conversation_messages.html" with context %}
+
+    {# Input bar — send messages via WAHA #}
+    <form method="post" action="/conversation/{{ header.id }}/send"
+          class="flex items-center gap-2 border-t border-black/30 px-4 py-2.5"
+          style="background: {{ wa_panel }};">
+      <input type="text" name="body" required autocomplete="off"
+             placeholder="Escribe un mensaje..."
+             class="flex-1 rounded-lg px-3 py-2 text-sm focus:outline-none"
+             style="background: rgba(255,255,255,0.06); color: {{ wa_text }};">
+      <button type="submit"
+              class="flex h-9 w-9 items-center justify-center rounded-full hover:opacity-90 transition"
+              style="background: {{ wa_accent }};">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+          <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+        </svg>
+      </button>
+    </form>
+  </section>
+
+  {# ═══════ AI INSIGHTS SIDEBAR ════════════════════════════════ #}
+  <aside class="space-y-3 lg:sticky lg:top-20 lg:self-start">
+
+    {# Analyze / Re-analyze button #}
+    {% if analysis %}
+    <button type="button" onclick="window.__reAnalyze({{ header.id }})"
+            class="w-full rounded-lg border border-amber/40 bg-amber/10 text-amber py-2 text-xs font-medium hover:bg-amber/20 transition">
+      🔄 Re-analizar con IA (~$0.003)
+    </button>
+    {% else %}
+    <button type="button" onclick="window.__analyze({{ header.id }})"
+            class="w-full rounded-lg bg-green py-2.5 text-sm font-semibold text-bg hover:bg-green/90 transition">
+      🧠 Analizar con IA
+    </button>
+    {% endif %}
+
+    {# Export transcript #}
+    <a href="/conversation/{{ header.id }}/export.txt"
+       class="block text-center w-full rounded-lg border border-border py-2 text-xs text-muted hover:text-text hover:border-muted transition">
+      📥 Exportar transcript (TXT)
+    </a>
+
+    {# Mark resolved — triggers analysis #}
+    {% if header.status != 'resolved' %}
+    <form method="post" action="/conversation/{{ header.id }}/resolve">
+      <button class="w-full rounded-lg border border-blue/40 bg-blue/10 text-blue py-2 text-xs font-medium hover:bg-blue/20 transition">
+        Marcar resuelta + analizar
+      </button>
+    </form>
+    {% else %}
+    <div class="text-center text-xs text-muted">Conversación resuelta</div>
+    {% endif %}
+
+    {# Auto-merge (IA) — detects the same-client sibling and merges automatically #}
+    {% if siblings and siblings|length > 0 %}
+    <button type="button" id="auto-merge-btn"
+            onclick="window.__autoMerge({{ header.id }})"
+            class="w-full rounded-lg border border-purple/40 bg-purple/10 text-purple py-2 text-xs font-medium hover:bg-purple/20 transition">
+      Fusionar automáticamente (IA)
+    </button>
+
+    {# Manual merge (fallback — dropdown) #}
+    <button type="button" onclick="document.getElementById('merge-modal').classList.remove('hidden')"
+            class="w-full rounded-lg border border-border bg-surface-2 text-muted py-2 text-xs font-medium hover:text-text hover:border-border-strong transition">
+      Fusionar manualmente…
+    </button>
+    {% endif %}
+
+    {% if analysis %}
+      {% set mood_color = {
+        'curioso': 'text-blue border-blue/40 bg-blue/10',
+        'decidido': 'text-green border-green/40 bg-green/10',
+        'calenton': 'text-green border-green/40 bg-green/10',
+        'indeciso': 'text-amber border-amber/40 bg-amber/10',
+        'enfadado': 'text-red border-red/40 bg-red/10',
+        'timewaster': 'text-muted border-border bg-border/20',
+      } %}
+      <div class="card p-4 border {{ mood_color.get(analysis.mood_label, 'border-border') }}">
+        <div class="text-[10px] uppercase tracking-wider text-muted">Mood cliente</div>
+        <div class="mt-1 flex items-center gap-2">
+          <span class="text-xl font-bold">{{ analysis.mood_label }}</span>
+          <span class="mono text-xs">{{ analysis.mood_score }}/10</span>
+        </div>
+        <p class="mt-2 text-xs text-muted">{{ analysis.mood_reasoning }}</p>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-[10px] uppercase tracking-wider text-muted">Tiempo respuesta mamai</div>
+        <div class="mt-2 grid grid-cols-3 gap-2 text-center">
+          <div>
+            <div class="mono text-lg font-semibold">{{ (analysis.rt_p50 // 1000) }}<span class="text-xs text-muted">s</span></div>
+            <div class="text-[10px] text-muted">p50</div>
+          </div>
+          <div>
+            <div class="mono text-lg font-semibold {% if analysis.rt_p90 > 1800000 %}text-amber{% endif %}">{{ (analysis.rt_p90 // 60000) }}<span class="text-xs text-muted">min</span></div>
+            <div class="text-[10px] text-muted">p90</div>
+          </div>
+          <div>
+            <div class="mono text-lg font-semibold">{{ (analysis.rt_max // 60000) }}<span class="text-xs text-muted">min</span></div>
+            <div class="text-[10px] text-muted">max</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-[10px] uppercase tracking-wider text-muted">Trato mamai</div>
+        <div class="mt-3 space-y-2">
+          {% for label, val, color in [
+            ('cariñoso',    analysis.treat_carinoso,    'bg-green'),
+            ('profesional', analysis.treat_profesional, 'bg-blue'),
+            ('vendedor',    analysis.treat_vendedor,    'bg-amber'),
+            ('seco',        analysis.treat_seco,        'bg-red'),
+          ] %}
+          <div>
+            <div class="flex justify-between text-xs">
+              <span class="text-muted">{{ label }}</span>
+              <span class="mono">{{ val }}/10</span>
+            </div>
+            <div class="mt-1 h-1.5 rounded-full bg-border/50 overflow-hidden">
+              <div class="h-full {{ color }}" style="width: {{ val * 10 }}%"></div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card p-4">
+        <div class="text-[10px] uppercase tracking-wider text-muted">Probabilidad conversión</div>
+        {% set pct = (analysis.conv_probability * 100) | int %}
+        <div class="mt-2 flex items-end gap-2">
+          <span class="mono text-3xl font-bold {% if pct > 60 %}text-green{% elif pct > 30 %}text-amber{% else %}text-muted{% endif %}">{{ pct }}%</span>
+        </div>
+        <div class="mt-2 h-1.5 rounded-full bg-border/50 overflow-hidden">
+          <div class="h-full {% if pct > 60 %}bg-green{% elif pct > 30 %}bg-amber{% else %}bg-muted{% endif %}" style="width: {{ pct }}%"></div>
+        </div>
+      </div>
+
+      {% if analysis.red_flags and analysis.red_flags != [] and analysis.red_flags != '[]' %}
+      <div class="card p-4 border border-red/40">
+        <div class="text-[10px] uppercase tracking-wider text-red">🚩 Red flags</div>
+        <ul class="mt-2 space-y-1.5 text-xs">
+          {% for flag in (analysis.red_flags if analysis.red_flags is iterable and analysis.red_flags is not string else []) %}
+          <li class="flex items-start gap-2">
+            <span class="mt-0.5 rounded bg-red/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red">{{ flag.type }}</span>
+            <span class="text-muted">{{ flag.reason }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {# Escalation banner (above everything — it's urgent) #}
+      {% set esc = analysis.escalation %}
+      {% if esc and esc.should_escalate %}
+      {% set esc_color = {'high': 'border-red/70 bg-red/10', 'medium': 'border-amber/70 bg-amber/10', 'low': 'border-blue/60 bg-blue/5'}.get(esc.severity, 'border-border') %}
+      <div class="card p-4 border-2 {{ esc_color }}">
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] uppercase tracking-wider font-bold
+                       {% if esc.severity == 'high' %}text-red{% elif esc.severity == 'medium' %}text-amber{% else %}text-blue{% endif %}">
+            ⚠ Escalar a admin · {{ esc.severity }}
+          </span>
+        </div>
+        {% if esc.reason %}
+        <p class="mt-2 text-xs leading-relaxed">{{ esc.reason }}</p>
+        {% endif %}
+        {% if esc.triggers %}
+        <ul class="mt-2 space-y-1 text-[11px] text-muted">
+          {% for t in esc.triggers %}<li class="flex gap-2"><span class="text-muted-2">•</span><span>{{ t }}</span></li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {# Intent — quick classification badge #}
+      {% set intent = analysis.intent %}
+      {% if intent %}
+      {% set intent_color = {
+        'booking': 'text-green border-green/40',
+        'cotizacion': 'text-accent border-accent/40',
+        'informacion': 'text-blue border-blue/40',
+        'queja': 'text-amber border-amber/40',
+        'chit_chat': 'text-muted border-border',
+        'spam': 'text-red border-red/40',
+        'otro': 'text-muted-2 border-border',
+      }.get(intent.primary, 'text-muted border-border') %}
+      <div class="card p-4">
+        <div class="flex items-center justify-between">
+          <span class="text-[10px] uppercase tracking-wider text-muted">Intención</span>
+          <span class="text-[10px] mono text-muted-2">conf {{ (intent.confidence * 100) | int }}%</span>
+        </div>
+        <div class="mt-2 flex items-center gap-2 flex-wrap">
+          <span class="rounded-md border {{ intent_color }} px-2 py-0.5 text-xs font-semibold uppercase tracking-wide">
+            {{ intent.primary }}
+          </span>
+          {% for s in intent.secondary %}
+          <span class="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-2">
+            {{ s }}
+          </span>
+          {% endfor %}
+        </div>
+        <p class="mt-2 text-[11px] text-muted leading-relaxed">{{ intent.reasoning }}</p>
+      </div>
+      {% endif %}
+
+      {# Next Action — what to do NOW #}
+      {% set na = analysis.next_action %}
+      {% if na %}
+      {% set urg_color = {'high': 'border-red/60 bg-red/5', 'medium': 'border-amber/50 bg-amber/5', 'low': 'border-border'}.get(na.urgency, 'border-border') %}
+      <div class="card p-4 border {{ urg_color }}">
+        <div class="flex items-center justify-between">
+          <span class="text-[10px] uppercase tracking-wider font-semibold
+                       {% if na.urgency == 'high' %}text-red{% elif na.urgency == 'medium' %}text-amber{% else %}text-muted{% endif %}">
+            Acción · {{ na.urgency }}
+          </span>
+          <span class="mono text-[10px] rounded bg-surface-2 px-1.5 py-0.5 text-muted">{{ na.action }}</span>
+        </div>
+        <p class="mt-2 text-[11px] text-muted">{{ na.why }}</p>
+        {% if na.suggested_message %}
+        <div class="mt-2 rounded border border-border bg-surface-2 p-2">
+          <div class="mb-1 text-[9px] uppercase tracking-wider text-muted-2">Sugerido · copia y pega</div>
+          <pre class="whitespace-pre-wrap text-[12px] leading-relaxed font-sans">{{ na.suggested_message }}</pre>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {# Coaching — cómo mejorar en futuras conversaciones similares #}
+      {% set coaching = analysis.coaching %}
+      {% if coaching %}
+      <div class="card p-4 border border-accent/40">
+        <div class="mb-2 flex items-center gap-2">
+          <span class="text-[10px] uppercase tracking-wider text-accent font-semibold">Coaching</span>
+          <span class="text-[9px] text-muted-2">Cómo mejorar la próxima vez</span>
+        </div>
+
+        {# Overall #}
+        <p class="mb-3 text-xs leading-relaxed">{{ coaching.overall }}</p>
+
+        {# Went well #}
+        {% if coaching.went_well %}
+        <div class="mb-3">
+          <div class="text-[10px] uppercase tracking-wider text-green mb-1">Ha funcionado</div>
+          <ul class="space-y-1 text-xs text-muted list-disc list-inside">
+            {% for w in coaching.went_well %}<li>{{ w }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+        {# Missed opportunities #}
+        {% if coaching.missed_opportunities %}
+        <div class="mb-3">
+          <div class="text-[10px] uppercase tracking-wider text-amber mb-1">Momentos clave perdidos</div>
+          <ul class="space-y-2 text-xs">
+            {% for mo in coaching.missed_opportunities %}
+            <li class="rounded border border-amber/20 bg-amber/5 p-2">
+              <div class="mono text-[10px] text-muted">"{{ mo.moment }}"</div>
+              <div class="mt-0.5 text-xs">{{ mo.suggestion }}</div>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+        {# Response tips #}
+        {% if coaching.response_tips %}
+        <div class="mb-3">
+          <div class="text-[10px] uppercase tracking-wider text-blue mb-1">Respuestas</div>
+          <ul class="space-y-1 text-xs text-muted list-disc list-inside">
+            {% for t in coaching.response_tips %}<li>{{ t }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+        {# Tone tips #}
+        {% if coaching.tone_tips %}
+        <div class="mb-3">
+          <div class="text-[10px] uppercase tracking-wider text-purple mb-1">Trato / tono</div>
+          <ul class="space-y-1 text-xs text-muted list-disc list-inside">
+            {% for t in coaching.tone_tips %}<li>{{ t }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+        {# Example reply #}
+        {% if coaching.example_reply %}
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">Respuesta ejemplo (copiar)</div>
+          <div class="relative">
+            <pre class="whitespace-pre-wrap rounded border border-border bg-surface-2 p-2 text-xs text-text font-sans">{{ coaching.example_reply }}</pre>
+            <button type="button"
+                    onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent); this.textContent='✓'"
+                    class="absolute top-1.5 right-1.5 rounded border border-border bg-bg px-1.5 py-0.5 text-[10px] text-muted hover:text-text">
+              copiar
+            </button>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="text-center text-[10px] text-muted">
+        Analizado <span data-time="{{ analysis.analyzed_at.isoformat() }}">{{ analysis.analyzed_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      </div>
+    {% else %}
+      <div class="card p-5 text-center text-xs text-muted">
+        Análisis IA pendiente.<br>
+        Se ejecuta automáticamente cuando la conversación se resuelve en Chatwoot.
+      </div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="/static/app.js" defer></script>
+
+{# Analyze/Re-analyze overlay #}
+<div id="analyze-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
+  <div class="card p-8 text-center">
+    <div class="mb-3 inline-block h-12 w-12 animate-spin rounded-full border-4 border-green border-t-transparent"></div>
+    <div class="text-sm font-semibold">Claude está analizando esta conversación…</div>
+    <div class="mt-1 text-xs text-muted">~3 segundos</div>
+  </div>
+</div>
+
+{# Auto-merge overlay #}
+<div id="auto-merge-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
+  <div class="card p-8 text-center max-w-md">
+    <div class="mb-3 inline-block h-12 w-12 animate-spin rounded-full border-4 border-purple border-t-transparent"></div>
+    <div class="text-sm font-semibold">IA detectando conversación del mismo cliente…</div>
+    <div class="mt-1 text-xs text-muted">~3 segundos</div>
+  </div>
+</div>
+
+<script>
+window.__autoMerge = async function (convId) {
+  const overlay = document.getElementById('auto-merge-overlay');
+  const btn = document.getElementById('auto-merge-btn');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('flex');
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/conversation/${convId}/auto-merge`, { method: 'POST', redirect: 'follow' });
+    if (r.redirected) {
+      window.location.href = r.url;
+      return;
+    }
+    if (!r.ok) {
+      let msg = 'Error';
+      try {
+        const data = await r.json();
+        msg = data.detail || JSON.stringify(data);
+      } catch (_) { msg = await r.text(); }
+      overlay.classList.add('hidden');
+      overlay.classList.remove('flex');
+      btn.disabled = false;
+      alert('No se pudo auto-fusionar:\n\n' + msg + '\n\nPuedes usar "Fusionar manualmente" para elegir.');
+    }
+  } catch (e) {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('flex');
+    btn.disabled = false;
+    alert('Error de red: ' + e.message);
+  }
+};
+</script>
+
+{# Merge modal — fusiona esta conv con otra #}
+{% if siblings %}
+<div id="merge-modal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+  <div class="card w-full max-w-md p-6">
+    <h3 class="text-lg font-semibold mb-1">Fusionar contacto</h3>
+    <p class="mb-4 text-xs text-muted">
+      Mueve todos los mensajes de esta conversación a otra. Útil cuando el mismo cliente aparece 2 veces por privacidad de WhatsApp (@lid vs número).
+    </p>
+    <form method="post" id="merge-form" class="space-y-3">
+      <div>
+        <label class="mb-1 block text-xs text-muted">Fusionar CON esta otra conversación:</label>
+        <select name="target" required
+                class="w-full rounded border border-border bg-bg px-3 py-2 text-sm focus:border-accent focus:outline-none">
+          <option value="">— selecciona —</option>
+          {% for s in siblings %}
+          <option value="{{ s.id }}">{{ s.label }}{% if s.phone %} · {{ s.phone }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="rounded border border-amber/30 bg-amber/5 px-3 py-2 text-[11px] text-amber">
+        ⚠ Esta acción no se puede deshacer. Los mensajes actuales se moverán a la conversación seleccionada y ésta se eliminará.
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="document.getElementById('merge-modal').classList.add('hidden')"
+                class="rounded border border-border px-4 py-2 text-sm text-muted hover:text-text">Cancelar</button>
+        <button type="submit" class="btn-3d">
+          <span class="btn-3d__blob"></span>
+          <span class="btn-3d__inner">Fusionar</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  (function () {
+    const form = document.getElementById('merge-form');
+    form.addEventListener('submit', (e) => {
+      const target = form.target.value;
+      if (!target) { e.preventDefault(); return; }
+      form.action = `/conversation/{{ header.id }}/merge-into/${target}`;
+    });
+  })();
+</script>
+{% endif %}
+
+<script>
+  // Auto-scroll chat to bottom on load
+  document.addEventListener('DOMContentLoaded', () => {
+    const chat = document.querySelector('.chat-scroll');
+    if (chat) chat.scrollTop = chat.scrollHeight;
+  });
+
+  const overlay = document.getElementById('analyze-overlay');
+
+  async function kickoff(convId) {
+    overlay.classList.remove('hidden');
+    overlay.classList.add('flex');
+    try {
+      const r = await fetch(`/conversation/${convId}/analyze`, { method: 'POST' });
+      if (r.status === 202) {
+        // Poll for up to 60s
+        let tries = 0;
+        const tick = setInterval(async () => {
+          tries++;
+          const s = await fetch(`/conversation/${convId}/analysis-state`);
+          if (s.ok) {
+            const data = await s.json();
+            if (data.state === 'done') {
+              clearInterval(tick);
+              location.reload();
+            }
+          }
+          if (tries > 30) {
+            clearInterval(tick);
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+            alert('Timeout — Claude no responde. Revisa logs del worker.');
+          }
+        }, 2000);
+      } else if (r.status === 409) {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+        alert('Ya hay un análisis en curso para esta conversación.');
+      } else if (r.status === 503) {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+        alert('Claude API no disponible — revisa la clave en .env');
+      } else {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+        const txt = await r.text();
+        alert('Error: ' + txt);
+      }
+    } catch (e) {
+      overlay.classList.add('hidden');
+      overlay.classList.remove('flex');
+      alert('Error de red: ' + e.message);
+    }
+  }
+
+  window.__analyze = (id) => kickoff(id);
+
+  window.__reAnalyze = (id) => {
+    if (!confirm('Re-analizar esta conversación con Claude (~$0.003)?\n\nEl análisis actual se sobrescribirá.')) return;
+    kickoff(id);
+  };
+</script>{% endblock %}

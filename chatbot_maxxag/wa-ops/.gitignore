@@ -1,0 +1,32 @@
+# Env files (never commit secrets)
+.env
+.env.chatwoot
+.env.local
+*.env.bak
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Docker volumes (if ever bind-mounted locally)
+pgdata/
+redisdata/
+
+# Backups
+backups/
+*.dump
+*.sql.gz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp

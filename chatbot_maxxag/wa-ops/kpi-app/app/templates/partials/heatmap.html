@@ -1,0 +1,39 @@
+{# HTMX partial: 7-day × 24-hour heatmap using Tailwind bg intensity. #}
+<div>
+  <div class="overflow-x-auto">
+  <div class="grid grid-cols-[auto_repeat(24,minmax(14px,1fr))] gap-0.5 text-[10px] min-w-[500px]">
+    <div></div>
+    {% for h in range(24) %}
+      <div class="text-center text-muted">{% if h % 3 == 0 %}{{ "%02d"|format(h) }}{% endif %}</div>
+    {% endfor %}
+
+    {% set dow_labels = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}
+    {% for day in range(7) %}
+      <div class="text-muted pr-1 text-right">{{ dow_labels[day] }}</div>
+      {% for hour in range(24) %}
+        {% set val = grid[day][hour] %}
+        {% set intensity = (val * 100 / max_val) | round(0, 'floor') | int if max_val else 0 %}
+        <div class="aspect-square rounded-[2px]
+          {% if val == 0 %}bg-border/30
+          {% elif intensity < 20 %}bg-green/20
+          {% elif intensity < 40 %}bg-green/40
+          {% elif intensity < 60 %}bg-green/60
+          {% elif intensity < 80 %}bg-green/80
+          {% else %}bg-green
+          {% endif %}"
+          title="{{ dow_labels[day] }} {{ '%02d'|format(hour) }}:00 — {{ val }} mensajes"></div>
+      {% endfor %}
+    {% endfor %}
+  </div>
+  </div>
+  <div class="mt-3 flex items-center gap-2 text-[10px] text-muted">
+    <span>menos</span>
+    <span class="h-2 w-4 rounded-[2px] bg-green/20"></span>
+    <span class="h-2 w-4 rounded-[2px] bg-green/40"></span>
+    <span class="h-2 w-4 rounded-[2px] bg-green/60"></span>
+    <span class="h-2 w-4 rounded-[2px] bg-green/80"></span>
+    <span class="h-2 w-4 rounded-[2px] bg-green"></span>
+    <span>más</span>
+    <span class="ml-auto">últimos 7 días</span>
+  </div>
+</div>

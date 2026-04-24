@@ -1,0 +1,98 @@
+{# HTMX fragment: chats list — polled every 4s by chats tab. #}
+{% set mood_colors = {
+  'curioso': 'text-blue border-blue/40 bg-blue/10',
+  'decidido': 'text-green border-green/40 bg-green/10',
+  'calenton': 'text-green border-green/40 bg-green/10',
+  'indeciso': 'text-amber border-amber/40 bg-amber/10',
+  'enfadado': 'text-red border-red/40 bg-red/10',
+  'timewaster': 'text-muted border-border bg-border/20',
+} %}
+{% set avatar_gradients = [
+  'from-pink-500 to-purple-500',
+  'from-blue-500 to-cyan-400',
+  'from-green-500 to-teal-400',
+  'from-amber-500 to-orange-500',
+  'from-red-500 to-pink-500',
+  'from-indigo-500 to-purple-500',
+] %}
+{% macro format_phone(p) -%}
+  {%- if not p -%}—
+  {%- elif p | length >= 11 -%}+{{ p[:2] }} {{ p[2:5] }} {{ p[5:8] }} {{ p[8:] }}
+  {%- else -%}+{{ p }}
+  {%- endif -%}
+{%- endmacro %}
+
+<section id="chat-list" class="card divide-y divide-border overflow-hidden"
+         hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa|default('all') }}"
+         hx-trigger="every 30s[document.visibilityState==='visible']"
+         hx-swap="outerHTML">
+  {% for r in chat_rows %}
+    {% set display_phone = format_phone(r.contact_phone) if r.contact_phone else '' %}
+    {% set name = r.contact_name or (display_phone if display_phone else 'Contacto privado') %}
+    {% set initial = (name[:1] | upper) if name[:1].isalpha() else '?' %}
+    {% set grad = avatar_gradients[(name | length) % (avatar_gradients | length)] %}
+
+    <a href="/conversation/{{ r.id }}" class="flex items-start gap-3 px-4 py-3 hover:bg-border/10 transition">
+      <div class="relative flex-shrink-0">
+        <div class="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br {{ grad }} text-lg font-semibold text-white">
+          {{ initial }}
+        </div>
+        {% if r.status == 'open' %}
+          <span class="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-panel bg-green"></span>
+        {% endif %}
+        {% if r.unread_count > 0 %}
+          <span class="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-panel bg-green px-1 text-[10px] font-bold text-bg">
+            {{ r.unread_count }}
+          </span>
+        {% endif %}
+      </div>
+
+      <div class="min-w-0 flex-1">
+        <div class="flex items-baseline justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <span class="truncate font-semibold text-text">{{ name }}</span>
+            {% if r.wa_label and (active_wa|default('all')) == 'all' %}
+              <span class="ml-2 rounded-full bg-blue/15 px-1.5 py-0.5 text-[9px] font-medium uppercase text-blue">{{ r.wa_label }}</span>
+            {% endif %}
+            {% if r.contact_name %}
+              <span class="ml-2 text-[10px] text-muted mono">{{ display_phone }}</span>
+            {% endif %}
+          </div>
+          <span class="flex-shrink-0 text-[11px] text-muted mono">
+            {{ r.last_message_at.strftime('%d/%m %H:%M') }}
+          </span>
+        </div>
+
+        <div class="mt-0.5 flex items-center justify-between gap-2">
+          <p class="min-w-0 flex-1 truncate text-sm text-muted">
+            {{ r.last_message_preview or '—' }}
+          </p>
+          <div class="flex flex-shrink-0 items-center gap-1.5">
+            {% if r.mood_label %}
+            <span class="rounded-md border px-1.5 py-0.5 text-[10px] font-medium uppercase
+              {{ mood_colors.get(r.mood_label, 'text-muted border-border bg-border/20') }}">
+              {{ r.mood_label }}
+            </span>
+            {% endif %}
+            {% if r.conv_probability is not none %}
+              {% set pct = (r.conv_probability * 100) | int %}
+              <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold mono
+                {% if pct > 60 %}bg-green/20 text-green{% elif pct > 30 %}bg-amber/20 text-amber{% else %}bg-border/30 text-muted{% endif %}">
+                {{ pct }}%
+              </span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </a>
+  {% endfor %}
+  {% if not chat_rows %}
+  <div class="py-16 text-center">
+    <div class="text-4xl mb-3">💬</div>
+    <div class="text-sm font-semibold">Aún no hay conversaciones</div>
+    <div class="mt-1 text-xs text-muted">
+      Los mensajes entrantes aparecerán aquí en tiempo real.
+    </div>
+  </div>
+  {% endif %}
+</section>

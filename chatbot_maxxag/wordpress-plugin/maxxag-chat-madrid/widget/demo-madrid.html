@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maxxag Chat — Demo v09.04.5</title>
+<style>
+  body {
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(135deg, #1a0a10 0%, #2a1520 50%, #0d0d0d 100%);
+    font-family: -apple-system, sans-serif; color: #fff;
+  }
+  .hero {
+    text-align: center; padding: 60px 20px 40px;
+  }
+  .hero h1 { font-size: 36px; margin-bottom: 8px; font-family: 'EB Garamond', serif; }
+  .hero h1 span { color: #bfa498; }
+  .hero p { color: #888; font-size: 14px; margin: 4px 0; }
+  .badges { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 20px; }
+  .badge {
+    background: rgba(191,164,152,0.1); border: 1px solid rgba(191,164,152,0.25);
+    color: #bfa498; padding: 4px 12px; border-radius: 16px; font-size: 11px;
+  }
+  .instructions {
+    max-width: 500px; margin: 30px auto; padding: 20px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px; font-size: 13px; color: #777; line-height: 1.8;
+  }
+  .instructions b { color: #bfa498; }
+  .instructions code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="hero">
+  <h1>Maxx<span>ag</span> Chat Demo</h1>
+  <p>v09.04.5 — 8 mejoras</p>
+  <div class="badges">
+    <span class="badge">1. Ojo password</span>
+    <span class="badge">2. Estilo msgs</span>
+    <span class="badge">3. Burbuja proactiva</span>
+    <span class="badge">4. Nombre + Logo</span>
+    <span class="badge">5. Scroll fix</span>
+    <span class="badge">6. AI seductor</span>
+    <span class="badge">7. FAQ inteligente</span>
+    <span class="badge">8. Botones permanentes</span>
+  </div>
+</div>
+
+<div class="instructions">
+  <b>Instrucciones:</b><br>
+  1. Espera 3 segundos — aparece la burbuja "Hola guapo"<br>
+  2. Haz click en la burbuja o en el boton del chat<br>
+  3. Elige un idioma<br>
+  4. Escribe tu nombre y pulsa Continuar<br>
+  5. Veras el greeting con tu nombre<br>
+  6. Pulsa botones — NO desaparecen<br>
+  7. Escribe algo — mira el scroll y el estilo<br><br>
+  <b>Para reiniciar:</b> F12 > Console > <code>sessionStorage.clear(); location.reload();</code>
+</div>
+
+<!-- MOCK API — simula las respuestas del servidor -->
+<script>
+(function() {
+  // Mock data
+  var mockGirls = [
+    { id:'vlc1', name:'Sophia', age:24, nationality:'Espanola', description:'Morena de ojos verdes, sofisticada y divertida.', photo_url:'https://i0.wp.com/maxxagevlc.com/wp-content/uploads/2026/03/sofia-vlc-5.jpeg?fit=1304%2C1920&ssl=1', whatsapp:'+34600000001', available_today:true, outcall:true, services:['GFE','Masajes','Hotel'], languages:['ES','EN'] },
+    { id:'vlc2', name:'Valentina', age:26, nationality:'Colombiana', description:'Rubia exotica, apasionada y muy discreta.', photo_url:'https://placehold.co/300x400/664750/fdf7f2?text=Valentina', whatsapp:'+34600000002', available_today:true, outcall:true, services:['GFE','Cenas','Pareja'], languages:['ES','EN','FR'] },
+    { id:'vlc3', name:'Ariana', age:23, nationality:'Brasilena', description:'Morena con curvas, alegre y muy carinosa.', photo_url:'https://placehold.co/300x400/664750/fdf7f2?text=Ariana', whatsapp:'+34600000003', available_today:false, outcall:true, services:['GFE','Masajes'], languages:['ES','PT'] }
+  ];
+
+  var mockConfig = {
+    site: { name:'Maxxage Madrid', bot_name:'Sara', bot_avatar:'sara-avatar.jpg', whatsapp_recepcion:'+34603201414', telegram_recepcion:'@maxxagvlc', greeting_es:'Bienvenido a Maxxage Madrid \uD83D\uDE18 \u00bfEn qu\u00e9 podemos ayudarte?', greeting_en:'Welcome to Maxxage Madrid \uD83D\uDE18 How can we help you?', greeting_fr:'Bienvenue chez Maxxage Madrid \uD83D\uDE18', greeting_it:'Benvenuto a Maxxage Madrid \uD83D\uDE18' },
+    rates: { title_es:'Tarifas Maxxag Valencia', title_en:'Maxxag Valencia Rates', items:[{label_es:'1 hora',label_en:'1 hour',price:'150\u20ac'},{label_es:'2 horas',label_en:'2 hours',price:'250\u20ac'},{label_es:'Noche completa',label_en:'Full night',price:'500\u20ac'},{label_es:'Hotel/domicilio',label_en:'Hotel/outcall',price:'desde 200\u20ac'}], note_es:'Precios orientativos. Consulta disponibilidad con recepcion.', note_en:'Approximate prices. Check availability with reception.' },
+    schedule: { hours_es:'Disponible las 24 horas, 7 d\u00edas a la semana', hours_en:'Available 24 hours, 7 days a week', address_es:'C. Joaqu\u00edn Costa, 44, 46005 Valencia', address_en:'C. Joaqu\u00edn Costa, 44, 46005 Valencia', maps_url:'https://maps.google.com/?q=C.+Joaquin+Costa+44+Valencia' },
+    faqs: [{triggers:['precio','cuanto','tarifa','price','how much'],reply_es:'Para ver nuestras tarifas pulsa el bot\u00f3n Tarifas / Servicios \uD83D\uDCB0',reply_en:'To see our rates click Rates / Services \uD83D\uDCB0'},{triggers:['pago','efectivo','cash','bizum'],reply_es:'Aceptamos efectivo, Bizum y transferencia. Para m\u00e1s detalles contacta recepci\u00f3n \uD83D\uDCF1',reply_en:'We accept cash, Bizum and bank transfer.'}]
+  };
+
+  var sessionCounter = 0;
+  var clientName = '';
+
+  // Menu buttons
+  var MENU = {
+    es: [
+      {id:'escorts_disponibles',label:'Escorts disponibles',group:'info'},
+      {id:'tarifas',label:'Tarifas / Servicios',group:'info'},
+      {id:'horario',label:'Horario / C\u00f3mo llegar',group:'info'},
+      {id:'hotel_domicilio',label:'A hotel o domicilio',group:'info'},
+      {id:'reservar',label:'Reservar ahora \uD83D\uDCF1',group:'action'},
+      {id:'contacto',label:'Contacto recepci\u00f3n \uD83D\uDCF1',group:'action'}
+    ],
+    en: [
+      {id:'escorts_disponibles',label:'Available escorts',group:'info'},
+      {id:'tarifas',label:'Rates / Services',group:'info'},
+      {id:'horario',label:'Schedule / Directions',group:'info'},
+      {id:'hotel_domicilio',label:'Hotel or outcall',group:'info'},
+      {id:'reservar',label:'Book now \uD83D\uDCF1',group:'action'},
+      {id:'contacto',label:'Contact reception \uD83D\uDCF1',group:'action'}
+    ]
+  };
+
+  var BACK = {es:[{id:'menu',label:'\u2190 Volver al men\u00fa'}], en:[{id:'menu',label:'\u2190 Back to menu'}]};
+
+  function contactBtns(lang) {
+    return [
+      {id:'wa_contact',label:(lang==='en'?'WhatsApp reception':'WhatsApp recepci\u00f3n')+' \uD83D\uDCF1',full_width:true,url:'https://wa.me/34603201414'},
+      {id:'tg_contact',label:(lang==='en'?'Telegram reception':'Telegram recepci\u00f3n')+' \u2708\uFE0F',full_width:true,url:'https://t.me/maxxagvlc'},
+      {id:'menu',label:lang==='en'?'\u2190 Back to menu':'\u2190 Volver al men\u00fa'}
+    ];
+  }
+
+  function menuBtns(lang) { return MENU[lang] || MENU.es; }
+
+  // AI mock responses
+  var aiResponses = {
+    es: [
+      '\u00a1Hola {name}! \uD83D\uDE18 Qu\u00e9 alegr\u00eda verte por aqu\u00ed. \u00bfBuscas algo especial hoy? Te puedo ense\u00f1ar qui\u00e9n est\u00e1 disponible...',
+      'Mmm buena elecci\u00f3n, bomb\u00f3n \uD83D\uDE0F Tenemos opciones que te van a encantar. \u00bfQuieres que te muestre qui\u00e9n est\u00e1 hoy?',
+      'Tranquilo cari\u00f1o, sin prisa \uD83D\uDE0A \u00bfQu\u00e9 te apetece? \u00bfVer las chicas disponibles? \u00bfSaber nuestras tarifas? Estoy aqu\u00ed para ti \uD83D\uDC8B',
+      'Ay {name}, me encanta que preguntes eso \uD83D\uDE0F Hoy tenemos a Sophia y Valentina disponibles... las dos son incre\u00edbles. \u00bfQuieres verlas?',
+      'No te vayas tan r\u00e1pido, guapo \uD83D\uDE0F A\u00fan no te he ense\u00f1ado lo mejor... \u00bfTe muestro las chicas de hoy?'
+    ],
+    en: [
+      'Hey {name}! \uD83D\uDE18 So glad you\'re here. Looking for something special today? I can show you who\'s available...',
+      'Mmm great taste, gorgeous \uD83D\uDE0F We\'ve got options you\'ll love. Want me to show you who\'s here today?',
+      'No rush darling \uD83D\uDE0A What are you in the mood for? See available girls? Check our rates? I\'m here for you \uD83D\uDC8B'
+    ]
+  };
+  var aiIndex = 0;
+
+  function getAiResponse(msg, lang) {
+    var responses = aiResponses[lang] || aiResponses.es;
+    var resp = responses[aiIndex % responses.length];
+    aiIndex++;
+    var name = clientName || (lang === 'en' ? 'handsome' : 'guapo');
+    return resp.replace(/\{name\}/g, name);
+  }
+
+  // Intercept fetch
+  var originalFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    // Only intercept our API calls
+    if (typeof url !== 'string' || url.indexOf('/maxxag/v1') === -1) {
+      return originalFetch.apply(this, arguments);
+    }
+
+    var path = url.split('/maxxag/v1')[1];
+    var body = {};
+    if (opts && opts.body) {
+      try { body = JSON.parse(opts.body); } catch(e) {}
+    }
+
+    var lang = body.lang || 'es';
+    if (body.name) clientName = body.name;
+
+    return new Promise(function(resolve) {
+      // Simulate network delay
+      setTimeout(function() {
+        var response;
+
+        // GET /config
+        if (path === '/config' && (!opts || opts.method === 'GET')) {
+          response = mockConfig;
+        }
+        // POST /chat (no message = greeting)
+        else if (path === '/chat' && !body.message) {
+          var greeting = mockConfig.site['greeting_' + lang] || mockConfig.site.greeting_es;
+          if (clientName) {
+            greeting = greeting.replace(/(Bienvenido|Welcome|Bienvenue|Benvenuto)/i, '$1 ' + clientName);
+          }
+          response = {
+            session_id: 'demo-' + (++sessionCounter),
+            lang: lang,
+            messages: [
+              { type:'avatar', name: mockConfig.site.bot_name, avatar: mockConfig.site.bot_avatar },
+              { type:'text', text: greeting, buttons: menuBtns(lang) }
+            ]
+          };
+        }
+        // POST /chat with message
+        else if (path === '/chat' && body.message) {
+          var msg = body.message.toLowerCase().trim();
+          var msgs = [];
+
+          // Menu
+          if (msg === 'menu' || msg === '\u2190 volver al men\u00fa' || msg === '\u2190 back to menu') {
+            var comeback = lang === 'en' ? 'What else would you like to know, darling? \uD83D\uDE0A' : '\u00bfQu\u00e9 m\u00e1s te apetece saber, cari\u00f1o? \uD83D\uDE0A';
+            msgs = [{ type:'text', text: comeback, buttons: menuBtns(lang) }];
+          }
+          // Escorts
+          else if (msg === 'escorts_disponibles') {
+            var available = mockGirls.filter(function(g) { return g.available_today; });
+            var label = lang === 'en' ? "Here's who's available right now, handsome \uD83D\uDC95" : 'Mira qui\u00e9nes est\u00e1n disponibles ahora mismo, guapo \uD83D\uDC95';
+            msgs = [
+              { type:'text', text: label },
+              { type:'girls', girls: available },
+              { type:'text', text: lang === 'en' ? 'Like anyone, handsome? \uD83D\uDE18' : '\u00bfTe gusta alguna, guapo? \uD83D\uDE18', buttons: contactBtns(lang) }
+            ];
+          }
+          // Tarifas
+          else if (msg === 'tarifas') {
+            var rates = mockConfig.rates;
+            msgs = [
+              { type:'text', text: lang === 'en' ? 'Here are our rates, darling \uD83D\uDCB0' : 'Aqu\u00ed tienes nuestras tarifas, cari\u00f1o \uD83D\uDCB0' },
+              { type:'rates', title: rates['title_' + lang] || rates.title_es, items: rates.items, note: rates['note_' + lang] || rates.note_es, lang: lang, buttons: contactBtns(lang) }
+            ];
+          }
+          // Horario
+          else if (msg === 'horario') {
+            var s = mockConfig.schedule;
+            var hours = s['hours_' + lang] || s.hours_es;
+            var addr = s['address_' + lang] || s.address_es;
+            var btns = [{id:'maps',label:lang==='en'?'View on Google Maps \uD83D\uDCCD':'Ver en Google Maps \uD83D\uDCCD',full_width:true,url:s.maps_url}];
+            btns = btns.concat(contactBtns(lang));
+            msgs = [
+              { type:'text', text: lang === 'en' ? 'Sure thing, handsome! \uD83D\uDE97' : '\u00a1Claro, guapo! \uD83D\uDE97' },
+              { type:'text', text: '\uD83D\uDD50 ' + hours + '\n\n\uD83D\uDCCD ' + addr, buttons: btns }
+            ];
+          }
+          // Hotel
+          else if (msg === 'hotel_domicilio') {
+            var hotelText = lang === 'en'
+              ? '\uD83C\uDFE8 Of course, darling. We can come to your hotel or place.\n\nSmall extra for travel. Write us and we\'ll organise everything \uD83D\uDE09'
+              : '\uD83C\uDFE8 Por supuesto, cielo. Podemos ir a tu hotel o domicilio.\n\nEl desplazamiento tiene un peque\u00f1o extra seg\u00fan la distancia. Escr\u00edbenos y lo organizamos todo \uD83D\uDE09';
+            msgs = [{ type:'text', text: hotelText, buttons: contactBtns(lang) }];
+          }
+          // Reservar — with booking question
+          else if (msg === 'reservar') {
+            msgs = [{ type:'text', text: lang === 'en' ? 'Great, darling! \uD83D\uDE18 When would you like to book? Write us on WhatsApp with the day and time \uD83D\uDC8B' : '\u00a1Genial, cari\u00f1o! \uD83D\uDE18 \u00bfPara cu\u00e1ndo te gustar\u00eda reservar? Escr\u00edbenos por WhatsApp con el d\u00eda y la hora \uD83D\uDC8B', buttons: contactBtns(lang) }];
+          }
+          // Contacto
+          else if (msg === 'contacto') {
+            msgs = [{ type:'text', text: lang === 'en' ? '\uD83D\uDCF1 Reception available 24h:' : '\uD83D\uDCF1 Recepci\u00f3n disponible 24h:', buttons: contactBtns(lang) }];
+          }
+          // Girl name detection
+          else if (mockGirls.some(function(g) { return msg.indexOf(g.name.toLowerCase()) > -1; })) {
+            var girl = mockGirls.find(function(g) { return msg.indexOf(g.name.toLowerCase()) > -1; });
+            var gText = girl.available_today
+              ? '\u00a1' + girl.name + '! \uD83D\uDE0D ' + girl.age + ' a\u00f1os, ' + girl.nationality + '. ' + girl.description + ' Est\u00e1 disponible ahora mismo, guapo. \u00bfTe interesa? \uD83D\uDE18'
+              : 'Ay, ' + girl.name + ' no est\u00e1 disponible ahora mismo, cari\u00f1o \uD83D\uDE14 Pero tenemos otras chicas incre\u00edbles. \u00bfQuieres verlas?';
+            var gBtns = girl.available_today ? contactBtns(lang) : [{id:'escorts_disponibles',label:'Ver disponibles',group:'info'}];
+            msgs = [{ type:'text', text: gText, buttons: gBtns }];
+          }
+          // Contact intent
+          else if (msg.indexOf('llamar') > -1 || msg.indexOf('telefono') > -1 || msg.indexOf('recepcion') > -1 || msg.indexOf('call') > -1) {
+            msgs = [{ type:'text', text: '\u00a1Claro, cari\u00f1o! \uD83D\uDE18 Escr\u00edbenos por WhatsApp o Telegram y te atendemos al momento \uD83D\uDC8B', buttons: contactBtns(lang) }];
+          }
+          // Free text — AI mock with contextual quick-replies
+          else {
+            var aiText = getAiResponse(msg, lang);
+            var quickBtns = [];
+            if (msg.indexOf('chica') > -1 || msg.indexOf('rub') > -1 || msg.indexOf('moren') > -1) {
+              quickBtns = [{id:'escorts_disponibles',label:'Ver disponibles',group:'info'},{id:'reservar',label:'Reservar \uD83D\uDCF1',group:'action'}];
+            } else if (msg.indexOf('precio') > -1 || msg.indexOf('cuesta') > -1) {
+              quickBtns = [{id:'tarifas',label:'Ver tarifas',group:'info'},{id:'contacto',label:'Contacto \uD83D\uDCF1',group:'action'}];
+            } else {
+              quickBtns = [{id:'escorts_disponibles',label:'Ver chicas',group:'info'},{id:'tarifas',label:'Tarifas',group:'info'},{id:'contacto',label:'Contacto \uD83D\uDCF1',group:'action'}];
+            }
+            msgs = [{ type:'text', text: aiText, buttons: quickBtns }];
+          }
+
+          response = {
+            session_id: body.session_id || 'demo-1',
+            lang: lang,
+            messages: msgs
+          };
+        }
+        // Fallback
+        else {
+          response = { error: 'Unknown endpoint' };
+        }
+
+        resolve(new Response(JSON.stringify(response), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }));
+      }, 600); // 600ms delay to simulate network
+    });
+  };
+})();
+</script>
+
+<!-- Chat widget -->
+<link rel="stylesheet" href="chat-widget.css">
+<script src="chat-widget.js" data-api="/fake-api/maxxag/v1" data-lang="es"></script>
+
+</body>
+</html>

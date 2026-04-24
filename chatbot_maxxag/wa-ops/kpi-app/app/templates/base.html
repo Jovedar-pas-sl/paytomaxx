@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Maxxag Ops{% endblock %}</title>
+
+  <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            /* Backgrounds — pure OLED black */
+            bg:          '#000000',
+            surface:     '#0a0a0a',
+            'surface-2': '#141414',
+            panel:       '#0a0a0a',   /* legacy alias */
+            /* Borders */
+            border:        '#1a1a1c',
+            'border-strong': '#26262a',
+            /* Text */
+            text:       '#f5f5f7',
+            muted:      '#8e8e93',
+            'muted-2':  '#636366',
+            /* Brand + semantic */
+            accent:    '#10b981',     /* emerald-500 */
+            'accent-soft': '#10b9811f',
+            green:     '#10b981',     /* legacy alias */
+            blue:      '#60a5fa',
+            amber:     '#f59e0b',
+            red:       '#f43f5e',
+            purple:    '#a78bfa',
+          },
+          fontFamily: {
+            sans: ['Geist', 'Inter', 'ui-sans-serif', 'system-ui'],
+            mono: ['Geist Mono', 'JetBrains Mono', 'ui-monospace'],
+          },
+          letterSpacing: {
+            tight: '-0.01em',
+            tighter: '-0.02em',
+          },
+          boxShadow: {
+            'card':     '0 1px 0 0 rgba(255,255,255,0.03) inset, 0 1px 2px rgba(0,0,0,0.4)',
+            'card-hov': '0 1px 0 0 rgba(255,255,255,0.06) inset, 0 4px 12px rgba(0,0,0,0.5)',
+            'ring-accent': '0 0 0 3px rgba(16,185,129,0.2)',
+          },
+          transitionTimingFunction: {
+            'out-soft': 'cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        },
+      },
+    };
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"
+          integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
+          crossorigin="anonymous"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root {
+      --color-bg: #000000;
+      --color-surface: #0a0a0a;
+      --color-border: #1a1a1c;
+    }
+    html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    body {
+      background: var(--color-bg);
+      color: #f5f5f7;
+      font-family: 'Geist', 'Inter', system-ui, sans-serif;
+      font-feature-settings: 'cv11', 'ss01';
+      letter-spacing: -0.01em;
+    }
+    .mono { font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace; letter-spacing: 0; }
+
+    /* Card primitive — subtle top-highlight + hairline border on OLED black */
+    .card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: .75rem;
+      box-shadow: 0 1px 0 0 rgba(255,255,255,0.04) inset;
+      transition: border-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+                  box-shadow   150ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .card-hover:hover {
+      border-color: #26262a;
+      box-shadow: 0 1px 0 0 rgba(255,255,255,0.08) inset, 0 4px 20px rgba(16,185,129,0.05);
+    }
+
+    /* Glass card — subtle diagonal highlight + soft depth on OLED black
+       (adapted from Uiverse.io by codebykay101, tilt-rotate removed for dashboard use) */
+    .glass-card {
+      position: relative;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.045), rgba(255,255,255,0) 55%),
+        #0a0a0a;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 1rem;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow:
+        inset 1px 1px 0 rgba(255, 255, 255, 0.06),
+        0 10px 25px rgba(0,0,0,0.35);
+      transition:
+        transform   300ms cubic-bezier(0.22, 1, 0.36, 1),
+        border-color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+        box-shadow   250ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .glass-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(16,185,129,0.65);
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.07), rgba(255,255,255,0) 55%),
+        #0e0e0e;
+      box-shadow:
+        inset 1px 1px 0 rgba(255,255,255,0.14),
+        inset 0 0 0 1px rgba(16,185,129,0.15),
+        0 22px 45px rgba(0,0,0,0.55),
+        0 0 40px rgba(16,185,129,0.28),
+        0 0 80px rgba(16,185,129,0.12);
+    }
+    /* Diagonal sheen + ambient glow layer that animate on hover */
+    .glass-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(16,185,129,0.18) 0%, transparent 55%),
+        linear-gradient(130deg, transparent 38%, rgba(16,185,129,0.12) 52%, transparent 66%);
+      opacity: 0;
+      transition: opacity 320ms cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none;
+    }
+    .glass-card:hover::before { opacity: 1; }
+
+    /* Clickable glass card — for "button-like" surfaces (casa cards, action tiles)
+       Adapted from Uiverse.io by SteveBloX (scale + active rotate feedback) */
+    .glass-card-btn {
+      position: relative;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.05), rgba(255,255,255,0) 55%),
+        #0a0a0a;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 17px;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow:
+        inset 1px 1px 0 rgba(255,255,255,0.06),
+        12px 17px 35px rgba(0,0,0,0.45);
+      cursor: pointer;
+      user-select: none;
+      transition:
+        transform    400ms cubic-bezier(0.22, 1, 0.36, 1),
+        border-color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+        box-shadow   250ms cubic-bezier(0.22, 1, 0.36, 1),
+        background   250ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .glass-card-btn::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(16,185,129,0.22) 0%, transparent 55%),
+        linear-gradient(130deg, transparent 36%, rgba(16,185,129,0.15) 52%, transparent 66%);
+      opacity: 0;
+      transition: opacity 320ms cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none;
+    }
+    .glass-card-btn:hover {
+      transform: scale(1.035) translateY(-2px);
+      border-color: rgba(16,185,129,0.75);
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.09), rgba(255,255,255,0) 55%),
+        #101010;
+      box-shadow:
+        inset 1px 1px 0 rgba(255,255,255,0.16),
+        inset 0 0 0 1px rgba(16,185,129,0.2),
+        12px 20px 45px rgba(0,0,0,0.55),
+        0 0 48px rgba(16,185,129,0.32),
+        0 0 96px rgba(16,185,129,0.14);
+    }
+    .glass-card-btn:hover::before { opacity: 1; }
+    .glass-card-btn:active {
+      transform: scale(0.97) rotateZ(1.2deg);
+      transition:
+        transform  140ms cubic-bezier(0.22, 1, 0.36, 1),
+        box-shadow 140ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* Glass segmented control — animated glider indicator
+       (adapted from Uiverse.io by chase2k25, retuned to emerald accent + OLED black)
+       Usage: container sets --segments and --active-index; glider auto-positions.
+       <div class="glass-segment" style="--segments:4; --active-index:0;">
+         <a>...</a><a>...</a><a>...</a><a>...</a>
+         <span class="glass-segment__glider" aria-hidden="true"></span>
+       </div>
+    */
+    .glass-segment {
+      --seg-bg: rgba(20, 20, 20, 0.55);
+      display: inline-flex;
+      position: relative;
+      background: var(--seg-bg);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: .9rem;
+      padding: 4px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      box-shadow:
+        inset 1px 1px 4px rgba(255, 255, 255, 0.04),
+        inset -1px -1px 6px rgba(0, 0, 0, 0.4),
+        0 4px 12px rgba(0, 0, 0, 0.25);
+      overflow: hidden;
+    }
+    .glass-segment > a,
+    .glass-segment > button {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: .4rem;
+      min-width: 70px;
+      font-size: 12px;
+      padding: .5rem .95rem;
+      cursor: pointer;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: #8e8e93;
+      position: relative;
+      z-index: 2;
+      border-radius: .65rem;
+      background: transparent;
+      border: none;
+      white-space: nowrap;
+      transition: color 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .glass-segment > a:hover,
+    .glass-segment > button:hover { color: #f5f5f7; }
+    .glass-segment > a[aria-selected="true"],
+    .glass-segment > a.is-active,
+    .glass-segment > button.is-active,
+    .glass-segment > button[aria-selected="true"] {
+      color: #ffffff;
+    }
+    .glass-segment__glider {
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      left: 4px;
+      width: calc((100% - 8px) / var(--segments, 2));
+      border-radius: .65rem;
+      z-index: 1;
+      background: linear-gradient(135deg, rgba(16,185,129,0.35), rgba(16,185,129,0.75));
+      box-shadow:
+        0 0 18px rgba(16,185,129,0.42),
+        inset 0 0 10px rgba(255,255,255,0.18);
+      transform: translateX(calc(var(--active-index, 0) * 100%));
+      transition:
+        transform 480ms cubic-bezier(0.37, 1.6, 0.5, 1),
+        background 400ms ease-in-out,
+        box-shadow 400ms ease-in-out;
+      pointer-events: none;
+    }
+
+    /* Buttons — primary (flat) */
+    .btn-primary {
+      background: #10b981;
+      color: #0a0a0b;
+      font-weight: 600;
+      border-radius: .5rem;
+      padding: .5rem 1rem;
+      font-size: .875rem;
+      transition: all 150ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .btn-primary:hover { background: #0ea674; transform: translateY(-1px); }
+
+    /* Buttons — 3D fancy (from Uiverse.io by Spacious74, renamed) */
+    .btn-3d {
+      cursor: pointer;
+      font-size: .875rem;
+      border-radius: 16px;
+      border: none;
+      padding: 2px;
+      background: radial-gradient(circle 80px at 80% -10%, #ffffff, #181b1b);
+      position: relative;
+      display: inline-block;
+      transition: transform 150ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .btn-3d:hover { transform: translateY(-1px); }
+    .btn-3d::after {
+      content: "";
+      position: absolute;
+      width: 65%;
+      height: 60%;
+      border-radius: 120px;
+      top: 0;
+      right: 0;
+      box-shadow: 0 0 20px #ffffff38;
+      z-index: -1;
+    }
+    .btn-3d__blob {
+      position: absolute;
+      width: 70px;
+      height: 100%;
+      border-radius: 16px;
+      bottom: 0;
+      left: 0;
+      background: radial-gradient(circle 60px at 0% 100%, #3fe9ff, #0000ff80, transparent);
+      box-shadow: -10px 10px 30px #0051ff2d;
+    }
+    .btn-3d__inner {
+      display: inline-block;
+      padding: 10px 20px;
+      border-radius: 14px;
+      color: #fff;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      z-index: 3;
+      position: relative;
+      background: radial-gradient(circle 80px at 80% -50%, #777777, #0f1111);
+    }
+    .btn-3d__inner::before {
+      content: "";
+      width: 100%;
+      height: 100%;
+      left: 0;
+      top: 0;
+      border-radius: 14px;
+      background: radial-gradient(circle 60px at 0% 100%, #00e1ff1a, #0000ff11, transparent);
+      position: absolute;
+    }
+
+    /* Variant: 3d with accent (green) blob instead of blue */
+    .btn-3d--accent .btn-3d__blob {
+      background: radial-gradient(circle 60px at 0% 100%, #10b981, #05694680, transparent);
+      box-shadow: -10px 10px 30px #10b9812d;
+    }
+    .btn-3d--accent .btn-3d__inner::before {
+      background: radial-gradient(circle 60px at 0% 100%, #10b9811a, #10b98111, transparent);
+    }
+
+    /* Inputs — consistent focus ring */
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: #10b981;
+      box-shadow: 0 0 0 3px rgba(16,185,129,0.15);
+    }
+
+    /* Scrollbar (webkit) — minimal on pure black */
+    *::-webkit-scrollbar { width: 10px; height: 10px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: #26262a; border-radius: 8px; border: 2px solid #000; }
+    *::-webkit-scrollbar-thumb:hover { background: #3a3a3f; }
+
+    /* Selection */
+    ::selection { background: rgba(16,185,129,0.25); color: #ededef; }
+
+    [x-cloak] { display: none !important; }
+    .htmx-indicator { display: none }
+    .htmx-request .htmx-indicator { display: inline }
+    .htmx-request .htmx-indicator-off { display: none }
+  </style>
+</head>
+<body>
+  {% if user %}
+  <nav class="sticky top-0 z-40 border-b border-border bg-black/80 backdrop-blur-2xl">
+    <div class="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
+      <div class="flex min-w-0 items-center gap-5 md:gap-8">
+        <a href="/" class="flex flex-shrink-0 items-center gap-2 text-[15px] font-semibold tracking-tight">
+          <img src="/static/img/lips.png" alt="" aria-hidden="true"
+               class="h-9 w-9 object-contain drop-shadow-[0_1px_5px_rgba(244,63,94,0.55)]">
+          <span>Maxxag <span class="text-muted font-normal hidden sm:inline">Ops</span></span>
+        </a>
+        {# Desktop nav #}
+        <div class="hidden items-center gap-0.5 md:flex">
+          <a href="/"         class="rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">Dashboard</a>
+          <a href="/casas"    class="rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">Casas</a>
+          <a href="/sessions" class="rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">WhatsApp</a>
+          <a href="/alerts"   class="rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">Alertas</a>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="hidden text-xs text-muted mono lg:inline">{{ user.email }}</span>
+        <a href="/logout" class="hidden rounded-md border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-muted hover:text-text hover:border-border-strong md:inline transition-colors">Salir</a>
+        {# Mobile hamburger #}
+        <button type="button"
+                onclick="document.getElementById('mobile-nav').classList.toggle('hidden')"
+                class="flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted hover:text-text md:hidden"
+                aria-label="Menú">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="3" y1="6"  x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    {# Mobile dropdown nav #}
+    <div id="mobile-nav" class="hidden border-t border-border bg-surface md:hidden">
+      <div class="flex flex-col p-2 gap-0.5">
+        <a href="/"         class="rounded-md px-4 py-2.5 text-sm font-medium text-muted hover:bg-surface-2 hover:text-text">Dashboard</a>
+        <a href="/casas"    class="rounded-md px-4 py-2.5 text-sm font-medium text-muted hover:bg-surface-2 hover:text-text">Casas</a>
+        <a href="/sessions" class="rounded-md px-4 py-2.5 text-sm font-medium text-muted hover:bg-surface-2 hover:text-text">WhatsApp</a>
+        <a href="/alerts"   class="rounded-md px-4 py-2.5 text-sm font-medium text-muted hover:bg-surface-2 hover:text-text">Alertas</a>
+        <div class="mt-1 border-t border-border pt-2 px-4 text-[10px] text-muted mono">{{ user.email }}</div>
+        <a href="/logout"   class="rounded-md px-4 py-2.5 text-sm font-medium text-red hover:bg-red/10">Cerrar sesión</a>
+      </div>
+    </div>
+  </nav>
+  {% endif %}
+
+  <main class="mx-auto max-w-[1600px] px-3 py-5 sm:px-6 sm:py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Ajustes — Maxxag Ops{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Ajustes</h1>
+  <p class="text-sm text-muted">Configuración del sistema y enlaces útiles</p>
+</div>
+
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+  <section class="card p-5">
+    <h2 class="mb-3 text-sm font-semibold">Información del sistema</h2>
+    <dl class="space-y-2 text-xs">
+      <div class="flex justify-between">
+        <dt class="text-muted">Dominio</dt>
+        <dd class="mono">{{ domain }}</dd>
+      </div>
+      <div class="flex justify-between">
+        <dt class="text-muted">Admin email</dt>
+        <dd class="mono">{{ admin_email }}</dd>
+      </div>
+      <div class="flex justify-between">
+        <dt class="text-muted">Usuario actual</dt>
+        <dd class="mono">{{ user.email }}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="card p-5">
+    <h2 class="mb-3 text-sm font-semibold">Enlaces</h2>
+    <ul class="space-y-2 text-sm">
+      {% if admin_url %}
+      <li>
+        <a href="{{ admin_url }}" target="_blank" class="text-green hover:underline">
+          → Chatwoot (gestión inbox + QR pairing)
+        </a>
+      </li>
+      {% endif %}
+      <li>
+        <a href="/alerts" class="text-green hover:underline">→ Todas las alertas</a>
+      </li>
+      <li>
+        <a href="/logout" class="text-muted hover:underline">→ Cerrar sesión</a>
+      </li>
+    </ul>
+  </section>
+
+  <section class="card p-5 lg:col-span-2">
+    <h2 class="mb-3 text-sm font-semibold">Mantenimiento</h2>
+    <p class="mb-2 text-xs text-muted">Desde el VPS (SSH):</p>
+    <pre class="card bg-bg/50 p-3 text-xs mono overflow-x-auto">docker compose ps                    # estado servicios
+docker compose logs -f kpi-worker    # logs del analyzer
+docker compose restart kpi-worker    # reiniciar analyzer
+bash scripts/backup.sh               # backup manual</pre>
+    <p class="mt-2 text-xs text-muted">
+      Ver <code class="mono">docs/RUNBOOK.md</code> en el repo para troubleshooting completo.
+    </p>
+  </section>
+
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="/static/app.js" defer></script>{% endblock %}

@@ -1,0 +1,183 @@
+{# Tab: Métricas agregadas (respeta period selector) #}
+
+{% if metricas and (metricas.convs_count.value or 0) > 0 %}
+<div class="mb-3 flex justify-end">
+  <a href="/casas/{{ casa_id }}/export/metricas.csv?days={% if active_period == '24h' %}1{% elif active_period == '7d' %}7{% elif active_period == '90d' %}90{% elif active_period == 'all' %}3650{% else %}30{% endif %}"
+     class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted transition">
+    📥 Exportar CSV
+  </a>
+</div>
+
+<div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+  {# KPI cards con deltas #}
+  <div class="card p-5">
+    <div class="text-xs uppercase tracking-wider text-muted">Conversaciones</div>
+    <div class="mono mt-2 flex items-end gap-2">
+      <span class="text-3xl font-semibold">{{ metricas.convs_count.value | int }}</span>
+      {% if metricas.convs_count.delta_pct is not none %}
+        <span class="pb-1 text-xs {% if metricas.convs_count.delta_pct >= 0 %}text-green{% else %}text-red{% endif %}">
+          {{ '▲' if metricas.convs_count.delta_pct >= 0 else '▼' }} {{ metricas.convs_count.delta_pct | abs }}%
+        </span>
+      {% endif %}
+    </div>
+    <div class="mt-1 text-xs text-muted">vs período previo</div>
+  </div>
+
+  <div class="card p-5">
+    <div class="text-xs uppercase tracking-wider text-muted">Tiempo respuesta medio</div>
+    <div class="mono mt-2 text-3xl font-semibold
+      {% if (metricas.avg_response_time_seconds.value / 60) > 10 %}text-amber{% else %}text-green{% endif %}">
+      {{ (metricas.avg_response_time_seconds.value / 60) | round(1) }}<span class="text-sm text-muted"> min</span>
+    </div>
+    {% if metricas.avg_response_time_seconds.delta_pct is not none %}
+    <div class="mt-1 text-xs {% if metricas.avg_response_time_seconds.delta_pct <= 0 %}text-green{% else %}text-red{% endif %}">
+      {{ '▼' if metricas.avg_response_time_seconds.delta_pct <= 0 else '▲' }} {{ metricas.avg_response_time_seconds.delta_pct | abs }}% vs prev
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card p-5">
+    <div class="text-xs uppercase tracking-wider text-muted">Conversión media IA</div>
+    <div class="mono mt-2 text-3xl font-semibold text-green">
+      {{ metricas.avg_conv_probability.value | round(1) }}<span class="text-sm text-muted">%</span>
+    </div>
+    {% if metricas.avg_conv_probability.delta_pct is not none %}
+    <div class="mt-1 text-xs {% if metricas.avg_conv_probability.delta_pct >= 0 %}text-green{% else %}text-red{% endif %}">
+      {{ '▲' if metricas.avg_conv_probability.delta_pct >= 0 else '▼' }} {{ metricas.avg_conv_probability.delta_pct | abs }}% vs prev
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# Line chart tendencia #}
+{% if trend %}
+<div class="card mt-4 p-5">
+  <h3 class="mb-3 text-sm font-semibold">Tendencia diaria</h3>
+  <div class="relative h-48 sm:h-56">
+    <canvas id="trend-chart"></canvas>
+  </div>
+</div>
+<script>
+  (function () {
+    const ctx = document.getElementById('trend-chart');
+    if (!ctx) return;
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: {{ trend | map(attribute='day') | map('string') | list | tojson }},
+        datasets: [
+          {
+            label: 'Conversaciones',
+            data: {{ trend | map(attribute='count') | list | tojson }},
+            borderColor: '#00d97e', backgroundColor: 'rgba(0,217,126,0.15)',
+            tension: 0.3, fill: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#8b949e' } } },
+        scales: {
+          x: { ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+          y: { ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+        },
+      },
+    });
+  })();
+</script>
+{% endif %}
+
+{# Mood donut + trato bars #}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-4">
+  <div class="card p-5">
+    <h3 class="mb-3 text-sm font-semibold">Distribución de mood</h3>
+    {% if metricas.mood_distribution %}
+      <div class="relative h-64">
+        <canvas id="mood-donut"></canvas>
+      </div>
+      <script>
+        new Chart(document.getElementById('mood-donut'), {
+          type: 'doughnut',
+          data: {
+            labels: {{ metricas.mood_distribution.keys() | list | tojson }},
+            datasets: [{
+              data: {{ metricas.mood_distribution.values() | list | tojson }},
+              backgroundColor: ['#3b82f6','#00d97e','#f59e0b','#ef4444','#8b5cf6','#8b949e'],
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: '#e6edf3' } } },
+          },
+        });
+      </script>
+    {% else %}
+      <div class="py-8 text-center text-xs text-muted">Sin datos</div>
+    {% endif %}
+  </div>
+
+  <div class="card p-5">
+    <h3 class="mb-3 text-sm font-semibold">Trato mamai (0-10)</h3>
+    <div class="space-y-3">
+      {% for label, color in [('carinoso','bg-green'), ('profesional','bg-blue'), ('vendedor','bg-amber'), ('seco','bg-red')] %}
+      <div>
+        <div class="flex justify-between text-xs">
+          <span class="text-muted">{{ label }}</span>
+          <span class="mono">{{ metricas.avg_treat[label] }}/10</span>
+        </div>
+        <div class="mt-1 h-2 rounded-full bg-border/50 overflow-hidden">
+          <div class="h-full {{ color }}" style="width: {{ metricas.avg_treat[label] * 10 }}%"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{# Top / Bottom conversions #}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-4">
+  <div class="card p-5">
+    <h3 class="mb-3 text-sm font-semibold text-green">🏆 Top 5 conversiones</h3>
+    <div class="divide-y divide-border">
+    {% for c in top_convs %}
+      <a href="/conversation/{{ c.id }}" class="flex items-center justify-between py-2 hover:text-green transition">
+        <div class="min-w-0">
+          <div class="text-sm">Conv #{{ c.id }}</div>
+          <div class="text-[10px] text-muted mono">{{ c.mood_label }}</div>
+        </div>
+        <div class="mono text-sm text-green">{{ (c.conv_probability * 100) | int }}%</div>
+      </a>
+    {% endfor %}
+    {% if not top_convs %}<div class="py-3 text-center text-xs text-muted">Sin datos</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="card p-5">
+    <h3 class="mb-3 text-sm font-semibold text-red">👎 Bottom 5 conversiones</h3>
+    <div class="divide-y divide-border">
+    {% for c in bottom_convs %}
+      <a href="/conversation/{{ c.id }}" class="flex items-center justify-between py-2 hover:text-red transition">
+        <div class="min-w-0">
+          <div class="text-sm">Conv #{{ c.id }}</div>
+          <div class="text-[10px] text-muted mono">{{ c.mood_label }}</div>
+        </div>
+        <div class="mono text-sm text-red">{{ (c.conv_probability * 100) | int }}%</div>
+      </a>
+    {% endfor %}
+    {% if not bottom_convs %}<div class="py-3 text-center text-xs text-muted">Sin datos</div>{% endif %}
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="card py-16 text-center">
+  <div class="text-5xl mb-3">📊</div>
+  <h2 class="text-lg font-semibold mb-2">Sin métricas aún</h2>
+  <p class="text-sm text-muted max-w-md mx-auto">
+    Las métricas aparecerán cuando haya al menos 10 conversaciones analizadas en este período.<br>
+    Ve al tab <strong>Conversaciones</strong> → "Analizar todas" para procesar el backlog.
+  </p>
+</div>
+{% endif %}

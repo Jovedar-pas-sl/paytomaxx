@@ -1,0 +1,37 @@
+{# HTMX partial: list of recent conversations with mood badge. #}
+<ul class="divide-y divide-border">
+  {% if not items %}
+    <li class="py-6 text-center text-xs text-muted">Sin conversaciones recientes</li>
+  {% endif %}
+  {% for c in items %}
+  <li class="flex items-center gap-3 py-2.5">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2">
+        <a href="/conversation/{{ c.id }}"
+           class="truncate text-sm font-medium hover:text-green">
+          {{ c.contact_name or 'Sin nombre' }}
+        </a>
+        {% if c.mood_label %}
+          {% set color = {
+            'curioso': 'text-blue border-blue/40 bg-blue/10',
+            'decidido': 'text-green border-green/40 bg-green/10',
+            'calenton': 'text-green border-green/40 bg-green/10',
+            'indeciso': 'text-amber border-amber/40 bg-amber/10',
+            'enfadado': 'text-red border-red/40 bg-red/10',
+            'timewaster': 'text-muted border-border bg-border/20'
+          } %}
+          <span class="rounded-md border px-1.5 py-0.5 text-[10px] font-medium uppercase
+            {{ color.get(c.mood_label, 'text-muted border-border bg-border/20') }}">
+            {{ c.mood_label }}
+          </span>
+        {% endif %}
+      </div>
+      <div class="text-xs text-muted">
+        {{ c.account_name }}
+        <span class="mx-1">·</span>
+        <span data-time="{{ c.last_message_at.isoformat() }}">{{ c.last_message_at.strftime('%H:%M') }}</span>
+      </div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Login — Maxxag Ops{% endblock %}
+
+{% block content %}
+<div class="flex min-h-[calc(100vh-4rem)] items-center justify-center">
+  <form method="post" action="/login" class="card w-full max-w-sm space-y-5 p-8">
+    <div class="text-center">
+      <div class="text-2xl font-bold tracking-tight">
+        Maxx<span class="text-green">ag</span> <span class="text-muted font-normal">Ops</span>
+      </div>
+      <p class="mt-1 text-xs text-muted">Panel solo-admin</p>
+    </div>
+
+    {% if error %}
+    <div class="rounded-lg border border-red/40 bg-red/10 px-3 py-2 text-sm text-red">
+      {{ error }}
+    </div>
+    {% endif %}
+
+    <label class="block space-y-1.5">
+      <span class="text-xs font-medium text-muted">Email</span>
+      <input type="email" name="email" required autocomplete="username"
+             class="block w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-green"
+             placeholder="sales@nouesmalt.com">
+    </label>
+
+    <label class="block space-y-1.5">
+      <span class="text-xs font-medium text-muted">Contraseña</span>
+      <input type="password" name="password" required autocomplete="current-password"
+             class="block w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-green">
+    </label>
+
+    <button type="submit"
+            class="block w-full rounded-lg bg-green px-3 py-2 text-sm font-semibold text-bg hover:bg-green/90">
+      Entrar
+    </button>
+  </form>
+</div>
+{% endblock %}

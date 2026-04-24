@@ -1,0 +1,60 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+# Artefactos .js/.d.ts en src/ (solo permitidos en dist/)
+apps/**/src/**/*.js
+apps/**/src/**/*.js.map
+apps/**/src/**/*.d.ts
+apps/**/src/**/*.d.ts.map
+packages/**/src/**/*.js
+packages/**/src/**/*.js.map
+packages/**/src/**/*.d.ts
+packages/**/src/**/*.d.ts.map
+!packages/db/src/generated/
+
+# turbo
+.turbo/
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# coverage
+coverage/
+.nyc_output/
+
+# test artifacts
+playwright-report/
+test-results/
+
+# editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# prisma
+packages/db/prisma/migrations/dev.db*
+packages/db/src/generated/
+
+# runtime
+pids/
+*.pid
+
+# os
+Thumbs.db

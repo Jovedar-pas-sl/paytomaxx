@@ -1,0 +1,14 @@
+{
+  "name": "first_tries",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "live-server --port=3000 --open=sistema_atm.html",
+    "atm": "live-server --port=3000 --open=sistema_atm.html"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}

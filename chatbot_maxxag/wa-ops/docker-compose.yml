@@ -1,0 +1,135 @@
+name: maxxag-wa-ops
+
+x-kpi-env: &kpi-env
+  DATABASE_URL: postgresql://kpi:${KPI_DB_PASSWORD}@postgres:5432/kpi
+  REDIS_URL: redis://redis:6379/2
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+  JWT_SECRET: ${JWT_SECRET}
+  KPI_ADMIN_EMAIL: ${KPI_ADMIN_EMAIL}
+  KPI_ADMIN_PASSWORD_HASH: ${KPI_ADMIN_PASSWORD_HASH}
+  WAHA_API_URL: http://waha:3000
+  WAHA_API_KEY: ${WAHA_API_KEY}
+  WAHA_WEBHOOK_HMAC: ${WAHA_WEBHOOK_HMAC:-}
+  DOMAIN: ${DOMAIN}
+  LOGIN_RATE_MAX_FAILS: ${LOGIN_RATE_MAX_FAILS:-10}
+  LOGIN_RATE_WINDOW_SECONDS: ${LOGIN_RATE_WINDOW_SECONDS:-300}
+
+services:
+  # ── Reverse proxy + HTTPS auto ──────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+      CADDY_EMAIL: ${CADDY_EMAIL}
+    depends_on:
+      - kpi-app
+    networks: [internal]
+
+  # ── Postgres 16 (single DB for KPI — Chatwoot removed) ─────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      KPI_DB_PASSWORD: ${KPI_DB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  # ── Redis 7 (arq queues + WAHA cache) ───────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+    networks: [internal]
+
+  # ── WAHA Plus (WhatsApp HTTP API bridge, multi-session) ─────────
+  # waha-plus:latest requires Patreon Docker Hub login before first pull:
+  #   docker login -u devlikeapro -p <dckr_pat_key>
+  #   docker pull devlikeapro/waha-plus:latest
+  #   docker logout
+  waha:
+    image: devlikeapro/waha-plus:latest
+    restart: unless-stopped
+    depends_on:
+      redis: { condition: service_healthy }
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: NOWEB
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      WHATSAPP_SWAGGER_USERNAME: ${WAHA_DASHBOARD_USERNAME}
+      WHATSAPP_SWAGGER_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      WAHA_PRINT_QR: "false"
+      WHATSAPP_HOOK_URL: http://kpi-app:5000/webhook/waha
+      # message.any = includes outgoing (fromMe); message alone = incoming only
+      WHATSAPP_HOOK_EVENTS: "session.status,message,message.any,message.ack"
+      # HMAC signing — WAHA computes sha512(body, secret) in X-Webhook-Hmac header
+      WHATSAPP_HOOK_HMAC_VALUE: ${WAHA_WEBHOOK_HMAC:-}
+      WHATSAPP_HOOK_HMAC_ALGORITHM: sha512
+    volumes:
+      - waha_data:/app/.sessions
+    networks: [internal]
+
+  # ── KPI dashboard (FastAPI + HTMX + Claude analyzer + inbox) ────
+  kpi-app:
+    build:
+      context: ./kpi-app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    environment:
+      <<: *kpi-env
+      ROLE: web
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/health | grep -q '\"ok\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [internal]
+
+  kpi-worker:
+    build:
+      context: ./kpi-app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      kpi-app:
+        condition: service_started
+    environment:
+      <<: *kpi-env
+      ROLE: worker
+    networks: [internal]
+
+volumes:
+  caddy_data:   {}
+  caddy_config: {}
+  pg_data:      {}
+  redis_data:   {}
+  waha_data:    {}
+
+networks:
+  internal:
+    driver: bridge

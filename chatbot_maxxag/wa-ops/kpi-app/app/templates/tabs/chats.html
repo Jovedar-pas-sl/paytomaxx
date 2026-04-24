@@ -1,0 +1,236 @@
+{# Tab: Conversaciones de esta casa (inbox WhatsApp-style) #}
+
+{% set mood_colors = {
+  'curioso': 'text-blue border-blue/40 bg-blue/10',
+  'decidido': 'text-green border-green/40 bg-green/10',
+  'calenton': 'text-green border-green/40 bg-green/10',
+  'indeciso': 'text-amber border-amber/40 bg-amber/10',
+  'enfadado': 'text-red border-red/40 bg-red/10',
+  'timewaster': 'text-muted border-border bg-border/20',
+} %}
+
+{% set avatar_gradients = [
+  'from-pink-500 to-purple-500',
+  'from-blue-500 to-cyan-400',
+  'from-green-500 to-teal-400',
+  'from-amber-500 to-orange-500',
+  'from-red-500 to-pink-500',
+  'from-indigo-500 to-purple-500',
+] %}
+
+{# Format a raw phone string (e.g. "34603201414") into "+34 603 201 414" #}
+{% macro format_phone(p) -%}
+  {%- if not p -%}—
+  {%- elif p | length >= 11 -%}+{{ p[:2] }} {{ p[2:5] }} {{ p[5:8] }} {{ p[8:] }}
+  {%- else -%}+{{ p }}
+  {%- endif -%}
+{%- endmacro %}
+
+{# WhatsApp sub-tabs: filter by specific wa_number or "all" #}
+{% if wa_numbers and wa_numbers | length > 1 %}
+<div class="mb-3 flex items-center gap-1 overflow-x-auto border-b border-border pb-2">
+  <a href="/casas/{{ casa_id }}?tab=chats&wa=all"
+     class="rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition
+            {% if active_wa == 'all' %}bg-green/20 text-green{% else %}text-muted hover:text-text hover:bg-border/30{% endif %}">
+    Todos
+  </a>
+  {% for wn in wa_numbers %}
+  <a href="/casas/{{ casa_id }}?tab=chats&wa={{ wn.id }}"
+     class="rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition
+            {% if active_wa == wn.id | string %}bg-green/20 text-green{% else %}text-muted hover:text-text hover:bg-border/30{% endif %}">
+    📱 {{ wn.label }}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# Top actions #}
+<div class="mb-3 flex justify-end gap-2">
+  <button type="button"
+          hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa }}"
+          hx-target="#chat-list"
+          hx-swap="outerHTML"
+          hx-indicator="#chat-list-spinner"
+          class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-green hover:border-green transition flex items-center gap-1.5">
+    <svg id="chat-list-spinner" class="h-3.5 w-3.5 htmx-indicator animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+    </svg>
+    <svg class="h-3.5 w-3.5 htmx-indicator-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+    </svg>
+    Actualizar
+  </button>
+  <a href="/casas/{{ casa_id }}/export/conversations.csv"
+     class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted transition">
+    📥 Exportar CSV
+  </a>
+</div>
+<style>.htmx-indicator{display:none}.htmx-request .htmx-indicator{display:inline}.htmx-request .htmx-indicator-off{display:none}</style>
+
+{# Banner unanalyzed (conditional) #}
+{% if unanalyzed_count > 0 %}
+<div class="card mb-4 flex items-center gap-3 border border-amber/40 bg-amber/5 p-4">
+  <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber/20 text-amber text-xl">
+    🔔
+  </div>
+  <div class="flex-1">
+    <div class="font-semibold text-text">
+      {{ unanalyzed_count }} conversaciones sin analizar
+    </div>
+    <div class="text-xs text-muted">
+      Coste estimado: ~${{ "%.2f"|format(unanalyzed_count * 0.003) }}
+    </div>
+  </div>
+  <button type="button"
+          onclick="window.__confirmBulkAnalyze({{ casa_id }}, {{ unanalyzed_count }})"
+          class="rounded-lg bg-amber px-4 py-2 text-sm font-semibold text-bg hover:bg-amber/90">
+    Analizar todas
+  </button>
+</div>
+{% endif %}
+
+{# List — auto-refresh every 4s via HTMX; manual button above triggers immediate update #}
+<section id="chat-list" class="card divide-y divide-border overflow-hidden"
+         hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa }}"
+         hx-trigger="every 30s[document.visibilityState==='visible']"
+         hx-swap="outerHTML">
+  {% for r in chat_rows %}
+    {% set display_phone = format_phone(r.contact_phone) if r.contact_phone else '' %}
+    {% set name = r.contact_name or (display_phone if display_phone else 'Contacto privado') %}
+    {% set initial = (name[:1] | upper) if name[:1].isalpha() else '?' %}
+    {% set grad = avatar_gradients[(name | length) % (avatar_gradients | length)] %}
+
+    <a href="/conversation/{{ r.id }}" class="flex items-start gap-3 px-4 py-3 hover:bg-border/10 transition">
+      <div class="relative flex-shrink-0">
+        <div class="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br {{ grad }} text-lg font-semibold text-white">
+          {{ initial }}
+        </div>
+        {% if r.status == 'open' %}
+          <span class="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-panel bg-green"></span>
+        {% endif %}
+        {% if r.unread_count > 0 %}
+          <span class="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-panel bg-green px-1 text-[10px] font-bold text-bg">
+            {{ r.unread_count }}
+          </span>
+        {% endif %}
+      </div>
+
+      <div class="min-w-0 flex-1">
+        <div class="flex items-baseline justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <span class="truncate font-semibold text-text">{{ name }}</span>
+            {% if r.wa_label and active_wa == 'all' %}
+              <span class="ml-2 rounded-full bg-blue/15 px-1.5 py-0.5 text-[9px] font-medium uppercase text-blue">{{ r.wa_label }}</span>
+            {% endif %}
+            {% if r.contact_name %}
+              <span class="ml-2 text-[10px] text-muted mono">{{ display_phone }}</span>
+            {% endif %}
+          </div>
+          <span class="flex-shrink-0 text-[11px] text-muted mono"
+                data-time="{{ r.last_message_at.isoformat() }}">
+            {{ r.last_message_at.strftime('%d/%m %H:%M') }}
+          </span>
+        </div>
+
+        <div class="mt-0.5 flex items-center justify-between gap-2">
+          <p class="min-w-0 flex-1 truncate text-sm text-muted">
+            {{ r.last_message_preview or '—' }}
+          </p>
+          <div class="flex flex-shrink-0 items-center gap-1.5">
+            {% if r.mood_label %}
+            <span class="rounded-md border px-1.5 py-0.5 text-[10px] font-medium uppercase
+              {{ mood_colors.get(r.mood_label, 'text-muted border-border bg-border/20') }}">
+              {{ r.mood_label }}
+            </span>
+            {% endif %}
+            {% if r.conv_probability is not none %}
+              {% set pct = (r.conv_probability * 100) | int %}
+              <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold mono
+                {% if pct > 60 %}bg-green/20 text-green{% elif pct > 30 %}bg-amber/20 text-amber{% else %}bg-border/30 text-muted{% endif %}">
+                {{ pct }}%
+              </span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </a>
+  {% endfor %}
+  {% if not chat_rows %}
+  <div class="py-16 text-center">
+    <div class="text-4xl mb-3">💬</div>
+    <div class="text-sm font-semibold">Aún no hay conversaciones</div>
+    <div class="mt-1 text-xs text-muted">
+      Vincula un WhatsApp desde <a href="/sessions" class="text-green underline">Sesiones</a> y los mensajes entrantes aparecerán aquí.
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+{# Confirmation modal for bulk analyze — triggered via window.__confirmBulkAnalyze #}
+<div id="bulk-analyze-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
+  <div class="card max-w-md p-6">
+    <h3 class="text-lg font-bold">Analizar <span id="bulk-count">0</span> conversaciones</h3>
+    <p class="mt-2 text-sm text-muted">
+      Claude analizará cada conversación cerrada que aún no tiene análisis.<br>
+      Coste estimado: <strong class="text-text">$<span id="bulk-cost">0.00</span></strong>
+      · Tiempo: ~<span id="bulk-time">1</span> min
+    </p>
+    <div class="mt-5 flex justify-end gap-2">
+      <button type="button" onclick="window.__closeBulkAnalyze()"
+              class="rounded-lg border border-border px-4 py-2 text-sm text-muted hover:text-text">
+        Cancelar
+      </button>
+      <button type="button" id="bulk-analyze-confirm"
+              class="rounded-lg bg-green px-4 py-2 text-sm font-semibold text-bg hover:bg-green/90">
+        ▶ Ejecutar
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const modal = document.getElementById('bulk-analyze-modal');
+  const countEl = document.getElementById('bulk-count');
+  const costEl = document.getElementById('bulk-cost');
+  const timeEl = document.getElementById('bulk-time');
+  const confirmBtn = document.getElementById('bulk-analyze-confirm');
+  let currentCasaId = null;
+
+  window.__confirmBulkAnalyze = function (casaId, count) {
+    currentCasaId = casaId;
+    countEl.textContent = count;
+    costEl.textContent = (count * 0.003).toFixed(2);
+    timeEl.textContent = Math.max(1, Math.round(count / 30));
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  };
+  window.__closeBulkAnalyze = function () {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  };
+  confirmBtn.addEventListener('click', async () => {
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Encolando…';
+    try {
+      const r = await fetch(`/casas/${currentCasaId}/analyze-pending`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed: true }),
+      });
+      if (r.ok) {
+        location.reload();
+      } else {
+        const err = await r.text();
+        alert('Error: ' + err);
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '▶ Ejecutar';
+      }
+    } catch (e) {
+      alert('Error de red: ' + e.message);
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = '▶ Ejecutar';
+    }
+  });
+})();
+</script>

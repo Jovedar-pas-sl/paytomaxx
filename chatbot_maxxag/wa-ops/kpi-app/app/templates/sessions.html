@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}WhatsApp — Maxxag Ops{% endblock %}
+
+{% macro format_phone(p) -%}
+  {%- if not p -%}—
+  {%- elif p | length >= 11 -%}+{{ p[:2] }} {{ p[2:5] }} {{ p[5:8] }} {{ p[8:] }}
+  {%- else -%}+{{ p }}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro status_badge(s) -%}
+  {% if s == 'WORKING' %}<span class="rounded-full bg-green/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-green">● WORKING</span>
+  {% elif s == 'SCAN_QR_CODE' %}<span class="rounded-full bg-blue/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue">◐ Escanea QR</span>
+  {% elif s == 'STARTING' %}<span class="rounded-full bg-amber/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber">◯ STARTING</span>
+  {% elif s == 'STOPPED' %}<span class="rounded-full bg-border/50 px-2 py-0.5 text-[10px] font-semibold uppercase text-muted">■ STOPPED</span>
+  {% elif s == 'FAILED' %}<span class="rounded-full bg-red/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-red">✖ FAILED</span>
+  {% else %}<span class="rounded-full bg-border/30 px-2 py-0.5 text-[10px] font-semibold uppercase text-muted">? {{ s }}</span>
+  {% endif %}
+{%- endmacro %}
+
+{% block content %}
+<div class="mb-8 flex items-start justify-between gap-3">
+  <div>
+    <div class="mb-1 text-[11px] uppercase tracking-wider text-muted-2 font-medium">Conexiones</div>
+    <h1 class="text-3xl font-semibold tracking-tighter">WhatsApp</h1>
+    <p class="mt-1 max-w-2xl text-sm text-muted">Gestiona las casas y sus números. Cada casa puede tener varios WhatsApps (oficial, recepción, reserva).</p>
+  </div>
+  <button type="button" onclick="document.getElementById('new-casa-modal').classList.remove('hidden')"
+          class="btn-3d btn-3d--accent whitespace-nowrap">
+    <span class="btn-3d__blob"></span>
+    <span class="btn-3d__inner">+ Nueva casa</span>
+  </button>
+</div>
+
+{% if not casas %}
+<div class="card p-12 text-center">
+  <div class="text-5xl mb-3">🏠</div>
+  <h2 class="text-lg font-semibold mb-2">Sin casas aún</h2>
+  <p class="text-sm text-muted mb-5">Crea la primera para empezar a conectar WhatsApps.</p>
+  <button type="button" onclick="document.getElementById('new-casa-modal').classList.remove('hidden')"
+          class="btn-3d btn-3d--accent">
+    <span class="btn-3d__blob"></span>
+    <span class="btn-3d__inner">+ Crear primera casa</span>
+  </button>
+</div>
+{% else %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+  {% for casa in casas %}
+  <div class="card p-5">
+    {# Casa header #}
+    <div class="mb-4 flex items-start justify-between gap-2">
+      <div class="min-w-0">
+        <a href="/casas/{{ casa.id }}" class="text-lg font-semibold hover:text-green">{{ casa.name }}</a>
+        <div class="text-xs text-muted">{{ casa.wa_numbers | length }} WhatsApp{{ 's' if casa.wa_numbers|length != 1 else '' }}</div>
+      </div>
+      <button type="button"
+              onclick="window.__openAddWa({{ casa.id }}, '{{ casa.name|replace("'", "\\'") }}')"
+              class="btn-3d btn-3d--accent whitespace-nowrap" style="font-size: .75rem;">
+        <span class="btn-3d__blob"></span>
+        <span class="btn-3d__inner" style="padding: 6px 12px;">+ WhatsApp</span>
+      </button>
+    </div>
+
+    {# WA numbers list #}
+    {% if casa.wa_numbers %}
+    <div class="divide-y divide-border">
+      {% for wn in casa.wa_numbers %}
+      <div class="py-3" data-session="{{ wn.session }}">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="font-medium">{{ wn.label }}</span>
+              {{ status_badge(wn.status) }}
+            </div>
+            <div class="mt-1 text-xs text-muted mono truncate">
+              {{ format_phone(wn.phone) }} · <span class="opacity-70">session: {{ wn.session }}</span>
+            </div>
+          </div>
+        </div>
+
+        {# Inline QR for this WA if scanning #}
+        {% if wn.status == 'SCAN_QR_CODE' %}
+        <div class="qr-container mt-3 flex items-center justify-center rounded bg-white/5 p-2"
+             data-session="{{ wn.session }}">
+          <span class="text-[11px] text-muted">Generando QR...</span>
+        </div>
+        <p class="mt-1 text-[10px] text-center text-muted">WhatsApp → Dispositivos vinculados → Vincular</p>
+        {% endif %}
+
+        {# Actions — grouped primary (session control) + secondary (manage) #}
+        <div class="mt-3 flex flex-wrap items-center gap-1.5">
+          {% if wn.status in ('STOPPED', 'FAILED', 'UNKNOWN') %}
+            <form method="post" action="/sessions/{{ wn.session }}/start" class="inline">
+              <button class="inline-flex items-center gap-1 rounded-md bg-accent/15 border border-accent/30 px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/25 transition-colors">
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                Iniciar
+              </button>
+            </form>
+          {% endif %}
+          {% if wn.status in ('WORKING', 'SCAN_QR_CODE', 'FAILED') %}
+            <form method="post" action="/sessions/{{ wn.session }}/restart" class="inline">
+              <button class="inline-flex items-center gap-1 rounded-md bg-blue/15 border border-blue/30 px-2.5 py-1 text-[11px] font-medium text-blue hover:bg-blue/25 transition-colors" title="Stop + start — arregla bloqueos sin perder QR">
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Reiniciar
+              </button>
+            </form>
+          {% endif %}
+          {% if wn.status in ('WORKING', 'SCAN_QR_CODE') %}
+            <form method="post" action="/sessions/{{ wn.session }}/stop" class="inline">
+              <button class="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted hover:text-text hover:border-border-strong transition-colors">
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+                Parar
+              </button>
+            </form>
+          {% endif %}
+          {% if wn.status == 'WORKING' %}
+            <form method="post" action="/sessions/{{ wn.session }}/logout" class="inline"
+                  onsubmit="return confirm('¿Desconectar? Habrá que escanear el QR de nuevo.')">
+              <button class="inline-flex items-center gap-1 rounded-md border border-amber/30 bg-amber/10 px-2.5 py-1 text-[11px] font-medium text-amber hover:bg-amber/20 transition-colors">
+                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                Desconectar
+              </button>
+            </form>
+          {% endif %}
+
+          {# Spacer — pushes secondary actions to the right on wide cards #}
+          <span class="flex-1"></span>
+
+          <button type="button"
+                  onclick="window.__openRenameWa({{ wn.id }}, '{{ wn.label|replace("'", "\\'") }}')"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted hover:text-text hover:border-border-strong transition-colors"
+                  title="Renombrar">
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </button>
+          <form method="post" action="/wa-numbers/{{ wn.id }}/delete" class="inline"
+                onsubmit="return confirm('¿Borrar WhatsApp &quot;{{ wn.label }}&quot;? Las conversaciones quedan archivadas pero no se borran.')">
+            <button class="inline-flex h-6 w-6 items-center justify-center rounded-md border border-red/30 text-red hover:bg-red/10 transition-colors" title="Borrar">
+              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            </button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="py-4 text-center text-sm text-muted">
+      Sin WhatsApps. Añade uno para conectar.
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── Modal: New casa ──────────────────────────────────────── #}
+<div id="new-casa-modal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+  <div class="card w-full max-w-md p-6">
+    <h3 class="text-lg font-semibold mb-4">Nueva casa</h3>
+    <form method="post" action="/casas" class="space-y-3">
+      <div>
+        <label class="mb-1 block text-xs text-muted">Nombre</label>
+        <input name="name" required autofocus placeholder="Maxxag VLC"
+               class="w-full rounded border border-border bg-bg px-3 py-2 text-sm focus:border-green focus:outline-none">
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="document.getElementById('new-casa-modal').classList.add('hidden')"
+                class="rounded border border-border px-4 py-2 text-sm text-muted hover:text-text">Cancelar</button>
+        <button type="submit" class="btn-3d btn-3d--accent">
+          <span class="btn-3d__blob"></span>
+          <span class="btn-3d__inner">Crear</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Modal: Add WA to casa ────────────────────────────────── #}
+<div id="add-wa-modal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+  <div class="card w-full max-w-md p-6">
+    <h3 class="text-lg font-semibold mb-1">Añadir WhatsApp</h3>
+    <p class="mb-4 text-xs text-muted">a la casa <strong id="add-wa-casa-name" class="text-text"></strong></p>
+    <form id="add-wa-form" method="post" class="space-y-3">
+      <div>
+        <label class="mb-1 block text-xs text-muted">Etiqueta (libre)</label>
+        <input name="label" required autofocus placeholder="Oficial / Recepción / Secundario..."
+               class="w-full rounded border border-border bg-bg px-3 py-2 text-sm focus:border-green focus:outline-none">
+      </div>
+      <div>
+        <label class="mb-1 block text-xs text-muted">Session slug (opcional — se genera automático)</label>
+        <input name="session" pattern="[a-z0-9-]*" placeholder="vlc-oficial"
+               class="w-full rounded border border-border bg-bg px-3 py-2 text-sm mono focus:border-green focus:outline-none">
+        <p class="mt-1 text-[10px] text-muted">Solo minúsculas, números y guiones. Dejar vacío = auto desde etiqueta.</p>
+      </div>
+      <div class="rounded border border-amber/30 bg-amber/5 px-3 py-2 text-[11px] text-amber">
+        ⚠ WAHA Free solo permite 1 session llamada literalmente "default". Para más necesitas WAHA Plus.
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="document.getElementById('add-wa-modal').classList.add('hidden')"
+                class="rounded border border-border px-4 py-2 text-sm text-muted hover:text-text">Cancelar</button>
+        <button type="submit" class="btn-3d">
+          <span class="btn-3d__blob"></span>
+          <span class="btn-3d__inner">Crear + iniciar</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Modal: Rename WA ─────────────────────────────────────── #}
+<div id="rename-wa-modal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+  <div class="card w-full max-w-md p-6">
+    <h3 class="text-lg font-semibold mb-4">Renombrar WhatsApp</h3>
+    <form id="rename-wa-form" method="post" class="space-y-3">
+      <div>
+        <label class="mb-1 block text-xs text-muted">Nueva etiqueta</label>
+        <input id="rename-wa-label" name="label" required
+               class="w-full rounded border border-border bg-bg px-3 py-2 text-sm focus:border-green focus:outline-none">
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="document.getElementById('rename-wa-modal').classList.add('hidden')"
+                class="rounded border border-border px-4 py-2 text-sm text-muted hover:text-text">Cancelar</button>
+        <button type="submit" class="btn-3d btn-3d--accent">
+          <span class="btn-3d__blob"></span>
+          <span class="btn-3d__inner">Guardar</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  window.__openAddWa = function (casaId, casaName) {
+    const form = document.getElementById('add-wa-form');
+    form.action = `/casas/${casaId}/wa-numbers`;
+    document.getElementById('add-wa-casa-name').textContent = casaName;
+    form.reset();
+    document.getElementById('add-wa-modal').classList.remove('hidden');
+  };
+  window.__openRenameWa = function (waId, currentLabel) {
+    const form = document.getElementById('rename-wa-form');
+    form.action = `/wa-numbers/${waId}/rename`;
+    document.getElementById('rename-wa-label').value = currentLabel;
+    document.getElementById('rename-wa-modal').classList.remove('hidden');
+  };
+
+  // QR polling for sessions in SCAN_QR_CODE state
+  async function pollQR(sessionName, container) {
+    try {
+      const r = await fetch(`/sessions/${sessionName}/qr`);
+      const data = await r.json();
+      if (data.status === 'WORKING') {
+        container.innerHTML = '<span class="text-green text-xs font-semibold">✓ Conectado</span>';
+        setTimeout(() => window.location.reload(), 1500);
+        return;
+      }
+      if (data.qr) {
+        container.innerHTML = `<div class="flex items-center justify-center bg-white rounded p-2">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(data.qr)}&size=180x180&margin=0" alt="QR">
+        </div>`;
+      }
+    } catch (e) { /* retry */ }
+  }
+  document.querySelectorAll('.qr-container').forEach(el => {
+    const name = el.dataset.session;
+    pollQR(name, el);
+    setInterval(() => pollQR(name, el), 5000);
+  });
+</script>
+{% endblock %}

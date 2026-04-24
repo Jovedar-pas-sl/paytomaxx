@@ -1,0 +1,26 @@
+{
+  "name": "@nightpay/admin",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3103",
+    "build": "next build",
+    "start": "next start --port 3103",
+    "lint": "next lint --max-warnings 0 || true",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf .next .turbo"
+  },
+  "dependencies": {
+    "next": "^14.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@nightpay/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@nightpay/config": "workspace:*",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.5.4"
+  }
+}

@@ -1,0 +1,37 @@
+# ══════════════════════════════════════════════════════════════════
+# compose.demo.yml — local demo override
+#
+# Use with:
+#   docker compose --env-file .env -f docker-compose.yml -f compose.demo.yml up -d
+#
+# What this changes vs production:
+# - Removes Caddy (no HTTPS needed locally)
+# - Exposes chatwoot-rails on host :3010  (your other Chatwoot uses :3000)
+# - Exposes kpi-app on host :5010
+# - Forces FRONTEND_URL=http://localhost:3010 for Chatwoot
+# - Disables FORCE_SSL + secure cookies (HTTP-only locally)
+# ══════════════════════════════════════════════════════════════════
+name: maxxag-wa-ops-demo
+
+services:
+  # Caddy isn't needed locally — disable by not starting it via profiles
+  caddy:
+    profiles: ["disabled"]
+
+  chatwoot-rails:
+    ports:
+      - "3010:3000"
+    environment:
+      FRONTEND_URL: http://localhost:3010
+      FORCE_SSL: "false"
+      ENABLE_ACCOUNT_SIGNUP: "true"  # let you register the first user easily
+
+  kpi-app:
+    ports:
+      - "5010:5000"
+    environment:
+      COOKIE_SECURE: "false"   # HTTP locally — secure cookies would never be set
+
+  kpi-worker:
+    environment:
+      COOKIE_SECURE: "false"

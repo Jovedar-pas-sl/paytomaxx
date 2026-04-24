@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}{{ casa_name }} — Maxxag Ops{% endblock %}
+
+{% set tabs = [
+  ('chats',     'Conversaciones', 'Inbox en vivo por WhatsApp'),
+  ('metricas',  'Métricas',       'KPIs y tendencias'),
+  ('problemas', 'Problemas',      'Alertas activas'),
+  ('analisis',  'Análisis IA',    'Patrones · puntos fuertes · mejoras'),
+] %}
+
+{% block content %}
+{# ── Top bar: back + casa info + period selector ──────────────── #}
+<div class="card mb-4 p-4">
+  <div class="flex items-center gap-3 flex-wrap">
+    <a href="/casas" class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted">
+      ← Casas
+    </a>
+    <div class="min-w-0 flex-1">
+      <h1 class="truncate text-lg font-bold tracking-tight">{{ casa_name }}</h1>
+      <div class="flex gap-3 text-xs text-muted mono">
+        <span>
+          <span class="inline-block h-2 w-2 rounded-full {% if header.inboxes_online == header.inboxes_total and header.inboxes_total > 0 %}bg-green{% elif header.inboxes_online == 0 %}bg-red{% else %}bg-amber{% endif %}"></span>
+          {{ header.inboxes_online }}/{{ header.inboxes_total }} WA
+        </span>
+        <span>· {{ header.convs_today }} convs hoy</span>
+        {% if header.alerts_active > 0 %}
+        <span class="text-red">· {{ header.alerts_active }} alertas</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Period selector — glass segmented control #}
+    {% set active_period_idx = period_options.index(active_period) if active_period in period_options else 0 %}
+    <div class="glass-segment mono"
+         style="--segments: {{ period_options | length }}; --active-index: {{ active_period_idx }};">
+      {% for p in period_options %}
+      <a href="?tab={{ active_tab }}&period={{ p }}"
+         {% if p == active_period %}aria-selected="true"{% endif %}>
+        {{ p }}
+      </a>
+      {% endfor %}
+      <span class="glass-segment__glider" aria-hidden="true"></span>
+    </div>
+  </div>
+
+  {# Segmented tab bar — modern, no emojis, subtitle on hover / active #}
+  <div class="mt-5 -mb-px flex gap-0 border-t border-border pt-4 overflow-x-auto"
+       role="tablist">
+    {% for tab_id, tab_label, tab_sub in tabs %}
+    {% set is_active = (tab_id == active_tab) %}
+    <a href="?tab={{ tab_id }}&period={{ active_period }}"
+       role="tab"
+       aria-selected="{{ 'true' if is_active else 'false' }}"
+       class="group relative flex min-w-[140px] flex-col gap-0.5 whitespace-nowrap px-4 py-2.5
+              transition-colors border-b-2
+              {% if is_active %}border-accent text-text{% else %}border-transparent text-muted hover:text-text{% endif %}">
+      <span class="text-[13px] font-semibold tracking-tight leading-tight">{{ tab_label }}</span>
+      <span class="text-[10px] font-medium leading-tight
+                   {% if is_active %}text-accent{% else %}text-muted-2 group-hover:text-muted{% endif %}">
+        {{ tab_sub }}
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+{# ── Tab outlet ────────────────────────────────────────────────── #}
+<section>
+  {% if active_tab == 'chats' %}
+    {% include "tabs/chats.html" %}
+  {% elif active_tab == 'metricas' %}
+    {% include "tabs/metricas.html" %}
+  {% elif active_tab == 'problemas' %}
+    {% include "tabs/problemas.html" %}
+  {% elif active_tab == 'analisis' %}
+    {% include "tabs/analisis.html" %}
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}<script src="/static/app.js" defer></script>{% endblock %}
