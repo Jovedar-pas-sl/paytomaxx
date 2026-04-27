@@ -10,28 +10,14 @@ import { loadEnv } from './config/env';
 async function bootstrap() {
   const env = loadEnv();
 
-  // Custom JSON parser que preserva el rawBody — necesario para HMAC verification
-  // de webhooks (Wipay/Peanpe firman el body crudo, no el JSON re-serializado).
   const adapter = new FastifyAdapter({ logger: { level: env.LOG_LEVEL } });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fastify = adapter.getInstance() as any;
-  fastify.addContentTypeParser(
-    'application/json',
-    { parseAs: 'buffer' },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (req: any, body: Buffer, done: (err: Error | null, body?: unknown) => void) => {
-      // Guardar buffer original
-      req.rawBody = body;
-      try {
-        const parsed = body.length === 0 ? {} : JSON.parse(body.toString('utf8'));
-        done(null, parsed);
-      } catch (err) {
-        done(err as Error);
-      }
-    },
-  );
 
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter);
+  // `rawBody: true` hace que NestJS preserve el body crudo en `req.rawBody`
+  // sin chocar con el content-type parser que platform-fastify registra por defecto.
+  // Necesario para verificacion HMAC de webhooks (Wipay/Peanpe firman el body crudo).
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
+    rawBody: true,
+  });
 
   app.setGlobalPrefix('v1');
   app.enableCors({
