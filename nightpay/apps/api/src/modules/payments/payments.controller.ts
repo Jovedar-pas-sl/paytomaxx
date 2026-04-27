@@ -66,4 +66,18 @@ export class PaymentsController {
   async getPublic(@Param('token') token: string): Promise<PublicPaymentView> {
     return this.payments.getByToken(token);
   }
+
+  /**
+   * Cliente confirma "voy a pagar" desde la pantalla del QR.
+   * Mueve FSM a AUTHORIZING y dispara la pasarela.
+   * Publico — la seguridad viene del qrToken unico.
+   */
+  @Public()
+  @Post('public/:token/start-authorization')
+  @HttpCode(202)
+  async startAuthorization(
+    @Param('token') token: string,
+  ): Promise<{ status: string; providerTxId?: string }> {
+    return this.payments.startAuthorization(token);
+  }
 }

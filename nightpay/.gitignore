@@ -58,3 +58,6 @@ pids/
 
 # os
 Thumbs.db
+
+# backups locales
+backups/

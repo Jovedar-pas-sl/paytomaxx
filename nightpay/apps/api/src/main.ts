@@ -6,6 +6,7 @@ import {
 } from '@nestjs/platform-fastify';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
+import { RedisIoAdapter } from './modules/realtime/realtime.adapter';
 
 async function bootstrap() {
   const env = loadEnv();
@@ -24,6 +25,9 @@ async function bootstrap() {
     origin: true,
     credentials: true,
   });
+
+  // Socket.io con Redis pub/sub adapter (ADR-001) — desde dia 1, antes de escalar.
+  app.useWebSocketAdapter(new RedisIoAdapter(app));
 
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
   // eslint-disable-next-line no-console

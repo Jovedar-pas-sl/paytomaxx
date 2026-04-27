@@ -11,6 +11,7 @@ import { GatewaysModule } from './modules/gateways/gateways.module';
 import { HealthController } from './modules/health/health.controller';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { QueuesModule } from './modules/queues/queues.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
 import { VenuesModule } from './modules/venues/venues.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 
@@ -41,6 +42,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     PrismaModule,
     QueuesModule,
     GatewaysModule,
+    RealtimeModule,
     AuthModule,
     VenuesModule,
     PaymentsModule,

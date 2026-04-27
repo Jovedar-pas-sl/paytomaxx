@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -19,9 +20,12 @@ import {
 } from './payment.machine';
 import type { CreatePaymentDto, CreatedPaymentResponse, PublicPaymentView } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
-import { QR_EXPIRE_QUEUE } from '../queues/queue-tokens';
+import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
+import { GatewayRegistry } from '../gateways/gateway.registry';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 const QR_TTL_SECONDS = 5 * 60; // 5 min
+const ORPHAN_RECONCILE_DELAY_MS = 30 * 60 * 1000; // 30 min sin webhook → reconcile
 
 @Injectable()
 export class PaymentsService {
@@ -29,15 +33,24 @@ export class PaymentsService {
   private readonly prisma: PrismaService;
   private readonly cls: ClsService<{ ctx: RequestContext }>;
   private readonly qrExpireQueue: Queue;
+  private readonly orphanReconcileQueue: Queue;
+  private readonly gateways: GatewayRegistry;
+  private readonly realtime: RealtimeGateway;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(ClsService) cls: ClsService<{ ctx: RequestContext }>,
     @InjectQueue(QR_EXPIRE_QUEUE) qrExpireQueue: Queue,
+    @InjectQueue(ORPHAN_RECONCILE_QUEUE) orphanReconcileQueue: Queue,
+    @Inject(GatewayRegistry) gateways: GatewayRegistry,
+    @Inject(RealtimeGateway) realtime: RealtimeGateway,
   ) {
     this.prisma = prisma;
     this.cls = cls;
     this.qrExpireQueue = qrExpireQueue;
+    this.orphanReconcileQueue = orphanReconcileQueue;
+    this.gateways = gateways;
+    this.realtime = realtime;
   }
 
   /**
@@ -161,6 +174,9 @@ export class PaymentsService {
     // para evitar interaccion ambigua con el middleware de tenant: el lock pesimista
     // y el UPDATE deben ir sobre la MISMA fila. Cualquier filtro adicional del
     // middleware podria desincronizar la lectura del lock con la escritura.
+    let nextState: PaymentMachineState | undefined;
+    let amountCents = 0;
+
     await this.prisma.$transaction(
       async (tx) => {
         const rows = await tx.$queryRaw<
@@ -225,11 +241,113 @@ export class PaymentsService {
             ${traceId}
           )
         `;
+
+        nextState = result.nextState;
+        amountCents = p.amountCents;
       },
       { isolationLevel: 'ReadCommitted' },
     );
 
     this.logger.log(`Payment ${paymentId} transitioned via ${event.type}`);
+
+    // Emit WS DESPUES del commit — si el cliente reconecta y pide estado,
+    // ya esta persistido. Antes de commit habria riesgo de fantasma.
+    if (nextState) {
+      this.realtime.emitPaymentUpdate(paymentId, nextState, amountCents);
+      if (nextState === 'AUTHORIZED' || nextState === 'FAILED' || nextState === 'EXPIRED') {
+        this.realtime.emitPaymentCompleted(paymentId, nextState);
+      }
+    }
+  }
+
+  /**
+   * Inicia la autorizacion en la pasarela. Llamado desde el endpoint publico
+   * cuando el cliente confirma "voy a pagar" en la pantalla del QR.
+   *
+   * Flujo:
+   *   CREATED|AWAITING_CAPTURE → AUTHORIZING (FSM)
+   *   ↓
+   *   gateway.authorize() (mock o real)
+   *   ↓
+   *   pasarela responde inmediato con providerTxId (PROCESSING)
+   *   ↓
+   *   webhook llegará despues → FSM AUTHORIZED/FAILED
+   *
+   * Si el pago ya está en AUTHORIZING o terminal → 409.
+   */
+  async startAuthorization(qrToken: string): Promise<{ status: PaymentMachineState; providerTxId?: string }> {
+    // Lookup cross-tenant del pago via token (el cliente no esta autenticado)
+    const payment = await this.prisma.asSystem((tx) =>
+      tx.payment.findUnique({ where: { qrToken } }),
+    );
+    if (!payment) throw new NotFoundException('Payment not found');
+
+    if (payment.status !== 'CREATED' && payment.status !== 'AWAITING_CAPTURE') {
+      throw new ConflictException(`Payment in state ${payment.status} — cannot start authorization`);
+    }
+
+    if (payment.qrExpiresAt < new Date()) {
+      throw new ConflictException('QR expired');
+    }
+
+    // Resolver provider activo del venue (Wipay por defecto en seed)
+    const credential = await this.prisma.asSystem((tx) =>
+      tx.gatewayCredential.findFirst({
+        where: { tenantId: payment.tenantId, active: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    if (!credential) {
+      throw new ConflictException('Venue has no active gateway credential');
+    }
+
+    // 1) Mover FSM a AUTHORIZING (lock pesimista en transition())
+    await this.transition(payment.id, { type: 'AUTHORIZING' });
+
+    // 2) Llamar a la pasarela
+    const adapter = this.gateways.get(credential.provider);
+    let providerTxId: string;
+    try {
+      const result = await adapter.authorize({
+        tenantId: payment.tenantId,
+        paymentId: payment.id,
+        amountCents: payment.amountCents,
+        currency: payment.currency,
+        terminalExternalId: '', // mock no lo necesita; en real se resuelve del terminal
+        reference: payment.id, // mock-wipay echa esto en el webhook como `reference`
+      });
+      providerTxId = result.providerTxId;
+    } catch (err) {
+      this.logger.error(`Gateway authorize failed for ${payment.id}: ${(err as Error).message}`);
+      // Saga: si la pasarela rechaza inmediatamente, marcamos FAILED.
+      try {
+        await this.transition(payment.id, { type: 'FAILED', reason: 'gateway-authorize-error' });
+      } catch (e2) {
+        if (!(e2 instanceof InvalidTransitionError)) throw e2;
+      }
+      throw new ConflictException('Gateway authorize failed');
+    }
+
+    // 3) Persistir providerTxId en la fila para que orphan-reconcile pueda usarlo
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: { providerTxId, provider: credential.provider },
+    });
+
+    // 4) Encolar orphan-reconcile (se autocancela si llega webhook antes)
+    await this.orphanReconcileQueue.add(
+      'orphan-reconcile',
+      { paymentId: payment.id, tenantId: payment.tenantId },
+      {
+        jobId: `orphan-${payment.id}`,
+        delay: ORPHAN_RECONCILE_DELAY_MS,
+        removeOnComplete: true,
+        removeOnFail: 100,
+      },
+    );
+
+    this.logger.log(`Payment ${payment.id} authorizing via ${credential.provider} (txId=${providerTxId})`);
+    return { status: 'AUTHORIZING', providerTxId };
   }
 
   // ─── helpers ───────────────────────────────────────────────────────

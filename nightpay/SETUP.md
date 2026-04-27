@@ -341,12 +341,67 @@ Esperado: `status: "AUTHORIZED"`, `providerTxId` poblado.
 Crea un pago con `qrExpiresAt` cerca y espera 5 min — pasará a `EXPIRED` automáticamente vía BullMQ.
 O en código: cambia `QR_TTL_SECONDS` en `payments.service.ts` a 30 segundos para testing.
 
-## Próximos pasos (Sprint 5)
+## Sprint 5 (ya implementado): UI real + Socket.io + autorización end-to-end
 
-- Frontend `web-client` real (página `/pay/:token` con UI)
-- Frontend `tpv` (formulario de cobro + display QR)
-- WebSockets `Socket.io` con Redis adapter (cliente y TPV se sincronizan)
-- Endpoint `POST /v1/payments/public/:token/start-authorization` (mueve FSM a AUTHORIZING)
-- Saga: cuando un pago lleva 30 min en AUTHORIZING sin webhook → orphan-reconcile job
+### 1. Reinstalar deps (socket.io + Redis adapter + socket.io-client)
 
-Di "continúa Sprint 5" cuando estés listo.
+```powershell
+pnpm install
+```
+
+### 2. Reiniciar API
+
+```powershell
+Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep 2
+.\scripts\dev-api.ps1
+```
+
+Esperado en logs: `Socket.io Redis adapter wired` + ruta `POST /v1/payments/public/:token/start-authorization`.
+
+### 3. Arrancar TPV (otra ventana)
+
+```powershell
+cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
+pnpm --filter "@nightpay/tpv" dev
+```
+
+Abre [http://localhost:4102](http://localhost:4102), login con
+`owner@nightpay.local` / `nightpay-dev-2026`. Selecciona "Barra 1", importe 48.50, "Cobrar".
+
+### 4. Arrancar web-client (otra ventana)
+
+```powershell
+cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
+pnpm --filter "@nightpay/web-client" dev
+```
+
+### 5. Test flujo completo
+
+1. TPV → crear cobro 48.50€ → ves QR
+2. En otro navegador (o móvil), abre el `qrUrl` (algo como `http://localhost:4101/pay/<token>`)
+3. Verás importe + venue + terminal. Click **"Pagar ahora"**
+4. Estado → `AUTHORIZING` en ambas pantallas (sincronización por WS)
+5. Mock-wipay envía webhook async → FSM `AUTHORIZED`
+6. **TPV** emite beep + "✓ Cobrado"
+7. **Móvil** muestra "✓ Pago completado"
+
+Todo en ~2 segundos. Sin recargar.
+
+### 6. Hardening operativo
+
+Ver [HARDENING.md](HARDENING.md):
+- Rotar passwords del seed (`pnpm cli reset-password`)
+- Backup diario (`scripts/backup-db.ps1`)
+- Monitor pagos atascados (`scripts/check-stuck-payments.ps1`)
+- ACL del `.env.local`
+
+## Próximos pasos (Sprint 6)
+
+- Admin dashboard real (http://localhost:4103) — métricas, lista pagos
+- Refund flow (parcial + total) con 2FA TOTP para >100€
+- Job `reconcile-daily` (07:00 AM, match contra export pasarela)
+- Health checks reales (DB+Redis ping)
+- Audit log de cambios role/credenciales/refunds
+
+Di "continúa Sprint 6" cuando estés listo.
