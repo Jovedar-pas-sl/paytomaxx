@@ -256,12 +256,97 @@ pnpm cli reset-password --email manager.vlc@nightpay.local --password "nuevo-pwd
 
 Usa `pnpm cli reset-password` para rotarlas.
 
-## Próximos pasos (Sprint 3)
+## Sprint 3 + Sprint 4 (ya implementado)
 
-Tras verificar Sprint 2 (login OK + `/venues/me` OK + CLI OK), Sprint 3 cubre:
-- Pagos core: `POST /v1/payments` crea pago + genera QR
-- XState FSM con transiciones atómicas
-- Job BullMQ `qr-expire`
-- Endpoint `GET /v1/payments/:id` (cliente escanea QR)
+Pagos core + integración pasarela ya cableados. Para arrancarlo:
 
-Di "continúa Sprint 3" cuando estés listo.
+### 1. Reinstalar deps (añadidos: bullmq, ioredis, qrcode, xstate, @nestjs/bullmq)
+
+```powershell
+pnpm install
+```
+
+### 2. (No hace falta migración nueva — el schema sigue igual.)
+
+### 3. Reiniciar API
+
+```powershell
+Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep 2
+.\scripts\dev-api.ps1
+```
+
+Esperado en el log: `Mapped {/v1/payments, POST}`, `Mapped {/v1/webhooks/:provider, POST}`, etc.
+
+### 4. Crear un pago (en ventana 2)
+
+```powershell
+cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
+
+$body = @{ email='owner@nightpay.local'; password='nightpay-dev-2026' } | ConvertTo-Json
+$r = Invoke-RestMethod -Method Post -Uri http://localhost:4100/v1/auth/login -ContentType 'application/json' -Body $body
+$token = $r.accessToken
+
+$payment = @{ amountCents=4850; terminalExternalId='BARRA-1' } | ConvertTo-Json
+$idempotencyKey = [guid]::NewGuid().ToString()
+$created = Invoke-RestMethod -Method Post -Uri http://localhost:4100/v1/payments `
+  -ContentType 'application/json' `
+  -Headers @{ Authorization = "Bearer $token"; 'Idempotency-Key' = $idempotencyKey } `
+  -Body $payment
+
+$created | ConvertTo-Json -Depth 5
+```
+
+Esperado: JSON con `id`, `qrToken`, `qrUrl`, `qrPngDataUrl` (data URL del PNG), `qrExpiresAt`.
+
+### 5. Verificar el pago (lookup público por token)
+
+```powershell
+$publicView = Invoke-RestMethod -Uri "http://localhost:4100/v1/payments/public/$($created.qrToken)"
+$publicView | ConvertTo-Json
+```
+
+Esperado: importe + venueName + terminalLabel + status `CREATED`.
+
+### 6. Ver el QR PNG en el navegador
+
+Pega `$created.qrPngDataUrl` en la barra de direcciones del navegador. Verás un QR código.
+
+### 7. Test E2E con mock Wipay (autorización + webhook)
+
+Llama directamente al mock de Wipay con el `qrToken` (el mock-wipay manda webhook al API automáticamente):
+
+```powershell
+$ref = $created.id    # el adapter mapea reference → paymentId
+Invoke-RestMethod -Method Post -Uri http://localhost:4901/v1/authorize `
+  -ContentType 'application/json' `
+  -Body (@{ reference=$ref; amount=4850; currency='EUR' } | ConvertTo-Json)
+
+# Espera 2-3 segundos a que mock-wipay envíe webhook…
+Start-Sleep -Seconds 3
+
+# El pago debería estar en estado AUTHORIZED ahora
+$detail = Invoke-RestMethod -Uri "http://localhost:4100/v1/payments/$($created.id)" `
+  -Headers @{ Authorization = "Bearer $token" }
+$detail | ConvertTo-Json
+```
+
+Esperado: `status: "AUTHORIZED"`, `providerTxId` poblado.
+
+> Nota: el FSM por diseño no permite CREATED → AUTHORIZED directo (esperaría AUTHORIZING primero).
+> En Sprint 5 añadiremos un endpoint `POST /v1/payments/public/:token/start-authorization` que mueve a AUTHORIZING. Por ahora el test E2E del flujo completo viene en Sprint 5.
+
+### 8. Test de expiración de QR
+
+Crea un pago con `qrExpiresAt` cerca y espera 5 min — pasará a `EXPIRED` automáticamente vía BullMQ.
+O en código: cambia `QR_TTL_SECONDS` en `payments.service.ts` a 30 segundos para testing.
+
+## Próximos pasos (Sprint 5)
+
+- Frontend `web-client` real (página `/pay/:token` con UI)
+- Frontend `tpv` (formulario de cobro + display QR)
+- WebSockets `Socket.io` con Redis adapter (cliente y TPV se sincronizan)
+- Endpoint `POST /v1/payments/public/:token/start-authorization` (mueve FSM a AUTHORIZING)
+- Saga: cuando un pago lleva 30 min en AUTHORIZING sin webhook → orphan-reconcile job
+
+Di "continúa Sprint 5" cuando estés listo.

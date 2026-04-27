@@ -7,8 +7,12 @@ import type { FastifyRequest } from 'fastify';
 import { AuthGuard } from './common/guards/auth.guard';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { GatewaysModule } from './modules/gateways/gateways.module';
 import { HealthController } from './modules/health/health.controller';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { QueuesModule } from './modules/queues/queues.module';
 import { VenuesModule } from './modules/venues/venues.module';
+import { WebhooksModule } from './modules/webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -17,11 +21,6 @@ import { VenuesModule } from './modules/venues/venues.module';
       cache: true,
       envFilePath: ['.env.local', '.env'],
     }),
-    // nestjs-cls con Fastify: el middleware de Express no funciona aquí.
-    // Usamos `guard.mount` para que el CLS se monte como guard global, que
-    // en NestJS corre ANTES que otros guards (AuthGuard) y garantiza que
-    // el contexto esté disponible cuando los guards lo usan.
-    // Ver https://papooch.github.io/nestjs-cls/setting-up-cls-context/using-a-guard
     ClsModule.forRoot({
       global: true,
       guard: {
@@ -40,13 +39,14 @@ import { VenuesModule } from './modules/venues/venues.module';
       },
     }),
     PrismaModule,
+    QueuesModule,
+    GatewaysModule,
     AuthModule,
     VenuesModule,
+    PaymentsModule,
+    WebhooksModule,
   ],
   controllers: [HealthController],
-  providers: [
-    { provide: APP_GUARD, useClass: AuthGuard },
-    // RolesGuard se aplica por controlador con @UseGuards — no global
-  ],
+  providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule {}
