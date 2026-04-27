@@ -73,17 +73,15 @@ export class WebhooksController {
       throw new BadRequestException('Missing externalEventId');
     }
 
-    // Idempotencia
-    const existing = await this.prisma.asSystem((tx) =>
-      tx.webhookDelivery.findUnique({
-        where: {
-          provider_externalEventId: {
-            provider,
-            externalEventId: verify.externalEventId!,
-          },
+    // Idempotencia — webhookDelivery NO es tenant-scoped, query directa.
+    const existing = await this.prisma.webhookDelivery.findUnique({
+      where: {
+        provider_externalEventId: {
+          provider,
+          externalEventId: verify.externalEventId!,
         },
-      }),
-    );
+      },
+    });
 
     if (existing?.processedAt) {
       return { received: true, duplicate: true };
@@ -91,17 +89,15 @@ export class WebhooksController {
 
     const delivery = existing
       ? existing
-      : await this.prisma.asSystem((tx) =>
-          tx.webhookDelivery.create({
-            data: {
-              provider,
-              externalEventId: verify.externalEventId!,
-              rawBody,
-              signature:
-                ((req.headers['x-signature'] ?? '') as string | string[])?.toString() || '',
-            },
-          }),
-        );
+      : await this.prisma.webhookDelivery.create({
+          data: {
+            provider,
+            externalEventId: verify.externalEventId!,
+            rawBody,
+            signature:
+              ((req.headers['x-signature'] ?? '') as string | string[])?.toString() || '',
+          },
+        });
 
     await this.queue.add(
       'process-webhook',

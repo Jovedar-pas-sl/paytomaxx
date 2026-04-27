@@ -37,9 +37,10 @@ export class WebhookIngestProcessor extends WorkerHost {
   async process(job: Job<WebhookIngestJobData>): Promise<void> {
     const { deliveryId } = job.data;
 
-    const delivery = await this.prisma.asSystem((tx) =>
-      tx.webhookDelivery.findUniqueOrThrow({ where: { id: BigInt(deliveryId) } }),
-    );
+    // webhookDelivery NO esta en TENANT_SCOPED_MODELS — query directa sin asSystem.
+    const delivery = await this.prisma.webhookDelivery.findUniqueOrThrow({
+      where: { id: BigInt(deliveryId) },
+    });
 
     if (delivery.processedAt) {
       this.logger.debug(`webhook ${deliveryId} already processed`);
@@ -74,11 +75,9 @@ export class WebhookIngestProcessor extends WorkerHost {
   }
 
   private async markProcessed(deliveryId: string): Promise<void> {
-    await this.prisma.asSystem((tx) =>
-      tx.webhookDelivery.update({
-        where: { id: BigInt(deliveryId) },
-        data: { processedAt: new Date() },
-      }),
-    );
+    await this.prisma.webhookDelivery.update({
+      where: { id: BigInt(deliveryId) },
+      data: { processedAt: new Date() },
+    });
   }
 }

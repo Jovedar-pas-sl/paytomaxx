@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * NightPay CLI — gestión de venues y usuarios (uso interno, solo local).
+ * NightPay CLI — gestion de venues y usuarios (uso interno, solo local).
  *
  * Uso:
  *   pnpm cli create-venue --name "Luna VLC" --slug luna-vlc [--timezone Europe/Madrid]
@@ -15,13 +15,15 @@
  * de sistema operadas solo por el OWNER humano desde la terminal.
  */
 
-import { randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
-import { PrismaClient, Role } from '../src/generated/client';
+import { PrismaClient, Prisma, Role } from '../src/generated/client';
 
 const prisma = new PrismaClient();
 
 type Args = Record<string, string | boolean>;
+
+// Cliente transaccional que SI hereda el SET LOCAL del bypass.
+type TxClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$use' | '$transaction' | '$extends'>;
 
 function parseArgs(argv: string[]): Args {
   const out: Args = {};
@@ -49,17 +51,15 @@ function must(args: Args, key: string): string {
   return v;
 }
 
-async function withBypass<T>(fn: () => Promise<T>): Promise<T> {
+/**
+ * Ejecuta `fn` dentro de una transaccion con `app.bypass_rls=on`.
+ * IMPORTANTE: `fn` recibe `tx` y debe usarlo para todas las queries —
+ * usar el cliente externo `prisma` sale de la transaccion y pierde el bypass.
+ */
+async function withBypass<T>(fn: (tx: TxClient) => Promise<T>): Promise<T> {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma as any)._lastTx = tx;
-    try {
-      return await fn();
-    } finally {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (prisma as any)._lastTx;
-    }
+    return fn(tx);
   });
 }
 
@@ -80,13 +80,13 @@ async function cmdCreateVenue(args: Args) {
   const slug = (args.slug as string) || slugify(name);
   const timezone = (args.timezone as string) || 'Europe/Madrid';
 
-  const venue = await withBypass(async () => {
-    return prisma.venue.upsert({
+  const venue = await withBypass((tx) =>
+    tx.venue.upsert({
       where: { slug },
       update: {},
       create: { name, slug, timezone },
-    });
-  });
+    }),
+  );
 
   console.log(`[ok] venue: ${venue.name} (slug=${venue.slug} id=${venue.id})`);
   return venue;
@@ -97,23 +97,21 @@ async function cmdCreateUser(args: Args, role: Role) {
   const email = must(args, 'email').toLowerCase();
   const password = must(args, 'password');
 
-  if (password.length < 8) throw new Error('password must be ≥ 8 chars');
-
-  const venue = await withBypass(() =>
-    prisma.venue.findUnique({ where: { slug: venueSlug } }),
-  );
-  if (!venue) throw new Error(`venue not found: ${venueSlug}`);
+  if (password.length < 8) throw new Error('password must be >= 8 chars');
 
   const hash = await bcrypt.hash(password, 10);
-  const user = await withBypass(() =>
-    prisma.user.upsert({
+
+  const user = await withBypass(async (tx) => {
+    const venue = await tx.venue.findUnique({ where: { slug: venueSlug } });
+    if (!venue) throw new Error(`venue not found: ${venueSlug}`);
+    return tx.user.upsert({
       where: { email },
       update: { passwordHash: hash, role, tenantId: venue.id, deletedAt: null },
       create: { email, passwordHash: hash, role, tenantId: venue.id },
-    }),
-  );
+    });
+  });
 
-  console.log(`[ok] ${role.toLowerCase()}: ${user.email} → venue ${venue.slug} (id=${user.id})`);
+  console.log(`[ok] ${role.toLowerCase()}: ${user.email} -> venue ${venueSlug} (id=${user.id})`);
   return user;
 }
 
@@ -122,38 +120,35 @@ async function cmdCreateTerminal(args: Args) {
   const externalId = must(args, 'external-id');
   const label = (args.label as string) || externalId;
 
-  const venue = await withBypass(() =>
-    prisma.venue.findUnique({ where: { slug: venueSlug } }),
-  );
-  if (!venue) throw new Error(`venue not found: ${venueSlug}`);
-
-  const terminal = await withBypass(() =>
-    prisma.terminal.upsert({
+  const terminal = await withBypass(async (tx) => {
+    const venue = await tx.venue.findUnique({ where: { slug: venueSlug } });
+    if (!venue) throw new Error(`venue not found: ${venueSlug}`);
+    return tx.terminal.upsert({
       where: { tenantId_externalId: { tenantId: venue.id, externalId } },
       update: { label, active: true },
       create: { tenantId: venue.id, externalId, label },
-    }),
-  );
+    });
+  });
 
-  console.log(`[ok] terminal: ${terminal.label} (${terminal.externalId}) → venue ${venue.slug}`);
+  console.log(`[ok] terminal: ${terminal.label} (${terminal.externalId}) -> venue ${venueSlug}`);
   return terminal;
 }
 
 async function cmdResetPassword(args: Args) {
   const email = must(args, 'email').toLowerCase();
   const password = must(args, 'password');
-  if (password.length < 8) throw new Error('password must be ≥ 8 chars');
+  if (password.length < 8) throw new Error('password must be >= 8 chars');
 
   const hash = await bcrypt.hash(password, 10);
-  const user = await withBypass(() =>
-    prisma.user.update({ where: { email }, data: { passwordHash: hash } }),
+  const user = await withBypass((tx) =>
+    tx.user.update({ where: { email }, data: { passwordHash: hash } }),
   );
   console.log(`[ok] password reset: ${user.email}`);
 }
 
 async function cmdListVenues() {
-  const venues = await withBypass(() =>
-    prisma.venue.findMany({
+  const venues = await withBypass((tx) =>
+    tx.venue.findMany({
       where: { deletedAt: null },
       orderBy: { createdAt: 'asc' },
       include: { _count: { select: { users: true, terminals: true, payments: true } } },
@@ -176,12 +171,12 @@ async function cmdListVenues() {
 async function cmdListUsers(args: Args) {
   const venueSlug = args.venue as string | undefined;
 
-  const where = venueSlug
+  const where: Prisma.UserWhereInput = venueSlug
     ? { venue: { slug: venueSlug }, deletedAt: null }
     : { deletedAt: null };
 
-  const users = await withBypass(() =>
-    prisma.user.findMany({
+  const users = await withBypass((tx) =>
+    tx.user.findMany({
       where,
       orderBy: [{ role: 'asc' }, { email: 'asc' }],
       include: { venue: { select: { slug: true } } },
@@ -212,20 +207,18 @@ const commands: Record<string, (args: Args) => Promise<unknown>> = {
   'list-users': cmdListUsers,
 };
 
-function printUsage() {
+function printUsage(): void {
   console.log('NightPay CLI — uso:');
   console.log('');
-  console.log('  pnpm cli create-venue   --name "Luna VLC" [--slug luna-vlc] [--timezone Europe/Madrid]');
-  console.log('  pnpm cli create-owner   --venue <slug> --email <email> --password <pwd>');
-  console.log('  pnpm cli create-manager --venue <slug> --email <email> --password <pwd>');
-  console.log('  pnpm cli create-waiter  --venue <slug> --email <email> --password <pwd>');
+  console.log('  pnpm cli create-venue    --name "Luna VLC" [--slug luna-vlc] [--timezone Europe/Madrid]');
+  console.log('  pnpm cli create-owner    --venue <slug> --email <email> --password <pwd>');
+  console.log('  pnpm cli create-manager  --venue <slug> --email <email> --password <pwd>');
+  console.log('  pnpm cli create-waiter   --venue <slug> --email <email> --password <pwd>');
   console.log('  pnpm cli create-terminal --venue <slug> --external-id BARRA-1 [--label "Barra 1"]');
-  console.log('  pnpm cli reset-password --email <email> --password <new>');
+  console.log('  pnpm cli reset-password  --email <email> --password <new>');
   console.log('  pnpm cli list-venues');
-  console.log('  pnpm cli list-users [--venue <slug>]');
+  console.log('  pnpm cli list-users      [--venue <slug>]');
   console.log('');
-  // referencia UUID helper (por si alguien la busca en logs)
-  void randomUUID;
 }
 
 async function main() {

@@ -157,66 +157,77 @@ export class PaymentsService {
    * Llamadores típicos: webhook processor, qr-expire job, refund flow.
    */
   async transition(paymentId: string, event: PaymentEvent): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      // Lock pesimista para evitar transiciones concurrentes
-      const rows = await tx.$queryRaw<
-        Array<{
-          id: string;
-          tenantId: string;
-          status: PaymentMachineState;
-          amountCents: number;
-          availableAmountCents: number;
-          providerTxId: string | null;
-          provider: 'WIPAY' | 'PEANPE' | null;
-        }>
-      >`
-        SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
-               "providerTxId", provider
-          FROM payments
-         WHERE id = ${paymentId}::uuid
-         FOR UPDATE
-      `;
+    // transition() es interna (workers + refunds futuros). Usamos SQL crudo end-to-end
+    // para evitar interaccion ambigua con el middleware de tenant: el lock pesimista
+    // y el UPDATE deben ir sobre la MISMA fila. Cualquier filtro adicional del
+    // middleware podria desincronizar la lectura del lock con la escritura.
+    await this.prisma.$transaction(
+      async (tx) => {
+        const rows = await tx.$queryRaw<
+          Array<{
+            id: string;
+            tenantId: string;
+            status: PaymentMachineState;
+            amountCents: number;
+            availableAmountCents: number;
+            providerTxId: string | null;
+            provider: 'WIPAY' | 'PEANPE' | null;
+          }>
+        >`
+          SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
+                 "providerTxId", provider
+            FROM payments
+           WHERE id = ${paymentId}::uuid
+           FOR UPDATE
+        `;
 
-      const p = rows[0];
-      if (!p) throw new NotFoundException(`Payment ${paymentId} not found`);
+        const p = rows[0];
+        if (!p) throw new NotFoundException(`Payment ${paymentId} not found`);
 
-      const result = applyEvent(
-        p.status,
-        {
-          paymentId: p.id,
-          amountCents: p.amountCents,
-          availableAmountCents: p.availableAmountCents,
-          providerTxId: p.providerTxId ?? undefined,
-          provider: p.provider ?? undefined,
-        },
-        event,
-      );
+        const result = applyEvent(
+          p.status,
+          {
+            paymentId: p.id,
+            amountCents: p.amountCents,
+            availableAmountCents: p.availableAmountCents,
+            providerTxId: p.providerTxId ?? undefined,
+            provider: p.provider ?? undefined,
+          },
+          event,
+        );
 
-      if (!result) {
-        this.logger.warn(`FSM rejected: ${event.type} on ${p.status} (payment=${paymentId})`);
-        throw new InvalidTransitionError(p.status, event.type);
-      }
+        if (!result) {
+          this.logger.warn(`FSM rejected: ${event.type} on ${p.status} (payment=${paymentId})`);
+          throw new InvalidTransitionError(p.status, event.type);
+        }
 
-      await tx.payment.update({
-        where: { id: paymentId },
-        data: {
-          status: result.nextState,
-          availableAmountCents: result.nextContext.availableAmountCents,
-          providerTxId: result.nextContext.providerTxId ?? p.providerTxId,
-          provider: result.nextContext.provider ?? p.provider,
-        },
-      });
+        // UPDATE crudo — bypasa el middleware del cliente (no inyecta tenantId).
+        // La fila ya esta locked por id (UUID); seguro.
+        await tx.$executeRaw`
+          UPDATE payments
+             SET status = ${result.nextState}::"PaymentStatus",
+                 "availableAmountCents" = ${result.nextContext.availableAmountCents},
+                 "providerTxId" = ${result.nextContext.providerTxId ?? p.providerTxId},
+                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | null}::"Provider",
+                 "updatedAt" = NOW()
+           WHERE id = ${paymentId}::uuid
+        `;
 
-      await tx.paymentEvent.create({
-        data: {
-          paymentId,
-          tenantId: p.tenantId,
-          eventType: `payment.${event.type.toLowerCase()}`,
-          payload: event as object,
-          traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
-        },
-      });
-    }, { isolationLevel: 'ReadCommitted' });
+        // INSERT crudo en payment_events tambien — mismo motivo.
+        const traceId = this.cls.get('ctx')?.traceId ?? randomUUID();
+        await tx.$executeRaw`
+          INSERT INTO payment_events ("paymentId", "tenantId", "eventType", payload, "traceId")
+          VALUES (
+            ${paymentId}::uuid,
+            ${p.tenantId}::uuid,
+            ${`payment.${event.type.toLowerCase()}`},
+            ${JSON.stringify(event)}::jsonb,
+            ${traceId}
+          )
+        `;
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
 
     this.logger.log(`Payment ${paymentId} transitioned via ${event.type}`);
   }
@@ -224,9 +235,10 @@ export class PaymentsService {
   // ─── helpers ───────────────────────────────────────────────────────
 
   private async toCreatedResponse(paymentId: string): Promise<CreatedPaymentResponse> {
-    const p = await this.prisma.asSystem((tx) =>
-      tx.payment.findUniqueOrThrow({ where: { id: paymentId } }),
-    );
+    // CLS ya tiene tenantId del request (AuthGuard lo seteo). El middleware de
+    // Prisma inyecta WHERE tenantId — y como el pago lo acabamos de crear con
+    // ese mismo tenant, la query devuelve el registro correcto.
+    const p = await this.prisma.payment.findUniqueOrThrow({ where: { id: paymentId } });
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 4100}`;
     // Construye URL del QR — apunta al frontend cliente
     const clientUrl =
