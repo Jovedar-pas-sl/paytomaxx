@@ -63,9 +63,9 @@ check "docs/adr/ADR-001-*"             bash -c 'ls docs/adr/ADR-001-*.md 2>/dev/
 
 echo
 echo "[runtime — requiere pnpm install + docker compose up]"
-check "Postgres reachable :5432"       bash -c 'echo > /dev/tcp/localhost/5432'
-check "Redis reachable :6379"          bash -c 'echo > /dev/tcp/localhost/6379'
-check "API /v1/health 200"             bash -c 'curl -sf http://localhost:3100/v1/health'
+check "Postgres reachable :4432"       bash -c 'echo > /dev/tcp/localhost/4432'
+check "Redis reachable :4379"          bash -c 'echo > /dev/tcp/localhost/4379'
+check "API /v1/health 200"             bash -c 'curl -sf http://localhost:4100/v1/health'
 
 echo
 echo "── Summary ──"

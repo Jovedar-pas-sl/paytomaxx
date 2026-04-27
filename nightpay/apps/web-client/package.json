@@ -3,9 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3101",
+    "dev": "next dev --port 4101",
     "build": "next build",
-    "start": "next start --port 3101",
+    "start": "next start --port 4101",
     "lint": "next lint --max-warnings 0 || true",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next .turbo"

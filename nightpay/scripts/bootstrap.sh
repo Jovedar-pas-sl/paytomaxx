@@ -65,8 +65,8 @@ Siguiente paso:
   pnpm --filter @nightpay/web-client dev
 
 Verificación:
-  curl http://localhost:3100/v1/health
-  abrir http://localhost:3101  (web-client)
-  abrir http://localhost:3102  (tpv)
-  abrir http://localhost:3103  (admin)
+  curl http://localhost:4100/v1/health
+  abrir http://localhost:4101  (web-client)
+  abrir http://localhost:4102  (tpv)
+  abrir http://localhost:4103  (admin)
 EOF

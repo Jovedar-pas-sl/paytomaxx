@@ -54,7 +54,7 @@ bash scripts/bootstrap.sh        # Git Bash / WSL
 
 > **Nota de puerto**: el Postgres de NightPay se mapea al host en `:5433` (no `:5432`)
 > porque probablemente ya tengas otro Postgres en `:5432` (ej. chatwoot). La `DATABASE_URL`
-> en `.env.example` ya apunta a `localhost:5433`.
+> en `.env.example` ya apunta a `localhost:4432`.
 
 El script hace todo:
 - Copia `.env.example` → `.env.local`
@@ -74,10 +74,10 @@ pnpm dev
 ```
 
 Esto lanza en paralelo (Turborepo):
-- `@nightpay/api` → `http://localhost:3100`
-- `@nightpay/web-client` → `http://localhost:3101`
-- `@nightpay/tpv` → `http://localhost:3102`
-- `@nightpay/admin` → `http://localhost:3103`
+- `@nightpay/api` → `http://localhost:4100`
+- `@nightpay/web-client` → `http://localhost:4101`
+- `@nightpay/tpv` → `http://localhost:4102`
+- `@nightpay/admin` → `http://localhost:4103`
 
 Si prefieres un solo servicio a la vez:
 ```powershell
@@ -94,13 +94,13 @@ Debe ver 20+ checks en verde. El último bloque (runtime) solo pasa si tienes Do
 
 Verificaciones manuales rápidas:
 ```powershell
-curl http://localhost:3100/v1/health
+curl http://localhost:4100/v1/health
 # { "status": "ok", "version": "0.0.0", "checks": { "api": "ok", ... } }
 
 # Abrir los 3 frontends en el navegador
-start http://localhost:3101
-start http://localhost:3102
-start http://localhost:3103
+start http://localhost:4101
+start http://localhost:4102
+start http://localhost:4103
 ```
 
 ## 7. Commit del lockfile
@@ -197,7 +197,7 @@ pnpm db:seed
 pnpm --filter @nightpay/api dev
 
 # en otra ventana, login como owner
-curl -X POST http://localhost:3100/v1/auth/login `
+curl -X POST http://localhost:4100/v1/auth/login `
   -H "Content-Type: application/json" `
   -d '{"email":"owner@nightpay.local","password":"nightpay-dev-2026"}'
 ```
@@ -217,13 +217,13 @@ Esperado:
 $TOKEN = "eyJhbGci..."   # pega el accessToken aquí
 
 # mi venue (OWNER ve luna-vlc porque es su venue por defecto)
-curl http://localhost:3100/v1/venues/me -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4100/v1/venues/me -H "Authorization: Bearer $TOKEN"
 
 # terminales del venue (multi-tenant filtrado automático via Prisma middleware)
-curl http://localhost:3100/v1/venues/me/terminals -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4100/v1/venues/me/terminals -H "Authorization: Bearer $TOKEN"
 
 # staff del venue (solo OWNER/MANAGER)
-curl http://localhost:3100/v1/venues/me/staff -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4100/v1/venues/me/staff -H "Authorization: Bearer $TOKEN"
 ```
 
 ### 7. CLI para gestionar venues (uso diario)

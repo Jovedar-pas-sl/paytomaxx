@@ -8,9 +8,9 @@ Write-Host "==> Matando node.exe zombis..." -ForegroundColor Cyan
 Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 
-$inUse = Get-NetTCPConnection -LocalPort 3100 -State Listen -ErrorAction SilentlyContinue
+$inUse = Get-NetTCPConnection -LocalPort 4100 -State Listen -ErrorAction SilentlyContinue
 if ($inUse) {
-    Write-Host "!!  Puerto 3100 aun ocupado por PID $($inUse.OwningProcess). Matando..." -ForegroundColor Yellow
+    Write-Host "!!  Puerto 4100 aun ocupado por PID $($inUse.OwningProcess). Matando..." -ForegroundColor Yellow
     Stop-Process -Id $inUse.OwningProcess -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
 }

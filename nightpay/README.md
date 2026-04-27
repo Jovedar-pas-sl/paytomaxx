@@ -32,7 +32,7 @@ pnpm dev                  # arranca api + 3 frontends
 Verificación:
 
 ```bash
-curl http://localhost:3100/v1/health
+curl http://localhost:4100/v1/health
 # { "status": "ok", "version": "...", "checks": { ... } }
 ```
 
@@ -40,15 +40,15 @@ curl http://localhost:3100/v1/health
 
 | Servicio | Puerto | URL |
 |----------|-------:|-----|
-| Postgres 16 | 5433 | `postgresql://np:np@localhost:5433/nightpay` |
-| Redis 7 | 6379 | `redis://localhost:6379` |
-| API NestJS | 3100 | http://localhost:3100 |
-| Web Cliente (Next.js) | 3101 | http://localhost:3101 |
-| TPV (Next.js) | 3102 | http://localhost:3102 |
-| Admin (Next.js) | 3103 | http://localhost:3103 |
-| Mock Wipay | 9001 | http://localhost:9001 |
-| Mock Peanpe | 9002 | http://localhost:9002 |
-| MailHog UI | 8025 | http://localhost:8025 |
+| Postgres 16 | 4432 | `postgresql://np:np@localhost:4432/nightpay` |
+| Redis 7 | 4379 | `redis://localhost:4379` |
+| API NestJS | 4100 | http://localhost:4100 |
+| Web Cliente (Next.js) | 4101 | http://localhost:4101 |
+| TPV (Next.js) | 4102 | http://localhost:4102 |
+| Admin (Next.js) | 4103 | http://localhost:4103 |
+| Mock Wipay | 4901 | http://localhost:4901 |
+| Mock Peanpe | 4902 | http://localhost:4902 |
+| MailHog UI | 4825 | http://localhost:4825 |
 
 ## Estructura
 
@@ -56,9 +56,9 @@ curl http://localhost:3100/v1/health
 nightpay/
 ├── apps/
 │   ├── api/              # NestJS + Fastify
-│   ├── web-client/       # Next.js — cliente móvil (puerto 3101)
-│   ├── tpv/              # Next.js — terminal camarero (3102)
-│   ├── admin/            # Next.js — panel gestión (3103)
+│   ├── web-client/       # Next.js — cliente móvil (puerto 4101)
+│   ├── tpv/              # Next.js — terminal camarero (4102)
+│   ├── admin/            # Next.js — panel gestión (4103)
 │   ├── mock-wipay/       # Fastify mock pasarela
 │   └── mock-peanpe/      # Fastify mock pasarela
 ├── packages/
