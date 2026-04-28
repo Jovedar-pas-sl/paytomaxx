@@ -2,32 +2,35 @@ import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/commo
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { MetricsService } from '../metrics/metrics.service';
+import { LockoutService } from './lockout.service';
 import type { JwtPayload, LoginRequest, LoginResponse } from '@nightpay/contracts';
 
 const BCRYPT_ROUNDS = 10;
-const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 * 12; // 12h — staff interno, sesiones largas son ok
-const FAILED_LOGIN_THRESHOLD = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 min
-
-interface LoginAttemptState {
-  failures: number;
-  lockedUntil?: number;
-}
+const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 * 12; // 12h — staff interno
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly prisma: PrismaService;
   private readonly jwt: JwtService;
-  // Tracking en memoria — para multi-nodo migrar a Redis (TODO Sprint 7+).
-  private readonly attempts = new Map<string, LoginAttemptState>();
+  private readonly lockout: LockoutService;
+  private readonly audit: AuditService;
+  private readonly metrics: MetricsService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(JwtService) jwt: JwtService,
+    @Inject(LockoutService) lockout: LockoutService,
+    @Inject(AuditService) audit: AuditService,
+    @Inject(MetricsService) metrics: MetricsService,
   ) {
     this.prisma = prisma;
     this.jwt = jwt;
+    this.lockout = lockout;
+    this.audit = audit;
+    this.metrics = metrics;
   }
 
   async hashPassword(plain: string): Promise<string> {
@@ -39,23 +42,24 @@ export class AuthService {
   }
 
   /**
-   * Login. En esta arquitectura "interna" un user SOLO tiene un tenantId directo.
-   * El parámetro opcional `venueSlug` permite a un OWNER autenticarse especificando
-   * un venue distinto del default — queda preparado para cuando un owner gestione
-   * multiples locales con la misma identidad (fase posterior). Por ahora validamos
-   * que el venue corresponda al mismo tenant del user.
-   *
-   * IMPORTANTE: login es cross-tenant por diseño (aún no sabemos qué tenant).
-   * Bypass explícito de RLS via `asSystem()` para este lookup inicial.
+   * Login. Cross-tenant por diseno (no sabemos tenant antes del lookup).
+   * - Lockout via Redis (multi-nodo safe).
+   * - Audit log de exitos y fallos.
    */
-  async login(input: LoginRequest): Promise<LoginResponse> {
+  async login(input: LoginRequest, ip?: string, userAgent?: string): Promise<LoginResponse> {
     const key = input.email.toLowerCase();
 
-    // Lockout check
-    const state = this.attempts.get(key);
-    if (state?.lockedUntil && state.lockedUntil > Date.now()) {
-      const secs = Math.ceil((state.lockedUntil - Date.now()) / 1000);
-      this.logger.warn(`Login locked for ${key} (${secs}s remaining)`);
+    const lock = await this.lockout.isLocked(key);
+    if (lock.locked) {
+      this.metrics.authLogins.inc({ outcome: 'locked' });
+      this.logger.warn(`Login locked for ${key} (${lock.ttlSeconds}s remaining)`);
+      await this.audit.log({
+        action: 'auth.login.locked',
+        actorEmail: input.email,
+        ip,
+        userAgent,
+        payload: { ttlSeconds: lock.ttlSeconds },
+      });
       throw new UnauthorizedException('Too many attempts; try again later');
     }
 
@@ -67,24 +71,51 @@ export class AuthService {
     );
 
     if (!user || user.deletedAt) {
-      this.recordFailure(key);
+      const result = await this.lockout.recordFailure(key);
+      this.metrics.authLogins.inc({ outcome: 'failed' });
+      await this.audit.log({
+        action: 'auth.login.failed',
+        actorEmail: input.email,
+        ip,
+        userAgent,
+        payload: { reason: 'unknown_user', count: result.count, locked: result.locked },
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const ok = await this.verifyPassword(input.password, user.passwordHash);
     if (!ok) {
-      this.recordFailure(key);
+      const result = await this.lockout.recordFailure(key);
+      this.metrics.authLogins.inc({ outcome: 'failed' });
+      await this.audit.log({
+        action: 'auth.login.failed',
+        actorId: user.id,
+        actorEmail: user.email,
+        tenantId: user.tenantId,
+        ip,
+        userAgent,
+        payload: { reason: 'bad_password', count: result.count, locked: result.locked },
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Login OK — limpiar contador
-    this.attempts.delete(key);
-
-    // venueSlug opcional: si lo pasan, debe coincidir con el venue del user
     if (input.venueSlug && input.venueSlug !== user.venue.slug) {
-      this.logger.warn(`Login rejected: user ${user.email} requested venue ${input.venueSlug} but belongs to ${user.venue.slug}`);
+      this.logger.warn(
+        `Login rejected: user ${user.email} requested venue ${input.venueSlug} but belongs to ${user.venue.slug}`,
+      );
+      await this.audit.log({
+        action: 'auth.login.failed',
+        actorId: user.id,
+        actorEmail: user.email,
+        tenantId: user.tenantId,
+        ip,
+        userAgent,
+        payload: { reason: 'venue_mismatch', requested: input.venueSlug },
+      });
       throw new UnauthorizedException('Invalid venue for this user');
     }
+
+    await this.lockout.clear(key);
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -98,7 +129,17 @@ export class AuthService {
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
     });
 
-    this.logger.log(`Login OK: ${user.email} (${user.role}) → venue ${user.venue.slug}`);
+    this.metrics.authLogins.inc({ outcome: 'ok' });
+    await this.audit.log({
+      action: 'auth.login.ok',
+      actorId: user.id,
+      actorEmail: user.email,
+      tenantId: user.tenantId,
+      ip,
+      userAgent,
+    });
+
+    this.logger.log(`Login OK: ${user.email} (${user.role}) -> venue ${user.venue.slug}`);
 
     return {
       accessToken,
@@ -111,15 +152,5 @@ export class AuthService {
         venueSlug: user.venue.slug,
       },
     };
-  }
-
-  private recordFailure(key: string): void {
-    const s = this.attempts.get(key) ?? { failures: 0 };
-    s.failures += 1;
-    if (s.failures >= FAILED_LOGIN_THRESHOLD) {
-      s.lockedUntil = Date.now() + LOCKOUT_DURATION_MS;
-      this.logger.warn(`Login locked for ${key} until ${new Date(s.lockedUntil).toISOString()}`);
-    }
-    this.attempts.set(key, s);
   }
 }

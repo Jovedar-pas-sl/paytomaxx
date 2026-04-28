@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { LockoutService } from './lockout.service';
 import { TotpService } from './totp.service';
 
 @Module({
@@ -19,7 +20,7 @@ import { TotpService } from './totp.service';
       }),
     }),
   ],
-  providers: [AuthService, TotpService],
+  providers: [AuthService, TotpService, LockoutService],
   controllers: [AuthController],
   exports: [AuthService, TotpService, JwtModule],
 })

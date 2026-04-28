@@ -12,6 +12,7 @@ import type {
 } from '@nightpay/contracts';
 import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, fetchWithTimeout } from './circuit-breaker';
+import { pickHeader } from './header-utils';
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
@@ -194,15 +195,6 @@ export class PeanpeAdapter implements GatewayAdapter {
   private baseUrl(): string {
     return this.config.getOrThrow<string>('PEANPE_API_URL');
   }
-}
-
-function pickHeader(
-  headers: Record<string, string | string[] | undefined>,
-  name: string,
-): string | null {
-  const v = headers[name] ?? headers[name.toLowerCase()];
-  if (Array.isArray(v)) return v[0] ?? null;
-  return v ?? null;
 }
 
 function mapPeanpeStatus(s: string | undefined): GatewayStatus {

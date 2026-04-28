@@ -219,3 +219,32 @@ model Reconciliation {
   @@index([status])
   @@map("reconciliations")
 }
+
+// ───────────────────────── Audit log ────────────────────────────────
+// Append-only, no DELETE/UPDATE. Forense de cambios sensibles:
+// - login (success/failure)
+// - refund (cualquier importe)
+// - cambios de role / credenciales / passwords
+// - revocacion de JWT
+// tenantId puede ser null para acciones globales del owner cross-venue.
+
+model AuditEvent {
+  id          BigInt    @id @default(autoincrement())
+  tenantId    String?   @db.Uuid
+  actorId     String?   @db.Uuid
+  actorEmail  String?
+  action      String                   // ej. 'auth.login.ok', 'refund.created', 'credential.set'
+  targetType  String?                  // 'Payment', 'User', 'GatewayCredential', etc.
+  targetId    String?
+  payload     Json?
+  ip          String?
+  userAgent   String?
+  traceId     String?
+  occurredAt  DateTime  @default(now()) @db.Timestamptz
+
+  @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([actorId, occurredAt(sort: Desc)])
+  @@index([action, occurredAt(sort: Desc)])
+  @@index([traceId])
+  @@map("audit_events")
+}

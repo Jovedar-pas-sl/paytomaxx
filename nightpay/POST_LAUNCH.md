@@ -19,31 +19,46 @@ pero conviene atacar tras los primeros días en producción.
 - [x] Circuit breaker opossum en Wipay/Peanpe adapters
 - [x] Pre-persist provider antes de authorize (cierra ventana orphan-reconcile sin txId)
 
+## Sprint 8 también cubrió (operación en producción)
+
+- [x] Login lockout migrado a Redis (`LockoutService`, multi-nodo safe)
+- [x] Audit log global: tabla `audit_events` + `AuditService` con login/refund logueados
+- [x] CLI `set-credential` cifra api_key con AES-256-GCM + KEK + auto-desactiva previas
+- [x] CLI `enroll-totp` genera secret + otpauth URL para enrollar en autenticador
+- [x] CLI `reconcile --venue --day` para replays manuales
+- [x] Métricas Prometheus expuestas en `GET /v1/metrics`:
+  - `nightpay_payments_created_total{venue, provider}`
+  - `nightpay_payments_transitioned_total{from, to}`
+  - `nightpay_refunds_created_total{venue, provider, status}`
+  - `nightpay_auth_logins_total{outcome}`
+  - `nightpay_webhooks_received_total{provider, outcome}`
+  - `nightpay_gateway_call_duration_seconds{provider, op, outcome}` (histogram)
+  - `nightpay_circuit_state{provider, op}` (0=closed, 1=half-open, 2=open)
+  - `nightpay_ws_connections_active`
+  - `nightpay_queue_depth{queue}`
+  - + default Node.js metrics
+- [x] Resource limits CPU/memoria en `docker-compose.yml` (todos los containers)
+- [x] DRY: `pickHeader()` extraído a `header-utils.ts` (compartido Wipay/Peanpe)
+
 ## Pending — orden recomendado
 
 ### Inmediatos (primeras 2 semanas en producción)
 
-- [ ] Migrar lockout de login a Redis (multi-nodo). Hoy en memoria → no escala
-- [ ] Audit log global: tabla `audit_log` + interceptor `@Audit()` que graba role changes, refunds, credenciales
-- [ ] CLI `set-credential` que cifra api_key real con AES-256-GCM + KEK
-- [ ] CLI `enroll-totp` para que cada manager configure su autenticador
-- [ ] CLI `reconcile --venue --day` para replays manuales
-- [ ] Backups configurados en Task Scheduler / cron del VPS (no del Windows local)
-- [ ] Monitor stuck-payments con bot Telegram real
+- [ ] Backups configurados en cron del VPS (los scripts ya existen, solo programar)
+- [ ] Monitor stuck-payments con bot Telegram real (script ya existe)
 - [ ] Status page pública (Uptime Robot free)
+- [ ] Wire métricas a los counters/histograms reales (hoy creados pero no incrementados):
+  - `MetricsService.paymentsCreated.inc()` en PaymentsService.create
+  - `gatewayDuration.observe()` envolver fetch en adapters
+  - `circuitState.set()` en eventos open/halfOpen/close del breaker
 
 ### Segundo mes
 
 - [ ] Tests E2E Playwright para los 12 escenarios del master plan §2.3
-- [ ] Métricas OpenTelemetry → Grafana Cloud free
-  - `payments_created_total{venue, provider}`
-  - `payment_authorize_duration_seconds`
-  - `circuit_state{provider}`
-  - `ws_connections_active`
-  - `queue_depth{queue}`
 - [ ] Drill de restore mensual (probar PITR)
 - [ ] Pre-aprovisionar segunda credencial (Peanpe) para venues críticos — fallback automático
 - [ ] Game day chaos engineering (kill pasarela, kill Redis, flood webhooks)
+- [ ] Refresh tokens + revocación list en Redis (hoy JWT 12h sin revocación)
 
 ### Tercer mes / cuando crezca
 

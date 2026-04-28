@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: np
       POSTGRES_PASSWORD: np
     ports:
-      # host 4432 -> container 5432 (puertos 4xxx libres en este entorno)
+      # host 4432 -> container 5432
       - '4432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -17,15 +17,21 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1.0'
+        reservations:
+          memory: 256m
+          cpus: '0.25'
 
   redis:
     image: redis:7-alpine
     container_name: nightpay_redis
     # noeviction es obligatorio para BullMQ (no debe borrar jobs).
-    # Cache app-level usa expiraciones explicitas (TTL por key).
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
     ports:
-      # host 4379 -> container 6379
       - '4379:6379'
     volumes:
       - redisdata:/data
@@ -34,6 +40,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 320m
+          cpus: '0.5'
+        reservations:
+          memory: 64m
+          cpus: '0.1'
 
   mailhog:
     image: mailhog/mailhog:latest
@@ -41,6 +55,11 @@ services:
     ports:
       - '4525:1025' # SMTP
       - '4825:8025' # UI
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.25'
 
   mock-wipay:
     build:
@@ -55,6 +74,11 @@ services:
       WEBHOOK_SECRET: dev_wipay_secret
     extra_hosts:
       - 'host.docker.internal:host-gateway'
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.25'
 
   mock-peanpe:
     build:
@@ -69,6 +93,11 @@ services:
       WEBHOOK_SECRET: dev_peanpe_secret
     extra_hosts:
       - 'host.docker.internal:host-gateway'
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.25'
 
 volumes:
   pgdata:

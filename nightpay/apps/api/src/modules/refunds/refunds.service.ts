@@ -14,6 +14,7 @@ import { GatewayRegistry } from '../gateways/gateway.registry';
 import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { TotpService } from '../auth/totp.service';
+import { AuditService } from '../audit/audit.service';
 import type { Role } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
 
@@ -34,6 +35,7 @@ export class RefundsService {
   private readonly gateways: GatewayRegistry;
   private readonly payments: PaymentsService;
   private readonly totp: TotpService;
+  private readonly audit: AuditService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -41,12 +43,14 @@ export class RefundsService {
     @Inject(GatewayRegistry) gateways: GatewayRegistry,
     @Inject(PaymentsService) payments: PaymentsService,
     @Inject(TotpService) totp: TotpService,
+    @Inject(AuditService) audit: AuditService,
   ) {
     this.prisma = prisma;
     this.cls = cls;
     this.gateways = gateways;
     this.payments = payments;
     this.totp = totp;
+    this.audit = audit;
   }
 
   async refund(
@@ -159,7 +163,22 @@ export class RefundsService {
       }
     }
 
-    // Refund event log con traceId
+    // Audit log
+    await this.audit.log({
+      action: 'refund.created',
+      tenantId: payment.tenantId,
+      actorId: actor.userId,
+      targetType: 'Payment',
+      targetId: payment.id,
+      payload: {
+        refundId: refund.id,
+        amountCents: request.amountCents,
+        provider: payment.provider,
+        providerRefundId,
+        twoFactorRequired: request.amountCents >= TWO_FA_THRESHOLD_CENTS,
+      },
+    });
+
     const traceId = this.cls.get('ctx')?.traceId ?? randomUUID();
     this.logger.log(
       `Refund ${refund.id} -> ${request.amountCents}c on payment ${payment.id} actor=${actor.userId} trace=${traceId}`,
