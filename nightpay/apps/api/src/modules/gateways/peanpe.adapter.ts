@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type CircuitBreaker from 'opossum';
 import type {
   AuthorizeInput,
   AuthorizeResult,
@@ -10,6 +11,7 @@ import type {
   WebhookVerifyResult,
 } from '@nightpay/contracts';
 import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
+import { createBreaker, fetchWithTimeout } from './circuit-breaker';
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
@@ -28,58 +30,104 @@ export class PeanpeAdapter implements GatewayAdapter {
 
   private readonly logger = new Logger(PeanpeAdapter.name);
   private readonly config: ConfigService;
+  private readonly authorizeBreaker: CircuitBreaker<[AuthorizeInput], AuthorizeResult>;
+  private readonly statusBreaker: CircuitBreaker<[string, string], GatewayStatus>;
+  private readonly refundBreaker: CircuitBreaker<[RefundInput], RefundResult>;
+  private readonly timeoutMs: number;
 
   constructor(@Inject(ConfigService) config: ConfigService) {
     this.config = config;
+    this.timeoutMs = config.get<number>('GATEWAY_TIMEOUT_MS') ?? 5000;
+
+    this.authorizeBreaker = createBreaker((input: AuthorizeInput) => this.doAuthorize(input), {
+      name: 'peanpe.authorize',
+      timeoutMs: this.timeoutMs,
+    });
+    this.statusBreaker = createBreaker(
+      (tenantId: string, providerTxId: string) => this.doGetStatus(tenantId, providerTxId),
+      { name: 'peanpe.getStatus', timeoutMs: this.timeoutMs },
+    );
+    this.refundBreaker = createBreaker((input: RefundInput) => this.doRefund(input), {
+      name: 'peanpe.refund',
+      timeoutMs: this.timeoutMs,
+    });
   }
 
   async authorize(input: AuthorizeInput): Promise<AuthorizeResult> {
+    return this.authorizeBreaker.fire(input);
+  }
+
+  async getStatus(tenantId: string, providerTxId: string): Promise<GatewayStatus> {
+    return this.statusBreaker.fire(tenantId, providerTxId);
+  }
+
+  async refund(input: RefundInput): Promise<RefundResult> {
+    return this.refundBreaker.fire(input);
+  }
+
+  // ─── implementaciones ─────────────────────────────────────────────
+
+  private async doAuthorize(input: AuthorizeInput): Promise<AuthorizeResult> {
     const url = `${this.baseUrl()}/payments`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        externalRef: input.reference,
-        amountCents: input.amountCents,
-        venueId: input.tenantId,
-      }),
-    });
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          externalRef: input.reference,
+          amountCents: input.amountCents,
+          venueId: input.tenantId,
+        }),
+      },
+      this.timeoutMs,
+    );
     if (!res.ok) {
-      throw new Error(`Peanpe authorize failed: ${res.status} ${await res.text()}`);
+      throw new Error(`Peanpe authorize failed: ${res.status}`);
     }
     const data = (await res.json()) as { id?: string };
+    if (!data.id) throw new Error('Peanpe authorize: missing id');
     return {
       provider: 'PEANPE',
-      providerTxId: data.id ?? `PEANPE-${randomUUID()}`,
+      providerTxId: data.id,
       status: 'PROCESSING',
     };
   }
 
-  async getStatus(_tenantId: string, providerTxId: string): Promise<GatewayStatus> {
-    const res = await fetch(`${this.baseUrl()}/payments/${providerTxId}`);
+  private async doGetStatus(_tenantId: string, providerTxId: string): Promise<GatewayStatus> {
+    const res = await fetchWithTimeout(
+      `${this.baseUrl()}/payments/${providerTxId}`,
+      {},
+      this.timeoutMs,
+    );
     if (!res.ok) return 'UNKNOWN';
     const data = (await res.json()) as { state?: string };
     return mapPeanpeStatus(data.state);
   }
 
-  async refund(input: RefundInput): Promise<RefundResult> {
-    const res = await fetch(`${this.baseUrl()}/payments/${input.providerTxId}/refund`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': input.reference,
+  private async doRefund(input: RefundInput): Promise<RefundResult> {
+    const res = await fetchWithTimeout(
+      `${this.baseUrl()}/payments/${input.providerTxId}/refund`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': input.reference,
+        },
+        body: JSON.stringify({
+          amountCents: input.amountCents,
+          reason: input.reason ?? '',
+        }),
       },
-      body: JSON.stringify({
-        amountCents: input.amountCents,
-        reason: input.reason ?? '',
-      }),
-    });
+      this.timeoutMs,
+    );
     if (!res.ok) {
-      throw new Error(`Peanpe refund failed: ${res.status} ${await res.text()}`);
+      throw new Error(`Peanpe refund failed: ${res.status}`);
     }
     const data = (await res.json()) as { id?: string; state?: string };
+    if (!data.id) throw new Error('Peanpe refund: missing id');
     return {
-      providerRefundId: data.id ?? `PEANPE-RF-${randomUUID()}`,
+      providerRefundId: data.id,
       status: data.state?.toLowerCase() === 'failed' ? 'FAILED' : 'SUCCEEDED',
     };
   }
@@ -98,7 +146,9 @@ export class PeanpeAdapter implements GatewayAdapter {
     }
 
     const secret = this.config.getOrThrow<string>('PEANPE_WEBHOOK_SECRET');
-    const expected = createHmac('sha256', secret).update(`${ts}.${rawBody.toString('utf8')}`).digest('hex');
+    const expected = createHmac('sha256', secret)
+      .update(`${ts}.${rawBody.toString('utf8')}`)
+      .digest('hex');
 
     let valid = false;
     try {

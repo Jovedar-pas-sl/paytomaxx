@@ -13,6 +13,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
+import { TotpService } from '../auth/totp.service';
 import type { Role } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
 
@@ -32,17 +33,20 @@ export class RefundsService {
   private readonly cls: ClsService<{ ctx: RequestContext }>;
   private readonly gateways: GatewayRegistry;
   private readonly payments: PaymentsService;
+  private readonly totp: TotpService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(ClsService) cls: ClsService<{ ctx: RequestContext }>,
     @Inject(GatewayRegistry) gateways: GatewayRegistry,
     @Inject(PaymentsService) payments: PaymentsService,
+    @Inject(TotpService) totp: TotpService,
   ) {
     this.prisma = prisma;
     this.cls = cls;
     this.gateways = gateways;
     this.payments = payments;
+    this.totp = totp;
   }
 
   async refund(
@@ -53,14 +57,27 @@ export class RefundsService {
       throw new ForbiddenException('WAITER cannot refund');
     }
 
-    // 2FA TOTP requerido para refunds >= 100€
+    // 2FA TOTP requerido para refunds >= 100€ — verificacion REAL con speakeasy
     if (request.amountCents >= TWO_FA_THRESHOLD_CENTS) {
       if (!request.totpCode) {
         throw new ForbiddenException('TOTP required for refunds >= 100 EUR');
       }
-      // TODO Sprint 6.5: verificar request.totpCode contra user.totpSecret (speakeasy)
-      // Por ahora aceptamos cualquier code 6-digit como placeholder
-      this.logger.warn(`2FA placeholder accepted (TODO real verification): user=${actor.userId}`);
+      const user = await this.prisma.user.findUnique({
+        where: { id: actor.userId },
+        select: { totpSecret: true, email: true },
+      });
+      if (!user?.totpSecret) {
+        // El user nunca enrolo TOTP — bloquear refund hasta que lo haga.
+        throw new ForbiddenException(
+          'TOTP not enrolled for this user — contact owner to enroll before high-value refunds',
+        );
+      }
+      const valid = this.totp.verify(user.totpSecret, request.totpCode);
+      if (!valid) {
+        this.logger.warn(`TOTP invalid for user ${actor.userId} (${user.email})`);
+        throw new ForbiddenException('Invalid TOTP code');
+      }
+      this.logger.log(`TOTP verified for high-value refund: user=${actor.userId}`);
     }
 
     // Lookup payment + lock implicit en la transaction de refund

@@ -108,14 +108,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
-   * Ejecuta una transacción con contexto RLS aplicado (SET LOCAL app.current_tenant_id).
-   * Usar para operaciones que deben pasar por RLS en lugar del middleware de app.
+   * Ejecuta una transaccion con contexto RLS aplicado (SET LOCAL app.current_tenant_id).
+   * SECURITY: tenantId se valida como UUID antes de interpolar — Postgres SET LOCAL
+   * no admite placeholders parametrizados, asi que validamos en codigo.
    */
   async withTenantTransaction<T>(
     tenantId: string,
     fn: (tx: TransactionalClient) => Promise<T>,
   ): Promise<T> {
+    if (!UUID_REGEX.test(tenantId)) {
+      throw new Error('withTenantTransaction: tenantId is not a valid UUID');
+    }
     return this.$transaction(async (tx) => {
+      // tenantId valido por regex — interpolacion segura
       await tx.$executeRawUnsafe(`SET LOCAL app.current_tenant_id = '${tenantId}'`);
       return fn(tx);
     });
@@ -123,7 +128,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   /**
    * Escapa RLS para operaciones de sistema (seed, CLI, migraciones, jobs globales).
-   * Usar con extremo cuidado.
+   * SQL literal — sin input externo, no injection-prone.
    */
   async asSystem<T>(fn: (tx: TransactionalClient) => Promise<T>): Promise<T> {
     return this.$transaction(async (tx) => {
@@ -132,6 +137,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     });
   }
 }
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Tipo del cliente dentro de una transacción Prisma ($transaction callback).

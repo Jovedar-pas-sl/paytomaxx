@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type CircuitBreaker from 'opossum';
 import type {
   AuthorizeInput,
   AuthorizeResult,
@@ -10,6 +11,7 @@ import type {
   WebhookVerifyResult,
 } from '@nightpay/contracts';
 import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
+import { createBreaker, fetchWithTimeout } from './circuit-breaker';
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
@@ -23,71 +25,116 @@ interface WipayWebhook {
   timestamp?: number;
 }
 
-/**
- * Adapter Wipay (mock en dev — apunta a localhost:4901).
- */
 @Injectable()
 export class WipayAdapter implements GatewayAdapter {
   readonly provider = 'WIPAY' as const;
 
   private readonly logger = new Logger(WipayAdapter.name);
   private readonly config: ConfigService;
+  private readonly authorizeBreaker: CircuitBreaker<[AuthorizeInput], AuthorizeResult>;
+  private readonly statusBreaker: CircuitBreaker<[string, string], GatewayStatus>;
+  private readonly refundBreaker: CircuitBreaker<[RefundInput], RefundResult>;
+  private readonly timeoutMs: number;
 
   constructor(@Inject(ConfigService) config: ConfigService) {
     this.config = config;
+    this.timeoutMs = config.get<number>('GATEWAY_TIMEOUT_MS') ?? 5000;
+
+    this.authorizeBreaker = createBreaker((input: AuthorizeInput) => this.doAuthorize(input), {
+      name: 'wipay.authorize',
+      timeoutMs: this.timeoutMs,
+    });
+    this.statusBreaker = createBreaker(
+      (tenantId: string, providerTxId: string) => this.doGetStatus(tenantId, providerTxId),
+      { name: 'wipay.getStatus', timeoutMs: this.timeoutMs },
+    );
+    this.refundBreaker = createBreaker((input: RefundInput) => this.doRefund(input), {
+      name: 'wipay.refund',
+      timeoutMs: this.timeoutMs,
+    });
   }
 
   async authorize(input: AuthorizeInput): Promise<AuthorizeResult> {
+    return this.authorizeBreaker.fire(input);
+  }
+
+  async getStatus(tenantId: string, providerTxId: string): Promise<GatewayStatus> {
+    return this.statusBreaker.fire(tenantId, providerTxId);
+  }
+
+  async refund(input: RefundInput): Promise<RefundResult> {
+    return this.refundBreaker.fire(input);
+  }
+
+  // ─── implementaciones tras el circuit breaker ─────────────────────
+
+  private async doAuthorize(input: AuthorizeInput): Promise<AuthorizeResult> {
     const url = `${this.baseUrl()}/v1/authorize`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        reference: input.reference,
-        amount: input.amountCents,
-        currency: input.currency,
-        terminal: input.terminalExternalId,
-      }),
-    });
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reference: input.reference,
+          amount: input.amountCents,
+          currency: input.currency,
+          terminal: input.terminalExternalId,
+        }),
+      },
+      this.timeoutMs,
+    );
     if (!res.ok) {
-      throw new Error(`Wipay authorize failed: ${res.status} ${await res.text()}`);
+      throw new Error(`Wipay authorize failed: ${res.status}`);
     }
     const data = (await res.json()) as { transaction_id?: string };
+    if (!data.transaction_id) {
+      throw new Error('Wipay authorize: missing transaction_id');
+    }
     return {
       provider: 'WIPAY',
-      providerTxId: data.transaction_id ?? `WPY-${randomUUID()}`,
+      providerTxId: data.transaction_id,
       status: 'PROCESSING',
     };
   }
 
-  async getStatus(_tenantId: string, providerTxId: string): Promise<GatewayStatus> {
-    const res = await fetch(`${this.baseUrl()}/v1/transactions/${providerTxId}`);
+  private async doGetStatus(_tenantId: string, providerTxId: string): Promise<GatewayStatus> {
+    const res = await fetchWithTimeout(
+      `${this.baseUrl()}/v1/transactions/${providerTxId}`,
+      {},
+      this.timeoutMs,
+    );
     if (!res.ok) return 'UNKNOWN';
     const data = (await res.json()) as { status?: string };
     return mapWipayStatus(data.status);
   }
 
-  async refund(input: RefundInput): Promise<RefundResult> {
-    const res = await fetch(`${this.baseUrl()}/v1/transactions/${input.providerTxId}/refund`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': input.reference,
+  private async doRefund(input: RefundInput): Promise<RefundResult> {
+    const res = await fetchWithTimeout(
+      `${this.baseUrl()}/v1/transactions/${input.providerTxId}/refund`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': input.reference,
+        },
+        body: JSON.stringify({
+          amount: input.amountCents,
+          reason: input.reason ?? '',
+        }),
       },
-      body: JSON.stringify({
-        amount: input.amountCents,
-        reason: input.reason ?? '',
-      }),
-    });
+      this.timeoutMs,
+    );
     if (!res.ok) {
-      throw new Error(`Wipay refund failed: ${res.status} ${await res.text()}`);
+      throw new Error(`Wipay refund failed: ${res.status}`);
     }
     const data = (await res.json()) as { refund_id?: string; status?: string };
+    if (!data.refund_id) {
+      throw new Error('Wipay refund: missing refund_id');
+    }
     return {
-      providerRefundId: data.refund_id ?? `WPY-RF-${randomUUID()}`,
-      status: (data.status?.toUpperCase() === 'FAILED' ? 'FAILED' : 'SUCCEEDED') as
-        | 'SUCCEEDED'
-        | 'FAILED',
+      providerRefundId: data.refund_id,
+      status: data.status?.toUpperCase() === 'FAILED' ? 'FAILED' : 'SUCCEEDED',
     };
   }
 
@@ -105,7 +152,9 @@ export class WipayAdapter implements GatewayAdapter {
     }
 
     const secret = this.config.getOrThrow<string>('WIPAY_WEBHOOK_SECRET');
-    const expected = createHmac('sha256', secret).update(`${ts}.${rawBody.toString('utf8')}`).digest('hex');
+    const expected = createHmac('sha256', secret)
+      .update(`${ts}.${rawBody.toString('utf8')}`)
+      .digest('hex');
 
     let valid = false;
     try {

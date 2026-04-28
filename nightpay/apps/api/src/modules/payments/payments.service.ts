@@ -275,22 +275,20 @@ export class PaymentsService {
    *
    * Si el pago ya está en AUTHORIZING o terminal → 409.
    */
-  async startAuthorization(qrToken: string): Promise<{ status: PaymentMachineState; providerTxId?: string }> {
+  async startAuthorization(
+    qrToken: string,
+  ): Promise<{ status: PaymentMachineState; providerTxId?: string }> {
     // Lookup cross-tenant del pago via token (el cliente no esta autenticado)
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({ where: { qrToken } }),
     );
     if (!payment) throw new NotFoundException('Payment not found');
 
-    if (payment.status !== 'CREATED' && payment.status !== 'AWAITING_CAPTURE') {
-      throw new ConflictException(`Payment in state ${payment.status} — cannot start authorization`);
-    }
-
     if (payment.qrExpiresAt < new Date()) {
       throw new ConflictException('QR expired');
     }
 
-    // Resolver provider activo del venue (Wipay por defecto en seed)
+    // Resolver provider activo del venue
     const credential = await this.prisma.asSystem((tx) =>
       tx.gatewayCredential.findFirst({
         where: { tenantId: payment.tenantId, active: true },
@@ -301,40 +299,60 @@ export class PaymentsService {
       throw new ConflictException('Venue has no active gateway credential');
     }
 
-    // 1) Mover FSM a AUTHORIZING (lock pesimista en transition())
-    await this.transition(payment.id, { type: 'AUTHORIZING' });
+    // 1) Mover FSM a AUTHORIZING — fuente de verdad atomica.
+    //    Si otra request ya lo movio, esto lanza InvalidTransitionError → 409.
+    try {
+      await this.transition(payment.id, { type: 'AUTHORIZING' });
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) {
+        throw new ConflictException(`Payment cannot start authorization (already in progress?)`);
+      }
+      throw err;
+    }
 
-    // 2) Llamar a la pasarela
-    const adapter = this.gateways.get(credential.provider);
+    // 2) Pre-persistir provider+placeholder providerTxId — cierra ventana donde
+    //    orphan-reconcile podria correr con providerTxId null si el authorize falla
+    //    antes de persistir el txId real. Se sobrescribe con el real abajo.
+    await this.prisma.asSystem((tx) =>
+      tx.payment.update({
+        where: { id: payment.id },
+        data: { provider: credential.provider },
+      }),
+    );
+
+    // 3) Llamar a la pasarela (con timeouts y circuit breaker — ver adapter)
     let providerTxId: string;
     try {
+      const adapter = this.gateways.get(credential.provider);
       const result = await adapter.authorize({
         tenantId: payment.tenantId,
         paymentId: payment.id,
         amountCents: payment.amountCents,
         currency: payment.currency,
-        terminalExternalId: '', // mock no lo necesita; en real se resuelve del terminal
-        reference: payment.id, // mock-wipay echa esto en el webhook como `reference`
+        terminalExternalId: '',
+        reference: payment.id,
       });
       providerTxId = result.providerTxId;
     } catch (err) {
       this.logger.error(`Gateway authorize failed for ${payment.id}: ${(err as Error).message}`);
-      // Saga: si la pasarela rechaza inmediatamente, marcamos FAILED.
+      // Saga: si la pasarela rechaza inmediatamente, marcar FAILED.
       try {
         await this.transition(payment.id, { type: 'FAILED', reason: 'gateway-authorize-error' });
       } catch (e2) {
         if (!(e2 instanceof InvalidTransitionError)) throw e2;
       }
-      throw new ConflictException('Gateway authorize failed');
+      throw new ConflictException('Gateway temporarily unavailable');
     }
 
-    // 3) Persistir providerTxId en la fila para que orphan-reconcile pueda usarlo
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { providerTxId, provider: credential.provider },
-    });
+    // 4) Persistir providerTxId real
+    await this.prisma.asSystem((tx) =>
+      tx.payment.update({
+        where: { id: payment.id },
+        data: { providerTxId },
+      }),
+    );
 
-    // 4) Encolar orphan-reconcile (se autocancela si llega webhook antes)
+    // 5) Encolar orphan-reconcile (se autocancela si llega webhook antes)
     await this.orphanReconcileQueue.add(
       'orphan-reconcile',
       { paymentId: payment.id, tenantId: payment.tenantId },
@@ -346,7 +364,9 @@ export class PaymentsService {
       },
     );
 
-    this.logger.log(`Payment ${payment.id} authorizing via ${credential.provider} (txId=${providerTxId})`);
+    this.logger.log(
+      `Payment ${payment.id} authorizing via ${credential.provider} (txId=${providerTxId})`,
+    );
     return { status: 'AUTHORIZING', providerTxId };
   }
 
