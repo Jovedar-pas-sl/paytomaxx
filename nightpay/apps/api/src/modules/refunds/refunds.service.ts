@@ -1,0 +1,166 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { ClsService } from 'nestjs-cls';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { GatewayRegistry } from '../gateways/gateway.registry';
+import { PaymentsService } from '../payments/payments.service';
+import { InvalidTransitionError } from '../payments/payment.machine';
+import type { Role } from '@nightpay/contracts';
+import type { RequestContext } from '../../common/context/request-context';
+
+const TWO_FA_THRESHOLD_CENTS = 100_00; // 100€
+
+export interface RefundRequest {
+  paymentId: string;
+  amountCents: number;
+  reason?: string;
+  totpCode?: string;
+}
+
+@Injectable()
+export class RefundsService {
+  private readonly logger = new Logger(RefundsService.name);
+  private readonly prisma: PrismaService;
+  private readonly cls: ClsService<{ ctx: RequestContext }>;
+  private readonly gateways: GatewayRegistry;
+  private readonly payments: PaymentsService;
+
+  constructor(
+    @Inject(PrismaService) prisma: PrismaService,
+    @Inject(ClsService) cls: ClsService<{ ctx: RequestContext }>,
+    @Inject(GatewayRegistry) gateways: GatewayRegistry,
+    @Inject(PaymentsService) payments: PaymentsService,
+  ) {
+    this.prisma = prisma;
+    this.cls = cls;
+    this.gateways = gateways;
+    this.payments = payments;
+  }
+
+  async refund(
+    request: RefundRequest,
+    actor: { userId: string; role: Role; tenantId: string },
+  ) {
+    if (actor.role === 'WAITER') {
+      throw new ForbiddenException('WAITER cannot refund');
+    }
+
+    // 2FA TOTP requerido para refunds >= 100€
+    if (request.amountCents >= TWO_FA_THRESHOLD_CENTS) {
+      if (!request.totpCode) {
+        throw new ForbiddenException('TOTP required for refunds >= 100 EUR');
+      }
+      // TODO Sprint 6.5: verificar request.totpCode contra user.totpSecret (speakeasy)
+      // Por ahora aceptamos cualquier code 6-digit como placeholder
+      this.logger.warn(`2FA placeholder accepted (TODO real verification): user=${actor.userId}`);
+    }
+
+    // Lookup payment + lock implicit en la transaction de refund
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: request.paymentId },
+    });
+    if (!payment) throw new NotFoundException('Payment not found');
+    if (payment.status !== 'AUTHORIZED' && payment.status !== 'PARTIALLY_REFUNDED') {
+      throw new ConflictException(`Cannot refund payment in state ${payment.status}`);
+    }
+    if (request.amountCents > payment.availableAmountCents) {
+      throw new BadRequestException(
+        `amountCents (${request.amountCents}) exceeds available (${payment.availableAmountCents})`,
+      );
+    }
+    if (!payment.providerTxId || !payment.provider) {
+      throw new ConflictException('Payment has no provider transaction id');
+    }
+
+    // 1) Crear registro Refund (PENDING)
+    const refund = await this.prisma.refund.create({
+      data: {
+        tenantId: payment.tenantId,
+        paymentId: payment.id,
+        amountCents: request.amountCents,
+        reason: request.reason,
+        requestedBy: actor.userId,
+        status: 'PENDING',
+      },
+    });
+
+    // 2) Llamar a la pasarela (idempotente por refund.id)
+    let providerRefundId: string;
+    try {
+      const adapter = this.gateways.get(payment.provider);
+      const result = await adapter.refund({
+        tenantId: payment.tenantId,
+        paymentId: payment.id,
+        providerTxId: payment.providerTxId,
+        amountCents: request.amountCents,
+        reason: request.reason,
+        reference: refund.id,
+      });
+      providerRefundId = result.providerRefundId;
+      if (result.status === 'FAILED') {
+        await this.prisma.refund.update({
+          where: { id: refund.id },
+          data: { status: 'FAILED', providerRefundId },
+        });
+        throw new ConflictException('Gateway refund failed');
+      }
+    } catch (err) {
+      this.logger.error(`Refund gateway call failed: ${(err as Error).message}`);
+      await this.prisma.refund.update({
+        where: { id: refund.id },
+        data: { status: 'FAILED' },
+      });
+      if (err instanceof ConflictException) throw err;
+      throw new ConflictException('Refund gateway error');
+    }
+
+    // 3) Actualizar Refund + transitar FSM (REFUND_PARTIAL puede cubrir todo el saldo)
+    await this.prisma.refund.update({
+      where: { id: refund.id },
+      data: { status: 'SUCCEEDED', providerRefundId },
+    });
+
+    try {
+      await this.payments.transition(payment.id, {
+        type: 'REFUND_PARTIAL',
+        amountCents: request.amountCents,
+      });
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) {
+        // Pago ya fue refundeado por race; el Refund ya esta SUCCEEDED, todo bien
+        this.logger.warn(`Refund FSM transition rejected (already refunded?): ${err.message}`);
+      } else {
+        throw err;
+      }
+    }
+
+    // Refund event log con traceId
+    const traceId = this.cls.get('ctx')?.traceId ?? randomUUID();
+    this.logger.log(
+      `Refund ${refund.id} -> ${request.amountCents}c on payment ${payment.id} actor=${actor.userId} trace=${traceId}`,
+    );
+
+    return {
+      id: refund.id,
+      paymentId: payment.id,
+      amountCents: request.amountCents,
+      status: 'SUCCEEDED' as const,
+      providerRefundId,
+    };
+  }
+
+  async listForPayment(paymentId: string) {
+    return this.prisma.refund.findMany({
+      where: { paymentId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+}

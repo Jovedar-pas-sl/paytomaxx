@@ -3,6 +3,8 @@ import type {
   AuthorizeResult,
   GatewayStatus,
   Provider,
+  RefundInput,
+  RefundResult,
   WebhookVerifyResult,
 } from '@nightpay/contracts';
 import type { PaymentEvent } from '../payments/payment.machine';
@@ -28,6 +30,9 @@ export interface GatewayAdapter {
 
   /** Consulta estado actual (saga orphan-reconcile). */
   getStatus(tenantId: string, providerTxId: string): Promise<GatewayStatus>;
+
+  /** Reembolsa total o parcialmente. Idempotente por `reference`. */
+  refund(input: RefundInput): Promise<RefundResult>;
 
   /** Verifica HMAC del webhook + extrae event id + payment ref. */
   verifyWebhook(headers: Record<string, string | string[] | undefined>, rawBody: Buffer): WebhookVerifyResult;

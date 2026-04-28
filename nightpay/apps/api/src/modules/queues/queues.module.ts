@@ -4,7 +4,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { QrExpireProcessor } from './qr-expire.processor';
 import { OrphanReconcileProcessor } from './orphan-reconcile.processor';
 import { WebhookIngestProcessor } from './webhook-ingest.processor';
-import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE, WEBHOOKS_INGEST_QUEUE } from './queue-tokens';
+import { ReconcileDailyProcessor } from './reconcile-daily.processor';
+import { ReconcileSchedulerService } from './reconcile-scheduler.service';
+import {
+  QR_EXPIRE_QUEUE,
+  ORPHAN_RECONCILE_QUEUE,
+  WEBHOOKS_INGEST_QUEUE,
+  RECONCILIATION_QUEUE,
+} from './queue-tokens';
 import { PaymentsModule } from '../payments/payments.module';
 
 /**
@@ -36,10 +43,17 @@ import { PaymentsModule } from '../payments/payments.module';
       { name: QR_EXPIRE_QUEUE },
       { name: ORPHAN_RECONCILE_QUEUE },
       { name: WEBHOOKS_INGEST_QUEUE },
+      { name: RECONCILIATION_QUEUE },
     ),
     forwardRef(() => PaymentsModule),
   ],
-  providers: [QrExpireProcessor, OrphanReconcileProcessor, WebhookIngestProcessor],
+  providers: [
+    QrExpireProcessor,
+    OrphanReconcileProcessor,
+    WebhookIngestProcessor,
+    ReconcileDailyProcessor,
+    ReconcileSchedulerService,
+  ],
   exports: [BullModule],
 })
 export class QueuesModule {}

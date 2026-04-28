@@ -5,6 +5,8 @@ import type {
   AuthorizeInput,
   AuthorizeResult,
   GatewayStatus,
+  RefundInput,
+  RefundResult,
   WebhookVerifyResult,
 } from '@nightpay/contracts';
 import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
@@ -58,6 +60,28 @@ export class PeanpeAdapter implements GatewayAdapter {
     if (!res.ok) return 'UNKNOWN';
     const data = (await res.json()) as { state?: string };
     return mapPeanpeStatus(data.state);
+  }
+
+  async refund(input: RefundInput): Promise<RefundResult> {
+    const res = await fetch(`${this.baseUrl()}/payments/${input.providerTxId}/refund`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': input.reference,
+      },
+      body: JSON.stringify({
+        amountCents: input.amountCents,
+        reason: input.reason ?? '',
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Peanpe refund failed: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as { id?: string; state?: string };
+    return {
+      providerRefundId: data.id ?? `PEANPE-RF-${randomUUID()}`,
+      status: data.state?.toLowerCase() === 'failed' ? 'FAILED' : 'SUCCEEDED',
+    };
   }
 
   verifyWebhook(

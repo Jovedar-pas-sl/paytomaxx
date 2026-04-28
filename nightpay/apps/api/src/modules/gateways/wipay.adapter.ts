@@ -5,6 +5,8 @@ import type {
   AuthorizeInput,
   AuthorizeResult,
   GatewayStatus,
+  RefundInput,
+  RefundResult,
   WebhookVerifyResult,
 } from '@nightpay/contracts';
 import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
@@ -63,6 +65,30 @@ export class WipayAdapter implements GatewayAdapter {
     if (!res.ok) return 'UNKNOWN';
     const data = (await res.json()) as { status?: string };
     return mapWipayStatus(data.status);
+  }
+
+  async refund(input: RefundInput): Promise<RefundResult> {
+    const res = await fetch(`${this.baseUrl()}/v1/transactions/${input.providerTxId}/refund`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': input.reference,
+      },
+      body: JSON.stringify({
+        amount: input.amountCents,
+        reason: input.reason ?? '',
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Wipay refund failed: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as { refund_id?: string; status?: string };
+    return {
+      providerRefundId: data.refund_id ?? `WPY-RF-${randomUUID()}`,
+      status: (data.status?.toUpperCase() === 'FAILED' ? 'FAILED' : 'SUCCEEDED') as
+        | 'SUCCEEDED'
+        | 'FAILED',
+    };
   }
 
   verifyWebhook(

@@ -37,3 +37,19 @@ export const AuthorizeResultSchema = z.object({
   status: GatewayStatusSchema,
 });
 export type AuthorizeResult = z.infer<typeof AuthorizeResultSchema>;
+
+export const RefundInputSchema = z.object({
+  tenantId: z.string().uuid(),
+  paymentId: z.string().uuid(),
+  providerTxId: z.string(),
+  amountCents: z.number().int().positive(),
+  reason: z.string().max(500).optional(),
+  reference: z.string().describe('id interno del refund, sirve como idempotency key en pasarela'),
+});
+export type RefundInput = z.infer<typeof RefundInputSchema>;
+
+export const RefundResultSchema = z.object({
+  providerRefundId: z.string(),
+  status: z.enum(['SUCCEEDED', 'PENDING', 'FAILED']),
+});
+export type RefundResult = z.infer<typeof RefundResultSchema>;

@@ -156,6 +156,26 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
             alt="QR"
             style={{ width: 320, height: 320, marginTop: '1rem', borderRadius: '0.5rem' }}
           />
+
+          <div style={qrUrlBoxStyle}>
+            <span style={{ color: '#888', fontSize: '0.75rem' }}>URL del QR (copiar y abrir en otro navegador):</span>
+            <div style={qrUrlRowStyle}>
+              <code style={qrUrlCodeStyle}>{active.qrUrl}</code>
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(active.qrUrl);
+                  } catch {
+                    /* fallback: select */
+                  }
+                }}
+                style={copyBtnStyle}
+              >
+                Copiar
+              </button>
+            </div>
+          </div>
+
           <StatusView status={status ?? 'CREATED'} />
           <button onClick={reset} style={cancelBtn}>
             Cancelar / Nuevo cobro
@@ -286,6 +306,47 @@ const cancelBtn: React.CSSProperties = {
   color: '#aaa',
   border: '1px solid #444',
   borderRadius: '0.5rem',
+  cursor: 'pointer',
+};
+
+const qrUrlBoxStyle: React.CSSProperties = {
+  marginTop: '1rem',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: '0.4rem',
+  width: '100%',
+  maxWidth: '36rem',
+};
+
+const qrUrlRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: '0.5rem',
+  alignItems: 'center',
+  width: '100%',
+};
+
+const qrUrlCodeStyle: React.CSSProperties = {
+  flex: 1,
+  padding: '0.5rem 0.75rem',
+  fontSize: '0.75rem',
+  fontFamily: 'monospace',
+  background: '#1a1a1f',
+  color: '#fafafa',
+  border: '1px solid #444',
+  borderRadius: '0.4rem',
+  userSelect: 'all',
+  overflowX: 'auto',
+  whiteSpace: 'nowrap',
+};
+
+const copyBtnStyle: React.CSSProperties = {
+  padding: '0.5rem 0.9rem',
+  fontSize: '0.8rem',
+  background: '#fafafa',
+  color: '#0b0b10',
+  border: 'none',
+  borderRadius: '0.4rem',
   cursor: 'pointer',
 };
 

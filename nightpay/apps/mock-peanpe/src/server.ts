@@ -38,6 +38,19 @@ app.get<{ Params: { id: string } }>('/payments/:id', async (req) => {
   };
 });
 
+app.post<{
+  Params: { id: string };
+  Body: { amountCents: number; reason?: string };
+}>('/payments/:id/refund', async (req) => {
+  return {
+    id: `PEANPE-RF-${randomUUID()}`,
+    paymentId: req.params.id,
+    amountCents: req.body.amountCents,
+    state: 'succeeded',
+    ts: new Date().toISOString(),
+  };
+});
+
 async function sendWebhook(
   providerTxId: string,
   externalRef: string,

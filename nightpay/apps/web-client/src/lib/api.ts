@@ -22,9 +22,11 @@ export async function fetchPaymentByToken(token: string): Promise<PublicPaymentV
 export async function startAuthorization(
   token: string,
 ): Promise<{ status: string; providerTxId?: string }> {
+  // Body vacio `{}` — Fastify rechaza Content-Type:application/json con body vacio.
   const res = await fetch(`${API_BASE}/v1/payments/public/${token}/start-authorization`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: '{}',
   });
   if (!res.ok) {
     const text = await res.text();

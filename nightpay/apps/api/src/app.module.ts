@@ -6,12 +6,14 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import { AuthGuard } from './common/guards/auth.guard';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { GatewaysModule } from './modules/gateways/gateways.module';
 import { HealthController } from './modules/health/health.controller';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { QueuesModule } from './modules/queues/queues.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
+import { RefundsModule } from './modules/refunds/refunds.module';
 import { VenuesModule } from './modules/venues/venues.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 
@@ -46,6 +48,8 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     AuthModule,
     VenuesModule,
     PaymentsModule,
+    RefundsModule,
+    AdminModule,
     WebhooksModule,
   ],
   controllers: [HealthController],

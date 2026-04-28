@@ -35,6 +35,20 @@ app.get<{ Params: { id: string } }>('/v1/transactions/:id', async (req) => {
   };
 });
 
+app.post<{
+  Params: { id: string };
+  Body: { amount: number; reason?: string };
+}>('/v1/transactions/:id/refund', async (req) => {
+  // Mock: siempre acepta, status SUCCEEDED inmediato
+  return {
+    refund_id: `WPY-RF-${randomUUID()}`,
+    transaction_id: req.params.id,
+    amount: req.body.amount,
+    status: 'SUCCEEDED',
+    timestamp: new Date().toISOString(),
+  };
+});
+
 async function sendWebhook(
   txId: string,
   reference: string,

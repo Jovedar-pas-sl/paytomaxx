@@ -396,12 +396,65 @@ Ver [HARDENING.md](HARDENING.md):
 - Monitor pagos atascados (`scripts/check-stuck-payments.ps1`)
 - ACL del `.env.local`
 
-## Próximos pasos (Sprint 6)
+## Sprint 6 (ya implementado): admin + reembolsos + reconciliation + health real
 
-- Admin dashboard real (http://localhost:4103) — métricas, lista pagos
-- Refund flow (parcial + total) con 2FA TOTP para >100€
-- Job `reconcile-daily` (07:00 AM, match contra export pasarela)
-- Health checks reales (DB+Redis ping)
-- Audit log de cambios role/credenciales/refunds
+### 1. Reinstalar deps + reiniciar API
 
-Di "continúa Sprint 6" cuando estés listo.
+```powershell
+pnpm install
+Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep 2
+.\scripts\dev-api.ps1
+```
+
+Rutas nuevas:
+- `POST /v1/payments/:id/refunds`
+- `GET  /v1/payments/:id/refunds`
+- `GET  /v1/admin/payments`
+- `GET  /v1/admin/metrics`
+
+### 2. Health real
+
+```powershell
+curl.exe http://localhost:4100/v1/health
+```
+
+Debe decir `db: ok` y `redis: ok` (no `skip`).
+
+### 3. Admin dashboard (otra ventana)
+
+```powershell
+cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
+pnpm --filter "@nightpay/admin" dev
+```
+
+[http://localhost:4103](http://localhost:4103) → login con `owner@nightpay.local` / `nightpay-dev-2026`.
+
+Vista:
+- Tiles métricas (hoy + semana, neto destacado)
+- Tabla pagos con filtro por status, refresh 5s
+- Botón **Reembolsar** en AUTHORIZED/PARTIALLY_REFUNDED
+- Modal con importe + razón + (si ≥ 100 €) código TOTP
+
+### 4. Test refund E2E
+
+1. TPV: crear pago 48.50 € + pagar → AUTHORIZED
+2. Admin: click "Reembolsar" → importe `12.50` → confirmar → PARTIALLY_REFUNDED, available 36.00 €
+3. Reembolsar otros `36.00` → REFUNDED
+
+Verifica en DB:
+```powershell
+docker exec -i nightpay_postgres psql -U np -d nightpay -c 'SELECT "amountCents", status, "providerRefundId" FROM refunds ORDER BY "createdAt" DESC LIMIT 5;'
+```
+
+### 5. Reconciliation diaria
+
+Scheduler programa job repetible 07:00 UTC para cada venue. Estado en tabla `reconciliations`.
+
+## Próximos pasos (Sprint 7+)
+
+- 2FA TOTP real (speakeasy) — ahora es placeholder
+- Audit log global (role changes, credentials, refunds)
+- Despliegue Hetzner + Coolify + Cloudflare
+- Integración Wipay/Peanpe real con credenciales descifradas por venue
+- CLI `reconcile --day --venue`
