@@ -26,6 +26,7 @@ server_err.log
 shared_db.json
 exports/
 backups/
+/contracts/
 
 # Node
 node_modules/

@@ -19,11 +19,18 @@ COPY packages/db/package.json packages/db/
 COPY packages/config/package.json packages/config/
 RUN pnpm install --frozen-lockfile
 
-# ─── builder: genera Prisma + compila API ────────────────────────────
+# ─── builder: genera Prisma + compila workspace packages + API ──────
 FROM deps AS builder
 COPY packages ./packages
 COPY apps/api ./apps/api
+# 1) Genera Prisma client en packages/db/src/generated/client (JS + types)
 RUN pnpm --filter @nightpay/db generate
+# 2) Compila workspace packages a dist (JS para Node prod)
+RUN pnpm --filter @nightpay/contracts build
+RUN pnpm --filter @nightpay/db build
+# 3) Copia Prisma generated client a dist (compilado lo necesita en runtime)
+RUN cp -r packages/db/src/generated packages/db/dist/generated
+# 4) Compila API (importa @nightpay/contracts y @nightpay/db ya como dist/)
 RUN pnpm --filter @nightpay/api build
 
 # ─── runner: imagen final minima ─────────────────────────────────────

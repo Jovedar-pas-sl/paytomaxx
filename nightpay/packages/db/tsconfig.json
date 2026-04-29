@@ -5,7 +5,10 @@
     "moduleResolution": "Node",
     "outDir": "dist",
     "composite": true,
-    "noEmit": false
+    "noEmit": false,
+    "ignoreDeprecations": "6.0",
+    "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "prisma/seed.ts", "scripts/**/*.ts"]
+  "include": ["src/**/*.ts", "prisma/seed.ts", "scripts/**/*.ts"],
+  "exclude": ["src/generated", "node_modules", "dist"]
 }
