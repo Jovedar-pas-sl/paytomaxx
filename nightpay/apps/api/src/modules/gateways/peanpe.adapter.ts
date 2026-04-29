@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type CircuitBreaker from 'opossum';
@@ -35,7 +35,6 @@ interface PeanpeWebhook {
 export class PeanpeAdapter implements GatewayAdapter {
   readonly provider = 'PEANPE' as const;
 
-  private readonly logger = new Logger(PeanpeAdapter.name);
   private readonly config: ConfigService;
   private readonly metrics: MetricsService;
   private readonly authorizeBreaker: CircuitBreaker<[AuthorizeInput], AuthorizeResult>;

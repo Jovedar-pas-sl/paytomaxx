@@ -28,7 +28,11 @@ async function bootstrap() {
   });
 
   // ─── Security middleware ──────────────────────────────────────────
-  await app.register(helmet, {
+  // Casts a FastifyPluginCallback son por incompatibilidad de tipos entre
+  // multiples versiones de fastify resueltas por pnpm (4.28.x vs 4.29.x).
+  // Funcionan correctamente en runtime — solo molesta a tsc.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await app.register(helmet as any, {
     contentSecurityPolicy: isProd
       ? {
           directives: {
@@ -45,11 +49,12 @@ async function bootstrap() {
   });
 
   // Rate limit global — 200 req/min/IP (granular por endpoint en cada controller)
-  await app.register(rateLimit, {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await app.register(rateLimit as any, {
     max: 200,
     timeWindow: '1 minute',
     allowList: ['127.0.0.1', '::1'],
-    keyGenerator: (req) => {
+    keyGenerator: (req: { headers: Record<string, string | string[] | undefined>; ip: string }) => {
       const xff = req.headers['x-forwarded-for'];
       return Array.isArray(xff) ? (xff[0] ?? req.ip) : ((xff as string | undefined) ?? req.ip);
     },

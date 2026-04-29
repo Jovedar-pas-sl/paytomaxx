@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
+import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import type { Provider } from '@nightpay/contracts';
 import { RECONCILIATION_QUEUE } from './queue-tokens';
@@ -71,7 +72,7 @@ export class ReconcileDailyProcessor extends WorkerHost {
           gatewayTotalCents,
           diffCents: diff,
           status,
-          discrepancies: status === 'OK' ? null : { count: agg._count._all },
+          discrepancies: status === 'OK' ? Prisma.JsonNull : { count: agg._count._all },
           runAt: new Date(),
         },
         create: {

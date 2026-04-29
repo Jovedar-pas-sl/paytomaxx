@@ -60,6 +60,11 @@ export const paymentMachine = setup({
 }).createMachine({
   id: 'payment',
   initial: 'CREATED',
+  context: {
+    paymentId: '',
+    amountCents: 0,
+    availableAmountCents: 0,
+  },
   states: {
     CREATED: {
       on: {

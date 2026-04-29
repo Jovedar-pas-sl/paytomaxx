@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type CircuitBreaker from 'opossum';
@@ -36,7 +36,6 @@ interface WipayWebhook {
 export class WipayAdapter implements GatewayAdapter {
   readonly provider = 'WIPAY' as const;
 
-  private readonly logger = new Logger(WipayAdapter.name);
   private readonly config: ConfigService;
   private readonly metrics: MetricsService;
   private readonly authorizeBreaker: CircuitBreaker<[AuthorizeInput], AuthorizeResult>;

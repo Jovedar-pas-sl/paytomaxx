@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { UuidSchema } from './common';
-import { ProviderSchema } from './payments';
 
 export const WebhookEventTypeSchema = z.enum([
   'payment.authorized',
@@ -34,11 +33,4 @@ export const PeanpeWebhookPayloadSchema = z.object({
 });
 export type PeanpeWebhookPayload = z.infer<typeof PeanpeWebhookPayloadSchema>;
 
-export const WebhookVerifyResultSchema = z.object({
-  valid: z.boolean(),
-  provider: ProviderSchema,
-  eventId: z.string(),
-  tenantId: UuidSchema.optional(),
-  reason: z.string().optional(),
-});
-export type WebhookVerifyResult = z.infer<typeof WebhookVerifyResultSchema>;
+// WebhookVerifyResult vive en gateways.ts — el adapter es quien lo emite.
