@@ -1,12 +1,16 @@
 # syntax=docker/dockerfile:1.7
-# NightPay API — multi-stage build para pnpm monorepo
+# NightPay API — runtime tsx (sin compilar, evita problemas de monorepo + module resolution)
+#
+# Filosofia: tsx ejecuta TypeScript directamente. Workspace deps (@nightpay/*)
+# resueltas por symlinks pnpm como en dev. Tradeoff: ~50ms startup mas, ~100MB
+# imagen mas grande. Acceptable para tool interno de 5 usuarios.
 
-FROM node:20-alpine AS base
+FROM node:20-alpine
+
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 
-# ─── deps: instala node_modules (cacheable) ─────────────────────────
-FROM base AS deps
+# 1. Instalar deps (NO usar --frozen-lockfile en monorepo si lockfile cambia)
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/mock-wipay/package.json apps/mock-wipay/
@@ -19,44 +23,20 @@ COPY packages/db/package.json packages/db/
 COPY packages/config/package.json packages/config/
 RUN pnpm install --frozen-lockfile
 
-# ─── builder: genera Prisma + compila workspace packages + API ──────
-FROM deps AS builder
+# 2. Copiar codigo fuente (TS, no compilamos)
 COPY packages ./packages
 COPY apps/api ./apps/api
-# 1) Genera Prisma client en packages/db/src/generated/client (JS + types)
+
+# 3. Generar Prisma client en src/generated (donde db/src/index.ts lo importa)
 RUN pnpm --filter @nightpay/db generate
-# 2) Compila workspace packages a dist (JS para Node prod)
-RUN pnpm --filter @nightpay/contracts build
-RUN pnpm --filter @nightpay/db build
-# 3) Copia Prisma generated client a dist (compilado lo necesita en runtime)
-RUN cp -r packages/db/src/generated packages/db/dist/generated
-# 4) Compila API (importa @nightpay/contracts y @nightpay/db ya como dist/)
-RUN pnpm --filter @nightpay/api build
-
-# ─── runner: imagen final minima ─────────────────────────────────────
-FROM node:20-alpine AS runner
-RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
-WORKDIR /repo
-
-# Copiar root node_modules (donde pnpm guarda el .pnpm store)
-COPY --from=builder /repo/node_modules ./node_modules
-# CRITICO en pnpm monorepo: cada workspace tiene su propio node_modules con
-# symlinks a las deps declaradas en su package.json. Sin esto Node no encuentra
-# dotenv, @nestjs/core, etc desde apps/api/dist/*.js
-COPY --from=builder /repo/apps/api/node_modules ./apps/api/node_modules
-COPY --from=builder /repo/packages ./packages
-COPY --from=builder /repo/apps/api/dist ./apps/api/dist
-COPY --from=builder /repo/apps/api/package.json ./apps/api/
-COPY --from=builder /repo/pnpm-workspace.yaml ./
-COPY --from=builder /repo/package.json ./
 
 WORKDIR /repo/apps/api
 ENV NODE_ENV=production
 ENV PORT=4100
 EXPOSE 4100
 
-# Healthcheck (Dokploy lo respeta)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD wget -qO- http://localhost:4100/v1/health || exit 1
 
-CMD ["node", "dist/main.js"]
+# tsx ejecuta TS directo, resolviendo workspace symlinks como en dev
+CMD ["pnpm", "exec", "tsx", "src/main.ts"]
