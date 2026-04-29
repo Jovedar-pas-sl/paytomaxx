@@ -7,6 +7,9 @@
 
 FROM node:20-alpine
 
+# openssl + libc6-compat para que Prisma engines funcionen en Alpine
+RUN apk add --no-cache openssl libc6-compat
+
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 

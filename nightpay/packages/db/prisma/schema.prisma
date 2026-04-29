@@ -2,8 +2,10 @@
 // Docs: ver nightpay/docs/MASTER_PLAN_V2.md §5
 
 generator client {
-  provider = "prisma-client-js"
-  output   = "../src/generated/client"
+  provider      = "prisma-client-js"
+  output        = "../src/generated/client"
+  // native = local dev (Windows/Mac/Linux); linux-musl-openssl-3.0.x = Alpine en Docker
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
