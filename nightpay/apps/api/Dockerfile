@@ -35,8 +35,8 @@ ENV NODE_ENV=production
 ENV PORT=4100
 EXPOSE 4100
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
   CMD wget -qO- http://localhost:4100/v1/health || exit 1
 
-# tsx ejecuta TS directo, resolviendo workspace symlinks como en dev
-CMD ["pnpm", "exec", "tsx", "src/main.ts"]
+# tsx ejecuta TS directo. node_modules/.bin/tsx existe tras pnpm install.
+CMD ["./node_modules/.bin/tsx", "src/main.ts"]
