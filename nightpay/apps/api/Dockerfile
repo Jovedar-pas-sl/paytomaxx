@@ -31,8 +31,12 @@ FROM node:20-alpine AS runner
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 
-# Copiar solo lo imprescindible
+# Copiar root node_modules (donde pnpm guarda el .pnpm store)
 COPY --from=builder /repo/node_modules ./node_modules
+# CRITICO en pnpm monorepo: cada workspace tiene su propio node_modules con
+# symlinks a las deps declaradas en su package.json. Sin esto Node no encuentra
+# dotenv, @nestjs/core, etc desde apps/api/dist/*.js
+COPY --from=builder /repo/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder /repo/packages ./packages
 COPY --from=builder /repo/apps/api/dist ./apps/api/dist
 COPY --from=builder /repo/apps/api/package.json ./apps/api/
