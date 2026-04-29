@@ -346,8 +346,10 @@ async function cmdRevokeSessions(args: Args) {
   if (!user) throw new Error(`user not found: ${email}`);
 
   const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:4379';
-  // Import dinamico para no penalizar el resto del CLI con la conexion Redis.
-  const { default: Redis } = await import('ioredis');
+  // Import via require para evitar problemas con dynamic import + Node16 module resolution.
+  // ioredis se carga lazy (lazyConnect:true) — no abre conexion hasta connect().
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const Redis = require('ioredis') as typeof import('ioredis').Redis;
   const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
   await redis.connect();
 
