@@ -17,19 +17,16 @@ export class RedisIoAdapter extends IoAdapter {
   constructor(app: INestApplicationContext) {
     super(app);
     const config = app.get(ConfigService);
-    const url = new URL(config.getOrThrow<string>('REDIS_URL'));
-    const opts = {
-      host: url.hostname,
-      port: Number(url.port || 6379),
-      lazyConnect: false,
-    };
-    const pubClient = new Redis(opts);
+    const redisUrl = config.getOrThrow<string>('REDIS_URL');
+    // ioredis acepta URL directamente — parsea password, db, host, port
+    const pubClient = new Redis(redisUrl, { lazyConnect: false });
     const subClient = pubClient.duplicate();
 
     pubClient.on('error', (err) => this.logger.error(`pub redis: ${err.message}`));
     subClient.on('error', (err) => this.logger.error(`sub redis: ${err.message}`));
 
     this.adapterConstructor = createAdapter(pubClient, subClient);
+    const url = new URL(redisUrl);
     this.logger.log(`Socket.io Redis adapter wired -> ${url.hostname}:${url.port}`);
   }
 

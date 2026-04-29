@@ -30,6 +30,10 @@ import { PaymentsModule } from '../payments/payments.module';
           connection: {
             host: url.hostname,
             port: Number(url.port || 6379),
+            // password incluye username `default` si esta presente; si REDIS_URL es
+            // `redis://:pass@host`, url.password = pass y url.username = '' (correcto).
+            password: url.password || undefined,
+            username: url.username || undefined,
             db: url.pathname && url.pathname !== '/' ? Number(url.pathname.slice(1)) : 0,
           },
           defaultJobOptions: {

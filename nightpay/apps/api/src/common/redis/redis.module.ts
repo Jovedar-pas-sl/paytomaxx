@@ -21,11 +21,8 @@ export const REDIS_CLIENT = Symbol('REDIS_CLIENT');
       provide: REDIS_CLIENT,
       inject: [ConfigService],
       useFactory: (config: ConfigService): Redis => {
-        const url = new URL(config.getOrThrow<string>('REDIS_URL'));
-        const client = new Redis({
-          host: url.hostname,
-          port: Number(url.port || 6379),
-          db: url.pathname && url.pathname !== '/' ? Number(url.pathname.slice(1)) : 0,
+        // ioredis parsea la URL directamente — incluye password, db, etc
+        const client = new Redis(config.getOrThrow<string>('REDIS_URL'), {
           maxRetriesPerRequest: 3,
           enableReadyCheck: true,
           lazyConnect: false,
