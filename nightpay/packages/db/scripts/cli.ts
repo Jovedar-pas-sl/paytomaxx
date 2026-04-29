@@ -335,6 +335,66 @@ async function cmdReconcile(args: Args) {
   }
 }
 
+// ─── revoke-sessions: kill-switch para refresh tokens ───────────────
+
+async function cmdRevokeSessions(args: Args) {
+  const email = must(args, 'email');
+
+  const user = await withBypass((tx) =>
+    tx.user.findUnique({ where: { email }, select: { id: true, email: true } }),
+  );
+  if (!user) throw new Error(`user not found: ${email}`);
+
+  const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:4379';
+  // Import dinamico para no penalizar el resto del CLI con la conexion Redis.
+  const { default: Redis } = await import('ioredis');
+  const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
+  await redis.connect();
+
+  try {
+    const pattern = `nightpay:refresh:user:${user.id}:*`;
+    let cursor = '0';
+    const userKeys: string[] = [];
+    do {
+      const [next, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      cursor = next;
+      userKeys.push(...batch);
+    } while (cursor !== '0');
+
+    if (userKeys.length === 0) {
+      console.log(`[ok] no active sessions for ${email}`);
+      return;
+    }
+
+    // Cada key es nightpay:refresh:user:<userId>:<jti> — extraer jti y borrar
+    // el registro principal + family index + user index.
+    let revoked = 0;
+    for (const userKey of userKeys) {
+      const jti = userKey.split(':').pop();
+      if (!jti) continue;
+      const mainKey = `nightpay:refresh:${jti}`;
+      const raw = await redis.get(mainKey);
+      let familyKey: string | null = null;
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as { family?: string };
+          if (parsed.family) familyKey = `nightpay:refresh:family:${parsed.family}:${jti}`;
+        } catch {
+          /* ignore parse errors */
+        }
+      }
+      const keysToDelete = [mainKey, userKey];
+      if (familyKey) keysToDelete.push(familyKey);
+      await redis.del(...keysToDelete);
+      revoked += 1;
+    }
+    console.log(`[ok] revoked ${revoked} session(s) for ${email}`);
+    console.log('     access tokens vivos siguen funcionando hasta su expiracion (max 12h)');
+  } finally {
+    redis.disconnect();
+  }
+}
+
 function parseKek(raw: string): Buffer {
   // Intenta hex (64 chars), luego base64.
   if (/^[0-9a-fA-F]{64}$/.test(raw)) return Buffer.from(raw, 'hex');
@@ -361,6 +421,7 @@ const commands: Record<string, (args: Args) => Promise<unknown>> = {
   'set-credential': cmdSetCredential,
   'enroll-totp': cmdEnrollTotp,
   reconcile: cmdReconcile,
+  'revoke-sessions': cmdRevokeSessions,
 };
 
 function printUsage(): void {
@@ -377,6 +438,7 @@ function printUsage(): void {
   console.log('  pnpm cli set-credential  --venue <slug> --provider WIPAY|PEANPE --api-key <key>');
   console.log('  pnpm cli enroll-totp     --email <email>');
   console.log('  pnpm cli reconcile       --venue <slug> --day YYYY-MM-DD');
+  console.log('  pnpm cli revoke-sessions --email <email>   (kill-switch para movil perdido)');
   console.log('');
 }
 

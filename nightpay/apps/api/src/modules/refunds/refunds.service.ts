@@ -15,6 +15,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { TotpService } from '../auth/totp.service';
 import { AuditService } from '../audit/audit.service';
+import { MetricsService } from '../metrics/metrics.service';
 import type { Role } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
 
@@ -36,6 +37,7 @@ export class RefundsService {
   private readonly payments: PaymentsService;
   private readonly totp: TotpService;
   private readonly audit: AuditService;
+  private readonly metrics: MetricsService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -44,6 +46,7 @@ export class RefundsService {
     @Inject(PaymentsService) payments: PaymentsService,
     @Inject(TotpService) totp: TotpService,
     @Inject(AuditService) audit: AuditService,
+    @Inject(MetricsService) metrics: MetricsService,
   ) {
     this.prisma = prisma;
     this.cls = cls;
@@ -51,6 +54,7 @@ export class RefundsService {
     this.payments = payments;
     this.totp = totp;
     this.audit = audit;
+    this.metrics = metrics;
   }
 
   async refund(
@@ -131,6 +135,11 @@ export class RefundsService {
           where: { id: refund.id },
           data: { status: 'FAILED', providerRefundId },
         });
+        this.metrics.refundsCreated.inc({
+          venue: payment.tenantId,
+          provider: payment.provider,
+          status: 'failed',
+        });
         throw new ConflictException('Gateway refund failed');
       }
     } catch (err) {
@@ -138,6 +147,11 @@ export class RefundsService {
       await this.prisma.refund.update({
         where: { id: refund.id },
         data: { status: 'FAILED' },
+      });
+      this.metrics.refundsCreated.inc({
+        venue: payment.tenantId,
+        provider: payment.provider,
+        status: 'failed',
       });
       if (err instanceof ConflictException) throw err;
       throw new ConflictException('Refund gateway error');
@@ -147,6 +161,11 @@ export class RefundsService {
     await this.prisma.refund.update({
       where: { id: refund.id },
       data: { status: 'SUCCEEDED', providerRefundId },
+    });
+    this.metrics.refundsCreated.inc({
+      venue: payment.tenantId,
+      provider: payment.provider,
+      status: 'success',
     });
 
     try {

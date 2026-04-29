@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1.7
+# NightPay Web Client (Next.js standalone)
+
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
+WORKDIR /repo
+
+FROM base AS deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/mock-wipay/package.json apps/mock-wipay/
+COPY apps/mock-peanpe/package.json apps/mock-peanpe/
+COPY apps/admin/package.json apps/admin/
+COPY apps/tpv/package.json apps/tpv/
+COPY apps/web-client/package.json apps/web-client/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/db/package.json packages/db/
+COPY packages/config/package.json packages/config/
+RUN pnpm install --frozen-lockfile
+
+FROM deps AS builder
+COPY packages/contracts ./packages/contracts
+COPY packages/config ./packages/config
+COPY apps/web-client ./apps/web-client
+ENV NEXT_BUILD_TRACE_ROOT=/repo
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN pnpm --filter @nightpay/web-client build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=4101
+ENV HOSTNAME=0.0.0.0
+
+COPY --from=builder /repo/apps/web-client/.next/standalone ./
+COPY --from=builder /repo/apps/web-client/.next/static ./apps/web-client/.next/static
+COPY --from=builder /repo/apps/web-client/public ./apps/web-client/public
+
+EXPOSE 4101
+CMD ["node", "apps/web-client/server.js"]

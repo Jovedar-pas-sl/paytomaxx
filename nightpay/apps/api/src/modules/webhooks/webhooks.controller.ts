@@ -17,6 +17,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
+import { MetricsService } from '../metrics/metrics.service';
 
 @Controller('webhooks')
 export class WebhooksController {
@@ -24,15 +25,18 @@ export class WebhooksController {
   private readonly prisma: PrismaService;
   private readonly gateways: GatewayRegistry;
   private readonly queue: Queue;
+  private readonly metrics: MetricsService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(GatewayRegistry) gateways: GatewayRegistry,
     @InjectQueue(WEBHOOKS_INGEST_QUEUE) queue: Queue,
+    @Inject(MetricsService) metrics: MetricsService,
   ) {
     this.prisma = prisma;
     this.gateways = gateways;
     this.queue = queue;
+    this.metrics = metrics;
   }
 
   /**
@@ -66,10 +70,12 @@ export class WebhooksController {
 
     const verify = adapter.verifyWebhook(req.headers, rawBody);
     if (!verify.valid) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'invalid' });
       this.logger.warn(`webhook ${provider} rejected: ${verify.reason}`);
       throw new UnauthorizedException();
     }
     if (!verify.externalEventId) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'invalid' });
       throw new BadRequestException('Missing externalEventId');
     }
 
@@ -84,6 +90,7 @@ export class WebhooksController {
     });
 
     if (existing?.processedAt) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'duplicate' });
       return { received: true, duplicate: true };
     }
 
@@ -109,6 +116,7 @@ export class WebhooksController {
       },
     );
 
+    this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
   }
 }

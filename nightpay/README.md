@@ -3,7 +3,9 @@
 Plataforma de cobro híbrida **QR + NFC** para ocio nocturno (discotecas, festivales, bares).
 De 60–120s de checkout a <15s. Sin formularios.
 
-**Estado**: Sprint 1 — scaffold monorepo + stack local + CI. No-producción aún.
+**Estado**: Sprint 8.5 — feature-complete a nivel local. 99 tests verdes. Falta integracion con
+pasarelas reales (Wipay/Peanpe credentials) y deploy a VPS. Ver [STATUS.md](STATUS.md) y
+[POST_LAUNCH.md](POST_LAUNCH.md).
 
 ## Lectura previa obligatoria
 
@@ -95,14 +97,36 @@ pnpm clean
 docker compose down -v         # reset completo de volúmenes DB/Redis
 ```
 
-## Sprint 1 — Criterios de aceptación (del Master Plan §17)
+## Estado por Sprint
 
-- [x] Monorepo pnpm + Turborepo compilando
-- [x] Docker Compose dev (Postgres 16, Redis 7, mocks pasarela)
-- [x] CI GitHub Actions (lint, typecheck, build, test)
-- [x] Prisma schema inicial + migración + seeds
-- [ ] Deploy staging automatizado (Coolify) — pendiente fase infra
-- [ ] `docker compose up` funciona + CI verde + staging responde `/health`
+- [x] **Sprint 1**: Scaffold monorepo + Docker Compose + CI verde
+- [x] **Sprint 2**: Auth + multi-tenancy + Postgres RLS
+- [x] **Sprint 3-4**: Payment FSM (XState) + adapter pasarelas + saga compensacion
+- [x] **Sprint 5**: Socket.io con Redis adapter + UIs cliente movil + TPV
+- [x] **Sprint 6**: Admin dashboard + refunds + reconciliacion diaria
+- [x] **Sprint 7**: Hardening seguridad (Helmet, rate-limit, CORS, lockout, ProblemDetails)
+- [x] **Sprint 8**: Audit log + Prometheus metrics + Redis lockout + CLI ops
+- [x] **Sprint 8.5** (esta sesion): Refresh tokens con rotacion, kill-switch, observability completa, 99 tests
+
+## Endpoints expuestos (`/v1`)
+
+| Metodo | Path | Acceso | Descripcion |
+|--------|------|--------|-------------|
+| GET  | `/health`                                   | publico | Liveness probe |
+| GET  | `/metrics`                                  | publico | Prometheus exposition |
+| POST | `/auth/login`                               | publico | Email + password → access + refresh |
+| POST | `/auth/refresh`                             | publico | Rotar refresh → nuevo access |
+| POST | `/auth/logout`                              | auth    | Revocar refresh server-side |
+| POST | `/payments`                                 | auth    | TPV crea pago (idempotency-key required) |
+| GET  | `/payments/:id`                             | auth    | Detalle pago |
+| GET  | `/payments/public/:token`                   | publico | Cliente escanea QR |
+| POST | `/payments/public/:token/start-authorization` | publico | Cliente confirma pago |
+| GET  | `/payments/:id/refunds`                     | auth    | Lista refunds |
+| POST | `/payments/:id/refunds`                     | auth    | OWNER/MANAGER (TOTP ≥100€) |
+| POST | `/webhooks/:provider`                       | publico | HMAC signed (Wipay/Peanpe) |
+| GET  | `/venues/me` `/venues/me/terminals` `/venues/me/staff` | auth | Datos del venue |
+| GET  | `/admin/payments` `/admin/metrics`          | OWNER/MANAGER | Panel admin |
+| POST | `/admin/users/:userId/revoke-sessions`      | OWNER   | Kill-switch movil perdido |
 
 ## Principios
 

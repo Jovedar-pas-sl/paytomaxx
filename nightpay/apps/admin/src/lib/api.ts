@@ -3,6 +3,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
 
 const TOKEN_KEY = 'np_admin_token';
+const REFRESH_KEY = 'np_admin_refresh';
 const USER_KEY = 'np_admin_user';
 
 export interface User {
@@ -16,7 +17,16 @@ export interface User {
 export interface LoginResponse {
   accessToken: string;
   expiresIn: number;
+  refreshToken: string;
+  refreshExpiresIn: number;
   user: User;
+}
+
+export interface RefreshResponse {
+  accessToken: string;
+  expiresIn: number;
+  refreshToken: string;
+  refreshExpiresIn: number;
 }
 
 export interface PaymentRow {
@@ -55,6 +65,11 @@ export function getToken(): string | null {
   return window.localStorage.getItem(TOKEN_KEY);
 }
 
+export function getRefreshToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem(REFRESH_KEY);
+}
+
 export function getUser(): User | null {
   if (typeof window === 'undefined') return null;
   const raw = window.localStorage.getItem(USER_KEY);
@@ -63,11 +78,19 @@ export function getUser(): User | null {
 
 export function setSession(login: LoginResponse): void {
   window.localStorage.setItem(TOKEN_KEY, login.accessToken);
+  window.localStorage.setItem(REFRESH_KEY, login.refreshToken);
   window.localStorage.setItem(USER_KEY, JSON.stringify(login.user));
+}
+
+function updateTokens(refreshed: RefreshResponse): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(TOKEN_KEY, refreshed.accessToken);
+  window.localStorage.setItem(REFRESH_KEY, refreshed.refreshToken);
 }
 
 export function clearSession(): void {
   window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(REFRESH_KEY);
   window.localStorage.removeItem(USER_KEY);
 }
 
@@ -81,22 +104,87 @@ export async function login(email: string, password: string): Promise<LoginRespo
   return res.json();
 }
 
+export async function logout(): Promise<void> {
+  const refreshToken = getRefreshToken();
+  const accessToken = getToken();
+  if (refreshToken && accessToken) {
+    try {
+      await fetch(`${API_BASE}/v1/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ refreshToken }),
+      });
+    } catch {
+      // Best-effort — siempre limpiamos local aunque el server falle
+    }
+  }
+  clearSession();
+}
+
+/**
+ * Cambia el refresh token por un access token nuevo.
+ * Devuelve el nuevo access token y rota el refresh.
+ * Si el refresh es invalido (caducado, reusado, revocado), limpia la sesion y lanza.
+ */
+async function refreshAccessToken(): Promise<string> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    clearSession();
+    throw new Error('Sesión expirada');
+  }
+  const res = await fetch(`${API_BASE}/v1/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!res.ok) {
+    clearSession();
+    throw new Error('Sesión expirada');
+  }
+  const refreshed = (await res.json()) as RefreshResponse;
+  updateTokens(refreshed);
+  return refreshed.accessToken;
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────
 
+/**
+ * Fetch autenticado con auto-refresh en 401:
+ *   1. Intenta con el access token actual
+ *   2. Si recibe 401 y tenemos refresh token, intercambia y reintenta UNA vez
+ *   3. Si el reintento falla (o no hay refresh), limpia sesion y lanza
+ */
 async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
   if (!token) throw new Error('No autenticado');
+  const res = await doFetch(path, init, token);
+  if (res.status !== 401) return res;
+
+  // 401 — probar refresh una vez
+  let newToken: string;
+  try {
+    newToken = await refreshAccessToken();
+  } catch {
+    throw new Error('Sesión expirada');
+  }
+  const retry = await doFetch(path, init, newToken);
+  if (retry.status === 401) {
+    clearSession();
+    throw new Error('Sesión expirada');
+  }
+  return retry;
+}
+
+async function doFetch(path: string, init: RequestInit, token: string): Promise<Response> {
   const headers = new Headers(init.headers ?? {});
   headers.set('Authorization', `Bearer ${token}`);
   if (init.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
-  if (res.status === 401) {
-    clearSession();
-    throw new Error('Sesión expirada');
-  }
-  return res;
+  return fetch(`${API_BASE}${path}`, { ...init, headers });
 }
 
 // ─── Endpoints ─────────────────────────────────────────────────────

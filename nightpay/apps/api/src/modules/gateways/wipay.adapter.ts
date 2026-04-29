@@ -11,8 +11,14 @@ import type {
   WebhookVerifyResult,
 } from '@nightpay/contracts';
 import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
-import { createBreaker, fetchWithTimeout } from './circuit-breaker';
+import { createBreaker, fetchWithTimeout, timedFire } from './circuit-breaker';
 import { pickHeader } from './header-utils';
+import { MetricsService } from '../metrics/metrics.service';
+
+const PROVIDER_LABEL = 'WIPAY' as const;
+function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
+  return s === 'closed' ? 0 : s === 'halfOpen' ? 1 : 2;
+}
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
@@ -32,39 +38,65 @@ export class WipayAdapter implements GatewayAdapter {
 
   private readonly logger = new Logger(WipayAdapter.name);
   private readonly config: ConfigService;
+  private readonly metrics: MetricsService;
   private readonly authorizeBreaker: CircuitBreaker<[AuthorizeInput], AuthorizeResult>;
   private readonly statusBreaker: CircuitBreaker<[string, string], GatewayStatus>;
   private readonly refundBreaker: CircuitBreaker<[RefundInput], RefundResult>;
   private readonly timeoutMs: number;
 
-  constructor(@Inject(ConfigService) config: ConfigService) {
+  constructor(
+    @Inject(ConfigService) config: ConfigService,
+    @Inject(MetricsService) metrics: MetricsService,
+  ) {
     this.config = config;
+    this.metrics = metrics;
     this.timeoutMs = config.get<number>('GATEWAY_TIMEOUT_MS') ?? 5000;
 
     this.authorizeBreaker = createBreaker((input: AuthorizeInput) => this.doAuthorize(input), {
       name: 'wipay.authorize',
       timeoutMs: this.timeoutMs,
+      onStateChange: (s) =>
+        this.metrics.circuitState.set({ provider: PROVIDER_LABEL, op: 'authorize' }, stateToNumber(s)),
     });
     this.statusBreaker = createBreaker(
       (tenantId: string, providerTxId: string) => this.doGetStatus(tenantId, providerTxId),
-      { name: 'wipay.getStatus', timeoutMs: this.timeoutMs },
+      {
+        name: 'wipay.getStatus',
+        timeoutMs: this.timeoutMs,
+        onStateChange: (s) =>
+          this.metrics.circuitState.set({ provider: PROVIDER_LABEL, op: 'getStatus' }, stateToNumber(s)),
+      },
     );
     this.refundBreaker = createBreaker((input: RefundInput) => this.doRefund(input), {
       name: 'wipay.refund',
       timeoutMs: this.timeoutMs,
+      onStateChange: (s) =>
+        this.metrics.circuitState.set({ provider: PROVIDER_LABEL, op: 'refund' }, stateToNumber(s)),
     });
   }
 
   async authorize(input: AuthorizeInput): Promise<AuthorizeResult> {
-    return this.authorizeBreaker.fire(input);
+    return timedFire(
+      () => this.authorizeBreaker.fire(input),
+      (dur, outcome) =>
+        this.metrics.gatewayDuration.observe({ provider: PROVIDER_LABEL, op: 'authorize', outcome }, dur),
+    );
   }
 
   async getStatus(tenantId: string, providerTxId: string): Promise<GatewayStatus> {
-    return this.statusBreaker.fire(tenantId, providerTxId);
+    return timedFire(
+      () => this.statusBreaker.fire(tenantId, providerTxId),
+      (dur, outcome) =>
+        this.metrics.gatewayDuration.observe({ provider: PROVIDER_LABEL, op: 'getStatus', outcome }, dur),
+    );
   }
 
   async refund(input: RefundInput): Promise<RefundResult> {
-    return this.refundBreaker.fire(input);
+    return timedFire(
+      () => this.refundBreaker.fire(input),
+      (dur, outcome) =>
+        this.metrics.gatewayDuration.observe({ provider: PROVIDER_LABEL, op: 'refund', outcome }, dur),
+    );
   }
 
   // ─── implementaciones tras el circuit breaker ─────────────────────

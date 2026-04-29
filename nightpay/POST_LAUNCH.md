@@ -47,10 +47,17 @@ pero conviene atacar tras los primeros días en producción.
 - [ ] Backups configurados en cron del VPS (los scripts ya existen, solo programar)
 - [ ] Monitor stuck-payments con bot Telegram real (script ya existe)
 - [ ] Status page pública (Uptime Robot free)
-- [ ] Wire métricas a los counters/histograms reales (hoy creados pero no incrementados):
-  - `MetricsService.paymentsCreated.inc()` en PaymentsService.create
-  - `gatewayDuration.observe()` envolver fetch en adapters
-  - `circuitState.set()` en eventos open/halfOpen/close del breaker
+- [x] Wire métricas a los counters/histograms reales:
+  - [x] `paymentsCreated` / `paymentsTransitioned` en PaymentsService
+  - [x] `refundsCreated` en RefundsService
+  - [x] `webhooksReceived` en WebhooksController
+  - [x] `gatewayDuration` histogram + `circuitState` gauge en Wipay/Peanpe adapters
+- [x] Refresh tokens + rotacion + reuso-detection en Redis (`POST /v1/auth/refresh`, `POST /v1/auth/logout`)
+  - Kill-switch HTTP: `POST /v1/admin/users/:userId/revoke-sessions` (OWNER only, scoped al tenant del caller)
+  - Kill-switch CLI: `pnpm cli revoke-sessions --email <email>` (no necesita API up)
+  - Kill-switch directo Redis (ultimo recurso): `redis-cli --scan --pattern 'nightpay:refresh:user:<userId>:*' | xargs redis-cli DEL`
+  - Frontend integrado: admin + tpv almacenan refresh token, auto-refresh on 401, logout server-side
+  - Tests: `refresh-token.service.spec.ts` cubre rotacion, reuso, secret tampering, revoke-all
 
 ### Segundo mes
 
@@ -58,7 +65,6 @@ pero conviene atacar tras los primeros días en producción.
 - [ ] Drill de restore mensual (probar PITR)
 - [ ] Pre-aprovisionar segunda credencial (Peanpe) para venues críticos — fallback automático
 - [ ] Game day chaos engineering (kill pasarela, kill Redis, flood webhooks)
-- [ ] Refresh tokens + revocación list en Redis (hoy JWT 12h sin revocación)
 
 ### Tercer mes / cuando crezca
 
@@ -66,7 +72,6 @@ pero conviene atacar tras los primeros días en producción.
 - [ ] Réplica read-only de Postgres para queries de admin/analytics
 - [ ] PgBouncer para connection pooling
 - [ ] Escala horizontal: 2 nodos API tras balanceador con sticky sessions
-- [ ] Refresh tokens + revocación (hoy JWT 12h sin revocación)
 - [ ] WAL archiving cada 5 min → S3 (RPO 5 min vs RPO 24h actual)
 
 ## Issues de baja prioridad (cosmetic / cleanup)

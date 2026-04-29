@@ -9,12 +9,16 @@ import { Logger } from '@nestjs/common';
  * - volumeThreshold 10 (no abrimos por 1-2 errores aislados)
  */
 
+export type BreakerState = 'closed' | 'halfOpen' | 'open';
+
 export interface BreakerOptions {
   timeoutMs: number;
   errorThresholdPercentage?: number;
   resetTimeoutMs?: number;
   volumeThreshold?: number;
   name: string;
+  /** Optional callback fired on state transitions — used to wire Prometheus gauge. */
+  onStateChange?: (state: BreakerState) => void;
 }
 
 export function createBreaker<TIn extends unknown[], TOut>(
@@ -31,11 +35,22 @@ export function createBreaker<TIn extends unknown[], TOut>(
     rollingCountBuckets: 10,
     name: opts.name,
   });
-  breaker.on('open', () => logger.warn(`OPEN`));
-  breaker.on('halfOpen', () => logger.log(`HALF-OPEN — probing`));
-  breaker.on('close', () => logger.log(`CLOSED`));
+  breaker.on('open', () => {
+    logger.warn(`OPEN`);
+    opts.onStateChange?.('open');
+  });
+  breaker.on('halfOpen', () => {
+    logger.log(`HALF-OPEN — probing`);
+    opts.onStateChange?.('halfOpen');
+  });
+  breaker.on('close', () => {
+    logger.log(`CLOSED`);
+    opts.onStateChange?.('closed');
+  });
   breaker.on('reject', () => logger.warn(`REJECTED (open) — request blocked`));
   breaker.on('timeout', () => logger.warn(`TIMEOUT after ${opts.timeoutMs}ms`));
+  // Estado inicial (closed) — registramos el gauge desde el principio.
+  opts.onStateChange?.('closed');
   return breaker;
 }
 
@@ -53,5 +68,29 @@ export async function fetchWithTimeout(
     return await fetch(url, { ...init, signal: ctrl.signal });
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Wraps a breaker.fire() call with timing + outcome reporting.
+ * `observe(durationSec, outcome)` is invoked exactly once per call.
+ * outcome: 'ok' | 'error' | 'rejected' (rejected = breaker open).
+ */
+export async function timedFire<T>(
+  fire: () => Promise<T>,
+  observe: (durationSec: number, outcome: 'ok' | 'error' | 'rejected') => void,
+): Promise<T> {
+  const start = process.hrtime.bigint();
+  try {
+    const result = await fire();
+    const dur = Number(process.hrtime.bigint() - start) / 1e9;
+    observe(dur, 'ok');
+    return result;
+  } catch (err) {
+    const dur = Number(process.hrtime.bigint() - start) / 1e9;
+    const isRejected =
+      err instanceof Error && /breaker is open|breaker has been opened/i.test(err.message);
+    observe(dur, isRejected ? 'rejected' : 'error');
+    throw err;
   }
 }

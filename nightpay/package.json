@@ -23,8 +23,6 @@
     "db:seed": "pnpm --filter @nightpay/db seed",
     "db:studio": "pnpm --filter @nightpay/db studio",
     "cli": "pnpm --filter @nightpay/db cli",
-    "db:seed": "pnpm --filter @nightpay/db seed",
-    "db:studio": "pnpm --filter @nightpay/db studio",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {

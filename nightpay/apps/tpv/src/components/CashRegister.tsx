@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import {
-  clearSession,
   createPayment,
   fetchTerminals,
+  logout as apiLogout,
   wsBase,
   type CreatedPayment,
 } from '@/lib/api';
@@ -99,8 +99,8 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
     setAmount('');
   }
 
-  function logout() {
-    clearSession();
+  async function logout() {
+    await apiLogout();
     onLogout();
   }
 

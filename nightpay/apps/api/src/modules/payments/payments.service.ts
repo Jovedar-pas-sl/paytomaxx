@@ -23,6 +23,7 @@ import type { RequestContext } from '../../common/context/request-context';
 import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { MetricsService } from '../metrics/metrics.service';
 
 const QR_TTL_SECONDS = 5 * 60; // 5 min
 const ORPHAN_RECONCILE_DELAY_MS = 30 * 60 * 1000; // 30 min sin webhook → reconcile
@@ -36,6 +37,7 @@ export class PaymentsService {
   private readonly orphanReconcileQueue: Queue;
   private readonly gateways: GatewayRegistry;
   private readonly realtime: RealtimeGateway;
+  private readonly metrics: MetricsService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -44,6 +46,7 @@ export class PaymentsService {
     @InjectQueue(ORPHAN_RECONCILE_QUEUE) orphanReconcileQueue: Queue,
     @Inject(GatewayRegistry) gateways: GatewayRegistry,
     @Inject(RealtimeGateway) realtime: RealtimeGateway,
+    @Inject(MetricsService) metrics: MetricsService,
   ) {
     this.prisma = prisma;
     this.cls = cls;
@@ -51,6 +54,7 @@ export class PaymentsService {
     this.orphanReconcileQueue = orphanReconcileQueue;
     this.gateways = gateways;
     this.realtime = realtime;
+    this.metrics = metrics;
   }
 
   /**
@@ -123,6 +127,7 @@ export class PaymentsService {
       },
     );
 
+    this.metrics.paymentsCreated.inc({ venue: tenantId, provider: 'pending' });
     this.logger.log(`Payment created ${payment.id} amount=${payment.amountCents} venue=${tenantId}`);
     return this.toCreatedResponse(payment.id);
   }
@@ -175,6 +180,7 @@ export class PaymentsService {
     // y el UPDATE deben ir sobre la MISMA fila. Cualquier filtro adicional del
     // middleware podria desincronizar la lectura del lock con la escritura.
     let nextState: PaymentMachineState | undefined;
+    let prevState: PaymentMachineState | undefined;
     let amountCents = 0;
 
     await this.prisma.$transaction(
@@ -242,12 +248,16 @@ export class PaymentsService {
           )
         `;
 
+        prevState = p.status;
         nextState = result.nextState;
         amountCents = p.amountCents;
       },
       { isolationLevel: 'ReadCommitted' },
     );
 
+    if (prevState && nextState) {
+      this.metrics.paymentsTransitioned.inc({ from: prevState, to: nextState });
+    }
     this.logger.log(`Payment ${paymentId} transitioned via ${event.type}`);
 
     // Emit WS DESPUES del commit — si el cliente reconecta y pide estado,

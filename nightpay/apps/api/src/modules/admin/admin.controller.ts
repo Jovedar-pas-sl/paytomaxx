@@ -1,11 +1,26 @@
-import { Controller, Get, Inject, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { z } from 'zod';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Tenant } from '../../common/decorators/tenant.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { RefreshTokenService } from '../auth/refresh-token.service';
+import { AuditService } from '../audit/audit.service';
+import { ClsService } from 'nestjs-cls';
 import type { PaymentStatus } from '@nightpay/contracts';
+import type { RequestContext } from '../../common/context/request-context';
 
 const ListPaymentsQuerySchema = z.object({
   status: z
@@ -25,8 +40,20 @@ type ListPaymentsQuery = z.infer<typeof ListPaymentsQuerySchema>;
 @UseGuards(RolesGuard)
 export class AdminController {
   private readonly prisma: PrismaService;
-  constructor(@Inject(PrismaService) prisma: PrismaService) {
+  private readonly refreshTokens: RefreshTokenService;
+  private readonly audit: AuditService;
+  private readonly cls: ClsService<{ ctx: RequestContext }>;
+
+  constructor(
+    @Inject(PrismaService) prisma: PrismaService,
+    @Inject(RefreshTokenService) refreshTokens: RefreshTokenService,
+    @Inject(AuditService) audit: AuditService,
+    @Inject(ClsService) cls: ClsService<{ ctx: RequestContext }>,
+  ) {
     this.prisma = prisma;
+    this.refreshTokens = refreshTokens;
+    this.audit = audit;
+    this.cls = cls;
   }
 
   /**
@@ -135,6 +162,45 @@ export class AdminController {
         return acc;
       }, {}),
     };
+  }
+
+  /**
+   * Kill-switch: revoca todos los refresh tokens activos de un usuario del propio venue.
+   * Solo OWNER. Util cuando un manager pierde el movil — corta acceso futuro,
+   * el access token vivo se invalidara solo cuando expire (max 12h).
+   *
+   * El middleware de Prisma garantiza que el findUnique solo encuentre users
+   * del tenant del caller — un OWNER de Luna VLC no puede revocar a un manager
+   * de Luna MAD aunque conozca el userId.
+   */
+  @Post('users/:userId/revoke-sessions')
+  @HttpCode(200)
+  @Roles('OWNER')
+  async revokeUserSessions(
+    @Tenant() tenantId: string,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+  ): Promise<{ revoked: number; userId: string }> {
+    const target = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, tenantId: true },
+    });
+    if (!target || target.tenantId !== tenantId) {
+      throw new NotFoundException('User not found');
+    }
+
+    const revoked = await this.refreshTokens.revokeAllForUser(userId);
+
+    const ctx = this.cls.get('ctx');
+    await this.audit.log({
+      action: 'auth.sessions.revoked',
+      tenantId,
+      actorId: ctx?.userId,
+      targetType: 'User',
+      targetId: userId,
+      payload: { revokedCount: revoked, targetEmail: target.email },
+    });
+
+    return { revoked, userId };
   }
 }
 

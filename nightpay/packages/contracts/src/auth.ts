@@ -15,6 +15,8 @@ export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 export const LoginResponseSchema = z.object({
   accessToken: z.string(),
   expiresIn: z.number().int().positive(),
+  refreshToken: z.string(),
+  refreshExpiresIn: z.number().int().positive(),
   user: z.object({
     id: UuidSchema,
     email: z.string().email(),
@@ -24,6 +26,24 @@ export const LoginResponseSchema = z.object({
   }),
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
+export const RefreshRequestSchema = z.object({
+  refreshToken: z.string().min(20).max(500),
+});
+export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
+
+export const RefreshResponseSchema = z.object({
+  accessToken: z.string(),
+  expiresIn: z.number().int().positive(),
+  refreshToken: z.string(),
+  refreshExpiresIn: z.number().int().positive(),
+});
+export type RefreshResponse = z.infer<typeof RefreshResponseSchema>;
+
+export const LogoutRequestSchema = z.object({
+  refreshToken: z.string().min(20).max(500),
+});
+export type LogoutRequest = z.infer<typeof LogoutRequestSchema>;
 
 export const JwtPayloadSchema = z.object({
   sub: UuidSchema, // user.id

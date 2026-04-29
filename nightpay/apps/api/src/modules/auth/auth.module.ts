@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LockoutService } from './lockout.service';
+import { RefreshTokenService } from './refresh-token.service';
 import { TotpService } from './totp.service';
 
 @Module({
@@ -20,8 +21,8 @@ import { TotpService } from './totp.service';
       }),
     }),
   ],
-  providers: [AuthService, TotpService, LockoutService],
+  providers: [AuthService, TotpService, LockoutService, RefreshTokenService],
   controllers: [AuthController],
-  exports: [AuthService, TotpService, JwtModule],
+  exports: [AuthService, TotpService, RefreshTokenService, JwtModule],
 })
 export class AuthModule {}

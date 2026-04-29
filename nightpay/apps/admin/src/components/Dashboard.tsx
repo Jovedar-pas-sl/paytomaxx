@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import {
-  clearSession,
   fetchMetrics,
   fetchPayments,
+  logout as apiLogout,
   refundPayment,
   type Metrics,
   type PaymentRow,
@@ -44,8 +44,8 @@ export function Dashboard({ user, onLogout }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
-  function logout() {
-    clearSession();
+  async function logout() {
+    await apiLogout();
     onLogout();
   }
 

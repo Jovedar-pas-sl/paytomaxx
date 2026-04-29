@@ -5,7 +5,8 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { LockoutService } from './lockout.service';
-import type { JwtPayload, LoginRequest, LoginResponse } from '@nightpay/contracts';
+import { RefreshTokenService } from './refresh-token.service';
+import type { JwtPayload, LoginRequest, LoginResponse, RefreshResponse } from '@nightpay/contracts';
 
 const BCRYPT_ROUNDS = 10;
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 * 12; // 12h — staff interno
@@ -18,6 +19,7 @@ export class AuthService {
   private readonly lockout: LockoutService;
   private readonly audit: AuditService;
   private readonly metrics: MetricsService;
+  private readonly refreshTokens: RefreshTokenService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -25,12 +27,14 @@ export class AuthService {
     @Inject(LockoutService) lockout: LockoutService,
     @Inject(AuditService) audit: AuditService,
     @Inject(MetricsService) metrics: MetricsService,
+    @Inject(RefreshTokenService) refreshTokens: RefreshTokenService,
   ) {
     this.prisma = prisma;
     this.jwt = jwt;
     this.lockout = lockout;
     this.audit = audit;
     this.metrics = metrics;
+    this.refreshTokens = refreshTokens;
   }
 
   async hashPassword(plain: string): Promise<string> {
@@ -129,6 +133,8 @@ export class AuthService {
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
     });
 
+    const refresh = await this.refreshTokens.issue(user.id, user.tenantId);
+
     this.metrics.authLogins.inc({ outcome: 'ok' });
     await this.audit.log({
       action: 'auth.login.ok',
@@ -144,6 +150,8 @@ export class AuthService {
     return {
       accessToken,
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+      refreshToken: refresh.token,
+      refreshExpiresIn: refresh.ttlSeconds,
       user: {
         id: user.id,
         email: user.email,
@@ -152,5 +160,67 @@ export class AuthService {
         venueSlug: user.venue.slug,
       },
     };
+  }
+
+  /**
+   * Intercambia un refresh token por un nuevo access token (y rota el refresh).
+   * Falla con 401 si el token no es valido, esta caducado o se detecta reuso.
+   */
+  async refresh(refreshToken: string, ip?: string, userAgent?: string): Promise<RefreshResponse> {
+    const rotated = await this.refreshTokens.rotate(refreshToken);
+
+    // Cargar user actualizado para verificar que sigue activo y obtener role/venueSlug actuales
+    const user = await this.prisma.asSystem((tx) =>
+      tx.user.findUnique({
+        where: { id: rotated.userId },
+        include: { venue: true },
+      }),
+    );
+    if (!user || user.deletedAt) {
+      // Usuario desactivado tras emitir el refresh — invalidamos todo lo suyo y rechazamos.
+      await this.refreshTokens.revokeAllForUser(rotated.userId);
+      throw new UnauthorizedException('User disabled');
+    }
+
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenantId,
+      venueSlug: user.venue.slug,
+    };
+    const accessToken = await this.jwt.signAsync(payload, {
+      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+    });
+
+    await this.audit.log({
+      action: 'auth.refresh.ok',
+      actorId: user.id,
+      actorEmail: user.email,
+      tenantId: user.tenantId,
+      ip,
+      userAgent,
+    });
+
+    return {
+      accessToken,
+      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+      refreshToken: rotated.token,
+      refreshExpiresIn: rotated.ttlSeconds,
+    };
+  }
+
+  /** Revoca un refresh token (logout). Idempotente — no falla si ya estaba revocado. */
+  async logout(refreshToken: string, actorId?: string, tenantId?: string, ip?: string, userAgent?: string): Promise<void> {
+    await this.refreshTokens.revoke(refreshToken);
+    if (actorId) {
+      await this.audit.log({
+        action: 'auth.logout',
+        actorId,
+        tenantId,
+        ip,
+        userAgent,
+      });
+    }
   }
 }
