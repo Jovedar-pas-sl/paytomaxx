@@ -189,11 +189,5 @@ const primaryBtnStyle: React.CSSProperties = {
   cursor: 'pointer',
 };
 
-declare global {
-  interface Navigator {
-    wakeLock: { request: (type: 'screen') => Promise<WakeLockSentinel> };
-  }
-  interface WakeLockSentinel {
-    release: () => Promise<void>;
-  }
-}
+// Wake Lock API ya esta tipada en lib.dom.d.ts en versiones recientes de TS.
+// Quitamos el override manual que chocaba con `readonly wakeLock`.
