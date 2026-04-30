@@ -44,4 +44,10 @@ COPY --from=builder /repo/apps/admin/.next/static ./apps/admin/.next/static
 COPY --from=builder /repo/apps/admin/public ./apps/admin/public
 
 EXPOSE 4103
+
+# Healthcheck via Node http module — IPv4 explícito (evita el bug
+# de wget en Alpine resolviendo localhost a ::1).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "require('http').get('http://127.0.0.1:4103',{timeout:4000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1)).on('timeout',()=>process.exit(1))"
+
 CMD ["node", "apps/admin/server.js"]

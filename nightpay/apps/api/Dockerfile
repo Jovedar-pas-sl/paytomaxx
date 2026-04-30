@@ -38,11 +38,11 @@ ENV NODE_ENV=production
 ENV PORT=4100
 EXPOSE 4100
 
-# Healthcheck removido temporalmente — Swarm marcaba unhealthy y mataba containers
-# antes de que Traefik enrutara. Reañadir cuando podamos confirmar `wget` o usar
-# `node -e` para hacer el GET request.
-# HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
-#   CMD wget -qO- http://localhost:4100/v1/health || exit 1
+# Healthcheck via Node http module — IPv4 explícito (evita el bug
+# de wget en Alpine resolviendo localhost a ::1). Pega en /v1/health
+# que ya verifica DB + Redis.
+HEALTHCHECK --interval=30s --timeout=8s --start-period=45s --retries=5 \
+  CMD node -e "require('http').get('http://127.0.0.1:4100/v1/health',{timeout:6000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1)).on('timeout',()=>process.exit(1))"
 
 # tsx ejecuta TS directo. node_modules/.bin/tsx existe tras pnpm install.
 CMD ["./node_modules/.bin/tsx", "src/main.ts"]
