@@ -274,6 +274,17 @@ button {
   cursor: not-allowed;
 }
 
+/* Logo backdrop — only in dark theme, so the logo's dark text stays legible */
+[data-theme='dark'] .np-logo-bg {
+  background: oklch(98% 0.005 270);
+  padding: 0 0.75rem;
+}
+
+[data-theme='light'] .np-logo-bg {
+  background: transparent;
+  padding: 0;
+}
+
 /* Inputs share focus style */
 input,
 select,

@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   Input,
+  Logo,
   Select,
   StatusPill,
   ThemeToggle,
@@ -123,11 +124,14 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
       }}
     >
       <header style={headerStyle}>
-        <div>
-          <p style={brandLabel}>NightPay TPV</p>
-          <p style={brandSub}>
-            venue <code style={code}>{venueSlug}</code>
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <Logo height="2rem" />
+          <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1rem' }}>
+            <p style={brandLabel}>TPV</p>
+            <p style={brandSub}>
+              venue <code style={code}>{venueSlug}</code>
+            </p>
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <ThemeToggle />

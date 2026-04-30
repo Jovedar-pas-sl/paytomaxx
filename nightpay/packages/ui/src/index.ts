@@ -7,3 +7,4 @@ export { Stage, StageMeta } from './components/Stage';
 export { Input, Select } from './components/Input';
 export { Modal } from './components/Modal';
 export { ThemeToggle } from './components/ThemeToggle';
+export { Logo } from './components/Logo';

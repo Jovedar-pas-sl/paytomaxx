@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Input,
+  Logo,
   Modal,
   Select,
   StatusPill,
@@ -74,9 +75,12 @@ export function Dashboard({ user, onLogout }: Props) {
       }}
     >
       <header style={headerStyle}>
-        <div>
-          <p style={brandKicker}>NightPay</p>
-          <h1 style={brandTitle}>Admin</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+          <Logo height="2.25rem" />
+          <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1.25rem' }}>
+            <p style={brandKicker}>Panel</p>
+            <h1 style={brandTitle}>Admin</h1>
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <div style={{ textAlign: 'right' }}>

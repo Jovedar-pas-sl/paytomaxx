@@ -5,6 +5,7 @@ import { io, type Socket } from 'socket.io-client';
 import {
   AmountDisplay,
   Button,
+  Logo,
   Stage,
   StageMeta,
   StatusPill,
@@ -147,13 +148,23 @@ export function PaymentClient({ initial, token }: Props) {
       <footer
         style={{
           marginTop: 'auto',
-          fontSize: '0.6875rem',
-          color: 'var(--np-text-dim)',
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '0.5rem',
         }}
       >
-        Powered by NightPay
+        <span
+          style={{
+            fontSize: '0.6875rem',
+            color: 'var(--np-text-dim)',
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+          }}
+        >
+          Powered by
+        </span>
+        <Logo height="1.75rem" />
       </footer>
     </Stage>
   );

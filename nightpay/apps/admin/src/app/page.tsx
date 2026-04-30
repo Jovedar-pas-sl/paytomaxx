@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, ThemeToggle } from '@nightpay/ui';
+import { Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
 import { getToken, getUser, type User } from '@/lib/api';
@@ -46,21 +46,11 @@ export default function Page() {
         <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem' }}>
           <ThemeToggle />
         </div>
-        <header style={{ textAlign: 'center' }}>
-          <p
-            style={{
-              margin: 0,
-              fontSize: '0.75rem',
-              color: 'var(--np-text-dim)',
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-            }}
-          >
-            NightPay
-          </p>
+        <header style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+          <Logo height="3rem" />
           <h1
             style={{
-              margin: '0.5rem 0 0',
+              margin: 0,
               fontSize: 'var(--np-t-h1)',
               fontWeight: 600,
               letterSpacing: '-0.03em',
