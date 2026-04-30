@@ -139,7 +139,7 @@ export function PaymentClient({ initial, token }: Props) {
   );
 }
 
-function StatusView({ status, wsDown }: { status: UiStatus; wsDown: boolean }) {
+function StatusView({ status }: { status: UiStatus; wsDown: boolean }) {
   const map: Record<UiStatus, { label: string; color: string; spin?: boolean }> = {
     CREATED: { label: 'Esperando confirmación', color: '#aaa' },
     AWAITING_CAPTURE: { label: 'Esperando datáfono', color: '#aaa' },
