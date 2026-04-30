@@ -27,7 +27,7 @@
 <div class="card p-6 mb-4">
   <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
     <div class="text-xs uppercase tracking-wider text-muted">
-      Último análisis · <span data-time="{{ meta_latest.run_at.isoformat() }}">{{ meta_latest.run_at.strftime('%d %b %Y · %H:%M') }}</span>
+      Último análisis · <span data-time="{{ meta_latest.run_at.isoformat() }}">{{ (meta_latest.run_at | local).strftime('%d %b %Y · %H:%M') }}</span>
     </div>
     <div class="flex items-center gap-3">
       <div class="text-[10px] text-muted mono">
@@ -99,7 +99,7 @@
     {% for m in meta_history[1:] %}
     <div class="py-2">
       <div class="font-medium" data-time="{{ m.run_at.isoformat() }}">
-        {{ m.run_at.strftime('%Y-%m-%d %H:%M') }} · {{ m.conversations_analyzed }} convs
+        {{ (m.run_at | local).strftime('%Y-%m-%d %H:%M') }} · {{ m.conversations_analyzed }} convs
       </div>
       <div class="text-muted mt-1">{{ m.summary[:200] }}{% if m.summary|length > 200 %}…{% endif %}</div>
     </div>
@@ -169,7 +169,7 @@
         {% set pct = (h.conv_probability * 100) | int %}
         <tr class="hover:bg-surface-2/50 transition-colors">
           <td class="py-2 mono text-muted whitespace-nowrap">
-            {{ h.analyzed_at.strftime('%d/%m %H:%M') }}
+            {{ (h.analyzed_at | local).strftime('%d/%m %H:%M') }}
           </td>
           <td class="py-2 truncate max-w-[180px]">
             {{ h.contact_name or h.contact_phone or 'Contacto privado' }}

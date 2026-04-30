@@ -6,14 +6,38 @@ import logging
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-
 from app import queries
 from app.deps import Arq, CurrentUser, KpiDB, Waha
+from app.template_env import templates
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+
+
+def _extract_waha_msg_id(res: object) -> str:
+    """Extract WAHA message id from send_text response.
+
+    WAHA returns `id` either as a string or as a nested dict
+    `{"_serialized": "...", "id": "..."}`. Some legacy engines nest it
+    under `_data.id`. Returns "" if no id can be extracted.
+    """
+    if not isinstance(res, dict):
+        return ""
+    top = res.get("id")
+    if isinstance(top, str):
+        return top
+    if isinstance(top, dict):
+        cand = top.get("_serialized") or top.get("id")
+        if isinstance(cand, str):
+            return cand
+    inner = (res.get("_data") or {}).get("id") if isinstance(res.get("_data"), dict) else None
+    if isinstance(inner, str):
+        return inner
+    if isinstance(inner, dict):
+        cand = inner.get("_serialized") or inner.get("id")
+        if isinstance(cand, str):
+            return cand
+    return ""
 
 
 @router.get("/conversation/{conversation_id}", response_class=HTMLResponse)
@@ -169,19 +193,29 @@ async def conversation_send(
         logger.exception("WAHA send failed: %s", exc)
         raise HTTPException(status_code=502, detail="WAHA error") from exc
 
-    waha_msg_id = ""
-    if isinstance(res, dict):
-        waha_msg_id = res.get("id") or (res.get("_data") or {}).get("id") or ""
+    waha_msg_id = _extract_waha_msg_id(res)
 
     async with kpi.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO message (conversation_id, waha_msg_id, direction, body, ack, created_at)
-            VALUES ($1, NULLIF($2,''), 'out', $3, 0, now())
-            ON CONFLICT (waha_msg_id) DO NOTHING
-            """,
-            conversation_id, str(waha_msg_id), body,
-        )
+        if waha_msg_id:
+            # Insert with real id; webhook (`message.any` fromMe=true) hits ON CONFLICT
+            # and is a no-op, preventing duplicates.
+            await conn.execute(
+                """
+                INSERT INTO message (conversation_id, waha_msg_id, direction, body, ack, created_at)
+                VALUES ($1, $2, 'out', $3, 0, now())
+                ON CONFLICT (waha_msg_id) DO NOTHING
+                """,
+                conversation_id, waha_msg_id, body,
+            )
+        else:
+            # Couldn't extract id from WAHA response → don't insert locally.
+            # The webhook will be the single source of truth (1-3s delay until UI shows it).
+            # Inserting NULL would defeat the unique-on-waha_msg_id dedup and create duplicates.
+            logger.warning(
+                "WAHA send_text returned no extractable id; deferring insert to webhook. "
+                "conversation_id=%s response_type=%s",
+                conversation_id, type(res).__name__,
+            )
         await conn.execute(
             "UPDATE conversation SET last_message_at = now(), updated_at = now() WHERE id = $1",
             conversation_id,

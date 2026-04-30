@@ -162,15 +162,38 @@ class WaNumber:
     session: str
     label: str
     phone: str | None
+    conv_count: int = 0
+    unread_total: int = 0
+    last_activity: datetime | None = None
 
 
 async def list_wa_numbers_for_casa(
     kpi_pool: asyncpg.Pool, casa_id: int
 ) -> list[WaNumber]:
+    """Returns wa_numbers + per-WA aggregates (conv count, unread, last activity).
+
+    Single query with LEFT JOIN to avoid N+1.
+    """
     async with kpi_pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT id, casa_id, session, label, phone FROM wa_number "
-            "WHERE casa_id = $1 ORDER BY created_at ASC",
+            """
+            SELECT w.id, w.casa_id, w.session, w.label, w.phone,
+                   coalesce(c.conv_count,    0)       AS conv_count,
+                   coalesce(c.unread_total,  0)::int  AS unread_total,
+                   c.last_activity
+            FROM wa_number w
+            LEFT JOIN (
+                SELECT wa_number_id,
+                       count(*)::int                AS conv_count,
+                       coalesce(sum(unread_count), 0) AS unread_total,
+                       max(last_message_at)         AS last_activity
+                FROM conversation
+                WHERE wa_number_id IS NOT NULL
+                GROUP BY wa_number_id
+            ) c ON c.wa_number_id = w.id
+            WHERE w.casa_id = $1
+            ORDER BY w.created_at ASC
+            """,
             casa_id,
         )
     return [WaNumber(**dict(r)) for r in rows]

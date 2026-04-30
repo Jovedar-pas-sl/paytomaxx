@@ -9,15 +9,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-
 from app import queries
 from app.deps import CurrentUser, KpiDB
+from app.template_env import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
-
-
 @router.get("/casas", response_class=HTMLResponse)
 async def casas_list(
     request: Request,

@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-
 from app.auth import create_token, verify_password
+from app.template_env import templates
 from app.deps import Redis, SettingsDep
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
-
 AUTH_COOKIE = "maxxag_kpi_auth"
 AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 

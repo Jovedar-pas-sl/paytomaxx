@@ -6,9 +6,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-
 from app.deps import CurrentUser, lifespan
+from app.template_env import templates
 from app.routes.alerts import router as alerts_router
 from app.routes.analysis_ops import router as analysis_ops_router
 from app.routes.auth_routes import router as auth_router
@@ -18,6 +17,7 @@ from app.routes.conversation import router as conversation_router
 from app.routes.exports import router as exports_router
 from app.routes.health import router as health_router
 from app.routes.media import router as media_router
+from app.routes.qr_share import router as qr_share_router
 from app.routes.sessions import router as sessions_router
 from app.routes.webhooks import router as webhooks_router
 from app.routes.widgets import router as widgets_router
@@ -28,9 +28,6 @@ app = FastAPI(
 )
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
-
-
 # ── Routers ────────────────────────────────────────────────────────
 app.include_router(health_router)          # /health — public
 app.include_router(auth_router)            # /login, /logout — public
@@ -44,6 +41,7 @@ app.include_router(sessions_router)        # /sessions — WAHA management
 app.include_router(analysis_ops_router)    # /casas/<id>/meta-analyses + /analyze-pending + /conversation/<id>/analyze
 app.include_router(exports_router)         # /casas/<id>/export/* + /conversation/<id>/export.txt
 app.include_router(media_router)           # /media/<msg_id> — proxy for WAHA attachments
+app.include_router(qr_share_router)        # /sessions/<id>/qr.png + /qr/<token> public share
 
 
 # ── Legacy redirects ───────────────────────────────────────────────

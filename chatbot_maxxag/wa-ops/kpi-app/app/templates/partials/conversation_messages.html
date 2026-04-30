@@ -13,7 +13,7 @@
 
   {% set ns = namespace(last_date=None, last_sender=None) %}
   {% for m in messages %}
-    {% set this_date = m.created_at.strftime('%Y-%m-%d') %}
+    {% set this_date = (m.created_at | local).strftime('%Y-%m-%d') %}
     {% set is_out = (m.message_type == 1) %}
     {% set sender = 'mamai' if is_out else 'cliente' %}
 
@@ -21,7 +21,7 @@
     <div class="my-3 flex justify-center">
       <span class="rounded-md px-2.5 py-1 text-[10px] font-medium uppercase"
             style="background: rgba(11,20,26,0.9); color: {{ wa_muted }};">
-        {{ m.created_at.strftime('%d/%m/%Y') }}
+        {{ (m.created_at | local).strftime('%d/%m/%Y') }}
       </span>
     </div>
     {% set ns.last_date = this_date %}
@@ -69,7 +69,7 @@
         {% endif %}
 
         <div class="{% if is_image or is_video %}px-2 pb-1{% endif %} mt-0.5 flex items-center justify-end gap-1 text-[10px]" style="color: {{ wa_muted }};">
-          <span>{{ m.created_at.strftime('%H:%M') }}</span>
+          <span>{{ (m.created_at | local).strftime('%H:%M') }}</span>
           {% if is_out %}
           <svg viewBox="0 0 16 15" class="h-3.5 w-3.5" fill="currentColor"
                style="color: {% if m.ack >= 3 %}#53bdeb{% else %}{{ wa_muted }}{% endif %};">

@@ -4,14 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, Response
-from fastapi.templating import Jinja2Templates
-
 from app.deps import CurrentUser, KpiDB
+from app.template_env import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
-
-
 @router.get("/alerts", response_class=HTMLResponse)
 async def alerts_page(
     request: Request,

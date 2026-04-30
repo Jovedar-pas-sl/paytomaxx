@@ -2,9 +2,12 @@
 Carga y procesa los manuales PDF (F53 y piezas del cajero)
 """
 
+import logging
 import re
 from pathlib import Path
 from config import MANUALS_DIR
+
+log = logging.getLogger(__name__)
 
 
 def extract_text_from_pdf(pdf_path):
@@ -32,7 +35,7 @@ def load_all_manuals():
     manuals_path = Path(MANUALS_DIR)
 
     if not manuals_path.exists():
-        print(f"AVISO: Carpeta de manuales no encontrada: {MANUALS_DIR}")
+        log.warning("AVISO: Carpeta de manuales no encontrada: %s", MANUALS_DIR)
         return {}
 
     manuals = {}
@@ -44,10 +47,10 @@ def load_all_manuals():
             seen.add(p.resolve())
             pdf_files.append(p)
 
-    print(f"Manuales encontrados: {len(pdf_files)}")
+    log.info("Manuales encontrados: %d", len(pdf_files))
 
     for pdf_path in pdf_files:
-        print(f"  Cargando: {pdf_path.name}")
+        log.info("  Cargando: %s", pdf_path.name)
         text = extract_text_from_pdf(pdf_path)
         manuals[pdf_path.name] = {
             "path": str(pdf_path),
@@ -55,7 +58,7 @@ def load_all_manuals():
             "text": text[:50000],  # Máximo 50k chars por manual
             "size": len(text)
         }
-        print(f"    → {len(text)} caracteres extraídos")
+        log.info("    -> %d caracteres extraidos", len(text))
 
     return manuals
 

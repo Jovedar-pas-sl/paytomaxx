@@ -59,7 +59,7 @@
             {% endif %}
           </div>
           <span class="flex-shrink-0 text-[11px] text-muted mono">
-            {{ r.last_message_at.strftime('%d/%m %H:%M') }}
+            {{ (r.last_message_at | local).strftime('%d/%m %H:%M') }}
           </span>
         </div>
 

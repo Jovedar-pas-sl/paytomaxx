@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Informe · Conversación {{ conv.id }} — {{ casa_name }}</title>
+  <style>
+    @page { size: A4; margin: 18mm 14mm; }
+    * { box-sizing: border-box; }
+    html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body {
+      font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+      color: #111;
+      background: #fff;
+      margin: 0;
+    }
+    h1 { font-size: 20pt; margin: 0 0 4px; letter-spacing: -0.02em; }
+    h2 { font-size: 13pt; margin: 22px 0 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px; letter-spacing: -0.01em; }
+    h3 { font-size: 11pt; margin: 14px 0 4px; }
+    .subtitle { color: #666; font-size: 10pt; margin-bottom: 2px; }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px 20px;
+      margin: 14px 0 6px;
+      font-size: 9.5pt;
+    }
+    .meta-label { color: #777; text-transform: uppercase; font-size: 8pt; letter-spacing: 0.05em; }
+    .meta-value { font-weight: 600; color: #111; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 8.5pt;
+      font-weight: 600;
+      border: 1px solid #ddd;
+    }
+    .badge-red    { background: #fee; border-color: #f99; color: #b00; }
+    .badge-amber  { background: #fff5e0; border-color: #f0b050; color: #8a5000; }
+    .badge-green  { background: #e8f6ee; border-color: #7ec793; color: #066429; }
+    .badge-blue   { background: #e8f1fc; border-color: #7aa9e5; color: #0a4a90; }
+    .badge-muted  { background: #f0f0f0; border-color: #ccc; color: #555; }
+    .card {
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin: 8px 0;
+      background: #fafafa;
+      page-break-inside: avoid;
+    }
+    .card-warn { border-color: #f0b050; background: #fff7e8; }
+    .card-red  { border-color: #f09090; background: #fff0f0; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .col { flex: 1; min-width: 200px; }
+    .bars { display: flex; flex-direction: column; gap: 4px; }
+    .bar-row { display: flex; align-items: center; gap: 10px; font-size: 9.5pt; }
+    .bar-label { width: 90px; color: #555; }
+    .bar-track { flex: 1; height: 6px; background: #e5e5e5; border-radius: 3px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 3px; }
+    .bar-green  { background: #4aa764; }
+    .bar-blue   { background: #4a80c7; }
+    .bar-amber  { background: #d9931f; }
+    .bar-red    { background: #c94848; }
+    .bar-value { width: 36px; text-align: right; color: #333; font-variant-numeric: tabular-nums; }
+    ul { padding-left: 20px; margin: 4px 0; }
+    li { margin: 2px 0; }
+    .quote {
+      font-style: italic;
+      color: #555;
+      border-left: 3px solid #bbb;
+      padding: 2px 10px;
+      margin: 4px 0;
+      background: #f5f5f5;
+    }
+    .example-reply {
+      white-space: pre-wrap;
+      background: #f5faf7;
+      border: 1px solid #9ec3a9;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 10pt;
+    }
+    .no-break { page-break-inside: avoid; }
+    .small { font-size: 9pt; color: #666; }
+    .footer {
+      margin-top: 24px;
+      padding-top: 10px;
+      border-top: 1px solid #ddd;
+      font-size: 8.5pt;
+      color: #888;
+    }
+    .print-btn {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      padding: 8px 14px;
+      background: #10b981;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 10pt;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    .print-btn:hover { background: #0ea674; }
+    @media print { .print-btn { display: none !important; } }
+    .transcript {
+      font-family: 'Consolas', 'Menlo', monospace;
+      font-size: 8.5pt;
+      white-space: pre-wrap;
+      background: #f7f7f7;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      max-height: none;
+    }
+  </style>
+</head>
+<body>
+
+<button class="print-btn" onclick="window.print()">⎙ Imprimir / Guardar como PDF</button>
+
+<header>
+  <h1>Informe de conversación</h1>
+  <div class="subtitle">{{ casa_name }} · {{ wa_label or 'WhatsApp' }} · {{ contact_label }}</div>
+
+  <div class="meta-grid">
+    <div>
+      <div class="meta-label">Conversación</div>
+      <div class="meta-value">#{{ conv.id }}</div>
+    </div>
+    <div>
+      <div class="meta-label">Mensajes</div>
+      <div class="meta-value">{{ msg_count }}</div>
+    </div>
+    <div>
+      <div class="meta-label">Inicio</div>
+      <div class="meta-value">{{ (conv.created_at | local).strftime('%d/%m/%Y %H:%M') }}</div>
+    </div>
+    <div>
+      <div class="meta-label">Analizado</div>
+      <div class="meta-value">{% if analysis %}{{ (analysis.analyzed_at | local).strftime('%d/%m/%Y %H:%M') }}{% else %}—{% endif %}</div>
+    </div>
+  </div>
+</header>
+
+{% if not analysis %}
+<div class="card card-warn">
+  Esta conversación aún no tiene análisis IA. Solicita un análisis desde el panel y vuelve a generar el informe.
+</div>
+{% else %}
+
+{# ── ESCALATION (arriba si aplica) ─────────────────────────────── #}
+{% set esc = analysis.escalation %}
+{% if esc and esc.should_escalate %}
+{% set esc_cls = 'card-red' if esc.severity == 'high' else 'card-warn' %}
+<div class="card {{ esc_cls }} no-break">
+  <h3 style="margin-top:0;">⚠ Requiere escalar a admin · {{ esc.severity }}</h3>
+  {% if esc.reason %}<p style="margin:4px 0;">{{ esc.reason }}</p>{% endif %}
+  {% if esc.triggers %}
+  <ul>
+    {% for t in esc.triggers %}<li>{{ t }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── INTENT + NEXT ACTION (fila) ─────────────────────────────── #}
+<div class="row">
+  {% if analysis.intent %}
+  <div class="col card no-break">
+    <h3 style="margin-top:0;">Intención del cliente</h3>
+    <div style="margin:6px 0;">
+      <span class="badge badge-blue">{{ analysis.intent.primary }}</span>
+      {% for s in analysis.intent.secondary %}
+      <span class="badge badge-muted">{{ s }}</span>
+      {% endfor %}
+      <span class="small" style="margin-left:8px;">confianza {{ (analysis.intent.confidence * 100) | int }}%</span>
+    </div>
+    <p class="small" style="margin:4px 0 0;">{{ analysis.intent.reasoning }}</p>
+  </div>
+  {% endif %}
+
+  {% if analysis.next_action %}
+  {% set na = analysis.next_action %}
+  {% set urg_cls = 'badge-red' if na.urgency == 'high' else ('badge-amber' if na.urgency == 'medium' else 'badge-muted') %}
+  <div class="col card no-break">
+    <h3 style="margin-top:0;">Próxima acción</h3>
+    <div style="margin:6px 0;">
+      <span class="badge badge-green">{{ na.action }}</span>
+      <span class="badge {{ urg_cls }}">urgencia: {{ na.urgency }}</span>
+    </div>
+    <p class="small">{{ na.why }}</p>
+    {% if na.suggested_message %}
+    <div class="example-reply">{{ na.suggested_message }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{# ── MOOD + CONVERSION (fila) ─────────────────────────────────── #}
+<div class="row">
+  <div class="col card no-break">
+    <h3 style="margin-top:0;">Estado del cliente (mood)</h3>
+    <p><strong>{{ analysis.mood_label }}</strong> · {{ analysis.mood_score }}/10</p>
+    <p class="small">{{ analysis.mood_reasoning }}</p>
+  </div>
+  <div class="col card no-break">
+    <h3 style="margin-top:0;">Probabilidad de conversión</h3>
+    {% set pct = (analysis.conv_probability * 100) | int %}
+    <p><strong style="font-size:18pt;">{{ pct }}%</strong></p>
+    <div class="bar-track" style="margin-top:4px;"><div class="bar-fill {% if pct > 60 %}bar-green{% elif pct > 30 %}bar-amber{% else %}bar-red{% endif %}" style="width:{{ pct }}%;"></div></div>
+  </div>
+</div>
+
+{# ── TREATMENT (4 bars) ─────────────────────────────────────── #}
+<div class="card no-break">
+  <h3 style="margin-top:0;">Trato de la mamai</h3>
+  <div class="bars">
+    {% for label, val, color in [
+      ('Cariñoso',    analysis.treat_carinoso,    'bar-green'),
+      ('Profesional', analysis.treat_profesional, 'bar-blue'),
+      ('Vendedor',    analysis.treat_vendedor,    'bar-amber'),
+      ('Seco',        analysis.treat_seco,        'bar-red'),
+    ] %}
+    <div class="bar-row">
+      <div class="bar-label">{{ label }}</div>
+      <div class="bar-track"><div class="bar-fill {{ color }}" style="width: {{ val * 10 }}%"></div></div>
+      <div class="bar-value">{{ val }}/10</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{# ── RESPONSE TIMES ─────────────────────────────────────────── #}
+<div class="card no-break">
+  <h3 style="margin-top:0;">Tiempos de respuesta</h3>
+  <div class="row">
+    <div class="col"><span class="small">p50</span><br><strong>{{ (analysis.rt_p50 // 1000) }}s</strong></div>
+    <div class="col"><span class="small">p90</span><br><strong>{{ (analysis.rt_p90 // 60000) }}min</strong></div>
+    <div class="col"><span class="small">max</span><br><strong>{{ (analysis.rt_max // 60000) }}min</strong></div>
+  </div>
+</div>
+
+{# ── RED FLAGS ──────────────────────────────────────────────── #}
+{% if analysis.red_flags and analysis.red_flags != [] %}
+<div class="card card-red no-break">
+  <h3 style="margin-top:0;">🚩 Red flags</h3>
+  <ul>
+    {% for flag in (analysis.red_flags if analysis.red_flags is iterable and analysis.red_flags is not string else []) %}
+    <li><strong>{{ flag.type }}</strong> · {{ flag.reason }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{# ── COACHING ──────────────────────────────────────────────── #}
+{% set coaching = analysis.coaching %}
+{% if coaching %}
+<h2>Coaching — cómo mejorar la próxima vez</h2>
+
+<div class="card">
+  <p>{{ coaching.overall }}</p>
+
+  {% if coaching.went_well %}
+  <h3>Bien hecho</h3>
+  <ul>{% for w in coaching.went_well %}<li>{{ w }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if coaching.missed_opportunities %}
+  <h3>Oportunidades perdidas</h3>
+  {% for mo in coaching.missed_opportunities %}
+  <div style="margin:8px 0;">
+    <div class="quote">“{{ mo.moment }}”</div>
+    <p style="margin:4px 0 0;">→ {{ mo.suggestion }}</p>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if coaching.response_tips %}
+  <h3>Tips de respuesta</h3>
+  <ul>{% for t in coaching.response_tips %}<li>{{ t }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if coaching.tone_tips %}
+  <h3>Tips de tono</h3>
+  <ul>{% for t in coaching.tone_tips %}<li>{{ t }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if coaching.example_reply %}
+  <h3>Ejemplo de respuesta ideal</h3>
+  <div class="example-reply">{{ coaching.example_reply }}</div>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+{# ── TRANSCRIPT (al final) ─────────────────────────────────── #}
+{% if include_transcript and messages %}
+<h2>Transcripción</h2>
+<div class="transcript">
+{% for m in messages -%}
+[{{ (m.created_at | local).strftime('%d/%m %H:%M') }}] {{ 'MAMAI' if m.direction == 'out' else 'CLIENTE' }}: {{ m.body or ('(media)' if m.media_url else '') }}
+{% endfor -%}
+</div>
+{% endif %}
+
+<div class="footer">
+  Informe generado por Maxxag Ops · {{ (now | local).strftime('%d/%m/%Y %H:%M') }} · conv #{{ conv.id }}
+</div>
+
+</body>
+</html>

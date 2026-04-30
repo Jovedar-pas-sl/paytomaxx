@@ -1,0 +1,238 @@
+/* NightPay design tokens — dark luxury, single source of truth.
+   Imported once from each app's root layout. */
+
+:root {
+  /* Surfaces */
+  --np-bg: oklch(8% 0.012 270);
+  --np-surface: oklch(13% 0.014 270);
+  --np-surface-2: oklch(18% 0.018 270);
+  --np-border: oklch(26% 0.02 270);
+  --np-border-hi: oklch(36% 0.025 270);
+
+  /* Text — verified WCAG AAA on --np-bg */
+  --np-text: oklch(96% 0.005 270);
+  --np-text-mute: oklch(68% 0.012 270);
+  --np-text-dim: oklch(48% 0.012 270);
+
+  /* Accent — single neon, used sparingly */
+  --np-accent: oklch(80% 0.16 200);
+  --np-accent-2: oklch(72% 0.2 200);
+  --np-glow: oklch(80% 0.16 200 / 0.32);
+
+  /* Semantic */
+  --np-success: oklch(74% 0.18 145);
+  --np-danger: oklch(68% 0.22 25);
+  --np-warning: oklch(80% 0.16 75);
+
+  /* Spacing — 4px base */
+  --np-s-1: 0.25rem;
+  --np-s-2: 0.5rem;
+  --np-s-3: 0.75rem;
+  --np-s-4: 1rem;
+  --np-s-5: 1.5rem;
+  --np-s-6: 2rem;
+  --np-s-7: 3rem;
+  --np-s-8: 4rem;
+  --np-s-9: 6rem;
+
+  /* Radius */
+  --np-r-sm: 8px;
+  --np-r-md: 12px;
+  --np-r-lg: 20px;
+  --np-r-pill: 999px;
+
+  /* Type */
+  --np-t-amount: clamp(4rem, 9vw, 9rem);
+  --np-t-h1: clamp(2rem, 3vw, 3.25rem);
+  --np-t-h2: clamp(1.5rem, 2vw, 2rem);
+  --np-t-h3: 1.25rem;
+  --np-t-body: clamp(0.95rem, 0.4vw + 0.85rem, 1rem);
+  --np-t-ui: 0.8125rem;
+
+  /* Motion */
+  --np-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --np-d-fast: 150ms;
+  --np-d-base: 250ms;
+  --np-d-slow: 600ms;
+
+  /* Fonts — set on <html> by next/font, here as fallback */
+  --np-font-sans:
+    var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --np-font-mono:
+    var(--font-mono), 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  font-family: var(--np-font-sans);
+  font-size: var(--np-t-body);
+  line-height: 1.55;
+  color: var(--np-text);
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, var(--np-glow), transparent 65%),
+    var(--np-bg);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Subtle film grain — adds atmosphere without weight */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/></svg>");
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+}
+
+/* App content sits above the grain layer */
+#__next,
+main,
+.np-app-root {
+  position: relative;
+  z-index: 2;
+}
+
+a {
+  color: var(--np-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--np-accent-2);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--np-accent);
+  color: var(--np-bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Tabular numbers for any element marked .np-num */
+.np-num {
+  font-family: var(--np-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Button states — scoped via data-variant. Lives here so :hover / :active
+   work without inline-style hacks fighting React reconciliation. */
+.np-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: var(--np-r-pill);
+  font-family: var(--np-font-sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    transform var(--np-d-fast) var(--np-ease),
+    background var(--np-d-fast),
+    box-shadow var(--np-d-fast),
+    color var(--np-d-fast);
+}
+
+.np-btn[data-size='md'] {
+  height: 3.25rem;
+  padding: 0 1.75rem;
+  font-size: 1rem;
+}
+
+.np-btn[data-size='lg'] {
+  height: 4rem;
+  padding: 0 2.25rem;
+  font-size: 1.125rem;
+}
+
+.np-btn[data-variant='primary'] {
+  background: var(--np-accent);
+  color: var(--np-bg);
+  box-shadow: 0 0 0 1px var(--np-accent), 0 8px 32px var(--np-glow);
+}
+
+.np-btn[data-variant='primary']:hover:not(:disabled) {
+  background: var(--np-accent-2);
+  box-shadow: 0 0 0 1px var(--np-accent-2), 0 14px 48px var(--np-glow);
+}
+
+.np-btn[data-variant='ghost'] {
+  background: transparent;
+  color: var(--np-text);
+  box-shadow: inset 0 0 0 1px var(--np-border);
+}
+
+.np-btn[data-variant='ghost']:hover:not(:disabled) {
+  background: var(--np-surface-2);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+}
+
+.np-btn[data-variant='danger'] {
+  background: var(--np-danger);
+  color: white;
+  box-shadow: 0 0 0 1px var(--np-danger);
+}
+
+.np-btn[data-variant='danger']:hover:not(:disabled) {
+  background: oklch(74% 0.22 25);
+  box-shadow: 0 0 0 1px oklch(74% 0.22 25);
+}
+
+.np-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.np-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  body::after {
+    display: none;
+  }
+
+  body {
+    background: var(--np-bg);
+  }
+}

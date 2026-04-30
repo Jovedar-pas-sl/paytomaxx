@@ -115,6 +115,21 @@
       📥 Exportar transcript (TXT)
     </a>
 
+    {# Analysis report — PDF (via print) + DOCX #}
+    {% if analysis %}
+    <div class="grid grid-cols-2 gap-2">
+      <a href="/conversation/{{ header.id }}/report" target="_blank" rel="noopener"
+         class="block text-center rounded-lg border border-accent/40 bg-accent/5 py-2 text-xs text-accent font-medium hover:bg-accent/10 transition">
+        📄 Informe PDF
+      </a>
+      <a href="/conversation/{{ header.id }}/report.docx"
+         class="block text-center rounded-lg border border-blue/40 bg-blue/5 py-2 text-xs text-blue font-medium hover:bg-blue/10 transition">
+        📝 Informe DOCX
+      </a>
+    </div>
+    <p class="text-[10px] text-muted-2 leading-tight -mt-1">PDF: se abre en nueva pestaña → Ctrl+P → Guardar como PDF</p>
+    {% endif %}
+
     {# Mark resolved — triggers analysis #}
     {% if header.status != 'resolved' %}
     <form method="post" action="/conversation/{{ header.id }}/resolve">
@@ -374,7 +389,7 @@
       {% endif %}
 
       <div class="text-center text-[10px] text-muted">
-        Analizado <span data-time="{{ analysis.analyzed_at.isoformat() }}">{{ analysis.analyzed_at.strftime('%Y-%m-%d %H:%M') }}</span>
+        Analizado <span data-time="{{ analysis.analyzed_at.isoformat() }}">{{ (analysis.analyzed_at | local).strftime('%Y-%m-%d %H:%M') }}</span>
       </div>
     {% else %}
       <div class="card p-5 text-center text-xs text-muted">

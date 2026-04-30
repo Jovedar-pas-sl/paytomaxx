@@ -54,7 +54,7 @@
         <div class="text-xs text-muted">{{ casa.wa_numbers | length }} WhatsApp{{ 's' if casa.wa_numbers|length != 1 else '' }}</div>
       </div>
       <button type="button"
-              onclick="window.__openAddWa({{ casa.id }}, '{{ casa.name|replace("'", "\\'") }}')"
+              onclick='window.__openAddWa({{ casa.id }}, {{ casa.name | tojson }})'
               class="btn-3d btn-3d--accent whitespace-nowrap" style="font-size: .75rem;">
         <span class="btn-3d__blob"></span>
         <span class="btn-3d__inner" style="padding: 6px 12px;">+ WhatsApp</span>
@@ -85,6 +85,22 @@
           <span class="text-[11px] text-muted">Generando QR...</span>
         </div>
         <p class="mt-1 text-[10px] text-center text-muted">WhatsApp → Dispositivos vinculados → Vincular</p>
+
+        {# Compartir QR con la mamai #}
+        <div class="mt-2 flex items-center gap-1.5">
+          <a href="/sessions/{{ wn.id }}/qr.png" download
+             class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted hover:text-text hover:border-muted transition-colors flex-1 justify-center"
+             title="Descarga el QR como imagen para enviarlo por WhatsApp/email">
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Descargar PNG
+          </a>
+          <button type="button" onclick='shareQrLink({{ wn.id }}, {{ wn.label | tojson }})'
+                  class="inline-flex items-center gap-1 rounded-md border border-blue/40 bg-blue/10 px-2 py-1 text-[10px] text-blue hover:bg-blue/20 transition-colors flex-1 justify-center"
+                  title="Genera un link temporal para enviar a la mamai (30 min)">
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            Compartir link
+          </button>
+        </div>
         {% endif %}
 
         {# Actions — grouped primary (session control) + secondary (manage) #}
@@ -127,7 +143,7 @@
           <span class="flex-1"></span>
 
           <button type="button"
-                  onclick="window.__openRenameWa({{ wn.id }}, '{{ wn.label|replace("'", "\\'") }}')"
+                  onclick='window.__openRenameWa({{ wn.id }}, {{ wn.label | tojson }})'
                   class="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted hover:text-text hover:border-border-strong transition-colors"
                   title="Renombrar">
             <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -265,5 +281,53 @@
     pollQR(name, el);
     setInterval(() => pollQR(name, el), 5000);
   });
+
+  // Share QR link with mamai
+  async function shareQrLink(waId, label) {
+    try {
+      const r = await fetch(`/sessions/${waId}/share-qr`, { method: 'POST' });
+      if (!r.ok) {
+        alert('Error generando enlace: ' + (await r.text()));
+        return;
+      }
+      const data = await r.json();
+      const url = data.url;
+      const ttl = data.ttl_minutes;
+      const waText = encodeURIComponent(`Hola! Para conectar el WhatsApp "${label}" abre este enlace y escanea el QR:\n\n${url}\n\nEl enlace caduca en ${ttl} min.`);
+
+      // Modal con copiar + WhatsApp share
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(8px);';
+      overlay.innerHTML = `
+        <div style="background:#0a0a0a;border:1px solid #26262a;border-radius:14px;padding:24px;max-width:480px;width:92%;color:#f5f5f7;">
+          <h3 style="margin:0 0 6px;font-size:17px;font-weight:600;letter-spacing:-0.01em;">Enlace para la mamai · ${label}</h3>
+          <p style="margin:0 0 14px;font-size:12px;color:#8e8e93;">Caduca en ${ttl} min o cuando emparejen el WhatsApp.</p>
+          <div style="background:#141414;border:1px solid #26262a;border-radius:8px;padding:10px;font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;word-break:break-all;color:#10b981;margin-bottom:14px;">${url}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="qr-copy-btn" style="flex:1;background:#10b981;color:#0a0a0a;border:none;border-radius:8px;padding:10px;font-weight:600;font-size:13px;cursor:pointer;">📋 Copiar enlace</button>
+            <a href="https://wa.me/?text=${waText}" target="_blank" rel="noopener" style="flex:1;background:#25D366;color:white;text-decoration:none;border-radius:8px;padding:10px;font-weight:600;font-size:13px;text-align:center;">💬 WhatsApp</a>
+            <button id="qr-close-btn" style="background:transparent;border:1px solid #26262a;color:#8e8e93;border-radius:8px;padding:10px 14px;font-size:13px;cursor:pointer;">Cerrar</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+      document.getElementById('qr-close-btn').onclick = () => overlay.remove();
+      document.getElementById('qr-copy-btn').onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          document.getElementById('qr-copy-btn').textContent = '✓ Copiado';
+        } catch (e) {
+          // Fallback: select+copy via input
+          const i = document.createElement('input');
+          i.value = url; document.body.appendChild(i); i.select();
+          try { document.execCommand('copy'); document.getElementById('qr-copy-btn').textContent = '✓ Copiado'; } catch (_) {}
+          document.body.removeChild(i);
+        }
+      };
+    } catch (e) {
+      alert('Error de red: ' + e.message);
+    }
+  }
+  window.shareQrLink = shareQrLink;
 </script>
 {% endblock %}

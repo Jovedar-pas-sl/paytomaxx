@@ -26,21 +26,63 @@
   {%- endif -%}
 {%- endmacro %}
 
-{# WhatsApp sub-tabs: filter by specific wa_number or "all" #}
+{# WhatsApp filter cards: only when the casa has 2+ WAs.
+   Click a card to filter conversations to that specific WA. "Todos" shows the merged view. #}
 {% if wa_numbers and wa_numbers | length > 1 %}
-<div class="mb-3 flex items-center gap-1 overflow-x-auto border-b border-border pb-2">
-  <a href="/casas/{{ casa_id }}?tab=chats&wa=all"
-     class="rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition
-            {% if active_wa == 'all' %}bg-green/20 text-green{% else %}text-muted hover:text-text hover:bg-border/30{% endif %}">
-    Todos
-  </a>
-  {% for wn in wa_numbers %}
-  <a href="/casas/{{ casa_id }}?tab=chats&wa={{ wn.id }}"
-     class="rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition
-            {% if active_wa == wn.id | string %}bg-green/20 text-green{% else %}text-muted hover:text-text hover:bg-border/30{% endif %}">
-    📱 {{ wn.label }}
-  </a>
-  {% endfor %}
+{% set total_unread = wa_numbers | sum(attribute='unread_total') %}
+{% set total_convs  = wa_numbers | sum(attribute='conv_count') %}
+<div class="mb-4">
+  <div class="mb-2 text-[11px] uppercase tracking-wider text-muted-2 font-medium">Filtrar por WhatsApp</div>
+  <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+    {# "Todos" card #}
+    {% set is_all = (active_wa == 'all') %}
+    <a href="/casas/{{ casa_id }}?tab=chats&wa=all"
+       class="group relative overflow-hidden rounded-xl border p-3 transition-all duration-200
+              {% if is_all %}border-accent bg-accent/10 shadow-[0_0_24px_rgba(16,185,129,0.18)]{% else %}border-border bg-surface hover:border-accent/40 hover:bg-surface-2{% endif %}">
+      <div class="flex items-start justify-between gap-2">
+        <span class="text-[10px] font-bold uppercase tracking-wider {% if is_all %}text-accent{% else %}text-muted-2 group-hover:text-muted{% endif %}">
+          Todos
+        </span>
+        {% if total_unread > 0 %}
+        <span class="rounded-full bg-accent px-1.5 py-0 text-[10px] font-bold text-bg leading-tight">{{ total_unread }}</span>
+        {% endif %}
+      </div>
+      <div class="mt-1.5 flex items-baseline gap-1.5">
+        <span class="mono text-2xl font-semibold tracking-tight {% if is_all %}text-accent{% else %}text-text{% endif %}">{{ total_convs }}</span>
+        <span class="text-[10px] text-muted-2">convs</span>
+      </div>
+      <div class="mt-0.5 text-[10px] text-muted">Vista combinada</div>
+    </a>
+
+    {# Per-WA cards #}
+    {% for wn in wa_numbers %}
+    {% set is_active = (active_wa == wn.id | string) %}
+    <a href="/casas/{{ casa_id }}?tab=chats&wa={{ wn.id }}"
+       class="group relative overflow-hidden rounded-xl border p-3 transition-all duration-200
+              {% if is_active %}border-accent bg-accent/10 shadow-[0_0_24px_rgba(16,185,129,0.18)]{% else %}border-border bg-surface hover:border-accent/40 hover:bg-surface-2{% endif %}">
+      <div class="flex items-start justify-between gap-2">
+        <span class="truncate text-[10px] font-bold uppercase tracking-wider {% if is_active %}text-accent{% else %}text-muted-2 group-hover:text-muted{% endif %}">
+          {{ wn.label }}
+        </span>
+        {% if wn.unread_total > 0 %}
+        <span class="rounded-full bg-accent px-1.5 py-0 text-[10px] font-bold text-bg leading-tight">{{ wn.unread_total }}</span>
+        {% endif %}
+      </div>
+      <div class="mt-1.5 flex items-baseline gap-1.5">
+        <span class="mono text-2xl font-semibold tracking-tight {% if is_active %}text-accent{% else %}text-text{% endif %}">{{ wn.conv_count }}</span>
+        <span class="text-[10px] text-muted-2">convs</span>
+      </div>
+      <div class="mt-0.5 text-[10px] text-muted truncate">
+        {% if wn.phone %}{{ format_phone(wn.phone) }}{% else %}Sin teléfono{% endif %}
+      </div>
+      {% if wn.last_activity %}
+      <div class="mt-0.5 text-[9px] text-muted-2 mono">
+        Últ: {{ (wn.last_activity | local).strftime('%d/%m %H:%M') }}
+      </div>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
 </div>
 {% endif %}
 
@@ -128,7 +170,7 @@
           </div>
           <span class="flex-shrink-0 text-[11px] text-muted mono"
                 data-time="{{ r.last_message_at.isoformat() }}">
-            {{ r.last_message_at.strftime('%d/%m %H:%M') }}
+            {{ (r.last_message_at | local).strftime('%d/%m %H:%M') }}
           </span>
         </div>
 

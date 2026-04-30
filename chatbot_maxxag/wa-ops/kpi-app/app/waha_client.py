@@ -64,6 +64,14 @@ class WahaClient:
         r.raise_for_status()
         return r.json().get("value")
 
+    async def get_qr_image_bytes(self, name: str) -> bytes | None:
+        """Returns the raw PNG bytes of the QR. None if session not in SCAN_QR_CODE state."""
+        r = await self._client.get(f"/api/{name}/auth/qr", params={"format": "image"})
+        if r.status_code in (404, 422):
+            return None
+        r.raise_for_status()
+        return r.content
+
     # ── Messages ──────────────────────────────────────────────────
     async def send_text(self, session: str, chat_id: str, text: str) -> dict[str, Any]:
         r = await self._client.post(

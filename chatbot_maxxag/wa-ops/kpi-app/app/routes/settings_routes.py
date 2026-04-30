@@ -4,14 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-
 from app.deps import CurrentUser, SettingsDep
+from app.template_env import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
-
-
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(
     request: Request,

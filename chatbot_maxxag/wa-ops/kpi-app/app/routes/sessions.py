@@ -8,15 +8,11 @@ import re
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-
 from app.deps import CurrentUser, KpiDB, Waha
+from app.template_env import templates
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
-
-
 SLUG_RE = re.compile(r"^[a-z0-9-]+$")
 
 

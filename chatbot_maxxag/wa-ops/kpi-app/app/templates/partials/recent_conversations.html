@@ -29,7 +29,7 @@
       <div class="text-xs text-muted">
         {{ c.account_name }}
         <span class="mx-1">·</span>
-        <span data-time="{{ c.last_message_at.isoformat() }}">{{ c.last_message_at.strftime('%H:%M') }}</span>
+        <span data-time="{{ c.last_message_at.isoformat() }}">{{ (c.last_message_at | local).strftime('%H:%M') }}</span>
       </div>
     </div>
   </li>

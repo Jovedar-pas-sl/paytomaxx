@@ -10,14 +10,11 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-
 from app import queries
 from app.deps import CurrentUser, KpiDB, SettingsDep
+from app.template_env import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
-
 Tab = Literal["chats", "metricas", "problemas", "analisis"]
 Period = Literal["24h", "7d", "30d", "90d", "all"]
 

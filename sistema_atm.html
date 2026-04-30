@@ -685,6 +685,7 @@ body{
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" onclick="loadWaChats()">Actualizar</button>
+      <button class="btn btn-primary btn-sm" onclick="toggleWaSelectionMode()" id="btnBatchAnalyze">Análisis múltiple</button>
       <button class="btn btn-primary btn-sm" onclick="analyzeConvo()" id="btnAnalyzeConvo" style="display:none">Generar Informe IA</button>
       <button class="btn btn-secondary btn-sm" onclick="createIncFromWA()" id="btnCreateIncWA" style="display:none">Crear Incidencia</button>
       <button class="btn btn-secondary btn-sm" onclick="openLinkModal()" id="btnLinkInc" style="display:none">Vincular</button>
@@ -703,6 +704,19 @@ body{
         <button class="wa-tab-btn" id="waTabUnread" onclick="setWaTab('unread')">No leídos</button>
       </div>
       <div class="wa-sidebar-stats" id="waSidebarStats">—</div>
+      <div id="waBatchBar" style="display:none;padding:10px 12px;border-bottom:1px solid var(--border2);background:rgba(37,99,235,.06);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:600;color:var(--accent3)" id="waBatchCount">0 seleccionados</span>
+          <button class="btn btn-secondary btn-sm" onclick="exitWaSelectionMode()" style="padding:3px 8px;font-size:11px">Salir</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <button class="btn btn-secondary btn-sm" onclick="waSelectUnread()" style="padding:3px 8px;font-size:11px">No leídos</button>
+          <button class="btn btn-secondary btn-sm" onclick="waSelectRecent(3)" style="padding:3px 8px;font-size:11px">Últ. 3 días</button>
+          <button class="btn btn-secondary btn-sm" onclick="waSelectRecent(7)" style="padding:3px 8px;font-size:11px">Últ. 7 días</button>
+          <button class="btn btn-secondary btn-sm" onclick="waClearSelection()" style="padding:3px 8px;font-size:11px">Limpiar</button>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="runBatchAnalysis()" id="btnRunBatch" style="width:100%" disabled>Analizar selección</button>
+      </div>
       <div class="wa-chat-list" id="waChatList">
         <div class="wa-loading">Cargando chats...</div>
       </div>
@@ -750,7 +764,10 @@ body{
         <h2>Clientes</h2>
         <p id="clientsCount">0 clientes registrados</p>
       </div>
-      <button class="btn btn-primary" onclick="openAddClient()">+ Nuevo cliente</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="openContractsBulk()" title="Asignar contratos en masa">📄 Contratos</button>
+        <button class="btn btn-primary" onclick="openAddClient()">+ Nuevo cliente</button>
+      </div>
     </div>
     <div class="search-bar">
       <input id="clientSearch" placeholder="Buscar por nombre, dirección o teléfono..." oninput="clearTimeout(searchTimeout);searchTimeout=setTimeout(renderClients,150)"/>
@@ -992,6 +1009,20 @@ body{
         <div class="form-group"><label for="cEmail">Email</label><input id="cEmail" placeholder="correo@ejemplo.com"/></div>
       </div>
       <div class="form-group"><label for="cAddr">Dirección</label><input id="cAddr" placeholder="Calle, número, ciudad"/></div>
+      <div class="form-group">
+        <label>Contrato</label>
+        <div id="cContractStatus" style="font-size:13px;margin-bottom:8px;padding:8px;background:var(--card2);border-radius:6px;border:1px solid var(--border2)">Sin contrato subido</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <label class="btn btn-primary btn-sm" style="cursor:pointer;margin:0">
+            📤 Elegir y subir archivo
+            <input type="file" id="cContractFile" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" onchange="uploadClientContract()" style="display:none"/>
+          </label>
+          <button type="button" class="btn btn-secondary btn-sm" id="cContractViewBtn" onclick="viewClientContract()" style="display:none">👁 Ver</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="cContractDelBtn" onclick="deleteClientContract()" style="display:none;color:var(--err)">🗑 Eliminar</button>
+        </div>
+        <div style="margin-top:10px"><label style="font-size:11px;color:var(--muted)">o link externo (Drive/Dropbox):</label></div>
+        <input id="cContractUrl" placeholder="https://drive.google.com/..." style="margin-top:4px"/>
+      </div>
       <div class="form-group"><label for="cNotes">Notas</label><textarea id="cNotes" rows="2" placeholder="Observaciones..."></textarea></div>
     </div>
     <div class="modal-footer">
@@ -1671,6 +1702,48 @@ body{
   </div>
 </div>
 
+<!-- ════════ MODAL: CONTRATOS EN MASA ════════ -->
+<div class="overlay" id="modalContracts">
+  <div class="modal" style="width:min(900px,95vw);max-height:85vh" role="dialog" aria-modal="true" aria-labelledby="modalContractsTitle">
+    <div class="modal-header">
+      <h3 id="modalContractsTitle">📄 Asignar contratos en masa</h3>
+      <button class="btn-icon" onclick="closeModal('modalContracts')">✕</button>
+    </div>
+    <div class="modal-body" style="overflow-y:auto">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
+        Sube el archivo del contrato (PDF/DOC/imagen, max 20MB) o pega un link externo. Los links no afectan al guardar; los archivos se suben directos al servidor.
+      </p>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <input id="contractsFilter" placeholder="Filtrar clientes..." oninput="renderContractsTable()" style="flex:1;min-width:200px"/>
+        <select id="contractsView" onchange="renderContractsTable()">
+          <option value="all">Todos</option>
+          <option value="missing">Sin contrato</option>
+          <option value="with">Con contrato</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="importContractsFromDrive()" title="Requiere autenticacion Drive">⬇ Importar de Drive</button>
+      </div>
+      <div id="contractsStats" style="font-size:12px;color:var(--muted);margin-bottom:8px"></div>
+      <div style="overflow-y:auto;max-height:55vh;border:1px solid var(--border2);border-radius:8px">
+        <table id="contractsTable" style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead style="position:sticky;top:0;background:var(--card2);z-index:1">
+            <tr>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border2)">Cliente</th>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border2)">Archivo subido</th>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border2)">Link externo</th>
+              <th style="padding:8px;border-bottom:1px solid var(--border2);width:50px"></th>
+            </tr>
+          </thead>
+          <tbody id="contractsTbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modalContracts')">Cerrar</button>
+      <button class="btn btn-primary" onclick="saveContractsBulk()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════════ MODAL: VINCULAR WA ════════ -->
 <div class="overlay" id="modalLink">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalLinkTitle">
@@ -2183,6 +2256,7 @@ function renderClients(){
       <div class="card-meta">
         <span class="badge badge-ok">${active} activa${active===1?'':'s'}</span>
         <span class="badge badge-off">${machines.length} máquina${machines.length===1?'':'s'}</span>
+        ${(_contractsIndex[c.id] || c.contractUrl) ? '<span class="badge badge-ok" title="Tiene contrato">📄</span>' : ''}
       </div>
       <div style="margin-top:10px;font-size:12px;color:var(--muted)">${esc(c.address||'')}</div>
       <div style="margin-top:4px;font-size:12px;color:var(--muted)">${esc(c.phone||'')}</div>
@@ -2190,7 +2264,7 @@ function renderClients(){
   }).join('');
 }
 
-function openClient(id){
+async function openClient(id){
   currentClientId = id;
   const c = db.clients.find(x=>x.id===id);
   if(!c){ toast('Cliente no encontrado'); return; }
@@ -2201,6 +2275,16 @@ function openClient(id){
   ]);
   const machines = c.machines||[];
   const active = machines.filter(m=>m.status==='active').length;
+  await loadContractsIndex();
+  const hasUpload = !!_contractsIndex[id];
+  let contractBtn;
+  if(hasUpload){
+    contractBtn = `<a class="btn btn-primary btn-sm" href="${SERVER}/api/clients/${id}/contract" target="_blank" rel="noopener">📄 Ver contrato</a>`;
+  } else if(c.contractUrl){
+    contractBtn = `<a class="btn btn-primary btn-sm" href="${esc(c.contractUrl)}" target="_blank" rel="noopener">📄 Abrir contrato (Drive)</a>`;
+  } else {
+    contractBtn = `<button class="btn btn-secondary btn-sm" onclick="editClient('${c.id}')" title="Sin contrato asignado">📄 Subir contrato</button>`;
+  }
   document.getElementById('clientProfileHeader').innerHTML=`
     <div class="profile-avatar">${c.name.charAt(0).toUpperCase()}</div>
     <div class="profile-info">
@@ -2213,7 +2297,10 @@ function openClient(id){
       <div class="profile-stat"><div class="num">${machines.length}</div><div class="lbl">Máquinas</div></div>
       <div class="profile-stat"><div class="num">${active}</div><div class="lbl">Activas</div></div>
     </div>
-    <button class="btn btn-secondary btn-sm" style="margin-left:12px;align-self:flex-start" onclick="editClient('${c.id}')">Editar</button>
+    <div style="margin-left:12px;align-self:flex-start;display:flex;flex-direction:column;gap:6px">
+      ${contractBtn}
+      <button class="btn btn-secondary btn-sm" onclick="editClient('${c.id}')">Editar</button>
+    </div>
   `;
   renderMachines(c);
 }
@@ -2221,7 +2308,12 @@ function openClient(id){
 function openAddClient(){
   editingClientId = null;
   document.getElementById('modalClientTitle').textContent = 'Nuevo Cliente';
-  ['cName','cContact','cPhone','cEmail','cAddr','cNotes'].forEach(id=>document.getElementById(id).value='');
+  ['cName','cContact','cPhone','cEmail','cAddr','cContractUrl','cNotes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('cContractFile').value = '';
+  const status = document.getElementById('cContractStatus');
+  if(status){ status.textContent = 'Guarda el cliente primero para subir contrato'; status.style.color = 'var(--muted)'; }
+  document.getElementById('cContractViewBtn').style.display = 'none';
+  document.getElementById('cContractDelBtn').style.display = 'none';
   openModal('modalClient');
 }
 
@@ -2235,8 +2327,145 @@ function editClient(id){
   document.getElementById('cPhone').value = c.phone||'';
   document.getElementById('cEmail').value = c.email||'';
   document.getElementById('cAddr').value = c.address||'';
+  document.getElementById('cContractUrl').value = c.contractUrl||'';
+  document.getElementById('cContractFile').value = '';
   document.getElementById('cNotes').value = c.notes||'';
+  refreshContractStatus(id);
   openModal('modalClient');
+}
+
+let _contractsIndex = {};
+let _contractsIndexFetchedAt = 0;
+
+async function loadContractsIndex(force=false){
+  if(SERVER === null) return;
+  if(!force && Date.now() - _contractsIndexFetchedAt < 5000) return; // cache 5s
+  try {
+    const r = await fetch(`${SERVER}/api/clients/contracts/index`, {headers: authHeaders()});
+    if(r.ok){
+      _contractsIndex = await r.json();
+      _contractsIndexFetchedAt = Date.now();
+    }
+  } catch(e){}
+}
+
+async function refreshContractStatus(cid){
+  const status = document.getElementById('cContractStatus');
+  const viewBtn = document.getElementById('cContractViewBtn');
+  const delBtn = document.getElementById('cContractDelBtn');
+  if(!status){ return; }
+  if(!cid){
+    status.textContent = 'Guarda el cliente primero para subir contrato';
+    status.style.color = 'var(--muted)';
+    if(viewBtn) viewBtn.style.display = 'none';
+    if(delBtn) delBtn.style.display = 'none';
+    return;
+  }
+  await loadContractsIndex(true);
+  const info = _contractsIndex[cid];
+  if(info){
+    const sizeKb = (info.size / 1024).toFixed(0);
+    status.innerHTML = `<span style="color:var(--ok)">✓ Contrato subido:</span> <b>${esc(info.filename)}</b> · ${sizeKb} KB · <a href="${SERVER}/api/clients/${cid}/contract" target="_blank" style="color:var(--accent)">abrir</a>`;
+    status.style.color = '';
+    if(viewBtn) viewBtn.style.display = '';
+    if(delBtn) delBtn.style.display = '';
+  } else {
+    status.textContent = 'Sin contrato subido';
+    status.style.color = 'var(--muted)';
+    if(viewBtn) viewBtn.style.display = 'none';
+    if(delBtn) delBtn.style.display = 'none';
+  }
+}
+
+async function uploadClientContract(){
+  const status = document.getElementById('cContractStatus');
+  if(!editingClientId){
+    if(status){ status.innerHTML = '<span style="color:var(--err)">⚠ Guarda el cliente primero (clic en "Guardar"), luego edita y sube el contrato.</span>'; }
+    toast('Guarda el cliente primero, luego edita y sube');
+    return;
+  }
+  const fileInput = document.getElementById('cContractFile');
+  const file = fileInput.files[0];
+  if(!file){
+    if(status){ status.textContent = 'Selecciona un archivo primero'; }
+    return;
+  }
+  if(file.size > 20 * 1024 * 1024){
+    if(status){ status.innerHTML = '<span style="color:var(--err)">Archivo muy grande (max 20MB)</span>'; }
+    toast('Max 20MB');
+    return;
+  }
+  if(SERVER === null){
+    toast('Sin conexion al servidor');
+    return;
+  }
+  const formData = new FormData();
+  formData.append('file', file);
+  if(status){
+    status.innerHTML = `<span style="color:var(--warn)">⏳ Subiendo <b>${esc(file.name)}</b> (${(file.size/1024).toFixed(0)} KB)...</span>`;
+  }
+  console.log('[contract] Uploading', file.name, file.size, 'bytes for client', editingClientId);
+  try {
+    const tok = localStorage.getItem('api_token') || '';
+    const r = await fetch(`${SERVER}/api/clients/${editingClientId}/contract`, {
+      method: 'POST',
+      headers: tok ? {'X-API-Token': tok} : {},
+      body: formData,
+      credentials: 'same-origin',
+    });
+    console.log('[contract] Response status:', r.status);
+    let data = {};
+    try { data = await r.json(); } catch(_){}
+    if(r.ok){
+      toast(`✓ Contrato subido: ${data.filename}`);
+      fileInput.value = '';
+      await refreshContractStatus(editingClientId);
+      if(document.getElementById('viewClient').style.display !== 'none' && currentClientId === editingClientId){
+        await openClient(editingClientId);
+      }
+      if(document.getElementById('viewClients').style.display !== 'none'){
+        renderClients();
+      }
+      const bulkModal = document.getElementById('modalContracts');
+      if(bulkModal && bulkModal.classList.contains('open')){
+        renderContractsTable();
+      }
+    } else if(r.status === 401){
+      if(status){ status.innerHTML = `<span style="color:var(--err)">🔒 No autorizado (${r.status}). Configura el API_TOKEN con el boton de la cabecera.</span>`; }
+      toast('No autorizado - configura API token');
+    } else {
+      const msg = data.error || r.statusText || 'Error desconocido';
+      if(status){ status.innerHTML = `<span style="color:var(--err)">❌ Error ${r.status}: ${esc(msg)}</span>`; }
+      toast(`Error ${r.status}: ${msg}`);
+      console.error('[contract] Upload failed:', r.status, data);
+    }
+  } catch(e){
+    if(status){ status.innerHTML = `<span style="color:var(--err)">❌ Error de red: ${esc(e.message)}</span>`; }
+    toast('Error de red: ' + e.message);
+    console.error('[contract] Network error:', e);
+  }
+}
+
+function viewClientContract(){
+  if(!editingClientId) return;
+  window.open(`${SERVER}/api/clients/${editingClientId}/contract`, '_blank');
+}
+
+async function deleteClientContract(){
+  if(!editingClientId) return;
+  confirmDialog('¿Eliminar el contrato subido para este cliente?', async ()=>{
+    try {
+      const r = await fetch(`${SERVER}/api/clients/${editingClientId}/contract`, {
+        method: 'DELETE', headers: authHeaders()
+      });
+      if(r.ok){
+        toast('Contrato eliminado');
+        refreshContractStatus(editingClientId);
+      } else {
+        toast('Error eliminando contrato');
+      }
+    } catch(e){ toast('Error: ' + e.message); }
+  });
 }
 
 function deleteClient(id){
@@ -2255,6 +2484,7 @@ function saveClient(){
     phone:   document.getElementById('cPhone').value.trim(),
     email:   document.getElementById('cEmail').value.trim(),
     address: document.getElementById('cAddr').value.trim(),
+    contractUrl: document.getElementById('cContractUrl').value.trim(),
     notes:   document.getElementById('cNotes').value.trim(),
   };
   if(editingClientId){
@@ -2718,7 +2948,17 @@ function openModal(id){
   const focusable = overlay.querySelectorAll('button, input, select, textarea, [tabindex]:not([tabindex="-1"])');
   if(focusable.length) focusable[0].focus();
 }
-function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+function closeModal(id){
+  document.getElementById(id).classList.remove('open');
+  // Si era el modal de cliente, refresca vistas por si subio contrato
+  if(id === 'modalClient' && editingClientId){
+    if(document.getElementById('viewClient').style.display !== 'none' && currentClientId === editingClientId){
+      openClient(editingClientId);
+    } else if(document.getElementById('viewClients').style.display !== 'none'){
+      loadContractsIndex(true).then(()=>renderClients());
+    }
+  }
+}
 document.querySelectorAll('.overlay').forEach(o=>{
   o.addEventListener('click',e=>{ if(e.target===o) o.classList.remove('open'); });
 });
@@ -2817,6 +3057,153 @@ function exportData(){
   a.download = 'atm_backup_' + new Date().toISOString().slice(0,10) + '.json';
   a.click();
   toast('Datos exportados ✓');
+}
+
+// ═══════════════════════════════════════
+//  CONTRATOS EN MASA
+// ═══════════════════════════════════════
+let _contractsDraft = {};
+
+async function openContractsBulk(){
+  _contractsDraft = {};
+  for(const c of (db.clients||[])){
+    _contractsDraft[c.id] = c.contractUrl || '';
+  }
+  document.getElementById('contractsFilter').value = '';
+  document.getElementById('contractsView').value = 'all';
+  await loadContractsIndex(true);
+  renderContractsTable();
+  openModal('modalContracts');
+}
+
+function renderContractsTable(){
+  const q = (document.getElementById('contractsFilter').value||'').toLowerCase();
+  const view = document.getElementById('contractsView').value;
+  const tbody = document.getElementById('contractsTbody');
+  const list = (db.clients||[])
+    .filter(c => !q || (c.name||'').toLowerCase().includes(q))
+    .filter(c => {
+      const hasFile = !!_contractsIndex[c.id];
+      const hasUrl = !!(_contractsDraft[c.id] || '').trim();
+      if(view === 'missing') return !hasFile && !hasUrl;
+      if(view === 'with') return hasFile || hasUrl;
+      return true;
+    })
+    .sort((a,b) => (a.name||'').localeCompare(b.name||''));
+
+  const total = (db.clients||[]).length;
+  const withFile = Object.keys(_contractsIndex).length;
+  const withUrl = Object.values(_contractsDraft).filter(u => u && u.trim()).length;
+  document.getElementById('contractsStats').textContent =
+    `${withFile} con archivo subido · ${withUrl} con link · ${total} total · ${list.length} mostrados`;
+
+  if(list.length === 0){
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted)">Sin resultados</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(c => {
+    const url = _contractsDraft[c.id] || '';
+    const fileInfo = _contractsIndex[c.id];
+    const fileCol = fileInfo
+      ? `<a href="${SERVER}/api/clients/${c.id}/contract" target="_blank" rel="noopener" title="${esc(fileInfo.filename)}" style="font-size:11px">📄 ${esc(fileInfo.filename.slice(0,18))}</a>
+         <button class="btn-icon" onclick="deleteContractRow('${c.id}')" title="Eliminar archivo" style="font-size:14px;padding:0 4px;color:var(--err)">×</button>`
+      : `<input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" onchange="uploadContractRow('${c.id}',this)" style="font-size:11px;width:100%"/>`;
+    return `<tr data-cid="${c.id}">
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border2);font-weight:500">${esc(c.name)}</td>
+      <td style="padding:4px 8px;border-bottom:1px solid var(--border2);min-width:200px">${fileCol}</td>
+      <td style="padding:4px 8px;border-bottom:1px solid var(--border2)">
+        <input type="url" placeholder="https://drive.google.com/..." value="${esc(url)}"
+               oninput="_contractsDraft['${c.id}']=this.value"
+               style="width:100%;font-size:12px;padding:4px 6px"/>
+      </td>
+      <td style="padding:4px 8px;border-bottom:1px solid var(--border2);text-align:center">
+        ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener" title="Abrir link">🔗</a>` : '—'}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function uploadContractRow(cid, inputEl){
+  const file = inputEl.files[0];
+  if(!file) return;
+  if(file.size > 20 * 1024 * 1024){ toast('Archivo muy grande (max 20MB)'); return; }
+  const formData = new FormData();
+  formData.append('file', file);
+  toast('Subiendo...');
+  try {
+    const tok = localStorage.getItem('api_token') || '';
+    const r = await fetch(`${SERVER}/api/clients/${cid}/contract`, {
+      method:'POST', headers:{'X-API-Token':tok}, body:formData
+    });
+    if(r.ok){
+      toast('Subido ✓');
+      await loadContractsIndex(true);
+      renderContractsTable();
+    } else {
+      const data = await r.json().catch(()=>({}));
+      toast('Error: ' + (data.error || r.statusText));
+    }
+  } catch(e){ toast('Error: ' + e.message); }
+}
+
+async function deleteContractRow(cid){
+  confirmDialog('¿Eliminar el archivo de contrato de este cliente?', async ()=>{
+    try {
+      const r = await fetch(`${SERVER}/api/clients/${cid}/contract`, {method:'DELETE', headers:authHeaders()});
+      if(r.ok){
+        toast('Eliminado');
+        await loadContractsIndex(true);
+        renderContractsTable();
+      } else {
+        toast('Error eliminando');
+      }
+    } catch(e){ toast('Error: ' + e.message); }
+  });
+}
+
+function saveContractsBulk(){
+  let changed = 0;
+  for(const c of (db.clients||[])){
+    const newUrl = (_contractsDraft[c.id] || '').trim();
+    const oldUrl = (c.contractUrl || '').trim();
+    if(newUrl !== oldUrl){
+      c.contractUrl = newUrl;
+      changed++;
+    }
+  }
+  if(changed === 0){ toast('Sin cambios'); closeModal('modalContracts'); return; }
+  save();
+  closeModal('modalContracts');
+  renderClients();
+  toast(`${changed} contrato${changed===1?'':'s'} actualizado${changed===1?'':'s'} ✓`);
+}
+
+async function importContractsFromDrive(){
+  // Llama al backend que lee la carpeta Drive y devuelve sugerencias
+  if(SERVER === null){ toast('Sin conexion al servidor'); return; }
+  toast('Buscando contratos en Drive...');
+  try {
+    const r = await fetch(`${SERVER}/api/drive/contracts`, {headers: authHeaders()});
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      toast('Error: ' + (err.error || r.statusText));
+      return;
+    }
+    const data = await r.json();
+    const matches = data.matches || [];
+    if(matches.length === 0){ toast('No se encontraron coincidencias'); return; }
+    let applied = 0;
+    for(const m of matches){
+      if(m.clientId && m.driveUrl && !_contractsDraft[m.clientId]){
+        _contractsDraft[m.clientId] = m.driveUrl;
+        applied++;
+      }
+    }
+    renderContractsTable();
+    toast(`${applied} sugerencia${applied===1?'':'s'} aplicada${applied===1?'':'s'}. Revisa y guarda.`);
+  } catch(e){
+    toast('Error: ' + e.message);
+  }
 }
 
 function importData(e){
@@ -3119,6 +3506,7 @@ window.addEventListener('popstate', e => {
 // Init dashboard on load
 initDB().then(() => {
   db.informes = db.informes || [];
+  loadContractsIndex().then(()=>{ renderDashboard(); renderInformes(); });
   renderDashboard();
   renderInformes();
   restoreChecklist();
@@ -3522,6 +3910,9 @@ let activeChat = null;
 let waContacts = {};
 let waTab = 'all';
 let _pendingInforme = null;
+let waSelectionMode = false;
+let waSelectedJids = new Set();
+let _batchResult = null;
 
 function getAvatarColor(name){
   const colors=['#e94560','#2563eb','#9333ea','#16a34a','#d97706','#0891b2','#dc2626','#7c3aed','#0d9488','#b45309'];
@@ -3646,9 +4037,17 @@ function renderWaChatList(){
     const isActive = activeChat && activeChat.remoteJid === c.remoteJid;
     const linked = getLinkedClient(c.remoteJid, c);
     const hasUnread = c.unreadCount > 0;
+    const isSelected = waSelectionMode && waSelectedJids.has(c.remoteJid);
     const lastMsg = c.lastMessage?.message ? getMsgText({message:c.lastMessage.message}) : '';
     const avatarImg = c.profilePicUrl ? `<img src="${c.profilePicUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover" onerror="this.style.display='none'">` : '';
-    return `<div class="wa-chat-item${isActive?' active':''}${hasUnread?' unread':''}" onclick="selectWaChat(${JSON.stringify(c).replace(/"/g,'&quot;')})">
+    const handler = waSelectionMode
+      ? `toggleWaChatSelection('${esc(c.remoteJid)}')`
+      : `selectWaChat(${JSON.stringify(c).replace(/"/g,'&quot;')})`;
+    const checkbox = waSelectionMode
+      ? `<div style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;border:1.5px solid ${isSelected?'var(--accent)':'var(--border2)'};background:${isSelected?'var(--accent)':'transparent'};margin-right:4px;flex-shrink:0;font-size:13px;color:#fff">${isSelected?'✓':''}</div>`
+      : '';
+    return `<div class="wa-chat-item${isActive?' active':''}${hasUnread?' unread':''}${isSelected?' selected':''}" onclick="${handler}" style="${isSelected?'background:rgba(37,99,235,.10);':''}">
+      ${checkbox}
       <div class="wa-chat-avatar" style="background:${color}">${avatarImg}${!c.profilePicUrl?initials:''}</div>
       <div class="wa-chat-info">
         <div class="wa-chat-name" style="display:flex;align-items:center;gap:4px">
@@ -3661,6 +4060,416 @@ function renderWaChatList(){
       <div class="wa-chat-time">${time}</div>
     </div>`;
   }).join('');
+}
+
+// ── Análisis múltiple (batch) ─────────────────────────────────────────
+function toggleWaSelectionMode(){
+  waSelectionMode = !waSelectionMode;
+  if(!waSelectionMode){ waSelectedJids.clear(); }
+  document.getElementById('waBatchBar').style.display = waSelectionMode ? '' : 'none';
+  document.getElementById('btnBatchAnalyze').textContent = waSelectionMode ? 'Cancelar selección' : 'Análisis múltiple';
+  updateWaBatchBar();
+  renderWaChatList();
+}
+
+function exitWaSelectionMode(){
+  waSelectionMode = false;
+  waSelectedJids.clear();
+  document.getElementById('waBatchBar').style.display = 'none';
+  document.getElementById('btnBatchAnalyze').textContent = 'Análisis múltiple';
+  renderWaChatList();
+}
+
+function toggleWaChatSelection(jid){
+  if(waSelectedJids.has(jid)) waSelectedJids.delete(jid);
+  else {
+    if(waSelectedJids.size >= 50){ toast('Máximo 50 conversaciones por análisis'); return; }
+    waSelectedJids.add(jid);
+  }
+  updateWaBatchBar();
+  renderWaChatList();
+}
+
+function updateWaBatchBar(){
+  const n = waSelectedJids.size;
+  const countEl = document.getElementById('waBatchCount');
+  const btn = document.getElementById('btnRunBatch');
+  if(countEl) countEl.textContent = `${n} seleccionado${n===1?'':'s'}`;
+  if(btn){
+    btn.disabled = n === 0;
+    btn.textContent = n === 0 ? 'Analizar selección' : `Analizar ${n} conversación${n===1?'':'es'}`;
+  }
+}
+
+function waClearSelection(){
+  waSelectedJids.clear();
+  updateWaBatchBar();
+  renderWaChatList();
+}
+
+function waSelectUnread(){
+  waSelectedJids.clear();
+  for(const c of waDeduped){
+    if(c.unreadCount > 0 && waSelectedJids.size < 50) waSelectedJids.add(c.remoteJid);
+  }
+  updateWaBatchBar();
+  renderWaChatList();
+}
+
+function waSelectRecent(days){
+  const cutoff = Date.now() - days*24*60*60*1000;
+  waSelectedJids.clear();
+  for(const c of waDeduped){
+    const ts = new Date(c.updatedAt||0).getTime();
+    if(ts >= cutoff && waSelectedJids.size < 50) waSelectedJids.add(c.remoteJid);
+  }
+  updateWaBatchBar();
+  renderWaChatList();
+}
+
+async function _fetchMessagesForBatch(chat, sinceTs){
+  const primary = await _fetchMessages(chat.remoteJid, sinceTs);
+  let all = primary || [];
+  if(chat.remoteJid.includes('@lid') && chat._phone){
+    const netJid = `${chat._phone}@s.whatsapp.net`;
+    const secondary = await _fetchMessages(netJid, sinceTs);
+    if(secondary?.length){
+      const seen = new Set(all.map(m => m.key?.id).filter(Boolean));
+      for(const m of secondary){ if(!seen.has(m.key?.id)){ all.push(m); seen.add(m.key?.id); } }
+    }
+  }
+  all.sort((a,b) => (a.messageTimestamp||0) - (b.messageTimestamp||0));
+  return all.slice(-100).map(m => ({
+    text: getMsgText(m) || '',
+    fromMe: m.key?.fromMe || false,
+    time: m.messageTimestamp ? new Date(m.messageTimestamp*1000).toLocaleString('es-ES') : '',
+    sender: m.pushName || ''
+  })).filter(m => m.text && m.text !== '[Mensaje]');
+}
+
+async function runBatchAnalysis(){
+  const jids = [...waSelectedJids];
+  if(!jids.length){ toast('Selecciona al menos una conversación'); return; }
+  const days = parseInt(document.getElementById('waFilterDays').value) || 7;
+  const sinceTs = days > 0 ? Math.floor((Date.now() - days*24*60*60*1000)/1000) : null;
+  const btn = document.getElementById('btnRunBatch');
+  btn.disabled = true;
+  btn.textContent = `Cargando mensajes (0/${jids.length})...`;
+
+  // Build conversations payload (concurrent fetches in chunks of 4)
+  const chats = jids.map(j => waDeduped.find(c => c.remoteJid === j)).filter(Boolean);
+  const conversations = [];
+  let done = 0;
+  const chunkSize = 4;
+  for(let i=0; i<chats.length; i+=chunkSize){
+    const chunk = chats.slice(i, i+chunkSize);
+    const results = await Promise.all(chunk.map(async ch => {
+      const msgs = await _fetchMessagesForBatch(ch, sinceTs);
+      const linked = getLinkedClient(ch.remoteJid, ch);
+      return {
+        jid: ch.remoteJid,
+        clientName: linked?.name || getWaName(ch),
+        messages: msgs,
+      };
+    }));
+    conversations.push(...results);
+    done += chunk.length;
+    btn.textContent = `Cargando mensajes (${done}/${chats.length})...`;
+  }
+
+  const empty = conversations.filter(c => !c.messages.length).map(c => c.clientName);
+  const valid = conversations.filter(c => c.messages.length);
+  if(!valid.length){
+    toast('Ninguna conversación tiene mensajes en el rango seleccionado');
+    btn.disabled = false; updateWaBatchBar(); return;
+  }
+
+  btn.textContent = `Analizando con IA (${valid.length})...`;
+  try {
+    const r = await fetch(`${SERVER}/api/wa/analyze-batch`, {
+      method: 'POST', headers: {'Content-Type':'application/json', ...authHeaders()},
+      body: JSON.stringify({ conversations: valid })
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({error:'Error '+r.status}));
+      toast('Error: ' + (err.error || r.status));
+      return;
+    }
+    const data = await r.json();
+    _batchResult = { ...data, emptyClients: empty };
+    showBatchResultModal(_batchResult);
+  } catch(e){
+    toast('Error conectando: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    updateWaBatchBar();
+  }
+}
+
+function _priorityBadge(p){
+  const colors = { alta:'var(--err)', media:'var(--warn)', baja:'var(--info)' };
+  const c = colors[p] || 'var(--muted)';
+  return `<span style="background:${c}1a;color:${c};border:1px solid ${c}66;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase">${p||'?'}</span>`;
+}
+
+function _statusBadge(s){
+  const colors = { resuelto:'var(--ok)', pendiente:'var(--warn)', en_proceso:'var(--info)' };
+  const c = colors[s] || 'var(--muted)';
+  return `<span style="background:${c}1a;color:${c};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500">${s||'pendiente'}</span>`;
+}
+
+function showBatchResultModal(data){
+  const s = data.summary || {};
+  const items = data.items || [];
+  const errs = data.errors || [];
+  const empty = data.emptyClients || [];
+
+  const summaryHtml = `
+    <div style="display:flex;gap:6px;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn btn-secondary btn-sm" onclick="downloadBatchReport('md')" style="font-size:11px">⬇ Markdown</button>
+      <button class="btn btn-secondary btn-sm" onclick="downloadBatchReport('txt')" style="font-size:11px">⬇ Texto</button>
+      <button class="btn btn-secondary btn-sm" onclick="downloadBatchReport('json')" style="font-size:11px">⬇ JSON</button>
+      <button class="btn btn-primary btn-sm" onclick="copyBatchReport()" style="font-size:11px">📋 Copiar</button>
+    </div>
+    <div style="background:var(--card2);padding:14px;border-radius:10px;border:1px solid var(--border);margin-bottom:14px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--accent3);margin-bottom:6px">Resumen ejecutivo</div>
+      <div style="font-size:13px;line-height:1.5;margin-bottom:12px">${esc(s.executive||'(sin resumen)')}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:12px">
+        <div style="background:var(--card);padding:10px;border-radius:8px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--err)">${s.criticalCount ?? 0}</div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Críticas</div>
+        </div>
+        <div style="background:var(--card);padding:10px;border-radius:8px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--warn)">${s.pendingCount ?? 0}</div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Pendientes</div>
+        </div>
+        <div style="background:var(--card);padding:10px;border-radius:8px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--ok)">${s.resolvedCount ?? 0}</div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Resueltas</div>
+        </div>
+        <div style="background:var(--card);padding:10px;border-radius:8px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--accent2)">${items.length}</div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Analizadas</div>
+        </div>
+      </div>
+      ${(s.affectedMachines && s.affectedMachines.length) ? `
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Máquinas afectadas</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            ${s.affectedMachines.map(m=>`<span style="background:var(--card);padding:3px 8px;border-radius:6px;font-size:11px;font-family:var(--font);border:1px solid var(--border2)">${esc(m)}</span>`).join('')}
+          </div>
+        </div>` : ''}
+      ${(s.actionItems && s.actionItems.length) ? `
+        <div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Acciones pendientes ordenadas</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${s.actionItems.map(a => `
+              <div style="display:flex;gap:8px;align-items:flex-start;padding:8px;background:var(--card);border-radius:6px;border-left:3px solid ${a.priority==='alta'?'var(--err)':a.priority==='media'?'var(--warn)':'var(--info)'}">
+                ${_priorityBadge(a.priority)}
+                <div style="flex:1">
+                  <div style="font-size:12px;font-weight:600">${esc(a.client||'')}</div>
+                  <div style="font-size:12px;color:var(--text);opacity:.85;margin-top:2px">${esc(a.action||'')}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>` : ''}
+    </div>`;
+
+  // Sort: pendientes por prioridad primero, resueltos al final
+  const sortedItems = items.map((it,idx)=>({it,idx})).sort((a,b)=>{
+    const aSolved = a.it.solved ? 1 : 0;
+    const bSolved = b.it.solved ? 1 : 0;
+    if(aSolved !== bSolved) return aSolved - bSolved;
+    const order = {alta:0, media:1, baja:2};
+    return (order[a.it.priority]??3) - (order[b.it.priority]??3);
+  });
+  const itemsHtml = sortedItems.map(({it, idx}) => {
+    if(it.error){
+      return `<div style="background:var(--card2);padding:10px;border-radius:8px;border:1px solid var(--err);margin-bottom:8px">
+        <div style="font-weight:600;font-size:12px">${esc(it.clientName||'?')}</div>
+        <div style="color:var(--err);font-size:11px;margin-top:4px">Error: ${esc(it.error)}</div>
+      </div>`;
+    }
+    const solved = !!it.solved;
+    const stateBadge = solved
+      ? `<span style="background:var(--ok)1a;color:var(--ok);border:1px solid var(--ok)66;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600">✓ RESUELTO</span>`
+      : `<span style="background:var(--warn)1a;color:var(--warn);border:1px solid var(--warn)66;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600">⚠ PENDIENTE</span>`;
+    return `<div style="background:var(--card2);padding:12px;border-radius:8px;border:1px solid ${solved?'var(--border2)':'var(--border)'};margin-bottom:8px;${solved?'opacity:.7':''}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:13px">${esc(it.clientName||'?')}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">${esc(it.subject||'')}</div>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+          ${stateBadge}
+          ${!solved ? _priorityBadge(it.priority) : ''}
+        </div>
+      </div>
+      <div style="font-size:12px;line-height:1.5;margin-bottom:6px"><b style="color:var(--muted);font-weight:500">Problema:</b> ${esc(it.problem||'')}</div>
+      ${!solved ? `<div style="font-size:12px;line-height:1.5;background:var(--card);padding:8px 10px;border-radius:6px;border-left:3px solid var(--accent)"><b style="color:var(--accent3);font-weight:500">Cómo solucionar:</b> ${esc(it.solution||'')}</div>` : `<div style="font-size:11px;color:var(--muted);font-style:italic">${esc(it.solution||'')}</div>`}
+      <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-secondary btn-sm" onclick="saveBatchItemAsInforme(${idx})" style="font-size:11px;padding:3px 10px">Guardar como incidencia</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const errsHtml = (errs.length || empty.length) ? `
+    <details style="margin-top:10px;background:var(--card2);padding:10px;border-radius:8px;border:1px solid var(--border2)">
+      <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Avisos (${errs.length + empty.length})</summary>
+      <div style="margin-top:6px;font-size:11px;color:var(--muted)">
+        ${empty.length?`<div>Sin mensajes en rango: ${empty.map(esc).join(', ')}</div>`:''}
+        ${errs.length?`<div>Errores: ${errs.map(e=>esc(e.clientName||'?')+' — '+esc(e.error||'')).join('; ')}</div>`:''}
+      </div>
+    </details>` : '';
+
+  document.getElementById('analyzeResultBody').innerHTML = summaryHtml + `
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--accent3);margin-bottom:6px">Detalle por conversación</div>
+    ${itemsHtml || '<div style="color:var(--muted);font-size:12px">Sin resultados.</div>'}
+    ${errsHtml}`;
+  document.getElementById('modalAnalyzeTitle').textContent = `Análisis múltiple — ${items.length} conversaciones`;
+  // Hide single-save footer button when in batch mode (item cards have their own save buttons)
+  const saveBtn = document.querySelector('#modalAnalyzeResult [onclick*="saveAnalyzedInforme"]');
+  if(saveBtn) saveBtn.style.display = 'none';
+  // Widen modal for the batch view
+  const modalEl = document.querySelector('#modalAnalyzeResult .modal');
+  if(modalEl) modalEl.style.width = 'min(800px,95vw)';
+  openModal('modalAnalyzeResult');
+}
+
+function saveBatchItemAsInforme(idx){
+  if(!_batchResult || !_batchResult.items[idx]) return;
+  const it = _batchResult.items[idx];
+  const linked = getLinkedClient(it.jid);
+  const informe = {
+    id: uid(), clientId: linked?.id || null,
+    clientName: it.clientName || '',
+    subject: it.subject || '',
+    problem: it.problem || '',
+    solution: it.solution || '',
+    category: 'tecnico',
+    priority: it.priority || 'media',
+    status: it.solved ? 'resuelto' : 'pendiente',
+    source: 'whatsapp', jid: it.jid || '',
+    date: new Date().toISOString().slice(0,10),
+    createdAt: new Date().toISOString()
+  };
+  db.informes = db.informes || [];
+  db.informes.push(informe);
+  save();
+  toast('Incidencia guardada: ' + informe.subject.slice(0,40));
+  renderInformes();
+}
+
+// ── Descarga / copia del informe batch ─────────────────────────────────
+function _buildBatchReportMarkdown(data){
+  const s = data.summary || {};
+  const items = data.items || [];
+  const errs = data.errors || [];
+  const empty = data.emptyClients || [];
+  const fechaStr = new Date().toLocaleString('es-ES',{dateStyle:'short', timeStyle:'short'});
+
+  // Sort: pendientes primero por prioridad, resueltos al final
+  const order = {alta:0, media:1, baja:2};
+  const pendientes = items.filter(it => !it.error && !it.solved)
+    .sort((a,b) => (order[a.priority]??3) - (order[b.priority]??3));
+  const resueltos = items.filter(it => !it.error && it.solved);
+
+  let md = `# Informe ATM — ${fechaStr}\n\n`;
+  md += `**${pendientes.length} pendiente(s) · ${resueltos.length} resuelto(s)** · ${items.length} conversaciones analizadas\n\n`;
+
+  if(s.executive){
+    md += `> ${s.executive}\n\n`;
+  }
+
+  if(s.affectedMachines?.length){
+    md += `**Máquinas afectadas:** ${s.affectedMachines.join(', ')}\n\n`;
+  }
+
+  md += `---\n\n## ⚠ Pendientes (${pendientes.length})\n\n`;
+  if(!pendientes.length){
+    md += `_Nada pendiente. Todo resuelto._\n\n`;
+  } else {
+    pendientes.forEach((it, i) => {
+      md += `### ${i+1}. ${it.clientName || '?'} — ${(it.priority||'media').toUpperCase()}\n\n`;
+      md += `**Problema:** ${it.problem || ''}\n\n`;
+      md += `**Cómo solucionarlo:** ${it.solution || ''}\n\n`;
+    });
+  }
+
+  if(resueltos.length){
+    md += `---\n\n## ✓ Resueltos (${resueltos.length})\n\n`;
+    resueltos.forEach((it, i) => {
+      md += `${i+1}. **${it.clientName || '?'}** — ${it.problem || ''} _(${it.solution || 'resuelto'})_\n`;
+    });
+    md += '\n';
+  }
+
+  if(errs.length || empty.length){
+    md += `---\n\n## Avisos\n\n`;
+    if(empty.length) md += `Sin mensajes en rango: ${empty.join(', ')}\n\n`;
+    if(errs.length){
+      errs.forEach(e => { md += `- Error en ${e.clientName||'?'}: ${e.error||''}\n`; });
+    }
+  }
+  return md;
+}
+
+function _buildBatchReportText(data){
+  // Plain-text version: same content as markdown but stripped of markdown syntax
+  return _buildBatchReportMarkdown(data)
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/_(.+?)_/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/<sub>(.+?)<\/sub>/g, '$1')
+    .replace(/^---$/gm, '────────────────────────────────────────')
+    .replace(/^\|.*\|$/gm, '')  // strip markdown tables
+    .replace(/\n{3,}/g, '\n\n');
+}
+
+function _triggerDownload(filename, content, mime){
+  const blob = new Blob([content], {type: mime + ';charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadBatchReport(format){
+  if(!_batchResult){ toast('No hay informe para descargar'); return; }
+  const date = new Date().toISOString().slice(0,10);
+  const time = new Date().toTimeString().slice(0,5).replace(':','');
+  const base = `informe-atm-${date}-${time}`;
+  if(format === 'md'){
+    _triggerDownload(`${base}.md`, _buildBatchReportMarkdown(_batchResult), 'text/markdown');
+  } else if(format === 'txt'){
+    _triggerDownload(`${base}.txt`, _buildBatchReportText(_batchResult), 'text/plain');
+  } else if(format === 'json'){
+    _triggerDownload(`${base}.json`, JSON.stringify(_batchResult, null, 2), 'application/json');
+  }
+  toast('Informe descargado');
+}
+
+function copyBatchReport(){
+  if(!_batchResult){ toast('No hay informe para copiar'); return; }
+  const text = _buildBatchReportMarkdown(_batchResult);
+  if(navigator.clipboard?.writeText){
+    navigator.clipboard.writeText(text).then(
+      () => toast('Informe copiado al portapapeles'),
+      () => toast('Error copiando — usa la descarga')
+    );
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('Informe copiado'); }
+    catch { toast('Copia no disponible — usa la descarga'); }
+    finally { document.body.removeChild(ta); }
+  }
 }
 
 function filterWaChats(){ renderWaChatList(); }
@@ -3789,6 +4598,11 @@ async function analyzeConvo(){
   if(!waAllMessages.length){ toast('Carga los mensajes primero'); return; }
   const btn = document.getElementById('btnAnalyzeConvo');
   btn.disabled = true; btn.textContent = 'Analizando...';
+  // Restore single-mode footer button + default modal width (batch mode mutates them)
+  const footerSaveBtn = document.querySelector('#modalAnalyzeResult [onclick*="saveAnalyzedInforme"]');
+  if(footerSaveBtn) footerSaveBtn.style.display = '';
+  const modalEl = document.querySelector('#modalAnalyzeResult .modal');
+  if(modalEl) modalEl.style.width = 'min(560px,95vw)';
   const msgs = waAllMessages.slice(-100).map(m => ({
     text: getMsgText(m) || '', fromMe: m.key?.fromMe || false,
     time: m.messageTimestamp ? new Date(m.messageTimestamp*1000).toLocaleString('es-ES') : '', sender: m.pushName || ''

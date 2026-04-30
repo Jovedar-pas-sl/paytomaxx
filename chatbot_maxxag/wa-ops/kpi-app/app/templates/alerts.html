@@ -89,7 +89,7 @@
           {% endif %}
         </td>
         <td class="px-4 py-3 text-[11px] text-muted mono whitespace-nowrap" data-time="{{ a.created_at.isoformat() }}">
-          {{ a.created_at.strftime('%d/%m %H:%M') }}
+          {{ (a.created_at | local).strftime('%d/%m %H:%M') }}
         </td>
         <td class="px-4 py-3 text-right">
           {% if not a.acknowledged_at %}
