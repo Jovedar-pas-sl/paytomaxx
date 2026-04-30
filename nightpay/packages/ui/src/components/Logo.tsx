@@ -16,7 +16,7 @@ interface LogoProps {
 
 export function Logo({
   height = '2rem',
-  src = '/brand/logo.png',
+  src = '/brand/Logo.png',
   alt = 'dinero sin riesgos',
   adaptiveBackdrop = true,
 }: LogoProps) {
