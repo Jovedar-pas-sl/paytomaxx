@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Card } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { CashRegister } from '@/components/CashRegister';
 import { getToken, getVenueSlug } from '@/lib/api';
@@ -16,31 +17,68 @@ export default function Page() {
   }, []);
 
   if (authed === null) {
-    return <main style={pageStyle}>Cargando…</main>;
+    return (
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--np-text-mute)',
+        }}
+      >
+        Cargando…
+      </main>
+    );
   }
 
   if (!authed) {
     return (
-      <main style={pageStyle}>
-        <h1 style={{ marginBottom: '1.5rem' }}>NightPay TPV</h1>
-        <LoginForm
-          onSuccess={() => {
-            setAuthed(true);
-            setVenueSlug(getVenueSlug());
-          }}
-        />
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '2rem',
+          gap: '2rem',
+        }}
+      >
+        <header style={{ textAlign: 'center' }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: '0.75rem',
+              color: 'var(--np-text-dim)',
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+            }}
+          >
+            NightPay
+          </p>
+          <h1
+            style={{
+              margin: '0.5rem 0 0',
+              fontSize: 'var(--np-t-h1)',
+              fontWeight: 600,
+              letterSpacing: '-0.03em',
+            }}
+          >
+            TPV
+          </h1>
+        </header>
+        <Card variant="glow" style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
+          <LoginForm
+            onSuccess={() => {
+              setAuthed(true);
+              setVenueSlug(getVenueSlug());
+            }}
+          />
+        </Card>
       </main>
     );
   }
 
   return <CashRegister venueSlug={venueSlug ?? '—'} onLogout={() => setAuthed(false)} />;
 }
-
-const pageStyle: React.CSSProperties = {
-  minHeight: '100vh',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: '2rem',
-};

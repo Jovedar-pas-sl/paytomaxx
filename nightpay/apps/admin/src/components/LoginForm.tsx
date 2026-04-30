@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
+import { Button, Input } from '@nightpay/ui';
 import { login, setSession, type User } from '@/lib/api';
 
 interface Props {
@@ -13,7 +14,7 @@ export function LoginForm({ onSuccess }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
@@ -29,55 +30,47 @@ export function LoginForm({ onSuccess }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={formStyle}>
-      <input
+    <form
+      onSubmit={handleSubmit}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1rem',
+        width: '100%',
+      }}
+    >
+      <Input
         type="email"
         autoComplete="email"
         placeholder="email@nightpay.local"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
-        style={inputStyle}
       />
-      <input
+      <Input
         type="password"
         autoComplete="current-password"
         placeholder="contraseña"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
-        style={inputStyle}
       />
-      <button type="submit" disabled={busy} style={btnStyle}>
-        {busy ? 'Entrando…' : 'Entrar'}
-      </button>
-      {error && <p style={errorStyle}>{error}</p>}
+      <Button type="submit" loading={busy} size="lg">
+        Entrar
+      </Button>
+      {error ? (
+        <p
+          role="alert"
+          style={{
+            color: 'var(--np-danger)',
+            margin: 0,
+            textAlign: 'center',
+            fontSize: '0.875rem',
+          }}
+        >
+          {error}
+        </p>
+      ) : null}
     </form>
   );
 }
-
-const formStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '0.75rem',
-  width: '100%',
-  maxWidth: '20rem',
-};
-const inputStyle: React.CSSProperties = {
-  padding: '0.75rem 1rem',
-  fontSize: '1rem',
-  border: '1px solid #ccc',
-  borderRadius: '0.5rem',
-  background: '#fff',
-};
-const btnStyle: React.CSSProperties = {
-  padding: '0.85rem',
-  fontSize: '1rem',
-  fontWeight: 600,
-  background: '#1a1a1f',
-  color: '#fafafa',
-  border: 'none',
-  borderRadius: '0.5rem',
-  cursor: 'pointer',
-};
-const errorStyle: React.CSSProperties = { color: '#c62828', margin: 0, textAlign: 'center' };

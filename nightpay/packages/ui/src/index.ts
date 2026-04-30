@@ -4,3 +4,5 @@ export { AmountDisplay } from './components/AmountDisplay';
 export { StatusPill } from './components/StatusPill';
 export type { PaymentStatus } from './components/StatusPill';
 export { Stage, StageMeta } from './components/Stage';
+export { Input, Select } from './components/Input';
+export { Modal } from './components/Modal';

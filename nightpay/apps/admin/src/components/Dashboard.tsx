@@ -1,6 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import {
+  Button,
+  Card,
+  Input,
+  Modal,
+  Select,
+  StatusPill,
+  type PaymentStatus,
+} from '@nightpay/ui';
 import {
   fetchMetrics,
   fetchPayments,
@@ -32,6 +41,7 @@ export function Dashboard({ user, onLogout }: Props) {
       ]);
       setMetrics(m);
       setPayments(p.items);
+      setError(null);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -39,7 +49,7 @@ export function Dashboard({ user, onLogout }: Props) {
 
   useEffect(() => {
     reload();
-    const interval = setInterval(reload, 5000); // poll cada 5s
+    const interval = setInterval(reload, 5000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
@@ -50,199 +60,251 @@ export function Dashboard({ user, onLogout }: Props) {
   }
 
   return (
-    <main style={pageStyle}>
+    <main
+      className="np-app-root"
+      style={{
+        minHeight: '100dvh',
+        padding: '2rem',
+        maxWidth: '88rem',
+        margin: '0 auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '2rem',
+      }}
+    >
       <header style={headerStyle}>
-        <strong>NightPay Admin</strong>
-        <span style={{ color: '#666', marginLeft: '1rem' }}>
-          {user.email} · venue <code>{user.venueSlug}</code> · rol {user.role}
-        </span>
-        <button onClick={logout} style={logoutBtnStyle}>
-          Salir
-        </button>
+        <div>
+          <p style={brandKicker}>NightPay</p>
+          <h1 style={brandTitle}>Admin</h1>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ textAlign: 'right' }}>
+            <p style={userEmail}>{user.email}</p>
+            <p style={userMeta}>
+              <code style={code}>{user.venueSlug}</code> · {user.role}
+            </p>
+          </div>
+          <Button variant="ghost" onClick={logout}>
+            Salir
+          </Button>
+        </div>
       </header>
 
-      {error && <p style={errStyle}>{error}</p>}
+      {error ? (
+        <Card style={{ padding: '1rem', borderColor: 'var(--np-danger)' }}>
+          <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>{error}</p>
+        </Card>
+      ) : null}
 
-      <section style={metricsRow}>
-        <MetricTile title="Hoy: pagos" value={metrics?.today.count ?? '—'} />
+      <section style={metricsGrid}>
+        <MetricTile title="Hoy · pagos" value={metrics?.today.count ?? '—'} />
         <MetricTile
-          title="Hoy: bruto"
-          value={metrics ? `${(metrics.today.grossCents / 100).toFixed(2)} €` : '—'}
+          title="Hoy · bruto"
+          value={fmt(metrics?.today.grossCents)}
+          unit={metrics?.currency ?? 'EUR'}
         />
         <MetricTile
-          title="Hoy: reembolsos"
-          value={metrics ? `${(metrics.today.refundedCents / 100).toFixed(2)} €` : '—'}
+          title="Hoy · reembolsos"
+          value={fmt(metrics?.today.refundedCents)}
+          unit={metrics?.currency ?? 'EUR'}
         />
         <MetricTile
-          title="Hoy: neto"
-          value={metrics ? `${(metrics.today.netCents / 100).toFixed(2)} €` : '—'}
+          title="Hoy · neto"
+          value={fmt(metrics?.today.netCents)}
+          unit={metrics?.currency ?? 'EUR'}
           highlight
         />
         <MetricTile
-          title="Semana: neto"
-          value={metrics ? `${(metrics.week.netCents / 100).toFixed(2)} €` : '—'}
+          title="Semana · neto"
+          value={fmt(metrics?.week.netCents)}
+          unit={metrics?.currency ?? 'EUR'}
         />
       </section>
 
-      <section style={{ marginTop: '2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
-          <h2 style={{ margin: 0 }}>Pagos recientes</h2>
-          <select value={filter} onChange={(e) => setFilter(e.target.value)} style={selectStyle}>
-            <option value="">Todos</option>
-            <option value="CREATED">CREATED</option>
-            <option value="AUTHORIZING">AUTHORIZING</option>
-            <option value="AUTHORIZED">AUTHORIZED</option>
-            <option value="FAILED">FAILED</option>
-            <option value="EXPIRED">EXPIRED</option>
-            <option value="REFUNDED">REFUNDED</option>
-            <option value="PARTIALLY_REFUNDED">PARTIALLY_REFUNDED</option>
-            <option value="ORPHAN">ORPHAN</option>
-          </select>
-          <button onClick={reload} style={refreshBtn}>
-            Refrescar
-          </button>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: '1rem',
+            flexWrap: 'wrap',
+          }}
+        >
+          <h2 style={sectionTitle}>Pagos recientes</h2>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+            <div style={{ minWidth: '12rem' }}>
+              <Select value={filter} onChange={(e) => setFilter(e.target.value)}>
+                <option value="">Todos los estados</option>
+                <option value="CREATED">CREATED</option>
+                <option value="AUTHORIZING">AUTHORIZING</option>
+                <option value="AUTHORIZED">AUTHORIZED</option>
+                <option value="FAILED">FAILED</option>
+                <option value="EXPIRED">EXPIRED</option>
+                <option value="REFUNDED">REFUNDED</option>
+                <option value="PARTIALLY_REFUNDED">PARTIALLY_REFUNDED</option>
+                <option value="ORPHAN">ORPHAN</option>
+              </Select>
+            </div>
+            <Button variant="ghost" onClick={reload}>
+              Refrescar
+            </Button>
+          </div>
         </div>
 
-        <table style={tableStyle}>
-          <thead>
-            <tr style={{ background: '#f7f7f8' }}>
-              <th style={th}>Hora</th>
-              <th style={th}>Importe</th>
-              <th style={th}>Disponible</th>
-              <th style={th}>Estado</th>
-              <th style={th}>Terminal</th>
-              <th style={th}>Provider</th>
-              <th style={th}>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {payments.map((p) => (
-              <tr key={p.id} style={{ borderTop: '1px solid #eee' }}>
-                <td style={td}>{new Date(p.createdAt).toLocaleString('es-ES')}</td>
-                <td style={td}>
-                  {(p.amountCents / 100).toFixed(2)} {p.currency}
-                </td>
-                <td style={td}>{(p.availableAmountCents / 100).toFixed(2)}</td>
-                <td style={{ ...td, fontWeight: 600 }}>
-                  <StatusBadge status={p.status} />
-                </td>
-                <td style={td}>{p.terminal.label}</td>
-                <td style={td}>{p.provider ?? '—'}</td>
-                <td style={td}>
-                  {(p.status === 'AUTHORIZED' || p.status === 'PARTIALLY_REFUNDED') &&
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="np-table">
+              <thead>
+                <tr>
+                  <th>Hora</th>
+                  <th style={numCol}>Importe</th>
+                  <th style={numCol}>Disponible</th>
+                  <th>Estado</th>
+                  <th>Terminal</th>
+                  <th>Provider</th>
+                  <th style={{ textAlign: 'right' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((p) => {
+                  const canRefund =
+                    (p.status === 'AUTHORIZED' || p.status === 'PARTIALLY_REFUNDED') &&
                     p.availableAmountCents > 0 &&
-                    (user.role === 'OWNER' || user.role === 'MANAGER') && (
-                      <button onClick={() => setRefundFor(p)} style={refundBtnStyle}>
-                        Reembolsar
-                      </button>
-                    )}
-                </td>
-              </tr>
-            ))}
-            {payments.length === 0 && (
-              <tr>
-                <td colSpan={7} style={{ ...td, textAlign: 'center', color: '#999' }}>
-                  Sin pagos
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                    (user.role === 'OWNER' || user.role === 'MANAGER');
+                  return (
+                    <tr key={p.id}>
+                      <td style={cellMeta}>{formatTime(p.createdAt)}</td>
+                      <td className="np-num" style={numCell}>
+                        {(p.amountCents / 100).toFixed(2)} {p.currency}
+                      </td>
+                      <td className="np-num" style={numCell}>
+                        {(p.availableAmountCents / 100).toFixed(2)}
+                      </td>
+                      <td>
+                        <StatusPill status={p.status as PaymentStatus} size="sm" />
+                      </td>
+                      <td style={cellMeta}>{p.terminal.label}</td>
+                      <td style={cellMeta}>{p.provider ?? '—'}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {canRefund ? (
+                          <Button variant="ghost" onClick={() => setRefundFor(p)} size="md" style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}>
+                            Reembolsar
+                          </Button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {payments.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={emptyCell}>
+                      Sin pagos
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       </section>
 
-      {refundFor && (
-        <RefundModal
-          payment={refundFor}
-          onClose={() => setRefundFor(null)}
-          onDone={() => {
-            setRefundFor(null);
-            reload();
-          }}
-        />
-      )}
+      <RefundModal
+        open={Boolean(refundFor)}
+        payment={refundFor}
+        onClose={() => setRefundFor(null)}
+        onDone={() => {
+          setRefundFor(null);
+          reload();
+        }}
+      />
     </main>
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, { bg: string; fg: string }> = {
-    CREATED: { bg: '#e3f2fd', fg: '#1565c0' },
-    AWAITING_CAPTURE: { bg: '#e3f2fd', fg: '#1565c0' },
-    AUTHORIZING: { bg: '#fff3e0', fg: '#e65100' },
-    AUTHORIZED: { bg: '#e8f5e9', fg: '#2e7d32' },
-    FAILED: { bg: '#ffebee', fg: '#c62828' },
-    EXPIRED: { bg: '#fafafa', fg: '#616161' },
-    REFUNDED: { bg: '#f3e5f5', fg: '#6a1b9a' },
-    PARTIALLY_REFUNDED: { bg: '#f3e5f5', fg: '#6a1b9a' },
-    ORPHAN: { bg: '#fff3e0', fg: '#e65100' },
-  };
-  const c = colors[status] ?? { bg: '#eee', fg: '#333' };
-  return (
-    <span
-      style={{
-        background: c.bg,
-        color: c.fg,
-        padding: '0.2rem 0.6rem',
-        borderRadius: '999px',
-        fontSize: '0.75rem',
-      }}
-    >
-      {status}
-    </span>
-  );
+function fmt(cents: number | undefined): string {
+  if (cents === undefined) return '—';
+  return (cents / 100).toFixed(2);
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString('es-ES', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function MetricTile({
   title,
   value,
+  unit,
   highlight,
 }: {
   title: string;
   value: string | number;
+  unit?: string;
   highlight?: boolean;
 }) {
   return (
-    <div
-      style={{
-        padding: '1.25rem 1.5rem',
-        background: highlight ? '#1a1a1f' : '#fff',
-        color: highlight ? '#fafafa' : '#1a1a1f',
-        border: '1px solid #e0e0e0',
-        borderRadius: '0.75rem',
-        minWidth: '10rem',
-      }}
-    >
-      <p style={{ margin: 0, fontSize: '0.8rem', color: highlight ? '#aaa' : '#666' }}>{title}</p>
-      <p style={{ margin: '0.4rem 0 0', fontSize: '1.6rem', fontWeight: 700 }}>{value}</p>
-    </div>
+    <Card variant={highlight ? 'glow' : 'default'} style={{ padding: '1.25rem 1.5rem' }}>
+      <p style={metricLabel}>{title}</p>
+      <p
+        className="np-num"
+        style={{
+          ...metricValue,
+          color: highlight ? 'var(--np-accent)' : 'var(--np-text)',
+        }}
+      >
+        {value}
+        {unit && value !== '—' ? <span style={metricUnit}>{unit}</span> : null}
+      </p>
+    </Card>
   );
 }
 
 function RefundModal({
+  open,
   payment,
   onClose,
   onDone,
 }: {
-  payment: PaymentRow;
+  open: boolean;
+  payment: PaymentRow | null;
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [amount, setAmount] = useState((payment.availableAmountCents / 100).toFixed(2));
+  const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [totp, setTotp] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const cents = Math.round(parseFloat(amount.replace(',', '.')) * 100);
-  const requires2FA = cents >= 100_00;
 
-  async function handleSubmit(e: React.FormEvent) {
+  useEffect(() => {
+    if (payment) {
+      setAmount((payment.availableAmountCents / 100).toFixed(2));
+      setReason('');
+      setTotp('');
+      setError(null);
+    }
+  }, [payment]);
+
+  if (!payment) {
+    return <Modal open={open} onClose={onClose}>{null}</Modal>;
+  }
+
+  const cents = Math.round(parseFloat(amount.replace(',', '.')) * 100);
+  const requires2FA = Number.isFinite(cents) && cents >= 100_00;
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!payment) return;
     setSubmitting(true);
     setError(null);
     try {
       if (!Number.isFinite(cents) || cents <= 0) throw new Error('Importe inválido');
-      if (cents > payment.availableAmountCents)
-        throw new Error('Excede el importe disponible');
+      if (cents > payment.availableAmountCents) throw new Error('Excede el importe disponible');
       await refundPayment(payment.id, cents, reason || undefined, requires2FA ? totp : undefined);
       onDone();
     } catch (err) {
@@ -253,170 +315,163 @@ function RefundModal({
   }
 
   return (
-    <div onClick={onClose} style={overlayStyle}>
-      <form onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit} style={modalStyle}>
-        <h3 style={{ margin: 0 }}>Reembolsar pago</h3>
-        <p style={{ margin: '0.5rem 0', color: '#666', fontSize: '0.85rem' }}>
-          ID {payment.id} · disponible {(payment.availableAmountCents / 100).toFixed(2)} €
-        </p>
-        <label style={lbl}>Importe (€)</label>
-        <input
+    <Modal open={open} onClose={onClose} title="Reembolsar pago">
+      <p style={refundMeta}>
+        ID <code style={code}>{payment.id.slice(0, 8)}…</code> · disponible{' '}
+        <span className="np-num">{(payment.availableAmountCents / 100).toFixed(2)} €</span>
+      </p>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.25rem' }}>
+        <Input
+          label="Importe (€)"
           type="text"
           inputMode="decimal"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           required
-          style={modalInput}
+          size="lg"
+          style={{ fontFamily: 'var(--np-font-mono)' }}
         />
-        <label style={lbl}>Razón (opcional)</label>
-        <input
+        <Input
+          label="Razón (opcional)"
           type="text"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           maxLength={500}
-          style={modalInput}
         />
-        {requires2FA && (
-          <>
-            <label style={lbl}>Código TOTP (6 dígitos)</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="\d{6}"
-              maxLength={6}
-              value={totp}
-              onChange={(e) => setTotp(e.target.value)}
-              required
-              style={modalInput}
-            />
-            <p style={{ fontSize: '0.75rem', color: '#999', margin: 0 }}>
-              Reembolsos ≥ 100 € exigen 2FA (placeholder: cualquier 6 dígitos por ahora).
-            </p>
-          </>
-        )}
-        {error && <p style={errStyle}>{error}</p>}
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-          <button type="button" onClick={onClose} style={cancelBtn}>
+        {requires2FA ? (
+          <Input
+            label="Código TOTP (6 dígitos)"
+            type="text"
+            inputMode="numeric"
+            pattern="\d{6}"
+            maxLength={6}
+            value={totp}
+            onChange={(e) => setTotp(e.target.value)}
+            required
+            hint="Reembolsos ≥ 100 € exigen 2FA (placeholder: 6 dígitos cualquiera)."
+          />
+        ) : null}
+        {error ? (
+          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+            {error}
+          </p>
+        ) : null}
+        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+          <Button variant="ghost" type="button" onClick={onClose} style={{ flex: 1 }}>
             Cancelar
-          </button>
-          <button type="submit" disabled={submitting} style={confirmBtn}>
-            {submitting ? 'Procesando…' : 'Confirmar reembolso'}
-          </button>
+          </Button>
+          <Button type="submit" loading={submitting} style={{ flex: 1 }}>
+            Confirmar reembolso
+          </Button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
 
-// styles ──
-const pageStyle: React.CSSProperties = { padding: '1.5rem', minHeight: '100vh' };
-const headerStyle: React.CSSProperties = {
+const headerStyle: CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
   paddingBottom: '1rem',
-  borderBottom: '1px solid #e0e0e0',
-};
-const logoutBtnStyle: React.CSSProperties = {
-  marginLeft: 'auto',
-  padding: '0.4rem 0.9rem',
-  fontSize: '0.85rem',
-  background: 'transparent',
-  color: '#666',
-  border: '1px solid #ccc',
-  borderRadius: '0.4rem',
-  cursor: 'pointer',
-};
-const metricsRow: React.CSSProperties = {
-  display: 'flex',
-  gap: '1rem',
+  borderBottom: '1px solid var(--np-border)',
   flexWrap: 'wrap',
-  marginTop: '1.5rem',
+  gap: '1rem',
 };
-const tableStyle: React.CSSProperties = {
-  width: '100%',
-  borderCollapse: 'collapse',
-  background: '#fff',
-  borderRadius: '0.5rem',
-  overflow: 'hidden',
-  border: '1px solid #e0e0e0',
-};
-const th: React.CSSProperties = {
-  textAlign: 'left',
-  padding: '0.75rem 1rem',
-  fontSize: '0.8rem',
-  color: '#666',
+
+const brandKicker: CSSProperties = {
+  margin: 0,
+  fontSize: '0.7rem',
+  color: 'var(--np-text-dim)',
+  letterSpacing: '0.18em',
   textTransform: 'uppercase',
+  fontWeight: 500,
 };
-const td: React.CSSProperties = { padding: '0.75rem 1rem', fontSize: '0.9rem' };
-const refreshBtn: React.CSSProperties = {
-  padding: '0.4rem 0.9rem',
-  background: '#fff',
-  border: '1px solid #ccc',
-  borderRadius: '0.4rem',
-  cursor: 'pointer',
+
+const brandTitle: CSSProperties = {
+  margin: '0.25rem 0 0',
+  fontSize: 'var(--np-t-h1)',
+  fontWeight: 600,
+  letterSpacing: '-0.03em',
+  color: 'var(--np-text)',
 };
-const refundBtnStyle: React.CSSProperties = {
-  padding: '0.3rem 0.7rem',
-  fontSize: '0.8rem',
-  background: '#fff3e0',
-  color: '#e65100',
-  border: '1px solid #ffb74d',
-  borderRadius: '0.3rem',
-  cursor: 'pointer',
+
+const userEmail: CSSProperties = {
+  margin: 0,
+  fontSize: '0.875rem',
+  fontWeight: 500,
+  color: 'var(--np-text)',
 };
-const selectStyle: React.CSSProperties = {
-  padding: '0.4rem 0.7rem',
-  border: '1px solid #ccc',
-  borderRadius: '0.4rem',
-  background: '#fff',
+
+const userMeta: CSSProperties = {
+  margin: '0.25rem 0 0',
+  fontSize: '0.75rem',
+  color: 'var(--np-text-mute)',
 };
-const errStyle: React.CSSProperties = {
-  background: '#ffebee',
-  color: '#c62828',
-  padding: '0.7rem 1rem',
-  borderRadius: '0.4rem',
-  margin: '1rem 0',
+
+const code: CSSProperties = {
+  fontFamily: 'var(--np-font-mono)',
+  background: 'var(--np-surface-2)',
+  padding: '0.1rem 0.4rem',
+  borderRadius: '4px',
+  fontSize: '0.75rem',
 };
-const overlayStyle: React.CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.5)',
+
+const metricsGrid: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))',
+  gap: '1rem',
+};
+
+const metricLabel: CSSProperties = {
+  margin: 0,
+  fontSize: '0.7rem',
+  color: 'var(--np-text-dim)',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  fontWeight: 500,
+};
+
+const metricValue: CSSProperties = {
+  margin: '0.5rem 0 0',
+  fontSize: '1.875rem',
+  fontWeight: 600,
+  letterSpacing: '-0.02em',
   display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 100,
+  alignItems: 'baseline',
+  gap: '0.4rem',
 };
-const modalStyle: React.CSSProperties = {
-  background: '#fff',
-  padding: '1.5rem',
-  borderRadius: '0.75rem',
-  width: '100%',
-  maxWidth: '24rem',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '0.5rem',
+
+const metricUnit: CSSProperties = {
+  fontSize: '0.875rem',
+  color: 'var(--np-text-mute)',
+  fontWeight: 500,
+  letterSpacing: '0.04em',
 };
-const lbl: React.CSSProperties = { fontSize: '0.8rem', color: '#666', marginTop: '0.5rem' };
-const modalInput: React.CSSProperties = {
-  padding: '0.6rem 0.8rem',
-  fontSize: '1rem',
-  border: '1px solid #ccc',
-  borderRadius: '0.4rem',
+
+const sectionTitle: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--np-t-h2)',
+  fontWeight: 600,
+  letterSpacing: '-0.02em',
 };
-const cancelBtn: React.CSSProperties = {
-  flex: 1,
-  padding: '0.7rem',
-  background: '#fff',
-  border: '1px solid #ccc',
-  borderRadius: '0.4rem',
-  cursor: 'pointer',
+
+const numCol: CSSProperties = { textAlign: 'right' };
+const numCell: CSSProperties = { textAlign: 'right', fontWeight: 500 };
+
+const cellMeta: CSSProperties = {
+  color: 'var(--np-text-mute)',
 };
-const confirmBtn: React.CSSProperties = {
-  flex: 1,
-  padding: '0.7rem',
-  background: '#1a1a1f',
-  color: '#fafafa',
-  border: 'none',
-  borderRadius: '0.4rem',
-  cursor: 'pointer',
+
+const emptyCell: CSSProperties = {
+  textAlign: 'center',
+  color: 'var(--np-text-dim)',
+  padding: '3rem 1rem',
+  fontSize: '0.875rem',
+};
+
+const refundMeta: CSSProperties = {
+  margin: 0,
+  fontSize: '0.8125rem',
+  color: 'var(--np-text-mute)',
 };

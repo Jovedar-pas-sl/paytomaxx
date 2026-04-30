@@ -16,11 +16,13 @@ COPY apps/web-client/package.json apps/web-client/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/
 COPY packages/config/package.json packages/config/
+COPY packages/ui/package.json packages/ui/
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS builder
 COPY packages/contracts ./packages/contracts
 COPY packages/config ./packages/config
+COPY packages/ui ./packages/ui
 COPY apps/admin ./apps/admin
 ENV NEXT_BUILD_TRACE_ROOT=/repo
 ENV NEXT_TELEMETRY_DISABLED=1

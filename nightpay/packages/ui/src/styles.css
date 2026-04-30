@@ -219,6 +219,97 @@ button {
   cursor: not-allowed;
 }
 
+/* Inputs share focus style */
+input,
+select,
+textarea {
+  font-family: var(--np-font-sans);
+  color: var(--np-text);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--np-accent) !important;
+  box-shadow: 0 0 0 3px var(--np-glow) !important;
+}
+
+input::placeholder {
+  color: var(--np-text-dim);
+}
+
+/* Modal entry */
+@keyframes np-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes np-modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+/* Tables */
+.np-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--np-font-sans);
+}
+
+.np-table thead th {
+  text-align: left;
+  padding: 0.875rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--np-text-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--np-border);
+  background: var(--np-surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.np-table tbody td {
+  padding: 0.875rem 1rem;
+  font-size: 0.875rem;
+  border-bottom: 1px solid var(--np-border);
+  color: var(--np-text);
+}
+
+.np-table tbody tr {
+  transition: background var(--np-d-fast);
+}
+
+.np-table tbody tr:hover {
+  background: var(--np-surface-2);
+}
+
+.np-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Scrollbar — subtle on dark */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--np-border);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--np-border-hi);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
