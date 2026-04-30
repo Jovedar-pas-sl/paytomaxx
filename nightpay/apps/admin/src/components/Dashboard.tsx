@@ -101,23 +101,23 @@ export function Dashboard({ user, onLogout }: Props) {
         <MetricTile
           title="Hoy · bruto"
           value={fmt(metrics?.today.grossCents)}
-          unit={metrics?.currency ?? 'EUR'}
+          unit="EUR"
         />
         <MetricTile
           title="Hoy · reembolsos"
           value={fmt(metrics?.today.refundedCents)}
-          unit={metrics?.currency ?? 'EUR'}
+          unit="EUR"
         />
         <MetricTile
           title="Hoy · neto"
           value={fmt(metrics?.today.netCents)}
-          unit={metrics?.currency ?? 'EUR'}
+          unit="EUR"
           highlight
         />
         <MetricTile
           title="Semana · neto"
           value={fmt(metrics?.week.netCents)}
-          unit={metrics?.currency ?? 'EUR'}
+          unit="EUR"
         />
       </section>
 
