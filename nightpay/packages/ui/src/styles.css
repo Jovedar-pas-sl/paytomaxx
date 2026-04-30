@@ -1,6 +1,45 @@
 /* NightPay design tokens — dark + light themes.
    Imported once from each app's root layout. */
 
+:root {
+  /* Spacing — 4px base */
+  --np-s-1: 0.25rem;
+  --np-s-2: 0.5rem;
+  --np-s-3: 0.75rem;
+  --np-s-4: 1rem;
+  --np-s-5: 1.5rem;
+  --np-s-6: 2rem;
+  --np-s-7: 3rem;
+  --np-s-8: 4rem;
+  --np-s-9: 6rem;
+
+  /* Radius */
+  --np-r-sm: 8px;
+  --np-r-md: 12px;
+  --np-r-lg: 20px;
+  --np-r-pill: 999px;
+
+  /* Type */
+  --np-t-amount: clamp(4rem, 9vw, 9rem);
+  --np-t-h1: clamp(2rem, 3vw, 3.25rem);
+  --np-t-h2: clamp(1.5rem, 2vw, 2rem);
+  --np-t-h3: 1.25rem;
+  --np-t-body: clamp(0.95rem, 0.4vw + 0.85rem, 1rem);
+  --np-t-ui: 0.8125rem;
+
+  /* Motion */
+  --np-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --np-d-fast: 150ms;
+  --np-d-base: 250ms;
+  --np-d-slow: 600ms;
+
+  /* Fonts — set on <html> by next/font, here as fallback */
+  --np-font-sans:
+    var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --np-font-mono:
+    var(--font-mono), 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
 :root,
 [data-theme='dark'] {
   /* Surfaces */
@@ -73,44 +112,6 @@
 
   --np-grain-opacity: 0;
   --np-grain-blend: normal;
-}
-
-  /* Spacing — 4px base */
-  --np-s-1: 0.25rem;
-  --np-s-2: 0.5rem;
-  --np-s-3: 0.75rem;
-  --np-s-4: 1rem;
-  --np-s-5: 1.5rem;
-  --np-s-6: 2rem;
-  --np-s-7: 3rem;
-  --np-s-8: 4rem;
-  --np-s-9: 6rem;
-
-  /* Radius */
-  --np-r-sm: 8px;
-  --np-r-md: 12px;
-  --np-r-lg: 20px;
-  --np-r-pill: 999px;
-
-  /* Type */
-  --np-t-amount: clamp(4rem, 9vw, 9rem);
-  --np-t-h1: clamp(2rem, 3vw, 3.25rem);
-  --np-t-h2: clamp(1.5rem, 2vw, 2rem);
-  --np-t-h3: 1.25rem;
-  --np-t-body: clamp(0.95rem, 0.4vw + 0.85rem, 1rem);
-  --np-t-ui: 0.8125rem;
-
-  /* Motion */
-  --np-ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --np-d-fast: 150ms;
-  --np-d-base: 250ms;
-  --np-d-slow: 600ms;
-
-  /* Fonts — set on <html> by next/font, here as fallback */
-  --np-font-sans:
-    var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --np-font-mono:
-    var(--font-mono), 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 }
 
 *,
