@@ -1,21 +1,22 @@
 import { Controller, Get, Inject, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import type { Redis } from 'ioredis';
 import type { Health } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { REDIS_CLIENT } from '../../common/redis/redis.module';
 
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
   private readonly prisma: PrismaService;
-  private readonly config: ConfigService;
+  private readonly redis: Redis;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
-    @Inject(ConfigService) config: ConfigService,
+    @Inject(REDIS_CLIENT) redis: Redis,
   ) {
     this.prisma = prisma;
-    this.config = config;
+    this.redis = redis;
   }
 
   @Public()
@@ -35,12 +36,10 @@ export class HealthController {
       this.logger.warn(`DB health check failed: ${(err as Error).message}`);
     }
 
-    // Redis ping — usamos fetch al socket Redis a traves de ioredis instance
-    // No tenemos un Redis client expuesto globalmente; usamos un check simple via TCP.
+    // Redis ping — usa el client autenticado ya inyectado por RedisModule
     try {
-      const url = new URL(this.config.getOrThrow<string>('REDIS_URL'));
-      const ok = await pingRedis(url.hostname, Number(url.port || 6379), 1500);
-      checks.redis = ok ? 'ok' : 'fail';
+      const result = await this.redis.ping();
+      checks.redis = result === 'PONG' ? 'ok' : 'fail';
     } catch (err) {
       this.logger.warn(`Redis health check failed: ${(err as Error).message}`);
     }
@@ -54,31 +53,4 @@ export class HealthController {
       checks,
     };
   }
-}
-
-/**
- * Ping minimo a Redis: abre TCP, manda PING, espera +PONG.
- * Sin dependencias adicionales. Timeout corto para no bloquear health.
- */
-async function pingRedis(host: string, port: number, timeoutMs: number): Promise<boolean> {
-  const net = await import('node:net');
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    let resolved = false;
-    const done = (ok: boolean) => {
-      if (resolved) return;
-      resolved = true;
-      socket.destroy();
-      resolve(ok);
-    };
-    socket.setTimeout(timeoutMs);
-    socket.once('error', () => done(false));
-    socket.once('timeout', () => done(false));
-    socket.once('data', (data) => {
-      done(data.toString().startsWith('+PONG'));
-    });
-    socket.connect(port, host, () => {
-      socket.write('PING\r\n');
-    });
-  });
 }
