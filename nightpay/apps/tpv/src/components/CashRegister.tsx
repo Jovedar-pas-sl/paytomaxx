@@ -9,6 +9,7 @@ import {
   Input,
   Select,
   StatusPill,
+  ThemeToggle,
   type PaymentStatus,
 } from '@nightpay/ui';
 import {
@@ -128,9 +129,12 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
             venue <code style={code}>{venueSlug}</code>
           </p>
         </div>
-        <Button variant="ghost" size="md" onClick={logout}>
-          Salir
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <ThemeToggle />
+          <Button variant="ghost" size="md" onClick={logout}>
+            Salir
+          </Button>
+        </div>
       </header>
 
       {!active ? (

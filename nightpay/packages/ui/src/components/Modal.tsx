@@ -40,7 +40,7 @@ export function Modal({ open, onClose, title, children, width = '28rem' }: Modal
 const overlay: CSSProperties = {
   position: 'fixed',
   inset: 0,
-  background: 'oklch(5% 0.01 270 / 0.7)',
+  background: 'var(--np-backdrop)',
   backdropFilter: 'blur(8px)',
   WebkitBackdropFilter: 'blur(8px)',
   display: 'flex',

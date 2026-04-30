@@ -23,48 +23,48 @@ const config: Record<
   CREATED: {
     label: 'Esperando confirmación',
     color: 'var(--np-text-mute)',
-    bg: 'oklch(20% 0.012 270)',
+    bg: 'var(--np-pill-mute-bg)',
   },
   AWAITING_CAPTURE: {
     label: 'Esperando datáfono',
     color: 'var(--np-text-mute)',
-    bg: 'oklch(20% 0.012 270)',
+    bg: 'var(--np-pill-mute-bg)',
   },
   AUTHORIZING: {
     label: 'Acerca tarjeta al datáfono',
     color: 'var(--np-accent)',
-    bg: 'oklch(22% 0.06 200)',
+    bg: 'var(--np-pill-cyan-bg)',
     spin: true,
   },
   AUTHORIZED: {
     label: 'Pago completado',
     color: 'var(--np-success)',
-    bg: 'oklch(22% 0.06 145)',
+    bg: 'var(--np-pill-success-bg)',
   },
   FAILED: {
     label: 'Pago rechazado',
     color: 'var(--np-danger)',
-    bg: 'oklch(22% 0.08 25)',
+    bg: 'var(--np-pill-danger-bg)',
   },
   EXPIRED: {
     label: 'QR expirado',
     color: 'var(--np-warning)',
-    bg: 'oklch(22% 0.06 75)',
+    bg: 'var(--np-pill-warning-bg)',
   },
   REFUNDED: {
     label: 'Reembolsado',
-    color: 'oklch(75% 0.16 320)',
-    bg: 'oklch(22% 0.06 320)',
+    color: 'var(--np-purple)',
+    bg: 'var(--np-pill-purple-bg)',
   },
   PARTIALLY_REFUNDED: {
     label: 'Reembolso parcial',
-    color: 'oklch(75% 0.16 320)',
-    bg: 'oklch(22% 0.06 320)',
+    color: 'var(--np-purple)',
+    bg: 'var(--np-pill-purple-bg)',
   },
   ORPHAN: {
     label: 'Verificando',
     color: 'var(--np-warning)',
-    bg: 'oklch(22% 0.06 75)',
+    bg: 'var(--np-pill-warning-bg)',
     spin: true,
   },
 };
@@ -103,6 +103,7 @@ const pillBase: CSSProperties = {
   fontWeight: 500,
   letterSpacing: '0.01em',
   fontFamily: 'var(--np-font-sans)',
+  transition: 'background var(--np-d-base), color var(--np-d-base), border-color var(--np-d-base)',
 };
 
 function Dot({ color }: { color: string }) {

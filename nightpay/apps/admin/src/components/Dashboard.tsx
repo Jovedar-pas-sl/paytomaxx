@@ -8,6 +8,7 @@ import {
   Modal,
   Select,
   StatusPill,
+  ThemeToggle,
   type PaymentStatus,
 } from '@nightpay/ui';
 import {
@@ -84,6 +85,7 @@ export function Dashboard({ user, onLogout }: Props) {
               <code style={code}>{user.venueSlug}</code> · {user.role}
             </p>
           </div>
+          <ThemeToggle />
           <Button variant="ghost" onClick={logout}>
             Salir
           </Button>

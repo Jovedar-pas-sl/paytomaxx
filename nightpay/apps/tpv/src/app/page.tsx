@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card } from '@nightpay/ui';
+import { Card, ThemeToggle } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { CashRegister } from '@/components/CashRegister';
 import { getToken, getVenueSlug } from '@/lib/api';
@@ -45,6 +45,9 @@ export default function Page() {
           gap: '2rem',
         }}
       >
+        <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem' }}>
+          <ThemeToggle />
+        </div>
         <header style={{ textAlign: 'center' }}>
           <p
             style={{

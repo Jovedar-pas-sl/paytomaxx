@@ -1,7 +1,8 @@
-/* NightPay design tokens — dark luxury, single source of truth.
+/* NightPay design tokens — dark + light themes.
    Imported once from each app's root layout. */
 
-:root {
+:root,
+[data-theme='dark'] {
   /* Surfaces */
   --np-bg: oklch(8% 0.012 270);
   --np-surface: oklch(13% 0.014 270);
@@ -23,6 +24,56 @@
   --np-success: oklch(74% 0.18 145);
   --np-danger: oklch(68% 0.22 25);
   --np-warning: oklch(80% 0.16 75);
+  --np-purple: oklch(75% 0.16 320);
+
+  /* Pill backgrounds (theme-aware) */
+  --np-pill-mute-bg: oklch(20% 0.012 270);
+  --np-pill-cyan-bg: oklch(22% 0.06 200);
+  --np-pill-success-bg: oklch(22% 0.06 145);
+  --np-pill-danger-bg: oklch(22% 0.08 25);
+  --np-pill-warning-bg: oklch(22% 0.06 75);
+  --np-pill-purple-bg: oklch(22% 0.06 320);
+
+  /* Backdrop for modals (matches surrounding tone) */
+  --np-backdrop: oklch(5% 0.01 270 / 0.7);
+
+  /* Grain visibility */
+  --np-grain-opacity: 0.045;
+  --np-grain-blend: overlay;
+}
+
+[data-theme='light'] {
+  --np-bg: oklch(98% 0.004 270);
+  --np-surface: oklch(100% 0 0);
+  --np-surface-2: oklch(96% 0.005 270);
+  --np-border: oklch(88% 0.008 270);
+  --np-border-hi: oklch(76% 0.012 270);
+
+  --np-text: oklch(18% 0.012 270);
+  --np-text-mute: oklch(42% 0.012 270);
+  --np-text-dim: oklch(58% 0.012 270);
+
+  --np-accent: oklch(54% 0.18 220);
+  --np-accent-2: oklch(46% 0.22 220);
+  --np-glow: oklch(54% 0.18 220 / 0.18);
+
+  --np-success: oklch(48% 0.18 145);
+  --np-danger: oklch(54% 0.22 25);
+  --np-warning: oklch(60% 0.16 75);
+  --np-purple: oklch(48% 0.20 320);
+
+  --np-pill-mute-bg: oklch(94% 0.004 270);
+  --np-pill-cyan-bg: oklch(94% 0.05 220);
+  --np-pill-success-bg: oklch(94% 0.06 145);
+  --np-pill-danger-bg: oklch(94% 0.06 25);
+  --np-pill-warning-bg: oklch(94% 0.06 75);
+  --np-pill-purple-bg: oklch(94% 0.06 320);
+
+  --np-backdrop: oklch(20% 0.01 270 / 0.45);
+
+  --np-grain-opacity: 0;
+  --np-grain-blend: normal;
+}
 
   /* Spacing — 4px base */
   --np-s-1: 0.25rem;
@@ -87,6 +138,9 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  transition:
+    background-color var(--np-d-base) var(--np-ease),
+    color var(--np-d-base) var(--np-ease);
 }
 
 /* Subtle film grain — adds atmosphere without weight */
@@ -97,8 +151,9 @@ body::after {
   pointer-events: none;
   z-index: 1;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/></svg>");
-  opacity: 0.045;
-  mix-blend-mode: overlay;
+  opacity: var(--np-grain-opacity);
+  mix-blend-mode: var(--np-grain-blend);
+  transition: opacity var(--np-d-base);
 }
 
 /* App content sits above the grain layer */
