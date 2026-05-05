@@ -12,6 +12,7 @@ import {
   type PaymentStatus,
 } from '@nightpay/ui';
 import { fetchPaymentByToken, startAuthorization, wsBase, type PublicPaymentView } from '@/lib/api';
+import { StripePaymentForm } from './StripePaymentForm';
 
 interface Props {
   initial: PublicPaymentView;
@@ -96,6 +97,10 @@ export function PaymentClient({ initial, token }: Props) {
   }
 
   const canPay = status === 'CREATED' || status === 'AWAITING_CAPTURE';
+  const isStripe =
+    payment.provider === 'STRIPE' &&
+    typeof payment.stripeClientSecret === 'string' &&
+    typeof payment.stripePublishableKey === 'string';
 
   return (
     <Stage>
@@ -109,13 +114,26 @@ export function PaymentClient({ initial, token }: Props) {
 
       <StatusPill status={status} />
 
-      <div style={{ minHeight: '4.5rem', display: 'flex', alignItems: 'center' }}>
-        {canPay ? (
-          <Button size="lg" onClick={handlePay} loading={submitting}>
-            Pagar ahora
-          </Button>
-        ) : null}
-      </div>
+      {isStripe && canPay ? (
+        <div style={{ width: '100%', maxWidth: '26rem' }}>
+          <StripePaymentForm
+            publishableKey={payment.stripePublishableKey as string}
+            clientSecret={payment.stripeClientSecret as string}
+            amountCents={payment.amountCents}
+            currency={payment.currency}
+            token={token}
+            onError={(msg) => setError(msg)}
+          />
+        </div>
+      ) : (
+        <div style={{ minHeight: '4.5rem', display: 'flex', alignItems: 'center' }}>
+          {canPay ? (
+            <Button size="lg" onClick={handlePay} loading={submitting}>
+              Pagar ahora
+            </Button>
+          ) : null}
+        </div>
+      )}
 
       {error ? (
         <p

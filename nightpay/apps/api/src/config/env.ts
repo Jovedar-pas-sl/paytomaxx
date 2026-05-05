@@ -13,6 +13,12 @@ const EnvSchema = z.object({
   WIPAY_WEBHOOK_SECRET: z.string().min(8),
   PEANPE_API_URL: z.string().url(),
   PEANPE_WEBHOOK_SECRET: z.string().min(8),
+  // Stripe — sandbox o live. Si STRIPE_API_KEY no se setea, el StripeAdapter
+  // no se podra usar (lanza error en authorize). Optional para no romper
+  // los entornos que solo usan Wipay/Peanpe.
+  STRIPE_API_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_PUBLISHABLE_KEY: z.string().optional(),
   // CORS_ORIGINS — CSV de origins permitidos en produccion. Vacio en dev.
   CORS_ORIGINS: z.string().optional(),
   // Timeout (ms) para llamadas a pasarelas — abort signal.

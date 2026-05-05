@@ -3,6 +3,8 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
 
+export type Provider = 'WIPAY' | 'PEANPE' | 'STRIPE';
+
 export interface PublicPaymentView {
   id: string;
   amountCents: number;
@@ -11,6 +13,12 @@ export interface PublicPaymentView {
   venueName: string;
   terminalLabel: string;
   qrExpiresAt: string;
+  /** Pasarela activa para esta venue. Null si aun no asignado. */
+  provider?: Provider | null;
+  /** Solo para STRIPE — client_secret del PaymentIntent ya creado. */
+  stripeClientSecret?: string | null;
+  /** Solo para STRIPE — pk_test_... o pk_live_... para inicializar Stripe.js. */
+  stripePublishableKey?: string | null;
 }
 
 export async function fetchPaymentByToken(token: string): Promise<PublicPaymentView> {

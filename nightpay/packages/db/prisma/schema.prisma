@@ -75,6 +75,7 @@ model Terminal {
 enum Provider {
   WIPAY
   PEANPE
+  STRIPE
 }
 
 model GatewayCredential {
@@ -119,6 +120,9 @@ model Payment {
   status               PaymentStatus @default(CREATED)
   provider             Provider?
   providerTxId         String?
+  // Stripe-only: client_secret del PaymentIntent, usado por <PaymentElement>
+  // en el cliente. Null para Wipay/Peanpe (no aplica).
+  stripeClientSecret   String?
   qrToken              String        @unique
   qrExpiresAt          DateTime      @db.Timestamptz
   availableAmountCents Int

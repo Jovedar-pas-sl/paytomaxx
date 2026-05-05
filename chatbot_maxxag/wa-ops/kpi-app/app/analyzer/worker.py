@@ -29,9 +29,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 async def startup(ctx: dict) -> None:
     import redis.asyncio as redis_async
+    from arq import create_pool
     s = get_settings()
     ctx["kpi_db"] = await asyncpg.create_pool(dsn=s.database_url, min_size=1, max_size=5)
     ctx["redis"] = redis_async.from_url(s.redis_url, decode_responses=True)
+    ctx["arq_pool"] = await create_pool(RedisSettings.from_dsn(s.redis_url))
     logger.info("analyzer worker ready")
 
 
@@ -39,6 +41,8 @@ async def shutdown(ctx: dict) -> None:
     await ctx["kpi_db"].close()
     if "redis" in ctx:
         await ctx["redis"].aclose()
+    if "arq_pool" in ctx:
+        await ctx["arq_pool"].close()
     logger.info("analyzer worker shut down")
 
 
@@ -486,6 +490,220 @@ async def waha_health_check_job(ctx: dict) -> None:
                 await _bump_fail()
 
 
+AUTO_MERGE_CONFIDENCE_THRESHOLD = 0.85
+
+
+async def auto_merge_job(ctx: dict, source_id: int, sibling_id: int) -> None:
+    """Try to auto-merge a one-sided conversation pair without admin gate.
+
+    Called from the webhook when a `merge_suggestion` alert is created.
+    Behaviour:
+      - Loads recent messages from both convs.
+      - Asks Claude `detect_same_client` to confirm.
+      - If confidence >= AUTO_MERGE_CONFIDENCE_THRESHOLD, executes the merge
+        SQL and acknowledges the merge_suggestion alert.
+      - Otherwise leaves the suggestion in place for manual review.
+
+    Idempotent: re-checks both convs exist and the casa matches before merging.
+    """
+    if source_id == sibling_id:
+        return
+    kpi: asyncpg.Pool = ctx["kpi_db"]
+
+    async with kpi.acquire() as conn:
+        src = await conn.fetchrow(
+            "SELECT id, casa_id, contact_id FROM conversation WHERE id = $1",
+            source_id,
+        )
+        sib = await conn.fetchrow(
+            "SELECT id, casa_id, contact_id FROM conversation WHERE id = $1",
+            sibling_id,
+        )
+        if not src or not sib:
+            logger.info("auto_merge: convs missing src=%s sib=%s — skip", source_id, sibling_id)
+            return
+        if src["casa_id"] != sib["casa_id"]:
+            logger.info("auto_merge: casa mismatch — skip")
+            return
+
+        src_msgs = await conn.fetch(
+            """
+            SELECT body, direction, extract(epoch from created_at)::int AS ts
+            FROM message WHERE conversation_id = $1
+            ORDER BY created_at ASC LIMIT 25
+            """,
+            source_id,
+        )
+        sib_msgs = await conn.fetch(
+            """
+            SELECT body, direction, extract(epoch from created_at)::int AS ts
+            FROM message WHERE conversation_id = $1
+            ORDER BY created_at ASC LIMIT 25
+            """,
+            sibling_id,
+        )
+        sib_label_row = await conn.fetchrow(
+            """
+            SELECT ct.name, ct.phone, ct.waha_jid
+            FROM conversation c JOIN contact ct ON ct.id = c.contact_id
+            WHERE c.id = $1
+            """,
+            sibling_id,
+        )
+
+    if not src_msgs or not sib_msgs:
+        return
+
+    target_msgs = [
+        skills.Message(
+            ts=r["ts"],
+            role="cliente" if r["direction"] == "in" else "mamai",
+            content=(r["body"] or "")[:200],
+        )
+        for r in src_msgs
+    ]
+    sib_label = (
+        sib_label_row["name"]
+        or sib_label_row["phone"]
+        or ((sib_label_row["waha_jid"] or "")[:24] + "…")
+    )
+    candidates = [skills.SiblingConvo(
+        conv_id=sibling_id,
+        label=sib_label,
+        messages=[skills.Message(
+            ts=r["ts"],
+            role="cliente" if r["direction"] == "in" else "mamai",
+            content=(r["body"] or "")[:200],
+        ) for r in sib_msgs],
+    )]
+
+    try:
+        result = await skills.detect_same_client(target_msgs, f"conv {source_id}", candidates)
+    except Exception:
+        logger.exception("auto_merge: IA call failed src=%s sib=%s", source_id, sibling_id)
+        return
+
+    if (
+        result.best_match_id != sibling_id
+        or result.confidence < AUTO_MERGE_CONFIDENCE_THRESHOLD
+    ):
+        logger.info(
+            "auto_merge: not confident enough src=%s sib=%s match=%s conf=%.2f — leaving suggestion",
+            source_id, sibling_id, result.best_match_id, result.confidence,
+        )
+        return
+
+    # Confidence high enough — perform the merge atomically with audit trail
+    # for undo. Same shape as the manual merge in routes/conversation.py.
+    async with kpi.acquire() as conn:
+        async with conn.transaction():
+            src_full = await conn.fetchrow(
+                """
+                SELECT id, casa_id, wa_number_id, contact_id, status, unread_count
+                FROM conversation WHERE id = $1
+                """,
+                source_id,
+            )
+            still_sib = await conn.fetchval(
+                "SELECT 1 FROM conversation WHERE id = $1", sibling_id,
+            )
+            if not src_full or not still_sib:
+                logger.info("auto_merge: race — one conv gone, abort")
+                return
+
+            contact = await conn.fetchrow(
+                "SELECT id, waha_jid, name, phone, created_at FROM contact WHERE id = $1",
+                src_full["contact_id"],
+            )
+            contact_snapshot = {
+                "id": contact["id"],
+                "waha_jid": contact["waha_jid"],
+                "name": contact["name"],
+                "phone": contact["phone"],
+                "created_at": contact["created_at"].isoformat() if contact["created_at"] else None,
+            } if contact else {}
+
+            # Tag messages with origin BEFORE moving (allows undo to find them).
+            await conn.execute(
+                "UPDATE message SET merged_from_conv_id = $1 "
+                "WHERE conversation_id = $1 AND merged_from_conv_id IS NULL",
+                source_id,
+            )
+            moved = await conn.fetchval(
+                "SELECT count(*) FROM message WHERE conversation_id = $1",
+                source_id,
+            ) or 0
+
+            await conn.execute(
+                "UPDATE message SET conversation_id = $1 WHERE conversation_id = $2",
+                sibling_id, source_id,
+            )
+            await conn.execute(
+                """
+                UPDATE conversation SET
+                    last_message_at = (
+                        SELECT max(created_at) FROM message WHERE conversation_id = $1
+                    ),
+                    unread_count = unread_count + (
+                        SELECT unread_count FROM conversation WHERE id = $2
+                    ),
+                    updated_at = now()
+                WHERE id = $1
+                """,
+                sibling_id, source_id,
+            )
+
+            await conn.execute(
+                """
+                INSERT INTO merge_event (
+                    target_conv_id, source_conv_id,
+                    source_casa_id, source_wa_number_id, source_contact_id,
+                    source_contact_snapshot, source_status, source_unread_count,
+                    messages_moved, triggered_by, confidence, reasoning
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, 'auto', $10, $11
+                )
+                """,
+                sibling_id, source_id,
+                src_full["casa_id"], src_full["wa_number_id"], src_full["contact_id"],
+                json.dumps(contact_snapshot), src_full["status"], src_full["unread_count"],
+                int(moved), float(result.confidence), result.reasoning,
+            )
+
+            await conn.execute("DELETE FROM conversation WHERE id = $1", source_id)
+            await conn.execute(
+                """
+                DELETE FROM contact c
+                WHERE c.id = $1
+                  AND NOT EXISTS (SELECT 1 FROM conversation WHERE contact_id = c.id)
+                """,
+                src_full["contact_id"],
+            )
+            # Acknowledge the suggestion alert(s) so admin doesn't see stale prompts
+            await conn.execute(
+                """
+                UPDATE alert SET acknowledged_at = now()
+                WHERE type = 'merge_suggestion'
+                  AND conversation_id IN ($1, $2)
+                  AND acknowledged_at IS NULL
+                """,
+                source_id, sibling_id,
+            )
+
+    logger.info(
+        "auto_merge: merged conv %s → %s (confidence %.2f) — %s",
+        source_id, sibling_id, result.confidence, result.reasoning,
+    )
+
+    # Re-trigger analysis on the merged conv since it now has both directions.
+    try:
+        arq_pool = ctx.get("arq_pool")
+        if arq_pool is not None:
+            await arq_pool.enqueue_job("analyze_conversation_job", sibling_id, _defer_by=3)
+    except Exception:
+        logger.warning("auto_merge: could not enqueue re-analysis", exc_info=True)
+
+
 async def analyze_conversations_bulk_job(ctx: dict, casa_id: int) -> None:
     """Analyze all unanalyzed resolved convs for a casa."""
     from app.queries import list_unanalyzed_conversation_ids
@@ -502,7 +720,12 @@ async def analyze_conversations_bulk_job(ctx: dict, casa_id: int) -> None:
 
 
 class WorkerSettings:
-    functions = [analyze_conversation_job, meta_analyze_casa_job, analyze_conversations_bulk_job]
+    functions = [
+        analyze_conversation_job,
+        meta_analyze_casa_job,
+        analyze_conversations_bulk_job,
+        auto_merge_job,
+    ]
     cron_jobs = [cron(waha_health_check_job, minute=set(range(60)))]  # every minute
     on_startup = startup
     on_shutdown = shutdown

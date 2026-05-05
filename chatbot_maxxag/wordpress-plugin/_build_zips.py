@@ -11,7 +11,7 @@ ROOT = Path(__file__).parent.resolve()
 # (source_dir_name, plugin_folder_name, zip_basename)
 TARGETS = [
     ("maxxag-chat",          "maxxag-chat",          "maxxag-chat"),
-    ("maxxag-chat-vlc",      "maxxag-chat",          "maxxag-chat-vlc"),
+    ("maxxag-chat-vlc",      "maxxChatBot",          "maxxChatBot"),
     ("maxxag-chat-madrid",   "maxxag-chat",          "maxxag-chat-madrid"),
     ("maxxag-chat-marbella", "maxxag-chat",          "maxxag-chat-marbella"),
     ("maxxag-chat-ibiza",    "maxxag-chat",          "maxxag-chat-ibiza"),

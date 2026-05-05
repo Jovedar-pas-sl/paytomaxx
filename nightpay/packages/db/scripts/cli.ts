@@ -203,8 +203,8 @@ async function cmdSetCredential(args: Args) {
   const venueSlug = must(args, 'venue');
   const provider = must(args, 'provider').toUpperCase();
   const apiKey = must(args, 'api-key');
-  if (provider !== 'WIPAY' && provider !== 'PEANPE') {
-    throw new Error(`provider must be WIPAY or PEANPE, got ${provider}`);
+  if (provider !== 'WIPAY' && provider !== 'PEANPE' && provider !== 'STRIPE') {
+    throw new Error(`provider must be WIPAY, PEANPE or STRIPE, got ${provider}`);
   }
 
   const kekRaw = process.env.ENCRYPTION_KEK;
@@ -227,14 +227,14 @@ async function cmdSetCredential(args: Args) {
 
     // Desactivar credenciales activas previas del mismo provider
     await tx.gatewayCredential.updateMany({
-      where: { tenantId: venue.id, provider: provider as 'WIPAY' | 'PEANPE', active: true },
+      where: { tenantId: venue.id, provider: provider as 'WIPAY' | 'PEANPE' | 'STRIPE', active: true },
       data: { active: false },
     });
 
     await tx.gatewayCredential.create({
       data: {
         tenantId: venue.id,
-        provider: provider as 'WIPAY' | 'PEANPE',
+        provider: provider as 'WIPAY' | 'PEANPE' | 'STRIPE',
         encKey: enc,
         encNonce: nonce,
         encTag: tag,

@@ -16,7 +16,7 @@ import type { PaymentStatus } from '@nightpay/contracts';
 export type PaymentEvent =
   | { type: 'QR_VIEWED' }
   | { type: 'AUTHORIZING' }
-  | { type: 'AUTHORIZED'; providerTxId: string; provider: 'WIPAY' | 'PEANPE' }
+  | { type: 'AUTHORIZED'; providerTxId: string; provider: 'WIPAY' | 'PEANPE' | 'STRIPE' }
   | { type: 'FAILED'; reason: string }
   | { type: 'TIMEOUT' }
   | { type: 'REFUND_PARTIAL'; amountCents: number }
@@ -27,7 +27,7 @@ export interface PaymentContext {
   amountCents: number;
   availableAmountCents: number;
   providerTxId?: string;
-  provider?: 'WIPAY' | 'PEANPE';
+  provider?: 'WIPAY' | 'PEANPE' | 'STRIPE';
   failureReason?: string;
 }
 

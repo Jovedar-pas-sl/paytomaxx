@@ -53,12 +53,33 @@
         <a href="/casas/{{ casa.id }}" class="text-lg font-semibold hover:text-green">{{ casa.name }}</a>
         <div class="text-xs text-muted">{{ casa.wa_numbers | length }} WhatsApp{{ 's' if casa.wa_numbers|length != 1 else '' }}</div>
       </div>
-      <button type="button"
-              onclick='window.__openAddWa({{ casa.id }}, {{ casa.name | tojson }})'
-              class="btn-3d btn-3d--accent whitespace-nowrap" style="font-size: .75rem;">
-        <span class="btn-3d__blob"></span>
-        <span class="btn-3d__inner" style="padding: 6px 12px;">+ WhatsApp</span>
-      </button>
+      <div class="flex items-center gap-1.5">
+        <button type="button"
+                onclick='window.__openRenameCasa({{ casa.id }}, {{ casa.name | tojson }})'
+                class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted hover:text-text hover:border-border-strong transition-colors"
+                title="Renombrar casa">
+          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </button>
+        {% if casa.wa_numbers | length == 0 %}
+        <form method="post" action="/casas/{{ casa.id }}/delete" class="inline"
+              onsubmit='return confirm("¿Borrar la casa \"" + {{ casa.name | tojson }} + "\"? Esta acción es irreversible.")'>
+          <button class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red/30 text-red hover:bg-red/10 transition-colors" title="Borrar casa">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          </button>
+        </form>
+        {% else %}
+        <span class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 text-muted-2 cursor-not-allowed"
+              title="Borra primero los WhatsApps">
+          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+        </span>
+        {% endif %}
+        <button type="button"
+                onclick='window.__openAddWa({{ casa.id }}, {{ casa.name | tojson }})'
+                class="btn-3d btn-3d--accent whitespace-nowrap" style="font-size: .75rem;">
+          <span class="btn-3d__blob"></span>
+          <span class="btn-3d__inner" style="padding: 6px 12px;">+ WhatsApp</span>
+        </button>
+      </div>
     </div>
 
     {# WA numbers list #}
@@ -85,6 +106,36 @@
           <span class="text-[11px] text-muted">Generando QR...</span>
         </div>
         <p class="mt-1 text-[10px] text-center text-muted">WhatsApp → Dispositivos vinculados → Vincular</p>
+
+        {# Pair-by-code alternative — QR caduca rápido, este código dura más #}
+        <div class="mt-2 rounded-md border border-blue/20 bg-blue/5 p-2">
+          <button type="button"
+                  onclick="document.getElementById('pc-{{ wn.session }}').classList.toggle('hidden')"
+                  class="flex w-full items-center justify-between text-[11px] text-blue hover:text-blue/80">
+            <span class="flex items-center gap-1">
+              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M7 13h.01M11 13h.01M15 13h.01M7 17h10"/></svg>
+              <span>O vincular con código de 8 caracteres</span>
+            </span>
+            <span>▾</span>
+          </button>
+          <div id="pc-{{ wn.session }}" class="hidden mt-2 space-y-1.5">
+            <div class="flex gap-1.5">
+              <input type="tel" inputmode="numeric" placeholder="34612345678"
+                     class="pc-phone flex-1 rounded border border-border bg-bg px-2 py-1 text-[11px] mono focus:border-blue focus:outline-none">
+              <button type="button"
+                      onclick='window.__requestPairCode({{ wn.session | tojson }}, this)'
+                      class="rounded-md bg-blue/15 border border-blue/30 px-2 py-1 text-[11px] font-medium text-blue hover:bg-blue/25 transition-colors">
+                Pedir código
+              </button>
+            </div>
+            <p class="text-[10px] text-muted">Solo dígitos, con prefijo país (ej. <span class="mono">34</span> España).</p>
+            <div class="pc-result hidden rounded bg-bg/60 p-2 text-center">
+              <div class="pc-code mono text-2xl font-bold tracking-widest text-accent">— —</div>
+              <p class="mt-1 text-[10px] text-muted">WhatsApp → Dispositivos vinculados → <strong>Vincular con número de teléfono</strong> → introduce este código</p>
+            </div>
+            <div class="pc-error hidden text-[11px] text-red"></div>
+          </div>
+        </div>
 
         {# Compartir QR con la mamai #}
         <div class="mt-2 flex items-center gap-1.5">
@@ -149,7 +200,7 @@
             <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           </button>
           <form method="post" action="/wa-numbers/{{ wn.id }}/delete" class="inline"
-                onsubmit="return confirm('¿Borrar WhatsApp &quot;{{ wn.label }}&quot;? Las conversaciones quedan archivadas pero no se borran.')">
+                onsubmit='return confirm("¿Borrar WhatsApp \"" + {{ wn.label | tojson }} + "\"? Las conversaciones quedan archivadas pero no se borran.")'>
             <button class="inline-flex h-6 w-6 items-center justify-center rounded-md border border-red/30 text-red hover:bg-red/10 transition-colors" title="Borrar">
               <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
             </button>
@@ -222,6 +273,28 @@
   </div>
 </div>
 
+{# ── Modal: Rename casa ────────────────────────────────────── #}
+<div id="rename-casa-modal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+  <div class="card w-full max-w-md p-6">
+    <h3 class="text-lg font-semibold mb-4">Renombrar casa</h3>
+    <form id="rename-casa-form" method="post" class="space-y-3">
+      <div>
+        <label class="mb-1 block text-xs text-muted">Nuevo nombre</label>
+        <input id="rename-casa-name" name="name" required autofocus
+               class="w-full rounded border border-border bg-bg px-3 py-2 text-sm focus:border-green focus:outline-none">
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" onclick="document.getElementById('rename-casa-modal').classList.add('hidden')"
+                class="rounded border border-border px-4 py-2 text-sm text-muted hover:text-text">Cancelar</button>
+        <button type="submit" class="btn-3d btn-3d--accent">
+          <span class="btn-3d__blob"></span>
+          <span class="btn-3d__inner">Guardar</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ── Modal: Rename WA ─────────────────────────────────────── #}
 <div id="rename-wa-modal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
   <div class="card w-full max-w-md p-6">
@@ -252,11 +325,74 @@
     form.reset();
     document.getElementById('add-wa-modal').classList.remove('hidden');
   };
+  window.__openRenameCasa = function (casaId, currentName) {
+    const form = document.getElementById('rename-casa-form');
+    form.action = `/casas/${casaId}/rename`;
+    document.getElementById('rename-casa-name').value = currentName;
+    document.getElementById('rename-casa-modal').classList.remove('hidden');
+  };
   window.__openRenameWa = function (waId, currentLabel) {
     const form = document.getElementById('rename-wa-form');
     form.action = `/wa-numbers/${waId}/rename`;
     document.getElementById('rename-wa-label').value = currentLabel;
     document.getElementById('rename-wa-modal').classList.remove('hidden');
+  };
+
+  window.__requestPairCode = async function (session, btn) {
+    const panel = document.getElementById('pc-' + session);
+    if (!panel) { console.error('panel pc-' + session + ' not found'); return; }
+    const phoneInput = panel.querySelector('.pc-phone');
+    const result = panel.querySelector('.pc-result');
+    const codeEl = panel.querySelector('.pc-code');
+    const errEl = panel.querySelector('.pc-error');
+    const phone = (phoneInput.value || '').replace(/\D/g, '');
+    errEl.classList.add('hidden'); errEl.textContent = '';
+    result.classList.add('hidden');
+    if (phone.length < 8) {
+      errEl.textContent = 'Teléfono inválido (incluye prefijo país, sin +).';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = '...';
+    try {
+      const fd = new FormData();
+      fd.append('phone', phone);
+      const r = await fetch('/sessions/' + encodeURIComponent(session) + '/pairing-code', {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin',
+      });
+      let data = {};
+      try { data = await r.json(); } catch (_) { /* may be empty */ }
+      if (!r.ok) {
+        const raw = data.detail || data.error || ('HTTP ' + r.status);
+        const friendly =
+          raw === 'wrong_state'
+            ? 'La sesión no está pidiendo QR (estado: ' + (data.status || '?') + '). Reinicia o espera al QR.'
+            : raw === 'unsupported'
+              ? 'WAHA no devolvió código. ¿Tu engine soporta pairing code? (NOWEB sí, WEBJS no)'
+              : raw === 'session_unreachable'
+                ? 'No se puede contactar con WAHA.'
+                : raw;
+        errEl.textContent = friendly;
+        errEl.classList.remove('hidden');
+        return;
+      }
+      const codeRaw = String(data.code || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+      const formatted = codeRaw.length === 8
+        ? codeRaw.slice(0, 4) + '-' + codeRaw.slice(4)
+        : (data.code || '(sin código)');
+      codeEl.textContent = formatted;
+      result.classList.remove('hidden');
+    } catch (e) {
+      errEl.textContent = 'Error de red: ' + e.message;
+      errEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = oldText;
+    }
   };
 
   // QR polling for sessions in SCAN_QR_CODE state

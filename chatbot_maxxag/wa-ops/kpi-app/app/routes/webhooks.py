@@ -60,7 +60,7 @@ async def waha_webhook(
         await _handle_session_status(db, session, data)
     elif event in ("message", "message.any"):
         # message.any fires for both incoming and outgoing (fromMe=true)
-        await _handle_message(db, session, data)
+        await _handle_message(db, session, data, arq)
     elif event == "message.ack":
         await _handle_message_ack(db, data)
     else:
@@ -84,7 +84,7 @@ async def _handle_session_status(db: KpiDB, session: str, data: dict[str, Any]) 
             )
 
 
-async def _handle_message(db: KpiDB, session: str, data: dict[str, Any]) -> None:
+async def _handle_message(db: KpiDB, session: str, data: dict[str, Any], arq: Any = None) -> None:
     """Upsert contact + conversation, insert message.
 
     WAHA semantics: `from` always holds the REMOTE party's JID (the
@@ -223,11 +223,19 @@ async def _handle_message(db: KpiDB, session: str, data: dict[str, Any]) -> None
                     conv_id,
                 )
 
-            # Merge SUGGESTION (no auto-apply): if this conv is one-sided and
-            # there's a complementary sibling in the same casa, record an alert
-            # so the admin can confirm via UI (/conversation/<id>/auto-merge
-            # with IA, or manual dropdown). Never touch data from the webhook.
-            if inserted and direction == "in":
+            # Merge detection: when a conv is one-sided and a complementary
+            # sibling exists in the same casa+WA, record a suggestion alert
+            # AND enqueue an auto_merge_job. The job calls Claude to confirm
+            # same-client and, if confidence is high enough, executes the merge
+            # without admin intervention. Below the confidence threshold the
+            # alert remains for manual review.
+            #
+            # Symmetric: triggers on both incoming (in-only conv + out-only sibling)
+            # and outgoing (out-only conv + in-only sibling) so we catch the case
+            # where the admin sends first to a new @lid and the client replies later
+            # under @c.us (or vice versa).
+            sibling_id: int | None = None
+            if inserted:
                 stats = await conn.fetchrow(
                     """
                     SELECT
@@ -236,14 +244,16 @@ async def _handle_message(db: KpiDB, session: str, data: dict[str, Any]) -> None
                     """,
                     conv_id,
                 )
-                me_only_in = stats["ins"] > 0 and stats["outs"] == 0
-                if me_only_in and stats["ins"] < 10:
-                    sibling = await conn.fetchrow(
+                only_in  = stats["ins"]  > 0 and stats["outs"] == 0
+                only_out = stats["outs"] > 0 and stats["ins"]  == 0
+
+                if only_in and stats["ins"] < 10:
+                    sibling_row = await conn.fetchrow(
                         """
                         SELECT c.id
                         FROM conversation c
                         WHERE c.casa_id = $1 AND c.id != $2 AND c.wa_number_id = $3
-                          AND c.last_message_at > now() - interval '2 hours'
+                          AND c.last_message_at > now() - interval '6 hours'
                           AND NOT EXISTS (SELECT 1 FROM message m WHERE m.conversation_id=c.id AND m.direction='in')
                           AND EXISTS     (SELECT 1 FROM message m WHERE m.conversation_id=c.id AND m.direction='out')
                         ORDER BY c.last_message_at DESC
@@ -251,26 +261,58 @@ async def _handle_message(db: KpiDB, session: str, data: dict[str, Any]) -> None
                         """,
                         casa_id, conv_id, wa_number_id,
                     )
-                    if sibling:
-                        # Idempotent alert — don't spam if already suggested
-                        already = await conn.fetchval(
+                    sibling_id = sibling_row["id"] if sibling_row else None
+                elif only_out and stats["outs"] < 10:
+                    sibling_row = await conn.fetchrow(
+                        """
+                        SELECT c.id
+                        FROM conversation c
+                        WHERE c.casa_id = $1 AND c.id != $2 AND c.wa_number_id = $3
+                          AND c.last_message_at > now() - interval '6 hours'
+                          AND EXISTS     (SELECT 1 FROM message m WHERE m.conversation_id=c.id AND m.direction='in')
+                          AND NOT EXISTS (SELECT 1 FROM message m WHERE m.conversation_id=c.id AND m.direction='out')
+                        ORDER BY c.last_message_at DESC
+                        LIMIT 1
+                        """,
+                        casa_id, conv_id, wa_number_id,
+                    )
+                    sibling_id = sibling_row["id"] if sibling_row else None
+
+                if sibling_id is not None:
+                    # Idempotent suggestion alert — kept as a safety net even
+                    # when the auto-merge job runs.
+                    already = await conn.fetchval(
+                        """
+                        SELECT 1 FROM alert
+                        WHERE type='merge_suggestion' AND conversation_id=$1
+                          AND acknowledged_at IS NULL
+                        LIMIT 1
+                        """,
+                        conv_id,
+                    )
+                    if not already:
+                        await conn.execute(
                             """
-                            SELECT 1 FROM alert
-                            WHERE type='merge_suggestion' AND conversation_id=$1
-                              AND acknowledged_at IS NULL
-                            LIMIT 1
+                            INSERT INTO alert (type, severity, inbox_id, conversation_id, message)
+                            VALUES ('merge_suggestion', 'info', $1, $2, $3)
                             """,
-                            conv_id,
+                            casa_id, conv_id,
+                            f"Posible duplicado: conv {conv_id} y conv {sibling_id} parecen el mismo cliente. Auto-merge en curso.",
                         )
-                        if not already:
-                            await conn.execute(
-                                """
-                                INSERT INTO alert (type, severity, inbox_id, conversation_id, message)
-                                VALUES ('merge_suggestion', 'info', $1, $2, $3)
-                                """,
-                                casa_id, conv_id,
-                                f"Posible duplicado: conv {conv_id} (entrantes solo) parece el mismo cliente que conv {sibling['id']} (salientes solo). Revisa y fusiona.",
-                            )
+
+    # Outside the DB transaction, enqueue the auto-merge job. Skipping this
+    # inside `async with conn.transaction()` keeps the webhook fast — the job
+    # may take 1-2s for the Claude call. Below the threshold the job leaves
+    # the suggestion in place; otherwise it merges and acknowledges the alert.
+    if sibling_id is not None and arq is not None:
+        try:
+            await arq.enqueue_job(
+                "auto_merge_job",
+                int(conv_id), int(sibling_id),
+                _defer_by=2,  # let any racing inserts settle
+            )
+        except Exception:
+            logger.warning("auto_merge enqueue failed conv=%s sib=%s", conv_id, sibling_id, exc_info=True)
 
 
 async def _handle_message_ack(db: KpiDB, data: dict[str, Any]) -> None:

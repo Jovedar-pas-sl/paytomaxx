@@ -35,6 +35,12 @@ export const AuthorizeResultSchema = z.object({
   provider: ProviderSchema,
   providerTxId: z.string(),
   status: GatewayStatusSchema,
+  /**
+   * Datos extra que el adapter quiera pasar al servicio de pagos
+   * (ej. Stripe necesita devolver `clientSecret` para que el frontend
+   * pueda renderizar el Payment Element).
+   */
+  metadata: z.record(z.string()).optional(),
 });
 export type AuthorizeResult = z.infer<typeof AuthorizeResultSchema>;
 

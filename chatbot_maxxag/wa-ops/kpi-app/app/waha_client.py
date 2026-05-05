@@ -72,6 +72,41 @@ class WahaClient:
         r.raise_for_status()
         return r.content
 
+    async def request_pairing_code(self, name: str, phone: str) -> tuple[str | None, str | None]:
+        """Request the 8-char pairing code for linking by phone number.
+
+        WhatsApp flow: Settings → Linked Devices → Link with phone number.
+        Session must be in SCAN_QR_CODE state and engine must be NOWEB
+        (WEBJS does not support pairing codes).
+
+        Returns (code, error_message). Exactly one is non-None.
+        """
+        try:
+            r = await self._client.post(
+                f"/api/{name}/auth/request-code",
+                json={"phoneNumber": phone},
+            )
+        except httpx.HTTPError as exc:
+            return None, f"transport: {exc}"
+
+        if r.status_code >= 400:
+            try:
+                payload = r.json()
+                msg = payload.get("message") or payload.get("error") or r.text
+            except Exception:
+                msg = r.text or f"HTTP {r.status_code}"
+            return None, f"WAHA {r.status_code}: {msg}"
+
+        try:
+            data = r.json()
+        except Exception:
+            return None, "respuesta WAHA no es JSON"
+
+        code = data.get("code") or data.get("pairingCode") or data.get("pairing_code")
+        if not code:
+            return None, f"WAHA no devolvió código (payload: {data})"
+        return str(code), None
+
     # ── Messages ──────────────────────────────────────────────────
     async def send_text(self, session: str, chat_id: str, text: str) -> dict[str, Any]:
         r = await self._client.post(

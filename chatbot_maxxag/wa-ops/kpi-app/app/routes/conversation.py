@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
@@ -62,13 +63,12 @@ async def conversation_detail(
     # Parse JSONB fields that asyncpg returns as strings
     analysis_dict: dict | None = None
     if analysis:
-        import json as _json
         analysis_dict = dict(analysis)
         for field in ("coaching", "red_flags", "intent", "next_action", "escalation"):
             v = analysis_dict.get(field)
             if isinstance(v, str):
                 try:
-                    analysis_dict[field] = _json.loads(v)
+                    analysis_dict[field] = json.loads(v)
                 except (TypeError, ValueError):
                     analysis_dict[field] = None
 
@@ -162,6 +162,40 @@ async def conversation_detail(
         for m in messages
     ]
 
+    # Undoable merges that landed into THIS conv — show banner with [Deshacer]
+    async with kpi.acquire() as conn:
+        merge_event_rows = await conn.fetch(
+            """
+            SELECT id, source_conv_id, source_contact_snapshot,
+                   triggered_by, confidence, created_at, messages_moved
+            FROM merge_event
+            WHERE target_conv_id = $1 AND undone_at IS NULL
+              AND created_at > now() - interval '14 days'
+            ORDER BY created_at DESC
+            LIMIT 5
+            """,
+            conversation_id,
+        )
+
+    recent_merges = []
+    for r in merge_event_rows:
+        snap = r["source_contact_snapshot"]
+        if isinstance(snap, str):
+            try:
+                snap = json.loads(snap)
+            except (TypeError, ValueError):
+                snap = {}
+        label = (snap or {}).get("name") or (snap or {}).get("phone") \
+            or ((snap or {}).get("waha_jid") or "")[:24] or f"conv {r['source_conv_id']}"
+        recent_merges.append({
+            "id": r["id"],
+            "label": label,
+            "triggered_by": r["triggered_by"],
+            "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+            "created_at": r["created_at"],
+            "messages_moved": r["messages_moved"],
+        })
+
     return templates.TemplateResponse(
         request, "conversation.html",
         {
@@ -171,6 +205,7 @@ async def conversation_detail(
             "analysis": analysis_dict,
             "siblings": siblings,
             "suggested_merge": suggested_merge,
+            "recent_merges": recent_merges,
         },
     )
 
@@ -325,12 +360,15 @@ async def conversation_auto_merge(
             detail=f"IA no detecta coincidencia clara (confianza {result.confidence:.0%}). {result.reasoning}",
         )
 
-    # Call the manual merge logic
+    # Reuse the merge logic with IA provenance recorded
     return await conversation_merge(
         source_id=conversation_id,
         target_id=result.best_match_id,
         user=user,  # type: ignore[arg-type]
         kpi=kpi,
+        triggered_by="ia",
+        confidence=float(result.confidence),
+        reasoning=result.reasoning,
     )
 
 
@@ -340,24 +378,91 @@ async def conversation_merge(
     target_id: int,
     user: CurrentUser,  # noqa: ARG001
     kpi: KpiDB,
+    triggered_by: str = "manual",
+    confidence: float | None = None,
+    reasoning: str | None = None,
 ) -> RedirectResponse:
-    """Merge source conversation INTO target: moves all messages, then deletes
-    source conv + source contact (if orphaned). Used when the same person has
-    two JIDs (typically @c.us + @lid privacy duplicate)."""
+    """Merge source conversation INTO target: tags messages with their original
+    conv_id, snapshots source contact + conv into `merge_event`, then deletes
+    source. Reversible via /merge-events/{id}/undo within retention window."""
+    await _do_merge(
+        kpi=kpi,
+        source_id=source_id,
+        target_id=target_id,
+        triggered_by=triggered_by,
+        confidence=confidence,
+        reasoning=reasoning,
+    )
+    return RedirectResponse(
+        url=f"/conversation/{target_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+async def _do_merge(
+    *,
+    kpi: "asyncpg.Pool",
+    source_id: int,
+    target_id: int,
+    triggered_by: str,
+    confidence: float | None = None,
+    reasoning: str | None = None,
+) -> int:
+    """Atomic merge with audit trail. Returns merge_event id.
+
+    Steps inside one transaction:
+      1. Snapshot source contact + conv state.
+      2. Tag every message with its original source conv id (for undo).
+      3. Move messages source → target.
+      4. Bump target's metadata (last_message_at, unread).
+      5. Insert merge_event row with the snapshot.
+      6. Delete source conv (cascade) and orphaned contact.
+    """
     if source_id == target_id:
         raise HTTPException(status_code=400, detail="same id")
+
     async with kpi.acquire() as conn:
         async with conn.transaction():
             src = await conn.fetchrow(
-                "SELECT contact_id, casa_id FROM conversation WHERE id = $1", source_id
+                """
+                SELECT c.id, c.casa_id, c.wa_number_id, c.contact_id,
+                       c.status, c.unread_count
+                FROM conversation c WHERE c.id = $1
+                """,
+                source_id,
             )
             tgt = await conn.fetchrow(
-                "SELECT contact_id, casa_id FROM conversation WHERE id = $1", target_id
+                "SELECT id, casa_id FROM conversation WHERE id = $1", target_id,
             )
             if not src or not tgt:
                 raise HTTPException(status_code=404)
             if src["casa_id"] != tgt["casa_id"]:
                 raise HTTPException(status_code=400, detail="different casas")
+
+            # Snapshot source contact (so undo can recreate it even if deleted)
+            contact = await conn.fetchrow(
+                "SELECT id, waha_jid, name, phone, created_at FROM contact WHERE id = $1",
+                src["contact_id"],
+            )
+            contact_snapshot = {
+                "id": contact["id"],
+                "waha_jid": contact["waha_jid"],
+                "name": contact["name"],
+                "phone": contact["phone"],
+                "created_at": contact["created_at"].isoformat() if contact["created_at"] else None,
+            } if contact else {}
+
+            # Tag messages with their origin BEFORE moving them. This is what
+            # lets the undo identify which messages came from the source.
+            await conn.execute(
+                "UPDATE message SET merged_from_conv_id = $1 "
+                "WHERE conversation_id = $1 AND merged_from_conv_id IS NULL",
+                source_id,
+            )
+            moved = await conn.fetchval(
+                "SELECT count(*) FROM message WHERE conversation_id = $1",
+                source_id,
+            ) or 0
 
             # Move all messages source → target
             await conn.execute(
@@ -368,17 +473,37 @@ async def conversation_merge(
             await conn.execute(
                 """
                 UPDATE conversation SET
-                    last_message_at = GREATEST(last_message_at, (
-                        SELECT last_message_at FROM (SELECT 1) _
-                        WHERE EXISTS (SELECT 1 FROM message m WHERE m.conversation_id = $1)
-                    )),
+                    last_message_at = (
+                        SELECT max(created_at) FROM message WHERE conversation_id = $1
+                    ),
                     unread_count = unread_count + (SELECT unread_count FROM conversation WHERE id = $2),
                     updated_at = now()
                 WHERE id = $1
                 """,
                 target_id, source_id,
             )
-            # Delete source conv
+
+            # Audit row — insert BEFORE deleting source so FK target_conv_id
+            # is valid (the SET NULL only triggers if target itself is later removed)
+            event_id = await conn.fetchval(
+                """
+                INSERT INTO merge_event (
+                    target_conv_id, source_conv_id,
+                    source_casa_id, source_wa_number_id, source_contact_id,
+                    source_contact_snapshot, source_status, source_unread_count,
+                    messages_moved, triggered_by, confidence, reasoning
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12
+                )
+                RETURNING id
+                """,
+                target_id, source_id,
+                src["casa_id"], src["wa_number_id"], src["contact_id"],
+                json.dumps(contact_snapshot), src["status"], src["unread_count"],
+                int(moved), triggered_by, confidence, reasoning,
+            )
+
+            # Delete source conv (cascade drops nothing — messages already moved)
             await conn.execute("DELETE FROM conversation WHERE id = $1", source_id)
             # Delete source contact if orphaned
             await conn.execute(
@@ -390,7 +515,108 @@ async def conversation_merge(
                 src["contact_id"],
             )
 
+    return int(event_id)
+
+
+@router.post("/merge-events/{event_id}/undo")
+async def undo_merge(
+    event_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+) -> RedirectResponse:
+    """Reverse a merge: re-create the source conversation + contact from the
+    snapshot, move tagged messages back, mark the merge_event as undone.
+
+    Idempotent: a second call returns the existing reverted conversation.
+    """
+    async with kpi.acquire() as conn:
+        async with conn.transaction():
+            ev = await conn.fetchrow(
+                "SELECT * FROM merge_event WHERE id = $1 FOR UPDATE",
+                event_id,
+            )
+            if not ev:
+                raise HTTPException(status_code=404, detail="merge event no encontrado")
+            if ev["undone_at"] is not None:
+                raise HTTPException(status_code=400, detail="ya deshecho")
+
+            snap = ev["source_contact_snapshot"]
+            if isinstance(snap, str):
+                snap = json.loads(snap)
+            if not snap or not snap.get("waha_jid"):
+                raise HTTPException(status_code=500, detail="snapshot incompleto")
+
+            # Re-create / re-attach contact via JID. If a row already exists
+            # (because the JID got recreated post-merge), reuse it instead of
+            # duplicating.
+            contact_id = await conn.fetchval(
+                """
+                INSERT INTO contact (waha_jid, name, phone)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (waha_jid) DO UPDATE
+                    SET name = COALESCE(contact.name, EXCLUDED.name)
+                RETURNING id
+                """,
+                snap["waha_jid"], snap.get("name"), snap.get("phone"),
+            )
+
+            # Re-create the conversation (new id; old source_conv_id is gone forever)
+            new_conv_id = await conn.fetchval(
+                """
+                INSERT INTO conversation (
+                    casa_id, wa_number_id, contact_id, status, unread_count,
+                    last_message_at, created_at, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, now(), now(), now())
+                ON CONFLICT (wa_number_id, contact_id) DO UPDATE
+                    SET status = EXCLUDED.status,
+                        updated_at = now()
+                RETURNING id
+                """,
+                ev["source_casa_id"], ev["source_wa_number_id"], contact_id,
+                ev["source_status"] or "open", ev["source_unread_count"] or 0,
+            )
+
+            # Move tagged messages back. last_message_at gets refreshed below.
+            await conn.execute(
+                "UPDATE message SET conversation_id = $1, merged_from_conv_id = NULL "
+                "WHERE merged_from_conv_id = $2",
+                new_conv_id, ev["source_conv_id"],
+            )
+
+            # Refresh last_message_at on both convs.
+            ids = [new_conv_id, ev["target_conv_id"]] if ev["target_conv_id"] else [new_conv_id]
+            await conn.execute(
+                """
+                UPDATE conversation SET
+                    last_message_at = (
+                        SELECT max(created_at) FROM message WHERE conversation_id = conversation.id
+                    ),
+                    updated_at = now()
+                WHERE id = ANY($1::bigint[])
+                """,
+                ids,
+            )
+
+            # Reverse the unread bump that the original merge applied to the
+            # target — otherwise the badge stays inflated even after the
+            # messages are gone. GREATEST(0, ...) handles the case where the
+            # admin opened the target after the merge and clear_unread already
+            # zeroed the count.
+            if ev["target_conv_id"] is not None and (ev["source_unread_count"] or 0) > 0:
+                await conn.execute(
+                    "UPDATE conversation SET unread_count = GREATEST(0, unread_count - $1) "
+                    "WHERE id = $2",
+                    int(ev["source_unread_count"] or 0),
+                    ev["target_conv_id"],
+                )
+
+            await conn.execute(
+                "UPDATE merge_event SET undone_at = now() WHERE id = $1",
+                event_id,
+            )
+
     return RedirectResponse(
-        url=f"/conversation/{target_id}",
+        url=f"/conversation/{new_conv_id}",
         status_code=status.HTTP_303_SEE_OTHER,
     )

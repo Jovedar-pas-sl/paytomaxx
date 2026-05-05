@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>maxxChatBot — Demo</title>
+<style>
+  body {
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(135deg, #1a0a10 0%, #2a1520 50%, #0d0d0d 100%);
+    font-family: -apple-system, sans-serif; color: #fff;
+  }
+  .hero { text-align: center; padding: 60px 20px 40px; }
+  .hero h1 { font-size: 36px; margin-bottom: 8px; font-family: 'EB Garamond', serif; }
+  .hero h1 span { color: #bfa498; }
+  .hero p { color: #888; font-size: 14px; margin: 4px 0; }
+  .badges { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 20px; }
+  .badge {
+    background: rgba(191,164,152,0.1); border: 1px solid rgba(191,164,152,0.25);
+    color: #bfa498; padding: 4px 12px; border-radius: 16px; font-size: 11px;
+  }
+  .instructions {
+    max-width: 560px; margin: 30px auto; padding: 20px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px; font-size: 13px; color: #aaa; line-height: 1.7;
+  }
+  .instructions b { color: #bfa498; }
+  .instructions code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  .note { color: #f39c12; font-size: 12px; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="hero">
+  <h1>maxx<span>ChatBot</span> — Demo</h1>
+  <p>Plantilla limpia · sin datos reales · lista para personalizar</p>
+  <div class="badges">
+    <span class="badge">Multi-idioma</span>
+    <span class="badge">IA Claude</span>
+    <span class="badge">Tarjetas chicas</span>
+    <span class="badge">Tarifas</span>
+    <span class="badge">WhatsApp / Telegram</span>
+    <span class="badge">Backoffice</span>
+  </div>
+</div>
+
+<div class="instructions">
+  <b>Instrucciones:</b><br>
+  1. Espera 3 segundos — aparece la burbuja proactiva.<br>
+  2. Pulsa el botón flotante abajo a la derecha.<br>
+  3. Elige idioma → escribe un nombre → Continuar.<br>
+  4. Prueba los botones del menú: Escorts disponibles, Tarifas, Horario, etc.<br>
+  5. Escribe texto libre y verás el mock de respuesta IA.<br><br>
+  <span class="note">⚠️ Esta demo usa <b>3 chicas de ejemplo</b> sólo para visualizar las tarjetas. El zip del cliente <b>NO las incluye</b>: el cliente las añade desde el backoffice <code>/chat-admin/</code>.</span><br><br>
+  <b>Reiniciar:</b> F12 → Console → <code>sessionStorage.clear(); location.reload();</code>
+</div>
+
+<!-- MOCK API — simula las respuestas del servidor sin backend -->
+<script>
+(function() {
+  // Demo girls (sólo para demo visual, NO están en el zip del cliente)
+  var demoGirls = [
+    { id:'demo1', name:'Demo Uno',  age:24, nationality:'Ejemplo', description:'Chica de ejemplo número uno (sólo demo).', photo_url:'https://placehold.co/300x400/664750/fdf7f2?text=Demo+1', whatsapp:'+34000000001', available_today:true,  outcall:true, services:['Servicio A','Servicio B'], languages:['ES','EN'] },
+    { id:'demo2', name:'Demo Dos',  age:26, nationality:'Ejemplo', description:'Chica de ejemplo número dos (sólo demo).', photo_url:'https://placehold.co/300x400/664750/fdf7f2?text=Demo+2', whatsapp:'+34000000002', available_today:true,  outcall:true, services:['Servicio A','Servicio C'], languages:['ES','EN','FR'] },
+    { id:'demo3', name:'Demo Tres', age:23, nationality:'Ejemplo', description:'Chica de ejemplo número tres (sólo demo).', photo_url:'https://placehold.co/300x400/664750/fdf7f2?text=Demo+3', whatsapp:'+34000000003', available_today:false, outcall:true, services:['Servicio B'], languages:['ES'] }
+  ];
+
+  var demoConfig = {
+    site: {
+      name: 'NOMBRE_DEL_SITIO',
+      bot_name: 'NOMBRE_DEL_BOT',
+      bot_avatar: 'sara-avatar.jpg',
+      whatsapp_recepcion: '+34000000000',
+      telegram_recepcion: '@usuario_telegram',
+      greeting_es: 'Bienvenido 😘 ¿En qué podemos ayudarte?',
+      greeting_en: 'Welcome 😘 How can we help you?',
+      greeting_fr: 'Bienvenue 😘 Comment pouvons-nous vous aider ?',
+      greeting_it: 'Benvenuto 😘 Come possiamo aiutarti?'
+    },
+    rates: {
+      title_es: 'Tarifas',
+      title_en: 'Rates',
+      items: [
+        { label_es:'1 hora',         label_en:'1 hour',        price:'0€' },
+        { label_es:'2 horas',        label_en:'2 hours',       price:'0€' },
+        { label_es:'Noche completa', label_en:'Full night',    price:'0€' },
+        { label_es:'Hotel/domicilio',label_en:'Hotel/outcall', price:'consultar' }
+      ],
+      note_es: 'Precios orientativos. Consulta disponibilidad con recepción.',
+      note_en: 'Approximate prices. Check availability with reception.'
+    },
+    schedule: {
+      hours_es: 'Disponible las 24 horas, 7 días a la semana',
+      hours_en: 'Available 24 hours, 7 days a week',
+      address_es: 'DIRECCIÓN_AQUÍ',
+      address_en: 'ADDRESS_HERE',
+      maps_url: ''
+    },
+    faqs: [
+      { triggers:['precio','cuanto','tarifa','price','how much'],
+        reply_es:'Para ver nuestras tarifas pulsa el botón Tarifas / Servicios 💰',
+        reply_en:'To see our rates click Rates / Services 💰' },
+      { triggers:['pago','efectivo','cash','bizum'],
+        reply_es:'Aceptamos efectivo, Bizum y transferencia.',
+        reply_en:'We accept cash, Bizum and bank transfer.' }
+    ]
+  };
+
+  var sessionCounter = 0;
+  var clientName = '';
+
+  var MENU = {
+    es: [
+      {id:'escorts_disponibles',label:'Escorts disponibles',group:'info'},
+      {id:'tarifas',label:'Tarifas / Servicios',group:'info'},
+      {id:'horario',label:'Horario / Cómo llegar',group:'info'},
+      {id:'hotel_domicilio',label:'A hotel o domicilio',group:'info'},
+      {id:'reservar',label:'Reservar ahora 📱',group:'action'},
+      {id:'contacto',label:'Contacto recepción 📱',group:'action'}
+    ],
+    en: [
+      {id:'escorts_disponibles',label:'Available escorts',group:'info'},
+      {id:'tarifas',label:'Rates / Services',group:'info'},
+      {id:'horario',label:'Schedule / Directions',group:'info'},
+      {id:'hotel_domicilio',label:'Hotel or outcall',group:'info'},
+      {id:'reservar',label:'Book now 📱',group:'action'},
+      {id:'contacto',label:'Contact reception 📱',group:'action'}
+    ]
+  };
+
+  function contactBtns(lang) {
+    return [
+      {id:'wa_contact',label:(lang==='en'?'WhatsApp reception':'WhatsApp recepción')+' 📱',full_width:true,url:'https://wa.me/34000000000'},
+      {id:'tg_contact',label:(lang==='en'?'Telegram reception':'Telegram recepción')+' ✈️',full_width:true,url:'https://t.me/usuario_telegram'},
+      {id:'menu',label:lang==='en'?'← Back to menu':'← Volver al menú'}
+    ];
+  }
+  function menuBtns(lang) { return MENU[lang] || MENU.es; }
+
+  var aiResponses = {
+    es: [
+      '¡Hola {name}! 😘 ¿Buscas algo especial hoy? Te puedo enseñar quién está disponible...',
+      'Mmm cuéntame más, bombón 😏 ¿Quieres ver tarifas, chicas disponibles o reservar?',
+      'Tranquilo cariño, sin prisa 😊 Estoy aquí para ayudarte 💋'
+    ],
+    en: [
+      'Hey {name}! 😘 Looking for something special? I can show you who\'s available...',
+      'Mmm tell me more, gorgeous 😏 Want to see rates, available girls, or book?'
+    ]
+  };
+  var aiIndex = 0;
+  function getAiResponse(msg, lang) {
+    var responses = aiResponses[lang] || aiResponses.es;
+    var resp = responses[aiIndex % responses.length];
+    aiIndex++;
+    var name = clientName || (lang === 'en' ? 'handsome' : 'guapo');
+    return resp.replace(/\{name\}/g, name);
+  }
+
+  var originalFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    if (typeof url !== 'string' || url.indexOf('/maxxag/v1') === -1) {
+      return originalFetch.apply(this, arguments);
+    }
+    var path = url.split('/maxxag/v1')[1];
+    var body = {};
+    if (opts && opts.body) { try { body = JSON.parse(opts.body); } catch(e) {} }
+    var lang = body.lang || 'es';
+    if (body.name) clientName = body.name;
+
+    return new Promise(function(resolve) {
+      setTimeout(function() {
+        var response;
+        if (path === '/config' && (!opts || opts.method === 'GET')) {
+          response = demoConfig;
+        } else if (path === '/chat' && !body.message) {
+          var greeting = demoConfig.site['greeting_' + lang] || demoConfig.site.greeting_es;
+          if (clientName) {
+            greeting = greeting.replace(/(Bienvenido|Welcome|Bienvenue|Benvenuto)/i, '$1 ' + clientName);
+          }
+          response = {
+            session_id: 'demo-' + (++sessionCounter),
+            lang: lang,
+            messages: [
+              { type:'avatar', name: demoConfig.site.bot_name, avatar: demoConfig.site.bot_avatar },
+              { type:'text', text: greeting, buttons: menuBtns(lang) }
+            ]
+          };
+        } else if (path === '/chat' && body.message) {
+          var msg = body.message.toLowerCase().trim();
+          var msgs = [];
+          if (msg === 'menu' || msg === '← volver al menú' || msg === '← back to menu') {
+            var comeback = lang === 'en' ? 'What else, darling? 😊' : '¿Qué más te apetece, cariño? 😊';
+            msgs = [{ type:'text', text: comeback, buttons: menuBtns(lang) }];
+          } else if (msg === 'escorts_disponibles') {
+            var available = demoGirls.filter(function(g) { return g.available_today; });
+            var label = lang === 'en' ? "Here's who's available, handsome 💕" : 'Mira quiénes están disponibles, guapo 💕';
+            msgs = [
+              { type:'text', text: label },
+              { type:'girls', girls: available },
+              { type:'text', text: lang === 'en' ? 'Like anyone? 😘' : '¿Te gusta alguna? 😘', buttons: contactBtns(lang) }
+            ];
+          } else if (msg === 'tarifas') {
+            var rates = demoConfig.rates;
+            msgs = [
+              { type:'text', text: lang === 'en' ? 'Here are our rates 💰' : 'Aquí tienes nuestras tarifas 💰' },
+              { type:'rates', title: rates['title_' + lang] || rates.title_es, items: rates.items, note: rates['note_' + lang] || rates.note_es, lang: lang, buttons: contactBtns(lang) }
+            ];
+          } else if (msg === 'horario') {
+            var s = demoConfig.schedule;
+            var hours = s['hours_' + lang] || s.hours_es;
+            var addr = s['address_' + lang] || s.address_es;
+            msgs = [
+              { type:'text', text: lang === 'en' ? 'Sure thing! 🚗' : '¡Claro! 🚗' },
+              { type:'text', text: '🕐 ' + hours + '\n\n📍 ' + addr, buttons: contactBtns(lang) }
+            ];
+          } else if (msg === 'hotel_domicilio') {
+            var hotelText = lang === 'en'
+              ? '🏨 We can come to your hotel or place. Small extra for travel 😉'
+              : '🏨 Podemos ir a tu hotel o domicilio. El desplazamiento tiene un pequeño extra 😉';
+            msgs = [{ type:'text', text: hotelText, buttons: contactBtns(lang) }];
+          } else if (msg === 'reservar') {
+            msgs = [{ type:'text', text: lang === 'en' ? 'Great! When would you like to book? 💋' : '¡Genial! ¿Para cuándo te gustaría reservar? 💋', buttons: contactBtns(lang) }];
+          } else if (msg === 'contacto') {
+            msgs = [{ type:'text', text: lang === 'en' ? '📱 Reception 24h:' : '📱 Recepción 24h:', buttons: contactBtns(lang) }];
+          } else {
+            var aiText = getAiResponse(msg, lang);
+            msgs = [{ type:'text', text: aiText, buttons: [
+              {id:'escorts_disponibles',label:lang==='en'?'See girls':'Ver chicas',group:'info'},
+              {id:'tarifas',label:lang==='en'?'Rates':'Tarifas',group:'info'},
+              {id:'contacto',label:lang==='en'?'Contact 📱':'Contacto 📱',group:'action'}
+            ] }];
+          }
+          response = { session_id: body.session_id || 'demo-1', lang: lang, messages: msgs };
+        } else {
+          response = { error: 'Unknown endpoint' };
+        }
+        resolve(new Response(JSON.stringify(response), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        }));
+      }, 500);
+    });
+  };
+})();
+</script>
+
+<link rel="stylesheet" href="chat-widget.css">
+<script src="chat-widget.js" data-api="/fake-api/maxxag/v1" data-lang="es"></script>
+
+</body>
+</html>

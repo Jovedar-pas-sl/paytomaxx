@@ -134,6 +134,13 @@ export class PaymentsService {
 
   /**
    * Lookup público por qrToken (cliente escanea, sin auth).
+   *
+   * Side effect (Stripe-only): si la venue tiene una credencial STRIPE activa y
+   * el pago aún no tiene `stripeClientSecret`, llama a `adapter.authorize()` para
+   * crear el PaymentIntent y persiste el `clientSecret` para que el frontend
+   * pueda renderizar el `<PaymentElement>` directamente sin pasar por
+   * `start-authorization`. La idempotency-key evita PI duplicados aunque
+   * dos clientes escaneen el QR a la vez.
    */
   async getByToken(qrToken: string): Promise<PublicPaymentView> {
     // Cross-tenant: el token es público pero único; bypass RLS
@@ -148,6 +155,52 @@ export class PaymentsService {
     );
     if (!payment) throw new NotFoundException('QR not found or expired');
 
+    let stripeClientSecret = payment.stripeClientSecret;
+    let provider = payment.provider;
+
+    if (!stripeClientSecret && payment.qrExpiresAt > new Date()) {
+      const credential = await this.prisma.asSystem((tx) =>
+        tx.gatewayCredential.findFirst({
+          where: { tenantId: payment.tenantId, active: true, provider: 'STRIPE' },
+          orderBy: { createdAt: 'asc' },
+        }),
+      );
+      if (credential) {
+        try {
+          const adapter = this.gateways.get('STRIPE');
+          const result = await adapter.authorize({
+            tenantId: payment.tenantId,
+            paymentId: payment.id,
+            amountCents: payment.amountCents,
+            currency: payment.currency,
+            terminalExternalId: '',
+            reference: payment.id,
+          });
+          const cs = result.metadata?.clientSecret;
+          if (cs) {
+            await this.prisma.asSystem((tx) =>
+              tx.payment.update({
+                where: { id: payment.id },
+                data: {
+                  provider: 'STRIPE',
+                  providerTxId: result.providerTxId,
+                  stripeClientSecret: cs,
+                },
+              }),
+            );
+            stripeClientSecret = cs;
+            provider = 'STRIPE';
+          }
+        } catch (err) {
+          this.logger.error(
+            `Stripe lazy authorize failed for payment ${payment.id}: ${(err as Error).message}`,
+          );
+          // No fallar el lookup público — el frontend mostrará error si no llega clientSecret.
+        }
+      }
+    }
+
+    const isStripe = provider === 'STRIPE';
     return {
       id: payment.id,
       amountCents: payment.amountCents,
@@ -156,6 +209,9 @@ export class PaymentsService {
       venueName: payment.venue.name,
       terminalLabel: payment.terminal.label,
       qrExpiresAt: payment.qrExpiresAt.toISOString(),
+      provider,
+      stripeClientSecret: isStripe ? stripeClientSecret : null,
+      stripePublishableKey: isStripe ? (process.env.STRIPE_PUBLISHABLE_KEY ?? null) : null,
     };
   }
 
@@ -193,7 +249,7 @@ export class PaymentsService {
             amountCents: number;
             availableAmountCents: number;
             providerTxId: string | null;
-            provider: 'WIPAY' | 'PEANPE' | null;
+            provider: 'WIPAY' | 'PEANPE' | 'STRIPE' | null;
           }>
         >`
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
@@ -230,7 +286,7 @@ export class PaymentsService {
              SET status = ${result.nextState}::"PaymentStatus",
                  "availableAmountCents" = ${result.nextContext.availableAmountCents},
                  "providerTxId" = ${result.nextContext.providerTxId ?? p.providerTxId},
-                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | null}::"Provider",
+                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'STRIPE' | null}::"Provider",
                  "updatedAt" = NOW()
            WHERE id = ${paymentId}::uuid
         `;
@@ -307,6 +363,23 @@ export class PaymentsService {
     );
     if (!credential) {
       throw new ConflictException('Venue has no active gateway credential');
+    }
+
+    // Stripe shortcut: si el PaymentIntent ya esta creado (lazy init en
+    // getByToken), nos saltamos la llamada al gateway y solo transitamos FSM.
+    // El cliente esta a punto de confirmar la tarjeta en el PaymentElement.
+    if (
+      credential.provider === 'STRIPE' &&
+      payment.providerTxId &&
+      payment.stripeClientSecret
+    ) {
+      try {
+        await this.transition(payment.id, { type: 'AUTHORIZING' });
+      } catch (err) {
+        if (!(err instanceof InvalidTransitionError)) throw err;
+        // Ya estaba AUTHORIZING o terminal — idempotente.
+      }
+      return { status: 'AUTHORIZING', providerTxId: payment.providerTxId };
     }
 
     // 1) Mover FSM a AUTHORIZING — fuente de verdad atomica.

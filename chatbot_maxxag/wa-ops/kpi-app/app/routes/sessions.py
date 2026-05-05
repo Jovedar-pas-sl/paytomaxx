@@ -99,6 +99,54 @@ async def create_casa(
     return RedirectResponse(url="/sessions", status_code=status.HTTP_303_SEE_OTHER)
 
 
+@router.post("/casas/{casa_id}/rename")
+async def rename_casa(
+    casa_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+    name: str = Form(...),
+) -> RedirectResponse:
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nombre requerido")
+    async with kpi.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE casa SET name = $1 WHERE id = $2", name, casa_id,
+        )
+    if result.endswith(" 0"):
+        raise HTTPException(status_code=404, detail="Casa no encontrada")
+    return RedirectResponse(url="/sessions", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/casas/{casa_id}/delete")
+async def delete_casa(
+    casa_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+) -> RedirectResponse:
+    """Delete a casa. Only allowed when it has no wa_numbers attached.
+
+    Conversations and analyses cascade via FK ondelete=CASCADE, but we keep
+    the check on wa_numbers as an explicit guard: if there are still WAs the
+    user must remove them first (which also stops the WAHA session cleanly).
+    """
+    async with kpi.acquire() as conn:
+        async with conn.transaction():
+            wa_count = await conn.fetchval(
+                "SELECT count(*) FROM wa_number WHERE casa_id = $1 FOR UPDATE",
+                casa_id,
+            ) or 0
+            if wa_count > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Borra primero los WhatsApps de la casa",
+                )
+            result = await conn.execute("DELETE FROM casa WHERE id = $1", casa_id)
+    if result.endswith(" 0"):
+        raise HTTPException(status_code=404, detail="Casa no encontrada")
+    return RedirectResponse(url="/sessions", status_code=status.HTTP_303_SEE_OTHER)
+
+
 # ── WA number CRUD ───────────────────────────────────────────────
 @router.post("/casas/{casa_id}/wa-numbers")
 async def create_wa_number(
@@ -196,6 +244,38 @@ async def session_qr(
 
     qr = await waha.get_qr(name)
     return JSONResponse({"status": current, "qr": qr})
+
+
+@router.post("/sessions/{name}/pairing-code")
+async def session_pairing_code(
+    name: str,
+    user: CurrentUser,  # noqa: ARG001
+    waha: Waha,
+    phone: str = Form(...),
+) -> JSONResponse:
+    """Request an 8-char pairing code as alternative to QR scanning."""
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) < 8:
+        return JSONResponse({"error": "Teléfono inválido"}, status_code=400)
+
+    try:
+        info = await waha.get_session(name)
+    except Exception:
+        logger.exception("pairing-code: get_session failed for %s", name)
+        return JSONResponse({"error": "session_unreachable"}, status_code=502)
+
+    current = info.get("status")
+    if current != "SCAN_QR_CODE":
+        return JSONResponse(
+            {"error": "wrong_state", "status": current},
+            status_code=409,
+        )
+
+    code, err = await waha.request_pairing_code(name, digits)
+    if err is not None:
+        logger.warning("pairing-code WAHA error (%s): %s", name, err)
+        return JSONResponse({"error": err}, status_code=502)
+    return JSONResponse({"code": code})
 
 
 @router.post("/sessions/{name}/start")

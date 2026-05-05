@@ -591,7 +591,7 @@ body {
             <h3 style="margin-bottom:16px">Identidad del local</h3>
             <div class="form-row">
               <label>Nombre del local</label>
-              <input type="text" id="cfg-botname" placeholder="Maxxage Valencia">
+              <input type="text" id="cfg-botname" placeholder="Nombre del local">
             </div>
             <div class="form-row">
               <label>Logo del local</label>
@@ -612,7 +612,7 @@ body {
             </div>
             <div class="form-row">
               <label>Telegram recepción (sin @)</label>
-              <input type="text" id="cfg-telegram" placeholder="maxxagvlc">
+              <input type="text" id="cfg-telegram" placeholder="usuario_telegram">
             </div>
           </div>
           <div class="analysis-card">
@@ -623,7 +623,7 @@ body {
             </div>
             <div class="form-row">
               <label>Dirección (ES)</label>
-              <input type="text" id="cfg-address-es" placeholder="Calle Ejemplo 12, Valencia">
+              <input type="text" id="cfg-address-es" placeholder="Calle Ejemplo 12, Ciudad">
             </div>
             <div class="form-row">
               <label>Cómo llegar (ES)</label>
@@ -635,7 +635,7 @@ body {
             </div>
             <div class="form-row">
               <label>Dirección (EN)</label>
-              <input type="text" id="cfg-address-en" placeholder="12 Example Street, Valencia">
+              <input type="text" id="cfg-address-en" placeholder="12 Example Street, City">
             </div>
             <div class="form-row">
               <label>How to get here (EN)</label>
@@ -745,7 +745,7 @@ body {
     <input type="hidden" id="girl-id">
     <div class="form-row">
       <label>Nombre</label>
-      <input type="text" id="girl-name" placeholder="Sophia">
+      <input type="text" id="girl-name" placeholder="Nombre">
     </div>
     <div class="form-grid-2">
       <div class="form-row">
@@ -873,11 +873,7 @@ body {
   }
 
   function updateCityLabel() {
-    const url = API.toLowerCase();
-    let name = API.replace(/https?:\/\//, '');
-    if (url.includes('5051') || url.includes('vlc') || url.includes('valencia')) name = 'Valencia';
-    else if (url.includes('5052') || url.includes('madrid')) name = 'Madrid';
-    else if (url.includes('5053') || url.includes('marbella')) name = 'Marbella';
+    const name = API.replace(/https?:\/\//, '').split('/')[0];
     document.getElementById('city-label').textContent = name;
     // city label is in navbar now
   }
@@ -1762,7 +1758,7 @@ body {
         // Bot message (left side)
         if (m.bot) {
           html += '<div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">' +
-            '<div style="font-size:10px;color:var(--muted);margin-left:4px">🤖 Sara</div>' +
+            '<div style="font-size:10px;color:var(--muted);margin-left:4px">🤖 ' + escapeHtml((document.getElementById('cfg-botname') && document.getElementById('cfg-botname').value) || 'Bot') + '</div>' +
             '<div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:14px 14px 14px 4px;max-width:80%;font-size:13px;line-height:1.5;word-break:break-word;white-space:pre-line">' + escapeHtml(m.bot) + '</div>' +
             (ts ? '<div style="font-size:10px;color:var(--muted);margin-left:4px">' + ts + '</div>' : '') +
           '</div>';
@@ -1822,10 +1818,7 @@ body {
   }
 
   function detectCity() {
-    const url = API.toLowerCase();
-    if (url.includes('5052') || url.includes('madrid')) return 'madrid';
-    if (url.includes('5053') || url.includes('marbella')) return 'marbella';
-    return 'vlc';
+    return 'default';
   }
 
   function showToast(msg, duration = 3000) {

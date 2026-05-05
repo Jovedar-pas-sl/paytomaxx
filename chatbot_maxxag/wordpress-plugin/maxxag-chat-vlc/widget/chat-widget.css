@@ -1,5 +1,5 @@
 /* ============================================================
-   Maxxage Valencia — Chat Widget
+   Maxxag Chat Widget
    Palette: burgundy #664750 · cream #fdf7f2 · warm tan #bfa498
    Fonts: EB Garamond (serif display) + Muli (body)
    ============================================================ */
@@ -11,7 +11,7 @@
   font-family: 'Mulish', 'Muli', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* ── VLC Color tokens ────────────────────────────────────────── */
+/* ── Color tokens ────────────────────────────────────────────── */
 /* --primary: #664750 (burgundy)
    --primary-rgb: 102,71,80
    --accent: #bfa498 (warm tan)

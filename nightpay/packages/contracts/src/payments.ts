@@ -14,7 +14,7 @@ export const PaymentStatusSchema = z.enum([
 ]);
 export type PaymentStatus = z.infer<typeof PaymentStatusSchema>;
 
-export const ProviderSchema = z.enum(['WIPAY', 'PEANPE']);
+export const ProviderSchema = z.enum(['WIPAY', 'PEANPE', 'STRIPE']);
 export type Provider = z.infer<typeof ProviderSchema>;
 
 // ─── Crear pago (TPV → API) ──────────────────────────────────────────
@@ -55,6 +55,11 @@ export const PublicPaymentViewSchema = z.object({
   venueName: z.string(),
   terminalLabel: z.string(),
   qrExpiresAt: z.string().datetime(),
+  provider: ProviderSchema.nullable().optional(),
+  /** Solo presente cuando provider=STRIPE — usado por Stripe Payment Element en el cliente. */
+  stripeClientSecret: z.string().nullable().optional(),
+  /** publishable key de Stripe (pk_test_ o pk_live_) — solo presente cuando provider=STRIPE. */
+  stripePublishableKey: z.string().nullable().optional(),
 });
 export type PublicPaymentView = z.infer<typeof PublicPaymentViewSchema>;
 

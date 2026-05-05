@@ -1,10 +1,10 @@
 <?php
 /**
- * Plugin Name:  Maxxag Chat
+ * Plugin Name:  maxxChatBot
  * Description:  Chatbot inteligente con IA para webs de acompañantes
  * Version:      5.4.1
- * Author:       Maxxag
- * Text Domain:  maxxag-chat
+ * Author:       maxxChatBot
+ * Text Domain:  maxxchatbot
  */
 if (!defined('ABSPATH')) exit;
 
@@ -125,12 +125,12 @@ function maxxag_chat_settings_page() {
         <p><strong>URL directa para trabajadores:</strong> <code><?php echo esc_html(home_url('/chat-admin/')); ?></code></p>
         <p><strong>Datos:</strong> <code><?php echo esc_html(MAXXAG_CHAT_DIR . 'data/'); ?></code></p>
         <div class="notice notice-info inline" style="padding:10px 15px;margin-top:10px">
-          <p style="margin:0"><strong>💡 Una contrase&ntilde;a para las 3 ciudades:</strong>
+          <p style="margin:0"><strong>💡 Una contrase&ntilde;a maestra para varios sitios:</strong>
           a&ntilde;ade en <code>wp-config.php</code> (de cada sitio) la misma l&iacute;nea:
           <code style="background:#fff3cd;padding:2px 6px">define('MAXXAG_MASTER_TOKEN', 'tu_clave_maestra');</code><br>
-          Con eso entras en VLC, Madrid y Marbella con la misma contrase&ntilde;a sin tener que configurar cada una.</p>
+          Con eso entras en todos los sitios con la misma contrase&ntilde;a sin tener que configurar cada uno.</p>
           <p style="margin:5px 0 0 0"><strong>Estado aqu&iacute;:</strong>
-          <?php echo defined('MAXXAG_MASTER_TOKEN') ? '<span style="color:#00a32a">&#10003; master-token activo</span>' : '<span style="color:#d97706">no configurado (cada sitio usa su token propio)</span>'; ?></p>
+          <?php echo defined('MAXXAG_MASTER_TOKEN') ? '<span style="color:#00a32a">&#10003; master-token activo</span>' : '<span style="color:#d97706">no configurado (este sitio usa su token propio)</span>'; ?></p>
         </div>
 
         <hr>

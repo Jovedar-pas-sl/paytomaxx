@@ -54,7 +54,7 @@ export class WebhooksController {
     @Req() req: FastifyRequest,
   ): Promise<{ received: true; duplicate?: boolean }> {
     const provider = providerParam.toUpperCase() as Provider;
-    if (provider !== 'WIPAY' && provider !== 'PEANPE') {
+    if (provider !== 'WIPAY' && provider !== 'PEANPE' && provider !== 'STRIPE') {
       throw new BadRequestException(`Unknown provider: ${providerParam}`);
     }
 

@@ -99,11 +99,7 @@
   }
 
   function updateCityLabel() {
-    const url = API.toLowerCase();
-    let name = API.replace(/https?:\/\//, '');
-    if (url.includes('5051') || url.includes('vlc') || url.includes('valencia')) name = 'Valencia';
-    else if (url.includes('5052') || url.includes('madrid')) name = 'Madrid';
-    else if (url.includes('5053') || url.includes('marbella')) name = 'Marbella';
+    const name = API.replace(/https?:\/\//, '').split('/')[0];
     document.getElementById('city-label').textContent = name;
     // city label is in navbar now
   }
@@ -1062,10 +1058,7 @@
   }
 
   function detectCity() {
-    const url = API.toLowerCase();
-    if (url.includes('5052') || url.includes('madrid')) return 'madrid';
-    if (url.includes('5053') || url.includes('marbella')) return 'marbella';
-    return 'vlc';
+    return 'default';
   }
 
   function showToast(msg, duration = 3000) {

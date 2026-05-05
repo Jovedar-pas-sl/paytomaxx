@@ -533,7 +533,7 @@
     var ae = document.getElementById('maxxag-avatar-img');
     var ph = document.querySelector('.maxxag-avatar-letter');
     if (ne) ne.textContent = name || '';
-    // Update placeholder letter to first letter of bot name (e.g., "S" for Sara)
+    // Update placeholder letter to first letter of bot name
     if (ph && name) ph.textContent = name.charAt(0).toUpperCase();
     if (avatar && ae) {
       ae.onerror = function() {

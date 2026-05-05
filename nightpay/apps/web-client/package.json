@@ -16,7 +16,9 @@
     "react-dom": "^18.3.1",
     "socket.io-client": "^4.8.0",
     "@nightpay/contracts": "workspace:*",
-    "@nightpay/ui": "workspace:*"
+    "@nightpay/ui": "workspace:*",
+    "@stripe/stripe-js": "^4.10.0",
+    "@stripe/react-stripe-js": "^2.9.0"
   },
   "devDependencies": {
     "@nightpay/config": "workspace:*",
