@@ -101,6 +101,10 @@ export function PaymentClient({ initial, token }: Props) {
     payment.provider === 'STRIPE' &&
     typeof payment.stripeClientSecret === 'string' &&
     typeof payment.stripePublishableKey === 'string';
+  // Stripe-only: el PaymentElement debe seguir visible durante AUTHORIZING
+  // (mientras stripe.confirmPayment esta corriendo). Si falla mostraremos
+  // el error en el form en vez de hacer desaparecer todo.
+  const showStripeForm = isStripe && (canPay || status === 'AUTHORIZING');
 
   return (
     <Stage>
@@ -114,7 +118,7 @@ export function PaymentClient({ initial, token }: Props) {
 
       <StatusPill status={status} />
 
-      {isStripe && canPay ? (
+      {showStripeForm ? (
         <div style={{ width: '100%', maxWidth: '26rem' }}>
           <StripePaymentForm
             publishableKey={payment.stripePublishableKey as string}

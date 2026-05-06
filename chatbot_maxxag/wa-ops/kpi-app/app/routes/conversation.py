@@ -9,6 +9,7 @@ from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app import queries
 from app.deps import Arq, CurrentUser, KpiDB, Waha
+from app.settings import get_settings
 from app.template_env import templates
 
 logger = logging.getLogger(__name__)
@@ -302,14 +303,16 @@ async def conversation_auto_merge(
             """,
             conversation_id,
         )
-        # Sibling conversations — same casa, recent
+        # Sibling conversations — same casa, within configurable window.
+        # Default is 30 days (MERGE_SIBLING_DAYS). Higher = more recall, more false-positive risk.
+        sibling_window_days = get_settings().merge_sibling_days
         sibling_ids = await conn.fetch(
-            """
+            f"""
             SELECT c.id, ct.name, ct.phone, ct.waha_jid
             FROM conversation c
             JOIN contact ct ON ct.id = c.contact_id
             WHERE c.casa_id = $1 AND c.id != $2
-              AND c.last_message_at > now() - interval '24 hours'
+              AND c.last_message_at > now() - interval '{sibling_window_days} days'
             ORDER BY c.last_message_at DESC LIMIT 8
             """,
             detail.casa_id, conversation_id,
@@ -336,7 +339,7 @@ async def conversation_auto_merge(
             ))
 
     if not siblings:
-        raise HTTPException(status_code=400, detail="No hay otras conversaciones candidatas en esta casa (últimas 24h).")
+        raise HTTPException(status_code=400, detail=f"No hay otras conversaciones candidatas en esta casa (últimos {sibling_window_days} días).")
 
     target_label = detail.contact_name or detail.contact_phone or "target"
     target_msgs = [
@@ -369,6 +372,47 @@ async def conversation_auto_merge(
         triggered_by="ia",
         confidence=float(result.confidence),
         reasoning=result.reasoning,
+    )
+
+
+@router.post("/conversation/{conversation_id}/delete")
+async def conversation_delete(
+    conversation_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+) -> RedirectResponse:
+    """Permanently delete a conversation and all its messages.
+
+    NOT reversible. ON DELETE CASCADE on `message.conversation_id` removes
+    messages; analysis, alert and merge_event rows are also dropped.
+    Redirects back to the casa workspace.
+    """
+    async with kpi.acquire() as conn:
+        casa_id = await conn.fetchval(
+            "SELECT casa_id FROM conversation WHERE id = $1",
+            conversation_id,
+        )
+        if casa_id is None:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada")
+
+        async with conn.transaction():
+            # Drop dependent rows first to avoid FK constraint errors on
+            # tables without ON DELETE CASCADE.
+            await conn.execute("DELETE FROM message WHERE conversation_id = $1", conversation_id)
+            await conn.execute("DELETE FROM analysis WHERE conversation_id = $1", conversation_id)
+            await conn.execute("DELETE FROM alert WHERE conversation_id = $1", conversation_id)
+            # Merge events that target/source this conv lose their referential
+            # integrity — purge them since the source is gone.
+            await conn.execute(
+                "DELETE FROM merge_event WHERE source_conv_id = $1 OR target_conv_id = $1",
+                conversation_id,
+            )
+            await conn.execute("DELETE FROM conversation WHERE id = $1", conversation_id)
+
+    logger.info("Conversation %s deleted (casa=%s)", conversation_id, casa_id)
+    return RedirectResponse(
+        url=f"/casas/{casa_id}?tab=chats",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 

@@ -247,13 +247,15 @@ async def _handle_message(db: KpiDB, session: str, data: dict[str, Any], arq: An
                 only_in  = stats["ins"]  > 0 and stats["outs"] == 0
                 only_out = stats["outs"] > 0 and stats["ins"]  == 0
 
+                # Auto-merge window — configurable via MERGE_AUTO_DAYS (default 7)
+                auto_days = get_settings().merge_auto_days
                 if only_in and stats["ins"] < 10:
                     sibling_row = await conn.fetchrow(
-                        """
+                        f"""
                         SELECT c.id
                         FROM conversation c
                         WHERE c.casa_id = $1 AND c.id != $2 AND c.wa_number_id = $3
-                          AND c.last_message_at > now() - interval '6 hours'
+                          AND c.last_message_at > now() - interval '{auto_days} days'
                           AND NOT EXISTS (SELECT 1 FROM message m WHERE m.conversation_id=c.id AND m.direction='in')
                           AND EXISTS     (SELECT 1 FROM message m WHERE m.conversation_id=c.id AND m.direction='out')
                         ORDER BY c.last_message_at DESC
@@ -264,11 +266,11 @@ async def _handle_message(db: KpiDB, session: str, data: dict[str, Any], arq: An
                     sibling_id = sibling_row["id"] if sibling_row else None
                 elif only_out and stats["outs"] < 10:
                     sibling_row = await conn.fetchrow(
-                        """
+                        f"""
                         SELECT c.id
                         FROM conversation c
                         WHERE c.casa_id = $1 AND c.id != $2 AND c.wa_number_id = $3
-                          AND c.last_message_at > now() - interval '6 hours'
+                          AND c.last_message_at > now() - interval '{auto_days} days'
                           AND EXISTS     (SELECT 1 FROM message m WHERE m.conversation_id=c.id AND m.direction='in')
                           AND NOT EXISTS (SELECT 1 FROM message m WHERE m.conversation_id=c.id AND m.direction='out')
                         ORDER BY c.last_message_at DESC

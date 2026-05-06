@@ -189,6 +189,15 @@
     </button>
     {% endif %}
 
+    {# Delete conversation — destructive, requires confirmation #}
+    <form method="post" action="/conversation/{{ header.id }}/delete"
+          onsubmit="return confirm('⚠ ¿Eliminar esta conversación y TODOS sus mensajes? Esta acción NO se puede deshacer.');">
+      <button type="submit"
+              class="w-full rounded-lg border border-red/40 bg-red/5 text-red py-2 text-xs font-medium hover:bg-red/15 transition">
+        🗑 Eliminar conversación
+      </button>
+    </form>
+
     {% if analysis %}
       {% set mood_color = {
         'curioso': 'text-blue border-blue/40 bg-blue/10',

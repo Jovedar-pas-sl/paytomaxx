@@ -31,7 +31,7 @@ const config: Record<
     bg: 'var(--np-pill-mute-bg)',
   },
   AUTHORIZING: {
-    label: 'Acerca tarjeta al datáfono',
+    label: 'Procesando pago…',
     color: 'var(--np-accent)',
     bg: 'var(--np-pill-cyan-bg)',
     spin: true,

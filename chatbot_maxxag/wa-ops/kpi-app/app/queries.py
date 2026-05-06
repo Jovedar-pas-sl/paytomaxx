@@ -283,6 +283,7 @@ async def list_conversations(
     wa_number_id: int | None = None,
     mood: str | None = None,
     search: str | None = None,
+    days: int | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[ConversationRow], int]:
@@ -301,6 +302,9 @@ async def list_conversations(
     if mood:
         params.append(mood)
         where.append(f"a.mood_label = ${len(params)}")
+    if days is not None and days > 0 and days < 3650:
+        # Period filter — days comes from a fixed enum (PERIOD_DAYS); no SQL injection risk
+        where.append(f"c.last_message_at > now() - interval '{int(days)} days'")
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 

@@ -94,27 +94,35 @@ function InnerForm({ amountCents, currency, token, onError }: Props) {
       console.warn('startAuthorization failed (continuing):', err);
     }
 
-    const { error: confirmError } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        // return_url se usa solo si Stripe necesita redirect (3DS). En sandbox
-        // con tarjeta 4242 normalmente no redirige y volvemos al flow inline.
-        return_url: typeof window !== 'undefined' ? window.location.href : '',
-      },
-      redirect: 'if_required',
-    });
+    try {
+      const { error: confirmError } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          // return_url se usa solo si Stripe necesita redirect (3DS). En sandbox
+          // con tarjeta 4242 normalmente no redirige y volvemos al flow inline.
+          return_url: typeof window !== 'undefined' ? window.location.href : '',
+        },
+        redirect: 'if_required',
+      });
 
-    if (confirmError) {
-      const msg = confirmError.message ?? 'Error al procesar el pago';
+      if (confirmError) {
+        const msg = confirmError.message ?? 'Error al procesar el pago';
+        setError(msg);
+        onError?.(msg);
+        setSubmitting(false);
+        return;
+      }
+      // Si llegamos aquí sin redirect: el PaymentIntent ya está en succeeded
+      // (o requires_capture). El estado AUTHORIZED se confirma vía webhook → WS,
+      // no aquí. Mantenemos submitting hasta que el padre detecte el cambio.
+    } catch (err) {
+      // Stripe.js puede throw (network, CSP, abort) — recuperamos el form para
+      // que el cliente pueda reintentar en vez de quedar atascado.
+      const msg = (err as Error)?.message ?? 'Error de red al confirmar el pago';
       setError(msg);
       onError?.(msg);
       setSubmitting(false);
-      return;
     }
-    // Si llegamos aquí sin redirect: el PaymentIntent ya está en succeeded
-    // (o requires_capture en flujos sin auto-capture). El estado AUTHORIZED
-    // se confirma vía webhook → WS, no aquí. Mantenemos submitting hasta
-    // que el padre detecte el cambio de estado.
   }
 
   const amountFmt = (amountCents / 100).toFixed(2);

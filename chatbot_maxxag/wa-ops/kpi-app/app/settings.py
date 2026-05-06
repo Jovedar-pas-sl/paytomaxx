@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     login_rate_max_fails: int = Field(10, alias="LOGIN_RATE_MAX_FAILS")
     login_rate_window_seconds: int = Field(300, alias="LOGIN_RATE_WINDOW_SECONDS")
 
+    # Merge windows — how far back to look for sibling conversations
+    # Higher = catches more split conversations but more false-positive risk
+    merge_sibling_days: int = Field(30, alias="MERGE_SIBLING_DAYS")
+    merge_auto_days: int = Field(7, alias="MERGE_AUTO_DAYS")
+
     # Public domain (used for links from KPI app to Chatwoot admin panel)
     domain: str = Field("", alias="DOMAIN")
 

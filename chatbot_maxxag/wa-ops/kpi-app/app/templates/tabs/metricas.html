@@ -2,7 +2,7 @@
 
 {% if metricas and (metricas.convs_count.value or 0) > 0 %}
 <div class="mb-3 flex justify-end">
-  <a href="/casas/{{ casa_id }}/export/metricas.csv?days={% if active_period == '24h' %}1{% elif active_period == '7d' %}7{% elif active_period == '90d' %}90{% elif active_period == 'all' %}3650{% else %}30{% endif %}"
+  <a href="/casas/{{ casa_id }}/export/metricas.csv?days={% if active_period == '24h' %}1{% elif active_period == '3d' %}3{% elif active_period == '7d' %}7{% elif active_period == '90d' %}90{% elif active_period == 'all' %}3650{% else %}30{% endif %}"
      class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted transition">
     📥 Exportar CSV
   </a>

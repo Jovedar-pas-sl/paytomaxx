@@ -16,12 +16,12 @@ from app.template_env import templates
 
 router = APIRouter()
 Tab = Literal["chats", "metricas", "problemas", "analisis"]
-Period = Literal["24h", "7d", "30d", "90d", "all"]
+Period = Literal["24h", "3d", "7d", "30d", "90d", "all"]
 
 VALID_TABS: set[str] = {"chats", "metricas", "problemas", "analisis"}
-VALID_PERIODS: set[str] = {"24h", "7d", "30d", "90d", "all"}
+VALID_PERIODS: set[str] = {"24h", "3d", "7d", "30d", "90d", "all"}
 
-PERIOD_DAYS: dict[str, int] = {"24h": 1, "7d": 7, "30d": 30, "90d": 90, "all": 3650}
+PERIOD_DAYS: dict[str, int] = {"24h": 1, "3d": 3, "7d": 7, "30d": 30, "90d": 90, "all": 3650}
 
 
 @router.get("/casas/{casa_id}", response_class=HTMLResponse)
@@ -69,7 +69,7 @@ async def casa_workspace(
 
     tab_ctx: dict = {}
     if tab == "chats":
-        tab_ctx = await _chats_tab(kpi, casa_id, wa_number_id)
+        tab_ctx = await _chats_tab(kpi, casa_id, wa_number_id, days)
     elif tab == "metricas":
         tab_ctx = await _metricas_tab(kpi, casa_id, days)
     elif tab == "problemas":
@@ -88,7 +88,7 @@ async def casa_workspace(
             "active_period": period,
             "active_wa": wa,
             "wa_numbers": wa_numbers,
-            "period_options": ["24h", "7d", "30d", "90d", "all"],
+            "period_options": ["24h", "3d", "7d", "30d", "90d", "all"],
             "admin_url": None,
             **header_ctx,
             **tab_ctx,
@@ -101,9 +101,11 @@ async def _build_header(kpi, casa_id: int, casa_name: str) -> dict:
     return {"header": await queries.get_casa_header(kpi, casa_id, casa_name)}
 
 
-async def _chats_tab(kpi, casa_id: int, wa_number_id: int | None = None) -> dict:
+async def _chats_tab(
+    kpi, casa_id: int, wa_number_id: int | None = None, days: int | None = None
+) -> dict:
     rows, total = await queries.list_conversations(
-        kpi, casa_id=casa_id, wa_number_id=wa_number_id, limit=50, offset=0
+        kpi, casa_id=casa_id, wa_number_id=wa_number_id, days=days, limit=50, offset=0
     )
     unanalyzed = await queries.count_unanalyzed_for_casa(kpi, casa_id)
     return {"chat_rows": rows, "chat_total": total, "unanalyzed_count": unanalyzed}
