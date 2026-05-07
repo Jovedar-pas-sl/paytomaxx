@@ -380,18 +380,19 @@ async def meta_analyze_casa_job(
         ))
 
     try:
-        # Claude meta-analysis call — cap at 180s. The drift task keeps the UI
-        # moving meanwhile; if the API genuinely hangs we want to fail fast.
+        # Claude meta-analysis call — cap at 240s. The inner _call_json is 120s,
+        # this gives slack for any retry/connection setup. The drift task keeps
+        # the UI moving meanwhile.
         result = await asyncio.wait_for(
             run_meta_analysis(meta_casa_name, summaries),
-            timeout=180.0,
+            timeout=240.0,
         )
     except asyncio.TimeoutError:
-        logger.error("meta-analysis timed out (>180s) for casa %s wa %s",
+        logger.error("meta-analysis timed out (>240s) for casa %s wa %s",
                      casa_id, wa_number_id)
         if redis:
             await prog.set_progress(redis, pkey, phase="error", pct=100,
-                                    message="Claude tardó más de 3min — reintenta",
+                                    message="Claude tardó más de 4min — reintenta",
                                     started_at=started)
         raise
     except Exception:

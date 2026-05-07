@@ -265,6 +265,25 @@
 </section>
 {% endif %}
 
+{# Confirmation modal — shown before kicking off the chained analysis so the
+   user sees exact cost + time before spending. Pre-populated by a /preview fetch. #}
+<div id="meta-confirm-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
+  <div class="card max-w-md w-[440px] p-6">
+    <h3 id="meta-confirm-title" class="text-lg font-bold">Generar informe</h3>
+    <div id="meta-confirm-body" class="mt-3 text-sm text-muted">Cargando…</div>
+    <div class="mt-5 flex justify-end gap-2">
+      <button type="button" id="meta-confirm-cancel"
+              class="rounded-lg border border-border px-4 py-2 text-sm text-muted hover:text-text">
+        Cancelar
+      </button>
+      <button type="button" id="meta-confirm-ok"
+              class="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg hover:bg-accent/90">
+        ✓ Generar informe
+      </button>
+    </div>
+  </div>
+</div>
+
 {# Running overlay with live progress bar + ETA #}
 <div id="meta-running-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
   <div class="card p-8 max-w-md w-[420px]">
@@ -344,10 +363,74 @@
     });
   }
 
-  // Full report flow — bulk-analyze pendientes (24h) → meta-analysis,
-  // todo en una sola interacción. El usuario ve dos fases consecutivas
-  // (Analizando convs… → Generando informe…) en la misma barra.
+  // Confirmation modal helpers
+  const confirmModal  = document.getElementById('meta-confirm-modal');
+  const confirmTitle  = document.getElementById('meta-confirm-title');
+  const confirmBody   = document.getElementById('meta-confirm-body');
+  const confirmOkBtn  = document.getElementById('meta-confirm-ok');
+  const confirmCancel = document.getElementById('meta-confirm-cancel');
+  let pendingConfirm = null;
+
+  function openConfirm(html, onOk) {
+    confirmBody.innerHTML = html;
+    pendingConfirm = onOk;
+    confirmModal.classList.remove('hidden');
+    confirmModal.classList.add('flex');
+  }
+  function closeConfirm() {
+    confirmModal.classList.add('hidden');
+    confirmModal.classList.remove('flex');
+    pendingConfirm = null;
+  }
+  confirmCancel.addEventListener('click', closeConfirm);
+  confirmOkBtn.addEventListener('click', async () => {
+    const fn = pendingConfirm;
+    closeConfirm();
+    if (fn) await fn();
+  });
+
+  // Full report flow — first asks confirmation with cost + time, then runs
+  // the chained analysis (bulk + meta) with progress overlay.
   window.__runFullReport = async function (casaId, waNumberId, scopeLabel) {
+    // Step 1: preview to show real cost
+    try {
+      const previewQs = waNumberId
+        ? `?wa_number_id=${waNumberId}&since_hours=24`
+        : `?since_hours=24`;
+      const r = await fetch(`/casas/${casaId}/analyze-pending/preview${previewQs}`);
+      if (!r.ok) {
+        alert('No pude calcular el coste. Reintenta.');
+        return;
+      }
+      const p = await r.json();
+      const cost = p.est_cost_usd.toFixed(3);
+      const time = p.est_time_min;
+      const cap_warn = p.capped
+        ? `<div class="text-[11px] text-amber mt-1">⚠ ${p.pending} convs detectadas; analizaremos las ${p.will_process} más recientes.</div>`
+        : '';
+      const html =
+        `<div class="space-y-3">` +
+        `<div><strong class="text-text">${p.will_process}</strong> conversaciones nuevas (últ. 24h)` +
+        (p.already_analyzed > 0 ? ` · <span class="text-muted">${p.already_analyzed} ya analizadas en histórico</span>` : '') +
+        `</div>` +
+        cap_warn +
+        `<div class="rounded-lg border border-amber/30 bg-amber/5 p-3">` +
+        `  <div class="text-[11px] uppercase tracking-wider text-amber mb-1">⚠ Coste de Claude API</div>` +
+        `  <div class="flex justify-between items-baseline">` +
+        `    <span class="mono text-2xl font-semibold text-text">$${cost}</span>` +
+        `    <span class="text-xs text-muted">~${time} min</span>` +
+        `  </div>` +
+        `</div>` +
+        `<div class="text-[11px] text-muted-2">Incluye: análisis de cada conversación + informe completo (patrones, fortalezas, áreas a mejorar, de dónde llegan los clientes, etc.)</div>` +
+        `</div>`;
+      confirmTitle.textContent = `Generar informe — ${scopeLabel}`;
+      openConfirm(html, () => runChainAfterConfirm(casaId, waNumberId, scopeLabel));
+    } catch (e) {
+      alert('Error de red: ' + e.message);
+    }
+  };
+
+  async function runChainAfterConfirm(casaId, waNumberId, scopeLabel) {
     overlay.classList.remove('hidden');
     overlay.classList.add('flex');
     title.textContent = `Iniciando…`;

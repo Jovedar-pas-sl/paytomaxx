@@ -219,6 +219,50 @@ async def enqueue_bulk_analyze(
     )
 
 
+@router.get("/casas/{casa_id}/analyze-pending/preview")
+async def bulk_analyze_preview(
+    casa_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+    wa_number_id: int | None = Query(default=None),
+    since_hours: int = Query(default=24, ge=1, le=720),
+) -> dict:
+    """Preview before running. Returns conv counts and cost/time estimate so
+    the UI can show a confirmation modal with real numbers before spending.
+
+    NB: matches the same filters the bulk job will use (open + closed + dirty
+    re-analysis), so the user sees exactly what's about to be processed.
+    """
+    pending = await queries.count_unanalyzed_for_casa(
+        kpi, casa_id,
+        wa_number_id=wa_number_id,
+        since_hours=since_hours,
+        include_open=True,
+        redo_dirty=True,
+    )
+    already = await queries.count_analyzed_for_casa(
+        kpi, casa_id, wa_number_id=wa_number_id,
+    )
+    # Caps the bulk job applies internally (worker.py)
+    cap = 200
+    will_process = min(pending, cap)
+    # Per-conv ≈ $0.003 (10 Haiku skills × small prompts), meta ≈ $0.05
+    cost_usd = round(will_process * 0.003 + 0.05, 3)
+    # ~5s per conv × Semaphore(5) = ~1s/conv ; meta ~60s
+    time_min = max(1, round(will_process * 1.0 / 60 + 1))
+
+    return {
+        "pending": pending,
+        "will_process": will_process,
+        "capped": pending > cap,
+        "already_analyzed": already,
+        "since_hours": since_hours,
+        "wa_number_id": wa_number_id,
+        "est_cost_usd": cost_usd,
+        "est_time_min": time_min,
+    }
+
+
 @router.get("/casas/{casa_id}/analyze-pending/progress")
 async def bulk_analyze_progress(
     casa_id: int,

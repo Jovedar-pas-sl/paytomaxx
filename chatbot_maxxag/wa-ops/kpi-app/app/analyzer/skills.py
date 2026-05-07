@@ -88,7 +88,7 @@ def _fix_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
 async def _call_json(
     system: str, user: str, schema: dict[str, Any],
-    *, max_tokens: int = 800, timeout: float = 30.0,
+    *, max_tokens: int = 2000, timeout: float = 30.0,
 ) -> dict[str, Any]:
     """Invoke Claude Haiku 4.5 with structured JSON output and return the parsed dict.
 

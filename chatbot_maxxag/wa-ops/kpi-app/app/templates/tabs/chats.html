@@ -443,9 +443,37 @@
     }
   }
 
-  // Triggered by the ⚡ Informe button on each WA card — same auto-cadena.
-  window.__runWaAnalysis = function (casaId, waNumberId, label) {
-    return runChainedAnalysis(casaId, waNumberId, label);
+  // Triggered by the ⚡ Informe button on each WA card.
+  // First fetches preview (count + cost), then opens the confirmation modal,
+  // and only runs the chain if the user confirms.
+  window.__runWaAnalysis = async function (casaId, waNumberId, label) {
+    showToast({
+      title: `Calculando coste…`,
+      msg: `Consultando conversaciones de ${label}.`,
+      icon: '⏳',
+    });
+    try {
+      const r = await fetch(
+        `/casas/${casaId}/analyze-pending/preview?wa_number_id=${waNumberId}&since_hours=24`
+      );
+      if (!r.ok) {
+        showToast({title: 'Error consultando preview', msg: 'Reintenta',
+                   icon: '❌', iconClass: 'bg-red/15', duration: 6000});
+        return;
+      }
+      const preview = await r.json();
+      hideToast();
+      // Open the existing bulk-analyze modal in confirmation mode.
+      // Signature: (casaId, count, waNumberId, autoMeta, costUsd, timeMin, alreadyAnalyzed, label)
+      window.__confirmBulkAnalyze(
+        casaId, preview.will_process, waNumberId, true,
+        preview.est_cost_usd, preview.est_time_min,
+        preview.already_analyzed, label,
+      );
+    } catch (e) {
+      showToast({title: 'Error de red', msg: e.message,
+                 icon: '❌', iconClass: 'bg-red/15', duration: 6000});
+    }
   };
   // Exposed for the bulk-analyze modal to reuse the chain.
   window.__runChainedAnalysis = runChainedAnalysis;
@@ -469,8 +497,8 @@
         Cancelar
       </button>
       <button type="button" id="bulk-analyze-confirm"
-              class="rounded-lg bg-green px-4 py-2 text-sm font-semibold text-bg hover:bg-green/90">
-        ▶ Ejecutar
+              class="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg hover:bg-accent/90">
+        ✓ Generar informe
       </button>
     </div>
   </div>
@@ -488,34 +516,65 @@
   let currentCasaId = null;
   let currentWaId   = null;
   let currentChain  = false;
+  let currentLabel  = null;
 
-  // Signature: (casaId, count, waNumberId|null, autoMeta)
-  // - waNumberId=null + autoMeta=true → casa-wide bulk only (no chain to meta)
-  // - waNumberId=N    + autoMeta=true → chain bulk → meta for that WA
-  window.__confirmBulkAnalyze = function (casaId, count, waNumberId, autoMeta) {
+  // Signature: (casaId, count, waNumberId|null, autoMeta, costUsd?, timeMin?, alreadyAnalyzed?, label?)
+  // costUsd / timeMin / alreadyAnalyzed come from the preview endpoint when
+  // available; fall back to client-side estimate otherwise.
+  window.__confirmBulkAnalyze = function (
+    casaId, count, waNumberId, autoMeta,
+    costUsd, timeMin, alreadyAnalyzed, label
+  ) {
     currentCasaId = casaId;
     currentWaId   = waNumberId;
     currentChain  = !!autoMeta && waNumberId != null;
+    currentLabel  = label || 'este WhatsApp';
     countEl.textContent = count;
-    costEl.textContent  = (count * 0.003).toFixed(2);
-    // Approx: 5 parallel × ~3s/conv → count/100 minutes for bulk; +1min meta if chained
-    const bulkMin = Math.max(1, Math.round(count / 100));
-    const totalMin = currentChain ? bulkMin + 1 : bulkMin;
-    timeEl.textContent = totalMin;
+
+    // Use preview values when present, else estimate locally.
+    const realCost = (costUsd != null) ? costUsd : (count * 0.003 + (currentChain ? 0.05 : 0));
+    const realTime = (timeMin != null) ? timeMin : Math.max(1, Math.round(count / 100) + (currentChain ? 1 : 0));
+    const already  = (alreadyAnalyzed != null) ? alreadyAnalyzed : 0;
 
     if (currentChain) {
-      titleEl.textContent = 'Generar informe de este WhatsApp';
+      titleEl.textContent = `Generar informe de ${currentLabel}`;
       descEl.innerHTML =
-        `Analizaré ${count} conversaciones nuevas (últ. 24h) y luego ` +
-        `generaré el informe completo (de dónde llegan, patrones, etc.).<br>` +
-        `Coste: <strong class="text-text">$<span id="bulk-cost">${(count*0.003).toFixed(2)}</span></strong> ` +
-        `· Tiempo: ~<span id="bulk-time">${totalMin}</span> min`;
+        `<div class="space-y-2">` +
+        `<div><strong class="text-text">${count}</strong> conversaciones nuevas (últ. 24h)` +
+        (already > 0 ? ` · <span class="text-muted">${already} ya analizadas</span>` : '') +
+        `</div>` +
+        `<div class="rounded-lg border border-amber/30 bg-amber/5 p-3">` +
+        `  <div class="text-[11px] uppercase tracking-wider text-amber mb-1">⚠ Coste de Claude API</div>` +
+        `  <div class="flex justify-between items-baseline">` +
+        `    <span class="mono text-2xl font-semibold text-text">$${realCost.toFixed(3)}</span>` +
+        `    <span class="text-xs text-muted">~${realTime} min</span>` +
+        `  </div>` +
+        `</div>` +
+        `<div class="text-[11px] text-muted-2">Incluye: análisis de cada conversación + generación del informe completo (patrones, fortalezas, áreas de mejora, de dónde llegan los clientes, etc.)</div>` +
+        `</div>`;
     } else {
       titleEl.textContent = `Analizar ${count} conversaciones`;
       descEl.innerHTML =
-        `Claude analizará las conversaciones de las últimas 24h en toda la casa.<br>` +
-        `Coste: <strong class="text-text">$<span id="bulk-cost">${(count*0.003).toFixed(2)}</span></strong> ` +
-        `· Tiempo: ~<span id="bulk-time">${totalMin}</span> min`;
+        `<div class="space-y-2">` +
+        `<div>Claude analizará las conversaciones de las últimas 24h en toda la casa.</div>` +
+        `<div class="rounded-lg border border-amber/30 bg-amber/5 p-3">` +
+        `  <div class="text-[11px] uppercase tracking-wider text-amber mb-1">⚠ Coste de Claude API</div>` +
+        `  <div class="flex justify-between items-baseline">` +
+        `    <span class="mono text-2xl font-semibold text-text">$${realCost.toFixed(3)}</span>` +
+        `    <span class="text-xs text-muted">~${realTime} min</span>` +
+        `  </div>` +
+        `</div>` +
+        `</div>`;
+    }
+
+    // If nothing to process AND no chain, warn and don't open
+    if (count === 0 && !currentChain) {
+      window.__waToastShow && window.__waToastShow({
+        title: 'Sin conversaciones nuevas',
+        msg: 'No hay nada nuevo que analizar en las últimas 24h.',
+        icon: 'ℹ️', duration: 6000,
+      });
+      return;
     }
 
     modal.classList.remove('hidden');
@@ -526,18 +585,18 @@
     modal.classList.remove('flex');
   };
 
+  const CONFIRM_DEFAULT_LABEL = '✓ Generar informe';
   confirmBtn.addEventListener('click', async () => {
     confirmBtn.disabled = true;
     confirmBtn.textContent = 'Iniciando…';
 
     if (currentChain && typeof window.__runChainedAnalysis === 'function') {
-      // Per-WA chained flow: close modal + drive the toast's progress bar
       window.__closeBulkAnalyze();
       try {
-        await window.__runChainedAnalysis(currentCasaId, currentWaId, 'este WhatsApp');
+        await window.__runChainedAnalysis(currentCasaId, currentWaId, currentLabel || 'este WhatsApp');
       } finally {
         confirmBtn.disabled = false;
-        confirmBtn.textContent = '▶ Ejecutar';
+        confirmBtn.textContent = CONFIRM_DEFAULT_LABEL;
       }
       return;
     }
@@ -555,12 +614,12 @@
         const err = await r.text();
         alert('Error: ' + err);
         confirmBtn.disabled = false;
-        confirmBtn.textContent = '▶ Ejecutar';
+        confirmBtn.textContent = CONFIRM_DEFAULT_LABEL;
       }
     } catch (e) {
       alert('Error de red: ' + e.message);
       confirmBtn.disabled = false;
-      confirmBtn.textContent = '▶ Ejecutar';
+      confirmBtn.textContent = CONFIRM_DEFAULT_LABEL;
     }
   });
 })();
