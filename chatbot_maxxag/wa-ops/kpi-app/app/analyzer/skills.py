@@ -91,6 +91,10 @@ async def _call_json(system: str, user: str, schema: dict[str, Any]) -> dict[str
 
     max_tokens=800 buffer for JSON. Schema is fixed to Anthropic's subset:
     additionalProperties=false on every object, unsupported constraints stripped.
+
+    Per-request timeout 30s — Haiku usually responds in 1-5s; anything beyond
+    30s is a network/API hang. Without this the SDK default is 10min, which
+    blocks the whole bulk job when one call gets stuck.
     """
     fixed = _fix_schema(copy.deepcopy(schema))  # deep copy — don't mutate Pydantic's cached schema
     client = _get_client()
@@ -100,6 +104,7 @@ async def _call_json(system: str, user: str, schema: dict[str, Any]) -> dict[str
         system=system,
         messages=[{"role": "user", "content": user}],
         output_config={"format": {"type": "json_schema", "schema": fixed}},  # type: ignore[arg-type]
+        timeout=30.0,
     )
     if response.stop_reason == "max_tokens":
         raise RuntimeError("Claude hit max_tokens — JSON likely truncated")

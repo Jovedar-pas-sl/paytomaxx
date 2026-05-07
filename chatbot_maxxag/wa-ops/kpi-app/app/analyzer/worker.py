@@ -380,7 +380,20 @@ async def meta_analyze_casa_job(
         ))
 
     try:
-        result = await run_meta_analysis(meta_casa_name, summaries)
+        # Claude meta-analysis call — cap at 180s. The drift task keeps the UI
+        # moving meanwhile; if the API genuinely hangs we want to fail fast.
+        result = await asyncio.wait_for(
+            run_meta_analysis(meta_casa_name, summaries),
+            timeout=180.0,
+        )
+    except asyncio.TimeoutError:
+        logger.error("meta-analysis timed out (>180s) for casa %s wa %s",
+                     casa_id, wa_number_id)
+        if redis:
+            await prog.set_progress(redis, pkey, phase="error", pct=100,
+                                    message="Claude tardó más de 3min — reintenta",
+                                    started_at=started)
+        raise
     except Exception:
         logger.exception("meta-analysis call failed for casa %s wa %s", casa_id, wa_number_id)
         if redis:
@@ -679,12 +692,19 @@ async def analyze_conversations_bulk_job(
 
     sem = asyncio.Semaphore(5)
     done_count = 0
+    PER_CONV_TIMEOUT = 60.0  # one stuck Claude call shouldn't block the whole bulk
 
     async def _bounded(conv_id: int) -> None:
         nonlocal done_count
         async with sem:
             try:
-                await analyze_conversation_job(ctx, conv_id)
+                await asyncio.wait_for(
+                    analyze_conversation_job(ctx, conv_id),
+                    timeout=PER_CONV_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("bulk: conv %s timed out after %.0fs — skipped",
+                               conv_id, PER_CONV_TIMEOUT)
             except Exception:
                 logger.exception("bulk: failed conv %s", conv_id)
             done_count += 1
