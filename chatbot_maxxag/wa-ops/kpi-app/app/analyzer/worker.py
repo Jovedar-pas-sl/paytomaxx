@@ -646,13 +646,16 @@ async def analyze_conversations_bulk_job(
                                 message="Buscando conversaciones a analizar…",
                                 started_at=started)
 
+    # Cap at 200 — Semaphore(5) × ~5s/conv = ~200s, well within 900s timeout.
+    # If volume exceeds, the meta still gets the most recent 200 which is plenty
+    # of signal for the report.
     ids = await list_unanalyzed_conversation_ids(
         kpi, casa_id,
         wa_number_id=wa_number_id,
         since_hours=since_hours,
         include_open=include_open,
         redo_dirty=redo_dirty,
-        limit=500,
+        limit=200,
     )
     total = len(ids)
     scope = f"wa {wa_number_id}" if wa_number_id else "casa-wide"
@@ -707,12 +710,12 @@ async def analyze_conversations_bulk_job(
         casa_id, wa_number_id, total, duration_ms,
     )
 
-    # Auto-cadena: dispara el meta-análisis directamente en este worker run.
-    # Llamada inline (no enqueue) — comparte ctx, sin TTL extra, sin doble flag.
+    # Auto-cadena: meta-análisis inline en el mismo worker run.
+    # Con job_timeout=900s y bulk capeado a 200 convs (~200s + ~90s meta = ~290s),
+    # cabe con margen. Inline simplifica: comparte ctx, comparte conexión a kpi_db,
+    # no requiere ArqRedis en ctx['redis'].
     if auto_meta:
-        # Pequeña pausa para que el frontend muestre 100% del bulk antes de
-        # pasar a la fase meta.
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.5)  # frontend ve 100% bulk antes de pasar a meta
         try:
             await meta_analyze_casa_job(ctx, casa_id, wa_number_id)
         except Exception:
@@ -725,5 +728,5 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     max_jobs = 10
-    job_timeout = 300
+    job_timeout = 900  # 15 min — bulk-analyze of 200 convs × Semaphore(5) × ~5s each ≈ 200s; meta ≈ 60-90s; gives wide margin
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

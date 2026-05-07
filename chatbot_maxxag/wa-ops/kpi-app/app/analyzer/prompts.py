@@ -387,25 +387,26 @@ Devuelve SOLO JSON con:
   "triggers": ["..."]      // lista de señales detectadas (0-4)
 }
 
-ESCALAR = true cuando detectes:
+ESCALAR = true SOLO cuando detectes (umbral alto — ante la duda, NO escalar):
 
-- **Cliente enfadado / insultando** a la mamai (más allá de frustración puntual)
-- **Pagos / reclamación económica** (cliente dice no le cobraron, pagó doble, etc.)
-- **Menor de edad sospechoso** (cliente pregunta por chicas <18, se identifica como menor)
-- **Amenaza / acoso** (amenazas al negocio, extorsión, stalking)
-- **Fraude potencial** (cliente pide pagar con métodos raros, tarjetas robadas, etc.)
-- **Complejidad técnica** (operación grupal, evento corporativo, negociación de largo plazo)
-- **Medios / prensa** (alguien identificándose como periodista)
-- **Fuerzas del orden** (policía, inspección)
+- **Menor de edad sospechoso** (cliente pregunta por chicas <18, se identifica como menor) — único caso siempre crítico
+- **Amenaza / acoso al negocio** (amenazas físicas, extorsión, stalking, "voy a denunciar/destrozar")
+- **Fraude explícito de pago** (cliente confiesa tarjeta robada, Bizum falso, intento documentado de no pagar)
+- **Medios / prensa** (alguien identificándose como periodista o investigador)
+- **Fuerzas del orden** (policía, inspección, requerimiento oficial)
 
-NO ESCALAR (importante — son situaciones legítimas de negocio):
-- Cliente exigente pero no ofensivo → la mamai lo puede manejar
-- Precio alto como única objeción → no es escalation, es negociación normal
-- Cliente indeciso → mamai lo cierra, no admin
-- **Cliente menciona haber visto el anuncio en una web de adultos** (loquosex, mileroticos, slumi, pasion.com, etc.) → es marketing legítimo, NO escalar
-- **Cliente pide servicios sexuales explícitos** (es lo que se vende, los adultos consienten, es legal) → conversación de negocio normal, NO escalar
-- **Cliente pide fotos, tarifas, prácticas concretas** → es venta normal, NO escalar
-- **Vocabulario sexual vulgar entre adultos** → frecuente en el sector, NO es "insulto" ni escalation
+NO ESCALAR (es trabajo normal del negocio — el dueño revisa cuando puede, no es urgencia):
+- **Quejas sobre calidad / duración / trato del servicio** ("pagué por 45min y solo recibí 10", "la chica fue fría", "no hizo lo anunciado", "no quedé satisfecho", reclamaciones de reembolso) → SON CONVERSACIONES NORMALES en una agencia de acompañantes; el dueño las revisa en el resumen, no necesita alerta
+- **Reclamación económica simple** (cobro doble, importe equivocado, pago disputado) → es atención al cliente normal; resolver tranquilamente, no escalar
+- **Cliente enfadado, frustrado, exigente, vulgar** → la mamai/dueño lo gestionan; sólo escalar si hay AMENAZA REAL (no enfado fuerte)
+- **Insultos esporádicos, palabrotas** → habitual en el sector entre adultos; ignorar como ruido
+- **Cliente menciona haber visto anuncio** en loquosex, mileroticos, slumi, pasion.com, etc. → marketing legítimo
+- **Cliente pide servicios sexuales explícitos / fotos / prácticas concretas / tarifas** → es exactamente lo que se vende
+- **Vocabulario sexual vulgar entre adultos** → conversación de negocio normal
+- **Cliente exigente, indeciso, regateando, pesado** → trabajo de la mamai, NO admin
+- **Operación grupal / corporativo / negociación larga** → la mamai/dueño lo cierran, no es escalation
+
+PRINCIPIO RECTOR: el dashboard ya muestra el detalle de cada conversación al dueño. Una "escalation" sólo tiene sentido si requiere acción INMEDIATA fuera del flujo normal (menor, policía, amenaza física, fraude probado). Todo lo demás NO es alerta, es información de negocio que se procesa con el resto.
 
 SEVERITY:
 - **none**: should_escalate=false
@@ -420,8 +421,10 @@ TRIGGERS:
 REGLAS:
 - reason: claro y específico; si false → reason=null
 - No escales por ruido: "este cliente es pesado" NO es razón válida
+- **NUNCA** escalar por queja de calidad/duración/trato del servicio — eso es atención al cliente normal, no alerta
 - **NUNCA** escalar por referral de webs de adultos ni por mención explícita de servicios sexuales entre adultos consintientes
 - En caso de duda con un menor de edad potencial → ESCALA siempre con severity="high"
+- Por defecto, NO escales. Sólo escala si la situación encaja con uno de los 5 puntos de la lista ESCALAR.
 """
 
 
