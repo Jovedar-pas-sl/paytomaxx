@@ -131,7 +131,15 @@ async def _analisis_tab(kpi, casa_id: int, days: int, wa_number_id: int | None =
     history = await queries.list_meta_analyses(
         kpi, casa_id, days=days, limit=10, wa_number_id=wa_number_id
     )
-    analyzed_count = await queries.count_analyzed_for_casa(kpi, casa_id)
+    # When filtering by a specific WA, the run-button gate must use the
+    # per-WA count — otherwise we'd let users try to meta-analyze a WA
+    # with <10 convs because the casa overall has plenty.
+    if wa_number_id is not None:
+        analyzed_count = await queries.count_analyzed_for_casa(
+            kpi, casa_id, wa_number_id=wa_number_id
+        )
+    else:
+        analyzed_count = await queries.count_analyzed_for_casa(kpi, casa_id)
     analysis_history, analysis_total = await queries.list_analysis_history(
         kpi, casa_id, wa_number_id=wa_number_id, limit=50, offset=0,
     )
@@ -142,4 +150,5 @@ async def _analisis_tab(kpi, casa_id: int, days: int, wa_number_id: int | None =
         "can_run_meta": analyzed_count >= 10,
         "analysis_history": analysis_history,
         "analysis_total": analysis_total,
+        "wa_number_id": wa_number_id,
     }

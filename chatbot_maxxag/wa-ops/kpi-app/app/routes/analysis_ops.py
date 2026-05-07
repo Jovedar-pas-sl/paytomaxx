@@ -1,21 +1,29 @@
 """POST endpoints for on-demand analysis: meta-analysis + individual + bulk.
 
 Routes:
-  POST /casas/<id>/meta-analyses          — enqueue meta-analysis (202/409/400)
-  GET  /casas/<id>/meta-analyses/latest-state  — JSON: {state: empty|running|done}
-  POST /casas/<id>/analyze-pending        — enqueue bulk analyze of all unanalyzed
-  POST /conversation/<id>/analyze         — enqueue single conversation analysis
+  POST /casas/<id>/meta-analyses[?wa_number_id=N]   — enqueue meta-analysis (202/409/400)
+  GET  /casas/<id>/meta-analyses/latest-state[?wa_number_id=N]  — JSON: {state: empty|running|done}
+  POST /casas/<id>/analyze-pending                  — enqueue bulk analyze of all unanalyzed
+  POST /conversation/<id>/analyze                   — enqueue single conversation analysis
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, Response
 
 from app import queries
 from app.deps import Arq, CurrentUser, KpiDB, Redis
 
 router = APIRouter()
+
+
+def _meta_running_key(casa_id: int, wa_number_id: int | None) -> str:
+    """Redis SETNX key — separate slot per (casa, wa_number) so a per-WA
+    meta-analysis doesn't collide with a casa-wide one and vice versa."""
+    if wa_number_id is None:
+        return f"casa:{casa_id}:meta_running"
+    return f"casa:{casa_id}:wa:{wa_number_id}:meta_running"
 
 
 # ── Meta-analysis ──────────────────────────────────────────────────
@@ -26,17 +34,24 @@ async def enqueue_meta_analysis(
     kpi: KpiDB,
     redis: Redis,
     arq: Arq,
+    wa_number_id: int | None = Query(default=None),
 ) -> Response:
-    # Validate — ≥10 analyzed convs
-    analyzed_count = await queries.count_analyzed_for_casa(kpi, casa_id)
+    """Enqueue a meta-analysis job. When ``wa_number_id`` is provided, the
+    sample is restricted to that WhatsApp; otherwise the whole casa.
+    Both modes can run concurrently (separate Redis slots)."""
+    # Validate — ≥10 analyzed convs (in scope: per-WA when filtered)
+    analyzed_count = await queries.count_analyzed_for_casa(
+        kpi, casa_id, wa_number_id=wa_number_id
+    ) if wa_number_id is not None else await queries.count_analyzed_for_casa(kpi, casa_id)
     if analyzed_count < 10:
+        scope = f"este WhatsApp ({wa_number_id})" if wa_number_id else "esta casa"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Mínimo 10 conversaciones analizadas (actualmente: {analyzed_count})",
+            detail=f"Mínimo 10 conversaciones analizadas en {scope} (actualmente: {analyzed_count})",
         )
 
-    # Rate limit — Redis SETNX for 5 min
-    key = f"casa:{casa_id}:meta_running"
+    # Rate limit — Redis SETNX for 10 min, scoped per (casa, wa)
+    key = _meta_running_key(casa_id, wa_number_id)
     acquired = await redis.set(key, "1", nx=True, ex=600)
     if not acquired:
         return JSONResponse(
@@ -46,13 +61,17 @@ async def enqueue_meta_analysis(
                                "message": "Meta-análisis ya en curso"}},
         )
 
-    # Enqueue job
-    job = await arq.enqueue_job("meta_analyze_casa_job", casa_id)
+    # Enqueue job — pass wa_number_id when scoped
+    if wa_number_id is not None:
+        job = await arq.enqueue_job("meta_analyze_casa_job", casa_id, wa_number_id)
+    else:
+        job = await arq.enqueue_job("meta_analyze_casa_job", casa_id)
 
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,
         content={"data": {"job_id": job.job_id if job else "unknown",
-                          "estimated_seconds": 8}},
+                          "estimated_seconds": 8,
+                          "wa_number_id": wa_number_id}},
     )
 
 
@@ -62,13 +81,17 @@ async def meta_analysis_state(
     user: CurrentUser,  # noqa: ARG001
     kpi: KpiDB,
     redis: Redis,
+    wa_number_id: int | None = Query(default=None),
 ) -> dict:
-    # If running flag exists → running
-    flag = await redis.get(f"casa:{casa_id}:meta_running")
+    # If running flag exists for this scope → running
+    flag = await redis.get(_meta_running_key(casa_id, wa_number_id))
     if flag:
         return {"state": "running"}
     latest = await queries.get_latest_meta_analysis(kpi, casa_id)
-    if latest:
+    # If asking for per-WA state, only report "done" when the latest run
+    # matches that wa_number_id; otherwise keep "empty" so the user knows
+    # they need to launch a per-WA run.
+    if latest and (wa_number_id is None or latest.wa_number_id == wa_number_id):
         return {"state": "done", "run_at": latest.run_at.isoformat()}
     return {"state": "empty"}
 

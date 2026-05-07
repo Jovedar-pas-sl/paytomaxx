@@ -238,9 +238,11 @@ REGLAS:
 
 META_PROMPT = """Eres un consultor senior experto en gestión de centros de acompañantes / masajes eróticos en España.
 
-Recibes los resúmenes de las últimas N conversaciones cerradas de UNA casa (o WhatsApp específico) — cada una ya analizada: mood cliente, trato mamai 4D, conversión estimada, primera línea del cliente, red flags.
+CONTEXTO LEGAL: Centro de adultos legal en España. Las menciones de servicios sexuales explícitos, tarifas, prácticas, son CONVERSACIÓN NORMAL DE NEGOCIO. Los referidos desde webs de anuncios para adultos (loquosex, mileroticos, slumi, pasion.com, etc.) son MARKETING LEGÍTIMO — no son red flag ni problema.
 
-Tu tarea: detectar PATRONES TRANSVERSALES con valor operativo real — qué se repite, qué funciona, qué se puede mejorar, y qué perfil tiene el cliente.
+Recibes los resúmenes de las últimas N conversaciones cerradas de UNA casa (o WhatsApp específico) — cada una ya analizada: mood cliente, trato mamai 4D, conversión estimada, p50 tiempo de respuesta, intent (cotizacion/booking/informacion/queja/chit_chat/spam/otro), referral source (de qué web/canal viene), primera línea del cliente.
+
+Tu tarea: detectar PATRONES TRANSVERSALES con valor operativo real, calcular distribuciones (qué piden más, de qué webs llegan, qué temas relevantes EVITAN), y dar consejos accionables.
 
 Devuelve SOLO JSON con EXACTAMENTE esta estructura:
 {
@@ -250,13 +252,35 @@ Devuelve SOLO JSON con EXACTAMENTE esta estructura:
   ],
   "strengths": ["bullet concreto y accionable"],
   "improvements": ["bullet concreto y accionable"],
-  "client_profile": "1 párrafo describiendo el cliente tipo (franja horaria, edad aprox si es inferible, objetivo, estilo comunicativo)"
+  "client_profile": "1 párrafo describiendo el cliente tipo (franja horaria, edad aprox si es inferible, objetivo, estilo comunicativo)",
+  "top_topics": [
+    {"topic": "nombre corto", "count": N, "pct": 0-100}
+  ],
+  "avoided_topics": ["tema relevante que el cliente tipo NO toca"],
+  "top_referrals": [
+    {"source": "nombre", "count": N, "pct": 0-100}
+  ]
 }
 
 CANTIDADES:
 - patterns: 3 a 6 entradas
 - strengths: 3 a 5 bullets
 - improvements: 3 a 5 bullets
+- top_topics: 3 a 6 entradas (los temas/intents más mencionados, ordenados de más a menos)
+- avoided_topics: 1 a 4 bullets (temas relevantes para una venta y que llamativamente NO aparecen)
+- top_referrals: 2 a 5 entradas (canales/webs de origen, ordenados; incluye "Desconocido" si aplica)
+
+CÁLCULO DE DISTRIBUCIONES (top_topics, top_referrals):
+- count = número de conversaciones del sample donde aparece
+- pct = redondeo a entero, count/total*100
+- Suma de pct ≤ 100 (puede ser <100 si hay convs sin clasificar)
+- Para top_topics: usa el campo "intent" + temas inferidos del primer mensaje (precios, horarios, ubicación, fotos, servicios concretos, etc.)
+- Para top_referrals: agrupa por source_kind cuando source_name esté vacío (ej: "ad_site (sin precisar)"). Si más del 60% son "unknown", reporta eso como dato útil.
+
+avoided_topics — qué busca este campo:
+- Temas RELEVANTES para cerrar una venta que el cliente tipo NO menciona, indicando un gap.
+- Ejemplos típicos: "no pregunta nunca por horarios" (problema de cualificación), "no menciona ubicación" (riesgo de bouncing), "no pide fotos" (sin necesidad visual o falta de inventario).
+- Si todos los temas relevantes aparecen → lista vacía o un solo bullet "perfil de cliente bien cualificado".
 
 REGLAS DE CALIDAD (importante):
 - NO escribir genéricos como "mejorar comunicación" o "ser más amable" — siempre CONCRETO
@@ -267,7 +291,8 @@ REGLAS DE CALIDAD (importante):
 - summary: ≤250 caracteres, sin emojis
 - client_profile: ≤500 caracteres
 - Español neutral, tono consultor profesional, 2ª persona del plural ("podéis")
-- Si los datos son insuficientes (<10 convs) → dilo explícitamente en summary"""
+- Si los datos son insuficientes (<10 convs) → dilo explícitamente en summary
+- Si hay un canal claramente dominante (>40% top_referrals) → mencionar en summary "X% llega de Y" como hallazgo"""
 
 
 # ── INTENT ───────────────────────────────────────────────────────

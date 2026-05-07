@@ -22,11 +22,11 @@ depends_on: str | tuple[str, ...] | None = None
 
 def upgrade() -> None:
     # Idempotent — safe to re-run.
+
+    # 1. analysis.referral — output of the per-conversation referral skill
     op.execute(
         "ALTER TABLE analysis ADD COLUMN IF NOT EXISTS referral JSONB"
     )
-
-    # Partial index on the source_kind so per-WA aggregation is fast.
     op.execute(
         """
         CREATE INDEX IF NOT EXISTS ix_analysis_referral_kind
@@ -35,7 +35,24 @@ def upgrade() -> None:
         """
     )
 
+    # 2. casa_meta_analysis — new aggregate columns for per-WA insights
+    op.execute(
+        "ALTER TABLE casa_meta_analysis "
+        "ADD COLUMN IF NOT EXISTS top_topics JSONB"
+    )
+    op.execute(
+        "ALTER TABLE casa_meta_analysis "
+        "ADD COLUMN IF NOT EXISTS avoided_topics JSONB"
+    )
+    op.execute(
+        "ALTER TABLE casa_meta_analysis "
+        "ADD COLUMN IF NOT EXISTS top_referrals JSONB"
+    )
+
 
 def downgrade() -> None:
+    op.execute("ALTER TABLE casa_meta_analysis DROP COLUMN IF EXISTS top_referrals")
+    op.execute("ALTER TABLE casa_meta_analysis DROP COLUMN IF EXISTS avoided_topics")
+    op.execute("ALTER TABLE casa_meta_analysis DROP COLUMN IF EXISTS top_topics")
     op.execute("DROP INDEX IF EXISTS ix_analysis_referral_kind")
     op.execute("ALTER TABLE analysis DROP COLUMN IF EXISTS referral")

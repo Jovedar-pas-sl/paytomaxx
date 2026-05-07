@@ -745,11 +745,18 @@ async def get_casa_alerts(
 # Analyzer queue helpers
 # ═══════════════════════════════════════════════════════════════════
 
-async def count_analyzed_for_casa(kpi: asyncpg.Pool, casa_id: int) -> int:
+async def count_analyzed_for_casa(
+    kpi: asyncpg.Pool, casa_id: int, *, wa_number_id: int | None = None,
+) -> int:
     async with kpi.acquire() as conn:
+        if wa_number_id is None:
+            return await conn.fetchval(
+                "SELECT count(*) FROM analysis WHERE account_id = $1",
+                casa_id,
+            ) or 0
         return await conn.fetchval(
-            "SELECT count(*) FROM analysis WHERE account_id = $1",
-            casa_id,
+            "SELECT count(*) FROM analysis WHERE account_id = $1 AND wa_number_id = $2",
+            casa_id, wa_number_id,
         ) or 0
 
 
@@ -798,6 +805,36 @@ class CasaMetaAnalysis:
     strengths: list
     improvements: list
     client_profile: str
+    wa_number_id: int | None = None
+    wa_label: str | None = None
+    top_topics: list = ()           # list of {topic, count, pct}
+    avoided_topics: list = ()       # list of strings
+    top_referrals: list = ()        # list of {source, count, pct}
+
+
+def _parse_jsonb(value, default):
+    """Asyncpg returns JSONB columns as either str or already-decoded; normalize."""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        try:
+            return _json.loads(value)
+        except (TypeError, ValueError):
+            return default
+    return value
+
+
+async def _table_has_column(conn, table: str, column: str) -> bool:
+    """Check whether a column exists — used for backward-compat with older DBs
+    where migration 0010 hasn't been applied yet."""
+    return bool(await conn.fetchval(
+        """
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = $1 AND column_name = $2
+        LIMIT 1
+        """,
+        table, column,
+    ))
 
 
 async def get_latest_meta_analysis(
@@ -807,13 +844,23 @@ async def get_latest_meta_analysis(
         exists = await conn.fetchval("SELECT to_regclass('public.casa_meta_analysis')")
         if not exists:
             return None
+        has_topics = await _table_has_column(conn, "casa_meta_analysis", "top_topics")
+        topic_cols = (
+            ", top_topics, avoided_topics, top_referrals"
+            if has_topics else ""
+        )
         row = await conn.fetchrow(
-            """
-            SELECT id, account_id, run_at, conversations_analyzed,
-                   summary, patterns, strengths, improvements, client_profile
-            FROM casa_meta_analysis
-            WHERE account_id = $1
-            ORDER BY run_at DESC LIMIT 1
+            f"""
+            SELECT m.id, m.account_id, m.wa_number_id, m.run_at,
+                   m.conversations_analyzed,
+                   m.summary, m.patterns, m.strengths, m.improvements,
+                   m.client_profile,
+                   wn.label AS wa_label
+                   {topic_cols}
+            FROM casa_meta_analysis m
+            LEFT JOIN wa_number wn ON wn.id = m.wa_number_id
+            WHERE m.account_id = $1
+            ORDER BY m.run_at DESC LIMIT 1
             """,
             casa_id,
         )
@@ -823,10 +870,15 @@ async def get_latest_meta_analysis(
         id=row["id"], account_id=row["account_id"], run_at=row["run_at"],
         conversations_analyzed=row["conversations_analyzed"],
         summary=row["summary"],
-        patterns=_json.loads(row["patterns"]) if isinstance(row["patterns"], str) else row["patterns"],
-        strengths=_json.loads(row["strengths"]) if isinstance(row["strengths"], str) else row["strengths"],
-        improvements=_json.loads(row["improvements"]) if isinstance(row["improvements"], str) else row["improvements"],
+        patterns=_parse_jsonb(row["patterns"], []),
+        strengths=_parse_jsonb(row["strengths"], []),
+        improvements=_parse_jsonb(row["improvements"], []),
         client_profile=row["client_profile"],
+        wa_number_id=row["wa_number_id"],
+        wa_label=row["wa_label"],
+        top_topics=_parse_jsonb(row.get("top_topics") if has_topics else None, []),
+        avoided_topics=_parse_jsonb(row.get("avoided_topics") if has_topics else None, []),
+        top_referrals=_parse_jsonb(row.get("top_referrals") if has_topics else None, []),
     )
 
 
@@ -838,19 +890,29 @@ async def list_meta_analyses(
         exists = await conn.fetchval("SELECT to_regclass('public.casa_meta_analysis')")
         if not exists:
             return []
-        wa_filter = "AND wa_number_id = $4" if wa_number_id is not None else ""
+        has_topics = await _table_has_column(conn, "casa_meta_analysis", "top_topics")
+        topic_cols = (
+            ", m.top_topics, m.avoided_topics, m.top_referrals"
+            if has_topics else ""
+        )
+        wa_filter = "AND m.wa_number_id = $4" if wa_number_id is not None else ""
         params: list = [casa_id, days, limit]
         if wa_number_id is not None:
             params.append(wa_number_id)
         rows = await conn.fetch(
             f"""
-            SELECT id, account_id, run_at, conversations_analyzed,
-                   summary, patterns, strengths, improvements, client_profile
-            FROM casa_meta_analysis
-            WHERE account_id = $1
-              AND run_at > now() - make_interval(days => $2)
+            SELECT m.id, m.account_id, m.wa_number_id, m.run_at,
+                   m.conversations_analyzed,
+                   m.summary, m.patterns, m.strengths, m.improvements,
+                   m.client_profile,
+                   wn.label AS wa_label
+                   {topic_cols}
+            FROM casa_meta_analysis m
+            LEFT JOIN wa_number wn ON wn.id = m.wa_number_id
+            WHERE m.account_id = $1
+              AND m.run_at > now() - make_interval(days => $2)
               {wa_filter}
-            ORDER BY run_at DESC LIMIT $3
+            ORDER BY m.run_at DESC LIMIT $3
             """,
             *params,
         )
@@ -859,10 +921,15 @@ async def list_meta_analyses(
             id=r["id"], account_id=r["account_id"], run_at=r["run_at"],
             conversations_analyzed=r["conversations_analyzed"],
             summary=r["summary"],
-            patterns=_json.loads(r["patterns"]) if isinstance(r["patterns"], str) else r["patterns"],
-            strengths=_json.loads(r["strengths"]) if isinstance(r["strengths"], str) else r["strengths"],
-            improvements=_json.loads(r["improvements"]) if isinstance(r["improvements"], str) else r["improvements"],
+            patterns=_parse_jsonb(r["patterns"], []),
+            strengths=_parse_jsonb(r["strengths"], []),
+            improvements=_parse_jsonb(r["improvements"], []),
             client_profile=r["client_profile"],
+            wa_number_id=r["wa_number_id"],
+            wa_label=r["wa_label"],
+            top_topics=_parse_jsonb(r.get("top_topics") if has_topics else None, []),
+            avoided_topics=_parse_jsonb(r.get("avoided_topics") if has_topics else None, []),
+            top_referrals=_parse_jsonb(r.get("top_referrals") if has_topics else None, []),
         )
         for r in rows
     ]

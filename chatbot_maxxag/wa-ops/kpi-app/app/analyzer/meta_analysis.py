@@ -17,12 +17,30 @@ class Pattern(BaseModel):
     frequency: Literal["alta", "media", "baja"]
 
 
+class TopicShare(BaseModel):
+    """One topic + how often it appears in the sample."""
+    topic: str
+    count: int           # number of conversations where it appears
+    pct: float           # percentage of the sample (0-100)
+
+
+class ReferralShare(BaseModel):
+    """Distribution of referral sources within the sample."""
+    source: str          # e.g. "Loquosex", "Mileróticos", "Google", "Word-of-mouth", "Unknown"
+    count: int
+    pct: float
+
+
 class MetaAnalysisResult(BaseModel):
     summary: str = Field(..., max_length=300)
     patterns: list[Pattern] = Field(..., min_length=1, max_length=10)
     strengths: list[str] = Field(..., min_length=1, max_length=8)
     improvements: list[str] = Field(..., min_length=1, max_length=8)
     client_profile: str = Field(..., max_length=600)
+    # New per-WA fields — populated when enough data is available, otherwise empty.
+    top_topics: list[TopicShare] = Field(default_factory=list, max_length=8)
+    avoided_topics: list[str] = Field(default_factory=list, max_length=8)
+    top_referrals: list[ReferralShare] = Field(default_factory=list, max_length=6)
 
 
 class ConvSummary(BaseModel):
@@ -35,19 +53,40 @@ class ConvSummary(BaseModel):
     treat_seco: int
     conv_probability: float
     first_client_line: str
+    # Optional enrichment — used by the per-WA meta prompt to compute
+    # topic + referral distribution. Empty/None for legacy callers.
+    intent_primary: str | None = None
+    rt_p50_ms: int | None = None
+    rt_p90_ms: int | None = None
+    referral_kind: str | None = None
+    referral_name: str | None = None
 
 
 async def run_meta_analysis(
     casa_name: str, summaries: list[ConvSummary]
 ) -> MetaAnalysisResult:
     """Run meta-analysis over compact summaries. Returns structured result."""
-    lines = [f"Casa: {casa_name}", f"Conversaciones analizadas: {len(summaries)}", ""]
+    lines = [
+        f"Casa: {casa_name}",
+        f"Conversaciones analizadas: {len(summaries)}",
+        "",
+        "Formato por línea: #conv_id mood(score/10) trato[car/pro/vend/seco] conv% rt_p50_ms intent referral primer_msg",
+        "",
+    ]
     for s in summaries:
+        rt_p50 = s.rt_p50_ms if s.rt_p50_ms is not None else "-"
+        intent = s.intent_primary or "-"
+        ref = (
+            f"{s.referral_kind}:{s.referral_name}"
+            if s.referral_kind and s.referral_name
+            else (s.referral_kind or "-")
+        )
         lines.append(
             f"#{s.conv_id} mood={s.mood}({s.mood_score}/10) "
             f"trato[car={s.treat_carinoso} pro={s.treat_profesional} "
             f"vend={s.treat_vendedor} seco={s.treat_seco}] "
             f"conv={int(s.conv_probability * 100)}% "
+            f"rt_p50={rt_p50}ms intent={intent} ref={ref} "
             f"\"{s.first_client_line[:70]}\""
         )
     user_content = "\n".join(lines)

@@ -1,23 +1,30 @@
 {# Tab: Análisis IA — meta-análisis histórico + botón ejecutar #}
 
+{% set scope_label = 'esta casa' if active_wa == 'all' else 'este WhatsApp' %}
+{% set wa_param = wa_number_id if wa_number_id else 'null' %}
 <div class="mb-4 flex items-start justify-between gap-4">
   <div>
     <h2 class="text-sm font-semibold">Análisis IA de patrones</h2>
     <p class="text-xs text-muted">
-      Claude analiza las últimas 50 conversaciones cerradas y detecta patrones transversales.<br>
-      Coste por ejecución: ~$0.02 · Tiempo: ~5 segundos.
+      Claude analiza las últimas 50 conversaciones cerradas
+      {% if active_wa != 'all' %}<strong class="text-text">de este WhatsApp</strong>{% else %}de toda la casa{% endif %}
+      y detecta patrones transversales: temas, fuentes de referido, perfil cliente.<br>
+      Coste por ejecución: ~$0.02 · Tiempo: 30s-2min.
+      {% if active_wa == 'all' and wa_numbers and wa_numbers | length > 1 %}
+      <br><span class="text-amber">💡 Filtra arriba por un WhatsApp concreto para análisis enfocado por número.</span>
+      {% endif %}
     </p>
   </div>
 
   {% if can_run_meta %}
   <button type="button" id="run-meta-btn"
-          onclick="window.__runMetaAnalysis({{ casa_id }})"
+          onclick="window.__runMetaAnalysis({{ casa_id }}, {{ wa_param }})"
           class="flex-shrink-0 rounded-lg bg-green px-4 py-2 text-sm font-semibold text-bg hover:bg-green/90">
-    ⚡ Ejecutar meta-análisis
+    ⚡ Analizar {{ scope_label }}
   </button>
   {% else %}
   <div class="flex-shrink-0 rounded-lg border border-amber/40 bg-amber/10 px-4 py-2 text-xs text-amber">
-    Necesitas ≥10 conversaciones analizadas ({{ analyzed_count }} actualmente)
+    Necesitas ≥10 conversaciones analizadas en {{ scope_label }} ({{ analyzed_count }} actualmente)
   </div>
   {% endif %}
 </div>
@@ -86,7 +93,65 @@
   <div class="mt-4 border-t border-border pt-4">
     <div class="text-[10px] uppercase tracking-wider text-blue mb-1">👤 Perfil típico de cliente</div>
     <p class="text-xs leading-relaxed text-muted">{{ meta_latest.client_profile }}</p>
+    {% if meta_latest.wa_label %}
+    <div class="mt-2 text-[10px] text-muted-2">
+      Análisis enfocado en WhatsApp <strong class="text-blue">{{ meta_latest.wa_label }}</strong>
+    </div>
+    {% endif %}
   </div>
+
+  {# ── Topics + Referrals (per-WA detail) ───────────────────── #}
+  {% if meta_latest.top_topics or meta_latest.avoided_topics or meta_latest.top_referrals %}
+  <div class="mt-4 border-t border-border pt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+    {# De qué MÁS habla #}
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-green mb-2">🗣 De qué más habla</div>
+      {% if meta_latest.top_topics %}
+        <ul class="space-y-1.5 text-xs">
+        {% for t in meta_latest.top_topics %}
+          <li class="flex items-center justify-between gap-2">
+            <span>{{ t.topic }}</span>
+            <span class="mono text-[10px] text-muted">{{ t.count }} ({{ t.pct }}%)</span>
+          </li>
+        {% endfor %}
+        </ul>
+      {% else %}
+        <div class="text-[11px] text-muted">Sin datos suficientes</div>
+      {% endif %}
+    </div>
+
+    {# De qué NO habla #}
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-amber mb-2">🤐 Temas que no toca</div>
+      {% if meta_latest.avoided_topics %}
+        <ul class="space-y-1.5 text-xs list-disc list-inside text-muted">
+        {% for t in meta_latest.avoided_topics %}<li>{{ t }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        <div class="text-[11px] text-muted">Cliente bien cualificado o sin gaps detectados</div>
+      {% endif %}
+    </div>
+
+    {# Fuentes de referido (de qué webs llegan) #}
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-blue mb-2">🌐 De dónde llegan</div>
+      {% if meta_latest.top_referrals %}
+        <ul class="space-y-1.5 text-xs">
+        {% for r in meta_latest.top_referrals %}
+          <li class="flex items-center justify-between gap-2">
+            <span>{{ r.source }}</span>
+            <span class="mono text-[10px] text-muted">{{ r.count }} ({{ r.pct }}%)</span>
+          </li>
+        {% endfor %}
+        </ul>
+      {% else %}
+        <div class="text-[11px] text-muted">Sin datos de referido (los clientes no mencionan su origen)</div>
+      {% endif %}
+    </div>
+
+  </div>
+  {% endif %}
 </div>
 
 {# History toggle #}
@@ -203,56 +268,80 @@
 </section>
 {% endif %}
 
-{# Running overlay #}
+{# Running overlay — message + subtitle updated in real-time during polling. #}
 <div id="meta-running-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
-  <div class="card p-8 text-center">
+  <div class="card p-8 text-center max-w-md">
     <div class="mb-3 inline-block h-12 w-12 animate-spin rounded-full border-4 border-green border-t-transparent"></div>
-    <div class="text-sm font-semibold">Claude está analizando 50 conversaciones…</div>
-    <div class="mt-1 text-xs text-muted">~5 segundos</div>
+    <div id="meta-overlay-title" class="text-sm font-semibold">Claude está analizando conversaciones…</div>
+    <div id="meta-overlay-subtitle" class="mt-1 text-xs text-muted">Puede tardar varios minutos. No cierres esta ventana.</div>
   </div>
 </div>
 
 <script>
 (function () {
   const overlay = document.getElementById('meta-running-overlay');
+  const title = document.getElementById('meta-overlay-title');
+  const subtitle = document.getElementById('meta-overlay-subtitle');
 
-  window.__runMetaAnalysis = async function (casaId) {
+  // Polling every 3s up to 5 min total. Backend meta-analysis can take
+  // 30-90s under load (Claude rate-limits, Redis queue waits, etc.) so
+  // 5 min keeps us safely above realistic worst-case.
+  const MAX_TRIES = 100;        // 100 × 3s = 5 min
+  const POLL_MS = 3000;
+
+  function hideOverlay() {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('flex');
+  }
+
+  // waNumberId: integer when scoping to a single WhatsApp, null/undefined for casa-wide.
+  window.__runMetaAnalysis = async function (casaId, waNumberId) {
     overlay.classList.remove('hidden');
     overlay.classList.add('flex');
+    const scope = waNumberId ? 'este WhatsApp' : 'esta casa';
+    title.textContent = `Claude está analizando ${scope}…`;
+    subtitle.textContent = 'Puede tardar varios minutos. No cierres esta ventana.';
+
+    const qs = waNumberId ? `?wa_number_id=${waNumberId}` : '';
+
     try {
-      const r = await fetch(`/casas/${casaId}/meta-analyses`, { method: 'POST' });
+      const r = await fetch(`/casas/${casaId}/meta-analyses${qs}`, { method: 'POST' });
       if (r.status === 202) {
-        // Poll for completion every 2s up to 60s
         let tries = 0;
         const tick = setInterval(async () => {
           tries++;
-          const check = await fetch(`/casas/${casaId}/meta-analyses/latest-state`);
-          if (check.ok) {
-            const data = await check.json();
-            if (data.state === 'done') {
-              clearInterval(tick);
-              location.reload();
+          const elapsed = Math.round(tries * POLL_MS / 1000);
+          subtitle.textContent = `Trabajando… ${elapsed}s · ${tries}/${MAX_TRIES}`;
+          try {
+            const check = await fetch(`/casas/${casaId}/meta-analyses/latest-state${qs}`);
+            if (check.ok) {
+              const data = await check.json();
+              if (data.state === 'done') {
+                clearInterval(tick);
+                location.reload();
+                return;
+              }
             }
+          } catch (_) {
+            // Network blip — keep polling
           }
-          if (tries > 30) {
+          if (tries >= MAX_TRIES) {
             clearInterval(tick);
-            overlay.classList.add('hidden');
-            alert('Timeout — revisa logs del worker');
+            hideOverlay();
+            alert('El análisis sigue en curso pero está tardando más de lo normal. ' +
+                  'Recarga la página en unos minutos para ver los resultados.');
           }
-        }, 2000);
+        }, POLL_MS);
       } else if (r.status === 409) {
-        overlay.classList.add('hidden');
-        overlay.classList.remove('flex');
+        hideOverlay();
         alert('Ya hay un análisis en curso. Espera unos minutos.');
       } else {
-        overlay.classList.add('hidden');
-        overlay.classList.remove('flex');
+        hideOverlay();
         const err = await r.text();
         alert('Error: ' + err);
       }
     } catch (e) {
-      overlay.classList.add('hidden');
-      overlay.classList.remove('flex');
+      hideOverlay();
       alert('Error: ' + e.message);
     }
   };

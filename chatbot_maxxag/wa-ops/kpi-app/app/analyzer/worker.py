@@ -82,7 +82,7 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
     try:
         (
             mood, rt, treat, conv, flags, coaching,
-            intent, next_action, escalation,
+            intent, next_action, escalation, referral,
         ) = await asyncio.gather(
             skills.analyze_mood(msgs),
             skills.analyze_response_time(msgs),
@@ -93,6 +93,7 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
             skills.classify_intent(msgs),
             skills.recommend_next_action(msgs),
             skills.evaluate_escalation(msgs),
+            skills.detect_referral(msgs),
         )
     except Exception:
         logger.exception("analysis failed for conversation %s", conversation_id)
@@ -110,7 +111,7 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
                 treat_carinoso, treat_profesional, treat_vendedor, treat_seco,
                 conv_probability,
                 red_flags, coaching,
-                intent, next_action, escalation
+                intent, next_action, escalation, referral
             ) VALUES (
                 $1, $2, $3, $4,
                 $5, $6, $7,
@@ -118,7 +119,7 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
                 $11, $12, $13, $14,
                 $15,
                 $16::jsonb, $17::jsonb,
-                $18::jsonb, $19::jsonb, $20::jsonb
+                $18::jsonb, $19::jsonb, $20::jsonb, $21::jsonb
             )
             ON CONFLICT (conversation_id) DO UPDATE SET
                 analyzed_at = now(),
@@ -138,7 +139,8 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
                 coaching = EXCLUDED.coaching,
                 intent = EXCLUDED.intent,
                 next_action = EXCLUDED.next_action,
-                escalation = EXCLUDED.escalation
+                escalation = EXCLUDED.escalation,
+                referral = EXCLUDED.referral
             """,
             conversation_id,
             casa_id,
@@ -153,6 +155,7 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
             json.dumps(intent.model_dump()),
             json.dumps(next_action.model_dump()),
             json.dumps(escalation.model_dump()),
+            json.dumps(referral.model_dump()),
         )
 
         for f in flags:
@@ -237,7 +240,11 @@ async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | Non
             f"""
             SELECT conversation_id, mood_label, mood_score,
                    treat_carinoso, treat_profesional, treat_vendedor, treat_seco,
-                   conv_probability
+                   conv_probability,
+                   rt_p50, rt_p90,
+                   intent->>'primary'        AS intent_primary,
+                   referral->>'source_kind'  AS referral_kind,
+                   referral->>'source_name'  AS referral_name
             FROM analysis
             WHERE account_id = $1 {wa_filter}
             ORDER BY analyzed_at DESC
@@ -274,6 +281,11 @@ async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | Non
             treat_seco=r["treat_seco"],
             conv_probability=float(r["conv_probability"]),
             first_client_line=first_line_map.get(r["conversation_id"], "")[:100],
+            intent_primary=r["intent_primary"],
+            rt_p50_ms=r["rt_p50"],
+            rt_p90_ms=r["rt_p90"],
+            referral_kind=r["referral_kind"],
+            referral_name=r["referral_name"],
         )
         for r in rows
     ]
@@ -302,8 +314,13 @@ async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | Non
             INSERT INTO casa_meta_analysis (
                 account_id, wa_number_id, conversations_analyzed,
                 period_start, period_end,
-                summary, patterns, strengths, improvements, client_profile
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10)
+                summary, patterns, strengths, improvements, client_profile,
+                top_topics, avoided_topics, top_referrals
+            ) VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7::jsonb, $8::jsonb, $9::jsonb, $10,
+                $11::jsonb, $12::jsonb, $13::jsonb
+            )
             """,
             casa_id, wa_number_id, len(summaries),
             dates["period_start"], dates["period_end"],
@@ -312,6 +329,9 @@ async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | Non
             json.dumps(result.strengths),
             json.dumps(result.improvements),
             result.client_profile,
+            json.dumps([t.model_dump() for t in result.top_topics]),
+            json.dumps(result.avoided_topics),
+            json.dumps([r.model_dump() for r in result.top_referrals]),
         )
 
     redis = ctx.get("redis")
