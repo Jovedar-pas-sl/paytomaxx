@@ -130,6 +130,7 @@
     &nbsp;·&nbsp;
     {% if informe.wa_label %}
       WhatsApp <strong>{{ informe.wa_label }}</strong>
+      {% if informe.wa_phone %} (<strong>{{ informe.wa_phone | format_phone }}</strong>){% endif %}
     {% else %}
       Toda la casa
     {% endif %}

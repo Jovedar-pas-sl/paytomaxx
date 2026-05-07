@@ -160,6 +160,7 @@ async def enqueue_bulk_analyze(
     arq: Arq,
     wa_number_id: int | None = Query(default=None),
     since_hours: int | None = Query(default=24, ge=1, le=720),
+    max_convs: int = Query(default=200, ge=1, le=500),
     auto_meta: bool = Query(default=False),
 ) -> Response:
     """Enqueue bulk analysis. With ``auto_meta=true`` the worker also runs
@@ -183,7 +184,7 @@ async def enqueue_bulk_analyze(
         since_hours=since_hours,
         include_open=True,
         redo_dirty=True,
-        limit=500,
+        limit=max_convs,
     )
 
     # Even if no convs need analyzing, still enqueue when auto_meta is set so
@@ -203,7 +204,7 @@ async def enqueue_bulk_analyze(
 
     await arq.enqueue_job(
         "analyze_conversations_bulk_job",
-        casa_id, wa_number_id, since_hours, True, True, auto_meta,
+        casa_id, wa_number_id, since_hours, True, True, auto_meta, max_convs,
     )
 
     estimated_cost_usd = round(len(ids) * 0.003, 2)
@@ -214,6 +215,7 @@ async def enqueue_bulk_analyze(
             "estimated_cost_usd": estimated_cost_usd,
             "wa_number_id": wa_number_id,
             "since_hours": since_hours,
+            "max_convs": max_convs,
             "auto_meta": auto_meta,
         }},
     )
@@ -226,12 +228,14 @@ async def bulk_analyze_preview(
     kpi: KpiDB,
     wa_number_id: int | None = Query(default=None),
     since_hours: int = Query(default=24, ge=1, le=720),
+    max_convs: int = Query(default=200, ge=1, le=500),
 ) -> dict:
     """Preview before running. Returns conv counts and cost/time estimate so
     the UI can show a confirmation modal with real numbers before spending.
 
-    NB: matches the same filters the bulk job will use (open + closed + dirty
-    re-analysis), so the user sees exactly what's about to be processed.
+    Both ``since_hours`` and ``max_convs`` are user-configurable from the
+    confirmation modal — the modal re-fetches preview when either changes
+    so the cost/ETA stays accurate.
     """
     pending = await queries.count_unanalyzed_for_casa(
         kpi, casa_id,
@@ -243,9 +247,7 @@ async def bulk_analyze_preview(
     already = await queries.count_analyzed_for_casa(
         kpi, casa_id, wa_number_id=wa_number_id,
     )
-    # Caps the bulk job applies internally (worker.py)
-    cap = 200
-    will_process = min(pending, cap)
+    will_process = min(pending, max_convs)
     # Per-conv ≈ $0.003 (10 Haiku skills × small prompts), meta ≈ $0.05
     cost_usd = round(will_process * 0.003 + 0.05, 3)
     # ~5s per conv × Semaphore(5) = ~1s/conv ; meta ~60s
@@ -254,9 +256,10 @@ async def bulk_analyze_preview(
     return {
         "pending": pending,
         "will_process": will_process,
-        "capped": pending > cap,
+        "capped": pending > max_convs,
         "already_analyzed": already,
         "since_hours": since_hours,
+        "max_convs": max_convs,
         "wa_number_id": wa_number_id,
         "est_cost_usd": cost_usd,
         "est_time_min": time_min,

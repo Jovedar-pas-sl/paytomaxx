@@ -60,6 +60,9 @@
         <span class="rounded-full bg-blue/15 px-2 py-0.5 text-[10px] font-medium uppercase text-blue">
           {{ inf.wa_label }}
         </span>
+        {% if inf.wa_phone %}
+        <span class="text-[10px] text-muted-2 mono">{{ inf.wa_phone | format_phone }}</span>
+        {% endif %}
         {% else %}
         <span class="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium uppercase text-accent">
           Toda la casa

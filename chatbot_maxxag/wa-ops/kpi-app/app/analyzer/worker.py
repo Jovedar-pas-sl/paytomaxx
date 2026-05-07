@@ -635,6 +635,7 @@ async def analyze_conversations_bulk_job(
     include_open: bool = True,
     redo_dirty: bool = True,
     auto_meta: bool = False,
+    max_convs: int = 200,
 ) -> None:
     """Bulk-analyze conversations + (optionally) chain into the meta-analysis.
 
@@ -660,16 +661,16 @@ async def analyze_conversations_bulk_job(
                                 message="Buscando conversaciones a analizar…",
                                 started_at=started)
 
-    # Cap at 200 — Semaphore(5) × ~5s/conv = ~200s, well within 900s timeout.
-    # If volume exceeds, the meta still gets the most recent 200 which is plenty
-    # of signal for the report.
+    # User-configurable cap (default 200). Hard ceiling 500 to stay within
+    # 900s job_timeout even at slow Claude response (~5s/conv parallel(5)).
+    safe_limit = max(1, min(int(max_convs or 200), 500))
     ids = await list_unanalyzed_conversation_ids(
         kpi, casa_id,
         wa_number_id=wa_number_id,
         since_hours=since_hours,
         include_open=include_open,
         redo_dirty=redo_dirty,
-        limit=200,
+        limit=safe_limit,
     )
     total = len(ids)
     scope = f"wa {wa_number_id}" if wa_number_id else "casa-wide"
@@ -686,7 +687,11 @@ async def analyze_conversations_bulk_job(
         if auto_meta:
             await asyncio.sleep(0.3)
             try:
-                await meta_analyze_casa_job(ctx, casa_id, wa_number_id)
+                await meta_analyze_casa_job(
+                    ctx, casa_id, wa_number_id,
+                    since_hours=since_hours,
+                    max_convs=safe_limit,
+                )
             except Exception:
                 logger.exception("auto-meta after empty bulk failed")
         return
@@ -738,7 +743,13 @@ async def analyze_conversations_bulk_job(
     if auto_meta:
         await asyncio.sleep(0.5)  # frontend ve 100% bulk antes de pasar a meta
         try:
-            await meta_analyze_casa_job(ctx, casa_id, wa_number_id)
+            # Forward the same window + cap to the meta so the user-chosen
+            # scope is honoured end-to-end.
+            await meta_analyze_casa_job(
+                ctx, casa_id, wa_number_id,
+                since_hours=since_hours,
+                max_convs=safe_limit,
+            )
         except Exception:
             logger.exception("auto-meta after bulk failed")
 

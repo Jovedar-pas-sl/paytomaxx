@@ -506,13 +506,23 @@ def _informe_filename_stem(informe) -> str:
     return f"informe-{casa}{wa}-{informe.run_at.strftime('%Y%m%d')}"
 
 
+def _format_phone_md(p: str | None) -> str:
+    if not p:
+        return ""
+    s = "".join(ch for ch in str(p) if ch.isdigit())
+    if len(s) >= 11:
+        return f"+{s[:2]} {s[2:5]} {s[5:7]} {s[7:9]} {s[9:]}"
+    return f"+{s}" if s else ""
+
+
 def _informe_to_markdown(informe) -> str:
     scope = f"WhatsApp {informe.wa_label}" if informe.wa_label else "Toda la casa"
+    phone = _format_phone_md(informe.wa_phone)
     lines: list[str] = [
         f"# Informe IA — {informe.casa_name or 'Casa #' + str(informe.account_id)}",
         "",
         f"**Fecha:** {informe.run_at.strftime('%d %B %Y · %H:%M UTC')}",
-        f"**Alcance:** {scope}",
+        f"**Alcance:** {scope}" + (f" ({phone})" if phone else ""),
         f"**Conversaciones analizadas:** {informe.conversations_analyzed}",
         "",
         "## Resumen ejecutivo",
@@ -617,6 +627,9 @@ async def export_informe_docx(
 
     casa_label = informe.casa_name or f"Casa #{informe.account_id}"
     scope = f"WhatsApp {informe.wa_label}" if informe.wa_label else "Toda la casa"
+    phone = _format_phone_md(informe.wa_phone)
+    if phone:
+        scope = f"{scope} ({phone})"
 
     doc = Document()
     doc.add_heading(f"Informe IA — {casa_label}", level=0)

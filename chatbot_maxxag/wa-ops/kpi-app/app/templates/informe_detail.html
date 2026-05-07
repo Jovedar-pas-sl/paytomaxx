@@ -28,6 +28,11 @@
         <span class="rounded-full bg-blue/15 px-2 py-0.5 text-[10px] font-medium uppercase text-blue">
           📱 {{ informe.wa_label }}
         </span>
+        {% if informe.wa_phone %}
+        <span class="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted mono">
+          {{ informe.wa_phone | format_phone }}
+        </span>
+        {% endif %}
         {% else %}
         <span class="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium uppercase text-accent">
           Toda la casa

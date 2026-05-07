@@ -880,6 +880,7 @@ class CasaMetaAnalysis:
     client_profile: str
     wa_number_id: int | None = None
     wa_label: str | None = None
+    wa_phone: str | None = None     # phone of the WhatsApp number that was analyzed
     casa_name: str | None = None
     top_topics: list = ()           # list of {topic, count, pct}
     avoided_topics: list = ()       # list of strings
@@ -929,7 +930,8 @@ async def get_latest_meta_analysis(
                    m.conversations_analyzed,
                    m.summary, m.patterns, m.strengths, m.improvements,
                    m.client_profile,
-                   wn.label AS wa_label
+                   wn.label AS wa_label,
+                   wn.phone AS wa_phone
                    {topic_cols}
             FROM casa_meta_analysis m
             LEFT JOIN wa_number wn ON wn.id = m.wa_number_id
@@ -950,6 +952,7 @@ async def get_latest_meta_analysis(
         client_profile=row["client_profile"],
         wa_number_id=row["wa_number_id"],
         wa_label=row["wa_label"],
+        wa_phone=row["wa_phone"],
         casa_name=None,
         top_topics=_parse_jsonb(row.get("top_topics") if has_topics else None, []),
         avoided_topics=_parse_jsonb(row.get("avoided_topics") if has_topics else None, []),
@@ -980,7 +983,8 @@ async def list_meta_analyses(
                    m.conversations_analyzed,
                    m.summary, m.patterns, m.strengths, m.improvements,
                    m.client_profile,
-                   wn.label AS wa_label
+                   wn.label AS wa_label,
+                   wn.phone AS wa_phone
                    {topic_cols}
             FROM casa_meta_analysis m
             LEFT JOIN wa_number wn ON wn.id = m.wa_number_id
@@ -1002,6 +1006,7 @@ async def list_meta_analyses(
             client_profile=r["client_profile"],
             wa_number_id=r["wa_number_id"],
             wa_label=r["wa_label"],
+            wa_phone=r["wa_phone"],
             casa_name=None,
             top_topics=_parse_jsonb(r.get("top_topics") if has_topics else None, []),
             avoided_topics=_parse_jsonb(r.get("avoided_topics") if has_topics else None, []),
@@ -1044,6 +1049,7 @@ async def list_all_meta_analyses(
                    m.summary, m.patterns, m.strengths, m.improvements,
                    m.client_profile,
                    wn.label AS wa_label,
+                   wn.phone AS wa_phone,
                    c.name   AS casa_name
                    {topic_cols}
             FROM casa_meta_analysis m
@@ -1066,6 +1072,7 @@ async def list_all_meta_analyses(
             client_profile=r["client_profile"],
             wa_number_id=r["wa_number_id"],
             wa_label=r["wa_label"],
+            wa_phone=r["wa_phone"],
             casa_name=r["casa_name"],
             top_topics=_parse_jsonb(r.get("top_topics") if has_topics else None, []),
             avoided_topics=_parse_jsonb(r.get("avoided_topics") if has_topics else None, []),
@@ -1094,6 +1101,7 @@ async def get_meta_analysis_by_id(
                    m.summary, m.patterns, m.strengths, m.improvements,
                    m.client_profile,
                    wn.label AS wa_label,
+                   wn.phone AS wa_phone,
                    c.name   AS casa_name
                    {topic_cols}
             FROM casa_meta_analysis m
@@ -1115,6 +1123,7 @@ async def get_meta_analysis_by_id(
         client_profile=row["client_profile"],
         wa_number_id=row["wa_number_id"],
         wa_label=row["wa_label"],
+        wa_phone=row["wa_phone"],
         casa_name=row["casa_name"],
         top_topics=_parse_jsonb(row.get("top_topics") if has_topics else None, []),
         avoided_topics=_parse_jsonb(row.get("avoided_topics") if has_topics else None, []),

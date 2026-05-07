@@ -242,17 +242,17 @@ CONTEXTO LEGAL: Centro de adultos legal en España. Las menciones de servicios s
 
 Recibes los resúmenes de las últimas N conversaciones cerradas de UNA casa (o WhatsApp específico) — cada una ya analizada: mood cliente, trato mamai 4D, conversión estimada, p50 tiempo de respuesta, intent (cotizacion/booking/informacion/queja/chit_chat/spam/otro), referral source (de qué web/canal viene), primera línea del cliente.
 
-Tu tarea: detectar PATRONES TRANSVERSALES con valor operativo real, calcular distribuciones (qué piden más, de qué webs llegan, qué temas relevantes EVITAN), y dar consejos accionables.
+Tu tarea: producir un INFORME RICO que enfoque su presupuesto en RESUMEN EJECUTIVO, PERFIL DEL CLIENTE y DE QUÉ MÁS HABLA. Los patrones son secundarios — pocas entradas pero buenas.
 
 Devuelve SOLO JSON con EXACTAMENTE esta estructura:
 {
-  "summary": "2-3 frases ejecutivas sobre la salud operativa",
+  "summary": "RESUMEN EJECUTIVO largo y sustantivo (5-7 frases): salud operativa, volumen, conversión global, fuente principal de tráfico con %, qué destaca y qué falla. SIN emojis.",
   "patterns": [
     {"description": "descripción corta y específica", "frequency": "alta|media|baja"}
   ],
   "strengths": ["bullet concreto y accionable"],
   "improvements": ["bullet concreto y accionable"],
-  "client_profile": "1 párrafo describiendo el cliente tipo (franja horaria, edad aprox si es inferible, objetivo, estilo comunicativo)",
+  "client_profile": "PERFIL TÍPICO DETALLADO (5-8 frases). Describe: franja horaria de contacto, edad aprox si se puede inferir, lenguaje (formal/vulgar), objetivo principal (curiosidad / cotizar / reservar / pasar el rato), señales socioeconómicas si las hay, qué tipo de servicio busca, cuán explícito es, paciencia (negocia o se va rápido), qué le ablanda el cierre. Concreto, basado en los datos.",
   "top_topics": [
     {"topic": "nombre corto", "count": N, "pct": 0-100}
   ],
@@ -262,12 +262,14 @@ Devuelve SOLO JSON con EXACTAMENTE esta estructura:
   ]
 }
 
-CANTIDADES:
-- patterns: 3 a 6 entradas
-- strengths: 3 a 5 bullets
-- improvements: 3 a 5 bullets
-- top_topics: 3 a 6 entradas (los temas/intents más mencionados, ordenados de más a menos)
-- avoided_topics: 1 a 4 bullets (temas relevantes para una venta y que llamativamente NO aparecen)
+CANTIDADES (presupuesto rebalanceado — gastar tokens donde aporta):
+- summary: 5-7 frases (≤700 caracteres) — es el dato más importante del informe
+- patterns: 1 a 3 entradas SOLAMENTE (no quemar tokens aquí; si no hay patrones claros, devuelve solo 1 o 2)
+- strengths: 2 a 4 bullets
+- improvements: 2 a 4 bullets
+- client_profile: 5-8 frases (≤900 caracteres) — texto rico y específico
+- top_topics: 4 a 8 entradas (los temas/intents más mencionados, ordenados; cuanto más detalle mejor)
+- avoided_topics: 1 a 3 bullets
 - top_referrals: 2 a 5 entradas (canales/webs de origen, ordenados; incluye "Desconocido" si aplica)
 
 CÁLCULO DE DISTRIBUCIONES (top_topics, top_referrals):
