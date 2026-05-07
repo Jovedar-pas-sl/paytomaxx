@@ -218,7 +218,8 @@
   {% endif %}
 </section>
 
-{# Toast for per-WA meta-analysis trigger (non-blocking; user goes to /informes when ready) #}
+{# Toast for per-WA meta-analysis trigger — shows live progress bar + ETA;
+   polls /meta-analyses/progress every 1s and auto-dismisses on done. #}
 <div id="wa-analyze-toast"
      class="pointer-events-none fixed bottom-6 right-6 z-50 hidden max-w-sm rounded-xl border border-border bg-surface-2 p-4 shadow-2xl backdrop-blur transition-opacity">
   <div class="flex items-start gap-3">
@@ -226,6 +227,13 @@
     <div class="flex-1 min-w-0">
       <div id="wa-toast-title" class="text-sm font-semibold text-text">Análisis encolado</div>
       <div id="wa-toast-msg" class="mt-1 text-xs text-muted">El informe estará listo en unos minutos.</div>
+      <div id="wa-toast-bar-wrap" class="mt-2 hidden h-1.5 w-full overflow-hidden rounded bg-border/60">
+        <div id="wa-toast-bar" class="h-full bg-accent transition-all duration-500" style="width:0%"></div>
+      </div>
+      <div id="wa-toast-meta" class="mt-1 hidden flex justify-between text-[10px] text-muted-2 mono">
+        <span id="wa-toast-pct">0%</span>
+        <span id="wa-toast-eta"></span>
+      </div>
       <a id="wa-toast-link" href="/informes" class="mt-2 inline-block text-xs text-accent hover:underline">Ver Informes →</a>
     </div>
   </div>
@@ -233,11 +241,17 @@
 
 <script>
 (function () {
-  const toast = document.getElementById('wa-analyze-toast');
-  const titleEl = document.getElementById('wa-toast-title');
-  const msgEl = document.getElementById('wa-toast-msg');
-  const iconEl = document.getElementById('wa-toast-icon');
+  const toast    = document.getElementById('wa-analyze-toast');
+  const titleEl  = document.getElementById('wa-toast-title');
+  const msgEl    = document.getElementById('wa-toast-msg');
+  const iconEl   = document.getElementById('wa-toast-icon');
+  const barWrap  = document.getElementById('wa-toast-bar-wrap');
+  const barEl    = document.getElementById('wa-toast-bar');
+  const metaWrap = document.getElementById('wa-toast-meta');
+  const pctEl    = document.getElementById('wa-toast-pct');
+  const etaEl    = document.getElementById('wa-toast-eta');
   let hideTimer = null;
+  let pollTimer = null;
 
   function showToast(opts) {
     iconEl.textContent = opts.icon || '🧠';
@@ -245,18 +259,95 @@
                        (opts.iconClass || 'bg-accent/15');
     titleEl.textContent = opts.title;
     msgEl.textContent = opts.msg;
+    if (opts.showProgress) {
+      barWrap.classList.remove('hidden');
+      metaWrap.classList.remove('hidden');
+      metaWrap.classList.add('flex');
+    } else {
+      barWrap.classList.add('hidden');
+      metaWrap.classList.add('hidden');
+      metaWrap.classList.remove('flex');
+    }
     toast.classList.remove('hidden');
     toast.classList.add('flex', 'pointer-events-auto');
     if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-      toast.classList.add('hidden');
-      toast.classList.remove('flex', 'pointer-events-auto');
-    }, opts.duration || 8000);
+    if (opts.duration) {
+      hideTimer = setTimeout(hideToast, opts.duration);
+    }
+  }
+
+  function hideToast() {
+    toast.classList.add('hidden');
+    toast.classList.remove('flex', 'pointer-events-auto');
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function setProgress(pct, etaSeconds) {
+    barEl.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    pctEl.textContent = pct + '%';
+    etaEl.textContent = (etaSeconds != null && pct < 100)
+      ? `~${etaSeconds}s restantes`
+      : '';
+  }
+
+  function startProgressPolling(casaId, waNumberId, label) {
+    const qs = `?wa_number_id=${waNumberId}`;
+    let consecutiveErrors = 0;
+    const MAX_POLL_S = 5 * 60; // 5 min hard cap
+    const startedAt = Date.now();
+
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      // Hard timeout — stop polling but inform user
+      if ((Date.now() - startedAt) / 1000 > MAX_POLL_S) {
+        clearInterval(pollTimer); pollTimer = null;
+        showToast({
+          title: 'Tarda más de lo normal',
+          msg: 'Sigue trabajando. Recarga /informes en unos minutos.',
+          icon: '⏳', iconClass: 'bg-amber/15',
+          duration: 12000,
+        });
+        return;
+      }
+      try {
+        const r = await fetch(`/casas/${casaId}/meta-analyses/progress${qs}`);
+        if (!r.ok) { consecutiveErrors++; if (consecutiveErrors > 5) clearInterval(pollTimer); return; }
+        consecutiveErrors = 0;
+        const p = await r.json();
+        if (p.state === 'running' || p.state === 'queued') {
+          titleEl.textContent = `Analizando ${label}…`;
+          msgEl.textContent = p.message || 'Procesando…';
+          setProgress(p.pct || 0, p.eta_s);
+        } else if (p.state === 'done') {
+          clearInterval(pollTimer); pollTimer = null;
+          setProgress(100, 0);
+          showToast({
+            title: `✓ Informe de ${label} listo`,
+            msg: 'Click en "Ver Informes" para abrirlo.',
+            icon: '✅', iconClass: 'bg-accent/15',
+            showProgress: true,
+            duration: 12000,
+          });
+          setProgress(100, 0); // re-apply after re-render
+        } else if (p.state === 'error') {
+          clearInterval(pollTimer); pollTimer = null;
+          showToast({
+            title: 'Error en el análisis',
+            msg: p.message || 'Revisa los logs del worker.',
+            icon: '❌', iconClass: 'bg-red/15',
+            duration: 10000,
+          });
+        } else if (p.state === 'empty') {
+          // Nothing in flight — worker probably finished + TTL expired
+          clearInterval(pollTimer); pollTimer = null;
+        }
+      } catch (_) {
+        consecutiveErrors++;
+      }
+    }, 1000);
   }
 
   // Triggered by the 🧠 button on each WA card.
-  // Fires meta-analysis scoped to a single wa_number; non-blocking — user can
-  // keep browsing while the worker churns. Result lands in /informes.
   window.__runWaAnalysis = async function (casaId, waNumberId, label) {
     showToast({
       title: `Iniciando análisis de ${label}…`,
@@ -270,26 +361,28 @@
       );
       if (r.status === 202) {
         showToast({
-          title: `Análisis de ${label} encolado`,
-          msg: 'Tarda 30s-2min. Cuando termine aparecerá en Informes.',
-          icon: '🧠',
-          iconClass: 'bg-accent/15',
-          duration: 10000,
+          title: `Analizando ${label}…`,
+          msg: 'En cola…',
+          icon: '🧠', iconClass: 'bg-accent/15',
+          showProgress: true,
         });
+        setProgress(5, null);
+        startProgressPolling(casaId, waNumberId, label);
       } else if (r.status === 409) {
+        // Already running — start polling anyway so the user sees progress
         showToast({
-          title: 'Ya hay un análisis en curso',
-          msg: 'Espera a que termine el actual antes de lanzar otro.',
-          icon: '⚠️',
-          iconClass: 'bg-amber/15',
+          title: `Análisis de ${label} ya en curso`,
+          msg: 'Mostrando progreso del actual.',
+          icon: '⏳', iconClass: 'bg-amber/15',
+          showProgress: true,
         });
+        startProgressPolling(casaId, waNumberId, label);
       } else if (r.status === 400) {
         const data = await r.json().catch(() => ({}));
         showToast({
           title: 'No hay datos suficientes',
           msg: data.detail || 'Necesitas al menos 10 conversaciones analizadas en este WhatsApp.',
-          icon: '🚫',
-          iconClass: 'bg-amber/15',
+          icon: '🚫', iconClass: 'bg-amber/15',
           duration: 10000,
         });
       } else {
@@ -297,16 +390,16 @@
         showToast({
           title: 'Error al lanzar análisis',
           msg: txt.slice(0, 200),
-          icon: '❌',
-          iconClass: 'bg-red/15',
+          icon: '❌', iconClass: 'bg-red/15',
+          duration: 8000,
         });
       }
     } catch (e) {
       showToast({
         title: 'Error de red',
         msg: e.message,
-        icon: '❌',
-        iconClass: 'bg-red/15',
+        icon: '❌', iconClass: 'bg-red/15',
+        duration: 8000,
       });
     }
   };

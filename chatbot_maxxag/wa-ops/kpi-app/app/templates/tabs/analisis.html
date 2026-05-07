@@ -268,73 +268,114 @@
 </section>
 {% endif %}
 
-{# Running overlay — message + subtitle updated in real-time during polling. #}
+{# Running overlay with live progress bar + ETA #}
 <div id="meta-running-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
-  <div class="card p-8 text-center max-w-md">
-    <div class="mb-3 inline-block h-12 w-12 animate-spin rounded-full border-4 border-green border-t-transparent"></div>
-    <div id="meta-overlay-title" class="text-sm font-semibold">Claude está analizando conversaciones…</div>
-    <div id="meta-overlay-subtitle" class="mt-1 text-xs text-muted">Puede tardar varios minutos. No cierres esta ventana.</div>
+  <div class="card p-8 max-w-md w-[420px]">
+    <div class="text-center">
+      <div class="mb-3 inline-block h-10 w-10 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
+      <div id="meta-overlay-title" class="text-sm font-semibold">Iniciando análisis…</div>
+      <div id="meta-overlay-phase" class="mt-1 text-xs text-muted">Conectando con el servidor.</div>
+    </div>
+    <div class="mt-5 h-2 w-full overflow-hidden rounded bg-border/60">
+      <div id="meta-bar" class="h-full bg-accent transition-all duration-500" style="width:0%"></div>
+    </div>
+    <div class="mt-1.5 flex justify-between text-[11px] text-muted-2 mono">
+      <span id="meta-pct">0%</span>
+      <span id="meta-eta"></span>
+    </div>
   </div>
 </div>
 
 <script>
 (function () {
   const overlay = document.getElementById('meta-running-overlay');
-  const title = document.getElementById('meta-overlay-title');
-  const subtitle = document.getElementById('meta-overlay-subtitle');
+  const title   = document.getElementById('meta-overlay-title');
+  const phaseEl = document.getElementById('meta-overlay-phase');
+  const barEl   = document.getElementById('meta-bar');
+  const pctEl   = document.getElementById('meta-pct');
+  const etaEl   = document.getElementById('meta-eta');
 
-  // Polling every 3s up to 5 min total. Backend meta-analysis can take
-  // 30-90s under load (Claude rate-limits, Redis queue waits, etc.) so
-  // 5 min keeps us safely above realistic worst-case.
-  const MAX_TRIES = 100;        // 100 × 3s = 5 min
-  const POLL_MS = 3000;
+  // Poll every 1s for fast feedback. Hard cap 5 min (worker rarely > 90s).
+  const POLL_MS = 1000;
+  const MAX_POLL_S = 5 * 60;
 
   function hideOverlay() {
     overlay.classList.add('hidden');
     overlay.classList.remove('flex');
   }
 
-  // waNumberId: integer when scoping to a single WhatsApp, null/undefined for casa-wide.
+  function setProgress(pct, etaSeconds) {
+    barEl.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    pctEl.textContent = pct + '%';
+    etaEl.textContent = (etaSeconds != null && pct < 100)
+      ? `~${etaSeconds}s restantes`
+      : '';
+  }
+
   window.__runMetaAnalysis = async function (casaId, waNumberId) {
     overlay.classList.remove('hidden');
     overlay.classList.add('flex');
     const scope = waNumberId ? 'este WhatsApp' : 'esta casa';
-    title.textContent = `Claude está analizando ${scope}…`;
-    subtitle.textContent = 'Puede tardar varios minutos. No cierres esta ventana.';
+    title.textContent = `Analizando ${scope}…`;
+    phaseEl.textContent = 'Conectando…';
+    setProgress(0, null);
 
     const qs = waNumberId ? `?wa_number_id=${waNumberId}` : '';
+
+    let pollTimer = null;
+    const startedAt = Date.now();
+
+    function startPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      let consecutiveErrors = 0;
+      pollTimer = setInterval(async () => {
+        if ((Date.now() - startedAt) / 1000 > MAX_POLL_S) {
+          clearInterval(pollTimer); pollTimer = null;
+          hideOverlay();
+          alert('El análisis sigue en curso pero está tardando más de lo normal. ' +
+                'Revisa /informes en unos minutos.');
+          return;
+        }
+        try {
+          const r = await fetch(`/casas/${casaId}/meta-analyses/progress${qs}`);
+          if (!r.ok) {
+            consecutiveErrors++;
+            if (consecutiveErrors > 5) { clearInterval(pollTimer); pollTimer = null; }
+            return;
+          }
+          consecutiveErrors = 0;
+          const p = await r.json();
+          if (p.state === 'running' || p.state === 'queued') {
+            title.textContent = `Analizando ${scope}…`;
+            phaseEl.textContent = p.message || 'Procesando…';
+            setProgress(p.pct || 0, p.eta_s);
+          } else if (p.state === 'done') {
+            clearInterval(pollTimer); pollTimer = null;
+            setProgress(100, 0);
+            phaseEl.textContent = '✓ Completado';
+            // Brief delay so user sees 100% before reload
+            setTimeout(() => { location.reload(); }, 600);
+          } else if (p.state === 'error') {
+            clearInterval(pollTimer); pollTimer = null;
+            hideOverlay();
+            alert('Error en el análisis: ' + (p.message || 'revisa logs'));
+          } else if (p.state === 'empty') {
+            clearInterval(pollTimer); pollTimer = null;
+            hideOverlay();
+          }
+        } catch (_) {
+          consecutiveErrors++;
+        }
+      }, POLL_MS);
+    }
 
     try {
       const r = await fetch(`/casas/${casaId}/meta-analyses${qs}`, { method: 'POST' });
       if (r.status === 202) {
-        let tries = 0;
-        const tick = setInterval(async () => {
-          tries++;
-          const elapsed = Math.round(tries * POLL_MS / 1000);
-          subtitle.textContent = `Trabajando… ${elapsed}s · ${tries}/${MAX_TRIES}`;
-          try {
-            const check = await fetch(`/casas/${casaId}/meta-analyses/latest-state${qs}`);
-            if (check.ok) {
-              const data = await check.json();
-              if (data.state === 'done') {
-                clearInterval(tick);
-                location.reload();
-                return;
-              }
-            }
-          } catch (_) {
-            // Network blip — keep polling
-          }
-          if (tries >= MAX_TRIES) {
-            clearInterval(tick);
-            hideOverlay();
-            alert('El análisis sigue en curso pero está tardando más de lo normal. ' +
-                  'Recarga la página en unos minutos para ver los resultados.');
-          }
-        }, POLL_MS);
+        startPolling();
       } else if (r.status === 409) {
-        hideOverlay();
-        alert('Ya hay un análisis en curso. Espera unos minutos.');
+        // Already running — show progress of the existing run
+        startPolling();
       } else {
         hideOverlay();
         const err = await r.text();
@@ -342,7 +383,7 @@
       }
     } catch (e) {
       hideOverlay();
-      alert('Error: ' + e.message);
+      alert('Error de red: ' + e.message);
     }
   };
 })();

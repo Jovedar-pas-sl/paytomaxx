@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Informe — {{ informe.casa_name or 'Casa #' ~ informe.account_id }}</title>
+  <style>
+    :root {
+      --ink: #111;
+      --muted: #6b7280;
+      --rule: #d1d5db;
+      --bg-band: #f3f4f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+            "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      max-width: 820px;
+      margin: 2rem auto;
+      padding: 0 1.75rem;
+      background: #fff;
+    }
+    .toolbar {
+      display: flex; gap: .5rem; justify-content: flex-end;
+      margin-bottom: 1.5rem;
+    }
+    .toolbar button, .toolbar a {
+      font: inherit;
+      padding: .55rem 1rem;
+      background: #111;
+      color: #fff;
+      border: 1px solid #111;
+      border-radius: 8px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .toolbar a {
+      background: #fff; color: #111;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin: 0 0 4px 0;
+    }
+    h2 {
+      font-size: 15px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--ink);
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 4px;
+      margin: 28px 0 12px 0;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 12.5px;
+      margin-bottom: 22px;
+    }
+    .meta strong { color: var(--ink); }
+    .summary {
+      background: var(--bg-band);
+      padding: 14px 18px;
+      border-left: 3px solid #111;
+      border-radius: 4px;
+      margin: 14px 0 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    th, td {
+      text-align: left;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--rule);
+    }
+    th { background: var(--bg-band); font-weight: 600; }
+    .grid3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px;
+    }
+    .grid3 h2 { margin-top: 18px; }
+    ul { padding-left: 20px; margin: 8px 0; }
+    li { margin-bottom: 4px; }
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--bg-band);
+      color: var(--ink);
+      margin-right: 6px;
+      text-transform: uppercase;
+    }
+    .badge.alta   { background: #fee2e2; color: #991b1b; }
+    .badge.media  { background: #fef3c7; color: #92400e; }
+    .badge.baja   { background: #e5e7eb; color: #374151; }
+    .footer {
+      color: var(--muted);
+      font-size: 11px;
+      text-align: center;
+      margin-top: 36px;
+      padding-top: 14px;
+      border-top: 1px solid var(--rule);
+    }
+    @media print {
+      .no-print { display: none !important; }
+      body { margin: 0; max-width: none; padding: 0 18mm; }
+      h2 { page-break-after: avoid; }
+      ul, table { page-break-inside: avoid; }
+      .grid3 { gap: 14px; }
+    }
+    @page { margin: 18mm 14mm; }
+  </style>
+</head>
+<body>
+  <div class="toolbar no-print">
+    <button onclick="window.print()">🖨 Imprimir / Guardar como PDF</button>
+    <a href="/informes/{{ informe.id }}">← Volver</a>
+  </div>
+
+  <h1>Informe IA — {{ informe.casa_name or 'Casa #' ~ informe.account_id }}</h1>
+  <div class="meta">
+    <strong>{{ informe.run_at.strftime('%d/%m/%Y · %H:%M') }} UTC</strong>
+    &nbsp;·&nbsp;
+    {% if informe.wa_label %}
+      WhatsApp <strong>{{ informe.wa_label }}</strong>
+    {% else %}
+      Toda la casa
+    {% endif %}
+    &nbsp;·&nbsp;
+    <strong>{{ informe.conversations_analyzed }}</strong> conversaciones analizadas
+  </div>
+
+  <h2>Resumen ejecutivo</h2>
+  <div class="summary">{{ informe.summary }}</div>
+
+  {% if informe.patterns %}
+  <h2>Patrones detectados</h2>
+  <table>
+    <thead><tr><th style="width:90px;">Frecuencia</th><th>Descripción</th></tr></thead>
+    <tbody>
+    {% for p in informe.patterns %}
+      {% set freq = (p.frequency if p.frequency else 'media') %}
+      <tr>
+        <td><span class="badge {{ freq }}">{{ freq }}</span></td>
+        <td>{{ p.description }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <div class="grid3">
+    {% if informe.strengths %}
+    <div>
+      <h2>💪 Puntos fuertes</h2>
+      <ul>{% for s in informe.strengths %}<li>{{ s }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    {% if informe.improvements %}
+    <div>
+      <h2>📈 A mejorar</h2>
+      <ul>{% for i in informe.improvements %}<li>{{ i }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    {% if informe.client_profile %}
+    <div>
+      <h2>👤 Cliente típico</h2>
+      <p>{{ informe.client_profile }}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if informe.top_topics or informe.avoided_topics or informe.top_referrals %}
+  <div class="grid3">
+    {% if informe.top_topics %}
+    <div>
+      <h2>🗣 De qué más habla</h2>
+      <ul>
+      {% for t in informe.top_topics %}
+        <li><strong>{{ t.topic }}</strong> — {{ t.count }} ({{ t.pct }}%)</li>
+      {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if informe.avoided_topics %}
+    <div>
+      <h2>🤐 Temas que evita</h2>
+      <ul>{% for t in informe.avoided_topics %}<li>{{ t }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    {% if informe.top_referrals %}
+    <div>
+      <h2>🌐 De dónde llegan</h2>
+      <ul>
+      {% for r in informe.top_referrals %}
+        <li><strong>{{ r.source }}</strong> — {{ r.count }} ({{ r.pct }}%)</li>
+      {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="footer">
+    Maxxag Ops · Informe #{{ informe.id }} · Generado por Claude Haiku 4.5
+    · {{ now.strftime('%d/%m/%Y %H:%M UTC') }}
+  </div>
+</body>
+</html>

@@ -496,3 +496,203 @@ async def report_conversation_docx(
             "Cache-Control": "no-store",
         },
     )
+
+
+# ── Per-informe export (Markdown / DOCX / printable HTML) ──────────
+
+def _informe_filename_stem(informe) -> str:
+    casa = informe.casa_name or f"casa-{informe.account_id}"
+    wa = f"-{informe.wa_label}" if informe.wa_label else ""
+    return f"informe-{casa}{wa}-{informe.run_at.strftime('%Y%m%d')}"
+
+
+def _informe_to_markdown(informe) -> str:
+    scope = f"WhatsApp {informe.wa_label}" if informe.wa_label else "Toda la casa"
+    lines: list[str] = [
+        f"# Informe IA — {informe.casa_name or 'Casa #' + str(informe.account_id)}",
+        "",
+        f"**Fecha:** {informe.run_at.strftime('%d %B %Y · %H:%M UTC')}",
+        f"**Alcance:** {scope}",
+        f"**Conversaciones analizadas:** {informe.conversations_analyzed}",
+        "",
+        "## Resumen ejecutivo",
+        "",
+        informe.summary,
+        "",
+        "## Patrones detectados",
+        "",
+        "| Frecuencia | Patrón |",
+        "|------------|--------|",
+    ]
+    for p in informe.patterns or []:
+        freq = p.get("frequency", "—") if isinstance(p, dict) else "—"
+        desc = p.get("description", "") if isinstance(p, dict) else str(p)
+        lines.append(f"| **{freq}** | {desc} |")
+
+    lines += ["", "## Puntos fuertes", ""]
+    for s in informe.strengths or []:
+        lines.append(f"- {s}")
+
+    lines += ["", "## Áreas a mejorar", ""]
+    for i in informe.improvements or []:
+        lines.append(f"- {i}")
+
+    lines += ["", "## Perfil típico de cliente", "", informe.client_profile or ""]
+
+    if informe.top_topics:
+        lines += ["", "## De qué más habla", ""]
+        for t in informe.top_topics:
+            if isinstance(t, dict):
+                lines.append(f"- **{t.get('topic', '—')}** — {t.get('count', 0)} ({t.get('pct', 0)}%)")
+
+    if informe.avoided_topics:
+        lines += ["", "## Temas que no toca", ""]
+        for t in informe.avoided_topics:
+            lines.append(f"- {t}")
+
+    if informe.top_referrals:
+        lines += ["", "## De dónde llegan los clientes", ""]
+        for r in informe.top_referrals:
+            if isinstance(r, dict):
+                lines.append(f"- **{r.get('source', '—')}** — {r.get('count', 0)} ({r.get('pct', 0)}%)")
+
+    lines += ["", "---", "", "_Generado por Maxxag WA Ops · Claude Haiku 4.5_", ""]
+    return "\n".join(lines)
+
+
+@router.get("/informes/{informe_id}/export.md")
+async def export_informe_markdown(
+    informe_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+) -> StreamingResponse:
+    informe = await queries.get_meta_analysis_by_id(kpi, informe_id)
+    if not informe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Informe no encontrado")
+    body = _informe_to_markdown(informe)
+    return _download_response(body, _informe_filename_stem(informe) + ".md",
+                              "text/markdown; charset=utf-8")
+
+
+@router.get("/informes/{informe_id}/print", response_class=HTMLResponse)
+async def print_informe(
+    request: Request,
+    informe_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+) -> HTMLResponse:
+    """Printable HTML — user opens in new tab and uses Ctrl+P → Save as PDF.
+
+    Uses the same pattern as /conversation/{id}/report. Zero new deps.
+    """
+    informe = await queries.get_meta_analysis_by_id(kpi, informe_id)
+    if not informe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Informe no encontrado")
+    return templates.TemplateResponse(
+        request,
+        "print_informe.html",
+        {"informe": informe, "now": datetime.now(timezone.utc)},
+    )
+
+
+@router.get("/informes/{informe_id}/export.docx")
+async def export_informe_docx(
+    informe_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+) -> Response:
+    """DOCX export — editable in Word / Google Docs."""
+    try:
+        from docx import Document  # type: ignore
+        from docx.shared import Pt
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="python-docx no instalado — rebuild del contenedor necesario",
+        ) from exc
+
+    informe = await queries.get_meta_analysis_by_id(kpi, informe_id)
+    if not informe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Informe no encontrado")
+
+    casa_label = informe.casa_name or f"Casa #{informe.account_id}"
+    scope = f"WhatsApp {informe.wa_label}" if informe.wa_label else "Toda la casa"
+
+    doc = Document()
+    doc.add_heading(f"Informe IA — {casa_label}", level=0)
+    sub = doc.add_paragraph()
+    sub.add_run(
+        f"{informe.run_at.strftime('%d/%m/%Y %H:%M UTC')} · {scope} · "
+        f"{informe.conversations_analyzed} conversaciones analizadas"
+    ).italic = True
+
+    doc.add_heading("Resumen ejecutivo", level=1)
+    doc.add_paragraph(informe.summary or "")
+
+    if informe.patterns:
+        doc.add_heading("Patrones detectados", level=1)
+        for p in informe.patterns:
+            if not isinstance(p, dict):
+                continue
+            para = doc.add_paragraph(style="List Bullet")
+            r = para.add_run(f"[{p.get('frequency', '—').upper()}] ")
+            r.bold = True
+            para.add_run(p.get("description", ""))
+
+    if informe.strengths:
+        doc.add_heading("Puntos fuertes", level=1)
+        for s in informe.strengths:
+            doc.add_paragraph(s, style="List Bullet")
+
+    if informe.improvements:
+        doc.add_heading("Áreas a mejorar", level=1)
+        for i in informe.improvements:
+            doc.add_paragraph(i, style="List Bullet")
+
+    if informe.client_profile:
+        doc.add_heading("Perfil típico de cliente", level=1)
+        doc.add_paragraph(informe.client_profile)
+
+    if informe.top_topics:
+        doc.add_heading("De qué más habla", level=1)
+        for t in informe.top_topics:
+            if isinstance(t, dict):
+                doc.add_paragraph(
+                    f"{t.get('topic', '—')} — {t.get('count', 0)} ({t.get('pct', 0)}%)",
+                    style="List Bullet",
+                )
+
+    if informe.avoided_topics:
+        doc.add_heading("Temas que no toca", level=1)
+        for t in informe.avoided_topics:
+            doc.add_paragraph(t, style="List Bullet")
+
+    if informe.top_referrals:
+        doc.add_heading("De dónde llegan los clientes", level=1)
+        for r in informe.top_referrals:
+            if isinstance(r, dict):
+                doc.add_paragraph(
+                    f"{r.get('source', '—')} — {r.get('count', 0)} ({r.get('pct', 0)}%)",
+                    style="List Bullet",
+                )
+
+    doc.add_paragraph()
+    footer = doc.add_paragraph()
+    footer.add_run(
+        f"Maxxag Ops · Generado {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')} · informe #{informe.id}"
+    ).italic = True
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+
+    fname = _informe_filename_stem(informe) + ".docx"
+    safe = _safe_filename(fname)
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe}"; filename*=UTF-8\'\'{quote(fname)}',
+            "Cache-Control": "no-store",
+        },
+    )

@@ -9,10 +9,13 @@ Routes:
 
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, Response
 
 from app import queries
+from app.analyzer import progress as prog
 from app.deps import Arq, CurrentUser, KpiDB, Redis
 
 router = APIRouter()
@@ -73,6 +76,56 @@ async def enqueue_meta_analysis(
                           "estimated_seconds": 8,
                           "wa_number_id": wa_number_id}},
     )
+
+
+@router.get("/casas/{casa_id}/meta-analyses/progress")
+async def meta_analysis_progress(
+    casa_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    redis: Redis,
+    wa_number_id: int | None = Query(default=None),
+) -> dict:
+    """Live progress of an in-flight meta-analysis.
+
+    Frontend polls this every ~1s after a successful POST /meta-analyses.
+    Returns ``{phase, pct, message, elapsed_s, eta_s, state}``:
+      - state=running while the worker is publishing updates
+      - state=done when phase==done (frontend reloads)
+      - state=empty when nothing is in flight (frontend stops polling)
+    """
+    pkey = prog.progress_key("meta", casa_id, wa_number_id)
+    p = await prog.get_progress(redis, pkey)
+
+    if not p:
+        # No progress key — check legacy running flag for the queued window
+        # between POST accept and worker pickup
+        flag = await redis.get(_meta_running_key(casa_id, wa_number_id))
+        if flag:
+            return {
+                "phase": "queued", "pct": 5, "message": "En cola…",
+                "elapsed_s": 0, "eta_s": None, "state": "running",
+            }
+        return {"phase": "idle", "pct": 0, "message": "",
+                "elapsed_s": 0, "eta_s": None, "state": "empty"}
+
+    elapsed = max(0, int(time.time() - p["started_at"]))
+    eta: int | None = None
+    pct = p.get("pct", 0)
+    if 0 < pct < 100:
+        # Naïve ETA: extrapolate elapsed/pct ratio. Good enough for UX.
+        eta = max(0, int(elapsed * (100 - pct) / pct))
+
+    state = "done" if p.get("phase") == "done" else (
+        "error" if p.get("phase") == "error" else "running"
+    )
+    return {
+        "phase": p.get("phase", "running"),
+        "pct": pct,
+        "message": p.get("message", ""),
+        "elapsed_s": elapsed,
+        "eta_s": eta,
+        "state": state,
+    }
 
 
 @router.get("/casas/{casa_id}/meta-analyses/latest-state")

@@ -19,6 +19,7 @@ import httpx
 from arq import cron
 from arq.connections import RedisSettings
 
+from app.analyzer import progress as prog
 from app.analyzer import skills
 from app.analyzer.skills import Message
 from app.settings import get_settings
@@ -207,6 +208,39 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
     )
 
 
+async def _drift_pct(
+    redis,
+    key: str,
+    *,
+    from_pct: int,
+    to_pct: int,
+    duration_s: float,
+    message: str,
+    started_at: float,
+) -> None:
+    """Move pct linearly from→to over duration_s while phase=='analyzing'.
+
+    The Claude API call is opaque so we can't report real progress. This task
+    publishes a smooth visual progression (every step) until either the target
+    pct is reached or the phase changes — at which point it bows out so the
+    real next-phase update wins.
+    """
+    steps = max(to_pct - from_pct, 1)
+    interval = duration_s / steps
+    for i in range(steps):
+        await asyncio.sleep(interval)
+        current = await prog.get_progress(redis, key)
+        if not current or current.get("phase") != "analyzing":
+            return
+        await prog.set_progress(
+            redis, key,
+            phase="analyzing",
+            pct=from_pct + i + 1,
+            message=message,
+            started_at=started_at,
+        )
+
+
 async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | None = None) -> None:
     """Meta-analyze a casa using last 50 analyzed conversations.
 
@@ -218,7 +252,13 @@ async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | Non
     from app.analyzer.meta_analysis import ConvSummary, run_meta_analysis
 
     kpi: asyncpg.Pool = ctx["kpi_db"]
+    redis = ctx.get("redis")
     started = time.time()
+    pkey = prog.progress_key("meta", casa_id, wa_number_id)
+
+    if redis:
+        await prog.set_progress(redis, pkey, phase="fetching", pct=10,
+                                message="Cargando conversaciones…", started_at=started)
 
     async with kpi.acquire() as conn:
         name_row = await conn.fetchrow("SELECT name FROM casa WHERE id = $1", casa_id)
@@ -293,11 +333,38 @@ async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | Non
     # Enrich casa_name when scoped to a specific WA
     meta_casa_name = f"{casa_name} · {wa_label}" if wa_label else casa_name
 
+    drift_task: asyncio.Task | None = None
+    if redis:
+        await prog.set_progress(redis, pkey, phase="analyzing", pct=30,
+                                message="Claude analizando patrones…",
+                                started_at=started)
+        drift_task = asyncio.create_task(_drift_pct(
+            redis, pkey,
+            from_pct=30, to_pct=85, duration_s=60.0,
+            message="Claude analizando patrones…",
+            started_at=started,
+        ))
+
     try:
         result = await run_meta_analysis(meta_casa_name, summaries)
     except Exception:
         logger.exception("meta-analysis call failed for casa %s wa %s", casa_id, wa_number_id)
+        if redis:
+            await prog.set_progress(redis, pkey, phase="error", pct=100,
+                                    message="Error al analizar — revisa logs",
+                                    started_at=started)
         raise
+    finally:
+        if drift_task:
+            drift_task.cancel()
+            try:
+                await drift_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    if redis:
+        await prog.set_progress(redis, pkey, phase="saving", pct=95,
+                                message="Guardando informe…", started_at=started)
 
     async with kpi.acquire() as conn:
         dates = await conn.fetchrow(
@@ -334,9 +401,15 @@ async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | Non
             json.dumps([r.model_dump() for r in result.top_referrals]),
         )
 
-    redis = ctx.get("redis")
     if redis:
-        await redis.delete(f"casa:{casa_id}:meta_running")
+        # Mark done; frontend polls and reloads when it sees this
+        await prog.set_progress(redis, pkey, phase="done", pct=100,
+                                message="✓ Informe completado",
+                                started_at=started)
+        # Clear the running flag (per-scope key — see analysis_ops._meta_running_key)
+        scope_suffix = f":wa:{wa_number_id}" if wa_number_id else ""
+        await redis.delete(f"casa:{casa_id}{scope_suffix}:meta_running")
+        # Note: progress key keeps its TTL (600s) so polling sees `done` for a bit
 
     duration_ms = int((time.time() - started) * 1000)
     logger.info(

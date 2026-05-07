@@ -36,10 +36,25 @@
         <span class="text-muted mono">{{ informe.conversations_analyzed }} conversaciones analizadas</span>
       </div>
     </div>
-    <a href="/casas/{{ informe.account_id }}?tab=analisis{% if informe.wa_number_id %}&wa={{ informe.wa_number_id }}{% endif %}"
-       class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted">
-      Ir a la casa →
-    </a>
+    <div class="flex flex-wrap items-center gap-2">
+      <a href="/informes/{{ informe.id }}/print" target="_blank" rel="noopener"
+         title="Vista imprimible — usa Ctrl+P para guardar como PDF"
+         class="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-xs text-accent hover:bg-accent/20">
+        🖨 Imprimir / PDF
+      </a>
+      <a href="/informes/{{ informe.id }}/export.docx"
+         class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted">
+        📋 DOCX
+      </a>
+      <a href="/informes/{{ informe.id }}/export.md"
+         class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted">
+        📝 Markdown
+      </a>
+      <a href="/casas/{{ informe.account_id }}?tab=analisis{% if informe.wa_number_id %}&wa={{ informe.wa_number_id }}{% endif %}"
+         class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted">
+        Ir a la casa →
+      </a>
+    </div>
   </div>
 
   {# Resumen ejecutivo #}
