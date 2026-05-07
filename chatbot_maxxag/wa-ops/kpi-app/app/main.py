@@ -16,6 +16,7 @@ from app.routes.casas_hub import router as casas_hub_router
 from app.routes.conversation import router as conversation_router
 from app.routes.exports import router as exports_router
 from app.routes.health import router as health_router
+from app.routes.informes import router as informes_router
 from app.routes.media import router as media_router
 from app.routes.qr_share import router as qr_share_router
 from app.routes.sessions import router as sessions_router
@@ -42,6 +43,7 @@ app.include_router(analysis_ops_router)    # /casas/<id>/meta-analyses + /analyz
 app.include_router(exports_router)         # /casas/<id>/export/* + /conversation/<id>/export.txt
 app.include_router(media_router)           # /media/<msg_id> — proxy for WAHA attachments
 app.include_router(qr_share_router)        # /sessions/<id>/qr.png + /qr/<token> public share
+app.include_router(informes_router)        # /informes + /informes/<id> — global meta-analysis archive
 
 
 # ── Legacy redirects ───────────────────────────────────────────────

@@ -807,6 +807,7 @@ class CasaMetaAnalysis:
     client_profile: str
     wa_number_id: int | None = None
     wa_label: str | None = None
+    casa_name: str | None = None
     top_topics: list = ()           # list of {topic, count, pct}
     avoided_topics: list = ()       # list of strings
     top_referrals: list = ()        # list of {source, count, pct}
@@ -876,6 +877,7 @@ async def get_latest_meta_analysis(
         client_profile=row["client_profile"],
         wa_number_id=row["wa_number_id"],
         wa_label=row["wa_label"],
+        casa_name=None,
         top_topics=_parse_jsonb(row.get("top_topics") if has_topics else None, []),
         avoided_topics=_parse_jsonb(row.get("avoided_topics") if has_topics else None, []),
         top_referrals=_parse_jsonb(row.get("top_referrals") if has_topics else None, []),
@@ -927,12 +929,124 @@ async def list_meta_analyses(
             client_profile=r["client_profile"],
             wa_number_id=r["wa_number_id"],
             wa_label=r["wa_label"],
+            casa_name=None,
             top_topics=_parse_jsonb(r.get("top_topics") if has_topics else None, []),
             avoided_topics=_parse_jsonb(r.get("avoided_topics") if has_topics else None, []),
             top_referrals=_parse_jsonb(r.get("top_referrals") if has_topics else None, []),
         )
         for r in rows
     ]
+
+
+async def list_all_meta_analyses(
+    kpi: asyncpg.Pool,
+    *,
+    casa_id: int | None = None,
+    days: int = 365,
+    limit: int = 200,
+) -> list[CasaMetaAnalysis]:
+    """Cross-casa meta-analysis index used by the Informes page.
+
+    Joins casa.name + wa_number.label so each row is renderable on its own.
+    Optional casa filter; default 1-year window keeps the index light without
+    truncating useful history."""
+    async with kpi.acquire() as conn:
+        exists = await conn.fetchval("SELECT to_regclass('public.casa_meta_analysis')")
+        if not exists:
+            return []
+        has_topics = await _table_has_column(conn, "casa_meta_analysis", "top_topics")
+        topic_cols = (
+            ", m.top_topics, m.avoided_topics, m.top_referrals"
+            if has_topics else ""
+        )
+        params: list = [days, limit]
+        casa_filter = ""
+        if casa_id is not None:
+            casa_filter = "AND m.account_id = $3"
+            params.append(casa_id)
+        rows = await conn.fetch(
+            f"""
+            SELECT m.id, m.account_id, m.wa_number_id, m.run_at,
+                   m.conversations_analyzed,
+                   m.summary, m.patterns, m.strengths, m.improvements,
+                   m.client_profile,
+                   wn.label AS wa_label,
+                   c.name   AS casa_name
+                   {topic_cols}
+            FROM casa_meta_analysis m
+            LEFT JOIN wa_number wn ON wn.id = m.wa_number_id
+            LEFT JOIN casa      c  ON c.id  = m.account_id
+            WHERE m.run_at > now() - make_interval(days => $1)
+              {casa_filter}
+            ORDER BY m.run_at DESC LIMIT $2
+            """,
+            *params,
+        )
+    return [
+        CasaMetaAnalysis(
+            id=r["id"], account_id=r["account_id"], run_at=r["run_at"],
+            conversations_analyzed=r["conversations_analyzed"],
+            summary=r["summary"],
+            patterns=_parse_jsonb(r["patterns"], []),
+            strengths=_parse_jsonb(r["strengths"], []),
+            improvements=_parse_jsonb(r["improvements"], []),
+            client_profile=r["client_profile"],
+            wa_number_id=r["wa_number_id"],
+            wa_label=r["wa_label"],
+            casa_name=r["casa_name"],
+            top_topics=_parse_jsonb(r.get("top_topics") if has_topics else None, []),
+            avoided_topics=_parse_jsonb(r.get("avoided_topics") if has_topics else None, []),
+            top_referrals=_parse_jsonb(r.get("top_referrals") if has_topics else None, []),
+        )
+        for r in rows
+    ]
+
+
+async def get_meta_analysis_by_id(
+    kpi: asyncpg.Pool, informe_id: int,
+) -> CasaMetaAnalysis | None:
+    async with kpi.acquire() as conn:
+        exists = await conn.fetchval("SELECT to_regclass('public.casa_meta_analysis')")
+        if not exists:
+            return None
+        has_topics = await _table_has_column(conn, "casa_meta_analysis", "top_topics")
+        topic_cols = (
+            ", m.top_topics, m.avoided_topics, m.top_referrals"
+            if has_topics else ""
+        )
+        row = await conn.fetchrow(
+            f"""
+            SELECT m.id, m.account_id, m.wa_number_id, m.run_at,
+                   m.conversations_analyzed,
+                   m.summary, m.patterns, m.strengths, m.improvements,
+                   m.client_profile,
+                   wn.label AS wa_label,
+                   c.name   AS casa_name
+                   {topic_cols}
+            FROM casa_meta_analysis m
+            LEFT JOIN wa_number wn ON wn.id = m.wa_number_id
+            LEFT JOIN casa      c  ON c.id  = m.account_id
+            WHERE m.id = $1
+            """,
+            informe_id,
+        )
+    if not row:
+        return None
+    return CasaMetaAnalysis(
+        id=row["id"], account_id=row["account_id"], run_at=row["run_at"],
+        conversations_analyzed=row["conversations_analyzed"],
+        summary=row["summary"],
+        patterns=_parse_jsonb(row["patterns"], []),
+        strengths=_parse_jsonb(row["strengths"], []),
+        improvements=_parse_jsonb(row["improvements"], []),
+        client_profile=row["client_profile"],
+        wa_number_id=row["wa_number_id"],
+        wa_label=row["wa_label"],
+        casa_name=row["casa_name"],
+        top_topics=_parse_jsonb(row.get("top_topics") if has_topics else None, []),
+        avoided_topics=_parse_jsonb(row.get("avoided_topics") if has_topics else None, []),
+        top_referrals=_parse_jsonb(row.get("top_referrals") if has_topics else None, []),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════

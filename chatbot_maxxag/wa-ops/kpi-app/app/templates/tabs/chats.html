@@ -57,30 +57,40 @@
     {# Per-WA cards #}
     {% for wn in wa_numbers %}
     {% set is_active = (active_wa == wn.id | string) %}
-    <a href="/casas/{{ casa_id }}?tab=chats&wa={{ wn.id }}"
-       class="group relative overflow-hidden rounded-xl border p-3 transition-all duration-200
-              {% if is_active %}border-accent bg-accent/10 shadow-[0_0_24px_rgba(16,185,129,0.18)]{% else %}border-border bg-surface hover:border-accent/40 hover:bg-surface-2{% endif %}">
-      <div class="flex items-start justify-between gap-2">
-        <span class="truncate text-[10px] font-bold uppercase tracking-wider {% if is_active %}text-accent{% else %}text-muted-2 group-hover:text-muted{% endif %}">
-          {{ wn.label }}
-        </span>
-        {% if wn.unread_total > 0 %}
-        <span class="rounded-full bg-accent px-1.5 py-0 text-[10px] font-bold text-bg leading-tight">{{ wn.unread_total }}</span>
+    <div class="group relative overflow-hidden rounded-xl border p-3 transition-all duration-200
+                {% if is_active %}border-accent bg-accent/10 shadow-[0_0_24px_rgba(16,185,129,0.18)]{% else %}border-border bg-surface hover:border-accent/40 hover:bg-surface-2{% endif %}">
+      <a href="/casas/{{ casa_id }}?tab=chats&wa={{ wn.id }}" class="block">
+        <div class="flex items-start justify-between gap-2 pr-7">
+          <span class="truncate text-[10px] font-bold uppercase tracking-wider {% if is_active %}text-accent{% else %}text-muted-2 group-hover:text-muted{% endif %}">
+            {{ wn.label }}
+          </span>
+          {% if wn.unread_total > 0 %}
+          <span class="rounded-full bg-accent px-1.5 py-0 text-[10px] font-bold text-bg leading-tight">{{ wn.unread_total }}</span>
+          {% endif %}
+        </div>
+        <div class="mt-1.5 flex items-baseline gap-1.5">
+          <span class="mono text-2xl font-semibold tracking-tight {% if is_active %}text-accent{% else %}text-text{% endif %}">{{ wn.conv_count }}</span>
+          <span class="text-[10px] text-muted-2">convs</span>
+        </div>
+        <div class="mt-0.5 text-[10px] text-muted truncate">
+          {% if wn.phone %}{{ format_phone(wn.phone) }}{% else %}Sin teléfono{% endif %}
+        </div>
+        {% if wn.last_activity %}
+        <div class="mt-0.5 text-[9px] text-muted-2 mono">
+          Últ: {{ (wn.last_activity | local).strftime('%d/%m %H:%M') }}
+        </div>
         {% endif %}
-      </div>
-      <div class="mt-1.5 flex items-baseline gap-1.5">
-        <span class="mono text-2xl font-semibold tracking-tight {% if is_active %}text-accent{% else %}text-text{% endif %}">{{ wn.conv_count }}</span>
-        <span class="text-[10px] text-muted-2">convs</span>
-      </div>
-      <div class="mt-0.5 text-[10px] text-muted truncate">
-        {% if wn.phone %}{{ format_phone(wn.phone) }}{% else %}Sin teléfono{% endif %}
-      </div>
-      {% if wn.last_activity %}
-      <div class="mt-0.5 text-[9px] text-muted-2 mono">
-        Últ: {{ (wn.last_activity | local).strftime('%d/%m %H:%M') }}
-      </div>
-      {% endif %}
-    </a>
+      </a>
+
+      {# Analizar este WhatsApp — fires meta-analysis scoped to this WA;
+         stopPropagation prevents the parent <a> filter-navigation. #}
+      <button type="button"
+              onclick="event.stopPropagation(); event.preventDefault(); window.__runWaAnalysis({{ casa_id }}, {{ wn.id }}, '{{ wn.label | replace("'", "\\'") }}')"
+              title="Generar informe IA de este WhatsApp"
+              class="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-border bg-surface-2 text-[12px] text-muted transition hover:border-accent hover:bg-accent/10 hover:text-accent">
+        🧠
+      </button>
+    </div>
     {% endfor %}
   </div>
 </div>
@@ -207,6 +217,101 @@
   </div>
   {% endif %}
 </section>
+
+{# Toast for per-WA meta-analysis trigger (non-blocking; user goes to /informes when ready) #}
+<div id="wa-analyze-toast"
+     class="pointer-events-none fixed bottom-6 right-6 z-50 hidden max-w-sm rounded-xl border border-border bg-surface-2 p-4 shadow-2xl backdrop-blur transition-opacity">
+  <div class="flex items-start gap-3">
+    <div id="wa-toast-icon" class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-accent/15 text-lg">🧠</div>
+    <div class="flex-1 min-w-0">
+      <div id="wa-toast-title" class="text-sm font-semibold text-text">Análisis encolado</div>
+      <div id="wa-toast-msg" class="mt-1 text-xs text-muted">El informe estará listo en unos minutos.</div>
+      <a id="wa-toast-link" href="/informes" class="mt-2 inline-block text-xs text-accent hover:underline">Ver Informes →</a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const toast = document.getElementById('wa-analyze-toast');
+  const titleEl = document.getElementById('wa-toast-title');
+  const msgEl = document.getElementById('wa-toast-msg');
+  const iconEl = document.getElementById('wa-toast-icon');
+  let hideTimer = null;
+
+  function showToast(opts) {
+    iconEl.textContent = opts.icon || '🧠';
+    iconEl.className = 'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-lg ' +
+                       (opts.iconClass || 'bg-accent/15');
+    titleEl.textContent = opts.title;
+    msgEl.textContent = opts.msg;
+    toast.classList.remove('hidden');
+    toast.classList.add('flex', 'pointer-events-auto');
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      toast.classList.add('hidden');
+      toast.classList.remove('flex', 'pointer-events-auto');
+    }, opts.duration || 8000);
+  }
+
+  // Triggered by the 🧠 button on each WA card.
+  // Fires meta-analysis scoped to a single wa_number; non-blocking — user can
+  // keep browsing while the worker churns. Result lands in /informes.
+  window.__runWaAnalysis = async function (casaId, waNumberId, label) {
+    showToast({
+      title: `Iniciando análisis de ${label}…`,
+      msg: 'Conectando con el servidor.',
+      icon: '⏳',
+    });
+    try {
+      const r = await fetch(
+        `/casas/${casaId}/meta-analyses?wa_number_id=${waNumberId}`,
+        { method: 'POST' }
+      );
+      if (r.status === 202) {
+        showToast({
+          title: `Análisis de ${label} encolado`,
+          msg: 'Tarda 30s-2min. Cuando termine aparecerá en Informes.',
+          icon: '🧠',
+          iconClass: 'bg-accent/15',
+          duration: 10000,
+        });
+      } else if (r.status === 409) {
+        showToast({
+          title: 'Ya hay un análisis en curso',
+          msg: 'Espera a que termine el actual antes de lanzar otro.',
+          icon: '⚠️',
+          iconClass: 'bg-amber/15',
+        });
+      } else if (r.status === 400) {
+        const data = await r.json().catch(() => ({}));
+        showToast({
+          title: 'No hay datos suficientes',
+          msg: data.detail || 'Necesitas al menos 10 conversaciones analizadas en este WhatsApp.',
+          icon: '🚫',
+          iconClass: 'bg-amber/15',
+          duration: 10000,
+        });
+      } else {
+        const txt = await r.text();
+        showToast({
+          title: 'Error al lanzar análisis',
+          msg: txt.slice(0, 200),
+          icon: '❌',
+          iconClass: 'bg-red/15',
+        });
+      }
+    } catch (e) {
+      showToast({
+        title: 'Error de red',
+        msg: e.message,
+        icon: '❌',
+        iconClass: 'bg-red/15',
+      });
+    }
+  };
+})();
+</script>
 
 {# Confirmation modal for bulk analyze — triggered via window.__confirmBulkAnalyze #}
 <div id="bulk-analyze-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">

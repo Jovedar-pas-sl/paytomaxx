@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Informe {{ informe.casa_name }} — Maxxag Ops{% endblock %}
+
+{% block content %}
+{# Breadcrumb #}
+<div class="mb-4 flex items-center gap-2 text-xs text-muted">
+  <a href="/informes" class="hover:text-text">← Informes</a>
+  <span class="text-muted-2">/</span>
+  <a href="/casas/{{ informe.account_id }}" class="hover:text-text">{{ informe.casa_name or 'Casa #' ~ informe.account_id }}</a>
+  {% if informe.wa_label %}
+  <span class="text-muted-2">/</span>
+  <span class="text-text">{{ informe.wa_label }}</span>
+  {% endif %}
+</div>
+
+<div class="card p-6">
+  <div class="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-muted-2 mono"
+           data-time="{{ informe.run_at.isoformat() }}">
+        {{ (informe.run_at | local).strftime('%d %B %Y · %H:%M') }}
+      </div>
+      <h1 class="mt-1 text-2xl font-semibold tracking-tight">
+        {{ informe.casa_name or 'Casa #' ~ informe.account_id }}
+      </h1>
+      <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
+        {% if informe.wa_label %}
+        <span class="rounded-full bg-blue/15 px-2 py-0.5 text-[10px] font-medium uppercase text-blue">
+          📱 {{ informe.wa_label }}
+        </span>
+        {% else %}
+        <span class="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium uppercase text-accent">
+          Toda la casa
+        </span>
+        {% endif %}
+        <span class="text-muted mono">{{ informe.conversations_analyzed }} conversaciones analizadas</span>
+      </div>
+    </div>
+    <a href="/casas/{{ informe.account_id }}?tab=analisis{% if informe.wa_number_id %}&wa={{ informe.wa_number_id }}{% endif %}"
+       class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted">
+      Ir a la casa →
+    </a>
+  </div>
+
+  {# Resumen ejecutivo #}
+  <section class="mb-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-2">Resumen ejecutivo</div>
+    <p class="text-sm leading-relaxed">{{ informe.summary }}</p>
+  </section>
+
+  {# Patterns + Strengths + Improvements #}
+  <section class="grid grid-cols-1 gap-5 lg:grid-cols-3 border-t border-border pt-5">
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-muted mb-2">🔍 Patrones detectados</div>
+      <ul class="space-y-2 text-xs">
+        {% for p in informe.patterns %}
+        {% set freq_color = {'alta': 'text-red', 'media': 'text-amber', 'baja': 'text-muted'} %}
+        <li class="flex items-start gap-2">
+          <span class="mt-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase {{ freq_color.get(p.frequency, 'text-muted') }}">
+            {{ p.frequency }}
+          </span>
+          <span class="text-muted leading-relaxed">{{ p.description }}</span>
+        </li>
+        {% else %}
+        <li class="text-muted-2 text-[11px]">Sin patrones registrados</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-green mb-2">💪 Puntos fuertes</div>
+      <ul class="space-y-1.5 text-xs list-disc list-inside text-muted">
+        {% for s in informe.strengths %}
+        <li>{{ s }}</li>
+        {% else %}
+        <li class="text-muted-2 list-none">—</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-amber mb-2">📈 Áreas a mejorar</div>
+      <ul class="space-y-1.5 text-xs list-disc list-inside text-muted">
+        {% for i in informe.improvements %}
+        <li>{{ i }}</li>
+        {% else %}
+        <li class="text-muted-2 list-none">—</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+
+  {# Perfil cliente #}
+  <section class="mt-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-blue mb-2">👤 Perfil típico de cliente</div>
+    <p class="text-xs leading-relaxed text-muted">{{ informe.client_profile }}</p>
+  </section>
+
+  {# Topics + Referrals #}
+  {% if informe.top_topics or informe.avoided_topics or informe.top_referrals %}
+  <section class="mt-5 grid grid-cols-1 gap-5 border-t border-border pt-5 lg:grid-cols-3">
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-green mb-2">🗣 De qué más habla</div>
+      {% if informe.top_topics %}
+      <ul class="space-y-1.5 text-xs">
+        {% for t in informe.top_topics %}
+        <li class="flex items-center justify-between gap-2">
+          <span>{{ t.topic }}</span>
+          <span class="mono text-[10px] text-muted">{{ t.count }} ({{ t.pct }}%)</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="text-[11px] text-muted">Sin datos suficientes</div>
+      {% endif %}
+    </div>
+
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-amber mb-2">🤐 Temas que no toca</div>
+      {% if informe.avoided_topics %}
+      <ul class="space-y-1.5 text-xs list-disc list-inside text-muted">
+        {% for t in informe.avoided_topics %}<li>{{ t }}</li>{% endfor %}
+      </ul>
+      {% else %}
+      <div class="text-[11px] text-muted">Sin gaps detectados</div>
+      {% endif %}
+    </div>
+
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-blue mb-2">🌐 De dónde llegan</div>
+      {% if informe.top_referrals %}
+      <ul class="space-y-1.5 text-xs">
+        {% for r in informe.top_referrals %}
+        <li class="flex items-center justify-between gap-2">
+          <span>{{ r.source }}</span>
+          <span class="mono text-[10px] text-muted">{{ r.count }} ({{ r.pct }}%)</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="text-[11px] text-muted">Los clientes no mencionan su origen</div>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
