@@ -105,8 +105,21 @@ async def _chats_tab(kpi, casa_id: int, wa_number_id: int | None = None) -> dict
     rows, total = await queries.list_conversations(
         kpi, casa_id=casa_id, wa_number_id=wa_number_id, limit=50, offset=0
     )
-    unanalyzed = await queries.count_unanalyzed_for_casa(kpi, casa_id)
-    return {"chat_rows": rows, "chat_total": total, "unanalyzed_count": unanalyzed}
+    # Per-WA count when filtered, last 24h window, includes open + closed +
+    # dirty (need re-analysis) — matches the on-demand "Generar informe" flow.
+    unanalyzed = await queries.count_unanalyzed_for_casa(
+        kpi, casa_id,
+        wa_number_id=wa_number_id,
+        since_hours=24,
+        include_open=True,
+        redo_dirty=True,
+    )
+    return {
+        "chat_rows": rows,
+        "chat_total": total,
+        "unanalyzed_count": unanalyzed,
+        "wa_number_id": wa_number_id,
+    }
 
 
 async def _metricas_tab(kpi, casa_id: int, days: int) -> dict:
@@ -131,15 +144,23 @@ async def _analisis_tab(kpi, casa_id: int, days: int, wa_number_id: int | None =
     history = await queries.list_meta_analyses(
         kpi, casa_id, days=days, limit=10, wa_number_id=wa_number_id
     )
-    # When filtering by a specific WA, the run-button gate must use the
-    # per-WA count — otherwise we'd let users try to meta-analyze a WA
-    # with <10 convs because the casa overall has plenty.
     if wa_number_id is not None:
         analyzed_count = await queries.count_analyzed_for_casa(
             kpi, casa_id, wa_number_id=wa_number_id
         )
     else:
         analyzed_count = await queries.count_analyzed_for_casa(kpi, casa_id)
+
+    # Pending convs in the last 24h that need analyzing (or re-analyzing) —
+    # informs the user up front roughly how long the bulk phase will take.
+    pending_count = await queries.count_unanalyzed_for_casa(
+        kpi, casa_id,
+        wa_number_id=wa_number_id,
+        since_hours=24,
+        include_open=True,
+        redo_dirty=True,
+    )
+
     analysis_history, analysis_total = await queries.list_analysis_history(
         kpi, casa_id, wa_number_id=wa_number_id, limit=50, offset=0,
     )
@@ -147,7 +168,10 @@ async def _analisis_tab(kpi, casa_id: int, days: int, wa_number_id: int | None =
         "meta_latest": latest,
         "meta_history": history,
         "analyzed_count": analyzed_count,
-        "can_run_meta": analyzed_count >= 10,
+        "pending_count": pending_count,
+        # Auto-cadena handles low-data cases internally; the gate is gone.
+        # Keep the var for backwards-compat with the template's older branches.
+        "can_run_meta": True,
         "analysis_history": analysis_history,
         "analysis_total": analysis_total,
         "wa_number_id": wa_number_id,

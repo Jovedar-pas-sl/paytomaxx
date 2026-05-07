@@ -241,12 +241,25 @@ async def _drift_pct(
         )
 
 
-async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | None = None) -> None:
-    """Meta-analyze a casa using last 50 analyzed conversations.
+async def meta_analyze_casa_job(
+    ctx: dict,
+    casa_id: int,
+    wa_number_id: int | None = None,
+    since_hours: int | None = 24,
+    max_convs: int = 200,
+) -> None:
+    """Meta-analyze a casa from analyzed conversations.
 
-    If `wa_number_id` is provided, restrict the sample to that WhatsApp only
-    — useful for per-WA insights when a casa has multiple numbers (oficial /
-    secundario / marketing etc.).
+    Window:
+      - ``since_hours=24`` (default) keeps it focused on recent activity —
+        matches the auto-cadena flow ("último día").
+      - ``since_hours=None`` falls back to the most recent ``max_convs``
+        regardless of when they were analyzed.
+
+    If ``wa_number_id`` is set, restricts to that WhatsApp.
+    The 10-conv minimum is no longer a hard error — we still need *some*
+    data, but the threshold drops to 3 so a brand-new WA can produce a
+    rough report instead of returning nothing.
     """
     import time
     from app.analyzer.meta_analysis import ConvSummary, run_meta_analysis
@@ -274,8 +287,20 @@ async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | Non
             )
             wa_label = wa_row["label"] if wa_row else None
 
-        wa_filter = "AND wa_number_id = $2" if wa_number_id is not None else ""
-        params = [casa_id] + ([wa_number_id] if wa_number_id is not None else [])
+        # Build WHERE/params dynamically
+        params: list = [casa_id]
+        where_parts = ["account_id = $1"]
+        if wa_number_id is not None:
+            params.append(wa_number_id)
+            where_parts.append(f"wa_number_id = ${len(params)}")
+        if since_hours is not None:
+            params.append(since_hours)
+            where_parts.append(
+                f"analyzed_at > now() - make_interval(hours => ${len(params)})"
+            )
+        params.append(max_convs)
+        limit_idx = len(params)
+
         rows = await conn.fetch(
             f"""
             SELECT conversation_id, mood_label, mood_score,
@@ -286,15 +311,24 @@ async def meta_analyze_casa_job(ctx: dict, casa_id: int, wa_number_id: int | Non
                    referral->>'source_kind'  AS referral_kind,
                    referral->>'source_name'  AS referral_name
             FROM analysis
-            WHERE account_id = $1 {wa_filter}
+            WHERE {' AND '.join(where_parts)}
             ORDER BY analyzed_at DESC
-            LIMIT 50
+            LIMIT ${limit_idx}
             """,
             *params,
         )
 
-    if len(rows) < 10:
-        logger.warning("casa %s has only %d analyzed convs, skipping", casa_id, len(rows))
+    if len(rows) < 3:
+        logger.warning(
+            "casa %s wa %s has only %d analyzed convs in window, skipping meta",
+            casa_id, wa_number_id, len(rows),
+        )
+        if redis:
+            await prog.set_progress(
+                redis, pkey, phase="error", pct=100,
+                message=f"Solo {len(rows)} convs analizadas — insuficiente para informe",
+                started_at=started,
+            )
         return
 
     conv_ids = [r["conversation_id"] for r in rows]
@@ -579,19 +613,110 @@ async def waha_health_check_job(ctx: dict) -> None:
                 await _bump_fail()
 
 
-async def analyze_conversations_bulk_job(ctx: dict, casa_id: int) -> None:
-    """Analyze all unanalyzed resolved convs for a casa."""
+async def analyze_conversations_bulk_job(
+    ctx: dict,
+    casa_id: int,
+    wa_number_id: int | None = None,
+    since_hours: int | None = 24,
+    include_open: bool = True,
+    redo_dirty: bool = True,
+    auto_meta: bool = False,
+) -> None:
+    """Bulk-analyze conversations + (optionally) chain into the meta-analysis.
+
+    Defaults match the on-demand "Generar informe" flow:
+      - last 24h, open + closed, re-analyze dirty
+      - auto_meta=True triggered from the UI 🧠 button → calls
+        meta_analyze_casa_job in the same worker run when bulk completes
+
+    Progress is published to Redis under progress_key("bulk", casa, wa) and
+    the frontend polls for it. When auto_meta=True the frontend also polls
+    progress_key("meta", casa, wa) after bulk reports done.
+    """
+    import time
     from app.queries import list_unanalyzed_conversation_ids
 
     kpi: asyncpg.Pool = ctx["kpi_db"]
-    ids = await list_unanalyzed_conversation_ids(kpi, casa_id, limit=500)
-    logger.info("bulk analyze casa %s → %d unanalyzed convs", casa_id, len(ids))
+    redis = ctx.get("redis")
+    started = time.time()
+    pkey = prog.progress_key("bulk", casa_id, wa_number_id)
 
-    for conv_id in ids:
+    if redis:
+        await prog.set_progress(redis, pkey, phase="fetching", pct=0,
+                                message="Buscando conversaciones a analizar…",
+                                started_at=started)
+
+    ids = await list_unanalyzed_conversation_ids(
+        kpi, casa_id,
+        wa_number_id=wa_number_id,
+        since_hours=since_hours,
+        include_open=include_open,
+        redo_dirty=redo_dirty,
+        limit=500,
+    )
+    total = len(ids)
+    scope = f"wa {wa_number_id}" if wa_number_id else "casa-wide"
+    logger.info("bulk analyze casa %s %s → %d convs (since_hours=%s)",
+                casa_id, scope, total, since_hours)
+
+    if total == 0:
+        if redis:
+            await prog.set_progress(redis, pkey, phase="done", pct=100,
+                                    message="Sin conversaciones nuevas",
+                                    started_at=started)
+        # Even if nothing to bulk-analyze, run meta if asked — the existing
+        # analyses already cover the window.
+        if auto_meta:
+            await asyncio.sleep(0.3)
+            try:
+                await meta_analyze_casa_job(ctx, casa_id, wa_number_id)
+            except Exception:
+                logger.exception("auto-meta after empty bulk failed")
+        return
+
+    sem = asyncio.Semaphore(5)
+    done_count = 0
+
+    async def _bounded(conv_id: int) -> None:
+        nonlocal done_count
+        async with sem:
+            try:
+                await analyze_conversation_job(ctx, conv_id)
+            except Exception:
+                logger.exception("bulk: failed conv %s", conv_id)
+            done_count += 1
+            if redis:
+                # Bulk reserves 0–95% of the bar (meta has its own progress key)
+                pct = min(95, int(done_count / total * 95))
+                await prog.set_progress(
+                    redis, pkey, phase="analyzing", pct=pct,
+                    message=f"Analizando {done_count}/{total} conversaciones…",
+                    started_at=started,
+                )
+
+    await asyncio.gather(*[_bounded(cid) for cid in ids], return_exceptions=True)
+
+    if redis:
+        await prog.set_progress(redis, pkey, phase="done", pct=100,
+                                message=f"✓ {total} conversaciones procesadas",
+                                started_at=started)
+
+    duration_ms = int((time.time() - started) * 1000)
+    logger.info(
+        '{"event":"bulk_analyze_done","casa_id":%d,"wa":%s,"convs":%d,"duration_ms":%d}',
+        casa_id, wa_number_id, total, duration_ms,
+    )
+
+    # Auto-cadena: dispara el meta-análisis directamente en este worker run.
+    # Llamada inline (no enqueue) — comparte ctx, sin TTL extra, sin doble flag.
+    if auto_meta:
+        # Pequeña pausa para que el frontend muestre 100% del bulk antes de
+        # pasar a la fase meta.
+        await asyncio.sleep(0.5)
         try:
-            await analyze_conversation_job(ctx, conv_id)
+            await meta_analyze_casa_job(ctx, casa_id, wa_number_id)
         except Exception:
-            logger.exception("failed analyzing conv %s during bulk", conv_id)
+            logger.exception("auto-meta after bulk failed")
 
 
 class WorkerSettings:

@@ -82,13 +82,15 @@
         {% endif %}
       </a>
 
-      {# Analizar este WhatsApp — fires meta-analysis scoped to this WA;
-         stopPropagation prevents the parent <a> filter-navigation. #}
+      {# Generar informe — dispara auto-cadena (bulk últimas 24h → meta).
+         No hay gate: si hay <10 análisis previos, la fase bulk los crea
+         antes de pasar al informe. stopPropagation evita la navegación
+         del <a> padre que filtra los chats por WA. #}
       <button type="button"
               onclick="event.stopPropagation(); event.preventDefault(); window.__runWaAnalysis({{ casa_id }}, {{ wn.id }}, '{{ wn.label | replace("'", "\\'") }}')"
-              title="Generar informe IA de este WhatsApp"
-              class="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-border bg-surface-2 text-[12px] text-muted transition hover:border-accent hover:bg-accent/10 hover:text-accent">
-        🧠
+              title="Generar informe IA de este WhatsApp (últ. 24h)"
+              class="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2.5 text-[11px] font-semibold text-accent transition hover:border-accent hover:bg-accent/20">
+        ⚡ Informe
       </button>
     </div>
     {% endfor %}
@@ -119,24 +121,29 @@
 </div>
 <style>.htmx-indicator{display:none}.htmx-request .htmx-indicator{display:inline}.htmx-request .htmx-indicator-off{display:none}</style>
 
-{# Banner unanalyzed (conditional) #}
+{# Banner: convs sin analizar en las últimas 24h, per-WA cuando hay filtro.
+   El botón dispara la cadena bulk → meta para producir un informe completo
+   sin que el usuario tenga que pensar en analizar conv-a-conv. #}
 {% if unanalyzed_count > 0 %}
+{% set scope_text = 'en este WhatsApp' if active_wa != 'all' else 'en toda la casa' %}
+{% set wa_arg = wa_number_id if wa_number_id else 'null' %}
 <div class="card mb-4 flex items-center gap-3 border border-amber/40 bg-amber/5 p-4">
   <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber/20 text-amber text-xl">
     🔔
   </div>
   <div class="flex-1">
     <div class="font-semibold text-text">
-      {{ unanalyzed_count }} conversaciones sin analizar
+      {{ unanalyzed_count }} conversaciones nuevas {{ scope_text }} (últ. 24h)
     </div>
     <div class="text-xs text-muted">
-      Coste estimado: ~${{ "%.2f"|format(unanalyzed_count * 0.003) }}
+      Coste estimado: ~${{ "%.2f"|format(unanalyzed_count * 0.003) }} ·
+      Tiempo: ~{{ ((unanalyzed_count / 50) | round | int) | default(1) }}min
     </div>
   </div>
   <button type="button"
-          onclick="window.__confirmBulkAnalyze({{ casa_id }}, {{ unanalyzed_count }})"
+          onclick="window.__confirmBulkAnalyze({{ casa_id }}, {{ unanalyzed_count }}, {{ wa_arg }}, true)"
           class="rounded-lg bg-amber px-4 py-2 text-sm font-semibold text-bg hover:bg-amber/90">
-    Analizar todas
+    {% if active_wa != 'all' %}Generar informe{% else %}Analizar todas{% endif %}
   </button>
 </div>
 {% endif %}
@@ -290,102 +297,76 @@
       : '';
   }
 
-  function startProgressPolling(casaId, waNumberId, label) {
-    const qs = `?wa_number_id=${waNumberId}`;
-    let consecutiveErrors = 0;
-    const MAX_POLL_S = 5 * 60; // 5 min hard cap
-    const startedAt = Date.now();
-
-    if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(async () => {
-      // Hard timeout — stop polling but inform user
-      if ((Date.now() - startedAt) / 1000 > MAX_POLL_S) {
-        clearInterval(pollTimer); pollTimer = null;
-        showToast({
-          title: 'Tarda más de lo normal',
-          msg: 'Sigue trabajando. Recarga /informes en unos minutos.',
-          icon: '⏳', iconClass: 'bg-amber/15',
-          duration: 12000,
-        });
-        return;
-      }
-      try {
-        const r = await fetch(`/casas/${casaId}/meta-analyses/progress${qs}`);
-        if (!r.ok) { consecutiveErrors++; if (consecutiveErrors > 5) clearInterval(pollTimer); return; }
-        consecutiveErrors = 0;
-        const p = await r.json();
-        if (p.state === 'running' || p.state === 'queued') {
-          titleEl.textContent = `Analizando ${label}…`;
-          msgEl.textContent = p.message || 'Procesando…';
-          setProgress(p.pct || 0, p.eta_s);
-        } else if (p.state === 'done') {
+  // Generic "poll a progress endpoint until done" — returns a promise that
+  // resolves with state ('done'/'error'/'empty'/'timeout') so callers can
+  // chain phases.
+  function pollUntilDone(url, phaseLabel) {
+    return new Promise(resolve => {
+      const startedAt = Date.now();
+      const MAX_POLL_S = 8 * 60; // 8 min cap covers worst-case (chained ~5min)
+      let consecutiveErrors = 0;
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(async () => {
+        if ((Date.now() - startedAt) / 1000 > MAX_POLL_S) {
           clearInterval(pollTimer); pollTimer = null;
-          setProgress(100, 0);
-          showToast({
-            title: `✓ Informe de ${label} listo`,
-            msg: 'Click en "Ver Informes" para abrirlo.',
-            icon: '✅', iconClass: 'bg-accent/15',
-            showProgress: true,
-            duration: 12000,
-          });
-          setProgress(100, 0); // re-apply after re-render
-        } else if (p.state === 'error') {
-          clearInterval(pollTimer); pollTimer = null;
-          showToast({
-            title: 'Error en el análisis',
-            msg: p.message || 'Revisa los logs del worker.',
-            icon: '❌', iconClass: 'bg-red/15',
-            duration: 10000,
-          });
-        } else if (p.state === 'empty') {
-          // Nothing in flight — worker probably finished + TTL expired
-          clearInterval(pollTimer); pollTimer = null;
+          resolve('timeout');
+          return;
         }
-      } catch (_) {
-        consecutiveErrors++;
-      }
-    }, 1000);
+        try {
+          const r = await fetch(url);
+          if (!r.ok) {
+            consecutiveErrors++;
+            if (consecutiveErrors > 6) { clearInterval(pollTimer); pollTimer = null; resolve('error'); }
+            return;
+          }
+          consecutiveErrors = 0;
+          const p = await r.json();
+          if (p.state === 'running' || p.state === 'queued') {
+            titleEl.textContent = phaseLabel;
+            msgEl.textContent = p.message || 'Procesando…';
+            setProgress(p.pct || 0, p.eta_s);
+          } else if (p.state === 'done') {
+            clearInterval(pollTimer); pollTimer = null;
+            setProgress(100, 0);
+            resolve('done');
+          } else if (p.state === 'error') {
+            clearInterval(pollTimer); pollTimer = null;
+            resolve('error');
+          } else if (p.state === 'empty') {
+            clearInterval(pollTimer); pollTimer = null;
+            resolve('empty');
+          }
+        } catch (_) {
+          consecutiveErrors++;
+        }
+      }, 1000);
+    });
   }
 
-  // Triggered by the 🧠 button on each WA card.
-  window.__runWaAnalysis = async function (casaId, waNumberId, label) {
+  // Run the full chain: bulk-analyze pending convs (last 24h) → meta-analysis.
+  // Triggered from the ⚡ Informe button on each WA card AND from the bulk
+  // modal confirmation. Single user action, two-phase progress bar.
+  async function runChainedAnalysis(casaId, waNumberId, label) {
+    const qs = waNumberId != null ? `?wa_number_id=${waNumberId}` : '';
+    const bulkUrl = `/casas/${casaId}/analyze-pending${qs}${qs ? '&' : '?'}auto_meta=true&since_hours=24`;
+    const bulkProgressUrl = `/casas/${casaId}/analyze-pending/progress${qs}`;
+    const metaProgressUrl = `/casas/${casaId}/meta-analyses/progress${qs}`;
+
     showToast({
       title: `Iniciando análisis de ${label}…`,
-      msg: 'Conectando con el servidor.',
+      msg: 'Conectando…',
       icon: '⏳',
+      showProgress: true,
     });
+    setProgress(0, null);
+
     try {
-      const r = await fetch(
-        `/casas/${casaId}/meta-analyses?wa_number_id=${waNumberId}`,
-        { method: 'POST' }
-      );
-      if (r.status === 202) {
-        showToast({
-          title: `Analizando ${label}…`,
-          msg: 'En cola…',
-          icon: '🧠', iconClass: 'bg-accent/15',
-          showProgress: true,
-        });
-        setProgress(5, null);
-        startProgressPolling(casaId, waNumberId, label);
-      } else if (r.status === 409) {
-        // Already running — start polling anyway so the user sees progress
-        showToast({
-          title: `Análisis de ${label} ya en curso`,
-          msg: 'Mostrando progreso del actual.',
-          icon: '⏳', iconClass: 'bg-amber/15',
-          showProgress: true,
-        });
-        startProgressPolling(casaId, waNumberId, label);
-      } else if (r.status === 400) {
-        const data = await r.json().catch(() => ({}));
-        showToast({
-          title: 'No hay datos suficientes',
-          msg: data.detail || 'Necesitas al menos 10 conversaciones analizadas en este WhatsApp.',
-          icon: '🚫', iconClass: 'bg-amber/15',
-          duration: 10000,
-        });
-      } else {
+      const r = await fetch(bulkUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed: true }),
+      });
+      if (r.status !== 202 && r.status !== 200) {
         const txt = await r.text();
         showToast({
           title: 'Error al lanzar análisis',
@@ -393,6 +374,7 @@
           icon: '❌', iconClass: 'bg-red/15',
           duration: 8000,
         });
+        return;
       }
     } catch (e) {
       showToast({
@@ -401,17 +383,85 @@
         icon: '❌', iconClass: 'bg-red/15',
         duration: 8000,
       });
+      return;
     }
+
+    // Phase A — bulk
+    const bulkResult = await pollUntilDone(bulkProgressUrl, `Analizando ${label}…`);
+    if (bulkResult === 'error') {
+      showToast({
+        title: 'Error analizando conversaciones',
+        msg: 'Revisa logs del worker.',
+        icon: '❌', iconClass: 'bg-red/15',
+        duration: 10000,
+      });
+      return;
+    }
+    if (bulkResult === 'timeout') {
+      showToast({
+        title: 'Tarda más de lo normal',
+        msg: 'Recarga /informes en unos minutos.',
+        icon: '⏳', iconClass: 'bg-amber/15',
+        duration: 12000,
+      });
+      return;
+    }
+
+    // Phase B — meta (auto-launched by the worker after bulk done)
+    titleEl.textContent = `Generando informe…`;
+    setProgress(0, null);
+    const metaResult = await pollUntilDone(metaProgressUrl, `Generando informe de ${label}…`);
+    if (metaResult === 'done') {
+      showToast({
+        title: `✓ Informe de ${label} listo`,
+        msg: 'Click "Ver Informes" para abrirlo.',
+        icon: '✅', iconClass: 'bg-accent/15',
+        showProgress: true,
+        duration: 15000,
+      });
+      setProgress(100, 0);
+    } else if (metaResult === 'error') {
+      showToast({
+        title: 'Error generando informe',
+        msg: 'Revisa logs.',
+        icon: '❌', iconClass: 'bg-red/15',
+        duration: 10000,
+      });
+    } else if (metaResult === 'empty') {
+      // Bulk found no convs to analyze AND no prior analyses exist.
+      showToast({
+        title: 'Sin datos para informe',
+        msg: 'Aún no hay conversaciones suficientes en las últimas 24h.',
+        icon: '📭', iconClass: 'bg-amber/15',
+        duration: 10000,
+      });
+    } else {
+      showToast({
+        title: 'Tarda más de lo normal',
+        msg: 'Recarga /informes en unos minutos.',
+        icon: '⏳', iconClass: 'bg-amber/15',
+        duration: 12000,
+      });
+    }
+  }
+
+  // Triggered by the ⚡ Informe button on each WA card — same auto-cadena.
+  window.__runWaAnalysis = function (casaId, waNumberId, label) {
+    return runChainedAnalysis(casaId, waNumberId, label);
   };
+  // Exposed for the bulk-analyze modal to reuse the chain.
+  window.__runChainedAnalysis = runChainedAnalysis;
 })();
 </script>
 
-{# Confirmation modal for bulk analyze — triggered via window.__confirmBulkAnalyze #}
+{# Confirmation modal — triggered by the banner button.
+   When per-WA (wa_number_id != null) the confirm path runs the bulk → meta
+   chain via the toast's progress bar. Casa-wide just enqueues bulk only. #}
 <div id="bulk-analyze-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
   <div class="card max-w-md p-6">
-    <h3 class="text-lg font-bold">Analizar <span id="bulk-count">0</span> conversaciones</h3>
-    <p class="mt-2 text-sm text-muted">
-      Claude analizará cada conversación cerrada que aún no tiene análisis.<br>
+    <h3 class="text-lg font-bold" id="bulk-modal-title">Analizar <span id="bulk-count">0</span> conversaciones</h3>
+    <p class="mt-2 text-sm text-muted" id="bulk-modal-desc">
+      Claude analizará las conversaciones de las últimas 24h.<br>
       Coste estimado: <strong class="text-text">$<span id="bulk-cost">0.00</span></strong>
       · Tiempo: ~<span id="bulk-time">1</span> min
     </p>
@@ -430,18 +480,46 @@
 
 <script>
 (function () {
-  const modal = document.getElementById('bulk-analyze-modal');
-  const countEl = document.getElementById('bulk-count');
-  const costEl = document.getElementById('bulk-cost');
-  const timeEl = document.getElementById('bulk-time');
-  const confirmBtn = document.getElementById('bulk-analyze-confirm');
+  const modal     = document.getElementById('bulk-analyze-modal');
+  const titleEl   = document.getElementById('bulk-modal-title');
+  const descEl    = document.getElementById('bulk-modal-desc');
+  const countEl   = document.getElementById('bulk-count');
+  const costEl    = document.getElementById('bulk-cost');
+  const timeEl    = document.getElementById('bulk-time');
+  const confirmBtn= document.getElementById('bulk-analyze-confirm');
   let currentCasaId = null;
+  let currentWaId   = null;
+  let currentChain  = false;
 
-  window.__confirmBulkAnalyze = function (casaId, count) {
+  // Signature: (casaId, count, waNumberId|null, autoMeta)
+  // - waNumberId=null + autoMeta=true → casa-wide bulk only (no chain to meta)
+  // - waNumberId=N    + autoMeta=true → chain bulk → meta for that WA
+  window.__confirmBulkAnalyze = function (casaId, count, waNumberId, autoMeta) {
     currentCasaId = casaId;
+    currentWaId   = waNumberId;
+    currentChain  = !!autoMeta && waNumberId != null;
     countEl.textContent = count;
-    costEl.textContent = (count * 0.003).toFixed(2);
-    timeEl.textContent = Math.max(1, Math.round(count / 30));
+    costEl.textContent  = (count * 0.003).toFixed(2);
+    // Approx: 5 parallel × ~3s/conv → count/100 minutes for bulk; +1min meta if chained
+    const bulkMin = Math.max(1, Math.round(count / 100));
+    const totalMin = currentChain ? bulkMin + 1 : bulkMin;
+    timeEl.textContent = totalMin;
+
+    if (currentChain) {
+      titleEl.textContent = 'Generar informe de este WhatsApp';
+      descEl.innerHTML =
+        `Analizaré ${count} conversaciones nuevas (últ. 24h) y luego ` +
+        `generaré el informe completo (de dónde llegan, patrones, etc.).<br>` +
+        `Coste: <strong class="text-text">$<span id="bulk-cost">${(count*0.003).toFixed(2)}</span></strong> ` +
+        `· Tiempo: ~<span id="bulk-time">${totalMin}</span> min`;
+    } else {
+      titleEl.textContent = `Analizar ${count} conversaciones`;
+      descEl.innerHTML =
+        `Claude analizará las conversaciones de las últimas 24h en toda la casa.<br>` +
+        `Coste: <strong class="text-text">$<span id="bulk-cost">${(count*0.003).toFixed(2)}</span></strong> ` +
+        `· Tiempo: ~<span id="bulk-time">${totalMin}</span> min`;
+    }
+
     modal.classList.remove('hidden');
     modal.classList.add('flex');
   };
@@ -449,11 +527,26 @@
     modal.classList.add('hidden');
     modal.classList.remove('flex');
   };
+
   confirmBtn.addEventListener('click', async () => {
     confirmBtn.disabled = true;
-    confirmBtn.textContent = 'Encolando…';
+    confirmBtn.textContent = 'Iniciando…';
+
+    if (currentChain && typeof window.__runChainedAnalysis === 'function') {
+      // Per-WA chained flow: close modal + drive the toast's progress bar
+      window.__closeBulkAnalyze();
+      try {
+        await window.__runChainedAnalysis(currentCasaId, currentWaId, 'este WhatsApp');
+      } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '▶ Ejecutar';
+      }
+      return;
+    }
+
+    // Casa-wide fallback (no chain) — just enqueue and reload
     try {
-      const r = await fetch(`/casas/${currentCasaId}/analyze-pending`, {
+      const r = await fetch(`/casas/${currentCasaId}/analyze-pending?since_hours=24`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmed: true }),

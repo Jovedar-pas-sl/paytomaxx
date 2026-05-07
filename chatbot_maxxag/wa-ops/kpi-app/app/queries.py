@@ -760,32 +760,105 @@ async def count_analyzed_for_casa(
         ) or 0
 
 
-async def count_unanalyzed_for_casa(kpi: asyncpg.Pool, casa_id: int) -> int:
-    """Resolved conversations NOT yet in analysis table."""
+def _build_pending_filter(
+    *,
+    wa_number_id: int | None,
+    since_hours: int | None,
+    include_open: bool,
+    redo_dirty: bool,
+) -> tuple[str, list]:
+    """Build the WHERE/JOIN fragments for "convs that need analyzing right now".
+
+    Returns ``(sql_fragment, extra_params)`` where ``$1=casa_id`` is always the
+    first placeholder and the fragment uses ``${i}`` for additional params.
+
+    Logic:
+      - filter by casa_id (caller binds $1)
+      - optionally filter by wa_number_id
+      - optionally filter to messages received in the last N hours
+      - status: 'resolved' only OR all statuses
+      - "needs analyzing" = no analysis row OR (redo_dirty AND analysis older
+        than the conversation's last_message_at)
+    """
+    params: list = []
+    where = ["c.casa_id = $1"]
+    next_idx = 2
+
+    if wa_number_id is not None:
+        where.append(f"c.wa_number_id = ${next_idx}")
+        params.append(wa_number_id)
+        next_idx += 1
+
+    if not include_open:
+        where.append("c.status = 'resolved'")
+
+    if since_hours is not None:
+        where.append(f"c.last_message_at > now() - make_interval(hours => ${next_idx})")
+        params.append(since_hours)
+        next_idx += 1
+
+    if redo_dirty:
+        # No analysis OR analysis is stale (new messages arrived after analyzed_at).
+        where.append(
+            "(NOT EXISTS (SELECT 1 FROM analysis a WHERE a.conversation_id = c.id) "
+            "OR EXISTS (SELECT 1 FROM analysis a WHERE a.conversation_id = c.id "
+            "           AND a.analyzed_at < c.last_message_at))"
+        )
+    else:
+        where.append("NOT EXISTS (SELECT 1 FROM analysis a WHERE a.conversation_id = c.id)")
+
+    return " AND ".join(where), params
+
+
+async def count_unanalyzed_for_casa(
+    kpi: asyncpg.Pool,
+    casa_id: int,
+    *,
+    wa_number_id: int | None = None,
+    since_hours: int | None = None,
+    include_open: bool = True,
+    redo_dirty: bool = True,
+) -> int:
+    """Count conversations that still need analysis (or re-analysis).
+
+    Defaults match the on-demand "Generar informe" flow: include open + closed,
+    re-analyze dirty ones. Pass ``include_open=False, redo_dirty=False`` to get
+    the legacy behaviour (resolved-only, never repeat)."""
+    where, extra = _build_pending_filter(
+        wa_number_id=wa_number_id, since_hours=since_hours,
+        include_open=include_open, redo_dirty=redo_dirty,
+    )
     async with kpi.acquire() as conn:
         return await conn.fetchval(
-            """
-            SELECT count(*) FROM conversation c
-            WHERE c.casa_id = $1 AND c.status = 'resolved'
-              AND NOT EXISTS (SELECT 1 FROM analysis a WHERE a.conversation_id = c.id)
-            """,
-            casa_id,
+            f"SELECT count(*) FROM conversation c WHERE {where}",
+            casa_id, *extra,
         ) or 0
 
 
 async def list_unanalyzed_conversation_ids(
-    kpi: asyncpg.Pool, casa_id: int, limit: int = 500,
+    kpi: asyncpg.Pool,
+    casa_id: int,
+    *,
+    wa_number_id: int | None = None,
+    since_hours: int | None = None,
+    include_open: bool = True,
+    redo_dirty: bool = True,
+    limit: int = 500,
 ) -> list[int]:
+    """List conversation IDs that need analysis (or re-analysis), most recent first."""
+    where, extra = _build_pending_filter(
+        wa_number_id=wa_number_id, since_hours=since_hours,
+        include_open=include_open, redo_dirty=redo_dirty,
+    )
     async with kpi.acquire() as conn:
         rows = await conn.fetch(
-            """
+            f"""
             SELECT c.id FROM conversation c
-            WHERE c.casa_id = $1 AND c.status = 'resolved'
-              AND NOT EXISTS (SELECT 1 FROM analysis a WHERE a.conversation_id = c.id)
-            ORDER BY c.updated_at DESC
-            LIMIT $2
+            WHERE {where}
+            ORDER BY c.last_message_at DESC NULLS LAST
+            LIMIT ${len(extra) + 2}
             """,
-            casa_id, limit,
+            casa_id, *extra, limit,
         )
     return [r["id"] for r in rows]
 

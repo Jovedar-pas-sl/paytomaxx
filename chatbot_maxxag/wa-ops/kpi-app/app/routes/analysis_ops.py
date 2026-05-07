@@ -156,9 +156,20 @@ async def enqueue_bulk_analyze(
     request: Request,
     user: CurrentUser,  # noqa: ARG001
     kpi: KpiDB,
-    redis: Redis,  # noqa: ARG001 — reserved for future rate limiting
+    redis: Redis,
     arq: Arq,
+    wa_number_id: int | None = Query(default=None),
+    since_hours: int | None = Query(default=24, ge=1, le=720),
+    auto_meta: bool = Query(default=False),
 ) -> Response:
+    """Enqueue bulk analysis. With ``auto_meta=true`` the worker also runs
+    the meta-analysis at the end so the frontend gets a chained progress
+    bar (bulk → meta) without a second user click.
+
+    Defaults reflect the on-demand "Generar informe" flow: last 24h, open +
+    closed, re-analyze dirty conversations (those with new msgs after their
+    previous analysis).
+    """
     body = await request.json() if await request.body() else {}
     if not body.get("confirmed"):
         raise HTTPException(
@@ -166,15 +177,34 @@ async def enqueue_bulk_analyze(
             detail="Missing confirmation — frontend must send {confirmed: true}",
         )
 
-    ids = await queries.list_unanalyzed_conversation_ids(kpi, casa_id, limit=500)
-    if not ids:
+    ids = await queries.list_unanalyzed_conversation_ids(
+        kpi, casa_id,
+        wa_number_id=wa_number_id,
+        since_hours=since_hours,
+        include_open=True,
+        redo_dirty=True,
+        limit=500,
+    )
+
+    # Even if no convs need analyzing, still enqueue when auto_meta is set so
+    # the frontend chain progresses to the meta phase using existing analyses.
+    if not ids and not auto_meta:
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"data": {"enqueued_count": 0, "message": "Nothing to analyze"}},
         )
 
-    # Enqueue the bulk job (which will process ids internally)
-    await arq.enqueue_job("analyze_conversations_bulk_job", casa_id)
+    # When auto_meta, also reserve the meta running flag here so the
+    # /meta-analyses/progress endpoint returns 'queued' immediately and
+    # any concurrent meta trigger gets a 409.
+    if auto_meta:
+        meta_flag = _meta_running_key(casa_id, wa_number_id)
+        await redis.set(meta_flag, "1", nx=True, ex=900)  # 15 min cushion for chain
+
+    await arq.enqueue_job(
+        "analyze_conversations_bulk_job",
+        casa_id, wa_number_id, since_hours, True, True, auto_meta,
+    )
 
     estimated_cost_usd = round(len(ids) * 0.003, 2)
     return JSONResponse(
@@ -182,8 +212,43 @@ async def enqueue_bulk_analyze(
         content={"data": {
             "enqueued_count": len(ids),
             "estimated_cost_usd": estimated_cost_usd,
+            "wa_number_id": wa_number_id,
+            "since_hours": since_hours,
+            "auto_meta": auto_meta,
         }},
     )
+
+
+@router.get("/casas/{casa_id}/analyze-pending/progress")
+async def bulk_analyze_progress(
+    casa_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    redis: Redis,
+    wa_number_id: int | None = Query(default=None),
+) -> dict:
+    """Live progress of in-flight bulk analysis (parallel with semaphore=5)."""
+    pkey = prog.progress_key("bulk", casa_id, wa_number_id)
+    p = await prog.get_progress(redis, pkey)
+    if not p:
+        return {"phase": "idle", "pct": 0, "message": "",
+                "elapsed_s": 0, "eta_s": None, "state": "empty"}
+
+    elapsed = max(0, int(time.time() - p["started_at"]))
+    pct = p.get("pct", 0)
+    eta: int | None = None
+    if 0 < pct < 100:
+        eta = max(0, int(elapsed * (100 - pct) / pct))
+    state = "done" if p.get("phase") == "done" else (
+        "error" if p.get("phase") == "error" else "running"
+    )
+    return {
+        "phase": p.get("phase", "running"),
+        "pct": pct,
+        "message": p.get("message", ""),
+        "elapsed_s": elapsed,
+        "eta_s": eta,
+        "state": state,
+    }
 
 
 # ── Single conversation analysis ───────────────────────────────────
