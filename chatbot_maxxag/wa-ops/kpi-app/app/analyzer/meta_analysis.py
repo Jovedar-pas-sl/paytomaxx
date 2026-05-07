@@ -32,13 +32,17 @@ class ReferralShare(BaseModel):
 
 
 class MetaAnalysisResult(BaseModel):
-    summary: str = Field(..., max_length=300)
+    # Limits raised to match the rebalanced META_PROMPT (richer summary +
+    # client_profile, fewer patterns). Generous max_length leaves margin
+    # for Claude to occasionally exceed the suggested target without the
+    # whole report failing.
+    summary: str = Field(..., max_length=1500)
     patterns: list[Pattern] = Field(..., min_length=1, max_length=10)
     strengths: list[str] = Field(..., min_length=1, max_length=8)
     improvements: list[str] = Field(..., min_length=1, max_length=8)
-    client_profile: str = Field(..., max_length=600)
+    client_profile: str = Field(..., max_length=2000)
     # New per-WA fields — populated when enough data is available, otherwise empty.
-    top_topics: list[TopicShare] = Field(default_factory=list, max_length=8)
+    top_topics: list[TopicShare] = Field(default_factory=list, max_length=10)
     avoided_topics: list[str] = Field(default_factory=list, max_length=8)
     top_referrals: list[ReferralShare] = Field(default_factory=list, max_length=6)
 
