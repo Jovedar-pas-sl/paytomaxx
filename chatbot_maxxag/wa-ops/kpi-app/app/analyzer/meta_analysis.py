@@ -91,9 +91,15 @@ async def run_meta_analysis(
         )
     user_content = "\n".join(lines)
 
+    # Meta needs much more output budget than the per-skill default (800):
+    # summary + 3-6 patterns + 3-5 strengths + 3-5 improvements + client_profile
+    # + 3-6 top_topics + 1-4 avoided_topics + 2-5 top_referrals = easily 3-4k tokens.
+    # 60s timeout covers Haiku generating that volume.
     data = await _call_json(
         system=prompts.META_PROMPT,
         user=user_content,
         schema=MetaAnalysisResult.model_json_schema(),
+        max_tokens=4000,
+        timeout=60.0,
     )
     return MetaAnalysisResult.model_validate(data)

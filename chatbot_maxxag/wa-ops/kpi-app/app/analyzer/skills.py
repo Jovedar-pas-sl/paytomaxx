@@ -86,25 +86,30 @@ def _fix_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
-async def _call_json(system: str, user: str, schema: dict[str, Any]) -> dict[str, Any]:
+async def _call_json(
+    system: str, user: str, schema: dict[str, Any],
+    *, max_tokens: int = 800, timeout: float = 30.0,
+) -> dict[str, Any]:
     """Invoke Claude Haiku 4.5 with structured JSON output and return the parsed dict.
 
-    max_tokens=800 buffer for JSON. Schema is fixed to Anthropic's subset:
-    additionalProperties=false on every object, unsupported constraints stripped.
+    Default max_tokens=800 covers the small per-skill JSON (mood, treat, etc.).
+    The meta-analysis output is much larger (summary + 3-6 patterns + 3-5
+    strengths + 3-5 improvements + client_profile + topics + referrals) and
+    needs ~3000+ tokens — pass it explicitly from the caller.
 
-    Per-request timeout 30s — Haiku usually responds in 1-5s; anything beyond
-    30s is a network/API hang. Without this the SDK default is 10min, which
-    blocks the whole bulk job when one call gets stuck.
+    Per-request timeout 30s default — meta passes 60s for the bigger payload.
+    Without this the SDK default is 10min, which blocks the whole bulk job
+    when one call gets stuck.
     """
     fixed = _fix_schema(copy.deepcopy(schema))  # deep copy — don't mutate Pydantic's cached schema
     client = _get_client()
     response = await client.messages.create(
         model=MODEL,
-        max_tokens=800,
+        max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": user}],
         output_config={"format": {"type": "json_schema", "schema": fixed}},  # type: ignore[arg-type]
-        timeout=30.0,
+        timeout=timeout,
     )
     if response.stop_reason == "max_tokens":
         raise RuntimeError("Claude hit max_tokens — JSON likely truncated")
