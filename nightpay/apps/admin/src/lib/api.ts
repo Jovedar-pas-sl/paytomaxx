@@ -9,9 +9,55 @@ const USER_KEY = 'np_admin_user';
 export interface User {
   id: string;
   email: string;
-  role: 'OWNER' | 'MANAGER' | 'WAITER';
+  role: 'OWNER' | 'MANAGER' | 'WAITER' | 'OPERATOR';
   tenantId: string;
   venueSlug: string;
+}
+
+export interface OperatorBalance {
+  pendingCents: number;
+  paidCents: number;
+  lifetimeGrossCents: number;
+  count: number;
+}
+
+export interface Operator {
+  id: string;
+  email: string;
+  displayName: string | null;
+  commissionBps: number;
+  active: boolean;
+  invitedAt: string | null;
+  createdAt: string;
+  balance: OperatorBalance;
+}
+
+export interface OperatorEarning {
+  id: string;
+  paymentId: string;
+  paymentAmountCents: number;
+  commissionBps: number;
+  commissionCents: number;
+  reversedCents: number;
+  netCents: number;
+  payoutId: string | null;
+  paymentStatus: string;
+  createdAt: string;
+}
+
+export interface OperatorPayout {
+  id: string;
+  totalCents: number;
+  paidByEmail: string | null;
+  notes: string | null;
+  earningCount: number;
+  createdAt: string;
+}
+
+export interface CreateOperatorResponse {
+  operator: Omit<Operator, 'balance'>;
+  inviteUrl: string;
+  emailSent: boolean;
 }
 
 export interface LoginResponse {
@@ -230,6 +276,63 @@ export async function refundPayment(
   const res = await authedFetch(`/v1/payments/${paymentId}/refunds`, {
     method: 'POST',
     body: JSON.stringify({ amountCents, reason, totpCode }),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+// ─── Operadoras ────────────────────────────────────────────────────
+
+export async function fetchOperators(): Promise<Operator[]> {
+  const res = await authedFetch('/v1/admin/operators');
+  if (!res.ok) throw new Error('Error cargando operadoras');
+  return res.json();
+}
+
+export async function createOperator(input: {
+  email: string;
+  displayName: string;
+  commissionBps: number;
+}): Promise<CreateOperatorResponse> {
+  const res = await authedFetch('/v1/admin/operators', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+export async function updateOperator(
+  id: string,
+  input: { displayName?: string; commissionBps?: number; active?: boolean },
+): Promise<Omit<Operator, 'balance'>> {
+  const res = await authedFetch(`/v1/admin/operators/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+export async function fetchOperatorEarnings(id: string): Promise<OperatorEarning[]> {
+  const res = await authedFetch(`/v1/admin/operators/${id}/earnings`);
+  if (!res.ok) throw new Error('Error cargando earnings');
+  return res.json();
+}
+
+export async function fetchOperatorPayouts(id: string): Promise<OperatorPayout[]> {
+  const res = await authedFetch(`/v1/admin/operators/${id}/payouts`);
+  if (!res.ok) throw new Error('Error cargando payouts');
+  return res.json();
+}
+
+export async function createOperatorPayout(
+  id: string,
+  notes?: string,
+): Promise<{ id: string; totalCents: number; earningCount: number; createdAt: string }> {
+  const res = await authedFetch(`/v1/admin/operators/${id}/payouts`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
   });
   if (!res.ok) throw new Error(`Error: ${await res.text()}`);
   return res.json();

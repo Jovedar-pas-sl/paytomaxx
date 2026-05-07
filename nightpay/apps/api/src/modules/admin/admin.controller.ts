@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -6,11 +7,13 @@ import {
   NotFoundException,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { z } from 'zod';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Tenant } from '../../common/decorators/tenant.decorator';
@@ -18,8 +21,18 @@ import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RefreshTokenService } from '../auth/refresh-token.service';
 import { AuditService } from '../audit/audit.service';
+import { OperatorsService } from '../operators/operators.service';
 import { ClsService } from 'nestjs-cls';
-import type { PaymentStatus } from '@nightpay/contracts';
+import {
+  CreateOperatorSchema,
+  CreatePayoutSchema,
+  UpdateOperatorSchema,
+  type CreateOperatorDto,
+  type CreatePayoutDto,
+  type JwtPayload,
+  type PaymentStatus,
+  type UpdateOperatorDto,
+} from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
 
 const ListPaymentsQuerySchema = z.object({
@@ -42,17 +55,20 @@ export class AdminController {
   private readonly prisma: PrismaService;
   private readonly refreshTokens: RefreshTokenService;
   private readonly audit: AuditService;
+  private readonly operators: OperatorsService;
   private readonly cls: ClsService<{ ctx: RequestContext }>;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(RefreshTokenService) refreshTokens: RefreshTokenService,
     @Inject(AuditService) audit: AuditService,
+    @Inject(OperatorsService) operators: OperatorsService,
     @Inject(ClsService) cls: ClsService<{ ctx: RequestContext }>,
   ) {
     this.prisma = prisma;
     this.refreshTokens = refreshTokens;
     this.audit = audit;
+    this.operators = operators;
     this.cls = cls;
   }
 
@@ -201,6 +217,69 @@ export class AdminController {
     });
 
     return { revoked, userId };
+  }
+
+  // ─── Operadoras (chicas) ──────────────────────────────────────────
+
+  @Get('operators')
+  @Roles('OWNER', 'MANAGER')
+  async listOperators(@Tenant() tenantId: string) {
+    return this.operators.listVenueOperators(tenantId);
+  }
+
+  @Post('operators')
+  @Roles('OWNER', 'MANAGER')
+  async createOperator(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(CreateOperatorSchema)) dto: CreateOperatorDto,
+  ) {
+    return this.operators.createOperator(tenantId, user.sub, dto);
+  }
+
+  @Patch('operators/:id')
+  @Roles('OWNER', 'MANAGER')
+  async updateOperator(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(UpdateOperatorSchema)) dto: UpdateOperatorDto,
+  ) {
+    return this.operators.updateOperator(tenantId, id, user.sub, dto);
+  }
+
+  @Get('operators/:id/earnings')
+  @Roles('OWNER', 'MANAGER')
+  async listOperatorEarnings(
+    @Tenant() tenantId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.operators.listOperatorEarnings(tenantId, id);
+  }
+
+  @Get('operators/:id/payouts')
+  @Roles('OWNER', 'MANAGER')
+  async listOperatorPayouts(
+    @Tenant() tenantId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.operators.listOperatorPayouts(tenantId, id);
+  }
+
+  /**
+   * Marca payout — agrupa earnings pendientes y los liquida.
+   * Restringido a OWNER (auditoría — payout = movimiento de dinero).
+   */
+  @Post('operators/:id/payouts')
+  @Roles('OWNER')
+  @HttpCode(201)
+  async createOperatorPayout(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(CreatePayoutSchema)) dto: CreatePayoutDto,
+  ) {
+    return this.operators.createPayout(tenantId, id, user.sub, dto.notes);
   }
 }
 

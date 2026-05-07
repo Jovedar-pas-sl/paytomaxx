@@ -1,0 +1,38 @@
+{
+  "name": "nightpay",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "e2e": "turbo run e2e",
+    "lint:root": "eslint \"apps/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\" --max-warnings 0",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,yml,yaml}\"",
+    "db:generate": "pnpm --filter @nightpay/db generate",
+    "db:migrate": "pnpm --filter @nightpay/db migrate",
+    "db:migrate:dev": "pnpm --filter @nightpay/db migrate:dev",
+    "db:migrate:reset": "pnpm --filter @nightpay/db migrate:reset",
+    "db:seed": "pnpm --filter @nightpay/db seed",
+    "db:studio": "pnpm --filter @nightpay/db studio",
+    "cli": "pnpm --filter @nightpay/db cli",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2.1.0",
+    "typescript": "^5.5.4",
+    "prettier": "^3.3.3",
+    "@types/node": "^20.14.0",
+    "eslint": "^9.9.0",
+    "@eslint/js": "^9.9.0",
+    "@typescript-eslint/parser": "^8.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.3.0"
+  }
+}

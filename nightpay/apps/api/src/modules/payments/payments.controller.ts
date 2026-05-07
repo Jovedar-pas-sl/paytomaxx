@@ -38,13 +38,29 @@ export class PaymentsController {
   @Post()
   @HttpCode(201)
   @UseGuards(RolesGuard)
-  @Roles('OWNER', 'MANAGER', 'WAITER')
+  @Roles('OWNER', 'MANAGER', 'WAITER', 'OPERATOR')
   async create(
     @Tenant() tenantId: string,
     @IdempotencyKey() idempotencyKey: string,
     @Body(new ZodValidationPipe(CreatePaymentSchema)) dto: CreatePaymentDto,
   ): Promise<CreatedPaymentResponse> {
     return this.payments.create(tenantId, idempotencyKey, dto);
+  }
+
+  /**
+   * Cancela un pago en estado CREATED|AWAITING_CAPTURE.
+   * - OPERATOR solo cancela los suyos (createdByUserId === userId).
+   * - OWNER/MANAGER cancelan cualquiera del venue.
+   */
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER', 'OPERATOR')
+  async cancel(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ status: string }> {
+    return this.payments.cancel(id, { userId: user.sub, role: user.role });
   }
 
   /**

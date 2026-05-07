@@ -1,0 +1,396 @@
+/* NightPay design tokens — dark + light themes.
+   Imported once from each app's root layout. */
+
+:root {
+  /* Spacing — 4px base */
+  --np-s-1: 0.25rem;
+  --np-s-2: 0.5rem;
+  --np-s-3: 0.75rem;
+  --np-s-4: 1rem;
+  --np-s-5: 1.5rem;
+  --np-s-6: 2rem;
+  --np-s-7: 3rem;
+  --np-s-8: 4rem;
+  --np-s-9: 6rem;
+
+  /* Radius */
+  --np-r-sm: 8px;
+  --np-r-md: 12px;
+  --np-r-lg: 20px;
+  --np-r-pill: 999px;
+
+  /* Type */
+  --np-t-amount: clamp(4rem, 9vw, 9rem);
+  --np-t-h1: clamp(2rem, 3vw, 3.25rem);
+  --np-t-h2: clamp(1.5rem, 2vw, 2rem);
+  --np-t-h3: 1.25rem;
+  --np-t-body: clamp(0.95rem, 0.4vw + 0.85rem, 1rem);
+  --np-t-ui: 0.8125rem;
+
+  /* Motion */
+  --np-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --np-d-fast: 150ms;
+  --np-d-base: 250ms;
+  --np-d-slow: 600ms;
+
+  /* Fonts — set on <html> by next/font, here as fallback */
+  --np-font-sans:
+    var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --np-font-mono:
+    var(--font-mono), 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+:root,
+[data-theme='dark'] {
+  /* Surfaces */
+  --np-bg: oklch(8% 0.012 270);
+  --np-surface: oklch(13% 0.014 270);
+  --np-surface-2: oklch(18% 0.018 270);
+  --np-border: oklch(26% 0.02 270);
+  --np-border-hi: oklch(36% 0.025 270);
+
+  /* Text — verified WCAG AAA on --np-bg */
+  --np-text: oklch(96% 0.005 270);
+  --np-text-mute: oklch(68% 0.012 270);
+  --np-text-dim: oklch(48% 0.012 270);
+
+  /* Accent — single neon, used sparingly */
+  --np-accent: oklch(80% 0.16 200);
+  --np-accent-2: oklch(72% 0.2 200);
+  --np-glow: oklch(80% 0.16 200 / 0.32);
+
+  /* Semantic */
+  --np-success: oklch(74% 0.18 145);
+  --np-danger: oklch(68% 0.22 25);
+  --np-warning: oklch(80% 0.16 75);
+  --np-purple: oklch(75% 0.16 320);
+
+  /* Pill backgrounds (theme-aware) */
+  --np-pill-mute-bg: oklch(20% 0.012 270);
+  --np-pill-cyan-bg: oklch(22% 0.06 200);
+  --np-pill-success-bg: oklch(22% 0.06 145);
+  --np-pill-danger-bg: oklch(22% 0.08 25);
+  --np-pill-warning-bg: oklch(22% 0.06 75);
+  --np-pill-purple-bg: oklch(22% 0.06 320);
+
+  /* Backdrop for modals (matches surrounding tone) */
+  --np-backdrop: oklch(5% 0.01 270 / 0.7);
+
+  /* Grain visibility */
+  --np-grain-opacity: 0.045;
+  --np-grain-blend: overlay;
+}
+
+[data-theme='light'] {
+  --np-bg: oklch(98% 0.004 270);
+  --np-surface: oklch(100% 0 0);
+  --np-surface-2: oklch(96% 0.005 270);
+  --np-border: oklch(88% 0.008 270);
+  --np-border-hi: oklch(76% 0.012 270);
+
+  --np-text: oklch(18% 0.012 270);
+  --np-text-mute: oklch(42% 0.012 270);
+  --np-text-dim: oklch(58% 0.012 270);
+
+  --np-accent: oklch(54% 0.18 220);
+  --np-accent-2: oklch(46% 0.22 220);
+  --np-glow: oklch(54% 0.18 220 / 0.18);
+
+  --np-success: oklch(48% 0.18 145);
+  --np-danger: oklch(54% 0.22 25);
+  --np-warning: oklch(60% 0.16 75);
+  --np-purple: oklch(48% 0.20 320);
+
+  --np-pill-mute-bg: oklch(94% 0.004 270);
+  --np-pill-cyan-bg: oklch(94% 0.05 220);
+  --np-pill-success-bg: oklch(94% 0.06 145);
+  --np-pill-danger-bg: oklch(94% 0.06 25);
+  --np-pill-warning-bg: oklch(94% 0.06 75);
+  --np-pill-purple-bg: oklch(94% 0.06 320);
+
+  --np-backdrop: oklch(20% 0.01 270 / 0.45);
+
+  --np-grain-opacity: 0;
+  --np-grain-blend: normal;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  font-family: var(--np-font-sans);
+  font-size: var(--np-t-body);
+  line-height: 1.55;
+  color: var(--np-text);
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, var(--np-glow), transparent 65%),
+    var(--np-bg);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  transition:
+    background-color var(--np-d-base) var(--np-ease),
+    color var(--np-d-base) var(--np-ease);
+}
+
+/* Subtle film grain — adds atmosphere without weight */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/></svg>");
+  opacity: var(--np-grain-opacity);
+  mix-blend-mode: var(--np-grain-blend);
+  transition: opacity var(--np-d-base);
+}
+
+/* App content sits above the grain layer */
+#__next,
+main,
+.np-app-root {
+  position: relative;
+  z-index: 2;
+}
+
+a {
+  color: var(--np-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--np-accent-2);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--np-accent);
+  color: var(--np-bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Tabular numbers for any element marked .np-num */
+.np-num {
+  font-family: var(--np-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Button states — scoped via data-variant. Lives here so :hover / :active
+   work without inline-style hacks fighting React reconciliation. */
+.np-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: var(--np-r-pill);
+  font-family: var(--np-font-sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    transform var(--np-d-fast) var(--np-ease),
+    background var(--np-d-fast),
+    box-shadow var(--np-d-fast),
+    color var(--np-d-fast);
+}
+
+.np-btn[data-size='md'] {
+  height: 3.25rem;
+  padding: 0 1.75rem;
+  font-size: 1rem;
+}
+
+.np-btn[data-size='lg'] {
+  height: 4rem;
+  padding: 0 2.25rem;
+  font-size: 1.125rem;
+}
+
+.np-btn[data-variant='primary'] {
+  background: var(--np-accent);
+  color: var(--np-bg);
+  box-shadow: 0 0 0 1px var(--np-accent), 0 8px 32px var(--np-glow);
+}
+
+.np-btn[data-variant='primary']:hover:not(:disabled) {
+  background: var(--np-accent-2);
+  box-shadow: 0 0 0 1px var(--np-accent-2), 0 14px 48px var(--np-glow);
+}
+
+.np-btn[data-variant='ghost'] {
+  background: transparent;
+  color: var(--np-text);
+  box-shadow: inset 0 0 0 1px var(--np-border);
+}
+
+.np-btn[data-variant='ghost']:hover:not(:disabled) {
+  background: var(--np-surface-2);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+}
+
+.np-btn[data-variant='danger'] {
+  background: var(--np-danger);
+  color: white;
+  box-shadow: 0 0 0 1px var(--np-danger);
+}
+
+.np-btn[data-variant='danger']:hover:not(:disabled) {
+  background: oklch(74% 0.22 25);
+  box-shadow: 0 0 0 1px oklch(74% 0.22 25);
+}
+
+.np-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.np-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Logo backdrop — only in dark theme, so the logo's dark text stays legible */
+[data-theme='dark'] .np-logo-bg {
+  background: oklch(98% 0.005 270);
+  padding: 0 0.75rem;
+}
+
+[data-theme='light'] .np-logo-bg {
+  background: transparent;
+  padding: 0;
+}
+
+/* Inputs share focus style */
+input,
+select,
+textarea {
+  font-family: var(--np-font-sans);
+  color: var(--np-text);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--np-accent) !important;
+  box-shadow: 0 0 0 3px var(--np-glow) !important;
+}
+
+input::placeholder {
+  color: var(--np-text-dim);
+}
+
+/* Modal entry */
+@keyframes np-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes np-modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+/* Tables */
+.np-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--np-font-sans);
+}
+
+.np-table thead th {
+  text-align: left;
+  padding: 0.875rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--np-text-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--np-border);
+  background: var(--np-surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.np-table tbody td {
+  padding: 0.875rem 1rem;
+  font-size: 0.875rem;
+  border-bottom: 1px solid var(--np-border);
+  color: var(--np-text);
+}
+
+.np-table tbody tr {
+  transition: background var(--np-d-fast);
+}
+
+.np-table tbody tr:hover {
+  background: var(--np-surface-2);
+}
+
+.np-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Scrollbar — subtle on dark */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--np-border);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--np-border-hi);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  body::after {
+    display: none;
+  }
+
+  body {
+    background: var(--np-bg);
+  }
+}

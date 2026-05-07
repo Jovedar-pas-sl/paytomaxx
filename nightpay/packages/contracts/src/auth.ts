@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { UuidSchema } from './common';
 
-export const RoleSchema = z.enum(['OWNER', 'MANAGER', 'WAITER']);
+export const RoleSchema = z.enum(['OWNER', 'MANAGER', 'WAITER', 'OPERATOR']);
 export type Role = z.infer<typeof RoleSchema>;
 
 export const LoginRequestSchema = z.object({

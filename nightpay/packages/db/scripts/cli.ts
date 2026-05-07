@@ -335,6 +335,67 @@ async function cmdReconcile(args: Args) {
   }
 }
 
+// ─── create-operator: alta de chica con invite token ──────────────
+
+async function cmdCreateOperator(args: Args) {
+  const venueSlug = must(args, 'venue');
+  const email = must(args, 'email').toLowerCase();
+  const displayName = must(args, 'display-name');
+  const commissionPct = parseFloat(must(args, 'commission'));
+  if (!Number.isFinite(commissionPct) || commissionPct < 0 || commissionPct > 100) {
+    throw new Error('commission debe ser un numero entre 0 y 100 (porcentaje)');
+  }
+  const commissionBps = Math.round(commissionPct * 100); // 15 → 1500
+
+  const result = await withBypass(async (tx) => {
+    const venue = await tx.venue.findUnique({ where: { slug: venueSlug } });
+    if (!venue) throw new Error(`venue not found: ${venueSlug}`);
+
+    const existing = await tx.user.findUnique({ where: { email } });
+    if (existing) throw new Error(`email ya registrado: ${email}`);
+
+    const placeholderHash = await bcrypt.hash(crypto.randomUUID(), 4);
+    const user = await tx.user.create({
+      data: {
+        tenantId: venue.id,
+        email,
+        displayName,
+        passwordHash: placeholderHash,
+        role: Role.OPERATOR,
+        commissionBps,
+        invitedAt: new Date(),
+      },
+    });
+    return { user, venue };
+  });
+
+  // Generar invite JWT manualmente (sin nest) — secret igual que el API
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) throw new Error('JWT_SECRET not set in env (necesario para generar invite)');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const jwtLib = require('jsonwebtoken') as typeof import('jsonwebtoken');
+  const inviteToken = jwtLib.sign(
+    { sub: result.user.id, tenantId: result.venue.id, purpose: 'operator-invite' },
+    jwtSecret,
+    { expiresIn: '24h' },
+  );
+
+  await withBypass((tx) =>
+    tx.user.update({
+      where: { id: result.user.id },
+      data: { inviteToken },
+    }),
+  );
+
+  const baseUrl = process.env.OPERATOR_BASE_URL ?? 'http://localhost:4104';
+  const inviteUrl = `${baseUrl.replace(/\/$/, '')}/accept-invite?token=${inviteToken}`;
+
+  console.log(`[ok] operator: ${email} -> venue ${venueSlug} commission=${commissionPct}%`);
+  console.log('');
+  console.log('INVITE URL (válido 24h, manda esto a la chica):');
+  console.log(`  ${inviteUrl}`);
+}
+
 // ─── revoke-sessions: kill-switch para refresh tokens ───────────────
 
 async function cmdRevokeSessions(args: Args) {
@@ -416,6 +477,7 @@ const commands: Record<string, (args: Args) => Promise<unknown>> = {
   'create-owner': (args) => cmdCreateUser(args, Role.OWNER),
   'create-manager': (args) => cmdCreateUser(args, Role.MANAGER),
   'create-waiter': (args) => cmdCreateUser(args, Role.WAITER),
+  'create-operator': cmdCreateOperator,
   'create-terminal': cmdCreateTerminal,
   'reset-password': cmdResetPassword,
   'list-venues': cmdListVenues,
@@ -433,6 +495,7 @@ function printUsage(): void {
   console.log('  pnpm cli create-owner    --venue <slug> --email <email> --password <pwd>');
   console.log('  pnpm cli create-manager  --venue <slug> --email <email> --password <pwd>');
   console.log('  pnpm cli create-waiter   --venue <slug> --email <email> --password <pwd>');
+  console.log('  pnpm cli create-operator --venue <slug> --email <email> --display-name "Ana" --commission 15');
   console.log('  pnpm cli create-terminal --venue <slug> --external-id BARRA-1 [--label "Barra 1"]');
   console.log('  pnpm cli reset-password  --email <email> --password <new>');
   console.log('  pnpm cli list-venues');

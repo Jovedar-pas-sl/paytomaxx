@@ -17,6 +17,13 @@ const EnvSchema = z.object({
   CORS_ORIGINS: z.string().optional(),
   // Timeout (ms) para llamadas a pasarelas — abort signal.
   GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  // Email — opcional; si no esta, EmailService entra en modo NoOp y la URL
+  // de invite se devuelve al admin para envio manual via WhatsApp.
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().optional(),
+  // Base URL del frontend operator donde aceptar la invitacion (set-password).
+  // Ejemplo: http://localhost:4104 (dev) o https://operator.paytomaxx.com (prod).
+  OPERATOR_BASE_URL: z.string().url().default('http://localhost:4104'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

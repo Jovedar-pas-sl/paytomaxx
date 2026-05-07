@@ -29,6 +29,7 @@ from app.models import (
     NextActionResult,
     RedFlag,
     RedFlagsResult,
+    ReferralResult,
     ResponseTimeResult,
     TreatmentResult,
 )
@@ -213,6 +214,21 @@ async def evaluate_escalation(messages: list[Message]) -> EscalationResult:
         schema=EscalationResult.model_json_schema(),
     )
     return EscalationResult.model_validate(data)
+
+
+async def detect_referral(messages: list[Message]) -> ReferralResult:
+    """Identify where the client came from (ad site, search, social, repeat, etc.).
+
+    Used downstream by the per-WA meta-analysis to compute referral source
+    distribution — which marketing channels actually convert.
+    """
+    transcript = format_transcript(messages)
+    data = await _call_json(
+        system=prompts.REFERRAL_PROMPT,
+        user=f"Transcript:\n{transcript}",
+        schema=ReferralResult.model_json_schema(),
+    )
+    return ReferralResult.model_validate(data)
 
 
 @dataclass

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -82,6 +83,23 @@ export class PaymentsService {
       throw new BadRequestException(`Terminal '${dto.terminalExternalId}' not found or inactive`);
     }
 
+    // 2b. Si el creador es OPERATOR, validar cap del venue. Owner/Manager lo ignoran.
+    const ctx = this.cls.get('ctx');
+    const creatorUserId = ctx?.userId ?? null;
+    if (ctx?.role === 'OPERATOR') {
+      const venue = await this.prisma.asSystem((tx) =>
+        tx.venue.findUniqueOrThrow({
+          where: { id: tenantId },
+          select: { operatorMaxCobroCents: true },
+        }),
+      );
+      if (dto.amountCents > venue.operatorMaxCobroCents) {
+        throw new BadRequestException(
+          `Importe ${dto.amountCents / 100} € supera el límite del local (${venue.operatorMaxCobroCents / 100} €).`,
+        );
+      }
+    }
+
     // 3. Crear payment + evento inicial — atómico
     const qrToken = randomUUID();
     const qrExpiresAt = new Date(Date.now() + QR_TTL_SECONDS * 1000);
@@ -91,6 +109,7 @@ export class PaymentsService {
         data: {
           tenantId,
           terminalId: terminal.id,
+          createdByUserId: creatorUserId,
           idempotencyKey,
           amountCents: dto.amountCents,
           availableAmountCents: dto.amountCents,
@@ -194,10 +213,11 @@ export class PaymentsService {
             availableAmountCents: number;
             providerTxId: string | null;
             provider: 'WIPAY' | 'PEANPE' | null;
+            createdByUserId: string | null;
           }>
         >`
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
-                 "providerTxId", provider
+                 "providerTxId", provider, "createdByUserId"
             FROM payments
            WHERE id = ${paymentId}::uuid
            FOR UPDATE
@@ -248,6 +268,40 @@ export class PaymentsService {
           )
         `;
 
+        // Hook de earning para OPERATOR — si transitamos a AUTHORIZED y el creador
+        // del payment es una operadora, snapshot de comisión en operator_earnings.
+        // Idempotente: la unique en paymentId rechaza un segundo insert (defensa
+        // contra una transición duplicada que la FSM ya filtra).
+        if (result.nextState === 'AUTHORIZED' && p.createdByUserId) {
+          const creatorRows = await tx.$queryRaw<
+            Array<{ id: string; role: string; commissionBps: number | null }>
+          >`
+            SELECT id, role::text AS role, "commissionBps"
+              FROM users
+             WHERE id = ${p.createdByUserId}::uuid
+          `;
+          const creator = creatorRows[0];
+          if (creator?.role === 'OPERATOR' && creator.commissionBps !== null) {
+            const bps = creator.commissionBps;
+            const commissionCents = Math.floor((p.amountCents * bps) / 10_000);
+            await tx.$executeRaw`
+              INSERT INTO operator_earnings (
+                "tenantId", "operatorId", "paymentId",
+                "paymentAmountCents", "commissionBps", "commissionCents"
+              )
+              VALUES (
+                ${p.tenantId}::uuid,
+                ${creator.id}::uuid,
+                ${paymentId}::uuid,
+                ${p.amountCents}::int,
+                ${bps}::int,
+                ${commissionCents}::int
+              )
+              ON CONFLICT ("paymentId") DO NOTHING
+            `;
+          }
+        }
+
         prevState = p.status;
         nextState = result.nextState;
         amountCents = p.amountCents;
@@ -264,10 +318,45 @@ export class PaymentsService {
     // ya esta persistido. Antes de commit habria riesgo de fantasma.
     if (nextState) {
       this.realtime.emitPaymentUpdate(paymentId, nextState, amountCents);
-      if (nextState === 'AUTHORIZED' || nextState === 'FAILED' || nextState === 'EXPIRED') {
+      if (
+        nextState === 'AUTHORIZED' ||
+        nextState === 'FAILED' ||
+        nextState === 'EXPIRED' ||
+        nextState === 'CANCELED'
+      ) {
         this.realtime.emitPaymentCompleted(paymentId, nextState);
       }
     }
+  }
+
+  /**
+   * Cancela un pago en estado CREATED|AWAITING_CAPTURE.
+   * - OPERATOR solo puede cancelar payments creados por ella.
+   * - OWNER/MANAGER pueden cancelar cualquier payment del venue.
+   * Returns 409 si el FSM no permite (estado terminal).
+   */
+  async cancel(
+    paymentId: string,
+    actor: { userId: string; role: string },
+  ): Promise<{ status: PaymentMachineState }> {
+    const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
+    if (!payment) throw new NotFoundException('Payment not found');
+
+    if (actor.role === 'OPERATOR' && payment.createdByUserId !== actor.userId) {
+      throw new ForbiddenException('No puedes cancelar cobros de otra operadora');
+    }
+
+    try {
+      await this.transition(paymentId, { type: 'CANCELED', reason: 'user-canceled' });
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) {
+        throw new ConflictException(
+          `Payment cannot be canceled in state ${payment.status}`,
+        );
+      }
+      throw err;
+    }
+    return { status: 'CANCELED' };
   }
 
   /**
@@ -378,6 +467,44 @@ export class PaymentsService {
       `Payment ${payment.id} authorizing via ${credential.provider} (txId=${providerTxId})`,
     );
     return { status: 'AUTHORIZING', providerTxId };
+  }
+
+  /**
+   * Reverse proporcional de la comisión cuando hay refund (parcial o total).
+   * Llamado por RefundsService después de que el refund llega a SUCCEEDED.
+   *
+   * Idempotente respecto a refund.id: el caller debe asegurarse de no llamar
+   * dos veces con el mismo refundAmountCents — aquí solo sumamos al
+   * reversedCents del earning ligado al payment.
+   *
+   * Permite saldo negativo (deuda) si reversedCents > commissionCents.
+   */
+  async applyRefundToEarning(
+    paymentId: string,
+    refundAmountCents: number,
+  ): Promise<void> {
+    if (refundAmountCents <= 0) return;
+    await this.prisma.$transaction(async (tx) => {
+      const earning = await tx.$queryRaw<
+        Array<{ commissionBps: number; commissionCents: number; reversedCents: number }>
+      >`
+        SELECT "commissionBps", "commissionCents", "reversedCents"
+          FROM operator_earnings
+         WHERE "paymentId" = ${paymentId}::uuid
+         FOR UPDATE
+      `;
+      if (earning.length === 0) return;
+      const e = earning[0]!;
+      const reverseCents = Math.floor((refundAmountCents * e.commissionBps) / 10_000);
+      await tx.$executeRaw`
+        UPDATE operator_earnings
+           SET "reversedCents" = "reversedCents" + ${reverseCents}::int
+         WHERE "paymentId" = ${paymentId}::uuid
+      `;
+      this.logger.log(
+        `Earning reversal payment=${paymentId} refundAmount=${refundAmountCents} reverse=${reverseCents} (bps=${e.commissionBps})`,
+      );
+    });
   }
 
   // ─── helpers ───────────────────────────────────────────────────────

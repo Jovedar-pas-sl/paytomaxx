@@ -32,7 +32,7 @@ export class VenuesController {
   }
 
   @Get('me/terminals')
-  @Roles('OWNER', 'MANAGER', 'WAITER')
+  @Roles('OWNER', 'MANAGER', 'WAITER', 'OPERATOR')
   async listTerminals() {
     // Middleware Prisma inyecta tenantId automáticamente
     return this.prisma.terminal.findMany({

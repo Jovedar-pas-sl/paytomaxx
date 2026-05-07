@@ -20,7 +20,8 @@ export type PaymentEvent =
   | { type: 'FAILED'; reason: string }
   | { type: 'TIMEOUT' }
   | { type: 'REFUND_PARTIAL'; amountCents: number }
-  | { type: 'REFUND_FULL' };
+  | { type: 'REFUND_FULL' }
+  | { type: 'CANCELED'; reason?: string };
 
 export interface PaymentContext {
   paymentId: string;
@@ -45,6 +46,10 @@ export const paymentMachine = setup({
     persistFailure: ({ context, event }) => {
       if (event.type !== 'FAILED') return;
       context.failureReason = event.reason;
+    },
+    persistCancel: ({ context, event }) => {
+      if (event.type !== 'CANCELED') return;
+      context.failureReason = event.reason ?? 'user-canceled';
     },
     deductRefund: ({ context, event }) => {
       if (event.type !== 'REFUND_PARTIAL') return;
@@ -71,12 +76,14 @@ export const paymentMachine = setup({
         QR_VIEWED: 'AWAITING_CAPTURE',
         TIMEOUT: 'EXPIRED',
         AUTHORIZING: 'AUTHORIZING',
+        CANCELED: { target: 'CANCELED', actions: 'persistCancel' },
       },
     },
     AWAITING_CAPTURE: {
       on: {
         AUTHORIZING: 'AUTHORIZING',
         TIMEOUT: 'EXPIRED',
+        CANCELED: { target: 'CANCELED', actions: 'persistCancel' },
       },
     },
     AUTHORIZING: {
@@ -113,6 +120,7 @@ export const paymentMachine = setup({
     FAILED: { type: 'final' },
     EXPIRED: { type: 'final' },
     REFUNDED: { type: 'final' },
+    CANCELED: { type: 'final' },
   },
 });
 
@@ -125,7 +133,8 @@ export type PaymentMachineState =
   | 'ORPHAN'
   | 'FAILED'
   | 'EXPIRED'
-  | 'REFUNDED';
+  | 'REFUNDED'
+  | 'CANCELED';
 
 /**
  * Reconstruye un actor desde el estado persistido + contexto.

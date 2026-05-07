@@ -16,18 +16,23 @@ datasource db {
 // ───────────────────────── Tenants & Users ─────────────────────────
 
 model Venue {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String
-  slug      String    @unique
-  timezone  String    @default("Europe/Madrid")
-  createdAt DateTime  @default(now()) @db.Timestamptz
-  updatedAt DateTime  @updatedAt @db.Timestamptz
-  deletedAt DateTime? @db.Timestamptz
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String
+  slug                  String    @unique
+  timezone              String    @default("Europe/Madrid")
+  // Tope de importe para cobros creados por OPERATOR (default 200€).
+  // OWNER/MANAGER ignoran este cap. El cap global de 10.000€ del Zod schema sigue.
+  operatorMaxCobroCents Int       @default(20000)
+  createdAt             DateTime  @default(now()) @db.Timestamptz
+  updatedAt             DateTime  @updatedAt @db.Timestamptz
+  deletedAt             DateTime? @db.Timestamptz
 
   users              User[]
   terminals          Terminal[]
   gatewayCredentials GatewayCredential[]
   payments           Payment[]
+  operatorEarnings   OperatorEarning[]
+  operatorPayouts    OperatorPayout[]
 
   @@map("venues")
 }
@@ -36,6 +41,7 @@ enum Role {
   OWNER
   MANAGER
   WAITER
+  OPERATOR
 }
 
 model User {
@@ -45,11 +51,25 @@ model User {
   passwordHash String
   role         Role
   totpSecret   String?
+  // Solo aplica cuando role = OPERATOR. 1500 bps = 15.00%
+  commissionBps Int?
+  // Nombre visible para admin (ej. "Ana", "Marina"). Solo OPERATOR.
+  displayName  String?
+  // Marca de invitacion pendiente — null cuando ya activo password.
+  invitedAt    DateTime?
+  // JWT de un solo uso para set-password. Limpio al aceptar la invitacion.
+  inviteToken  String?   @unique
   createdAt    DateTime  @default(now()) @db.Timestamptz
   updatedAt    DateTime  @updatedAt @db.Timestamptz
   deletedAt    DateTime? @db.Timestamptz
 
   venue Venue @relation(fields: [tenantId], references: [id])
+
+  // Relaciones para OPERATOR
+  earnings        OperatorEarning[] @relation("OperatorEarnings")
+  payouts         OperatorPayout[]  @relation("OperatorPayouts")
+  payoutsPaid     OperatorPayout[]  @relation("PayoutsPaid")
+  paymentsCreated Payment[]         @relation("PaymentCreatedBy")
 
   @@index([tenantId])
   @@map("users")
@@ -107,12 +127,16 @@ enum PaymentStatus {
   REFUNDED
   PARTIALLY_REFUNDED
   ORPHAN
+  CANCELED
 }
 
 model Payment {
   id                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId             String        @db.Uuid
   terminalId           String        @db.Uuid
+  // Set por payments.service cuando hay request context con userId.
+  // null cuando origen no humano (cron, webhook reconcile, etc.).
+  createdByUserId      String?       @db.Uuid
   idempotencyKey       String
   amountCents          Int
   currency             String        @default("EUR") @db.Char(3)
@@ -125,14 +149,17 @@ model Payment {
   createdAt            DateTime      @default(now()) @db.Timestamptz
   updatedAt            DateTime      @updatedAt @db.Timestamptz
 
-  venue    Venue          @relation(fields: [tenantId], references: [id])
-  terminal Terminal       @relation(fields: [terminalId], references: [id])
-  events   PaymentEvent[]
-  refunds  Refund[]
+  venue           Venue            @relation(fields: [tenantId], references: [id])
+  terminal        Terminal         @relation(fields: [terminalId], references: [id])
+  createdBy       User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])
+  events          PaymentEvent[]
+  refunds         Refund[]
+  operatorEarning OperatorEarning?
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status])
   @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, createdByUserId, createdAt(sort: Desc)])
   @@index([providerTxId])
   @@index([qrExpiresAt])
   @@map("payments")
@@ -178,6 +205,58 @@ model Refund {
 
   @@index([tenantId, paymentId])
   @@map("refunds")
+}
+
+// ───────────────────────── Operator earnings & payouts ─────────────
+// Una fila por payment AUTHORIZED creado por una operadora (chica).
+// Snapshot de comisión al momento de autorizar — cambios posteriores de
+// commissionBps en User no afectan earnings ya creados.
+
+model OperatorEarning {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String   @db.Uuid
+  operatorId         String   @db.Uuid
+  paymentId          String   @unique @db.Uuid
+  paymentAmountCents Int
+  commissionBps      Int
+  // Calculado: floor(paymentAmountCents * commissionBps / 10000)
+  commissionCents    Int
+  // Suma acumulada de descuentos por refunds proporcionales.
+  // Saldo neto del earning = commissionCents - reversedCents (puede ser <0).
+  reversedCents      Int      @default(0)
+  // Null = pendiente de payout. Set cuando admin marca pagado.
+  payoutId           String?  @db.Uuid
+  createdAt          DateTime @default(now()) @db.Timestamptz
+
+  venue    Venue           @relation(fields: [tenantId], references: [id])
+  operator User            @relation("OperatorEarnings", fields: [operatorId], references: [id])
+  payment  Payment         @relation(fields: [paymentId], references: [id])
+  payout   OperatorPayout? @relation(fields: [payoutId], references: [id])
+
+  @@index([tenantId, operatorId, payoutId])
+  @@index([tenantId, operatorId, createdAt(sort: Desc)])
+  @@map("operator_earnings")
+}
+
+// Una fila por liquidación admin → operadora.
+// totalCents = SUM(commissionCents - reversedCents) de earnings agrupadas.
+
+model OperatorPayout {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @db.Uuid
+  operatorId   String   @db.Uuid
+  totalCents   Int
+  paidByUserId String   @db.Uuid
+  notes        String?
+  createdAt    DateTime @default(now()) @db.Timestamptz
+
+  venue    Venue             @relation(fields: [tenantId], references: [id])
+  operator User              @relation("OperatorPayouts", fields: [operatorId], references: [id])
+  paidBy   User              @relation("PayoutsPaid", fields: [paidByUserId], references: [id])
+  earnings OperatorEarning[]
+
+  @@index([tenantId, operatorId, createdAt(sort: Desc)])
+  @@map("operator_payouts")
 }
 
 // ───────────────────────── Webhooks ────────────────────────────────
@@ -235,8 +314,8 @@ model AuditEvent {
   tenantId    String?   @db.Uuid
   actorId     String?   @db.Uuid
   actorEmail  String?
-  action      String                   // ej. 'auth.login.ok', 'refund.created', 'credential.set'
-  targetType  String?                  // 'Payment', 'User', 'GatewayCredential', etc.
+  action      String
+  targetType  String?
   targetId    String?
   payload     Json?
   ip          String?

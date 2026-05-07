@@ -11,6 +11,7 @@ export const PaymentStatusSchema = z.enum([
   'REFUNDED',
   'PARTIALLY_REFUNDED',
   'ORPHAN',
+  'CANCELED',
 ]);
 export type PaymentStatus = z.infer<typeof PaymentStatusSchema>;
 
@@ -69,6 +70,8 @@ export const PaymentDetailSchema = z.object({
   status: PaymentStatusSchema,
   provider: ProviderSchema.nullable(),
   providerTxId: z.string().nullable(),
+  createdByUserId: UuidSchema.nullable(),
+  createdByName: z.string().nullable(),
   qrExpiresAt: z.string().datetime(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -117,5 +120,6 @@ export const FsmEventTypeSchema = z.enum([
   'TIMEOUT',
   'REFUND_PARTIAL',
   'REFUND_FULL',
+  'CANCELED',
 ]);
 export type FsmEventType = z.infer<typeof FsmEventTypeSchema>;

@@ -5,6 +5,7 @@ import { ClsModule } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import { AuthGuard } from './common/guards/auth.guard';
+import { EmailModule } from './common/email/email.module';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { RedisModule } from './common/redis/redis.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -13,6 +14,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { GatewaysModule } from './modules/gateways/gateways.module';
 import { HealthController } from './modules/health/health.controller';
 import { MetricsModule } from './modules/metrics/metrics.module';
+import { OperatorsModule } from './modules/operators/operators.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { QueuesModule } from './modules/queues/queues.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
@@ -46,6 +48,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     }),
     PrismaModule,
     RedisModule,
+    EmailModule,
     AuditModule,
     MetricsModule,
     QueuesModule,
@@ -55,6 +58,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     VenuesModule,
     PaymentsModule,
     RefundsModule,
+    OperatorsModule,
     AdminModule,
     WebhooksModule,
   ],

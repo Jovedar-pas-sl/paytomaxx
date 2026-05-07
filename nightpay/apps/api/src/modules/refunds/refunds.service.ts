@@ -182,6 +182,16 @@ export class RefundsService {
       }
     }
 
+    // Reverse de la comisión de la operadora (si aplica). No-op si el pago
+    // no fue creado por una OPERATOR. Permite saldo negativo si reverso > saldo.
+    try {
+      await this.payments.applyRefundToEarning(payment.id, request.amountCents);
+    } catch (err) {
+      this.logger.error(`Earning reverse failed for payment ${payment.id}: ${(err as Error).message}`);
+      // No bloquear el refund — el dinero del cliente ya está procesado.
+      // El admin puede ajustar manualmente vía SQL si fuese necesario.
+    }
+
     // Audit log
     await this.audit.log({
       action: 'refund.created',

@@ -1,0 +1,12 @@
+{
+  "extends": "./packages/config/tsconfig.base.json",
+  "include": [],
+  "references": [
+    { "path": "./apps/api" },
+    { "path": "./apps/web-client" },
+    { "path": "./apps/tpv" },
+    { "path": "./apps/admin" },
+    { "path": "./packages/contracts" },
+    { "path": "./packages/db" }
+  ]
+}

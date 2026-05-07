@@ -21,13 +21,17 @@ import {
   type PaymentRow,
   type User,
 } from '@/lib/api';
+import { OperatorsPanel } from './OperatorsPanel';
 
 interface Props {
   user: User;
   onLogout: () => void;
 }
 
+type TabKey = 'payments' | 'operators';
+
 export function Dashboard({ user, onLogout }: Props) {
+  const [tab, setTab] = useState<TabKey>('payments');
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [filter, setFilter] = useState<string>('');
@@ -102,6 +106,19 @@ export function Dashboard({ user, onLogout }: Props) {
         </Card>
       ) : null}
 
+      <nav style={tabNavStyle}>
+        <TabButton active={tab === 'payments'} onClick={() => setTab('payments')}>
+          Pagos
+        </TabButton>
+        <TabButton active={tab === 'operators'} onClick={() => setTab('operators')}>
+          Operadoras
+        </TabButton>
+      </nav>
+
+      {tab === 'operators' ? (
+        <OperatorsPanel isOwner={user.role === 'OWNER'} />
+      ) : (
+      <>
       <section style={metricsGrid}>
         <MetricTile title="Hoy · pagos" value={metrics?.today.count ?? '—'} />
         <MetricTile
@@ -223,9 +240,45 @@ export function Dashboard({ user, onLogout }: Props) {
           reload();
         }}
       />
+      </>
+      )}
     </main>
   );
 }
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: 'transparent',
+        border: 'none',
+        color: active ? 'var(--np-accent)' : 'var(--np-text-mute)',
+        padding: '0.625rem 1.25rem',
+        fontWeight: 500,
+        fontSize: '0.95rem',
+        borderBottom: active ? '2px solid var(--np-accent)' : '2px solid transparent',
+        cursor: 'pointer',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+const tabNavStyle: CSSProperties = {
+  display: 'flex',
+  gap: '0.5rem',
+  borderBottom: '1px solid var(--np-border)',
+};
 
 function fmt(cents: number | undefined): string {
   if (cents === undefined) return '—';

@@ -119,6 +119,21 @@ class EscalationResult(BaseModel):
     triggers: list[str] = Field(default_factory=list)  # señales detectadas
 
 
+class ReferralResult(BaseModel):
+    """Where the client came from (which ad site, search engine, etc.)."""
+    source_kind: Literal[
+        "ad_site",
+        "search_engine",
+        "social",
+        "word_of_mouth",
+        "repeat",
+        "unknown",
+    ]
+    source_name: str | None         # ej: "Loquosex", "Google", null si no se identifica
+    evidence: str | None            # cita textual breve del cliente, null si no hay
+    confidence: float               # 0.0-1.0
+
+
 # ── Aggregate analysis ─────────────────────────────────────────────
 class ConversationAnalysis(BaseModel):
     conversation_id: int
