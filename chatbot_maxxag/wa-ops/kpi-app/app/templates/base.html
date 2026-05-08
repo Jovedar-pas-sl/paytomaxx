@@ -382,9 +382,15 @@
         {# Desktop nav #}
         <div class="hidden items-center gap-0.5 md:flex">
           <a href="/"         class="rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">Dashboard</a>
-          <a href="/casas"    class="rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">Casas</a>
+          <a href="/casas"    class="relative rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">
+            Casas
+            <span id="nav-unread-badge" class="hidden absolute -top-1 -right-1 mono rounded-full bg-amber px-1.5 text-[9px] font-bold text-bg leading-tight"></span>
+          </a>
           <a href="/sessions" class="rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">WhatsApp</a>
-          <a href="/alerts"   class="rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">Alertas</a>
+          <a href="/alerts"   class="relative rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">
+            Alertas
+            <span id="nav-alerts-badge" class="hidden absolute -top-1 -right-1 mono rounded-full bg-red px-1.5 text-[9px] font-bold text-bg leading-tight"></span>
+          </a>
           <a href="/informes" class="rounded-md px-3 py-1.5 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-text transition-colors">Informes</a>
         </div>
       </div>
@@ -425,5 +431,68 @@
   </main>
 
   {% block scripts %}{% endblock %}
+
+  {% if user %}
+  {# Navbar badges + browser notifications.
+     Polls /api/unread-count every 30s. Shows badge counts on Casas/Alertas;
+     fires a browser notification when critical_alerts goes UP since last check. #}
+  <script>
+  (function () {
+    const chatsBadge = document.getElementById('nav-unread-badge');
+    const alertsBadge = document.getElementById('nav-alerts-badge');
+    let lastAlerts = null;
+
+    function setBadge(el, n, urgent) {
+      if (!el) return;
+      if (n > 0) {
+        el.textContent = n > 99 ? '99+' : String(n);
+        el.classList.remove('hidden');
+        if (urgent) el.classList.add('animate-pulse');
+        else el.classList.remove('animate-pulse');
+      } else {
+        el.classList.add('hidden');
+      }
+    }
+
+    async function tick() {
+      try {
+        const r = await fetch('/api/unread-count', {credentials: 'same-origin'});
+        if (!r.ok) return;
+        const d = await r.json();
+        setBadge(chatsBadge, d.unread_chats || 0, false);
+        setBadge(alertsBadge, d.critical_alerts || 0, true);
+        // Title prefix shows total pending (great for tab-bar visibility)
+        const total = (d.unread_chats || 0) + (d.critical_alerts || 0);
+        const baseTitle = document.title.replace(/^\(\d+\)\s+/, '');
+        document.title = total > 0 ? `(${total}) ${baseTitle}` : baseTitle;
+        // Browser notification when CRITICAL alerts go up
+        if (lastAlerts !== null && d.critical_alerts > lastAlerts) {
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('Maxxag Ops · alerta crítica', {
+              body: `${d.critical_alerts} alerta${d.critical_alerts === 1 ? '' : 's'} sin atender`,
+              icon: '/static/img/lips.png',
+              tag: 'maxxag-alerts',
+            });
+          }
+        }
+        lastAlerts = d.critical_alerts || 0;
+      } catch (_) { /* network blip — ignore */ }
+    }
+
+    // Pedir permiso para notificaciones la primera vez que el usuario
+    // interactúe con la página (requerido por algunos navegadores).
+    function maybeRequestPerm() {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+      document.removeEventListener('click', maybeRequestPerm);
+    }
+    document.addEventListener('click', maybeRequestPerm, {once: true});
+
+    tick();
+    setInterval(tick, 30000);
+  })();
+  </script>
+  {% endif %}
 </body>
 </html>

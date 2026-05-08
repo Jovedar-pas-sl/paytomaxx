@@ -283,6 +283,7 @@ async def list_conversations(
     wa_number_id: int | None = None,
     mood: str | None = None,
     search: str | None = None,
+    status: str | None = None,
     since_days: int | None = None,
     unanswered_only: bool = False,
     limit: int = 50,
@@ -303,6 +304,9 @@ async def list_conversations(
     if mood:
         params.append(mood)
         where.append(f"a.mood_label = ${len(params)}")
+    if status:
+        params.append(status)
+        where.append(f"c.status = ${len(params)}")
     if since_days is not None:
         params.append(since_days)
         where.append(f"c.last_message_at > now() - make_interval(days => ${len(params)})")

@@ -72,12 +72,16 @@ async def widget_casa_chats(
     period: str = "all",
     offset: int = 0,
     unanswered: bool = False,
+    search: str = "",
+    mood: str = "",
+    status: str = "",
     limit: int = 50,
 ) -> HTMLResponse:
     """HTMX fragment: chats list + load-more sentinel for infinite scroll.
 
-    Accepts period (24h/7d/30d/90d/all), offset (for pagination), and
-    unanswered (filters convs whose last msg is from the customer).
+    All filters compose: period, unanswered, search (name/phone),
+    mood (one of curioso/decidido/calenton/indeciso/enfadado/timewaster),
+    status (open/resolved/pending). offset drives infinite scroll.
     """
     wa_number_id: int | None = None
     if wa != "all":
@@ -91,6 +95,9 @@ async def widget_casa_chats(
     since_days = None if days >= 3650 else days
     limit = max(1, min(int(limit), 100))
     offset = max(0, int(offset))
+    search_q = (search or "").strip() or None
+    mood_q = mood if mood in {"curioso", "decidido", "calenton", "indeciso", "enfadado", "timewaster"} else None
+    status_q = status if status in {"open", "resolved", "pending"} else None
 
     rows, total = await queries.list_conversations(
         kpi,
@@ -98,6 +105,9 @@ async def widget_casa_chats(
         wa_number_id=wa_number_id,
         since_days=since_days,
         unanswered_only=unanswered,
+        search=search_q,
+        mood=mood_q,
+        status=status_q,
         limit=limit,
         offset=offset,
     )
@@ -111,6 +121,9 @@ async def widget_casa_chats(
             "active_wa": wa,
             "active_period": period,
             "active_unanswered": unanswered,
+            "active_search": search_q or "",
+            "active_mood": mood_q or "",
+            "active_status": status_q or "",
             "offset": offset,
             "next_offset": next_offset,
             "total": total,

@@ -44,7 +44,14 @@ MODEL = "claude-haiku-4-5"
 def _get_client() -> AsyncAnthropic:
     global _client
     if _client is None:
-        _client = AsyncAnthropic(api_key=get_settings().anthropic_api_key.get_secret_value())
+        # max_retries=4 → SDK auto-retries on 429 (rate limit), 5xx, connection
+        # errors with exponential backoff. Combined with our 30s per-request
+        # timeout this gives ~120s worst case before we fail a single skill,
+        # which is then caught by analyze_conversation_job's gather(return_exceptions).
+        _client = AsyncAnthropic(
+            api_key=get_settings().anthropic_api_key.get_secret_value(),
+            max_retries=4,
+        )
     return _client
 
 

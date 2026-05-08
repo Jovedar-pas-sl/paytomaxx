@@ -146,24 +146,104 @@
 </div>
 {% endif %}
 
-{# Chip "Sin contestar (N)" — toggle de filtro de convs con cliente esperando.
-   Reusa el periodo activo del header. Click sobre el chip recarga la página
-   con/sin el query param 'unanswered'. #}
-<div class="mb-3 flex flex-wrap items-center gap-2">
-  {% set is_unans = active_unanswered %}
-  {% set base_qs = '?tab=chats&wa=' ~ active_wa ~ '&period=' ~ active_period %}
-  <a href="{{ base_qs }}{% if not is_unans %}&unanswered=true{% endif %}"
-     class="rounded-full border px-3 py-1 text-xs font-medium transition
-            {% if is_unans %}border-amber bg-amber/15 text-amber{% else %}border-border bg-surface hover:bg-surface-2 text-muted hover:text-text{% endif %}">
-     ⏳ Sin contestar
-     {% if unanswered_count is defined and unanswered_count > 0 %}
-       <span class="ml-1 mono font-bold">({{ unanswered_count }})</span>
-     {% endif %}
-  </a>
-  {% if is_unans %}
-  <span class="text-[11px] text-muted-2">Mostrando solo conversaciones donde el cliente espera respuesta</span>
-  {% endif %}
+{# Barra de filtros: buscador + chips toggle.
+   Form GET preserva todos los query params; el script al final permite Ctrl+K
+   para enfocar el buscador y autosubmit con debounce mientras el usuario escribe. #}
+{% set base_qs = '?tab=chats&wa=' ~ active_wa ~ '&period=' ~ active_period %}
+<div class="mb-3 space-y-2">
+  <form method="get" id="chat-search-form" class="relative">
+    <input type="hidden" name="tab" value="chats">
+    <input type="hidden" name="wa" value="{{ active_wa }}">
+    <input type="hidden" name="period" value="{{ active_period }}">
+    {% if active_unanswered %}<input type="hidden" name="unanswered" value="true">{% endif %}
+    {% if active_mood %}<input type="hidden" name="mood" value="{{ active_mood }}">{% endif %}
+    {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
+    <input type="search" name="search" id="chat-search-input"
+           value="{{ active_search or '' }}"
+           placeholder="Buscar por nombre o teléfono…  (Ctrl+K)"
+           class="w-full rounded-lg border border-border bg-surface px-4 py-2.5 pl-10 text-sm text-text placeholder:text-muted-2 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent">
+    <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+    </svg>
+    {% if active_search %}
+    <a href="{{ base_qs }}{% if active_unanswered %}&unanswered=true{% endif %}{% if active_mood %}&mood={{ active_mood }}{% endif %}{% if active_status %}&status={{ active_status }}{% endif %}"
+       class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-2 hover:text-text" title="Limpiar búsqueda">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 6L6 18M6 6l12 12"/>
+      </svg>
+    </a>
+    {% endif %}
+  </form>
+
+  {# Chips: estado de respuesta + estado conv + mood — todos toggle #}
+  <div class="flex flex-wrap items-center gap-1.5">
+    {% macro chip(label, is_active, href, color='') -%}
+      <a href="{{ href }}" class="rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition
+        {% if is_active %}{{ color or 'border-accent bg-accent/15 text-accent' }}{% else %}border-border bg-surface hover:bg-surface-2 text-muted hover:text-text{% endif %}">{{ label|safe }}</a>
+    {%- endmacro %}
+    {# Macro helper to build URLs preserving other filters #}
+    {% set qs_base = base_qs %}
+    {% if active_search %}{% set qs_base = qs_base ~ '&search=' ~ active_search %}{% endif %}
+
+    {# Sin contestar #}
+    {{ chip(
+      '⏳ Sin contestar' ~ (' (' ~ unanswered_count ~ ')' if unanswered_count else ''),
+      active_unanswered,
+      qs_base ~ ('' if active_unanswered else '&unanswered=true') ~ ('&mood=' ~ active_mood if active_mood else '') ~ ('&status=' ~ active_status if active_status else ''),
+      'border-amber bg-amber/15 text-amber'
+    ) }}
+
+    <span class="text-muted-2 text-[10px]">·</span>
+
+    {# Status conv #}
+    {{ chip('Abiertas', active_status == 'open',
+            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&mood=' ~ active_mood if active_mood else '') ~ ('' if active_status == 'open' else '&status=open'),
+            'border-blue bg-blue/15 text-blue') }}
+    {{ chip('Cerradas', active_status == 'resolved',
+            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&mood=' ~ active_mood if active_mood else '') ~ ('' if active_status == 'resolved' else '&status=resolved'),
+            'border-green bg-green/15 text-green') }}
+
+    <span class="text-muted-2 text-[10px]">·</span>
+
+    {# Mood #}
+    {{ chip('🔥 Decididos', active_mood == 'decidido',
+            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&status=' ~ active_status if active_status else '') ~ ('' if active_mood == 'decidido' else '&mood=decidido'),
+            'border-green bg-green/15 text-green') }}
+    {{ chip('🤔 Curiosos', active_mood == 'curioso',
+            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&status=' ~ active_status if active_status else '') ~ ('' if active_mood == 'curioso' else '&mood=curioso'),
+            'border-blue bg-blue/15 text-blue') }}
+    {{ chip('😤 Enfadados', active_mood == 'enfadado',
+            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&status=' ~ active_status if active_status else '') ~ ('' if active_mood == 'enfadado' else '&mood=enfadado'),
+            'border-red bg-red/15 text-red') }}
+    {{ chip('😐 Indecisos', active_mood == 'indeciso',
+            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&status=' ~ active_status if active_status else '') ~ ('' if active_mood == 'indeciso' else '&mood=indeciso'),
+            'border-amber bg-amber/15 text-amber') }}
+
+    {% if active_unanswered or active_mood or active_status or active_search %}
+    <a href="{{ base_qs }}" class="ml-2 text-[11px] text-muted-2 hover:text-text underline">Limpiar filtros</a>
+    {% endif %}
+  </div>
 </div>
+
+<script>
+(function () {
+  // Ctrl+K / Cmd+K → focus search
+  const inp = document.getElementById('chat-search-input');
+  if (!inp) return;
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      inp.focus(); inp.select();
+    }
+  });
+  // Auto-submit con debounce 350ms
+  let t = null;
+  inp.addEventListener('input', () => {
+    clearTimeout(t);
+    t = setTimeout(() => document.getElementById('chat-search-form').submit(), 350);
+  });
+})();
+</script>
 
 {# Chats list — incluye el partial que también sirve /widget/casa/{id}/chats
    para los chunks de scroll infinito. Auto-refresh ELIMINADO a propósito;

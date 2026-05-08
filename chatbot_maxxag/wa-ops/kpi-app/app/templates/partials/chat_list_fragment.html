@@ -73,6 +73,12 @@
             {{ r.last_message_preview or '—' }}
           </p>
           <div class="flex flex-shrink-0 items-center gap-1.5">
+            {# Status badge — open / resolved / pending #}
+            {% if r.status == 'resolved' %}
+              <span class="rounded-md border border-green/40 bg-green/10 px-1.5 py-0.5 text-[10px] font-medium text-green" title="Cerrada">✓</span>
+            {% elif r.status == 'pending' %}
+              <span class="rounded-md border border-amber/40 bg-amber/10 px-1.5 py-0.5 text-[10px] font-medium text-amber" title="Pendiente">●</span>
+            {% endif %}
             {% if r.mood_label %}
             <span class="rounded-md border px-1.5 py-0.5 text-[10px] font-medium uppercase
               {{ mood_colors.get(r.mood_label, 'text-muted border-border bg-border/20') }}">

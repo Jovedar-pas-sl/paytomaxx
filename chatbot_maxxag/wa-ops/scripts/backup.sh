@@ -21,25 +21,42 @@ log() { echo "[$(date -Is)] $*"; }
 
 log "Starting backup..."
 
-# ── 1. pg_dump all DBs ──────────────────────────────────────────
-for DB in chatwoot_production evolution kpi; do
-    log "Dumping $DB..."
-    docker compose exec -T postgres pg_dump \
-        -U postgres \
-        --format=custom \
-        --no-owner \
-        --no-acl \
-        "$DB" > "$BACKUP_DIR/${DB}.dump"
-done
+# ── 1. pg_dump kpi DB (Chatwoot/Evolution removed; only kpi remains) ──
+log "Dumping kpi DB..."
+docker compose exec -T postgres pg_dump \
+    -U postgres \
+    --format=custom \
+    --no-owner \
+    --no-acl \
+    kpi > "$BACKUP_DIR/kpi.dump"
+log "kpi.dump size: $(du -h "$BACKUP_DIR/kpi.dump" | cut -f1)"
 
-# ── 2. Export evolution_instances volume (WA session data) ──────
-log "Tarring evolution_instances volume..."
+# ── 2. Export waha_data volume (WhatsApp sessions — CRITICAL) ────
+# If we lose this, all linked WhatsApp numbers must be re-paired by QR scan.
+log "Tarring waha_data volume (WhatsApp sessions)..."
 docker run --rm \
-    -v maxxag-wa-ops_evolution_instances:/src:ro \
+    -v maxxag-wa-ops_waha_data:/src:ro \
     -v "$BACKUP_DIR":/dst \
-    alpine tar czf /dst/evolution_instances.tar.gz -C /src .
+    alpine tar czf /dst/waha_data.tar.gz -C /src .
+log "waha_data.tar.gz size: $(du -h "$BACKUP_DIR/waha_data.tar.gz" | cut -f1)"
 
-# ── 3. Push to restic repo (encrypted, deduplicated) ────────────
+# ── 3. Export archive_data volume (raw event JSONL — secondary record) ──
+if docker volume inspect maxxag-wa-ops_archive_data &>/dev/null; then
+    log "Tarring archive_data volume (event JSONL)..."
+    docker run --rm \
+        -v maxxag-wa-ops_archive_data:/src:ro \
+        -v "$BACKUP_DIR":/dst \
+        alpine tar czf /dst/archive_data.tar.gz -C /src . 2>/dev/null || \
+        log "archive_data not present — skipping (was added in event-archive feature)"
+fi
+
+# ── 4. Snapshot of .env (encrypted by restic anyway, but useful) ─
+if [[ -f "$ROOT/.env" ]]; then
+    cp "$ROOT/.env" "$BACKUP_DIR/.env.snapshot"
+    log "Captured .env snapshot"
+fi
+
+# ── 5. Push to restic repo (encrypted, deduplicated) ────────────
 if command -v restic &>/dev/null && [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
     log "Pushing to restic repo $RESTIC_REPOSITORY..."
     restic backup "$BACKUP_DIR" \
@@ -61,7 +78,7 @@ else
     exit 0
 fi
 
-# ── 4. Cleanup local dump ───────────────────────────────────────
+# ── 6. Cleanup local dump ───────────────────────────────────────
 log "Cleaning up local dump..."
 rm -rf "$BACKUP_DIR"
 
