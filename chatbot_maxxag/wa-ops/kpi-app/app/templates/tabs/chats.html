@@ -146,81 +146,34 @@
 </div>
 {% endif %}
 
-{# List — auto-refresh every 4s via HTMX; manual button above triggers immediate update #}
-<section id="chat-list" class="card divide-y divide-border overflow-hidden"
-         hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa }}"
-         hx-trigger="every 30s[document.visibilityState==='visible']"
-         hx-swap="outerHTML">
-  {% for r in chat_rows %}
-    {% set display_phone = format_phone(r.contact_phone) if r.contact_phone else '' %}
-    {% set name = r.contact_name or (display_phone if display_phone else 'Contacto privado') %}
-    {% set initial = (name[:1] | upper) if name[:1].isalpha() else '?' %}
-    {% set grad = avatar_gradients[(name | length) % (avatar_gradients | length)] %}
-
-    <a href="/conversation/{{ r.id }}" class="flex items-start gap-3 px-4 py-3 hover:bg-border/10 transition">
-      <div class="relative flex-shrink-0">
-        <div class="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br {{ grad }} text-lg font-semibold text-white">
-          {{ initial }}
-        </div>
-        {% if r.status == 'open' %}
-          <span class="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-panel bg-green"></span>
-        {% endif %}
-        {% if r.unread_count > 0 %}
-          <span class="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-panel bg-green px-1 text-[10px] font-bold text-bg">
-            {{ r.unread_count }}
-          </span>
-        {% endif %}
-      </div>
-
-      <div class="min-w-0 flex-1">
-        <div class="flex items-baseline justify-between gap-2">
-          <div class="min-w-0 flex-1">
-            <span class="truncate font-semibold text-text">{{ name }}</span>
-            {% if r.wa_label and active_wa == 'all' %}
-              <span class="ml-2 rounded-full bg-blue/15 px-1.5 py-0.5 text-[9px] font-medium uppercase text-blue">{{ r.wa_label }}</span>
-            {% endif %}
-            {% if r.contact_name %}
-              <span class="ml-2 text-[10px] text-muted mono">{{ display_phone }}</span>
-            {% endif %}
-          </div>
-          <span class="flex-shrink-0 text-[11px] text-muted mono"
-                data-time="{{ r.last_message_at.isoformat() }}">
-            {{ (r.last_message_at | local).strftime('%d/%m %H:%M') }}
-          </span>
-        </div>
-
-        <div class="mt-0.5 flex items-center justify-between gap-2">
-          <p class="min-w-0 flex-1 truncate text-sm text-muted">
-            {{ r.last_message_preview or '—' }}
-          </p>
-          <div class="flex flex-shrink-0 items-center gap-1.5">
-            {% if r.mood_label %}
-            <span class="rounded-md border px-1.5 py-0.5 text-[10px] font-medium uppercase
-              {{ mood_colors.get(r.mood_label, 'text-muted border-border bg-border/20') }}">
-              {{ r.mood_label }}
-            </span>
-            {% endif %}
-            {% if r.conv_probability is not none %}
-              {% set pct = (r.conv_probability * 100) | int %}
-              <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold mono
-                {% if pct > 60 %}bg-green/20 text-green{% elif pct > 30 %}bg-amber/20 text-amber{% else %}bg-border/30 text-muted{% endif %}">
-                {{ pct }}%
-              </span>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-    </a>
-  {% endfor %}
-  {% if not chat_rows %}
-  <div class="py-16 text-center">
-    <div class="text-4xl mb-3">💬</div>
-    <div class="text-sm font-semibold">Aún no hay conversaciones</div>
-    <div class="mt-1 text-xs text-muted">
-      Vincula un WhatsApp desde <a href="/sessions" class="text-green underline">Sesiones</a> y los mensajes entrantes aparecerán aquí.
-    </div>
-  </div>
+{# Chip "Sin contestar (N)" — toggle de filtro de convs con cliente esperando.
+   Reusa el periodo activo del header. Click sobre el chip recarga la página
+   con/sin el query param 'unanswered'. #}
+<div class="mb-3 flex flex-wrap items-center gap-2">
+  {% set is_unans = active_unanswered %}
+  {% set base_qs = '?tab=chats&wa=' ~ active_wa ~ '&period=' ~ active_period %}
+  <a href="{{ base_qs }}{% if not is_unans %}&unanswered=true{% endif %}"
+     class="rounded-full border px-3 py-1 text-xs font-medium transition
+            {% if is_unans %}border-amber bg-amber/15 text-amber{% else %}border-border bg-surface hover:bg-surface-2 text-muted hover:text-text{% endif %}">
+     ⏳ Sin contestar
+     {% if unanswered_count is defined and unanswered_count > 0 %}
+       <span class="ml-1 mono font-bold">({{ unanswered_count }})</span>
+     {% endif %}
+  </a>
+  {% if is_unans %}
+  <span class="text-[11px] text-muted-2">Mostrando solo conversaciones donde el cliente espera respuesta</span>
   {% endif %}
+</div>
+
+{# Chats list — incluye el partial que también sirve /widget/casa/{id}/chats
+   para los chunks de scroll infinito. Auto-refresh ELIMINADO a propósito;
+   "Actualizar" arriba refresca manualmente. Sentinel HTMX al final del
+   partial dispara cargas adicionales cuando entra en viewport. #}
+{% set offset = 0 %}
+{% set next_offset = 50 if chat_total > 50 else none %}
+{% set total = chat_total %}
+<section id="chat-list" class="card overflow-hidden">
+  {% include 'partials/chat_list_fragment.html' %}
 </section>
 
 {# Toast for per-WA meta-analysis trigger — shows live progress bar + ETA;

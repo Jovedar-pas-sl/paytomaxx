@@ -58,6 +58,10 @@ async def widget_casas(
     return templates.TemplateResponse(request, "partials/casas_list.html", {"casas": casas})
 
 
+VALID_PERIODS = {"24h", "7d", "30d", "90d", "all"}
+PERIOD_DAYS = {"24h": 1, "7d": 7, "30d": 30, "90d": 90, "all": 3650}
+
+
 @router.get("/casa/{casa_id}/chats", response_class=HTMLResponse)
 async def widget_casa_chats(
     request: Request,
@@ -65,23 +69,52 @@ async def widget_casa_chats(
     user: CurrentUser,  # noqa: ARG001
     kpi: KpiDB,
     wa: str = "all",
+    period: str = "all",
+    offset: int = 0,
+    unanswered: bool = False,
+    limit: int = 50,
 ) -> HTMLResponse:
-    """HTMX fragment: just the chats list section (polled every 4s)."""
+    """HTMX fragment: chats list + load-more sentinel for infinite scroll.
+
+    Accepts period (24h/7d/30d/90d/all), offset (for pagination), and
+    unanswered (filters convs whose last msg is from the customer).
+    """
     wa_number_id: int | None = None
     if wa != "all":
         try:
             wa_number_id = int(wa)
         except ValueError:
             pass
-    rows, _ = await queries.list_conversations(
-        kpi, casa_id=casa_id, wa_number_id=wa_number_id, limit=50, offset=0
+    if period not in VALID_PERIODS:
+        period = "all"
+    days = PERIOD_DAYS[period]
+    since_days = None if days >= 3650 else days
+    limit = max(1, min(int(limit), 100))
+    offset = max(0, int(offset))
+
+    rows, total = await queries.list_conversations(
+        kpi,
+        casa_id=casa_id,
+        wa_number_id=wa_number_id,
+        since_days=since_days,
+        unanswered_only=unanswered,
+        limit=limit,
+        offset=offset,
     )
-    unanalyzed = await queries.count_unanalyzed_for_casa(kpi, casa_id)
+    next_offset = offset + len(rows) if (offset + len(rows)) < total else None
     return templates.TemplateResponse(
         request,
         "partials/chat_list_fragment.html",
-        {"casa_id": casa_id, "chat_rows": rows, "unanalyzed_count": unanalyzed,
-         "active_wa": wa},
+        {
+            "casa_id": casa_id,
+            "chat_rows": rows,
+            "active_wa": wa,
+            "active_period": period,
+            "active_unanswered": unanswered,
+            "offset": offset,
+            "next_offset": next_offset,
+            "total": total,
+        },
     )
 
 

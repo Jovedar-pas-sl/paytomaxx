@@ -32,19 +32,21 @@ class ReferralShare(BaseModel):
 
 
 class MetaAnalysisResult(BaseModel):
-    # Limits raised to match the rebalanced META_PROMPT (richer summary +
-    # client_profile, fewer patterns). Generous max_length leaves margin
-    # for Claude to occasionally exceed the suggested target without the
-    # whole report failing.
-    summary: str = Field(..., max_length=1500)
-    patterns: list[Pattern] = Field(..., min_length=1, max_length=10)
-    strengths: list[str] = Field(..., min_length=1, max_length=8)
-    improvements: list[str] = Field(..., min_length=1, max_length=8)
-    client_profile: str = Field(..., max_length=2000)
-    # New per-WA fields — populated when enough data is available, otherwise empty.
-    top_topics: list[TopicShare] = Field(default_factory=list, max_length=10)
+    """New simplified shape: ONE-line summary + top 3 lists.
+
+    Legacy fields (patterns/strengths/improvements/client_profile/avoided_topics)
+    are kept as OPTIONAL with empty defaults so old saved informes can still be
+    decoded. The current prompt instructs Claude to NOT generate those fields.
+    """
+    summary: str = Field(..., max_length=300)
+    top_topics: list[TopicShare] = Field(default_factory=list, max_length=5)
+    top_referrals: list[ReferralShare] = Field(default_factory=list, max_length=5)
+    # Legacy / retrocompat — accepted but not asked for in the new prompt.
+    patterns: list[Pattern] = Field(default_factory=list, max_length=10)
+    strengths: list[str] = Field(default_factory=list, max_length=8)
+    improvements: list[str] = Field(default_factory=list, max_length=8)
+    client_profile: str = Field(default="", max_length=2000)
     avoided_topics: list[str] = Field(default_factory=list, max_length=8)
-    top_referrals: list[ReferralShare] = Field(default_factory=list, max_length=6)
 
 
 class ConvSummary(BaseModel):
@@ -99,13 +101,13 @@ async def run_meta_analysis(
     # summary + 3-6 patterns + 3-5 strengths + 3-5 improvements + client_profile
     # + 3-6 top_topics + 1-4 avoided_topics + 2-5 top_referrals = easily 3-4k tokens.
     # 60s timeout covers Haiku generating that volume.
-    # Meta uses near the Haiku 4.5 max output (8192). Plenty of headroom for
-    # the largest informes (50+ convs with rich top_topics/top_referrals).
+    # Simplified output (1 frase + top 3 + top 3) cabe sobradamente en 1500 tokens.
+    # Claude responde más rápido y más barato.
     data = await _call_json(
         system=prompts.META_PROMPT,
         user=user_content,
         schema=MetaAnalysisResult.model_json_schema(),
-        max_tokens=8000,
-        timeout=120.0,
+        max_tokens=1500,
+        timeout=60.0,
     )
     return MetaAnalysisResult.model_validate(data)

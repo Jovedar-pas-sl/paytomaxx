@@ -32,13 +32,17 @@ async def casa_workspace(
     kpi: KpiDB,
     settings: SettingsDep,
     tab: str = Query("chats"),
-    period: str = Query("30d"),
+    period: str | None = Query(None),
     wa: str = Query("all"),
+    unanswered: bool = Query(False),
 ) -> HTMLResponse:
     if tab not in VALID_TABS:
         tab = "chats"
-    if period not in VALID_PERIODS:
-        period = "30d"
+    # Default period depends on the active tab:
+    # - chats → 'all' (user wants to see everything historic)
+    # - metricas/problemas/analisis → '30d' (sensible default for stats)
+    if period is None or period not in VALID_PERIODS:
+        period = "all" if tab == "chats" else "30d"
     days = PERIOD_DAYS[period]
 
     # Resolve wa param: "all" or a wa_number_id
@@ -69,7 +73,7 @@ async def casa_workspace(
 
     tab_ctx: dict = {}
     if tab == "chats":
-        tab_ctx = await _chats_tab(kpi, casa_id, wa_number_id)
+        tab_ctx = await _chats_tab(kpi, casa_id, wa_number_id, days, unanswered)
     elif tab == "metricas":
         tab_ctx = await _metricas_tab(kpi, casa_id, days)
     elif tab == "problemas":
@@ -87,6 +91,7 @@ async def casa_workspace(
             "active_tab": tab,
             "active_period": period,
             "active_wa": wa,
+            "active_unanswered": unanswered,
             "wa_numbers": wa_numbers,
             "period_options": ["24h", "7d", "30d", "90d", "all"],
             "admin_url": None,
@@ -101,12 +106,26 @@ async def _build_header(kpi, casa_id: int, casa_name: str) -> dict:
     return {"header": await queries.get_casa_header(kpi, casa_id, casa_name)}
 
 
-async def _chats_tab(kpi, casa_id: int, wa_number_id: int | None = None) -> dict:
+async def _chats_tab(
+    kpi,
+    casa_id: int,
+    wa_number_id: int | None = None,
+    days: int = 3650,
+    unanswered: bool = False,
+) -> dict:
+    # since_days=None means "all" (3650 days = 10 years which is effectively no
+    # filter); pass the real value otherwise so the SQL filter applies.
+    since_days = None if days >= 3650 else days
     rows, total = await queries.list_conversations(
-        kpi, casa_id=casa_id, wa_number_id=wa_number_id, limit=50, offset=0
+        kpi,
+        casa_id=casa_id,
+        wa_number_id=wa_number_id,
+        since_days=since_days,
+        unanswered_only=unanswered,
+        limit=50,
+        offset=0,
     )
-    # Per-WA count when filtered, last 24h window, includes open + closed +
-    # dirty (need re-analysis) — matches the on-demand "Generar informe" flow.
+    # 24h-window count for the analyze banner (independent of the chat filters)
     unanalyzed = await queries.count_unanalyzed_for_casa(
         kpi, casa_id,
         wa_number_id=wa_number_id,
@@ -114,10 +133,17 @@ async def _chats_tab(kpi, casa_id: int, wa_number_id: int | None = None) -> dict
         include_open=True,
         redo_dirty=True,
     )
+    # Total convs awaiting reply — drives the "Sin contestar (N)" chip count.
+    unanswered_count = await queries.count_unanswered_for_casa(
+        kpi, casa_id,
+        wa_number_id=wa_number_id,
+        since_days=since_days,
+    )
     return {
         "chat_rows": rows,
         "chat_total": total,
         "unanalyzed_count": unanalyzed,
+        "unanswered_count": unanswered_count,
         "wa_number_id": wa_number_id,
     }
 

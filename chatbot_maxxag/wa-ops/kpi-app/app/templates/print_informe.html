@@ -138,76 +138,96 @@
     <strong>{{ informe.conversations_analyzed }}</strong> conversaciones analizadas
   </div>
 
-  <h2>Resumen ejecutivo</h2>
+  {% if informe.summary %}
   <div class="summary">{{ informe.summary }}</div>
+  {% endif %}
 
-  {% if informe.patterns %}
-  <h2>Patrones detectados</h2>
+  {% set k = informe.kpis or {} %}
+
+  <h2>Volumen</h2>
   <table>
-    <thead><tr><th style="width:90px;">Frecuencia</th><th>Descripción</th></tr></thead>
-    <tbody>
-    {% for p in informe.patterns %}
-      {% set freq = (p.frequency if p.frequency else 'media') %}
-      <tr>
-        <td><span class="badge {{ freq }}">{{ freq }}</span></td>
-        <td>{{ p.description }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
+    <tr><th>Conversaciones</th><td>{{ k.total_convs or informe.conversations_analyzed or 0 }}</td>
+        <th>Mensajes totales</th><td>{{ k.total_msgs or 0 }}</td></tr>
+    <tr><th>Mensajes/conv</th><td>{{ k.avg_msgs or 0 }}</td>
+        <th>Clientes únicos</th><td>{{ k.unique_clients or 0 }}</td></tr>
+    <tr><th>Tasa de conversión</th><td><strong>{{ k.conv_rate_pct or 0 }} %</strong></td>
+        <th></th><td></td></tr>
+  </table>
+
+  <h2>Estado</h2>
+  <table>
+    <tr><th>Contestadas</th><td>{{ k.answered or 0 }}</td>
+        <th>Sin contestar</th><td>{{ k.unanswered or 0 }}</td></tr>
+    <tr><th>Cerradas</th><td>{{ k.resolved or 0 }}</td>
+        <th>Abiertas</th><td>{{ k.open_count or 0 }}</td></tr>
+  </table>
+
+  <h2>¿Qué piden?</h2>
+  <table>
+    <tr><th>Reservas</th><td>{{ k.bookings or 0 }}</td>
+        <th>Cotizaciones</th><td>{{ k.quotes or 0 }}</td>
+        <th>Información</th><td>{{ k.infos or 0 }}</td></tr>
+    <tr><th>Quejas</th><td>{{ k.complaints or 0 }}</td>
+        <th>Charla</th><td>{{ k.chitchat or 0 }}</td>
+        <th></th><td></td></tr>
+  </table>
+
+  <h2>Tiempo de respuesta</h2>
+  <table>
+    <tr><th>Mediana (p50)</th><td>{{ k.p50_sec or 0 }} s</td>
+        <th>p90</th><td>{{ ((k.p90_sec or 0) / 60) | round | int }} min</td></tr>
+    <tr><th>Máximo</th><td>{{ ((k.max_sec or 0) / 60) | round | int }} min</td>
+        <th>% rápido (&lt;1min)</th><td>{{ k.fast_pct or 0 }}%</td></tr>
+  </table>
+
+  <h2>¿Cómo viene el cliente?</h2>
+  <table>
+    <tr><th>Decidido</th><td>{{ k.mood_decidido or 0 }}</td>
+        <th>Calentón</th><td>{{ k.mood_calenton or 0 }}</td>
+        <th>Curioso</th><td>{{ k.mood_curioso or 0 }}</td></tr>
+    <tr><th>Indeciso</th><td>{{ k.mood_indeciso or 0 }}</td>
+        <th>Enfadado</th><td>{{ k.mood_enfadado or 0 }}</td>
+        <th>Pelma</th><td>{{ k.mood_timewaster or 0 }}</td></tr>
+  </table>
+
+  <h2>Trato de la mamai (media 0-10)</h2>
+  <table>
+    <tr><th>Cariñosa</th><td>{{ k.avg_carinoso or 0 }}/10</td>
+        <th>Profesional</th><td>{{ k.avg_profesional or 0 }}/10</td></tr>
+    <tr><th>Vendedora</th><td>{{ k.avg_vendedor or 0 }}/10</td>
+        <th>Seca</th><td>{{ k.avg_seco or 0 }}/10</td></tr>
+  </table>
+
+  {% if (k.red_flags_total or 0) > 0 or (k.escalations or 0) > 0 %}
+  <h2>Alertas</h2>
+  <table>
+    <tr><th>Red flags totales</th><td>{{ k.red_flags_total or 0 }}</td>
+        <th>Escalaciones</th><td>{{ k.escalations or 0 }}</td></tr>
   </table>
   {% endif %}
 
-  <div class="grid3">
-    {% if informe.strengths %}
-    <div>
-      <h2>💪 Puntos fuertes</h2>
-      <ul>{% for s in informe.strengths %}<li>{{ s }}</li>{% endfor %}</ul>
-    </div>
-    {% endif %}
-    {% if informe.improvements %}
-    <div>
-      <h2>📈 A mejorar</h2>
-      <ul>{% for i in informe.improvements %}<li>{{ i }}</li>{% endfor %}</ul>
-    </div>
-    {% endif %}
-    {% if informe.client_profile %}
-    <div>
-      <h2>👤 Cliente típico</h2>
-      <p>{{ informe.client_profile }}</p>
-    </div>
-    {% endif %}
-  </div>
-
-  {% if informe.top_topics or informe.avoided_topics or informe.top_referrals %}
-  <div class="grid3">
-    {% if informe.top_topics %}
-    <div>
-      <h2>🗣 De qué más habla</h2>
-      <ul>
-      {% for t in informe.top_topics %}
-        <li><strong>{{ t.topic }}</strong> — {{ t.count }} ({{ t.pct }}%)</li>
-      {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-    {% if informe.avoided_topics %}
-    <div>
-      <h2>🤐 Temas que evita</h2>
-      <ul>{% for t in informe.avoided_topics %}<li>{{ t }}</li>{% endfor %}</ul>
-    </div>
-    {% endif %}
+  <div class="grid3" style="grid-template-columns: 1fr 1fr;">
     {% if informe.top_referrals %}
     <div>
-      <h2>🌐 De dónde llegan</h2>
-      <ul>
-      {% for r in informe.top_referrals %}
+      <h2>De dónde llegan (top)</h2>
+      <ol>
+      {% for r in informe.top_referrals[:5] %}
         <li><strong>{{ r.source }}</strong> — {{ r.count }} ({{ r.pct }}%)</li>
       {% endfor %}
-      </ul>
+      </ol>
+    </div>
+    {% endif %}
+    {% if informe.top_topics %}
+    <div>
+      <h2>¿Qué piden? (top)</h2>
+      <ol>
+      {% for t in informe.top_topics[:5] %}
+        <li><strong>{{ t.topic }}</strong> — {{ t.count }} ({{ t.pct }}%)</li>
+      {% endfor %}
+      </ol>
     </div>
     {% endif %}
   </div>
-  {% endif %}
 
   <div class="footer">
     Maxxag Ops · Informe #{{ informe.id }} · Generado por Claude Haiku 4.5

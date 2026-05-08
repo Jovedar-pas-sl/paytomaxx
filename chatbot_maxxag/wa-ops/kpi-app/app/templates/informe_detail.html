@@ -62,106 +62,224 @@
     </div>
   </div>
 
-  {# Resumen ejecutivo #}
+  {# Resumen — UNA frase plana #}
+  {% if informe.summary %}
   <section class="mb-5">
-    <div class="text-[10px] uppercase tracking-wider text-muted mb-2">Resumen ejecutivo</div>
-    <p class="text-sm leading-relaxed">{{ informe.summary }}</p>
+    <p class="text-base leading-relaxed text-text">{{ informe.summary }}</p>
   </section>
+  {% endif %}
 
-  {# Patterns + Strengths + Improvements #}
-  <section class="grid grid-cols-1 gap-5 lg:grid-cols-3 border-t border-border pt-5">
-    <div>
-      <div class="text-[10px] uppercase tracking-wider text-muted mb-2">🔍 Patrones detectados</div>
-      <ul class="space-y-2 text-xs">
-        {% for p in informe.patterns %}
-        {% set freq_color = {'alta': 'text-red', 'media': 'text-amber', 'baja': 'text-muted'} %}
-        <li class="flex items-start gap-2">
-          <span class="mt-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase {{ freq_color.get(p.frequency, 'text-muted') }}">
-            {{ p.frequency }}
-          </span>
-          <span class="text-muted leading-relaxed">{{ p.description }}</span>
-        </li>
-        {% else %}
-        <li class="text-muted-2 text-[11px]">Sin patrones registrados</li>
-        {% endfor %}
-      </ul>
-    </div>
+  {% set k = informe.kpis or {} %}
 
-    <div>
-      <div class="text-[10px] uppercase tracking-wider text-green mb-2">💪 Puntos fuertes</div>
-      <ul class="space-y-1.5 text-xs list-disc list-inside text-muted">
-        {% for s in informe.strengths %}
-        <li>{{ s }}</li>
-        {% else %}
-        <li class="text-muted-2 list-none">—</li>
-        {% endfor %}
-      </ul>
-    </div>
+  {# ── DASHBOARD NUMÉRICO ───────────────────────────────────── #}
 
-    <div>
-      <div class="text-[10px] uppercase tracking-wider text-amber mb-2">📈 Áreas a mejorar</div>
-      <ul class="space-y-1.5 text-xs list-disc list-inside text-muted">
-        {% for i in informe.improvements %}
-        <li>{{ i }}</li>
-        {% else %}
-        <li class="text-muted-2 list-none">—</li>
-        {% endfor %}
-      </ul>
+  {# Volumen + Estado #}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Volumen</div>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Conversaciones</div>
+        <div class="mono text-3xl font-bold mt-1">{{ k.total_convs or informe.conversations_analyzed or 0 }}</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Mensajes totales</div>
+        <div class="mono text-3xl font-bold mt-1">{{ k.total_msgs or 0 }}</div>
+        <div class="text-[10px] text-muted-2 mt-0.5">{{ k.avg_msgs or 0 }} de media/conv</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Clientes únicos</div>
+        <div class="mono text-3xl font-bold mt-1">{{ k.unique_clients or 0 }}</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Conversión</div>
+        <div class="mono text-3xl font-bold mt-1
+          {% if (k.conv_rate_pct or 0) >= 40 %}text-green{% elif (k.conv_rate_pct or 0) >= 20 %}text-amber{% else %}text-muted{% endif %}">
+          {{ k.conv_rate_pct or 0 }}%
+        </div>
+        <div class="text-[10px] text-muted-2 mt-0.5">prob. {{ ">" }}50%</div>
+      </div>
     </div>
   </section>
 
-  {# Perfil cliente #}
-  <section class="mt-5 border-t border-border pt-5">
-    <div class="text-[10px] uppercase tracking-wider text-blue mb-2">👤 Perfil típico de cliente</div>
-    <p class="text-xs leading-relaxed text-muted">{{ informe.client_profile }}</p>
+  {# Estado: contestadas vs pendientes #}
+  <section class="mb-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Estado</div>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Contestadas</div>
+        <div class="mono text-3xl font-bold mt-1 text-green">{{ k.answered or 0 }}</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Sin contestar</div>
+        <div class="mono text-3xl font-bold mt-1 {% if (k.unanswered or 0) > 0 %}text-amber{% endif %}">{{ k.unanswered or 0 }}</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Cerradas</div>
+        <div class="mono text-3xl font-bold mt-1">{{ k.resolved or 0 }}</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Abiertas</div>
+        <div class="mono text-3xl font-bold mt-1">{{ k.open_count or 0 }}</div>
+      </div>
+    </div>
   </section>
 
-  {# Topics + Referrals #}
-  {% if informe.top_topics or informe.avoided_topics or informe.top_referrals %}
-  <section class="mt-5 grid grid-cols-1 gap-5 border-t border-border pt-5 lg:grid-cols-3">
-    <div>
-      <div class="text-[10px] uppercase tracking-wider text-green mb-2">🗣 De qué más habla</div>
-      {% if informe.top_topics %}
-      <ul class="space-y-1.5 text-xs">
-        {% for t in informe.top_topics %}
-        <li class="flex items-center justify-between gap-2">
-          <span>{{ t.topic }}</span>
-          <span class="mono text-[10px] text-muted">{{ t.count }} ({{ t.pct }}%)</span>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <div class="text-[11px] text-muted">Sin datos suficientes</div>
-      {% endif %}
+  {# Intenciones — qué piden #}
+  <section class="mb-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">¿Qué piden?</div>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Reservas</div>
+        <div class="mono text-2xl font-bold mt-1 text-green">{{ k.bookings or 0 }}</div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Cotizaciones</div>
+        <div class="mono text-2xl font-bold mt-1">{{ k.quotes or 0 }}</div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Información</div>
+        <div class="mono text-2xl font-bold mt-1">{{ k.infos or 0 }}</div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Quejas</div>
+        <div class="mono text-2xl font-bold mt-1 {% if (k.complaints or 0) > 0 %}text-amber{% endif %}">{{ k.complaints or 0 }}</div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Charla</div>
+        <div class="mono text-2xl font-bold mt-1 text-muted">{{ k.chitchat or 0 }}</div>
+      </div>
     </div>
+  </section>
 
-    <div>
-      <div class="text-[10px] uppercase tracking-wider text-amber mb-2">🤐 Temas que no toca</div>
-      {% if informe.avoided_topics %}
-      <ul class="space-y-1.5 text-xs list-disc list-inside text-muted">
-        {% for t in informe.avoided_topics %}<li>{{ t }}</li>{% endfor %}
-      </ul>
-      {% else %}
-      <div class="text-[11px] text-muted">Sin gaps detectados</div>
-      {% endif %}
+  {# Tiempos de respuesta #}
+  <section class="mb-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Tiempo de respuesta</div>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Mediana (p50)</div>
+        <div class="mono text-3xl font-bold mt-1">{{ k.p50_sec or 0 }}<span class="text-sm text-muted ml-1">s</span></div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">90% &lt; (p90)</div>
+        <div class="mono text-3xl font-bold mt-1">{{ ((k.p90_sec or 0) / 60) | round | int }}<span class="text-sm text-muted ml-1">min</span></div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Máximo</div>
+        <div class="mono text-3xl font-bold mt-1">{{ ((k.max_sec or 0) / 60) | round | int }}<span class="text-sm text-muted ml-1">min</span></div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Rápido (&lt;1min)</div>
+        <div class="mono text-3xl font-bold mt-1
+          {% if (k.fast_pct or 0) >= 70 %}text-green{% elif (k.fast_pct or 0) >= 40 %}text-amber{% else %}text-muted{% endif %}">
+          {{ k.fast_pct or 0 }}%
+        </div>
+      </div>
     </div>
+  </section>
 
-    <div>
-      <div class="text-[10px] uppercase tracking-wider text-blue mb-2">🌐 De dónde llegan</div>
-      {% if informe.top_referrals %}
-      <ul class="space-y-1.5 text-xs">
-        {% for r in informe.top_referrals %}
-        <li class="flex items-center justify-between gap-2">
-          <span>{{ r.source }}</span>
-          <span class="mono text-[10px] text-muted">{{ r.count }} ({{ r.pct }}%)</span>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <div class="text-[11px] text-muted">Los clientes no mencionan su origen</div>
-      {% endif %}
+  {# Mood breakdown — cómo viene el cliente #}
+  <section class="mb-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">¿Cómo viene el cliente?</div>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-6">
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Decidido</div>
+        <div class="mono text-2xl font-bold mt-1 text-green">{{ k.mood_decidido or 0 }}</div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Calentón</div>
+        <div class="mono text-2xl font-bold mt-1 text-green">{{ k.mood_calenton or 0 }}</div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Curioso</div>
+        <div class="mono text-2xl font-bold mt-1 text-blue">{{ k.mood_curioso or 0 }}</div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Indeciso</div>
+        <div class="mono text-2xl font-bold mt-1 text-amber">{{ k.mood_indeciso or 0 }}</div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Enfadado</div>
+        <div class="mono text-2xl font-bold mt-1 {% if (k.mood_enfadado or 0) > 0 %}text-red{% endif %}">{{ k.mood_enfadado or 0 }}</div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Pelmas</div>
+        <div class="mono text-2xl font-bold mt-1 text-muted">{{ k.mood_timewaster or 0 }}</div>
+      </div>
+    </div>
+  </section>
+
+  {# Trato de la mamai (avg 0-10) #}
+  <section class="mb-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Trato de la mamai (media 0-10)</div>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Cariñosa</div>
+        <div class="mono text-2xl font-bold mt-1">{{ k.avg_carinoso or 0 }}<span class="text-sm text-muted-2">/10</span></div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Profesional</div>
+        <div class="mono text-2xl font-bold mt-1">{{ k.avg_profesional or 0 }}<span class="text-sm text-muted-2">/10</span></div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Vendedora</div>
+        <div class="mono text-2xl font-bold mt-1">{{ k.avg_vendedor or 0 }}<span class="text-sm text-muted-2">/10</span></div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[10px] uppercase text-muted">Seca</div>
+        <div class="mono text-2xl font-bold mt-1 {% if (k.avg_seco or 0) >= 5 %}text-amber{% endif %}">{{ k.avg_seco or 0 }}<span class="text-sm text-muted-2">/10</span></div>
+      </div>
+    </div>
+  </section>
+
+  {# Alertas + escalaciones #}
+  {% if (k.red_flags_total or 0) > 0 or (k.escalations or 0) > 0 %}
+  <section class="mb-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Alertas</div>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="card p-3 {% if (k.red_flags_total or 0) > 0 %}border-red/40{% endif %}">
+        <div class="text-[10px] uppercase text-muted">Red flags</div>
+        <div class="mono text-2xl font-bold mt-1 {% if (k.red_flags_total or 0) > 0 %}text-red{% endif %}">{{ k.red_flags_total or 0 }}</div>
+      </div>
+      <div class="card p-3 {% if (k.escalations or 0) > 0 %}border-amber/40{% endif %}">
+        <div class="text-[10px] uppercase text-muted">Escalaciones</div>
+        <div class="mono text-2xl font-bold mt-1 {% if (k.escalations or 0) > 0 %}text-amber{% endif %}">{{ k.escalations or 0 }}</div>
+      </div>
     </div>
   </section>
   {% endif %}
+
+  {# Top 3 referrals + Top 3 topics #}
+  <section class="mt-5 grid grid-cols-1 gap-5 border-t border-border pt-5 lg:grid-cols-2">
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-blue mb-2">🌐 De dónde llegan (top 3)</div>
+      {% if informe.top_referrals %}
+      <ul class="space-y-2 text-sm">
+        {% for r in informe.top_referrals[:5] %}
+        <li class="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <span>{{ loop.index }}. <strong>{{ r.source }}</strong></span>
+          <span class="mono text-muted">{{ r.count }} <span class="text-muted-2">({{ r.pct }}%)</span></span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="text-xs text-muted">Los clientes no mencionan de dónde llegan</div>
+      {% endif %}
+    </div>
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-green mb-2">🗣 ¿De qué hablan? (top 3)</div>
+      {% if informe.top_topics %}
+      <ul class="space-y-2 text-sm">
+        {% for t in informe.top_topics[:5] %}
+        <li class="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <span>{{ loop.index }}. <strong>{{ t.topic }}</strong></span>
+          <span class="mono text-muted">{{ t.count }} <span class="text-muted-2">({{ t.pct }}%)</span></span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="text-xs text-muted">Sin datos suficientes</div>
+      {% endif %}
+    </div>
+  </section>
 </div>
 {% endblock %}

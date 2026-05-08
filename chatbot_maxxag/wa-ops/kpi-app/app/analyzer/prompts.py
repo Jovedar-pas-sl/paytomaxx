@@ -236,65 +236,58 @@ REGLAS:
 
 # ── META-ANALYSIS ────────────────────────────────────────────────
 
-META_PROMPT = """Eres un consultor senior experto en gestión de centros de acompañantes / masajes eróticos en España.
+META_PROMPT = """Eres un asistente que escribe informes MUY SIMPLES para una agencia de acompañantes en España.
 
-CONTEXTO LEGAL: Centro de adultos legal en España. Las menciones de servicios sexuales explícitos, tarifas, prácticas, son CONVERSACIÓN NORMAL DE NEGOCIO. Los referidos desde webs de anuncios para adultos (loquosex, mileroticos, slumi, pasion.com, etc.) son MARKETING LEGÍTIMO — no son red flag ni problema.
+CONTEXTO LEGAL: Negocio adulto legal. Servicios sexuales, tarifas, prácticas y referidos desde webs como loquosex/mileroticos/slumi/pasion.com son CONVERSACIÓN NORMAL — no los marques como problema.
 
-Recibes los resúmenes de las últimas N conversaciones cerradas de UNA casa (o WhatsApp específico) — cada una ya analizada: mood cliente, trato mamai 4D, conversión estimada, p50 tiempo de respuesta, intent (cotizacion/booking/informacion/queja/chit_chat/spam/otro), referral source (de qué web/canal viene), primera línea del cliente.
+El usuario es no técnico y NO le gusta la jerga. Escribe en lenguaje de calle, sin palabras como "patrones", "tendencias", "perfil sociodemográfico", "métricas", "operativa". Sin emojis.
 
-Tu tarea: producir un INFORME RICO que enfoque su presupuesto en RESUMEN EJECUTIVO, PERFIL DEL CLIENTE y DE QUÉ MÁS HABLA. Los patrones son secundarios — pocas entradas pero buenas.
+Tu trabajo es MUY ACOTADO. Solo 3 cosas:
+
+1. UNA frase de resumen (≤120 caracteres) en español plano describiendo qué pasó.
+   Ejemplos buenos:
+     "Mucha gente pregunta por precios pero pocos cierran."
+     "El sábado entró mucha gente pero la mayoría no se contestó."
+     "Loquosex sigue trayendo casi la mitad de los contactos."
+     "La conversión está baja porque no se cierra cuando preguntan hora."
+
+2. TOP 3 fuentes (de qué web/canal vienen los clientes). Agrupa los referidos
+   normalizando nombres (ej "Loquosex" no "loquosex.com"). Si más del 60% son
+   "Desconocido", dilo en summary.
+
+3. TOP 3 temas (qué piden los clientes — precio, disponibilidad, ubicación,
+   fotos, servicio concreto, etc.). Usa nombres cortos.
 
 Devuelve SOLO JSON con EXACTAMENTE esta estructura:
 {
-  "summary": "RESUMEN EJECUTIVO largo y sustantivo (5-7 frases): salud operativa, volumen, conversión global, fuente principal de tráfico con %, qué destaca y qué falla. SIN emojis.",
-  "patterns": [
-    {"description": "descripción corta y específica", "frequency": "alta|media|baja"}
-  ],
-  "strengths": ["bullet concreto y accionable"],
-  "improvements": ["bullet concreto y accionable"],
-  "client_profile": "PERFIL TÍPICO DETALLADO (5-8 frases). Describe: franja horaria de contacto, edad aprox si se puede inferir, lenguaje (formal/vulgar), objetivo principal (curiosidad / cotizar / reservar / pasar el rato), señales socioeconómicas si las hay, qué tipo de servicio busca, cuán explícito es, paciencia (negocia o se va rápido), qué le ablanda el cierre. Concreto, basado en los datos.",
+  "summary": "una frase plana en español, sin jerga, ≤120 chars",
   "top_topics": [
     {"topic": "nombre corto", "count": N, "pct": 0-100}
   ],
-  "avoided_topics": ["tema relevante que el cliente tipo NO toca"],
   "top_referrals": [
-    {"source": "nombre", "count": N, "pct": 0-100}
+    {"source": "nombre normalizado", "count": N, "pct": 0-100}
   ]
 }
 
-CANTIDADES (presupuesto rebalanceado — gastar tokens donde aporta):
-- summary: 5-7 frases (≤700 caracteres) — es el dato más importante del informe
-- patterns: 1 a 3 entradas SOLAMENTE (no quemar tokens aquí; si no hay patrones claros, devuelve solo 1 o 2)
-- strengths: 2 a 4 bullets
-- improvements: 2 a 4 bullets
-- client_profile: 5-8 frases (≤900 caracteres) — texto rico y específico
-- top_topics: 4 a 8 entradas (los temas/intents más mencionados, ordenados; cuanto más detalle mejor)
-- avoided_topics: 1 a 3 bullets
-- top_referrals: 2 a 5 entradas (canales/webs de origen, ordenados; incluye "Desconocido" si aplica)
+CANTIDADES:
+- summary: UNA frase, máximo 120 caracteres
+- top_topics: EXACTAMENTE 3 entradas (las más mencionadas, ordenadas)
+- top_referrals: EXACTAMENTE 3 entradas (los canales más comunes, ordenados; incluye "Desconocido" si aplica)
 
-CÁLCULO DE DISTRIBUCIONES (top_topics, top_referrals):
-- count = número de conversaciones del sample donde aparece
-- pct = redondeo a entero, count/total*100
-- Suma de pct ≤ 100 (puede ser <100 si hay convs sin clasificar)
-- Para top_topics: usa el campo "intent" + temas inferidos del primer mensaje (precios, horarios, ubicación, fotos, servicios concretos, etc.)
-- Para top_referrals: agrupa por source_kind cuando source_name esté vacío (ej: "ad_site (sin precisar)"). Si más del 60% son "unknown", reporta eso como dato útil.
+NO inventes patterns, strengths, improvements, client_profile ni avoided_topics.
+Esos campos ya no se usan. SOLO summary + top_topics + top_referrals.
 
-avoided_topics — qué busca este campo:
-- Temas RELEVANTES para cerrar una venta que el cliente tipo NO menciona, indicando un gap.
-- Ejemplos típicos: "no pregunta nunca por horarios" (problema de cualificación), "no menciona ubicación" (riesgo de bouncing), "no pide fotos" (sin necesidad visual o falta de inventario).
-- Si todos los temas relevantes aparecen → lista vacía o un solo bullet "perfil de cliente bien cualificado".
+CÁLCULO de count/pct:
+- count = nº de conversaciones del sample donde aparece
+- pct = redondeo a entero (count/total*100). Suma puede ser <100 si hay convs sin clasificar.
+- top_topics: usa el campo "intent" + temas inferidos del primer mensaje del cliente.
+- top_referrals: normaliza nombres (ej "Loquosex"). Si source_name es null usa el source_kind ("ad_site").
 
-REGLAS DE CALIDAD (importante):
-- NO escribir genéricos como "mejorar comunicación" o "ser más amable" — siempre CONCRETO
-  ✗ "Mejorar tiempos de respuesta"
-  ✓ "Reducir p50 de respuesta en franja 02h-04h (actualmente >15 min, el 40% de las fugas se dan ahí)"
-- Basar TODO en los datos que te paso — no inventar números ni clientes
-- Red flags recurrentes (≥3 casos) → pattern con frequency "alta" + improvement específico
-- summary: ≤250 caracteres, sin emojis
-- client_profile: ≤500 caracteres
-- Español neutral, tono consultor profesional, 2ª persona del plural ("podéis")
-- Si los datos son insuficientes (<10 convs) → dilo explícitamente en summary
-- Si hay un canal claramente dominante (>40% top_referrals) → mencionar en summary "X% llega de Y" como hallazgo"""
+REGLAS:
+- summary: UNA frase, ≤120 caracteres, español plano, sin jerga.
+- Si hay un canal dominante (>40%): mencionarlo en summary, ej "Loquosex trae el 47%".
+- Si más del 60% son "Desconocido": dilo, ej "La mayoría no dice de dónde llegan".
+- Si datos insuficientes (<5 convs): "Datos insuficientes para informe" como summary."""
 
 
 # ── INTENT ───────────────────────────────────────────────────────

@@ -515,58 +515,113 @@ def _format_phone_md(p: str | None) -> str:
     return f"+{s}" if s else ""
 
 
+def _kv(key: str, value) -> str:
+    """One markdown table row: | key | value |"""
+    return f"| {key} | **{value}** |"
+
+
 def _informe_to_markdown(informe) -> str:
     scope = f"WhatsApp {informe.wa_label}" if informe.wa_label else "Toda la casa"
     phone = _format_phone_md(informe.wa_phone)
+    k = informe.kpis or {}
+
     lines: list[str] = [
-        f"# Informe IA — {informe.casa_name or 'Casa #' + str(informe.account_id)}",
+        f"# Informe — {informe.casa_name or 'Casa #' + str(informe.account_id)}",
         "",
         f"**Fecha:** {informe.run_at.strftime('%d %B %Y · %H:%M UTC')}",
         f"**Alcance:** {scope}" + (f" ({phone})" if phone else ""),
         f"**Conversaciones analizadas:** {informe.conversations_analyzed}",
         "",
-        "## Resumen ejecutivo",
-        "",
-        informe.summary,
-        "",
-        "## Patrones detectados",
-        "",
-        "| Frecuencia | Patrón |",
-        "|------------|--------|",
     ]
-    for p in informe.patterns or []:
-        freq = p.get("frequency", "—") if isinstance(p, dict) else "—"
-        desc = p.get("description", "") if isinstance(p, dict) else str(p)
-        lines.append(f"| **{freq}** | {desc} |")
 
-    lines += ["", "## Puntos fuertes", ""]
-    for s in informe.strengths or []:
-        lines.append(f"- {s}")
+    if informe.summary:
+        lines += ["> " + informe.summary, ""]
 
-    lines += ["", "## Áreas a mejorar", ""]
-    for i in informe.improvements or []:
-        lines.append(f"- {i}")
+    lines += [
+        "## 📊 Volumen",
+        "",
+        "| Métrica | Valor |",
+        "|--------|-------|",
+        _kv("Conversaciones totales", k.get("total_convs", informe.conversations_analyzed) or 0),
+        _kv("Mensajes totales", k.get("total_msgs", 0) or 0),
+        _kv("Mensajes/conv (media)", k.get("avg_msgs", 0) or 0),
+        _kv("Clientes únicos", k.get("unique_clients", 0) or 0),
+        _kv("Tasa de conversión", f"{k.get('conv_rate_pct', 0) or 0} %"),
+        "",
+        "## ✅ Estado",
+        "",
+        "| Métrica | Valor |",
+        "|--------|-------|",
+        _kv("Contestadas", k.get("answered", 0) or 0),
+        _kv("Sin contestar", k.get("unanswered", 0) or 0),
+        _kv("Cerradas", k.get("resolved", 0) or 0),
+        _kv("Abiertas", k.get("open_count", 0) or 0),
+        "",
+        "## 🎯 ¿Qué piden?",
+        "",
+        "| Intención | Cuántas |",
+        "|-----------|---------|",
+        _kv("Reservas", k.get("bookings", 0) or 0),
+        _kv("Cotizaciones", k.get("quotes", 0) or 0),
+        _kv("Información", k.get("infos", 0) or 0),
+        _kv("Quejas", k.get("complaints", 0) or 0),
+        _kv("Charla", k.get("chitchat", 0) or 0),
+        "",
+        "## ⏱ Tiempo de respuesta",
+        "",
+        "| Métrica | Valor |",
+        "|--------|-------|",
+        _kv("Mediana (p50)", f"{k.get('p50_sec', 0) or 0} s"),
+        _kv("p90", f"{round((k.get('p90_sec', 0) or 0) / 60)} min"),
+        _kv("Máximo", f"{round((k.get('max_sec', 0) or 0) / 60)} min"),
+        _kv("Rápido (<1min)", f"{k.get('fast_pct', 0) or 0} %"),
+        "",
+        "## 😀 ¿Cómo viene el cliente?",
+        "",
+        "| Estado | Cuántas |",
+        "|--------|---------|",
+        _kv("Decidido", k.get("mood_decidido", 0) or 0),
+        _kv("Calentón", k.get("mood_calenton", 0) or 0),
+        _kv("Curioso", k.get("mood_curioso", 0) or 0),
+        _kv("Indeciso", k.get("mood_indeciso", 0) or 0),
+        _kv("Enfadado", k.get("mood_enfadado", 0) or 0),
+        _kv("Pelma", k.get("mood_timewaster", 0) or 0),
+        "",
+        "## 💬 Trato de la mamai (media 0-10)",
+        "",
+        "| Eje | Puntuación |",
+        "|-----|------------|",
+        _kv("Cariñosa", f"{k.get('avg_carinoso', 0) or 0}/10"),
+        _kv("Profesional", f"{k.get('avg_profesional', 0) or 0}/10"),
+        _kv("Vendedora", f"{k.get('avg_vendedor', 0) or 0}/10"),
+        _kv("Seca", f"{k.get('avg_seco', 0) or 0}/10"),
+        "",
+    ]
 
-    lines += ["", "## Perfil típico de cliente", "", informe.client_profile or ""]
-
-    if informe.top_topics:
-        lines += ["", "## De qué más habla", ""]
-        for t in informe.top_topics:
-            if isinstance(t, dict):
-                lines.append(f"- **{t.get('topic', '—')}** — {t.get('count', 0)} ({t.get('pct', 0)}%)")
-
-    if informe.avoided_topics:
-        lines += ["", "## Temas que no toca", ""]
-        for t in informe.avoided_topics:
-            lines.append(f"- {t}")
+    if (k.get("red_flags_total") or 0) > 0 or (k.get("escalations") or 0) > 0:
+        lines += [
+            "## ⚠ Alertas",
+            "",
+            _kv("Red flags", k.get("red_flags_total", 0) or 0),
+            _kv("Escalaciones", k.get("escalations", 0) or 0),
+            "",
+        ]
 
     if informe.top_referrals:
-        lines += ["", "## De dónde llegan los clientes", ""]
-        for r in informe.top_referrals:
+        lines += ["## 🌐 De dónde llegan", ""]
+        for i, r in enumerate(informe.top_referrals[:5], 1):
             if isinstance(r, dict):
-                lines.append(f"- **{r.get('source', '—')}** — {r.get('count', 0)} ({r.get('pct', 0)}%)")
+                lines.append(f"{i}. **{r.get('source', '—')}** — {r.get('count', 0)} ({r.get('pct', 0)}%)")
+        lines.append("")
 
-    lines += ["", "---", "", "_Generado por Maxxag WA Ops · Claude Haiku 4.5_", ""]
+    if informe.top_topics:
+        lines += ["## 🗣 ¿Qué piden? (top)", ""]
+        for i, t in enumerate(informe.top_topics[:5], 1):
+            if isinstance(t, dict):
+                lines.append(f"{i}. **{t.get('topic', '—')}** — {t.get('count', 0)} ({t.get('pct', 0)}%)")
+        lines.append("")
+
+    lines += ["---", "", "_Generado por Maxxag WA Ops_", ""]
     return "\n".join(lines)
 
 
@@ -631,62 +686,107 @@ async def export_informe_docx(
     if phone:
         scope = f"{scope} ({phone})"
 
+    k = informe.kpis or {}
+
     doc = Document()
-    doc.add_heading(f"Informe IA — {casa_label}", level=0)
+    doc.add_heading(f"Informe — {casa_label}", level=0)
     sub = doc.add_paragraph()
     sub.add_run(
         f"{informe.run_at.strftime('%d/%m/%Y %H:%M UTC')} · {scope} · "
         f"{informe.conversations_analyzed} conversaciones analizadas"
     ).italic = True
 
-    doc.add_heading("Resumen ejecutivo", level=1)
-    doc.add_paragraph(informe.summary or "")
+    if informe.summary:
+        p = doc.add_paragraph()
+        r = p.add_run(informe.summary)
+        r.italic = True
 
-    if informe.patterns:
-        doc.add_heading("Patrones detectados", level=1)
-        for p in informe.patterns:
-            if not isinstance(p, dict):
-                continue
-            para = doc.add_paragraph(style="List Bullet")
-            r = para.add_run(f"[{p.get('frequency', '—').upper()}] ")
-            r.bold = True
-            para.add_run(p.get("description", ""))
+    def _kv_table(rows: list[tuple[str, str]]):
+        """Helper: render a key/value table with bold values."""
+        tbl = doc.add_table(rows=len(rows), cols=2)
+        tbl.style = "Light Grid Accent 1"
+        for i, (label, value) in enumerate(rows):
+            tbl.rows[i].cells[0].text = label
+            cell = tbl.rows[i].cells[1]
+            cell.text = ""
+            run = cell.paragraphs[0].add_run(str(value))
+            run.bold = True
 
-    if informe.strengths:
-        doc.add_heading("Puntos fuertes", level=1)
-        for s in informe.strengths:
-            doc.add_paragraph(s, style="List Bullet")
+    doc.add_heading("Volumen", level=1)
+    _kv_table([
+        ("Conversaciones totales", k.get("total_convs", informe.conversations_analyzed) or 0),
+        ("Mensajes totales", k.get("total_msgs", 0) or 0),
+        ("Mensajes/conv (media)", k.get("avg_msgs", 0) or 0),
+        ("Clientes únicos", k.get("unique_clients", 0) or 0),
+        ("Tasa de conversión", f"{k.get('conv_rate_pct', 0) or 0} %"),
+    ])
 
-    if informe.improvements:
-        doc.add_heading("Áreas a mejorar", level=1)
-        for i in informe.improvements:
-            doc.add_paragraph(i, style="List Bullet")
+    doc.add_heading("Estado", level=1)
+    _kv_table([
+        ("Contestadas", k.get("answered", 0) or 0),
+        ("Sin contestar", k.get("unanswered", 0) or 0),
+        ("Cerradas", k.get("resolved", 0) or 0),
+        ("Abiertas", k.get("open_count", 0) or 0),
+    ])
 
-    if informe.client_profile:
-        doc.add_heading("Perfil típico de cliente", level=1)
-        doc.add_paragraph(informe.client_profile)
+    doc.add_heading("¿Qué piden?", level=1)
+    _kv_table([
+        ("Reservas", k.get("bookings", 0) or 0),
+        ("Cotizaciones", k.get("quotes", 0) or 0),
+        ("Información", k.get("infos", 0) or 0),
+        ("Quejas", k.get("complaints", 0) or 0),
+        ("Charla", k.get("chitchat", 0) or 0),
+    ])
 
-    if informe.top_topics:
-        doc.add_heading("De qué más habla", level=1)
-        for t in informe.top_topics:
-            if isinstance(t, dict):
-                doc.add_paragraph(
-                    f"{t.get('topic', '—')} — {t.get('count', 0)} ({t.get('pct', 0)}%)",
-                    style="List Bullet",
-                )
+    doc.add_heading("Tiempo de respuesta", level=1)
+    _kv_table([
+        ("Mediana (p50)", f"{k.get('p50_sec', 0) or 0} s"),
+        ("p90", f"{round((k.get('p90_sec', 0) or 0) / 60)} min"),
+        ("Máximo", f"{round((k.get('max_sec', 0) or 0) / 60)} min"),
+        ("Rápido (<1min)", f"{k.get('fast_pct', 0) or 0} %"),
+    ])
 
-    if informe.avoided_topics:
-        doc.add_heading("Temas que no toca", level=1)
-        for t in informe.avoided_topics:
-            doc.add_paragraph(t, style="List Bullet")
+    doc.add_heading("¿Cómo viene el cliente?", level=1)
+    _kv_table([
+        ("Decidido", k.get("mood_decidido", 0) or 0),
+        ("Calentón", k.get("mood_calenton", 0) or 0),
+        ("Curioso", k.get("mood_curioso", 0) or 0),
+        ("Indeciso", k.get("mood_indeciso", 0) or 0),
+        ("Enfadado", k.get("mood_enfadado", 0) or 0),
+        ("Pelma", k.get("mood_timewaster", 0) or 0),
+    ])
+
+    doc.add_heading("Trato de la mamai (media 0-10)", level=1)
+    _kv_table([
+        ("Cariñosa", f"{k.get('avg_carinoso', 0) or 0}/10"),
+        ("Profesional", f"{k.get('avg_profesional', 0) or 0}/10"),
+        ("Vendedora", f"{k.get('avg_vendedor', 0) or 0}/10"),
+        ("Seca", f"{k.get('avg_seco', 0) or 0}/10"),
+    ])
+
+    if (k.get("red_flags_total") or 0) > 0 or (k.get("escalations") or 0) > 0:
+        doc.add_heading("Alertas", level=1)
+        _kv_table([
+            ("Red flags", k.get("red_flags_total", 0) or 0),
+            ("Escalaciones", k.get("escalations", 0) or 0),
+        ])
 
     if informe.top_referrals:
-        doc.add_heading("De dónde llegan los clientes", level=1)
-        for r in informe.top_referrals:
+        doc.add_heading("De dónde llegan (top)", level=1)
+        for i, r in enumerate(informe.top_referrals[:5], 1):
             if isinstance(r, dict):
                 doc.add_paragraph(
-                    f"{r.get('source', '—')} — {r.get('count', 0)} ({r.get('pct', 0)}%)",
-                    style="List Bullet",
+                    f"{i}. {r.get('source', '—')} — {r.get('count', 0)} ({r.get('pct', 0)}%)",
+                    style="List Number",
+                )
+
+    if informe.top_topics:
+        doc.add_heading("¿Qué piden? (top)", level=1)
+        for i, t in enumerate(informe.top_topics[:5], 1):
+            if isinstance(t, dict):
+                doc.add_paragraph(
+                    f"{i}. {t.get('topic', '—')} — {t.get('count', 0)} ({t.get('pct', 0)}%)",
+                    style="List Number",
                 )
 
     doc.add_paragraph()

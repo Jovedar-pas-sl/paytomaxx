@@ -283,6 +283,8 @@ async def list_conversations(
     wa_number_id: int | None = None,
     mood: str | None = None,
     search: str | None = None,
+    since_days: int | None = None,
+    unanswered_only: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[ConversationRow], int]:
@@ -301,6 +303,15 @@ async def list_conversations(
     if mood:
         params.append(mood)
         where.append(f"a.mood_label = ${len(params)}")
+    if since_days is not None:
+        params.append(since_days)
+        where.append(f"c.last_message_at > now() - make_interval(days => ${len(params)})")
+    if unanswered_only:
+        # Last message of the conversation must be from the customer (direction='in')
+        where.append(
+            "(SELECT direction FROM message m WHERE m.conversation_id = c.id "
+            " ORDER BY m.created_at DESC LIMIT 1) = 'in'"
+        )
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
@@ -835,6 +846,37 @@ async def count_unanalyzed_for_casa(
         ) or 0
 
 
+async def count_unanswered_for_casa(
+    kpi: asyncpg.Pool,
+    casa_id: int,
+    *,
+    wa_number_id: int | None = None,
+    since_days: int | None = None,
+) -> int:
+    """Count conversations whose last message is from the customer (direction='in').
+
+    Used by the 'Sin contestar' chip in the chat tab to show how many convs
+    are waiting for a reply from the mamai.
+    """
+    params: list = [casa_id]
+    where = ["c.casa_id = $1"]
+    if wa_number_id is not None:
+        params.append(wa_number_id)
+        where.append(f"c.wa_number_id = ${len(params)}")
+    if since_days is not None:
+        params.append(since_days)
+        where.append(f"c.last_message_at > now() - make_interval(days => ${len(params)})")
+    where.append(
+        "(SELECT direction FROM message m WHERE m.conversation_id = c.id "
+        " ORDER BY m.created_at DESC LIMIT 1) = 'in'"
+    )
+    async with kpi.acquire() as conn:
+        return await conn.fetchval(
+            f"SELECT count(*) FROM conversation c WHERE {' AND '.join(where)}",
+            *params,
+        ) or 0
+
+
 async def list_unanalyzed_conversation_ids(
     kpi: asyncpg.Pool,
     casa_id: int,
@@ -883,8 +925,9 @@ class CasaMetaAnalysis:
     wa_phone: str | None = None     # phone of the WhatsApp number that was analyzed
     casa_name: str | None = None
     top_topics: list = ()           # list of {topic, count, pct}
-    avoided_topics: list = ()       # list of strings
+    avoided_topics: list = ()       # legacy field — kept for retrocompat
     top_referrals: list = ()        # list of {source, count, pct}
+    kpis: dict | None = None        # numeric dashboard (volumen, estado, mood, tiempo, trato)
 
 
 def _parse_jsonb(value, default):
@@ -920,10 +963,12 @@ async def get_latest_meta_analysis(
         if not exists:
             return None
         has_topics = await _table_has_column(conn, "casa_meta_analysis", "top_topics")
+        has_kpis = await _table_has_column(conn, "casa_meta_analysis", "kpis")
         topic_cols = (
             ", top_topics, avoided_topics, top_referrals"
             if has_topics else ""
         )
+        kpis_col = ", kpis" if has_kpis else ""
         row = await conn.fetchrow(
             f"""
             SELECT m.id, m.account_id, m.wa_number_id, m.run_at,
@@ -933,6 +978,7 @@ async def get_latest_meta_analysis(
                    wn.label AS wa_label,
                    wn.phone AS wa_phone
                    {topic_cols}
+                   {kpis_col}
             FROM casa_meta_analysis m
             LEFT JOIN wa_number wn ON wn.id = m.wa_number_id
             WHERE m.account_id = $1
@@ -957,6 +1003,7 @@ async def get_latest_meta_analysis(
         top_topics=_parse_jsonb(row.get("top_topics") if has_topics else None, []),
         avoided_topics=_parse_jsonb(row.get("avoided_topics") if has_topics else None, []),
         top_referrals=_parse_jsonb(row.get("top_referrals") if has_topics else None, []),
+        kpis=_parse_jsonb(row.get("kpis") if has_kpis else None, None),
     )
 
 
@@ -969,10 +1016,12 @@ async def list_meta_analyses(
         if not exists:
             return []
         has_topics = await _table_has_column(conn, "casa_meta_analysis", "top_topics")
+        has_kpis = await _table_has_column(conn, "casa_meta_analysis", "kpis")
         topic_cols = (
             ", m.top_topics, m.avoided_topics, m.top_referrals"
             if has_topics else ""
         )
+        kpis_col = ", m.kpis" if has_kpis else ""
         wa_filter = "AND m.wa_number_id = $4" if wa_number_id is not None else ""
         params: list = [casa_id, days, limit]
         if wa_number_id is not None:
@@ -986,6 +1035,7 @@ async def list_meta_analyses(
                    wn.label AS wa_label,
                    wn.phone AS wa_phone
                    {topic_cols}
+                   {kpis_col}
             FROM casa_meta_analysis m
             LEFT JOIN wa_number wn ON wn.id = m.wa_number_id
             WHERE m.account_id = $1
@@ -1011,6 +1061,7 @@ async def list_meta_analyses(
             top_topics=_parse_jsonb(r.get("top_topics") if has_topics else None, []),
             avoided_topics=_parse_jsonb(r.get("avoided_topics") if has_topics else None, []),
             top_referrals=_parse_jsonb(r.get("top_referrals") if has_topics else None, []),
+            kpis=_parse_jsonb(r.get("kpis") if has_kpis else None, None),
         )
         for r in rows
     ]
@@ -1033,10 +1084,12 @@ async def list_all_meta_analyses(
         if not exists:
             return []
         has_topics = await _table_has_column(conn, "casa_meta_analysis", "top_topics")
+        has_kpis = await _table_has_column(conn, "casa_meta_analysis", "kpis")
         topic_cols = (
             ", m.top_topics, m.avoided_topics, m.top_referrals"
             if has_topics else ""
         )
+        kpis_col = ", m.kpis" if has_kpis else ""
         params: list = [days, limit]
         casa_filter = ""
         if casa_id is not None:
@@ -1052,6 +1105,7 @@ async def list_all_meta_analyses(
                    wn.phone AS wa_phone,
                    c.name   AS casa_name
                    {topic_cols}
+                   {kpis_col}
             FROM casa_meta_analysis m
             LEFT JOIN wa_number wn ON wn.id = m.wa_number_id
             LEFT JOIN casa      c  ON c.id  = m.account_id
@@ -1077,6 +1131,7 @@ async def list_all_meta_analyses(
             top_topics=_parse_jsonb(r.get("top_topics") if has_topics else None, []),
             avoided_topics=_parse_jsonb(r.get("avoided_topics") if has_topics else None, []),
             top_referrals=_parse_jsonb(r.get("top_referrals") if has_topics else None, []),
+            kpis=_parse_jsonb(r.get("kpis") if has_kpis else None, None),
         )
         for r in rows
     ]
@@ -1090,10 +1145,12 @@ async def get_meta_analysis_by_id(
         if not exists:
             return None
         has_topics = await _table_has_column(conn, "casa_meta_analysis", "top_topics")
+        has_kpis = await _table_has_column(conn, "casa_meta_analysis", "kpis")
         topic_cols = (
             ", m.top_topics, m.avoided_topics, m.top_referrals"
             if has_topics else ""
         )
+        kpis_col = ", m.kpis" if has_kpis else ""
         row = await conn.fetchrow(
             f"""
             SELECT m.id, m.account_id, m.wa_number_id, m.run_at,
@@ -1104,6 +1161,7 @@ async def get_meta_analysis_by_id(
                    wn.phone AS wa_phone,
                    c.name   AS casa_name
                    {topic_cols}
+                   {kpis_col}
             FROM casa_meta_analysis m
             LEFT JOIN wa_number wn ON wn.id = m.wa_number_id
             LEFT JOIN casa      c  ON c.id  = m.account_id
@@ -1128,6 +1186,7 @@ async def get_meta_analysis_by_id(
         top_topics=_parse_jsonb(row.get("top_topics") if has_topics else None, []),
         avoided_topics=_parse_jsonb(row.get("avoided_topics") if has_topics else None, []),
         top_referrals=_parse_jsonb(row.get("top_referrals") if has_topics else None, []),
+        kpis=_parse_jsonb(row.get("kpis") if has_kpis else None, None),
     )
 
 

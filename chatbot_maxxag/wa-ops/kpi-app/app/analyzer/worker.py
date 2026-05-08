@@ -424,17 +424,102 @@ async def meta_analyze_casa_job(
             conv_ids,
         )
 
+        # Compute every numeric KPI in a single SQL query — deterministic, free,
+        # no Claude needed. The frontend reads these directly.
+        kpi_row = await conn.fetchrow(
+            """
+            WITH last_msg AS (
+              SELECT DISTINCT ON (conversation_id)
+                conversation_id, direction
+              FROM message
+              WHERE conversation_id = ANY($1)
+              ORDER BY conversation_id, created_at DESC
+            ),
+            msg_count AS (
+              SELECT conversation_id, count(*)::int AS n
+              FROM message
+              WHERE conversation_id = ANY($1)
+              GROUP BY conversation_id
+            ),
+            sample AS (
+              SELECT
+                c.id, c.status, c.contact_id, c.created_at,
+                lm.direction      AS last_dir,
+                coalesce(mc.n, 0) AS msgs,
+                a.mood_label,
+                a.conv_probability,
+                a.rt_p50, a.rt_p90, a.rt_max,
+                a.treat_carinoso, a.treat_profesional, a.treat_vendedor, a.treat_seco,
+                jsonb_array_length(coalesce(a.red_flags, '[]'::jsonb)) AS rf_count,
+                a.red_flags,
+                a.intent->>'primary'              AS intent_primary,
+                a.escalation->>'should_escalate'  AS esc_flag
+              FROM conversation c
+              LEFT JOIN last_msg  lm ON lm.conversation_id = c.id
+              LEFT JOIN msg_count mc ON mc.conversation_id = c.id
+              LEFT JOIN analysis  a  ON a.conversation_id  = c.id
+              WHERE c.id = ANY($1)
+            )
+            SELECT
+              -- Volumen
+              count(*)::int                                                 AS total_convs,
+              coalesce(sum(msgs), 0)::int                                   AS total_msgs,
+              coalesce(round(avg(msgs))::int, 0)                            AS avg_msgs,
+              count(DISTINCT contact_id)::int                               AS unique_clients,
+              -- Estado
+              count(*) FILTER (WHERE last_dir = 'out')::int                 AS answered,
+              count(*) FILTER (WHERE last_dir = 'in' OR last_dir IS NULL)::int AS unanswered,
+              count(*) FILTER (WHERE status = 'resolved')::int              AS resolved,
+              count(*) FILTER (WHERE status IN ('open','pending'))::int     AS open_count,
+              count(*) FILTER (WHERE esc_flag = 'true')::int                AS escalations,
+              -- Intención
+              count(*) FILTER (WHERE intent_primary = 'booking')::int       AS bookings,
+              count(*) FILTER (WHERE intent_primary = 'cotizacion')::int    AS quotes,
+              count(*) FILTER (WHERE intent_primary = 'informacion')::int   AS infos,
+              count(*) FILTER (WHERE intent_primary = 'queja')::int         AS complaints,
+              count(*) FILTER (WHERE intent_primary = 'chit_chat')::int     AS chitchat,
+              -- Conversión
+              coalesce(round(100.0 * count(*) FILTER (WHERE conv_probability > 0.5)::numeric
+                             / nullif(count(conv_probability), 0))::int, 0) AS conv_rate_pct,
+              -- Mood breakdown
+              count(*) FILTER (WHERE mood_label = 'decidido')::int          AS mood_decidido,
+              count(*) FILTER (WHERE mood_label = 'curioso')::int           AS mood_curioso,
+              count(*) FILTER (WHERE mood_label = 'calenton')::int          AS mood_calenton,
+              count(*) FILTER (WHERE mood_label = 'indeciso')::int          AS mood_indeciso,
+              count(*) FILTER (WHERE mood_label = 'enfadado')::int          AS mood_enfadado,
+              count(*) FILTER (WHERE mood_label = 'timewaster')::int        AS mood_timewaster,
+              -- Tiempo (en segundos para precisión)
+              coalesce(round(avg(rt_p50) / 1000.0)::int, 0)                 AS p50_sec,
+              coalesce(round(avg(rt_p90) / 1000.0)::int, 0)                 AS p90_sec,
+              coalesce(round(max(rt_max) / 1000.0)::int, 0)                 AS max_sec,
+              coalesce(round(100.0 * count(*) FILTER (WHERE rt_p50 < 60000)::numeric
+                             / nullif(count(rt_p50), 0))::int, 0)           AS fast_pct,
+              -- Trato (avg 0-10)
+              coalesce(round(avg(treat_carinoso),    1)::float, 0)          AS avg_carinoso,
+              coalesce(round(avg(treat_profesional), 1)::float, 0)          AS avg_profesional,
+              coalesce(round(avg(treat_vendedor),    1)::float, 0)          AS avg_vendedor,
+              coalesce(round(avg(treat_seco),        1)::float, 0)          AS avg_seco,
+              -- Red flags total
+              coalesce(sum(rf_count), 0)::int                               AS red_flags_total
+            FROM sample
+            """,
+            conv_ids,
+        )
+
+        # Convert asyncpg Record to plain dict for JSONB storage
+        kpis_dict = dict(kpi_row) if kpi_row else {}
+
         await conn.execute(
             """
             INSERT INTO casa_meta_analysis (
                 account_id, wa_number_id, conversations_analyzed,
                 period_start, period_end,
                 summary, patterns, strengths, improvements, client_profile,
-                top_topics, avoided_topics, top_referrals
+                top_topics, avoided_topics, top_referrals, kpis
             ) VALUES (
                 $1, $2, $3, $4, $5,
                 $6, $7::jsonb, $8::jsonb, $9::jsonb, $10,
-                $11::jsonb, $12::jsonb, $13::jsonb
+                $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb
             )
             """,
             casa_id, wa_number_id, len(summaries),
@@ -447,6 +532,7 @@ async def meta_analyze_casa_job(
             json.dumps([t.model_dump() for t in result.top_topics]),
             json.dumps(result.avoided_topics),
             json.dumps([r.model_dump() for r in result.top_referrals]),
+            json.dumps(kpis_dict),
         )
 
     if redis:
