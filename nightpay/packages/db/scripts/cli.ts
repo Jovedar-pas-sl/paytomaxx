@@ -16,6 +16,7 @@
  */
 
 import * as bcrypt from 'bcryptjs';
+import { createHash } from 'node:crypto';
 import { PrismaClient, Prisma, Role } from '../src/generated/client';
 
 const prisma = new PrismaClient();
@@ -380,10 +381,13 @@ async function cmdCreateOperator(args: Args) {
     { expiresIn: '24h' },
   );
 
+  // Persistimos el hash sha256 del token, no el token en claro (defense-in-depth).
+  // El API valida comparando hash en acceptInvite.
+  const inviteTokenHash = createHash('sha256').update(inviteToken).digest('hex');
   await withBypass((tx) =>
     tx.user.update({
       where: { id: result.user.id },
-      data: { inviteToken },
+      data: { inviteToken: inviteTokenHash },
     }),
   );
 

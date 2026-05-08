@@ -11,7 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
@@ -32,6 +32,11 @@ interface InviteJwtPayload {
   sub: string; // userId
   tenantId: string;
   purpose: 'operator-invite';
+}
+
+/** Hash sha256 hex del token JWT. Persistimos el hash, no el token, en users.inviteToken. */
+function hashInviteToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }
 
 @Injectable()
@@ -219,30 +224,31 @@ export class OperatorsService {
       throw new ConflictException(`Email ${email} ya está registrado`);
     }
 
-    // Crear user con passwordHash placeholder (se setea al aceptar invite)
-    const placeholderHash = await bcrypt.hash(randomUUID(), 4); // fast hash, nunca usado
-    const user = await this.prisma.user.create({
-      data: {
-        tenantId,
-        email,
-        displayName: dto.displayName,
-        passwordHash: placeholderHash,
-        role: 'OPERATOR',
-        commissionBps: dto.commissionBps,
-        invitedAt: new Date(),
-      },
-    });
-
-    // Generar JWT inviteToken (TTL 24h)
+    // Pre-generamos el userId para poder firmar el JWT antes de persistir y mantener
+    // todo el alta en una sola transacción atómica (insert user + JWT con su id +
+    // update con el hash del token de invite). Si algo falla, rollback completo.
+    const userId = randomUUID();
+    const placeholderHash = await bcrypt.hash(randomUUID(), 4); // nunca se usa, solo placeholder
     const inviteToken = await this.jwt.signAsync(
-      { sub: user.id, tenantId, purpose: 'operator-invite' } satisfies InviteJwtPayload,
+      { sub: userId, tenantId, purpose: 'operator-invite' } satisfies InviteJwtPayload,
       { expiresIn: `${INVITE_TTL_HOURS}h` },
     );
+    const inviteTokenHash = hashInviteToken(inviteToken);
 
-    // Persistir token en user (uso único: limpiar al aceptar)
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { inviteToken },
+    const user = await this.prisma.$transaction(async (tx) => {
+      return tx.user.create({
+        data: {
+          id: userId,
+          tenantId,
+          email,
+          displayName: dto.displayName,
+          passwordHash: placeholderHash,
+          role: 'OPERATOR',
+          commissionBps: dto.commissionBps,
+          invitedAt: new Date(),
+          inviteToken: inviteTokenHash,
+        },
+      });
     });
 
     const baseUrl = this.config.getOrThrow<string>('OPERATOR_BASE_URL');
@@ -317,8 +323,9 @@ export class OperatorsService {
     if (!user || user.deletedAt) {
       throw new NotFoundException('Operadora no encontrada');
     }
-    if (user.inviteToken !== token) {
-      // Token ya usado o invalidado
+    // Comparamos hash sha256 del token contra el guardado (no guardamos el token en claro).
+    const tokenHash = hashInviteToken(token);
+    if (!user.inviteToken || user.inviteToken !== tokenHash) {
       throw new UnauthorizedException('Token ya utilizado o caducado');
     }
 
