@@ -17,6 +17,16 @@ BACKUP_DIR="/tmp/maxxag-backup-$(date +%Y%m%d_%H%M%S)"
 cd "$ROOT"
 mkdir -p "$BACKUP_DIR"
 
+# CRITICAL: ALWAYS scrub the local backup dir on exit (success or failure).
+# Without this, .env.snapshot + the unencrypted dump survive on disk if
+# restic is unconfigured, the script errors out, or someone CTRL+Cs it.
+cleanup() {
+    if [[ -d "$BACKUP_DIR" ]]; then
+        rm -rf "$BACKUP_DIR" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT INT TERM
+
 log() { echo "[$(date -Is)] $*"; }
 
 log "Starting backup..."
@@ -50,14 +60,15 @@ if docker volume inspect maxxag-wa-ops_archive_data &>/dev/null; then
         log "archive_data not present — skipping (was added in event-archive feature)"
 fi
 
-# ── 4. Snapshot of .env (encrypted by restic anyway, but useful) ─
-if [[ -f "$ROOT/.env" ]]; then
-    cp "$ROOT/.env" "$BACKUP_DIR/.env.snapshot"
-    log "Captured .env snapshot"
-fi
-
-# ── 5. Push to restic repo (encrypted, deduplicated) ────────────
+# ── 4. Push to restic repo (encrypted, deduplicated) ────────────
+# IMPORTANT: only snapshot .env AFTER we know we'll ship it encrypted.
+# Otherwise the trap-cleanup deletes it, but we never write a plaintext
+# secret to disk for longer than the restic upload.
 if command -v restic &>/dev/null && [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
+    if [[ -f "$ROOT/.env" ]]; then
+        cp "$ROOT/.env" "$BACKUP_DIR/.env.snapshot"
+        log "Captured .env snapshot (will be encrypted by restic)"
+    fi
     log "Pushing to restic repo $RESTIC_REPOSITORY..."
     restic backup "$BACKUP_DIR" \
         --tag "daily,maxxag-wa-ops" \
@@ -69,17 +80,14 @@ if command -v restic &>/dev/null && [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
         --keep-monthly 6 \
         --prune
 else
-    log "WARN: restic not configured — leaving dump in $BACKUP_DIR"
-    log "Set up restic with:"
+    # No restic → do NOT snapshot .env (would leak in plaintext).
+    log "WARN: restic not configured — backup stays local AND will be cleaned"
+    log "      on exit (see trap). Set up restic with:"
     log "  export RESTIC_REPOSITORY='b2:your-bucket:/maxxag'"
     log "  export RESTIC_PASSWORD='<strong-passphrase>'"
     log "  export B2_ACCOUNT_ID='...' B2_ACCOUNT_KEY='...'"
     log "  restic init"
-    exit 0
 fi
 
-# ── 6. Cleanup local dump ───────────────────────────────────────
-log "Cleaning up local dump..."
-rm -rf "$BACKUP_DIR"
-
+# Cleanup is handled by `trap cleanup EXIT` — runs even on errors / Ctrl+C.
 log "Backup complete."

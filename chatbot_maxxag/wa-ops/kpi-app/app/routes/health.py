@@ -37,12 +37,16 @@ async def unread_count(
         critical_alerts: N,     # unack'd alerts of type escalation/red_flag
       }
     """
+    # Bounded by last 30 days to keep the cost predictable as the table grows.
+    # Single-tenant deployment so no per-user filter is needed today; if ever
+    # multi-tenant, this should JOIN casa.owner_id = user.id.
     async with db.acquire() as conn:
         unread = await conn.fetchval(
             """
             SELECT count(*)
             FROM conversation c
-            WHERE (SELECT direction FROM message m WHERE m.conversation_id = c.id
+            WHERE c.last_message_at > now() - interval '30 days'
+              AND (SELECT direction FROM message m WHERE m.conversation_id = c.id
                    ORDER BY m.created_at DESC LIMIT 1) = 'in'
             """
         ) or 0
@@ -52,6 +56,7 @@ async def unread_count(
             WHERE acknowledged_at IS NULL
               AND type IN ('escalation','red_flag')
               AND severity IN ('critical','high','warning')
+              AND created_at > now() - interval '7 days'
             """
         ) or 0
     return {"unread_chats": int(unread), "critical_alerts": int(crit)}

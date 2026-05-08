@@ -113,7 +113,9 @@
    the viewport, which replaces this sentinel with the next 50 rows + a
    new sentinel if there's more. Iterates until total is exhausted. #}
 {% if next_offset is not none %}
-<div hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa|default('all') }}&period={{ active_period|default('all') }}&unanswered={{ 'true' if active_unanswered else 'false' }}&offset={{ next_offset }}"
+{# All active filters must be propagated so page 2+ stays consistent with page 1.
+   Search needs urlencode for terms with spaces or special chars. #}
+<div hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa|default('all') }}&period={{ active_period|default('all') }}&unanswered={{ 'true' if active_unanswered else 'false' }}&offset={{ next_offset }}{% if active_search %}&search={{ active_search|urlencode }}{% endif %}{% if active_mood %}&mood={{ active_mood }}{% endif %}{% if active_status %}&status={{ active_status }}{% endif %}"
      hx-trigger="revealed"
      hx-swap="outerHTML"
      class="py-4 text-center text-xs text-muted">

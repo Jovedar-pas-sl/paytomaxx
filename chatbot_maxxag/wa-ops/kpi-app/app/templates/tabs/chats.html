@@ -183,7 +183,7 @@
     {%- endmacro %}
     {# Macro helper to build URLs preserving other filters #}
     {% set qs_base = base_qs %}
-    {% if active_search %}{% set qs_base = qs_base ~ '&search=' ~ active_search %}{% endif %}
+    {% if active_search %}{% set qs_base = qs_base ~ '&search=' ~ (active_search | urlencode) %}{% endif %}
 
     {# Sin contestar #}
     {{ chip(
@@ -236,11 +236,53 @@
       inp.focus(); inp.select();
     }
   });
-  // Auto-submit con debounce 350ms
+  // Live filter via fetch — replaces ONLY the chat list (no full page reload).
+  // Keeps focus, cursor position, and IME composition intact while typing.
+  const list = document.getElementById('chat-list');
+  const casaId = list && list.dataset.casaId;
+  const activeWa = list && list.dataset.activeWa;
+  const activePeriod = list && list.dataset.activePeriod;
   let t = null;
+  let abortCtl = null;
+
+  async function refreshList() {
+    if (!list || !casaId) return;
+    if (abortCtl) abortCtl.abort();
+    abortCtl = new AbortController();
+    const params = new URLSearchParams({
+      wa: activeWa || 'all',
+      period: activePeriod || 'all',
+    });
+    const search = inp.value.trim();
+    if (search) params.set('search', search);
+    // Read current filter state from data-* set by chats.html
+    if (list.dataset.activeUnanswered === 'true') params.set('unanswered', 'true');
+    if (list.dataset.activeMood) params.set('mood', list.dataset.activeMood);
+    if (list.dataset.activeStatus) params.set('status', list.dataset.activeStatus);
+    try {
+      const r = await fetch(`/widget/casa/${casaId}/chats?${params}`,
+                            { signal: abortCtl.signal, credentials: 'same-origin' });
+      if (!r.ok) return;
+      const html = await r.text();
+      // The widget returns the full fragment (rows div + sentinel). Replace the
+      // section's inner content keeping the <section> wrapper for HTMX state.
+      list.innerHTML = html;
+      // Re-process HTMX attrs on the new sentinel so it activates 'revealed'
+      if (window.htmx) window.htmx.process(list);
+    } catch (e) {
+      if (e.name !== 'AbortError') console.warn('search refresh failed', e);
+    }
+  }
+
   inp.addEventListener('input', () => {
     clearTimeout(t);
-    t = setTimeout(() => document.getElementById('chat-search-form').submit(), 350);
+    t = setTimeout(refreshList, 300);
+  });
+  // Submit (Enter) keeps the form-based fallback for users who hit return.
+  inp.form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    clearTimeout(t);
+    refreshList();
   });
 })();
 </script>
@@ -252,7 +294,13 @@
 {% set offset = 0 %}
 {% set next_offset = 50 if chat_total > 50 else none %}
 {% set total = chat_total %}
-<section id="chat-list" class="card overflow-hidden">
+<section id="chat-list" class="card overflow-hidden"
+         data-casa-id="{{ casa_id }}"
+         data-active-wa="{{ active_wa }}"
+         data-active-period="{{ active_period }}"
+         data-active-unanswered="{{ 'true' if active_unanswered else 'false' }}"
+         data-active-mood="{{ active_mood or '' }}"
+         data-active-status="{{ active_status or '' }}">
   {% include 'partials/chat_list_fragment.html' %}
 </section>
 
