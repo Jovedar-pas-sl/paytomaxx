@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Coste Claude — Maxxag Ops{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <div class="text-[11px] uppercase tracking-wider text-muted-2 font-medium">Admin</div>
+  <h1 class="text-3xl font-semibold tracking-tighter">Coste de Claude API</h1>
+  <p class="mt-1 text-sm text-muted">
+    Lo que llevas gastado en análisis. Se actualiza en tiempo real al cerrar
+    cada conversación analizada.
+  </p>
+</div>
+
+{% set t = totals or {} %}
+
+<section class="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-6">
+  <div class="card p-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted">Hoy</div>
+    <div class="mono text-3xl font-bold mt-1
+      {% if (t.today or 0) > 5 %}text-amber{% endif %}">
+      ${{ "%.2f"|format(t.today or 0) }}
+    </div>
+    <div class="text-[10px] text-muted-2 mt-1">{{ t.calls_today or 0 }} llamadas</div>
+  </div>
+  <div class="card p-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted">Esta semana</div>
+    <div class="mono text-3xl font-bold mt-1">${{ "%.2f"|format(t.week or 0) }}</div>
+  </div>
+  <div class="card p-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted">Este mes</div>
+    <div class="mono text-3xl font-bold mt-1
+      {% if (t.month or 0) > 50 %}text-amber{% endif %}">
+      ${{ "%.2f"|format(t.month or 0) }}
+    </div>
+  </div>
+  <div class="card p-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted">Total histórico</div>
+    <div class="mono text-3xl font-bold mt-1">${{ "%.2f"|format(t.all_time or 0) }}</div>
+  </div>
+</section>
+
+{# Token volume context (last 30 days) #}
+<section class="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-6">
+  <div class="card p-4">
+    <div class="text-[10px] uppercase text-muted">Llamadas (30d)</div>
+    <div class="mono text-xl font-semibold mt-1">{{ "{:,}".format(t.calls_30d or 0) }}</div>
+  </div>
+  <div class="card p-4">
+    <div class="text-[10px] uppercase text-muted">Tokens IN (30d)</div>
+    <div class="mono text-xl font-semibold mt-1">{{ "{:,}".format(t.tokens_in_30d or 0) }}</div>
+  </div>
+  <div class="card p-4">
+    <div class="text-[10px] uppercase text-muted">Tokens OUT (30d)</div>
+    <div class="mono text-xl font-semibold mt-1">{{ "{:,}".format(t.tokens_out_30d or 0) }}</div>
+  </div>
+  <div class="card p-4">
+    <div class="text-[10px] uppercase text-muted">Coste medio/llamada</div>
+    <div class="mono text-xl font-semibold mt-1">
+      ${{ "%.4f"|format((t.month or 0) / (t.calls_30d or 1)) }}
+    </div>
+  </div>
+</section>
+
+{# Per-casa breakdown for current month #}
+<section class="card p-5 mb-6">
+  <h2 class="text-sm font-semibold mb-3">Gasto por casa — este mes</h2>
+  {% if per_casa %}
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-2">
+        <th class="py-2 font-medium">Casa</th>
+        <th class="py-2 font-medium text-right">Análisis (#)</th>
+        <th class="py-2 font-medium text-right">Coste análisis</th>
+        <th class="py-2 font-medium text-right">Informes (#)</th>
+        <th class="py-2 font-medium text-right">Coste informes</th>
+        <th class="py-2 font-medium text-right">Total</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-border/50">
+      {% for c in per_casa %}
+      <tr>
+        <td class="py-2">{{ c.casa_name or 'Casa #' ~ c.casa_id }}</td>
+        <td class="py-2 mono text-right">{{ c.analysis_calls }}</td>
+        <td class="py-2 mono text-right text-muted">${{ "%.3f"|format(c.analysis_cost) }}</td>
+        <td class="py-2 mono text-right">{{ c.meta_calls }}</td>
+        <td class="py-2 mono text-right text-muted">${{ "%.3f"|format(c.meta_cost) }}</td>
+        <td class="py-2 mono text-right font-semibold">${{ "%.3f"|format(c.total) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="text-xs text-muted py-6 text-center">Sin gasto registrado este mes.</div>
+  {% endif %}
+</section>
+
+{# Daily trend (last 30 days) — simple bar list, no chart lib needed #}
+<section class="card p-5">
+  <h2 class="text-sm font-semibold mb-3">Tendencia diaria — últimos 30 días</h2>
+  {% if daily %}
+    {% set max_cost = (daily | map(attribute='cost') | max) or 0.01 %}
+    <div class="space-y-1">
+      {% for d in daily %}
+      <div class="flex items-center gap-2">
+        <div class="text-[11px] text-muted-2 mono w-24 flex-shrink-0">
+          {{ d.day.strftime('%d %b') }}
+        </div>
+        <div class="flex-1 h-5 bg-surface-2 rounded relative overflow-hidden">
+          <div class="h-full bg-accent/60 rounded"
+               style="width: {{ (d.cost / max_cost * 100) | round | int }}%"></div>
+        </div>
+        <div class="text-[11px] mono w-20 text-right">${{ "%.3f"|format(d.cost) }}</div>
+        <div class="text-[10px] text-muted-2 w-12 text-right">{{ d.calls }} call</div>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+  <div class="text-xs text-muted py-6 text-center">Sin datos en los últimos 30 días.</div>
+  {% endif %}
+</section>
+
+<div class="mt-6 text-[11px] text-muted-2">
+  Precios actuales: input ${{ "%.2f"|format(0.80) }}/MTok, output ${{ "%.2f"|format(4.00) }}/MTok
+  (claude-haiku-4-5). Configurable en <code>CLAUDE_PRICE_*_PER_MTOK</code> env vars.
+</div>
+{% endblock %}

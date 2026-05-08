@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # Claude
     anthropic_api_key: SecretStr = Field(..., alias="ANTHROPIC_API_KEY")
     claude_model: str = Field("claude-haiku-4-5", alias="CLAUDE_MODEL")
+    # Pricing per million tokens (USD). Update if Anthropic changes them.
+    # Defaults are claude-haiku-4-5 list price as of 2026-Q2.
+    claude_price_input_per_mtok: float = Field(0.80, alias="CLAUDE_PRICE_INPUT_PER_MTOK")
+    claude_price_output_per_mtok: float = Field(4.0, alias="CLAUDE_PRICE_OUTPUT_PER_MTOK")
 
     # Auth
     jwt_secret: SecretStr = Field(..., alias="JWT_SECRET")

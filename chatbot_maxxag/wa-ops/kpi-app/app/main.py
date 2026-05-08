@@ -7,7 +7,9 @@ from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from app.deps import CurrentUser, lifespan
+from app.logging_config import configure_logging, new_request_id, request_id_var
 from app.template_env import templates
+from app.routes.admin import router as admin_router
 from app.routes.alerts import router as alerts_router
 from app.routes.analysis_ops import router as analysis_ops_router
 from app.routes.auth_routes import router as auth_router
@@ -23,10 +25,60 @@ from app.routes.sessions import router as sessions_router
 from app.routes.webhooks import router as webhooks_router
 from app.routes.widgets import router as widgets_router
 
+configure_logging()
+
 app = FastAPI(
     title="Maxxag WA Ops — KPI Dashboard",
     lifespan=lifespan,
 )
+
+
+# ── Request ID middleware (must run BEFORE any other middleware) ──
+# Generates a per-request correlation ID and attaches it as a contextvar
+# so every log emitted during the request lifecycle includes it. Also
+# echoes it back in `X-Request-ID` so the operator can reference one
+# specific request when debugging.
+@app.middleware("http")
+async def request_id_middleware(request, call_next):
+    rid = request.headers.get("x-request-id") or new_request_id()
+    token = request_id_var.set(rid)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
+    finally:
+        request_id_var.reset(token)
+
+
+# ── CSRF protection (Origin/Referer header check) ─────────────────
+# Stateless protection: any state-changing request (POST/PUT/PATCH/DELETE)
+# must come from a trusted origin (the host the user is on, or 'null' for
+# webhooks which authenticate via HMAC). This blocks classic CSRF where an
+# attacker site tries to POST on behalf of a logged-in user.
+@app.middleware("http")
+async def csrf_origin_check(request, call_next):
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        # Webhooks are authenticated by HMAC, not by browser cookies → exempt.
+        path = request.url.path
+        if not path.startswith("/webhook/"):
+            origin = request.headers.get("origin")
+            referer = request.headers.get("referer")
+            host = request.headers.get("host", "")
+            expected = {f"https://{host}", f"http://{host}"}
+            ok = False
+            if origin and origin in expected:
+                ok = True
+            elif referer:
+                # Referer is a full URL — check it starts with one of expected
+                ok = any(referer.startswith(e + "/") or referer == e for e in expected)
+            if not ok:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "CSRF: Origin/Referer mismatch"},
+                )
+    return await call_next(request)
+
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 # ── Routers ────────────────────────────────────────────────────────
@@ -44,6 +96,7 @@ app.include_router(exports_router)         # /casas/<id>/export/* + /conversatio
 app.include_router(media_router)           # /media/<msg_id> — proxy for WAHA attachments
 app.include_router(qr_share_router)        # /sessions/<id>/qr.png + /qr/<token> public share
 app.include_router(informes_router)        # /informes + /informes/<id> — global meta-analysis archive
+app.include_router(admin_router)           # /admin/costs — Claude API spending dashboard
 
 
 # ── Legacy redirects ───────────────────────────────────────────────

@@ -80,25 +80,31 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
         for r in rows
     ]
 
-    try:
-        (
-            mood, rt, treat, conv, flags, coaching,
-            intent, next_action, escalation, referral,
-        ) = await asyncio.gather(
-            skills.analyze_mood(msgs),
-            skills.analyze_response_time(msgs),
-            skills.analyze_treatment(msgs),
-            skills.analyze_conversion_intent(msgs),
-            skills.detect_red_flags(msgs),
-            skills.analyze_coaching(msgs),
-            skills.classify_intent(msgs),
-            skills.recommend_next_action(msgs),
-            skills.evaluate_escalation(msgs),
-            skills.detect_referral(msgs),
-        )
-    except Exception:
-        logger.exception("analysis failed for conversation %s", conversation_id)
-        raise
+    # Wrap all 10 skill calls in a token accumulator so we can persist the
+    # exact Claude cost for this conversation. Each _call_json inside the
+    # gathered tasks adds to this accumulator (contextvar-scoped to this task).
+    with skills.token_accumulator() as token_acc:
+        try:
+            (
+                mood, rt, treat, conv, flags, coaching,
+                intent, next_action, escalation, referral,
+            ) = await asyncio.gather(
+                skills.analyze_mood(msgs),
+                skills.analyze_response_time(msgs),
+                skills.analyze_treatment(msgs),
+                skills.analyze_conversion_intent(msgs),
+                skills.detect_red_flags(msgs),
+                skills.analyze_coaching(msgs),
+                skills.classify_intent(msgs),
+                skills.recommend_next_action(msgs),
+                skills.evaluate_escalation(msgs),
+                skills.detect_referral(msgs),
+            )
+        except Exception:
+            logger.exception("analysis failed for conversation %s", conversation_id)
+            raise
+
+    cost_usd = skills.compute_cost_usd(token_acc)
 
     casa_id = header["casa_id"]
     wa_number_id = header["wa_number_id"]
@@ -112,7 +118,8 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
                 treat_carinoso, treat_profesional, treat_vendedor, treat_seco,
                 conv_probability,
                 red_flags, coaching,
-                intent, next_action, escalation, referral
+                intent, next_action, escalation, referral,
+                claude_cost_usd, claude_tokens_in, claude_tokens_out
             ) VALUES (
                 $1, $2, $3, $4,
                 $5, $6, $7,
@@ -120,7 +127,8 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
                 $11, $12, $13, $14,
                 $15,
                 $16::jsonb, $17::jsonb,
-                $18::jsonb, $19::jsonb, $20::jsonb, $21::jsonb
+                $18::jsonb, $19::jsonb, $20::jsonb, $21::jsonb,
+                $22, $23, $24
             )
             ON CONFLICT (conversation_id) DO UPDATE SET
                 analyzed_at = now(),
@@ -141,7 +149,10 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
                 intent = EXCLUDED.intent,
                 next_action = EXCLUDED.next_action,
                 escalation = EXCLUDED.escalation,
-                referral = EXCLUDED.referral
+                referral = EXCLUDED.referral,
+                claude_cost_usd  = EXCLUDED.claude_cost_usd,
+                claude_tokens_in = EXCLUDED.claude_tokens_in,
+                claude_tokens_out= EXCLUDED.claude_tokens_out
             """,
             conversation_id,
             casa_id,
@@ -157,6 +168,9 @@ async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
             json.dumps(next_action.model_dump()),
             json.dumps(escalation.model_dump()),
             json.dumps(referral.model_dump()),
+            cost_usd,
+            token_acc.get("input", 0),
+            token_acc.get("output", 0),
         )
 
         for f in flags:
@@ -379,14 +393,17 @@ async def meta_analyze_casa_job(
             started_at=started,
         ))
 
+    meta_token_acc: dict[str, int] = {"input": 0, "output": 0, "calls": 0}
     try:
         # Claude meta-analysis call — cap at 240s. The inner _call_json is 120s,
         # this gives slack for any retry/connection setup. The drift task keeps
-        # the UI moving meanwhile.
-        result = await asyncio.wait_for(
-            run_meta_analysis(meta_casa_name, summaries),
-            timeout=240.0,
-        )
+        # the UI moving meanwhile. Token accumulator captures usage for cost.
+        with skills.token_accumulator() as _meta_acc:
+            result = await asyncio.wait_for(
+                run_meta_analysis(meta_casa_name, summaries),
+                timeout=240.0,
+            )
+            meta_token_acc = dict(_meta_acc)
     except asyncio.TimeoutError:
         logger.error("meta-analysis timed out (>240s) for casa %s wa %s",
                      casa_id, wa_number_id)
@@ -509,17 +526,20 @@ async def meta_analyze_casa_job(
         # Convert asyncpg Record to plain dict for JSONB storage
         kpis_dict = dict(kpi_row) if kpi_row else {}
 
+        meta_cost_usd = skills.compute_cost_usd(meta_token_acc)
         await conn.execute(
             """
             INSERT INTO casa_meta_analysis (
                 account_id, wa_number_id, conversations_analyzed,
                 period_start, period_end,
                 summary, patterns, strengths, improvements, client_profile,
-                top_topics, avoided_topics, top_referrals, kpis
+                top_topics, avoided_topics, top_referrals, kpis,
+                claude_cost_usd, claude_tokens_in, claude_tokens_out
             ) VALUES (
                 $1, $2, $3, $4, $5,
                 $6, $7::jsonb, $8::jsonb, $9::jsonb, $10,
-                $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb
+                $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb,
+                $15, $16, $17
             )
             """,
             casa_id, wa_number_id, len(summaries),
@@ -533,6 +553,9 @@ async def meta_analyze_casa_job(
             json.dumps(result.avoided_topics),
             json.dumps([r.model_dump() for r in result.top_referrals]),
             json.dumps(kpis_dict),
+            meta_cost_usd,
+            meta_token_acc.get("input", 0),
+            meta_token_acc.get("output", 0),
         )
 
     if redis:

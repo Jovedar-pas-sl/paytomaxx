@@ -10,6 +10,7 @@ not the sum.
 
 from __future__ import annotations
 
+import contextvars
 import copy
 import json
 import logging
@@ -39,6 +40,45 @@ logger = logging.getLogger(__name__)
 
 _client: AsyncAnthropic | None = None
 MODEL = "claude-haiku-4-5"
+
+# Per-job token accumulator. analyze_conversation_job / meta_analyze_casa_job
+# wrap their work with `with token_accumulator() as acc: ...` to collect
+# token usage across the 10+ skill calls they fan out, then persist it.
+_TOKEN_CTX: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "claude_tokens", default=None,
+)
+
+
+class token_accumulator:
+    """Context manager that aggregates Claude token usage from every
+    `_call_json` made inside its scope. Returns a dict {input, output, calls}
+    on `__enter__`. Read it after the block to compute USD cost.
+
+    Usage:
+        with token_accumulator() as acc:
+            await ...skill calls...
+        cost_usd = compute_cost(acc)
+    """
+
+    def __init__(self) -> None:
+        self._token = None
+        self.acc: dict[str, int] = {"input": 0, "output": 0, "calls": 0}
+
+    def __enter__(self) -> dict[str, int]:
+        self._token = _TOKEN_CTX.set(self.acc)
+        return self.acc
+
+    def __exit__(self, *exc) -> None:
+        if self._token is not None:
+            _TOKEN_CTX.reset(self._token)
+
+
+def compute_cost_usd(acc: dict[str, int]) -> float:
+    """Convert {input, output, calls} → USD using settings prices."""
+    s = get_settings()
+    inp = acc.get("input", 0) * s.claude_price_input_per_mtok / 1_000_000
+    out = acc.get("output", 0) * s.claude_price_output_per_mtok / 1_000_000
+    return round(inp + out, 6)
 
 
 def _get_client() -> AsyncAnthropic:
@@ -118,6 +158,12 @@ async def _call_json(
         output_config={"format": {"type": "json_schema", "schema": fixed}},  # type: ignore[arg-type]
         timeout=timeout,
     )
+    # Record token usage in the per-job accumulator if one is active.
+    acc = _TOKEN_CTX.get()
+    if acc is not None and response.usage is not None:
+        acc["input"] += getattr(response.usage, "input_tokens", 0) or 0
+        acc["output"] += getattr(response.usage, "output_tokens", 0) or 0
+        acc["calls"] += 1
     if response.stop_reason == "max_tokens":
         raise RuntimeError("Claude hit max_tokens — JSON likely truncated")
     # The parsed JSON arrives in the first text block
