@@ -23,19 +23,17 @@ depends_on: str | tuple[str, ...] | None = None
 
 def upgrade() -> None:
     # CONCURRENTLY = no exclusive lock on `message`, webhook inserts keep
-    # flowing during the build. Required because we run the migration on a
-    # live system that's continuously ingesting WhatsApp messages.
-    # CONCURRENTLY can't run inside a transaction, so we COMMIT first and
-    # reopen one for Alembic's bookkeeping at the end.
-    op.execute("COMMIT")
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_message_conv_created_desc "
-        "ON message (conversation_id, created_at DESC)"
-    )
-    op.execute("BEGIN")
+    # flowing during the build. CONCURRENTLY can't run inside a transaction
+    # block, and SQLAlchemy 2.x doesn't honour a bare COMMIT/BEGIN. The
+    # supported escape hatch is autocommit_block(), which temporarily flips
+    # the connection isolation level so DDL outside a tx is allowed.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_message_conv_created_desc "
+            "ON message (conversation_id, created_at DESC)"
+        )
 
 
 def downgrade() -> None:
-    op.execute("COMMIT")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_message_conv_created_desc")
-    op.execute("BEGIN")
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_message_conv_created_desc")
