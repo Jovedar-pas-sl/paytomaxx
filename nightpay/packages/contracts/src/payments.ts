@@ -19,6 +19,19 @@ export const ProviderSchema = z.enum(['WIPAY', 'PEANPE']);
 export type Provider = z.infer<typeof ProviderSchema>;
 
 // ─── Crear pago (TPV → API) ──────────────────────────────────────────
+
+/**
+ * Modo de captura del cobro:
+ * - QR: cliente escanea QR con su móvil, paga via PSP de NightPay (default).
+ * - WALLET_TOPUP: top-up de un ClientWallet (Phase 1B).
+ * - POS_EXTERNAL: la chica crea el cobro pero el cliente paga en el datáfono
+ *   del bar (Redsys/SumUp/etc., NO el PSP de NightPay). El camarero confirma
+ *   manualmente tras procesar la tarjeta en el datáfono. NightPay solo
+ *   tracking + comisión chica.
+ */
+export const CaptureMethodSchema = z.enum(['QR', 'WALLET_TOPUP', 'POS_EXTERNAL']);
+export type CaptureMethod = z.infer<typeof CaptureMethodSchema>;
+
 export const CreatePaymentSchema = z.object({
   amountCents: z.number().int().positive().max(10_000_00, 'Max 10.000,00 EUR'),
   terminalExternalId: z
@@ -31,7 +44,7 @@ export const CreatePaymentSchema = z.object({
    * Phase 1B opcional — si presente, este pago es un top-up de ClientWallet.
    * - create: true → crea una wallet nueva, walletId queda en la response.
    * - walletId: <uuid> → suma al balance de una wallet existente al AUTHORIZED.
-   * (Mutex: exactamente uno de los dos campos o ninguno).
+   * (Mutex con captureMethod=POS_EXTERNAL: no se puede top-upear via POS.)
    */
   wallet: z
     .union([
@@ -44,8 +57,21 @@ export const CreatePaymentSchema = z.object({
       }),
     ])
     .optional(),
+  /**
+   * POS_EXTERNAL: la chica crea el cobro, el camarero procesa la tarjeta en
+   * el datáfono del bar, después confirma en NightPay. No hay PSP roundtrip.
+   */
+  captureMethod: CaptureMethodSchema.optional(),
 });
 export type CreatePaymentDto = z.infer<typeof CreatePaymentSchema>;
+
+/** Confirmación POS — camarero/manager marca cobrado tras datáfono. */
+export const ConfirmPosPaymentSchema = z.object({
+  /** Referencia del recibo del datáfono (opcional, va al audit log). */
+  posReceiptRef: z.string().max(200).optional(),
+  notes: z.string().max(500).optional(),
+});
+export type ConfirmPosPaymentDto = z.infer<typeof ConfirmPosPaymentSchema>;
 
 // ─── Respuesta de creación (TPV recibe esto) ─────────────────────────
 export const CreatedPaymentResponseSchema = z.object({

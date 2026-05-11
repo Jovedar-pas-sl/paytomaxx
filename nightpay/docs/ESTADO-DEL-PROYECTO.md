@@ -144,7 +144,21 @@ JWT con `issuer=nightpay, audience=nightpay-internal`. Roles jerárquicos:
 
 ---
 
-## 4. Cobros con QR
+## 4. Cobros — 3 modos
+
+NightPay soporta **3 modos de captura** que la chica elige por cobro:
+
+| Modo | captureMethod | Quién procesa el dinero | Cuándo usarlo |
+|---|---|---|---|
+| **QR cliente** | `QR` (default) | PSP de NightPay (Wipay/Peanpe) | Cliente paga desde su móvil escaneando el QR |
+| **Wallet** | `WALLET_TOPUP` | PSP de NightPay (top-up) + consumos internos | Cliente carga saldo UNA vez al entrar (Phase 1B) |
+| **Datáfono** | `POS_EXTERNAL` | PSP del bar (Redsys/SumUp del datáfono físico) | Cliente paga con tarjeta física en el datáfono del bar |
+
+La chica decide por cada cobro qué modo usa con un toggle en su app.
+
+---
+
+## 4a. Modo QR (cliente paga con su móvil)
 
 Flow del modelo clásico (sin wallet):
 
@@ -188,6 +202,78 @@ CREATED ──→ AWAITING_CAPTURE ──→ AUTHORIZING ──→ AUTHORIZED
 
 Cada transición se valida con `applyEvent()` (XState 5). Si alguien intenta
 mover un Payment ya AUTHORIZED a otro estado, tira `InvalidTransitionError`.
+
+---
+
+## 4b. Modo Datáfono (cobro POS_EXTERNAL)
+
+**Cuándo importa**: muchos venues ya tienen un datáfono físico del bar
+(Redsys, SumUp Air, iZettle, etc.) — el cliente prefiere pagar con su
+tarjeta física insertándola en un datáfono real. El dinero pasa por el PSP
+del bar, NO por NightPay. Pero la chica sigue queriendo su comisión.
+
+**Flow**:
+
+1. Chica → operator app → toggle "Datáfono" → introduce 50€ → "Generar cobro POS".
+2. NightPay crea un Payment con `captureMethod=POS_EXTERNAL`, `status=CREATED`,
+   TTL 30 min (más que QR normal porque el camarero camina).
+3. La pantalla de la chica muestra el importe grande + código corto verbal
+   (ej. "#A4F7E2") + instrucciones "Llama al camarero".
+4. Chica llama al camarero. Le pasa el código verbalmente: "50€, código A4F7E2".
+5. Camarero llega con el datáfono del bar.
+6. Cliente paga 50€ con su tarjeta física en el datáfono — el PSP del bar
+   procesa la transacción y aprueba.
+7. Camarero abre su operator app (tiene rol `WAITER`) → tab **POS** → ve la
+   lista de cobros pendientes → toca el cobro "#A4F7E2 — 50€ — Ana".
+8. Camarero opcionalmente pega el nº de recibo del datáfono → click
+   **"Confirmar pagado"**.
+9. NightPay marca Payment `AUTHORIZED` vía FSM event `POS_CONFIRMED`
+   (transición directa CREATED → AUTHORIZED, sin AUTHORIZING porque no hay
+   PSP roundtrip).
+10. El hook estándar crea `OperatorEarning` para la chica con su
+    `commissionBps`. WebSocket le notifica → ella ve "✓ Cobrado" instant.
+
+**Importante**:
+- El **dinero pasa por el PSP del bar**, no por NightPay. NightPay solo
+  registra la transacción para repartir comisión a la chica.
+- La chica **NO se autoconfirma** sus propios cobros POS (anti auto-confirm).
+  Debe ser otro role (WAITER/MANAGER/OWNER).
+- Si el camarero tarda >30 min o nunca confirma, el cron de QR-expiration
+  marca el Payment como EXPIRED. La chica puede cancelar manualmente antes.
+
+### Ejemplo: cobro POS en un viernes noche
+
+> 23:50 — Cliente A pide la cuenta del rato con Ana. Total: 80€.
+>
+> Ana → operator app → toggle "Datáfono" → 80€ → "Generar cobro POS".
+> Pantalla muestra: **80,00 EUR — #A4F7E2 — Llama al camarero**.
+>
+> Ana llama a José (camarero). "Mesa 3, 80€, código A4F7E2".
+>
+> José coge el datáfono Redsys del bar → introduce 80€ → cliente A inserta
+> su tarjeta → PIN → "APROBADO" → tickets impresos. El datáfono mandará el
+> settlement al banco del bar como siempre.
+>
+> José → operator app → tab POS → ve "#A4F7E2 80€ Ana hace 1 min" → toca →
+> "Confirmar pagado en el datáfono". Apunta el nº recibo del Redsys
+> "047215" → click Confirmar.
+>
+> NightPay backend:
+> - FSM: CREATED → AUTHORIZED via `POS_CONFIRMED { posReceiptRef: "047215" }`
+> - Crea `OperatorEarning(paymentId=p-xyz, paymentAmountCents=8000,
+>    commissionBps=9000, commissionCents=7200)`
+> - Audit log: payment.pos_confirmed por José (WAITER)
+> - WebSocket → Ana ve "✓ Cobrado +72€" en su app.
+>
+> Cliente A se va con el ticket del Redsys del bar (no de NightPay).
+> El bar settlea sus 80€ vía su PSP normal. Ana acumula 72€ en saldo
+> pendiente para su payout mensual.
+
+**Reconciliación**: el dinero del cobro POS no aparece en NightPay (no
+gestiona el flow). El admin debe cuadrar al final del mes los totales del
+datáfono del bar vs la suma de `OperatorEarning.paymentAmountCents`
+con `captureMethod=POS_EXTERNAL` que NightPay registró. Si cuadran, todo
+OK. Si no, alguien confirmó algo sin cobrar o vice versa.
 
 ---
 

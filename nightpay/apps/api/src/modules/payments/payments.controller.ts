@@ -9,7 +9,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ConfirmPosPaymentSchema,
   CreatePaymentSchema,
+  type ConfirmPosPaymentDto,
   type CreatePaymentDto,
   type CreatedPaymentResponse,
   type PublicPaymentView,
@@ -49,6 +51,37 @@ export class PaymentsController {
       userId: user.sub,
       role: user.role,
     });
+  }
+
+  /**
+   * Lista cobros POS pendientes — para el panel del camarero. Tenant-scoped.
+   */
+  @Get('pending-pos')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER', 'WAITER')
+  async pendingPos(@Tenant() tenantId: string) {
+    return this.payments.listPendingPos(tenantId);
+  }
+
+  /**
+   * Camarero confirma cobrado tras procesar la tarjeta en el datáfono externo.
+   * Solo válido para captureMethod=POS_EXTERNAL en estado CREATED.
+   * La transición dispara el hook que crea OperatorEarning para la chica.
+   */
+  @Post(':id/confirm-pos')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER', 'WAITER')
+  async confirmPos(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(ConfirmPosPaymentSchema)) dto: ConfirmPosPaymentDto,
+  ): Promise<{ status: string }> {
+    return this.payments.confirmPosPayment(
+      id,
+      { userId: user.sub, role: user.role },
+      dto,
+    );
   }
 
   /**

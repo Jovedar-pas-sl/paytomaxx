@@ -252,6 +252,8 @@ export async function createPayment(input: {
   currency?: string;
   /** Phase 1B — si set, crea una wallet etiquetada con identifier. */
   walletIdentifier?: string;
+  /** POS — el camarero confirma tras procesar tarjeta en datáfono externo. */
+  captureMethod?: 'QR' | 'POS_EXTERNAL';
 }): Promise<CreatedPayment> {
   const idemKey = `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const body: Record<string, unknown> = {
@@ -262,12 +264,46 @@ export async function createPayment(input: {
   if (input.walletIdentifier) {
     body.wallet = { create: true, identifier: input.walletIdentifier };
   }
+  if (input.captureMethod) {
+    body.captureMethod = input.captureMethod;
+  }
   const res = await authedFetch('/v1/payments', {
     method: 'POST',
     headers: { 'Idempotency-Key': idemKey },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+// ─── POS pendings (cobros que esperan confirmación del camarero) ──
+
+export interface PendingPosPayment {
+  id: string;
+  amountCents: number;
+  currency: string;
+  createdAt: string;
+  qrExpiresAt: string;
+  createdByName: string;
+  qrToken: string;
+  refCode: string;
+}
+
+export async function fetchPendingPos(): Promise<PendingPosPayment[]> {
+  const res = await authedFetch('/v1/payments/pending-pos');
+  if (!res.ok) throw new Error('Error cargando POS pendientes');
+  return res.json();
+}
+
+export async function confirmPosPayment(
+  paymentId: string,
+  input: { posReceiptRef?: string; notes?: string } = {},
+): Promise<{ status: string }> {
+  const res = await authedFetch(`/v1/payments/${paymentId}/confirm-pos`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Error confirmando: ${await res.text()}`);
   return res.json();
 }
 

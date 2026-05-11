@@ -17,6 +17,13 @@ export type PaymentEvent =
   | { type: 'QR_VIEWED' }
   | { type: 'AUTHORIZING' }
   | { type: 'AUTHORIZED'; providerTxId: string; provider: 'WIPAY' | 'PEANPE' }
+  /**
+   * POS confirmation event — camarero/manager confirma cobrado tras procesar
+   * la tarjeta en el datáfono del bar. No hay PSP de NightPay involucrado,
+   * por eso provider/providerTxId son nulos. Transición directa CREATED →
+   * AUTHORIZED.
+   */
+  | { type: 'POS_CONFIRMED'; posReceiptRef?: string }
   | { type: 'FAILED'; reason: string }
   | { type: 'TIMEOUT' }
   | { type: 'REFUND_PARTIAL'; amountCents: number }
@@ -76,6 +83,9 @@ export const paymentMachine = setup({
         QR_VIEWED: 'AWAITING_CAPTURE',
         TIMEOUT: 'EXPIRED',
         AUTHORIZING: 'AUTHORIZING',
+        // POS flow: camarero confirma cobrado en datáfono externo → AUTHORIZED
+        // directo (sin AUTHORIZING porque no hay roundtrip al PSP).
+        POS_CONFIRMED: 'AUTHORIZED',
         CANCELED: { target: 'CANCELED', actions: 'persistCancel' },
       },
     },

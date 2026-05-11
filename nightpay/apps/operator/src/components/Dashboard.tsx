@@ -12,8 +12,9 @@ import { ChargeWallet } from './ChargeWallet';
 import { CreatePayment } from './CreatePayment';
 import { MyPayments } from './MyPayments';
 import { Earnings } from './Earnings';
+import { PendingPos } from './PendingPos';
 
-type TabKey = 'home' | 'wallet' | 'payments' | 'earnings';
+type TabKey = 'home' | 'wallet' | 'pos' | 'payments' | 'earnings';
 
 interface Props {
   user: OperatorUser;
@@ -68,6 +69,8 @@ export function Dashboard({ user, onLogout }: Props) {
         <HomeTab user={user} balance={balance} onCobroDone={reload} />
       ) : tab === 'wallet' ? (
         <ChargeWallet onConsumed={reload} />
+      ) : tab === 'pos' ? (
+        <PendingPos onConfirmed={reload} />
       ) : tab === 'payments' ? (
         <MyPayments />
       ) : (
@@ -77,6 +80,11 @@ export function Dashboard({ user, onLogout }: Props) {
       <nav style={tabBarStyle}>
         <TabBtn active={tab === 'home'} icon="$" label="Inicio" onClick={() => setTab('home')} />
         <TabBtn active={tab === 'wallet'} icon="◔" label="Wallet" onClick={() => setTab('wallet')} />
+        {/* POS tab solo para WAITER/MANAGER/OWNER — la chica (OPERATOR) crea
+            cobros POS pero no se los autoconfirma a ella misma. */}
+        {user.role !== 'OPERATOR' ? (
+          <TabBtn active={tab === 'pos'} icon="◳" label="POS" onClick={() => setTab('pos')} />
+        ) : null}
         <TabBtn active={tab === 'payments'} icon="◧" label="Cobros" onClick={() => setTab('payments')} />
         <TabBtn active={tab === 'earnings'} icon="◐" label="Ganancias" onClick={() => setTab('earnings')} />
       </nav>

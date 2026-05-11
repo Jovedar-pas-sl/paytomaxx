@@ -28,6 +28,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { WalletsService } from '../wallets/wallets.service';
 
 const QR_TTL_SECONDS = 5 * 60; // 5 min
+const POS_QR_TTL_SECONDS = 30 * 60; // 30 min — camarero tiene tiempo de llegar
 const ORPHAN_RECONCILE_DELAY_MS = 30 * 60 * 1000; // 30 min sin webhook → reconcile
 
 @Injectable()
@@ -138,7 +139,23 @@ export class PaymentsService {
 
     // 3. Crear payment + evento inicial — atómico
     const qrToken = randomUUID();
-    const qrExpiresAt = new Date(Date.now() + QR_TTL_SECONDS * 1000);
+    // POS_EXTERNAL puede tardar más en confirmarse (camarero camina con el
+    // datáfono) — TTL más generoso. Wallet topup y QR normal: 5 min default.
+    const isPosExternal = dto.captureMethod === 'POS_EXTERNAL';
+    const ttlSeconds = isPosExternal ? POS_QR_TTL_SECONDS : QR_TTL_SECONDS;
+    const qrExpiresAt = new Date(Date.now() + ttlSeconds * 1000);
+
+    // Mutex: no se puede top-upear wallet via POS_EXTERNAL (PSP externo no nos
+    // notifica AUTHORIZED por webhook → no podríamos creditar el wallet).
+    if (isPosExternal && resolvedWalletId) {
+      throw new BadRequestException(
+        'No se puede cargar wallet vía POS externo — usa modo QR normal.',
+      );
+    }
+
+    const effectiveCaptureMethod = resolvedWalletId
+      ? 'WALLET_TOPUP'
+      : dto.captureMethod ?? null;
 
     const payment = await this.prisma.$transaction(async (tx) => {
       const p = await tx.payment.create({
@@ -153,10 +170,8 @@ export class PaymentsService {
           status: 'CREATED',
           qrToken,
           qrExpiresAt,
-          // Phase 1B — si es top-up de wallet, marca captureMethod + walletId.
-          ...(resolvedWalletId
-            ? { walletId: resolvedWalletId, captureMethod: 'WALLET_TOPUP' }
-            : {}),
+          ...(effectiveCaptureMethod ? { captureMethod: effectiveCaptureMethod } : {}),
+          ...(resolvedWalletId ? { walletId: resolvedWalletId } : {}),
         },
       });
       await tx.paymentEvent.create({
@@ -430,6 +445,90 @@ export class PaymentsService {
       throw err;
     }
     return { status: 'CANCELED' };
+  }
+
+  /**
+   * Camarero/manager confirma que cobró un Payment POS_EXTERNAL en el datáfono.
+   * Solo válido para payments con captureMethod=POS_EXTERNAL en estado CREATED.
+   * El que confirma debe ser WAITER/MANAGER/OWNER — NO el mismo OPERATOR que
+   * creó el cobro (anti auto-confirm).
+   */
+  async confirmPosPayment(
+    paymentId: string,
+    actor: { userId: string; role: string },
+    dto: { posReceiptRef?: string; notes?: string },
+  ): Promise<{ status: PaymentMachineState }> {
+    const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
+    if (!payment) throw new NotFoundException('Payment not found');
+
+    if (payment.captureMethod !== 'POS_EXTERNAL') {
+      throw new ConflictException(
+        `Este cobro no es POS_EXTERNAL (captureMethod=${payment.captureMethod}). Solo POS se confirma manual.`,
+      );
+    }
+    if (payment.status !== 'CREATED') {
+      throw new ConflictException(
+        `Payment está en ${payment.status} — solo se puede confirmar CREATED`,
+      );
+    }
+    // Anti auto-confirm: la chica no se confirma sus propios POS (camarero sí).
+    if (actor.role === 'OPERATOR' && payment.createdByUserId === actor.userId) {
+      throw new ForbiddenException(
+        'No puedes confirmar tu propio cobro POS. Llama al camarero.',
+      );
+    }
+
+    try {
+      await this.transition(paymentId, {
+        type: 'POS_CONFIRMED',
+        posReceiptRef: dto.posReceiptRef,
+      });
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) {
+        throw new ConflictException(
+          `Payment cannot be confirmed in state ${payment.status}`,
+        );
+      }
+      throw err;
+    }
+
+    // Audit log con el camarero como actor — la comisión se generó en transition()
+    // via el hook earning normal (createdByUserId apunta a la chica).
+    this.logger.log(
+      `Payment ${paymentId} POS_CONFIRMED by ${actor.role}=${actor.userId} ref=${dto.posReceiptRef ?? '-'}`,
+    );
+
+    return { status: 'AUTHORIZED' };
+  }
+
+  /**
+   * Lista cobros POS pendientes (status=CREATED + captureMethod=POS_EXTERNAL)
+   * para el panel del camarero. Tenant-scoped vía CLS.
+   */
+  async listPendingPos(tenantId: string) {
+    const rows = await this.prisma.payment.findMany({
+      where: {
+        tenantId,
+        status: 'CREATED',
+        captureMethod: 'POS_EXTERNAL',
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        createdBy: { select: { displayName: true, email: true } },
+      },
+    });
+    return rows.map((p) => ({
+      id: p.id,
+      amountCents: p.amountCents,
+      currency: p.currency,
+      createdAt: p.createdAt.toISOString(),
+      qrExpiresAt: p.qrExpiresAt.toISOString(),
+      createdByName: p.createdBy?.displayName ?? p.createdBy?.email ?? '—',
+      qrToken: p.qrToken,
+      // Código corto humano-legible para referenciar verbalmente
+      refCode: p.id.slice(-6).toUpperCase(),
+    }));
   }
 
   /**

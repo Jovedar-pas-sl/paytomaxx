@@ -15,11 +15,14 @@ interface Props {
   onCreated: () => void;
 }
 
+type CobroMode = 'qr' | 'wallet' | 'pos';
+
 export function CreatePayment({ onCreated }: Props) {
   const [terminals, setTerminals] = useState<Array<{ externalId: string; label: string }>>([]);
   const [amount, setAmount] = useState('');
-  // Phase 1B — toggle "Cargar wallet" para crear un saldo prepago en vez de un cobro puntual.
-  const [walletMode, setWalletMode] = useState(false);
+  // Modo de cobro: QR directo (cliente paga con su móvil), wallet (carga
+  // saldo prepago) o POS (camarero cobra con datáfono externo).
+  const [mode, setMode] = useState<CobroMode>('qr');
   const [walletIdentifier, setWalletIdentifier] = useState('');
   const [active, setActive] = useState<CreatedPayment | null>(null);
   const [status, setStatus] = useState<PaymentStatus | null>(null);
@@ -70,13 +73,14 @@ export function CreatePayment({ onCreated }: Props) {
     try {
       const cents = Math.round(parseFloat(amount.replace(',', '.')) * 100);
       if (!Number.isFinite(cents) || cents <= 0) throw new Error('Importe inválido');
-      if (walletMode && !walletIdentifier.trim()) {
+      if (mode === 'wallet' && !walletIdentifier.trim()) {
         throw new Error('Pon una etiqueta al wallet (Mesa 3, Pulsera azul...) para no confundirlo');
       }
       const created = await createPayment({
         amountCents: cents,
         terminalExternalId: terminals[0]!.externalId,
-        walletIdentifier: walletMode ? walletIdentifier.trim() : undefined,
+        walletIdentifier: mode === 'wallet' ? walletIdentifier.trim() : undefined,
+        captureMethod: mode === 'pos' ? 'POS_EXTERNAL' : undefined,
       });
       setActive(created);
       setStatus(created.status as PaymentStatus);
@@ -125,38 +129,71 @@ export function CreatePayment({ onCreated }: Props) {
 
   if (active) {
     const canCancel = status === 'CREATED' || status === 'AWAITING_CAPTURE';
+    // POS_EXTERNAL: el QR no es para el cliente, es para que el camarero vea
+    // el cobro pendiente. Mostramos código corto humano-legible.
+    const isPosFlow = mode === 'pos';
+    const refCode = active.id.slice(-6).toUpperCase();
     return (
       <Card variant="glow" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ textAlign: 'center' }}>
-          <p style={kicker}>Importe</p>
+          <p style={kicker}>{isPosFlow ? 'Cobro POS' : 'Importe'}</p>
           <p className="np-num" style={amountBig}>
             {(active.amountCents / 100).toFixed(2)}{' '}
             <span style={{ fontSize: '0.95rem', color: 'var(--np-text-mute)', fontWeight: 500 }}>
               {active.currency}
             </span>
           </p>
+          {isPosFlow ? (
+            <p style={{
+              margin: '0.5rem 0 0',
+              fontSize: '0.9rem',
+              color: 'var(--np-text-mute)',
+            }}>
+              Llama al camarero. Código: <strong style={{ fontFamily: 'var(--np-font-mono)', letterSpacing: '0.15em', color: 'var(--np-accent)' }}>#{refCode}</strong>
+            </p>
+          ) : null}
         </div>
         <div style={{ display: 'flex', justifyContent: 'center' }}>
           <StatusPill status={status ?? 'CREATED'} />
         </div>
-        <div
-          style={{
-            background: 'white',
+
+        {isPosFlow ? (
+          <div style={{
+            padding: '1rem',
+            background: 'var(--np-surface-2)',
             borderRadius: 'var(--np-r-md)',
-            padding: '0.75rem',
-            display: 'flex',
-            justifyContent: 'center',
-          }}
-        >
-          <img
-            src={active.qrPngDataUrl}
-            alt="QR del cobro"
-            style={{ width: '100%', maxWidth: '15rem', height: 'auto', display: 'block' }}
-          />
-        </div>
-        <Button onClick={copyUrl} variant="ghost" size="md">
-          {copied ? '✓ Copiado' : 'Copiar link del cobro'}
-        </Button>
+            border: '1px dashed var(--np-border)',
+            textAlign: 'center',
+          }}>
+            <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: 1.6 }}>
+              1. Llama al camarero.<br />
+              2. Le dices: <strong>"{(active.amountCents / 100).toFixed(2)} €, código #{refCode}"</strong><br />
+              3. Él lo procesa en el datáfono y confirma en su app.<br />
+              4. Verás "✓ Cobrado" aquí.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                background: 'white',
+                borderRadius: 'var(--np-r-md)',
+                padding: '0.75rem',
+                display: 'flex',
+                justifyContent: 'center',
+              }}
+            >
+              <img
+                src={active.qrPngDataUrl}
+                alt="QR del cobro"
+                style={{ width: '100%', maxWidth: '15rem', height: 'auto', display: 'block' }}
+              />
+            </div>
+            <Button onClick={copyUrl} variant="ghost" size="md">
+              {copied ? '✓ Copiado' : 'Copiar link del cobro'}
+            </Button>
+          </>
+        )}
 
         {status === 'AUTHORIZED' ? (
           <Button onClick={reset} size="lg">
@@ -177,33 +214,37 @@ export function CreatePayment({ onCreated }: Props) {
     );
   }
 
+  const headline =
+    mode === 'wallet' ? 'Cargar wallet del cliente'
+    : mode === 'pos' ? 'Cobro con datáfono'
+    : 'Crear nuevo cobro';
+
   return (
     <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <p style={{ ...kicker, textAlign: 'center' }}>
-        {walletMode ? 'Cargar wallet del cliente' : 'Crear nuevo cobro'}
-      </p>
+      <p style={{ ...kicker, textAlign: 'center' }}>{headline}</p>
 
-      {/* Toggle entre cobro directo y cargar wallet */}
+      {/* Toggle 3-way: QR / Wallet / POS */}
       <div style={toggleRowStyle}>
         <button
           type="button"
-          onClick={() => setWalletMode(false)}
-          style={{
-            ...toggleBtnStyle,
-            ...(walletMode ? {} : toggleBtnActiveStyle),
-          }}
+          onClick={() => setMode('qr')}
+          style={{ ...toggleBtnStyle, ...(mode === 'qr' ? toggleBtnActiveStyle : {}) }}
         >
-          Cobro directo
+          QR cliente
         </button>
         <button
           type="button"
-          onClick={() => setWalletMode(true)}
-          style={{
-            ...toggleBtnStyle,
-            ...(walletMode ? toggleBtnActiveStyle : {}),
-          }}
+          onClick={() => setMode('wallet')}
+          style={{ ...toggleBtnStyle, ...(mode === 'wallet' ? toggleBtnActiveStyle : {}) }}
         >
-          Cargar wallet
+          Wallet
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('pos')}
+          style={{ ...toggleBtnStyle, ...(mode === 'pos' ? toggleBtnActiveStyle : {}) }}
+        >
+          Datáfono
         </button>
       </div>
 
@@ -221,7 +262,7 @@ export function CreatePayment({ onCreated }: Props) {
           style={{ textAlign: 'center', fontFamily: 'var(--np-font-mono)' }}
         />
 
-        {walletMode ? (
+        {mode === 'wallet' ? (
           <>
             <Input
               label="Etiqueta del wallet"
@@ -236,10 +277,20 @@ export function CreatePayment({ onCreated }: Props) {
               molestarlo de nuevo — solo necesitas saber su etiqueta.
             </p>
           </>
+        ) : mode === 'pos' ? (
+          <p style={hintStyle}>
+            🪙 Genera un cobro para que el <strong>camarero lo procese con el datáfono del bar</strong>.
+            El cliente paga con su tarjeta física en el datáfono. Después el camarero
+            confirma en su app y tu comisión cae automática.
+          </p>
         ) : null}
 
         <Button type="submit" size="lg" loading={submitting}>
-          {walletMode ? `Cargar ${amount ? `${amount} €` : 'wallet'}` : 'Cobrar'}
+          {mode === 'wallet'
+            ? `Cargar ${amount ? `${amount} €` : 'wallet'}`
+            : mode === 'pos'
+              ? `Generar cobro POS ${amount ? `(${amount} €)` : ''}`
+              : 'Cobrar'}
         </Button>
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem', textAlign: 'center' }}>
