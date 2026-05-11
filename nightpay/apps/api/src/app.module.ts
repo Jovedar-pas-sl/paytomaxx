@@ -15,6 +15,7 @@ import { GatewaysModule } from './modules/gateways/gateways.module';
 import { HealthController } from './modules/health/health.controller';
 import { MetricsModule } from './modules/metrics/metrics.module';
 import { OperatorsModule } from './modules/operators/operators.module';
+import { TreasuryModule } from './modules/treasury/treasury.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { QueuesModule } from './modules/queues/queues.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
@@ -60,6 +61,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     RefundsModule,
     OperatorsModule,
     AdminModule,
+    TreasuryModule,
     WebhooksModule,
   ],
   controllers: [HealthController],

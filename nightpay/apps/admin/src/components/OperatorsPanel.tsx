@@ -3,16 +3,22 @@
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Modal } from '@nightpay/ui';
 import {
+  confirmPayoutManual,
   createOperator,
   createOperatorPayout,
+  fetchExchangeRate,
   fetchOperatorEarnings,
   fetchOperatorPayouts,
   fetchOperators,
   updateOperator,
+  verifyPayout,
   type Operator,
   type OperatorEarning,
   type OperatorPayout,
+  type PayoutMethod,
+  type PayoutMetadata,
 } from '@/lib/api';
+import { PAYOUT_METHOD_LABELS, PayoutMethodForm } from './PayoutMethodForm';
 
 interface Props {
   isOwner: boolean;
@@ -400,6 +406,9 @@ function OperatorDetailModal({
         <PayoutConfirmModal
           operatorId={operator.id}
           balanceCents={balance}
+          payoutMethod={operator.payoutMethod ?? null}
+          payoutAddress={operator.payoutAddress ?? null}
+          payoutLabel={operator.payoutLabel ?? null}
           onClose={() => setPayoutOpen(false)}
           onDone={() => {
             setPayoutOpen(false);
@@ -485,6 +494,17 @@ function EditOperatorForm({ operator, onSaved }: { operator: Operator; onSaved: 
   const [displayName, setDisplayName] = useState(operator.displayName ?? '');
   const [commissionPct, setCommissionPct] = useState((operator.commissionBps / 100).toFixed(2));
   const [active, setActive] = useState(operator.active);
+  const [payout, setPayout] = useState<{
+    method: PayoutMethod | null;
+    address: string | null;
+    metadata: PayoutMetadata | null;
+    label: string | null;
+  }>({
+    method: operator.payoutMethod ?? null,
+    address: operator.payoutAddress ?? null,
+    metadata: operator.payoutMetadata ?? null,
+    label: operator.payoutLabel ?? null,
+  });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -495,10 +515,18 @@ function EditOperatorForm({ operator, onSaved }: { operator: Operator; onSaved: 
     try {
       const pct = parseFloat(commissionPct.replace(',', '.'));
       if (!Number.isFinite(pct) || pct < 0 || pct > 100) throw new Error('Comisión inválida');
+      // Validar que si hay method seleccionado, address esté informada (excepto MANUAL_CASH)
+      if (payout.method && payout.method !== 'MANUAL_CASH' && !payout.address) {
+        throw new Error('Falta la address/email/IBAN para el método seleccionado');
+      }
       await updateOperator(operator.id, {
         displayName,
         commissionBps: Math.round(pct * 100),
         active,
+        payoutMethod: payout.method,
+        payoutAddress: payout.address,
+        payoutMetadata: payout.metadata,
+        payoutLabel: payout.label,
       });
       onSaved();
     } catch (err) {
@@ -526,6 +554,32 @@ function EditOperatorForm({ operator, onSaved }: { operator: Operator; onSaved: 
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
         Activa (puede crear cobros)
       </label>
+
+      <div style={{
+        marginTop: '0.5rem',
+        paddingTop: '1rem',
+        borderTop: '1px solid var(--np-border)',
+      }}>
+        <h4 style={{
+          margin: '0 0 0.75rem',
+          fontSize: '0.7rem',
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          color: 'var(--np-text-dim)',
+          fontWeight: 500,
+        }}>
+          Routing del payout (Phase 1A)
+        </h4>
+        <PayoutMethodForm
+          method={payout.method}
+          address={payout.address}
+          metadata={payout.metadata}
+          label={payout.label}
+          onChange={setPayout}
+          disabled={submitting}
+        />
+      </div>
+
       {error ? (
         <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
           {error}
@@ -541,24 +595,73 @@ function EditOperatorForm({ operator, onSaved }: { operator: Operator; onSaved: 
 function PayoutConfirmModal({
   operatorId,
   balanceCents,
+  payoutMethod,
+  payoutAddress,
+  payoutLabel,
   onClose,
   onDone,
 }: {
   operatorId: string;
   balanceCents: number;
+  payoutMethod?: PayoutMethod | null;
+  payoutAddress?: string | null;
+  payoutLabel?: string | null;
   onClose: () => void;
   onDone: () => void;
 }) {
   const [notes, setNotes] = useState('');
+  const [externalTxId, setExternalTxId] = useState('');
+  const [receiptUrl, setReceiptUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exchangeRate, setExchangeRate] = useState<{ rate: number } | null>(null);
+
+  const isAutoVerifiable =
+    payoutMethod &&
+    ['USDT_TRC20', 'USDT_BEP20', 'USDC_POLY', 'USDC_SOL'].includes(payoutMethod);
+
+  // Cargar tasa EUR→USDT solo si cripto
+  useEffect(() => {
+    if (!isAutoVerifiable) return;
+    fetchExchangeRate()
+      .then((r) => setExchangeRate({ rate: r.rate }))
+      .catch(() => setExchangeRate({ rate: 1.07 }));
+  }, [isAutoVerifiable]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      await createOperatorPayout(operatorId, notes || undefined);
+      // Crear el payout con referencia externa si la hay
+      const created = await createOperatorPayout(operatorId, {
+        notes: notes || undefined,
+        externalTxId: externalTxId.trim() || undefined,
+        externalRail: payoutMethod ?? undefined,
+        receiptUrl: receiptUrl.trim() || undefined,
+      });
+      // Si admin pegó txhash + método cripto auto-verificable → llama verify
+      if (externalTxId.trim() && isAutoVerifiable && payoutMethod) {
+        try {
+          await verifyPayout(created.id, {
+            externalTxId: externalTxId.trim(),
+            externalRail: payoutMethod,
+            receiptUrl: receiptUrl.trim() || undefined,
+          });
+        } catch (verifyErr) {
+          // Si la verificación falla, el payout sigue creado. Mostramos warning.
+          // eslint-disable-next-line no-console
+          console.warn('Auto-verify falló:', (verifyErr as Error).message);
+        }
+      } else if (!isAutoVerifiable && externalTxId.trim()) {
+        // Método manual con referencia → admin puede marcar MANUAL_OK
+        try {
+          await confirmPayoutManual(created.id);
+        } catch (confErr) {
+          // eslint-disable-next-line no-console
+          console.warn('Confirm manual falló:', (confErr as Error).message);
+        }
+      }
       onDone();
     } catch (err) {
       setError((err as Error).message);
@@ -567,20 +670,106 @@ function PayoutConfirmModal({
     }
   }
 
+  const balanceEur = balanceCents / 100;
+  const usdtEquiv = exchangeRate ? (balanceEur * exchangeRate.rate).toFixed(2) : null;
+
   return (
-    <Modal open onClose={onClose} title="Marcar pagado" width="28rem">
+    <Modal open onClose={onClose} title="Marcar pagado" width="32rem">
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <p style={{ margin: 0, fontSize: '0.95rem' }}>
-          Vas a marcar como pagado el saldo pendiente:{' '}
-          <strong className="np-num">{(balanceCents / 100).toFixed(2)} €</strong>
+          Saldo pendiente a liquidar:{' '}
+          <strong className="np-num">{balanceEur.toFixed(2)} €</strong>
+          {usdtEquiv ? (
+            <span style={{ color: 'var(--np-text-mute)', fontSize: '0.85rem', marginLeft: '0.5rem' }}>
+              ≈ {usdtEquiv} USDT
+            </span>
+          ) : null}
         </p>
+
+        {payoutMethod ? (
+          <div style={{
+            background: 'var(--np-surface-2)',
+            border: '1px solid var(--np-border)',
+            borderRadius: 'var(--np-r-md)',
+            padding: '0.75rem 1rem',
+            fontSize: '0.85rem',
+          }}>
+            <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              Método chica
+            </p>
+            <p style={{ margin: '0.25rem 0 0' }}>
+              <strong>{PAYOUT_METHOD_LABELS[payoutMethod]}</strong>
+            </p>
+            {payoutAddress ? (
+              <p style={{
+                margin: '0.25rem 0 0',
+                fontFamily: 'var(--np-font-mono)',
+                fontSize: '0.78rem',
+                color: 'var(--np-text-mute)',
+                wordBreak: 'break-all',
+              }}>
+                {payoutAddress}
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard?.writeText(payoutAddress)}
+                  style={{
+                    marginLeft: '0.5rem',
+                    background: 'none',
+                    border: '1px solid var(--np-border)',
+                    color: 'var(--np-text-mute)',
+                    fontSize: '0.7rem',
+                    padding: '0.15rem 0.5rem',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Copiar
+                </button>
+              </p>
+            ) : null}
+            {payoutLabel ? (
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-dim)' }}>
+                Alias: {payoutLabel}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <div style={{
+            background: 'var(--np-warning-bg, #fef3c7)',
+            border: '1px solid #fcd34d',
+            borderRadius: 'var(--np-r-md)',
+            padding: '0.75rem 1rem',
+            fontSize: '0.85rem',
+            color: '#78350f',
+          }}>
+            Esta chica no tiene método de payout configurado. Se marcará como MANUAL_CASH.
+            Configura su método en "Edit" antes para usar verificación automática.
+          </div>
+        )}
+
+        <Input
+          label={isAutoVerifiable ? 'Hash de la transacción on-chain' : 'Referencia externa (receipt ID, SEPA ref, etc.)'}
+          value={externalTxId}
+          onChange={(e) => setExternalTxId(e.target.value)}
+          placeholder={isAutoVerifiable ? '0x... o TxId Tron' : 'Receipt ID, número SEPA, etc.'}
+          hint={isAutoVerifiable ? 'Se verificará automáticamente contra el explorer.' : 'Opcional. Si lo pegas se marca MANUAL_OK.'}
+          maxLength={200}
+        />
+        <Input
+          label="Receipt URL (opcional, screenshot)"
+          value={receiptUrl}
+          onChange={(e) => setReceiptUrl(e.target.value)}
+          placeholder="https://..."
+          maxLength={500}
+        />
         <Input
           label="Notas (opcional)"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Pagado en efectivo, recibo #..."
+          placeholder='"Pagado vía Binance", "Wire SEPA enviado", etc.'
           maxLength={500}
         />
+
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
             {error}

@@ -62,6 +62,12 @@ model User {
   invitedAt    DateTime?
   // JWT de un solo uso para set-password. Limpio al aceptar la invitacion.
   inviteToken  String?   @unique
+  // Phase 1A — routing de payout. Solo OPERATOR. Valores en migration 20260511 comment.
+  // Si payoutMethod es null el modal "Marcar pagado" cae a MANUAL_CASH.
+  payoutMethod   String?
+  payoutAddress  String?
+  payoutMetadata Json?
+  payoutLabel    String?
   createdAt    DateTime  @default(now()) @db.Timestamptz
   updatedAt    DateTime  @updatedAt @db.Timestamptz
   deletedAt    DateTime? @db.Timestamptz
@@ -69,10 +75,11 @@ model User {
   venue Venue @relation(fields: [tenantId], references: [id])
 
   // Relaciones para OPERATOR
-  earnings        OperatorEarning[] @relation("OperatorEarnings")
-  payouts         OperatorPayout[]  @relation("OperatorPayouts")
-  payoutsPaid     OperatorPayout[]  @relation("PayoutsPaid")
-  paymentsCreated Payment[]         @relation("PaymentCreatedBy")
+  earnings           OperatorEarning[] @relation("OperatorEarnings")
+  payouts            OperatorPayout[]  @relation("OperatorPayouts")
+  payoutsPaid        OperatorPayout[]  @relation("PayoutsPaid")
+  payoutsReconciled  OperatorPayout[]  @relation("PayoutsReconciled")
+  paymentsCreated    Payment[]         @relation("PaymentCreatedBy")
 
   @@index([tenantId])
   @@map("users")
@@ -98,6 +105,9 @@ model Terminal {
 enum Provider {
   WIPAY
   PEANPE
+  // Phase 1C — SoftPOS / Tap-to-Phone
+  VIVA_SOFTPOS
+  STRIPE_TAP
 }
 
 model GatewayCredential {
@@ -151,6 +161,10 @@ model Payment {
   availableAmountCents Int
   createdAt            DateTime      @default(now()) @db.Timestamptz
   updatedAt            DateTime      @updatedAt @db.Timestamptz
+
+  // Phase 1C — modo de cobro usado: "QR" | "SOFTPOS_TAP" | "WALLET_TOPUP" | "WALLET_CONSUMPTION"
+  // Null para payments antiguos (asume QR).
+  captureMethod String?
 
   venue           Venue            @relation(fields: [tenantId], references: [id])
   terminal        Terminal         @relation(fields: [terminalId], references: [id])
@@ -234,7 +248,7 @@ model OperatorEarning {
   venue    Venue           @relation(fields: [tenantId], references: [id])
   operator User            @relation("OperatorEarnings", fields: [operatorId], references: [id])
   payment  Payment         @relation(fields: [paymentId], references: [id])
-  payout   OperatorPayout? @relation(fields: [payoutId], references: [id])
+  payout   OperatorPayout? @relation("EarningPayout", fields: [payoutId], references: [id])
 
   @@index([tenantId, operatorId, payoutId])
   @@index([tenantId, operatorId, createdAt(sort: Desc)])
@@ -253,12 +267,22 @@ model OperatorPayout {
   notes        String?
   createdAt    DateTime @default(now()) @db.Timestamptz
 
-  venue    Venue             @relation(fields: [tenantId], references: [id])
-  operator User              @relation("OperatorPayouts", fields: [operatorId], references: [id])
-  paidBy   User              @relation("PayoutsPaid", fields: [paidByUserId], references: [id])
-  earnings OperatorEarning[]
+  // Phase 1A — referencia externa + estado reconciliación
+  externalTxId         String?
+  externalRail         String?
+  reconciliationStatus String   @default("UNRECONCILED")
+  receiptUrl           String?
+  reconciledAt         DateTime? @db.Timestamptz
+  reconciledByUserId   String?  @db.Uuid
+
+  venue        Venue             @relation(fields: [tenantId], references: [id])
+  operator     User              @relation("OperatorPayouts", fields: [operatorId], references: [id])
+  paidBy       User              @relation("PayoutsPaid", fields: [paidByUserId], references: [id])
+  reconciledBy User?             @relation("PayoutsReconciled", fields: [reconciledByUserId], references: [id])
+  earnings     OperatorEarning[] @relation("EarningPayout")
 
   @@index([tenantId, operatorId, createdAt(sort: Desc)])
+  @@index([tenantId, reconciliationStatus])
   @@map("operator_payouts")
 }
 

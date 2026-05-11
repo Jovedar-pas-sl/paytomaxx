@@ -338,7 +338,11 @@ export class AdminController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(CreatePayoutSchema)) dto: CreatePayoutDto,
   ) {
-    return this.operators.createPayout(tenantId, id, user.sub, dto.notes);
+    return this.operators.createPayout(tenantId, id, user.sub, dto.notes, {
+      externalTxId: dto.externalTxId,
+      externalRail: dto.externalRail,
+      receiptUrl: dto.receiptUrl,
+    });
   }
 }
 

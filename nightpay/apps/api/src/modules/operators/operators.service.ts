@@ -154,11 +154,18 @@ export class OperatorsService {
         notes: string | null;
         earningCount: bigint;
         createdAt: Date;
+        externalTxId: string | null;
+        externalRail: string | null;
+        reconciliationStatus: string;
+        receiptUrl: string | null;
+        reconciledAt: Date | null;
       }>
     >`
       SELECT po.id, po."totalCents", u.email AS "paidByEmail", po.notes,
              (SELECT COUNT(*)::bigint FROM operator_earnings WHERE "payoutId" = po.id) AS "earningCount",
-             po."createdAt"
+             po."createdAt",
+             po."externalTxId", po."externalRail", po."reconciliationStatus",
+             po."receiptUrl", po."reconciledAt"
         FROM operator_payouts po
         LEFT JOIN users u ON u.id = po."paidByUserId"
        WHERE po."operatorId" = ${operatorId}::uuid
@@ -172,6 +179,11 @@ export class OperatorsService {
       notes: r.notes,
       earningCount: Number(r.earningCount),
       createdAt: r.createdAt.toISOString(),
+      externalTxId: r.externalTxId,
+      externalRail: (r.externalRail as PayoutView['externalRail']) ?? null,
+      reconciliationStatus: (r.reconciliationStatus as PayoutView['reconciliationStatus']),
+      receiptUrl: r.receiptUrl,
+      reconciledAt: r.reconciledAt?.toISOString() ?? null,
     }));
   }
 
@@ -189,21 +201,47 @@ export class OperatorsService {
         deletedAt: true,
         invitedAt: true,
         createdAt: true,
+        // Phase 1A — payout routing (tipos disponibles tras `pnpm db generate`)
+        // @ts-expect-error
+        payoutMethod: true,
+        // @ts-expect-error
+        payoutAddress: true,
+        // @ts-expect-error
+        payoutMetadata: true,
+        // @ts-expect-error
+        payoutLabel: true,
       },
     });
 
     const result: OperatorWithBalance[] = [];
     for (const op of operators) {
       const balance = await this.getBalance(op.id);
+      const opAny = op as unknown as {
+        id: string;
+        email: string;
+        displayName: string | null;
+        commissionBps: number | null;
+        deletedAt: Date | null;
+        invitedAt: Date | null;
+        createdAt: Date;
+        payoutMethod: string | null;
+        payoutAddress: string | null;
+        payoutMetadata: Record<string, unknown> | null;
+        payoutLabel: string | null;
+      };
       result.push({
-        id: op.id,
-        email: op.email,
-        displayName: op.displayName,
-        commissionBps: op.commissionBps ?? 0,
-        active: op.deletedAt === null,
-        invitedAt: op.invitedAt?.toISOString() ?? null,
-        createdAt: op.createdAt.toISOString(),
+        id: opAny.id,
+        email: opAny.email,
+        displayName: opAny.displayName,
+        commissionBps: opAny.commissionBps ?? 0,
+        active: opAny.deletedAt === null,
+        invitedAt: opAny.invitedAt?.toISOString() ?? null,
+        createdAt: opAny.createdAt.toISOString(),
         balance,
+        payoutMethod: (opAny.payoutMethod as OperatorWithBalance['payoutMethod']) ?? null,
+        payoutAddress: opAny.payoutAddress,
+        payoutMetadata: opAny.payoutMetadata as OperatorWithBalance['payoutMetadata'],
+        payoutLabel: opAny.payoutLabel,
       });
     }
     return result;
@@ -370,6 +408,11 @@ export class OperatorsService {
     if (dto.active !== undefined) {
       data.deletedAt = dto.active ? null : new Date();
     }
+    // Phase 1A — payout routing
+    if (dto.payoutMethod !== undefined) data.payoutMethod = dto.payoutMethod;
+    if (dto.payoutAddress !== undefined) data.payoutAddress = dto.payoutAddress;
+    if (dto.payoutMetadata !== undefined) data.payoutMetadata = dto.payoutMetadata;
+    if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
 
     const updated = await this.prisma.user.update({
       where: { id: operatorId },
@@ -425,11 +468,16 @@ export class OperatorsService {
     operatorId: string,
     paidByUserId: string,
     notes?: string,
+    options?: {
+      externalTxId?: string;
+      externalRail?: string;
+      receiptUrl?: string;
+    },
   ) {
-    // Verificar pertenencia
+    // Verificar pertenencia + leer payoutMethod por defecto
     const operator = await this.prisma.user.findFirst({
       where: { id: operatorId, tenantId, role: 'OPERATOR' },
-    });
+    }) as unknown as { id: string; payoutMethod: string | null } | null;
     if (!operator) throw new NotFoundException('Operadora no encontrada');
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -459,15 +507,21 @@ export class OperatorsService {
         );
       }
 
-      const payout = await tx.operatorPayout.create({
-        data: {
-          tenantId,
-          operatorId,
-          totalCents,
-          paidByUserId,
-          notes,
-        },
-      });
+      // Rail efectivo: el del dto si viene, sino el preferido de la chica.
+      const railEffective = options?.externalRail ?? operator.payoutMethod ?? null;
+
+      const payoutData: Record<string, unknown> = {
+        tenantId,
+        operatorId,
+        totalCents,
+        paidByUserId,
+        notes,
+      };
+      if (options?.externalTxId) payoutData.externalTxId = options.externalTxId;
+      if (railEffective) payoutData.externalRail = railEffective;
+      if (options?.receiptUrl) payoutData.receiptUrl = options.receiptUrl;
+
+      const payout = await tx.operatorPayout.create({ data: payoutData as never });
 
       // Atomic UPDATE de todos los earnings agrupados
       const ids = pending.map((e) => e.id);
@@ -523,14 +577,31 @@ export class OperatorsService {
     invitedAt: Date | null;
     createdAt: Date;
   }): OperatorPublicView {
+    const u = user as unknown as {
+      id: string;
+      email: string;
+      displayName: string | null;
+      commissionBps: number | null;
+      deletedAt: Date | null;
+      invitedAt: Date | null;
+      createdAt: Date;
+      payoutMethod?: string | null;
+      payoutAddress?: string | null;
+      payoutMetadata?: Record<string, unknown> | null;
+      payoutLabel?: string | null;
+    };
     return {
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      commissionBps: user.commissionBps ?? 0,
-      active: user.deletedAt === null,
-      invitedAt: user.invitedAt?.toISOString() ?? null,
-      createdAt: user.createdAt.toISOString(),
+      id: u.id,
+      email: u.email,
+      displayName: u.displayName,
+      commissionBps: u.commissionBps ?? 0,
+      active: u.deletedAt === null,
+      invitedAt: u.invitedAt?.toISOString() ?? null,
+      createdAt: u.createdAt.toISOString(),
+      payoutMethod: (u.payoutMethod ?? null) as OperatorPublicView['payoutMethod'],
+      payoutAddress: u.payoutAddress ?? null,
+      payoutMetadata: (u.payoutMetadata ?? null) as OperatorPublicView['payoutMetadata'],
+      payoutLabel: u.payoutLabel ?? null,
     };
   }
 }

@@ -24,6 +24,17 @@ const EnvSchema = z.object({
   // Base URL del frontend operator donde aceptar la invitacion (set-password).
   // Ejemplo: http://localhost:4104 (dev) o https://operator.paytomaxx.com (prod).
   OPERATOR_BASE_URL: z.string().url().default('http://localhost:4104'),
+  // Phase 1A — API keys de blockchain explorers (opcionales, free tier sirve).
+  TRONSCAN_API_KEY: z.string().optional(),
+  BSCSCAN_API_KEY: z.string().optional(),
+  POLYGONSCAN_API_KEY: z.string().optional(),
+  HELIUS_API_KEY: z.string().optional(),
+  // Phase 1C — Viva.com SoftPOS (opcional, si no esta la integracion queda dormida).
+  VIVA_API_KEY: z.string().optional(),
+  VIVA_MERCHANT_ID: z.string().optional(),
+  VIVA_WEBHOOK_SECRET: z.string().optional(),
+  // Phase 1C — base URL Viva (sandbox vs prod).
+  VIVA_BASE_URL: z.string().url().default('https://demo-api.vivapayments.com'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

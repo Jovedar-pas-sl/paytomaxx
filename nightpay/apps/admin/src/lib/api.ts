@@ -21,6 +21,36 @@ export interface OperatorBalance {
   count: number;
 }
 
+export type PayoutMethod =
+  | 'USDT_TRC20'
+  | 'USDT_BEP20'
+  | 'USDC_POLY'
+  | 'USDC_SOL'
+  | 'BINANCE_PAY_ID'
+  | 'OKX_INTERNAL'
+  | 'BYBIT_INTERNAL'
+  | 'FASTERPAY_EMAIL'
+  | 'PAYQUICKER_EMAIL'
+  | 'HYPERWALLET_TOKEN'
+  | 'REVOLUT_TAG'
+  | 'PAYONEER_EMAIL'
+  | 'SEPA_IBAN'
+  | 'WIRE_INTERNATIONAL'
+  | 'MERCADOPAGO_CVU'
+  | 'PIX_KEY'
+  | 'NEQUI_PHONE'
+  | 'DAVIPLATA_PHONE'
+  | 'MANUAL_CASH';
+
+export type ReconciliationStatus = 'UNRECONCILED' | 'MATCHED' | 'MANUAL_OK' | 'MISMATCH';
+
+export interface PayoutMetadata {
+  bankName?: string;
+  swiftBic?: string;
+  country?: string;
+  accountHolder?: string;
+}
+
 export interface Operator {
   id: string;
   email: string;
@@ -30,6 +60,10 @@ export interface Operator {
   invitedAt: string | null;
   createdAt: string;
   balance: OperatorBalance;
+  payoutMethod?: PayoutMethod | null;
+  payoutAddress?: string | null;
+  payoutMetadata?: PayoutMetadata | null;
+  payoutLabel?: string | null;
 }
 
 export interface OperatorEarning {
@@ -52,6 +86,28 @@ export interface OperatorPayout {
   notes: string | null;
   earningCount: number;
   createdAt: string;
+  externalTxId?: string | null;
+  externalRail?: PayoutMethod | null;
+  reconciliationStatus?: ReconciliationStatus;
+  receiptUrl?: string | null;
+  reconciledAt?: string | null;
+}
+
+export interface TreasuryStats {
+  pendingPayoutsCents: number;
+  pendingOperatorCount: number;
+  payoutsThisMonthCount: number;
+  payoutsThisMonthCents: number;
+  byMethod: Record<string, number>;
+  byReconciliationStatus: Record<string, number>;
+}
+
+export interface VerifyPayoutResult {
+  matched: boolean;
+  status: ReconciliationStatus;
+  occurredAt: string | null;
+  actualAmountCents: number | null;
+  reason: string | null;
 }
 
 export interface CreateOperatorResponse {
@@ -304,7 +360,15 @@ export async function createOperator(input: {
 
 export async function updateOperator(
   id: string,
-  input: { displayName?: string; commissionBps?: number; active?: boolean },
+  input: {
+    displayName?: string;
+    commissionBps?: number;
+    active?: boolean;
+    payoutMethod?: PayoutMethod | null;
+    payoutAddress?: string | null;
+    payoutMetadata?: PayoutMetadata | null;
+    payoutLabel?: string | null;
+  },
 ): Promise<Omit<Operator, 'balance'>> {
   const res = await authedFetch(`/v1/admin/operators/${id}`, {
     method: 'PATCH',
@@ -328,11 +392,63 @@ export async function fetchOperatorPayouts(id: string): Promise<OperatorPayout[]
 
 export async function createOperatorPayout(
   id: string,
-  notes?: string,
+  options?: {
+    notes?: string;
+    externalTxId?: string;
+    externalRail?: PayoutMethod;
+    receiptUrl?: string;
+  },
 ): Promise<{ id: string; totalCents: number; earningCount: number; createdAt: string }> {
   const res = await authedFetch(`/v1/admin/operators/${id}/payouts`, {
     method: 'POST',
-    body: JSON.stringify({ notes }),
+    body: JSON.stringify(options ?? {}),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+// ─── Treasury (Phase 1A) ───────────────────────────────────────────
+
+export async function fetchTreasuryStats(): Promise<TreasuryStats> {
+  const res = await authedFetch('/v1/admin/treasury/stats');
+  if (!res.ok) throw new Error('Error cargando treasury stats');
+  return res.json();
+}
+
+export async function fetchExchangeRate(): Promise<{ pair: string; rate: number; at: string }> {
+  const res = await authedFetch('/v1/admin/treasury/exchange-rate');
+  if (!res.ok) throw new Error('Error cargando exchange rate');
+  return res.json();
+}
+
+export async function verifyPayout(
+  payoutId: string,
+  input: {
+    externalTxId: string;
+    externalRail: PayoutMethod;
+    receiptUrl?: string;
+    manualOverride?: boolean;
+  },
+): Promise<VerifyPayoutResult> {
+  const res = await authedFetch(`/v1/admin/treasury/payouts/${payoutId}/verify`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+export async function confirmPayoutManual(payoutId: string): Promise<{ ok: true }> {
+  const res = await authedFetch(`/v1/admin/treasury/payouts/${payoutId}/confirm-manual`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+export async function reconcilePending(): Promise<{ checked: number; matched: number }> {
+  const res = await authedFetch('/v1/admin/treasury/reconcile', {
+    method: 'POST',
   });
   if (!res.ok) throw new Error(`Error: ${await res.text()}`);
   return res.json();
