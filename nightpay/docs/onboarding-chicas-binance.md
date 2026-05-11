@@ -183,6 +183,11 @@ Por cada chica, mantén un registro físico/digital:
 
 Guarda este registro **cifrado o en armario físico** — no en Drive público.
 
+> **Atajo NightPay**: todos estos campos también se pueden registrar dentro del admin
+> en `Operadoras → Click chica → tab "Onboarding"`. El form tiene checkbox "Prueba 1 USDT
+> confirmada" que guarda fecha+hora automática + flags "necesita ayuda con wallet/docs"
+> para detectar las que están atascadas. Es **el sitio canónico** — el papel solo es backup.
+
 ---
 
 ## Troubleshooting
@@ -255,3 +260,112 @@ R: Sí. Tú mandas USDT desde Binance a su wallet (Binance también en LatAm, o 
 
 **P: ¿Qué pasa si pierdo mi móvil?**
 R: Tienes que tener guardada la **frase de recuperación de Binance** en un lugar seguro (papel + caja fuerte/banco, no en el móvil). Sin ella perdiste el dinero. Recuérdale a la chica que **NUNCA** comparta esa frase con nadie — ni con el admin del venue, ni con soporte Binance.
+
+---
+
+## Apéndice A — Si Binance no acepta a la chica
+
+Orden de fallback (probar en este orden):
+
+### A1. Bybit + Bybit Card
+- Casi mismo flow que Binance. KYC online ~24h.
+- App: bybit.com / Bybit en App Store
+- Acepta pasaportes que Binance a veces rechaza (Cuba pre-2024 ej.)
+- Address USDT-TRC20: igual concepto, `Deposit → USDT → Tron (TRC20)`
+- En NightPay: `payoutMethod = USDT_TRC20`, `walletProvider = BYBIT`
+
+### A2. OKX + OKX Card
+- Soporte español sólido. KYC similar.
+- App: okx.com
+- En NightPay: `payoutMethod = USDT_TRC20`, `walletProvider = OKX`
+
+### A3. KuCoin (sin KYC tier 1)
+- Permite operar con límites bajos sin KYC formal.
+- Útil si la chica no quiere subir pasaporte por miedo a "trazabilidad".
+- Limitación: depósitos/retiros con tope mensual.
+- En NightPay: `payoutMethod = USDT_TRC20`, `walletProvider = OTHER` + nota "KuCoin no-KYC".
+
+### A4. Trust Wallet self-custody
+- Cero KYC, control total. Riesgo: si la chica pierde la seed phrase, perdió todo.
+- Flow:
+  1. Chica instala Trust Wallet desde Play Store / App Store.
+  2. Crea wallet → **escribe la seed phrase de 12 palabras en PAPEL**.
+  3. Tap "Receive" → "USDT" → red "Tron (TRC20)" → copia address.
+  4. En NightPay: `payoutMethod = USDT_TRC20`, `walletProvider = TRUST_WALLET`, address pegada.
+- Pega "para gastar el USDT": tiene que vender P2P (LocalCryptos / Binance P2P como contraparte).
+
+### A5. Solo es-wallet (sin cripto)
+- Si la chica rechaza cripto por completo.
+- Opciones: **FasterPay**, **PayQuicker**, **Hyperwallet** (Phase 1 plan documenta detalles).
+- Flow es manual: admin envía via web del e-wallet, pega receipt ID en NightPay, marca MANUAL_OK.
+- En NightPay: `payoutMethod = FASTERPAY_EMAIL` (o el correspondiente) + email de la chica como address.
+
+### A6. Wallet local LatAm (chica de viaje a su país)
+- Si vive temporalmente en su país de origen.
+- AR/UY/PE → MercadoPago, BR → Pix, CO → Nequi/Daviplata, MX → Bitso.
+- En NightPay: `payoutMethod = MERCADOPAGO_CVU` (o el que aplique).
+- Reconciliación es **manual** — admin pega referencia de la transferencia local.
+
+---
+
+## Apéndice B — Templates de WhatsApp / mensajes a la chica
+
+### B1. Mensaje inicial (tras crearla en NightPay)
+
+```
+Hola [Nombre], soy [tu nombre] de [Venue].
+Te he creado tu cuenta en el sistema de cobros que usamos.
+Para activarla y elegir tu contraseña, abre este link (caduca en 24h):
+
+[URL_DE_INVITE]
+
+Cuando lo tengas listo, hablamos para configurar Binance que es donde te llegarán tus comisiones.
+```
+
+### B2. Antes de la cita Binance (1 día antes)
+
+```
+Hola [Nombre], mañana a las [hora] hacemos lo de Binance.
+Trae:
+- Tu pasaporte vigente (no caducado, no menos de 6 meses)
+- Tu móvil cargado
+- 5 minutos de paciencia para hacer el selfie 😄
+
+Tarda 30 min con nosotros y luego Binance verifica en 2-24h.
+```
+
+### B3. Tras configurar address en NightPay
+
+```
+Lista [Nombre], ya estás operativa.
+Tu address de cobro: TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV
+Te voy a mandar 1 USDT de prueba — confírmame en cuanto te llegue (suele ser instant pero a veces tarda 5 min).
+```
+
+### B4. Pago mensual / semanal
+
+```
+Hola [Nombre], te he pagado [X] USDT por las comisiones de [periodo].
+TxHash: 0xabc123...
+Verifica en tu Binance que llegó. Si en 30 min no aparece avísame.
+```
+
+---
+
+## Apéndice C — Mantener la lista de chicas que necesitan ayuda
+
+En el admin: tab Operadoras → toggle "Solo las que necesitan ayuda".
+
+Te aparecen las que tienen marcado:
+- `needsHelpWallet` — no entiende cripto, KYC rechazado, etc.
+- `needsHelpDocs` — falta empadronamiento, NIE en trámite, etc.
+
+Filas en amarillo = pendiente. Tu objetivo cada semana: bajar ese contador.
+
+Estado `onboardingStatus` para saber dónde está cada una:
+- ⚪ **NEW** — recién creada en el sistema, sin invite
+- 🟡 **PROFILE_CREATED** — invite enviado, no aceptado
+- 🟠 **INVITE_ACTIVATED** — cuenta NightPay con password, pero sin wallet
+- 🔵 **BINANCE_PENDING** — KYC en proceso
+- 🟢 **READY** — operativa, puede cobrar y recibir
+- 🔴 **BLOCKED** — algún problema sin resolver (notas describen)

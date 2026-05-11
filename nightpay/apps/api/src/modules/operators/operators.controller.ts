@@ -17,6 +17,7 @@ import {
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import type { JwtPayload } from '@nightpay/contracts';
@@ -70,6 +71,7 @@ export class OperatorsController {
   @Public()
   @Post('accept-invite')
   @HttpCode(200)
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'operators-invite' })
   async acceptInvite(
     @Body(new ZodValidationPipe(AcceptInviteSchema)) dto: AcceptInviteDto,
   ): Promise<{ ok: true }> {

@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { reportError } from '../observability/sentry';
 
 interface ProblemDetails {
   type: string;
@@ -60,8 +61,18 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       title = this.isProd ? 'Internal Server Error' : exception.name;
       detail = this.isProd ? undefined : exception.message;
       this.logger.error(`Unhandled: ${exception.message}`, exception.stack);
+      // Sentry: solo reportar 5xx (errores no-HttpException son 500 por default).
+      reportError(exception, { tag: 'http.unhandled' });
     } else {
       this.logger.error(`Unhandled non-Error throw: ${JSON.stringify(exception)}`);
+      reportError(new Error(`Non-Error throw: ${JSON.stringify(exception)}`), {
+        tag: 'http.unhandled',
+      });
+    }
+
+    // Reportar también HttpException >= 500 (no las 4xx, que son cliente).
+    if (exception instanceof HttpException && exception.getStatus() >= 500) {
+      reportError(exception, { tag: 'http.5xx' });
     }
 
     // traceId — desde header X-Trace-Id o desde req.id

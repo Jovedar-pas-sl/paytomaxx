@@ -1,0 +1,205 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "datasource": "Prometheus",
+        "enable": true,
+        "name": "Deploys",
+        "showIn": 0
+      }
+    ]
+  },
+  "description": "NightPay — observabilidad del API + treasury + realtime",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Salud del sistema",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "API up",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "targets": [{ "expr": "up{job=\"nightpay-api\"}", "refId": "A" }],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["last"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Pagos creados / min",
+      "gridPos": { "h": 8, "w": 12, "x": 4, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum by (provider) (rate(nightpay_payments_created_total[1m]) * 60)",
+          "legendFormat": "{{provider}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Transiciones FSM",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum by (to) (rate(nightpay_payments_transitioned_total[5m]))",
+          "legendFormat": "{{to}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Latencia pasarelas",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Gateway p50 / p99 (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, provider) (rate(nightpay_gateway_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{provider}} p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, provider) (rate(nightpay_gateway_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{provider}} p99",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Circuit breakers (rojo = open)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "targets": [
+        {
+          "expr": "nightpay_circuit_state",
+          "legendFormat": "{{provider}}.{{op}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "values": true, "calcs": ["last"] },
+        "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "CLOSED", "color": "green" }, "1": { "text": "HALF-OPEN", "color": "yellow" }, "2": { "text": "OPEN", "color": "red" } } }
+          ]
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Auth + webhooks",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Logins por outcome",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(nightpay_auth_logins_total[5m]) * 60)",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Webhooks por outcome",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "targets": [
+        {
+          "expr": "sum by (provider, outcome) (rate(nightpay_webhooks_received_total[5m]) * 60)",
+          "legendFormat": "{{provider}}.{{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Realtime + queues",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 }
+    },
+    {
+      "type": "stat",
+      "title": "WS conexiones",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 28 },
+      "targets": [
+        { "expr": "nightpay_ws_connections_active", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue depth",
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 28 },
+      "targets": [
+        {
+          "expr": "nightpay_queue_depth",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Node runtime",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Event loop lag (s)",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 37 },
+      "targets": [{ "expr": "nightpay_nodejs_eventloop_lag_seconds", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Heap usado (MB)",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 37 },
+      "targets": [
+        { "expr": "nightpay_nodejs_heap_size_used_bytes / 1024 / 1024", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU process (s)",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 37 },
+      "targets": [
+        { "expr": "rate(nightpay_process_cpu_seconds_total[1m])", "refId": "A" }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["nightpay", "api"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "Europe/Madrid",
+  "title": "NightPay — API overview",
+  "uid": "nightpay-api",
+  "version": 1
+}

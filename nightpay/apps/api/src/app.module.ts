@@ -5,6 +5,7 @@ import { ClsModule } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import { AuthGuard } from './common/guards/auth.guard';
+import { IpRateLimitGuard } from './common/guards/ip-rate-limit.guard';
 import { EmailModule } from './common/email/email.module';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { RedisModule } from './common/redis/redis.module';
@@ -67,6 +68,11 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     WebhooksModule,
   ],
   controllers: [HealthController],
-  providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
+  // Orden importa: IpRateLimit corre antes que AuthGuard para que un ataque de
+  // brute-force/enumeración no consuma ciclos de JWT verify.
+  providers: [
+    { provide: APP_GUARD, useClass: IpRateLimitGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
+  ],
 })
 export class AppModule {}

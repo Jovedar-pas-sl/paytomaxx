@@ -1,0 +1,89 @@
+groups:
+  - name: nightpay-critical
+    interval: 30s
+    rules:
+      - alert: APIDown
+        expr: up{job="nightpay-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          runbook: docs/runbooks/P0-api-down.md
+        annotations:
+          summary: "NightPay API no responde a /v1/metrics"
+          description: "Sin scrape exitoso durante 1 min. Posible crash, DB caída, o port-block."
+
+      - alert: HighErrorRate
+        # 5xx representado por http_requests_total{status=~"5.."} si tienes ese
+        # counter. Aquí usamos transiciones FSM a FAILED como proxy.
+        expr: |
+          rate(nightpay_payments_transitioned_total{to="FAILED"}[5m])
+            /
+          rate(nightpay_payments_created_total[5m]) > 0.10
+        for: 5m
+        labels:
+          severity: critical
+          runbook: docs/runbooks/P0-pasarela-caida.md
+        annotations:
+          summary: "Más de 10% de pagos transitando a FAILED en 5 min"
+          description: "Posible problema con pasarela. Revisa circuit breakers + webhooks."
+
+      - alert: GatewayCircuitOpen
+        expr: nightpay_circuit_state == 2
+        for: 2m
+        labels:
+          severity: critical
+          runbook: docs/runbooks/P0-pasarela-caida.md
+        annotations:
+          summary: "Circuit breaker abierto para {{ $labels.provider }}/{{ $labels.op }}"
+          description: "La pasarela ha fallado repetidamente. Pagos pueden estar afectados."
+
+      - alert: PayoutsReconcileBacklog
+        # No tenemos métrica directa de pendientes — alerta heurística: si
+        # llevamos >24h sin marcar payouts MATCHED, algo está mal.
+        expr: |
+          (time() - last_over_time(timestamp(rate(nightpay_payments_transitioned_total[5m]))[24h:5m]))
+            > 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sin reconciliación payouts en 24h"
+          description: "Phase 1A — recon cron puede estar caída."
+
+  - name: nightpay-warning
+    interval: 1m
+    rules:
+      - alert: AuthBruteForce
+        expr: rate(nightpay_auth_logins_total{outcome="failed"}[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tasa de logins fallidos > 1/s sostenida 5 min"
+          description: "Posible brute-force. Verifica LockoutService + rate-limit."
+
+      - alert: WebhookInvalidSpike
+        expr: rate(nightpay_webhooks_received_total{outcome="invalid"}[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Webhooks inválidos > 0.5/s en 5 min"
+          description: "Posible attacker probando firmas HMAC, o rotación de secret sin redeploy."
+
+      - alert: QueueBacklog
+        expr: nightpay_queue_depth > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cola {{ $labels.queue }} > 1000 jobs por 10 min"
+          description: "Workers atascados o lentos."
+
+      - alert: WSConnectionsAbnormal
+        expr: nightpay_ws_connections_active > 500
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Conexiones WS > 500 — capacity check"

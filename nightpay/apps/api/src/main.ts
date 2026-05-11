@@ -10,12 +10,20 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
+import { initSentry } from './common/observability/sentry';
 import { RedisIoAdapter } from './modules/realtime/realtime.adapter';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
 
 async function bootstrap() {
   const env = loadEnv();
   const isProd = env.NODE_ENV === 'production';
+
+  // Sentry primero — para capturar fallos de bootstrap
+  initSentry({
+    SENTRY_DSN: env.SENTRY_DSN,
+    NODE_ENV: env.NODE_ENV,
+    GIT_SHA: env.GIT_SHA,
+  });
 
   const adapter = new FastifyAdapter({
     logger: { level: env.LOG_LEVEL },
@@ -48,10 +56,11 @@ async function bootstrap() {
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   });
 
-  // Rate limit global — 200 req/min/IP (granular por endpoint en cada controller)
+  // Rate limit global — 100 req/min/IP. Endpoints sensibles (login, refresh,
+  // accept-invite) tienen su propio @IpRateLimit más estricto via guard Redis.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await app.register(rateLimit as any, {
-    max: 200,
+    max: 100,
     timeWindow: '1 minute',
     allowList: ['127.0.0.1', '::1'],
     keyGenerator: (req: { headers: Record<string, string | string[] | undefined>; ip: string }) => {

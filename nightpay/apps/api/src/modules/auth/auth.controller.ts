@@ -11,6 +11,7 @@ import {
   type RefreshResponse,
 } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
+import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { AuthService } from './auth.service';
 import type { RequestContext } from '../../common/context/request-context';
@@ -38,6 +39,7 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'auth-login' })
   async login(
     @Body(new ZodValidationPipe(LoginRequestSchema)) body: LoginRequest,
     @Req() req: FastifyRequest,
@@ -50,6 +52,7 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(200)
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'auth-refresh' })
   async refresh(
     @Body(new ZodValidationPipe(RefreshRequestSchema)) body: RefreshRequest,
     @Req() req: FastifyRequest,

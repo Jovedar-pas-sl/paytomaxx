@@ -1,0 +1,16 @@
+{
+  "name": "@nightpay/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "jsonwebtoken": "^9.0.2",
+    "@types/jsonwebtoken": "^9.0.7"
+  }
+}

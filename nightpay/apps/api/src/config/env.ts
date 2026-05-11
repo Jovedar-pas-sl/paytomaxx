@@ -35,6 +35,10 @@ const EnvSchema = z.object({
   VIVA_WEBHOOK_SECRET: z.string().optional(),
   // Phase 1C — base URL Viva (sandbox vs prod).
   VIVA_BASE_URL: z.string().url().default('https://demo-api.vivapayments.com'),
+  // Observability — Sentry (opcional, si no está el SDK no se inicializa).
+  SENTRY_DSN: z.string().url().optional(),
+  // Inyectado por CI / Docker label — útil para tagging de releases en Sentry.
+  GIT_SHA: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
