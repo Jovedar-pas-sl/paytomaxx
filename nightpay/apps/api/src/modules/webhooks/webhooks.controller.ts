@@ -53,8 +53,10 @@ export class WebhooksController {
     @Param('provider') providerParam: string,
     @Req() req: FastifyRequest,
   ): Promise<{ received: true; duplicate?: boolean }> {
-    const provider = providerParam.toUpperCase() as Provider;
-    if (provider !== 'WIPAY' && provider !== 'PEANPE') {
+    // Acepta tanto "viva-softpos" como "VIVA_SOFTPOS" en la URL
+    const provider = providerParam.toUpperCase().replace(/-/g, '_') as Provider;
+    const SUPPORTED: Provider[] = ['WIPAY', 'PEANPE', 'VIVA_SOFTPOS'];
+    if (!SUPPORTED.includes(provider)) {
       throw new BadRequestException(`Unknown provider: ${providerParam}`);
     }
 

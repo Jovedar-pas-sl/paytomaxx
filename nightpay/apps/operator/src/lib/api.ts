@@ -245,6 +245,46 @@ export async function cancelPayment(id: string): Promise<{ status: string }> {
   return res.json();
 }
 
+// ─── Phase 1C — SoftPOS (Tap-to-Phone) ────────────────────────────
+
+export interface InitializedSoftPos {
+  paymentId: string;
+  providerOrderCode: string;
+  environment: 'sandbox' | 'production';
+  sdkType: 'viva' | 'stripe-tap';
+}
+
+/**
+ * Inicia un cobro contactless. Backend crea Payment en CREATED y devuelve
+ * el orderCode que el SDK móvil (Viva) usa para activar el NFC reader.
+ * El AUTHORIZED llega vía webhook → WS event payment:completed.
+ *
+ * En v1, sin SDK móvil real integrado: la pantalla muestra "Cobro preparado,
+ * pasa la tarjeta del cliente por la app Viva con orderCode X" — el usuario
+ * usa la app Viva oficial como puente. Cuando se añada Capacitor + Viva SDK
+ * nativo, esta función se conecta directamente sin app externa.
+ */
+export async function initializeSoftPos(input: {
+  amountCents: number;
+  terminalExternalId: string;
+  currency?: string;
+  provider?: 'VIVA_SOFTPOS' | 'STRIPE_TAP';
+}): Promise<InitializedSoftPos> {
+  const idemKey = `op-tap-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const res = await authedFetch('/v1/payments/softpos/initialize', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idemKey },
+    body: JSON.stringify({
+      amountCents: input.amountCents,
+      terminalExternalId: input.terminalExternalId,
+      currency: input.currency ?? 'EUR',
+      provider: input.provider ?? 'VIVA_SOFTPOS',
+    }),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
 export async function fetchTerminals(): Promise<Array<{ externalId: string; label: string }>> {
   const res = await authedFetch('/v1/venues/me/terminals');
   if (!res.ok) throw new Error('Error cargando terminales');

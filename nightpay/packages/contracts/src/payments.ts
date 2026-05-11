@@ -15,8 +15,36 @@ export const PaymentStatusSchema = z.enum([
 ]);
 export type PaymentStatus = z.infer<typeof PaymentStatusSchema>;
 
-export const ProviderSchema = z.enum(['WIPAY', 'PEANPE']);
+export const ProviderSchema = z.enum(['WIPAY', 'PEANPE', 'VIVA_SOFTPOS', 'STRIPE_TAP']);
 export type Provider = z.infer<typeof ProviderSchema>;
+
+export const CaptureMethodSchema = z.enum(['QR', 'SOFTPOS_TAP', 'WALLET_TOPUP', 'WALLET_CONSUMPTION']);
+export type CaptureMethod = z.infer<typeof CaptureMethodSchema>;
+
+// ─── Phase 1C — SoftPOS initialize ───────────────────────────────────
+// El móvil de la chica pide a NightPay que prepare una transacción SoftPOS
+// con el PSP (Viva/Stripe Tap). Devuelve el token de inicialización que el
+// SDK móvil usa para activar el NFC reader.
+
+export const InitializeSoftPosSchema = z.object({
+  amountCents: z.number().int().positive().max(10_000_00),
+  terminalExternalId: z.string().min(1).max(80),
+  currency: z.string().length(3).default('EUR'),
+  provider: z.enum(['VIVA_SOFTPOS', 'STRIPE_TAP']).default('VIVA_SOFTPOS'),
+});
+export type InitializeSoftPosDto = z.infer<typeof InitializeSoftPosSchema>;
+
+export const InitializedSoftPosResponseSchema = z.object({
+  /** Payment.id creado en NightPay (estado CREATED hasta que el tap completa). */
+  paymentId: UuidSchema,
+  /** Identificador interno del PSP para que el SDK móvil active el reader. */
+  providerOrderCode: z.string(),
+  /** Indica si el SDK debe usar producción o sandbox. */
+  environment: z.enum(['sandbox', 'production']),
+  /** Tipo de SDK a instanciar (depende del provider). */
+  sdkType: z.enum(['viva', 'stripe-tap']),
+});
+export type InitializedSoftPosResponse = z.infer<typeof InitializedSoftPosResponseSchema>;
 
 // ─── Crear pago (TPV → API) ──────────────────────────────────────────
 export const CreatePaymentSchema = z.object({
