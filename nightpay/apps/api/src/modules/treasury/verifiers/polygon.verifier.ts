@@ -48,8 +48,10 @@ export class PolygonVerifier implements PayoutVerifier {
           return mismatch(`poly_amount_${actualUsdc.toFixed(2)}_vs_${expectedUsdc.toFixed(2)}`);
         }
 
+        // Binance considera USDC-POLY final a ~128 confirmaciones (~5 min).
+        // Alineamos para que el admin verificando en Binance UI y NightPay coincidan.
         const confirmations = Number(tx.confirmations ?? '0');
-        if (confirmations < 64) return notFound('poly_unconfirmed');
+        if (confirmations < 128) return notFound('poly_unconfirmed');
 
         return {
           matched: true,

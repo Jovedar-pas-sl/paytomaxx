@@ -892,13 +892,16 @@ const urlCode: CSSProperties = {
 
 function OnboardingBadge({ operator }: { operator: Operator }) {
   const status = operator.onboardingStatus ?? 'NEW';
-  // Cuando la chica está invitada pero sin activar, prioriza ese estado visual
   const display: { label: string; color: string } = (() => {
     if (!operator.active) return { label: 'Inactiva', color: 'var(--np-text-dim)' };
     if (status === 'READY') return { label: '🟢 Operativa', color: 'var(--np-success)' };
     if (status === 'BLOCKED') return { label: '🔴 Bloqueada', color: 'var(--np-danger)' };
     if (status === 'BINANCE_PENDING') return { label: '🔵 KYC pending', color: 'var(--np-accent)' };
     if (status === 'INVITE_ACTIVATED') return { label: '🟠 Activada', color: 'var(--np-warning, #f59e0b)' };
+    if (status === 'PROFILE_CREATED') {
+      if (operator.invitedAt) return { label: '🟡 Invitada', color: 'var(--np-warning, #f59e0b)' };
+      return { label: '🟡 Perfil creado', color: 'var(--np-warning, #f59e0b)' };
+    }
     if (operator.invitedAt) return { label: '🟡 Invitada', color: 'var(--np-warning, #f59e0b)' };
     return { label: '⚪ Nueva', color: 'var(--np-text-mute)' };
   })();

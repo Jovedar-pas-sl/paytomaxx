@@ -32,12 +32,14 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     }),
     ClsModule.forRoot({
       global: true,
-      guard: {
+      // Middleware-level mount so context is alive before any guard runs.
+      // (Previously mounted as guard — ran in parallel with AuthGuard so
+      //  isActive() returned false during auth.guard.canActivate.)
+      middleware: {
         mount: true,
         generateId: true,
         idGenerator: () => randomUUID(),
-        setup: (cls, ctx) => {
-          const req = ctx.switchToHttp().getRequest<FastifyRequest>();
+        setup: (cls, req: FastifyRequest) => {
           const headerTraceId = req?.headers?.['x-trace-id'];
           const traceId =
             typeof headerTraceId === 'string' && headerTraceId.length > 0

@@ -9,6 +9,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { z } from 'zod';
 import {
   VerifyPayoutSchema,
   type JwtPayload,
@@ -23,11 +24,30 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { TreasuryService } from './treasury.service';
 
+/** Body schema para confirm-manual — requiere al menos un artifact. */
+const ConfirmManualSchema = z
+  .object({
+    externalTxId: z.string().min(4).max(200).optional(),
+    receiptUrl: z.string().url().max(500).optional(),
+    notes: z.string().max(500).optional(),
+  })
+  .refine(
+    (v) =>
+      (v.externalTxId && v.externalTxId.length >= 4) ||
+      (v.receiptUrl && v.receiptUrl.length > 0) ||
+      (v.notes && v.notes.trim().length > 0),
+    {
+      message:
+        'Al menos uno: externalTxId, receiptUrl o notes (trazabilidad audit).',
+    },
+  );
+type ConfirmManualDto = z.infer<typeof ConfirmManualSchema>;
+
 /**
- * Endpoints treasury (Phase 1A) — admin OWNER/MANAGER.
+ * Endpoints treasury (Phase 1A) — admin OWNER.
  * Path: /admin/treasury/*
  *
- * `verify-onchain` y `confirm-manual` operan sobre OperatorPayout existente.
+ * `verify` y `confirm-manual` operan sobre OperatorPayout existente.
  */
 @Controller('admin/treasury')
 @UseGuards(RolesGuard)
@@ -69,8 +89,9 @@ export class TreasuryController {
     @Tenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(ConfirmManualSchema)) dto: ConfirmManualDto,
   ): Promise<{ ok: true }> {
-    return this.treasury.confirmManual(tenantId, id, user.sub);
+    return this.treasury.confirmManual(tenantId, id, user.sub, dto);
   }
 
   /**

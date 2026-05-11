@@ -21,6 +21,9 @@ import type {
   VerifyPayoutResult,
 } from '@nightpay/contracts';
 
+const RECON_BATCH_SIZE = 5;
+const RECON_MAX_PER_RUN = 100;
+
 @Injectable()
 export class TreasuryService {
   private readonly logger = new Logger(TreasuryService.name);
@@ -44,6 +47,8 @@ export class TreasuryService {
    * - Si rail tiene verifier auto (cripto on-chain) → llama API blockchain.
    * - Si rail es manual (e-wallet, wire, etc.) → status UNRECONCILED, admin debe
    *   confirmar via /confirm-manual.
+   * Idempotencia: si el payout ya está MATCHED/MANUAL_OK con el mismo externalTxId,
+   * devuelve el resultado previo sin re-verificar.
    */
   async verifyPayout(
     tenantId: string,
@@ -51,7 +56,6 @@ export class TreasuryService {
     actorUserId: string,
     dto: VerifyPayoutDto,
   ): Promise<VerifyPayoutResult> {
-    // Cargar payout + operadora (con asSystem para incluir verificación de tenant)
     const payout = await this.prisma.asSystem((tx) =>
       tx.operatorPayout.findUnique({
         where: { id: payoutId },
@@ -61,9 +65,7 @@ export class TreasuryService {
               id: true,
               email: true,
               tenantId: true,
-              // @ts-expect-error - payout fields disponibles tras regenerate
               payoutMethod: true,
-              // @ts-expect-error
               payoutAddress: true,
             },
           },
@@ -74,11 +76,23 @@ export class TreasuryService {
     if (payout.tenantId !== tenantId) {
       throw new ForbiddenException('Payout no pertenece a tu venue');
     }
-    const op = payout.operator as unknown as {
-      id: string;
-      payoutMethod: PayoutMethod | null;
-      payoutAddress: string | null;
-    };
+
+    // Idempotencia: si ya está reconciliado con el mismo txid no re-verifica.
+    if (
+      (payout.reconciliationStatus === 'MATCHED' ||
+        payout.reconciliationStatus === 'MANUAL_OK') &&
+      payout.externalTxId === dto.externalTxId
+    ) {
+      return {
+        matched: true,
+        status: payout.reconciliationStatus,
+        occurredAt: payout.reconciledAt?.toISOString() ?? null,
+        actualAmountCents: null,
+        reason: 'already_reconciled',
+      };
+    }
+
+    const op = payout.operator;
 
     let result: VerifyResult;
     if (dto.manualOverride) {
@@ -113,8 +127,14 @@ export class TreasuryService {
       };
     }
 
-    // Persist
-    const updateData: Record<string, unknown> = {
+    const updateData: {
+      externalTxId: string;
+      externalRail: PayoutMethod;
+      reconciliationStatus: typeof result.status;
+      receiptUrl?: string;
+      reconciledAt?: Date;
+      reconciledByUserId?: string;
+    } = {
       externalTxId: dto.externalTxId,
       externalRail: dto.externalRail,
       reconciliationStatus: result.status,
@@ -163,12 +183,25 @@ export class TreasuryService {
   /**
    * Admin marca el payout como MANUAL_OK sin verificación on-chain.
    * Útil para rails que no tienen verifier auto (e-wallet, wire, cash).
+   * Requiere al menos un artifact: externalTxId, receiptUrl o notes — sino no hay
+   * trazabilidad y el audit log queda hueco.
    */
   async confirmManual(
     tenantId: string,
     payoutId: string,
     actorUserId: string,
+    artifact: { externalTxId?: string; receiptUrl?: string; notes?: string },
   ): Promise<{ ok: true }> {
+    const hasArtifact =
+      (artifact.externalTxId && artifact.externalTxId.length >= 4) ||
+      (artifact.receiptUrl && artifact.receiptUrl.length > 0) ||
+      (artifact.notes && artifact.notes.trim().length > 0);
+    if (!hasArtifact) {
+      throw new BadRequestException(
+        'confirm-manual requiere al menos un artifact: externalTxId, receiptUrl, o notes (trazabilidad audit).',
+      );
+    }
+
     const payout = await this.prisma.asSystem((tx) =>
       tx.operatorPayout.findUnique({ where: { id: payoutId } }),
     );
@@ -176,10 +209,12 @@ export class TreasuryService {
     if (payout.tenantId !== tenantId) {
       throw new ForbiddenException('Payout no pertenece a tu venue');
     }
-    // @ts-expect-error - reconciliationStatus disponible tras regenerate
-    const currentStatus = payout.reconciliationStatus as string;
-    if (currentStatus === 'MATCHED') {
+    if (payout.reconciliationStatus === 'MATCHED') {
       throw new ConflictException('Payout ya está MATCHED (verificado on-chain)');
+    }
+    if (payout.reconciliationStatus === 'MANUAL_OK') {
+      // Idempotente: ya confirmado, no-op.
+      return { ok: true };
     }
 
     await this.prisma.asSystem((tx) =>
@@ -189,7 +224,10 @@ export class TreasuryService {
           reconciliationStatus: 'MANUAL_OK',
           reconciledAt: new Date(),
           reconciledByUserId: actorUserId,
-        } as Record<string, unknown>,
+          ...(artifact.externalTxId ? { externalTxId: artifact.externalTxId } : {}),
+          ...(artifact.receiptUrl ? { receiptUrl: artifact.receiptUrl } : {}),
+          ...(artifact.notes ? { notes: artifact.notes } : {}),
+        },
       }),
     );
 
@@ -199,6 +237,11 @@ export class TreasuryService {
       actorId: actorUserId,
       targetType: 'OperatorPayout',
       targetId: payoutId,
+      payload: {
+        hasExternalTxId: Boolean(artifact.externalTxId),
+        hasReceiptUrl: Boolean(artifact.receiptUrl),
+        hasNotes: Boolean(artifact.notes),
+      },
     });
     return { ok: true };
   }
@@ -211,7 +254,6 @@ export class TreasuryService {
     firstOfMonth.setDate(1);
     firstOfMonth.setHours(0, 0, 0, 0);
 
-    // Pending earnings (saldo pendiente agregado de chicas)
     const pendingRows = await this.prisma.$queryRaw<
       Array<{ pendingCents: bigint; operatorCount: bigint }>
     >`
@@ -223,7 +265,6 @@ export class TreasuryService {
          AND "payoutId" IS NULL
     `;
 
-    // Payouts este mes
     const monthRows = await this.prisma.$queryRaw<
       Array<{ count: bigint; totalCents: bigint }>
     >`
@@ -233,7 +274,6 @@ export class TreasuryService {
          AND "createdAt" >= ${firstOfMonth}
     `;
 
-    // Split por externalRail
     const byMethodRows = await this.prisma.$queryRaw<
       Array<{ rail: string | null; count: bigint }>
     >`
@@ -243,7 +283,6 @@ export class TreasuryService {
        GROUP BY "externalRail"
     `;
 
-    // Split por reconciliationStatus
     const byStatusRows = await this.prisma.$queryRaw<
       Array<{ status: string; count: bigint }>
     >`
@@ -266,70 +305,76 @@ export class TreasuryService {
   }
 
   /**
-   * Conversion rate EUR → USDT vía Binance público. Sirve para mostrar al admin
-   * cuánto USDT necesita enviar para cubrir un payout EUR.
+   * Conversion rate EUR → USDT vía Binance público.
+   * Delega al factory que gestiona caché + fallback + flag degraded.
    */
-  async getExchangeRate(): Promise<{ pair: string; rate: number; at: string }> {
-    try {
-      const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=EURUSDT', {
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (!res.ok) throw new Error(`binance ${res.status}`);
-      const body = (await res.json()) as { price?: string };
-      const rate = Number(body.price);
-      if (!Number.isFinite(rate) || rate <= 0) throw new Error('invalid_rate');
-      return { pair: 'EUR/USDT', rate, at: new Date().toISOString() };
-    } catch (err) {
-      this.logger.warn(`getExchangeRate fallback: ${(err as Error).message}`);
-      return { pair: 'EUR/USDT', rate: 1.07, at: new Date().toISOString() };
-    }
+  async getExchangeRate(): Promise<{ pair: string; rate: number; at: string; degraded: boolean }> {
+    const { rate, degraded } = await this.verifierFactory.getEurToUsdtRateInfo();
+    return {
+      pair: 'EUR/USDT',
+      rate,
+      at: new Date().toISOString(),
+      degraded,
+    };
   }
 
   /**
    * Reconciliación nocturna: recorre payouts UNRECONCILED con externalTxId
-   * + rail auto-verifiable y reintenta. Útil para casos donde el explorer
-   * tardó en confirmar la primera vez.
+   * + rail auto-verifiable y reintenta. Procesa en batches con allSettled para
+   * que un explorer lento/caído no bloquee el resto.
    */
   async reconcilePending(tenantId: string): Promise<{ checked: number; matched: number }> {
     const pending = await this.prisma.asSystem((tx) =>
       tx.operatorPayout.findMany({
         where: {
           tenantId,
-          // @ts-expect-error tras regenerate
           reconciliationStatus: 'UNRECONCILED',
           externalTxId: { not: null },
           externalRail: { in: ['USDT_TRC20', 'USDT_BEP20', 'USDC_POLY', 'USDC_SOL'] },
-        } as Record<string, unknown>,
-        include: {
-          operator: { select: { payoutAddress: true } as Record<string, unknown> },
         },
+        include: {
+          operator: { select: { payoutAddress: true } },
+        },
+        take: RECON_MAX_PER_RUN,
+        orderBy: { createdAt: 'asc' },
       }),
     );
 
     let matched = 0;
-    for (const p of pending) {
-      const op = p.operator as unknown as { payoutAddress: string | null };
-      const rail = (p as unknown as { externalRail: PayoutMethod | null }).externalRail;
-      const txId = (p as unknown as { externalTxId: string | null }).externalTxId;
-      if (!op.payoutAddress || !rail || !txId) continue;
-
-      const verifier = this.verifierFactory.forMethod(rail);
-      const result = await verifier.verify({
-        externalTxId: txId,
-        expectedToAddress: op.payoutAddress,
-        expectedAmountCents: p.totalCents,
-      });
-      if (result.matched) {
-        await this.prisma.asSystem((tx) =>
-          tx.operatorPayout.update({
-            where: { id: p.id },
-            data: {
-              reconciliationStatus: 'MATCHED',
-              reconciledAt: result.occurredAt ?? new Date(),
-            } as Record<string, unknown>,
-          }),
-        );
-        matched += 1;
+    for (let i = 0; i < pending.length; i += RECON_BATCH_SIZE) {
+      const batch = pending.slice(i, i + RECON_BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(async (p) => {
+          const addr = p.operator.payoutAddress;
+          const rail = p.externalRail as PayoutMethod | null;
+          const txId = p.externalTxId;
+          if (!addr || !rail || !txId) return { id: p.id, matched: false };
+          const verifier = this.verifierFactory.forMethod(rail);
+          const result = await verifier.verify({
+            externalTxId: txId,
+            expectedToAddress: addr,
+            expectedAmountCents: p.totalCents,
+          });
+          if (result.matched) {
+            await this.prisma.asSystem((tx) =>
+              tx.operatorPayout.update({
+                where: { id: p.id },
+                data: {
+                  reconciliationStatus: 'MATCHED',
+                  reconciledAt: result.occurredAt ?? new Date(),
+                },
+              }),
+            );
+            return { id: p.id, matched: true };
+          }
+          return { id: p.id, matched: false };
+        }),
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value.matched) matched += 1;
+        if (r.status === 'rejected') {
+          this.logger.warn(`recon batch item rejected: ${(r.reason as Error).message}`);
+        }
       }
     }
     this.logger.log(

@@ -120,9 +120,6 @@ model Terminal {
 enum Provider {
   WIPAY
   PEANPE
-  // Phase 1C — SoftPOS / Tap-to-Phone
-  VIVA_SOFTPOS
-  STRIPE_TAP
 }
 
 model GatewayCredential {

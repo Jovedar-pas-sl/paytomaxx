@@ -350,16 +350,46 @@ export class OperatorsService {
     return { ok: true };
   }
 
+  /**
+   * Campos que solo OWNER puede modificar — son de impacto financiero o legal:
+   * - commissionBps: cambia el % que se lleva la chica de cada cobro
+   * - active: dar de baja una chica
+   * - payoutMethod/Address/Metadata/Label: a dónde va su dinero
+   *
+   * MANAGER puede tocar el resto (datos personales, onboarding, ayuda) que es
+   * info operativa sin riesgo monetario directo.
+   */
+  private static readonly OWNER_ONLY_FIELDS = new Set<keyof UpdateOperatorDto>([
+    'commissionBps',
+    'active',
+    'payoutMethod',
+    'payoutAddress',
+    'payoutMetadata',
+    'payoutLabel',
+  ]);
+
   async updateOperator(
     tenantId: string,
     operatorId: string,
     actorUserId: string,
+    actorRole: 'OWNER' | 'MANAGER' | 'WAITER' | 'OPERATOR',
     dto: UpdateOperatorDto,
   ): Promise<OperatorPublicView> {
     const operator = await this.prisma.user.findFirst({
       where: { id: operatorId, tenantId, role: 'OPERATOR' },
     });
     if (!operator) throw new NotFoundException('Operadora no encontrada');
+
+    if (actorRole !== 'OWNER') {
+      const attemptedOwnerFields = (Object.keys(dto) as Array<keyof UpdateOperatorDto>).filter(
+        (k) => OperatorsService.OWNER_ONLY_FIELDS.has(k) && dto[k] !== undefined,
+      );
+      if (attemptedOwnerFields.length > 0) {
+        throw new ForbiddenException(
+          `Solo OWNER puede modificar: ${attemptedOwnerFields.join(', ')}`,
+        );
+      }
+    }
 
     const data: Record<string, unknown> = {};
     if (dto.displayName !== undefined) data.displayName = dto.displayName;

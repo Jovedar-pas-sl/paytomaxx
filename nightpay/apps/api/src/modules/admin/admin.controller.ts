@@ -304,7 +304,7 @@ export class AdminController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(UpdateOperatorSchema)) dto: UpdateOperatorDto,
   ) {
-    return this.operators.updateOperator(tenantId, id, user.sub, dto);
+    return this.operators.updateOperator(tenantId, id, user.sub, user.role, dto);
   }
 
   @Get('operators/:id/earnings')

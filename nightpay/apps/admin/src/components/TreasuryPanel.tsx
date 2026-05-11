@@ -16,7 +16,7 @@ interface Props {
 
 export function TreasuryPanel({ isOwner }: Props) {
   const [stats, setStats] = useState<TreasuryStats | null>(null);
-  const [rate, setRate] = useState<{ rate: number; at: string } | null>(null);
+  const [rate, setRate] = useState<{ rate: number; at: string; degraded: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reconciling, setReconciling] = useState(false);
   const [reconcileMsg, setReconcileMsg] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export function TreasuryPanel({ isOwner }: Props) {
     try {
       const [s, r] = await Promise.all([fetchTreasuryStats(), fetchExchangeRate()]);
       setStats(s);
-      setRate({ rate: r.rate, at: r.at });
+      setRate({ rate: r.rate, at: r.at, degraded: r.degraded });
       setError(null);
     } catch (err) {
       setError((err as Error).message);
@@ -79,10 +79,16 @@ export function TreasuryPanel({ isOwner }: Props) {
           subtitle={`${(stats.payoutsThisMonthCents / 100).toFixed(2)} €`}
         />
         <MetricTile
-          title="EUR → USDT (Binance live)"
+          title={rate?.degraded ? '⚠️ EUR → USDT (degraded)' : 'EUR → USDT (Binance live)'}
           value={rate ? rate.rate.toFixed(4) : '—'}
           unit="USDT"
-          subtitle={rate ? `Actualizado ${formatTime(rate.at)}` : ''}
+          subtitle={
+            rate
+              ? rate.degraded
+                ? `Binance no responde — usando último-bueno o fallback`
+                : `Actualizado ${formatTime(rate.at)}`
+              : ''
+          }
         />
         <MetricTile
           title="USDT necesarios (pendiente)"

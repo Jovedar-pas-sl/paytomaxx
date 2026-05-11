@@ -455,7 +455,12 @@ export async function fetchTreasuryStats(): Promise<TreasuryStats> {
   return res.json();
 }
 
-export async function fetchExchangeRate(): Promise<{ pair: string; rate: number; at: string }> {
+export async function fetchExchangeRate(): Promise<{
+  pair: string;
+  rate: number;
+  at: string;
+  degraded: boolean;
+}> {
   const res = await authedFetch('/v1/admin/treasury/exchange-rate');
   if (!res.ok) throw new Error('Error cargando exchange rate');
   return res.json();
