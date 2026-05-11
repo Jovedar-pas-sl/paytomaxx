@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>NightPay — Estado del proyecto</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  :root {
+    --ink: #111827; --muted: #6b7280; --border: #e5e7eb;
+    --accent: #2563eb; --bg-soft: #f9fafb; --code-bg: #f3f4f6;
+    --quote-bg: #fef9e7;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: var(--ink); line-height: 1.55; font-size: 10.5pt;
+  }
+  body { padding: 0 16px; max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 22pt; font-weight: 700; margin: 18px 0 10px;
+       border-bottom: 3px solid var(--accent); padding-bottom: 8px; page-break-after: avoid; }
+  h2 { font-size: 15pt; margin: 28px 0 10px; padding-bottom: 4px;
+       border-bottom: 1px solid var(--border); color: var(--accent); page-break-after: avoid;
+       page-break-before: auto; }
+  h3 { font-size: 12.5pt; margin: 18px 0 6px; page-break-after: avoid; }
+  h4 { font-size: 11pt; margin: 12px 0 4px; color: var(--muted); page-break-after: avoid; }
+  p { margin: 6px 0 10px; text-align: justify; }
+  ul, ol { margin: 6px 0 12px; padding-left: 24px; }
+  li { margin: 3px 0; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+  blockquote { border-left: 3px solid #f59e0b; padding: 8px 14px; margin: 12px 0;
+               background: var(--quote-bg); color: #78350f; border-radius: 0 4px 4px 0; }
+  blockquote p { color: #78350f; }
+  blockquote code { background: rgba(0,0,0,0.06); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0;
+          font-size: 9.5pt; page-break-inside: avoid; }
+  th, td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--bg-soft); font-weight: 600; color: var(--ink); }
+  tr:nth-child(even) td { background: #fcfcfd; }
+  code { font-family: 'Cascadia Code', Consolas, monospace; background: var(--code-bg);
+         padding: 1px 5px; border-radius: 3px; font-size: 9.5pt; }
+  pre { background: #1f2937; color: #f3f4f6; padding: 12px 16px; border-radius: 6px;
+        overflow-x: auto; font-size: 8.5pt; line-height: 1.5;
+        page-break-inside: avoid; }
+  pre code { background: none; padding: 0; color: inherit; }
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+  a { color: var(--accent); text-decoration: none; }
+  @media print {
+    body { padding: 0; }
+    h2 { page-break-before: auto; }
+    table, pre, blockquote { break-inside: avoid; }
+  }
+  .doc-footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--border);
+                color: var(--muted); font-size: 8.5pt; text-align: center; }
+</style>
+</head>
+<body>
+<h1>NightPay — Estado del proyecto</h1>
+<p><strong>Documento para reunión con colegas · v2 · Mayo 2026</strong></p>
+<p>Resumen ejecutivo con <strong>ejemplos concretos</strong> de lo que hay construido, cómo funciona, y qué falta para producción.</p>
+<hr>
+<h2>Tabla de contenidos</h2>
+<ol>
+<li><a href="#1-qué-es-nightpay">Qué es NightPay</a></li>
+<li><a href="#2-arquitectura">Arquitectura</a></li>
+<li><a href="#3-foundation">Foundation — multi-tenant, RLS, auth</a></li>
+<li><a href="#4-cobros-con-qr">Cobros con QR (modelo clásico)</a></li>
+<li><a href="#5-phase-1a--multi-rail-payout">Phase 1A — Multi-rail payout</a></li>
+<li><a href="#6-phase-1a1--onboarding-tracker">Phase 1A.1 — Onboarding tracker</a></li>
+<li><a href="#7-phase-1a2--self-onboarding-link">Phase 1A.2 — Self-onboarding link</a></li>
+<li><a href="#8-phase-1b--wallet-cash-in-advance">Phase 1B — Wallet cash-in-advance</a></li>
+<li><a href="#9-comisiones-configurables">Comisiones configurables</a></li>
+<li><a href="#10-code-review-fixes">Code review fixes</a></li>
+<li><a href="#11-quality">Quality — rate-limit, E2E, observabilidad</a></li>
+<li><a href="#12-lo-que-falta">Lo que falta</a></li>
+<li><a href="#13-cómo-correrlo-en-local">Cómo correrlo en local</a></li>
+<li><a href="#14-decisiones-de-diseño">Decisiones de diseño</a></li>
+<li><a href="#15-riesgos-abiertos">Riesgos abiertos</a></li>
+</ol>
+<hr>
+<h2>1. Qué es NightPay</h2>
+<p>Plataforma de cobros para venues nocturnos en España. El cliente paga con su móvil escaneando un <strong>QR</strong> (sin app instalada). La <strong>chica/operadora</strong> crea cada cobro, el sistema toma un <strong>10% de comisión</strong> automático, y el <strong>90% se acumula como saldo pendiente</strong> para ella. El admin paga sus comisiones en <strong>USDT (cripto)</strong> porque la mayoría son LatAm con solo pasaporte y los bancos españoles no las aceptan.</p>
+<p><strong>Phase 1B</strong> añadió modo <strong>prepago</strong>: el cliente carga un saldo UNA vez al entrar (como una pulsera de hotel all-inclusive) y la chica consume contra ese saldo durante la noche <strong>sin volver a molestarlo</strong>.</p>
+<h3>Ejemplo simplificado de una noche</h3>
+<blockquote><ol>
+<li>Cliente A llega al venue, paga 500€ vía QR → wallet creado "Mesa 3".</li>
+<li>Durante la noche, Ana le cobra 8€ (cervezas), 100€ (habitación),</li>
+</ol>
+<p>   200€ (tiempo con ella). Cliente nunca vuelve a sacar el móvil.</p>
+<ol>
+<li>Ana acumula 90% de 200€ = <strong>180€ de comisión instant</strong>.</li>
+<li>Cliente A se va. Admin refunda 192€ a su tarjeta original.</li>
+<li>Final del mes, admin paga a Ana sus 180€ × N noches → envío en USDT a</li>
+</ol>
+<p>   su Binance. Tronscan verifica auto → MATCHED.</p>
+</blockquote>
+<hr>
+<h2>2. Arquitectura</h2>
+<pre><code>                      ┌──────────────────────────────┐
+                      │       Cliente (móvil)         │
+                      │  - Escanea QR del venue       │
+                      │  - Paga UNA vez (top-up)      │
+                      │  - Ve su balance live         │
+                      └────────────┬──────────────────┘
+                                   │ HTTPS
+                                   ▼
+┌────────────────┐         ┌──────────────────────┐         ┌────────────────┐
+│ Admin (OWNER)  │ HTTPS   │   NightPay API       │  HTTPS  │ Operadora       │
+│ apps/admin     │────────▶│   apps/api  (Nest)   │◀────────│ (chica) móvil   │
+│ - Pagos        │         │   - FSM XState pagos │         │ apps/operator   │
+│ - Operadoras   │         │   - Multi-tenant RLS │         │ - Crea cobros   │
+│ - Treasury     │         │   - Adapter pasarela │         │ - Cobra wallet  │
+│ - Wallets      │         │   - Audit log        │         │ - Ve ganancias  │
+└────────────────┘         └──────┬───────────────┘         └────────────────┘
+                                  │
+       ┌──────────────────────────┼──────────────────────────┐
+       ▼                          ▼                          ▼
+┌────────────────┐         ┌────────────────┐        ┌────────────────┐
+│  Postgres 16   │         │   Redis 7      │        │  Pasarelas PSP  │
+│  Multi-tenant  │         │  Lockout       │        │  Wipay / Peanpe │
+│  RLS forced    │         │  WS pub/sub    │        │  Stripe (op.)   │
+│  9 migrations  │         │  BullMQ        │        └────────┬───────┘
+└────────────────┘         └────────────────┘                 │
+                                                              ▼
+                                                  ┌────────────────────────┐
+                                                  │  Treasury (verifiers)   │
+                                                  │  Tronscan, BscScan,     │
+                                                  │  Polygonscan, Helius,   │
+                                                  │  Binance EURUSDT        │
+                                                  └────────────────────────┘</code></pre>
+<h3>Apps</h3>
+<table>
+<thead><tr><th>App</th><th>Puerto</th><th>Para quién</th><th>Tech</th></tr></thead>
+<tbody><tr><td><code>apps/api</code></td><td>4100</td><td>Backend único</td><td>NestJS 10 + Fastify</td></tr>
+<tr><td><code>apps/admin</code></td><td>4103</td><td>Dueño del venue (OWNER)</td><td>Next.js 14</td></tr>
+<tr><td><code>apps/operator</code></td><td>4101/4104</td><td>Chica (móvil PWA)</td><td>Next.js 14 mobile-first</td></tr>
+<tr><td><code>apps/web-client</code></td><td>4102</td><td>Cliente final (móvil)</td><td>Next.js 14 SSR</td></tr>
+<tr><td><code>apps/e2e</code></td><td>—</td><td>Tests Playwright</td><td>Playwright 1.49</td></tr>
+</tbody></table>
+<hr>
+<h2>3. Foundation</h2>
+<h3>Multi-tenant + RLS</h3>
+<p>Cada operación lleva un <code>tenantId</code> (UUID del venue). El middleware Prisma inyecta <code>WHERE tenantId = current</code> automático en cada query. <strong>Row-Level Security</strong> habilitado a nivel Postgres como defensa en profundidad: aunque alguien se cuele a la DB con el role de la app, no puede leer datos de otro venue sin el contexto correcto.</p>
+<h4>Ejemplo: tenant isolation</h4>
+<pre><code class="lang-sql">-- Si un atacante con JWT de venue "luna-vlc" intenta consultar pagos de
+-- "luna-mad" haciendo SQL directo:
+
+SELECT * FROM payments WHERE id = '&lt;uuid de luna-mad&gt;';
+-- → 0 rows (la RLS policy lo filtra invisible)
+
+-- Sin el current_tenant_id seteado:
+RESET app.current_tenant_id;
+SELECT * FROM payments;
+-- → 0 rows (RLS deny por default)</code></pre>
+<h3>Auth + roles</h3>
+<p>JWT con <code>issuer=nightpay, audience=nightpay-internal</code>. Roles jerárquicos: <strong>OWNER</strong> (dueño) → <strong>MANAGER</strong> (encargado) → <strong>WAITER</strong> (camarero) → <strong>OPERATOR</strong> (chica).</p>
+<h4>Ejemplo: protección anti brute-force</h4>
+<blockquote><p>Un atacante prueba 5 passwords incorrectos contra <code>ana@local.test</code>. Al 5º intento, Redis guarda <code>nightpay:lockout:locked:ana@local.test</code> con TTL 15 min. La 6ª llamada con CUALQUIER password (incluso el correcto) devuelve <code>403 Account locked, try in 14 min</code>.</p>
+<p>Adicionalmente, <strong>rate-limit IP</strong>: si la misma IP hace >10 logins en 60s, Redis bucket por bucket devuelve <code>429 Retry-After: 30s</code>.</p>
+</blockquote>
+<hr>
+<h2>4. Cobros con QR</h2>
+<p>Flow del modelo clásico (sin wallet):</p>
+<ol>
+<li>Chica → operator app → introduce 50€ → terminal del venue.</li>
+<li>API crea <code>Payment(status=CREATED)</code> + <code>qrToken</code> único + TTL 5 min.</li>
+<li>La chica enseña el QR a la pantalla del cliente.</li>
+<li>Cliente escanea → <code>/pay/&lt;qrToken&gt;</code> → ve detalles → paga.</li>
+<li>Web-client llama a <code>/start-authorization</code> → API redirige al PSP.</li>
+<li>Cliente confirma con su banco → PSP envía webhook a <code>/v1/webhooks/&lt;provider&gt;</code>.</li>
+<li>API valida HMAC + idempotencia + FSM transition → <code>AUTHORIZED</code>.</li>
+<li>Hook auto: crea <code>OperatorEarning</code> con snapshot de su <code>commissionBps</code>.</li>
+<li>WebSocket emite <code>payment:completed</code> → chica ve "✓ Cobrado".</li>
+</ol>
+<h3>Ejemplo: cobro real</h3>
+<blockquote><p>23:47 — Cliente pide una copa, Ana en operator app:</p>
+<ol>
+<li>Inicio → "Crear cobro" → 12€ → enseña QR.</li>
+<li>Cliente escanea con su Android → web-client carga en 800ms → "Pagar".</li>
+<li>Wipay redirige al banco del cliente → cliente firma con biometría.</li>
+<li>Banco aprueba → Wipay POST webhook a NightPay con HMAC válido.</li>
+<li>API: <code>Payment fce4... → AUTHORIZED</code>. Hook crea <code>OperatorEarning</code>:</li>
+</ol>
+<p>   - <code>paymentAmountCents: 1200</code>    - <code>commissionBps: 9000</code> (snapshot — si OWNER cambia el % después,      este earning queda con 90%)    - <code>commissionCents: 1080</code></p>
+<ol>
+<li>WebSocket <code>payment:completed</code> → operator app muestra "✓ +10.80€".</li>
+</ol>
+<p>Total elapsed: ~6 segundos del QR a "cobrado". El cliente no nota el roundtrip al PSP — solo ve la pantalla de su banco como pago normal.</p>
+</blockquote>
+<h3>FSM completa</h3>
+<pre><code>CREATED ──→ AWAITING_CAPTURE ──→ AUTHORIZING ──→ AUTHORIZED
+   │                                  │
+   │                                  ├──→ FAILED
+   │                                  ├──→ EXPIRED
+   └─────────────────────────────────→ CANCELED</code></pre>
+<p>Cada transición se valida con <code>applyEvent()</code> (XState 5). Si alguien intenta mover un Payment ya AUTHORIZED a otro estado, tira <code>InvalidTransitionError</code>.</p>
+<hr>
+<h2>5. Phase 1A — Multi-rail payout</h2>
+<p><strong>19 métodos</strong> de payout soportados, agrupados en 5 categorías:</p>
+<table>
+<thead><tr><th>Categoría</th><th>Métodos</th><th>Reconciliación</th></tr></thead>
+<tbody><tr><td>Cripto on-chain</td><td>USDT-TRC20, USDT-BEP20, USDC-POLY, USDC-SOL</td><td><strong>Automática</strong> vía explorer API</td></tr>
+<tr><td>Exchange interno</td><td>Binance Pay ID, OKX, Bybit</td><td>Semi-manual (admin pega receipt)</td></tr>
+<tr><td>E-wallet</td><td>FasterPay, PayQuicker, Hyperwallet, Revolut, Payoneer</td><td>Manual + screenshot</td></tr>
+<tr><td>Banco wire</td><td>SEPA IBAN, SWIFT internacional</td><td>Manual + receipt SEPA/SWIFT</td></tr>
+<tr><td>Wallet LatAm</td><td>MercadoPago, Pix, Nequi, Daviplata</td><td>Manual + receipt</td></tr>
+<tr><td>Efectivo</td><td>MANUAL_CASH</td><td>Admin firma + foto opcional</td></tr>
+</tbody></table>
+<h3>Ejemplo A: Camila cobra vía USDT-TRC20 (reconciliación automática)</h3>
+<blockquote><p><strong>Setup</strong> (una vez):</p>
+<ol>
+<li>Camila tiene Binance con KYC verificado (pasaporte colombiano).</li>
+<li>Admin entra en NightPay admin → Operadoras → Camila → tab Edit:</li>
+</ol>
+<p>   - <code>payoutMethod</code>: USDT-TRC20    - <code>payoutAddress</code>: <code>TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV</code> (su address Binance)    - <code>payoutLabel</code>: "Binance Camila"</p>
+<ol>
+<li>Admin envía 1 USDT de prueba desde Binance Business → Camila confirma</li>
+</ol>
+<p>   que llegó → marca <code>walletTestPassed=true</code>.</p>
+<p><strong>Una noche cualquiera</strong>, Camila cobra 5 clientes a 50€ = 250€. Su 90% = 225€ pendientes.</p>
+<p><strong>Pago semanal</strong>:</p>
+<ol>
+<li>Admin → Operadoras → Camila → "Marcar pagado 225€".</li>
+<li>Modal muestra: address <code>TXYZ...</code>, importe 225€ ≈ <strong>243.7 USDT</strong></li>
+</ol>
+<p>   (rate Binance EURUSDT live).</p>
+<ol>
+<li>Admin abre Binance Business → envía 243.7 USDT → copia txhash</li>
+</ol>
+<p>   <code>0xabc123def456...</code></p>
+<ol>
+<li>Vuelve al modal → pega el txhash → click "Verificar".</li>
+<li>NightPay backend llama a <code>https://apilist.tronscanapi.com/api/transaction-info?hash=0xabc...</code></li>
+<li>Tronscan responde:</li>
+</ol>
+<p>   ``<code>json    {      "confirmed": true,      "contractRet": "SUCCESS",      "trc20TransferInfo": [{        "contract_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",        "to_address": "TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV",        "amount_str": "243700000"      }]    }    </code>``</p>
+<ol>
+<li>NightPay valida:</li>
+</ol>
+<p>   - Contrato es USDT-TRC20 oficial ✓    - to_address coincide ✓    - 243.7 USDT actual vs 243.7 USDT esperado (tolerancia ±2%) ✓</p>
+<ol>
+<li><code>OperatorPayout.reconciliationStatus = MATCHED</code>. Audit log persistido.</li>
+<li>Camila refresca su Binance app → ve 243.7 USDT → compra con su Visa</li>
+</ol>
+<p>   Card en cualquier comercio EU sin conversión visible.</p>
+</blockquote>
+<h3>Ejemplo B: Daniela cobra vía SEPA + TBC Bank Georgia (manual)</h3>
+<blockquote><p>Daniela tiene cuenta en TBC Bank (Georgia, abierta con solo pasaporte mexicano en un viaje de 1 día a Tbilisi).</p>
+<ul>
+<li><code>payoutMethod</code>: WIRE_INTERNATIONAL</li>
+<li><code>payoutAddress</code>: <code>GE12TB7000000123456789</code> (su IBAN georgiano)</li>
+<li><code>payoutMetadata</code>: <code>{bankName: "TBC Bank", swiftBic: "TBCBGE22", country: "Georgia", accountHolder: "Daniela Hernández"}</code></li>
+</ul>
+<p>Admin envía 500€ vía SEPA → tarda 1-2 días en llegar → admin pega el SEPA reference en NightPay + uploads screenshot del banco → marca <code>MANUAL_OK</code>. Audit log captura quién confirmó y cuándo.</p>
+</blockquote>
+<h3>Reconciliación nocturna</h3>
+<p>Cron 03:00 UTC procesa solo los rails con verificador automático:</p>
+<pre><code class="lang-typescript">// reconcilePending:
+const pending = await prisma.operatorPayout.findMany({
+  where: { reconciliationStatus: 'UNRECONCILED',
+           externalTxId: { not: null },
+           externalRail: { in: ['USDT_TRC20', 'USDT_BEP20', 'USDC_POLY', 'USDC_SOL'] } },
+  take: 100,
+});
+// Procesa en batches de 5 con Promise.allSettled → si un explorer falla,
+// los demás siguen. Cap 100/run evita backlogs infinitos.</code></pre>
+<hr>
+<h2>6. Phase 1A.1 — Onboarding tracker</h2>
+<p><strong>14 campos</strong> en <code>User</code> para tracking de cada chica:</p>
+<ul>
+<li>Personales: <code>phone</code>, <code>passportCountry</code>, <code>passportLast4</code></li>
+<li>Docs España: <code>hasEmpadronamiento</code>, <code>hasNie</code>, <code>hasTie</code></li>
+<li>Wallet/Exchange: <code>walletProvider</code>, <code>walletStatus</code> (NOT_STARTED →</li>
+</ul>
+<p>  REGISTERED → KYC_PENDING → KYC_VERIFIED → KYC_REJECTED), <code>walletTestPassed</code>,   <code>walletTestAt</code></p>
+<ul>
+<li>Flags ayuda: <code>needsHelpWallet</code>, <code>needsHelpDocs</code></li>
+<li>Estado: <code>onboardingStatus</code> (NEW → PROFILE_CREATED → INVITE_ACTIVATED →</li>
+</ul>
+<p>  BINANCE_PENDING → READY | BLOCKED)</p>
+<ul>
+<li>Notas: <code>onboardingNotes</code> (max 2000 chars)</li>
+</ul>
+<h3>Ejemplo: vida de un onboarding</h3>
+<table>
+<thead><tr><th>Día</th><th>Evento</th><th>Status</th><th>Campos llenos</th></tr></thead>
+<tbody><tr><td>0</td><td>Admin crea Ana en NightPay</td><td>NEW</td><td>email, displayName, commissionBps</td></tr>
+<tr><td>0</td><td>Invite URL generado y enviado por WhatsApp</td><td>PROFILE_CREATED</td><td>invitedAt set</td></tr>
+<tr><td>1</td><td>Ana acepta invite + pone password</td><td>INVITE_ACTIVATED</td><td>inviteToken=null</td></tr>
+<tr><td>2</td><td>Admin sienta a Ana con Binance KYC</td><td>BINANCE_PENDING</td><td>walletProvider=BINANCE, walletStatus=KYC_PENDING</td></tr>
+<tr><td>3</td><td>KYC aprobado, Ana saca address USDT-TRC20</td><td>BINANCE_PENDING</td><td>walletStatus=KYC_VERIFIED, payoutMethod=USDT_TRC20, payoutAddress=TXYZ...</td></tr>
+<tr><td>3</td><td>Admin envía 1 USDT de prueba, Ana confirma recepción</td><td>READY</td><td>walletTestPassed=true, walletTestAt=now</td></tr>
+<tr><td>30</td><td>Ana viaja a Colombia, pide ayuda con MercadoPago</td><td>READY</td><td>needsHelpWallet=true, onboardingNotes="quiere también MercadoPago AR"</td></tr>
+</tbody></table>
+<h3>UI admin</h3>
+<p>Tab "Onboarding" dentro de cada operadora con 5 secciones (estado, datos personales, docs, wallet, ayuda) + filtro lista "Solo las que necesitan ayuda (N)". Filas que tienen <code>needsHelpWallet||needsHelpDocs</code> se pintan amarillas para que el admin no las olvide.</p>
+<hr>
+<h2>7. Phase 1A.2 — Self-onboarding link</h2>
+<p>Admin genera un <strong>link único 72h</strong> y se lo manda a la chica por WhatsApp. Ella abre el link <strong>sin login</strong> (JWT en path es la cred) y rellena ella misma su perfil. Coexiste con el flow manual: si la chica no es tech-savvy, el admin rellena por ella desde su tab Onboarding como siempre.</p>
+<h3>Ejemplo: Camila se hace su perfil sola</h3>
+<blockquote><p><strong>Admin</strong> → Operadoras → Camila → tab Onboarding → banner "¿La chica sabe usar la web?" → click <strong>📤 Generar link</strong>.</p>
+<p>Backend genera:</p>
+<ul>
+<li>JWT con <code>purpose='operator-self-onboarding'</code>, <code>sub=camilaId</code>,</li>
+</ul>
+<p>  <code>tenantId=lunaVlcId</code>, TTL 72h.</p>
+<ul>
+<li>Hash sha256 del JWT persistido en <code>users.selfOnboardingToken</code>.</li>
+<li>URL: <code>http://operator.paytomaxx.com/onboarding/&lt;jwt-largo&gt;</code></li>
+</ul>
+<p>Admin click <strong>💬 Compartir WhatsApp</strong> → abre wa.me con texto pre-formateado:</p>
+<blockquote><p>Hola, este es tu link para rellenar tu perfil en NightPay (válido 72h): http://operator.paytomaxx.com/onboarding/eyJhbGc...</p>
+</blockquote>
+<p><strong>Camila</strong> abre el link desde su móvil → ve form pre-rellenado con lo que el admin ya sabe (su nombre, venue Luna VLC):</p>
+<ul>
+<li><strong>Datos personales</strong>: pone su móvil +34 6XX..., selecciona "Colombia",</li>
+</ul>
+<p>  últimos 4 del pasaporte "8742".</p>
+<ul>
+<li><strong>Docs</strong>: marca "Empadronamiento" (lo tiene), deja NIE/TIE sin marcar.</li>
+<li><strong>Wallet</strong>: selecciona "Binance", status "🟢 KYC aprobado, todo OK",</li>
+</ul>
+<p>  marca "Recibí la prueba de 1 USDT".</p>
+<ul>
+<li><strong>Payout</strong>: selecciona "USDT en red Tron", pega su address,</li>
+</ul>
+<p>  label "Mi Binance principal".</p>
+<ul>
+<li><strong>Ayuda</strong>: deja sin marcar (no necesita).</li>
+<li><strong>Notas</strong>: "Viajo a Bogotá en julio 2 semanas, ¿podemos pagar por</li>
+</ul>
+<p>  MercadoPago esos días?"</p>
+<p>Click <strong>Guardar mi perfil</strong> → mensaje "✓ Hemos recibido tus datos. Puedes cerrar la página."</p>
+<p><strong>Detrás</strong>: backend valida JWT + hash match + actualiza <code>User</code> con todos los campos. Audit log: <code>operator.self_onboarding.submitted</code> con la chica como actor. <code>onboardingStatus</code> avanza de PROFILE_CREATED → INVITE_ACTIVATED automáticamente.</p>
+<p>Camila tiene 72h para volver y editar. Si quiere más, admin rota el link (el anterior queda invalidado al cambiar el hash).</p>
+</blockquote>
+<h3>Restricciones de seguridad</h3>
+<p>La chica <strong>NO puede</strong> tocar campos financieros:</p>
+<ul>
+<li><code>commissionBps</code> (su %)</li>
+<li><code>active</code> (dar de baja)</li>
+<li><code>payoutMetadata</code> (datos extra del banco)</li>
+</ul>
+<p>Eso queda OWNER-only en el admin. La validación está en el Zod schema + en el guard del endpoint.</p>
+<hr>
+<h2>8. Phase 1B — Wallet cash-in-advance</h2>
+<h3>Por qué existe</h3>
+<p><strong>Regla #1: no molestar al cliente</strong>. En el modelo clásico, cada vez que la chica quería cobrar algo le pedía el móvil al cliente para escanear su QR de pago. Pésima UX en un venue nocturno donde el cliente está bebiendo, hablando, etc.</p>
+<p>Con wallet, el cliente paga <strong>UNA vez</strong> al entrar (un cargo en su tarjeta, descriptor neutro tipo "SERVICIOS LV MADRID") y durante la noche la chica le cobra sin tocarlo.</p>
+<h3>Legal — closed-loop prepaid</h3>
+<p>Operado bajo <strong>EMD2 art. 1.5(k)</strong>: closed-loop prepaid exemption. El saldo:</p>
+<ul>
+<li>Solo se gasta dentro del venue</li>
+<li>No se convierte en cash directamente</li>
+<li>Refund solo a la tarjeta original</li>
+</ul>
+<p><strong>Mismo modelo legal</strong> que casinos con chips de plástico, parques de atracciones con pulseras RFID, hoteles all-inclusive. <strong>No requiere licencia EMI</strong>.</p>
+<h3>Ejemplo: noche completa de Cliente A</h3>
+<pre><code>21:00 — Cliente A entra al venue, Ana lo recibe.
+       Ana: "¿Quieres cargar saldo y te cobro sin molestarte el resto
+        de la noche? Tipo todo-incluido."
+       Cliente: "Vale, dame 500€."
+
+       Ana → operator app → tab Inicio → toggle "Cargar wallet" →
+        etiqueta "Mesa 3" + importe 500€ → click "Cargar 500 €".
+
+       NightPay crea:
+       - ClientWallet(id=w-abc, identifier="Mesa 3", balanceCents=0, status=ACTIVE)
+       - Payment(amountCents=50000, walletId=w-abc, captureMethod=WALLET_TOPUP)
+       - qrToken para el cliente
+
+       Cliente escanea QR → /pay/&lt;token&gt; → Wipay → tarjeta → "Pagar 500€"
+        → cliente firma → PSP webhook → AUTHORIZED.
+
+       Hook atómico en transition():
+       UPDATE client_wallets SET balanceCents = 50000 WHERE id = 'w-abc';
+
+       Cliente recibe URL móvil con su balance: 500€ ACTIVA.
+        Puede cerrar el navegador y olvidarse.
+
+22:30 — Cliente pide 4 cervezas en barra = 24€.
+       Camarero José → operator app → tab Wallet → ve lista de wallets
+        activos del venue → click "Mesa 3" → 24€ + categoría "bar".
+
+       Backend (transacción atómica):
+       - SELECT FOR UPDATE wallet → balance 500€, ACTIVE ✓
+       - Valida 24€ &lt;= 500€ ✓
+       - Crea WalletConsumption(amountCents=2400, providedBy=José, category=bar)
+       - José es WAITER, no OPERATOR → NO genera earning para él
+       - UPDATE wallet SET balanceCents = 47600
+
+       Cliente ve su balance bajar a 476€ en su móvil (polling 5s).
+       Sigue charlando.
+
+23:15 — Cliente sube a habitación 3 → 100€.
+       Recepción (Marta, MANAGER) → tab Wallet → "Mesa 3" → 100€ "room"
+       → balance 376€.
+
+01:00 — Cliente paga "tiempo" con Ana → 200€.
+       Ana → tab Wallet → "Mesa 3" → 200€ "time" → confirma.
+
+       Backend:
+       - SELECT FOR UPDATE wallet → balance 376€, ACTIVE ✓
+       - Valida 200€ &lt;= 376€ ✓
+       - Crea WalletConsumption(amountCents=20000, providedBy=Ana, category=time)
+       - Ana es OPERATOR con commissionBps=9000 → genera EARNING:
+         OperatorEarning(consumptionId=c-xyz, paymentAmountCents=20000,
+                        commissionBps=9000, commissionCents=18000)
+       - UPDATE wallet SET balanceCents = 17600
+
+       Ana ve +180€ en su saldo pendiente INSTANT.
+
+03:00 — Cliente se va.
+       Admin → tab Wallets → click "Mesa 3" → "Refund" → CARD.
+
+       Backend:
+       - Lock wallet → balance 176€, ACTIVE ✓
+       - UPDATE wallet SET balanceCents=0, status=REFUNDED
+       - Audit log: wallet.refund (method=CARD, refundedCents=17600)
+       - TODO: disparar PSP refund real (hoy solo marca DB).
+
+       Cliente recibe T+1 en su tarjeta: -176€ "SERVICIOS LV MADRID".
+
+       Cliente solo metió la tarjeta UNA vez en toda la noche.
+       Total gastado: 324€. Comisión Ana: 180€ (de los 200€ que él le pagó).</code></pre>
+<h3>UIs por rol</h3>
+<p><strong>Operator (chica)</strong>:</p>
+<ul>
+<li>Tab Inicio → toggle "Cobro directo" / "Cargar wallet". Para wallet pone</li>
+</ul>
+<p>  etiqueta + importe.</p>
+<ul>
+<li>Tab Wallet → lista de wallets activos del venue con etiqueta + balance +</li>
+</ul>
+<p>  tiempo desde creación. Búsqueda. Click → cobra. Auto-refresh 8s.</p>
+<p><strong>Web-client (móvil del cliente)</strong>:</p>
+<ul>
+<li><code>/wallet/&lt;qrToken&gt;</code> → balance grande, lista de consumos por categoría,</li>
+</ul>
+<p>  total acumulado, polling 5s.</p>
+<p><strong>Admin</strong>:</p>
+<ul>
+<li>Tab Wallets → 4 tiles (activas, balance total, top-ups hoy, consumido</li>
+</ul>
+<p>  hoy) + split por categoría + tabla con filtro status + botón Refund con   modal CARD vs CREDIT.</p>
+<h3>Esquema</h3>
+<pre><code>ClientWallet {
+  id, tenantId, identifier ("Mesa 3"), balanceCents,
+  status ACTIVE|EXPIRED|REFUNDED|DEPLETED, expiresAt,
+  qrToken (único, ~24 chars base64url)
+}
+
+WalletConsumption {
+  id, tenantId, walletId, amountCents,
+  providedByUserId, category, notes,
+  idempotencyKey (unique tenant+key), reversedAt
+}
+
+Payment.walletId nullable → si set, captureMethod=WALLET_TOPUP,
+   y el hook de AUTHORIZED suma al balance.
+
+OperatorEarning {
+  paymentId XOR consumptionId (CHECK constraint)
+  // Mismo ledger viene de cobros directos QR o de consumes de wallet.
+}</code></pre>
+<hr>
+<h2>9. Comisiones configurables</h2>
+<p><code>Venue.platformCommissionBps</code> (default 1000 = 10% NightPay / 90% chica). <code>Venue.operatorMaxCobroCents</code> (cap por cobro creado por OPERATOR, default 200€). Ambos editables desde admin → tab Ajustes (OWNER-only).</p>
+<h3>Ejemplo: cálculo en bps</h3>
+<blockquote><p>Ana tiene <code>commissionBps=9000</code> (90%).</p>
+<p>Cliente paga 50€ (5000 céntimos).</p>
+<ul>
+<li>Comisión chica: <code>floor(5000 × 9000 / 10000) = 4500</code> céntimos = 45€.</li>
+<li>Comisión NightPay: 5000 - 4500 = 500 céntimos = 5€.</li>
+</ul>
+<p>OWNER decide bajar a Ana al 80% (<code>commissionBps=8000</code>). Los earnings ya existentes mantienen su 90% (snapshot). Los nuevos cobros que haga Ana usarán 80%.</p>
+</blockquote>
+<hr>
+<h2>10. Code review fixes</h2>
+<p>Tras un code review propio detallado, se resolvieron <strong>11 items</strong>:</p>
+<table>
+<thead><tr><th>#</th><th>Bug</th><th>Fix</th></tr></thead>
+<tbody><tr><td>1</td><td>CLS context middleware estaba como guard → no aplicaba tenant filtering en endpoints</td><td>Movido a middleware (runs antes de guards)</td></tr>
+<tr><td>2</td><td>9× <code>@ts-expect-error</code> en treasury service</td><td>Removidos (Prisma client regenerado)</td></tr>
+<tr><td>3</td><td>Sin API keys, verifiers fallaban silenciosos</td><td>Warning explícito al boot listando qué keys faltan</td></tr>
+<tr><td>4</td><td>Solana verifier comparaba wallet vs ATA → nunca matcheaba</td><td>Deriva ATA owner desde <code>postTokenBalances</code></td></tr>
+<tr><td>5</td><td>EUR/USDT fallback hardcoded silencioso</td><td>Flag <code>degraded:true</code> propagado a UI con cascade fallback</td></tr>
+<tr><td>6</td><td>Polygon confirms 64 vs Binance que considera final a 128</td><td>Subido a 128</td></tr>
+<tr><td>7</td><td>Verify endpoint no idempotente</td><td>Short-circuit si ya MATCHED/MANUAL_OK con mismo txid</td></tr>
+<tr><td>8</td><td>MANAGER podía editar campos financieros</td><td>Whitelist OWNER_ONLY_FIELDS + 403 si MANAGER toca</td></tr>
+<tr><td>9</td><td>confirmManual sin artifact = audit log hueco</td><td>Exige al menos txId, receiptUrl o notes</td></tr>
+<tr><td>10</td><td>Reconciliación serial = lenta</td><td>Batch allSettled de 5, cap 100/run</td></tr>
+<tr><td>11</td><td>OnboardingBadge no cubría PROFILE_CREATED</td><td>Caso explícito añadido</td></tr>
+</tbody></table>
+<h3>Ejemplo del bug CLS (item 1)</h3>
+<blockquote><p><strong>Antes</strong>: cada request tenía en logs:</p>
+<pre><code>WARN [AuthGuard] CLS context not active — tenant filtering will not apply</code></pre>
+<p>Significaba que el middleware de Prisma que inyecta <code>WHERE tenantId =</code> en cada query NO se aplicaba. Cualquier query a través de Prisma podía leer datos cross-tenant. <strong>Defensa en profundidad caída</strong>.</p>
+<p><strong>Causa raíz</strong>: <code>ClsModule</code> estaba montado con <code>guard.mount: true</code>. Los guards globales corren en paralelo no determinístico — <code>AuthGuard</code> ejecutaba antes que <code>ClsGuard</code> setease el contexto.</p>
+<p><strong>Fix</strong>: cambiar a <code>middleware.mount: true</code>. Middlewares siempre corren ANTES de cualquier guard. Después del fix, ya no aparece el warning en los logs y la doble defensa (app-level + RLS) está activa.</p>
+</blockquote>
+<hr>
+<h2>11. Quality</h2>
+<h3>Rate-limit IP per-endpoint</h3>
+<p>Redis-backed fixed-window INCR. Endpoints sensibles:</p>
+<ul>
+<li><code>POST /auth/login</code> → 10/min/IP</li>
+<li><code>POST /auth/refresh</code> → 30/min/IP</li>
+<li><code>POST /operators/accept-invite</code> → 10/min/IP (token enumeration target)</li>
+<li><code>GET /operators/self-onboarding/:token</code> → 30/min/IP</li>
+<li>Global default → 100/min/IP</li>
+</ul>
+<h3>Ejemplo: bloqueo brute-force</h3>
+<blockquote><p>Atacante con IP 203.0.113.5 prueba 12 logins en 60s. Redis bucket <code>nightpay:iprl:auth-login:203.0.113.5:&lt;bucket&gt;</code> llega a 11 → guard devuelve <code>429 Too Many Requests</code> con header <code>Retry-After: 47s</code>. Sin Redis hit pesado, sin tocar la DB, sin verificar JWT.</p>
+</blockquote>
+<h3>E2E Playwright</h3>
+<p><code>apps/e2e/</code> workspace con specs:</p>
+<ul>
+<li><strong>api-smoke</strong> (8 tests): metrics, operators con onboarding fields,</li>
+</ul>
+<p>  treasury stats, exchange-rate degraded flag, MANAGER 403 on commissionBps,   rate-limit 429.</p>
+<ul>
+<li><strong>admin-ui</strong> (4 tests): dashboard, Operadoras, Treasury, Ajustes tabs sin</li>
+</ul>
+<p>  crash "Error cargando".</p>
+<h3>Observabilidad</h3>
+<ul>
+<li><strong>Sentry</strong> (soft-dependency, no crashea si no instalado). Scrubbing PII</li>
+</ul>
+<p>  auto (password, passportLast4, payoutAddress, tokens).</p>
+<ul>
+<li><strong>Grafana dashboard JSON</strong> + <strong>Prometheus rules YAML</strong> con 5 alertas:</li>
+</ul>
+<p>  APIDown, HighErrorRate, GatewayCircuitOpen, PayoutsReconcileBacklog,   AuthBruteForce.</p>
+<h3>Cobertura de tests</h3>
+<table>
+<thead><tr><th>Módulo</th><th>Tests</th><th>Status</th></tr></thead>
+<tbody><tr><td>Auth (login + refresh)</td><td>5</td><td>✅</td></tr>
+<tr><td>RefreshTokenService</td><td>6</td><td>✅</td></tr>
+<tr><td>Payment FSM</td><td>17</td><td>✅</td></tr>
+<tr><td>Refunds</td><td>26</td><td>✅</td></tr>
+<tr><td>Wipay adapter</td><td>14</td><td>✅</td></tr>
+<tr><td>Peanpe adapter</td><td>15</td><td>✅</td></tr>
+<tr><td>Webhooks</td><td>9</td><td>✅</td></tr>
+<tr><td>Prisma RLS</td><td>5</td><td>✅</td></tr>
+<tr><td>Health</td><td>2</td><td>✅</td></tr>
+<tr><td>Tron verifier</td><td>13</td><td>✅</td></tr>
+<tr><td>PayoutVerifierFactory</td><td>7</td><td>✅</td></tr>
+<tr><td>IP rate-limit guard</td><td>8</td><td>✅</td></tr>
+<tr><td>Wallets service</td><td>16</td><td>✅</td></tr>
+<tr><td><strong>Total</strong></td><td><strong>143</strong></td><td><strong>143/143 verde</strong></td></tr>
+</tbody></table>
+<hr>
+<h2>12. Lo que falta</h2>
+<h3>Bloqueantes operativos</h3>
+<table>
+<thead><tr><th>#</th><th>Item</th><th>Esfuerzo</th><th>Bloqueado por</th></tr></thead>
+<tbody><tr><td>1</td><td>Credenciales sandbox Wipay/Peanpe</td><td>0 (admin)</td><td>KYB pendiente</td></tr>
+<tr><td>2</td><td>Wallet refund CARD → disparar PSP refund real</td><td>1 día</td><td>Item 1</td></tr>
+<tr><td>3</td><td>Webhook E2E con PSP sandbox</td><td>1 día</td><td>Item 1</td></tr>
+<tr><td>4</td><td>Onboarding real de una chica a Binance</td><td>30 min con ella delante</td><td>Tú + chica</td></tr>
+<tr><td>5</td><td>Resend API key (envío real de invites por email)</td><td>2h + key</td><td>Cuenta Resend</td></tr>
+<tr><td>6</td><td>Deploy Dokploy + DNS + SSL + env vars prod</td><td>3-5 días</td><td>Decisión + KYB</td></tr>
+</tbody></table>
+<h3>Operativos / contables</h3>
+<table>
+<thead><tr><th>#</th><th>Item</th><th>Esfuerzo</th></tr></thead>
+<tbody><tr><td>7</td><td>CSV export mensual de payouts (contable)</td><td>4-6h</td></tr>
+<tr><td>8</td><td>Operator pool — chicas comparten un fondo común</td><td>2 días</td></tr>
+<tr><td>9</td><td>Notification policy: emails cuando reciben payout</td><td>1 día</td></tr>
+<tr><td>10</td><td>Reporte fiscal: Modelo 100 + Modelo 721 helper</td><td>2-3 días</td></tr>
+</tbody></table>
+<h3>Calidad / hardening</h3>
+<table>
+<thead><tr><th>#</th><th>Item</th><th>Esfuerzo</th></tr></thead>
+<tbody><tr><td>11</td><td>Tests del top-up flow end-to-end (vitest)</td><td>1 día</td></tr>
+<tr><td>12</td><td>Tests del self-onboarding flow</td><td>0.5 día</td></tr>
+<tr><td>13</td><td>Backup automatizado Postgres + restore drill</td><td>1 día</td></tr>
+<tr><td>14</td><td>Branch <code>feature-operators</code> → PR review → merge a <code>main</code></td><td>1 día</td></tr>
+</tbody></table>
+<h3>Phase 2 — escalar (post 6 meses)</h3>
+<table>
+<thead><tr><th>Item</th><th>Cuándo</th></tr></thead>
+<tbody><tr><td>Escalar a venues de terceros (multi-tenant comercial)</td><td>Tras 6 meses validando</td></tr>
+<tr><td>API Binance automatizada (no manual desde admin)</td><td>Phase 2</td></tr>
+<tr><td>AISP del banco para reconciliación settlement automático</td><td>Phase 2</td></tr>
+<tr><td>Licencia VASP si se custodia para terceros</td><td>Phase 2 (si aplica)</td></tr>
+</tbody></table>
+<hr>
+<h2>13. Cómo correrlo en local</h2>
+<pre><code class="lang-bash"># 1. Postgres + Redis
+cd nightpay
+docker compose up -d postgres redis
+
+# 2. Deps
+pnpm install
+
+# 3. DB
+pnpm --filter @nightpay/db migrate:deploy
+pnpm --filter @nightpay/db generate
+
+# 4. Seed inicial
+pnpm --filter @nightpay/db cli create-owner \
+  --venue luna-vlc \
+  --email owner@nightpay.local \
+  --password "TuPassword!2026"
+
+pnpm --filter @nightpay/db cli create-operator \
+  --venue luna-vlc \
+  --email ana@local.test \
+  --display-name "Ana" \
+  --commission 90
+
+# 5. Arranca apps (4 terminales)
+pnpm --filter @nightpay/api dev          # :4100
+pnpm --filter @nightpay/admin dev        # :4103
+pnpm --filter @nightpay/operator dev     # :4101
+pnpm --filter @nightpay/web-client dev   # :4102</code></pre>
+<p>Abre <code>http://localhost:4103</code> con el owner.</p>
+<h3>Tests</h3>
+<pre><code class="lang-bash">pnpm --filter @nightpay/api test       # 143 unit + integration, ~8s
+pnpm --filter @nightpay/e2e test       # Playwright (necesita apps corriendo)</code></pre>
+<hr>
+<h2>14. Decisiones de diseño</h2>
+<h3>Multi-tenant con RLS hard-enforced</h3>
+<p>Doble defensa: middleware Prisma + RLS Postgres. Si alguien se cuela en la DB con el role de la app, no puede leer cross-tenant.</p>
+<h3>Adapter pattern para pasarelas</h3>
+<p>Cada pasarela implementa <code>GatewayAdapter</code>. Añadir Stripe o Mollie = escribir un nuevo adapter, sin tocar el resto del código.</p>
+<h3>FSM para pagos con XState 5</h3>
+<p>Los pagos tienen muchos estados. XState formaliza las transiciones legales. <code>applyEvent()</code> valida o tira <code>InvalidTransitionError</code>.</p>
+<h3>Earnings con snapshot de bps</h3>
+<p>Cuando una chica cobra y va AUTHORIZED, su comisión se persiste con un <strong>snapshot del bps actual</strong>. Si OWNER cambia el % después, los earnings históricos no se reescriben.</p>
+<h3>Idempotency keys obligatorios</h3>
+<p>Tanto en <code>POST /payments</code> como en <code>POST /wallets/:id/consume</code>. El camarero puede pulsar 2 veces "Cobrar" sin generar 2 cobros.</p>
+<h3>Closed-loop prepaid = sin licencia EMI</h3>
+<p>Phase 1B opera bajo EMD2 art. 1.5(k). Saldo solo se gasta dentro del venue, sin conversión a cash, refund solo a la tarjeta original. Mismo modelo legal que casinos con chips.</p>
+<h3>Phase 1C SoftPOS descartada</h3>
+<p>Se evaluó tap-to-phone con Viva.com / SumUp. Se descartó por complejidad operativa (KYB con otro PSP, hardware Android NFC, certificación). QR clásico + wallet prepago cubren el caso.</p>
+<hr>
+<h2>15. Riesgos abiertos</h2>
+<h3>AML banco español</h3>
+<p>Pattern "PSP settlement → SEPA outgoing a Binance" puede generar review. <strong>Mitigación</strong>: ratio sano (no 100% a cripto), contabilidad clara, chicas dadas de alta como autónomas / con factura.</p>
+<h3>Fiscalidad chicas</h3>
+<p>Si residen >183 días en España, ingresos USDT son rendimiento gravable. Modelo 100 + Modelo 721 si saldo cripto >50k€ a 31/dic. Responsabilidad de cada chica, NO de NightPay, pero éticamente conviene avisarles.</p>
+<h3>MCC vs operativa real</h3>
+<p>El registro hostelero (5813/5812/7011) debe coincidir con la operativa. Si se registra como hostelería pero la operativa real difiere, el PSP eventualmente detecta (review periódico, denuncia, redes) → cierre cuenta. <strong>Mitigación</strong>: fachada y operativa coherentes.</p>
+<h3>Travel Rule cripto</h3>
+<p>Binance pide info del receptor para envíos >1.000€ a self-custody. Entre cuentas Binance es trivial. Para self-custody (Trust Wallet) preparar los datos.</p>
+<h3>Chargebacks</h3>
+<p>Por ahora ningún cliente nos ha hecho chargeback porque no hay tráfico real. Cuando lleguen, el PSP retiene del settlement. <strong>Mitigación</strong>: tracking de disputas + fondo de reserva.</p>
+<hr>
+<h2>Apéndice — métricas del proyecto</h2>
+<ul>
+<li><strong>Branch activo</strong>: <code>feature-operators</code> (31 commits ahead de <code>main</code>)</li>
+<li><strong>Líneas de código</strong>: ~25.000 (API + 3 frontends + contratos compartidos)</li>
+<li><strong>Migraciones Prisma</strong>: 9</li>
+<li><strong>Tablas</strong>: 16</li>
+<li><strong>Métodos de payout</strong>: 19</li>
+<li><strong>Tests</strong>: 143/143 verde</li>
+<li><strong>Estado</strong>: feature-complete para Phase 1, listo para validar con</li>
+</ul>
+<p>  tráfico real una vez resueltos los bloqueantes operativos.</p>
+<hr>
+<p><strong>Documento generado para reunión de mayo 2026 · v2 con ejemplos</strong></p>
+
+<div class="doc-footer">NightPay · v2 con ejemplos · Mayo 2026</div>
+</body>
+</html>
