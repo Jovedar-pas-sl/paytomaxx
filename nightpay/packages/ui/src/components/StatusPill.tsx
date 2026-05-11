@@ -7,6 +7,7 @@ export type PaymentStatus =
   | 'AUTHORIZED'
   | 'FAILED'
   | 'EXPIRED'
+  | 'CANCELED'
   | 'REFUNDED'
   | 'PARTIALLY_REFUNDED'
   | 'ORPHAN';
@@ -51,6 +52,11 @@ const config: Record<
     color: 'var(--np-warning)',
     bg: 'var(--np-pill-warning-bg)',
   },
+  CANCELED: {
+    label: 'Cancelado',
+    color: 'var(--np-text-mute)',
+    bg: 'var(--np-pill-mute-bg)',
+  },
   REFUNDED: {
     label: 'Reembolsado',
     color: 'var(--np-purple)',
@@ -70,7 +76,13 @@ const config: Record<
 };
 
 export function StatusPill({ status, size = 'md' }: StatusPillProps) {
-  const cfg = config[status];
+  // Defensive: si el backend introduce un status nuevo que la UI no conoce
+  // (ej. tras un deploy parcial), fallback a un pill neutro en vez de crashear.
+  const cfg = config[status] ?? {
+    label: String(status),
+    color: 'var(--np-text-mute)',
+    bg: 'var(--np-pill-mute-bg)',
+  };
   const dims =
     size === 'sm'
       ? { padding: '0.25rem 0.625rem', fontSize: '0.75rem' }
