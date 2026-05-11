@@ -193,55 +193,14 @@ export class OperatorsService {
     const operators = await this.prisma.user.findMany({
       where: { tenantId, role: 'OPERATOR', deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        email: true,
-        displayName: true,
-        commissionBps: true,
-        deletedAt: true,
-        invitedAt: true,
-        createdAt: true,
-        // Phase 1A — payout routing (tipos disponibles tras `pnpm db generate`)
-        // @ts-expect-error
-        payoutMethod: true,
-        // @ts-expect-error
-        payoutAddress: true,
-        // @ts-expect-error
-        payoutMetadata: true,
-        // @ts-expect-error
-        payoutLabel: true,
-      },
     });
 
     const result: OperatorWithBalance[] = [];
     for (const op of operators) {
       const balance = await this.getBalance(op.id);
-      const opAny = op as unknown as {
-        id: string;
-        email: string;
-        displayName: string | null;
-        commissionBps: number | null;
-        deletedAt: Date | null;
-        invitedAt: Date | null;
-        createdAt: Date;
-        payoutMethod: string | null;
-        payoutAddress: string | null;
-        payoutMetadata: Record<string, unknown> | null;
-        payoutLabel: string | null;
-      };
       result.push({
-        id: opAny.id,
-        email: opAny.email,
-        displayName: opAny.displayName,
-        commissionBps: opAny.commissionBps ?? 0,
-        active: opAny.deletedAt === null,
-        invitedAt: opAny.invitedAt?.toISOString() ?? null,
-        createdAt: opAny.createdAt.toISOString(),
+        ...this.toPublicView(op as never),
         balance,
-        payoutMethod: (opAny.payoutMethod as OperatorWithBalance['payoutMethod']) ?? null,
-        payoutAddress: opAny.payoutAddress,
-        payoutMetadata: opAny.payoutMetadata as OperatorWithBalance['payoutMetadata'],
-        payoutLabel: opAny.payoutLabel,
       });
     }
     return result;
@@ -413,6 +372,23 @@ export class OperatorsService {
     if (dto.payoutAddress !== undefined) data.payoutAddress = dto.payoutAddress;
     if (dto.payoutMetadata !== undefined) data.payoutMetadata = dto.payoutMetadata;
     if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
+    // Phase 1A.1 — Onboarding tracking
+    if (dto.phone !== undefined) data.phone = dto.phone;
+    if (dto.passportCountry !== undefined) data.passportCountry = dto.passportCountry;
+    if (dto.passportLast4 !== undefined) data.passportLast4 = dto.passportLast4;
+    if (dto.hasEmpadronamiento !== undefined) data.hasEmpadronamiento = dto.hasEmpadronamiento;
+    if (dto.hasNie !== undefined) data.hasNie = dto.hasNie;
+    if (dto.hasTie !== undefined) data.hasTie = dto.hasTie;
+    if (dto.walletProvider !== undefined) data.walletProvider = dto.walletProvider;
+    if (dto.walletStatus !== undefined) data.walletStatus = dto.walletStatus;
+    if (dto.walletTestPassed !== undefined) {
+      data.walletTestPassed = dto.walletTestPassed;
+      data.walletTestAt = dto.walletTestPassed ? new Date() : null;
+    }
+    if (dto.needsHelpWallet !== undefined) data.needsHelpWallet = dto.needsHelpWallet;
+    if (dto.needsHelpDocs !== undefined) data.needsHelpDocs = dto.needsHelpDocs;
+    if (dto.onboardingStatus !== undefined) data.onboardingStatus = dto.onboardingStatus;
+    if (dto.onboardingNotes !== undefined) data.onboardingNotes = dto.onboardingNotes;
 
     const updated = await this.prisma.user.update({
       where: { id: operatorId },
@@ -589,6 +565,20 @@ export class OperatorsService {
       payoutAddress?: string | null;
       payoutMetadata?: Record<string, unknown> | null;
       payoutLabel?: string | null;
+      phone?: string | null;
+      passportCountry?: string | null;
+      passportLast4?: string | null;
+      hasEmpadronamiento?: boolean;
+      hasNie?: boolean;
+      hasTie?: boolean;
+      walletProvider?: string | null;
+      walletStatus?: string | null;
+      walletTestPassed?: boolean;
+      walletTestAt?: Date | null;
+      needsHelpWallet?: boolean;
+      needsHelpDocs?: boolean;
+      onboardingStatus?: string;
+      onboardingNotes?: string | null;
     };
     return {
       id: u.id,
@@ -602,6 +592,20 @@ export class OperatorsService {
       payoutAddress: u.payoutAddress ?? null,
       payoutMetadata: (u.payoutMetadata ?? null) as OperatorPublicView['payoutMetadata'],
       payoutLabel: u.payoutLabel ?? null,
+      phone: u.phone ?? null,
+      passportCountry: u.passportCountry ?? null,
+      passportLast4: u.passportLast4 ?? null,
+      hasEmpadronamiento: u.hasEmpadronamiento ?? false,
+      hasNie: u.hasNie ?? false,
+      hasTie: u.hasTie ?? false,
+      walletProvider: (u.walletProvider ?? null) as OperatorPublicView['walletProvider'],
+      walletStatus: (u.walletStatus ?? null) as OperatorPublicView['walletStatus'],
+      walletTestPassed: u.walletTestPassed ?? false,
+      walletTestAt: u.walletTestAt?.toISOString() ?? null,
+      needsHelpWallet: u.needsHelpWallet ?? false,
+      needsHelpDocs: u.needsHelpDocs ?? false,
+      onboardingStatus: (u.onboardingStatus ?? 'NEW') as OperatorPublicView['onboardingStatus'],
+      onboardingNotes: u.onboardingNotes ?? null,
     };
   }
 }

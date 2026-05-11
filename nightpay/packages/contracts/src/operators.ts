@@ -54,6 +54,33 @@ export const PayoutMetadataSchema = z.object({
 }).passthrough(); // permite campos extra forward-compat
 export type PayoutMetadata = z.infer<typeof PayoutMetadataSchema>;
 
+// ─── Phase 1A.1 — Onboarding tracking ──────────────────────────────
+
+export const WalletProviderSchema = z.enum([
+  'BINANCE', 'BYBIT', 'OKX', 'CRYPTO_COM', 'TRUST_WALLET',
+  'FASTERPAY', 'PAYQUICKER', 'WISE', 'REVOLUT', 'OTHER', 'NONE',
+]);
+export type WalletProvider = z.infer<typeof WalletProviderSchema>;
+
+export const WalletStatusSchema = z.enum([
+  'NOT_STARTED',
+  'REGISTERED',
+  'KYC_PENDING',
+  'KYC_VERIFIED',
+  'KYC_REJECTED',
+]);
+export type WalletStatus = z.infer<typeof WalletStatusSchema>;
+
+export const OnboardingStatusSchema = z.enum([
+  'NEW',
+  'PROFILE_CREATED',
+  'INVITE_ACTIVATED',
+  'BINANCE_PENDING',
+  'READY',
+  'BLOCKED',
+]);
+export type OnboardingStatus = z.infer<typeof OnboardingStatusSchema>;
+
 // ─── Vistas públicas ────────────────────────────────────────────────
 
 /** Vista de operadora para listados de admin (no expone hash, totp). */
@@ -70,6 +97,21 @@ export const OperatorPublicViewSchema = z.object({
   payoutAddress: z.string().nullable().optional(),
   payoutMetadata: PayoutMetadataSchema.nullable().optional(),
   payoutLabel: z.string().nullable().optional(),
+  // Phase 1A.1 — Onboarding tracking
+  phone: z.string().nullable().optional(),
+  passportCountry: z.string().nullable().optional(),
+  passportLast4: z.string().nullable().optional(),
+  hasEmpadronamiento: z.boolean().optional(),
+  hasNie: z.boolean().optional(),
+  hasTie: z.boolean().optional(),
+  walletProvider: WalletProviderSchema.nullable().optional(),
+  walletStatus: WalletStatusSchema.nullable().optional(),
+  walletTestPassed: z.boolean().optional(),
+  walletTestAt: z.string().datetime().nullable().optional(),
+  needsHelpWallet: z.boolean().optional(),
+  needsHelpDocs: z.boolean().optional(),
+  onboardingStatus: OnboardingStatusSchema.optional(),
+  onboardingNotes: z.string().nullable().optional(),
 });
 export type OperatorPublicView = z.infer<typeof OperatorPublicViewSchema>;
 
@@ -138,6 +180,20 @@ export const UpdateOperatorSchema = z.object({
   payoutAddress: z.string().min(1).max(200).nullable().optional(),
   payoutMetadata: PayoutMetadataSchema.nullable().optional(),
   payoutLabel: z.string().max(120).nullable().optional(),
+  // Phase 1A.1 — Onboarding
+  phone: z.string().max(40).nullable().optional(),
+  passportCountry: z.string().max(80).nullable().optional(),
+  passportLast4: z.string().max(8).nullable().optional(),
+  hasEmpadronamiento: z.boolean().optional(),
+  hasNie: z.boolean().optional(),
+  hasTie: z.boolean().optional(),
+  walletProvider: WalletProviderSchema.nullable().optional(),
+  walletStatus: WalletStatusSchema.nullable().optional(),
+  walletTestPassed: z.boolean().optional(),
+  needsHelpWallet: z.boolean().optional(),
+  needsHelpDocs: z.boolean().optional(),
+  onboardingStatus: OnboardingStatusSchema.optional(),
+  onboardingNotes: z.string().max(2000).nullable().optional(),
 });
 export type UpdateOperatorDto = z.infer<typeof UpdateOperatorSchema>;
 

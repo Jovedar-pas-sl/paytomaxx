@@ -68,6 +68,21 @@ model User {
   payoutAddress  String?
   payoutMetadata Json?
   payoutLabel    String?
+  // Phase 1A.1 — onboarding tracking (solo OPERATOR)
+  phone               String?
+  passportCountry     String?
+  passportLast4       String?
+  hasEmpadronamiento  Boolean @default(false)
+  hasNie              Boolean @default(false)
+  hasTie              Boolean @default(false)
+  walletProvider      String?
+  walletStatus        String?
+  walletTestPassed    Boolean @default(false)
+  walletTestAt        DateTime? @db.Timestamptz
+  needsHelpWallet     Boolean @default(false)
+  needsHelpDocs       Boolean @default(false)
+  onboardingStatus    String  @default("NEW")
+  onboardingNotes     String?
   createdAt    DateTime  @default(now()) @db.Timestamptz
   updatedAt    DateTime  @updatedAt @db.Timestamptz
   deletedAt    DateTime? @db.Timestamptz

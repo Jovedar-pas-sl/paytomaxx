@@ -19,6 +19,7 @@ import {
   type PayoutMetadata,
 } from '@/lib/api';
 import { PAYOUT_METHOD_LABELS, PayoutMethodForm } from './PayoutMethodForm';
+import { OnboardingForm } from './OnboardingForm';
 
 interface Props {
   isOwner: boolean;
@@ -33,6 +34,14 @@ export function OperatorsPanel({ isOwner }: Props) {
     null,
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filterNeedsHelp, setFilterNeedsHelp] = useState(false);
+
+  const needsHelpCount = operators.filter(
+    (o) => o.needsHelpWallet || o.needsHelpDocs,
+  ).length;
+  const visibleOperators = filterNeedsHelp
+    ? operators.filter((o) => o.needsHelpWallet || o.needsHelpDocs)
+    : operators;
 
   async function reload() {
     try {
@@ -65,6 +74,30 @@ export function OperatorsPanel({ isOwner }: Props) {
         }}
       >
         <h2 style={sectionTitle}>Operadoras</h2>
+        {needsHelpCount > 0 ? (
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.85rem',
+              background: filterNeedsHelp ? 'var(--np-warning-bg, #fef3c7)' : 'var(--np-surface-2)',
+              border: '1px solid var(--np-border)',
+              borderRadius: 'var(--np-r-pill)',
+              padding: '0.4rem 0.875rem',
+              cursor: 'pointer',
+              color: filterNeedsHelp ? '#78350f' : 'var(--np-text)',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={filterNeedsHelp}
+              onChange={(e) => setFilterNeedsHelp(e.target.checked)}
+              style={{ margin: 0 }}
+            />
+            ⚠️ Solo las que necesitan ayuda ({needsHelpCount})
+          </label>
+        ) : null}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem' }}>
           <Button variant="ghost" onClick={reload}>
             Refrescar
@@ -100,54 +133,76 @@ export function OperatorsPanel({ isOwner }: Props) {
                     Cargando…
                   </td>
                 </tr>
-              ) : operators.length === 0 ? (
+              ) : visibleOperators.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={emptyCell}>
-                    Aún no hay operadoras. Crea la primera con "+ Nueva operadora".
+                    {operators.length === 0
+                      ? 'Aún no hay operadoras. Crea la primera con "+ Nueva operadora".'
+                      : 'Ninguna coincide con el filtro.'}
                   </td>
                 </tr>
               ) : (
-                operators.map((op) => (
-                  <tr
-                    key={op.id}
-                    onClick={() => setSelectedId(op.id)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <td>{op.displayName ?? '—'}</td>
-                    <td style={cellMeta}>{op.email}</td>
-                    <td className="np-num" style={numCell}>
-                      {(op.commissionBps / 100).toFixed(2)} %
-                    </td>
-                    <td
-                      className="np-num"
+                visibleOperators.map((op) => {
+                  const needsHelp = op.needsHelpWallet || op.needsHelpDocs;
+                  return (
+                    <tr
+                      key={op.id}
+                      onClick={() => setSelectedId(op.id)}
                       style={{
-                        ...numCell,
-                        color: op.balance.pendingCents < 0 ? 'var(--np-danger)' : 'var(--np-text)',
+                        cursor: 'pointer',
+                        background: needsHelp ? 'var(--np-warning-bg, #fef3c7)' : undefined,
                       }}
                     >
-                      {(op.balance.pendingCents / 100).toFixed(2)} €
-                    </td>
-                    <td className="np-num" style={numCell}>
-                      {(op.balance.paidCents / 100).toFixed(2)} €
-                    </td>
-                    <td style={cellMeta}>
-                      {op.active ? (op.invitedAt ? 'Invitada' : 'Activa') : 'Inactiva'}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <Button
-                        variant="ghost"
-                        size="md"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedId(op.id);
+                      <td>
+                        {op.displayName ?? '—'}
+                        {needsHelp ? (
+                          <span
+                            style={{
+                              marginLeft: '0.5rem',
+                              fontSize: '0.7rem',
+                              color: '#78350f',
+                              fontWeight: 600,
+                            }}
+                          >
+                            ⚠️ ayuda
+                          </span>
+                        ) : null}
+                      </td>
+                      <td style={cellMeta}>{op.email}</td>
+                      <td className="np-num" style={numCell}>
+                        {(op.commissionBps / 100).toFixed(2)} %
+                      </td>
+                      <td
+                        className="np-num"
+                        style={{
+                          ...numCell,
+                          color: op.balance.pendingCents < 0 ? 'var(--np-danger)' : 'var(--np-text)',
                         }}
-                        style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}
                       >
-                        Ver
-                      </Button>
-                    </td>
-                  </tr>
-                ))
+                        {(op.balance.pendingCents / 100).toFixed(2)} €
+                      </td>
+                      <td className="np-num" style={numCell}>
+                        {(op.balance.paidCents / 100).toFixed(2)} €
+                      </td>
+                      <td style={cellMeta}>
+                        <OnboardingBadge operator={op} />
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <Button
+                          variant="ghost"
+                          size="md"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedId(op.id);
+                          }}
+                          style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}
+                        >
+                          Ver
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -317,7 +372,7 @@ function OperatorDetailModal({
 }) {
   const [earnings, setEarnings] = useState<OperatorEarning[]>([]);
   const [payouts, setPayouts] = useState<OperatorPayout[]>([]);
-  const [tab, setTab] = useState<'earnings' | 'payouts' | 'edit'>('earnings');
+  const [tab, setTab] = useState<'earnings' | 'payouts' | 'edit' | 'onboarding'>('earnings');
   const [error, setError] = useState<string | null>(null);
   const [payoutOpen, setPayoutOpen] = useState(false);
 
@@ -371,8 +426,8 @@ function OperatorDetailModal({
           ) : null}
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--np-border)' }}>
-          {(['earnings', 'payouts', 'edit'] as const).map((t) => (
+        <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--np-border)', flexWrap: 'wrap' }}>
+          {(['earnings', 'payouts', 'edit', 'onboarding'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -386,7 +441,13 @@ function OperatorDetailModal({
                 cursor: 'pointer',
               }}
             >
-              {t === 'earnings' ? 'Ganancias' : t === 'payouts' ? 'Liquidaciones' : 'Editar'}
+              {t === 'earnings'
+                ? 'Ganancias'
+                : t === 'payouts'
+                  ? 'Liquidaciones'
+                  : t === 'edit'
+                    ? 'Editar'
+                    : `Onboarding${operator.needsHelpWallet || operator.needsHelpDocs ? ' ⚠️' : ''}`}
             </button>
           ))}
         </div>
@@ -397,8 +458,10 @@ function OperatorDetailModal({
           <EarningsTable earnings={earnings} />
         ) : tab === 'payouts' ? (
           <PayoutsTable payouts={payouts} />
-        ) : (
+        ) : tab === 'edit' ? (
           <EditOperatorForm operator={operator} onSaved={() => { onChanged(); onClose(); }} />
+        ) : (
+          <OnboardingForm operator={operator} onSaved={onChanged} />
         )}
       </div>
 
@@ -826,3 +889,22 @@ const urlCode: CSSProperties = {
   height: '3rem',
   minWidth: 0,
 };
+
+function OnboardingBadge({ operator }: { operator: Operator }) {
+  const status = operator.onboardingStatus ?? 'NEW';
+  // Cuando la chica está invitada pero sin activar, prioriza ese estado visual
+  const display: { label: string; color: string } = (() => {
+    if (!operator.active) return { label: 'Inactiva', color: 'var(--np-text-dim)' };
+    if (status === 'READY') return { label: '🟢 Operativa', color: 'var(--np-success)' };
+    if (status === 'BLOCKED') return { label: '🔴 Bloqueada', color: 'var(--np-danger)' };
+    if (status === 'BINANCE_PENDING') return { label: '🔵 KYC pending', color: 'var(--np-accent)' };
+    if (status === 'INVITE_ACTIVATED') return { label: '🟠 Activada', color: 'var(--np-warning, #f59e0b)' };
+    if (operator.invitedAt) return { label: '🟡 Invitada', color: 'var(--np-warning, #f59e0b)' };
+    return { label: '⚪ Nueva', color: 'var(--np-text-mute)' };
+  })();
+  return (
+    <span style={{ fontSize: '0.75rem', fontWeight: 500, color: display.color }}>
+      {display.label}
+    </span>
+  );
+}

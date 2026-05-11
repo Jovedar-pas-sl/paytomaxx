@@ -51,6 +51,16 @@ export interface PayoutMetadata {
   accountHolder?: string;
 }
 
+export type WalletProvider =
+  | 'BINANCE' | 'BYBIT' | 'OKX' | 'CRYPTO_COM' | 'TRUST_WALLET'
+  | 'FASTERPAY' | 'PAYQUICKER' | 'WISE' | 'REVOLUT' | 'OTHER' | 'NONE';
+
+export type WalletStatus =
+  | 'NOT_STARTED' | 'REGISTERED' | 'KYC_PENDING' | 'KYC_VERIFIED' | 'KYC_REJECTED';
+
+export type OnboardingStatus =
+  | 'NEW' | 'PROFILE_CREATED' | 'INVITE_ACTIVATED' | 'BINANCE_PENDING' | 'READY' | 'BLOCKED';
+
 export interface Operator {
   id: string;
   email: string;
@@ -60,10 +70,26 @@ export interface Operator {
   invitedAt: string | null;
   createdAt: string;
   balance: OperatorBalance;
+  // Phase 1A — payout
   payoutMethod?: PayoutMethod | null;
   payoutAddress?: string | null;
   payoutMetadata?: PayoutMetadata | null;
   payoutLabel?: string | null;
+  // Phase 1A.1 — onboarding
+  phone?: string | null;
+  passportCountry?: string | null;
+  passportLast4?: string | null;
+  hasEmpadronamiento?: boolean;
+  hasNie?: boolean;
+  hasTie?: boolean;
+  walletProvider?: WalletProvider | null;
+  walletStatus?: WalletStatus | null;
+  walletTestPassed?: boolean;
+  walletTestAt?: string | null;
+  needsHelpWallet?: boolean;
+  needsHelpDocs?: boolean;
+  onboardingStatus?: OnboardingStatus;
+  onboardingNotes?: string | null;
 }
 
 export interface OperatorEarning {
@@ -368,6 +394,20 @@ export async function updateOperator(
     payoutAddress?: string | null;
     payoutMetadata?: PayoutMetadata | null;
     payoutLabel?: string | null;
+    // Onboarding fields
+    phone?: string | null;
+    passportCountry?: string | null;
+    passportLast4?: string | null;
+    hasEmpadronamiento?: boolean;
+    hasNie?: boolean;
+    hasTie?: boolean;
+    walletProvider?: WalletProvider | null;
+    walletStatus?: WalletStatus | null;
+    walletTestPassed?: boolean;
+    needsHelpWallet?: boolean;
+    needsHelpDocs?: boolean;
+    onboardingStatus?: OnboardingStatus;
+    onboardingNotes?: string | null;
   },
 ): Promise<Omit<Operator, 'balance'>> {
   const res = await authedFetch(`/v1/admin/operators/${id}`, {
