@@ -10,11 +10,8 @@ import {
 } from '@nestjs/common';
 import {
   CreatePaymentSchema,
-  InitializeSoftPosSchema,
   type CreatePaymentDto,
   type CreatedPaymentResponse,
-  type InitializeSoftPosDto,
-  type InitializedSoftPosResponse,
   type PublicPaymentView,
 } from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -49,31 +46,6 @@ export class PaymentsController {
     @Body(new ZodValidationPipe(CreatePaymentSchema)) dto: CreatePaymentDto,
   ): Promise<CreatedPaymentResponse> {
     return this.payments.create(tenantId, idempotencyKey, dto, {
-      userId: user.sub,
-      role: user.role,
-    });
-  }
-
-  /**
-   * Phase 1C — SoftPOS (Tap-to-Phone).
-   * Inicializa un cobro contactless: crea Payment en CREATED y devuelve
-   * el orderCode del PSP (Viva) que el SDK móvil usará para activar el
-   * NFC reader. El cliente acerca su tarjeta → Viva procesa → webhook
-   * → FSM AUTHORIZED.
-   *
-   * Si VIVA_API_KEY no está set → 503.
-   */
-  @Post('softpos/initialize')
-  @HttpCode(201)
-  @UseGuards(RolesGuard)
-  @Roles('OWNER', 'MANAGER', 'WAITER', 'OPERATOR')
-  async initializeSoftPos(
-    @Tenant() tenantId: string,
-    @IdempotencyKey() idempotencyKey: string,
-    @CurrentUser() user: JwtPayload,
-    @Body(new ZodValidationPipe(InitializeSoftPosSchema)) dto: InitializeSoftPosDto,
-  ): Promise<InitializedSoftPosResponse> {
-    return this.payments.initializeSoftPos(tenantId, idempotencyKey, dto, {
       userId: user.sub,
       role: user.role,
     });

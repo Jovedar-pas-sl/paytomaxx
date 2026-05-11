@@ -19,14 +19,7 @@ import {
   type PaymentEvent,
   type PaymentMachineState,
 } from './payment.machine';
-import type {
-  CreatePaymentDto,
-  CreatedPaymentResponse,
-  InitializeSoftPosDto,
-  InitializedSoftPosResponse,
-  PublicPaymentView,
-} from '@nightpay/contracts';
-import { VivaSoftPosAdapter } from '../gateways/viva-softpos.adapter';
+import type { CreatePaymentDto, CreatedPaymentResponse, PublicPaymentView } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
 import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
 import { GatewayRegistry } from '../gateways/gateway.registry';
@@ -47,8 +40,6 @@ export class PaymentsService {
   private readonly realtime: RealtimeGateway;
   private readonly metrics: MetricsService;
 
-  private readonly vivaAdapter: VivaSoftPosAdapter;
-
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(ClsService) cls: ClsService<{ ctx: RequestContext }>,
@@ -57,7 +48,6 @@ export class PaymentsService {
     @Inject(GatewayRegistry) gateways: GatewayRegistry,
     @Inject(RealtimeGateway) realtime: RealtimeGateway,
     @Inject(MetricsService) metrics: MetricsService,
-    @Inject(VivaSoftPosAdapter) vivaAdapter: VivaSoftPosAdapter,
   ) {
     this.prisma = prisma;
     this.cls = cls;
@@ -66,7 +56,6 @@ export class PaymentsService {
     this.gateways = gateways;
     this.realtime = realtime;
     this.metrics = metrics;
-    this.vivaAdapter = vivaAdapter;
   }
 
   /**
@@ -164,125 +153,6 @@ export class PaymentsService {
     this.metrics.paymentsCreated.inc({ venue: tenantId, provider: 'pending' });
     this.logger.log(`Payment created ${payment.id} amount=${payment.amountCents} venue=${tenantId}`);
     return this.toCreatedResponse(payment.id);
-  }
-
-  /**
-   * Phase 1C — Inicializa un cobro contactless (SoftPOS).
-   * - Crea Payment en CREATED con captureMethod=SOFTPOS_TAP.
-   * - Llama al PSP (Viva.com) para crear una orden y obtener orderCode.
-   * - Devuelve los datos al SDK móvil de la chica para que active el NFC reader.
-   * - El AUTHORIZED llega más tarde vía webhook del PSP (mismo path que QR).
-   */
-  async initializeSoftPos(
-    tenantId: string,
-    idempotencyKey: string,
-    dto: InitializeSoftPosDto,
-    actor?: { userId: string; role: string },
-  ): Promise<InitializedSoftPosResponse> {
-    // Idempotency (igual que /payments normal)
-    const existing = await this.prisma.payment.findUnique({
-      where: { tenantId_idempotencyKey: { tenantId, idempotencyKey } },
-    });
-    if (existing) {
-      this.logger.log(`Idempotent hit SoftPOS: key=${idempotencyKey} → payment=${existing.id}`);
-      // Solo soportamos Viva en v1
-      const order = await this.vivaAdapter.initializeOrder({
-        paymentRef: existing.id,
-        amountCents: existing.amountCents,
-        currency: existing.currency,
-      });
-      return {
-        paymentId: existing.id,
-        providerOrderCode: order.orderCode,
-        environment: order.environment,
-        sdkType: 'viva',
-      };
-    }
-
-    // Terminal del venue
-    const terminal = await this.prisma.terminal.findUnique({
-      where: { tenantId_externalId: { tenantId, externalId: dto.terminalExternalId } },
-    });
-    if (!terminal || !terminal.active) {
-      throw new BadRequestException(`Terminal '${dto.terminalExternalId}' no encontrado/inactivo`);
-    }
-
-    // Validar cap si OPERATOR (mismo que /payments)
-    const ctx = this.cls.get('ctx');
-    const creatorUserId = actor?.userId ?? ctx?.userId ?? null;
-    const creatorRole = actor?.role ?? ctx?.role;
-    if (creatorRole === 'OPERATOR') {
-      const venue = await this.prisma.asSystem((tx) =>
-        tx.venue.findUniqueOrThrow({
-          where: { id: tenantId },
-          select: { operatorMaxCobroCents: true },
-        }),
-      );
-      if (dto.amountCents > venue.operatorMaxCobroCents) {
-        throw new BadRequestException(
-          `Importe ${dto.amountCents / 100} € supera el límite (${venue.operatorMaxCobroCents / 100} €).`,
-        );
-      }
-    }
-
-    // Crear Payment en CREATED con captureMethod=SOFTPOS_TAP. qrToken aún se
-    // genera (campo NOT NULL en schema) por consistencia, aunque no se usa.
-    const qrToken = randomUUID();
-    const qrExpiresAt = new Date(Date.now() + QR_TTL_SECONDS * 1000);
-
-    const payment = await this.prisma.$transaction(async (tx) => {
-      const p = await tx.payment.create({
-        data: {
-          tenantId,
-          terminalId: terminal.id,
-          createdByUserId: creatorUserId,
-          idempotencyKey,
-          amountCents: dto.amountCents,
-          availableAmountCents: dto.amountCents,
-          currency: dto.currency,
-          status: 'CREATED',
-          qrToken,
-          qrExpiresAt,
-          // provider VIVA_SOFTPOS/STRIPE_TAP + captureMethod requieren prisma generate
-          // tras la migración 20260511010000. Casteamos hasta que el cliente se regenere.
-          ...({ provider: dto.provider, captureMethod: 'SOFTPOS_TAP' } as Record<string, unknown>),
-        } as never,
-      });
-      await tx.paymentEvent.create({
-        data: {
-          paymentId: p.id,
-          tenantId,
-          eventType: 'CREATED',
-          payload: { source: 'softpos', provider: dto.provider } as never,
-          traceId: ctx?.traceId ?? 'no-trace',
-        },
-      });
-      return p;
-    });
-
-    // Llamar al PSP para obtener orderCode
-    if (dto.provider !== 'VIVA_SOFTPOS') {
-      throw new BadRequestException(
-        `Provider ${dto.provider} aún no implementado para SoftPOS — solo VIVA_SOFTPOS en v1`,
-      );
-    }
-    const order = await this.vivaAdapter.initializeOrder({
-      paymentRef: payment.id,
-      amountCents: payment.amountCents,
-      currency: payment.currency,
-    });
-
-    this.metrics.paymentsCreated.inc({ venue: tenantId, provider: dto.provider });
-    this.logger.log(
-      `SoftPOS payment ${payment.id} initialized amount=${payment.amountCents} venue=${tenantId} orderCode=${order.orderCode}`,
-    );
-
-    return {
-      paymentId: payment.id,
-      providerOrderCode: order.orderCode,
-      environment: order.environment,
-      sdkType: 'viva',
-    };
   }
 
   /**

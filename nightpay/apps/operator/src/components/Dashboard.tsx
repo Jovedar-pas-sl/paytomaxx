@@ -9,11 +9,10 @@ import {
   type OperatorUser,
 } from '@/lib/api';
 import { CreatePayment } from './CreatePayment';
-import { ChargeContactless } from './ChargeContactless';
 import { MyPayments } from './MyPayments';
 import { Earnings } from './Earnings';
 
-type TabKey = 'home' | 'tap' | 'payments' | 'earnings';
+type TabKey = 'home' | 'payments' | 'earnings';
 
 interface Props {
   user: OperatorUser;
@@ -66,8 +65,6 @@ export function Dashboard({ user, onLogout }: Props) {
 
       {tab === 'home' ? (
         <HomeTab user={user} balance={balance} onCobroDone={reload} />
-      ) : tab === 'tap' ? (
-        <ChargeContactless onAuthorized={() => { reload(); setTab('home'); }} />
       ) : tab === 'payments' ? (
         <MyPayments />
       ) : (
@@ -76,7 +73,6 @@ export function Dashboard({ user, onLogout }: Props) {
 
       <nav style={tabBarStyle}>
         <TabBtn active={tab === 'home'} icon="$" label="Inicio" onClick={() => setTab('home')} />
-        <TabBtn active={tab === 'tap'} icon="◉" label="Tap" onClick={() => setTab('tap')} />
         <TabBtn active={tab === 'payments'} icon="◧" label="Cobros" onClick={() => setTab('payments')} />
         <TabBtn active={tab === 'earnings'} icon="◐" label="Ganancias" onClick={() => setTab('earnings')} />
       </nav>
