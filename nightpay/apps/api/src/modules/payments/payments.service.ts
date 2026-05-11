@@ -90,12 +90,16 @@ export class PaymentsService {
     }
 
     // 2b. Si el creador es OPERATOR, validar cap del venue. Owner/Manager lo ignoran.
-    // Preferimos el actor explícito (pasado por el controller) y caemos al CLS si no
-    // viene — útil para callers internos que no usan @CurrentUser.
+    // Excepciones al cap:
+    //  - Wallet top-up: el cliente decide cuánto cargar (prepago); el cap
+    //    de cobros puntuales no aplica.
+    //  - Otros modos (QR cliente, POS_EXTERNAL): cap normal aplica como
+    //    protección contra typos.
     const ctx = this.cls.get('ctx');
     const creatorUserId = actor?.userId ?? ctx?.userId ?? null;
     const creatorRole = actor?.role ?? ctx?.role;
-    if (creatorRole === 'OPERATOR') {
+    const isWalletTopUp = Boolean(dto.wallet);
+    if (creatorRole === 'OPERATOR' && !isWalletTopUp) {
       const venue = await this.prisma.asSystem((tx) =>
         tx.venue.findUniqueOrThrow({
           where: { id: tenantId },
@@ -104,7 +108,8 @@ export class PaymentsService {
       );
       if (dto.amountCents > venue.operatorMaxCobroCents) {
         throw new BadRequestException(
-          `Importe ${dto.amountCents / 100} € supera el límite del local (${venue.operatorMaxCobroCents / 100} €).`,
+          `Importe ${dto.amountCents / 100} € supera el límite del local (${venue.operatorMaxCobroCents / 100} €). ` +
+            `Para wallet top-up no aplica el cap; para cobros puntuales pídele al OWNER que suba el cap en Ajustes.`,
         );
       }
     }
