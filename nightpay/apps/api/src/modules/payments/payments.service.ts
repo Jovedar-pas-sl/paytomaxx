@@ -65,6 +65,7 @@ export class PaymentsService {
     tenantId: string,
     idempotencyKey: string,
     dto: CreatePaymentDto,
+    actor?: { userId: string; role: string },
   ): Promise<CreatedPaymentResponse> {
     // 1. Idempotency: si ya existe pago con esta key, devuélvelo
     const existing = await this.prisma.payment.findUnique({
@@ -84,9 +85,12 @@ export class PaymentsService {
     }
 
     // 2b. Si el creador es OPERATOR, validar cap del venue. Owner/Manager lo ignoran.
+    // Preferimos el actor explícito (pasado por el controller) y caemos al CLS si no
+    // viene — útil para callers internos que no usan @CurrentUser.
     const ctx = this.cls.get('ctx');
-    const creatorUserId = ctx?.userId ?? null;
-    if (ctx?.role === 'OPERATOR') {
+    const creatorUserId = actor?.userId ?? ctx?.userId ?? null;
+    const creatorRole = actor?.role ?? ctx?.role;
+    if (creatorRole === 'OPERATOR') {
       const venue = await this.prisma.asSystem((tx) =>
         tx.venue.findUniqueOrThrow({
           where: { id: tenantId },

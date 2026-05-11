@@ -35,6 +35,12 @@ import {
 } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
 
+const VenueSettingsUpdateSchema = z.object({
+  operatorMaxCobroCents: z.number().int().min(0).max(10_000_00).optional(),
+  platformCommissionBps: z.number().int().min(0).max(10_000).optional(),
+});
+type VenueSettingsUpdate = z.infer<typeof VenueSettingsUpdateSchema>;
+
 const ListPaymentsQuerySchema = z.object({
   status: z
     .string()
@@ -217,6 +223,59 @@ export class AdminController {
     });
 
     return { revoked, userId };
+  }
+
+  // ─── Ajustes del venue (parámetros editables por OWNER) ───────────
+
+  @Get('venue/settings')
+  @Roles('OWNER', 'MANAGER')
+  async getVenueSettings(@Tenant() tenantId: string) {
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          timezone: true,
+          operatorMaxCobroCents: true,
+          platformCommissionBps: true,
+        },
+      }),
+    );
+    return venue;
+  }
+
+  @Patch('venue/settings')
+  @Roles('OWNER')
+  async updateVenueSettings(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(VenueSettingsUpdateSchema)) dto: VenueSettingsUpdate,
+  ) {
+    if (Object.keys(dto).length === 0) {
+      throw new NotFoundException('No hay campos a actualizar');
+    }
+    const updated = await this.prisma.asSystem((tx) =>
+      tx.venue.update({
+        where: { id: tenantId },
+        data: dto,
+        select: {
+          id: true,
+          operatorMaxCobroCents: true,
+          platformCommissionBps: true,
+        },
+      }),
+    );
+    await this.audit.log({
+      action: 'venue.settings.updated',
+      tenantId,
+      actorId: user.sub,
+      targetType: 'Venue',
+      targetId: tenantId,
+      payload: { changes: dto },
+    });
+    return updated;
   }
 
   // ─── Operadoras (chicas) ──────────────────────────────────────────

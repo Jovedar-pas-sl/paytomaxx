@@ -42,9 +42,13 @@ export class PaymentsController {
   async create(
     @Tenant() tenantId: string,
     @IdempotencyKey() idempotencyKey: string,
+    @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(CreatePaymentSchema)) dto: CreatePaymentDto,
   ): Promise<CreatedPaymentResponse> {
-    return this.payments.create(tenantId, idempotencyKey, dto);
+    return this.payments.create(tenantId, idempotencyKey, dto, {
+      userId: user.sub,
+      role: user.role,
+    });
   }
 
   /**

@@ -342,11 +342,13 @@ async function cmdCreateOperator(args: Args) {
   const venueSlug = must(args, 'venue');
   const email = must(args, 'email').toLowerCase();
   const displayName = must(args, 'display-name');
-  const commissionPct = parseFloat(must(args, 'commission'));
+  // Default 90% (modelo NightPay: 10% plataforma, 90% chica). Ajustable por --commission.
+  const commissionRaw = typeof args['commission'] === 'string' ? (args['commission'] as string) : '90';
+  const commissionPct = parseFloat(commissionRaw);
   if (!Number.isFinite(commissionPct) || commissionPct < 0 || commissionPct > 100) {
     throw new Error('commission debe ser un numero entre 0 y 100 (porcentaje)');
   }
-  const commissionBps = Math.round(commissionPct * 100); // 15 → 1500
+  const commissionBps = Math.round(commissionPct * 100); // 90 → 9000
 
   const result = await withBypass(async (tx) => {
     const venue = await tx.venue.findUnique({ where: { slug: venueSlug } });

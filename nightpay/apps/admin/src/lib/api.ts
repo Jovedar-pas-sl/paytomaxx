@@ -337,3 +337,32 @@ export async function createOperatorPayout(
   if (!res.ok) throw new Error(`Error: ${await res.text()}`);
   return res.json();
 }
+
+// ─── Venue settings (Ajustes) ──────────────────────────────────────
+
+export interface VenueSettings {
+  id: string;
+  name: string;
+  slug: string;
+  timezone: string;
+  operatorMaxCobroCents: number;
+  platformCommissionBps: number;
+}
+
+export async function fetchVenueSettings(): Promise<VenueSettings> {
+  const res = await authedFetch('/v1/admin/venue/settings');
+  if (!res.ok) throw new Error('Error cargando ajustes');
+  return res.json();
+}
+
+export async function updateVenueSettings(input: {
+  operatorMaxCobroCents?: number;
+  platformCommissionBps?: number;
+}): Promise<{ id: string; operatorMaxCobroCents: number; platformCommissionBps: number }> {
+  const res = await authedFetch('/v1/admin/venue/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}

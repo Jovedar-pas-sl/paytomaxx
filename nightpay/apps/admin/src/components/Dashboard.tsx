@@ -22,13 +22,14 @@ import {
   type User,
 } from '@/lib/api';
 import { OperatorsPanel } from './OperatorsPanel';
+import { SettingsPanel } from './SettingsPanel';
 
 interface Props {
   user: User;
   onLogout: () => void;
 }
 
-type TabKey = 'payments' | 'operators';
+type TabKey = 'payments' | 'operators' | 'settings';
 
 export function Dashboard({ user, onLogout }: Props) {
   const [tab, setTab] = useState<TabKey>('payments');
@@ -113,10 +114,15 @@ export function Dashboard({ user, onLogout }: Props) {
         <TabButton active={tab === 'operators'} onClick={() => setTab('operators')}>
           Operadoras
         </TabButton>
+        <TabButton active={tab === 'settings'} onClick={() => setTab('settings')}>
+          Ajustes
+        </TabButton>
       </nav>
 
       {tab === 'operators' ? (
         <OperatorsPanel isOwner={user.role === 'OWNER'} />
+      ) : tab === 'settings' ? (
+        <SettingsPanel isOwner={user.role === 'OWNER'} />
       ) : (
       <>
       <section style={metricsGrid}>
