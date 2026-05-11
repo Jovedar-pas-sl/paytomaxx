@@ -36,6 +36,8 @@ model Venue {
   payments           Payment[]
   operatorEarnings   OperatorEarning[]
   operatorPayouts    OperatorPayout[]
+  clientWallets      ClientWallet[]
+  walletConsumptions WalletConsumption[]
 
   @@map("venues")
 }
@@ -90,11 +92,14 @@ model User {
   venue Venue @relation(fields: [tenantId], references: [id])
 
   // Relaciones para OPERATOR
-  earnings           OperatorEarning[] @relation("OperatorEarnings")
-  payouts            OperatorPayout[]  @relation("OperatorPayouts")
-  payoutsPaid        OperatorPayout[]  @relation("PayoutsPaid")
-  payoutsReconciled  OperatorPayout[]  @relation("PayoutsReconciled")
-  paymentsCreated    Payment[]         @relation("PaymentCreatedBy")
+  earnings              OperatorEarning[]   @relation("OperatorEarnings")
+  payouts               OperatorPayout[]    @relation("OperatorPayouts")
+  payoutsPaid           OperatorPayout[]    @relation("PayoutsPaid")
+  payoutsReconciled     OperatorPayout[]    @relation("PayoutsReconciled")
+  paymentsCreated       Payment[]           @relation("PaymentCreatedBy")
+  // Phase 1B — wallet consumptions cobrados por este usuario
+  providedConsumptions  WalletConsumption[] @relation("ConsumptionProvider")
+  reversedConsumptions  WalletConsumption[] @relation("ConsumptionReversedBy")
 
   @@index([tenantId])
   @@map("users")
@@ -174,13 +179,18 @@ model Payment {
   createdAt            DateTime      @default(now()) @db.Timestamptz
   updatedAt            DateTime      @updatedAt @db.Timestamptz
 
-  // Phase 1C — modo de cobro usado: "QR" | "SOFTPOS_TAP" | "WALLET_TOPUP" | "WALLET_CONSUMPTION"
-  // Null para payments antiguos (asume QR).
+  // Modo de cobro usado: "QR" | "WALLET_TOPUP". Null para payments antiguos (asume QR).
   captureMethod String?
+
+  // Phase 1B — si este Payment es el top-up de un ClientWallet, walletId apunta
+  // a la wallet creada/recargada. Cuando Payment llega a AUTHORIZED, el balance
+  // de la wallet se suma atómicamente.
+  walletId String? @db.Uuid
 
   venue           Venue            @relation(fields: [tenantId], references: [id])
   terminal        Terminal         @relation(fields: [terminalId], references: [id])
   createdBy       User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])
+  wallet          ClientWallet?    @relation(fields: [walletId], references: [id])
   events          PaymentEvent[]
   refunds         Refund[]
   operatorEarning OperatorEarning?
@@ -191,6 +201,7 @@ model Payment {
   @@index([tenantId, createdByUserId, createdAt(sort: Desc)])
   @@index([providerTxId])
   @@index([qrExpiresAt])
+  @@index([walletId])
   @@map("payments")
 }
 
@@ -245,7 +256,12 @@ model OperatorEarning {
   id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId           String   @db.Uuid
   operatorId         String   @db.Uuid
-  paymentId          String   @unique @db.Uuid
+  // Source: exactly ONE of paymentId or consumptionId must be set.
+  // (DB CHECK constraint en migración + ambos @unique para evitar doble-pago).
+  paymentId          String?  @unique @db.Uuid
+  // Phase 1B — earnings generadas por consumo de wallet ("tiempo" con chica
+  // en operator app). Mismo ledger que paymentId, distinto origen.
+  consumptionId      String?  @unique @db.Uuid
   paymentAmountCents Int
   commissionBps      Int
   // Calculado: floor(paymentAmountCents * commissionBps / 10000)
@@ -257,10 +273,11 @@ model OperatorEarning {
   payoutId           String?  @db.Uuid
   createdAt          DateTime @default(now()) @db.Timestamptz
 
-  venue    Venue           @relation(fields: [tenantId], references: [id])
-  operator User            @relation("OperatorEarnings", fields: [operatorId], references: [id])
-  payment  Payment         @relation(fields: [paymentId], references: [id])
-  payout   OperatorPayout? @relation("EarningPayout", fields: [payoutId], references: [id])
+  venue       Venue              @relation(fields: [tenantId], references: [id])
+  operator    User               @relation("OperatorEarnings", fields: [operatorId], references: [id])
+  payment     Payment?           @relation(fields: [paymentId], references: [id])
+  consumption WalletConsumption? @relation(fields: [consumptionId], references: [id])
+  payout      OperatorPayout?    @relation("EarningPayout", fields: [payoutId], references: [id])
 
   @@index([tenantId, operatorId, payoutId])
   @@index([tenantId, operatorId, createdAt(sort: Desc)])
@@ -367,4 +384,81 @@ model AuditEvent {
   @@index([action, occurredAt(sort: Desc)])
   @@index([traceId])
   @@map("audit_events")
+}
+
+// ───────────────────────── Phase 1B — Client Wallet ─────────────────
+// Closed-loop prepaid wallet (cash-in-advance). Legal vía EMD2 art. 1.5(k):
+// el saldo solo se gasta dentro del venue emisor, sin convertirse en cash
+// directamente. El cliente carga UNA VEZ (un cargo en su tarjeta con
+// descriptor neutro), consume durante la noche en barra/habitaciones/chicas,
+// y el saldo no consumido se reembolsa al cierre.
+
+enum WalletStatus {
+  ACTIVE
+  EXPIRED
+  REFUNDED
+  DEPLETED
+}
+
+model ClientWallet {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String       @db.Uuid
+  // Identificador opcional del cliente (phone, email, NFC tag, anon hash).
+  // No es PII obligatoria — el saldo se identifica por qrToken.
+  identifier   String?
+  balanceCents Int          @default(0)
+  status       WalletStatus @default(ACTIVE)
+  // Null = no expira mientras ACTIVE (típico durante la noche).
+  // Set cuando admin convierte balance restante en CRÉDITO para próxima visita.
+  expiresAt    DateTime?    @db.Timestamptz
+  // Token único en el QR del cliente. La operadora/camarero/recepción escanean
+  // este token para cobrar consumiciones.
+  qrToken      String       @unique
+  createdAt    DateTime     @default(now()) @db.Timestamptz
+  updatedAt    DateTime     @updatedAt @db.Timestamptz
+
+  venue        Venue               @relation(fields: [tenantId], references: [id])
+  topUps       Payment[]
+  consumptions WalletConsumption[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, identifier])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("client_wallets")
+}
+
+// Cada consumo del balance de una wallet. Atómicamente:
+//  1. balance -= amountCents (SELECT FOR UPDATE de ClientWallet)
+//  2. crea WalletConsumption
+//  3. si providedByUser.role = OPERATOR, crea OperatorEarning ligado
+// Rollback: si admin cancela un consumo, sumamos reversedAt y devolvemos
+// el importe al balance.
+
+model WalletConsumption {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @db.Uuid
+  walletId         String   @db.Uuid
+  amountCents      Int
+  providedByUserId String   @db.Uuid
+  // Categoría libre: "bar" | "room" | "time" | "service" | "other"
+  // No es enum porque el venue puede tener categorías propias.
+  category         String
+  notes            String?
+  // Idempotency key para evitar doble-cobro (camarero pulsa 2 veces).
+  idempotencyKey   String?
+  reversedAt       DateTime? @db.Timestamptz
+  reversedByUserId String?   @db.Uuid
+  createdAt        DateTime  @default(now()) @db.Timestamptz
+
+  venue       Venue            @relation(fields: [tenantId], references: [id])
+  wallet      ClientWallet     @relation(fields: [walletId], references: [id])
+  providedBy  User             @relation("ConsumptionProvider", fields: [providedByUserId], references: [id])
+  reversedBy  User?            @relation("ConsumptionReversedBy", fields: [reversedByUserId], references: [id])
+  earning     OperatorEarning?
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, walletId, createdAt(sort: Desc)])
+  @@index([tenantId, providedByUserId, createdAt(sort: Desc)])
+  @@index([tenantId, category])
+  @@map("wallet_consumptions")
 }
