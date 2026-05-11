@@ -64,6 +64,9 @@ model User {
   invitedAt    DateTime?
   // JWT de un solo uso para set-password. Limpio al aceptar la invitacion.
   inviteToken  String?   @unique
+  // sha256 hash del JWT self-onboarding (TTL 72h). Admin genera el link para
+  // que la chica rellene su perfil ella sola si sabe manejar la web + KYC.
+  selfOnboardingToken String? @unique
   // Phase 1A — routing de payout. Solo OPERATOR. Valores en migration 20260511 comment.
   // Si payoutMethod es null el modal "Marcar pagado" cae a MANUAL_CASH.
   payoutMethod   String?

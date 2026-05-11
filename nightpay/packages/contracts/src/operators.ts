@@ -243,6 +243,60 @@ export const AcceptInviteSchema = z.object({
 });
 export type AcceptInviteDto = z.infer<typeof AcceptInviteSchema>;
 
+// ─── Self-onboarding (Phase 1A.2) ───────────────────────────────────
+// La chica recibe un link único 72h del admin y rellena su perfil ella sola.
+
+/** Vista pre-fill que recibe la chica al abrir el link (solo lo que admin ya sabe). */
+export const SelfOnboardingProfileSchema = z.object({
+  displayName: z.string().nullable(),
+  email: z.string().email(),
+  phone: z.string().nullable(),
+  passportCountry: z.string().nullable(),
+  passportLast4: z.string().nullable(),
+  hasEmpadronamiento: z.boolean(),
+  hasNie: z.boolean(),
+  hasTie: z.boolean(),
+  walletProvider: WalletProviderSchema.nullable(),
+  walletStatus: WalletStatusSchema.nullable(),
+  walletTestPassed: z.boolean(),
+  needsHelpWallet: z.boolean(),
+  needsHelpDocs: z.boolean(),
+  onboardingNotes: z.string().nullable(),
+  payoutMethod: PayoutMethodSchema.nullable(),
+  payoutAddress: z.string().nullable(),
+  payoutLabel: z.string().nullable(),
+  venueName: z.string(),
+});
+export type SelfOnboardingProfile = z.infer<typeof SelfOnboardingProfileSchema>;
+
+/** Lo que la chica submite — subset de UpdateOperatorDto, no toca commission/active. */
+export const SelfOnboardingSubmitSchema = z.object({
+  phone: z.string().max(40).nullable().optional(),
+  passportCountry: z.string().max(80).nullable().optional(),
+  passportLast4: z.string().max(8).nullable().optional(),
+  hasEmpadronamiento: z.boolean().optional(),
+  hasNie: z.boolean().optional(),
+  hasTie: z.boolean().optional(),
+  walletProvider: WalletProviderSchema.nullable().optional(),
+  walletStatus: WalletStatusSchema.nullable().optional(),
+  walletTestPassed: z.boolean().optional(),
+  needsHelpWallet: z.boolean().optional(),
+  needsHelpDocs: z.boolean().optional(),
+  onboardingNotes: z.string().max(2000).nullable().optional(),
+  // Phase 1A — la chica puede registrar su address de payout también
+  payoutMethod: PayoutMethodSchema.nullable().optional(),
+  payoutAddress: z.string().min(1).max(200).nullable().optional(),
+  payoutLabel: z.string().max(120).nullable().optional(),
+});
+export type SelfOnboardingSubmitDto = z.infer<typeof SelfOnboardingSubmitSchema>;
+
+/** Respuesta del endpoint admin que crea el link. */
+export const SelfOnboardingLinkResponseSchema = z.object({
+  url: z.string().url(),
+  expiresAt: z.string().datetime(),
+});
+export type SelfOnboardingLinkResponse = z.infer<typeof SelfOnboardingLinkResponseSchema>;
+
 /** Respuesta del endpoint createOperator — incluye URL de invite (para copiar a WhatsApp si SMTP off). */
 export const CreateOperatorResponseSchema = z.object({
   operator: OperatorPublicViewSchema,

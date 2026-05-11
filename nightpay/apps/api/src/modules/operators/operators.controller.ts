@@ -4,15 +4,19 @@ import {
   Get,
   HttpCode,
   Inject,
+  Param,
   Post,
   UseGuards,
 } from '@nestjs/common';
 import {
   AcceptInviteSchema,
+  SelfOnboardingSubmitSchema,
   type AcceptInviteDto,
   type EarningView,
   type OperatorBalance,
   type PayoutView,
+  type SelfOnboardingProfile,
+  type SelfOnboardingSubmitDto,
 } from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -76,5 +80,30 @@ export class OperatorsController {
     @Body(new ZodValidationPipe(AcceptInviteSchema)) dto: AcceptInviteDto,
   ): Promise<{ ok: true }> {
     return this.operators.acceptInvite(dto.token, dto.password);
+  }
+
+  /**
+   * Lee el perfil pre-rellenado para la chica que abre el link self-onboarding.
+   * Sin auth (JWT en path es la cred). Rate-limit suave para evitar enumeración.
+   */
+  @Public()
+  @Get('self-onboarding/:token')
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'operators-self-onboarding-get' })
+  async getSelfOnboardingProfile(
+    @Param('token') token: string,
+  ): Promise<SelfOnboardingProfile> {
+    return this.operators.getSelfOnboardingProfile(token);
+  }
+
+  /** La chica submite su perfil. */
+  @Public()
+  @Post('self-onboarding/:token')
+  @HttpCode(200)
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'operators-self-onboarding-submit' })
+  async submitSelfOnboarding(
+    @Param('token') token: string,
+    @Body(new ZodValidationPipe(SelfOnboardingSubmitSchema)) dto: SelfOnboardingSubmitDto,
+  ): Promise<{ ok: true }> {
+    return this.operators.submitSelfOnboarding(token, dto);
   }
 }

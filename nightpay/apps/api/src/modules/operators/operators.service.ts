@@ -23,15 +23,25 @@ import type {
   OperatorWithBalance,
   EarningView,
   PayoutView,
+  SelfOnboardingLinkResponse,
+  SelfOnboardingProfile,
+  SelfOnboardingSubmitDto,
   UpdateOperatorDto,
 } from '@nightpay/contracts';
 
 const INVITE_TTL_HOURS = 24;
+const SELF_ONBOARDING_TTL_HOURS = 72;
 
 interface InviteJwtPayload {
   sub: string; // userId
   tenantId: string;
   purpose: 'operator-invite';
+}
+
+interface SelfOnboardingJwtPayload {
+  sub: string; // operatorId
+  tenantId: string;
+  purpose: 'operator-self-onboarding';
 }
 
 /** Hash sha256 hex del token JWT. Persistimos el hash, no el token, en users.inviteToken. */
@@ -348,6 +358,202 @@ export class OperatorsService {
 
     this.logger.log(`Operator invite accepted for user=${user.id}`);
     return { ok: true };
+  }
+
+  // ─── Self-onboarding (Phase 1A.2) ────────────────────────────────
+  // Admin genera un link único 72h. Chica abre el link sin login → ve form
+  // pre-rellenado con sus datos actuales → submite. Si no sabe manejar la
+  // web, el admin sigue rellenando desde su tab Onboarding como hasta ahora.
+
+  /**
+   * Genera (o regenera) el link self-onboarding para una operadora.
+   * Solo OWNER/MANAGER del venue. El JWT anterior queda inválido al rotar.
+   */
+  async createSelfOnboardingLink(
+    tenantId: string,
+    operatorId: string,
+    actorUserId: string,
+  ): Promise<SelfOnboardingLinkResponse> {
+    const operator = await this.prisma.user.findFirst({
+      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      select: { id: true, email: true, deletedAt: true },
+    });
+    if (!operator) throw new NotFoundException('Operadora no encontrada');
+    if (operator.deletedAt) throw new ConflictException('Operadora dada de baja');
+
+    const token = await this.jwt.signAsync(
+      {
+        sub: operator.id,
+        tenantId,
+        purpose: 'operator-self-onboarding',
+      } satisfies SelfOnboardingJwtPayload,
+      { expiresIn: `${SELF_ONBOARDING_TTL_HOURS}h` },
+    );
+    const tokenHash = hashInviteToken(token);
+
+    await this.prisma.user.update({
+      where: { id: operator.id },
+      data: { selfOnboardingToken: tokenHash },
+    });
+
+    const baseUrl = this.config.getOrThrow<string>('OPERATOR_BASE_URL');
+    const url = `${baseUrl.replace(/\/$/, '')}/onboarding/${token}`;
+    const expiresAt = new Date(Date.now() + SELF_ONBOARDING_TTL_HOURS * 60 * 60 * 1000);
+
+    await this.audit.log({
+      action: 'operator.self_onboarding_link.created',
+      tenantId,
+      actorId: actorUserId,
+      targetType: 'User',
+      targetId: operator.id,
+      payload: { ttlHours: SELF_ONBOARDING_TTL_HOURS },
+    });
+    this.logger.log(
+      `Self-onboarding link created for operator=${operator.id} by actor=${actorUserId}`,
+    );
+
+    return { url, expiresAt: expiresAt.toISOString() };
+  }
+
+  /**
+   * Validación + lectura del perfil actual para que la chica vea sus datos
+   * pre-rellenados en el form. Sin auth — el token JWT es la cred.
+   */
+  async getSelfOnboardingProfile(token: string): Promise<SelfOnboardingProfile> {
+    const operator = await this.validateSelfOnboardingToken(token);
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({
+        where: { id: operator.tenantId },
+        select: { name: true },
+      }),
+    );
+    const u = operator as unknown as {
+      email: string;
+      displayName: string | null;
+      phone: string | null;
+      passportCountry: string | null;
+      passportLast4: string | null;
+      hasEmpadronamiento: boolean;
+      hasNie: boolean;
+      hasTie: boolean;
+      walletProvider: string | null;
+      walletStatus: string | null;
+      walletTestPassed: boolean;
+      needsHelpWallet: boolean;
+      needsHelpDocs: boolean;
+      onboardingNotes: string | null;
+      payoutMethod: string | null;
+      payoutAddress: string | null;
+      payoutLabel: string | null;
+    };
+    return {
+      displayName: u.displayName,
+      email: u.email,
+      phone: u.phone,
+      passportCountry: u.passportCountry,
+      passportLast4: u.passportLast4,
+      hasEmpadronamiento: u.hasEmpadronamiento ?? false,
+      hasNie: u.hasNie ?? false,
+      hasTie: u.hasTie ?? false,
+      walletProvider: u.walletProvider as SelfOnboardingProfile['walletProvider'],
+      walletStatus: u.walletStatus as SelfOnboardingProfile['walletStatus'],
+      walletTestPassed: u.walletTestPassed ?? false,
+      needsHelpWallet: u.needsHelpWallet ?? false,
+      needsHelpDocs: u.needsHelpDocs ?? false,
+      onboardingNotes: u.onboardingNotes,
+      payoutMethod: u.payoutMethod as SelfOnboardingProfile['payoutMethod'],
+      payoutAddress: u.payoutAddress,
+      payoutLabel: u.payoutLabel,
+      venueName: venue.name,
+    };
+  }
+
+  /**
+   * La chica submite su form. Validamos token, actualizamos datos, dejamos el
+   * token activo (puede volver a editar dentro de las 72h sin pedir uno nuevo).
+   * Si quiere uno nuevo, el admin regenera y el viejo queda invalidado.
+   */
+  async submitSelfOnboarding(
+    token: string,
+    dto: SelfOnboardingSubmitDto,
+  ): Promise<{ ok: true }> {
+    const operator = await this.validateSelfOnboardingToken(token);
+
+    const data: Record<string, unknown> = {};
+    if (dto.phone !== undefined) data.phone = dto.phone;
+    if (dto.passportCountry !== undefined) data.passportCountry = dto.passportCountry;
+    if (dto.passportLast4 !== undefined) data.passportLast4 = dto.passportLast4;
+    if (dto.hasEmpadronamiento !== undefined) data.hasEmpadronamiento = dto.hasEmpadronamiento;
+    if (dto.hasNie !== undefined) data.hasNie = dto.hasNie;
+    if (dto.hasTie !== undefined) data.hasTie = dto.hasTie;
+    if (dto.walletProvider !== undefined) data.walletProvider = dto.walletProvider;
+    if (dto.walletStatus !== undefined) data.walletStatus = dto.walletStatus;
+    if (dto.walletTestPassed !== undefined) {
+      data.walletTestPassed = dto.walletTestPassed;
+      data.walletTestAt = dto.walletTestPassed ? new Date() : null;
+    }
+    if (dto.needsHelpWallet !== undefined) data.needsHelpWallet = dto.needsHelpWallet;
+    if (dto.needsHelpDocs !== undefined) data.needsHelpDocs = dto.needsHelpDocs;
+    if (dto.onboardingNotes !== undefined) data.onboardingNotes = dto.onboardingNotes;
+    if (dto.payoutMethod !== undefined) data.payoutMethod = dto.payoutMethod;
+    if (dto.payoutAddress !== undefined) data.payoutAddress = dto.payoutAddress;
+    if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
+
+    // Marca progreso de onboarding automáticamente si todavía está NEW
+    const current = operator as unknown as { onboardingStatus: string | null };
+    if (current.onboardingStatus === 'NEW' || current.onboardingStatus === 'PROFILE_CREATED') {
+      data.onboardingStatus = 'INVITE_ACTIVATED';
+    }
+
+    await this.prisma.user.update({
+      where: { id: operator.id },
+      data,
+    });
+
+    await this.audit.log({
+      action: 'operator.self_onboarding.submitted',
+      tenantId: operator.tenantId,
+      actorId: operator.id, // la propia chica es el actor
+      targetType: 'User',
+      targetId: operator.id,
+      payload: { fields: Object.keys(data) },
+    });
+
+    this.logger.log(`Self-onboarding submitted by operator=${operator.id}`);
+    return { ok: true };
+  }
+
+  /**
+   * Valida el JWT + hash en DB. Devuelve el row del operator si OK.
+   * Throws UnauthorizedException en cualquier fallo de validación — sin
+   * detalles del motivo para no filtrar info a un atacante.
+   */
+  private async validateSelfOnboardingToken(token: string) {
+    let decoded: SelfOnboardingJwtPayload;
+    try {
+      decoded = await this.jwt.verifyAsync<SelfOnboardingJwtPayload>(token);
+    } catch {
+      throw new UnauthorizedException('Token inválido o expirado');
+    }
+    if (decoded.purpose !== 'operator-self-onboarding') {
+      throw new UnauthorizedException('Token inválido');
+    }
+    const tokenHash = hashInviteToken(token);
+    const operator = await this.prisma.asSystem((tx) =>
+      tx.user.findFirst({
+        where: {
+          id: decoded.sub,
+          tenantId: decoded.tenantId,
+          role: 'OPERATOR',
+          selfOnboardingToken: tokenHash,
+          deletedAt: null,
+        },
+      }),
+    );
+    if (!operator) {
+      throw new UnauthorizedException('Token inválido o ya rotado');
+    }
+    return operator;
   }
 
   /**

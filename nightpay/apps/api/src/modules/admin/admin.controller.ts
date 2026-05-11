@@ -307,6 +307,23 @@ export class AdminController {
     return this.operators.updateOperator(tenantId, id, user.sub, user.role, dto);
   }
 
+  /**
+   * Genera (o rota) el link self-onboarding para una operadora.
+   * Admin lo manda a la chica via WhatsApp; ella abre el link sin login y
+   * rellena su perfil. TTL 72h. Si no sabe manejar la web, el admin sigue
+   * rellenando desde su tab Onboarding.
+   */
+  @Post('operators/:id/self-onboarding-link')
+  @Roles('OWNER', 'MANAGER')
+  @HttpCode(200)
+  async createSelfOnboardingLink(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.operators.createSelfOnboardingLink(tenantId, id, user.sub);
+  }
+
   @Get('operators/:id/earnings')
   @Roles('OWNER', 'MANAGER')
   async listOperatorEarnings(

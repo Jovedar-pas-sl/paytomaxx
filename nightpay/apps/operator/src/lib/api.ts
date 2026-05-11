@@ -336,6 +336,88 @@ export async function consumeWallet(input: {
   return res.json();
 }
 
+// ─── Public — Self-onboarding ─────────────────────────────────────
+
+export type WalletProvider =
+  | 'BINANCE' | 'BYBIT' | 'OKX' | 'CRYPTO_COM' | 'TRUST_WALLET'
+  | 'FASTERPAY' | 'PAYQUICKER' | 'WISE' | 'REVOLUT' | 'OTHER' | 'NONE';
+
+export type WalletStatusKYC =
+  | 'NOT_STARTED' | 'REGISTERED' | 'KYC_PENDING' | 'KYC_VERIFIED' | 'KYC_REJECTED';
+
+export type PayoutMethod =
+  | 'USDT_TRC20' | 'USDT_BEP20' | 'USDC_POLY' | 'USDC_SOL'
+  | 'BINANCE_PAY_ID' | 'OKX_INTERNAL' | 'BYBIT_INTERNAL'
+  | 'FASTERPAY_EMAIL' | 'PAYQUICKER_EMAIL' | 'HYPERWALLET_TOKEN'
+  | 'REVOLUT_TAG' | 'PAYONEER_EMAIL'
+  | 'SEPA_IBAN' | 'WIRE_INTERNATIONAL'
+  | 'MERCADOPAGO_CVU' | 'PIX_KEY' | 'NEQUI_PHONE' | 'DAVIPLATA_PHONE'
+  | 'MANUAL_CASH';
+
+export interface SelfOnboardingProfile {
+  displayName: string | null;
+  email: string;
+  phone: string | null;
+  passportCountry: string | null;
+  passportLast4: string | null;
+  hasEmpadronamiento: boolean;
+  hasNie: boolean;
+  hasTie: boolean;
+  walletProvider: WalletProvider | null;
+  walletStatus: WalletStatusKYC | null;
+  walletTestPassed: boolean;
+  needsHelpWallet: boolean;
+  needsHelpDocs: boolean;
+  onboardingNotes: string | null;
+  payoutMethod: PayoutMethod | null;
+  payoutAddress: string | null;
+  payoutLabel: string | null;
+  venueName: string;
+}
+
+export interface SelfOnboardingSubmitDto {
+  phone?: string | null;
+  passportCountry?: string | null;
+  passportLast4?: string | null;
+  hasEmpadronamiento?: boolean;
+  hasNie?: boolean;
+  hasTie?: boolean;
+  walletProvider?: WalletProvider | null;
+  walletStatus?: WalletStatusKYC | null;
+  walletTestPassed?: boolean;
+  needsHelpWallet?: boolean;
+  needsHelpDocs?: boolean;
+  onboardingNotes?: string | null;
+  payoutMethod?: PayoutMethod | null;
+  payoutAddress?: string | null;
+  payoutLabel?: string | null;
+}
+
+export async function fetchSelfOnboardingProfile(token: string): Promise<SelfOnboardingProfile> {
+  const res = await fetch(`${API_BASE}/v1/operators/self-onboarding/${encodeURIComponent(token)}`);
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('El link expiró o no es válido. Pide uno nuevo al admin.');
+    throw new Error(`Error: ${await res.text()}`);
+  }
+  return res.json();
+}
+
+export async function submitSelfOnboarding(
+  token: string,
+  dto: SelfOnboardingSubmitDto,
+): Promise<{ ok: true }> {
+  const res = await fetch(`${API_BASE}/v1/operators/self-onboarding/${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dto),
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('El link expiró. Pide uno nuevo al admin.');
+    throw new Error(`Error guardando: ${await res.text()}`);
+  }
+  return res.json();
+}
+
 // ─── Public — accept invite ───────────────────────────────────────
 
 export async function acceptInvite(token: string, password: string): Promise<{ ok: true }> {

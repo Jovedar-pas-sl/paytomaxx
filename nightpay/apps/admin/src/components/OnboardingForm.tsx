@@ -3,6 +3,7 @@
 import { useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Select } from '@nightpay/ui';
 import {
+  createSelfOnboardingLink,
   updateOperator,
   type Operator,
   type OnboardingStatus,
@@ -52,6 +53,94 @@ const ONBOARDING_STATUS_LABELS: Record<OnboardingStatus, string> = {
   READY: '🟢 Operativa · puede cobrar y recibir',
   BLOCKED: '🔴 Bloqueada · algún problema sin resolver',
 };
+
+/**
+ * Banner que el admin usa para generar un link self-onboarding que se le manda
+ * a la chica vía WhatsApp. Ella lo abre sin login y rellena su perfil.
+ */
+function SelfOnboardingLinkBanner({ operatorId }: { operatorId: string }) {
+  const [generating, setGenerating] = useState(false);
+  const [link, setLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function generate() {
+    setGenerating(true);
+    setError(null);
+    setCopied(false);
+    try {
+      const result = await createSelfOnboardingLink(operatorId);
+      setLink(result);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function copy() {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return (
+    <Card style={selfOnboardingBanner}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
+        <div style={{ flex: 1 }}>
+          <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>
+            ¿La chica sabe usar la web?
+          </p>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
+            Mándale un link de 72h y ella misma rellena sus datos (pasaporte, KYC,
+            wallet). Si no sabe, rellénalos tú abajo y ya.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={generate}
+          loading={generating}
+        >
+          {link ? '↻ Regenerar' : '📤 Generar link'}
+        </Button>
+      </div>
+
+      {link ? (
+        <div style={linkBoxStyle}>
+          <code style={linkUrlStyle}>{link.url}</code>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+            <Button type="button" onClick={copy} variant="ghost">
+              {copied ? '✓ Copiado' : 'Copiar'}
+            </Button>
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(
+                `Hola, este es tu link para rellenar tu perfil en NightPay (válido 72h): ${link.url}`,
+              )}`}
+              target="_blank"
+              rel="noreferrer"
+              style={whatsappBtnStyle}
+            >
+              💬 Compartir WhatsApp
+            </a>
+          </div>
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.72rem', color: 'var(--np-text-dim)' }}>
+            Caduca: {new Date(link.expiresAt).toLocaleString('es-ES')}
+          </p>
+        </div>
+      ) : null}
+
+      {error ? (
+        <p style={{ color: 'var(--np-danger)', margin: '0.5rem 0 0', fontSize: '0.85rem' }}>{error}</p>
+      ) : null}
+    </Card>
+  );
+}
 
 export function OnboardingForm({ operator, onSaved }: Props) {
   const [phone, setPhone] = useState(operator.phone ?? '');
@@ -108,6 +197,9 @@ export function OnboardingForm({ operator, onSaved }: Props) {
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {/* Self-onboarding link generator */}
+      <SelfOnboardingLinkBanner operatorId={operator.id} />
+
       {/* Estado general */}
       <Card style={summaryCard}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -415,4 +507,41 @@ const textareaStyle: CSSProperties = {
   color: 'var(--np-text)',
   fontFamily: 'inherit',
   resize: 'vertical',
+};
+
+const selfOnboardingBanner: CSSProperties = {
+  padding: '1rem',
+  background: 'linear-gradient(135deg, var(--np-surface-2), var(--np-bg))',
+  borderColor: 'var(--np-accent)',
+};
+
+const linkBoxStyle: CSSProperties = {
+  marginTop: '0.75rem',
+  padding: '0.75rem',
+  background: 'var(--np-bg)',
+  border: '1px dashed var(--np-border)',
+  borderRadius: 'var(--np-r-md)',
+};
+
+const linkUrlStyle: CSSProperties = {
+  display: 'block',
+  fontSize: '0.75rem',
+  fontFamily: 'var(--np-font-mono, monospace)',
+  color: 'var(--np-text-mute)',
+  wordBreak: 'break-all',
+  lineHeight: 1.4,
+};
+
+const whatsappBtnStyle: CSSProperties = {
+  padding: '0.5rem 0.875rem',
+  background: '#25D366',
+  color: 'white',
+  borderRadius: 'var(--np-r-md)',
+  fontSize: '0.85rem',
+  fontWeight: 500,
+  textDecoration: 'none',
+  border: 'none',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.25rem',
 };

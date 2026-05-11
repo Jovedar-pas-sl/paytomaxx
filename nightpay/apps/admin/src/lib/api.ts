@@ -418,6 +418,21 @@ export async function updateOperator(
   return res.json();
 }
 
+/**
+ * Genera (o rota) un link self-onboarding 72h para la operadora. El admin
+ * copia el link y se lo manda a la chica vía WhatsApp. Ella lo abre sin login.
+ */
+export async function createSelfOnboardingLink(
+  operatorId: string,
+): Promise<{ url: string; expiresAt: string }> {
+  const res = await authedFetch(`/v1/admin/operators/${operatorId}/self-onboarding-link`, {
+    method: 'POST',
+    body: '{}',
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
 export async function fetchOperatorEarnings(id: string): Promise<OperatorEarning[]> {
   const res = await authedFetch(`/v1/admin/operators/${id}/earnings`);
   if (!res.ok) throw new Error('Error cargando earnings');
