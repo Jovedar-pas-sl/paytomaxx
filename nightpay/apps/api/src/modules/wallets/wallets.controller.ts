@@ -9,6 +9,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -132,5 +133,42 @@ export class WalletsController {
     @Param('id', new ParseUUIDPipe()) walletId: string,
   ) {
     return this.wallets.getWalletView({ tenantId, walletId });
+  }
+}
+
+/** Endpoints admin para el WalletsPanel del dashboard. */
+@Controller('admin/wallets')
+@UseGuards(RolesGuard)
+export class AdminWalletsController {
+  private readonly wallets: WalletsService;
+
+  constructor(@Inject(WalletsService) wallets: WalletsService) {
+    this.wallets = wallets;
+  }
+
+  @Get('stats')
+  @Roles('OWNER', 'MANAGER')
+  async stats(@Tenant() tenantId: string) {
+    return this.wallets.getAdminStats(tenantId);
+  }
+
+  @Get()
+  @Roles('OWNER', 'MANAGER')
+  async list(
+    @Tenant() tenantId: string,
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const validStatuses = ['ACTIVE', 'EXPIRED', 'REFUNDED', 'DEPLETED'] as const;
+    type ValidStatus = (typeof validStatuses)[number];
+    const filterStatus: ValidStatus | undefined = validStatuses.includes(status as ValidStatus)
+      ? (status as ValidStatus)
+      : undefined;
+    const parsedLimit = limit ? Math.min(200, Math.max(1, parseInt(limit, 10) || 50)) : 50;
+    return this.wallets.listForAdmin({
+      tenantId,
+      status: filterStatus,
+      limit: parsedLimit,
+    });
   }
 }

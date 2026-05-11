@@ -27,6 +27,23 @@ export const CreatePaymentSchema = z.object({
     .max(80)
     .describe('externalId del terminal del venue (ej. BARRA-1)'),
   currency: z.string().length(3).default('EUR'),
+  /**
+   * Phase 1B opcional — si presente, este pago es un top-up de ClientWallet.
+   * - create: true → crea una wallet nueva, walletId queda en la response.
+   * - walletId: <uuid> → suma al balance de una wallet existente al AUTHORIZED.
+   * (Mutex: exactamente uno de los dos campos o ninguno).
+   */
+  wallet: z
+    .union([
+      z.object({
+        create: z.literal(true),
+        identifier: z.string().min(1).max(200).optional(),
+      }),
+      z.object({
+        walletId: UuidSchema,
+      }),
+    ])
+    .optional(),
 });
 export type CreatePaymentDto = z.infer<typeof CreatePaymentSchema>;
 
@@ -44,6 +61,12 @@ export const CreatedPaymentResponseSchema = z.object({
     .describe('PNG del QR ya renderizado, embebido como data URL'),
   qrExpiresAt: z.string().datetime(),
   createdAt: z.string().datetime(),
+  /**
+   * Phase 1B — solo cuando el pago es un top-up de wallet (dto.wallet set).
+   * El cliente usa walletQrToken para ver su saldo + consumir.
+   */
+  walletId: UuidSchema.nullable().optional(),
+  walletQrToken: z.string().nullable().optional(),
 });
 export type CreatedPaymentResponse = z.infer<typeof CreatedPaymentResponseSchema>;
 

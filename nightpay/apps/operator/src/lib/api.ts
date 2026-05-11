@@ -81,6 +81,32 @@ export interface CreatedPayment {
   qrPngDataUrl: string;
   qrExpiresAt: string;
   createdAt: string;
+  // Phase 1B — set cuando el cobro es un top-up de wallet
+  walletId?: string | null;
+  walletQrToken?: string | null;
+}
+
+// ─── Phase 1B — Wallet ─────────────────────────────────────────────
+
+export interface ConsumeWalletResult {
+  consumptionId: string;
+  newBalanceCents: number;
+  earningCreated: boolean;
+  earningCommissionCents: number | null;
+}
+
+export interface WalletPublicView {
+  id: string;
+  balanceCents: number;
+  status: 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED';
+  expiresAt: string | null;
+  consumptions: Array<{
+    id: string;
+    amountCents: number;
+    category: string;
+    providedByName: string | null;
+    createdAt: string;
+  }>;
 }
 
 // ─── Token storage ────────────────────────────────────────────────
@@ -248,6 +274,43 @@ export async function cancelPayment(id: string): Promise<{ status: string }> {
 export async function fetchTerminals(): Promise<Array<{ externalId: string; label: string }>> {
   const res = await authedFetch('/v1/venues/me/terminals');
   if (!res.ok) throw new Error('Error cargando terminales');
+  return res.json();
+}
+
+// ─── Phase 1B — Wallet ─────────────────────────────────────────────
+
+/** Lee el wallet del cliente por su qrToken (sin auth). */
+export async function fetchWalletPublic(qrToken: string): Promise<WalletPublicView> {
+  const res = await fetch(`${API_BASE}/v1/wallets/public/${encodeURIComponent(qrToken)}`);
+  if (!res.ok) throw new Error('Wallet no encontrada');
+  return res.json();
+}
+
+/**
+ * Cobra una cantidad al balance de un wallet. La chica escanea el QR del
+ * cliente y la app llama esto. Si la chica es OPERATOR, el backend genera
+ * automáticamente el OperatorEarning con su comisión.
+ */
+export async function consumeWallet(input: {
+  walletId: string;
+  amountCents: number;
+  category: string;
+  notes?: string;
+}): Promise<ConsumeWalletResult> {
+  const idemKey = `wc-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const res = await authedFetch(`/v1/wallets/${input.walletId}/consume`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idemKey },
+    body: JSON.stringify({
+      amountCents: input.amountCents,
+      category: input.category,
+      notes: input.notes,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Cobro a wallet falló: ${body}`);
+  }
   return res.json();
 }
 

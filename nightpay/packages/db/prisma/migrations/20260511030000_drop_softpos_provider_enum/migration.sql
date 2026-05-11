@@ -3,22 +3,29 @@
 -- TS se revirtieron en 41f274b. Ya no hay filas usando estos valores (verificado).
 
 -- PostgreSQL no permite DROP de enum values directamente — toca recrear el tipo.
--- Estrategia segura:
+-- Estrategia segura (atómica vía DDL transaccional):
 --   1. Crear enum nuevo
---   2. Cambiar columnas a TEXT (transitoria)
+--   2. Cambiar TODAS las columnas que usan el enum a TEXT (transitoria)
 --   3. Renombrar enums
 --   4. Cambiar columnas al enum nuevo
 --   5. Drop enum viejo
+--
+-- IMPORTANTE: cualquier tabla nueva con `Provider` debe añadirse aquí.
+-- Actualmente: gateway_credentials, payments, webhook_deliveries, reconciliations.
 
 CREATE TYPE "Provider_new" AS ENUM ('WIPAY', 'PEANPE');
 
 ALTER TABLE "gateway_credentials" ALTER COLUMN "provider" TYPE TEXT;
 ALTER TABLE "payments" ALTER COLUMN "provider" TYPE TEXT;
+ALTER TABLE "webhook_deliveries" ALTER COLUMN "provider" TYPE TEXT;
+ALTER TABLE "reconciliations" ALTER COLUMN "provider" TYPE TEXT;
 
 ALTER TYPE "Provider" RENAME TO "Provider_old";
 ALTER TYPE "Provider_new" RENAME TO "Provider";
 
 ALTER TABLE "gateway_credentials" ALTER COLUMN "provider" TYPE "Provider" USING ("provider"::"Provider");
 ALTER TABLE "payments" ALTER COLUMN "provider" TYPE "Provider" USING ("provider"::"Provider");
+ALTER TABLE "webhook_deliveries" ALTER COLUMN "provider" TYPE "Provider" USING ("provider"::"Provider");
+ALTER TABLE "reconciliations" ALTER COLUMN "provider" TYPE "Provider" USING ("provider"::"Provider");
 
 DROP TYPE "Provider_old";

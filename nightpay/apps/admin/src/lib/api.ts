@@ -455,6 +455,58 @@ export async function fetchTreasuryStats(): Promise<TreasuryStats> {
   return res.json();
 }
 
+// ─── Phase 1B — Wallets ─────────────────────────────────────────────
+
+export interface WalletAdminRow {
+  id: string;
+  identifier: string | null;
+  balanceCents: number;
+  status: 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED';
+  expiresAt: string | null;
+  qrToken: string;
+  consumptionCount: number;
+  createdAt: string;
+}
+
+export interface WalletsAdminStats {
+  activeCount: number;
+  totalBalanceCents: number;
+  todayTopUpsCents: number;
+  todayConsumptionsCents: number;
+  todayRefundsCents: number;
+  byCategory: Record<string, number>;
+}
+
+export async function fetchWalletsStats(): Promise<WalletsAdminStats> {
+  const res = await authedFetch('/v1/admin/wallets/stats');
+  if (!res.ok) throw new Error('Error cargando stats de wallets');
+  return res.json();
+}
+
+export async function fetchWalletsList(params?: {
+  status?: WalletAdminRow['status'];
+  limit?: number;
+}): Promise<WalletAdminRow[]> {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set('status', params.status);
+  if (params?.limit) qs.set('limit', String(params.limit));
+  const res = await authedFetch(`/v1/admin/wallets?${qs.toString()}`);
+  if (!res.ok) throw new Error('Error cargando wallets');
+  return res.json();
+}
+
+export async function refundWallet(
+  walletId: string,
+  input: { method: 'CARD' | 'CREDIT'; notes?: string },
+): Promise<{ walletId: string; refundedCents: number; newStatus: string }> {
+  const res = await authedFetch(`/v1/wallets/${walletId}/refund`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Refund falló: ${await res.text()}`);
+  return res.json();
+}
+
 export async function fetchExchangeRate(): Promise<{
   pair: string;
   rate: number;

@@ -24,13 +24,14 @@ import {
 import { OperatorsPanel } from './OperatorsPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { TreasuryPanel } from './TreasuryPanel';
+import { WalletsPanel } from './WalletsPanel';
 
 interface Props {
   user: User;
   onLogout: () => void;
 }
 
-type TabKey = 'payments' | 'operators' | 'treasury' | 'settings';
+type TabKey = 'payments' | 'operators' | 'wallets' | 'treasury' | 'settings';
 
 export function Dashboard({ user, onLogout }: Props) {
   const [tab, setTab] = useState<TabKey>('payments');
@@ -115,6 +116,9 @@ export function Dashboard({ user, onLogout }: Props) {
         <TabButton active={tab === 'operators'} onClick={() => setTab('operators')}>
           Operadoras
         </TabButton>
+        <TabButton active={tab === 'wallets'} onClick={() => setTab('wallets')}>
+          Wallets
+        </TabButton>
         <TabButton active={tab === 'treasury'} onClick={() => setTab('treasury')}>
           Treasury
         </TabButton>
@@ -125,6 +129,8 @@ export function Dashboard({ user, onLogout }: Props) {
 
       {tab === 'operators' ? (
         <OperatorsPanel isOwner={user.role === 'OWNER'} />
+      ) : tab === 'wallets' ? (
+        <WalletsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'treasury' ? (
         <TreasuryPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'settings' ? (

@@ -37,3 +37,27 @@ export async function startAuthorization(
 
 export const apiBase = API_BASE;
 export const wsBase = process.env.NEXT_PUBLIC_WS_URL ?? API_BASE.replace(/^http/, 'ws');
+
+// ─── Phase 1B — Wallet (cliente ve su balance) ─────────────────────
+
+export interface WalletPublicView {
+  id: string;
+  balanceCents: number;
+  status: 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED';
+  expiresAt: string | null;
+  consumptions: Array<{
+    id: string;
+    amountCents: number;
+    category: string;
+    providedByName: string | null;
+    createdAt: string;
+  }>;
+}
+
+export async function fetchWalletByToken(qrToken: string): Promise<WalletPublicView> {
+  const res = await fetch(`${API_BASE}/v1/wallets/public/${encodeURIComponent(qrToken)}`, {
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}

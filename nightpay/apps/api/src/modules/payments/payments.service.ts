@@ -25,6 +25,7 @@ import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens'
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
+import { WalletsService } from '../wallets/wallets.service';
 
 const QR_TTL_SECONDS = 5 * 60; // 5 min
 const ORPHAN_RECONCILE_DELAY_MS = 30 * 60 * 1000; // 30 min sin webhook → reconcile
@@ -39,6 +40,7 @@ export class PaymentsService {
   private readonly gateways: GatewayRegistry;
   private readonly realtime: RealtimeGateway;
   private readonly metrics: MetricsService;
+  private readonly wallets: WalletsService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -48,6 +50,7 @@ export class PaymentsService {
     @Inject(GatewayRegistry) gateways: GatewayRegistry,
     @Inject(RealtimeGateway) realtime: RealtimeGateway,
     @Inject(MetricsService) metrics: MetricsService,
+    @Inject(WalletsService) wallets: WalletsService,
   ) {
     this.prisma = prisma;
     this.cls = cls;
@@ -56,6 +59,7 @@ export class PaymentsService {
     this.gateways = gateways;
     this.realtime = realtime;
     this.metrics = metrics;
+    this.wallets = wallets;
   }
 
   /**
@@ -104,6 +108,34 @@ export class PaymentsService {
       }
     }
 
+    // 2c. Phase 1B — si dto.wallet, resolver walletId antes de crear el payment.
+    // create:true → crea wallet vacía + usa su id. walletId:<id> → valida pertenencia.
+    let resolvedWalletId: string | null = null;
+    const walletDto = dto.wallet;
+    if (walletDto) {
+      if ('create' in walletDto && walletDto.create) {
+        const created = await this.wallets.createEmpty({
+          tenantId,
+          identifier: walletDto.identifier ?? null,
+        });
+        resolvedWalletId = created.id;
+      } else if ('walletId' in walletDto) {
+        const existing = await this.prisma.asSystem((tx) =>
+          tx.clientWallet.findFirst({
+            where: { id: walletDto.walletId, tenantId },
+            select: { id: true, status: true },
+          }),
+        );
+        if (!existing) {
+          throw new NotFoundException('Wallet no encontrada en este venue');
+        }
+        if (existing.status !== 'ACTIVE') {
+          throw new BadRequestException(`Wallet en status ${existing.status} — no se puede recargar`);
+        }
+        resolvedWalletId = existing.id;
+      }
+    }
+
     // 3. Crear payment + evento inicial — atómico
     const qrToken = randomUUID();
     const qrExpiresAt = new Date(Date.now() + QR_TTL_SECONDS * 1000);
@@ -121,6 +153,10 @@ export class PaymentsService {
           status: 'CREATED',
           qrToken,
           qrExpiresAt,
+          // Phase 1B — si es top-up de wallet, marca captureMethod + walletId.
+          ...(resolvedWalletId
+            ? { walletId: resolvedWalletId, captureMethod: 'WALLET_TOPUP' }
+            : {}),
         },
       });
       await tx.paymentEvent.create({
@@ -131,6 +167,7 @@ export class PaymentsService {
           payload: {
             amountCents: p.amountCents,
             terminal: dto.terminalExternalId,
+            walletId: resolvedWalletId,
           },
           traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
         },
@@ -218,10 +255,11 @@ export class PaymentsService {
             providerTxId: string | null;
             provider: 'WIPAY' | 'PEANPE' | null;
             createdByUserId: string | null;
+            walletId: string | null;
           }>
         >`
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
-                 "providerTxId", provider, "createdByUserId"
+                 "providerTxId", provider, "createdByUserId", "walletId"
             FROM payments
            WHERE id = ${paymentId}::uuid
            FOR UPDATE
@@ -272,11 +310,42 @@ export class PaymentsService {
           )
         `;
 
+        // Phase 1B — hook de crédito a wallet: si el payment está ligado a una
+        // ClientWallet (top-up flow) y transitamos a AUTHORIZED, sumamos el importe
+        // al balance ATÓMICAMENTE en la misma transacción de la FSM. Lock con
+        // SELECT FOR UPDATE evita race con consumes simultáneos.
+        if (result.nextState === 'AUTHORIZED' && p.walletId) {
+          const walletLocked = await tx.$queryRaw<
+            Array<{ id: string; balanceCents: number; status: string }>
+          >`
+            SELECT id, "balanceCents", status FROM client_wallets
+             WHERE id = ${p.walletId}::uuid FOR UPDATE
+          `;
+          const w = walletLocked[0];
+          if (w && w.status === 'ACTIVE') {
+            await tx.$executeRaw`
+              UPDATE client_wallets
+                 SET "balanceCents" = "balanceCents" + ${p.amountCents}::int,
+                     "updatedAt" = now()
+               WHERE id = ${p.walletId}::uuid
+            `;
+            this.logger.log(
+              `Payment ${paymentId} AUTHORIZED → wallet ${p.walletId} credited +${p.amountCents}c (new balance: ${w.balanceCents + p.amountCents})`,
+            );
+          } else {
+            this.logger.warn(
+              `Payment ${paymentId} AUTHORIZED but wallet ${p.walletId} not creditable (status=${w?.status ?? 'missing'}). Manual review needed.`,
+            );
+          }
+        }
+
         // Hook de earning para OPERATOR — si transitamos a AUTHORIZED y el creador
         // del payment es una operadora, snapshot de comisión en operator_earnings.
         // Idempotente: la unique en paymentId rechaza un segundo insert (defensa
         // contra una transición duplicada que la FSM ya filtra).
-        if (result.nextState === 'AUTHORIZED' && p.createdByUserId) {
+        // NOTA: si p.walletId está set, NO generamos earning aquí — el earning
+        // se genera per-consumption en wallets.service (chica cobra granular).
+        if (result.nextState === 'AUTHORIZED' && p.createdByUserId && !p.walletId) {
           const creatorRows = await tx.$queryRaw<
             Array<{ id: string; role: string; commissionBps: number | null }>
           >`
@@ -517,9 +586,11 @@ export class PaymentsService {
     // CLS ya tiene tenantId del request (AuthGuard lo seteo). El middleware de
     // Prisma inyecta WHERE tenantId — y como el pago lo acabamos de crear con
     // ese mismo tenant, la query devuelve el registro correcto.
-    const p = await this.prisma.payment.findUniqueOrThrow({ where: { id: paymentId } });
+    const p = await this.prisma.payment.findUniqueOrThrow({
+      where: { id: paymentId },
+      include: { wallet: { select: { qrToken: true } } },
+    });
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 4100}`;
-    // Construye URL del QR — apunta al frontend cliente
     const clientUrl =
       process.env.NEXT_PUBLIC_WEB_CLIENT_URL ?? baseUrl.replace(/:\d+$/, ':4101');
     const qrUrl = `${clientUrl}/pay/${p.qrToken}`;
@@ -539,6 +610,10 @@ export class PaymentsService {
       qrPngDataUrl,
       qrExpiresAt: p.qrExpiresAt.toISOString(),
       createdAt: p.createdAt.toISOString(),
+      // Phase 1B — si el pago tiene wallet ligado, exponemos su id + qrToken
+      // para que el frontend pueda redirigir al cliente a su balance page.
+      walletId: p.walletId ?? null,
+      walletQrToken: p.wallet?.qrToken ?? null,
     };
   }
 }

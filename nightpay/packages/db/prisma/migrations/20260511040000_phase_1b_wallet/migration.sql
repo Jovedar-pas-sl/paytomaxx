@@ -1,12 +1,18 @@
 -- Phase 1B — Client wallet (cash-in-advance closed-loop)
 -- Legal vía EMD2 art. 1.5(k): saldo limitado a la red del emisor, sin
 -- convertirse en cash, refund solo a tarjeta original.
+--
+-- Idempotente: usa IF NOT EXISTS / IF EXISTS para poder re-aplicarse tras
+-- recovery parcial sin error.
 
 -- 1) Enum WalletStatus
-CREATE TYPE "WalletStatus" AS ENUM ('ACTIVE', 'EXPIRED', 'REFUNDED', 'DEPLETED');
+DO $$ BEGIN
+  CREATE TYPE "WalletStatus" AS ENUM ('ACTIVE', 'EXPIRED', 'REFUNDED', 'DEPLETED');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- 2) Tabla client_wallets
-CREATE TABLE "client_wallets" (
+CREATE TABLE IF NOT EXISTS "client_wallets" (
   "id"           UUID         NOT NULL DEFAULT gen_random_uuid(),
   "tenantId"    UUID         NOT NULL,
   "identifier"  TEXT,
@@ -20,26 +26,21 @@ CREATE TABLE "client_wallets" (
   CONSTRAINT "client_wallets_qrToken_key" UNIQUE ("qrToken"),
   CONSTRAINT "client_wallets_tenantId_fkey"
     FOREIGN KEY ("tenantId") REFERENCES "venues"("id") ON DELETE RESTRICT,
-  -- Balance no puede ir negativo a nivel de DB (defense in depth)
   CONSTRAINT "client_wallets_balance_nonneg" CHECK ("balanceCents" >= 0)
 );
 
-CREATE INDEX "client_wallets_tenant_status_idx"
+CREATE INDEX IF NOT EXISTS "client_wallets_tenant_status_idx"
   ON "client_wallets"("tenantId", "status");
-CREATE INDEX "client_wallets_tenant_identifier_idx"
+CREATE INDEX IF NOT EXISTS "client_wallets_tenant_identifier_idx"
   ON "client_wallets"("tenantId", "identifier");
-CREATE INDEX "client_wallets_tenant_created_idx"
+CREATE INDEX IF NOT EXISTS "client_wallets_tenant_created_idx"
   ON "client_wallets"("tenantId", "createdAt" DESC);
 
 COMMENT ON TABLE "client_wallets" IS
   'Phase 1B closed-loop prepaid wallets. Cliente carga UN saldo al entrar al venue, consume durante la noche, refund al cierre.';
-COMMENT ON COLUMN "client_wallets"."identifier" IS
-  'Phone/email/anon hash opcional. El qrToken es lo que identifica la wallet en runtime.';
-COMMENT ON COLUMN "client_wallets"."expiresAt" IS
-  'Null = no expira mientras ACTIVE. Set cuando admin convierte balance restante en crédito futuro.';
 
 -- 3) Tabla wallet_consumptions
-CREATE TABLE "wallet_consumptions" (
+CREATE TABLE IF NOT EXISTS "wallet_consumptions" (
   "id"               UUID         NOT NULL DEFAULT gen_random_uuid(),
   "tenantId"         UUID         NOT NULL,
   "walletId"         UUID         NOT NULL,
@@ -65,53 +66,54 @@ CREATE TABLE "wallet_consumptions" (
   CONSTRAINT "wallet_consumptions_amount_positive" CHECK ("amountCents" > 0)
 );
 
-CREATE INDEX "wallet_consumptions_wallet_created_idx"
+CREATE INDEX IF NOT EXISTS "wallet_consumptions_wallet_created_idx"
   ON "wallet_consumptions"("tenantId", "walletId", "createdAt" DESC);
-CREATE INDEX "wallet_consumptions_provider_created_idx"
+CREATE INDEX IF NOT EXISTS "wallet_consumptions_provider_created_idx"
   ON "wallet_consumptions"("tenantId", "providedByUserId", "createdAt" DESC);
-CREATE INDEX "wallet_consumptions_category_idx"
+CREATE INDEX IF NOT EXISTS "wallet_consumptions_category_idx"
   ON "wallet_consumptions"("tenantId", "category");
 
-COMMENT ON TABLE "wallet_consumptions" IS
-  'Cada consumo de balance de un ClientWallet. Si providedBy.role=OPERATOR genera OperatorEarning paralelo.';
-
 -- 4) payments — walletId nullable + index
-ALTER TABLE "payments"
-  ADD COLUMN "walletId" UUID,
-  ADD CONSTRAINT "payments_walletId_fkey"
-    FOREIGN KEY ("walletId") REFERENCES "client_wallets"("id") ON DELETE SET NULL;
+DO $$ BEGIN
+  ALTER TABLE "payments"
+    ADD COLUMN "walletId" UUID,
+    ADD CONSTRAINT "payments_walletId_fkey"
+      FOREIGN KEY ("walletId") REFERENCES "client_wallets"("id") ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
-CREATE INDEX "payments_walletId_idx" ON "payments"("walletId");
-
-COMMENT ON COLUMN "payments"."walletId" IS
-  'Phase 1B: si set, este Payment es el top-up de la ClientWallet referenciada. Al AUTHORIZED se suma al balance atómicamente.';
+CREATE INDEX IF NOT EXISTS "payments_walletId_idx" ON "payments"("walletId");
 
 -- 5) operator_earnings — relax paymentId NOT NULL + add consumptionId
--- IMPORTANTE: hay un @unique en paymentId que toca recrear para permitir nulls.
 
--- Drop legacy unique constraint
+-- Drop legacy unique constraint (puede tener nombre _key o _unique según historial)
 ALTER TABLE "operator_earnings"
   DROP CONSTRAINT IF EXISTS "operator_earnings_paymentId_key";
 
--- Make paymentId nullable
+-- Make paymentId nullable (no-op si ya es nullable)
 ALTER TABLE "operator_earnings"
   ALTER COLUMN "paymentId" DROP NOT NULL;
 
--- Add consumptionId
-ALTER TABLE "operator_earnings"
-  ADD COLUMN "consumptionId" UUID,
-  ADD CONSTRAINT "operator_earnings_consumptionId_fkey"
-    FOREIGN KEY ("consumptionId") REFERENCES "wallet_consumptions"("id") ON DELETE RESTRICT;
+-- Add consumptionId column si no existe
+DO $$ BEGIN
+  ALTER TABLE "operator_earnings"
+    ADD COLUMN "consumptionId" UUID,
+    ADD CONSTRAINT "operator_earnings_consumptionId_fkey"
+      FOREIGN KEY ("consumptionId") REFERENCES "wallet_consumptions"("id") ON DELETE RESTRICT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
--- Re-add @unique but as partial (NULL is OK in unique with partial index)
-CREATE UNIQUE INDEX "operator_earnings_paymentId_unique"
+-- Re-add unique partial indexes (idempotente)
+CREATE UNIQUE INDEX IF NOT EXISTS "operator_earnings_paymentId_unique"
   ON "operator_earnings"("paymentId")
   WHERE "paymentId" IS NOT NULL;
-CREATE UNIQUE INDEX "operator_earnings_consumptionId_unique"
+CREATE UNIQUE INDEX IF NOT EXISTS "operator_earnings_consumptionId_unique"
   ON "operator_earnings"("consumptionId")
   WHERE "consumptionId" IS NOT NULL;
 
--- CRITICAL XOR check: exactamente UNO de paymentId/consumptionId set.
+-- XOR check (drop si existe + add fresh)
+ALTER TABLE "operator_earnings"
+  DROP CONSTRAINT IF EXISTS "operator_earnings_source_xor";
 ALTER TABLE "operator_earnings"
   ADD CONSTRAINT "operator_earnings_source_xor"
   CHECK (
@@ -120,17 +122,17 @@ ALTER TABLE "operator_earnings"
     ("paymentId" IS NULL AND "consumptionId" IS NOT NULL)
   );
 
-COMMENT ON CONSTRAINT "operator_earnings_source_xor" ON "operator_earnings" IS
-  'Cada earning viene de un Payment (cobro QR directo) o WalletConsumption (Phase 1B), nunca ambos ni ninguno.';
-
--- 6) RLS para nuevas tablas — mismo patrón que las existentes
+-- 6) RLS para nuevas tablas
 ALTER TABLE "client_wallets" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "wallet_consumptions" ENABLE ROW LEVEL SECURITY;
 
--- Policy: app-level filter via Prisma middleware (CLS-injected tenantId).
--- DB-level fallback: deny todo si no hay tenant set. Producción usa role
--- "nightpay_app" que tiene esta config.
-CREATE POLICY "client_wallets_tenant_isolation" ON "client_wallets"
-  USING ("tenantId" = current_setting('app.current_tenant_id', true)::uuid);
-CREATE POLICY "wallet_consumptions_tenant_isolation" ON "wallet_consumptions"
-  USING ("tenantId" = current_setting('app.current_tenant_id', true)::uuid);
+DO $$ BEGIN
+  CREATE POLICY "client_wallets_tenant_isolation" ON "client_wallets"
+    USING ("tenantId" = current_setting('app.current_tenant_id', true)::uuid);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE POLICY "wallet_consumptions_tenant_isolation" ON "wallet_consumptions"
+    USING ("tenantId" = current_setting('app.current_tenant_id', true)::uuid);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

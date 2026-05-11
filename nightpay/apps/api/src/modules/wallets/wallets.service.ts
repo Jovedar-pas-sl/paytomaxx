@@ -404,6 +404,44 @@ export class WalletsService {
     });
   }
 
+  /** Lista wallets del venue para el admin panel. */
+  async listForAdmin(input: {
+    tenantId: string;
+    status?: 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED';
+    limit?: number;
+  }) {
+    const wallets = await this.prisma.asSystem((tx) =>
+      tx.clientWallet.findMany({
+        where: {
+          tenantId: input.tenantId,
+          ...(input.status ? { status: input.status } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: input.limit ?? 50,
+        select: {
+          id: true,
+          identifier: true,
+          balanceCents: true,
+          status: true,
+          expiresAt: true,
+          qrToken: true,
+          createdAt: true,
+          _count: { select: { consumptions: true } },
+        },
+      }),
+    );
+    return wallets.map((w) => ({
+      id: w.id,
+      identifier: w.identifier,
+      balanceCents: w.balanceCents,
+      status: w.status as 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED',
+      expiresAt: w.expiresAt?.toISOString() ?? null,
+      qrToken: w.qrToken,
+      consumptionCount: w._count.consumptions,
+      createdAt: w.createdAt.toISOString(),
+    }));
+  }
+
   /** Vista admin de una wallet con sus consumos. */
   async getWalletView(input: {
     tenantId: string;
