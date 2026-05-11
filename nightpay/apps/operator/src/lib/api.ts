@@ -250,16 +250,22 @@ export async function createPayment(input: {
   amountCents: number;
   terminalExternalId: string;
   currency?: string;
+  /** Phase 1B — si set, crea una wallet etiquetada con identifier. */
+  walletIdentifier?: string;
 }): Promise<CreatedPayment> {
   const idemKey = `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const body: Record<string, unknown> = {
+    amountCents: input.amountCents,
+    terminalExternalId: input.terminalExternalId,
+    currency: input.currency ?? 'EUR',
+  };
+  if (input.walletIdentifier) {
+    body.wallet = { create: true, identifier: input.walletIdentifier };
+  }
   const res = await authedFetch('/v1/payments', {
     method: 'POST',
     headers: { 'Idempotency-Key': idemKey },
-    body: JSON.stringify({
-      amountCents: input.amountCents,
-      terminalExternalId: input.terminalExternalId,
-      currency: input.currency ?? 'EUR',
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Error: ${await res.text()}`);
   return res.json();
@@ -283,6 +289,22 @@ export async function fetchTerminals(): Promise<Array<{ externalId: string; labe
 export async function fetchWalletPublic(qrToken: string): Promise<WalletPublicView> {
   const res = await fetch(`${API_BASE}/v1/wallets/public/${encodeURIComponent(qrToken)}`);
   if (!res.ok) throw new Error('Wallet no encontrada');
+  return res.json();
+}
+
+/** Lista wallets activos del venue — usado por la chica para cobrar sin molestar al cliente. */
+export interface ActiveWallet {
+  id: string;
+  identifier: string | null;
+  balanceCents: number;
+  status: 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED';
+  consumptionCount: number;
+  createdAt: string;
+}
+
+export async function fetchActiveWallets(): Promise<ActiveWallet[]> {
+  const res = await authedFetch('/v1/wallets');
+  if (!res.ok) throw new Error('Error cargando wallets activos');
   return res.json();
 }
 

@@ -18,6 +18,9 @@ interface Props {
 export function CreatePayment({ onCreated }: Props) {
   const [terminals, setTerminals] = useState<Array<{ externalId: string; label: string }>>([]);
   const [amount, setAmount] = useState('');
+  // Phase 1B — toggle "Cargar wallet" para crear un saldo prepago en vez de un cobro puntual.
+  const [walletMode, setWalletMode] = useState(false);
+  const [walletIdentifier, setWalletIdentifier] = useState('');
   const [active, setActive] = useState<CreatedPayment | null>(null);
   const [status, setStatus] = useState<PaymentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,9 +70,13 @@ export function CreatePayment({ onCreated }: Props) {
     try {
       const cents = Math.round(parseFloat(amount.replace(',', '.')) * 100);
       if (!Number.isFinite(cents) || cents <= 0) throw new Error('Importe inválido');
+      if (walletMode && !walletIdentifier.trim()) {
+        throw new Error('Pon una etiqueta al wallet (Mesa 3, Pulsera azul...) para no confundirlo');
+      }
       const created = await createPayment({
         amountCents: cents,
         terminalExternalId: terminals[0]!.externalId,
+        walletIdentifier: walletMode ? walletIdentifier.trim() : undefined,
       });
       setActive(created);
       setStatus(created.status as PaymentStatus);
@@ -112,6 +119,7 @@ export function CreatePayment({ onCreated }: Props) {
     setAmount('');
     setCopied(false);
     setError(null);
+    setWalletIdentifier('');
     onCreated();
   }
 
@@ -171,7 +179,34 @@ export function CreatePayment({ onCreated }: Props) {
 
   return (
     <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <p style={{ ...kicker, textAlign: 'center' }}>Crear nuevo cobro</p>
+      <p style={{ ...kicker, textAlign: 'center' }}>
+        {walletMode ? 'Cargar wallet del cliente' : 'Crear nuevo cobro'}
+      </p>
+
+      {/* Toggle entre cobro directo y cargar wallet */}
+      <div style={toggleRowStyle}>
+        <button
+          type="button"
+          onClick={() => setWalletMode(false)}
+          style={{
+            ...toggleBtnStyle,
+            ...(walletMode ? {} : toggleBtnActiveStyle),
+          }}
+        >
+          Cobro directo
+        </button>
+        <button
+          type="button"
+          onClick={() => setWalletMode(true)}
+          style={{
+            ...toggleBtnStyle,
+            ...(walletMode ? toggleBtnActiveStyle : {}),
+          }}
+        >
+          Cargar wallet
+        </button>
+      </div>
+
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <Input
           label="Importe (€)"
@@ -185,8 +220,26 @@ export function CreatePayment({ onCreated }: Props) {
           autoFocus
           style={{ textAlign: 'center', fontFamily: 'var(--np-font-mono)' }}
         />
+
+        {walletMode ? (
+          <>
+            <Input
+              label="Etiqueta del wallet"
+              type="text"
+              placeholder="Ej: Mesa 3, Pulsera azul, Camisa roja"
+              value={walletIdentifier}
+              onChange={(e) => setWalletIdentifier(e.target.value)}
+              required
+            />
+            <p style={hintStyle}>
+              💡 El cliente paga UNA vez con este QR. Luego le cobras desde la tab Wallet sin
+              molestarlo de nuevo — solo necesitas saber su etiqueta.
+            </p>
+          </>
+        ) : null}
+
         <Button type="submit" size="lg" loading={submitting}>
-          Cobrar
+          {walletMode ? `Cargar ${amount ? `${amount} €` : 'wallet'}` : 'Cobrar'}
         </Button>
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem', textAlign: 'center' }}>
@@ -197,6 +250,45 @@ export function CreatePayment({ onCreated }: Props) {
     </Card>
   );
 }
+
+const toggleRowStyle: CSSProperties = {
+  display: 'flex',
+  background: 'var(--np-surface-2)',
+  padding: '0.25rem',
+  borderRadius: 'var(--np-r-md)',
+  border: '1px solid var(--np-border)',
+};
+
+const toggleBtnStyle: CSSProperties = {
+  flex: 1,
+  padding: '0.5rem 0.75rem',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: 'var(--np-r-sm)',
+  color: 'var(--np-text-mute)',
+  fontSize: '0.78rem',
+  fontWeight: 500,
+  cursor: 'pointer',
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+};
+
+const toggleBtnActiveStyle: CSSProperties = {
+  background: 'var(--np-bg)',
+  color: 'var(--np-text)',
+  boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+};
+
+const hintStyle: CSSProperties = {
+  margin: 0,
+  padding: '0.6rem 0.8rem',
+  fontSize: '0.78rem',
+  color: 'var(--np-text-mute)',
+  background: 'var(--np-surface-2)',
+  borderRadius: 'var(--np-r-md)',
+  border: '1px solid var(--np-border)',
+  lineHeight: 1.4,
+};
 
 const kicker: CSSProperties = {
   margin: 0,

@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Select } from '@nightpay/ui';
 import {
   consumeWallet,
-  fetchWalletPublic,
+  fetchActiveWallets,
+  type ActiveWallet,
   type ConsumeWalletResult,
-  type WalletPublicView,
 } from '@/lib/api';
 
 interface Props {
@@ -22,18 +22,145 @@ const CATEGORIES = [
 ];
 
 /**
- * Pantalla "Cobrar a wallet" para la chica.
+ * Pantalla "Cobrar a wallet" — flow correcto sin molestar al cliente:
  *
- * Flow:
- *   1. Pega el qrToken del cliente (lo lee con la cámara o pega manualmente).
- *   2. Carga el wallet → muestra balance + últimos consumos.
- *   3. Introduce importe + categoría → confirmar.
- *   4. Backend descuenta del balance + crea earning automático.
+ *   1. La chica ve la LISTA de wallets activos del venue (etiquetados por
+ *      identifier — Mesa 3, Pulsera azul, etc. — al momento del top-up).
+ *   2. Click en uno → form de cobro (importe + categoría).
+ *   3. Confirmar → backend cobra atómico + genera su comisión.
+ *
+ * Cero interacción con el móvil del cliente. El cliente paga UNA vez al
+ * entrar al venue desde el QR de top-up; el resto es invisible para él.
  */
 export function ChargeWallet({ onConsumed }: Props) {
-  const [qrToken, setQrToken] = useState('');
-  const [wallet, setWallet] = useState<WalletPublicView | null>(null);
-  const [loadingWallet, setLoadingWallet] = useState(false);
+  const [wallets, setWallets] = useState<ActiveWallet[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ActiveWallet | null>(null);
+  const [search, setSearch] = useState('');
+
+  async function reload() {
+    setLoading(true);
+    try {
+      const list = await fetchActiveWallets();
+      setWallets(list);
+      // Si el wallet seleccionado se quedó atrás (refresh tras cobro), recógelo.
+      if (selected) {
+        const fresh = list.find((w) => w.id === selected.id);
+        if (fresh) setSelected(fresh);
+        else setSelected(null);
+      }
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    reload();
+    const id = setInterval(reload, 8000); // refrescar lista cada 8s
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (selected) {
+    return (
+      <ChargeForm
+        wallet={selected}
+        onBack={() => setSelected(null)}
+        onConsumed={() => {
+          reload();
+          onConsumed();
+        }}
+      />
+    );
+  }
+
+  const filtered = wallets.filter((w) =>
+    !search.trim()
+      ? true
+      : (w.identifier ?? '').toLowerCase().includes(search.trim().toLowerCase()),
+  );
+
+  return (
+    <Card style={{ padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <div>
+        <h3 style={titleStyle}>Wallets activos</h3>
+        <p style={hintStyle}>
+          Toca el wallet del cliente que estás atendiendo. La etiqueta la pusiste cuando
+          cargó el saldo.
+        </p>
+      </div>
+
+      <Input
+        type="text"
+        placeholder="Buscar por etiqueta..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+
+      {error ? <p style={errorStyle}>{error}</p> : null}
+
+      {loading && wallets.length === 0 ? (
+        <p style={emptyStyle}>Cargando wallets...</p>
+      ) : filtered.length === 0 ? (
+        <div style={emptyStateStyle}>
+          <p style={{ ...emptyStyle, marginBottom: '0.5rem' }}>
+            {wallets.length === 0
+              ? 'No hay wallets activos todavía.'
+              : `No coincide con "${search}".`}
+          </p>
+          {wallets.length === 0 ? (
+            <p style={{ fontSize: '0.78rem', color: 'var(--np-text-dim)', margin: 0 }}>
+              Para cargar uno: tab <strong>Inicio</strong> → toggle "Cargar wallet" → pon etiqueta
+              (Mesa 3, Pulsera azul...) y el cliente paga UNA vez por QR.
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <ul style={walletListStyle}>
+          {filtered.map((w) => (
+            <li key={w.id}>
+              <button
+                onClick={() => setSelected(w)}
+                style={walletItemStyle}
+                type="button"
+              >
+                <div style={{ flex: 1, textAlign: 'left' }}>
+                  <p style={walletLabelStyle}>
+                    {w.identifier ?? <em style={{ color: 'var(--np-text-dim)' }}>sin etiqueta</em>}
+                  </p>
+                  <p style={walletMetaStyle}>
+                    {w.consumptionCount} consumo{w.consumptionCount === 1 ? '' : 's'} ·{' '}
+                    {timeAgo(w.createdAt)}
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <p className="np-num" style={walletBalanceStyle}>
+                    {(w.balanceCents / 100).toFixed(2)}
+                    <span style={{ fontSize: '0.7rem', color: 'var(--np-text-mute)' }}> €</span>
+                  </p>
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function ChargeForm({
+  wallet,
+  onBack,
+  onConsumed,
+}: {
+  wallet: ActiveWallet;
+  onBack: () => void;
+  onConsumed: () => void;
+}) {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('time');
   const [notes, setNotes] = useState('');
@@ -41,36 +168,19 @@ export function ChargeWallet({ onConsumed }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [last, setLast] = useState<ConsumeWalletResult | null>(null);
 
-  async function handleLoadWallet(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setLoadingWallet(true);
-    setError(null);
-    setWallet(null);
-    try {
-      const w = await fetchWalletPublic(qrToken.trim());
-      setWallet(w);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoadingWallet(false);
-    }
-  }
-
-  async function handleConsume(e: FormEvent) {
-    e.preventDefault();
-    if (!wallet) return;
     setSubmitting(true);
     setError(null);
     try {
       const cents = Math.round(Number(amount.replace(',', '.')) * 100);
-      if (!Number.isFinite(cents) || cents <= 0) {
-        throw new Error('Importe inválido');
-      }
+      if (!Number.isFinite(cents) || cents <= 0) throw new Error('Importe inválido');
       if (cents > wallet.balanceCents) {
         throw new Error(
-          `Balance insuficiente. Tiene ${(wallet.balanceCents / 100).toFixed(2)} €`,
+          `Saldo insuficiente. Disponible: ${(wallet.balanceCents / 100).toFixed(2)} €`,
         );
       }
+      if ('vibrate' in navigator) navigator.vibrate(10);
       const result = await consumeWallet({
         walletId: wallet.id,
         amountCents: cents,
@@ -80,9 +190,6 @@ export function ChargeWallet({ onConsumed }: Props) {
       setLast(result);
       setAmount('');
       setNotes('');
-      // refresca el wallet para mostrar el nuevo balance
-      const refreshed = await fetchWalletPublic(qrToken.trim());
-      setWallet(refreshed);
       onConsumed();
     } catch (err) {
       setError((err as Error).message);
@@ -91,49 +198,16 @@ export function ChargeWallet({ onConsumed }: Props) {
     }
   }
 
-  function reset() {
-    setWallet(null);
-    setQrToken('');
-    setAmount('');
-    setNotes('');
-    setError(null);
-    setLast(null);
-  }
-
-  if (!wallet) {
-    return (
-      <Card style={cardStyle}>
-        <h3 style={titleStyle}>Cobrar a wallet del cliente</h3>
-        <p style={hintStyle}>
-          Pídele al cliente que te muestre su QR de wallet, escanéalo o pega el código aquí.
-        </p>
-        <form onSubmit={handleLoadWallet} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <Input
-            label="Código QR del cliente"
-            value={qrToken}
-            onChange={(e) => setQrToken(e.target.value)}
-            placeholder="Pega o escanea aquí"
-            disabled={loadingWallet}
-            autoFocus
-          />
-          {error ? <p style={errorStyle}>{error}</p> : null}
-          <Button type="submit" loading={loadingWallet} disabled={!qrToken.trim()}>
-            Cargar wallet
-          </Button>
-        </form>
-      </Card>
-    );
-  }
-
   return (
-    <Card style={cardStyle}>
+    <Card style={{ padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h3 style={titleStyle}>Wallet del cliente</h3>
-          <p style={hintStyle}>Status: {wallet.status}</p>
+          <h3 style={titleStyle}>{wallet.identifier ?? 'Wallet sin etiqueta'}</h3>
+          <p style={hintStyle}>Wallet activo</p>
         </div>
         <button
-          onClick={reset}
+          onClick={onBack}
+          type="button"
           style={{
             background: 'transparent',
             border: 'none',
@@ -142,27 +216,26 @@ export function ChargeWallet({ onConsumed }: Props) {
             cursor: 'pointer',
           }}
         >
-          ← Cambiar
+          ← Lista
         </button>
       </div>
 
       <div style={balancePillStyle}>
-        <span style={{ fontSize: '0.7rem', color: 'var(--np-text-dim)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-          Saldo disponible
-        </span>
+        <span style={kickerStyle}>Saldo disponible</span>
         <p className="np-num" style={balanceNumStyle}>
           {(wallet.balanceCents / 100).toFixed(2)} <span style={currStyle}>EUR</span>
         </p>
       </div>
 
-      <form onSubmit={handleConsume} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         <Input
           label="Importe a cobrar (€)"
           value={amount}
           onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))}
           placeholder="50"
-          disabled={submitting || wallet.status !== 'ACTIVE'}
+          disabled={submitting}
           inputMode="decimal"
+          autoFocus
         />
         <div>
           <label style={selectLabelStyle}>Categoría</label>
@@ -201,38 +274,22 @@ export function ChargeWallet({ onConsumed }: Props) {
             ) : null}
           </Card>
         ) : null}
-        <Button type="submit" loading={submitting} disabled={!amount.trim() || wallet.status !== 'ACTIVE'}>
+        <Button type="submit" loading={submitting} disabled={!amount.trim()}>
           Cobrar {amount ? `${amount} €` : ''}
         </Button>
       </form>
-
-      {wallet.consumptions.length > 0 ? (
-        <details style={{ marginTop: '0.75rem' }}>
-          <summary style={{ cursor: 'pointer', fontSize: '0.8rem', color: 'var(--np-text-mute)' }}>
-            Últimos consumos ({wallet.consumptions.length})
-          </summary>
-          <ul style={{ listStyle: 'none', padding: 0, margin: '0.5rem 0 0', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            {wallet.consumptions.slice(0, 10).map((c) => (
-              <li key={c.id} style={consumptionItemStyle}>
-                <span>
-                  {c.category} {c.providedByName ? `· ${c.providedByName}` : ''}
-                </span>
-                <span className="np-num">-{(c.amountCents / 100).toFixed(2)} €</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
     </Card>
   );
 }
 
-const cardStyle: CSSProperties = {
-  padding: '1.25rem 1rem',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '0.875rem',
-};
+function timeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return 'ahora';
+  if (mins < 60) return `hace ${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  return `hace ${hrs}h ${mins % 60}m`;
+}
 
 const titleStyle: CSSProperties = {
   margin: 0,
@@ -252,6 +309,64 @@ const errorStyle: CSSProperties = {
   color: 'var(--np-danger)',
 };
 
+const emptyStyle: CSSProperties = {
+  margin: 0,
+  fontSize: '0.85rem',
+  color: 'var(--np-text-mute)',
+  textAlign: 'center',
+};
+
+const emptyStateStyle: CSSProperties = {
+  padding: '1.5rem 1rem',
+  background: 'var(--np-surface-2)',
+  borderRadius: 'var(--np-r-md)',
+  border: '1px dashed var(--np-border)',
+  textAlign: 'center',
+};
+
+const walletListStyle: CSSProperties = {
+  listStyle: 'none',
+  padding: 0,
+  margin: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.5rem',
+};
+
+const walletItemStyle: CSSProperties = {
+  width: '100%',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  padding: '0.875rem 1rem',
+  background: 'var(--np-surface-2)',
+  border: '1px solid var(--np-border)',
+  borderRadius: 'var(--np-r-md)',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  color: 'var(--np-text)',
+};
+
+const walletLabelStyle: CSSProperties = {
+  margin: 0,
+  fontSize: '0.95rem',
+  fontWeight: 600,
+};
+
+const walletMetaStyle: CSSProperties = {
+  margin: '0.2rem 0 0',
+  fontSize: '0.72rem',
+  color: 'var(--np-text-mute)',
+};
+
+const walletBalanceStyle: CSSProperties = {
+  margin: 0,
+  fontSize: '1.1rem',
+  fontWeight: 600,
+  color: 'var(--np-success)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
 const balancePillStyle: CSSProperties = {
   padding: '0.75rem 1rem',
   background: 'var(--np-surface-2)',
@@ -261,6 +376,13 @@ const balancePillStyle: CSSProperties = {
   flexDirection: 'column',
   gap: '0.2rem',
   alignItems: 'center',
+};
+
+const kickerStyle: CSSProperties = {
+  fontSize: '0.7rem',
+  color: 'var(--np-text-dim)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.1em',
 };
 
 const balanceNumStyle: CSSProperties = {
@@ -284,14 +406,4 @@ const selectLabelStyle: CSSProperties = {
   fontWeight: 500,
   color: 'var(--np-text-mute)',
   marginBottom: '0.375rem',
-};
-
-const consumptionItemStyle: CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  fontSize: '0.78rem',
-  padding: '0.35rem 0.6rem',
-  background: 'var(--np-bg)',
-  borderRadius: 'var(--np-r-sm)',
-  border: '1px solid var(--np-border)',
 };

@@ -126,6 +126,26 @@ export class WalletsController {
     });
   }
 
+  /**
+   * Lista wallets activas del venue para staff (chica/recepción/camarero).
+   * Sin esto la chica tendría que escanear el QR del cliente cada vez — viola
+   * la regla "no molestar al cliente". Con esto ve la lista de wallets vivos
+   * etiquetados por identifier (Mesa 3, Pulsera azul, etc.) y cobra directo.
+   */
+  @Get()
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  async listActive(
+    @Tenant() tenantId: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? Math.min(100, Math.max(1, parseInt(limit, 10) || 50)) : 50;
+    return this.wallets.listForAdmin({
+      tenantId,
+      status: 'ACTIVE',
+      limit: parsedLimit,
+    });
+  }
+
   @Get(':id')
   @Roles('OWNER', 'MANAGER')
   async getWallet(
