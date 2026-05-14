@@ -11,7 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
@@ -405,6 +405,139 @@ export class OperatorsService {
 
     this.logger.log(`Operator invite accepted for user=${user.id}`);
     return { ok: true };
+  }
+
+  // ─── Admin password management ────────────────────────────────────
+  //
+  // Casos de uso:
+  //   1. Chica perdió el invite link / nunca le llegó (email NoOp en prod)
+  //      → admin regenera invite con TTL nuevo, copia URL, envía WhatsApp.
+  //   2. Chica olvidó la contraseña ya activada
+  //      → admin setea password directa O genera random, copia, envía WhatsApp.
+  //      La chica debería cambiarla al loguear (TODO: forzar primer-login change).
+  //
+  // Ambos endpoints invalidan todas las sesiones activas de la chica (no las
+  // implementamos aquí — la rotación del passwordHash basta para que los JWT
+  // existentes sigan siendo válidos hasta su expiración; el refresh tokens
+  // se revocan via /admin/users/:userId/revoke-sessions si hace falta).
+
+  /**
+   * Genera un nuevo invite link para una operadora que aún no ha activado su
+   * cuenta (o que la perdió). Rota el inviteToken anterior. TTL 24h.
+   * Si la chica ya activó password (invitedAt=null), devuelve error — usar
+   * resetPassword en su lugar.
+   */
+  async regenerateInvite(
+    tenantId: string,
+    operatorId: string,
+    actorUserId: string,
+  ): Promise<{ inviteUrl: string; expiresAt: string }> {
+    const operator = await this.prisma.user.findFirst({
+      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      select: { id: true, email: true, deletedAt: true, invitedAt: true },
+    });
+    if (!operator) throw new NotFoundException('Operadora no encontrada');
+    if (operator.deletedAt) throw new ConflictException('Operadora dada de baja');
+    if (!operator.invitedAt) {
+      throw new ConflictException(
+        'Esta operadora ya activó su contraseña. Usa "Resetear contraseña" en su lugar.',
+      );
+    }
+
+    const inviteToken = await this.jwt.signAsync(
+      { sub: operator.id, tenantId, purpose: 'operator-invite' } satisfies InviteJwtPayload,
+      { expiresIn: `${INVITE_TTL_HOURS}h` },
+    );
+    const inviteTokenHash = hashInviteToken(inviteToken);
+
+    await this.prisma.user.update({
+      where: { id: operator.id },
+      data: {
+        inviteToken: inviteTokenHash,
+        invitedAt: new Date(),
+      },
+    });
+
+    const baseUrl = this.config.getOrThrow<string>('OPERATOR_BASE_URL');
+    const inviteUrl = `${baseUrl.replace(/\/$/, '')}/accept-invite?token=${inviteToken}`;
+    const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+
+    await this.audit.log({
+      action: 'operator.invite.regenerated',
+      tenantId,
+      actorId: actorUserId,
+      targetType: 'User',
+      targetId: operator.id,
+      payload: { ttlHours: INVITE_TTL_HOURS },
+    });
+    this.logger.log(`Invite regenerated for operator=${operator.id} by actor=${actorUserId}`);
+
+    return { inviteUrl, expiresAt: expiresAt.toISOString() };
+  }
+
+  /**
+   * Resetea la contraseña de una operadora YA ACTIVADA. Admin pasa una
+   * password explícita O nada (en cuyo caso se genera una random segura).
+   * La password en claro SOLO se devuelve UNA vez en el response — admin
+   * la copia y la envía por WhatsApp. NightPay no la persiste en claro.
+   *
+   * Si la chica todavía está en estado invite (invitedAt!=null), usar
+   * regenerateInvite. Resetear pass directa sobre un usuario "pending"
+   * cierra el flujo de invite — la chica nunca puso su propia password.
+   */
+  async resetPassword(
+    tenantId: string,
+    operatorId: string,
+    actorUserId: string,
+    explicitPassword: string | null,
+  ): Promise<{ password: string; reset: true }> {
+    const operator = await this.prisma.user.findFirst({
+      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      select: { id: true, email: true, deletedAt: true },
+    });
+    if (!operator) throw new NotFoundException('Operadora no encontrada');
+    if (operator.deletedAt) throw new ConflictException('Operadora dada de baja');
+
+    // Si admin pasa password explícita, validar; si no, generar random segura.
+    let password: string;
+    if (explicitPassword) {
+      if (explicitPassword.length < 8) {
+        throw new BadRequestException('Password mínimo 8 caracteres');
+      }
+      password = explicitPassword;
+    } else {
+      // 12 chars alfanuméricos legibles (sin 0/O/l/I que se confunden).
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+      const bytes = randomBytes(12);
+      password = Array.from(bytes)
+        .map((b) => alphabet[b % alphabet.length])
+        .join('');
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    await this.prisma.user.update({
+      where: { id: operator.id },
+      data: {
+        passwordHash,
+        // Si estaba pendiente de invite, cerramos ese flujo.
+        invitedAt: null,
+        inviteToken: null,
+      },
+    });
+
+    await this.audit.log({
+      action: 'operator.password.reset',
+      tenantId,
+      actorId: actorUserId,
+      targetType: 'User',
+      targetId: operator.id,
+      payload: { explicit: Boolean(explicitPassword) },
+    });
+    this.logger.log(
+      `Password reset for operator=${operator.id} by actor=${actorUserId} explicit=${Boolean(explicitPassword)}`,
+    );
+
+    return { password, reset: true };
   }
 
   // ─── Self-onboarding (Phase 1A.2) ────────────────────────────────

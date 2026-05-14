@@ -433,6 +433,39 @@ export async function createSelfOnboardingLink(
   return res.json();
 }
 
+/**
+ * Re-emite invite link 24h para una operadora todavía sin activar (estado
+ * "pendiente"). Si la chica ya activó pass → 409, usar resetOperatorPassword.
+ */
+export async function regenerateInvite(
+  operatorId: string,
+): Promise<{ inviteUrl: string; expiresAt: string }> {
+  const res = await authedFetch(`/v1/admin/operators/${operatorId}/regenerate-invite`, {
+    method: 'POST',
+    body: '{}',
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+/**
+ * Resetea la contraseña de la operadora. Si `password` es null → backend
+ * genera una random 12 chars. Devuelve la pass en CLARO una sola vez para
+ * que el admin la copie y la mande por WhatsApp.
+ */
+export async function resetOperatorPassword(
+  operatorId: string,
+  password: string | null,
+): Promise<{ password: string; reset: true }> {
+  const body = password ? { password } : {};
+  const res = await authedFetch(`/v1/admin/operators/${operatorId}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
 export async function fetchOperatorEarnings(id: string): Promise<OperatorEarning[]> {
   const res = await authedFetch(`/v1/admin/operators/${id}/earnings`);
   if (!res.ok) throw new Error('Error cargando earnings');

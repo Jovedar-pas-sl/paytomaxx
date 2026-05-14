@@ -10,6 +10,8 @@ import {
   fetchOperatorEarnings,
   fetchOperatorPayouts,
   fetchOperators,
+  regenerateInvite,
+  resetOperatorPassword,
   updateOperator,
   verifyPayout,
   type Operator,
@@ -631,6 +633,24 @@ function EditOperatorForm({ operator, onSaved }: { operator: Operator; onSaved: 
           color: 'var(--np-text-dim)',
           fontWeight: 500,
         }}>
+          Acceso & contraseña
+        </h4>
+        <AccessPanel operator={operator} />
+      </div>
+
+      <div style={{
+        marginTop: '0.5rem',
+        paddingTop: '1rem',
+        borderTop: '1px solid var(--np-border)',
+      }}>
+        <h4 style={{
+          margin: '0 0 0.75rem',
+          fontSize: '0.7rem',
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          color: 'var(--np-text-dim)',
+          fontWeight: 500,
+        }}>
           Routing del payout (Phase 1A)
         </h4>
         <PayoutMethodForm
@@ -652,6 +672,244 @@ function EditOperatorForm({ operator, onSaved }: { operator: Operator; onSaved: 
         Guardar
       </Button>
     </form>
+  );
+}
+
+/**
+ * Bloque dentro del modal Editar Operadora para gestionar acceso:
+ *   - Si la operadora está pendiente (invitedAt!=null) → mostrar "Re-generar invite"
+ *   - Siempre disponible → "Resetear contraseña" (admin pone una o random)
+ * Las credenciales se muestran UNA vez tras la acción para copiar y mandar
+ * por WhatsApp. NightPay no las persiste en claro.
+ */
+function AccessPanel({ operator }: { operator: Operator }) {
+  const [busy, setBusy] = useState<'invite' | 'reset' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [resetResult, setResetResult] = useState<{ password: string } | null>(null);
+  const [explicitPass, setExplicitPass] = useState('');
+  const [showPass, setShowPass] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function handleRegenerateInvite() {
+    setBusy('invite');
+    setError(null);
+    setInviteResult(null);
+    setResetResult(null);
+    try {
+      const r = await regenerateInvite(operator.id);
+      setInviteResult({ url: r.inviteUrl, expiresAt: r.expiresAt });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleResetPassword(explicit: boolean) {
+    setBusy('reset');
+    setError(null);
+    setInviteResult(null);
+    setResetResult(null);
+    try {
+      if (explicit && explicitPass.length < 8) {
+        throw new Error('Password mínimo 8 caracteres');
+      }
+      const r = await resetOperatorPassword(operator.id, explicit ? explicitPass : null);
+      setResetResult({ password: r.password });
+      setExplicitPass('');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function copyToClipboard(text: string, kind: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(kind);
+      setTimeout(() => setCopied(null), 2500);
+    } catch {
+      /* ignore — browser sin clipboard API */
+    }
+  }
+
+  const isPending = Boolean(operator.invitedAt);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <p style={{
+        margin: 0,
+        fontSize: '0.8125rem',
+        color: 'var(--np-text-mute)',
+      }}>
+        Estado: <strong style={{ color: isPending ? 'var(--np-warning, #b45309)' : 'var(--np-success)' }}>
+          {isPending ? 'Pendiente de activar' : 'Cuenta activada'}
+        </strong>
+        {' '}· Email: <code style={{ fontFamily: 'var(--np-font-mono)', fontSize: '0.78rem' }}>{operator.email}</code>
+      </p>
+
+      {/* Re-generar invite — solo para pending */}
+      {isPending ? (
+        <div>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={handleRegenerateInvite}
+            loading={busy === 'invite'}
+            disabled={busy !== null}
+          >
+            🔗 Re-generar invite link (24h)
+          </Button>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
+            Si el link original caducó o no llegó por email.
+          </p>
+        </div>
+      ) : null}
+
+      {inviteResult ? (
+        <div style={{
+          background: 'var(--np-surface-2)',
+          border: '1px solid var(--np-border)',
+          borderRadius: '0.5rem',
+          padding: '0.75rem',
+          display: 'flex', flexDirection: 'column', gap: '0.4rem',
+        }}>
+          <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>
+            ✅ Nuevo invite link — válido hasta {new Date(inviteResult.expiresAt).toLocaleString('es-ES')}
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <code style={{
+              flex: 1,
+              fontFamily: 'var(--np-font-mono)',
+              fontSize: '0.72rem',
+              padding: '0.5rem',
+              background: 'var(--np-surface)',
+              borderRadius: '0.3rem',
+              wordBreak: 'break-all',
+            }}>{inviteResult.url}</code>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => copyToClipboard(inviteResult.url, 'invite')}
+            >
+              {copied === 'invite' ? '✓' : 'Copiar'}
+            </Button>
+          </div>
+          <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--np-text-dim)' }}>
+            Mánda este link por WhatsApp a la chica. Cuando lo abra y ponga su contraseña, el link se invalida.
+          </p>
+        </div>
+      ) : null}
+
+      {/* Resetear contraseña — siempre disponible */}
+      <div>
+        <p style={{ margin: '0 0 0.3rem', fontSize: '0.8125rem', fontWeight: 500 }}>
+          Resetear contraseña
+        </p>
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
+          Útil si la chica olvidó su contraseña. La verás UNA vez para copiarla.
+        </p>
+        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'stretch', marginBottom: '0.4rem' }}>
+          <input
+            type={showPass ? 'text' : 'password'}
+            value={explicitPass}
+            onChange={(e) => setExplicitPass(e.target.value)}
+            placeholder="Escribe una pass (mín 8) o deja vacío"
+            disabled={busy !== null}
+            style={{
+              flex: 1,
+              padding: '0.55rem',
+              borderRadius: '0.4rem',
+              border: '1px solid var(--np-border)',
+              background: 'var(--np-bg-input, var(--np-surface))',
+              color: 'var(--np-text)',
+              fontSize: '0.875rem',
+              fontFamily: showPass ? 'var(--np-font-mono)' : 'inherit',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPass((s) => !s)}
+            title={showPass ? 'Ocultar' : 'Mostrar'}
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--np-border)',
+              borderRadius: '0.4rem',
+              padding: '0 0.7rem',
+              cursor: 'pointer',
+              color: 'var(--np-text-mute)',
+            }}
+          >
+            {showPass ? '🙈' : '👁'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => handleResetPassword(true)}
+            disabled={busy !== null || explicitPass.length === 0}
+            loading={busy === 'reset' && explicitPass.length > 0}
+          >
+            Usar esta contraseña
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => handleResetPassword(false)}
+            disabled={busy !== null}
+            loading={busy === 'reset' && explicitPass.length === 0}
+          >
+            🎲 Generar aleatoria
+          </Button>
+        </div>
+      </div>
+
+      {resetResult ? (
+        <div style={{
+          background: 'var(--np-surface-2)',
+          border: '2px solid var(--np-success, #10b981)',
+          borderRadius: '0.5rem',
+          padding: '0.75rem',
+          display: 'flex', flexDirection: 'column', gap: '0.4rem',
+        }}>
+          <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>
+            ✅ Nueva contraseña — apúntala AHORA, no se mostrará otra vez
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <code style={{
+              flex: 1,
+              fontFamily: 'var(--np-font-mono)',
+              fontSize: '1.05rem',
+              fontWeight: 600,
+              padding: '0.6rem',
+              background: 'var(--np-surface)',
+              borderRadius: '0.3rem',
+              textAlign: 'center',
+              letterSpacing: '0.05em',
+            }}>{resetResult.password}</code>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => copyToClipboard(resetResult.password, 'pass')}
+            >
+              {copied === 'pass' ? '✓' : 'Copiar'}
+            </Button>
+          </div>
+          <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--np-text-dim)' }}>
+            Email para login: <code>{operator.email}</code> · Mándale ambos por WhatsApp.
+          </p>
+        </div>
+      ) : null}
+
+      {error ? (
+        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

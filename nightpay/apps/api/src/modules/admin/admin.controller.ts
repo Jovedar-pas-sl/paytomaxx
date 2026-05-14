@@ -399,6 +399,47 @@ export class AdminController {
     return this.operators.createSelfOnboardingLink(tenantId, id, user.sub);
   }
 
+  /**
+   * Re-emite invite link para una operadora con activación pendiente.
+   * Caso de uso: el primer invite expiró (TTL 24h) o nunca llegó por email
+   * y el admin no copió la URL.
+   * Si la chica ya activó password (invitedAt=null), 409 — usar reset-password.
+   */
+  @Post('operators/:id/regenerate-invite')
+  @Roles('OWNER', 'MANAGER')
+  @HttpCode(200)
+  async regenerateInvite(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.operators.regenerateInvite(tenantId, id, user.sub);
+  }
+
+  /**
+   * Resetea la contraseña de una operadora. Body opcional:
+   *   - { password: "X..." } → admin la define explícita (mín 8 chars)
+   *   - {} (vacío)           → backend genera random 12 chars
+   * Response devuelve la password EN CLARO una sola vez para que el admin la
+   * copie y se la envíe por WhatsApp. NightPay nunca la persiste en claro.
+   */
+  @Post('operators/:id/reset-password')
+  @Roles('OWNER', 'MANAGER')
+  @HttpCode(200)
+  async resetPassword(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: { password?: string } = {},
+  ) {
+    return this.operators.resetPassword(
+      tenantId,
+      id,
+      user.sub,
+      typeof body.password === 'string' && body.password.length > 0 ? body.password : null,
+    );
+  }
+
   @Get('operators/:id/earnings')
   @Roles('OWNER', 'MANAGER')
   async listOperatorEarnings(
