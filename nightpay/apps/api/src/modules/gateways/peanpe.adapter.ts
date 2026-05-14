@@ -1,6 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomInt } from 'node:crypto';
 import type CircuitBreaker from 'opossum';
 import type {
   AuthorizeInput,
@@ -11,32 +11,50 @@ import type {
   WebhookVerifyResult,
 } from '@nightpay/contracts';
 import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
-import { createBreaker, fetchWithTimeout, timedFire } from './circuit-breaker';
-import { pickHeader } from './header-utils';
+import { createBreaker, timedFire } from './circuit-breaker';
 import { MetricsService } from '../metrics/metrics.service';
+import { PrismaService } from '../../common/prisma/prisma.service';
 
 const PROVIDER_LABEL = 'PEANPE' as const;
 function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
   return s === 'closed' ? 0 : s === 'halfOpen' ? 1 : 2;
 }
 
-const REPLAY_WINDOW_MS = 5 * 60 * 1000;
-
-interface PeanpeWebhook {
-  id?: string;
-  type?: string;
-  providerTxId?: string;
-  externalRef?: string;
-  amountCents?: number;
-  ts?: string;
-}
-
+/**
+ * Peanpe API v2.0 adapter — implementado según doc oficial (Vers: 2.0).
+ *
+ * Flow diferente al de gateways REST estándar:
+ *   1. authorize() genera identificador_llamada (6 chars), persiste mapping
+ *      payment ↔ id_llamada en peanpe_calls + securityToken pre-generado.
+ *      Devuelve providerTxId = identificador_llamada. NO hace request HTTP a
+ *      Peanpe — el flujo continúa cuando el USUARIO accede a la URL hosted.
+ *   2. La URL hosted la construye el endpoint pblico
+ *      `GET /v1/payments/public/:token/peanpe-redirect-url` con la firma
+ *      HMAC calculada con apikey hex→bytes raw (ver doc Peanpe).
+ *   3. Cliente paga en peanpe.com formulario hosted.
+ *   4. Peanpe llama a NightPay vía challenge-response:
+ *      a) POST /v1/webhooks/peanpe/notify con identificador_llamada → NightPay
+ *         responde con `securityToken` (10 dígitos, texto plano).
+ *      b) GET /v1/webhooks/peanpe/notify con status, msg, identificador_llamada,
+ *         debug, accion, seguridad → NightPay valida seguridad === securityToken
+ *         + dispara FSM transition.
+ *
+ * Limitaciones documentadas:
+ *  - identificador_llamada max 6 chars (tabla mapping resuelve el problema con
+ *    nuestros UUIDs).
+ *  - No hay endpoint refund por API — refund manual desde panel peanpe.com.
+ *  - No hay endpoint status — orphan-reconcile no puede consultar Peanpe.
+ *  - HTTP en URL base (riesgo MITM; mitigación: la firma HMAC protege la
+ *    integridad de los parámetros aunque la URL viaje en HTTP).
+ */
 @Injectable()
 export class PeanpeAdapter implements GatewayAdapter {
   readonly provider = 'PEANPE' as const;
+  private readonly logger = new Logger(PeanpeAdapter.name);
 
   private readonly config: ConfigService;
   private readonly metrics: MetricsService;
+  private readonly prisma: PrismaService;
   private readonly authorizeBreaker: CircuitBreaker<[AuthorizeInput], AuthorizeResult>;
   private readonly statusBreaker: CircuitBreaker<[string, string], GatewayStatus>;
   private readonly refundBreaker: CircuitBreaker<[RefundInput], RefundResult>;
@@ -45,9 +63,11 @@ export class PeanpeAdapter implements GatewayAdapter {
   constructor(
     @Inject(ConfigService) config: ConfigService,
     @Inject(MetricsService) metrics: MetricsService,
+    @Inject(PrismaService) prisma: PrismaService,
   ) {
     this.config = config;
     this.metrics = metrics;
+    this.prisma = prisma;
     this.timeoutMs = config.get<number>('GATEWAY_TIMEOUT_MS') ?? 5000;
 
     this.authorizeBreaker = createBreaker((input: AuthorizeInput) => this.doAuthorize(input), {
@@ -97,147 +117,271 @@ export class PeanpeAdapter implements GatewayAdapter {
     );
   }
 
-  // ─── implementaciones ─────────────────────────────────────────────
+  // ─── Implementaciones tras circuit breaker ───────────────────────
 
+  /**
+   * NO hace HTTP a Peanpe — solo prepara el mapping local. El cliente paga
+   * cuando entra a la URL hosted (generada por el endpoint /peanpe-redirect-url).
+   */
   private async doAuthorize(input: AuthorizeInput): Promise<AuthorizeResult> {
-    const url = `${this.baseUrl()}/payments`;
-    const res = await fetchWithTimeout(
-      url,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          externalRef: input.reference,
-          amountCents: input.amountCents,
-          venueId: input.tenantId,
-        }),
-      },
-      this.timeoutMs,
-    );
-    if (!res.ok) {
-      throw new Error(`Peanpe authorize failed: ${res.status}`);
+    const apiKey = this.config.get<string>('PEANPE_API_KEY');
+    const accountId = this.config.get<string>('PEANPE_ACCOUNT_ID');
+    if (!apiKey || !accountId) {
+      throw new Error('PEANPE_API_KEY o PEANPE_ACCOUNT_ID no configurado');
     }
-    const data = (await res.json()) as { id?: string };
-    if (!data.id) throw new Error('Peanpe authorize: missing id');
+
+    // Generar identificador_llamada único de 6 chars alfanuméricos. Reintenta
+    // ante colisión (improbable con 36^6 ≈ 2B combos).
+    let idLlamada: string | null = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidate = generate6CharId();
+      const exists = await this.prisma.peanpeCall.findUnique({
+        where: { identificadorLlamada: candidate },
+      });
+      if (!exists) {
+        idLlamada = candidate;
+        break;
+      }
+    }
+    if (!idLlamada) {
+      throw new Error('No se pudo generar identificador_llamada único tras 5 intentos');
+    }
+
+    // SecurityToken: número entero 10 cifras (string). Lo devolveremos cuando
+    // Peanpe POST el challenge tras el pago, validando así su autenticidad.
+    const securityToken = String(randomInt(1_000_000_000, 9_999_999_999));
+
+    await this.prisma.peanpeCall.create({
+      data: {
+        identificadorLlamada: idLlamada,
+        paymentId: input.paymentId,
+        tenantId: input.tenantId,
+        securityToken,
+        amountCents: input.amountCents,
+      },
+    });
+
+    this.logger.log(
+      `Peanpe authorize prepared: payment=${input.paymentId} id_llamada=${idLlamada}`,
+    );
+
     return {
       provider: 'PEANPE',
-      providerTxId: data.id,
+      providerTxId: idLlamada,
       status: 'PROCESSING',
     };
   }
 
-  private async doGetStatus(_tenantId: string, providerTxId: string): Promise<GatewayStatus> {
-    const res = await fetchWithTimeout(
-      `${this.baseUrl()}/payments/${providerTxId}`,
-      {},
-      this.timeoutMs,
-    );
-    if (!res.ok) return 'UNKNOWN';
-    const data = (await res.json()) as { state?: string };
-    return mapPeanpeStatus(data.state);
+  /**
+   * Peanpe NO expone endpoint de status por API. Orphan-reconcile no puede
+   * usar este adapter — devolvemos UNKNOWN siempre.
+   */
+  private async doGetStatus(_tenantId: string, _providerTxId: string): Promise<GatewayStatus> {
+    this.logger.warn('Peanpe getStatus no soportado por API — devolviendo UNKNOWN');
+    return 'UNKNOWN';
   }
 
-  private async doRefund(input: RefundInput): Promise<RefundResult> {
-    const res = await fetchWithTimeout(
-      `${this.baseUrl()}/payments/${input.providerTxId}/refund`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': input.reference,
-        },
-        body: JSON.stringify({
-          amountCents: input.amountCents,
-          reason: input.reason ?? '',
-        }),
-      },
-      this.timeoutMs,
+  /**
+   * Peanpe NO expone refund por API. Admin debe refundear desde el panel
+   * (backoffice peanpe.com → estadísticas → buscar txn → Anular).
+   */
+  private async doRefund(_input: RefundInput): Promise<RefundResult> {
+    this.logger.warn(
+      'Peanpe refund vía API no soportado — admin debe usar panel peanpe.com',
     );
-    if (!res.ok) {
-      throw new Error(`Peanpe refund failed: ${res.status}`);
-    }
-    const data = (await res.json()) as { id?: string; state?: string };
-    if (!data.id) throw new Error('Peanpe refund: missing id');
-    return {
-      providerRefundId: data.id,
-      status: data.state?.toLowerCase() === 'failed' ? 'FAILED' : 'SUCCEEDED',
-    };
+    throw new Error(
+      'peanpe-refund-manual-required: Peanpe v2.0 no expone refund por API. ' +
+        'Anula la transacción desde panel peanpe.com → Estadísticas → buscar txn → Anular. ' +
+        'Después marca el refund manualmente en NightPay.',
+    );
   }
 
+  // ─── Webhook handling ────────────────────────────────────────────
+  //
+  // Peanpe NO usa headers HMAC estándar — usa el flujo challenge-response:
+  // 1. POST con identificador_llamada → NightPay responde securityToken
+  // 2. GET con seguridad → NightPay valida seguridad === securityToken
+  //
+  // El verifyWebhook implementa el camino #2 (GET con resultado). El POST
+  // inicial se maneja directamente en webhooks.controller (devuelve plain text).
+  //
   verifyWebhook(
-    headers: Record<string, string | string[] | undefined>,
+    _headers: Record<string, string | string[] | undefined>,
     rawBody: Buffer,
   ): WebhookVerifyResult {
-    const sig = pickHeader(headers, 'x-signature');
-    const ts = pickHeader(headers, 'x-timestamp');
-    if (!sig || !ts) return { valid: false, reason: 'missing-signature-or-timestamp' };
-
-    const tsNum = Number(ts);
-    if (!Number.isFinite(tsNum) || Math.abs(Date.now() - tsNum) > REPLAY_WINDOW_MS) {
-      return { valid: false, reason: 'timestamp-out-of-window' };
-    }
-
-    const secret = this.config.getOrThrow<string>('PEANPE_WEBHOOK_SECRET');
-    const expected = createHmac('sha256', secret)
-      .update(`${ts}.${rawBody.toString('utf8')}`)
-      .digest('hex');
-
-    let valid = false;
+    // Peanpe GET de resultado: los params vienen en query string, NOT en body.
+    // El controller los habrá copiado al rawBody como JSON con shape:
+    //   { status, msg, identificador_llamada, debug, accion, seguridad }
+    let parsed: PeanpeResultPayload;
     try {
-      const a = Buffer.from(sig, 'hex');
-      const b = Buffer.from(expected, 'hex');
-      valid = a.length === b.length && timingSafeEqual(a, b);
-    } catch {
-      return { valid: false, reason: 'invalid-signature-encoding' };
-    }
-    if (!valid) return { valid: false, reason: 'signature-mismatch' };
-
-    let parsed: PeanpeWebhook;
-    try {
-      parsed = JSON.parse(rawBody.toString('utf8')) as PeanpeWebhook;
+      parsed = JSON.parse(rawBody.toString('utf8')) as PeanpeResultPayload;
     } catch {
       return { valid: false, reason: 'invalid-json' };
     }
-    if (!parsed.id || !parsed.externalRef) {
-      return { valid: false, reason: 'missing-id-or-ref' };
+
+    if (!parsed.identificador_llamada || !parsed.seguridad || !parsed.status) {
+      return { valid: false, reason: 'missing-required-params' };
     }
-    return { valid: true, externalEventId: parsed.id, paymentRef: parsed.externalRef };
+
+    // externalEventId único: id_llamada + accion + status (un mismo cobro
+    // puede generar 2 callbacks: el primero "pagar" cuando paga, y otro
+    // "recurrencia_no_cobrada" si hay recurrencia fallida).
+    const externalEventId = `${parsed.identificador_llamada}_${parsed.accion ?? 'pagar'}_${parsed.status}`;
+
+    // El paymentRef interno se resuelve en el controller via lookup en
+    // peanpe_calls.paymentId. Aquí devolvemos identificador_llamada — el
+    // controller hace la resolución antes de transitar FSM.
+    return {
+      valid: true,
+      externalEventId,
+      paymentRef: parsed.identificador_llamada,
+    };
   }
 
   mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
-    const p = parsedPayload as PeanpeWebhook;
-    if (!p.externalRef || !p.providerTxId) return null;
+    const p = parsedPayload as PeanpeResultPayload & { _paymentId?: string };
+    // El controller habrá hecho el lookup paymentRef → paymentId y lo añade
+    // como _paymentId al payload antes de llamar mapWebhookToFsmEvent.
+    const paymentId = p._paymentId;
+    if (!paymentId) return null;
 
-    if (p.type === 'payment.authorized') {
+    // Status "200" → AUTHORIZED. Cualquier otro → FAILED.
+    if (p.status === '200' || p.status === 200) {
       return {
-        paymentId: p.externalRef,
-        event: { type: 'AUTHORIZED', providerTxId: p.providerTxId, provider: 'PEANPE' },
+        paymentId,
+        event: {
+          type: 'AUTHORIZED',
+          providerTxId: p.identificador_llamada ?? '',
+          provider: 'PEANPE',
+        },
       };
     }
-    if (p.type === 'payment.failed' || p.type === 'payment.voided') {
-      return {
-        paymentId: p.externalRef,
-        event: { type: 'FAILED', reason: p.type },
-      };
-    }
-    return null;
+    return {
+      paymentId,
+      event: {
+        type: 'FAILED',
+        reason: `peanpe_${p.status}_${p.msg ?? 'unknown'}`.slice(0, 100),
+      },
+    };
   }
 
-  private baseUrl(): string {
-    return this.config.getOrThrow<string>('PEANPE_API_URL');
+  // ─── Helpers públicos para webhook controller + endpoint redirect ─
+
+  /**
+   * Construye la URL HOSTED de Peanpe a la que se redirige al cliente.
+   * Calcula firma HMAC-SHA256 con apikey hex→bytes raw + params concatenados
+   * según doc Peanpe (orden importa).
+   */
+  buildPaymentUrl(input: {
+    identificadorLlamada: string;
+    amountCents: number;
+    concepto: string;
+    debug?: boolean;
+  }): string {
+    const apiKey = this.config.getOrThrow<string>('PEANPE_API_KEY');
+    const accountId = this.config.getOrThrow<string>('PEANPE_ACCOUNT_ID');
+    const base = this.config.get<string>('PEANPE_API_BASE_URL') ?? 'http://peanpe.com';
+
+    // Doc Peanpe: cantidad debe ser número entero sin puntos ni comas.
+    // NightPay guarda en cents → Peanpe espera la misma unidad? La doc no
+    // es 100% clara pero "cantidad" típicamente es céntimos en PSPs ES.
+    // Asumimos céntimos. Si Peanpe espera euros enteros, hay que dividir /100.
+    // TODO: confirmar con soporte Peanpe en el primer cobro real.
+    const cantidad = String(input.amountCents);
+
+    // Firma según doc: concat(id_llamada, account, cantidad) firmado con
+    // HMAC-SHA256, donde la apikey es HEX y debe convertirse a bytes raw.
+    const concat = `${input.identificadorLlamada}${accountId}${cantidad}`;
+    const apiKeyBytes = Buffer.from(apiKey, 'hex');
+    const firma = createHmac('sha256', apiKeyBytes).update(concat).digest('hex');
+
+    const params = new URLSearchParams({
+      accion: 'pagar',
+      identificador_cuenta_peanpe: accountId,
+      identificador_llamada: input.identificadorLlamada,
+      cantidad,
+      concepto: input.concepto,
+      firma,
+    });
+    if (input.debug) params.set('debug', '1');
+
+    return `${base.replace(/\/$/, '')}/api?${params.toString()}`;
+  }
+
+  /**
+   * Lookup del securityToken de una llamada para responder al challenge POST.
+   * Llamado por webhooks.controller cuando Peanpe hace el POST inicial.
+   */
+  async getSecurityTokenForCall(identificadorLlamada: string): Promise<string | null> {
+    const call = await this.prisma.peanpeCall.findUnique({
+      where: { identificadorLlamada },
+      select: { securityToken: true },
+    });
+    return call?.securityToken ?? null;
+  }
+
+  /**
+   * Resolución id_llamada → paymentId para el webhook GET de resultado.
+   * También valida que el `seguridad` recibido coincida con el securityToken
+   * persistido (anti-spoof).
+   */
+  async resolvePaymentFromCallback(input: {
+    identificadorLlamada: string;
+    seguridad: string;
+  }): Promise<{ paymentId: string; tenantId: string } | null> {
+    const call = await this.prisma.peanpeCall.findUnique({
+      where: { identificadorLlamada: input.identificadorLlamada },
+      select: { paymentId: true, tenantId: true, securityToken: true },
+    });
+    if (!call) {
+      this.logger.warn(`Peanpe callback con id_llamada desconocido: ${input.identificadorLlamada}`);
+      return null;
+    }
+    if (call.securityToken !== input.seguridad) {
+      this.logger.warn(
+        `Peanpe callback con seguridad mismatch: id=${input.identificadorLlamada} expected=${call.securityToken.slice(0, 3)}*** got=${input.seguridad.slice(0, 3)}***`,
+      );
+      return null;
+    }
+    return { paymentId: call.paymentId, tenantId: call.tenantId };
+  }
+
+  /** Persiste el resultado del callback (idempotente). */
+  async persistCallbackResult(
+    identificadorLlamada: string,
+    status: string,
+    msg: string | null,
+  ): Promise<void> {
+    await this.prisma.peanpeCall.update({
+      where: { identificadorLlamada },
+      data: {
+        resultStatus: status,
+        resultMsg: msg ?? null,
+        resultReceivedAt: new Date(),
+      },
+    });
   }
 }
 
-function mapPeanpeStatus(s: string | undefined): GatewayStatus {
-  switch ((s ?? '').toLowerCase()) {
-    case 'authorized':
-      return 'AUTHORIZED';
-    case 'failed':
-    case 'voided':
-      return 'FAILED';
-    case 'processing':
-      return 'PROCESSING';
-    default:
-      return 'UNKNOWN';
+interface PeanpeResultPayload {
+  status?: string | number;
+  msg?: string;
+  identificador_llamada?: string;
+  debug?: string;
+  accion?: string;
+  seguridad?: string;
+}
+
+/**
+ * 6 chars alfanuméricos. Excluye caracteres ambiguos (0/O, 1/l/I) para
+ * facilitar lectura humana si alguna vez se transcribe verbalmente.
+ */
+function generate6CharId(): string {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const buf = randomBytes(6);
+  let out = '';
+  for (let i = 0; i < 6; i++) {
+    out += charset[buf[i]! % charset.length];
   }
+  return out;
 }

@@ -49,11 +49,21 @@ function makeService(opts: PrismaMockOptions = {}) {
   const createdEarnings: Array<Record<string, unknown>> = [];
   let txWalletUpdates: Array<Record<string, unknown>> = [];
 
-  // Mock $queryRaw returns the locked wallet row
-  const queryRawMock = vi.fn().mockImplementation(async () => [wallet]);
+  // Mock $queryRaw returns a SNAPSHOT of the locked wallet row.
+  // En producción la DB devuelve una copia (no aliased con el "estado en memoria"
+  // del wallet); replicamos eso aquí para evitar falsos positivos donde un
+  // update posterior mutaba w.balanceCents en el caller.
+  const queryRawMock = vi.fn().mockImplementation(async () => [{ ...wallet }]);
+
+  const findManyMock = vi.fn().mockResolvedValue([
+    { id: PAYMENT_ID, availableAmountCents: wallet.balanceCents },
+  ]);
 
   const txMock = {
     $queryRaw: queryRawMock,
+    payment: {
+      findMany: findManyMock,
+    },
     walletConsumption: {
       create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
         const c = { id: `c-${createdConsumptions.length + 1}`, ...data };
@@ -111,13 +121,56 @@ function makeService(opts: PrismaMockOptions = {}) {
   const prismaMock = {
     asSystem: vi.fn().mockImplementation(async <T>(cb: (tx: typeof txMock) => Promise<T>) => cb(txMock)),
     $transaction: vi.fn().mockImplementation(async <T>(cb: (tx: typeof txMock) => Promise<T>) => cb(txMock)),
+    // El refundCardFlow llama prisma.clientWallet.update fuera de transacción
+    // tras los refunds PSP. Delegamos al mock del tx para mantener estado.
+    clientWallet: {
+      update: vi.fn().mockImplementation(async (args: { data: Record<string, unknown> }) =>
+        txMock.clientWallet.update(args),
+      ),
+    },
   };
 
   const auditMock = { log: vi.fn().mockResolvedValue(undefined) };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const svc = new WalletsService(prismaMock as any, auditMock as any);
-  return { svc, prismaMock, txMock, auditMock, wallet, createdConsumptions, createdEarnings, txWalletUpdates };
+  // Mock RefundsService — devuelve éxito por defecto. Tests CARD pueden
+  // override el comportamiento para simular fallos.
+  const refundsMock = {
+    refund: vi.fn().mockImplementation(async (req: { paymentId: string; amountCents: number }) => ({
+      id: `r-${Date.now()}-${Math.random()}`,
+      paymentId: req.paymentId,
+      amountCents: req.amountCents,
+      status: 'SUCCEEDED' as const,
+      providerRefundId: 'psp-refund-1',
+    })),
+  };
+
+  const moduleRefMock = {
+    // En test asumimos que CUALQUIER provider que pidamos resolve a refundsMock.
+    // Solo hay un caller (onModuleInit pide RefundsService) — no hay ambigüedad.
+    get: vi.fn().mockReturnValue(refundsMock),
+  };
+
+  const svc = new WalletsService(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    prismaMock as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    auditMock as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    moduleRefMock as any,
+  );
+  // No hay onModuleInit — la resolución de RefundsService es lazy via getRefundsService().
+  return {
+    svc,
+    prismaMock,
+    txMock,
+    auditMock,
+    refundsMock,
+    moduleRefMock,
+    wallet,
+    createdConsumptions,
+    createdEarnings,
+    txWalletUpdates,
+  };
 }
 
 describe('WalletsService.createEmpty', () => {
@@ -250,7 +303,7 @@ describe('WalletsService.refund', () => {
     const result = await svc.refund({
       tenantId: TENANT,
       walletId: WALLET_ID,
-      actorUserId: 'u-owner',
+      actor: { userId: 'u-owner', role: 'OWNER', tenantId: TENANT },
       dto: { method: 'CARD' },
     });
     expect(result.method).toBe('CARD');
@@ -266,7 +319,7 @@ describe('WalletsService.refund', () => {
     const result = await svc.refund({
       tenantId: TENANT,
       walletId: WALLET_ID,
-      actorUserId: 'u-owner',
+      actor: { userId: 'u-owner', role: 'OWNER', tenantId: TENANT },
       dto: { method: 'CREDIT' },
     });
     expect(result.newStatus).toBe('ACTIVE');
@@ -285,7 +338,7 @@ describe('WalletsService.refund', () => {
       svc.refund({
         tenantId: TENANT,
         walletId: WALLET_ID,
-        actorUserId: 'u-owner',
+        actor: { userId: 'u-owner', role: 'OWNER', tenantId: TENANT },
         dto: { method: 'CARD' },
       }),
     ).rejects.toThrow(ConflictException);
@@ -298,7 +351,7 @@ describe('WalletsService.refund', () => {
       svc.refund({
         tenantId: TENANT,
         walletId: WALLET_ID,
-        actorUserId: 'u-owner',
+        actor: { userId: 'u-owner', role: 'OWNER', tenantId: TENANT },
         dto: { method: 'CARD' },
       }),
     ).rejects.toThrow(NotFoundException);

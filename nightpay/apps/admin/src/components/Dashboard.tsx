@@ -23,6 +23,7 @@ import {
 } from '@/lib/api';
 import { OperatorsPanel } from './OperatorsPanel';
 import { SettingsPanel } from './SettingsPanel';
+import { TerminalsPanel } from './TerminalsPanel';
 import { TreasuryPanel } from './TreasuryPanel';
 import { WalletsPanel } from './WalletsPanel';
 
@@ -31,7 +32,7 @@ interface Props {
   onLogout: () => void;
 }
 
-type TabKey = 'payments' | 'operators' | 'wallets' | 'treasury' | 'settings';
+type TabKey = 'payments' | 'operators' | 'wallets' | 'treasury' | 'terminals' | 'settings';
 
 export function Dashboard({ user, onLogout }: Props) {
   const [tab, setTab] = useState<TabKey>('payments');
@@ -122,6 +123,9 @@ export function Dashboard({ user, onLogout }: Props) {
         <TabButton active={tab === 'treasury'} onClick={() => setTab('treasury')}>
           Treasury
         </TabButton>
+        <TabButton active={tab === 'terminals'} onClick={() => setTab('terminals')}>
+          Datáfonos
+        </TabButton>
         <TabButton active={tab === 'settings'} onClick={() => setTab('settings')}>
           Ajustes
         </TabButton>
@@ -133,6 +137,8 @@ export function Dashboard({ user, onLogout }: Props) {
         <WalletsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'treasury' ? (
         <TreasuryPanel isOwner={user.role === 'OWNER'} />
+      ) : tab === 'terminals' ? (
+        <TerminalsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'settings' ? (
         <SettingsPanel isOwner={user.role === 'OWNER'} />
       ) : (

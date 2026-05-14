@@ -61,7 +61,7 @@ export class RealtimeGateway {
   /** Estado terminal — cliente puede mostrar "completado" / "rechazado". */
   emitPaymentCompleted(
     paymentId: string,
-    status: 'AUTHORIZED' | 'FAILED' | 'EXPIRED',
+    status: 'AUTHORIZED' | 'FAILED' | 'EXPIRED' | 'CANCELED',
   ): void {
     this.server.to(`payment:${paymentId}`).emit('payment:completed', {
       type: 'payment:completed',

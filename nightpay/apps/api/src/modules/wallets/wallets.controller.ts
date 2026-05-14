@@ -102,7 +102,7 @@ export class WalletsController {
     return this.wallets.refund({
       tenantId,
       walletId,
-      actorUserId: user.sub,
+      actor: { userId: user.sub, role: user.role, tenantId },
       dto,
     });
   }

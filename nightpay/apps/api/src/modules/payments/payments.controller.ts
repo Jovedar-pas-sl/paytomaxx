@@ -6,6 +6,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -55,12 +56,16 @@ export class PaymentsController {
 
   /**
    * Lista cobros POS pendientes — para el panel del camarero. Tenant-scoped.
+   * Soporta filtro opcional por zona vía query param `?zone=BARRA`.
    */
   @Get('pending-pos')
   @UseGuards(RolesGuard)
   @Roles('OWNER', 'MANAGER', 'WAITER')
-  async pendingPos(@Tenant() tenantId: string) {
-    return this.payments.listPendingPos(tenantId);
+  async pendingPos(
+    @Tenant() tenantId: string,
+    @Query('zone') zone?: string,
+  ) {
+    return this.payments.listPendingPos(tenantId, zone);
   }
 
   /**
@@ -79,7 +84,7 @@ export class PaymentsController {
   ): Promise<{ status: string }> {
     return this.payments.confirmPosPayment(
       id,
-      { userId: user.sub, role: user.role },
+      { userId: user.sub, role: user.role, tenantId: user.tenantId },
       dto,
     );
   }
@@ -132,5 +137,18 @@ export class PaymentsController {
     @Param('token') token: string,
   ): Promise<{ status: string; providerTxId?: string }> {
     return this.payments.startAuthorization(token);
+  }
+
+  /**
+   * Si el provider del payment es PEANPE, construye la URL del formulario
+   * hosted peanpe.com con firma + parámetros. El frontend redirige al cliente
+   * a esa URL. No requiere auth — el qrToken es la cred.
+   */
+  @Public()
+  @Get('public/:token/peanpe-redirect-url')
+  async peanpeRedirectUrl(
+    @Param('token') token: string,
+  ): Promise<{ provider: string; url: string }> {
+    return this.payments.getPeanpeRedirectUrl(token);
   }
 }

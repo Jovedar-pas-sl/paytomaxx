@@ -76,10 +76,14 @@ describe('WebhooksController.receive — provider validation', () => {
     },
   );
 
-  it('accepts PEANPE', async () => {
-    const { controller, gateways } = makeController();
-    await controller.receive('peanpe', fakeRequest());
-    expect(gateways.get).toHaveBeenCalledWith('PEANPE');
+  it('rejects PEANPE on generic endpoint (uses challenge-response route)', async () => {
+    const { controller } = makeController();
+    // Peanpe v2.0 doc usa flow distinto (POST notify + GET notify con seguridad).
+    // El endpoint genérico /webhooks/:provider rechaza PEANPE para forzar al
+    // caller a usar la ruta dedicada /webhooks/peanpe/notify.
+    await expect(controller.receive('peanpe', fakeRequest())).rejects.toThrow(
+      UnauthorizedException,
+    );
   });
 });
 
@@ -158,11 +162,12 @@ describe('WebhooksController.receive — idempotency', () => {
     const { controller, queue } = makeController({
       verifyResult: { valid: true, externalEventId: 'unique-evt-77', paymentRef: 'pay-1' },
     });
-    await controller.receive('peanpe', fakeRequest());
+    // Probamos con WIPAY (Peanpe v2.0 usa ruta dedicada con flujo distinto).
+    await controller.receive('wipay', fakeRequest());
     expect(queue.add).toHaveBeenCalledWith(
       'process-webhook',
       expect.any(Object),
-      expect.objectContaining({ jobId: 'webhook-PEANPE-unique-evt-77' }),
+      expect.objectContaining({ jobId: 'webhook-WIPAY-unique-evt-77' }),
     );
   });
 

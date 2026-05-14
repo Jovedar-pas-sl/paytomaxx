@@ -18,6 +18,8 @@ import { PayoutVerifierFactory } from './payout-verifier.factory';
   imports: [AuditModule],
   controllers: [TreasuryController],
   providers: [TreasuryService, PrismaService, PayoutVerifierFactory],
-  exports: [TreasuryService],
+  // PayoutVerifierFactory se exporta para que otros módulos (operators)
+  // puedan snapshotear la tasa EUR↔USDT al crear un payout cripto.
+  exports: [TreasuryService, PayoutVerifierFactory],
 })
 export class TreasuryModule {}

@@ -27,12 +27,10 @@ export interface SendEmailResult {
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly config: ConfigService;
   private readonly apiKey: string | undefined;
   private readonly fromAddress: string;
 
   constructor(@Inject(ConfigService) config: ConfigService) {
-    this.config = config;
     this.apiKey = config.get<string>('RESEND_API_KEY');
     this.fromAddress = config.get<string>('EMAIL_FROM') ?? 'NightPay <noreply@paytomaxx.com>';
   }

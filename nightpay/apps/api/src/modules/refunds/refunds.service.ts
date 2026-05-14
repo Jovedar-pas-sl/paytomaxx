@@ -169,10 +169,14 @@ export class RefundsService {
     });
 
     try {
-      await this.payments.transition(payment.id, {
-        type: 'REFUND_PARTIAL',
-        amountCents: request.amountCents,
-      });
+      await this.payments.transition(
+        payment.id,
+        {
+          type: 'REFUND_PARTIAL',
+          amountCents: request.amountCents,
+        },
+        actor.tenantId,
+      );
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
         // Pago ya fue refundeado por race; el Refund ya esta SUCCEEDED, todo bien
@@ -182,10 +186,15 @@ export class RefundsService {
       }
     }
 
-    // Reverse de la comisión de la operadora (si aplica). No-op si el pago
-    // no fue creado por una OPERATOR. Permite saldo negativo si reverso > saldo.
+    // Reverse de la comisión de la operadora (si aplica). Idempotente por refund.id —
+    // si el processor reintenta, no duplicamos descuento. Usa accumulator pattern
+    // para preservar invariante "total refundeado == amount ⇒ reversed == commission".
     try {
-      await this.payments.applyRefundToEarning(payment.id, request.amountCents);
+      await this.payments.applyRefundToEarning(
+        payment.id,
+        refund.id,
+        request.amountCents,
+      );
     } catch (err) {
       this.logger.error(`Earning reverse failed for payment ${payment.id}: ${(err as Error).message}`);
       // No bloquear el refund — el dinero del cliente ya está procesado.

@@ -7,8 +7,10 @@ import {
   cancelPayment,
   createPayment,
   fetchTerminals,
+  fetchZones,
   wsBase,
   type CreatedPayment,
+  type ZoneOption,
 } from '@/lib/api';
 
 interface Props {
@@ -19,6 +21,8 @@ type CobroMode = 'qr' | 'wallet' | 'pos';
 
 export function CreatePayment({ onCreated }: Props) {
   const [terminals, setTerminals] = useState<Array<{ externalId: string; label: string }>>([]);
+  const [zones, setZones] = useState<ZoneOption[]>([]);
+  const [selectedZone, setSelectedZone] = useState<string>('');
   const [amount, setAmount] = useState('');
   // Modo de cobro: QR directo (cliente paga con su móvil), wallet (carga
   // saldo prepago) o POS (camarero cobra con datáfono externo).
@@ -34,6 +38,19 @@ export function CreatePayment({ onCreated }: Props) {
     fetchTerminals()
       .then(setTerminals)
       .catch((err) => setError((err as Error).message));
+    // Carga zonas en paralelo — se usan cuando modo === 'pos'.
+    fetchZones()
+      .then((zs) => {
+        const activeZones = zs.filter((z) => z.activeCount > 0);
+        setZones(activeZones);
+        // Auto-select primera zona si hay solo una.
+        if (activeZones.length === 1) {
+          setSelectedZone(activeZones[0]!.zone);
+        }
+      })
+      .catch(() => {
+        /* zonas opcional — backwards compat fallback */
+      });
   }, []);
 
   useEffect(() => {
@@ -63,7 +80,7 @@ export function CreatePayment({ onCreated }: Props) {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (terminals.length === 0) {
+    if (terminals.length === 0 && zones.length === 0) {
       setError('No hay terminales configurados en el local');
       return;
     }
@@ -76,9 +93,17 @@ export function CreatePayment({ onCreated }: Props) {
       if (mode === 'wallet' && !walletIdentifier.trim()) {
         throw new Error('Pon una etiqueta al wallet (Mesa 3, Pulsera azul...) para no confundirlo');
       }
+      // Modo POS con zona: el backend resolverá el terminal libre de esa zona.
+      // Si no hay zona seleccionada y hay zonas configuradas, exigimos elegir.
+      const usingZone = mode === 'pos' && zones.length > 0;
+      if (usingZone && !selectedZone) {
+        throw new Error('Elige una zona (Barra, Habitaciones, Mesas…)');
+      }
       const created = await createPayment({
         amountCents: cents,
-        terminalExternalId: terminals[0]!.externalId,
+        // Si pasamos zone, el backend resuelve PAX; si no, fallback al primero.
+        zone: usingZone ? selectedZone : undefined,
+        terminalExternalId: usingZone ? undefined : terminals[0]?.externalId,
         walletIdentifier: mode === 'wallet' ? walletIdentifier.trim() : undefined,
         captureMethod: mode === 'pos' ? 'POS_EXTERNAL' : undefined,
       });
@@ -278,11 +303,56 @@ export function CreatePayment({ onCreated }: Props) {
             </p>
           </>
         ) : mode === 'pos' ? (
-          <p style={hintStyle}>
-            🪙 Genera un cobro para que el <strong>camarero lo procese con el datáfono del bar</strong>.
-            El cliente paga con su tarjeta física en el datáfono. Después el camarero
-            confirma en su app y tu comisión cae automática.
-          </p>
+          <>
+            {zones.length > 1 ? (
+              <div>
+                <label
+                  htmlFor="zone-select"
+                  style={{
+                    display: 'block',
+                    fontSize: '0.875rem',
+                    fontWeight: 500,
+                    marginBottom: '0.375rem',
+                    color: 'var(--np-text)',
+                  }}
+                >
+                  Zona del PAX
+                </label>
+                <select
+                  id="zone-select"
+                  value={selectedZone}
+                  onChange={(e) => setSelectedZone(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem 1rem',
+                    fontSize: '1rem',
+                    borderRadius: 'var(--np-r-md)',
+                    border: '1px solid var(--np-border)',
+                    background: 'var(--np-surface)',
+                    color: 'var(--np-text)',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  <option value="">Elige zona…</option>
+                  {zones.map((z) => (
+                    <option key={z.zone} value={z.zone}>
+                      {z.zoneDisplay} ({z.activeCount} PAX)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : zones.length === 1 ? (
+              <p style={{ ...hintStyle, textAlign: 'center' }}>
+                📍 Zona: <strong>{zones[0]!.zoneDisplay}</strong> ({zones[0]!.activeCount} PAX disponibles)
+              </p>
+            ) : null}
+            <p style={hintStyle}>
+              🪙 Genera un cobro para que el <strong>camarero lo procese con el datáfono del bar</strong>.
+              El cliente paga con su tarjeta física en el datáfono. Después el camarero
+              confirma en su app y tu comisión cae automática.
+            </p>
+          </>
         ) : null}
 
         <Button type="submit" size="lg" loading={submitting}>

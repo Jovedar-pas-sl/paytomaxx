@@ -127,14 +127,17 @@ export type OperatorBalance = z.infer<typeof OperatorBalanceSchema>;
 /** Earning individual con info del payment asociado. */
 export const EarningViewSchema = z.object({
   id: UuidSchema,
-  paymentId: UuidSchema,
+  paymentId: UuidSchema.nullable(),
   paymentAmountCents: z.number().int(),
   commissionBps: z.number().int(),
   commissionCents: z.number().int(),
+  /** Propinas asignadas al earning (independiente de commissionCents). */
+  tipCents: z.number().int().nonnegative().default(0),
   reversedCents: z.number().int().nonnegative(),
+  /** netCents = commissionCents + tipCents - reversedCents */
   netCents: z.number().int(),
   payoutId: UuidSchema.nullable(),
-  paymentStatus: z.string(),
+  paymentStatus: z.string().nullable(),
   createdAt: z.string().datetime(),
 });
 export type EarningView = z.infer<typeof EarningViewSchema>;

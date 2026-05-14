@@ -11,8 +11,23 @@ const EnvSchema = z.object({
   ENCRYPTION_KEK: z.string().min(32),
   WIPAY_API_URL: z.string().url(),
   WIPAY_WEBHOOK_SECRET: z.string().min(8),
+  // Peanpe legacy URL var (no se usa con el adapter rehecho — mantener para
+  // compat con env existentes). El adapter usa PEANPE_API_BASE_URL.
   PEANPE_API_URL: z.string().url(),
   PEANPE_WEBHOOK_SECRET: z.string().min(8),
+  // Peanpe API v2.0 oficial (doc).
+  //   - PEANPE_API_BASE_URL: base sin /api (default http://peanpe.com)
+  //   - PEANPE_API_KEY: clave en HEXADECIMAL provista por Peanpe (la convertimos
+  //     a bytes raw para hacer HMAC-SHA256 según su doc).
+  //   - PEANPE_ACCOUNT_ID: identificador_cuenta_peanpe (número entero).
+  //   - PEANPE_WEBHOOK_URL: URL pblica de NightPay configurada en su panel
+  //     como "Webservice Comunicación". Default localhost en dev.
+  //   - PEANPE_THANKYOU_URL: URL pblica donde el cliente aterriza tras pagar.
+  PEANPE_API_BASE_URL: z.string().url().default('http://peanpe.com'),
+  PEANPE_API_KEY: z.string().optional(),
+  PEANPE_ACCOUNT_ID: z.string().optional(),
+  PEANPE_WEBHOOK_URL: z.string().url().optional(),
+  PEANPE_THANKYOU_URL: z.string().url().optional(),
   // CORS_ORIGINS — CSV de origins permitidos en produccion. Vacio en dev.
   CORS_ORIGINS: z.string().optional(),
   // Timeout (ms) para llamadas a pasarelas — abort signal.
@@ -35,6 +50,28 @@ const EnvSchema = z.object({
   VIVA_WEBHOOK_SECRET: z.string().optional(),
   // Phase 1C — base URL Viva (sandbox vs prod).
   VIVA_BASE_URL: z.string().url().default('https://demo-api.vivapayments.com'),
+  // Track B — Paytef Payment LINK API (https://api.paytef.es/gcf).
+  // Si no está PAYTEF_API_TOKEN, el adapter queda dormido (gateway desactivado).
+  // El token se obtiene en my.paytef.es → API de Payment LINK → "Habilitar API".
+  PAYTEF_API_URL: z.string().url().default('https://api.paytef.es/gcf'),
+  // Token de acceso sin el prefijo "PAYTEF-TOKEN " (el adapter lo añade).
+  // Si lo pegas con prefijo, el adapter lo limpia.
+  PAYTEF_API_TOKEN: z.string().optional(),
+  // Secret compartido para validar webhooks Paytef (set en notifyResultURL).
+  // Si Paytef firma webhooks con su propio esquema, este secret se usa para
+  // generar la URL secreta del webhook (e.g. /v1/webhooks/paytef/<secret>).
+  PAYTEF_WEBHOOK_SECRET: z.string().optional(),
+  // URL pública de NightPay para webhooks Paytef (configurada en notifyResultURL).
+  // Ejemplo: https://api.paytomaxx.com/v1/webhooks/paytef
+  PAYTEF_WEBHOOK_URL: z.string().url().optional(),
+  // URL pública del frontend cliente para redirect tras pago (return URL).
+  // Si vacío, Paytef usa su pantalla de "pago completado" por defecto.
+  PAYTEF_RETURN_URL: z.string().url().optional(),
+  // companyID y branchID del comercio en Paytef.
+  // Obtenerlos vía GET /payment-link/getBranches con tu token.
+  // Para la cuenta "Rapido Sin Riesgos": companyID=76861, branches RSR5..RSR12.
+  PAYTEF_COMPANY_ID: z.coerce.number().int().optional(),
+  PAYTEF_BRANCH_ID: z.coerce.number().int().optional(),
   // Observability — Sentry (opcional, si no está el SDK no se inicializa).
   SENTRY_DSN: z.string().url().optional(),
   // Inyectado por CI / Docker label — útil para tagging de releases en Sentry.

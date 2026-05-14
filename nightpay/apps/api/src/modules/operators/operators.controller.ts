@@ -44,28 +44,28 @@ export class OperatorsController {
   @UseGuards(RolesGuard)
   @Roles('OPERATOR')
   async myBalance(@CurrentUser() user: JwtPayload): Promise<OperatorBalance> {
-    return this.operators.getBalance(user.sub);
+    return this.operators.getBalance(user.sub, user.tenantId);
   }
 
   @Get('me/earnings')
   @UseGuards(RolesGuard)
   @Roles('OPERATOR')
   async myEarnings(@CurrentUser() user: JwtPayload): Promise<EarningView[]> {
-    return this.operators.getMyEarnings(user.sub);
+    return this.operators.getMyEarnings(user.sub, user.tenantId);
   }
 
   @Get('me/payments')
   @UseGuards(RolesGuard)
   @Roles('OPERATOR')
   async myPayments(@CurrentUser() user: JwtPayload) {
-    return this.operators.getMyPayments(user.sub);
+    return this.operators.getMyPayments(user.sub, user.tenantId);
   }
 
   @Get('me/payouts')
   @UseGuards(RolesGuard)
   @Roles('OPERATOR')
   async myPayouts(@CurrentUser() user: JwtPayload): Promise<PayoutView[]> {
-    return this.operators.getMyPayouts(user.sub);
+    return this.operators.getMyPayouts(user.sub, user.tenantId);
   }
 
   /**

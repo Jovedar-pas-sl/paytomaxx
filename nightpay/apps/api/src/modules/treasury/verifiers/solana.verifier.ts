@@ -107,7 +107,11 @@ export class SolanaVerifier implements PayoutVerifier {
           return mismatch('sol_invalid_amount');
         }
 
-        const expectedUsdc = (input.expectedAmountCents / 100) * (await this.eurToUsdtRate());
+        // FX snapshot del payout (Sprint 2026-05-13 fix #15). Si null, fallback live.
+        const expectedUsdc =
+          typeof input.expectedAmountUsdt === 'number' && input.expectedAmountUsdt > 0
+            ? input.expectedAmountUsdt
+            : (input.expectedAmountCents / 100) * (await this.eurToUsdtRate());
         const tolerance = (expectedUsdc * AMOUNT_TOLERANCE_BPS) / 10_000;
         if (Math.abs(actualUsdc - expectedUsdc) > tolerance) {
           return mismatch(`sol_amount_${actualUsdc.toFixed(2)}_vs_${expectedUsdc.toFixed(2)}`);

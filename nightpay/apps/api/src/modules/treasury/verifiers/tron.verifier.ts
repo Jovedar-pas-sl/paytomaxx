@@ -55,7 +55,14 @@ export class TronVerifier implements PayoutVerifier {
 
       // amount_str es decimal con 6 zeros (USDT TRC20 has 6 decimals)
       const actualUsdt = Number(trc20.amount_str) / 1_000_000;
-      const expectedUsdt = (input.expectedAmountCents / 100) * (await this.eurToUsdtRate());
+      // FX snapshot: si el payout trae expectedAmountUsdt persistido (Sprint
+      // 2026-05-13 fix #15), lo usamos exacto. Si no, fallback a tasa live.
+      // Esto evita falsos MISMATCH por volatilidad EUR↔USDT entre creación
+      // y verificación on-chain (puede pasar horas/días después).
+      const expectedUsdt =
+        typeof input.expectedAmountUsdt === 'number' && input.expectedAmountUsdt > 0
+          ? input.expectedAmountUsdt
+          : (input.expectedAmountCents / 100) * (await this.eurToUsdtRate());
       const tolerance = (expectedUsdt * AMOUNT_TOLERANCE_BPS) / 10_000;
       if (Math.abs(actualUsdt - expectedUsdt) > tolerance) {
         return mismatch(`tron_amount_${actualUsdt.toFixed(2)}_vs_${expectedUsdt.toFixed(2)}`);

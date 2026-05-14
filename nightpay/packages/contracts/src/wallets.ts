@@ -82,6 +82,12 @@ export const ConsumeWalletSchema = z.object({
   amountCents: z.number().int().min(1).max(1_000_000),
   category: z.string().min(1).max(40),
   notes: z.string().max(500).optional(),
+  /**
+   * Propina opcional añadida al consumo. 100% va al providedBy (chica) si
+   * tipGoesTo='operator' o si es OPERATOR y no se especifica.
+   */
+  tipCents: z.number().int().nonnegative().max(500_000).optional(),
+  tipGoesTo: z.enum(['operator', 'venue', 'shared']).optional(),
 });
 export type ConsumeWalletDto = z.infer<typeof ConsumeWalletSchema>;
 
@@ -90,6 +96,8 @@ export const ConsumeWalletResultSchema = z.object({
   newBalanceCents: z.number().int().nonnegative(),
   earningCreated: z.boolean(),
   earningCommissionCents: z.number().int().nullable(),
+  /** Propinas asignadas al earning (si aplica). */
+  tipCents: z.number().int().nonnegative().optional(),
 });
 export type ConsumeWalletResult = z.infer<typeof ConsumeWalletResultSchema>;
 

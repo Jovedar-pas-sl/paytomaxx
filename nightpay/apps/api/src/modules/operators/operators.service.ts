@@ -15,6 +15,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
+import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
 import type {
   CreateOperatorDto,
   CreateOperatorResponse,
@@ -57,6 +58,7 @@ export class OperatorsService {
   private readonly audit: AuditService;
   private readonly config: ConfigService;
   private readonly jwt: JwtService;
+  private readonly fxFactory: PayoutVerifierFactory;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -64,17 +66,36 @@ export class OperatorsService {
     @Inject(AuditService) audit: AuditService,
     @Inject(ConfigService) config: ConfigService,
     @Inject(JwtService) jwt: JwtService,
+    @Inject(PayoutVerifierFactory) fxFactory: PayoutVerifierFactory,
   ) {
     this.prisma = prisma;
     this.email = email;
     this.audit = audit;
     this.config = config;
     this.jwt = jwt;
+    this.fxFactory = fxFactory;
   }
 
-  // ─── Operator self-service (role=OPERATOR) ────────────────────────
+  /**
+   * Rails cripto on-chain — usan FX snapshot al crear el payout.
+   * Otros métodos (e-wallet, wire, LatAm, cash) son fiat directo, sin FX.
+   */
+  private static readonly CRYPTO_RAILS = new Set<string>([
+    'USDT_TRC20',
+    'USDT_BEP20',
+    'USDC_POLY',
+    'USDC_SOL',
+    'BINANCE_PAY_ID',
+    'OKX_INTERNAL',
+    'BYBIT_INTERNAL',
+  ]);
 
-  async getBalance(operatorId: string): Promise<OperatorBalance> {
+  // ─── Operator self-service (role=OPERATOR) ────────────────────────
+  // Todas las funciones aceptan tenantId obligatorio + filtran la query raw
+  // por AND "tenantId" para defensa cross-tenant (no depender solo de RLS o
+  // del middleware CLS).
+
+  async getBalance(operatorId: string, tenantId: string): Promise<OperatorBalance> {
     const rows = await this.prisma.$queryRaw<
       Array<{
         pendingCents: bigint;
@@ -84,12 +105,13 @@ export class OperatorsService {
       }>
     >`
       SELECT
-        COALESCE(SUM(CASE WHEN "payoutId" IS NULL THEN "commissionCents" - "reversedCents" ELSE 0 END), 0)::bigint AS "pendingCents",
-        COALESCE(SUM(CASE WHEN "payoutId" IS NOT NULL THEN "commissionCents" - "reversedCents" ELSE 0 END), 0)::bigint AS "paidCents",
+        COALESCE(SUM(CASE WHEN "payoutId" IS NULL THEN "commissionCents" + COALESCE("tipCents",0) - "reversedCents" ELSE 0 END), 0)::bigint AS "pendingCents",
+        COALESCE(SUM(CASE WHEN "payoutId" IS NOT NULL THEN "commissionCents" + COALESCE("tipCents",0) - "reversedCents" ELSE 0 END), 0)::bigint AS "paidCents",
         COALESCE(SUM("paymentAmountCents"), 0)::bigint AS "lifetimeGrossCents",
         COUNT(*)::bigint AS count
       FROM operator_earnings
       WHERE "operatorId" = ${operatorId}::uuid
+        AND "tenantId" = ${tenantId}::uuid
     `;
     const r = rows[0]!;
     return {
@@ -100,26 +122,34 @@ export class OperatorsService {
     };
   }
 
-  async getMyEarnings(operatorId: string, limit = 50): Promise<EarningView[]> {
+  async getMyEarnings(
+    operatorId: string,
+    tenantId: string,
+    limit = 50,
+  ): Promise<EarningView[]> {
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string;
-        paymentId: string;
+        paymentId: string | null;
+        consumptionId: string | null;
         paymentAmountCents: number;
         commissionBps: number;
         commissionCents: number;
+        tipCents: number;
         reversedCents: number;
         payoutId: string | null;
-        paymentStatus: string;
+        paymentStatus: string | null;
         createdAt: Date;
       }>
     >`
-      SELECT e.id, e."paymentId", e."paymentAmountCents", e."commissionBps",
-             e."commissionCents", e."reversedCents", e."payoutId",
+      SELECT e.id, e."paymentId", e."consumptionId", e."paymentAmountCents", e."commissionBps",
+             e."commissionCents", COALESCE(e."tipCents",0) AS "tipCents",
+             e."reversedCents", e."payoutId",
              p.status::text AS "paymentStatus", e."createdAt"
         FROM operator_earnings e
-        JOIN payments p ON p.id = e."paymentId"
+        LEFT JOIN payments p ON p.id = e."paymentId"
        WHERE e."operatorId" = ${operatorId}::uuid
+         AND e."tenantId" = ${tenantId}::uuid
        ORDER BY e."createdAt" DESC
        LIMIT ${limit}
     `;
@@ -129,17 +159,18 @@ export class OperatorsService {
       paymentAmountCents: r.paymentAmountCents,
       commissionBps: r.commissionBps,
       commissionCents: r.commissionCents,
+      tipCents: r.tipCents,
       reversedCents: r.reversedCents,
-      netCents: r.commissionCents - r.reversedCents,
+      netCents: r.commissionCents + r.tipCents - r.reversedCents,
       payoutId: r.payoutId,
       paymentStatus: r.paymentStatus,
       createdAt: r.createdAt.toISOString(),
     }));
   }
 
-  async getMyPayments(operatorId: string, limit = 50) {
+  async getMyPayments(operatorId: string, tenantId: string, limit = 50) {
     return this.prisma.payment.findMany({
-      where: { createdByUserId: operatorId },
+      where: { createdByUserId: operatorId, tenantId },
       orderBy: { createdAt: 'desc' },
       take: limit,
       select: {
@@ -155,7 +186,11 @@ export class OperatorsService {
     });
   }
 
-  async getMyPayouts(operatorId: string, limit = 50): Promise<PayoutView[]> {
+  async getMyPayouts(
+    operatorId: string,
+    tenantId: string,
+    limit = 50,
+  ): Promise<PayoutView[]> {
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string;
@@ -179,6 +214,7 @@ export class OperatorsService {
         FROM operator_payouts po
         LEFT JOIN users u ON u.id = po."paidByUserId"
        WHERE po."operatorId" = ${operatorId}::uuid
+         AND po."tenantId" = ${tenantId}::uuid
        ORDER BY po."createdAt" DESC
        LIMIT ${limit}
     `;
@@ -207,7 +243,7 @@ export class OperatorsService {
 
     const result: OperatorWithBalance[] = [];
     for (const op of operators) {
-      const balance = await this.getBalance(op.id);
+      const balance = await this.getBalance(op.id, tenantId);
       result.push({
         ...this.toPublicView(op as never),
         balance,
@@ -469,9 +505,12 @@ export class OperatorsService {
   }
 
   /**
-   * La chica submite su form. Validamos token, actualizamos datos, dejamos el
-   * token activo (puede volver a editar dentro de las 72h sin pedir uno nuevo).
-   * Si quiere uno nuevo, el admin regenera y el viejo queda invalidado.
+   * La chica submite su form. Validamos token, actualizamos datos, e
+   * INVALIDAMOS el token (single-use). Si la chica necesita editar más tarde,
+   * el admin regenera un link nuevo.
+   *
+   * Antes el token quedaba activo 72h reutilizable — vector: link interceptado
+   * permitía a un atacante cambiar payoutAddress hasta 72h. Ahora single-use.
    */
   async submitSelfOnboarding(
     token: string,
@@ -505,6 +544,10 @@ export class OperatorsService {
       data.onboardingStatus = 'INVITE_ACTIVATED';
     }
 
+    // Single-use: invalidamos el token tras submit. La chica pide al admin un
+    // link nuevo si quiere volver a editar.
+    data.selfOnboardingToken = null;
+
     await this.prisma.user.update({
       where: { id: operator.id },
       data,
@@ -516,10 +559,10 @@ export class OperatorsService {
       actorId: operator.id, // la propia chica es el actor
       targetType: 'User',
       targetId: operator.id,
-      payload: { fields: Object.keys(data) },
+      payload: { fields: Object.keys(data), tokenInvalidated: true },
     });
 
-    this.logger.log(`Self-onboarding submitted by operator=${operator.id}`);
+    this.logger.log(`Self-onboarding submitted by operator=${operator.id} (token invalidated)`);
     return { ok: true };
   }
 
@@ -654,7 +697,7 @@ export class OperatorsService {
       select: { id: true },
     });
     if (!exists) throw new NotFoundException('Operadora no encontrada');
-    return this.getMyEarnings(operatorId, limit);
+    return this.getMyEarnings(operatorId, tenantId, limit);
   }
 
   async listOperatorPayouts(
@@ -667,7 +710,7 @@ export class OperatorsService {
       select: { id: true },
     });
     if (!exists) throw new NotFoundException('Operadora no encontrada');
-    return this.getMyPayouts(operatorId, limit);
+    return this.getMyPayouts(operatorId, tenantId, limit);
   }
 
   /**
@@ -732,6 +775,28 @@ export class OperatorsService {
       if (options?.externalTxId) payoutData.externalTxId = options.externalTxId;
       if (railEffective) payoutData.externalRail = railEffective;
       if (options?.receiptUrl) payoutData.receiptUrl = options.receiptUrl;
+
+      // FX snapshot (Track sprint 2026-05-13 #15): si el rail es cripto,
+      // congelamos la tasa EUR↔USDT al momento de creación. El verifier
+      // on-chain usará este snapshot, no la tasa actual — evita falsos
+      // MISMATCH por volatilidad entre creación y verificación.
+      if (railEffective && OperatorsService.CRYPTO_RAILS.has(railEffective)) {
+        try {
+          const fx = await this.fxFactory.getEurToUsdtRateInfo();
+          payoutData.payoutFxRate = fx.rate.toFixed(6);
+          payoutData.expectedAmountUsdt = ((totalCents / 100) * fx.rate).toFixed(6);
+          if (fx.degraded) {
+            this.logger.warn(
+              `Payout FX snapshot tomado en modo degraded (Binance API down) — payout=${operatorId} rate=${fx.rate} usando fallback`,
+            );
+          }
+        } catch (err) {
+          // Si falla el FX lookup, dejamos el payout sin snapshot (legacy mode)
+          this.logger.error(
+            `FX snapshot failed for operator=${operatorId}: ${(err as Error).message}. Payout creado sin snapshot.`,
+          );
+        }
+      }
 
       const payout = await tx.operatorPayout.create({ data: payoutData as never });
 

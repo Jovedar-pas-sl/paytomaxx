@@ -28,6 +28,9 @@ async function bootstrap() {
   const adapter = new FastifyAdapter({
     logger: { level: env.LOG_LEVEL },
     bodyLimit: 1024 * 1024, // 1 MB max — webhooks normalmente <10KB
+    // Default Fastify es 100; JWT en path (self-onboarding link, accept-invite)
+    // tienen ~250 chars. Subimos a 500 para no rechazar tokens válidos con 404.
+    maxParamLength: 500,
     trustProxy: true, // detras de Cloudflare/Coolify
   });
 

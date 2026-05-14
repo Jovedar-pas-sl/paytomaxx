@@ -58,7 +58,16 @@ export class WebhookIngestProcessor extends WorkerHost {
     }
 
     try {
-      await this.payments.transition(fsmEvent.paymentId, fsmEvent.event);
+      // Defensa cross-tenant: si el delivery trae tenantId (lo setea
+      // webhooks.controller al validar el webhook), lo pasamos a transition
+      // para que rechace payments que no pertenezcan a ese venue. El
+      // externalEventId del payload del provider no debe poder mutar payments
+      // de otro tenant.
+      await this.payments.transition(
+        fsmEvent.paymentId,
+        fsmEvent.event,
+        delivery.tenantId ?? undefined,
+      );
       await this.markProcessed(deliveryId);
       this.logger.log(`webhook ${deliveryId} → payment ${fsmEvent.paymentId} transitioned`);
     } catch (err) {

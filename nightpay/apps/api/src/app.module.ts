@@ -21,6 +21,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { QueuesModule } from './modules/queues/queues.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { RefundsModule } from './modules/refunds/refunds.module';
+import { TerminalsModule } from './modules/terminals/terminals.module';
 import { VenuesModule } from './modules/venues/venues.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
@@ -66,6 +67,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     OperatorsModule,
     AdminModule,
     TreasuryModule,
+    TerminalsModule,
     WalletsModule,
     WebhooksModule,
   ],

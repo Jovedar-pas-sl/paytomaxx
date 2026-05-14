@@ -26,6 +26,14 @@ model Venue {
   // Comisión NightPay en basis points (default 1000 = 10%).
   // Modelo: chica recibe su commissionBps; plataforma recibe platformCommissionBps.
   platformCommissionBps Int       @default(1000)
+  // IVA aplicado a la base imponible (basis points). Default 2100 = 21% (general).
+  // Hostelería: 10% (1000) bebidas y comida + 21% (2100) bebidas alcohólicas.
+  // Para simplificar Phase 1: un único tipo por venue (admin elige el dominante).
+  // Modelo 303 trimestral usa este valor.
+  vatBps                Int       @default(2100)
+  // Régimen IVA: GENERAL, RECARGO_EQUIVALENCIA (típico hostelería pequeña),
+  // EXENTO (no aplica IVA — actividades no sujetas). Default GENERAL.
+  vatRegime             String    @default("GENERAL")
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz
@@ -38,6 +46,7 @@ model Venue {
   operatorPayouts    OperatorPayout[]
   clientWallets      ClientWallet[]
   walletConsumptions WalletConsumption[]
+  peanpeCalls        PeanpeCall[]
 
   @@map("venues")
 }
@@ -73,6 +82,9 @@ model User {
   payoutAddress  String?
   payoutMetadata Json?
   payoutLabel    String?
+  // Tip beneficiary relation (cliente añade propina dirigida a esta operadora/staff)
+  tipsReceived        Payment[]           @relation("PaymentTipBeneficiary")
+
   // Phase 1A.1 — onboarding tracking (solo OPERATOR)
   phone               String?
   passportCountry     String?
@@ -115,19 +127,31 @@ model Terminal {
   label      String
   active     Boolean @default(true)
 
+  // Track A — agrupador físico para routing en venues con 6-8 PAX.
+  //   - Valores enum: BARRA, HABITACIONES, MESAS, OTRO (validados en app, no DB).
+  //   - "OTRO/<custom>" permitido cuando admin necesita zona personalizada.
+  //   - NULL = terminal legacy sin zona asignada (backward compat).
+  zone          String?
+  // Modelo hardware: "PAX_A920_PRO" | "OTRO" (futuro: REDSYS_VX, INGENICO...).
+  hardwareModel String?
+  // S/N físico del datáfono — futuro mapping con Paytef Terminal ID.
+  deviceSerial  String?
+
   venue    Venue     @relation(fields: [tenantId], references: [id])
   payments Payment[]
 
   @@unique([tenantId, externalId])
   @@index([tenantId])
+  @@index([tenantId, zone])
   @@map("terminals")
 }
 
 // ───────────────────────── Gateway credentials ─────────────────────
 
 enum Provider {
-  WIPAY
-  PEANPE
+  WIPAY   // ESP Global Payment Systems — acquirer; sin claves activas
+  PEANPE  // pasarela alternativa; sin claves activas
+  PAYTEF  // pasarela omnicanal Paytef (Payment LINK API) — único activo hoy
 }
 
 model GatewayCredential {
@@ -163,6 +187,28 @@ enum PaymentStatus {
   CANCELED
 }
 
+// Peanpe mapping table — Peanpe limita identificador_llamada a 6 chars.
+// Persistimos el mapping payment.id (UUID) ↔ identificador_llamada (6 chars)
+// + el securityToken para validar el challenge-response del webhook.
+model PeanpeCall {
+  identificadorLlamada String    @id @map("identificador_llamada")
+  paymentId            String    @unique @db.Uuid
+  tenantId             String    @db.Uuid
+  securityToken        String
+  amountCents          Int
+  resultStatus         String?
+  resultMsg            String?
+  resultReceivedAt     DateTime? @db.Timestamptz
+  createdAt            DateTime  @default(now()) @db.Timestamptz
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  venue   Venue   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("peanpe_calls")
+}
+
 model Payment {
   id                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId             String        @db.Uuid
@@ -190,13 +236,29 @@ model Payment {
   // de la wallet se suma atómicamente.
   walletId String? @db.Uuid
 
-  venue           Venue            @relation(fields: [tenantId], references: [id])
-  terminal        Terminal         @relation(fields: [terminalId], references: [id])
-  createdBy       User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])
-  wallet          ClientWallet?    @relation(fields: [walletId], references: [id])
-  events          PaymentEvent[]
-  refunds         Refund[]
-  operatorEarning OperatorEarning?
+  // Snapshot del % plataforma al momento del cobro. Si Venue.platformCommissionBps
+  // cambia mañana, contabilidad histórica usa este valor congelado.
+  platformCommissionBps Int?
+
+  // Propina opcional (cliente decide añadir). Campos:
+  //  - tipCents: importe extra sobre amountCents (no entra en availableAmountCents
+  //              base, va a tipBeneficiary).
+  //  - tipGoesTo: política — 'operator' (chica creator), 'venue' (local), 'shared',
+  //              'beneficiary' (usa tipBeneficiaryUserId explícito).
+  //  - tipBeneficiaryUserId: override del beneficiario cuando tipGoesTo='beneficiary'.
+  tipCents              Int     @default(0)
+  tipGoesTo             String?
+  tipBeneficiaryUserId  String? @db.Uuid
+
+  venue              Venue            @relation(fields: [tenantId], references: [id])
+  terminal           Terminal         @relation(fields: [terminalId], references: [id])
+  createdBy          User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])
+  wallet             ClientWallet?    @relation(fields: [walletId], references: [id])
+  tipBeneficiary     User?            @relation("PaymentTipBeneficiary", fields: [tipBeneficiaryUserId], references: [id])
+  events             PaymentEvent[]
+  refunds            Refund[]
+  operatorEarning    OperatorEarning?
+  peanpeCall         PeanpeCall?
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status])
@@ -205,6 +267,7 @@ model Payment {
   @@index([providerTxId])
   @@index([qrExpiresAt])
   @@index([walletId])
+  @@index([tipBeneficiaryUserId])
   @@map("payments")
 }
 
@@ -244,7 +307,8 @@ model Refund {
   providerRefundId String?
   createdAt        DateTime     @default(now()) @db.Timestamptz
 
-  payment Payment @relation(fields: [paymentId], references: [id])
+  payment   Payment           @relation(fields: [paymentId], references: [id])
+  reversals EarningReversal[]
 
   @@index([tenantId, paymentId])
   @@map("refunds")
@@ -267,10 +331,14 @@ model OperatorEarning {
   consumptionId      String?  @unique @db.Uuid
   paymentAmountCents Int
   commissionBps      Int
-  // Calculado: floor(paymentAmountCents * commissionBps / 10000)
+  // Calculado: round(paymentAmountCents * commissionBps / 10000) — banker-like
+  // rounding para evitar bias unidireccional contra operadora.
   commissionCents    Int
+  // Propinas asociadas al earning (cliente añadió tip dirigido a esta chica).
+  // 100% del tip va a la operadora; no se reduce con BPS.
+  tipCents           Int      @default(0)
   // Suma acumulada de descuentos por refunds proporcionales.
-  // Saldo neto del earning = commissionCents - reversedCents (puede ser <0).
+  // Saldo neto del earning = commissionCents + tipCents - reversedCents.
   reversedCents      Int      @default(0)
   // Null = pendiente de payout. Set cuando admin marca pagado.
   payoutId           String?  @db.Uuid
@@ -281,10 +349,30 @@ model OperatorEarning {
   payment     Payment?           @relation(fields: [paymentId], references: [id])
   consumption WalletConsumption? @relation(fields: [consumptionId], references: [id])
   payout      OperatorPayout?    @relation("EarningPayout", fields: [payoutId], references: [id])
+  reversals   EarningReversal[]
 
   @@index([tenantId, operatorId, payoutId])
   @@index([tenantId, operatorId, createdAt(sort: Desc)])
   @@map("operator_earnings")
+}
+
+// Idempotency log para refund → earning reversal.
+// Cada refund SUCCEEDED dispara una sola fila aquí (refundId UNIQUE).
+// Reintento del processor no duplica el descuento.
+model EarningReversal {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String   @db.Uuid
+  earningId          String   @db.Uuid
+  refundId           String   @unique @db.Uuid
+  reversedDeltaCents Int
+  createdAt          DateTime @default(now()) @db.Timestamptz
+
+  earning OperatorEarning @relation(fields: [earningId], references: [id], onDelete: Cascade)
+  refund  Refund          @relation(fields: [refundId], references: [id], onDelete: Cascade)
+
+  @@index([earningId])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("earning_reversals")
 }
 
 // Una fila por liquidación admin → operadora.
@@ -306,6 +394,12 @@ model OperatorPayout {
   receiptUrl           String?
   reconciledAt         DateTime? @db.Timestamptz
   reconciledByUserId   String?  @db.Uuid
+
+  // FX snapshot al momento de crear el payout (para rails cripto). Permite
+  // reconciliar con la tasa congelada, no la actual — evita falsos MISMATCH
+  // por volatilidad EUR↔USDT entre creación y verificación on-chain.
+  expectedAmountUsdt   Decimal? @db.Decimal(20, 6)
+  payoutFxRate         Decimal? @db.Decimal(12, 6)
 
   venue        Venue             @relation(fields: [tenantId], references: [id])
   operator     User              @relation("OperatorPayouts", fields: [operatorId], references: [id])
@@ -449,6 +543,10 @@ model WalletConsumption {
   notes            String?
   // Idempotency key para evitar doble-cobro (camarero pulsa 2 veces).
   idempotencyKey   String?
+  // Propina opcional dentro del consumo. 100% va a providedBy si es OPERATOR
+  // (o según tipGoesTo si se especifica).
+  tipCents         Int       @default(0)
+  tipGoesTo        String?
   reversedAt       DateTime? @db.Timestamptz
   reversedByUserId String?   @db.Uuid
   createdAt        DateTime  @default(now()) @db.Timestamptz

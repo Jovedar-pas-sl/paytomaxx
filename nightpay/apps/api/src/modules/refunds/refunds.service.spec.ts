@@ -289,10 +289,11 @@ describe('RefundsService.refund — happy path', () => {
         providerRefundId: 'gw-r-1',
       }),
     );
-    expect(paymentsMock.transition).toHaveBeenCalledWith('pay-1', {
-      type: 'REFUND_PARTIAL',
-      amountCents: 1500,
-    });
+    expect(paymentsMock.transition).toHaveBeenCalledWith(
+      'pay-1',
+      { type: 'REFUND_PARTIAL', amountCents: 1500 },
+      't-1', // tenantId — defensa cross-tenant
+    );
     expect(auditMock.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'refund.created',

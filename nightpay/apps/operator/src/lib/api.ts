@@ -248,7 +248,15 @@ export async function fetchMyPayouts(): Promise<MyPayout[]> {
  */
 export async function createPayment(input: {
   amountCents: number;
-  terminalExternalId: string;
+  /**
+   * externalId del terminal específico. Opcional cuando se pasa `zone` —
+   * el backend resuelve un terminal cualquiera de esa zona.
+   */
+  terminalExternalId?: string;
+  /** Track A — routing por zona (BARRA, HABITACIONES, MESAS, OTRO/<custom>). */
+  zone?: string;
+  /** Solo si zone='OTRO' — el nombre real de la zona personalizada. */
+  zoneCustom?: string;
   currency?: string;
   /** Phase 1B — si set, crea una wallet etiquetada con identifier. */
   walletIdentifier?: string;
@@ -258,9 +266,19 @@ export async function createPayment(input: {
   const idemKey = `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const body: Record<string, unknown> = {
     amountCents: input.amountCents,
-    terminalExternalId: input.terminalExternalId,
     currency: input.currency ?? 'EUR',
   };
+  if (input.terminalExternalId) body.terminalExternalId = input.terminalExternalId;
+  if (input.zone) {
+    // Para zona OTRO/<custom> el contract espera zone='OTRO' + zoneCustom='<custom>'.
+    if (input.zone.startsWith('OTRO/') && !input.zoneCustom) {
+      body.zone = 'OTRO';
+      body.zoneCustom = input.zone.slice('OTRO/'.length);
+    } else {
+      body.zone = input.zone;
+      if (input.zoneCustom) body.zoneCustom = input.zoneCustom;
+    }
+  }
   if (input.walletIdentifier) {
     body.wallet = { create: true, identifier: input.walletIdentifier };
   }
@@ -287,17 +305,20 @@ export interface PendingPosPayment {
   createdByName: string;
   qrToken: string;
   refCode: string;
+  zone: string | null;
+  terminalLabel: string | null;
 }
 
-export async function fetchPendingPos(): Promise<PendingPosPayment[]> {
-  const res = await authedFetch('/v1/payments/pending-pos');
+export async function fetchPendingPos(zone?: string): Promise<PendingPosPayment[]> {
+  const qs = zone ? `?zone=${encodeURIComponent(zone)}` : '';
+  const res = await authedFetch(`/v1/payments/pending-pos${qs}`);
   if (!res.ok) throw new Error('Error cargando POS pendientes');
   return res.json();
 }
 
 export async function confirmPosPayment(
   paymentId: string,
-  input: { posReceiptRef?: string; notes?: string } = {},
+  input: { posReceiptRef: string; posReceiptPhoto?: string; notes?: string },
 ): Promise<{ status: string }> {
   const res = await authedFetch(`/v1/payments/${paymentId}/confirm-pos`, {
     method: 'POST',
@@ -316,6 +337,21 @@ export async function cancelPayment(id: string): Promise<{ status: string }> {
 export async function fetchTerminals(): Promise<Array<{ externalId: string; label: string }>> {
   const res = await authedFetch('/v1/venues/me/terminals');
   if (!res.ok) throw new Error('Error cargando terminales');
+  return res.json();
+}
+
+// ─── Track A — Zonas ──────────────────────────────────────────────
+
+export interface ZoneOption {
+  zone: string; // canonical: 'BARRA', 'HABITACIONES', 'MESAS', 'OTRO/<custom>'
+  zoneDisplay: string;
+  terminalCount: number;
+  activeCount: number;
+}
+
+export async function fetchZones(): Promise<ZoneOption[]> {
+  const res = await authedFetch('/v1/terminals/zones');
+  if (!res.ok) throw new Error('Error cargando zonas');
   return res.json();
 }
 

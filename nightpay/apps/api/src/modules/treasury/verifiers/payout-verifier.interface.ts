@@ -20,8 +20,16 @@ export interface VerifyInput {
   externalTxId: string;
   /** Address/IBAN/email destino esperado (de User.payoutAddress). */
   expectedToAddress: string;
-  /** Importe esperado en céntimos EUR. Para cripto se convierte a USDT al ratio actual. */
+  /** Importe esperado en céntimos EUR. Para cripto se convierte a USDT al ratio. */
   expectedAmountCents: number;
+  /**
+   * FX snapshot del payout — si presente, el verifier usa este valor exacto
+   * en USDT en lugar de re-calcular con la tasa actual. Esto evita falsos
+   * MISMATCH cuando la tasa EUR↔USDT se mueve entre creación del payout y
+   * la verificación on-chain.
+   * Origen: OperatorPayout.expectedAmountUsdt (snapshot al createPayout).
+   */
+  expectedAmountUsdt?: number;
 }
 
 export interface PayoutVerifier {

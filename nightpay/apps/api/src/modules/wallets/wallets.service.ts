@@ -7,9 +7,16 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { randomBytes } from 'node:crypto';
+import type { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+// IMPORTANT: importar solo el TIPO de RefundsService — el value se resuelve
+// vía ModuleRef en runtime con string token. Esto evita el ciclo de imports
+// Wallets→Refunds→Payments→Wallets que bloqueaba el bootstrap de Nest.
+import type { RefundsService } from '../refunds/refunds.service';
+import type { Role } from '@nightpay/contracts';
 import type {
   ClientWalletView,
   ConsumeWalletDto,
@@ -29,13 +36,40 @@ export class WalletsService {
   private readonly logger = new Logger(WalletsService.name);
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
+  private readonly moduleRef: ModuleRef;
+  // Cache lazy: resolvemos RefundsService en la primera llamada a refund CARD,
+  // NO durante bootstrap (evita bloqueo de DI ante ciclo Wallets→Refunds→Payments→Wallets).
+  private refundsService: RefundsService | null = null;
+  private refundsResolved = false;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
+    @Inject(ModuleRef) moduleRef: ModuleRef,
   ) {
     this.prisma = prisma;
     this.audit = audit;
+    this.moduleRef = moduleRef;
+  }
+
+  /**
+   * Lazy resolver — se llama en primera invocación que necesite RefundsService.
+   * Usamos string token ('RefundsService') porque importar la clase como value
+   * causa ciclo Wallets→Refunds→Payments→Wallets que bloquea bootstrap.
+   * NestJS registra los providers por className por defecto, así que el
+   * string 'RefundsService' funciona como token de resolución.
+   */
+  private getRefundsService(): RefundsService | null {
+    if (this.refundsResolved) return this.refundsService;
+    this.refundsResolved = true;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.refundsService = this.moduleRef.get('RefundsService' as any, { strict: false });
+    } catch {
+      this.logger.warn('RefundsService no resoluble — wallet refund CARD caerá a modo DB-only');
+      this.refundsService = null;
+    }
+    return this.refundsService;
   }
 
   /**
@@ -151,6 +185,10 @@ export class WalletsService {
       };
     }
 
+    // Tip handling: default 'operator' si la providedBy es OPERATOR; si no, 'venue'.
+    const tipCents = input.dto.tipCents ?? 0;
+    const tipGoesTo = input.dto.tipGoesTo ?? null;
+
     return this.prisma.$transaction(async (tx) => {
       // 1. Lock wallet
       const locked = await tx.$queryRaw<
@@ -176,9 +214,13 @@ export class WalletsService {
       if (w.status !== 'ACTIVE') {
         throw new ConflictException(`Wallet en status ${w.status} — no se puede cobrar`);
       }
-      if (w.balanceCents < input.dto.amountCents) {
+      // El tip se descuenta también del balance (cliente pagó por adelantado todo).
+      const totalDebit = input.dto.amountCents + tipCents;
+      if (w.balanceCents < totalDebit) {
         throw new ConflictException(
-          `Balance insuficiente: tiene ${w.balanceCents / 100}€, intentas cobrar ${input.dto.amountCents / 100}€`,
+          `Balance insuficiente: tiene ${(w.balanceCents / 100).toFixed(2)}€, ` +
+            `intentas cobrar ${(input.dto.amountCents / 100).toFixed(2)}€` +
+            (tipCents > 0 ? ` + propina ${(tipCents / 100).toFixed(2)}€` : ''),
         );
       }
 
@@ -191,7 +233,11 @@ export class WalletsService {
         throw new ForbiddenException('Usuario no pertenece a este venue');
       }
 
-      // 3. Crea consumption
+      // 3. Crea consumption (con tip metadata).
+      const effectiveTipGoesTo =
+        tipCents > 0
+          ? tipGoesTo ?? (provider.role === 'OPERATOR' ? 'operator' : 'venue')
+          : null;
       const consumption = await tx.walletConsumption.create({
         data: {
           tenantId: input.tenantId,
@@ -201,15 +247,24 @@ export class WalletsService {
           category: input.dto.category,
           notes: input.dto.notes ?? null,
           idempotencyKey: input.idempotencyKey,
+          tipCents,
+          ...(effectiveTipGoesTo ? { tipGoesTo: effectiveTipGoesTo } : {}),
         },
       });
 
-      // 4. Si es OPERATOR (chica), genera earning ligado al consumption
+      // 4. Si es OPERATOR (chica), genera earning ligado al consumption.
+      //    Math.round (no floor) evita bias unidireccional contra operadora.
+      //    Tip se suma al earning solo si tipGoesTo='operator' (default cuando la
+      //    chica cobra) o no se especifica.
       let earningCommissionCents: number | null = null;
+      let earningTipCents = 0;
       if (provider.role === 'OPERATOR' && provider.commissionBps !== null) {
-        const commissionCents = Math.floor(
+        const commissionCents = Math.round(
           (input.dto.amountCents * provider.commissionBps) / 10_000,
         );
+        if (tipCents > 0 && effectiveTipGoesTo === 'operator') {
+          earningTipCents = tipCents;
+        }
         await tx.operatorEarning.create({
           data: {
             tenantId: input.tenantId,
@@ -218,13 +273,14 @@ export class WalletsService {
             paymentAmountCents: input.dto.amountCents,
             commissionBps: provider.commissionBps,
             commissionCents,
+            tipCents: earningTipCents,
           },
         });
         earningCommissionCents = commissionCents;
       }
 
       // 5. Decrement balance + marcar DEPLETED si llegó a 0
-      const newBalance = w.balanceCents - input.dto.amountCents;
+      const newBalance = w.balanceCents - totalDebit;
       await tx.clientWallet.update({
         where: { id: input.walletId },
         data: {
@@ -236,7 +292,7 @@ export class WalletsService {
       });
 
       this.logger.log(
-        `Wallet ${input.walletId} consumed -${input.dto.amountCents}c by ${input.providedByUserId} (${provider.role}) cat=${input.dto.category}. balance=${newBalance}`,
+        `Wallet ${input.walletId} consumed -${input.dto.amountCents}c (tip ${tipCents}c) by ${input.providedByUserId} (${provider.role}) cat=${input.dto.category}. balance=${newBalance}`,
       );
 
       return {
@@ -244,86 +300,230 @@ export class WalletsService {
         newBalanceCents: newBalance,
         earningCreated: earningCommissionCents !== null,
         earningCommissionCents,
+        tipCents: earningTipCents,
       };
     });
   }
 
   /**
-   * Refund del balance restante.
-   *  - method=CARD: marca REFUNDED. El PSP refund real lo hace el caller (todavía
-   *    no automatizado — primero esta API, después integramos refund al Payment
-   *    del top-up).
+   * Refund del balance restante de una wallet.
+   *  - method=CARD: REFUND REAL al PSP. Distribuye el balance entre los
+   *    top-up Payments AUTHORIZED de esta wallet (más reciente primero, para
+   *    minimizar riesgo de salir de la ventana de refund del PSP). Cada refund
+   *    llama RefundsService.refund() que llama al adapter del provider real.
+   *    Si UN refund falla, abortamos los siguientes y devolvemos el parcial.
    *  - method=CREDIT: extiende expiresAt 30 días y mantiene ACTIVE para próxima visita.
+   *
+   * Actor input: contiene userId + role + tenantId — necesarios para los
+   * permission checks de RefundsService (rechaza WAITER, exige 2FA TOTP en
+   * refunds >= 100€).
    */
   async refund(input: {
     tenantId: string;
     walletId: string;
-    actorUserId: string;
+    actor: { userId: string; role: Role; tenantId: string };
+    dto: RefundWalletDto;
+  }): Promise<RefundWalletResult> {
+    // Para CREDIT seguimos en una sola transacción simple (no toca PSP).
+    if (input.dto.method === 'CREDIT') {
+      return this.refundCreditFlow(input);
+    }
+    // CARD: el flujo PSP NO puede ir dentro de una $transaction prolongada
+    // porque RefundsService.refund() abre su propia transacción + llama HTTP
+    // al adapter (puede tardar segundos). Manejo en dos pasos:
+    //   1. Lock wallet + valida + lee top-ups (transacción corta)
+    //   2. Llama refunds PSP secuencial fuera de transacción
+    //   3. Marca wallet REFUNDED al final
+    return this.refundCardFlow(input);
+  }
+
+  /** CREDIT: no toca PSP, transacción simple. */
+  private async refundCreditFlow(input: {
+    tenantId: string;
+    walletId: string;
+    actor: { userId: string };
     dto: RefundWalletDto;
   }): Promise<RefundWalletResult> {
     return this.prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<
-        Array<{ id: string; balanceCents: number; status: string; tenantId: string }>
-      >`
-        SELECT id, "balanceCents", status, "tenantId"
-          FROM client_wallets
-         WHERE id = ${input.walletId}::uuid
-           FOR UPDATE
-      `;
-      if (locked.length === 0) {
-        throw new NotFoundException(`Wallet ${input.walletId} no encontrada`);
-      }
-      const w = locked[0]!;
-      if (w.tenantId !== input.tenantId) {
-        throw new ForbiddenException('Wallet no pertenece a tu venue');
-      }
-      if (w.status !== 'ACTIVE') {
-        throw new ConflictException(
-          `Wallet ya está ${w.status} — no se puede refund`,
-        );
-      }
-
+      const w = await this.lockAndValidate(tx, input.tenantId, input.walletId);
       const refundedCents = w.balanceCents;
-      let newStatus: 'REFUNDED' | 'ACTIVE' = 'REFUNDED';
-      let expiresAt: Date | null = null;
-
-      if (input.dto.method === 'CREDIT') {
-        // Mantiene ACTIVE con expiresAt +30 días
-        newStatus = 'ACTIVE';
-        expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-        await tx.clientWallet.update({
-          where: { id: input.walletId },
-          data: { expiresAt },
-        });
-      } else {
-        // CARD — vaciar balance + status REFUNDED
-        await tx.clientWallet.update({
-          where: { id: input.walletId },
-          data: { balanceCents: 0, status: 'REFUNDED' },
-        });
-      }
-
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await tx.clientWallet.update({
+        where: { id: input.walletId },
+        data: { expiresAt },
+      });
       await this.audit.log({
         action: 'wallet.refund',
         tenantId: input.tenantId,
-        actorId: input.actorUserId,
+        actorId: input.actor.userId,
         targetType: 'ClientWallet',
         targetId: input.walletId,
-        payload: {
-          method: input.dto.method,
-          refundedCents,
-          notes: input.dto.notes,
-        },
+        payload: { method: 'CREDIT', refundedCents, notes: input.dto.notes },
       });
-
       return {
         walletId: input.walletId,
-        method: input.dto.method,
+        method: 'CREDIT',
         refundedCents,
-        newStatus,
-        expiresAt: expiresAt?.toISOString() ?? null,
+        newStatus: 'ACTIVE',
+        expiresAt: expiresAt.toISOString(),
       };
     });
+  }
+
+  /** CARD: refund real al PSP via RefundsService. */
+  private async refundCardFlow(input: {
+    tenantId: string;
+    walletId: string;
+    actor: { userId: string; role: Role; tenantId: string };
+    dto: RefundWalletDto;
+  }): Promise<RefundWalletResult> {
+    const refundsSvc = this.getRefundsService();
+    if (!refundsSvc) {
+      throw new ConflictException(
+        'Refund CARD no disponible: RefundsService no inicializado. Reintenta o avisa al admin.',
+      );
+    }
+
+    // 1) Lock + leer top-ups en transacción corta. Marcamos balance=0 pero
+    //    NO cambiamos status todavía — eso lo hacemos tras éxito PSP.
+    const { balanceCents, topUps } = await this.prisma.$transaction(async (tx) => {
+      const w = await this.lockAndValidate(tx, input.tenantId, input.walletId);
+      const tops = await tx.payment.findMany({
+        where: {
+          tenantId: input.tenantId,
+          walletId: input.walletId,
+          status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED'] },
+          availableAmountCents: { gt: 0 },
+        },
+        orderBy: { createdAt: 'desc' }, // más recientes primero
+        select: { id: true, availableAmountCents: true },
+      });
+      // Reservamos el balance: marcamos a 0 para evitar consumes concurrentes
+      // mientras procesamos el refund al PSP. Si fallamos, restauramos.
+      await tx.clientWallet.update({
+        where: { id: input.walletId },
+        data: { balanceCents: 0 },
+      });
+      return { balanceCents: w.balanceCents, topUps: tops };
+    });
+
+    if (topUps.length === 0) {
+      // Edge: wallet con balance pero sin top-ups AUTHORIZED. Restauramos y avisamos.
+      await this.prisma.clientWallet.update({
+        where: { id: input.walletId },
+        data: { balanceCents },
+      });
+      throw new ConflictException(
+        `Wallet con balance ${(balanceCents / 100).toFixed(2)}€ pero sin top-ups AUTHORIZED — no se puede refund vía PSP. Revisa el ledger.`,
+      );
+    }
+
+    // 2) Distribuir refund entre top-ups (más reciente primero).
+    let remaining = balanceCents;
+    let totalRefunded = 0;
+    const refundIds: string[] = [];
+    const errors: Array<{ paymentId: string; error: string }> = [];
+
+    for (const p of topUps) {
+      if (remaining <= 0) break;
+      const chunk = Math.min(remaining, p.availableAmountCents);
+      try {
+        const r = await refundsSvc.refund(
+          {
+            paymentId: p.id,
+            amountCents: chunk,
+            reason: `wallet ${input.walletId} refund`,
+          },
+          input.actor,
+        );
+        refundIds.push(r.id);
+        totalRefunded += chunk;
+        remaining -= chunk;
+        this.logger.log(
+          `Wallet ${input.walletId} refund chunk ${chunk}c on payment ${p.id} → refund ${r.id}`,
+        );
+      } catch (err) {
+        const msg = (err as Error).message;
+        this.logger.error(`Wallet refund chunk failed payment=${p.id}: ${msg}`);
+        errors.push({ paymentId: p.id, error: msg });
+        // Abortar — el resto del balance queda no refundeado, pero las chunks
+        // ya hechas siguen efectivas. Restauramos el balance no devuelto.
+        break;
+      }
+    }
+
+    // 3) Estado final: marcar wallet REFUNDED si refund total OK, ACTIVE+restaurar
+    //    balance restante si hubo error parcial.
+    if (errors.length === 0 && remaining === 0) {
+      await this.prisma.clientWallet.update({
+        where: { id: input.walletId },
+        data: { status: 'REFUNDED' },
+      });
+    } else {
+      // Restauramos balance no refundeado para que admin pueda reintentar.
+      await this.prisma.clientWallet.update({
+        where: { id: input.walletId },
+        data: { balanceCents: remaining },
+      });
+    }
+
+    await this.audit.log({
+      action: 'wallet.refund',
+      tenantId: input.tenantId,
+      actorId: input.actor.userId,
+      targetType: 'ClientWallet',
+      targetId: input.walletId,
+      payload: {
+        method: 'CARD',
+        balanceCents,
+        totalRefunded,
+        remainingCents: remaining,
+        refundIds,
+        errors,
+        notes: input.dto.notes,
+      },
+    });
+
+    if (errors.length > 0) {
+      throw new ConflictException(
+        `Refund parcial: ${(totalRefunded / 100).toFixed(2)}€ devueltos al cliente, ${(remaining / 100).toFixed(2)}€ pendientes por error PSP en payment ${errors[0]!.paymentId}: ${errors[0]!.error}`,
+      );
+    }
+
+    return {
+      walletId: input.walletId,
+      method: 'CARD',
+      refundedCents: totalRefunded,
+      newStatus: 'REFUNDED',
+      expiresAt: null,
+    };
+  }
+
+  /** Lock + validaciones comunes para refund. */
+  private async lockAndValidate(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    walletId: string,
+  ): Promise<{ id: string; balanceCents: number; status: string; tenantId: string }> {
+    const locked = await tx.$queryRaw<
+      Array<{ id: string; balanceCents: number; status: string; tenantId: string }>
+    >`
+      SELECT id, "balanceCents", status, "tenantId"
+        FROM client_wallets
+       WHERE id = ${walletId}::uuid
+         FOR UPDATE
+    `;
+    if (locked.length === 0) {
+      throw new NotFoundException(`Wallet ${walletId} no encontrada`);
+    }
+    const w = locked[0]!;
+    if (w.tenantId !== tenantId) {
+      throw new ForbiddenException('Wallet no pertenece a tu venue');
+    }
+    if (w.status !== 'ACTIVE') {
+      throw new ConflictException(`Wallet ya está ${w.status} — no se puede refund`);
+    }
+    return w;
   }
 
   /**

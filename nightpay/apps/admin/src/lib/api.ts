@@ -594,3 +594,86 @@ export async function updateVenueSettings(input: {
   if (!res.ok) throw new Error(`Error: ${await res.text()}`);
   return res.json();
 }
+
+// ─── Terminals (Track A — red PAX por zona) ───────────────────────
+
+export interface Terminal {
+  id: string;
+  externalId: string;
+  label: string;
+  zone: string | null;
+  zoneDisplay: string | null;
+  hardwareModel: string | null;
+  deviceSerial: string | null;
+  active: boolean;
+}
+
+export interface Zone {
+  zone: string;
+  zoneDisplay: string;
+  terminalCount: number;
+  activeCount: number;
+}
+
+export async function fetchTerminals(): Promise<Terminal[]> {
+  const res = await authedFetch('/v1/terminals');
+  if (!res.ok) throw new Error('Error cargando terminales');
+  return res.json();
+}
+
+export async function fetchZones(): Promise<Zone[]> {
+  const res = await authedFetch('/v1/terminals/zones');
+  if (!res.ok) throw new Error('Error cargando zonas');
+  return res.json();
+}
+
+export async function createTerminal(input: {
+  externalId: string;
+  label: string;
+  zone?: 'BARRA' | 'HABITACIONES' | 'MESAS' | 'OTRO';
+  zoneCustom?: string;
+  hardwareModel?: 'PAX_A920_PRO' | 'OTRO';
+  deviceSerial?: string;
+  active?: boolean;
+}): Promise<Terminal> {
+  const res = await authedFetch('/v1/terminals', {
+    method: 'POST',
+    body: JSON.stringify({ active: true, ...input }),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+export async function bulkCreateTerminals(input: {
+  count: number;
+  prefix: string;
+  zone: 'BARRA' | 'HABITACIONES' | 'MESAS' | 'OTRO';
+  zoneCustom?: string;
+  hardwareModel?: 'PAX_A920_PRO' | 'OTRO';
+}): Promise<Terminal[]> {
+  const res = await authedFetch('/v1/terminals/bulk', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+export async function updateTerminal(
+  id: string,
+  input: {
+    label?: string;
+    zone?: 'BARRA' | 'HABITACIONES' | 'MESAS' | 'OTRO' | null;
+    zoneCustom?: string | null;
+    hardwareModel?: 'PAX_A920_PRO' | 'OTRO' | null;
+    deviceSerial?: string | null;
+    active?: boolean;
+  },
+): Promise<Terminal> {
+  const res = await authedFetch(`/v1/terminals/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}

@@ -15,8 +15,21 @@ export const PaymentStatusSchema = z.enum([
 ]);
 export type PaymentStatus = z.infer<typeof PaymentStatusSchema>;
 
-export const ProviderSchema = z.enum(['WIPAY', 'PEANPE']);
+export const ProviderSchema = z.enum(['WIPAY', 'PEANPE', 'PAYTEF']);
 export type Provider = z.infer<typeof ProviderSchema>;
+
+/**
+ * Zonas físicas del venue para routing del PAX (Track A POS_EXTERNAL).
+ *  - BARRA: barra del bar
+ *  - HABITACIONES: habitaciones del hospedaje
+ *  - MESAS: mesas del salón
+ *  - OTRO: zona personalizada (requiere `zoneCustom` con el nombre real)
+ *
+ * Backward compat: payments antiguos pueden no tener zone (terminalExternalId
+ * directo). Si Terminal.zone existe, predomina routing por zona.
+ */
+export const TerminalZoneSchema = z.enum(['BARRA', 'HABITACIONES', 'MESAS', 'OTRO']);
+export type TerminalZone = z.infer<typeof TerminalZoneSchema>;
 
 // ─── Crear pago (TPV → API) ──────────────────────────────────────────
 
@@ -32,13 +45,28 @@ export type Provider = z.infer<typeof ProviderSchema>;
 export const CaptureMethodSchema = z.enum(['QR', 'WALLET_TOPUP', 'POS_EXTERNAL']);
 export type CaptureMethod = z.infer<typeof CaptureMethodSchema>;
 
+/**
+ * Destino de la propina. 'operator' = chica que creó el cobro; 'venue' = local;
+ * 'shared' = pool (futuro); 'beneficiary' = userId explícito (campo tipBeneficiaryUserId).
+ */
+export const TipGoesToSchema = z.enum(['operator', 'venue', 'shared', 'beneficiary']);
+export type TipGoesTo = z.infer<typeof TipGoesToSchema>;
+
 export const CreatePaymentSchema = z.object({
   amountCents: z.number().int().positive().max(10_000_00, 'Max 10.000,00 EUR'),
-  terminalExternalId: z
-    .string()
-    .min(1)
-    .max(80)
-    .describe('externalId del terminal del venue (ej. BARRA-1)'),
+  /**
+   * externalId del terminal específico (ej. "BARRA-1"). Opcional cuando se
+   * pasa `zone` — el backend resuelve un terminal de esa zona automáticamente.
+   * Si se pasan los dos, terminalExternalId tiene preferencia.
+   */
+  terminalExternalId: z.string().min(1).max(80).optional(),
+  /**
+   * Track A — Routing por zona física (cuando el venue tiene 6-8 PAX por zona).
+   * Si zone=OTRO, también requiere `zoneCustom` con el nombre real.
+   * Si solo se pasa `zone`, el backend resuelve un terminal activo de esa zona.
+   */
+  zone: TerminalZoneSchema.optional(),
+  zoneCustom: z.string().min(1).max(40).optional(),
   currency: z.string().length(3).default('EUR'),
   /**
    * Phase 1B opcional — si presente, este pago es un top-up de ClientWallet.
@@ -62,13 +90,45 @@ export const CreatePaymentSchema = z.object({
    * el datáfono del bar, después confirma en NightPay. No hay PSP roundtrip.
    */
   captureMethod: CaptureMethodSchema.optional(),
-});
+  /**
+   * Propina opcional. Si tipCents > 0:
+   *  - el importe se suma al cargo en tarjeta (cliente paga amount + tip).
+   *  - se asigna según tipGoesTo (default 'operator' si el creator es OPERATOR).
+   *  - tipBeneficiaryUserId override cuando tipGoesTo='beneficiary'.
+   */
+  tipCents: z.number().int().nonnegative().max(5_000_00, 'Tip máx 5.000,00 EUR').optional(),
+  tipGoesTo: TipGoesToSchema.optional(),
+  tipBeneficiaryUserId: UuidSchema.optional(),
+}).refine(
+  (d) => d.terminalExternalId !== undefined || d.zone !== undefined,
+  { message: 'Debes pasar terminalExternalId o zone' },
+).refine(
+  (d) => d.zone !== 'OTRO' || (d.zoneCustom !== undefined && d.zoneCustom.length > 0),
+  { message: 'zoneCustom obligatorio cuando zone=OTRO' },
+);
 export type CreatePaymentDto = z.infer<typeof CreatePaymentSchema>;
 
-/** Confirmación POS — camarero/manager marca cobrado tras datáfono. */
+/**
+ * Confirmación POS — camarero/manager marca cobrado tras procesar la tarjeta
+ * en el datáfono externo.
+ *
+ * `posReceiptRef` es OBLIGATORIO (≥3 chars) — prevenir confirmaciones falsas
+ * sin haber cobrado realmente. El camarero teclea el número de recibo del
+ * datáfono (o lo escanea con la cámara). Va al audit log.
+ *
+ * `posReceiptPhoto`: data URL del ticket fotografiado por el camarero. Opcional
+ * pero recomendado en disputes. Tamaño máx 500KB para evitar payloads enormes.
+ */
 export const ConfirmPosPaymentSchema = z.object({
-  /** Referencia del recibo del datáfono (opcional, va al audit log). */
-  posReceiptRef: z.string().max(200).optional(),
+  posReceiptRef: z
+    .string()
+    .min(3, 'Pega o teclea el nº de recibo del datáfono (mín 3 chars)')
+    .max(200),
+  posReceiptPhoto: z
+    .string()
+    .startsWith('data:image/')
+    .max(500_000, 'Foto máx 500KB — comprime antes de subir')
+    .optional(),
   notes: z.string().max(500).optional(),
 });
 export type ConfirmPosPaymentDto = z.infer<typeof ConfirmPosPaymentSchema>;

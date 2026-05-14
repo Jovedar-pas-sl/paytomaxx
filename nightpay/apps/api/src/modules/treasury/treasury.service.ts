@@ -110,10 +110,15 @@ export class TreasuryService {
         );
       }
       const verifier = this.verifierFactory.forMethod(dto.externalRail);
+      // FX snapshot persistido al crear el payout (Sprint 2026-05-13 fix #15).
+      const snapshotUsdt = payout.expectedAmountUsdt
+        ? Number(payout.expectedAmountUsdt.toString())
+        : undefined;
       result = await verifier.verify({
         externalTxId: dto.externalTxId,
         expectedToAddress: op.payoutAddress,
         expectedAmountCents: payout.totalCents,
+        expectedAmountUsdt: snapshotUsdt,
       });
     } else {
       // Métodos manuales — guardamos la referencia y dejamos UNRECONCILED.
@@ -350,10 +355,16 @@ export class TreasuryService {
           const txId = p.externalTxId;
           if (!addr || !rail || !txId) return { id: p.id, matched: false };
           const verifier = this.verifierFactory.forMethod(rail);
+          // FX snapshot persistido al crear el payout — uso exacto para evitar
+          // falsos MISMATCH por volatilidad EUR↔USDT entre creación y verify.
+          const snapshotUsdt = p.expectedAmountUsdt
+            ? Number(p.expectedAmountUsdt.toString())
+            : undefined;
           const result = await verifier.verify({
             externalTxId: txId,
             expectedToAddress: addr,
             expectedAmountCents: p.totalCents,
+            expectedAmountUsdt: snapshotUsdt,
           });
           if (result.matched) {
             await this.prisma.asSystem((tx) =>

@@ -5,7 +5,9 @@ import { Button, Card, Input } from '@nightpay/ui';
 import {
   confirmPosPayment,
   fetchPendingPos,
+  fetchZones,
   type PendingPosPayment,
+  type ZoneOption,
 } from '@/lib/api';
 
 interface Props {
@@ -31,13 +33,17 @@ interface Props {
  */
 export function PendingPos({ onConfirmed }: Props) {
   const [pending, setPending] = useState<PendingPosPayment[]>([]);
+  const [zones, setZones] = useState<ZoneOption[]>([]);
+  // 'all' = sin filtro; canonical zone otherwise.
+  const [zoneFilter, setZoneFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<PendingPosPayment | null>(null);
 
-  async function reload() {
+  async function reload(zoneArg?: string) {
     try {
-      const list = await fetchPendingPos();
+      const filter = zoneArg ?? zoneFilter;
+      const list = await fetchPendingPos(filter === 'all' ? undefined : filter);
       setPending(list);
       // Si el seleccionado ya no está (alguien lo confirmó), reset.
       if (selected && !list.find((p) => p.id === selected.id)) {
@@ -52,11 +58,22 @@ export function PendingPos({ onConfirmed }: Props) {
   }
 
   useEffect(() => {
+    fetchZones()
+      .then((zs) => setZones(zs.filter((z) => z.activeCount > 0)))
+      .catch(() => {
+        /* zonas opcional */
+      });
     reload();
-    const id = setInterval(reload, 5000);
+    const id = setInterval(() => reload(), 5000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function changeZone(z: string): void {
+    setZoneFilter(z);
+    setLoading(true);
+    reload(z);
+  }
 
   if (selected) {
     return (
@@ -82,6 +99,34 @@ export function PendingPos({ onConfirmed }: Props) {
         </p>
       </div>
 
+      {zones.length > 1 ? (
+        <div style={zoneTabsStyle}>
+          <button
+            type="button"
+            onClick={() => changeZone('all')}
+            style={{
+              ...zoneTabStyle,
+              ...(zoneFilter === 'all' ? zoneTabActiveStyle : {}),
+            }}
+          >
+            Todas
+          </button>
+          {zones.map((z) => (
+            <button
+              key={z.zone}
+              type="button"
+              onClick={() => changeZone(z.zone)}
+              style={{
+                ...zoneTabStyle,
+                ...(zoneFilter === z.zone ? zoneTabActiveStyle : {}),
+              }}
+            >
+              {z.zoneDisplay}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {error ? <p style={errorStyle}>{error}</p> : null}
 
       {loading && pending.length === 0 ? (
@@ -102,7 +147,10 @@ export function PendingPos({ onConfirmed }: Props) {
                 type="button"
               >
                 <div style={{ flex: 1, textAlign: 'left' }}>
-                  <p style={refStyle}>#{p.refCode}</p>
+                  <p style={refStyle}>
+                    #{p.refCode}
+                    {p.zone ? <span style={zoneBadgeStyle}>{zoneToDisplay(p.zone)}</span> : null}
+                  </p>
                   <p style={metaStyle}>
                     Chica: {p.createdByName} · {timeAgo(p.createdAt)}
                   </p>
@@ -130,16 +178,40 @@ function ConfirmForm({
   onConfirmed: () => void;
 }) {
   const [posRef, setPosRef] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleConfirm() {
+  async function handlePhotoCapture(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Comprimimos a JPEG ~70% calidad para evitar payloads enormes.
+    try {
+      const compressed = await compressImage(file, 800, 0.7);
+      if (compressed.length > 480_000) {
+        setError('Foto demasiado grande tras comprimir. Toma una desde más lejos.');
+        return;
+      }
+      setPhoto(compressed);
+      setError(null);
+    } catch {
+      setError('No se pudo procesar la foto');
+    }
+  }
+
+  async function handleConfirm(): Promise<void> {
+    const ref = posRef.trim();
+    if (ref.length < 3) {
+      setError('Pega o teclea el nº de recibo del datáfono (mín 3 chars)');
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       if ('vibrate' in navigator) navigator.vibrate(10);
       await confirmPosPayment(payment.id, {
-        posReceiptRef: posRef.trim() || undefined,
+        posReceiptRef: ref,
+        posReceiptPhoto: photo ?? undefined,
       });
       onConfirmed();
     } catch (err) {
@@ -175,18 +247,70 @@ function ConfirmForm({
         <ol style={stepsListStyle}>
           <li>Cobra {(payment.amountCents / 100).toFixed(2)} € en el datáfono del bar.</li>
           <li>Cliente paga con su tarjeta.</li>
-          <li>Apunta el nº de recibo (opcional).</li>
+          <li><strong>Teclea el nº de recibo</strong> (obligatorio).</li>
+          <li>Foto del ticket (opcional pero recomendado).</li>
           <li>Toca "Confirmar pagado" abajo.</li>
         </ol>
       </div>
 
       <Input
-        label="Nº recibo del datáfono (opcional)"
+        label="Nº recibo del datáfono *"
         value={posRef}
         onChange={(e) => setPosRef(e.target.value)}
         placeholder="ej: 047215 · A4FC32"
         disabled={submitting}
+        required
       />
+
+      <div>
+        <label
+          style={{
+            display: 'block',
+            fontSize: '0.875rem',
+            fontWeight: 500,
+            marginBottom: '0.375rem',
+            color: 'var(--np-text)',
+          }}
+        >
+          Foto del ticket (opcional)
+        </label>
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handlePhotoCapture}
+          disabled={submitting}
+          style={{ fontSize: '0.875rem' }}
+        />
+        {photo ? (
+          <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <img
+              src={photo}
+              alt="ticket"
+              style={{
+                width: '80px',
+                height: '80px',
+                objectFit: 'cover',
+                borderRadius: 'var(--np-r-sm)',
+                border: '1px solid var(--np-border)',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setPhoto(null)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--np-text-mute)',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+              }}
+            >
+              Quitar
+            </button>
+          </div>
+        ) : null}
+      </div>
 
       {error ? <p style={errorStyle}>{error}</p> : null}
 
@@ -210,6 +334,86 @@ function timeAgo(iso: string): string {
   const hrs = Math.floor(mins / 60);
   return `hace ${hrs}h ${mins % 60}m`;
 }
+
+/**
+ * Comprime una imagen a JPEG con max dimension `maxW` y calidad `quality` (0-1).
+ * Devuelve un data URL. Funciona offline (canvas browser, no server).
+ */
+async function compressImage(file: File, maxW: number, quality: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const ratio = Math.min(maxW / img.width, maxW / img.height, 1);
+      const w = Math.round(img.width * ratio);
+      const h = Math.round(img.height * ratio);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('canvas not supported'));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => reject(new Error('image load failed'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function zoneToDisplay(zone: string): string {
+  if (zone.startsWith('OTRO/')) {
+    const c = zone.slice('OTRO/'.length);
+    return c.charAt(0).toUpperCase() + c.slice(1).toLowerCase();
+  }
+  return zone.charAt(0).toUpperCase() + zone.slice(1).toLowerCase();
+}
+
+const zoneTabsStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '0.375rem',
+  padding: '0.375rem',
+  background: 'var(--np-surface-2)',
+  borderRadius: 'var(--np-r-md)',
+  border: '1px solid var(--np-border)',
+};
+
+const zoneTabStyle: CSSProperties = {
+  flex: '1 1 auto',
+  minWidth: '4rem',
+  padding: '0.5rem 0.75rem',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: 'var(--np-r-sm)',
+  color: 'var(--np-text-mute)',
+  fontSize: '0.85rem',
+  fontWeight: 500,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+};
+
+const zoneTabActiveStyle: CSSProperties = {
+  background: 'var(--np-surface)',
+  color: 'var(--np-accent)',
+  boxShadow: 'var(--np-shadow-sm)',
+};
+
+const zoneBadgeStyle: CSSProperties = {
+  marginLeft: '0.5rem',
+  display: 'inline-block',
+  padding: '0.125rem 0.5rem',
+  borderRadius: '999px',
+  background: 'var(--np-surface-2)',
+  border: '1px solid var(--np-border)',
+  color: 'var(--np-text-mute)',
+  fontSize: '0.7rem',
+  fontWeight: 500,
+  fontFamily: 'var(--np-font-sans)',
+  letterSpacing: '0.02em',
+  verticalAlign: 'middle',
+};
 
 const titleStyle: CSSProperties = {
   margin: 0,

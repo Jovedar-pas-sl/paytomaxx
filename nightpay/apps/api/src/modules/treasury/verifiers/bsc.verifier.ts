@@ -44,7 +44,11 @@ export class BscVerifier implements PayoutVerifier {
 
       const decimals = Number(tx.tokenDecimal ?? '18');
       const actualUsdt = Number(tx.value) / Math.pow(10, decimals);
-      const expectedUsdt = (input.expectedAmountCents / 100) * (await this.eurToUsdtRate());
+      // FX snapshot del payout (Sprint 2026-05-13 fix #15). Si null, fallback live.
+      const expectedUsdt =
+        typeof input.expectedAmountUsdt === 'number' && input.expectedAmountUsdt > 0
+          ? input.expectedAmountUsdt
+          : (input.expectedAmountCents / 100) * (await this.eurToUsdtRate());
       const tolerance = (expectedUsdt * AMOUNT_TOLERANCE_BPS) / 10_000;
       if (Math.abs(actualUsdt - expectedUsdt) > tolerance) {
         return mismatch(`bsc_amount_${actualUsdt.toFixed(2)}_vs_${expectedUsdt.toFixed(2)}`);

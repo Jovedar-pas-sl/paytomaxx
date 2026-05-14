@@ -23,6 +23,7 @@ import type { CreatePaymentDto, CreatedPaymentResponse, PublicPaymentView } from
 import type { RequestContext } from '../../common/context/request-context';
 import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
 import { GatewayRegistry } from '../gateways/gateway.registry';
+import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
 import { WalletsService } from '../wallets/wallets.service';
@@ -42,6 +43,7 @@ export class PaymentsService {
   private readonly realtime: RealtimeGateway;
   private readonly metrics: MetricsService;
   private readonly wallets: WalletsService;
+  private readonly peanpe: PeanpeAdapter;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -52,6 +54,7 @@ export class PaymentsService {
     @Inject(RealtimeGateway) realtime: RealtimeGateway,
     @Inject(MetricsService) metrics: MetricsService,
     @Inject(WalletsService) wallets: WalletsService,
+    @Inject(PeanpeAdapter) peanpe: PeanpeAdapter,
   ) {
     this.prisma = prisma;
     this.cls = cls;
@@ -61,6 +64,37 @@ export class PaymentsService {
     this.realtime = realtime;
     this.metrics = metrics;
     this.wallets = wallets;
+    this.peanpe = peanpe;
+  }
+
+  /**
+   * Construye la URL del formulario hosted Peanpe para el cliente.
+   * Requiere que ya se haya llamado startAuthorization() y el adapter haya
+   * persistido el peanpe_calls (con identificador_llamada y securityToken).
+   */
+  async getPeanpeRedirectUrl(qrToken: string): Promise<{ provider: string; url: string }> {
+    const payment = await this.prisma.asSystem((tx) =>
+      tx.payment.findUnique({
+        where: { qrToken },
+        include: { peanpeCall: true },
+      }),
+    );
+    if (!payment) throw new NotFoundException('Payment not found');
+    if (payment.provider !== 'PEANPE') {
+      throw new ConflictException(`Payment provider is ${payment.provider}, not PEANPE`);
+    }
+    if (!payment.peanpeCall) {
+      throw new ConflictException(
+        'Peanpe call no inicializada — llama POST /start-authorization primero',
+      );
+    }
+    const url = this.peanpe.buildPaymentUrl({
+      identificadorLlamada: payment.peanpeCall.identificadorLlamada,
+      amountCents: payment.amountCents,
+      concepto: `NightPay ${payment.id.slice(0, 8)}`,
+      debug: process.env.NODE_ENV !== 'production',
+    });
+    return { provider: 'PEANPE', url };
   }
 
   /**
@@ -81,12 +115,43 @@ export class PaymentsService {
       return this.toCreatedResponse(existing.id);
     }
 
-    // 2. Validar terminal — by externalId
-    const terminal = await this.prisma.terminal.findUnique({
-      where: { tenantId_externalId: { tenantId, externalId: dto.terminalExternalId } },
-    });
-    if (!terminal || !terminal.active) {
-      throw new BadRequestException(`Terminal '${dto.terminalExternalId}' not found or inactive`);
+    // 2. Resolver terminal:
+    //    - Si dto.terminalExternalId: lookup directo (backwards compat).
+    //    - Si dto.zone (sin externalId): elegir cualquier terminal activo de
+    //      esa zona. Si no hay → 400 con mensaje claro.
+    //    - Si ambos: terminalExternalId gana.
+    let terminal;
+    if (dto.terminalExternalId) {
+      terminal = await this.prisma.terminal.findUnique({
+        where: {
+          tenantId_externalId: { tenantId, externalId: dto.terminalExternalId },
+        },
+      });
+      if (!terminal || !terminal.active) {
+        throw new BadRequestException(
+          `Terminal '${dto.terminalExternalId}' not found or inactive`,
+        );
+      }
+    } else if (dto.zone) {
+      // Normalizamos: si zone=OTRO, el canonical zone es 'OTRO/<zoneCustom>'.
+      const canonicalZone =
+        dto.zone === 'OTRO' && dto.zoneCustom
+          ? `OTRO/${dto.zoneCustom.trim().toUpperCase()}`
+          : dto.zone;
+      terminal = await this.prisma.terminal.findFirst({
+        where: { tenantId, zone: canonicalZone, active: true },
+        // Terminal model no tiene timestamps; ordenamos por externalId estable.
+        orderBy: { externalId: 'asc' },
+      });
+      if (!terminal) {
+        throw new BadRequestException(
+          `No hay PAX activos en zona '${canonicalZone}'. Revisa con el admin que haya terminales dados de alta y activos.`,
+        );
+      }
+    } else {
+      throw new BadRequestException(
+        'Debes pasar terminalExternalId o zone para resolver el datáfono',
+      );
     }
 
     // 2b. Si el creador es OPERATOR, validar cap del venue. Owner/Manager lo ignoran.
@@ -99,16 +164,17 @@ export class PaymentsService {
     const creatorUserId = actor?.userId ?? ctx?.userId ?? null;
     const creatorRole = actor?.role ?? ctx?.role;
     const isWalletTopUp = Boolean(dto.wallet);
+    // Leemos el venue siempre (necesitamos platformCommissionBps para snapshot).
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: { operatorMaxCobroCents: true, platformCommissionBps: true },
+      }),
+    );
     if (creatorRole === 'OPERATOR' && !isWalletTopUp) {
-      const venue = await this.prisma.asSystem((tx) =>
-        tx.venue.findUniqueOrThrow({
-          where: { id: tenantId },
-          select: { operatorMaxCobroCents: true },
-        }),
-      );
       if (dto.amountCents > venue.operatorMaxCobroCents) {
         throw new BadRequestException(
-          `Importe ${dto.amountCents / 100} € supera el límite del local (${venue.operatorMaxCobroCents / 100} €). ` +
+          `Importe ${(dto.amountCents / 100).toFixed(2)} € supera el límite del local (${(venue.operatorMaxCobroCents / 100).toFixed(2)} €). ` +
             `Para wallet top-up no aplica el cap; para cobros puntuales pídele al OWNER que suba el cap en Ajustes.`,
         );
       }
@@ -162,6 +228,37 @@ export class PaymentsService {
       ? 'WALLET_TOPUP'
       : dto.captureMethod ?? null;
 
+    // Tip handling: si hay tipCents, valida coherencia y resuelve política default.
+    // Default: si creator es OPERATOR y no se especifica tipGoesTo → 'operator'.
+    const tipCents = dto.tipCents ?? 0;
+    let tipGoesTo: string | null = dto.tipGoesTo ?? null;
+    let tipBeneficiaryUserId: string | null = dto.tipBeneficiaryUserId ?? null;
+    if (tipCents > 0) {
+      if (!tipGoesTo) {
+        tipGoesTo = creatorRole === 'OPERATOR' ? 'operator' : 'venue';
+      }
+      if (tipGoesTo === 'beneficiary' && !tipBeneficiaryUserId) {
+        throw new BadRequestException(
+          'tipGoesTo=beneficiary requiere tipBeneficiaryUserId',
+        );
+      }
+      if (tipBeneficiaryUserId) {
+        const beneficiary = await this.prisma.asSystem((tx) =>
+          tx.user.findFirst({
+            where: { id: tipBeneficiaryUserId!, tenantId, deletedAt: null },
+            select: { id: true },
+          }),
+        );
+        if (!beneficiary) {
+          throw new BadRequestException('tipBeneficiaryUserId no pertenece al venue');
+        }
+      }
+    } else {
+      // Sin tip: limpiar campos para no persistir basura.
+      tipGoesTo = null;
+      tipBeneficiaryUserId = null;
+    }
+
     const payment = await this.prisma.$transaction(async (tx) => {
       const p = await tx.payment.create({
         data: {
@@ -170,11 +267,18 @@ export class PaymentsService {
           createdByUserId: creatorUserId,
           idempotencyKey,
           amountCents: dto.amountCents,
-          availableAmountCents: dto.amountCents,
+          // availableAmountCents incluye tip — refunds pueden cubrir todo.
+          availableAmountCents: dto.amountCents + tipCents,
           currency: dto.currency,
           status: 'CREATED',
           qrToken,
           qrExpiresAt,
+          // Snapshot del % plataforma al momento del cobro (contabilidad histórica
+          // estable aunque el venue cambie el % mañana).
+          platformCommissionBps: venue.platformCommissionBps,
+          tipCents,
+          ...(tipGoesTo ? { tipGoesTo } : {}),
+          ...(tipBeneficiaryUserId ? { tipBeneficiaryUserId } : {}),
           ...(effectiveCaptureMethod ? { captureMethod: effectiveCaptureMethod } : {}),
           ...(resolvedWalletId ? { walletId: resolvedWalletId } : {}),
         },
@@ -186,6 +290,7 @@ export class PaymentsService {
           eventType: 'payment.created',
           payload: {
             amountCents: p.amountCents,
+            tipCents,
             terminal: dto.terminalExternalId,
             walletId: resolvedWalletId,
           },
@@ -253,8 +358,18 @@ export class PaymentsService {
    * Persiste el cambio de estado + evento en payment_events.
    *
    * Llamadores típicos: webhook processor, qr-expire job, refund flow.
+   *
+   * @param expectedTenantId Si se pasa, valida que el payment pertenece a este
+   *   tenant. Defensa cross-tenant: el caller idealmente debería pasar el
+   *   tenantId que tiene en su contexto. Sin él, la función sigue funcionando
+   *   por UUID directo (compat con workers de webhook donde el tenantId se
+   *   resuelve después del lookup).
    */
-  async transition(paymentId: string, event: PaymentEvent): Promise<void> {
+  async transition(
+    paymentId: string,
+    event: PaymentEvent,
+    expectedTenantId?: string,
+  ): Promise<void> {
     // transition() es interna (workers + refunds futuros). Usamos SQL crudo end-to-end
     // para evitar interaccion ambigua con el middleware de tenant: el lock pesimista
     // y el UPDATE deben ir sobre la MISMA fila. Cualquier filtro adicional del
@@ -273,13 +388,17 @@ export class PaymentsService {
             amountCents: number;
             availableAmountCents: number;
             providerTxId: string | null;
-            provider: 'WIPAY' | 'PEANPE' | null;
+            provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | null;
             createdByUserId: string | null;
             walletId: string | null;
+            tipCents: number;
+            tipGoesTo: string | null;
+            tipBeneficiaryUserId: string | null;
           }>
         >`
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
-                 "providerTxId", provider, "createdByUserId", "walletId"
+                 "providerTxId", provider, "createdByUserId", "walletId",
+                 "tipCents", "tipGoesTo", "tipBeneficiaryUserId"
             FROM payments
            WHERE id = ${paymentId}::uuid
            FOR UPDATE
@@ -287,6 +406,15 @@ export class PaymentsService {
 
         const p = rows[0];
         if (!p) throw new NotFoundException(`Payment ${paymentId} not found`);
+
+        // Defensa cross-tenant: si el caller pasó tenantId, verificar coincidencia.
+        // Usamos NotFoundException (no Forbidden) para no filtrar existencia del pago.
+        if (expectedTenantId && p.tenantId !== expectedTenantId) {
+          this.logger.warn(
+            `transition tenant mismatch payment=${paymentId} expected=${expectedTenantId} actual=${p.tenantId}`,
+          );
+          throw new NotFoundException(`Payment ${paymentId} not found`);
+        }
 
         const result = applyEvent(
           p.status,
@@ -312,7 +440,7 @@ export class PaymentsService {
              SET status = ${result.nextState}::"PaymentStatus",
                  "availableAmountCents" = ${result.nextContext.availableAmountCents},
                  "providerTxId" = ${result.nextContext.providerTxId ?? p.providerTxId},
-                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | null}::"Provider",
+                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'PAYTEF' | null}::"Provider",
                  "updatedAt" = NOW()
            WHERE id = ${paymentId}::uuid
         `;
@@ -334,6 +462,8 @@ export class PaymentsService {
         // ClientWallet (top-up flow) y transitamos a AUTHORIZED, sumamos el importe
         // al balance ATÓMICAMENTE en la misma transacción de la FSM. Lock con
         // SELECT FOR UPDATE evita race con consumes simultáneos.
+        // Nota: el tip va SEPARADO del balance — propinas no son saldo gastable
+        // por el cliente, se asignan al beneficiario directamente.
         if (result.nextState === 'AUTHORIZED' && p.walletId) {
           const walletLocked = await tx.$queryRaw<
             Array<{ id: string; balanceCents: number; status: string }>
@@ -361,6 +491,8 @@ export class PaymentsService {
 
         // Hook de earning para OPERATOR — si transitamos a AUTHORIZED y el creador
         // del payment es una operadora, snapshot de comisión en operator_earnings.
+        // Math.round (no floor) evita bias unidireccional contra la operadora —
+        // el céntimo perdido por redondeo se reparte 50/50 estadísticamente.
         // Idempotente: la unique en paymentId rechaza un segundo insert (defensa
         // contra una transición duplicada que la FSM ya filtra).
         // NOTA: si p.walletId está set, NO generamos earning aquí — el earning
@@ -376,11 +508,25 @@ export class PaymentsService {
           const creator = creatorRows[0];
           if (creator?.role === 'OPERATOR' && creator.commissionBps !== null) {
             const bps = creator.commissionBps;
-            const commissionCents = Math.floor((p.amountCents * bps) / 10_000);
+            const commissionCents = Math.round((p.amountCents * bps) / 10_000);
+
+            // Tip: si la propina va a la chica creator (o a beneficiary explícito
+            // que coincide con ella), 100% se suma al earning. Si va a venue/shared
+            // o a otro beneficiario, el earning lleva solo la comisión.
+            let earningTipCents = 0;
+            if (p.tipCents > 0) {
+              const goes = p.tipGoesTo ?? 'operator';
+              if (goes === 'operator') {
+                earningTipCents = p.tipCents;
+              } else if (goes === 'beneficiary' && p.tipBeneficiaryUserId === creator.id) {
+                earningTipCents = p.tipCents;
+              }
+            }
+
             await tx.$executeRaw`
               INSERT INTO operator_earnings (
                 "tenantId", "operatorId", "paymentId",
-                "paymentAmountCents", "commissionBps", "commissionCents"
+                "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
               )
               VALUES (
                 ${p.tenantId}::uuid,
@@ -388,10 +534,65 @@ export class PaymentsService {
                 ${paymentId}::uuid,
                 ${p.amountCents}::int,
                 ${bps}::int,
-                ${commissionCents}::int
+                ${commissionCents}::int,
+                ${earningTipCents}::int
               )
               ON CONFLICT ("paymentId") DO NOTHING
             `;
+          }
+        }
+
+        // Si tip va a un beneficiary específico que NO es el creator OPERATOR,
+        // y ese beneficiary es OPERATOR del venue, crear un earning aparte
+        // (consumptionId/paymentId ambos null no son válidos en el schema actual;
+        // por simplicidad, los tips a no-creator se ligan al mismo paymentId pero
+        // como una "tip-only" earning row con commissionCents=0 y tipCents>0).
+        // NOTA: por unique(paymentId), si ya hay earning para el creator, este
+        // segundo insert falla. Por eso, este flujo solo aplica cuando creator NO
+        // es OPERATOR (createdByUserId null o role!=OPERATOR) y hay un beneficiary
+        // OPERATOR distinto. Caso típico: OWNER crea cobro POS para mesa atendida
+        // por chica X — tip va a X via tipBeneficiaryUserId.
+        if (
+          result.nextState === 'AUTHORIZED' &&
+          p.tipCents > 0 &&
+          p.tipGoesTo === 'beneficiary' &&
+          p.tipBeneficiaryUserId &&
+          !p.walletId
+        ) {
+          const benefRows = await tx.$queryRaw<
+            Array<{ id: string; role: string; commissionBps: number | null }>
+          >`
+            SELECT id, role::text AS role, "commissionBps"
+              FROM users
+             WHERE id = ${p.tipBeneficiaryUserId}::uuid
+          `;
+          const benef = benefRows[0];
+          // Solo creamos earning de tip si no hubo earning del creator (evita doble).
+          const creatorIsOperator = p.createdByUserId !== null;
+          if (
+            benef?.role === 'OPERATOR' &&
+            benef.id !== p.createdByUserId &&
+            !creatorIsOperator
+          ) {
+            await tx.$executeRaw`
+              INSERT INTO operator_earnings (
+                "tenantId", "operatorId", "paymentId",
+                "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
+              )
+              VALUES (
+                ${p.tenantId}::uuid,
+                ${benef.id}::uuid,
+                ${paymentId}::uuid,
+                ${p.amountCents}::int,
+                0::int,
+                0::int,
+                ${p.tipCents}::int
+              )
+              ON CONFLICT ("paymentId") DO NOTHING
+            `;
+            this.logger.log(
+              `Payment ${paymentId} AUTHORIZED → tip-only earning created for beneficiary=${benef.id} amount=${p.tipCents}c`,
+            );
           }
         }
 
@@ -460,8 +661,8 @@ export class PaymentsService {
    */
   async confirmPosPayment(
     paymentId: string,
-    actor: { userId: string; role: string },
-    dto: { posReceiptRef?: string; notes?: string },
+    actor: { userId: string; role: string; tenantId: string },
+    dto: { posReceiptRef: string; posReceiptPhoto?: string; notes?: string },
   ): Promise<{ status: PaymentMachineState }> {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
@@ -497,10 +698,30 @@ export class PaymentsService {
       throw err;
     }
 
-    // Audit log con el camarero como actor — la comisión se generó en transition()
-    // via el hook earning normal (createdByUserId apunta a la chica).
+    // Audit log con la prueba de cobro (ref + foto opcional). Si hay disputa
+    // o auditoría AEAT, este registro es lo que demuestra que la chica
+    // efectivamente cobró en el datáfono (no se inventó el AUTHORIZED).
+    await this.prisma.paymentEvent.create({
+      data: {
+        paymentId,
+        tenantId: actor.tenantId,
+        eventType: 'pos.confirmed',
+        payload: {
+          posReceiptRef: dto.posReceiptRef,
+          // La foto puede ser pesada — la guardamos en payload (JSONB Postgres
+          // comprime). Para volumen alto, migrar a S3/R2 en futuro.
+          hasPhoto: !!dto.posReceiptPhoto,
+          ...(dto.posReceiptPhoto ? { posReceiptPhoto: dto.posReceiptPhoto } : {}),
+          notes: dto.notes ?? null,
+          confirmedByUserId: actor.userId,
+          confirmedByRole: actor.role,
+        },
+        traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
+      },
+    });
+
     this.logger.log(
-      `Payment ${paymentId} POS_CONFIRMED by ${actor.role}=${actor.userId} ref=${dto.posReceiptRef ?? '-'}`,
+      `Payment ${paymentId} POS_CONFIRMED by ${actor.role}=${actor.userId} ref=${dto.posReceiptRef} photo=${!!dto.posReceiptPhoto}`,
     );
 
     return { status: 'AUTHORIZED' };
@@ -510,17 +731,20 @@ export class PaymentsService {
    * Lista cobros POS pendientes (status=CREATED + captureMethod=POS_EXTERNAL)
    * para el panel del camarero. Tenant-scoped vía CLS.
    */
-  async listPendingPos(tenantId: string) {
+  async listPendingPos(tenantId: string, zone?: string) {
     const rows = await this.prisma.payment.findMany({
       where: {
         tenantId,
         status: 'CREATED',
         captureMethod: 'POS_EXTERNAL',
+        // Filtro opcional por zona — pasa por la relación terminal.
+        ...(zone ? { terminal: { zone } } : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: {
         createdBy: { select: { displayName: true, email: true } },
+        terminal: { select: { zone: true, label: true } },
       },
     });
     return rows.map((p) => ({
@@ -530,6 +754,8 @@ export class PaymentsService {
       createdAt: p.createdAt.toISOString(),
       qrExpiresAt: p.qrExpiresAt.toISOString(),
       createdByName: p.createdBy?.displayName ?? p.createdBy?.email ?? '—',
+      zone: p.terminal?.zone ?? null,
+      terminalLabel: p.terminal?.label ?? null,
       qrToken: p.qrToken,
       // Código corto humano-legible para referenciar verbalmente
       refCode: p.id.slice(-6).toUpperCase(),
@@ -650,36 +876,114 @@ export class PaymentsService {
    * Reverse proporcional de la comisión cuando hay refund (parcial o total).
    * Llamado por RefundsService después de que el refund llega a SUCCEEDED.
    *
-   * Idempotente respecto a refund.id: el caller debe asegurarse de no llamar
-   * dos veces con el mismo refundAmountCents — aquí solo sumamos al
-   * reversedCents del earning ligado al payment.
+   * Idempotencia: tabla earning_reversals(refundId UNIQUE). Si el processor
+   * reintenta con el mismo refundId, no duplicamos el descuento.
    *
-   * Permite saldo negativo (deuda) si reversedCents > commissionCents.
+   * Accumulator pattern: en lugar de sumar `floor(refundN * bps / 10000)` por
+   * cada refund (que acumula dust), calculamos el reversedTotal ESPERADO en
+   * función del cumulativo refundeado hasta el momento, y aplicamos el delta:
+   *
+   *   expectedTotalReversed = round(totalCumulativeRefunded * bps / 10000)
+   *   delta = expectedTotalReversed - currentReversedCents
+   *
+   * Esto garantiza el invariante: si todos los refunds suman amountCents, el
+   * reversedCents acumulado iguala exactamente commissionCents — sin dust.
+   *
+   * Permite saldo negativo (deuda) si reversedCents > commissionCents (no debería
+   * pasar con accumulator, pero por defensa lo permitimos).
    */
   async applyRefundToEarning(
     paymentId: string,
+    refundId: string,
     refundAmountCents: number,
   ): Promise<void> {
     if (refundAmountCents <= 0) return;
     await this.prisma.$transaction(async (tx) => {
+      // 0. Idempotency check: si ya aplicamos este refund, no-op.
+      const already = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM earning_reversals WHERE "refundId" = ${refundId}::uuid
+      `;
+      if (already.length > 0) {
+        this.logger.log(
+          `Earning reversal already applied for refund=${refundId} payment=${paymentId} — skip`,
+        );
+        return;
+      }
+
+      // 1. Lock earning + leer estado actual.
       const earning = await tx.$queryRaw<
-        Array<{ commissionBps: number; commissionCents: number; reversedCents: number }>
+        Array<{
+          id: string;
+          tenantId: string;
+          commissionBps: number;
+          commissionCents: number;
+          reversedCents: number;
+          paymentAmountCents: number;
+        }>
       >`
-        SELECT "commissionBps", "commissionCents", "reversedCents"
+        SELECT id, "tenantId", "commissionBps", "commissionCents", "reversedCents",
+               "paymentAmountCents"
           FROM operator_earnings
          WHERE "paymentId" = ${paymentId}::uuid
          FOR UPDATE
       `;
-      if (earning.length === 0) return;
+      if (earning.length === 0) {
+        this.logger.log(
+          `applyRefundToEarning: no earning for payment=${paymentId} (creator not OPERATOR)`,
+        );
+        return;
+      }
       const e = earning[0]!;
-      const reverseCents = Math.floor((refundAmountCents * e.commissionBps) / 10_000);
-      await tx.$executeRaw`
-        UPDATE operator_earnings
-           SET "reversedCents" = "reversedCents" + ${reverseCents}::int
+
+      // 2. Total cumulativo refundeado: suma de refunds SUCCEEDED para este payment
+      //    (incluye el actual aunque su status todavía no esté commiteado).
+      const sumRows = await tx.$queryRaw<Array<{ total: bigint }>>`
+        SELECT COALESCE(SUM("amountCents"),0)::bigint AS total
+          FROM refunds
          WHERE "paymentId" = ${paymentId}::uuid
+           AND status = 'SUCCEEDED'
+           AND id != ${refundId}::uuid
       `;
+      const priorCumulative = Number(sumRows[0]?.total ?? 0);
+      const totalCumulative = Math.min(
+        priorCumulative + refundAmountCents,
+        e.paymentAmountCents, // cap por seguridad
+      );
+
+      // 3. Reversed total esperado tras este refund.
+      const expectedTotalReversed = Math.round(
+        (totalCumulative * e.commissionBps) / 10_000,
+      );
+      const reverseDelta = expectedTotalReversed - e.reversedCents;
+
+      if (reverseDelta <= 0) {
+        this.logger.warn(
+          `Earning reversal delta non-positive payment=${paymentId} refundId=${refundId} expected=${expectedTotalReversed} current=${e.reversedCents} — skip update`,
+        );
+      } else {
+        await tx.$executeRaw`
+          UPDATE operator_earnings
+             SET "reversedCents" = "reversedCents" + ${reverseDelta}::int
+           WHERE id = ${e.id}::uuid
+        `;
+      }
+
+      // 4. Registrar reversal para idempotencia (siempre, incluso si delta=0).
+      await tx.$executeRaw`
+        INSERT INTO earning_reversals (
+          "tenantId", "earningId", "refundId", "reversedDeltaCents"
+        )
+        VALUES (
+          ${e.tenantId}::uuid,
+          ${e.id}::uuid,
+          ${refundId}::uuid,
+          ${Math.max(0, reverseDelta)}::int
+        )
+        ON CONFLICT ("refundId") DO NOTHING
+      `;
+
       this.logger.log(
-        `Earning reversal payment=${paymentId} refundAmount=${refundAmountCents} reverse=${reverseCents} (bps=${e.commissionBps})`,
+        `Earning reversal payment=${paymentId} refundId=${refundId} delta=${reverseDelta} expected=${expectedTotalReversed} bps=${e.commissionBps} cumulative=${totalCumulative}/${e.paymentAmountCents}`,
       );
     });
   }
