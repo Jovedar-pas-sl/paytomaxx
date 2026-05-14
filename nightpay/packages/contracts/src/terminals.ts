@@ -3,10 +3,19 @@ import { UuidSchema } from './common';
 import { TerminalZoneSchema } from './payments';
 
 /**
- * Hardware models soportados. Por ahora solo PAX_A920_PRO (el que tiene el
- * usuario) + OTRO para casos no listados. Ampliable según necesidad.
+ * Hardware models soportados. Ampliable según necesidad.
+ * INGENICO_IM30 — datáfono Ingenico Move 30 (típico Paytef en España)
+ * PAX_A920_PRO — datáfono Android NFC
+ * OTRO — fallback (el deviceSerial captura el modelo real)
  */
-export const HardwareModelSchema = z.enum(['PAX_A920_PRO', 'OTRO']);
+export const HardwareModelSchema = z.enum([
+  'PAX_A920_PRO',
+  'INGENICO_IM30',
+  'INGENICO_LANE_3000',
+  'SUMUP_AIR',
+  'REDSYS_VX520',
+  'OTRO',
+]);
 export type HardwareModel = z.infer<typeof HardwareModelSchema>;
 
 export const TerminalViewSchema = z.object({

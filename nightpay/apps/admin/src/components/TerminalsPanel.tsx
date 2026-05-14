@@ -15,7 +15,22 @@ interface Props {
 }
 
 type Zone = 'BARRA' | 'HABITACIONES' | 'MESAS' | 'OTRO';
-type Hardware = 'PAX_A920_PRO' | 'OTRO';
+type Hardware =
+  | 'PAX_A920_PRO'
+  | 'INGENICO_IM30'
+  | 'INGENICO_LANE_3000'
+  | 'SUMUP_AIR'
+  | 'REDSYS_VX520'
+  | 'OTRO';
+
+const HARDWARE_LABEL: Record<Hardware, string> = {
+  PAX_A920_PRO: 'PAX A920 Pro',
+  INGENICO_IM30: 'Ingenico IM30',
+  INGENICO_LANE_3000: 'Ingenico Lane 3000',
+  SUMUP_AIR: 'SumUp Air',
+  REDSYS_VX520: 'Redsys VX520',
+  OTRO: 'Otro',
+};
 
 export function TerminalsPanel({ isOwner: _isOwner }: Props) {
   const [terminals, setTerminals] = useState<Terminal[]>([]);
@@ -137,8 +152,9 @@ export function TerminalsPanel({ isOwner: _isOwner }: Props) {
             value={hardwareModel}
             onChange={(e) => setHardwareModel(e.target.value as Hardware)}
           >
-            <option value="PAX_A920_PRO">PAX A920 Pro</option>
-            <option value="OTRO">Otro</option>
+            {(Object.keys(HARDWARE_LABEL) as Hardware[]).map((h) => (
+              <option key={h} value={h}>{HARDWARE_LABEL[h]}</option>
+            ))}
           </Select>
           <Input
             label="S/N (opcional)"
@@ -308,8 +324,9 @@ function BulkCreateModal({
           value={hardware}
           onChange={(e) => setHardware(e.target.value as Hardware)}
         >
-          <option value="PAX_A920_PRO">PAX A920 Pro</option>
-          <option value="OTRO">Otro</option>
+          {(Object.keys(HARDWARE_LABEL) as Hardware[]).map((h) => (
+            <option key={h} value={h}>{HARDWARE_LABEL[h]}</option>
+          ))}
         </Select>
         {error ? <p style={{ color: 'var(--np-danger)', fontSize: '0.85rem' }}>{error}</p> : null}
         <p style={{ fontSize: '0.8rem', color: 'var(--np-text-mute)' }}>

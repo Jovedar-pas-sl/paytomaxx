@@ -714,7 +714,7 @@ export async function createTerminal(input: {
   label: string;
   zone?: 'BARRA' | 'HABITACIONES' | 'MESAS' | 'OTRO';
   zoneCustom?: string;
-  hardwareModel?: 'PAX_A920_PRO' | 'OTRO';
+  hardwareModel?: string;
   deviceSerial?: string;
   active?: boolean;
 }): Promise<Terminal> {
@@ -731,7 +731,7 @@ export async function bulkCreateTerminals(input: {
   prefix: string;
   zone: 'BARRA' | 'HABITACIONES' | 'MESAS' | 'OTRO';
   zoneCustom?: string;
-  hardwareModel?: 'PAX_A920_PRO' | 'OTRO';
+  hardwareModel?: string;
 }): Promise<Terminal[]> {
   const res = await authedFetch('/v1/terminals/bulk', {
     method: 'POST',
@@ -747,7 +747,7 @@ export async function updateTerminal(
     label?: string;
     zone?: 'BARRA' | 'HABITACIONES' | 'MESAS' | 'OTRO' | null;
     zoneCustom?: string | null;
-    hardwareModel?: 'PAX_A920_PRO' | 'OTRO' | null;
+    hardwareModel?: string | null;
     deviceSerial?: string | null;
     active?: boolean;
   },
