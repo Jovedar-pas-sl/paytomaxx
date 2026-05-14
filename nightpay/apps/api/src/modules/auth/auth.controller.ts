@@ -1,5 +1,6 @@
-import { Body, Controller, HttpCode, Inject, Post, Req } from '@nestjs/common';
+import { Body, Controller, HttpCode, Inject, Post, Req, UnauthorizedException } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import {
   LoginRequestSchema,
   LogoutRequestSchema,
@@ -10,6 +11,10 @@ import {
   type RefreshRequest,
   type RefreshResponse,
 } from '@nightpay/contracts';
+
+const SwitchTenantRequestSchema = z.object({
+  tenantId: z.string().uuid(),
+});
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
@@ -72,5 +77,24 @@ export class AuthController {
     const userAgent = req.headers['user-agent'] as string | undefined;
     const ctx = this.cls.get('ctx');
     await this.auth.logout(body.refreshToken, ctx?.userId, ctx?.tenantId, ip, userAgent);
+  }
+
+  /**
+   * Super-admin only: cambia el tenant activo del JWT.
+   * El frontend usa el nuevo accessToken y recarga la app.
+   */
+  @Post('switch-tenant')
+  @HttpCode(200)
+  async switchTenant(
+    @Body(new ZodValidationPipe(SwitchTenantRequestSchema)) body: { tenantId: string },
+    @Req() req: FastifyRequest,
+  ): Promise<{ accessToken: string; expiresIn: number; tenantId: string; venueSlug: string }> {
+    const ctx = this.cls.get('ctx');
+    if (!ctx?.userId) {
+      throw new UnauthorizedException('No autenticado');
+    }
+    const ip = extractIp(req);
+    const userAgent = req.headers['user-agent'] as string | undefined;
+    return this.auth.switchTenant(ctx.userId, body.tenantId, ip, userAgent);
   }
 }

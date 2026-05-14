@@ -1,9 +1,12 @@
 import {
   Body,
+  ConflictException,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   Inject,
+  Logger,
   NotFoundException,
   Param,
   ParseUUIDPipe,
@@ -34,6 +37,17 @@ import {
   type UpdateOperatorDto,
 } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
+
+const CreateVenueSchema = z.object({
+  name: z.string().min(2).max(80),
+  slug: z
+    .string()
+    .min(2)
+    .max(60)
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Slug debe ser kebab-case (ej. mi-local-vlc)'),
+  timezone: z.string().max(50).optional(),
+});
+type CreateVenueDto = z.infer<typeof CreateVenueSchema>;
 
 const VenueSettingsUpdateSchema = z.object({
   operatorMaxCobroCents: z.number().int().min(0).max(10_000_00).optional(),
@@ -109,6 +123,8 @@ export function quarterRange(quarter: string | undefined): { from: Date; to: Dat
 @Controller('admin')
 @UseGuards(RolesGuard)
 export class AdminController {
+  private readonly logger = new Logger(AdminController.name);
+
   private readonly prisma: PrismaService;
   private readonly refreshTokens: RefreshTokenService;
   private readonly audit: AuditService;
@@ -127,6 +143,98 @@ export class AdminController {
     this.audit = audit;
     this.operators = operators;
     this.cls = cls;
+  }
+
+  // ─── Venues admin (multi-tenant super-admin) ──────────────────────
+  //
+  // Endpoints SOLO accesibles por usuarios con isSuperAdmin=true. Permiten
+  // listar todos los locales y crear nuevos. Para switchear el tenant activo
+  // del JWT, usar POST /v1/auth/switch-tenant.
+  //
+  // El chequeo isSuperAdmin se hace en el método (no en decorator) porque
+  // RolesGuard solo entiende el enum Role — añadir SUPER_ADMIN al enum
+  // implicaría tocar muchas rutas. Más simple: query manual.
+
+  @Get('venues')
+  @Roles('OWNER', 'MANAGER') // necesario para pasar RolesGuard; chequeo real abajo
+  async listAllVenues(@CurrentUser() user: JwtPayload) {
+    await this.assertSuperAdmin(user.sub);
+    const venues = await this.prisma.asSystem((tx) =>
+      tx.venue.findMany({
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          timezone: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    return venues.map((v) => ({
+      id: v.id,
+      name: v.name,
+      slug: v.slug,
+      timezone: v.timezone,
+      createdAt: v.createdAt.toISOString(),
+    }));
+  }
+
+  @Post('venues')
+  @Roles('OWNER', 'MANAGER')
+  @HttpCode(201)
+  async createVenue(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(CreateVenueSchema)) dto: CreateVenueDto,
+  ) {
+    await this.assertSuperAdmin(user.sub);
+    // Slug debe ser único + kebab-case ya validado en zod.
+    const existing = await this.prisma.asSystem((tx) =>
+      tx.venue.findUnique({ where: { slug: dto.slug }, select: { id: true } }),
+    );
+    if (existing) {
+      throw new ConflictException(`Slug "${dto.slug}" ya está en uso`);
+    }
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.create({
+        data: {
+          name: dto.name,
+          slug: dto.slug,
+          timezone: dto.timezone ?? 'Europe/Madrid',
+        },
+        select: { id: true, name: true, slug: true, timezone: true, createdAt: true },
+      }),
+    );
+    await this.audit.log({
+      action: 'venue.created',
+      tenantId: venue.id,
+      actorId: user.sub,
+      targetType: 'Venue',
+      targetId: venue.id,
+      payload: { name: venue.name, slug: venue.slug },
+    });
+    this.logger.log(`Venue created: ${venue.slug} by super_admin ${user.sub}`);
+    return {
+      id: venue.id,
+      name: venue.name,
+      slug: venue.slug,
+      timezone: venue.timezone,
+      createdAt: venue.createdAt.toISOString(),
+    };
+  }
+
+  /** Helper: lanza 403 si el user no es super admin. */
+  private async assertSuperAdmin(userId: string): Promise<void> {
+    const u = await this.prisma.asSystem((tx) =>
+      tx.user.findUnique({
+        where: { id: userId },
+        select: { isSuperAdmin: true, deletedAt: true },
+      }),
+    );
+    if (!u || u.deletedAt || !u.isSuperAdmin) {
+      throw new ForbiddenException('Solo super admins pueden gestionar locales');
+    }
   }
 
   /**

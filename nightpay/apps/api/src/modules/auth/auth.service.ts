@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -158,6 +165,7 @@ export class AuthService {
         role: user.role,
         tenantId: user.tenantId,
         venueSlug: user.venue.slug,
+        isSuperAdmin: user.isSuperAdmin,
       },
     };
   }
@@ -207,6 +215,80 @@ export class AuthService {
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
       refreshToken: rotated.token,
       refreshExpiresIn: rotated.ttlSeconds,
+    };
+  }
+
+  /**
+   * Super-admin only: cambia el tenant activo del JWT.
+   * Emite un nuevo access token con tenantId destino. El refresh token
+   * permanece el mismo (sigue ligado al user original).
+   *
+   * Si el user no es super admin → 403.
+   * Si el venue destino no existe / está borrado → 404.
+   */
+  async switchTenant(
+    userId: string,
+    targetTenantId: string,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<{ accessToken: string; expiresIn: number; tenantId: string; venueSlug: string }> {
+    const user = await this.prisma.asSystem((tx) =>
+      tx.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          isSuperAdmin: true,
+          deletedAt: true,
+        },
+      }),
+    );
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('User disabled');
+    }
+    if (!user.isSuperAdmin) {
+      throw new ForbiddenException('Solo super admins pueden cambiar de local');
+    }
+
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUnique({
+        where: { id: targetTenantId },
+        select: { id: true, slug: true, deletedAt: true },
+      }),
+    );
+    if (!venue || venue.deletedAt) {
+      throw new NotFoundException('Local destino no encontrado');
+    }
+
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: venue.id,
+      venueSlug: venue.slug,
+    };
+    const accessToken = await this.jwt.signAsync(payload, {
+      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+    });
+
+    await this.audit.log({
+      action: 'auth.switch_tenant',
+      actorId: user.id,
+      actorEmail: user.email,
+      tenantId: venue.id,
+      ip,
+      userAgent,
+      payload: { fromUser: user.id, toVenue: venue.slug },
+    });
+
+    this.logger.log(`SUPER_ADMIN ${user.email} switched tenant to ${venue.slug}`);
+
+    return {
+      accessToken,
+      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+      tenantId: venue.id,
+      venueSlug: venue.slug,
     };
   }
 

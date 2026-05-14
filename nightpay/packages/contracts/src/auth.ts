@@ -23,6 +23,8 @@ export const LoginResponseSchema = z.object({
     role: RoleSchema,
     tenantId: UuidSchema,
     venueSlug: z.string(),
+    /** Solo OWNER + flag: usuario que gestiona múltiples locales. */
+    isSuperAdmin: z.boolean().optional(),
   }),
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;

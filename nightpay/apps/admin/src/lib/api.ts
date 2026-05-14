@@ -12,6 +12,45 @@ export interface User {
   role: 'OWNER' | 'MANAGER' | 'WAITER' | 'OPERATOR';
   tenantId: string;
   venueSlug: string;
+  isSuperAdmin?: boolean;
+}
+
+export interface VenueListItem {
+  id: string;
+  name: string;
+  slug: string;
+  timezone: string;
+  createdAt: string;
+}
+
+export async function fetchAllVenues(): Promise<VenueListItem[]> {
+  const res = await authedFetch('/v1/admin/venues');
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+export async function createVenue(input: {
+  name: string;
+  slug: string;
+  timezone?: string;
+}): Promise<VenueListItem> {
+  const res = await authedFetch('/v1/admin/venues', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+export async function switchTenant(
+  tenantId: string,
+): Promise<{ accessToken: string; expiresIn: number; tenantId: string; venueSlug: string }> {
+  const res = await authedFetch('/v1/auth/switch-tenant', {
+    method: 'POST',
+    body: JSON.stringify({ tenantId }),
+  });
+  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
 }
 
 export interface OperatorBalance {

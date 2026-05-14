@@ -72,6 +72,10 @@ model User {
   totpSecret   String?
   // Solo aplica cuando role = OPERATOR. 1500 bps = 15.00%
   commissionBps Int?
+  // Super admin "extra-tenant": puede listar/crear todos los locales y switchear
+  // su JWT entre venues. tenantId del User sigue apuntando a su venue primario.
+  // El flag se setea via CLI (pnpm cli set-super-admin --email X). NO via UI.
+  isSuperAdmin  Boolean   @default(false)
   // Nombre visible para admin (ej. "Ana", "Marina"). Solo OPERATOR.
   displayName  String?
   // Marca de invitacion pendiente — null cuando ya activo password.

@@ -26,13 +26,15 @@ import { SettingsPanel } from './SettingsPanel';
 import { TerminalsPanel } from './TerminalsPanel';
 import { TreasuryPanel } from './TreasuryPanel';
 import { WalletsPanel } from './WalletsPanel';
+import { VenuesPanel } from './VenuesPanel';
+import { VenueSwitcher } from './VenueSwitcher';
 
 interface Props {
   user: User;
   onLogout: () => void;
 }
 
-type TabKey = 'payments' | 'operators' | 'wallets' | 'treasury' | 'terminals' | 'settings';
+type TabKey = 'payments' | 'operators' | 'wallets' | 'treasury' | 'terminals' | 'settings' | 'venues';
 
 export function Dashboard({ user, onLogout }: Props) {
   const [tab, setTab] = useState<TabKey>('payments');
@@ -91,10 +93,12 @@ export function Dashboard({ user, onLogout }: Props) {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {user.isSuperAdmin ? <VenueSwitcher currentSlug={user.venueSlug} /> : null}
           <div style={{ textAlign: 'right' }}>
             <p style={userEmail}>{user.email}</p>
             <p style={userMeta}>
               <code style={code}>{user.venueSlug}</code> · {user.role}
+              {user.isSuperAdmin ? ' · SUPER' : ''}
             </p>
           </div>
           <ThemeToggle />
@@ -129,6 +133,11 @@ export function Dashboard({ user, onLogout }: Props) {
         <TabButton active={tab === 'settings'} onClick={() => setTab('settings')}>
           Ajustes
         </TabButton>
+        {user.isSuperAdmin ? (
+          <TabButton active={tab === 'venues'} onClick={() => setTab('venues')}>
+            Locales
+          </TabButton>
+        ) : null}
       </nav>
 
       {tab === 'operators' ? (
@@ -141,6 +150,8 @@ export function Dashboard({ user, onLogout }: Props) {
         <TerminalsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'settings' ? (
         <SettingsPanel isOwner={user.role === 'OWNER'} />
+      ) : tab === 'venues' && user.isSuperAdmin ? (
+        <VenuesPanel currentSlug={user.venueSlug} />
       ) : (
       <>
       <section style={metricsGrid}>

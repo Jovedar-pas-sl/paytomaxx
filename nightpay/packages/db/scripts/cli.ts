@@ -464,6 +464,33 @@ async function cmdRevokeSessions(args: Args) {
   }
 }
 
+async function cmdSetSuperAdmin(args: Args) {
+  const email = (args.email ?? '').toLowerCase();
+  if (!email) {
+    console.error('--email <email> requerido');
+    process.exit(1);
+  }
+  const grant = args.revoke !== 'true' && args.revoke !== '1';
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, role: true, isSuperAdmin: true },
+  });
+  if (!user) {
+    console.error(`[error] usuario ${email} no encontrado`);
+    process.exit(1);
+  }
+  if (user.role !== Role.OWNER) {
+    console.warn(`[warn] ${email} tiene role=${user.role}. SuperAdmin tiene sentido sobre OWNER.`);
+  }
+  await prisma.user.update({
+    where: { email },
+    data: { isSuperAdmin: grant },
+  });
+  console.log(
+    `[ok] ${email} isSuperAdmin = ${grant} (era ${user.isSuperAdmin}). Necesita re-login para que el JWT lo refleje.`,
+  );
+}
+
 function parseKek(raw: string): Buffer {
   // Intenta hex (64 chars), luego base64.
   if (/^[0-9a-fA-F]{64}$/.test(raw)) return Buffer.from(raw, 'hex');
@@ -492,6 +519,7 @@ const commands: Record<string, (args: Args) => Promise<unknown>> = {
   'enroll-totp': cmdEnrollTotp,
   reconcile: cmdReconcile,
   'revoke-sessions': cmdRevokeSessions,
+  'set-super-admin': cmdSetSuperAdmin,
 };
 
 function printUsage(): void {
@@ -510,6 +538,7 @@ function printUsage(): void {
   console.log('  pnpm cli enroll-totp     --email <email>');
   console.log('  pnpm cli reconcile       --venue <slug> --day YYYY-MM-DD');
   console.log('  pnpm cli revoke-sessions --email <email>   (kill-switch para movil perdido)');
+  console.log('  pnpm cli set-super-admin --email <email>   [--revoke true]  (grant/revoke superadmin)');
   console.log('');
 }
 
