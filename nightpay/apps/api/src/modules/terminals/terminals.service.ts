@@ -21,7 +21,7 @@ import type {
  *  - 'OTRO' + zoneCustom='vip room' → 'OTRO/VIP ROOM' (trim + upper)
  *  - null → null
  */
-function canonicalizeZone(
+export function canonicalizeZone(
   zone: string | undefined | null,
   zoneCustom?: string | null,
 ): string | null {
@@ -34,7 +34,7 @@ function canonicalizeZone(
 }
 
 /** Convert canonical zone to display-friendly text for UI. */
-function zoneToDisplay(zone: string | null): string | null {
+export function zoneToDisplay(zone: string | null): string | null {
   if (!zone) return null;
   if (zone.startsWith('OTRO/')) {
     const custom = zone.slice('OTRO/'.length);

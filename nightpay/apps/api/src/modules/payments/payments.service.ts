@@ -26,6 +26,12 @@ import { GatewayRegistry } from '../gateways/gateway.registry';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
+import {
+  inferRevenueCategory,
+  resolveBpsForOperator,
+  type OperatorCommissionDefaults,
+  type RevenueCategory,
+} from './commission';
 import { WalletsService } from '../wallets/wallets.service';
 
 const QR_TTL_SECONDS = 5 * 60; // 5 min
@@ -264,16 +270,12 @@ export class PaymentsService {
     }
 
     // revenueCategory: si viene del DTO úsalo; si no, infer por rol/contexto.
-    //   - WALLET_TOPUP: siempre EXTRA (la categoría real se asigna por consumption)
-    //   - creator OPERATOR + sin wallet → CHICA_SERVICE
-    //   - cualquier otro → EXTRA (el camarero/admin debe elegir explícito)
-    const revenueCategory: string =
-      dto.revenueCategory ??
-      (resolvedWalletId
-        ? 'EXTRA'
-        : creatorRole === 'OPERATOR'
-          ? 'CHICA_SERVICE'
-          : 'EXTRA');
+    const revenueCategory: RevenueCategory =
+      (dto.revenueCategory as RevenueCategory | undefined) ??
+      inferRevenueCategory({
+        hasWalletId: Boolean(resolvedWalletId),
+        creatorRole,
+      });
 
     const payment = await this.prisma.$transaction(async (tx) => {
       const p = await tx.payment.create({
@@ -581,17 +583,6 @@ export class PaymentsService {
           }
         }
 
-        // Resuelve la comisión efectiva (bps) para el creator OPERATOR según
-        // la categoría y los overrides:
-        //   CHICA_SERVICE → User.commissionBps si está, else venue[CHICA_SERVICE]
-        //   VENUE_*       → siempre venue[<categoría>] (ingreso del local, no de chica)
-        const resolveBpsForOperator = (category: string): number => {
-          if (category === 'CHICA_SERVICE' && creatorCommissionBps !== null) {
-            return creatorCommissionBps;
-          }
-          return venueCommissionMap[category] ?? 0;
-        };
-
         // Hook de earning para OPERATOR — si transitamos a AUTHORIZED y el creador
         // del payment es una operadora, snapshot de comisión en operator_earnings.
         // Math.round (no floor) evita bias unidireccional contra la operadora —
@@ -601,7 +592,11 @@ export class PaymentsService {
         // NOTA: si p.walletId está set, NO generamos earning aquí — el earning
         // se genera per-consumption en wallets.service (chica cobra granular).
         if (result.nextState === 'AUTHORIZED' && p.createdByUserId && !p.walletId) {
-          const bpsForOperator = resolveBpsForOperator(p.revenueCategory);
+          const bpsForOperator = resolveBpsForOperator({
+            category: p.revenueCategory,
+            userCommissionBpsOverride: creatorCommissionBps,
+            venueMap: venueCommissionMap as Partial<OperatorCommissionDefaults>,
+          });
           // Solo creamos earning si:
           //   - creator es OPERATOR
           //   - bps resolvidos > 0 (en VENUE_* con default 0 no hay earning)

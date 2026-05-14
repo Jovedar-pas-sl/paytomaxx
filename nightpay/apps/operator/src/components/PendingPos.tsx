@@ -39,11 +39,71 @@ export function PendingPos({ onConfirmed }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<PendingPosPayment | null>(null);
+  // M3: sound + vibrate cuando llega un cobro pendiente nuevo. Sin esto
+  // el camarero tiene que mirar la pantalla constantemente. Comparamos el
+  // set de IDs entre polls — si aparece uno nuevo, suena.
+  // Mute state persiste en localStorage para que cada usuario decida.
+  const [muted, setMuted] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('np-pending-pos-muted') === '1';
+  });
+  // Conjunto de IDs ya vistos — usado para detectar "nuevos".
+  // Ref-like: lo guardamos en estado pero solo lo comparamos en reload.
+  const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
+
+  function playAlert(): void {
+    if (muted || typeof window === 'undefined') return;
+    // Sonido corto sin asset externo — WebAudio sintetiza un beep dual.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const Ctx: typeof AudioContext = (window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+      const ac = new Ctx();
+      const beep = (freq: number, t: number, dur: number) => {
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        osc.connect(gain);
+        gain.connect(ac.destination);
+        gain.gain.setValueAtTime(0.2, ac.currentTime + t);
+        gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + dur);
+        osc.start(ac.currentTime + t);
+        osc.stop(ac.currentTime + t + dur);
+      };
+      beep(880, 0, 0.12);
+      beep(1320, 0.15, 0.18);
+    } catch {
+      /* Audio no soportado o usuario no ha interactuado → silente */
+    }
+    if ('vibrate' in navigator) {
+      navigator.vibrate([100, 50, 150]);
+    }
+  }
+
+  function toggleMute(): void {
+    const next = !muted;
+    setMuted(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('np-pending-pos-muted', next ? '1' : '0');
+    }
+  }
 
   async function reload(zoneArg?: string) {
     try {
       const filter = zoneArg ?? zoneFilter;
       const list = await fetchPendingPos(filter === 'all' ? undefined : filter);
+
+      // M3: detectar IDs nuevos vs el último poll. Si hay alguno nuevo y NO
+      // es el primer load, sonar alerta.
+      const currentIds = new Set(list.map((p) => p.id));
+      const firstLoad = seenIds.size === 0 && pending.length === 0;
+      if (!firstLoad) {
+        const hasNew = list.some((p) => !seenIds.has(p.id));
+        if (hasNew) playAlert();
+      }
+      setSeenIds(currentIds);
+
       setPending(list);
       // Si el seleccionado ya no está (alguien lo confirmó), reset.
       if (selected && !list.find((p) => p.id === selected.id)) {
@@ -104,12 +164,23 @@ export function PendingPos({ onConfirmed }: Props) {
 
   return (
     <Card style={{ padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-      <div>
-        <h3 style={titleStyle}>POS pendientes</h3>
-        <p style={hintStyle}>
-          Cobros que las chicas crearon y esperan que tú los proceses en el datáfono.
-          Cuando cobres en el datáfono, vuelve aquí y toca el cobro para confirmar.
-        </p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+        <div style={{ flex: 1 }}>
+          <h3 style={titleStyle}>POS pendientes</h3>
+          <p style={hintStyle}>
+            Cobros que las chicas crearon y esperan que tú los proceses en el datáfono.
+            Cuando cobres en el datáfono, vuelve aquí y toca el cobro para confirmar.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={toggleMute}
+          aria-label={muted ? 'Activar sonido de alerta' : 'Silenciar alerta'}
+          title={muted ? 'Activar sonido' : 'Silenciar'}
+          style={muteBtnStyle}
+        >
+          {muted ? '🔕' : '🔔'}
+        </button>
       </div>
 
       {zones.length > 1 ? (
@@ -244,9 +315,17 @@ function ConfirmForm({
       </div>
 
       <div style={confirmPillStyle}>
-        <span style={kickerStyle}>Importe a cobrar en el datáfono</span>
+        <span style={kickerStyle}>⚠️ Teclea EXACTAMENTE en el datáfono</span>
         <p className="np-num" style={amountBigStyle}>
           {(payment.amountCents / 100).toFixed(2)} <span style={currStyle}>EUR</span>
+        </p>
+        <p style={amountDigitsStyle}>
+          {/* Importe deletreado dígito-a-dígito para evitar typos visuales en el IM30 */}
+          {(payment.amountCents / 100)
+            .toFixed(2)
+            .split('')
+            .map((c, i) => (c === '.' ? '·' : c))
+            .join(' ')}
         </p>
         <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
           Chica: {payment.createdByName}
@@ -512,6 +591,30 @@ const backBtnStyle: CSSProperties = {
   color: 'var(--np-text-mute)',
   fontSize: '0.85rem',
   cursor: 'pointer',
+};
+
+const amountDigitsStyle: CSSProperties = {
+  margin: '0.25rem 0 0',
+  fontSize: '1rem',
+  fontFamily: 'var(--np-font-mono)',
+  letterSpacing: '0.3em',
+  color: 'var(--np-warning, #b45309)',
+  textAlign: 'center' as const,
+  fontWeight: 600,
+};
+
+const muteBtnStyle: CSSProperties = {
+  background: 'var(--np-surface-2)',
+  border: '1px solid var(--np-border)',
+  borderRadius: '50%',
+  width: '2.5rem',
+  height: '2.5rem',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: '1.2rem',
+  cursor: 'pointer',
+  flexShrink: 0,
 };
 
 const confirmPillStyle: CSSProperties = {

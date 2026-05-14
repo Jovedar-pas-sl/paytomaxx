@@ -87,7 +87,7 @@ const VatReportQuerySchema = z.object({
 });
 type VatReportQuery = z.infer<typeof VatReportQuerySchema>;
 
-function quarterRange(quarter: string | undefined): { from: Date; to: Date; label: string } {
+export function quarterRange(quarter: string | undefined): { from: Date; to: Date; label: string } {
   const now = new Date();
   let year: number;
   let q: number;
