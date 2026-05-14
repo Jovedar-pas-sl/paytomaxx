@@ -132,7 +132,7 @@ WIPAY_WEBHOOK_SECRET=mock-wipay-webhook-secret-32-bytes-of-padding-here-replace-
 PEANPE_API_URL=http://nightpay-mock-peanpe:3000
 PEANPE_WEBHOOK_SECRET=mock-peanpe-webhook-secret-32-bytes-of-padding-here-replace-real
 
-CORS_ORIGINS=https://admin.paytomaxx.com,https://tpv.paytomaxx.com,https://app.paytomaxx.com
+CORS_ORIGINS=https://admin.paytomaxx.com,https://operator.paytomaxx.com,https://pay.paytomaxx.com,https://tpv.paytomaxx.com
 
 GATEWAY_TIMEOUT_MS=5000
 LOG_LEVEL=info
@@ -238,8 +238,9 @@ Repetir tres veces (admin, tpv, web-client) con los mismos parametros excepto:
 | App | Build Context | Dockerfile | Port | Dominio |
 |-----|---------------|------------|------|---------|
 | admin | `nightpay` | `apps/admin/Dockerfile` | `4103` | `admin.paytomaxx.com` |
+| operator | `nightpay` | `apps/operator/Dockerfile` | `4104` | `operator.paytomaxx.com` |
 | tpv | `nightpay` | `apps/tpv/Dockerfile` | `4102` | `tpv.paytomaxx.com` |
-| web-client | `nightpay` | `apps/web-client/Dockerfile` | `4101` | `app.paytomaxx.com` |
+| web-client | `nightpay` | `apps/web-client/Dockerfile` | `4101` | `pay.paytomaxx.com` |
 
 Variables de entorno (mismas para los 3):
 ```env
