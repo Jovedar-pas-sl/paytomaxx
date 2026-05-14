@@ -145,6 +145,92 @@ export class AdminController {
     this.cls = cls;
   }
 
+  /**
+   * Endpoint TEMPORAL de diagnóstico — retorna el estado de la DB para
+   * detectar errores 500 cuando el log no es accesible.
+   * Devuelve: tabla migrations (últimas 10), venues + gateway_credentials,
+   * existencia de columnas críticas, terminals por venue. Solo OWNER.
+   */
+  @Get('debug-state')
+  @Roles('OWNER', 'MANAGER')
+  async debugState(@CurrentUser() user: JwtPayload) {
+    const result: Record<string, unknown> = {};
+    result.actor = {
+      userId: user.sub,
+      role: user.role,
+      tenantId: user.tenantId,
+      venueSlug: user.venueSlug,
+    };
+
+    try {
+      const migrations = await this.prisma.asSystem((tx) =>
+        tx.$queryRaw<Array<{ migration_name: string; finished_at: Date | null }>>`
+          SELECT migration_name, finished_at
+            FROM _prisma_migrations
+           ORDER BY started_at DESC
+           LIMIT 10
+        `,
+      );
+      result.recentMigrations = migrations.map((m) => ({
+        name: m.migration_name,
+        finishedAt: m.finished_at?.toISOString() ?? null,
+      }));
+    } catch (e) {
+      result.migrationsError = (e as Error).message;
+    }
+
+    try {
+      const cols = await this.prisma.asSystem((tx) =>
+        tx.$queryRaw<Array<{ column_name: string }>>`
+          SELECT column_name
+            FROM information_schema.columns
+           WHERE table_name = 'payments'
+             AND column_name IN ('revenueCategory', 'tipCents', 'platformCommissionBps')
+        `,
+      );
+      result.paymentsColumnsExist = cols.map((c) => c.column_name);
+    } catch (e) {
+      result.columnsError = (e as Error).message;
+    }
+
+    try {
+      const venues = await this.prisma.asSystem((tx) =>
+        tx.venue.findMany({
+          where: { deletedAt: null },
+          select: {
+            id: true,
+            slug: true,
+            operatorCommissionDefaults: true,
+            gatewayCredentials: { select: { provider: true, active: true } },
+            terminals: { select: { externalId: true, zone: true, active: true } },
+          },
+        }),
+      );
+      result.venues = venues;
+    } catch (e) {
+      result.venuesError = (e as Error).message;
+    }
+
+    try {
+      const users = await this.prisma.asSystem((tx) =>
+        tx.user.findMany({
+          where: { tenantId: user.tenantId },
+          select: {
+            email: true,
+            role: true,
+            isSuperAdmin: true,
+            commissionBps: true,
+          },
+        }),
+      );
+      result.usersInActiveTenant = users;
+    } catch (e) {
+      result.usersError = (e as Error).message;
+    }
+
+    return result;
+  }
+
   // ─── Venues admin (multi-tenant super-admin) ──────────────────────
   //
   // Endpoints SOLO accesibles por usuarios con isSuperAdmin=true. Permiten
