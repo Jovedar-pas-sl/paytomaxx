@@ -26,6 +26,11 @@ model Venue {
   // Comisión NightPay en basis points (default 1000 = 10%).
   // Modelo: chica recibe su commissionBps; plataforma recibe platformCommissionBps.
   platformCommissionBps Int       @default(1000)
+  // Comisiones por defecto al operator/staff que crea el cobro, por categoría de ingreso.
+  // Shape: { CHICA_SERVICE: 9000, VENUE_BAR: 0, VENUE_ROOM: 0, VENUE_FOOD: 0, EXTRA: 0 }
+  // Override por chica: User.commissionBps aplica SOLO a CHICA_SERVICE.
+  // Las categorías VENUE_* siempre usan el default del venue (es ingreso del local).
+  operatorCommissionDefaults Json  @default("{\"CHICA_SERVICE\":9000,\"VENUE_BAR\":0,\"VENUE_ROOM\":0,\"VENUE_FOOD\":0,\"EXTRA\":0}")
   // IVA aplicado a la base imponible (basis points). Default 2100 = 21% (general).
   // Hostelería: 10% (1000) bebidas y comida + 21% (2100) bebidas alcohólicas.
   // Para simplificar Phase 1: un único tipo por venue (admin elige el dominante).
@@ -230,6 +235,13 @@ model Payment {
 
   // Modo de cobro usado: "QR" | "WALLET_TOPUP". Null para payments antiguos (asume QR).
   captureMethod String?
+
+  // Categoría contable del cobro: CHICA_SERVICE | VENUE_BAR | VENUE_ROOM | VENUE_FOOD | EXTRA.
+  // Determina (a) si genera earning para la chica creator y a qué bps, y
+  // (b) cómo se agrega en el Z-report (split chicas vs local).
+  // CHICA_SERVICE: usa User.commissionBps (override) o Venue.operatorCommissionDefaults.CHICA_SERVICE
+  // VENUE_*     : siempre usa Venue.operatorCommissionDefaults[<categoría>]
+  revenueCategory String  @default("EXTRA")
 
   // Phase 1B — si este Payment es el top-up de un ClientWallet, walletId apunta
   // a la wallet creada/recargada. Cuando Payment llega a AUTHORIZED, el balance

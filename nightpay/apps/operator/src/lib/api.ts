@@ -262,6 +262,8 @@ export async function createPayment(input: {
   walletIdentifier?: string;
   /** POS — el camarero confirma tras procesar tarjeta en datáfono externo. */
   captureMethod?: 'QR' | 'POS_EXTERNAL';
+  /** Categoría contable: CHICA_SERVICE | VENUE_BAR | VENUE_ROOM | VENUE_FOOD | EXTRA */
+  revenueCategory?: 'CHICA_SERVICE' | 'VENUE_BAR' | 'VENUE_ROOM' | 'VENUE_FOOD' | 'EXTRA';
 }): Promise<CreatedPayment> {
   const idemKey = `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const body: Record<string, unknown> = {
@@ -284,6 +286,9 @@ export async function createPayment(input: {
   }
   if (input.captureMethod) {
     body.captureMethod = input.captureMethod;
+  }
+  if (input.revenueCategory) {
+    body.revenueCategory = input.revenueCategory;
   }
   const res = await authedFetch('/v1/payments', {
     method: 'POST',

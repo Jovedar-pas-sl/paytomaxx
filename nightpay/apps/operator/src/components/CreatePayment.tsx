@@ -8,10 +8,28 @@ import {
   createPayment,
   fetchTerminals,
   fetchZones,
+  getUser,
   wsBase,
   type CreatedPayment,
   type ZoneOption,
 } from '@/lib/api';
+
+/**
+ * Categorías de ingreso visibles al crear cobro.
+ *   CHICA_SERVICE → "Mi servicio" (solo OPERATOR; le da su comisión configurada)
+ *   VENUE_BAR     → "Bar / Bebida" (ingreso del local)
+ *   VENUE_ROOM    → "Habitación"   (ingreso del local)
+ *   VENUE_FOOD    → "Comida"        (ingreso del local)
+ *   EXTRA         → "Otro"          (mixto / sin categorizar)
+ */
+type RevCat = 'CHICA_SERVICE' | 'VENUE_BAR' | 'VENUE_ROOM' | 'VENUE_FOOD' | 'EXTRA';
+const REV_CAT_LABEL: Record<RevCat, string> = {
+  CHICA_SERVICE: 'Mi servicio',
+  VENUE_BAR: 'Bar / Bebida',
+  VENUE_ROOM: 'Habitación',
+  VENUE_FOOD: 'Comida',
+  EXTRA: 'Otro',
+};
 
 interface Props {
   onCreated: () => void;
@@ -28,6 +46,17 @@ export function CreatePayment({ onCreated }: Props) {
   // saldo prepago) o POS (camarero cobra con datáfono externo).
   const [mode, setMode] = useState<CobroMode>('qr');
   const [walletIdentifier, setWalletIdentifier] = useState('');
+  // Rol del usuario logueado — determina qué categorías puede usar.
+  const role = getUser()?.role ?? 'OPERATOR';
+  // Categorías permitidas: OPERATOR ve todas; WAITER no ve "Mi servicio".
+  const categoryOptions: RevCat[] =
+    role === 'OPERATOR'
+      ? ['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'EXTRA']
+      : ['VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'EXTRA'];
+  // Default sensato por rol.
+  const [revCategory, setRevCategory] = useState<RevCat>(
+    role === 'OPERATOR' ? 'CHICA_SERVICE' : 'VENUE_BAR',
+  );
   const [active, setActive] = useState<CreatedPayment | null>(null);
   const [status, setStatus] = useState<PaymentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +135,7 @@ export function CreatePayment({ onCreated }: Props) {
         terminalExternalId: usingZone ? undefined : terminals[0]?.externalId,
         walletIdentifier: mode === 'wallet' ? walletIdentifier.trim() : undefined,
         captureMethod: mode === 'pos' ? 'POS_EXTERNAL' : undefined,
+        revenueCategory: revCategory,
       });
       setActive(created);
       setStatus(created.status as PaymentStatus);
@@ -286,6 +316,46 @@ export function CreatePayment({ onCreated }: Props) {
           autoFocus
           style={{ textAlign: 'center', fontFamily: 'var(--np-font-mono)' }}
         />
+
+        {/* Categoría — separa cobros de chica vs cobros del local. La chica
+            ve "Mi servicio" + opciones del local; camarero solo ve las del local. */}
+        <div>
+          <label
+            htmlFor="np-rev-cat"
+            style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}
+          >
+            ¿Qué cobras?
+          </label>
+          <select
+            id="np-rev-cat"
+            value={revCategory}
+            onChange={(e) => setRevCategory(e.target.value as RevCat)}
+            style={{
+              width: '100%',
+              padding: '0.7rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--np-border, #ccc)',
+              background: 'var(--np-bg-input, #fff)',
+              fontSize: '1rem',
+            }}
+          >
+            {categoryOptions.map((c) => (
+              <option key={c} value={c}>
+                {REV_CAT_LABEL[c]}
+              </option>
+            ))}
+          </select>
+          {revCategory === 'CHICA_SERVICE' && (
+            <p style={{ ...hintStyle, marginTop: '0.4rem' }}>
+              💁‍♀️ Este cobro va a TUS ganancias (tu comisión configurada).
+            </p>
+          )}
+          {revCategory !== 'CHICA_SERVICE' && revCategory !== 'EXTRA' && (
+            <p style={{ ...hintStyle, marginTop: '0.4rem' }}>
+              🏨 Este cobro va al local (no genera comisión para ti salvo que el admin lo configure).
+            </p>
+          )}
+        </div>
 
         {mode === 'wallet' ? (
           <>

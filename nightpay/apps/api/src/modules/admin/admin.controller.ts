@@ -38,6 +38,15 @@ import type { RequestContext } from '../../common/context/request-context';
 const VenueSettingsUpdateSchema = z.object({
   operatorMaxCobroCents: z.number().int().min(0).max(10_000_00).optional(),
   platformCommissionBps: z.number().int().min(0).max(10_000).optional(),
+  // Comisiones por categoría — admin puede editar el mapa entero o solo
+  // algunas claves. Las omitidas mantienen su valor actual.
+  operatorCommissionDefaults: z.object({
+    CHICA_SERVICE: z.number().int().min(0).max(10_000).optional(),
+    VENUE_BAR: z.number().int().min(0).max(10_000).optional(),
+    VENUE_ROOM: z.number().int().min(0).max(10_000).optional(),
+    VENUE_FOOD: z.number().int().min(0).max(10_000).optional(),
+    EXTRA: z.number().int().min(0).max(10_000).optional(),
+  }).optional(),
 });
 type VenueSettingsUpdate = z.infer<typeof VenueSettingsUpdateSchema>;
 
@@ -282,6 +291,7 @@ export class AdminController {
           timezone: true,
           operatorMaxCobroCents: true,
           platformCommissionBps: true,
+          operatorCommissionDefaults: true,
         },
       }),
     );
@@ -298,14 +308,37 @@ export class AdminController {
     if (Object.keys(dto).length === 0) {
       throw new NotFoundException('No hay campos a actualizar');
     }
+    // operatorCommissionDefaults llega como mapa PARCIAL — hacemos merge con
+    // los valores actuales para no machacar las claves que el admin no tocó.
+    let mergedCommissionDefaults: Record<string, number> | undefined;
+    if (dto.operatorCommissionDefaults) {
+      const current = await this.prisma.asSystem((tx) =>
+        tx.venue.findUniqueOrThrow({
+          where: { id: tenantId },
+          select: { operatorCommissionDefaults: true },
+        }),
+      );
+      mergedCommissionDefaults = {
+        ...(current.operatorCommissionDefaults as Record<string, number>),
+        ...Object.fromEntries(
+          Object.entries(dto.operatorCommissionDefaults).filter(([, v]) => v !== undefined),
+        ),
+      };
+    }
+    const updateData: Record<string, unknown> = {};
+    if (dto.operatorMaxCobroCents !== undefined) updateData.operatorMaxCobroCents = dto.operatorMaxCobroCents;
+    if (dto.platformCommissionBps !== undefined) updateData.platformCommissionBps = dto.platformCommissionBps;
+    if (mergedCommissionDefaults) updateData.operatorCommissionDefaults = mergedCommissionDefaults;
+
     const updated = await this.prisma.asSystem((tx) =>
       tx.venue.update({
         where: { id: tenantId },
-        data: dto,
+        data: updateData,
         select: {
           id: true,
           operatorMaxCobroCents: true,
           platformCommissionBps: true,
+          operatorCommissionDefaults: true,
         },
       }),
     );
@@ -435,6 +468,7 @@ export class AdminController {
       byMethod,
       byProvider,
       byZoneRows,
+      byCategoryRows,
       topOperators,
       walletTopUps,
       walletConsumptions,
@@ -486,6 +520,22 @@ export class AdminController {
            AND p."createdAt" < ${toDate}
            AND p.status IN ('AUTHORIZED','PARTIALLY_REFUNDED','REFUNDED')
          GROUP BY t.zone
+         ORDER BY gross DESC
+      `,
+      // Split por categoría de ingreso (chicas vs local).
+      this.prisma.$queryRaw<
+        Array<{ revenueCategory: string; count: bigint; gross: bigint; tip: bigint }>
+      >`
+        SELECT "revenueCategory",
+               COUNT(*)::bigint AS count,
+               COALESCE(SUM("amountCents"),0)::bigint AS gross,
+               COALESCE(SUM("tipCents"),0)::bigint AS tip
+          FROM payments
+         WHERE "tenantId" = ${tenantId}::uuid
+           AND "createdAt" >= ${fromDate}
+           AND "createdAt" < ${toDate}
+           AND status IN ('AUTHORIZED','PARTIALLY_REFUNDED','REFUNDED')
+         GROUP BY "revenueCategory"
          ORDER BY gross DESC
       `,
       // Top 5 operadoras por neto en el periodo.
@@ -576,6 +626,34 @@ export class AdminController {
         count: Number(r.count),
         grossCents: Number(r.gross),
       })),
+      // Split por categoría de ingreso — separa cobros chicas vs cobros local.
+      // El admin contable usa esto para imputar correctamente al P&L del local
+      // vs lo que las chicas facturan como autónomas.
+      byRevenueCategory: byCategoryRows.map((r) => ({
+        category: r.revenueCategory,
+        count: Number(r.count),
+        grossCents: Number(r.gross),
+        tipCents: Number(r.tip),
+      })),
+      // Totales agregados chica vs local (atajo para dashboards).
+      chicaRevenue: byCategoryRows
+        .filter((r) => r.revenueCategory === 'CHICA_SERVICE')
+        .reduce(
+          (acc, r) => ({
+            count: acc.count + Number(r.count),
+            grossCents: acc.grossCents + Number(r.gross),
+          }),
+          { count: 0, grossCents: 0 },
+        ),
+      venueRevenue: byCategoryRows
+        .filter((r) => r.revenueCategory !== 'CHICA_SERVICE')
+        .reduce(
+          (acc, r) => ({
+            count: acc.count + Number(r.count),
+            grossCents: acc.grossCents + Number(r.gross),
+          }),
+          { count: 0, grossCents: 0 },
+        ),
       topOperators: topOperators.map((r) => ({
         operatorId: r.operatorId,
         displayName: r.displayName,

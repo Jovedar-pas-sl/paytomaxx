@@ -52,6 +52,42 @@ export type CaptureMethod = z.infer<typeof CaptureMethodSchema>;
 export const TipGoesToSchema = z.enum(['operator', 'venue', 'shared', 'beneficiary']);
 export type TipGoesTo = z.infer<typeof TipGoesToSchema>;
 
+/**
+ * Categoría contable del cobro. Determina (a) si va a earnings de la chica
+ * creator y a qué bps, y (b) cómo se agrega en el Z-report.
+ *
+ *  CHICA_SERVICE → servicio profesional de la chica (tiempo, compañía).
+ *                  Usa User.commissionBps (override) o Venue.operatorCommissionDefaults.CHICA_SERVICE.
+ *                  Default venue: 9000 bps = 90% para la chica.
+ *  VENUE_BAR     → bebidas vendidas por el local. Default venue: 0% (es ingreso local).
+ *  VENUE_ROOM    → alquiler de habitación. Default venue: 0%.
+ *  VENUE_FOOD    → comida vendida por el local. Default venue: 0%.
+ *  EXTRA         → otros / mixto. Default venue: 0%.
+ *
+ * Cada venue puede ajustar los % en cada categoría desde admin → Settings.
+ */
+export const RevenueCategorySchema = z.enum([
+  'CHICA_SERVICE',
+  'VENUE_BAR',
+  'VENUE_ROOM',
+  'VENUE_FOOD',
+  'EXTRA',
+]);
+export type RevenueCategory = z.infer<typeof RevenueCategorySchema>;
+
+/**
+ * Mapa de comisiones por categoría en bps. Almacenado en Venue.operatorCommissionDefaults.
+ * Todas las categorías son required en el shape para evitar ambigüedad de defaults.
+ */
+export const OperatorCommissionDefaultsSchema = z.object({
+  CHICA_SERVICE: z.number().int().min(0).max(10000),
+  VENUE_BAR: z.number().int().min(0).max(10000),
+  VENUE_ROOM: z.number().int().min(0).max(10000),
+  VENUE_FOOD: z.number().int().min(0).max(10000),
+  EXTRA: z.number().int().min(0).max(10000),
+});
+export type OperatorCommissionDefaults = z.infer<typeof OperatorCommissionDefaultsSchema>;
+
 export const CreatePaymentSchema = z.object({
   amountCents: z.number().int().positive().max(10_000_00, 'Max 10.000,00 EUR'),
   /**
@@ -99,6 +135,13 @@ export const CreatePaymentSchema = z.object({
   tipCents: z.number().int().nonnegative().max(5_000_00, 'Tip máx 5.000,00 EUR').optional(),
   tipGoesTo: TipGoesToSchema.optional(),
   tipBeneficiaryUserId: UuidSchema.optional(),
+  /**
+   * Categoría de ingreso. Determina si va a comisión chica y a qué %.
+   * Si se omite, el backend infiere por defecto:
+   *   - creator OPERATOR + sin wallet → CHICA_SERVICE
+   *   - creator WAITER/MANAGER/OWNER → EXTRA (admin/camarero debe elegir)
+   */
+  revenueCategory: RevenueCategorySchema.optional(),
 }).refine(
   (d) => d.terminalExternalId !== undefined || d.zone !== undefined,
   { message: 'Debes pasar terminalExternalId o zone' },

@@ -568,6 +568,14 @@ export async function reconcilePending(): Promise<{ checked: number; matched: nu
 
 // ─── Venue settings (Ajustes) ──────────────────────────────────────
 
+export interface OperatorCommissionDefaults {
+  CHICA_SERVICE: number;
+  VENUE_BAR: number;
+  VENUE_ROOM: number;
+  VENUE_FOOD: number;
+  EXTRA: number;
+}
+
 export interface VenueSettings {
   id: string;
   name: string;
@@ -575,6 +583,7 @@ export interface VenueSettings {
   timezone: string;
   operatorMaxCobroCents: number;
   platformCommissionBps: number;
+  operatorCommissionDefaults: OperatorCommissionDefaults;
 }
 
 export async function fetchVenueSettings(): Promise<VenueSettings> {
@@ -586,7 +595,8 @@ export async function fetchVenueSettings(): Promise<VenueSettings> {
 export async function updateVenueSettings(input: {
   operatorMaxCobroCents?: number;
   platformCommissionBps?: number;
-}): Promise<{ id: string; operatorMaxCobroCents: number; platformCommissionBps: number }> {
+  operatorCommissionDefaults?: Partial<OperatorCommissionDefaults>;
+}): Promise<VenueSettings> {
   const res = await authedFetch('/v1/admin/venue/settings', {
     method: 'PATCH',
     body: JSON.stringify(input),

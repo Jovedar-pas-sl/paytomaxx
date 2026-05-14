@@ -22,6 +22,12 @@ export function SettingsPanel({ isOwner }: Props) {
   // Form state — strings para inputs controlados
   const [platformPct, setPlatformPct] = useState('');
   const [maxCobroEur, setMaxCobroEur] = useState('');
+  // Comisiones por categoría — bps → string en %.
+  const [chicaServicePct, setChicaServicePct] = useState('');
+  const [venueBarPct, setVenueBarPct] = useState('');
+  const [venueRoomPct, setVenueRoomPct] = useState('');
+  const [venueFoodPct, setVenueFoodPct] = useState('');
+  const [extraPct, setExtraPct] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -31,6 +37,12 @@ export function SettingsPanel({ isOwner }: Props) {
         setSettings(s);
         setPlatformPct((s.platformCommissionBps / 100).toFixed(2));
         setMaxCobroEur((s.operatorMaxCobroCents / 100).toFixed(2));
+        const d = s.operatorCommissionDefaults;
+        setChicaServicePct((d.CHICA_SERVICE / 100).toFixed(2));
+        setVenueBarPct((d.VENUE_BAR / 100).toFixed(2));
+        setVenueRoomPct((d.VENUE_ROOM / 100).toFixed(2));
+        setVenueFoodPct((d.VENUE_FOOD / 100).toFixed(2));
+        setExtraPct((d.EXTRA / 100).toFixed(2));
       })
       .catch((err) => !cancelled && setError((err as Error).message))
       .finally(() => !cancelled && setLoading(false));
@@ -38,6 +50,15 @@ export function SettingsPanel({ isOwner }: Props) {
       cancelled = true;
     };
   }, []);
+
+  // Helper: parsea string "%" a bps, valida rango 0-100.
+  function pctToBps(s: string, label: string): number {
+    const bps = Math.round(parseFloat(s.replace(',', '.')) * 100);
+    if (!Number.isFinite(bps) || bps < 0 || bps > 10_000) {
+      throw new Error(`${label} debe estar entre 0% y 100%`);
+    }
+    return bps;
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -53,13 +74,28 @@ export function SettingsPanel({ isOwner }: Props) {
       setError('Tope cobro chica debe estar entre 0 € y 10.000 €');
       return;
     }
+    let commissionDefaults;
+    try {
+      commissionDefaults = {
+        CHICA_SERVICE: pctToBps(chicaServicePct, 'Comisión chica servicio'),
+        VENUE_BAR: pctToBps(venueBarPct, 'Comisión bar'),
+        VENUE_ROOM: pctToBps(venueRoomPct, 'Comisión habitación'),
+        VENUE_FOOD: pctToBps(venueFoodPct, 'Comisión comida'),
+        EXTRA: pctToBps(extraPct, 'Comisión otros'),
+      };
+    } catch (err) {
+      setError((err as Error).message);
+      return;
+    }
+
     setSubmitting(true);
     try {
       const updated = await updateVenueSettings({
         platformCommissionBps: platformBps,
         operatorMaxCobroCents: maxCents,
+        operatorCommissionDefaults: commissionDefaults,
       });
-      setSettings((prev) => (prev ? { ...prev, ...updated } : prev));
+      setSettings(updated);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (err) {
@@ -127,6 +163,65 @@ export function SettingsPanel({ isOwner }: Props) {
             required
             hint="Importe máximo por cobro creado por una operadora. Default 200 €."
           />
+
+          {/* Comisiones por categoría de ingreso */}
+          <div style={{ borderTop: '1px solid var(--np-border)', paddingTop: '1.25rem' }}>
+            <h3 style={{ ...titleStyle, fontSize: 'var(--np-t-h4)', marginBottom: '0.5rem' }}>
+              Comisiones por categoría
+            </h3>
+            <p style={{ ...modelText, marginTop: 0, marginBottom: '1rem' }}>
+              Comisión por defecto que se lleva quien crea el cobro (chica/camarero) según el tipo
+              de cobro. Las chicas con <code style={code}>commissionBps</code> individual
+              <strong> sobreescriben</strong> el valor de <em>"Servicio de chica"</em> pero las
+              categorías VENUE_* siempre usan estos defaults.
+            </p>
+
+            <Input
+              label="Servicio de chica (%)"
+              type="text"
+              inputMode="decimal"
+              value={chicaServicePct}
+              onChange={(e) => setChicaServicePct(e.target.value)}
+              disabled={!isOwner || submitting}
+              hint="% al crear cobro tipo 'Mi servicio'. Default 90%. Override por chica si tiene commissionBps."
+            />
+            <Input
+              label="Bar / Bebida (%)"
+              type="text"
+              inputMode="decimal"
+              value={venueBarPct}
+              onChange={(e) => setVenueBarPct(e.target.value)}
+              disabled={!isOwner || submitting}
+              hint="% al crear cobro bar (ingreso del local). Default 0% — el camarero no se lleva nada."
+            />
+            <Input
+              label="Habitación (%)"
+              type="text"
+              inputMode="decimal"
+              value={venueRoomPct}
+              onChange={(e) => setVenueRoomPct(e.target.value)}
+              disabled={!isOwner || submitting}
+              hint="% al crear cobro habitación. Default 0%."
+            />
+            <Input
+              label="Comida (%)"
+              type="text"
+              inputMode="decimal"
+              value={venueFoodPct}
+              onChange={(e) => setVenueFoodPct(e.target.value)}
+              disabled={!isOwner || submitting}
+              hint="% al crear cobro comida. Default 0%."
+            />
+            <Input
+              label="Otros (%)"
+              type="text"
+              inputMode="decimal"
+              value={extraPct}
+              onChange={(e) => setExtraPct(e.target.value)}
+              disabled={!isOwner || submitting}
+              hint="% al crear cobro sin categorizar. Default 0%."
+            />
+          </div>
 
           {error ? (
             <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>

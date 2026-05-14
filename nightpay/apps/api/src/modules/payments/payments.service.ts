@@ -168,7 +168,11 @@ export class PaymentsService {
     const venue = await this.prisma.asSystem((tx) =>
       tx.venue.findUniqueOrThrow({
         where: { id: tenantId },
-        select: { operatorMaxCobroCents: true, platformCommissionBps: true },
+        select: {
+          operatorMaxCobroCents: true,
+          platformCommissionBps: true,
+          operatorCommissionDefaults: true,
+        },
       }),
     );
     if (creatorRole === 'OPERATOR' && !isWalletTopUp) {
@@ -259,6 +263,18 @@ export class PaymentsService {
       tipBeneficiaryUserId = null;
     }
 
+    // revenueCategory: si viene del DTO úsalo; si no, infer por rol/contexto.
+    //   - WALLET_TOPUP: siempre EXTRA (la categoría real se asigna por consumption)
+    //   - creator OPERATOR + sin wallet → CHICA_SERVICE
+    //   - cualquier otro → EXTRA (el camarero/admin debe elegir explícito)
+    const revenueCategory: string =
+      dto.revenueCategory ??
+      (resolvedWalletId
+        ? 'EXTRA'
+        : creatorRole === 'OPERATOR'
+          ? 'CHICA_SERVICE'
+          : 'EXTRA');
+
     const payment = await this.prisma.$transaction(async (tx) => {
       const p = await tx.payment.create({
         data: {
@@ -277,6 +293,7 @@ export class PaymentsService {
           // estable aunque el venue cambie el % mañana).
           platformCommissionBps: venue.platformCommissionBps,
           tipCents,
+          revenueCategory,
           ...(tipGoesTo ? { tipGoesTo } : {}),
           ...(tipBeneficiaryUserId ? { tipBeneficiaryUserId } : {}),
           ...(effectiveCaptureMethod ? { captureMethod: effectiveCaptureMethod } : {}),
@@ -397,11 +414,13 @@ export class PaymentsService {
             tipCents: number;
             tipGoesTo: string | null;
             tipBeneficiaryUserId: string | null;
+            revenueCategory: string;
           }>
         >`
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
                  "providerTxId", provider, "createdByUserId", "walletId",
-                 "tipCents", "tipGoesTo", "tipBeneficiaryUserId"
+                 "tipCents", "tipGoesTo", "tipBeneficiaryUserId",
+                 "revenueCategory"
             FROM payments
            WHERE id = ${paymentId}::uuid
            FOR UPDATE
@@ -521,11 +540,20 @@ export class PaymentsService {
           }
         }
 
-        // Snapshot del creator role — usado por DOS blocks (earning del creator
-        // si es OPERATOR + tip-only earning a beneficiary si creator NO es OPERATOR).
-        // Hacemos la query UNA vez aquí en vez de duplicar abajo.
+        // Snapshot del creator role + comisiones del venue. Usado por:
+        //   1) Earning del creator si role=OPERATOR (CHICA_SERVICE → 90%, VENUE_* → 0% por defecto)
+        //   2) Tip-only earning a beneficiary si creator NO es OPERATOR
         let creatorRole: string | null = null;
         let creatorCommissionBps: number | null = null;
+        // Map de comisiones por categoría del venue (operatorCommissionDefaults).
+        // Lo cargamos aquí para que la resolución de bps por categoría sea pura.
+        let venueCommissionMap: Record<string, number> = {
+          CHICA_SERVICE: 9000,
+          VENUE_BAR: 0,
+          VENUE_ROOM: 0,
+          VENUE_FOOD: 0,
+          EXTRA: 0,
+        };
         if (result.nextState === 'AUTHORIZED' && p.createdByUserId) {
           const creatorRows = await tx.$queryRaw<
             Array<{ role: string; commissionBps: number | null }>
@@ -538,7 +566,31 @@ export class PaymentsService {
             creatorRole = creatorRows[0].role;
             creatorCommissionBps = creatorRows[0].commissionBps;
           }
+          const venueRows = await tx.$queryRaw<
+            Array<{ operatorCommissionDefaults: Record<string, number> | null }>
+          >`
+            SELECT "operatorCommissionDefaults"
+              FROM venues
+             WHERE id = ${p.tenantId}::uuid
+          `;
+          if (venueRows[0]?.operatorCommissionDefaults) {
+            venueCommissionMap = {
+              ...venueCommissionMap,
+              ...venueRows[0].operatorCommissionDefaults,
+            };
+          }
         }
+
+        // Resuelve la comisión efectiva (bps) para el creator OPERATOR según
+        // la categoría y los overrides:
+        //   CHICA_SERVICE → User.commissionBps si está, else venue[CHICA_SERVICE]
+        //   VENUE_*       → siempre venue[<categoría>] (ingreso del local, no de chica)
+        const resolveBpsForOperator = (category: string): number => {
+          if (category === 'CHICA_SERVICE' && creatorCommissionBps !== null) {
+            return creatorCommissionBps;
+          }
+          return venueCommissionMap[category] ?? 0;
+        };
 
         // Hook de earning para OPERATOR — si transitamos a AUTHORIZED y el creador
         // del payment es una operadora, snapshot de comisión en operator_earnings.
@@ -549,9 +601,13 @@ export class PaymentsService {
         // NOTA: si p.walletId está set, NO generamos earning aquí — el earning
         // se genera per-consumption en wallets.service (chica cobra granular).
         if (result.nextState === 'AUTHORIZED' && p.createdByUserId && !p.walletId) {
-          if (creatorRole === 'OPERATOR' && creatorCommissionBps !== null) {
+          const bpsForOperator = resolveBpsForOperator(p.revenueCategory);
+          // Solo creamos earning si:
+          //   - creator es OPERATOR
+          //   - bps resolvidos > 0 (en VENUE_* con default 0 no hay earning)
+          if (creatorRole === 'OPERATOR' && bpsForOperator > 0) {
             const creator = { id: p.createdByUserId };
-            const bps = creatorCommissionBps;
+            const bps = bpsForOperator;
             const commissionCents = Math.round((p.amountCents * bps) / 10_000);
 
             // Tip: si la propina va a la chica creator (o a beneficiary explícito
