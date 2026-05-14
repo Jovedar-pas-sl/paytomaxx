@@ -324,7 +324,7 @@ function ConfirmForm({
           {(payment.amountCents / 100)
             .toFixed(2)
             .split('')
-            .map((c, i) => (c === '.' ? '·' : c))
+            .map((c) => (c === '.' ? '·' : c))
             .join(' ')}
         </p>
         <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
