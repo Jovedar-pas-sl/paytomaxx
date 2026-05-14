@@ -58,13 +58,22 @@ export function PendingPos({ onConfirmed }: Props) {
   }
 
   useEffect(() => {
+    // H8: cada reload() devuelve Promise — sin .catch React loggea unhandled
+    // rejection y puede intentar setState tras unmount. Tragamos error con
+    // log silente (loading=false ya se resetea en finally del propio reload).
     fetchZones()
       .then((zs) => setZones(zs.filter((z) => z.activeCount > 0)))
       .catch(() => {
         /* zonas opcional */
       });
-    reload();
-    const id = setInterval(() => reload(), 5000);
+    reload().catch((e: unknown) => {
+      console.warn('PendingPos initial reload failed', e);
+    });
+    const id = setInterval(() => {
+      reload().catch((e: unknown) => {
+        console.warn('PendingPos poll reload failed', e);
+      });
+    }, 5000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -72,7 +81,9 @@ export function PendingPos({ onConfirmed }: Props) {
   function changeZone(z: string): void {
     setZoneFilter(z);
     setLoading(true);
-    reload(z);
+    reload(z).catch((e: unknown) => {
+      console.warn('PendingPos changeZone reload failed', e);
+    });
   }
 
   if (selected) {
@@ -82,7 +93,9 @@ export function PendingPos({ onConfirmed }: Props) {
         onBack={() => setSelected(null)}
         onConfirmed={() => {
           setSelected(null);
-          reload();
+          reload().catch((e: unknown) => {
+            console.warn('PendingPos onConfirmed reload failed', e);
+          });
           onConfirmed();
         }}
       />

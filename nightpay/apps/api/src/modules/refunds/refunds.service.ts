@@ -196,9 +196,34 @@ export class RefundsService {
         request.amountCents,
       );
     } catch (err) {
-      this.logger.error(`Earning reverse failed for payment ${payment.id}: ${(err as Error).message}`);
-      // No bloquear el refund — el dinero del cliente ya está procesado.
-      // El admin puede ajustar manualmente vía SQL si fuese necesario.
+      // No bloqueamos el refund (cliente ya recibió dinero), pero esta es una
+      // discrepancia financiera crítica: la chica está cobrando comisión de un
+      // refund. Tres canales de alerta para que NO pase desapercibido:
+      //   1. Métrica Prometheus (alerta a >0)
+      //   2. Audit log con action específico ('refund.earning_reverse_failed')
+      //      → searchable en admin UI + queryable para reconciliación nocturna
+      //   3. Log ERROR con stack completo
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      this.metrics.earningReversalFailed.inc({
+        venue: payment.tenantId,
+        payment_id: payment.id,
+      });
+      this.logger.error(
+        `Earning reverse failed for payment ${payment.id} refund ${refund.id} (amount=${request.amountCents}c): ${errorMsg}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      await this.audit.log({
+        action: 'refund.earning_reverse_failed',
+        tenantId: payment.tenantId,
+        actorId: actor.userId,
+        targetType: 'Payment',
+        targetId: payment.id,
+        payload: {
+          refundId: refund.id,
+          amountCents: request.amountCents,
+          error: errorMsg,
+        },
+      });
     }
 
     // Audit log

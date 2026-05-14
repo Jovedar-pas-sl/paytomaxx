@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, randomBytes, randomInt } from 'node:crypto';
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { z } from 'zod';
 import type CircuitBreaker from 'opossum';
 import type {
   AuthorizeInput,
@@ -214,7 +215,12 @@ export class PeanpeAdapter implements GatewayAdapter {
     //   { status, msg, identificador_llamada, debug, accion, seguridad }
     let parsed: PeanpeResultPayload;
     try {
-      parsed = JSON.parse(rawBody.toString('utf8')) as PeanpeResultPayload;
+      const raw: unknown = JSON.parse(rawBody.toString('utf8'));
+      const result = PeanpeResultPayloadSchema.safeParse(raw);
+      if (!result.success) {
+        return { valid: false, reason: 'invalid-payload-shape' };
+      }
+      parsed = result.data;
     } catch {
       return { valid: false, reason: 'invalid-json' };
     }
@@ -239,7 +245,14 @@ export class PeanpeAdapter implements GatewayAdapter {
   }
 
   mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
-    const p = parsedPayload as PeanpeResultPayload & { _paymentId?: string };
+    // El controller añade _paymentId tras resolver paymentRef → paymentId.
+    // Validamos shape para evitar runtime errors en producción.
+    const Schema = PeanpeResultPayloadSchema.extend({
+      _paymentId: z.string().optional(),
+    });
+    const result = Schema.safeParse(parsedPayload);
+    if (!result.success) return null;
+    const p = result.data;
     // El controller habrá hecho el lookup paymentRef → paymentId y lo añade
     // como _paymentId al payload antes de llamar mapWebhookToFsmEvent.
     const paymentId = p._paymentId;
@@ -337,7 +350,11 @@ export class PeanpeAdapter implements GatewayAdapter {
       this.logger.warn(`Peanpe callback con id_llamada desconocido: ${input.identificadorLlamada}`);
       return null;
     }
-    if (call.securityToken !== input.seguridad) {
+    // H1: comparación timing-safe — la `!==` original podía filtrar dígitos
+    // del token via canal de tiempo (token=10 chars ASCII, oracle pequeño pero real).
+    const expected = Buffer.from(call.securityToken, 'utf8');
+    const received = Buffer.from(input.seguridad, 'utf8');
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
       this.logger.warn(
         `Peanpe callback con seguridad mismatch: id=${input.identificadorLlamada} expected=${call.securityToken.slice(0, 3)}*** got=${input.seguridad.slice(0, 3)}***`,
       );
@@ -363,14 +380,17 @@ export class PeanpeAdapter implements GatewayAdapter {
   }
 }
 
-interface PeanpeResultPayload {
-  status?: string | number;
-  msg?: string;
-  identificador_llamada?: string;
-  debug?: string;
-  accion?: string;
-  seguridad?: string;
-}
+// H6: Zod schema en vez de `as` cast — narrowing real sobre webhook externo.
+// `status` puede venir como string o number según el cliente Peanpe; coerción explícita.
+const PeanpeResultPayloadSchema = z.object({
+  status: z.union([z.string(), z.number()]).optional(),
+  msg: z.string().optional(),
+  identificador_llamada: z.string().optional(),
+  debug: z.string().optional(),
+  accion: z.string().optional(),
+  seguridad: z.string().optional(),
+});
+type PeanpeResultPayload = z.infer<typeof PeanpeResultPayloadSchema>;
 
 /**
  * 6 chars alfanuméricos. Excluye caracteres ambiguos (0/O, 1/l/I) para

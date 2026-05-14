@@ -646,7 +646,20 @@ export class WalletsService {
   async getWalletView(input: {
     tenantId: string;
     walletId: string;
-  }): Promise<ClientWalletView & { consumptions: unknown[] }> {
+  }): Promise<
+    ClientWalletView & {
+      consumptions: Array<{
+        id: string;
+        amountCents: number;
+        category: string;
+        notes: string | null;
+        reversedAt: string | null;
+        providedByEmail: string;
+        providedByName: string | null;
+        createdAt: string;
+      }>;
+    }
+  > {
     const wallet = await this.prisma.asSystem((tx) =>
       tx.clientWallet.findFirst({
         where: { id: input.walletId, tenantId: input.tenantId },

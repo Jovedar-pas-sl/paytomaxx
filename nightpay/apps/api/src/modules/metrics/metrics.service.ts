@@ -31,6 +31,24 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Earning reverse fallido tras refund OK del cliente. Debe estar SIEMPRE en 0;
+  // valor >0 indica discrepancia financiera (chica cobra de más). Alertar siempre.
+  readonly earningReversalFailed = new Counter({
+    name: 'nightpay_earning_reversal_failed_total',
+    help: 'Earning reverse silenciado (refund OK pero comisión chica no descontada)',
+    labelNames: ['venue', 'payment_id'],
+    registers: [this.registry],
+  });
+
+  // Wallet top-up AUTHORIZED pero credit no aplicado (wallet status != ACTIVE).
+  // También crítico — el cliente fue cargado y el wallet no recibió el saldo.
+  readonly walletCreditSkipped = new Counter({
+    name: 'nightpay_wallet_credit_skipped_total',
+    help: 'Wallet top-up AUTHORIZED sin credit (status wallet incorrecto)',
+    labelNames: ['venue', 'wallet_status'],
+    registers: [this.registry],
+  });
+
   // ─── Auth ─────────────────────────────────────────────────────────
   readonly authLogins = new Counter({
     name: 'nightpay_auth_logins_total',

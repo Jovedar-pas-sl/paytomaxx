@@ -82,6 +82,7 @@ function makeService(opts: MakeOptions = {}) {
 
   const metricsMock = {
     refundsCreated: { inc: vi.fn() },
+    earningReversalFailed: { inc: vi.fn() },
   };
 
   const svc = new RefundsService(

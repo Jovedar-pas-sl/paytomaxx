@@ -207,12 +207,19 @@ export class OperatorsService {
       }>
     >`
       SELECT po.id, po."totalCents", u.email AS "paidByEmail", po.notes,
-             (SELECT COUNT(*)::bigint FROM operator_earnings WHERE "payoutId" = po.id) AS "earningCount",
+             COALESCE(ec.cnt, 0)::bigint AS "earningCount",
              po."createdAt",
              po."externalTxId", po."externalRail", po."reconciliationStatus",
              po."receiptUrl", po."reconciledAt"
         FROM operator_payouts po
         LEFT JOIN users u ON u.id = po."paidByUserId"
+        -- M3: JOIN agregado en lugar de subquery correlacionada por fila (N+1).
+        LEFT JOIN (
+          SELECT "payoutId", COUNT(*)::bigint AS cnt
+            FROM operator_earnings
+           WHERE "payoutId" IS NOT NULL
+           GROUP BY "payoutId"
+        ) ec ON ec."payoutId" = po.id
        WHERE po."operatorId" = ${operatorId}::uuid
          AND po."tenantId" = ${tenantId}::uuid
        ORDER BY po."createdAt" DESC
@@ -271,7 +278,11 @@ export class OperatorsService {
     // todo el alta en una sola transacción atómica (insert user + JWT con su id +
     // update con el hash del token de invite). Si algo falla, rollback completo.
     const userId = randomUUID();
-    const placeholderHash = await bcrypt.hash(randomUUID(), 4); // nunca se usa, solo placeholder
+    // Hash placeholder de la columna NOT NULL. Cost 4 (mínimo) es intencional
+    // porque este hash NUNCA se verifica con bcrypt.compare — al aceptar la
+    // invitación se sobreescribe con un hash de cost 10. NO REUTILIZAR cost 4
+    // para hashes que sí se verifican (el estándar del proyecto es 10).
+    const placeholderHash = await bcrypt.hash(randomUUID(), 4);
     const inviteToken = await this.jwt.signAsync(
       { sub: userId, tenantId, purpose: 'operator-invite' } satisfies InviteJwtPayload,
       { expiresIn: `${INVITE_TTL_HOURS}h` },
@@ -736,11 +747,12 @@ export class OperatorsService {
     if (!operator) throw new NotFoundException('Operadora no encontrada');
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // SELECT FOR UPDATE de earnings pendientes
+      // SELECT FOR UPDATE de earnings pendientes — incluye tipCents en SUM.
+      // L2 (audit): el cálculo previo omitía tipCents → payout subestimaba.
       const pending = await tx.$queryRaw<
-        Array<{ id: string; commissionCents: number; reversedCents: number }>
+        Array<{ id: string; commissionCents: number; tipCents: number; reversedCents: number }>
       >`
-        SELECT id, "commissionCents", "reversedCents"
+        SELECT id, "commissionCents", "tipCents", "reversedCents"
           FROM operator_earnings
          WHERE "operatorId" = ${operatorId}::uuid
            AND "payoutId" IS NULL
@@ -752,7 +764,7 @@ export class OperatorsService {
       }
 
       const totalCents = pending.reduce(
-        (sum, e) => sum + (e.commissionCents - e.reversedCents),
+        (sum, e) => sum + (e.commissionCents + (e.tipCents ?? 0) - e.reversedCents),
         0,
       );
 

@@ -102,7 +102,11 @@ export class PaymentsController {
     @Param('id') id: string,
     @CurrentUser() user: JwtPayload,
   ): Promise<{ status: string }> {
-    return this.payments.cancel(id, { userId: user.sub, role: user.role });
+    return this.payments.cancel(id, {
+      userId: user.sub,
+      role: user.role,
+      tenantId: user.tenantId,
+    });
   }
 
   /**

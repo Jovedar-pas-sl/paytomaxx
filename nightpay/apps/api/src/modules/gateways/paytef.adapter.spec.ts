@@ -12,6 +12,8 @@ function makeAdapter() {
       if (key === 'PAYTEF_API_TOKEN') return TOKEN;
       if (key === 'PAYTEF_WEBHOOK_SECRET') return SECRET;
       if (key === 'PAYTEF_WEBHOOK_URL') return 'http://localhost:4100/v1/webhooks/paytef';
+      if (key === 'PAYTEF_COMPANY_ID') return 76861;
+      if (key === 'PAYTEF_BRANCH_ID') return 1;
       return undefined;
     }),
     getOrThrow: vi.fn().mockImplementation((key: string) => {

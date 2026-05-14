@@ -72,7 +72,13 @@ export class EmailService {
       this.logger.log(`Email sent via Resend to=${input.to} subject="${input.subject}"`);
       return { ok: true, delivered: true };
     } catch (err) {
-      this.logger.error(`Resend send error: ${(err as Error).message}`);
+      // Logueamos stack completo (no solo .message) para diagnosticar failures
+      // de red, DNS, certificados, etc. en producción.
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      this.logger.error(
+        `Resend send error to=${input.to}: ${errorObj.message}`,
+        errorObj.stack,
+      );
       return { ok: false, delivered: false, reason: 'exception' };
     }
   }

@@ -306,7 +306,10 @@ export class PaymentsService {
       { paymentId: payment.id, tenantId },
       {
         jobId: `qr-expire-${payment.id}`,
-        delay: QR_TTL_SECONDS * 1000,
+        // H7: usar el TTL calculado para este payment (5min QR / 30min POS),
+        // antes era siempre QR_TTL_SECONDS → POS expiraba a los 5min con el
+        // camarero todavía en camino al datáfono.
+        delay: ttlSeconds * 1000,
         removeOnComplete: true,
         removeOnFail: 100,
       },
@@ -465,11 +468,15 @@ export class PaymentsService {
         // Nota: el tip va SEPARADO del balance — propinas no son saldo gastable
         // por el cliente, se asignan al beneficiario directamente.
         if (result.nextState === 'AUTHORIZED' && p.walletId) {
+          // H3: filtro tenantId en SELECT FOR UPDATE (no solo defensa post-lock
+          // sino que el lock se adquiere sobre la fila correcta del tenant).
           const walletLocked = await tx.$queryRaw<
             Array<{ id: string; balanceCents: number; status: string }>
           >`
             SELECT id, "balanceCents", status FROM client_wallets
-             WHERE id = ${p.walletId}::uuid FOR UPDATE
+             WHERE id = ${p.walletId}::uuid
+               AND "tenantId" = ${p.tenantId}::uuid
+             FOR UPDATE
           `;
           const w = walletLocked[0];
           if (w && w.status === 'ACTIVE') {
@@ -478,14 +485,58 @@ export class PaymentsService {
                  SET "balanceCents" = "balanceCents" + ${p.amountCents}::int,
                      "updatedAt" = now()
                WHERE id = ${p.walletId}::uuid
+                 AND "tenantId" = ${p.tenantId}::uuid
             `;
             this.logger.log(
               `Payment ${paymentId} AUTHORIZED → wallet ${p.walletId} credited +${p.amountCents}c (new balance: ${w.balanceCents + p.amountCents})`,
             );
           } else {
-            this.logger.warn(
-              `Payment ${paymentId} AUTHORIZED but wallet ${p.walletId} not creditable (status=${w?.status ?? 'missing'}). Manual review needed.`,
+            // C4: NO se acredita el wallet pero el cliente YA pagó al PSP.
+            // Discrepancia financiera. NO podemos throw aquí (rollback ⇒ webhook
+            // retry infinito), pero emitimos 3 canales de alerta:
+            //   1. Métrica Prometheus (alerta a >0)
+            //   2. Audit log con action específico searchable
+            //   3. Log ERROR (no WARN — esto es crítico)
+            const walletStatus = w?.status ?? 'missing';
+            this.metrics.walletCreditSkipped.inc({
+              venue: p.tenantId,
+              wallet_status: walletStatus,
+            });
+            this.logger.error(
+              `CRITICAL: Payment ${paymentId} AUTHORIZED but wallet ${p.walletId} not creditable (status=${walletStatus}, amount=${p.amountCents}c). Customer charged. Manual review + refund or wallet revive required.`,
             );
+            // Audit dentro de tx — si el commit falla, el log también.
+            await tx.$executeRaw`
+              INSERT INTO audit_events ("tenantId", action, "targetType", "targetId", payload, "occurredAt")
+              VALUES (${p.tenantId}::uuid, 'wallet.credit_skipped_critical',
+                      'Payment', ${paymentId},
+                      ${JSON.stringify({
+                        walletId: p.walletId,
+                        walletStatus,
+                        amountCents: p.amountCents,
+                        reason: 'wallet_not_active_at_authorized',
+                      })}::jsonb,
+                      now())
+            `;
+          }
+        }
+
+        // Snapshot del creator role — usado por DOS blocks (earning del creator
+        // si es OPERATOR + tip-only earning a beneficiary si creator NO es OPERATOR).
+        // Hacemos la query UNA vez aquí en vez de duplicar abajo.
+        let creatorRole: string | null = null;
+        let creatorCommissionBps: number | null = null;
+        if (result.nextState === 'AUTHORIZED' && p.createdByUserId) {
+          const creatorRows = await tx.$queryRaw<
+            Array<{ role: string; commissionBps: number | null }>
+          >`
+            SELECT role::text AS role, "commissionBps"
+              FROM users
+             WHERE id = ${p.createdByUserId}::uuid
+          `;
+          if (creatorRows[0]) {
+            creatorRole = creatorRows[0].role;
+            creatorCommissionBps = creatorRows[0].commissionBps;
           }
         }
 
@@ -498,16 +549,9 @@ export class PaymentsService {
         // NOTA: si p.walletId está set, NO generamos earning aquí — el earning
         // se genera per-consumption en wallets.service (chica cobra granular).
         if (result.nextState === 'AUTHORIZED' && p.createdByUserId && !p.walletId) {
-          const creatorRows = await tx.$queryRaw<
-            Array<{ id: string; role: string; commissionBps: number | null }>
-          >`
-            SELECT id, role::text AS role, "commissionBps"
-              FROM users
-             WHERE id = ${p.createdByUserId}::uuid
-          `;
-          const creator = creatorRows[0];
-          if (creator?.role === 'OPERATOR' && creator.commissionBps !== null) {
-            const bps = creator.commissionBps;
+          if (creatorRole === 'OPERATOR' && creatorCommissionBps !== null) {
+            const creator = { id: p.createdByUserId };
+            const bps = creatorCommissionBps;
             const commissionCents = Math.round((p.amountCents * bps) / 10_000);
 
             // Tip: si la propina va a la chica creator (o a beneficiary explícito
@@ -567,8 +611,12 @@ export class PaymentsService {
              WHERE id = ${p.tipBeneficiaryUserId}::uuid
           `;
           const benef = benefRows[0];
-          // Solo creamos earning de tip si no hubo earning del creator (evita doble).
-          const creatorIsOperator = p.createdByUserId !== null;
+          // C5 FIX: el guard previo usaba `createdByUserId !== null` (siempre true
+          // si OWNER/MANAGER crea el cobro → beneficiary nunca recibía tip).
+          // Ahora usamos el role real del creator: si NO es OPERATOR, no hay earning
+          // del creator y podemos crear el tip-only earning del beneficiary sin
+          // colisionar con la unique(paymentId).
+          const creatorIsOperator = creatorRole === 'OPERATOR';
           if (
             benef?.role === 'OPERATOR' &&
             benef.id !== p.createdByUserId &&
@@ -631,7 +679,7 @@ export class PaymentsService {
    */
   async cancel(
     paymentId: string,
-    actor: { userId: string; role: string },
+    actor: { userId: string; role: string; tenantId: string },
   ): Promise<{ status: PaymentMachineState }> {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
@@ -641,7 +689,14 @@ export class PaymentsService {
     }
 
     try {
-      await this.transition(paymentId, { type: 'CANCELED', reason: 'user-canceled' });
+      // H2: pasamos expectedTenantId — transition() valida que payment.tenantId
+      // coincide con el del actor, defensa cross-tenant aunque la query previa
+      // ya filtra por CLS middleware.
+      await this.transition(
+        paymentId,
+        { type: 'CANCELED', reason: 'user-canceled' },
+        actor.tenantId,
+      );
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
         throw new ConflictException(
@@ -685,10 +740,12 @@ export class PaymentsService {
     }
 
     try {
-      await this.transition(paymentId, {
-        type: 'POS_CONFIRMED',
-        posReceiptRef: dto.posReceiptRef,
-      });
+      // H2: expectedTenantId para defensa cross-tenant en confirmPosPayment.
+      await this.transition(
+        paymentId,
+        { type: 'POS_CONFIRMED', posReceiptRef: dto.posReceiptRef },
+        actor.tenantId,
+      );
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
         throw new ConflictException(

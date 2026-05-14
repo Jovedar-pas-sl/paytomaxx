@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { z } from 'zod';
 import type CircuitBreaker from 'opossum';
 import type {
   AuthorizeInput,
@@ -24,38 +25,39 @@ const REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
 /**
  * Shape de la respuesta `GET /payment-link/get/{paymentID}` de Paytef.
- * Solo modelamos los campos que necesitamos (Paytef devuelve mucho más).
- * Doc fuente: my.paytef.es → API de Payment LINK.
+ * H6: zod schema en vez de interface — narrowing real sobre webhook externo.
  */
-interface PaytefPaymentLink {
-  id?: string;
-  isFinished?: boolean;
-  isVisible?: boolean;
-  isCanceled?: boolean;
-  isExpired?: boolean;
-  amountCents?: number;
-  currency?: string;
-  lastResult?: {
-    txnKey?: string;
-    isApproved?: boolean;
-    resultCode?: string;
-    resultReason?: string;
-    paytefID?: number;
-    cardLastDigits?: string;
-    cardBrand?: string;
-  };
-  clientID?: string;
-}
+const PaytefPaymentLinkSchema = z.object({
+  id: z.string().optional(),
+  isFinished: z.boolean().optional(),
+  isVisible: z.boolean().optional(),
+  isCanceled: z.boolean().optional(),
+  isExpired: z.boolean().optional(),
+  amountCents: z.number().optional(),
+  currency: z.string().optional(),
+  lastResult: z.object({
+    txnKey: z.string().optional(),
+    isApproved: z.boolean().optional(),
+    resultCode: z.string().optional(),
+    resultReason: z.string().optional(),
+    paytefID: z.number().optional(),
+    cardLastDigits: z.string().optional(),
+    cardBrand: z.string().optional(),
+  }).optional(),
+  clientID: z.string().optional(),
+});
+type PaytefPaymentLink = z.infer<typeof PaytefPaymentLinkSchema>;
 
 /**
- * Payload tipico del webhook `notifyResultURL`. Paytef NO documenta el shape
- * exacto del webhook — asumimos que envía el mismo objeto que GET /get + un
- * `paymentID`. Cuando lleguen los primeros webhooks reales, ajustamos.
+ * Payload del webhook `notifyResultURL`. Paytef NO documenta el shape exacto;
+ * asumimos GET /get + paymentID. Validamos con zod para reportar errores
+ * en lugar de hacer cast ciego que rompe en runtime.
  */
-interface PaytefWebhookPayload {
-  paymentID?: string;
-  data?: PaytefPaymentLink;
-}
+const PaytefWebhookPayloadSchema = z.object({
+  paymentID: z.string().optional(),
+  data: PaytefPaymentLinkSchema.optional(),
+});
+type PaytefWebhookPayload = z.infer<typeof PaytefWebhookPayloadSchema>;
 
 @Injectable()
 export class PaytefAdapter implements GatewayAdapter {
@@ -183,11 +185,17 @@ export class PaytefAdapter implements GatewayAdapter {
       const text = await saveRes.text().catch(() => '');
       throw new Error(`Paytef /save failed: ${saveRes.status} ${text.slice(0, 200)}`);
     }
-    const saveData = (await saveRes.json()) as {
-      success?: boolean;
-      paymentID?: string;
-      paymentURL?: string;
-    };
+    const SaveResponseSchema = z.object({
+      success: z.boolean().optional(),
+      paymentID: z.string().optional(),
+      paymentURL: z.string().optional(),
+    });
+    const rawSave: unknown = await saveRes.json();
+    const saveParsed = SaveResponseSchema.safeParse(rawSave);
+    if (!saveParsed.success) {
+      throw new Error(`Paytef /save returned malformed JSON: ${JSON.stringify(rawSave).slice(0, 200)}`);
+    }
+    const saveData = saveParsed.data;
     if (!saveData.success || !saveData.paymentID) {
       throw new Error(`Paytef /save returned no paymentID: ${JSON.stringify(saveData)}`);
     }
@@ -301,7 +309,12 @@ export class PaytefAdapter implements GatewayAdapter {
 
     let parsed: PaytefWebhookPayload;
     try {
-      parsed = JSON.parse(rawBody.toString('utf8')) as PaytefWebhookPayload;
+      const raw: unknown = JSON.parse(rawBody.toString('utf8'));
+      const result = PaytefWebhookPayloadSchema.safeParse(raw);
+      if (!result.success) {
+        return { valid: false, reason: 'invalid-payload-shape' };
+      }
+      parsed = result.data;
     } catch {
       return { valid: false, reason: 'invalid-json' };
     }
@@ -321,7 +334,9 @@ export class PaytefAdapter implements GatewayAdapter {
   }
 
   mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
-    const p = parsedPayload as PaytefWebhookPayload;
+    const result = PaytefWebhookPayloadSchema.safeParse(parsedPayload);
+    if (!result.success) return null;
+    const p = result.data;
     const data = p.data;
     if (!data || !data.clientID) return null;
 
