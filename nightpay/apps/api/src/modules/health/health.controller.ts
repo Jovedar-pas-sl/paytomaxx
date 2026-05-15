@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'pos-qr-deeplink-2026-05-15',
+      build: 'paytef-exp-root-2026-05-15',
     } as Health & { build: string };
   }
 }

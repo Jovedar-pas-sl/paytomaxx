@@ -144,7 +144,11 @@ export class PaytefAdapter implements GatewayAdapter {
     //    Si no → fetch /payment-link/getBranches de Paytef y cachear la
     //    primera branch activa. Una sola llamada por proceso.
     const { companyID, branchID } = await this.resolveBranchInfo();
+    // Paytef requiere expiration o expirationHours. Lo ponemos en AMBOS sitios
+    // (root y data{}) porque la doc no es clara sobre dónde lo espera, y
+    // 24h porque algunas implementaciones rechazan valores <24.
     const saveBody = {
+      expirationHours: 24,
       data: {
         opType: 'sale',
         customerAuthentication: 'strong',
@@ -161,10 +165,7 @@ export class PaytefAdapter implements GatewayAdapter {
         // cliente en el flujo Payment LINK.
         userFullName: 'Cliente',
         userEmail: 'cliente@nightpay.local',
-        // Paytef requiere expiration o expirationHours. Usamos 1 hora porque
-        // el cliente paga in-situ con la chica/camarero presente — no son links
-        // que se envíen por email y necesiten validez de días.
-        expirationHours: 1,
+        expirationHours: 24,
         language: 'ES',
         isTest: process.env.NODE_ENV !== 'production',
         notifyResultURL: this.webhookUrl(),
@@ -186,11 +187,9 @@ export class PaytefAdapter implements GatewayAdapter {
     );
     if (!saveRes.ok) {
       const text = await saveRes.text().catch(() => '');
-      // Diagnóstico: incluimos el body que enviamos (sin token Auth) para
-      // verificar el shape exacto contra los errores de validación Paytef.
-      const sentBody = JSON.stringify(saveBody).slice(0, 400);
+      const sentBody = JSON.stringify(saveBody).slice(0, 1500);
       throw new Error(
-        `Paytef /save failed: ${saveRes.status} ${text.slice(0, 200)} | sent: ${sentBody}`,
+        `Paytef /save failed: ${saveRes.status} ${text.slice(0, 250)} | sent: ${sentBody}`,
       );
     }
     const SaveResponseSchema = z.object({
