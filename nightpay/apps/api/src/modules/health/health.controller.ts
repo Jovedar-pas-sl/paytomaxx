@@ -51,6 +51,8 @@ export class HealthController {
       version: process.env.npm_package_version ?? '0.0.0',
       timestamp: new Date().toISOString(),
       checks,
-    };
+      // DIAG temporal — marker para confirmar deploy aplicado
+      build: 'c1ff586-2026-05-15',
+    } as Health & { build: string };
   }
 }
