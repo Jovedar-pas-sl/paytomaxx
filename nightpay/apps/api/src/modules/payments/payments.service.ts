@@ -1168,18 +1168,31 @@ export class PaymentsService {
     // tiene la variable definida sin valor → ?? no la captura.
     const nonEmpty = (v: string | undefined): string | undefined =>
       v && v.trim().length > 0 ? v.trim().replace(/\/+$/, '') : undefined;
-    const baseUrl =
+    const ensureProto = (u: string): string =>
+      /^https?:\/\//i.test(u) ? u : `https://${u}`;
+    const baseUrl = ensureProto(
       nonEmpty(process.env.NEXT_PUBLIC_API_URL) ??
-      `http://localhost:${process.env.PORT ?? 4100}`;
+        `http://localhost:${process.env.PORT ?? 4100}`,
+    );
     // Preferimos web-client si está configurado (UX nicer); si no, el API
     // mismo expone /pay/{token} con redirect 302 al checkout del PSP.
-    let clientUrl = nonEmpty(process.env.NEXT_PUBLIC_WEB_CLIENT_URL) ?? baseUrl;
-    // Defensa: si el env var no incluye protocolo, prepend https:// para
-    // que el QR genere una URL absoluta escaneable, no un path relativo.
-    if (!/^https?:\/\//i.test(clientUrl)) {
-      clientUrl = `https://${clientUrl}`;
-    }
-    const qrUrl = `${clientUrl}/pay/${p.qrToken}`;
+    const clientUrl = ensureProto(
+      nonEmpty(process.env.NEXT_PUBLIC_WEB_CLIENT_URL) ?? baseUrl,
+    );
+    // Operator app URL — para QR de POS_EXTERNAL (camarero escanea, abre app
+    // del operator pre-focused en el cobro a confirmar). Si NEXT_PUBLIC_OPERATOR_URL
+    // no está, derivamos cambiando api. → operator. en el baseUrl.
+    const operatorUrl = ensureProto(
+      nonEmpty(process.env.NEXT_PUBLIC_OPERATOR_URL) ??
+        baseUrl.replace(/^https?:\/\/api\./i, 'https://operator.'),
+    );
+    // Para POS_EXTERNAL: el QR NO debe llevar a Paytef (eso cobraría dos veces).
+    // En su lugar, encodea URL del operator app que abre el cobro para que el
+    // camarero lo confirme tras pasar la tarjeta por su datáfono físico.
+    const qrUrl =
+      p.captureMethod === 'POS_EXTERNAL'
+        ? `${operatorUrl}/?pos=${p.id}`
+        : `${clientUrl}/pay/${p.qrToken}`;
     const qrPngDataUrl = await QRCode.toDataURL(qrUrl, {
       errorCorrectionLevel: 'M',
       margin: 2,

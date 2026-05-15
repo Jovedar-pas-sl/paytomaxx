@@ -12,6 +12,8 @@ import {
 
 interface Props {
   onConfirmed: () => void;
+  /** Si viene de un deep-link (?pos=<id> tras escanear QR), pre-selecciona ese cobro. */
+  focusPaymentId?: string | null;
 }
 
 /**
@@ -31,7 +33,7 @@ interface Props {
  * pasa por el PSP del bar (datáfono físico). NightPay solo registra la
  * transacción para repartir comisión a la chica.
  */
-export function PendingPos({ onConfirmed }: Props) {
+export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
   const [pending, setPending] = useState<PendingPosPayment[]>([]);
   const [zones, setZones] = useState<ZoneOption[]>([]);
   // 'all' = sin filtro; canonical zone otherwise.
@@ -137,6 +139,16 @@ export function PendingPos({ onConfirmed }: Props) {
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Deep-link: cuando llega un focusPaymentId y la lista ya cargó, pre-selecciona.
+  // Si todavía no está en la lista (acaba de crearse), reintentamos cada poll.
+  useEffect(() => {
+    if (!focusPaymentId) return;
+    const match = pending.find((p) => p.id === focusPaymentId);
+    if (match) {
+      setSelected(match);
+    }
+  }, [focusPaymentId, pending]);
 
   function changeZone(z: string): void {
     setZoneFilter(z);

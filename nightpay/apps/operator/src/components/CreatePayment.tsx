@@ -213,20 +213,35 @@ export function CreatePayment({ onCreated }: Props) {
         </div>
 
         {isPosFlow ? (
-          <div style={{
-            padding: '1rem',
-            background: 'var(--np-surface-2)',
-            borderRadius: 'var(--np-r-md)',
-            border: '1px dashed var(--np-border)',
-            textAlign: 'center',
-          }}>
-            <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: 1.6 }}>
-              1. Llama al camarero.<br />
-              2. Le dices: <strong>"{(active.amountCents / 100).toFixed(2)} €, código #{refCode}"</strong><br />
-              3. Él lo procesa en el datáfono y confirma en su app.<br />
-              4. Verás "✓ Cobrado" aquí.
-            </p>
-          </div>
+          <>
+            <div
+              style={{
+                background: 'white',
+                borderRadius: 'var(--np-r-md)',
+                padding: '0.75rem',
+                display: 'flex',
+                justifyContent: 'center',
+              }}
+            >
+              <img
+                src={active.qrPngDataUrl}
+                alt="QR del cobro POS"
+                style={{ width: '100%', maxWidth: '12rem', height: 'auto', display: 'block' }}
+              />
+            </div>
+            <div style={{
+              padding: '1rem',
+              background: 'var(--np-surface-2)',
+              borderRadius: 'var(--np-r-md)',
+              border: '1px dashed var(--np-border)',
+              textAlign: 'center',
+            }}>
+              <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: 1.6 }}>
+                <strong>Camarero:</strong> escanea el QR con tu móvil (o usa código <strong style={{ fontFamily: 'var(--np-font-mono)', letterSpacing: '0.15em', color: 'var(--np-accent)' }}>#{refCode}</strong>).<br />
+                Cobra <strong>{(active.amountCents / 100).toFixed(2)} €</strong> en el datáfono, luego confirma en tu app.
+              </p>
+            </div>
+          </>
         ) : (
           <>
             <div

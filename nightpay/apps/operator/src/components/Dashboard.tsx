@@ -25,6 +25,9 @@ export function Dashboard({ user, onLogout }: Props) {
   const [tab, setTab] = useState<TabKey>('home');
   const [balance, setBalance] = useState<OperatorBalance | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Deep-link: si la URL tiene ?pos=<paymentId>, el camarero llegó aquí
+  // escaneando el QR de un cobro POS — saltamos a la tab POS pre-filtrada.
+  const [focusedPosId, setFocusedPosId] = useState<string | null>(null);
 
   async function reload() {
     try {
@@ -41,6 +44,21 @@ export function Dashboard({ user, onLogout }: Props) {
     const int = setInterval(reload, 8000);
     return () => clearInterval(int);
   }, []);
+
+  // Lee ?pos=<id> de la URL al cargar y al cambiar de hash/query.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const posId = params.get('pos');
+    if (posId && user.role !== 'OPERATOR') {
+      setFocusedPosId(posId);
+      setTab('pos');
+      // Limpia el query param para que un refresh no re-active el focus
+      const url = new URL(window.location.href);
+      url.searchParams.delete('pos');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, [user.role]);
 
   async function logout() {
     await apiLogout();
@@ -70,7 +88,7 @@ export function Dashboard({ user, onLogout }: Props) {
       ) : tab === 'wallet' ? (
         <ChargeWallet onConsumed={reload} />
       ) : tab === 'pos' ? (
-        <PendingPos onConfirmed={reload} />
+        <PendingPos onConfirmed={reload} focusPaymentId={focusedPosId} />
       ) : tab === 'payments' ? (
         <MyPayments />
       ) : (
