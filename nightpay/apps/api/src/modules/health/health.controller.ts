@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'paytef-debug-ep-2026-05-15',
+      build: 'paytef-branch-clean-2026-05-15',
     } as Health & { build: string };
   }
 }

@@ -441,6 +441,10 @@ export class PaytefAdapter implements GatewayAdapter {
       companyId: z.number().optional(),
       branchId: z.number().optional(),
       name: z.string().optional(),
+      // Campo real que devuelve Paytef en /getBranches
+      branchName: z.string().optional(),
+      displayName: z.string().optional(),
+      companyName: z.string().optional(),
       code: z.string().optional(),
       active: z.boolean().optional(),
       isActive: z.boolean().optional(),
@@ -474,22 +478,41 @@ export class PaytefAdapter implements GatewayAdapter {
       );
     }
 
-    // Picar la primera activa (o la primera si ninguna marca active explícita)
-    const firstActive =
-      branches.find((b) => b.active === true || b.isActive === true) ?? branches[0]!;
-    const companyID = firstActive.companyID ?? firstActive.companyId;
-    const branchID = firstActive.branchID ?? firstActive.branchId ?? firstActive.id;
+    // Picar branch:
+    //   1. Si env var PAYTEF_BRANCH_NAME está set (ej "RSR14"), busca por nombre.
+    //   2. Si no, prefiere las "limpias" — branchName sin guión final ni
+    //      espacio final (las activadas para Payment LINK en Paytef tienen
+    //      nombres como "RSR14", las shells no-activadas vienen como "RSR5 -").
+    //   3. Fallback: la última de la lista (típicamente la más nueva/activa).
+    const preferredName = this.config.get<string>('PAYTEF_BRANCH_NAME');
+    const branchNameOf = (b: z.infer<typeof BranchSchema>): string =>
+      (b.branchName ?? b.name ?? b.code ?? '').trim();
+    const isCleanName = (s: string): boolean =>
+      Boolean(s && /^[A-Za-z0-9_]+$/.test(s) && !s.endsWith('-'));
+    let chosen: z.infer<typeof BranchSchema> | undefined;
+    if (preferredName) {
+      const want = preferredName.trim().toLowerCase();
+      chosen = branches.find((b) => branchNameOf(b).toLowerCase() === want);
+    }
+    if (!chosen) {
+      chosen = branches.find((b) => isCleanName(branchNameOf(b)));
+    }
+    if (!chosen) {
+      chosen = branches[branches.length - 1] ?? branches[0]!;
+    }
+    this.logger.log(
+      `Paytef branch picked: ${branchNameOf(chosen)} (companyID=${chosen.companyID ?? chosen.companyId} branchID=${chosen.branchID ?? chosen.branchId ?? chosen.id}) from ${branches.length} options`,
+    );
+    const companyID = chosen.companyID ?? chosen.companyId;
+    const branchID = chosen.branchID ?? chosen.branchId ?? chosen.id;
 
     if (!companyID || !branchID) {
       throw new Error(
-        `Paytef branch sin companyID/branchID válidos: ${JSON.stringify(firstActive).slice(0, 200)}`,
+        `Paytef branch sin companyID/branchID válidos: ${JSON.stringify(chosen).slice(0, 200)}`,
       );
     }
 
     this.cachedBranch = { companyID, branchID };
-    this.logger.log(
-      `Paytef branch auto-resolved: company=${companyID} branch=${branchID} name="${firstActive.name ?? firstActive.code ?? '?'}"`,
-    );
     return this.cachedBranch;
   }
 
