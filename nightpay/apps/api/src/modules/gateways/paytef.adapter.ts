@@ -161,6 +161,10 @@ export class PaytefAdapter implements GatewayAdapter {
         // cliente en el flujo Payment LINK.
         userFullName: 'Cliente',
         userEmail: 'cliente@nightpay.local',
+        // Paytef requiere expiration o expirationHours. Usamos 1 hora porque
+        // el cliente paga in-situ con la chica/camarero presente — no son links
+        // que se envíen por email y necesiten validez de días.
+        expirationHours: 1,
         language: 'ES',
         isTest: process.env.NODE_ENV !== 'production',
         notifyResultURL: this.webhookUrl(),
