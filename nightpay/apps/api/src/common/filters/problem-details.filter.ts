@@ -41,6 +41,28 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     let detail: string | undefined;
     let extra: Record<string, unknown> = {};
 
+    // DIAGNOSTIC MARKER — confirma que esta versión del filter está activa.
+    // Si la response no incluye "filterVersion", el deploy no está aplicado.
+    extra._filterVersion = 'v3-diag-2026-05-15';
+    // Capturar TODO lo que sepamos de la exception, sea Error, undefined,
+    // null, o un objeto exótico.
+    try {
+      extra._excType = exception === null ? 'null' : exception === undefined ? 'undefined' : typeof exception;
+      if (exception instanceof Error) {
+        extra._errName = exception.name;
+        extra._errMsg = exception.message;
+        extra._errStack = exception.stack?.split('\n').slice(0, 8).join(' | ');
+        if ('code' in exception) extra._errCode = (exception as { code: unknown }).code;
+        if ('meta' in exception) extra._errMeta = (exception as { meta: unknown }).meta;
+      } else if (exception && typeof exception === 'object') {
+        extra._excDump = JSON.stringify(exception).slice(0, 500);
+      } else {
+        extra._excValue = String(exception).slice(0, 200);
+      }
+    } catch {
+      extra._diagFailed = true;
+    }
+
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const resp = exception.getResponse();
