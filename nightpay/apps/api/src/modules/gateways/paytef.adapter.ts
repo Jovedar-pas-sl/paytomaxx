@@ -70,6 +70,9 @@ export class PaytefAdapter implements GatewayAdapter {
   private readonly statusBreaker: CircuitBreaker<[string, string], GatewayStatus>;
   private readonly refundBreaker: CircuitBreaker<[RefundInput], RefundResult>;
   private readonly timeoutMs: number;
+  // Cache en memoria del companyID/branchID resueltos. Solo Paytef → 1 sola
+  // companía + N branches; pickeamos la primera activa al primer authorize.
+  private cachedBranch: { companyID: number; branchID: number } | null = null;
 
   constructor(
     @Inject(ConfigService) config: ConfigService,
@@ -137,20 +140,10 @@ export class PaytefAdapter implements GatewayAdapter {
     const baseUrl = this.baseUrl();
     const authHeader = this.authHeader();
 
-    // 1) Crear la solicitud (POST /payment-link/save)
-    // Paytef pide `changeCard` explícito (422 si falta). false = NightPay no
-    // permite al cliente cambiar de tarjeta tras la primera carga (siempre
-    // crea pago nuevo).
-    // companyID + branchID son obligatorios. Para la cuenta del usuario actual:
-    //   companyID=76861 ("Rapido Sin Riesgos"), branches RSR5..RSR12.
-    // Se configuran en PAYTEF_COMPANY_ID / PAYTEF_BRANCH_ID del .env.
-    const companyID = this.config.get<number>('PAYTEF_COMPANY_ID');
-    const branchID = this.config.get<number>('PAYTEF_BRANCH_ID');
-    if (!companyID || !branchID) {
-      throw new Error(
-        'PAYTEF_COMPANY_ID y PAYTEF_BRANCH_ID son obligatorios. Obtén los IDs vía GET /payment-link/getBranches.',
-      );
-    }
+    // 1) Resolver companyID + branchID. Si están en env vars → usar.
+    //    Si no → fetch /payment-link/getBranches de Paytef y cachear la
+    //    primera branch activa. Una sola llamada por proceso.
+    const { companyID, branchID } = await this.resolveBranchInfo();
     const saveBody = {
       data: {
         opType: 'sale',
@@ -377,6 +370,106 @@ export class PaytefAdapter implements GatewayAdapter {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────
+
+  /**
+   * Resuelve {companyID, branchID} para el POST /payment-link/save.
+   *
+   *  1) Si PAYTEF_COMPANY_ID + PAYTEF_BRANCH_ID están en env → usarlos.
+   *  2) Si no → llamar GET /payment-link/getBranches y elegir la primera
+   *     branch activa. Cachear en memoria (1 vez por proceso).
+   *
+   * El usuario del token actual ("Rapido Sin Riesgos") tiene RSR5..RSR14.
+   * Por defecto picamos la primera que Paytef devuelva — admin puede sobre-
+   * escribir con env vars si quiere una en concreto.
+   */
+  private async resolveBranchInfo(): Promise<{ companyID: number; branchID: number }> {
+    if (this.cachedBranch) return this.cachedBranch;
+
+    const envCompany = this.config.get<number>('PAYTEF_COMPANY_ID');
+    const envBranch = this.config.get<number>('PAYTEF_BRANCH_ID');
+    if (envCompany && envBranch) {
+      this.cachedBranch = { companyID: envCompany, branchID: envBranch };
+      this.logger.log(
+        `Paytef branch info from env: company=${envCompany} branch=${envBranch}`,
+      );
+      return this.cachedBranch;
+    }
+
+    // Fetch from Paytef API. Schema tolerante a variaciones porque la doc no
+    // es 100% canónica — buscamos campos plausibles en la respuesta.
+    const res = await fetchWithTimeout(
+      `${this.baseUrl()}/payment-link/getBranches`,
+      { method: 'GET', headers: { Authorization: this.authHeader() } },
+      this.timeoutMs,
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(
+        `Paytef /getBranches failed: ${res.status} ${text.slice(0, 200)}. ` +
+          `Define PAYTEF_COMPANY_ID y PAYTEF_BRANCH_ID en env vars manualmente.`,
+      );
+    }
+    const raw: unknown = await res.json();
+    // Respuesta esperada: { data: { branches: [{ companyID, branchID, name, active }] } }
+    // o variantes — intentamos varias formas.
+    const BranchSchema = z.object({
+      companyID: z.number().optional(),
+      branchID: z.number().optional(),
+      id: z.number().optional(),
+      companyId: z.number().optional(),
+      branchId: z.number().optional(),
+      name: z.string().optional(),
+      code: z.string().optional(),
+      active: z.boolean().optional(),
+      isActive: z.boolean().optional(),
+    });
+    const ListSchema = z.object({
+      data: z.union([
+        z.object({ branches: z.array(BranchSchema).optional() }).passthrough(),
+        z.array(BranchSchema),
+      ]).optional(),
+      branches: z.array(BranchSchema).optional(),
+      success: z.boolean().optional(),
+    }).passthrough();
+    const parsed = ListSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(
+        `Paytef /getBranches returned unexpected shape: ${JSON.stringify(raw).slice(0, 300)}`,
+      );
+    }
+    // Extraer array de branches de la forma que sea
+    let branches: z.infer<typeof BranchSchema>[] = [];
+    if (parsed.data.branches) branches = parsed.data.branches;
+    else if (Array.isArray(parsed.data.data)) branches = parsed.data.data;
+    else if (parsed.data.data && 'branches' in parsed.data.data && parsed.data.data.branches) {
+      branches = parsed.data.data.branches;
+    }
+
+    if (branches.length === 0) {
+      throw new Error(
+        `Paytef /getBranches devolvió cero branches. Verifica que tu cuenta esté activa. ` +
+          `Raw: ${JSON.stringify(raw).slice(0, 300)}`,
+      );
+    }
+
+    // Picar la primera activa (o la primera si ninguna marca active explícita)
+    const firstActive =
+      branches.find((b) => b.active === true || b.isActive === true) ?? branches[0]!;
+    const companyID = firstActive.companyID ?? firstActive.companyId;
+    const branchID = firstActive.branchID ?? firstActive.branchId ?? firstActive.id;
+
+    if (!companyID || !branchID) {
+      throw new Error(
+        `Paytef branch sin companyID/branchID válidos: ${JSON.stringify(firstActive).slice(0, 200)}`,
+      );
+    }
+
+    this.cachedBranch = { companyID, branchID };
+    this.logger.log(
+      `Paytef branch auto-resolved: company=${companyID} branch=${branchID} name="${firstActive.name ?? firstActive.code ?? '?'}"`,
+    );
+    return this.cachedBranch;
+  }
 
   private baseUrl(): string {
     return this.config.get<string>('PAYTEF_API_URL') ?? 'https://api.paytef.es/gcf';
