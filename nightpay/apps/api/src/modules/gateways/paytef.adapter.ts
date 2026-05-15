@@ -170,7 +170,11 @@ export class PaytefAdapter implements GatewayAdapter {
         userEmail: 'cliente@nightpay.local',
         expirationHours: 24,
         language: 'ES',
-        isTest: process.env.NODE_ENV !== 'production',
+        // FORCED TEST MODE: cuenta del cliente puede estar activada SOLO en
+        // test mode (sandbox) mientras Paytef tramita el alta producción.
+        // Si esto destraba el /save, sabemos que la cuenta no está aún en prod.
+        // Override con env var PAYTEF_FORCE_TEST=false cuando esté en prod.
+        isTest: this.config.get<string>('PAYTEF_FORCE_TEST') === 'false' ? false : true,
         notifyResultURL: this.webhookUrl(),
         notifyResultURLKo: this.webhookUrl(), // mismo endpoint, evento distingue
       },
