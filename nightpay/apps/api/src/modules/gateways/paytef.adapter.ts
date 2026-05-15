@@ -180,7 +180,12 @@ export class PaytefAdapter implements GatewayAdapter {
     );
     if (!saveRes.ok) {
       const text = await saveRes.text().catch(() => '');
-      throw new Error(`Paytef /save failed: ${saveRes.status} ${text.slice(0, 200)}`);
+      // Diagnóstico: incluimos el body que enviamos (sin token Auth) para
+      // verificar el shape exacto contra los errores de validación Paytef.
+      const sentBody = JSON.stringify(saveBody).slice(0, 400);
+      throw new Error(
+        `Paytef /save failed: ${saveRes.status} ${text.slice(0, 200)} | sent: ${sentBody}`,
+      );
     }
     const SaveResponseSchema = z.object({
       success: z.boolean().optional(),
