@@ -73,6 +73,9 @@ export class PaytefAdapter implements GatewayAdapter {
   // Cache en memoria del companyID/branchID resueltos. Solo Paytef → 1 sola
   // companía + N branches; pickeamos la primera activa al primer authorize.
   private cachedBranch: { companyID: number; branchID: number } | null = null;
+  // Cache de la respuesta cruda de /getBranches para debugging (qué IDs y
+  // shape devolvió Paytef cuando auto-resolvimos).
+  private cachedBranchRaw: string | null = null;
 
   constructor(
     @Inject(ConfigService) config: ConfigService,
@@ -187,9 +190,12 @@ export class PaytefAdapter implements GatewayAdapter {
     );
     if (!saveRes.ok) {
       const text = await saveRes.text().catch(() => '');
-      const sentBody = JSON.stringify(saveBody).slice(0, 1500);
+      const sentBody = JSON.stringify(saveBody).slice(0, 800);
+      const branchDump = this.cachedBranchRaw
+        ? ` | branchesRaw: ${this.cachedBranchRaw.slice(0, 800)}`
+        : '';
       throw new Error(
-        `Paytef /save failed: ${saveRes.status} ${text.slice(0, 250)} | sent: ${sentBody}`,
+        `Paytef /save failed: ${saveRes.status} ${text.slice(0, 250)} | sent: ${sentBody}${branchDump}`,
       );
     }
     const SaveResponseSchema = z.object({
@@ -424,6 +430,8 @@ export class PaytefAdapter implements GatewayAdapter {
       );
     }
     const raw: unknown = await res.json();
+    // Cachea el dump para diagnosis si /save falla con "Branch not found"
+    this.cachedBranchRaw = JSON.stringify(raw).slice(0, 1500);
     // Respuesta esperada: { data: { branches: [{ companyID, branchID, name, active }] } }
     // o variantes — intentamos varias formas.
     const BranchSchema = z.object({
