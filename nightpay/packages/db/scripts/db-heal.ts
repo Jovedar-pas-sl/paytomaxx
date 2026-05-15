@@ -9,16 +9,9 @@
  *   is in a failed state (finished_at IS NULL). On a production box without
  *   shell access, a partially-applied migration can wedge all subsequent deploys.
  *
- * What it does:
- *   1. Marks any "in-progress / failed" migration row as resolved (finished_at = NOW()).
- *      Safe because every migration in this repo uses IF NOT EXISTS / IF EXISTS
- *      guards — re-running them is a no-op.
- *   2. Defensively adds the columns + JSON defaults that newer code paths
- *      (revenueCategory, operatorCommissionDefaults, platformCommissionBps, tip*)
- *      require. ALTER ... IF NOT EXISTS is idempotent.
- *   3. Backfills NULLs so subsequent NOT NULL constraints don't trip.
- *   4. Drops then re-adds CHECK constraints that may have failed on bad data
- *      (cleans the bad data first when safe).
+ * IMPORTANT: Prisma's $executeRawUnsafe uses extended query protocol which only
+ *   runs ONE statement per call (any `;` after the first is ignored). So every
+ *   ALTER must be its own line in the steps array.
  *
  * Exits 0 on success (including no-op). Exits 1 only on connect failure.
  */
@@ -49,170 +42,106 @@ async function main() {
       console.log('[db-heal] no stuck migrations');
     }
 
+    // Cada step = UN solo statement SQL (Prisma extended protocol limitation).
     const steps: Array<{ name: string; sql: string }> = [
-      {
-        name: 'venues.operatorCommissionDefaults JSONB',
-        sql: `
-          ALTER TABLE "venues"
-            ADD COLUMN IF NOT EXISTS "operatorCommissionDefaults" JSONB
-            DEFAULT '{"CHICA_SERVICE":9000,"VENUE_BAR":0,"VENUE_ROOM":0,"VENUE_FOOD":0,"EXTRA":0}'::jsonb;
-          UPDATE "venues"
-             SET "operatorCommissionDefaults" = '{"CHICA_SERVICE":9000,"VENUE_BAR":0,"VENUE_ROOM":0,"VENUE_FOOD":0,"EXTRA":0}'::jsonb
-           WHERE "operatorCommissionDefaults" IS NULL;
-          ALTER TABLE "venues" ALTER COLUMN "operatorCommissionDefaults" SET NOT NULL;
-        `,
-      },
-      {
-        name: 'venues.platformCommissionBps INT',
-        sql: `
-          ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "platformCommissionBps" INT DEFAULT 1000;
-          UPDATE "venues" SET "platformCommissionBps" = 1000 WHERE "platformCommissionBps" IS NULL;
-          ALTER TABLE "venues" ALTER COLUMN "platformCommissionBps" SET NOT NULL;
-        `,
-      },
-      {
-        name: 'venues.operatorMaxCobroCents INT',
-        sql: `
-          ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "operatorMaxCobroCents" INT DEFAULT 20000;
-          UPDATE "venues" SET "operatorMaxCobroCents" = 20000 WHERE "operatorMaxCobroCents" IS NULL;
-          ALTER TABLE "venues" ALTER COLUMN "operatorMaxCobroCents" SET NOT NULL;
-        `,
-      },
-      {
-        name: 'venues.vatBps + vatRegime',
-        sql: `
-          ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "vatBps" INT DEFAULT 2100;
-          ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "vatRegime" TEXT DEFAULT 'GENERAL';
-          UPDATE "venues" SET "vatBps" = 2100 WHERE "vatBps" IS NULL;
-          UPDATE "venues" SET "vatRegime" = 'GENERAL' WHERE "vatRegime" IS NULL;
-          ALTER TABLE "venues" ALTER COLUMN "vatBps" SET NOT NULL;
-          ALTER TABLE "venues" ALTER COLUMN "vatRegime" SET NOT NULL;
-        `,
-      },
-      {
-        name: 'payments.revenueCategory TEXT',
-        sql: `
-          ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "revenueCategory" TEXT DEFAULT 'EXTRA';
-          UPDATE "payments"
-             SET "revenueCategory" = CASE
-               WHEN "walletId" IS NULL AND "createdByUserId" IS NOT NULL THEN 'CHICA_SERVICE'
-               ELSE 'EXTRA'
-             END
-           WHERE "revenueCategory" IS NULL;
-          ALTER TABLE "payments" ALTER COLUMN "revenueCategory" SET NOT NULL;
-        `,
-      },
-      {
-        name: 'payments.tipCents/tipGoesTo/tipBeneficiaryUserId',
-        sql: `
-          ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipCents" INT DEFAULT 0;
-          ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipGoesTo" TEXT;
-          ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipBeneficiaryUserId" UUID;
-          UPDATE "payments" SET "tipCents" = 0 WHERE "tipCents" IS NULL;
-          ALTER TABLE "payments" ALTER COLUMN "tipCents" SET NOT NULL;
-        `,
-      },
-      {
-        name: 'payments.platformCommissionBps + captureMethod + walletId',
-        sql: `
-          ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "platformCommissionBps" INT;
-          ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "captureMethod" TEXT;
-          ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "walletId" UUID;
-        `,
-      },
-      {
-        name: 'terminals.zone + hardwareModel + deviceSerial',
-        sql: `
-          ALTER TABLE "terminals" ADD COLUMN IF NOT EXISTS "zone" TEXT;
-          ALTER TABLE "terminals" ADD COLUMN IF NOT EXISTS "hardwareModel" TEXT;
-          ALTER TABLE "terminals" ADD COLUMN IF NOT EXISTS "deviceSerial" TEXT;
-        `,
-      },
-      {
-        name: 'users.isSuperAdmin + onboarding fields',
-        sql: `
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "isSuperAdmin" BOOLEAN DEFAULT false;
-          UPDATE "users" SET "isSuperAdmin" = false WHERE "isSuperAdmin" IS NULL;
-          ALTER TABLE "users" ALTER COLUMN "isSuperAdmin" SET NOT NULL;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "displayName" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "invitedAt" TIMESTAMPTZ;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "inviteToken" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "selfOnboardingToken" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "commissionBps" INT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutMethod" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutAddress" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutMetadata" JSONB;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutLabel" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "phone" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "passportCountry" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "passportLast4" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hasEmpadronamiento" BOOLEAN DEFAULT false;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hasNie" BOOLEAN DEFAULT false;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hasTie" BOOLEAN DEFAULT false;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletProvider" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletStatus" TEXT;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletTestPassed" BOOLEAN DEFAULT false;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletTestAt" TIMESTAMPTZ;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "needsHelpWallet" BOOLEAN DEFAULT false;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "needsHelpDocs" BOOLEAN DEFAULT false;
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "onboardingStatus" TEXT DEFAULT 'NEW';
-          ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "onboardingNotes" TEXT;
-          UPDATE "users" SET "onboardingStatus" = 'NEW' WHERE "onboardingStatus" IS NULL;
-          UPDATE "users" SET "hasEmpadronamiento" = false WHERE "hasEmpadronamiento" IS NULL;
-          UPDATE "users" SET "hasNie" = false WHERE "hasNie" IS NULL;
-          UPDATE "users" SET "hasTie" = false WHERE "hasTie" IS NULL;
-          UPDATE "users" SET "walletTestPassed" = false WHERE "walletTestPassed" IS NULL;
-          UPDATE "users" SET "needsHelpWallet" = false WHERE "needsHelpWallet" IS NULL;
-          UPDATE "users" SET "needsHelpDocs" = false WHERE "needsHelpDocs" IS NULL;
-        `,
-      },
-      {
-        name: 'Provider enum +PAYTEF',
-        sql: `
-          DO $$
-          BEGIN
-            ALTER TYPE "Provider" ADD VALUE IF NOT EXISTS 'PAYTEF';
-          EXCEPTION WHEN undefined_object THEN NULL;
-          END $$;
-        `,
-      },
-      {
-        name: 'CHECK constraints — clean bad data first, then re-add',
-        sql: `
-          ALTER TABLE "operator_payouts" DROP CONSTRAINT IF EXISTS operator_payouts_total_positive;
-          DELETE FROM "operator_payouts" WHERE "totalCents" <= 0;
-          ALTER TABLE "operator_payouts"
-            ADD CONSTRAINT operator_payouts_total_positive CHECK ("totalCents" > 0);
+      // ─── venues ────────────────────────────────────────────────────
+      { name: 'venues.operatorCommissionDefaults add', sql: `ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "operatorCommissionDefaults" JSONB DEFAULT '{"CHICA_SERVICE":9000,"VENUE_BAR":0,"VENUE_ROOM":0,"VENUE_FOOD":0,"EXTRA":0}'::jsonb` },
+      { name: 'venues.operatorCommissionDefaults backfill', sql: `UPDATE "venues" SET "operatorCommissionDefaults" = '{"CHICA_SERVICE":9000,"VENUE_BAR":0,"VENUE_ROOM":0,"VENUE_FOOD":0,"EXTRA":0}'::jsonb WHERE "operatorCommissionDefaults" IS NULL` },
+      { name: 'venues.operatorCommissionDefaults set not null', sql: `ALTER TABLE "venues" ALTER COLUMN "operatorCommissionDefaults" SET NOT NULL` },
+      { name: 'venues.platformCommissionBps add', sql: `ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "platformCommissionBps" INT DEFAULT 1000` },
+      { name: 'venues.platformCommissionBps backfill', sql: `UPDATE "venues" SET "platformCommissionBps" = 1000 WHERE "platformCommissionBps" IS NULL` },
+      { name: 'venues.platformCommissionBps set not null', sql: `ALTER TABLE "venues" ALTER COLUMN "platformCommissionBps" SET NOT NULL` },
+      { name: 'venues.operatorMaxCobroCents add', sql: `ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "operatorMaxCobroCents" INT DEFAULT 20000` },
+      { name: 'venues.operatorMaxCobroCents backfill', sql: `UPDATE "venues" SET "operatorMaxCobroCents" = 20000 WHERE "operatorMaxCobroCents" IS NULL` },
+      { name: 'venues.operatorMaxCobroCents set not null', sql: `ALTER TABLE "venues" ALTER COLUMN "operatorMaxCobroCents" SET NOT NULL` },
+      { name: 'venues.vatBps add', sql: `ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "vatBps" INT DEFAULT 2100` },
+      { name: 'venues.vatRegime add', sql: `ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "vatRegime" TEXT DEFAULT 'GENERAL'` },
+      { name: 'venues.vatBps backfill', sql: `UPDATE "venues" SET "vatBps" = 2100 WHERE "vatBps" IS NULL` },
+      { name: 'venues.vatRegime backfill', sql: `UPDATE "venues" SET "vatRegime" = 'GENERAL' WHERE "vatRegime" IS NULL` },
+      { name: 'venues.vatBps set not null', sql: `ALTER TABLE "venues" ALTER COLUMN "vatBps" SET NOT NULL` },
+      { name: 'venues.vatRegime set not null', sql: `ALTER TABLE "venues" ALTER COLUMN "vatRegime" SET NOT NULL` },
 
-          ALTER TABLE "operator_earnings" DROP CONSTRAINT IF EXISTS operator_earnings_reversed_bounded;
-          UPDATE "operator_earnings"
-             SET "reversedCents" = LEAST("reversedCents", "commissionCents" + COALESCE("tipCents",0))
-           WHERE "reversedCents" > "commissionCents" + COALESCE("tipCents",0);
-          UPDATE "operator_earnings" SET "reversedCents" = 0 WHERE "reversedCents" < 0;
-          ALTER TABLE "operator_earnings"
-            ADD CONSTRAINT operator_earnings_reversed_bounded
-            CHECK ("reversedCents" >= 0 AND "reversedCents" <= "commissionCents" + COALESCE("tipCents", 0));
+      // ─── payments ──────────────────────────────────────────────────
+      { name: 'payments.captureMethod add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "captureMethod" TEXT` },
+      { name: 'payments.walletId add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "walletId" UUID` },
+      { name: 'payments.platformCommissionBps add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "platformCommissionBps" INT` },
+      { name: 'payments.revenueCategory add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "revenueCategory" TEXT DEFAULT 'EXTRA'` },
+      { name: 'payments.revenueCategory backfill', sql: `UPDATE "payments" SET "revenueCategory" = CASE WHEN "walletId" IS NULL AND "createdByUserId" IS NOT NULL THEN 'CHICA_SERVICE' ELSE 'EXTRA' END WHERE "revenueCategory" IS NULL` },
+      { name: 'payments.revenueCategory set not null', sql: `ALTER TABLE "payments" ALTER COLUMN "revenueCategory" SET NOT NULL` },
+      { name: 'payments.tipCents add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipCents" INT DEFAULT 0` },
+      { name: 'payments.tipGoesTo add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipGoesTo" TEXT` },
+      { name: 'payments.tipBeneficiaryUserId add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipBeneficiaryUserId" UUID` },
+      { name: 'payments.tipCents backfill', sql: `UPDATE "payments" SET "tipCents" = 0 WHERE "tipCents" IS NULL` },
+      { name: 'payments.tipCents set not null', sql: `ALTER TABLE "payments" ALTER COLUMN "tipCents" SET NOT NULL` },
 
-          ALTER TABLE "payments" DROP CONSTRAINT IF EXISTS payments_revenue_category_valid;
-          UPDATE "payments" SET "revenueCategory" = 'EXTRA'
-           WHERE "revenueCategory" NOT IN ('CHICA_SERVICE','VENUE_BAR','VENUE_ROOM','VENUE_FOOD','EXTRA');
-          ALTER TABLE "payments"
-            ADD CONSTRAINT payments_revenue_category_valid
-            CHECK ("revenueCategory" IN ('CHICA_SERVICE','VENUE_BAR','VENUE_ROOM','VENUE_FOOD','EXTRA'));
-        `,
-      },
+      // ─── terminals ─────────────────────────────────────────────────
+      { name: 'terminals.zone add', sql: `ALTER TABLE "terminals" ADD COLUMN IF NOT EXISTS "zone" TEXT` },
+      { name: 'terminals.hardwareModel add', sql: `ALTER TABLE "terminals" ADD COLUMN IF NOT EXISTS "hardwareModel" TEXT` },
+      { name: 'terminals.deviceSerial add', sql: `ALTER TABLE "terminals" ADD COLUMN IF NOT EXISTS "deviceSerial" TEXT` },
+
+      // ─── users ─────────────────────────────────────────────────────
+      { name: 'users.isSuperAdmin add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "isSuperAdmin" BOOLEAN DEFAULT false` },
+      { name: 'users.isSuperAdmin backfill', sql: `UPDATE "users" SET "isSuperAdmin" = false WHERE "isSuperAdmin" IS NULL` },
+      { name: 'users.isSuperAdmin set not null', sql: `ALTER TABLE "users" ALTER COLUMN "isSuperAdmin" SET NOT NULL` },
+      { name: 'users.displayName add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "displayName" TEXT` },
+      { name: 'users.invitedAt add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "invitedAt" TIMESTAMPTZ` },
+      { name: 'users.inviteToken add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "inviteToken" TEXT` },
+      { name: 'users.selfOnboardingToken add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "selfOnboardingToken" TEXT` },
+      { name: 'users.commissionBps add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "commissionBps" INT` },
+      { name: 'users.payoutMethod add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutMethod" TEXT` },
+      { name: 'users.payoutAddress add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutAddress" TEXT` },
+      { name: 'users.payoutMetadata add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutMetadata" JSONB` },
+      { name: 'users.payoutLabel add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutLabel" TEXT` },
+      { name: 'users.phone add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "phone" TEXT` },
+      { name: 'users.passportCountry add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "passportCountry" TEXT` },
+      { name: 'users.passportLast4 add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "passportLast4" TEXT` },
+      { name: 'users.hasEmpadronamiento add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hasEmpadronamiento" BOOLEAN DEFAULT false` },
+      { name: 'users.hasEmpadronamiento backfill', sql: `UPDATE "users" SET "hasEmpadronamiento" = false WHERE "hasEmpadronamiento" IS NULL` },
+      { name: 'users.hasNie add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hasNie" BOOLEAN DEFAULT false` },
+      { name: 'users.hasNie backfill', sql: `UPDATE "users" SET "hasNie" = false WHERE "hasNie" IS NULL` },
+      { name: 'users.hasTie add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hasTie" BOOLEAN DEFAULT false` },
+      { name: 'users.hasTie backfill', sql: `UPDATE "users" SET "hasTie" = false WHERE "hasTie" IS NULL` },
+      { name: 'users.walletProvider add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletProvider" TEXT` },
+      { name: 'users.walletStatus add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletStatus" TEXT` },
+      { name: 'users.walletTestPassed add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletTestPassed" BOOLEAN DEFAULT false` },
+      { name: 'users.walletTestPassed backfill', sql: `UPDATE "users" SET "walletTestPassed" = false WHERE "walletTestPassed" IS NULL` },
+      { name: 'users.walletTestAt add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletTestAt" TIMESTAMPTZ` },
+      { name: 'users.needsHelpWallet add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "needsHelpWallet" BOOLEAN DEFAULT false` },
+      { name: 'users.needsHelpWallet backfill', sql: `UPDATE "users" SET "needsHelpWallet" = false WHERE "needsHelpWallet" IS NULL` },
+      { name: 'users.needsHelpDocs add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "needsHelpDocs" BOOLEAN DEFAULT false` },
+      { name: 'users.needsHelpDocs backfill', sql: `UPDATE "users" SET "needsHelpDocs" = false WHERE "needsHelpDocs" IS NULL` },
+      { name: 'users.onboardingStatus add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "onboardingStatus" TEXT DEFAULT 'NEW'` },
+      { name: 'users.onboardingStatus backfill', sql: `UPDATE "users" SET "onboardingStatus" = 'NEW' WHERE "onboardingStatus" IS NULL` },
+      { name: 'users.onboardingNotes add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "onboardingNotes" TEXT` },
+
+      // ─── Provider enum ─────────────────────────────────────────────
+      { name: 'Provider enum +PAYTEF', sql: `DO $$ BEGIN ALTER TYPE "Provider" ADD VALUE IF NOT EXISTS 'PAYTEF'; EXCEPTION WHEN undefined_object THEN NULL; END $$` },
+
+      // ─── CHECK constraints — clean data first, then re-add ─────────
+      { name: 'drop operator_payouts CHECK', sql: `ALTER TABLE "operator_payouts" DROP CONSTRAINT IF EXISTS operator_payouts_total_positive` },
+      { name: 'clean operator_payouts bad data', sql: `DELETE FROM "operator_payouts" WHERE "totalCents" <= 0` },
+      { name: 'add operator_payouts CHECK', sql: `ALTER TABLE "operator_payouts" ADD CONSTRAINT operator_payouts_total_positive CHECK ("totalCents" > 0)` },
+      { name: 'drop operator_earnings CHECK', sql: `ALTER TABLE "operator_earnings" DROP CONSTRAINT IF EXISTS operator_earnings_reversed_bounded` },
+      { name: 'clean operator_earnings high reversedCents', sql: `UPDATE "operator_earnings" SET "reversedCents" = LEAST("reversedCents", "commissionCents" + COALESCE("tipCents",0)) WHERE "reversedCents" > "commissionCents" + COALESCE("tipCents",0)` },
+      { name: 'clean operator_earnings negative reversedCents', sql: `UPDATE "operator_earnings" SET "reversedCents" = 0 WHERE "reversedCents" < 0` },
+      { name: 'add operator_earnings CHECK', sql: `ALTER TABLE "operator_earnings" ADD CONSTRAINT operator_earnings_reversed_bounded CHECK ("reversedCents" >= 0 AND "reversedCents" <= "commissionCents" + COALESCE("tipCents", 0))` },
+      { name: 'drop payments revenueCategory CHECK', sql: `ALTER TABLE "payments" DROP CONSTRAINT IF EXISTS payments_revenue_category_valid` },
+      { name: 'clean payments bad revenueCategory', sql: `UPDATE "payments" SET "revenueCategory" = 'EXTRA' WHERE "revenueCategory" NOT IN ('CHICA_SERVICE','VENUE_BAR','VENUE_ROOM','VENUE_FOOD','EXTRA')` },
+      { name: 'add payments revenueCategory CHECK', sql: `ALTER TABLE "payments" ADD CONSTRAINT payments_revenue_category_valid CHECK ("revenueCategory" IN ('CHICA_SERVICE','VENUE_BAR','VENUE_ROOM','VENUE_FOOD','EXTRA'))` },
     ];
 
+    let okCount = 0;
+    let errCount = 0;
     for (const step of steps) {
       try {
         await prisma.$executeRawUnsafe(step.sql);
-        console.log(`[db-heal] ok  ${step.name}`);
+        okCount++;
       } catch (e) {
+        errCount++;
         console.error(`[db-heal] err ${step.name}: ${(e as Error).message}`);
       }
     }
-
-    console.log('[db-heal] done');
+    console.log(`[db-heal] done — ${okCount} ok, ${errCount} err out of ${steps.length} steps`);
   } catch (e) {
     console.error('[db-heal] FATAL:', (e as Error).message);
     process.exitCode = 1;
