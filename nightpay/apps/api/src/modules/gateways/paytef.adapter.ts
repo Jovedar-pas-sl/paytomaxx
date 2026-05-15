@@ -155,10 +155,12 @@ export class PaytefAdapter implements GatewayAdapter {
         currency: input.currency,
         description: `NightPay ${input.reference}`,
         clientID: input.reference, // nuestro UUID payment como clientID Paytef
-        // Paytef requiere userFullName no vacío (422 si falta). El cliente
-        // final lo introduce en el formulario; aquí ponemos un placeholder
-        // que Paytef sustituye al cobro real. Usamos 'Cliente' genérico.
+        // Paytef requiere userFullName + userEmail no vacíos (422). El cliente
+        // real no los introduce porque pagamos directo sin formulario previo —
+        // son placeholders que Paytef requiere por API pero no son visibles al
+        // cliente en el flujo Payment LINK.
         userFullName: 'Cliente',
+        userEmail: 'cliente@nightpay.local',
         language: 'ES',
         isTest: process.env.NODE_ENV !== 'production',
         notifyResultURL: this.webhookUrl(),
