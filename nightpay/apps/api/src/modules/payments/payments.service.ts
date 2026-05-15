@@ -1161,10 +1161,22 @@ export class PaymentsService {
       where: { id: paymentId },
       include: { wallet: { select: { qrToken: true } } },
     });
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 4100}`;
+    // Helper para tratar string vacío y whitespace como "no configurado".
+    // process.env.X devuelve undefined si no existe, pero "" si Dokploy
+    // tiene la variable definida sin valor → ?? no la captura.
+    const nonEmpty = (v: string | undefined): string | undefined =>
+      v && v.trim().length > 0 ? v.trim().replace(/\/+$/, '') : undefined;
+    const baseUrl =
+      nonEmpty(process.env.NEXT_PUBLIC_API_URL) ??
+      `http://localhost:${process.env.PORT ?? 4100}`;
     // Preferimos web-client si está configurado (UX nicer); si no, el API
     // mismo expone /pay/{token} con redirect 302 al checkout del PSP.
-    const clientUrl = process.env.NEXT_PUBLIC_WEB_CLIENT_URL ?? baseUrl;
+    let clientUrl = nonEmpty(process.env.NEXT_PUBLIC_WEB_CLIENT_URL) ?? baseUrl;
+    // Defensa: si el env var no incluye protocolo, prepend https:// para
+    // que el QR genere una URL absoluta escaneable, no un path relativo.
+    if (!/^https?:\/\//i.test(clientUrl)) {
+      clientUrl = `https://${clientUrl}`;
+    }
     const qrUrl = `${clientUrl}/pay/${p.qrToken}`;
     const qrPngDataUrl = await QRCode.toDataURL(qrUrl, {
       errorCorrectionLevel: 'M',
