@@ -58,8 +58,12 @@ export class ProblemDetailsFilter implements ExceptionFilter {
         }
       }
     } else if (exception instanceof Error) {
-      title = this.isProd ? 'Internal Server Error' : exception.name;
-      detail = this.isProd ? undefined : exception.message;
+      // TEMP DIAGNOSTIC: exponemos el mensaje incluso en prod hasta que el
+      // sistema esté estable. El usuario no tiene acceso a logs de Dokploy
+      // y necesitamos ver el error en la response para depurar. Revertir
+      // cuando la app esté en producción real con tráfico de clientes.
+      title = exception.name;
+      detail = exception.message;
       this.logger.error(`Unhandled: ${exception.message}`, exception.stack);
       // Sentry: solo reportar 5xx (errores no-HttpException son 500 por default).
       reportError(exception, { tag: 'http.unhandled' });
