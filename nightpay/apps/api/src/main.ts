@@ -2,6 +2,7 @@ import './bootstrap-env'; // PRIMERO — carga .env.local antes que cualquier mo
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
+import { RequestMethod } from '@nestjs/common';
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -72,7 +73,12 @@ async function bootstrap() {
     },
   });
 
-  app.setGlobalPrefix('v1');
+  // /pay/:token es público para clientes que escanean QR — fuera del prefix /v1
+  // para que el QR pueda apuntar a https://api.dominio.com/pay/{token}
+  // (limpio, sin /v1 en la URL que llega al teléfono).
+  app.setGlobalPrefix('v1', {
+    exclude: [{ path: 'pay/:token', method: RequestMethod.GET }],
+  });
 
   // CORS estricto via env CORS_ORIGINS (CSV). Dev: permite todo.
   const allowed = parseCorsOrigins(env.CORS_ORIGINS);

@@ -266,6 +266,10 @@ model Payment {
   tipGoesTo             String?
   tipBeneficiaryUserId  String? @db.Uuid
 
+  // URL del payment-link/checkout del PSP. NightPay redirige al cliente aquí
+  // cuando escanea el QR. Se popula al primer startAuthorization() exitoso.
+  gatewayPaymentUrl    String?
+
   venue              Venue            @relation(fields: [tenantId], references: [id])
   terminal           Terminal         @relation(fields: [terminalId], references: [id])
   createdBy          User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])

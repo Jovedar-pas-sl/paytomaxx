@@ -71,6 +71,7 @@ async function main() {
       { name: 'payments.tipCents add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipCents" INT DEFAULT 0` },
       { name: 'payments.tipGoesTo add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipGoesTo" TEXT` },
       { name: 'payments.tipBeneficiaryUserId add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipBeneficiaryUserId" UUID` },
+      { name: 'payments.gatewayPaymentUrl add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "gatewayPaymentUrl" TEXT` },
       { name: 'payments.tipCents backfill', sql: `UPDATE "payments" SET "tipCents" = 0 WHERE "tipCents" IS NULL` },
       { name: 'payments.tipCents set not null', sql: `ALTER TABLE "payments" ALTER COLUMN "tipCents" SET NOT NULL` },
 

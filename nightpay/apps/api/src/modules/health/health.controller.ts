@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'heal-v2-2026-05-15',
+      build: 'pay-redirect-2026-05-15',
     } as Health & { build: string };
   }
 }

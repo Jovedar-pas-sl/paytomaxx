@@ -340,6 +340,56 @@ export class PaymentsService {
   }
 
   /**
+   * Resolver el destino de redirect cuando el cliente escanea el QR.
+   * - Si el payment ya tiene gatewayPaymentUrl → redirige allí (Paytef checkout).
+   * - Si está CREATED y no se ha iniciado autorización → la inicia y redirige.
+   * - Si está en estado terminal (AUTHORIZED/FAILED/...) → URL de "thank you".
+   */
+  async resolveRedirect(qrToken: string): Promise<{ url: string; status: PaymentMachineState }> {
+    const payment = await this.prisma.asSystem((tx) =>
+      tx.payment.findUnique({
+        where: { qrToken },
+        select: {
+          id: true,
+          status: true,
+          qrExpiresAt: true,
+          gatewayPaymentUrl: true,
+        },
+      }),
+    );
+    if (!payment) throw new NotFoundException('Payment not found');
+
+    if (payment.gatewayPaymentUrl) {
+      return { url: payment.gatewayPaymentUrl, status: payment.status as PaymentMachineState };
+    }
+
+    // No URL todavía — start authorization para obtenerla.
+    if (payment.status === 'CREATED' || payment.status === 'AWAITING_CAPTURE') {
+      if (payment.qrExpiresAt < new Date()) {
+        throw new ConflictException('QR expired');
+      }
+      await this.startAuthorization(qrToken);
+      // Re-leer la URL ahora persistida
+      const refreshed = await this.prisma.asSystem((tx) =>
+        tx.payment.findUnique({
+          where: { id: payment.id },
+          select: { status: true, gatewayPaymentUrl: true },
+        }),
+      );
+      if (refreshed?.gatewayPaymentUrl) {
+        return {
+          url: refreshed.gatewayPaymentUrl,
+          status: refreshed.status as PaymentMachineState,
+        };
+      }
+    }
+
+    throw new ConflictException(
+      `Payment en estado ${payment.status} — no se puede redirigir al checkout`,
+    );
+  }
+
+  /**
    * Lookup público por qrToken (cliente escanea, sin auth).
    */
   async getByToken(qrToken: string): Promise<PublicPaymentView> {
@@ -932,6 +982,7 @@ export class PaymentsService {
 
     // 3) Llamar a la pasarela (con timeouts y circuit breaker — ver adapter)
     let providerTxId: string;
+    let paymentLinkUrl: string | null = null;
     try {
       const adapter = this.gateways.get(credential.provider);
       const result = await adapter.authorize({
@@ -943,6 +994,7 @@ export class PaymentsService {
         reference: payment.id,
       });
       providerTxId = result.providerTxId;
+      paymentLinkUrl = result.paymentLinkUrl ?? null;
     } catch (err) {
       this.logger.error(`Gateway authorize failed for ${payment.id}: ${(err as Error).message}`);
       // Saga: si la pasarela rechaza inmediatamente, marcar FAILED.
@@ -954,11 +1006,14 @@ export class PaymentsService {
       throw new ConflictException('Gateway temporarily unavailable');
     }
 
-    // 4) Persistir providerTxId real
+    // 4) Persistir providerTxId real + URL del checkout PSP si la tenemos
     await this.prisma.asSystem((tx) =>
       tx.payment.update({
         where: { id: payment.id },
-        data: { providerTxId },
+        data: {
+          providerTxId,
+          ...(paymentLinkUrl ? { gatewayPaymentUrl: paymentLinkUrl } : {}),
+        },
       }),
     );
 
@@ -1107,8 +1162,9 @@ export class PaymentsService {
       include: { wallet: { select: { qrToken: true } } },
     });
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 4100}`;
-    const clientUrl =
-      process.env.NEXT_PUBLIC_WEB_CLIENT_URL ?? baseUrl.replace(/:\d+$/, ':4101');
+    // Preferimos web-client si está configurado (UX nicer); si no, el API
+    // mismo expone /pay/{token} con redirect 302 al checkout del PSP.
+    const clientUrl = process.env.NEXT_PUBLIC_WEB_CLIENT_URL ?? baseUrl;
     const qrUrl = `${clientUrl}/pay/${p.qrToken}`;
     const qrPngDataUrl = await QRCode.toDataURL(qrUrl, {
       errorCorrectionLevel: 'M',

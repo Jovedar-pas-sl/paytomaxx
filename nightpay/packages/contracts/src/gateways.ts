@@ -35,6 +35,12 @@ export const AuthorizeResultSchema = z.object({
   provider: ProviderSchema,
   providerTxId: z.string(),
   status: GatewayStatusSchema,
+  /**
+   * URL al checkout/payment-link del PSP. Cuando el provider hospeda la página
+   * de pago (Paytef Payment LINK, Stripe Checkout, etc.) NightPay redirige
+   * al cliente aquí. Null para providers que no usan hosted checkout.
+   */
+  paymentLinkUrl: z.string().url().optional(),
 });
 export type AuthorizeResult = z.infer<typeof AuthorizeResultSchema>;
 

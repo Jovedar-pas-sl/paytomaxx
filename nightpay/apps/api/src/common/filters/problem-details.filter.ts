@@ -25,10 +25,10 @@ interface ProblemDetails {
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {
   private readonly logger = new Logger(ProblemDetailsFilter.name);
-  private readonly isProd: boolean;
 
-  constructor(isProd: boolean) {
-    this.isProd = isProd;
+  constructor(_isProd: boolean) {
+    // isProd kept for future use — currently exposing detail unconditionally
+    // during bring-up. See temp diagnostic note below.
   }
 
   catch(exception: unknown, host: ArgumentsHost): void {

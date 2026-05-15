@@ -229,6 +229,7 @@ export class PaytefAdapter implements GatewayAdapter {
       provider: 'PAYTEF',
       providerTxId: saveData.paymentID,
       status: 'PROCESSING',
+      ...(saveData.paymentURL ? { paymentLinkUrl: saveData.paymentURL } : {}),
     };
   }
 
