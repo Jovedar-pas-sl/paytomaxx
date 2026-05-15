@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'qr-absolute-url-2026-05-15',
+      build: 'gw-error-detail-2026-05-15',
     } as Health & { build: string };
   }
 }

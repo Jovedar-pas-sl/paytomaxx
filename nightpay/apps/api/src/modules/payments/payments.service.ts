@@ -996,14 +996,16 @@ export class PaymentsService {
       providerTxId = result.providerTxId;
       paymentLinkUrl = result.paymentLinkUrl ?? null;
     } catch (err) {
-      this.logger.error(`Gateway authorize failed for ${payment.id}: ${(err as Error).message}`);
+      const errMsg = (err as Error).message || 'unknown';
+      this.logger.error(`Gateway authorize failed for ${payment.id}: ${errMsg}`);
       // Saga: si la pasarela rechaza inmediatamente, marcar FAILED.
       try {
         await this.transition(payment.id, { type: 'FAILED', reason: 'gateway-authorize-error' });
       } catch (e2) {
         if (!(e2 instanceof InvalidTransitionError)) throw e2;
       }
-      throw new ConflictException('Gateway temporarily unavailable');
+      // Propagar mensaje real durante bring-up (sin tener acceso a logs Dokploy).
+      throw new ConflictException(`Gateway error: ${errMsg.slice(0, 300)}`);
     }
 
     // 4) Persistir providerTxId real + URL del checkout PSP si la tenemos
