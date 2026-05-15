@@ -41,8 +41,20 @@ export class PublicPayController {
         .send(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Cobro no disponible</title>
-<style>body{font-family:system-ui;margin:0;padding:2rem;background:#0a0a0a;color:#fff;display:grid;place-items:center;min-height:100vh}main{max-width:24rem;text-align:center}h1{font-size:1.25rem;margin:0 0 1rem}p{color:#bbb;line-height:1.5}</style>
-</head><body><main><h1>No se puede continuar con el cobro</h1><p>${escaped}</p><p style="margin-top:2rem;font-size:0.8rem;color:#666">Pide a quien te lo envió que genere un nuevo cobro.</p></main></body></html>`);
+<style>
+  body{font-family:system-ui;margin:0;padding:1rem;background:#0a0a0a;color:#fff;min-height:100vh}
+  main{max-width:50rem;margin:0 auto}
+  h1{font-size:1.1rem;margin:0 0 0.75rem}
+  pre{background:#1a1a1a;color:#eee;padding:1rem;border-radius:0.5rem;font-size:0.7rem;line-height:1.4;white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto;user-select:all;-webkit-user-select:all}
+  .hint{margin-top:1rem;font-size:0.75rem;color:#666}
+  button{margin-top:0.5rem;padding:0.5rem 1rem;background:#333;color:#fff;border:1px solid #555;border-radius:0.3rem;font-size:0.85rem;cursor:pointer}
+</style>
+</head><body><main>
+<h1>No se puede continuar con el cobro</h1>
+<pre id="m">${escaped}</pre>
+<button onclick="navigator.clipboard.writeText(document.getElementById('m').textContent).then(()=>this.textContent='✓ Copiado')">Copiar todo</button>
+<p class="hint">Pide a quien te lo envió que genere un nuevo cobro.</p>
+</main></body></html>`);
     }
   }
 }
