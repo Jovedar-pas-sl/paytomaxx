@@ -270,6 +270,13 @@ model Payment {
   // cuando escanea el QR. Se popula al primer startAuthorization() exitoso.
   gatewayPaymentUrl    String?
 
+  // Para PSPs que esperan form POST desde el navegador (Cecabank/Wipay TPV
+  // Virtual, Redsys, etc.) en vez de redirect. Shape:
+  //   { action: string, method: "POST", fields: Record<string,string> }
+  // Persistido para que un refresh del /pay/{token} no regenere firmas
+  // distintas (Cecabank rechaza Num_operacion duplicado).
+  gatewayCheckoutForm  Json?
+
   venue              Venue            @relation(fields: [tenantId], references: [id])
   terminal           Terminal         @relation(fields: [terminalId], references: [id])
   createdBy          User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])

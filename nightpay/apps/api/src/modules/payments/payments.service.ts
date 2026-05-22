@@ -341,11 +341,23 @@ export class PaymentsService {
 
   /**
    * Resolver el destino de redirect cuando el cliente escanea el QR.
-   * - Si el payment ya tiene gatewayPaymentUrl → redirige allí (Paytef checkout).
-   * - Si está CREATED y no se ha iniciado autorización → la inicia y redirige.
-   * - Si está en estado terminal (AUTHORIZED/FAILED/...) → URL de "thank you".
+   * Devuelve una shape discriminada por `kind`:
+   *  - 'redirect': el PSP da una URL hosted → 302 (Paytef Payment LINK)
+   *  - 'form':    el PSP espera POST desde browser → renderizamos HTML
+   *               auto-submit (Cecabank/Wipay TPV Virtual)
    */
-  async resolveRedirect(qrToken: string): Promise<{ url: string; status: PaymentMachineState }> {
+  async resolveRedirect(
+    qrToken: string,
+  ): Promise<
+    | { kind: 'redirect'; url: string; status: PaymentMachineState }
+    | {
+        kind: 'form';
+        action: string;
+        method: 'POST';
+        fields: Record<string, string>;
+        status: PaymentMachineState;
+      }
+  > {
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({
         where: { qrToken },
@@ -354,30 +366,71 @@ export class PaymentsService {
           status: true,
           qrExpiresAt: true,
           gatewayPaymentUrl: true,
+          gatewayCheckoutForm: true,
         },
       }),
     );
     if (!payment) throw new NotFoundException('Payment not found');
 
-    if (payment.gatewayPaymentUrl) {
-      return { url: payment.gatewayPaymentUrl, status: payment.status as PaymentMachineState };
+    // Si ya tenemos form persistido (Cecabank), devolvemos sin re-firmar
+    // (Num_operacion duplicado → 400 desde Cecabank).
+    if (payment.gatewayCheckoutForm) {
+      const form = payment.gatewayCheckoutForm as {
+        action: string;
+        method: 'POST';
+        fields: Record<string, string>;
+      };
+      return {
+        kind: 'form',
+        action: form.action,
+        method: 'POST',
+        fields: form.fields,
+        status: payment.status as PaymentMachineState,
+      };
     }
 
-    // No URL todavía — start authorization para obtenerla.
+    if (payment.gatewayPaymentUrl) {
+      return {
+        kind: 'redirect',
+        url: payment.gatewayPaymentUrl,
+        status: payment.status as PaymentMachineState,
+      };
+    }
+
+    // No URL ni form todavía — start authorization para obtenerlo.
     if (payment.status === 'CREATED' || payment.status === 'AWAITING_CAPTURE') {
       if (payment.qrExpiresAt < new Date()) {
         throw new ConflictException('QR expired');
       }
       await this.startAuthorization(qrToken);
-      // Re-leer la URL ahora persistida
+      // Re-leer lo que se haya persistido
       const refreshed = await this.prisma.asSystem((tx) =>
         tx.payment.findUnique({
           where: { id: payment.id },
-          select: { status: true, gatewayPaymentUrl: true },
+          select: {
+            status: true,
+            gatewayPaymentUrl: true,
+            gatewayCheckoutForm: true,
+          },
         }),
       );
+      if (refreshed?.gatewayCheckoutForm) {
+        const form = refreshed.gatewayCheckoutForm as {
+          action: string;
+          method: 'POST';
+          fields: Record<string, string>;
+        };
+        return {
+          kind: 'form',
+          action: form.action,
+          method: 'POST',
+          fields: form.fields,
+          status: refreshed.status as PaymentMachineState,
+        };
+      }
       if (refreshed?.gatewayPaymentUrl) {
         return {
+          kind: 'redirect',
           url: refreshed.gatewayPaymentUrl,
           status: refreshed.status as PaymentMachineState,
         };
@@ -983,6 +1036,11 @@ export class PaymentsService {
     // 3) Llamar a la pasarela (con timeouts y circuit breaker — ver adapter)
     let providerTxId: string;
     let paymentLinkUrl: string | null = null;
+    let checkoutForm: {
+      action: string;
+      method: 'POST';
+      fields: Record<string, string>;
+    } | null = null;
     try {
       const adapter = this.gateways.get(credential.provider);
       const result = await adapter.authorize({
@@ -995,6 +1053,7 @@ export class PaymentsService {
       });
       providerTxId = result.providerTxId;
       paymentLinkUrl = result.paymentLinkUrl ?? null;
+      checkoutForm = result.checkoutForm ?? null;
     } catch (err) {
       const errMsg = (err as Error).message || 'unknown';
       this.logger.error(`Gateway authorize failed for ${payment.id}: ${errMsg}`);
@@ -1008,13 +1067,15 @@ export class PaymentsService {
       throw new ConflictException(`Gateway error: ${errMsg.slice(0, 300)}`);
     }
 
-    // 4) Persistir providerTxId real + URL del checkout PSP si la tenemos
+    // 4) Persistir providerTxId real + URL/form del checkout PSP si los tenemos.
+    //    PSPs distintos: Paytef → paymentLinkUrl, Cecabank/Wipay → checkoutForm.
     await this.prisma.asSystem((tx) =>
       tx.payment.update({
         where: { id: payment.id },
         data: {
           providerTxId,
           ...(paymentLinkUrl ? { gatewayPaymentUrl: paymentLinkUrl } : {}),
+          ...(checkoutForm ? { gatewayCheckoutForm: checkoutForm } : {}),
         },
       }),
     );

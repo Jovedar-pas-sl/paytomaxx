@@ -21,6 +21,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
+import { WipayAdapter } from '../gateways/wipay.adapter';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
 import { MetricsService } from '../metrics/metrics.service';
 
@@ -34,6 +35,7 @@ export class WebhooksController {
   private readonly config: ConfigService;
 
   private readonly peanpe: PeanpeAdapter;
+  private readonly wipay: WipayAdapter;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -42,6 +44,7 @@ export class WebhooksController {
     @Inject(MetricsService) metrics: MetricsService,
     @Inject(ConfigService) config: ConfigService,
     @Inject(PeanpeAdapter) peanpe: PeanpeAdapter,
+    @Inject(WipayAdapter) wipay: WipayAdapter,
   ) {
     this.prisma = prisma;
     this.gateways = gateways;
@@ -49,6 +52,7 @@ export class WebhooksController {
     this.metrics = metrics;
     this.config = config;
     this.peanpe = peanpe;
+    this.wipay = wipay;
   }
 
   /**
@@ -66,7 +70,10 @@ export class WebhooksController {
     if (provider !== 'WIPAY' && provider !== 'PEANPE' && provider !== 'PAYTEF') {
       throw new BadRequestException(`Unknown provider: ${providerParam}`);
     }
-    // Paytef y Peanpe usan rutas dedicadas (URL secreta / challenge-response).
+    // Wipay, Paytef y Peanpe usan rutas dedicadas:
+    //  - PAYTEF: URL secreta
+    //  - PEANPE: challenge-response
+    //  - WIPAY: form-urlencoded + response texto plano $*$OKY$*$
     if (provider === 'PAYTEF') {
       throw new UnauthorizedException(
         'Paytef webhooks require secret path: /v1/webhooks/paytef/<secret>',
@@ -75,6 +82,11 @@ export class WebhooksController {
     if (provider === 'PEANPE') {
       throw new UnauthorizedException(
         'Peanpe webhooks usan challenge-response: POST /v1/webhooks/peanpe/notify (challenge) y GET (result)',
+      );
+    }
+    if (provider === 'WIPAY') {
+      throw new UnauthorizedException(
+        'Wipay/Cecabank webhooks usan ruta dedicada POST /v1/webhooks/wipay (form-urlencoded)',
       );
     }
 
@@ -353,5 +365,95 @@ export class WebhooksController {
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
+  }
+
+  /**
+   * Comunicación on-line del TPV Virtual de Cecabank / Wipay.
+   *
+   * Body: form-urlencoded con MerchantID, AcquirerBIN, TerminalID,
+   *       Num_operacion, Importe, TipoMoneda, Exponente, Referencia,
+   *       Firma, Num_aut, etc.
+   * Firma: SHA-256(clave + MerchantID + AcquirerBIN + TerminalID +
+   *                Num_operacion + Importe + TipoMoneda + Exponente +
+   *                Referencia)
+   * Respuesta esperada: texto plano `$*$OKY$*$` en <30s. Si NightPay no
+   *   responde a tiempo (o devuelve otro string), Cecabank anula la
+   *   operación. Por eso devolvemos OKY INMEDIATAMENTE — el procesado
+   *   real lo encolamos como job en background con retries.
+   */
+  @Public()
+  @Post('wipay')
+  @HttpCode(200)
+  @Header('Content-Type', 'text/plain; charset=utf-8')
+  async receiveWipay(@Req() req: FastifyRequest): Promise<string> {
+    const provider: Provider = 'WIPAY';
+
+    // Fastify form-urlencoded → req.body es Record<string,string>. Re-encodeamos
+    // a Buffer para que verifyWebhook() pueda parsearlo igual que rutas que
+    // reciben rawBody.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body = (req.body ?? {}) as Record<string, any>;
+    const rawText =
+      Object.keys(body).length > 0
+        ? Object.entries(body)
+            .map(
+              ([k, v]) =>
+                `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`,
+            )
+            .join('&')
+        : '';
+    const rawBody = Buffer.from(rawText, 'utf8');
+
+    const verify = this.wipay.verifyWebhook(req.headers, rawBody);
+    if (!verify.valid) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'invalid' });
+      this.logger.warn(`webhook wipay rejected: ${verify.reason}`);
+      // Cecabank espera $*$NOK$*$ para anular. Devolvemos eso si la firma
+      // no cuadra para que no cuente como cobro válido.
+      return '$*$NOK$*$';
+    }
+    if (!verify.externalEventId) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'invalid' });
+      return '$*$NOK$*$';
+    }
+
+    // Idempotency por (provider, Num_operacion). Cecabank puede reintentar
+    // si nuestra respuesta llega tarde.
+    const existing = await this.prisma.webhookDelivery.findUnique({
+      where: {
+        provider_externalEventId: {
+          provider,
+          externalEventId: verify.externalEventId,
+        },
+      },
+    });
+    if (existing?.processedAt) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'duplicate' });
+      return '$*$OKY$*$';
+    }
+
+    const delivery = existing
+      ? existing
+      : await this.prisma.webhookDelivery.create({
+          data: {
+            provider,
+            externalEventId: verify.externalEventId,
+            rawBody,
+            signature: typeof body.Firma === 'string' ? (body.Firma as string) : '',
+          },
+        });
+
+    await this.queue.add(
+      'process-webhook',
+      { deliveryId: delivery.id.toString() },
+      {
+        jobId: `webhook-${provider}-${verify.externalEventId}`,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 5000 },
+      },
+    );
+
+    this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
+    return '$*$OKY$*$';
   }
 }

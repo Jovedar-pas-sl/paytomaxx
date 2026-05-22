@@ -9,8 +9,23 @@ const EnvSchema = z.object({
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be >= 32 chars'),
   COOKIE_SECRET: z.string().min(32),
   ENCRYPTION_KEK: z.string().min(32),
-  WIPAY_API_URL: z.string().url(),
-  WIPAY_WEBHOOK_SECRET: z.string().min(8),
+  // Wipay = Cecabank TPV Virtual (Global Payment Systems).
+  //   WIPAY_API_URL — endpoint hosted page del cliente. Sandbox:
+  //     https://tpv.ceca.es/tpvweb/tpv/compra.action
+  //     Prod: https://pgw.ceca.es/tpvweb/tpv/compra.action
+  //   WIPAY_MERCHANT_ID/ACQUIRER_BIN/TERMINAL_ID/CLAVE_ENCRIPTACION son las
+  //     4 credenciales que tu Entidad / Wipay te entrega al dar de alta el TPV.
+  //   WIPAY_WEBHOOK_SECRET — DEPRECATED: el adapter actual no lo usa
+  //     (Cecabank firma con SHA-256 + clave_encriptación, no HMAC).
+  WIPAY_API_URL: z
+    .string()
+    .url()
+    .default('https://tpv.ceca.es/tpvweb/tpv/compra.action'),
+  WIPAY_MERCHANT_ID: z.string().regex(/^\d{1,9}$/, 'MerchantID = 1-9 dígitos').optional(),
+  WIPAY_ACQUIRER_BIN: z.string().regex(/^\d{1,10}$/, 'AcquirerBIN = 1-10 dígitos').optional(),
+  WIPAY_TERMINAL_ID: z.string().regex(/^\d{1,8}$/, 'TerminalID = 1-8 dígitos').optional(),
+  WIPAY_CLAVE_ENCRIPTACION: z.string().min(4).optional(),
+  WIPAY_WEBHOOK_SECRET: z.string().min(8).optional(),
   // Peanpe legacy URL var (no se usa con el adapter rehecho — mantener para
   // compat con env existentes). El adapter usa PEANPE_API_BASE_URL.
   PEANPE_API_URL: z.string().url(),

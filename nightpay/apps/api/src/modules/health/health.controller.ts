@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'paytef-force-test-2026-05-15',
+      build: 'wipay-cecabank-2026-05-22',
     } as Health & { build: string };
   }
 }

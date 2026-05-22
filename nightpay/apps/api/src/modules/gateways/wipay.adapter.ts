@@ -1,6 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type CircuitBreaker from 'opossum';
 import type {
   AuthorizeInput,
@@ -11,8 +11,7 @@ import type {
   WebhookVerifyResult,
 } from '@nightpay/contracts';
 import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
-import { createBreaker, fetchWithTimeout, timedFire } from './circuit-breaker';
-import { pickHeader } from './header-utils';
+import { createBreaker, timedFire } from './circuit-breaker';
 import { MetricsService } from '../metrics/metrics.service';
 
 const PROVIDER_LABEL = 'WIPAY' as const;
@@ -20,21 +19,58 @@ function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
   return s === 'closed' ? 0 : s === 'halfOpen' ? 1 : 2;
 }
 
-const REPLAY_WINDOW_MS = 5 * 60 * 1000;
-
-interface WipayWebhook {
-  event_id?: string;
-  event_type?: string;
-  transaction_id?: string;
-  reference?: string;
-  amount?: number;
-  currency?: string;
-  timestamp?: number;
+/**
+ * Forma esperada del POST de comunicación on-line de Cecabank.
+ * Body llega form-urlencoded → Fastify lo parsea a Record<string,string>.
+ * Ver "Manual TPV completo 8.25" sección 6 "Comunicación on-line".
+ */
+interface CecabankWebhook {
+  MerchantID?: string;
+  AcquirerBIN?: string;
+  TerminalID?: string;
+  Num_operacion?: string;
+  Importe?: string;
+  TipoMoneda?: string;
+  Exponente?: string;
+  Referencia?: string;
+  Firma?: string;
+  Codigo_pedido?: string;
+  Codigo_cliente?: string;
+  Codigo_comercio?: string;
+  Num_aut?: string;
+  BIN?: string;
+  BIN8?: string;
+  FinalPAN?: string;
+  Cambio_moneda?: string;
+  Idioma?: string;
+  Pais?: string;
+  Tipo_tarjeta?: string;
+  Tipo_operacion?: string;
+  Descripcion?: string;
+  // En errores de pago Cecabank envía COD_AUT con código (190, 400, etc.)
+  COD_AUT?: string;
 }
 
+/**
+ * Adapter para el TPV Virtual de Cecabank (comercialmente Wipay = Global
+ * Payment Systems sobre infraestructura Cecabank).
+ *
+ * Flujo:
+ *  1. authorize() NO hace HTTP — solo genera el formulario firmado SHA-256
+ *     que el navegador del cliente debe POSTear a la URL hosted de Cecabank.
+ *  2. NightPay devuelve `checkoutForm: {action, fields}` en AuthorizeResult.
+ *  3. El controller `/pay/:token` renderiza HTML con form auto-submit.
+ *  4. Cliente paga en la página de Cecabank.
+ *  5. Cecabank → POST webhook a `/v1/webhooks/wipay` con form-urlencoded.
+ *  6. verifyWebhook() valida firma SHA-256 + idempotency por Num_operacion.
+ *  7. NightPay responde texto plano `$*$OKY$*$` en <30s.
+ *
+ * Doc: Manual TPV Virtual 8.25 + Consulta estado 4.0 (Cecabank).
+ */
 @Injectable()
 export class WipayAdapter implements GatewayAdapter {
   readonly provider = 'WIPAY' as const;
+  private readonly logger = new Logger(WipayAdapter.name);
 
   private readonly config: ConfigService;
   private readonly metrics: MetricsService;
@@ -100,97 +136,156 @@ export class WipayAdapter implements GatewayAdapter {
 
   // ─── implementaciones tras el circuit breaker ─────────────────────
 
+  /**
+   * authorize() en Cecabank no hace HTTP — genera los campos firmados
+   * del formulario que el navegador del cliente debe enviar por POST.
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async doAuthorize(input: AuthorizeInput): Promise<AuthorizeResult> {
-    const url = `${this.baseUrl()}/v1/authorize`;
-    const res = await fetchWithTimeout(
-      url,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reference: input.reference,
-          amount: input.amountCents,
-          currency: input.currency,
-          terminal: input.terminalExternalId,
-        }),
-      },
-      this.timeoutMs,
+    const creds = this.requireCreds();
+    const numOp = numOperacionFromPaymentId(input.paymentId);
+    const importe = String(input.amountCents); // sin formatear, céntimos
+    const tipoMoneda = currencyToCecabankCode(input.currency);
+    const exponente = '2';
+    const referencia = ''; // vacío en compras nuevas
+    const cifrado = 'SHA2';
+    const urlOk = this.urlOk(numOp);
+    const urlNok = this.urlNok(numOp);
+
+    // Firma: SHA-256(clave + MerchantID + AcquirerBIN + TerminalID +
+    //                Num_operacion + Importe + TipoMoneda + Exponente +
+    //                Referencia + Cifrado + URL_OK + URL_NOK)
+    const firma = signRequest({
+      claveEncriptacion: creds.claveEncriptacion,
+      merchantId: creds.merchantId,
+      acquirerBin: creds.acquirerBin,
+      terminalId: creds.terminalId,
+      numOperacion: numOp,
+      importe,
+      tipoMoneda,
+      exponente,
+      referencia,
+      cifrado,
+      urlOk,
+      urlNok,
+    });
+
+    const fields: Record<string, string> = {
+      MerchantID: creds.merchantId,
+      AcquirerBIN: creds.acquirerBin,
+      TerminalID: creds.terminalId,
+      Num_operacion: numOp,
+      Importe: importe,
+      TipoMoneda: tipoMoneda,
+      Exponente: exponente,
+      URL_OK: urlOk,
+      URL_NOK: urlNok,
+      Pago_soportado: 'SSL',
+      Cifrado: cifrado,
+      Idioma: '1', // español
+      Firma: firma,
+    };
+
+    this.logger.log(
+      `Cecabank authorize: payment=${input.paymentId} numOp=${numOp} amount=${importe}c → form ${this.baseUrl()}`,
     );
-    if (!res.ok) {
-      throw new Error(`Wipay authorize failed: ${res.status}`);
-    }
-    const data = (await res.json()) as { transaction_id?: string };
-    if (!data.transaction_id) {
-      throw new Error('Wipay authorize: missing transaction_id');
-    }
+
     return {
       provider: 'WIPAY',
-      providerTxId: data.transaction_id,
+      providerTxId: numOp, // usamos Num_operacion como ID en NightPay
       status: 'PROCESSING',
-    };
-  }
-
-  private async doGetStatus(_tenantId: string, providerTxId: string): Promise<GatewayStatus> {
-    const res = await fetchWithTimeout(
-      `${this.baseUrl()}/v1/transactions/${providerTxId}`,
-      {},
-      this.timeoutMs,
-    );
-    if (!res.ok) return 'UNKNOWN';
-    const data = (await res.json()) as { status?: string };
-    return mapWipayStatus(data.status);
-  }
-
-  private async doRefund(input: RefundInput): Promise<RefundResult> {
-    const res = await fetchWithTimeout(
-      `${this.baseUrl()}/v1/transactions/${input.providerTxId}/refund`,
-      {
+      checkoutForm: {
+        action: this.baseUrl(),
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': input.reference,
-        },
-        body: JSON.stringify({
-          amount: input.amountCents,
-          reason: input.reason ?? '',
-        }),
+        fields,
       },
-      this.timeoutMs,
-    );
-    if (!res.ok) {
-      throw new Error(`Wipay refund failed: ${res.status}`);
-    }
-    const data = (await res.json()) as { refund_id?: string; status?: string };
-    if (!data.refund_id) {
-      throw new Error('Wipay refund: missing refund_id');
-    }
-    return {
-      providerRefundId: data.refund_id,
-      status: data.status?.toUpperCase() === 'FAILED' ? 'FAILED' : 'SUCCEEDED',
     };
   }
 
+  /**
+   * Consulta estado vía endpoint /webapp/ConsTpvVirtWeb/ConsTpvVirtS — sin
+   * usar en flujo normal (webhook entrega el estado). Implementación
+   * mínima: devuelve UNKNOWN si no hay datos persistidos.
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await
+  private async doGetStatus(_tenantId: string, _providerTxId: string): Promise<GatewayStatus> {
+    // TODO: implementar consulta vía /webapp/ConsTpvVirtWeb/ConsTpvVirtS si
+    //   se necesita para reconciliación. Por ahora la fuente de verdad
+    //   es el webhook que llega <30s tras pagar.
+    return 'UNKNOWN';
+  }
+
+  /**
+   * Refund vía Cecabank: enviar otra operación con `Referencia` no vacía
+   * apuntando a la operación original. Fuera de scope del sprint inicial —
+   * los refunds se hacen desde el panel de Cecabank manualmente.
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await
+  private async doRefund(_input: RefundInput): Promise<RefundResult> {
+    throw new Error(
+      'Cecabank refund vía API no implementado en este sprint. Refundea manualmente desde https://comercios.ceca.es',
+    );
+  }
+
+  /**
+   * Valida la firma SHA-256 del webhook de comunicación on-line.
+   * Cecabank firma con: SHA256(clave + MerchantID + AcquirerBIN + TerminalID +
+   *                            Num_operacion + Importe + TipoMoneda +
+   *                            Exponente + Referencia)
+   */
   verifyWebhook(
-    headers: Record<string, string | string[] | undefined>,
+    _headers: Record<string, string | string[] | undefined>,
     rawBody: Buffer,
   ): WebhookVerifyResult {
-    const sig = pickHeader(headers, 'x-signature');
-    const ts = pickHeader(headers, 'x-timestamp');
-    if (!sig || !ts) return { valid: false, reason: 'missing-signature-or-timestamp' };
-
-    const tsNum = Number(ts);
-    if (!Number.isFinite(tsNum) || Math.abs(Date.now() - tsNum) > REPLAY_WINDOW_MS) {
-      return { valid: false, reason: 'timestamp-out-of-window' };
+    let parsed: CecabankWebhook;
+    try {
+      // El controller pasa rawBody siempre como Buffer. Soportamos los 2
+      // formatos que puede usar Cecabank: form-urlencoded o JSON (algunos
+      // partners lo proxean a JSON). En el flujo normal Fastify ya parseó
+      // form-urlencoded en req.body — pero por consistencia con la
+      // interface GatewayAdapter parseamos del rawBody.
+      const text = rawBody.toString('utf8');
+      if (text.startsWith('{')) {
+        parsed = JSON.parse(text) as CecabankWebhook;
+      } else {
+        parsed = parseFormUrlEncoded(text) as CecabankWebhook;
+      }
+    } catch {
+      return { valid: false, reason: 'cannot-parse-body' };
     }
 
-    const secret = this.config.getOrThrow<string>('WIPAY_WEBHOOK_SECRET');
-    const expected = createHmac('sha256', secret)
-      .update(`${ts}.${rawBody.toString('utf8')}`)
-      .digest('hex');
+    if (!parsed.MerchantID || !parsed.Num_operacion || !parsed.Firma) {
+      return { valid: false, reason: 'missing-required-fields' };
+    }
+
+    let creds;
+    try {
+      creds = this.requireCreds();
+    } catch (e) {
+      this.logger.error(`Cecabank webhook recibido sin creds configuradas: ${(e as Error).message}`);
+      return { valid: false, reason: 'creds-not-configured' };
+    }
+
+    // Defensa: el MerchantID del webhook debe coincidir con el nuestro.
+    if (parsed.MerchantID !== creds.merchantId) {
+      return { valid: false, reason: 'merchant-id-mismatch' };
+    }
+
+    const expected = signWebhook({
+      claveEncriptacion: creds.claveEncriptacion,
+      merchantId: parsed.MerchantID,
+      acquirerBin: parsed.AcquirerBIN ?? '',
+      terminalId: parsed.TerminalID ?? '',
+      numOperacion: parsed.Num_operacion,
+      importe: parsed.Importe ?? '',
+      tipoMoneda: parsed.TipoMoneda ?? '',
+      exponente: parsed.Exponente ?? '',
+      referencia: parsed.Referencia ?? '',
+    });
 
     let valid = false;
     try {
-      const a = Buffer.from(sig, 'hex');
+      const a = Buffer.from(parsed.Firma, 'hex');
       const b = Buffer.from(expected, 'hex');
       valid = a.length === b.length && timingSafeEqual(a, b);
     } catch {
@@ -198,52 +293,223 @@ export class WipayAdapter implements GatewayAdapter {
     }
     if (!valid) return { valid: false, reason: 'signature-mismatch' };
 
-    let parsed: WipayWebhook;
-    try {
-      parsed = JSON.parse(rawBody.toString('utf8')) as WipayWebhook;
-    } catch {
-      return { valid: false, reason: 'invalid-json' };
-    }
-    if (!parsed.event_id || !parsed.reference) {
-      return { valid: false, reason: 'missing-event-id-or-reference' };
-    }
-    return { valid: true, externalEventId: parsed.event_id, paymentRef: parsed.reference };
+    return {
+      valid: true,
+      // externalEventId = Num_operacion = nuestro Payment.id (formato corto).
+      // Idempotency: si Cecabank reenvía el mismo webhook 2 veces, el unique
+      // (provider, externalEventId) lo deduplica.
+      externalEventId: parsed.Num_operacion,
+      paymentRef: parsed.Num_operacion,
+    };
   }
 
   mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
-    const p = parsedPayload as WipayWebhook;
-    if (!p.reference || !p.transaction_id) return null;
+    const p = parsedPayload as CecabankWebhook;
+    if (!p.Num_operacion) return null;
 
-    if (p.event_type === 'payment.authorized') {
+    const paymentId = paymentIdFromNumOperacion(p.Num_operacion);
+
+    // En operaciones OK Cecabank envía Num_aut (autorización de la entidad
+    // emisora). Si está set y no es un código de error → AUTHORIZED.
+    // Códigos de error >= 100 (ej 190, 400) vienen en COD_AUT.
+    const codAut = (p.COD_AUT ?? '').trim();
+    const numAut = (p.Num_aut ?? '').trim();
+
+    if (codAut && codAut !== '000' && codAut !== '0' && Number(codAut) >= 100) {
       return {
-        paymentId: p.reference,
-        event: { type: 'AUTHORIZED', providerTxId: p.transaction_id, provider: 'WIPAY' },
+        paymentId,
+        event: { type: 'FAILED', reason: `cecabank-cod_aut-${codAut}` },
       };
     }
-    if (p.event_type === 'payment.failed' || p.event_type === 'payment.voided') {
+    if (numAut && numAut !== '') {
       return {
-        paymentId: p.reference,
-        event: { type: 'FAILED', reason: p.event_type },
+        paymentId,
+        event: { type: 'AUTHORIZED', providerTxId: p.Num_operacion, provider: 'WIPAY' },
       };
     }
+    // Fallback defensivo — si no podemos determinar, no transicionamos.
     return null;
   }
 
+  // ─── helpers ─────────────────────────────────────────────────────
+
+  /**
+   * URL del endpoint POST. Sandbox: `tpv.ceca.es`. Prod: `pgw.ceca.es`.
+   * Configurable vía env var WIPAY_API_URL.
+   */
   private baseUrl(): string {
-    return this.config.getOrThrow<string>('WIPAY_API_URL');
+    return (
+      this.config.get<string>('WIPAY_API_URL') ??
+      'https://tpv.ceca.es/tpvweb/tpv/compra.action'
+    );
+  }
+
+  /**
+   * URL_OK que Cecabank rellama tras pago exitoso. Apuntamos a un endpoint
+   * propio del API que renderiza un "Gracias" y queda la operación en
+   * AUTHORIZED por el webhook (no por este redirect).
+   */
+  private urlOk(numOp: string): string {
+    const apiBase = this.config.get<string>('NEXT_PUBLIC_API_URL') ?? 'http://localhost:4100';
+    return `${apiBase.replace(/\/+$/, '')}/pay/result?status=ok&op=${encodeURIComponent(numOp)}`;
+  }
+
+  private urlNok(numOp: string): string {
+    const apiBase = this.config.get<string>('NEXT_PUBLIC_API_URL') ?? 'http://localhost:4100';
+    return `${apiBase.replace(/\/+$/, '')}/pay/result?status=ko&op=${encodeURIComponent(numOp)}`;
+  }
+
+  private requireCreds(): {
+    merchantId: string;
+    acquirerBin: string;
+    terminalId: string;
+    claveEncriptacion: string;
+  } {
+    const merchantId = this.config.get<string>('WIPAY_MERCHANT_ID');
+    const acquirerBin = this.config.get<string>('WIPAY_ACQUIRER_BIN');
+    const terminalId = this.config.get<string>('WIPAY_TERMINAL_ID');
+    const claveEncriptacion = this.config.get<string>('WIPAY_CLAVE_ENCRIPTACION');
+    if (!merchantId || !acquirerBin || !terminalId || !claveEncriptacion) {
+      throw new Error(
+        'Wipay/Cecabank credentials no configuradas. Define WIPAY_MERCHANT_ID, WIPAY_ACQUIRER_BIN, WIPAY_TERMINAL_ID y WIPAY_CLAVE_ENCRIPTACION en env vars.',
+      );
+    }
+    return { merchantId, acquirerBin, terminalId, claveEncriptacion };
   }
 }
 
-function mapWipayStatus(s: string | undefined): GatewayStatus {
-  switch ((s ?? '').toUpperCase()) {
-    case 'AUTHORIZED':
-      return 'AUTHORIZED';
-    case 'FAILED':
-    case 'VOIDED':
-      return 'FAILED';
-    case 'PROCESSING':
-      return 'PROCESSING';
-    default:
-      return 'UNKNOWN';
+// ─── funciones puras (testeables sin Nest/DI) ───────────────────────
+
+/**
+ * Genera el `Num_operacion` Cecabank a partir del Payment.id UUID.
+ * Cecabank limita Num_operacion a 50 chars alfanuméricos. UUIDs caben sin
+ * problema pero los guiones a veces dan ruido — los quitamos.
+ */
+export function numOperacionFromPaymentId(paymentId: string): string {
+  return paymentId.replace(/-/g, '').slice(0, 50);
+}
+
+export function paymentIdFromNumOperacion(numOp: string): string {
+  // Reconstruimos el UUID con guiones a las posiciones canónicas
+  // (8-4-4-4-12). Si no es de 32 hex, devolvemos el string crudo y dejamos
+  // que el lookup falle limpiamente en payments.service.
+  const clean = numOp.replace(/-/g, '');
+  if (clean.length !== 32 || !/^[a-f0-9]+$/i.test(clean)) return numOp;
+  return [
+    clean.slice(0, 8),
+    clean.slice(8, 12),
+    clean.slice(12, 16),
+    clean.slice(16, 20),
+    clean.slice(20, 32),
+  ].join('-');
+}
+
+/**
+ * ISO-4217 → código numérico Cecabank.
+ * Manual sección 10: EUR=978, USD=840, GBP=826, etc.
+ */
+export function currencyToCecabankCode(currency: string): string {
+  const map: Record<string, string> = {
+    EUR: '978',
+    USD: '840',
+    GBP: '826',
+    AUD: '036',
+    MXN: '484',
+    CHF: '756',
+    JPY: '392',
+    DKK: '208',
+    SEK: '752',
+    NOK: '578',
+  };
+  return map[currency.toUpperCase()] ?? '978';
+}
+
+/**
+ * Firma del formulario de cobro (cliente POST a Cecabank).
+ * SHA256(clave + MerchantID + AcquirerBIN + TerminalID + Num_operacion +
+ *        Importe + TipoMoneda + Exponente + Referencia + Cifrado +
+ *        URL_OK + URL_NOK)
+ *
+ * Verificable contra el ejemplo del manual sección 5 cifrado=SHA2.
+ */
+export function signRequest(args: {
+  claveEncriptacion: string;
+  merchantId: string;
+  acquirerBin: string;
+  terminalId: string;
+  numOperacion: string;
+  importe: string;
+  tipoMoneda: string;
+  exponente: string;
+  referencia: string;
+  cifrado: string;
+  urlOk: string;
+  urlNok: string;
+}): string {
+  const concat =
+    args.claveEncriptacion +
+    args.merchantId +
+    args.acquirerBin +
+    args.terminalId +
+    args.numOperacion +
+    args.importe +
+    args.tipoMoneda +
+    args.exponente +
+    args.referencia +
+    args.cifrado +
+    args.urlOk +
+    args.urlNok;
+  return createHash('sha256').update(concat, 'utf8').digest('hex');
+}
+
+/**
+ * Firma de la comunicación on-line (Cecabank → NightPay).
+ * SHA256(clave + MerchantID + AcquirerBIN + TerminalID + Num_operacion +
+ *        Importe + TipoMoneda + Exponente + Referencia)
+ *
+ * Nota: NO incluye Cifrado/URL_OK/URL_NOK (sólo el request las incluye).
+ */
+export function signWebhook(args: {
+  claveEncriptacion: string;
+  merchantId: string;
+  acquirerBin: string;
+  terminalId: string;
+  numOperacion: string;
+  importe: string;
+  tipoMoneda: string;
+  exponente: string;
+  referencia: string;
+}): string {
+  const concat =
+    args.claveEncriptacion +
+    args.merchantId +
+    args.acquirerBin +
+    args.terminalId +
+    args.numOperacion +
+    args.importe +
+    args.tipoMoneda +
+    args.exponente +
+    args.referencia;
+  return createHash('sha256').update(concat, 'utf8').digest('hex');
+}
+
+/**
+ * Parser mínimo de form-urlencoded → Record<string,string>.
+ * No usamos `URLSearchParams` directo porque Fastify a veces entrega el
+ * body como objeto, pero la interface del adapter recibe Buffer del rawBody.
+ */
+export function parseFormUrlEncoded(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pair of text.split('&')) {
+    if (!pair) continue;
+    const eq = pair.indexOf('=');
+    if (eq < 0) {
+      out[decodeURIComponent(pair)] = '';
+    } else {
+      out[decodeURIComponent(pair.slice(0, eq))] = decodeURIComponent(
+        pair.slice(eq + 1).replace(/\+/g, ' '),
+      );
+    }
   }
+  return out;
 }

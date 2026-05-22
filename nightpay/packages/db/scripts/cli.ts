@@ -464,6 +464,67 @@ async function cmdRevokeSessions(args: Args) {
   }
 }
 
+/**
+ * Activa Wipay como provider único del venue. Crea o reusa la fila
+ * gateway_credentials WIPAY con active=true, y desactiva cualquier otro
+ * provider (PAYTEF, PEANPE) del mismo venue.
+ *
+ * Wipay/Cecabank no almacena credenciales por-venue en BD — vienen de env
+ * vars globales (WIPAY_MERCHANT_ID, etc.). Esta fila es solo el marcador
+ * de "qué adapter elige payments.service para autorizar".
+ */
+async function cmdSetWipayActive(args: Args) {
+  const venueSlug = must(args, 'venue');
+  await withBypass(async (tx) => {
+    const venue = await tx.venue.findUnique({ where: { slug: venueSlug } });
+    if (!venue) throw new Error(`venue not found: ${venueSlug}`);
+
+    // Desactivar TODO otro provider activo del venue.
+    const deactivated = await tx.gatewayCredential.updateMany({
+      where: { tenantId: venue.id, active: true },
+      data: { active: false },
+    });
+    if (deactivated.count > 0) {
+      console.log(`[info] ${deactivated.count} provider(s) previo(s) desactivado(s)`);
+    }
+
+    // Buscar fila WIPAY inactiva y reactivarla, o crear nueva.
+    const existing = await tx.gatewayCredential.findFirst({
+      where: { tenantId: venue.id, provider: 'WIPAY' },
+    });
+    if (existing) {
+      await tx.gatewayCredential.update({
+        where: { id: existing.id },
+        data: { active: true },
+      });
+      console.log(`[ok] WIPAY reactivado para venue=${venueSlug}`);
+    } else {
+      // Bytes dummy en enc* — el adapter Wipay no los usa (creds vienen de env).
+      const dummy = Buffer.from([0]);
+      await tx.gatewayCredential.create({
+        data: {
+          tenantId: venue.id,
+          provider: 'WIPAY',
+          encKey: dummy,
+          encNonce: dummy,
+          encTag: dummy,
+          kekVersion: 1,
+          active: true,
+        },
+      });
+      console.log(`[ok] WIPAY creado y activado para venue=${venueSlug}`);
+    }
+  });
+  console.log(
+    `\nRecuerda configurar en env vars del API:\n` +
+      `  WIPAY_API_URL=https://tpv.ceca.es/tpvweb/tpv/compra.action  (sandbox)\n` +
+      `  WIPAY_MERCHANT_ID=<9 dígitos>\n` +
+      `  WIPAY_ACQUIRER_BIN=<10 dígitos>\n` +
+      `  WIPAY_TERMINAL_ID=<8 dígitos>\n` +
+      `  WIPAY_CLAVE_ENCRIPTACION=<secret>\n`,
+  );
+}
+
 async function cmdSetSuperAdmin(args: Args) {
   const email = (args.email ?? '').toLowerCase();
   if (!email) {
@@ -520,6 +581,7 @@ const commands: Record<string, (args: Args) => Promise<unknown>> = {
   reconcile: cmdReconcile,
   'revoke-sessions': cmdRevokeSessions,
   'set-super-admin': cmdSetSuperAdmin,
+  'set-wipay-active': cmdSetWipayActive,
 };
 
 function printUsage(): void {
@@ -539,6 +601,7 @@ function printUsage(): void {
   console.log('  pnpm cli reconcile       --venue <slug> --day YYYY-MM-DD');
   console.log('  pnpm cli revoke-sessions --email <email>   (kill-switch para movil perdido)');
   console.log('  pnpm cli set-super-admin --email <email>   [--revoke true]  (grant/revoke superadmin)');
+  console.log('  pnpm cli set-wipay-active --venue <slug>   (activa WIPAY + desactiva otros providers)');
   console.log('');
 }
 

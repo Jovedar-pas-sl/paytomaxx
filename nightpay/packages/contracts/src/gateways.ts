@@ -41,6 +41,21 @@ export const AuthorizeResultSchema = z.object({
    * al cliente aquí. Null para providers que no usan hosted checkout.
    */
   paymentLinkUrl: z.string().url().optional(),
+  /**
+   * Formulario auto-submit para PSPs que esperan POST desde browser del cliente
+   * (Cecabank/Wipay TPV Virtual, Redsys, etc.) en vez de redirect a URL.
+   *
+   * NightPay renderiza un <form action method=POST> con esos `fields` ocultos
+   * + auto-submit JS. El cliente acaba en la página hospedada del PSP donde
+   * introduce los datos de tarjeta.
+   */
+  checkoutForm: z
+    .object({
+      action: z.string().url(),
+      method: z.literal('POST'),
+      fields: z.record(z.string()),
+    })
+    .optional(),
 });
 export type AuthorizeResult = z.infer<typeof AuthorizeResultSchema>;
 
