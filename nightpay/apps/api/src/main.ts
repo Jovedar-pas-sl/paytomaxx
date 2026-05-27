@@ -49,10 +49,27 @@ async function bootstrap() {
       ? {
           directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'"],
+            // unsafe-inline necesario para el <script> auto-submit del
+            // form de checkout en /pay/{token}. Sin esto, iOS Safari
+            // bloquea el setTimeout(...).submit() y el cobro se queda
+            // colgado en "Conectando con la pasarela de pago...".
+            scriptSrc: ["'self'", "'unsafe-inline'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
             imgSrc: ["'self'", 'data:'],
             connectSrc: ["'self'"],
+            // form-action: dominios a los que NightPay puede POSTear forms.
+            // Sin esto, defaultSrc='self' restringe a api.paytomaxx.com
+            // y bloquea cualquier submit a Redsys, Cecabank, Paytef, etc.
+            formAction: [
+              "'self'",
+              'https://sis-t.redsys.es:25443',
+              'https://sis.redsys.es',
+              'https://tpv.ceca.es',
+              'https://pgw.ceca.es',
+              'https://api.paytef.es',
+              'http://peanpe.com',
+              'https://peanpe.com',
+            ],
             frameAncestors: ["'none'"],
           },
         }
