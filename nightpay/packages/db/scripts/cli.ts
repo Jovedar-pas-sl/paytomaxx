@@ -525,6 +525,63 @@ async function cmdSetWipayActive(args: Args) {
   );
 }
 
+/**
+ * Activa Redsys como provider único del venue. Crea o reactiva la fila
+ * gateway_credentials REDSYS con active=true; desactiva los demás providers.
+ *
+ * Credenciales (MerchantCode, Terminal, SecretKey) vienen de env vars
+ * globales — esta fila es solo el marcador de "qué adapter elige
+ * payments.service para autorizar".
+ */
+async function cmdSetRedsysActive(args: Args) {
+  const venueSlug = must(args, 'venue');
+  await withBypass(async (tx) => {
+    const venue = await tx.venue.findUnique({ where: { slug: venueSlug } });
+    if (!venue) throw new Error(`venue not found: ${venueSlug}`);
+
+    const deactivated = await tx.gatewayCredential.updateMany({
+      where: { tenantId: venue.id, active: true },
+      data: { active: false },
+    });
+    if (deactivated.count > 0) {
+      console.log(`[info] ${deactivated.count} provider(s) previo(s) desactivado(s)`);
+    }
+
+    const existing = await tx.gatewayCredential.findFirst({
+      where: { tenantId: venue.id, provider: 'REDSYS' },
+    });
+    if (existing) {
+      await tx.gatewayCredential.update({
+        where: { id: existing.id },
+        data: { active: true },
+      });
+      console.log(`[ok] REDSYS reactivado para venue=${venueSlug}`);
+    } else {
+      // Bytes dummy — adapter Redsys lee creds de env vars, no de BD.
+      const dummy = Buffer.from([0]);
+      await tx.gatewayCredential.create({
+        data: {
+          tenantId: venue.id,
+          provider: 'REDSYS',
+          encKey: dummy,
+          encNonce: dummy,
+          encTag: dummy,
+          kekVersion: 1,
+          active: true,
+        },
+      });
+      console.log(`[ok] REDSYS creado y activado para venue=${venueSlug}`);
+    }
+  });
+  console.log(
+    `\nRecuerda configurar en env vars del API:\n` +
+      `  REDSYS_API_URL=https://sis-t.redsys.es:25443/sis/realizarPago  (sandbox)\n` +
+      `  REDSYS_MERCHANT_CODE=<9 dígitos>\n` +
+      `  REDSYS_TERMINAL=<1-3 dígitos>\n` +
+      `  REDSYS_SECRET_KEY=<clave base64 del banco>\n`,
+  );
+}
+
 async function cmdSetSuperAdmin(args: Args) {
   const email = (args.email ?? '').toLowerCase();
   if (!email) {
@@ -582,6 +639,7 @@ const commands: Record<string, (args: Args) => Promise<unknown>> = {
   'revoke-sessions': cmdRevokeSessions,
   'set-super-admin': cmdSetSuperAdmin,
   'set-wipay-active': cmdSetWipayActive,
+  'set-redsys-active': cmdSetRedsysActive,
 };
 
 function printUsage(): void {
@@ -602,6 +660,7 @@ function printUsage(): void {
   console.log('  pnpm cli revoke-sessions --email <email>   (kill-switch para movil perdido)');
   console.log('  pnpm cli set-super-admin --email <email>   [--revoke true]  (grant/revoke superadmin)');
   console.log('  pnpm cli set-wipay-active --venue <slug>   (activa WIPAY + desactiva otros providers)');
+  console.log('  pnpm cli set-redsys-active --venue <slug>  (activa REDSYS/BBVA + desactiva otros providers)');
   console.log('');
 }
 

@@ -16,7 +16,7 @@ import type { PaymentStatus } from '@nightpay/contracts';
 export type PaymentEvent =
   | { type: 'QR_VIEWED' }
   | { type: 'AUTHORIZING' }
-  | { type: 'AUTHORIZED'; providerTxId: string; provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' }
+  | { type: 'AUTHORIZED'; providerTxId: string; provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' }
   /**
    * POS confirmation event — camarero/manager confirma cobrado tras procesar
    * la tarjeta en el datáfono del bar. No hay PSP de NightPay involucrado,
@@ -35,7 +35,7 @@ export interface PaymentContext {
   amountCents: number;
   availableAmountCents: number;
   providerTxId?: string;
-  provider?: 'WIPAY' | 'PEANPE' | 'PAYTEF';
+  provider?: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS';
   failureReason?: string;
 }
 

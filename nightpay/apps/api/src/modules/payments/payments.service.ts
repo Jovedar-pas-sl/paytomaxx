@@ -513,7 +513,7 @@ export class PaymentsService {
             amountCents: number;
             availableAmountCents: number;
             providerTxId: string | null;
-            provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | null;
+            provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | null;
             createdByUserId: string | null;
             walletId: string | null;
             tipCents: number;
@@ -567,7 +567,7 @@ export class PaymentsService {
              SET status = ${result.nextState}::"PaymentStatus",
                  "availableAmountCents" = ${result.nextContext.availableAmountCents},
                  "providerTxId" = ${result.nextContext.providerTxId ?? p.providerTxId},
-                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'PAYTEF' | null}::"Provider",
+                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | null}::"Provider",
                  "updatedAt" = NOW()
            WHERE id = ${paymentId}::uuid
         `;

@@ -22,6 +22,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { WipayAdapter } from '../gateways/wipay.adapter';
+import { RedsysAdapter } from '../gateways/redsys.adapter';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
 import { MetricsService } from '../metrics/metrics.service';
 
@@ -36,6 +37,7 @@ export class WebhooksController {
 
   private readonly peanpe: PeanpeAdapter;
   private readonly wipay: WipayAdapter;
+  private readonly redsys: RedsysAdapter;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -45,6 +47,7 @@ export class WebhooksController {
     @Inject(ConfigService) config: ConfigService,
     @Inject(PeanpeAdapter) peanpe: PeanpeAdapter,
     @Inject(WipayAdapter) wipay: WipayAdapter,
+    @Inject(RedsysAdapter) redsys: RedsysAdapter,
   ) {
     this.prisma = prisma;
     this.gateways = gateways;
@@ -53,6 +56,7 @@ export class WebhooksController {
     this.config = config;
     this.peanpe = peanpe;
     this.wipay = wipay;
+    this.redsys = redsys;
   }
 
   /**
@@ -67,8 +71,18 @@ export class WebhooksController {
     @Req() req: FastifyRequest,
   ): Promise<{ received: true; duplicate?: boolean }> {
     const provider = providerParam.toUpperCase() as Provider;
-    if (provider !== 'WIPAY' && provider !== 'PEANPE' && provider !== 'PAYTEF') {
+    if (
+      provider !== 'WIPAY' &&
+      provider !== 'PEANPE' &&
+      provider !== 'PAYTEF' &&
+      provider !== 'REDSYS'
+    ) {
       throw new BadRequestException(`Unknown provider: ${providerParam}`);
+    }
+    if (provider === 'REDSYS') {
+      throw new UnauthorizedException(
+        'Redsys webhooks usan ruta dedicada POST /v1/webhooks/redsys (form-urlencoded)',
+      );
     }
     // Wipay, Paytef y Peanpe usan rutas dedicadas:
     //  - PAYTEF: URL secreta
@@ -455,5 +469,88 @@ export class WebhooksController {
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return '$*$OKY$*$';
+  }
+
+  /**
+   * Comunicación on-line de Redsys SIS (BBVA, Santander, CaixaBank, etc.).
+   *
+   * Body: form-urlencoded con 3 campos:
+   *   Ds_SignatureVersion=HMAC_SHA256_V1
+   *   Ds_MerchantParameters=<base64 JSON con Ds_Order, Ds_Response, etc.>
+   *   Ds_Signature=<base64 HMAC>
+   *
+   * Respuesta esperada por Redsys: 200 OK con cualquier cuerpo (suele ser
+   * JSON simple o vacío). Sin formato especial obligatorio como Cecabank.
+   * Devolvemos OK INMEDIATAMENTE y procesamos en background.
+   */
+  @Public()
+  @Post('redsys')
+  @HttpCode(200)
+  async receiveRedsys(@Req() req: FastifyRequest): Promise<{ received: true; duplicate?: boolean }> {
+    const provider: Provider = 'REDSYS';
+
+    // Fastify form-urlencoded → req.body es Record<string,string>. Re-encodeamos
+    // a Buffer para que verifyWebhook() pueda parsearlo.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body = (req.body ?? {}) as Record<string, any>;
+    const rawText =
+      Object.keys(body).length > 0
+        ? Object.entries(body)
+            .map(
+              ([k, v]) =>
+                `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`,
+            )
+            .join('&')
+        : '';
+    const rawBody = Buffer.from(rawText, 'utf8');
+
+    const verify = this.redsys.verifyWebhook(req.headers, rawBody);
+    if (!verify.valid) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'invalid' });
+      this.logger.warn(`webhook redsys rejected: ${verify.reason}`);
+      throw new UnauthorizedException();
+    }
+    if (!verify.externalEventId) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'invalid' });
+      throw new BadRequestException('Missing externalEventId');
+    }
+
+    // Idempotency por (provider, Ds_Order).
+    const existing = await this.prisma.webhookDelivery.findUnique({
+      where: {
+        provider_externalEventId: {
+          provider,
+          externalEventId: verify.externalEventId,
+        },
+      },
+    });
+    if (existing?.processedAt) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'duplicate' });
+      return { received: true, duplicate: true };
+    }
+
+    const delivery = existing
+      ? existing
+      : await this.prisma.webhookDelivery.create({
+          data: {
+            provider,
+            externalEventId: verify.externalEventId,
+            rawBody,
+            signature: typeof body.Ds_Signature === 'string' ? (body.Ds_Signature as string) : '',
+          },
+        });
+
+    await this.queue.add(
+      'process-webhook',
+      { deliveryId: delivery.id.toString() },
+      {
+        jobId: `webhook-${provider}-${verify.externalEventId}`,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 5000 },
+      },
+    );
+
+    this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
+    return { received: true };
   }
 }

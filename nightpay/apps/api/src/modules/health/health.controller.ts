@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'wipay-cecabank-2026-05-22',
+      build: 'redsys-bbva-2026-05-27',
     } as Health & { build: string };
   }
 }

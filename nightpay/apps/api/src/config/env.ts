@@ -26,6 +26,23 @@ const EnvSchema = z.object({
   WIPAY_TERMINAL_ID: z.string().regex(/^\d{1,8}$/, 'TerminalID = 1-8 dígitos').optional(),
   WIPAY_CLAVE_ENCRIPTACION: z.string().min(4).optional(),
   WIPAY_WEBHOOK_SECRET: z.string().min(8).optional(),
+
+  // Redsys SIS — protocolo estándar de pasarelas bancarias ES (BBVA,
+  // Santander, CaixaBank, Sabadell). 3 credenciales:
+  //   REDSYS_API_URL — endpoint hosted page del cliente. Sandbox:
+  //     https://sis-t.redsys.es:25443/sis/realizarPago
+  //     Prod: https://sis.redsys.es/sis/realizarPago
+  //     Algunos bancos usan subdominio: bbvaempresas.redsys.es, etc.
+  //   REDSYS_MERCHANT_CODE — código de comercio (9 dígitos, "FUC")
+  //   REDSYS_TERMINAL — número de terminal (1-3 dígitos)
+  //   REDSYS_SECRET_KEY — clave de firma base64 del banco
+  REDSYS_API_URL: z
+    .string()
+    .url()
+    .default('https://sis-t.redsys.es:25443/sis/realizarPago'),
+  REDSYS_MERCHANT_CODE: z.string().regex(/^\d{1,9}$/, 'MerchantCode = 1-9 dígitos').optional(),
+  REDSYS_TERMINAL: z.string().regex(/^\d{1,3}$/, 'Terminal = 1-3 dígitos').optional(),
+  REDSYS_SECRET_KEY: z.string().min(8).optional(),
   // Peanpe legacy URL var (no se usa con el adapter rehecho — mantener para
   // compat con env existentes). El adapter usa PEANPE_API_BASE_URL.
   PEANPE_API_URL: z.string().url(),

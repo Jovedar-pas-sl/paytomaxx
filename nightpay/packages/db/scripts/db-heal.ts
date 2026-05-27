@@ -118,6 +118,7 @@ async function main() {
 
       // ─── Provider enum ─────────────────────────────────────────────
       { name: 'Provider enum +PAYTEF', sql: `DO $$ BEGIN ALTER TYPE "Provider" ADD VALUE IF NOT EXISTS 'PAYTEF'; EXCEPTION WHEN undefined_object THEN NULL; END $$` },
+      { name: 'Provider enum +REDSYS', sql: `DO $$ BEGIN ALTER TYPE "Provider" ADD VALUE IF NOT EXISTS 'REDSYS'; EXCEPTION WHEN undefined_object THEN NULL; END $$` },
 
       // ─── CHECK constraints — clean data first, then re-add ─────────
       { name: 'drop operator_payouts CHECK', sql: `ALTER TABLE "operator_payouts" DROP CONSTRAINT IF EXISTS operator_payouts_total_positive` },

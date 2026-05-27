@@ -15,7 +15,7 @@ export const PaymentStatusSchema = z.enum([
 ]);
 export type PaymentStatus = z.infer<typeof PaymentStatusSchema>;
 
-export const ProviderSchema = z.enum(['WIPAY', 'PEANPE', 'PAYTEF']);
+export const ProviderSchema = z.enum(['WIPAY', 'PEANPE', 'PAYTEF', 'REDSYS']);
 export type Provider = z.infer<typeof ProviderSchema>;
 
 /**

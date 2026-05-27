@@ -3,6 +3,7 @@ import type { Provider } from '@nightpay/contracts';
 import { WipayAdapter } from './wipay.adapter';
 import { PeanpeAdapter } from './peanpe.adapter';
 import { PaytefAdapter } from './paytef.adapter';
+import { RedsysAdapter } from './redsys.adapter';
 import type { GatewayAdapter } from './gateway.adapter';
 
 /**
@@ -17,11 +18,13 @@ export class GatewayRegistry {
     @Inject(WipayAdapter) wipay: WipayAdapter,
     @Inject(PeanpeAdapter) peanpe: PeanpeAdapter,
     @Inject(PaytefAdapter) paytef: PaytefAdapter,
+    @Inject(RedsysAdapter) redsys: RedsysAdapter,
   ) {
     this.adapters = new Map<Provider, GatewayAdapter>([
       ['WIPAY', wipay],
       ['PEANPE', peanpe],
       ['PAYTEF', paytef],
+      ['REDSYS', redsys],
     ]);
   }
 

@@ -161,6 +161,8 @@ enum Provider {
   WIPAY   // ESP Global Payment Systems — acquirer; sin claves activas
   PEANPE  // pasarela alternativa; sin claves activas
   PAYTEF  // pasarela omnicanal Paytef (Payment LINK API) — único activo hoy
+  REDSYS  // Redsys SIS — protocolo estándar de bancos ES (BBVA, Santander,
+          // CaixaBank, Sabadell). Form POST hosted + HMAC-SHA256-3DES.
 }
 
 model GatewayCredential {
