@@ -145,6 +145,50 @@ async function main() {
       }
     }
     console.log(`[db-heal] done — ${okCount} ok, ${errCount} err out of ${steps.length} steps`);
+
+    // ─── Auto-activación de provider según env vars ───────────────────
+    // Si REDSYS_MERCHANT_CODE está definido, activamos REDSYS para todos
+    // los venues y desactivamos cualquier otro provider activo.
+    // Idempotente: si ya está activo, no hace nada.
+    if (process.env.REDSYS_MERCHANT_CODE && process.env.REDSYS_SECRET_KEY) {
+      try {
+        const venues = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+          `SELECT id FROM venues WHERE "deletedAt" IS NULL`,
+        );
+        for (const venue of venues) {
+          // Desactivar todos los providers activos del venue (PAYTEF, WIPAY, etc.)
+          await prisma.$executeRawUnsafe(
+            `UPDATE gateway_credentials SET active = false WHERE "tenantId" = $1::uuid AND active = true AND provider != 'REDSYS'`,
+            venue.id,
+          );
+          // Comprobar si ya existe fila REDSYS
+          const existing = await prisma.$queryRawUnsafe<Array<{ id: string; active: boolean }>>(
+            `SELECT id, active FROM gateway_credentials WHERE "tenantId" = $1::uuid AND provider = 'REDSYS' LIMIT 1`,
+            venue.id,
+          );
+          if (existing.length === 0) {
+            // Crear nueva fila REDSYS activa (dummy bytes — adapter lee creds de env)
+            await prisma.$executeRawUnsafe(
+              `INSERT INTO gateway_credentials (id, "tenantId", provider, active, "encKey", "encNonce", "encTag", "kekVersion", "createdAt")
+               VALUES (gen_random_uuid(), $1::uuid, 'REDSYS', true, '\\x00'::bytea, '\\x00'::bytea, '\\x00'::bytea, 1, now())`,
+              venue.id,
+            );
+            console.log(`[db-heal] REDSYS creado y activado para venue ${venue.id}`);
+          } else if (!existing[0]!.active) {
+            await prisma.$executeRawUnsafe(
+              `UPDATE gateway_credentials SET active = true WHERE id = $1::uuid`,
+              existing[0]!.id,
+            );
+            console.log(`[db-heal] REDSYS reactivado para venue ${venue.id}`);
+          }
+        }
+        console.log(`[db-heal] REDSYS auto-activation: ${venues.length} venue(s) procesados`);
+      } catch (e) {
+        console.error(`[db-heal] err REDSYS auto-activation: ${(e as Error).message}`);
+      }
+    } else {
+      console.log('[db-heal] REDSYS env vars no configuradas — auto-activation skip');
+    }
   } catch (e) {
     console.error('[db-heal] FATAL:', (e as Error).message);
     process.exitCode = 1;
