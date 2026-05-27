@@ -139,21 +139,32 @@ export class RedsysAdapter implements GatewayAdapter {
     const urlKo = `${apiBase.replace(/\/+$/, '')}/pay/result?status=ko&op=${encodeURIComponent(dsOrder)}`;
     const merchantUrl = `${apiBase.replace(/\/+$/, '')}/v1/webhooks/redsys`;
 
+    // Redsys exige TerminalID zero-padded a 3 dígitos ("001" no "1").
+    // Si el usuario pone "1" en env, lo pad-eamos automáticamente.
+    const terminal = creds.terminal.padStart(3, '0');
+
+    // PRODUCTDESCRIPTION: solo alfanuméricos + espacios. Redsys SIS rechaza
+    // caracteres especiales (acentos, símbolos) en este campo, lo que genera
+    // SIS0042 (firma incorrecta) porque internamente normaliza distinto.
+    const productDesc = `NightPay ${input.reference.slice(0, 8)}`
+      .replace(/[^a-zA-Z0-9 ]/g, '')
+      .slice(0, 125);
+
     const form = api.createRedirectForm({
       DS_MERCHANT_AMOUNT: String(input.amountCents),
       DS_MERCHANT_ORDER: dsOrder,
       DS_MERCHANT_MERCHANTCODE: creds.merchantCode,
       DS_MERCHANT_CURRENCY: currencyToRedsysCode(input.currency),
       DS_MERCHANT_TRANSACTIONTYPE: '0', // 0 = autorización
-      DS_MERCHANT_TERMINAL: creds.terminal,
+      DS_MERCHANT_TERMINAL: terminal,
       DS_MERCHANT_MERCHANTURL: merchantUrl,
       DS_MERCHANT_URLOK: urlOk,
       DS_MERCHANT_URLKO: urlKo,
-      DS_MERCHANT_PRODUCTDESCRIPTION: `NightPay ${input.reference.slice(0, 8)}`,
+      DS_MERCHANT_PRODUCTDESCRIPTION: productDesc,
     });
 
     this.logger.log(
-      `Redsys authorize: payment=${input.paymentId} dsOrder=${dsOrder} amount=${input.amountCents}c → form ${form.url}`,
+      `Redsys authorize: payment=${input.paymentId} dsOrder=${dsOrder} terminal=${terminal} amount=${input.amountCents}c → form ${form.url}`,
     );
 
     return {
