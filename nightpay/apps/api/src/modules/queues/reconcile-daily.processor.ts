@@ -37,8 +37,10 @@ export class ReconcileDailyProcessor extends WorkerHost {
     const dayDate = new Date(`${day}T00:00:00Z`);
     const dayEnd = new Date(dayDate.getTime() + 24 * 3600 * 1000);
 
-    // Agregamos por provider en ese rango temporal
-    const providers: Provider[] = ['WIPAY', 'PEANPE'];
+    // Agregamos por provider en ese rango temporal.
+    // REDSYS + PAYTEF añadidos — antes faltaban y la reconciliación era ciega
+    // a discrepancias en la pasarela más usada (Redsys/BBVA).
+    const providers: Provider[] = ['WIPAY', 'PEANPE', 'REDSYS', 'PAYTEF'];
 
     for (const provider of providers) {
       const agg = await this.prisma.payment.aggregate({

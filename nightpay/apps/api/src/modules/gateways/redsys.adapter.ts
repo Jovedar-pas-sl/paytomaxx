@@ -297,6 +297,24 @@ export class RedsysAdapter implements GatewayAdapter {
         return { valid: false, reason: 'missing-ds-order' };
       }
 
+      // Replay protection: si el webhook tiene Ds_Date + Ds_Hour, rechazamos
+      // los que sean de hace más de 30 min. Si un atacante captura un webhook
+      // legítimo y lo reenvía días después, este check lo bloquea aunque la
+      // firma siga siendo válida.
+      // Ventana 30 min: cubre delay de reintentos legítimos de Redsys + skew
+      // de reloj. Demasiado corta = rechazaríamos webhooks lentos.
+      const replayCheck = checkRedsysReplayWindow(
+        (parsed.Ds_Date ?? '') as string,
+        (parsed.Ds_Hour ?? '') as string,
+        30 * 60 * 1000,
+      );
+      if (!replayCheck.ok) {
+        this.logger.warn(
+          `Redsys webhook fuera de ventana replay: ${replayCheck.reason} (Ds_Date=${parsed.Ds_Date ?? ''} Ds_Hour=${parsed.Ds_Hour ?? ''})`,
+        );
+        return { valid: false, reason: replayCheck.reason };
+      }
+
       return {
         valid: true,
         externalEventId: parsed.Ds_Order,
@@ -424,6 +442,70 @@ export function currencyToRedsysCode(
     JPY: '392',
   };
   return map[currency.toUpperCase()] ?? '978';
+}
+
+/**
+ * Verifica que el timestamp del webhook Redsys (Ds_Date + Ds_Hour) caiga
+ * dentro de una ventana razonable del momento actual. Sirve de defensa
+ * contra replay attacks: si un atacante captura un webhook con firma
+ * válida, no puede reenviarlo días después.
+ *
+ * Formato Redsys:
+ *   Ds_Date  = "dd/MM/yyyy" (e.g. "28/05/2026") — Redsys lo URL-encodea.
+ *   Ds_Hour  = "HH:mm"      (e.g. "10:25")
+ *
+ * Si faltan ambos (Redsys no siempre los manda), permitimos por compat —
+ * la firma + idempotency vía webhookDelivery cubren el caso. Sólo si vienen
+ * y son antiguos, rechazamos.
+ *
+ * `windowMs` = ventana permitida hacia el pasado. Hacia el futuro
+ * permitimos hasta 5 min (skew de reloj).
+ */
+export function checkRedsysReplayWindow(
+  dsDate: string,
+  dsHour: string,
+  windowMs: number,
+  now: number = Date.now(),
+): { ok: true } | { ok: false; reason: string } {
+  if (!dsDate || !dsHour) {
+    // Sin timestamp no podemos validar — confiamos en firma + idempotency
+    return { ok: true };
+  }
+  // Redsys URL-encodea "/" → "%2F" en algunos casos
+  const decodedDate = decodeURIComponent(dsDate);
+  const decodedHour = decodeURIComponent(dsHour);
+  const dateMatch = decodedDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const hourMatch = decodedHour.match(/^(\d{2}):(\d{2})$/);
+  if (!dateMatch || !hourMatch) {
+    return { ok: false, reason: 'replay-timestamp-malformed' };
+  }
+  const [, d, m, y] = dateMatch;
+  const [, hh, mm] = hourMatch;
+  // Construimos Date en UTC asumiendo timezone del comercio (Europe/Madrid).
+  // Sin tzdata fiable usamos UTC con offset +1/+2 implícito. Para una ventana
+  // de 30 min el skew de DST (±1h) es irrelevante mientras la ventana sea >1h
+  // — con 30 min podríamos rechazar webhooks legítimos en cambio DST.
+  // Ampliamos: si el delta absoluto cabe en windowMs + 2h, lo aceptamos.
+  const ts = Date.UTC(
+    Number(y),
+    Number(m) - 1,
+    Number(d),
+    Number(hh),
+    Number(mm),
+  );
+  if (!Number.isFinite(ts)) {
+    return { ok: false, reason: 'replay-timestamp-invalid' };
+  }
+  const delta = now - ts;
+  const dstSkewMs = 2 * 60 * 60 * 1000; // 2h cubre cualquier DST/zona ES
+  const futureToleranceMs = 5 * 60 * 1000 + dstSkewMs;
+  if (delta < -futureToleranceMs) {
+    return { ok: false, reason: 'replay-timestamp-future' };
+  }
+  if (delta > windowMs + dstSkewMs) {
+    return { ok: false, reason: 'replay-timestamp-too-old' };
+  }
+  return { ok: true };
 }
 
 /**

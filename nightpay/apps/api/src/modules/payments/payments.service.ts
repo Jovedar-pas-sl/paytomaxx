@@ -138,6 +138,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           {
             jobId: `orphan-${p.id}`,
             delay: 5000, // disparo inminente al boot
+            attempts: 5,
+            backoff: { type: 'exponential', delay: 30_000 },
             removeOnComplete: true,
             removeOnFail: 100,
           },
@@ -1157,12 +1159,17 @@ export class PaymentsService implements OnApplicationBootstrap {
     );
 
     // 5) Encolar orphan-reconcile (se autocancela si llega webhook antes)
+    // Attempts + backoff: si la pasarela devuelve UNKNOWN reintenta 5 veces.
+    // Tras agotar, el processor transiciona el pago a ORPHAN (visible en
+    // admin para reconciliación manual).
     await this.orphanReconcileQueue.add(
       'orphan-reconcile',
       { paymentId: payment.id, tenantId: payment.tenantId },
       {
         jobId: `orphan-${payment.id}`,
         delay: ORPHAN_RECONCILE_DELAY_MS,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 30_000 },
         removeOnComplete: true,
         removeOnFail: 100,
       },

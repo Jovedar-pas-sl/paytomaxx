@@ -4,7 +4,7 @@ import type { Job } from 'bullmq';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { PaymentsService } from '../payments/payments.service';
 import { GatewayRegistry } from '../gateways/gateway.registry';
-import { InvalidTransitionError } from '../payments/payment.machine';
+import { InvalidTransitionError, isIdempotentTransition } from '../payments/payment.machine';
 import { WEBHOOKS_INGEST_QUEUE } from './queue-tokens';
 import type { Provider } from '@nightpay/contracts';
 
@@ -72,12 +72,24 @@ export class WebhookIngestProcessor extends WorkerHost {
       this.logger.log(`webhook ${deliveryId} → payment ${fsmEvent.paymentId} transitioned`);
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
-        // Idempotencia / out-of-order: marcamos procesado sin fallar
-        this.logger.warn(
-          `webhook ${deliveryId}: transition rejected (already in target state?): ${err.message}`,
+        if (isIdempotentTransition(err)) {
+          // Idempotencia válida (e.g. webhook duplicado, AUTHORIZED→AUTHORIZED)
+          this.logger.debug(
+            `webhook ${deliveryId}: transition idempotente (${err.fromState} + ${err.eventType}) — ya en estado destino`,
+          );
+          await this.markProcessed(deliveryId);
+          return;
+        }
+        // Bug real: estado del payment incompatible con el evento. Podría ser:
+        //  - Replay de webhook viejo cuando ya EXPIRED (filtrado por isIdempotent)
+        //  - Bug en mapWebhookToFsmEvent (paymentId resuelto mal)
+        //  - Estado inesperado por race con otro flow
+        // NO marcamos como procesado — dejamos que BullMQ reintente y/o que
+        // monitoring nos avise vía métrica.
+        this.logger.error(
+          `webhook ${deliveryId}: transition INESPERADA — payment ${fsmEvent.paymentId} está en ${err.fromState}, evento ${err.eventType}. NO marcando processed, reintentos exhaustos quedarán visibles.`,
         );
-        await this.markProcessed(deliveryId);
-        return;
+        throw err;
       }
       throw err;
     }

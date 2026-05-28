@@ -184,8 +184,39 @@ function isSelfTransition(state: PaymentStatus, event: PaymentEvent): boolean {
 }
 
 export class InvalidTransitionError extends Error {
+  readonly fromState: PaymentStatus;
+  readonly eventType: string;
+
   constructor(state: PaymentStatus, eventType: string) {
     super(`Invalid FSM transition: cannot apply ${eventType} from state ${state}`);
     this.name = 'InvalidTransitionError';
+    this.fromState = state;
+    this.eventType = eventType;
   }
+}
+
+/**
+ * Distingue: ¿la transición fue rechazada porque el pago YA está en el
+ * estado destino (idempotencia válida, OK) o porque está en un estado
+ * incompatible (bug real, no debería marcarse como procesado)?
+ *
+ * Ej. webhook AUTHORIZED llega cuando payment ya está AUTHORIZED → idempotente.
+ *     webhook AUTHORIZED llega cuando payment está EXPIRED → bug (replay o
+ *     mapeo cruzado), no marcar procesado, dejar que BullMQ reintente.
+ */
+export function isIdempotentTransition(
+  err: InvalidTransitionError,
+): boolean {
+  // Estados terminales o de éxito recibiendo el mismo evento = idempotente
+  if (err.fromState === 'AUTHORIZED' && err.eventType === 'AUTHORIZED') return true;
+  if (err.fromState === 'FAILED' && err.eventType === 'FAILED') return true;
+  // PARTIALLY_REFUNDED ya implica AUTHORIZED previo — recibir AUTHORIZED tardío OK
+  if (err.fromState === 'PARTIALLY_REFUNDED' && err.eventType === 'AUTHORIZED') return true;
+  // REFUNDED igual — el cobro original sí ocurrió
+  if (err.fromState === 'REFUNDED' && err.eventType === 'AUTHORIZED') return true;
+  // EXPIRED / CANCELED son terminales: cualquier evento tardío es info-only,
+  // no es bug — ya no queremos revivirlos.
+  if (err.fromState === 'EXPIRED') return true;
+  if (err.fromState === 'CANCELED') return true;
+  return false;
 }

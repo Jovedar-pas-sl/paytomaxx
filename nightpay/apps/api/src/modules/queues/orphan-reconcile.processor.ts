@@ -12,8 +12,14 @@ interface OrphanReconcileJobData {
 }
 
 /**
- * Saga de compensación: cuando un pago lleva 30+ min en AUTHORIZING sin webhook,
+ * Saga de compensación: cuando un pago lleva tiempo en AUTHORIZING sin webhook,
  * consultamos a la pasarela el estado real y resolvemos.
+ *
+ * Política de reintentos: si la pasarela devuelve UNKNOWN repetidamente
+ * (red caída, consulta no autorizada por el banco — SIS0105 — etc), tras
+ * agotar reintentos transicionamos a ORPHAN (estado terminal-resoluble).
+ * ORPHAN es visible en admin para reconciliar a mano. NO se queda
+ * AUTHORIZING para siempre.
  */
 @Processor(ORPHAN_RECONCILE_QUEUE)
 export class OrphanReconcileProcessor extends WorkerHost {
@@ -32,6 +38,8 @@ export class OrphanReconcileProcessor extends WorkerHost {
 
   async process(job: Job<OrphanReconcileJobData>): Promise<void> {
     const { paymentId, tenantId } = job.data;
+    const attempt = job.attemptsMade + 1;
+    const maxAttempts = job.opts.attempts ?? 1;
 
     const payment = await this.payments.findById(paymentId);
     if (!payment.providerTxId || !payment.provider) {
@@ -58,16 +66,36 @@ export class OrphanReconcileProcessor extends WorkerHost {
           provider: payment.provider,
         });
         this.logger.log(`Orphan resolved → AUTHORIZED: ${paymentId}`);
-      } else if (realStatus === 'FAILED') {
+        return;
+      }
+      if (realStatus === 'FAILED') {
         await this.payments.transition(paymentId, {
           type: 'FAILED',
           reason: 'orphan-resolved-failed',
         });
         this.logger.log(`Orphan resolved → FAILED: ${paymentId}`);
-      } else {
-        // Aún processing → reencolar con backoff
-        this.logger.warn(`Orphan ${paymentId} still pending (gateway=${realStatus}) — re-queueing`);
+        return;
+      }
+      // realStatus === 'UNKNOWN' — la pasarela no nos puede confirmar.
+      // Si quedan intentos, dejamos que BullMQ reintente con backoff.
+      // Si agotamos intentos, marcamos ORPHAN (visible en admin para
+      // reconciliación manual).
+      if (attempt < maxAttempts) {
+        this.logger.warn(
+          `Orphan ${paymentId} still pending (gateway=UNKNOWN) — retry ${attempt}/${maxAttempts}`,
+        );
         throw new Error('still-pending');
+      }
+      this.logger.warn(
+        `Orphan ${paymentId} reintentos agotados (${maxAttempts}) — transición a ORPHAN para reconciliación manual`,
+      );
+      try {
+        await this.payments.transition(paymentId, { type: 'TIMEOUT' });
+      } catch (err) {
+        if (!(err instanceof InvalidTransitionError)) throw err;
+        // Race: webhook llegó y avanzó el FSM mientras nosotros marcábamos
+        // ORPHAN. Está bien, el otro path ganó.
+        this.logger.debug(`Orphan ${paymentId} ya transicionó — race con webhook`);
       }
     } catch (err) {
       if (err instanceof InvalidTransitionError) {

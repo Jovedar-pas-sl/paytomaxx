@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   RedsysAdapter,
+  checkRedsysReplayWindow,
   currencyToRedsysCode,
   parseFormUrlEncoded,
 } from './redsys.adapter';
@@ -186,5 +187,47 @@ describe('RedsysAdapter.verifyWebhook — rejection paths', () => {
     const result = adapter.verifyWebhook({}, Buffer.from(body));
     expect(result.valid).toBe(false);
     if (!result.valid) expect(result.reason).toBe('signature-mismatch');
+  });
+});
+
+describe('checkRedsysReplayWindow', () => {
+  // 2026-05-28 12:00:00 UTC = 2026-05-28 14:00 Madrid (DST CEST)
+  const NOW = Date.UTC(2026, 4, 28, 12, 0, 0);
+  const WINDOW = 30 * 60 * 1000;
+
+  it('acepta timestamps vacíos (sin Ds_Date/Ds_Hour) — compat', () => {
+    expect(checkRedsysReplayWindow('', '', WINDOW, NOW)).toEqual({ ok: true });
+    expect(checkRedsysReplayWindow('28/05/2026', '', WINDOW, NOW)).toEqual({ ok: true });
+  });
+
+  it('acepta timestamps dentro de ventana 30 min', () => {
+    expect(checkRedsysReplayWindow('28/05/2026', '11:50', WINDOW, NOW)).toEqual({ ok: true });
+    expect(checkRedsysReplayWindow('28/05/2026', '12:00', WINDOW, NOW)).toEqual({ ok: true });
+  });
+
+  it('rechaza timestamps muy viejos (más de window + 2h DST skew)', () => {
+    const result = checkRedsysReplayWindow('25/05/2026', '12:00', WINDOW, NOW);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('replay-timestamp-too-old');
+  });
+
+  it('rechaza timestamps muy futuros (más de 5 min + 2h DST skew)', () => {
+    const result = checkRedsysReplayWindow('29/05/2026', '12:00', WINDOW, NOW);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('replay-timestamp-future');
+  });
+
+  it('rechaza formato malformado', () => {
+    const r1 = checkRedsysReplayWindow('2026-05-28', '12:00', WINDOW, NOW);
+    expect(r1.ok).toBe(false);
+    if (!r1.ok) expect(r1.reason).toBe('replay-timestamp-malformed');
+    const r2 = checkRedsysReplayWindow('28/05/2026', '12-00', WINDOW, NOW);
+    expect(r2.ok).toBe(false);
+  });
+
+  it('maneja URL-encoded "/" (Redsys a veces los envía así)', () => {
+    expect(
+      checkRedsysReplayWindow('28%2F05%2F2026', '11:50', WINDOW, NOW),
+    ).toEqual({ ok: true });
   });
 });
