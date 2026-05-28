@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'phase3-client-ux-2026-05-28',
+      build: 'phase4-operator-ux-2026-05-28',
     } as Health & { build: string };
   }
 }

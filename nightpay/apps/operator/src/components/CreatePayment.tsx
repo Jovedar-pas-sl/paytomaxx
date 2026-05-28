@@ -62,6 +62,15 @@ export function CreatePayment({ onCreated }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [wsDown, setWsDown] = useState(false);
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  // Tick global para countdown del QR
+  useEffect(() => {
+    if (!active) return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [active]);
 
   useEffect(() => {
     fetchTerminals()
@@ -86,8 +95,11 @@ export function CreatePayment({ onCreated }: Props) {
     if (!active) return;
     const socket: Socket = io(`${wsBase}/rt`, { transports: ['websocket', 'polling'] });
     socket.on('connect', () => {
+      setWsDown(false);
       socket.emit('payment:subscribe', { paymentId: active.id });
     });
+    socket.on('disconnect', () => setWsDown(true));
+    socket.on('connect_error', () => setWsDown(true));
     socket.on('payment:update', (e: { paymentId: string; status: PaymentStatus }) => {
       if (e.paymentId === active.id) setStatus(e.status);
     });
@@ -188,6 +200,14 @@ export function CreatePayment({ onCreated }: Props) {
     // el cobro pendiente. Mostramos código corto humano-legible.
     const isPosFlow = mode === 'pos';
     const refCode = active.id.slice(-6).toUpperCase();
+    // Countdown del QR — solo en estados pre-cobro
+    const isPreCobro = !status || status === 'CREATED' || status === 'AWAITING_CAPTURE';
+    const expiryMs = new Date(active.qrExpiresAt).getTime();
+    const secondsLeft = isPreCobro && Number.isFinite(expiryMs)
+      ? Math.max(0, Math.floor((expiryMs - now) / 1000))
+      : null;
+    const showCountdown = secondsLeft !== null && secondsLeft > 0;
+    const countdownUrgent = secondsLeft !== null && secondsLeft < 60;
     return (
       <Card variant="glow" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ textAlign: 'center' }}>
@@ -211,6 +231,50 @@ export function CreatePayment({ onCreated }: Props) {
         <div style={{ display: 'flex', justifyContent: 'center' }}>
           <StatusPill status={status ?? 'CREATED'} />
         </div>
+
+        {showCountdown ? (
+          <p
+            style={{
+              margin: 0,
+              textAlign: 'center',
+              fontSize: '0.875rem',
+              color: countdownUrgent ? 'var(--np-warning)' : 'var(--np-text-mute)',
+              fontVariantNumeric: 'tabular-nums',
+              letterSpacing: '0.02em',
+            }}
+          >
+            QR caduca en {Math.floor(secondsLeft! / 60)}:{(secondsLeft! % 60).toString().padStart(2, '0')}
+          </p>
+        ) : null}
+
+        {wsDown && isPreCobro ? (
+          <p
+            role="status"
+            style={{
+              margin: 0,
+              textAlign: 'center',
+              fontSize: '0.75rem',
+              color: 'var(--np-warning)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.375rem',
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: '0.5rem',
+                height: '0.5rem',
+                borderRadius: '50%',
+                background: 'var(--np-warning)',
+                animation: 'np-blink 1.2s ease-in-out infinite',
+              }}
+            />
+            Reconectando con el servidor…
+            <style>{`@keyframes np-blink {0%,100%{opacity:0.4}50%{opacity:1}}`}</style>
+          </p>
+        ) : null}
 
         {isPosFlow ? (
           <>
@@ -328,7 +392,9 @@ export function CreatePayment({ onCreated }: Props) {
           onChange={(e) => setAmount(e.target.value)}
           required
           size="lg"
-          autoFocus
+          // autoFocus removed: en iOS abre el teclado inmediatamente, que tapa
+          // el selector de modo (QR/Wallet/POS) que la chica AÚN no eligió.
+          // La chica toca el input cuando quiera escribir el importe.
           style={{ textAlign: 'center', fontFamily: 'var(--np-font-mono)' }}
         />
 
@@ -347,7 +413,8 @@ export function CreatePayment({ onCreated }: Props) {
             onChange={(e) => setRevCategory(e.target.value as RevCat)}
             style={{
               width: '100%',
-              padding: '0.7rem',
+              minHeight: '3rem', // 48px touch target
+              padding: '0.75rem',
               borderRadius: '0.5rem',
               border: '1px solid var(--np-border, #ccc)',
               background: 'var(--np-bg-input, #fff)',
@@ -467,16 +534,22 @@ const toggleRowStyle: CSSProperties = {
 
 const toggleBtnStyle: CSSProperties = {
   flex: 1,
-  padding: '0.5rem 0.75rem',
+  // 44px+ touch target — antes 28px rendered (padding 0.5rem + fontSize 0.78rem)
+  // era zona de misfire con guantes o vibración nocturna.
+  minHeight: '2.75rem',
+  padding: '0.625rem 0.75rem',
   background: 'transparent',
   border: 'none',
   borderRadius: 'var(--np-r-sm)',
   color: 'var(--np-text-mute)',
-  fontSize: '0.78rem',
+  fontSize: '0.85rem',
   fontWeight: 500,
   cursor: 'pointer',
   letterSpacing: '0.04em',
   textTransform: 'uppercase',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
 };
 
 const toggleBtnActiveStyle: CSSProperties = {

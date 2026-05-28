@@ -7,6 +7,50 @@ const TOKEN_KEY = 'np_op_token';
 const REFRESH_KEY = 'np_op_refresh';
 const USER_KEY = 'np_op_user';
 
+/**
+ * Convierte error HTTP en mensaje legible para la chica en un club ruidoso.
+ * Prioriza el `detail` del backend cuando viene en formato Problem Details
+ * RFC 7807. Para 4xx/5xx mapea a frases concretas.
+ *
+ * NO devolvemos JSON crudo, stack, ni códigos técnicos.
+ */
+export async function parseOperatorApiError(res: Response, context: string): Promise<string> {
+  const status = res.status;
+  let backendDetail: string | undefined;
+  try {
+    const text = await res.text();
+    if (text.startsWith('{')) {
+      const parsed = JSON.parse(text) as {
+        title?: string;
+        detail?: string;
+        message?: string;
+        userMessage?: string;
+      };
+      backendDetail = parsed.userMessage ?? parsed.detail ?? parsed.message ?? parsed.title;
+    } else if (text && text.length < 100) {
+      backendDetail = text;
+    }
+  } catch {
+    // ignore
+  }
+
+  if (status === 401) return 'Tu sesión ha caducado. Vuelve a iniciar sesión.';
+  if (status === 403) return 'No tienes permiso para esta acción.';
+  if (status === 404) return `${context} no encontrado.`;
+  if (status === 409) {
+    if (backendDetail && backendDetail.length < 120) return backendDetail;
+    return 'Esta operación ya está en curso o no se puede repetir.';
+  }
+  if (status === 422) {
+    if (backendDetail && backendDetail.length < 200) return backendDetail;
+    return 'Los datos enviados no son válidos.';
+  }
+  if (status === 429) return 'Demasiados intentos. Espera un momento.';
+  if (status >= 500) return 'El servidor está teniendo problemas. Vuelve a intentarlo en unos segundos.';
+  if (backendDetail && backendDetail.length < 200) return backendDetail;
+  return `${context} no se pudo completar.`;
+}
+
 export interface OperatorUser {
   id: string;
   email: string;
@@ -295,7 +339,7 @@ export async function createPayment(input: {
     headers: { 'Idempotency-Key': idemKey },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro'));
   return res.json();
 }
 
@@ -329,13 +373,13 @@ export async function confirmPosPayment(
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Error confirmando: ${await res.text()}`);
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Confirmación POS'));
   return res.json();
 }
 
 export async function cancelPayment(id: string): Promise<{ status: string }> {
   const res = await authedFetch(`/v1/payments/${id}/cancel`, { method: 'POST' });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cancelación'));
   return res.json();
 }
 
@@ -406,10 +450,7 @@ export async function consumeWallet(input: {
       notes: input.notes,
     }),
   });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Cobro a wallet falló: ${body}`);
-  }
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro a wallet'));
   return res.json();
 }
 
@@ -474,7 +515,7 @@ export async function fetchSelfOnboardingProfile(token: string): Promise<SelfOnb
   const res = await fetch(`${API_BASE}/v1/operators/self-onboarding/${encodeURIComponent(token)}`);
   if (!res.ok) {
     if (res.status === 401) throw new Error('El link expiró o no es válido. Pide uno nuevo al admin.');
-    throw new Error(`Error: ${await res.text()}`);
+    throw new Error(await parseOperatorApiError(res, 'Onboarding'));
   }
   return res.json();
 }
@@ -490,7 +531,7 @@ export async function submitSelfOnboarding(
   });
   if (!res.ok) {
     if (res.status === 401) throw new Error('El link expiró. Pide uno nuevo al admin.');
-    throw new Error(`Error guardando: ${await res.text()}`);
+    throw new Error(await parseOperatorApiError(res, 'Guardado'));
   }
   return res.json();
 }
@@ -503,7 +544,7 @@ export async function acceptInvite(token: string, password: string): Promise<{ o
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, password }),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Aceptar invitación'));
   return res.json();
 }
 

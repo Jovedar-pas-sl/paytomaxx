@@ -25,6 +25,8 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { RefreshTokenService } from '../auth/refresh-token.service';
 import { AuditService } from '../audit/audit.service';
 import { OperatorsService } from '../operators/operators.service';
+import { PaymentsService } from '../payments/payments.service';
+import { InvalidTransitionError } from '../payments/payment.machine';
 import { ClsService } from 'nestjs-cls';
 import {
   CreateOperatorSchema,
@@ -129,6 +131,7 @@ export class AdminController {
   private readonly refreshTokens: RefreshTokenService;
   private readonly audit: AuditService;
   private readonly operators: OperatorsService;
+  private readonly payments: PaymentsService;
   private readonly cls: ClsService<{ ctx: RequestContext }>;
 
   constructor(
@@ -136,12 +139,14 @@ export class AdminController {
     @Inject(RefreshTokenService) refreshTokens: RefreshTokenService,
     @Inject(AuditService) audit: AuditService,
     @Inject(OperatorsService) operators: OperatorsService,
+    @Inject(PaymentsService) payments: PaymentsService,
     @Inject(ClsService) cls: ClsService<{ ctx: RequestContext }>,
   ) {
     this.prisma = prisma;
     this.refreshTokens = refreshTokens;
     this.audit = audit;
     this.operators = operators;
+    this.payments = payments;
     this.cls = cls;
   }
 
@@ -359,6 +364,87 @@ export class AdminController {
       items: page,
       nextCursor: hasMore ? page[page.length - 1]!.id : null,
     };
+  }
+
+  /**
+   * Reconciliación manual de un pago atascado en ORPHAN.
+   *
+   * Cuando el webhook de la pasarela no llega y la consulta REST tampoco
+   * funciona (SIS0105 — operador no autorizado, banco con feature off),
+   * los pagos quedan ORPHAN. El admin verifica el estado en el panel del
+   * banco y aquí lo marca como AUTHORIZED o FAILED para cerrar el ciclo.
+   *
+   * Solo OWNER puede hacerlo (impacto financiero directo). Auditado.
+   * Solo pagos en ORPHAN — no se puede manipular otros estados.
+   */
+  @Post('payments/:id/manual-reconcile')
+  @Roles('OWNER')
+  @HttpCode(200)
+  async manualReconcile(
+    @Param('id', ParseUUIDPipe) paymentId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(z.object({
+      decision: z.enum(['AUTHORIZED', 'FAILED']),
+      reason: z.string().min(3).max(500),
+    })))
+    body: { decision: 'AUTHORIZED' | 'FAILED'; reason: string },
+  ): Promise<{ ok: true; newStatus: string }> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+      select: { id: true, status: true, provider: true, providerTxId: true, tenantId: true },
+    });
+    if (!payment) {
+      throw new NotFoundException('Payment not found');
+    }
+    if (payment.tenantId !== tenantId) {
+      throw new ForbiddenException('Cross-tenant payment');
+    }
+    if (payment.status !== 'ORPHAN') {
+      throw new ConflictException(
+        `Solo se pueden reconciliar a mano pagos en estado ORPHAN — este está en ${payment.status}`,
+      );
+    }
+
+    try {
+      if (body.decision === 'AUTHORIZED') {
+        if (!payment.provider || !payment.providerTxId) {
+          throw new ConflictException('Pago sin provider/providerTxId — no se puede marcar AUTHORIZED');
+        }
+        await this.payments.transition(paymentId, {
+          type: 'AUTHORIZED',
+          provider: payment.provider,
+          providerTxId: payment.providerTxId,
+        });
+      } else {
+        await this.payments.transition(paymentId, {
+          type: 'FAILED',
+          reason: `manual-reconcile: ${body.reason}`,
+        });
+      }
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) {
+        throw new ConflictException(
+          `Transición rechazada: ${err.message} — el estado del pago cambió mientras hacías esto`,
+        );
+      }
+      throw err;
+    }
+
+    await this.audit.log({
+      action: 'payment.manual_reconcile',
+      tenantId,
+      actorId: user.sub,
+      targetType: 'Payment',
+      targetId: paymentId,
+      payload: { decision: body.decision, reason: body.reason, fromStatus: 'ORPHAN' },
+    });
+
+    this.logger.warn(
+      `Manual reconcile by ${user.sub}: payment=${paymentId} → ${body.decision} (reason: ${body.reason})`,
+    );
+
+    return { ok: true, newStatus: body.decision };
   }
 
   /**
