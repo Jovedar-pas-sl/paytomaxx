@@ -1,7 +1,8 @@
-import { Controller, Get, Inject, Logger } from '@nestjs/common';
+import { Controller, Get, Inject, Logger, NotFoundException, Param } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { RedsysAdapter } from '../gateways/redsys.adapter';
 
 interface KeyCheckResponse {
   merchantCodePresent: boolean;
@@ -51,13 +52,16 @@ export class RedsysDebugController {
   private readonly logger = new Logger(RedsysDebugController.name);
   private readonly config: ConfigService;
   private readonly prisma: PrismaService;
+  private readonly redsys: RedsysAdapter;
 
   constructor(
     @Inject(ConfigService) config: ConfigService,
     @Inject(PrismaService) prisma: PrismaService,
+    @Inject(RedsysAdapter) redsys: RedsysAdapter,
   ) {
     this.config = config;
     this.prisma = prisma;
+    this.redsys = redsys;
   }
 
   @Public()
@@ -182,6 +186,60 @@ export class RedsysDebugController {
           rawBodyPreview: text.length > 500 ? text.slice(0, 500) + '...' : text,
         };
       }),
+    };
+  }
+
+  /**
+   * Pregunta a Redsys el estado real de un payment (vía REST trataPeticion
+   * TransactionType=44). Útil para diagnosticar pagos atascados sin esperar
+   * al job de reconciliación automática.
+   *
+   * Devuelve lo que Redsys dice (AUTHORIZED / FAILED / UNKNOWN) sin tocar
+   * la BD. Para reconciliar de verdad, el orphan-reconcile processor
+   * agarra ese estado y avanza el FSM.
+   */
+  @Public()
+  @Get('consult/:paymentId')
+  async consult(@Param('paymentId') paymentId: string): Promise<{
+    paymentId: string;
+    dbStatus: string;
+    provider: string | null;
+    providerTxId: string | null;
+    redsysStatus: 'AUTHORIZED' | 'FAILED' | 'UNKNOWN';
+  }> {
+    const rows = await this.prisma.$queryRawUnsafe<Array<{
+      id: string;
+      status: string;
+      provider: string | null;
+      providerTxId: string | null;
+      tenantId: string;
+    }>>(
+      `SELECT id::text, status::text, provider::text, "providerTxId", "tenantId"::text
+       FROM payments
+       WHERE id = $1::uuid
+       LIMIT 1`,
+      paymentId,
+    );
+    const payment = rows[0];
+    if (!payment) {
+      throw new NotFoundException(`Payment ${paymentId} not found`);
+    }
+    if (payment.provider !== 'REDSYS' || !payment.providerTxId) {
+      return {
+        paymentId,
+        dbStatus: payment.status,
+        provider: payment.provider,
+        providerTxId: payment.providerTxId,
+        redsysStatus: 'UNKNOWN',
+      };
+    }
+    const redsysStatus = await this.redsys.getStatus(payment.tenantId, payment.providerTxId);
+    return {
+      paymentId,
+      dbStatus: payment.status,
+      provider: payment.provider,
+      providerTxId: payment.providerTxId,
+      redsysStatus: redsysStatus as 'AUTHORIZED' | 'FAILED' | 'UNKNOWN',
     };
   }
 }

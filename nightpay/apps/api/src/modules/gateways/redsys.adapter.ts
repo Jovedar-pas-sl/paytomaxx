@@ -179,9 +179,50 @@ export class RedsysAdapter implements GatewayAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  private async doGetStatus(_tenantId: string, _providerTxId: string): Promise<GatewayStatus> {
-    return 'UNKNOWN';
+  /**
+   * Consulta el estado real de una operación en Redsys vía REST trataPeticion
+   * con TransactionType=44 (consulta).
+   *
+   * Returns:
+   *  - 'AUTHORIZED' si Ds_Response 0000-0099
+   *  - 'FAILED' si Ds_Response >= 100 (denegación/error)
+   *  - 'UNKNOWN' en cualquier otro caso (sin respuesta, red caída, etc.)
+   *    → el caller (orphan-reconcile) reintentará más tarde.
+   */
+  private async doGetStatus(
+    _tenantId: string,
+    providerTxId: string,
+  ): Promise<GatewayStatus> {
+    try {
+      const creds = this.requireCreds();
+      const api = this.getApi();
+      const terminal = creds.terminal.padStart(3, '0');
+
+      const result = await api.restTrataPeticion({
+        DS_MERCHANT_AMOUNT: '1',
+        DS_MERCHANT_ORDER: providerTxId,
+        DS_MERCHANT_MERCHANTCODE: creds.merchantCode,
+        DS_MERCHANT_CURRENCY: '978',
+        DS_MERCHANT_TRANSACTIONTYPE: '44',
+        DS_MERCHANT_TERMINAL: terminal,
+      });
+
+      const dsResponse = (result.Ds_Response ?? '').toString().trim();
+      this.logger.log(
+        `Redsys consult ${providerTxId} → Ds_Response=${dsResponse || '<empty>'}`,
+      );
+
+      if (dsResponse === '') return 'UNKNOWN';
+      const responseNum = Number(dsResponse);
+      if (!Number.isFinite(responseNum)) return 'UNKNOWN';
+      if (responseNum >= 0 && responseNum <= 99) return 'AUTHORIZED';
+      return 'FAILED';
+    } catch (err) {
+      this.logger.warn(
+        `Redsys consult failed for ${providerTxId}: ${(err as Error).message}`,
+      );
+      return 'UNKNOWN';
+    }
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await

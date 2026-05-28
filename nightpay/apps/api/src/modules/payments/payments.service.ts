@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  type OnApplicationBootstrap,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
@@ -36,10 +37,15 @@ import { WalletsService } from '../wallets/wallets.service';
 
 const QR_TTL_SECONDS = 5 * 60; // 5 min
 const POS_QR_TTL_SECONDS = 30 * 60; // 30 min — camarero tiene tiempo de llegar
-const ORPHAN_RECONCILE_DELAY_MS = 30 * 60 * 1000; // 30 min sin webhook → reconcile
+// Reducido de 30min → 2min. Razón: comprobado con Redsys que la "URL online"
+// del panel BBVA suele estar desconfigurada o apuntando al integrador previo
+// (tokenea, peanpe). Sin webhook, el cobro se atasca en AUTHORIZING aunque
+// el banco lo procesara OK. Polling cada 2min vía adapter.getStatus cierra
+// la ventana sin esperar 30min.
+const ORPHAN_RECONCILE_DELAY_MS = 2 * 60 * 1000;
 
 @Injectable()
-export class PaymentsService {
+export class PaymentsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(PaymentsService.name);
   private readonly prisma: PrismaService;
   private readonly cls: ClsService<{ ctx: RequestContext }>;
@@ -71,6 +77,56 @@ export class PaymentsService {
     this.metrics = metrics;
     this.wallets = wallets;
     this.peanpe = peanpe;
+  }
+
+  /**
+   * Boot sweep: al arrancar la API, reencola un orphan-reconcile para cada
+   * pago en AUTHORIZING ya antiguo (>=2 min) que tenga provider+providerTxId.
+   * Sin esto, los pagos atascados de antes del deploy nunca se reconcilian
+   * porque su BullMQ job repetable no fue creado o ya expiró.
+   *
+   * Idempotente: el `jobId: orphan-<paymentId>` lo deduplica con cualquier
+   * job ya en cola.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    try {
+      const cutoff = new Date(Date.now() - 2 * 60 * 1000);
+      const stuck = await this.prisma.$queryRawUnsafe<Array<{
+        id: string;
+        tenantId: string;
+      }>>(
+        `SELECT id::text, "tenantId"::text
+         FROM payments
+         WHERE status = 'AUTHORIZING'
+           AND provider IS NOT NULL
+           AND "providerTxId" IS NOT NULL
+           AND "createdAt" < $1
+         ORDER BY "createdAt" ASC
+         LIMIT 100`,
+        cutoff,
+      );
+
+      if (stuck.length === 0) {
+        this.logger.log('Boot sweep: no AUTHORIZING payments to reconcile');
+        return;
+      }
+
+      this.logger.log(`Boot sweep: re-queueing ${stuck.length} stuck AUTHORIZING payments`);
+      for (const p of stuck) {
+        await this.orphanReconcileQueue.add(
+          'orphan-reconcile',
+          { paymentId: p.id, tenantId: p.tenantId },
+          {
+            jobId: `orphan-${p.id}`,
+            delay: 5000, // disparo inminente al boot
+            removeOnComplete: true,
+            removeOnFail: 100,
+          },
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`Boot sweep failed (non-fatal): ${(err as Error).message}`);
+    }
   }
 
   /**
