@@ -194,6 +194,87 @@ export class RedsysDebugController {
   }
 
   /**
+   * Como `consult/:paymentId` pero con detalles del error (stack, mensaje,
+   * URL). Útil cuando consult devuelve UNKNOWN — el adapter swallow el
+   * error original, este endpoint lo expone para diagnosticar.
+   */
+  @Public()
+  @Get('consult-raw/:paymentId')
+  async consultRaw(@Param('paymentId') paymentId: string): Promise<unknown> {
+    const rows = await this.prisma.$queryRawUnsafe<Array<{
+      id: string;
+      status: string;
+      provider: string | null;
+      providerTxId: string | null;
+      tenantId: string;
+    }>>(
+      `SELECT id::text, status::text, provider::text, "providerTxId", "tenantId"::text
+       FROM payments
+       WHERE id = $1::uuid
+       LIMIT 1`,
+      paymentId,
+    );
+    const payment = rows[0];
+    if (!payment) {
+      throw new NotFoundException(`Payment ${paymentId} not found`);
+    }
+    if (payment.provider !== 'REDSYS' || !payment.providerTxId) {
+      return { error: 'not-a-redsys-payment', payment };
+    }
+
+    // Acceder a internals del adapter para bypass circuit breaker y exponer
+    // detalle del error sin que lo swallow doGetStatus.
+    const adapter = this.redsys as unknown as {
+      getApi: () => {
+        restTrataPeticion: (params: Record<string, string>) => Promise<unknown>;
+      };
+      requireCreds: () => { merchantCode: string; terminal: string };
+    };
+
+    let creds;
+    try {
+      creds = adapter.requireCreds();
+    } catch (e) {
+      return { error: 'creds-missing', message: (e as Error).message };
+    }
+
+    const terminal = creds.terminal.padStart(3, '0');
+    const params = {
+      DS_MERCHANT_AMOUNT: '1',
+      DS_MERCHANT_ORDER: payment.providerTxId,
+      DS_MERCHANT_MERCHANTCODE: creds.merchantCode,
+      DS_MERCHANT_CURRENCY: '978',
+      DS_MERCHANT_TRANSACTIONTYPE: '44',
+      DS_MERCHANT_TERMINAL: terminal,
+    };
+
+    try {
+      const api = adapter.getApi();
+      const result = await api.restTrataPeticion(params);
+      return {
+        ok: true,
+        paymentId,
+        providerTxId: payment.providerTxId,
+        paramsSent: params,
+        redsysResponse: result,
+      };
+    } catch (e) {
+      const err = e as Error & { code?: string; cause?: unknown };
+      return {
+        ok: false,
+        paymentId,
+        providerTxId: payment.providerTxId,
+        paramsSent: params,
+        errorName: err.name,
+        errorMessage: err.message,
+        errorCode: err.code ?? null,
+        errorCause: err.cause ? String(err.cause) : null,
+        errorStack: (err.stack ?? '').split('\n').slice(0, 8).join(' | '),
+      };
+    }
+  }
+
+  /**
    * Pregunta a Redsys el estado real de un payment (vía REST trataPeticion
    * TransactionType=44). Útil para diagnosticar pagos atascados sin esperar
    * al job de reconciliación automática.
