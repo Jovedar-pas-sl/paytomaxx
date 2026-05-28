@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'redsys-auto-reconcile-2026-05-28',
+      build: 'redsys-paymethods-2026-05-28',
     } as Health & { build: string };
   }
 }

@@ -150,6 +150,13 @@ export class RedsysAdapter implements GatewayAdapter {
       .replace(/[^a-zA-Z0-9 ]/g, '')
       .slice(0, 125);
 
+    // Wallets (Apple Pay + Google Pay) — solo se aplica si BBVA los tiene
+    // activados en el TPV. Si no, Redsys responde SIS error.
+    //   REDSYS_PAYMETHODS="xpay"  → fuerza picker wallet (sin form tarjeta)
+    //   REDSYS_PAYMETHODS="C"     → solo tarjeta
+    //   (vacío)                    → Redsys decide (default seguro)
+    const paymethods = this.config.get<string>('REDSYS_PAYMETHODS');
+
     const form = api.createRedirectForm({
       DS_MERCHANT_AMOUNT: String(input.amountCents),
       DS_MERCHANT_ORDER: dsOrder,
@@ -161,10 +168,11 @@ export class RedsysAdapter implements GatewayAdapter {
       DS_MERCHANT_URLOK: urlOk,
       DS_MERCHANT_URLKO: urlKo,
       DS_MERCHANT_PRODUCTDESCRIPTION: productDesc,
+      ...(paymethods ? { DS_MERCHANT_PAYMETHODS: paymethods } : {}),
     });
 
     this.logger.log(
-      `Redsys authorize: payment=${input.paymentId} dsOrder=${dsOrder} terminal=${terminal} amount=${input.amountCents}c → form ${form.url}`,
+      `Redsys authorize: payment=${input.paymentId} dsOrder=${dsOrder} terminal=${terminal} amount=${input.amountCents}c paymethods=${paymethods ?? 'default'} → form ${form.url}`,
     );
 
     return {

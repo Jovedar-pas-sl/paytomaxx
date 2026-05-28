@@ -17,6 +17,7 @@ interface KeyCheckResponse {
   apiUrl: string | null;
   nextPublicApiUrl: string | null;
   merchantUrlWeWillSend: string;
+  paymethods: string | null;
   hint: string;
 }
 
@@ -72,6 +73,7 @@ export class RedsysDebugController {
     const secretKey = this.config.get<string>('REDSYS_SECRET_KEY') ?? '';
     const apiUrl = this.config.get<string>('REDSYS_API_URL') ?? null;
     const nextPublicApiUrl = this.config.get<string>('NEXT_PUBLIC_API_URL') ?? null;
+    const paymethods = this.config.get<string>('REDSYS_PAYMETHODS') ?? null;
     const merchantUrlWeWillSend = `${(nextPublicApiUrl ?? 'http://localhost:4100').replace(/\/+$/, '')}/v1/webhooks/redsys`;
 
     const looksBase64 = /^[A-Za-z0-9+/]+={0,2}$/.test(secretKey);
@@ -105,6 +107,7 @@ export class RedsysDebugController {
       apiUrl,
       nextPublicApiUrl,
       merchantUrlWeWillSend,
+      paymethods,
       hint,
     };
   }

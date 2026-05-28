@@ -43,6 +43,21 @@ const EnvSchema = z.object({
   REDSYS_MERCHANT_CODE: z.string().regex(/^\d{1,9}$/, 'MerchantCode = 1-9 dígitos').optional(),
   REDSYS_TERMINAL: z.string().regex(/^\d{1,3}$/, 'Terminal = 1-3 dígitos').optional(),
   REDSYS_SECRET_KEY: z.string().min(8).optional(),
+  // DS_MERCHANT_PAYMETHODS — fuerza el método de pago en la página hosted.
+  // Valores típicos:
+  //   "xpay"  → solo wallets (Apple Pay + Google Pay). Cliente sin wallet
+  //             configurado NO puede pagar — usar solo cuando BBVA tiene
+  //             Apple Pay + Google Pay activos en el TPV.
+  //   "C"     → solo tarjeta tradicional (PAN+CVV).
+  //   (vacío) → Redsys decide. Si BBVA activó wallets, los muestra como
+  //             botones JUNTO al form de tarjeta. Default seguro.
+  //
+  // UX óptima para hostelería nocturna (cliente borracho):
+  //   1. Pide a BBVA/Peanpe activar Apple Pay + Google Pay (~1-3 semanas).
+  //   2. Sin tocar nada, los botones aparecen automáticamente.
+  //   3. Cuando confirmes que funcionan, set REDSYS_PAYMETHODS="xpay"
+  //      para esconder el form de tarjeta completamente.
+  REDSYS_PAYMETHODS: z.string().optional(),
   // Peanpe legacy URL var (no se usa con el adapter rehecho — mantener para
   // compat con env existentes). El adapter usa PEANPE_API_BASE_URL.
   PEANPE_API_URL: z.string().url(),
