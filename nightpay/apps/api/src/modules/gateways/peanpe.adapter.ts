@@ -22,6 +22,26 @@ function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
 }
 
 /**
+ * H1 safety guard — la doc oficial Peanpe NO especifica si `cantidad` es
+ * céntimos o euros enteros. Por defecto enviamos céntimos (idéntico a Redsys,
+ * Wipay, Stripe), pero si Peanpe interpreta el campo como euros, un cobro de
+ * 50€ se cargaría como 5.000€ (×100). Hasta que el formato esté verificado
+ * via cobro de prueba en sandbox, BLOQUEAMOS cobros ≥500€.
+ *
+ * Para verificar y desactivar el guard:
+ *   1. Hacer un cobro de prueba con tarjeta debug `4548812049400004` por 1€
+ *      (100 céntimos). Comprobar en panel Peanpe el importe registrado.
+ *   2. Si registra "1.00 EUR" → formato correcto, set env
+ *      `PEANPE_AMOUNT_FORMAT_VERIFIED=cents`.
+ *   3. Si registra "100.00 EUR" → cantidad espera euros; cambiar
+ *      buildPaymentUrl() para enviar `Math.round(amountCents/100)` y set
+ *      `PEANPE_AMOUNT_FORMAT_VERIFIED=euros`.
+ *   4. El guard se desactiva cuando `PEANPE_AMOUNT_FORMAT_VERIFIED` está set
+ *      a `cents` o `euros`.
+ */
+const PEANPE_SAFETY_MAX_UNVERIFIED_CENTS = 50_000;
+
+/**
  * Peanpe API v2.0 adapter — implementado según doc oficial (Vers: 2.0).
  *
  * Flow diferente al de gateways REST estándar:
@@ -131,36 +151,54 @@ export class PeanpeAdapter implements GatewayAdapter {
       throw new Error('PEANPE_API_KEY o PEANPE_ACCOUNT_ID no configurado');
     }
 
-    // Generar identificador_llamada único de 6 chars alfanuméricos. Reintenta
-    // ante colisión (improbable con 36^6 ≈ 2B combos).
+    // H1 safety guard — ver constante PEANPE_SAFETY_MAX_UNVERIFIED_CENTS.
+    const verified = this.config.get<string>('PEANPE_AMOUNT_FORMAT_VERIFIED');
+    if (
+      verified !== 'cents' &&
+      verified !== 'euros' &&
+      input.amountCents >= PEANPE_SAFETY_MAX_UNVERIFIED_CENTS
+    ) {
+      throw new Error(
+        `peanpe-amount-format-unverified: bloqueando cobro ${input.amountCents}c ≥ ` +
+          `${PEANPE_SAFETY_MAX_UNVERIFIED_CENTS}c hasta verificar formato de cantidad. ` +
+          `Ejecuta /v1/debug/peanpe/dry-run para verificar y set PEANPE_AMOUNT_FORMAT_VERIFIED=cents|euros.`,
+      );
+    }
+
+    // M2 race fix — la generación previa hacía findUnique seguido de create:
+    // dos requests concurrentes podían pasar el findUnique con el mismo
+    // candidate y solo una ganaba el create (P2002 sin captura). Ahora
+    // ponemos el create dentro del retry y capturamos P2002 explícitamente.
     let idLlamada: string | null = null;
+    const securityToken = String(randomInt(1_000_000_000, 9_999_999_999));
     for (let attempt = 0; attempt < 5; attempt++) {
       const candidate = generate6CharId();
-      const exists = await this.prisma.peanpeCall.findUnique({
-        where: { identificadorLlamada: candidate },
-      });
-      if (!exists) {
+      try {
+        await this.prisma.peanpeCall.create({
+          data: {
+            identificadorLlamada: candidate,
+            paymentId: input.paymentId,
+            tenantId: input.tenantId,
+            securityToken,
+            amountCents: input.amountCents,
+          },
+        });
         idLlamada = candidate;
         break;
+      } catch (err) {
+        // Prisma P2002 = unique constraint violation. Cualquier otro error
+        // se propaga (DB caída, FK violation, etc.) — no es problema de
+        // colisión de identificador.
+        const code = (err as { code?: string } | null)?.code;
+        if (code !== 'P2002') throw err;
+        this.logger.warn(
+          `Peanpe id_llamada collision attempt=${attempt + 1} candidate=${candidate} — retry`,
+        );
       }
     }
     if (!idLlamada) {
       throw new Error('No se pudo generar identificador_llamada único tras 5 intentos');
     }
-
-    // SecurityToken: número entero 10 cifras (string). Lo devolveremos cuando
-    // Peanpe POST el challenge tras el pago, validando así su autenticidad.
-    const securityToken = String(randomInt(1_000_000_000, 9_999_999_999));
-
-    await this.prisma.peanpeCall.create({
-      data: {
-        identificadorLlamada: idLlamada,
-        paymentId: input.paymentId,
-        tenantId: input.tenantId,
-        securityToken,
-        amountCents: input.amountCents,
-      },
-    });
 
     // C1 fix: construimos la URL hosted aquí y la devolvemos como paymentLinkUrl
     // → startAuthorization la persiste en gatewayPaymentUrl
@@ -307,12 +345,16 @@ export class PeanpeAdapter implements GatewayAdapter {
     const accountId = this.config.getOrThrow<string>('PEANPE_ACCOUNT_ID');
     const base = this.config.get<string>('PEANPE_API_BASE_URL') ?? 'http://peanpe.com';
 
-    // Doc Peanpe: cantidad debe ser número entero sin puntos ni comas.
-    // NightPay guarda en cents → Peanpe espera la misma unidad? La doc no
-    // es 100% clara pero "cantidad" típicamente es céntimos en PSPs ES.
-    // Asumimos céntimos. Si Peanpe espera euros enteros, hay que dividir /100.
-    // TODO: confirmar con soporte Peanpe en el primer cobro real.
-    const cantidad = String(input.amountCents);
+    // H1: la doc oficial Peanpe NO especifica si `cantidad` es céntimos o
+    // euros. Default céntimos (más común en PSPs ES). Si el usuario verifica
+    // empíricamente que Peanpe espera euros, set PEANPE_AMOUNT_FORMAT_VERIFIED=euros
+    // y el adapter divide por 100 (entero, sin decimales — la doc dice
+    // "número entero sin puntos ni comas").
+    const format = this.config.get<string>('PEANPE_AMOUNT_FORMAT_VERIFIED');
+    const cantidad =
+      format === 'euros'
+        ? String(Math.round(input.amountCents / 100))
+        : String(input.amountCents);
 
     // Firma según doc: concat(id_llamada, account, cantidad) firmado con
     // HMAC-SHA256, donde la apikey es HEX y debe convertirse a bytes raw.

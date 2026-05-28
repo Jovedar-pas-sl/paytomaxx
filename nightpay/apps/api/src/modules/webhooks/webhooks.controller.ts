@@ -293,6 +293,23 @@ export class WebhooksController {
       this.logger.warn('Peanpe POST sin identificador_llamada');
       throw new BadRequestException('missing identificador_llamada');
     }
+
+    // H4: rate-limit por id_llamada también en POST challenge. Sin esto, un
+    // atacante puede enumerar id_llamadas válidos via timing (200 con token
+    // de 10 dígitos vs 401). Mismo límite que el GET — 5/min por id.
+    const rateKey = `peanpe:challenge-posts:${id}`;
+    const attempts = await this.redis.incr(rateKey);
+    if (attempts === 1) {
+      await this.redis.expire(rateKey, PEANPE_NOTIFY_WINDOW_SECONDS);
+    }
+    if (attempts > PEANPE_NOTIFY_MAX_ATTEMPTS_PER_MIN) {
+      this.metrics.webhooksReceived.inc({ provider: 'PEANPE', outcome: 'invalid' });
+      this.logger.warn(
+        `Peanpe POST rate-limited: id_llamada=${id} attempts=${attempts}`,
+      );
+      throw new HttpException('Too Many Requests', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
     const token = await this.peanpe.getSecurityTokenForCall(id);
     if (!token) {
       this.logger.warn(`Peanpe POST id_llamada desconocido: ${id}`);

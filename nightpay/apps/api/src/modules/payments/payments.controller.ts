@@ -144,15 +144,26 @@ export class PaymentsController {
   }
 
   /**
-   * Si el provider del payment es PEANPE, construye la URL del formulario
-   * hosted peanpe.com con firma + parámetros. El frontend redirige al cliente
-   * a esa URL. No requiere auth — el qrToken es la cred.
+   * @deprecated M3 — endpoint zombi: tras C1, doAuthorize() persiste la URL
+   * Peanpe en `gatewayPaymentUrl` y `/pay/{token}` la sirve via 302. Ningún
+   * frontend del repo lo llama. Mantenemos el handler por compat backwards
+   * (por si quedó algún cliente externo experimental) pero devuelve la MISMA
+   * URL persistida tras authorize, no la regenera ad-hoc. Si no hay URL aún,
+   * el handler responde con un hint para usar `/pay/{token}` directo.
    */
   @Public()
   @Get('public/:token/peanpe-redirect-url')
   async peanpeRedirectUrl(
     @Param('token') token: string,
-  ): Promise<{ provider: string; url: string }> {
-    return this.payments.getPeanpeRedirectUrl(token);
+  ): Promise<{ provider: string; url: string; deprecated: true; hint: string }> {
+    const { provider, url } = await this.payments.getPeanpeRedirectUrl(token);
+    return {
+      provider,
+      url,
+      deprecated: true,
+      hint:
+        'Este endpoint está deprecated. Usa GET /pay/{token} que hace 302 ' +
+        'automáticamente al formulario hosted del PSP correspondiente.',
+    };
   }
 }
