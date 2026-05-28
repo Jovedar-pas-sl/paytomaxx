@@ -1,6 +1,7 @@
-import { Controller, Get, Inject, Logger } from '@nestjs/common';
+import { Controller, Get, Inject, Logger, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../../common/decorators/public.decorator';
+import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
 
 /**
  * TEMP DIAG controller. Llama directamente a Paytef /getBranches y devuelve
@@ -8,6 +9,7 @@ import { Public } from '../../common/decorators/public.decorator';
  * Dokploy logs. Borrar después de descifrar el shape de Paytef.
  */
 @Controller('debug/paytef')
+@UseGuards(DebugEndpointsGuard)
 export class PaytefDebugController {
   private readonly logger = new Logger(PaytefDebugController.name);
   private readonly config: ConfigService;

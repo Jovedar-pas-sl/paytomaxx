@@ -123,7 +123,41 @@ const EnvSchema = z.object({
   SENTRY_DSN: z.string().url().optional(),
   // Inyectado por CI / Docker label — útil para tagging de releases en Sentry.
   GIT_SHA: z.string().optional(),
-});
+
+  // URL pública de la API — usada por adapters Redsys/Wipay para construir
+  // MERCHANTURL del webhook. Si vacía o localhost en prod, los webhooks de
+  // la pasarela jamás llegarán (Redsys POSTea a localhost y nadie responde).
+  NEXT_PUBLIC_API_URL: z.string().url().optional(),
+
+  // Endpoints /v1/debug/* — exponen estado interno (last payments, last
+  // webhooks, config metadata). Útiles para diagnosticar sin acceso a terminal
+  // pero NO deben estar abiertos en producción permanentemente:
+  //   - true  → debug endpoints responden normalmente
+  //   - false → 403 Forbidden (default)
+  // En Dokploy: flip a "true" cuando necesites diagnosticar, vuelve a "false"
+  // cuando termines. Si lo dejas "true" expones datos de payment a internet.
+  DEBUG_ENDPOINTS_ENABLED: z
+    .union([
+      z.boolean(),
+      z.string().transform((s) => s === 'true' || s === '1'),
+    ])
+    .default(false),
+})
+  // Cross-field validation: si NODE_ENV=production, NEXT_PUBLIC_API_URL no
+  // puede ser localhost (los webhooks de la pasarela quedarían rotos).
+  .refine(
+    (env) => {
+      if (env.NODE_ENV !== 'production') return true;
+      const url = env.NEXT_PUBLIC_API_URL;
+      if (!url) return false;
+      return !url.includes('localhost') && !url.includes('127.0.0.1');
+    },
+    {
+      message:
+        'NEXT_PUBLIC_API_URL es obligatorio en production y no puede apuntar a localhost. Configúralo a https://api.paytomaxx.com (o tu dominio) para que Redsys/Wipay puedan entregar webhooks.',
+      path: ['NEXT_PUBLIC_API_URL'],
+    },
+  );
 
 export type Env = z.infer<typeof EnvSchema>;
 

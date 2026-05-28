@@ -1,6 +1,7 @@
-import { Controller, Get, Inject, Logger, NotFoundException, Param } from '@nestjs/common';
+import { Controller, Get, Inject, NotFoundException, Param, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../../common/decorators/public.decorator';
+import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
 
@@ -49,8 +50,8 @@ interface WebhookSummary {
  * NO leak la secret key — solo length + match contra esperado.
  */
 @Controller('debug/redsys')
+@UseGuards(DebugEndpointsGuard)
 export class RedsysDebugController {
-  private readonly logger = new Logger(RedsysDebugController.name);
   private readonly config: ConfigService;
   private readonly prisma: PrismaService;
   private readonly redsys: RedsysAdapter;

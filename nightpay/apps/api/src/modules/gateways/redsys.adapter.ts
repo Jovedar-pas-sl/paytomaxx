@@ -370,18 +370,25 @@ export class RedsysAdapter implements GatewayAdapter {
 
   /**
    * URLs custom si el banco usa un endpoint distinto al estándar Redsys
-   * (algunos bancos ofrecen subdominio propio tipo `bbvaempresas.redsys.es`).
-   * Por defecto cae en sandbox.
+   * (subdominio propio tipo `bbvaempresas.redsys.es`).
+   *
+   * IMPORTANTE: los REST endpoints (`restTrataPeticion`, `restIniciaPeticion`)
+   * NO deben caer a sandbox si la URL principal es production-like. Eso
+   * causaba que `doGetStatus` consultara sandbox aunque los pagos reales
+   * fuesen en producción → siempre devolvía UNKNOWN → reconcile infinito.
+   *
+   * Heurística: si la URL principal NO contiene "sis-t" (sandbox marker),
+   * asumimos producción.
    */
   private customUrls(): UrlsConfig {
     const baseUrl =
       this.config.get<string>('REDSYS_API_URL') ?? SANDBOX_URLS.redirect;
+    const isSandbox = baseUrl.includes('sis-t.');
+    const restSource = isSandbox ? SANDBOX_URLS : PRODUCTION_URLS;
     return {
       redirect: baseUrl,
-      // REST endpoints — no los usamos pero deben ser válidos para el
-      // constructor de redsys-easy. Apuntamos a sandbox por defecto.
-      restIniciaPeticion: SANDBOX_URLS.restIniciaPeticion,
-      restTrataPeticion: SANDBOX_URLS.restTrataPeticion,
+      restIniciaPeticion: restSource.restIniciaPeticion,
+      restTrataPeticion: restSource.restTrataPeticion,
     };
   }
 

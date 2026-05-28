@@ -10,10 +10,12 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
+import type { Redis } from 'ioredis';
 import { ClsService } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import {
   applyEvent,
   InvalidTransitionError,
@@ -56,6 +58,7 @@ export class PaymentsService implements OnApplicationBootstrap {
   private readonly metrics: MetricsService;
   private readonly wallets: WalletsService;
   private readonly peanpe: PeanpeAdapter;
+  private readonly redis: Redis;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -67,6 +70,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     @Inject(MetricsService) metrics: MetricsService,
     @Inject(WalletsService) wallets: WalletsService,
     @Inject(PeanpeAdapter) peanpe: PeanpeAdapter,
+    @Inject(REDIS_CLIENT) redis: Redis,
   ) {
     this.prisma = prisma;
     this.cls = cls;
@@ -77,6 +81,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     this.metrics = metrics;
     this.wallets = wallets;
     this.peanpe = peanpe;
+    this.redis = redis;
   }
 
   /**
@@ -85,10 +90,24 @@ export class PaymentsService implements OnApplicationBootstrap {
    * Sin esto, los pagos atascados de antes del deploy nunca se reconcilian
    * porque su BullMQ job repetable no fue creado o ya expiró.
    *
-   * Idempotente: el `jobId: orphan-<paymentId>` lo deduplica con cualquier
-   * job ya en cola.
+   * Single-replica: usa Redis SETNX para que solo una réplica corra el sweep
+   * por deploy. Sin esto, en cluster con N réplicas haríamos N llamadas
+   * paralelas a Redsys.restTrataPeticion por cada pago atascado.
+   *
+   * Idempotente extra: el `jobId: orphan-<paymentId>` lo deduplica con
+   * cualquier job ya en cola.
    */
   async onApplicationBootstrap(): Promise<void> {
+    // Lock distribuido — TTL 5 min cubre boot lento y previene zombie locks
+    // si la réplica que tomó el lock crashea antes de liberar.
+    const lockKey = 'boot-sweep:lock';
+    const lockTtlSec = 300;
+    const got = await this.redis.set(lockKey, '1', 'EX', lockTtlSec, 'NX');
+    if (got !== 'OK') {
+      this.logger.log('Boot sweep: otra réplica ya tiene el lock — skip');
+      return;
+    }
+
     try {
       const cutoff = new Date(Date.now() - 2 * 60 * 1000);
       const stuck = await this.prisma.$queryRawUnsafe<Array<{
@@ -125,7 +144,8 @@ export class PaymentsService implements OnApplicationBootstrap {
         );
       }
     } catch (err) {
-      this.logger.warn(`Boot sweep failed (non-fatal): ${(err as Error).message}`);
+      // ERROR, no warn — si el sweep falla los pagos quedan atascados.
+      this.logger.error(`Boot sweep failed: ${(err as Error).message}`);
     }
   }
 
