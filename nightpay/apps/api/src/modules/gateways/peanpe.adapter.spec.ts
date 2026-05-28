@@ -60,6 +60,25 @@ describe('PeanpeAdapter.authorize', () => {
     expect(callArgs.data.securityToken).toMatch(/^\d{10}$/);
   });
 
+  it('C1: devuelve paymentLinkUrl con la URL hosted Peanpe firmada', async () => {
+    const { adapter } = makeAdapter();
+    const res = await adapter.authorize({
+      tenantId: 'venue-1',
+      paymentId: 'payment-uuid-1',
+      amountCents: 5000,
+      currency: 'EUR',
+      terminalExternalId: 'BARRA-1',
+      reference: 'payment-uuid-1',
+    });
+    expect(res.paymentLinkUrl).toBeDefined();
+    expect(res.paymentLinkUrl).toMatch(/^http:\/\/test\.peanpe\.com\/api\?/);
+    const params = new URL(res.paymentLinkUrl!).searchParams;
+    expect(params.get('accion')).toBe('pagar');
+    expect(params.get('identificador_llamada')).toBe(res.providerTxId);
+    expect(params.get('cantidad')).toBe('5000');
+    expect(params.get('firma')).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it('lanza si PEANPE_API_KEY no configurado', async () => {
     const config = { get: vi.fn().mockReturnValue(undefined), getOrThrow: vi.fn() };
     const metrics = { gatewayDuration: { observe: vi.fn() }, circuitState: { set: vi.fn() } };

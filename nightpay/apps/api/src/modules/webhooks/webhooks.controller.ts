@@ -4,6 +4,8 @@ import {
   Get,
   Header,
   HttpCode,
+  HttpException,
+  HttpStatus,
   Inject,
   Logger,
   Param,
@@ -16,15 +18,25 @@ import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import type { FastifyRequest } from 'fastify';
+import type { Redis } from 'ioredis';
 import type { Provider } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { WipayAdapter } from '../gateways/wipay.adapter';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
 import { MetricsService } from '../metrics/metrics.service';
+
+// C2: rate-limit del callback Peanpe GET para mitigar brute-force online del
+// securityToken (10 dígitos = 10^10 combinaciones — costoso pero no imposible
+// sin freno). 5 intentos/min por identificador_llamada es suficiente para
+// reintentos legítimos de Peanpe ante timeouts y bloquea cualquier ataque
+// práctico al subir el coste a >10^9 minutos = imposible.
+const PEANPE_NOTIFY_MAX_ATTEMPTS_PER_MIN = 5;
+const PEANPE_NOTIFY_WINDOW_SECONDS = 60;
 
 @Controller('webhooks')
 export class WebhooksController {
@@ -34,6 +46,7 @@ export class WebhooksController {
   private readonly queue: Queue;
   private readonly metrics: MetricsService;
   private readonly config: ConfigService;
+  private readonly redis: Redis;
 
   private readonly peanpe: PeanpeAdapter;
   private readonly wipay: WipayAdapter;
@@ -45,6 +58,7 @@ export class WebhooksController {
     @InjectQueue(WEBHOOKS_INGEST_QUEUE) queue: Queue,
     @Inject(MetricsService) metrics: MetricsService,
     @Inject(ConfigService) config: ConfigService,
+    @Inject(REDIS_CLIENT) redis: Redis,
     @Inject(PeanpeAdapter) peanpe: PeanpeAdapter,
     @Inject(WipayAdapter) wipay: WipayAdapter,
     @Inject(RedsysAdapter) redsys: RedsysAdapter,
@@ -54,6 +68,7 @@ export class WebhooksController {
     this.queue = queue;
     this.metrics = metrics;
     this.config = config;
+    this.redis = redis;
     this.peanpe = peanpe;
     this.wipay = wipay;
     this.redsys = redsys;
@@ -307,6 +322,23 @@ export class WebhooksController {
     if (!idLlamada || !seguridad || !status) {
       throw new BadRequestException('missing required query params');
     }
+
+    // C2: rate-limit por id_llamada — anti brute-force online del securityToken.
+    // INCR + EXPIRE en primera incidencia. Si >MAX_ATTEMPTS_PER_MIN devolvemos 429
+    // y NO consultamos el adapter (evita timing oracle adicional).
+    const rateKey = `peanpe:notify-attempts:${idLlamada}`;
+    const attempts = await this.redis.incr(rateKey);
+    if (attempts === 1) {
+      await this.redis.expire(rateKey, PEANPE_NOTIFY_WINDOW_SECONDS);
+    }
+    if (attempts > PEANPE_NOTIFY_MAX_ATTEMPTS_PER_MIN) {
+      this.metrics.webhooksReceived.inc({ provider: 'PEANPE', outcome: 'invalid' });
+      this.logger.warn(
+        `Peanpe notify rate-limited: id_llamada=${idLlamada} attempts=${attempts} (window=${PEANPE_NOTIFY_WINDOW_SECONDS}s, max=${PEANPE_NOTIFY_MAX_ATTEMPTS_PER_MIN})`,
+      );
+      throw new HttpException('Too Many Requests', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
     const resolved = await this.peanpe.resolvePaymentFromCallback({
       identificadorLlamada: idLlamada,
       seguridad,

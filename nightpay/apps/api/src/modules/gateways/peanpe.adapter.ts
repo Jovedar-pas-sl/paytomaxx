@@ -162,6 +162,17 @@ export class PeanpeAdapter implements GatewayAdapter {
       },
     });
 
+    // C1 fix: construimos la URL hosted aquí y la devolvemos como paymentLinkUrl
+    // → startAuthorization la persiste en gatewayPaymentUrl
+    // → resolveRedirect() devuelve kind:'redirect' → public-pay 302
+    // Así el flujo /pay/{token} funciona end-to-end sin nuevo endpoint.
+    const paymentLinkUrl = this.buildPaymentUrl({
+      identificadorLlamada: idLlamada,
+      amountCents: input.amountCents,
+      concepto: `NightPay ${input.paymentId.slice(0, 8)}`,
+      debug: process.env.NODE_ENV !== 'production',
+    });
+
     this.logger.log(
       `Peanpe authorize prepared: payment=${input.paymentId} id_llamada=${idLlamada}`,
     );
@@ -170,6 +181,7 @@ export class PeanpeAdapter implements GatewayAdapter {
       provider: 'PEANPE',
       providerTxId: idLlamada,
       status: 'PROCESSING',
+      paymentLinkUrl,
     };
   }
 
@@ -355,8 +367,11 @@ export class PeanpeAdapter implements GatewayAdapter {
     const expected = Buffer.from(call.securityToken, 'utf8');
     const received = Buffer.from(input.seguridad, 'utf8');
     if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+      // H2: NO loggear bytes del securityToken (ni siquiera prefijo) — reducía
+      // search-space si el log se filtraba. Solo loggeamos id_llamada + tag.
       this.logger.warn(
-        `Peanpe callback con seguridad mismatch: id=${input.identificadorLlamada} expected=${call.securityToken.slice(0, 3)}*** got=${input.seguridad.slice(0, 3)}***`,
+        `Peanpe callback seguridad mismatch: id_llamada=${input.identificadorLlamada} ` +
+          `received_len=${received.length} expected_len=${expected.length}`,
       );
       return null;
     }
