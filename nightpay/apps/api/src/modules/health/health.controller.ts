@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'redsys-keycheck-2026-05-28',
+      build: 'redsys-webhook-diag-2026-05-28',
     } as Health & { build: string };
   }
 }
