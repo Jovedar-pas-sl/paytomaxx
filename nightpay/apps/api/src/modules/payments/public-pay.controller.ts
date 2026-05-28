@@ -37,21 +37,7 @@ export class PublicPayController {
     res
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
-      .send(`<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${ok ? 'Pago correcto' : 'Pago no completado'}</title>
-<style>
-  body{font-family:system-ui;margin:0;padding:2rem;background:${ok ? '#0a1a0a' : '#1a0a0a'};color:#fff;display:grid;place-items:center;min-height:100vh}
-  main{max-width:24rem;text-align:center}
-  .icon{font-size:4rem;margin-bottom:1rem}
-  h1{font-size:1.5rem;margin:0 0 0.75rem;color:${ok ? '#5af074' : '#ff7575'}}
-  p{color:#bbb;line-height:1.5;font-size:0.95rem}
-</style>
-</head><body><main>
-<div class="icon">${ok ? '✓' : '✕'}</div>
-<h1>${ok ? '¡Gracias por tu pago!' : 'No se ha completado el pago'}</h1>
-<p>${ok ? 'La operación se ha registrado correctamente. Puedes cerrar esta ventana.' : 'Vuelve al local y pide a quien te lo envió que genere un nuevo cobro.'}</p>
-</main></body></html>`);
+      .send(renderPayResultPage(ok));
   }
 
   @Public()
@@ -71,28 +57,13 @@ export class PublicPayController {
         .send(renderCheckoutForm(result.action, result.fields));
     } catch (err) {
       const message = (err as Error).message || 'Error';
+      // Logueamos detalles técnicos pero NO los mostramos al cliente
       this.logger.warn(`/pay/${token} redirect failed: ${message}`);
-      const escaped = escapeHtml(message);
+      const friendly = humanizePayError(message);
       res
         .status(409)
         .header('Content-Type', 'text/html; charset=utf-8')
-        .send(`<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Cobro no disponible</title>
-<style>
-  body{font-family:system-ui;margin:0;padding:1rem;background:#0a0a0a;color:#fff;min-height:100vh}
-  main{max-width:50rem;margin:0 auto}
-  h1{font-size:1.1rem;margin:0 0 0.75rem}
-  pre{background:#1a1a1a;color:#eee;padding:1rem;border-radius:0.5rem;font-size:0.7rem;line-height:1.4;white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto;user-select:all;-webkit-user-select:all}
-  .hint{margin-top:1rem;font-size:0.75rem;color:#666}
-  button{margin-top:0.5rem;padding:0.5rem 1rem;background:#333;color:#fff;border:1px solid #555;border-radius:0.3rem;font-size:0.85rem;cursor:pointer}
-</style>
-</head><body><main>
-<h1>No se puede continuar con el cobro</h1>
-<pre id="m">${escaped}</pre>
-<button onclick="navigator.clipboard.writeText(document.getElementById('m').textContent).then(()=>this.textContent='✓ Copiado')">Copiar todo</button>
-<p class="hint">Pide a quien te lo envió que genere un nuevo cobro.</p>
-</main></body></html>`);
+        .send(renderPayErrorPage(friendly));
     }
   }
 }
@@ -101,6 +72,92 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c,
   );
+}
+
+/**
+ * Mapea mensajes técnicos de excepción a frases pensadas para cliente
+ * borracho a las 3am. NO devolver detalles que confundan o filtren
+ * estructura interna.
+ */
+function humanizePayError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('expired') || m.includes('expirado') || m.includes('caduca')) {
+    return 'Este cobro ha caducado. Pide a la chica uno nuevo.';
+  }
+  if (m.includes('not found') || m.includes('no encontrado')) {
+    return 'Este cobro ya no existe. Pide a la chica uno nuevo.';
+  }
+  if (m.includes('already') || m.includes('ya')) {
+    return 'Este cobro ya se ha procesado o está en curso.';
+  }
+  if (m.includes('gateway') || m.includes('pasarela') || m.includes('redsys') || m.includes('sis')) {
+    return 'Hay un problema con la pasarela de pago. Vuelve a intentarlo en unos segundos o pide a la chica un cobro nuevo.';
+  }
+  return 'No se ha podido continuar con el cobro. Pide a la chica un cobro nuevo.';
+}
+
+function renderPayResultPage(ok: boolean): string {
+  const heading = ok ? '¡Pagado!' : 'No se ha cobrado';
+  const subhead = ok
+    ? 'Tu pago se ha realizado correctamente.'
+    : 'Vuelve al local y pide a la chica que te genere un cobro nuevo.';
+  const cta = ok ? 'Ya puedes cerrar esta pantalla.' : '';
+  const accentColor = ok ? '#5af074' : '#ff7575';
+  const accentBg = ok ? 'rgba(90,240,116,0.15)' : 'rgba(255,117,117,0.15)';
+  const iconPath = ok
+    ? '<path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/>'
+    : '<path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" stroke-linejoin="round"/>';
+  return `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${heading}</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:system-ui;margin:0;padding:1.5rem;background:#0a0a0a;color:#fff;display:grid;place-items:center;min-height:100vh}
+  main{max-width:22rem;text-align:center}
+  .icon{width:6rem;height:6rem;margin:0 auto 1.25rem;border-radius:50%;background:${accentBg};border:3px solid ${accentColor};display:grid;place-items:center;animation:pop 0.4s cubic-bezier(0.34,1.56,0.64,1)}
+  .icon svg{width:3rem;height:3rem;stroke:${accentColor};stroke-width:3;fill:none}
+  h1{font-size:2rem;margin:0 0 0.75rem;color:${accentColor};font-weight:700}
+  p{color:#ddd;line-height:1.5;font-size:1.05rem;margin:0 0 0.5rem}
+  .hint{color:#888;font-size:0.95rem;margin-top:0.25rem}
+  .footer{margin-top:2.5rem;font-size:0.75rem;color:#666;display:flex;align-items:center;justify-content:center;gap:0.375rem}
+  @keyframes pop{0%{transform:scale(0);opacity:0}60%{transform:scale(1.1);opacity:1}100%{transform:scale(1);opacity:1}}
+</style>
+</head><body><main>
+<div class="icon"><svg viewBox="0 0 24 24">${iconPath}</svg></div>
+<h1>${heading}</h1>
+<p>${subhead}</p>
+${cta ? `<p class="hint">${cta}</p>` : ''}
+<div class="footer">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+  Pago seguro · NightPay
+</div>
+</main></body></html>`;
+}
+
+function renderPayErrorPage(friendly: string): string {
+  const safeMessage = escapeHtml(friendly);
+  return `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cobro no disponible</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:system-ui;margin:0;padding:1.5rem;background:#0a0a0a;color:#fff;display:grid;place-items:center;min-height:100vh}
+  main{max-width:22rem;text-align:center}
+  .icon{width:4rem;height:4rem;margin:0 auto 1.5rem;border-radius:50%;background:rgba(255,117,117,0.15);border:2px solid #ff7575;display:grid;place-items:center}
+  .icon svg{width:2rem;height:2rem;stroke:#ff7575;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  h1{font-size:1.25rem;margin:0 0 1rem;color:#fff;font-weight:600}
+  p{color:#bbb;line-height:1.5;font-size:1.05rem;margin:0}
+  .footer{margin-top:2rem;font-size:0.75rem;color:#666;display:flex;align-items:center;justify-content:center;gap:0.375rem}
+</style>
+</head><body><main>
+<div class="icon"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M4.93 19h14.14a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z"/></svg></div>
+<h1>Cobro no disponible</h1>
+<p>${safeMessage}</p>
+<div class="footer">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+  Pago seguro · NightPay
+</div>
+</main></body></html>`;
 }
 
 /**
