@@ -35,8 +35,13 @@ export class DebugEndpointsGuard implements CanActivate {
     const nodeEnv = this.config.get<string>('NODE_ENV');
     if (nodeEnv !== 'production') return true;
 
-    const enabled = this.config.get<boolean>('DEBUG_ENDPOINTS_ENABLED');
-    if (enabled === true) return true;
+    // ConfigModule.forRoot() lee process.env directo sin Zod parsing,
+    // así que DEBUG_ENDPOINTS_ENABLED llega como string "true" no boolean.
+    const raw = this.config.get<string | boolean | undefined>(
+      'DEBUG_ENDPOINTS_ENABLED',
+    );
+    const enabled = raw === true || raw === 'true' || raw === '1';
+    if (enabled) return true;
 
     const req = ctx.switchToHttp().getRequest<{
       url?: string;
