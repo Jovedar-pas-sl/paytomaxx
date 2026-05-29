@@ -1,8 +1,14 @@
 import { Controller, Get, Inject, Logger, Query, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomBytes } from 'node:crypto';
 import { Public } from '../../common/decorators/public.decorator';
 import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
+
+// obs #4 (review): mismo charset que el adapter (excluye 0/O/1/l/I para
+// distinguir IDs reales de dry — los reales nunca contienen estos chars,
+// los dry empiezan con literal "DRY" así que la separación es clara igual.
+const DRY_CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 interface PeanpeDryRunResponse {
   format: 'cents' | 'euros';
@@ -120,7 +126,13 @@ export class PeanpeDebugController {
     // El identificador empieza con "DRY" para que verifyWebhook lo distinga
     // claramente si Peanpe responde a esta URL: rechazaríamos el callback
     // porque no hay row en peanpe_calls, evitando confusión con cobros reales.
-    const dryId = 'DRY' + Math.random().toString(36).slice(2, 5).toUpperCase();
+    // obs #4 (review): randomBytes en vez de Math.random — consistencia con
+    // el resto del adapter (todo el código crypto-grade usa node:crypto).
+    const dryIdBytes = randomBytes(3);
+    let dryId = 'DRY';
+    for (let i = 0; i < 3; i++) {
+      dryId += DRY_CHARSET[dryIdBytes[i]! % DRY_CHARSET.length];
+    }
 
     // obs #5: reusamos buildPaymentUrl del adapter con formatOverride para
     // que cualquier futuro cambio a la firma HMAC se aplique automáticamente

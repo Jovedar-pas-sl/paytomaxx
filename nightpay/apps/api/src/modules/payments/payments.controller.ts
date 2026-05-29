@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  GoneException,
   HttpCode,
   Inject,
   Param,
@@ -144,26 +145,25 @@ export class PaymentsController {
   }
 
   /**
-   * @deprecated M3 — endpoint zombi: tras C1, doAuthorize() persiste la URL
-   * Peanpe en `gatewayPaymentUrl` y `/pay/{token}` la sirve via 302. Ningún
-   * frontend del repo lo llama. Mantenemos el handler por compat backwards
-   * (por si quedó algún cliente externo experimental) pero devuelve la MISMA
-   * URL persistida tras authorize, no la regenera ad-hoc. Si no hay URL aún,
-   * el handler responde con un hint para usar `/pay/{token}` directo.
+   * obs #10 (code review): endpoint eliminado. Tras C1, doAuthorize() persiste
+   * la URL Peanpe en `gatewayPaymentUrl` y `/pay/{token}` la sirve via 302.
+   * Ningún frontend del repo lo llama. Lo dejamos respondiendo **410 Gone**
+   * para que cualquier cliente externo experimental sepa que tiene que migrar.
+   *
+   * Por qué 410 y no 200 deprecated: el handler antiguo devolvía la URL
+   * Peanpe firmada con HMAC válida. Cualquiera con un qrToken válido podía
+   * obtenerla — vector de enumeración + filtración del flujo PSP. 410 cierra
+   * el oracle sin afectar al flujo legítimo (que pasa por /pay/{token}).
    */
   @Public()
   @Get('public/:token/peanpe-redirect-url')
-  async peanpeRedirectUrl(
-    @Param('token') token: string,
-  ): Promise<{ provider: string; url: string; deprecated: true; hint: string }> {
-    const { provider, url } = await this.payments.getPeanpeRedirectUrl(token);
-    return {
-      provider,
-      url,
-      deprecated: true,
+  peanpeRedirectUrl(@Param('token') _token: string): never {
+    throw new GoneException({
+      message: 'Endpoint deprecated y eliminado',
       hint:
-        'Este endpoint está deprecated. Usa GET /pay/{token} que hace 302 ' +
-        'automáticamente al formulario hosted del PSP correspondiente.',
-    };
+        'Usa GET /pay/{token} (sin /v1 prefix). Hace 302 automáticamente al ' +
+        'formulario hosted del PSP correspondiente (Peanpe, Wipay, Paytef).',
+      migratedAt: '2026-05-29',
+    });
   }
 }

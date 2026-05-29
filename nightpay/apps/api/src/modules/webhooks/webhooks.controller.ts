@@ -19,6 +19,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import type { FastifyRequest } from 'fastify';
 import type { Redis } from 'ioredis';
+import { z } from 'zod';
 import type { Provider } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -29,6 +30,41 @@ import { WipayAdapter } from '../gateways/wipay.adapter';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
 import { MetricsService } from '../metrics/metrics.service';
+
+// M1: Fastify guarda el rawBody en `req.rawBody` cuando se configura el
+// `rawBody` plugin (ver main.ts). El tipo oficial de FastifyRequest no lo
+// expone, por eso necesitamos esta extensión local.
+interface RequestWithRawBody extends FastifyRequest {
+  rawBody?: Buffer;
+}
+
+function extractRawBody(req: FastifyRequest): Buffer {
+  const r = req as RequestWithRawBody;
+  if (r.rawBody instanceof Buffer) return r.rawBody;
+  return Buffer.from(JSON.stringify(req.body ?? {}), 'utf8');
+}
+
+// M1: schemas Zod para validar bodies form-urlencoded sin `as any`.
+// Peanpe POST challenge solo necesita identificador_llamada.
+const PeanpePostBodySchema = z
+  .object({ identificador_llamada: z.string().optional() })
+  .passthrough();
+
+// Wipay y Redsys envían form-urlencoded con muchos campos string-stringueables.
+// La validación real (firma HMAC, campos obligatorios) la hace cada adapter
+// en verifyWebhook — aquí solo necesitamos shape laxa para re-codificar a
+// rawBody form-urlencoded.
+const FormUrlencodedBodySchema = z.record(z.union([z.string(), z.number(), z.boolean(), z.null()]));
+
+function reencodeFormBody(body: Record<string, unknown>): Buffer {
+  const rawText =
+    Object.keys(body).length > 0
+      ? Object.entries(body)
+          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+          .join('&')
+      : '';
+  return Buffer.from(rawText, 'utf8');
+}
 
 // C2: rate-limit del callback Peanpe GET para mitigar brute-force online del
 // securityToken (10 dígitos = 10^10 combinaciones — costoso pero no imposible
@@ -139,12 +175,7 @@ export class WebhooksController {
     const adapter = this.gateways.get(provider);
 
     // Fastify: req.rawBody requiere config; usamos JSON.stringify del body como fallback
-    const rawBody =
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (req as any).rawBody instanceof Buffer
-        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ((req as any).rawBody as Buffer)
-        : Buffer.from(JSON.stringify(req.body ?? {}), 'utf8');
+    const rawBody = extractRawBody(req);
 
     const verify = adapter.verifyWebhook(req.headers, rawBody);
     if (!verify.valid) {
@@ -232,12 +263,7 @@ export class WebhooksController {
 
     const provider: Provider = 'PAYTEF';
     const adapter = this.gateways.get(provider);
-    const rawBody =
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (req as any).rawBody instanceof Buffer
-        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ((req as any).rawBody as Buffer)
-        : Buffer.from(JSON.stringify(req.body ?? {}), 'utf8');
+    const rawBody = extractRawBody(req);
 
     const verify = adapter.verifyWebhook(req.headers, rawBody);
     if (!verify.valid) {
@@ -300,12 +326,13 @@ export class WebhooksController {
   @Header('Content-Type', 'text/plain; charset=utf-8')
   async peanpeChallenge(@Req() req: FastifyRequest): Promise<string> {
     // Peanpe envía form-urlencoded en POST. Fastify ya parsea a req.body.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body = (req.body ?? {}) as Record<string, any>;
-    const id =
-      typeof body.identificador_llamada === 'string'
-        ? body.identificador_llamada
-        : '';
+    // M1: schema Zod en vez de `as any`.
+    const parsed = PeanpePostBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      this.logger.warn('Peanpe POST body con shape inesperada');
+      throw new BadRequestException('invalid body shape');
+    }
+    const id = parsed.data.identificador_llamada ?? '';
     if (!id) {
       this.logger.warn('Peanpe POST sin identificador_llamada');
       throw new BadRequestException('missing identificador_llamada');
@@ -462,19 +489,11 @@ export class WebhooksController {
 
     // Fastify form-urlencoded → req.body es Record<string,string>. Re-encodeamos
     // a Buffer para que verifyWebhook() pueda parsearlo igual que rutas que
-    // reciben rawBody.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body = (req.body ?? {}) as Record<string, any>;
-    const rawText =
-      Object.keys(body).length > 0
-        ? Object.entries(body)
-            .map(
-              ([k, v]) =>
-                `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`,
-            )
-            .join('&')
-        : '';
-    const rawBody = Buffer.from(rawText, 'utf8');
+    // reciben rawBody. M1: validamos shape laxa con Zod (firma real la valida
+    // verifyWebhook con el rawBody re-codificado).
+    const parsed = FormUrlencodedBodySchema.safeParse(req.body ?? {});
+    const body = parsed.success ? parsed.data : {};
+    const rawBody = reencodeFormBody(body);
 
     const verify = this.wipay.verifyWebhook(req.headers, rawBody);
     if (!verify.valid) {
@@ -548,19 +567,10 @@ export class WebhooksController {
     const provider: Provider = 'REDSYS';
 
     // Fastify form-urlencoded → req.body es Record<string,string>. Re-encodeamos
-    // a Buffer para que verifyWebhook() pueda parsearlo.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body = (req.body ?? {}) as Record<string, any>;
-    const rawText =
-      Object.keys(body).length > 0
-        ? Object.entries(body)
-            .map(
-              ([k, v]) =>
-                `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`,
-            )
-            .join('&')
-        : '';
-    const rawBody = Buffer.from(rawText, 'utf8');
+    // a Buffer para que verifyWebhook() pueda parsearlo. M1: shape Zod laxa.
+    const parsed = FormUrlencodedBodySchema.safeParse(req.body ?? {});
+    const body = parsed.success ? parsed.data : {};
+    const rawBody = reencodeFormBody(body);
 
     const verify = this.redsys.verifyWebhook(req.headers, rawBody);
     if (!verify.valid) {
