@@ -340,6 +340,12 @@ export class PeanpeAdapter implements GatewayAdapter {
     amountCents: number;
     concepto: string;
     debug?: boolean;
+    /**
+     * obs #5 (review): override del formato `cantidad` desde el caller —
+     * usado por el endpoint debug dry-run para probar ambos formatos sin
+     * tocar la env. Si undefined, lee `PEANPE_AMOUNT_FORMAT_VERIFIED` (default cents).
+     */
+    formatOverride?: 'cents' | 'euros';
   }): string {
     const apiKey = this.config.getOrThrow<string>('PEANPE_API_KEY');
     const accountId = this.config.getOrThrow<string>('PEANPE_ACCOUNT_ID');
@@ -350,7 +356,9 @@ export class PeanpeAdapter implements GatewayAdapter {
     // empíricamente que Peanpe espera euros, set PEANPE_AMOUNT_FORMAT_VERIFIED=euros
     // y el adapter divide por 100 (entero, sin decimales — la doc dice
     // "número entero sin puntos ni comas").
-    const format = this.config.get<string>('PEANPE_AMOUNT_FORMAT_VERIFIED');
+    const envFormat = this.config.get<string>('PEANPE_AMOUNT_FORMAT_VERIFIED');
+    const format: 'cents' | 'euros' =
+      input.formatOverride ?? (envFormat === 'euros' ? 'euros' : 'cents');
     const cantidad =
       format === 'euros'
         ? String(Math.round(input.amountCents / 100))

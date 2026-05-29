@@ -66,10 +66,10 @@ function makeController(opts: MakeOptions = {}) {
     get: vi.fn().mockReturnValue(undefined),
   };
 
-  // C2: cliente Redis mock — el rate-limiter usa INCR + EXPIRE.
+  // C2: cliente Redis mock — el rate-limiter usa EVAL atómico (obs #3 review).
+  // El script Lua devuelve el contador actualizado tras INCR + EXPIRE.
   const redis = {
-    incr: vi.fn().mockResolvedValue(opts.peanpeNotifyAttempts ?? 1),
-    expire: vi.fn().mockResolvedValue(1),
+    eval: vi.fn().mockResolvedValue(opts.peanpeNotifyAttempts ?? 1),
   };
 
   const controller = new WebhooksController(
@@ -229,23 +229,18 @@ describe('WebhooksController.receiveWipay — Cecabank form POST', () => {
 describe('WebhooksController.peanpeResult — C2 rate-limit anti brute-force', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('INCR + EXPIRE en primera incidencia (attempts=1 → expire 60s)', async () => {
+  it('llama EVAL Lua atómico con key + window (obs #3)', async () => {
     const { controller, redis, peanpe } = makeController({ peanpeNotifyAttempts: 1 });
     peanpe.resolvePaymentFromCallback.mockResolvedValue(null);
     await expect(
       controller.peanpeResult('ABC123', '1234567890', '200', undefined, undefined, undefined),
     ).rejects.toThrow(UnauthorizedException);
-    expect(redis.incr).toHaveBeenCalledWith('peanpe:notify-attempts:ABC123');
-    expect(redis.expire).toHaveBeenCalledWith('peanpe:notify-attempts:ABC123', 60);
-  });
-
-  it('NO re-expire si attempts > 1 (ya tiene TTL)', async () => {
-    const { controller, redis, peanpe } = makeController({ peanpeNotifyAttempts: 3 });
-    peanpe.resolvePaymentFromCallback.mockResolvedValue(null);
-    await expect(
-      controller.peanpeResult('ABC123', '1234567890', '200', undefined, undefined, undefined),
-    ).rejects.toThrow(UnauthorizedException);
-    expect(redis.expire).not.toHaveBeenCalled();
+    expect(redis.eval).toHaveBeenCalledWith(
+      expect.stringContaining('INCR'),
+      1,
+      'peanpe:notify-attempts:ABC123',
+      '60',
+    );
   });
 
   it('429 cuando se supera el límite (max 5/min) y NO consulta adapter (no timing oracle)', async () => {
@@ -265,7 +260,7 @@ describe('WebhooksController.peanpeResult — C2 rate-limit anti brute-force', (
     await expect(
       controller.peanpeResult(undefined, '1234567890', '200', undefined, undefined, undefined),
     ).rejects.toThrow(BadRequestException);
-    // Rate-limit no se evalúa si los params faltan → no INCR
-    expect(redis.incr).not.toHaveBeenCalled();
+    // Rate-limit no se evalúa si los params faltan → no EVAL
+    expect(redis.eval).not.toHaveBeenCalled();
   });
 });

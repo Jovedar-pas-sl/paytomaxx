@@ -38,6 +38,23 @@ import { MetricsService } from '../metrics/metrics.service';
 const PEANPE_NOTIFY_MAX_ATTEMPTS_PER_MIN = 5;
 const PEANPE_NOTIFY_WINDOW_SECONDS = 60;
 
+/**
+ * obs #3 (code review): rate-limiter atómico con Lua EVAL.
+ *
+ * El patrón previo `INCR; if attempts==1 then EXPIRE` tenía race window: si
+ * INCR succeed pero EXPIRE falla (Redis hiccup, network blip), el counter queda
+ * sin TTL → block permanente. Lua EVAL ejecuta ambos como una sola op atómica.
+ *
+ * Devuelve el contador actual (entero). El caller decide si supera el límite.
+ */
+const RATE_LIMIT_LUA = `
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return current
+`;
+
 @Controller('webhooks')
 export class WebhooksController {
   private readonly logger = new Logger(WebhooksController.name);
@@ -297,11 +314,7 @@ export class WebhooksController {
     // H4: rate-limit por id_llamada también en POST challenge. Sin esto, un
     // atacante puede enumerar id_llamadas válidos via timing (200 con token
     // de 10 dígitos vs 401). Mismo límite que el GET — 5/min por id.
-    const rateKey = `peanpe:challenge-posts:${id}`;
-    const attempts = await this.redis.incr(rateKey);
-    if (attempts === 1) {
-      await this.redis.expire(rateKey, PEANPE_NOTIFY_WINDOW_SECONDS);
-    }
+    const attempts = await this.peanpeRateLimit(`peanpe:challenge-posts:${id}`);
     if (attempts > PEANPE_NOTIFY_MAX_ATTEMPTS_PER_MIN) {
       this.metrics.webhooksReceived.inc({ provider: 'PEANPE', outcome: 'invalid' });
       this.logger.warn(
@@ -341,13 +354,9 @@ export class WebhooksController {
     }
 
     // C2: rate-limit por id_llamada — anti brute-force online del securityToken.
-    // INCR + EXPIRE en primera incidencia. Si >MAX_ATTEMPTS_PER_MIN devolvemos 429
+    // EVAL atómico (INCR + EXPIRE en single round-trip). Si >MAX devolvemos 429
     // y NO consultamos el adapter (evita timing oracle adicional).
-    const rateKey = `peanpe:notify-attempts:${idLlamada}`;
-    const attempts = await this.redis.incr(rateKey);
-    if (attempts === 1) {
-      await this.redis.expire(rateKey, PEANPE_NOTIFY_WINDOW_SECONDS);
-    }
+    const attempts = await this.peanpeRateLimit(`peanpe:notify-attempts:${idLlamada}`);
     if (attempts > PEANPE_NOTIFY_MAX_ATTEMPTS_PER_MIN) {
       this.metrics.webhooksReceived.inc({ provider: 'PEANPE', outcome: 'invalid' });
       this.logger.warn(
@@ -601,5 +610,22 @@ export class WebhooksController {
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
+  }
+
+  /**
+   * obs #3 helper: INCR + EXPIRE en un único EVAL Lua → atómico.
+   * Devuelve el contador actualizado. Caller decide si supera el límite.
+   *
+   * ioredis v5 firma: `eval(script, numKeys, ...keysThenArgs)` y devuelve
+   * `unknown`. Sabemos que el script devuelve siempre un integer.
+   */
+  private async peanpeRateLimit(key: string): Promise<number> {
+    const result = await this.redis.eval(
+      RATE_LIMIT_LUA,
+      1,
+      key,
+      String(PEANPE_NOTIFY_WINDOW_SECONDS),
+    );
+    return typeof result === 'number' ? result : Number(result);
   }
 }

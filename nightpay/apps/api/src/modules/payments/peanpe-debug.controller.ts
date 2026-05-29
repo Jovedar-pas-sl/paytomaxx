@@ -1,8 +1,8 @@
-import { Controller, Get, Inject, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Inject, Logger, Query, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac } from 'node:crypto';
 import { Public } from '../../common/decorators/public.decorator';
 import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
+import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 
 interface PeanpeDryRunResponse {
   format: 'cents' | 'euros';
@@ -26,6 +26,8 @@ interface PeanpeConfigCheckResponse {
   webhookUrlExpected: string;
   amountFormatVerified: 'cents' | 'euros' | null;
   safetyGuardActive: boolean;
+  // obs #2: aviso explícito al consumidor mientras no esté verificado.
+  warningIfUnverified: string | null;
 }
 
 /**
@@ -54,15 +56,25 @@ interface PeanpeConfigCheckResponse {
 @Controller('debug/peanpe')
 @UseGuards(DebugEndpointsGuard)
 export class PeanpeDebugController {
+  // obs #9: audit log de cualquier hit en producción — los debug endpoints
+  // están gated por DEBUG_ENDPOINTS_ENABLED pero si por error queda activo en
+  // prod, los logs alertan al ver el patrón de uso.
+  private readonly logger = new Logger(PeanpeDebugController.name);
   private readonly config: ConfigService;
+  private readonly peanpe: PeanpeAdapter;
 
-  constructor(@Inject(ConfigService) config: ConfigService) {
+  constructor(
+    @Inject(ConfigService) config: ConfigService,
+    @Inject(PeanpeAdapter) peanpe: PeanpeAdapter,
+  ) {
     this.config = config;
+    this.peanpe = peanpe;
   }
 
   @Public()
   @Get('keycheck')
   keycheck(): PeanpeConfigCheckResponse {
+    this.auditHit('keycheck');
     const apiKey = this.config.get<string>('PEANPE_API_KEY') ?? '';
     const accountId = this.config.get<string>('PEANPE_ACCOUNT_ID') ?? '';
     const baseUrl = this.config.get<string>('PEANPE_API_BASE_URL') ?? null;
@@ -82,6 +94,12 @@ export class PeanpeDebugController {
       webhookUrlExpected: `${apiBase.replace(/\/+$/, '')}/v1/webhooks/peanpe/notify`,
       amountFormatVerified: format,
       safetyGuardActive: format === null,
+      warningIfUnverified:
+        format === null
+          ? 'PEANPE_AMOUNT_FORMAT_VERIFIED no set — cobros <€500 se procesan asumiendo formato "cents". ' +
+            'Si Peanpe interpreta "cantidad" como euros enteros, el cliente paga ×100. ' +
+            'Verifica con /v1/debug/peanpe/dry-run antes de procesar volumen.'
+          : null,
     };
   }
 
@@ -91,8 +109,12 @@ export class PeanpeDebugController {
     @Query('amount') amountRaw?: string,
     @Query('format') formatRaw?: string,
   ): PeanpeDryRunResponse {
-    const amountInputCents = Math.max(1, Math.min(50_000, Number(amountRaw ?? '100') | 0));
+    // obs #1: clamp 1c..99999c (max ~999€). El safety guard del adapter sigue
+    // bloqueando ≥500€ en producción real, pero el dry-run permite ir por
+    // encima sin riesgo (no crea Payment ni peanpeCall en BD).
+    const amountInputCents = Math.max(1, Math.min(99_999, Number(amountRaw ?? '100') | 0));
     const format: 'cents' | 'euros' = formatRaw === 'euros' ? 'euros' : 'cents';
+    this.auditHit(`dry-run amount=${amountInputCents}c format=${format}`);
 
     // Generamos un id_llamada SIN persistir en BD (dry-run = no side effects).
     // El identificador empieza con "DRY" para que verifyWebhook lo distinga
@@ -100,33 +122,20 @@ export class PeanpeDebugController {
     // porque no hay row en peanpe_calls, evitando confusión con cobros reales.
     const dryId = 'DRY' + Math.random().toString(36).slice(2, 5).toUpperCase();
 
+    // obs #5: reusamos buildPaymentUrl del adapter con formatOverride para
+    // que cualquier futuro cambio a la firma HMAC se aplique automáticamente
+    // aquí. Antes era código duplicado que podía divergir.
+    const url = this.peanpe.buildPaymentUrl({
+      identificadorLlamada: dryId,
+      amountCents: amountInputCents,
+      concepto: `NightPay DRY-RUN ${format}`,
+      debug: true,
+      formatOverride: format,
+    });
     const cantidadSent =
       format === 'euros'
         ? String(Math.round(amountInputCents / 100))
         : String(amountInputCents);
-
-    // Construimos URL con la misma lógica que el adapter pero forzando el
-    // formato pedido por query, sin tocar el env (que el guard lee en runtime).
-    const apiKey = this.config.get<string>('PEANPE_API_KEY');
-    const accountId = this.config.get<string>('PEANPE_ACCOUNT_ID');
-    if (!apiKey || !accountId) {
-      throw new Error('PEANPE_API_KEY o PEANPE_ACCOUNT_ID no configurado');
-    }
-    const base = this.config.get<string>('PEANPE_API_BASE_URL') ?? 'http://peanpe.com';
-
-    const concat = `${dryId}${accountId}${cantidadSent}`;
-    const apiKeyBytes = Buffer.from(apiKey, 'hex');
-    const firma = createHmac('sha256', apiKeyBytes).update(concat).digest('hex');
-    const params = new URLSearchParams({
-      accion: 'pagar',
-      identificador_cuenta_peanpe: accountId,
-      identificador_llamada: dryId,
-      cantidad: cantidadSent,
-      concepto: `NightPay DRY-RUN ${format}`,
-      firma,
-      debug: '1',
-    });
-    const url = `${base.replace(/\/$/, '')}/api?${params.toString()}`;
 
     return {
       format,
@@ -143,8 +152,18 @@ export class PeanpeDebugController {
         `4. Si el importe registrado es ${(amountInputCents / 100).toFixed(2)}€, el formato CORRECTO es "${format}".`,
         '5. Si el importe registrado es distinto, repite con el otro formato.',
         '6. Una vez confirmado: set env PEANPE_AMOUNT_FORMAT_VERIFIED=cents (o euros) en Dokploy + re-deploy.',
-        'NOTA: este dry-run NO crea Payment ni peanpeCall en BD. Si Peanpe envía callback, será rechazado (id_llamada no existe).',
+        'NOTA 1: este dry-run NO crea Payment ni peanpeCall en BD. Si Peanpe envía callback, será rechazado (id_llamada no existe).',
+        'NOTA 2: amount está clamped a 99_999c (~999€) — el safety guard real bloquea ≥50_000c en cobros productivos.',
       ],
     };
+  }
+
+  private auditHit(operation: string): void {
+    const isProd = this.config.get<string>('NODE_ENV') === 'production';
+    if (!isProd) return;
+    this.logger.warn(
+      `[AUDIT] Peanpe debug endpoint hit in PRODUCTION: ${operation}. ` +
+        `Si no esperas tráfico de debug, revisa DEBUG_ENDPOINTS_ENABLED en Dokploy.`,
+    );
   }
 }
