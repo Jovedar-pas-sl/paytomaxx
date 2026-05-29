@@ -12,6 +12,7 @@
     "seed": "dotenv -e ../../.env.local -- tsx prisma/seed.ts",
     "studio": "dotenv -e ../../.env.local -- prisma studio",
     "cli": "dotenv -e ../../.env.local -- tsx scripts/cli.ts",
+    "heal": "dotenv -e ../../.env.local -- tsx scripts/db-heal.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "clean": "rm -rf dist src/generated"

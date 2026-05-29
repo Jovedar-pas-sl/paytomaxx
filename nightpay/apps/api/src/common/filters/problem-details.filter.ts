@@ -21,14 +21,20 @@ interface ProblemDetails {
 /**
  * Global filter — convierte cualquier excepcion a RFC 7807 ProblemDetails.
  * En produccion no expone stack traces ni mensajes internos.
+ *
+ * D-fix (2026-05-29): el isProd recibido ahora SÍ se aplica:
+ *  - dev: response incluye campos `_*` diagnóstico (stack, errName, etc.).
+ *  - prod: response solo expone fields RFC 7807 + traceId + _filterVersion.
+ *    Para depurar prod, usar el log del servidor + Sentry (los `_*` siguen
+ *    yendo a logs locales y a reportError, solo NO se devuelven al cliente).
  */
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {
   private readonly logger = new Logger(ProblemDetailsFilter.name);
+  private readonly isProd: boolean;
 
-  constructor(_isProd: boolean) {
-    // isProd kept for future use — currently exposing detail unconditionally
-    // during bring-up. See temp diagnostic note below.
+  constructor(isProd: boolean) {
+    this.isProd = isProd;
   }
 
   catch(exception: unknown, host: ArgumentsHost): void {
@@ -39,28 +45,31 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     let status: number = HttpStatus.INTERNAL_SERVER_ERROR;
     let title = 'Internal Server Error';
     let detail: string | undefined;
-    let extra: Record<string, unknown> = {};
+    // diagExtra: SIEMPRE se rellena (para logs locales). Solo se incluye en
+    // la response al cliente si !isProd.
+    const diagExtra: Record<string, unknown> = {};
+    const httpExtra: Record<string, unknown> = {};
 
     // DIAGNOSTIC MARKER — confirma que esta versión del filter está activa.
-    // Si la response no incluye "filterVersion", el deploy no está aplicado.
-    extra._filterVersion = 'v3-diag-2026-05-15';
-    // Capturar TODO lo que sepamos de la exception, sea Error, undefined,
-    // null, o un objeto exótico.
+    // Útil para post-deploy verification. Sin leak de internal info.
+    const filterMarker = 'v4-prod-safe-2026-05-29';
+
     try {
-      extra._excType = exception === null ? 'null' : exception === undefined ? 'undefined' : typeof exception;
+      diagExtra._excType =
+        exception === null ? 'null' : exception === undefined ? 'undefined' : typeof exception;
       if (exception instanceof Error) {
-        extra._errName = exception.name;
-        extra._errMsg = exception.message;
-        extra._errStack = exception.stack?.split('\n').slice(0, 8).join(' | ');
-        if ('code' in exception) extra._errCode = (exception as { code: unknown }).code;
-        if ('meta' in exception) extra._errMeta = (exception as { meta: unknown }).meta;
+        diagExtra._errName = exception.name;
+        diagExtra._errMsg = exception.message;
+        diagExtra._errStack = exception.stack?.split('\n').slice(0, 8).join(' | ');
+        if ('code' in exception) diagExtra._errCode = (exception as { code: unknown }).code;
+        if ('meta' in exception) diagExtra._errMeta = (exception as { meta: unknown }).meta;
       } else if (exception && typeof exception === 'object') {
-        extra._excDump = JSON.stringify(exception).slice(0, 500);
+        diagExtra._excDump = JSON.stringify(exception).slice(0, 500);
       } else {
-        extra._excValue = String(exception).slice(0, 200);
+        diagExtra._excValue = String(exception).slice(0, 200);
       }
     } catch {
-      extra._diagFailed = true;
+      diagExtra._diagFailed = true;
     }
 
     if (exception instanceof HttpException) {
@@ -72,20 +81,26 @@ export class ProblemDetailsFilter implements ExceptionFilter {
         const r = resp as Record<string, unknown>;
         title = (r.title as string) || (r.error as string) || exception.message;
         detail = (r.detail as string) || (r.message as string);
-        // Pasa por extra los campos custom (issues de zod, etc.)
+        // Pasa por extra los campos custom (issues de zod, hint, etc.) —
+        // estos son CONTROLADOS por nuestro código, no leak. Se incluyen
+        // siempre (dev y prod).
         for (const k of Object.keys(r)) {
           if (!['statusCode', 'message', 'error', 'title', 'detail'].includes(k)) {
-            extra[k] = r[k];
+            httpExtra[k] = r[k];
           }
         }
       }
     } else if (exception instanceof Error) {
-      // TEMP DIAGNOSTIC: exponemos el mensaje incluso en prod hasta que el
-      // sistema esté estable. El usuario no tiene acceso a logs de Dokploy
-      // y necesitamos ver el error en la response para depurar. Revertir
-      // cuando la app esté en producción real con tráfico de clientes.
-      title = exception.name;
-      detail = exception.message;
+      // En prod NO exponemos message ni name al cliente (puede leak DB
+      // internals tipo "column does not exist", paths de archivos, etc.).
+      // En dev sí lo exponemos para feedback inmediato.
+      if (this.isProd) {
+        title = 'Internal Server Error';
+        detail = undefined;
+      } else {
+        title = exception.name;
+        detail = exception.message;
+      }
       this.logger.error(`Unhandled: ${exception.message}`, exception.stack);
       // Sentry: solo reportar 5xx (errores no-HttpException son 500 por default).
       reportError(exception, { tag: 'http.unhandled' });
@@ -117,7 +132,13 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       ...(detail ? { detail } : {}),
       instance: req.url,
       ...(traceId ? { traceId } : {}),
-      ...extra,
+      // httpExtra: campos custom de HttpException (hint, issues, etc.) —
+      // controlados por nuestro código, OK en prod.
+      ...httpExtra,
+      // _filterVersion: deploy marker, sin info sensible. Útil en prod.
+      _filterVersion: filterMarker,
+      // diagExtra (stack, errName, etc.): SOLO en dev/test. En prod usar logs.
+      ...(this.isProd ? {} : diagExtra),
     };
 
     res.status(status).type('application/problem+json').send(body);

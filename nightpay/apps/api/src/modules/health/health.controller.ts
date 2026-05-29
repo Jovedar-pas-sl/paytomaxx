@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'fix-peanpe-stabilize-v4-2026-05-29',
+      build: 'fix-peanpe-stabilize-v5-2026-05-29',
     } as Health & { build: string };
   }
 }
