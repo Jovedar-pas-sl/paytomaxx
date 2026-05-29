@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  GoneException,
   HttpCode,
   Inject,
   Param,
@@ -144,15 +145,25 @@ export class PaymentsController {
   }
 
   /**
-   * Si el provider del payment es PEANPE, construye la URL del formulario
-   * hosted peanpe.com con firma + parámetros. El frontend redirige al cliente
-   * a esa URL. No requiere auth — el qrToken es la cred.
+   * obs #10 (code review): endpoint eliminado. Tras C1, doAuthorize() persiste
+   * la URL Peanpe en `gatewayPaymentUrl` y `/pay/{token}` la sirve via 302.
+   * Ningún frontend del repo lo llama. Lo dejamos respondiendo **410 Gone**
+   * para que cualquier cliente externo experimental sepa que tiene que migrar.
+   *
+   * Por qué 410 y no 200 deprecated: el handler antiguo devolvía la URL
+   * Peanpe firmada con HMAC válida. Cualquiera con un qrToken válido podía
+   * obtenerla — vector de enumeración + filtración del flujo PSP. 410 cierra
+   * el oracle sin afectar al flujo legítimo (que pasa por /pay/{token}).
    */
   @Public()
   @Get('public/:token/peanpe-redirect-url')
-  async peanpeRedirectUrl(
-    @Param('token') token: string,
-  ): Promise<{ provider: string; url: string }> {
-    return this.payments.getPeanpeRedirectUrl(token);
+  peanpeRedirectUrl(@Param('token') _token: string): never {
+    throw new GoneException({
+      message: 'Endpoint deprecated y eliminado',
+      hint:
+        'Usa GET /pay/{token} (sin /v1 prefix). Hace 302 automáticamente al ' +
+        'formulario hosted del PSP correspondiente (Peanpe, Wipay, Paytef).',
+      migratedAt: '2026-05-29',
+    });
   }
 }

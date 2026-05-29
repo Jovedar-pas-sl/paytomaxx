@@ -582,6 +582,64 @@ async function cmdSetRedsysActive(args: Args) {
   );
 }
 
+/**
+ * Activa Peanpe como provider único del venue. Crea o reactiva la fila
+ * gateway_credentials PEANPE con active=true; desactiva los demás providers.
+ *
+ * Credenciales (apikey hex 64 chars, account_id numérico) vienen de env vars
+ * globales — esta fila es solo el marcador de "qué adapter elige
+ * payments.service para autorizar".
+ */
+async function cmdSetPeanpeActive(args: Args) {
+  const venueSlug = must(args, 'venue');
+  await withBypass(async (tx) => {
+    const venue = await tx.venue.findUnique({ where: { slug: venueSlug } });
+    if (!venue) throw new Error(`venue not found: ${venueSlug}`);
+
+    const deactivated = await tx.gatewayCredential.updateMany({
+      where: { tenantId: venue.id, active: true },
+      data: { active: false },
+    });
+    if (deactivated.count > 0) {
+      console.log(`[info] ${deactivated.count} provider(s) previo(s) desactivado(s)`);
+    }
+
+    const existing = await tx.gatewayCredential.findFirst({
+      where: { tenantId: venue.id, provider: 'PEANPE' },
+    });
+    if (existing) {
+      await tx.gatewayCredential.update({
+        where: { id: existing.id },
+        data: { active: true },
+      });
+      console.log(`[ok] PEANPE reactivado para venue=${venueSlug}`);
+    } else {
+      // Bytes dummy — adapter Peanpe lee creds de env vars, no de BD.
+      const dummy = Buffer.from([0]);
+      await tx.gatewayCredential.create({
+        data: {
+          tenantId: venue.id,
+          provider: 'PEANPE',
+          encKey: dummy,
+          encNonce: dummy,
+          encTag: dummy,
+          kekVersion: 1,
+          active: true,
+        },
+      });
+      console.log(`[ok] PEANPE creado y activado para venue=${venueSlug}`);
+    }
+  });
+  console.log(
+    `\nRecuerda configurar en env vars del API:\n` +
+      `  PEANPE_API_BASE_URL=http://peanpe.com  (prod) o http://localhost:4902 (mock dev)\n` +
+      `  PEANPE_API_KEY=<hex 64 chars entregado por soporte Peanpe>\n` +
+      `  PEANPE_ACCOUNT_ID=<numérico>\n` +
+      `  PEANPE_THANKYOU_URL=https://api.tudominio.com/pay/result\n` +
+      `  PEANPE_AMOUNT_FORMAT_VERIFIED=cents|euros (tras verificar con dry-run)\n`,
+  );
+}
+
 async function cmdSetSuperAdmin(args: Args) {
   const email = (args.email ?? '').toLowerCase();
   if (!email) {
@@ -640,6 +698,7 @@ const commands: Record<string, (args: Args) => Promise<unknown>> = {
   'set-super-admin': cmdSetSuperAdmin,
   'set-wipay-active': cmdSetWipayActive,
   'set-redsys-active': cmdSetRedsysActive,
+  'set-peanpe-active': cmdSetPeanpeActive,
 };
 
 function printUsage(): void {
@@ -661,6 +720,7 @@ function printUsage(): void {
   console.log('  pnpm cli set-super-admin --email <email>   [--revoke true]  (grant/revoke superadmin)');
   console.log('  pnpm cli set-wipay-active --venue <slug>   (activa WIPAY + desactiva otros providers)');
   console.log('  pnpm cli set-redsys-active --venue <slug>  (activa REDSYS/BBVA + desactiva otros providers)');
+  console.log('  pnpm cli set-peanpe-active --venue <slug>  (activa PEANPE + desactiva otros providers)');
   console.log('');
 }
 

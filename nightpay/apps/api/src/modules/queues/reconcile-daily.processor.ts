@@ -42,6 +42,13 @@ export class ReconcileDailyProcessor extends WorkerHost {
     // a discrepancias en la pasarela más usada (Redsys/BBVA).
     const providers: Provider[] = ['WIPAY', 'PEANPE', 'REDSYS', 'PAYTEF'];
 
+    // H3: PEANPE NO expone export ni status API, por lo que el "gateway total"
+    // calculado es siempre igual al "local total" → MISMATCH es indetectable.
+    // La fila Reconciliation queda como auditoría histórica pero NO indica
+    // discrepancias reales. Reconciliación REAL para PEANPE requiere export
+    // manual del panel peanpe.com (TODO post-MVP).
+    const providersWithoutExport: Provider[] = ['PEANPE'];
+
     for (const provider of providers) {
       const agg = await this.prisma.payment.aggregate({
         where: {
@@ -60,6 +67,13 @@ export class ReconcileDailyProcessor extends WorkerHost {
       const gatewayTotalCents = localTotalCents;
       const diff = localTotalCents - gatewayTotalCents;
       const status = diff === 0 ? 'OK' : 'MISMATCH';
+      const isBestEffort = providersWithoutExport.includes(provider);
+      if (isBestEffort && agg._count._all > 0) {
+        this.logger.warn(
+          `Reconcile ${provider} ${day}: BEST-EFFORT (no gateway export available) — ` +
+            `${agg._count._all} pagos / ${localTotalCents}c locales. Verifica manualmente en panel ${provider.toLowerCase()}.com.`,
+        );
+      }
 
       await this.prisma.reconciliation.upsert({
         where: {

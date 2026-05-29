@@ -60,6 +60,25 @@ describe('PeanpeAdapter.authorize', () => {
     expect(callArgs.data.securityToken).toMatch(/^\d{10}$/);
   });
 
+  it('C1: devuelve paymentLinkUrl con la URL hosted Peanpe firmada', async () => {
+    const { adapter } = makeAdapter();
+    const res = await adapter.authorize({
+      tenantId: 'venue-1',
+      paymentId: 'payment-uuid-1',
+      amountCents: 5000,
+      currency: 'EUR',
+      terminalExternalId: 'BARRA-1',
+      reference: 'payment-uuid-1',
+    });
+    expect(res.paymentLinkUrl).toBeDefined();
+    expect(res.paymentLinkUrl).toMatch(/^http:\/\/test\.peanpe\.com\/api\?/);
+    const params = new URL(res.paymentLinkUrl!).searchParams;
+    expect(params.get('accion')).toBe('pagar');
+    expect(params.get('identificador_llamada')).toBe(res.providerTxId);
+    expect(params.get('cantidad')).toBe('5000');
+    expect(params.get('firma')).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it('lanza si PEANPE_API_KEY no configurado', async () => {
     const config = { get: vi.fn().mockReturnValue(undefined), getOrThrow: vi.fn() };
     const metrics = { gatewayDuration: { observe: vi.fn() }, circuitState: { set: vi.fn() } };
@@ -72,6 +91,97 @@ describe('PeanpeAdapter.authorize', () => {
         currency: 'EUR', terminalExternalId: '', reference: 'p',
       }),
     ).rejects.toThrow(/no configurado/);
+  });
+
+  it('H1 safety guard: BLOQUEA cobros >=50000c sin PEANPE_AMOUNT_FORMAT_VERIFIED', async () => {
+    const { adapter } = makeAdapter();
+    await expect(
+      adapter.authorize({
+        tenantId: 'venue-1',
+        paymentId: 'payment-uuid-big',
+        amountCents: 50_000, // 500€
+        currency: 'EUR',
+        terminalExternalId: '',
+        reference: 'r',
+      }),
+    ).rejects.toThrow(/peanpe-amount-format-unverified/);
+  });
+
+  it('H1 safety guard: PERMITE cobros >=50000c si PEANPE_AMOUNT_FORMAT_VERIFIED=cents', async () => {
+    const config = {
+      get: vi.fn().mockImplementation((key: string) => {
+        if (key === 'GATEWAY_TIMEOUT_MS') return 5000;
+        if (key === 'PEANPE_API_KEY') return '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
+        if (key === 'PEANPE_ACCOUNT_ID') return '91816';
+        if (key === 'PEANPE_API_BASE_URL') return 'http://test.peanpe.com';
+        if (key === 'PEANPE_AMOUNT_FORMAT_VERIFIED') return 'cents';
+        return undefined;
+      }),
+      getOrThrow: vi.fn().mockImplementation((key: string) => {
+        if (key === 'PEANPE_API_KEY') return '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
+        if (key === 'PEANPE_ACCOUNT_ID') return '91816';
+        throw new Error(`unknown config key: ${key}`);
+      }),
+    };
+    const metrics = { gatewayDuration: { observe: vi.fn() }, circuitState: { set: vi.fn() } };
+    const prisma = {
+      peanpeCall: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => data),
+        update: vi.fn(),
+      },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const adapter = new PeanpeAdapter(config as any, metrics as any, prisma as any);
+    const res = await adapter.authorize({
+      tenantId: 'v', paymentId: 'p', amountCents: 100_000,
+      currency: 'EUR', terminalExternalId: '', reference: 'p',
+    });
+    expect(res.providerTxId).toMatch(/^[A-Z0-9]{6}$/);
+  });
+
+  it('M2: P2002 collision retry — reintenta hasta encontrar id_llamada libre', async () => {
+    let attempts = 0;
+    const prismaWithCollision = {
+      peanpeCall: {
+        findUnique: vi.fn(),
+        create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+          attempts += 1;
+          if (attempts < 3) {
+            // Simula Prisma P2002 unique violation
+            const err = new Error('unique constraint') as Error & { code?: string };
+            err.code = 'P2002';
+            throw err;
+          }
+          return data;
+        }),
+        update: vi.fn(),
+      },
+    };
+    const { adapter } = makeAdapter(prismaWithCollision);
+    const res = await adapter.authorize({
+      tenantId: 'v', paymentId: 'p', amountCents: 100,
+      currency: 'EUR', terminalExternalId: '', reference: 'p',
+    });
+    expect(res.providerTxId).toMatch(/^[A-Z0-9]{6}$/);
+    expect(attempts).toBe(3);
+  });
+
+  it('M2: propaga errores que NO sean P2002 sin retry', async () => {
+    const prismaWithError = {
+      peanpeCall: {
+        findUnique: vi.fn(),
+        create: vi.fn().mockRejectedValue(new Error('DB down')),
+        update: vi.fn(),
+      },
+    };
+    const { adapter } = makeAdapter(prismaWithError);
+    await expect(
+      adapter.authorize({
+        tenantId: 'v', paymentId: 'p', amountCents: 100,
+        currency: 'EUR', terminalExternalId: '', reference: 'p',
+      }),
+    ).rejects.toThrow(/DB down/);
   });
 });
 

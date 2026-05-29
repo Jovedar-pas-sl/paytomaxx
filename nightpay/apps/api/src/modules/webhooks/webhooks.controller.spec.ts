@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, HttpException, UnauthorizedException } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { WebhooksController } from './webhooks.controller';
 
@@ -8,6 +8,9 @@ interface MakeOptions {
     | { valid: true; externalEventId: string; paymentRef: string }
     | { valid: false; reason: string };
   existingDelivery?: { id: bigint; processedAt: Date | null } | null;
+  // C2: simula cuántos intentos lleva el rate-limit Redis al peanpe/notify GET.
+  // Si > MAX (5) el controller devuelve 429 sin consultar el adapter.
+  peanpeNotifyAttempts?: number;
 }
 
 function makeController(opts: MakeOptions = {}) {
@@ -26,6 +29,13 @@ function makeController(opts: MakeOptions = {}) {
     verifyWebhook: vi.fn().mockReturnValue(
       opts.verifyResult ?? { valid: true, externalEventId: 'op-test-1', paymentRef: 'op-test-1' },
     ),
+  };
+
+  // Redsys adapter (mock — el controller lo inyecta aunque solo se use en
+  // su ruta dedicada). Las pruebas aquí no ejercen receiveRedsys, basta con
+  // que el constructor no falle.
+  const redsys = {
+    verifyWebhook: vi.fn(),
   };
 
   const peanpe = {
@@ -56,6 +66,12 @@ function makeController(opts: MakeOptions = {}) {
     get: vi.fn().mockReturnValue(undefined),
   };
 
+  // C2: cliente Redis mock — el rate-limiter usa EVAL atómico (obs #3 review).
+  // El script Lua devuelve el contador actualizado tras INCR + EXPIRE.
+  const redis = {
+    eval: vi.fn().mockResolvedValue(opts.peanpeNotifyAttempts ?? 1),
+  };
+
   const controller = new WebhooksController(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     prisma as any,
@@ -68,12 +84,16 @@ function makeController(opts: MakeOptions = {}) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     config as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    redis as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     peanpe as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     wipay as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    redsys as any,
   );
 
-  return { controller, genericAdapter, wipay, gateways, prisma, queue, metrics, peanpe };
+  return { controller, genericAdapter, wipay, redsys, gateways, prisma, queue, metrics, peanpe, redis };
 }
 
 function fakeWipayRequest(body: Record<string, string> = { Num_operacion: 'op-test-1', Firma: 'abc' }): FastifyRequest {
@@ -203,5 +223,44 @@ describe('WebhooksController.receiveWipay — Cecabank form POST', () => {
         backoff: { type: 'exponential', delay: 5000 },
       }),
     );
+  });
+});
+
+describe('WebhooksController.peanpeResult — C2 rate-limit anti brute-force', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('llama EVAL Lua atómico con key + window (obs #3)', async () => {
+    const { controller, redis, peanpe } = makeController({ peanpeNotifyAttempts: 1 });
+    peanpe.resolvePaymentFromCallback.mockResolvedValue(null);
+    await expect(
+      controller.peanpeResult('ABC123', '1234567890', '200', undefined, undefined, undefined),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(redis.eval).toHaveBeenCalledWith(
+      expect.stringContaining('INCR'),
+      1,
+      'peanpe:notify-attempts:ABC123',
+      '60',
+    );
+  });
+
+  it('429 cuando se supera el límite (max 5/min) y NO consulta adapter (no timing oracle)', async () => {
+    const { controller, peanpe, metrics } = makeController({ peanpeNotifyAttempts: 6 });
+    await expect(
+      controller.peanpeResult('ABC123', '1234567890', '200', undefined, undefined, undefined),
+    ).rejects.toThrow(HttpException);
+    expect(peanpe.resolvePaymentFromCallback).not.toHaveBeenCalled();
+    expect(metrics.webhooksReceived.inc).toHaveBeenCalledWith({
+      provider: 'PEANPE',
+      outcome: 'invalid',
+    });
+  });
+
+  it('400 si faltan query params obligatorios (antes de rate-limit)', async () => {
+    const { controller, redis } = makeController();
+    await expect(
+      controller.peanpeResult(undefined, '1234567890', '200', undefined, undefined, undefined),
+    ).rejects.toThrow(BadRequestException);
+    // Rate-limit no se evalúa si los params faltan → no EVAL
+    expect(redis.eval).not.toHaveBeenCalled();
   });
 });
