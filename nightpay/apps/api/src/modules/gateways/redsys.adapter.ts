@@ -171,7 +171,19 @@ export class RedsysAdapter implements GatewayAdapter {
     const requestToken =
       (this.config.get<string>('REDSYS_REQUEST_TOKEN') ?? '').toLowerCase() === 'true';
 
-    const form = api.createRedirectForm({
+    // Doc Redsys "Pago por Referencia":
+    //  - INI (primer cobro, crear token): mandar IDENTIFIER=REQUIRED +
+    //    COF_INI=S + COF_TYPE (NO mandar COF_TXNID — eso es del MIT recurrente).
+    //  - SUBSEQUENT (cobro al token): IDENTIFIER=<token> + COF_TYPE=Z +
+    //    COF_TXNID=<id de la operación INI original>.
+    // COF_TYPE valores:
+    //   I = Installments (plazos fijos)
+    //   R = Recurring (suscripción mensual fija)
+    //   Z = Unscheduled credentials on file (cliente vuelve y comercio cobra)
+    // Para nuestro caso (cliente vuelve al local, importe variable),
+    // Z es el correcto. El SDK redsys-easy tiene tipado desactualizado que
+    // no incluye Z — usamos un cast para forzar el valor estándar oficial.
+    const baseParams = {
       DS_MERCHANT_AMOUNT: String(input.amountCents),
       DS_MERCHANT_ORDER: dsOrder,
       DS_MERCHANT_MERCHANTCODE: creds.merchantCode,
@@ -183,14 +195,16 @@ export class RedsysAdapter implements GatewayAdapter {
       DS_MERCHANT_URLKO: urlKo,
       DS_MERCHANT_PRODUCTDESCRIPTION: productDesc,
       ...(paymethods ? { DS_MERCHANT_PAYMETHODS: paymethods } : {}),
-      ...(requestToken
-        ? {
-            DS_MERCHANT_IDENTIFIER: 'REQUIRED',
-            DS_MERCHANT_COF_INI: 'S',
-            DS_MERCHANT_COF_TXNID: dsOrder,
-          }
-        : {}),
-    });
+    };
+    const tokenParams = requestToken
+      ? {
+          DS_MERCHANT_IDENTIFIER: 'REQUIRED',
+          DS_MERCHANT_COF_INI: 'S',
+          DS_MERCHANT_COF_TYPE: 'Z',
+        }
+      : {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const form = api.createRedirectForm({ ...baseParams, ...tokenParams } as any);
 
     this.logger.log(
       `Redsys authorize: payment=${input.paymentId} dsOrder=${dsOrder} terminal=${terminal} amount=${input.amountCents}c paymethods=${paymethods ?? 'default'} requestToken=${requestToken} → form ${form.url}`,

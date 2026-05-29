@@ -52,7 +52,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'redsys-tokenization-probe-2026-05-29',
+      build: 'redsys-tokenization-probe-v2-2026-05-29',
     } as Health & { build: string };
   }
 }
