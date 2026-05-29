@@ -279,6 +279,14 @@ model Payment {
   // distintas (Cecabank rechaza Num_operacion duplicado).
   gatewayCheckoutForm  Json?
 
+  // Datos de tokenización capturados del callback PSP cuando el cobro pidió
+  // crear un token de tarjeta para cobros recurrentes (PIN-flow). Shape:
+  //   { identifier: string, expiry: string, cardLast4: string,
+  //     cardBrand: string, cofTxnId: string, capturedAt: string (ISO) }
+  // El identifier es el token reusable (NO el PAN). NightPay nunca almacena
+  // PAN ni CVV — eso lo gestiona el PSP. SAQ-A compliant.
+  tokenizationData     Json?
+
   venue              Venue            @relation(fields: [tenantId], references: [id])
   terminal           Terminal         @relation(fields: [terminalId], references: [id])
   createdBy          User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])

@@ -608,6 +608,32 @@ export class WebhooksController {
           },
         });
 
+    // Tokenización probe — si Redsys devolvió Ds_Merchant_Identifier en el
+    // callback (porque el authorize lo pidió con REDSYS_REQUEST_TOKEN=true),
+    // lo persistimos en payment.tokenizationData para reuso en cobros MIT.
+    // Idempotente: si ya estaba persistido, no sobreescribe (lo hacemos en
+    // el processor también, pero aquí lo hacemos inmediato para que el
+    // endpoint debug /v1/debug/redsys/last-tokenized lo vea sin esperar).
+    try {
+      const tokenData = this.redsys.extractTokenizationData(rawBody);
+      if (tokenData) {
+        await this.prisma.$executeRaw`
+          UPDATE payments
+             SET "tokenizationData" = ${JSON.stringify(tokenData)}::jsonb
+           WHERE "providerTxId" = ${verify.externalEventId}
+             AND "tokenizationData" IS NULL
+        `;
+        this.logger.log(
+          `[REDSYS TOKEN CAPTURED] dsOrder=${verify.externalEventId} identifier=${tokenData.identifier.slice(0, 8)}*** last4=${tokenData.cardLast4} brand=${tokenData.cardBrand} expiry=${tokenData.expiry}`,
+        );
+      }
+    } catch (e) {
+      // Capturar token no debe romper el flujo del webhook. Loguear y seguir.
+      this.logger.warn(
+        `Failed to capture Redsys tokenization data: ${(e as Error).message}`,
+      );
+    }
+
     await this.queue.add(
       'process-webhook',
       { deliveryId: delivery.id.toString() },

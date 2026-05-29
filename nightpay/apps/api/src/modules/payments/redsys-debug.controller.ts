@@ -114,6 +114,72 @@ export class RedsysDebugController {
   }
 
   /**
+   * Etapa A — tokenización probe. Devuelve el ÚLTIMO cobro Redsys con
+   * `tokenizationData` capturado (= Redsys/BBVA devolvió un token de
+   * tarjeta en el callback porque el authorize lo pidió con
+   * REDSYS_REQUEST_TOKEN=true).
+   *
+   * Si `tokenizationData != null` → BBVA tiene Pago por Referencia activo,
+   * podemos hacer plan PIN con MIT.
+   * Si null en todos los cobros recientes → BBVA no lo tiene activo o
+   * REDSYS_REQUEST_TOKEN no estaba en el env al hacer el cobro.
+   */
+  @Public()
+  @Get('last-tokenized')
+  async lastTokenized(): Promise<{
+    found: boolean;
+    requestTokenEnvActive: boolean;
+    hint: string;
+    payment: {
+      id: string;
+      providerTxId: string | null;
+      amountCents: number;
+      createdAt: string;
+      tokenizationData: unknown;
+    } | null;
+  }> {
+    const requestTokenEnvActive =
+      (this.config.get<string>('REDSYS_REQUEST_TOKEN') ?? '').toLowerCase() === 'true';
+
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: string;
+        providerTxId: string | null;
+        amountCents: number;
+        createdAt: Date;
+        tokenizationData: unknown;
+      }>
+    >(
+      `SELECT id::text, "providerTxId", "amountCents", "createdAt", "tokenizationData"
+         FROM payments
+        WHERE provider = 'REDSYS' AND "tokenizationData" IS NOT NULL
+        ORDER BY "createdAt" DESC
+        LIMIT 1`,
+    );
+
+    if (rows.length === 0) {
+      const hint = !requestTokenEnvActive
+        ? 'REDSYS_REQUEST_TOKEN no está set a "true" en Dokploy — el authorize no pide token. Configura y haz un cobro de prueba.'
+        : 'Aún ningún cobro Redsys ha devuelto tokenización. Posibles causas: (a) BBVA no tiene activado "Pago por Referencia"; (b) el cobro de prueba aún no se ha hecho; (c) el callback no llegó (revisa /recent-webhooks).';
+      return { found: false, requestTokenEnvActive, hint, payment: null };
+    }
+
+    const row = rows[0]!;
+    return {
+      found: true,
+      requestTokenEnvActive,
+      hint: 'BBVA TIENE tokenización activa. Plan PIN-flow / MIT recurrente es viable.',
+      payment: {
+        id: row.id,
+        providerTxId: row.providerTxId,
+        amountCents: row.amountCents,
+        createdAt: row.createdAt.toISOString(),
+        tokenizationData: row.tokenizationData,
+      },
+    };
+  }
+
+  /**
    * Últimos 20 payments en BD (cualquier provider). Permite ver si tu 0,01€
    * está atascado en AUTHORIZING (= webhook no llegó) o en AUTHORIZED (=
    * webhook OK pero UI no refresca).

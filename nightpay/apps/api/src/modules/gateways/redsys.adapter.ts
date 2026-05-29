@@ -157,6 +157,20 @@ export class RedsysAdapter implements GatewayAdapter {
     //   (vacío)                    → Redsys decide (default seguro)
     const paymethods = this.config.get<string>('REDSYS_PAYMETHODS');
 
+    // Tokenización / Pago por Referencia (probe Etapa A): si env
+    // REDSYS_REQUEST_TOKEN=true, le pedimos a Redsys que cree un token de
+    // la tarjeta para usar en cobros recurrentes (PIN-flow). El primer
+    // cobro funciona normal; en el callback Redsys nos devuelve
+    // `Ds_Merchant_Identifier`. Si BBVA no tiene activado el servicio,
+    // Redsys ignora el flag silenciosamente o responde SIS error.
+    //
+    // COF_INI=S + COF_TXNID son obligatorios para que el cobro quede como
+    // "credentials on file initial" — necesario para que cobros MIT
+    // recurrentes (COF_TYPE=Z) más adelante sean exentos de SCA por
+    // transacción según PSD2.
+    const requestToken =
+      (this.config.get<string>('REDSYS_REQUEST_TOKEN') ?? '').toLowerCase() === 'true';
+
     const form = api.createRedirectForm({
       DS_MERCHANT_AMOUNT: String(input.amountCents),
       DS_MERCHANT_ORDER: dsOrder,
@@ -169,10 +183,17 @@ export class RedsysAdapter implements GatewayAdapter {
       DS_MERCHANT_URLKO: urlKo,
       DS_MERCHANT_PRODUCTDESCRIPTION: productDesc,
       ...(paymethods ? { DS_MERCHANT_PAYMETHODS: paymethods } : {}),
+      ...(requestToken
+        ? {
+            DS_MERCHANT_IDENTIFIER: 'REQUIRED',
+            DS_MERCHANT_COF_INI: 'S',
+            DS_MERCHANT_COF_TXNID: dsOrder,
+          }
+        : {}),
     });
 
     this.logger.log(
-      `Redsys authorize: payment=${input.paymentId} dsOrder=${dsOrder} terminal=${terminal} amount=${input.amountCents}c paymethods=${paymethods ?? 'default'} → form ${form.url}`,
+      `Redsys authorize: payment=${input.paymentId} dsOrder=${dsOrder} terminal=${terminal} amount=${input.amountCents}c paymethods=${paymethods ?? 'default'} requestToken=${requestToken} → form ${form.url}`,
     );
 
     return {
@@ -368,6 +389,79 @@ export class RedsysAdapter implements GatewayAdapter {
     };
   }
 
+  /**
+   * Extrae datos de tokenización del callback Redsys (si vino).
+   * Cuando el authorize pidió `DS_MERCHANT_IDENTIFIER=REQUIRED`, Redsys
+   * devuelve en el callback:
+   *   Ds_Merchant_Identifier — el token reusable (string opaco)
+   *   Ds_ExpiryDate          — caducidad tarjeta YYMM
+   *   Ds_Card_Number         — PAN enmascarado tipo "454881******4444"
+   *   Ds_Card_Brand          — "1" VISA, "2" MC, etc.
+   *   Ds_Merchant_Cof_Txnid  — id de la txn original (para MIT recurrente)
+   *
+   * Si BBVA no tiene activado "Pago por Referencia", estos campos no
+   * aparecen aunque el cobro normal sí funcione → devolvemos null.
+   *
+   * El caller (webhooks.controller) persistirá esto en payment.tokenizationData.
+   */
+  extractTokenizationData(rawBody: Buffer): TokenizationData | null {
+    let parsedRaw: { Ds_MerchantParameters?: string; Ds_SignatureVersion?: string; Ds_Signature?: string };
+    try {
+      parsedRaw = JSON.parse(rawBody.toString('utf8'));
+    } catch {
+      return null;
+    }
+    if (!parsedRaw.Ds_MerchantParameters || !parsedRaw.Ds_SignatureVersion || !parsedRaw.Ds_Signature) {
+      return null;
+    }
+    let parsed: Record<string, unknown>;
+    try {
+      const api = this.getApi();
+      parsed = api.processRestNotification({
+        Ds_SignatureVersion: parsedRaw.Ds_SignatureVersion,
+        Ds_MerchantParameters: parsedRaw.Ds_MerchantParameters,
+        Ds_Signature: parsedRaw.Ds_Signature,
+      }) as unknown as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+
+    const identifier =
+      typeof parsed.Ds_Merchant_Identifier === 'string'
+        ? parsed.Ds_Merchant_Identifier
+        : null;
+    if (!identifier) {
+      // BBVA no devolvió token — no tiene Pago por Referencia activo, o el
+      // authorize no pidió REQUIRED (en cuyo caso no estamos en flujo
+      // tokenización).
+      return null;
+    }
+
+    // Solo capturar tokenización para cobros AUTHORIZED. Si Redsys devolvió
+    // un identifier pero la operación falló (caso improbable), no lo
+    // persistimos como token utilizable.
+    const dsResponse = String(parsed.Ds_Response ?? '').trim();
+    const responseNum = Number(dsResponse);
+    if (!Number.isFinite(responseNum) || responseNum < 0 || responseNum > 99) {
+      return null;
+    }
+
+    const cardNumber = typeof parsed.Ds_Card_Number === 'string' ? parsed.Ds_Card_Number : '';
+    const last4 = cardNumber.slice(-4);
+
+    return {
+      identifier,
+      expiry: typeof parsed.Ds_ExpiryDate === 'string' ? parsed.Ds_ExpiryDate : '',
+      cardLast4: last4,
+      cardBrand: typeof parsed.Ds_Card_Brand === 'string' ? parsed.Ds_Card_Brand : '',
+      cofTxnId:
+        typeof parsed.Ds_Merchant_Cof_Txnid === 'string'
+          ? parsed.Ds_Merchant_Cof_Txnid
+          : (typeof parsed.Ds_Order === 'string' ? parsed.Ds_Order : ''),
+      capturedAt: new Date().toISOString(),
+    };
+  }
+
   // ─── helpers ─────────────────────────────────────────────────────
 
   /**
@@ -506,6 +600,20 @@ export function checkRedsysReplayWindow(
     return { ok: false, reason: 'replay-timestamp-too-old' };
   }
   return { ok: true };
+}
+
+/**
+ * Datos de tokenización capturados del callback Redsys cuando el authorize
+ * pidió `DS_MERCHANT_IDENTIFIER=REQUIRED` y BBVA tiene el servicio activo.
+ * Se persiste en payment.tokenizationData para reuso en cobros recurrentes MIT.
+ */
+export interface TokenizationData {
+  identifier: string; // token reusable (sin PAN)
+  expiry: string; // YYMM
+  cardLast4: string;
+  cardBrand: string;
+  cofTxnId: string; // id original (para DS_MERCHANT_COF_TXNID en MIT)
+  capturedAt: string; // ISO
 }
 
 /**
