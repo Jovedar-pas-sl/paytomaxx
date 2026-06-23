@@ -31,35 +31,49 @@
 {% if wa_numbers and wa_numbers | length > 1 %}
 {% set total_unread = wa_numbers | sum(attribute='unread_total') %}
 {% set total_convs  = wa_numbers | sum(attribute='conv_count') %}
+{# Preserve the full chats filter state when switching WhatsApp so selecting a WA
+   doesn't silently reset period / unanswered / status / search. #}
+{% set wa_card_qs = '&period=' ~ active_period %}
+{% if active_unanswered %}{% set wa_card_qs = wa_card_qs ~ '&unanswered=true' %}{% endif %}
+{% if active_status %}{% set wa_card_qs = wa_card_qs ~ '&status=' ~ active_status %}{% endif %}
+{% if active_handler %}{% set wa_card_qs = wa_card_qs ~ '&handler=' ~ active_handler %}{% endif %}
+{% if active_search %}{% set wa_card_qs = wa_card_qs ~ '&search=' ~ (active_search | urlencode) %}{% endif %}
 <div class="mb-4">
   <div class="mb-2 text-[11px] uppercase tracking-wider text-muted-2 font-medium">Filtrar por WhatsApp</div>
-  <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+  <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
     {# "Todos" card #}
     {% set is_all = (active_wa == 'all') %}
-    <a href="/casas/{{ casa_id }}?tab=chats&wa=all"
-       class="group relative overflow-hidden rounded-xl border p-3 transition-all duration-200
-              {% if is_all %}border-accent bg-accent/10 shadow-[0_0_24px_rgba(16,185,129,0.18)]{% else %}border-border bg-surface hover:border-accent/40 hover:bg-surface-2{% endif %}">
-      <div class="flex items-start justify-between gap-2">
-        <span class="text-[10px] font-bold uppercase tracking-wider {% if is_all %}text-accent{% else %}text-muted-2 group-hover:text-muted{% endif %}">
-          Todos
-        </span>
-        {% if total_unread > 0 %}
-        <span class="rounded-full bg-accent px-1.5 py-0 text-[10px] font-bold text-bg leading-tight">{{ total_unread }}</span>
-        {% endif %}
-      </div>
-      <div class="mt-1.5 flex items-baseline gap-1.5">
-        <span class="mono text-2xl font-semibold tracking-tight {% if is_all %}text-accent{% else %}text-text{% endif %}">{{ total_convs }}</span>
-        <span class="text-[10px] text-muted-2">convs</span>
-      </div>
-      <div class="mt-0.5 text-[10px] text-muted">Vista combinada</div>
-    </a>
+    <div class="group relative flex flex-col overflow-hidden rounded-xl border p-2.5 shadow-card transition-all duration-200
+                {% if is_all %}border-accent bg-accent-soft shadow-[0_0_24px_rgba(244,63,94,0.18)]{% else %}border-border bg-surface hover:border-accent/40 hover:bg-surface-2 hover:shadow-card-hov{% endif %}">
+      <a href="/casas/{{ casa_id }}?tab=chats&wa=all{{ wa_card_qs }}" class="block flex-1">
+        <div class="flex items-start justify-between gap-2">
+          <span class="text-[10px] font-bold uppercase tracking-wider {% if is_all %}text-accent{% else %}text-muted-2 group-hover:text-muted{% endif %}">
+            Todos
+          </span>
+          {% if total_unread > 0 %}
+          <span class="rounded-full bg-accent px-1.5 py-0 text-[10px] font-bold text-bg leading-tight">{{ total_unread }}</span>
+          {% endif %}
+        </div>
+        <div class="mt-1 flex items-baseline gap-1.5">
+          <span class="mono text-xl font-semibold tracking-tight {% if is_all %}text-accent{% else %}text-text{% endif %}">{{ total_convs }}</span>
+          <span class="text-[10px] text-muted-2">convs</span>
+        </div>
+        <div class="mt-0.5 text-[10px] text-muted">Vista combinada</div>
+      </a>
+      <button type="button"
+              onclick="window.__runWaBlock({{ casa_id }}, null, 'Toda la casa')"
+              title="Informe rápido de toda la casa (lee los chats directamente)"
+              class="mt-1.5 flex w-full items-center justify-center gap-1 rounded-md border border-blue/40 bg-blue/5 py-1 text-[10px] font-semibold text-blue transition hover:border-blue hover:bg-blue/15">
+        🚀 Informe rápido
+      </button>
+    </div>
 
     {# Per-WA cards #}
     {% for wn in wa_numbers %}
     {% set is_active = (active_wa == wn.id | string) %}
-    <div class="group relative flex flex-col overflow-hidden rounded-xl border p-3 transition-all duration-200
-                {% if is_active %}border-accent bg-accent/10 shadow-[0_0_24px_rgba(16,185,129,0.18)]{% else %}border-border bg-surface hover:border-accent/40 hover:bg-surface-2{% endif %}">
-      <a href="/casas/{{ casa_id }}?tab=chats&wa={{ wn.id }}" class="block flex-1">
+    <div class="group relative flex flex-col overflow-hidden rounded-xl border p-2.5 shadow-card transition-all duration-200
+                {% if is_active %}border-accent bg-accent-soft shadow-[0_0_24px_rgba(244,63,94,0.18)]{% else %}border-border bg-surface hover:border-accent/40 hover:bg-surface-2 hover:shadow-card-hov{% endif %}">
+      <a href="/casas/{{ casa_id }}?tab=chats&wa={{ wn.id }}{{ wa_card_qs }}" class="block flex-1">
         <div class="flex items-start justify-between gap-2">
           <span class="truncate text-[10px] font-bold uppercase tracking-wider {% if is_active %}text-accent{% else %}text-muted-2 group-hover:text-muted{% endif %}">
             {{ wn.label }}
@@ -68,8 +82,8 @@
           <span class="flex-shrink-0 rounded-full bg-accent px-1.5 py-0 text-[10px] font-bold text-bg leading-tight">{{ wn.unread_total }}</span>
           {% endif %}
         </div>
-        <div class="mt-1.5 flex items-baseline gap-1.5">
-          <span class="mono text-2xl font-semibold tracking-tight {% if is_active %}text-accent{% else %}text-text{% endif %}">{{ wn.conv_count }}</span>
+        <div class="mt-1 flex items-baseline gap-1.5">
+          <span class="mono text-xl font-semibold tracking-tight {% if is_active %}text-accent{% else %}text-text{% endif %}">{{ wn.conv_count }}</span>
           <span class="text-[10px] text-muted-2">convs</span>
         </div>
         <div class="mt-0.5 text-[10px] text-muted truncate">
@@ -82,13 +96,13 @@
         {% endif %}
       </a>
 
-      {# Generar informe — auto-cadena (bulk últimas 24h → meta). Botón
-         debajo de la card para no chocar con el badge de no-leídos. #}
+      {# Generar informe — lee los chats directamente. Debajo de la card para no
+         chocar con el badge de no-leídos. #}
       <button type="button"
-              onclick="window.__runWaAnalysis({{ casa_id }}, {{ wn.id }}, '{{ wn.label | replace("'", "\\'") }}')"
-              title="Generar informe IA de este WhatsApp (últ. 24h)"
-              class="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-accent/40 bg-accent/5 py-1 text-[10px] font-semibold text-accent transition hover:border-accent hover:bg-accent/15">
-        ⚡ Generar informe
+              onclick="window.__runWaBlock({{ casa_id }}, {{ wn.id }}, '{{ wn.label | replace("'", "\\'") }}')"
+              title="Genera el informe de este WhatsApp leyendo los chats directamente"
+              class="mt-1.5 flex w-full items-center justify-center gap-1 rounded-md border border-accent/40 bg-accent/5 py-1 text-[10px] font-semibold text-accent transition hover:border-accent hover:bg-accent/15">
+        🚀 Generar informe
       </button>
     </div>
     {% endfor %}
@@ -99,11 +113,11 @@
 {# Top actions #}
 <div class="mb-3 flex justify-end gap-2">
   <button type="button"
-          hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa }}"
+          hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa }}&period={{ active_period }}{% if active_unanswered %}&unanswered=true{% endif %}{% if active_status %}&status={{ active_status }}{% endif %}{% if active_search %}&search={{ active_search|urlencode }}{% endif %}"
           hx-target="#chat-list"
           hx-swap="outerHTML"
           hx-indicator="#chat-list-spinner"
-          class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-green hover:border-green transition flex items-center gap-1.5">
+          class="btn-ghost px-3 py-1.5 text-xs">
     <svg id="chat-list-spinner" class="h-3.5 w-3.5 htmx-indicator animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
     </svg>
@@ -113,38 +127,15 @@
     Actualizar
   </button>
   <a href="/casas/{{ casa_id }}/export/conversations.csv"
-     class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted transition">
+     class="btn-ghost px-3 py-1.5 text-xs">
     📥 Exportar CSV
   </a>
 </div>
 <style>.htmx-indicator{display:none}.htmx-request .htmx-indicator{display:inline}.htmx-request .htmx-indicator-off{display:none}</style>
 
-{# Banner: convs sin analizar en las últimas 24h, per-WA cuando hay filtro.
-   El botón dispara la cadena bulk → meta para producir un informe completo
-   sin que el usuario tenga que pensar en analizar conv-a-conv. #}
-{% if unanalyzed_count > 0 %}
-{% set scope_text = 'en este WhatsApp' if active_wa != 'all' else 'en toda la casa' %}
-{% set wa_arg = wa_number_id if wa_number_id else 'null' %}
-<div class="card mb-4 flex items-center gap-3 border border-amber/40 bg-amber/5 p-4">
-  <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber/20 text-amber text-xl">
-    🔔
-  </div>
-  <div class="flex-1">
-    <div class="font-semibold text-text">
-      {{ unanalyzed_count }} conversaciones nuevas {{ scope_text }} (últ. 24h)
-    </div>
-    <div class="text-xs text-muted">
-      Coste estimado: ~${{ "%.2f"|format(unanalyzed_count * 0.003) }} ·
-      Tiempo: ~{{ ((unanalyzed_count / 50) | round | int) | default(1) }}min
-    </div>
-  </div>
-  <button type="button"
-          onclick="window.__confirmBulkAnalyze({{ casa_id }}, null, {{ wa_arg }}, true, null, null, null, {% if active_wa != 'all' %}'este WhatsApp'{% else %}'esta casa'{% endif %})"
-          class="rounded-lg bg-amber px-4 py-2 text-sm font-semibold text-bg hover:bg-amber/90">
-    {% if active_wa != 'all' %}Generar informe{% else %}Analizar todas{% endif %}
-  </button>
-</div>
-{% endif %}
+{# Banner "conversaciones recientes → Generar informe" RETIRADO: el botón
+   "Generar Informe" (toda la casa) vive ahora en la cabecera, junto a Alertas.
+   Cada tarjeta WA conserva su propio 🚀 para el informe de ese número. #}
 
 {# Barra de filtros: buscador + chips toggle.
    Form GET preserva todos los query params; el script al final permite Ctrl+K
@@ -158,6 +149,7 @@
     {% if active_unanswered %}<input type="hidden" name="unanswered" value="true">{% endif %}
     {% if active_mood %}<input type="hidden" name="mood" value="{{ active_mood }}">{% endif %}
     {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
+    {% if active_handler %}<input type="hidden" name="handler" value="{{ active_handler }}">{% endif %}
     <input type="search" name="search" id="chat-search-input"
            value="{{ active_search or '' }}"
            placeholder="Buscar por nombre o teléfono…  (Ctrl+K)"
@@ -175,52 +167,68 @@
     {% endif %}
   </form>
 
-  {# Chips: estado de respuesta + estado conv + mood — todos toggle #}
-  <div class="flex flex-wrap items-center gap-1.5">
-    {% macro chip(label, is_active, href, color='') -%}
-      <a href="{{ href }}" class="rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition
-        {% if is_active %}{{ color or 'border-accent bg-accent/15 text-accent' }}{% else %}border-border bg-surface hover:bg-surface-2 text-muted hover:text-text{% endif %}">{{ label|safe }}</a>
+  {# Filtros como DESPLEGABLES: Fecha · Estado · Atendido (Humano/Bot) + limpiar.
+     Las opciones son <a href> (misma navegación que antes); el JS de búsqueda
+     fusiona el término en el href al pulsar (listener en #chat-chips). #}
+  <div id="chat-chips" class="flex flex-wrap items-center gap-2">
+    {% macro opt(label, is_active, href, color='') -%}
+      <a href="{{ href }}" class="block rounded-md px-2.5 py-1 text-[12px] transition {% if is_active %}{{ color or 'bg-accent/15 text-accent font-semibold' }}{% else %}text-muted hover:bg-surface-2 hover:text-text{% endif %}">{{ label|safe }}</a>
     {%- endmacro %}
-    {# Macro helper to build URLs preserving other filters #}
-    {% set qs_base = base_qs %}
-    {% if active_search %}{% set qs_base = qs_base ~ '&search=' ~ (active_search | urlencode) %}{% endif %}
+    {% set period_labels = {'24h':'24h','7d':'7 días','30d':'30 días','90d':'90 días','all':'Todo'} %}
 
-    {# Sin contestar #}
-    {{ chip(
-      '⏳ Sin contestar' ~ (' (' ~ unanswered_count ~ ')' if unanswered_count else ''),
-      active_unanswered,
-      qs_base ~ ('' if active_unanswered else '&unanswered=true') ~ ('&mood=' ~ active_mood if active_mood else '') ~ ('&status=' ~ active_status if active_status else ''),
-      'border-amber bg-amber/15 text-amber'
-    ) }}
+    {# Trozos de query a preservar (cada desplegable añade los que NO cambia) #}
+    {% set s_qs  = ('&search=' ~ (active_search | urlencode)) if active_search else '' %}
+    {% set h_qs  = ('&handler=' ~ active_handler) if active_handler else '' %}
+    {% set u_qs  = '&unanswered=true' if active_unanswered else '' %}
+    {% set st_qs = ('&status=' ~ active_status) if active_status else '' %}
 
-    <span class="text-muted-2 text-[10px]">·</span>
+    {# ── FECHA ── #}
+    {% set keepDate = '&wa=' ~ active_wa ~ s_qs ~ u_qs ~ st_qs ~ h_qs %}
+    <details class="relative">
+      <summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-text hover:border-border-strong">
+        <span class="text-muted-2">Fecha:</span> {{ period_labels.get(active_period, active_period) }}
+        <svg class="h-3.5 w-3.5 text-muted-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </summary>
+      <div class="absolute z-20 mt-1 min-w-[140px] rounded-lg border border-border bg-surface p-1 shadow-card">
+        {% for p in period_options %}
+          {{ opt(period_labels.get(p, p), active_period == p, '?tab=chats&period=' ~ p ~ keepDate) }}
+        {% endfor %}
+      </div>
+    </details>
 
-    {# Status conv #}
-    {{ chip('Abiertas', active_status == 'open',
-            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&mood=' ~ active_mood if active_mood else '') ~ ('' if active_status == 'open' else '&status=open'),
-            'border-blue bg-blue/15 text-blue') }}
-    {{ chip('Cerradas', active_status == 'resolved',
-            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&mood=' ~ active_mood if active_mood else '') ~ ('' if active_status == 'resolved' else '&status=resolved'),
-            'border-green bg-green/15 text-green') }}
+    {# ── ESTADO ── #}
+    {% set keepSt = '&wa=' ~ active_wa ~ '&period=' ~ active_period ~ s_qs ~ h_qs %}
+    {% set st_label = 'Sin contestar' if active_unanswered else ('Abiertas' if active_status == 'open' else ('Cerradas' if active_status == 'resolved' else 'Todas')) %}
+    <details class="relative">
+      <summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-text hover:border-border-strong">
+        <span class="text-muted-2">Estado:</span> {{ st_label }}
+        <svg class="h-3.5 w-3.5 text-muted-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </summary>
+      <div class="absolute z-20 mt-1 min-w-[180px] rounded-lg border border-border bg-surface p-1 shadow-card">
+        {{ opt('Todas', not active_unanswered and not active_status, '?tab=chats' ~ keepSt) }}
+        {{ opt('⏳ Sin contestar' ~ (' (' ~ unanswered_count ~ ')' if unanswered_count else ''), active_unanswered, '?tab=chats' ~ keepSt ~ '&unanswered=true', 'bg-amber/15 text-amber font-semibold') }}
+        {{ opt('Abiertas', active_status == 'open', '?tab=chats' ~ keepSt ~ '&status=open', 'bg-blue/15 text-blue font-semibold') }}
+        {{ opt('Cerradas', active_status == 'resolved', '?tab=chats' ~ keepSt ~ '&status=resolved', 'bg-green/15 text-green font-semibold') }}
+      </div>
+    </details>
 
-    <span class="text-muted-2 text-[10px]">·</span>
+    {# ── ATENDIDO POR (Humano / Bot) ── #}
+    {% set keepH = '&wa=' ~ active_wa ~ '&period=' ~ active_period ~ s_qs ~ u_qs ~ st_qs %}
+    {% set h_label = 'Bot (Sara)' if active_handler == 'bot' else ('Humano' if active_handler == 'human' else 'Todos') %}
+    <details class="relative">
+      <summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-text hover:border-border-strong">
+        <span class="text-muted-2">Atendido:</span> {{ h_label }}
+        <svg class="h-3.5 w-3.5 text-muted-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </summary>
+      <div class="absolute z-20 mt-1 min-w-[160px] rounded-lg border border-border bg-surface p-1 shadow-card">
+        {{ opt('Todos', not active_handler, '?tab=chats' ~ keepH) }}
+        {{ opt('🤖 Bot (Sara)', active_handler == 'bot', '?tab=chats' ~ keepH ~ '&handler=bot', 'bg-accent/15 text-accent font-semibold') }}
+        {{ opt('🧑 Humano', active_handler == 'human', '?tab=chats' ~ keepH ~ '&handler=human', 'bg-purple/15 text-purple font-semibold') }}
+      </div>
+    </details>
 
-    {# Mood #}
-    {{ chip('🔥 Decididos', active_mood == 'decidido',
-            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&status=' ~ active_status if active_status else '') ~ ('' if active_mood == 'decidido' else '&mood=decidido'),
-            'border-green bg-green/15 text-green') }}
-    {{ chip('🤔 Curiosos', active_mood == 'curioso',
-            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&status=' ~ active_status if active_status else '') ~ ('' if active_mood == 'curioso' else '&mood=curioso'),
-            'border-blue bg-blue/15 text-blue') }}
-    {{ chip('😤 Enfadados', active_mood == 'enfadado',
-            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&status=' ~ active_status if active_status else '') ~ ('' if active_mood == 'enfadado' else '&mood=enfadado'),
-            'border-red bg-red/15 text-red') }}
-    {{ chip('😐 Indecisos', active_mood == 'indeciso',
-            qs_base ~ ('&unanswered=true' if active_unanswered else '') ~ ('&status=' ~ active_status if active_status else '') ~ ('' if active_mood == 'indeciso' else '&mood=indeciso'),
-            'border-amber bg-amber/15 text-amber') }}
-
-    {% if active_unanswered or active_mood or active_status or active_search %}
-    <a href="{{ base_qs }}" class="ml-2 text-[11px] text-muted-2 hover:text-text underline">Limpiar filtros</a>
+    {% if active_unanswered or active_status or active_search or active_handler or active_period != 'all' %}
+    <a href="?tab=chats&wa={{ active_wa }}&period=all" data-clear="1" class="ml-1 text-[12px] text-muted-2 hover:text-text underline">Limpiar</a>
     {% endif %}
   </div>
 </div>
@@ -259,6 +267,14 @@
     if (list.dataset.activeUnanswered === 'true') params.set('unanswered', 'true');
     if (list.dataset.activeMood) params.set('mood', list.dataset.activeMood);
     if (list.dataset.activeStatus) params.set('status', list.dataset.activeStatus);
+    if (list.dataset.activeHandler) params.set('handler', list.dataset.activeHandler);
+    // Keep the address bar in sync with the live-filtered view so that a page
+    // refresh re-renders the SAME list (the route reads ?search/?period/etc.)
+    // and the browser Back button steps through real states instead of jumping
+    // away. replaceState (not pushState) avoids spamming history per keystroke.
+    const synced = new URLSearchParams(params);
+    synced.set('tab', 'chats');
+    try { history.replaceState(null, '', `/casas/${casaId}?${synced.toString()}`); } catch (_) {}
     try {
       const r = await fetch(`/widget/casa/${casaId}/chats?${params}`,
                             { signal: abortCtl.signal, credentials: 'same-origin' });
@@ -284,6 +300,22 @@
     clearTimeout(t);
     refreshList();
   });
+
+  // The date/status chips are server-rendered <a href="?…"> built at page load,
+  // so they don't know about a search term typed AFTER load. On click, merge the
+  // current input value into the chip href (drop it when empty) so changing the
+  // date/status never discards the live search. The "Limpiar filtros" link is
+  // marked data-clear and skipped on purpose (it resets everything).
+  const chips = document.getElementById('chat-chips');
+  if (chips) chips.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href^="?"]');
+    if (!a || a.dataset.clear) return;
+    const v = inp.value.trim();
+    const u = new URL(a.getAttribute('href'), location.href);
+    if (v) u.searchParams.set('search', v);
+    else u.searchParams.delete('search');
+    a.setAttribute('href', u.pathname + u.search);
+  });
 })();
 </script>
 
@@ -300,7 +332,8 @@
          data-active-period="{{ active_period }}"
          data-active-unanswered="{{ 'true' if active_unanswered else 'false' }}"
          data-active-mood="{{ active_mood or '' }}"
-         data-active-status="{{ active_status or '' }}">
+         data-active-status="{{ active_status or '' }}"
+         data-active-handler="{{ active_handler or '' }}">
   {% include 'partials/chat_list_fragment.html' %}
 </section>
 
@@ -422,310 +455,72 @@
     });
   }
 
-  // Run the full chain: bulk-analyze pending convs → meta-analysis.
-  // Window + max_convs come from the modal selectors.
-  async function runChainedAnalysis(casaId, waNumberId, label, sinceHours, maxConvs) {
-    sinceHours = sinceHours || 24;
-    maxConvs   = maxConvs   || 200;
+  // Triggered by the 🚀 "Informe rápido" button on each WA card / the Todos card.
+  // Reads transcripts directly (no per-conversation analysis). The block-analysis
+  // endpoint publishes to the SAME meta progress key, so we reuse pollUntilDone.
+  async function runBlockAnalysis(casaId, waNumberId, label) {
     const waQs = waNumberId != null ? `?wa_number_id=${waNumberId}` : '';
-    const bulkUrl =
-      `/casas/${casaId}/analyze-pending${waQs}${waQs ? '&' : '?'}` +
-      `auto_meta=true&since_hours=${sinceHours}&max_convs=${maxConvs}`;
-    const bulkProgressUrl = `/casas/${casaId}/analyze-pending/progress${waQs}`;
+    const blockUrl = `/casas/${casaId}/block-analysis${waQs}`;
     const metaProgressUrl = `/casas/${casaId}/meta-analyses/progress${waQs}`;
 
     showToast({
-      title: `Iniciando análisis de ${label}…`,
-      msg: 'Conectando…',
-      icon: '⏳',
+      title: `Informe rápido de ${label}…`,
+      msg: 'Leyendo conversaciones…',
+      icon: '🚀',
       showProgress: true,
     });
     setProgress(0, null);
 
     try {
-      const r = await fetch(bulkUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmed: true }),
-      });
+      const r = await fetch(blockUrl, { method: 'POST' });
+      if (r.status === 409) {
+        showToast({
+          title: 'Ya hay un informe en curso',
+          msg: 'Espera a que termine.',
+          icon: '⏳', iconClass: 'bg-amber/15', duration: 8000,
+        });
+        return;
+      }
       if (r.status !== 202 && r.status !== 200) {
         const txt = await r.text();
         showToast({
-          title: 'Error al lanzar análisis',
+          title: 'Error al lanzar el informe',
           msg: txt.slice(0, 200),
-          icon: '❌', iconClass: 'bg-red/15',
-          duration: 8000,
+          icon: '❌', iconClass: 'bg-red/15', duration: 8000,
         });
         return;
       }
     } catch (e) {
       showToast({
-        title: 'Error de red',
-        msg: e.message,
-        icon: '❌', iconClass: 'bg-red/15',
-        duration: 8000,
+        title: 'Error de red', msg: e.message,
+        icon: '❌', iconClass: 'bg-red/15', duration: 8000,
       });
       return;
     }
 
-    // Phase A — bulk
-    const bulkResult = await pollUntilDone(bulkProgressUrl, `Analizando ${label}…`);
-    if (bulkResult === 'error') {
-      showToast({
-        title: 'Error analizando conversaciones',
-        msg: 'Revisa logs del worker.',
-        icon: '❌', iconClass: 'bg-red/15',
-        duration: 10000,
-      });
-      return;
-    }
-    if (bulkResult === 'timeout') {
-      showToast({
-        title: 'Tarda más de lo normal',
-        msg: 'Recarga /informes en unos minutos.',
-        icon: '⏳', iconClass: 'bg-amber/15',
-        duration: 12000,
-      });
-      return;
-    }
-
-    // Phase B — meta (auto-launched by the worker after bulk done)
-    titleEl.textContent = `Generando informe…`;
+    titleEl.textContent = 'Generando informe rápido…';
     setProgress(0, null);
-    const metaResult = await pollUntilDone(metaProgressUrl, `Generando informe de ${label}…`);
-    if (metaResult === 'done') {
+    const res = await pollUntilDone(metaProgressUrl, `Generando informe de ${label}…`);
+    if (res === 'done') {
       showToast({
         title: `✓ Informe de ${label} listo`,
         msg: 'Click "Ver Informes" para abrirlo.',
-        icon: '✅', iconClass: 'bg-accent/15',
-        showProgress: true,
-        duration: 15000,
+        icon: '✅', iconClass: 'bg-accent/15', showProgress: true, duration: 15000,
       });
       setProgress(100, 0);
-    } else if (metaResult === 'error') {
+    } else if (res === 'error') {
       showToast({
-        title: 'Error generando informe',
-        msg: 'Revisa logs.',
-        icon: '❌', iconClass: 'bg-red/15',
-        duration: 10000,
-      });
-    } else if (metaResult === 'empty') {
-      // Bulk found no convs to analyze AND no prior analyses exist.
-      showToast({
-        title: 'Sin datos para informe',
-        msg: 'Aún no hay conversaciones suficientes en las últimas 24h.',
-        icon: '📭', iconClass: 'bg-amber/15',
-        duration: 10000,
+        title: 'Error generando informe', msg: 'Revisa logs.',
+        icon: '❌', iconClass: 'bg-red/15', duration: 10000,
       });
     } else {
       showToast({
         title: 'Tarda más de lo normal',
         msg: 'Recarga /informes en unos minutos.',
-        icon: '⏳', iconClass: 'bg-amber/15',
-        duration: 12000,
+        icon: '⏳', iconClass: 'bg-amber/15', duration: 12000,
       });
     }
   }
-
-  // Triggered by the ⚡ Informe button on each WA card.
-  // Opens the modal which fetches its own preview based on selector defaults
-  // and updates live when the user changes window / max_convs.
-  window.__runWaAnalysis = function (casaId, waNumberId, label) {
-    window.__confirmBulkAnalyze(
-      casaId, null, waNumberId, true,
-      null, null, null, label,
-    );
-  };
-  // Exposed for the bulk-analyze modal to reuse the chain.
-  window.__runChainedAnalysis = runChainedAnalysis;
-})();
-</script>
-
-{# Confirmation modal — triggered by the banner button.
-   Includes user-configurable window + max convs. When either changes the
-   modal refetches /analyze-pending/preview so the cost stays accurate. #}
-<div id="bulk-analyze-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
-  <div class="card max-w-md w-[460px] p-6">
-    <h3 class="text-lg font-bold" id="bulk-modal-title">Generar informe</h3>
-    <div id="bulk-modal-desc" class="mt-3 text-sm text-muted">Cargando…</div>
-
-    <div class="mt-4 grid grid-cols-2 gap-3">
-      <div>
-        <label class="block text-[10px] uppercase tracking-wider text-muted-2 mb-1">Ventana</label>
-        <select id="bulk-window" class="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text">
-          <option value="24">Últimas 24h</option>
-          <option value="72">Últimos 3 días</option>
-          <option value="168">Últimos 7 días</option>
-          <option value="720">Últimos 30 días</option>
-        </select>
-      </div>
-      <div>
-        <label class="block text-[10px] uppercase tracking-wider text-muted-2 mb-1">Máx convs</label>
-        <input id="bulk-max-convs" type="number" min="1" max="500" value="200"
-               class="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text mono">
-      </div>
-    </div>
-    <div id="bulk-preview-loading" class="mt-2 hidden text-[11px] text-muted-2">Calculando coste…</div>
-
-    <div class="mt-5 flex justify-end gap-2">
-      <button type="button" onclick="window.__closeBulkAnalyze()"
-              class="rounded-lg border border-border px-4 py-2 text-sm text-muted hover:text-text">
-        Cancelar
-      </button>
-      <button type="button" id="bulk-analyze-confirm"
-              class="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg hover:bg-accent/90 disabled:opacity-50">
-        ✓ Generar informe
-      </button>
-    </div>
-  </div>
-</div>
-
-<script>
-(function () {
-  const modal     = document.getElementById('bulk-analyze-modal');
-  const titleEl   = document.getElementById('bulk-modal-title');
-  const descEl    = document.getElementById('bulk-modal-desc');
-  const confirmBtn= document.getElementById('bulk-analyze-confirm');
-  const windowSel = document.getElementById('bulk-window');
-  const maxConvsIn= document.getElementById('bulk-max-convs');
-  const previewLoading = document.getElementById('bulk-preview-loading');
-  let currentCasaId = null;
-  let currentWaId   = null;
-  let currentChain  = false;
-  let currentLabel  = null;
-  let currentPreview = null;  // last preview JSON {will_process, est_cost_usd, est_time_min, ...}
-  let previewSeq = 0;          // race-guard for rapid changes
-
-  async function refreshPreview() {
-    if (currentCasaId == null) return;
-    const since = parseInt(windowSel.value, 10) || 24;
-    const maxc = Math.max(1, Math.min(500, parseInt(maxConvsIn.value, 10) || 200));
-    const seq = ++previewSeq;
-    previewLoading.classList.remove('hidden');
-    confirmBtn.disabled = true;
-    let qs = `?since_hours=${since}&max_convs=${maxc}`;
-    if (currentWaId != null) qs += `&wa_number_id=${currentWaId}`;
-    try {
-      const r = await fetch(`/casas/${currentCasaId}/analyze-pending/preview${qs}`);
-      if (seq !== previewSeq) return;  // stale
-      if (!r.ok) {
-        descEl.innerHTML = '<span class="text-red">Error consultando preview.</span>';
-        return;
-      }
-      const p = await r.json();
-      currentPreview = p;
-      renderModalDesc(p);
-    } catch (e) {
-      if (seq !== previewSeq) return;
-      descEl.innerHTML = `<span class="text-red">Error: ${e.message}</span>`;
-    } finally {
-      if (seq === previewSeq) {
-        previewLoading.classList.add('hidden');
-        confirmBtn.disabled = false;
-      }
-    }
-  }
-
-  function renderModalDesc(p) {
-    const cost = (p.est_cost_usd || 0).toFixed(3);
-    const time = p.est_time_min || 1;
-    const cap_warn = p.capped
-      ? `<div class="text-[11px] text-amber mt-1">⚠ ${p.pending} convs detectadas; analizaré las ${p.will_process} más recientes (cap actual ${p.max_convs}).</div>`
-      : '';
-    descEl.innerHTML =
-      `<div class="space-y-2">` +
-      `<div><strong class="text-text">${p.will_process}</strong> conversaciones a analizar` +
-      (p.already_analyzed > 0 ? ` · <span class="text-muted">${p.already_analyzed} ya analizadas en histórico</span>` : '') +
-      `</div>` +
-      cap_warn +
-      `<div class="rounded-lg border border-amber/30 bg-amber/5 p-3">` +
-      `  <div class="text-[11px] uppercase tracking-wider text-amber mb-1">⚠ Coste de Claude API</div>` +
-      `  <div class="flex justify-between items-baseline">` +
-      `    <span class="mono text-2xl font-semibold text-text">$${cost}</span>` +
-      `    <span class="text-xs text-muted">~${time} min</span>` +
-      `  </div>` +
-      `</div>` +
-      `<div class="text-[11px] text-muted-2">Incluye análisis de cada conversación + informe completo.</div>` +
-      `</div>`;
-  }
-
-  windowSel.addEventListener('change', refreshPreview);
-  maxConvsIn.addEventListener('change', refreshPreview);
-
-  // Open the confirmation modal. The preview is fetched live based on the
-  // selectors inside the modal so the user can change window / max_convs
-  // and see the cost update.
-  // Signature: (casaId, count|null, waNumberId|null, autoMeta, _, _, _, label?)
-  window.__confirmBulkAnalyze = function (
-    casaId, _count, waNumberId, autoMeta,
-    _cost, _time, _already, label
-  ) {
-    currentCasaId = casaId;
-    currentWaId   = waNumberId;
-    currentChain  = !!autoMeta && waNumberId != null;
-    currentLabel  = label || (waNumberId ? 'este WhatsApp' : 'esta casa');
-    titleEl.textContent = currentChain
-      ? `Generar informe — ${currentLabel}`
-      : `Analizar conversaciones`;
-
-    // Reset selectors to defaults each open (keeps things predictable)
-    windowSel.value = '24';
-    maxConvsIn.value = '200';
-
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-    // Trigger the first preview now that the modal is visible
-    refreshPreview();
-  };
-  window.__closeBulkAnalyze = function () {
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
-  };
-
-  const CONFIRM_DEFAULT_LABEL = '✓ Generar informe';
-  confirmBtn.addEventListener('click', async () => {
-    const since_hours = parseInt(windowSel.value, 10) || 24;
-    const max_convs   = Math.max(1, Math.min(500, parseInt(maxConvsIn.value, 10) || 200));
-    confirmBtn.disabled = true;
-    confirmBtn.textContent = 'Iniciando…';
-
-    if (currentChain && typeof window.__runChainedAnalysis === 'function') {
-      window.__closeBulkAnalyze();
-      try {
-        await window.__runChainedAnalysis(
-          currentCasaId, currentWaId, currentLabel || 'este WhatsApp',
-          since_hours, max_convs,
-        );
-      } finally {
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = CONFIRM_DEFAULT_LABEL;
-      }
-      return;
-    }
-
-    // Casa-wide fallback (no chain) — enqueue with chosen window+cap
-    try {
-      const r = await fetch(
-        `/casas/${currentCasaId}/analyze-pending?since_hours=${since_hours}&max_convs=${max_convs}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ confirmed: true }),
-        }
-      );
-      if (r.ok) {
-        location.reload();
-      } else {
-        const err = await r.text();
-        alert('Error: ' + err);
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = CONFIRM_DEFAULT_LABEL;
-      }
-    } catch (e) {
-      alert('Error de red: ' + e.message);
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = CONFIRM_DEFAULT_LABEL;
-    }
-  });
+  window.__runWaBlock = runBlockAnalysis;
 })();
 </script>

@@ -1,27 +1,41 @@
 {# HTMX partial: list of casas with volume + online status #}
-<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
   {% if not casas %}
-    <div class="col-span-full text-center py-8 text-xs text-muted">
-      Sin casas configuradas — ve a <a href="/settings" class="underline hover:text-text">Ajustes</a>
+    <div class="col-span-full rounded-2xl border border-border bg-surface py-8 text-center text-xs text-muted shadow-card">
+      Sin casas configuradas — ve a <a href="/sessions" class="font-semibold text-accent hover:underline">WhatsApp</a>
     </div>
   {% endif %}
 
   {% for casa in casas %}
-  <a href="/casa/{{ casa.account_id }}" class="card p-4 card-hover transition block">
-    <div class="flex items-start justify-between">
-      <div class="min-w-0 flex-1">
-        <div class="truncate text-sm font-semibold">{{ casa.name }}</div>
-        <div class="mt-1 mono text-2xl text-text">{{ casa.conversations_today }}</div>
-        <div class="text-[11px] text-muted">conversaciones hoy</div>
+  {% set offline = casa.inboxes_total - casa.inboxes_online %}
+  <a href="/casa/{{ casa.account_id }}"
+     class="block rounded-2xl border border-border bg-surface p-5 shadow-card transition hover:border-border-strong hover:shadow-card-hov">
+    <div class="flex items-center justify-between gap-2">
+      <div class="flex min-w-0 items-center gap-2.5">
+        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-[12px] font-bold text-accent">
+          {{ casa.name[:2] | upper }}
+        </span>
+        <span class="truncate text-[13px] font-bold text-text">{{ casa.name }}</span>
       </div>
-      <div class="text-right">
-        {% set offline = casa.inboxes_total - casa.inboxes_online %}
-        <div class="flex items-center gap-1 text-xs">
-          <span class="h-2 w-2 rounded-full {% if offline == 0 %}bg-green{% elif casa.inboxes_online == 0 %}bg-red{% else %}bg-amber{% endif %}"></span>
-          <span class="mono">{{ casa.inboxes_online }}/{{ casa.inboxes_total }}</span>
-        </div>
-        <div class="mt-0.5 text-[10px] text-muted">WA online</div>
+      <span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold {% if offline == 0 %}bg-accent-soft text-accent{% elif casa.inboxes_online == 0 %}bg-red/15 text-red{% else %}bg-amber/15 text-amber{% endif %}">
+        {% if offline == 0 %}ONLINE{% elif casa.inboxes_online == 0 %}OFF{% else %}PARCIAL{% endif %}
+      </span>
+    </div>
+
+    <div class="mt-4 grid grid-cols-2 gap-3">
+      <div>
+        <div class="mono text-2xl font-bold text-text">{{ casa.conversations_today }}</div>
+        <div class="text-[11px] font-medium text-muted">conversaciones hoy</div>
       </div>
+      <div>
+        <div class="mono text-2xl font-bold text-text">{{ casa.inboxes_online }}/{{ casa.inboxes_total }}</div>
+        <div class="text-[11px] font-medium text-muted">números en línea</div>
+      </div>
+    </div>
+
+    <div class="mt-4 flex items-center gap-1.5 text-[11px] text-muted">
+      <span class="h-2 w-2 rounded-full {% if offline == 0 %}bg-green{% elif casa.inboxes_online == 0 %}bg-red{% else %}bg-amber{% endif %}"></span>
+      {% if offline == 0 %}WhatsApp en línea{% elif casa.inboxes_online == 0 %}WhatsApp desconectado{% else %}{{ casa.inboxes_online }} de {{ casa.inboxes_total }} en línea{% endif %}
     </div>
   </a>
   {% endfor %}

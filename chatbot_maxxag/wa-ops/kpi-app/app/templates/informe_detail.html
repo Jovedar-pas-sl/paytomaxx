@@ -13,6 +13,19 @@
   {% endif %}
 </div>
 
+{% if user.is_admin %}
+<div class="mb-3 flex justify-end">
+  <form method="post" action="/informes/{{ informe_id }}/delete"
+        onsubmit="return confirm('¿Borrar este informe permanentemente? No se puede deshacer.')">
+    <button type="submit"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-red/40 bg-red/5 px-3 py-1.5 text-xs font-semibold text-red transition-colors hover:bg-red/15">
+      <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+      Borrar informe
+    </button>
+  </form>
+</div>
+{% endif %}
+
 <div class="card p-6">
   <div class="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
     <div>
@@ -34,7 +47,7 @@
         </span>
         {% endif %}
         {% else %}
-        <span class="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium uppercase text-accent">
+        <span class="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium uppercase text-accent">
           Toda la casa
         </span>
         {% endif %}
@@ -44,173 +57,644 @@
     <div class="flex flex-wrap items-center gap-2">
       <a href="/informes/{{ informe.id }}/print" target="_blank" rel="noopener"
          title="Vista imprimible — usa Ctrl+P para guardar como PDF"
-         class="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-xs text-accent hover:bg-accent/20">
+         class="btn-primary !px-3 !py-1.5 !text-xs">
         🖨 Imprimir / PDF
       </a>
       <a href="/informes/{{ informe.id }}/export.docx"
-         class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted">
+         class="btn-ghost !px-3 !py-1.5 !text-xs">
         📋 DOCX
       </a>
       <a href="/informes/{{ informe.id }}/export.md"
-         class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted">
+         class="btn-ghost !px-3 !py-1.5 !text-xs">
         📝 Markdown
       </a>
       <a href="/casas/{{ informe.account_id }}?tab=analisis{% if informe.wa_number_id %}&wa={{ informe.wa_number_id }}{% endif %}"
-         class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text hover:border-muted">
+         class="btn-ghost !px-3 !py-1.5 !text-xs">
         Ir a la casa →
       </a>
     </div>
   </div>
 
-  {# Resumen — UNA frase plana #}
+  {# Resumen — 2-3 frases planas #}
   {% if informe.summary %}
   <section class="mb-5">
     <p class="text-base leading-relaxed text-text">{{ informe.summary }}</p>
   </section>
   {% endif %}
 
+  {# ── ACCIONES PARA GANAR MÁS — panel protagonista (lo que el dueño debe hacer) ── #}
+  {% if informe.improvements %}
+  <section class="mb-5">
+    <div class="card p-5 border-2 border-amber/50 bg-amber/5">
+      <div class="mb-3 text-sm font-bold uppercase tracking-wider text-amber">🚨 Acciones para ganar más esta semana</div>
+      <ol class="space-y-3">
+        {% for i in informe.improvements %}
+        <li class="flex gap-3">
+          <span class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-amber/20 text-amber text-xs font-bold mt-0.5">{{ loop.index }}</span>
+          <span class="text-sm leading-relaxed text-text">{{ i }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </div>
+  </section>
+  {% endif %}
+
+  {# Qué va bien + cliente típico — contexto secundario, debajo de las acciones #}
+  {% if informe.strengths or informe.client_profile %}
+  <section class="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+    {% if informe.strengths %}
+    <div class="card p-4 border border-green/30">
+      <div class="text-[10px] uppercase tracking-wider text-green mb-2">✅ Qué va bien</div>
+      <ul class="space-y-1.5 text-sm list-disc list-inside text-muted">
+        {% for s in informe.strengths %}<li>{{ s }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if informe.client_profile %}
+    <div class="card p-4">
+      <div class="text-[10px] uppercase tracking-wider text-muted mb-2">Cliente típico de esta casa</div>
+      <p class="text-sm leading-relaxed text-muted">{{ informe.client_profile }}</p>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
   {% set k = informe.kpis or {} %}
 
-  {# ── DASHBOARD NUMÉRICO ───────────────────────────────────── #}
-
-  {# Volumen + Estado #}
+  {# ── DINERO (Entrega 2) — al principio, lo que más le importa al dueño ── #}
+  {% if (k.confirmed_bookings or 0) > 0 or (k.funnel and (k.funnel.escriben or 0) > 0) %}
   <section class="mb-5 border-t border-border pt-5">
-    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Volumen</div>
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">💰 Dinero</div>
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Tasa de cierre</div>
+        <div class="mono text-3xl font-bold mt-1
+          {% if (k.confirmed_rate_pct or 0) >= 40 %}text-green{% elif (k.confirmed_rate_pct or 0) >= 20 %}text-amber{% else %}text-muted{% endif %}">
+          {{ k.confirmed_rate_pct or 0 }}%
+        </div>
+        <div class="text-[10px] text-muted-2 mt-0.5">de los que escriben acaban cerrando</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Reservas cerradas</div>
+        <div class="mono text-3xl font-bold mt-1 text-green">{{ k.confirmed_bookings or 0 }}</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Ingreso estimado</div>
+        <div class="mono text-3xl font-bold mt-1">{{ (k.estimated_revenue_eur or 0) | round | int }}<span class="text-sm text-muted ml-1">€</span></div>
+        {% if k.revenue_is_estimate %}
+        <div class="text-[10px] text-muted-2 mt-0.5">estimado — a partir de los precios que se mencionan</div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Embudo: escriben → precio → hora → cierre #}
+    {% if k.funnel %}
+    {% set fn = k.funnel %}
+    {% set fmax = fn.escriben or 1 %}
+    <div class="card p-4 mt-3">
+      <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Embudo</div>
+      <div class="space-y-2">
+        {% set steps = [('Escriben', fn.escriben or 0), ('Preguntan precio', fn.preguntan_precio or 0), ('Negocian hora', fn.negocian_hora or 0), ('Cierran', fn.cierran or 0)] %}
+        {% for label, val in steps %}
+        <div class="flex items-center gap-3">
+          <div class="w-28 shrink-0 text-[11px] text-muted">{{ label }}</div>
+          <div class="flex-1 h-5 rounded bg-surface-2 overflow-hidden">
+            <div class="h-full rounded {% if loop.last %}bg-green{% else %}bg-green/40{% endif %}"
+                 style="width: {{ (val * 100 / fmax) | round | int if fmax else 0 }}%"></div>
+          </div>
+          <div class="w-10 shrink-0 text-right mono text-sm font-bold">{{ val }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {# ── DASHBOARD NUMÉRICO — orden: dinero (arriba) → embudo → respuesta → volumen/estado → clientes → de qué hablan → catálogo/canales → cuándo ── #}
+
+  {# Tiempo de respuesta — en este negocio gana quien contesta antes #}
+  {# La PRIMERA respuesta (SLA, de SQL) es lo que más importa: va arriba y en grande. #}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">⏱ Tiempo de respuesta</div>
+
+    {# Primera respuesta (SLA) — disponible en ambos paths vía SQL #}
+    {% if k.first_response is defined and k.first_response %}
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 mb-3">
+      <div class="card p-5 sm:col-span-1">
+        <div class="text-[10px] uppercase text-muted">Contestadas en &lt;5min</div>
+        <div class="mono text-4xl font-bold mt-1
+          {% if (k.first_response.pct_under_5min or 0) >= 70 %}text-green{% elif (k.first_response.pct_under_5min or 0) >= 40 %}text-amber{% else %}text-red{% endif %}">
+          {{ k.first_response.pct_under_5min or 0 }}%
+        </div>
+        <div class="text-[10px] text-muted-2 mt-1">de cada cliente nuevo, cuántos reciben respuesta antes de 5 min — meta: 70%+</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Tardas de normal</div>
+        <div class="mono text-3xl font-bold mt-1">{{ k.first_response.p50_sec or 0 }}<span class="text-sm text-muted ml-1">s</span></div>
+        <div class="text-[10px] text-muted-2 mt-1">lo que tardas en contestar al primer mensaje (la mitad de las veces)</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">En los días malos</div>
+        <div class="mono text-3xl font-bold mt-1">{{ ((k.first_response.p90_sec or 0) / 60) | round | int }}<span class="text-sm text-muted ml-1">min</span></div>
+        <div class="text-[10px] text-muted-2 mt-1">9 de cada 10 contestadas dentro de este tiempo; el resto, peor</div>
+      </div>
+    </div>
+    {% endif %}
+
+    {# Ritmo dentro de la conversación (tiempos entre mensajes) — secundario #}
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Ritmo normal</div>
+        <div class="mono text-2xl font-bold mt-1">{{ k.p50_sec or 0 }}<span class="text-sm text-muted ml-1">s</span></div>
+        <div class="text-[10px] text-muted-2 mt-1">lo que tardas entre mensaje y mensaje ya dentro de la charla</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">En los lentos</div>
+        <div class="mono text-2xl font-bold mt-1">{{ ((k.p90_sec or 0) / 60) | round | int }}<span class="text-sm text-muted ml-1">min</span></div>
+        <div class="text-[10px] text-muted-2 mt-1">9 de cada 10 respuestas dentro de este tiempo</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">El peor</div>
+        <div class="mono text-2xl font-bold mt-1">{{ ((k.max_sec or 0) / 60) | round | int }}<span class="text-sm text-muted ml-1">min</span></div>
+        <div class="text-[10px] text-muted-2 mt-1">la espera más larga que aguantó un cliente</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Rápido (&lt;1min)</div>
+        <div class="mono text-2xl font-bold mt-1
+          {% if (k.fast_pct or 0) >= 70 %}text-green{% elif (k.fast_pct or 0) >= 40 %}text-amber{% else %}text-muted{% endif %}">
+          {{ k.fast_pct or 0 }}%
+        </div>
+        <div class="text-[10px] text-muted-2 mt-1">cuántas respuestas salen en menos de un minuto</div>
+      </div>
+    </div>
+  </section>
+
+  {# Volumen + Estado — soporte, números más pequeños; "msgs totales" de-enfatizado #}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Volumen y estado</div>
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <div class="card p-4">
         <div class="text-[10px] uppercase text-muted">Conversaciones</div>
-        <div class="mono text-3xl font-bold mt-1">{{ k.total_convs or informe.conversations_analyzed or 0 }}</div>
+        <div class="mono text-2xl font-bold mt-1">{{ k.total_convs or informe.conversations_analyzed or 0 }}</div>
+        <div class="text-[10px] text-muted-2 mt-1">clientes distintos que escribieron en el periodo</div>
       </div>
-      <div class="card p-4">
-        <div class="text-[10px] uppercase text-muted">Mensajes totales</div>
-        <div class="mono text-3xl font-bold mt-1">{{ k.total_msgs or 0 }}</div>
-        <div class="text-[10px] text-muted-2 mt-0.5">{{ k.avg_msgs or 0 }} de media/conv</div>
-      </div>
+      {% if (k.unique_clients or 0) > 0 %}
       <div class="card p-4">
         <div class="text-[10px] uppercase text-muted">Clientes únicos</div>
-        <div class="mono text-3xl font-bold mt-1">{{ k.unique_clients or 0 }}</div>
+        <div class="mono text-2xl font-bold mt-1">{{ k.unique_clients or 0 }}</div>
+        <div class="text-[10px] text-muted-2 mt-1">personas distintas detrás de las conversaciones</div>
+      </div>
+      {% endif %}
+      {# Sin contestar = la métrica de alerta. Verde si 0 (es buena noticia), rojo si hay. #}
+      <div class="card p-4 {% if (k.unanswered or 0) > 0 %}border-red/40{% endif %}">
+        <div class="text-[10px] uppercase text-muted">Sin contestar</div>
+        <div class="mono text-2xl font-bold mt-1 {% if (k.unanswered or 0) > 0 %}text-red{% else %}text-green{% endif %}">{{ k.unanswered or 0 }}</div>
+        <div class="text-[10px] text-muted-2 mt-1">clientes que escribieron y nadie respondió — dinero perdido</div>
       </div>
       <div class="card p-4">
-        <div class="text-[10px] uppercase text-muted">Conversión</div>
+        <div class="text-[10px] uppercase text-muted">Contestadas</div>
+        <div class="mono text-2xl font-bold mt-1 text-green">{{ k.answered or 0 }}</div>
+        <div class="text-[10px] text-muted-2 mt-1">conversaciones donde sí se respondió al cliente</div>
+      </div>
+    </div>
+    {# Mensajes totales: dato bruto, secundario, en una línea muted — no merece tarjeta grande #}
+    {% if (k.total_msgs or 0) > 0 %}
+    <div class="mt-2 text-[10px] text-muted-2">
+      {{ k.total_msgs or 0 }} mensajes en total · {{ k.avg_msgs or 0 }} de media por conversación
+      {% if (k.resolved or 0) > 0 or (k.open_count or 0) > 0 %} · {{ k.resolved or 0 }} cerradas · {{ k.open_count or 0 }} abiertas{% endif %}
+    </div>
+    {% endif %}
+  </section>
+
+  {# Clientes nuevos vs recurrentes — composición (de SQL, ambos paths) #}
+  {% if k.returning_pct is defined %}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Clientes nuevos vs recurrentes</div>
+    {# Barra de composición en vez de tarjetas sueltas #}
+    {% set ret = k.returning_pct or 0 %}
+    <div class="card p-4">
+      <div class="flex h-6 w-full overflow-hidden rounded bg-surface-2">
+        <div class="h-full bg-green flex items-center justify-center text-[10px] font-bold text-bg" style="width: {{ ret }}%">{% if ret >= 12 %}{{ ret }}%{% endif %}</div>
+        <div class="h-full bg-blue flex items-center justify-center text-[10px] font-bold text-bg" style="width: {{ 100 - ret }}%">{% if (100 - ret) >= 12 %}{{ 100 - ret }}%{% endif %}</div>
+      </div>
+      <div class="mt-2 flex justify-between text-[11px]">
+        <span class="text-green">● Recurrentes ({{ ret }}%) — ya habían escrito antes</span>
+        <span class="text-blue">● Nuevos ({{ 100 - ret }}%) — primera vez</span>
+      </div>
+      <div class="text-[10px] text-muted-2 mt-1">muchos recurrentes = clientela fiel; muchos nuevos = el marketing trae gente fresca</div>
+      {% if k.oldest_unanswered_hours is defined and (k.oldest_unanswered_hours or 0) > 0 %}
+      <div class="mt-3 border-t border-border pt-2 text-xs">
+        <span class="text-muted">El mensaje sin contestar más antiguo lleva esperando </span>
+        <strong class="mono {% if (k.oldest_unanswered_hours or 0) >= 24 %}text-red{% else %}text-amber{% endif %}">{{ k.oldest_unanswered_hours or 0 }}h</strong>
+        <span class="text-muted-2"> — cuanto más viejo, más frío está ya ese cliente</span>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  {# Top 3 referrals + Top 3 topics — de dónde llegan / de qué hablan #}
+  {% if informe.top_referrals or informe.top_topics %}
+  <section class="mb-5 grid grid-cols-1 gap-5 border-t border-border pt-5 lg:grid-cols-2">
+    {% if informe.top_referrals %}
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-blue mb-2">🌐 De dónde llegan</div>
+      <div class="text-[10px] text-muted-2 mb-2">por dónde te encontraron los clientes — dónde merece la pena invertir</div>
+      <ul class="space-y-2 text-sm">
+        {% for r in informe.top_referrals[:5] %}
+        <li class="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <span>{{ loop.index }}. <strong>{{ r.source }}</strong></span>
+          <span class="mono text-muted">{{ r.count }} <span class="text-muted-2">({{ r.pct }}%)</span></span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if informe.top_topics %}
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-green mb-2">🗣 ¿De qué hablan?</div>
+      <div class="text-[10px] text-muted-2 mb-2">lo que más preguntan los clientes — lo que más repites tú</div>
+      <ul class="space-y-2 text-sm">
+        {% for t in informe.top_topics[:5] %}
+        <li class="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <span>{{ loop.index }}. <strong>{{ t.topic }}</strong></span>
+          <span class="mono text-muted">{{ t.count }} <span class="text-muted-2">({{ t.pct }}%)</span></span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {# ── Por qué no se cierra (lost_reasons) — el dueño quiere saber dónde pierde dinero ── #}
+  {% if k.lost_reasons %}
+  {% set lr_names = {'precio': 'Precio (caro / regatean)', 'lento': 'Tardamos en contestar', 'seco': 'Trato seco', 'solo_fotos': 'Solo querían fotos', 'sin_hueco': 'Sin hora/hueco', 'no_estaba_chica': 'No estaba la chica pedida', 'timewaster': 'Pelmas sin intención', 'otro': 'Otro'} %}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-amber mb-1">Por qué no se cierra</div>
+    <div class="text-[10px] text-muted-2 mb-3">el motivo por el que los clientes se van sin reservar — atácalo de arriba abajo</div>
+    <div class="card p-4">
+      <ul class="space-y-2 text-sm">
+        {% for r in k.lost_reasons %}
+        {% if (r.count or 0) > 0 %}
+        <li class="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <span>{{ loop.index }}. <strong>{{ lr_names[r.reason] if r.reason in lr_names else r.reason }}</strong></span>
+          <span class="mono text-muted">{{ r.count or 0 }}</span>
+        </li>
+        {% endif %}
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ── ROI por canal: cuántos llegan vs cuántos cierran ── #}
+  {% if k.channel_roi %}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-blue mb-1">ROI por canal — quién trae clientes que cierran</div>
+    <div class="text-[10px] text-muted-2 mb-3">no es solo quién trae más gente, sino quién trae gente que acaba pagando</div>
+    <div class="card p-4 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-border text-left text-[10px] uppercase text-muted-2">
+            <th class="py-1 pr-3">Canal</th>
+            <th class="py-1 px-2 text-right">Llegan</th>
+            <th class="py-1 px-2 text-right">Cierran</th>
+            <th class="py-1 px-2 text-right">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in k.channel_roi %}
+          <tr class="border-b border-border/50">
+            <td class="py-1.5 pr-3">{{ c.source }}</td>
+            <td class="py-1.5 px-2 text-right mono">{{ c.contacts or 0 }}</td>
+            <td class="py-1.5 px-2 text-right mono text-green">{{ c.closed or 0 }}</td>
+            <td class="py-1.5 px-2 text-right mono text-muted">
+              {{ ((c.closed or 0) * 100 / c.contacts) | round | int if c.contacts else 0 }}%
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ── Chicas más pedidas + Servicios ── #}
+  {% if k.top_chicas or k.top_services %}
+  <section class="mb-5 grid grid-cols-1 gap-5 border-t border-border pt-5 lg:grid-cols-2">
+    {% if k.top_chicas %}
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-muted mb-1">Chicas más pedidas</div>
+      <div class="text-[10px] text-muted-2 mb-2">a quién piden más y cuántas de esas reservas se cerraron</div>
+      <ul class="space-y-2 text-sm">
+        {% for c in k.top_chicas %}
+        {% if (c.count or 0) > 0 %}
+        <li class="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <span>{{ loop.index }}. <strong>{{ c.name }}</strong></span>
+          <span class="mono text-muted">{{ c.count or 0 }} <span class="text-muted-2">({{ c.closed or 0 }} cerró)</span></span>
+        </li>
+        {% endif %}
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if k.top_services %}
+    <div>
+      <div class="text-[10px] uppercase tracking-wider text-muted mb-1">Servicios</div>
+      <div class="text-[10px] text-muted-2 mb-2">los servicios que más se piden por WhatsApp</div>
+      <ul class="space-y-2 text-sm">
+        {% for s in k.top_services %}
+        {% if (s.count or 0) > 0 %}
+        <li class="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <span>{{ loop.index }}. <strong>{{ s.service }}</strong></span>
+          <span class="mono text-muted">{{ s.count or 0 }}</span>
+        </li>
+        {% endif %}
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {# ── Upsell ── #}
+  {% if k.upsell_pct is defined and (k.upsell_count or 0) > 0 %}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Upsell — cuando el ticket creció</div>
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Reservas con upsell</div>
+        <div class="mono text-3xl font-bold mt-1 text-green">{{ k.upsell_count or 0 }}</div>
+        <div class="text-[10px] text-muted-2 mt-1">reservas donde el cliente acabó pagando más de lo que pensaba</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">% de los cierres</div>
+        <div class="mono text-3xl font-bold mt-1">{{ k.upsell_pct or 0 }}%</div>
+        <div class="text-[10px] text-muted-2 mt-1">subieron a más tiempo / dúo / extra — cuanto más alto, mejor vende</div>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  {# Comparativa de WhatsApps de la casa #}
+  {% if k.wa_comparison %}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-1">Comparativa de WhatsApps — quién vende más / quién responde peor</div>
+    <div class="text-[10px] text-muted-2 mb-3">compara los números de la casa, WhatsApp por WhatsApp</div>
+    <div class="card p-4 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-border text-left text-[10px] uppercase text-muted-2">
+            <th class="py-1 pr-3">WhatsApp</th>
+            <th class="py-1 px-2 text-right">Convs</th>
+            <th class="py-1 px-2 text-right">Conversión</th>
+            <th class="py-1 px-2 text-right">Respuesta</th>
+            <th class="py-1 px-2 text-right">Seca</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for w in k.wa_comparison %}
+          <tr class="border-b border-border/50">
+            <td class="py-1.5 pr-3">{{ w.label }}</td>
+            <td class="py-1.5 px-2 text-right mono">{{ w.convs or 0 }}</td>
+            <td class="py-1.5 px-2 text-right mono
+              {% if (w.conv_rate_pct or 0) >= 40 %}text-green{% elif (w.conv_rate_pct or 0) >= 20 %}text-amber{% else %}text-muted{% endif %}">{{ w.conv_rate_pct or 0 }}%</td>
+            <td class="py-1.5 px-2 text-right mono">{{ w.p50_sec or 0 }}s</td>
+            <td class="py-1.5 px-2 text-right mono {% if (w.avg_seco or 0) >= 5 %}text-amber{% endif %}">{{ w.avg_seco or 0 }}/10</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="mt-2 text-[10px] text-muted-2">Conversión alta = vende más · respuesta más baja = contesta más rápido · seca alta = trato más frío</div>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ════════ MARKETING: cuándo escriben los clientes (= cuándo llegan leads) ════════ #}
+  {# Herramienta de marketing: saber cuándo entra la gente para decidir cuándo poner #}
+  {# anuncios y tener a alguien despierto. Heatmap = SOLO mensajes de entrada (clientes). #}
+  {% if k.heat_in or k.by_hour or k.by_dow %}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-1">Cuándo escriben los clientes — mapa de calor</div>
+    <div class="text-[10px] text-muted-2 mb-3">a qué horas y qué días llegan los mensajes — cuándo poner anuncios y estar al loro del WhatsApp</div>
+
+    {# 💡 Insight de marketing — calle, directo, tarjeta ámbar #}
+    {% if k.marketing %}
+    <div class="card p-4 mb-3 border-2 border-amber/50 bg-amber/5">
+      <div class="flex gap-3">
+        <div class="text-lg leading-none mt-0.5">💡</div>
+        <div class="text-sm text-muted leading-relaxed">
+          Los clientes escriben sobre todo <strong class="text-amber">{{ k.marketing.peak_dow_label }}</strong>
+          de <strong class="text-amber">{{ k.marketing.peak_window }}</strong>
+          ({{ k.marketing.peak_window_pct }}% de los mensajes). Pon anuncios y ten a alguien despierto en esa franja.
+          Casi no entra nadie <strong class="text-muted-2">{{ k.marketing.dead_window }}</strong>.
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {# 7×24 heatmap (filas Lun..Dom, columnas 0-23h) — patrón bg-intensity de partials/heatmap.html #}
+    {% if k.heat_in %}
+    {% set max_val = k.heat_in | map('max') | max %}
+    <div class="card p-4">
+      <div class="overflow-x-auto">
+        <div class="grid grid-cols-[auto_repeat(24,minmax(14px,1fr))] gap-0.5 text-[10px] min-w-[500px]">
+          <div></div>
+          {% for h in range(24) %}
+            <div class="text-center text-muted-2">{% if h % 3 == 0 %}{{ "%02d"|format(h) }}{% endif %}</div>
+          {% endfor %}
+
+          {% set dow_labels = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}
+          {% for day in range(7) %}
+            <div class="text-muted-2 pr-1 text-right">{{ dow_labels[day] }}</div>
+            {% for hour in range(24) %}
+              {% set val = k.heat_in[day][hour] %}
+              {% set intensity = (val * 100 / max_val) | round(0, 'floor') | int if max_val else 0 %}
+              <div class="aspect-square rounded-[2px]
+                {% if val == 0 %}bg-border/30
+                {% elif intensity < 20 %}bg-green/20
+                {% elif intensity < 40 %}bg-green/40
+                {% elif intensity < 60 %}bg-green/60
+                {% elif intensity < 80 %}bg-green/80
+                {% else %}bg-green
+                {% endif %}"
+                title="{{ dow_labels[day] }} {{ '%02d'|format(hour) }}:00 — {{ val }} mensajes de clientes"></div>
+            {% endfor %}
+          {% endfor %}
+        </div>
+      </div>
+      <div class="mt-3 flex items-center gap-2 text-[10px] text-muted-2">
+        <span>menos</span>
+        <span class="h-2 w-4 rounded-[2px] bg-green/20"></span>
+        <span class="h-2 w-4 rounded-[2px] bg-green/40"></span>
+        <span class="h-2 w-4 rounded-[2px] bg-green/60"></span>
+        <span class="h-2 w-4 rounded-[2px] bg-green/80"></span>
+        <span class="h-2 w-4 rounded-[2px] bg-green"></span>
+        <span>más</span>
+        <span class="ml-auto">solo mensajes de clientes (entrada)</span>
+      </div>
+    </div>
+    {% endif %}
+
+    {# Mini-barra por día — solo cuando no hay heatmap (informes antiguos sin heat_in) #}
+    {% if not k.heat_in and k.by_dow %}
+    {% set maxd = k.by_dow | max %}
+    {% set dow_names = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}
+    <div class="card p-4">
+      <div class="text-[10px] uppercase text-muted-2 mb-2">Por día</div>
+      <div class="flex items-end gap-1.5 h-20">
+        {% for n in k.by_dow %}
+        <div class="flex-1 flex h-full flex-col justify-end"
+             title="{{ dow_names[loop.index0] }} — {{ n }} mensajes">
+          <div class="w-full rounded-t-sm {% if n == maxd and maxd > 0 %}bg-blue{% else %}bg-blue/40{% endif %}"
+               style="height: {{ (n * 100 / maxd) | round | int if maxd else 0 }}%"></div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="mt-1 flex justify-between text-[9px] text-muted-2 mono">
+        {% for d in dow_names %}<span>{{ d }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# Fallback por hora — solo informes antiguos sin heatmap #}
+    {% if not k.heat_in and k.by_hour %}
+    {% set maxh = k.by_hour | max %}
+    <div class="card p-4 mt-3">
+      <div class="text-[10px] uppercase text-muted-2 mb-2">Por hora</div>
+      <div class="flex items-end gap-0.5 h-20">
+        {% for n in k.by_hour %}
+        <div class="flex-1 flex h-full flex-col justify-end"
+             title="{{ '%02d'|format(loop.index0) }}:00 — {{ n }} mensajes">
+          <div class="w-full rounded-t-sm {% if loop.index0 == k.peak_hour %}bg-green{% else %}bg-green/40{% endif %}"
+               style="height: {{ (n * 100 / maxh) | round | int if maxh else 0 }}%"></div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="mt-1 flex justify-between text-[9px] text-muted-2 mono">
+        <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
+      </div>
+      {% if k.peak_hour is not none %}
+      <div class="mt-2 text-xs text-muted">Hora con más movimiento: <strong class="text-green">{{ '%02d'|format(k.peak_hour) }}:00</strong></div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {# ════════ A PARTIR DE AQUÍ: SOLO INFORME META (análisis conversación-a-conversación) ════════ #}
+  {# En el informe "block" estos valores vienen todos a 0, así que se OCULTAN para no enseñar ceros sin sentido. #}
+
+  {# Conversión (prob. cierre por IA) — solo meta path #}
+  {% if (k.conv_rate_pct or 0) > 0 %}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Conversión estimada</div>
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div class="card p-4">
+        <div class="text-[10px] uppercase text-muted">Prob. de cierre</div>
         <div class="mono text-3xl font-bold mt-1
           {% if (k.conv_rate_pct or 0) >= 40 %}text-green{% elif (k.conv_rate_pct or 0) >= 20 %}text-amber{% else %}text-muted{% endif %}">
           {{ k.conv_rate_pct or 0 }}%
         </div>
-        <div class="text-[10px] text-muted-2 mt-0.5">prob. {{ ">" }}50%</div>
+        <div class="text-[10px] text-muted-2 mt-1">conversaciones con pinta de acabar en reserva (probabilidad &gt;50%)</div>
       </div>
     </div>
   </section>
+  {% endif %}
 
-  {# Estado: contestadas vs pendientes #}
-  <section class="mb-5">
-    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Estado</div>
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <div class="card p-4">
-        <div class="text-[10px] uppercase text-muted">Contestadas</div>
-        <div class="mono text-3xl font-bold mt-1 text-green">{{ k.answered or 0 }}</div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[10px] uppercase text-muted">Sin contestar</div>
-        <div class="mono text-3xl font-bold mt-1 {% if (k.unanswered or 0) > 0 %}text-amber{% endif %}">{{ k.unanswered or 0 }}</div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[10px] uppercase text-muted">Cerradas</div>
-        <div class="mono text-3xl font-bold mt-1">{{ k.resolved or 0 }}</div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[10px] uppercase text-muted">Abiertas</div>
-        <div class="mono text-3xl font-bold mt-1">{{ k.open_count or 0 }}</div>
-      </div>
-    </div>
-  </section>
-
-  {# Intenciones — qué piden #}
-  <section class="mb-5">
-    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">¿Qué piden?</div>
+  {# Intenciones — qué piden — solo meta path (si todo 0, se oculta) #}
+  {% if (k.bookings or 0) > 0 or (k.quotes or 0) > 0 or (k.infos or 0) > 0 or (k.complaints or 0) > 0 or (k.chitchat or 0) > 0 %}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-1">¿Qué piden?</div>
+    <div class="text-[10px] text-muted-2 mb-3">con qué intención escriben los clientes</div>
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      {% if (k.bookings or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Reservas</div>
         <div class="mono text-2xl font-bold mt-1 text-green">{{ k.bookings or 0 }}</div>
       </div>
+      {% endif %}
+      {% if (k.quotes or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Cotizaciones</div>
         <div class="mono text-2xl font-bold mt-1">{{ k.quotes or 0 }}</div>
       </div>
+      {% endif %}
+      {% if (k.infos or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Información</div>
         <div class="mono text-2xl font-bold mt-1">{{ k.infos or 0 }}</div>
       </div>
+      {% endif %}
+      {% if (k.complaints or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Quejas</div>
-        <div class="mono text-2xl font-bold mt-1 {% if (k.complaints or 0) > 0 %}text-amber{% endif %}">{{ k.complaints or 0 }}</div>
+        <div class="mono text-2xl font-bold mt-1 text-amber">{{ k.complaints or 0 }}</div>
       </div>
+      {% endif %}
+      {% if (k.chitchat or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Charla</div>
         <div class="mono text-2xl font-bold mt-1 text-muted">{{ k.chitchat or 0 }}</div>
       </div>
+      {% endif %}
     </div>
   </section>
+  {% endif %}
 
-  {# Tiempos de respuesta #}
-  <section class="mb-5">
-    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Tiempo de respuesta</div>
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <div class="card p-4">
-        <div class="text-[10px] uppercase text-muted">Mediana (p50)</div>
-        <div class="mono text-3xl font-bold mt-1">{{ k.p50_sec or 0 }}<span class="text-sm text-muted ml-1">s</span></div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[10px] uppercase text-muted">90% &lt; (p90)</div>
-        <div class="mono text-3xl font-bold mt-1">{{ ((k.p90_sec or 0) / 60) | round | int }}<span class="text-sm text-muted ml-1">min</span></div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[10px] uppercase text-muted">Máximo</div>
-        <div class="mono text-3xl font-bold mt-1">{{ ((k.max_sec or 0) / 60) | round | int }}<span class="text-sm text-muted ml-1">min</span></div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[10px] uppercase text-muted">Rápido (&lt;1min)</div>
-        <div class="mono text-3xl font-bold mt-1
-          {% if (k.fast_pct or 0) >= 70 %}text-green{% elif (k.fast_pct or 0) >= 40 %}text-amber{% else %}text-muted{% endif %}">
-          {{ k.fast_pct or 0 }}%
-        </div>
-      </div>
-    </div>
-  </section>
-
-  {# Mood breakdown — cómo viene el cliente #}
-  <section class="mb-5">
-    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">¿Cómo viene el cliente?</div>
+  {# Mood breakdown — cómo viene el cliente — solo meta path (si todo 0, se oculta) #}
+  {% if (k.mood_decidido or 0) > 0 or (k.mood_calenton or 0) > 0 or (k.mood_curioso or 0) > 0 or (k.mood_indeciso or 0) > 0 or (k.mood_enfadado or 0) > 0 or (k.mood_timewaster or 0) > 0 %}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-1">¿Cómo viene el cliente?</div>
+    <div class="text-[10px] text-muted-2 mb-3">el tono con el que llega — los decididos cierran fáciles; los pelmas hacen perder el tiempo</div>
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-6">
+      {% if (k.mood_decidido or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Decidido</div>
         <div class="mono text-2xl font-bold mt-1 text-green">{{ k.mood_decidido or 0 }}</div>
       </div>
+      {% endif %}
+      {% if (k.mood_calenton or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Calentón</div>
         <div class="mono text-2xl font-bold mt-1 text-green">{{ k.mood_calenton or 0 }}</div>
       </div>
+      {% endif %}
+      {% if (k.mood_curioso or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Curioso</div>
         <div class="mono text-2xl font-bold mt-1 text-blue">{{ k.mood_curioso or 0 }}</div>
       </div>
+      {% endif %}
+      {% if (k.mood_indeciso or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Indeciso</div>
         <div class="mono text-2xl font-bold mt-1 text-amber">{{ k.mood_indeciso or 0 }}</div>
       </div>
+      {% endif %}
+      {% if (k.mood_enfadado or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Enfadado</div>
-        <div class="mono text-2xl font-bold mt-1 {% if (k.mood_enfadado or 0) > 0 %}text-red{% endif %}">{{ k.mood_enfadado or 0 }}</div>
+        <div class="mono text-2xl font-bold mt-1 text-red">{{ k.mood_enfadado or 0 }}</div>
       </div>
+      {% endif %}
+      {% if (k.mood_timewaster or 0) > 0 %}
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Pelmas</div>
         <div class="mono text-2xl font-bold mt-1 text-muted">{{ k.mood_timewaster or 0 }}</div>
       </div>
+      {% endif %}
     </div>
   </section>
+  {% endif %}
 
-  {# Trato de la mamai (avg 0-10) #}
-  <section class="mb-5">
-    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Trato de la mamai (media 0-10)</div>
+  {# Trato de la mamai (avg 0-10) — solo meta path (si todo 0, se oculta) #}
+  {% if (k.avg_carinoso or 0) > 0 or (k.avg_profesional or 0) > 0 or (k.avg_vendedor or 0) > 0 or (k.avg_seco or 0) > 0 %}
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-1">Trato de la mamai (media 0-10)</div>
+    <div class="text-[10px] text-muted-2 mb-3">cómo trata al cliente quien lleva el WhatsApp — seca alta es mala señal</div>
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <div class="card p-3">
         <div class="text-[10px] uppercase text-muted">Cariñosa</div>
@@ -230,11 +714,13 @@
       </div>
     </div>
   </section>
+  {% endif %}
 
-  {# Alertas + escalaciones #}
+  {# Alertas + escalaciones — solo meta path #}
   {% if (k.red_flags_total or 0) > 0 or (k.escalations or 0) > 0 %}
-  <section class="mb-5">
-    <div class="text-[10px] uppercase tracking-wider text-muted mb-3">Alertas</div>
+  <section class="mb-5 border-t border-border pt-5">
+    <div class="text-[10px] uppercase tracking-wider text-muted mb-1">Alertas</div>
+    <div class="text-[10px] text-muted-2 mb-3">conversaciones que pintan mal y conviene revisar a mano</div>
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <div class="card p-3 {% if (k.red_flags_total or 0) > 0 %}border-red/40{% endif %}">
         <div class="text-[10px] uppercase text-muted">Red flags</div>
@@ -247,39 +733,5 @@
     </div>
   </section>
   {% endif %}
-
-  {# Top 3 referrals + Top 3 topics #}
-  <section class="mt-5 grid grid-cols-1 gap-5 border-t border-border pt-5 lg:grid-cols-2">
-    <div>
-      <div class="text-[10px] uppercase tracking-wider text-blue mb-2">🌐 De dónde llegan (top 3)</div>
-      {% if informe.top_referrals %}
-      <ul class="space-y-2 text-sm">
-        {% for r in informe.top_referrals[:5] %}
-        <li class="flex items-center justify-between gap-3 border-b border-border pb-2">
-          <span>{{ loop.index }}. <strong>{{ r.source }}</strong></span>
-          <span class="mono text-muted">{{ r.count }} <span class="text-muted-2">({{ r.pct }}%)</span></span>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <div class="text-xs text-muted">Los clientes no mencionan de dónde llegan</div>
-      {% endif %}
-    </div>
-    <div>
-      <div class="text-[10px] uppercase tracking-wider text-green mb-2">🗣 ¿De qué hablan? (top 3)</div>
-      {% if informe.top_topics %}
-      <ul class="space-y-2 text-sm">
-        {% for t in informe.top_topics[:5] %}
-        <li class="flex items-center justify-between gap-3 border-b border-border pb-2">
-          <span>{{ loop.index }}. <strong>{{ t.topic }}</strong></span>
-          <span class="mono text-muted">{{ t.count }} <span class="text-muted-2">({{ t.pct }}%)</span></span>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <div class="text-xs text-muted">Sin datos suficientes</div>
-      {% endif %}
-    </div>
-  </section>
 </div>
 {% endblock %}

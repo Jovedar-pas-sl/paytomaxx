@@ -1,0 +1,12 @@
+# Pre-commit guard against committing secrets.
+# Install once:  pip install pre-commit  &&  pre-commit install
+# Then it runs automatically on every `git commit`.
+repos:
+  - repo: local
+    hooks:
+      - id: check-secrets
+        name: Block committed secrets (sk-ant-, AWS keys, private keys)
+        entry: python scripts/check-secrets.py
+        language: system
+        # Skip binary/lock/minified assets; the script also guards internally.
+        exclude: '(?i)\.(lock|min\.js|png|jpe?g|gif|pdf|woff2?|ico)$'

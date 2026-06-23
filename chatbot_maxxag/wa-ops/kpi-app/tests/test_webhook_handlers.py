@@ -10,13 +10,28 @@ Covers the happy path + edge cases that would cause data loss in production:
 """
 from __future__ import annotations
 
-import pytest
-
 from app.routes.webhooks import (
     _handle_message,
     _handle_message_ack,
     _handle_session_status,
 )
+
+
+class _FakeArq:
+    """Stand-in for the ArqRedis handle: records enqueues, never hits Redis.
+
+    `_handle_message` takes the arq handle as its 2nd arg to enqueue auto_reply_job;
+    these handler tests only assert DB effects, so a no-op recorder suffices.
+    """
+
+    def __init__(self) -> None:
+        self.jobs: list = []
+
+    async def enqueue_job(self, *args, **kw):
+        self.jobs.append((args, kw))
+
+
+_ARQ = _FakeArq()
 
 
 # ── Fixtures ──────────────────────────────────────────────────────
@@ -48,7 +63,7 @@ def _msg(**overrides):
 
 async def test_incoming_creates_contact_conv_message(pg_pool):
     await _seed_casa(pg_pool)
-    await _handle_message(pg_pool, "default", _msg(body="buenas"))
+    await _handle_message(pg_pool, _ARQ, "default",_msg(body="buenas"))
 
     async with pg_pool.acquire() as conn:
         c = await conn.fetchval("SELECT count(*) FROM contact")
@@ -63,7 +78,7 @@ async def test_outgoing_uses_to_field(pg_pool):
     """fromMe=true → chat_id should be payload.to, not payload.from."""
     await _seed_casa(pg_pool)
     await _handle_message(
-        pg_pool, "default",
+        pg_pool, _ARQ, "default",
         _msg(id="out-1", fromMe=True, **{"from": "34603201414@c.us", "to": "34655555555@c.us"}),
     )
     async with pg_pool.acquire() as conn:
@@ -75,14 +90,14 @@ async def test_outgoing_uses_to_field(pg_pool):
 
 async def test_lid_jid_is_dropped(pg_pool):
     await _seed_casa(pg_pool)
-    await _handle_message(pg_pool, "default", _msg(**{"from": "261443685490905@lid"}))
+    await _handle_message(pg_pool, _ARQ, "default",_msg(**{"from": "261443685490905@lid"}))
     async with pg_pool.acquire() as conn:
         assert await conn.fetchval("SELECT count(*) FROM message") == 0
 
 
 async def test_group_jid_is_dropped(pg_pool):
     await _seed_casa(pg_pool)
-    await _handle_message(pg_pool, "default", _msg(**{"from": "120363001@g.us"}))
+    await _handle_message(pg_pool, _ARQ, "default",_msg(**{"from": "120363001@g.us"}))
     async with pg_pool.acquire() as conn:
         assert await conn.fetchval("SELECT count(*) FROM message") == 0
 
@@ -90,16 +105,16 @@ async def test_group_jid_is_dropped(pg_pool):
 async def test_idempotent_same_msg_id(pg_pool):
     await _seed_casa(pg_pool)
     payload = _msg(id="dedup-1")
-    await _handle_message(pg_pool, "default", payload)
-    await _handle_message(pg_pool, "default", payload)  # replay
+    await _handle_message(pg_pool, _ARQ, "default",payload)
+    await _handle_message(pg_pool, _ARQ, "default",payload)  # replay
     async with pg_pool.acquire() as conn:
         assert await conn.fetchval("SELECT count(*) FROM message") == 1
 
 
 async def test_unread_incremented_for_incoming(pg_pool):
     await _seed_casa(pg_pool)
-    await _handle_message(pg_pool, "default", _msg(id="a"))
-    await _handle_message(pg_pool, "default", _msg(id="b"))
+    await _handle_message(pg_pool, _ARQ, "default",_msg(id="a"))
+    await _handle_message(pg_pool, _ARQ, "default",_msg(id="b"))
     async with pg_pool.acquire() as conn:
         unread = await conn.fetchval("SELECT unread_count FROM conversation")
     assert unread == 2
@@ -107,9 +122,9 @@ async def test_unread_incremented_for_incoming(pg_pool):
 
 async def test_unread_not_incremented_for_outgoing(pg_pool):
     await _seed_casa(pg_pool)
-    await _handle_message(pg_pool, "default", _msg(id="in-1"))
+    await _handle_message(pg_pool, _ARQ, "default",_msg(id="in-1"))
     await _handle_message(
-        pg_pool, "default",
+        pg_pool, _ARQ, "default",
         _msg(id="out-1", fromMe=True,
              **{"from": "34603201414@c.us", "to": "34600000001@c.us"}),
     )
@@ -120,7 +135,7 @@ async def test_unread_not_incremented_for_outgoing(pg_pool):
 
 async def test_ack_updates_existing_message(pg_pool):
     await _seed_casa(pg_pool)
-    await _handle_message(pg_pool, "default", _msg(id="ack-1", ack=1))
+    await _handle_message(pg_pool, _ARQ, "default",_msg(id="ack-1", ack=1))
     await _handle_message_ack(pg_pool, {"id": "ack-1", "ack": 4})
     async with pg_pool.acquire() as conn:
         ack = await conn.fetchval("SELECT ack FROM message WHERE waha_msg_id='ack-1'")
@@ -143,15 +158,15 @@ async def test_session_working_no_alert(pg_pool):
 
 async def test_missing_id_or_chat_id_is_skipped(pg_pool):
     await _seed_casa(pg_pool)
-    await _handle_message(pg_pool, "default", {"id": "x"})  # no from/to
-    await _handle_message(pg_pool, "default", {"from": "34600000001@c.us"})  # no id
+    await _handle_message(pg_pool, _ARQ, "default",{"id": "x"})  # no from/to
+    await _handle_message(pg_pool, _ARQ, "default",{"from": "34600000001@c.us"})  # no id
     async with pg_pool.acquire() as conn:
         assert await conn.fetchval("SELECT count(*) FROM message") == 0
 
 
 async def test_auto_creates_casa_if_session_unknown(pg_pool):
     """Safety net: message arrives for unmapped session → creates casa."""
-    await _handle_message(pg_pool, "unmapped-session", _msg())
+    await _handle_message(pg_pool, _ARQ, "unmapped-session", _msg())
     async with pg_pool.acquire() as conn:
         casa_count = await conn.fetchval("SELECT count(*) FROM casa WHERE waha_session='unmapped-session'")
     assert casa_count == 1

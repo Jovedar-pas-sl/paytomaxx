@@ -2,13 +2,19 @@
 {% block title %}Login — Maxxag Ops{% endblock %}
 
 {% block content %}
-<div class="flex min-h-[calc(100vh-4rem)] items-center justify-center">
-  <form method="post" action="/login" class="card w-full max-w-sm space-y-5 p-8">
+<div class="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4">
+  <form method="post" action="/login"
+        class="w-full max-w-sm space-y-6 rounded-2xl border border-border bg-surface p-8 shadow-card">
     <div class="text-center">
-      <div class="text-2xl font-bold tracking-tight">
-        Maxx<span class="text-green">ag</span> <span class="text-muted font-normal">Ops</span>
+      <div class="mb-4 flex items-center justify-center gap-2.5">
+        <img src="/static/img/lips.png" alt="Maxxag"
+             class="h-10 w-10 object-contain drop-shadow-[0_1px_6px_rgba(244,63,94,0.5)]">
+        <span class="text-left leading-tight">
+          <span class="block text-[17px] font-bold text-text">Maxxag</span>
+          <span class="-mt-0.5 block text-[11px] font-medium text-muted-2">Operaciones</span>
+        </span>
       </div>
-      <p class="mt-1 text-xs text-muted">Panel solo-admin</p>
+      <p class="text-xs text-muted">Panel solo-admin</p>
     </div>
 
     {% if error %}
@@ -18,20 +24,20 @@
     {% endif %}
 
     <label class="block space-y-1.5">
-      <span class="text-xs font-medium text-muted">Email</span>
+      <span class="text-[12px] font-semibold uppercase tracking-wide text-muted-2">Email</span>
       <input type="email" name="email" required autocomplete="username"
-             class="block w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-green"
+             class="block w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text placeholder:text-muted-2 outline-none transition-colors focus:border-accent"
              placeholder="sales@nouesmalt.com">
     </label>
 
     <label class="block space-y-1.5">
-      <span class="text-xs font-medium text-muted">Contraseña</span>
+      <span class="text-[12px] font-semibold uppercase tracking-wide text-muted-2">Contraseña</span>
       <input type="password" name="password" required autocomplete="current-password"
-             class="block w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-green">
+             class="block w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text placeholder:text-muted-2 outline-none transition-colors focus:border-accent">
     </label>
 
     <button type="submit"
-            class="block w-full rounded-lg bg-green px-3 py-2 text-sm font-semibold text-bg hover:bg-green/90">
+            class="flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-colors hover:bg-accent/90">
       Entrar
     </button>
   </form>

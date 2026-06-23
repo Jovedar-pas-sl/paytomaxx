@@ -142,6 +142,21 @@
   <div class="summary">{{ informe.summary }}</div>
   {% endif %}
 
+  {% if informe.strengths %}
+  <h2>Qué va bien</h2>
+  <ul>{% for s in informe.strengths %}<li>{{ s }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if informe.improvements %}
+  <h2>Qué cambiar (lo primero es lo más urgente)</h2>
+  <ol>{% for i in informe.improvements %}<li>{{ i }}</li>{% endfor %}</ol>
+  {% endif %}
+
+  {% if informe.client_profile %}
+  <h2>Cliente típico</h2>
+  <p>{{ informe.client_profile }}</p>
+  {% endif %}
+
   {% set k = informe.kpis or {} %}
 
   <h2>Volumen</h2>
@@ -203,6 +218,26 @@
   <table>
     <tr><th>Red flags totales</th><td>{{ k.red_flags_total or 0 }}</td>
         <th>Escalaciones</th><td>{{ k.escalations or 0 }}</td></tr>
+  </table>
+  {% endif %}
+
+  {% if k.hours_top %}
+  <h2>Horas punta — cuándo entra la gente</h2>
+  <table>
+    <tr><th>Hora</th><th>Mensajes</th></tr>
+    {% for h in k.hours_top %}
+    <tr><td>{{ '%02d'|format(h.hour) }}:00</td><td>{{ h.count }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if k.wa_comparison %}
+  <h2>Comparativa de WhatsApps</h2>
+  <table>
+    <tr><th>WhatsApp</th><th>Convs</th><th>Conversión</th><th>Respuesta</th><th>Seca (0-10)</th></tr>
+    {% for w in k.wa_comparison %}
+    <tr><td>{{ w.label }}</td><td>{{ w.convs }}</td><td>{{ w.conv_rate_pct }}%</td><td>{{ w.p50_sec }} s</td><td>{{ w.avg_seco }}/10</td></tr>
+    {% endfor %}
   </table>
   {% endif %}
 

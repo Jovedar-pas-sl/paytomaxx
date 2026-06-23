@@ -10,8 +10,31 @@ from pydantic import BaseModel, Field
 MoodLabel = Literal["curioso", "decidido", "indeciso", "enfadado", "calenton", "timewaster"]
 
 
+Role = Literal["super_admin", "admin", "agent"]
+
+
 class AdminUser(BaseModel):
+    """An authenticated user. Backed by the `admin_user` table (migration 0018)."""
+
     email: str
+    id: int | None = None          # None only for a legacy token issued pre-0018
+    name: str | None = None
+    role: Role = "agent"
+    active: bool = True
+
+    @property
+    def display_name(self) -> str:
+        """What we show in the UI / audit log for this user."""
+        return self.name or self.email
+
+    @property
+    def is_super_admin(self) -> bool:
+        return self.role == "super_admin"
+
+    @property
+    def is_admin(self) -> bool:
+        """Admin-level access (admin OR super_admin)."""
+        return self.role in ("admin", "super_admin")
 
 
 # ── Analyzer DTOs (match kpi.analysis table) ───────────────────────
@@ -134,6 +157,86 @@ class ReferralResult(BaseModel):
     confidence: float               # 0.0-1.0
 
 
+# ── Block analysis (transcripts → informe in ONE Claude call) ───────
+class BlockTopicShare(BaseModel):
+    """One topic + how often it appears across the analyzed transcripts."""
+    topic: str
+    count: int = 0
+    pct: float = 0.0
+
+
+class BlockReferralShare(BaseModel):
+    """Distribution of referral sources across the analyzed transcripts."""
+    source: str
+    count: int = 0
+    pct: float = 0.0
+
+
+class BlockRedFlag(BaseModel):
+    """A red flag detected while reading the transcripts directly."""
+    type: Literal["menor", "fraude", "insulto", "acoso", "timewaster"]
+    reason: str
+
+
+# ── Money KPIs (Entrega 2) — aggregated by the IA over the same batch ──
+class BlockFunnel(BaseModel):
+    """4-step funnel counts over the analyzed set."""
+    escriben: int = 0        # wrote at all
+    preguntan_precio: int = 0  # asked the price
+    negocian_hora: int = 0   # negotiated a time/slot
+    cierran: int = 0         # closed (verbal commit)
+
+
+class BlockLostReason(BaseModel):
+    """Why a non-closer fell off."""
+    reason: str              # precio|lento|seco|solo_fotos|sin_hueco|no_estaba_chica|timewaster|otro
+    count: int = 0
+
+
+class BlockChicaDemand(BaseModel):
+    """A chica named/asked for by clients + how many of those closed."""
+    name: str
+    count: int = 0
+    closed: int = 0
+
+
+class BlockServiceDemand(BaseModel):
+    """A service requested by clients."""
+    service: str             # 1h|30min|masaje|duo|desplazamiento/hotel|otro
+    count: int = 0
+
+
+class BlockChannelRoi(BaseModel):
+    """Per ad-site/channel: how many contacts came and how many CLOSED."""
+    source: str
+    contacts: int = 0
+    closed: int = 0
+
+
+class BlockAnalysisResult(BaseModel):
+    """Output of the block analyzer: a casa/number informe built by reading
+    conversation transcripts directly in ONE batch Claude call."""
+    summary: str = Field(default="", max_length=400)
+    strengths: list[str] = Field(default_factory=list, max_length=8)
+    improvements: list[str] = Field(default_factory=list, max_length=8)
+    client_profile: str = Field(default="", max_length=2000)
+    top_topics: list[BlockTopicShare] = Field(default_factory=list, max_length=5)
+    top_referrals: list[BlockReferralShare] = Field(default_factory=list, max_length=5)
+    red_flags: list[BlockRedFlag] = Field(default_factory=list, max_length=20)
+    # ── Money KPIs (Entrega 2) — all OPTIONAL so old saved informes decode ──
+    funnel: BlockFunnel = Field(default_factory=BlockFunnel)
+    confirmed_bookings: int = 0
+    confirmed_rate_pct: int = 0           # cierran / escriben * 100 (IA computes)
+    estimated_revenue_eur: float = 0.0    # float so a decimal price (75.5€) never breaks validation
+    revenue_is_estimate: bool = True
+    lost_reasons: list[BlockLostReason] = Field(default_factory=list, max_length=8)
+    top_chicas: list[BlockChicaDemand] = Field(default_factory=list, max_length=10)
+    top_services: list[BlockServiceDemand] = Field(default_factory=list, max_length=8)
+    upsell_count: int = 0
+    upsell_pct: int = 0
+    channel_roi: list[BlockChannelRoi] = Field(default_factory=list, max_length=10)
+
+
 # ── Aggregate analysis ─────────────────────────────────────────────
 class ConversationAnalysis(BaseModel):
     conversation_id: int
@@ -154,8 +257,19 @@ class ConversationAnalysis(BaseModel):
 class DashboardKpis(BaseModel):
     total_conversations_today: int
     total_messages_today: int
+    # Honest first-response metric: MEDIAN time-to-first-response (seconds) over
+    # conversations whose first client message landed in the last 24h, plus the
+    # share answered in under 5 minutes. avg_response_time_min is kept for
+    # backward-compat but is no longer the headline.
+    median_first_response_seconds: int
+    pct_answered_under_5min: float
     avg_response_time_min: float
+    # AVG of analysis.conv_probability — an IA *guess*, not confirmed bookings.
     avg_conversion_rate: float
+    # Conversations today whose last message is from the client (awaiting reply).
+    unanswered_today: int
+    # De-noised critical alert count (severity='critical' / actionable types,
+    # unacknowledged). NOT the raw alert total.
     active_alerts: int
     online_instances: int
     total_instances: int

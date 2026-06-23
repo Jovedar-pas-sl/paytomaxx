@@ -22,6 +22,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml ./
 RUN pip install --upgrade pip && pip install --prefix=/install .
 
+# ── Stage 1b: compile Tailwind CSS (standalone CLI — no Node) ─────
+# Replaces the in-browser Tailwind Play CDN with a precompiled, minified
+# stylesheet served from /static. Scans the templates for classes using the
+# ported tailwind.config.js. Output copied into the runtime image below.
+FROM debian:bookworm-slim AS css
+WORKDIR /work
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL -o /usr/local/bin/tailwindcss \
+       https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-linux-x64 \
+    && chmod +x /usr/local/bin/tailwindcss
+COPY tailwind.config.js ./
+COPY app/templates ./app/templates
+COPY app/static/css/input.css ./app/static/css/input.css
+RUN tailwindcss -c tailwind.config.js -i app/static/css/input.css -o app/static/css/app.css --minify \
+    && test -s app/static/css/app.css
+
 # ── Stage 2: runtime ──────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
@@ -44,6 +61,8 @@ WORKDIR /app
 COPY --chown=appuser:appuser alembic.ini ./
 COPY --chown=appuser:appuser alembic ./alembic
 COPY --chown=appuser:appuser app ./app
+# Precompiled Tailwind CSS from the `css` stage (overwrites nothing else).
+COPY --from=css --chown=appuser:appuser /work/app/static/css/app.css ./app/static/css/app.css
 COPY --chown=appuser:appuser entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 

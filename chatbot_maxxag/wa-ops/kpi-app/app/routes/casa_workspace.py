@@ -38,6 +38,7 @@ async def casa_workspace(
     search: str = Query(""),
     mood: str = Query(""),
     status: str = Query(""),
+    handler: str = Query(""),
 ) -> HTMLResponse:
     if tab not in VALID_TABS:
         tab = "chats"
@@ -78,7 +79,7 @@ async def casa_workspace(
     if tab == "chats":
         tab_ctx = await _chats_tab(
             kpi, casa_id, wa_number_id, days, unanswered,
-            search=search, mood=mood, status=status,
+            search=search, mood=mood, status=status, handler=handler,
         )
     elif tab == "metricas":
         tab_ctx = await _metricas_tab(kpi, casa_id, days)
@@ -121,6 +122,7 @@ async def _chats_tab(
     search: str = "",
     mood: str = "",
     status: str = "",
+    handler: str = "",
 ) -> dict:
     # since_days=None means "all" (3650 days = 10 years which is effectively no
     # filter); pass the real value otherwise so the SQL filter applies.
@@ -128,15 +130,18 @@ async def _chats_tab(
     search_q = (search or "").strip() or None
     mood_q = mood if mood in {"curioso", "decidido", "calenton", "indeciso", "enfadado", "timewaster"} else None
     status_q = status if status in {"open", "resolved", "pending"} else None
+    handler_q = handler if handler in {"bot", "human"} else None
     rows, total = await queries.list_conversations(
         kpi,
         casa_id=casa_id,
         wa_number_id=wa_number_id,
         since_days=since_days,
         unanswered_only=unanswered,
+        handler=handler_q,
         search=search_q,
         mood=mood_q,
         status=status_q,
+        order="recent",
         limit=50,
         offset=0,
     )
@@ -163,6 +168,7 @@ async def _chats_tab(
         "active_search": search_q or "",
         "active_mood": mood_q or "",
         "active_status": status_q or "",
+        "active_handler": handler_q or "",
     }
 
 

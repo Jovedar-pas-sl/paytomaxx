@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+{% block title %}Métricas — Maxxag Ops{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+  <div>
+    <div class="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted-2">Inteligencia de negocio</div>
+    <h1 class="text-3xl font-bold tracking-tight text-text">Métricas</h1>
+    <p class="mt-1 text-sm text-muted">Volumen real del periodo elegido · el análisis de IA va aparte (foto del último informe).</p>
+  </div>
+  <div class="glass-segment" style="--segments:{{ period_options|length }}; --active-index:{{ period_options.index(period) }};">
+    {% for p in period_options %}
+    <a href="/metricas?period={{ p }}" class="{% if p == period %}is-active{% endif %}">{{ p }}</a>
+    {% endfor %}
+    <span class="glass-segment__glider" aria-hidden="true"></span>
+  </div>
+</div>
+
+{# ── EN VIVO — cambia con el periodo (contado directo de los mensajes) ── #}
+<div class="mb-2 flex flex-wrap items-center gap-2">
+  <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-accent">
+    <span class="relative flex h-2 w-2"><span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60"></span><span class="relative inline-flex h-2 w-2 rounded-full bg-accent"></span></span>
+    En vivo · {{ period }}
+  </span>
+  <span class="text-[11px] text-muted-2">contado directo de los mensajes del periodo</span>
+</div>
+<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+  <div class="card p-5">
+    <div class="flex items-center justify-between">
+      <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-2">Conversaciones</span>
+      <span class="grid h-8 w-8 place-items-center rounded-lg bg-accent-soft text-accent">💬</span>
+    </div>
+    <div class="mono mt-3 text-3xl font-bold tracking-tight text-text">{{ vol.overall.convs }}</div>
+    <div class="mt-1 text-[11px] text-muted">con actividad en el periodo</div>
+  </div>
+  <div class="card p-5">
+    <div class="flex items-center justify-between">
+      <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-2">Mensajes recibidos</span>
+      <span class="grid h-8 w-8 place-items-center rounded-lg bg-accent-soft text-accent">📥</span>
+    </div>
+    <div class="mono mt-3 text-3xl font-bold tracking-tight text-text">{{ vol.overall.msgs_in }}</div>
+    <div class="mt-1 text-[11px] text-muted-2">de clientes</div>
+  </div>
+  <div class="card p-5">
+    <div class="flex items-center justify-between">
+      <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-2">Mensajes enviados</span>
+      <span class="grid h-8 w-8 place-items-center rounded-lg bg-accent-soft text-accent">📤</span>
+    </div>
+    <div class="mono mt-3 text-3xl font-bold tracking-tight text-text">{{ vol.overall.msgs_out }}</div>
+    <div class="mt-1 text-[11px] text-muted-2">Sara + equipo</div>
+  </div>
+  <div class="card p-5">
+    <div class="flex items-center justify-between">
+      <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-2">1ª respuesta (mediana)</span>
+      <span class="grid h-8 w-8 place-items-center rounded-lg bg-accent-soft text-accent">⏱️</span>
+    </div>
+    <div class="mono mt-3 text-3xl font-bold tracking-tight {% if vol.overall.p50_sec and vol.overall.p50_sec > 600 %}text-amber{% else %}text-text{% endif %}">
+      {% if vol.overall.p50_sec %}{{ (vol.overall.p50_sec / 60) | round(1) }}<span class="text-lg text-muted">m</span>{% else %}—{% endif %}
+    </div>
+    <div class="mt-1 text-[11px] text-muted-2">tiempo en contestar</div>
+  </div>
+</div>
+
+{# ── Por local (en vivo) ───────────────────────────────────────── #}
+{% if vol.by_casa %}
+<section class="card mt-6 overflow-hidden p-5">
+  <h3 class="mb-1 text-[15px] font-bold text-text">Por local · {{ period }}</h3>
+  <p class="mb-3 text-[12px] text-muted">Volumen real de cada casa en el periodo elegido.</p>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-2">
+          <th class="pb-2 font-semibold">Casa</th>
+          <th class="pb-2 text-right font-semibold">Conversaciones</th>
+          <th class="pb-2 text-right font-semibold">Recibidos</th>
+          <th class="pb-2 text-right font-semibold">Enviados</th>
+          <th class="pb-2 text-right font-semibold">1ª resp.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in vol.by_casa %}
+        <tr class="border-b border-border/60">
+          <td class="py-2 font-semibold text-text">{{ c.name }}</td>
+          <td class="py-2 text-right mono text-text">{{ c.convs }}</td>
+          <td class="py-2 text-right mono text-muted">{{ c.msgs_in }}</td>
+          <td class="py-2 text-right mono text-muted">{{ c.msgs_out }}</td>
+          <td class="py-2 text-right mono {% if c.p50_sec and c.p50_sec > 600 %}text-amber{% else %}text-muted{% endif %}">{% if c.p50_sec %}{{ (c.p50_sec / 60) | round(1) }}m{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{# ── Cuándo escriben los clientes (heatmap 7 días) ────────────────── #}
+<section class="card mt-6 p-5">
+  <div class="mb-4 flex items-center justify-between">
+    <h3 class="text-[15px] font-bold text-text">Cuándo escriben los clientes</h3>
+    <span class="text-[10px] text-muted">últimos 7 días · actualiza cada 60s</span>
+  </div>
+  <div hx-get="/widget/heatmap" hx-trigger="load, every 60s" hx-swap="innerHTML">
+    <div class="animate-pulse text-xs text-muted">Cargando…</div>
+  </div>
+</section>
+
+{# ── Análisis de IA — foto del último informe, NO filtrado por periodo ── #}
+<div class="mt-8 mb-3 flex flex-wrap items-center gap-2 border-t border-border pt-6">
+  <span class="text-[11px] font-bold uppercase tracking-wider text-muted">📸 Análisis de IA</span>
+  <span class="text-[11px] text-muted-2">del último informe de cada casa · es una foto, no cambia con el periodo</span>
+</div>
+
+{% if metas_count == 0 %}
+<div class="rounded-2xl border border-border bg-surface py-10 text-center shadow-card">
+  <p class="mx-auto max-w-md text-sm text-muted">
+    Aún no hay informes de IA. Genera uno desde <strong class="text-text">WhatsApp → una casa → "Generar informe"</strong>
+    y aquí verás canales, motivos de pérdida, estados de ánimo y demanda.
+  </p>
+</div>
+{% else %}
+
+{# Marketing — canales #}
+{% if channels %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+  <section class="card p-5">
+    <h3 class="mb-1 text-[15px] font-bold text-text">Canales — contactos vs cierres</h3>
+    <p class="mb-3 text-[12px] text-muted">De dónde viene la gente y cuál convierte (estimación de IA).</p>
+    <div id="ch-chart" class="h-[300px] w-full"></div>
+  </section>
+  <section class="card overflow-hidden p-5">
+    <h3 class="mb-3 text-[15px] font-bold text-text">ROI por canal</h3>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-2">
+            <th class="pb-2 font-semibold">Fuente</th>
+            <th class="pb-2 text-right font-semibold">Leads</th>
+            <th class="pb-2 text-right font-semibold">Cierres</th>
+            <th class="pb-2 text-right font-semibold">% cierre</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in channels %}
+          <tr class="border-b border-border/60">
+            <td class="py-2 font-medium text-text">{{ c.source }}</td>
+            <td class="py-2 text-right mono text-muted">{{ c.leads }}</td>
+            <td class="py-2 text-right mono text-text">{{ c.closed if c.closed else '—' }}</td>
+            <td class="py-2 text-right mono font-semibold {% if c.close_rate is none %}text-muted-2{% elif c.close_rate >= 30 %}text-green{% elif c.close_rate >= 15 %}text-amber{% else %}text-red{% endif %}">{{ (c.close_rate ~ '%') if c.close_rate is not none else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="mt-3 text-[11px] text-muted-2">Cierres por canal solo si el informe incluye ROI por canal.</p>
+  </section>
+</div>
+{% endif %}
+
+{# Embudo + motivos de pérdida #}
+{% if funnel or lost %}
+<div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+  {% if funnel %}
+  <section class="card p-5">
+    <h3 class="mb-1 text-[15px] font-bold text-text">Embudo de conversión</h3>
+    <p class="mb-3 text-[12px] text-muted">Escriben → preguntan precio → negocian hora → cierran. Mira dónde se cae.</p>
+    <div id="fn-chart" class="h-[300px] w-full"></div>
+  </section>
+  {% endif %}
+  {% if lost %}
+  <section class="card p-5">
+    <h3 class="mb-3 text-[15px] font-bold text-text">Por qué no cierran</h3>
+    {% set lmax = lost[0].count or 1 %}
+    <div class="space-y-2.5">
+      {% for l in lost %}
+      <div>
+        <div class="flex items-baseline justify-between text-[12px]">
+          <span class="text-text">{{ l.reason }}</span>
+          <span class="mono text-muted">{{ l.count }}</span>
+        </div>
+        <div class="mt-1 h-2 overflow-hidden rounded-full bg-surface-2">
+          <div class="h-full rounded-full bg-red" style="width: {{ (l.count / lmax * 100) | round }}%"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endif %}
+
+{# Demanda #}
+{% if chicas or services %}
+<div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+  {% if chicas %}
+  <section class="card p-5">
+    <h3 class="mb-3 text-[15px] font-bold text-text">Más solicitadas</h3>
+    {% set cmax = chicas[0].count or 1 %}
+    <div class="space-y-2.5">
+      {% for ch in chicas %}
+      <div>
+        <div class="flex items-baseline justify-between text-[12px]">
+          <span class="text-text">{{ ch.name }}</span>
+          <span class="mono text-muted">{{ ch.count }} ped.{% if ch.closed %} · <span class="text-green">{{ ch.closed }} cierres</span>{% endif %}</span>
+        </div>
+        <div class="mt-1 h-2 overflow-hidden rounded-full bg-surface-2">
+          <div class="h-full rounded-full bg-accent" style="width: {{ (ch.count / cmax * 100) | round }}%"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+  {% if services %}
+  <section class="card p-5">
+    <h3 class="mb-3 text-[15px] font-bold text-text">Servicios más pedidos</h3>
+    {% set smax = services[0].count or 1 %}
+    <div class="space-y-2.5">
+      {% for s in services %}
+      <div>
+        <div class="flex items-baseline justify-between text-[12px]">
+          <span class="text-text">{{ s.service }}</span>
+          <span class="mono text-muted">{{ s.count }}</span>
+        </div>
+        <div class="mt-1 h-2 overflow-hidden rounded-full bg-surface-2">
+          <div class="h-full rounded-full bg-blue" style="width: {{ (s.count / smax * 100) | round }}%"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* Tooltip del heatmap — delegación en document (funciona aunque las celdas
+   lleguen por HTMX). Hover en escritorio, tap en móvil. Theme-aware. */
+(function () {
+  var tip;
+  function ensure() {
+    if (tip) return tip;
+    tip = document.createElement('div');
+    tip.style.cssText = 'position:fixed;z-index:60;pointer-events:none;display:none;padding:5px 9px;border-radius:8px;font-size:12px;font-weight:600;white-space:nowrap;box-shadow:0 6px 20px rgba(0,0,0,.35)';
+    document.body.appendChild(tip);
+    return tip;
+  }
+  function place(x, y) { var t = ensure(); t.style.left = Math.min(x + 12, window.innerWidth - t.offsetWidth - 8) + 'px'; t.style.top = (y + 14) + 'px'; }
+  function show(cell, x, y) {
+    var t = ensure(), cs = getComputedStyle(document.documentElement), v = function (n) { return cs.getPropertyValue(n).trim(); };
+    t.style.background = 'rgb(' + v('--c-surface-2') + ')';
+    t.style.color = 'rgb(' + v('--c-text') + ')';
+    t.style.border = '1px solid rgb(' + v('--c-border') + ')';
+    t.textContent = cell.getAttribute('data-tip') || '';
+    t.style.display = 'block'; place(x, y);
+  }
+  function hide() { if (tip) tip.style.display = 'none'; }
+  document.addEventListener('mouseover', function (e) { var c = e.target.closest && e.target.closest('.hm-cell'); if (c) show(c, e.clientX, e.clientY); });
+  document.addEventListener('mousemove', function (e) { if (tip && tip.style.display === 'block' && e.target.closest && e.target.closest('.hm-cell')) place(e.clientX, e.clientY); });
+  document.addEventListener('mouseout', function (e) { if (e.target.closest && e.target.closest('.hm-cell')) hide(); });
+  document.addEventListener('click', function (e) { var c = e.target.closest && e.target.closest('.hm-cell'); if (c) { show(c, e.clientX, e.clientY); clearTimeout(window.__hmT); window.__hmT = setTimeout(hide, 2200); } });
+})();
+</script>
+{% if metas_count > 0 and channels %}
+<script src="/static/vendor/echarts.min.js"></script>
+<script>
+(function () {
+  function tok(name, fallback) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v ? 'rgb(' + v + ')' : fallback;
+  }
+  function draw() {
+    if (!window.echarts) { return setTimeout(draw, 120); }
+    var dark = document.documentElement.classList.contains('dark');
+    var accent = tok('--c-accent', '#f43f5e');
+    var muted = tok('--c-muted', '#8e8e93');
+    var grid = tok('--c-border', '#26262a');
+    var blue = tok('--c-blue', '#60a5fa');
+    var axis = { axisLabel: { color: muted, fontSize: 11 }, axisLine: { lineStyle: { color: grid } }, splitLine: { lineStyle: { color: grid } } };
+
+    {% if channels %}
+    var chEl = document.getElementById('ch-chart');
+    if (chEl) {
+      var srcs = {{ channels | map(attribute='source') | list | tojson }};
+      var leads = {{ channels | map(attribute='leads') | list | tojson }};
+      var closed = {{ channels | map(attribute='closed') | list | tojson }};
+      echarts.init(chEl).setOption({
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        legend: { data: ['Leads', 'Cierres'], textStyle: { color: muted }, top: 0 },
+        grid: { left: 8, right: 16, top: 30, bottom: 4, containLabel: true },
+        xAxis: Object.assign({ type: 'value' }, axis),
+        yAxis: Object.assign({ type: 'category', data: srcs.slice().reverse(), inverse: false }, axis),
+        series: [
+          { name: 'Leads', type: 'bar', data: leads.slice().reverse(), itemStyle: { color: accent, borderRadius: [0, 4, 4, 0] } },
+          { name: 'Cierres', type: 'bar', data: closed.slice().reverse(), itemStyle: { color: blue, borderRadius: [0, 4, 4, 0] } }
+        ],
+      });
+    }
+    {% endif %}
+
+    {% if funnel %}
+    var fnEl = document.getElementById('fn-chart');
+    if (fnEl) {
+      echarts.init(fnEl).setOption({
+        tooltip: { trigger: 'item', formatter: '{b}: {c}' },
+        series: [{
+          type: 'funnel', left: 8, right: 8, top: 8, bottom: 8, minSize: '20%',
+          label: { color: dark ? '#fff' : '#0f172a', fontSize: 12 },
+          itemStyle: { borderColor: dark ? '#000' : '#fff', borderWidth: 2 },
+          color: ['#fda4af', '#f87171', '#f43f5e', '#be123c'],
+          data: [
+            { value: {{ funnel.escriben }}, name: 'Escriben ({{ funnel.escriben }})' },
+            { value: {{ funnel.preguntan_precio }}, name: 'Preguntan precio ({{ funnel.preguntan_precio }})' },
+            { value: {{ funnel.negocian_hora }}, name: 'Negocian hora ({{ funnel.negocian_hora }})' },
+            { value: {{ funnel.cierran }}, name: 'Cierran ({{ funnel.cierran }})' }
+          ],
+        }],
+      });
+    }
+    {% endif %}
+  }
+  draw();
+})();
+</script>
+{% endif %}
+{% endblock %}

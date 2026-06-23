@@ -44,6 +44,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state.arq = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     state.waha = WahaClient(settings)
 
+    # RBAC bootstrap (migration 0018): ensure the env admin exists in the
+    # admin_user table as an active super_admin so login works from the DB.
+    from app import team
+
+    await team.ensure_bootstrap_super_admin(
+        state.kpi_db,
+        email=settings.kpi_admin_email,
+        password_hash=settings.kpi_admin_password_hash.get_secret_value(),
+    )
+
     app.state.pools = state
     try:
         yield
@@ -80,9 +90,14 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 # ── Auth dependency ────────────────────────────────────────────────
 async def get_current_user(request: Request) -> "AdminUser":
-    """Verify JWT cookie and return the admin user, else 401."""
+    """Verify JWT cookie and return the user from the DB (source of truth).
+
+    The token carries a `uid` hint, but we always re-load the user so a
+    deactivated or re-roled account is enforced on the very next request.
+    Legacy tokens (issued before 0018, no `uid`) fall back to the `sub` email.
+    """
+    from app import team
     from app.auth import decode_token  # local import to avoid circulars
-    from app.models import AdminUser
 
     token = request.cookies.get("maxxag_kpi_auth")
     if not token:
@@ -97,7 +112,40 @@ async def get_current_user(request: Request) -> "AdminUser":
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid session",
         ) from exc
-    return AdminUser(email=claims["sub"])
+
+    db = request.app.state.pools.kpi_db
+    user = None
+    uid = claims.get("uid")
+    if uid is not None:
+        user = await team.get_user_by_id(db, int(uid))
+    if user is None and claims.get("sub"):
+        user = await team.get_user_by_email(db, claims["sub"])
+
+    if user is None or not user.active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión inválida",
+        )
+    return user
 
 
 CurrentUser = Annotated["AdminUser", Depends(get_current_user)]
+
+
+def require_roles(*roles: str):
+    """Build a dependency that 403s unless the current user has one of `roles`."""
+
+    async def _dep(user: "AdminUser" = Depends(get_current_user)) -> "AdminUser":
+        if user.role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para esta acción",
+            )
+        return user
+
+    return _dep
+
+
+# Admin-level access (admin OR super_admin) and super-admin-only.
+RequireAdmin = Annotated["AdminUser", Depends(require_roles("admin", "super_admin"))]
+RequireSuperAdmin = Annotated["AdminUser", Depends(require_roles("super_admin"))]

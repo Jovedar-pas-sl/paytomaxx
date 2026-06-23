@@ -84,11 +84,23 @@ services:
       WHATSAPP_HOOK_URL: http://kpi-app:5000/webhook/waha
       # message.any = includes outgoing (fromMe); message alone = incoming only
       WHATSAPP_HOOK_EVENTS: "session.status,message,message.any,message.ack"
-      # HMAC signing — WAHA computes sha512(body, secret) in X-Webhook-Hmac header
+      # HMAC signing — WAHA computes sha512(body, secret) in the X-Webhook-Hmac
+      # header; the kpi-app verifies it. Both _KEY and _VALUE are set to the same
+      # secret so WAHA signs regardless of which var name this WAHA version reads
+      # (docs say WHATSAPP_HOOK_HMAC_KEY). All driven by the single WAHA_WEBHOOK_HMAC.
+      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_HMAC:-}
       WHATSAPP_HOOK_HMAC_VALUE: ${WAHA_WEBHOOK_HMAC:-}
       WHATSAPP_HOOK_HMAC_ALGORITHM: sha512
+      # ── Media entrante (foto/vídeo/audio/notas de voz) ──────────────
+      # Por defecto WAHA BORRA los archivos a los 180s (3 min), así que la
+      # encargada apenas los vería. Los guardamos en un volumen persistente
+      # (sobrevive a reinicios) y subimos la retención a 30 días. Para historial
+      # ilimitado y duradero sin llenar el disco del VPS: WAHA_MEDIA_STORAGE=S3.
+      WHATSAPP_FILES_FOLDER: /app/.media
+      WHATSAPP_FILES_LIFETIME: "2592000"
     volumes:
       - waha_data:/app/.sessions
+      - waha_media:/app/.media
     networks: [internal]
 
   # ── KPI dashboard (FastAPI + HTMX + Claude analyzer + inbox) ────
@@ -129,6 +141,7 @@ volumes:
   pg_data:      {}
   redis_data:   {}
   waha_data:    {}
+  waha_media:   {}
 
 networks:
   internal:

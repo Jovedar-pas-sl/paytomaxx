@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Ajustes · Equipo — Maxxag Ops{% endblock %}
+
+{% block content %}
+{% set role_labels = {'super_admin':'Super-admin','admin':'Admin','agent':'Agente'} %}
+{% set role_badge = {'super_admin':'bg-red/15 text-red','admin':'bg-blue/15 text-blue','agent':'bg-accent-soft text-accent'} %}
+{% set action_labels = {
+  'login':'Inició sesión','user_create':'Creó usuario','user_active':'Activó/desactivó',
+  'user_role':'Cambió rol','user_password':'Reset contraseña','user_casas':'Asignó casas',
+  'message_sent':'Envió mensaje','sara_mode':'Cambió modo de Sara','informe_delete':'Borró informe'
+} %}
+
+<div class="mb-6 flex items-start justify-between gap-4">
+  <div>
+    <h1 class="text-xl font-bold tracking-tight text-text">Equipo y accesos</h1>
+    <p class="mt-0.5 text-sm text-muted">Crea usuarios, asigna roles y casas, y revisa quién hace qué. Solo super-admin.</p>
+  </div>
+  <a href="/ajustes/estilo" class="shrink-0 rounded-lg border border-accent/30 bg-accent-soft px-3 py-2 text-sm font-semibold text-accent transition hover:bg-accent/15">Entrenamiento de Sara →</a>
+</div>
+
+{% if ok %}
+<div class="mb-4 rounded-lg border border-accent/30 bg-accent-soft px-4 py-2.5 text-sm text-accent">{{ ok }}</div>
+{% endif %}
+{% if error %}
+<div class="mb-4 rounded-lg border border-red/30 bg-red/10 px-4 py-2.5 text-sm text-red">{{ error }}</div>
+{% endif %}
+
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+
+  {# ── Crear usuario ─────────────────────────────────────────── #}
+  <section class="rounded-2xl border border-border bg-surface p-5 shadow-card lg:col-span-1">
+    <h2 class="mb-3 text-[13px] font-bold uppercase tracking-wide text-muted">Nuevo usuario</h2>
+    <form method="post" action="/ajustes/users" class="space-y-3">
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted">Nombre</label>
+        <input name="name" type="text" placeholder="Nombre visible"
+               class="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted">Email</label>
+        <input name="email" type="email" required placeholder="persona@maxxag.com"
+               class="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted">Contraseña</label>
+        <input name="password" type="text" required minlength="8" placeholder="mín. 8 caracteres"
+               class="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text placeholder:text-muted-2 focus:border-accent focus:outline-none mono">
+        <p class="mt-1 text-[11px] text-muted-2">La pones tú. El usuario la usa tal cual (no se le pide cambiarla).</p>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted">Rol</label>
+        <select name="role" class="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none">
+          <option value="agent">Agente — solo contesta conversaciones</option>
+          <option value="admin">Admin — casas, conversaciones, informes</option>
+          <option value="super_admin">Super-admin — todo + usuarios</option>
+        </select>
+      </div>
+      <button type="submit" class="w-full rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90">
+        Crear usuario
+      </button>
+    </form>
+  </section>
+
+  {# ── Lista de usuarios ─────────────────────────────────────── #}
+  <section class="rounded-2xl border border-border bg-surface p-5 shadow-card lg:col-span-2">
+    <h2 class="mb-3 text-[13px] font-bold uppercase tracking-wide text-muted">Usuarios ({{ users|length }})</h2>
+    <div class="space-y-2">
+      {% for u in users %}
+      {% set scope = assignments.get(u.id, []) %}
+      <details class="rounded-xl border border-border bg-surface-2 transition-colors hover:border-border-strong {% if not u.active %}opacity-60{% endif %}">
+        <summary class="flex cursor-pointer list-none items-center gap-3 rounded-xl px-4 py-3 hover:bg-surface">
+          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-soft text-[12px] font-semibold text-accent">
+            {{ (u.name or u.email)[:2]|upper }}
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="truncate text-sm font-semibold text-text">{{ u.name or u.email }}</span>
+              <span class="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase {{ role_badge.get(u.role,'bg-surface-2 text-muted') }}">{{ role_labels.get(u.role, u.role) }}</span>
+              {% if not u.active %}<span class="rounded bg-red/15 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red">Inactivo</span>{% endif %}
+            </div>
+            <div class="truncate text-[12px] text-muted">{{ u.email }}
+              {% if u.role == 'agent' %} · {% if scope %}{{ scope|length }} casa(s){% else %}todas las casas{% endif %}{% endif %}
+            </div>
+          </div>
+          <svg class="h-4 w-4 shrink-0 text-muted-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </summary>
+
+        <div class="space-y-4 border-t border-border px-4 py-4">
+          {% if u.id == user.id %}
+          <p class="text-[12px] text-muted-2">Esta es tu cuenta — no puedes cambiar tu propio rol ni desactivarte.</p>
+          {% endif %}
+
+          <div class="flex flex-wrap items-end gap-4">
+            {# Rol #}
+            <form method="post" action="/ajustes/users/{{ u.id }}/role" class="flex items-end gap-2">
+              <div>
+                <label class="mb-1 block text-[11px] font-medium text-muted">Rol</label>
+                <select name="role" {% if u.id == user.id %}disabled{% endif %}
+                        class="rounded-lg border border-border bg-surface px-2 py-1.5 text-[13px] text-text focus:border-accent focus:outline-none disabled:opacity-50">
+                  {% for r in roles %}<option value="{{ r }}" {% if r == u.role %}selected{% endif %}>{{ role_labels[r] }}</option>{% endfor %}
+                </select>
+              </div>
+              <button type="submit" {% if u.id == user.id %}disabled{% endif %}
+                      class="rounded-lg border border-border bg-surface px-3 py-1.5 text-[13px] font-semibold text-muted transition-colors hover:border-border-strong hover:text-text disabled:opacity-50">Guardar</button>
+            </form>
+
+            {# Activar / desactivar #}
+            {% if u.id != user.id %}
+            <form method="post" action="/ajustes/users/{{ u.id }}/toggle-active">
+              <button type="submit"
+                      class="rounded-lg border px-3 py-1.5 text-[13px] font-semibold transition-colors {% if u.active %}border-red/30 text-red hover:bg-red/10{% else %}border-accent/30 text-accent hover:bg-accent-soft{% endif %}">
+                {{ 'Desactivar' if u.active else 'Activar' }}
+              </button>
+            </form>
+            {% endif %}
+          </div>
+
+          {# Reset contraseña #}
+          <form method="post" action="/ajustes/users/{{ u.id }}/password" class="flex items-end gap-2">
+            <div class="flex-1">
+              <label class="mb-1 block text-[11px] font-medium text-muted">Nueva contraseña</label>
+              <input name="password" type="text" minlength="8" required placeholder="mín. 8 caracteres"
+                     class="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none mono">
+            </div>
+            <button type="submit" class="rounded-lg border border-border bg-surface px-3 py-1.5 text-[13px] font-semibold text-muted transition-colors hover:border-border-strong hover:text-text">Resetear</button>
+          </form>
+
+          {# Asignación de casas (solo restringe a agentes) #}
+          {% if casas %}
+          <form method="post" action="/ajustes/users/{{ u.id }}/casas">
+            <label class="mb-1.5 block text-[11px] font-medium text-muted">
+              Casas asignadas <span class="text-muted-2">(vacío = todas · solo limita a agentes)</span>
+            </label>
+            <div class="flex flex-wrap gap-2">
+              {% for c in casas %}
+              <label class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1 text-[12px] text-text transition-colors hover:border-border-strong">
+                <input type="checkbox" name="casa_ids" value="{{ c.account_id }}" {% if c.account_id in scope %}checked{% endif %}
+                       class="h-3.5 w-3.5 rounded border-border bg-surface-2 text-accent focus:ring-0">
+                {{ c.name }}
+              </label>
+              {% endfor %}
+            </div>
+            <button type="submit" class="mt-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-[13px] font-semibold text-muted transition-colors hover:border-border-strong hover:text-text">Guardar casas</button>
+          </form>
+          {% endif %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+{# ── Actividad del equipo (audit log) ───────────────────────── #}
+<section class="mt-5 rounded-2xl border border-border bg-surface p-5 shadow-card">
+  <h2 class="mb-3 text-[13px] font-bold uppercase tracking-wide text-muted">Actividad reciente</h2>
+  {% if audit %}
+  <ul class="divide-y divide-border">
+    {% for a in audit %}
+    <li class="flex items-center gap-3 py-2.5 text-sm">
+      <span class="mono shrink-0 text-[11px] text-muted-2">{{ a.at.strftime('%d/%m %H:%M') }}</span>
+      <span class="shrink-0 font-medium text-text">{{ a.actor_label }}</span>
+      <span class="text-muted">{{ action_labels.get(a.action, a.action) }}</span>
+      {% if a.entity_type %}<span class="text-muted-2">· {{ a.entity_type }}{% if a.entity_id %} #{{ a.entity_id }}{% endif %}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-muted-2">Sin actividad registrada todavía.</p>
+  {% endif %}
+</section>
+{% endblock %}

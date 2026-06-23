@@ -12,6 +12,7 @@ from app.template_env import templates
 from app.routes.admin import router as admin_router
 from app.routes.alerts import router as alerts_router
 from app.routes.analysis_ops import router as analysis_ops_router
+from app.routes.bot import router as bot_router
 from app.routes.auth_routes import router as auth_router
 from app.routes.casa_workspace import router as casa_workspace_router
 from app.routes.casas_hub import router as casas_hub_router
@@ -20,8 +21,11 @@ from app.routes.exports import router as exports_router
 from app.routes.health import router as health_router
 from app.routes.informes import router as informes_router
 from app.routes.media import router as media_router
+from app.routes.metricas import router as metricas_router
 from app.routes.qr_share import router as qr_share_router
 from app.routes.sessions import router as sessions_router
+from app.routes.settings_routes import router as settings_router
+from app.routes.style_routes import router as style_router
 from app.routes.webhooks import router as webhooks_router
 from app.routes.widgets import router as widgets_router
 
@@ -80,6 +84,28 @@ async def csrf_origin_check(request, call_next):
     return await call_next(request)
 
 
+# ── Security headers (defense in depth) ───────────────────────────
+# A panel with client PII + one-click WhatsApp send must not be framable
+# (clickjacking) and should send conservative headers. No CSP here on purpose:
+# the templates use inline Tailwind config + CDN scripts (jsDelivr), so a strict
+# CSP would break the UI — tracked as a follow-up.
+_SECURITY_HEADERS = {
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+}
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    for key, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(key, value)
+    return response
+
+
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 # ── Routers ────────────────────────────────────────────────────────
 app.include_router(health_router)          # /health — public
@@ -91,12 +117,16 @@ app.include_router(casa_workspace_router)  # /casas/<id> — workspace with tabs
 app.include_router(conversation_router)    # /conversation/<id>
 app.include_router(alerts_router)          # /alerts
 app.include_router(sessions_router)        # /sessions — WAHA management
-app.include_router(analysis_ops_router)    # /casas/<id>/meta-analyses + /analyze-pending + /conversation/<id>/analyze
+app.include_router(analysis_ops_router)    # /casas/<id>/block-analysis + /meta-analyses/{progress,latest-state}
 app.include_router(exports_router)         # /casas/<id>/export/* + /conversation/<id>/export.txt
 app.include_router(media_router)           # /media/<msg_id> — proxy for WAHA attachments
 app.include_router(qr_share_router)        # /sessions/<id>/qr.png + /qr/<token> public share
 app.include_router(informes_router)        # /informes + /informes/<id> — global meta-analysis archive
 app.include_router(admin_router)           # /admin/costs — Claude API spending dashboard
+app.include_router(settings_router)        # /ajustes — super-admin team management
+app.include_router(style_router)           # /ajustes/estilo — Sara style-example review
+app.include_router(bot_router)             # /bot — monitor de Sara (admin)
+app.include_router(metricas_router)        # /metricas — KPIs pro marketing + locales (admin)
 
 
 # ── Legacy redirects ───────────────────────────────────────────────

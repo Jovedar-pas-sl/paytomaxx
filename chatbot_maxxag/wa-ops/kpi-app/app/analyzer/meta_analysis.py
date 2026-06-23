@@ -3,111 +3,90 @@ detects patterns, strengths, improvements, and typical client profile."""
 
 from __future__ import annotations
 
-import json
-from typing import Literal
-
-from pydantic import BaseModel, Field
+import logging
 
 from app.analyzer import prompts
 from app.analyzer.skills import _call_json  # reuse the Claude call helper
+from app.models import BlockAnalysisResult
+
+logger = logging.getLogger("analyzer.meta_analysis")
+
+# Per-transcript char cap and overall prompt budget for the block analyzer.
+# ~1500 chars/conv keeps each transcript readable; ~60k total stays well under
+# Haiku's context while leaving headroom for the system prompt + JSON output.
+_BLOCK_PER_CONV_CHARS = 1500
+_BLOCK_TOTAL_CHARS = 60_000
 
 
-class Pattern(BaseModel):
-    description: str
-    frequency: Literal["alta", "media", "baja"]
+async def run_block_analysis(
+    scope_name: str, transcripts: list[tuple[int, str]]
+) -> BlockAnalysisResult:
+    """Build a casa/number informe by reading conversation TRANSCRIPTS directly
+    in ONE batch Claude call — no per-conversation analysis required.
 
-
-class TopicShare(BaseModel):
-    """One topic + how often it appears in the sample."""
-    topic: str
-    count: int           # number of conversations where it appears
-    pct: float           # percentage of the sample (0-100)
-
-
-class ReferralShare(BaseModel):
-    """Distribution of referral sources within the sample."""
-    source: str          # e.g. "Loquosex", "Mileróticos", "Google", "Word-of-mouth", "Unknown"
-    count: int
-    pct: float
-
-
-class MetaAnalysisResult(BaseModel):
-    """New simplified shape: ONE-line summary + top 3 lists.
-
-    Legacy fields (patterns/strengths/improvements/client_profile/avoided_topics)
-    are kept as OPTIONAL with empty defaults so old saved informes can still be
-    decoded. The current prompt instructs Claude to NOT generate those fields.
+    ``transcripts`` is a list of ``(conv_id, text)``. Each text is truncated to
+    ~1500 chars and the TOTAL prompt is capped at ~60k chars. When the combined
+    size would exceed the cap, conversations are sampled EVENLY across the list
+    (preserving recency spread) and the sampling is logged + noted in the header.
     """
-    summary: str = Field(..., max_length=300)
-    top_topics: list[TopicShare] = Field(default_factory=list, max_length=5)
-    top_referrals: list[ReferralShare] = Field(default_factory=list, max_length=5)
-    # Legacy / retrocompat — accepted but not asked for in the new prompt.
-    patterns: list[Pattern] = Field(default_factory=list, max_length=10)
-    strengths: list[str] = Field(default_factory=list, max_length=8)
-    improvements: list[str] = Field(default_factory=list, max_length=8)
-    client_profile: str = Field(default="", max_length=2000)
-    avoided_topics: list[str] = Field(default_factory=list, max_length=8)
+    total_convs = len(transcripts)
 
+    # ── Even sampling when the corpus is too big to fit the char budget ──
+    # Estimate per-conv footprint after truncation, then derive how many fit.
+    max_fit = max(1, _BLOCK_TOTAL_CHARS // (_BLOCK_PER_CONV_CHARS + 40))
+    sampled = transcripts
+    note = ""
+    if total_convs > max_fit:
+        step = total_convs / max_fit
+        idxs = sorted({int(i * step) for i in range(max_fit)})
+        sampled = [transcripts[i] for i in idxs if i < total_convs]
+        note = (
+            f"NOTA: hay {total_convs} conversaciones; se han tomado "
+            f"{len(sampled)} repartidas de forma uniforme para que quepan."
+        )
+        logger.info(
+            "block_analysis: sampling %d/%d transcripts to fit char budget",
+            len(sampled), total_convs,
+        )
 
-class ConvSummary(BaseModel):
-    conv_id: int
-    mood: str
-    mood_score: int
-    treat_carinoso: int
-    treat_profesional: int
-    treat_vendedor: int
-    treat_seco: int
-    conv_probability: float
-    first_client_line: str
-    # Optional enrichment — used by the per-WA meta prompt to compute
-    # topic + referral distribution. Empty/None for legacy callers.
-    intent_primary: str | None = None
-    rt_p50_ms: int | None = None
-    rt_p90_ms: int | None = None
-    referral_kind: str | None = None
-    referral_name: str | None = None
-
-
-async def run_meta_analysis(
-    casa_name: str, summaries: list[ConvSummary]
-) -> MetaAnalysisResult:
-    """Run meta-analysis over compact summaries. Returns structured result."""
-    lines = [
-        f"Casa: {casa_name}",
-        f"Conversaciones analizadas: {len(summaries)}",
-        "",
-        "Formato por línea: #conv_id mood(score/10) trato[car/pro/vend/seco] conv% rt_p50_ms intent referral primer_msg",
-        "",
+    header = [
+        f"Ámbito: {scope_name}",
+        f"Conversaciones incluidas: {len(sampled)}"
+        + (f" (de {total_convs} totales)" if note else ""),
     ]
-    for s in summaries:
-        rt_p50 = s.rt_p50_ms if s.rt_p50_ms is not None else "-"
-        intent = s.intent_primary or "-"
-        ref = (
-            f"{s.referral_kind}:{s.referral_name}"
-            if s.referral_kind and s.referral_name
-            else (s.referral_kind or "-")
-        )
-        lines.append(
-            f"#{s.conv_id} mood={s.mood}({s.mood_score}/10) "
-            f"trato[car={s.treat_carinoso} pro={s.treat_profesional} "
-            f"vend={s.treat_vendedor} seco={s.treat_seco}] "
-            f"conv={int(s.conv_probability * 100)}% "
-            f"rt_p50={rt_p50}ms intent={intent} ref={ref} "
-            f"\"{s.first_client_line[:70]}\""
-        )
-    user_content = "\n".join(lines)
+    if note:
+        header.append(note)
+    header.append("")
 
-    # Meta needs much more output budget than the per-skill default (800):
-    # summary + 3-6 patterns + 3-5 strengths + 3-5 improvements + client_profile
-    # + 3-6 top_topics + 1-4 avoided_topics + 2-5 top_referrals = easily 3-4k tokens.
-    # 60s timeout covers Haiku generating that volume.
-    # Simplified output (1 frase + top 3 + top 3) cabe sobradamente en 1500 tokens.
-    # Claude responde más rápido y más barato.
+    parts: list[str] = ["\n".join(header)]
+    used = len(parts[0])
+    for conv_id, text in sampled:
+        body = (text or "")[:_BLOCK_PER_CONV_CHARS]
+        block = f"=== conv {conv_id} ===\n{body}"
+        # Hard stop if we somehow blow past the total budget (defensive).
+        if used + len(block) + 1 > _BLOCK_TOTAL_CHARS:
+            break
+        parts.append(block)
+        used += len(block) + 1
+
+    user_content = "\n".join(parts)
+
+    # BlockAnalysisResult is the richest schema we generate: summary +
+    # strengths + improvements + client_profile (≤2000 chars) + top_topics +
+    # top_referrals + red_flags (an unbounded-feeling list, capped at 20).
+    # Entrega 2 adds the MONEY block (funnel + confirmed_* + revenue +
+    # lost_reasons + top_chicas + top_services + upsell + channel_roi), all in
+    # this SAME single call — so the output JSON is materially bigger now.
+    # Worst-case structured JSON can exceed 3500 tokens; _call_json raises
+    # RuntimeError on stop_reason == "max_tokens", which would silently drop
+    # the whole informe. Bumped to 4000 for defensive headroom over the
+    # new ceiling without materially raising cost. Schema (and thus the new
+    # money fields) is derived from BlockAnalysisResult, so no logic change.
     data = await _call_json(
-        system=prompts.META_PROMPT,
+        system=prompts.BLOCK_PROMPT,
         user=user_content,
-        schema=MetaAnalysisResult.model_json_schema(),
-        max_tokens=1500,
-        timeout=60.0,
+        schema=BlockAnalysisResult.model_json_schema(),
+        max_tokens=4000,
+        timeout=120.0,
     )
-    return MetaAnalysisResult.model_validate(data)
+    return BlockAnalysisResult.model_validate(data)

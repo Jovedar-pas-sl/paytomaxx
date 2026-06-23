@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NightPay RevShare — software de cobro QR sin coste fijo para discotecas</title>
+  <meta name="description" content="Instalamos el stack de cobro QR + NFC + admin en tu sala. Cero setup, cero mensualidad. Solo pagas un % de cada transaccion procesada." />
+  <meta name="theme-color" content="#0A0A0A" />
+  <style>
+    :root {
+      --bg: #0A0A0A;
+      --surface: #141414;
+      --surface-2: #1c1c1c;
+      --line: #2a2a2a;
+      --text: #F4F4F0;
+      --text-dim: #8a8a82;
+      --accent: #F2FF00;
+      --accent-soft: rgba(242,255,0,0.12);
+      --danger: #FF5C5C;
+      --space-section: clamp(4rem, 3rem + 5vw, 9rem);
+      --text-hero: clamp(2.6rem, 1.4rem + 6vw, 6.5rem);
+      --text-h2: clamp(1.8rem, 1.2rem + 2vw, 3rem);
+      --text-base: clamp(1rem, 0.95rem + 0.2vw, 1.0625rem);
+      --duration-fast: 150ms;
+      --duration-normal: 320ms;
+      --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+      --mono: ui-monospace, "IBM Plex Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: var(--text-base); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color var(--duration-fast); }
+    a:hover { border-color: var(--accent); }
+    header.nav {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(10,10,10,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-inner {
+      max-width: 1200px; margin: 0 auto; padding: 14px 24px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .brand { font-family: var(--mono); font-size: 0.95rem; letter-spacing: 0.04em; }
+    .brand strong { color: var(--accent); }
+    .nav-cta {
+      font-family: var(--mono); font-size: 0.85rem;
+      padding: 9px 16px; border: 1px solid var(--accent);
+      color: var(--accent); border-radius: 0; background: transparent;
+      cursor: pointer; transition: background var(--duration-fast), color var(--duration-fast);
+    }
+    .nav-cta:hover { background: var(--accent); color: var(--bg); }
+    section { padding: var(--space-section) 24px; max-width: 1200px; margin: 0 auto; }
+    .hero {
+      padding-top: clamp(4rem, 3rem + 4vw, 7rem);
+      padding-bottom: var(--space-section);
+    }
+    .hero h1 {
+      font-size: var(--text-hero); font-weight: 900;
+      letter-spacing: -0.02em; line-height: 0.95; margin: 0 0 32px;
+    }
+    .hero h1 .accent { color: var(--accent); }
+    .hero p.lead {
+      font-size: clamp(1.1rem, 0.95rem + 0.7vw, 1.5rem);
+      max-width: 720px; color: var(--text-dim); margin: 0 0 40px;
+    }
+    .hero-cta {
+      display: inline-flex; align-items: center; gap: 12px;
+      background: var(--accent); color: var(--bg);
+      font-family: var(--mono); font-weight: 700;
+      padding: 18px 28px; font-size: 1rem; letter-spacing: 0.02em;
+      border: none; cursor: pointer;
+      transition: transform var(--duration-fast) var(--ease-out-expo);
+    }
+    .hero-cta:hover { transform: translateY(-2px); }
+    .hero-cta::after { content: "→"; transition: transform var(--duration-fast); }
+    .hero-cta:hover::after { transform: translateX(4px); }
+    .hero-stats {
+      margin-top: 64px; display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 32px; border-top: 1px solid var(--line); padding-top: 32px;
+    }
+    .stat strong { display: block; font-family: var(--mono); font-size: 1.8rem; color: var(--accent); }
+    .stat span { color: var(--text-dim); font-size: 0.9rem; }
+    h2 {
+      font-size: var(--text-h2); font-weight: 800; letter-spacing: -0.01em;
+      margin: 0 0 12px; line-height: 1.05;
+    }
+    h2 .accent { color: var(--accent); }
+    .section-lead { color: var(--text-dim); max-width: 640px; margin: 0 0 48px; font-size: 1.1rem; }
+    .pricing-grid {
+      display: grid; gap: 24px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .plan {
+      background: var(--surface); border: 1px solid var(--line);
+      padding: 32px 28px; position: relative;
+      transition: border-color var(--duration-normal);
+    }
+    .plan:hover { border-color: var(--accent); }
+    .plan.featured { border-color: var(--accent); background: var(--surface-2); }
+    .plan-tag { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
+    .plan h3 { margin: 0 0 8px; font-size: 1.3rem; }
+    .plan .price { font-family: var(--mono); font-size: 2rem; color: var(--text); margin: 16px 0; }
+    .plan .price span { font-size: 0.9rem; color: var(--text-dim); }
+    .plan ul { list-style: none; padding: 0; margin: 24px 0 0; }
+    .plan li { padding: 8px 0; border-top: 1px solid var(--line); font-size: 0.95rem; }
+    .plan li:first-child { border-top: none; }
+    .plan li::before { content: "→ "; color: var(--accent); font-family: var(--mono); }
+    .calc {
+      background: var(--surface); border: 1px solid var(--line); padding: 40px;
+      display: grid; gap: 32px;
+      grid-template-columns: 1fr 1fr;
+    }
+    @media (max-width: 720px) { .calc { grid-template-columns: 1fr; padding: 28px; } }
+    .calc label { display: block; margin-bottom: 24px; }
+    .calc label span { display: block; font-family: var(--mono); font-size: 0.8rem; color: var(--text-dim); margin-bottom: 8px; letter-spacing: 0.05em; text-transform: uppercase; }
+    .calc input, .calc select {
+      width: 100%; background: var(--bg); color: var(--text);
+      border: 1px solid var(--line); padding: 14px 16px;
+      font-family: var(--mono); font-size: 1.1rem; border-radius: 0;
+      transition: border-color var(--duration-fast);
+    }
+    .calc input:focus, .calc select:focus { outline: none; border-color: var(--accent); }
+    .calc-result {
+      background: var(--bg); border: 1px solid var(--accent);
+      padding: 28px; display: flex; flex-direction: column; justify-content: center;
+    }
+    .calc-result .label {
+      font-family: var(--mono); font-size: 0.8rem; color: var(--accent);
+      letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 12px;
+    }
+    .calc-result .big {
+      font-family: var(--mono); font-size: clamp(2rem, 4vw, 3.2rem); font-weight: 700; color: var(--text);
+      letter-spacing: -0.01em; margin-bottom: 16px;
+    }
+    .calc-result .breakdown {
+      font-family: var(--mono); font-size: 0.85rem; color: var(--text-dim); line-height: 1.7;
+    }
+    .calc-result .vs {
+      margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line);
+      font-size: 0.9rem; color: var(--text-dim);
+    }
+    .calc-result .vs strong { color: var(--text); }
+    .compare {
+      width: 100%; border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+    .compare th, .compare td {
+      padding: 16px 12px; text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    .compare th { font-family: var(--mono); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); font-weight: 500; }
+    .compare td:first-child { color: var(--text-dim); }
+    .compare .highlight { background: var(--accent-soft); }
+    .compare .highlight td { color: var(--text); font-weight: 600; }
+    .objections {
+      display: grid; gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    }
+    .obj {
+      background: var(--surface); border-left: 3px solid var(--accent);
+      padding: 24px 28px;
+    }
+    .obj .q { font-weight: 700; margin-bottom: 12px; color: var(--text); }
+    .obj .q::before { content: "—  "; color: var(--accent); font-family: var(--mono); }
+    .obj .a { font-size: 0.95rem; color: var(--text-dim); }
+    .final-cta {
+      background: var(--surface); border-top: 1px solid var(--accent);
+      padding: var(--space-section) 24px; text-align: center;
+    }
+    .final-cta h2 { font-size: var(--text-h2); margin-bottom: 24px; }
+    .final-cta p { color: var(--text-dim); max-width: 540px; margin: 0 auto 40px; }
+    footer { background: var(--bg); padding: 48px 24px; border-top: 1px solid var(--line); }
+    .foot-inner {
+      max-width: 1200px; margin: 0 auto;
+      display: flex; flex-wrap: wrap; gap: 24px; justify-content: space-between;
+      color: var(--text-dim); font-size: 0.85rem; font-family: var(--mono);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition: none !important; animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <div class="brand"><strong>NightPay</strong>·RevShare</div>
+    <button class="nav-cta" onclick="document.getElementById('calc').scrollIntoView({behavior:'smooth'})">Calcular mi caso</button>
+  </div>
+</header>
+
+<section class="hero">
+  <h1>
+    Software de cobro QR <br>
+    para tu discoteca. <br>
+    <span class="accent">Pagas solo si cobras.</span>
+  </h1>
+  <p class="lead">
+    Instalamos el stack completo en 72 horas sobre tu Paytef. Cero setup, cero
+    mensualidad, cero hardware. Solo te facturamos un % de cada transaccion que
+    procesemos. Si una semana no operas, no pagas nada esa semana.
+  </p>
+  <button class="hero-cta" onclick="document.getElementById('calc').scrollIntoView({behavior:'smooth'})">Calcula tu factura mensual</button>
+
+  <div class="hero-stats">
+    <div class="stat"><strong>0 €</strong><span>Setup inicial</span></div>
+    <div class="stat"><strong>0 €</strong><span>Cuota mensual</span></div>
+    <div class="stat"><strong>1,0 %</strong><span>+ 0,10 € / transaccion QR</span></div>
+    <div class="stat"><strong>50+</strong><span>PAX Paytef ya activos</span></div>
+  </div>
+</section>
+
+<section id="calc">
+  <h2>Calcula tu <span class="accent">coste real</span></h2>
+  <p class="section-lead">Mete tu volumen estimado QR/mes y numero de transacciones. Te decimos cuanto pagarias y comparado con un SaaS competencia.</p>
+
+  <div class="calc">
+    <div>
+      <label>
+        <span>Volumen QR estimado al mes (€)</span>
+        <input type="number" id="vol" value="45000" min="0" step="500" />
+      </label>
+      <label>
+        <span>Numero de transacciones al mes</span>
+        <input type="number" id="tx" value="3000" min="0" step="50" />
+      </label>
+      <label>
+        <span>Plan</span>
+        <select id="plan">
+          <option value="estandar" selected>Estandar — 1,0 % + 0,10 €</option>
+          <option value="highvol">High-volume — 0,8 % + 0,08 € (>=100k €/mes)</option>
+          <option value="premium">Premium — 1,5 % + 0,10 € (soporte presencial)</option>
+          <option value="tx-pequeno">Estandar alto vol tx — 1,3 % puro (sin fee fijo)</option>
+        </select>
+      </label>
+    </div>
+    <div class="calc-result" id="result">
+      <div class="label">Tu factura mensual estimada</div>
+      <div class="big" id="total">— €/mes</div>
+      <div class="breakdown" id="breakdown">esperando datos…</div>
+      <div class="vs" id="vs"></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Tres planes. <span class="accent">Ningun coste fijo.</span></h2>
+  <p class="section-lead">Eliges el plan que mas te conviene. Sin permanencia mas alla de los 3 meses iniciales. Sin sorpresas.</p>
+
+  <div class="pricing-grid">
+    <div class="plan">
+      <div class="plan-tag">Premium</div>
+      <h3>Soporte presencial</h3>
+      <div class="price">1,5 %<span> + 0,10 € por tx</span></div>
+      <ul>
+        <li>0 € setup · 0 € mensualidad</li>
+        <li>Soporte telefono + presencial 1/mes</li>
+        <li>SLA respuesta &lt; 4 h habiles</li>
+        <li>Onboarding presencial 8 h</li>
+        <li>Permanencia 3 meses</li>
+      </ul>
+    </div>
+    <div class="plan featured">
+      <div class="plan-tag">Estandar — el mas elegido</div>
+      <h3>Para 20-80k €/mes</h3>
+      <div class="price">1,0 %<span> + 0,10 € por tx</span></div>
+      <ul>
+        <li>0 € setup · 0 € mensualidad</li>
+        <li>Soporte email</li>
+        <li>SLA respuesta &lt; 48 h habiles</li>
+        <li>Onboarding remoto 2 h</li>
+        <li>Permanencia 3 meses</li>
+      </ul>
+    </div>
+    <div class="plan">
+      <div class="plan-tag">High-Volume</div>
+      <h3>Para grupos serios</h3>
+      <div class="price">0,8 %<span> + 0,08 € por tx</span></div>
+      <ul>
+        <li>0 € setup · 0 € mensualidad</li>
+        <li>Soporte email + Slack compartido</li>
+        <li>SLA respuesta &lt; 24 h habiles</li>
+        <li>Compromiso 100k €/mes durante 6 meses</li>
+        <li>Comision baja a 0,7 % a partir 250k/mes</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Comparativa con la competencia</h2>
+  <p class="section-lead">A volumen bajo somos los mas baratos. A volumen alto somos los unicos sin permanencia ni setup.</p>
+
+  <table class="compare">
+    <thead>
+      <tr><th>Concepto</th><th>Glovo Pay / Yoigo POS</th><th>NightPay SaaS fijo</th><th>NightPay RevShare</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Setup inicial</td><td>600-1.500 €</td><td>0-500 €</td><td class="highlight"><td>0 €</td></td></tr>
+      <tr><td>Cuota mensual fija</td><td>89-249 €</td><td>199-349 €</td><td class="highlight"><td>0 €</td></td></tr>
+      <tr><td>Comision por tx</td><td>0,3-0,9 % + IVA</td><td>0 % (incluido)</td><td>1,0 % + 0,10 €</td></tr>
+      <tr><td>Permanencia</td><td>12-24 meses</td><td>12 meses</td><td class="highlight"><td>3 meses</td></td></tr>
+      <tr><td>Riesgo financiero</td><td>Alto</td><td>Medio</td><td class="highlight"><td>Cero</td></td></tr>
+      <tr><td>Si no operas, ¿pagas?</td><td>Si</td><td>Si</td><td class="highlight"><td>No</td></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Las 4 dudas reales <span class="accent">que nos preguntan</span></h2>
+  <div class="objections">
+    <div class="obj">
+      <div class="q">¿Y si tu desapareces o cierras?</div>
+      <div class="a">El dinero nunca pasa por nosotros. Paytef cobra y te liquida a TI a T+1. Si nosotros cerramos, tu PAX sigue funcionando. Codigo del frontend disponible en escrow notarial si lo pides.</div>
+    </div>
+    <div class="obj">
+      <div class="q">¿Como me fio de que medis bien?</div>
+      <div class="a">Cada transaccion en tu factura lleva el codigo de autorizacion de Paytef. Tu abres tu Paytef y cruzas linea a linea. Si hay diferencia, no se factura. Auditoria abierta 24/7 por contrato.</div>
+    </div>
+    <div class="obj">
+      <div class="q">¿Y si una noche se cae el sistema?</div>
+      <div class="a">Tu PAX sigue funcionando independiente. Si la caida por nuestra culpa supera 2 h en horario de operacion, te abonamos el 100% de la comision del mes en credito. SLA 99,5 % uptime.</div>
+    </div>
+    <div class="obj">
+      <div class="q">¿Y si quiero salir?</div>
+      <div class="a">Despues de 3 meses, exit con 30 dias de preaviso. Cero penalizacion. Te llevas tus datos exportados en CSV con timestamps y autorizaciones Paytef. Te dejamos como te encontramos.</div>
+    </div>
+  </div>
+</section>
+
+<section class="final-cta">
+  <h2>Probamos en una sala. <span style="color:var(--accent)">3 meses. Sin riesgo.</span></h2>
+  <p>Si te aporta, escalamos al resto del grupo. Si no, te quedas con lo que no me has pagado.</p>
+  <a class="hero-cta" href="mailto:ainhoanochesdeverano@gmail.com?subject=RevShare%20-%20interesado&body=Hola%2C%20me%20interesa%20el%20modelo%20RevShare%20para%20mi%20sala.">Hablar con el equipo</a>
+</section>
+
+<footer>
+  <div class="foot-inner">
+    <div>NightPay · Software de cobro QR para ocio nocturno</div>
+    <div>ainhoanochesdeverano@gmail.com</div>
+    <div>Espana</div>
+  </div>
+</footer>
+
+<script>
+  // Calculator logic - keep in sync with calculadora.md
+  const PLANS = {
+    estandar: { rate: 0.010, fee: 0.10, label: "Estandar" },
+    highvol:  { rate: 0.008, fee: 0.08, label: "High-Volume" },
+    premium:  { rate: 0.015, fee: 0.10, label: "Premium" },
+    "tx-pequeno": { rate: 0.013, fee: 0.0, label: "Estandar alto vol tx" }
+  };
+  const SAAS_FIXED_MONTHLY = 265; // Idea 01 equivalente (199 + setup amort. 12m)
+
+  const $vol = document.getElementById('vol');
+  const $tx = document.getElementById('tx');
+  const $plan = document.getElementById('plan');
+  const $total = document.getElementById('total');
+  const $breakdown = document.getElementById('breakdown');
+  const $vs = document.getElementById('vs');
+
+  function fmt(n) {
+    return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+  }
+
+  function fmtPlain(n) {
+    return n.toLocaleString('es-ES', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+  }
+
+  function compute() {
+    const vol = Math.max(0, parseFloat($vol.value) || 0);
+    const tx = Math.max(0, parseFloat($tx.value) || 0);
+    const planKey = $plan.value;
+    const plan = PLANS[planKey];
+
+    const comisionPct = vol * plan.rate;
+    const feeFijo = tx * plan.fee;
+    const total = comisionPct + feeFijo;
+
+    $total.textContent = fmt(total) + ' / mes';
+    $breakdown.innerHTML =
+      'Comision ' + (plan.rate * 100).toFixed(1) + '% · ' + fmtPlain(comisionPct) + ' €<br>' +
+      (plan.fee > 0
+        ? 'Fee fijo ' + plan.fee.toFixed(2) + ' € × ' + tx.toLocaleString('es-ES') + ' tx · ' + fmtPlain(feeFijo) + ' €<br>'
+        : 'Sin fee fijo<br>') +
+      'Plan: ' + plan.label;
+
+    // Compare vs SaaS Idea 01
+    const diff = total - SAAS_FIXED_MONTHLY;
+    if (vol === 0 && tx === 0) {
+      $vs.textContent = '';
+    } else if (diff < 0) {
+      $vs.innerHTML = 'Ahorras <strong>' + fmtPlain(Math.abs(diff)) + ' €/mes</strong> vs SaaS fijo competencia (~265 €/mes).';
+    } else if (diff < 100) {
+      $vs.innerHTML = 'Practicamente lo mismo que SaaS fijo (~265 €/mes) pero <strong>sin riesgo financiero</strong>.';
+    } else {
+      $vs.innerHTML = '<strong>' + fmtPlain(diff) + ' €/mes mas</strong> que SaaS fijo, pero arrancas con <strong>0 € de adelanto</strong> y sin permanencia larga.';
+    }
+  }
+
+  [$vol, $tx, $plan].forEach(el => el.addEventListener('input', compute));
+  compute();
+</script>
+
+</body>
+</html>

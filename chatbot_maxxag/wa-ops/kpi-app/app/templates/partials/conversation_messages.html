@@ -1,12 +1,13 @@
 {# HTMX fragment: conversation messages. Polled every 3s. #}
-{% set wa_out   = '#005c4b' %}
-{% set wa_in    = '#202c33' %}
-{% set wa_text  = '#e9edef' %}
-{% set wa_muted = '#8696a0' %}
+{# Chat bubbles theme-aware — colores vía tokens del sistema (base.html), no hex.
+   Entrante  = bg-surface-2 + text-text (burbuja neutra recibida).
+   Saliente (recepcionista humana) = burbuja verde (éxito/online, firma WhatsApp).
+   Bot (Sara) = burbuja azul (info/copiloto) para separarla del humano de un vistazo.
+   El texto sobre verde/azul va en blanco (sobre fondo de color → OK en ambos temas). #}
 
 <div id="msg-stream"
-     class="chat-scroll max-h-[60vh] sm:max-h-[70vh] lg:max-h-[72vh] overflow-y-auto px-3 sm:px-4 py-3 sm:py-4"
-     style="background-image: radial-gradient(circle at 25% 25%, rgba(255,255,255,0.015) 1px, transparent 1px), radial-gradient(circle at 75% 75%, rgba(255,255,255,0.01) 1px, transparent 1px); background-size: 40px 40px;"
+     class="chat-scroll min-h-0 flex-1 max-h-[60vh] sm:max-h-[70vh] lg:max-h-[72vh] overflow-y-auto bg-bg px-3 sm:px-4 py-3 sm:py-4"
+     style="background-image: radial-gradient(circle at 25% 25%, rgb(var(--c-muted-2) / 0.05) 1px, transparent 1px), radial-gradient(circle at 75% 75%, rgb(var(--c-muted-2) / 0.035) 1px, transparent 1px); background-size: 40px 40px;"
      hx-get="/widget/conversation/{{ conversation_id }}/messages"
      hx-trigger="every 30s[document.visibilityState==='visible']"
      hx-swap="outerHTML">
@@ -19,8 +20,7 @@
 
     {% if this_date != ns.last_date %}
     <div class="my-3 flex justify-center">
-      <span class="rounded-md px-2.5 py-1 text-[10px] font-medium uppercase"
-            style="background: rgba(11,20,26,0.9); color: {{ wa_muted }};">
+      <span class="rounded-md bg-surface-2 px-2.5 py-1 text-[10px] font-medium uppercase text-muted shadow-card">
         {{ (m.created_at | local).strftime('%d/%m/%Y') }}
       </span>
     </div>
@@ -35,9 +35,11 @@
     {% set is_video = has_media and mime.startswith('video/') %}
     {% set is_audio = has_media and (mime.startswith('audio/') or mime == 'application/ogg') %}
     {% set is_other = has_media and not (is_image or is_video or is_audio) %}
+    {% set is_bot = is_out and m.agent_generated %}
     <div class="flex {% if is_out %}justify-end{% else %}justify-start{% endif %} {% if first_of_run %}mt-2{% else %}mt-0.5{% endif %}">
-      <div class="relative max-w-[75%] rounded-lg {% if is_image or is_video %}p-1{% else %}px-2.5 py-1.5{% endif %} text-sm shadow-sm overflow-hidden"
-           style="background: {% if is_out %}{{ wa_out }}{% else %}{{ wa_in }}{% endif %}; color: {{ wa_text }};">
+      <div class="relative max-w-[75%] rounded-lg {% if is_image or is_video %}p-1{% else %}px-2.5 py-1.5{% endif %} text-sm shadow-card overflow-hidden
+                  {% if is_bot %}bg-blue text-white{% elif is_out %}bg-green text-white{% else %}border border-border bg-surface-2 text-text{% endif %}"
+           {% if is_bot %}style="box-shadow: inset 0 0 0 1px rgb(var(--c-blue) / 0.45), 0 1px 2px rgba(0,0,0,0.4);"{% endif %}>
 
         {% if is_image %}
         <a href="/media/{{ m.id }}" target="_blank" rel="noopener" class="block">
@@ -54,7 +56,7 @@
                src="/media/{{ m.id }}"></audio>
         {% elif is_other %}
         <a href="/media/{{ m.id }}" target="_blank" rel="noopener"
-           class="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
+           class="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-black/10">
           <svg class="h-5 w-5 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
           </svg>
@@ -68,11 +70,14 @@
         <div class="whitespace-pre-wrap break-words leading-relaxed">{{ m.content }}</div>
         {% endif %}
 
-        <div class="{% if is_image or is_video %}px-2 pb-1{% endif %} mt-0.5 flex items-center justify-end gap-1 text-[10px]" style="color: {{ wa_muted }};">
+        <div class="{% if is_image or is_video %}px-2 pb-1{% endif %} mt-0.5 flex items-center justify-end gap-1 text-[10px]
+                    {% if is_out %}text-white/70{% else %}text-muted{% endif %}">
+          {% if is_bot %}
+          <span class="mr-auto font-medium text-white" title="Enviado por el agente IA">🤖 Sara</span>
+          {% endif %}
           <span>{{ (m.created_at | local).strftime('%H:%M') }}</span>
           {% if is_out %}
-          <svg viewBox="0 0 16 15" class="h-3.5 w-3.5" fill="currentColor"
-               style="color: {% if m.ack >= 3 %}#53bdeb{% else %}{{ wa_muted }}{% endif %};">
+          <svg viewBox="0 0 16 15" class="h-3.5 w-3.5 {% if m.ack >= 3 %}text-white{% else %}text-white/70{% endif %}" fill="currentColor">
             <path d="M10.91 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.879a.32.32 0 0 1-.484.033L2.03 7.914a.365.365 0 0 0-.506.063l-.443.533a.43.43 0 0 0 .044.598l2.784 2.53a.36.36 0 0 0 .506-.039l6.54-8.074a.38.38 0 0 0-.044-.612zm-4.45 7.002l-.478-.372a.365.365 0 0 0-.51.063L1.117 11.894a.32.32 0 0 1-.484.033"/>
           </svg>
           {% endif %}
@@ -83,6 +88,6 @@
   {% endfor %}
 
   {% if not messages %}
-    <div class="py-16 text-center text-xs" style="color: {{ wa_muted }};">Sin mensajes</div>
+    <div class="py-16 text-center text-xs text-muted">Sin mensajes</div>
   {% endif %}
 </div>

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Bot · Sara en vivo — Maxxag Ops{% endblock %}
+
+{% block content %}
+{% set action_labels = {
+  'send_price':'Dar precio','ask_availability':'Preguntar disponibilidad','send_photos':'Enviar fotos',
+  'close_booking':'Cerrar reserva','ask_location':'Pedir ubicación','send_location':'Enviar mapa',
+  'follow_up':'Seguimiento','escalate_human':'Escalar a humano','ignore_spam':'Ignorar (spam)','none':'—'
+} %}
+{% set risk_labels = {'red_flag':'Bandera roja','escalation':'Escalado'} %}
+
+<div class="mb-5">
+  <h1 class="text-xl font-semibold tracking-tight text-text">Bot · Sara en vivo</h1>
+  <p class="text-sm text-muted">Qué decide Sara y cómo va — resumen de alto nivel. No se muestra el prompt interno ni el texto del cliente.</p>
+</div>
+
+{# Resumen #}
+<div class="mb-5 grid grid-cols-3 gap-3">
+  <div class="card p-4">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-muted-2">Activa</div>
+    <div class="mono mt-1 text-2xl font-bold text-green">{{ active }}</div>
+  </div>
+  <div class="card p-4">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-muted-2">Pausada · riesgo</div>
+    <div class="mono mt-1 text-2xl font-bold {% if paused_risk > 0 %}text-red{% else %}text-text{% endif %}">{{ paused_risk }}</div>
+  </div>
+  <div class="card p-4">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-muted-2">Pausada · humano</div>
+    <div class="mono mt-1 text-2xl font-bold {% if paused_human > 0 %}text-amber{% else %}text-text{% endif %}">{{ paused_human }}</div>
+  </div>
+</div>
+
+<div class="card overflow-hidden">
+  {% if rows %}
+  {% for r in rows %}
+    {% set name = r.contact_name or (r.contact_phone and ('+' ~ r.contact_phone)) or 'Contacto privado' %}
+    {% set is_paused = r.agent_status in ('paused_human', 'paused_risk') %}
+    <div class="border-t border-border px-4 py-3 first:border-t-0
+                {% if r.agent_status == 'paused_risk' %}border-l-2 border-l-red{% elif r.agent_status == 'paused_human' %}border-l-2 border-l-amber{% endif %}">
+      <div class="flex items-center justify-between gap-2">
+        <a href="/conversation/{{ r.id }}" class="flex min-w-0 items-center gap-2 transition-opacity hover:opacity-80">
+          <span class="truncate text-[13px] font-semibold text-text">{{ name }}</span>
+          <span class="shrink-0 rounded-full bg-surface-2 px-1.5 py-0.5 text-[9px] font-medium uppercase text-muted">{{ r.casa_name }}</span>
+          {% if r.mode == 'auto' %}<span class="shrink-0 rounded bg-accent-soft px-1.5 text-[9px] font-bold uppercase text-accent">Auto</span>
+          {% elif r.mode == 'copilot' %}<span class="shrink-0 rounded bg-blue/15 px-1.5 text-[9px] font-bold uppercase text-blue">Copiloto</span>{% endif %}
+        </a>
+        <div class="flex shrink-0 items-center gap-2">
+          {% if r.agent_status == 'paused_risk' %}
+            <span class="rounded bg-red/15 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red">⏸ Riesgo{% if r.risk_category %} · {{ risk_labels.get(r.risk_category, r.risk_category) }}{% endif %}</span>
+          {% elif r.agent_status == 'paused_human' %}
+            <span class="rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber">⏸ Humano</span>
+          {% else %}
+            <span class="rounded bg-green/15 px-1.5 py-0.5 text-[10px] font-bold uppercase text-green">● Activa</span>
+          {% endif %}
+          {% if is_paused %}
+          <form method="post" action="/bot/conversation/{{ r.id }}/resume">
+            <button type="submit" class="rounded-md border border-accent/40 bg-accent-soft px-2.5 py-1 text-[11px] font-semibold text-accent transition hover:bg-accent/20">Reanudar</button>
+          </form>
+          {% else %}
+          <form method="post" action="/bot/conversation/{{ r.id }}/pause">
+            <button type="submit" class="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted transition hover:border-border-strong hover:text-text">Pausar</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+
+      <a href="/conversation/{{ r.id }}" class="mt-1.5 block">
+        <span class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted">
+          {% if r.next_action and r.next_action != 'none' %}
+          <span>🎯 <span class="font-medium text-text">{{ action_labels.get(r.next_action, r.next_action) }}</span>{% if r.next_urgency == 'high' %} <span class="text-red">· urgente</span>{% endif %}</span>
+          {% endif %}
+          {% if r.conv_probability is not none %}{% set pct = (r.conv_probability * 100) | int %}
+          <span>Intención <span class="font-semibold {% if pct >= 70 %}text-accent{% elif pct >= 40 %}text-amber{% else %}text-muted-2{% endif %}">{{ pct }}%</span></span>
+          {% endif %}
+          {% if r.mood_label %}<span class="text-muted-2">mood: {{ r.mood_label }}</span>{% endif %}
+          {% if r.agent_paused_at %}<span class="text-muted-2">· pausada {{ (r.agent_paused_at | local).strftime('%d/%m %H:%M') }}</span>{% endif %}
+        </span>
+        {% if r.last_sara_msg %}
+        <span class="mt-1.5 flex items-start gap-1.5 rounded-md bg-surface-2/60 px-2 py-1.5">
+          <span class="shrink-0 text-[11px]">🤖</span>
+          <span class="min-w-0 flex-1 truncate text-[12px] text-muted">{{ r.last_sara_msg }}</span>
+          {% if r.last_sara_at %}<span class="mono shrink-0 text-[10px] text-muted-2">{{ (r.last_sara_at | local).strftime('%H:%M') }}</span>{% endif %}
+        </span>
+        {% endif %}
+      </a>
+    </div>
+  {% endfor %}
+  {% else %}
+  <div class="px-4 py-16 text-center">
+    <p class="text-sm text-muted">No hay números con Sara activa (auto/copiloto) ahora mismo.</p>
+    <p class="mt-1 text-[12px] text-muted-2">Activa Sara en un número desde WhatsApp para verla aquí.</p>
+  </div>
+  {% endif %}
+</div>
+
+<p class="mt-3 text-center text-[11px] text-muted-2">Recarga para actualizar · La auto-protección (pasar el número a manual si Sara se descontrola) llega en el siguiente paso.</p>
+{% endblock %}

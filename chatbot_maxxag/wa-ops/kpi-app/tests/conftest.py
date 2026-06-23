@@ -33,7 +33,8 @@ async def pg_pool() -> AsyncIterator[asyncpg.Pool]:
         await conn.execute(
             """
             DROP TABLE IF EXISTS message, conversation, contact, casa,
-                                  analysis, alert, admin_user, casa_meta_analysis CASCADE;
+                                  analysis, alert, admin_user, user_casa, audit_log,
+                                  casa_meta_analysis CASCADE;
             """
         )
         # Minimal schema (subset of migrations 0001–0003 used by webhook)
@@ -69,6 +70,8 @@ async def pg_pool() -> AsyncIterator[asyncpg.Pool]:
                 body TEXT,
                 media_url TEXT, media_mime TEXT,
                 ack SMALLINT DEFAULT 0,
+                agent_generated BOOLEAN DEFAULT FALSE,
+                sent_by_user_id INT,
                 created_at TIMESTAMPTZ NOT NULL
             );
             CREATE TABLE alert (
@@ -77,6 +80,32 @@ async def pg_pool() -> AsyncIterator[asyncpg.Pool]:
                 conversation_id BIGINT, inbox_id INT,
                 message TEXT, created_at TIMESTAMPTZ DEFAULT now(),
                 acknowledged_at TIMESTAMPTZ
+            );
+            -- RBAC tables (migration 0018)
+            CREATE TABLE admin_user (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                name TEXT,
+                role TEXT NOT NULL DEFAULT 'agent',
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                last_login_at TIMESTAMPTZ
+            );
+            CREATE TABLE user_casa (
+                user_id INT REFERENCES admin_user(id) ON DELETE CASCADE,
+                casa_id INT REFERENCES casa(id) ON DELETE CASCADE,
+                PRIMARY KEY (user_id, casa_id)
+            );
+            CREATE TABLE audit_log (
+                id BIGSERIAL PRIMARY KEY,
+                at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                user_id INT REFERENCES admin_user(id) ON DELETE SET NULL,
+                actor_label TEXT NOT NULL,
+                action TEXT NOT NULL,
+                entity_type TEXT,
+                entity_id BIGINT,
+                meta JSONB
             );
         """)
 

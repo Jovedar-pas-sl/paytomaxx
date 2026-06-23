@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
+from app import team
 from app.auth import create_token, verify_password
+from app.models import AdminUser
 from app.template_env import templates
-from app.deps import Redis, SettingsDep
+from app.deps import KpiDB, Redis, SettingsDep
 
 router = APIRouter()
 AUTH_COOKIE = "maxxag_kpi_auth"
@@ -23,6 +25,7 @@ async def login_submit(
     request: Request,
     settings: SettingsDep,
     redis: Redis,
+    kpi: KpiDB,
     email: str = Form(...),
     password: str = Form(...),
 ) -> Response:
@@ -39,12 +42,17 @@ async def login_submit(
             status_code=429,
         )
 
-    # Check credentials (normalize email — case + whitespace)
+    # Check credentials against the admin_user table (DB is source of truth).
+    # A deactivated account is rejected with the same generic message — no
+    # account-enumeration. Email is normalized (case + whitespace).
     normalized_email = email.strip().lower()
-    expected_email = settings.kpi_admin_email.strip().lower()
-    if normalized_email != expected_email or not verify_password(
-        password, settings.kpi_admin_password_hash.get_secret_value()
-    ):
+    row = await team.get_login_row(kpi, normalized_email)
+    valid = (
+        row is not None
+        and row["active"]
+        and verify_password(password, row["password_hash"])
+    )
+    if not valid:
         await redis.incr(rate_key)
         await redis.expire(rate_key, settings.login_rate_window_seconds)
         return templates.TemplateResponse(
@@ -54,9 +62,18 @@ async def login_submit(
             status_code=401,
         )
 
-    # Success — clear rate limit, set cookie
+    # Success — clear rate limit, record login, set cookie
     await redis.delete(rate_key)
-    token = create_token(normalized_email)
+    user = AdminUser(
+        id=row["id"],
+        email=row["email"],
+        name=row["name"],
+        role=row["role"],
+        active=row["active"],
+    )
+    await team.touch_last_login(kpi, user.id)
+    await team.audit(kpi, action="login", actor_label=user.display_name, user_id=user.id)
+    token = create_token(user.email, uid=user.id, role=user.role)
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(
         AUTH_COOKIE,
@@ -69,7 +86,7 @@ async def login_submit(
     return response
 
 
-@router.get("/logout")
+@router.post("/logout")
 async def logout(settings: SettingsDep) -> Response:
     response = RedirectResponse(url="/login", status_code=303)
     response.delete_cookie(AUTH_COOKIE, httponly=True, secure=settings.cookie_secure, samesite="lax")

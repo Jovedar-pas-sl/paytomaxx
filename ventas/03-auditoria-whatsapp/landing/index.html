@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auditoría WhatsApp — Descubre la fuga de ventas que no estás viendo</title>
+<meta name="description" content="Conectamos a tu WhatsApp Business 30 días y te devolvemos un reporte ejecutivo en 10 días: KPIs reales, fugas de conversión cuantificadas, coaching por agente y plantillas accionables. Desde 690 €.">
+<meta name="robots" content="index, follow">
+<style>
+  :root {
+    --bg: oklch(98% 0.005 60);
+    --ink: oklch(18% 0.02 260);
+    --ink-soft: oklch(38% 0.02 260);
+    --line: oklch(88% 0.01 260);
+    --accent: oklch(55% 0.18 35);
+    --accent-soft: oklch(94% 0.04 35);
+    --green: oklch(60% 0.16 150);
+    --surface: oklch(100% 0 0);
+    --space-section: clamp(4rem, 3rem + 5vw, 8rem);
+    --text-hero: clamp(2.4rem, 1rem + 5vw, 5rem);
+    --text-h2: clamp(1.6rem, 0.8rem + 2.5vw, 2.8rem);
+    --text-body: clamp(1rem, 0.95rem + 0.2vw, 1.125rem);
+    --max: 1100px;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+    font-size: var(--text-body);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 1.5rem; }
+  header.nav {
+    padding: 1.25rem 0;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: rgba(252, 251, 248, 0.92);
+    backdrop-filter: blur(10px);
+    z-index: 50;
+  }
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .brand {
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    font-size: 1.05rem;
+  }
+  .brand span { color: var(--accent); }
+  .nav-cta {
+    display: inline-block;
+    background: var(--ink);
+    color: var(--bg);
+    padding: 0.6rem 1.1rem;
+    border-radius: 999px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: transform 200ms var(--ease);
+  }
+  .nav-cta:hover { transform: translateY(-1px); }
+
+  /* HERO */
+  .hero {
+    padding: clamp(3rem, 6vw, 6rem) 0 var(--space-section);
+    border-bottom: 1px solid var(--line);
+  }
+  .eyebrow {
+    display: inline-block;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.82rem;
+    letter-spacing: 0.01em;
+    margin-bottom: 1.5rem;
+  }
+  h1 {
+    font-size: var(--text-hero);
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    margin: 0 0 1.5rem;
+    font-weight: 700;
+    max-width: 18ch;
+  }
+  h1 em {
+    font-style: normal;
+    background: linear-gradient(120deg, var(--accent) 0%, oklch(60% 0.2 18) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .lede {
+    font-size: clamp(1.1rem, 0.9rem + 0.6vw, 1.35rem);
+    color: var(--ink-soft);
+    max-width: 58ch;
+    margin: 0 0 2.5rem;
+    line-height: 1.45;
+  }
+  .cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.85rem;
+    align-items: center;
+  }
+  .btn-primary {
+    background: var(--ink);
+    color: var(--bg);
+    padding: 1rem 1.6rem;
+    border-radius: 999px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: transform 200ms var(--ease), background 200ms var(--ease);
+  }
+  .btn-primary:hover { transform: translateY(-2px); background: var(--accent); }
+  .btn-secondary {
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-color: var(--line);
+    text-underline-offset: 0.3em;
+    font-weight: 500;
+    padding: 1rem 0.5rem;
+  }
+  .btn-secondary:hover { text-decoration-color: var(--accent); }
+
+  .hero-meta {
+    margin-top: 3rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1.5rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--line);
+  }
+  .hero-meta .item {
+    display: flex;
+    flex-direction: column;
+  }
+  .hero-meta .num {
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.2rem;
+  }
+  .hero-meta .lbl {
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+  }
+
+  /* SECTIONS */
+  section { padding: var(--space-section) 0; border-bottom: 1px solid var(--line); }
+  h2 {
+    font-size: var(--text-h2);
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+    margin: 0 0 1rem;
+    max-width: 22ch;
+  }
+  .section-lede {
+    color: var(--ink-soft);
+    max-width: 58ch;
+    font-size: 1.1rem;
+    margin: 0 0 3rem;
+  }
+
+  /* PROBLEM */
+  .problems {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    overflow: hidden;
+  }
+  .problem {
+    background: var(--surface);
+    padding: 2rem 1.75rem;
+  }
+  .problem .ico {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+    display: block;
+  }
+  .problem h3 {
+    margin: 0 0 0.6rem;
+    font-size: 1.1rem;
+    letter-spacing: -0.01em;
+  }
+  .problem p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 0.97rem;
+  }
+
+  /* MOCK REPORT */
+  .mock {
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px -30px rgba(0,0,0,0.4);
+  }
+  .mock-bar {
+    background: oklch(25% 0.02 260);
+    padding: 0.85rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: oklch(70% 0.01 260);
+  }
+  .mock-dot { width: 10px; height: 10px; border-radius: 50%; background: oklch(45% 0.02 260); }
+  .mock-dot.r { background: oklch(60% 0.18 25); }
+  .mock-dot.y { background: oklch(75% 0.15 90); }
+  .mock-dot.g { background: oklch(65% 0.18 150); }
+  .mock-body { padding: 2rem; }
+  .mock-body h3 {
+    font-size: 1.4rem;
+    margin: 0 0 0.5rem;
+    letter-spacing: -0.02em;
+  }
+  .mock-body .meta { color: oklch(70% 0.01 260); font-size: 0.9rem; margin-bottom: 1.75rem; }
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  .kpi {
+    background: oklch(22% 0.02 260);
+    border-radius: 10px;
+    padding: 1rem;
+  }
+  .kpi .v {
+    font-size: 1.7rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .kpi .l { font-size: 0.78rem; color: oklch(65% 0.01 260); margin-top: 0.2rem; }
+  .kpi .d { font-size: 0.78rem; margin-top: 0.4rem; }
+  .kpi .d.neg { color: oklch(70% 0.18 25); }
+  .kpi .d.pos { color: oklch(70% 0.18 150); }
+
+  .mock-section h4 {
+    font-size: 1rem;
+    margin: 1.5rem 0 0.6rem;
+    letter-spacing: -0.005em;
+    color: oklch(80% 0.01 260);
+    text-transform: uppercase;
+    font-size: 0.78rem;
+    letter-spacing: 0.06em;
+  }
+  .leak {
+    background: oklch(22% 0.02 260);
+    border-left: 3px solid oklch(60% 0.18 25);
+    padding: 0.9rem 1rem;
+    margin-bottom: 0.6rem;
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.93rem;
+  }
+  .leak .lead { color: oklch(80% 0.01 260); }
+  .leak .amt { color: oklch(75% 0.18 25); font-weight: 600; white-space: nowrap; }
+
+  /* HOW */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.5rem;
+    counter-reset: step;
+  }
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.75rem 1.5rem;
+    position: relative;
+    counter-increment: step;
+  }
+  .step::before {
+    content: "0" counter(step);
+    position: absolute;
+    top: 1.25rem;
+    right: 1.25rem;
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .step h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+    letter-spacing: -0.01em;
+  }
+  .step p { color: var(--ink-soft); margin: 0; font-size: 0.97rem; }
+
+  /* PRICING */
+  .pricing {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+  }
+  .plan {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .plan.pop {
+    border: 2px solid var(--ink);
+    transform: translateY(-8px);
+  }
+  .plan .pop-tag {
+    position: absolute;
+    top: -12px;
+    right: 1.5rem;
+    background: var(--accent);
+    color: var(--bg);
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .plan h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1.25rem;
+  }
+  .plan .price {
+    font-size: 2.4rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin: 0.5rem 0;
+  }
+  .plan .price span { font-size: 0.95rem; color: var(--ink-soft); font-weight: 400; }
+  .plan .desc { color: var(--ink-soft); font-size: 0.95rem; margin-bottom: 1.25rem; }
+  .plan ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1.5rem;
+    flex-grow: 1;
+  }
+  .plan li {
+    padding: 0.55rem 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.95rem;
+    color: var(--ink);
+  }
+  .plan li:last-child { border-bottom: none; }
+  .plan li::before {
+    content: "→ ";
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .plan .btn-plan {
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--ink);
+    padding: 0.9rem 1.25rem;
+    border-radius: 999px;
+    text-decoration: none;
+    font-weight: 600;
+    text-align: center;
+    transition: background 200ms var(--ease), color 200ms var(--ease);
+  }
+  .plan.pop .btn-plan { background: var(--ink); color: var(--bg); }
+  .plan .btn-plan:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+  /* FAQ */
+  .faq details {
+    border-top: 1px solid var(--line);
+    padding: 1.25rem 0;
+  }
+  .faq details:last-child { border-bottom: 1px solid var(--line); }
+  .faq summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 1.05rem;
+    letter-spacing: -0.005em;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .faq summary::after {
+    content: "+";
+    font-size: 1.5rem;
+    font-weight: 300;
+    transition: transform 200ms var(--ease);
+  }
+  .faq details[open] summary::after { transform: rotate(45deg); }
+  .faq details p {
+    color: var(--ink-soft);
+    margin: 0.85rem 0 0;
+    max-width: 65ch;
+  }
+
+  /* CTA FINAL */
+  .cta-final {
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 24px;
+    padding: clamp(3rem, 5vw, 5rem) clamp(2rem, 4vw, 4rem);
+    text-align: center;
+    margin: var(--space-section) 0;
+  }
+  .cta-final h2 {
+    color: var(--bg);
+    margin: 0 auto 1rem;
+    max-width: 20ch;
+  }
+  .cta-final p {
+    color: oklch(80% 0.01 260);
+    margin: 0 auto 2rem;
+    max-width: 45ch;
+    font-size: 1.1rem;
+  }
+  .cta-final .btn-primary {
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .cta-final .btn-primary:hover { background: var(--accent); color: var(--bg); }
+
+  footer {
+    padding: 2.5rem 0 3rem;
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  footer a { color: var(--ink-soft); margin-left: 1rem; }
+
+  @media (max-width: 720px) {
+    .plan.pop { transform: none; }
+    .hero-meta { gap: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <div class="brand">Radar<span>WA</span> · auditoría</div>
+    <a class="nav-cta" href="#reservar">Reservar llamada</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <span class="eyebrow">Servicio one-shot · entrega en 10 días</span>
+    <h1>Descubre la <em>fuga de ventas</em> que tu WhatsApp tiene ahora mismo.</h1>
+    <p class="lede">
+      Conectamos a tu WhatsApp Business durante 30 días. Analizamos cada conversación con IA.
+      Te devolvemos un reporte ejecutivo con KPIs reales, lista nominal de leads perdidos,
+      coaching por agente y plantillas listas para usar el lunes siguiente.
+    </p>
+    <div class="cta-row">
+      <a class="btn-primary" href="#reservar">Reservar llamada de 20 min →</a>
+      <a class="btn-secondary" href="#mockup">Ver ejemplo de reporte</a>
+    </div>
+
+    <div class="hero-meta">
+      <div class="item">
+        <span class="num">10 días</span>
+        <span class="lbl">Desde la firma a la entrega</span>
+      </div>
+      <div class="item">
+        <span class="num">690 €</span>
+        <span class="lbl">Precio de partida — paquete Básico</span>
+      </div>
+      <div class="item">
+        <span class="num">14 días</span>
+        <span class="lbl">Tus datos borrados tras la entrega</span>
+      </div>
+      <div class="item">
+        <span class="num">RGPD</span>
+        <span class="lbl">Contrato + DPA firmados</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Vendes por WhatsApp y no estás midiendo nada.</h2>
+    <p class="section-lede">
+      Casi todas las pymes españolas dependen del WhatsApp para captar, cotizar y cerrar.
+      Casi ninguna mide qué leads se les escapan ni por qué. Tú probablemente tampoco.
+    </p>
+
+    <div class="problems">
+      <div class="problem">
+        <span class="ico">⏱</span>
+        <h3>El primer minuto manda</h3>
+        <p>Si tardas más de 5 min en contestar, ya has perdido al lead. No sabes cuántas veces te pasa al día.</p>
+      </div>
+      <div class="problem">
+        <span class="ico">👥</span>
+        <h3>Tu mejor agente quizá no lo es</h3>
+        <p>Tienes la intuición. Pero los datos suelen contar otra historia. Algunos cierran. Otros espantan clientes.</p>
+      </div>
+      <div class="problem">
+        <span class="ico">💸</span>
+        <h3>Objeciones invisibles</h3>
+        <p>Las mismas 5 dudas se repiten 50 veces al mes. Tu equipo improvisa cada vez. Y la conversión cae.</p>
+      </div>
+      <div class="problem">
+        <span class="ico">🕳</span>
+        <h3>Huecos de cobertura</h3>
+        <p>Hay franjas horarias donde nadie contesta. Coinciden con tus picos de demanda. Lucro cesante puro.</p>
+      </div>
+      <div class="problem">
+        <span class="ico">⚠</span>
+        <h3>Riesgos invisibles</h3>
+        <p>Datos sensibles compartidos por chat, IBANs en claro, OTPs. Una auditoría te enseña qué hay que tapar.</p>
+      </div>
+      <div class="problem">
+        <span class="ico">📈</span>
+        <h3>Sin métricas no hay mejora</h3>
+        <p>Si no mides hoy, dentro de 6 meses estarás igual. La diferencia entre crecer y estancarse son los datos.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="mockup">
+  <div class="wrap">
+    <h2>Esto recibes en 10 días.</h2>
+    <p class="section-lede">
+      Reporte ejecutivo entregado en PDF + HTML interactivo + Markdown editable.
+      Datos en vivo. Lista nominal de fugas. Coaching individual. Plantillas accionables.
+      Llamada de devolución de 60 minutos incluida.
+    </p>
+
+    <div class="mock">
+      <div class="mock-bar">
+        <span class="mock-dot r"></span><span class="mock-dot y"></span><span class="mock-dot g"></span>
+        <span style="margin-left: 0.5rem">informe_ejecutivo_marzo.pdf</span>
+      </div>
+      <div class="mock-body">
+        <h3>Auditoría WhatsApp — Marzo 2026</h3>
+        <div class="meta">88 conversaciones analizadas · 5 agentes · período 28 días</div>
+
+        <div class="kpis">
+          <div class="kpi">
+            <div class="v">88</div>
+            <div class="l">Conversaciones</div>
+            <div class="d pos">+12% vs mes ant.</div>
+          </div>
+          <div class="kpi">
+            <div class="v">4m 18s</div>
+            <div class="l">TMPR medio</div>
+            <div class="d neg">+47% vs benchmark</div>
+          </div>
+          <div class="kpi">
+            <div class="v">31%</div>
+            <div class="l">Sin respuesta agente</div>
+            <div class="d neg">crítico</div>
+          </div>
+          <div class="kpi">
+            <div class="v">3.860 €</div>
+            <div class="l">Lucro cesante est./mes</div>
+            <div class="d neg">→ ver detalle</div>
+          </div>
+        </div>
+
+        <div class="mock-section">
+          <h4>Fugas detectadas — top 3</h4>
+          <div class="leak">
+            <span class="lead">Cliente RELAX (26/03 03:18) — pidió cita, no recibió respuesta</span>
+            <span class="amt">~640 €</span>
+          </div>
+          <div class="leak">
+            <span class="lead">Valencia Chic — discrepancia 100 € en dispensación, sin cierre</span>
+            <span class="amt">~100 €</span>
+          </div>
+          <div class="leak">
+            <span class="lead">Fortuna BCN — 9 facturas pendientes sin gestión activa</span>
+            <span class="amt">~2.400 €</span>
+          </div>
+        </div>
+
+        <div class="mock-section">
+          <h4>Coaching por agente</h4>
+          <div class="leak" style="border-left-color: oklch(60% 0.18 150);">
+            <span class="lead">Agente A · TMPR 1m 42s · tasa cierre 68%</span>
+            <span class="amt" style="color: oklch(75% 0.18 150);">top</span>
+          </div>
+          <div class="leak" style="border-left-color: oklch(75% 0.15 90);">
+            <span class="lead">Agente B · TMPR 5m 04s · tasa cierre 41%</span>
+            <span class="amt" style="color: oklch(80% 0.15 90);">mejorable</span>
+          </div>
+          <div class="leak">
+            <span class="lead">Agente C · TMPR 11m 28s · tasa cierre 22%</span>
+            <span class="amt">requiere coaching</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p style="text-align: center; margin-top: 2rem; color: var(--ink-soft); font-size: 0.95rem;">
+      <em>Datos anonimizados de un caso real auditado.</em>
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Cómo trabajamos.</h2>
+    <p class="section-lede">
+      Diez días laborables desde la firma a la entrega.
+      Sin instalar nada en tu CRM. Sin tocar tu número. Cumpliendo RGPD.
+    </p>
+
+    <div class="steps">
+      <div class="step">
+        <h3>Firma + DPA</h3>
+        <p>Contrato de servicios y acuerdo de Encargado de Tratamiento. Cobro del 50% al firmar.</p>
+      </div>
+      <div class="step">
+        <h3>Conexión</h3>
+        <p>Conectamos a tu WhatsApp Business mediante Evolution API, sin afectar tu cuenta ni tu número.</p>
+      </div>
+      <div class="step">
+        <h3>Captura</h3>
+        <p>Descargamos las conversaciones de los últimos 30 días a infraestructura cifrada en la UE.</p>
+      </div>
+      <div class="step">
+        <h3>Análisis IA</h3>
+        <p>Cada conversación pasa por Claude con nuestro prompt set propietario para extraer KPIs y fugas.</p>
+      </div>
+      <div class="step">
+        <h3>Reporte</h3>
+        <p>Te entregamos PDF + HTML + Markdown + Excel con datos brutos anonimizados.</p>
+      </div>
+      <div class="step">
+        <h3>Devolución</h3>
+        <p>Llamada de 60 minutos donde te explicamos hallazgos y plan de acción. Borramos datos a los 14 días.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="precios">
+  <div class="wrap">
+    <h2>Paquetes y precios.</h2>
+    <p class="section-lede">
+      Todos incluyen el reporte completo, la llamada de devolución y la garantía RGPD.
+      Sin cuotas recurrentes obligatorias. Si quieres convertirlo después en métrica continua, hay add-on.
+    </p>
+
+    <div class="pricing">
+
+      <div class="plan">
+        <h3>Audit Básico</h3>
+        <div class="price">690 €<span> · una vez</span></div>
+        <div class="desc">PYME con un solo número y hasta 2 agentes.</div>
+        <ul>
+          <li>Hasta 1.500 mensajes/mes</li>
+          <li>Reporte ejecutivo completo</li>
+          <li>5 plantillas de respuesta</li>
+          <li>Llamada de devolución 45 min</li>
+          <li>Soporte email 7 días</li>
+        </ul>
+        <a class="btn-plan" href="#reservar">Reservar llamada</a>
+      </div>
+
+      <div class="plan pop">
+        <span class="pop-tag">Más vendido</span>
+        <h3>Audit Pro</h3>
+        <div class="price">990 €<span> · una vez</span></div>
+        <div class="desc">PYME con hasta 3 números y 5 agentes.</div>
+        <ul>
+          <li>Hasta 5.000 mensajes/mes</li>
+          <li>Todo lo del Básico</li>
+          <li>Coaching individual por agente</li>
+          <li>Detección de fugas con € estimado</li>
+          <li>10 plantillas + 1 follow-up D+30</li>
+          <li>Sesión QA en grupo con tu equipo</li>
+        </ul>
+        <a class="btn-plan" href="#reservar">Reservar llamada</a>
+      </div>
+
+      <div class="plan">
+        <h3>Audit Plus</h3>
+        <div class="price">1.290 €<span> · una vez</span></div>
+        <div class="desc">Multi-local, multi-equipo o sector regulado.</div>
+        <ul>
+          <li>Hasta 15.000 mensajes/mes</li>
+          <li>Todo lo del Pro</li>
+          <li>Análisis comparativo entre sedes</li>
+          <li>Audit de seguridad y RGPD</li>
+          <li>Workshop 90 min con tu equipo</li>
+          <li>2 follow-ups (D+15 y D+45)</li>
+        </ul>
+        <a class="btn-plan" href="#reservar">Reservar llamada</a>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <h2>Preguntas frecuentes.</h2>
+    <p class="section-lede">Las dudas reales que nos hacen antes de firmar.</p>
+
+    <div class="faq">
+      <details>
+        <summary>¿Cómo accedéis a mi WhatsApp sin perder mi número?</summary>
+        <p>No tocamos tu número ni tu cuenta. Trabajamos con Evolution API o API Cloud de Meta en paralelo, sin interferir en envíos. Tu equipo sigue trabajando normalmente. Nosotros solo escuchamos para analizar.</p>
+      </details>
+      <details>
+        <summary>¿Es legal? ¿Mis clientes no han consentido esto?</summary>
+        <p>Sí. La base legal es el interés legítimo del responsable de tratamiento —tú— combinado con un contrato de Encargado de Tratamiento (DPA) firmado en cumplimiento del art. 28 RGPD. Te entregamos también el texto exacto que conviene añadir a tu política de privacidad.</p>
+      </details>
+      <details>
+        <summary>¿Dónde viven mis datos? ¿Quién los puede ver?</summary>
+        <p>Servidores cifrados en la UE. Solo dos personas autorizadas en nuestro lado tienen acceso técnico, con accesos auditados. Los datos brutos se borran automáticamente a los 14 días tras la entrega.</p>
+      </details>
+      <details>
+        <summary>¿Y si me dices que mi WhatsApp está perfecto?</summary>
+        <p>Eso no nos ha pasado en pymes españolas. Pero si pasara, te entregamos igual el reporte con esa conclusión, un benchmark sectorial y plantillas para mantener el nivel. El reporte tiene valor incluso siendo positivo.</p>
+      </details>
+      <details>
+        <summary>¿Puedo pedir devolución si no veo valor?</summary>
+        <p>Si tras la llamada de devolución consideras que el reporte no es accionable, te devolvemos el 50%. Asumimos ese riesgo nosotros.</p>
+      </details>
+      <details>
+        <summary>¿Mis agentes se van a enterar?</summary>
+        <p>Tú decides. Por defecto el coaching se entrega anonimizado y solo tú ves el ranking nominal. Recomendamos comunicarlo al equipo como un proyecto de mejora, no de vigilancia.</p>
+      </details>
+      <details>
+        <summary>¿Lo puedo convertir en algo recurrente?</summary>
+        <p>Sí. Tras la auditoría puedes contratar el dashboard mensual por 290 €/mes. Pero no es obligatorio. El one-shot vale por sí mismo.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section id="reservar">
+  <div class="wrap">
+    <div class="cta-final">
+      <h2>Reserva una llamada de 20 min.</h2>
+      <p>Te enseño un caso real anonimizado, respondo dudas y decides. Si no ves valor, no firmas. Sin compromiso.</p>
+      <a class="btn-primary" href="https://cal.com/TU-USUARIO/auditoria-whatsapp" target="_blank" rel="noopener">Agendar ahora →</a>
+      <p style="margin-top: 1.5rem; font-size: 0.85rem;">O escríbenos a <strong>hola@radarwa.es</strong></p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap" style="display: flex; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 1rem;">
+    <div>© 2026 RadarWA · Auditoría conversacional WhatsApp</div>
+    <div>
+      <a href="/aviso-legal">Aviso legal</a>
+      <a href="/privacidad">Privacidad</a>
+      <a href="/cookies">Cookies</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

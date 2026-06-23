@@ -1,0 +1,24 @@
+# Secret-scanning guard for the chatbot_maxxag repo.
+# Added after a real Anthropic API key + ADMIN_TOKEN were found committed in
+# .env.example (see wa-ops/docs/REVIEW-2026-06.md, finding M9).
+#
+# Setup once:    pip install pre-commit  &&  pre-commit install
+# Scan all now:  pre-commit run --all-files
+#
+# The local pygrep hook is self-contained (no network) and blocks the exact
+# class of secret that leaked. gitleaks adds broad generic-secret coverage.
+repos:
+  - repo: local
+    hooks:
+      - id: block-anthropic-keys
+        name: Block Anthropic API keys (sk-ant-...)
+        entry: 'sk-ant-[A-Za-z0-9_\-]{20,}'
+        language: pygrep
+        types: [text]
+        # Exclude this config + test fixtures (which may carry fake keys).
+        exclude: '(^\.pre-commit-config\.yaml$|/tests/|(^|/)test_)'
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks

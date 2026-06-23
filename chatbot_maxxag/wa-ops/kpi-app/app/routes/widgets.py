@@ -9,6 +9,72 @@ from app.deps import CurrentUser, KpiDB  # noqa: F401 — CurrentUser enforces a
 from app.template_env import templates
 
 router = APIRouter(prefix="/widget")
+
+_DOW_LABELS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def _heatmap_insight(grid: list[list[int]]) -> dict | None:
+    """Derive a plain-language marketing line from the 7×24 inbound grid.
+
+    Finds the busiest contiguous 3-hour window (allowing wrap past midnight,
+    e.g. 22h–01h) on its best day, plus a representative dead window. Returns
+    None when there is no inbound data at all (template shows a neutral note).
+
+    grid[day][hour]: day 0=Monday..6=Sunday (caller already maps it).
+    """
+    total = sum(sum(row) for row in grid)
+    if total == 0:
+        return None
+
+    WINDOW = 3
+    best_day = 0
+    best_start = 0
+    best_sum = -1
+    for day in range(7):
+        row = grid[day]
+        for start in range(24):
+            # contiguous 3h window, wrapping across midnight on the same day row
+            s = sum(row[(start + k) % 24] for k in range(WINDOW))
+            if s > best_sum:
+                best_sum, best_day, best_start = s, day, start
+
+    busy_end = (best_start + WINDOW) % 24
+
+    # Dead window: quietest 3h slot summed across ALL days (when nobody writes).
+    hour_totals = [sum(grid[d][h] for d in range(7)) for h in range(24)]
+    dead_start = 0
+    dead_sum = None
+    for start in range(24):
+        s = sum(hour_totals[(start + k) % 24] for k in range(WINDOW))
+        if dead_sum is None or s < dead_sum:
+            dead_sum, dead_start = s, start
+    dead_end = (dead_start + WINDOW) % 24
+
+    return {
+        "busy_day": _DOW_LABELS[best_day],
+        "busy_start": best_start,
+        "busy_end": busy_end,
+        "busy_count": best_sum,
+        "dead_start": dead_start,
+        "dead_end": dead_end,
+    }
+
+
+def _sparkline_points(series: list[int], w: int = 100, h: int = 32) -> str:
+    """SVG polyline points from a numeric series (normalized to the viewBox)."""
+    if not series or len(series) < 2:
+        return ""
+    lo, hi = min(series), max(series)
+    rng = (hi - lo) or 1
+    n = len(series)
+    pts = []
+    for i, v in enumerate(series):
+        x = i * w / (n - 1)
+        y = h - ((v - lo) / rng) * (h - 4) - 2
+        pts.append(f"{x:.0f},{y:.0f}")
+    return " ".join(pts)
+
+
 @router.get("/kpis", response_class=HTMLResponse)
 async def widget_kpis(
     request: Request,
@@ -16,7 +82,19 @@ async def widget_kpis(
     kpi: KpiDB,
 ) -> HTMLResponse:
     kpis = await queries.get_dashboard_kpis(kpi)
-    return templates.TemplateResponse(request, "partials/kpi_grid.html", {"kpis": kpis})
+    extras = await queries.get_kpi_extras(kpi)
+    yest = extras.conv_yesterday
+    conv_delta = round((kpis.total_conversations_today - yest) / yest * 100) if yest else None
+    return templates.TemplateResponse(
+        request,
+        "partials/kpi_grid.html",
+        {
+            "kpis": kpis,
+            "extras": extras,
+            "conv_spark": _sparkline_points(extras.conv_series),
+            "conv_delta": conv_delta,
+        },
+    )
 
 
 @router.get("/recent-conversations", response_class=HTMLResponse)
@@ -25,7 +103,18 @@ async def widget_recent_conversations(
     user: CurrentUser,  # noqa: ARG001
     kpi: KpiDB,
 ) -> HTMLResponse:
-    items = await queries.list_recent_conversations(kpi, limit=15)
+    # Rich "incoming conversations" feed (notificaciones): reuse list_conversations
+    # ordered most-recent-first — brings preview, unread, mood, conv_probability,
+    # and "quién contestó" attribution (last_dir / last_out_kind / last_out_agent).
+    #
+    # Show AT LEAST the last 2 hours (capped at 60 so a busy spell can't blow up
+    # the 10s-polled fragment). When it's quiet and <14 land in 2h, fall back to
+    # the 14 most recent so the feed is never near-empty.
+    items, _ = await queries.list_conversations(
+        kpi, order="recent", since_hours=2, limit=60
+    )
+    if len(items) < 14:
+        items, _ = await queries.list_conversations(kpi, order="recent", limit=14)
     return templates.TemplateResponse(
         request,
         "partials/recent_conversations.html",
@@ -41,10 +130,11 @@ async def widget_heatmap(
 ) -> HTMLResponse:
     grid = await queries.get_heatmap_last_7_days(kpi)
     max_val = max((max(row) if row else 0) for row in grid) or 1
+    insight = _heatmap_insight(grid)
     return templates.TemplateResponse(
         request,
         "partials/heatmap.html",
-        {"grid": grid, "max_val": max_val},
+        {"grid": grid, "max_val": max_val, "insight": insight},
     )
 
 
@@ -75,6 +165,7 @@ async def widget_casa_chats(
     search: str = "",
     mood: str = "",
     status: str = "",
+    handler: str = "",
     limit: int = 50,
 ) -> HTMLResponse:
     """HTMX fragment: chats list + load-more sentinel for infinite scroll.
@@ -98,6 +189,7 @@ async def widget_casa_chats(
     search_q = (search or "").strip() or None
     mood_q = mood if mood in {"curioso", "decidido", "calenton", "indeciso", "enfadado", "timewaster"} else None
     status_q = status if status in {"open", "resolved", "pending"} else None
+    handler_q = handler if handler in {"bot", "human"} else None
 
     rows, total = await queries.list_conversations(
         kpi,
@@ -105,9 +197,11 @@ async def widget_casa_chats(
         wa_number_id=wa_number_id,
         since_days=since_days,
         unanswered_only=unanswered,
+        handler=handler_q,
         search=search_q,
         mood=mood_q,
         status=status_q,
+        order="recent",
         limit=limit,
         offset=offset,
     )
@@ -124,6 +218,7 @@ async def widget_casa_chats(
             "active_search": search_q or "",
             "active_mood": mood_q or "",
             "active_status": status_q or "",
+            "active_handler": handler_q or "",
             "offset": offset,
             "next_offset": next_offset,
             "total": total,
@@ -150,6 +245,7 @@ async def widget_conversation_messages(
             "ack": m.ack,
             "media_url": m.media_url,
             "media_mime": m.media_mime,
+            "agent_generated": m.agent_generated,
         }
         for m in messages
     ]

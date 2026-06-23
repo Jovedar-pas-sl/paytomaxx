@@ -8,10 +8,10 @@ Routes:
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from app import queries
-from app.deps import CurrentUser, KpiDB
+from app import queries, team
+from app.deps import CurrentUser, KpiDB, RequireAdmin
 from app.template_env import templates
 
 router = APIRouter()
@@ -73,5 +73,23 @@ async def informe_detail(
     return templates.TemplateResponse(
         request,
         "informe_detail.html",
-        {"user": user, "informe": informe},
+        {"user": user, "informe": informe, "informe_id": informe_id},
     )
+
+
+@router.post("/informes/{informe_id}/delete")
+async def informe_delete(
+    informe_id: int,
+    user: RequireAdmin,
+    kpi: KpiDB,
+) -> Response:
+    """Borrado PERMANENTE de un informe (solo admin/super-admin, con audit)."""
+    informe = await queries.get_meta_analysis_by_id(kpi, informe_id)
+    if not informe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Informe no encontrado")
+    await queries.delete_meta_analysis(kpi, informe_id)
+    await team.audit(
+        kpi, action="informe_delete", actor_label=user.display_name, user_id=user.id,
+        entity_type="informe", entity_id=informe_id,
+    )
+    return RedirectResponse(url="/informes", status_code=status.HTTP_303_SEE_OTHER)

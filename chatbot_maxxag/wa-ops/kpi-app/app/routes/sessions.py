@@ -8,12 +8,15 @@ import re
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from app import queries
 from app.deps import CurrentUser, KpiDB, Waha
 from app.template_env import templates
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 SLUG_RE = re.compile(r"^[a-z0-9-]+$")
+# Allowed agent modes for a wa_number (mirrors the DB CHECK in migration 0014).
+_VALID_AGENT_MODES = {"off", "auto", "copilot"}
 
 
 def _slugify(s: str) -> str:
@@ -43,7 +46,8 @@ async def sessions_panel(
             SELECT c.id, c.name,
                    coalesce(
                      json_agg(json_build_object(
-                       'id', w.id, 'session', w.session, 'label', w.label, 'phone', w.phone
+                       'id', w.id, 'session', w.session, 'label', w.label,
+                       'phone', w.phone, 'mode', w.mode
                      ) ORDER BY w.created_at)
                      FILTER (WHERE w.id IS NOT NULL),
                      '[]'::json
@@ -148,6 +152,27 @@ async def rename_wa_number(
         raise HTTPException(status_code=400)
     async with kpi.acquire() as conn:
         await conn.execute("UPDATE wa_number SET label = $1 WHERE id = $2", label, wa_id)
+    return RedirectResponse(url="/sessions", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/wa-numbers/{wa_id}/mode")
+async def set_wa_number_mode(
+    wa_id: int,
+    user: CurrentUser,  # noqa: ARG001 — auth gate
+    kpi: KpiDB,
+    mode: str = Form(...),
+) -> RedirectResponse:
+    """Set a wa_number's agent mode (off|auto|copilot).
+
+    Default is 'off' (set at the DB level) so the agent is inert until a number
+    is explicitly enabled here. Validated at the boundary; the DB CHECK is the
+    last line of defense. Callable now via:
+        curl -X POST .../wa-numbers/<id>/mode -d mode=auto  (with auth cookie)
+    """
+    mode = mode.strip().lower()
+    if mode not in _VALID_AGENT_MODES:
+        raise HTTPException(status_code=400, detail="Modo inválido (off|auto|copilot)")
+    await queries.set_wa_mode(kpi, wa_id, mode)
     return RedirectResponse(url="/sessions", status_code=status.HTTP_303_SEE_OTHER)
 
 

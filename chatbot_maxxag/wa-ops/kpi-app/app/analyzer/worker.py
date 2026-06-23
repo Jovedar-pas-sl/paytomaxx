@@ -1,11 +1,14 @@
-"""arq worker — consumes conversation analysis jobs from Redis.
+"""arq worker — consumes background jobs from Redis.
 
 Reads messages from the KPI-owned `message` table (populated by WAHA webhook).
 
-Flow per job:
-  1. Fetch messages for this conversation (kpi.message).
-  2. Fan out 5 Claude Haiku calls in parallel.
-  3. UPSERT result into kpi.analysis.
+Jobs:
+  - block_analyze_casa_job: reads conversation transcripts directly in ONE
+    batch Claude call to produce the casa/número informe (no per-conversation
+    analysis).
+  - auto_reply_job: the auto-reply bot.
+  - waha_health_check_job (cron): stateful WAHA session recovery.
+  - website_sync_job (cron + on-demand): mirror each casa's live website.
 """
 
 from __future__ import annotations
@@ -16,12 +19,16 @@ import logging
 
 import asyncpg
 import httpx
-from arq import cron
+from arq import cron, create_pool
 from arq.connections import RedisSettings
 
+from app.agent.auto_reply import auto_reply_job
+from app.agent.followup import followup_send_job, followup_sweep_job
+from app.agent.website_sync import website_sync_job
+from app.agent import style_harvest
+from app import queries
 from app.analyzer import progress as prog
 from app.analyzer import skills
-from app.analyzer.skills import Message
 from app.settings import get_settings
 
 logger = logging.getLogger("analyzer.worker")
@@ -30,9 +37,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 async def startup(ctx: dict) -> None:
     import redis.asyncio as redis_async
+    from app.waha_client import WahaClient
     s = get_settings()
     ctx["kpi_db"] = await asyncpg.create_pool(dsn=s.database_url, min_size=1, max_size=5)
     ctx["redis"] = redis_async.from_url(s.redis_url, decode_responses=True)
+    # ArqRedis handle for ENQUEUEING jobs from inside a job/cron (the plain
+    # ctx["redis"] above is a raw redis client with no enqueue_job). The
+    # follow-up CRON uses this to enqueue per-conversation send jobs — mirrors
+    # how deps.py builds the route-side ArqRedis.
+    ctx["arq"] = await create_pool(RedisSettings.from_dsn(s.redis_url))
+    # The worker process has its own WAHA client (the route's lives in app
+    # state, not here). auto_reply_job uses it to mark-read / type / send.
+    ctx["waha"] = WahaClient(s)
     logger.info("analyzer worker ready")
 
 
@@ -40,186 +56,11 @@ async def shutdown(ctx: dict) -> None:
     await ctx["kpi_db"].close()
     if "redis" in ctx:
         await ctx["redis"].aclose()
+    if "arq" in ctx:
+        await ctx["arq"].close()
+    if "waha" in ctx:
+        await ctx["waha"].aclose()
     logger.info("analyzer worker shut down")
-
-
-async def analyze_conversation_job(ctx: dict, conversation_id: int) -> None:
-    """Analyze one conversation end-to-end."""
-    kpi: asyncpg.Pool = ctx["kpi_db"]
-
-    async with kpi.acquire() as conn:
-        header = await conn.fetchrow(
-            "SELECT casa_id, wa_number_id FROM conversation WHERE id = $1",
-            conversation_id,
-        )
-        if not header:
-            logger.warning("conversation %s not found — skip", conversation_id)
-            return
-
-        rows = await conn.fetch(
-            """
-            SELECT body, direction,
-                   extract(epoch from created_at)::int AS ts
-            FROM message
-            WHERE conversation_id = $1
-            ORDER BY created_at ASC
-            """,
-            conversation_id,
-        )
-
-    if not rows:
-        logger.info("conversation %s has no messages — skip", conversation_id)
-        return
-
-    msgs = [
-        Message(
-            ts=r["ts"],
-            role="cliente" if r["direction"] == "in" else "mamai",
-            content=(r["body"] or "")[:1000],
-        )
-        for r in rows
-    ]
-
-    # Wrap all 10 skill calls in a token accumulator so we can persist the
-    # exact Claude cost for this conversation. Each _call_json inside the
-    # gathered tasks adds to this accumulator (contextvar-scoped to this task).
-    with skills.token_accumulator() as token_acc:
-        try:
-            (
-                mood, rt, treat, conv, flags, coaching,
-                intent, next_action, escalation, referral,
-            ) = await asyncio.gather(
-                skills.analyze_mood(msgs),
-                skills.analyze_response_time(msgs),
-                skills.analyze_treatment(msgs),
-                skills.analyze_conversion_intent(msgs),
-                skills.detect_red_flags(msgs),
-                skills.analyze_coaching(msgs),
-                skills.classify_intent(msgs),
-                skills.recommend_next_action(msgs),
-                skills.evaluate_escalation(msgs),
-                skills.detect_referral(msgs),
-            )
-        except Exception:
-            logger.exception("analysis failed for conversation %s", conversation_id)
-            raise
-
-    cost_usd = skills.compute_cost_usd(token_acc)
-
-    casa_id = header["casa_id"]
-    wa_number_id = header["wa_number_id"]
-    async with kpi.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO analysis (
-                conversation_id, account_id, inbox_id, wa_number_id,
-                mood_label, mood_score, mood_reasoning,
-                rt_p50, rt_p90, rt_max,
-                treat_carinoso, treat_profesional, treat_vendedor, treat_seco,
-                conv_probability,
-                red_flags, coaching,
-                intent, next_action, escalation, referral,
-                claude_cost_usd, claude_tokens_in, claude_tokens_out
-            ) VALUES (
-                $1, $2, $3, $4,
-                $5, $6, $7,
-                $8, $9, $10,
-                $11, $12, $13, $14,
-                $15,
-                $16::jsonb, $17::jsonb,
-                $18::jsonb, $19::jsonb, $20::jsonb, $21::jsonb,
-                $22, $23, $24
-            )
-            ON CONFLICT (conversation_id) DO UPDATE SET
-                analyzed_at = now(),
-                wa_number_id = EXCLUDED.wa_number_id,
-                mood_label = EXCLUDED.mood_label,
-                mood_score = EXCLUDED.mood_score,
-                mood_reasoning = EXCLUDED.mood_reasoning,
-                rt_p50 = EXCLUDED.rt_p50,
-                rt_p90 = EXCLUDED.rt_p90,
-                rt_max = EXCLUDED.rt_max,
-                treat_carinoso = EXCLUDED.treat_carinoso,
-                treat_profesional = EXCLUDED.treat_profesional,
-                treat_vendedor = EXCLUDED.treat_vendedor,
-                treat_seco = EXCLUDED.treat_seco,
-                conv_probability = EXCLUDED.conv_probability,
-                red_flags = EXCLUDED.red_flags,
-                coaching = EXCLUDED.coaching,
-                intent = EXCLUDED.intent,
-                next_action = EXCLUDED.next_action,
-                escalation = EXCLUDED.escalation,
-                referral = EXCLUDED.referral,
-                claude_cost_usd  = EXCLUDED.claude_cost_usd,
-                claude_tokens_in = EXCLUDED.claude_tokens_in,
-                claude_tokens_out= EXCLUDED.claude_tokens_out
-            """,
-            conversation_id,
-            casa_id,
-            wa_number_id or casa_id,  # legacy inbox_id kept for old indexes
-            wa_number_id,
-            mood.label, mood.score, mood.reasoning,
-            rt.p50_ms, rt.p90_ms, rt.max_ms,
-            treat.carinoso, treat.profesional, treat.vendedor, treat.seco,
-            conv.probability,
-            json.dumps([f.model_dump() for f in flags]),
-            json.dumps(coaching.model_dump()),
-            json.dumps(intent.model_dump()),
-            json.dumps(next_action.model_dump()),
-            json.dumps(escalation.model_dump()),
-            json.dumps(referral.model_dump()),
-            cost_usd,
-            token_acc.get("input", 0),
-            token_acc.get("output", 0),
-        )
-
-        for f in flags:
-            if f.type in ("menor", "fraude"):
-                await conn.execute(
-                    """
-                    INSERT INTO alert (type, severity, conversation_id, inbox_id, message)
-                    VALUES ('red_flag', 'critical', $1, $2, $3)
-                    """,
-                    conversation_id, casa_id,
-                    f"{f.type}: {f.reason}",
-                )
-
-        if rt.p90_ms > 30 * 60 * 1000:
-            await conn.execute(
-                """
-                INSERT INTO alert (type, severity, conversation_id, inbox_id, message)
-                VALUES ('slow_response', 'warning', $1, $2, $3)
-                """,
-                conversation_id, casa_id,
-                f"Tiempo respuesta p90 = {rt.p90_ms // 60000} min",
-            )
-
-        # Escalation alert — admin should take over. Only for medium/high severity
-        # to avoid spam. Idempotent per conversation (unack'd copy = skip).
-        if escalation.should_escalate and escalation.severity in ("medium", "high"):
-            already = await conn.fetchval(
-                """
-                SELECT 1 FROM alert
-                WHERE type='escalation' AND conversation_id=$1 AND acknowledged_at IS NULL
-                LIMIT 1
-                """,
-                conversation_id,
-            )
-            if not already:
-                await conn.execute(
-                    """
-                    INSERT INTO alert (type, severity, conversation_id, inbox_id, message)
-                    VALUES ('escalation', $1, $2, $3, $4)
-                    """,
-                    "critical" if escalation.severity == "high" else "warning",
-                    conversation_id, casa_id,
-                    f"Escalation: {escalation.reason or 'admin needed'}",
-                )
-
-    logger.info(
-        "✓ analyzed conv %s — mood=%s conv=%.2f flags=%d",
-        conversation_id, mood.label, conv.probability, len(flags),
-    )
 
 
 async def _drift_pct(
@@ -255,28 +96,92 @@ async def _drift_pct(
         )
 
 
-async def meta_analyze_casa_job(
+# Spanish day labels (Monday-first) — matches the by_dow Mon..Sun mapping used
+# across the worker and the heatmap template.
+_DOW_LABELS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def _best_3h_window(by_hour: list[int]) -> tuple[int, int]:
+    """Return (start_hour, summed_count) of the busiest contiguous 3-hour window.
+
+    Treats the 24h clock as circular so windows can wrap past midnight
+    (e.g. 23h→01h). ``by_hour`` is 24 ints indexed by hour 0-23.
+    """
+    best_start, best_sum = 0, -1
+    for start in range(24):
+        total = by_hour[start] + by_hour[(start + 1) % 24] + by_hour[(start + 2) % 24]
+        if total > best_sum:
+            best_start, best_sum = start, total
+    return best_start, best_sum
+
+
+def _worst_3h_window(by_hour: list[int]) -> int:
+    """Return start_hour of the quietest contiguous 3-hour window (circular)."""
+    worst_start, worst_sum = 0, None
+    for start in range(24):
+        total = by_hour[start] + by_hour[(start + 1) % 24] + by_hour[(start + 2) % 24]
+        if worst_sum is None or total < worst_sum:
+            worst_start, worst_sum = start, total
+    return worst_start
+
+
+def _window_label(start: int) -> str:
+    """Format a 3-hour window starting at ``start`` as e.g. "22h–01h"."""
+    end = (start + 3) % 24
+    return f"{start:02d}h–{end:02d}h"
+
+
+def _compute_marketing(by_hour_in: list[int], by_dow_in: list[int]) -> dict:
+    """Build the marketing insight dict from inbound hour/day histograms.
+
+    Returns ``{}`` when there is no inbound data so callers can omit the key.
+    All windows are contiguous 3-hour spans (circular, wrap past midnight).
+    """
+    total = sum(by_hour_in)
+    if total <= 0:
+        return {}
+
+    peak_hour = max(range(24), key=lambda h: by_hour_in[h])
+    peak_dow = max(range(7), key=lambda d: by_dow_in[d])
+
+    peak_start, peak_sum = _best_3h_window(by_hour_in)
+    dead_start = _worst_3h_window(by_hour_in)
+    peak_window_pct = round(100.0 * peak_sum / total) if total else 0
+
+    return {
+        "peak_hour": peak_hour,
+        "peak_dow": peak_dow,
+        "peak_dow_label": _DOW_LABELS_ES[peak_dow],
+        "peak_window": _window_label(peak_start),
+        "peak_window_pct": peak_window_pct,
+        "dead_window": _window_label(dead_start),
+    }
+
+
+async def block_analyze_casa_job(
     ctx: dict,
     casa_id: int,
     wa_number_id: int | None = None,
-    since_hours: int | None = 24,
+    since_hours: int | None = 168,
     max_convs: int = 200,
+    hour_from: int | None = None,
+    hour_to: int | None = None,
 ) -> None:
-    """Meta-analyze a casa from analyzed conversations.
+    """Block analyzer — generate the casa/number informe by reading conversation
+    TRANSCRIPTS directly in ONE batch Claude call (no per-conversation analysis).
 
-    Window:
-      - ``since_hours=24`` (default) keeps it focused on recent activity —
-        matches the auto-cadena flow ("último día").
-      - ``since_hours=None`` falls back to the most recent ``max_convs``
-        regardless of when they were analyzed.
+    Controls:
+      - ``since_hours``: time window (None = no time filter, just newest convs).
+      - ``hour_from``/``hour_to``: hour-of-day window (Europe/Madrid). Keeps only
+        conversations with ≥1 message in [hour_from, hour_to). Supports wrap-around
+        (e.g. 20→6 = nightlife hours).
+      - ``max_convs``: cap on conversations (newest first).
 
-    If ``wa_number_id`` is set, restricts to that WhatsApp.
-    The 10-conv minimum is no longer a hard error — we still need *some*
-    data, but the threshold drops to 3 so a brand-new WA can produce a
-    rough report instead of returning nothing.
+    Stores into the SAME ``casa_meta_analysis`` table the meta job uses, and
+    reuses the EXISTING meta progress key so the current overlay UI works.
     """
     import time
-    from app.analyzer.meta_analysis import ConvSummary, run_meta_analysis
+    from app.analyzer.meta_analysis import run_block_analysis
 
     kpi: asyncpg.Pool = ctx["kpi_db"]
     redis = ctx.get("redis")
@@ -287,10 +192,14 @@ async def meta_analyze_casa_job(
         await prog.set_progress(redis, pkey, phase="fetching", pct=10,
                                 message="Cargando conversaciones…", started_at=started)
 
+    # ── Resolve scope name (casa + optional WA label) ──────────────
     async with kpi.acquire() as conn:
         name_row = await conn.fetchrow("SELECT name FROM casa WHERE id = $1", casa_id)
         if not name_row:
             logger.warning("casa %s not found", casa_id)
+            if redis:
+                await prog.set_progress(redis, pkey, phase="error", pct=100,
+                                        message="Casa no encontrada", started_at=started)
             return
         casa_name = name_row["name"]
 
@@ -301,124 +210,129 @@ async def meta_analyze_casa_job(
             )
             wa_label = wa_row["label"] if wa_row else None
 
-        # Build WHERE/params dynamically
+        # ── Select conversation IDs (newest first, optional window) ──
         params: list = [casa_id]
-        where_parts = ["account_id = $1"]
+        where_parts = ["casa_id = $1"]
         if wa_number_id is not None:
             params.append(wa_number_id)
             where_parts.append(f"wa_number_id = ${len(params)}")
         if since_hours is not None:
             params.append(since_hours)
             where_parts.append(
-                f"analyzed_at > now() - make_interval(hours => ${len(params)})"
+                f"last_message_at > now() - make_interval(hours => ${len(params)})"
             )
-        params.append(max_convs)
+        params.append(max(1, min(int(max_convs or 200), 500)))
         limit_idx = len(params)
 
-        rows = await conn.fetch(
+        conv_rows = await conn.fetch(
             f"""
-            SELECT conversation_id, mood_label, mood_score,
-                   treat_carinoso, treat_profesional, treat_vendedor, treat_seco,
-                   conv_probability,
-                   rt_p50, rt_p90,
-                   intent->>'primary'        AS intent_primary,
-                   referral->>'source_kind'  AS referral_kind,
-                   referral->>'source_name'  AS referral_name
-            FROM analysis
+            SELECT id
+            FROM conversation
             WHERE {' AND '.join(where_parts)}
-            ORDER BY analyzed_at DESC
+            ORDER BY last_message_at DESC NULLS LAST
             LIMIT ${limit_idx}
             """,
             *params,
         )
+        conv_ids = [r["id"] for r in conv_rows]
 
-    if len(rows) < 3:
-        logger.warning(
-            "casa %s wa %s has only %d analyzed convs in window, skipping meta",
-            casa_id, wa_number_id, len(rows),
-        )
-        if redis:
-            await prog.set_progress(
-                redis, pkey, phase="error", pct=100,
-                message=f"Solo {len(rows)} convs analizadas — insuficiente para informe",
-                started_at=started,
+        # ── Franja horaria filter (Europe/Madrid, supports wrap-around) ──
+        if conv_ids and (hour_from is not None or hour_to is not None):
+            hf = hour_from if hour_from is not None else 0
+            ht = hour_to if hour_to is not None else 24
+            if hf <= ht:
+                # Normal window [hf, ht)
+                hour_cond = "h >= $2 AND h < $3"
+            else:
+                # Wrap-around (e.g. 20→6): h >= hf OR h < ht
+                hour_cond = "h >= $2 OR h < $3"
+            kept = await conn.fetch(
+                f"""
+                SELECT DISTINCT conversation_id
+                FROM (
+                    SELECT conversation_id,
+                           extract(hour from created_at AT TIME ZONE 'Europe/Madrid')::int AS h
+                    FROM message
+                    WHERE conversation_id = ANY($1)
+                ) m
+                WHERE {hour_cond}
+                """,
+                conv_ids, hf, ht,
             )
+            keep_set = {r["conversation_id"] for r in kept}
+            conv_ids = [cid for cid in conv_ids if cid in keep_set]
+
+    if not conv_ids:
+        logger.info("block analyze casa %s wa %s — 0 convs after filter",
+                    casa_id, wa_number_id)
+        if redis:
+            await prog.set_progress(redis, pkey, phase="error", pct=100,
+                                    message="Sin conversaciones en ese filtro",
+                                    started_at=started)
         return
 
-    conv_ids = [r["conversation_id"] for r in rows]
+    # ── Build transcripts (ordered messages, truncated) ───────────
     async with kpi.acquire() as conn:
-        first_msgs = await conn.fetch(
+        msg_rows = await conn.fetch(
             """
-            SELECT DISTINCT ON (conversation_id) conversation_id, body
+            SELECT conversation_id, direction, body,
+                   to_char(created_at AT TIME ZONE 'Europe/Madrid', 'HH24:MI') AS hhmm
             FROM message
-            WHERE conversation_id = ANY($1) AND direction = 'in'
+            WHERE conversation_id = ANY($1) AND body IS NOT NULL AND body <> ''
             ORDER BY conversation_id, created_at ASC
             """,
             conv_ids,
         )
-    first_line_map = {r["conversation_id"]: (r["body"] or "") for r in first_msgs}
-
-    summaries = [
-        ConvSummary(
-            conv_id=r["conversation_id"],
-            mood=r["mood_label"],
-            mood_score=r["mood_score"],
-            treat_carinoso=r["treat_carinoso"],
-            treat_profesional=r["treat_profesional"],
-            treat_vendedor=r["treat_vendedor"],
-            treat_seco=r["treat_seco"],
-            conv_probability=float(r["conv_probability"]),
-            first_client_line=first_line_map.get(r["conversation_id"], "")[:100],
-            intent_primary=r["intent_primary"],
-            rt_p50_ms=r["rt_p50"],
-            rt_p90_ms=r["rt_p90"],
-            referral_kind=r["referral_kind"],
-            referral_name=r["referral_name"],
-        )
-        for r in rows
+    lines_by_conv: dict[int, list[str]] = {cid: [] for cid in conv_ids}
+    for r in msg_rows:
+        cid = r["conversation_id"]
+        if cid not in lines_by_conv:
+            continue
+        role = "CLIENTE" if r["direction"] == "in" else "MAMAI"
+        body = (r["body"] or "")[:400]
+        lines_by_conv[cid].append(f"[{r['hhmm']}] {role}: {body}")
+    transcripts: list[tuple[int, str]] = [
+        (cid, "\n".join(lines_by_conv[cid])) for cid in conv_ids if lines_by_conv[cid]
     ]
 
-    # Enrich casa_name when scoped to a specific WA
-    meta_casa_name = f"{casa_name} · {wa_label}" if wa_label else casa_name
+    if not transcripts:
+        if redis:
+            await prog.set_progress(redis, pkey, phase="error", pct=100,
+                                    message="Sin conversaciones en ese filtro",
+                                    started_at=started)
+        return
 
+    scope_name = f"{casa_name} · {wa_label}" if wa_label else casa_name
+
+    # ── Claude block analysis (with smooth drift on the bar) ───────
     drift_task: asyncio.Task | None = None
     if redis:
         await prog.set_progress(redis, pkey, phase="analyzing", pct=30,
-                                message="Claude analizando patrones…",
+                                message="Claude leyendo conversaciones…",
                                 started_at=started)
         drift_task = asyncio.create_task(_drift_pct(
             redis, pkey,
-            from_pct=30, to_pct=85, duration_s=60.0,
-            message="Claude analizando patrones…",
+            from_pct=30, to_pct=85, duration_s=90.0,
+            message="Claude leyendo conversaciones…",
             started_at=started,
         ))
 
-    meta_token_acc: dict[str, int] = {"input": 0, "output": 0, "calls": 0}
+    block_token_acc: dict[str, int] = {"input": 0, "output": 0, "calls": 0}
     try:
-        # Claude meta-analysis call — cap at 240s. The inner _call_json is 120s,
-        # this gives slack for any retry/connection setup. The drift task keeps
-        # the UI moving meanwhile. Token accumulator captures usage for cost.
-        with skills.token_accumulator() as _meta_acc:
+        with skills.token_accumulator() as _block_acc:
             result = await asyncio.wait_for(
-                run_meta_analysis(meta_casa_name, summaries),
-                timeout=240.0,
+                run_block_analysis(scope_name, transcripts),
+                timeout=180.0,
             )
-            meta_token_acc = dict(_meta_acc)
-    except asyncio.TimeoutError:
-        logger.error("meta-analysis timed out (>240s) for casa %s wa %s",
-                     casa_id, wa_number_id)
+            block_token_acc = dict(_block_acc)
+    except Exception as exc:
+        logger.exception("block-analysis call failed for casa %s wa %s",
+                         casa_id, wa_number_id)
         if redis:
             await prog.set_progress(redis, pkey, phase="error", pct=100,
-                                    message="Claude tardó más de 4min — reintenta",
+                                    message=f"Error: {type(exc).__name__}",
                                     started_at=started)
-        raise
-    except Exception:
-        logger.exception("meta-analysis call failed for casa %s wa %s", casa_id, wa_number_id)
-        if redis:
-            await prog.set_progress(redis, pkey, phase="error", pct=100,
-                                    message="Error al analizar — revisa logs",
-                                    started_at=started)
-        raise
+        return
     finally:
         if drift_task:
             drift_task.cancel()
@@ -431,147 +345,338 @@ async def meta_analyze_casa_job(
         await prog.set_progress(redis, pkey, phase="saving", pct=95,
                                 message="Guardando informe…", started_at=started)
 
-    async with kpi.acquire() as conn:
-        dates = await conn.fetchrow(
-            """
-            SELECT min(analyzed_at) AS period_start, max(analyzed_at) AS period_end
-            FROM analysis
-            WHERE conversation_id = ANY($1)
-            """,
-            conv_ids,
-        )
-
-        # Compute every numeric KPI in a single SQL query — deterministic, free,
-        # no Claude needed. The frontend reads these directly.
-        kpi_row = await conn.fetchrow(
-            """
-            WITH last_msg AS (
-              SELECT DISTINCT ON (conversation_id)
-                conversation_id, direction
-              FROM message
-              WHERE conversation_id = ANY($1)
-              ORDER BY conversation_id, created_at DESC
-            ),
-            msg_count AS (
-              SELECT conversation_id, count(*)::int AS n
-              FROM message
-              WHERE conversation_id = ANY($1)
-              GROUP BY conversation_id
-            ),
-            sample AS (
-              SELECT
-                c.id, c.status, c.contact_id, c.created_at,
-                lm.direction      AS last_dir,
-                coalesce(mc.n, 0) AS msgs,
-                a.mood_label,
-                a.conv_probability,
-                a.rt_p50, a.rt_p90, a.rt_max,
-                a.treat_carinoso, a.treat_profesional, a.treat_vendedor, a.treat_seco,
-                jsonb_array_length(coalesce(a.red_flags, '[]'::jsonb)) AS rf_count,
-                a.red_flags,
-                a.intent->>'primary'              AS intent_primary,
-                a.escalation->>'should_escalate'  AS esc_flag
-              FROM conversation c
-              LEFT JOIN last_msg  lm ON lm.conversation_id = c.id
-              LEFT JOIN msg_count mc ON mc.conversation_id = c.id
-              LEFT JOIN analysis  a  ON a.conversation_id  = c.id
-              WHERE c.id = ANY($1)
+    # ── SQL KPIs + INSERT — own try/except so we never stick at 'saving' ──
+    try:
+        async with kpi.acquire() as conn:
+            dates = await conn.fetchrow(
+                """
+                SELECT min(created_at) AS period_start, max(created_at) AS period_end
+                FROM message
+                WHERE conversation_id = ANY($1)
+                """,
+                conv_ids,
             )
-            SELECT
-              -- Volumen
-              count(*)::int                                                 AS total_convs,
-              coalesce(sum(msgs), 0)::int                                   AS total_msgs,
-              coalesce(round(avg(msgs))::int, 0)                            AS avg_msgs,
-              count(DISTINCT contact_id)::int                               AS unique_clients,
-              -- Estado
-              count(*) FILTER (WHERE last_dir = 'out')::int                 AS answered,
-              count(*) FILTER (WHERE last_dir = 'in' OR last_dir IS NULL)::int AS unanswered,
-              count(*) FILTER (WHERE status = 'resolved')::int              AS resolved,
-              count(*) FILTER (WHERE status IN ('open','pending'))::int     AS open_count,
-              count(*) FILTER (WHERE esc_flag = 'true')::int                AS escalations,
-              -- Intención
-              count(*) FILTER (WHERE intent_primary = 'booking')::int       AS bookings,
-              count(*) FILTER (WHERE intent_primary = 'cotizacion')::int    AS quotes,
-              count(*) FILTER (WHERE intent_primary = 'informacion')::int   AS infos,
-              count(*) FILTER (WHERE intent_primary = 'queja')::int         AS complaints,
-              count(*) FILTER (WHERE intent_primary = 'chit_chat')::int     AS chitchat,
-              -- Conversión
-              coalesce(round(100.0 * count(*) FILTER (WHERE conv_probability > 0.5)::numeric
-                             / nullif(count(conv_probability), 0))::int, 0) AS conv_rate_pct,
-              -- Mood breakdown
-              count(*) FILTER (WHERE mood_label = 'decidido')::int          AS mood_decidido,
-              count(*) FILTER (WHERE mood_label = 'curioso')::int           AS mood_curioso,
-              count(*) FILTER (WHERE mood_label = 'calenton')::int          AS mood_calenton,
-              count(*) FILTER (WHERE mood_label = 'indeciso')::int          AS mood_indeciso,
-              count(*) FILTER (WHERE mood_label = 'enfadado')::int          AS mood_enfadado,
-              count(*) FILTER (WHERE mood_label = 'timewaster')::int        AS mood_timewaster,
-              -- Tiempo (en segundos para precisión)
-              coalesce(round(avg(rt_p50) / 1000.0)::int, 0)                 AS p50_sec,
-              coalesce(round(avg(rt_p90) / 1000.0)::int, 0)                 AS p90_sec,
-              coalesce(round(max(rt_max) / 1000.0)::int, 0)                 AS max_sec,
-              coalesce(round(100.0 * count(*) FILTER (WHERE rt_p50 < 60000)::numeric
-                             / nullif(count(rt_p50), 0))::int, 0)           AS fast_pct,
-              -- Trato (avg 0-10)
-              coalesce(round(avg(treat_carinoso),    1)::float, 0)          AS avg_carinoso,
-              coalesce(round(avg(treat_profesional), 1)::float, 0)          AS avg_profesional,
-              coalesce(round(avg(treat_vendedor),    1)::float, 0)          AS avg_vendedor,
-              coalesce(round(avg(treat_seco),        1)::float, 0)          AS avg_seco,
-              -- Red flags total
-              coalesce(sum(rf_count), 0)::int                               AS red_flags_total
-            FROM sample
-            """,
-            conv_ids,
-        )
 
-        # Convert asyncpg Record to plain dict for JSONB storage
-        kpis_dict = dict(kpi_row) if kpi_row else {}
-
-        meta_cost_usd = skills.compute_cost_usd(meta_token_acc)
-        await conn.execute(
-            """
-            INSERT INTO casa_meta_analysis (
-                account_id, wa_number_id, conversations_analyzed,
-                period_start, period_end,
-                summary, patterns, strengths, improvements, client_profile,
-                top_topics, avoided_topics, top_referrals, kpis,
-                claude_cost_usd, claude_tokens_in, claude_tokens_out
-            ) VALUES (
-                $1, $2, $3, $4, $5,
-                $6, $7::jsonb, $8::jsonb, $9::jsonb, $10,
-                $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb,
-                $15, $16, $17
+            # Reuse the kpi_row CTE from meta_analyze_casa_job — SAFE with zero
+            # analysis rows (LEFT JOIN analysis), so this works on the block path
+            # where conversations may have no per-conv analysis.
+            kpi_row = await conn.fetchrow(
+                """
+                WITH last_msg AS (
+                  SELECT DISTINCT ON (conversation_id)
+                    conversation_id, direction
+                  FROM message
+                  WHERE conversation_id = ANY($1)
+                  ORDER BY conversation_id, created_at DESC
+                ),
+                msg_count AS (
+                  SELECT conversation_id, count(*)::int AS n
+                  FROM message
+                  WHERE conversation_id = ANY($1)
+                  GROUP BY conversation_id
+                ),
+                sample AS (
+                  SELECT
+                    c.id, c.status, c.contact_id, c.created_at,
+                    lm.direction      AS last_dir,
+                    coalesce(mc.n, 0) AS msgs,
+                    a.mood_label,
+                    a.conv_probability,
+                    a.rt_p50, a.rt_p90, a.rt_max,
+                    a.treat_carinoso, a.treat_profesional, a.treat_vendedor, a.treat_seco,
+                    jsonb_array_length(coalesce(a.red_flags, '[]'::jsonb)) AS rf_count,
+                    a.red_flags,
+                    a.intent->>'primary'              AS intent_primary,
+                    a.escalation->>'should_escalate'  AS esc_flag
+                  FROM conversation c
+                  LEFT JOIN last_msg  lm ON lm.conversation_id = c.id
+                  LEFT JOIN msg_count mc ON mc.conversation_id = c.id
+                  LEFT JOIN analysis  a  ON a.conversation_id  = c.id
+                  WHERE c.id = ANY($1)
+                )
+                SELECT
+                  count(*)::int                                                 AS total_convs,
+                  coalesce(sum(msgs), 0)::int                                   AS total_msgs,
+                  coalesce(round(avg(msgs))::int, 0)                            AS avg_msgs,
+                  count(DISTINCT contact_id)::int                               AS unique_clients,
+                  count(*) FILTER (WHERE last_dir = 'out')::int                 AS answered,
+                  count(*) FILTER (WHERE last_dir = 'in' OR last_dir IS NULL)::int AS unanswered,
+                  count(*) FILTER (WHERE status = 'resolved')::int              AS resolved,
+                  count(*) FILTER (WHERE status IN ('open','pending'))::int     AS open_count,
+                  count(*) FILTER (WHERE esc_flag = 'true')::int                AS escalations,
+                  count(*) FILTER (WHERE intent_primary = 'booking')::int       AS bookings,
+                  count(*) FILTER (WHERE intent_primary = 'cotizacion')::int    AS quotes,
+                  count(*) FILTER (WHERE intent_primary = 'informacion')::int   AS infos,
+                  count(*) FILTER (WHERE intent_primary = 'queja')::int         AS complaints,
+                  count(*) FILTER (WHERE intent_primary = 'chit_chat')::int     AS chitchat,
+                  coalesce(round(100.0 * count(*) FILTER (WHERE conv_probability > 0.5)::numeric
+                                 / nullif(count(conv_probability), 0))::int, 0) AS conv_rate_pct,
+                  count(*) FILTER (WHERE mood_label = 'decidido')::int          AS mood_decidido,
+                  count(*) FILTER (WHERE mood_label = 'curioso')::int           AS mood_curioso,
+                  count(*) FILTER (WHERE mood_label = 'calenton')::int          AS mood_calenton,
+                  count(*) FILTER (WHERE mood_label = 'indeciso')::int          AS mood_indeciso,
+                  count(*) FILTER (WHERE mood_label = 'enfadado')::int          AS mood_enfadado,
+                  count(*) FILTER (WHERE mood_label = 'timewaster')::int        AS mood_timewaster,
+                  coalesce(round(avg(rt_p50) / 1000.0)::int, 0)                 AS p50_sec,
+                  coalesce(round(avg(rt_p90) / 1000.0)::int, 0)                 AS p90_sec,
+                  coalesce(round(max(rt_max) / 1000.0)::int, 0)                 AS max_sec,
+                  coalesce(round(100.0 * count(*) FILTER (WHERE rt_p50 < 60000)::numeric
+                                 / nullif(count(rt_p50), 0))::int, 0)           AS fast_pct,
+                  coalesce(round(avg(treat_carinoso),    1)::float, 0)          AS avg_carinoso,
+                  coalesce(round(avg(treat_profesional), 1)::float, 0)          AS avg_profesional,
+                  coalesce(round(avg(treat_vendedor),    1)::float, 0)          AS avg_vendedor,
+                  coalesce(round(avg(treat_seco),        1)::float, 0)          AS avg_seco,
+                  coalesce(sum(rf_count), 0)::int                               AS red_flags_total
+                FROM sample
+                """,
+                conv_ids,
             )
-            """,
-            casa_id, wa_number_id, len(summaries),
-            dates["period_start"], dates["period_end"],
-            result.summary,
-            json.dumps([p.model_dump() for p in result.patterns]),
-            json.dumps(result.strengths),
-            json.dumps(result.improvements),
-            result.client_profile,
-            json.dumps([t.model_dump() for t in result.top_topics]),
-            json.dumps(result.avoided_topics),
-            json.dumps([r.model_dump() for r in result.top_referrals]),
-            json.dumps(kpis_dict),
-            meta_cost_usd,
-            meta_token_acc.get("input", 0),
-            meta_token_acc.get("output", 0),
-        )
+            kpis_dict = dict(kpi_row) if kpi_row else {}
+
+            # ── by_hour + peak_hour + hours_top (Europe/Madrid) ──────
+            hour_rows = await conn.fetch(
+                """
+                SELECT extract(hour from created_at AT TIME ZONE 'Europe/Madrid')::int AS hour,
+                       count(*)::int AS n
+                FROM message
+                WHERE conversation_id = ANY($1)
+                GROUP BY hour
+                """,
+                conv_ids,
+            )
+            by_hour = [0] * 24
+            for hr in hour_rows:
+                h = hr["hour"]
+                if 0 <= h <= 23:
+                    by_hour[h] = hr["n"]
+            kpis_dict["by_hour"] = by_hour
+            kpis_dict["peak_hour"] = (
+                max(range(24), key=lambda h: by_hour[h]) if any(by_hour) else None
+            )
+            kpis_dict["hours_top"] = [
+                {"hour": h, "count": by_hour[h]}
+                for h in sorted(range(24), key=lambda h: by_hour[h], reverse=True)
+                if by_hour[h] > 0
+            ][:3]
+
+            # ── by_dow (7 ints Mon..Sun, Europe/Madrid) ──────────────
+            dow_rows = await conn.fetch(
+                """
+                SELECT extract(dow from created_at AT TIME ZONE 'Europe/Madrid')::int AS dow,
+                       count(*)::int AS n
+                FROM message
+                WHERE conversation_id = ANY($1)
+                GROUP BY dow
+                """,
+                conv_ids,
+            )
+            by_dow = [0] * 7
+            for dr in dow_rows:
+                # Postgres dow: 0=Sun..6=Sat → Monday-first index (dow+6)%7
+                by_dow[(dr["dow"] + 6) % 7] = dr["n"]
+            kpis_dict["by_dow"] = by_dow
+
+            # ── Marketing heatmap (INBOUND only) — cuándo escriben los CLIENTES ──
+            # The casa/número informe doubles as a marketing tool: knowing when
+            # leads arrive tells the casa when to advertise / stay online. All
+            # of this is inbound-only (direction='in'), scoped to conv_ids, in
+            # Europe/Madrid wall-clock. Wrapped so a failure can't break the
+            # informe — on any error heat_in/marketing simply stay unset.
+            try:
+                heat_rows = await conn.fetch(
+                    """
+                    SELECT extract(dow  from created_at AT TIME ZONE 'Europe/Madrid')::int AS dow,
+                           extract(hour from created_at AT TIME ZONE 'Europe/Madrid')::int AS hour,
+                           count(*)::int AS n
+                    FROM message
+                    WHERE conversation_id = ANY($1) AND direction = 'in'
+                    GROUP BY dow, hour
+                    """,
+                    conv_ids,
+                )
+                # 7×24 grid (rows Mon..Sun, cols hours 0-23) + flat projections.
+                heat_in = [[0] * 24 for _ in range(7)]
+                by_hour_in = [0] * 24
+                by_dow_in = [0] * 7
+                for hr in heat_rows:
+                    d = hr["dow"]
+                    h = hr["hour"]
+                    if not (0 <= h <= 23) or not (0 <= d <= 6):
+                        continue
+                    mon_d = (d + 6) % 7  # Postgres 0=Sun..6=Sat → Mon-first
+                    heat_in[mon_d][h] = hr["n"]
+                    by_hour_in[h] += hr["n"]
+                    by_dow_in[mon_d] += hr["n"]
+                kpis_dict["heat_in"] = heat_in
+                kpis_dict["by_hour_in"] = by_hour_in
+                kpis_dict["by_dow_in"] = by_dow_in
+
+                marketing = _compute_marketing(by_hour_in, by_dow_in)
+                if marketing:
+                    kpis_dict["marketing"] = marketing
+            except Exception:
+                logger.exception(
+                    "marketing heatmap compute failed for casa %s wa %s",
+                    casa_id, wa_number_id,
+                )
+
+            # ── First response: per conv min(in) then min(out >= that) ─
+            fr_row = await conn.fetchrow(
+                """
+                WITH first_in AS (
+                  SELECT conversation_id, min(created_at) AS t_in
+                  FROM message
+                  WHERE conversation_id = ANY($1) AND direction = 'in'
+                  GROUP BY conversation_id
+                ),
+                first_out AS (
+                  SELECT fi.conversation_id,
+                         min(m.created_at) AS t_out, fi.t_in
+                  FROM first_in fi
+                  JOIN message m ON m.conversation_id = fi.conversation_id
+                                AND m.direction = 'out'
+                                AND m.created_at >= fi.t_in
+                  GROUP BY fi.conversation_id, fi.t_in
+                ),
+                deltas AS (
+                  SELECT extract(epoch from (t_out - t_in)) AS secs
+                  FROM first_out
+                )
+                SELECT
+                  coalesce(round(percentile_cont(0.5) WITHIN GROUP (ORDER BY secs))::int, 0) AS fr_p50_sec,
+                  coalesce(round(percentile_cont(0.9) WITHIN GROUP (ORDER BY secs))::int, 0) AS fr_p90_sec,
+                  coalesce(round(100.0 * count(*) FILTER (WHERE secs < 300)::numeric
+                                 / nullif(count(*), 0))::int, 0)                             AS fr_under_5min_pct
+                FROM deltas
+                """,
+                conv_ids,
+            )
+            if fr_row:
+                kpis_dict["first_response"] = {
+                    "p50_sec": fr_row["fr_p50_sec"],
+                    "p90_sec": fr_row["fr_p90_sec"],
+                    "pct_under_5min": fr_row["fr_under_5min_pct"],
+                }
+
+            # ── Returning %: contact_id with >=2 total conversations ──
+            returning_pct = await conn.fetchval(
+                """
+                WITH scope AS (
+                  SELECT DISTINCT contact_id
+                  FROM conversation
+                  WHERE id = ANY($1)
+                ),
+                counts AS (
+                  SELECT s.contact_id,
+                         (SELECT count(*) FROM conversation c2
+                          WHERE c2.contact_id = s.contact_id AND c2.id = ANY($2)) AS total
+                  FROM scope s
+                )
+                SELECT coalesce(round(100.0 * count(*) FILTER (WHERE total >= 2)::numeric
+                               / nullif(count(*), 0))::int, 0)
+                FROM counts
+                """,
+                conv_ids,
+                conv_ids,
+            )
+            kpis_dict["returning_pct"] = int(returning_pct or 0)
+
+            # ── Oldest unanswered (hours) — last msg from client ──────
+            oldest_unanswered = await conn.fetchval(
+                """
+                WITH last_msg AS (
+                  SELECT DISTINCT ON (conversation_id)
+                    conversation_id, direction, created_at
+                  FROM message
+                  WHERE conversation_id = ANY($1)
+                  ORDER BY conversation_id, created_at DESC
+                )
+                SELECT coalesce(
+                  round(extract(epoch from (now() - min(created_at))) / 3600.0)::int, 0)
+                FROM last_msg
+                WHERE direction = 'in'
+                """,
+                conv_ids,
+            )
+            kpis_dict["oldest_unanswered_hours"] = int(oldest_unanswered or 0)
+
+            # ── Money KPIs (Entrega 2) — aggregated by the IA in the SAME call.
+            # Stored inside the existing kpis JSONB (no migration, no new
+            # columns). .model_dump() keeps list/obj fields JSON-serializable.
+            kpis_dict["funnel"] = result.funnel.model_dump()
+            kpis_dict["confirmed_bookings"] = result.confirmed_bookings
+            kpis_dict["confirmed_rate_pct"] = result.confirmed_rate_pct
+            kpis_dict["estimated_revenue_eur"] = result.estimated_revenue_eur
+            kpis_dict["revenue_is_estimate"] = result.revenue_is_estimate
+            kpis_dict["lost_reasons"] = [r.model_dump() for r in result.lost_reasons]
+            kpis_dict["top_chicas"] = [c.model_dump() for c in result.top_chicas]
+            kpis_dict["top_services"] = [s.model_dump() for s in result.top_services]
+            kpis_dict["upsell_count"] = result.upsell_count
+            kpis_dict["upsell_pct"] = result.upsell_pct
+            kpis_dict["channel_roi"] = [r.model_dump() for r in result.channel_roi]
+
+            block_cost_usd = skills.compute_cost_usd(block_token_acc)
+            await conn.execute(
+                """
+                INSERT INTO casa_meta_analysis (
+                    account_id, wa_number_id, conversations_analyzed,
+                    period_start, period_end,
+                    summary, patterns, strengths, improvements, client_profile,
+                    top_topics, avoided_topics, top_referrals, kpis,
+                    claude_cost_usd, claude_tokens_in, claude_tokens_out
+                ) VALUES (
+                    $1, $2, $3, $4, $5,
+                    $6, $7::jsonb, $8::jsonb, $9::jsonb, $10,
+                    $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb,
+                    $15, $16, $17
+                )
+                """,
+                casa_id, wa_number_id, len(transcripts),
+                dates["period_start"], dates["period_end"],
+                result.summary,
+                json.dumps([]),  # patterns — not produced by the block path
+                json.dumps(result.strengths),
+                json.dumps(result.improvements),
+                result.client_profile,
+                json.dumps([t.model_dump() for t in result.top_topics]),
+                json.dumps([]),  # avoided_topics — not produced by the block path
+                json.dumps([r.model_dump() for r in result.top_referrals]),
+                json.dumps(kpis_dict),
+                block_cost_usd,
+                block_token_acc.get("input", 0),
+                block_token_acc.get("output", 0),
+            )
+
+            # Alert rows for menor/fraude red flags (no conversation_id — the
+            # block path reads many convs at once, so the flag is casa-scoped).
+            for f in result.red_flags:
+                if f.type in ("menor", "fraude"):
+                    await conn.execute(
+                        """
+                        INSERT INTO alert (type, severity, inbox_id, message)
+                        VALUES ('red_flag', 'critical', $1, $2)
+                        """,
+                        casa_id, f"{f.type}: {f.reason}",
+                    )
+    except Exception:
+        logger.exception("block-analysis save failed for casa %s wa %s",
+                         casa_id, wa_number_id)
+        if redis:
+            await prog.set_progress(redis, pkey, phase="error", pct=100,
+                                    message="Error al guardar — revisa logs",
+                                    started_at=started)
+        return
 
     if redis:
-        # Mark done; frontend polls and reloads when it sees this
         await prog.set_progress(redis, pkey, phase="done", pct=100,
-                                message="✓ Informe completado",
-                                started_at=started)
-        # Clear the running flag (per-scope key — see analysis_ops._meta_running_key)
+                                message="✓ Informe completado", started_at=started)
         scope_suffix = f":wa:{wa_number_id}" if wa_number_id else ""
         await redis.delete(f"casa:{casa_id}{scope_suffix}:meta_running")
-        # Note: progress key keeps its TTL (600s) so polling sees `done` for a bit
 
     duration_ms = int((time.time() - started) * 1000)
     logger.info(
-        '{"event":"meta_analysis_done","casa_id":%d,"duration_ms":%d,"patterns":%d}',
-        casa_id, duration_ms, len(result.patterns),
+        '{"event":"block_analysis_done","casa_id":%d,"wa":%s,"convs":%d,"duration_ms":%d}',
+        casa_id, wa_number_id, len(transcripts), duration_ms,
     )
 
 
@@ -736,138 +841,95 @@ async def waha_health_check_job(ctx: dict) -> None:
                 await _bump_fail()
 
 
-async def analyze_conversations_bulk_job(
-    ctx: dict,
-    casa_id: int,
-    wa_number_id: int | None = None,
-    since_hours: int | None = 24,
-    include_open: bool = True,
-    redo_dirty: bool = True,
-    auto_meta: bool = False,
-    max_convs: int = 200,
-) -> None:
-    """Bulk-analyze conversations + (optionally) chain into the meta-analysis.
-
-    Defaults match the on-demand "Generar informe" flow:
-      - last 24h, open + closed, re-analyze dirty
-      - auto_meta=True triggered from the UI 🧠 button → calls
-        meta_analyze_casa_job in the same worker run when bulk completes
-
-    Progress is published to Redis under progress_key("bulk", casa, wa) and
-    the frontend polls for it. When auto_meta=True the frontend also polls
-    progress_key("meta", casa, wa) after bulk reports done.
-    """
-    import time
-    from app.queries import list_unanalyzed_conversation_ids
-
+async def block_analyze_sweep_job(ctx: dict) -> None:
+    """CRON (daily): refresh EACH casa's informe so /metricas + /informes don't go
+    stale. block_analyze is on-demand only otherwise, and list_latest_meta_per_casa
+    filters by run_at within the period — so an un-clicked casa silently DROPS OUT
+    of the aggregate. This enqueues ONE block_analyze per casa, skipping casas with
+    an in-flight informe (reuses the analysis_ops meta running flag), staggered to
+    spread the Claude load. Cheap here (find + enqueue only; the LLM runs in the
+    per-casa job). Wrapped so a sweep failure never tumbles the cron loop."""
     kpi: asyncpg.Pool = ctx["kpi_db"]
+    arq = ctx.get("arq")
     redis = ctx.get("redis")
-    started = time.time()
-    pkey = prog.progress_key("bulk", casa_id, wa_number_id)
-
-    if redis:
-        await prog.set_progress(redis, pkey, phase="fetching", pct=0,
-                                message="Buscando conversaciones a analizar…",
-                                started_at=started)
-
-    # User-configurable cap (default 200). Hard ceiling 500 to stay within
-    # 900s job_timeout even at slow Claude response (~5s/conv parallel(5)).
-    safe_limit = max(1, min(int(max_convs or 200), 500))
-    ids = await list_unanalyzed_conversation_ids(
-        kpi, casa_id,
-        wa_number_id=wa_number_id,
-        since_hours=since_hours,
-        include_open=include_open,
-        redo_dirty=redo_dirty,
-        limit=safe_limit,
-    )
-    total = len(ids)
-    scope = f"wa {wa_number_id}" if wa_number_id else "casa-wide"
-    logger.info("bulk analyze casa %s %s → %d convs (since_hours=%s)",
-                casa_id, scope, total, since_hours)
-
-    if total == 0:
-        if redis:
-            await prog.set_progress(redis, pkey, phase="done", pct=100,
-                                    message="Sin conversaciones nuevas",
-                                    started_at=started)
-        # Even if nothing to bulk-analyze, run meta if asked — the existing
-        # analyses already cover the window.
-        if auto_meta:
-            await asyncio.sleep(0.3)
-            try:
-                await meta_analyze_casa_job(
-                    ctx, casa_id, wa_number_id,
-                    since_hours=since_hours,
-                    max_convs=safe_limit,
-                )
-            except Exception:
-                logger.exception("auto-meta after empty bulk failed")
+    if arq is None or redis is None:
+        logger.warning("block_sweep: missing arq/redis handle — skip")
         return
-
-    sem = asyncio.Semaphore(5)
-    done_count = 0
-    PER_CONV_TIMEOUT = 60.0  # one stuck Claude call shouldn't block the whole bulk
-
-    async def _bounded(conv_id: int) -> None:
-        nonlocal done_count
-        async with sem:
-            try:
-                await asyncio.wait_for(
-                    analyze_conversation_job(ctx, conv_id),
-                    timeout=PER_CONV_TIMEOUT,
-                )
-            except asyncio.TimeoutError:
-                logger.warning("bulk: conv %s timed out after %.0fs — skipped",
-                               conv_id, PER_CONV_TIMEOUT)
-            except Exception:
-                logger.exception("bulk: failed conv %s", conv_id)
-            done_count += 1
-            if redis:
-                # Bulk reserves 0–95% of the bar (meta has its own progress key)
-                pct = min(95, int(done_count / total * 95))
-                await prog.set_progress(
-                    redis, pkey, phase="analyzing", pct=pct,
-                    message=f"Analizando {done_count}/{total} conversaciones…",
-                    started_at=started,
-                )
-
-    await asyncio.gather(*[_bounded(cid) for cid in ids], return_exceptions=True)
-
-    if redis:
-        await prog.set_progress(redis, pkey, phase="done", pct=100,
-                                message=f"✓ {total} conversaciones procesadas",
-                                started_at=started)
-
-    duration_ms = int((time.time() - started) * 1000)
-    logger.info(
-        '{"event":"bulk_analyze_done","casa_id":%d,"wa":%s,"convs":%d,"duration_ms":%d}',
-        casa_id, wa_number_id, total, duration_ms,
-    )
-
-    # Auto-cadena: meta-análisis inline en el mismo worker run.
-    # Con job_timeout=900s y bulk capeado a 200 convs (~200s + ~90s meta = ~290s),
-    # cabe con margen. Inline simplifica: comparte ctx, comparte conexión a kpi_db,
-    # no requiere ArqRedis en ctx['redis'].
-    if auto_meta:
-        await asyncio.sleep(0.5)  # frontend ve 100% bulk antes de pasar a meta
+    try:
+        casas = await queries.list_casas(kpi)
+    except Exception:
+        logger.exception("block_sweep: list_casas query failed")
+        return
+    enqueued = 0
+    for i, casa in enumerate(casas):
+        cid = casa.account_id
         try:
-            # Forward the same window + cap to the meta so the user-chosen
-            # scope is honoured end-to-end.
-            await meta_analyze_casa_job(
-                ctx, casa_id, wa_number_id,
-                since_hours=since_hours,
-                max_convs=safe_limit,
+            # Same casa-wide SETNX running flag the manual trigger uses
+            # (analysis_ops._meta_running_key(cid, None)) so a daily run never
+            # collides with an in-flight manual informe; nx → also dedups ticks.
+            if not await redis.set(f"casa:{cid}:meta_running", "1", nx=True, ex=900):
+                continue
+            # 168h window / 200 convs = the manual default; stagger 30s apart.
+            await arq.enqueue_job(
+                "block_analyze_casa_job",
+                cid, None, 168, 200, None, None,
+                _defer_by=i * 30,
             )
+            enqueued += 1
         except Exception:
-            logger.exception("auto-meta after bulk failed")
+            logger.exception("block_sweep: enqueue failed casa=%s", cid)
+    logger.info("block_sweep: enqueued %d casa informe(s)", enqueued)
+
+
+async def harvest_style_examples_job(ctx: dict) -> None:
+    """CRON (daily): harvest real HUMAN receptionist replies per casa into
+    `casa_style_example` as status='pending' for super-admin review (Wave 2 —
+    Sara learns from how the team replies). Pure read+insert (no LLM, no sends,
+    no sleeps), each casa fault-isolated so one casa's failure never tumbles the
+    sweep. The actual sanitization/classification lives in app.agent.style_harvest."""
+    kpi: asyncpg.Pool = ctx["kpi_db"]
+    try:
+        casas = await queries.list_casas(kpi)
+    except Exception:
+        logger.exception("style_harvest: list_casas query failed")
+        return
+    total = 0
+    for casa in casas:
+        try:
+            total += await style_harvest.harvest_casa(kpi, casa.account_id)
+        except Exception:
+            logger.exception("style_harvest: harvest failed casa=%s", casa.account_id)
+    logger.info("style_harvest: inserted %d new style-example candidate(s)", total)
 
 
 class WorkerSettings:
-    functions = [analyze_conversation_job, meta_analyze_casa_job, analyze_conversations_bulk_job]
-    cron_jobs = [cron(waha_health_check_job, minute=set(range(60)))]  # every minute
+    functions = [
+        block_analyze_casa_job,
+        auto_reply_job,
+        followup_send_job,  # per-conversation abandoned-quote nudge (normal job)
+        website_sync_job,  # also enqueueable on-demand for a one-off sync
+    ]
+    cron_jobs = [
+        cron(waha_health_check_job, minute=set(range(60))),  # every minute
+        # Mirror each casa's LIVE website (config + girls) into the DB every
+        # ~20 min — bounded HTTP fetch per casa, fault-tolerant (website_sync).
+        cron(website_sync_job, minute={0, 20, 40}),
+        # Find abandoned quotes (Sara quoted a price, client went silent) and
+        # enqueue ONE re-engagement nudge each. Cheap: find + enqueue only, no
+        # sends/LLM/sleeps in the cron (followup_sweep_job).
+        cron(followup_sweep_job, minute={5, 15, 25, 35, 45, 55}),
+        # Daily informe refresh (~05:00 UTC ≈ 07:00 Madrid summer / 06:00 winter),
+        # off-peak for nightlife casas — keeps /metricas + /informes fresh so
+        # un-clicked casas don't drop out of the aggregate (block_analyze_sweep_job).
+        cron(block_analyze_sweep_job, hour={5}, minute={0}),
+        # Daily harvest of real human-receptionist replies into style-example
+        # candidates (~04:30 UTC). A super-admin approves them in /ajustes/estilo;
+        # approved ones are injected into Sara's prompt (most relevant to the
+        # client's message first) so she learns how the team answers each situation.
+        cron(harvest_style_examples_job, hour={4}, minute={30}),
+    ]
     on_startup = startup
     on_shutdown = shutdown
     max_jobs = 10
-    job_timeout = 900  # 15 min — bulk-analyze of 200 convs × Semaphore(5) × ~5s each ≈ 200s; meta ≈ 60-90s; gives wide margin
+    job_timeout = 900  # 15 min — block-analysis reads transcripts in one Claude call (~90-180s); wide margin
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

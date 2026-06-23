@@ -58,7 +58,10 @@ async def export_conversations_csv(
 ) -> StreamingResponse:
     casa_name = await _get_casa_name(kpi, casa_id)
 
-    rows, _ = await queries.list_conversations(kpi, casa_id=casa_id, limit=1000, offset=0)
+    # with_counts=True: the CSV is the only consumer of message_count.
+    rows, _ = await queries.list_conversations(
+        kpi, casa_id=casa_id, limit=1000, offset=0, with_counts=True
+    )
 
     conv_ids = [r.id for r in rows]
     analysis_map: dict[int, dict] = {}
@@ -262,242 +265,6 @@ async def export_transcript_txt(
     return _download_response("\n".join(lines), fname, "text/plain; charset=utf-8")
 
 
-# ── Per-conversation analysis report (printable HTML → PDF) ───────
-
-async def _fetch_conversation_report(kpi, conversation_id: int) -> dict:
-    """Load conversation detail + analysis + messages for the report view."""
-    detail = await queries.get_conversation_detail(kpi, conversation_id)
-    if not detail:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversación no encontrada")
-
-    async with kpi.acquire() as conn:
-        analysis_row = await conn.fetchrow(
-            "SELECT * FROM analysis WHERE conversation_id = $1", conversation_id,
-        )
-
-    analysis_dict: dict | None = None
-    if analysis_row:
-        analysis_dict = dict(analysis_row)
-        for field in ("coaching", "red_flags", "intent", "next_action", "escalation"):
-            v = analysis_dict.get(field)
-            if isinstance(v, str):
-                try:
-                    analysis_dict[field] = _json.loads(v)
-                except (TypeError, ValueError):
-                    analysis_dict[field] = None
-
-    messages = await queries.list_messages_for_conversation(kpi, conversation_id)
-    contact_label = detail.contact_name or detail.contact_phone or detail.contact_jid or "Contacto"
-
-    return {
-        "detail": detail,
-        "analysis": analysis_dict,
-        "messages": messages,
-        "contact_label": contact_label,
-    }
-
-
-@router.get("/conversation/{conversation_id}/report", response_class=HTMLResponse)
-async def report_conversation_html(
-    request: Request,
-    conversation_id: int,
-    user: CurrentUser,  # noqa: ARG001
-    kpi: KpiDB,
-    transcript: int = 1,  # ?transcript=0 para omitir la transcripción
-) -> HTMLResponse:
-    """Printable HTML report. Usuario abre en nueva pestaña → Ctrl+P → Guardar como PDF."""
-    ctx = await _fetch_conversation_report(kpi, conversation_id)
-    detail = ctx["detail"]
-    return templates.TemplateResponse(
-        request,
-        "report_conversation.html",
-        {
-            "conv": detail,
-            "casa_name": detail.casa_name,
-            "wa_label": detail.wa_label,
-            "contact_label": ctx["contact_label"],
-            "analysis": ctx["analysis"],
-            "messages": ctx["messages"],
-            "msg_count": len(ctx["messages"]),
-            "include_transcript": bool(transcript),
-            "now": datetime.now(timezone.utc),
-        },
-    )
-
-
-@router.get("/conversation/{conversation_id}/report.docx")
-async def report_conversation_docx(
-    conversation_id: int,
-    user: CurrentUser,  # noqa: ARG001
-    kpi: KpiDB,
-    transcript: int = 0,  # transcript opt-in in DOCX (makes the file huge)
-) -> Response:
-    """DOCX analysis report — editable in Word / Google Docs."""
-    try:
-        from docx import Document  # type: ignore
-        from docx.shared import Pt, RGBColor
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="python-docx no instalado — rebuild del contenedor necesario",
-        ) from exc
-
-    ctx = await _fetch_conversation_report(kpi, conversation_id)
-    detail = ctx["detail"]
-    analysis = ctx["analysis"]
-
-    doc = Document()
-    doc.add_heading(f"Informe de conversación #{detail.id}", level=0)
-    sub = doc.add_paragraph()
-    sub.add_run(f"{detail.casa_name} · {detail.wa_label or 'WhatsApp'} · {ctx['contact_label']}").italic = True
-
-    # Meta table
-    tbl = doc.add_table(rows=1, cols=4)
-    tbl.style = "Light Grid Accent 1"
-    hdr = tbl.rows[0].cells
-    hdr[0].text = "Conversación"
-    hdr[1].text = "Mensajes"
-    hdr[2].text = "Inicio"
-    hdr[3].text = "Analizado"
-    row = tbl.add_row().cells
-    row[0].text = f"#{detail.id}"
-    row[1].text = str(len(ctx["messages"]))
-    row[2].text = detail.created_at.strftime("%d/%m/%Y %H:%M")
-    row[3].text = analysis["analyzed_at"].strftime("%d/%m/%Y %H:%M") if analysis else "—"
-
-    if not analysis:
-        doc.add_paragraph()
-        p = doc.add_paragraph()
-        r = p.add_run("Esta conversación aún no tiene análisis IA. Solicita un análisis y vuelve a generar el informe.")
-        r.bold = True
-    else:
-        # Escalation
-        esc = analysis.get("escalation") or {}
-        if esc.get("should_escalate"):
-            doc.add_heading(f"⚠ Escalar a admin · {esc.get('severity', 'n/a')}", level=2)
-            if esc.get("reason"):
-                doc.add_paragraph(esc["reason"])
-            for t in esc.get("triggers") or []:
-                doc.add_paragraph(f"• {t}")
-
-        # Intent
-        intent = analysis.get("intent") or {}
-        if intent:
-            doc.add_heading("Intención del cliente", level=2)
-            p = doc.add_paragraph()
-            p.add_run(f"{intent.get('primary', '—')}").bold = True
-            if intent.get("secondary"):
-                p.add_run(f"  · {', '.join(intent['secondary'])}")
-            p.add_run(f"  · confianza {int((intent.get('confidence') or 0) * 100)}%")
-            doc.add_paragraph(intent.get("reasoning") or "")
-
-        # Next action
-        na = analysis.get("next_action") or {}
-        if na:
-            doc.add_heading("Próxima acción", level=2)
-            p = doc.add_paragraph()
-            p.add_run(f"{na.get('action', '—')}").bold = True
-            p.add_run(f"  · urgencia: {na.get('urgency', '—')}")
-            doc.add_paragraph(na.get("why") or "")
-            if na.get("suggested_message"):
-                doc.add_heading("Mensaje sugerido", level=3)
-                para = doc.add_paragraph(na["suggested_message"])
-                para.runs[0].font.size = Pt(11)
-
-        # Mood + conversion
-        doc.add_heading("Estado del cliente", level=2)
-        doc.add_paragraph(f"Mood: {analysis.get('mood_label', '—')} ({analysis.get('mood_score', 0)}/10)")
-        if analysis.get("mood_reasoning"):
-            doc.add_paragraph(analysis["mood_reasoning"])
-        pct = int((analysis.get("conv_probability") or 0) * 100)
-        doc.add_paragraph(f"Probabilidad de conversión: {pct}%")
-
-        # Treatment
-        doc.add_heading("Trato de la mamai", level=2)
-        for label, val in [
-            ("Cariñoso",    analysis.get("treat_carinoso", 0)),
-            ("Profesional", analysis.get("treat_profesional", 0)),
-            ("Vendedor",    analysis.get("treat_vendedor", 0)),
-            ("Seco",        analysis.get("treat_seco", 0)),
-        ]:
-            doc.add_paragraph(f"{label}: {val}/10")
-
-        # Response times
-        doc.add_heading("Tiempos de respuesta", level=2)
-        doc.add_paragraph(
-            f"p50 = {(analysis.get('rt_p50') or 0) // 1000} s · "
-            f"p90 = {(analysis.get('rt_p90') or 0) // 60000} min · "
-            f"max = {(analysis.get('rt_max') or 0) // 60000} min"
-        )
-
-        # Red flags
-        flags = analysis.get("red_flags") or []
-        if isinstance(flags, list) and flags:
-            doc.add_heading("Red flags", level=2)
-            for f in flags:
-                if isinstance(f, dict):
-                    doc.add_paragraph(f"• {f.get('type', '?')}: {f.get('reason', '')}")
-
-        # Coaching
-        coaching = analysis.get("coaching") or {}
-        if coaching:
-            doc.add_heading("Coaching — cómo mejorar la próxima vez", level=1)
-            if coaching.get("overall"):
-                doc.add_paragraph(coaching["overall"])
-            if coaching.get("went_well"):
-                doc.add_heading("Bien hecho", level=3)
-                for w in coaching["went_well"]:
-                    doc.add_paragraph(f"• {w}")
-            if coaching.get("missed_opportunities"):
-                doc.add_heading("Oportunidades perdidas", level=3)
-                for mo in coaching["missed_opportunities"]:
-                    if isinstance(mo, dict):
-                        p = doc.add_paragraph()
-                        r = p.add_run(f"“{mo.get('moment', '')}”")
-                        r.italic = True
-                        doc.add_paragraph(f"→ {mo.get('suggestion', '')}")
-            if coaching.get("response_tips"):
-                doc.add_heading("Tips de respuesta", level=3)
-                for t in coaching["response_tips"]:
-                    doc.add_paragraph(f"• {t}")
-            if coaching.get("tone_tips"):
-                doc.add_heading("Tips de tono", level=3)
-                for t in coaching["tone_tips"]:
-                    doc.add_paragraph(f"• {t}")
-            if coaching.get("example_reply"):
-                doc.add_heading("Ejemplo de respuesta ideal", level=3)
-                doc.add_paragraph(coaching["example_reply"])
-
-    if transcript:
-        doc.add_heading("Transcripción", level=1)
-        for m in ctx["messages"]:
-            role = "MAMAI" if m.direction == "out" else "CLIENTE"
-            ts = m.created_at.strftime("%d/%m %H:%M")
-            body = m.body or ("(media)" if m.media_url else "")
-            doc.add_paragraph(f"[{ts}] {role}: {body}")
-
-    doc.add_paragraph()
-    footer = doc.add_paragraph()
-    footer.add_run(
-        f"Informe generado por Maxxag Ops · {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')} · conv #{detail.id}"
-    ).italic = True
-
-    buf = io.BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-
-    fname = f"conv-{detail.id}-{ctx['contact_label']}-{date.today().isoformat()}.docx"
-    safe = _safe_filename(fname)
-    return Response(
-        content=buf.read(),
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={
-            "Content-Disposition": f'attachment; filename="{safe}"; filename*=UTF-8\'\'{quote(fname)}',
-            "Cache-Control": "no-store",
-        },
-    )
-
-
 # ── Per-informe export (Markdown / DOCX / printable HTML) ──────────
 
 def _informe_filename_stem(informe) -> str:
@@ -536,6 +303,45 @@ def _informe_to_markdown(informe) -> str:
 
     if informe.summary:
         lines += ["> " + informe.summary, ""]
+
+    if informe.strengths:
+        lines += ["## ✅ Qué va bien", ""]
+        lines += [f"- {s}" for s in informe.strengths]
+        lines.append("")
+    if informe.improvements:
+        lines += ["## 🔧 Qué cambiar (lo primero es lo más urgente)", ""]
+        lines += [f"{i}. {imp}" for i, imp in enumerate(informe.improvements, 1)]
+        lines.append("")
+    if informe.client_profile:
+        lines += ["## 👤 Cliente típico", "", informe.client_profile, ""]
+
+    # 💰 Dinero (Entrega 2) — solo si el informe de bloque trae datos de cierre
+    fn = k.get("funnel") or {}
+    if (k.get("confirmed_bookings") or 0) > 0 or (fn.get("escriben") or 0) > 0:
+        lines += [
+            "## 💰 Dinero", "",
+            "| Métrica | Valor |", "|--------|-------|",
+            _kv("Tasa de cierre", f"{k.get('confirmed_rate_pct', 0) or 0} %"),
+            _kv("Reservas cerradas", k.get("confirmed_bookings", 0) or 0),
+            _kv("Ingreso estimado", f"{round(k.get('estimated_revenue_eur', 0) or 0)} €"),
+            "",
+            "**Embudo:** "
+            f"escriben {fn.get('escriben', 0) or 0} → "
+            f"precio {fn.get('preguntan_precio', 0) or 0} → "
+            f"hora {fn.get('negocian_hora', 0) or 0} → "
+            f"cierran {fn.get('cierran', 0) or 0}",
+            "",
+        ]
+        if k.get("lost_reasons"):
+            lines += ["**Por qué no se cierra:** " + ", ".join(
+                f"{r.get('reason', '?')} ({r.get('count', 0)})" for r in k["lost_reasons"]
+            ), ""]
+        if k.get("channel_roi"):
+            lines += ["### ROI por canal — qué web cierra", "",
+                      "| Canal | Llegan | Cierran |", "|------|-------|--------|"]
+            lines += [f"| {c.get('source', '—')} | {c.get('contacts', 0)} | {c.get('closed', 0)} |"
+                      for c in k["channel_roi"]]
+            lines.append("")
 
     lines += [
         "## 📊 Volumen",
@@ -606,6 +412,29 @@ def _informe_to_markdown(informe) -> str:
             _kv("Escalaciones", k.get("escalations", 0) or 0),
             "",
         ]
+
+    if k.get("hours_top"):
+        lines += [
+            "## ⏰ Horas punta — cuándo entra la gente", "",
+            "| Hora | Mensajes |", "|------|----------|",
+        ]
+        for h in k["hours_top"]:
+            lines.append(f"| {h.get('hour', 0):02d}:00 | {h.get('count', 0)} |")
+        lines.append("")
+
+    if k.get("wa_comparison"):
+        lines += [
+            "## 📱 Comparativa de WhatsApps", "",
+            "| WhatsApp | Convs | Conversión | Respuesta | Seca |",
+            "|----------|-------|-----------|-----------|------|",
+        ]
+        for w in k["wa_comparison"]:
+            lines.append(
+                f"| {w.get('label', '—')} | {w.get('convs', 0)} | "
+                f"{w.get('conv_rate_pct', 0)}% | {w.get('p50_sec', 0)}s | "
+                f"{w.get('avg_seco', 0)}/10 |"
+            )
+        lines.append("")
 
     if informe.top_referrals:
         lines += ["## 🌐 De dónde llegan", ""]
@@ -712,6 +541,42 @@ async def export_informe_docx(
             run = cell.paragraphs[0].add_run(str(value))
             run.bold = True
 
+    if informe.strengths:
+        doc.add_heading("Qué va bien", level=1)
+        for s in informe.strengths:
+            doc.add_paragraph(f"• {s}")
+    if informe.improvements:
+        doc.add_heading("Qué cambiar (lo primero es lo más urgente)", level=1)
+        for i, imp in enumerate(informe.improvements, 1):
+            doc.add_paragraph(f"{i}. {imp}")
+    if informe.client_profile:
+        doc.add_heading("Cliente típico", level=1)
+        doc.add_paragraph(informe.client_profile)
+
+    # 💰 Dinero (Entrega 2) — solo si el informe de bloque trae datos de cierre
+    fn = k.get("funnel") or {}
+    if (k.get("confirmed_bookings") or 0) > 0 or (fn.get("escriben") or 0) > 0:
+        doc.add_heading("Dinero", level=1)
+        _kv_table([
+            ("Tasa de cierre", f"{k.get('confirmed_rate_pct', 0) or 0} %"),
+            ("Reservas cerradas", k.get("confirmed_bookings", 0) or 0),
+            ("Ingreso estimado", f"{round(k.get('estimated_revenue_eur', 0) or 0)} €"),
+        ])
+        doc.add_paragraph(
+            f"Embudo: escriben {fn.get('escriben', 0) or 0} → precio {fn.get('preguntan_precio', 0) or 0} "
+            f"→ hora {fn.get('negocian_hora', 0) or 0} → cierran {fn.get('cierran', 0) or 0}"
+        )
+        if k.get("lost_reasons"):
+            doc.add_paragraph("Por qué no se cierra: " + ", ".join(
+                f"{r.get('reason', '?')} ({r.get('count', 0)})" for r in k["lost_reasons"]
+            ))
+        if k.get("channel_roi"):
+            doc.add_heading("ROI por canal — qué web cierra", level=2)
+            for c in k["channel_roi"]:
+                doc.add_paragraph(
+                    f"• {c.get('source', '—')}: llegan {c.get('contacts', 0)}, cierran {c.get('closed', 0)}"
+                )
+
     doc.add_heading("Volumen", level=1)
     _kv_table([
         ("Conversaciones totales", k.get("total_convs", informe.conversations_analyzed) or 0),
@@ -770,6 +635,29 @@ async def export_informe_docx(
             ("Red flags", k.get("red_flags_total", 0) or 0),
             ("Escalaciones", k.get("escalations", 0) or 0),
         ])
+
+    if k.get("hours_top"):
+        doc.add_heading("Horas punta — cuándo entra la gente", level=1)
+        _kv_table([
+            (f"{h.get('hour', 0):02d}:00", f"{h.get('count', 0)} mensajes")
+            for h in k["hours_top"]
+        ])
+
+    if k.get("wa_comparison"):
+        doc.add_heading("Comparativa de WhatsApps", level=1)
+        wt = doc.add_table(rows=1, cols=5)
+        wt.style = "Light Grid Accent 1"
+        hc = wt.rows[0].cells
+        hc[0].text, hc[1].text, hc[2].text, hc[3].text, hc[4].text = (
+            "WhatsApp", "Convs", "Conversión", "Respuesta", "Seca"
+        )
+        for w in k["wa_comparison"]:
+            rc = wt.add_row().cells
+            rc[0].text = str(w.get("label", "—"))
+            rc[1].text = str(w.get("convs", 0))
+            rc[2].text = f"{w.get('conv_rate_pct', 0)}%"
+            rc[3].text = f"{w.get('p50_sec', 0)} s"
+            rc[4].text = f"{w.get('avg_seco', 0)}/10"
 
     if informe.top_referrals:
         doc.add_heading("De dónde llegan (top)", level=1)

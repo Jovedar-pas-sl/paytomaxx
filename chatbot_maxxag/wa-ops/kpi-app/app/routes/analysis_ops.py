@@ -1,17 +1,22 @@
-"""POST endpoints for on-demand analysis: meta-analysis + individual + bulk.
+"""Endpoints for the casa/número informe (block analyzer).
 
 Routes:
-  POST /casas/<id>/meta-analyses[?wa_number_id=N]   — enqueue meta-analysis (202/409/400)
-  GET  /casas/<id>/meta-analyses/latest-state[?wa_number_id=N]  — JSON: {state: empty|running|done}
-  POST /casas/<id>/analyze-pending                  — enqueue bulk analyze of all unanalyzed
-  POST /conversation/<id>/analyze                   — enqueue single conversation analysis
+  POST /casas/<id>/block-analysis[?wa_number_id=N&since_hours=&max_convs=&hour_from=&hour_to=]
+        — enqueue the block analyzer (reads transcripts → informe in one Claude call)
+  GET  /casas/<id>/meta-analyses/progress[?wa_number_id=N]       — live progress (polled by UI)
+  GET  /casas/<id>/meta-analyses/latest-state[?wa_number_id=N]   — JSON: {state: empty|running|done}
+
+The per-conversation analysis pipeline (single + bulk + meta enqueue routes) was
+retired — informes now come exclusively from the block analyzer above, which
+shares the same Redis progress key + running flag so the existing overlay UI
+keeps working unchanged.
 """
 
 from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Query, status
 from fastapi.responses import JSONResponse, Response
 
 from app import queries
@@ -23,58 +28,61 @@ router = APIRouter()
 
 def _meta_running_key(casa_id: int, wa_number_id: int | None) -> str:
     """Redis SETNX key — separate slot per (casa, wa_number) so a per-WA
-    meta-analysis doesn't collide with a casa-wide one and vice versa."""
+    informe doesn't collide with a casa-wide one and vice versa."""
     if wa_number_id is None:
         return f"casa:{casa_id}:meta_running"
     return f"casa:{casa_id}:wa:{wa_number_id}:meta_running"
 
 
-# ── Meta-analysis ──────────────────────────────────────────────────
-@router.post("/casas/{casa_id}/meta-analyses")
-async def enqueue_meta_analysis(
+# ── Block analysis (transcripts → informe in ONE Claude call) ───────
+@router.post("/casas/{casa_id}/block-analysis")
+async def enqueue_block_analysis(
     casa_id: int,
     user: CurrentUser,  # noqa: ARG001
-    kpi: KpiDB,
     redis: Redis,
     arq: Arq,
     wa_number_id: int | None = Query(default=None),
+    since_hours: int = Query(default=168, ge=1, le=8760),
+    max_convs: int = Query(default=200, ge=1, le=500),
+    hour_from: int | None = Query(default=None, ge=0, le=23),
+    hour_to: int | None = Query(default=None, ge=0, le=23),
 ) -> Response:
-    """Enqueue a meta-analysis job. When ``wa_number_id`` is provided, the
-    sample is restricted to that WhatsApp; otherwise the whole casa.
-    Both modes can run concurrently (separate Redis slots)."""
-    # Validate — ≥10 analyzed convs (in scope: per-WA when filtered)
-    analyzed_count = await queries.count_analyzed_for_casa(
-        kpi, casa_id, wa_number_id=wa_number_id
-    ) if wa_number_id is not None else await queries.count_analyzed_for_casa(kpi, casa_id)
-    if analyzed_count < 10:
-        scope = f"este WhatsApp ({wa_number_id})" if wa_number_id else "esta casa"
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Mínimo 10 conversaciones analizadas en {scope} (actualmente: {analyzed_count})",
-        )
+    """Enqueue the block analyzer. Reads conversation TRANSCRIPTS directly in one
+    batch Claude call — no per-conversation analysis required, so there is no
+    ≥10-analyzed precondition.
 
-    # Rate limit — Redis SETNX for 10 min, scoped per (casa, wa)
+    Controls: ``since_hours`` (período), ``hour_from``/``hour_to`` (franja horaria
+    Europe/Madrid, supports wrap-around), ``max_convs`` (nº de conversaciones).
+    Reuses the meta running flag + meta progress key so the existing overlay UI
+    works unchanged."""
+    # Reserve the same per-scope slot (so the progress endpoint reports 'queued'
+    # immediately and concurrent triggers get a 409).
     key = _meta_running_key(casa_id, wa_number_id)
-    acquired = await redis.set(key, "1", nx=True, ex=600)
+    acquired = await redis.set(key, "1", nx=True, ex=900)
     if not acquired:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             headers={"Retry-After": "300"},
             content={"error": {"code": "already_running",
-                               "message": "Meta-análisis ya en curso"}},
+                               "message": "Informe ya en curso"}},
         )
 
-    # Enqueue job — pass wa_number_id when scoped
-    if wa_number_id is not None:
-        job = await arq.enqueue_job("meta_analyze_casa_job", casa_id, wa_number_id)
-    else:
-        job = await arq.enqueue_job("meta_analyze_casa_job", casa_id)
+    job = await arq.enqueue_job(
+        "block_analyze_casa_job",
+        casa_id, wa_number_id, since_hours, max_convs, hour_from, hour_to,
+    )
 
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,
-        content={"data": {"job_id": job.job_id if job else "unknown",
-                          "estimated_seconds": 8,
-                          "wa_number_id": wa_number_id}},
+        content={"data": {
+            "job_id": job.job_id if job else "unknown",
+            "estimated_seconds": 90,
+            "wa_number_id": wa_number_id,
+            "since_hours": since_hours,
+            "max_convs": max_convs,
+            "hour_from": hour_from,
+            "hour_to": hour_to,
+        }},
     )
 
 
@@ -85,9 +93,9 @@ async def meta_analysis_progress(
     redis: Redis,
     wa_number_id: int | None = Query(default=None),
 ) -> dict:
-    """Live progress of an in-flight meta-analysis.
+    """Live progress of an in-flight informe (block analyzer).
 
-    Frontend polls this every ~1s after a successful POST /meta-analyses.
+    Frontend polls this every ~1s after a successful POST /block-analysis.
     Returns ``{phase, pct, message, elapsed_s, eta_s, state}``:
       - state=running while the worker is publishing updates
       - state=done when phase==done (frontend reloads)
@@ -146,199 +154,4 @@ async def meta_analysis_state(
     # they need to launch a per-WA run.
     if latest and (wa_number_id is None or latest.wa_number_id == wa_number_id):
         return {"state": "done", "run_at": latest.run_at.isoformat()}
-    return {"state": "empty"}
-
-
-# ── Bulk analyze pending ───────────────────────────────────────────
-@router.post("/casas/{casa_id}/analyze-pending")
-async def enqueue_bulk_analyze(
-    casa_id: int,
-    request: Request,
-    user: CurrentUser,  # noqa: ARG001
-    kpi: KpiDB,
-    redis: Redis,
-    arq: Arq,
-    wa_number_id: int | None = Query(default=None),
-    since_hours: int | None = Query(default=24, ge=1, le=720),
-    max_convs: int = Query(default=200, ge=1, le=500),
-    auto_meta: bool = Query(default=False),
-) -> Response:
-    """Enqueue bulk analysis. With ``auto_meta=true`` the worker also runs
-    the meta-analysis at the end so the frontend gets a chained progress
-    bar (bulk → meta) without a second user click.
-
-    Defaults reflect the on-demand "Generar informe" flow: last 24h, open +
-    closed, re-analyze dirty conversations (those with new msgs after their
-    previous analysis).
-    """
-    body = await request.json() if await request.body() else {}
-    if not body.get("confirmed"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing confirmation — frontend must send {confirmed: true}",
-        )
-
-    ids = await queries.list_unanalyzed_conversation_ids(
-        kpi, casa_id,
-        wa_number_id=wa_number_id,
-        since_hours=since_hours,
-        include_open=True,
-        redo_dirty=True,
-        limit=max_convs,
-    )
-
-    # Even if no convs need analyzing, still enqueue when auto_meta is set so
-    # the frontend chain progresses to the meta phase using existing analyses.
-    if not ids and not auto_meta:
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"data": {"enqueued_count": 0, "message": "Nothing to analyze"}},
-        )
-
-    # When auto_meta, also reserve the meta running flag here so the
-    # /meta-analyses/progress endpoint returns 'queued' immediately and
-    # any concurrent meta trigger gets a 409.
-    if auto_meta:
-        meta_flag = _meta_running_key(casa_id, wa_number_id)
-        await redis.set(meta_flag, "1", nx=True, ex=900)  # 15 min cushion for chain
-
-    await arq.enqueue_job(
-        "analyze_conversations_bulk_job",
-        casa_id, wa_number_id, since_hours, True, True, auto_meta, max_convs,
-    )
-
-    estimated_cost_usd = round(len(ids) * 0.003, 2)
-    return JSONResponse(
-        status_code=status.HTTP_202_ACCEPTED,
-        content={"data": {
-            "enqueued_count": len(ids),
-            "estimated_cost_usd": estimated_cost_usd,
-            "wa_number_id": wa_number_id,
-            "since_hours": since_hours,
-            "max_convs": max_convs,
-            "auto_meta": auto_meta,
-        }},
-    )
-
-
-@router.get("/casas/{casa_id}/analyze-pending/preview")
-async def bulk_analyze_preview(
-    casa_id: int,
-    user: CurrentUser,  # noqa: ARG001
-    kpi: KpiDB,
-    wa_number_id: int | None = Query(default=None),
-    since_hours: int = Query(default=24, ge=1, le=720),
-    max_convs: int = Query(default=200, ge=1, le=500),
-) -> dict:
-    """Preview before running. Returns conv counts and cost/time estimate so
-    the UI can show a confirmation modal with real numbers before spending.
-
-    Both ``since_hours`` and ``max_convs`` are user-configurable from the
-    confirmation modal — the modal re-fetches preview when either changes
-    so the cost/ETA stays accurate.
-    """
-    pending = await queries.count_unanalyzed_for_casa(
-        kpi, casa_id,
-        wa_number_id=wa_number_id,
-        since_hours=since_hours,
-        include_open=True,
-        redo_dirty=True,
-    )
-    already = await queries.count_analyzed_for_casa(
-        kpi, casa_id, wa_number_id=wa_number_id,
-    )
-    will_process = min(pending, max_convs)
-    # Per-conv ≈ $0.003 (10 Haiku skills × small prompts), meta ≈ $0.05
-    cost_usd = round(will_process * 0.003 + 0.05, 3)
-    # ~5s per conv × Semaphore(5) = ~1s/conv ; meta ~60s
-    time_min = max(1, round(will_process * 1.0 / 60 + 1))
-
-    return {
-        "pending": pending,
-        "will_process": will_process,
-        "capped": pending > max_convs,
-        "already_analyzed": already,
-        "since_hours": since_hours,
-        "max_convs": max_convs,
-        "wa_number_id": wa_number_id,
-        "est_cost_usd": cost_usd,
-        "est_time_min": time_min,
-    }
-
-
-@router.get("/casas/{casa_id}/analyze-pending/progress")
-async def bulk_analyze_progress(
-    casa_id: int,
-    user: CurrentUser,  # noqa: ARG001
-    redis: Redis,
-    wa_number_id: int | None = Query(default=None),
-) -> dict:
-    """Live progress of in-flight bulk analysis (parallel with semaphore=5)."""
-    pkey = prog.progress_key("bulk", casa_id, wa_number_id)
-    p = await prog.get_progress(redis, pkey)
-    if not p:
-        return {"phase": "idle", "pct": 0, "message": "",
-                "elapsed_s": 0, "eta_s": None, "state": "empty"}
-
-    elapsed = max(0, int(time.time() - p["started_at"]))
-    pct = p.get("pct", 0)
-    eta: int | None = None
-    if 0 < pct < 100:
-        eta = max(0, int(elapsed * (100 - pct) / pct))
-    state = "done" if p.get("phase") == "done" else (
-        "error" if p.get("phase") == "error" else "running"
-    )
-    return {
-        "phase": p.get("phase", "running"),
-        "pct": pct,
-        "message": p.get("message", ""),
-        "elapsed_s": elapsed,
-        "eta_s": eta,
-        "state": state,
-    }
-
-
-# ── Single conversation analysis ───────────────────────────────────
-@router.post("/conversation/{conversation_id}/analyze")
-async def enqueue_single_analyze(
-    conversation_id: int,
-    user: CurrentUser,  # noqa: ARG001
-    redis: Redis,
-    arq: Arq,
-) -> Response:
-    # Per-conv rate limit to prevent double-click spam (30s)
-    key = f"conv:{conversation_id}:analyze_running"
-    acquired = await redis.set(key, "1", nx=True, ex=30)
-    if not acquired:
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content={"error": {"code": "already_running",
-                               "message": "Analyzing this conversation"}},
-        )
-
-    job = await arq.enqueue_job("analyze_conversation_job", conversation_id)
-    return JSONResponse(
-        status_code=status.HTTP_202_ACCEPTED,
-        content={"data": {"job_id": job.job_id if job else "unknown"}},
-    )
-
-
-@router.get("/conversation/{conversation_id}/analysis-state")
-async def single_analysis_state(
-    conversation_id: int,
-    user: CurrentUser,  # noqa: ARG001
-    kpi: KpiDB,
-    redis: Redis,
-) -> dict:
-    """Polled by UI to detect when a single-conv analysis is done."""
-    flag = await redis.get(f"conv:{conversation_id}:analyze_running")
-    if flag:
-        return {"state": "running"}
-    async with kpi.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT analyzed_at FROM analysis WHERE conversation_id = $1",
-            conversation_id,
-        )
-    if row:
-        return {"state": "done", "analyzed_at": row["analyzed_at"].isoformat()}
     return {"state": "empty"}

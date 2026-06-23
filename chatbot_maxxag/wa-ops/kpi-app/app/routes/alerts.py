@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, Response
+from app import queries
 from app.deps import CurrentUser, KpiDB
 from app.template_env import templates
 
@@ -54,12 +55,8 @@ async def ack_alert(
     user: CurrentUser,  # noqa: ARG001
     kpi: KpiDB,
 ) -> Response:
-    async with kpi.acquire() as conn:
-        result = await conn.execute(
-            "UPDATE alert SET acknowledged_at = now() WHERE id = $1 AND acknowledged_at IS NULL",
-            alert_id,
-        )
-    if not result.endswith(" 1"):
+    updated = await queries.ack_alert(kpi, alert_id)
+    if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alerta no encontrada")
     return Response(status_code=204)
 

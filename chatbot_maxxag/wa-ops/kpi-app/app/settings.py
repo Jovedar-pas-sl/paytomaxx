@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     # Auth
     jwt_secret: SecretStr = Field(..., alias="JWT_SECRET")
     jwt_algorithm: str = "HS256"
-    jwt_expires_hours: int = 24 * 30  # 30 days
+    # Short-lived sessions by default (12h); tune via env. Shorter = smaller
+    # window for a captured token on a panel with client PII + WhatsApp send.
+    jwt_expires_hours: int = Field(12, alias="JWT_EXPIRES_HOURS")
 
     kpi_admin_email: str = Field(..., alias="KPI_ADMIN_EMAIL")
     kpi_admin_password_hash: SecretStr = Field(..., alias="KPI_ADMIN_PASSWORD_HASH")
@@ -49,6 +51,29 @@ class Settings(BaseSettings):
 
     # Cookie security: True in production (HTTPS), False for local HTTP demo
     cookie_secure: bool = Field(True, alias="COOKIE_SECURE")
+
+    # Dev flag: ONLY when True is the empty webhook-HMAC bypass allowed. Default
+    # False → production must configure WAHA_WEBHOOK_HMAC (see validator below).
+    debug: bool = Field(False, alias="DEBUG")
+
+    # Push alerts (Telegram) for critical ops events — optional; the notifier
+    # no-ops when unset (see app/notify.py).
+    telegram_bot_token: SecretStr | None = Field(None, alias="TELEGRAM_BOT_TOKEN")
+    telegram_chat_id: str = Field("", alias="TELEGRAM_CHAT_ID")
+
+    @model_validator(mode="after")
+    def _require_webhook_hmac_in_prod(self) -> "Settings":
+        """FAIL-CLOSED: in production (DEBUG=false) the WAHA webhook secret MUST be
+        set, otherwise /webhook/waha would accept unauthenticated requests (anyone
+        could make Sara message real clients). Set WAHA_WEBHOOK_HMAC, or DEBUG=true
+        for local dev."""
+        if not self.debug:
+            secret = self.waha_webhook_hmac.get_secret_value() if self.waha_webhook_hmac else ""
+            if not secret.strip():
+                raise ValueError(
+                    "WAHA_WEBHOOK_HMAC must be set when DEBUG is false (production)."
+                )
+        return self
 
 
 @lru_cache

@@ -1,0 +1,1031 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>NightPay — Esquema Jurídico-Fiscal — Documento para Abogado</title>
+<style>
+  @page { size: A4 portrait; margin: 14mm 12mm; }
+  :root {
+    --ink: #0f172a;
+    --muted: #64748b;
+    --border: #cbd5e1;
+    --accent: #1e40af;
+    --accent-soft: #dbeafe;
+    --bg-soft: #f8fafc;
+    --warn-bg: #fef3c7;
+    --warn-ink: #78350f;
+    --risk-bg: #fee2e2;
+    --risk-ink: #7f1d1d;
+    --ok-bg: #d1fae5;
+    --ok-ink: #064e3b;
+
+    --c-nightpay: #3b82f6;
+    --c-rsr: #10b981;
+    --c-venue: #f59e0b;
+    --c-chica: #ec4899;
+    --c-cliente: #6b7280;
+    --c-creditco: #8b5cf6;
+    --c-ceca: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: var(--ink); line-height: 1.5; font-size: 10pt;
+  }
+  body { max-width: 1000px; margin: 0 auto; padding: 0 8px; }
+
+  /* HEADERS */
+  h1 {
+    font-size: 22pt; font-weight: 800; margin: 6mm 0 4mm;
+    border-bottom: 4px solid var(--accent); padding-bottom: 6px;
+    color: var(--accent); page-break-after: avoid;
+  }
+  h1 .sub { display:block; font-size: 11pt; color: var(--muted); font-weight: 500; margin-top: 4px; }
+  h2 {
+    font-size: 15pt; font-weight: 700; margin: 14mm 0 4mm;
+    padding: 6px 12px; background: var(--accent); color: white;
+    border-radius: 4px; page-break-after: avoid; page-break-before: always;
+  }
+  h2:first-of-type { page-break-before: avoid; }
+  h3 {
+    font-size: 12pt; margin: 8mm 0 3mm; color: var(--accent);
+    border-bottom: 1px solid var(--border); padding-bottom: 4px;
+    page-break-after: avoid;
+  }
+  h4 { font-size: 10.5pt; margin: 5mm 0 2mm; color: var(--ink); }
+
+  p { margin: 4px 0 8px; }
+  ul, ol { margin: 4px 0 8px; padding-left: 22px; }
+  li { margin: 2px 0; }
+
+  /* TABLES */
+  table {
+    border-collapse: collapse; width: 100%; margin: 8px 0 14px;
+    font-size: 9pt; page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid var(--border); padding: 5px 7px;
+    text-align: left; vertical-align: top;
+  }
+  th {
+    background: var(--accent); color: white;
+    font-weight: 600;
+  }
+  tr:nth-child(even) td { background: var(--bg-soft); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ENTITY BOX */
+  .entity {
+    display: inline-block;
+    border: 2px solid var(--accent);
+    border-radius: 6px;
+    padding: 6px 10px;
+    background: white;
+    text-align: center;
+    min-width: 130px;
+    margin: 3px;
+    vertical-align: top;
+  }
+  .entity .role { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+  .entity .name { font-size: 10pt; font-weight: 700; margin: 2px 0; }
+  .entity .jur  { font-size: 8.5pt; color: var(--muted); }
+  .entity.nightpay { border-color: var(--c-nightpay); background: #eff6ff; }
+  .entity.rsr      { border-color: var(--c-rsr); background: #ecfdf5; }
+  .entity.venue    { border-color: var(--c-venue); background: #fffbeb; }
+  .entity.chica    { border-color: var(--c-chica); background: #fdf2f8; }
+  .entity.cliente  { border-color: var(--c-cliente); background: #f3f4f6; }
+  .entity.creditco { border-color: var(--c-creditco); background: #f5f3ff; }
+  .entity.ceca     { border-color: var(--c-ceca); background: #fef2f2; }
+
+  /* ETAPA CARD */
+  .etapa {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 10px 0;
+    background: white;
+    page-break-inside: avoid;
+  }
+  .etapa .head {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 10px; padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent-soft);
+  }
+  .etapa .num {
+    background: var(--accent); color: white;
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14pt; font-weight: 800;
+    flex-shrink: 0;
+  }
+  .etapa .title { font-size: 13pt; font-weight: 700; color: var(--accent); }
+  .etapa .field { margin: 4px 0; font-size: 9.5pt; }
+  .etapa .field .label {
+    display: inline-block; min-width: 110px;
+    font-weight: 600; color: var(--muted);
+    text-transform: uppercase; font-size: 8pt; letter-spacing: 0.4px;
+  }
+  .etapa .diagram {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    margin: 8px 0;
+    text-align: center;
+  }
+
+  /* ARROW BETWEEN ETAPAS */
+  .arrow-down {
+    text-align: center; margin: 6px 0;
+    font-size: 22pt; color: var(--accent);
+    line-height: 1;
+  }
+  .arrow-down .note {
+    display: block; font-size: 9pt;
+    color: var(--muted); font-weight: 500;
+    margin-top: 2px;
+  }
+
+  /* ALERTS */
+  .alert {
+    border-left: 4px solid;
+    padding: 8px 12px; margin: 8px 0;
+    border-radius: 0 4px 4px 0;
+    font-size: 9.5pt;
+  }
+  .alert.warn { border-color: #f59e0b; background: var(--warn-bg); color: var(--warn-ink); }
+  .alert.risk { border-color: #dc2626; background: var(--risk-bg); color: var(--risk-ink); }
+  .alert.ok   { border-color: #10b981; background: var(--ok-bg); color: var(--ok-ink); }
+  .alert .label { font-weight: 700; }
+
+  /* SEVERITY TAGS */
+  .sev {
+    display: inline-block; padding: 2px 7px; border-radius: 3px;
+    font-size: 8.5pt; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .sev.crit  { background: #991b1b; color: white; }
+  .sev.high  { background: #c2410c; color: white; }
+  .sev.med   { background: #ca8a04; color: white; }
+  .sev.low   { background: #16a34a; color: white; }
+
+  /* INLINE HIGHLIGHT */
+  .q { background: var(--warn-bg); padding: 1px 5px; border-radius: 3px; color: var(--warn-ink); font-weight: 600; }
+  .euro { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--accent); }
+  code {
+    font-family: 'Cascadia Code', Consolas, monospace;
+    background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-size: 9pt;
+  }
+
+  /* QUESTION CARD */
+  .question {
+    display: flex; gap: 10px; align-items: flex-start;
+    border-left: 3px solid var(--accent);
+    padding: 6px 10px; margin: 5px 0;
+    background: var(--bg-soft);
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  .question .q-num {
+    background: var(--accent); color: white;
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9pt; font-weight: 700; flex-shrink: 0;
+  }
+
+  /* PAGE BREAK HELPERS */
+  .page-break { page-break-before: always; }
+  .no-break { page-break-inside: avoid; }
+
+  /* FOOTER */
+  .footer {
+    margin-top: 14mm; padding-top: 8px;
+    border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 8.5pt; text-align: center;
+  }
+
+  /* COVER PAGE */
+  .cover {
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    min-height: 250mm; text-align: center;
+    page-break-after: always;
+  }
+  .cover .brand { font-size: 38pt; font-weight: 900; color: var(--accent); margin-bottom: 8px; }
+  .cover .doctype { font-size: 14pt; color: var(--muted); margin-bottom: 30px; text-transform: uppercase; letter-spacing: 2px; }
+  .cover .title { font-size: 24pt; font-weight: 700; color: var(--ink); max-width: 80%; line-height: 1.3; margin-bottom: 20px; }
+  .cover .meta { font-size: 11pt; color: var(--muted); margin-top: 40px; }
+  .cover .legend { margin-top: 50px; padding: 20px; background: var(--bg-soft); border-radius: 8px; max-width: 80%; }
+  .cover .legend h4 { color: var(--accent); margin-top: 0; }
+  .cover .legend ul { list-style: none; padding-left: 0; text-align: left; }
+  .cover .legend li { padding: 3px 0; }
+
+  /* FLOW BOXES (horizontal connectors) */
+  .hflow {
+    display: flex; flex-direction: row; align-items: center;
+    justify-content: center; gap: 4px;
+    flex-wrap: wrap;
+    margin: 8px 0;
+  }
+  .hflow .ar { font-size: 16pt; color: var(--accent); margin: 0 2px; line-height: 1; }
+  .hflow .ar-down { font-size: 22pt; color: var(--accent); width: 100%; text-align: center; }
+
+  .vflow {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    margin: 8px 0;
+  }
+  .vflow .ar { font-size: 22pt; color: var(--accent); line-height: 1; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ COVER PAGE ═══════════════════════════════ -->
+<section class="cover">
+  <div class="brand">NightPay</div>
+  <div class="doctype">Documento de planificación jurídico-fiscal</div>
+  <div class="title">Esquema integral del modelo de negocio para revisión legal</div>
+  <div class="meta">
+    Versión 1.0 · 2026<br>
+    Confidencial · Para uso interno y asesoría legal
+  </div>
+  <div class="legend">
+    <h4>Cómo leer este documento</h4>
+    <ul>
+      <li><strong>PARTE 1</strong> — Mapa visual de entidades y jurisdicciones</li>
+      <li><strong>PARTE 2</strong> — Flujo legal del dinero en 8 etapas numeradas con flechas</li>
+      <li><strong>PARTE 3</strong> — Matriz de contratos (quién firma con quién)</li>
+      <li><strong>PARTE 4</strong> — Matriz fiscal por entidad</li>
+      <li><strong>PARTE 5</strong> — Obligaciones regulatorias</li>
+      <li><strong>PARTE 6</strong> — Mapa de riesgos legales</li>
+      <li><strong>PARTE 7</strong> — Preguntas concretas para el abogado</li>
+    </ul>
+    <p style="margin-top: 14px; font-size: 9pt;">
+      Los <span class="q">campos marcados así</span> son asunciones que el abogado debe validar.
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ PARTE 1 ═══════════════════════════════ -->
+<h2>PARTE 1 · Mapa societario y entidades</h2>
+
+<p>
+NightPay opera bajo una estructura de <strong>holding internacional</strong> con sociedad
+operativa en España. Cada entidad tiene un rol funcional concreto y un régimen
+fiscal diferenciado.
+</p>
+
+<div class="diagram no-break" style="text-align:center; padding: 14px; background:var(--bg-soft); border-radius:6px;">
+  <div class="hflow" style="justify-content:flex-start;">
+    <div class="entity nightpay">
+      <div class="role">HOLDING + IP</div>
+      <div class="name">NightPay OÜ</div>
+      <div class="jur">Estonia (EE)</div>
+    </div>
+    <span class="ar">⇄</span>
+    <div class="entity rsr">
+      <div class="role">PRESTAMISTA + MoR</div>
+      <div class="name">RSR SL</div>
+      <div class="jur">España (ES)</div>
+    </div>
+    <span class="ar">⇄</span>
+    <div class="entity ceca">
+      <div class="role">ADQUIRIENTE</div>
+      <div class="name">Wipay/Cecabank</div>
+      <div class="jur">España (ES)</div>
+    </div>
+  </div>
+  <div class="hflow">
+    <div class="entity creditco">
+      <div class="role">EMI · WALLET</div>
+      <div class="name">Creditco UAB</div>
+      <div class="jur">Lituania (LT)</div>
+    </div>
+    <span class="ar">⇄</span>
+    <div class="entity venue">
+      <div class="role">LOCAL · ALQUILER</div>
+      <div class="name">Venue SL</div>
+      <div class="jur">España (ES)</div>
+    </div>
+    <span class="ar">⇄</span>
+    <div class="entity chica">
+      <div class="role">SERVICIOS · RETA</div>
+      <div class="name">Chica autónoma</div>
+      <div class="jur">España (ES)</div>
+    </div>
+    <span class="ar">⇄</span>
+    <div class="entity cliente">
+      <div class="role">CONSUMIDOR</div>
+      <div class="name">Cliente final</div>
+      <div class="jur">España (ES)</div>
+    </div>
+  </div>
+</div>
+
+<h3>Rol detallado de cada entidad</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:18%">Entidad</th>
+      <th style="width:14%">Jurisdicción</th>
+      <th>Rol funcional</th>
+      <th style="width:18%">Régimen fiscal</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>NightPay OÜ</strong><br><span style="font-size:8pt;color:var(--muted)">e-residency</span></td>
+      <td>Estonia</td>
+      <td>Holding del grupo. Propietario del software (IP). Licencia SaaS a RSR SL bajo acuerdo intra-grupo. Sin actividad operativa en España.</td>
+      <td>IS 0% diferido hasta dividendos. Auditor anual obligatorio (~3 k€/año).</td>
+    </tr>
+    <tr>
+      <td><strong>RSR SL</strong><br><span style="font-size:8pt;color:var(--muted)">"Rápido Sin Riesgos"</span></td>
+      <td>España</td>
+      <td><strong>Prestamista</strong> al consumo (otorga préstamo al cliente final). <strong>Merchant of Record</strong> ante Cecabank/BBVA (visible "RSR-XXXX" en extractos del cliente). Asume riesgo chargeback con fianza venue como buffer.</td>
+      <td>IS 25% sobre margen residual. <span class="q">IVA exento Art.20 LIVA</span> (servicios financieros). SII si volumen &gt; 6 M€.</td>
+    </tr>
+    <tr>
+      <td><strong>Creditco UAB</strong></td>
+      <td>Lituania</td>
+      <td>EMI (Electronic Money Institution) licenciada por Bank of Lithuania. Emite tarjetas debit a las chicas, sub-cuentas con IBAN virtual, crypto cards en negociación. Contrato master con NightPay OÜ.</td>
+      <td>Régimen propio Lituania (no afecta NightPay directamente).</td>
+    </tr>
+    <tr>
+      <td><strong>Wipay/Cecabank</strong></td>
+      <td>España</td>
+      <td>Adquiriente real. Procesa el pago con tarjeta del cliente. Settlement a IBAN de RSR SL.</td>
+      <td>N/A (proveedor externo)</td>
+    </tr>
+    <tr>
+      <td><strong>Venue SL</strong></td>
+      <td>España</td>
+      <td>Local de hostelería. <strong>Alquila habitaciones</strong> a las chicas autónomas (no las contrata). Bar, espectáculo. <em>NO vende servicios sexuales</em> — los presta la chica de forma independiente.</td>
+      <td>IS 25%. IVA 21% alquiler. IVA 21% bar (10% comida sin alcohol). Modelo 303 trim.</td>
+    </tr>
+    <tr>
+      <td><strong>Chica autónoma</strong></td>
+      <td>España</td>
+      <td>Persona física autónoma <span class="q">CNAE a definir</span> dada de alta en RETA. Presta servicios profesionales al cliente directamente. Alquila habitación al venue como gasto profesional. Su settlement neto se le abona en tarjeta Creditco/IBAN.</td>
+      <td>IRPF estimación directa. IVA <span class="q">21% sobre servicios</span>. Cuota RETA mensual. Modelo 303 + 130 trim.</td>
+    </tr>
+    <tr>
+      <td><strong>Cliente final</strong></td>
+      <td>España</td>
+      <td>Persona física consumidora. Solicita préstamo a RSR SL para gastar en local. Paga con tarjeta. Identificado con DNI/NIE al firmar préstamo.</td>
+      <td>N/A — préstamo no es renta gravable.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="alert warn">
+  <span class="label">Atención fiscal crítica:</span>
+  La estructura NightPay OÜ ↔ RSR SL es <strong>operación vinculada</strong>. El precio del SaaS intra-grupo
+  debe valorarse a mercado con informe del asesor fiscal. Riesgo de regularización por Hacienda si no es <em>arm's length</em>.
+</div>
+
+<!-- ═══════════════════════════════ PARTE 2 ═══════════════════════════════ -->
+<h2>PARTE 2 · Flujo legal del dinero — 8 etapas</h2>
+
+<div class="alert ok">
+  <span class="label">Concepto clave:</span>
+  El modelo NO es venta sino <strong>préstamo al consumo</strong> + <strong>alquiler de habitación</strong> + <strong>prestación de servicios autónomos</strong>.
+  Tres relaciones jurídicas independientes que se ejecutan en cadena.
+</div>
+
+<!-- ───── ETAPA 0 ───── -->
+<div class="etapa">
+  <div class="head">
+    <div class="num">0</div>
+    <div class="title">Contexto previo — Cliente entra al local</div>
+  </div>
+  <div class="diagram">
+    <div class="hflow">
+      <div class="entity cliente">
+        <div class="role">CONSUMIDOR</div>
+        <div class="name">Cliente</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity venue">
+        <div class="role">LOCAL</div>
+        <div class="name">Venue</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity chica">
+        <div class="role">AUTÓNOMA</div>
+        <div class="name">Chica</div>
+      </div>
+    </div>
+    <p style="margin-top:10px;font-size:9pt;color:var(--muted);">
+      Cliente visita el local. Acuerda con la chica un servicio profesional de forma directa y privada. Aún no se ha producido pago.
+    </p>
+  </div>
+  <div class="field"><span class="label">Acto legal:</span> Ninguno. Conversación privada entre cliente y chica.</div>
+  <div class="field"><span class="label">Movimiento dinero:</span> Ninguno.</div>
+  <div class="field"><span class="label">Régimen fiscal:</span> N/A.</div>
+</div>
+
+<div class="arrow-down">▼<span class="note">El cliente decide pagar con tarjeta y solicita crédito</span></div>
+
+<!-- ───── ETAPA 1 ───── -->
+<div class="etapa">
+  <div class="head">
+    <div class="num">1</div>
+    <div class="title">Cliente solicita préstamo — contrato de crédito al consumo</div>
+  </div>
+  <div class="diagram">
+    <div class="hflow">
+      <div class="entity cliente">
+        <div class="role">SOLICITANTE</div>
+        <div class="name">Cliente</div>
+        <div class="jur">DNI/NIE</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity rsr">
+        <div class="role">PRESTAMISTA</div>
+        <div class="name">RSR SL</div>
+        <div class="jur">Ley 16/2011</div>
+      </div>
+    </div>
+    <p style="margin-top:10px;font-size:9pt;color:var(--muted);">
+      Cliente escanea QR en el local o accede a app NightPay. Firma electrónicamente el contrato de préstamo
+      (click + captura DNI). RSR SL revisa, aprueba, otorga.
+    </p>
+  </div>
+  <div class="field"><span class="label">Acto legal:</span> Contrato de préstamo al consumo (Ley 16/2011). Firma electrónica simple <span class="q">o avanzada según validación abogado</span>.</div>
+  <div class="field"><span class="label">Documentos:</span> Contrato préstamo PDF firmado · Captura DNI/NIE · Política privacidad aceptada · Timestamp + IP + geolocalización.</div>
+  <div class="field"><span class="label">Movimiento dinero:</span> <span class="euro">100 €</span> entregados al cliente (figurativamente — sin movimiento real todavía).</div>
+  <div class="field"><span class="label">Régimen fiscal:</span> No es venta — no genera IVA. Coste financiero al cliente: <span class="q">TAE expresada (0% o &gt;0% según decisión legal)</span>.</div>
+  <div class="alert warn">
+    <span class="label">Validar:</span> ¿Préstamo a TAE 0% es válido legalmente o debe incluir coste financiero mínimo para no ser recalificado como "venta encubierta" por Hacienda?
+  </div>
+</div>
+
+<div class="arrow-down">▼<span class="note">Cliente recibe el "crédito" disponible en el local</span></div>
+
+<!-- ───── ETAPA 2 ───── -->
+<div class="etapa">
+  <div class="head">
+    <div class="num">2</div>
+    <div class="title">Cliente paga el servicio a la chica autónoma</div>
+  </div>
+  <div class="diagram">
+    <div class="hflow">
+      <div class="entity cliente">
+        <div class="role">CLIENTE</div>
+        <div class="name">100 €</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity chica">
+        <div class="role">PRESTADORA</div>
+        <div class="name">Chica autónoma</div>
+        <div class="jur">RETA · IVA 21%</div>
+      </div>
+    </div>
+    <p style="margin-top:10px;font-size:9pt;color:var(--muted);">
+      Cliente abona <span class="euro">100 €</span> a la chica como contraprestación por el servicio profesional prestado.
+      La chica emite factura simplificada o recibo (Modelo 7).
+    </p>
+  </div>
+  <div class="field"><span class="label">Acto legal:</span> Prestación de servicio profesional autónomo. Contrato verbal o tácito, válido civilmente.</div>
+  <div class="field"><span class="label">Documentos:</span> Factura simplificada / recibo emitido por la chica al cliente. Anotación en libro de IVA repercutido.</div>
+  <div class="field"><span class="label">Movimiento dinero:</span> <span class="euro">100 €</span> figurativamente del cliente a la chica (settlement real en etapas posteriores).</div>
+  <div class="field"><span class="label">Régimen fiscal:</span> Chica repercute IVA 21% al cliente (16.53 € base + 17.36 € IVA + ajustes). Base imponible declarada en Modelo 303.</div>
+  <div class="alert warn">
+    <span class="label">Validar:</span> ¿Servicios profesionales prestados por chica tributan IVA 21% o existe exención por servicio personal? ¿CNAE adecuado?
+  </div>
+</div>
+
+<div class="arrow-down">▼<span class="note">Cliente repaga el préstamo con su tarjeta bancaria</span></div>
+
+<!-- ───── ETAPA 3 ───── -->
+<div class="etapa">
+  <div class="head">
+    <div class="num">3</div>
+    <div class="title">Repago del préstamo — cliente paga con tarjeta a RSR SL</div>
+  </div>
+  <div class="diagram">
+    <div class="hflow">
+      <div class="entity cliente">
+        <div class="role">REPAGO</div>
+        <div class="name">Cliente</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity ceca">
+        <div class="role">PROCESADOR</div>
+        <div class="name">Wipay/Cecabank</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity rsr">
+        <div class="role">ACQUIRER/MoR</div>
+        <div class="name">RSR SL</div>
+      </div>
+    </div>
+    <p style="margin-top:10px;font-size:9pt;color:var(--muted);">
+      Cliente introduce datos de tarjeta en el formulario hospedado de Cecabank (3DS aplicado).
+      Cecabank carga <span class="euro">100 €</span> a su tarjeta. Settlement T+1 al IBAN de RSR SL.
+    </p>
+  </div>
+  <div class="field"><span class="label">Acto legal:</span> Repago del capital del préstamo (Etapa 1). Cancela la obligación del cliente.</div>
+  <div class="field"><span class="label">Documentos:</span> Webhook firmado SHA-256 de Cecabank · ticket bancario en extracto cliente con "RSR-XXXX" · justificante de repago archivado.</div>
+  <div class="field"><span class="label">Movimiento dinero:</span> <span class="euro">100 €</span> de la tarjeta cliente → Cecabank → IBAN RSR SL (T+1). Comisión adquirencia BBVA/Wipay: <span class="euro">~1.80 €</span>.</div>
+  <div class="field"><span class="label">Régimen fiscal:</span> Repago de capital — no es ingreso para RSR SL. La comisión adquirencia es gasto deducible. <strong>NO genera IVA</strong> (servicio financiero exento Art.20 LIVA).</div>
+  <div class="alert risk">
+    <span class="label">Riesgo crítico:</span> Si Hacienda recalifica el "préstamo" como venta encubierta, RSR SL pasa a tributar IVA 21% sobre los 100 € → 17.36 € de IVA repercutible no cobrado, sanción + intereses. Mitigación: documentación contractual robusta + consulta vinculante DGT.
+  </div>
+</div>
+
+<div class="arrow-down">▼<span class="note">Plataforma registra cuánto debe a la chica antes de descontar gastos</span></div>
+
+<!-- ───── ETAPA 4 ───── -->
+<div class="etapa">
+  <div class="head">
+    <div class="num">4</div>
+    <div class="title">Plataforma NightPay registra saldo a favor de la chica</div>
+  </div>
+  <div class="diagram">
+    <div class="hflow">
+      <div class="entity rsr">
+        <div class="role">PROCESADOR</div>
+        <div class="name">RSR/NightPay</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity chica">
+        <div class="role">SALDO BLOQUEADO</div>
+        <div class="name">100 € pendiente</div>
+        <div class="jur">payoutId = NULL</div>
+      </div>
+    </div>
+    <p style="margin-top:10px;font-size:9pt;color:var(--muted);">
+      Por <strong>mandato escrito previo</strong> (contrato chica ↔ NightPay), la plataforma reconoce los <span class="euro">100 €</span>
+      como deuda a favor de la chica. Saldo bloqueado hasta cumplimiento de obligaciones.
+    </p>
+  </div>
+  <div class="field"><span class="label">Acto legal:</span> Mandato de cobranza (chica delega en NightPay/RSR la recepción de fondos por su cuenta).</div>
+  <div class="field"><span class="label">Documentos:</span> Contrato mandato firmado al onboarding · entrada en <code>operator_earnings</code> con <code>commissionCents</code> y <code>payoutId = NULL</code>.</div>
+  <div class="field"><span class="label">Movimiento dinero:</span> Los 100 € físicamente están en IBAN RSR SL, pero contablemente son deuda a la chica.</div>
+  <div class="field"><span class="label">Régimen fiscal:</span> Para RSR SL, los 100 € son <strong>pasivo</strong> (deuda con la chica), no ingreso. Para la chica, ya devengó el ingreso (factura emitida en Etapa 2).</div>
+  <div class="alert warn">
+    <span class="label">Validar:</span> ¿El mandato de cobranza convierte a RSR SL en obligado por PBC/FT (Ley 10/2010)? ¿Capital social mínimo distinto?
+  </div>
+</div>
+
+<div class="arrow-down">▼<span class="note">Chica debe pagar el alquiler para liberar su saldo</span></div>
+
+<!-- ───── ETAPA 5 ───── -->
+<div class="etapa">
+  <div class="head">
+    <div class="num">5</div>
+    <div class="title">Chica paga alquiler de habitación al venue</div>
+  </div>
+  <div class="diagram">
+    <div class="hflow">
+      <div class="entity chica">
+        <div class="role">ARRENDATARIA</div>
+        <div class="name">Chica</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity venue">
+        <div class="role">ARRENDADOR</div>
+        <div class="name">Venue SL</div>
+        <div class="jur">IVA 21%</div>
+      </div>
+    </div>
+    <p style="margin-top:10px;font-size:9pt;color:var(--muted);">
+      Para retirar su saldo, la chica debe haber pagado el alquiler de habitación. El descuento se aplica automáticamente del saldo
+      pendiente (<span class="euro">~10 €</span> por sesión o tarifa pactada).
+    </p>
+  </div>
+  <div class="field"><span class="label">Acto legal:</span> Contrato de arrendamiento de uso profesional B2B (autónomo ↔ sociedad).</div>
+  <div class="field"><span class="label">Documentos:</span> Contrato marco arrendamiento firmado al alta · factura del venue a la chica con NIF + IVA 21% repercutido · libro de IVA soportado de la chica.</div>
+  <div class="field"><span class="label">Movimiento dinero:</span> <span class="euro">10 €</span> descontados del saldo pendiente de la chica → cuenta del venue (settlement semanal).</div>
+  <div class="field"><span class="label">Régimen fiscal:</span> Venue: base imponible 8.26 € + IVA repercutido 1.74 €. Chica: gasto deducible en IRPF (8.26 €) + IVA soportado (1.74 €).</div>
+  <div class="alert risk">
+    <span class="label">Riesgo proxenetismo encubierto (Art.187 CP):</span> Si el alquiler es % del servicio en lugar de tarifa fija, o si el venue controla horarios/clientes de la chica, puede recalificarse como "explotación de la prostitución". Mitigación: tarifa fija por sesión o periódica, libertad operativa total de la chica.
+  </div>
+</div>
+
+<div class="arrow-down">▼<span class="note">Tras pagar alquiler, la chica libera su saldo neto</span></div>
+
+<!-- ───── ETAPA 6 ───── -->
+<div class="etapa">
+  <div class="head">
+    <div class="num">6</div>
+    <div class="title">Settlement neto a la chica via Creditco (1-3 días hold)</div>
+  </div>
+  <div class="diagram">
+    <div class="hflow">
+      <div class="entity rsr">
+        <div class="role">PROCESADOR</div>
+        <div class="name">NightPay</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity creditco">
+        <div class="role">EMI WALLET</div>
+        <div class="name">Creditco</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity chica">
+        <div class="role">DESTINATARIA</div>
+        <div class="name">Chica</div>
+        <div class="jur">IBAN/Card</div>
+      </div>
+    </div>
+    <p style="margin-top:10px;font-size:9pt;color:var(--muted);">
+      Tras hold de 1-3 días (configurable por rail), el saldo neto <span class="euro">≈ 88.20 €</span> sale al IBAN/tarjeta de la chica.
+      Rails: SEPA Instant, debit card Creditco, crypto card (futuro), o solo tracking si efectivo.
+    </p>
+  </div>
+  <div class="field"><span class="label">Acto legal:</span> Ejecución del mandato de cobranza — entrega del neto retenido a la titular.</div>
+  <div class="field"><span class="label">Documentos:</span> Justificante SEPA Instant Creditco · entrada <code>operator_payouts</code> con <code>externalTxId</code> + reconciliación · webhook Creditco firmado HMAC.</div>
+  <div class="field"><span class="label">Movimiento dinero:</span> <span class="euro">88.20 €</span> (= 100 − 1.80 adquirencia − 10 alquiler) → cuenta personal de la chica.</div>
+  <div class="field"><span class="label">Régimen fiscal:</span> Para la chica: cobro neto del servicio devengado en Etapa 2. Para NightPay/RSR: cierre del pasivo.</div>
+</div>
+
+<div class="arrow-down">▼<span class="note">Cada lunes el venue recibe su settlement semanal</span></div>
+
+<!-- ───── ETAPA 7 ───── -->
+<div class="etapa">
+  <div class="head">
+    <div class="num">7</div>
+    <div class="title">Settlement semanal al venue (alquileres acumulados)</div>
+  </div>
+  <div class="diagram">
+    <div class="hflow">
+      <div class="entity rsr">
+        <div class="role">PROCESADOR</div>
+        <div class="name">NightPay OÜ</div>
+      </div>
+      <span class="ar">→</span>
+      <div class="entity venue">
+        <div class="role">ARRENDADOR</div>
+        <div class="name">Venue SL</div>
+        <div class="jur">SEPA semanal</div>
+      </div>
+    </div>
+    <p style="margin-top:10px;font-size:9pt;color:var(--muted);">
+      Cron semanal lunes 02:00 — agregado de alquileres pagados por todas las chicas del venue durante la semana anterior,
+      menos chargebacks pendientes y fianza descontada. SEPA push al IBAN del venue.
+    </p>
+  </div>
+  <div class="field"><span class="label">Acto legal:</span> Cumplimiento del contrato de plataforma de cobro (RSR ↔ Venue).</div>
+  <div class="field"><span class="label">Documentos:</span> Z-report semanal PDF · justificante SEPA · entrada <code>settlement_runs</code>.</div>
+  <div class="field"><span class="label">Movimiento dinero:</span> Σ alquileres semana − chargebacks − ajustes. Ejemplo: 200 sesiones × 10 € = 2.000 € semanal por venue medio.</div>
+  <div class="field"><span class="label">Régimen fiscal:</span> Venue: ingresos del periodo. Repercute IVA 21% en Modelo 303 trimestral.</div>
+</div>
+
+<!-- ═══════════════════════════════ PARTE 3 ═══════════════════════════════ -->
+<h2>PARTE 3 · Matriz de contratos</h2>
+
+<p>Ocho contratos articulan toda la operativa. El abogado debe redactar/validar cada uno.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:5%">#</th>
+      <th>Parte A</th>
+      <th>Parte B</th>
+      <th>Contrato</th>
+      <th style="width:18%">Forma legal</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>①</strong></td>
+      <td>NightPay OÜ (EE)</td>
+      <td>RSR SL (ES)</td>
+      <td>Licencia SaaS + IP + servicios intra-grupo (transfer pricing documentado)</td>
+      <td>Contrato comercial intra-grupo</td>
+    </tr>
+    <tr>
+      <td><strong>②</strong></td>
+      <td>RSR SL</td>
+      <td>Wipay/Cecabank</td>
+      <td>Adquirencia TPV Virtual hosted</td>
+      <td>Contrato estándar PSP</td>
+    </tr>
+    <tr>
+      <td><strong>③</strong></td>
+      <td>NightPay OÜ</td>
+      <td>Creditco UAB (LT)</td>
+      <td>Master Account Agreement — Cards-as-a-Service + IBANs virtuales + agente PSD2</td>
+      <td>Acuerdo agente PSD2 + inscripción BdE</td>
+    </tr>
+    <tr>
+      <td><strong>④</strong></td>
+      <td>RSR SL</td>
+      <td>Venue SL</td>
+      <td>Servicio plataforma cobro + adquirencia + procesamiento (incl. fianza chargeback)</td>
+      <td>Contrato B2B servicios</td>
+    </tr>
+    <tr>
+      <td><strong>⑤</strong></td>
+      <td>RSR SL</td>
+      <td>Cliente final</td>
+      <td><strong>Préstamo al consumo</strong> (Ley 16/2011) · firma electrónica + DNI captura</td>
+      <td>Contrato consumo regulado</td>
+    </tr>
+    <tr>
+      <td><strong>⑥</strong></td>
+      <td>Venue SL</td>
+      <td>Chica autónoma</td>
+      <td><strong>Arrendamiento</strong> de habitación uso profesional B2B</td>
+      <td>Contrato arrendamiento mercantil</td>
+    </tr>
+    <tr>
+      <td><strong>⑦</strong></td>
+      <td>Chica autónoma</td>
+      <td>Cliente final</td>
+      <td>Prestación de servicios profesionales autónoma (tácito o expreso)</td>
+      <td>Factura simplificada / recibo</td>
+    </tr>
+    <tr>
+      <td><strong>⑧</strong></td>
+      <td>Chica autónoma</td>
+      <td>NightPay / RSR SL</td>
+      <td><strong>Mandato de cobranza</strong> + autorización de descuentos por adquirencia y alquiler</td>
+      <td>Contrato mandato</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="alert warn">
+  <span class="label">Crítico:</span> Sin el contrato <strong>⑧</strong> (mandato de cobranza chica ↔ NightPay), la plataforma estaría procesando dinero ajeno sin autorización — riesgo de delito de apropiación indebida o intermediación financiera ilegal.
+</div>
+
+<!-- ═══════════════════════════════ PARTE 4 ═══════════════════════════════ -->
+<h2>PARTE 4 · Matriz fiscal consolidada</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:18%">Entidad</th>
+      <th style="width:14%">Impuesto Sociedades</th>
+      <th style="width:18%">IVA</th>
+      <th>Otras obligaciones</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>NightPay OÜ</strong> (EE)</td>
+      <td>0% diferido hasta dividendos</td>
+      <td>Reverse charge B2B intra-UE — sin IVA local</td>
+      <td>Auditor anual EE · <span class="q">Modelo 720 ES si dueño residente</span> · Modelo 349 trimestral</td>
+    </tr>
+    <tr>
+      <td><strong>RSR SL</strong> (ES) — Prestamista + MoR</td>
+      <td>25% sobre margen residual</td>
+      <td><strong>EXENTO</strong> Art.20 LIVA (servicios financieros)</td>
+      <td>Modelo 200 anual · Pagos fraccionados 202 · <span class="q">Inscripción Banco de España como prestamista</span> · SII si vol &gt; 6 M€</td>
+    </tr>
+    <tr>
+      <td><strong>Venue SL</strong> (ES)</td>
+      <td>25%</td>
+      <td>21% alquiler · 21% bar alcohol · 10% comida</td>
+      <td>Modelo 303 trim. · Modelo 390 anual · CNAE 5510+5630 <span class="q">a confirmar</span></td>
+    </tr>
+    <tr>
+      <td><strong>Chica autónoma</strong> (ES, RETA)</td>
+      <td>IRPF estimación directa simplificada (~20-30%)</td>
+      <td><span class="q">21% servicios — confirmar epígrafe IAE</span></td>
+      <td>Cuota RETA ~290 €/mes (tarifa plana 1er año, ~480 €/mes después) · Modelo 130 trim. · Modelo 303 + 390 · Modelo 100 anual</td>
+    </tr>
+    <tr>
+      <td><strong>Cliente final</strong></td>
+      <td>N/A</td>
+      <td>N/A</td>
+      <td>Sin impacto fiscal — préstamo no es renta gravable</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="alert risk">
+  <span class="label">Riesgo fiscal #1 — Recalificación del préstamo:</span>
+  Si Hacienda considera el "préstamo" como venta encubierta, RSR SL pasa de IVA exento a IVA 21% sobre todo el volumen. Coste de recalificación: <span class="euro">~21 k€</span> de IVA por cada 100 k€ de GMV + sanciones + intereses de demora.
+</div>
+
+<div class="alert risk">
+  <span class="label">Riesgo fiscal #2 — Operaciones vinculadas:</span>
+  El transfer pricing NightPay OÜ ↔ RSR SL es operación vinculada. Debe valorarse a mercado con informe pericial. Sin documentación robusta, Hacienda regulariza al alza.
+</div>
+
+<!-- ═══════════════════════════════ PARTE 5 ═══════════════════════════════ -->
+<h2>PARTE 5 · Obligaciones regulatorias</h2>
+
+<h3>Banco de España</h3>
+<ul>
+  <li><span class="q">⓵</span> <strong>Inscripción registro prestamistas</strong> Ley 16/2011 — para RSR SL como prestamista al consumo. Sin esto = prestamista ilegal.</li>
+  <li><span class="q">⓶</span> <strong>Inscripción agente PSD2</strong> RDL 19/2018 — para NightPay OÜ como agente de Creditco UAB en España. Tramitación 3-6 meses, ~3-5 k€ asesoría.</li>
+  <li><span class="q">⓷</span> <strong>Notificación entidad pago</strong> si NightPay retiene fondos &gt; X días → EMI de facto. Mitigación: payout instant.</li>
+</ul>
+
+<h3>Agencia Tributaria</h3>
+<ul>
+  <li><span class="q">⓸</span> Alta CNAE/IAE para cada entidad española.</li>
+  <li><span class="q">⓹</span> Modelo 720 (bienes en el extranjero) si tienes cuenta de NightPay OÜ y eres residente fiscal español.</li>
+  <li><span class="q">⓺</span> Modelo 349 trimestral (operaciones intracomunitarias).</li>
+  <li><span class="q">⓻</span> SII si volumen &gt; 6 M€.</li>
+</ul>
+
+<h3>Tesorería Seguridad Social (chicas autónomas)</h3>
+<ul>
+  <li><span class="q">⓼</span> Alta RETA obligatoria para cada chica antes de operar.</li>
+  <li><span class="q">⓽</span> Cuota mensual ~290 € (tarifa plana 1er año, ~480 € después).</li>
+  <li>Riesgo si no RETA: inspección laboral recalifica como falso autónomo → sanción al venue 6.000-180.000 €.</li>
+</ul>
+
+<h3>PBC/FT (Ley 10/2010)</h3>
+<ul>
+  <li><span class="q">⓾</span> RSR SL como sujeto obligado (prestamista) — identificación reforzada del cliente.</li>
+  <li><span class="q">⑪</span> Política PBC/FT documentada + representante designado.</li>
+  <li><span class="q">⑫</span> Reportes SEPBLAC ante operaciones sospechosas.</li>
+  <li><span class="q">⑬</span> Conservación documentación 10 años.</li>
+</ul>
+
+<h3>RGPD (AEPD)</h3>
+<ul>
+  <li><span class="q">⑭</span> Base jurídica del tratamiento: ejecución de contrato (préstamo).</li>
+  <li><span class="q">⑮</span> Política privacidad publicada + consentimiento explícito al firmar préstamo.</li>
+  <li><span class="q">⑯</span> DPO designado si volumen alto / datos sensibles.</li>
+  <li><span class="q">⑰</span> Evaluación de impacto (DPIA) realizada para tratamiento de DNI + tarjeta + foto.</li>
+</ul>
+
+<h3>Visa / Mastercard scheme rules</h3>
+<ul>
+  <li><span class="q">⑱</span> MCC code aplicable a RSR SL — <strong>decisión crítica</strong>:
+    <ul>
+      <li>6051 — Non-FI: foreign currency, money orders, scrip</li>
+      <li>6010 — Financial institutions: manual cash disbursements</li>
+      <li>6012 — Financial institutions: merchandise and services</li>
+    </ul>
+    El MCC determina reservas exigidas, tasas y reglas de chargeback.
+  </li>
+</ul>
+
+<h3>Ayuntamiento (Venue)</h3>
+<ul>
+  <li><span class="q">⑲</span> Licencia de actividad (bar, alquiler habitaciones, espectáculo).</li>
+  <li><span class="q">⑳</span> IAE local + tasas municipales.</li>
+</ul>
+
+<!-- ═══════════════════════════════ PARTE 6 ═══════════════════════════════ -->
+<h2>PARTE 6 · Mapa de riesgos legales</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:8%">Sev.</th>
+      <th style="width:25%">Riesgo</th>
+      <th>Tipificación / Naturaleza</th>
+      <th style="width:30%">Mitigación principal</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="sev crit">Crit</span></td>
+      <td><strong>Proxenetismo encubierto</strong> (Art. 187 CP)</td>
+      <td>Si el venue impone horarios/exclusividad/% del servicio, puede recalificarse como "explotación de la prostitución ajena". Pena 2-4 años de prisión.</td>
+      <td>Alquiler de habitación tarifa fija (NO %). Libertad operativa total de la chica. Contrato venue-chica de arrendamiento explícito. Sin retención de documentos.</td>
+    </tr>
+    <tr>
+      <td><span class="sev crit">Crit</span></td>
+      <td><strong>Recalificación préstamo → venta</strong> (Hacienda)</td>
+      <td>Si la AEAT considera el "préstamo" un fraude de ley para evitar IVA, recalifica todo: cliente paga 100 € → RSR repercute IVA 21% → 17.36 € de deuda + multa + intereses por cada 100 €.</td>
+      <td>TAE expresada. Comisión de gestión razonable y separada. Firma electrónica con DNI verificable. Consulta vinculante (Modelo CV) a DGT.</td>
+    </tr>
+    <tr>
+      <td><span class="sev high">High</span></td>
+      <td><strong>Falsa autonomía chicas</strong> (Inspección Trabajo)</td>
+      <td>Si chica es de facto empleada del venue, recalifica como trabajador asalariado. Multas hasta 180.000 €.</td>
+      <td>Cada chica firma alta RETA antes de operar. Sin horarios impuestos. Sin exclusividad. Comisión/alquiler claramente diferenciable de salario.</td>
+    </tr>
+    <tr>
+      <td><span class="sev high">High</span></td>
+      <td><strong>Blanqueo de capitales</strong> (Ley 10/2010)</td>
+      <td>Sectores adult-services + cash + prestamistas son sujetos obligados. Sin política PBC/FT → sanción grave del SEPBLAC.</td>
+      <td>Designar representante PBC/FT. Software matching sanciones (Creditco). Procedimiento escrito + auditoría anual. Reportes mensuales.</td>
+    </tr>
+    <tr>
+      <td><span class="sev high">High</span></td>
+      <td><strong>Chargeback masivo</strong> del cliente</td>
+      <td>Cliente niega haber recibido el préstamo. Sin firma con DNI ni recibo de chica → Visa/MC se inclinan por el cliente.</td>
+      <td>Captura DNI/NIE al firmar préstamo. Selfie consent. Geolocalización local. Recibo digital chica → cliente. SCA/3DS obligatorio. T&amp;C multi-idioma.</td>
+    </tr>
+    <tr>
+      <td><span class="sev med">Med</span></td>
+      <td><strong>NightPay OÜ recalificada residente fiscal ES</strong></td>
+      <td>Si NightPay OÜ no tiene sustancia (oficinas, decisiones, banking en EE), Hacienda la trata como residente ES → IS 25% sin diferimiento.</td>
+      <td>Director con e-residency Estonia. Actas del consejo en EE. Banking LHV Pank / Wise EE. Justificantes actividad EE. Sin facturar directamente a clientes ES.</td>
+    </tr>
+    <tr>
+      <td><span class="sev med">Med</span></td>
+      <td><strong>Datos sensibles cliente</strong> (RGPD Art. 9)</td>
+      <td>Cliente de adult-services + DNI + foto + geo es dato sensible. Brecha → sanción AEPD hasta 20 M€ o 4% facturación.</td>
+      <td>Cifrado at-rest AES-256-GCM. Acceso por roles. Retención mínima 10 años PBC/FT, después borrado. DPO. DPIA realizada.</td>
+    </tr>
+    <tr>
+      <td><span class="sev med">Med</span></td>
+      <td><strong>Pérdida licencia Creditco</strong></td>
+      <td>Si Creditco UAB freeza la cuenta master por riesgo adult-services, todos los payouts se paran.</td>
+      <td>Plan B documentado con Wallester o Paysera como EMI backup. Disclosure honesto del modelo al onboarding Creditco.</td>
+    </tr>
+    <tr>
+      <td><span class="sev low">Low</span></td>
+      <td><strong>Pérdida TPV Cecabank</strong></td>
+      <td>BBVA/Cecabank cancela el TPV si descubre el modelo y lo considera high-risk.</td>
+      <td>MoR es RSR SL, no NightPay (buffer comercial). Backup Yavin como adapter alternativo (datáfono físico).</td>
+    </tr>
+    <tr>
+      <td><span class="sev low">Low</span></td>
+      <td><strong>Cambio regulación adult-services España</strong></td>
+      <td>Ley Mordaza, posible regulación adicional al sector.</td>
+      <td>Estonia OÜ aísla. Modelo basado en servicios legales (acompañamiento, espectáculo). Asesoría legal monitoriza cambios.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════ PARTE 7 ═══════════════════════════════ -->
+<h2>PARTE 7 · Preguntas concretas para el abogado</h2>
+
+<p>El abogado debe responder estos puntos para que el modelo sea operable con seguridad jurídica.</p>
+
+<h3>A) Sobre la licencia de prestamista</h3>
+<div class="question"><div class="q-num">1</div><div>¿Es suficiente la inscripción en el <strong>Registro Estatal de Empresas Previsoras de Servicios Financieros</strong> (Banco de España) para que RSR SL preste al consumo, o requiere licencia EFC (Establecimiento Financiero de Crédito)?</div></div>
+<div class="question"><div class="q-num">2</div><div>¿Capital social mínimo exigido para RSR SL como prestamista? ¿Reservas regulatorias?</div></div>
+<div class="question"><div class="q-num">3</div><div>¿Es válido un préstamo con TAE 0% + comisión de gestión separada, o debe incluir coste financiero &gt; 0?</div></div>
+
+<h3>B) Sobre el contrato de préstamo con el cliente</h3>
+<div class="question"><div class="q-num">4</div><div>¿Qué nivel de firma electrónica es exigible? ¿Click + captura DNI es suficiente o requiere firma electrónica avanzada/cualificada?</div></div>
+<div class="question"><div class="q-num">5</div><div>¿Qué información ARCO debe incluir el contrato (Ley 16/2011)? ¿TAE, TIN, comisiones, plazos, derecho desistimiento 14 días?</div></div>
+<div class="question"><div class="q-num">6</div><div>Si el cliente desiste en 14 días, ¿podemos recuperar los 100 € de un servicio ya consumido? ¿Cómo neutralizar este riesgo operativo?</div></div>
+<div class="question"><div class="q-num">7</div><div>¿Es legal un préstamo sin onerosidad (sin intereses)? Algunos juristas sostienen que sin coste financiero es un "anticipo" y no un préstamo.</div></div>
+
+<h3>C) Sobre el régimen de las chicas</h3>
+<div class="question"><div class="q-num">8</div><div>¿Qué CNAE/IAE deben tener las chicas autónomas? ¿"Otros servicios personales no incluidos en otros epígrafes" (CNAE 9609)? ¿O actividad artística/espectáculo?</div></div>
+<div class="question"><div class="q-num">9</div><div>¿Es viable el modelo "alquiler de habitación por sesión" o debe ser alquiler mensual fijo para diferenciar de relación laboral?</div></div>
+<div class="question"><div class="q-num">10</div><div>¿Es legal exigir el pago del alquiler como pre-requisito para liberar el saldo del cobro? ¿Constituye retención indebida de fondos?</div></div>
+<div class="question"><div class="q-num">11</div><div>¿Una chica RETA puede emitir factura simplificada (Modelo 7) por importes &gt; 400 €? ¿Hasta qué importe?</div></div>
+
+<h3>D) Sobre la estructura Estonia OÜ</h3>
+<div class="question"><div class="q-num">12</div><div>¿Es sólido el transfer pricing NightPay OÜ → RSR SL? ¿Necesitamos consulta vinculante (Modelo CV) a la DGT para blindar la valoración intra-grupo?</div></div>
+<div class="question"><div class="q-num">13</div><div>¿Tributa el dueño de NightPay OÜ por los dividendos en España, o retiene Estonia primero? ¿Convenio doble imposición EE-ES?</div></div>
+<div class="question"><div class="q-num">14</div><div>¿Obligación Modelo 720 si tengo cuenta bancaria de NightPay OÜ en LHV Pank/Wise EE?</div></div>
+
+<h3>E) Sobre el MoR, MCC y chargebacks</h3>
+<div class="question"><div class="q-num">15</div><div>¿RSR SL como MoR puede operar en este sector con MCC neutro (6051/6010/6012) o Visa/Mastercard exige MCC adult-services (7297/7273)?</div></div>
+<div class="question"><div class="q-num">16</div><div>¿Funciona el modelo "fianza venue como reserva de chargebacks" o necesitamos cuenta de garantía formal en entidad bancaria?</div></div>
+
+<h3>F) Sobre PBC/FT</h3>
+<div class="question"><div class="q-num">17</div><div>¿Es RSR SL sujeto obligado por Ley 10/2010? ¿Umbrales de identificación reforzada (&gt; 1.000 €/cliente/día)?</div></div>
+<div class="question"><div class="q-num">18</div><div>¿Necesitamos PBC/FT officer dedicado o se puede subcontratar? ¿Coste anual estimado?</div></div>
+
+<h3>G) Riesgo penal — proxenetismo</h3>
+<div class="question"><div class="q-num">19</div><div>¿El modelo "alquiler de habitación tarifa fija + chica autónoma con libertad operativa total" está clarísimamente FUERA del Art. 187 CP?</div></div>
+<div class="question"><div class="q-num">20</div><div>¿Qué prácticas operativas del venue debemos PROHIBIR en contrato y manual para mantenernos seguros (horarios impuestos, % servicio, exclusividad, etc.)?</div></div>
+<div class="question"><div class="q-num">21</div><div>¿Existe jurisprudencia reciente sobre modelos similares (plataformas + locales + autónomas) que podamos usar como referencia?</div></div>
+
+<h3>H) Estructura contractual</h3>
+<div class="question"><div class="q-num">22</div><div>¿Puedes redactar los 8 contratos del esquema (ver Parte 3) o necesitamos buscar especialistas por área?</div></div>
+<div class="question"><div class="q-num">23</div><div>Plazos estimados para tener todos los contratos firmados y registrados.</div></div>
+<div class="question"><div class="q-num">24</div><div>Coste honorarios para el proyecto completo (constitución RSR SL + registros + contratos + asesoría continua mensual).</div></div>
+
+<!-- ═══════════════════════════════ RESUMEN ═══════════════════════════════ -->
+<h2>Resumen ejecutivo</h2>
+
+<div class="alert ok">
+  <span class="label">Concepto operativo del modelo:</span>
+  NightPay es una <strong>plataforma tecnológica</strong> (NightPay OÜ, Estonia) que licencia software
+  a <strong>RSR SL</strong> (España), prestamista al consumo registrado en Banco de España.
+  RSR SL otorga <strong>micro-préstamos instantáneos</strong> a clientes que visitan locales (Venue SL).
+  El cliente usa el préstamo para pagar servicios prestados de manera <strong>independiente por chicas autónomas RETA</strong>.
+  La chica paga <strong>alquiler de habitación</strong> al venue como gasto profesional,
+  y NightPay/RSR procesa el <strong>settlement neto</strong> a su cuenta bancaria/tarjeta debit
+  vía <strong>Creditco UAB</strong> (Lituania).
+</div>
+
+<h3>Necesitamos del abogado:</h3>
+<ul>
+  <li>Validación del modelo como NO recalificable a venta (consulta vinculante DGT).</li>
+  <li>Borrador del contrato de préstamo digital al consumo (Ley 16/2011).</li>
+  <li>Borrador del contrato venue ↔ chica (arrendamiento de habitación uso profesional).</li>
+  <li>Borrador del contrato chica ↔ NightPay (mandato de cobranza).</li>
+  <li>Borrador del contrato RSR ↔ Venue (servicio plataforma).</li>
+  <li>Borrador del contrato NightPay OÜ ↔ Creditco UAB (agente PSD2).</li>
+  <li>Confirmación de licencias requeridas + apertura de trámites (registro prestamistas, agente PSD2).</li>
+  <li>Manual PBC/FT + designación de officer.</li>
+  <li>Política de RGPD + DPIA + DPO si procede.</li>
+  <li>Asesoría continua mensual.</li>
+</ul>
+
+<div class="alert warn">
+  <span class="label">Prioridad de trámites:</span> El <strong>registro de prestamista</strong> (RSR SL) y la <strong>inscripción como agente PSD2</strong> (NightPay OÜ ante BdE) son los dos trámites con mayor tiempo de respuesta (3-6 meses). Iniciarlos en paralelo desde el día 1.
+</div>
+
+<div class="footer">
+  NightPay · Esquema Jurídico-Fiscal v1.0 · Documento confidencial<br>
+  Para uso interno y asesoría legal exclusivamente
+</div>
+
+</body>
+</html>

@@ -2,6 +2,11 @@
 # ══════════════════════════════════════════════════════════════════
 # Restore from restic backup — interactive, confirms before destroying.
 #
+# Matches the CURRENT stack written by backup.sh: kpi DB (kpi.dump) +
+# waha_data volume (WhatsApp sessions) + optional archive_data volume.
+# (The old Chatwoot/Evolution restore path was removed — those services
+# no longer exist.)
+#
 # Usage: bash scripts/restore-backup.sh [snapshot_id | latest]
 # ══════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -20,15 +25,14 @@ log "Restoring snapshot $SNAPSHOT to $RESTORE_DIR..."
 mkdir -p "$RESTORE_DIR"
 restic restore "$SNAPSHOT" --target "$RESTORE_DIR"
 
-BACKUP_SOURCE=$(find "$RESTORE_DIR" -maxdepth 3 -name "chatwoot_production.dump" | head -1)
+BACKUP_SOURCE=$(find "$RESTORE_DIR" -maxdepth 3 -name "kpi.dump" | head -1)
 if [[ -z "$BACKUP_SOURCE" ]]; then
-    echo "ERROR: backup dumps not found under $RESTORE_DIR" >&2
+    echo "ERROR: kpi.dump not found under $RESTORE_DIR" >&2
     exit 1
 fi
 BACKUP_DIR="$(dirname "$BACKUP_SOURCE")"
 
-log "Found dumps in $BACKUP_DIR"
-log "This will RESTORE:"
+log "Found backup in $BACKUP_DIR:"
 ls -lh "$BACKUP_DIR"
 echo
 read -r -p "Type 'yes' to proceed (current data will be REPLACED): " CONFIRM
@@ -37,29 +41,37 @@ if [[ "$CONFIRM" != "yes" ]]; then
     exit 0
 fi
 
-# Stop all services except postgres
-log "Stopping services..."
-docker compose stop chatwoot-rails chatwoot-sidekiq evolution kpi-app kpi-worker caddy
+# Stop everything that reads the DB / WhatsApp volume; keep postgres up so we
+# can drop/recreate the kpi DB, and redis (harmless).
+log "Stopping app + waha services (postgres/redis stay up)..."
+docker compose stop kpi-app kpi-worker caddy waha
 
-# Restore each DB
-for DB in chatwoot_production evolution kpi; do
-    log "Restoring $DB..."
-    docker compose exec -T postgres dropdb --if-exists -U postgres "$DB"
-    docker compose exec -T postgres createdb -U postgres "$DB"
-    docker compose exec -T postgres pg_restore \
-        -U postgres \
-        --no-owner \
-        --no-acl \
-        -d "$DB" < "$BACKUP_DIR/${DB}.dump"
-done
+# ── Restore kpi DB ────────────────────────────────────────────────
+log "Restoring kpi DB..."
+docker compose exec -T postgres dropdb --if-exists -U postgres kpi
+docker compose exec -T postgres createdb -U postgres kpi
+docker compose exec -T postgres pg_restore \
+    -U postgres \
+    --no-owner \
+    --no-acl \
+    -d kpi < "$BACKUP_DIR/kpi.dump"
 
-# Restore evolution_instances volume
-if [[ -f "$BACKUP_DIR/evolution_instances.tar.gz" ]]; then
-    log "Restoring evolution_instances volume..."
+# ── Restore waha_data volume (WhatsApp sessions — avoids re-pairing by QR) ──
+if [[ -f "$BACKUP_DIR/waha_data.tar.gz" ]]; then
+    log "Restoring waha_data volume (WhatsApp sessions)..."
     docker run --rm \
-        -v maxxag-wa-ops_evolution_instances:/dst \
+        -v maxxag-wa-ops_waha_data:/dst \
         -v "$BACKUP_DIR":/src:ro \
-        alpine sh -c "rm -rf /dst/* && tar xzf /src/evolution_instances.tar.gz -C /dst"
+        alpine sh -c "rm -rf /dst/* && tar xzf /src/waha_data.tar.gz -C /dst"
+fi
+
+# ── Restore archive_data volume (raw event JSONL — secondary record) ──
+if [[ -f "$BACKUP_DIR/archive_data.tar.gz" ]]; then
+    log "Restoring archive_data volume..."
+    docker run --rm \
+        -v maxxag-wa-ops_archive_data:/dst \
+        -v "$BACKUP_DIR":/src:ro \
+        alpine sh -c "rm -rf /dst/* && tar xzf /src/archive_data.tar.gz -C /dst"
 fi
 
 log "Starting services..."

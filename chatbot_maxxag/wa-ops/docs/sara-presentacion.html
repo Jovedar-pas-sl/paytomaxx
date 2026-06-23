@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Sara — Asistente virtual de WhatsApp</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+    color: #2b2230; line-height: 1.5; font-size: 12.5px; margin: 0;
+  }
+  h1, h2, h3 { color: #7a1b54; margin: 0; }
+  .accent { color: #b03a7a; }
+
+  /* Cover header */
+  .cover {
+    background: linear-gradient(135deg, #7a1b54 0%, #b03a7a 100%);
+    color: #fff; border-radius: 16px; padding: 34px 30px; margin-bottom: 26px;
+  }
+  .cover .brand { display: flex; align-items: center; gap: 9px; font-weight: 700;
+    font-size: 16px; letter-spacing: .4px; margin-bottom: 20px; color: #fff; }
+  .cover .brand .mark { display: inline-grid; place-items: center; width: 28px;
+    height: 28px; border-radius: 8px; background: rgba(255,255,255,.18); font-size: 15px; }
+  .cover .eyebrow { text-transform: uppercase; letter-spacing: 3px; font-size: 11px; opacity: .85; }
+  .cover h1 { color: #fff; font-size: 34px; margin: 8px 0 6px; }
+  .cover .sub { font-size: 15px; opacity: .92; }
+
+  section { margin-bottom: 22px; page-break-inside: avoid; }
+  h2 { font-size: 18px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #f0d9e6; }
+  p { margin: 0 0 10px; }
+  .lead { font-size: 13.5px; color: #4a3d4f; }
+
+  /* Capability grid */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card {
+    border: 1px solid #efe2ea; border-radius: 12px; padding: 14px 16px;
+    background: #fdf8fb;
+  }
+  .card .t { font-weight: 700; color: #7a1b54; margin-bottom: 3px; display: block; }
+  .card .d { font-size: 12px; color: #574a5c; }
+
+  /* Steps */
+  .steps { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .step { text-align: center; }
+  .step .num {
+    display: inline-grid; place-items: center; width: 40px; height: 40px;
+    border-radius: 50%; background: #b03a7a; color: #fff; font-weight: 700;
+    font-size: 18px; margin-bottom: 8px;
+  }
+  .step .st { font-weight: 700; color: #7a1b54; font-size: 13px; margin-bottom: 3px; }
+  .step .sd { font-size: 11.5px; color: #574a5c; }
+
+  /* Modes */
+  .mode { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 9px; }
+  .mode .tag {
+    flex: 0 0 110px; font-weight: 700; color: #7a1b54; background: #f7e6f0;
+    border-radius: 8px; padding: 6px 10px; text-align: center; font-size: 12px;
+  }
+  .mode .mx { font-size: 12.5px; color: #4a3d4f; padding-top: 4px; }
+
+  ul.clean { margin: 0; padding-left: 18px; }
+  ul.clean li { margin-bottom: 6px; }
+
+  .note { background: #f7eef3; border-left: 4px solid #b03a7a; border-radius: 8px;
+          padding: 10px 14px; font-size: 12px; color: #574a5c; }
+
+  .resumen { background: #2b2230; color: #fff; border-radius: 14px; padding: 20px 24px; }
+  .resumen h2 { color: #fff; border-color: rgba(255,255,255,.2); }
+  .resumen ul li { margin-bottom: 7px; }
+
+  .closing { text-align: center; margin-top: 30px; page-break-inside: avoid; }
+  .closing .mark { display: inline-grid; place-items: center; width: 44px; height: 44px;
+    border-radius: 12px; background: #7a1b54; color: #fff; font-size: 22px; font-weight: 700; margin-bottom: 10px; }
+  .closing .name { font-size: 20px; font-weight: 700; color: #7a1b54; }
+  .closing .line { font-size: 13px; color: #574a5c; max-width: 460px; margin: 8px auto 0; }
+  footer { margin-top: 22px; text-align: center; color: #9a8ca0; font-size: 10.5px; }
+</style>
+</head>
+<body>
+
+  <div class="cover">
+    <div class="brand"><span class="mark">M</span> MaxxagBot</div>
+    <div class="eyebrow">Atención al cliente · WhatsApp</div>
+    <h1>Sara</h1>
+    <div class="sub">La recepcionista virtual que atiende los WhatsApp, 24 horas al día.</div>
+  </div>
+
+  <section>
+    <h2>¿Qué es Sara?</h2>
+    <p class="lead">Sara es una <strong>recepcionista virtual</strong> que atiende automáticamente los mensajes
+    de WhatsApp de los clientes, las 24 horas, igual que lo haría una encargada. Contesta al instante,
+    con un trato cercano y natural, y lleva la conversación hasta cerrar la cita.</p>
+  </section>
+
+  <section>
+    <h2>¿Qué puede hacer?</h2>
+    <div class="grid">
+      <div class="card"><span class="t">Atiende a todas horas</span><span class="d">Responde al momento de día, de noche y los fines de semana. Ningún cliente se queda sin respuesta.</span></div>
+      <div class="card"><span class="t">Habla varios idiomas</span><span class="d">Detecta y responde en el idioma del cliente: español, inglés, francés e italiano.</span></div>
+      <div class="card"><span class="t">Trato natural</span><span class="d">Escribe como una persona, con mensajes cortos y cercanos. No parece un robot.</span></div>
+      <div class="card"><span class="t">Presenta a las chicas</span><span class="d">Enseña las que están disponibles ese día y envía sus fotos.</span></div>
+      <div class="card"><span class="t">Gestiona la cita</span><span class="d">Informa de los precios y organiza la visita al local, paso a paso.</span></div>
+      <div class="card"><span class="t">Servicio a domicilio</span><span class="d">Si el cliente lo pide, le solicita la ubicación y le da el precio (servicio + taxi).</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>¿Cómo funciona? En 3 pasos</h2>
+    <div class="steps">
+      <div class="step"><div class="num">1</div><div class="st">El cliente escribe</div><div class="sd">Manda un WhatsApp como a cualquier número del negocio.</div></div>
+      <div class="step"><div class="num">2</div><div class="st">Sara entiende</div><div class="sd">Lee toda la conversación y capta qué está buscando el cliente.</div></div>
+      <div class="step"><div class="num">3</div><div class="st">Sara responde</div><div class="sd">Contesta como la encargada y guía al cliente hacia la reserva.</div></div>
+    </div>
+    <p class="note" style="margin-top:14px;">Sara usa siempre la <strong>información real de cada casa</strong> —chicas disponibles ese día, precios y horario—,
+    así que nunca inventa. Y espera unos segundos y "escribe" como una persona, para que la conversación sea natural.</p>
+  </section>
+
+  <section>
+    <h2>¿Cómo se usa? El panel de control</h2>
+    <p>El equipo dispone de un panel donde ve todas las conversaciones y decide cómo trabaja Sara en cada número:</p>
+    <div class="mode"><div class="tag">Automático</div><div class="mx">Sara contesta sola, sin que nadie tenga que intervenir.</div></div>
+    <div class="mode"><div class="tag">Copiloto</div><div class="mx">Sara prepara la respuesta y una persona la revisa y la envía.</div></div>
+    <div class="mode"><div class="tag">Manual</div><div class="mx">Sara descansa y contesta una persona del equipo.</div></div>
+    <p style="margin-top:10px;">La encargada puede <strong>tomar el control en cualquier momento</strong>: en cuanto una persona
+    responde, Sara se aparta sola. Además, cada conversación puede marcarse como <strong>“reservada”</strong> para llevar la cuenta de las ventas.</p>
+  </section>
+
+  <section>
+    <h2>Las secciones de la plataforma</h2>
+    <p>Todo se maneja desde una misma plataforma, organizada en secciones sencillas:</p>
+    <div class="grid">
+      <div class="card"><span class="t">Inbox</span><span class="d">Todas las conversaciones de WhatsApp con los clientes, ordenadas por casa. Aquí se lee cada chat, se ve qué responde Sara y se puede contestar a mano o marcar una conversación como “reservada”.</span></div>
+      <div class="card"><span class="t">WhatsApp</span><span class="d">Donde se conectan y se vigilan los números de WhatsApp del negocio, para asegurarse de que están activos y enlazados.</span></div>
+      <div class="card"><span class="t">Métricas</span><span class="d">Los números del negocio de un vistazo: cuántos clientes escriben, cuántas conversaciones hay y la actividad de cada casa.</span></div>
+      <div class="card"><span class="t">Informes</span><span class="d">Resúmenes automáticos de las conversaciones: de qué hablan los clientes, qué piden y qué se puede mejorar.</span></div>
+      <div class="card"><span class="t">Bot (Sara)</span><span class="d">El estado de la asistente: si está activa, en qué números y cómo está respondiendo. Su centro de control.</span></div>
+      <div class="card"><span class="t">Alertas</span><span class="d">Avisos importantes: cuando Sara necesita que una persona revise algo o hay que atender una conversación.</span></div>
+      <div class="card"><span class="t">Ajustes</span><span class="d">Gestión del equipo: crear usuarios, dar permisos y asignar las casas que ve cada persona.</span></div>
+    </div>
+  </section>
+
+  <section style="page-break-before: always;">
+    <h2>Seguridad y control</h2>
+    <ul class="clean">
+      <li><strong>Nunca inventa:</strong> solo usa la información real de cada casa.</li>
+      <li><strong>Se protege sola:</strong> si detecta algo delicado (por ejemplo un menor o un intento de fraude), se detiene y avisa al equipo.</li>
+      <li><strong>Siempre supervisada:</strong> todo queda registrado y el equipo tiene la última palabra.</li>
+    </ul>
+  </section>
+
+  <section class="resumen">
+    <h2>En resumen</h2>
+    <ul class="clean">
+      <li>Ningún cliente se queda sin respuesta, ni de madrugada.</li>
+      <li>Más reservas y menos tiempo perdido del equipo.</li>
+      <li>Atención profesional y cercana, en varios idiomas.</li>
+      <li>Todo bajo control: el equipo decide y puede intervenir cuando quiera.</li>
+    </ul>
+  </section>
+
+  <div class="closing">
+    <div class="mark">M</div>
+    <div class="name">MaxxagBot</div>
+    <p class="line">Sara ya está en marcha, atendiendo a vuestros clientes — y mejorando cada semana.</p>
+  </div>
+
+  <footer>MaxxagBot · Documento informativo · Junio 2026</footer>
+
+</body>
+</html>

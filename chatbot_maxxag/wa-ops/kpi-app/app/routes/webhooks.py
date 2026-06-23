@@ -13,26 +13,146 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import json
 import logging
+import math
+import time
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
+from app import queries
 from app.deps import Arq, KpiDB
 from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook")
 
+# Auto-reply burst debounce (seconds): rapid messages from one client collapse
+# into a single deferred job (see the enqueue gate in _handle_message).
+_AUTOREPLY_DEBOUNCE_S = 8
+
+# Valid WGS-84 coordinate ranges — used to reject garbage location payloads.
+_LAT_MIN, _LAT_MAX = -90.0, 90.0
+_LNG_MIN, _LNG_MAX = -180.0, 180.0
+
+
+def _coerce_coord(lat: object, lng: object) -> tuple[float, float] | None:
+    """Coerce a (lat, lng) pair to finite, in-range floats, or None.
+
+    Input-validation at the boundary: returns None unless BOTH coerce to finite
+    floats AND fall inside the valid WGS-84 ranges. Never raises.
+    """
+    try:
+        flat = float(lat)  # type: ignore[arg-type]
+        flng = float(lng)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(flat) and math.isfinite(flng)):
+        return None
+    if not (_LAT_MIN <= flat <= _LAT_MAX and _LNG_MIN <= flng <= _LNG_MAX):
+        return None
+    return (flat, flng)
+
+
+def _extract_location(data: dict[str, Any], _d: dict[str, Any]) -> tuple[float, float] | None:
+    """Defensively extract a (lat, lng) from a WAHA NOWEB message payload.
+
+    WAHA does NOT publish a canonical incoming-location example and the exact
+    field path varies by engine/version, so we try several known shapes in order
+    and take the FIRST that yields a valid coordinate pair:
+
+      1. payload.location.{latitude,longitude}            (WAHA normalized, newer)
+      2. _data.message.locationMessage.{degreesLatitude,  (Baileys raw proto —
+         degreesLongitude}                                 NOWEB primary)
+      3. _data.location.{degreesLatitude,degreesLongitude} (NOWEB alt nesting)
+      4. payload.lat / _data.lat  +  payload.lng / _data.lng (flat fallback)
+
+    Returns None for a non-location message (the common case) or any unrecognized
+    shape. Never raises (keeps the webhook crash-proof per CLAUDE.md). Logs once
+    when a location-looking message arrives but no path matched, so a new WAHA
+    shape can be added.
+    """
+    # 1) WAHA normalized top-level location object.
+    loc = data.get("location")
+    if isinstance(loc, dict):
+        coord = _coerce_coord(loc.get("latitude"), loc.get("longitude"))
+        if coord is not None:
+            return coord
+
+    # 2) Baileys raw proto: _data.message.locationMessage.
+    msg = _d.get("message")
+    loc_msg = msg.get("locationMessage") if isinstance(msg, dict) else None
+    if isinstance(loc_msg, dict):
+        coord = _coerce_coord(
+            loc_msg.get("degreesLatitude"), loc_msg.get("degreesLongitude")
+        )
+        if coord is not None:
+            return coord
+
+    # 3) NOWEB alt nesting: _data.location.{degreesLatitude,...}.
+    d_loc = _d.get("location")
+    if isinstance(d_loc, dict):
+        coord = _coerce_coord(
+            d_loc.get("degreesLatitude") or d_loc.get("latitude"),
+            d_loc.get("degreesLongitude") or d_loc.get("longitude"),
+        )
+        if coord is not None:
+            return coord
+
+    # 4) Flat fallback on either dict.
+    coord = _coerce_coord(
+        data.get("lat") if data.get("lat") is not None else _d.get("lat"),
+        data.get("lng") if data.get("lng") is not None else _d.get("lng"),
+    )
+    if coord is not None:
+        return coord
+
+    # If the message *looks* like a location but no path matched, log the shape
+    # so we can extend the extractor (don't raise — just skip the capture).
+    looks_like_location = (
+        data.get("type") == "location"
+        or loc is not None
+        or loc_msg is not None
+        or d_loc is not None
+    )
+    if looks_like_location:
+        logger.warning(
+            "waha location in unrecognized shape — coords not captured: %s",
+            str({"type": data.get("type"), "location": loc, "_data_keys": list(_d.keys())})[:300],
+        )
+    return None
+
+
+_SESSION_MAX_LEN = 64
+_SESSION_RE = re.compile(r"[^A-Za-z0-9_.\-]")
+
+
+def _sanitize_session(value: object) -> str | None:
+    """Charset+length guard for a WAHA session id (it ends up in WAHA API paths).
+
+    Strips anything outside [A-Za-z0-9_.-], hard-truncates to _SESSION_MAX_LEN,
+    and returns None for non-str or all-invalid input (caller ignores the event).
+    """
+    if not isinstance(value, str):
+        return None
+    cleaned = _SESSION_RE.sub("", value)[:_SESSION_MAX_LEN]
+    return cleaned or None
+
 
 def _verify_hmac(body: bytes, header_sig: str | None) -> bool:
-    """Constant-time HMAC verification. Skips when secret unset (dev)."""
+    """Constant-time HMAC verification, FAIL-CLOSED.
+
+    An unset/blank secret REJECTS in production (settings.debug False) so the
+    webhook is never unauthenticated on a real deployment. The empty-secret
+    bypass is allowed ONLY when settings.debug is True (local development).
+    """
     settings = get_settings()
     secret = settings.waha_webhook_hmac.get_secret_value() if settings.waha_webhook_hmac else ""
-    if not secret:
-        return True  # not configured → allow (development only)
+    if not secret.strip():
+        return bool(getattr(settings, "debug", False))  # dev-only bypass
     if not header_sig:
         return False
     expected = hmac.new(secret.encode(), body, hashlib.sha512).hexdigest()
@@ -53,14 +173,14 @@ async def waha_webhook(
 
     payload = json.loads(body) if body else {}
     event = payload.get("event")
-    session = payload.get("session") or "default"
+    session = _sanitize_session(payload.get("session")) or "default"
     data = payload.get("payload") or {}
 
     if event == "session.status":
         await _handle_session_status(db, session, data)
     elif event in ("message", "message.any"):
         # message.any fires for both incoming and outgoing (fromMe=true)
-        await _handle_message(db, session, data)
+        await _handle_message(db, arq, session, data)
     elif event == "message.ack":
         await _handle_message_ack(db, data)
     else:
@@ -82,9 +202,15 @@ async def _handle_session_status(db: KpiDB, session: str, data: dict[str, Any]) 
                 """,
                 f"Session '{session}' → {status}",
             )
+        # Push the operator NOW — a down session means a casa may be offline
+        # (the DB alert alone isn't seen until someone logs in). Fail-soft.
+        from app.notify import push_alert
+        await push_alert(
+            f"⚠️ WhatsApp '{session}' → {status}. Una casa puede estar offline — revisa /sessions."
+        )
 
 
-async def _handle_message(db: KpiDB, session: str, data: dict[str, Any]) -> None:
+async def _handle_message(db: KpiDB, arq: Arq, session: str, data: dict[str, Any]) -> None:
     """Upsert contact + conversation, insert message.
 
     WAHA semantics: `from` always holds the REMOTE party's JID (the
@@ -101,7 +227,11 @@ async def _handle_message(db: KpiDB, session: str, data: dict[str, Any]) -> None
     media = data.get("media") or {}
 
     if not chat_id or not msg_id:
-        logger.warning("waha message missing id/chat_id: %s", str(data)[:200])
+        # Do NOT log raw `data` — it carries client PII (phone/JID, pushName, body).
+        logger.warning(
+            "waha message missing id/chat_id (from_me=%s has_media=%s)",
+            from_me, has_media,
+        )
         return
 
     # Skip non-1:1 conversations:
@@ -134,6 +264,14 @@ async def _handle_message(db: KpiDB, session: str, data: dict[str, Any]) -> None
             or _d.get("pushName")
             or None
         )
+
+    # F3: capture a location PIN (lat/lng) when the incoming message is a
+    # WhatsApp location. Defensive across WAHA NOWEB field shapes; None for any
+    # non-location message. Stored on the message row (additive on the normal
+    # upsert) — the auto_reply job reads it later to compute the outcall price.
+    location = _extract_location(data, _d)
+    msg_lat = location[0] if location is not None else None
+    msg_lng = location[1] if location is not None else None
 
     async with db.acquire() as conn:
         async with conn.transaction():
@@ -203,9 +341,10 @@ async def _handle_message(db: KpiDB, session: str, data: dict[str, Any]) -> None
                 """
                 INSERT INTO message (
                     conversation_id, waha_msg_id, direction, body,
-                    media_url, media_mime, ack, created_at
+                    media_url, media_mime, ack, created_at,
+                    latitude, longitude
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (waha_msg_id) DO NOTHING
                 RETURNING id
                 """,
@@ -214,6 +353,7 @@ async def _handle_message(db: KpiDB, session: str, data: dict[str, Any]) -> None
                 media.get("mimetype") if has_media else None,
                 int(data.get("ack") or 0),
                 created_at,
+                msg_lat, msg_lng,
             )
 
             # Bump unread_count for incoming new messages
@@ -271,6 +411,32 @@ async def _handle_message(db: KpiDB, session: str, data: dict[str, Any]) -> None
                                 casa_id, conv_id,
                                 f"Posible duplicado: conv {conv_id} (entrantes solo) parece el mismo cliente que conv {sibling['id']} (salientes solo). Revisa y fusiona.",
                             )
+
+    # ── Agent auto-reply enqueue gate (F2) ──────────────────────────
+    # Runs AFTER the transaction + acquire blocks above have committed, so the
+    # new message row is durable before the worker can pick the job up. This is
+    # a PURE ENQUEUE — never mutate or send here (CLAUDE.md rule 5). The worker
+    # (auto_reply_job) re-checks mode + agent_status itself, so the pre-checks
+    # below are only a cheap optimization to avoid flooding Redis with jobs for
+    # the common 'off' case (most numbers are off); there is no correctness
+    # dependency on them. Only new INCOMING messages can trigger a reply.
+    if inserted and direction == "in":
+        mode = await queries.get_wa_mode_for_conversation(db, conv_id)
+        if mode != "off":
+            agent_status = await queries.get_conversation_agent_status(db, conv_id)
+            if agent_status in (None, "active"):
+                # Coalesce message bursts into ONE reply: a per-conversation,
+                # time-bucketed job id means rapid messages in the same window
+                # dedup to a single deferred job (which re-reads the full
+                # transcript). The bucket rotates over time so later messages
+                # are never blocked by a past job's retained result.
+                bucket = int(time.time()) // _AUTOREPLY_DEBOUNCE_S
+                await arq.enqueue_job(
+                    "auto_reply_job",
+                    conv_id,
+                    _job_id=f"autoreply:{conv_id}:{bucket}",
+                    _defer_by=_AUTOREPLY_DEBOUNCE_S,
+                )
 
 
 async def _handle_message_ack(db: KpiDB, data: dict[str, Any]) -> None:

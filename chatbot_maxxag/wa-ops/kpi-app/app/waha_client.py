@@ -8,10 +8,25 @@ Docs: https://waha.devlike.pro/docs
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
 from app.settings import Settings
+
+
+def _media_path(url: str) -> str:
+    """Return ONLY the path (+query) of a (possibly absolute) media URL.
+
+    SSRF / API-key-leak guard: open_media_stream carries the WAHA X-Api-Key, so
+    it must NEVER fetch a stored URL's HOST (attacker, cloud-metadata, or WAHA's
+    own localhost). Routing by PATH means the fetch always targets the configured
+    WAHA base_url regardless of the stored host. A relative path passes through
+    unchanged.
+    """
+    parts = urlsplit(url or "")
+    path = parts.path or "/"
+    return f"{path}?{parts.query}" if parts.query else path
 
 
 class WahaClient:
@@ -81,6 +96,55 @@ class WahaClient:
         r.raise_for_status()
         return r.json()
 
+    async def send_image(
+        self, session: str, chat_id: str, image_url: str, caption: str
+    ) -> dict[str, Any]:
+        """Send an image by URL with a caption (mirrors `send_text`).
+
+        WAHA's NOWEB engine downloads the file from `image_url` server-side, so we
+        pass it as `{"file": {"url": image_url}}`. Like `send_text` this RAISES on
+        a non-2xx (it does NOT swallow errors like the presence helpers): the
+        caller persists the message only after a successful send, so propagation
+        keeps the anti-ban counters and the DB honest.
+        """
+        r = await self._client.post(
+            "/api/sendImage",
+            json={
+                "session": session,
+                "chatId": chat_id,
+                "file": {"url": image_url},
+                "caption": caption,
+            },
+        )
+        r.raise_for_status()
+        return r.json()
+
+    async def send_location(
+        self,
+        session: str,
+        chat_id: str,
+        latitude: float,
+        longitude: float,
+        title: str,
+    ) -> dict[str, Any]:
+        """Send a location pin (mirrors `send_text`; raises on non-2xx).
+
+        Added now for later use (e.g. sending the casa address); the agent wires
+        PHOTOS in this task, not location.
+        """
+        r = await self._client.post(
+            "/api/sendLocation",
+            json={
+                "session": session,
+                "chatId": chat_id,
+                "latitude": latitude,
+                "longitude": longitude,
+                "title": title,
+            },
+        )
+        r.raise_for_status()
+        return r.json()
+
     async def mark_read(self, session: str, chat_id: str) -> None:
         try:
             r = await self._client.post(f"/api/{session}/chats/{chat_id}/messages/read")
@@ -102,14 +166,10 @@ class WahaClient:
     async def open_media_stream(self, url: str) -> httpx.Response:
         """Open a streaming response to a WAHA media URL.
 
-        WAHA media URLs require the API key header. Caller is responsible
-        for consuming the body (e.g., via StreamingResponse) and closing.
-        Accepts both absolute URLs (http://waha:3000/...) and relative ones.
+        SSRF-safe: only the PATH of `url` is used (see `_media_path`); the request
+        is always built against the client's WAHA base_url, so the X-Api-Key
+        header is NEVER sent to a stored URL's host (attacker / metadata / etc.).
+        Caller consumes the body (e.g. via StreamingResponse) and closes it.
         """
-        # Normalize to path relative to client's base_url so base_url + headers apply
-        path = url
-        base = str(self._client.base_url).rstrip("/")
-        if url.startswith(base):
-            path = url[len(base):] or "/"
-        req = self._client.build_request("GET", path)
+        req = self._client.build_request("GET", _media_path(url))
         return await self._client.send(req, stream=True)

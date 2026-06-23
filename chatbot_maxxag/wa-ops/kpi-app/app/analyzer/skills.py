@@ -21,18 +21,10 @@ from anthropic import AsyncAnthropic
 
 from app.analyzer import prompts
 from app.models import (
-    CoachingResult,
-    ConversionResult,
     EscalationResult,
-    IntentResult,
     MergeDetectResult,
-    MoodResult,
-    NextActionResult,
     RedFlag,
     RedFlagsResult,
-    ReferralResult,
-    ResponseTimeResult,
-    TreatmentResult,
 )
 from app.settings import get_settings
 
@@ -84,13 +76,12 @@ def compute_cost_usd(acc: dict[str, int]) -> float:
 def _get_client() -> AsyncAnthropic:
     global _client
     if _client is None:
-        # max_retries=4 → SDK auto-retries on 429 (rate limit), 5xx, connection
-        # errors with exponential backoff. Combined with our 30s per-request
-        # timeout this gives ~120s worst case before we fail a single skill,
-        # which is then caught by analyze_conversation_job's gather(return_exceptions).
+        # max_retries=2 → SDK auto-retries on 429/5xx/connection errors with
+        # exponential backoff. Kept LOW so a stuck/slow call fails fast (≈2×timeout)
+        # instead of piling up minutes and tripping the outer wait_for.
         _client = AsyncAnthropic(
             api_key=get_settings().anthropic_api_key.get_secret_value(),
-            max_retries=4,
+            max_retries=2,
         )
     return _client
 
@@ -137,25 +128,35 @@ async def _call_json(
     system: str, user: str, schema: dict[str, Any],
     *, max_tokens: int = 2000, timeout: float = 30.0,
 ) -> dict[str, Any]:
-    """Invoke Claude Haiku 4.5 with structured JSON output and return the parsed dict.
+    """Invoke Claude Haiku 4.5 and return a parsed dict via FORCED TOOL-USE.
 
-    Default max_tokens=800 covers the small per-skill JSON (mood, treat, etc.).
-    The meta-analysis output is much larger (summary + 3-6 patterns + 3-5
-    strengths + 3-5 improvements + client_profile + topics + referrals) and
-    needs ~3000+ tokens — pass it explicitly from the caller.
+    We define a single tool whose input_schema is the (fixed) JSON schema and
+    force Claude to call it (tool_choice → that tool). The tool_use block's
+    `.input` is the already-parsed, validated JSON object.
 
-    Per-request timeout 30s default — meta passes 60s for the bigger payload.
-    Without this the SDK default is 10min, which blocks the whole bulk job
-    when one call gets stuck.
+    Why tool-use and NOT output_config.format (structured outputs): the
+    structured-output path runs a server-side JSON-schema COMPILER before
+    answering, which was slow/timing-out (>180s) for our large nested schema
+    (the block analyzer's BlockAnalysisResult). Forced tool-use does not invoke
+    that compiler and is portable across SDK versions. Callers are unchanged —
+    they already do Model.model_validate(data) on the returned dict.
+
+    Per-request timeout 30s default — callers pass more for big payloads.
     """
     fixed = _fix_schema(copy.deepcopy(schema))  # deep copy — don't mutate Pydantic's cached schema
     client = _get_client()
+    tool = {
+        "name": "emit_result",
+        "description": "Devuelve el resultado del análisis como JSON estructurado.",
+        "input_schema": fixed,
+    }
     response = await client.messages.create(
         model=MODEL,
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": user}],
-        output_config={"format": {"type": "json_schema", "schema": fixed}},  # type: ignore[arg-type]
+        tools=[tool],  # type: ignore[list-item]
+        tool_choice={"type": "tool", "name": "emit_result"},
         timeout=timeout,
     )
     # Record token usage in the per-job accumulator if one is active.
@@ -166,62 +167,55 @@ async def _call_json(
         acc["calls"] += 1
     if response.stop_reason == "max_tokens":
         raise RuntimeError("Claude hit max_tokens — JSON likely truncated")
-    # The parsed JSON arrives in the first text block
+    # Forced tool-use: the parsed JSON is the tool_use block's input.
     for block in response.content:
-        if block.type == "text":
-            return json.loads(block.text)
-    raise ValueError("No text block in Claude response")
+        if block.type == "tool_use" and block.name == "emit_result":
+            data = block.input
+            return json.loads(data) if isinstance(data, str) else data
+    raise ValueError("No tool_use block in Claude response")
 
 
-# ── 5 skills ──────────────────────────────────────────────────────
-async def analyze_mood(messages: list[Message]) -> MoodResult:
-    transcript = format_transcript(messages)
-    data = await _call_json(
-        system=prompts.MOOD_PROMPT,
-        user=f"Transcript:\n{transcript}",
-        schema=MoodResult.model_json_schema(),
+async def _call_text(
+    system: str, user: str,
+    *,
+    history: list[dict] | None = None,
+    temperature: float = 0.85,
+    max_tokens: int = 220,
+    timeout: float = 30.0,
+) -> str:
+    """Invoke Claude Haiku 4.5 for a free-text reply (no structured output).
+
+    Sibling of `_call_json` for the WhatsApp reply agent: reuses the same
+    `_get_client()` singleton, MODEL string and per-job token accounting, but
+    drops the JSON-schema machinery and returns the concatenated text blocks.
+
+    `history` is prepended verbatim as prior turns (already role-validated by
+    the caller); `user` is appended as the final user turn. `temperature`
+    defaults higher than the analyzer skills — replies need persona variety.
+    """
+    client = _get_client()
+    messages = (history or []) + [{"role": "user", "content": user}]
+    response = await client.messages.create(
+        model=MODEL,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        system=system,
+        messages=messages,  # type: ignore[arg-type]
+        timeout=timeout,
     )
-    return MoodResult.model_validate(data)
+    # Record token usage in the per-job accumulator if one is active.
+    acc = _TOKEN_CTX.get()
+    if acc is not None and response.usage is not None:
+        acc["input"] += getattr(response.usage, "input_tokens", 0) or 0
+        acc["output"] += getattr(response.usage, "output_tokens", 0) or 0
+        acc["calls"] += 1
+    # Join every text block; a max_tokens cutoff still yields usable prose for a
+    # short WhatsApp reply, so we don't raise here (unlike the JSON helper).
+    parts = [b.text for b in response.content if b.type == "text"]
+    return "".join(parts).strip()
 
 
-async def analyze_response_time(messages: list[Message]) -> ResponseTimeResult:
-    # For response time, LLM is overkill — compute it deterministically.
-    # Claude is only useful if timestamps aren't reliable; our DB gives us them.
-    deltas_ms: list[int] = []
-    pending_cliente_ts: int | None = None
-    for m in messages:
-        if m.role == "cliente":
-            pending_cliente_ts = m.ts
-        elif m.role == "mamai" and pending_cliente_ts is not None:
-            deltas_ms.append((m.ts - pending_cliente_ts) * 1000)
-            pending_cliente_ts = None
-    if not deltas_ms:
-        return ResponseTimeResult(p50_ms=0, p90_ms=0, max_ms=0)
-    deltas_ms.sort()
-    n = len(deltas_ms)
-    p50 = deltas_ms[n // 2]
-    p90 = deltas_ms[min(int(n * 0.9), n - 1)]
-    return ResponseTimeResult(p50_ms=p50, p90_ms=p90, max_ms=deltas_ms[-1])
-
-
-async def analyze_treatment(messages: list[Message]) -> TreatmentResult:
-    transcript = format_transcript(messages)
-    data = await _call_json(
-        system=prompts.TREATMENT_PROMPT,
-        user=f"Transcript:\n{transcript}",
-        schema=TreatmentResult.model_json_schema(),
-    )
-    return TreatmentResult.model_validate(data)
-
-
-async def analyze_conversion_intent(messages: list[Message]) -> ConversionResult:
-    transcript = format_transcript(messages)
-    data = await _call_json(
-        system=prompts.CONVERSION_PROMPT,
-        user=f"Transcript:\n{transcript}",
-        schema=ConversionResult.model_json_schema(),
-    )
-    return ConversionResult.model_validate(data)
+# ── Live guardrail skills (red flags + escalation) ──────────────────
 
 
 async def detect_red_flags(messages: list[Message]) -> list[RedFlag]:
@@ -234,40 +228,6 @@ async def detect_red_flags(messages: list[Message]) -> list[RedFlag]:
     return RedFlagsResult.model_validate(data).flags
 
 
-async def analyze_coaching(messages: list[Message]) -> CoachingResult:
-    """Generate concrete, actionable advice to improve this specific type
-    of conversation in the future — citing literal moments from the chat."""
-    transcript = format_transcript(messages)
-    data = await _call_json(
-        system=prompts.COACHING_PROMPT,
-        user=f"Transcript:\n{transcript}",
-        schema=CoachingResult.model_json_schema(),
-    )
-    return CoachingResult.model_validate(data)
-
-
-async def classify_intent(messages: list[Message]) -> IntentResult:
-    """Classify the client's primary intention in this conversation."""
-    transcript = format_transcript(messages)
-    data = await _call_json(
-        system=prompts.INTENT_PROMPT,
-        user=f"Transcript:\n{transcript}",
-        schema=IntentResult.model_json_schema(),
-    )
-    return IntentResult.model_validate(data)
-
-
-async def recommend_next_action(messages: list[Message]) -> NextActionResult:
-    """Concrete next step the operator should take NOW (urgency + suggested message)."""
-    transcript = format_transcript(messages)
-    data = await _call_json(
-        system=prompts.NEXT_ACTION_PROMPT,
-        user=f"Transcript:\n{transcript}",
-        schema=NextActionResult.model_json_schema(),
-    )
-    return NextActionResult.model_validate(data)
-
-
 async def evaluate_escalation(messages: list[Message]) -> EscalationResult:
     """Binary signal whether a human admin should take over this conversation."""
     transcript = format_transcript(messages)
@@ -277,21 +237,6 @@ async def evaluate_escalation(messages: list[Message]) -> EscalationResult:
         schema=EscalationResult.model_json_schema(),
     )
     return EscalationResult.model_validate(data)
-
-
-async def detect_referral(messages: list[Message]) -> ReferralResult:
-    """Identify where the client came from (ad site, search, social, repeat, etc.).
-
-    Used downstream by the per-WA meta-analysis to compute referral source
-    distribution — which marketing channels actually convert.
-    """
-    transcript = format_transcript(messages)
-    data = await _call_json(
-        system=prompts.REFERRAL_PROMPT,
-        user=f"Transcript:\n{transcript}",
-        schema=ReferralResult.model_json_schema(),
-    )
-    return ReferralResult.model_validate(data)
 
 
 @dataclass
