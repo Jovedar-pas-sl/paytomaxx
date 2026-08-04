@@ -38,10 +38,16 @@ def _critical_alerts_where(alias: str = "") -> str:
     qualified (e.g. alias='a.' for joined queries). Fixed string — no user
     input — so interpolation is safe."""
     p = f"{alias}." if alias else ""
+    # Time-sensitive noise (red_flag/escalation/sara_misbehaving) ages out at 48h.
+    # wa_needs_pair is a manual-intervention condition — a line is dead until a
+    # human re-pairs it — so it must keep badging regardless of age (it clears
+    # itself via ack the moment the line reconnects), never silently age out.
     return (
-        f"{p}acknowledged_at IS NULL "
-        f"AND {p}created_at > now() - interval '48 hours' "
-        f"AND {p}type IN ('red_flag','escalation','sara_misbehaving')"
+        f"{p}acknowledged_at IS NULL AND ("
+        f"({p}type IN ('red_flag','escalation','sara_misbehaving') "
+        f"AND {p}created_at > now() - interval '48 hours') "
+        f"OR {p}type = 'wa_needs_pair'"
+        f")"
     )
 
 
@@ -426,11 +432,24 @@ async def list_conversations(
     since_hours: int | None = None,
     unanswered_only: bool = False,
     handler: str | None = None,
+    mode: str | None = None,
     order: str = "hot",
     limit: int = 50,
     offset: int = 0,
+    cursor_ts: datetime | None = None,
+    cursor_id: int | None = None,
+    include_total: bool = True,
     with_counts: bool = False,
 ) -> tuple[list[ConversationRow], int]:
+    """List conversations with filters + ordering.
+
+    Pagination: OFFSET by default. For the inbox infinite-scroll pass a KEYSET
+    cursor instead — `cursor_ts`/`cursor_id` are the (last_message_at, id) of the
+    previous page's last row; only valid with order="recent". Keyset is O(log n)
+    (no OFFSET scan) and STABLE under concurrent inserts. Pair it with
+    `include_total=False` to skip the count(*) (has-more is derived by the caller
+    fetching limit+1). Returns (rows, total); total is 0 when include_total=False.
+    """
     where: list[str] = []
     params: list = []
 
@@ -475,34 +494,75 @@ async def list_conversations(
             "(SELECT m.agent_generated FROM message m WHERE m.conversation_id = c.id "
             f" AND m.direction = 'out' ORDER BY m.created_at DESC LIMIT 1) = {want}"
         )
+    if mode in ("auto", "copilot", "off"):
+        # Filter by the wa_number's configured bot mode (off/copilot/auto). A
+        # correlated subquery (NOT the wn JOIN) so it works in BOTH the count query
+        # — which has no wa_number join — and the main query. 'off' also matches a
+        # conversation whose number has no row (coalesce default).
+        params.append(mode)
+        where.append(
+            "coalesce((SELECT wn2.mode FROM wa_number wn2 WHERE wn2.id = c.wa_number_id), 'off')"
+            f" = ${len(params)}"
+        )
+    if cursor_ts is not None and order == "recent":
+        # KEYSET/seek pagination (inbox infinite-scroll): fetch the page STRICTLY
+        # AFTER the (last_message_at, id) cursor of the previous page. O(log n) via
+        # ix_conversation_casa_last (no OFFSET row-skipping) and STABLE under
+        # concurrent inserts — a new message reordering the top can't make a row
+        # duplicate or get skipped across pages. Tiebreak on id (see ORDER BY).
+        # Conversations always have last_message_at set, so NULL rows (none in
+        # practice) fall outside this predicate and are simply not paged.
+        params.append(cursor_ts)
+        _ts_idx = len(params)
+        params.append(cursor_id if cursor_id is not None else 0)
+        _id_idx = len(params)
+        where.append(
+            f"(c.last_message_at < ${_ts_idx} "
+            f"OR (c.last_message_at = ${_ts_idx} AND c.id < ${_id_idx}))"
+        )
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
     async with kpi_pool.acquire() as conn:
-        total = await conn.fetchval(
-            f"""
-            SELECT count(*)
-            FROM conversation c
-            JOIN contact ct ON ct.id = c.contact_id
-            LEFT JOIN analysis a ON a.conversation_id = c.id
-            {where_sql}
-            """,
-            *params,
-        ) or 0
+        # Skip the count(*) when the caller doesn't need it (keyset infinite-scroll
+        # derives has-more from limit+1, so recomputing a full count on every page
+        # would be pure waste). total=0 signals "not computed".
+        total = 0
+        if include_total:
+            total = await conn.fetchval(
+                f"""
+                SELECT count(*)
+                FROM conversation c
+                JOIN contact ct ON ct.id = c.contact_id
+                LEFT JOIN analysis a ON a.conversation_id = c.id
+                {where_sql}
+                """,
+                *params,
+            ) or 0
 
-        # Ordering. order="recent" → strict most-recent-first (predictable; used
-        # by the chats/inbox list). order="hot" (default) → hot leads (latest
-        # conv_probability >= HOT_LEAD_THRESHOLD) float to the TOP, then recent.
-        # The threshold is bound as a parameter (no interpolation of user data).
+        # Ordering. order="recent" → strict most-recent-first (predictable; used by
+        # the chats/inbox list). order="hot" (default) → hot leads (latest
+        # conv_probability >= HOT_LEAD_THRESHOLD) float to the TOP, then recent. The
+        # c.id DESC tiebreak makes the sort total (deterministic) so keyset paging
+        # can't split a last_message_at tie across pages.
         if order == "recent":
-            order_sql = "ORDER BY c.last_message_at DESC NULLS LAST"
+            order_sql = "ORDER BY c.last_message_at DESC NULLS LAST, c.id DESC"
         else:
             params.append(HOT_LEAD_THRESHOLD)
             order_sql = (
                 f"ORDER BY (a.conv_probability >= ${len(params)}) DESC NULLS LAST, "
-                "c.last_message_at DESC NULLS LAST"
+                "c.last_message_at DESC NULLS LAST, c.id DESC"
             )
-        params_with_page = params + [limit, offset]
+        # Keyset mode carries no OFFSET (the cursor WHERE already positioned us);
+        # OFFSET mode keeps its LIMIT/OFFSET pair.
+        if cursor_ts is not None and order == "recent":
+            params_with_page = params + [limit]
+            page_sql = f"LIMIT ${len(params_with_page)}"
+        else:
+            params_with_page = params + [limit, offset]
+            page_sql = (
+                f"LIMIT ${len(params_with_page) - 1} OFFSET ${len(params_with_page)}"
+            )
         # message_count is a per-row count(*) — only the CSV export consumes it
         # (no template/feed does). Computing it on every call (incl. the 10s
         # dashboard feed, up to 60 rows) is wasteful, so gate it behind
@@ -548,7 +608,7 @@ async def list_conversations(
             LEFT JOIN analysis a ON a.conversation_id = c.id
             {where_sql}
             {order_sql}
-            LIMIT ${len(params_with_page) - 1} OFFSET ${len(params_with_page)}
+            {page_sql}
             """,
             *params_with_page,
         )
@@ -582,6 +642,54 @@ async def list_conversations(
             )
         )
     return result, total
+
+
+async def list_conversations_page(
+    kpi_pool: asyncpg.Pool,
+    *,
+    casa_id: int | None = None,
+    wa_number_id: int | None = None,
+    since_days: int | None = None,
+    unanswered_only: bool = False,
+    handler: str | None = None,
+    mode: str | None = None,
+    search: str | None = None,
+    mood: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    cursor_ts: datetime | None = None,
+    cursor_id: int | None = None,
+) -> tuple[list[ConversationRow], datetime | None, int | None]:
+    """One inbox page via KEYSET pagination (order='recent'), for the WhatsApp
+    infinite-scroll. Fetches limit+1 rows to detect a next page WITHOUT a count(*),
+    then returns (rows[:limit], next_ts, next_id) where (next_ts, next_id) is the
+    cursor to pass for the FOLLOWING page — or (None, None) on the last page.
+
+    Shared by the initial paint (casa_workspace) and the load-more fragment
+    (widgets) so both order/​page identically. Stable under concurrent inserts."""
+    rows, _ = await list_conversations(
+        kpi_pool,
+        casa_id=casa_id,
+        wa_number_id=wa_number_id,
+        since_days=since_days,
+        unanswered_only=unanswered_only,
+        handler=handler,
+        mode=mode,
+        search=search,
+        mood=mood,
+        status=status,
+        order="recent",
+        limit=limit + 1,          # +1 sentinel row → "is there another page?"
+        cursor_ts=cursor_ts,
+        cursor_id=cursor_id,
+        include_total=False,      # no count(*): has-more comes from the +1 row
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    if has_more and rows:
+        last = rows[-1]
+        return rows, last.last_message_at, last.id
+    return rows, None, None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1646,6 +1754,11 @@ class GirlRow:
     escort_pareja: bool
     services: list[str]
     languages: list[str]
+    # Daily-panel fields (migration 0021). Defaults keep existing constructors
+    # (tests, non-panel SELECTs) valid; operator-managed, never clobbered by sync.
+    hours_today: str | None = None   # operator-set hours, e.g. "16:00–02:00"
+    send_photo: bool = True          # may Sara send THIS girl's photo card?
+    sort_order: int = 0              # display order in the panel + photo cards
 
 
 @dataclass(frozen=True)
@@ -1665,6 +1778,10 @@ class CasaProfileRow:
     address_lat: float | None
     address_lng: float | None
     maps_url: str | None
+    # Ficha del día master switch (migration 0021): True = backoffice/manual mode
+    # (panel is the source of truth, auto-sync skips this casa); False = web mode
+    # (website-driven, auto-sync clobbers). Default keeps existing constructors valid.
+    manual_mode: bool = False
 
 
 @dataclass(frozen=True)
@@ -1692,6 +1809,10 @@ def _girl_from_row(r: asyncpg.Record) -> GirlRow:
         escort_pareja=r["escort_pareja"],
         services=_parse_jsonb(r["services"], []),
         languages=_parse_jsonb(r["languages"], []),
+        # .get() so SELECTs that predate the panel columns still build a GirlRow.
+        hours_today=r.get("hours_today"),
+        send_photo=r.get("send_photo", True),
+        sort_order=r.get("sort_order", 0),
     )
 
 
@@ -1712,6 +1833,7 @@ def _profile_from_row(r: asyncpg.Record) -> CasaProfileRow:
         address_lat=r["address_lat"],
         address_lng=r["address_lng"],
         maps_url=r["maps_url"],
+        manual_mode=r.get("manual_mode", False),
     )
 
 
@@ -1727,7 +1849,8 @@ async def get_casa_knowledge(
             SELECT cp.casa_id, c.name AS casa_name, cp.bot_name, cp.default_lang,
                    cp.whatsapp_recepcion, cp.telegram_recepcion,
                    cp.greetings, cp.rates, cp.schedule, cp.faqs, cp.outcall,
-                   cp.address, cp.address_lat, cp.address_lng, cp.maps_url
+                   cp.address, cp.address_lat, cp.address_lng, cp.maps_url,
+                   cp.manual_mode
             FROM casa_profile cp
             JOIN casa c ON c.id = cp.casa_id
             WHERE cp.casa_id = $1
@@ -1738,7 +1861,7 @@ async def get_casa_knowledge(
             """
             SELECT id, casa_id, ext_id, name, age, nationality, description,
                    photo_url, whatsapp, available_today, outcall, escort_pareja,
-                   services, languages
+                   services, languages, hours_today, send_photo, sort_order
             FROM girl
             WHERE casa_id = $1 AND available_today = TRUE AND active = TRUE
             ORDER BY sort_order ASC, name ASC
@@ -1766,15 +1889,237 @@ async def get_available_girls_with_photo(
             """
             SELECT id, casa_id, ext_id, name, age, nationality, description,
                    photo_url, whatsapp, available_today, outcall, escort_pareja,
-                   services, languages
+                   services, languages, hours_today, send_photo, sort_order
             FROM girl
             WHERE casa_id = $1 AND available_today = TRUE AND active = TRUE
-              AND photo_url IS NOT NULL
+              AND photo_url IS NOT NULL AND send_photo = TRUE
             ORDER BY sort_order ASC, name ASC
             """,
             casa_id,
         )
     return [_girl_from_row(r) for r in rows]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# "Ficha del día" panel — operator-managed girls + plus prices (read/write).
+# Every write is scoped by casa_id in the WHERE clause (defence in depth: even
+# with a tampered girl_id, an operator can only touch girls of the given casa).
+# These fields are PRESERVED by the website sync (see the upserts above).
+# ═══════════════════════════════════════════════════════════════════
+_PANEL_SERVICES_MAX = 30
+_PANEL_HOURS_MAXLEN = 60
+_PANEL_NAME_MAXLEN = 80
+
+
+async def list_girls_for_panel(kpi: asyncpg.Pool, casa_id: int) -> list[GirlRow]:
+    """ALL active girls of a casa for the panel — INCLUDING the ones not available
+    today (so the operator can toggle them on). Ordered like the photo cards."""
+    async with kpi.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, casa_id, ext_id, name, age, nationality, description,
+                   photo_url, whatsapp, available_today, outcall, escort_pareja,
+                   services, languages, hours_today, send_photo, sort_order
+            FROM girl
+            WHERE casa_id = $1 AND active = TRUE
+            ORDER BY sort_order ASC, available_today DESC, name ASC
+            """,
+            casa_id,
+        )
+    return [_girl_from_row(r) for r in rows]
+
+
+async def set_girl_available(
+    kpi: asyncpg.Pool, casa_id: int, girl_id: int, available: bool
+) -> bool:
+    """Toggle a girl's 'available today'. Scoped by casa_id. True iff a row changed."""
+    async with kpi.acquire() as conn:
+        res = await conn.execute(
+            "UPDATE girl SET available_today = $3, updated_at = now() "
+            "WHERE id = $1 AND casa_id = $2",
+            girl_id, casa_id, available,
+        )
+    return res.endswith(" 1")
+
+
+async def set_girl_send_photo(
+    kpi: asyncpg.Pool, casa_id: int, girl_id: int, send: bool
+) -> bool:
+    """Toggle whether Sara may send this girl's photo. Scoped by casa_id."""
+    async with kpi.acquire() as conn:
+        res = await conn.execute(
+            "UPDATE girl SET send_photo = $3, updated_at = now() "
+            "WHERE id = $1 AND casa_id = $2",
+            girl_id, casa_id, send,
+        )
+    return res.endswith(" 1")
+
+
+async def update_girl_details(
+    kpi: asyncpg.Pool,
+    casa_id: int,
+    girl_id: int,
+    *,
+    hours_today: str | None,
+    services: list[str],
+    sort_order: int,
+) -> bool:
+    """Save a girl's operator-managed details: hours, services, display order.
+    `services` is bounded + de-blanked; `hours_today` is trimmed/capped. Scoped by
+    casa_id. Returns True iff a row was updated."""
+    hours = (hours_today or "").strip()[:_PANEL_HOURS_MAXLEN] or None
+    clean = [s.strip() for s in (services or []) if s and s.strip()][:_PANEL_SERVICES_MAX]
+    async with kpi.acquire() as conn:
+        res = await conn.execute(
+            """
+            UPDATE girl
+            SET hours_today = $3, services = $4::jsonb, sort_order = $5,
+                updated_at = now()
+            WHERE id = $1 AND casa_id = $2
+            """,
+            girl_id, casa_id, hours, _json.dumps(clean), sort_order,
+        )
+    return res.endswith(" 1")
+
+
+async def insert_manual_girl(
+    kpi: asyncpg.Pool,
+    casa_id: int,
+    *,
+    name: str,
+    age: int | None,
+    nationality: str | None,
+    services: list[str],
+    hours_today: str | None,
+    available_today: bool,
+    send_photo: bool,
+    photo_url: str | None,
+) -> int:
+    """Alta MANUAL de una chica (ext_id=NULL → el sync web NUNCA la toca ni la
+    desactiva). Devuelve su id. name/hours/services acotados como en el panel."""
+    name = (name or "").strip()[:_PANEL_NAME_MAXLEN]
+    nat = (nationality or "").strip()[:_PANEL_NAME_MAXLEN] or None
+    hours = (hours_today or "").strip()[:_PANEL_HOURS_MAXLEN] or None
+    clean = [s.strip() for s in (services or []) if s and s.strip()][:_PANEL_SERVICES_MAX]
+    async with kpi.acquire() as conn:
+        return await conn.fetchval(
+            """
+            INSERT INTO girl (
+                casa_id, ext_id, name, age, nationality, photo_url,
+                available_today, send_photo, services, languages, hours_today,
+                outcall, escort_pareja, active, sort_order
+            ) VALUES (
+                $1, NULL, $2, $3, $4, $5,
+                $6, $7, $8::jsonb, '[]'::jsonb, $9,
+                FALSE, FALSE, TRUE, 0
+            )
+            RETURNING id
+            """,
+            casa_id, name, age, nat, photo_url,
+            available_today, send_photo, _json.dumps(clean), hours,
+        )
+
+
+async def soft_delete_girl(kpi: asyncpg.Pool, casa_id: int, girl_id: int) -> bool:
+    """Quita una chica de la casa (soft-delete active=FALSE → desaparece del panel
+    y de Sara; conserva la integridad referencial de sus mensajes). Scoped por
+    casa. True iff cambió una fila."""
+    async with kpi.acquire() as conn:
+        res = await conn.execute(
+            "UPDATE girl SET active = FALSE, available_today = FALSE, updated_at = now() "
+            "WHERE id = $1 AND casa_id = $2",
+            girl_id, casa_id,
+        )
+    return res.endswith(" 1")
+
+
+async def update_girl_profile(
+    kpi: asyncpg.Pool, casa_id: int, girl_id: int, *,
+    name: str, age: int | None, nationality: str | None,
+) -> bool:
+    """Edita nombre / edad / nacionalidad (alta manual). No-op si el nombre queda
+    vacío. Scoped por casa."""
+    name = (name or "").strip()[:_PANEL_NAME_MAXLEN]
+    nat = (nationality or "").strip()[:_PANEL_NAME_MAXLEN] or None
+    if not name:
+        return False
+    async with kpi.acquire() as conn:
+        res = await conn.execute(
+            "UPDATE girl SET name = $3, age = $4, nationality = $5, updated_at = now() "
+            "WHERE id = $1 AND casa_id = $2",
+            girl_id, casa_id, name, age, nat,
+        )
+    return res.endswith(" 1")
+
+
+async def set_girl_photo(
+    kpi: asyncpg.Pool, casa_id: int, girl_id: int, photo_url: str
+) -> bool:
+    """Actualiza la foto de una chica (re-subida). Scoped por casa."""
+    async with kpi.acquire() as conn:
+        res = await conn.execute(
+            "UPDATE girl SET photo_url = $3, updated_at = now() WHERE id = $1 AND casa_id = $2",
+            girl_id, casa_id, photo_url,
+        )
+    return res.endswith(" 1")
+
+
+async def update_casa_rates(
+    kpi: asyncpg.Pool, casa_id: int, items: list[dict]
+) -> None:
+    """Replace the casa's 'plus'/prices list (casa_profile.rates = {items:[…]}).
+
+    Each item is {label_es, label_en?, price}. Upserts the profile row so a casa
+    with no profile yet still gets its rates. Operator-managed — the website sync
+    preserves rates on conflict (see upsert_casa_profile_from_sync)."""
+    payload = _json.dumps({"items": items or []})
+    async with kpi.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO casa_profile (casa_id, rates)
+            VALUES ($1, $2::jsonb)
+            ON CONFLICT (casa_id) DO UPDATE SET
+                rates = EXCLUDED.rates, updated_at = now()
+            """,
+            casa_id, payload,
+        )
+
+
+async def set_casa_manual_mode(kpi: asyncpg.Pool, casa_id: int, on: bool) -> None:
+    """Flip the casa's Ficha master switch. on=True → backoffice/manual mode (panel
+    authoritative, auto-sync skips this casa); on=False → web mode (website-driven).
+    Upserts so a casa with no profile row yet can still be toggled."""
+    async with kpi.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO casa_profile (casa_id, manual_mode)
+            VALUES ($1, $2)
+            ON CONFLICT (casa_id) DO UPDATE SET
+                manual_mode = EXCLUDED.manual_mode, updated_at = now()
+            """,
+            casa_id, on,
+        )
+
+
+async def get_casa_manual_mode(kpi: asyncpg.Pool, casa_id: int) -> bool:
+    """True iff the casa is in backoffice/manual mode (the Ficha panel is the source
+    of truth). False (default) for web mode or a casa with no profile row yet."""
+    async with kpi.acquire() as conn:
+        val = await conn.fetchval(
+            "SELECT manual_mode FROM casa_profile WHERE casa_id = $1", casa_id
+        )
+    return bool(val)
+
+
+async def count_available_girls_by_casa(kpi: asyncpg.Pool) -> dict[int, int]:
+    """{casa_id: nº de chicas disponibles hoy (activas)} — para el selector de la
+    sección Chicas. Las casas sin chicas simplemente no aparecen en el dict (0)."""
+    async with kpi.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT casa_id, count(*) AS n FROM girl "
+            "WHERE available_today = TRUE AND active = TRUE GROUP BY casa_id"
+        )
+    return {r["casa_id"]: r["n"] for r in rows}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1816,11 +2161,15 @@ async def upsert_casa_profile_from_sync(
     faqs: list,
     address: str | None,
     maps_url: str | None,
+    preserve_panel: bool = False,
 ) -> None:
     """UPSERT casa_profile keyed on its primary key (casa_id). Only the fields
     sourced from the plugin config are written; `outcall` (base price + taxi
     tariff + surcharge %) is deliberately NOT in the column list nor the UPDATE
     set, so the manually-curated outcall pricing JSONB is preserved on conflict.
+    `whatsapp_recepcion` is owner-curated too: the sync only SEEDS it when the DB
+    is empty (see the COALESCE below), so a number set by hand (scripts/set_recepcion.py
+    or the Ficha panel) survives the 20-min sync instead of being wiped/overwritten.
     `faqs` is likewise PRESERVED when the incoming feed has none (empty list):
     the public /config endpoint strips faqs, so an unconditional overwrite would
     wipe FAQs curated directly in casa_profile (see docs/FAQS.md) on every sync.
@@ -1839,10 +2188,27 @@ async def upsert_casa_profile_from_sync(
             )
             ON CONFLICT (casa_id) DO UPDATE SET
                 bot_name = EXCLUDED.bot_name,
-                whatsapp_recepcion = EXCLUDED.whatsapp_recepcion,
+                -- Recepción number is OWNER-CURATED (set via scripts/set_recepcion.py
+                -- or the Ficha panel). The website sync runs every 20 min and often
+                -- omits it, so an unconditional overwrite would wipe/replace a curated
+                -- number on every tick. Only SEED it when the DB has none; never
+                -- override a value already set.
+                whatsapp_recepcion = COALESCE(
+                    NULLIF(casa_profile.whatsapp_recepcion, ''), EXCLUDED.whatsapp_recepcion
+                ),
                 telegram_recepcion = EXCLUDED.telegram_recepcion,
                 greetings = EXCLUDED.greetings,
-                rates = EXCLUDED.rates,
+                -- rates (precios/plus): PRESERVED in manual mode ($11=true) OR when the
+                -- casa's rates carry a top-level "locked": true flag (owner-owned
+                -- prices). This lets a casa PIN its prices against the website without
+                -- going full manual — availability keeps syncing from the web (the girl
+                -- upsert's available_today is still gated on $11/manual only). Otherwise
+                -- the website is the source of truth.
+                rates = CASE
+                    WHEN $11 OR COALESCE((casa_profile.rates ->> 'locked')::boolean, false)
+                    THEN casa_profile.rates
+                    ELSE EXCLUDED.rates
+                END,
                 schedule = EXCLUDED.schedule,
                 -- Preserve hand/seeded faqs when the feed brings none (public
                 -- /config strips faqs → EXCLUDED.faqs is '[]' on every sync).
@@ -1865,6 +2231,7 @@ async def upsert_casa_profile_from_sync(
             _json.dumps(faqs),
             address,
             maps_url,
+            preserve_panel,
         )
 
 
@@ -1884,6 +2251,7 @@ async def upsert_girl_from_sync(
     available_today: bool,
     outcall: bool,
     escort_pareja: bool,
+    preserve_panel: bool = False,
 ) -> None:
     """UPSERT one plugin-sourced girl by (casa_id, ext_id). The conflict target
     is the PARTIAL unique index `uq_girl_casa_ext` (predicate ext_id IS NOT
@@ -1905,17 +2273,25 @@ async def upsert_girl_from_sync(
                 $12::jsonb, $13::jsonb, TRUE
             )
             ON CONFLICT (casa_id, ext_id) WHERE ext_id IS NOT NULL DO UPDATE SET
+                -- Catalog fields are always refreshed from the website…
                 name = EXCLUDED.name,
                 age = EXCLUDED.age,
                 nationality = EXCLUDED.nationality,
                 description = EXCLUDED.description,
                 photo_url = EXCLUDED.photo_url,
                 whatsapp = EXCLUDED.whatsapp,
-                available_today = EXCLUDED.available_today,
                 outcall = EXCLUDED.outcall,
                 escort_pareja = EXCLUDED.escort_pareja,
-                services = EXCLUDED.services,
                 languages = EXCLUDED.languages,
+                -- …but available_today + services are OPERATOR-MANAGED in the
+                -- "Ficha del día" panel: in MANUAL mode ($14=true) they are
+                -- PRESERVED so a sync never overwrites a manual edit; in WEB mode
+                -- they track the website. hours_today/send_photo/sort_order are
+                -- panel-only (never sent by sync) so they are always preserved.
+                available_today = CASE WHEN $14 THEN girl.available_today
+                                       ELSE EXCLUDED.available_today END,
+                services = CASE WHEN $14 THEN girl.services
+                                ELSE EXCLUDED.services END,
                 active = TRUE,
                 updated_at = now()
             """,
@@ -1932,6 +2308,7 @@ async def upsert_girl_from_sync(
             escort_pareja,
             _json.dumps(services),
             _json.dumps(languages),
+            preserve_panel,
         )
 
 
@@ -2208,6 +2585,28 @@ async def set_conversation_agent_status(
         )
 
 
+async def last_out_is_agent_generated(kpi: asyncpg.Pool, conv_id: int) -> bool:
+    """True if the NEWEST message in the conversation is a Sara (agent-generated)
+    outbound — i.e. Sara has already answered the latest incoming turn.
+
+    Idempotency guard for auto_reply_job: an arq retry, or the WAHA
+    message/message.any double-event, could otherwise make Sara reply twice to the
+    same turn. On a re-run her first reply is already the last row → the job skips.
+    Ordered by created_at (ix_message_conv_created_desc)."""
+    async with kpi.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT direction, agent_generated
+            FROM message
+            WHERE conversation_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            conv_id,
+        )
+    return bool(row and row["direction"] == "out" and row["agent_generated"])
+
+
 async def has_recent_human_outbound(
     kpi: asyncpg.Pool, conv_id: int, within_minutes: int = _HUMAN_OUTBOUND_WINDOW_MIN
 ) -> bool:
@@ -2252,6 +2651,156 @@ async def set_wa_mode(kpi: asyncpg.Pool, wa_number_id: int, mode: str) -> None:
         )
 
 
+async def find_structural_merge_sibling(kpi: asyncpg.Pool, source_id: int) -> int | None:
+    """The DETERMINISTIC gate of auto-merge. Given a merge_suggestion's source
+    conversation, return the SINGLE complementary sibling — same casa AND same
+    WhatsApp line (wa_number_id), outgoing-only, recent, a DIFFERENT contact — i.e.
+    the exact @c.us/@lid split the webhook flags. Returns None if the source is no
+    longer incoming-only, or if there is no clean SINGLE candidate (0 or >1 → too
+    ambiguous to auto-merge; a human decides). This structural filter is what stops
+    the unattended sweep from ever fusing two unrelated clients on IA text alone."""
+    async with kpi.acquire() as conn:
+        src = await conn.fetchrow(
+            "SELECT casa_id, wa_number_id, contact_id FROM conversation WHERE id = $1",
+            source_id,
+        )
+        if not src:
+            return None
+        stats = await conn.fetchrow(
+            "SELECT "
+            "(SELECT count(*) FROM message m WHERE m.conversation_id=$1 AND m.direction='in')  AS ins, "
+            "(SELECT count(*) FROM message m WHERE m.conversation_id=$1 AND m.direction='out') AS outs",
+            source_id,
+        )
+        if not (stats["ins"] > 0 and stats["outs"] == 0):
+            return None  # source is no longer the incoming-only side
+        rows = await conn.fetch(
+            """
+            SELECT c.id
+            FROM conversation c
+            WHERE c.casa_id = $1 AND c.wa_number_id = $2
+              AND c.id != $3 AND c.contact_id != $4
+              AND c.last_message_at > now() - interval '24 hours'
+              AND NOT EXISTS (SELECT 1 FROM message m WHERE m.conversation_id=c.id AND m.direction='in')
+              AND EXISTS     (SELECT 1 FROM message m WHERE m.conversation_id=c.id AND m.direction='out')
+            ORDER BY c.last_message_at DESC
+            LIMIT 2
+            """,
+            src["casa_id"], src["wa_number_id"], source_id, src["contact_id"],
+        )
+    if len(rows) != 1:
+        return None  # 0 candidates, or ambiguous (>1) → leave it for a human
+    return rows[0]["id"]
+
+
+async def merge_conversation_into(
+    kpi: asyncpg.Pool,
+    source_id: int,
+    target_id: int,
+    *,
+    triggered_by: str = "manual",
+    confidence: float | None = None,
+    reasoning: str | None = None,
+    allow_cross_line: bool = False,
+) -> None:
+    """Merge `source_id` conversation INTO `target_id` — same-client dedup (the
+    @c.us + @lid split). ALL in one transaction:
+      1. move every message to the target, tagged `merged_from_conv_id` (for undo),
+      2. PRESERVE the phone number on the survivor (never lose a client's real
+         number even if it was the source contact that held it),
+      3. snapshot the source contact + conv into `merge_event` so the merge is
+         REVERSIBLE (migration 0009), stamped with `triggered_by`/confidence,
+      4. ack the source's alerts (incl. its own merge_suggestion) and drop its now
+         orphaned analysis row (analysis.conversation_id is UNIQUE, no FK cascade),
+      5. delete the source conversation + its orphaned contact.
+
+    `triggered_by` ∈ {'manual','ia','auto'}. `allow_cross_line` lets a HUMAN-driven
+    merge join two conversations on different WhatsApp lines of the same casa (a real
+    client can span lines — the admin chose it); the unattended sweep leaves it False
+    (it only ever merges the same-line structural sibling anyway). Raises ValueError
+    on invalid input (same id, missing conv, different casa, or — when not
+    allow_cross_line — different line) so callers can surface it."""
+    if source_id == target_id:
+        raise ValueError("same id")
+    async with kpi.acquire() as conn:
+        async with conn.transaction():
+            src = await conn.fetchrow(
+                "SELECT contact_id, casa_id, wa_number_id, status, unread_count "
+                "FROM conversation WHERE id = $1",
+                source_id,
+            )
+            tgt = await conn.fetchrow(
+                "SELECT contact_id, casa_id, wa_number_id FROM conversation WHERE id = $1",
+                target_id,
+            )
+            if not src or not tgt:
+                raise ValueError("conversation not found")
+            if src["casa_id"] != tgt["casa_id"]:
+                raise ValueError("different casas")
+            if not allow_cross_line and src["wa_number_id"] != tgt["wa_number_id"]:
+                raise ValueError("different lines")
+
+            src_contact = await conn.fetchrow(
+                "SELECT waha_jid, name, phone FROM contact WHERE id = $1", src["contact_id"]
+            )
+            tgt_phone = await conn.fetchval(
+                "SELECT phone FROM contact WHERE id = $1", tgt["contact_id"]
+            )
+
+            # Move messages (tagged for undo) and count how many.
+            moved = await conn.fetchval(
+                "WITH m AS (UPDATE message SET conversation_id = $1, merged_from_conv_id = $2 "
+                "WHERE conversation_id = $2 RETURNING 1) SELECT count(*) FROM m",
+                target_id, source_id,
+            )
+
+            # Keep-phone: never let the survivor end up without the real number.
+            if src_contact and src_contact["phone"] and not tgt_phone:
+                await conn.execute(
+                    "UPDATE contact SET phone = $1 WHERE id = $2",
+                    src_contact["phone"], tgt["contact_id"],
+                )
+
+            await conn.execute(
+                "UPDATE conversation SET "
+                "last_message_at = COALESCE((SELECT max(created_at) FROM message "
+                "  WHERE conversation_id = $1), last_message_at), "
+                "unread_count = unread_count + $2, updated_at = now() WHERE id = $1",
+                target_id, src["unread_count"] or 0,
+            )
+
+            snapshot = {
+                "waha_jid": src_contact["waha_jid"] if src_contact else None,
+                "name": src_contact["name"] if src_contact else None,
+                "phone": src_contact["phone"] if src_contact else None,
+            }
+            await conn.execute(
+                "INSERT INTO merge_event (target_conv_id, source_conv_id, source_casa_id, "
+                "source_wa_number_id, source_contact_id, source_contact_snapshot, source_status, "
+                "source_unread_count, messages_moved, triggered_by, confidence, reasoning) "
+                "VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12)",
+                target_id, source_id, src["casa_id"], src["wa_number_id"], src["contact_id"],
+                _json.dumps(snapshot), src["status"], src["unread_count"] or 0,
+                moved or 0, triggered_by, confidence, reasoning,
+            )
+
+            # Keep aggregates + the alert list consistent: ack the source's alerts
+            # (including its merge_suggestion) and drop its orphaned analysis row.
+            await conn.execute(
+                "UPDATE alert SET acknowledged_at = now() "
+                "WHERE conversation_id = $1 AND acknowledged_at IS NULL",
+                source_id,
+            )
+            await conn.execute("DELETE FROM analysis WHERE conversation_id = $1", source_id)
+
+            await conn.execute("DELETE FROM conversation WHERE id = $1", source_id)
+            await conn.execute(
+                "DELETE FROM contact c WHERE c.id = $1 "
+                "AND NOT EXISTS (SELECT 1 FROM conversation WHERE contact_id = c.id)",
+                src["contact_id"],
+            )
+
+
 async def insert_alert(
     kpi: asyncpg.Pool,
     *,
@@ -2271,6 +2820,49 @@ async def insert_alert(
             """,
             type, severity, conversation_id, inbox_id, message,
         )
+
+
+async def has_open_alert(
+    kpi: asyncpg.Pool, conversation_id: int, type: str
+) -> bool:
+    """True when an UNACKED (active) alert of `type` already exists for this
+    conversation. Makes per-conversation alerts idempotent — e.g. the outcall
+    handoff notice fires ONCE, not on every re-sent location pin. Uses the same
+    'acknowledged_at IS NULL == active' convention as get_pending_suggestion."""
+    async with kpi.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT 1 FROM alert
+            WHERE conversation_id = $1 AND type = $2 AND acknowledged_at IS NULL
+            LIMIT 1
+            """,
+            conversation_id, type,
+        )
+    return row is not None
+
+
+async def get_casa_recepcion(kpi: asyncpg.Pool, casa_id: int) -> str | None:
+    """The casa's encargada WhatsApp number (casa_profile.whatsapp_recepcion), or
+    None. Used to push a WA heads-up to the manager (outcall closing / a client
+    asking for a specific girl). Raw string as stored (e.g. '+34 603 201 414')."""
+    async with kpi.acquire() as conn:
+        val = await conn.fetchval(
+            "SELECT whatsapp_recepcion FROM casa_profile WHERE casa_id = $1",
+            casa_id,
+        )
+    return val or None
+
+
+async def get_active_girl_names(kpi: asyncpg.Pool, casa_id: int) -> list[str]:
+    """All ACTIVE girl names for a casa (available_today or not) — used to detect
+    when a client asks for a specific girl by name so the encargada can verify her
+    real-time availability. Not gated by available_today on purpose."""
+    async with kpi.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT name FROM girl WHERE casa_id = $1 AND active = TRUE AND name <> ''",
+            casa_id,
+        )
+    return [r["name"] for r in rows if r["name"]]
 
 
 async def get_alert(kpi: asyncpg.Pool, alert_id: int) -> AlertRow | None:
@@ -2729,21 +3321,30 @@ async def insert_style_example(
     reply_msg: str,
     dedup_key: str,
     source: str = "cron",
+    status: str = "pending",
 ) -> bool:
-    """Insert ONE pending style example. Idempotent: ON CONFLICT (casa_id,
-    dedup_key) DO NOTHING. Returns True iff a new row was created."""
+    """UPSERT one style example, idempotent on (casa_id, dedup_key).
+
+    `status` lets the harvester insert a RECURRING reply straight as 'approved'
+    (frequency-based auto-learning). On conflict it PROMOTES an existing 'pending'
+    row to 'approved' ONLY when this call is 'approved' — it never demotes an
+    approved row and never resurrects a 'rejected' one (an admin's decision wins).
+    Returns True iff a NEW row was created (promotions/no-ops return False)."""
     async with kpi.acquire() as conn:
         row = await conn.fetchrow(
             """
             INSERT INTO casa_style_example
-                (casa_id, lang, kind, client_msg, reply_msg, dedup_key, source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (casa_id, dedup_key) DO NOTHING
-            RETURNING id
+                (casa_id, lang, kind, client_msg, reply_msg, dedup_key, source, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (casa_id, dedup_key) DO UPDATE
+                SET status = 'approved', decided_at = now()
+                WHERE casa_style_example.status = 'pending'
+                  AND EXCLUDED.status = 'approved'
+            RETURNING (xmax = 0) AS inserted
             """,
-            casa_id, lang, kind, client_msg, reply_msg, dedup_key, source,
+            casa_id, lang, kind, client_msg, reply_msg, dedup_key, source, status,
         )
-    return row is not None
+    return bool(row and row["inserted"])
 
 
 @dataclass(frozen=True)
@@ -2870,27 +3471,33 @@ def rank_style_samples(
 
 async def get_approved_style_examples(
     kpi: asyncpg.Pool,
-    casa_id: int,
     lang: str | None,
     incoming_text: str | None = None,
     limit: int = 6,
 ) -> list[StyleSample]:
-    """APPROVED style examples for a casa, preferring the reply language `lang`.
+    """APPROVED style examples from the GLOBAL shared pool (ALL casas), preferring
+    the reply language `lang`.
+
+    Style (tone/length/energy/closing) is shared ACROSS casas on purpose: a single
+    well-curated house's approved replies teach Sara everywhere. Each casa's DATA
+    (girls, address, prices, website) stays authoritative — it comes from
+    build_system_prompt, and the style-block label instructs the model to imitate
+    tone ONLY and ignore any house-specific facts that appear inside the examples.
 
     Fetches a pool (lang-preferred, most-recent) then returns the `limit` examples
     most RELEVANT to `incoming_text` — so Sara sees how the team answered SIMILAR
     situations. With no incoming text it degrades to lang+recency. Empty list when
-    the casa has no approved examples → caller injects nothing."""
+    there are no approved examples anywhere → caller injects nothing."""
     async with kpi.acquire() as conn:
         rows = await conn.fetch(
             """
             SELECT kind, client_msg, reply_msg
             FROM casa_style_example
-            WHERE casa_id = $1 AND status = 'approved'
-            ORDER BY (lang IS NOT DISTINCT FROM $2) DESC, created_at DESC
-            LIMIT $3
+            WHERE status = 'approved'
+            ORDER BY (lang IS NOT DISTINCT FROM $1) DESC, created_at DESC
+            LIMIT $2
             """,
-            casa_id, lang, _STYLE_POOL,
+            lang, _STYLE_POOL,
         )
     samples = [
         StyleSample(kind=r["kind"], client_msg=r["client_msg"], reply_msg=r["reply_msg"])

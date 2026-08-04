@@ -31,6 +31,48 @@
   </button>
 </div>
 
+{# ── Resumen global de estado + líneas que necesitan conexión ── #}
+{% if summary and summary.total %}
+<div class="card mb-6 p-4">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-semibold tracking-tight {{ 'text-green' if summary.down == 0 else 'text-text' }}">{{ summary.working }}</span>
+      <span class="text-lg text-muted-2">/ {{ summary.total }}</span>
+      <span class="ml-1 text-sm text-muted">líneas conectadas</span>
+    </div>
+    {% if summary.down > 0 %}
+    <span class="rounded-full bg-red/15 px-3 py-1 text-xs font-semibold text-red">⚠ {{ summary.down }} necesita{{ 'n' if summary.down != 1 else '' }} conexión</span>
+    {% else %}
+    <span class="rounded-full bg-green/15 px-3 py-1 text-xs font-semibold text-green">✓ Todo conectado</span>
+    {% endif %}
+  </div>
+
+  {% if summary.down_lines %}
+  <div class="mt-4 border-t border-border pt-3">
+    <div class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-2">Necesitan conexión — pulsa Conectar</div>
+    <div class="flex flex-col gap-1.5">
+      {% for d in summary.down_lines %}
+      <div class="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="truncate text-sm font-medium">{{ d.label }}</span>
+            {{ status_badge(d.status) }}
+          </div>
+          <div class="mt-0.5 truncate text-[11px] text-muted-2">{{ d.casa_name }} · {{ format_phone(d.phone) }}</div>
+        </div>
+        <button type="button"
+                onclick='window.__openConnect({{ d.id }}, {{ d.session | tojson }}, {{ d.label | tojson }}, {{ d.phone | tojson }})'
+                class="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/30 bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/25">
+          🔗 Conectar
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if not casas %}
 <div class="card p-12 text-center">
   <div class="text-5xl mb-3">🏠</div>
@@ -49,7 +91,13 @@
     <div class="mb-4 flex items-start justify-between gap-2">
       <div class="min-w-0">
         <a href="/casas/{{ casa.id }}" class="text-lg font-semibold hover:text-accent">{{ casa.name }}</a>
-        <div class="text-xs text-muted">{{ casa.wa_numbers | length }} WhatsApp{{ 's' if casa.wa_numbers|length != 1 else '' }}</div>
+        <div class="text-xs">
+          {% if casa.total_count %}
+            <span class="font-medium {{ 'text-green' if casa.working_count == casa.total_count else ('text-red' if casa.working_count == 0 else 'text-amber') }}">{{ casa.working_count }}/{{ casa.total_count }} conectada{{ 's' if casa.total_count != 1 else '' }}</span>
+          {% else %}
+            <span class="text-muted">Sin WhatsApp</span>
+          {% endif %}
+        </div>
       </div>
       <button type="button"
               onclick='window.__openAddWa({{ casa.id }}, {{ casa.name | tojson }})'
@@ -66,11 +114,12 @@
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <span class="font-medium">{{ wn.label }}</span>
+              <span class="truncate font-medium">{{ wn.label }}</span>
               {{ status_badge(wn.status) }}
             </div>
-            <div class="mt-1 text-xs text-muted mono truncate">
-              {{ format_phone(wn.phone) }} · <span class="opacity-70">session: {{ wn.session }}</span>
+            <div class="mt-1 truncate text-xs mono">
+              {% if wn.phone %}<span class="text-text">{{ format_phone(wn.phone) }}</span>{% else %}<span class="text-amber">Sin número · edítalo ✏️</span>{% endif %}
+              <span class="text-muted-2">· {{ wn.session }}</span>
             </div>
           </div>
         </div>
@@ -94,40 +143,18 @@
           <span class="glass-segment__glider" aria-hidden="true"></span>
         </form>
 
-        {# Inline QR for this WA if scanning #}
-        {% if wn.status == 'SCAN_QR_CODE' %}
-        <div class="qr-container mt-3 flex items-center justify-center rounded-lg border border-border bg-surface-2 p-2"
-             data-session="{{ wn.session }}">
-          <span class="text-[11px] text-muted">Generando QR...</span>
-        </div>
-        <p class="mt-1 text-[10px] text-center text-muted">WhatsApp → Dispositivos vinculados → Vincular</p>
-
-        {# Compartir QR con la mamai #}
-        <div class="mt-2 flex items-center gap-1.5">
-          <a href="/sessions/{{ wn.id }}/qr.png" download
-             class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted hover:text-text hover:border-muted transition-colors flex-1 justify-center"
-             title="Descarga el QR como imagen para enviarlo por WhatsApp/email">
-            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Descargar PNG
-          </a>
-          <button type="button" onclick='shareQrLink({{ wn.id }}, {{ wn.label | tojson }})'
-                  class="inline-flex items-center gap-1 rounded-md border border-blue/40 bg-blue/10 px-2 py-1 text-[10px] text-blue hover:bg-blue/20 transition-colors flex-1 justify-center"
-                  title="Genera un link temporal para enviar a la mamai (30 min)">
-            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            Compartir link
-          </button>
-        </div>
-        {% endif %}
+        {# QR pairing now happens in the self-driving "Conectar" modal below —
+           no page refresh, QR rendered locally (no external CDN). #}
 
         {# Actions — grouped primary (session control) + secondary (manage) #}
         <div class="mt-3 flex flex-wrap items-center gap-1.5">
-          {% if wn.status in ('STOPPED', 'FAILED', 'UNKNOWN') %}
-            <form method="post" action="/sessions/{{ wn.session }}/start" class="inline">
-              <button class="inline-flex items-center gap-1 rounded-md bg-accent/15 border border-accent/30 px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/25 transition-colors">
-                <svg class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-                Iniciar
-              </button>
-            </form>
+          {% if wn.status != 'WORKING' %}
+            <button type="button"
+                    onclick='window.__openConnect({{ wn.id }}, {{ wn.session | tojson }}, {{ wn.label | tojson }}, {{ wn.phone | tojson }})'
+                    class="inline-flex items-center gap-1 rounded-md bg-accent/15 border border-accent/30 px-2.5 py-1 text-[11px] font-semibold text-accent hover:bg-accent/25 transition-colors">
+              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              Conectar
+            </button>
           {% endif %}
           {% if wn.status in ('WORKING', 'SCAN_QR_CODE', 'FAILED') %}
             <form method="post" action="/sessions/{{ wn.session }}/restart" class="inline">
@@ -159,9 +186,9 @@
           <span class="flex-1"></span>
 
           <button type="button"
-                  onclick='window.__openRenameWa({{ wn.id }}, {{ wn.label | tojson }})'
+                  onclick='window.__openRenameWa({{ wn.id }}, {{ wn.label | tojson }}, {{ wn.phone | tojson }})'
                   class="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted hover:text-text hover:border-border-strong transition-colors"
-                  title="Renombrar">
+                  title="Editar etiqueta y teléfono">
             <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           </button>
           <form method="post" action="/wa-numbers/{{ wn.id }}/delete" class="inline"
@@ -220,9 +247,6 @@
                class="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text mono focus:outline-none">
         <p class="mt-1 text-[10px] text-muted">Solo minúsculas, números y guiones. Dejar vacío = auto desde etiqueta.</p>
       </div>
-      <div class="rounded-lg border border-amber/30 bg-amber/10 px-3 py-2 text-[11px] text-amber">
-        ⚠ WAHA Free solo permite 1 session llamada literalmente "default". Para más necesitas WAHA Plus.
-      </div>
       <div class="flex justify-end gap-2 pt-2">
         <button type="button" onclick="document.getElementById('add-wa-modal').classList.add('hidden')"
                 class="btn-ghost">Cancelar</button>
@@ -235,12 +259,18 @@
 {# ── Modal: Rename WA ─────────────────────────────────────── #}
 <div id="rename-wa-modal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
   <div class="card w-full max-w-md p-6">
-    <h3 class="text-lg font-semibold mb-4">Renombrar WhatsApp</h3>
+    <h3 class="text-lg font-semibold mb-4">Editar WhatsApp</h3>
     <form id="rename-wa-form" method="post" class="space-y-3">
       <div>
-        <label class="mb-1 block text-xs text-muted">Nueva etiqueta</label>
+        <label class="mb-1 block text-xs text-muted">Etiqueta</label>
         <input id="rename-wa-label" name="label" required
                class="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text focus:outline-none">
+      </div>
+      <div>
+        <label class="mb-1 block text-xs text-muted">Teléfono (con prefijo, p.ej. +34 621 033 316)</label>
+        <input id="rename-wa-phone" name="phone" inputmode="tel" placeholder="Sin detectar — escríbelo a mano"
+               class="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text focus:outline-none">
+        <p class="mt-1 text-[11px] text-muted">Normalmente se detecta solo; si sale "–", ponlo aquí. Déjalo vacío para borrarlo.</p>
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <button type="button" onclick="document.getElementById('rename-wa-modal').classList.add('hidden')"
@@ -248,6 +278,98 @@
         <button type="submit" class="btn-primary">Guardar</button>
       </div>
     </form>
+  </div>
+</div>
+
+{# ── Modal: Conectar WhatsApp (QR + código de 8 dígitos, autoguiado) ── #}
+<div id="connect-wa-modal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+  <div class="card w-full max-w-md p-6">
+    <div class="mb-3 flex items-start justify-between gap-3">
+      <div>
+        <h3 class="text-lg font-semibold">Conectar WhatsApp</h3>
+        <p class="text-xs text-muted">línea <strong id="connect-wa-label" class="text-text"></strong></p>
+      </div>
+      <button type="button" onclick="window.__closeConnect()"
+              class="text-2xl leading-none text-muted hover:text-text" aria-label="Cerrar">&times;</button>
+    </div>
+
+    {# Tabs: QR (segundo dispositivo) | Código (un solo móvil) #}
+    <div class="mb-3 grid grid-cols-2 gap-1 rounded-lg border border-border bg-surface-2 p-1">
+      <button type="button" id="connect-tab-qr" onclick="window.__connectTab('qr')"
+              class="rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors">📷 Escanear QR</button>
+      <button type="button" id="connect-tab-code" onclick="window.__connectTab('code')"
+              class="rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors">🔢 Código 8 dígitos</button>
+    </div>
+
+    <div id="connect-status" class="mb-3 min-h-[20px] text-center text-sm text-text"></div>
+
+    {# ── Pane QR ── #}
+    <div id="connect-pane-qr">
+      <div id="connect-qr-box" class="mb-3 hidden justify-center">
+        <div class="rounded-lg bg-white p-3">
+          <img id="connect-qr-img" width="220" height="220" alt="Código QR"
+               class="block h-[220px] w-[220px]"
+               onload="this.style.visibility='visible'" onerror="this.style.visibility='hidden'">
+        </div>
+      </div>
+      <ol id="connect-steps-qr" class="mb-3 hidden space-y-1.5 text-[13px] text-muted">
+        <li><strong class="text-text">1.</strong> Abre WhatsApp en el móvil de esa casa</li>
+        <li><strong class="text-text">2.</strong> Ajustes → <em>Dispositivos vinculados</em> → <em>Vincular un dispositivo</em></li>
+        <li><strong class="text-text">3.</strong> Escanea el código de arriba</li>
+        <li class="pt-1 text-[11px] text-muted-2">El QR se renueva solo. En cuanto emparejen, se detecta solo. ✅</li>
+      </ol>
+    </div>
+
+    {# ── Pane Código (un solo móvil) ── #}
+    <div id="connect-pane-code" class="hidden">
+      <p class="mb-2 text-[12px] text-muted">Ideal si la casa tiene <strong class="text-text">un solo móvil</strong>: no se escanea nada, solo se teclea un código.</p>
+      <div id="connect-code-form" class="mb-3 flex gap-2">
+        <input id="connect-code-phone" inputmode="tel" placeholder="+34 621 033 316"
+               class="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text focus:outline-none">
+        <button type="button" onclick="window.__connectRequestCode()"
+                class="btn-primary whitespace-nowrap" style="font-size:.8rem;">Pedir código</button>
+      </div>
+      {# Mensaje del flujo de código — aislado del polling para que no lo pise #}
+      <p id="connect-code-error" class="mb-2 hidden text-center text-[12px]"></p>
+      <div id="connect-code-box" class="mb-3 hidden text-center">
+        <div class="mb-2 text-[11px] uppercase tracking-wide text-muted-2">Escribe este código en WhatsApp</div>
+        <div class="flex items-center justify-center gap-2">
+          <span id="connect-code-value" class="mono select-all text-3xl font-bold tracking-widest text-accent"></span>
+          <button type="button" onclick="window.__connectCopyCode()" title="Copiar"
+                  class="rounded-md border border-border px-2 py-1 text-xs text-muted hover:text-text">📋</button>
+        </div>
+        <ol class="mt-3 space-y-1.5 text-left text-[13px] text-muted">
+          <li><strong class="text-text">1.</strong> En el móvil de la casa: WhatsApp → Ajustes → <em>Dispositivos vinculados</em></li>
+          <li><strong class="text-text">2.</strong> <em>Vincular un dispositivo</em> → <em>Vincular con número de teléfono</em></li>
+          <li><strong class="text-text">3.</strong> Escribe el código de arriba</li>
+          <li class="pt-1 text-[11px] text-muted-2">El código caduca en ~1 min. Se detecta solo al vincular. ✅</li>
+        </ol>
+        <button type="button" onclick="window.__connectRequestCode()"
+                class="mt-2 text-[11px] text-blue hover:underline">Pedir otro código</button>
+      </div>
+    </div>
+
+    {# ── Generar otro / reintentar (al caducar o fallar) ── #}
+    <div id="connect-retry" class="mb-3 hidden text-center">
+      <p class="mb-2 text-[12px] text-muted">El QR/código caducó o falló la conexión.</p>
+      <button type="button" onclick="window.__connectRetry()" class="btn-primary">🔄 Generar otro</button>
+    </div>
+
+    {# ── Footer: descargar / compartir (solo para el QR) ── #}
+    <div id="connect-footer" class="flex items-center gap-2 pt-1">
+      <a id="connect-dl" href="#" download
+         class="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-border px-2 py-1.5 text-[11px] text-muted transition-colors hover:text-text hover:border-muted"
+         title="Descarga el QR como imagen para enviarlo por WhatsApp/email">
+        <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Descargar QR
+      </a>
+      <button type="button" onclick="window.__connectShare()"
+              class="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-blue/40 bg-blue/10 px-2 py-1.5 text-[11px] text-blue transition-colors hover:bg-blue/20"
+              title="Genera un link temporal para enviar a la mamai (30 min)">
+        <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        Compartir link
+      </button>
+    </div>
   </div>
 </div>
 
@@ -259,35 +381,190 @@
     form.reset();
     document.getElementById('add-wa-modal').classList.remove('hidden');
   };
-  window.__openRenameWa = function (waId, currentLabel) {
+  window.__openRenameWa = function (waId, currentLabel, currentPhone) {
     const form = document.getElementById('rename-wa-form');
     form.action = `/wa-numbers/${waId}/rename`;
     document.getElementById('rename-wa-label').value = currentLabel;
+    document.getElementById('rename-wa-phone').value = currentPhone || '';
     document.getElementById('rename-wa-modal').classList.remove('hidden');
   };
 
-  // QR polling for sessions in SCAN_QR_CODE state
-  async function pollQR(sessionName, container) {
+  // HTML-escape for any staff-controlled string that lands in an innerHTML sink.
+  function __esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // ── Conectar: modal autoguiado (arranca la sesión, muestra QR local O código
+  //    de 8 dígitos, y detecta el emparejamiento — sin recargar ni CDNs). ──
+  // `gen` invalidates in-flight polls when the modal is reopened for another line.
+  const __connect = { timer: null, gen: 0, session: null, waId: null, phone: '', tab: 'qr', status: 'starting', sawQr: false, codeShown: false, nonScan: 0 };
+
+  function __connectStop() {
+    if (__connect.timer) { clearInterval(__connect.timer); __connect.timer = null; }
+  }
+
+  function __connectSetCodeMsg(html, show) {
+    const el = document.getElementById('connect-code-error');
+    el.innerHTML = html || '';
+    el.classList.toggle('hidden', !show);
+  }
+
+  function __connectTabStyle() {
+    const on = 'rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors bg-accent/20 text-accent';
+    const off = 'rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors text-muted hover:text-text';
+    document.getElementById('connect-tab-qr').className = __connect.tab === 'qr' ? on : off;
+    document.getElementById('connect-tab-code').className = __connect.tab === 'code' ? on : off;
+  }
+
+  function __connectRender() {
+    const st = __connect.status;
+    const isQr = __connect.tab === 'qr';
+    const statusEl = document.getElementById('connect-status');
+    const qrBox = document.getElementById('connect-qr-box');
+    const stepsQr = document.getElementById('connect-steps-qr');
+    const retry = document.getElementById('connect-retry');
+
+    if (st === 'working') {
+      statusEl.innerHTML = '<span class="font-semibold text-green">✅ ¡Conectado!</span>';
+    } else if (st === 'expired') {
+      statusEl.innerHTML = '<span class="text-amber">⏱ Caducó — pulsa “Generar otro”</span>';
+    } else if (st === 'failed') {
+      statusEl.innerHTML = '<span class="text-red">⚠ No se pudo conectar</span>';
+    } else if (st === 'qr') {
+      if (isQr) statusEl.innerHTML = '📲 Escanea este código con el móvil de la casa';
+      else statusEl.innerHTML = __connect.codeShown
+        ? '🔢 Escribe el código en WhatsApp (Vincular con número)'
+        : '🔢 Pon el número y pulsa “Pedir código”';
+    } else {
+      statusEl.innerHTML = '<span class="animate-pulse text-muted">⏳ Preparando la conexión…</span>';
+    }
+
+    const showQr = isQr && st === 'qr';
+    qrBox.classList.toggle('flex', showQr);
+    qrBox.classList.toggle('hidden', !showQr);
+    stepsQr.classList.toggle('hidden', !showQr);
+    retry.classList.toggle('hidden', !(st === 'expired' || st === 'failed'));
+    // A shown pairing code is stale once the QR/code window closes.
+    if (st === 'expired' || st === 'failed') {
+      document.getElementById('connect-code-box').classList.add('hidden');
+    }
+  }
+
+  window.__connectTab = function (tab) {
+    __connect.tab = tab;
+    document.getElementById('connect-pane-qr').classList.toggle('hidden', tab !== 'qr');
+    document.getElementById('connect-pane-code').classList.toggle('hidden', tab !== 'code');
+    document.getElementById('connect-footer').classList.toggle('hidden', tab !== 'qr');
+    // Returning to the QR tab: refresh immediately so it isn't a stale (expired) QR.
+    if (tab === 'qr' && __connect.status === 'qr' && __connect.waId != null) {
+      document.getElementById('connect-qr-img').src = `/sessions/${__connect.waId}/qr.png?t=${Date.now()}`;
+    }
+    __connectTabStyle();
+    __connectRender();
+  };
+
+  async function __connectPoll() {
+    const myGen = __connect.gen;
+    const { session, waId } = __connect;
+    if (!session) return;
     try {
-      const r = await fetch(`/sessions/${sessionName}/qr`);
+      const r = await fetch(`/sessions/${session}/qr`);
       const data = await r.json();
-      if (data.status === 'WORKING') {
-        container.innerHTML = '<span class="text-green text-xs font-semibold">✓ Conectado</span>';
-        setTimeout(() => window.location.reload(), 1500);
+      // Superseded: the modal was reopened for another line while we awaited.
+      // Do NOT touch shared state / DOM — a stale WORKING would reload the page.
+      if (myGen !== __connect.gen) return;
+      const s = data.status;
+      if (s === 'WORKING') {
+        __connect.status = 'working'; __connectRender(); __connectStop();
+        setTimeout(() => window.location.reload(), 1600);
         return;
       }
-      if (data.qr) {
-        container.innerHTML = `<div class="flex items-center justify-center bg-white rounded p-2">
-          <img src="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(data.qr)}&size=180x180&margin=0" alt="QR">
-        </div>`;
+      if (s === 'SCAN_QR_CODE') {
+        __connect.status = 'qr'; __connect.sawQr = true; __connect.nonScan = 0;
+        if (__connect.tab === 'qr') {
+          document.getElementById('connect-qr-img').src = `/sessions/${waId}/qr.png?t=${Date.now()}`;
+        }
+        __connectRender();
+        return;
       }
-    } catch (e) { /* retry */ }
+      if (s === 'FAILED') { __connect.status = 'failed'; __connectRender(); return; }
+      // STOPPED / STARTING / UNKNOWN / error. Only call it 'expired' after 2 non-SCAN
+      // ticks (avoids a 1-tick flicker during a transient status between QR rotations).
+      __connect.nonScan = (__connect.nonScan || 0) + 1;
+      if (__connect.sawQr && __connect.nonScan >= 2) __connect.status = 'expired';
+      else if (!__connect.sawQr) __connect.status = 'starting';
+      __connectRender();
+    } catch (e) { /* keep polling */ }
   }
-  document.querySelectorAll('.qr-container').forEach(el => {
-    const name = el.dataset.session;
-    pollQR(name, el);
-    setInterval(() => pollQR(name, el), 5000);
-  });
+
+  window.__openConnect = function (waId, session, label, phone) {
+    __connectStop();
+    __connect.gen++;   // invalidate any in-flight poll from a previous open
+    Object.assign(__connect, { session, waId, phone: phone || '', tab: 'qr', status: 'starting', sawQr: false, codeShown: false, nonScan: 0 });
+    document.getElementById('connect-wa-label').textContent = label;
+    document.getElementById('connect-dl').href = `/sessions/${waId}/qr.png`;
+    document.getElementById('connect-code-phone').value = phone ? ('+' + phone) : '';
+    document.getElementById('connect-code-box').classList.add('hidden');
+    __connectSetCodeMsg('', false);
+    window.__connectTab('qr');
+    document.getElementById('connect-wa-modal').classList.remove('hidden');
+    // Arranca la sesión (idempotente) y empieza a sondear.
+    fetch(`/sessions/${session}/start`, { method: 'POST', redirect: 'manual' }).catch(() => {});
+    __connectPoll();
+    __connect.timer = setInterval(__connectPoll, 2500);
+  };
+
+  window.__closeConnect = function () {
+    __connectStop();
+    document.getElementById('connect-wa-modal').classList.add('hidden');
+  };
+
+  window.__connectRetry = function () {
+    if (!__connect.session) return;
+    __connect.status = 'starting'; __connect.sawQr = false; __connect.codeShown = false; __connect.nonScan = 0;
+    document.getElementById('connect-code-box').classList.add('hidden');
+    __connectSetCodeMsg('', false);
+    __connectRender();
+    fetch(`/sessions/${__connect.session}/restart`, { method: 'POST', redirect: 'manual' }).catch(() => {});
+  };
+
+  window.__connectShare = function () {
+    shareQrLink(__connect.waId, document.getElementById('connect-wa-label').textContent);
+  };
+
+  window.__connectRequestCode = async function () {
+    const phone = document.getElementById('connect-code-phone').value.trim();
+    if (!phone) { __connectSetCodeMsg('<span class="text-amber">Escribe el número con prefijo, p.ej. +34 621 033 316</span>', true); return; }
+    // Write flow messages to the isolated #connect-code-error element, NOT to
+    // #connect-status, so the 2.5s poll can't wipe the 409/error guidance.
+    __connectSetCodeMsg('<span class="animate-pulse text-muted">⏳ Pidiendo código…</span>', true);
+    try {
+      const fd = new FormData(); fd.append('phone', phone);
+      const r = await fetch(`/sessions/${__connect.session}/pairing-code`, { method: 'POST', body: fd });
+      if (r.ok) {
+        const data = await r.json();
+        document.getElementById('connect-code-value').textContent = data.code;
+        document.getElementById('connect-code-box').classList.remove('hidden');
+        __connectSetCodeMsg('', false);
+        __connect.codeShown = true;
+        __connect.status = 'qr';
+        __connectRender();
+      } else if (r.status === 409) {
+        __connectSetCodeMsg('<span class="text-amber">Este número no admite código ahora — usa el QR 📷</span>', true);
+      } else {
+        __connectSetCodeMsg('<span class="text-red">No se pudo pedir el código</span>', true);
+      }
+    } catch (e) {
+      __connectSetCodeMsg('<span class="text-red">Error de red</span>', true);
+    }
+  };
+
+  window.__connectCopyCode = async function () {
+    const code = document.getElementById('connect-code-value').textContent;
+    try { await navigator.clipboard.writeText(code); } catch (e) { /* ignore */ }
+  };
 
   // Share QR link with mamai
   async function shareQrLink(waId, label) {
@@ -301,15 +578,19 @@
       const url = data.url;
       const ttl = data.ttl_minutes;
       const waText = encodeURIComponent(`Hola! Para conectar el WhatsApp "${label}" abre este enlace y escanea el QR:\n\n${url}\n\nEl enlace caduca en ${ttl} min.`);
+      // `label` is staff-set (rename) and `url` is server-built; escape both before
+      // they hit innerHTML to close a stored-DOM-XSS via a crafted line label.
+      const labelSafe = __esc(label);
+      const urlSafe = __esc(url);
 
       // Modal con copiar + WhatsApp share
       const overlay = document.createElement('div');
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(8px);';
       overlay.innerHTML = `
         <div style="background:#0a0a0a;border:1px solid #26262a;border-radius:14px;padding:24px;max-width:480px;width:92%;color:#f5f5f7;">
-          <h3 style="margin:0 0 6px;font-size:17px;font-weight:600;letter-spacing:-0.01em;">Enlace para la mamai · ${label}</h3>
+          <h3 style="margin:0 0 6px;font-size:17px;font-weight:600;letter-spacing:-0.01em;">Enlace para la mamai · ${labelSafe}</h3>
           <p style="margin:0 0 14px;font-size:12px;color:#8e8e93;">Caduca en ${ttl} min o cuando emparejen el WhatsApp.</p>
-          <div style="background:#141414;border:1px solid #26262a;border-radius:8px;padding:10px;font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;word-break:break-all;color:#10b981;margin-bottom:14px;">${url}</div>
+          <div style="background:#141414;border:1px solid #26262a;border-radius:8px;padding:10px;font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;word-break:break-all;color:#10b981;margin-bottom:14px;">${urlSafe}</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button id="qr-copy-btn" style="flex:1;background:#10b981;color:#0a0a0a;border:none;border-radius:8px;padding:10px;font-weight:600;font-size:13px;cursor:pointer;">📋 Copiar enlace</button>
             <a href="https://wa.me/?text=${waText}" target="_blank" rel="noopener" style="flex:1;background:#25D366;color:white;text-decoration:none;border-radius:8px;padding:10px;font-weight:600;font-size:13px;text-align:center;">💬 WhatsApp</a>

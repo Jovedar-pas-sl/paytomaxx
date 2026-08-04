@@ -147,16 +147,28 @@ def test_estimate_applies_road_factor_and_roundtrip():
     assert est.distance_roundtrip_km == pytest.approx(est.distance_oneway_km * 2, abs=0.01)
 
 
-def test_estimate_night_costs_more_than_day_and_crosses_10_boundary():
-    """At this distance the night per-km pushes the total over the next 10€ step:
-    day → 190€, night → 200€ (proves the night per_km path is wired)."""
+def test_estimate_night_costs_more_than_day():
+    """Night per-km yields a higher taxi than day at the same distance; both totals
+    stay ceil'd to a multiple of 10."""
     client = (39.4699, -0.4763)
     day = estimate_outcall(_VLC, client, "Valencia", 150.0, _DAY)
     night = estimate_outcall(_VLC, client, "Valencia", 150.0, _NIGHT)
     assert day is not None and night is not None
     assert night.taxi_cost_eur > day.taxi_cost_eur
-    assert day.total_eur == 190
-    assert night.total_eur == 200
+    assert night.total_eur >= day.total_eur
+    assert day.total_eur % 10 == 0 and night.total_eur % 10 == 0
+
+
+def test_estimate_taxi_is_two_one_way_fares():
+    """Round-trip taxi = 2 × one-way fare — each leg its own flagfall + min fare
+    (ida + vuelta), not a single fare over the round-trip distance."""
+    client = (39.4699, -0.4763)
+    est = estimate_outcall(_VLC, client, "Valencia", 150.0, _DAY)
+    assert est is not None
+    t = TAXI_TARIFFS["Valencia"]
+    oneway_km = haversine_km(*_VLC, *client) * ROAD_FACTOR
+    leg = max(t.flagfall_eur + t.per_km_day_eur * oneway_km, t.min_fare_eur)
+    assert est.taxi_cost_eur == pytest.approx(leg * 2, abs=0.02)
 
 
 def test_estimate_total_is_base_plus_buffered_taxi_ceiled_to_10():
@@ -192,12 +204,45 @@ def test_estimate_taxi_buffer_override_changes_total():
 
 
 def test_estimate_min_fare_floor_applies_for_tiny_distance():
-    """A near-zero distance falls back to the city min_fare for the taxi cost."""
+    """A near-zero distance falls back to TWO city min-fares (ida + vuelta = 2 legs
+    each floored at the min fare)."""
     client = (39.46995, -0.37635)  # ~5 m away
     est = estimate_outcall(_VLC, client, "Valencia", 150.0, _DAY)
     assert est is not None
-    # taxi_cost is floored at Valencia's min_fare (4.95€); metered would be lower.
-    assert est.taxi_cost_eur == pytest.approx(TAXI_TARIFFS["Valencia"].min_fare_eur, abs=0.5)
+    assert est.taxi_cost_eur == pytest.approx(2 * TAXI_TARIFFS["Valencia"].min_fare_eur, abs=0.5)
+
+
+# ── taxi RANGE (horquilla) — the client-facing figure Sara actually quotes ──
+def test_estimate_produces_lean_expensive_taxi_range():
+    """Sara quotes a RANGE, not the exact figure: low < high, both multiples of 10,
+    low never below the floor, and the high end sits ABOVE the bare metered cost."""
+    client = (39.4699, -0.4763)  # ~8.6 km west of the casa
+    est = estimate_outcall(_VLC, client, "Valencia", 150.0, _DAY)
+    assert est is not None
+    assert est.taxi_low_eur % 10 == 0 and est.taxi_high_eur % 10 == 0
+    assert est.taxi_low_eur < est.taxi_high_eur
+    assert est.taxi_low_eur >= outcall.TAXI_RANGE_MIN_LOW_EUR
+    assert est.taxi_high_eur > est.taxi_cost_eur  # leans expensive vs the raw meter
+
+
+def test_estimate_tiny_distance_floors_the_range_low():
+    """A near-zero distance still yields a realistic minimum low end (the floor),
+    with a high end strictly above it."""
+    client = (39.46995, -0.37635)  # ~5 m away
+    est = estimate_outcall(_VLC, client, "Valencia", 150.0, _DAY)
+    assert est is not None
+    assert est.taxi_low_eur == outcall.TAXI_RANGE_MIN_LOW_EUR
+    assert est.taxi_high_eur > est.taxi_low_eur
+
+
+def test_estimate_farther_client_gets_a_pricier_range():
+    """The range scales with distance: a farther client gets a higher low+high
+    (addresses 'the taxi doesn't match the location')."""
+    near = estimate_outcall(_VLC, (39.4699, -0.4763), "Valencia", 150.0, _DAY)
+    far = estimate_outcall(_VLC, (39.4699, -0.7000), "Valencia", 150.0, _DAY)
+    assert near is not None and far is not None
+    assert far.taxi_low_eur > near.taxi_low_eur
+    assert far.taxi_high_eur > near.taxi_high_eur
 
 
 # ── city_for_casa_name ───────────────────────────────────────────────

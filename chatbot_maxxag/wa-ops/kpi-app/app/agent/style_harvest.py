@@ -16,7 +16,9 @@ super-admin still reviews every candidate before it can reach Sara.
 from __future__ import annotations
 
 import logging
+import os
 import re
+from collections import Counter
 from dataclasses import dataclass
 
 import asyncpg
@@ -33,6 +35,26 @@ _CLIENT_MAX = 200
 # Max NEW candidates inserted per casa per run, so one busy casa never floods the
 # review queue in a single night.
 _MAX_NEW_PER_CASA = 40
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+# AUTO-LEARN: a reply the encargada REPEATS at least this many times (deduped by
+# pattern, within the 30-day harvest window) is trusted enough to approve on its
+# own — the bot learns what the team says consistently, no manual review. One-offs
+# stay 'pending'. Env-tunable; set to 0 to disable auto-approval (old behavior).
+_AUTO_APPROVE_MIN = _env_int("STYLE_AUTO_APPROVE_MIN", 3)
+# Fetch more replies than we insert so the frequency count ("what repeats") is
+# meaningful — not just the last handful.
+_HARVEST_FETCH = 600
 
 _TAG_RE = re.compile(r"<[^>]*>")
 _CTRL_RE = re.compile(r"[\x00-\x1F]")
@@ -97,17 +119,27 @@ def build_candidate(h: queries.HarvestedReply) -> Candidate | None:
 
 
 async def harvest_casa(kpi: asyncpg.Pool, casa_id: int) -> int:
-    """Harvest one casa: fetch recent human replies, build sanitized candidates,
-    insert the new ones as 'pending' (idempotent). Returns the count inserted.
-    In-run dedup avoids hitting the DB twice for the same reply within one batch."""
-    rows = await queries.fetch_human_replies_for_harvest(kpi, casa_id)
-    inserted = 0
-    seen: set[str] = set()
+    """Harvest one casa: fetch recent human replies, build sanitized candidates and
+    UPSERT them. A reply REPEATED >= _AUTO_APPROVE_MIN times (deduped by pattern)
+    goes in — or gets an existing 'pending' promoted — as 'approved', so the bot
+    learns what the encargada says consistently WITHOUT manual review; one-offs stay
+    'pending'. Returns the count of NEW rows inserted (the caller sums it)."""
+    rows = await queries.fetch_human_replies_for_harvest(kpi, casa_id, limit=_HARVEST_FETCH)
+    # Frequency per reply PATTERN = "lo que se repite". Keep the first occurrence as
+    # the representative candidate (its client_msg pairs the recurring reply).
+    freq: Counter[str] = Counter()
+    rep: dict[str, Candidate] = {}
     for h in rows:
         cand = build_candidate(h)
-        if cand is None or cand.dedup_key in seen:
+        if cand is None:
             continue
-        seen.add(cand.dedup_key)
+        freq[cand.dedup_key] += 1
+        rep.setdefault(cand.dedup_key, cand)
+
+    inserted = 0
+    auto_approved = 0
+    for key, cand in rep.items():
+        auto = _AUTO_APPROVE_MIN > 0 and freq[key] >= _AUTO_APPROVE_MIN
         ok = await queries.insert_style_example(
             kpi,
             casa_id=casa_id,
@@ -117,9 +149,16 @@ async def harvest_casa(kpi: asyncpg.Pool, casa_id: int) -> int:
             reply_msg=cand.reply_msg,
             dedup_key=cand.dedup_key,
             source="cron",
+            status="approved" if auto else "pending",
         )
         if ok:
             inserted += 1
+            if auto:
+                auto_approved += 1
         if inserted >= _MAX_NEW_PER_CASA:
             break
+    logger.info(
+        "style_harvest: casa=%s new=%s auto_approved=%s (>=%s repeats)",
+        casa_id, inserted, auto_approved, _AUTO_APPROVE_MIN,
+    )
     return inserted

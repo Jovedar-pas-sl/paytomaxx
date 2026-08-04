@@ -87,6 +87,41 @@ class WahaClient:
         r.raise_for_status()
         return r.content
 
+    async def request_pairing_code(self, name: str, phone: str) -> str | None:
+        """Request an 8-char pairing code ('ABCD-ABCD') so a number can be linked by
+        TYPING the code into WhatsApp → Dispositivos vinculados → 'Vincular con
+        número de teléfono' — no QR scan, no second device (ideal when the owner
+        has a single phone).
+
+        `phone` is normalized to digits + country code, no '+'. The session must
+        already be started (SCAN_QR_CODE) before the code is issued; on success it
+        transitions to WORKING. Returns None whenever WAHA can't issue a code —
+        NOWEB's pairing-code auth is documented as *not always available* (see
+        WAHA docs / GH #1385), which is exactly why the QR stays as the mandatory
+        fallback and this never raises into the request flow.
+        """
+        digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+        if not digits:
+            return None
+        try:
+            r = await self._client.post(
+                f"/api/{name}/auth/request-code",
+                json={"phoneNumber": digits},
+            )
+        except httpx.HTTPError:
+            return None
+        if not r.is_success:
+            return None
+        try:
+            body = r.json()
+        except ValueError:  # non-JSON body
+            return None
+        # A 2xx body that is valid JSON but not an object (bare string, array,
+        # null — e.g. from a proxy/error page) must NOT raise: keep the QR
+        # fallback intact instead of 500ing the request.
+        code = body.get("code") if isinstance(body, dict) else None
+        return code or None
+
     # ── Messages ──────────────────────────────────────────────────
     async def send_text(self, session: str, chat_id: str, text: str) -> dict[str, Any]:
         r = await self._client.post(

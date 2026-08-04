@@ -194,6 +194,12 @@ async def waha_webhook(
 async def _handle_session_status(db: KpiDB, session: str, data: dict[str, Any]) -> None:
     status = data.get("status")
     if status in {"FAILED", "STOPPED"}:
+        # Low-severity DB trail only. We deliberately do NOT push_alert here: the
+        # monitor-only health-check STOPs idle un-authed sessions to halt WhatsApp
+        # registration churn, which emits many FAILED/STOPPED events — pinging on
+        # each would spam Telegram. The curated Telegram ping lives in the worker's
+        # wa_needs_pair path (only a previously-paired line that dropped, deduped
+        # once per outage).
         async with db.acquire() as conn:
             await conn.execute(
                 """
@@ -202,12 +208,6 @@ async def _handle_session_status(db: KpiDB, session: str, data: dict[str, Any]) 
                 """,
                 f"Session '{session}' → {status}",
             )
-        # Push the operator NOW — a down session means a casa may be offline
-        # (the DB alert alone isn't seen until someone logs in). Fail-soft.
-        from app.notify import push_alert
-        await push_alert(
-            f"⚠️ WhatsApp '{session}' → {status}. Una casa puede estar offline — revisa /sessions."
-        )
 
 
 async def _handle_message(db: KpiDB, arq: Arq, session: str, data: dict[str, Any]) -> None:

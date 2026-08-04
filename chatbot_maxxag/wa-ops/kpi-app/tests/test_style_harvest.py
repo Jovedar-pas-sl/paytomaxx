@@ -107,3 +107,56 @@ def test_rank_falls_back_to_order_when_no_incoming():
 def test_rank_returns_input_when_fewer_than_limit():
     s = [StyleSample("pair", "hola", "hey")]
     assert rank_style_samples(s, "cuanto cuesta", limit=6) == s
+
+
+# ── harvest_casa: auto-approve by frequency ("lo que se repite") ──────
+async def test_harvest_auto_approves_recurring_pends_one_offs(monkeypatch):
+    """A reply repeated >= _AUTO_APPROVE_MIN times → status='approved'; a one-off →
+    'pending'. The bot learns what the encargada says consistently, no manual review."""
+    monkeypatch.setattr(style_harvest, "_AUTO_APPROVE_MIN", 3)
+    recurring = "esta noche tenemos varias disponibles, te paso la web y me dices 😊"
+    one_off = "hoy solo esta la rubia paraguaya, un encanto de verdad guapo mio"
+    replies = (
+        [HarvestedReply(reply_msg=recurring, client_msg="quien hay") for _ in range(4)]
+        + [HarvestedReply(reply_msg=one_off, client_msg="tienes rubia")]
+    )
+
+    async def fake_fetch(kpi, casa_id, limit=200):
+        return replies
+
+    captured: list[tuple[str, str]] = []
+
+    async def fake_insert(kpi, *, casa_id, lang, kind, client_msg, reply_msg,
+                          dedup_key, source="cron", status="pending"):
+        captured.append((reply_msg, status))
+        return True
+
+    monkeypatch.setattr(style_harvest.queries, "fetch_human_replies_for_harvest", fake_fetch)
+    monkeypatch.setattr(style_harvest.queries, "insert_style_example", fake_insert)
+
+    inserted = await style_harvest.harvest_casa(object(), 7)
+    by_reply = dict(captured)
+    assert by_reply[recurring] == "approved"   # repeated 4× → auto-approved
+    assert by_reply[one_off] == "pending"       # single → stays pending
+    assert inserted == 2                          # two distinct patterns
+
+
+async def test_harvest_auto_approve_off_when_threshold_zero(monkeypatch):
+    """STYLE_AUTO_APPROVE_MIN=0 disables auto-approval (old behavior)."""
+    monkeypatch.setattr(style_harvest, "_AUTO_APPROVE_MIN", 0)
+    recurring = "estamos en pleno centro cariño, muy facil de llegar en metro 😊"
+    replies = [HarvestedReply(reply_msg=recurring, client_msg=None) for _ in range(5)]
+
+    async def fake_fetch(kpi, casa_id, limit=200):
+        return replies
+
+    seen: list[str] = []
+
+    async def fake_insert(kpi, *, status="pending", **kw):
+        seen.append(status)
+        return True
+
+    monkeypatch.setattr(style_harvest.queries, "fetch_human_replies_for_harvest", fake_fetch)
+    monkeypatch.setattr(style_harvest.queries, "insert_style_example", fake_insert)
+    await style_harvest.harvest_casa(object(), 7)
+    assert seen == ["pending"]  # one pattern; not approved despite 5 repeats

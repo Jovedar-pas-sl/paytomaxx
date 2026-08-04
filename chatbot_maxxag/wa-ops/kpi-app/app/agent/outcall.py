@@ -8,11 +8,15 @@ the model only PHRASES the precomputed number, it never recomputes it).
 FORMULA (decided):
     distance_oneway_km   = haversine(casa_coords, client_coords) * ROAD_FACTOR
     distance_roundtrip_km = distance_oneway_km * 2
-    taxi_cost_eur        = city tariff applied to the ROUND-TRIP distance
-                           (flagfall + per_km, using the NIGHT per_km when the
-                            local time is inside the city night window, floored
-                            at the city min_fare)
+    oneway_fare_eur      = max(flagfall + per_km * distance_oneway_km, min_fare)
+                           (NIGHT per_km when local time is in the city night window)
+    taxi_cost_eur        = oneway_fare_eur * 2   # ida + vuelta = TWO fares, each
+                           with its own bajada de bandera (flagfall) and min fare
     total_eur            = ceil_to_10(casa_outcall_base + taxi_cost * TAXI_BUFFER)
+    taxi_low/high_eur    = the client-facing RANGE Sara actually quotes ("suele
+                           rondar X-Y€"): floor/ceil_to_10 of the buffered taxi_cost
+                           times TAXI_RANGE_LOW/HIGH_MULT. The exact metered total
+                           reads too cheap, so Sara gives this range, not a figure.
 
 NO routing engine / NO Valhalla — the VPS is tiny (1 vCPU, 3.8GB RAM). Haversine
 great-circle distance with a flat road factor is the whole geometry model.
@@ -43,6 +47,20 @@ ROAD_FACTOR: float = 1.3
 TAXI_BUFFER: float = 1.20
 # Final price is always rounded UP to the nearest multiple of this (euros).
 ROUND_TO_EUR: int = 10
+
+# ── Client-facing taxi RANGE (horquilla) ─────────────────────────────
+# Sara NEVER quotes the exact metered figure to the client — the municipal urban
+# tariff under-counts a REAL booked round-trip taxi (interurban rate, night, the
+# empty return leg, waiting/booking premium), so an exact number reads too cheap.
+# Instead she gives a deliberately-wide, lean-expensive RANGE ("suele rondar
+# X-Y€ según dónde estés") derived from the metered (buffered) cost. TUNE these
+# two multipliers if the range reads low/high for the zone; the per-casa
+# taxi_surcharge_pct still scales the whole thing on top.
+TAXI_RANGE_LOW_MULT: float = 1.2
+TAXI_RANGE_HIGH_MULT: float = 1.8
+# The low end of the range never drops below this (euros): even a very short hop
+# costs a real booked taxi at least this on our zones.
+TAXI_RANGE_MIN_LOW_EUR: int = 30
 
 # Earth mean radius (km) for the Haversine formula.
 _EARTH_RADIUS_KM: float = 6371.0088
@@ -156,16 +174,19 @@ def city_for_casa_name(casa_name: str | None) -> str | None:
 class OutcallEstimate:
     """Deterministic price breakdown for one outcall quote.
 
-    Sara quotes the BREAKDOWN to the client: `base_eur` (the domicilio service
-    price) + `taxi_eur` (the round-trip taxi). They always satisfy
-    `base_eur + taxi_eur == total_eur` (taxi absorbs the ceil-to-10 rounding), so
-    the two shown numbers add up. `taxi_cost_eur`/distances are for logging."""
+    Sara quotes the domicilio `base_eur` PLUS a taxi RANGE (`taxi_low_eur`..
+    `taxi_high_eur`, "suele rondar X-Y€") — never the exact metered figure, which
+    reads too cheap. `taxi_eur`/`total_eur` are the exact point estimate kept for
+    logging/alerts only (they still satisfy `base_eur + taxi_eur == total_eur`);
+    `taxi_cost_eur`/distances are for logging."""
 
     distance_oneway_km: float
     distance_roundtrip_km: float
     taxi_cost_eur: float
     base_eur: int
     taxi_eur: int
+    taxi_low_eur: int
+    taxi_high_eur: int
     total_eur: int
 
 
@@ -210,6 +231,11 @@ def is_night(now_local: datetime, city: str) -> bool:
 def _ceil_to_10(value: float) -> int:
     """Round a euro amount UP to the next multiple of ROUND_TO_EUR."""
     return int(math.ceil(value / ROUND_TO_EUR) * ROUND_TO_EUR)
+
+
+def _floor_to_10(value: float) -> int:
+    """Round a euro amount DOWN to the previous multiple of ROUND_TO_EUR."""
+    return int(math.floor(value / ROUND_TO_EUR) * ROUND_TO_EUR)
 
 
 # Rate-item labels (lowercased) that denote the OUTCALL service ("a hotel /
@@ -289,18 +315,33 @@ def estimate_outcall(
     per_km = (
         tariff.per_km_night_eur if is_night(now_local, city) else tariff.per_km_day_eur
     )
-    metered = tariff.flagfall_eur + per_km * roundtrip
-    taxi_cost = max(metered, tariff.min_fare_eur)
+    # A salida is a ROUND TRIP billed as TWO one-way fares: the girl goes AND comes
+    # back, so EACH leg pays its own bajada de bandera (flagfall) + per-km, floored
+    # at the city minimum fare. Charging a single flagfall/min over the round-trip
+    # distance under-counts the real ida+vuelta (especially on short trips, where
+    # the min fare dominates) — this bills both legs exactly.
+    oneway_fare = max(tariff.flagfall_eur + per_km * oneway, tariff.min_fare_eur)
+    taxi_cost = oneway_fare * 2
 
-    total = _ceil_to_10(outcall_base_eur + taxi_cost * taxi_buffer)
-    # Breakdown the client is told: base (domicilio) + taxi. taxi_eur is the
-    # remainder so base+taxi == total exactly (taxi absorbs the ceil-to-10).
+    # Metered round-trip taxi cost with the per-casa buffer (tip / waiting / margin).
+    buffered = taxi_cost * taxi_buffer
+    total = _ceil_to_10(outcall_base_eur + buffered)
+    # Exact point estimate kept for logging/alerts: base (domicilio) + taxi, where
+    # taxi_eur is the remainder so base+taxi == total exactly.
     base_int = int(round(outcall_base_eur))
+    # Client-facing RANGE (horquilla): Sara NEVER quotes the exact taxi (it reads
+    # too cheap); she gives a deliberately-wide, lean-expensive range derived from
+    # that buffered cost. Floor the low end at TAXI_RANGE_MIN_LOW_EUR and keep
+    # high > low.
+    taxi_low = max(TAXI_RANGE_MIN_LOW_EUR, _floor_to_10(buffered * TAXI_RANGE_LOW_MULT))
+    taxi_high = max(taxi_low + ROUND_TO_EUR, _ceil_to_10(buffered * TAXI_RANGE_HIGH_MULT))
     return OutcallEstimate(
         distance_oneway_km=round(oneway, 2),
         distance_roundtrip_km=round(roundtrip, 2),
         taxi_cost_eur=round(taxi_cost, 2),
         base_eur=base_int,
         taxi_eur=total - base_int,
+        taxi_low_eur=taxi_low,
+        taxi_high_eur=taxi_high,
         total_eur=total,
     )

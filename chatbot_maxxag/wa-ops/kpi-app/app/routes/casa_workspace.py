@@ -39,6 +39,7 @@ async def casa_workspace(
     mood: str = Query(""),
     status: str = Query(""),
     handler: str = Query(""),
+    mode: str = Query(""),
 ) -> HTMLResponse:
     if tab not in VALID_TABS:
         tab = "chats"
@@ -79,7 +80,7 @@ async def casa_workspace(
     if tab == "chats":
         tab_ctx = await _chats_tab(
             kpi, casa_id, wa_number_id, days, unanswered,
-            search=search, mood=mood, status=status, handler=handler,
+            search=search, mood=mood, status=status, handler=handler, mode=mode,
         )
     elif tab == "metricas":
         tab_ctx = await _metricas_tab(kpi, casa_id, days)
@@ -123,6 +124,7 @@ async def _chats_tab(
     mood: str = "",
     status: str = "",
     handler: str = "",
+    mode: str = "",
 ) -> dict:
     # since_days=None means "all" (3650 days = 10 years which is effectively no
     # filter); pass the real value otherwise so the SQL filter applies.
@@ -131,19 +133,21 @@ async def _chats_tab(
     mood_q = mood if mood in {"curioso", "decidido", "calenton", "indeciso", "enfadado", "timewaster"} else None
     status_q = status if status in {"open", "resolved", "pending"} else None
     handler_q = handler if handler in {"bot", "human"} else None
-    rows, total = await queries.list_conversations(
+    mode_q = mode if mode in {"auto", "copilot", "off"} else None
+    # Keyset (seek) pagination — first page has no cursor. next_ts/next_id become
+    # the load-more sentinel's cursor; identical ordering to the widget fragment.
+    rows, next_ts, next_id = await queries.list_conversations_page(
         kpi,
         casa_id=casa_id,
         wa_number_id=wa_number_id,
         since_days=since_days,
         unanswered_only=unanswered,
         handler=handler_q,
+        mode=mode_q,
         search=search_q,
         mood=mood_q,
         status=status_q,
-        order="recent",
         limit=50,
-        offset=0,
     )
     # 24h-window count for the analyze banner (independent of the chat filters)
     unanalyzed = await queries.count_unanalyzed_for_casa(
@@ -161,7 +165,10 @@ async def _chats_tab(
     )
     return {
         "chat_rows": rows,
-        "chat_total": total,
+        "is_first_page": True,
+        "page_key": 0,
+        "next_cursor_ts": next_ts.isoformat() if next_ts else "",
+        "next_cursor_id": next_id or 0,
         "unanalyzed_count": unanalyzed,
         "unanswered_count": unanswered_count,
         "wa_number_id": wa_number_id,
@@ -169,6 +176,7 @@ async def _chats_tab(
         "active_mood": mood_q or "",
         "active_status": status_q or "",
         "active_handler": handler_q or "",
+        "active_mode": mode_q or "",
     }
 
 

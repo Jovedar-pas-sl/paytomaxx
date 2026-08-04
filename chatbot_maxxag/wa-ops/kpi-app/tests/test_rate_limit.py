@@ -280,3 +280,45 @@ async def test_fallback_isolated_per_session(monkeypatch):
     other, _ = await fb.allow("madrid", now=now)
     assert blocked is False  # vlc at cap
     assert other is True     # madrid independent
+
+
+# ── Per-conversation reply lock (anti-duplicate) ─────────────────────
+class _FakeLockRedis:
+    """Records SET/DELETE; `set_result` controls whether NX SET 'acquires'."""
+
+    def __init__(self, set_result="OK") -> None:
+        self._set_result = set_result
+        self.deleted: list[str] = []
+
+    async def set(self, key, val, nx=None, ex=None):
+        return self._set_result
+
+    async def delete(self, key):
+        self.deleted.append(key)
+        return 1
+
+
+async def test_acquire_conv_lock_fail_open_when_no_redis():
+    assert await rate_limit.acquire_conv_lock(None, 1) is True
+
+
+async def test_acquire_conv_lock_true_when_set_acquires():
+    assert await rate_limit.acquire_conv_lock(_FakeLockRedis("OK"), 1) is True
+
+
+async def test_acquire_conv_lock_false_when_lock_held():
+    assert await rate_limit.acquire_conv_lock(_FakeLockRedis(None), 1) is False
+
+
+async def test_acquire_conv_lock_fail_open_on_redis_error():
+    class _Boom:
+        async def set(self, *a, **k):
+            raise RuntimeError("redis down")
+
+    assert await rate_limit.acquire_conv_lock(_Boom(), 1) is True
+
+
+async def test_release_conv_lock_deletes_the_key():
+    r = _FakeLockRedis()
+    await rate_limit.release_conv_lock(r, 42)
+    assert r.deleted == ["agent:rl:lock:42"]

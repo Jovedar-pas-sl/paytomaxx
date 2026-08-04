@@ -63,3 +63,24 @@ def test_italian_quanto_not_confused_with_spanish_cuanto():
     # it 'quanto' and es 'cuanto' fold to different stems — no cross-trigger.
     assert detect_lang("quanto costa?") == "it"
     assert detect_lang("cuanto cuesta?") == "es"
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        # Plurals + short intents that missed before the marker expansion (a client
+        # writing "girls" / "chicas" must not fall back to the casa default).
+        ("who's available", "en"),
+        ("do you have girls?", "en"),
+        ("girls?", "en"),
+        ("any girls?", "en"),
+        ("send pics", "en"),
+        ("where are you", "en"),
+        ("chicas disponibles?", "es"),
+        ("dónde estáis", "es"),
+        ("quelles filles ce soir", "fr"),
+        ("quali ragazze stasera", "it"),
+    ],
+)
+def test_detects_plurals_and_short_intents(text, expected):
+    assert detect_lang(text) == expected

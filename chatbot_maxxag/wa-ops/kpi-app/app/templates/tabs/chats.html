@@ -113,9 +113,9 @@
 {# Top actions #}
 <div class="mb-3 flex justify-end gap-2">
   <button type="button"
-          hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa }}&period={{ active_period }}{% if active_unanswered %}&unanswered=true{% endif %}{% if active_status %}&status={{ active_status }}{% endif %}{% if active_search %}&search={{ active_search|urlencode }}{% endif %}"
+          hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa }}&period={{ active_period }}{% if active_unanswered %}&unanswered=true{% endif %}{% if active_status %}&status={{ active_status }}{% endif %}{% if active_handler %}&handler={{ active_handler }}{% endif %}{% if active_mode %}&mode={{ active_mode }}{% endif %}{% if active_search %}&search={{ active_search|urlencode }}{% endif %}"
           hx-target="#chat-list"
-          hx-swap="outerHTML"
+          hx-swap="innerHTML"
           hx-indicator="#chat-list-spinner"
           class="btn-ghost px-3 py-1.5 text-xs">
     <svg id="chat-list-spinner" class="h-3.5 w-3.5 htmx-indicator animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -129,6 +129,14 @@
   <a href="/casas/{{ casa_id }}/export/conversations.csv"
      class="btn-ghost px-3 py-1.5 text-xs">
     📥 Exportar CSV
+  </a>
+  <a href="/casas/{{ casa_id }}/export/conversaciones.pdf?wa={{ active_wa }}&period={{ active_period }}{% if active_unanswered %}&unanswered=true{% endif %}{% if active_status %}&status={{ active_status }}{% endif %}{% if active_handler %}&handler={{ active_handler }}{% endif %}{% if active_mode %}&mode={{ active_mode }}{% endif %}{% if active_search %}&search={{ active_search|urlencode }}{% endif %}"
+     class="btn-ghost px-3 py-1.5 text-xs">
+    📄 Descargar PDF
+  </a>
+  <a href="/casas/{{ casa_id }}/export/conversaciones.docx?wa={{ active_wa }}&period={{ active_period }}{% if active_unanswered %}&unanswered=true{% endif %}{% if active_status %}&status={{ active_status }}{% endif %}{% if active_handler %}&handler={{ active_handler }}{% endif %}{% if active_mode %}&mode={{ active_mode }}{% endif %}{% if active_search %}&search={{ active_search|urlencode }}{% endif %}"
+     class="btn-ghost px-3 py-1.5 text-xs">
+    ⬇️ Word
   </a>
 </div>
 <style>.htmx-indicator{display:none}.htmx-request .htmx-indicator{display:inline}.htmx-request .htmx-indicator-off{display:none}</style>
@@ -150,6 +158,7 @@
     {% if active_mood %}<input type="hidden" name="mood" value="{{ active_mood }}">{% endif %}
     {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
     {% if active_handler %}<input type="hidden" name="handler" value="{{ active_handler }}">{% endif %}
+    {% if active_mode %}<input type="hidden" name="mode" value="{{ active_mode }}">{% endif %}
     <input type="search" name="search" id="chat-search-input"
            value="{{ active_search or '' }}"
            placeholder="Buscar por nombre o teléfono…  (Ctrl+K)"
@@ -181,9 +190,10 @@
     {% set h_qs  = ('&handler=' ~ active_handler) if active_handler else '' %}
     {% set u_qs  = '&unanswered=true' if active_unanswered else '' %}
     {% set st_qs = ('&status=' ~ active_status) if active_status else '' %}
+    {% set md_qs = ('&mode=' ~ active_mode) if active_mode else '' %}
 
     {# ── FECHA ── #}
-    {% set keepDate = '&wa=' ~ active_wa ~ s_qs ~ u_qs ~ st_qs ~ h_qs %}
+    {% set keepDate = '&wa=' ~ active_wa ~ s_qs ~ u_qs ~ st_qs ~ h_qs ~ md_qs %}
     <details class="relative">
       <summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-text hover:border-border-strong">
         <span class="text-muted-2">Fecha:</span> {{ period_labels.get(active_period, active_period) }}
@@ -197,7 +207,7 @@
     </details>
 
     {# ── ESTADO ── #}
-    {% set keepSt = '&wa=' ~ active_wa ~ '&period=' ~ active_period ~ s_qs ~ h_qs %}
+    {% set keepSt = '&wa=' ~ active_wa ~ '&period=' ~ active_period ~ s_qs ~ h_qs ~ md_qs %}
     {% set st_label = 'Sin contestar' if active_unanswered else ('Abiertas' if active_status == 'open' else ('Cerradas' if active_status == 'resolved' else 'Todas')) %}
     <details class="relative">
       <summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-text hover:border-border-strong">
@@ -213,7 +223,7 @@
     </details>
 
     {# ── ATENDIDO POR (Humano / Bot) ── #}
-    {% set keepH = '&wa=' ~ active_wa ~ '&period=' ~ active_period ~ s_qs ~ u_qs ~ st_qs %}
+    {% set keepH = '&wa=' ~ active_wa ~ '&period=' ~ active_period ~ s_qs ~ u_qs ~ st_qs ~ md_qs %}
     {% set h_label = 'Bot (Sara)' if active_handler == 'bot' else ('Humano' if active_handler == 'human' else 'Todos') %}
     <details class="relative">
       <summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-text hover:border-border-strong">
@@ -227,7 +237,23 @@
       </div>
     </details>
 
-    {% if active_unanswered or active_status or active_search or active_handler or active_period != 'all' %}
+    {# ── MODO DEL BOT (Auto / Copiloto / Off) — el modo configurado del número ── #}
+    {% set keepM = '&wa=' ~ active_wa ~ '&period=' ~ active_period ~ s_qs ~ u_qs ~ st_qs ~ h_qs %}
+    {% set m_label = 'Auto' if active_mode == 'auto' else ('Copiloto' if active_mode == 'copilot' else ('Off' if active_mode == 'off' else 'Todos')) %}
+    <details class="relative">
+      <summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-text hover:border-border-strong">
+        <span class="text-muted-2">Modo:</span> {{ m_label }}
+        <svg class="h-3.5 w-3.5 text-muted-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </summary>
+      <div class="absolute z-20 mt-1 min-w-[160px] rounded-lg border border-border bg-surface p-1 shadow-card">
+        {{ opt('Todos', not active_mode, '?tab=chats' ~ keepM) }}
+        {{ opt('🟢 Auto', active_mode == 'auto', '?tab=chats' ~ keepM ~ '&mode=auto', 'bg-green/15 text-green font-semibold') }}
+        {{ opt('🔵 Copiloto', active_mode == 'copilot', '?tab=chats' ~ keepM ~ '&mode=copilot', 'bg-blue/15 text-blue font-semibold') }}
+        {{ opt('⚪ Off', active_mode == 'off', '?tab=chats' ~ keepM ~ '&mode=off', 'bg-surface-2 text-muted font-semibold') }}
+      </div>
+    </details>
+
+    {% if active_unanswered or active_status or active_search or active_handler or active_mode or active_period != 'all' %}
     <a href="?tab=chats&wa={{ active_wa }}&period=all" data-clear="1" class="ml-1 text-[12px] text-muted-2 hover:text-text underline">Limpiar</a>
     {% endif %}
   </div>
@@ -268,6 +294,7 @@
     if (list.dataset.activeMood) params.set('mood', list.dataset.activeMood);
     if (list.dataset.activeStatus) params.set('status', list.dataset.activeStatus);
     if (list.dataset.activeHandler) params.set('handler', list.dataset.activeHandler);
+    if (list.dataset.activeMode) params.set('mode', list.dataset.activeMode);
     // Keep the address bar in sync with the live-filtered view so that a page
     // refresh re-renders the SAME list (the route reads ?search/?period/etc.)
     // and the browser Back button steps through real states instead of jumping
@@ -283,7 +310,7 @@
       // The widget returns the full fragment (rows div + sentinel). Replace the
       // section's inner content keeping the <section> wrapper for HTMX state.
       list.innerHTML = html;
-      // Re-process HTMX attrs on the new sentinel so it activates 'revealed'
+      // Re-process HTMX attrs on the new sentinel so its intersect observer arms
       if (window.htmx) window.htmx.process(list);
     } catch (e) {
       if (e.name !== 'AbortError') console.warn('search refresh failed', e);
@@ -322,20 +349,47 @@
 {# Chats list — incluye el partial que también sirve /widget/casa/{id}/chats
    para los chunks de scroll infinito. Auto-refresh ELIMINADO a propósito;
    "Actualizar" arriba refresca manualmente. Sentinel HTMX al final del
-   partial dispara cargas adicionales cuando entra en viewport. #}
-{% set offset = 0 %}
-{% set next_offset = 50 if chat_total > 50 else none %}
-{% set total = chat_total %}
-<section id="chat-list" class="card overflow-hidden"
-         data-casa-id="{{ casa_id }}"
-         data-active-wa="{{ active_wa }}"
-         data-active-period="{{ active_period }}"
-         data-active-unanswered="{{ 'true' if active_unanswered else 'false' }}"
-         data-active-mood="{{ active_mood or '' }}"
-         data-active-status="{{ active_status or '' }}"
-         data-active-handler="{{ active_handler or '' }}">
-  {% include 'partials/chat_list_fragment.html' %}
-</section>
+   partial dispara cargas adicionales cuando entra en viewport.
+   Paginación por CURSOR (keyset): is_first_page / page_key / next_cursor_ts /
+   next_cursor_id vienen del contexto (_chats_tab); el fragmento los usa directo. #}
+{# El panel de conversación en línea SOLO en la vista de un número concreto. En
+   "TODOS" (vista combinada, miles de convs) se deja la lista a ancho completo
+   —como antes— para escanear rápido sin esperar a que carguen todas. #}
+{% set show_pane = active_wa != 'all' %}
+{% if show_pane %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+{% endif %}
+
+  <section id="chat-list"
+           class="card {% if show_pane %}flex flex-col overflow-y-auto p-0 h-[48rem]{% else %}overflow-hidden{% endif %}"
+           data-casa-id="{{ casa_id }}"
+           data-active-wa="{{ active_wa }}"
+           data-active-period="{{ active_period }}"
+           data-active-unanswered="{{ 'true' if active_unanswered else 'false' }}"
+           data-active-mood="{{ active_mood or '' }}"
+           data-active-status="{{ active_status or '' }}"
+           data-active-handler="{{ active_handler or '' }}"
+           data-active-mode="{{ active_mode or '' }}">
+    {% include 'partials/chat_list_fragment.html' %}
+  </section>
+
+  {% if show_pane %}
+  {# Panel de conversación estilo WhatsApp — lo rellena HTMX al pulsar un chat
+     (/conversation/{id}/embed): leer y responder aquí mismo. #}
+  <section class="card flex flex-col overflow-hidden p-0 h-[48rem] lg:col-span-2">
+    <div id="conv-pane" class="flex min-h-0 flex-1 flex-col">
+      <div class="flex flex-1 flex-col items-center justify-center px-6 py-20 text-center">
+        <div class="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-surface-2 text-2xl">💬</div>
+        <div class="text-sm font-semibold text-text">Selecciona una conversación</div>
+        <div class="mt-1 max-w-xs text-xs text-muted">Pulsa un chat entrante de la izquierda para leerlo y responder aquí mismo, como en WhatsApp.</div>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+{% if show_pane %}
+</div>
+{% endif %}
 
 {# Toast for per-WA meta-analysis trigger — shows live progress bar + ETA;
    polls /meta-analyses/progress every 1s and auto-dismisses on done. #}

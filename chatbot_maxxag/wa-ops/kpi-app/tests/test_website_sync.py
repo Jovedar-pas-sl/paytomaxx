@@ -141,3 +141,46 @@ async def test_sync_girls_unusable_feed_yields_no_ext_ids(monkeypatch):
     assert upserted == 0
     assert ext_ids == []
     assert calls == []
+
+
+async def test_sync_config_chatbot_flavor_reads_address_from_location(monkeypatch):
+    """chatbot flavor nests hours/address/maps under `location` (schedule is null).
+    The address MUST still reach casa_profile — else Sara wrongly says she only
+    knows the city."""
+    captured: dict = {}
+
+    async def _fake_upsert(pool, **kw):
+        captured.update(kw)
+
+    monkeypatch.setattr(ws.queries, "upsert_casa_profile_from_sync", _fake_upsert)
+    config = {
+        "site": {"bot_name": "Sara"},
+        "schedule": None,  # chatbot flavor sends the schedule under `location`
+        "location": {
+            "hours_es": "24h",
+            "address_es": "C. Joaquín Costa, 44, Valencia",
+            "maps_url": "https://maps.example/vlc",
+        },
+        "rates": {},
+    }
+    await ws._sync_config(object(), casa_id=7, config=config)
+    assert captured["address"] == "C. Joaquín Costa, 44, Valencia"
+    assert captured["maps_url"] == "https://maps.example/vlc"
+    assert captured["schedule"]["hours_es"] == "24h"
+
+
+async def test_sync_config_wpjson_flavor_still_reads_schedule(monkeypatch):
+    """wpjson flavor keeps nesting under `schedule` — the fallback must not break it."""
+    captured: dict = {}
+
+    async def _fake_upsert(pool, **kw):
+        captured.update(kw)
+
+    monkeypatch.setattr(ws.queries, "upsert_casa_profile_from_sync", _fake_upsert)
+    config = {
+        "site": {},
+        "schedule": {"hours_es": "24h", "address_es": "C. Félix Boix 9", "maps_url": "u"},
+        "rates": {},
+    }
+    await ws._sync_config(object(), casa_id=7, config=config)
+    assert captured["address"] == "C. Félix Boix 9"

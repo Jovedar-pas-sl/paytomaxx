@@ -13,6 +13,9 @@ x-kpi-env: &kpi-env
   DOMAIN: ${DOMAIN}
   LOGIN_RATE_MAX_FAILS: ${LOGIN_RATE_MAX_FAILS:-10}
   LOGIN_RATE_WINDOW_SECONDS: ${LOGIN_RATE_WINDOW_SECONDS:-300}
+  # Push alerts (Telegram) for "WhatsApp line down" — optional; empty = no-op.
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
 
 services:
   # ── Reverse proxy + HTTPS auto ──────────────────────────────────
@@ -63,13 +66,13 @@ services:
       retries: 5
     networks: [internal]
 
-  # ── WAHA Plus (WhatsApp HTTP API bridge, multi-session) ─────────
-  # waha-plus:latest requires Patreon Docker Hub login before first pull:
-  #   docker login -u devlikeapro -p <dckr_pat_key>
-  #   docker pull devlikeapro/waha-plus:latest
-  #   docker logout
+  # ── WAHA (WhatsApp HTTP API bridge, multi-session) ─────────────
+  # Since WAHA 2026.6.1 all former "Plus" features (unlimited sessions, media,
+  # storages, security…) ship FREE in the main `devlikeapro/waha` image — there is
+  # no separate paid `waha-plus` image anymore, and no Docker Hub login needed.
+  # (The old waha-plus image runs in CORE/1-session mode now — do NOT use it.)
   waha:
-    image: devlikeapro/waha-plus:latest
+    image: devlikeapro/waha:latest
     restart: unless-stopped
     depends_on:
       redis: { condition: service_healthy }
@@ -115,6 +118,10 @@ services:
     environment:
       <<: *kpi-env
       ROLE: web
+    # Fotos de chicas subidas a mano en la Ficha del día (agenda manual). Volumen
+    # persistente → sobrevive a rebuilds/recreates. Servidas por el app tras login.
+    volumes:
+      - girl_media:/app/media
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:5000/health | grep -q '\"ok\"'"]
       interval: 30s
@@ -133,6 +140,8 @@ services:
     environment:
       <<: *kpi-env
       ROLE: worker
+    volumes:
+      - girl_media:/app/media
     networks: [internal]
 
 volumes:
@@ -142,6 +151,7 @@ volumes:
   redis_data:   {}
   waha_data:    {}
   waha_media:   {}
+  girl_media:   {}   # fotos de chicas subidas a mano (Ficha del día)
 
 networks:
   internal:

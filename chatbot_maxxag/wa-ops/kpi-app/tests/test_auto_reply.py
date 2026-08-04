@@ -15,7 +15,10 @@ import pytest
 from app.agent import auto_reply
 from app.agent.auto_reply import (
     _MAX_HUMANIZE_DELAY_S,
+    _detect_girl_request,
+    _detect_time_request,
     _humanize_typing_seconds,
+    _phone_to_chat_id,
     _should_block,
     auto_reply_job,
 )
@@ -135,6 +138,51 @@ def test_typing_seconds_never_negative():
     assert _humanize_typing_seconds(0) >= 0.0
 
 
+# ── _phone_to_chat_id (pure) ─────────────────────────────────────────
+def test_phone_to_chat_id_strips_to_digits():
+    assert _phone_to_chat_id("+34 603 201 414") == "34603201414@c.us"
+    assert _phone_to_chat_id("0034-999-888-777") == "0034999888777@c.us"
+
+
+def test_phone_to_chat_id_rejects_empty_or_short():
+    assert _phone_to_chat_id("") is None
+    assert _phone_to_chat_id(None) is None
+    assert _phone_to_chat_id("123") is None
+
+
+# ── _detect_girl_request (pure) ──────────────────────────────────────
+def test_detect_girl_request_matches_whole_word_case_insensitive():
+    names = ["Yesenia", "Madison", "Ana"]
+    assert _detect_girl_request("hola, ¿está YESENIA hoy?", names) == "Yesenia"
+    assert _detect_girl_request("quiero a madison", names) == "Madison"
+
+
+def test_detect_girl_request_no_match_returns_none():
+    names = ["Yesenia", "Madison"]
+    assert _detect_girl_request("quiero info y precio", names) is None
+    assert _detect_girl_request("", names) is None
+
+
+def test_detect_girl_request_ignores_substring_and_short_names():
+    # 'Ana' must not match inside 'mañana'/'banana'; <3-char names are skipped.
+    assert _detect_girl_request("nos vemos mañana", ["Ana"]) is None
+    assert _detect_girl_request("hola", ["Jo"]) is None
+
+
+# ── _detect_time_request (pure) ──────────────────────────────────────
+def test_detect_time_request_matches_common_expressions():
+    assert _detect_time_request("¿puede a las 10?") is True
+    assert _detect_time_request("sobre las 22h") is True
+    assert _detect_time_request("a las 22:30") is True
+    assert _detect_time_request("¿ahora mismo?") is True
+    assert _detect_time_request("esta noche") is True
+
+
+def test_detect_time_request_no_time_is_false():
+    assert _detect_time_request("hola, ¿qué chicas hay?") is False
+    assert _detect_time_request("") is False
+
+
 # ── Job-flow tests (mocked deps) ─────────────────────────────────────
 @pytest.fixture
 def patched(monkeypatch):
@@ -149,6 +197,23 @@ def patched(monkeypatch):
         # F3 outcall: latest-incoming coords (None = client sent no pin) and a
         # recorder of the outcall context handed to generate_reply.
         client_location=None, gen_kwargs=None,
+        # Idempotency guard: True → Sara already answered this turn (skip at start).
+        already_replied=False,
+        # Duplicate backstop: True → another Sara reply lands DURING the human-like
+        # delay (the post-delay re-check aborts the send). last_agent_calls tracks
+        # which last_out_is_agent_generated call we're on (1 = start guard).
+        replied_during_delay=False,
+        last_agent_calls=0,
+        # Outcall handoff: True → an unacked 'outcall_handoff' alert already exists
+        # for this conv (has_open_alert), so the notice must NOT be re-inserted.
+        open_alert=False,
+        # Encargada heads-up: recepción number + the casa's girl names + the last
+        # incoming text (so a test can trigger the specific-girl detection). manual
+        # = the casa's Backoffice mode (False → web-sync: girl-name verify path).
+        recepcion="+34 999 888 777",
+        girl_names=["Yesenia", "Madison"],
+        incoming_text="hola precio?",
+        manual=False,
     )
 
     async def fake_get_mode(kpi, conv_id):
@@ -163,11 +228,31 @@ def patched(monkeypatch):
     async def fake_has_recent(kpi, conv_id, within):
         return rec.recent_human
 
+    async def fake_last_agent(kpi, conv_id):
+        rec.last_agent_calls += 1
+        # 1st call = the start idempotency guard; a later call = the post-delay
+        # duplicate backstop (only reached in auto mode, after the human delay).
+        if rec.last_agent_calls == 1:
+            return rec.already_replied
+        return rec.replied_during_delay
+
     async def fake_detail(kpi, conv_id):
         return rec.detail
 
     async def fake_insert_alert(kpi, **kw):
         rec.alerts.append(kw)
+
+    async def fake_has_open_alert(kpi, conv_id, type):
+        return rec.open_alert
+
+    async def fake_get_recepcion(kpi, casa_id):
+        return rec.recepcion
+
+    async def fake_get_girl_names(kpi, casa_id):
+        return rec.girl_names
+
+    async def fake_get_manual_mode(kpi, casa_id):
+        return rec.manual
 
     async def fake_supersede(kpi, conv_id):
         rec.superseded.append(conv_id)
@@ -191,7 +276,7 @@ def patched(monkeypatch):
 
     async def fake_load_msgs(kpi, conv_id):
         from app.analyzer.skills import Message
-        return [Message(ts=1, role="cliente", content="hola precio?")]
+        return [Message(ts=1, role="cliente", content=rec.incoming_text)]
 
     async def fast_sleep(_):  # no real delay in tests
         return None
@@ -200,8 +285,13 @@ def patched(monkeypatch):
     monkeypatch.setattr(auto_reply.queries, "get_conversation_agent_status", fake_get_status)
     monkeypatch.setattr(auto_reply.queries, "set_conversation_agent_status", fake_set_status)
     monkeypatch.setattr(auto_reply.queries, "has_recent_human_outbound", fake_has_recent)
+    monkeypatch.setattr(auto_reply.queries, "last_out_is_agent_generated", fake_last_agent)
     monkeypatch.setattr(auto_reply.queries, "get_conversation_detail", fake_detail)
     monkeypatch.setattr(auto_reply.queries, "insert_alert", fake_insert_alert)
+    monkeypatch.setattr(auto_reply.queries, "has_open_alert", fake_has_open_alert)
+    monkeypatch.setattr(auto_reply.queries, "get_casa_recepcion", fake_get_recepcion)
+    monkeypatch.setattr(auto_reply.queries, "get_active_girl_names", fake_get_girl_names)
+    monkeypatch.setattr(auto_reply.queries, "get_casa_manual_mode", fake_get_manual_mode)
     monkeypatch.setattr(auto_reply.queries, "supersede_pending_suggestions", fake_supersede)
     monkeypatch.setattr(auto_reply.skills, "detect_red_flags", fake_red_flags)
     monkeypatch.setattr(auto_reply.skills, "evaluate_escalation", fake_escalation)
@@ -264,6 +354,19 @@ async def test_recent_human_pauses_human_and_does_not_send(patched):
     await auto_reply_job(_ctx(waha), 1)
     assert patched.statuses == ["paused_human"]
     assert waha.sent == []
+
+
+async def test_skips_when_already_replied_to_turn(patched):
+    """Idempotency: if Sara already answered the latest turn (the newest message is
+    her agent-generated outbound), the job bails BEFORE generating or sending —
+    kills the duplicate reply from an arq retry or the WAHA message/message.any
+    double-event."""
+    patched.already_replied = True
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx(waha), 1)
+    assert waha.sent == []
+    assert patched.generated is False
+    assert patched.statuses == []
 
 
 async def test_copilot_stores_suggestion_without_sending(patched):
@@ -396,13 +499,14 @@ async def test_no_location_passes_no_outcall_context(patched):
     await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
     assert patched.gen_kwargs is not None
     assert patched.gen_kwargs["outcall_base_eur"] is None
-    assert patched.gen_kwargs["outcall_taxi_eur"] is None
+    assert patched.gen_kwargs["outcall_taxi_low"] is None
+    assert patched.gen_kwargs["outcall_taxi_high"] is None
     assert patched.gen_kwargs["outcall_defer"] is False
 
 
-async def test_location_with_geo_passes_precomputed_total(patched, monkeypatch):
-    """Client PIN + geocoded casa + base price → an exact precomputed total is
-    handed to generate_reply (defer False)."""
+async def test_location_with_geo_passes_precomputed_range(patched, monkeypatch):
+    """Client PIN + geocoded casa + base price → a precomputed base + taxi RANGE
+    (low < high, both > 0) is handed to generate_reply (defer False)."""
     patched.client_location = (39.47, -0.37)  # ~near the Valencia casa
     _patch_knowledge(
         monkeypatch, address_lat=39.4699, address_lng=-0.3763,
@@ -411,8 +515,10 @@ async def test_location_with_geo_passes_precomputed_total(patched, monkeypatch):
     waha = _FakeWaha()
     await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
     assert patched.gen_kwargs["outcall_base_eur"] == 150       # the domicilio base
-    assert isinstance(patched.gen_kwargs["outcall_taxi_eur"], int)
-    assert patched.gen_kwargs["outcall_taxi_eur"] > 0          # the taxi component
+    low = patched.gen_kwargs["outcall_taxi_low"]
+    high = patched.gen_kwargs["outcall_taxi_high"]
+    assert isinstance(low, int) and isinstance(high, int)
+    assert 0 < low < high                                       # a real taxi range
     assert patched.gen_kwargs["outcall_defer"] is False
 
 
@@ -439,3 +545,272 @@ async def test_location_without_outcall_base_defers(patched, monkeypatch):
     await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
     assert patched.gen_kwargs["outcall_base_eur"] is None
     assert patched.gen_kwargs["outcall_defer"] is True
+
+
+# ── Outcall handoff alert (notify the casa when a salida is closing) ─
+async def test_outcall_pin_inserts_handoff_alert(patched, monkeypatch):
+    """A location PIN for a priced outcall notifies the casa with a one-off
+    'outcall_handoff' alert so the team takes over the real-time-location close."""
+    patched.client_location = (39.47, -0.37)
+    _patch_knowledge(
+        monkeypatch, address_lat=39.4699, address_lng=-0.3763,
+        outcall={"base_price_eur": 150, "taxi_surcharge_pct": 20},
+    )
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    handoffs = [a for a in patched.alerts if a.get("type") == "outcall_handoff"]
+    assert len(handoffs) == 1
+    assert handoffs[0]["severity"] == "info"
+    assert "salida" in handoffs[0]["message"].lower()
+
+
+async def test_outcall_defer_also_inserts_handoff_alert(patched, monkeypatch):
+    """Even a DEFER (pin sent, no price yet) is a closing-salida signal → alert."""
+    patched.client_location = (39.47, -0.37)
+    _patch_knowledge(
+        monkeypatch, address_lat=None, address_lng=None,
+        outcall={"base_price_eur": 150},
+    )
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert any(a.get("type") == "outcall_handoff" for a in patched.alerts)
+
+
+async def test_no_location_no_handoff_alert(patched):
+    """No PIN → no closing-salida signal → no handoff alert."""
+    patched.client_location = None
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert not any(a.get("type") == "outcall_handoff" for a in patched.alerts)
+
+
+async def test_handoff_alert_is_idempotent(patched, monkeypatch):
+    """An already-open handoff alert for the conv → do NOT insert a duplicate."""
+    patched.open_alert = True
+    patched.client_location = (39.47, -0.37)
+    _patch_knowledge(
+        monkeypatch, address_lat=39.4699, address_lng=-0.3763,
+        outcall={"base_price_eur": 150, "taxi_surcharge_pct": 20},
+    )
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert not any(a.get("type") == "outcall_handoff" for a in patched.alerts)
+
+
+# ── Encargada WhatsApp heads-up (outcall closing + specific girl) ────
+_RECEPCION_CHAT = "34999888777@c.us"  # matches rec.recepcion "+34 999 888 777"
+
+
+async def test_outcall_pin_notifies_encargada_whatsapp(patched, monkeypatch):
+    """Closing a salida sends a WA heads-up to the casa's recepción number."""
+    patched.client_location = (39.47, -0.37)
+    _patch_knowledge(
+        monkeypatch, address_lat=39.4699, address_lng=-0.3763,
+        outcall={"base_price_eur": 150, "taxi_surcharge_pct": 20},
+    )
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    to_recepcion = [s for s in waha.sent if s[1] == _RECEPCION_CHAT]
+    assert len(to_recepcion) == 1
+    assert "salida" in to_recepcion[0][2].lower()
+
+
+async def test_specific_girl_request_notifies_encargada(patched):
+    """A client naming a real girl → the encargada gets a WA with her name to
+    verify availability, plus a 'girl_request' alert."""
+    patched.incoming_text = "hola, ¿está Yesenia disponible?"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    to_recepcion = [s for s in waha.sent if s[1] == _RECEPCION_CHAT]
+    assert len(to_recepcion) == 1
+    assert "Yesenia" in to_recepcion[0][2]
+    assert any(a.get("type") == "girl_request" for a in patched.alerts)
+
+
+class _FakeWahaNotifyFails(_FakeWaha):
+    """send_text raises ONLY for the recepción number → the notify send fails while
+    the normal client reply still goes through."""
+
+    async def send_text(self, session: str, chat: str, text: str) -> dict:
+        if chat == _RECEPCION_CHAT:
+            raise RuntimeError("waha down")
+        return await super().send_text(session, chat, text)
+
+
+async def test_notify_send_failure_does_not_mark_done_so_it_retries(patched):
+    """If the encargada WA send fails, the dedup alert is NOT written — so the next
+    trigger retries instead of silently marking the heads-up done."""
+    patched.incoming_text = "¿está Yesenia?"
+    waha = _FakeWahaNotifyFails()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert not any(a.get("type") == "girl_request" for a in patched.alerts)
+
+
+async def test_no_girl_named_no_encargada_ping(patched):
+    """A generic message (no girl name) → no girl_request alert, no WA to recepción."""
+    patched.incoming_text = "hola, ¿precio de una hora?"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert not any(a.get("type") == "girl_request" for a in patched.alerts)
+    assert not any(s[1] == _RECEPCION_CHAT for s in waha.sent)
+
+
+async def test_notify_encargada_skips_wa_when_no_recepcion_number(patched):
+    """No recepción number configured → the panel alert is still recorded, but no
+    WA is attempted (nothing to send to)."""
+    patched.recepcion = None
+    patched.incoming_text = "¿está Madison?"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert any(a.get("type") == "girl_request" for a in patched.alerts)
+    assert not any(s[1] == _RECEPCION_CHAT for s in waha.sent)
+
+
+# ── Booking-close heads-up (concrete data → the casa's own recepción number) ──
+def test_detect_booking_intent():
+    assert auto_reply._detect_booking_intent("vale resérvame porfa")
+    assert auto_reply._detect_booking_intent("quiero reservar")
+    assert auto_reply._detect_booking_intent("me la reservas?")
+    assert not auto_reply._detect_booking_intent("hola cuánto cuesta")
+    assert not auto_reply._detect_booking_intent("")
+
+
+async def test_booking_intent_pings_recepcion(patched):
+    """Explicit 'resérvame' (no girl/time) → a one-off 'booking_close' alert AND a
+    WhatsApp to the casa's OWN recepción number."""
+    patched.incoming_text = "vale resérvame porfa"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    closes = [a for a in patched.alerts if a.get("type") == "booking_close"]
+    assert len(closes) == 1
+    assert any(chat == _RECEPCION_CHAT for _s, chat, _t in waha.sent)
+
+
+async def test_close_with_named_girl_prefers_booking_close(patched):
+    """Web casa + a named girl WITH a close signal ('resérvame') → the close framing
+    WINS by precedence: booking_close fires (mentioning the girl), girl_request does
+    NOT, and recepción gets exactly ONE ping."""
+    patched.incoming_text = "resérvame a Yesenia"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    closes = [a for a in patched.alerts if a.get("type") == "booking_close"]
+    assert len(closes) == 1
+    assert "Yesenia" in closes[0]["message"]
+    assert not any(a.get("type") == "girl_request" for a in patched.alerts)
+    assert sum(1 for _s, chat, _t in waha.sent if chat == _RECEPCION_CHAT) == 1
+
+
+async def test_web_time_pings_booking_close(patched):
+    """Web casa + a proposed time (no girl) → the mode heads-up doesn't fire in web
+    mode, so booking_close covers it → recepción is pinged to take the close."""
+    patched.incoming_text = "puede a las 22h?"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert any(a.get("type") == "booking_close" for a in patched.alerts)
+    assert any(chat == _RECEPCION_CHAT for _s, chat, _t in waha.sent)
+
+
+async def test_bare_girl_name_no_booking_close(patched):
+    """A bare girl name (no time / no 'resérvame') is NOT a close signal → no
+    booking_close (manual trusts the roster; web pings via girl_request instead)."""
+    patched.manual = True
+    patched.incoming_text = "quiero a Yesenia"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert not any(a.get("type") == "booking_close" for a in patched.alerts)
+
+
+async def test_no_concrete_data_no_booking_close(patched):
+    """A vague message (no time / girl / booking word) → no booking-close ping."""
+    patched.incoming_text = "hola, ¿cuánto cuesta?"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert not any(a.get("type") == "booking_close" for a in patched.alerts)
+
+
+async def test_booking_close_is_idempotent(patched):
+    """An already-open booking_close alert for the conv → no duplicate."""
+    patched.open_alert = True
+    patched.incoming_text = "resérvame"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert not any(a.get("type") == "booking_close" for a in patched.alerts)
+
+
+async def test_booking_close_fires_even_if_girl_request_already_open(patched, monkeypatch):
+    """Cross-message close (regression): the girl was asked about on an EARLIER turn
+    (girl_request already open → a deduped no-op now), and the client now closes
+    re-mentioning her + a time. booking_close must STILL fire — a concrete close takes
+    precedence and has its OWN once-per-conversation dedup, so a prior-turn girl_request
+    never swallows the real close."""
+    async def only_headsup_open(kpi, conv_id, tag):
+        return tag in ("girl_request", "time_check")  # booking_close NOT yet open
+    monkeypatch.setattr(auto_reply.queries, "has_open_alert", only_headsup_open)
+    patched.incoming_text = "vale resérvame a Yesenia a las 22h"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert any(a.get("type") == "booking_close" for a in patched.alerts)
+
+
+# ── Manual (Backoffice) mode: HOUR is confirmed, girl availability is NOT ────
+async def test_manual_mode_time_request_notifies_encargada(patched):
+    """Manual casa + the client proposes an hour → it's a close, so booking_close
+    fires (superseding the old time_check) with the girl+hour context in ONE WA; no
+    separate time_check/girl_request ping."""
+    patched.manual = True
+    patched.incoming_text = "¿puede Yesenia a las 22h?"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    closes = [a for a in patched.alerts if a.get("type") == "booking_close"]
+    assert len(closes) == 1
+    assert not any(a.get("type") in ("time_check", "girl_request") for a in patched.alerts)
+    to_recepcion = [s for s in waha.sent if s[1] == _RECEPCION_CHAT]
+    assert len(to_recepcion) == 1
+    assert "cerrando" in to_recepcion[0][2].lower()
+
+
+async def test_manual_mode_girl_without_time_no_verify_ping(patched):
+    """Manual casa: the roster is trusted, so naming a girl (no time) does NOT
+    trigger a girl-availability verify — no ping."""
+    patched.manual = True
+    patched.incoming_text = "quiero a Yesenia"
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert not any(a.get("type") in ("girl_request", "time_check") for a in patched.alerts)
+    assert not any(s[1] == _RECEPCION_CHAT for s in waha.sent)
+
+
+# ── Anti-duplicate: conv lock + post-delay idempotency re-check ──────
+class _FakeRedisLocked:
+    """A redis stub whose NX SET always fails → the conv lock is 'held'."""
+
+    async def set(self, *a, **k):
+        return None
+
+    async def delete(self, *a, **k):
+        return 1
+
+
+def _ctx_locked(waha):
+    return {"kpi_db": _FakePool(), "waha": waha, "redis": _FakeRedisLocked()}
+
+
+async def test_conv_lock_held_skips_job_entirely(patched):
+    """Another job holds the per-conversation lock → this job bails BEFORE any
+    generate/send (kills the concurrent double-reply)."""
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_locked(waha), 1)
+    assert patched.generated is False
+    assert waha.sent == []
+    assert patched.alerts == []
+
+
+async def test_reply_landing_during_delay_aborts_send(patched):
+    """Start guard passes, but ANOTHER Sara reply lands during the human-like delay
+    → the post-delay re-check aborts the send (no duplicate)."""
+    patched.already_replied = False       # start guard: not yet answered
+    patched.replied_during_delay = True   # a reply lands during the delay
+    waha = _FakeWaha()
+    await auto_reply_job(_ctx_rl(waha, _FakePool()), 1)
+    assert patched.generated is True      # we did generate (before the delay)
+    assert waha.sent == []                # …but never sent (aborted post-delay)

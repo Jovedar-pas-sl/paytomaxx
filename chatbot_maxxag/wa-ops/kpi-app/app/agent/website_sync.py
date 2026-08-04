@@ -237,6 +237,7 @@ async def sync_casa(
     casa_id: int,
     base: str,
     flavor: str,
+    preserve_panel: bool = False,
 ) -> tuple[int, int]:
     """Fetch one casa's website config + girls and mirror them into the DB.
 
@@ -308,24 +309,23 @@ async def sync_casa(
         )
 
     try:
-        await _sync_config(pool, casa_id, config)
+        await _sync_config(pool, casa_id, config, preserve_panel)
 
         upserted = 0
         ext_ids: list[str] = []
         if girls:
             upserted, ext_ids = await _sync_girls(
-                pool, casa_id, base_url, flavor, normalizer, girls
+                pool, casa_id, base_url, flavor, normalizer, girls, preserve_panel
             )
 
-        # Deactivate the absent half ONLY when at least one valid girl was
-        # upserted (ext_ids non-empty). A non-empty-but-unusable feed yields
-        # ext_ids=[] → no deactivation, so a degenerate/transient fetch can never
-        # wipe the casa's roster (the deactivate query also no-ops on []).
+        # WEB mode (preserve_panel=False): the website is the source of truth, so
+        # girls absent from the feed are deactivated (original behavior). MANUAL mode
+        # (preserve_panel=True): the "Ficha del día" panel owns the roster — the sync
+        # is purely additive (import new + refresh photos) and NEVER deactivates; the
+        # upsert also preserves availability/services/hours/photo/order.
         deactivated = 0
-        if ext_ids:
-            deactivated = await queries.deactivate_girls_not_in(
-                pool, casa_id, ext_ids
-            )
+        if not preserve_panel and ext_ids:
+            deactivated = await queries.deactivate_girls_not_in(pool, casa_id, ext_ids)
     except Exception:
         logger.warning(
             "website_sync: DB write failed for casa_id=%s (%s) — skipping",
@@ -341,7 +341,7 @@ async def sync_casa(
 
 
 async def _sync_config(
-    pool: asyncpg.Pool, casa_id: int, config: dict
+    pool: asyncpg.Pool, casa_id: int, config: dict, preserve_panel: bool = False
 ) -> None:
     """Mirror the config payload into casa_profile (preserving outcall pricing).
 
@@ -349,7 +349,14 @@ async def _sync_config(
     gracefully to None / []. Greetings only carry the languages actually present
     in the config so we never write a phantom None greeting for a missing lang."""
     site = config.get("site") or {}
-    schedule = config.get("schedule") or {}
+    # Flavor normalization: the "wpjson" flavor nests hours/address/maps_url under
+    # `schedule`; the "chatbot" flavor nests the SAME keys (hours_es, address_es,
+    # maps_url…) under `location` (with a duplicate `hours`). Falling back here so
+    # BOTH flavors populate the schedule + address + maps — otherwise chatbot casas
+    # get an empty address and Sara wrongly says she only knows the city.
+    schedule = (
+        config.get("schedule") or config.get("location") or config.get("hours") or {}
+    )
     greetings = {
         lang: site["greeting_" + lang]
         for lang in ("es", "en", "fr", "it")
@@ -367,6 +374,7 @@ async def _sync_config(
         faqs=config.get("faqs") or [],     # stored as-is JSONB
         address=schedule.get("address_es"),
         maps_url=schedule.get("maps_url"),
+        preserve_panel=preserve_panel,
     )
 
 
@@ -377,6 +385,7 @@ async def _sync_girls(
     flavor: str,
     normalizer,
     girls: list,
+    preserve_panel: bool = False,
 ) -> tuple[int, list[str]]:
     """Normalize + UPSERT each website girl; return (count_upserted, ext_ids)."""
     ext_ids: list[str] = []
@@ -403,16 +412,23 @@ async def _sync_girls(
             available_today=fields["available_today"],
             outcall=fields["outcall"],
             escort_pareja=fields["escort_pareja"],
+            preserve_panel=preserve_panel,
         )
         ext_ids.append(fields["ext_id"])
         upserted += 1
     return (upserted, ext_ids)
 
 
-async def sync_all(pool: asyncpg.Pool, http: httpx.AsyncClient) -> None:
+async def sync_all(
+    pool: asyncpg.Pool, http: httpx.AsyncClient, *, only_casa_id: int | None = None
+) -> None:
     """Resolve every CASA_SITES keyword to a casa_id and sync it. Logs a summary
     (casas synced, girls upserted/deactivated, keywords skipped for no match).
-    One unresolved keyword or one failing casa never aborts the run."""
+    One unresolved keyword or one failing casa never aborts the run.
+
+    only_casa_id=None (CRON): sync every casa in WEB mode; skip manual-mode casas
+    (the Ficha panel owns them). only_casa_id set (BUTTON): sync just that casa,
+    non-destructively if it is in manual mode."""
     casas_synced = 0
     casas_skipped = 0
     total_upserted = 0
@@ -440,8 +456,18 @@ async def sync_all(pool: asyncpg.Pool, http: httpx.AsyncClient) -> None:
                 casas_skipped += 1
                 continue
 
+            # Button path → only the requested casa. Cron path → skip manual-mode
+            # casas (panel owns them). preserve_panel = the casa's manual flag, so a
+            # manual casa (button) is imported non-destructively.
+            if only_casa_id is not None and casa_id != only_casa_id:
+                continue
+            manual = await queries.get_casa_manual_mode(pool, casa_id)
+            if only_casa_id is None and manual:
+                casas_skipped += 1
+                continue
+
             upserted, deactivated = await sync_casa(
-                pool, http, casa_id, base, flavor
+                pool, http, casa_id, base, flavor, preserve_panel=manual
             )
             casas_synced += 1
             total_upserted += upserted
@@ -454,6 +480,14 @@ async def sync_all(pool: asyncpg.Pool, http: httpx.AsyncClient) -> None:
             casas_skipped += 1
             continue
 
+    # Button path that matched no casa = silent no-op for the operator. Surface it
+    # in the log so "pulsé sync y no pasó nada" is diagnosable (the casa's keyword
+    # is not in CASA_SITES / has no web configured).
+    if only_casa_id is not None and casas_synced == 0:
+        logger.warning(
+            "website_sync: on-demand sync for casa_id=%s did nothing — no CASA_SITES "
+            "entry resolves to it (no web configured for this casa)", only_casa_id,
+        )
     logger.info(
         "website_sync: run complete — casas_synced=%d casas_skipped=%d "
         "girls_upserted=%d girls_deactivated=%d",
@@ -461,11 +495,11 @@ async def sync_all(pool: asyncpg.Pool, http: httpx.AsyncClient) -> None:
     )
 
 
-async def website_sync_job(ctx: dict) -> None:
-    """arq entrypoint (cron every ~20 min AND enqueueable on demand). Reuses the
-    worker's asyncpg pool from ctx (never creates its own — see CLAUDE.md /
-    worker conventions) and opens a short-lived httpx client scoped to the run,
-    mirroring waha_health_check_job."""
+async def website_sync_job(ctx: dict, casa_id: int | None = None) -> None:
+    """arq entrypoint. Cron (no casa_id) syncs every WEB-mode casa; on-demand from
+    the Ficha panel passes a casa_id to import just that casa non-destructively.
+    Reuses the worker's asyncpg pool from ctx (never creates its own — see CLAUDE.md
+    / worker conventions) and opens a short-lived httpx client scoped to the run."""
     pool: asyncpg.Pool = ctx["kpi_db"]
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S) as http:
-        await sync_all(pool, http)
+        await sync_all(pool, http, only_casa_id=casa_id)

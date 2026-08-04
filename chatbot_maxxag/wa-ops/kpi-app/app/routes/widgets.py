@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from app import queries
@@ -11,6 +13,17 @@ from app.template_env import templates
 router = APIRouter(prefix="/widget")
 
 _DOW_LABELS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def _parse_cursor_ts(raw: str) -> datetime | None:
+    """Parse the keyset cursor timestamp (ISO 8601) sent by the load-more sentinel.
+    Empty/garbage → None, which the caller treats as "first page" (no cursor)."""
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return None
 
 
 def _heatmap_insight(grid: list[list[int]]) -> dict | None:
@@ -160,19 +173,22 @@ async def widget_casa_chats(
     kpi: KpiDB,
     wa: str = "all",
     period: str = "all",
-    offset: int = 0,
+    cursor_ts: str = "",
+    cursor_id: int = 0,
     unanswered: bool = False,
     search: str = "",
     mood: str = "",
     status: str = "",
     handler: str = "",
+    mode: str = "",
     limit: int = 50,
 ) -> HTMLResponse:
-    """HTMX fragment: chats list + load-more sentinel for infinite scroll.
+    """HTMX fragment: chats list + KEYSET load-more sentinel for infinite scroll.
 
-    All filters compose: period, unanswered, search (name/phone),
-    mood (one of curioso/decidido/calenton/indeciso/enfadado/timewaster),
-    status (open/resolved/pending). offset drives infinite scroll.
+    Pagination is cursor-based: cursor_ts/cursor_id are the (last_message_at, id)
+    of the previous page's last row (see queries.list_conversations_page) — O(log n)
+    and stable while new messages keep arriving. All filters compose: period,
+    unanswered, search (name/phone), mood, status, handler, mode.
     """
     wa_number_id: int | None = None
     if wa != "all":
@@ -185,27 +201,30 @@ async def widget_casa_chats(
     days = PERIOD_DAYS[period]
     since_days = None if days >= 3650 else days
     limit = max(1, min(int(limit), 100))
-    offset = max(0, int(offset))
     search_q = (search or "").strip() or None
     mood_q = mood if mood in {"curioso", "decidido", "calenton", "indeciso", "enfadado", "timewaster"} else None
     status_q = status if status in {"open", "resolved", "pending"} else None
     handler_q = handler if handler in {"bot", "human"} else None
+    mode_q = mode if mode in {"auto", "copilot", "off"} else None
+    # Keyset cursor from the previous page. An invalid/empty ts → first page.
+    cur_ts = _parse_cursor_ts(cursor_ts)
+    cur_id = cursor_id if cur_ts is not None else None
 
-    rows, total = await queries.list_conversations(
+    rows, next_ts, next_id = await queries.list_conversations_page(
         kpi,
         casa_id=casa_id,
         wa_number_id=wa_number_id,
         since_days=since_days,
         unanswered_only=unanswered,
         handler=handler_q,
+        mode=mode_q,
         search=search_q,
         mood=mood_q,
         status=status_q,
-        order="recent",
         limit=limit,
-        offset=offset,
+        cursor_ts=cur_ts,
+        cursor_id=cur_id,
     )
-    next_offset = offset + len(rows) if (offset + len(rows)) < total else None
     return templates.TemplateResponse(
         request,
         "partials/chat_list_fragment.html",
@@ -213,15 +232,22 @@ async def widget_casa_chats(
             "casa_id": casa_id,
             "chat_rows": rows,
             "active_wa": wa,
+            # El panel en línea solo existe en la vista de un número (no en TODOS),
+            # así los items del load-more/búsqueda enlazan igual que el render inicial.
+            "show_pane": wa != "all",
             "active_period": period,
             "active_unanswered": unanswered,
             "active_search": search_q or "",
             "active_mood": mood_q or "",
             "active_status": status_q or "",
             "active_handler": handler_q or "",
-            "offset": offset,
-            "next_offset": next_offset,
-            "total": total,
+            "active_mode": mode_q or "",
+            # Keyset paging: is_first_page drives the empty-state; page_key keeps the
+            # rows-div id unique per batch; next_cursor_* build the sentinel URL.
+            "is_first_page": cur_ts is None,
+            "page_key": cur_id or 0,
+            "next_cursor_ts": next_ts.isoformat() if next_ts else "",
+            "next_cursor_id": next_id or 0,
         },
     )
 

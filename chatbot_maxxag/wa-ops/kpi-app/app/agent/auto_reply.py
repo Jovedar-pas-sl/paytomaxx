@@ -32,10 +32,139 @@ from app import queries
 from app.agent import outcall, persona, photo_select, rate_limit, reply_engine
 from app.analyzer import skills
 from app.analyzer.skills import Message
+from app.settings import get_settings
 from app.waha_client import WahaClient
 from app.waha_msgid import extract_waha_msg_id
 
 logger = logging.getLogger("agent.auto_reply")
+
+
+# ── Encargada heads-up (WhatsApp) ────────────────────────────────────
+# Minimum digits for a plausible international phone number → WA chat id.
+_MIN_PHONE_DIGITS = 8
+
+
+def _phone_to_chat_id(raw: str | None) -> str | None:
+    """Normalize a stored recepción phone ('+34 603 201 414') to a WA chat id
+    ('34603201414@c.us'). None when there aren't enough digits (unset/garbage)."""
+    digits = "".join(ch for ch in (raw or "") if ch.isdigit())
+    return f"{digits}@c.us" if len(digits) >= _MIN_PHONE_DIGITS else None
+
+
+def _conversation_link(conversation_id: int) -> str:
+    """Dashboard deep-link to the conversation for the encargada's heads-up. ""
+    when DOMAIN is unset (the heads-up still sends, just without a link)."""
+    try:
+        domain = get_settings().domain
+    except Exception:  # noqa: BLE001 — settings must never break a notify
+        domain = ""
+    return f"https://{domain}/conversation/{conversation_id}" if domain else ""
+
+
+def _detect_girl_request(text: str, girl_names: list[str]) -> str | None:
+    """Return the girl NAME the client named in `text`, or None. Whole-word,
+    case-insensitive; skips very short names (<3) to avoid false positives."""
+    if not text:
+        return None
+    low = text.lower()
+    for name in girl_names:
+        n = (name or "").strip().lower()
+        if len(n) < 3:
+            continue
+        if re.search(rf"\b{re.escape(n)}\b", low):
+            return name
+    return None
+
+
+# Heuristic time/'now' expressions (es) → the client is proposing an hour. Used
+# ONLY in manual mode to ping the encargada to confirm that slot. Over/under-firing
+# is fine: it's a deduped heads-up, not a hard action.
+_TIME_RE = re.compile(
+    r"\b(?:a|sobre|para)?\s*las?\s*\d{1,2}"                 # "a las 10", "las 22"
+    r"|\b\d{1,2}\s*(?::\d{2}|\s*h\b|\s*hs\b|\s*pm\b|\s*am\b)"  # "22:00", "10h", "10 pm"
+    r"|\b(?:ahora|ahorita|esta\s+noche|esta\s+tarde|al\s+mediod[ií]a|"
+    r"en\s+(?:un|media)\s+(?:rato|hora))\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_time_request(text: str) -> bool:
+    """True when the client mentions a concrete time or 'now' (a booking hour is
+    forming). Manual-mode only: triggers the encargada heads-up to confirm the slot
+    while Sara holds with 'dame un momento…'."""
+    return bool(text) and bool(_TIME_RE.search(text))
+
+
+# Explicit "book me / reserve" intent from the client (es-first, light en/fr/it).
+# One of the "datos concretos" signals (with time/girl) that a booking is CLOSING.
+_BOOKING_RE = re.compile(
+    r"\bres[eé]rv\w*"        # es: reserva/reservar/resérvame/reservada/reservo…
+    r"|\bbook(?:ing|ed)?\b"  # en: book/booking/booked
+    r"|\br[eé]serv\w*"       # fr: réserver/réservation
+    r"|\bprenot\w*",         # it: prenota/prenotare/prenotazione
+    re.IGNORECASE,
+)
+
+
+def _detect_booking_intent(text: str) -> bool:
+    """True when the client EXPLICITLY asks to book/reserve ('resérvame', 'quiero
+    reservar'…) — one of the concrete-data signals (with time/girl) that a booking
+    is closing → the central reception heads-up."""
+    return bool(text) and bool(_BOOKING_RE.search(text))
+
+
+async def _notify_encargada(
+    ctx: dict, kpi: asyncpg.Pool, detail, conversation_id: int, *, tag: str, text: str
+) -> None:
+    """Ping the casa's encargada ONCE per conversation for `tag`: send a WhatsApp
+    from the casa session to casa_profile.whatsapp_recepcion AND record a panel
+    alert. Fully FAIL-SOFT — never breaks the reply.
+
+    The dedup alert is written only AFTER a successful send (or when there's no
+    number to send to), so a transient WAHA error retries on the next trigger
+    instead of being silently marked done. The WA goes through the SAME anti-ban
+    contract (pace + record_send) as the client reply so this internal heads-up
+    counts toward the per-number caps and doesn't burst on the business number."""
+    try:
+        # This has_open_alert → send → insert_alert sequence is race-free because the
+        # per-conversation lock (rate_limit.acquire_conv_lock) serializes jobs for one
+        # conversation. Under a Redis outage the lock is fail-open (CLAUDE.md invariant
+        # — never silence the bot), so in that degraded window two concurrent jobs
+        # could duplicate this heads-up: an ACCEPTED trade-off (same as the reply
+        # path), not worth a per-job Postgres advisory lock to fully close.
+        if await queries.has_open_alert(kpi, conversation_id, tag):
+            return
+        chat_id = _phone_to_chat_id(await queries.get_casa_recepcion(kpi, detail.casa_id))
+        waha = ctx.get("waha")
+        if chat_id is None or waha is None:
+            # No WhatsApp target → record the panel alert (deduped) and stop.
+            await queries.insert_alert(
+                kpi, type=tag, severity="info",
+                conversation_id=conversation_id, inbox_id=detail.casa_id, message=text,
+            )
+            logger.info(
+                "notify_encargada: no recepcion/waha casa=%s tag=%s (panel only)",
+                detail.casa_id, tag,
+            )
+            return
+        redis = ctx.get("redis")
+        await rate_limit.pace(redis, detail.waha_session)
+        link = _conversation_link(conversation_id)
+        body = f"🔔 {text}" + (f"\n{link}" if link else "")
+        await waha.send_text(detail.waha_session, chat_id, body)
+        await rate_limit.record_send(redis, detail.waha_session)
+        # Dedup + panel record only AFTER the send succeeded (a raise skips this →
+        # retried next trigger).
+        await queries.insert_alert(
+            kpi, type=tag, severity="info",
+            conversation_id=conversation_id, inbox_id=detail.casa_id, message=text,
+        )
+        logger.info(
+            "notify_encargada: WA sent casa=%s tag=%s conv=%s",
+            detail.casa_id, tag, conversation_id,
+        )
+    except Exception:  # noqa: BLE001 — notifying the encargada must never break the reply
+        logger.warning("notify_encargada failed conv=%s tag=%s", conversation_id, tag)
 
 # ── Tunables (no magic numbers) ──────────────────────────────────────
 # Recent human outbound within this window → pause as paused_human.
@@ -57,6 +186,9 @@ _RED_FLAG_BLOCK = ("menor", "fraude", "acoso")
 _SUGGESTION_MAXLEN = 1000
 # Photo cards are persisted with this MIME (WAHA re-encodes to jpeg on send).
 _PHOTO_MIME = "image/jpeg"
+# Envío de tarjetas de foto: OFF — las chicas ya están en la web, Sara pasa el
+# enlace en vez de mandar fotos. Poner True para reactivar el envío de fotos.
+_PHOTO_CARDS_ENABLED = False
 # Auto-protección: si Sara dispara este nº de pausas-riesgo en el MISMO número
 # dentro de la ventana, el número pasa a manual (mode=off) + alerta al admin.
 _SARA_FLOOD_THRESHOLD = 3
@@ -160,17 +292,17 @@ async def _load_msgs(kpi: asyncpg.Pool, conversation_id: int) -> list[Message]:
 
 async def _compute_outcall_context(
     kpi: asyncpg.Pool, conversation_id: int, casa_id: int, casa_name: str | None
-) -> tuple[int | None, int | None, bool]:
+) -> tuple[int | None, int | None, int | None, bool]:
     """Deterministically decide the outcall pricing CONTEXT for this turn.
 
-    Returns (outcall_base_eur, outcall_taxi_eur, outcall_defer):
-      * (base, taxi, False) — the client sent a location PIN AND the casa is
-        geocoded with a known city + outcall base, so the price breakdown is
-        computed in Python (Sara quotes "domicilio {base}€ + {taxi}€ de taxi").
-      * (None, None, True)  — the client sent a PIN but the price is NOT computable
-        (no casa coords / unknown city / no outcall base) → Sara defers.
-      * (None, None, False) — no location PIN → no outcall context (the persona's
-        static rule already handles asking for the pin when an outcall is wanted).
+    Returns (outcall_base_eur, outcall_taxi_low, outcall_taxi_high, outcall_defer):
+      * (base, low, high, False) — the client sent a location PIN AND the casa is
+        geocoded with a known city + outcall base, so the price is computed in
+        Python (Sara quotes "domicilio {base}€ + el taxi, suele rondar {low}-{high}€").
+      * (None, None, None, True)  — the client sent a PIN but the price is NOT
+        computable (no casa coords / unknown city / no outcall base) → Sara defers.
+      * (None, None, None, False) — no location PIN → no outcall context (the
+        persona's static rule already handles asking for the pin when wanted).
 
     Pure-ish (only reads): the price is computed by the pure `outcall` module; the
     LLM never does the arithmetic. Fully fail-soft — on error it DEFERS when a PIN
@@ -181,14 +313,14 @@ async def _compute_outcall_context(
     try:
         client_coords = await queries.get_latest_incoming_location(kpi, conversation_id)
         if client_coords is None:
-            return (None, None, False)  # no PIN → no outcall context
+            return (None, None, None, False)  # no PIN → no outcall context
 
         # The client sent a PIN: from here we either price it or DEFER (never
         # silently drop back to a normal reply, so Sara doesn't ignore the pin).
         knowledge = await queries.get_casa_knowledge(kpi, casa_id)
         profile = knowledge.profile
         if profile is None:
-            return (None, None, True)
+            return (None, None, None, True)
 
         casa_coords = (
             (profile.address_lat, profile.address_lng)
@@ -213,26 +345,50 @@ async def _compute_outcall_context(
             taxi_buffer=buffer,
         )
         if estimate is None:
-            return (None, None, True)  # PIN received but not computable → defer
-        return (estimate.base_eur, estimate.taxi_eur, False)
+            return (None, None, None, True)  # PIN received but not computable → defer
+        return (estimate.base_eur, estimate.taxi_low_eur, estimate.taxi_high_eur, False)
     except Exception:  # pricing must never break the reply
         logger.warning(
             "auto_reply: outcall context build failed conv=%s", conversation_id
         )
         # If a PIN was already retrieved, DEFER (don't silently ignore the pin);
         # if the PIN lookup itself failed, there is no outcall context.
-        return (None, None, True) if client_coords is not None else (None, None, False)
+        return (
+            (None, None, None, True)
+            if client_coords is not None
+            else (None, None, None, False)
+        )
 
 
 async def auto_reply_job(ctx: dict, conversation_id: int) -> None:
     """Generate and (in auto mode) send a single agent reply for a conversation.
 
+    Thin wrapper: takes a per-conversation Redis lock so only ONE reply job runs at
+    a time for a conversation — a double webhook event (message/message.any) or two
+    messages straddling the debounce bucket can't both slip past the idempotency
+    check and double-reply. FAIL-OPEN: a redis outage → proceed (the post-delay
+    idempotency re-check inside is the backstop). The lock is released in finally.
+    """
+    kpi: asyncpg.Pool = ctx["kpi_db"]
+    redis = ctx.get("redis")
+    if not await rate_limit.acquire_conv_lock(redis, conversation_id):
+        logger.info(
+            "auto_reply: conv lock held by another job — skip conv=%s", conversation_id
+        )
+        return
+    try:
+        await _auto_reply_locked(ctx, kpi, conversation_id)
+    finally:
+        await rate_limit.release_conv_lock(redis, conversation_id)
+
+
+async def _auto_reply_locked(ctx: dict, kpi: asyncpg.Pool, conversation_id: int) -> None:
+    """The reply pipeline, run while holding the per-conversation lock.
+
     Steps: (a) re-load mode + pause state and bail; (b) guardrails →
     paused_risk; (c) recent-human-outbound → paused_human; (d) generate reply;
     (e) bounded human-like delay; (f) send (auto) or store suggestion (copilot).
     """
-    kpi: asyncpg.Pool = ctx["kpi_db"]
-
     # (a) Re-load mode + status inside the worker (never trust the webhook —
     # a human may have taken over between enqueue and execution).
     mode = await queries.get_wa_mode_for_conversation(kpi, conversation_id)
@@ -240,6 +396,17 @@ async def auto_reply_job(ctx: dict, conversation_id: int) -> None:
         return
     status_ = await queries.get_conversation_agent_status(kpi, conversation_id)
     if status_ is not None and status_ != "active":  # paused_* stays paused
+        return
+
+    # IDEMPOTENCIA (anti-duplicado): si Sara YA respondió al último turno — el
+    # mensaje más reciente ya es un saliente generado por ella —, NO vuelvas a
+    # contestar. Mata el mensaje duplicado venga de un reintento de arq o del doble
+    # evento message/message.any de WAHA. (Un humano tomando el relevo se maneja
+    # aparte con has_recent_human_outbound / paused_human.)
+    if await queries.last_out_is_agent_generated(kpi, conversation_id):
+        logger.info(
+            "auto_reply: ya respondido al último turno — skip conv=%s", conversation_id
+        )
         return
 
     detail = await queries.get_conversation_detail(kpi, conversation_id)
@@ -345,14 +512,74 @@ async def auto_reply_job(ctx: dict, conversation_id: int) -> None:
     # price in PYTHON (never the model) and pass it as context. Computed here —
     # after the guards/rate gate — so a blocked/paused conv never runs the math.
     # Fully fail-soft: (None, False) on any issue → the normal reply is unchanged.
-    outcall_base, outcall_taxi, outcall_defer = await _compute_outcall_context(
-        kpi, conversation_id, detail.casa_id, detail.casa_name
+    outcall_base, outcall_taxi_low, outcall_taxi_high, outcall_defer = (
+        await _compute_outcall_context(
+            kpi, conversation_id, detail.casa_id, detail.casa_name
+        )
     )
+
+    # (c.4) OUTCALL HANDOFF: a location pin for an outcall is the clearest "client
+    # is closing a salida" signal — and for a salida the casa asks the client's
+    # location in real time, so the team takes the final steps. Ping the encargada
+    # (WhatsApp + panel alert, once per conversation). Sara keeps replying; this is a
+    # heads-up, NOT a pause, and it fires in auto AND copilot.
+    if outcall_base is not None or outcall_defer:
+        await _notify_encargada(
+            ctx, kpi, detail, conversation_id,
+            tag="outcall_handoff",
+            text=(
+                "Cliente cerrando salida — pedir ubicación en tiempo real y cobro "
+                "(taxi por adelantado por Bizum: 100% mejor, si no 30% + resto efectivo)"
+            ),
+        )
 
     # (d) Generate the reply. generate_reply never raises (returns a localized
     # fallback line on any failure), so no try/except is needed here. lang=None
     # lets the engine resolve the casa's default_lang.
     last_incoming = next((m.content for m in reversed(msgs) if m.role == "cliente"), "")
+
+    # (c.5) RECEPCIÓN HEADS-UP (once per conversation, fail-soft): exactly ONE ping
+    # per message, chosen by precedence so recepción is never double-pinged —
+    #  · CONCRETE CLOSE (a proposed TIME or an explicit "resérvame") → booking_close,
+    #    the "atiéndele para cerrar" framing, enriched with the girl/hour context. It
+    #    SUPERSEDES the verify heads-up, so a real close always reaches recepción with
+    #    the close framing (a prior-turn girl_request never swallows it: booking_close
+    #    has its own once-per-conversation dedup tag).
+    #  · else, WEB-sync casa + a bare girl NAME (browsing) → girl_request so the
+    #    encargada verifies real-time availability. A MANUAL (Backoffice) casa trusts
+    #    its roster, so a bare name is not pinged.
+    try:
+        _manual_casa = await queries.get_casa_manual_mode(kpi, detail.casa_id)
+    except Exception:  # noqa: BLE001 — fail-soft → behave as web mode
+        _manual_casa = False
+    try:
+        _girl_names = await queries.get_active_girl_names(kpi, detail.casa_id)
+    except Exception:  # noqa: BLE001 — fail-soft → no girl-name detection
+        _girl_names = []
+    _named_girl = _detect_girl_request(last_incoming, _girl_names)
+    _time_req = _detect_time_request(last_incoming)
+    _concrete_close = _time_req or _detect_booking_intent(last_incoming)
+    try:
+        if _concrete_close:
+            if _named_girl and _time_req:
+                _detalle = f"pide a {_named_girl} y propone hora"
+            elif _named_girl:
+                _detalle = f"pide a {_named_girl}"
+            elif _time_req:
+                _detalle = "propone una hora"
+            else:
+                _detalle = "quiere reservar"
+            await _notify_encargada(
+                ctx, kpi, detail, conversation_id, tag="booking_close",
+                text=f"Cliente cerrando reserva ({_detalle}) — atiéndele para cerrar",
+            )
+        elif _named_girl and not _manual_casa:
+            await _notify_encargada(
+                ctx, kpi, detail, conversation_id, tag="girl_request",
+                text=f"Cliente pregunta por {_named_girl} — verifica si está disponible ahora",
+            )
+    except Exception:  # noqa: BLE001 — the reception heads-up must never break the reply
+        logger.warning("auto_reply: encargada heads-up failed conv=%s", conversation_id)
 
     # A/B GREETING: on the FIRST reply only (no prior outbound at all), assign a
     # greeting bucket (idempotent) so the opener's tone is nudged and conversion
@@ -374,7 +601,8 @@ async def auto_reply_job(ctx: dict, conversation_id: int) -> None:
         lang=None,
         client_name=detail.contact_name or "",
         outcall_base_eur=outcall_base,
-        outcall_taxi_eur=outcall_taxi,
+        outcall_taxi_low=outcall_taxi_low,
+        outcall_taxi_high=outcall_taxi_high,
         outcall_defer=outcall_defer,
         ab_variant=ab_variant,
     )
@@ -413,21 +641,31 @@ async def auto_reply_job(ctx: dict, conversation_id: int) -> None:
             )
             logger.info("auto_reply: human took over during delay conv=%s", conversation_id)
             return
+        # DUPLICATE BACKSTOP: if ANOTHER Sara reply landed during our human-like
+        # delay (a bucket-straddling job, or the conv lock expired mid-delay), abort
+        # — never double-reply the same turn. Complements the conv lock + the start
+        # idempotency guard for the residual sub-second race.
+        if await queries.last_out_is_agent_generated(kpi, conversation_id):
+            logger.info(
+                "auto_reply: another Sara reply landed during delay — skip conv=%s",
+                conversation_id,
+            )
+            return
         # ANTI-BAN: enforce the min-gap (+jitter) between two sends on the SAME
         # number. Bounded and lives in this JOB, not the cron loop. FAIL-SAFE:
         # pace falls back to an in-process gate when redis is None/erroring.
         # Send the reply, split into up to 2 human-like bubbles when it's long
         # (each bubble is a full anti-ban send: gate → pace → send → record).
         await _send_reply_bubbles(kpi, waha, redis, conversation_id, session, chat, reply)
-        # PHOTO CARDS — the #1 conversion lever. After the TEXT reply lands, send
-        # the photo(s) of the girl(s) Sara just named (or the first candidates on
-        # a bare photo request). Each photo is its OWN send: it respects the same
-        # anti-ban contract as the text (allow_send gate → pace → send → record)
-        # and is FAIL-SOFT — a failed image never breaks the already-sent text.
-        await _send_photo_cards(
-            kpi, waha, redis, conversation_id, session, chat,
-            casa_id=detail.casa_id, reply=reply, incoming=last_incoming,
-        )
+        # PHOTO CARDS — desactivadas (_PHOTO_CARDS_ENABLED=False): las chicas están
+        # en la web y Sara pasa el enlace, así que no manda fotos. Se conserva el
+        # código tras el flag por si se quiere reactivar. Cada foto era un envío
+        # propio con el mismo contrato anti-ban y FAIL-SOFT que el texto.
+        if _PHOTO_CARDS_ENABLED:
+            await _send_photo_cards(
+                kpi, waha, redis, conversation_id, session, chat,
+                casa_id=detail.casa_id, reply=reply, incoming=last_incoming,
+            )
     elif mode == "copilot":
         # DEDUP: supersede the prior unsent draft (if any) BEFORE storing the new
         # one, so a receptionist who is away never returns to N stacked
@@ -500,45 +738,57 @@ async def _send_and_persist(
     """
     res = await waha.send_text(session, chat, reply)
     waha_msg_id = extract_waha_msg_id(res)
-    async with kpi.acquire() as conn:
-        if waha_msg_id:
-            await conn.execute(
-                """
-                INSERT INTO message (
-                    conversation_id, waha_msg_id, direction, body,
-                    ack, agent_generated, created_at
+    # The reply is already DELIVERED. If the conversation was merged away
+    # mid-send (rare: our conv lock expired and the auto-merge sweep won the
+    # race, DELETEing this conversation), the INSERT's FK would crash the job and
+    # arq would retry it — re-sending the same reply. Swallow the FK instead: the
+    # client already got the message, we just skip the now-impossible DB record.
+    try:
+        async with kpi.acquire() as conn:
+            if waha_msg_id:
+                await conn.execute(
+                    """
+                    INSERT INTO message (
+                        conversation_id, waha_msg_id, direction, body,
+                        ack, agent_generated, created_at
+                    )
+                    VALUES ($1, $2, 'out', $3, 0, TRUE, now())
+                    ON CONFLICT (waha_msg_id) DO UPDATE SET agent_generated = TRUE
+                    """,
+                    conversation_id, waha_msg_id, reply,
                 )
-                VALUES ($1, $2, 'out', $3, 0, TRUE, now())
-                ON CONFLICT (waha_msg_id) DO UPDATE SET agent_generated = TRUE
-                """,
-                conversation_id, waha_msg_id, reply,
-            )
-        else:
-            # No parseable WAHA id (rare). Still record the reply as an
-            # agent-generated row (synthetic id) so it isn't later mistaken for a
-            # receptionist message — otherwise the next client turn would
-            # self-trigger paused_human.
-            await conn.execute(
-                """
-                INSERT INTO message (
-                    conversation_id, waha_msg_id, direction, body,
-                    ack, agent_generated, created_at
+            else:
+                # No parseable WAHA id (rare). Still record the reply as an
+                # agent-generated row (synthetic id) so it isn't later mistaken for
+                # a receptionist message — otherwise the next client turn would
+                # self-trigger paused_human.
+                await conn.execute(
+                    """
+                    INSERT INTO message (
+                        conversation_id, waha_msg_id, direction, body,
+                        ack, agent_generated, created_at
+                    )
+                    VALUES ($1, $2, 'out', $3, 0, TRUE, now())
+                    ON CONFLICT (waha_msg_id) DO NOTHING
+                    """,
+                    conversation_id, f"agent-local:{uuid.uuid4()}", reply,
                 )
-                VALUES ($1, $2, 'out', $3, 0, TRUE, now())
-                ON CONFLICT (waha_msg_id) DO NOTHING
-                """,
-                conversation_id, f"agent-local:{uuid.uuid4()}", reply,
+                logger.warning(
+                    "auto_reply: WAHA send returned no extractable id; inserted "
+                    "synthetic agent row. conversation_id=%s response_type=%s keys=%s",
+                    conversation_id, type(res).__name__,
+                    list(res.keys()) if isinstance(res, dict) else None,
+                )
+            await conn.execute(
+                "UPDATE conversation SET last_message_at = now(), updated_at = now() WHERE id = $1",
+                conversation_id,
             )
-            logger.warning(
-                "auto_reply: WAHA send returned no extractable id; inserted "
-                "synthetic agent row. conversation_id=%s response_type=%s keys=%s",
-                conversation_id, type(res).__name__,
-                list(res.keys()) if isinstance(res, dict) else None,
-            )
-        await conn.execute(
-            "UPDATE conversation SET last_message_at = now(), updated_at = now() WHERE id = $1",
-            conversation_id,
+    except asyncpg.ForeignKeyViolationError:
+        logger.warning(
+            "auto_reply: conversation %s vanished mid-send (merged?) — reply "
+            "delivered but not persisted", conversation_id,
         )
+        return
     logger.info("auto_reply: sent conv=%s len=%s", conversation_id, len(reply))
 
 

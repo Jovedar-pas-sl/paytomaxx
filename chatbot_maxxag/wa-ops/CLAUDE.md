@@ -85,9 +85,14 @@ El servidor VPS (ej: `root@72.62.190.116`) está en Hostinger. Todos los paths e
 scp <templates> root@VPS:/opt/wa-ops/kpi-app/app/templates/
 ssh root@VPS "cd /opt/wa-ops && docker compose build kpi-app && docker compose up -d --force-recreate kpi-app"
 
-# Python code (routes, queries, analyzer)
+# Python code (routes, queries, analyzer, AGENT/reply engine)
+# ⚠️ kpi-app y kpi-worker son IMÁGENES SEPARADAS. La lógica de respuesta del bot
+# (app/agent/*, queries) corre en el WORKER → hay que reconstruir AMBAS o el
+# worker seguirá con el código viejo (build de un solo servicio = síntoma:
+# "desplegué y el bot sigue igual"). Usa `docker compose build` (sin nombre) o
+# `build kpi-app kpi-worker`. Y tras recrear kpi-app, `restart waha` (IP nueva).
 scp <files> root@VPS:/opt/wa-ops/kpi-app/app/<subpath>/
-ssh root@VPS "cd /opt/wa-ops && docker compose build kpi-app && docker compose up -d --force-recreate kpi-app kpi-worker"
+ssh root@VPS "cd /opt/wa-ops && docker compose build && docker compose up -d --force-recreate kpi-app kpi-worker && docker compose restart waha"
 
 # Migrations
 scp kpi-app/alembic/versions/*.py root@VPS:/opt/wa-ops/kpi-app/alembic/versions/

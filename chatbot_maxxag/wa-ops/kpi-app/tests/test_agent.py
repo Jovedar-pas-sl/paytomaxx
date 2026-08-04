@@ -11,10 +11,12 @@ import pytest
 
 import re
 
+from app.agent import persona
 from app.agent.reply_engine import (
     _clean_hint_text,
     _format_girl,
     _has_leak,
+    _is_venue_casa,
     _now_local_str,
     _sanitize_for_prompt,
     _site_url_for_casa,
@@ -163,6 +165,18 @@ def test_address_is_injected_for_directions():
     assert "C. Joaquín Costa 44" in prompt
 
 
+def test_format_girl_includes_hours_today_when_set():
+    """Operator-set per-girl hours (Ficha del día panel) reach the prompt so Sara
+    can tell a client when a girl is in."""
+    line = _format_girl(_girl(hours_today="16:00–02:00"))
+    assert "Horario hoy: 16:00–02:00" in line
+
+
+def test_format_girl_omits_hours_when_absent():
+    line = _format_girl(_girl(hours_today=None))
+    assert "Horario hoy" not in line
+
+
 def test_girls_and_rates_injected():
     prompt = build_system_prompt("es", CasaKnowledge(_profile(), [_girl()]), "")
     assert "Sophia" in prompt
@@ -176,7 +190,7 @@ def test_empty_girls_line():
 
 def test_unknown_lang_falls_back_to_es():
     prompt = build_system_prompt("de", CasaKnowledge(_profile(), [_girl()]), "")
-    assert "recepcionista" in prompt  # Spanish template marker
+    assert "DATOS:" in prompt  # Spanish-only section header (en=DATA, fr=DONNÉES, it=DATI)
 
 
 # ── _format_girl ─────────────────────────────────────────────────────
@@ -201,6 +215,90 @@ def test_site_url_unknown_casa_is_empty():
     """No known site → "" so the persona never instructs Sara to invent a URL."""
     assert _site_url_for_casa("Casa Desconocida") == ""
     assert _site_url_for_casa("") == ""
+
+
+# ── _is_venue_casa + venue-ambience block (Marbella / Ibiza only) ────
+def test_is_venue_casa_matches_marbella_ibiza_only():
+    assert _is_venue_casa("M.B.Marbella") is True
+    assert _is_venue_casa("MAxxage MARBELLA") is True
+    assert _is_venue_casa("M.B.IBIZA") is True
+    assert _is_venue_casa("Maxxage Ibiza") is True
+    assert _is_venue_casa("Maxxage Valencia") is False
+    assert _is_venue_casa("Maxxage Madrid") is False
+    assert _is_venue_casa("") is False
+
+
+def test_venue_block_injected_only_for_venue_casas():
+    """Marbella/Ibiza casas get the 'spaces to have a drink' ambience note; other
+    casas' prompt stays unchanged (no ambience label)."""
+    marbella = build_system_prompt(
+        "es", CasaKnowledge(_profile(casa_name="M.B.Marbella"), [_girl()]), ""
+    )
+    assert "AMBIENTE DEL LOCAL" in marbella
+    assert "tomar algo" in marbella
+
+    ibiza = build_system_prompt(
+        "es", CasaKnowledge(_profile(casa_name="M.B.Ibiza"), [_girl()]), ""
+    )
+    assert "AMBIENTE DEL LOCAL" in ibiza
+
+    valencia = build_system_prompt(
+        "es", CasaKnowledge(_profile(casa_name="Maxxage Valencia"), [_girl()]), ""
+    )
+    assert "AMBIENTE DEL LOCAL" not in valencia
+
+
+def test_venue_ambience_label_is_a_leak_marker():
+    """If Sara echoes the ambience LABEL, _has_leak discards the reply."""
+    assert _has_leak("AMBIENTE DEL LOCAL (úsalo con naturalidad)") is True
+
+
+# ── build_mode_block (manual / Backoffice) ───────────────────────────
+def test_mode_block_only_in_manual():
+    assert "MODO PANEL" in persona.build_mode_block(True, "es")
+    assert persona.build_mode_block(False, "es") == ""
+
+
+def test_manual_mode_block_injected_only_for_backoffice_casas():
+    """A Backoffice (manual_mode) casa gets the panel-mode override (trust the
+    roster, hold only the hour); a web-sync casa does not."""
+    manual = build_system_prompt(
+        "es", CasaKnowledge(_profile(manual_mode=True), [_girl()]), ""
+    )
+    assert "MODO PANEL" in manual
+
+    web = build_system_prompt("es", CasaKnowledge(_profile(), [_girl()]), "")
+    assert "MODO PANEL" not in web
+
+
+def test_mode_block_label_is_a_leak_marker():
+    assert _has_leak("MODO PANEL (la encargada gestiona la agenda)") is True
+
+
+# ── outcall labels: taxi range + prepaid (30% Bizum + cash, no card) ──
+def test_outcall_priced_block_mentions_range_and_prepaid_bizum():
+    """The priced outcall note gives base + a taxi RANGE (never an exact figure)
+    AND tells Sara the taxi is prepaid 30% Bizum + rest cash, no card."""
+    block = persona.build_outcall_block(120, 40, 90, "es")
+    assert "120" in block                      # domicilio base
+    assert "40" in block and "90" in block     # taxi range low-high
+    assert "rondar" in block                    # given as a range…
+    assert "cifra exacta" in block              # …never an exact figure
+    assert "ADELANTADO" in block
+    assert "Bizum" in block and "efectivo" in block
+    assert "100%" in block and "30%" in block   # 100% ideal, else 30% + cash
+    assert "tarjeta" in block                    # card is forbidden (never card)
+    # Hands off to reception — must NOT tell Sara to close the booking herself
+    # (would contradict the RELEVO AL CERRAR / NO CIERRES TÚ redesign).
+    assert "recepción" in block
+    assert "cierra la reserva" not in block
+
+
+def test_outcall_defer_block_mentions_advance():
+    """The 'ask for the pin' note lets Sara set the prepaid expectation early."""
+    block = persona.build_outcall_block(None, None, None, "es")
+    assert "por adelantado" in block
+    assert "Bizum" in block
 
 
 # ── _now_local_str ("open now" awareness) ────────────────────────────

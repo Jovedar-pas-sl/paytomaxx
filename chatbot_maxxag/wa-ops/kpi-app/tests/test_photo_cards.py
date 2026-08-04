@@ -262,6 +262,9 @@ def patched(monkeypatch):
     async def fake_has_recent(kpi, conv_id, within):
         return rec.recent_human
 
+    async def fake_last_agent(kpi, conv_id):
+        return False  # not-yet-replied so the job proceeds to the photo path
+
     async def fake_detail(kpi, conv_id):
         return rec.detail
 
@@ -306,7 +309,11 @@ def patched(monkeypatch):
     monkeypatch.setattr(auto_reply.queries, "get_conversation_agent_status", fake_get_status)
     monkeypatch.setattr(auto_reply.queries, "set_conversation_agent_status", fake_set_status)
     monkeypatch.setattr(auto_reply.queries, "has_recent_human_outbound", fake_has_recent)
+    monkeypatch.setattr(auto_reply.queries, "last_out_is_agent_generated", fake_last_agent)
     monkeypatch.setattr(auto_reply.queries, "get_conversation_detail", fake_detail)
+    # Photo cards are OFF in production (_PHOTO_CARDS_ENABLED=False); these wiring
+    # tests exercise the PRESERVED photo path, so re-enable it for the fixture.
+    monkeypatch.setattr(auto_reply, "_PHOTO_CARDS_ENABLED", True)
     monkeypatch.setattr(auto_reply.queries, "insert_alert", fake_insert_alert)
     monkeypatch.setattr(auto_reply.queries, "get_available_girls_with_photo", fake_girls_with_photo)
     monkeypatch.setattr(auto_reply.skills, "detect_red_flags", fake_red_flags)

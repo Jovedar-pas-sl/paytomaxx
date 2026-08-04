@@ -526,88 +526,40 @@ async def conversation_auto_merge(
     user: CurrentUser,  # noqa: ARG001
     kpi: KpiDB,
 ) -> RedirectResponse:
-    """Use Claude to detect which sibling conversation is the same client
-    and auto-merge into it. Requires confidence >= 0.7."""
-    from app.analyzer.skills import Message, SiblingConvo, detect_same_client
-
-    detail = await queries.get_conversation_detail(kpi, conversation_id)
-    if not detail:
-        raise HTTPException(status_code=404)
-
-    async with kpi.acquire() as conn:
-        # Target messages
-        target_msgs_rows = await conn.fetch(
-            """
-            SELECT body, direction, extract(epoch from created_at)::int AS ts
-            FROM message WHERE conversation_id = $1
-            ORDER BY created_at ASC LIMIT 25
-            """,
-            conversation_id,
-        )
-        # Sibling conversations — same casa, recent
-        sibling_ids = await conn.fetch(
-            """
-            SELECT c.id, ct.name, ct.phone, ct.waha_jid
-            FROM conversation c
-            JOIN contact ct ON ct.id = c.contact_id
-            WHERE c.casa_id = $1 AND c.id != $2
-              AND c.last_message_at > now() - interval '24 hours'
-            ORDER BY c.last_message_at DESC LIMIT 8
-            """,
-            detail.casa_id, conversation_id,
-        )
-        siblings: list[SiblingConvo] = []
-        for s in sibling_ids:
-            s_msgs = await conn.fetch(
-                """
-                SELECT body, direction, extract(epoch from created_at)::int AS ts
-                FROM message WHERE conversation_id = $1
-                ORDER BY created_at ASC LIMIT 15
-                """,
-                s["id"],
-            )
-            label = s["name"] or s["phone"] or (s["waha_jid"][:24] + "…")
-            siblings.append(SiblingConvo(
-                conv_id=s["id"],
-                label=label,
-                messages=[Message(
-                    ts=r["ts"],
-                    role="cliente" if r["direction"] == "in" else "mamai",
-                    content=(r["body"] or "")[:200],
-                ) for r in s_msgs],
-            ))
-
-    if not siblings:
-        raise HTTPException(status_code=400, detail="No hay otras conversaciones candidatas en esta casa (últimas 24h).")
-
-    target_label = detail.contact_name or detail.contact_phone or "target"
-    target_msgs = [
-        Message(
-            ts=r["ts"],
-            role="cliente" if r["direction"] == "in" else "mamai",
-            content=(r["body"] or "")[:200],
-        )
-        for r in target_msgs_rows
-    ]
+    """Use Claude to detect which sibling conversation is the same client and merge
+    into it. Requires confidence >= 0.7 (the unattended worker sweep uses 0.85).
+    Shares the exact detection + merge logic with the auto-merge sweep."""
+    from app.dedup import find_same_client_target
 
     try:
-        result = await detect_same_client(target_msgs, target_label, siblings)
+        result = await find_same_client_target(kpi, conversation_id)
     except Exception as exc:
         logger.exception("auto-merge detect failed")
         raise HTTPException(status_code=502, detail=f"Error IA: {exc}") from exc
 
+    if result is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay otras conversaciones candidatas en esta casa (últimas 24h).",
+        )
     if not result.best_match_id or result.confidence < 0.7:
         raise HTTPException(
             status_code=400,
             detail=f"IA no detecta coincidencia clara (confianza {result.confidence:.0%}). {result.reasoning}",
         )
 
-    # Call the manual merge logic
-    return await conversation_merge(
-        source_id=conversation_id,
-        target_id=result.best_match_id,
-        user=user,  # type: ignore[arg-type]
-        kpi=kpi,
+    try:
+        await queries.merge_conversation_into(
+            kpi, conversation_id, result.best_match_id,
+            triggered_by="ia", confidence=result.confidence, reasoning=result.reasoning,
+            allow_cross_line=True,  # admin-triggered: the same client can span lines
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return RedirectResponse(
+        url=f"/conversation/{result.best_match_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
@@ -618,54 +570,16 @@ async def conversation_merge(
     user: CurrentUser,  # noqa: ARG001
     kpi: KpiDB,
 ) -> RedirectResponse:
-    """Merge source conversation INTO target: moves all messages, then deletes
-    source conv + source contact (if orphaned). Used when the same person has
-    two JIDs (typically @c.us + @lid privacy duplicate)."""
-    if source_id == target_id:
-        raise HTTPException(status_code=400, detail="same id")
-    async with kpi.acquire() as conn:
-        async with conn.transaction():
-            src = await conn.fetchrow(
-                "SELECT contact_id, casa_id FROM conversation WHERE id = $1", source_id
-            )
-            tgt = await conn.fetchrow(
-                "SELECT contact_id, casa_id FROM conversation WHERE id = $1", target_id
-            )
-            if not src or not tgt:
-                raise HTTPException(status_code=404)
-            if src["casa_id"] != tgt["casa_id"]:
-                raise HTTPException(status_code=400, detail="different casas")
-
-            # Move all messages source → target
-            await conn.execute(
-                "UPDATE message SET conversation_id = $1 WHERE conversation_id = $2",
-                target_id, source_id,
-            )
-            # Bump target's last_message_at + unread
-            await conn.execute(
-                """
-                UPDATE conversation SET
-                    last_message_at = GREATEST(last_message_at, (
-                        SELECT last_message_at FROM (SELECT 1) _
-                        WHERE EXISTS (SELECT 1 FROM message m WHERE m.conversation_id = $1)
-                    )),
-                    unread_count = unread_count + (SELECT unread_count FROM conversation WHERE id = $2),
-                    updated_at = now()
-                WHERE id = $1
-                """,
-                target_id, source_id,
-            )
-            # Delete source conv
-            await conn.execute("DELETE FROM conversation WHERE id = $1", source_id)
-            # Delete source contact if orphaned
-            await conn.execute(
-                """
-                DELETE FROM contact c
-                WHERE c.id = $1
-                  AND NOT EXISTS (SELECT 1 FROM conversation WHERE contact_id = c.id)
-                """,
-                src["contact_id"],
-            )
+    """Merge source conversation INTO target (moves messages, deletes source conv +
+    orphaned contact). Used when the same person has two JIDs (@c.us + @lid). The
+    merge itself lives in queries.merge_conversation_into (shared with the sweep)."""
+    try:
+        await queries.merge_conversation_into(
+            kpi, source_id, target_id, triggered_by="manual", allow_cross_line=True,
+        )
+    except ValueError as exc:
+        code = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
 
     return RedirectResponse(
         url=f"/conversation/{target_id}",

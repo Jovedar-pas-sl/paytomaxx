@@ -8,10 +8,12 @@ detects the encoding correctly for ñ/emojis.
 from __future__ import annotations
 
 import csv
+import html
 import io
 import json as _json
 from datetime import date, datetime, timezone
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
@@ -122,6 +124,453 @@ async def export_conversations_csv(
 
     fname = f"{casa_name}-conversaciones-{date.today().isoformat()}.csv"
     return _download_response(buf.getvalue(), fname, "text/csv; charset=utf-8")
+
+
+# ── Export FULL conversations (printable HTML → PDF) ───────────────
+# Unlike the CSV above (a LIST), this renders the complete threads (client +
+# Sara + team) of every conversation matching the CURRENT inbox filters, so the
+# admin can open it in a new tab and Ctrl+P → Save as PDF. Read-only; reuses the
+# exact same filtered query the inbox uses (list_conversations_page).
+
+_TZ = ZoneInfo("Europe/Madrid")
+_PERIOD_DAYS = {"24h": 1, "7d": 7, "30d": 30, "90d": 90, "all": 3650}
+_PERIOD_LABEL = {"24h": "últimas 24h", "7d": "últimos 7 días",
+                 "30d": "últimos 30 días", "90d": "últimos 90 días", "all": "histórico"}
+_MODE_LABEL = {"auto": "Modo Auto", "copilot": "Modo Copiloto", "off": "Modo Off"}
+_EXPORT_MAX_CONVS = 600
+_MEDIA_LABEL = {"image": "📷 Foto", "video": "🎬 Vídeo",
+                "audio": "🎙️ Nota de voz", "application": "📎 Documento"}
+
+_EXPORT_CSS = """
+*{box-sizing:border-box}body{margin:0;background:#eceff1;color:#0f1a14;
+font-family:-apple-system,'Segoe UI',Roboto,system-ui,sans-serif;line-height:1.5}
+.wrap{max-width:900px;margin:0 auto;padding:24px 16px 64px}
+header.top{background:linear-gradient(135deg,#0e4735,#17624a);color:#eef7f2;border-radius:14px;
+padding:24px 26px;box-shadow:0 8px 30px -14px rgba(14,71,53,.5)}
+header.top h1{margin:0 0 6px;font-size:1.6rem}header.top .sub{opacity:.85;font-size:.92rem}
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin:18px 0 6px}
+.stat{background:#fff;border:1px solid #dbe4e0;border-radius:12px;padding:12px 16px;min-width:140px}
+.stat .n{font-size:1.6rem;font-weight:700;color:#17624a;font-variant-numeric:tabular-nums}
+.stat .l{font-size:.76rem;color:#5c6b64;text-transform:uppercase;letter-spacing:.06em}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0;font-size:.82rem;color:#5c6b64}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:12px;height:12px;border-radius:4px;display:inline-block}
+.conv{background:#fff;border:1px solid #dbe4e0;border-radius:14px;margin:16px 0;overflow:hidden;
+box-shadow:0 2px 10px -6px rgba(15,26,20,.18);page-break-inside:avoid}
+.conv-h{background:#f4f7f5;padding:11px 16px;display:flex;justify-content:space-between;
+align-items:center;gap:12px;border-bottom:1px solid #e6ece9;flex-wrap:wrap}
+.conv-h .who{font-weight:650}.conv-h .meta{font-size:.8rem;color:#6a7871}
+.badge{background:#17624a;color:#fff;font-size:.72rem;padding:2px 9px;border-radius:20px;white-space:nowrap}
+.thread{padding:14px 16px;background:#e7efe9;display:flex;flex-direction:column;gap:8px}
+.row{display:flex}.row.out{justify-content:flex-end}
+.bubble{max-width:78%;padding:8px 12px;border-radius:14px;font-size:.94rem;
+box-shadow:0 1px 1px rgba(0,0,0,.06);word-wrap:break-word;overflow-wrap:anywhere}
+.row.in .bubble{background:#fff;border-top-left-radius:4px}
+.row.out.bot .bubble{background:#d7f5c8;border-top-right-radius:4px}
+.row.out.human .bubble{background:#cfe6ff;border-top-right-radius:4px}
+.who-tag{font-size:.68rem;font-weight:700;margin-bottom:2px}
+.in .who-tag{color:#6a7871}.bot .who-tag{color:#166b3a}.human .who-tag{color:#1256a0}
+.time{font-size:.66rem;color:#8a9;margin-top:3px;text-align:right}
+.media{font-style:italic;color:#4a5a52}
+.empty{background:#fff;border-radius:12px;padding:26px;text-align:center;color:#6a7871}
+footer.foot{margin-top:30px;font-size:.78rem;color:#8593;text-align:center}
+.toolbar{position:sticky;top:0;z-index:10;display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+background:#0e4735;color:#eef7f2;padding:12px 16px;border-radius:0 0 12px 12px;margin:-24px -16px 18px}
+.toolbar button{background:#d7f5c8;color:#0e4735;border:0;border-radius:9px;padding:9px 16px;
+font-size:.95rem;font-weight:700;cursor:pointer}
+.toolbar button:hover{background:#c3ecac}
+.toolbar .hint{font-size:.82rem;opacity:.9}
+@media print{body{background:#fff}.conv,.stat{box-shadow:none}.wrap{max-width:100%}
+.no-print{display:none!important}}
+"""
+
+
+def _export_bubble(m, contact_label: str) -> str:
+    if m.direction == "in":
+        cls, tag = "in", html.escape(contact_label)
+    elif m.agent_generated:
+        cls, tag = "out bot", "Sara 🤖"
+    else:
+        cls, tag = "out human", "Equipo"
+    parts: list[str] = []
+    if m.media_mime:
+        label = _MEDIA_LABEL.get(m.media_mime.split("/", 1)[0], "📎 Adjunto")
+        parts.append(f'<span class="media">{html.escape(label)}</span>')
+    text = (m.body or "").strip()
+    if text:
+        parts.append(html.escape(text).replace("\n", "<br>"))
+    if not parts:
+        parts.append('<span class="media">[mensaje]</span>')
+    ts = m.created_at.astimezone(_TZ).strftime("%d/%m %H:%M")
+    return (f'<div class="row {cls}"><div class="bubble"><div class="who-tag">{tag}</div>'
+            f'{"<br>".join(parts)}<div class="time">{ts}</div></div></div>')
+
+
+def _render_conversations_html(casa_name: str, period: str, mode: str,
+                               conv_rows: list, threads: dict, truncated: bool) -> str:
+    period_txt = _PERIOD_LABEL.get(period, period)
+    mode_txt = _MODE_LABEL.get(mode or "", "todos los modos")
+    total_bot = sum(1 for r in conv_rows for m in threads.get(r.id, [])
+                    if m.direction == "out" and getattr(m, "agent_generated", False))
+    gen = datetime.now(_TZ).strftime("%d/%m/%Y %H:%M")
+
+    out: list[str] = [
+        "<!doctype html><html lang='es'><head><meta charset='utf-8'>",
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>",
+        f"<title>Conversaciones — {html.escape(casa_name)}</title>",
+        f"<style>{_EXPORT_CSS}</style></head><body><div class='wrap'>",
+        "<div class='toolbar no-print'>"
+        "<button onclick='window.print()'>⬇️ Guardar como PDF</button>"
+        "<span class='hint'>Se abre la ventana de imprimir sola → en <b>Destino</b> elige "
+        "<b>Guardar como PDF</b> → <b>Guardar</b>.</span>"
+        "</div>",
+        "<header class='top'><h1>Conversaciones de WhatsApp</h1>",
+        f"<div class='sub'>{html.escape(casa_name)} · {period_txt} · {mode_txt} · "
+        f"generado el {gen}</div></header>",
+        "<div class='stats'>",
+        f"<div class='stat'><div class='n'>{len(conv_rows)}</div>"
+        "<div class='l'>Conversaciones</div></div>",
+        f"<div class='stat'><div class='n'>{total_bot}</div>"
+        "<div class='l'>Respuestas de Sara</div></div>",
+        "</div>",
+        "<div class='legend'>"
+        "<span><span class='dot' style='background:#fff;border:1px solid #cdd6d1'></span> Cliente</span>"
+        "<span><span class='dot' style='background:#d7f5c8'></span> Sara (bot)</span>"
+        "<span><span class='dot' style='background:#cfe6ff'></span> Equipo (humano)</span></div>",
+    ]
+    if truncated:
+        out.append(f"<div class='sub' style='color:#9c4526'>Mostrando las primeras "
+                   f"{_EXPORT_MAX_CONVS} conversaciones (hay más; afina el filtro para verlas todas).</div>")
+    if not conv_rows:
+        out.append("<div class='empty'>No hay conversaciones con este filtro.</div>")
+
+    for r in conv_rows:
+        contact = r.contact_name or r.contact_phone or "Contacto"
+        when = r.last_message_at.astimezone(_TZ).strftime("%d/%m/%Y") if r.last_message_at else ""
+        msgs = threads.get(r.id, [])
+        bot_n = sum(1 for m in msgs if m.direction == "out" and getattr(m, "agent_generated", False))
+        out.append("<div class='conv'><div class='conv-h'>")
+        out.append(f"<span class='who'>{html.escape(contact)}</span>")
+        out.append(f"<span class='meta'>{when} · <span class='badge'>{bot_n} de Sara</span></span>")
+        out.append("</div><div class='thread'>")
+        for m in msgs:
+            out.append(_export_bubble(m, contact))
+        out.append("</div></div>")
+
+    out.append(f"<footer class='foot'>{html.escape(casa_name)} · {period_txt} · {mode_txt} · "
+               "solo conversaciones que coinciden con el filtro del panel.</footer>")
+    # Auto-open the browser's print dialog so the user just picks "Guardar como PDF".
+    out.append("<script>window.addEventListener('load',function(){"
+               "setTimeout(function(){try{window.print();}catch(e){}},500);});</script>")
+    out.append("</div></body></html>")
+    return "".join(out)
+
+
+async def _collect_filtered_threads(
+    kpi, casa_id: int, wa: str, period: str, unanswered: bool, search: str,
+    mood: str, status: str, handler: str, mode: str,
+):
+    """Shared by the HTML + DOCX conversation exports: parse the inbox filters,
+    page through ALL matching conversations (keyset, capped at _EXPORT_MAX_CONVS),
+    and fetch each full thread. Returns (casa_name, mode_q, conv_rows, threads,
+    truncated). Read-only."""
+    casa_name = await _get_casa_name(kpi, casa_id)
+
+    wa_number_id: int | None = None
+    if wa != "all":
+        try:
+            wa_number_id = int(wa)
+        except ValueError:
+            wa_number_id = None
+    days = _PERIOD_DAYS.get(period, 3650)
+    since_days = None if days >= 3650 else days
+    search_q = (search or "").strip() or None
+    mood_q = mood if mood in {"curioso", "decidido", "calenton", "indeciso", "enfadado", "timewaster"} else None
+    status_q = status if status in {"open", "resolved", "pending"} else None
+    handler_q = handler if handler in {"bot", "human"} else None
+    mode_q = mode if mode in {"auto", "copilot", "off"} else None
+
+    conv_rows: list = []
+    cur_ts: datetime | None = None
+    cur_id: int | None = None
+    truncated = False
+    while True:
+        page, next_ts, next_id = await queries.list_conversations_page(
+            kpi, casa_id=casa_id, wa_number_id=wa_number_id, since_days=since_days,
+            unanswered_only=unanswered, handler=handler_q, mode=mode_q,
+            search=search_q, mood=mood_q, status=status_q,
+            limit=100, cursor_ts=cur_ts, cursor_id=cur_id,
+        )
+        conv_rows.extend(page)
+        if len(conv_rows) >= _EXPORT_MAX_CONVS:
+            conv_rows = conv_rows[:_EXPORT_MAX_CONVS]
+            truncated = bool(next_ts)
+            break
+        if not next_ts:
+            break
+        cur_ts, cur_id = next_ts, next_id
+
+    threads: dict[int, list] = {}
+    for r in conv_rows:
+        threads[r.id] = await queries.list_messages_for_conversation(kpi, r.id)
+    return casa_name, mode_q, conv_rows, threads, truncated
+
+
+def _msg_speaker_text(m, contact_label: str) -> tuple[str, str]:
+    """(speaker_label, text) for a message — for the plain DOCX rendering."""
+    if m.direction == "in":
+        speaker = contact_label
+    elif getattr(m, "agent_generated", False):
+        speaker = "Sara"
+    else:
+        speaker = "Equipo"
+    text = (m.body or "").strip()
+    if not text and m.media_mime:
+        text = _MEDIA_LABEL.get(m.media_mime.split("/", 1)[0], "📎 Adjunto")
+    return speaker, (text or "[mensaje]")
+
+
+@router.get("/casas/{casa_id}/export/conversaciones", response_class=HTMLResponse)
+async def export_conversations_full(
+    casa_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+    wa: str = "all",
+    period: str = "all",
+    unanswered: bool = False,
+    search: str = "",
+    mood: str = "",
+    status: str = "",
+    handler: str = "",
+    mode: str = "",
+) -> HTMLResponse:
+    """Printable page with the FULL threads of every conversation matching the
+    current inbox filters. Open in a new tab → Ctrl+P → Save as PDF. Read-only."""
+    casa_name, mode_q, conv_rows, threads, truncated = await _collect_filtered_threads(
+        kpi, casa_id, wa, period, unanswered, search, mood, status, handler, mode)
+    body = _render_conversations_html(casa_name, period, mode_q or "", conv_rows, threads, truncated)
+    return HTMLResponse(body)
+
+
+@router.get("/casas/{casa_id}/export/conversaciones.docx")
+async def export_conversations_full_docx(
+    casa_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+    wa: str = "all",
+    period: str = "all",
+    unanswered: bool = False,
+    search: str = "",
+    mood: str = "",
+    status: str = "",
+    handler: str = "",
+    mode: str = "",
+) -> Response:
+    """One-click Word (.docx) download of the SAME filtered full conversations —
+    no print dialog needed. Opens in Word; export to PDF there if wanted."""
+    try:
+        from docx import Document  # type: ignore
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="python-docx no instalado — rebuild del contenedor necesario",
+        ) from exc
+
+    casa_name, mode_q, conv_rows, threads, truncated = await _collect_filtered_threads(
+        kpi, casa_id, wa, period, unanswered, search, mood, status, handler, mode)
+    period_txt = _PERIOD_LABEL.get(period, period)
+    mode_txt = _MODE_LABEL.get(mode_q or "", "todos los modos")
+    total_bot = sum(1 for r in conv_rows for m in threads.get(r.id, [])
+                    if m.direction == "out" and getattr(m, "agent_generated", False))
+    gen = datetime.now(_TZ).strftime("%d/%m/%Y %H:%M")
+
+    doc = Document()
+    doc.add_heading(f"Conversaciones de WhatsApp — {casa_name}", level=0)
+    doc.add_paragraph(
+        f"{period_txt} · {mode_txt} · generado {gen} · "
+        f"{len(conv_rows)} conversaciones · {total_bot} respuestas de Sara"
+    ).italic = True
+    if truncated:
+        doc.add_paragraph(f"(Mostrando las primeras {_EXPORT_MAX_CONVS}; "
+                          "afina el filtro para ver más.)")
+    if not conv_rows:
+        doc.add_paragraph("No hay conversaciones con este filtro.")
+
+    for r in conv_rows:
+        contact = r.contact_name or r.contact_phone or "Contacto"
+        when = r.last_message_at.astimezone(_TZ).strftime("%d/%m/%Y") if r.last_message_at else ""
+        msgs = threads.get(r.id, [])
+        bot_n = sum(1 for m in msgs if m.direction == "out" and getattr(m, "agent_generated", False))
+        doc.add_heading(f"{contact} · {when} · {bot_n} de Sara", level=2)
+        for m in msgs:
+            speaker, text = _msg_speaker_text(m, contact)
+            ts = m.created_at.astimezone(_TZ).strftime("%d/%m %H:%M")
+            p = doc.add_paragraph()
+            p.add_run(f"[{ts}] {speaker}: ").bold = True
+            p.add_run(text)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    fname = f"conversaciones-{casa_name}-{date.today().isoformat()}.docx"
+    safe = _safe_filename(fname)
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe}"; filename*=UTF-8\'\'{quote(fname)}',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def _pdf_soft_break(s: str, n: int = 45) -> str:
+    """Insert a space inside any unbroken run of >n chars (long URLs) so fpdf2's
+    multi_cell never overflows a single token."""
+    out: list[str] = []
+    run = 0
+    for ch in s:
+        out.append(ch)
+        if ch.isspace():
+            run = 0
+        else:
+            run += 1
+            if run >= n:
+                out.append(" ")
+                run = 0
+    return "".join(out)
+
+
+def _pdf_txt(s: str) -> str:
+    """fpdf2 core fonts are Latin-1 only. Map common typographic chars and drop
+    anything else (emojis) so the PDF never crashes on real client messages."""
+    if not s:
+        return ""
+    for k, v in (("—", "-"), ("–", "-"), ("…", "..."), ("“", '"'), ("”", '"'),
+                 ("‘", "'"), ("’", "'"), ("€", " EUR"), ("•", "-"),
+                 ("‍", ""), ("️", "")):
+        s = s.replace(k, v)
+    return _pdf_soft_break(s.encode("latin-1", "ignore").decode("latin-1"))
+
+
+def _render_conversations_pdf(casa_name, period, mode, conv_rows, threads, truncated) -> bytes:
+    """Draw the conversations as real chat BUBBLES (coloured, left/right aligned)
+    so the downloaded PDF keeps the on-screen design without depending on the
+    browser print dialog (which strips background colours by default)."""
+    from fpdf import FPDF  # type: ignore
+
+    period_txt = _PERIOD_LABEL.get(period, period)
+    mode_txt = _MODE_LABEL.get(mode or "", "todos los modos")
+    total_bot = sum(1 for r in conv_rows for m in threads.get(r.id, [])
+                    if m.direction == "out" and getattr(m, "agent_generated", False))
+    gen = datetime.now(_TZ).strftime("%d/%m/%Y %H:%M")
+
+    pdf = FPDF(format="A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_title(_pdf_txt(f"Conversaciones {casa_name}"))
+    pdf.add_page()
+    usable = pdf.w - pdf.l_margin - pdf.r_margin
+    inner_max = usable * 0.66  # max bubble width → clearly a chat, not full-width
+
+    def full(h: float, txt: str, size: int, style: str = "", rgb=(0, 0, 0),
+             fill_rgb=None) -> None:
+        pdf.set_font("Helvetica", style, size)
+        pdf.set_text_color(*rgb)
+        if fill_rgb:
+            pdf.set_fill_color(*fill_rgb)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, h, _pdf_txt(txt), new_x="LMARGIN", new_y="NEXT",
+                       fill=bool(fill_rgb))
+
+    full(9, f"Conversaciones de WhatsApp - {casa_name}", 16, "B")
+    full(6, f"{period_txt} - {mode_txt} - generado {gen} - "
+            f"{len(conv_rows)} conversaciones - {total_bot} respuestas de Sara", 10, "", (90, 90, 90))
+    if truncated:
+        full(6, f"(Mostrando las primeras {_EXPORT_MAX_CONVS}; afina el filtro.)", 9, "", (156, 69, 38))
+    pdf.ln(2)
+    if not conv_rows:
+        full(6, "No hay conversaciones con este filtro.", 11)
+
+    for r in conv_rows:
+        contact = r.contact_name or r.contact_phone or "Contacto"
+        when = r.last_message_at.astimezone(_TZ).strftime("%d/%m/%Y") if r.last_message_at else ""
+        msgs = threads.get(r.id, [])
+        bot_n = sum(1 for m in msgs if m.direction == "out" and getattr(m, "agent_generated", False))
+        pdf.ln(2)
+        full(7, f"{contact}   -   {when}   -   {bot_n} de Sara", 11, "B", (14, 71, 53), (224, 238, 231))
+        pdf.ln(1)
+        for m in msgs:
+            speaker, text = _msg_speaker_text(m, contact)
+            ts = m.created_at.astimezone(_TZ).strftime("%d/%m %H:%M")
+            out_side = m.direction == "out"
+            if m.direction == "in":
+                bubble, labelc, border = (255, 255, 255), (90, 90, 90), 1
+            elif getattr(m, "agent_generated", False):
+                bubble, labelc, border = (215, 245, 200), (22, 107, 58), 0
+            else:
+                bubble, labelc, border = (207, 230, 255), (18, 86, 160), 0
+            body = _pdf_txt(text)
+            pdf.set_font("Helvetica", "", 9)
+            w_est = pdf.get_string_width(body.replace("\n", " "))
+            bubble_w = min(inner_max, max(w_est + 6, 24))
+            x = (pdf.w - pdf.r_margin - bubble_w) if out_side else pdf.l_margin
+            # label (speaker · time) above the bubble, aligned to its side
+            pdf.set_font("Helvetica", "B", 7)
+            pdf.set_text_color(*labelc)
+            pdf.set_x(x)
+            pdf.cell(bubble_w, 3.8, _pdf_txt(f"{speaker}  ·  {ts}"),
+                     new_x="LMARGIN", new_y="NEXT", align="R" if out_side else "L")
+            # bubble body (filled box in the role colour)
+            pdf.set_font("Helvetica", "", 9)
+            pdf.set_text_color(30, 30, 30)
+            pdf.set_fill_color(*bubble)
+            pdf.set_draw_color(214, 222, 218)
+            pdf.set_x(x)
+            pdf.multi_cell(bubble_w, 5, body, border=border, align="L", fill=True,
+                           new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(1.5)
+        pdf.set_text_color(0, 0, 0)
+
+    return bytes(pdf.output())
+
+
+@router.get("/casas/{casa_id}/export/conversaciones.pdf")
+async def export_conversations_full_pdf(
+    casa_id: int,
+    user: CurrentUser,  # noqa: ARG001
+    kpi: KpiDB,
+    wa: str = "all",
+    period: str = "all",
+    unanswered: bool = False,
+    search: str = "",
+    mood: str = "",
+    status: str = "",
+    handler: str = "",
+    mode: str = "",
+) -> Response:
+    """One-click PDF download of the SAME filtered full conversations — no print
+    dialog, downloads straight to the browser like the CSV."""
+    try:
+        from fpdf import FPDF  # type: ignore  # noqa: F401
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="fpdf2 no instalado — rebuild del contenedor necesario",
+        ) from exc
+
+    casa_name, mode_q, conv_rows, threads, truncated = await _collect_filtered_threads(
+        kpi, casa_id, wa, period, unanswered, search, mood, status, handler, mode)
+    pdf_bytes = _render_conversations_pdf(casa_name, period, mode_q or "", conv_rows, threads, truncated)
+    fname = f"conversaciones-{casa_name}-{date.today().isoformat()}.pdf"
+    safe = _safe_filename(fname)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe}"; filename*=UTF-8\'\'{quote(fname)}',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 # ── Export metrics (CSV) ───────────────────────────────────────────

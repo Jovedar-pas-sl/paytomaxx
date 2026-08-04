@@ -29,6 +29,7 @@ from app.agent import style_harvest
 from app import queries
 from app.analyzer import progress as prog
 from app.analyzer import skills
+from app.notify import push_alert
 from app.settings import get_settings
 
 logger = logging.getLogger("analyzer.worker")
@@ -681,20 +682,22 @@ async def block_analyze_casa_job(
 
 
 async def waha_health_check_job(ctx: dict) -> None:
-    """Periodic (every 60s): iterate over wa_number, check WAHA session
-    status, persist phone when WORKING, and auto-recover FAILED/STOPPED.
+    """Periodic (every 60s): MONITOR each wa_number's WAHA session, persist the
+    phone when WORKING, and raise a badge alert when a paired line drops.
 
-    Stateful recovery via Redis (no long asyncio.sleep):
-      - wa:recov:{wa_id}:started      → ISO ts of first failure
-      - wa:recov:{wa_id}:next_stop_at → earliest next /stop attempt
-      - wa:recov:{wa_id}:next_start_at→ earliest next /start attempt
-      - wa:recov:{wa_id}:fails        → consecutive failures (circuit breaker)
+    IMPORTANT — this job NEVER resurrects a session (no start/create/restart/
+    delete). Auto-starting un-authed sessions makes NOWEB churn "attempting
+    registration…" from a single VPS IP, which WhatsApp punishes by logging out
+    the whole cluster — the real cause of the daily de-linking. Starting/pairing
+    is human-initiated (the Conectar modal, which sets wa:pairing:{session});
+    sessions with valid creds reconnect on their own inside NOWEB. The ONLY WAHA
+    write here is a /stop on a session stuck started-but-unauthed, to halt churn.
 
-    Each cron run does at most ONE WAHA call per WA (stop OR start OR delete).
+    Redis keys:
+      - wa:laststatus:{wa_id}   → prior status, to ack the alert on the down→up edge
+      - wa:pairing:{session}    → operator is actively pairing (set/refreshed by the
+                                  Conectar routes) → leave the line alone
     """
-    import time
-    from datetime import datetime, timezone
-
     kpi: asyncpg.Pool = ctx["kpi_db"]
     redis = ctx.get("redis")
     s = get_settings()
@@ -706,7 +709,7 @@ async def waha_health_check_job(ctx: dict) -> None:
     ) as waha:
         async with kpi.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT id, casa_id, session, label FROM wa_number"
+                "SELECT id, casa_id, session, label, phone FROM wa_number"
             )
 
         for wa in rows:
@@ -716,6 +719,8 @@ async def waha_health_check_job(ctx: dict) -> None:
             k_next_stop = f"wa:recov:{wa_id}:next_stop_at"
             k_next_start= f"wa:recov:{wa_id}:next_start_at"
             k_fails     = f"wa:recov:{wa_id}:fails"
+            k_laststatus= f"wa:laststatus:{wa_id}"
+            k_pairing   = f"wa:pairing:{session}"
 
             try:
                 info = (await waha.get(f"/api/sessions/{session}")).json()
@@ -727,6 +732,12 @@ async def waha_health_check_job(ctx: dict) -> None:
             me = info.get("me") or {}
             me_jid = (me.get("id") or "").split("@")[0] or None
 
+            # Remember the prior status so we can detect a WORKING → down DROP
+            # (the moment a live line falls) exactly once.
+            prev_status = await redis.get(k_laststatus) if redis else None
+            if redis:
+                await redis.set(k_laststatus, status or "UNKNOWN", ex=7 * 24 * 3600)
+
             # ── HEALTHY: WORKING → persist phone, clear recovery state ──
             if status == "WORKING":
                 if me_jid:
@@ -735,110 +746,98 @@ async def waha_health_check_job(ctx: dict) -> None:
                             "UPDATE wa_number SET phone = $1 WHERE id = $2 AND (phone IS NULL OR phone != $1)",
                             me_jid, wa_id,
                         )
+                # Reconnected → clear any open "needs re-pair" alert for THIS line.
+                # Run the ack whenever the prior status was NOT a known WORKING —
+                # including None (Redis lost k_laststatus, or first tick). If we
+                # gated on `prev_status and ...`, a Redis flush between the drop and
+                # the recovery would skip the ack forever and leave a phantom badge
+                # (wa_needs_pair never ages out). The extra message-LIKE scan only
+                # runs on the down→up edge (next tick prev_status becomes WORKING).
+                if prev_status != "WORKING":
+                    async with kpi.acquire() as conn:
+                        await conn.execute(
+                            "UPDATE alert SET acknowledged_at = now() "
+                            "WHERE type = 'wa_needs_pair' AND acknowledged_at IS NULL "
+                            "AND message LIKE $1",
+                            f"%[wa:{wa_id}]%",
+                        )
                 if redis:
                     await redis.delete(k_started, k_next_stop, k_next_start, k_fails)
                 continue
 
-            # ── UNHEALTHY: stateful recovery ──
-            now = time.time()
-            started_raw = await redis.get(k_started) if redis else None
-            if started_raw:
-                try:
-                    downtime_min = (now - float(started_raw)) / 60
-                except (TypeError, ValueError):
-                    downtime_min = 0.0
-            else:
-                if redis:
-                    await redis.set(k_started, str(now))
-                downtime_min = 0.0
+            # ── NOT WORKING ─────────────────────────────────────────────────
+            # We NEVER resurrect a session here. Repeatedly starting an un-authed
+            # session makes NOWEB churn registration attempts from our single IP,
+            # which WhatsApp punishes by logging out the whole cluster (the daily
+            # de-linking). So: leave a line alone while it's actively being paired,
+            # alert once if a previously-paired line dropped, and STOP a line stuck
+            # started-but-unauthed so it stops hammering WhatsApp.
 
-            # Circuit breaker: stop retrying after 60 consecutive failures
-            fails = int(await redis.get(k_fails) or 0) if redis else 0
-            if fails >= 60:
-                # Alert once per hour while circuit is open, but don't hammer WAHA
-                if fails % 60 == 0:
-                    logger.error(
-                        "healthcheck: circuit OPEN for wa %s (%s) — %d fails, giving up auto-recovery",
-                        wa["label"], session, fails,
-                    )
-                if redis:
-                    await redis.incr(k_fails)
+            # Purge leftover state from the old auto-recover logic.
+            if redis:
+                await redis.delete(k_started, k_next_stop, k_next_start, k_fails)
+
+            # Operator actively pairing? (flag set/refreshed by the Conectar routes,
+            # short TTL). Leave the line in SCAN_QR to be scanned — don't stop it.
+            pairing = bool(await redis.get(k_pairing)) if redis else False
+            if pairing:
                 continue
 
-            # Throttled alert (≤1/10min)
-            async with kpi.acquire() as conn:
-                recent_alert = await conn.fetchval(
-                    """
-                    SELECT 1 FROM alert
-                    WHERE type = 'wa_disconnected' AND inbox_id = $1
-                      AND created_at > now() - interval '10 minutes'
-                    LIMIT 1
-                    """,
-                    wa["casa_id"],
-                )
-                if not recent_alert:
-                    await conn.execute(
-                        """
-                        INSERT INTO alert (type, severity, inbox_id, message)
-                        VALUES ('wa_disconnected', 'warning', $1, $2)
-                        """,
-                        wa["casa_id"],
-                        f"WA '{wa['label']}' ({session}) status={status} "
-                        f"(downtime {int(downtime_min)}min), auto-recovering",
+            # Previously paired (phone persisted on WORKING) and now down → it lost
+            # auth. Alert to RE-VINCULAR (idempotent, badge-visible). Never auto-start.
+            if wa["phone"]:
+                newly_down = False
+                async with kpi.acquire() as conn:
+                    exists = await conn.fetchval(
+                        "SELECT 1 FROM alert WHERE type = 'wa_needs_pair' "
+                        "AND acknowledged_at IS NULL AND message LIKE $1 LIMIT 1",
+                        f"%[wa:{wa_id}]%",
+                    )
+                    if not exists:
+                        await conn.execute(
+                            "INSERT INTO alert (type, severity, inbox_id, message) "
+                            "VALUES ('wa_needs_pair', 'critical', $1, $2)",
+                            wa["casa_id"],
+                            f"WA '{wa['label']}' ({session}) se desconectó — hay que "
+                            f"RE-VINCULAR (escanea el QR o pide el código en Conexiones). [wa:{wa_id}]",
+                        )
+                        newly_down = True
+                # One-shot Telegram heads-up the moment a live line drops — fired
+                # OUTSIDE the DB connection (the HTTP call must not hold a pooled
+                # conn) and only on the fresh insert (once per outage, not every
+                # tick). push_alert is fail-soft: no-op when Telegram is unset,
+                # never raises.
+                if newly_down:
+                    logger.warning(
+                        "healthcheck: %s (%s) down (status=%s) — needs re-pair",
+                        wa["label"], session, status,
+                    )
+                    await push_alert(
+                        f"⚠️ WhatsApp caído\n\n"
+                        f"Línea: {wa['label']} ({session})\n"
+                        f"Necesita RE-VINCULAR: panel → Conexiones → Conectar → "
+                        f"código de 8 dígitos."
                     )
 
-            # Pick action based on stage + schedule
-            next_stop  = float(await redis.get(k_next_stop)  or 0) if redis else 0
-            next_start = float(await redis.get(k_next_start) or 0) if redis else 0
-
-            async def _bump_fail():
-                if redis:
-                    await redis.incr(k_fails)
-
-            try:
-                if downtime_min < 15:
-                    # Stage 1-2: gentle stop → wait → start. Driven by schedule.
-                    if status == "FAILED" and now >= next_stop:
-                        try:
-                            await waha.post(f"/api/sessions/{session}/stop")
-                        except Exception:
-                            pass
-                        wait_secs = 5 if downtime_min < 2 else 30
-                        if redis:
-                            await redis.set(k_next_start, str(now + wait_secs))
-                            await redis.set(k_next_stop, str(now + 600))  # avoid re-stop loop
-                    elif now >= next_start:
-                        try:
-                            await waha.post(f"/api/sessions/{session}/start")
-                        except Exception:
-                            await _bump_fail()
-                        if redis:
-                            await redis.set(k_next_start, str(now + 60))  # try again next cron if still failing
-                            await redis.set(k_fails, str(fails + 1))
-                else:
-                    # Stage 3 (>15min): delete+recreate. LOSES auth → QR rescan needed.
-                    async with kpi.acquire() as conn:
-                        await conn.execute(
-                            """
-                            INSERT INTO alert (type, severity, inbox_id, message)
-                            VALUES ('wa_needs_qr', 'critical', $1, $2)
-                            """,
-                            wa["casa_id"],
-                            f"WA '{wa['label']}' lleva >15min en FAILED. "
-                            f"Auto-reset — SE REQUIERE ESCANEAR QR de nuevo.",
-                        )
-                    try:
-                        await waha.delete(f"/api/sessions/{session}")
-                    except Exception:
-                        pass
-                    if redis:
-                        # Defer create to next cron tick (no sleep here)
-                        await redis.set(k_next_start, str(now + 10))
-                        await redis.delete(k_started)  # reset window after nuke
-                        await redis.set(k_fails, "0")
-            except Exception:
-                logger.exception("auto-restart step failed for %s", session)
-                await _bump_fail()
+            # HALT THE CHURN: a line sitting in SCAN_QR_CODE (actively soliciting a
+            # pairing/registration) that nobody is pairing is just hammering WhatsApp
+            # from our IP. Stop it (one best-effort call); it stays stopped until a
+            # human opens Conectar. This is THE fix for the daily mass de-linking.
+            # NOTE: only SCAN_QR_CODE — NOT STARTING. An already-authed session
+            # passes through STARTING with `me` not yet populated while it restores
+            # its creds (e.g. right after the mandatory `restart waha` on deploy);
+            # stopping it there would kill a live line that would have reconnected.
+            if status == "SCAN_QR_CODE" and not me_jid:
+                try:
+                    await waha.post(f"/api/sessions/{session}/stop")
+                    logger.info(
+                        "healthcheck: stopped idle un-authed session %s to halt churn",
+                        session,
+                    )
+                except Exception:
+                    logger.warning("healthcheck: stop failed for %s", session, exc_info=True)
+            # STARTING / STOPPED / FAILED / UNKNOWN → leave as-is (never auto-start).
+            continue
 
 
 async def block_analyze_sweep_job(ctx: dict) -> None:
@@ -883,10 +882,11 @@ async def block_analyze_sweep_job(ctx: dict) -> None:
 
 async def harvest_style_examples_job(ctx: dict) -> None:
     """CRON (daily): harvest real HUMAN receptionist replies per casa into
-    `casa_style_example` as status='pending' for super-admin review (Wave 2 —
-    Sara learns from how the team replies). Pure read+insert (no LLM, no sends,
-    no sleeps), each casa fault-isolated so one casa's failure never tumbles the
-    sweep. The actual sanitization/classification lives in app.agent.style_harvest."""
+    `casa_style_example` (Wave 2 — Sara learns from how the team replies). Replies
+    the encargada REPEATS (>= STYLE_AUTO_APPROVE_MIN times) auto-approve so the bot
+    learns them with no manual review; one-offs land as 'pending' for the super-admin
+    (/ajustes/estilo). Pure read+upsert (no LLM, no sends, no sleeps), each casa
+    fault-isolated. Sanitization/classification lives in app.agent.style_harvest."""
     kpi: asyncpg.Pool = ctx["kpi_db"]
     try:
         casas = await queries.list_casas(kpi)
@@ -902,6 +902,100 @@ async def harvest_style_examples_job(ctx: dict) -> None:
     logger.info("style_harvest: inserted %d new style-example candidate(s)", total)
 
 
+_AUTO_MERGE_MIN_CONFIDENCE = 0.85  # unattended: only merge when the IA is very sure
+
+
+async def auto_merge_sweep_job(ctx: dict) -> None:
+    """CRON (~every 10 min): AUTOMATICALLY merge the clear @c.us/@lid duplicate of the
+    same client that the webhook flagged as `merge_suggestion`. Two independent gates
+    guard the destructive (but now REVERSIBLE) merge, and BOTH must agree:
+
+      1. DETERMINISTIC structural match — the single complementary sibling on the
+         SAME WhatsApp line (queries.find_structural_merge_sibling). This alone
+         rules out fusing two unrelated clients.
+      2. IA CONFIRMS that specific pair at high confidence (>= the threshold).
+
+    The merge itself snapshots the source into merge_event (undo), preserves the
+    phone, and acks the source's alerts atomically — so the sweep never acks a
+    suggestion it didn't actually merge. Runs in the WORKER (never from the
+    webhook); a Redis flag bounds the Claude cost to one confirm per conv / 6h."""
+    from app.agent import rate_limit
+    from app.dedup import confirm_same_client
+
+    kpi: asyncpg.Pool = ctx["kpi_db"]
+    redis = ctx.get("redis")
+    arq = ctx.get("arq")
+
+    async with kpi.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT conversation_id FROM alert "
+            "WHERE type = 'merge_suggestion' AND acknowledged_at IS NULL "
+            "AND conversation_id IS NOT NULL "
+            "ORDER BY created_at DESC LIMIT 10"
+        )
+
+    for r in rows:
+        conv_id = r["conversation_id"]
+        # Don't re-run the IA on the same conversation more than once per 6h.
+        if redis and not await redis.set(f"merge:checked:{conv_id}", "1", nx=True, ex=6 * 3600):
+            continue
+        merged = False
+        target_id = None
+        try:
+            # Gate 1: deterministic — the single complementary sibling on this line.
+            sibling_id = await queries.find_structural_merge_sibling(kpi, conv_id)
+            if not sibling_id:
+                continue  # no clean structural duplicate → leave the suggestion
+            # Gate 2: IA confirms THAT exact pair (and returns THAT id).
+            result = await confirm_same_client(kpi, conv_id, sibling_id)
+            if (not result or result.best_match_id != sibling_id
+                    or result.confidence < _AUTO_MERGE_MIN_CONFIDENCE):
+                continue  # not confident → leave the suggestion for a human
+            # Serialize against the reply pipeline: NEVER merge (and delete) a
+            # conversation that an auto_reply job is working on — that would drop or
+            # crash the in-flight reply (message.conversation_id is FK ON DELETE
+            # CASCADE). Take the SAME per-conversation lock auto_reply uses, for BOTH
+            # convs; if either is held, skip this pair and retry next tick.
+            if not await rate_limit.acquire_conv_lock(redis, conv_id):
+                continue
+            try:
+                if not await rate_limit.acquire_conv_lock(redis, sibling_id):
+                    continue
+                try:
+                    await queries.merge_conversation_into(
+                        kpi, conv_id, sibling_id, triggered_by="auto",
+                        confidence=result.confidence, reasoning=result.reasoning,
+                    )
+                    merged = True
+                    target_id = sibling_id
+                finally:
+                    await rate_limit.release_conv_lock(redis, sibling_id)
+            finally:
+                await rate_limit.release_conv_lock(redis, conv_id)
+        except ValueError:
+            continue  # stale / invalid pair → leave it
+        except Exception:
+            logger.exception("auto-merge sweep: failed for conv %s", conv_id)
+            continue
+
+        if merged:
+            # The client's incoming turn moved into the survivor. The reply job that
+            # was enqueued for the (now deleted) source will no-op, so schedule one
+            # for the survivor — auto_reply_job re-checks mode + whether a reply is
+            # actually needed, so this is a cheap no-op when it isn't.
+            if arq is not None:
+                try:
+                    await arq.enqueue_job("auto_reply_job", target_id, _defer_by=8)
+                except Exception:
+                    logger.warning(
+                        "auto-merge sweep: could not enqueue reply for %s", target_id, exc_info=True
+                    )
+            logger.info(
+                "auto-merge sweep: merged conv %s → %s (conf %.2f)",
+                conv_id, target_id, result.confidence,
+            )
+
+
 class WorkerSettings:
     functions = [
         block_analyze_casa_job,
@@ -911,8 +1005,10 @@ class WorkerSettings:
     ]
     cron_jobs = [
         cron(waha_health_check_job, minute=set(range(60))),  # every minute
-        # Mirror each casa's LIVE website (config + girls) into the DB every
-        # ~20 min — bounded HTTP fetch per casa, fault-tolerant (website_sync).
+        # Mirror each WEB-mode casa's LIVE website (config + girls) into the DB every
+        # ~20 min. Casas in "Backoffice/manual" mode (Ficha del día) are SKIPPED —
+        # the panel is their source of truth; the operator imports those on demand
+        # via the panel's "Sincronizar desde la web" button (website_sync.sync_all).
         cron(website_sync_job, minute={0, 20, 40}),
         # Find abandoned quotes (Sara quoted a price, client went silent) and
         # enqueue ONE re-engagement nudge each. Cheap: find + enqueue only, no
@@ -927,6 +1023,10 @@ class WorkerSettings:
         # approved ones are injected into Sara's prompt (most relevant to the
         # client's message first) so she learns how the team answers each situation.
         cron(harvest_style_examples_job, hour={4}, minute={30}),
+        # Auto-merge duplicate conversations of the same client (@c.us vs @lid),
+        # every 10 min, IA-gated at high confidence. Restores the "it merges by
+        # itself" behaviour from the Evolution era, safely.
+        cron(auto_merge_sweep_job, minute={2, 12, 22, 32, 42, 52}),
     ]
     on_startup = startup
     on_shutdown = shutdown

@@ -15,7 +15,7 @@ from app import team
 from app.auth import hash_password, verify_password
 from app.deps import require_roles
 from app.models import AdminUser
-from app.routes.settings_routes import _valid_email
+from app.routes.settings_routes import _meta_detail, _valid_email
 
 
 # ── Unit: model role helpers ─────────────────────────────────────────
@@ -57,6 +57,27 @@ def test_password_roundtrip() -> None:
 )
 def test_valid_email(email: str, ok: bool) -> None:
     assert _valid_email(email) is ok
+
+
+# ── Unit: audit meta → readable detail ───────────────────────────────
+def test_meta_detail_from_dict() -> None:
+    assert _meta_detail({"session": "vlc-334"}) == "vlc-334"
+    assert _meta_detail({"label": "Recepción", "session": "vlc"}) == "Recepción · vlc"
+    assert _meta_detail({"mode": "auto"}) == "auto"
+
+
+def test_meta_detail_tolerates_json_string() -> None:
+    # asyncpg may hand back JSONB as a raw JSON string depending on codecs.
+    assert _meta_detail('{"session": "p4a"}') == "p4a"
+
+
+def test_meta_detail_empty_or_bad_is_blank() -> None:
+    assert _meta_detail(None) == ""
+    assert _meta_detail("") == ""
+    assert _meta_detail("not json") == ""
+    assert _meta_detail(123) == ""
+    assert _meta_detail({}) == ""
+    assert _meta_detail({"phone": ""}) == ""   # blank values are skipped
 
 
 # ── Unit: require_roles guard ────────────────────────────────────────

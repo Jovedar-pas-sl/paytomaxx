@@ -307,3 +307,52 @@ async def record_send(redis, session: str) -> None:
         await pipe.execute()
     except Exception as exc:  # fail-safe: never raise from recording
         logger.warning("rate_limit.record_send: redis error (ignored) session=%s err=%s", session, exc)
+
+
+# ── Per-conversation reply lock ──────────────────────────────────────
+# Serializes auto_reply for a single conversation so two CONCURRENT jobs (a double
+# webhook event message/message.any, or two messages straddling the debounce
+# bucket) can't both slip past the idempotency check and double-reply. Best-effort
+# + FAIL-OPEN: a Redis outage must never silence the bot (the post-delay
+# idempotency re-check in auto_reply is the backstop). The TTL bounds a crashed job
+# so a stale lock self-heals. Sized above a realistic worst-case job: two Claude
+# calls (guardrails + generation) that can each retry up to ~30s, + the human-like
+# delay + send. The post-delay idempotency re-check is the backstop if it still
+# expires mid-job under a degraded LLM API.
+_LOCK_TTL_S = 180
+
+
+def _lock_key(conversation_id: int) -> str:
+    """Per-conversation lock key, e.g. agent:rl:lock:42."""
+    return f"{_KEY_PREFIX}:lock:{conversation_id}"
+
+
+async def acquire_conv_lock(redis, conversation_id: int) -> bool:
+    """Try to claim the per-conversation reply lock. Returns True to PROCEED
+    (acquired, OR redis unavailable → fail-open), False ONLY when another job holds
+    it. Never raises."""
+    if redis is None:
+        return True
+    try:
+        got = await redis.set(_lock_key(conversation_id), "1", nx=True, ex=_LOCK_TTL_S)
+        return bool(got)
+    except Exception as exc:  # fail-OPEN: never silence the bot on a redis error
+        logger.warning(
+            "rate_limit.acquire_conv_lock: redis error (fail-open) conv=%s err=%s",
+            conversation_id, exc,
+        )
+        return True
+
+
+async def release_conv_lock(redis, conversation_id: int) -> None:
+    """Release the per-conversation reply lock. Never raises — a failed release just
+    self-heals when the lock's TTL expires."""
+    if redis is None:
+        return
+    try:
+        await redis.delete(_lock_key(conversation_id))
+    except Exception as exc:  # noqa: BLE001 — a failed release self-heals on TTL
+        logger.warning(
+            "rate_limit.release_conv_lock: redis error (ignored) conv=%s err=%s",
+            conversation_id, exc,
+        )

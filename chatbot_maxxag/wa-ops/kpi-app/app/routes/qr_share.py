@@ -33,6 +33,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from app.deps import CurrentUser, KpiDB, Redis, Waha
+from app.pairing import mark_pairing
 from app.template_env import templates
 from app.settings import get_settings
 
@@ -156,6 +157,9 @@ async def public_qr_page(
             {"expired": True, "label": None, "token": token},
             status_code=404,
         )
+    # The mamai is opening the shared QR → mark the line as being paired so the
+    # health-check leaves its SCAN_QR session up instead of stopping it mid-scan.
+    await mark_pairing(redis, row["session"])
     return templates.TemplateResponse(
         request, "qr_share.html",
         {"expired": False, "label": row["label"], "token": token, "session": row["session"]},
@@ -178,6 +182,9 @@ async def public_qr_png(
         row = await conn.fetchrow("SELECT session FROM wa_number WHERE id = $1", wa_id)
     if not row:
         return Response(status_code=404)
+
+    # Actively-polled shared QR → keep the line protected from the churn-stop.
+    await mark_pairing(redis, row["session"])
 
     # Check session status — if WORKING, invalidate token (paired successfully)
     try:
@@ -221,6 +228,8 @@ async def public_qr_status(
         row = await conn.fetchrow("SELECT session FROM wa_number WHERE id = $1", wa_id)
     if not row:
         return JSONResponse({"status": "NOT_FOUND"}, status_code=404)
+    # Actively-polled shared QR → keep the line protected from the churn-stop.
+    await mark_pairing(redis, row["session"])
     try:
         sess = await waha.get_session(row["session"])
         status_str = sess.get("status", "UNKNOWN")

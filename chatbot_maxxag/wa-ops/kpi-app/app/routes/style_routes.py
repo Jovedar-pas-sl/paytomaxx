@@ -20,7 +20,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from app import queries
+from app import queries, team
 from app.agent import style_harvest
 from app.deps import KpiDB, RequireSuperAdmin
 from app.template_env import templates
@@ -63,7 +63,7 @@ async def estilo_page(
 
 @router.post("/ajustes/estilo/refresh")
 async def refresh_examples(
-    user: RequireSuperAdmin,  # noqa: ARG001 — super-admin gate
+    user: RequireSuperAdmin,
     kpi: KpiDB,
 ) -> Response:
     """On-demand harvest: collect NEW human-receptionist replies into pending
@@ -82,6 +82,10 @@ async def refresh_examples(
             total += await style_harvest.harvest_casa(kpi, casa.account_id)
         except Exception:
             logger.exception("estilo refresh: harvest failed casa=%s", casa.account_id)
+    await team.audit(
+        kpi, action="style_refresh", actor_label=user.display_name, user_id=user.id,
+        meta={"new": total},
+    )
     if total:
         return _redirect(f"{total} respuestas nuevas para revisar 👇")
     return _redirect("Sin respuestas nuevas — ya estaban todas revisadas")
@@ -102,7 +106,12 @@ async def approve_example(
     user: RequireSuperAdmin,
     kpi: KpiDB,
 ) -> Response:
-    return await _decide(kpi, eid, "approved")
+    resp = await _decide(kpi, eid, "approved")
+    await team.audit(
+        kpi, action="style_approve", actor_label=user.display_name, user_id=user.id,
+        entity_type="style_example", entity_id=eid,
+    )
+    return resp
 
 
 @router.post("/ajustes/estilo/{eid}/reject")
@@ -111,4 +120,9 @@ async def reject_example(
     user: RequireSuperAdmin,
     kpi: KpiDB,
 ) -> Response:
-    return await _decide(kpi, eid, "rejected")
+    resp = await _decide(kpi, eid, "rejected")
+    await team.audit(
+        kpi, action="style_reject", actor_label=user.display_name, user_id=user.id,
+        entity_type="style_example", entity_id=eid,
+    )
+    return resp

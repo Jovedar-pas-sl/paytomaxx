@@ -438,6 +438,12 @@
         Inbox
         <span id="nav-unread-badge" class="ml-auto hidden mono rounded-full bg-amber px-1.5 text-[10px] font-bold leading-tight text-bg"></span>
       </a>
+      {% if user.is_admin %}
+      <a href="/chicas" class="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors {% if p.startswith('/chicas') or p.endswith('/ficha') %}bg-accent-soft font-semibold text-accent{% else %}font-medium text-muted hover:bg-surface-2 hover:text-text{% endif %}">
+        <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Chicas
+      </a>
+      {% endif %}
       <a href="/sessions" class="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors {% if p.startswith('/sessions') %}bg-accent-soft font-semibold text-accent{% else %}font-medium text-muted hover:bg-surface-2 hover:text-text{% endif %}">
         <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
         WhatsApp

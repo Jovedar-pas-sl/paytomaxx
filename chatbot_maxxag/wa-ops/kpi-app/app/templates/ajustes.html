@@ -7,7 +7,14 @@
 {% set action_labels = {
   'login':'Inició sesión','user_create':'Creó usuario','user_active':'Activó/desactivó',
   'user_role':'Cambió rol','user_password':'Reset contraseña','user_casas':'Asignó casas',
-  'message_sent':'Envió mensaje','sara_mode':'Cambió modo de Sara','informe_delete':'Borró informe'
+  'message_sent':'Envió mensaje','sara_mode':'Cambió modo de Sara','informe_delete':'Borró informe',
+  'sara_pause':'Pausó a Sara','sara_resume':'Reanudó a Sara',
+  'wa_start':'Inició WhatsApp','wa_stop':'Paró WhatsApp','wa_restart':'Reinició WhatsApp',
+  'wa_logout':'Desconectó WhatsApp','wa_create':'Añadió WhatsApp','wa_edit':'Editó WhatsApp',
+  'wa_delete':'Borró WhatsApp','wa_mode':'Cambió modo del bot','casa_create':'Creó casa',
+  'wa_pairing_code':'Pidió código de vinculación',
+  'style_refresh':'Buscó ejemplos de estilo','style_approve':'Aprobó ejemplo de estilo',
+  'style_reject':'Rechazó ejemplo de estilo'
 } %}
 
 <div class="mb-6 flex items-start justify-between gap-4">
@@ -160,7 +167,8 @@
       <span class="mono shrink-0 text-[11px] text-muted-2">{{ a.at.strftime('%d/%m %H:%M') }}</span>
       <span class="shrink-0 font-medium text-text">{{ a.actor_label }}</span>
       <span class="text-muted">{{ action_labels.get(a.action, a.action) }}</span>
-      {% if a.entity_type %}<span class="text-muted-2">· {{ a.entity_type }}{% if a.entity_id %} #{{ a.entity_id }}{% endif %}</span>{% endif %}
+      {% if a.detail %}<span class="truncate text-muted-2">· {{ a.detail }}</span>
+      {% elif a.entity_type %}<span class="text-muted-2">· {{ a.entity_type }}{% if a.entity_id %} #{{ a.entity_id }}{% endif %}</span>{% endif %}
     </li>
     {% endfor %}
   </ul>

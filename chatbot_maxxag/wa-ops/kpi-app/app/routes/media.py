@@ -11,14 +11,26 @@ Authentication: behind CurrentUser (same as the rest of the dashboard).
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
+from app import girl_media
 from app.deps import CurrentUser, KpiDB, Waha
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+@router.get("/media/girls/{filename}")
+async def get_girl_photo(filename: str, user: CurrentUser) -> Response:  # noqa: ARG001
+    """Sirve una foto de chica subida a mano (Ficha del día). Tras login. El nombre
+    se valida contra un uuid.ext y se acota a la carpeta de fotos (sin traversal)."""
+    path = girl_media.safe_media_path(filename)
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto no encontrada")
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
 
 
 @router.get("/media/{message_id}")

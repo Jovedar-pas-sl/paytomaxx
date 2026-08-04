@@ -13,6 +13,8 @@ mutation writes a lean audit_log entry.
 """
 from __future__ import annotations
 
+import json
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Request, status
@@ -27,6 +29,39 @@ router = APIRouter()
 
 _ROLES: set[str] = {"super_admin", "admin", "agent"}
 _MIN_PASSWORD = 8
+
+# Which meta keys to surface (in order) as the human-readable "· detalle" of an
+# audit line. Keeps the feed readable ("Inició WhatsApp · vlc-334") without the
+# template needing to know each action's meta shape.
+_AUDIT_META_KEYS = ("label", "session", "name", "mode", "phone", "email", "new")
+
+
+def _meta_detail(meta: Any) -> str:
+    """Compact one-line detail from an audit row's meta. Tolerates asyncpg
+    returning JSONB as either a dict or a raw JSON string, and never raises."""
+    if not meta:
+        return ""
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except (ValueError, TypeError):
+            return ""
+    if not isinstance(meta, dict):
+        return ""
+    parts = [str(meta[k]) for k in _AUDIT_META_KEYS if meta.get(k) not in (None, "")]
+    return " · ".join(parts)
+
+
+def _audit_view(row: Any) -> dict[str, Any]:
+    """Shape an audit_log record for the Ajustes activity feed."""
+    return {
+        "at": row["at"],
+        "actor_label": row["actor_label"],
+        "action": row["action"],
+        "entity_type": row["entity_type"],
+        "entity_id": row["entity_id"],
+        "detail": _meta_detail(row["meta"]),
+    }
 
 
 def _redirect(msg: str, *, ok: bool = True) -> RedirectResponse:
@@ -48,7 +83,7 @@ async def ajustes_page(
     users = await team.list_users(kpi)
     assignments = await team.get_all_casa_assignments(kpi)
     casas = await queries.list_casas(kpi)
-    audit = await team.list_recent_audit(kpi, limit=50)
+    audit = [_audit_view(r) for r in await team.list_recent_audit(kpi, limit=100)]
     return templates.TemplateResponse(
         request,
         "ajustes.html",

@@ -47,17 +47,19 @@ def _girl(**over) -> GirlRow:
 
 
 # ── persona.build_outcall_block (pure) ────────────────────────────────
-def test_outcall_block_quotes_breakdown_and_forbids_recompute():
-    block = persona.build_outcall_block(150, 40, "es")
+def test_outcall_block_quotes_base_and_taxi_range():
+    block = persona.build_outcall_block(150, 60, 110, "es")
     assert "PRECIO DE DESPLAZAMIENTO" in block
-    assert "150€" in block and "40€" in block   # the exact base + taxi breakdown
-    assert "domicilio" in block                  # presented as a breakdown
-    assert "NO los recalcules" in block          # never recompute
-    assert "NUNCA menciones" in block            # internal / never-quote
+    assert "150€" in block                          # the domicilio base
+    assert "60€" in block and "110€" in block       # the taxi RANGE (low-high)
+    assert "domicilio" in block
+    assert "rondar" in block                         # given as a range…
+    assert "NUNCA una cifra exacta" in block         # …never an exact figure
+    assert "NUNCA menciones" in block                # internal / never-quote
 
 
 def test_outcall_block_defer_asks_for_pin_and_invents_nothing():
-    block = persona.build_outcall_block(None, None, "es")
+    block = persona.build_outcall_block(None, None, None, "es")
     assert "DESPLAZAMIENTO SIN PRECIO" in block
     assert "NO inventes" in block
     assert "📍" in block                     # ask for the location pin
@@ -66,25 +68,25 @@ def test_outcall_block_defer_asks_for_pin_and_invents_nothing():
 
 
 def test_outcall_block_falls_back_to_default_lang():
-    block = persona.build_outcall_block(120, 30, "de")  # unknown lang → es
+    block = persona.build_outcall_block(120, 40, 90, "de")  # unknown lang → es
     assert "PRECIO DE DESPLAZAMIENTO" in block
-    assert "120€" in block and "30€" in block
+    assert "120€" in block and "40€" in block and "90€" in block
 
 
 def test_outcall_block_localized_en():
-    block = persona.build_outcall_block(160, 40, "en")
+    block = persona.build_outcall_block(160, 50, 100, "en")
     assert "OUTCALL PRICE" in block
-    assert "160€" in block and "40€" in block
-    assert "NOT recompute" in block
+    assert "160€" in block and "50€" in block and "100€" in block
+    assert "NEVER an exact figure" in block
 
 
 def test_echoed_outcall_label_is_caught_by_leak_detector():
     """If Sara echoes the internal outcall label, the leak detector discards it."""
-    assert reply_engine._has_leak(persona.build_outcall_block(150, 40, "es")) is True
-    assert reply_engine._has_leak(persona.build_outcall_block(None, None, "es")) is True
-    assert reply_engine._has_leak(persona.build_outcall_block(160, 40, "en")) is True
+    assert reply_engine._has_leak(persona.build_outcall_block(150, 60, 110, "es")) is True
+    assert reply_engine._has_leak(persona.build_outcall_block(None, None, None, "es")) is True
+    assert reply_engine._has_leak(persona.build_outcall_block(160, 50, 100, "en")) is True
     # A clean priced reply (just the numbers, no label) passes.
-    assert reply_engine._has_leak("son 150€ + 40€ de taxi, guapo 😘") is False
+    assert reply_engine._has_leak("son 150€ + el taxi, guapo 😘") is False
 
 
 # ── generate_reply injection (mocked DB + Claude call) ────────────────
@@ -122,11 +124,13 @@ async def test_precomputed_total_injected_into_system_not_user(monkeypatch):
     captured = _patch_common(monkeypatch)
     await generate_reply(
         _FakePool(), casa_id=1, conv_id=42, incoming_text="cuanto el desplazamiento",
-        lang="es", client_name="Juan", outcall_base_eur=150, outcall_taxi_eur=40,
+        lang="es", client_name="Juan", outcall_base_eur=150,
+        outcall_taxi_low=60, outcall_taxi_high=110,
     )
     system = captured["system"]
     assert "PRECIO DE DESPLAZAMIENTO" in system
-    assert "150€" in system and "40€" in system   # verbatim breakdown in the system block
+    # base + taxi range injected verbatim in the system block
+    assert "150€" in system and "60€" in system and "110€" in system
     assert "PRECIO DE DESPLAZAMIENTO" not in captured["user"]  # never on the client edge
     assert "150€" not in captured["user"]
 
@@ -165,8 +169,10 @@ async def test_total_takes_precedence_over_defer(monkeypatch):
     await generate_reply(
         _FakePool(), casa_id=1, conv_id=42, incoming_text="precio",
         lang="es", client_name="Juan",
-        outcall_base_eur=180, outcall_taxi_eur=40, outcall_defer=True,
+        outcall_base_eur=180, outcall_taxi_low=70, outcall_taxi_high=130,
+        outcall_defer=True,
     )
     assert "PRECIO DE DESPLAZAMIENTO" in captured["system"]
-    assert "180€" in captured["system"] and "40€" in captured["system"]
+    assert "180€" in captured["system"]
+    assert "70€" in captured["system"] and "130€" in captured["system"]
     assert "DESPLAZAMIENTO SIN PRECIO" not in captured["system"]

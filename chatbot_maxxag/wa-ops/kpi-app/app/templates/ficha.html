@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+{% block title %}Ficha del día · {{ casa_name }} — Maxxag Ops{% endblock %}
+
+{% block content %}
+{% set ok_msg = {
+  'chica': 'Chica guardada ✓',
+  'precios': 'Precios guardados ✓',
+  'modo': 'Modo actualizado ✓',
+  'sync': 'Sincronización lanzada · las chicas nuevas y fotos aparecerán en unos segundos 🔄'
+} %}
+{% if ok and ok in ok_msg %}
+<div class="mb-4 flex items-center gap-2 rounded-lg border border-green/30 bg-green/10 px-3 py-2 text-[13px] font-medium text-green">
+  {{ ok_msg[ok] }}
+</div>
+{% endif %}
+
+{# ── Cabecera ──────────────────────────────────────────────────── #}
+<div class="mb-4">
+  <a href="/chicas" class="text-[12px] text-muted transition hover:text-text">← Chicas</a>
+  <h1 class="text-xl font-semibold tracking-tight text-text">{{ casa_name }} · Ficha del día</h1>
+  <p class="mt-0.5 text-sm text-muted"><span id="hoy" class="capitalize"></span></p>
+</div>
+
+{# ── Toggle maestro: Web sync ⇄ Backoffice ─────────────────────── #}
+<div class="card mb-5 flex items-center justify-between gap-4 p-4
+            {% if manual_mode %}border-l-2 border-l-accent{% endif %}">
+  <div class="min-w-0">
+    <div class="text-[14px] font-semibold text-text">
+      {% if manual_mode %}🛠️ Backoffice — modo manual{% else %}🌐 Web sync — automático{% endif %}
+    </div>
+    <p class="mt-0.5 text-[12px] text-muted">
+      {% if manual_mode %}
+        Tú gestionas chicas, fotos, horarios, servicios y precios aquí. El sync automático <b>no toca</b> esta casa.
+      {% else %}
+        Esta casa va con la web (sync cada 20 min). Activa el <b>Backoffice</b> para gestionarla a mano.
+      {% endif %}
+    </p>
+  </div>
+  <form method="post" action="/casas/{{ casa_id }}/mode" id="modeForm" class="shrink-0">
+    <label class="relative inline-flex cursor-pointer items-center" title="Web sync ⇄ Backoffice">
+      <input type="checkbox" name="manual" class="peer sr-only" {% if manual_mode %}checked{% endif %}
+             onchange="document.getElementById('modeForm').submit()">
+      <div class="h-7 w-12 rounded-full bg-surface-2 transition peer-checked:bg-accent"></div>
+      <div class="absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5"></div>
+    </label>
+  </form>
+</div>
+
+{% if not manual_mode %}
+{# ── Estado APAGADO (modo web) ──────────────────────────────────── #}
+<div class="card px-4 py-16 text-center">
+  <div class="text-4xl">🌐</div>
+  <p class="mt-3 text-[15px] font-semibold text-text">Backoffice apagado</p>
+  <p class="mx-auto mt-1 max-w-md text-[13px] text-muted">
+    Esta casa funciona con la web. Activa el <b>Backoffice</b> con el interruptor de arriba para
+    gestionar a mano las chicas disponibles, sus fotos, horarios, servicios y los precios del plus.
+  </p>
+</div>
+
+{% else %}
+{# ── PANEL (modo backoffice) ────────────────────────────────────── #}
+<div class="mb-5 flex flex-wrap items-center gap-3">
+  <p class="text-sm text-muted">
+    <span class="font-semibold text-accent">{{ available_count }}</span>
+    disponible{{ '' if available_count == 1 else 's' }} ahora · {{ girls|length }} en la casa
+  </p>
+  <form method="post" action="/casas/{{ casa_id }}/sync" class="ml-auto"
+        onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Sincronizando…';">
+    <button type="submit"
+            class="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3.5 py-2 text-[13px] font-semibold text-text transition hover:border-border-strong hover:bg-surface-2">
+      🔄 Sincronizar desde la web
+    </button>
+  </form>
+</div>
+<p class="-mt-3 mb-5 text-[11px] text-muted-2">La sincronización solo <b>añade chicas nuevas y refresca fotos</b> — nunca pisa lo que pongas aquí.</p>
+
+{# Chicas #}
+<h2 class="mb-2 text-[13px] font-semibold uppercase tracking-wider text-muted-2">Chicas · {{ girls|length }}</h2>
+
+{# ➕ Alta MANUAL de una chica (con foto → se guarda en el volumen del servidor). #}
+<details class="card mb-3 p-0">
+  <summary class="cursor-pointer list-none px-4 py-3 text-[13px] font-semibold text-accent">➕ Añadir chica a mano</summary>
+  <form method="post" action="/casas/{{ casa_id }}/girls/add" enctype="multipart/form-data"
+        class="flex flex-col gap-3 border-t border-border p-4">
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <label class="sm:col-span-2">
+        <span class="mb-1 block text-[11px] font-medium text-muted-2">Nombre *</span>
+        <input type="text" name="name" required placeholder="Sofía"
+               class="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+      </label>
+      <label>
+        <span class="mb-1 block text-[11px] font-medium text-muted-2">Edad</span>
+        <input type="number" name="age" min="18" max="99" placeholder="24"
+               class="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+      </label>
+    </div>
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <label>
+        <span class="mb-1 block text-[11px] font-medium text-muted-2">Nacionalidad</span>
+        <input type="text" name="nationality" placeholder="Española"
+               class="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+      </label>
+      <label>
+        <span class="mb-1 block text-[11px] font-medium text-muted-2">Horario hoy</span>
+        <input type="text" name="hours_today" placeholder="16:00–02:00"
+               class="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+      </label>
+    </div>
+    <label class="block">
+      <span class="mb-1 block text-[11px] font-medium text-muted-2">Servicios <span class="text-muted-2">(coma o una por línea)</span></span>
+      <textarea name="services" rows="2" placeholder="GFE, Griego, Beso negro…"
+                class="w-full resize-y rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none"></textarea>
+    </label>
+    <label class="block">
+      <span class="mb-1 block text-[11px] font-medium text-muted-2">Foto <span class="text-muted-2">(jpg / png / webp, máx 6MB)</span></span>
+      <input type="file" name="photo" accept="image/jpeg,image/png,image/webp"
+             class="block w-full text-[12px] text-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-text">
+    </label>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-4">
+        <label class="flex cursor-pointer items-center gap-2 text-[12px] text-muted">
+          <input type="checkbox" name="available" checked class="h-4 w-4 rounded border-border text-green focus:ring-green"> Disponible hoy
+        </label>
+        <label class="flex cursor-pointer items-center gap-2 text-[12px] text-muted">
+          <input type="checkbox" name="send_photo" checked class="h-4 w-4 rounded border-border text-accent focus:ring-accent"> Sara envía foto
+        </label>
+      </div>
+      <button type="submit" class="rounded-md bg-accent px-4 py-1.5 text-[12px] font-semibold text-bg transition hover:bg-accent/90">Añadir chica</button>
+    </div>
+  </form>
+</details>
+
+{% if girls %}
+<div class="grid gap-3 lg:grid-cols-2">
+  {% for g in girls %}
+  <form method="post" action="/casas/{{ casa_id }}/girls/{{ g.id }}" enctype="multipart/form-data"
+        class="card flex flex-col gap-3 p-4 transition
+               {% if g.available_today %}border-l-2 border-l-green{% else %}border-l-2 border-l-transparent opacity-70{% endif %}">
+    <div class="flex items-center gap-3">
+      {% if g.photo_url %}
+        <img src="{{ g.photo_url }}" alt="{{ g.name }}" loading="lazy"
+             class="h-14 w-14 shrink-0 rounded-lg object-cover ring-1 ring-border">
+      {% else %}
+        <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-lg font-bold text-muted-2 ring-1 ring-border">
+          {{ g.name[:1]|upper }}
+        </div>
+      {% endif %}
+      <div class="min-w-0 flex-1">
+        {% if g.ext_id %}
+          {# De la web: nombre/edad/nacionalidad los gestiona la web (solo lectura). #}
+          <div class="truncate text-[15px] font-semibold text-text">{{ g.name }}</div>
+          <div class="text-[12px] text-muted">
+            {%- if g.age %}{{ g.age }} años{% endif -%}{%- if g.age and g.nationality %} · {% endif -%}{%- if g.nationality %}{{ g.nationality }}{% endif -%}
+          </div>
+        {% else %}
+          {# Manual: editable en la misma tarjeta (se guarda con "Guardar"). #}
+          <input type="text" name="name" value="{{ g.name }}"
+                 class="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold text-text hover:border-border focus:border-accent focus:bg-surface focus:outline-none">
+          <div class="mt-0.5 flex gap-1">
+            <input type="number" name="age" value="{{ g.age or '' }}" min="18" max="99" placeholder="edad"
+                   class="w-16 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[12px] text-muted hover:border-border focus:border-accent focus:bg-surface focus:outline-none">
+            <input type="text" name="nationality" value="{{ g.nationality or '' }}" placeholder="nacionalidad"
+                   class="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[12px] text-muted hover:border-border focus:border-accent focus:bg-surface focus:outline-none">
+          </div>
+        {% endif %}
+      </div>
+      <label class="relative inline-flex shrink-0 cursor-pointer items-center" title="Disponible hoy">
+        <input type="checkbox" name="available" class="peer sr-only" {% if g.available_today %}checked{% endif %}>
+        <div class="h-6 w-11 rounded-full bg-surface-2 transition peer-checked:bg-green"></div>
+        <div class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5"></div>
+      </label>
+    </div>
+
+    <div class="flex gap-2">
+      <label class="flex-1">
+        <span class="mb-1 block text-[11px] font-medium text-muted-2">Horario hoy</span>
+        <input type="text" name="hours_today" value="{{ g.hours_today or '' }}" placeholder="16:00–02:00"
+               class="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+      </label>
+      <label class="w-20">
+        <span class="mb-1 block text-[11px] font-medium text-muted-2">Orden</span>
+        <input type="number" name="sort_order" value="{{ g.sort_order }}" min="0"
+               class="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text focus:border-accent focus:outline-none">
+      </label>
+    </div>
+
+    <label class="block">
+      <span class="mb-1 block text-[11px] font-medium text-muted-2">Servicios <span class="text-muted-2">(uno por línea o separados por coma)</span></span>
+      <textarea name="services" rows="2"
+                class="w-full resize-y rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none"
+                placeholder="GFE, Griego, Beso negro…">{{ g.services|join(', ') }}</textarea>
+    </label>
+
+    {% if not g.ext_id %}
+    <label class="block">
+      <span class="mb-1 block text-[11px] font-medium text-muted-2">Cambiar foto</span>
+      <input type="file" name="photo" accept="image/jpeg,image/png,image/webp"
+             class="block w-full text-[11px] text-muted file:mr-2 file:rounded file:border-0 file:bg-surface-2 file:px-2 file:py-1 file:text-[11px] file:font-semibold file:text-text">
+    </label>
+    {% endif %}
+
+    <div class="flex items-center justify-between gap-2">
+      <label class="flex cursor-pointer items-center gap-2 text-[12px] text-muted">
+        <input type="checkbox" name="send_photo" class="h-4 w-4 rounded border-border text-accent focus:ring-accent" {% if g.send_photo %}checked{% endif %}>
+        Sara envía su foto
+      </label>
+      <div class="flex items-center gap-2">
+        {% if not g.ext_id %}
+        <button type="submit" form="del-{{ g.id }}"
+                onclick="return confirm('¿Quitar esta chica? Dejará de aparecer en el panel y para Sara.')"
+                class="rounded-md border border-border px-2.5 py-1.5 text-[12px] text-muted transition hover:border-red/40 hover:text-red">Quitar</button>
+        {% endif %}
+        <button type="submit"
+                class="rounded-md border border-accent/40 bg-accent-soft px-3 py-1.5 text-[12px] font-semibold text-accent transition hover:bg-accent/20">
+          Guardar
+        </button>
+      </div>
+    </div>
+  </form>
+  {% endfor %}
+</div>
+
+{# Formularios de borrado (fuera de las tarjetas: no se anidan forms; el botón
+   "Quitar" los referencia con el atributo HTML form=). #}
+{% for g in girls %}{% if not g.ext_id %}
+<form id="del-{{ g.id }}" method="post" action="/casas/{{ casa_id }}/girls/{{ g.id }}/delete" class="hidden"></form>
+{% endif %}{% endfor %}
+{% else %}
+<div class="card px-4 py-12 text-center">
+  <p class="text-sm text-muted">Todavía no hay chicas para esta casa.</p>
+  <p class="mt-1 text-[12px] text-muted-2">Pulsa <b>Sincronizar desde la web</b> para importarlas, y luego ajústalas aquí.</p>
+</div>
+{% endif %}
+
+{# Precios · Plus #}
+<h2 class="mb-2 mt-7 text-[13px] font-semibold uppercase tracking-wider text-muted-2">Precios · Plus</h2>
+<form method="post" action="/casas/{{ casa_id }}/rates" class="card p-4">
+  <div class="mb-2 hidden grid-cols-[1fr_1fr_7rem_2rem] gap-2 px-1 text-[11px] font-medium text-muted-2 sm:grid">
+    <span>Concepto (ES)</span><span>Concepto (EN, opcional)</span><span>Precio</span><span></span>
+  </div>
+  <div id="rates" class="flex flex-col gap-2">
+    {% for it in rates_items %}
+    <div class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_7rem_2rem]">
+      <input type="text" name="label_es" value="{{ it.get('label_es','') }}" placeholder="1 hora"
+             class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+      <input type="text" name="label_en" value="{{ it.get('label_en','') }}" placeholder="1 hour"
+             class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+      <input type="text" name="price" value="{{ it.get('price','') }}" placeholder="150€"
+             class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+      <button type="button" onclick="this.closest('div').remove()" title="Quitar"
+              class="rounded-md border border-border px-2 py-1.5 text-[13px] text-muted transition hover:border-red/40 hover:text-red">✕</button>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="mt-3 flex items-center justify-between">
+    <button type="button" onclick="addRate()"
+            class="rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-muted transition hover:border-border-strong hover:text-text">+ Añadir concepto</button>
+    <button type="submit"
+            class="rounded-md border border-accent/40 bg-accent-soft px-3.5 py-1.5 text-[12px] font-semibold text-accent transition hover:bg-accent/20">Guardar precios</button>
+  </div>
+</form>
+
+<template id="rate-row">
+  <div class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_7rem_2rem]">
+    <input type="text" name="label_es" placeholder="1 hora"
+           class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+    <input type="text" name="label_en" placeholder="1 hour"
+           class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+    <input type="text" name="price" placeholder="150€"
+           class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-muted-2 focus:border-accent focus:outline-none">
+    <button type="button" onclick="this.closest('div').remove()" title="Quitar"
+            class="rounded-md border border-border px-2 py-1.5 text-[13px] text-muted transition hover:border-red/40 hover:text-red">✕</button>
+  </div>
+</template>
+{% endif %}
+
+<script>
+  (function () {
+    var el = document.getElementById('hoy');
+    if (el) el.textContent = new Date().toLocaleDateString('es-ES',
+      { weekday: 'long', day: 'numeric', month: 'long' });
+  })();
+  function addRate() {
+    var tpl = document.getElementById('rate-row');
+    var box = document.getElementById('rates');
+    if (tpl && box) box.appendChild(tpl.content.cloneNode(true));
+  }
+  if (document.getElementById('rates') && !document.querySelector('#rates > div')) addRate();
+</script>
+{% endblock %}

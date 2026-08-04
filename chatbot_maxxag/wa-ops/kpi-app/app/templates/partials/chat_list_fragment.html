@@ -23,21 +23,28 @@
 {%- endmacro %}
 
 {# Wrapping div used for partial replacement; the chats-section is rendered
-   either as the initial paint (offset=0) or as a fragment from /widget/casa/{id}/chats
-   when the load-more sentinel is revealed. To keep markup uniform we render
-   the rows + sentinel in this single fragment.
+   either as the initial paint (first page) or as a fragment from
+   /widget/casa/{id}/chats when the load-more sentinel scrolls into view. To keep
+   markup uniform we render the rows + sentinel in this single fragment. page_key
+   (the cursor id we paged FROM; 0 on the first page) keeps each batch's div id
+   unique.
 
    Auto-refresh intentionally REMOVED: it was wiping the user's scroll position
    on every poll. The "Actualizar" button in chats.html does explicit refresh
    on demand. #}
-<div id="chat-rows-{{ offset|default(0) }}" class="divide-y divide-border">
+<div id="chat-rows-{{ page_key|default(0) }}" class="divide-y divide-border">
   {% for r in chat_rows %}
     {% set display_phone = format_phone(r.contact_phone) if r.contact_phone else '' %}
     {% set name = r.contact_name or (display_phone if display_phone else 'Contacto privado') %}
     {% set initial = (name[:1] | upper) if name[:1].isalpha() else '?' %}
     {% set grad = avatar_gradients[(name | length) % (avatar_gradients | length)] %}
 
-    <a href="/conversation/{{ r.id }}" class="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2">
+    {# Vista de un número (show_pane): el clic carga la conversación en el panel de
+       la derecha (#conv-pane) sin navegar. En "TODOS" (sin panel) el clic abre la
+       página completa (solo href). #}
+    <a href="/conversation/{{ r.id }}"
+       {% if show_pane|default(false) %}hx-get="/conversation/{{ r.id }}/embed" hx-target="#conv-pane" hx-swap="innerHTML" hx-push-url="false"{% endif %}
+       class="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2">
       <div class="relative flex-shrink-0">
         <div class="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br {{ grad }} text-lg font-semibold text-white">
           {{ initial }}
@@ -119,7 +126,7 @@
       </div>
     </a>
   {% endfor %}
-  {% if not chat_rows and (offset|default(0)) == 0 %}
+  {% if not chat_rows and is_first_page|default(true) %}
   <div class="py-16 text-center">
     <div class="text-4xl mb-3">💬</div>
     <div class="text-sm font-semibold">No hay conversaciones</div>
@@ -131,14 +138,20 @@
   {% endif %}
 </div>
 
-{# Load-more sentinel: HTMX 'revealed' triggers a fetch when this enters
-   the viewport, which replaces this sentinel with the next 50 rows + a
-   new sentinel if there's more. Iterates until total is exhausted. #}
-{% if next_offset is not none %}
+{# Load-more sentinel: fires a fetch when it scrolls into view, replacing itself
+   with the next 50 rows + a new sentinel. Uses IntersectionObserver
+   ('intersect once'), NOT 'revealed': in the single-number view the list lives in
+   a nested overflow-y-auto container (#chat-list, h-[48rem]) whose scroll does NOT
+   drive htmx's window-scroll-based 'revealed', so it never fired and the spinner
+   hung forever. In the pane view we observe #chat-list directly; in TODOS (whole
+   page scrolls) the default viewport root is correct. Iterates until exhausted. #}
+{% if next_cursor_ts %}
 {# All active filters must be propagated so page 2+ stays consistent with page 1.
-   Search needs urlencode for terms with spaces or special chars. #}
-<div hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa|default('all') }}&period={{ active_period|default('all') }}&unanswered={{ 'true' if active_unanswered else 'false' }}&offset={{ next_offset }}{% if active_search %}&search={{ active_search|urlencode }}{% endif %}{% if active_mood %}&mood={{ active_mood }}{% endif %}{% if active_status %}&status={{ active_status }}{% endif %}{% if active_handler %}&handler={{ active_handler }}{% endif %}"
-     hx-trigger="revealed"
+   Search needs urlencode for terms with spaces or special chars. The keyset cursor
+   (next_cursor_ts/next_cursor_id) seeks the next page — no OFFSET, stable ordering.
+   next_cursor_ts is an ISO timestamp → urlencode (it has '+' and ':'). #}
+<div hx-get="/widget/casa/{{ casa_id }}/chats?wa={{ active_wa|default('all') }}&period={{ active_period|default('all') }}&unanswered={{ 'true' if active_unanswered else 'false' }}&cursor_ts={{ next_cursor_ts|urlencode }}&cursor_id={{ next_cursor_id }}{% if active_search %}&search={{ active_search|urlencode }}{% endif %}{% if active_mood %}&mood={{ active_mood }}{% endif %}{% if active_status %}&status={{ active_status }}{% endif %}{% if active_handler %}&handler={{ active_handler }}{% endif %}{% if active_mode %}&mode={{ active_mode }}{% endif %}"
+     hx-trigger="intersect once{% if show_pane|default(false) %} root:#chat-list{% endif %}"
      hx-swap="outerHTML"
      class="py-4 text-center text-xs text-muted">
   <svg class="inline h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

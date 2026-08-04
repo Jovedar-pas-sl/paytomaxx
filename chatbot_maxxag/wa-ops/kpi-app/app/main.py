@@ -17,7 +17,9 @@ from app.routes.auth_routes import router as auth_router
 from app.routes.casa_workspace import router as casa_workspace_router
 from app.routes.casas_hub import router as casas_hub_router
 from app.routes.conversation import router as conversation_router
+from app.routes.chicas import router as chicas_router
 from app.routes.exports import router as exports_router
+from app.routes.ficha import router as ficha_router
 from app.routes.health import router as health_router
 from app.routes.informes import router as informes_router
 from app.routes.media import router as media_router
@@ -127,6 +129,8 @@ app.include_router(settings_router)        # /ajustes — super-admin team manag
 app.include_router(style_router)           # /ajustes/estilo — Sara style-example review
 app.include_router(bot_router)             # /bot — monitor de Sara (admin)
 app.include_router(metricas_router)        # /metricas — KPIs pro marketing + locales (admin)
+app.include_router(ficha_router)           # /casas/<id>/ficha — panel disponibilidad/precios (admin)
+app.include_router(chicas_router)          # /chicas — selector de casa → panel de chicas (admin)
 
 
 # ── Legacy redirects ───────────────────────────────────────────────

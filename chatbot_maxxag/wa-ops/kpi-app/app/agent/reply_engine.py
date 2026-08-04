@@ -51,6 +51,7 @@ _MAXLEN_SERVICES = 100
 _MAXLEN_LANGUAGES = 30
 _MAXLEN_RATE_LABEL = 50
 _MAXLEN_RATE_PRICE = 20
+_MAXLEN_HOURS_TODAY = 60
 _MAXLEN_INCOMING = 1000
 # Curated-FAQ block caps. Bound the prompt even if a casa curates many faqs.
 _MAXLEN_FAQ = 220
@@ -125,6 +126,17 @@ _LEAK_MARKERS: tuple[str, ...] = (
     "venue info",       # en
     "infos du lieu",    # fr
     "info del locale",  # it
+    # Venue-ambience label stems (Marbella/Ibiza, per language). Distinct from the
+    # FAQ stems above — mirror them so an echoed ambience LABEL is discarded.
+    "ambiente del local",    # es
+    "venue atmosphere",      # en
+    "ambiance du lieu",      # fr
+    "atmosfera del locale",  # it
+    # Manual-mode (Backoffice) override label stems (per language).
+    "modo panel",         # es
+    "panel mode",         # en
+    "mode panneau",       # fr
+    "modalità pannello",  # it
     # Style-examples label stems (Wave 2, per language). Mirror the other stems
     # so an echoed "how the team replies" LABEL is discarded into the fallback.
     "así responde el equipo",   # es
@@ -185,10 +197,14 @@ def _format_girl(girl: queries.GirlRow) -> str:
     )
     outcall = "sí" if girl.outcall else "no"
     pareja = "sí" if girl.escort_pareja else "no"
+    # Operator-set hours for today (Ficha del día panel), e.g. "16:00–02:00".
+    # Leading period so the line is unchanged for girls without hours (no dangling ".").
+    hours = _sanitize_for_prompt(girl.hours_today or "", _MAXLEN_HOURS_TODAY)
+    hours_part = f". Horario hoy: {hours}" if hours else ""
     return (
         f"- {name} ({age} años, {nat}): {desc} "
         f"Servicios: {svcs or 'consultar'}. Idiomas: {langs}. "
-        f"Outcall: {outcall}. Parejas: {pareja}"
+        f"Outcall: {outcall}. Parejas: {pareja}{hours_part}"
     )
 
 
@@ -235,6 +251,20 @@ def _site_url_for_casa(casa_name: str) -> str:
         if kw in low:
             return str(site.get("base", "") or "")
     return ""
+
+
+# Casas with a physical lounge where Sara MAY mention "spaces to have a drink and
+# relax". Explicit allowlist of name substrings (matched case-insensitively like
+# _site_url_for_casa) so it's trivially extendable and never fires for other casas.
+_VENUE_CASA_KEYWORDS: tuple[str, ...] = ("marbella", "ibiza")
+
+
+def _is_venue_casa(casa_name: str) -> bool:
+    """True when the casa has a physical lounge (Marbella/Ibiza) — gates the
+    venue-ambience block in build_system_prompt. Case-insensitive substring match
+    on the casa name, same approach as _site_url_for_casa."""
+    low = (casa_name or "").lower()
+    return any(kw in low for kw in _VENUE_CASA_KEYWORDS)
 
 
 def _build_faq_ctx(profile: queries.CasaProfileRow, lang: str) -> str:
@@ -308,7 +338,17 @@ def build_system_prompt(
     )
     # Append the casa's admin-curated FAQ replies (casa_profile.faqs).
     # Empty → "" so the prompt is byte-for-byte unchanged for casas without them.
-    return base + _build_faq_ctx(profile, lang)
+    prompt = base + _build_faq_ctx(profile, lang)
+    # VENUE AMBIENCE: only Marbella/Ibiza have a physical lounge Sara may mention
+    # ("spaces to have a drink and relax"). Static per casa (name-based), so it's
+    # added here — not as a dynamic block in generate_reply. Other casas: unchanged.
+    if _is_venue_casa(profile.casa_name or ""):
+        prompt += persona.build_venue_block(lang)
+    # MANUAL/BACKOFFICE MODE: when the encargada curates the roster (casa_profile.
+    # manual_mode), the 'available today' list is trusted → Sara may confirm listed
+    # girls and holds only the HOUR for the encargada. "" (no override) in web mode.
+    prompt += persona.build_mode_block(bool(profile.manual_mode), lang)
+    return prompt
 
 
 def _clean_hint_text(text: str) -> str:
@@ -416,17 +456,18 @@ async def _remember_client(
 
 
 async def _build_style_block(
-    kpi: asyncpg.Pool, casa_id: int, lang: str, incoming_text: str = ""
+    kpi: asyncpg.Pool, lang: str, incoming_text: str = ""
 ) -> str:
-    """Fetch this casa's APPROVED style examples (human-receptionist replies) and
-    render them as the persona's "how the team replies" style block, picking the
-    ones most RELEVANT to `incoming_text` (so Sara sees how the team answered
-    similar situations). Returns "" — no prompt change — when there are no approved
-    examples or on ANY failure (fail-soft). Re-sanitizes every field at injection
-    time (defense in depth; the harvest already scrubbed them)."""
+    """Fetch the GLOBAL pool of APPROVED style examples (human-receptionist replies
+    from ALL casas) and render them as the persona's "how the team replies" style
+    block, picking the ones most RELEVANT to `incoming_text`. Style is shared across
+    casas (tone only); each casa's DATA stays authoritative via build_system_prompt.
+    Returns "" — no prompt change — when there are no approved examples or on ANY
+    failure (fail-soft). Re-sanitizes every field at injection time (defense in
+    depth; the harvest already scrubbed them)."""
     try:
         examples = await queries.get_approved_style_examples(
-            kpi, casa_id, lang, incoming_text
+            kpi, lang, incoming_text
         )
         if not examples:
             return ""
@@ -443,7 +484,7 @@ async def _build_style_block(
             pairs.append((client or None, reply))
         return persona.build_style_block(pairs, lang)
     except Exception:  # a style-block failure must never break the reply
-        logger.warning("agent: style block build failed casa_id=%s", casa_id)
+        logger.warning("agent: style block build failed")
         return ""
 
 
@@ -525,7 +566,8 @@ async def generate_reply(
     lang: str | None = None,
     client_name: str = "",
     outcall_base_eur: int | None = None,
-    outcall_taxi_eur: int | None = None,
+    outcall_taxi_low: int | None = None,
+    outcall_taxi_high: int | None = None,
     outcall_defer: bool = False,
     ab_variant: str | None = None,
 ) -> str:
@@ -534,11 +576,12 @@ async def generate_reply(
     caller: on any failure returns a localized human-sounding fallback line.
 
     F3 OUTCALL: the caller computes the price in Python and passes the result as
-    CONTEXT — `outcall_base_eur` + `outcall_taxi_eur` are the exact precomputed
-    breakdown (the model quotes both verbatim as "domicilio {base}€ + {taxi}€ de
-    taxi", never recomputes); `outcall_defer=True` asks Sara to defer / keep
-    requesting the location PIN when the price is not computable. When none is set
-    (the default), the prompt is byte-for-byte unchanged.
+    CONTEXT — `outcall_base_eur` is the exact domicilio base and
+    `outcall_taxi_low`/`outcall_taxi_high` bound the taxi RANGE the model quotes
+    ("domicilio {base}€ + el taxi, suele rondar {low}-{high}€"; it never quotes an
+    exact taxi figure nor recomputes); `outcall_defer=True` asks Sara to defer /
+    keep requesting the location PIN when the price is not computable. When none is
+    set (the default), the prompt is byte-for-byte unchanged.
     """
     # Resolve language as early as possible so even the fallback is localized.
     resolved_lang = lang or DEFAULT_LANG
@@ -567,26 +610,34 @@ async def generate_reply(
         # never changes the reply, and the prompt is byte-for-byte unchanged for
         # conversations without (fresh) memory.
         system += await _build_memory_block(kpi, conv_id, resolved_lang)
-        # Wave 2: the casa's APPROVED human-receptionist style examples (internal-
-        # only style guidance, never quoted). Fail-soft to "" so the prompt is
-        # byte-for-byte unchanged for casas without approved examples.
-        system += await _build_style_block(kpi, casa_id, resolved_lang, incoming_text)
+        # Wave 2: the GLOBAL pool of APPROVED human-receptionist style examples
+        # (shared across casas — tone only; each casa's DATA stays authoritative).
+        # Internal-only style guidance, never quoted. Fail-soft to "" so the prompt
+        # is byte-for-byte unchanged when there are no approved examples anywhere.
+        system += await _build_style_block(kpi, resolved_lang, incoming_text)
         # Wave 3: A/B greeting-variant nudge for the OPENING message (the caller
         # passes the assigned bucket only on the first auto-reply). "" outside the
         # test so the prompt is byte-for-byte unchanged.
         system += persona.build_greeting_variant_block(ab_variant, resolved_lang)
         # F3 outcall context (internal-only): when the caller passed a precomputed
-        # total, inject the "quote EXACTLY {total}€ verbatim" block; when it asked
-        # to defer, inject the "no price yet / ask for the pin" block. Both are ""
-        # absent here so the prompt is byte-for-byte unchanged for the common
-        # (non-outcall) path. The number is computed in Python upstream — the model
-        # only PHRASES it (CLAUDE.md: never let the LLM do arithmetic).
-        if outcall_base_eur is not None:
+        # base + taxi range, inject the "quote {base}€ + taxi range" block; when it
+        # asked to defer, inject the "no price yet / ask for the pin" block. Both are
+        # "" absent here so the prompt is byte-for-byte unchanged for the common
+        # (non-outcall) path. The numbers are computed in Python upstream — the model
+        # only PHRASES them (CLAUDE.md: never let the LLM do arithmetic).
+        # The priced block needs the full base + range triplet together (the caller
+        # always passes them as a unit); if any is missing we degrade to defer/none
+        # rather than formatting a "None€" into the live prompt.
+        if (
+            outcall_base_eur is not None
+            and outcall_taxi_low is not None
+            and outcall_taxi_high is not None
+        ):
             system += persona.build_outcall_block(
-                outcall_base_eur, outcall_taxi_eur, resolved_lang
+                outcall_base_eur, outcall_taxi_low, outcall_taxi_high, resolved_lang
             )
         elif outcall_defer:
-            system += persona.build_outcall_block(None, None, resolved_lang)
+            system += persona.build_outcall_block(None, None, None, resolved_lang)
         turns = await queries.get_recent_turns(kpi, conv_id, limit=8)
 
         # Build the chronological turn list: sanitized prior turns + the current

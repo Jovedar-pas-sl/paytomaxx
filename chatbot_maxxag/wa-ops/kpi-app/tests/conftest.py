@@ -34,7 +34,7 @@ async def pg_pool() -> AsyncIterator[asyncpg.Pool]:
             """
             DROP TABLE IF EXISTS message, conversation, contact, casa,
                                   analysis, alert, admin_user, user_casa, audit_log,
-                                  casa_meta_analysis CASCADE;
+                                  merge_event, casa_meta_analysis CASCADE;
             """
         )
         # Minimal schema (subset of migrations 0001–0003 used by webhook)
@@ -54,6 +54,7 @@ async def pg_pool() -> AsyncIterator[asyncpg.Pool]:
             CREATE TABLE conversation (
                 id BIGSERIAL PRIMARY KEY,
                 casa_id INT REFERENCES casa(id) ON DELETE CASCADE,
+                wa_number_id INT,
                 contact_id BIGINT REFERENCES contact(id),
                 status TEXT DEFAULT 'open',
                 last_message_at TIMESTAMPTZ,
@@ -72,6 +73,7 @@ async def pg_pool() -> AsyncIterator[asyncpg.Pool]:
                 ack SMALLINT DEFAULT 0,
                 agent_generated BOOLEAN DEFAULT FALSE,
                 sent_by_user_id INT,
+                merged_from_conv_id BIGINT,
                 created_at TIMESTAMPTZ NOT NULL
             );
             CREATE TABLE alert (
@@ -106,6 +108,30 @@ async def pg_pool() -> AsyncIterator[asyncpg.Pool]:
                 entity_type TEXT,
                 entity_id BIGINT,
                 meta JSONB
+            );
+            -- Analysis + undo infra (subset of migrations 0001 / 0009)
+            CREATE TABLE analysis (
+                id BIGSERIAL PRIMARY KEY,
+                conversation_id BIGINT UNIQUE NOT NULL,
+                account_id INT,
+                analyzed_at TIMESTAMPTZ DEFAULT now()
+            );
+            CREATE TABLE merge_event (
+                id BIGSERIAL PRIMARY KEY,
+                target_conv_id BIGINT,
+                source_conv_id BIGINT NOT NULL,
+                source_casa_id INT,
+                source_wa_number_id INT,
+                source_contact_id BIGINT,
+                source_contact_snapshot JSONB NOT NULL,
+                source_status TEXT,
+                source_unread_count INT NOT NULL DEFAULT 0,
+                messages_moved INT NOT NULL DEFAULT 0,
+                triggered_by TEXT NOT NULL,
+                confidence DOUBLE PRECISION,
+                reasoning TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                undone_at TIMESTAMPTZ
             );
         """)
 
