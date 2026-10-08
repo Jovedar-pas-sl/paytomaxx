@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { serializeAndSignJSONRequest } from 'redsys-easy';
 import {
   RedsysAdapter,
   checkRedsysReplayWindow,
@@ -135,9 +136,7 @@ describe('RedsysAdapter.verifyWebhook — rejection paths', () => {
     adapter = makeAdapter();
   });
 
-  // NOTA: el happy path de "firma válida → accepted" no se testea aquí
-  // unitariamente porque requiere usar internals no-exportados de
-  // redsys-easy. Se valida en integración real con sandbox Redsys.
+  // El happy path (firma válida) está en 'notificación firmada' más abajo.
 
   it('rechaza si faltan campos requeridos', () => {
     const result = adapter.verifyWebhook({}, Buffer.from('foo=bar'));
@@ -229,5 +228,107 @@ describe('checkRedsysReplayWindow', () => {
     expect(
       checkRedsysReplayWindow('28%2F05%2F2026', '11:50', WINDOW, NOW),
     ).toEqual({ ok: true });
+  });
+});
+
+// ─── Notificación firmada (happy path) ───────────────────────────────
+// Firmamos con redsys-easy igual que firma Redsys: clave derivada del nº de
+// pedido. `Ds_Merchant_Order` solo está para que el helper encuentre el order.
+const PAYMENT_ID = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
+
+function signedNotification(fields: Record<string, string>): string {
+  const signed = serializeAndSignJSONRequest(SECRET, {
+    Ds_Merchant_Order: fields.Ds_Order,
+    ...fields,
+  } as any);
+  return [
+    `Ds_SignatureVersion=${signed.Ds_SignatureVersion}`,
+    `Ds_MerchantParameters=${encodeURIComponent(signed.Ds_MerchantParameters)}`,
+    `Ds_Signature=${encodeURIComponent(signed.Ds_Signature)}`,
+  ].join('&');
+}
+
+describe('RedsysAdapter webhook — notificación firmada', () => {
+  let adapter: RedsysAdapter;
+  beforeEach(() => {
+    adapter = makeAdapter();
+  });
+
+  const OK_FIELDS = {
+    Ds_Order: 'a1b2c3d4e5f6',
+    Ds_MerchantCode: MERCHANT_CODE,
+    Ds_Response: '0000',
+    Ds_ProcessedPayMethod: '78',
+    Ds_Card_Brand: '1',
+  };
+
+  it('verifyWebhook acepta la firma y devuelve el Ds_Order como paymentRef', () => {
+    const result = adapter.verifyWebhook({}, Buffer.from(signedNotification(OK_FIELDS)));
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.paymentRef).toBe('a1b2c3d4e5f6');
+      expect(result.externalEventId).toBe('a1b2c3d4e5f6-0000');
+    }
+  });
+
+  it('una denegación y un OK del mismo pedido son eventos distintos (no se deduplican)', () => {
+    const ko = adapter.verifyWebhook(
+      {},
+      Buffer.from(signedNotification({ ...OK_FIELDS, Ds_Response: '0190' })),
+    );
+    const ok = adapter.verifyWebhook({}, Buffer.from(signedNotification(OK_FIELDS)));
+    expect(ko.valid && ok.valid).toBe(true);
+    if (ko.valid && ok.valid) expect(ko.externalEventId).not.toBe(ok.externalEventId);
+  });
+
+  it('mapWebhookToFsmEvent usa el _paymentId resuelto por el controller', () => {
+    const body = parseFormUrlEncoded(
+      `${signedNotification(OK_FIELDS)}&_paymentId=${PAYMENT_ID}`,
+    );
+    expect(adapter.mapWebhookToFsmEvent(body)).toEqual({
+      paymentId: PAYMENT_ID,
+      event: { type: 'AUTHORIZED', providerTxId: 'a1b2c3d4e5f6', provider: 'REDSYS' },
+    });
+  });
+
+  it('sin _paymentId (pedido desconocido) → null, no transiciona nada', () => {
+    const body = parseFormUrlEncoded(signedNotification(OK_FIELDS));
+    expect(adapter.mapWebhookToFsmEvent(body)).toBeNull();
+  });
+
+  it('denegación → null: el estado final lo decide la conciliación (type 44)', () => {
+    // Redsys deja reintentar en su página con el mismo pedido. Si marcáramos
+    // FAILED (estado final) y luego llegara el OK, el cobro quedaría perdido.
+    const body = parseFormUrlEncoded(
+      `${signedNotification({ ...OK_FIELDS, Ds_Response: '0190' })}&_paymentId=${PAYMENT_ID}`,
+    );
+    expect(adapter.mapWebhookToFsmEvent(body)).toBeNull();
+  });
+
+  it('aviso de devolución (type 3, 0900) del mismo pedido → null, no es un cobro', () => {
+    const body = parseFormUrlEncoded(
+      `${signedNotification({ ...OK_FIELDS, Ds_Response: '0900', Ds_TransactionType: '3' })}&_paymentId=${PAYMENT_ID}`,
+    );
+    expect(adapter.mapWebhookToFsmEvent(body)).toBeNull();
+  });
+
+  it('firma manipulada → null aunque traiga _paymentId', () => {
+    const tampered = signedNotification(OK_FIELDS).replace(/Ds_Signature=[^&]+/, 'Ds_Signature=AAAA');
+    const body = parseFormUrlEncoded(`${tampered}&_paymentId=${PAYMENT_ID}`);
+    expect(adapter.mapWebhookToFsmEvent(body)).toBeNull();
+  });
+
+  it('extractTokenizationData lee el body form-urlencoded real', () => {
+    const raw = Buffer.from(
+      signedNotification({
+        ...OK_FIELDS,
+        Ds_Merchant_Identifier: 'tok-123456789',
+        Ds_Card_Number: '454881******0003',
+        Ds_ExpiryDate: '4912',
+      }),
+    );
+    const token = adapter.extractTokenizationData(raw);
+    expect(token?.identifier).toBe('tok-123456789');
+    expect(token?.cardLast4).toBe('0003');
   });
 });

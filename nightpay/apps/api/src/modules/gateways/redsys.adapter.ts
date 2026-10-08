@@ -19,6 +19,7 @@ import type {
 } from '@nightpay/contracts';
 import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, timedFire } from './circuit-breaker';
+import { parseFormUrlEncoded, parseWebhookBody } from './header-utils';
 import { MetricsService } from '../metrics/metrics.service';
 
 const PROVIDER_LABEL = 'REDSYS' as const;
@@ -350,9 +351,14 @@ export class RedsysAdapter implements GatewayAdapter {
         return { valid: false, reason: replayCheck.reason };
       }
 
+      // externalEventId = pedido + Ds_Response: Redsys deja reintentar en su
+      // página con el mismo pedido, así que un KO y el OK posterior son avisos
+      // distintos y no deben deduplicarse entre sí. Reenvíos del mismo aviso
+      // sí comparten id.
+      const dsResponse = String(parsed.Ds_Response ?? '').trim();
       return {
         valid: true,
-        externalEventId: parsed.Ds_Order,
+        externalEventId: `${parsed.Ds_Order}-${dsResponse}`,
         paymentRef: parsed.Ds_Order,
       };
     } catch (e) {
@@ -362,11 +368,13 @@ export class RedsysAdapter implements GatewayAdapter {
   }
 
   mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
-    // El controller pasa el body raw del webhook. Lo re-procesamos.
+    // Body tal cual lo mandó Redsys + `_paymentId`, que el controller añade
+    // tras resolver Ds_Order (nuestro providerTxId) → payment UUID.
     const p = parsedPayload as {
       Ds_MerchantParameters?: string;
       Ds_SignatureVersion?: string;
       Ds_Signature?: string;
+      _paymentId?: string;
     };
     if (!p.Ds_MerchantParameters || !p.Ds_SignatureVersion || !p.Ds_Signature) {
       return null;
@@ -388,19 +396,33 @@ export class RedsysAdapter implements GatewayAdapter {
 
     // Ds_Response 0-99 = OK; >= 100 = denegación/error.
     const dsResponse = (parsed.Ds_Response ?? '').toString().trim();
+    const processed = parsed as unknown as Record<string, unknown>;
+    this.logger.log(
+      `Redsys aviso: order=${parsed.Ds_Order} response=${dsResponse} payMethod=${String(processed.Ds_ProcessedPayMethod ?? '-')} cardBrand=${String(processed.Ds_Card_Brand ?? '-')}`,
+    );
     if (dsResponse === '') return null;
+
+    if (!p._paymentId) {
+      this.logger.warn(`Redsys aviso sin payment asociado (order=${parsed.Ds_Order}) — ignorado`);
+      return null;
+    }
+    // Solo avisos de la autorización (type 0). Devoluciones/anulaciones del
+    // mismo pedido traen Ds_Response 0900/0400 (rango "OK") y no son un cobro.
+    const txType = String(processed.Ds_TransactionType ?? '0').trim();
+    if (txType !== '0') return null;
 
     const responseNum = Number(dsResponse);
     if (Number.isFinite(responseNum) && responseNum >= 0 && responseNum <= 99) {
       return {
-        paymentId: parsed.Ds_Order,
+        paymentId: p._paymentId,
         event: { type: 'AUTHORIZED', providerTxId: parsed.Ds_Order, provider: 'REDSYS' },
       };
     }
-    return {
-      paymentId: parsed.Ds_Order,
-      event: { type: 'FAILED', reason: `redsys-response-${dsResponse}` },
-    };
+    // Denegación: NO marcamos FAILED. FAILED es estado final y Redsys permite
+    // reintentar con el mismo pedido; si el OK llegara después, el cobro
+    // quedaría perdido. El orphan-reconcile consulta el estado definitivo
+    // (TransactionType 44) y decide.
+    return null;
   }
 
   /**
@@ -421,7 +443,7 @@ export class RedsysAdapter implements GatewayAdapter {
   extractTokenizationData(rawBody: Buffer): TokenizationData | null {
     let parsedRaw: { Ds_MerchantParameters?: string; Ds_SignatureVersion?: string; Ds_Signature?: string };
     try {
-      parsedRaw = JSON.parse(rawBody.toString('utf8'));
+      parsedRaw = parseWebhookBody(rawBody);
     } catch {
       return null;
     }
@@ -630,21 +652,5 @@ export interface TokenizationData {
   capturedAt: string; // ISO
 }
 
-/**
- * Parser mínimo de form-urlencoded → Record<string,string>.
- */
-export function parseFormUrlEncoded(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const pair of text.split('&')) {
-    if (!pair) continue;
-    const eq = pair.indexOf('=');
-    if (eq < 0) {
-      out[decodeURIComponent(pair)] = '';
-    } else {
-      out[decodeURIComponent(pair.slice(0, eq))] = decodeURIComponent(
-        pair.slice(eq + 1).replace(/\+/g, ' '),
-      );
-    }
-  }
-  return out;
-}
+// Re-export: el parser vive en header-utils (compartido con el processor).
+export { parseFormUrlEncoded };

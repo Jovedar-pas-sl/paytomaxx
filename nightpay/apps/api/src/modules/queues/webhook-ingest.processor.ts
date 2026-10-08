@@ -4,6 +4,7 @@ import type { Job } from 'bullmq';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { PaymentsService } from '../payments/payments.service';
 import { GatewayRegistry } from '../gateways/gateway.registry';
+import { parseWebhookBody } from '../gateways/header-utils';
 import { InvalidTransitionError, isIdempotentTransition } from '../payments/payment.machine';
 import { WEBHOOKS_INGEST_QUEUE } from './queue-tokens';
 import type { Provider } from '@nightpay/contracts';
@@ -48,7 +49,8 @@ export class WebhookIngestProcessor extends WorkerHost {
     }
 
     const adapter = this.gateways.get(delivery.provider as Provider);
-    const parsed = JSON.parse(delivery.rawBody.toString('utf8'));
+    // Redsys/Wipay se persisten form-urlencoded; Paytef/Peanpe como JSON.
+    const parsed = parseWebhookBody(delivery.rawBody);
     const fsmEvent = adapter.mapWebhookToFsmEvent(parsed);
 
     if (!fsmEvent) {

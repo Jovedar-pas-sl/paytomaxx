@@ -569,7 +569,11 @@ export class WebhooksController {
     // Fastify form-urlencoded → req.body es Record<string,string>. Re-encodeamos
     // a Buffer para que verifyWebhook() pueda parsearlo. M1: shape Zod laxa.
     const parsed = FormUrlencodedBodySchema.safeParse(req.body ?? {});
-    const body = parsed.success ? parsed.data : {};
+    // Campos `_*` son nuestros (p.ej. `_paymentId`, que añadimos tras resolver
+    // el pedido). Fuera de la firma → nunca aceptarlos del cliente.
+    const body = Object.fromEntries(
+      Object.entries(parsed.success ? parsed.data : {}).filter(([k]) => !k.startsWith('_')),
+    );
     const rawBody = reencodeFormBody(body);
 
     const verify = this.redsys.verifyWebhook(req.headers, rawBody);
@@ -583,7 +587,7 @@ export class WebhooksController {
       throw new BadRequestException('Missing externalEventId');
     }
 
-    // Idempotency por (provider, Ds_Order).
+    // Idempotency por (provider, Ds_Order + Ds_Response).
     const existing = await this.prisma.webhookDelivery.findUnique({
       where: {
         provider_externalEventId: {
@@ -597,13 +601,35 @@ export class WebhooksController {
       return { received: true, duplicate: true };
     }
 
+    // Ds_Order es nuestro providerTxId (lo genera authorize). Lo resolvemos a
+    // payment UUID + tenant aquí, igual que Peanpe con _paymentId: el adapter
+    // no toca la DB y el processor aplica la defensa cross-tenant.
+    const dsOrder = verify.paymentRef ?? '';
+    const payment = dsOrder
+      ? await this.prisma.asSystem((tx) =>
+          tx.payment.findFirst({
+            where: { provider: 'REDSYS', providerTxId: dsOrder },
+            select: { id: true, tenantId: true },
+          }),
+        )
+      : null;
+    if (!payment) {
+      this.logger.warn(`webhook redsys: ningún payment con Ds_Order=${dsOrder}`);
+    }
+    // Se añade un campo fuera de la firma: Ds_Signature solo cubre
+    // Ds_MerchantParameters, así que la verificación en el processor sigue valiendo.
+    const storedBody = payment
+      ? Buffer.concat([rawBody, Buffer.from(`&_paymentId=${encodeURIComponent(payment.id)}`)])
+      : rawBody;
+
     const delivery = existing
       ? existing
       : await this.prisma.webhookDelivery.create({
           data: {
             provider,
+            ...(payment ? { tenantId: payment.tenantId } : {}),
             externalEventId: verify.externalEventId,
-            rawBody,
+            rawBody: storedBody,
             signature: typeof body.Ds_Signature === 'string' ? (body.Ds_Signature as string) : '',
           },
         });
@@ -620,11 +646,11 @@ export class WebhooksController {
         await this.prisma.$executeRaw`
           UPDATE payments
              SET "tokenizationData" = ${JSON.stringify(tokenData)}::jsonb
-           WHERE "providerTxId" = ${verify.externalEventId}
+           WHERE "providerTxId" = ${dsOrder}
              AND "tokenizationData" IS NULL
         `;
         this.logger.log(
-          `[REDSYS TOKEN CAPTURED] dsOrder=${verify.externalEventId} identifier=${tokenData.identifier.slice(0, 8)}*** last4=${tokenData.cardLast4} brand=${tokenData.cardBrand} expiry=${tokenData.expiry}`,
+          `[REDSYS TOKEN CAPTURED] dsOrder=${dsOrder} identifier=${tokenData.identifier.slice(0, 8)}*** last4=${tokenData.cardLast4} brand=${tokenData.cardBrand} expiry=${tokenData.expiry}`,
         );
       }
     } catch (e) {

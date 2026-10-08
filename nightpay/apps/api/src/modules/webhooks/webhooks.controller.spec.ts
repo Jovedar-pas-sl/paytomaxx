@@ -11,6 +11,8 @@ interface MakeOptions {
   // C2: simula cuántos intentos lleva el rate-limit Redis al peanpe/notify GET.
   // Si > MAX (5) el controller devuelve 429 sin consultar el adapter.
   peanpeNotifyAttempts?: number;
+  // Redsys: pago encontrado por (provider, providerTxId = Ds_Order).
+  redsysPayment?: { id: string; tenantId: string } | null;
 }
 
 function makeController(opts: MakeOptions = {}) {
@@ -35,7 +37,14 @@ function makeController(opts: MakeOptions = {}) {
   // su ruta dedicada). Las pruebas aquí no ejercen receiveRedsys, basta con
   // que el constructor no falle.
   const redsys = {
-    verifyWebhook: vi.fn(),
+    verifyWebhook: vi.fn().mockReturnValue(
+      opts.verifyResult ?? {
+        valid: true,
+        externalEventId: 'a1b2c3d4e5f6-0000',
+        paymentRef: 'a1b2c3d4e5f6',
+      },
+    ),
+    extractTokenizationData: vi.fn().mockReturnValue(null),
   };
 
   const peanpe = {
@@ -45,7 +54,20 @@ function makeController(opts: MakeOptions = {}) {
     verifyWebhook: vi.fn(),
   };
 
+  const paymentTx = {
+    payment: {
+      findFirst: vi
+        .fn()
+        .mockResolvedValue(
+          opts.redsysPayment === undefined
+            ? { id: 'pay-uuid-1', tenantId: 'tenant-uuid-1' }
+            : opts.redsysPayment,
+        ),
+    },
+  };
   const prisma = {
+    asSystem: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(paymentTx)),
+    $executeRaw: vi.fn().mockResolvedValue(0),
     webhookDelivery: {
       findUnique: vi.fn().mockResolvedValue(opts.existingDelivery ?? null),
       create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -93,7 +115,7 @@ function makeController(opts: MakeOptions = {}) {
     redsys as any,
   );
 
-  return { controller, genericAdapter, wipay, redsys, gateways, prisma, queue, metrics, peanpe, redis };
+  return { controller, genericAdapter, wipay, redsys, gateways, prisma, paymentTx, queue, metrics, peanpe, redis };
 }
 
 function fakeWipayRequest(body: Record<string, string> = { Num_operacion: 'op-test-1', Firma: 'abc' }): FastifyRequest {
@@ -262,5 +284,75 @@ describe('WebhooksController.peanpeResult — C2 rate-limit anti brute-force', (
     ).rejects.toThrow(BadRequestException);
     // Rate-limit no se evalúa si los params faltan → no EVAL
     expect(redis.eval).not.toHaveBeenCalled();
+  });
+});
+
+describe('WebhooksController.receiveRedsys — resolución Ds_Order → payment', () => {
+  function fakeRedsysRequest(): FastifyRequest {
+    return {
+      headers: {},
+      body: {
+        Ds_SignatureVersion: 'HMAC_SHA256_V1',
+        Ds_MerchantParameters: 'eyJ9',
+        Ds_Signature: 'sig',
+      },
+    } as any;
+  }
+
+  it('busca el payment por (REDSYS, Ds_Order) y guarda tenantId + _paymentId', async () => {
+    const { controller, prisma, paymentTx, queue } = makeController();
+
+    await controller.receiveRedsys(fakeRedsysRequest());
+
+    expect(paymentTx.payment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { provider: 'REDSYS', providerTxId: 'a1b2c3d4e5f6' },
+      }),
+    );
+    const data = prisma.webhookDelivery.create.mock.calls[0]![0].data as {
+      tenantId: string;
+      externalEventId: string;
+      rawBody: Buffer;
+    };
+    expect(data.tenantId).toBe('tenant-uuid-1');
+    expect(data.externalEventId).toBe('a1b2c3d4e5f6-0000');
+    expect(data.rawBody.toString('utf8')).toContain('_paymentId=pay-uuid-1');
+    expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+
+  it('pedido desconocido: guarda el aviso sin _paymentId (auditoría) y responde 200', async () => {
+    const { controller, prisma } = makeController({ redsysPayment: null });
+
+    const res = await controller.receiveRedsys(fakeRedsysRequest());
+
+    expect(res).toEqual({ received: true });
+    const data = prisma.webhookDelivery.create.mock.calls[0]![0].data as {
+      tenantId?: string;
+      rawBody: Buffer;
+    };
+    expect(data.tenantId).toBeUndefined();
+    expect(data.rawBody.toString('utf8')).not.toContain('_paymentId');
+  });
+
+  it('descarta un _paymentId enviado por el cliente (fuera de la firma)', async () => {
+    const { controller, prisma } = makeController({ redsysPayment: null });
+    const req = fakeRedsysRequest();
+    (req.body as Record<string, string>)._paymentId = 'victim-payment-uuid';
+
+    await controller.receiveRedsys(req);
+
+    const data = prisma.webhookDelivery.create.mock.calls[0]![0].data as { rawBody: Buffer };
+    expect(data.rawBody.toString('utf8')).not.toContain('victim-payment-uuid');
+  });
+
+  it('firma inválida → 401 y no consulta la DB', async () => {
+    const { controller, paymentTx } = makeController({
+      verifyResult: { valid: false, reason: 'signature-mismatch' },
+    });
+
+    await expect(controller.receiveRedsys(fakeRedsysRequest())).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(paymentTx.payment.findFirst).not.toHaveBeenCalled();
   });
 });
