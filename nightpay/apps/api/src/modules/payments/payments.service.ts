@@ -54,6 +54,7 @@ import {
   type RetryDecision,
 } from './pay-redirect';
 import { defaultTipGoesTo, readChargedTip, settleChargedTip, tipOptionsFor } from './tip';
+import { BRAND_NAME } from '../../common/brand';
 
 const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
   inactive: 'Ese servicio está desactivado en la carta',
@@ -227,7 +228,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     const url = this.peanpe.buildPaymentUrl({
       identificadorLlamada: payment.peanpeCall.identificadorLlamada,
       amountCents: payment.amountCents,
-      concepto: `NightPay ${payment.id.slice(0, 8)}`,
+      concepto: `${BRAND_NAME} ${payment.id.slice(0, 8)}`,
       debug: process.env.NODE_ENV !== 'production',
     });
     return { provider: 'PEANPE', url };

@@ -13,7 +13,7 @@ const MERCHANT_CODE = '999008881';
 const TERMINAL = '1';
 const SECRET = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7';
 
-function makeAdapter(opts?: { withCreds?: boolean; apiUrl?: string }) {
+function makeAdapter(opts?: { withCreds?: boolean; apiUrl?: string; merchantName?: string }) {
   const withCreds = opts?.withCreds ?? true;
   const apiUrl = opts?.apiUrl ?? 'https://sis-t.redsys.es:25443/sis/realizarPago';
   const config = {
@@ -21,6 +21,7 @@ function makeAdapter(opts?: { withCreds?: boolean; apiUrl?: string }) {
       if (key === 'GATEWAY_TIMEOUT_MS') return 5000;
       if (key === 'REDSYS_API_URL') return apiUrl;
       if (key === 'NEXT_PUBLIC_API_URL') return 'https://api.paytomaxx.com';
+      if (key === 'REDSYS_MERCHANT_NAME') return opts?.merchantName;
       if (!withCreds) return undefined;
       if (key === 'REDSYS_MERCHANT_CODE') return MERCHANT_CODE;
       if (key === 'REDSYS_TERMINAL') return TERMINAL;
@@ -130,6 +131,16 @@ describe('RedsysAdapter.authorize() — flujo Redsys SIS', () => {
     expect(p.DS_MERCHANT_CONSUMERLANGUAGE).toBe('002');
     expect(p.DS_MERCHANT_URLOK).toContain('&lang=en');
     expect(p.DS_MERCHANT_AMOUNT).toBe('10500');
+  });
+
+  it('concepto con la marca; nombre del comercio solo si se configura', async () => {
+    const plain = merchantParams((await makeAdapter().authorize(base)).checkoutForm!.fields);
+    expect(plain.DS_MERCHANT_PRODUCTDESCRIPTION).toBe('OxioPay aabbccdd');
+    expect(plain.DS_MERCHANT_MERCHANTNAME).toBeUndefined();
+    const named = merchantParams(
+      (await makeAdapter({ merchantName: 'OXIOPAY, S.L.' }).authorize(base)).checkoutForm!.fields,
+    );
+    expect(named.DS_MERCHANT_MERCHANTNAME).toBe('OXIOPAY SL');
   });
 
   it('castellano → 001 y vuelta sin parámetro de idioma', async () => {

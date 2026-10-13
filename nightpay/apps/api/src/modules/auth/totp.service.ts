@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as speakeasy from 'speakeasy';
+import { BRAND_NAME } from '../../common/brand';
 
 /**
  * Servicio TOTP (RFC 6238) — usa speakeasy.
@@ -14,7 +15,7 @@ export class TotpService {
    * Genera un secret nuevo + URL otpauth para QR scan en autenticador.
    * Caller debe persistir el secret en User.totpSecret tras el primer enrollment.
    */
-  generateSecret(label: string, issuer = 'NightPay'): { base32: string; otpauthUrl: string } {
+  generateSecret(label: string, issuer = BRAND_NAME): { base32: string; otpauthUrl: string } {
     const s = speakeasy.generateSecret({
       name: `${issuer} (${label})`,
       issuer,

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { PaxScreen } from '@/components/pax/PaxScreen';
 
 export const metadata: Metadata = {
-  title: 'NightPay — Datáfono',
+  title: 'OxioPay — Datáfono',
 };
 
 /** Pantalla del datáfono PAX (dentro de la app NightPay del aparato). */

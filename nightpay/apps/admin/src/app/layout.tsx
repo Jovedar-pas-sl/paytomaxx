@@ -19,7 +19,7 @@ const mono = Unbounded({
 });
 
 export const metadata: Metadata = {
-  title: 'NightPay — Admin',
+  title: 'OxioPay — Admin',
 };
 
 export const viewport: Viewport = {

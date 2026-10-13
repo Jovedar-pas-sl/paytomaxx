@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { Public } from '../../common/decorators/public.decorator';
 import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
+import { BRAND_NAME } from '../../common/brand';
 
 // obs #4 (review): mismo charset que el adapter (excluye 0/O/1/l/I para
 // distinguir IDs reales de dry — los reales nunca contienen estos chars,
@@ -140,7 +141,7 @@ export class PeanpeDebugController {
     const url = this.peanpe.buildPaymentUrl({
       identificadorLlamada: dryId,
       amountCents: amountInputCents,
-      concepto: `NightPay DRY-RUN ${format}`,
+      concepto: `${BRAND_NAME} DRY-RUN ${format}`,
       debug: true,
       formatOverride: format,
     });

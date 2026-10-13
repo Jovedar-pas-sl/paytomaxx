@@ -190,7 +190,7 @@ export function TerminalsPanel({ isOwner }: Props) {
                 <th style={thStyle}>Hardware</th>
                 <th style={thStyle}>S/N</th>
                 <th style={thStyle}>Estado</th>
-                <th style={thStyle}>App NightPay</th>
+                <th style={thStyle}>App OxioPay</th>
                 <th style={thStyle}></th>
               </tr>
             </thead>
@@ -472,7 +472,7 @@ const tdStyle: CSSProperties = {
 };
 
 /**
- * Vincular la app NightPay del datáfono: código de un solo uso que se teclea
+ * Vincular la app OxioPay del datáfono: código de un solo uso que se teclea
  * en el datáfono. Con la app vinculada, el cobro llega al lector y vuelve
  * pagado sin teclear el código del ticket.
  */
@@ -515,10 +515,10 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
   }
 
   return (
-    <Modal open onClose={onClose} title={`App NightPay · ${current.label}`}>
+    <Modal open onClose={onClose} title={`App OxioPay · ${current.label}`}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <ol style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-          <li>Abre la app NightPay en este datáfono.</li>
+          <li>Abre la app OxioPay en este datáfono.</li>
           <li>Genera el código y tecléalo en el datáfono (vale 15 minutos y una sola vez).</li>
           <li>Desde entonces el datáfono ve los cobros de las chicas y los cobra sin teclear el ticket.</li>
         </ol>

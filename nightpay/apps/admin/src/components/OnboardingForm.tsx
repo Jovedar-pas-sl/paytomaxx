@@ -47,8 +47,8 @@ const WALLET_STATUS_LABELS: Record<WalletStatus, string> = {
 
 const ONBOARDING_STATUS_LABELS: Record<OnboardingStatus, string> = {
   NEW: '⚪ Nueva (sin tocar)',
-  PROFILE_CREATED: '🟡 Alta en NightPay',
-  INVITE_ACTIVATED: '🟠 Cuenta NightPay activada',
+  PROFILE_CREATED: '🟡 Alta en OxioPay',
+  INVITE_ACTIVATED: '🟠 Cuenta OxioPay activada',
   BINANCE_PENDING: '🔵 Binance/wallet en proceso',
   READY: '🟢 Operativa · puede cobrar y recibir',
   BLOCKED: '🔴 Bloqueada · algún problema sin resolver',
@@ -120,7 +120,7 @@ function SelfOnboardingLinkBanner({ operatorId }: { operatorId: string }) {
             </Button>
             <a
               href={`https://wa.me/?text=${encodeURIComponent(
-                `Hola, este es tu link para rellenar tu perfil en NightPay (válido 72h): ${link.url}`,
+                `Hola, este es tu link para rellenar tu perfil en OxioPay (válido 72h): ${link.url}`,
               )}`}
               target="_blank"
               rel="noreferrer"

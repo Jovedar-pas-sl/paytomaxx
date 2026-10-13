@@ -17,6 +17,7 @@ import {
   type LiquidacionRow,
 } from './export-rows';
 import type { ReportPeriod } from './report-period';
+import { BRAND_NAME } from '../../common/brand';
 
 /**
  * Los cuatro CSV para la gestoría (Fase 1C): libro de cobros, devoluciones,
@@ -29,7 +30,7 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string): str
   const header = [
     'Fecha', 'Hora', 'Local', 'Código', 'Concepto', 'Tipo', 'Cobrado por', 'Medio', 'Método',
     'Marca', 'Tipo tarjeta', 'País tarjeta', 'Autorización', 'Pedido banco', 'Importe', 'Propina',
-    'Total cobrado', 'Devuelto', 'Neto', 'Parte chica', 'Parte local', 'Estado', 'Referencia NightPay',
+    'Total cobrado', 'Devuelto', 'Neto', 'Parte chica', 'Parte local', 'Estado', `Referencia ${BRAND_NAME}`,
   ];
   const body = rows.map((r): CsvCell[] => {
     const charged = r.amountCents + r.tipCents;
@@ -70,7 +71,7 @@ export function devolucionesCsv(rows: ReadonlyArray<DevolucionRow>): string {
   const header = [
     'Fecha devolución', 'Importe devuelto', 'Motivo', 'Referencia banco', 'Registrada a mano',
     'Registrada por', 'Fecha del cobro', 'Código del cobro', 'Pedido banco', 'Total cobrado',
-    'Cobrado por', 'Descontado a la chica', 'Ya se le había pagado', 'Referencia NightPay',
+    'Cobrado por', 'Descontado a la chica', 'Ya se le había pagado', `Referencia ${BRAND_NAME}`,
   ];
   const body = rows.map((r): CsvCell[] => [
     date(r.refundedAt),
@@ -96,7 +97,7 @@ export function devolucionesCsv(rows: ReadonlyArray<DevolucionRow>): string {
 export function liquidacionesCsv(rows: ReadonlyArray<LiquidacionRow>): string {
   const header = [
     'Fecha', 'Chica', 'Importe', 'Cobros incluidos', 'Vía', 'Referencia', 'Conciliación',
-    'Pagado por', 'Notas', 'Referencia NightPay',
+    'Pagado por', 'Notas', `Referencia ${BRAND_NAME}`,
   ];
   const body = rows.map((r): CsvCell[] => [
     date(r.paidAt),

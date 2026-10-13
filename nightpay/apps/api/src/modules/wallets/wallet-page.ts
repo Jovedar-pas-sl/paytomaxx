@@ -1,5 +1,6 @@
 import type { PayLanguage } from '../payments/pay-i18n';
 import type { ClientWalletState } from './wallet-charges.service';
+import { BRAND_NAME } from '../../common/brand';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, look "Club".
@@ -33,7 +34,7 @@ const TEXT: Record<PayLanguage, WalletText> = {
   es: {
     htmlLang: 'es',
     locale: 'es-ES',
-    title: 'Tu saldo NightPay',
+    title: `Tu saldo ${BRAND_NAME}`,
     balance: 'Saldo',
     codeHint: 'Enséñale este código a la chica para pagar con tu saldo',
     saveHint: 'Guarda esta página (Compartir → Añadir a pantalla de inicio) para volver a tu saldo.',
@@ -53,7 +54,7 @@ const TEXT: Record<PayLanguage, WalletText> = {
   en: {
     htmlLang: 'en',
     locale: 'en-GB',
-    title: 'Your NightPay balance',
+    title: `Your ${BRAND_NAME} balance`,
     balance: 'Balance',
     codeHint: 'Show this code to the staff to pay with your balance',
     saveHint: 'Save this page (Share → Add to Home Screen) to come back to your balance.',

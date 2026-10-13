@@ -22,7 +22,7 @@ import { PaxChargeFlow } from './PaxChargeFlow';
 const POLL_MS = 3000;
 
 /**
- * Pantalla del datáfono PAX (se abre dentro de la app NightPay del aparato).
+ * Pantalla del datáfono PAX (se abre dentro de la app OxioPay del aparato).
  * El camarero ve los cobros que han creado las chicas, toca uno y el cliente
  * acerca la tarjeta: el cobro queda pagado y asignado sin teclear nada.
  */
@@ -38,7 +38,7 @@ export function PaxScreen() {
   }, []);
 
   const refresh = useCallback(() => {
-    // Una venta aprobada que no llegó a NightPay se reenvía antes que nada.
+    // Una venta aprobada que no llegó a OxioPay se reenvía antes que nada.
     const pendingResult = getPendingResult();
     if (pendingResult) {
       reportPaxResult(pendingResult.paymentId, pendingResult.result)
@@ -105,7 +105,7 @@ export function PaxScreen() {
     <main style={mainStyle}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem' }}>
         <div>
-          <p style={kicker}>{info?.venueName ?? 'NightPay'}</p>
+          <p style={kicker}>{info?.venueName ?? 'OxioPay'}</p>
           <h1 style={{ margin: 0, fontSize: '1.5rem' }}>
             {info?.terminal.label ?? 'Datáfono'}
             {info?.terminal.zone ? <span style={muted}> · {info.terminal.zone.toLowerCase()}</span> : null}
@@ -117,10 +117,10 @@ export function PaxScreen() {
       </header>
 
       {!reader ? (
-        <p style={warnBox}>Para cobrar, abre esta pantalla desde la app NightPay del datáfono.</p>
+        <p style={warnBox}>Para cobrar, abre esta pantalla desde la app OxioPay del datáfono.</p>
       ) : null}
       {getPendingResult() ? (
-        <p style={warnBox}>Hay un cobro aprobado pendiente de enviar a NightPay: se reenvía solo.</p>
+        <p style={warnBox}>Hay un cobro aprobado pendiente de enviar a OxioPay: se reenvía solo.</p>
       ) : null}
       {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
 
@@ -202,7 +202,7 @@ function PairingForm({ onPaired }: { onPaired: (info: PaxInfo) => void }) {
   );
 }
 
-/** Cuadre con el cierre de jornada del datáfono: ventas que no están en NightPay. */
+/** Cuadre con el cierre de jornada del datáfono: ventas que no están en OxioPay. */
 function ShiftCheck() {
   const [busy, setBusy] = useState(false);
   const [summary, setSummary] = useState<ShiftSummary | null>(null);
@@ -230,8 +230,8 @@ function ShiftCheck() {
       {summary ? (
         <p style={{ margin: 0 }}>
           {summary.unmatched.length === 0
-            ? `Todo cuadra: ${summary.total} ventas del datáfono, todas en NightPay.`
-            : `${summary.unmatched.length} de ${summary.total} ventas del datáfono no están en NightPay. Salen en Incidencias del panel.`}
+            ? `Todo cuadra: ${summary.total} ventas del datáfono, todas en OxioPay.`
+            : `${summary.unmatched.length} de ${summary.total} ventas del datáfono no están en OxioPay. Salen en Incidencias del panel.`}
         </p>
       ) : null}
       {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}

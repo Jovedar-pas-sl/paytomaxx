@@ -8,6 +8,7 @@ import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import type { Incident } from './incident-rules';
 import { IncidentsService } from './incidents.service';
 import { TelegramService } from './telegram.service';
+import { BRAND_NAME } from '../../common/brand';
 
 const AckSchema = z.object({
   kind: z.enum([
@@ -65,6 +66,6 @@ export class IncidentsController {
   @Roles('OWNER')
   async telegramTest(): Promise<{ sent: boolean }> {
     // Un solo chat para todos los locales del dueño.
-    return { sent: await this.telegram.send('✅ NightPay: las alertas de tus locales llegan a este chat.') };
+    return { sent: await this.telegram.send(`✅ ${BRAND_NAME}: las alertas de tus locales llegan a este chat.`) };
   }
 }

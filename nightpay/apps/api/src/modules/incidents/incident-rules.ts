@@ -4,6 +4,8 @@
  * solas (un doble cobro, un descuento que falló…) se marcan como revisadas.
  */
 
+import { BRAND_NAME } from '../../common/brand';
+
 export type IncidentKind =
   | 'stuck_payment'
   | 'duplicate_charge'
@@ -157,7 +159,7 @@ export function posUnmatchedOpIncident(r: EventRow): Incident {
   return {
     kind: 'pos_unmatched_op',
     refId: r.id,
-    title: 'Venta del datáfono que no está en NightPay',
+    title: `Venta del datáfono que no está en ${BRAND_NAME}`,
     detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}Puede ser un cobro hecho sin la app: averigua de quién es.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,

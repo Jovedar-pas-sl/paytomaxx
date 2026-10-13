@@ -128,14 +128,14 @@ export function SettingsPanel({ isOwner }: Props) {
         <div style={modelInfo}>
           <p style={modelHeading}>Modelo de comisiones</p>
           <p style={modelText}>
-            Cada cobro se reparte entre <strong>NightPay</strong> (comisión plataforma) y la{' '}
+            Cada cobro se reparte entre <strong>OxioPay</strong> (comisión plataforma) y la{' '}
             <strong>chica</strong> (su <code style={code}>commissionBps</code> personal). El resto
             queda para el local.
           </p>
           <p style={modelText}>
-            <strong>Hoy:</strong> NightPay {(settings.platformCommissionBps / 100).toFixed(2)}% ·
+            <strong>Hoy:</strong> OxioPay {(settings.platformCommissionBps / 100).toFixed(2)}% ·
             chica recibe lo que le hayas asignado individualmente · local se queda con el resto.
-            Ejemplo cobro 100€ con chica al 90%: NightPay {operatorPctImplied < 90 ? '10€' : `${(settings.platformCommissionBps / 100).toFixed(0)}€`} · chica 90€ · local 0€.
+            Ejemplo cobro 100€ con chica al 90%: OxioPay {operatorPctImplied < 90 ? '10€' : `${(settings.platformCommissionBps / 100).toFixed(0)}€`} · chica 90€ · local 0€.
           </p>
         </div>
       </Card>
@@ -143,7 +143,7 @@ export function SettingsPanel({ isOwner }: Props) {
       <Card style={{ padding: '1.5rem' }}>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <Input
-            label="Comisión NightPay (%)"
+            label="Comisión OxioPay (%)"
             type="text"
             inputMode="decimal"
             value={platformPct}

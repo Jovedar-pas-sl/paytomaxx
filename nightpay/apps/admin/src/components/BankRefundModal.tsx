@@ -6,7 +6,7 @@ import { registerBankRefund, type PaymentRow } from '@/lib/api';
 
 /**
  * Fase 1C — devolución hecha en el portal de BBVA. Redsys no devuelve por API
- * desde NightPay: el dueño devuelve en el banco y la apunta aquí, para que el
+ * desde OxioPay: el dueño devuelve en el banco y la apunta aquí, para que el
  * cobro, la parte de la chica y los informes cuadren.
  */
 export function BankRefundModal({
@@ -81,7 +81,7 @@ export function BankRefundModal({
           devolución.
         </li>
         <li>
-          Apúntala aquí. NightPay ajusta el cobro y descuenta la parte de la chica, aunque ya se le haya pagado.
+          Apúntala aquí. OxioPay ajusta el cobro y descuenta la parte de la chica, aunque ya se le haya pagado.
         </li>
       </ol>
       <p style={metaStyle}>

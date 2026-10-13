@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { BRAND_NAME } from '../brand';
 
 export interface SendEmailInput {
   to: string;
@@ -32,7 +33,7 @@ export class EmailService {
 
   constructor(@Inject(ConfigService) config: ConfigService) {
     this.apiKey = config.get<string>('RESEND_API_KEY');
-    this.fromAddress = config.get<string>('EMAIL_FROM') ?? 'NightPay <noreply@paytomaxx.com>';
+    this.fromAddress = config.get<string>('EMAIL_FROM') ?? `${BRAND_NAME} <noreply@paytomaxx.com>`;
   }
 
   isEnabled(): boolean {

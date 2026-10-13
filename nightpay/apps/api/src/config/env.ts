@@ -63,6 +63,13 @@ const EnvSchema = z.object({
   // BBVA). Se enseña en la página de pago para evitar "no lo reconozco".
   // Vacío = no se enseña.
   PAY_STATEMENT_NAME: z.string().max(40).optional(),
+  // Nombre de la marca en pantallas, concepto del cobro y correos (por
+  // defecto OxioPay). No cambia el extracto del banco: eso lo fija BBVA.
+  BRAND_NAME: z.string().trim().min(2).max(20).optional(),
+  // Nombre del comercio en la página de pago de Redsys y en el justificante
+  // del cliente (DS_MERCHANT_MERCHANTNAME, máx. 25). Vacío = el que tenga
+  // BBVA en el contrato.
+  REDSYS_MERCHANT_NAME: z.string().max(25).optional(),
   // Fase 1E — alertas y resumen de las 9:00 por Telegram al dueño. Sin las
   // dos, la bandeja de incidencias funciona igual y no se envía nada.
   // TELEGRAM_BOT_TOKEN: el que da @BotFather. TELEGRAM_CHAT_ID: el chat (o

@@ -15,6 +15,7 @@ import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, fetchWithTimeout, timedFire } from './circuit-breaker';
 import { pickHeader } from './header-utils';
 import { MetricsService } from '../metrics/metrics.service';
+import { BRAND_NAME } from '../../common/brand';
 
 const PROVIDER_LABEL = 'PAYTEF' as const;
 function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
@@ -160,7 +161,7 @@ export class PaytefAdapter implements GatewayAdapter {
         branchID,
         amountCents: input.amountCents,
         currency: input.currency,
-        description: `NightPay ${input.reference}`,
+        description: `${BRAND_NAME} ${input.reference}`,
         clientID: input.reference, // nuestro UUID payment como clientID Paytef
         // Paytef requiere userFullName + userEmail no vacíos (422). El cliente
         // real no los introduce porque pagamos directo sin formulario previo —
@@ -272,7 +273,7 @@ export class PaytefAdapter implements GatewayAdapter {
     );
     throw new Error(
       'paytef-refund-manual-required: Paytef PaymentLINK no expone refund via API. ' +
-        'Refundea desde el panel my.paytef.es y marca el refund manualmente en NightPay.',
+        `Refundea desde el panel my.paytef.es y marca el refund manualmente en ${BRAND_NAME}.`,
     );
   }
 

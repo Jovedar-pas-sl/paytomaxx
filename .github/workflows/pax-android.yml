@@ -1,5 +1,6 @@
-# Compila la app NightPay del datáfono PAX (nightpay/apps/pax-android).
+# Compila la app OxioPay del datáfono PAX (nightpay/apps/pax-android).
 # Resultado: un APK de prueba en "Artifacts" de la ejecución.
+# Dominio de la pantalla: variable del repositorio PAX_URL (vacía = el de siempre).
 name: pax-android
 
 on:
@@ -29,9 +30,9 @@ jobs:
         with:
           gradle-version: '8.7'
       - name: Compilar APK de prueba
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug --no-daemon -PpaxUrl="${{ vars.PAX_URL }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: nightpay-pax-debug
+          name: oxiopay-pax-debug
           path: nightpay/apps/pax-android/app/build/outputs/apk/debug/*.apk
           retention-days: 30

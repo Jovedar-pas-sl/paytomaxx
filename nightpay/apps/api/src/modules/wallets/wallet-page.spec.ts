@@ -18,7 +18,7 @@ describe('página del saldo del cliente', () => {
   it('lleva el estado inicial, el idioma y las rutas del saldo', () => {
     const html = renderWalletPage('tok-1', 'es', state());
     expect(html).toContain('<html lang="es">');
-    expect(html).toContain('<title>Tu saldo NightPay</title>');
+    expect(html).toContain('<title>Tu saldo OxioPay</title>');
     expect(html).toContain('\\"base\\":\\"/w/tok-1\\"');
     expect(html).toContain('K7Q-4M2');
     expect(html).toContain('noindex');
@@ -27,7 +27,7 @@ describe('página del saldo del cliente', () => {
   it('en inglés', () => {
     const html = renderWalletPage('tok-1', 'en', state());
     expect(html).toContain('<html lang="en">');
-    expect(html).toContain('Your NightPay balance');
+    expect(html).toContain('Your OxioPay balance');
   });
 
   it('un nombre con HTML no puede cerrar el <script>', () => {

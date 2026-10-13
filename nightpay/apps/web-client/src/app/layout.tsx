@@ -19,7 +19,7 @@ const mono = Unbounded({
 });
 
 export const metadata: Metadata = {
-  title: 'NightPay — Pagar',
+  title: 'OxioPay — Pagar',
   description: 'Paga en segundos acercando la tarjeta al datáfono.',
 };
 

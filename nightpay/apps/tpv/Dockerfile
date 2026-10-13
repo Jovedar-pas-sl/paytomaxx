@@ -26,8 +26,11 @@ COPY packages/ui ./packages/ui
 COPY apps/tpv ./apps/tpv
 ENV NEXT_BUILD_TRACE_ROOT=/repo
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NEXT_PUBLIC_API_URL=https://api.paytomaxx.com
-ENV NEXT_PUBLIC_WS_URL=wss://api.paytomaxx.com
+# Otro dominio: build args NEXT_PUBLIC_API_URL / NEXT_PUBLIC_WS_URL en Dokploy.
+ARG NEXT_PUBLIC_API_URL=https://api.paytomaxx.com
+ARG NEXT_PUBLIC_WS_URL=wss://api.paytomaxx.com
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 RUN pnpm --filter @nightpay/tpv build
 
 FROM node:20-alpine AS runner

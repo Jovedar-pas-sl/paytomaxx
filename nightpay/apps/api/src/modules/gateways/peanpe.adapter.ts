@@ -15,6 +15,7 @@ import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, timedFire } from './circuit-breaker';
 import { MetricsService } from '../metrics/metrics.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { BRAND_NAME } from '../../common/brand';
 
 const PROVIDER_LABEL = 'PEANPE' as const;
 function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
@@ -207,7 +208,7 @@ export class PeanpeAdapter implements GatewayAdapter {
     const paymentLinkUrl = this.buildPaymentUrl({
       identificadorLlamada: idLlamada,
       amountCents: input.amountCents,
-      concepto: `NightPay ${input.paymentId.slice(0, 8)}`,
+      concepto: `${BRAND_NAME} ${input.paymentId.slice(0, 8)}`,
       debug: process.env.NODE_ENV !== 'production',
     });
 
@@ -243,7 +244,7 @@ export class PeanpeAdapter implements GatewayAdapter {
     throw new Error(
       'peanpe-refund-manual-required: Peanpe v2.0 no expone refund por API. ' +
         'Anula la transacción desde panel peanpe.com → Estadísticas → buscar txn → Anular. ' +
-        'Después marca el refund manualmente en NightPay.',
+        `Después marca el refund manualmente en ${BRAND_NAME}.`,
     );
   }
 

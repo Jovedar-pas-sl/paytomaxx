@@ -21,6 +21,7 @@ import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, timedFire } from './circuit-breaker';
 import { parseFormUrlEncoded, parseWebhookBody } from './header-utils';
 import { MetricsService } from '../metrics/metrics.service';
+import { BRAND_NAME } from '../../common/brand';
 
 const PROVIDER_LABEL = 'REDSYS' as const;
 function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
@@ -149,7 +150,7 @@ export class RedsysAdapter implements GatewayAdapter {
     // PRODUCTDESCRIPTION: solo alfanuméricos + espacios. Redsys SIS rechaza
     // caracteres especiales (acentos, símbolos) en este campo, lo que genera
     // SIS0042 (firma incorrecta) porque internamente normaliza distinto.
-    const productDesc = `NightPay ${input.reference.slice(0, 8)}`
+    const productDesc = `${BRAND_NAME} ${input.reference.slice(0, 8)}`
       .replace(/[^a-zA-Z0-9 ]/g, '')
       .slice(0, 125);
 
@@ -160,6 +161,14 @@ export class RedsysAdapter implements GatewayAdapter {
     //   (vacío) → Redsys enseña todo
     // Manda el botón que pulsó el cliente; sin él (cobros sin página de
     // pago), REDSYS_PAYMETHODS del entorno.
+    // Nombre del comercio en la página de Redsys y en el justificante del
+    // cliente. Sin la variable, Redsys usa el del contrato con BBVA. El del
+    // EXTRACTO del banco no se cambia aquí: lo fija BBVA.
+    const merchantName = (this.config.get<string>('REDSYS_MERCHANT_NAME') ?? '')
+      .replace(/[^a-zA-Z0-9 ]/g, '')
+      .trim()
+      .slice(0, 25);
+
     const paymethods = input.payMethod
       ? REDSYS_PAYMETHOD[input.payMethod]
       : this.config.get<string>('REDSYS_PAYMETHODS');
@@ -201,6 +210,7 @@ export class RedsysAdapter implements GatewayAdapter {
       DS_MERCHANT_URLOK: urlOk,
       DS_MERCHANT_URLKO: urlKo,
       DS_MERCHANT_PRODUCTDESCRIPTION: productDesc,
+      ...(merchantName ? { DS_MERCHANT_MERCHANTNAME: merchantName } : {}),
       ...(paymethods ? { DS_MERCHANT_PAYMETHODS: paymethods } : {}),
       ...(input.language ? { DS_MERCHANT_CONSUMERLANGUAGE: REDSYS_LANGUAGE[input.language] } : {}),
     };
