@@ -21,6 +21,7 @@ import {
   decideAccept,
   effectiveRequestStatus,
   formatWalletCode,
+  newWalletToken,
   normalizeWalletCode,
   sameWalletGroup,
   type ChargeRequestStatus,
@@ -472,6 +473,34 @@ export class WalletChargesService {
       );
     }
     return { refundedCents: refunded, method: input.method };
+  }
+
+  /**
+   * El cliente perdió el enlace de su saldo (pagó en otro navegador, borró la
+   * página…). El dueño le da uno nuevo y el viejo deja de valer: quien lo
+   * hubiera visto ya no puede aceptar cobros con él.
+   */
+  async relink(actor: Actor, walletId: string): Promise<{ path: string }> {
+    if (actor.role !== 'OWNER') {
+      throw new ForbiddenException('Un enlace nuevo del saldo solo lo da el dueño');
+    }
+    const venue = await this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: { walletGroup: true } });
+    const wallet = await this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: walletId } }));
+    if (!wallet || !sameWalletGroup(wallet, { id: actor.tenantId, walletGroup: venue?.walletGroup ?? null })) {
+      throw new NotFoundException('Saldo no encontrado');
+    }
+    if (wallet.status !== 'ACTIVE') throw new ConflictException('Este saldo ya está cerrado');
+    const qrToken = newWalletToken();
+    await this.prisma.acrossVenues((tx) => tx.clientWallet.update({ where: { id: walletId }, data: { qrToken } }));
+    await this.audit.log({
+      action: 'wallet.relinked',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: walletId,
+      payload: { balanceCents: wallet.balanceCents },
+    });
+    return { path: `/w/${qrToken}` };
   }
 
   private async settlePayout(

@@ -7,6 +7,7 @@ import {
   fetchWalletsStats,
   lookupWalletCode,
   payoutWallet,
+  relinkWallet,
   type WalletAdminRow,
   type WalletPayoutMethod,
   type WalletsAdminStats,
@@ -42,6 +43,7 @@ export function WalletsPanel({ isOwner }: Props) {
   const [statusFilter, setStatusFilter] = useState<'' | WalletAdminRow['status']>('ACTIVE');
   const [error, setError] = useState<string | null>(null);
   const [payoutFor, setPayoutFor] = useState<PayoutTarget | null>(null);
+  const [relinkFor, setRelinkFor] = useState<PayoutTarget | null>(null);
 
   async function reload() {
     try {
@@ -63,7 +65,6 @@ export function WalletsPanel({ isOwner }: Props) {
     reload();
     const id = setInterval(reload, 15_000);
     return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
   if (error) {
@@ -178,23 +179,21 @@ export function WalletsPanel({ isOwner }: Props) {
                     })}
                   </td>
                   <td style={td}>
-                    {w.status === 'ACTIVE' && w.balanceCents > 0 ? (
-                      <Button
-                        variant={w.closeRequestedAt ? 'primary' : 'ghost'}
-                        onClick={() =>
-                          setPayoutFor({
-                            walletId: w.id,
-                            code: w.code,
-                            balanceCents: w.balanceCents,
-                            label: w.identifier,
-                            isHomeVenue: true,
-                            closeRequested: w.closeRequestedAt !== null,
-                          })
-                        }
-                      >
-                        Devolver saldo
-                      </Button>
-                    ) : null}
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      {w.status === 'ACTIVE' && w.balanceCents > 0 ? (
+                        <Button
+                          variant={w.closeRequestedAt ? 'primary' : 'ghost'}
+                          onClick={() => setPayoutFor(rowTarget(w))}
+                        >
+                          Devolver saldo
+                        </Button>
+                      ) : null}
+                      {isOwner && w.status === 'ACTIVE' ? (
+                        <Button variant="ghost" onClick={() => setRelinkFor(rowTarget(w))}>
+                          Enlace nuevo
+                        </Button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -207,12 +206,22 @@ export function WalletsPanel({ isOwner }: Props) {
         <PayoutModal
           target={payoutFor}
           isOwner={isOwner}
+          onRelink={
+            isOwner
+              ? () => {
+                  setRelinkFor(payoutFor);
+                  setPayoutFor(null);
+                }
+              : undefined
+          }
           onClose={() => {
             setPayoutFor(null);
             reload();
           }}
         />
       ) : null}
+
+      {relinkFor ? <RelinkModal target={relinkFor} onClose={() => setRelinkFor(null)} /> : null}
     </div>
   );
 }
@@ -226,6 +235,17 @@ function StatusBadge({ status }: { status: WalletAdminRow['status'] }) {
   };
   const d = map[status];
   return <span style={{ color: d.color, fontSize: '0.8rem', fontWeight: 500 }}>{d.label}</span>;
+}
+
+function rowTarget(w: WalletAdminRow): PayoutTarget {
+  return {
+    walletId: w.id,
+    code: w.code,
+    balanceCents: w.balanceCents,
+    label: w.identifier,
+    isHomeVenue: true,
+    closeRequested: w.closeRequestedAt !== null,
+  };
 }
 
 /** Lo que el cliente pidió devolver va primero. */
@@ -290,10 +310,13 @@ function CodeSearch({ onFound }: { onFound: (target: PayoutTarget) => void }) {
 function PayoutModal({
   target,
   isOwner,
+  onRelink,
   onClose,
 }: {
   target: PayoutTarget;
   isOwner: boolean;
+  /** Solo el dueño: el cliente perdió el enlace de su saldo. */
+  onRelink?: () => void;
   onClose: () => void;
 }) {
   const [method, setMethod] = useState<WalletPayoutMethod>('CASH');
@@ -337,6 +360,12 @@ function PayoutModal({
             {[target.code, target.label].filter(Boolean).join(' · ')}
           </p>
         </div>
+
+        {onRelink && !done ? (
+          <button type="button" onClick={onRelink} style={linkStyle}>
+            ¿El cliente perdió el enlace de su saldo? Darle uno nuevo
+          </button>
+        ) : null}
 
         {done ? (
           <>
@@ -406,6 +435,70 @@ function PayoutModal({
               </Button>
               <Button onClick={handleSubmit} loading={submitting} disabled={!canPay}>
                 Devolver {amount}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** Enlace nuevo del saldo: el cliente escanea el QR con su móvil. */
+function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [link, setLink] = useState<{ url: string; qrDataUrl: string } | null>(null);
+
+  async function handleCreate() {
+    setBusy(true);
+    setError(null);
+    try {
+      setLink(await relinkWallet(target.walletId));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Enlace nuevo del saldo">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={summaryStyle}>
+          <p style={{ margin: 0, fontSize: '0.85rem' }}>
+            Saldo: <strong className="np-num">{eur(target.balanceCents)}</strong>
+          </p>
+          <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
+            {[target.code, target.label].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+        {link ? (
+          <>
+            <p style={helpStyle}>Que el cliente escanee este QR con su móvil y guarde la página. Es su saldo.</p>
+            <img
+              src={link.qrDataUrl}
+              alt="QR del enlace del saldo"
+              width={240}
+              height={240}
+              style={{ alignSelf: 'center', borderRadius: 'var(--np-r-md)' }}
+            />
+            <p style={{ ...helpStyle, wordBreak: 'break-all', fontSize: '0.72rem' }}>{link.url}</p>
+            <Button onClick={onClose}>Hecho</Button>
+          </>
+        ) : (
+          <>
+            <p style={helpStyle}>
+              Para el cliente que ya no encuentra su página de saldo. El enlace que tenía deja de funcionar y se le da
+              uno nuevo con un QR.
+            </p>
+            {error ? <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>{error}</p> : null}
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <Button variant="ghost" onClick={onClose} disabled={busy}>
+                Cancelar
+              </Button>
+              <Button onClick={handleCreate} loading={busy}>
+                Crear enlace nuevo
               </Button>
             </div>
           </>
@@ -603,6 +696,18 @@ const methodStyle: CSSProperties = {
   borderRadius: 'var(--np-r-md)',
   color: 'var(--np-text)',
   fontFamily: 'inherit',
+};
+
+const linkStyle: CSSProperties = {
+  alignSelf: 'flex-start',
+  padding: 0,
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--np-accent)',
+  fontSize: '0.8rem',
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  textDecoration: 'underline',
 };
 
 const helpStyle: CSSProperties = {

@@ -124,6 +124,9 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     await makeController({ view: paid }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, staff.reply);
     expect(staff.sent.body).toContain('<h1>Pagado</h1>');
     expect(staff.sent.body).not.toContain('/w/wal-tok');
+    // …y si es el cliente en otro navegador, sabe qué hacer.
+    expect(staff.sent.body).toContain('pide en el local un enlace nuevo');
+    expect(payer.sent.body).not.toContain('pide en el local un enlace nuevo');
   });
 
   it('vuelta del banco en inglés', async () => {

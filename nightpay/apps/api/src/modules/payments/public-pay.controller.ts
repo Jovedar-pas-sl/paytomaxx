@@ -86,8 +86,9 @@ export class PublicPayController {
     const lang = resolveLanguage(langQuery, acceptLanguage);
     const view = op ? await this.payments.getResultView(op) : null;
     const refreshUrl = `/pay/result?op=${encodeURIComponent(op ?? '')}&lang=${lang}`;
-    const shown = view?.walletToken && !this.hasWalletClaim(res, view.qrToken) ? { ...view, walletToken: null } : view;
-    sendHtml(res, 200, renderResultView(shown, lang, refreshUrl));
+    const hidden = Boolean(view?.walletToken) && !this.hasWalletClaim(res, view?.qrToken ?? '');
+    const shown = hidden && view ? { ...view, walletToken: null } : view;
+    sendHtml(res, 200, renderResultView(shown, lang, refreshUrl, hidden));
   }
 
   @Public()
@@ -224,6 +225,7 @@ export class PublicPayController {
               receiptHref: receiptHref(token, lang),
               walletHref:
                 view.walletToken && this.hasWalletClaim(res, token) ? walletHref(view.walletToken, lang) : null,
+              walletElsewhere: Boolean(view.walletToken) && !this.hasWalletClaim(res, token),
             },
             lang,
           ),

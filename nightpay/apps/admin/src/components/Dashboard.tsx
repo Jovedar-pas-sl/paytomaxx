@@ -81,7 +81,6 @@ export function Dashboard({ user, onLogout }: Props) {
     reload();
     const interval = setInterval(reload, 5000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   async function logout() {

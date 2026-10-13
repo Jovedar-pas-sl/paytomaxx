@@ -1,4 +1,6 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import * as QRCode from 'qrcode';
 import { z } from 'zod';
 import type { JwtPayload } from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -32,14 +34,20 @@ const PayoutSchema = z.object({
  *  - GET  /v1/wallet-charges/:id                → respuesta del cliente.
  *  - POST /v1/wallet-charges/:id/cancel         → retirar la petición.
  *  - POST /v1/wallet-charges/wallets/:id/payout → devolver el saldo (tarjeta o efectivo).
+ *  - POST /v1/wallet-charges/wallets/:id/relink → enlace nuevo para el cliente (dueño).
  */
 @Controller('wallet-charges')
 @UseGuards(RolesGuard)
 export class WalletChargesController {
   private readonly charges: WalletChargesService;
+  private readonly config: ConfigService;
 
-  constructor(@Inject(WalletChargesService) charges: WalletChargesService) {
+  constructor(
+    @Inject(WalletChargesService) charges: WalletChargesService,
+    @Inject(ConfigService) config: ConfigService,
+  ) {
     this.charges = charges;
+    this.config = config;
   }
 
   // Contra probar códigos al azar: el personal de un local comparte IP, así
@@ -84,5 +92,20 @@ export class WalletChargesController {
     @Body(new ZodValidationPipe(PayoutSchema)) body: z.infer<typeof PayoutSchema>,
   ) {
     return this.charges.payout({ userId: user.sub, role: user.role, tenantId: user.tenantId }, walletId, body);
+  }
+
+  /** El QR lo escanea el cliente con su móvil; el enlace viejo deja de valer. */
+  @Post('wallets/:id/relink')
+  @HttpCode(200)
+  @Roles('OWNER')
+  async relink(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) walletId: string,
+  ): Promise<{ url: string; qrDataUrl: string }> {
+    const { path } = await this.charges.relink({ userId: user.sub, role: user.role, tenantId: user.tenantId }, walletId);
+    const base = (this.config.get<string>('NEXT_PUBLIC_API_URL') ?? '').replace(/\/+$/, '');
+    const url = `${base}${path}`;
+    const qrDataUrl = await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', margin: 2, width: 320 });
+    return { url, qrDataUrl };
   }
 }

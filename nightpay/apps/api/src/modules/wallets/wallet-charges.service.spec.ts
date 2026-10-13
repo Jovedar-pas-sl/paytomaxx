@@ -202,6 +202,28 @@ describe('el cliente acepta en su móvil', () => {
   });
 });
 
+describe('el cliente perdió el enlace de su saldo', () => {
+  it('el dueño le da uno nuevo y el viejo deja de valer', async () => {
+    const { svc, tx, audit } = makeService();
+    const out = await svc.relink(owner, 'w-1');
+    expect(out.path).toMatch(/^\/w\/[A-Za-z0-9_-]{24}$/);
+    const data = tx.clientWallet.update.mock.calls[0]![0].data as { qrToken: string };
+    expect(out.path).toBe(`/w/${data.qrToken}`);
+    expect(data.qrToken).not.toBe('tok');
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.relinked' }));
+  });
+
+  it('solo el dueño, solo saldos abiertos de su grupo', async () => {
+    await expect(makeService().svc.relink(manager, 'w-1')).rejects.toThrow(ForbiddenException);
+    await expect(makeService({ wallet: wallet({ status: 'REFUNDED' }) }).svc.relink(owner, 'w-1')).rejects.toThrow(
+      /cerrado/,
+    );
+    await expect(makeService({ venueGroup: 'otro' }).svc.relink({ ...owner, tenantId: 'ajeno' }, 'w-1')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+});
+
 describe('devolver el saldo al cliente que se va', () => {
   it('en efectivo (encargado, el cliente pulsó "Me voy"): todo el saldo, wallet cerrada y apuntado', async () => {
     const { svc, tx } = makeService({ wallet: wallet({ closeRequestedAt: new Date() }) });

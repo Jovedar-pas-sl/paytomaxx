@@ -818,6 +818,18 @@ export async function lookupWalletCode(code: string): Promise<WalletLookup> {
   return res.json();
 }
 
+/**
+ * El cliente perdió el enlace de su saldo: uno nuevo (solo el dueño). El viejo
+ * deja de valer. Devuelve el enlace y su QR para que el cliente lo escanee.
+ */
+export async function relinkWallet(walletId: string): Promise<{ url: string; qrDataUrl: string }> {
+  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/relink`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
 export type WalletPayoutMethod = 'CARD' | 'CASH';
 
 /**

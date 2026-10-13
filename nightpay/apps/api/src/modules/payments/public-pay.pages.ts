@@ -224,6 +224,8 @@ export function renderPaidPage(
     receiptHref: string | null;
     /** Recarga de saldo: enlace a la página del saldo. */
     walletHref?: string | null;
+    /** Recarga de saldo vista desde otro navegador: sin enlace, con aviso. */
+    walletElsewhere?: boolean;
   },
   lang: PayLanguage,
 ): string {
@@ -245,6 +247,7 @@ ${args.authorizedAt ? `<p>${escapeHtml(t.confirmedAt(formatTime(args.authorizedA
 <div class="code"><p>${escapeHtml(t.codeLabel)}</p><b>${escapeHtml(args.code)}</b><p>${escapeHtml(t.codeHint)}</p></div>
 <div class="clock" id="clock" aria-label="${escapeHtml(t.clockLabel)}"></div>
 ${args.walletHref ? `<p>${escapeHtml(t.walletReady)}</p><a class="btn" href="${escapeHtml(args.walletHref)}">${escapeHtml(t.walletOpen)}</a>` : ''}
+${!args.walletHref && args.walletElsewhere ? `<p>${escapeHtml(t.walletElsewhere)}</p>` : ''}
 ${args.receiptHref ? `<a href="${escapeHtml(args.receiptHref)}">${escapeHtml(t.receiptLink)}</a>` : ''}
 <script>
 (function(){var el=document.getElementById('clock');function t(){el.textContent=new Date().toLocaleTimeString(${jsString(t.locale)},{timeZone:'Europe/Madrid'});}t();setInterval(t,1000);})();
@@ -297,7 +300,12 @@ export function renderErrorPage(key: PayErrorKey, lang: PayLanguage): string {
 }
 
 /** /pay/result?op=… — estado REAL del pago; el `status` de la URL no cuenta. */
-export function renderResultView(view: PayResultView | null, lang: PayLanguage, refreshUrl: string): string {
+export function renderResultView(
+  view: PayResultView | null,
+  lang: PayLanguage,
+  refreshUrl: string,
+  walletElsewhere = false,
+): string {
   const t = PAY_TEXT[lang];
   if (!view) return renderMessagePage(lang, t.notFoundTitle, t.notFoundBody, 'warn');
   if (PAID_STATES.has(view.status)) {
@@ -310,6 +318,7 @@ export function renderResultView(view: PayResultView | null, lang: PayLanguage, 
         authorizedAt: view.authorizedAt,
         receiptHref: receiptHref(view.qrToken, lang),
         walletHref: view.walletToken ? walletHref(view.walletToken, lang) : null,
+        walletElsewhere,
       },
       lang,
     );

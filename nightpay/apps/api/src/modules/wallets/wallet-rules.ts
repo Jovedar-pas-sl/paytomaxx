@@ -1,4 +1,4 @@
-import { randomInt } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 
 /**
  * Saldo NightPay del cliente (rediseño de la wallet). Reglas puras:
@@ -15,6 +15,11 @@ export const WALLET_CODE_LENGTH = 6;
 /** Código del cliente, p. ej. "K7Q4M2" (se enseña como "K7Q-4M2"). */
 export function newWalletCode(): string {
   return Array.from({ length: WALLET_CODE_LENGTH }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
+}
+
+/** Enlace del saldo (/w/<token>): 144 bits, la credencial del cliente. */
+export function newWalletToken(): string {
+  return randomBytes(18).toString('base64url');
 }
 
 /** Lo que teclea la chica ("k7q 4m2") → "K7Q4M2". */

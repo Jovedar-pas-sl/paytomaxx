@@ -8,7 +8,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { randomBytes } from 'node:crypto';
 import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -16,7 +15,7 @@ import { AuditService } from '../audit/audit.service';
 // vía ModuleRef en runtime con string token. Esto evita el ciclo de imports
 // Wallets→Refunds→Payments→Wallets que bloqueaba el bootstrap de Nest.
 import type { RefundsService } from '../refunds/refunds.service';
-import { formatWalletCode, newWalletCode } from './wallet-rules';
+import { formatWalletCode, newWalletCode, newWalletToken } from './wallet-rules';
 import type { Role } from '@nightpay/contracts';
 import type {
   ClientWalletView,
@@ -29,11 +28,6 @@ import type {
 
 /** Intentos para dar con un código corto libre (31^6 combinaciones). */
 const MAX_CODE_ATTEMPTS = 5;
-
-/** Generador del qrToken — base64url 18 bytes ≈ 24 chars, suficientemente único. */
-function generateQrToken(): string {
-  return randomBytes(18).toString('base64url');
-}
 
 @Injectable()
 export class WalletsService {
@@ -98,7 +92,7 @@ export class WalletsService {
             data: {
               tenantId: input.tenantId,
               identifier: input.identifier ?? null,
-              qrToken: generateQrToken(),
+              qrToken: newWalletToken(),
               shortCode: newWalletCode(),
               walletGroup: venue?.walletGroup ?? null,
             },

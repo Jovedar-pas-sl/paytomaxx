@@ -96,7 +96,6 @@ export function PayoutMethodForm({ method, address, metadata, label, onChange, d
       metadata: meta,
       label: localLabel.trim() || null,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localMethod, localAddress, localLabel, bankName, swiftBic, country, accountHolder]);
 
   const showAddress = localMethod !== '' && localMethod !== 'MANUAL_CASH';

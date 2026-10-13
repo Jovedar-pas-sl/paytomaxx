@@ -137,7 +137,6 @@ export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
       });
     }, 5000);
     return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Deep-link: cuando llega un focusPaymentId y la lista ya cargó, pre-selecciona.

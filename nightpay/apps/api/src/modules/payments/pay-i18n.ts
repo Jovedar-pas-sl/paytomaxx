@@ -46,6 +46,7 @@ export interface PayText {
   receiptLink: string;
   walletReady: string;
   walletOpen: string;
+  walletElsewhere: string;
   // Comprobando
   processingTitle: string;
   processingBody: string;
@@ -106,6 +107,7 @@ const ES: PayText = {
   receiptLink: 'Ver justificante',
   walletReady: 'Tu saldo ya está cargado. Ábrelo y guárdalo: ahí ves el saldo, el código para pagar y aceptas cada gasto.',
   walletOpen: 'Abrir mi saldo',
+  walletElsewhere: 'Tu saldo se abre en el móvil con el que pagaste. Si no lo encuentras, pide en el local un enlace nuevo.',
   processingTitle: 'Comprobando el pago',
   processingBody:
     'Estamos esperando la confirmación del banco. No vuelvas a pagar: esta pantalla se actualiza sola.',
@@ -183,6 +185,7 @@ const EN: PayText = {
   receiptLink: 'View receipt',
   walletReady: 'Your balance is loaded. Open it and save it: it shows your balance and your code, and you accept each charge there.',
   walletOpen: 'Open my balance',
+  walletElsewhere: "Your balance opens on the phone you paid with. If you can't find it, ask the venue for a new link.",
   processingTitle: 'Checking the payment',
   processingBody:
     'We are waiting for the bank to confirm. Do not pay again: this page updates by itself.',
