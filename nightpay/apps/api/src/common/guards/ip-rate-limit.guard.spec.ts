@@ -96,6 +96,19 @@ describe('IpRateLimitGuard', () => {
     expect(key).toMatch(/198\.51\.100\.42/);
   });
 
+  it('detrás de Cloudflare usa CF-Connecting-IP (X-Forwarded-For se puede falsear)', async () => {
+    const config: IpRateLimitConfig = { max: 100, windowSec: 60, scope: 'test' };
+    const guard = new IpRateLimitGuard(makeReflector(config), redis as never);
+    const ctx = makeCtx(config);
+    const headers = ctx.switchToHttp().getRequest().headers;
+    headers['x-forwarded-for'] = '1.2.3.4';
+    headers['cf-connecting-ip'] = '203.0.113.7';
+    await guard.canActivate(ctx);
+    const key = redis.incr.mock.calls.at(-1)[0];
+    expect(key).toMatch(/203\.0\.113\.7/);
+    expect(key).not.toMatch(/1\.2\.3\.4/);
+  });
+
   it('isolates IPs in different Redis keys', async () => {
     const config: IpRateLimitConfig = { max: 1, windowSec: 60, scope: 'test' };
     const guard = new IpRateLimitGuard(makeReflector(config), redis as never);

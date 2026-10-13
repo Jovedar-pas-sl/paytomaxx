@@ -7,8 +7,17 @@ import type { Incident } from './incident-rules';
 
 const at = (iso: string) => new Date(iso);
 
-/** $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches, revisadas. */
-function makeIncidents(rows: { stuck?: unknown[]; dup?: unknown[]; audit?: unknown[]; nights?: unknown[]; acks?: unknown[] }) {
+/** $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches, revisadas, datáfono (3). */
+function makeIncidents(rows: {
+  stuck?: unknown[];
+  dup?: unknown[];
+  audit?: unknown[];
+  nights?: unknown[];
+  acks?: unknown[];
+  posMismatch?: unknown[];
+  posUnmatched?: unknown[];
+  posUnreconciled?: unknown[];
+}) {
   const prisma = {
     $queryRaw: vi
       .fn()
@@ -16,7 +25,10 @@ function makeIncidents(rows: { stuck?: unknown[]; dup?: unknown[]; audit?: unkno
       .mockResolvedValueOnce(rows.dup ?? [])
       .mockResolvedValueOnce(rows.audit ?? [])
       .mockResolvedValueOnce(rows.nights ?? [])
-      .mockResolvedValueOnce(rows.acks ?? []),
+      .mockResolvedValueOnce(rows.acks ?? [])
+      .mockResolvedValueOnce(rows.posMismatch ?? [])
+      .mockResolvedValueOnce(rows.posUnmatched ?? [])
+      .mockResolvedValueOnce(rows.posUnreconciled ?? []),
     incidentAck: { upsert: vi.fn().mockResolvedValue({}) },
   };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
@@ -42,6 +54,38 @@ describe('bandeja de incidencias', () => {
       'stuck_payment',
       'earning_reverse_failed',
     ]);
+  });
+
+  it('datáfono: venta que no cuadra con el cobro y venta del cierre que no está en NightPay', async () => {
+    const { svc } = makeIncidents({
+      posMismatch: [
+        {
+          id: '21',
+          paymentId: 'p-9',
+          amountCents: null,
+          occurredAt: at('2026-10-13T23:30:00Z'),
+          payload: { operationNumber: '99812', message: 'El cobro ya no estaba abierto.' },
+        },
+      ],
+      posUnmatched: [
+        { id: 'op-1', paymentId: null, amountCents: 5000, occurredAt: at('2026-10-13T23:40:00Z'), payload: { operationNumber: '77' } },
+      ],
+    });
+    const items = await svc.list('t-1');
+    expect(items.map((i) => i.kind)).toEqual(['pos_unmatched_op', 'pos_charge_mismatch']);
+    expect(items[0]!.detail).toContain('50,00 €');
+    expect(items[1]!.detail).toContain('Operación 99812');
+  });
+
+  it('cobro del datáfono sin cuadrar en 24 h: se avisa y se quita solo al cuadrar', async () => {
+    const { svc } = makeIncidents({
+      posUnreconciled: [
+        { id: 'p-7', paymentId: 'p-7', amountCents: 10_000, occurredAt: at('2026-10-12T22:00:00Z'), payload: { operationNumber: '55' } },
+      ],
+    });
+    const [i] = await svc.list('t-1');
+    expect(i).toMatchObject({ kind: 'pos_unreconciled', ackable: false, paymentId: 'p-7' });
+    expect(i!.detail).toContain('Cuadrar con el datáfono');
   });
 
   it('marcar como revisada: solo las que no se resuelven solas y que existen en este local', async () => {

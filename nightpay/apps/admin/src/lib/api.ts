@@ -489,7 +489,10 @@ export type IncidentKind =
   | 'duplicate_charge'
   | 'earning_reverse_failed'
   | 'wallet_credit_skipped'
-  | 'night_closed_pending';
+  | 'night_closed_pending'
+  | 'pos_charge_mismatch'
+  | 'pos_unmatched_op'
+  | 'pos_unreconciled';
 
 export interface Incident {
   kind: IncidentKind;
@@ -896,6 +899,21 @@ export interface Terminal {
   hardwareModel: string | null;
   deviceSerial: string | null;
   active: boolean;
+  /** App NightPay del datáfono vinculada. */
+  devicePaired?: boolean;
+  deviceLastSeenAt?: string | null;
+}
+
+/** Código para vincular la app NightPay de un datáfono (vale 15 minutos). */
+export async function createPairingCode(terminalId: string): Promise<{ code: string; expiresAt: string }> {
+  const res = await authedFetch(`/v1/pos-device/terminals/${terminalId}/pairing-code`, { method: 'POST', body: '{}' });
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+export async function unpairTerminal(terminalId: string): Promise<void> {
+  const res = await authedFetch(`/v1/pos-device/terminals/${terminalId}/device`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(await readError(res));
 }
 
 export interface Zone {

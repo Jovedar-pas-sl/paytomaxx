@@ -55,6 +55,7 @@ model Venue {
   serviceItems       ServiceItem[]
   nights             VenueNight[]
   incidentAcks       IncidentAck[]
+  posTerminalOps     PosTerminalOp[]
 
   @@map("venues")
 }
@@ -148,9 +149,17 @@ model Terminal {
   hardwareModel String?
   // S/N físico del datáfono — futuro mapping con Paytef Terminal ID.
   deviceSerial  String?
+  // App NightPay en el datáfono (Paytef Device API): credencial del aparato
+  // (solo el hash) y código de vinculación de un solo uso.
+  deviceTokenHash      String?   @unique
+  devicePairedAt       DateTime? @db.Timestamptz
+  deviceLastSeenAt     DateTime? @db.Timestamptz
+  pairingCodeHash      String?   @unique
+  pairingCodeExpiresAt DateTime? @db.Timestamptz
 
   venue    Venue     @relation(fields: [tenantId], references: [id])
   payments Payment[]
+  posOps   PosTerminalOp[]
 
   @@unique([tenantId, externalId])
   @@index([tenantId])
@@ -305,6 +314,10 @@ model Payment {
   // Fase 1A — foto del servicio de la carta (si el cobro salió de ella).
   serviceItemId String?   @db.Uuid
   serviceName   String?
+  // Datáfono PAX: número de operación de Paytef y datáfono que lo cobró (el
+  // par es único: una operación paga un solo cobro).
+  posOperationNumber String?
+  posTerminalId      String? @db.Uuid
   durationMin   Int?
 
   venue              Venue            @relation(fields: [tenantId], references: [id])
@@ -326,6 +339,7 @@ model Payment {
   @@index([qrExpiresAt])
   @@index([walletId])
   @@index([tipBeneficiaryUserId])
+  @@unique([posTerminalId, posOperationNumber])
   @@map("payments")
 }
 
@@ -354,6 +368,24 @@ model PaymentAttempt {
   @@unique([provider, providerTxId])
   @@index([paymentId, createdAt(sort: Desc)])
   @@map("payment_attempts")
+}
+
+// Datáfono PAX — operaciones del cierre de jornada del datáfono, para cuadrar.
+model PosTerminalOp {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @db.Uuid
+  terminalId      String    @db.Uuid
+  operationNumber String
+  opType          String
+  amountCents     Int?
+  occurredAt      DateTime? @db.Timestamptz
+  reportedAt      DateTime  @default(now()) @db.Timestamptz
+
+  venue    Venue    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  terminal Terminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+
+  @@unique([terminalId, operationNumber])
+  @@map("pos_terminal_ops")
 }
 
 // Fase 1E — incidencias que el dueño ya revisó (las incidencias se calculan al vuelo).

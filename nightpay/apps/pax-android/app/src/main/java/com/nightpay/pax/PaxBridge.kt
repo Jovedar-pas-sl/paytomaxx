@@ -1,0 +1,125 @@
+package com.nightpay.pax
+
+import android.os.Handler
+import android.os.Looper
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import org.json.JSONException
+import org.json.JSONObject
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Puente entre la pantalla web /pax y el lector (window.NightPayPax).
+ *
+ *   web → app:  NightPayPax.<método>(JSON con requestId y datos)
+ *   app → web:  window.nightpayPaxCallback(requestId, JSON de respuesta)
+ *
+ * Respuesta: { ok: true, result?, transactions? } | { ok: false, error, message }.
+ * Mismo contrato que apps/operator/src/lib/pax-bridge.ts.
+ */
+class PaxBridge(private val webView: WebView, private val paytef: PaytefClient) {
+
+    // Hilos aparte: "cancelar" no puede esperar a que acabe la venta en curso.
+    private val executor: ExecutorService = Executors.newCachedThreadPool()
+    private val main = Handler(Looper.getMainLooper())
+
+    /** Una operación de cobro o anulación a la vez en el lector. */
+    private val busy = AtomicBoolean(false)
+
+    @Volatile
+    private var closed = false
+
+    /** Solo responde si la página cargada es la de NightPay (lo fija MainActivity). */
+    @Volatile
+    var trusted = false
+
+    @JavascriptInterface
+    fun startSale(json: String) = runExclusive(json) { req ->
+        paytef.sale(req.getInt("amountCents"), req.getString("reference"))
+    }
+
+    @JavascriptInterface
+    fun voidSale(json: String) = runExclusive(json) { req ->
+        paytef.void(req.getString("operationNumber"), req.optInt("amountCents"), req.optString("reference"))
+    }
+
+    @JavascriptInterface
+    fun cancel(json: String) = run(json) { paytef.cancel() }
+
+    @JavascriptInterface
+    fun lastResult(json: String) = run(json) { paytef.lastResult() }
+
+    @JavascriptInterface
+    fun shiftList(json: String) = run(json) { paytef.shiftList() }
+
+    /** Al cerrar la app: no se responde a una página que ya no existe. */
+    fun shutdown() {
+        closed = true
+        executor.shutdownNow()
+    }
+
+    private fun runExclusive(json: String, op: (JSONObject) -> JSONObject) {
+        if (!busy.compareAndSet(false, true)) {
+            reply(requestIdOf(json), failure("deviceIsBusy", "El datáfono ya está con otra operación"))
+            return
+        }
+        run(json, onDone = { busy.set(false) }, op = op)
+    }
+
+    private fun run(json: String, onDone: () -> Unit = {}, op: (JSONObject) -> JSONObject) {
+        val request = try {
+            JSONObject(json)
+        } catch (e: JSONException) {
+            onDone()
+            reply(requestIdOf(json), failure("badRequest", "Petición mal formada"))
+            return
+        }
+        val requestId = request.optString("requestId")
+        if (!trusted) {
+            onDone()
+            reply(requestId, failure("untrusted", "Página no autorizada"))
+            return
+        }
+        try {
+            executor.execute {
+                val response = try {
+                    op(request)
+                } catch (e: PaytefException) {
+                    failure(e.code, e.message ?: "Error del lector")
+                } catch (e: JSONException) {
+                    failure("badRequest", "Faltan datos de la operación")
+                } catch (e: InterruptedException) {
+                    failure("cancelled", "Operación interrumpida")
+                } catch (e: Exception) {
+                    failure("deviceError", "Error del lector")
+                } finally {
+                    onDone()
+                }
+                reply(requestId, response)
+            }
+        } catch (e: Exception) {
+            onDone()
+            reply(requestId, failure("deviceError", "La app se está cerrando"))
+        }
+    }
+
+    private fun failure(code: String, message: String): JSONObject =
+        JSONObject().put("ok", false).put("error", code).put("message", message)
+
+    /** El requestId aunque el JSON venga roto, para que la web no se quede esperando. */
+    private fun requestIdOf(json: String): String =
+        REQUEST_ID.find(json)?.groupValues?.get(1) ?: ""
+
+    private fun reply(requestId: String, response: JSONObject) {
+        if (closed || requestId.isEmpty()) return
+        val script = "window.nightpayPaxCallback && window.nightpayPaxCallback(" +
+            JSONObject.quote(requestId) + ", " + JSONObject.quote(response.toString()) + ")"
+        main.post { if (!closed) webView.evaluateJavascript(script, null) }
+    }
+
+    companion object {
+        private val REQUEST_ID = Regex("\"requestId\"\\s*:\\s*\"([^\"]{1,64})\"")
+    }
+}

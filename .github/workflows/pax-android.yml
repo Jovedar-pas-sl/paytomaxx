@@ -1,0 +1,37 @@
+# Compila la app NightPay del datáfono PAX (nightpay/apps/pax-android).
+# Resultado: un APK de prueba en "Artifacts" de la ejecución.
+name: pax-android
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'nightpay/apps/pax-android/**'
+      - '.github/workflows/pax-android.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nightpay/apps/pax-android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Compilar APK de prueba
+        run: gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightpay-pax-debug
+          path: nightpay/apps/pax-android/app/build/outputs/apk/debug/*.apk
+          retention-days: 30

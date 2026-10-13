@@ -4,8 +4,10 @@ import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Modal, Select } from '@nightpay/ui';
 import {
   bulkCreateTerminals,
+  createPairingCode,
   createTerminal,
   fetchTerminals,
+  unpairTerminal,
   updateTerminal,
   type Terminal,
 } from '@/lib/api';
@@ -32,13 +34,14 @@ const HARDWARE_LABEL: Record<Hardware, string> = {
   OTRO: 'Otro',
 };
 
-export function TerminalsPanel({ isOwner: _isOwner }: Props) {
+export function TerminalsPanel({ isOwner }: Props) {
   const [terminals, setTerminals] = useState<Terminal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [editing, setEditing] = useState<Terminal | null>(null);
+  const [pairing, setPairing] = useState<Terminal | null>(null);
 
   // Create form state
   const [externalId, setExternalId] = useState('');
@@ -187,6 +190,7 @@ export function TerminalsPanel({ isOwner: _isOwner }: Props) {
                 <th style={thStyle}>Hardware</th>
                 <th style={thStyle}>S/N</th>
                 <th style={thStyle}>Estado</th>
+                <th style={thStyle}>App NightPay</th>
                 <th style={thStyle}></th>
               </tr>
             </thead>
@@ -212,9 +216,28 @@ export function TerminalsPanel({ isOwner: _isOwner }: Props) {
                     </span>
                   </td>
                   <td style={tdStyle}>
-                    <Button variant="ghost" size="md" onClick={() => setEditing(t)}>
-                      Editar
-                    </Button>
+                    {t.devicePaired ? (
+                      <span>
+                        Vinculada
+                        {t.deviceLastSeenAt ? (
+                          <span style={{ color: 'var(--np-text-mute)' }}> · vista {formatSeen(t.deviceLastSeenAt)}</span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--np-text-mute)' }}>Sin vincular</span>
+                    )}
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <Button variant="ghost" size="md" onClick={() => setEditing(t)}>
+                        Editar
+                      </Button>
+                      {isOwner ? (
+                        <Button variant="ghost" size="md" onClick={() => setPairing(t)}>
+                          {t.devicePaired ? 'App…' : 'Vincular app'}
+                        </Button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -222,6 +245,14 @@ export function TerminalsPanel({ isOwner: _isOwner }: Props) {
           </table>
         )}
       </Card>
+
+      <PairingModal
+        terminal={pairing}
+        onClose={() => {
+          setPairing(null);
+          reload();
+        }}
+      />
 
       <BulkCreateModal
         open={bulkOpen}
@@ -439,3 +470,100 @@ const tdStyle: CSSProperties = {
   fontSize: '0.875rem',
   borderBottom: '1px solid var(--np-border)',
 };
+
+/**
+ * Vincular la app NightPay del datáfono: código de un solo uso que se teclea
+ * en el datáfono. Con la app vinculada, el cobro llega al lector y vuelve
+ * pagado sin teclear el código del ticket.
+ */
+function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClose: () => void }) {
+  const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCode(null);
+    setError(null);
+  }, [terminal]);
+
+  if (!terminal) return <Modal open={false} onClose={onClose}>{null}</Modal>;
+  const current = terminal;
+
+  async function generate() {
+    setBusy(true);
+    setError(null);
+    try {
+      setCode(await createPairingCode(current.id));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unpair() {
+    setBusy(true);
+    setError(null);
+    try {
+      await unpairTerminal(current.id);
+      onClose();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`App NightPay · ${current.label}`}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <ol style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+          <li>Abre la app NightPay en este datáfono.</li>
+          <li>Genera el código y tecléalo en el datáfono (vale 15 minutos y una sola vez).</li>
+          <li>Desde entonces el datáfono ve los cobros de las chicas y los cobra sin teclear el ticket.</li>
+        </ol>
+        {code ? (
+          <div style={{ textAlign: 'center', border: '2px solid var(--np-accent)', borderRadius: 'var(--np-r-lg)', padding: '1rem' }}>
+            <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700, letterSpacing: '0.12em' }}>
+              {code.code}
+            </p>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.875rem' }}>
+              Caduca a las{' '}
+              {new Date(code.expiresAt).toLocaleTimeString('es-ES', {
+                timeZone: 'Europe/Madrid',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </p>
+          </div>
+        ) : null}
+        {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <Button loading={busy} onClick={() => void generate()}>
+            {code ? 'Generar otro código' : current.devicePaired ? 'Volver a vincular' : 'Generar código'}
+          </Button>
+          {current.devicePaired ? (
+            <Button variant="ghost" loading={busy} onClick={() => void unpair()}>
+              Desvincular
+            </Button>
+          ) : null}
+        </div>
+        {current.devicePaired ? (
+          <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' }}>
+            Volver a vincular deja sin acceso al aparato anterior en cuanto se use el código nuevo.
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+function formatSeen(iso: string): string {
+  return new Date(iso).toLocaleString('es-ES', {
+    timeZone: 'Europe/Madrid',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}

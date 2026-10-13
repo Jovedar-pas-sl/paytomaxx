@@ -1,0 +1,290 @@
+'use client';
+
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { Button, Card, Input } from '@nightpay/ui';
+import { callReader, hasReader } from '@/lib/pax-bridge';
+import {
+  clearPendingResult,
+  fetchPaxInfo,
+  fetchPaxPending,
+  getDeviceToken,
+  getPendingResult,
+  isFinalRejection,
+  pairDevice,
+  reportPaxResult,
+  reportPaxShift,
+  type PaxCharge,
+  type PaxInfo,
+  type ShiftSummary,
+} from '@/lib/pax-api';
+import { PaxChargeFlow } from './PaxChargeFlow';
+
+const POLL_MS = 3000;
+
+/**
+ * Pantalla del datáfono PAX (se abre dentro de la app NightPay del aparato).
+ * El camarero ve los cobros que han creado las chicas, toca uno y el cliente
+ * acerca la tarjeta: el cobro queda pagado y asignado sin teclear nada.
+ */
+export function PaxScreen() {
+  const [paired, setPaired] = useState<boolean | null>(null);
+  const [info, setInfo] = useState<PaxInfo | null>(null);
+  const [charges, setCharges] = useState<PaxCharge[]>([]);
+  const [selected, setSelected] = useState<PaxCharge | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPaired(Boolean(getDeviceToken()));
+  }, []);
+
+  const refresh = useCallback(() => {
+    // Una venta aprobada que no llegó a NightPay se reenvía antes que nada.
+    const pendingResult = getPendingResult();
+    if (pendingResult) {
+      reportPaxResult(pendingResult.paymentId, pendingResult.result)
+        .then(() => clearPendingResult())
+        .catch((err) => {
+          // Rechazo definitivo: no se reintenta (queda en el cobro). Si no, en la siguiente vuelta.
+          if (isFinalRejection(err)) clearPendingResult();
+        });
+    }
+    fetchPaxPending()
+      .then((list) => {
+        setCharges(list);
+        setError(null);
+      })
+      .catch((err) => {
+        setError((err as Error).message);
+        if (!getDeviceToken()) setPaired(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!paired) return;
+    fetchPaxInfo()
+      .then(setInfo)
+      .catch((err) => {
+        setError((err as Error).message);
+        if (!getDeviceToken()) setPaired(false);
+      });
+    refresh();
+    const t = setInterval(refresh, POLL_MS);
+    return () => clearInterval(t);
+  }, [paired, refresh]);
+
+  if (paired === null) return <main style={mainStyle} />;
+  if (!paired) {
+    return (
+      <main style={mainStyle}>
+        <PairingForm
+          onPaired={(i) => {
+            setInfo(i);
+            setPaired(true);
+          }}
+        />
+      </main>
+    );
+  }
+
+  if (selected) {
+    return (
+      <main style={mainStyle}>
+        <PaxChargeFlow
+          charge={selected}
+          onDone={() => {
+            setSelected(null);
+            refresh();
+          }}
+        />
+      </main>
+    );
+  }
+
+  const reader = hasReader();
+  return (
+    <main style={mainStyle}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem' }}>
+        <div>
+          <p style={kicker}>{info?.venueName ?? 'NightPay'}</p>
+          <h1 style={{ margin: 0, fontSize: '1.5rem' }}>
+            {info?.terminal.label ?? 'Datáfono'}
+            {info?.terminal.zone ? <span style={muted}> · {info.terminal.zone.toLowerCase()}</span> : null}
+          </h1>
+        </div>
+        <span style={{ ...badge, color: reader ? 'var(--np-success)' : 'var(--np-warning)' }}>
+          {reader ? 'Lector listo' : 'Sin lector'}
+        </span>
+      </header>
+
+      {!reader ? (
+        <p style={warnBox}>Para cobrar, abre esta pantalla desde la app NightPay del datáfono.</p>
+      ) : null}
+      {getPendingResult() ? (
+        <p style={warnBox}>Hay un cobro aprobado pendiente de enviar a NightPay: se reenvía solo.</p>
+      ) : null}
+      {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
+
+      {charges.length === 0 ? (
+        <Card style={{ padding: '2rem 1.25rem', textAlign: 'center' }}>
+          <p style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>No hay cobros esperando.</p>
+          <p style={{ ...muted, margin: '0.5rem 0 0' }}>Cuando una chica cree un cobro por datáfono, sale aquí.</p>
+        </Card>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {charges.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              disabled={!reader}
+              onClick={() => setSelected(c)}
+              style={{ ...chargeBtn, borderColor: c.forThisTerminal ? 'var(--np-accent)' : 'var(--np-border-hi)' }}
+            >
+              <span className="np-num" style={{ fontSize: '2rem', fontWeight: 700 }}>
+                {eur(c.amountCents)}
+              </span>
+              <span style={{ fontSize: '1.0625rem', fontWeight: 600 }}>{c.createdByName}</span>
+              <span style={muted}>
+                Código {c.code}
+                {c.zone ? ` · ${c.zone.toLowerCase()}` : ''} · hace {minutesAgo(c.createdAt)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {reader ? <ShiftCheck /> : null}
+    </main>
+  );
+}
+
+function PairingForm({ onPaired }: { onPaired: (info: PaxInfo) => void }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      onPaired(await pairDevice(code));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <h1 style={{ margin: 0, fontSize: '1.5rem' }}>Vincular este datáfono</h1>
+      <p style={{ ...muted, margin: 0 }}>
+        En el panel: Datáfonos → este datáfono → Vincular app. Teclea aquí el código que sale (vale 15 minutos).
+      </p>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <Input
+          label="Código"
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          placeholder="ABCD-2345"
+          autoCapitalize="characters"
+          autoComplete="off"
+          maxLength={12}
+          size="lg"
+          style={{ textAlign: 'center', letterSpacing: '0.15em', fontFamily: 'var(--np-font-mono)' }}
+        />
+        {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
+        <Button type="submit" size="lg" loading={busy}>
+          Vincular
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
+/** Cuadre con el cierre de jornada del datáfono: ventas que no están en NightPay. */
+function ShiftCheck() {
+  const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState<ShiftSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await callReader('shiftList');
+      if (!r.ok) throw new Error(r.message ?? 'El lector no dio la lista de operaciones');
+      setSummary(await reportPaxShift(r.transactions ?? []));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <Button variant="ghost" loading={busy} onClick={() => void run()}>
+        Cuadrar con el datáfono
+      </Button>
+      {summary ? (
+        <p style={{ margin: 0 }}>
+          {summary.unmatched.length === 0
+            ? `Todo cuadra: ${summary.total} ventas del datáfono, todas en NightPay.`
+            : `${summary.unmatched.length} de ${summary.total} ventas del datáfono no están en NightPay. Salen en Incidencias del panel.`}
+        </p>
+      ) : null}
+      {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
+    </Card>
+  );
+}
+
+function eur(cents: number): string {
+  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
+}
+
+function minutesAgo(iso: string): string {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  return min < 1 ? 'un momento' : `${min} min`;
+}
+
+const mainStyle: CSSProperties = {
+  minHeight: '100vh',
+  padding: '1rem',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1rem',
+  maxWidth: '40rem',
+  margin: '0 auto',
+};
+const kicker: CSSProperties = {
+  margin: 0,
+  fontSize: '0.8125rem',
+  fontWeight: 700,
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  color: 'var(--np-text-mute)',
+};
+const muted: CSSProperties = { color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const badge: CSSProperties = { fontSize: '0.875rem', fontWeight: 700 };
+const warnBox: CSSProperties = {
+  margin: 0,
+  border: '2px solid var(--np-warning)',
+  borderRadius: 'var(--np-r-md)',
+  padding: '0.75rem 1rem',
+  color: 'var(--np-warning)',
+};
+const chargeBtn: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: '0.25rem',
+  padding: '1rem 1.25rem',
+  background: 'var(--np-surface-2)',
+  border: '2px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-lg)',
+  color: 'var(--np-text)',
+  textAlign: 'left',
+  cursor: 'pointer',
+  minHeight: '6.5rem',
+};

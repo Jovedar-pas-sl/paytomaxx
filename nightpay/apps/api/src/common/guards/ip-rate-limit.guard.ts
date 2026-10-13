@@ -113,10 +113,14 @@ export class IpRateLimitGuard implements CanActivate {
 }
 
 /**
- * Extrae la IP real respetando X-Forwarded-For si viene de proxy de confianza.
- * En dev devuelve socket.remoteAddress.
+ * Extrae la IP real. Detrás de Cloudflare manda CF-Connecting-IP: lo pone
+ * Cloudflare y el cliente no puede falsearlo (el primer valor de
+ * X-Forwarded-For sí). Sin él, X-Forwarded-For; en dev, socket.remoteAddress.
  */
 function extractIp(req: MinimalReq): string | null {
+  const cf = req.headers['cf-connecting-ip'];
+  const cfStr = Array.isArray(cf) ? cf[0] : cf;
+  if (typeof cfStr === 'string' && cfStr.trim().length > 0) return cfStr.trim();
   const xff = req.headers['x-forwarded-for'];
   const xffStr = Array.isArray(xff) ? xff[0] : xff;
   if (typeof xffStr === 'string' && xffStr.length > 0) {

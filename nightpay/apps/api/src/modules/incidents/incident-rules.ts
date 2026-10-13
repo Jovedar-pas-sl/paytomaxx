@@ -9,10 +9,16 @@ export type IncidentKind =
   | 'duplicate_charge'
   | 'earning_reverse_failed'
   | 'wallet_credit_skipped'
-  | 'night_closed_pending';
+  | 'night_closed_pending'
+  | 'pos_charge_mismatch'
+  | 'pos_unmatched_op'
+  | 'pos_unreconciled';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
-export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>(['stuck_payment']);
+export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
+  'stuck_payment',
+  'pos_unreconciled',
+]);
 
 export interface Incident {
   kind: IncidentKind;
@@ -124,6 +130,53 @@ export function nightClosedPendingIncident(r: NightPendingRow): Incident {
     amountCents: null,
     paymentId: null,
     ackable: true,
+  };
+}
+
+export function posChargeMismatchIncident(r: EventRow): Incident {
+  const op = str(r.payload, 'operationNumber');
+  const why = str(r.payload, 'message') ?? 'La venta del datáfono no corresponde al cobro.';
+  return {
+    kind: 'pos_charge_mismatch',
+    refId: r.id,
+    title: 'Venta en el datáfono que no cuadra con el cobro',
+    detail: `${why}${op ? ` Operación ${op}.` : ''} Anúlala en el datáfono o devuélvela.`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: r.paymentId,
+    ackable: true,
+  };
+}
+
+export function posUnmatchedOpIncident(r: EventRow): Incident {
+  const op = str(r.payload, 'operationNumber');
+  return {
+    kind: 'pos_unmatched_op',
+    refId: r.id,
+    title: 'Venta del datáfono que no está en NightPay',
+    detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}Puede ser un cobro hecho sin la app: averigua de quién es.`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
+    ackable: true,
+  };
+}
+
+/**
+ * Cobro pagado en el datáfono que no aparece en ningún cuadre de ese datáfono
+ * pasadas 24 h: lo único que lo respalda es lo que dijo el propio aparato.
+ */
+export function posUnreconciledIncident(r: EventRow): Incident {
+  const op = str(r.payload, 'operationNumber');
+  return {
+    kind: 'pos_unreconciled',
+    refId: r.id,
+    title: 'Cobro del datáfono sin cuadrar',
+    detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}Pulsa «Cuadrar con el datáfono» en ese datáfono; si no sale en su lista, revísalo antes de pagar a la chica.`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: r.paymentId,
+    ackable: false,
   };
 }
 

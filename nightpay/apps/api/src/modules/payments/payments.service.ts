@@ -62,6 +62,33 @@ const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-cat
   'invalid-category': 'Ese servicio tiene una categoría no válida. Revísalo en la carta del panel.',
 };
 
+/** Fila del cobro bloqueada (FOR UPDATE) dentro de transition(). */
+export interface LockedPaymentRow {
+  id: string;
+  tenantId: string;
+  status: PaymentMachineState;
+  amountCents: number;
+  availableAmountCents: number;
+  providerTxId: string | null;
+  provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | null;
+  createdByUserId: string | null;
+  walletId: string | null;
+  tipCents: number;
+  tipGoesTo: string | null;
+  tipBeneficiaryUserId: string | null;
+  revenueCategory: string;
+}
+
+export interface TransitionOptions {
+  /**
+   * Se ejecuta con la fila ya bloqueada, antes de aplicar el evento: escribe
+   * en la misma transacción y devuelve los campos que cambia (propina,
+   * pasarela…) para que la transición y la comisión los usen. Si lanza, o si
+   * el FSM rechaza el evento, todo se deshace.
+   */
+  prepare?: (tx: TransactionalClient, locked: LockedPaymentRow) => Promise<Partial<LockedPaymentRow> | void>;
+}
+
 const QR_TTL_SECONDS = 5 * 60; // 5 min
 const POS_QR_TTL_SECONDS = 30 * 60; // 30 min — camarero tiene tiempo de llegar
 // Reducido de 30min → 2min. Razón: comprobado con Redsys que la "URL online"
@@ -797,6 +824,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     paymentId: string,
     event: PaymentEvent,
     expectedTenantId?: string,
+    opts?: TransitionOptions,
   ): Promise<void> {
     // transition() es interna (workers + refunds futuros). Usamos SQL crudo end-to-end
     // para evitar interaccion ambigua con el middleware de tenant: el lock pesimista
@@ -809,23 +837,7 @@ export class PaymentsService implements OnApplicationBootstrap {
 
     await this.prisma.$transaction(
       async (tx) => {
-        const rows = await tx.$queryRaw<
-          Array<{
-            id: string;
-            tenantId: string;
-            status: PaymentMachineState;
-            amountCents: number;
-            availableAmountCents: number;
-            providerTxId: string | null;
-            provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | null;
-            createdByUserId: string | null;
-            walletId: string | null;
-            tipCents: number;
-            tipGoesTo: string | null;
-            tipBeneficiaryUserId: string | null;
-            revenueCategory: string;
-          }>
-        >`
+        const rows = await tx.$queryRaw<LockedPaymentRow[]>`
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
                  "providerTxId", provider, "createdByUserId", "walletId",
                  "tipCents", "tipGoesTo", "tipBeneficiaryUserId",
@@ -851,7 +863,12 @@ export class PaymentsService implements OnApplicationBootstrap {
         // (event.providerTxId). Se fija aquí, en la misma transacción que
         // reparte la comisión, venga del aviso, de la conciliación o del
         // panel. Si el FSM rechaza el evento, el rollback la deshace.
-        const p = event.type === 'AUTHORIZED' ? await this.withChargedTip(tx, locked, event) : locked;
+        // Datos que el llamador guarda en la MISMA transacción que la
+        // transición (p. ej. el datáfono: operación, tarjeta y propina). Si el
+        // FSM rechaza el evento, el rollback los deshace.
+        const prepared = opts?.prepare ? await opts.prepare(tx, locked) : undefined;
+        const base: LockedPaymentRow = prepared ? { ...locked, ...prepared } : locked;
+        const p = event.type === 'AUTHORIZED' ? await this.withChargedTip(tx, base, event) : base;
 
         const result = applyEvent(
           p.status,

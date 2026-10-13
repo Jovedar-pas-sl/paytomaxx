@@ -27,6 +27,9 @@ export const TerminalViewSchema = z.object({
   hardwareModel: z.string().nullable(),
   deviceSerial: z.string().nullable(),
   active: z.boolean(),
+  /** App NightPay del datáfono vinculada (Paytef Device API). */
+  devicePaired: z.boolean().optional(),
+  deviceLastSeenAt: z.string().nullable().optional(),
 });
 export type TerminalView = z.infer<typeof TerminalViewSchema>;
 

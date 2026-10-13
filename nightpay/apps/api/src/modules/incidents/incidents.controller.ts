@@ -10,7 +10,14 @@ import { IncidentsService } from './incidents.service';
 import { TelegramService } from './telegram.service';
 
 const AckSchema = z.object({
-  kind: z.enum(['duplicate_charge', 'earning_reverse_failed', 'wallet_credit_skipped', 'night_closed_pending']),
+  kind: z.enum([
+    'duplicate_charge',
+    'earning_reverse_failed',
+    'wallet_credit_skipped',
+    'night_closed_pending',
+    'pos_charge_mismatch',
+    'pos_unmatched_op',
+  ]),
   refId: z.string().trim().min(1).max(64),
   note: z.string().trim().max(300).optional(),
 });

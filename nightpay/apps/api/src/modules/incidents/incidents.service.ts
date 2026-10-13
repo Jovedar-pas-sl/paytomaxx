@@ -8,6 +8,9 @@ import {
   earningReverseFailedIncident,
   nightClosedPendingIncident,
   openIncidents,
+  posChargeMismatchIncident,
+  posUnmatchedOpIncident,
+  posUnreconciledIncident,
   stuckIncident,
   walletCreditSkippedIncident,
   type EventRow,
@@ -22,6 +25,8 @@ const LOOKBACK_DAYS = 60;
 const PER_KIND_LIMIT = 100;
 /** Un cobro esperando al banco más de esto se da por atascado (como en Pagos → Resolver). */
 const STUCK_MINUTES = 15;
+/** Un cobro del datáfono debería salir en un cuadre de ese datáfono en este tiempo. */
+const RECONCILE_WITHIN_HOURS = 24;
 
 /**
  * Bandeja de incidencias (Fase 1E). Se calcula al vuelo para un local;
@@ -41,7 +46,9 @@ export class IncidentsService {
   async list(tenantId: string, now: Date = new Date()): Promise<Incident[]> {
     const since = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     const stuckBefore = new Date(now.getTime() - STUCK_MINUTES * 60 * 1000);
-    const [stuck, duplicates, auditRows, nights, acks] = await Promise.all([
+    const reconcileBefore = new Date(now.getTime() - RECONCILE_WITHIN_HOURS * 60 * 60 * 1000);
+    const [stuck, duplicates, auditRows, nights, acks, posMismatches, posUnmatched, posUnreconciled] =
+      await Promise.all([
       this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt"
           FROM payments
@@ -62,6 +69,10 @@ export class IncidentsService {
            AND NOT EXISTS (SELECT 1 FROM incident_acks k
                             WHERE k."tenantId" = e."tenantId" AND k.kind = 'duplicate_charge'
                               AND k."refId" = e.id::text)
+           -- Doble cobro en el datáfono ya anulado allí: resuelto.
+           AND NOT EXISTS (SELECT 1 FROM payment_events v
+                            WHERE v."paymentId" = e."paymentId" AND v."eventType" = 'pos.voided'
+                              AND v.payload ->> 'operationNumber' = e.payload ->> 'order')
            AND e."occurredAt" >= ${since}
          ORDER BY e."occurredAt" DESC
          LIMIT ${PER_KIND_LIMIT}
@@ -98,6 +109,54 @@ export class IncidentsService {
       this.prisma.$queryRaw<Array<{ kind: string; refId: string }>>`
         SELECT kind, "refId" FROM incident_acks WHERE "tenantId" = ${tenantId}::uuid
       `,
+      this.prisma.$queryRaw<EventRow[]>`
+        SELECT e.id::text AS id, e."paymentId", NULL::int AS "amountCents", e."occurredAt", e.payload
+          FROM payment_events e
+         WHERE e."tenantId" = ${tenantId}::uuid
+           AND e."eventType" = 'pos.charge_mismatch'
+           AND e."occurredAt" >= ${since}
+           AND NOT EXISTS (SELECT 1 FROM payment_events v
+                            WHERE v."paymentId" = e."paymentId" AND v."eventType" = 'pos.voided'
+                              AND v.payload ->> 'operationNumber' = e.payload ->> 'operationNumber')
+           AND NOT EXISTS (SELECT 1 FROM incident_acks k
+                            WHERE k."tenantId" = e."tenantId" AND k.kind = 'pos_charge_mismatch'
+                              AND k."refId" = e.id::text)
+         ORDER BY e."occurredAt" DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `,
+      this.prisma.$queryRaw<EventRow[]>`
+        SELECT o.id::text AS id, NULL::uuid AS "paymentId", o."amountCents",
+               COALESCE(o."occurredAt", o."reportedAt") AS "occurredAt",
+               jsonb_build_object('operationNumber', o."operationNumber") AS payload
+          FROM pos_terminal_ops o
+         WHERE o."tenantId" = ${tenantId}::uuid
+           AND o."opType" = 'sale'
+           AND o."reportedAt" >= ${since}
+           AND NOT EXISTS (SELECT 1 FROM payments p
+                            WHERE p."posTerminalId" = o."terminalId" AND p."posOperationNumber" = o."operationNumber")
+           AND NOT EXISTS (SELECT 1 FROM incident_acks k
+                            WHERE k."tenantId" = o."tenantId" AND k.kind = 'pos_unmatched_op'
+                              AND k."refId" = o.id::text)
+         ORDER BY o."reportedAt" DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `,
+      this.prisma.$queryRaw<EventRow[]>`
+        SELECT p.id::text AS id, p.id AS "paymentId", (p."amountCents" + p."tipCents")::int AS "amountCents",
+               p."authorizedAt" AS "occurredAt",
+               jsonb_build_object('operationNumber', p."posOperationNumber") AS payload
+          FROM payments p
+         WHERE p."tenantId" = ${tenantId}::uuid
+           AND p."posOperationNumber" IS NOT NULL
+           AND p."authorizedAt" >= ${since}
+           AND p."authorizedAt" < ${reconcileBefore}
+           AND NOT EXISTS (SELECT 1 FROM pos_terminal_ops o
+                            WHERE o."terminalId" = p."posTerminalId"
+                              AND o."operationNumber" = p."posOperationNumber"
+                              AND (o."amountCents" IS NULL
+                                   OR o."amountCents" = p."amountCents" + p."tipCents"))
+         ORDER BY p."authorizedAt" DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `,
     ]);
 
     const all: Incident[] = [
@@ -107,6 +166,9 @@ export class IncidentsService {
         r.action === 'refund.earning_reverse_failed' ? earningReverseFailedIncident(r) : walletCreditSkippedIncident(r),
       ),
       ...nights.map(nightClosedPendingIncident),
+      ...posMismatches.map(posChargeMismatchIncident),
+      ...posUnmatched.map(posUnmatchedOpIncident),
+      ...posUnreconciled.map(posUnreconciledIncident),
     ];
     return openIncidents(all, new Set(acks.map((a) => ackKey(a.kind, a.refId))));
   }

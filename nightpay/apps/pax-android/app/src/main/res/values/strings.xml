@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NightPay</string>
+    <string name="settings_title">Datáfono NightPay</string>
+    <string name="settings_message">Clave de la Device API de Paytef (X-Api-Key). Si Paytef no la ha activado, déjala vacía.</string>
+    <string name="settings_save">Guardar</string>
+    <string name="settings_skip">Ahora no</string>
+</resources>

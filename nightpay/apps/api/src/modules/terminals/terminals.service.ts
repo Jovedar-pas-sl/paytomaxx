@@ -51,6 +51,8 @@ function toView(t: {
   hardwareModel: string | null;
   deviceSerial: string | null;
   active: boolean;
+  deviceTokenHash?: string | null;
+  deviceLastSeenAt?: Date | null;
 }): TerminalView {
   return {
     id: t.id,
@@ -61,6 +63,9 @@ function toView(t: {
     hardwareModel: t.hardwareModel,
     deviceSerial: t.deviceSerial,
     active: t.active,
+    // La credencial nunca sale: solo si hay una.
+    devicePaired: Boolean(t.deviceTokenHash),
+    deviceLastSeenAt: t.deviceLastSeenAt?.toISOString() ?? null,
   };
 }
 
