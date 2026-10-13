@@ -26,6 +26,11 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          # Por defecto pide el paquete "tools", que Google ya retiró del SDK
+          # (falla con "Failed to find package 'tools'"): solo lo que usa la app.
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
