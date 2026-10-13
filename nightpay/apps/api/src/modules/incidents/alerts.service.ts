@@ -118,9 +118,28 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     ]);
     const summary = summarize(cobros, devoluciones, liquidaciones);
     if (summary.count === 0 && open.length === 0) return; // local cerrado y nada pendiente
+    const bankFilePending = summary.count > 0 && !(await this.bankFileCovers(venue.id, madridDay(from)));
     await this.sendOnce(`np:summary:${venue.id}:${today}`, 2 * 24 * 60 * 60, () =>
-      morningSummaryMessage(venue.name, summary, open.length),
+      morningSummaryMessage(venue.name, summary, open.length, bankFilePending),
     );
+  }
+
+  /** ¿Algún local del grupo ya subió un fichero del banco que cubre ese día? */
+  private async bankFileCovers(venueId: string, day: string): Promise<boolean> {
+    const venue = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } });
+    const venueIds = venue?.walletGroup
+      ? (await this.prisma.venue.findMany({ where: { walletGroup: venue.walletGroup }, select: { id: true } })).map(
+          (v) => v.id,
+        )
+      : [venueId];
+    const dayDate = new Date(`${day}T00:00:00Z`);
+    const found = await this.prisma.acrossVenues((tx) =>
+      tx.bankStatement.findFirst({
+        where: { tenantId: { in: venueIds }, periodFrom: { lte: dayDate }, periodTo: { gte: dayDate } },
+        select: { id: true },
+      }),
+    );
+    return found !== null;
   }
 
   /**

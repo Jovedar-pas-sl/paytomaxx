@@ -25,6 +25,7 @@ import {
 import { BankRefundModal } from './BankRefundModal';
 import { CartaPanel } from './CartaPanel';
 import { IncidentsPanel } from './IncidentsPanel';
+import { BankReconPanel } from './BankReconPanel';
 import { NightsPanel } from './NightsPanel';
 import { OperatorsPanel } from './OperatorsPanel';
 import { ReportsPanel } from './ReportsPanel';
@@ -44,6 +45,7 @@ type TabKey =
   | 'payments'
   | 'nights'
   | 'incidents'
+  | 'bank'
   | 'operators'
   | 'carta'
   | 'reports'
@@ -141,6 +143,9 @@ export function Dashboard({ user, onLogout }: Props) {
         <TabButton active={tab === 'incidents'} onClick={() => setTab('incidents')}>
           Incidencias
         </TabButton>
+        <TabButton active={tab === 'bank'} onClick={() => setTab('bank')}>
+          Banco
+        </TabButton>
         <TabButton active={tab === 'operators'} onClick={() => setTab('operators')}>
           Operadoras
         </TabButton>
@@ -173,6 +178,8 @@ export function Dashboard({ user, onLogout }: Props) {
         <NightsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'incidents' ? (
         <IncidentsPanel isOwner={user.role === 'OWNER'} />
+      ) : tab === 'bank' ? (
+        <BankReconPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'operators' ? (
         <OperatorsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'carta' ? (

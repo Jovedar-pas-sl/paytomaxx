@@ -5,6 +5,8 @@
  */
 
 import { BRAND_NAME } from '../../common/brand';
+import { madridDay } from '../../common/time/madrid';
+import type { BackupVerdict } from '../db-backups/backup-check';
 
 export type IncidentKind =
   | 'stuck_payment'
@@ -16,7 +18,10 @@ export type IncidentKind =
   | 'pos_unmatched_op'
   | 'pos_unreconciled'
   | 'wallet_close_requested'
-  | 'wallet_open_balance';
+  | 'wallet_open_balance'
+  | 'bank_mismatch'
+  | 'backup_stale'
+  | 'backup_unmonitored';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -24,6 +29,7 @@ export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'pos_unreconciled',
   'wallet_close_requested',
   'wallet_open_balance',
+  'backup_stale',
 ]);
 
 export interface Incident {
@@ -220,6 +226,119 @@ export function walletOpenBalanceIncident(r: WalletBalanceRow): Incident {
     paymentId: null,
     ackable: false,
   };
+}
+
+/** Una línea del cuadre con el banco que no cuadra. */
+export interface BankItemRow {
+  id: string;
+  status: string;
+  source: string;
+  bankAmountCents: number | null;
+  oursAmountCents: number | null;
+  reference: string | null;
+  authCode: string | null;
+  paymentId: string | null;
+  occurredAt: Date;
+}
+
+const BANK_TEXT: Record<string, { title: string; hint: string }> = {
+  NOT_PAID_HERE: {
+    title: 'El banco cobró un pago que aquí no consta como pagado',
+    hint: 'Ábrelo en Pagos y resuélvelo con la autorización del banco.',
+  },
+  NOT_IN_OXIOPAY: {
+    title: `Venta en el banco que no está en ${BRAND_NAME}`,
+    hint: 'Se cobró fuera del sistema (o con otro datáfono): averigua quién y por qué.',
+  },
+  NOT_IN_BANK: {
+    title: 'Cobro que el banco no tiene',
+    hint: 'Si tampoco está en el portal del banco, no se cobró: no lo pagues a la chica hasta aclararlo.',
+  },
+  AMOUNT_MISMATCH: {
+    title: 'Importe distinto en el banco',
+    hint: 'Compara el cobro con la operación del portal del banco.',
+  },
+  REFUND_NOT_IN_OXIOPAY: {
+    title: 'Devolución hecha en el banco sin apuntar',
+    hint: 'Apúntala en Pagos → Devolución hecha en BBVA para que cuadre la parte de la chica.',
+  },
+  REFUND_NOT_IN_BANK: {
+    title: 'Devolución apuntada que el banco no tiene',
+    hint: 'Compruébala en el portal del banco: puede que no se llegara a hacer.',
+  },
+};
+
+/** Lo que no cuadra al comparar el fichero del banco con lo apuntado. */
+export function bankMismatchIncident(r: BankItemRow): Incident {
+  const text = BANK_TEXT[r.status] ?? { title: 'Diferencia con el banco', hint: '' };
+  const source = r.source === 'PAYTEF' ? 'Datáfono (Paytef)' : 'TPV virtual (Redsys)';
+  const amounts =
+    r.status === 'AMOUNT_MISMATCH'
+      ? `Banco ${eur(r.bankAmountCents ?? 0)} · aquí ${eur(r.oursAmountCents ?? 0)}`
+      : eur(r.bankAmountCents ?? r.oursAmountCents ?? 0);
+  const parts = [
+    amounts,
+    source,
+    r.reference ? `ref. ${r.reference}` : null,
+    r.authCode ? `autorización ${r.authCode}` : null,
+  ].filter(Boolean);
+  return {
+    kind: 'bank_mismatch',
+    refId: r.id,
+    title: text.title,
+    detail: `${parts.join(' · ')}. ${text.hint}`.trim(),
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.bankAmountCents ?? r.oursAmountCents,
+    paymentId: r.paymentId,
+    ackable: true,
+  };
+}
+
+/**
+ * Copias de seguridad de la base de datos. "Sin copia" se quita sola cuando
+ * vuelve a haberla (y avisa una vez al día por Telegram); "no se vigilan"
+ * (solo en producción) se puede marcar como revisada.
+ */
+export function backupIncidents(verdict: BackupVerdict, now: Date, production: boolean): Incident[] {
+  if (verdict.kind === 'ok') return [];
+  if (verdict.kind === 'unmonitored') {
+    if (!production) return [];
+    return [
+      {
+        kind: 'backup_unmonitored',
+        refId: 'unmonitored',
+        title: 'Las copias de seguridad no se vigilan',
+        detail:
+          'Activa las copias diarias de la base de datos en Dokploy y pon las variables BACKUP_S3_* del API para que avise si fallan (pasos en docs/BACKUPS.md).',
+        occurredAt: now.toISOString(),
+        amountCents: null,
+        paymentId: null,
+        ackable: true,
+      },
+    ];
+  }
+  const last = verdict.lastBackupAt
+    ? `La última copia es del ${verdict.lastBackupAt.toLocaleString('es-ES', {
+        timeZone: 'Europe/Madrid',
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })}.`
+    : 'No hay ninguna copia en el almacenamiento.';
+  const why = verdict.error ? ` No se pudo consultar el almacenamiento (${verdict.error}).` : '';
+  return [
+    {
+      kind: 'backup_stale',
+      refId: `stale:${madridDay(now)}`,
+      title: 'Sin copia de seguridad reciente de la base de datos',
+      detail: `${last}${why} Revisa Dokploy → nightpay-postgres → Backups.`,
+      occurredAt: now.toISOString(),
+      amountCents: null,
+      paymentId: null,
+      ackable: false,
+    },
+  ];
 }
 
 /** Más recientes primero; quita las ya revisadas. */

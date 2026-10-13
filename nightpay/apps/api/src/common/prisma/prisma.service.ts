@@ -23,6 +23,8 @@ const TENANT_SCOPED_MODELS = new Set([
   'PosTerminalOp',
   'WalletChargeRequest',
   'WalletPayout',
+  'BankStatement',
+  'BankStatementItem',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

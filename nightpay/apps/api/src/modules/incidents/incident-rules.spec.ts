@@ -75,6 +75,10 @@ describe('resumen de las 9:00', () => {
   };
 
   it('cobros, propinas, devoluciones, reparto, chicas e incidencias', () => {
+    expect(morningSummaryMessage('Local Centro', summary, 0, true)).toContain(
+      'Cuadre con el banco: sube el fichero de ayer (panel → Banco)',
+    );
+    expect(morningSummaryMessage('Local Centro', summary, 0)).not.toContain('Cuadre con el banco');
     expect(morningSummaryMessage('Local Centro', summary, 1)).toBe(
       [
         '☀️ Local Centro — anoche',

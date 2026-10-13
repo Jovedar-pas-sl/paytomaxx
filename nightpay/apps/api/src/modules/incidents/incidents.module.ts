@@ -1,3 +1,4 @@
+import { BackupMonitorService } from '../db-backups/backup-monitor.service';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { ReportsModule } from '../reports/reports.module';
@@ -10,6 +11,6 @@ import { TelegramService } from './telegram.service';
 @Module({
   imports: [AuthModule, ReportsModule],
   controllers: [IncidentsController],
-  providers: [IncidentsService, TelegramService, AlertsService],
+  providers: [IncidentsService, TelegramService, AlertsService, BackupMonitorService],
 })
 export class IncidentsModule {}

@@ -7,7 +7,7 @@ import type { Incident } from './incident-rules';
 
 const at = (iso: string) => new Date(iso);
 
-/** $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches, revisadas, datáfono (3), saldos (2). */
+/** $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches, revisadas, datáfono (3), saldos (2), banco. */
 function makeIncidents(rows: {
   stuck?: unknown[];
   dup?: unknown[];
@@ -19,6 +19,7 @@ function makeIncidents(rows: {
   posUnreconciled?: unknown[];
   walletsToClose?: unknown[];
   walletsLeftOpen?: unknown[];
+  bankItems?: unknown[];
 }) {
   const prisma = {
     $queryRaw: vi
@@ -32,7 +33,8 @@ function makeIncidents(rows: {
       .mockResolvedValueOnce(rows.posUnmatched ?? [])
       .mockResolvedValueOnce(rows.posUnreconciled ?? [])
       .mockResolvedValueOnce(rows.walletsToClose ?? [])
-      .mockResolvedValueOnce(rows.walletsLeftOpen ?? []),
+      .mockResolvedValueOnce(rows.walletsLeftOpen ?? [])
+      .mockResolvedValueOnce(rows.bankItems ?? []),
     incidentAck: { upsert: vi.fn().mockResolvedValue({}) },
     asSystem: vi.fn(),
   };
@@ -106,6 +108,43 @@ describe('bandeja de incidencias', () => {
     ]);
     expect(items[0]!.detail).toContain('80,00 €');
     expect(items[0]!.detail).toContain('K7Q4M2');
+  });
+
+  it('cuadre con el banco: cada diferencia con su explicación, y se puede marcar como revisada', async () => {
+    const { svc } = makeIncidents({
+      bankItems: [
+        {
+          id: 'bi-1',
+          status: 'NOT_IN_BANK',
+          source: 'REDSYS',
+          bankAmountCents: null,
+          oursAmountCents: 6000,
+          reference: '2610MLbhyfNg',
+          authCode: null,
+          paymentId: 'p-1',
+          occurredAt: at('2026-10-13T21:18:59Z'),
+        },
+        {
+          id: 'bi-2',
+          status: 'AMOUNT_MISMATCH',
+          source: 'PAYTEF',
+          bankAmountCents: 5500,
+          oursAmountCents: 5000,
+          reference: '000077',
+          authCode: 'A1B2C3',
+          paymentId: 'p-2',
+          occurredAt: at('2026-10-13T22:00:00Z'),
+        },
+      ],
+    });
+    const items = await svc.list('t-1', at('2026-10-14T09:00:00Z'));
+    expect(items.map((i) => [i.kind, i.title, i.ackable])).toEqual([
+      ['bank_mismatch', 'Importe distinto en el banco', true],
+      ['bank_mismatch', 'Cobro que el banco no tiene', true],
+    ]);
+    expect(items[0]!.detail).toContain('Banco 55,00 € · aquí 50,00 €');
+    expect(items[0]!.detail).toContain('Datáfono (Paytef)');
+    expect(items[1]!.detail).toContain('no lo pagues a la chica');
   });
 
   it('marcar como revisada: solo las que no se resuelven solas y que existen en este local', async () => {

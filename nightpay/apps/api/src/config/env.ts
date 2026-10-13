@@ -76,6 +76,16 @@ const EnvSchema = z.object({
   // grupo) del dueño con el bot.
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
+  // Copias de seguridad: Dokploy las sube a un S3 (R2, Backblaze…); con esto
+  // el API mira la fecha de la última y avisa si pasa más de un día sin
+  // copias. Basta una clave de solo lectura. Ver docs/BACKUPS.md.
+  BACKUP_S3_ENDPOINT: z.string().url().optional(),
+  BACKUP_S3_REGION: z.string().optional(),
+  BACKUP_S3_BUCKET: z.string().optional(),
+  BACKUP_S3_PREFIX: z.string().optional(),
+  BACKUP_S3_ACCESS_KEY_ID: z.string().optional(),
+  BACKUP_S3_SECRET_ACCESS_KEY: z.string().optional(),
+  BACKUP_MAX_AGE_HOURS: z.coerce.number().int().min(1).max(24 * 14).optional(),
   // Peanpe legacy URL var (no se usa con el adapter rehecho — mantener para
   // compat con env existentes). El adapter usa PEANPE_API_BASE_URL.
   PEANPE_API_URL: z.string().url(),

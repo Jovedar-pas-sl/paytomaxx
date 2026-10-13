@@ -26,6 +26,7 @@ import { CartaModule } from './modules/carta/carta.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { NightsModule } from './modules/nights/nights.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
+import { BankReconModule } from './modules/bank-recon/bank-recon.module';
 import { PosDeviceModule } from './modules/pos-device/pos-device.module';
 import { VenuesModule } from './modules/venues/venues.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
@@ -77,6 +78,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     ReportsModule,
     NightsModule,
     IncidentsModule,
+    BankReconModule,
     PosDeviceModule,
     WalletsModule,
     WebhooksModule,

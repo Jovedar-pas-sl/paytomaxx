@@ -1,7 +1,8 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
+import { BackupMonitorService } from '../db-backups/backup-monitor.service';
 import {
   SELF_RESOLVING,
   ackKey,
@@ -14,6 +15,9 @@ import {
   posUnreconciledIncident,
   walletCloseRequestedIncident,
   walletOpenBalanceIncident,
+  bankMismatchIncident,
+  backupIncidents,
+  type BankItemRow,
   type WalletBalanceRow,
   stuckIncident,
   walletCreditSkippedIncident,
@@ -41,8 +45,14 @@ const RECONCILE_WITHIN_HOURS = 24;
 export class IncidentsService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
+  private readonly backups: BackupMonitorService | null;
 
-  constructor(@Inject(PrismaService) prisma: PrismaService, @Inject(AuditService) audit: AuditService) {
+  constructor(
+    @Inject(PrismaService) prisma: PrismaService,
+    @Inject(AuditService) audit: AuditService,
+    @Optional() @Inject(BackupMonitorService) backups?: BackupMonitorService,
+  ) {
+    this.backups = backups ?? null;
     this.prisma = prisma;
     this.audit = audit;
   }
@@ -63,6 +73,7 @@ export class IncidentsService {
       posUnreconciled,
       walletsToClose,
       walletsLeftOpen,
+      bankItems,
     ] = await Promise.all([
       this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt"
@@ -196,6 +207,24 @@ export class IncidentsService {
          ORDER BY "updatedAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `),
+      // Cuadre con el banco: lo que no cuadra (si un fichero posterior cubre
+      // ese día, deja de contar; "cobrado y aquí sin pagar" se quita al resolverlo).
+      this.prisma.$queryRaw<BankItemRow[]>`
+        SELECT i.id, i.status, s.source, i."bankAmountCents", i."oursAmountCents", i.reference,
+               i."authCode", i."paymentId", COALESCE(i."occurredAt", i."createdAt") AS "occurredAt"
+          FROM bank_statement_items i
+          JOIN bank_statements s ON s.id = i."statementId"
+          LEFT JOIN payments p ON p.id = i."paymentId"
+         WHERE i."tenantId" = ${tenantId}::uuid
+           AND i."supersededAt" IS NULL
+           AND i.status IN ('NOT_PAID_HERE', 'NOT_IN_OXIOPAY', 'NOT_IN_BANK', 'AMOUNT_MISMATCH',
+                            'REFUND_NOT_IN_OXIOPAY', 'REFUND_NOT_IN_BANK')
+           AND NOT (i.status = 'NOT_PAID_HERE'
+                    AND p.status::text IN ('AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'))
+           AND i."createdAt" >= ${since}
+         ORDER BY COALESCE(i."occurredAt", i."createdAt") DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `,
     ]);
 
     const all: Incident[] = [
@@ -210,6 +239,10 @@ export class IncidentsService {
       ...posUnreconciled.map(posUnreconciledIncident),
       ...walletsToClose.map(walletCloseRequestedIncident),
       ...walletsLeftOpen.map(walletOpenBalanceIncident),
+      ...bankItems.map(bankMismatchIncident),
+      ...(this.backups
+        ? backupIncidents(await this.backups.verdict(now), now, process.env.NODE_ENV === 'production')
+        : []),
     ];
     return openIncidents(all, new Set(acks.map((a) => ackKey(a.kind, a.refId))));
   }

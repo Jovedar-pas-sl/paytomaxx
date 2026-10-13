@@ -16,7 +16,13 @@ export function incidentMessage(venueName: string, i: Incident): string {
 }
 
 /** Resumen de las 9:00: la noche anterior del local y lo que queda por mirar. */
-export function morningSummaryMessage(venueName: string, s: ExportSummary, openIncidents: number): string {
+export function morningSummaryMessage(
+  venueName: string,
+  s: ExportSummary,
+  openIncidents: number,
+  /** Hubo cobros y nadie ha subido el fichero del banco de esa noche. */
+  bankFilePending = false,
+): string {
   const lines = [
     `☀️ ${venueName} — anoche`,
     `${s.count} ${s.count === 1 ? 'cobro' : 'cobros'} · cobrado ${eur(s.chargedCents)}`,
@@ -30,5 +36,6 @@ export function morningSummaryMessage(venueName: string, s: ExportSummary, openI
       ? `Incidencias por mirar: ${openIncidents} (panel → Incidencias)`
       : 'Sin incidencias pendientes',
   );
+  if (bankFilePending) lines.push('Cuadre con el banco: sube el fichero de ayer (panel → Banco)');
   return lines.join('\n');
 }

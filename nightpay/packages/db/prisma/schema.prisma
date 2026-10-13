@@ -797,3 +797,57 @@ model WalletConsumption {
   @@index([tenantId, category])
   @@map("wallet_consumptions")
 }
+
+// ─── Cuadre con el banco (2026-10-14) ────────────────────────────────────
+// Fichero de operaciones del portal de BBVA/Redsys o de Paytef comparado
+// línea a línea con lo apuntado. tenantId = local desde el que se sube.
+model BankStatement {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String    @db.Uuid
+  // REDSYS | PAYTEF
+  source           String
+  fileName         String
+  fileSha256       String
+  periodFrom       DateTime  @db.Date
+  periodTo         DateTime  @db.Date
+  rowsTotal        Int
+  matchedCount     Int
+  problemCount     Int
+  bankTotalCents   Int
+  oursTotalCents   Int
+  uploadedByUserId String    @db.Uuid
+  supersededAt     DateTime? @db.Timestamptz
+  createdAt        DateTime  @default(now()) @db.Timestamptz
+
+  items BankStatementItem[]
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("bank_statements")
+}
+
+// Una línea del cuadre. tenantId = local al que se atribuye.
+model BankStatementItem {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  statementId     String    @db.Uuid
+  tenantId        String    @db.Uuid
+  status          String
+  // SALE | REFUND
+  kind            String
+  line            Int?
+  occurredAt      DateTime? @db.Timestamptz
+  bankAmountCents Int?
+  oursAmountCents Int?
+  reference       String?
+  terminal        String?
+  authCode        String?
+  paymentId       String?   @db.Uuid
+  refundId        String?   @db.Uuid
+  supersededAt    DateTime? @db.Timestamptz
+  createdAt       DateTime  @default(now()) @db.Timestamptz
+
+  statement BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@index([statementId])
+  @@index([tenantId, status])
+  @@map("bank_statement_items")
+}
