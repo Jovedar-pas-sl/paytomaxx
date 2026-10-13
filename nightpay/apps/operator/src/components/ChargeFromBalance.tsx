@@ -277,8 +277,7 @@ function WaitingStep({
       stopped = true;
       clearInterval(id);
     };
-    // finish/onFinished cambian en cada render del padre; solo importa el id del cobro.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Solo importa el id del cobro (finish/onFinished cambian en cada render del padre).
   }, [request.id]);
 
   async function handleCancel() {
