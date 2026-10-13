@@ -339,6 +339,11 @@ model PaymentAttempt {
   // PENDING | APPROVED | DENIED
   status       String   @default("PENDING")
   responseCode String?
+  // Fase 1B: lo que se mandó al banco en este intento (NULL = antes de 1B).
+  amountCents  Int?
+  tipCents     Int?
+  // wallet (Apple Pay / Google Pay) | card
+  payMethod    String?
   createdAt    DateTime @default(now()) @db.Timestamptz
   updatedAt    DateTime @default(now()) @updatedAt @db.Timestamptz
 

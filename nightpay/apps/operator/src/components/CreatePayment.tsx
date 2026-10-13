@@ -65,6 +65,8 @@ export function CreatePayment({ onCreated }: Props) {
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [picked, setPicked] = useState<ServiceItem | 'custom' | null>(null);
   const [activeLabel, setActiveLabel] = useState<string | null>(null);
+  // Fase 1B — propina que eligió el cliente en su página de pago.
+  const [paidTipCents, setPaidTipCents] = useState(0);
   const [active, setActive] = useState<CreatedPayment | null>(null);
   const [status, setStatus] = useState<PaymentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -118,10 +120,15 @@ export function CreatePayment({ onCreated }: Props) {
     });
     socket.on(
       'payment:completed',
-      (e: { paymentId: string; status: 'AUTHORIZED' | 'FAILED' | 'EXPIRED' | 'CANCELED' }) => {
+      (e: {
+        paymentId: string;
+        status: 'AUTHORIZED' | 'FAILED' | 'EXPIRED' | 'CANCELED';
+        tipCents?: number;
+      }) => {
         if (e.paymentId === active.id) {
           setStatus(e.status);
           if (e.status === 'AUTHORIZED') {
+            setPaidTipCents(e.tipCents ?? 0);
             onCreated();
           }
         }
@@ -222,6 +229,7 @@ export function CreatePayment({ onCreated }: Props) {
     setAmount('');
     setPicked(null);
     setActiveLabel(null);
+    setPaidTipCents(0);
     setCopied(false);
     setError(null);
     setWalletIdentifier('');
@@ -375,6 +383,11 @@ export function CreatePayment({ onCreated }: Props) {
               </strong>
             </p>
             <p style={{ ...hintStyle, textAlign: 'center' }}>Debe coincidir con el del móvil del cliente.</p>
+            {paidTipCents > 0 ? (
+              <p className="np-num" style={{ margin: 0, textAlign: 'center', fontWeight: 700, fontSize: '1.25rem', color: 'var(--np-accent)' }}>
+                + {formatEur(paidTipCents)} de propina
+              </p>
+            ) : null}
             <Button onClick={reset} size="lg">
               ✓ Cobrado — nuevo
             </Button>

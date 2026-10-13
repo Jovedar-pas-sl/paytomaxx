@@ -216,7 +216,14 @@ export interface PaymentRow {
   cardBrand?: string | null;
   payMethodCode?: string | null;
   authorizedAt?: string | null;
-  attempts?: Array<{ providerTxId: string; status: string; createdAt: string }>;
+  // Fase 1B: total y propina que se mandaron al banco en cada intento (null = antes de 1B).
+  attempts?: Array<{
+    providerTxId: string;
+    status: string;
+    createdAt: string;
+    amountCents?: number | null;
+    tipCents?: number | null;
+  }>;
   terminal: { externalId: string; label: string };
 }
 
@@ -433,7 +440,7 @@ export async function refundPayment(
  */
 export async function resolveStuckPayment(
   paymentId: string,
-  input: { decision: 'AUTHORIZED' | 'FAILED'; reason: string; bankAuthCode?: string },
+  input: { decision: 'AUTHORIZED' | 'FAILED'; reason: string; bankAuthCode?: string; bankOrder?: string },
 ): Promise<{ ok: true; newStatus: string }> {
   const res = await authedFetch(`/v1/admin/payments/${paymentId}/manual-reconcile`, {
     method: 'POST',

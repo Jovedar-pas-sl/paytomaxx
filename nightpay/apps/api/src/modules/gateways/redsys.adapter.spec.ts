@@ -96,6 +96,49 @@ describe('RedsysAdapter.authorize() — flujo Redsys SIS', () => {
     expect(result.checkoutForm?.action).toContain('sis-t.redsys.es');
   });
 
+  // Fase 1B — el cliente elige botón e idioma en la página de pago.
+  function merchantParams(fields: Record<string, string>): Record<string, string> {
+    return JSON.parse(Buffer.from(fields.Ds_MerchantParameters!, 'base64').toString('utf8'));
+  }
+  const base = {
+    tenantId: '00000000-0000-0000-0000-000000000000',
+    paymentId: 'aabbccdd-1122-3344-5566-778899aabbcc',
+    amountCents: 10_500,
+    currency: 'EUR',
+    terminalExternalId: '',
+    reference: 'aabbccdd-1122-3344-5566-778899aabbcc',
+  };
+
+  it('botón Apple Pay / Google Pay → xpay; tarjeta → C', async () => {
+    const adapter = makeAdapter();
+    const wallet = await adapter.authorize({ ...base, payMethod: 'wallet' });
+    const card = await adapter.authorize({ ...base, payMethod: 'card' });
+    expect(merchantParams(wallet.checkoutForm!.fields).DS_MERCHANT_PAYMETHODS).toBe('xpay');
+    expect(merchantParams(card.checkoutForm!.fields).DS_MERCHANT_PAYMETHODS).toBe('C');
+  });
+
+  it('sin botón elegido no fuerza método (Redsys enseña todo)', async () => {
+    const adapter = makeAdapter();
+    const r = await adapter.authorize(base);
+    expect(merchantParams(r.checkoutForm!.fields).DS_MERCHANT_PAYMETHODS).toBeUndefined();
+  });
+
+  it('inglés → página del banco en inglés y vuelta con lang=en', async () => {
+    const adapter = makeAdapter();
+    const r = await adapter.authorize({ ...base, language: 'en' });
+    const p = merchantParams(r.checkoutForm!.fields);
+    expect(p.DS_MERCHANT_CONSUMERLANGUAGE).toBe('002');
+    expect(p.DS_MERCHANT_URLOK).toContain('&lang=en');
+    expect(p.DS_MERCHANT_AMOUNT).toBe('10500');
+  });
+
+  it('castellano → 001 y vuelta sin parámetro de idioma', async () => {
+    const adapter = makeAdapter();
+    const p = merchantParams((await adapter.authorize({ ...base, language: 'es' })).checkoutForm!.fields);
+    expect(p.DS_MERCHANT_CONSUMERLANGUAGE).toBe('001');
+    expect(p.DS_MERCHANT_URLOK).not.toContain('lang=');
+  });
+
   it('lanza error si faltan credenciales', async () => {
     const adapter = makeAdapter({ withCreds: false });
     await expect(

@@ -93,8 +93,15 @@ async function bootstrap() {
   // /pay/:token es público para clientes que escanean QR — fuera del prefix /v1
   // para que el QR pueda apuntar a https://api.dominio.com/pay/{token}
   // (limpio, sin /v1 en la URL que llega al teléfono).
+  // Fase 1B: también el POST de la página de pago, el formulario hacia el
+  // banco y el justificante.
   app.setGlobalPrefix('v1', {
-    exclude: [{ path: 'pay/:token', method: RequestMethod.GET }],
+    exclude: [
+      { path: 'pay/:token', method: RequestMethod.GET },
+      { path: 'pay/:token', method: RequestMethod.POST },
+      { path: 'pay/:token/receipt', method: RequestMethod.GET },
+      { path: 'pay/:token/checkout', method: RequestMethod.GET },
+    ],
   });
 
   // CORS estricto via env CORS_ORIGINS (CSV). Dev: permite todo.

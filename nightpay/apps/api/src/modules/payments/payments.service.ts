@@ -39,13 +39,21 @@ import { WalletsService } from '../wallets/wallets.service';
 import { applyServiceItem } from './service-item';
 import type { Provider } from '@nightpay/contracts';
 import {
-  CLOSED_REASON,
   PAID_STATES,
+  choosePayPage,
   decideRedsysRetry,
+  freshPendingOrder,
+  retryOutcome,
+  settledPayView,
+  type CheckoutChoice,
+  type PayablePayment,
+  type PayMethodChoice,
   type PayRedirect,
-  type RetryDecision,
+  type PayReceiptView,
   type PayResultView,
+  type RetryDecision,
 } from './pay-redirect';
+import { defaultTipGoesTo, readChargedTip, settleChargedTip, tipOptionsFor } from './tip';
 
 const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
   inactive: 'Ese servicio está desactivado en la carta',
@@ -362,7 +370,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     let tipBeneficiaryUserId: string | null = dto.tipBeneficiaryUserId ?? null;
     if (tipCents > 0) {
       if (!tipGoesTo) {
-        tipGoesTo = creatorRole === 'OPERATOR' ? 'operator' : 'venue';
+        tipGoesTo = defaultTipGoesTo(creatorRole);
       }
       if (tipGoesTo === 'beneficiary' && !tipBeneficiaryUserId) {
         throw new BadRequestException(
@@ -461,15 +469,140 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Qué hacer cuando el cliente escanea (o vuelve a escanear) el QR:
-   *  - 'paid'       → ya cobrado: mostrar "Pagado" (nunca reenviar al banco).
+   * GET /pay/:token — lo que ve el cliente al escanear (o volver a escanear)
+   * el QR. No abre nada en el banco: eso lo hace `startCheckout` cuando el
+   * cliente pulsa un botón, así la vista previa de un enlace no abre pedidos.
+   *  - 'choose'     → página de pago: importe, propina y botones.
+   *  - 'paid'       → ya cobrado: "Pagado" (nunca se reenvía al banco).
    *  - 'closed'     → caducado / fallido / cancelado / sin confirmar.
    *  - 'processing' → hay un intento en curso: esperar al aviso del banco.
-   *  - 'form' | 'redirect' → mandar al cliente a la pasarela. En Redsys, si el
-   *    intento anterior se denegó o se abandonó, se abre un pedido NUEVO
-   *    (reenviar el mismo Ds_Order da SIS0051 "pedido repetido").
    */
-  async resolveRedirect(qrToken: string): Promise<PayRedirect> {
+  async getPayPage(qrToken: string): Promise<PayRedirect> {
+    const payment = await this.findPayable(qrToken);
+    const settled = settledPayView(payment);
+    if (settled) return settled;
+    if (payment.status !== 'AUTHORIZING') return choosePayPage(payment);
+    // Otras pasarelas: se reenvía lo guardado, como antes.
+    if (payment.provider !== 'REDSYS') return this.checkoutOf(payment.id);
+
+    const attempts = await this.prisma.asSystem((tx) =>
+      tx.paymentAttempt.findMany({
+        where: { paymentId: payment.id },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true, createdAt: true },
+      }),
+    );
+    const decision = decideRedsysRetry({
+      attempts,
+      now: new Date(),
+      qrExpiresAt: payment.qrExpiresAt,
+      paymentUpdatedAt: payment.updatedAt,
+    });
+    // Denegado o abandonado: puede volver a elegir (p. ej. tarjeta en vez de Apple Pay).
+    return decision === 'retry' ? choosePayPage(payment) : retryOutcome(decision);
+  }
+
+  /**
+   * POST /pay/:token — el cliente eligió propina y botón. Abre un pedido en
+   * el banco por importe + propina. En Redsys, si el intento anterior se
+   * denegó o se abandonó, el pedido es NUEVO (reenviar el mismo Ds_Order da
+   * SIS0051 "pedido repetido"); si hay uno recién abierto (doble toque), se
+   * reutiliza. Devuelve 'checkout' → el controlador redirige al formulario.
+   */
+  async startCheckout(qrToken: string, choice: CheckoutChoice): Promise<PayRedirect> {
+    const payment = await this.findPayable(qrToken);
+    const settled = settledPayView(payment);
+    if (settled) return settled;
+    const tips = tipOptionsFor({ tipCents: payment.tipCents, allowTip: payment.allowTip });
+    if (!tips.includes(choice.tipCents)) throw new BadRequestException('Propina no válida');
+
+    if (payment.status !== 'AUTHORIZING') {
+      let providerTxId: string | undefined;
+      try {
+        ({ providerTxId } = await this.startAuthorization(qrToken, choice));
+      } catch (err) {
+        // Doble toque: el otro POST ya abrió el pedido → mismo formulario.
+        const order = await this.freshOrderOf(payment.id);
+        if (!order) throw err;
+        return { kind: 'checkout', order };
+      }
+      const view = await this.checkoutOf(payment.id);
+      return view.kind === 'form' && providerTxId ? { kind: 'checkout', order: providerTxId } : view;
+    }
+    if (payment.provider !== 'REDSYS') return this.checkoutOf(payment.id);
+
+    let outcome: { decision: RetryDecision | 'replay'; order: string | null; attempts: number };
+    try {
+      // Candado por cobro: decidir y abrir el intento nuevo es atómico, así
+      // un doble toque no abre dos pedidos. El authorize de Redsys solo firma
+      // el formulario (sin red).
+      outcome = await this.prisma.asSystem(async (tx) => {
+        await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(hashtext(${payment.id}))`;
+        const attempts = await tx.paymentAttempt.findMany({
+          where: { paymentId: payment.id },
+          orderBy: { createdAt: 'desc' },
+          select: { providerTxId: true, status: true, createdAt: true },
+        });
+        const now = new Date();
+        const fresh = freshPendingOrder(attempts, now);
+        if (fresh) return { decision: 'replay' as const, order: fresh, attempts: attempts.length };
+        const decision = decideRedsysRetry({
+          attempts,
+          now,
+          qrExpiresAt: payment.qrExpiresAt,
+          paymentUpdatedAt: payment.updatedAt,
+        });
+        if (decision !== 'retry') return { decision, order: null, attempts: attempts.length };
+        const { providerTxId } = await this.authorizeAttempt(payment, 'REDSYS', tx, choice);
+        return { decision, order: providerTxId, attempts: attempts.length };
+      });
+    } catch (err) {
+      this.logger.error(`Reintento Redsys falló para ${payment.id}: ${(err as Error).message}`);
+      throw new ConflictException(`Gateway error: ${((err as Error).message || '').slice(0, 300)}`);
+    }
+    if (outcome.order) {
+      if (outcome.decision === 'retry') {
+        this.logger.log(`Payment ${payment.id}: nuevo intento Redsys (${outcome.attempts + 1})`);
+      }
+      return { kind: 'checkout', order: outcome.order };
+    }
+    return retryOutcome(outcome.decision as Exclude<RetryDecision, 'retry'>);
+  }
+
+  /**
+   * GET /pay/:token/checkout?op= — formulario hacia el banco del pedido
+   * recién abierto. Solo mientras sea el último intento, siga pendiente y sea
+   * reciente: si el cliente vuelve atrás desde el banco, `null` → vuelve a
+   * la página del cobro (que decide esperar o dejar reintentar).
+   */
+  async getCheckoutForm(qrToken: string, order: string): Promise<PayRedirect | null> {
+    const payment = await this.prisma.asSystem((tx) =>
+      tx.payment.findUnique({
+        where: { qrToken },
+        select: { id: true, status: true, providerTxId: true },
+      }),
+    );
+    if (!payment || payment.status !== 'AUTHORIZING' || payment.providerTxId !== order) return null;
+    if ((await this.freshOrderOf(payment.id)) !== order) return null;
+    const view = await this.checkoutOf(payment.id);
+    return view.kind === 'form' ? view : null;
+  }
+
+  private async freshOrderOf(paymentId: string): Promise<string | null> {
+    const attempts = await this.prisma.asSystem((tx) =>
+      tx.paymentAttempt.findMany({
+        where: { paymentId },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { providerTxId: true, status: true, createdAt: true },
+      }),
+    );
+    return freshPendingOrder(attempts, new Date());
+  }
+
+  private async findPayable(
+    qrToken: string,
+  ): Promise<PayablePayment & { tenantId: string; provider: Provider | null; updatedAt: Date }> {
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({
         where: { qrToken },
@@ -479,72 +612,36 @@ export class PaymentsService implements OnApplicationBootstrap {
           status: true,
           provider: true,
           amountCents: true,
+          tipCents: true,
           currency: true,
           qrExpiresAt: true,
           updatedAt: true,
           authorizedAt: true,
-          gatewayPaymentUrl: true,
-          gatewayCheckoutForm: true,
+          walletId: true,
         },
       }),
     );
     if (!payment) throw new NotFoundException('Payment not found');
-
-    const status = payment.status as PaymentMachineState;
-    if (PAID_STATES.has(status)) {
-      return {
-        kind: 'paid',
-        paymentId: payment.id,
-        amountCents: payment.amountCents,
-        currency: payment.currency,
-        authorizedAt: payment.authorizedAt,
-      };
-    }
-    const closedReason = CLOSED_REASON[status];
-    if (closedReason) return { kind: 'closed', reason: closedReason };
-
-    if (status === 'CREATED' || status === 'AWAITING_CAPTURE') {
-      if (payment.qrExpiresAt < new Date()) return { kind: 'closed', reason: 'expired' };
-      await this.startAuthorization(qrToken);
-      return this.checkoutOf(payment.id);
-    }
-
-    // AUTHORIZING
-    if (payment.provider === 'REDSYS') {
-      let outcome: { decision: RetryDecision; attempts: number };
-      try {
-        // Candado por cobro: decidir y abrir el intento nuevo es atómico, así
-        // un doble toque o la vista previa de un enlace no abren dos pedidos.
-        // El authorize de Redsys solo firma el formulario (sin red).
-        outcome = await this.prisma.asSystem(async (tx) => {
-          await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(hashtext(${payment.id}))`;
-          const attempts = await tx.paymentAttempt.findMany({
-            where: { paymentId: payment.id },
-            orderBy: { createdAt: 'desc' },
-            select: { status: true, createdAt: true },
-          });
-          const decision = decideRedsysRetry({
-            attempts,
-            now: new Date(),
-            qrExpiresAt: payment.qrExpiresAt,
-            paymentUpdatedAt: payment.updatedAt,
-          });
-          if (decision === 'retry') await this.authorizeAttempt(payment, 'REDSYS', tx);
-          return { decision, attempts: attempts.length };
-        });
-      } catch (err) {
-        this.logger.error(`Reintento Redsys falló para ${payment.id}: ${(err as Error).message}`);
-        throw new ConflictException(`Gateway error: ${((err as Error).message || '').slice(0, 300)}`);
-      }
-      if (outcome.decision === 'wait') return { kind: 'processing' };
-      if (outcome.decision === 'expired') return { kind: 'closed', reason: 'expired' };
-      if (outcome.decision === 'max-attempts') return { kind: 'closed', reason: 'too-many-attempts' };
-      this.logger.log(`Payment ${payment.id}: nuevo intento Redsys (${outcome.attempts + 1})`);
-      return this.checkoutOf(payment.id);
-    }
-
-    // Otras pasarelas: comportamiento anterior (reenviar lo guardado).
-    return this.checkoutOf(payment.id);
+    // Pasarela que cobrará: la del cobro o, si aún no ha ido al banco, la
+    // activa del local. La propina solo se cobra (y se reparte) con Redsys.
+    const provider =
+      payment.provider ??
+      (
+        await this.prisma.asSystem((tx) =>
+          tx.gatewayCredential.findFirst({
+            where: { tenantId: payment.tenantId, active: true },
+            orderBy: { createdAt: 'asc' },
+            select: { provider: true },
+          }),
+        )
+      )?.provider ??
+      null;
+    const { walletId, ...rest } = payment;
+    return {
+      ...rest,
+      status: payment.status as PaymentMachineState,
+      allowTip: provider === 'REDSYS' && walletId === null,
+    };
   }
 
   /**
@@ -564,6 +661,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           id: true,
           status: true,
           amountCents: true,
+          tipCents: true,
           currency: true,
           authorizedAt: true,
           qrToken: true,
@@ -578,10 +676,49 @@ export class PaymentsService implements OnApplicationBootstrap {
         paymentId: payment.id,
         status: payment.status as PaymentMachineState,
         amountCents: payment.amountCents,
+        tipCents: payment.tipCents,
         currency: payment.currency,
         authorizedAt: payment.authorizedAt,
         qrToken: payment.qrToken,
         attemptStatus: thisAttempt?.status ?? null,
+      };
+    });
+  }
+
+  /** Justificante del cliente (solo cobros pagados). Sin datos personales. */
+  async getReceipt(qrToken: string): Promise<PayReceiptView | null> {
+    return this.prisma.asSystem(async (tx) => {
+      const payment = await tx.payment.findUnique({
+        where: { qrToken },
+        select: {
+          id: true,
+          status: true,
+          amountCents: true,
+          tipCents: true,
+          currency: true,
+          authorizedAt: true,
+          authCode: true,
+          cardBrand: true,
+          providerTxId: true,
+        },
+      });
+      if (!payment || !PAID_STATES.has(payment.status as PaymentMachineState)) return null;
+      const charged = await tx.paymentAttempt.findFirst({
+        where: { paymentId: payment.id, status: 'APPROVED' },
+        orderBy: { createdAt: 'asc' },
+        select: { providerTxId: true, payMethod: true },
+      });
+      const method = charged?.payMethod;
+      return {
+        paymentId: payment.id,
+        amountCents: payment.amountCents,
+        tipCents: payment.tipCents,
+        currency: payment.currency,
+        authorizedAt: payment.authorizedAt,
+        authCode: payment.authCode,
+        cardBrand: payment.cardBrand,
+        payMethod: method === 'wallet' || method === 'card' ? (method as PayMethodChoice) : null,
+        order: charged?.providerTxId ?? payment.providerTxId,
       };
     });
   }
@@ -668,6 +805,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     let nextState: PaymentMachineState | undefined;
     let prevState: PaymentMachineState | undefined;
     let amountCents = 0;
+    let tipCents = 0;
 
     await this.prisma.$transaction(
       async (tx) => {
@@ -697,17 +835,23 @@ export class PaymentsService implements OnApplicationBootstrap {
            FOR UPDATE
         `;
 
-        const p = rows[0];
-        if (!p) throw new NotFoundException(`Payment ${paymentId} not found`);
+        const locked = rows[0];
+        if (!locked) throw new NotFoundException(`Payment ${paymentId} not found`);
 
         // Defensa cross-tenant: si el caller pasó tenantId, verificar coincidencia.
         // Usamos NotFoundException (no Forbidden) para no filtrar existencia del pago.
-        if (expectedTenantId && p.tenantId !== expectedTenantId) {
+        if (expectedTenantId && locked.tenantId !== expectedTenantId) {
           this.logger.warn(
-            `transition tenant mismatch payment=${paymentId} expected=${expectedTenantId} actual=${p.tenantId}`,
+            `transition tenant mismatch payment=${paymentId} expected=${expectedTenantId} actual=${locked.tenantId}`,
           );
           throw new NotFoundException(`Payment ${paymentId} not found`);
         }
+
+        // Fase 1B: la propina que cobró el banco es la del intento aprobado
+        // (event.providerTxId). Se fija aquí, en la misma transacción que
+        // reparte la comisión, venga del aviso, de la conciliación o del
+        // panel. Si el FSM rechaza el evento, el rollback la deshace.
+        const p = event.type === 'AUTHORIZED' ? await this.withChargedTip(tx, locked, event) : locked;
 
         const result = applyEvent(
           p.status,
@@ -869,7 +1013,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           // Solo creamos earning si:
           //   - creator es OPERATOR
           //   - bps resolvidos > 0 (en VENUE_* con default 0 no hay earning)
-          if (creatorRole === 'OPERATOR' && bpsForOperator > 0) {
+          if (creatorRole === 'OPERATOR') {
             const creator = { id: p.createdByUserId };
             const bps = bpsForOperator;
             const commissionCents = Math.round((p.amountCents * bps) / 10_000);
@@ -887,22 +1031,25 @@ export class PaymentsService implements OnApplicationBootstrap {
               }
             }
 
-            await tx.$executeRaw`
-              INSERT INTO operator_earnings (
-                "tenantId", "operatorId", "paymentId",
-                "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
-              )
-              VALUES (
-                ${p.tenantId}::uuid,
-                ${creator.id}::uuid,
-                ${paymentId}::uuid,
-                ${p.amountCents}::int,
-                ${bps}::int,
-                ${commissionCents}::int,
-                ${earningTipCents}::int
-              )
-              ON CONFLICT ("paymentId") DO NOTHING
-            `;
+            // Sin comisión pero con propina para ella: la propina también le llega.
+            if (bps > 0 || earningTipCents > 0) {
+              await tx.$executeRaw`
+                INSERT INTO operator_earnings (
+                  "tenantId", "operatorId", "paymentId",
+                  "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
+                )
+                VALUES (
+                  ${p.tenantId}::uuid,
+                  ${creator.id}::uuid,
+                  ${paymentId}::uuid,
+                  ${p.amountCents}::int,
+                  ${bps}::int,
+                  ${commissionCents}::int,
+                  ${earningTipCents}::int
+                )
+                ON CONFLICT ("paymentId") DO NOTHING
+              `;
+            }
           }
         }
 
@@ -967,6 +1114,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         prevState = p.status;
         nextState = result.nextState;
         amountCents = p.amountCents;
+        tipCents = p.tipCents;
       },
       { isolationLevel: 'ReadCommitted' },
     );
@@ -986,9 +1134,34 @@ export class PaymentsService implements OnApplicationBootstrap {
         nextState === 'EXPIRED' ||
         nextState === 'CANCELED'
       ) {
-        this.realtime.emitPaymentCompleted(paymentId, nextState);
+        this.realtime.emitPaymentCompleted(paymentId, nextState, tipCents);
       }
     }
+  }
+
+  /**
+   * Fija en el cobro la propina del intento que cobró el banco. Devuelve una
+   * copia de la fila con la propina y el importe devolvible ya ajustados.
+   */
+  private async withChargedTip<
+    T extends { id: string; amountCents: number; tipGoesTo: string | null },
+  >(tx: TransactionalClient, p: T, event: { provider: string; providerTxId: string }): Promise<T> {
+    const charged = await readChargedTip(tx, p.id, event);
+    if (!charged) return p;
+    const settled = settleChargedTip({
+      amountCents: p.amountCents,
+      tipCents: charged.tipCents,
+      tipGoesTo: p.tipGoesTo,
+      creatorRole: charged.creatorRole,
+    });
+    await tx.$executeRaw`
+      UPDATE payments
+         SET "tipCents" = ${settled.tipCents}::int,
+             "availableAmountCents" = ${settled.availableAmountCents}::int,
+             "tipGoesTo" = ${settled.tipGoesTo}
+       WHERE id = ${p.id}::uuid
+    `;
+    return { ...p, ...settled };
   }
 
   /**
@@ -1180,6 +1353,7 @@ export class PaymentsService implements OnApplicationBootstrap {
    */
   async startAuthorization(
     qrToken: string,
+    choice?: CheckoutChoice,
   ): Promise<{ status: PaymentMachineState; providerTxId?: string }> {
     // Lookup cross-tenant del pago via token (el cliente no esta autenticado)
     const payment = await this.prisma.asSystem((tx) =>
@@ -1227,7 +1401,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     //    4) persistir providerTxId + URL/form + intento (payment_attempts).
     let providerTxId: string;
     try {
-      ({ providerTxId } = await this.authorizeAttempt(payment, credential.provider));
+      ({ providerTxId } = await this.authorizeAttempt(payment, credential.provider, undefined, choice));
     } catch (err) {
       const errMsg = (err as Error).message || 'unknown';
       this.logger.error(`Gateway authorize failed for ${payment.id}: ${errMsg}`);
@@ -1268,20 +1442,30 @@ export class PaymentsService implements OnApplicationBootstrap {
    * Abre un intento en la pasarela: authorize() + guarda providerTxId,
    * URL/form del checkout y la fila de payment_attempts. Cada intento es un
    * pedido distinto, y el aviso del banco se resuelve por cualquiera de ellos.
+   *
+   * Al banco va importe + propina: la que eligió el cliente en la página de
+   * pago o, sin página (endpoint antiguo), la que ya tuviera el cobro.
    */
   private async authorizeAttempt(
-    payment: { id: string; tenantId: string; amountCents: number; currency: string },
+    payment: { id: string; tenantId: string; amountCents: number; tipCents: number; currency: string },
     provider: Provider,
     inTx?: TransactionalClient,
+    choice?: CheckoutChoice,
   ): Promise<{ providerTxId: string }> {
     const adapter = this.gateways.get(provider);
+    // Solo Redsys cobra y reparte la propina (la del aprobado pasa al cobro
+    // en transition). Las demás pasarelas cobran el importe, como antes.
+    const tipCents = provider === 'REDSYS' ? (choice?.tipCents ?? payment.tipCents) : null;
+    const chargeCents = payment.amountCents + (tipCents ?? 0);
     const result = await adapter.authorize({
       tenantId: payment.tenantId,
       paymentId: payment.id,
-      amountCents: payment.amountCents,
+      amountCents: chargeCents,
       currency: payment.currency,
       terminalExternalId: '',
       reference: payment.id,
+      ...(provider === 'REDSYS' && choice?.method ? { payMethod: choice.method } : {}),
+      ...(choice ? { language: choice.language } : {}),
     });
     const paymentLinkUrl = result.paymentLinkUrl ?? null;
     const checkoutForm = result.checkoutForm ?? null;
@@ -1300,6 +1484,9 @@ export class PaymentsService implements OnApplicationBootstrap {
           tenantId: payment.tenantId,
           provider,
           providerTxId: result.providerTxId,
+          amountCents: chargeCents,
+          tipCents,
+          payMethod: choice?.method ?? null,
         },
       });
     };

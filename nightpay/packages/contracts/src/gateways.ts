@@ -28,6 +28,10 @@ export const AuthorizeInputSchema = z.object({
   currency: z.string().length(3),
   terminalExternalId: z.string(),
   reference: z.string(),
+  /** Botón que pulsó el cliente (Fase 1B). Sin él, la pasarela ofrece todo. */
+  payMethod: z.enum(['wallet', 'card']).optional(),
+  /** Idioma de la página del banco. */
+  language: z.enum(['es', 'en']).optional(),
 });
 export type AuthorizeInput = z.infer<typeof AuthorizeInputSchema>;
 

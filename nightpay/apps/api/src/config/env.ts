@@ -56,7 +56,13 @@ const EnvSchema = z.object({
   // (oct-2026) los botones salen solos junto al form de tarjeta. "xpay" es
   // global: el cliente sin wallet, o que abre el enlace dentro de Instagram,
   // no podría pagar.
+  // Desde la Fase 1B el cliente elige el botón en /pay/{token} y eso manda;
+  // esta variable solo cuenta para cobros que no pasan por esa página.
   REDSYS_PAYMETHODS: z.string().optional(),
+  // Nombre con el que sale el cobro en el extracto del cliente (lo fija
+  // BBVA). Se enseña en la página de pago para evitar "no lo reconozco".
+  // Vacío = no se enseña.
+  PAY_STATEMENT_NAME: z.string().max(40).optional(),
   // Peanpe legacy URL var (no se usa con el adapter rehecho — mantener para
   // compat con env existentes). El adapter usa PEANPE_API_BASE_URL.
   PEANPE_API_URL: z.string().url(),

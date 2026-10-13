@@ -1,86 +1,232 @@
-import { Controller, Get, Inject, Logger, Param, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Inject, Logger, Param, Post, Query, Res } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
+import { z } from 'zod';
 import { Public } from '../../common/decorators/public.decorator';
 import { PaymentsService } from './payments.service';
+import { confirmationCode, type CheckoutChoice, type PayRedirect } from './pay-redirect';
+import { detectPayDevice } from './pay-device';
+import { payErrorKey, resolveLanguage, type PayLanguage } from './pay-i18n';
 import {
-  CLOSED_REASON,
-  PAID_STATES,
-  confirmationCode,
-  type PayClosedReason,
-  type PayResultView,
-} from './pay-redirect';
+  payHref,
+  receiptHref,
+  renderCheckoutForm,
+  renderChoosePage,
+  renderClosedPage,
+  renderErrorPage,
+  renderPaidPage,
+  renderProcessingPage,
+  renderReceiptPage,
+  renderResultView,
+} from './public-pay.pages';
+
+/** Formulario de la página de pago. `method` vacío = sin preferencia. */
+const CheckoutFormSchema = z.object({
+  tip: z.coerce.number().int().min(0).max(100_000).default(0),
+  method: z
+    .enum(['wallet', 'card', ''])
+    .optional()
+    .transform((m) => (m === 'wallet' || m === 'card' ? m : null)),
+  lang: z.enum(['es', 'en']).optional(),
+});
 
 /**
- * Endpoint público `/pay/:token` (FUERA del prefijo /v1) — el cliente
- * escanea el QR y llega aquí.
+ * Páginas públicas del cliente (FUERA del prefijo /v1):
+ *  - GET  /pay/:token          → al escanear el QR: página de pago (importe,
+ *                                propina, Apple Pay / Google Pay o tarjeta), o
+ *                                "Pagado" / "Comprobando" / cerrado.
+ *  - POST /pay/:token          → el cliente pulsó un botón: abre el pedido en
+ *                                el banco por importe + propina y redirige (303)
+ *                                a /pay/:token/checkout.
+ *  - GET  /pay/:token/checkout → formulario que se envía solo al banco. Si el
+ *                                cliente vuelve atrás desde el banco no se
+ *                                reenvía nada: vuelve a la página del cobro.
+ *  - GET  /pay/result?op=…     → vuelta del banco (URLOK/URLKO): estado REAL
+ *                                leído de la base de datos; el `status` de la
+ *                                URL se ignora (cualquiera puede escribirlo).
+ *  - GET  /pay/:token/receipt  → justificante, solo si está pagado.
  *
- * Según lo que devuelva `resolveRedirect()`:
- *  - `redirect` (Paytef) → HTTP 302 a la URL hosted del PSP
- *  - `form` (Redsys, Cecabank) → HTML con `<form>` auto-submit POST
- *  - `paid` → página "Pagado" (un QR cobrado nunca vuelve al banco)
- *  - `processing` → "comprobando con el banco", se refresca sola
- *  - `closed` → caducado / fallido / sin confirmar
- *
- * `/pay/result?op=<pedido>` es donde vuelve el cliente desde el banco
- * (URLOK/URLKO). Muestra el estado REAL del pago leído de la base de datos;
- * el parámetro `status` de la URL se ignora: cualquiera puede escribirlo.
- *
- * Los textos son para el cliente: discretos y sin nombres internos.
+ * Español o inglés (?lang= o idioma del móvil). Textos discretos, sin
+ * nombres internos.
  */
 @Controller('pay')
 export class PublicPayController {
   private readonly logger = new Logger(PublicPayController.name);
   private readonly payments: PaymentsService;
+  private readonly config: ConfigService;
 
-  constructor(@Inject(PaymentsService) payments: PaymentsService) {
+  constructor(@Inject(PaymentsService) payments: PaymentsService, @Inject(ConfigService) config: ConfigService) {
     this.payments = payments;
+    this.config = config;
   }
 
   @Public()
   @Get('result')
-  async paymentResult(@Query('op') op: string | undefined, @Res() res: FastifyReply): Promise<void> {
+  async paymentResult(
+    @Query('op') op: string | undefined,
+    @Query('lang') langQuery: string | undefined,
+    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Res() res: FastifyReply,
+  ): Promise<void> {
+    const lang = resolveLanguage(langQuery, acceptLanguage);
     const view = op ? await this.payments.getResultView(op) : null;
-    sendHtml(res, 200, renderResultView(view));
+    const refreshUrl = `/pay/result?op=${encodeURIComponent(op ?? '')}&lang=${lang}`;
+    sendHtml(res, 200, renderResultView(view, lang, refreshUrl));
+  }
+
+  @Public()
+  @Get(':token/receipt')
+  async receipt(
+    @Param('token') token: string,
+    @Query('lang') langQuery: string | undefined,
+    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Res() res: FastifyReply,
+  ): Promise<void> {
+    const lang = resolveLanguage(langQuery, acceptLanguage);
+    const receipt = await this.payments.getReceipt(token);
+    if (!receipt) {
+      sendHtml(res, 404, renderErrorPage('notFound', lang));
+      return;
+    }
+    sendHtml(
+      res,
+      200,
+      renderReceiptPage(receipt, { lang, statementName: this.statementName(), backHref: payHref(token, lang) }),
+    );
+  }
+
+  @Public()
+  @Get(':token/checkout')
+  async checkout(
+    @Param('token') token: string,
+    @Query('op') op: string | undefined,
+    @Query('lang') langQuery: string | undefined,
+    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Res() res: FastifyReply,
+  ): Promise<void> {
+    const lang = resolveLanguage(langQuery, acceptLanguage);
+    const form = op ? await this.payments.getCheckoutForm(token, op) : null;
+    if (form?.kind !== 'form') {
+      res.status(303).header('Location', payHref(token, lang)).header('Cache-Control', 'no-store').send();
+      return;
+    }
+    sendHtml(res, 200, renderCheckoutForm(form.action, form.fields, lang, payHref(token, lang)));
   }
 
   @Public()
   @Get(':token')
-  async redirect(@Param('token') token: string, @Res() res: FastifyReply): Promise<void> {
+  async payPage(
+    @Param('token') token: string,
+    @Query('lang') langQuery: string | undefined,
+    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Headers('user-agent') userAgent: string | undefined,
+    @Res() res: FastifyReply,
+  ): Promise<void> {
+    const lang = resolveLanguage(langQuery, acceptLanguage);
     try {
-      const result = await this.payments.resolveRedirect(token);
-      switch (result.kind) {
-        case 'redirect':
-          // Paytef u otros PSPs con URL hosted → 302
-          res.status(302).header('Location', result.url).send();
-          return;
-        case 'form':
-          sendHtml(res, 200, renderCheckoutForm(result.action, result.fields));
-          return;
-        case 'paid':
-          sendHtml(
-            res,
-            200,
-            renderPaidPage({
-              amountCents: result.amountCents,
-              currency: result.currency,
-              code: confirmationCode(result.paymentId),
-              authorizedAt: result.authorizedAt,
-            }),
-          );
-          return;
-        case 'processing':
-          sendHtml(res, 200, renderProcessingPage(5, true));
-          return;
-        case 'closed':
-          sendHtml(res, 409, renderClosedPage(result.reason));
-          return;
-      }
+      const view = await this.payments.getPayPage(token);
+      this.send(res, token, lang, view, userAgent);
     } catch (err) {
-      const message = (err as Error).message || 'Error';
-      // Logueamos detalles técnicos pero NO los mostramos al cliente
-      this.logger.warn(`/pay/${token} redirect failed: ${message}`);
-      sendHtml(res, 409, renderMessagePage('Cobro no disponible', humanizePayError(message), 'warn'));
+      this.sendError(res, token, lang, err);
     }
+  }
+
+  @Public()
+  @Post(':token')
+  @HttpCode(200)
+  async startCheckout(
+    @Param('token') token: string,
+    @Body() body: unknown,
+    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Res() res: FastifyReply,
+  ): Promise<void> {
+    const parsed = CheckoutFormSchema.safeParse(body ?? {});
+    const lang = resolveLanguage(parsed.success ? parsed.data.lang : undefined, acceptLanguage);
+    if (!parsed.success) {
+      sendHtml(res, 400, renderErrorPage('generic', lang));
+      return;
+    }
+    const choice: CheckoutChoice = { tipCents: parsed.data.tip, method: parsed.data.method, language: lang };
+    try {
+      const view = await this.payments.startCheckout(token, choice);
+      this.send(res, token, lang, view, undefined);
+    } catch (err) {
+      this.sendError(res, token, lang, err);
+    }
+  }
+
+  private send(
+    res: FastifyReply,
+    token: string,
+    lang: PayLanguage,
+    view: PayRedirect,
+    userAgent: string | undefined,
+  ): void {
+    switch (view.kind) {
+      case 'choose':
+        sendHtml(
+          res,
+          200,
+          renderChoosePage(view, {
+            token,
+            lang,
+            device: detectPayDevice(userAgent),
+            statementName: this.statementName(),
+            now: new Date(),
+          }),
+        );
+        return;
+      case 'redirect':
+        // Paytef u otros PSPs con URL hosted → 302
+        res.status(302).header('Location', view.url).send();
+        return;
+      case 'checkout':
+        // Post/Redirect/Get: el historial guarda el GET, no el POST.
+        res
+          .status(303)
+          .header('Location', `/pay/${encodeURIComponent(token)}/checkout?op=${encodeURIComponent(view.order)}&lang=${lang}`)
+          .header('Cache-Control', 'no-store')
+          .send();
+        return;
+      case 'form':
+        sendHtml(res, 200, renderCheckoutForm(view.action, view.fields, lang, payHref(token, lang)));
+        return;
+      case 'paid':
+        sendHtml(
+          res,
+          200,
+          renderPaidPage(
+            {
+              amountCents: view.amountCents,
+              tipCents: view.tipCents,
+              currency: view.currency,
+              code: confirmationCode(view.paymentId),
+              authorizedAt: view.authorizedAt,
+              receiptHref: receiptHref(token, lang),
+            },
+            lang,
+          ),
+        );
+        return;
+      case 'processing':
+        sendHtml(res, 200, renderProcessingPage(lang, payHref(token, lang), true));
+        return;
+      case 'closed':
+        sendHtml(res, 409, renderClosedPage(view.reason, lang));
+        return;
+    }
+  }
+
+  private sendError(res: FastifyReply, token: string, lang: PayLanguage, err: unknown): void {
+    const message = (err as Error).message || 'Error';
+    // Logueamos detalles técnicos pero NO los mostramos al cliente
+    this.logger.warn(`/pay/${token} failed: ${message}`);
+    sendHtml(res, 409, renderErrorPage(payErrorKey(message), lang));
+  }
+
+  private statementName(): string | null {
+    const name = this.config.get<string>('PAY_STATEMENT_NAME')?.trim();
+    return name ? name : null;
   }
 }
 
@@ -90,211 +236,4 @@ function sendHtml(res: FastifyReply, status: number, html: string): void {
     .header('Content-Type', 'text/html; charset=utf-8')
     .header('Cache-Control', 'no-store')
     .send(html);
-}
-
-function renderResultView(view: PayResultView | null): string {
-  if (!view) {
-    return renderMessagePage(
-      'No encontramos este pago',
-      'Si te han cobrado, enséñale el cargo de tu app del banco al personal.',
-      'warn',
-    );
-  }
-  if (PAID_STATES.has(view.status)) {
-    return renderPaidPage({
-      amountCents: view.amountCents,
-      currency: view.currency,
-      code: confirmationCode(view.paymentId),
-      authorizedAt: view.authorizedAt,
-    });
-  }
-  const closed = CLOSED_REASON[view.status];
-  if (closed) return renderClosedPage(closed);
-  if (view.attemptStatus === 'DENIED') {
-    return renderMessagePage(
-      'El banco no ha aceptado el pago',
-      'No se te ha cobrado. Puedes probar con otra tarjeta o con Apple Pay / Google Pay.',
-      'error',
-      { href: `/pay/${encodeURIComponent(view.qrToken)}`, label: 'Probar otra vez' },
-    );
-  }
-  return renderProcessingPage(3);
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c,
-  );
-}
-
-function formatAmount(cents: number, currency: string): string {
-  return (cents / 100).toLocaleString('es-ES', { style: 'currency', currency });
-}
-
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString('es-ES', {
-    timeZone: 'Europe/Madrid',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-/**
- * Mapea mensajes técnicos de excepción a frases pensadas para un cliente
- * con prisa a las 3am. NO devolver detalles que filtren estructura interna.
- */
-function humanizePayError(message: string): string {
-  const m = message.toLowerCase();
-  if (m.includes('expired') || m.includes('expirado') || m.includes('caduca')) {
-    return 'Este cobro ha caducado. Pide uno nuevo al personal.';
-  }
-  if (m.includes('not found') || m.includes('no encontrado')) {
-    return 'Este cobro ya no existe. Pide uno nuevo al personal.';
-  }
-  if (m.includes('already') || m.includes('in progress')) {
-    return 'Este cobro ya se está procesando. Espera unos segundos y vuelve a escanear.';
-  }
-  if (m.includes('gateway') || m.includes('pasarela') || m.includes('redsys') || m.includes('sis')) {
-    return 'El banco no responde ahora mismo. Vuelve a escanear el código en unos segundos.';
-  }
-  return 'No se ha podido continuar con el cobro. Pide uno nuevo al personal.';
-}
-
-const CLOSED_TEXT: Record<PayClosedReason, { title: string; body: string }> = {
-  expired: { title: 'Este cobro ha caducado', body: 'No se te ha cobrado. Pide uno nuevo al personal.' },
-  failed: { title: 'Este cobro no se completó', body: 'No se te ha cobrado. Pide uno nuevo al personal.' },
-  canceled: { title: 'Este cobro se ha cancelado', body: 'No se te ha cobrado.' },
-  unconfirmed: {
-    title: 'Sin confirmación del banco',
-    body: 'Si ves el cargo en tu app del banco, enséñaselo al personal y lo resuelven.',
-  },
-  'too-many-attempts': {
-    title: 'Demasiados intentos',
-    body: 'Este código ya no admite más intentos. Pide un cobro nuevo al personal.',
-  },
-};
-
-function renderClosedPage(reason: PayClosedReason): string {
-  const t = CLOSED_TEXT[reason];
-  return renderMessagePage(t.title, t.body, reason === 'canceled' ? 'neutral' : 'warn');
-}
-
-// ─── Páginas ────────────────────────────────────────────────────────────
-// Look "Club": negro + lima, letra grande. HTML autocontenido (sin fuentes
-// externas: la CSP del API no las permite y el cliente puede tener mala red).
-
-const BASE_CSS = `
-*{box-sizing:border-box}
-body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;margin:0;padding:1.5rem;background:#0b0b0b;color:#f5f5f0;display:grid;place-items:center;min-height:100vh;font-size:18px}
-main{max-width:24rem;width:100%;text-align:center;display:flex;flex-direction:column;align-items:center;gap:.75rem}
-h1{font-size:2rem;line-height:1.1;margin:0}
-p{color:#b4b4ac;line-height:1.5;margin:0}
-.btn{display:block;width:100%;margin-top:1rem;padding:1rem;border-radius:10px;background:#d4ff3a;color:#0b0b0b;font-weight:800;text-decoration:none;font-size:1.05rem}
-.footer{margin-top:2rem;font-size:.8rem;color:#8a8a83}
-`;
-
-function page(title: string, body: string, extraHead = ''): string {
-  return `<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(title)}</title>${extraHead}
-<style>${BASE_CSS}</style>
-</head><body><main>
-${body}
-<div class="footer">Pago seguro</div>
-</main></body></html>`;
-}
-
-function renderPaidPage(args: {
-  amountCents: number;
-  currency: string;
-  code: string;
-  authorizedAt: Date | null;
-}): string {
-  const confirmedAt = args.authorizedAt
-    ? `<p>Confirmado por el banco a las ${escapeHtml(formatTime(args.authorizedAt))}</p>`
-    : '';
-  const css = `<style>
-.ok{width:6rem;height:6rem;border-radius:50%;background:#d4ff3a;display:grid;place-items:center}
-.ok svg{width:3.2rem;height:3.2rem;stroke:#0b0b0b;stroke-width:3;fill:none}
-.amount{font-size:3.4rem;font-weight:800;letter-spacing:-.03em;color:#f5f5f0;line-height:1}
-.code{margin-top:.5rem;border:2px solid #2a2a2a;border-radius:10px;padding:.75rem 1rem;width:100%}
-.code b{display:block;font-size:2.4rem;letter-spacing:.3em;color:#d4ff3a}
-.clock{font-variant-numeric:tabular-nums;font-size:1.4rem;font-weight:700;color:#f5f5f0}
-</style>`;
-  const body = `
-<div class="ok" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-<h1>Pagado</h1>
-<div class="amount">${escapeHtml(formatAmount(args.amountCents, args.currency))}</div>
-${confirmedAt}
-<div class="code"><p>Código de confirmación</p><b>${escapeHtml(args.code)}</b><p>Debe coincidir con el que ve el personal</p></div>
-<div class="clock" id="clock" aria-label="Hora actual"></div>
-<script>
-(function(){var el=document.getElementById('clock');function t(){el.textContent=new Date().toLocaleTimeString('es-ES',{timeZone:'Europe/Madrid'});}t();setInterval(t,1000);})();
-</script>`;
-  return page('Pagado', body, css);
-}
-
-function renderProcessingPage(refreshSeconds: number, offerNewCharge = false): string {
-  const head = `<meta http-equiv="refresh" content="${refreshSeconds}"><style>
-.spin{width:3rem;height:3rem;border:4px solid #2a2a2a;border-top-color:#d4ff3a;border-radius:50%;animation:s 1s linear infinite}
-@keyframes s{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.spin{animation:none}}
-</style>`;
-  const body = `
-<div class="spin" aria-hidden="true"></div>
-<h1>Comprobando el pago</h1>
-<p>Estamos esperando la confirmación del banco. No vuelvas a pagar: esta pantalla se actualiza sola.</p>
-${offerNewCharge ? '<p>Si cerraste la página del banco sin pagar, pide un cobro nuevo al personal.</p>' : ''}`;
-  return page('Comprobando el pago', body, head);
-}
-
-function renderMessagePage(
-  title: string,
-  message: string,
-  tone: 'warn' | 'error' | 'neutral',
-  action?: { href: string; label: string },
-): string {
-  const color = tone === 'error' ? '#ff5a5f' : tone === 'warn' ? '#ffb020' : '#b4b4ac';
-  const body = `
-<div style="width:4rem;height:4rem;border-radius:50%;border:3px solid ${color};display:grid;place-items:center" aria-hidden="true">
-<svg viewBox="0 0 24 24" style="width:2rem;height:2rem;stroke:${color};stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round"><path d="M12 8v5M12 17h.01"/></svg>
-</div>
-<h1>${escapeHtml(title)}</h1>
-<p>${escapeHtml(message)}</p>
-${action ? `<a class="btn" href="${escapeHtml(action.href)}">${escapeHtml(action.label)}</a>` : ''}`;
-  return page(title, body);
-}
-
-/**
- * Renderiza HTML con un <form> oculto que auto-submitea al checkout del PSP.
- *
- * Diseño:
- *  - Auto-submit vía <script> al cargar la página (UX directa: parece un redirect).
- *  - Fallback con botón visible por si el navegador bloquea el auto-submit
- *    (iOS Safari ocasionalmente lo hace por seguridad).
- *  - <noscript> con botón también para usuarios sin JS.
- */
-function renderCheckoutForm(action: string, fields: Record<string, string>): string {
-  const inputs = Object.entries(fields)
-    .map(
-      ([k, v]) =>
-        `<input type="hidden" name="${escapeHtml(k)}" value="${escapeHtml(v)}">`,
-    )
-    .join('\n');
-
-  const head = `<style>
-.spin{width:2.5rem;height:2.5rem;border:4px solid #2a2a2a;border-top-color:#d4ff3a;border-radius:50%;animation:s 1s linear infinite}
-@keyframes s{to{transform:rotate(360deg)}}
-button{width:100%;margin-top:1rem;padding:1rem;border:none;border-radius:10px;background:#d4ff3a;color:#0b0b0b;font-weight:800;font-size:1.05rem;cursor:pointer}
-</style>`;
-  const body = `
-<div class="spin" aria-hidden="true"></div>
-<h1>Abriendo el pago…</h1>
-<p>Si no avanza en 2 segundos, pulsa el botón.</p>
-<form id="f" action="${escapeHtml(action)}" method="POST" accept-charset="UTF-8" style="width:100%">
-${inputs}
-<button type="submit">Continuar al pago</button>
-</form>
-<script>setTimeout(function(){document.getElementById('f').submit();},250);</script>`;
-  return page('Abriendo el pago', body, head);
 }

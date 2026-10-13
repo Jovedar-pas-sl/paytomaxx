@@ -136,8 +136,10 @@ export class RedsysAdapter implements GatewayAdapter {
     const dsOrder = randomTransactionId();
 
     const apiBase = this.config.get<string>('NEXT_PUBLIC_API_URL') ?? 'http://localhost:4100';
-    const urlOk = `${apiBase.replace(/\/+$/, '')}/pay/result?status=ok&op=${encodeURIComponent(dsOrder)}`;
-    const urlKo = `${apiBase.replace(/\/+$/, '')}/pay/result?status=ko&op=${encodeURIComponent(dsOrder)}`;
+    // El cliente vuelve del banco en el idioma que eligió en la página de pago.
+    const langQs = input.language === 'en' ? '&lang=en' : '';
+    const urlOk = `${apiBase.replace(/\/+$/, '')}/pay/result?status=ok&op=${encodeURIComponent(dsOrder)}${langQs}`;
+    const urlKo = `${apiBase.replace(/\/+$/, '')}/pay/result?status=ko&op=${encodeURIComponent(dsOrder)}${langQs}`;
     const merchantUrl = `${apiBase.replace(/\/+$/, '')}/v1/webhooks/redsys`;
 
     // Redsys exige TerminalID zero-padded a 3 dígitos ("001" no "1").
@@ -153,10 +155,14 @@ export class RedsysAdapter implements GatewayAdapter {
 
     // Wallets (Apple Pay + Google Pay) — solo se aplica si BBVA los tiene
     // activados en el TPV. Si no, Redsys responde SIS error.
-    //   REDSYS_PAYMETHODS="xpay"  → fuerza picker wallet (sin form tarjeta)
-    //   REDSYS_PAYMETHODS="C"     → solo tarjeta
-    //   (vacío)                    → Redsys decide (default seguro)
-    const paymethods = this.config.get<string>('REDSYS_PAYMETHODS');
+    //   "xpay"  → solo Apple Pay / Google Pay (sin form tarjeta)
+    //   "C"     → solo tarjeta
+    //   (vacío) → Redsys enseña todo
+    // Manda el botón que pulsó el cliente; sin él (cobros sin página de
+    // pago), REDSYS_PAYMETHODS del entorno.
+    const paymethods = input.payMethod
+      ? REDSYS_PAYMETHOD[input.payMethod]
+      : this.config.get<string>('REDSYS_PAYMETHODS');
 
     // Tokenización / Pago por Referencia (probe Etapa A): si env
     // REDSYS_REQUEST_TOKEN=true, le pedimos a Redsys que cree un token de
@@ -196,6 +202,7 @@ export class RedsysAdapter implements GatewayAdapter {
       DS_MERCHANT_URLKO: urlKo,
       DS_MERCHANT_PRODUCTDESCRIPTION: productDesc,
       ...(paymethods ? { DS_MERCHANT_PAYMETHODS: paymethods } : {}),
+      ...(input.language ? { DS_MERCHANT_CONSUMERLANGUAGE: REDSYS_LANGUAGE[input.language] } : {}),
     };
     const tokenParams = requestToken
       ? {
@@ -667,6 +674,12 @@ export function checkRedsysReplayWindow(
  * Se persiste en payment.tokenizationData para reuso en cobros recurrentes MIT.
  */
 /** Lo que NightPay extrae de un aviso Redsys verificado. */
+/** DS_MERCHANT_PAYMETHODS según el botón que pulsa el cliente. */
+const REDSYS_PAYMETHOD: Record<'wallet' | 'card', string> = { wallet: 'xpay', card: 'C' };
+
+/** DS_MERCHANT_CONSUMERLANGUAGE: 001 castellano, 002 inglés. */
+const REDSYS_LANGUAGE: Record<'es' | 'en', string> = { es: '001', en: '002' };
+
 export interface RedsysNotification {
   order: string;
   response: string;

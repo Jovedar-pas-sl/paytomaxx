@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_PAYMENT_ATTEMPTS, RETRY_WAIT_MS, confirmationCode, decideRedsysRetry } from './pay-redirect';
+import {
+  CHECKOUT_REPLAY_MS,
+  MAX_PAYMENT_ATTEMPTS,
+  RETRY_WAIT_MS,
+  choosePayPage,
+  freshPendingOrder,
+  confirmationCode,
+  decideRedsysRetry,
+  retryOutcome,
+  settledPayView,
+  type PayablePayment,
+} from './pay-redirect';
 import { resolveRevenueCategory } from './commission';
 
 const NOW = new Date('2026-10-13T08:00:00Z');
@@ -85,6 +96,62 @@ describe('decideRedsysRetry — el cliente vuelve a escanear un QR en curso', ()
         paymentUpdatedAt: ago(RETRY_WAIT_MS + 1_000),
       }),
     ).toBe('retry');
+  });
+});
+
+describe('qué ve el cliente al escanear (Fase 1B)', () => {
+  const payable = (o: Partial<PayablePayment>): PayablePayment => ({
+    id: 'pay-1',
+    status: 'CREATED',
+    amountCents: 10_000,
+    tipCents: 0,
+    currency: 'EUR',
+    qrExpiresAt: FUTURE,
+    authorizedAt: null,
+    allowTip: true,
+    ...o,
+  });
+
+  it('cobro nuevo → página de pago con propinas; no abre nada en el banco', () => {
+    const p = payable({});
+    expect(settledPayView(p, NOW)).toBeNull();
+    expect(choosePayPage(p)).toMatchObject({ kind: 'choose', amountCents: 10_000, tipOptionsCents: [0, 500, 1000] });
+  });
+
+  it('recarga de wallet u otra pasarela → sin propina', () => {
+    expect(choosePayPage(payable({ allowTip: false }))).toMatchObject({ tipOptionsCents: [0] });
+  });
+
+  it('pedido pendiente recién abierto → se reutiliza (doble toque); viejo o resuelto → no', () => {
+    const order = (status: string, msAgo: number) => [{ providerTxId: 'ORD1', status, createdAt: ago(msAgo) }];
+    expect(freshPendingOrder(order('PENDING', 5_000), NOW)).toBe('ORD1');
+    expect(freshPendingOrder(order('PENDING', CHECKOUT_REPLAY_MS + 1), NOW)).toBeNull();
+    expect(freshPendingOrder(order('DENIED', 5_000), NOW)).toBeNull();
+    expect(freshPendingOrder([], NOW)).toBeNull();
+  });
+
+  it('pagado → "Pagado" con la propina cobrada', () => {
+    expect(settledPayView(payable({ status: 'AUTHORIZED', tipCents: 500 }), NOW)).toMatchObject({
+      kind: 'paid',
+      amountCents: 10_000,
+      tipCents: 500,
+    });
+  });
+
+  it('QR caducado sin empezar → cerrado; con intento en curso decide el reintento', () => {
+    expect(settledPayView(payable({ qrExpiresAt: PAST }), NOW)).toEqual({ kind: 'closed', reason: 'expired' });
+    expect(settledPayView(payable({ status: 'AUTHORIZING', qrExpiresAt: PAST }), NOW)).toBeNull();
+  });
+
+  it('cancelado o sin confirmar → cerrado', () => {
+    expect(settledPayView(payable({ status: 'CANCELED' }), NOW)).toEqual({ kind: 'closed', reason: 'canceled' });
+    expect(settledPayView(payable({ status: 'ORPHAN' }), NOW)).toEqual({ kind: 'closed', reason: 'unconfirmed' });
+  });
+
+  it('sin intento nuevo: esperar, caducado o demasiados intentos', () => {
+    expect(retryOutcome('wait')).toEqual({ kind: 'processing' });
+    expect(retryOutcome('expired')).toEqual({ kind: 'closed', reason: 'expired' });
+    expect(retryOutcome('max-attempts')).toEqual({ kind: 'closed', reason: 'too-many-attempts' });
   });
 });
 

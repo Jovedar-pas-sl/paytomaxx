@@ -409,6 +409,7 @@ function ResolveModal({
 }) {
   const [decision, setDecision] = useState<'AUTHORIZED' | 'FAILED'>('AUTHORIZED');
   const [authCode, setAuthCode] = useState('');
+  const [bankOrder, setBankOrder] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -417,6 +418,7 @@ function ResolveModal({
     if (payment) {
       setDecision('AUTHORIZED');
       setAuthCode('');
+      setBankOrder('');
       setReason('');
       setError(null);
     }
@@ -426,6 +428,13 @@ function ResolveModal({
     return <Modal open={false} onClose={onClose}>{null}</Modal>;
   }
 
+  // Fase 1B: si los intentos llevaban propinas distintas, hay que decir cuál
+  // cobró el banco (la propina es de la chica). Los denegados no cuentan.
+  const attempts = payment.attempts ?? [];
+  const chargeable = attempts.filter((a) => a.status !== 'DENIED');
+  const tipsDiffer = new Set(chargeable.map((a) => a.tipCents ?? null)).size > 1;
+  const needsOrder = decision === 'AUTHORIZED' && tipsDiffer;
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!payment) return;
@@ -433,6 +442,10 @@ function ResolveModal({
     const code = authCode.replace(/\s+/g, '').toUpperCase();
     if (decision === 'AUTHORIZED' && !/^[A-Z0-9]{6}$/.test(code)) {
       setError('Pon el código de autorización del banco: 6 letras o números.');
+      return;
+    }
+    if (needsOrder && !bankOrder) {
+      setError('Elige el pedido que aparece cobrado en el portal del banco.');
       return;
     }
     if (reason.trim().length < 3) {
@@ -445,6 +458,7 @@ function ResolveModal({
         decision,
         reason: reason.trim(),
         ...(decision === 'AUTHORIZED' ? { bankAuthCode: code } : {}),
+        ...(needsOrder ? { bankOrder } : {}),
       });
       onDone();
     } catch (err) {
@@ -466,6 +480,7 @@ function ResolveModal({
           {payment.attempts.map((a) => (
             <li key={a.providerTxId}>
               Pedido <code style={code}>{a.providerTxId}</code> · {formatTime(a.createdAt)} ·{' '}
+              {a.amountCents != null ? <span className="np-num">{(a.amountCents / 100).toFixed(2)} € · </span> : null}
               {a.status === 'APPROVED' ? 'aprobado' : a.status === 'DENIED' ? 'denegado' : 'sin respuesta'}
             </li>
           ))}
@@ -503,6 +518,23 @@ function ResolveModal({
             autoCapitalize="characters"
             required
           />
+        ) : null}
+        {needsOrder ? (
+          <Select
+            label="¿Qué pedido cobró el banco?"
+            value={bankOrder}
+            onChange={(e) => setBankOrder(e.target.value)}
+            required
+          >
+            <option value="">Elige el pedido del portal del banco</option>
+            {chargeable.map((a) => (
+              <option key={a.providerTxId} value={a.providerTxId}>
+                {a.providerTxId}
+                {a.amountCents != null ? ` · ${(a.amountCents / 100).toFixed(2)} €` : ''}
+                {a.tipCents ? ` (propina ${(a.tipCents / 100).toFixed(2)} €)` : ''}
+              </option>
+            ))}
+          </Select>
         ) : null}
         <Input
           label="Cómo lo has comprobado"

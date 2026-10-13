@@ -15,7 +15,7 @@ import type { PaymentMachineState } from '../payments/payment.machine';
  * Eventos:
  *   - cliente: payment:subscribe { qrToken } → server lo mete en room payment:<paymentId>
  *   - server → room: payment:update { paymentId, status, ... }
- *   - server → room: payment:completed { paymentId, status: AUTHORIZED|FAILED|EXPIRED }
+ *   - server → room: payment:completed { paymentId, status: AUTHORIZED|FAILED|EXPIRED, tipCents }
  *
  * Sin auth (simplicidad Sprint 5): la "seguridad" es que el qrToken es UUID v4
  * y solo lo conoce quien escaneo el QR.
@@ -62,11 +62,14 @@ export class RealtimeGateway {
   emitPaymentCompleted(
     paymentId: string,
     status: 'AUTHORIZED' | 'FAILED' | 'EXPIRED' | 'CANCELED',
+    tipCents = 0,
   ): void {
     this.server.to(`payment:${paymentId}`).emit('payment:completed', {
       type: 'payment:completed',
       paymentId,
       status,
+      // Propina que dejó el cliente (Fase 1B) — la chica la ve al confirmarse.
+      tipCents,
       timestamp: new Date().toISOString(),
     });
   }

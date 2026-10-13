@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -27,6 +28,7 @@ import { AuditService } from '../audit/audit.service';
 import { OperatorsService } from '../operators/operators.service';
 import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
+import { chargedAttemptTip } from '../payments/tip';
 import { ClsService } from 'nestjs-cls';
 import {
   CreateOperatorSchema,
@@ -140,6 +142,9 @@ const ManualReconcileSchema = z
       .transform((s) => s.replace(/\s+/g, '').toUpperCase())
       .pipe(z.string().regex(/^[A-Z0-9]{6}$/, 'Código de autorización: 6 letras o números'))
       .optional(),
+    // Fase 1B: pedido que cobró el banco (si hubo varios intentos con
+    // propinas distintas), para saber qué propina le toca a la chica.
+    bankOrder: z.string().trim().regex(/^[0-9A-Za-z]{4,12}$/, 'Número de pedido no válido').optional(),
   })
   .refine((b) => b.decision !== 'AUTHORIZED' || Boolean(b.bankAuthCode), {
     message: 'Para marcarlo cobrado, pon el código de autorización del banco',
@@ -386,7 +391,7 @@ export class AdminController {
         // Todos los pedidos enviados al banco (un cobro puede tener varios
         // intentos): para buscarlos en el portal al resolver a mano.
         attempts: {
-          select: { providerTxId: true, status: true, createdAt: true },
+          select: { providerTxId: true, status: true, createdAt: true, amountCents: true, tipCents: true },
           orderBy: { createdAt: 'asc' },
         },
         terminal: { select: { externalId: true, label: true } },
@@ -458,10 +463,13 @@ export class AdminController {
         if (!payment.provider || !payment.providerTxId) {
           throw new ConflictException('Pago sin provider/providerTxId — no se puede marcar AUTHORIZED');
         }
+        await this.checkResolvedTip(paymentId, body.bankOrder);
+        // El pedido cobrado (si se eligió) fija la propina en transition()
+        // y queda como pedido del cobro, para devolverlo en el banco.
         await this.payments.transition(paymentId, {
           type: 'AUTHORIZED',
           provider: payment.provider,
-          providerTxId: payment.providerTxId,
+          providerTxId: body.bankOrder ?? payment.providerTxId,
         });
         // Si llegó un aviso tardío con los datos del banco, no se pisan.
         await this.prisma.payment.updateMany({
@@ -497,6 +505,7 @@ export class AdminController {
         decision: body.decision,
         reason: body.reason,
         bankAuthCode: authCode,
+        bankOrder: body.bankOrder ?? null,
         fromStatus: payment.status,
       },
     });
@@ -506,6 +515,30 @@ export class AdminController {
     );
 
     return { ok: true, newStatus: body.decision };
+  }
+
+  /**
+   * Fase 1B: cada intento puede llevar una propina distinta. Si no se sabe
+   * qué pedido cobró el banco, no se puede saber qué propina le toca a la
+   * chica: hay que elegirlo. Los intentos denegados no cuentan, y los cobros
+   * sin intentos registrados (anteriores a la Fase 0) no se bloquean.
+   */
+  private async checkResolvedTip(paymentId: string, bankOrder: string | undefined): Promise<void> {
+    const attempts = await this.prisma.asSystem((tx) =>
+      tx.paymentAttempt.findMany({
+        where: { paymentId, status: { not: 'DENIED' } },
+        select: { providerTxId: true, tipCents: true },
+      }),
+    );
+    if (attempts.length === 0) return;
+    const charged = chargedAttemptTip(attempts, bankOrder);
+    if (!charged.ok) {
+      throw new BadRequestException(
+        charged.reason === 'unknown-order'
+          ? 'Ese número de pedido no es de este cobro'
+          : 'Este cobro tuvo varios intentos con propinas distintas: elige el pedido que aparece en el portal del banco',
+      );
+    }
   }
 
   /**

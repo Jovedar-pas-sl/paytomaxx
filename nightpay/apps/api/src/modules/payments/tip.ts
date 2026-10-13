@@ -1,0 +1,95 @@
+import type { TransactionalClient } from '../../common/prisma/prisma.service';
+
+/**
+ * Propina que elige el cliente en la página de pago (Fase 1B).
+ *
+ * Se cobra en la tarjeta junto al importe: cada intento manda al banco
+ * importe + propina, y la propina del intento que el banco aprueba es la que
+ * pasa al cobro, en la misma transacción que lo marca AUTHORIZED y reparte la
+ * comisión (aviso del banco, conciliación automática o resolución a mano).
+ * Solo con Redsys: el resto de pasarelas cobran el importe, como antes.
+ */
+
+/** Sin propina, 5 € y 10 €. */
+export const TIP_PRESETS_CENTS: readonly number[] = [0, 500, 1000];
+
+/**
+ * Propinas que se ofrecen. Sin propina si no se puede (recarga de wallet u
+ * otra pasarela). Si el cobro ya traía una propina puesta por el local,
+ * también se ofrece.
+ */
+export function tipOptionsFor(p: { tipCents: number; allowTip: boolean }): number[] {
+  if (!p.allowTip) return [0];
+  return [...new Set([...TIP_PRESETS_CENTS, p.tipCents])].sort((a, b) => a - b);
+}
+
+/** Si lo cobró una chica, la propina es suya; si no, del local. */
+export function defaultTipGoesTo(creatorRole: string | null | undefined): 'operator' | 'venue' {
+  return creatorRole === 'OPERATOR' ? 'operator' : 'venue';
+}
+
+/** Campos del cobro una vez se sabe qué propina cobró el banco. */
+export function settleChargedTip(args: {
+  amountCents: number;
+  tipCents: number;
+  tipGoesTo: string | null;
+  creatorRole: string | null;
+}): { tipCents: number; availableAmountCents: number; tipGoesTo: string | null } {
+  if (args.tipCents <= 0) {
+    return { tipCents: 0, availableAmountCents: args.amountCents, tipGoesTo: null };
+  }
+  return {
+    tipCents: args.tipCents,
+    // Lo que se puede devolver: todo lo cobrado en la tarjeta.
+    availableAmountCents: args.amountCents + args.tipCents,
+    tipGoesTo: args.tipGoesTo ?? defaultTipGoesTo(args.creatorRole),
+  };
+}
+
+export type ChargedTip =
+  | { ok: true; tipCents: number | null }
+  | { ok: false; reason: 'unknown-order' | 'ambiguous' };
+
+/**
+ * Al resolver a mano un cobro atascado: qué propina cobró el banco.
+ *  - Con el número de pedido que se ve en el portal del banco → la de ese intento.
+ *  - Sin él, solo si todos los intentos llevaban la misma propina.
+ * `tipCents: null` = intentos anteriores a la Fase 1B: no se toca la propina.
+ */
+export function chargedAttemptTip(
+  attempts: ReadonlyArray<{ providerTxId: string; tipCents: number | null }>,
+  bankOrder?: string,
+): ChargedTip {
+  if (bankOrder) {
+    const hit = attempts.find((a) => a.providerTxId === bankOrder);
+    return hit ? { ok: true, tipCents: hit.tipCents } : { ok: false, reason: 'unknown-order' };
+  }
+  const tips = new Set(attempts.map((a) => a.tipCents));
+  if (tips.size > 1) return { ok: false, reason: 'ambiguous' };
+  return { ok: true, tipCents: attempts[0]?.tipCents ?? null };
+}
+
+/**
+ * Propina del intento que cobró el banco (`providerTxId` del evento
+ * AUTHORIZED) y rol de quien creó el cobro. `null` = intento anterior a la
+ * Fase 1B u otra pasarela: no se toca la propina. SQL crudo: se llama dentro
+ * de transition(), fuera del middleware de tenant.
+ */
+export async function readChargedTip(
+  tx: TransactionalClient,
+  paymentId: string,
+  event: { provider: string; providerTxId: string },
+): Promise<{ tipCents: number; creatorRole: string | null } | null> {
+  const rows = await tx.$queryRaw<Array<{ tipCents: number | null; creatorRole: string | null }>>`
+    SELECT a."tipCents", u.role::text AS "creatorRole"
+      FROM payment_attempts a
+      JOIN payments p ON p.id = a."paymentId"
+      LEFT JOIN users u ON u.id = p."createdByUserId"
+     WHERE a."paymentId" = ${paymentId}::uuid
+       AND a.provider = ${event.provider}::"Provider"
+       AND a."providerTxId" = ${event.providerTxId}
+  `;
+  const row = rows[0];
+  if (!row || row.tipCents === null) return null;
+  return { tipCents: row.tipCents, creatorRole: row.creatorRole };
+}
