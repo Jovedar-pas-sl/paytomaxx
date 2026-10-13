@@ -17,7 +17,7 @@ interface StatusPillProps {
   size?: 'sm' | 'md';
   /**
    * `operator` (default) — labels desde la perspectiva de la chica:
-   *   "Esperando datáfono", "Acerca tarjeta al datáfono"
+   *   "Esperando datáfono", "Esperando pago"
    * `client` — labels desde la perspectiva del cliente que paga:
    *   "Toca PAGAR", "Procesando tu pago"
    */
@@ -43,7 +43,8 @@ const operatorConfig: Record<PaymentStatus, StatusConfig> = {
     bg: 'var(--np-pill-mute-bg)',
   },
   AUTHORIZING: {
-    label: 'Acerca tarjeta al datáfono',
+    // Vale para QR (cliente en la página del banco) y para datáfono.
+    label: 'Esperando pago',
     color: 'var(--np-accent)',
     bg: 'var(--np-pill-cyan-bg)',
     spin: true,
@@ -78,11 +79,12 @@ const operatorConfig: Record<PaymentStatus, StatusConfig> = {
     color: 'var(--np-purple)',
     bg: 'var(--np-pill-purple-bg)',
   },
+  // ORPHAN = el banco no confirmó a tiempo. No gira: no se resuelve solo,
+  // hay que mirarlo en el banco.
   ORPHAN: {
-    label: 'Verificando',
+    label: 'Sin confirmar',
     color: 'var(--np-warning)',
     bg: 'var(--np-pill-warning-bg)',
-    spin: true,
   },
 };
 

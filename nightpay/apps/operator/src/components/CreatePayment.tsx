@@ -395,49 +395,35 @@ export function CreatePayment({ onCreated }: Props) {
           // autoFocus removed: en iOS abre el teclado inmediatamente, que tapa
           // el selector de modo (QR/Wallet/POS) que la chica AÚN no eligió.
           // La chica toca el input cuando quiera escribir el importe.
-          style={{ textAlign: 'center', fontFamily: 'var(--np-font-mono)' }}
+          style={{ textAlign: 'center', fontFamily: 'var(--np-font-mono)', height: '5.5rem', fontSize: '2.75rem' }}
         />
 
         {/* Categoría — separa cobros de chica vs cobros del local. La chica
-            ve "Mi servicio" + opciones del local; camarero solo ve las del local. */}
-        <div>
-          <label
-            htmlFor="np-rev-cat"
-            style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}
-          >
-            ¿Qué cobras?
-          </label>
-          <select
-            id="np-rev-cat"
-            value={revCategory}
-            onChange={(e) => setRevCategory(e.target.value as RevCat)}
-            style={{
-              width: '100%',
-              minHeight: '3rem', // 48px touch target
-              padding: '0.75rem',
-              borderRadius: '0.5rem',
-              border: '1px solid var(--np-border, #ccc)',
-              background: 'var(--np-bg-input, #fff)',
-              fontSize: '1rem',
-            }}
-          >
+            ve "Mi servicio" + opciones del local; camarero solo ve las del local.
+            Botones de un toque en vez de desplegable. */}
+        <fieldset style={{ margin: 0, padding: 0, border: 'none' }}>
+          <legend style={fieldLabel}>¿Qué cobras?</legend>
+          <div style={catGridStyle}>
             {categoryOptions.map((c) => (
-              <option key={c} value={c}>
+              <button
+                key={c}
+                type="button"
+                aria-pressed={revCategory === c}
+                onClick={() => setRevCategory(c)}
+                style={{ ...catBtnStyle, ...(revCategory === c ? catBtnActiveStyle : {}) }}
+              >
                 {REV_CAT_LABEL[c]}
-              </option>
+              </button>
             ))}
-          </select>
-          {revCategory === 'CHICA_SERVICE' && (
-            <p style={{ ...hintStyle, marginTop: '0.4rem' }}>
-              💁‍♀️ Este cobro va a TUS ganancias (tu comisión configurada).
-            </p>
-          )}
-          {revCategory !== 'CHICA_SERVICE' && revCategory !== 'EXTRA' && (
-            <p style={{ ...hintStyle, marginTop: '0.4rem' }}>
-              🏨 Este cobro va al local (no genera comisión para ti salvo que el admin lo configure).
-            </p>
-          )}
-        </div>
+          </div>
+          <p style={{ ...hintStyle, marginTop: '0.5rem' }}>
+            {revCategory === 'CHICA_SERVICE'
+              ? 'Va a tus ganancias.'
+              : revCategory === 'EXTRA'
+                ? 'Cobro sin categoría.'
+                : 'Va al local.'}
+          </p>
+        </fieldset>
 
         {mode === 'wallet' ? (
           <>
@@ -450,8 +436,7 @@ export function CreatePayment({ onCreated }: Props) {
               required
             />
             <p style={hintStyle}>
-              💡 El cliente paga UNA vez con este QR. Luego le cobras desde la tab Wallet sin
-              molestarlo de nuevo — solo necesitas saber su etiqueta.
+              El cliente paga una vez. Luego le cobras desde la pestaña Wallet.
             </p>
           </>
         ) : mode === 'pos' ? (
@@ -496,13 +481,11 @@ export function CreatePayment({ onCreated }: Props) {
               </div>
             ) : zones.length === 1 ? (
               <p style={{ ...hintStyle, textAlign: 'center' }}>
-                📍 Zona: <strong>{zones[0]!.zoneDisplay}</strong> ({zones[0]!.activeCount} PAX disponibles)
+                Zona: <strong>{zones[0]!.zoneDisplay}</strong> ({zones[0]!.activeCount} PAX disponibles)
               </p>
             ) : null}
             <p style={hintStyle}>
-              🪙 Genera un cobro para que el <strong>camarero lo procese con el datáfono del bar</strong>.
-              El cliente paga con su tarjeta física en el datáfono. Después el camarero
-              confirma en su app y tu comisión cae automática.
+              El camarero lo cobra con el datáfono del bar y lo confirma en su app.
             </p>
           </>
         ) : null}
@@ -512,7 +495,9 @@ export function CreatePayment({ onCreated }: Props) {
             ? `Cargar ${amount ? `${amount} €` : 'wallet'}`
             : mode === 'pos'
               ? `Generar cobro POS ${amount ? `(${amount} €)` : ''}`
-              : 'Cobrar'}
+              : amount
+                ? `Cobrar ${amount} €`
+                : 'Cobrar'}
         </Button>
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem', textAlign: 'center' }}>
@@ -536,14 +521,14 @@ const toggleBtnStyle: CSSProperties = {
   flex: 1,
   // 44px+ touch target — antes 28px rendered (padding 0.5rem + fontSize 0.78rem)
   // era zona de misfire con guantes o vibración nocturna.
-  minHeight: '2.75rem',
+  minHeight: '3rem',
   padding: '0.625rem 0.75rem',
   background: 'transparent',
   border: 'none',
   borderRadius: 'var(--np-r-sm)',
-  color: 'var(--np-text-mute)',
-  fontSize: '0.85rem',
-  fontWeight: 500,
+  color: 'var(--np-text)',
+  fontSize: '0.9375rem',
+  fontWeight: 700,
   cursor: 'pointer',
   letterSpacing: '0.04em',
   textTransform: 'uppercase',
@@ -553,29 +538,58 @@ const toggleBtnStyle: CSSProperties = {
 };
 
 const toggleBtnActiveStyle: CSSProperties = {
-  background: 'var(--np-bg)',
+  background: 'var(--np-accent)',
+  color: 'var(--np-on-accent)',
+};
+
+const fieldLabel: CSSProperties = {
+  padding: 0,
+  marginBottom: '0.5rem',
+  fontSize: '0.8125rem',
+  fontWeight: 700,
+  color: 'var(--np-text-mute)',
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+};
+
+const catGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: '0.5rem',
+};
+
+const catBtnStyle: CSSProperties = {
+  minHeight: '3.25rem',
+  padding: '0.5rem 0.75rem',
+  background: 'transparent',
+  border: '2px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-md)',
   color: 'var(--np-text)',
-  boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+  fontSize: '1rem',
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+
+const catBtnActiveStyle: CSSProperties = {
+  background: 'var(--np-pill-cyan-bg)',
+  borderColor: 'var(--np-accent)',
+  fontWeight: 700,
 };
 
 const hintStyle: CSSProperties = {
   margin: 0,
-  padding: '0.6rem 0.8rem',
-  fontSize: '0.78rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
-  background: 'var(--np-surface-2)',
-  borderRadius: 'var(--np-r-md)',
-  border: '1px solid var(--np-border)',
   lineHeight: 1.4,
 };
 
 const kicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.7rem',
-  color: 'var(--np-text-dim)',
+  fontSize: '0.8125rem',
+  color: 'var(--np-text-mute)',
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
-  fontWeight: 500,
+  fontWeight: 700,
 };
 
 const amountBig: CSSProperties = {

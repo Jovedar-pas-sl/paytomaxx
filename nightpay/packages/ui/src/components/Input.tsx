@@ -74,8 +74,8 @@ export function Select({ label, hint, style, children, ...rest }: SelectProps) {
 }
 
 const labelStyle: CSSProperties = {
-  fontSize: '0.75rem',
-  fontWeight: 500,
+  fontSize: '0.8125rem',
+  fontWeight: 700,
   color: 'var(--np-text-mute)',
   letterSpacing: '0.04em',
   textTransform: 'uppercase',
@@ -92,18 +92,18 @@ const inputBase: CSSProperties = {
   width: '100%',
   padding: '0 1rem',
   fontFamily: 'var(--np-font-sans)',
-  fontSize: '1rem',
+  fontSize: '1.0625rem',
   fontWeight: 500,
   color: 'var(--np-text)',
   background: 'var(--np-surface)',
-  border: '1px solid var(--np-border)',
+  border: '2px solid var(--np-border)',
   borderRadius: 'var(--np-r-md)',
   outline: 'none',
   transition: 'border-color var(--np-d-fast), box-shadow var(--np-d-fast)',
 };
 
-const sizeMd: CSSProperties = { height: '3rem' };
-const sizeLg: CSSProperties = { height: '3.75rem', fontSize: '1.5rem', fontWeight: 600 };
+const sizeMd: CSSProperties = { height: '3.5rem' };
+const sizeLg: CSSProperties = { height: '4.5rem', fontSize: '2rem', fontWeight: 700 };
 
 const slotStyle: CSSProperties = {
   position: 'absolute',
@@ -113,6 +113,6 @@ const slotStyle: CSSProperties = {
 };
 
 const hintStyle: CSSProperties = {
-  fontSize: '0.75rem',
+  fontSize: '0.8125rem',
   color: 'var(--np-text-dim)',
 };

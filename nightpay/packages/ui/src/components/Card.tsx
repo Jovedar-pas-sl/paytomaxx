@@ -14,7 +14,6 @@ export function Card({ variant = 'default', children, style, ...rest }: CardProp
       data-variant={variant}
       style={{ ...base, ...variantStyles[variant], ...style }}
     >
-      {variant === 'glow' ? <GlowBorder /> : null}
       <div style={{ position: 'relative', zIndex: 1 }}>{children}</div>
     </div>
   );
@@ -35,28 +34,9 @@ const variantStyles: Record<CardVariant, CSSProperties> = {
     background: 'var(--np-surface-2)',
     borderColor: 'var(--np-border-hi)',
   },
+  // "glow" = tarjeta destacada: borde lima sólido, sin degradados.
   glow: {
     background: 'var(--np-surface)',
-    borderColor: 'transparent',
+    border: '2px solid var(--np-accent)',
   },
 };
-
-function GlowBorder() {
-  return (
-    <span
-      aria-hidden
-      style={{
-        position: 'absolute',
-        inset: 0,
-        borderRadius: 'inherit',
-        padding: '1px',
-        background:
-          'linear-gradient(135deg, var(--np-glow), transparent 45%, var(--np-border) 100%)',
-        WebkitMask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
-        WebkitMaskComposite: 'xor',
-        maskComposite: 'exclude',
-        pointerEvents: 'none',
-      }}
-    />
-  );
-}

@@ -1,4 +1,5 @@
-/* NightPay design tokens — dark + light themes.
+/* NightPay design tokens — look "Club": negro + lima, letra grande.
+   Dark es el tema principal (salas con poca luz); light a juego.
    Imported once from each app's root layout. */
 
 :root {
@@ -14,18 +15,18 @@
   --np-s-9: 6rem;
 
   /* Radius */
-  --np-r-sm: 8px;
-  --np-r-md: 12px;
-  --np-r-lg: 20px;
+  --np-r-sm: 6px;
+  --np-r-md: 8px;
+  --np-r-lg: 12px;
   --np-r-pill: 999px;
 
   /* Type */
-  --np-t-amount: clamp(4rem, 9vw, 9rem);
-  --np-t-h1: clamp(2rem, 3vw, 3.25rem);
-  --np-t-h2: clamp(1.5rem, 2vw, 2rem);
-  --np-t-h3: 1.25rem;
-  --np-t-body: clamp(0.95rem, 0.4vw + 0.85rem, 1rem);
-  --np-t-ui: 0.8125rem;
+  --np-t-amount: clamp(4.5rem, 10vw, 9rem);
+  --np-t-h1: clamp(2.25rem, 3vw, 3.5rem);
+  --np-t-h2: clamp(1.75rem, 2vw, 2.25rem);
+  --np-t-h3: 1.375rem;
+  --np-t-body: 1rem;
+  --np-t-ui: 0.9375rem;
 
   /* Motion */
   --np-ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -43,72 +44,75 @@
 :root,
 [data-theme='dark'] {
   /* Surfaces */
-  --np-bg: oklch(8% 0.012 270);
-  --np-surface: oklch(13% 0.014 270);
-  --np-surface-2: oklch(18% 0.018 270);
-  --np-border: oklch(26% 0.02 270);
-  --np-border-hi: oklch(36% 0.025 270);
+  --np-bg: #0b0b0b;
+  --np-surface: #141414;
+  --np-surface-2: #1c1c1c;
+  --np-border: #2a2a2a;
+  --np-border-hi: #3d3d3d;
 
-  /* Text — verified WCAG AAA on --np-bg */
-  --np-text: oklch(96% 0.005 270);
-  --np-text-mute: oklch(68% 0.012 270);
-  --np-text-dim: oklch(48% 0.012 270);
+  /* Text — AA o mejor sobre --np-bg */
+  --np-text: #f5f5f0;
+  --np-text-mute: #b4b4ac;
+  --np-text-dim: #8a8a83;
 
-  /* Accent — single neon, used sparingly */
-  --np-accent: oklch(80% 0.16 200);
-  --np-accent-2: oklch(72% 0.2 200);
-  --np-glow: oklch(80% 0.16 200 / 0.32);
+  /* Accent — lima. Siempre con texto negro encima (--np-on-accent). */
+  --np-accent: #d4ff3a;
+  --np-accent-2: #e6ff85;
+  --np-on-accent: #0b0b0b;
+  --np-glow: rgb(212 255 58 / 0.28);
 
   /* Semantic */
-  --np-success: oklch(74% 0.18 145);
-  --np-danger: oklch(68% 0.22 25);
-  --np-warning: oklch(80% 0.16 75);
-  --np-purple: oklch(75% 0.16 320);
+  --np-success: #5be38f;
+  --np-danger: #ff5a5f;
+  --np-warning: #ffb020;
+  --np-purple: #c9a3ff;
 
   /* Pill backgrounds (theme-aware) */
-  --np-pill-mute-bg: oklch(20% 0.012 270);
-  --np-pill-cyan-bg: oklch(22% 0.06 200);
-  --np-pill-success-bg: oklch(22% 0.06 145);
-  --np-pill-danger-bg: oklch(22% 0.08 25);
-  --np-pill-warning-bg: oklch(22% 0.06 75);
-  --np-pill-purple-bg: oklch(22% 0.06 320);
+  --np-pill-mute-bg: #1e1e1e;
+  --np-pill-cyan-bg: #1f2608;
+  --np-pill-success-bg: #0f2a1b;
+  --np-pill-danger-bg: #2e1213;
+  --np-pill-warning-bg: #2e2108;
+  --np-pill-purple-bg: #231a33;
 
   /* Backdrop for modals (matches surrounding tone) */
-  --np-backdrop: oklch(5% 0.01 270 / 0.7);
+  --np-backdrop: rgb(0 0 0 / 0.72);
 
   /* Grain visibility */
-  --np-grain-opacity: 0.045;
-  --np-grain-blend: overlay;
+  --np-grain-opacity: 0;
+  --np-grain-blend: normal;
 }
 
 [data-theme='light'] {
-  --np-bg: oklch(98% 0.004 270);
-  --np-surface: oklch(100% 0 0);
-  --np-surface-2: oklch(96% 0.005 270);
-  --np-border: oklch(88% 0.008 270);
-  --np-border-hi: oklch(76% 0.012 270);
+  --np-bg: #f4f4ef;
+  --np-surface: #ffffff;
+  --np-surface-2: #edede6;
+  --np-border: #d6d6ce;
+  --np-border-hi: #b9b9b0;
 
-  --np-text: oklch(18% 0.012 270);
-  --np-text-mute: oklch(42% 0.012 270);
-  --np-text-dim: oklch(58% 0.012 270);
+  --np-text: #0b0b0b;
+  --np-text-mute: #4a4a45;
+  --np-text-dim: #66665f;
 
-  --np-accent: oklch(54% 0.18 220);
-  --np-accent-2: oklch(46% 0.22 220);
-  --np-glow: oklch(54% 0.18 220 / 0.18);
+  /* En claro la lima no se lee como texto: acento = negro, con lima encima. */
+  --np-accent: #0b0b0b;
+  --np-accent-2: #2a2a2a;
+  --np-on-accent: #d4ff3a;
+  --np-glow: rgb(11 11 11 / 0.18);
 
-  --np-success: oklch(48% 0.18 145);
-  --np-danger: oklch(54% 0.22 25);
-  --np-warning: oklch(60% 0.16 75);
-  --np-purple: oklch(48% 0.20 320);
+  --np-success: #1a7f45;
+  --np-danger: #c8262c;
+  --np-warning: #9a5b00;
+  --np-purple: #6b3fb3;
 
-  --np-pill-mute-bg: oklch(94% 0.004 270);
-  --np-pill-cyan-bg: oklch(94% 0.05 220);
-  --np-pill-success-bg: oklch(94% 0.06 145);
-  --np-pill-danger-bg: oklch(94% 0.06 25);
-  --np-pill-warning-bg: oklch(94% 0.06 75);
-  --np-pill-purple-bg: oklch(94% 0.06 320);
+  --np-pill-mute-bg: #ecece5;
+  --np-pill-cyan-bg: #eef8c8;
+  --np-pill-success-bg: #dcf3e5;
+  --np-pill-danger-bg: #fbe3e3;
+  --np-pill-warning-bg: #fbeed6;
+  --np-pill-purple-bg: #eee6fa;
 
-  --np-backdrop: oklch(20% 0.01 270 / 0.45);
+  --np-backdrop: rgb(11 11 11 / 0.45);
 
   --np-grain-opacity: 0;
   --np-grain-blend: normal;
@@ -126,16 +130,19 @@ body {
   padding: 0;
 }
 
+/* Letra más grande en todas las apps: 1rem = 17px (antes 16px). Escala
+   también los tamaños en rem escritos a mano en cada pantalla. */
+html {
+  font-size: 106.25%;
+}
+
 body {
   min-height: 100vh;
   font-family: var(--np-font-sans);
   font-size: var(--np-t-body);
   line-height: 1.55;
   color: var(--np-text);
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 0%, var(--np-glow), transparent 65%),
-    var(--np-bg);
-  background-attachment: fixed;
+  background: var(--np-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -144,20 +151,7 @@ body {
     color var(--np-d-base) var(--np-ease);
 }
 
-/* Subtle film grain — adds atmosphere without weight */
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/></svg>");
-  opacity: var(--np-grain-opacity);
-  mix-blend-mode: var(--np-grain-blend);
-  transition: opacity var(--np-d-base);
-}
-
-/* App content sits above the grain layer */
+/* App content stacking context */
 #__next,
 main,
 .np-app-root {
@@ -182,7 +176,7 @@ button {
 
 ::selection {
   background: var(--np-accent);
-  color: var(--np-bg);
+  color: var(--np-on-accent);
 }
 
 :focus-visible {
@@ -207,10 +201,10 @@ button {
   justify-content: center;
   gap: 0.5rem;
   border: none;
-  border-radius: var(--np-r-pill);
+  border-radius: var(--np-r-md);
   font-family: var(--np-font-sans);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
@@ -222,48 +216,45 @@ button {
 }
 
 .np-btn[data-size='md'] {
-  height: 3.25rem;
+  height: 3.5rem;
   padding: 0 1.75rem;
-  font-size: 1rem;
+  font-size: 1.0625rem;
 }
 
 .np-btn[data-size='lg'] {
-  height: 4rem;
+  height: 4.25rem;
   padding: 0 2.25rem;
-  font-size: 1.125rem;
+  font-size: 1.25rem;
 }
 
+/* Botones planos: color sólido, sin brillos. */
 .np-btn[data-variant='primary'] {
   background: var(--np-accent);
-  color: var(--np-bg);
-  box-shadow: 0 0 0 1px var(--np-accent), 0 8px 32px var(--np-glow);
+  color: var(--np-on-accent);
 }
 
 .np-btn[data-variant='primary']:hover:not(:disabled) {
   background: var(--np-accent-2);
-  box-shadow: 0 0 0 1px var(--np-accent-2), 0 14px 48px var(--np-glow);
 }
 
 .np-btn[data-variant='ghost'] {
   background: transparent;
   color: var(--np-text);
-  box-shadow: inset 0 0 0 1px var(--np-border);
+  box-shadow: inset 0 0 0 2px var(--np-border-hi);
 }
 
 .np-btn[data-variant='ghost']:hover:not(:disabled) {
   background: var(--np-surface-2);
-  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+  box-shadow: inset 0 0 0 2px var(--np-text-dim);
 }
 
 .np-btn[data-variant='danger'] {
   background: var(--np-danger);
-  color: white;
-  box-shadow: 0 0 0 1px var(--np-danger);
+  color: #0b0b0b;
 }
 
 .np-btn[data-variant='danger']:hover:not(:disabled) {
-  background: oklch(74% 0.22 25);
-  box-shadow: 0 0 0 1px oklch(74% 0.22 25);
+  filter: brightness(1.08);
 }
 
 .np-btn:active:not(:disabled) {
@@ -386,11 +377,4 @@ input::placeholder {
     transition-duration: 0.01ms !important;
   }
 
-  body::after {
-    display: none;
-  }
-
-  body {
-    background: var(--np-bg);
-  }
 }
