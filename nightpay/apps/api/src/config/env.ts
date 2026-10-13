@@ -52,11 +52,10 @@ const EnvSchema = z.object({
   //   (vacío) → Redsys decide. Si BBVA activó wallets, los muestra como
   //             botones JUNTO al form de tarjeta. Default seguro.
   //
-  // UX óptima para hostelería nocturna (cliente borracho):
-  //   1. Pide a BBVA/Peanpe activar Apple Pay + Google Pay (~1-3 semanas).
-  //   2. Sin tocar nada, los botones aparecen automáticamente.
-  //   3. Cuando confirmes que funcionan, set REDSYS_PAYMETHODS="xpay"
-  //      para esconder el form de tarjeta completamente.
+  // Recomendado: dejarlo VACÍO. Con Apple Pay + Google Pay activos en BBVA
+  // (oct-2026) los botones salen solos junto al form de tarjeta. "xpay" es
+  // global: el cliente sin wallet, o que abre el enlace dentro de Instagram,
+  // no podría pagar.
   REDSYS_PAYMETHODS: z.string().optional(),
   // Peanpe legacy URL var (no se usa con el adapter rehecho — mantener para
   // compat con env existentes). El adapter usa PEANPE_API_BASE_URL.
@@ -142,6 +141,11 @@ const EnvSchema = z.object({
       z.string().transform((s) => s === 'true' || s === '1'),
     ])
     .default(false),
+
+  // GET /v1/metrics desde internet (vía Cloudflare) solo con
+  // `Authorization: Bearer <METRICS_TOKEN>`. El scrape interno de la red
+  // Docker no lo necesita. Sin definir → métricas cerradas a internet.
+  METRICS_TOKEN: z.string().min(24, 'METRICS_TOKEN >= 24 chars').optional(),
 })
   // Cross-field validation: si NODE_ENV=production, NEXT_PUBLIC_API_URL no
   // puede ser localhost (los webhooks de la pasarela quedarían rotos).

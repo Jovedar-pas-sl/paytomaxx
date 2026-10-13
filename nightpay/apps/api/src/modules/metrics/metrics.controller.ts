@@ -1,14 +1,16 @@
-import { Controller, Get, Header, Inject, Res } from '@nestjs/common';
+import { Controller, Get, Header, Inject, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../common/decorators/public.decorator';
+import { MetricsAccessGuard } from '../../common/guards/metrics-access.guard';
 import { MetricsService } from './metrics.service';
 
 /**
  * GET /v1/metrics — formato Prometheus text exposition.
- * Publico (sin auth) — pero deberias proteger via Cloudflare Access o IP allowlist
- * en produccion. En dev expuesto sin restriccion para integracion con Grafana free.
+ * Sin login de usuario, pero en producción solo para el scrape interno o con
+ * METRICS_TOKEN (ver MetricsAccessGuard). En dev, abierto.
  */
 @Controller('metrics')
+@UseGuards(MetricsAccessGuard)
 export class MetricsController {
   private readonly metrics: MetricsService;
   constructor(@Inject(MetricsService) metrics: MetricsService) {

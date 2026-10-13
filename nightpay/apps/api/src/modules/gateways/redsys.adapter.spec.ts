@@ -7,9 +7,11 @@ import {
   parseFormUrlEncoded,
 } from './redsys.adapter';
 
-const MERCHANT_CODE = '353443385';
+// Credenciales PÚBLICAS de pruebas de Redsys (comercio de test de su doc).
+// Nunca pongas aquí las de producción.
+const MERCHANT_CODE = '999008881';
 const TERMINAL = '1';
-const SECRET = 'KnNPcjbWhlmxINSrAVz08hGK5BdYlLap';
+const SECRET = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7';
 
 function makeAdapter(opts?: { withCreds?: boolean; apiUrl?: string }) {
   const withCreds = opts?.withCreds ?? true;
