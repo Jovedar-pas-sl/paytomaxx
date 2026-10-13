@@ -492,7 +492,9 @@ export type IncidentKind =
   | 'night_closed_pending'
   | 'pos_charge_mismatch'
   | 'pos_unmatched_op'
-  | 'pos_unreconciled';
+  | 'pos_unreconciled'
+  | 'wallet_close_requested'
+  | 'wallet_open_balance';
 
 export interface Incident {
   kind: IncidentKind;
@@ -757,11 +759,14 @@ export async function fetchTreasuryStats(): Promise<TreasuryStats> {
 
 export interface WalletAdminRow {
   id: string;
+  /** Código que el cliente ve en su página de saldo (K7Q-4M2). */
+  code: string | null;
+  /** El cliente pulsó "Me voy: devolver mi saldo". */
+  closeRequestedAt: string | null;
   identifier: string | null;
   balanceCents: number;
   status: 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED';
   expiresAt: string | null;
-  qrToken: string;
   consumptionCount: number;
   createdAt: string;
 }
@@ -793,15 +798,42 @@ export async function fetchWalletsList(params?: {
   return res.json();
 }
 
-export async function refundWallet(
+/** Saldo de un cliente por su código (vale el de cualquier local del grupo). */
+export interface WalletLookup {
+  walletId: string;
+  code: string;
+  balanceCents: number;
+  label: string | null;
+  homeVenueName: string;
+  /** El saldo se cargó en este local (la devolución a la tarjeta solo desde aquí). */
+  isHomeVenue: boolean;
+  /** El cliente pulsó "Me voy". */
+  closeRequested: boolean;
+  pendingRequest: boolean;
+}
+
+export async function lookupWalletCode(code: string): Promise<WalletLookup> {
+  const res = await authedFetch(`/v1/wallet-charges/lookup/${encodeURIComponent(code)}`);
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+export type WalletPayoutMethod = 'CARD' | 'CASH';
+
+/**
+ * Devolver el saldo al cliente que se va. Efectivo: se lo das ahora.
+ * Tarjeta (solo el dueño): primero se devuelve en el portal de BBVA y aquí se
+ * apunta, repartido entre sus recargas.
+ */
+export async function payoutWallet(
   walletId: string,
-  input: { method: 'CARD' | 'CREDIT'; notes?: string },
-): Promise<{ walletId: string; refundedCents: number; newStatus: string }> {
-  const res = await authedFetch(`/v1/wallets/${walletId}/refund`, {
+  input: { method: WalletPayoutMethod; bankReference?: string; note?: string },
+): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
+  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/payout`, {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Refund falló: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 

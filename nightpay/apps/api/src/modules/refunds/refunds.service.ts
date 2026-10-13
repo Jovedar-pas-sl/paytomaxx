@@ -233,6 +233,12 @@ export class RefundsService {
   async registerBankRefund(
     request: BankRefundRequest,
     actor: { userId: string; role: Role; tenantId: string },
+    /**
+     * Saldo NightPay: la devolución del saldo del cliente se reparte entre sus
+     * recargas. Ahí sí se devuelven recargas de wallet (el saldo lo descuenta
+     * quien llama) y no se pregunta por repetidas (cada trozo es distinto).
+     */
+    opts: { walletPayout?: boolean } = {},
   ) {
     if (actor.role !== 'OWNER') {
       throw new ForbiddenException('Solo el dueño puede registrar devoluciones del banco');
@@ -252,7 +258,7 @@ export class RefundsService {
     if (payment.status !== 'AUTHORIZED' && payment.status !== 'PARTIALLY_REFUNDED') {
       throw new ConflictException('Solo se registran devoluciones de cobros pagados');
     }
-    if (payment.walletId) {
+    if (payment.walletId && !opts.walletPayout) {
       // El saldo de la wallet seguiría disponible para gastar.
       throw new ConflictException('Es una recarga de wallet: devuélvela desde la pestaña Wallets');
     }
@@ -269,7 +275,7 @@ export class RefundsService {
     //    (doble clic) no pasan los dos el control de devoluciones repetidas.
     const refund = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(hashtext(${`refund:${payment.id}`}))`;
-      if (!request.confirmDuplicate) {
+      if (!request.confirmDuplicate && !opts.walletPayout) {
         const similar = await tx.refund.count({
           where: {
             paymentId: payment.id,

@@ -30,7 +30,6 @@ export const ClientWalletViewSchema = z.object({
   balanceCents: z.number().int().nonnegative(),
   status: ClientClientWalletStatusSchema,
   expiresAt: z.string().datetime().nullable(),
-  qrToken: z.string(),
   createdAt: z.string().datetime(),
 });
 export type ClientWalletView = z.infer<typeof ClientWalletViewSchema>;

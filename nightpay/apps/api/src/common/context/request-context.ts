@@ -6,4 +6,6 @@ export interface RequestContext {
   role?: Role;
   venueSlug?: string;
   traceId?: string;
+  /** Dentro de PrismaService.acrossVenues: consulta entre locales a propósito. */
+  acrossVenues?: boolean;
 }

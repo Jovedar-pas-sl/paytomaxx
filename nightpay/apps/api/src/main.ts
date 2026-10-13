@@ -9,6 +9,7 @@ import {
 } from '@nestjs/platform-fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import { redactWalletToken } from './common/logging/redact-url';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
 import { initSentry } from './common/observability/sentry';
@@ -27,7 +28,18 @@ async function bootstrap() {
   });
 
   const adapter = new FastifyAdapter({
-    logger: { level: env.LOG_LEVEL },
+    logger: {
+      level: env.LOG_LEVEL,
+      // El enlace del saldo (/w/<token>) es la credencial del cliente: no a los logs.
+      serializers: {
+        req: (req: { method: string; url: string; hostname?: string; ip?: string }) => ({
+          method: req.method,
+          url: redactWalletToken(req.url),
+          hostname: req.hostname,
+          remoteAddress: req.ip,
+        }),
+      },
+    },
     bodyLimit: 1024 * 1024, // 1 MB max — webhooks normalmente <10KB
     // Default Fastify es 100; JWT en path (self-onboarding link, accept-invite)
     // tienen ~250 chars. Subimos a 500 para no rechazar tokens válidos con 404.
@@ -83,8 +95,16 @@ async function bootstrap() {
   await app.register(rateLimit as any, {
     max: 100,
     timeWindow: '1 minute',
-    allowList: ['127.0.0.1', '::1'],
+    // La página del saldo del cliente consulta su estado cada pocos segundos y
+    // en un local muchos clientes comparten la IP del wifi: va con su propio
+    // límite (@IpRateLimit en PublicWalletController), no con el global.
+    allowList: (req: { ip: string; method: string; url: string }) =>
+      req.ip === '127.0.0.1' || req.ip === '::1' || (req.method === 'GET' && /^\/w\/[^/]+\/state(\?|$)/.test(req.url)),
     keyGenerator: (req: { headers: Record<string, string | string[] | undefined>; ip: string }) => {
+      // Detrás de Cloudflare: CF-Connecting-IP no lo puede falsear el cliente;
+      // el primer valor de X-Forwarded-For sí.
+      const cf = req.headers['cf-connecting-ip'];
+      if (typeof cf === 'string' && cf) return cf;
       const xff = req.headers['x-forwarded-for'];
       return Array.isArray(xff) ? (xff[0] ?? req.ip) : ((xff as string | undefined) ?? req.ip);
     },
@@ -101,6 +121,12 @@ async function bootstrap() {
       { path: 'pay/:token', method: RequestMethod.POST },
       { path: 'pay/:token/receipt', method: RequestMethod.GET },
       { path: 'pay/:token/checkout', method: RequestMethod.GET },
+      // Saldo NightPay: página del cliente y sus acciones.
+      { path: 'w/:token', method: RequestMethod.GET },
+      { path: 'w/:token/state', method: RequestMethod.GET },
+      { path: 'w/:token/requests/:id/accept', method: RequestMethod.POST },
+      { path: 'w/:token/requests/:id/reject', method: RequestMethod.POST },
+      { path: 'w/:token/close', method: RequestMethod.POST },
     ],
   });
 

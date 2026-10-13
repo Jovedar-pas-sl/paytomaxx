@@ -109,6 +109,7 @@ describe('qué ve el cliente al escanear (Fase 1B)', () => {
     qrExpiresAt: FUTURE,
     authorizedAt: null,
     allowTip: true,
+    walletToken: null,
     ...o,
   });
 

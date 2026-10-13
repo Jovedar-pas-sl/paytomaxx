@@ -133,17 +133,9 @@ export interface CreatedPayment {
   createdAt: string;
   // Phase 1B — set cuando el cobro es un top-up de wallet
   walletId?: string | null;
-  walletQrToken?: string | null;
 }
 
 // ─── Phase 1B — Wallet ─────────────────────────────────────────────
-
-export interface ConsumeWalletResult {
-  consumptionId: string;
-  newBalanceCents: number;
-  earningCreated: boolean;
-  earningCommissionCents: number | null;
-}
 
 export interface WalletPublicView {
   id: string;
@@ -460,45 +452,56 @@ export async function fetchWalletPublic(qrToken: string): Promise<WalletPublicVi
   return res.json();
 }
 
-/** Lista wallets activos del venue — usado por la chica para cobrar sin molestar al cliente. */
-export interface ActiveWallet {
-  id: string;
-  identifier: string | null;
-  balanceCents: number;
-  status: 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED';
-  consumptionCount: number;
-  createdAt: string;
-}
+// ─── Saldo NightPay: cobrar del saldo con confirmación del cliente ───
 
-export async function fetchActiveWallets(): Promise<ActiveWallet[]> {
-  const res = await authedFetch('/v1/wallets');
-  if (!res.ok) throw new Error('Error cargando wallets activos');
-  return res.json();
-}
-
-/**
- * Cobra una cantidad al balance de un wallet. La chica escanea el QR del
- * cliente y la app llama esto. Si la chica es OPERATOR, el backend genera
- * automáticamente el OperatorEarning con su comisión.
- */
-export async function consumeWallet(input: {
+/** Saldo del cliente encontrado por el código que enseña en su móvil. */
+export interface WalletLookup {
   walletId: string;
+  code: string;
+  balanceCents: number;
+  label: string | null;
+  homeVenueName: string;
+  pendingRequest: boolean;
+}
+
+export type WalletChargeStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CANCELED';
+
+/** Petición de cobro que el cliente acepta o rechaza en su móvil. */
+export interface WalletChargeRequest {
+  id: string;
+  status: WalletChargeStatus;
   amountCents: number;
-  category: string;
-  notes?: string;
-}): Promise<ConsumeWalletResult> {
-  const idemKey = `wc-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  const res = await authedFetch(`/v1/wallets/${input.walletId}/consume`, {
-    method: 'POST',
-    headers: { 'Idempotency-Key': idemKey },
-    body: JSON.stringify({
-      amountCents: input.amountCents,
-      category: input.category,
-      notes: input.notes,
-    }),
-  });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro a wallet'));
+  serviceName: string | null;
+  expiresAt: string;
+  newBalanceCents: number | null;
+}
+
+export async function lookupWalletCode(code: string): Promise<WalletLookup> {
+  const res = await authedFetch(`/v1/wallet-charges/lookup/${encodeURIComponent(code)}`);
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Código de saldo'));
   return res.json();
+}
+
+/** Pide el cobro: con un servicio de la carta o un importe. */
+export async function requestWalletCharge(input: {
+  code: string;
+  serviceItemId?: string;
+  amountCents?: number;
+}): Promise<WalletChargeRequest> {
+  const res = await authedFetch('/v1/wallet-charges', { method: 'POST', body: JSON.stringify(input) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));
+  return res.json();
+}
+
+export async function fetchWalletCharge(id: string): Promise<WalletChargeRequest> {
+  const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));
+  return res.json();
+}
+
+export async function cancelWalletCharge(id: string): Promise<void> {
+  const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cancelar cobro'));
 }
 
 // ─── Public — Self-onboarding ─────────────────────────────────────

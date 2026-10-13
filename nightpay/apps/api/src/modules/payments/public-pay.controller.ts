@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { Body, Controller, Get, Headers, HttpCode, Inject, Logger, Param, Post, Query, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
@@ -10,6 +11,7 @@ import { payErrorKey, resolveLanguage, type PayLanguage } from './pay-i18n';
 import {
   payHref,
   receiptHref,
+  walletHref,
   renderCheckoutForm,
   renderChoosePage,
   renderClosedPage,
@@ -29,6 +31,19 @@ const CheckoutFormSchema = z.object({
     .transform((m) => (m === 'wallet' || m === 'card' ? m : null)),
   lang: z.enum(['es', 'en']).optional(),
 });
+
+/** La cookie de "este navegador pagó" dura lo que una noche larga y algo más. */
+const WALLET_CLAIM_MAX_AGE_S = 7 * 24 * 3600;
+
+/**
+ * Nombre de la cookie que prueba que ESTE navegador empezó el pago de este
+ * cobro. Solo con ella la página "Pagado" enseña el enlace del saldo: con ese
+ * enlace se aceptan cobros, y el personal que abra el mismo QR no debe verlo.
+ */
+export function walletClaimCookieName(secret: string, payToken: string): string {
+  const mac = createHmac('sha256', secret).update(`wallet-claim:${payToken}`).digest('base64url');
+  return `npw_${mac.slice(0, 22)}`;
+}
 
 /**
  * Páginas públicas del cliente (FUERA del prefijo /v1):
@@ -71,7 +86,8 @@ export class PublicPayController {
     const lang = resolveLanguage(langQuery, acceptLanguage);
     const view = op ? await this.payments.getResultView(op) : null;
     const refreshUrl = `/pay/result?op=${encodeURIComponent(op ?? '')}&lang=${lang}`;
-    sendHtml(res, 200, renderResultView(view, lang, refreshUrl));
+    const shown = view?.walletToken && !this.hasWalletClaim(res, view.qrToken) ? { ...view, walletToken: null } : view;
+    sendHtml(res, 200, renderResultView(shown, lang, refreshUrl));
   }
 
   @Public()
@@ -149,6 +165,9 @@ export class PublicPayController {
     const choice: CheckoutChoice = { tipCents: parsed.data.tip, method: parsed.data.method, language: lang };
     try {
       const view = await this.payments.startCheckout(token, choice);
+      if (view.kind === 'checkout' || view.kind === 'form' || view.kind === 'redirect') {
+        this.setWalletClaim(res, token);
+      }
       this.send(res, token, lang, view, undefined);
     } catch (err) {
       this.sendError(res, token, lang, err);
@@ -203,6 +222,8 @@ export class PublicPayController {
               code: confirmationCode(view.paymentId),
               authorizedAt: view.authorizedAt,
               receiptHref: receiptHref(token, lang),
+              walletHref:
+                view.walletToken && this.hasWalletClaim(res, token) ? walletHref(view.walletToken, lang) : null,
             },
             lang,
           ),
@@ -222,6 +243,26 @@ export class PublicPayController {
     // Logueamos detalles técnicos pero NO los mostramos al cliente
     this.logger.warn(`/pay/${token} failed: ${message}`);
     sendHtml(res, 409, renderErrorPage(payErrorKey(message), lang));
+  }
+
+  private walletClaimName(payToken: string): string {
+    return walletClaimCookieName(this.config.get<string>('COOKIE_SECRET') ?? '', payToken);
+  }
+
+  /** Path=/pay: también la recibe la vuelta del banco (/pay/result). */
+  private setWalletClaim(res: FastifyReply, payToken: string): void {
+    // SameSite=None: el banco devuelve al cliente desde otro sitio.
+    const site = process.env.NODE_ENV === 'production' ? 'Secure; SameSite=None' : 'SameSite=Lax';
+    res.header(
+      'Set-Cookie',
+      `${this.walletClaimName(payToken)}=1; Path=/pay; Max-Age=${WALLET_CLAIM_MAX_AGE_S}; HttpOnly; ${site}`,
+    );
+  }
+
+  private hasWalletClaim(res: FastifyReply, payToken: string): boolean {
+    const header = (res as { request?: { headers?: { cookie?: string } } }).request?.headers?.cookie ?? '';
+    const cookie = `${this.walletClaimName(payToken)}=1`;
+    return header.split(';').some((c) => c.trim() === cookie);
   }
 
   private statementName(): string | null {

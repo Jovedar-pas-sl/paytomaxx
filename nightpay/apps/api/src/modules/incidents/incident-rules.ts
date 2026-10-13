@@ -12,12 +12,16 @@ export type IncidentKind =
   | 'night_closed_pending'
   | 'pos_charge_mismatch'
   | 'pos_unmatched_op'
-  | 'pos_unreconciled';
+  | 'pos_unreconciled'
+  | 'wallet_close_requested'
+  | 'wallet_open_balance';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'stuck_payment',
   'pos_unreconciled',
+  'wallet_close_requested',
+  'wallet_open_balance',
 ]);
 
 export interface Incident {
@@ -176,6 +180,42 @@ export function posUnreconciledIncident(r: EventRow): Incident {
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.paymentId,
+    ackable: false,
+  };
+}
+
+/** Saldo de un cliente: lo que hace falta para avisar. */
+export interface WalletBalanceRow {
+  id: string;
+  shortCode: string | null;
+  balanceCents: number;
+  occurredAt: Date;
+}
+
+/** El cliente pulsó "Me voy": hay que devolverle el saldo. */
+export function walletCloseRequestedIncident(r: WalletBalanceRow): Incident {
+  return {
+    kind: 'wallet_close_requested',
+    refId: r.id,
+    title: 'Un cliente pide que le devuelvan su saldo',
+    detail: `${eur(r.balanceCents)}${r.shortCode ? ` · código ${r.shortCode}` : ''}. Devuélveselo en Wallets → Devolver saldo (tarjeta o efectivo).`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.balanceCents,
+    paymentId: null,
+    ackable: false,
+  };
+}
+
+/** Saldo que nadie ha devuelto tras cerrar la noche (08:00): que no se olvide. */
+export function walletOpenBalanceIncident(r: WalletBalanceRow): Incident {
+  return {
+    kind: 'wallet_open_balance',
+    refId: r.id,
+    title: 'Saldo de un cliente sin devolver',
+    detail: `${eur(r.balanceCents)}${r.shortCode ? ` · código ${r.shortCode}` : ''}. Si el cliente ya se fue, devuélveselo a la tarjeta en Wallets → Devolver saldo.`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.balanceCents,
+    paymentId: null,
     ackable: false,
   };
 }

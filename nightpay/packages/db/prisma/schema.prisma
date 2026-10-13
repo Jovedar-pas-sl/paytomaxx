@@ -39,6 +39,8 @@ model Venue {
   // Régimen IVA: GENERAL, RECARGO_EQUIVALENCIA (típico hostelería pequeña),
   // EXENTO (no aplica IVA — actividades no sujetas). Default GENERAL.
   vatRegime             String    @default("GENERAL")
+  // Saldo NightPay: locales del mismo grupo (mismo dueño) comparten el saldo del cliente.
+  walletGroup           String?
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz
@@ -370,6 +372,49 @@ model PaymentAttempt {
   @@map("payment_attempts")
 }
 
+// Saldo NightPay — cobro del saldo que el cliente acepta en su móvil.
+// tenantId = local donde se cobra (puede ser otro local del mismo grupo).
+model WalletChargeRequest {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String    @db.Uuid
+  walletId          String    @db.Uuid
+  requestedByUserId String    @db.Uuid
+  amountCents       Int
+  category          String
+  serviceName       String?
+  // PENDING | ACCEPTED | REJECTED | EXPIRED | CANCELED
+  status            String    @default("PENDING")
+  expiresAt         DateTime  @db.Timestamptz
+  decidedAt         DateTime? @db.Timestamptz
+  consumptionId     String?   @db.Uuid
+  createdAt         DateTime  @default(now()) @db.Timestamptz
+
+  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId, status])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("wallet_charge_requests")
+}
+
+// Saldo NightPay — devolución del saldo al cliente que se va.
+model WalletPayout {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  walletId      String   @db.Uuid
+  amountCents   Int
+  // CARD (hecha en el portal de BBVA) | CASH (en efectivo en el local)
+  method        String
+  bankReference String?
+  note          String?
+  paidByUserId  String   @db.Uuid
+  createdAt     DateTime @default(now()) @db.Timestamptz
+
+  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("wallet_payouts")
+}
+
 // Datáfono PAX — operaciones del cierre de jornada del datáfono, para cuadrar.
 model PosTerminalOp {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -693,12 +738,19 @@ model ClientWallet {
   // Token único en el QR del cliente. La operadora/camarero/recepción escanean
   // este token para cobrar consumiciones.
   qrToken      String       @unique
+  // Saldo NightPay: código que enseña el cliente, grupo de locales y si pidió
+  // que le devuelvan el saldo.
+  shortCode        String?
+  walletGroup      String?
+  closeRequestedAt DateTime? @db.Timestamptz
   createdAt    DateTime     @default(now()) @db.Timestamptz
   updatedAt    DateTime     @updatedAt @db.Timestamptz
 
-  venue        Venue               @relation(fields: [tenantId], references: [id])
-  topUps       Payment[]
-  consumptions WalletConsumption[]
+  venue          Venue                 @relation(fields: [tenantId], references: [id])
+  topUps         Payment[]
+  consumptions   WalletConsumption[]
+  chargeRequests WalletChargeRequest[]
+  payouts        WalletPayout[]
 
   @@index([tenantId, status])
   @@index([tenantId, identifier])

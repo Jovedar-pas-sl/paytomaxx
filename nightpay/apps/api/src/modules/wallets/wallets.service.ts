@@ -9,13 +9,14 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { randomBytes } from 'node:crypto';
-import type { Prisma } from '@nightpay/db';
+import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 // IMPORTANT: importar solo el TIPO de RefundsService — el value se resuelve
 // vía ModuleRef en runtime con string token. Esto evita el ciclo de imports
 // Wallets→Refunds→Payments→Wallets que bloqueaba el bootstrap de Nest.
 import type { RefundsService } from '../refunds/refunds.service';
+import { formatWalletCode, newWalletCode } from './wallet-rules';
 import type { Role } from '@nightpay/contracts';
 import type {
   ClientWalletView,
@@ -25,6 +26,9 @@ import type {
   RefundWalletResult,
   WalletsAdminStats,
 } from '@nightpay/contracts';
+
+/** Intentos para dar con un código corto libre (31^6 combinaciones). */
+const MAX_CODE_ATTEMPTS = 5;
 
 /** Generador del qrToken — base64url 18 bytes ≈ 24 chars, suficientemente único. */
 function generateQrToken(): string {
@@ -81,20 +85,35 @@ export class WalletsService {
     tenantId: string;
     identifier?: string | null;
   }): Promise<{ id: string; qrToken: string }> {
-    const wallet = await this.prisma.asSystem((tx) =>
-      tx.clientWallet.create({
-        data: {
-          tenantId: input.tenantId,
-          identifier: input.identifier ?? null,
-          qrToken: generateQrToken(),
-        },
-        select: { id: true, qrToken: true },
-      }),
-    );
-    this.logger.log(
-      `Wallet created id=${wallet.id} tenant=${input.tenantId} identifier=${input.identifier ?? '-'}`,
-    );
-    return wallet;
+    const venue = await this.prisma.venue.findUnique({
+      where: { id: input.tenantId },
+      select: { walletGroup: true },
+    });
+    // Saldo NightPay: código corto que enseña el cliente (único entre las
+    // activas; se reintenta si coincide) y grupo de locales donde vale.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const wallet = await this.prisma.asSystem((tx) =>
+          tx.clientWallet.create({
+            data: {
+              tenantId: input.tenantId,
+              identifier: input.identifier ?? null,
+              qrToken: generateQrToken(),
+              shortCode: newWalletCode(),
+              walletGroup: venue?.walletGroup ?? null,
+            },
+            select: { id: true, qrToken: true },
+          }),
+        );
+        this.logger.log(
+          `Wallet created id=${wallet.id} tenant=${input.tenantId} identifier=${input.identifier ?? '-'}`,
+        );
+        return wallet;
+      } catch (err) {
+        const clash = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+        if (!clash || attempt >= MAX_CODE_ATTEMPTS) throw err;
+      }
+    }
   }
 
   /**
@@ -189,6 +208,38 @@ export class WalletsService {
     const tipCents = input.dto.tipCents ?? 0;
     const tipGoesTo = input.dto.tipGoesTo ?? null;
 
+    try {
+      return await this.consumeOnce(input, tipCents, tipGoesTo);
+    } catch (err) {
+      // Dos clics a la vez: el segundo choca con la clave única → resultado del primero.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const first = await this.prisma.asSystem((tx) =>
+          tx.walletConsumption.findUnique({
+            where: { tenantId_idempotencyKey: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } },
+            include: {
+              earning: { select: { commissionCents: true } },
+              wallet: { select: { balanceCents: true } },
+            },
+          }),
+        );
+        if (first) {
+          return {
+            consumptionId: first.id,
+            newBalanceCents: first.wallet.balanceCents,
+            earningCreated: first.earning !== null,
+            earningCommissionCents: first.earning?.commissionCents ?? null,
+          };
+        }
+      }
+      throw err;
+    }
+  }
+
+  private async consumeOnce(
+    input: { tenantId: string; walletId: string; providedByUserId: string; idempotencyKey: string; dto: ConsumeWalletDto },
+    tipCents: number,
+    tipGoesTo: string | null,
+  ): Promise<ConsumeWalletResult> {
     return this.prisma.$transaction(async (tx) => {
       // 1. Lock wallet
       const locked = await tx.$queryRaw<
@@ -552,12 +603,21 @@ export class WalletsService {
       if (consumption.reversedAt) {
         throw new ConflictException('Consumption ya estaba reversed');
       }
+      const wallet0 = await tx.clientWallet.findUnique({
+        where: { id: input.walletId },
+        select: { status: true },
+      });
+      // Una wallet ya devuelta o caducada no se reabre: el dinero se devuelve aparte.
+      if (wallet0?.status === 'REFUNDED' || wallet0?.status === 'EXPIRED') {
+        throw new ConflictException('El saldo de este cliente ya se cerró: devuélvele este importe aparte');
+      }
+      // Se devuelve todo lo que se descontó: importe y propina.
+      const refunded = consumption.amountCents + consumption.tipCents;
 
-      // Sumar al balance del wallet
       await tx.clientWallet.update({
         where: { id: input.walletId },
         data: {
-          balanceCents: { increment: consumption.amountCents },
+          balanceCents: { increment: refunded },
           // Si estaba DEPLETED, vuelve a ACTIVE
           status: 'ACTIVE',
         },
@@ -575,11 +635,11 @@ export class WalletsService {
         },
       });
 
-      // Si había earning, marcar reversedCents = commissionCents (cancela)
+      // Si había earning, se anula entero: comisión y propina.
       if (consumption.earning) {
         await tx.operatorEarning.update({
           where: { id: consumption.earning.id },
-          data: { reversedCents: consumption.earning.commissionCents },
+          data: { reversedCents: consumption.earning.commissionCents + consumption.earning.tipCents },
         });
       }
 
@@ -594,11 +654,11 @@ export class WalletsService {
         actorId: input.actorUserId,
         targetType: 'WalletConsumption',
         targetId: input.consumptionId,
-        payload: { reason: input.reason, refundedCents: consumption.amountCents },
+        payload: { reason: input.reason, refundedCents: refunded },
       });
 
       return {
-        refundedCents: consumption.amountCents,
+        refundedCents: refunded,
         newBalanceCents: wallet?.balanceCents ?? 0,
       };
     });
@@ -624,19 +684,21 @@ export class WalletsService {
           balanceCents: true,
           status: true,
           expiresAt: true,
-          qrToken: true,
           createdAt: true,
+          shortCode: true,
+          closeRequestedAt: true,
           _count: { select: { consumptions: true } },
         },
       }),
     );
     return wallets.map((w) => ({
       id: w.id,
+      code: w.shortCode ? formatWalletCode(w.shortCode) : null,
+      closeRequestedAt: w.closeRequestedAt?.toISOString() ?? null,
       identifier: w.identifier,
       balanceCents: w.balanceCents,
       status: w.status as 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED',
       expiresAt: w.expiresAt?.toISOString() ?? null,
-      qrToken: w.qrToken,
       consumptionCount: w._count.consumptions,
       createdAt: w.createdAt.toISOString(),
     }));
@@ -680,7 +742,6 @@ export class WalletsService {
       balanceCents: wallet.balanceCents,
       status: wallet.status as ClientWalletView['status'],
       expiresAt: wallet.expiresAt?.toISOString() ?? null,
-      qrToken: wallet.qrToken,
       createdAt: wallet.createdAt.toISOString(),
       consumptions: wallet.consumptions.map((c) => ({
         id: c.id,

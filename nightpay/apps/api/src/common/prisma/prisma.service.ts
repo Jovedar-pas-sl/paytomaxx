@@ -21,6 +21,8 @@ const TENANT_SCOPED_MODELS = new Set([
   'VenueNight',
   'IncidentAck',
   'PosTerminalOp',
+  'WalletChargeRequest',
+  'WalletPayout',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId
@@ -73,7 +75,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       // Jobs de sistema deben usar `this.prisma.$transaction(...)` y setear tenant explícito.
       if (!tenantId) {
         // Solo loggeamos en producción si encontramos queries sin tenant — posible bug
-        if (process.env.NODE_ENV === 'production') {
+        if (process.env.NODE_ENV === 'production' && !ctx?.acrossVenues) {
           this.logger.warn(
             `Prisma query on ${params.model}.${params.action} without tenantId in CLS`,
           );
@@ -140,6 +142,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     return this.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
       return fn(tx);
+    });
+  }
+
+  /**
+   * Como asSystem y, además, sin el filtro por local del middleware: para lo
+   * que cruza locales a propósito (el saldo NightPay vale en todos los locales
+   * del grupo). Quien lo use comprueba el acceso en código.
+   */
+  async acrossVenues<T>(fn: (tx: TransactionalClient) => Promise<T>): Promise<T> {
+    const ctx = this.cls.get('ctx');
+    return this.cls.run({ ifNested: 'inherit' }, () => {
+      this.cls.set('ctx', { ...ctx, tenantId: undefined, acrossVenues: true });
+      return this.asSystem(fn);
     });
   }
 }

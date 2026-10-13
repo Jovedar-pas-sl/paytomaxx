@@ -128,6 +128,7 @@ function makeService(opts: PrismaMockOptions = {}) {
         txMock.clientWallet.update(args),
       ),
     },
+    venue: { findUnique: vi.fn().mockResolvedValue({ walletGroup: 'principal' }) },
   };
 
   const auditMock = { log: vi.fn().mockResolvedValue(undefined) };
@@ -184,6 +185,9 @@ describe('WalletsService.createEmpty', () => {
     expect(callArgs.data.tenantId).toBe(TENANT);
     expect(callArgs.data.identifier).toBe('phone-123');
     expect(callArgs.data.qrToken).toMatch(/^[A-Za-z0-9_-]+$/);
+    // Saldo NightPay: código corto para el cliente y grupo de locales.
+    expect(callArgs.data.shortCode).toMatch(/^[A-HJKMNP-Z2-9]{6}$/);
+    expect(callArgs.data.walletGroup).toBe('principal');
   });
 });
 

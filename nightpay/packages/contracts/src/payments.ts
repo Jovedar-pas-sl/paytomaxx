@@ -201,11 +201,11 @@ export const CreatedPaymentResponseSchema = z.object({
   qrExpiresAt: z.string().datetime(),
   createdAt: z.string().datetime(),
   /**
-   * Phase 1B — solo cuando el pago es un top-up de wallet (dto.wallet set).
-   * El cliente usa walletQrToken para ver su saldo + consumir.
+   * Solo cuando el pago es una recarga de saldo. El enlace del saldo (la
+   * credencial del cliente) no se devuelve nunca al personal: el cliente lo
+   * recibe en su página de "Pagado".
    */
   walletId: UuidSchema.nullable().optional(),
-  walletQrToken: z.string().nullable().optional(),
 });
 export type CreatedPaymentResponse = z.infer<typeof CreatedPaymentResponseSchema>;
 

@@ -53,6 +53,8 @@ export type PayRedirect =
       tipCents: number;
       currency: string;
       authorizedAt: Date | null;
+      /** Recarga de saldo: enlace a la página del saldo del cliente. */
+      walletToken: string | null;
     }
   | { kind: 'processing' }
   | { kind: 'closed'; reason: PayClosedReason };
@@ -65,6 +67,8 @@ export interface PayResultView {
   currency: string;
   authorizedAt: Date | null;
   qrToken: string;
+  /** Recarga de saldo: token de la página del saldo del cliente. */
+  walletToken: string | null;
   /** Estado del intento concreto por el que vuelve el cliente (PENDING/APPROVED/DENIED). */
   attemptStatus: string | null;
 }
@@ -148,6 +152,8 @@ export interface PayablePayment {
   authorizedAt: Date | null;
   /** Propina solo con Redsys y fuera de recargas de wallet. */
   allowTip: boolean;
+  /** Recarga de saldo: token de la página del saldo del cliente. */
+  walletToken: string | null;
 }
 
 /**
@@ -163,6 +169,7 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       tipCents: p.tipCents,
       currency: p.currency,
       authorizedAt: p.authorizedAt,
+      walletToken: p.walletToken,
     };
   }
   const closed = CLOSED_REASON[p.status];

@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { ClsService } from 'nestjs-cls';
 import { PrismaService } from './prisma.service';
 
 /**
@@ -102,5 +104,27 @@ describe('PrismaService tenant middleware', () => {
     // Sin tenant, sin inyección — RLS bypass se activa en código explícito (asSystem)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((result as any).args.where.tenantId).toBeUndefined();
+  });
+});
+
+describe('PrismaService.acrossVenues', () => {
+  it('dentro no filtra por local; fuera el contexto sigue igual', async () => {
+    const cls = new ClsService(new AsyncLocalStorage());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prisma = new PrismaService(cls as any);
+    await installMiddleware(prisma);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (prisma as any).$transaction = async (fn: (tx: unknown) => unknown) => fn({ $executeRawUnsafe: vi.fn() });
+    const query = { model: 'WalletChargeRequest', action: 'findFirst', args: { where: { walletId: 'w-1' } } };
+
+    await cls.run(async () => {
+      cls.set('ctx', { tenantId: 'tenant-A' });
+      const inside = await prisma.acrossVenues(() => runMiddleware(prisma, structuredClone(query)));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((inside as any).args.where).toEqual({ walletId: 'w-1' });
+      const outside = await runMiddleware(prisma, structuredClone(query));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((outside as any).args.where).toEqual({ walletId: 'w-1', tenantId: 'tenant-A' });
+    });
   });
 });

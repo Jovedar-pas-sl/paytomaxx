@@ -68,7 +68,10 @@ export class WalletsController {
 
   @Post(':id/consume')
   @HttpCode(200)
-  @Roles('OPERATOR', 'MANAGER', 'WAITER', 'OWNER')
+  // Saldo NightPay: lo normal es que el cliente acepte cada cobro en su móvil
+  // (/v1/wallet-charges). Cobrar sin su confirmación queda para el encargado
+  // o el dueño (p. ej. el cliente se quedó sin batería), y queda registrado.
+  @Roles('MANAGER', 'OWNER')
   async consume(
     @Tenant() tenantId: string,
     @CurrentUser() user: JwtPayload,

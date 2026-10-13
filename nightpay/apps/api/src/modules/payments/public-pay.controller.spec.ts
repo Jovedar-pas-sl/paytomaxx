@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { FastifyReply } from 'fastify';
 import { ConflictException } from '@nestjs/common';
-import { PublicPayController } from './public-pay.controller';
+import { PublicPayController, walletClaimCookieName } from './public-pay.controller';
 import type { PayReceiptView, PayRedirect, PayResultView } from './pay-redirect';
 
 const PAYMENT_ID = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
@@ -10,9 +10,10 @@ const IPHONE =
 const INSTAGRAM =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 337.0.3.23.54';
 
-function fakeReply() {
+function fakeReply(cookie?: string) {
   const sent: { status?: number; body?: string; headers: Record<string, string> } = { headers: {} };
   const reply = {
+    request: { headers: cookie ? { cookie } : {} },
     status(code: number) {
       sent.status = code;
       return reply;
@@ -60,6 +61,7 @@ function view(overrides: Partial<PayResultView>): PayResultView {
     currency: 'EUR',
     authorizedAt: null,
     qrToken: 'qr-token-1',
+    walletToken: null,
     attemptStatus: 'PENDING',
     ...overrides,
   };
@@ -106,6 +108,22 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     expect(sent.body).toContain('10:15');
     expect(sent.body).toContain('href="/pay/qr-token-1/receipt?lang=es"');
     expect(sent.headers['Cache-Control']).toBe('no-store');
+  });
+
+  it('recarga de saldo pagada → botón para abrir el saldo, solo en el móvil que pagó', async () => {
+    const paid = view({ status: 'AUTHORIZED', walletToken: 'wal-tok' });
+    const claim = `${walletClaimCookieName('', 'qr-token-1')}=1`;
+
+    const payer = fakeReply(`otra=1; ${claim}`);
+    await makeController({ view: paid }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, payer.reply);
+    expect(payer.sent.body).toContain('href="/w/wal-tok?lang=es"');
+    expect(payer.sent.body).toContain('Abrir mi saldo');
+
+    // La chica abre el mismo QR en su móvil: "Pagado", pero sin el enlace del saldo.
+    const staff = fakeReply('otra=1');
+    await makeController({ view: paid }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, staff.reply);
+    expect(staff.sent.body).toContain('<h1>Pagado</h1>');
+    expect(staff.sent.body).not.toContain('/w/wal-tok');
   });
 
   it('vuelta del banco en inglés', async () => {
@@ -181,7 +199,15 @@ describe('GET /pay/:token — página de pago', () => {
 
   it('QR ya cobrado → "Pagado", nunca vuelve al banco', async () => {
     const { controller } = makeController({
-      page: { kind: 'paid', paymentId: PAYMENT_ID, amountCents: 100, tipCents: 0, currency: 'EUR', authorizedAt: null },
+      page: {
+        kind: 'paid',
+        paymentId: PAYMENT_ID,
+        amountCents: 100,
+        tipCents: 0,
+        currency: 'EUR',
+        authorizedAt: null,
+        walletToken: null,
+      },
     });
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
@@ -237,6 +263,9 @@ describe('POST /pay/:token — el cliente pulsa un botón', () => {
     });
     expect(sent.status).toBe(303);
     expect(sent.headers.Location).toBe('/pay/qr-token-1/checkout?op=ORD123&lang=en');
+    // Este navegador queda marcado como el que paga (para enseñarle luego su saldo).
+    expect(sent.headers['Set-Cookie']).toContain(`${walletClaimCookieName('', 'qr-token-1')}=1; Path=/pay;`);
+    expect(sent.headers['Set-Cookie']).toContain('HttpOnly');
   });
 
   it('pasarela con formulario sin paso intermedio → lo pinta directamente', async () => {

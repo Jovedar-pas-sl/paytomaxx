@@ -44,6 +44,8 @@ export interface PayText {
   codeHint: string;
   clockLabel: string;
   receiptLink: string;
+  walletReady: string;
+  walletOpen: string;
   // Comprobando
   processingTitle: string;
   processingBody: string;
@@ -102,6 +104,8 @@ const ES: PayText = {
   codeHint: 'Debe coincidir con el que ve el personal',
   clockLabel: 'Hora actual',
   receiptLink: 'Ver justificante',
+  walletReady: 'Tu saldo ya está cargado. Ábrelo y guárdalo: ahí ves el saldo, el código para pagar y aceptas cada gasto.',
+  walletOpen: 'Abrir mi saldo',
   processingTitle: 'Comprobando el pago',
   processingBody:
     'Estamos esperando la confirmación del banco. No vuelvas a pagar: esta pantalla se actualiza sola.',
@@ -177,6 +181,8 @@ const EN: PayText = {
   codeHint: 'It must match the one the staff see',
   clockLabel: 'Current time',
   receiptLink: 'View receipt',
+  walletReady: 'Your balance is loaded. Open it and save it: it shows your balance and your code, and you accept each charge there.',
+  walletOpen: 'Open my balance',
   processingTitle: 'Checking the payment',
   processingBody:
     'We are waiting for the bank to confirm. Do not pay again: this page updates by itself.',

@@ -75,6 +75,10 @@ export function payHref(token: string, lang: PayLanguage): string {
   return `/pay/${encodeURIComponent(token)}?lang=${lang}`;
 }
 
+export function walletHref(token: string, lang: PayLanguage): string {
+  return `/w/${encodeURIComponent(token)}?lang=${lang}`;
+}
+
 export function receiptHref(token: string, lang: PayLanguage): string {
   return `/pay/${encodeURIComponent(token)}/receipt?lang=${lang}`;
 }
@@ -218,6 +222,8 @@ export function renderPaidPage(
     code: string;
     authorizedAt: Date | null;
     receiptHref: string | null;
+    /** Recarga de saldo: enlace a la página del saldo. */
+    walletHref?: string | null;
   },
   lang: PayLanguage,
 ): string {
@@ -238,6 +244,7 @@ ${args.tipCents > 0 ? `<p>${escapeHtml(t.includesTip(formatAmount(args.tipCents,
 ${args.authorizedAt ? `<p>${escapeHtml(t.confirmedAt(formatTime(args.authorizedAt, t)))}</p>` : ''}
 <div class="code"><p>${escapeHtml(t.codeLabel)}</p><b>${escapeHtml(args.code)}</b><p>${escapeHtml(t.codeHint)}</p></div>
 <div class="clock" id="clock" aria-label="${escapeHtml(t.clockLabel)}"></div>
+${args.walletHref ? `<p>${escapeHtml(t.walletReady)}</p><a class="btn" href="${escapeHtml(args.walletHref)}">${escapeHtml(t.walletOpen)}</a>` : ''}
 ${args.receiptHref ? `<a href="${escapeHtml(args.receiptHref)}">${escapeHtml(t.receiptLink)}</a>` : ''}
 <script>
 (function(){var el=document.getElementById('clock');function t(){el.textContent=new Date().toLocaleTimeString(${jsString(t.locale)},{timeZone:'Europe/Madrid'});}t();setInterval(t,1000);})();
@@ -302,6 +309,7 @@ export function renderResultView(view: PayResultView | null, lang: PayLanguage, 
         code: confirmationCode(view.paymentId),
         authorizedAt: view.authorizedAt,
         receiptHref: receiptHref(view.qrToken, lang),
+        walletHref: view.walletToken ? walletHref(view.walletToken, lang) : null,
       },
       lang,
     );

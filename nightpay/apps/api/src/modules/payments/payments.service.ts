@@ -645,6 +645,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           updatedAt: true,
           authorizedAt: true,
           walletId: true,
+          wallet: { select: { qrToken: true } },
         },
       }),
     );
@@ -663,11 +664,12 @@ export class PaymentsService implements OnApplicationBootstrap {
         )
       )?.provider ??
       null;
-    const { walletId, ...rest } = payment;
+    const { walletId, wallet, ...rest } = payment;
     return {
       ...rest,
       status: payment.status as PaymentMachineState,
       allowTip: provider === 'REDSYS' && walletId === null,
+      walletToken: wallet?.qrToken ?? null,
     };
   }
 
@@ -692,6 +694,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           currency: true,
           authorizedAt: true,
           qrToken: true,
+          wallet: { select: { qrToken: true } },
         },
       });
       if (!payment) return null;
@@ -707,6 +710,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         currency: payment.currency,
         authorizedAt: payment.authorizedAt,
         qrToken: payment.qrToken,
+        walletToken: payment.wallet?.qrToken ?? null,
         attemptStatus: thisAttempt?.status ?? null,
       };
     });
@@ -1654,7 +1658,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     // ese mismo tenant, la query devuelve el registro correcto.
     const p = await this.prisma.payment.findUniqueOrThrow({
       where: { id: paymentId },
-      include: { wallet: { select: { qrToken: true } } },
+      include: { wallet: { select: { id: true } } },
     });
     // Helper para tratar string vacío y whitespace como "no configurado".
     // process.env.X devuelve undefined si no existe, pero "" si Dokploy
@@ -1702,10 +1706,9 @@ export class PaymentsService implements OnApplicationBootstrap {
       qrPngDataUrl,
       qrExpiresAt: p.qrExpiresAt.toISOString(),
       createdAt: p.createdAt.toISOString(),
-      // Phase 1B — si el pago tiene wallet ligado, exponemos su id + qrToken
-      // para que el frontend pueda redirigir al cliente a su balance page.
+      // Recarga de saldo: el id de la wallet. Su enlace (la credencial del
+      // cliente para aceptar cobros) no se da nunca al personal.
       walletId: p.walletId ?? null,
-      walletQrToken: p.wallet?.qrToken ?? null,
     };
   }
 }

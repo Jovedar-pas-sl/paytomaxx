@@ -7,7 +7,7 @@ import type { Incident } from './incident-rules';
 
 const at = (iso: string) => new Date(iso);
 
-/** $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches, revisadas, datáfono (3). */
+/** $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches, revisadas, datáfono (3), saldos (2). */
 function makeIncidents(rows: {
   stuck?: unknown[];
   dup?: unknown[];
@@ -17,6 +17,8 @@ function makeIncidents(rows: {
   posMismatch?: unknown[];
   posUnmatched?: unknown[];
   posUnreconciled?: unknown[];
+  walletsToClose?: unknown[];
+  walletsLeftOpen?: unknown[];
 }) {
   const prisma = {
     $queryRaw: vi
@@ -28,9 +30,13 @@ function makeIncidents(rows: {
       .mockResolvedValueOnce(rows.acks ?? [])
       .mockResolvedValueOnce(rows.posMismatch ?? [])
       .mockResolvedValueOnce(rows.posUnmatched ?? [])
-      .mockResolvedValueOnce(rows.posUnreconciled ?? []),
+      .mockResolvedValueOnce(rows.posUnreconciled ?? [])
+      .mockResolvedValueOnce(rows.walletsToClose ?? [])
+      .mockResolvedValueOnce(rows.walletsLeftOpen ?? []),
     incidentAck: { upsert: vi.fn().mockResolvedValue({}) },
+    asSystem: vi.fn(),
   };
+  prisma.asSystem.mockImplementation((fn: (tx: typeof prisma) => unknown) => fn(prisma));
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   return { svc: new IncidentsService(prisma as never, audit as never), prisma, audit };
 }
@@ -86,6 +92,20 @@ describe('bandeja de incidencias', () => {
     const [i] = await svc.list('t-1');
     expect(i).toMatchObject({ kind: 'pos_unreconciled', ackable: false, paymentId: 'p-7' });
     expect(i!.detail).toContain('Cuadrar con el datáfono');
+  });
+
+  it('saldo: el cliente pidió la devolución, o quedó saldo tras la noche (se quitan solas al devolverlo)', async () => {
+    const { svc } = makeIncidents({
+      walletsToClose: [{ id: 'w-1', shortCode: 'K7Q4M2', balanceCents: 8000, occurredAt: at('2026-10-14T01:00:00Z') }],
+      walletsLeftOpen: [{ id: 'w-2', shortCode: 'ABCDEF', balanceCents: 2000, occurredAt: at('2026-10-13T01:00:00Z') }],
+    });
+    const items = await svc.list('t-1', at('2026-10-14T09:00:00Z'));
+    expect(items.map((i) => [i.kind, i.ackable])).toEqual([
+      ['wallet_close_requested', false],
+      ['wallet_open_balance', false],
+    ]);
+    expect(items[0]!.detail).toContain('80,00 €');
+    expect(items[0]!.detail).toContain('K7Q4M2');
   });
 
   it('marcar como revisada: solo las que no se resuelven solas y que existen en este local', async () => {

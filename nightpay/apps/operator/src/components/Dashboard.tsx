@@ -8,7 +8,7 @@ import {
   type OperatorBalance,
   type OperatorUser,
 } from '@/lib/api';
-import { ChargeWallet } from './ChargeWallet';
+import { ChargeFromBalance } from './ChargeFromBalance';
 import { CreatePayment } from './CreatePayment';
 import { MyPayments } from './MyPayments';
 import { Earnings } from './Earnings';
@@ -86,7 +86,7 @@ export function Dashboard({ user, onLogout }: Props) {
       {tab === 'home' ? (
         <HomeTab user={user} balance={balance} onCobroDone={reload} />
       ) : tab === 'wallet' ? (
-        <ChargeWallet onConsumed={reload} />
+        <ChargeFromBalance onCharged={reload} />
       ) : tab === 'pos' ? (
         <PendingPos onConfirmed={reload} focusPaymentId={focusedPosId} />
       ) : tab === 'payments' ? (
@@ -97,7 +97,7 @@ export function Dashboard({ user, onLogout }: Props) {
 
       <nav style={tabBarStyle} aria-label="Navegación principal">
         <TabBtn active={tab === 'home'} icon={<IconHome active={tab === 'home'} />} label="Inicio" onClick={() => setTab('home')} />
-        <TabBtn active={tab === 'wallet'} icon={<IconWallet active={tab === 'wallet'} />} label="Wallet" onClick={() => setTab('wallet')} />
+        <TabBtn active={tab === 'wallet'} icon={<IconWallet active={tab === 'wallet'} />} label="Saldo" onClick={() => setTab('wallet')} />
         {/* POS tab solo para WAITER/MANAGER/OWNER — la chica (OPERATOR) crea
             cobros POS pero no se los autoconfirma a ella misma. */}
         {user.role !== 'OPERATOR' ? (

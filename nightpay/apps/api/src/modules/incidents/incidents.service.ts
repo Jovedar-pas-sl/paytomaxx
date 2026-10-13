@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { lastNightCutoff } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
 import {
   SELF_RESOLVING,
@@ -11,6 +12,9 @@ import {
   posChargeMismatchIncident,
   posUnmatchedOpIncident,
   posUnreconciledIncident,
+  walletCloseRequestedIncident,
+  walletOpenBalanceIncident,
+  type WalletBalanceRow,
   stuckIncident,
   walletCreditSkippedIncident,
   type EventRow,
@@ -47,8 +51,19 @@ export class IncidentsService {
     const since = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     const stuckBefore = new Date(now.getTime() - STUCK_MINUTES * 60 * 1000);
     const reconcileBefore = new Date(now.getTime() - RECONCILE_WITHIN_HOURS * 60 * 60 * 1000);
-    const [stuck, duplicates, auditRows, nights, acks, posMismatches, posUnmatched, posUnreconciled] =
-      await Promise.all([
+    const nightStart = lastNightCutoff(now);
+    const [
+      stuck,
+      duplicates,
+      auditRows,
+      nights,
+      acks,
+      posMismatches,
+      posUnmatched,
+      posUnreconciled,
+      walletsToClose,
+      walletsLeftOpen,
+    ] = await Promise.all([
       this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt"
           FROM payments
@@ -157,6 +172,30 @@ export class IncidentsService {
          ORDER BY p."authorizedAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
+      // client_wallets tiene FORCE RLS: se lee con bypass y se filtra por local aquí.
+      this.prisma.asSystem((tx) => tx.$queryRaw<WalletBalanceRow[]>`
+        SELECT id, "shortCode", "balanceCents", "closeRequestedAt" AS "occurredAt"
+          FROM client_wallets
+         WHERE "tenantId" = ${tenantId}::uuid
+           AND status = 'ACTIVE'
+           AND "balanceCents" > 0
+           AND "closeRequestedAt" IS NOT NULL
+         ORDER BY "closeRequestedAt" DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `),
+      // Saldo con dinero que no se ha movido desde antes de las últimas 08:00.
+      this.prisma.asSystem((tx) => tx.$queryRaw<WalletBalanceRow[]>`
+        SELECT id, "shortCode", "balanceCents", "updatedAt" AS "occurredAt"
+          FROM client_wallets
+         WHERE "tenantId" = ${tenantId}::uuid
+           AND status = 'ACTIVE'
+           AND "balanceCents" > 0
+           AND "closeRequestedAt" IS NULL
+           AND "updatedAt" < ${nightStart}
+           AND "updatedAt" >= ${since}
+         ORDER BY "updatedAt" DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `),
     ]);
 
     const all: Incident[] = [
@@ -169,6 +208,8 @@ export class IncidentsService {
       ...posMismatches.map(posChargeMismatchIncident),
       ...posUnmatched.map(posUnmatchedOpIncident),
       ...posUnreconciled.map(posUnreconciledIncident),
+      ...walletsToClose.map(walletCloseRequestedIncident),
+      ...walletsLeftOpen.map(walletOpenBalanceIncident),
     ];
     return openIncidents(all, new Set(acks.map((a) => ackKey(a.kind, a.refId))));
   }
