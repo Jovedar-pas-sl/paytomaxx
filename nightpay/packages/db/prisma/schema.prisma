@@ -811,6 +811,8 @@ model BankStatement {
   periodFrom       DateTime  @db.Date
   periodTo         DateTime  @db.Date
   rowsTotal        Int
+  skippedCount     Int       @default(0)
+  otherCount       Int       @default(0)
   matchedCount     Int
   problemCount     Int
   bankTotalCents   Int

@@ -98,8 +98,8 @@ export function BankReconPanel({ isOwner }: { isOwner: boolean }) {
                   <td style={td}>{period(s)}</td>
                   <td style={td}>{s.source === 'REDSYS' ? 'TPV virtual' : 'Datáfonos'}</td>
                   <td style={tdRight}>{s.rowsTotal}</td>
-                  <td style={{ ...tdRight, color: s.problemCount > 0 ? 'var(--np-danger)' : 'var(--np-success)' }}>
-                    {s.problemCount > 0 ? s.problemCount : 'Cuadra'}
+                  <td style={{ ...tdRight, color: clean(s) ? 'var(--np-success)' : 'var(--np-danger)' }}>
+                    {clean(s) ? 'Cuadra' : s.problemCount + s.skippedCount + s.otherCount}
                   </td>
                   <td style={tdRight}>
                     <span className="np-num">
@@ -228,10 +228,20 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
           </h3>
           <p style={mutedStyle}>
             {statement.rowsTotal} operaciones en el fichero · {statement.matchedCount} cuadran ·{' '}
-            <strong style={{ color: statement.problemCount > 0 ? 'var(--np-danger)' : 'var(--np-success)' }}>
-              {statement.problemCount > 0 ? `${statement.problemCount} diferencias` : 'todo cuadra'}
+            <strong style={{ color: clean(statement) ? 'var(--np-success)' : 'var(--np-danger)' }}>
+              {statement.problemCount > 0 ? `${statement.problemCount} diferencias` : clean(statement) ? 'todo cuadra' : 'sin diferencias en lo leído'}
             </strong>
           </p>
+          {statement.skippedCount > 0 ? (
+            <p style={{ ...mutedStyle, color: 'var(--np-danger)' }}>
+              {statement.skippedCount} operaciones del fichero no se pudieron leer: revísalas en el portal del banco.
+            </p>
+          ) : null}
+          {statement.otherCount > 0 ? (
+            <p style={{ ...mutedStyle, color: 'var(--np-warning)' }}>
+              {statement.otherCount} operaciones de otro tipo (preautorizaciones…) no entran en el cuadre.
+            </p>
+          ) : null}
           <p style={mutedStyle}>
             Neto banco <strong className="np-num">{eur(statement.bankTotalCents)}</strong> · neto aquí{' '}
             <strong className="np-num">{eur(statement.oursTotalCents)}</strong>
@@ -281,6 +291,11 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
       )}
     </Card>
   );
+}
+
+/** Cuadra de verdad: sin diferencias y sin nada que no se haya podido comparar. */
+function clean(s: BankStatementSummary): boolean {
+  return s.problemCount === 0 && s.skippedCount === 0 && s.otherCount === 0;
 }
 
 function sign(i: BankStatementItem): number {

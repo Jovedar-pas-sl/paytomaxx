@@ -210,8 +210,9 @@ export class IncidentsService {
       // Cuadre con el banco: lo que no cuadra (si un fichero posterior cubre
       // ese día, deja de contar; "cobrado y aquí sin pagar" se quita al resolverlo).
       this.prisma.$queryRaw<BankItemRow[]>`
-        SELECT i.id, i.status, s.source, i."bankAmountCents", i."oursAmountCents", i.reference,
-               i."authCode", i."paymentId", COALESCE(i."occurredAt", i."createdAt") AS "occurredAt"
+        SELECT i.id, i.status, i.kind, s.source, i."bankAmountCents", i."oursAmountCents", i.reference,
+               i."authCode", i."paymentId", i."occurredAt" AS "operationAt",
+               COALESCE(i."occurredAt", i."createdAt") AS "occurredAt"
           FROM bank_statement_items i
           JOIN bank_statements s ON s.id = i."statementId"
           LEFT JOIN payments p ON p.id = i."paymentId"
@@ -239,7 +240,8 @@ export class IncidentsService {
       ...posUnreconciled.map(posUnreconciledIncident),
       ...walletsToClose.map(walletCloseRequestedIncident),
       ...walletsLeftOpen.map(walletOpenBalanceIncident),
-      ...bankItems.map(bankMismatchIncident),
+      // La misma diferencia repetida (dos subidas a la vez) sale una vez.
+      ...uniqueBy(bankItems.map(bankMismatchIncident), (i) => i.refId),
       ...(this.backups
         ? backupIncidents(await this.backups.verdict(now), now, process.env.NODE_ENV === 'production')
         : []),
@@ -274,4 +276,14 @@ export class IncidentsService {
       payload: { note: input.note ?? null },
     });
   }
+}
+
+function uniqueBy<T>(list: T[], key: (t: T) => string): T[] {
+  const seen = new Set<string>();
+  return list.filter((t) => {
+    const k = key(t);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }

@@ -26,6 +26,8 @@ const PAID_STATUSES = ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] as const;
 const MAX_PERIOD_DAYS = 62;
 /** Fichero exportado a media tarde: lo cobrado después aún no puede estar. */
 const SAME_DAY_GRACE_MS = 10 * 60_000;
+/** Lo de aquí se carga con este margen para casar cobros en el borde de los días. */
+const EDGE_SLACK_MS = 60 * 60_000;
 
 export interface StatementSummary {
   id: string;
@@ -34,6 +36,10 @@ export interface StatementSummary {
   periodFrom: string;
   periodTo: string;
   rowsTotal: number;
+  /** Operaciones que no se pudieron leer. */
+  skippedCount: number;
+  /** Operaciones de otro tipo (preautorizaciones…) que no entran en el cuadre. */
+  otherCount: number;
   matchedCount: number;
   problemCount: number;
   bankTotalCents: number;
@@ -110,12 +116,15 @@ export class BankReconService {
       to = new Date(Math.min(to.getTime(), last + SAME_DAY_GRACE_MS));
     }
 
+    const loadFrom = new Date(from.getTime() - EDGE_SLACK_MS);
+    const loadTo = new Date(to.getTime() + EDGE_SLACK_MS);
     const ours = await this.prisma.acrossVenues((tx) =>
       input.source === 'REDSYS'
-        ? loadRedsys(tx, venueIds, from, to, parsed.rows)
-        : loadPaytef(tx, venueIds, from, to, parsed.rows),
+        ? loadRedsys(tx, venueIds, loadFrom, loadTo, parsed.rows)
+        : loadPaytef(tx, venueIds, loadFrom, loadTo, parsed.rows),
     );
-    const result = reconcile({ rows: parsed.rows, ...ours });
+    const result = reconcile({ rows: parsed.rows, ...ours, window: { from, to } });
+    const otherCount = parsed.rows.filter((r) => r.approved && r.kind === 'OTHER').length;
     const terminalVenue = await this.terminalVenues(venueIds, parsed.rows);
     const problems = result.items.filter((i) => PROBLEM_STATUSES.has(i.status)).length;
     const fileSha256 = createHash('sha256').update(input.content).digest('hex');
@@ -133,17 +142,22 @@ export class BankReconService {
         select: { id: true, periodFrom: true, periodTo: true },
       });
       if (older.length > 0) {
+        const covered = older.filter(
+          (o) => isoDay(o.periodFrom) >= periodFrom && isoDay(o.periodTo) <= periodTo,
+        );
+        // Solo lo que este fichero vuelve a cuadrar: sus horas (no más allá de su
+        // última operación si se exportó hoy), y lo sin hora de cuadres que cubre enteros.
         await tx.bankStatementItem.updateMany({
           where: {
             statementId: { in: older.map((o) => o.id) },
             supersededAt: null,
-            OR: [{ occurredAt: { gte: from, lt: madridStartOfDay(nextDay(periodTo)) } }, { occurredAt: null }],
+            OR: [
+              { occurredAt: { gte: from, lt: to } },
+              { occurredAt: null, statementId: { in: covered.map((o) => o.id) } },
+            ],
           },
           data: { supersededAt: now },
         });
-        const covered = older.filter(
-          (o) => isoDay(o.periodFrom) >= periodFrom && isoDay(o.periodTo) <= periodTo,
-        );
         if (covered.length > 0) {
           await tx.bankStatement.updateMany({
             where: { id: { in: covered.map((o) => o.id) } },
@@ -160,6 +174,8 @@ export class BankReconService {
           periodFrom: dateOnly(periodFrom),
           periodTo: dateOnly(periodTo),
           rowsTotal: parsed.rows.length,
+          skippedCount: parsed.skipped,
+          otherCount,
           matchedCount: result.items.length - problems,
           problemCount: problems,
           bankTotalCents: result.bankTotalCents,
@@ -181,7 +197,16 @@ export class BankReconService {
       actorId: actor.userId,
       targetType: 'BankStatement',
       targetId: statement.id,
-      payload: { source: input.source, periodFrom, periodTo, rows: parsed.rows.length, problems, fileSha256 },
+      payload: {
+        source: input.source,
+        periodFrom,
+        periodTo,
+        rows: parsed.rows.length,
+        skipped: parsed.skipped,
+        other: otherCount,
+        problems,
+        fileSha256,
+      },
     });
     this.logger.log(
       `Cuadre ${input.source} ${periodFrom}..${periodTo}: ${parsed.rows.length} líneas, ${problems} diferencias`,
@@ -337,7 +362,7 @@ async function loadRedsys(
     unmatchedRefs.length === 0
       ? []
       : await tx.paymentAttempt.findMany({
-          where: { provider: 'REDSYS', providerTxId: { in: unmatchedRefs }, tenantId: { in: venueIds } },
+          where: { provider: 'REDSYS', providerTxId: { in: referenceVariants(unmatchedRefs) }, tenantId: { in: venueIds } },
           select: {
             providerTxId: true,
             amountCents: true,
@@ -440,7 +465,7 @@ async function loadPaytef(
       : await tx.payment.findMany({
           where: {
             tenantId: { in: venueIds },
-            posOperationNumber: { in: unmatchedRefs },
+            posOperationNumber: { in: referenceVariants(unmatchedRefs) },
             status: { notIn: [...PAID_STATUSES] },
           },
           select: { id: true, tenantId: true, amountCents: true, tipCents: true, posOperationNumber: true },
@@ -493,6 +518,8 @@ function summary(s: {
   periodFrom: Date;
   periodTo: Date;
   rowsTotal: number;
+  skippedCount: number;
+  otherCount: number;
   matchedCount: number;
   problemCount: number;
   bankTotalCents: number;
@@ -507,6 +534,8 @@ function summary(s: {
     periodFrom: isoDay(s.periodFrom),
     periodTo: isoDay(s.periodTo),
     rowsTotal: s.rowsTotal,
+    skippedCount: s.skippedCount,
+    otherCount: s.otherCount,
     matchedCount: s.matchedCount,
     problemCount: s.problemCount,
     bankTotalCents: s.bankTotalCents,
@@ -527,6 +556,24 @@ function isoDay(d: Date): string {
 
 function daysBetween(a: string, b: string): number {
   return Math.round((dateOnly(b).getTime() - dateOnly(a).getTime()) / 86_400_000) + 1;
+}
+
+/**
+ * Variantes de una referencia del fichero para buscarla aquí: tal cual, sin
+ * ceros delante y con ellos (los pedidos de Redsys tienen 12 caracteres).
+ */
+export function referenceVariants(refs: string[]): string[] {
+  const out = new Set<string>();
+  for (const ref of refs) {
+    const t = ref.trim();
+    if (!t) continue;
+    const bare = t.replace(/^0+/, '');
+    out.add(t);
+    if (bare) out.add(bare);
+    if (bare && bare.length < 12) out.add(bare.padStart(12, '0'));
+    if (/^\d+$/.test(bare)) for (const len of [6, 8, 10]) if (bare.length < len) out.add(bare.padStart(len, '0'));
+  }
+  return [...out];
 }
 
 function uniq(list: Array<string | null | undefined>): string[] {

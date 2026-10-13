@@ -158,3 +158,71 @@ describe('cuadre con el banco', () => {
     expect(missing.items[1]).toMatchObject({ paymentId: 'p-1', tenantId: 'v-1' });
   });
 });
+
+describe('lo que la revisión pidió', () => {
+  it('un cargo desconocido (otra referencia) no se casa con otro cobro del mismo importe', () => {
+    const r = reconcile({
+      rows: [row({ reference: 'DESCONOCIDO', authCode: null })],
+      sales: [sale({ references: ['0412ABCD1234'], authCode: '999999' })],
+      refunds: [],
+      strays: [],
+    });
+    expect(statuses(r)).toEqual(['NOT_IN_OXIOPAY', 'NOT_IN_BANK']);
+  });
+
+  it('…salvo que coincida la autorización', () => {
+    const r = reconcile({
+      rows: [row({ reference: 'OTRA', authCode: '999999' })],
+      sales: [sale({ references: ['0412ABCD1234'], authCode: '999999' })],
+      refunds: [],
+      strays: [],
+    });
+    expect(statuses(r)).toEqual(['MATCHED']);
+  });
+
+  it('devolución sin referencia que case: solo cerca en el tiempo', () => {
+    const lejos = reconcile({
+      rows: [row({ kind: 'REFUND', reference: null, amountCents: 2000, at: at('2026-10-20T22:00:00Z') })],
+      sales: [],
+      refunds: [refund({ paymentReferences: [] })],
+      strays: [],
+    });
+    expect(statuses(lejos)).toEqual(['REFUND_NOT_IN_OXIOPAY', 'REFUND_NOT_IN_BANK']);
+    const otraRef = reconcile({
+      rows: [row({ kind: 'REFUND', reference: 'OTRO', amountCents: 2000 })],
+      sales: [],
+      refunds: [refund({})],
+      strays: [],
+    });
+    expect(statuses(otraRef)).toEqual(['REFUND_NOT_IN_OXIOPAY', 'REFUND_NOT_IN_BANK']);
+  });
+
+  it('una anulación puede anular una devolución', () => {
+    const r = reconcile({
+      rows: [
+        row({ line: 1, kind: 'REFUND', reference: 'X1', amountCents: 500 }),
+        row({ line: 2, kind: 'VOID', reference: 'X1', amountCents: 500, at: at('2026-10-13T22:30:00Z') }),
+      ],
+      sales: [],
+      refunds: [],
+      strays: [],
+    });
+    expect(r.items).toEqual([]);
+  });
+
+  it('lo de aquí fuera de los días del fichero sirve para casar pero no se avisa como falta', () => {
+    const window = { from: at('2026-10-12T22:00:00Z'), to: at('2026-10-13T22:00:00Z') };
+    const r = reconcile({
+      rows: [row({ reference: 'R1', at: at('2026-10-13T21:59:50Z') })],
+      sales: [
+        sale({ paymentId: 'borde', references: ['R1'], at: at('2026-10-13T22:00:20Z') }),
+        sale({ paymentId: 'fuera', references: ['R2'], at: at('2026-10-13T22:30:00Z') }),
+      ],
+      refunds: [],
+      strays: [],
+      window,
+    });
+    expect(statuses(r)).toEqual(['MATCHED']);
+    expect(r.oursTotalCents).toBe(0);
+  });
+});

@@ -1097,6 +1097,8 @@ export interface BankStatementSummary {
   periodFrom: string;
   periodTo: string;
   rowsTotal: number;
+  skippedCount: number;
+  otherCount: number;
   matchedCount: number;
   problemCount: number;
   bankTotalCents: number;

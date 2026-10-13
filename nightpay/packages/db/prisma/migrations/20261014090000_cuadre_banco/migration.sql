@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS "bank_statements" (
   "periodFrom"       DATE        NOT NULL,
   "periodTo"         DATE        NOT NULL,
   "rowsTotal"        INTEGER     NOT NULL,
+  -- Operaciones que no se pudieron leer y de otro tipo (preautorizaciones…):
+  -- si hay alguna, el cuadre no puede decir "todo cuadra".
+  "skippedCount"     INTEGER     NOT NULL DEFAULT 0,
+  "otherCount"       INTEGER     NOT NULL DEFAULT 0,
   "matchedCount"     INTEGER     NOT NULL,
   "problemCount"     INTEGER     NOT NULL,
   "bankTotalCents"   INTEGER     NOT NULL,

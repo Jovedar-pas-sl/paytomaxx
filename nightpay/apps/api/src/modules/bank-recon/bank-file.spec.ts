@@ -59,7 +59,8 @@ describe('fichero de operaciones de Redsys (Canales)', () => {
     const out = parseBankFile('REDSYS', Buffer.from(html, 'utf8'));
     expect(out.rows).toHaveLength(1);
     expect(out.rows[0]).toMatchObject({ reference: '0412ABCD1234', amountCents: 7500, approved: true });
-    expect(out.skipped).toBe(1);
+    // La fila de totales no es una operación: ni se lee ni cuenta como no leída.
+    expect(out.skipped).toBe(0);
   });
 
   it('Excel .xlsx o sin columnas reconocibles → mensaje claro', () => {
@@ -107,5 +108,52 @@ describe('piezas', () => {
     expect(normalizeHeader('Nº de terminal')).toBe('numerodeterminal');
     expect(normalizeHeader('Cód. pedido')).toBe('codpedido');
     expect(normalizeHeader('Nombre')).toBe('nombre');
+  });
+});
+
+describe('lo que no se puede leer no desaparece', () => {
+  const HEADER = 'Fecha;Hora;Tipo operación;Cód. pedido;Resultado operación y código;Importe';
+
+  it('una operación ilegible se cuenta y se dice en qué línea está', () => {
+    const csv = [
+      HEADER,
+      '13/10/2026;23:00:00;Autorización;A1;Autorizada 111111;10.00',
+      '13/10/2026;23:05:00;Autorización;A2;Autorizada 222222;??',
+      ...Array.from({ length: 20 }, (_, i) => `13/10/2026;23:10:00;Autorización;B${i};Autorizada 333333;5.00`),
+    ].join('\n');
+    const out = parseBankFile('REDSYS', Buffer.from(csv, 'utf8'));
+    expect(out.rows).toHaveLength(21);
+    expect(out).toMatchObject({ skipped: 1, skippedLines: [3] });
+  });
+
+  it('si son muchas, el fichero no se acepta', () => {
+    const csv = [
+      HEADER,
+      '13/10/2026;23:00:00;Autorización;A1;Autorizada 111111;10.00',
+      '13/10/2026;23:01:00;Autorización;A2;Autorizada 111111;xx',
+      '13/10/2026;23:02:00;Autorización;A3;Autorizada 111111;xx',
+      '13/10/2026;23:03:00;Autorización;A4;Autorizada 111111;xx',
+    ].join('\n');
+    expect(() => parseBankFile('REDSYS', Buffer.from(csv, 'utf8'))).toThrow(/No se pudieron leer 3 operaciones/);
+  });
+
+  it('confirmación de preautorización = cobro; anulación de devolución = anulación; autorización que acaba en KO', () => {
+    const csv = [
+      HEADER,
+      '13/10/2026;23:00:00;Confirmación de preautorización;C1;Autorizada 111111;30.00',
+      '13/10/2026;23:01:00;Preautorización;C2;Autorizada 111111;30.00',
+      '13/10/2026;23:02:00;Anulación de devolución;C3;Autorizada 111111;5.00',
+      '13/10/2026;23:03:00;Autorización;C4;Autorizada A1B2KO;7.00',
+      '13/10/2026;23:04:00;Autorización;C5;KO;7.00',
+    ].join('\n');
+    const rows = parseBankFile('REDSYS', Buffer.from(csv, 'utf8')).rows;
+    expect(rows.map((r) => [r.reference, r.kind, r.approved])).toEqual([
+      ['C1', 'SALE', true],
+      ['C2', 'OTHER', true],
+      ['C3', 'VOID', true],
+      ['C4', 'SALE', true],
+      ['C5', 'SALE', false],
+    ]);
+    expect(rows[3]!.authCode).toBe('A1B2KO');
   });
 });

@@ -116,6 +116,8 @@ describe('bandeja de incidencias', () => {
         {
           id: 'bi-1',
           status: 'NOT_IN_BANK',
+          kind: 'SALE',
+          operationAt: at('2026-10-13T21:18:59Z'),
           source: 'REDSYS',
           bankAmountCents: null,
           oursAmountCents: 6000,
@@ -127,6 +129,8 @@ describe('bandeja de incidencias', () => {
         {
           id: 'bi-2',
           status: 'AMOUNT_MISMATCH',
+          kind: 'SALE',
+          operationAt: at('2026-10-13T22:00:00Z'),
           source: 'PAYTEF',
           bankAmountCents: 5500,
           oursAmountCents: 5000,
@@ -145,6 +149,8 @@ describe('bandeja de incidencias', () => {
     expect(items[0]!.detail).toContain('Banco 55,00 € · aquí 50,00 €');
     expect(items[0]!.detail).toContain('Datáfono (Paytef)');
     expect(items[1]!.detail).toContain('no lo pagues a la chica');
+    // Identificador estable: no depende de la línea (volver a subir conserva lo revisado).
+    expect(items[1]!.refId).toBe('REDSYS|NOT_IN_BANK|SALE|2610MLbhyfNg|p-1||6000|');
   });
 
   it('marcar como revisada: solo las que no se resuelven solas y que existen en este local', async () => {

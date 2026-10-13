@@ -13,8 +13,10 @@ import type { BankRow, BankRowKind, BankSource } from './bank-match';
 
 export interface ParsedBankFile {
   rows: BankRow[];
-  /** Líneas que no son operaciones (totales, vacías…). */
+  /** Líneas con pinta de operación (fecha o referencia) que no se pudieron leer. */
   skipped: number;
+  /** Las primeras de esas líneas (número de línea del fichero). */
+  skippedLines: number[];
   /** Columna del fichero usada para cada dato (para explicar el cuadre). */
   columns: Partial<Record<Field, string>>;
   periodFrom: string | null;
@@ -97,6 +99,9 @@ const REFERENCE_ALIASES: Record<BankSource, string[]> = {
 };
 
 const MAX_HEADER_SCAN = 25;
+/** Si no se pueden leer más de esto (y al menos 3), el fichero no se acepta. */
+const MAX_SKIPPED_SHARE = 0.1;
+const SKIPPED_LINES_SHOWN = 10;
 
 export function parseBankFile(source: BankSource, content: Buffer): ParsedBankFile {
   if (content.length === 0) throw new BankFileError('El fichero está vacío');
@@ -127,20 +132,30 @@ function readTable(source: BankSource, table: string[][]): ParsedBankFile {
   for (const [field, idx] of Object.entries(cols) as Array<[Field, number]>) columns[field] = header[idx]!.trim();
 
   const rows: BankRow[] = [];
+  const skippedLines: number[] = [];
   let skipped = 0;
   for (let i = headerIndex + 1; i < table.length; i++) {
     const cells = table[i]!;
     const parsed = readRow(cells, cols, i + 1);
     if (parsed) rows.push(parsed);
-    else skipped++;
+    else if (looksLikeOperation(cells, cols)) {
+      skipped++;
+      if (skippedLines.length < SKIPPED_LINES_SHOWN) skippedLines.push(i + 1);
+    }
   }
   if (rows.length === 0) throw new BankFileError('El fichero no tiene operaciones');
+  if (skipped >= 3 && skipped > (rows.length + skipped) * MAX_SKIPPED_SHARE) {
+    throw new BankFileError(
+      `No se pudieron leer ${skipped} operaciones (líneas ${skippedLines.join(', ')}…). Comprueba que es la exportación del portal sin modificar.`,
+    );
+  }
 
   const days = rows.filter((r) => r.at).map((r) => madridDay(r.at!));
   days.sort();
   return {
     rows,
     skipped,
+    skippedLines,
     columns,
     periodFrom: days[0] ?? null,
     periodTo: days[days.length - 1] ?? null,
@@ -177,6 +192,12 @@ function mapColumns(source: BankSource, header: string[]): Partial<Record<Field,
   return found;
 }
 
+/** Una línea de totales o un pie no es una operación; una con fecha o referencia, sí. */
+function looksLikeOperation(cells: string[], cols: Partial<Record<Field, number>>): boolean {
+  const get = (f: Field) => (cols[f] !== undefined ? (cells[cols[f]!] ?? '').trim() : '');
+  return Boolean(get('reference')) || /\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}/.test(get('date'));
+}
+
 function readRow(cells: string[], cols: Partial<Record<Field, number>>, line: number): BankRow | null {
   const get = (f: Field) => (cols[f] !== undefined ? (cells[cols[f]!] ?? '').trim() : '');
   const amount = parseAmount(get('amount'));
@@ -201,11 +222,16 @@ function readRow(cells: string[], cols: Partial<Record<Field, number>>, line: nu
   };
 }
 
-export function normalizeHeader(h: string): string {
-  return h
+/** Minúsculas y sin acentos (conserva espacios y signos). */
+function plain(s: string): string {
+  return s
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
+    .toLowerCase();
+}
+
+export function normalizeHeader(h: string): string {
+  return plain(h)
     // "Nº", "N.º", "N°", "No." → "numero" ("nombre" no se toca).
     .replace(/\bn\.?\s*(?:[º°]|o\.)\s*/g, 'numero')
     .replace(/[^a-z0-9]/g, '');
@@ -259,9 +285,10 @@ export function parseDateTime(dateRaw: string, timeRaw: string): Date | null {
 function parseKind(raw: string): BankRowKind {
   const t = normalizeHeader(raw);
   if (!t) return 'SALE';
-  if (/devol|refund|abono|reembols/.test(t)) return 'REFUND';
   if (/anul|cancel|void|retroc/.test(t)) return 'VOID';
-  if (/preautoriz|preauth|confirmacionpreaut/.test(t)) return 'OTHER';
+  if (/devol|refund|abono|reembols/.test(t)) return 'REFUND';
+  if (/confirmacion/.test(t)) return 'SALE';
+  if (/preautoriz|preauth/.test(t)) return 'OTHER';
   if (/autoriz|venta|pago|compra|cargo|sale|purchase|payment|confirmacion/.test(t)) return 'SALE';
   return 'OTHER';
 }
@@ -273,11 +300,15 @@ function parseKind(raw: string): BankRowKind {
 function parseResult(raw: string): { approved: boolean; authCode: string | null } {
   const t = raw.trim();
   if (!t) return { approved: true, authCode: null };
-  const n = normalizeHeader(t);
-  const auth = /autorizad[ao]\s*[:-]?\s*([A-Z0-9]{4,8})/i.exec(t)?.[1] ?? null;
-  if (/deneg|rechaz|error|fallid|ko$|^ko|fail|declin|anulad|cancelad|sinautoriz/.test(n)) return { approved: false, authCode: null };
   if (/^\d{1,4}$/.test(t)) return { approved: Number(t) < 100, authCode: null };
-  if (/autoriz|aprob|acept|correct|^ok|exito|success|approv|pagad/.test(n)) return { approved: true, authCode: auth };
+  const auth = /autorizad[ao]\s*[:-]?\s*([A-Z0-9]{4,8})/i.exec(t)?.[1] ?? null;
+  const words = plain(t).replace(/(autorizad[ao])\s*[:-]?\s*[a-z0-9]{4,8}/, '$1');
+  if (/deneg|rechaz|fallid|declin|anulad|cancelad|sin autoriz|sin finaliz|error|fail|(^|[^a-z0-9])ko([^a-z0-9]|$)/.test(words)) {
+    return { approved: false, authCode: null };
+  }
+  if (/autoriz|aprob|acept|correct|(^|[^a-z])ok([^a-z]|$)|exito|success|approv|pagad/.test(words)) {
+    return { approved: true, authCode: auth };
+  }
   return { approved: false, authCode: null };
 }
 

@@ -95,6 +95,10 @@ export interface ReconItem {
 
 /** Sin referencia, una venta del banco y un cobro de aquí casan si están a menos de esto. */
 export const FALLBACK_WINDOW_MS = 15 * 60_000;
+/** Una devolución apuntada aquí puede llevar la fecha que se tecleó (sin hora). */
+export const REFUND_FALLBACK_WINDOW_MS = 36 * 3_600_000;
+/** Una anulación sin referencia solo anula una venta de las horas anteriores. */
+export const VOID_FALLBACK_WINDOW_MS = 24 * 3_600_000;
 
 /** "000123ABC" y "123abc" son el mismo pedido (Excel se come los ceros). */
 export function referenceKey(ref: string): string {
@@ -114,16 +118,23 @@ export function reconcile(input: {
   sales: OurSale[];
   refunds: OurRefund[];
   strays: StrayPayment[];
+  /**
+   * Los días que cubre el fichero. Lo de aquí se carga con margen (para casar
+   * un cobro de las 23:59 que el banco apunta a las 00:00), pero solo se
+   * avisa de "falta en el banco" de lo que cae dentro.
+   */
+  window?: { from: Date; to: Date };
 }): ReconResult {
   const approved = input.rows.filter((r) => r.approved);
   const voids = approved.filter((r) => r.kind === 'VOID');
   const voided = new Set<BankRow>();
   for (const v of voids) {
-    const sale = findVoidedSale(v, approved, voided);
-    if (sale) voided.add(sale);
+    const target = findVoided(v, approved, voided);
+    if (target) voided.add(target);
   }
   const saleRows = approved.filter((r) => r.kind === 'SALE' && !voided.has(r));
-  const refundRows = approved.filter((r) => r.kind === 'REFUND');
+  const refundRows = approved.filter((r) => r.kind === 'REFUND' && !voided.has(r));
+  const inWindow = (at: Date) => !input.window || (at >= input.window.from && at < input.window.to);
 
   const items: ReconItem[] = [];
   const usedSales = new Set<OurSale>();
@@ -167,7 +178,7 @@ export function reconcile(input: {
 
   // 3) Pagado aquí y el banco no lo tiene.
   for (const sale of input.sales) {
-    if (usedSales.has(sale)) continue;
+    if (usedSales.has(sale) || !inWindow(sale.at)) continue;
     items.push({
       status: 'NOT_IN_BANK',
       kind: 'SALE',
@@ -210,7 +221,7 @@ export function reconcile(input: {
     });
   }
   for (const refund of input.refunds) {
-    if (usedRefunds.has(refund)) continue;
+    if (usedRefunds.has(refund) || !inWindow(refund.at)) continue;
     items.push({
       status: 'REFUND_NOT_IN_BANK',
       kind: 'REFUND',
@@ -229,7 +240,8 @@ export function reconcile(input: {
   return {
     items,
     bankTotalCents: sum(saleRows) - sum(refundRows),
-    oursTotalCents: sum(input.sales) - sum(input.refunds),
+    oursTotalCents:
+      sum(input.sales.filter((x) => inWindow(x.at))) - sum(input.refunds.filter((x) => inWindow(x.at))),
   };
 }
 
@@ -280,7 +292,9 @@ function closestSale(row: BankRow, sales: OurSale[], used: Set<OurSale>): OurSal
   let bestGap = Number.POSITIVE_INFINITY;
   for (const sale of sales) {
     if (used.has(sale) || sale.amountCents !== row.amountCents) continue;
-    if (row.authCode && sale.authCode && row.authCode.trim() !== sale.authCode.trim()) continue;
+    const sameAuth = Boolean(row.authCode && sale.authCode && row.authCode.trim() === sale.authCode.trim());
+    if (row.reference && sale.references.length > 0 && !sameAuth) continue;
+    if (row.authCode && sale.authCode && !sameAuth) continue;
     if (row.terminal && sale.terminal && row.terminal.trim() !== sale.terminal.trim()) continue;
     const gap = row.at ? Math.abs(row.at.getTime() - sale.at.getTime()) : 0;
     if (row.at && gap > FALLBACK_WINDOW_MS) continue;
@@ -299,12 +313,15 @@ function matchRefund(row: BankRow, refunds: OurRefund[], used: Set<OurRefund>): 
     const byRef = candidates.find((r) => r.paymentReferences.some((p) => referenceKey(p) === key));
     if (byRef) return byRef;
   }
-  // Sin referencia (o la del banco es otra): misma cantidad, la más cercana en el tiempo.
-  if (!row.at) return candidates[0] ?? null;
+  // Sin referencia que case: solo con devoluciones de aquí sin referencia (o
+  // filas del banco sin ella), la misma cantidad y cerca en el tiempo.
+  const loose = candidates.filter((r) => !key || r.paymentReferences.length === 0);
+  if (!row.at) return loose[0] ?? null;
   let best: OurRefund | null = null;
   let bestGap = Number.POSITIVE_INFINITY;
-  for (const r of candidates) {
+  for (const r of loose) {
     const gap = Math.abs(row.at.getTime() - r.at.getTime());
+    if (gap > REFUND_FALLBACK_WINDOW_MS) continue;
     if (gap < bestGap) {
       best = r;
       bestGap = gap;
@@ -313,19 +330,25 @@ function matchRefund(row: BankRow, refunds: OurRefund[], used: Set<OurRefund>): 
   return best;
 }
 
-/** La venta que anula una anulación: misma referencia, o mismo importe y terminal antes que ella. */
-function findVoidedSale(v: BankRow, rows: BankRow[], taken: Set<BankRow>): BankRow | null {
-  const sales = rows.filter((r) => r.kind === 'SALE' && !taken.has(r));
+/**
+ * Lo que anula una anulación (una venta o una devolución): misma referencia
+ * e importe; sin referencia, mismo importe y datáfono en las horas anteriores.
+ */
+function findVoided(v: BankRow, rows: BankRow[], taken: Set<BankRow>): BankRow | null {
+  const open = rows.filter((r) => (r.kind === 'SALE' || r.kind === 'REFUND') && !taken.has(r));
   if (v.reference) {
     const key = referenceKey(v.reference);
-    const byRef = sales.find((r) => r.reference && referenceKey(r.reference) === key);
-    if (byRef) return byRef;
+    const byRef = open.filter((r) => r.reference && referenceKey(r.reference) === key);
+    const sameAmount = byRef.filter((r) => r.amountCents === v.amountCents);
+    return sameAmount[sameAmount.length - 1] ?? byRef[byRef.length - 1] ?? null;
   }
-  const before = sales.filter(
+  const before = open.filter(
     (r) =>
       r.amountCents === v.amountCents &&
       (!v.terminal || !r.terminal || r.terminal === v.terminal) &&
-      (!v.at || !r.at || r.at.getTime() <= v.at.getTime()),
+      (!v.at ||
+        !r.at ||
+        (r.at.getTime() <= v.at.getTime() && v.at.getTime() - r.at.getTime() <= VOID_FALLBACK_WINDOW_MS)),
   );
   return before.length > 0 ? before[before.length - 1]! : null;
 }

@@ -232,13 +232,33 @@ export function walletOpenBalanceIncident(r: WalletBalanceRow): Incident {
 export interface BankItemRow {
   id: string;
   status: string;
+  kind: string;
   source: string;
   bankAmountCents: number | null;
   oursAmountCents: number | null;
   reference: string | null;
   authCode: string | null;
   paymentId: string | null;
+  /** Hora de la operación (null si el fichero no la traía). */
+  operationAt: Date | null;
   occurredAt: Date;
+}
+
+/**
+ * La misma diferencia tiene el mismo identificador aunque se vuelva a subir
+ * el fichero: lo marcado como revisado sigue revisado.
+ */
+export function bankMismatchKey(r: BankItemRow): string {
+  return [
+    r.source,
+    r.status,
+    r.kind,
+    r.reference ?? '',
+    r.paymentId ?? '',
+    r.bankAmountCents ?? '',
+    r.oursAmountCents ?? '',
+    r.reference || r.paymentId ? '' : (r.operationAt?.toISOString() ?? ''),
+  ].join('|');
 }
 
 const BANK_TEXT: Record<string, { title: string; hint: string }> = {
@@ -284,7 +304,7 @@ export function bankMismatchIncident(r: BankItemRow): Incident {
   ].filter(Boolean);
   return {
     kind: 'bank_mismatch',
-    refId: r.id,
+    refId: bankMismatchKey(r),
     title: text.title,
     detail: `${parts.join(' · ')}. ${text.hint}`.trim(),
     occurredAt: r.occurredAt.toISOString(),
