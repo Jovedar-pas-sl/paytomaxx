@@ -52,6 +52,7 @@ model Venue {
   clientWallets      ClientWallet[]
   walletConsumptions WalletConsumption[]
   peanpeCalls        PeanpeCall[]
+  serviceItems       ServiceItem[]
 
   @@map("venues")
 }
@@ -299,6 +300,11 @@ model Payment {
   secure3ds     Boolean?
   authorizedAt  DateTime? @db.Timestamptz
 
+  // Fase 1A — foto del servicio de la carta (si el cobro salió de ella).
+  serviceItemId String?   @db.Uuid
+  serviceName   String?
+  durationMin   Int?
+
   venue              Venue            @relation(fields: [tenantId], references: [id])
   terminal           Terminal         @relation(fields: [terminalId], references: [id])
   createdBy          User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])
@@ -341,6 +347,27 @@ model PaymentAttempt {
   @@unique([provider, providerTxId])
   @@index([paymentId, createdAt(sort: Desc)])
   @@map("payment_attempts")
+}
+
+// Fase 1A — carta de servicios por local. La chica elige un servicio en vez
+// de teclear importe; precio y categoría los fija el local.
+model ServiceItem {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  name        String
+  durationMin Int?
+  priceCents  Int
+  // CHICA_SERVICE | VENUE_BAR | VENUE_ROOM | VENUE_FOOD | EXTRA
+  category    String   @default("CHICA_SERVICE")
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, active, sortOrder])
+  @@map("service_items")
 }
 
 model PaymentEvent {

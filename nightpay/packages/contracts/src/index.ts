@@ -6,3 +6,4 @@ export * from './payments';
 export * from './terminals';
 export * from './wallets';
 export * from './webhooks';
+export * from './services';

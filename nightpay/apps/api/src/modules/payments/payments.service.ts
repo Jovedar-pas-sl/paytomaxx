@@ -36,6 +36,7 @@ import {
   type RevenueCategory,
 } from './commission';
 import { WalletsService } from '../wallets/wallets.service';
+import { applyServiceItem } from './service-item';
 import type { Provider } from '@nightpay/contracts';
 import {
   CLOSED_REASON,
@@ -45,6 +46,13 @@ import {
   type RetryDecision,
   type PayResultView,
 } from './pay-redirect';
+
+const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
+  inactive: 'Ese servicio está desactivado en la carta',
+  'role-not-allowed':
+    'Desde tu app solo puedes cobrar tus servicios. La barra, la habitación y la comida las cobra el camarero desde la caja.',
+  'invalid-category': 'Ese servicio tiene una categoría no válida. Revísalo en la carta del panel.',
+};
 
 const QR_TTL_SECONDS = 5 * 60; // 5 min
 const POS_QR_TTL_SECONDS = 30 * 60; // 30 min — camarero tiene tiempo de llegar
@@ -268,10 +276,32 @@ export class PaymentsService implements OnApplicationBootstrap {
         },
       }),
     );
-    if (creatorRole === 'OPERATOR' && !isWalletTopUp) {
-      if (dto.amountCents > venue.operatorMaxCobroCents) {
+    // Fase 1A — cobro desde la carta: importe y categoría los fija el local
+    // (los del cliente se ignoran). El tope de importe libre no aplica.
+    let amountCents = dto.amountCents;
+    let service: { serviceItemId: string; serviceName: string; durationMin: number | null } | null =
+      null;
+    let serviceCategory: RevenueCategory | undefined;
+    if (dto.serviceItemId && !isWalletTopUp) {
+      const item = await this.prisma.serviceItem.findFirst({
+        where: { id: dto.serviceItemId, tenantId },
+      });
+      if (!item) {
+        throw new NotFoundException('Ese servicio no está en la carta de este local');
+      }
+      const charge = applyServiceItem(item, creatorRole);
+      if (!charge.ok) {
+        throw new BadRequestException(SERVICE_ITEM_ERRORS[charge.reason]);
+      }
+      amountCents = charge.amountCents;
+      serviceCategory = charge.revenueCategory;
+      service = { serviceItemId: item.id, serviceName: charge.serviceName, durationMin: charge.durationMin };
+    }
+
+    if (creatorRole === 'OPERATOR' && !isWalletTopUp && !service) {
+      if (amountCents > venue.operatorMaxCobroCents) {
         throw new BadRequestException(
-          `Importe ${(dto.amountCents / 100).toFixed(2)} € supera el límite del local (${(venue.operatorMaxCobroCents / 100).toFixed(2)} €). ` +
+          `Importe ${(amountCents / 100).toFixed(2)} € supera el límite del local (${(venue.operatorMaxCobroCents / 100).toFixed(2)} €). ` +
             `Para wallet top-up no aplica el cap; para cobros puntuales pídele al OWNER que suba el cap en Ajustes.`,
         );
       }
@@ -359,7 +389,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     const revenueCategory = resolveRevenueCategory({
       isWalletTopUp: Boolean(resolvedWalletId),
       creatorRole,
-      requested: dto.revenueCategory as RevenueCategory | undefined,
+      requested: serviceCategory ?? (dto.revenueCategory as RevenueCategory | undefined),
     });
     if (!revenueCategory) {
       throw new BadRequestException(
@@ -374,9 +404,9 @@ export class PaymentsService implements OnApplicationBootstrap {
           terminalId: terminal.id,
           createdByUserId: creatorUserId,
           idempotencyKey,
-          amountCents: dto.amountCents,
+          amountCents,
           // availableAmountCents incluye tip — refunds pueden cubrir todo.
-          availableAmountCents: dto.amountCents + tipCents,
+          availableAmountCents: amountCents + tipCents,
           currency: dto.currency,
           status: 'CREATED',
           qrToken,
@@ -390,6 +420,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           ...(tipBeneficiaryUserId ? { tipBeneficiaryUserId } : {}),
           ...(effectiveCaptureMethod ? { captureMethod: effectiveCaptureMethod } : {}),
           ...(resolvedWalletId ? { walletId: resolvedWalletId } : {}),
+          ...(service ?? {}),
         },
       });
       await tx.paymentEvent.create({

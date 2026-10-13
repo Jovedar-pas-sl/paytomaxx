@@ -17,6 +17,7 @@ const TENANT_SCOPED_MODELS = new Set([
   'Reconciliation',
   'OperatorEarning',
   'OperatorPayout',
+  'ServiceItem',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

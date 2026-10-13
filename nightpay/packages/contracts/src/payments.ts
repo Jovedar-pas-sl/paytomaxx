@@ -142,6 +142,11 @@ export const CreatePaymentSchema = z.object({
    *   - creator WAITER/MANAGER/OWNER → EXTRA (admin/camarero debe elegir)
    */
   revenueCategory: RevenueCategorySchema.optional(),
+  /**
+   * Fase 1A — servicio de la carta del local. Si viene, el servidor usa SU
+   * precio y SU categoría (amountCents y revenueCategory del cliente se ignoran).
+   */
+  serviceItemId: UuidSchema.optional(),
 }).refine(
   (d) => d.terminalExternalId !== undefined || d.zone !== undefined,
   { message: 'Debes pasar terminalExternalId o zone' },

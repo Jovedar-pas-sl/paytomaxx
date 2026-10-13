@@ -6,11 +6,13 @@ import { Button, Card, Input, StatusPill, type PaymentStatus } from '@nightpay/u
 import {
   cancelPayment,
   createPayment,
+  fetchServices,
   fetchTerminals,
   fetchZones,
   getUser,
   wsBase,
   type CreatedPayment,
+  type ServiceItem,
   type ZoneOption,
 } from '@/lib/api';
 
@@ -58,6 +60,11 @@ export function CreatePayment({ onCreated }: Props) {
   const [revCategory, setRevCategory] = useState<RevCat>(
     role === 'OPERATOR' ? 'CHICA_SERVICE' : 'VENUE_BAR',
   );
+  // Fase 1A — carta del local. La chica toca un servicio en vez de teclear
+  // el importe; "Otro importe" sigue disponible (con el tope del local).
+  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [picked, setPicked] = useState<ServiceItem | 'custom' | null>(null);
+  const [activeLabel, setActiveLabel] = useState<string | null>(null);
   const [active, setActive] = useState<CreatedPayment | null>(null);
   const [status, setStatus] = useState<PaymentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +97,11 @@ export function CreatePayment({ onCreated }: Props) {
       .catch(() => {
         /* zonas opcional — backwards compat fallback */
       });
+    fetchServices()
+      .then(setServices)
+      .catch(() => {
+        /* sin carta: se cobra tecleando el importe, como antes */
+      });
   }, []);
 
   useEffect(() => {
@@ -120,6 +132,20 @@ export function CreatePayment({ onCreated }: Props) {
     };
   }, [active, onCreated]);
 
+  // La recarga de wallet no sale de la carta: al cambiar a wallet se suelta
+  // el servicio elegido para no arrastrar su precio.
+  function switchMode(next: CobroMode) {
+    if (next === 'wallet') {
+      setPicked(null);
+      setAmount('');
+    }
+    setMode(next);
+  }
+
+  // La carta aplica a cobros por QR o datáfono; la recarga de wallet es libre.
+  const usingService = mode !== 'wallet' && picked !== null && picked !== 'custom';
+  const showCarta = mode !== 'wallet' && services.length > 0 && picked === null;
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (terminals.length === 0 && zones.length === 0) {
@@ -130,7 +156,10 @@ export function CreatePayment({ onCreated }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      const cents = Math.round(parseFloat(amount.replace(',', '.')) * 100);
+      const service = usingService ? (picked as ServiceItem) : null;
+      const cents = service
+        ? service.priceCents
+        : Math.round(parseFloat(amount.replace(',', '.')) * 100);
       if (!Number.isFinite(cents) || cents <= 0) throw new Error('Importe inválido');
       if (mode === 'wallet' && !walletIdentifier.trim()) {
         throw new Error('Pon una etiqueta al wallet (Mesa 3, Pulsera azul...) para no confundirlo');
@@ -149,7 +178,9 @@ export function CreatePayment({ onCreated }: Props) {
         walletIdentifier: mode === 'wallet' ? walletIdentifier.trim() : undefined,
         captureMethod: mode === 'pos' ? 'POS_EXTERNAL' : undefined,
         revenueCategory: revCategory,
+        serviceItemId: service?.id,
       });
+      setActiveLabel(service ? serviceLabel(service) : null);
       setActive(created);
       setStatus(created.status as PaymentStatus);
     } catch (err) {
@@ -189,6 +220,8 @@ export function CreatePayment({ onCreated }: Props) {
     setActive(null);
     setStatus(null);
     setAmount('');
+    setPicked(null);
+    setActiveLabel(null);
     setCopied(false);
     setError(null);
     setWalletIdentifier('');
@@ -219,6 +252,9 @@ export function CreatePayment({ onCreated }: Props) {
               {active.currency}
             </span>
           </p>
+          {activeLabel ? (
+            <p style={{ margin: '0.25rem 0 0', fontWeight: 700, fontSize: '1.0625rem' }}>{activeLabel}</p>
+          ) : null}
           {isPosFlow ? (
             <p style={{
               margin: '0.5rem 0 0',
@@ -321,7 +357,7 @@ export function CreatePayment({ onCreated }: Props) {
               <img
                 src={active.qrPngDataUrl}
                 alt="QR del cobro"
-                style={{ width: '100%', maxWidth: '15rem', height: 'auto', display: 'block' }}
+                style={{ width: '100%', maxWidth: '20rem', height: 'auto', display: 'block' }}
               />
             </div>
             <Button onClick={copyUrl} variant="ghost" size="md">
@@ -358,6 +394,48 @@ export function CreatePayment({ onCreated }: Props) {
     );
   }
 
+  if (showCarta) {
+    return (
+      <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <p style={{ ...kicker, textAlign: 'center' }}>¿Qué cobras?</p>
+        <div style={cartaGridStyle}>
+          {services.map((svc) => (
+            <button
+              key={svc.id}
+              type="button"
+              onClick={() => {
+                setPicked(svc);
+                setAmount((svc.priceCents / 100).toFixed(2));
+                setError(null);
+              }}
+              style={cartaTileStyle}
+            >
+              <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
+              <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
+                {formatEur(svc.priceCents)}
+              </span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setPicked('custom');
+              setAmount('');
+              setError(null);
+            }}
+            style={{ ...cartaTileStyle, borderStyle: 'dashed' }}
+          >
+            <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>Otro importe</span>
+            <span style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>Teclearlo</span>
+          </button>
+        </div>
+        <Button type="button" variant="ghost" onClick={() => switchMode('wallet')}>
+          Cargar wallet del cliente
+        </Button>
+      </Card>
+    );
+  }
+
   const headline =
     mode === 'wallet' ? 'Cargar wallet del cliente'
     : mode === 'pos' ? 'Cobro con datáfono'
@@ -378,7 +456,7 @@ export function CreatePayment({ onCreated }: Props) {
         </button>
         <button
           type="button"
-          onClick={() => setMode('wallet')}
+          onClick={() => switchMode('wallet')}
           style={{ ...toggleBtnStyle, ...(mode === 'wallet' ? toggleBtnActiveStyle : {}) }}
         >
           Wallet
@@ -393,6 +471,24 @@ export function CreatePayment({ onCreated }: Props) {
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {usingService ? (
+          <div style={pickedStyle}>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: '1.125rem' }}>{serviceLabel(picked as ServiceItem)}</p>
+              <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700 }}>
+                {formatEur((picked as ServiceItem).priceCents)}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setPicked(null)}
+              style={{ height: '2.75rem', padding: '0 1rem' }}
+            >
+              Cambiar
+            </Button>
+          </div>
+        ) : (
         <Input
           label="Importe (€)"
           type="text"
@@ -407,6 +503,12 @@ export function CreatePayment({ onCreated }: Props) {
           // La chica toca el input cuando quiera escribir el importe.
           style={{ textAlign: 'center', fontFamily: 'var(--np-font-mono)', height: '5.5rem', fontSize: '2.75rem' }}
         />
+        )}
+        {picked === 'custom' && mode !== 'wallet' && services.length > 0 ? (
+          <Button type="button" variant="ghost" onClick={() => setPicked(null)}>
+            Volver a la carta
+          </Button>
+        ) : null}
 
         {/* Categoría — separa cobros de chica vs cobros del local. La chica
             ve "Mi servicio" + opciones del local; camarero solo ve las del local.
@@ -616,3 +718,47 @@ const amountBig: CSSProperties = {
 function confirmationCode(paymentId: string): string {
   return paymentId.replace(/-/g, '').slice(-3).toUpperCase();
 }
+
+/** Nombre del servicio y, si no lo dice ya el nombre, su duración. */
+function serviceLabel(svc: ServiceItem): string {
+  return svc.durationMin && !svc.name.includes(String(svc.durationMin))
+    ? `${svc.name} · ${svc.durationMin} min`
+    : svc.name;
+}
+
+function formatEur(cents: number): string {
+  return `${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)} €`;
+}
+
+const cartaGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: '0.625rem',
+};
+
+const cartaTileStyle: CSSProperties = {
+  minHeight: '6rem',
+  padding: '0.875rem',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: '0.5rem',
+  textAlign: 'left',
+  background: 'var(--np-surface-2)',
+  border: '2px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-lg)',
+  color: 'var(--np-text)',
+  cursor: 'pointer',
+};
+
+const pickedStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: '1rem',
+  padding: '1rem',
+  border: '2px solid var(--np-accent)',
+  borderRadius: 'var(--np-r-lg)',
+  background: 'var(--np-pill-cyan-bg)',
+};

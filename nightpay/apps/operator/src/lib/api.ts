@@ -314,6 +314,8 @@ export async function createPayment(input: {
   captureMethod?: 'QR' | 'POS_EXTERNAL';
   /** Categoría contable: CHICA_SERVICE | VENUE_BAR | VENUE_ROOM | VENUE_FOOD | EXTRA */
   revenueCategory?: 'CHICA_SERVICE' | 'VENUE_BAR' | 'VENUE_ROOM' | 'VENUE_FOOD' | 'EXTRA';
+  /** Fase 1A — servicio de la carta: el servidor usa su precio y su categoría. */
+  serviceItemId?: string;
 }): Promise<CreatedPayment> {
   const idemKey = `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const body: Record<string, unknown> = {
@@ -339,6 +341,9 @@ export async function createPayment(input: {
   }
   if (input.revenueCategory) {
     body.revenueCategory = input.revenueCategory;
+  }
+  if (input.serviceItemId) {
+    body.serviceItemId = input.serviceItemId;
   }
   const res = await authedFetch('/v1/payments', {
     method: 'POST',
@@ -402,6 +407,22 @@ export interface ZoneOption {
   zoneDisplay: string;
   terminalCount: number;
   activeCount: number;
+}
+
+/** Fase 1A — servicio de la carta del local ("30 min · 100 €"). */
+export interface ServiceItem {
+  id: string;
+  name: string;
+  durationMin: number | null;
+  priceCents: number;
+  category: 'CHICA_SERVICE' | 'VENUE_BAR' | 'VENUE_ROOM' | 'VENUE_FOOD' | 'EXTRA';
+}
+
+/** Lo que quien llama puede cobrar (la chica solo ve sus servicios). */
+export async function fetchServices(): Promise<ServiceItem[]> {
+  const res = await authedFetch('/v1/services');
+  if (!res.ok) throw new Error('Error cargando la carta');
+  return res.json();
 }
 
 export async function fetchZones(): Promise<ZoneOption[]> {
