@@ -36,7 +36,7 @@ const TEXT: Record<PayLanguage, WalletText> = {
     locale: 'es-ES',
     title: `Tu saldo ${BRAND_NAME}`,
     balance: 'Saldo',
-    codeHint: 'Enséñale este código a la chica para pagar con tu saldo',
+    codeHint: 'Enséñale este QR o el código a la chica para pagar con tu saldo',
     saveHint: 'Guarda esta página (Compartir → Añadir a pantalla de inicio) para volver a tu saldo.',
     pendingTitle: 'Te quieren cobrar',
     accept: 'Aceptar',
@@ -56,7 +56,7 @@ const TEXT: Record<PayLanguage, WalletText> = {
     locale: 'en-GB',
     title: `Your ${BRAND_NAME} balance`,
     balance: 'Balance',
-    codeHint: 'Show this code to the staff to pay with your balance',
+    codeHint: 'Show this QR or the code to the staff to pay with your balance',
     saveHint: 'Save this page (Share → Add to Home Screen) to come back to your balance.',
     pendingTitle: 'Payment request',
     accept: 'Accept',
@@ -77,7 +77,21 @@ function jsString(s: string): string {
   return JSON.stringify(s).replace(/</g, '\\u003c');
 }
 
-export function renderWalletPage(token: string, lang: PayLanguage, state: ClientWalletState): string {
+/** Solo un <svg> generado aquí (qrcode): nada de scripts ni otras etiquetas. */
+function safeQrSvg(svg: string | null | undefined): string {
+  if (!svg) return '';
+  const trimmed = svg.trim();
+  if (!trimmed.startsWith('<svg') || /<script|<foreignObject|on\w+=/i.test(trimmed)) return '';
+  return trimmed;
+}
+
+export function renderWalletPage(
+  token: string,
+  lang: PayLanguage,
+  state: ClientWalletState,
+  opts: { codeQrSvg?: string | null } = {},
+): string {
+  const qr = safeQrSvg(opts.codeQrSvg);
   const t = TEXT[lang];
   const base = `/w/${encodeURIComponent(token)}`;
   const config = jsString(JSON.stringify({ base, lang, locale: t.locale, text: t, state }));
@@ -92,6 +106,8 @@ p{margin:0;color:#b4b4ac;line-height:1.45}
 .card{border:2px solid #2a2a2a;border-radius:14px;padding:1rem 1.1rem;display:flex;flex-direction:column;gap:.5rem}
 .kick{font-size:.8rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#8a8a83}
 .balance{font-size:3rem;font-weight:800;letter-spacing:-.03em;line-height:1;color:#f5f5f0}
+.qr{background:#fff;border-radius:12px;padding:10px;width:min(220px,70vw);margin:0 auto}
+.qr svg{display:block;width:100%;height:auto}
 .code{font-size:2.6rem;font-weight:800;letter-spacing:.2em;color:#d4ff3a;text-align:center;font-variant-numeric:tabular-nums}
 .pending{border-color:#d4ff3a;background:#141a06}
 .pending .amount{font-size:2.4rem;font-weight:800;color:#f5f5f0}
@@ -110,7 +126,7 @@ li .minus{color:#f5f5f0;font-weight:700}
 </style></head><body><main>
 <p class="kick" id="title"></p>
 <section class="card"><p id="balanceLabel"></p><div class="balance" id="balance"></div></section>
-<section class="card" id="codeCard"><div class="code" id="code"></div><p id="codeHint" style="text-align:center"></p></section>
+<section class="card" id="codeCard">${qr ? `<div class="qr" aria-hidden="true">${qr}</div>` : ''}<div class="code" id="code"></div><p id="codeHint" style="text-align:center"></p></section>
 <section class="card pending" id="pending" hidden>
   <p class="kick" id="pendingTitle"></p>
   <div class="amount" id="pendingAmount"></div>

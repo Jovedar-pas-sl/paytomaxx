@@ -8,6 +8,7 @@ import {
   type OperatorBalance,
   type OperatorUser,
 } from '@/lib/api';
+import { walletCodeFromQr } from '@/lib/wallet-qr';
 import { ChargeFromBalance } from './ChargeFromBalance';
 import { CreatePayment } from './CreatePayment';
 import { MyPayments } from './MyPayments';
@@ -28,6 +29,8 @@ export function Dashboard({ user, onLogout }: Props) {
   // Deep-link: si la URL tiene ?pos=<paymentId>, el camarero llegó aquí
   // escaneando el QR de un cobro POS — saltamos a la tab POS pre-filtrada.
   const [focusedPosId, setFocusedPosId] = useState<string | null>(null);
+  // QR del saldo escaneado con la cámara del móvil: ?saldo=<código>.
+  const [saldoCode, setSaldoCode] = useState<string | null>(null);
 
   async function reload() {
     try {
@@ -58,6 +61,14 @@ export function Dashboard({ user, onLogout }: Props) {
       url.searchParams.delete('pos');
       window.history.replaceState({}, '', url.toString());
     }
+    const saldo = walletCodeFromQr(params.get('saldo') ?? '');
+    if (saldo) {
+      setSaldoCode(saldo);
+      setTab('wallet');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('saldo');
+      window.history.replaceState({}, '', url.toString());
+    }
   }, [user.role]);
 
   async function logout() {
@@ -86,7 +97,7 @@ export function Dashboard({ user, onLogout }: Props) {
       {tab === 'home' ? (
         <HomeTab user={user} balance={balance} onCobroDone={reload} />
       ) : tab === 'wallet' ? (
-        <ChargeFromBalance onCharged={reload} />
+        <ChargeFromBalance key={saldoCode ?? 'saldo'} onCharged={reload} initialCode={saldoCode} />
       ) : tab === 'pos' ? (
         <PendingPos onConfirmed={reload} focusPaymentId={focusedPosId} />
       ) : tab === 'payments' ? (

@@ -12,11 +12,13 @@ import {
   Res,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import * as QRCode from 'qrcode';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { resolveLanguage } from '../payments/pay-i18n';
 import { WalletChargesService, type ClientWalletState } from './wallet-charges.service';
 import { renderWalletPage } from './wallet-page';
+import { operatorBaseUrl, walletCodeQrContent } from './wallet-rules';
 
 /**
  * Saldo NightPay — páginas del cliente (fuera de /v1). Sin cuenta: el enlace
@@ -48,11 +50,22 @@ export class PublicWalletController {
     @Res() res: FastifyReply,
   ): Promise<void> {
     const state = await this.charges.clientState(token);
+    // El QR lleva solo el código (la chica lo escanea), no el enlace del saldo.
+    const codeQrSvg =
+      state.status === 'ACTIVE'
+        ? await QRCode.toString(
+            walletCodeQrContent(
+              state.code,
+              operatorBaseUrl(process.env.NEXT_PUBLIC_API_URL, process.env.NEXT_PUBLIC_OPERATOR_URL),
+            ),
+            { type: 'svg', errorCorrectionLevel: 'M', margin: 1, color: { dark: '#0b0b0b', light: '#ffffff' } },
+          )
+        : null;
     res
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
       .header('Cache-Control', 'no-store')
-      .send(renderWalletPage(token, resolveLanguage(langQuery, acceptLanguage), state));
+      .send(renderWalletPage(token, resolveLanguage(langQuery, acceptLanguage), state, { codeQrSvg }));
   }
 
   @Public()

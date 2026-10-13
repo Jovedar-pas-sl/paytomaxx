@@ -49,6 +49,15 @@ describe('página del saldo del cliente', () => {
     expect(html.match(/<\/script>/g)).toHaveLength(1);
   });
 
+  it('enseña el QR del código; descarta cualquier cosa que no sea un <svg> limpio', () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h1v1H0z"/></svg>';
+    expect(renderWalletPage('tok-1', 'es', state(), { codeQrSvg: svg })).toContain(`<div class="qr" aria-hidden="true">${svg}</div>`);
+    expect(renderWalletPage('tok-1', 'es', state())).not.toContain('class="qr"');
+    const evil = '<svg onload="alert(1)"></svg>';
+    expect(renderWalletPage('tok-1', 'es', state(), { codeQrSvg: evil })).not.toContain('onload');
+    expect(renderWalletPage('tok-1', 'es', state(), { codeQrSvg: '<img src=x>' })).not.toContain('<img');
+  });
+
   it('el token va codificado en la ruta', () => {
     const html = renderWalletPage('a/b"c', 'es', state());
     expect(html).toContain('/w/a%2Fb%22c');

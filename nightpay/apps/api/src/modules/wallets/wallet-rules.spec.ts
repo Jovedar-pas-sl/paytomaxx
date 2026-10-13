@@ -7,6 +7,8 @@ import {
   newWalletCode,
   normalizeWalletCode,
   sameWalletGroup,
+  operatorBaseUrl,
+  walletCodeQrContent,
 } from './wallet-rules';
 
 const NOW = new Date('2026-10-13T23:00:00Z');
@@ -77,5 +79,21 @@ describe('devolver el saldo a la tarjeta', () => {
 
   it('si las recargas no cubren el saldo → nada (hay que mirarlo a mano)', () => {
     expect(allocateCardRefund([{ paymentId: 'x', availableAmountCents: 1000 }], 2000)).toEqual([]);
+  });
+});
+
+describe('QR del código en la página del saldo', () => {
+  it('lleva a la app de la chica con el código, nunca el enlace del saldo', () => {
+    expect(walletCodeQrContent('k7q-4m2', 'https://operator.paytomaxx.com')).toBe(
+      'https://operator.paytomaxx.com/?saldo=K7Q4M2',
+    );
+    expect(walletCodeQrContent('K7Q4M2', null)).toBe('K7Q4M2');
+  });
+
+  it('la app de la chica: la configurada, o la del API cambiando api. por operator.', () => {
+    expect(operatorBaseUrl('https://api.paytomaxx.com', undefined)).toBe('https://operator.paytomaxx.com');
+    expect(operatorBaseUrl('https://api.paytomaxx.com/', 'https://chicas.oxiopay.com/')).toBe('https://chicas.oxiopay.com');
+    expect(operatorBaseUrl('http://localhost:4100', undefined)).toBeNull();
+    expect(operatorBaseUrl(undefined, undefined)).toBeNull();
   });
 });

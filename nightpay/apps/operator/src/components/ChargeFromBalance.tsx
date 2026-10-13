@@ -12,9 +12,12 @@ import {
   type WalletChargeRequest,
   type WalletLookup,
 } from '@/lib/api';
+import { ScanWalletQr } from './ScanWalletQr';
 
 interface Props {
   onCharged: () => void;
+  /** Código que llegó por el enlace del QR (?saldo=…): se busca solo. */
+  initialCode?: string | null;
 }
 
 type Stage =
@@ -28,13 +31,16 @@ const POLL_MS = 1500;
 
 /**
  * Cobrar del saldo NightPay:
- *   1. El cliente enseña el código de su página de saldo (K7Q-4M2).
+ *   1. El cliente enseña su página de saldo: la chica escanea el QR o teclea
+ *      el código (K7Q-4M2).
  *   2. La chica elige el servicio de la carta (u otro importe).
  *   3. Al cliente le sale el cobro en su móvil y lo acepta; aquí se ve al momento.
  * Nada se descuenta sin que el cliente lo acepte.
  */
-export function ChargeFromBalance({ onCharged }: Props) {
+export function ChargeFromBalance({ onCharged, initialCode = null }: Props) {
   const [stage, setStage] = useState<Stage>({ kind: 'code' });
+  // El código del enlace solo se usa la primera vez.
+  const [startCode, setStartCode] = useState<string | null>(initialCode);
   const [services, setServices] = useState<ServiceItem[]>([]);
 
   useEffect(() => {
@@ -45,7 +51,15 @@ export function ChargeFromBalance({ onCharged }: Props) {
 
   switch (stage.kind) {
     case 'code':
-      return <CodeStep onFound={(wallet) => setStage({ kind: 'pick', wallet })} />;
+      return (
+        <CodeStep
+          initialCode={startCode}
+          onFound={(wallet) => {
+            setStartCode(null);
+            setStage({ kind: 'pick', wallet });
+          }}
+        />
+      );
     case 'pick':
       return (
         <PickStep
@@ -77,17 +91,24 @@ export function ChargeFromBalance({ onCharged }: Props) {
   }
 }
 
-function CodeStep({ onFound }: { onFound: (wallet: WalletLookup) => void }) {
-  const [code, setCode] = useState('');
+function CodeStep({
+  initialCode,
+  onFound,
+}: {
+  initialCode: string | null;
+  onFound: (wallet: WalletLookup) => void;
+}) {
+  const [code, setCode] = useState(initialCode ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function find(value: string) {
+    setCode(value);
     setBusy(true);
     setError(null);
     try {
-      onFound(await lookupWalletCode(code));
+      onFound(await lookupWalletCode(value));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -95,10 +116,39 @@ function CodeStep({ onFound }: { onFound: (wallet: WalletLookup) => void }) {
     }
   }
 
+  // Llegó por el QR escaneado con la cámara del móvil: se busca directamente.
+  useEffect(() => {
+    if (initialCode) void find(initialCode);
+    // Solo al abrir la pantalla con ese código.
+  }, []);
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    void find(code);
+  }
+
+  if (scanning) {
+    return (
+      <Card style={cardStyle}>
+        <p style={{ ...kicker, textAlign: 'center' }}>Escanear el QR del cliente</p>
+        <ScanWalletQr
+          onCode={(scanned) => {
+            setScanning(false);
+            void find(scanned);
+          }}
+          onCancel={() => setScanning(false)}
+        />
+      </Card>
+    );
+  }
+
   return (
     <Card style={cardStyle}>
       <p style={{ ...kicker, textAlign: 'center' }}>Cobrar del saldo</p>
-      <p style={hintStyle}>Pídele al cliente el código que sale en su página de saldo.</p>
+      <Button type="button" size="lg" onClick={() => setScanning(true)} disabled={busy}>
+        Escanear QR del cliente
+      </Button>
+      <p style={{ ...hintStyle, textAlign: 'center' }}>o teclea el código que sale en su página de saldo</p>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         <Input
           aria-label="Código del cliente"
@@ -108,12 +158,11 @@ function CodeStep({ onFound }: { onFound: (wallet: WalletLookup) => void }) {
           autoCapitalize="characters"
           autoComplete="off"
           spellCheck={false}
-          autoFocus
           disabled={busy}
           style={codeInputStyle}
         />
         {error ? <p style={errorStyle}>{error}</p> : null}
-        <Button type="submit" size="lg" loading={busy} disabled={code.length !== CODE_LENGTH}>
+        <Button type="submit" variant="ghost" loading={busy} disabled={code.length !== CODE_LENGTH}>
           Buscar saldo
         </Button>
       </form>

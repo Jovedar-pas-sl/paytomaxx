@@ -32,6 +32,28 @@ export function formatWalletCode(code: string): string {
 }
 
 /**
+ * La app de la chica. Con NEXT_PUBLIC_OPERATOR_URL, esa; si no, la del API
+ * cambiando "api." por "operator." (como el QR de los cobros con datáfono).
+ */
+export function operatorBaseUrl(apiBase: string | undefined, operatorBase: string | undefined): string | null {
+  const explicit = operatorBase?.trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+  const api = apiBase?.trim().replace(/\/+$/, '');
+  if (!api || !/^https?:\/\/api\./i.test(api)) return null;
+  return api.replace(/^(https?:\/\/)api\./i, '$1operator.');
+}
+
+/**
+ * Lo que lleva el QR de la página del saldo: SOLO el código del cliente (el
+ * enlace del saldo es su credencial y no sale nunca). Como enlace a la app de
+ * la chica, para que también valga la cámara normal del móvil.
+ */
+export function walletCodeQrContent(code: string, operatorBase: string | null): string {
+  const normalized = normalizeWalletCode(code);
+  return operatorBase ? `${operatorBase}/?saldo=${normalized}` : normalized;
+}
+
+/**
  * ¿Se puede gastar en este local un saldo cargado en otro? Sí si es el mismo
  * local o si los dos están en el mismo grupo (mismo dueño, mismo comercio BBVA).
  */
