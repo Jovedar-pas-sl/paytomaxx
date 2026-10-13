@@ -450,6 +450,38 @@ export async function resolveStuckPayment(
   return res.json();
 }
 
+/** Fase 1C — devolución ya hecha en el portal de BBVA (no mueve dinero). */
+export interface BankRefundInput {
+  amountCents: number;
+  reason: string;
+  bankReference?: string;
+  /** AAAA-MM-DD */
+  refundedOn?: string;
+  confirmDuplicate?: boolean;
+}
+
+export async function registerBankRefund(
+  paymentId: string,
+  input: BankRefundInput,
+): Promise<{ id: string; status: string }> {
+  const res = await authedFetch(`/v1/payments/${paymentId}/refunds/bank`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+/** Fase 1C — informes para la gestoría (CSV). */
+export type ExportKind = 'cobros' | 'devoluciones' | 'liquidaciones' | 'resumen';
+
+export async function downloadExport(kind: ExportKind, from: string, to: string): Promise<Blob> {
+  const qs = new URLSearchParams({ from, to }).toString();
+  const res = await authedFetch(`/v1/admin/export/${kind}?${qs}`);
+  if (!res.ok) throw new Error(await readError(res));
+  return res.blob();
+}
+
 // ─── Operadoras ────────────────────────────────────────────────────
 
 export async function fetchOperators(): Promise<Operator[]> {

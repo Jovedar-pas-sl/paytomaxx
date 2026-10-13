@@ -409,6 +409,9 @@ model Refund {
   requestedBy      String       @db.Uuid
   status           RefundStatus @default(PENDING)
   providerRefundId String?
+  // Fase 1C: hecha en el portal del banco y apuntada a mano en el panel.
+  registeredManually Boolean     @default(false)
+  bankRefundedAt     DateTime?   @db.Timestamptz
   createdAt        DateTime     @default(now()) @db.Timestamptz
 
   payment   Payment           @relation(fields: [paymentId], references: [id])

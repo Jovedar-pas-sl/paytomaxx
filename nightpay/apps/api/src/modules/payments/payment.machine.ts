@@ -155,6 +155,14 @@ export function applyEvent(
   context: PaymentContext,
   event: PaymentEvent,
 ): { nextState: PaymentMachineState; nextContext: PaymentContext } | null {
+  // Nunca se devuelve más de lo que queda por devolver (antes se recortaba a 0
+  // en silencio: dos devoluciones a la vez podían sumar más que lo cobrado).
+  if (
+    event.type === 'REFUND_PARTIAL' &&
+    (event.amountCents <= 0 || event.amountCents > context.availableAmountCents)
+  ) {
+    return null;
+  }
   const actor: AnyActorRef = createActor(paymentMachine, {
     snapshot: paymentMachine.resolveState({ value: currentState, context }),
   });

@@ -22,8 +22,10 @@ import {
   type PaymentRow,
   type User,
 } from '@/lib/api';
+import { BankRefundModal } from './BankRefundModal';
 import { CartaPanel } from './CartaPanel';
 import { OperatorsPanel } from './OperatorsPanel';
+import { ReportsPanel } from './ReportsPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { TerminalsPanel } from './TerminalsPanel';
 import { TreasuryPanel } from './TreasuryPanel';
@@ -36,7 +38,16 @@ interface Props {
   onLogout: () => void;
 }
 
-type TabKey = 'payments' | 'operators' | 'carta' | 'wallets' | 'treasury' | 'terminals' | 'settings' | 'venues';
+type TabKey =
+  | 'payments'
+  | 'operators'
+  | 'carta'
+  | 'reports'
+  | 'wallets'
+  | 'treasury'
+  | 'terminals'
+  | 'settings'
+  | 'venues';
 
 export function Dashboard({ user, onLogout }: Props) {
   const [tab, setTab] = useState<TabKey>('payments');
@@ -127,6 +138,9 @@ export function Dashboard({ user, onLogout }: Props) {
         <TabButton active={tab === 'carta'} onClick={() => setTab('carta')}>
           Carta
         </TabButton>
+        <TabButton active={tab === 'reports'} onClick={() => setTab('reports')}>
+          Informes
+        </TabButton>
         <TabButton active={tab === 'wallets'} onClick={() => setTab('wallets')}>
           Wallets
         </TabButton>
@@ -150,6 +164,8 @@ export function Dashboard({ user, onLogout }: Props) {
         <OperatorsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'carta' ? (
         <CartaPanel />
+      ) : tab === 'reports' ? (
+        <ReportsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'wallets' ? (
         <WalletsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'treasury' ? (
@@ -233,10 +249,12 @@ export function Dashboard({ user, onLogout }: Props) {
               </thead>
               <tbody>
                 {payments.map((p) => {
+                  // Redsys: se devuelve en el portal de BBVA y se apunta aquí (solo el dueño).
+                  const bankRefund = p.provider === 'REDSYS';
                   const canRefund =
                     (p.status === 'AUTHORIZED' || p.status === 'PARTIALLY_REFUNDED') &&
                     p.availableAmountCents > 0 &&
-                    (user.role === 'OWNER' || user.role === 'MANAGER');
+                    (user.role === 'OWNER' || (!bankRefund && user.role === 'MANAGER'));
                   const canResolve = user.role === 'OWNER' && isStuck(p);
                   return (
                     <tr key={p.id}>
@@ -260,7 +278,7 @@ export function Dashboard({ user, onLogout }: Props) {
                         ) : null}
                         {canRefund ? (
                           <Button variant="ghost" onClick={() => setRefundFor(p)} size="md" style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}>
-                            Reembolsar
+                            {bankRefund ? 'Devolución BBVA' : 'Reembolsar'}
                           </Button>
                         ) : null}
                       </td>
@@ -289,9 +307,18 @@ export function Dashboard({ user, onLogout }: Props) {
         }}
       />
 
+      <BankRefundModal
+        payment={refundFor?.provider === 'REDSYS' ? refundFor : null}
+        onClose={() => setRefundFor(null)}
+        onDone={() => {
+          setRefundFor(null);
+          reload();
+        }}
+      />
+
       <RefundModal
-        open={Boolean(refundFor)}
-        payment={refundFor}
+        open={Boolean(refundFor) && refundFor?.provider !== 'REDSYS'}
+        payment={refundFor?.provider === 'REDSYS' ? null : refundFor}
         onClose={() => setRefundFor(null)}
         onDone={() => {
           setRefundFor(null);

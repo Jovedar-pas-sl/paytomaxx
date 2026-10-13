@@ -1,3 +1,4 @@
+import { cardBrandLabel } from './card-brand';
 import type { PayDevice } from './pay-device';
 import { PAY_TEXT, type PayErrorKey, type PayLanguage, type PayText } from './pay-i18n';
 import {
@@ -318,16 +319,6 @@ export function renderResultView(view: PayResultView | null, lang: PayLanguage, 
 
 // ─── Justificante ───────────────────────────────────────────────────────
 
-/** Ds_Card_Brand de Redsys → marca. Desconocida: no se enseña. */
-const CARD_BRAND: Record<string, string> = {
-  '1': 'Visa',
-  '2': 'Mastercard',
-  '6': 'Diners',
-  '8': 'American Express',
-  '9': 'JCB',
-  '22': 'UnionPay',
-};
-
 export function renderReceiptPage(
   r: PayReceiptView,
   ctx: { lang: PayLanguage; statementName: string | null; backHref: string },
@@ -335,7 +326,7 @@ export function renderReceiptPage(
   const t = PAY_TEXT[ctx.lang];
   const rt = t.receipt;
   const fmt = (c: number): string => formatAmount(c, r.currency, t);
-  const brand = r.cardBrand ? CARD_BRAND[r.cardBrand] ?? null : null;
+  const brand = cardBrandLabel(r.cardBrand);
   const method = [r.payMethod === 'wallet' ? rt.wallet : r.payMethod === 'card' ? rt.card : null, brand]
     .filter(Boolean)
     .join(' · ');

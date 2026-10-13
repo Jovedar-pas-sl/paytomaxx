@@ -101,6 +101,18 @@ describe('paymentMachine', () => {
     expect(r?.nextState).toBe('REFUNDED');
   });
 
+  it('devolución mayor que lo que queda → rechazada, no se recorta a 0 (Fase 1C)', () => {
+    expect(
+      applyEvent('PARTIALLY_REFUNDED', baseCtx({ availableAmountCents: 1000 }), {
+        type: 'REFUND_PARTIAL',
+        amountCents: 1001,
+      }),
+    ).toBeNull();
+    expect(
+      applyEvent('AUTHORIZED', baseCtx({ availableAmountCents: 1000 }), { type: 'REFUND_PARTIAL', amountCents: 0 }),
+    ).toBeNull();
+  });
+
   it('PARTIALLY_REFUNDED + REFUND_PARTIAL que vacia el saldo → REFUNDED', () => {
     const r = applyEvent('PARTIALLY_REFUNDED', baseCtx({ availableAmountCents: 1000 }), {
       type: 'REFUND_PARTIAL',

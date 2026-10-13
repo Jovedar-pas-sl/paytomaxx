@@ -15,7 +15,8 @@ interface PaymentFixture {
   status: 'AUTHORIZED' | 'PARTIALLY_REFUNDED' | 'CREATED' | 'FAILED' | 'REFUNDED';
   availableAmountCents: number;
   providerTxId: string | null;
-  provider: 'WIPAY' | 'PEANPE' | null;
+  provider: 'WIPAY' | 'PEANPE' | 'REDSYS' | null;
+  walletId?: string | null;
 }
 
 interface UserFixture {
@@ -29,6 +30,8 @@ interface MakeOptions {
   totpValid?: boolean;
   gatewayResult?: { providerRefundId: string; status: 'SUCCEEDED' | 'FAILED' };
   gatewayThrows?: Error;
+  // Fase 1C: devoluciones iguales ya registradas en los últimos 7 días.
+  similarRefunds?: number;
 }
 
 function makeService(opts: MakeOptions = {}) {
@@ -51,8 +54,14 @@ function makeService(opts: MakeOptions = {}) {
         id: where.id,
         ...data,
       })),
+      count: vi.fn().mockResolvedValue(opts.similarRefunds ?? 0),
     },
   };
+  // Fase 1C: la reserva de la devolución va en una transacción con candado.
+  Object.assign(prismaMock, {
+    $queryRaw: vi.fn().mockResolvedValue([{ ok: 1 }]),
+    $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prismaMock)),
+  });
 
   const clsMock = {
     get: vi.fn().mockReturnValue({ traceId: 'trace-x', userId: 'u-1', tenantId: 't-1' }),
@@ -70,6 +79,7 @@ function makeService(opts: MakeOptions = {}) {
 
   const paymentsMock = {
     transition: vi.fn().mockResolvedValue(undefined),
+    applyRefundToEarning: vi.fn().mockResolvedValue(undefined),
   };
 
   const totpMock = {
@@ -316,5 +326,121 @@ describe('RefundsService.refund — happy path', () => {
     );
     const result = await svc.refund({ paymentId: 'pay-1', amountCents: 500 }, manager);
     expect(result.status).toBe('SUCCEEDED');
+  });
+});
+
+describe('RefundsService.registerBankRefund — devolución hecha en el portal de BBVA (Fase 1C)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const owner: { userId: string; role: Role; tenantId: string } = {
+    userId: 'u-owner',
+    role: 'OWNER',
+    tenantId: 't-1',
+  };
+  const redsysPayment: PaymentFixture = { ...okPayment, provider: 'REDSYS', availableAmountCents: 10_500 };
+
+  it('apunta la devolución sin llamar al banco, ajusta el cobro y descuenta a la chica', async () => {
+    const { svc, prismaMock, paymentsMock, adapterMock, auditMock } = makeService({ payment: redsysPayment });
+    const result = await svc.registerBankRefund(
+      {
+        paymentId: 'pay-1',
+        amountCents: 10_500,
+        reason: 'Cliente no reconoce el cargo',
+        bankReference: 'DEV-778812',
+        refundedAt: new Date('2026-10-12T12:00:00Z'),
+      },
+      owner,
+    );
+
+    expect(adapterMock.refund).not.toHaveBeenCalled();
+    expect(prismaMock.refund.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        amountCents: 10_500,
+        status: 'PENDING',
+        providerRefundId: 'DEV-778812',
+        registeredManually: true,
+        bankRefundedAt: new Date('2026-10-12T12:00:00Z'),
+        requestedBy: 'u-owner',
+      }),
+    });
+    expect(paymentsMock.transition).toHaveBeenCalledWith(
+      'pay-1',
+      { type: 'REFUND_PARTIAL', amountCents: 10_500 },
+      't-1',
+    );
+    expect(prismaMock.refund.update).toHaveBeenCalledWith({ where: { id: 'refund-1' }, data: { status: 'SUCCEEDED' } });
+    expect(paymentsMock.applyRefundToEarning).toHaveBeenCalledWith('pay-1', 'refund-1', 10_500);
+    expect(auditMock.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'refund.bank_registered' }));
+    expect(result).toMatchObject({ status: 'SUCCEEDED', providerRefundId: 'DEV-778812' });
+  });
+
+  it('solo el dueño', async () => {
+    const { svc } = makeService({ payment: redsysPayment });
+    await expect(
+      svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 100, reason: 'motivo' }, manager),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('cobro de otro local → no existe', async () => {
+    const { svc } = makeService({ payment: { ...redsysPayment, tenantId: 't-otro' } });
+    await expect(
+      svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 100, reason: 'motivo' }, owner),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('no deja devolver más de lo que queda', async () => {
+    const { svc, prismaMock } = makeService({ payment: redsysPayment });
+    await expect(
+      svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 10_501, reason: 'motivo' }, owner),
+    ).rejects.toThrow(BadRequestException);
+    expect(prismaMock.refund.create).not.toHaveBeenCalled();
+  });
+
+  it('cobro sin pagar → no', async () => {
+    const { svc } = makeService({ payment: { ...redsysPayment, status: 'FAILED' } });
+    await expect(
+      svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 100, reason: 'motivo' }, owner),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('recarga de wallet → se devuelve desde Wallets (si no, el saldo seguiría gastable)', async () => {
+    const { svc } = makeService({ payment: { ...redsysPayment, walletId: 'w-1' } });
+    await expect(
+      svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 100, reason: 'motivo' }, owner),
+    ).rejects.toThrow(/Wallets/);
+  });
+
+  it('misma devolución ya registrada esta semana → pide confirmar; confirmada, se apunta', async () => {
+    const { svc, prismaMock } = makeService({ payment: redsysPayment, similarRefunds: 1 });
+    await expect(
+      svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 500, reason: 'motivo' }, owner),
+    ).rejects.toThrow(/confírmalo/);
+    expect(prismaMock.refund.create).not.toHaveBeenCalled();
+
+    await svc.registerBankRefund(
+      { paymentId: 'pay-1', amountCents: 500, reason: 'motivo', confirmDuplicate: true },
+      owner,
+    );
+    expect(prismaMock.refund.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('el cobro ya no admite la devolución (otra a la vez) → FAILED, 409 y sin descontar a la chica', async () => {
+    const { svc, prismaMock, paymentsMock } = makeService({ payment: redsysPayment });
+    paymentsMock.transition.mockRejectedValueOnce(new InvalidTransitionError('PARTIALLY_REFUNDED', 'REFUND_PARTIAL'));
+    await expect(
+      svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 5000, reason: 'motivo' }, owner),
+    ).rejects.toThrow(ConflictException);
+    expect(prismaMock.refund.update).toHaveBeenCalledWith({ where: { id: 'refund-1' }, data: { status: 'FAILED' } });
+    expect(paymentsMock.applyRefundToEarning).not.toHaveBeenCalled();
+  });
+
+  it('fecha futura → no', async () => {
+    const { svc } = makeService({ payment: redsysPayment });
+    await expect(
+      svc.registerBankRefund(
+        { paymentId: 'pay-1', amountCents: 100, reason: 'motivo', refundedAt: new Date(Date.now() + 86_400_000) },
+        owner,
+      ),
+    ).rejects.toThrow(BadRequestException);
   });
 });
