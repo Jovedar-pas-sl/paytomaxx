@@ -117,7 +117,14 @@ export type OperatorPublicView = z.infer<typeof OperatorPublicViewSchema>;
 
 /** Saldo agregado de la operadora — puede ser negativo si refunds > earnings. */
 export const OperatorBalanceSchema = z.object({
+  /** Todo lo no pagado, menos la deuda por devoluciones. */
   pendingCents: z.number().int(),
+  /** Parte de pendingCents que ya entra en el próximo pago (pasados los días de espera). */
+  availableCents: z.number().int(),
+  /** Comisiones recientes aún en espera. */
+  heldCents: z.number().int().nonnegative(),
+  /** Devoluciones llegadas después de un pago, a descontar del siguiente. */
+  debtCents: z.number().int().nonnegative(),
   paidCents: z.number().int().nonnegative(),
   lifetimeGrossCents: z.number().int().nonnegative(),
   count: z.number().int().nonnegative(),

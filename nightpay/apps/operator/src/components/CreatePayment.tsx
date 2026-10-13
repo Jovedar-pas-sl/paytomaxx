@@ -48,10 +48,11 @@ export function CreatePayment({ onCreated }: Props) {
   const [walletIdentifier, setWalletIdentifier] = useState('');
   // Rol del usuario logueado — determina qué categorías puede usar.
   const role = getUser()?.role ?? 'OPERATOR';
-  // Categorías permitidas: OPERATOR ve todas; WAITER no ve "Mi servicio".
+  // Categorías permitidas: la chica solo cobra sus servicios (el servidor lo
+  // exige); barra, habitación y comida las cobra el camarero.
   const categoryOptions: RevCat[] =
     role === 'OPERATOR'
-      ? ['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'EXTRA']
+      ? ['CHICA_SERVICE']
       : ['VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'EXTRA'];
   // Default sensato por rol.
   const [revCategory, setRevCategory] = useState<RevCat>(
@@ -330,9 +331,18 @@ export function CreatePayment({ onCreated }: Props) {
         )}
 
         {status === 'AUTHORIZED' ? (
-          <Button onClick={reset} size="lg">
-            ✓ Cobrado — nuevo
-          </Button>
+          <>
+            <p style={{ ...kicker, textAlign: 'center' }}>
+              Código de confirmación{' '}
+              <strong className="np-num" style={{ fontSize: '1.5rem', color: 'var(--np-text)', letterSpacing: '0.2em' }}>
+                {confirmationCode(active.id)}
+              </strong>
+            </p>
+            <p style={{ ...hintStyle, textAlign: 'center' }}>Debe coincidir con el del móvil del cliente.</p>
+            <Button onClick={reset} size="lg">
+              ✓ Cobrado — nuevo
+            </Button>
+          </>
         ) : canCancel ? (
           <Button onClick={handleCancel} variant="danger" size="md" loading={submitting}>
             Cancelar cobro
@@ -401,6 +411,7 @@ export function CreatePayment({ onCreated }: Props) {
         {/* Categoría — separa cobros de chica vs cobros del local. La chica
             ve "Mi servicio" + opciones del local; camarero solo ve las del local.
             Botones de un toque en vez de desplegable. */}
+        {categoryOptions.length > 1 ? (
         <fieldset style={{ margin: 0, padding: 0, border: 'none' }}>
           <legend style={fieldLabel}>¿Qué cobras?</legend>
           <div style={catGridStyle}>
@@ -424,6 +435,7 @@ export function CreatePayment({ onCreated }: Props) {
                 : 'Va al local.'}
           </p>
         </fieldset>
+        ) : null}
 
         {mode === 'wallet' ? (
           <>
@@ -599,3 +611,8 @@ const amountBig: CSSProperties = {
   letterSpacing: '-0.03em',
   fontVariantNumeric: 'tabular-nums',
 };
+
+/** Mismo código que ve el cliente en su pantalla "Pagado" (últimos 3 del id). */
+function confirmationCode(paymentId: string): string {
+  return paymentId.replace(/-/g, '').slice(-3).toUpperCase();
+}

@@ -70,3 +70,23 @@ export function inferRevenueCategory(args: {
   if (args.creatorRole === 'OPERATOR') return 'CHICA_SERVICE';
   return 'EXTRA';
 }
+
+/**
+ * Categoría de un cobro nuevo según quién lo crea (Fase 0):
+ *  - Recarga de wallet: siempre EXTRA (la recarga no genera comisión; el consumo sí).
+ *  - OPERATOR: solo CHICA_SERVICE. Barra, habitación y comida las cobra el
+ *    camarero desde la caja; si no, la chica se llevaría su % de ventas del local.
+ *  - Resto de roles: la pedida, o la inferida.
+ * Devuelve null si la chica pide otra categoría (el servicio responde 400).
+ */
+export function resolveRevenueCategory(args: {
+  isWalletTopUp: boolean;
+  creatorRole: string | undefined | null;
+  requested: RevenueCategory | undefined | null;
+}): RevenueCategory | null {
+  if (args.isWalletTopUp) return 'EXTRA';
+  if (args.creatorRole === 'OPERATOR') {
+    return !args.requested || args.requested === 'CHICA_SERVICE' ? 'CHICA_SERVICE' : null;
+  }
+  return args.requested ?? inferRevenueCategory({ hasWalletId: false, creatorRole: args.creatorRole });
+}

@@ -367,61 +367,84 @@ export class RedsysAdapter implements GatewayAdapter {
     }
   }
 
-  mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
-    // Body tal cual lo mandó Redsys + `_paymentId`, que el controller añade
-    // tras resolver Ds_Order (nuestro providerTxId) → payment UUID.
-    const p = parsedPayload as {
-      Ds_MerchantParameters?: string;
-      Ds_SignatureVersion?: string;
-      Ds_Signature?: string;
-      _paymentId?: string;
-    };
-    if (!p.Ds_MerchantParameters || !p.Ds_SignatureVersion || !p.Ds_Signature) {
+  /**
+   * Verifica la firma de un aviso Redsys (body ya parseado) y extrae lo que
+   * NightPay guarda. null si falta algo o la firma no cuadra.
+   */
+  parseNotification(body: Record<string, unknown>): RedsysNotification | null {
+    const sigVer = body.Ds_SignatureVersion;
+    const params = body.Ds_MerchantParameters;
+    const sig = body.Ds_Signature;
+    if (typeof sigVer !== 'string' || typeof params !== 'string' || typeof sig !== 'string') {
       return null;
     }
-
-    let parsed;
+    let parsed: Record<string, unknown>;
     try {
-      const api = this.getApi();
-      parsed = api.processRestNotification({
-        Ds_SignatureVersion: p.Ds_SignatureVersion,
-        Ds_MerchantParameters: p.Ds_MerchantParameters,
-        Ds_Signature: p.Ds_Signature,
-      });
+      parsed = this.getApi().processRestNotification({
+        Ds_SignatureVersion: sigVer,
+        Ds_MerchantParameters: params,
+        Ds_Signature: sig,
+      }) as unknown as Record<string, unknown>;
     } catch {
       return null;
     }
+    const order = str(parsed.Ds_Order);
+    if (!order) return null;
 
-    if (!parsed.Ds_Order) return null;
+    const response = str(parsed.Ds_Response) ?? '';
+    const transactionType = str(parsed.Ds_TransactionType) ?? '0';
+    const responseNum = Number(response);
+    // Ds_Response 0-99 = OK; >= 100 = denegación/error. Solo cuenta la
+    // autorización (type 0): devoluciones/anulaciones del mismo pedido traen
+    // 0900/0400, que están en el rango "OK" pero no son un cobro.
+    const approved =
+      response !== '' &&
+      Number.isFinite(responseNum) &&
+      responseNum >= 0 &&
+      responseNum <= 99 &&
+      transactionType === '0';
+    const cardNumber = str(parsed.Ds_Card_Number);
+    return {
+      order,
+      response,
+      transactionType,
+      approved,
+      payMethodCode: str(parsed.Ds_ProcessedPayMethod),
+      cardBrand: str(parsed.Ds_Card_Brand),
+      cardType: str(parsed.Ds_Card_Type),
+      cardCountry: str(parsed.Ds_Card_Country),
+      cardLast4: cardNumber ? cardNumber.slice(-4) : null,
+      authCode: str(parsed.Ds_AuthorisationCode),
+      secure3ds: str(parsed.Ds_SecurePayment) === null ? null : str(parsed.Ds_SecurePayment) === '1',
+    };
+  }
 
-    // Ds_Response 0-99 = OK; >= 100 = denegación/error.
-    const dsResponse = (parsed.Ds_Response ?? '').toString().trim();
-    const processed = parsed as unknown as Record<string, unknown>;
+  mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
+    // Body tal cual lo mandó Redsys + `_paymentId`, que el controller añade
+    // tras resolver Ds_Order (nuestro providerTxId) → payment UUID.
+    const p = parsedPayload as Record<string, unknown>;
+    const n = this.parseNotification(p);
+    if (!n) return null;
+
     this.logger.log(
-      `Redsys aviso: order=${parsed.Ds_Order} response=${dsResponse} payMethod=${String(processed.Ds_ProcessedPayMethod ?? '-')} cardBrand=${String(processed.Ds_Card_Brand ?? '-')}`,
+      `Redsys aviso: order=${n.order} response=${n.response} payMethod=${n.payMethodCode ?? '-'} cardBrand=${n.cardBrand ?? '-'}`,
     );
-    if (dsResponse === '') return null;
+    if (n.response === '') return null;
 
-    if (!p._paymentId) {
-      this.logger.warn(`Redsys aviso sin payment asociado (order=${parsed.Ds_Order}) — ignorado`);
+    const paymentId = typeof p._paymentId === 'string' ? p._paymentId : '';
+    if (!paymentId) {
+      this.logger.warn(`Redsys aviso sin payment asociado (order=${n.order}) — ignorado`);
       return null;
     }
-    // Solo avisos de la autorización (type 0). Devoluciones/anulaciones del
-    // mismo pedido traen Ds_Response 0900/0400 (rango "OK") y no son un cobro.
-    const txType = String(processed.Ds_TransactionType ?? '0').trim();
-    if (txType !== '0') return null;
-
-    const responseNum = Number(dsResponse);
-    if (Number.isFinite(responseNum) && responseNum >= 0 && responseNum <= 99) {
+    if (n.approved) {
       return {
-        paymentId: p._paymentId,
-        event: { type: 'AUTHORIZED', providerTxId: parsed.Ds_Order, provider: 'REDSYS' },
+        paymentId,
+        event: { type: 'AUTHORIZED', providerTxId: n.order, provider: 'REDSYS' },
       };
     }
     // Denegación: NO marcamos FAILED. FAILED es estado final y Redsys permite
-    // reintentar con el mismo pedido; si el OK llegara después, el cobro
-    // quedaría perdido. El orphan-reconcile consulta el estado definitivo
-    // (TransactionType 44) y decide.
+    // reintentar; el intento queda DENIED (lo anota el controller) y el
+    // cliente puede probar otra tarjeta con el mismo QR.
     return null;
   }
 
@@ -643,6 +666,28 @@ export function checkRedsysReplayWindow(
  * pidió `DS_MERCHANT_IDENTIFIER=REQUIRED` y BBVA tiene el servicio activo.
  * Se persiste en payment.tokenizationData para reuso en cobros recurrentes MIT.
  */
+/** Lo que NightPay extrae de un aviso Redsys verificado. */
+export interface RedsysNotification {
+  order: string;
+  response: string;
+  transactionType: string;
+  /** Ds_Response 0-99 y TransactionType 0 (autorización). */
+  approved: boolean;
+  payMethodCode: string | null;
+  cardBrand: string | null;
+  cardType: string | null;
+  cardCountry: string | null;
+  cardLast4: string | null;
+  authCode: string | null;
+  secure3ds: boolean | null;
+}
+
+function str(v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  return s === '' ? null : s;
+}
+
 export interface TokenizationData {
   identifier: string; // token reusable (sin PAN)
   expiry: string; // YYMM

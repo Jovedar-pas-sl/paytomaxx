@@ -13,6 +13,12 @@ interface MakeOptions {
   peanpeNotifyAttempts?: number;
   // Redsys: pago encontrado por (provider, providerTxId = Ds_Order).
   redsysPayment?: { id: string; tenantId: string } | null;
+  // Redsys: intento encontrado en payment_attempts (Fase 0).
+  redsysAttempt?: { paymentId: string; tenantId: string } | null;
+  // Redsys: lo que devuelve parseNotification del aviso.
+  redsysNotification?: Record<string, unknown> | null;
+  // Redsys: otros intentos del mismo cobro ya aprobados (doble cobro).
+  otherApprovedAttempts?: number;
 }
 
 function makeController(opts: MakeOptions = {}) {
@@ -45,6 +51,23 @@ function makeController(opts: MakeOptions = {}) {
       },
     ),
     extractTokenizationData: vi.fn().mockReturnValue(null),
+    parseNotification: vi.fn().mockReturnValue(
+      opts.redsysNotification === undefined
+        ? {
+            order: 'a1b2c3d4e5f6',
+            response: '0000',
+            transactionType: '0',
+            approved: true,
+            payMethodCode: '78',
+            cardBrand: '1',
+            cardType: 'D',
+            cardCountry: '724',
+            cardLast4: '0003',
+            authCode: '123456',
+            secure3ds: true,
+          }
+        : opts.redsysNotification,
+    ),
   };
 
   const peanpe = {
@@ -55,7 +78,14 @@ function makeController(opts: MakeOptions = {}) {
   };
 
   const paymentTx = {
+    paymentAttempt: {
+      findUnique: vi.fn().mockResolvedValue(opts.redsysAttempt ?? null),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      count: vi.fn().mockResolvedValue(opts.otherApprovedAttempts ?? 0),
+    },
+    paymentEvent: { create: vi.fn().mockResolvedValue({}) },
     payment: {
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       findFirst: vi
         .fn()
         .mockResolvedValue(
@@ -82,6 +112,7 @@ function makeController(opts: MakeOptions = {}) {
 
   const metrics = {
     webhooksReceived: { inc: vi.fn() },
+    duplicateCharges: { inc: vi.fn() },
   };
 
   const config = {
@@ -354,5 +385,86 @@ describe('WebhooksController.receiveRedsys — resolución Ds_Order → payment'
       UnauthorizedException,
     );
     expect(paymentTx.payment.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('resuelve el pago por su intento (payment_attempts) aunque no sea el último', async () => {
+    const { controller, prisma, paymentTx } = makeController({
+      redsysAttempt: { paymentId: 'pay-from-attempt', tenantId: 'tenant-2' },
+    });
+
+    await controller.receiveRedsys(fakeRedsysRequest());
+
+    expect(paymentTx.payment.findFirst).not.toHaveBeenCalled();
+    const data = prisma.webhookDelivery.create.mock.calls[0]![0].data as {
+      tenantId: string;
+      rawBody: Buffer;
+    };
+    expect(data.tenantId).toBe('tenant-2');
+    expect(data.rawBody.toString('utf8')).toContain('_paymentId=pay-from-attempt');
+  });
+
+  it('aviso aprobado: intento APPROVED y guarda método, tarjeta y autorización', async () => {
+    const { controller, paymentTx } = makeController();
+
+    await controller.receiveRedsys(fakeRedsysRequest());
+
+    expect(paymentTx.paymentAttempt.updateMany).toHaveBeenCalledWith({
+      where: { provider: 'REDSYS', providerTxId: 'a1b2c3d4e5f6' },
+      data: { status: 'APPROVED', responseCode: '0000' },
+    });
+    const update = paymentTx.payment.updateMany.mock.calls[0]![0] as {
+      where: Record<string, unknown>;
+      data: Record<string, unknown>;
+    };
+    expect(update.where).toEqual({ id: 'pay-uuid-1', authorizedAt: null });
+    expect(update.data).toMatchObject({
+      payMethodCode: '78',
+      cardLast4: '0003',
+      cardCountry: '724',
+      authCode: '123456',
+      secure3ds: true,
+    });
+  });
+
+  it('aviso denegado: intento DENIED y no toca el pago', async () => {
+    const { controller, paymentTx } = makeController({
+      redsysNotification: {
+        order: 'a1b2c3d4e5f6',
+        response: '0190',
+        transactionType: '0',
+        approved: false,
+      },
+    });
+
+    await controller.receiveRedsys(fakeRedsysRequest());
+
+    expect(paymentTx.paymentAttempt.updateMany).toHaveBeenCalledWith({
+      where: { provider: 'REDSYS', providerTxId: 'a1b2c3d4e5f6' },
+      data: { status: 'DENIED', responseCode: '0190' },
+    });
+    expect(paymentTx.payment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('segundo intento aprobado del mismo cobro → alerta de doble cobro', async () => {
+    const { controller, paymentTx, metrics } = makeController({ otherApprovedAttempts: 1 });
+
+    await controller.receiveRedsys(fakeRedsysRequest());
+
+    expect(metrics.duplicateCharges.inc).toHaveBeenCalledWith({ venue: 'tenant-uuid-1', provider: 'REDSYS' });
+    const event = paymentTx.paymentEvent.create.mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(event.data).toMatchObject({
+      paymentId: 'pay-uuid-1',
+      tenantId: 'tenant-uuid-1',
+      eventType: 'payment.duplicate_charge',
+    });
+  });
+
+  it('primer intento aprobado → sin alerta', async () => {
+    const { controller, paymentTx, metrics } = makeController();
+
+    await controller.receiveRedsys(fakeRedsysRequest());
+
+    expect(metrics.duplicateCharges.inc).not.toHaveBeenCalled();
+    expect(paymentTx.paymentEvent.create).not.toHaveBeenCalled();
   });
 });

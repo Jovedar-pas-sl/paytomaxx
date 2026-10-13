@@ -55,6 +55,10 @@ export async function switchTenant(
 
 export interface OperatorBalance {
   pendingCents: number;
+  /** Lo que se pagaría ahora: comisiones pasados los días de espera, menos deuda. */
+  availableCents?: number;
+  heldCents?: number;
+  debtCents?: number;
   paidCents: number;
   lifetimeGrossCents: number;
   count: number;
@@ -206,6 +210,13 @@ export interface PaymentRow {
   providerTxId: string | null;
   createdAt: string;
   updatedAt: string;
+  // Datos del banco (Fase 0). Null en cobros antiguos o sin aviso.
+  authCode?: string | null;
+  cardLast4?: string | null;
+  cardBrand?: string | null;
+  payMethodCode?: string | null;
+  authorizedAt?: string | null;
+  attempts?: Array<{ providerTxId: string; status: string; createdAt: string }>;
   terminal: { externalId: string; label: string };
 }
 
@@ -318,6 +329,20 @@ async function refreshAccessToken(): Promise<string> {
 
 // ─── Helpers ───────────────────────────────────────────────────────
 
+/** Mensaje legible de un error del API (ProblemDetails: detail / title). */
+async function readError(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const body = JSON.parse(text) as { detail?: unknown; title?: unknown; message?: unknown };
+    const msg = body.detail ?? body.message ?? body.title;
+    if (typeof msg === 'string' && msg) return msg;
+    if (Array.isArray(msg)) return msg.join(' · ');
+  } catch {
+    // no es JSON
+  }
+  return text || `Error ${res.status}`;
+}
+
 /**
  * Fetch autenticado con auto-refresh en 401:
  *   1. Intenta con el access token actual
@@ -399,6 +424,22 @@ export async function refundPayment(
     body: JSON.stringify({ amountCents, reason, totpCode }),
   });
   if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  return res.json();
+}
+
+/**
+ * Resolver a mano un pago atascado (sin confirmar, o >15 min esperando al
+ * banco). Para darlo por cobrado hace falta el código de autorización del banco.
+ */
+export async function resolveStuckPayment(
+  paymentId: string,
+  input: { decision: 'AUTHORIZED' | 'FAILED'; reason: string; bankAuthCode?: string },
+): Promise<{ ok: true; newStatus: string }> {
+  const res = await authedFetch(`/v1/admin/payments/${paymentId}/manual-reconcile`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 

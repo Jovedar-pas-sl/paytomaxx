@@ -20,6 +20,7 @@ import type { Queue } from 'bullmq';
 import type { FastifyRequest } from 'fastify';
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import type { Provider } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -28,6 +29,7 @@ import { GatewayRegistry } from '../gateways/gateway.registry';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { WipayAdapter } from '../gateways/wipay.adapter';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
+import { parseWebhookBody } from '../gateways/header-utils';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
 import { MetricsService } from '../metrics/metrics.service';
 
@@ -604,15 +606,10 @@ export class WebhooksController {
     // Ds_Order es nuestro providerTxId (lo genera authorize). Lo resolvemos a
     // payment UUID + tenant aquí, igual que Peanpe con _paymentId: el adapter
     // no toca la DB y el processor aplica la defensa cross-tenant.
+    // Cada intento de pago es un Ds_Order distinto (payment_attempts); los
+    // pagos anteriores a Fase 0 solo lo tienen en payments.providerTxId.
     const dsOrder = verify.paymentRef ?? '';
-    const payment = dsOrder
-      ? await this.prisma.asSystem((tx) =>
-          tx.payment.findFirst({
-            where: { provider: 'REDSYS', providerTxId: dsOrder },
-            select: { id: true, tenantId: true },
-          }),
-        )
-      : null;
+    const payment = dsOrder ? await this.findRedsysPayment(dsOrder) : null;
     if (!payment) {
       this.logger.warn(`webhook redsys: ningún payment con Ds_Order=${dsOrder}`);
     }
@@ -633,6 +630,10 @@ export class WebhooksController {
             signature: typeof body.Ds_Signature === 'string' ? (body.Ds_Signature as string) : '',
           },
         });
+
+    if (payment) {
+      await this.recordRedsysOutcome(payment.id, payment.tenantId, rawBody);
+    }
 
     // Tokenización probe — si Redsys devolvió Ds_Merchant_Identifier en el
     // callback (porque el authorize lo pidió con REDSYS_REQUEST_TOKEN=true),
@@ -672,6 +673,85 @@ export class WebhooksController {
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
+  }
+
+  private async findRedsysPayment(
+    dsOrder: string,
+  ): Promise<{ id: string; tenantId: string } | null> {
+    return this.prisma.asSystem(async (tx) => {
+      const attempt = await tx.paymentAttempt.findUnique({
+        where: { provider_providerTxId: { provider: 'REDSYS', providerTxId: dsOrder } },
+        select: { paymentId: true, tenantId: true },
+      });
+      if (attempt) return { id: attempt.paymentId, tenantId: attempt.tenantId };
+      return tx.payment.findFirst({
+        where: { provider: 'REDSYS', providerTxId: dsOrder },
+        select: { id: true, tenantId: true },
+      });
+    });
+  }
+
+  /**
+   * Anota el resultado del intento (APPROVED/DENIED) y, si es un cobro
+   * aprobado, los datos que manda el banco (método, tarjeta, autorización).
+   * No bloquea el aviso: si falla, se loguea y el pago sigue su curso.
+   */
+  private async recordRedsysOutcome(
+    paymentId: string,
+    tenantId: string,
+    rawBody: Buffer,
+  ): Promise<void> {
+    try {
+      const n = this.redsys.parseNotification(parseWebhookBody(rawBody));
+      if (!n || n.transactionType !== '0') return;
+      await this.prisma.asSystem(async (tx) => {
+        if (n.approved) {
+          // Otro intento del mismo cobro ya aprobado = el cliente pagó dos
+          // veces (p. ej. reintentó mientras el primer pago seguía en 3D
+          // Secure). El FSM lo trata como duplicado idempotente, así que hay
+          // que dejar constancia aquí para devolver uno.
+          const otherApproved = await tx.paymentAttempt.count({
+            where: { paymentId, status: 'APPROVED', providerTxId: { not: n.order } },
+          });
+          if (otherApproved > 0) {
+            this.metrics.duplicateCharges.inc({ venue: tenantId, provider: 'REDSYS' });
+            this.logger.error(
+              `DOBLE COBRO payment=${paymentId}: el pedido ${n.order} (aut ${n.authCode ?? '-'}) también se aprobó. Devolver uno.`,
+            );
+            await tx.paymentEvent.create({
+              data: {
+                paymentId,
+                tenantId,
+                eventType: 'payment.duplicate_charge',
+                payload: { order: n.order, authCode: n.authCode, cardLast4: n.cardLast4 },
+                traceId: randomUUID(),
+              },
+            });
+          }
+        }
+        await tx.paymentAttempt.updateMany({
+          where: { provider: 'REDSYS', providerTxId: n.order },
+          data: { status: n.approved ? 'APPROVED' : 'DENIED', responseCode: n.response },
+        });
+        if (n.approved) {
+          await tx.payment.updateMany({
+            where: { id: paymentId, authorizedAt: null },
+            data: {
+              payMethodCode: n.payMethodCode,
+              cardBrand: n.cardBrand,
+              cardType: n.cardType,
+              cardCountry: n.cardCountry,
+              cardLast4: n.cardLast4,
+              authCode: n.authCode,
+              secure3ds: n.secure3ds,
+              authorizedAt: new Date(),
+            },
+          });
+        }
+      });
+    } catch (e) {
+      this.logger.warn(`No se pudo anotar el resultado Redsys de ${paymentId}: ${(e as Error).message}`);
+    }
   }
 
   /**

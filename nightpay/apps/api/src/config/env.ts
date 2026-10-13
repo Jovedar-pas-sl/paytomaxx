@@ -146,6 +146,10 @@ const EnvSchema = z.object({
   // `Authorization: Bearer <METRICS_TOKEN>`. El scrape interno de la red
   // Docker no lo necesita. Sin definir → métricas cerradas a internet.
   METRICS_TOKEN: z.string().min(24, 'METRICS_TOKEN >= 24 chars').optional(),
+
+  // Días que una comisión de la chica queda "en espera" antes de poder
+  // pagársela (cubre devoluciones tempranas y que el banco aún no abonó).
+  PAYOUT_HOLD_DAYS: z.coerce.number().int().min(0).max(60).default(7),
 })
   // Cross-field validation: si NODE_ENV=production, NEXT_PUBLIC_API_URL no
   // puede ser localhost (los webhooks de la pasarela quedarían rotos).

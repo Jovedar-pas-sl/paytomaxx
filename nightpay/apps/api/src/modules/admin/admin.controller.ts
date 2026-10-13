@@ -122,6 +122,30 @@ export function quarterRange(quarter: string | undefined): { from: Date; to: Dat
   return { from, to, label: `Q${q}-${year}` };
 }
 
+
+/** Un AUTHORIZING sin aviso del banco durante este tiempo se puede resolver a mano. */
+const STUCK_AUTHORIZING_MS = 15 * 60 * 1000;
+
+/**
+ * Resolver un pago atascado. Para darlo por cobrado hace falta el código de
+ * autorización que muestra el portal del banco (o el ticket): sin él, nadie
+ * puede "aprobar" un cobro que no existe.
+ */
+const ManualReconcileSchema = z
+  .object({
+    decision: z.enum(['AUTHORIZED', 'FAILED']),
+    reason: z.string().min(3).max(500),
+    bankAuthCode: z
+      .string()
+      .transform((s) => s.replace(/\s+/g, '').toUpperCase())
+      .pipe(z.string().regex(/^[A-Z0-9]{6}$/, 'Código de autorización: 6 letras o números'))
+      .optional(),
+  })
+  .refine((b) => b.decision !== 'AUTHORIZED' || Boolean(b.bankAuthCode), {
+    message: 'Para marcarlo cobrado, pon el código de autorización del banco',
+    path: ['bankAuthCode'],
+  });
+
 @Controller('admin')
 @UseGuards(RolesGuard)
 export class AdminController {
@@ -354,6 +378,17 @@ export class AdminController {
         providerTxId: true,
         createdAt: true,
         updatedAt: true,
+        authCode: true,
+        cardLast4: true,
+        cardBrand: true,
+        payMethodCode: true,
+        authorizedAt: true,
+        // Todos los pedidos enviados al banco (un cobro puede tener varios
+        // intentos): para buscarlos en el portal al resolver a mano.
+        attempts: {
+          select: { providerTxId: true, status: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        },
         terminal: { select: { externalId: true, label: true } },
       },
     });
@@ -384,15 +419,19 @@ export class AdminController {
     @Param('id', ParseUUIDPipe) paymentId: string,
     @Tenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
-    @Body(new ZodValidationPipe(z.object({
-      decision: z.enum(['AUTHORIZED', 'FAILED']),
-      reason: z.string().min(3).max(500),
-    })))
-    body: { decision: 'AUTHORIZED' | 'FAILED'; reason: string },
+    @Body(new ZodValidationPipe(ManualReconcileSchema))
+    body: z.infer<typeof ManualReconcileSchema>,
   ): Promise<{ ok: true; newStatus: string }> {
     const payment = await this.prisma.payment.findUnique({
       where: { id: paymentId },
-      select: { id: true, status: true, provider: true, providerTxId: true, tenantId: true },
+      select: {
+        id: true,
+        status: true,
+        provider: true,
+        providerTxId: true,
+        tenantId: true,
+        updatedAt: true,
+      },
     });
     if (!payment) {
       throw new NotFoundException('Payment not found');
@@ -400,12 +439,20 @@ export class AdminController {
     if (payment.tenantId !== tenantId) {
       throw new ForbiddenException('Cross-tenant payment');
     }
-    if (payment.status !== 'ORPHAN') {
+    // ORPHAN (el banco no confirmó a tiempo) o AUTHORIZING atascado: más de
+    // 15 min sin aviso del banco. Antes de eso el aviso aún puede llegar.
+    const stuckAuthorizing =
+      payment.status === 'AUTHORIZING' &&
+      Date.now() - payment.updatedAt.getTime() >= STUCK_AUTHORIZING_MS;
+    if (payment.status !== 'ORPHAN' && !stuckAuthorizing) {
       throw new ConflictException(
-        `Solo se pueden reconciliar a mano pagos en estado ORPHAN — este está en ${payment.status}`,
+        payment.status === 'AUTHORIZING'
+          ? 'Este pago lleva menos de 15 minutos esperando al banco. Espera a que llegue el aviso.'
+          : `Solo se resuelven a mano pagos sin confirmar o atascados — este está en ${payment.status}`,
       );
     }
 
+    const authCode = body.decision === 'AUTHORIZED' ? body.bankAuthCode ?? null : null;
     try {
       if (body.decision === 'AUTHORIZED') {
         if (!payment.provider || !payment.providerTxId) {
@@ -416,7 +463,16 @@ export class AdminController {
           provider: payment.provider,
           providerTxId: payment.providerTxId,
         });
+        // Si llegó un aviso tardío con los datos del banco, no se pisan.
+        await this.prisma.payment.updateMany({
+          where: { id: paymentId, authorizedAt: null },
+          data: { authCode, authorizedAt: new Date() },
+        });
       } else {
+        // AUTHORIZING no puede ir directo a FAILED sin pasar por ORPHAN.
+        if (payment.status === 'AUTHORIZING') {
+          await this.payments.transition(paymentId, { type: 'TIMEOUT' });
+        }
         await this.payments.transition(paymentId, {
           type: 'FAILED',
           reason: `manual-reconcile: ${body.reason}`,
@@ -437,11 +493,16 @@ export class AdminController {
       actorId: user.sub,
       targetType: 'Payment',
       targetId: paymentId,
-      payload: { decision: body.decision, reason: body.reason, fromStatus: 'ORPHAN' },
+      payload: {
+        decision: body.decision,
+        reason: body.reason,
+        bankAuthCode: authCode,
+        fromStatus: payment.status,
+      },
     });
 
     this.logger.warn(
-      `Manual reconcile by ${user.sub}: payment=${paymentId} → ${body.decision} (reason: ${body.reason})`,
+      `Manual reconcile by ${user.sub}: payment=${paymentId} ${payment.status} → ${body.decision} auth=${authCode ?? '-'} (reason: ${body.reason})`,
     );
 
     return { ok: true, newStatus: body.decision };

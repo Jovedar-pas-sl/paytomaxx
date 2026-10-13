@@ -320,6 +320,42 @@ describe('RedsysAdapter webhook — notificación firmada', () => {
     expect(adapter.mapWebhookToFsmEvent(body)).toBeNull();
   });
 
+  it('parseNotification extrae método, tarjeta y autorización de un aviso aprobado', () => {
+    const body = parseFormUrlEncoded(
+      signedNotification({
+        ...OK_FIELDS,
+        Ds_TransactionType: '0',
+        Ds_Card_Type: 'D',
+        Ds_Card_Country: '724',
+        Ds_Card_Number: '454881******0003',
+        Ds_AuthorisationCode: '123456',
+        Ds_SecurePayment: '1',
+      }),
+    );
+    expect(adapter.parseNotification(body)).toEqual({
+      order: 'a1b2c3d4e5f6',
+      response: '0000',
+      transactionType: '0',
+      approved: true,
+      payMethodCode: '78',
+      cardBrand: '1',
+      cardType: 'D',
+      cardCountry: '724',
+      cardLast4: '0003',
+      authCode: '123456',
+      secure3ds: true,
+    });
+  });
+
+  it('parseNotification: denegación → approved=false; firma mala → null', () => {
+    const denied = parseFormUrlEncoded(signedNotification({ ...OK_FIELDS, Ds_Response: '0190' }));
+    expect(adapter.parseNotification(denied)?.approved).toBe(false);
+    const tampered = parseFormUrlEncoded(
+      signedNotification(OK_FIELDS).replace(/Ds_Signature=[^&]+/, 'Ds_Signature=AAAA'),
+    );
+    expect(adapter.parseNotification(tampered)).toBeNull();
+  });
+
   it('extractTokenizationData lee el body form-urlencoded real', () => {
     const raw = Buffer.from(
       signedNotification({

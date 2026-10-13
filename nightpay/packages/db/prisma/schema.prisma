@@ -287,6 +287,18 @@ model Payment {
   // PAN ni CVV — eso lo gestiona el PSP. SAQ-A compliant.
   tokenizationData     Json?
 
+  // Fase 0 — datos que manda el banco al aprobar (aviso Redsys o confirmación
+  // de datáfono). payMethodCode = Ds_ProcessedPayMethod tal cual (sin mapear
+  // hasta confirmar los códigos de Apple/Google Pay con BBVA).
+  payMethodCode String?
+  cardBrand     String?
+  cardType      String?
+  cardCountry   String?
+  cardLast4     String?
+  authCode      String?
+  secure3ds     Boolean?
+  authorizedAt  DateTime? @db.Timestamptz
+
   venue              Venue            @relation(fields: [tenantId], references: [id])
   terminal           Terminal         @relation(fields: [terminalId], references: [id])
   createdBy          User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])
@@ -296,6 +308,7 @@ model Payment {
   refunds            Refund[]
   operatorEarning    OperatorEarning?
   peanpeCall         PeanpeCall?
+  attempts           PaymentAttempt[]
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status])
@@ -306,6 +319,28 @@ model Payment {
   @@index([walletId])
   @@index([tipBeneficiaryUserId])
   @@map("payments")
+}
+
+// Fase 0 — un intento = un pedido en la pasarela (Redsys Ds_Order). Un pago
+// puede tener varios (reintento con otra tarjeta). No es tenant-scoped en el
+// middleware: se accede vía asSystem (cliente sin login, avisos del banco).
+model PaymentAttempt {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId    String   @db.Uuid
+  tenantId     String   @db.Uuid
+  provider     Provider
+  providerTxId String
+  // PENDING | APPROVED | DENIED
+  status       String   @default("PENDING")
+  responseCode String?
+  createdAt    DateTime @default(now()) @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerTxId])
+  @@index([paymentId, createdAt(sort: Desc)])
+  @@map("payment_attempts")
 }
 
 model PaymentEvent {
@@ -402,6 +437,10 @@ model EarningReversal {
   earningId          String   @db.Uuid
   refundId           String   @unique @db.Uuid
   reversedDeltaCents Int
+  // true = el earning ya estaba pagado: el descuento es deuda de la chica y
+  // se resta del siguiente payout (settledPayoutId = ese payout).
+  afterPayout        Boolean  @default(false)
+  settledPayoutId    String?  @db.Uuid
   createdAt          DateTime @default(now()) @db.Timestamptz
 
   earning OperatorEarning @relation(fields: [earningId], references: [id], onDelete: Cascade)

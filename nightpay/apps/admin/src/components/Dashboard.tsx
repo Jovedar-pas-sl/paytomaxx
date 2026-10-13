@@ -17,6 +17,7 @@ import {
   fetchPayments,
   logout as apiLogout,
   refundPayment,
+  resolveStuckPayment,
   type Metrics,
   type PaymentRow,
   type User,
@@ -43,6 +44,7 @@ export function Dashboard({ user, onLogout }: Props) {
   const [filter, setFilter] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [refundFor, setRefundFor] = useState<PaymentRow | null>(null);
+  const [resolveFor, setResolveFor] = useState<PaymentRow | null>(null);
 
   async function reload() {
     try {
@@ -219,7 +221,7 @@ export function Dashboard({ user, onLogout }: Props) {
                   <th style={numCol}>Disponible</th>
                   <th>Estado</th>
                   <th>Terminal</th>
-                  <th>Provider</th>
+                  <th>Banco</th>
                   <th style={{ textAlign: 'right' }}>Acciones</th>
                 </tr>
               </thead>
@@ -229,6 +231,7 @@ export function Dashboard({ user, onLogout }: Props) {
                     (p.status === 'AUTHORIZED' || p.status === 'PARTIALLY_REFUNDED') &&
                     p.availableAmountCents > 0 &&
                     (user.role === 'OWNER' || user.role === 'MANAGER');
+                  const canResolve = user.role === 'OWNER' && isStuck(p);
                   return (
                     <tr key={p.id}>
                       <td style={cellMeta}>{formatTime(p.createdAt)}</td>
@@ -242,8 +245,13 @@ export function Dashboard({ user, onLogout }: Props) {
                         <StatusPill status={p.status as PaymentStatus} size="sm" />
                       </td>
                       <td style={cellMeta}>{p.terminal.label}</td>
-                      <td style={cellMeta}>{p.provider ?? '—'}</td>
+                      <td style={cellMeta}>{bankSummary(p)}</td>
                       <td style={{ textAlign: 'right' }}>
+                        {canResolve ? (
+                          <Button onClick={() => setResolveFor(p)} size="md" style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}>
+                            Resolver
+                          </Button>
+                        ) : null}
                         {canRefund ? (
                           <Button variant="ghost" onClick={() => setRefundFor(p)} size="md" style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}>
                             Reembolsar
@@ -265,6 +273,15 @@ export function Dashboard({ user, onLogout }: Props) {
           </div>
         </Card>
       </section>
+
+      <ResolveModal
+        payment={resolveFor}
+        onClose={() => setResolveFor(null)}
+        onDone={() => {
+          setResolveFor(null);
+          reload();
+        }}
+      />
 
       <RefundModal
         open={Boolean(refundFor)}
@@ -355,6 +372,146 @@ function MetricTile({
         {unit && value !== '—' ? <span style={metricUnit}>{unit}</span> : null}
       </p>
     </Card>
+  );
+}
+
+const STUCK_AUTHORIZING_MS = 15 * 60 * 1000;
+
+/** Sin confirmar, o más de 15 min esperando al banco: se puede resolver a mano. */
+function isStuck(p: PaymentRow): boolean {
+  if (p.status === 'ORPHAN') return true;
+  return p.status === 'AUTHORIZING' && Date.now() - Date.parse(p.updatedAt) >= STUCK_AUTHORIZING_MS;
+}
+
+/** Lo que identifica el cobro en el banco: código de autorización y tarjeta. */
+function bankSummary(p: PaymentRow): string {
+  const parts: string[] = [];
+  if (p.provider) parts.push(p.provider);
+  if (p.authCode) parts.push(`AUT ${p.authCode}`);
+  if (p.cardLast4) parts.push(`••${p.cardLast4}`);
+  return parts.length > 0 ? parts.join(' · ') : '—';
+}
+
+function ResolveModal({
+  payment,
+  onClose,
+  onDone,
+}: {
+  payment: PaymentRow | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [decision, setDecision] = useState<'AUTHORIZED' | 'FAILED'>('AUTHORIZED');
+  const [authCode, setAuthCode] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (payment) {
+      setDecision('AUTHORIZED');
+      setAuthCode('');
+      setReason('');
+      setError(null);
+    }
+  }, [payment]);
+
+  if (!payment) {
+    return <Modal open={false} onClose={onClose}>{null}</Modal>;
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!payment) return;
+    setError(null);
+    const code = authCode.replace(/\s+/g, '').toUpperCase();
+    if (decision === 'AUTHORIZED' && !/^[A-Z0-9]{6}$/.test(code)) {
+      setError('Pon el código de autorización del banco: 6 letras o números.');
+      return;
+    }
+    if (reason.trim().length < 3) {
+      setError('Explica brevemente cómo lo has comprobado.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await resolveStuckPayment(payment.id, {
+        decision,
+        reason: reason.trim(),
+        ...(decision === 'AUTHORIZED' ? { bankAuthCode: code } : {}),
+      });
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Resolver cobro">
+      <p style={refundMeta}>
+        <span className="np-num">{(payment.amountCents / 100).toFixed(2)} {payment.currency}</span>
+        {' · '}{formatTime(payment.createdAt)}
+        {payment.providerTxId ? <> · pedido <code style={code}>{payment.providerTxId}</code></> : null}
+      </p>
+      {payment.attempts && payment.attempts.length > 0 ? (
+        <ul style={{ ...refundMeta, margin: '0.5rem 0 0', paddingLeft: '1.1rem' }}>
+          {payment.attempts.map((a) => (
+            <li key={a.providerTxId}>
+              Pedido <code style={code}>{a.providerTxId}</code> · {formatTime(a.createdAt)} ·{' '}
+              {a.status === 'APPROVED' ? 'aprobado' : a.status === 'DENIED' ? 'denegado' : 'sin respuesta'}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p style={{ ...refundMeta, marginTop: '0.5rem' }}>
+        Búscalo en el portal del banco por importe, hora o número de pedido.
+      </p>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.25rem' }}>
+        <div role="radiogroup" aria-label="¿Se cobró?" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem' }}>
+          <Button
+            type="button"
+            variant={decision === 'AUTHORIZED' ? 'primary' : 'ghost'}
+            aria-pressed={decision === 'AUTHORIZED'}
+            onClick={() => setDecision('AUTHORIZED')}
+          >
+            Sí, se cobró
+          </Button>
+          <Button
+            type="button"
+            variant={decision === 'FAILED' ? 'primary' : 'ghost'}
+            aria-pressed={decision === 'FAILED'}
+            onClick={() => setDecision('FAILED')}
+          >
+            No se cobró
+          </Button>
+        </div>
+        {decision === 'AUTHORIZED' ? (
+          <Input
+            label="Código de autorización del banco"
+            value={authCode}
+            onChange={(e) => setAuthCode(e.target.value)}
+            placeholder="ej: 047215"
+            maxLength={8}
+            autoCapitalize="characters"
+            required
+          />
+        ) : null}
+        <Input
+          label="Cómo lo has comprobado"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="ej: aparece en el portal BBVA a las 09:50"
+          maxLength={500}
+          required
+        />
+        {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
+        <Button type="submit" loading={submitting}>
+          {decision === 'AUTHORIZED' ? 'Marcar como cobrado' : 'Marcar como no cobrado'}
+        </Button>
+      </form>
+    </Modal>
   );
 }
 

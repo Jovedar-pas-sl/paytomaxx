@@ -77,6 +77,12 @@ export interface RefreshResponse {
 
 export interface OperatorBalance {
   pendingCents: number;
+  /** Entra en el próximo pago (pasados los días de espera). */
+  availableCents?: number;
+  /** Comisiones recientes aún en espera. */
+  heldCents?: number;
+  /** Devoluciones llegadas después de un pago, a descontar. */
+  debtCents?: number;
   paidCents: number;
   lifetimeGrossCents: number;
   count: number;

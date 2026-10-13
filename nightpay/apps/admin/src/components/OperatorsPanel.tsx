@@ -393,6 +393,9 @@ function OperatorDetailModal({
   }, [operator.id]);
 
   const balance = operator.balance.pendingCents;
+  // Lo que un pago liquida hoy (comisiones con más de 7 días, menos deuda por
+  // devoluciones). Si el API es antiguo y no lo manda, cae al pendiente total.
+  const payable = operator.balance.availableCents ?? balance;
 
   return (
     <Modal open onClose={onClose} title={operator.displayName ?? operator.email} width="40rem">
@@ -421,12 +424,22 @@ function OperatorDetailModal({
           >
             {(balance / 100).toFixed(2)} €
           </span>
-          {isOwner && balance > 0 ? (
+          {isOwner && payable > 0 ? (
             <Button onClick={() => setPayoutOpen(true)} size="md">
               Marcar pagado
             </Button>
           ) : null}
         </div>
+
+        {operator.balance.availableCents !== undefined ? (
+          <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem' }}>
+            A pagar ahora <strong className="np-num">{(Math.max(0, payable) / 100).toFixed(2)} €</strong>
+            {operator.balance.heldCents ? <> · en espera (menos de 7 días) {(operator.balance.heldCents / 100).toFixed(2)} €</> : null}
+            {operator.balance.debtCents ? (
+              <span style={{ color: 'var(--np-danger)' }}> · deuda por devoluciones {(operator.balance.debtCents / 100).toFixed(2)} €</span>
+            ) : null}
+          </p>
+        ) : null}
 
         <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--np-border)', flexWrap: 'wrap' }}>
           {(['earnings', 'payouts', 'edit', 'onboarding'] as const).map((t) => (
@@ -470,7 +483,7 @@ function OperatorDetailModal({
       {payoutOpen ? (
         <PayoutConfirmModal
           operatorId={operator.id}
-          balanceCents={balance}
+          balanceCents={payable}
           payoutMethod={operator.payoutMethod ?? null}
           payoutAddress={operator.payoutAddress ?? null}
           payoutLabel={operator.payoutLabel ?? null}

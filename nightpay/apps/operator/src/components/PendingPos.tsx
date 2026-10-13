@@ -296,9 +296,9 @@ function ConfirmForm({
   }
 
   async function handleConfirm(): Promise<void> {
-    const ref = posRef.trim();
-    if (ref.length < 3) {
-      setError('Pega o teclea el nº de recibo del datáfono (mín 3 chars)');
+    const ref = posRef.replace(/\s+/g, '').toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(ref)) {
+      setError('Teclea el código de autorización del ticket: 6 letras o números.');
       return;
     }
     setSubmitting(true);
@@ -351,17 +351,19 @@ function ConfirmForm({
         <ol style={stepsListStyle}>
           <li>Cobra {(payment.amountCents / 100).toFixed(2)} € en el datáfono del bar.</li>
           <li>Cliente paga con su tarjeta.</li>
-          <li><strong>Teclea el nº de recibo</strong> (obligatorio).</li>
+          <li><strong>Teclea el código de autorización</strong> del ticket (6 caracteres, pone "AUT" o "Nº autorización").</li>
           <li>Foto del ticket (opcional pero recomendado).</li>
           <li>Toca "Confirmar pagado" abajo.</li>
         </ol>
       </div>
 
       <Input
-        label="Nº recibo del datáfono *"
+        label="Código de autorización del ticket *"
         value={posRef}
         onChange={(e) => setPosRef(e.target.value)}
-        placeholder="ej: 047215 · A4FC32"
+        placeholder="ej: 047215"
+        maxLength={8}
+        autoCapitalize="characters"
         disabled={submitting}
         required
       />

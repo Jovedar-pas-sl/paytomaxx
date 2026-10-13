@@ -14,7 +14,7 @@ import type { Redis } from 'ioredis';
 import { ClsService } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import * as QRCode from 'qrcode';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import {
   applyEvent,
@@ -30,12 +30,21 @@ import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
 import {
-  inferRevenueCategory,
   resolveBpsForOperator,
+  resolveRevenueCategory,
   type OperatorCommissionDefaults,
   type RevenueCategory,
 } from './commission';
 import { WalletsService } from '../wallets/wallets.service';
+import type { Provider } from '@nightpay/contracts';
+import {
+  CLOSED_REASON,
+  PAID_STATES,
+  decideRedsysRetry,
+  type PayRedirect,
+  type RetryDecision,
+  type PayResultView,
+} from './pay-redirect';
 
 const QR_TTL_SECONDS = 5 * 60; // 5 min
 const POS_QR_TTL_SECONDS = 30 * 60; // 30 min — camarero tiene tiempo de llegar
@@ -347,13 +356,16 @@ export class PaymentsService implements OnApplicationBootstrap {
       tipBeneficiaryUserId = null;
     }
 
-    // revenueCategory: si viene del DTO úsalo; si no, infer por rol/contexto.
-    const revenueCategory: RevenueCategory =
-      (dto.revenueCategory as RevenueCategory | undefined) ??
-      inferRevenueCategory({
-        hasWalletId: Boolean(resolvedWalletId),
-        creatorRole,
-      });
+    const revenueCategory = resolveRevenueCategory({
+      isWalletTopUp: Boolean(resolvedWalletId),
+      creatorRole,
+      requested: dto.revenueCategory as RevenueCategory | undefined,
+    });
+    if (!revenueCategory) {
+      throw new BadRequestException(
+        'Desde tu app solo puedes cobrar tus servicios. La barra, la habitación y la comida las cobra el camarero desde la caja.',
+      );
+    }
 
     const payment = await this.prisma.$transaction(async (tx) => {
       const p = await tx.payment.create({
@@ -418,31 +430,28 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Resolver el destino de redirect cuando el cliente escanea el QR.
-   * Devuelve una shape discriminada por `kind`:
-   *  - 'redirect': el PSP da una URL hosted → 302 (Paytef Payment LINK)
-   *  - 'form':    el PSP espera POST desde browser → renderizamos HTML
-   *               auto-submit (Cecabank/Wipay TPV Virtual)
+   * Qué hacer cuando el cliente escanea (o vuelve a escanear) el QR:
+   *  - 'paid'       → ya cobrado: mostrar "Pagado" (nunca reenviar al banco).
+   *  - 'closed'     → caducado / fallido / cancelado / sin confirmar.
+   *  - 'processing' → hay un intento en curso: esperar al aviso del banco.
+   *  - 'form' | 'redirect' → mandar al cliente a la pasarela. En Redsys, si el
+   *    intento anterior se denegó o se abandonó, se abre un pedido NUEVO
+   *    (reenviar el mismo Ds_Order da SIS0051 "pedido repetido").
    */
-  async resolveRedirect(
-    qrToken: string,
-  ): Promise<
-    | { kind: 'redirect'; url: string; status: PaymentMachineState }
-    | {
-        kind: 'form';
-        action: string;
-        method: 'POST';
-        fields: Record<string, string>;
-        status: PaymentMachineState;
-      }
-  > {
+  async resolveRedirect(qrToken: string): Promise<PayRedirect> {
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({
         where: { qrToken },
         select: {
           id: true,
+          tenantId: true,
           status: true,
+          provider: true,
+          amountCents: true,
+          currency: true,
           qrExpiresAt: true,
+          updatedAt: true,
+          authorizedAt: true,
           gatewayPaymentUrl: true,
           gatewayCheckoutForm: true,
         },
@@ -450,74 +459,122 @@ export class PaymentsService implements OnApplicationBootstrap {
     );
     if (!payment) throw new NotFoundException('Payment not found');
 
-    // Si ya tenemos form persistido (Cecabank), devolvemos sin re-firmar
-    // (Num_operacion duplicado → 400 desde Cecabank).
-    if (payment.gatewayCheckoutForm) {
-      const form = payment.gatewayCheckoutForm as {
+    const status = payment.status as PaymentMachineState;
+    if (PAID_STATES.has(status)) {
+      return {
+        kind: 'paid',
+        paymentId: payment.id,
+        amountCents: payment.amountCents,
+        currency: payment.currency,
+        authorizedAt: payment.authorizedAt,
+      };
+    }
+    const closedReason = CLOSED_REASON[status];
+    if (closedReason) return { kind: 'closed', reason: closedReason };
+
+    if (status === 'CREATED' || status === 'AWAITING_CAPTURE') {
+      if (payment.qrExpiresAt < new Date()) return { kind: 'closed', reason: 'expired' };
+      await this.startAuthorization(qrToken);
+      return this.checkoutOf(payment.id);
+    }
+
+    // AUTHORIZING
+    if (payment.provider === 'REDSYS') {
+      let outcome: { decision: RetryDecision; attempts: number };
+      try {
+        // Candado por cobro: decidir y abrir el intento nuevo es atómico, así
+        // un doble toque o la vista previa de un enlace no abren dos pedidos.
+        // El authorize de Redsys solo firma el formulario (sin red).
+        outcome = await this.prisma.asSystem(async (tx) => {
+          await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(hashtext(${payment.id}))`;
+          const attempts = await tx.paymentAttempt.findMany({
+            where: { paymentId: payment.id },
+            orderBy: { createdAt: 'desc' },
+            select: { status: true, createdAt: true },
+          });
+          const decision = decideRedsysRetry({
+            attempts,
+            now: new Date(),
+            qrExpiresAt: payment.qrExpiresAt,
+            paymentUpdatedAt: payment.updatedAt,
+          });
+          if (decision === 'retry') await this.authorizeAttempt(payment, 'REDSYS', tx);
+          return { decision, attempts: attempts.length };
+        });
+      } catch (err) {
+        this.logger.error(`Reintento Redsys falló para ${payment.id}: ${(err as Error).message}`);
+        throw new ConflictException(`Gateway error: ${((err as Error).message || '').slice(0, 300)}`);
+      }
+      if (outcome.decision === 'wait') return { kind: 'processing' };
+      if (outcome.decision === 'expired') return { kind: 'closed', reason: 'expired' };
+      if (outcome.decision === 'max-attempts') return { kind: 'closed', reason: 'too-many-attempts' };
+      this.logger.log(`Payment ${payment.id}: nuevo intento Redsys (${outcome.attempts + 1})`);
+      return this.checkoutOf(payment.id);
+    }
+
+    // Otras pasarelas: comportamiento anterior (reenviar lo guardado).
+    return this.checkoutOf(payment.id);
+  }
+
+  /**
+   * Para la página /pay/result a la que vuelve el cliente desde el banco:
+   * estado REAL del pago a partir del pedido de la pasarela (Ds_Order).
+   */
+  async getResultView(providerTxId: string): Promise<PayResultView | null> {
+    if (!providerTxId) return null;
+    return this.prisma.asSystem(async (tx) => {
+      const attempt = await tx.paymentAttempt.findFirst({
+        where: { providerTxId },
+        select: { paymentId: true },
+      });
+      const payment = await tx.payment.findFirst({
+        where: attempt ? { id: attempt.paymentId } : { providerTxId },
+        select: {
+          id: true,
+          status: true,
+          amountCents: true,
+          currency: true,
+          authorizedAt: true,
+          qrToken: true,
+        },
+      });
+      if (!payment) return null;
+      const thisAttempt = await tx.paymentAttempt.findFirst({
+        where: { paymentId: payment.id, providerTxId },
+        select: { status: true },
+      });
+      return {
+        paymentId: payment.id,
+        status: payment.status as PaymentMachineState,
+        amountCents: payment.amountCents,
+        currency: payment.currency,
+        authorizedAt: payment.authorizedAt,
+        qrToken: payment.qrToken,
+        attemptStatus: thisAttempt?.status ?? null,
+      };
+    });
+  }
+
+  private async checkoutOf(paymentId: string): Promise<PayRedirect> {
+    const refreshed = await this.prisma.asSystem((tx) =>
+      tx.payment.findUnique({
+        where: { id: paymentId },
+        select: { status: true, gatewayPaymentUrl: true, gatewayCheckoutForm: true },
+      }),
+    );
+    const status = refreshed?.status as PaymentMachineState;
+    if (refreshed?.gatewayCheckoutForm) {
+      const form = refreshed.gatewayCheckoutForm as {
         action: string;
         method: 'POST';
         fields: Record<string, string>;
       };
-      return {
-        kind: 'form',
-        action: form.action,
-        method: 'POST',
-        fields: form.fields,
-        status: payment.status as PaymentMachineState,
-      };
+      return { kind: 'form', action: form.action, method: 'POST', fields: form.fields, status };
     }
-
-    if (payment.gatewayPaymentUrl) {
-      return {
-        kind: 'redirect',
-        url: payment.gatewayPaymentUrl,
-        status: payment.status as PaymentMachineState,
-      };
+    if (refreshed?.gatewayPaymentUrl) {
+      return { kind: 'redirect', url: refreshed.gatewayPaymentUrl, status };
     }
-
-    // No URL ni form todavía — start authorization para obtenerlo.
-    if (payment.status === 'CREATED' || payment.status === 'AWAITING_CAPTURE') {
-      if (payment.qrExpiresAt < new Date()) {
-        throw new ConflictException('QR expired');
-      }
-      await this.startAuthorization(qrToken);
-      // Re-leer lo que se haya persistido
-      const refreshed = await this.prisma.asSystem((tx) =>
-        tx.payment.findUnique({
-          where: { id: payment.id },
-          select: {
-            status: true,
-            gatewayPaymentUrl: true,
-            gatewayCheckoutForm: true,
-          },
-        }),
-      );
-      if (refreshed?.gatewayCheckoutForm) {
-        const form = refreshed.gatewayCheckoutForm as {
-          action: string;
-          method: 'POST';
-          fields: Record<string, string>;
-        };
-        return {
-          kind: 'form',
-          action: form.action,
-          method: 'POST',
-          fields: form.fields,
-          status: refreshed.status as PaymentMachineState,
-        };
-      }
-      if (refreshed?.gatewayPaymentUrl) {
-        return {
-          kind: 'redirect',
-          url: refreshed.gatewayPaymentUrl,
-          status: refreshed.status as PaymentMachineState,
-        };
-      }
-    }
-
-    throw new ConflictException(
-      `Payment en estado ${payment.status} — no se puede redirigir al checkout`,
-    );
+    throw new ConflictException(`Payment en estado ${status} — no se puede redirigir al checkout`);
   }
 
   /**
@@ -971,11 +1028,30 @@ export class PaymentsService implements OnApplicationBootstrap {
       );
     }
 
+    // El código de autorización identifica UNA operación del datáfono: si ya
+    // confirmó otro cobro del mismo terminal en las últimas 24 h, es un ticket
+    // reutilizado (o un error de tecleo) y no se acepta.
+    const authCode = dto.posReceiptRef.replace(/\s+/g, '').toUpperCase();
+    const reused = await this.prisma.payment.findFirst({
+      where: {
+        id: { not: paymentId },
+        terminalId: payment.terminalId,
+        authCode,
+        authorizedAt: { gte: new Date(Date.now() - 24 * 3600 * 1000) },
+      },
+      select: { id: true },
+    });
+    if (reused) {
+      throw new ConflictException(
+        'Ese código de autorización ya se usó en otro cobro de este datáfono. Revisa el ticket.',
+      );
+    }
+
     try {
       // H2: expectedTenantId para defensa cross-tenant en confirmPosPayment.
       await this.transition(
         paymentId,
-        { type: 'POS_CONFIRMED', posReceiptRef: dto.posReceiptRef },
+        { type: 'POS_CONFIRMED', posReceiptRef: authCode },
         actor.tenantId,
       );
     } catch (err) {
@@ -986,6 +1062,11 @@ export class PaymentsService implements OnApplicationBootstrap {
       }
       throw err;
     }
+
+    await this.prisma.payment.update({
+      where: { id: paymentId },
+      data: { authCode, authorizedAt: new Date() },
+    });
 
     // Audit log con la prueba de cobro (ref + foto opcional). Si hay disputa
     // o auditoría AEAT, este registro es lo que demuestra que la chica
@@ -1111,27 +1192,11 @@ export class PaymentsService implements OnApplicationBootstrap {
       }),
     );
 
-    // 3) Llamar a la pasarela (con timeouts y circuit breaker — ver adapter)
+    // 3) Llamar a la pasarela (timeouts y circuit breaker en el adapter) y
+    //    4) persistir providerTxId + URL/form + intento (payment_attempts).
     let providerTxId: string;
-    let paymentLinkUrl: string | null = null;
-    let checkoutForm: {
-      action: string;
-      method: 'POST';
-      fields: Record<string, string>;
-    } | null = null;
     try {
-      const adapter = this.gateways.get(credential.provider);
-      const result = await adapter.authorize({
-        tenantId: payment.tenantId,
-        paymentId: payment.id,
-        amountCents: payment.amountCents,
-        currency: payment.currency,
-        terminalExternalId: '',
-        reference: payment.id,
-      });
-      providerTxId = result.providerTxId;
-      paymentLinkUrl = result.paymentLinkUrl ?? null;
-      checkoutForm = result.checkoutForm ?? null;
+      ({ providerTxId } = await this.authorizeAttempt(payment, credential.provider));
     } catch (err) {
       const errMsg = (err as Error).message || 'unknown';
       this.logger.error(`Gateway authorize failed for ${payment.id}: ${errMsg}`);
@@ -1144,19 +1209,6 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Propagar mensaje real durante bring-up (sin tener acceso a logs Dokploy).
       throw new ConflictException(`Gateway error: ${errMsg.slice(0, 300)}`);
     }
-
-    // 4) Persistir providerTxId real + URL/form del checkout PSP si los tenemos.
-    //    PSPs distintos: Paytef → paymentLinkUrl, Cecabank/Wipay → checkoutForm.
-    await this.prisma.asSystem((tx) =>
-      tx.payment.update({
-        where: { id: payment.id },
-        data: {
-          providerTxId,
-          ...(paymentLinkUrl ? { gatewayPaymentUrl: paymentLinkUrl } : {}),
-          ...(checkoutForm ? { gatewayCheckoutForm: checkoutForm } : {}),
-        },
-      }),
-    );
 
     // 5) Encolar orphan-reconcile (se autocancela si llega webhook antes)
     // Attempts + backoff: si la pasarela devuelve UNKNOWN reintenta 5 veces.
@@ -1179,6 +1231,50 @@ export class PaymentsService implements OnApplicationBootstrap {
       `Payment ${payment.id} authorizing via ${credential.provider} (txId=${providerTxId})`,
     );
     return { status: 'AUTHORIZING', providerTxId };
+  }
+
+  /**
+   * Abre un intento en la pasarela: authorize() + guarda providerTxId,
+   * URL/form del checkout y la fila de payment_attempts. Cada intento es un
+   * pedido distinto, y el aviso del banco se resuelve por cualquiera de ellos.
+   */
+  private async authorizeAttempt(
+    payment: { id: string; tenantId: string; amountCents: number; currency: string },
+    provider: Provider,
+    inTx?: TransactionalClient,
+  ): Promise<{ providerTxId: string }> {
+    const adapter = this.gateways.get(provider);
+    const result = await adapter.authorize({
+      tenantId: payment.tenantId,
+      paymentId: payment.id,
+      amountCents: payment.amountCents,
+      currency: payment.currency,
+      terminalExternalId: '',
+      reference: payment.id,
+    });
+    const paymentLinkUrl = result.paymentLinkUrl ?? null;
+    const checkoutForm = result.checkoutForm ?? null;
+    const persist = async (tx: TransactionalClient): Promise<void> => {
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          providerTxId: result.providerTxId,
+          ...(paymentLinkUrl ? { gatewayPaymentUrl: paymentLinkUrl } : {}),
+          ...(checkoutForm ? { gatewayCheckoutForm: checkoutForm } : {}),
+        },
+      });
+      await tx.paymentAttempt.create({
+        data: {
+          paymentId: payment.id,
+          tenantId: payment.tenantId,
+          provider,
+          providerTxId: result.providerTxId,
+        },
+      });
+    };
+    if (inTx) await persist(inTx);
+    else await this.prisma.asSystem(persist);
+    return { providerTxId: result.providerTxId };
   }
 
   /**
@@ -1228,10 +1324,11 @@ export class PaymentsService implements OnApplicationBootstrap {
           commissionCents: number;
           reversedCents: number;
           paymentAmountCents: number;
+          payoutId: string | null;
         }>
       >`
         SELECT id, "tenantId", "commissionBps", "commissionCents", "reversedCents",
-               "paymentAmountCents"
+               "paymentAmountCents", "payoutId"
           FROM operator_earnings
          WHERE "paymentId" = ${paymentId}::uuid
          FOR UPDATE
@@ -1259,15 +1356,31 @@ export class PaymentsService implements OnApplicationBootstrap {
         e.paymentAmountCents, // cap por seguridad
       );
 
-      // 3. Reversed total esperado tras este refund.
+      // 3. Reversed total esperado tras este refund. Las reversiones que llegan
+      //    con el earning ya pagado no tocan reversedCents (eso refleja lo que
+      //    se le pagó); se suman aparte como deuda.
       const expectedTotalReversed = Math.round(
         (totalCumulative * e.commissionBps) / 10_000,
       );
-      const reverseDelta = expectedTotalReversed - e.reversedCents;
+      const debtRows = await tx.$queryRaw<Array<{ total: bigint }>>`
+        SELECT COALESCE(SUM("reversedDeltaCents"),0)::bigint AS total
+          FROM earning_reversals
+         WHERE "earningId" = ${e.id}::uuid
+           AND "afterPayout"
+      `;
+      const alreadyReversed = e.reversedCents + Number(debtRows[0]?.total ?? 0);
+      const reverseDelta = expectedTotalReversed - alreadyReversed;
+      const afterPayout = e.payoutId !== null;
 
       if (reverseDelta <= 0) {
         this.logger.warn(
-          `Earning reversal delta non-positive payment=${paymentId} refundId=${refundId} expected=${expectedTotalReversed} current=${e.reversedCents} — skip update`,
+          `Earning reversal delta non-positive payment=${paymentId} refundId=${refundId} expected=${expectedTotalReversed} current=${alreadyReversed} — skip update`,
+        );
+      } else if (afterPayout) {
+        // Ya pagado a la chica: queda como deuda (earning_reversals.afterPayout)
+        // y createPayout la descuenta del siguiente pago.
+        this.logger.warn(
+          `Refund after payout payment=${paymentId} refundId=${refundId}: deuda de ${reverseDelta}c para el siguiente pago`,
         );
       } else {
         await tx.$executeRaw`
@@ -1280,13 +1393,14 @@ export class PaymentsService implements OnApplicationBootstrap {
       // 4. Registrar reversal para idempotencia (siempre, incluso si delta=0).
       await tx.$executeRaw`
         INSERT INTO earning_reversals (
-          "tenantId", "earningId", "refundId", "reversedDeltaCents"
+          "tenantId", "earningId", "refundId", "reversedDeltaCents", "afterPayout"
         )
         VALUES (
           ${e.tenantId}::uuid,
           ${e.id}::uuid,
           ${refundId}::uuid,
-          ${Math.max(0, reverseDelta)}::int
+          ${Math.max(0, reverseDelta)}::int,
+          ${afterPayout && reverseDelta > 0}
         )
         ON CONFLICT ("refundId") DO NOTHING
       `;

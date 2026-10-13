@@ -33,6 +33,15 @@ export class MetricsService implements OnModuleInit {
 
   // Earning reverse fallido tras refund OK del cliente. Debe estar SIEMPRE en 0;
   // valor >0 indica discrepancia financiera (chica cobra de más). Alertar siempre.
+  // Dos intentos del mismo cobro aprobados por el banco: el cliente pagó dos
+  // veces. Hay que devolver uno (el aviso queda en payment_events).
+  readonly duplicateCharges = new Counter({
+    name: 'nightpay_duplicate_charges_total',
+    help: 'Cobros con más de un intento aprobado por el banco (devolver uno)',
+    labelNames: ['venue', 'provider'],
+    registers: [this.registry],
+  });
+
   readonly earningReversalFailed = new Counter({
     name: 'nightpay_earning_reversal_failed_total',
     help: 'Earning reverse silenciado (refund OK pero comisión chica no descontada)',

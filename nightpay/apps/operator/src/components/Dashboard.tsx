@@ -135,6 +135,15 @@ function HomeTab({
           {balance ? (balance.pendingCents / 100).toFixed(2) : '—'}{' '}
           <span style={curr}>EUR</span>
         </p>
+        {balance && balance.availableCents !== undefined ? (
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.9375rem', color: 'var(--np-text-mute)' }}>
+            Próximo pago <strong className="np-num">{(Math.max(0, balance.availableCents) / 100).toFixed(2)} €</strong>
+            {balance.heldCents ? <> · en espera {(balance.heldCents / 100).toFixed(2)} €</> : null}
+            {balance.debtCents ? (
+              <span style={{ color: 'var(--np-danger)' }}> · devoluciones −{(balance.debtCents / 100).toFixed(2)} €</span>
+            ) : null}
+          </p>
+        ) : null}
         {balance && balance.count > 0 ? (
           <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
             {balance.count} cobro{balance.count === 1 ? '' : 's'} contabilizado{balance.count === 1 ? '' : 's'}

@@ -155,9 +155,10 @@ export type CreatePaymentDto = z.infer<typeof CreatePaymentSchema>;
  * Confirmación POS — camarero/manager marca cobrado tras procesar la tarjeta
  * en el datáfono externo.
  *
- * `posReceiptRef` es OBLIGATORIO (≥3 chars) — prevenir confirmaciones falsas
- * sin haber cobrado realmente. El camarero teclea el número de recibo del
- * datáfono (o lo escanea con la cámara). Va al audit log.
+ * `posReceiptRef` es el CÓDIGO DE AUTORIZACIÓN del ticket del datáfono
+ * (6 letras o números, "AUT" / "Nº autorización"). Antes valía cualquier
+ * texto de 3 caracteres; ahora se valida el formato y el servidor rechaza
+ * un código ya usado en el mismo terminal (Fase 0).
  *
  * `posReceiptPhoto`: data URL del ticket fotografiado por el camarero. Opcional
  * pero recomendado en disputes. Tamaño máx 500KB para evitar payloads enormes.
@@ -165,8 +166,12 @@ export type CreatePaymentDto = z.infer<typeof CreatePaymentSchema>;
 export const ConfirmPosPaymentSchema = z.object({
   posReceiptRef: z
     .string()
-    .min(3, 'Pega o teclea el nº de recibo del datáfono (mín 3 chars)')
-    .max(200),
+    .transform((s) => s.replace(/\s+/g, '').toUpperCase())
+    .pipe(
+      z
+        .string()
+        .regex(/^[A-Z0-9]{6}$/, 'Teclea el código de autorización del ticket: 6 letras o números'),
+    ),
   posReceiptPhoto: z
     .string()
     .startsWith('data:image/')

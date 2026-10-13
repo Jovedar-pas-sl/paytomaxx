@@ -16,6 +16,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
+import { parseHoldDays, payoutCutoff, payoutTotalCents } from './payout-math';
 import type {
   CreateOperatorDto,
   CreateOperatorResponse,
@@ -96,9 +97,11 @@ export class OperatorsService {
   // del middleware CLS).
 
   async getBalance(operatorId: string, tenantId: string): Promise<OperatorBalance> {
+    const cutoff = payoutCutoff(new Date(), this.holdDays());
     const rows = await this.prisma.$queryRaw<
       Array<{
         pendingCents: bigint;
+        heldCents: bigint;
         paidCents: bigint;
         lifetimeGrossCents: bigint;
         count: bigint;
@@ -106,6 +109,7 @@ export class OperatorsService {
     >`
       SELECT
         COALESCE(SUM(CASE WHEN "payoutId" IS NULL THEN "commissionCents" + COALESCE("tipCents",0) - "reversedCents" ELSE 0 END), 0)::bigint AS "pendingCents",
+        COALESCE(SUM(CASE WHEN "payoutId" IS NULL AND "createdAt" > ${cutoff} THEN "commissionCents" + COALESCE("tipCents",0) - "reversedCents" ELSE 0 END), 0)::bigint AS "heldCents",
         COALESCE(SUM(CASE WHEN "payoutId" IS NOT NULL THEN "commissionCents" + COALESCE("tipCents",0) - "reversedCents" ELSE 0 END), 0)::bigint AS "paidCents",
         COALESCE(SUM("paymentAmountCents"), 0)::bigint AS "lifetimeGrossCents",
         COUNT(*)::bigint AS count
@@ -114,12 +118,36 @@ export class OperatorsService {
         AND "tenantId" = ${tenantId}::uuid
     `;
     const r = rows[0]!;
+    const debtCents = await this.openDebtCents(operatorId, tenantId);
+    const unpaid = Number(r.pendingCents);
+    const held = Math.max(0, Number(r.heldCents));
     return {
-      pendingCents: Number(r.pendingCents),
+      pendingCents: unpaid - debtCents,
+      availableCents: unpaid - held - debtCents,
+      heldCents: held,
+      debtCents,
       paidCents: Math.max(0, Number(r.paidCents)),
       lifetimeGrossCents: Number(r.lifetimeGrossCents),
       count: Number(r.count),
     };
+  }
+
+  private holdDays(): number {
+    return parseHoldDays(this.config.get('PAYOUT_HOLD_DAYS'));
+  }
+
+  /** Devoluciones llegadas con la comisión ya pagada, aún sin descontar. */
+  private async openDebtCents(operatorId: string, tenantId: string): Promise<number> {
+    const rows = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
+      SELECT COALESCE(SUM(r."reversedDeltaCents"), 0)::bigint AS total
+        FROM earning_reversals r
+        JOIN operator_earnings e ON e.id = r."earningId"
+       WHERE e."operatorId" = ${operatorId}::uuid
+         AND e."tenantId" = ${tenantId}::uuid
+         AND r."afterPayout"
+         AND r."settledPayoutId" IS NULL
+    `;
+    return Number(rows[0]?.total ?? 0);
   }
 
   async getMyEarnings(
@@ -882,28 +910,45 @@ export class OperatorsService {
     const result = await this.prisma.$transaction(async (tx) => {
       // SELECT FOR UPDATE de earnings pendientes — incluye tipCents en SUM.
       // L2 (audit): el cálculo previo omitía tipCents → payout subestimaba.
+      // Solo earnings con más de N días (PAYOUT_HOLD_DAYS): el dinero ya está
+      // abonado por el banco y una devolución temprana no deja deuda.
+      const holdDays = this.holdDays();
+      const cutoff = payoutCutoff(new Date(), holdDays);
       const pending = await tx.$queryRaw<
         Array<{ id: string; commissionCents: number; tipCents: number; reversedCents: number }>
       >`
         SELECT id, "commissionCents", "tipCents", "reversedCents"
           FROM operator_earnings
          WHERE "operatorId" = ${operatorId}::uuid
+           AND "tenantId" = ${tenantId}::uuid
            AND "payoutId" IS NULL
+           AND "createdAt" <= ${cutoff}
          FOR UPDATE
       `;
 
       if (pending.length === 0) {
-        throw new ConflictException('No hay earnings pendientes para liquidar');
+        throw new ConflictException(
+          `No hay comisiones con más de ${holdDays} días para liquidar. Las más recientes siguen en espera.`,
+        );
       }
 
-      const totalCents = pending.reduce(
-        (sum, e) => sum + (e.commissionCents + (e.tipCents ?? 0) - e.reversedCents),
-        0,
-      );
+      // Deuda por devoluciones llegadas después de un pago anterior.
+      const debts = await tx.$queryRaw<Array<{ id: string; reversedDeltaCents: number }>>`
+        SELECT r.id, r."reversedDeltaCents"
+          FROM earning_reversals r
+          JOIN operator_earnings e ON e.id = r."earningId"
+         WHERE e."operatorId" = ${operatorId}::uuid
+           AND e."tenantId" = ${tenantId}::uuid
+           AND r."afterPayout"
+           AND r."settledPayoutId" IS NULL
+         FOR UPDATE OF r
+      `;
+
+      const totalCents = payoutTotalCents(pending, debts);
 
       if (totalCents <= 0) {
         throw new ConflictException(
-          `Saldo neto pendiente es ${totalCents / 100} € — no hay nada que liquidar (la operadora arrastra deuda).`,
+          `Saldo neto ${totalCents / 100} € — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
         );
       }
 
@@ -952,6 +997,14 @@ export class OperatorsService {
            SET "payoutId" = ${payout.id}::uuid
          WHERE id = ANY(${ids}::uuid[])
       `;
+      if (debts.length > 0) {
+        const debtIds = debts.map((d) => d.id);
+        await tx.$executeRaw`
+          UPDATE earning_reversals
+             SET "settledPayoutId" = ${payout.id}::uuid
+           WHERE id = ANY(${debtIds}::uuid[])
+        `;
+      }
 
       return { payout, count: pending.length };
     });
