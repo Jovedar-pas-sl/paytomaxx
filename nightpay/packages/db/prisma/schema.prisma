@@ -54,6 +54,7 @@ model Venue {
   peanpeCalls        PeanpeCall[]
   serviceItems       ServiceItem[]
   nights             VenueNight[]
+  incidentAcks       IncidentAck[]
 
   @@map("venues")
 }
@@ -353,6 +354,22 @@ model PaymentAttempt {
   @@unique([provider, providerTxId])
   @@index([paymentId, createdAt(sort: Desc)])
   @@map("payment_attempts")
+}
+
+// Fase 1E — incidencias que el dueño ya revisó (las incidencias se calculan al vuelo).
+model IncidentAck {
+  id       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String   @db.Uuid
+  kind     String
+  refId    String
+  ackedBy  String?  @db.Uuid
+  note     String?
+  ackedAt  DateTime @default(now()) @db.Timestamptz
+
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, kind, refId])
+  @@map("incident_acks")
 }
 
 // Fase 1D — noche del local: se abre y se cierra con informe Z congelado.

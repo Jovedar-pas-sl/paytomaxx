@@ -19,6 +19,7 @@ const TENANT_SCOPED_MODELS = new Set([
   'OperatorPayout',
   'ServiceItem',
   'VenueNight',
+  'IncidentAck',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

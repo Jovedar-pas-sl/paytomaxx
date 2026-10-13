@@ -25,6 +25,7 @@ import { TerminalsModule } from './modules/terminals/terminals.module';
 import { CartaModule } from './modules/carta/carta.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { NightsModule } from './modules/nights/nights.module';
+import { IncidentsModule } from './modules/incidents/incidents.module';
 import { VenuesModule } from './modules/venues/venues.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
@@ -74,6 +75,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     CartaModule,
     ReportsModule,
     NightsModule,
+    IncidentsModule,
     WalletsModule,
     WebhooksModule,
   ],

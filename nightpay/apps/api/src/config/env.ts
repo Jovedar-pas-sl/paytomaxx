@@ -63,6 +63,12 @@ const EnvSchema = z.object({
   // BBVA). Se enseña en la página de pago para evitar "no lo reconozco".
   // Vacío = no se enseña.
   PAY_STATEMENT_NAME: z.string().max(40).optional(),
+  // Fase 1E — alertas y resumen de las 9:00 por Telegram al dueño. Sin las
+  // dos, la bandeja de incidencias funciona igual y no se envía nada.
+  // TELEGRAM_BOT_TOKEN: el que da @BotFather. TELEGRAM_CHAT_ID: el chat (o
+  // grupo) del dueño con el bot.
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_CHAT_ID: z.string().optional(),
   // Peanpe legacy URL var (no se usa con el adapter rehecho — mantener para
   // compat con env existentes). El adapter usa PEANPE_API_BASE_URL.
   PEANPE_API_URL: z.string().url(),

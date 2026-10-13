@@ -482,6 +482,43 @@ export async function downloadExport(kind: ExportKind, from: string, to: string)
   return res.blob();
 }
 
+// ─── Incidencias (Fase 1E) ─────────────────────────────────────────
+
+export type IncidentKind =
+  | 'stuck_payment'
+  | 'duplicate_charge'
+  | 'earning_reverse_failed'
+  | 'wallet_credit_skipped'
+  | 'night_closed_pending';
+
+export interface Incident {
+  kind: IncidentKind;
+  refId: string;
+  title: string;
+  detail: string;
+  occurredAt: string;
+  amountCents: number | null;
+  paymentId: string | null;
+  ackable: boolean;
+}
+
+export async function fetchIncidents(): Promise<{ items: Incident[]; telegram: boolean }> {
+  const res = await authedFetch('/v1/incidents');
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+export async function ackIncident(input: { kind: IncidentKind; refId: string; note?: string }): Promise<void> {
+  const res = await authedFetch('/v1/incidents/ack', { method: 'POST', body: JSON.stringify(input) });
+  if (!res.ok) throw new Error(await readError(res));
+}
+
+export async function sendTelegramTest(): Promise<boolean> {
+  const res = await authedFetch('/v1/incidents/telegram-test', { method: 'POST', body: '{}' });
+  if (!res.ok) throw new Error(await readError(res));
+  return ((await res.json()) as { sent: boolean }).sent;
+}
+
 // ─── Noches (Fase 1D) ──────────────────────────────────────────────
 
 export interface NightSummary {

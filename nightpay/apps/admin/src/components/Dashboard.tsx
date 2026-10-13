@@ -24,6 +24,7 @@ import {
 } from '@/lib/api';
 import { BankRefundModal } from './BankRefundModal';
 import { CartaPanel } from './CartaPanel';
+import { IncidentsPanel } from './IncidentsPanel';
 import { NightsPanel } from './NightsPanel';
 import { OperatorsPanel } from './OperatorsPanel';
 import { ReportsPanel } from './ReportsPanel';
@@ -42,6 +43,7 @@ interface Props {
 type TabKey =
   | 'payments'
   | 'nights'
+  | 'incidents'
   | 'operators'
   | 'carta'
   | 'reports'
@@ -137,6 +139,9 @@ export function Dashboard({ user, onLogout }: Props) {
         <TabButton active={tab === 'nights'} onClick={() => setTab('nights')}>
           Noches
         </TabButton>
+        <TabButton active={tab === 'incidents'} onClick={() => setTab('incidents')}>
+          Incidencias
+        </TabButton>
         <TabButton active={tab === 'operators'} onClick={() => setTab('operators')}>
           Operadoras
         </TabButton>
@@ -167,6 +172,8 @@ export function Dashboard({ user, onLogout }: Props) {
 
       {tab === 'nights' ? (
         <NightsPanel isOwner={user.role === 'OWNER'} />
+      ) : tab === 'incidents' ? (
+        <IncidentsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'operators' ? (
         <OperatorsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'carta' ? (
@@ -514,7 +521,7 @@ function ResolveModal({
           {payment.attempts.map((a) => (
             <li key={a.providerTxId}>
               Pedido <code style={code}>{a.providerTxId}</code> · {formatTime(a.createdAt)} ·{' '}
-              {a.amountCents != null ? <span className="np-num">{(a.amountCents / 100).toFixed(2)} € · </span> : null}
+              {typeof a.amountCents === 'number' ? <span className="np-num">{(a.amountCents / 100).toFixed(2)} € · </span> : null}
               {a.status === 'APPROVED' ? 'aprobado' : a.status === 'DENIED' ? 'denegado' : 'sin respuesta'}
             </li>
           ))}
@@ -564,7 +571,7 @@ function ResolveModal({
             {chargeable.map((a) => (
               <option key={a.providerTxId} value={a.providerTxId}>
                 {a.providerTxId}
-                {a.amountCents != null ? ` · ${(a.amountCents / 100).toFixed(2)} €` : ''}
+                {typeof a.amountCents === 'number' ? ` · ${(a.amountCents / 100).toFixed(2)} €` : ''}
                 {a.tipCents ? ` (propina ${(a.tipCents / 100).toFixed(2)} €)` : ''}
               </option>
             ))}
