@@ -24,6 +24,7 @@ import {
 } from '@/lib/api';
 import { BankRefundModal } from './BankRefundModal';
 import { CartaPanel } from './CartaPanel';
+import { NightsPanel } from './NightsPanel';
 import { OperatorsPanel } from './OperatorsPanel';
 import { ReportsPanel } from './ReportsPanel';
 import { SettingsPanel } from './SettingsPanel';
@@ -40,6 +41,7 @@ interface Props {
 
 type TabKey =
   | 'payments'
+  | 'nights'
   | 'operators'
   | 'carta'
   | 'reports'
@@ -132,6 +134,9 @@ export function Dashboard({ user, onLogout }: Props) {
         <TabButton active={tab === 'payments'} onClick={() => setTab('payments')}>
           Pagos
         </TabButton>
+        <TabButton active={tab === 'nights'} onClick={() => setTab('nights')}>
+          Noches
+        </TabButton>
         <TabButton active={tab === 'operators'} onClick={() => setTab('operators')}>
           Operadoras
         </TabButton>
@@ -160,7 +165,9 @@ export function Dashboard({ user, onLogout }: Props) {
         ) : null}
       </nav>
 
-      {tab === 'operators' ? (
+      {tab === 'nights' ? (
+        <NightsPanel isOwner={user.role === 'OWNER'} />
+      ) : tab === 'operators' ? (
         <OperatorsPanel isOwner={user.role === 'OWNER'} />
       ) : tab === 'carta' ? (
         <CartaPanel />

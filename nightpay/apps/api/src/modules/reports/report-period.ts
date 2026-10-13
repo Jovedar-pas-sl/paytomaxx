@@ -1,7 +1,13 @@
 import { madridStartOfDay, nextDay } from '../../common/time/madrid';
 
+/** Intervalo [from, to) en el que se leen cobros, devoluciones y pagos. */
+export interface TimeWindow {
+  from: Date;
+  to: Date;
+}
+
 /** Periodo de un informe: días de Madrid, ambos incluidos. */
-export interface ReportPeriod {
+export interface ReportPeriod extends TimeWindow {
   /** Primer instante (00:00 de Madrid del día `fromDay`). */
   from: Date;
   /** Fin exclusivo (00:00 de Madrid del día siguiente a `toDay`). */

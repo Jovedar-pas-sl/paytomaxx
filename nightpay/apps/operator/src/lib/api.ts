@@ -274,6 +274,26 @@ export async function fetchBalance(): Promise<OperatorBalance> {
   return res.json();
 }
 
+/** Fase 1D — la noche en curso de la chica: sus cobros y su parte. */
+export interface MyNight {
+  from: string;
+  /** Cierre de la última noche si ya está cerrada; null si sigue abierta o no hay. */
+  to: string | null;
+  nightOpen: boolean;
+  count: number;
+  chargedCents: number;
+  commissionCents: number;
+  tipsCents: number;
+  reversedCents: number;
+  netCents: number;
+}
+
+export async function fetchMyNight(): Promise<MyNight> {
+  const res = await authedFetch('/v1/nights/mine');
+  if (!res.ok) throw new Error('Error cargando tu noche');
+  return res.json();
+}
+
 export async function fetchMyEarnings(): Promise<MyEarning[]> {
   const res = await authedFetch('/v1/operators/me/earnings');
   if (!res.ok) throw new Error('Error cargando ganancias');

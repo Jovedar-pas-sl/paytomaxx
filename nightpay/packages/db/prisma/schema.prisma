@@ -53,6 +53,7 @@ model Venue {
   walletConsumptions WalletConsumption[]
   peanpeCalls        PeanpeCall[]
   serviceItems       ServiceItem[]
+  nights             VenueNight[]
 
   @@map("venues")
 }
@@ -352,6 +353,27 @@ model PaymentAttempt {
   @@unique([provider, providerTxId])
   @@index([paymentId, createdAt(sort: Desc)])
   @@map("payment_attempts")
+}
+
+// Fase 1D — noche del local: se abre y se cierra con informe Z congelado.
+// Una sola abierta por local (índice parcial en SQL: venue_nights_one_open_per_venue).
+model VenueNight {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @db.Uuid
+  openedAt       DateTime  @default(now()) @db.Timestamptz
+  openedBy       String?   @db.Uuid
+  closedAt       DateTime? @db.Timestamptz
+  closedBy       String?   @db.Uuid
+  autoClosed     Boolean   @default(false)
+  pendingAtClose Int       @default(0)
+  closeNote      String?
+  zReport        Json?
+  createdAt      DateTime  @default(now()) @db.Timestamptz
+
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, openedAt(sort: Desc)])
+  @@map("venue_nights")
 }
 
 // Fase 1A — carta de servicios por local. La chica elige un servicio en vez

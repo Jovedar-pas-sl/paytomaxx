@@ -18,6 +18,7 @@ const TENANT_SCOPED_MODELS = new Set([
   'OperatorEarning',
   'OperatorPayout',
   'ServiceItem',
+  'VenueNight',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

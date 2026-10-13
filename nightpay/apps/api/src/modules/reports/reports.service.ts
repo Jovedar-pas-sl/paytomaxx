@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import type { CobroRow, DevolucionRow, LiquidacionRow } from './export-rows';
-import type { ReportPeriod } from './report-period';
+import type { TimeWindow } from './report-period';
 
 /** Tope de filas por informe: un local con mucho movimiento hace ~10k cobros al mes. */
 export const MAX_EXPORT_ROWS = 100_000;
@@ -24,7 +24,7 @@ export class ReportsService {
   }
 
   /** Cobros pagados en el periodo (fecha = autorización del banco). */
-  async cobros(tenantId: string, p: ReportPeriod): Promise<CobroRow[]> {
+  async cobros(tenantId: string, p: TimeWindow): Promise<CobroRow[]> {
     return capped(await this.prisma.$queryRaw<CobroRow[]>`
       SELECT p.id,
              COALESCE(p."authorizedAt", p."createdAt") AS "paidAt",
@@ -76,7 +76,7 @@ export class ReportsService {
   }
 
   /** Devoluciones hechas en el periodo (fecha = día de la devolución en el banco). */
-  async devoluciones(tenantId: string, p: ReportPeriod): Promise<DevolucionRow[]> {
+  async devoluciones(tenantId: string, p: TimeWindow): Promise<DevolucionRow[]> {
     return capped(await this.prisma.$queryRaw<DevolucionRow[]>`
       SELECT r.id,
              COALESCE(r."bankRefundedAt", r."createdAt") AS "refundedAt",
@@ -113,7 +113,7 @@ export class ReportsService {
   }
 
   /** Pagos a chicas hechos en el periodo. */
-  async liquidaciones(tenantId: string, p: ReportPeriod): Promise<LiquidacionRow[]> {
+  async liquidaciones(tenantId: string, p: TimeWindow): Promise<LiquidacionRow[]> {
     return capped(await this.prisma.$queryRaw<LiquidacionRow[]>`
       SELECT po.id,
              po."createdAt" AS "paidAt",

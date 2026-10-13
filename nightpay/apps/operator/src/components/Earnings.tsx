@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Card } from '@nightpay/ui';
+import { MyNightCard } from './MyNightCard';
 import {
   fetchMyEarnings,
   fetchMyPayouts,
@@ -35,6 +36,7 @@ export function Earnings() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <MyNightCard />
       <div style={tabSwitchStyle}>
         <SwitchBtn active={mode === 'earnings'} onClick={() => setMode('earnings')}>
           Comisiones
