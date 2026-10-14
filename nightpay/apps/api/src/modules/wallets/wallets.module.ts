@@ -11,6 +11,6 @@ import { WalletsService } from './wallets.service';
   imports: [PrismaModule, AuditModule],
   providers: [WalletsService, WalletChargesService],
   controllers: [WalletsController, AdminWalletsController, WalletChargesController, PublicWalletController],
-  exports: [WalletsService],
+  exports: [WalletsService, WalletChargesService],
 })
 export class WalletsModule {}

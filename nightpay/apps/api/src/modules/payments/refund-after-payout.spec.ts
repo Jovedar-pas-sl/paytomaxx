@@ -6,7 +6,10 @@ import { PaymentsService } from './payments.service';
  * no toca el earning (refleja lo pagado) y queda como deuda
  * (earning_reversals.afterPayout) para descontarla del siguiente pago.
  */
-function makeService(earning: { payoutId: string | null; reversedCents?: number }, priorDebtCents = 0) {
+function makeService(
+  earning: { payoutId: string | null; reversedCents?: number; tipCents?: number },
+  priorDebtCents = 0,
+) {
   const queryRaw = vi
     .fn()
     // 0. idempotencia: este refund no se ha aplicado
@@ -18,8 +21,10 @@ function makeService(earning: { payoutId: string | null; reversedCents?: number 
         tenantId: 'tenant-1',
         commissionBps: 9000,
         commissionCents: 9000,
+        tipCents: earning.tipCents ?? 0,
         reversedCents: earning.reversedCents ?? 0,
-        paymentAmountCents: 10000,
+        // 100 € de servicio + la propina
+        chargedCents: 10000 + (earning.tipCents ?? 0),
         payoutId: earning.payoutId,
       },
     ])
@@ -65,6 +70,25 @@ describe('applyRefundToEarning — devolución después de pagar a la chica', ()
     expect(sqls.some((q) => q.includes('UPDATE operator_earnings'))).toBe(false);
     const insert = executeRaw.mock.calls.find((c) => sqlOf(c).includes('INSERT INTO earning_reversals'))!;
     expect(insert.slice(1)).toEqual(['tenant-1', 'earning-1', 'refund-1', 9000, true]);
+  });
+
+  it('con propina: la devolución total le quita comisión y propina (decisión del dueño)', async () => {
+    const { service, executeRaw } = makeService({ payoutId: null, tipCents: 1000 });
+
+    await service.applyRefundToEarning('payment-1', 'refund-1', 11000);
+
+    const insert = executeRaw.mock.calls.find((c) => sqlOf(c).includes('INSERT INTO earning_reversals'))!;
+    expect(insert.slice(1)).toEqual(['tenant-1', 'earning-1', 'refund-1', 10000, false]);
+  });
+
+  it('con propina y ya pagada: la propina también queda como deuda', async () => {
+    const { service, executeRaw } = makeService({ payoutId: 'payout-1', tipCents: 1000 });
+
+    await service.applyRefundToEarning('payment-1', 'refund-1', 5500);
+
+    const insert = executeRaw.mock.calls.find((c) => sqlOf(c).includes('INSERT INTO earning_reversals'))!;
+    // la mitad de lo cobrado → la mitad de 90 € + 10 €
+    expect(insert.slice(1)).toEqual(['tenant-1', 'earning-1', 'refund-1', 5000, true]);
   });
 
   it('no cuenta dos veces la deuda ya registrada (devolución parcial en dos pasos)', async () => {

@@ -54,6 +54,8 @@ import {
   type RetryDecision,
 } from './pay-redirect';
 import { defaultTipGoesTo, readChargedTip, settleChargedTip, tipOptionsFor } from './tip';
+import { expectedChicaReversal } from './refund-share';
+import { formatWalletCode, sameWalletGroup } from '../wallets/wallet-rules';
 import { BRAND_NAME } from '../../common/brand';
 
 const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
@@ -355,16 +357,21 @@ export class PaymentsService implements OnApplicationBootstrap {
         });
         resolvedWalletId = created.id;
       } else if ('walletId' in walletDto) {
-        const existing = await this.prisma.asSystem((tx) =>
-          tx.clientWallet.findFirst({
-            where: { id: walletDto.walletId, tenantId },
-            select: { id: true, status: true },
-          }),
-        );
-        if (!existing) {
+        // Recargar el saldo de un cliente: el suyo de este local o de otro del
+        // grupo, también si lo dejó a 0 otra noche.
+        const [existing, venue] = await Promise.all([
+          this.prisma.acrossVenues((tx) =>
+            tx.clientWallet.findUnique({
+              where: { id: walletDto.walletId },
+              select: { id: true, status: true, tenantId: true, walletGroup: true },
+            }),
+          ),
+          this.prisma.venue.findUnique({ where: { id: tenantId }, select: { walletGroup: true } }),
+        ]);
+        if (!existing || !sameWalletGroup(existing, { id: tenantId, walletGroup: venue?.walletGroup ?? null })) {
           throw new NotFoundException('Wallet no encontrada en este venue');
         }
-        if (existing.status !== 'ACTIVE') {
+        if (existing.status !== 'ACTIVE' && existing.status !== 'DEPLETED') {
           throw new BadRequestException(`Wallet en status ${existing.status} — no se puede recargar`);
         }
         resolvedWalletId = existing.id;
@@ -646,7 +653,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           updatedAt: true,
           authorizedAt: true,
           walletId: true,
-          wallet: { select: { qrToken: true } },
+          wallet: { select: { qrToken: true, shortCode: true, pinHash: true } },
           attempts: {
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
@@ -671,14 +678,28 @@ export class PaymentsService implements OnApplicationBootstrap {
         )
       )?.provider ??
       null;
-    const { walletId, wallet, attempts, ...rest } = payment;
+    const { walletId, wallet: rawWallet, attempts, ...rest } = payment;
+    // Recarga de un saldo que ya existía: quien la paga (un amigo…) no se
+    // lleva el código, el enlace ni el PIN del saldo de otro.
+    const wallet = rawWallet && (await this.isFirstTopUp(walletId, payment.id)) ? rawWallet : null;
     return {
       ...rest,
       status: payment.status as PaymentMachineState,
       allowTip: provider === 'REDSYS' && walletId === null,
       walletToken: wallet?.qrToken ?? null,
       walletClaimHash: wallet ? (attempts[0]?.claimHash ?? null) : null,
+      walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
+      walletHasPin: Boolean(wallet?.pinHash),
     };
+  }
+
+  /** ¿Es este el cobro con el que se creó (y cargó por primera vez) el saldo? */
+  private async isFirstTopUp(walletId: string | null, paymentId: string): Promise<boolean> {
+    if (!walletId) return false;
+    const first = await this.prisma.acrossVenues((tx) =>
+      tx.payment.findFirst({ where: { walletId }, orderBy: { createdAt: 'asc' }, select: { id: true } }),
+    );
+    return first?.id === paymentId;
   }
 
   /**
@@ -702,7 +723,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           currency: true,
           authorizedAt: true,
           qrToken: true,
-          wallet: { select: { qrToken: true } },
+          walletId: true,
+          wallet: { select: { qrToken: true, shortCode: true, pinHash: true } },
           attempts: {
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
@@ -716,6 +738,15 @@ export class PaymentsService implements OnApplicationBootstrap {
         where: { paymentId: payment.id, providerTxId },
         select: { status: true },
       });
+      const firstTopUp = payment.walletId
+        ? await tx.payment.findFirst({
+            where: { walletId: payment.walletId },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true },
+          })
+        : null;
+      // Recarga de un saldo que ya existía: sin código, enlace ni PIN para quien paga.
+      const wallet = firstTopUp?.id === payment.id ? payment.wallet : null;
       return {
         paymentId: payment.id,
         status: payment.status as PaymentMachineState,
@@ -724,8 +755,10 @@ export class PaymentsService implements OnApplicationBootstrap {
         currency: payment.currency,
         authorizedAt: payment.authorizedAt,
         qrToken: payment.qrToken,
-        walletToken: payment.wallet?.qrToken ?? null,
-        walletClaimHash: payment.wallet ? (payment.attempts[0]?.claimHash ?? null) : null,
+        walletToken: wallet?.qrToken ?? null,
+        walletClaimHash: wallet ? (payment.attempts[0]?.claimHash ?? null) : null,
+        walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
+        walletHasPin: Boolean(wallet?.pinHash),
         attemptStatus: thisAttempt?.status ?? null,
       };
     });
@@ -940,15 +973,20 @@ export class PaymentsService implements OnApplicationBootstrap {
         // Nota: el tip va SEPARADO del balance — propinas no son saldo gastable
         // por el cliente, se asignan al beneficiario directamente.
         if (result.nextState === 'AUTHORIZED' && p.walletId) {
-          // H3: filtro tenantId en SELECT FOR UPDATE (no solo defensa post-lock
-          // sino que el lock se adquiere sobre la fila correcta del tenant).
+          // H3: el lock se toma solo si el saldo es de este local o de otro de
+          // su grupo (se puede recargar en cualquiera de ellos); si no, no se
+          // toca y salta la alerta de abajo.
           const walletLocked = await tx.$queryRaw<
             Array<{ id: string; balanceCents: number; status: string }>
           >`
-            SELECT id, "balanceCents", status FROM client_wallets
-             WHERE id = ${p.walletId}::uuid
-               AND "tenantId" = ${p.tenantId}::uuid
-             FOR UPDATE
+            SELECT w.id, w."balanceCents", w.status FROM client_wallets w
+             WHERE w.id = ${p.walletId}::uuid
+               AND (
+                 w."tenantId" = ${p.tenantId}::uuid
+                 OR (w."walletGroup" IS NOT NULL
+                     AND w."walletGroup" = (SELECT v."walletGroup" FROM venues v WHERE v.id = ${p.tenantId}::uuid))
+               )
+             FOR UPDATE OF w
           `;
           const w = walletLocked[0];
           if (w && (w.status === 'ACTIVE' || w.status === 'DEPLETED')) {
@@ -957,8 +995,7 @@ export class PaymentsService implements OnApplicationBootstrap {
                  SET "balanceCents" = "balanceCents" + ${p.amountCents}::int,
                      status = 'ACTIVE'::"WalletStatus",
                      "updatedAt" = now()
-               WHERE id = ${p.walletId}::uuid
-                 AND "tenantId" = ${p.tenantId}::uuid
+               WHERE id = ${w.id}::uuid
             `;
             this.logger.log(
               `Payment ${paymentId} AUTHORIZED → wallet ${p.walletId} credited +${p.amountCents}c (new balance: ${w.balanceCents + p.amountCents})`,
@@ -1536,7 +1573,8 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Reverse proporcional de la comisión cuando hay refund (parcial o total).
+   * Reverse proporcional de la parte de la chica — comisión Y propina — cuando
+   * hay refund (parcial o total): ver expectedChicaReversal (refund-share.ts).
    * Llamado por RefundsService después de que el refund llega a SUCCEEDED.
    *
    * Idempotencia: tabla earning_reversals(refundId UNIQUE). Si el processor
@@ -1546,11 +1584,11 @@ export class PaymentsService implements OnApplicationBootstrap {
    * cada refund (que acumula dust), calculamos el reversedTotal ESPERADO en
    * función del cumulativo refundeado hasta el momento, y aplicamos el delta:
    *
-   *   expectedTotalReversed = round(totalCumulativeRefunded * bps / 10000)
+   *   expectedTotalReversed = round((comisión + propina) * devuelto / cobrado)
    *   delta = expectedTotalReversed - currentReversedCents
    *
-   * Esto garantiza el invariante: si todos los refunds suman amountCents, el
-   * reversedCents acumulado iguala exactamente commissionCents — sin dust.
+   * Esto garantiza el invariante: si todos los refunds suman lo cobrado
+   * (servicio + propina), lo descontado iguala exactamente su parte — sin dust.
    *
    * Permite saldo negativo (deuda) si reversedCents > commissionCents (no debería
    * pasar con accumulator, pero por defensa lo permitimos).
@@ -1580,16 +1618,18 @@ export class PaymentsService implements OnApplicationBootstrap {
           tenantId: string;
           commissionBps: number;
           commissionCents: number;
+          tipCents: number;
           reversedCents: number;
-          paymentAmountCents: number;
+          chargedCents: number;
           payoutId: string | null;
         }>
       >`
-        SELECT id, "tenantId", "commissionBps", "commissionCents", "reversedCents",
-               "paymentAmountCents", "payoutId"
-          FROM operator_earnings
-         WHERE "paymentId" = ${paymentId}::uuid
-         FOR UPDATE
+        SELECT e.id, e."tenantId", e."commissionBps", e."commissionCents", e."tipCents",
+               e."reversedCents", (p."amountCents" + p."tipCents") AS "chargedCents", e."payoutId"
+          FROM operator_earnings e
+          JOIN payments p ON p.id = e."paymentId"
+         WHERE e."paymentId" = ${paymentId}::uuid
+         FOR UPDATE OF e
       `;
       if (earning.length === 0) {
         this.logger.log(
@@ -1609,17 +1649,17 @@ export class PaymentsService implements OnApplicationBootstrap {
            AND id != ${refundId}::uuid
       `;
       const priorCumulative = Number(sumRows[0]?.total ?? 0);
-      const totalCumulative = Math.min(
-        priorCumulative + refundAmountCents,
-        e.paymentAmountCents, // cap por seguridad
-      );
+      const totalCumulative = Math.min(priorCumulative + refundAmountCents, e.chargedCents);
 
-      // 3. Reversed total esperado tras este refund. Las reversiones que llegan
-      //    con el earning ya pagado no tocan reversedCents (eso refleja lo que
-      //    se le pagó); se suman aparte como deuda.
-      const expectedTotalReversed = Math.round(
-        (totalCumulative * e.commissionBps) / 10_000,
-      );
+      // 3. Reversed total esperado tras este refund (comisión + propina). Las
+      //    reversiones que llegan con el earning ya pagado no tocan
+      //    reversedCents (eso refleja lo que se le pagó); se suman aparte como deuda.
+      const expectedTotalReversed = expectedChicaReversal({
+        commissionCents: e.commissionCents,
+        tipCents: e.tipCents,
+        chargedCents: e.chargedCents,
+        refundedCents: totalCumulative,
+      });
       const debtRows = await tx.$queryRaw<Array<{ total: bigint }>>`
         SELECT COALESCE(SUM("reversedDeltaCents"),0)::bigint AS total
           FROM earning_reversals
@@ -1664,7 +1704,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       `;
 
       this.logger.log(
-        `Earning reversal payment=${paymentId} refundId=${refundId} delta=${reverseDelta} expected=${expectedTotalReversed} bps=${e.commissionBps} cumulative=${totalCumulative}/${e.paymentAmountCents}`,
+        `Earning reversal payment=${paymentId} refundId=${refundId} delta=${reverseDelta} expected=${expectedTotalReversed} bps=${e.commissionBps} tip=${e.tipCents} cumulative=${totalCumulative}/${e.chargedCents}`,
       );
     });
   }

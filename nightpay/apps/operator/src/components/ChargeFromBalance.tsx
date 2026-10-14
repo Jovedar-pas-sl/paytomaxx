@@ -4,15 +4,22 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 
 import { Button, Card, Input } from '@nightpay/ui';
 import { parseEuroCents } from '@nightpay/contracts';
 import {
-  cancelWalletCharge,
+  assignWalletTag,
+  cancelPayment,
+  chargeWalletWithPin,
+  createPayment,
   fetchServices,
-  fetchWalletCharge,
+  fetchWalletById,
   lookupWalletCode,
-  requestWalletCharge,
+  lookupWalletTag,
+  newIdempotencyKey,
+  setWalletPin,
+  type CreatedPayment,
   type ServiceItem,
-  type WalletChargeRequest,
   type WalletLookup,
 } from '@/lib/api';
+import { nfcAvailable, readNfcTag } from '@/lib/nfc';
+import { PinPad } from './PinPad';
 import { ScanWalletQr } from './ScanWalletQr';
 
 interface Props {
@@ -21,22 +28,32 @@ interface Props {
   initialCode?: string | null;
 }
 
+/** Lo que se va a cobrar: un servicio de la carta o un importe. */
+interface Charge {
+  serviceItemId?: string;
+  amountCents: number;
+  label: string;
+  /** Una por cobro: si se repite tras un corte de red, no cobra dos veces. */
+  key: string;
+}
+
 type Stage =
   | { kind: 'code' }
   | { kind: 'pick'; wallet: WalletLookup }
-  | { kind: 'waiting'; wallet: WalletLookup; request: WalletChargeRequest }
-  | { kind: 'done'; wallet: WalletLookup; request: WalletChargeRequest };
+  | { kind: 'choosePin'; wallet: WalletLookup; then: Charge | null }
+  | { kind: 'pin'; wallet: WalletLookup; charge: Charge }
+  | { kind: 'topup'; wallet: WalletLookup }
+  | { kind: 'done'; wallet: WalletLookup; charge: Charge; newBalanceCents: number | null };
 
 const CODE_LENGTH = 6;
-const POLL_MS = 1500;
+const TOPUP_POLL_MS = 2000;
 
 /**
- * Cobrar del saldo NightPay:
- *   1. El cliente enseña su página de saldo: la chica escanea el QR o teclea
- *      el código (K7Q-4M2).
- *   2. La chica elige el servicio de la carta (u otro importe).
- *   3. Al cliente le sale el cobro en su móvil y lo acepta; aquí se ve al momento.
- * Nada se descuenta sin que el cliente lo acepte.
+ * Cobrar del saldo, sin el móvil del cliente:
+ *   1. La chica escanea el QR, teclea el código o acerca la pulsera NFC.
+ *   2. Elige el servicio de la carta (u otro importe).
+ *   3. Le pasa el móvil al cliente y él pone su PIN: se cobra al momento.
+ * Si el cliente aún no tiene PIN, lo elige él antes del primer cobro.
  */
 export function ChargeFromBalance({ onCharged, initialCode = null }: Props) {
   const [stage, setStage] = useState<Stage>({ kind: 'code' });
@@ -49,6 +66,14 @@ export function ChargeFromBalance({ onCharged, initialCode = null }: Props) {
       .then(setServices)
       .catch(() => setServices([]));
   }, []);
+
+  async function refresh(wallet: WalletLookup): Promise<WalletLookup> {
+    try {
+      return await lookupWalletCode(wallet.code);
+    } catch {
+      return wallet;
+    }
+  }
 
   switch (stage.kind) {
     case 'code':
@@ -67,25 +92,80 @@ export function ChargeFromBalance({ onCharged, initialCode = null }: Props) {
           wallet={stage.wallet}
           services={services}
           onBack={() => setStage({ kind: 'code' })}
-          onRequested={(request) => setStage({ kind: 'waiting', wallet: stage.wallet, request })}
+          onWallet={(wallet) => setStage({ kind: 'pick', wallet })}
+          onCharge={(charge) =>
+            setStage(
+              stage.wallet.hasPin
+                ? { kind: 'pin', wallet: stage.wallet, charge }
+                : { kind: 'choosePin', wallet: stage.wallet, then: charge },
+            )
+          }
+          onChoosePin={() => setStage({ kind: 'choosePin', wallet: stage.wallet, then: null })}
+          onTopUp={() => setStage({ kind: 'topup', wallet: stage.wallet })}
         />
       );
-    case 'waiting':
+    case 'choosePin':
       return (
-        <WaitingStep
-          request={stage.request}
-          onFinished={(request) => {
-            if (request.status === 'ACCEPTED') onCharged();
-            setStage({ kind: 'done', wallet: stage.wallet, request });
+        <PinPad
+          mode="choose"
+          title={`Saldo ${stage.wallet.code}`}
+          hint="Pásale el móvil al cliente para que elija su PIN"
+          onCancel={() => setStage({ kind: 'pick', wallet: stage.wallet })}
+          onPin={async (pin) => {
+            const wallet = await setWalletPin(stage.wallet.code, pin);
+            setStage(stage.then ? { kind: 'pin', wallet, charge: stage.then } : { kind: 'pick', wallet });
+            return null;
+          }}
+        />
+      );
+    case 'pin':
+      return (
+        <PinPad
+          mode="enter"
+          title={`${formatEur(stage.charge.amountCents)} · ${stage.charge.label}`}
+          hint="Pásale el móvil al cliente para que ponga su PIN"
+          onCancel={() => setStage({ kind: 'pick', wallet: stage.wallet })}
+          onPin={async (pin) => {
+            try {
+              const result = await chargeWalletWithPin({
+                code: stage.wallet.code,
+                ...(stage.charge.serviceItemId
+                  ? { serviceItemId: stage.charge.serviceItemId }
+                  : { amountCents: stage.charge.amountCents }),
+                pin,
+                idempotencyKey: stage.charge.key,
+              });
+              onCharged();
+              setStage({ kind: 'done', wallet: stage.wallet, charge: stage.charge, newBalanceCents: result.newBalanceCents });
+              return null;
+            } catch (err) {
+              const message = (err as Error).message;
+              // Bloqueado: no tiene sentido seguir probando.
+              if (/bloqueado/i.test(message)) {
+                setStage({ kind: 'pick', wallet: await refresh(stage.wallet) });
+              }
+              return message;
+            }
+          }}
+        />
+      );
+    case 'topup':
+      return (
+        <TopUpStep
+          wallet={stage.wallet}
+          onBack={(wallet) => setStage({ kind: 'pick', wallet })}
+          onToppedUp={(wallet) => {
+            onCharged();
+            setStage({ kind: 'pick', wallet });
           }}
         />
       );
     case 'done':
       return (
         <DoneStep
-          wallet={stage.wallet}
-          request={stage.request}
-          onAgain={(wallet) => setStage({ kind: 'pick', wallet })}
+          charge={stage.charge}
+          newBalanceCents={stage.newBalanceCents}
+          onAgain={async () => setStage({ kind: 'pick', wallet: await refresh(stage.wallet) })}
           onNewClient={() => setStage({ kind: 'code' })}
         />
       );
@@ -103,6 +183,12 @@ function CodeStep({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [reading, setReading] = useState<AbortController | null>(null);
+  const [canNfc, setCanNfc] = useState(false);
+
+  useEffect(() => setCanNfc(nfcAvailable()), []);
+  // Al salir de la pantalla se deja de esperar la pulsera.
+  useEffect(() => () => reading?.abort(), [reading]);
 
   async function find(value: string) {
     setCode(value);
@@ -113,6 +199,23 @@ function CodeStep({
     } catch (err) {
       setError((err as Error).message);
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function readTag() {
+    const controller = new AbortController();
+    setReading(controller);
+    setError(null);
+    try {
+      const tag = await readNfcTag(controller.signal);
+      setReading(null);
+      setBusy(true);
+      onFound(await lookupWalletTag(tag));
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') setError((err as Error).message);
+    } finally {
+      setReading(null);
       setBusy(false);
     }
   }
@@ -143,13 +246,30 @@ function CodeStep({
     );
   }
 
+  if (reading) {
+    return (
+      <Card style={{ ...cardStyle, textAlign: 'center' }}>
+        <p style={{ ...kicker, textAlign: 'center' }}>Pulsera NFC</p>
+        <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Acerca la pulsera a la parte de atrás del móvil</p>
+        <Button variant="ghost" onClick={() => reading.abort()}>
+          Cancelar
+        </Button>
+      </Card>
+    );
+  }
+
   return (
     <Card style={cardStyle}>
       <p style={{ ...kicker, textAlign: 'center' }}>Cobrar del saldo</p>
       <Button type="button" size="lg" onClick={() => setScanning(true)} disabled={busy}>
         Escanear QR del cliente
       </Button>
-      <p style={{ ...hintStyle, textAlign: 'center' }}>o teclea el código que sale en su página de saldo</p>
+      {canNfc ? (
+        <Button type="button" size="lg" variant="ghost" onClick={() => void readTag()} disabled={busy}>
+          Acercar pulsera NFC
+        </Button>
+      ) : null}
+      <p style={{ ...hintStyle, textAlign: 'center' }}>o teclea el código del cliente</p>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         <Input
           aria-label="Código del cliente"
@@ -175,30 +295,27 @@ function PickStep({
   wallet,
   services,
   onBack,
-  onRequested,
+  onWallet,
+  onCharge,
+  onChoosePin,
+  onTopUp,
 }: {
   wallet: WalletLookup;
   services: ServiceItem[];
   onBack: () => void;
-  onRequested: (request: WalletChargeRequest) => void;
+  onWallet: (wallet: WalletLookup) => void;
+  onCharge: (charge: Charge) => void;
+  onChoosePin: () => void;
+  onTopUp: () => void;
 }) {
   const [custom, setCustom] = useState(false);
   const [amount, setAmount] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tagging, setTagging] = useState<AbortController | null>(null);
+  const [canNfc, setCanNfc] = useState(false);
 
-  async function send(input: { serviceItemId?: string; amountCents?: number }) {
-    setBusy(true);
-    setError(null);
-    try {
-      if ('vibrate' in navigator) navigator.vibrate(10);
-      onRequested(await requestWalletCharge({ code: wallet.code, ...input }));
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  useEffect(() => setCanNfc(nfcAvailable()), []);
+  useEffect(() => () => tagging?.abort(), [tagging]);
 
   function sendCustom(e: FormEvent) {
     e.preventDefault();
@@ -211,7 +328,21 @@ function PickStep({
       setError(`Al cliente le quedan ${formatEur(wallet.balanceCents)}`);
       return;
     }
-    void send({ amountCents: cents });
+    onCharge({ amountCents: cents, label: 'Otro importe', key: newIdempotencyKey() });
+  }
+
+  async function assignTag() {
+    const controller = new AbortController();
+    setTagging(controller);
+    setError(null);
+    try {
+      const tag = await readNfcTag(controller.signal);
+      onWallet(await assignWalletTag(wallet.code, tag));
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') setError((err as Error).message);
+    } finally {
+      setTagging(null);
+    }
   }
 
   return (
@@ -225,15 +356,23 @@ function PickStep({
           <p style={hintStyle}>{[wallet.label, wallet.homeVenueName].filter(Boolean).join(' · ')}</p>
         </div>
         <button type="button" onClick={onBack} style={linkBtnStyle}>
-          ← Otro código
+          ← Otro cliente
         </button>
       </div>
 
-      {wallet.pendingRequest ? (
-        <p style={noteStyle}>El cliente tiene otro cobro esperando. Que lo acepte o lo rechace antes.</p>
+      {wallet.pinLocked ? (
+        <p style={noteStyle}>PIN bloqueado tras 5 fallos. Que el encargado lo desbloquee desde el panel.</p>
+      ) : null}
+      {!wallet.hasPin && !wallet.pinLocked ? (
+        <p style={noteStyle}>
+          El cliente aún no tiene PIN: lo elegirá en tu móvil antes de pagar.{' '}
+          <button type="button" onClick={onChoosePin} style={inlineLinkStyle}>
+            Elegirlo ahora
+          </button>
+        </p>
       ) : null}
 
-      {custom ? (
+      {wallet.pinLocked || wallet.balanceCents <= 0 ? null : custom ? (
         <form onSubmit={sendCustom} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <Input
             label="Importe (€)"
@@ -242,12 +381,11 @@ function PickStep({
             placeholder="50"
             inputMode="decimal"
             autoFocus
-            disabled={busy}
           />
-          <Button type="submit" size="lg" loading={busy} disabled={!amount.trim()}>
-            Pedir {amount ? `${amount} €` : ''}
+          <Button type="submit" size="lg" disabled={!amount.trim()}>
+            Cobrar {amount ? `${amount} €` : ''}
           </Button>
-          <Button type="button" variant="ghost" onClick={() => setCustom(false)} disabled={busy}>
+          <Button type="button" variant="ghost" onClick={() => setCustom(false)}>
             Volver a la carta
           </Button>
         </form>
@@ -259,8 +397,10 @@ function PickStep({
               <button
                 key={svc.id}
                 type="button"
-                disabled={busy || tooMuch}
-                onClick={() => void send({ serviceItemId: svc.id })}
+                disabled={tooMuch}
+                onClick={() =>
+                  onCharge({ serviceItemId: svc.id, amountCents: svc.priceCents, label: serviceLabel(svc), key: newIdempotencyKey() })
+                }
                 style={{ ...tileStyle, ...(tooMuch ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }}
               >
                 <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
@@ -272,7 +412,6 @@ function PickStep({
           })}
           <button
             type="button"
-            disabled={busy}
             onClick={() => {
               setCustom(true);
               setError(null);
@@ -286,132 +425,172 @@ function PickStep({
       )}
 
       {error ? <p style={errorStyle}>{error}</p> : null}
+
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <Button variant="ghost" onClick={onTopUp} style={{ flex: 1 }}>
+          Recargar saldo
+        </Button>
+        {canNfc && !wallet.hasTag ? (
+          tagging ? (
+            <Button variant="ghost" onClick={() => tagging.abort()} style={{ flex: 1 }}>
+              Acerca la pulsera… (cancelar)
+            </Button>
+          ) : (
+            <Button variant="ghost" onClick={() => void assignTag()} style={{ flex: 1 }}>
+              Asignar pulsera
+            </Button>
+          )
+        ) : null}
+      </div>
     </Card>
   );
 }
 
-function WaitingStep({
-  request,
-  onFinished,
+/**
+ * Recargar el saldo del cliente: un QR para que pague con su tarjeta (como un
+ * cobro normal). Cuando el banco lo confirma, el saldo sube y se vuelve.
+ */
+function TopUpStep({
+  wallet,
+  onBack,
+  onToppedUp,
 }: {
-  request: WalletChargeRequest;
-  onFinished: (request: WalletChargeRequest) => void;
+  wallet: WalletLookup;
+  onBack: (wallet: WalletLookup) => void;
+  onToppedUp: (wallet: WalletLookup) => void;
 }) {
-  const [now, setNow] = useState(() => Date.now());
-  const [canceling, setCanceling] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // El sondeo y "Cancelar" pueden ver la respuesta a la vez: se termina una vez.
-  const finished = useRef(false);
+  const [payment, setPayment] = useState<CreatedPayment | null>(null);
+  const key = useRef(newIdempotencyKey());
 
-  function finish(fresh: WalletChargeRequest): void {
-    if (finished.current || fresh.status === 'PENDING') return;
-    finished.current = true;
-    onFinished(fresh);
-  }
-
+  // Esperando al banco: el saldo sube cuando la recarga se cobra.
   useEffect(() => {
+    if (!payment) return;
     let stopped = false;
-    const tick = async () => {
-      setNow(Date.now());
+    const id = setInterval(async () => {
       try {
-        const fresh = await fetchWalletCharge(request.id);
-        if (stopped) return;
-        setError(null);
-        finish(fresh);
-      } catch (err) {
-        if (!stopped) setError((err as Error).message);
+        const fresh = await fetchWalletById(wallet.walletId);
+        if (!stopped && fresh.balanceCents > wallet.balanceCents) {
+          stopped = true;
+          clearInterval(id);
+          onToppedUp(fresh);
+        }
+      } catch {
+        // Se vuelve a mirar en el siguiente intento.
       }
-    };
-    const id = setInterval(() => void tick(), POLL_MS);
+    }, TOPUP_POLL_MS);
     return () => {
       stopped = true;
       clearInterval(id);
     };
-    // Solo importa el id del cobro (finish/onFinished cambian en cada render del padre).
-  }, [request.id]);
+    // Solo importa la recarga en curso.
+  }, [payment?.id]);
 
-  async function handleCancel() {
-    setCanceling(true);
-    setError(null);
-    try {
-      await cancelWalletCharge(request.id);
-    } catch {
-      // Ya no estaba pendiente (el cliente acaba de responder): mostramos lo que haya.
+  async function start(e: FormEvent) {
+    e.preventDefault();
+    const cents = parseEuroCents(amount);
+    if (cents === null) {
+      setError('Pon el importe (por ejemplo 50)');
+      return;
     }
-    try {
-      finish(await fetchWalletCharge(request.id));
-    } catch (err) {
-      setError((err as Error).message);
-      setCanceling(false);
-    }
-  }
-
-  const secondsLeft = Math.max(0, Math.ceil((new Date(request.expiresAt).getTime() - now) / 1000));
-
-  return (
-    <Card style={{ ...cardStyle, alignItems: 'stretch', textAlign: 'center' }}>
-      <p style={{ ...kicker, textAlign: 'center' }}>Esperando al cliente</p>
-      <p className="np-num" style={{ ...balanceStyle, textAlign: 'center' }}>
-        {formatEur(request.amountCents)}
-      </p>
-      {request.serviceName ? <p style={{ ...hintStyle, textAlign: 'center' }}>{request.serviceName}</p> : null}
-      <p style={{ margin: 0, fontSize: '1rem' }}>Dile que lo acepte en su móvil, en su página de saldo.</p>
-      <p className="np-num" style={{ ...hintStyle, textAlign: 'center' }}>
-        Caduca en {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}
-      </p>
-      {error ? <p style={errorStyle}>{error}</p> : null}
-      <Button variant="ghost" onClick={handleCancel} loading={canceling}>
-        Cancelar cobro
-      </Button>
-    </Card>
-  );
-}
-
-const DONE_TEXT: Record<Exclude<WalletChargeRequest['status'], 'PENDING'>, { title: string; color: string }> = {
-  ACCEPTED: { title: '✓ Cobrado del saldo', color: 'var(--np-success)' },
-  REJECTED: { title: 'El cliente lo ha rechazado', color: 'var(--np-danger)' },
-  EXPIRED: { title: 'El cliente no respondió a tiempo', color: 'var(--np-warning)' },
-  CANCELED: { title: 'Cobro cancelado', color: 'var(--np-text-mute)' },
-};
-
-function DoneStep({
-  wallet,
-  request,
-  onAgain,
-  onNewClient,
-}: {
-  wallet: WalletLookup;
-  request: WalletChargeRequest;
-  onAgain: (wallet: WalletLookup) => void;
-  onNewClient: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const text = DONE_TEXT[request.status === 'PENDING' ? 'EXPIRED' : request.status];
-
-  async function again() {
     setBusy(true);
     setError(null);
     try {
-      onAgain(await lookupWalletCode(wallet.code));
+      setPayment(await createPayment({ amountCents: cents, walletId: wallet.walletId, idempotencyKey: key.current }));
     } catch (err) {
       setError((err as Error).message);
+    } finally {
       setBusy(false);
     }
   }
 
+  async function cancel() {
+    if (payment) {
+      try {
+        await cancelPayment(payment.id);
+      } catch {
+        // Ya cobrada o caducada: se ve al volver.
+      }
+    }
+    onBack(wallet);
+  }
+
+  if (payment) {
+    return (
+      <Card style={{ ...cardStyle, textAlign: 'center', alignItems: 'center' }}>
+        <p style={kicker}>Recarga · {wallet.code}</p>
+        <p className="np-num" style={balanceStyle}>
+          {formatEur(payment.amountCents)}
+        </p>
+        <img src={payment.qrPngDataUrl} alt="QR para pagar la recarga" width={240} height={240} style={qrStyle} />
+        <p style={{ margin: 0 }}>Que el cliente escanee el QR y pague con su tarjeta.</p>
+        <p style={hintStyle}>Esperando al banco…</p>
+        <Button variant="ghost" onClick={() => void cancel()}>
+          Cancelar recarga
+        </Button>
+      </Card>
+    );
+  }
+
+  return (
+    <Card style={cardStyle}>
+      <p style={kicker}>Recargar · {wallet.code}</p>
+      <p style={hintStyle}>Le quedan {formatEur(wallet.balanceCents)}</p>
+      <form onSubmit={start} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <Input
+          label="Importe de la recarga (€)"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))}
+          placeholder="100"
+          inputMode="decimal"
+          autoFocus
+          disabled={busy}
+        />
+        {error ? <p style={errorStyle}>{error}</p> : null}
+        <Button type="submit" size="lg" loading={busy} disabled={!amount.trim()}>
+          Generar QR de la recarga
+        </Button>
+        <Button type="button" variant="ghost" onClick={() => onBack(wallet)} disabled={busy}>
+          Volver
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
+function DoneStep({
+  charge,
+  newBalanceCents,
+  onAgain,
+  onNewClient,
+}: {
+  charge: Charge;
+  newBalanceCents: number | null;
+  onAgain: () => Promise<void>;
+  onNewClient: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
   return (
     <Card style={{ ...cardStyle, textAlign: 'center' }}>
-      <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: text.color }}>{text.title}</p>
+      <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--np-success)' }}>✓ Cobrado del saldo</p>
       <p className="np-num" style={{ ...balanceStyle, textAlign: 'center' }}>
-        {formatEur(request.amountCents)}
+        {formatEur(charge.amountCents)}
       </p>
-      {request.status === 'ACCEPTED' && request.newBalanceCents !== null ? (
-        <p style={{ ...hintStyle, textAlign: 'center' }}>Le quedan {formatEur(request.newBalanceCents)}</p>
+      <p style={{ ...hintStyle, textAlign: 'center' }}>{charge.label}</p>
+      {newBalanceCents !== null ? (
+        <p style={{ margin: 0, fontSize: '1.05rem' }}>Le quedan {formatEur(newBalanceCents)}</p>
       ) : null}
-      {error ? <p style={errorStyle}>{error}</p> : null}
-      <Button size="lg" onClick={again} loading={busy}>
-        {request.status === 'ACCEPTED' ? 'Cobrar otra cosa al mismo cliente' : 'Volver a intentarlo'}
+      <Button
+        size="lg"
+        loading={busy}
+        onClick={async () => {
+          setBusy(true);
+          await onAgain();
+        }}
+      >
+        Cobrar otra cosa al mismo cliente
       </Button>
       <Button variant="ghost" onClick={onNewClient} disabled={busy}>
         Otro cliente
@@ -468,6 +647,16 @@ const noteStyle: CSSProperties = {
   fontSize: '0.9rem',
 };
 
+const inlineLinkStyle: CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  padding: 0,
+  color: 'var(--np-accent)',
+  fontWeight: 700,
+  fontSize: 'inherit',
+  cursor: 'pointer',
+};
+
 const codeInputStyle: CSSProperties = {
   fontSize: '2rem',
   fontWeight: 800,
@@ -513,4 +702,10 @@ const tileStyle: CSSProperties = {
   borderRadius: 'var(--np-r-lg)',
   color: 'var(--np-text)',
   cursor: 'pointer',
+};
+
+const qrStyle: CSSProperties = {
+  background: '#fff',
+  padding: '0.5rem',
+  borderRadius: 'var(--np-r-md)',
 };

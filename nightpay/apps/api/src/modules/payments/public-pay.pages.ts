@@ -75,6 +75,11 @@ export function payHref(token: string, lang: PayLanguage): string {
   return `/pay/${encodeURIComponent(token)}?lang=${lang}`;
 }
 
+/** Donde el cliente guarda su PIN tras recargar. */
+export function pinAction(payToken: string): string {
+  return `/pay/${encodeURIComponent(payToken)}/pin`;
+}
+
 export function walletHref(token: string, lang: PayLanguage): string {
   return `/w/${encodeURIComponent(token)}?lang=${lang}`;
 }
@@ -226,6 +231,8 @@ export function renderPaidPage(
     walletHref?: string | null;
     /** Recarga de saldo vista desde otro navegador: sin enlace, con aviso. */
     walletElsewhere?: boolean;
+    /** Recarga, en el móvil que pagó: su código y, si aún no tiene, elegir PIN. */
+    wallet?: WalletBlock | null;
   },
   lang: PayLanguage,
 ): string {
@@ -236,6 +243,13 @@ export function renderPaidPage(
 .code{margin-top:.5rem;border:2px solid #2a2a2a;border-radius:10px;padding:.75rem 1rem;width:100%}
 .code b{display:block;font-size:2.4rem;letter-spacing:.3em;color:#d4ff3a}
 .clock{font-variant-numeric:tabular-nums;font-size:1.4rem;font-weight:700;color:#f5f5f0}
+.wallet{border:2px solid #d4ff3a;border-radius:12px;padding:1rem;width:100%;display:flex;flex-direction:column;gap:.6rem}
+.wallet .wcode{font-size:2.4rem;font-weight:800;letter-spacing:.2em;color:#d4ff3a}
+.wallet form{display:flex;flex-direction:column;gap:.5rem;margin:0}
+.wallet input{font:inherit;font-size:1.6rem;letter-spacing:.5em;text-align:center;padding:.6rem;border-radius:10px;border:2px solid #3a3a3a;background:#141414;color:#f5f5f0}
+.wallet .err{color:#ff6b6b}
+.wallet .ok2{color:#5be38f;font-weight:700}
+.wallet .small{font-size:.9rem}
 </style>`;
   const total = formatAmount(args.amountCents + args.tipCents, args.currency, t);
   const body = `
@@ -246,13 +260,47 @@ ${args.tipCents > 0 ? `<p>${escapeHtml(t.includesTip(formatAmount(args.tipCents,
 ${args.authorizedAt ? `<p>${escapeHtml(t.confirmedAt(formatTime(args.authorizedAt, t)))}</p>` : ''}
 <div class="code"><p>${escapeHtml(t.codeLabel)}</p><b>${escapeHtml(args.code)}</b><p>${escapeHtml(t.codeHint)}</p></div>
 <div class="clock" id="clock" aria-label="${escapeHtml(t.clockLabel)}"></div>
-${args.walletHref ? `<p>${escapeHtml(t.walletReady)}</p><a class="btn" href="${escapeHtml(args.walletHref)}">${escapeHtml(t.walletOpen)}</a>` : ''}
+${args.wallet ? walletBlock(args.wallet, args.walletHref ?? null, lang) : args.walletHref ? `<p>${escapeHtml(t.walletReady)}</p><a class="btn" href="${escapeHtml(args.walletHref)}">${escapeHtml(t.walletOpen)}</a>` : ''}
 ${!args.walletHref && args.walletElsewhere ? `<p>${escapeHtml(t.walletElsewhere)}</p>` : ''}
 ${args.receiptHref ? `<a href="${escapeHtml(args.receiptHref)}">${escapeHtml(t.receiptLink)}</a>` : ''}
 <script>
 (function(){var el=document.getElementById('clock');function t(){el.textContent=new Date().toLocaleTimeString(${jsString(t.locale)},{timeZone:'Europe/Madrid'});}t();setInterval(t,1000);})();
 </script>`;
   return page(t, t.paidTitle, body, css);
+}
+
+/** Lo que ve en "Pagado" quien recargó su saldo (y solo en el móvil que pagó). */
+export interface WalletBlock {
+  code: string;
+  hasPin: boolean;
+  /** POST del formulario del PIN (/pay/:token/pin). */
+  pinAction: string;
+  /** Acaba de guardar su PIN. */
+  pinSaved?: boolean;
+  pinError?: string | null;
+}
+
+function walletBlock(w: WalletBlock, moreHref: string | null, lang: PayLanguage): string {
+  const t = PAY_TEXT[lang];
+  const pin = w.hasPin
+    ? w.pinSaved
+      ? `<p class="ok2">${escapeHtml(t.pinSaved)}</p>`
+      : ''
+    : `<form method="POST" action="${escapeHtml(w.pinAction)}">
+<p>${escapeHtml(t.pinChoose)}</p>
+<input type="hidden" name="lang" value="${lang}">
+<input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" required aria-label="${escapeHtml(t.pinFirst)}" placeholder="••••">
+<input name="pin2" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" required aria-label="${escapeHtml(t.pinRepeat)}" placeholder="${escapeHtml(t.pinRepeat)}">
+${w.pinError ? `<p class="err" role="alert">${escapeHtml(w.pinError)}</p>` : ''}
+<button class="pay" type="submit">${escapeHtml(t.pinSave)}</button>
+</form>`;
+  return `<section class="wallet">
+<p class="kick">${escapeHtml(t.walletTitle)}</p>
+<div class="wcode">${escapeHtml(w.code)}</div>
+<p class="small">${escapeHtml(t.walletCodeHint)}</p>
+${pin}
+${moreHref ? `<a class="small" href="${escapeHtml(moreHref)}">${escapeHtml(t.walletMore)}</a>` : ''}
+</section>`;
 }
 
 export function renderProcessingPage(lang: PayLanguage, refreshUrl: string, offerNewCharge = false): string {
@@ -319,6 +367,10 @@ export function renderResultView(
         receiptHref: receiptHref(view.qrToken, lang),
         walletHref: view.walletToken ? walletHref(view.walletToken, lang) : null,
         walletElsewhere,
+        wallet:
+          view.walletToken && view.walletCode
+            ? { code: view.walletCode, hasPin: view.walletHasPin, pinAction: pinAction(view.qrToken) }
+            : null,
       },
       lang,
     );

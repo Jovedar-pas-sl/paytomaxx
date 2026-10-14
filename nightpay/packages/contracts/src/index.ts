@@ -8,3 +8,4 @@ export * from './wallets';
 export * from './webhooks';
 export * from './services';
 export * from './money';
+export * from './wallet-pin';
