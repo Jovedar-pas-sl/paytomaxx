@@ -40,9 +40,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=4102
 ENV HOSTNAME=0.0.0.0
 
-COPY --from=builder /repo/apps/tpv/.next/standalone ./
-COPY --from=builder /repo/apps/tpv/.next/static ./apps/tpv/.next/static
-COPY --from=builder /repo/apps/tpv/public ./apps/tpv/public
+COPY --from=builder --chown=node:node /repo/apps/tpv/.next/standalone ./
+COPY --from=builder --chown=node:node /repo/apps/tpv/.next/static ./apps/tpv/.next/static
+COPY --from=builder --chown=node:node /repo/apps/tpv/public ./apps/tpv/public
 
 EXPOSE 4102
 
@@ -51,4 +51,6 @@ EXPOSE 4102
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:4102',{timeout:4000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1)).on('timeout',()=>process.exit(1))"
 
+# Sin root: si alguien encuentra un fallo en la web, no manda en el contenedor.
+USER node
 CMD ["node", "apps/tpv/server.js"]

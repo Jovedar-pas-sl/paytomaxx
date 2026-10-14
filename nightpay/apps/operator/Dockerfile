@@ -42,13 +42,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=4104
 ENV HOSTNAME=0.0.0.0
 
-COPY --from=builder /repo/apps/operator/.next/standalone ./
-COPY --from=builder /repo/apps/operator/.next/static ./apps/operator/.next/static
-COPY --from=builder /repo/apps/operator/public ./apps/operator/public
+COPY --from=builder --chown=node:node /repo/apps/operator/.next/standalone ./
+COPY --from=builder --chown=node:node /repo/apps/operator/.next/static ./apps/operator/.next/static
+COPY --from=builder --chown=node:node /repo/apps/operator/public ./apps/operator/public
 
 EXPOSE 4104
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:4104',{timeout:4000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1)).on('timeout',()=>process.exit(1))"
 
+# Sin root: si alguien encuentra un fallo en la web, no manda en el contenedor.
+USER node
 CMD ["node", "apps/operator/server.js"]

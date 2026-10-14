@@ -40,9 +40,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=4101
 ENV HOSTNAME=0.0.0.0
 
-COPY --from=builder /repo/apps/web-client/.next/standalone ./
-COPY --from=builder /repo/apps/web-client/.next/static ./apps/web-client/.next/static
-COPY --from=builder /repo/apps/web-client/public ./apps/web-client/public
+COPY --from=builder --chown=node:node /repo/apps/web-client/.next/standalone ./
+COPY --from=builder --chown=node:node /repo/apps/web-client/.next/static ./apps/web-client/.next/static
+COPY --from=builder --chown=node:node /repo/apps/web-client/public ./apps/web-client/public
 
 EXPOSE 4101
 
@@ -51,4 +51,6 @@ EXPOSE 4101
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:4101',{timeout:4000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1)).on('timeout',()=>process.exit(1))"
 
+# Sin root: si alguien encuentra un fallo en la web, no manda en el contenedor.
+USER node
 CMD ["node", "apps/web-client/server.js"]

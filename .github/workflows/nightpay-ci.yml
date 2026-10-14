@@ -1,5 +1,6 @@
 # Comprobaciones de OxioPay (nightpay/) en cada push a main y en cada PR:
-# tipos de las 5 apps, tests del API y del operador, y aviso de dependencias.
+# tipos de las 5 apps, tests del API y del operador, aviso de dependencias, y
+# las 5 imágenes Docker construidas y arrancadas (sin root).
 # (El ci.yml que había dentro de nightpay/.github no lo ejecutaba GitHub.)
 name: nightpay-ci
 
@@ -55,3 +56,75 @@ jobs:
         run: npx vitest run
       - name: Vulnerabilidades en dependencias (aviso)
         run: pnpm audit --prod --audit-level=critical || echo "::warning::Hay vulnerabilidades críticas en dependencias (Next 14 / Nest 10)"
+
+  # Las imágenes que despliega Dokploy: se construyen y se arrancan de verdad
+  # (sin root), el API contra un Postgres y un Redis reales. Si una no arranca,
+  # se ve aquí y no al pulsar Deploy.
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: np
+          POSTGRES_PASSWORD: np
+          POSTGRES_DB: nightpay
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U np"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir las 5 imágenes
+        run: |
+          for app in api admin operator tpv web-client; do
+            echo "::group::$app"
+            docker build -f apps/$app/Dockerfile -t np-$app . || exit 1
+            echo "::endgroup::"
+          done
+      - name: Las webs arrancan sin root y responden
+        run: |
+          port=5100
+          for app in admin operator tpv web-client; do
+            port=$((port + 1))
+            docker run -d --name np-$app -e PORT=3000 -p $port:3000 np-$app
+            uid=$(docker exec np-$app id -u)
+            [ "$uid" != "0" ] || { echo "::error::$app corre como root"; exit 1; }
+            code=000
+            for t in $(seq 1 30); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/ || true)
+              [ "$code" != "000" ] && break
+              sleep 2
+            done
+            echo "$app (uid $uid) → HTTP $code"
+            if [ "$code" = "000" ] || [ "$code" -ge 500 ]; then docker logs np-$app; exit 1; fi
+          done
+      - name: El API arranca sin root, aplica migraciones y responde
+        run: |
+          docker run -d --name np-api --network host \
+            -e DATABASE_URL=postgresql://np:np@127.0.0.1:5432/nightpay \
+            -e REDIS_URL=redis://127.0.0.1:6379 \
+            -e JWT_SECRET=ci-jwt-secret-solo-para-la-prueba-0123456789 \
+            -e COOKIE_SECRET=ci-cookie-secret-solo-para-la-prueba-012345 \
+            -e ENCRYPTION_KEK=Y2ktdW5hLWNsYXZlLWRlLTMyLWJ5dGVzLXBhcmEtcHJ1ZWJh \
+            -e PEANPE_API_URL=https://peanpe.invalid/api \
+            -e PEANPE_WEBHOOK_SECRET=ci-peanpe-secret \
+            -e NEXT_PUBLIC_API_URL=https://api.ci.invalid \
+            np-api
+          uid=$(docker exec np-api id -u)
+          [ "$uid" != "0" ] || { echo "::error::el API corre como root"; exit 1; }
+          for t in $(seq 1 60); do
+            curl -sf -o /dev/null http://127.0.0.1:4100/v1/health/live && break
+            sleep 3
+          done
+          live=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4100/v1/health/live || true)
+          full=$(curl -s -w ' %{http_code}' http://127.0.0.1:4100/v1/health || true)
+          echo "API (uid $uid): /live → $live · /health → $full"
+          if [ "$live" != "200" ] || [ "${full##* }" != "200" ]; then docker logs np-api; exit 1; fi
+      - name: Registros si algo falló
+        if: failure()
+        run: for c in np-api np-admin np-operator np-tpv np-web-client; do echo "::group::$c"; docker logs $c 2>&1 | tail -80 || true; echo "::endgroup::"; done

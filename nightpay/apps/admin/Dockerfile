@@ -42,9 +42,9 @@ ENV PORT=4103
 ENV HOSTNAME=0.0.0.0
 
 # Standalone output incluye solo lo necesario
-COPY --from=builder /repo/apps/admin/.next/standalone ./
-COPY --from=builder /repo/apps/admin/.next/static ./apps/admin/.next/static
-COPY --from=builder /repo/apps/admin/public ./apps/admin/public
+COPY --from=builder --chown=node:node /repo/apps/admin/.next/standalone ./
+COPY --from=builder --chown=node:node /repo/apps/admin/.next/static ./apps/admin/.next/static
+COPY --from=builder --chown=node:node /repo/apps/admin/public ./apps/admin/public
 
 EXPOSE 4103
 
@@ -53,4 +53,6 @@ EXPOSE 4103
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:4103',{timeout:4000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1)).on('timeout',()=>process.exit(1))"
 
+# Sin root: si alguien encuentra un fallo en la web, no manda en el contenedor.
+USER node
 CMD ["node", "apps/admin/server.js"]
