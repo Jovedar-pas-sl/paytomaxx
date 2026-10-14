@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import type { CobroRow, DevolucionRow, LiquidacionRow } from './export-rows';
+import type { CobroRow, ConsumoRow, DevolucionRow, LiquidacionRow } from './export-rows';
 import type { TimeWindow } from './report-period';
 
 /** Tope de filas por informe: un local con mucho movimiento hace ~10k cobros al mes. */
@@ -71,6 +71,29 @@ export class ReportsService {
          AND COALESCE(p."authorizedAt", p."createdAt") >= ${p.from}
          AND COALESCE(p."authorizedAt", p."createdAt") < ${p.to}
        ORDER BY "paidAt" ASC
+       LIMIT ${MAX_EXPORT_ROWS + 1}
+    `);
+  }
+
+  /** Consumos del saldo con parte para una chica, por fecha del consumo (sin los anulados). */
+  async consumos(tenantId: string, p: TimeWindow): Promise<ConsumoRow[]> {
+    return capped(await this.prisma.$queryRaw<ConsumoRow[]>`
+      SELECT c.id,
+             c."createdAt" AS "at",
+             c."amountCents",
+             c."tipCents",
+             u."displayName" AS "operatorName",
+             u.email AS "operatorEmail",
+             e."commissionCents",
+             e."tipCents" AS "earningTipCents"
+        FROM operator_earnings e
+        JOIN wallet_consumptions c ON c.id = e."consumptionId"
+        JOIN users u ON u.id = e."operatorId"
+       WHERE e."tenantId" = ${tenantId}::uuid
+         AND c."reversedAt" IS NULL
+         AND c."createdAt" >= ${p.from}
+         AND c."createdAt" < ${p.to}
+       ORDER BY c."createdAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
     `);
   }

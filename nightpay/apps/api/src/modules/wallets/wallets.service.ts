@@ -25,6 +25,7 @@ import type {
   RefundWalletResult,
   WalletsAdminStats,
 } from '@nightpay/contracts';
+import { resolveBpsForOperator } from '../payments/commission';
 
 /** Intentos para dar con un código corto libre (31^6 combinaciones). */
 const MAX_CODE_ATTEMPTS = 5;
@@ -301,27 +302,39 @@ export class WalletsService {
       //    Math.round (no floor) evita bias unidireccional contra operadora.
       //    Tip se suma al earning solo si tipGoesTo='operator' (default cuando la
       //    chica cobra) o no se especifica.
+      //    La comisión, con la misma regla que los cobros con tarjeta y los que
+      //    acepta el cliente (resolveBpsForOperator): la suya o la del local, y
+      //    nada en ventas del local (barra, habitación…).
       let earningCommissionCents: number | null = null;
       let earningTipCents = 0;
-      if (provider.role === 'OPERATOR' && provider.commissionBps !== null) {
-        const commissionCents = Math.round(
-          (input.dto.amountCents * provider.commissionBps) / 10_000,
-        );
+      if (provider.role === 'OPERATOR') {
+        const venue = await tx.venue.findUnique({
+          where: { id: input.tenantId },
+          select: { operatorCommissionDefaults: true },
+        });
+        const bps = resolveBpsForOperator({
+          category: input.dto.category,
+          userCommissionBpsOverride: provider.commissionBps,
+          venueMap: (venue?.operatorCommissionDefaults ?? null) as Record<string, number> | null,
+        });
+        const commissionCents = Math.round((input.dto.amountCents * bps) / 10_000);
         if (tipCents > 0 && effectiveTipGoesTo === 'operator') {
           earningTipCents = tipCents;
         }
-        await tx.operatorEarning.create({
-          data: {
-            tenantId: input.tenantId,
-            operatorId: input.providedByUserId,
-            consumptionId: consumption.id,
-            paymentAmountCents: input.dto.amountCents,
-            commissionBps: provider.commissionBps,
-            commissionCents,
-            tipCents: earningTipCents,
-          },
-        });
-        earningCommissionCents = commissionCents;
+        if (commissionCents > 0 || earningTipCents > 0) {
+          await tx.operatorEarning.create({
+            data: {
+              tenantId: input.tenantId,
+              operatorId: input.providedByUserId,
+              consumptionId: consumption.id,
+              paymentAmountCents: input.dto.amountCents,
+              commissionBps: bps,
+              commissionCents,
+              tipCents: earningTipCents,
+            },
+          });
+          earningCommissionCents = commissionCents;
+        }
       }
 
       // 5. Decrement balance + marcar DEPLETED si llegó a 0

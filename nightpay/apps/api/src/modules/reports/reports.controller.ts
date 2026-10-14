@@ -59,17 +59,18 @@ export class ReportsController {
       case 'liquidaciones':
         return liquidacionesCsv(await this.reports.liquidaciones(tenantId, period));
       case 'resumen': {
-        const [cobros, devoluciones, liquidaciones, venueName] = await Promise.all([
+        const [cobros, devoluciones, liquidaciones, consumos, venueName] = await Promise.all([
           this.reports.cobros(tenantId, period),
           this.reports.devoluciones(tenantId, period),
           this.reports.liquidaciones(tenantId, period),
+          this.reports.consumos(tenantId, period),
           this.reports.venueName(tenantId),
         ]);
         return resumenCsv({
           venueName,
           period,
           generatedAt: new Date(),
-          summary: summarize(cobros, devoluciones, liquidaciones),
+          summary: summarize(cobros, devoluciones, liquidaciones, consumos),
         });
       }
     }

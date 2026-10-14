@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { cobrosCsv, devolucionesCsv, liquidacionesCsv, resumenCsv, summarize } from './export-csv';
-import type { CobroRow, DevolucionRow, LiquidacionRow } from './export-rows';
+import type { CobroRow, ConsumoRow, DevolucionRow, LiquidacionRow } from './export-rows';
 import { parseReportPeriod } from './report-period';
 
 const cobro = (o: Partial<CobroRow>): CobroRow => ({
@@ -218,5 +218,38 @@ describe('resumen', () => {
     expect(csv).toContain('Total para las chicas;5,00');
     expect(csv).toContain('intermediario');
     expect(csv).toContain('Lola;1;105,00;90,00;5,00;-90,00;5,00;500,00');
+  });
+});
+
+describe('resumen: lo que las chicas cobran del saldo del cliente', () => {
+  const consumo = (o: Partial<ConsumoRow>): ConsumoRow => ({
+    id: 'c1',
+    at: new Date('2026-10-13T23:00:00Z'),
+    amountCents: 6000,
+    tipCents: 1000,
+    operatorName: 'Lola',
+    operatorEmail: 'lola@local.es',
+    commissionCents: 5400,
+    earningTipCents: 1000,
+    ...o,
+  });
+  const cobros = [cobro({})];
+  const sin = summarize(cobros, [], []);
+  const con = summarize(cobros, [], [], [consumo({}), consumo({ id: 'c2', operatorName: 'Ana', operatorEmail: 'ana@local.es', tipCents: 0, earningTipCents: 0, commissionCents: 2700, amountCents: 3000 })]);
+
+  it('su parte cuenta para ellas y sale de lo del local (el dinero entró con la recarga)', () => {
+    expect(con.chicaCommissionCents).toBe(sin.chicaCommissionCents + 5400 + 2700);
+    expect(con.chicaTipsCents).toBe(sin.chicaTipsCents + 1000);
+    expect(con.chicaNetCents).toBe(sin.chicaNetCents + 9100);
+    expect(con.venueNetCents).toBe(sin.venueNetCents - 9100);
+    // Lo cobrado y las propinas con tarjeta no cambian: no es dinero nuevo.
+    expect(con.chargedCents).toBe(sin.chargedCents);
+    expect(con.venueTipsCents).toBe(sin.venueTipsCents);
+  });
+
+  it('por chica: los consumos se suman a los cobros con tarjeta', () => {
+    const lola = con.perChica.find((c) => c.name === 'Lola')!;
+    expect(lola).toMatchObject({ count: 2, chargedCents: 10_500 + 7000, commissionCents: 9000 + 5400, tipsCents: 500 + 1000 });
+    expect(con.perChica.find((c) => c.name === 'Ana')).toMatchObject({ count: 1, commissionCents: 2700, netCents: 2700 });
   });
 });

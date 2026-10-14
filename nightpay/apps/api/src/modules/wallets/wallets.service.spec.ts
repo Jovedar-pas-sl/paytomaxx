@@ -109,6 +109,10 @@ function makeService(opts: PrismaMockOptions = {}) {
       })),
       findFirst: vi.fn().mockResolvedValue(wallet),
     },
+    venue: {
+      // Sin ajustes propios: la comisión por defecto (90 % en servicios de chica).
+      findUnique: vi.fn().mockResolvedValue({ operatorCommissionDefaults: null }),
+    },
     user: {
       findFirst: vi.fn().mockResolvedValue(
         opts.providerRole
@@ -264,13 +268,27 @@ describe('WalletsService.consume', () => {
       providerCommissionBps: 9000, // 90%
       walletBalance: 10_000,
     });
-    const result = await svc.consume(baseInput()); // amount 2000c (20€)
+    const result = await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'CHICA_SERVICE' } })); // 20€
     expect(result.earningCreated).toBe(true);
     // 2000 * 9000 / 10000 = 1800 cents
     expect(result.earningCommissionCents).toBe(1800);
     expect(createdEarnings).toHaveLength(1);
     expect(createdEarnings[0].consumptionId).toBeDefined();
     expect(createdEarnings[0].commissionCents).toBe(1800);
+  });
+
+  it('chica sin % propio → la comisión por defecto del local (antes no se le apuntaba nada)', async () => {
+    const { svc, createdEarnings } = makeService({ providerRole: 'OPERATOR', providerCommissionBps: null, walletBalance: 10_000 });
+    const result = await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'CHICA_SERVICE' } }));
+    expect(result.earningCommissionCents).toBe(1800);
+    expect(createdEarnings[0].commissionBps).toBe(9000);
+  });
+
+  it('venta del local (barra) → nada para la chica, como con tarjeta', async () => {
+    const { svc, createdEarnings } = makeService({ providerRole: 'OPERATOR', providerCommissionBps: 9000, walletBalance: 10_000 });
+    const result = await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'VENUE_BAR' } }));
+    expect(result.earningCreated).toBe(false);
+    expect(createdEarnings).toHaveLength(0);
   });
 
   it('rejects when balance is insufficient', async () => {

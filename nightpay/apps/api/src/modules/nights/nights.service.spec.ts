@@ -36,6 +36,7 @@ function makeService(opts: { open?: ReturnType<typeof night> | null; pending?: u
     cobros: vi.fn().mockResolvedValue([]),
     devoluciones: vi.fn().mockResolvedValue([]),
     liquidaciones: vi.fn().mockResolvedValue([]),
+    consumos: vi.fn().mockResolvedValue([]),
   };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const svc = new NightsService(prisma as never, reports as never, audit as never);

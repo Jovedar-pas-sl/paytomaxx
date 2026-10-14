@@ -13,6 +13,7 @@ import {
   methodLabel,
   person,
   type CobroRow,
+  type ConsumoRow,
   type DevolucionRow,
   type LiquidacionRow,
 } from './export-rows';
@@ -158,13 +159,18 @@ export function summarize(
   cobros: ReadonlyArray<CobroRow>,
   devoluciones: ReadonlyArray<DevolucionRow>,
   liquidaciones: ReadonlyArray<LiquidacionRow>,
+  consumos: ReadonlyArray<ConsumoRow> = [],
 ): ExportSummary {
   const sum = <T>(xs: ReadonlyArray<T>, f: (x: T) => number): number => xs.reduce((a, x) => a + f(x), 0);
   const grossCents = sum(cobros, (r) => r.amountCents);
   const tipsCents = sum(cobros, (r) => r.tipCents);
   const refundsCents = sum(devoluciones, (r) => r.amountCents);
-  const chicaCommissionCents = sum(cobros, (r) => r.commissionCents ?? 0);
-  const chicaTipsCents = sum(cobros, (r) => (r.commissionCents === null ? 0 : (r.earningTipCents ?? 0)));
+  // La parte de las chicas: de los cobros con tarjeta y de lo que cobraron
+  // del saldo del cliente (ese dinero entró con la recarga, ya contada).
+  const cardChicaTipsCents = sum(cobros, (r) => (r.commissionCents === null ? 0 : (r.earningTipCents ?? 0)));
+  const chicaCommissionCents =
+    sum(cobros, (r) => r.commissionCents ?? 0) + sum(consumos, (r) => r.commissionCents);
+  const chicaTipsCents = cardChicaTipsCents + sum(consumos, (r) => r.earningTipCents);
   const chicaReversalsCents = sum(devoluciones, (r) => r.reversedDeltaCents ?? 0);
   const chicaNetCents = chicaCommissionCents + chicaTipsCents - chicaReversalsCents;
   const netCents = grossCents + tipsCents - refundsCents;
@@ -187,11 +193,12 @@ export function summarize(
     chicaTipsCents,
     chicaReversalsCents,
     chicaNetCents,
-    venueTipsCents: tipsCents - chicaTipsCents,
+    // Propinas con tarjeta que se queda el local (las del saldo no entran aquí).
+    venueTipsCents: tipsCents - cardChicaTipsCents,
     venueNetCents: netCents - chicaNetCents,
     payoutsCount: liquidaciones.length,
     payoutsCents: sum(liquidaciones, (r) => r.totalCents),
-    perChica: perChica(cobros, devoluciones, liquidaciones),
+    perChica: perChica(cobros, devoluciones, liquidaciones, consumos),
   };
 }
 
@@ -199,6 +206,7 @@ function perChica(
   cobros: ReadonlyArray<CobroRow>,
   devoluciones: ReadonlyArray<DevolucionRow>,
   liquidaciones: ReadonlyArray<LiquidacionRow>,
+  consumos: ReadonlyArray<ConsumoRow>,
 ): ChicaSummary[] {
   const byKey = new Map<string, ChicaSummary>();
   const entry = (key: string, name: string): ChicaSummary => {
@@ -218,6 +226,13 @@ function perChica(
     e.chargedCents += r.amountCents + r.tipCents;
     e.commissionCents += r.commissionCents;
     e.tipsCents += r.earningTipCents ?? 0;
+  }
+  for (const r of consumos) {
+    const e = entry(r.operatorEmail, person(r.operatorName, r.operatorEmail));
+    e.count += 1;
+    e.chargedCents += r.amountCents + r.tipCents;
+    e.commissionCents += r.commissionCents;
+    e.tipsCents += r.earningTipCents;
   }
   for (const r of devoluciones) {
     if (!r.reversedDeltaCents || !r.chicaEmail) continue;

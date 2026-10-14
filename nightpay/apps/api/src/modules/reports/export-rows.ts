@@ -34,6 +34,22 @@ export interface CobroRow {
   reversedCents: number | null;
 }
 
+/**
+ * Un consumo del saldo del cliente con parte para una chica (lo que cobró del
+ * saldo, no de tarjeta). El dinero entró con la recarga; aquí solo cuenta su
+ * parte. Los consumos anulados no salen.
+ */
+export interface ConsumoRow {
+  id: string;
+  at: Date;
+  amountCents: number;
+  tipCents: number;
+  operatorName: string | null;
+  operatorEmail: string;
+  commissionCents: number;
+  earningTipCents: number;
+}
+
 /** Una devolución hecha en el periodo. */
 export interface DevolucionRow {
   id: string;

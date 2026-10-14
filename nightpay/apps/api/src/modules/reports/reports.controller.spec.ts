@@ -27,6 +27,7 @@ function makeController() {
     cobros: vi.fn().mockResolvedValue([]),
     devoluciones: vi.fn().mockResolvedValue([]),
     liquidaciones: vi.fn().mockResolvedValue([]),
+    consumos: vi.fn().mockResolvedValue([]),
     venueName: vi.fn().mockResolvedValue('Local Centro'),
   };
   return { controller: new ReportsController(reports as never), reports };

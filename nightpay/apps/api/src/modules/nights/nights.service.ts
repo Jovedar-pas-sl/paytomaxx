@@ -243,16 +243,30 @@ export class NightsService {
       Array<{ count: number; chargedCents: number; commissionCents: number; tipsCents: number; reversedCents: number }>
     >`
       SELECT COUNT(*)::int AS count,
-             COALESCE(SUM(p."amountCents" + p."tipCents"), 0)::int AS "chargedCents",
-             COALESCE(SUM(e."commissionCents"), 0)::int AS "commissionCents",
-             COALESCE(SUM(e."tipCents"), 0)::int AS "tipsCents",
-             COALESCE(SUM(e."reversedCents"), 0)::int AS "reversedCents"
-        FROM operator_earnings e
-        JOIN payments p ON p.id = e."paymentId"
-       WHERE e."tenantId" = ${tenantId}::uuid
-         AND e."operatorId" = ${operatorId}::uuid
-         AND COALESCE(p."authorizedAt", p."createdAt") >= ${from}
-         AND COALESCE(p."authorizedAt", p."createdAt") < ${to}
+             COALESCE(SUM(x.charged), 0)::int AS "chargedCents",
+             COALESCE(SUM(x.commission), 0)::int AS "commissionCents",
+             COALESCE(SUM(x.tips), 0)::int AS "tipsCents",
+             COALESCE(SUM(x.reversed), 0)::int AS "reversedCents"
+        FROM (
+          -- Cobros con tarjeta / datáfono.
+          SELECT p."amountCents" + p."tipCents" AS charged, e."commissionCents" AS commission,
+                 e."tipCents" AS tips, e."reversedCents" AS reversed
+            FROM operator_earnings e
+            JOIN payments p ON p.id = e."paymentId"
+           WHERE e."tenantId" = ${tenantId}::uuid
+             AND e."operatorId" = ${operatorId}::uuid
+             AND COALESCE(p."authorizedAt", p."createdAt") >= ${from}
+             AND COALESCE(p."authorizedAt", p."createdAt") < ${to}
+          UNION ALL
+          -- Lo que cobró del saldo del cliente (los anulados ya llevan su reverso).
+          SELECT c."amountCents" + c."tipCents", e."commissionCents", e."tipCents", e."reversedCents"
+            FROM operator_earnings e
+            JOIN wallet_consumptions c ON c.id = e."consumptionId"
+           WHERE e."tenantId" = ${tenantId}::uuid
+             AND e."operatorId" = ${operatorId}::uuid
+             AND c."createdAt" >= ${from}
+             AND c."createdAt" < ${to}
+        ) x
     `;
     const r = rows[0] ?? { count: 0, chargedCents: 0, commissionCents: 0, tipsCents: 0, reversedCents: 0 };
     return {
@@ -352,12 +366,13 @@ export class NightsService {
   }
 
   private async buildZ(tenantId: string, window: TimeWindow, pendingCount: number, now: Date): Promise<NightZ> {
-    const [cobros, devoluciones, liquidaciones] = await Promise.all([
+    const [cobros, devoluciones, liquidaciones, consumos] = await Promise.all([
       this.reports.cobros(tenantId, window),
       this.reports.devoluciones(tenantId, window),
       this.reports.liquidaciones(tenantId, window),
+      this.reports.consumos(tenantId, window),
     ]);
-    return buildNightZ(window, summarize(cobros, devoluciones, liquidaciones), pendingCount, now);
+    return buildNightZ(window, summarize(cobros, devoluciones, liquidaciones, consumos), pendingCount, now);
   }
 
   /**
