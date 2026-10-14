@@ -29,9 +29,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # La versión de pnpm la fija "packageManager" del package.json de la raíz.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9.12.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
