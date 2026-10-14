@@ -33,6 +33,8 @@ interface Charge {
   serviceItemId?: string;
   amountCents: number;
   label: string;
+  /** Una por cobro: si se repite tras un corte de red, no cobra dos veces. */
+  key: string;
 }
 
 type Stage =
@@ -131,6 +133,7 @@ export function ChargeFromBalance({ onCharged, initialCode = null }: Props) {
                   ? { serviceItemId: stage.charge.serviceItemId }
                   : { amountCents: stage.charge.amountCents }),
                 pin,
+                idempotencyKey: stage.charge.key,
               });
               onCharged();
               setStage({ kind: 'done', wallet: stage.wallet, charge: stage.charge, newBalanceCents: result.newBalanceCents });
@@ -325,7 +328,7 @@ function PickStep({
       setError(`Al cliente le quedan ${formatEur(wallet.balanceCents)}`);
       return;
     }
-    onCharge({ amountCents: cents, label: 'Otro importe' });
+    onCharge({ amountCents: cents, label: 'Otro importe', key: newIdempotencyKey() });
   }
 
   async function assignTag() {
@@ -395,7 +398,9 @@ function PickStep({
                 key={svc.id}
                 type="button"
                 disabled={tooMuch}
-                onClick={() => onCharge({ serviceItemId: svc.id, amountCents: svc.priceCents, label: serviceLabel(svc) })}
+                onClick={() =>
+                  onCharge({ serviceItemId: svc.id, amountCents: svc.priceCents, label: serviceLabel(svc), key: newIdempotencyKey() })
+                }
                 style={{ ...tileStyle, ...(tooMuch ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }}
               >
                 <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>

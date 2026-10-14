@@ -8,6 +8,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { Prisma } from '@nightpay/db';
 import { ModuleRef } from '@nestjs/core';
 import type { Role } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -180,7 +181,7 @@ export class WalletChargesService {
   private async openRequest(
     actor: Actor,
     walletId: string,
-    input: { serviceItemId?: string; amountCents?: number; category?: string },
+    input: { serviceItemId?: string; amountCents?: number; category?: string; idempotencyKey?: string },
   ) {
     const wallet = { id: walletId };
     let amountCents: number;
@@ -243,6 +244,7 @@ export class WalletChargesService {
           category,
           serviceName,
           expiresAt: new Date(now.getTime() + CHARGE_REQUEST_TTL_MS),
+          idempotencyKey: input.idempotencyKey ?? null,
         },
       });
     });
@@ -448,10 +450,28 @@ export class WalletChargesService {
    */
   async chargeWithPin(
     actor: Actor,
-    input: WalletRefInput & { serviceItemId?: string; amountCents?: number; pin: string },
+    input: WalletRefInput & { serviceItemId?: string; amountCents?: number; pin: string; idempotencyKey?: string },
   ): Promise<ChargeRequestView> {
     const wallet = await this.walletFor(actor.tenantId, input);
-    await this.checkPin(wallet.id, input.pin);
+    // El mismo intento repetido (se cortó la red): el cobro que ya se hizo.
+    if (input.idempotencyKey) {
+      const done = await this.prisma.acrossVenues((tx) =>
+        tx.walletChargeRequest.findUnique({
+          where: { walletId_idempotencyKey: { walletId: wallet.id, idempotencyKey: input.idempotencyKey! } },
+          select: { id: true, status: true },
+        }),
+      );
+      if (done?.status === 'ACCEPTED') return this.getRequest(actor, done.id);
+    }
+    await this.checkPin(wallet.id, input.pin, actor);
+    // Un cobro antiguo a la espera de "Aceptar" en el móvil del cliente no
+    // bloquea el cobro con PIN.
+    await this.prisma.acrossVenues((tx) =>
+      tx.walletChargeRequest.updateMany({
+        where: { walletId: wallet.id, status: 'PENDING' },
+        data: { status: 'CANCELED', decidedAt: new Date() },
+      }),
+    );
     const request = await this.openRequest(actor, wallet.id, input);
     try {
       await this.settleRequest(wallet.id, request.id);
@@ -475,6 +495,22 @@ export class WalletChargesService {
    */
   async setPin(actor: Actor, input: WalletRefInput & { pin: string }): Promise<WalletLookup> {
     const wallet = await this.walletFor(actor.tenantId, input);
+    // Sin esto, cualquiera del personal con el código de un saldo sin PIN le
+    // pondría uno suyo y lo gastaría. La chica o el camarero solo justo tras
+    // la recarga (el cliente está delante); después, el encargado o el dueño.
+    if (actor.role !== 'MANAGER' && actor.role !== 'OWNER') {
+      const fresh = await this.prisma.acrossVenues((tx) =>
+        tx.payment.findFirst({
+          where: { walletId: wallet.id, authorizedAt: { gte: new Date(Date.now() - FRESH_TOPUP_PIN_MS) } },
+          select: { id: true },
+        }),
+      );
+      if (!fresh) {
+        throw new UnprocessableEntityException(
+          'Este saldo no tiene PIN: que lo elija con el encargado (o en su móvil al recargar)',
+        );
+      }
+    }
     await this.storeFirstPin(wallet.id, input.pin);
     await this.audit.log({
       action: 'wallet.pin_set',
@@ -482,7 +518,7 @@ export class WalletChargesService {
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: wallet.id,
-      payload: { where: 'staff-device' },
+      payload: { where: 'staff-device', role: actor.role },
     });
     return this.lookupWallet(actor.tenantId, await this.walletFor(actor.tenantId, input));
   }
@@ -542,26 +578,39 @@ export class WalletChargesService {
     const tag = normalizeNfcTag(input.tag);
     if (!tag) throw new BadRequestException('No se ha podido leer la pulsera: acércala otra vez');
     const wallet = await this.walletByCode(actor.tenantId, input.code);
-    await this.prisma.acrossVenues(async (tx) => {
-      const other = await tx.clientWallet.findUnique({
-        where: { nfcTag: tag },
-        select: { id: true, status: true, balanceCents: true },
-      });
-      if (other && other.id !== wallet.id) {
-        if (other.status === 'ACTIVE' && other.balanceCents > 0) {
-          throw new ConflictException('Esa pulsera es de otro cliente que aún tiene saldo');
+    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    // Cambiar la pulsera de un cliente que ya tiene una: el encargado.
+    if (wallet.nfcTag && wallet.nfcTag !== tag && !manager) {
+      throw new UnprocessableEntityException('Este cliente ya tiene pulsera: para cambiarla, el encargado');
+    }
+    let previousWalletId: string | null = null;
+    try {
+      await this.prisma.acrossVenues(async (tx) => {
+        const other = await tx.clientWallet.findUnique({ where: { nfcTag: tag }, select: { id: true, status: true } });
+        if (other && other.id !== wallet.id) {
+          // Solo se reutiliza la pulsera de un saldo cerrado (devuelto o
+          // caducado): uno a 0 puede volver a recargarse otra noche.
+          if (other.status !== 'REFUNDED' && other.status !== 'EXPIRED') {
+            throw new ConflictException('Esa pulsera ya es de otro cliente');
+          }
+          previousWalletId = other.id;
+          await tx.clientWallet.update({ where: { id: other.id }, data: { nfcTag: null } });
         }
-        await tx.clientWallet.update({ where: { id: other.id }, data: { nfcTag: null } });
+        await tx.clientWallet.update({ where: { id: wallet.id }, data: { nfcTag: tag } });
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('Esa pulsera ya es de otro cliente');
       }
-      await tx.clientWallet.update({ where: { id: wallet.id }, data: { nfcTag: tag } });
-    });
+      throw err;
+    }
     await this.audit.log({
       action: 'wallet.tag_assigned',
       tenantId: actor.tenantId,
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: wallet.id,
-      payload: {},
+      payload: { replacedTag: wallet.nfcTag !== null && wallet.nfcTag !== tag, fromWalletId: previousWalletId },
     });
     return this.lookupWallet(actor.tenantId, await this.walletByCode(actor.tenantId, input.code));
   }
@@ -570,7 +619,7 @@ export class WalletChargesService {
    * Comprueba el PIN con el saldo bloqueado (dos intentos a la vez no se
    * saltan el contador). Los fallos se guardan aunque el cobro no siga.
    */
-  private async checkPin(walletId: string, pin: string): Promise<void> {
+  private async checkPin(walletId: string, pin: string, actor: Actor): Promise<void> {
     const pepper = pinPepper();
     const outcome = await this.prisma.acrossVenues(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ pinHash: string | null; pinFails: number; pinLockedAt: Date | null }>>`
@@ -592,6 +641,17 @@ export class WalletChargesService {
       });
       return { kind: lock ? ('now-locked' as const) : ('wrong' as const), left: PIN_MAX_FAILS - fails };
     });
+    if (outcome.kind === 'wrong' || outcome.kind === 'now-locked') {
+      // Quién tecleó el PIN mal: si alguien bloquea saldos ajenos, se ve.
+      await this.audit.log({
+        action: outcome.kind === 'now-locked' ? 'wallet.pin_locked' : 'wallet.pin_failed',
+        tenantId: actor.tenantId,
+        actorId: actor.userId,
+        targetType: 'ClientWallet',
+        targetId: walletId,
+        payload: { attemptsLeft: outcome.left },
+      });
+    }
     switch (outcome.kind) {
       case 'ok':
         return;
@@ -930,6 +990,9 @@ function categoryLabel(category: string): string {
   };
   return map[category] ?? 'Consumo';
 }
+
+/** La chica o el camarero ponen el primer PIN solo justo tras la recarga. */
+const FRESH_TOPUP_PIN_MS = 15 * 60 * 1000;
 
 /** Clave del servidor para el PIN (no está en la base). */
 function pinPepper(): string {

@@ -295,6 +295,7 @@ export class PublicPayController {
     @Headers('host') host: string | undefined,
     @Headers('accept-language') acceptLanguage: string | undefined,
     @Res() res: FastifyReply,
+    @Headers('sec-fetch-site') fetchSite?: string,
   ): Promise<void> {
     const parsed = PinFormSchema.safeParse(body ?? {});
     const lang = resolveLanguage(parsed.success ? parsed.data.lang : undefined, acceptLanguage);
@@ -305,7 +306,10 @@ export class PublicPayController {
         .header('Cache-Control', 'no-store')
         .send();
     };
-    if (origin && !sameHost(origin, host)) {
+    // La cookie del pago es SameSite=None (vuelve del banco): solo se acepta
+    // si el navegador dice que viene de nuestra página.
+    const fromUs = origin ? sameHost(origin, host) : fetchSite === 'same-origin';
+    if (!fromUs) {
       sendHtml(res, 403, renderErrorPage('generic', lang));
       return;
     }

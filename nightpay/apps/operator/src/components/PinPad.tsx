@@ -111,8 +111,8 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
       </div>
       <p style={hintStyle}>
         {mode === 'choose'
-          ? 'Solo lo sabes tú: nadie del local lo ve ni lo guarda.'
-          : 'Las cifras cambian de sitio cada vez.'}
+          ? 'Tápalo con la mano y no lo digas en voz alta. No se guarda en ningún sitio.'
+          : 'Tápalo con la mano. Las cifras cambian de sitio cada vez.'}
       </p>
     </Card>
   );
