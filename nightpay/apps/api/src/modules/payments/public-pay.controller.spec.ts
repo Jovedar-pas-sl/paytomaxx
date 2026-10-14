@@ -11,10 +11,10 @@ const IPHONE =
 const INSTAGRAM =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 337.0.3.23.54';
 
-function fakeReply(cookie?: string) {
+function fakeReply(cookie?: string, query: Record<string, string> = {}) {
   const sent: { status?: number; body?: string; headers: Record<string, string> } = { headers: {} };
   const reply = {
-    request: { headers: cookie ? { cookie } : {} },
+    request: { headers: cookie ? { cookie } : {}, query },
     status(code: number) {
       sent.status = code;
       return reply;
@@ -50,7 +50,8 @@ function makeController(opts: {
     getCheckoutForm: vi.fn().mockResolvedValue(opts.checkoutForm ?? null),
   };
   const config = { get: vi.fn().mockReturnValue(opts.statementName) };
-  return { controller: new PublicPayController(payments as never, config as never), payments };
+  const charges = { setPinByWalletToken: vi.fn().mockResolvedValue(undefined) };
+  return { controller: new PublicPayController(payments as never, config as never, charges as never), payments, charges };
 }
 
 function view(overrides: Partial<PayResultView>): PayResultView {
@@ -64,6 +65,8 @@ function view(overrides: Partial<PayResultView>): PayResultView {
     qrToken: 'qr-token-1',
     walletToken: null,
     walletClaimHash: null,
+    walletCode: null,
+    walletHasPin: false,
     attemptStatus: 'PENDING',
     ...overrides,
   };
@@ -397,3 +400,81 @@ describe('GET /pay/:token/receipt — justificante', () => {
     expect(sent.status).toBe(404);
   });
 });
+
+describe('recarga de saldo: el cliente elige su PIN en su propio móvil', () => {
+  const PAYER = 'p'.repeat(43);
+  const claimCookie = `${walletClaimCookieName('', 'qr-token-1')}=${PAYER}`;
+  const paidPage = (o: Partial<Extract<PayRedirect, { kind: 'paid' }>> = {}): PayRedirect => ({
+    kind: 'paid',
+    paymentId: PAYMENT_ID,
+    amountCents: 5000,
+    tipCents: 0,
+    currency: 'EUR',
+    authorizedAt: new Date('2026-10-14T22:00:00Z'),
+    walletToken: 'wal-tok',
+    walletClaimHash: createHash('sha256').update(PAYER).digest('hex'),
+    walletCode: 'K7Q-4M2',
+    walletHasPin: false,
+    ...o,
+  });
+
+  it('"Pagado" en el móvil que pagó: su código y el formulario del PIN', async () => {
+    const { controller } = makeController({ page: paidPage() });
+    const { reply, sent } = fakeReply(claimCookie);
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.body).toContain('K7Q-4M2');
+    expect(sent.body).toContain('action="/pay/qr-token-1/pin"');
+    expect(sent.body).toContain('Solo lo sabrás tú');
+  });
+
+  it('en otro móvil (la chica con el mismo QR): ni código ni PIN', async () => {
+    const { controller } = makeController({ page: paidPage() });
+    const { reply, sent } = fakeReply(`${walletClaimCookieName('', 'qr-token-1')}=${'q'.repeat(43)}`);
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.body).not.toContain('K7Q-4M2');
+    expect(sent.body).not.toContain('/pin"');
+  });
+
+  it('guardar el PIN: solo el que pagó, los dos iguales → guardado y vuelve a "Pagado"', async () => {
+    const { controller, charges } = makeController({ page: paidPage() });
+    const { reply, sent } = fakeReply(claimCookie);
+    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4827', lang: 'es' }, undefined, 'api.paytomaxx.com', undefined, reply);
+    expect(charges.setPinByWalletToken).toHaveBeenCalledWith('wal-tok', '4827');
+    expect(sent.status).toBe(303);
+    expect(sent.headers.Location).toBe('/pay/qr-token-1?lang=es&pin=ok');
+  });
+
+  it('distintos u obvio → no se guarda y se explica', async () => {
+    const { controller, charges } = makeController({ page: paidPage() });
+    const a = fakeReply(claimCookie);
+    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4828' }, undefined, 'h', undefined, a.reply);
+    expect(a.sent.headers.Location).toContain('pin=mismatch');
+    const b = fakeReply(claimCookie);
+    await controller.choosePin('qr-token-1', { pin: '1111', pin2: '1111' }, undefined, 'h', undefined, b.reply);
+    expect(b.sent.headers.Location).toContain('pin=obvious');
+    expect(charges.setPinByWalletToken).not.toHaveBeenCalled();
+    const c = fakeReply(claimCookie, { pin: 'mismatch' });
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, c.reply);
+    expect(c.sent.body).toContain('Los dos PIN no son iguales');
+  });
+
+  it('otro navegador o un formulario de otra web → 403, no se toca nada', async () => {
+    const { controller, charges } = makeController({ page: paidPage() });
+    const other = fakeReply(`${walletClaimCookieName('', 'qr-token-1')}=${'q'.repeat(43)}`);
+    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4827' }, undefined, 'h', undefined, other.reply);
+    expect(other.sent.status).toBe(403);
+    const evil = fakeReply(claimCookie);
+    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4827' }, 'https://evil.example', 'api.paytomaxx.com', undefined, evil.reply);
+    expect(evil.sent.status).toBe(403);
+    expect(charges.setPinByWalletToken).not.toHaveBeenCalled();
+  });
+
+  it('con el PIN ya guardado: "PIN guardado", sin formulario', async () => {
+    const { controller } = makeController({ page: paidPage({ walletHasPin: true }) });
+    const { reply, sent } = fakeReply(claimCookie, { pin: 'ok' });
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.body).toContain('PIN guardado');
+    expect(sent.body).not.toContain('/pin"');
+  });
+});
+

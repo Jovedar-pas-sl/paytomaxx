@@ -55,6 +55,7 @@ import {
 } from './pay-redirect';
 import { defaultTipGoesTo, readChargedTip, settleChargedTip, tipOptionsFor } from './tip';
 import { expectedChicaReversal } from './refund-share';
+import { formatWalletCode, sameWalletGroup } from '../wallets/wallet-rules';
 import { BRAND_NAME } from '../../common/brand';
 
 const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
@@ -356,16 +357,21 @@ export class PaymentsService implements OnApplicationBootstrap {
         });
         resolvedWalletId = created.id;
       } else if ('walletId' in walletDto) {
-        const existing = await this.prisma.asSystem((tx) =>
-          tx.clientWallet.findFirst({
-            where: { id: walletDto.walletId, tenantId },
-            select: { id: true, status: true },
-          }),
-        );
-        if (!existing) {
+        // Recargar el saldo de un cliente: el suyo de este local o de otro del
+        // grupo, también si lo dejó a 0 otra noche.
+        const [existing, venue] = await Promise.all([
+          this.prisma.acrossVenues((tx) =>
+            tx.clientWallet.findUnique({
+              where: { id: walletDto.walletId },
+              select: { id: true, status: true, tenantId: true, walletGroup: true },
+            }),
+          ),
+          this.prisma.venue.findUnique({ where: { id: tenantId }, select: { walletGroup: true } }),
+        ]);
+        if (!existing || !sameWalletGroup(existing, { id: tenantId, walletGroup: venue?.walletGroup ?? null })) {
           throw new NotFoundException('Wallet no encontrada en este venue');
         }
-        if (existing.status !== 'ACTIVE') {
+        if (existing.status !== 'ACTIVE' && existing.status !== 'DEPLETED') {
           throw new BadRequestException(`Wallet en status ${existing.status} — no se puede recargar`);
         }
         resolvedWalletId = existing.id;
@@ -647,7 +653,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           updatedAt: true,
           authorizedAt: true,
           walletId: true,
-          wallet: { select: { qrToken: true } },
+          wallet: { select: { qrToken: true, shortCode: true, pinHash: true } },
           attempts: {
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
@@ -679,6 +685,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       allowTip: provider === 'REDSYS' && walletId === null,
       walletToken: wallet?.qrToken ?? null,
       walletClaimHash: wallet ? (attempts[0]?.claimHash ?? null) : null,
+      walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
+      walletHasPin: Boolean(wallet?.pinHash),
     };
   }
 
@@ -703,7 +711,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           currency: true,
           authorizedAt: true,
           qrToken: true,
-          wallet: { select: { qrToken: true } },
+          wallet: { select: { qrToken: true, shortCode: true, pinHash: true } },
           attempts: {
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
@@ -727,6 +735,8 @@ export class PaymentsService implements OnApplicationBootstrap {
         qrToken: payment.qrToken,
         walletToken: payment.wallet?.qrToken ?? null,
         walletClaimHash: payment.wallet ? (payment.attempts[0]?.claimHash ?? null) : null,
+        walletCode: payment.wallet?.shortCode ? formatWalletCode(payment.wallet.shortCode) : null,
+        walletHasPin: Boolean(payment.wallet?.pinHash),
         attemptStatus: thisAttempt?.status ?? null,
       };
     });
