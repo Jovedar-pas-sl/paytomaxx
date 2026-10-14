@@ -8,8 +8,6 @@ import {
   lookupWalletCode,
   payoutWallet,
   relinkWallet,
-  resetWalletPin,
-  unlockWalletPin,
   type WalletAdminRow,
   type WalletPayoutMethod,
   type WalletsAdminStats,
@@ -46,22 +44,6 @@ export function WalletsPanel({ isOwner }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [payoutFor, setPayoutFor] = useState<PayoutTarget | null>(null);
   const [relinkFor, setRelinkFor] = useState<PayoutTarget | null>(null);
-
-  /** Desbloquear o borrar el PIN de un cliente; luego se recarga la lista. */
-  async function pinAction(w: WalletAdminRow, action: 'unlock' | 'reset') {
-    const question =
-      action === 'unlock'
-        ? `¿Desbloquear el PIN del saldo ${w.code ?? ''}? El cliente podrá volver a pagar.`
-        : `¿Borrar el PIN del saldo ${w.code ?? ''}? El cliente elegirá uno nuevo la próxima vez que pague.`;
-    if (!window.confirm(question)) return;
-    try {
-      if (action === 'unlock') await unlockWalletPin(w.id);
-      else await resetWalletPin(w.id);
-      await reload();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
 
   async function reload() {
     try {
@@ -183,9 +165,6 @@ export function WalletsPanel({ isOwner }: Props) {
                     {w.status === 'ACTIVE' && w.closeRequestedAt ? (
                       <span style={closeBadgeStyle}>Pide devolución</span>
                     ) : null}
-                    {w.pinLocked ? <span style={lockedBadgeStyle}>PIN bloqueado</span> : null}
-                    {!w.hasPin && w.status === 'ACTIVE' ? <span style={dimBadgeStyle}>sin PIN</span> : null}
-                    {w.hasTag ? <span style={dimBadgeStyle}>NFC</span> : null}
                   </td>
                   <td style={tdRight}>
                     <span className="np-num">{(w.balanceCents / 100).toFixed(2)} €</span>
@@ -212,16 +191,6 @@ export function WalletsPanel({ isOwner }: Props) {
                       {isOwner && w.status === 'ACTIVE' ? (
                         <Button variant="ghost" onClick={() => setRelinkFor(rowTarget(w))}>
                           Enlace nuevo
-                        </Button>
-                      ) : null}
-                      {w.pinLocked ? (
-                        <Button variant="primary" onClick={() => void pinAction(w, 'unlock')}>
-                          Desbloquear PIN
-                        </Button>
-                      ) : null}
-                      {w.hasPin ? (
-                        <Button variant="ghost" onClick={() => void pinAction(w, 'reset')}>
-                          PIN nuevo
                         </Button>
                       ) : null}
                     </div>
@@ -701,18 +670,6 @@ const closeBadgeStyle: CSSProperties = {
   color: 'var(--np-warning)',
   fontSize: '0.72rem',
   fontWeight: 600,
-};
-
-const lockedBadgeStyle: CSSProperties = {
-  ...closeBadgeStyle,
-  border: '1px solid var(--np-danger)',
-  color: 'var(--np-danger)',
-};
-
-const dimBadgeStyle: CSSProperties = {
-  ...closeBadgeStyle,
-  border: '1px solid var(--np-border)',
-  color: 'var(--np-text-dim)',
 };
 
 const summaryStyle: CSSProperties = {

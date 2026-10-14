@@ -709,14 +709,10 @@ export class WalletsService {
           createdAt: true,
           shortCode: true,
           closeRequestedAt: true,
-          pinHash: true,
-          pinLockedAt: true,
-          nfcTag: true,
           _count: { select: { consumptions: true } },
         },
       }),
     );
-    // Del PIN solo si lo tiene y si está bloqueado (la huella no sale de aquí).
     return wallets.map((w) => ({
       id: w.id,
       code: w.shortCode ? formatWalletCode(w.shortCode) : null,
@@ -727,9 +723,6 @@ export class WalletsService {
       expiresAt: w.expiresAt?.toISOString() ?? null,
       consumptionCount: w._count.consumptions,
       createdAt: w.createdAt.toISOString(),
-      hasPin: w.pinHash !== null,
-      pinLocked: w.pinLockedAt !== null,
-      hasTag: w.nfcTag !== null,
     }));
   }
 

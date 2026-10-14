@@ -17,12 +17,22 @@ const KEY_LEN = 32;
 /** Tras 5 PIN fallidos el saldo queda bloqueado hasta que lo desbloquee el encargado. */
 export const PIN_MAX_FAILS = 5;
 
-/** Las reglas (4 cifras, nada de 1234…) son las mismas que avisa la app: contracts. */
-export {
-  walletPinProblem as pinProblem,
-  WALLET_PIN_PROBLEM_TEXT as PIN_PROBLEM_TEXT,
-  type WalletPinProblem as PinProblem,
-} from '@nightpay/contracts';
+/** Los PIN que cualquiera prueba primero no valen. */
+const OBVIOUS = new Set(['1234', '4321', '0123', '3210', '1212', '2580', '1004', '2000', '1122', '6969']);
+
+export type PinProblem = 'format' | 'obvious';
+
+/** null si vale; si no, por qué. */
+export function pinProblem(pin: string): PinProblem | null {
+  if (!/^\d{4}$/.test(pin)) return 'format';
+  if (/^(\d)\1{3}$/.test(pin) || OBVIOUS.has(pin)) return 'obvious';
+  return null;
+}
+
+export const PIN_PROBLEM_TEXT: Record<PinProblem, string> = {
+  format: 'El PIN son 4 cifras',
+  obvious: 'Ese PIN es demasiado fácil de adivinar: elige otro',
+};
 
 export async function hashPin(pin: string, pepper: string): Promise<string> {
   const salt = randomBytes(16);

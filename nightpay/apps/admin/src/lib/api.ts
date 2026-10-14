@@ -876,12 +876,6 @@ export interface WalletAdminRow {
   expiresAt: string | null;
   consumptionCount: number;
   createdAt: string;
-  /** El cliente ya eligió su PIN de 4 cifras. */
-  hasPin: boolean;
-  /** 5 PIN fallidos: bloqueado hasta que lo desbloquee el encargado. */
-  pinLocked: boolean;
-  /** Tiene pulsera o tarjeta NFC. */
-  hasTag: boolean;
 }
 
 export interface WalletsAdminStats {
@@ -941,22 +935,6 @@ export async function relinkWallet(walletId: string): Promise<{ url: string; qrD
   });
   if (!res.ok) throw new Error(await readError(res));
   return res.json();
-}
-
-/** Encargado o dueño: tras 5 PIN fallidos, volver a dejar pagar. */
-export async function unlockWalletPin(walletId: string): Promise<void> {
-  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/unlock-pin`, {
-    method: 'POST',
-  });
-  if (!res.ok) throw new Error(await readError(res));
-}
-
-/** Encargado o dueño: el cliente olvidó su PIN → se borra y elige otro al pagar. */
-export async function resetWalletPin(walletId: string): Promise<void> {
-  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/reset-pin`, {
-    method: 'POST',
-  });
-  if (!res.ok) throw new Error(await readError(res));
 }
 
 export type WalletPayoutMethod = 'CARD' | 'CASH';
