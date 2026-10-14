@@ -1,4 +1,5 @@
-import { Controller, Get, Inject, Logger } from '@nestjs/common';
+import { Controller, Get, Inject, Logger, Res } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import type { Health } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
@@ -19,9 +20,24 @@ export class HealthController {
     this.redis = redis;
   }
 
+  /**
+   * Solo "el proceso responde": para el healthcheck de Docker. Si se cae la
+   * base de datos, reiniciar el API no lo arregla (y lo dejaría reiniciando
+   * en bucle), así que aquí no se mira.
+   */
+  @Public()
+  @Get('live')
+  live(): { status: 'ok' } {
+    return { status: 'ok' };
+  }
+
+  /**
+   * Estado completo (API, base de datos, Redis). Si algo falla responde 503:
+   * un monitor externo (UptimeRobot, Cloudflare…) lo detecta como caída.
+   */
   @Public()
   @Get()
-  async get(): Promise<Health> {
+  async get(@Res({ passthrough: true }) res?: FastifyReply): Promise<Health> {
     const checks: Record<string, 'ok' | 'fail' | 'skip'> = {
       api: 'ok',
       db: 'fail',
@@ -45,6 +61,7 @@ export class HealthController {
     }
 
     const overall = Object.values(checks).every((s) => s === 'ok') ? 'ok' : 'degraded';
+    if (overall !== 'ok') res?.status(503);
 
     return {
       status: overall,
@@ -52,7 +69,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'cuadre-banco-2026-10-14',
+      build: 'pendientes-2026-10-14',
     } as Health & { build: string };
   }
 }

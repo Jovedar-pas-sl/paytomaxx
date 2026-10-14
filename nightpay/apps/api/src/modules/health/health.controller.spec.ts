@@ -18,6 +18,29 @@ describe('HealthController', () => {
     expect(typeof result.timestamp).toBe('string');
   });
 
+  it('algo caído → 503 (para los monitores); el proceso vivo → /live responde ok', async () => {
+    const prisma = { $queryRaw: vi.fn().mockRejectedValue(new Error('db down')) };
+    const redis = { ping: vi.fn().mockResolvedValue('PONG') };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const controller = new HealthController(prisma as any, redis as any);
+    const res = { status: vi.fn() };
+    const result = await controller.get(res as never);
+    expect(result.status).toBe('degraded');
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(controller.live()).toEqual({ status: 'ok' });
+  });
+
+  it('todo bien → sin 503', async () => {
+    const prisma = { $queryRaw: vi.fn().mockResolvedValue([{ ok: 1 }]) };
+    const redis = { ping: vi.fn().mockResolvedValue('PONG') };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const controller = new HealthController(prisma as any, redis as any);
+    const res = { status: vi.fn() };
+    const result = await controller.get(res as never);
+    expect(result.status).toBe('ok');
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
   it('marks db fail when prisma rejects', async () => {
     const prisma = { $queryRaw: vi.fn().mockRejectedValue(new Error('db down')) };
     const config = {

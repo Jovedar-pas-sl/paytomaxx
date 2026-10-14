@@ -13,7 +13,7 @@ import { timingSafeEqual } from 'node:crypto';
 export const ORIGIN_AUTH_HEADER = 'x-origin-auth';
 
 /** El healthcheck de Docker llega desde dentro del contenedor, sin Cloudflare. */
-const OPEN_PATHS = ['/v1/health'];
+const OPEN_PATHS = ['/v1/health', '/v1/health/live'];
 /**
  * Los avisos del banco (Redsys, Paytef, Peanpe) se aceptan aunque no pasen
  * por Cloudflare: cada uno trae su firma o su secreto y se comprueba en el
