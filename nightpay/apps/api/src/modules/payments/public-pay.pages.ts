@@ -114,14 +114,29 @@ legend{color:#b4b4ac;margin:0 auto .5rem;padding:0}
 form.sending .pay{opacity:.55}
 .warn{border:2px solid #ffb020;border-radius:10px;padding:.75rem 1rem;color:#ffb020;text-align:left;font-size:.95rem}
 .lang{font-weight:700;text-decoration:none;margin-top:.5rem}
+.saved{border:2px solid #d4ff3a;border-radius:10px;padding:.75rem 1rem;color:#f5f5f0;text-align:left;font-size:.95rem}
+.saved a{color:#d4ff3a;font-weight:800;white-space:nowrap}
 </style>`;
 
 export function renderChoosePage(
   view: ChooseView,
-  ctx: { token: string; lang: PayLanguage; device: PayDevice; statementName: string | null; now: Date },
+  ctx: {
+    token: string;
+    lang: PayLanguage;
+    device: PayDevice;
+    statementName: string | null;
+    now: Date;
+    /** Saldo de este móvil que vale en este local (ver ClientDevicesService). */
+    savedBalanceCents?: number | null;
+  },
 ): string {
   const t = PAY_TEXT[ctx.lang];
   const fmt = (c: number): string => formatAmount(c, view.currency, t);
+  // Este móvil ya tiene saldo aquí: puede pagar enseñando su código.
+  const saved =
+    ctx.savedBalanceCents && ctx.savedBalanceCents > 0
+      ? `<p class="saved">${escapeHtml(t.savedBalance(fmt(ctx.savedBalanceCents)))} <a href="${escapeHtml(`/w?lang=${ctx.lang}`)}">${escapeHtml(t.seeBalance)}</a></p>`
+      : '';
   const withTips = view.tipOptionsCents.length > 1;
   const tips = withTips
     ? `<fieldset><legend>${escapeHtml(t.tipLegend)}</legend><div class="tipgrid">${view.tipOptionsCents
@@ -148,6 +163,7 @@ export function renderChoosePage(
   const action = `/pay/${encodeURIComponent(ctx.token)}`;
   const other = t.otherLanguage;
   const body = `
+${saved}
 <p class="kick">${escapeHtml(t.youPay)}</p>
 <div class="amount">${escapeHtml(fmt(view.amountCents))}</div>
 <form id="pay" method="POST" action="${escapeHtml(action)}" data-amount="${view.amountCents}" data-currency="${escapeHtml(view.currency)}" data-locale="${t.locale}" data-expires="${view.qrExpiresAt.getTime()}" data-now="${ctx.now.getTime()}">

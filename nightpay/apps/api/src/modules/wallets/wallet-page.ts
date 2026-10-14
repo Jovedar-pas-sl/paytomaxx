@@ -27,6 +27,14 @@ interface WalletText {
   closed: string;
   depleted: string;
   error: string;
+  rememberHint: string;
+  protectTitle: string;
+  protectHint: string;
+  protectButton: string;
+  protectedNote: string;
+  otherPhone: string;
+  otherPhoneProtected: string;
+  passkeyFailed: string;
   other: { code: PayLanguage; label: string };
 }
 
@@ -49,6 +57,14 @@ const TEXT: Record<PayLanguage, WalletText> = {
     closed: 'Este saldo ya está cerrado.',
     depleted: 'Has gastado todo el saldo.',
     error: 'No se ha podido completar. Inténtalo otra vez.',
+    rememberHint: 'Este móvil recuerda tu saldo: si cierras la página, escanea cualquier QR de pago del local y te lo enseñamos.',
+    protectTitle: 'Protege tu saldo',
+    protectHint: 'Con Face ID o tu huella, solo tú podrás aceptar cobros, aunque alguien vea tu enlace.',
+    protectButton: 'Activar Face ID / huella',
+    protectedNote: '🔒 Protegido con Face ID / huella',
+    otherPhone: 'Este saldo está guardado en otro móvil.',
+    otherPhoneProtected: 'Este saldo está en otro móvil y protegido: para aceptar cobros, usa ese móvil.',
+    passkeyFailed: 'No se ha podido comprobar Face ID / huella. Inténtalo otra vez.',
     other: { code: 'en', label: 'English' },
   },
   en: {
@@ -69,6 +85,14 @@ const TEXT: Record<PayLanguage, WalletText> = {
     closed: 'This balance is closed.',
     depleted: 'You have spent all your balance.',
     error: 'That did not work. Please try again.',
+    rememberHint: 'This phone remembers your balance: if you close the page, scan any payment QR in the venue and we will show it.',
+    protectTitle: 'Protect your balance',
+    protectHint: 'With Face ID or your fingerprint, only you can accept charges, even if someone sees your link.',
+    protectButton: 'Turn on Face ID / fingerprint',
+    protectedNote: '🔒 Protected with Face ID / fingerprint',
+    otherPhone: 'This balance is saved on another phone.',
+    otherPhoneProtected: 'This balance is on another phone and protected: use that phone to accept charges.',
+    passkeyFailed: 'Face ID / fingerprint could not be checked. Please try again.',
     other: { code: 'es', label: 'Español' },
   },
 };
@@ -122,6 +146,7 @@ li .plus{color:#5be38f;font-weight:700}
 li .minus{color:#f5f5f0;font-weight:700}
 .note{border:2px solid #ffb020;border-radius:10px;padding:.75rem 1rem;color:#ffb020}
 .lang{color:#d4ff3a;font-weight:700;text-decoration:none;text-align:center}
+.ok{color:#5be38f;font-weight:700;text-align:center}
 [hidden]{display:none!important}
 </style></head><body><main>
 <p class="kick" id="title"></p>
@@ -134,6 +159,9 @@ li .minus{color:#f5f5f0;font-weight:700}
   <div class="row"><button class="alt" id="reject"></button><button id="accept"></button></div>
 </section>
 <p class="note" id="notice" hidden></p>
+<p class="note" id="otherPhone" hidden></p>
+<section class="card" id="protectCard" hidden><p class="kick" id="protectTitle"></p><p id="protectHint"></p><button id="protect"></button></section>
+<p class="ok" id="protectedNote" hidden></p>
 <section class="card"><p class="kick" id="movementsTitle"></p><ul id="movements"></ul></section>
 <button class="alt" id="leave" hidden></button>
 <p id="saveHint" style="font-size:.85rem"></p>
@@ -141,7 +169,7 @@ li .minus{color:#f5f5f0;font-weight:700}
 </main>
 <script>
 (function(){
-var C=JSON.parse(${config}),T=C.text,busy=false;
+var C=JSON.parse(${config}),T=C.text,busy=false,cur=C.state;
 function $(id){return document.getElementById(id);}
 function eur(c){return (c/100).toLocaleString(C.locale,{style:'currency',currency:'EUR'});}
 function when(iso){return new Date(iso).toLocaleString(C.locale,{timeZone:'Europe/Madrid',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}
@@ -149,7 +177,10 @@ $('title').textContent=T.title;$('balanceLabel').textContent=T.balance;$('codeHi
 $('pendingTitle').textContent=T.pendingTitle;$('accept').textContent=T.accept;$('reject').textContent=T.reject;
 $('movementsTitle').textContent=T.movements;$('leave').textContent=T.leave;$('saveHint').textContent=T.saveHint;
 $('lang').textContent=T.other.label;$('lang').href=C.base+'?lang='+T.other.code;
+$('protectTitle').textContent=T.protectTitle;$('protectHint').textContent=T.protectHint;$('protect').textContent=T.protectButton;
+$('protectedNote').textContent=T.protectedNote;
 function render(s){
+  cur=s;
   $('balance').textContent=eur(s.balanceCents);
   $('code').textContent=s.code;
   var active=s.status==='ACTIVE';
@@ -157,6 +188,11 @@ function render(s){
   var notice=!active?(s.status==='DEPLETED'?T.depleted:T.closed):(s.closeRequested?T.leaveRequested:'');
   $('notice').hidden=!notice;$('notice').textContent=notice;
   $('leave').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
+  var d=s.device||{};
+  $('protectCard').hidden=!(active&&d.thisPhone&&!d.protected&&!!window.PublicKeyCredential);
+  $('protectedNote').hidden=!d.protected;
+  $('otherPhone').hidden=!d.otherPhone;$('otherPhone').textContent=d.protected?T.otherPhoneProtected:T.otherPhone;
+  $('saveHint').textContent=d.thisPhone?T.rememberHint:T.saveHint;
   var p=s.pending;$('pending').hidden=!p;
   if(p){$('pendingAmount').textContent=eur(p.amountCents);
     $('pendingWho').textContent=[p.serviceName,p.requestedByName,p.venueName].filter(Boolean).join(' · ');
@@ -168,17 +204,66 @@ function render(s){
     b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=m.amountCents>0?'plus':'minus';
     li.appendChild(a);li.appendChild(b);ul.appendChild(li);});
 }
-function post(path){busy=true;$('accept').disabled=$('reject').disabled=$('leave').disabled=true;
-  return fetch(C.base+path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
-   .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.detail||j.message||T.error);return j;});})
-   .then(render).catch(function(e){alert(e.message||T.error);refresh();})
-   .finally(function(){busy=false;$('accept').disabled=$('reject').disabled=$('leave').disabled=false;});}
+function dis(v){$('accept').disabled=$('reject').disabled=$('leave').disabled=$('protect').disabled=v;}
+function api(path,body){return fetch(C.base+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
+   .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.detail||j.message||T.error);return j;});});}
+/* Face ID / huella (WebAuthn): el navegador habla en bytes, el API en base64url. */
+function b64u(buf){var s='',b=new Uint8Array(buf);for(var i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s).split('+').join('-').split('/').join('_').split('=').join('');}
+function bytes(s){s=s.split('-').join('+').split('_').join('/');while(s.length%4)s+='=';var b=atob(s),u=new Uint8Array(b.length);for(var i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u.buffer;}
+function cancelled(e){return e&&(e.name==='NotAllowedError'||e.name==='AbortError');}
+function createKey(){return api('/passkey/options').then(function(o){
+  o.challenge=bytes(o.challenge);o.user.id=bytes(o.user.id);(o.excludeCredentials||[]).forEach(function(c){c.id=bytes(c.id);});
+  return navigator.credentials.create({publicKey:o});
+ }).then(function(c){var r=c.response;return api('/passkey',{response:{id:c.id,rawId:b64u(c.rawId),type:c.type,
+  response:{clientDataJSON:b64u(r.clientDataJSON),attestationObject:b64u(r.attestationObject),transports:r.getTransports?r.getTransports():[]},
+  authenticatorAttachment:c.authenticatorAttachment||undefined,clientExtensionResults:c.getClientExtensionResults()}});});}
+function getKey(){return api('/passkey/challenge').then(function(o){
+  o.challenge=bytes(o.challenge);(o.allowCredentials||[]).forEach(function(c){c.id=bytes(c.id);});
+  return navigator.credentials.get({publicKey:o});
+ }).then(function(c){var r=c.response;return {id:c.id,rawId:b64u(c.rawId),type:c.type,
+  response:{clientDataJSON:b64u(r.clientDataJSON),authenticatorData:b64u(r.authenticatorData),signature:b64u(r.signature),userHandle:r.userHandle?b64u(r.userHandle):undefined},
+  authenticatorAttachment:c.authenticatorAttachment||undefined,clientExtensionResults:c.getClientExtensionResults()};});}
+/* Aceptar o irse: con el saldo protegido, primero la cara o el dedo. */
+function post(path,needsKey){busy=true;dis(true);
+  var key=needsKey&&cur.device&&cur.device.protected?getKey():Promise.resolve(undefined);
+  return key.then(function(k){return api(path,k?{passkey:k}:{});})
+   .then(render).catch(function(e){if(!cancelled(e))alert((e&&e.message)||T.error);refresh();})
+   .finally(function(){busy=false;dis(false);});}
 function refresh(){if(busy)return;fetch(C.base+'/state',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(s){if(s)render(s);}).catch(function(){});}
-$('accept').addEventListener('click',function(){if(!busy)post('/requests/'+encodeURIComponent(this.dataset.id)+'/accept');});
-$('reject').addEventListener('click',function(){if(!busy)post('/requests/'+encodeURIComponent(this.dataset.id)+'/reject');});
-$('leave').addEventListener('click',function(){if(!busy&&confirm(T.leaveConfirm))post('/close');});
-render(C.state);setInterval(function(){if(document.visibilityState==='visible')refresh();},3000);
+$('accept').addEventListener('click',function(){if(!busy)post('/requests/'+encodeURIComponent(this.dataset.id)+'/accept',true);});
+$('reject').addEventListener('click',function(){if(!busy)post('/requests/'+encodeURIComponent(this.dataset.id)+'/reject',true);});
+$('leave').addEventListener('click',function(){if(!busy&&confirm(T.leaveConfirm))post('/close',true);});
+$('protect').addEventListener('click',function(){if(busy)return;busy=true;dis(true);
+  createKey().then(render).catch(function(e){if(!cancelled(e))alert((e&&e.message)||T.passkeyFailed);})
+   .finally(function(){busy=false;dis(false);});});
+render(C.state);
+/* Ya en un navegador de verdad: si el saldo aún no es de nadie, es de este móvil. */
+var dv=C.state.device||{};if(!dv.thisPhone&&!dv.otherPhone)api('/claim').then(render).catch(function(){});
+setInterval(function(){if(document.visibilityState==='visible')refresh();},3000);
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')refresh();});
 })();
 </script></body></html>`;
+}
+
+/** /w en un móvil sin saldo guardado. */
+export function renderNoWalletPage(lang: PayLanguage): string {
+  const t =
+    lang === 'en'
+      ? {
+          title: `Your ${BRAND_NAME} balance`,
+          line: 'There is no balance saved on this phone.',
+          hint: 'Open the link to your balance (you got it when you topped up) or ask the staff.',
+        }
+      : {
+          title: `Tu saldo ${BRAND_NAME}`,
+          line: 'En este móvil no hay ningún saldo guardado.',
+          hint: 'Abre el enlace de tu saldo (te lo dieron al recargar) o pídeselo al personal.',
+        };
+  return `<!DOCTYPE html>
+<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0b0b"><title>${t.title}</title>
+<style>body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;margin:0;padding:2rem 1rem;background:#0b0b0b;color:#f5f5f0;font-size:18px}
+main{max-width:26rem;margin:0 auto;display:flex;flex-direction:column;gap:1rem}p{margin:0;color:#b4b4ac;line-height:1.45}
+.kick{font-size:.8rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#8a8a83}b{color:#f5f5f0}</style></head>
+<body><main><p class="kick">${t.title}</p><p><b>${t.line}</b></p><p>${t.hint}</p></main></body></html>`;
 }

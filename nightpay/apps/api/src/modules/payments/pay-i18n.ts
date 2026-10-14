@@ -31,6 +31,9 @@ export interface PayText {
   payCard: string;
   inAppWarning: (app: string) => string;
   statement: (name: string) => string;
+  /** Este móvil tiene saldo que vale en el local del cobro. */
+  savedBalance: (amount: string) => string;
+  seeBalance: string;
   expiresIn: string;
   // Hacia el banco
   openingTitle: string;
@@ -94,6 +97,8 @@ const ES: PayText = {
   inAppWarning: (app) =>
     `Estás en el navegador de ${app}. Para pagar con Apple Pay o Google Pay, ábrelo en Safari o Chrome: toca ··· y «Abrir en el navegador». Con tarjeta puedes pagar aquí.`,
   statement: (name) => `En tu extracto aparecerá como «${name}».`,
+  savedBalance: (amount) => `Tienes ${amount} de saldo en este móvil.`,
+  seeBalance: 'Ver mi saldo',
   expiresIn: 'Caduca en',
   openingTitle: 'Abriendo el pago…',
   openingHint: 'Si no avanza en 2 segundos, pulsa el botón.',
@@ -172,6 +177,8 @@ const EN: PayText = {
   inAppWarning: (app) =>
     `You are in the ${app} browser. To pay with Apple Pay or Google Pay, open this page in Safari or Chrome: tap ··· and "Open in browser". You can pay by card here.`,
   statement: (name) => `It will show on your statement as "${name}".`,
+  savedBalance: (amount) => `You have ${amount} of balance on this phone.`,
+  seeBalance: 'See my balance',
   expiresIn: 'Expires in',
   openingTitle: 'Opening the payment…',
   openingHint: 'If nothing happens in 2 seconds, tap the button.',

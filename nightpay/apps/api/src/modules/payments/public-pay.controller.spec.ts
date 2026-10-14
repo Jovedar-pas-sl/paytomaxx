@@ -50,7 +50,9 @@ function makeController(opts: {
     getCheckoutForm: vi.fn().mockResolvedValue(opts.checkoutForm ?? null),
   };
   const config = { get: vi.fn().mockReturnValue(opts.statementName) };
-  return { controller: new PublicPayController(payments as never, config as never), payments };
+  // Un móvil sin saldo guardado (lo normal en estas pruebas).
+  const devices = { find: vi.fn().mockResolvedValue(null), balanceForPayment: vi.fn().mockResolvedValue(null) };
+  return { controller: new PublicPayController(payments as never, config as never, devices as never), payments };
 }
 
 function view(overrides: Partial<PayResultView>): PayResultView {
@@ -162,10 +164,22 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
 });
 
 describe('GET /pay/:token — página de pago', () => {
+  it('el móvil ya tiene saldo en este local → aviso con enlace a su saldo (sin el token del saldo)', async () => {
+    const { controller, payments } = makeController({ page: CHOOSE });
+    const devices = { find: vi.fn().mockResolvedValue({ id: 'dev-1' }), balanceForPayment: vi.fn().mockResolvedValue(4500) };
+    (controller as unknown as { devices: typeof devices }).devices = devices;
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, `np_dev=${'d'.repeat(43)}`, reply);
+    expect(payments.getPayPage).toHaveBeenCalledWith('qr-token-1');
+    expect(devices.balanceForPayment).toHaveBeenCalledWith('dev-1', 'qr-token-1');
+    expect(sent.body).toContain('Tienes 45,00');
+    expect(sent.body).toContain('href="/w?lang=es"');
+  });
+
   it('enseña el importe y las propinas, y no abre nada en el banco', async () => {
     const { controller, payments } = makeController({ page: CHOOSE });
     const { reply, sent } = fakeReply();
-    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, undefined, reply);
     expect(sent.status).toBe(200);
     expect(sent.body).toContain('100,00');
     expect(sent.body).toContain('Sin propina');
@@ -177,7 +191,7 @@ describe('GET /pay/:token — página de pago', () => {
   it('iPhone → "Pagar con Apple Pay" y "Pagar con tarjeta"', async () => {
     const { controller } = makeController({ page: CHOOSE });
     const { reply, sent } = fakeReply();
-    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, undefined, reply);
     expect(sent.body).toContain('Pagar con Apple Pay');
     expect(sent.body).toContain('value="wallet"');
     expect(sent.body).toContain('Pagar con tarjeta');
@@ -186,7 +200,7 @@ describe('GET /pay/:token — página de pago', () => {
   it('dentro de Instagram → aviso y solo tarjeta', async () => {
     const { controller } = makeController({ page: CHOOSE });
     const { reply, sent } = fakeReply();
-    await controller.payPage('qr-token-1', 'es', undefined, INSTAGRAM, reply);
+    await controller.payPage('qr-token-1', 'es', undefined, INSTAGRAM, undefined, reply);
     expect(sent.body).toContain('navegador de Instagram');
     expect(sent.body).not.toContain('value="wallet"');
     expect(sent.body).toContain('value="card"');
@@ -195,7 +209,7 @@ describe('GET /pay/:token — página de pago', () => {
   it('móvil en alemán → inglés; con botón para cambiar a español', async () => {
     const { controller } = makeController({ page: CHOOSE });
     const { reply, sent } = fakeReply();
-    await controller.payPage('qr-token-1', undefined, 'de-DE,de;q=0.9', IPHONE, reply);
+    await controller.payPage('qr-token-1', undefined, 'de-DE,de;q=0.9', IPHONE, undefined, reply);
     expect(sent.body).toContain('You are paying');
     expect(sent.body).toContain('Pay with Apple Pay');
     expect(sent.body).toContain('href="/pay/qr-token-1?lang=es"');
@@ -204,7 +218,7 @@ describe('GET /pay/:token — página de pago', () => {
   it('enseña el nombre del extracto si está configurado', async () => {
     const { controller } = makeController({ page: CHOOSE, statementName: 'MAXX SERVICIOS' });
     const { reply, sent } = fakeReply();
-    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, undefined, reply);
     expect(sent.body).toContain('En tu extracto aparecerá como «MAXX SERVICIOS»');
   });
 
@@ -221,7 +235,7 @@ describe('GET /pay/:token — página de pago', () => {
       },
     });
     const { reply, sent } = fakeReply();
-    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, undefined, reply);
     expect(sent.status).toBe(200);
     expect(sent.body).toContain('<h1>Pagado</h1>');
     expect(sent.body).not.toContain('<form');
@@ -230,7 +244,7 @@ describe('GET /pay/:token — página de pago', () => {
   it('cobro en curso → "Comprobando", sin formulario al banco', async () => {
     const { controller } = makeController({ page: { kind: 'processing' } });
     const { reply, sent } = fakeReply();
-    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, undefined, reply);
     expect(sent.body).toContain('Comprobando el pago');
     expect(sent.body).not.toContain('<form');
   });
@@ -238,7 +252,7 @@ describe('GET /pay/:token — página de pago', () => {
   it('QR caducado → mensaje claro y 409', async () => {
     const { controller } = makeController({ page: { kind: 'closed', reason: 'expired' } });
     const { reply, sent } = fakeReply();
-    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, undefined, reply);
     expect(sent.status).toBe(409);
     expect(sent.body).toContain('Este cobro ha caducado');
   });
@@ -247,7 +261,7 @@ describe('GET /pay/:token — página de pago', () => {
     for (const page of [CHOOSE, { kind: 'closed', reason: 'failed' } as PayRedirect]) {
       const { controller } = makeController({ page });
       const { reply, sent } = fakeReply();
-      await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+      await controller.payPage('qr-token-1', 'es', undefined, IPHONE, undefined, reply);
       expect(sent.body?.toLowerCase()).not.toContain('chica');
       expect(sent.body?.toLowerCase()).not.toContain('habitación');
     }
