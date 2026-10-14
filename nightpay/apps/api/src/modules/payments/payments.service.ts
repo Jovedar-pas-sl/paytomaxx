@@ -54,6 +54,7 @@ import {
   type RetryDecision,
 } from './pay-redirect';
 import { defaultTipGoesTo, readChargedTip, settleChargedTip, tipOptionsFor } from './tip';
+import { expectedChicaReversal } from './refund-share';
 import { BRAND_NAME } from '../../common/brand';
 
 const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
@@ -1536,7 +1537,8 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Reverse proporcional de la comisión cuando hay refund (parcial o total).
+   * Reverse proporcional de la parte de la chica — comisión Y propina — cuando
+   * hay refund (parcial o total): ver expectedChicaReversal (refund-share.ts).
    * Llamado por RefundsService después de que el refund llega a SUCCEEDED.
    *
    * Idempotencia: tabla earning_reversals(refundId UNIQUE). Si el processor
@@ -1546,11 +1548,11 @@ export class PaymentsService implements OnApplicationBootstrap {
    * cada refund (que acumula dust), calculamos el reversedTotal ESPERADO en
    * función del cumulativo refundeado hasta el momento, y aplicamos el delta:
    *
-   *   expectedTotalReversed = round(totalCumulativeRefunded * bps / 10000)
+   *   expectedTotalReversed = round((comisión + propina) * devuelto / cobrado)
    *   delta = expectedTotalReversed - currentReversedCents
    *
-   * Esto garantiza el invariante: si todos los refunds suman amountCents, el
-   * reversedCents acumulado iguala exactamente commissionCents — sin dust.
+   * Esto garantiza el invariante: si todos los refunds suman lo cobrado
+   * (servicio + propina), lo descontado iguala exactamente su parte — sin dust.
    *
    * Permite saldo negativo (deuda) si reversedCents > commissionCents (no debería
    * pasar con accumulator, pero por defensa lo permitimos).
@@ -1580,16 +1582,18 @@ export class PaymentsService implements OnApplicationBootstrap {
           tenantId: string;
           commissionBps: number;
           commissionCents: number;
+          tipCents: number;
           reversedCents: number;
-          paymentAmountCents: number;
+          chargedCents: number;
           payoutId: string | null;
         }>
       >`
-        SELECT id, "tenantId", "commissionBps", "commissionCents", "reversedCents",
-               "paymentAmountCents", "payoutId"
-          FROM operator_earnings
-         WHERE "paymentId" = ${paymentId}::uuid
-         FOR UPDATE
+        SELECT e.id, e."tenantId", e."commissionBps", e."commissionCents", e."tipCents",
+               e."reversedCents", (p."amountCents" + p."tipCents") AS "chargedCents", e."payoutId"
+          FROM operator_earnings e
+          JOIN payments p ON p.id = e."paymentId"
+         WHERE e."paymentId" = ${paymentId}::uuid
+         FOR UPDATE OF e
       `;
       if (earning.length === 0) {
         this.logger.log(
@@ -1609,17 +1613,17 @@ export class PaymentsService implements OnApplicationBootstrap {
            AND id != ${refundId}::uuid
       `;
       const priorCumulative = Number(sumRows[0]?.total ?? 0);
-      const totalCumulative = Math.min(
-        priorCumulative + refundAmountCents,
-        e.paymentAmountCents, // cap por seguridad
-      );
+      const totalCumulative = Math.min(priorCumulative + refundAmountCents, e.chargedCents);
 
-      // 3. Reversed total esperado tras este refund. Las reversiones que llegan
-      //    con el earning ya pagado no tocan reversedCents (eso refleja lo que
-      //    se le pagó); se suman aparte como deuda.
-      const expectedTotalReversed = Math.round(
-        (totalCumulative * e.commissionBps) / 10_000,
-      );
+      // 3. Reversed total esperado tras este refund (comisión + propina). Las
+      //    reversiones que llegan con el earning ya pagado no tocan
+      //    reversedCents (eso refleja lo que se le pagó); se suman aparte como deuda.
+      const expectedTotalReversed = expectedChicaReversal({
+        commissionCents: e.commissionCents,
+        tipCents: e.tipCents,
+        chargedCents: e.chargedCents,
+        refundedCents: totalCumulative,
+      });
       const debtRows = await tx.$queryRaw<Array<{ total: bigint }>>`
         SELECT COALESCE(SUM("reversedDeltaCents"),0)::bigint AS total
           FROM earning_reversals
@@ -1664,7 +1668,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       `;
 
       this.logger.log(
-        `Earning reversal payment=${paymentId} refundId=${refundId} delta=${reverseDelta} expected=${expectedTotalReversed} bps=${e.commissionBps} cumulative=${totalCumulative}/${e.paymentAmountCents}`,
+        `Earning reversal payment=${paymentId} refundId=${refundId} delta=${reverseDelta} expected=${expectedTotalReversed} bps=${e.commissionBps} tip=${e.tipCents} cumulative=${totalCumulative}/${e.chargedCents}`,
       );
     });
   }
