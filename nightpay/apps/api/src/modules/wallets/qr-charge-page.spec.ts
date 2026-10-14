@@ -23,7 +23,9 @@ describe('pagar con el saldo escaneando el QR de la chica', () => {
     }
     const es = renderQrChargePage('tok-1', 'es', view);
     expect(es).toContain('Pagar con mi saldo');
-    expect(es).toContain("pkGet(C.base+'/challenge')");
+    // Face ID preparado al abrir: al tocar "Pagar" sale al momento.
+    expect(es).toContain("pkPrepare(C.base+'/challenge')");
+    expect(es).toContain('PIN');
     expect(es).toContain('/s/tok-1');
   });
 
@@ -44,17 +46,35 @@ describe('"Pagado" de la recarga que creó el saldo', () => {
     walletHref: '/w/wt?lang=es',
   };
 
-  it('sin Face ID: código, "Activar Face ID" y "Sumar a mi saldo"; JS válido', () => {
-    const html = renderPaidPage({ ...base, wallet: { code: 'K7Q-4M2', hasFaceId: false, base: '/pay/qr1' } }, 'es');
-    expect(html).toContain('K7Q-4M2');
-    expect(html).toContain('Activar Face ID');
-    expect(html).toContain('Sumar a mi saldo');
+  it('sin Face ID ni PIN: código, "Activar Face ID", "Sumar a mi saldo" y elegir PIN; JS válido', () => {
+    for (const lang of ['es', 'en'] as const) {
+      const html = renderPaidPage({ ...base, wallet: { code: 'K7Q-4M2', hasFaceId: false, hasPin: false, base: '/pay/qr1' } }, lang);
+      expect(html).toContain('K7Q-4M2');
+      expect(html).toContain('id="pkOn"');
+      expect(html).toContain('id="pkMerge"');
+      expect(html).toContain('id="pinBox"');
+      for (const js of scripts(html)) expect(() => new Function(js)).not.toThrow();
+    }
+    const es = renderPaidPage({ ...base, wallet: { code: 'K7Q-4M2', hasFaceId: false, hasPin: false, base: '/pay/qr1' } }, 'es');
+    expect(es).toContain('Activar Face ID');
+    expect(es).toContain('Guardar PIN');
+    expect(es).toContain("pkPost(C.base+'/pin'");
+  });
+
+  it('con Face ID y sin PIN: el aviso de Face ID y solo el PIN por elegir', () => {
+    const html = renderPaidPage({ ...base, wallet: { code: 'K7Q-4M2', hasFaceId: true, hasPin: false, base: '/pay/qr1' } }, 'es');
+    expect(html).toContain('Face ID activado');
+    expect(html).not.toContain('id="pkOn"');
+    expect(html).toContain('id="pinBox"');
     for (const js of scripts(html)) expect(() => new Function(js)).not.toThrow();
   });
 
-  it('con Face ID ya activado: solo el aviso, sin botones', () => {
-    const html = renderPaidPage({ ...base, wallet: { code: 'K7Q-4M2', hasFaceId: true, base: '/pay/qr1' } }, 'es');
+  it('con los dos: solo los avisos, sin botones ni JS', () => {
+    const html = renderPaidPage({ ...base, wallet: { code: 'K7Q-4M2', hasFaceId: true, hasPin: true, base: '/pay/qr1' } }, 'es');
     expect(html).toContain('Face ID activado');
+    expect(html).toContain('ya tiene PIN');
     expect(html).not.toContain('id="pkOn"');
+    expect(html).not.toContain('id="pinBox"');
+    expect(scripts(html).some((js) => js.includes('pkCreate'))).toBe(false);
   });
 });

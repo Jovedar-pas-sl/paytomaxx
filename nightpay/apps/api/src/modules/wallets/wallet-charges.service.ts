@@ -7,6 +7,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import type { Role } from '@nightpay/contracts';
@@ -14,6 +15,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { resolveBpsForOperator, resolveRevenueCategory, type RevenueCategory } from '../payments/commission';
 import { applyServiceItem } from '../payments/service-item';
+import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
@@ -42,6 +44,10 @@ export interface WalletLookup {
   /** El cliente pulsó "Me voy". */
   closeRequested: boolean;
   pendingRequest: boolean;
+  /** Puede pagar sin sacar el móvil, con su PIN. */
+  hasPin: boolean;
+  /** 5 PIN fallidos: hasta que lo desbloquee el encargado. */
+  pinLocked: boolean;
 }
 
 export interface ChargeRequestView {
@@ -138,7 +144,33 @@ export class WalletChargesService {
 
   /** El código que enseña el cliente → su saldo (si vale en este local). */
   async lookup(venueId: string, rawCode: string): Promise<WalletLookup> {
-    const wallet = await this.walletByCode(venueId, rawCode);
+    return this.lookupWallet(venueId, await this.walletByCode(venueId, rawCode));
+  }
+
+  /**
+   * Por su id: la recarga que la chica acaba de cobrar (para enseñar el código
+   * y que elija su PIN). La chica o el camarero, solo la suya y recién hecha.
+   */
+  async lookupById(actor: Actor, walletId: string): Promise<WalletLookup> {
+    const [wallet, venue] = await Promise.all([
+      this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: walletId } })),
+      this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: { walletGroup: true } }),
+    ]);
+    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    if (
+      !wallet ||
+      !sameWalletGroup(wallet, { id: actor.tenantId, walletGroup: venue?.walletGroup ?? null }) ||
+      (!manager && !(await this.freshTopUpBy(walletId, actor.userId)))
+    ) {
+      throw new NotFoundException('Saldo no encontrado');
+    }
+    return this.lookupWallet(actor.tenantId, wallet);
+  }
+
+  private async lookupWallet(
+    venueId: string,
+    wallet: Awaited<ReturnType<WalletChargesService['walletByCode']>>,
+  ): Promise<WalletLookup> {
     const [home, pending] = await Promise.all([
       this.prisma.venue.findUnique({ where: { id: wallet.tenantId }, select: { name: true } }),
       this.pendingOf(wallet.id),
@@ -152,6 +184,8 @@ export class WalletChargesService {
       isHomeVenue: wallet.tenantId === venueId,
       closeRequested: wallet.closeRequestedAt !== null,
       pendingRequest: pending !== null,
+      hasPin: wallet.pinHash !== null,
+      pinLocked: wallet.pinLockedAt !== null,
     };
   }
 
@@ -622,6 +656,216 @@ export class WalletChargesService {
     return { balanceCents: result.balanceCents };
   }
 
+  // ─── PIN del cliente (pagar sin sacar el móvil) ─────────────────────────
+
+  /**
+   * El cliente no saca el móvil: la chica pone su código y él teclea su PIN
+   * en el móvil de ella. Se paga el mismo cobro del QR (no queda otro colgado).
+   */
+  async payQrChargeWithPin(actor: Actor, requestId: string, input: { code: string; pin: string }): Promise<ChargeRequestView> {
+    const request = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId, payToken: { not: null } } }),
+    );
+    if (!request) throw new NotFoundException('Cobro no encontrado');
+    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    if (request.requestedByUserId !== actor.userId && !manager) {
+      throw new ForbiddenException('Este cobro lo ha hecho otra persona');
+    }
+    // Que no se gaste un intento de PIN en un cobro que ya no se puede pagar.
+    if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
+      throw new ConflictException(REQUEST_ERRORS['not-pending']);
+    }
+    const wallet = await this.walletByCode(actor.tenantId, input.code);
+    // Un PIN que puso el encargado sin el cliente: ni él cobra con ese PIN ni
+    // aprueba un cobro suyo (hacen falta dos personas, como sin Face ID).
+    if (wallet.pinSetById && (wallet.pinSetById === actor.userId || wallet.pinSetById === request.requestedByUserId)) {
+      throw new ForbiddenException('Este PIN lo pusiste tú: el cobro lo tiene que hacer otra persona');
+    }
+    await this.checkPin(wallet.id, input.pin, actor);
+    await this.bindAndSettle(request, wallet.id);
+    this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${actor.userId})`);
+    return this.getRequest(actor, requestId);
+  }
+
+  /**
+   * El cliente elige su PIN en el móvil de la chica: solo la que le hizo la
+   * recarga que creó el saldo, en los 15 min siguientes (el cliente está
+   * delante). Después, el encargado (p. ej. lo olvidó) — y entonces él no
+   * puede cobrar con ese PIN.
+   */
+  async setPin(actor: Actor, input: { code: string; pin: string }): Promise<WalletLookup> {
+    const wallet = await this.walletByCode(actor.tenantId, input.code);
+    const fresh = await this.freshTopUpBy(wallet.id, actor.userId);
+    if (!fresh && actor.role !== 'MANAGER' && actor.role !== 'OWNER') {
+      throw new UnprocessableEntityException('Este saldo no tiene PIN: que lo elija con el encargado (o en su móvil al recargar)');
+    }
+    await this.storeFirstPin(wallet.id, input.pin, fresh ? null : actor.userId);
+    await this.audit.log({
+      action: 'wallet.pin_set',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: wallet.id,
+      payload: { where: 'staff-device', role: actor.role, afterTopUp: fresh },
+    });
+    return this.lookup(actor.tenantId, input.code);
+  }
+
+  /** El cliente elige su PIN en su propio móvil, en "Pagado" de la recarga. */
+  async setPinFromPayer(walletId: string, pin: string): Promise<void> {
+    const wallet = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.findUnique({ where: { id: walletId }, select: { tenantId: true } }),
+    );
+    if (!wallet) throw new NotFoundException('Saldo no encontrado');
+    await this.storeFirstPin(walletId, pin, null);
+    await this.audit.log({
+      action: 'wallet.pin_set',
+      tenantId: wallet.tenantId,
+      targetType: 'ClientWallet',
+      targetId: walletId,
+      payload: { where: 'client-phone' },
+    });
+  }
+
+  /** Encargado o dueño: tras 5 PIN fallidos, vuelve a dejar probar. */
+  async unlockPin(actor: Actor, walletId: string): Promise<{ ok: true }> {
+    await this.managerWallet(actor, walletId);
+    await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.update({ where: { id: walletId }, data: { pinFails: 0, pinLockedAt: null } }),
+    );
+    await this.audit.log({
+      action: 'wallet.pin_unlocked',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: walletId,
+      payload: {},
+    });
+    return { ok: true };
+  }
+
+  /** Encargado o dueño: el cliente olvidó su PIN → se borra y elige otro. */
+  async resetPin(actor: Actor, walletId: string): Promise<{ ok: true }> {
+    await this.managerWallet(actor, walletId);
+    await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.update({
+        where: { id: walletId },
+        data: { pinHash: null, pinFails: 0, pinLockedAt: null, pinFailedAt: null, pinSetById: null },
+      }),
+    );
+    await this.audit.log({
+      action: 'wallet.pin_reset',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: walletId,
+      payload: {},
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Comprueba el PIN con el saldo bloqueado (dos intentos a la vez no se
+   * saltan el contador). Los fallos se guardan aunque el cobro no siga.
+   */
+  private async checkPin(walletId: string, pin: string, actor: Actor): Promise<void> {
+    const pepper = pinPepper();
+    const outcome = await this.prisma.acrossVenues(async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{ pinHash: string | null; pinFails: number; pinLockedAt: Date | null; pinFailedAt: Date | null }>
+      >`
+        SELECT "pinHash", "pinFails", "pinLockedAt", "pinFailedAt" FROM client_wallets WHERE id = ${walletId}::uuid FOR UPDATE
+      `;
+      const w = rows[0];
+      if (!w) return { kind: 'missing' as const };
+      if (!w.pinHash) return { kind: 'no-pin' as const };
+      if (w.pinLockedAt) return { kind: 'locked' as const };
+      if (await verifyPin(pin, w.pinHash, pepper)) {
+        if (w.pinFails > 0) {
+          await tx.clientWallet.update({ where: { id: walletId }, data: { pinFails: 0, pinFailedAt: null } });
+        }
+        return { kind: 'ok' as const };
+      }
+      // Fallos de hace más de 12 h no cuentan (un despiste otra noche no bloquea).
+      const stale = !w.pinFailedAt || Date.now() - w.pinFailedAt.getTime() > PIN_FAILS_EXPIRE_MS;
+      const fails = (stale ? 0 : w.pinFails) + 1;
+      const lock = fails >= PIN_MAX_FAILS;
+      await tx.clientWallet.update({
+        where: { id: walletId },
+        data: { pinFails: fails, pinFailedAt: new Date(), ...(lock ? { pinLockedAt: new Date() } : {}) },
+      });
+      return { kind: lock ? ('now-locked' as const) : ('wrong' as const), left: PIN_MAX_FAILS - fails };
+    });
+    if (outcome.kind === 'wrong' || outcome.kind === 'now-locked') {
+      // Quién tecleó el PIN mal: si alguien bloquea saldos ajenos, se ve.
+      await this.audit.log({
+        action: outcome.kind === 'now-locked' ? 'wallet.pin_locked' : 'wallet.pin_failed',
+        tenantId: actor.tenantId,
+        actorId: actor.userId,
+        targetType: 'ClientWallet',
+        targetId: walletId,
+        payload: { attemptsLeft: outcome.left },
+      });
+    }
+    switch (outcome.kind) {
+      case 'ok':
+        return;
+      case 'missing':
+        throw new NotFoundException('Saldo no encontrado');
+      case 'no-pin':
+        throw new ConflictException('El cliente aún no tiene PIN: que pague con Face ID o lo elija con el encargado');
+      // 422 (no 403): la app enseña el texto tal cual ("No tienes permiso" confundiría).
+      case 'locked':
+        throw new UnprocessableEntityException('Saldo bloqueado por PIN fallado: avisa al encargado para desbloquearlo');
+      case 'now-locked':
+        this.logger.warn(`Saldo ${walletId}: bloqueado tras ${PIN_MAX_FAILS} PIN fallidos`);
+        throw new UnprocessableEntityException('PIN incorrecto. Saldo bloqueado: avisa al encargado para desbloquearlo');
+      case 'wrong':
+        throw new UnprocessableEntityException(
+          `PIN incorrecto. ${outcome.left === 1 ? 'Queda 1 intento' : `Quedan ${outcome.left} intentos`}`,
+        );
+    }
+  }
+
+  /**
+   * Guarda el primer PIN (si ya hay uno, solo el encargado lo puede borrar).
+   * `setById`: el encargado que lo pone sin el cliente delante (null si lo
+   * eligió el cliente: en su móvil o con la chica justo tras recargar).
+   */
+  private async storeFirstPin(walletId: string, pin: string, setById: string | null): Promise<void> {
+    const problem = pinProblem(pin);
+    if (problem) throw new BadRequestException(PIN_PROBLEM_TEXT[problem]);
+    const pinHash = await hashPin(pin, pinPepper());
+    const res = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.updateMany({
+        where: { id: walletId, pinHash: null },
+        data: { pinHash, pinFails: 0, pinFailedAt: null, pinLockedAt: null, pinSetById: setById },
+      }),
+    );
+    if (res.count === 0) throw new ConflictException('Este saldo ya tiene PIN');
+  }
+
+  /**
+   * La recarga que creó este saldo la cobró esta persona hace menos de 15 min
+   * (el cliente está delante). Solo la primera: recargar un saldo viejo no
+   * vuelve a abrir la puerta.
+   */
+  private async freshTopUpBy(walletId: string, userId: string): Promise<boolean> {
+    const first = await this.prisma.acrossVenues((tx) =>
+      tx.payment.findFirst({
+        where: { walletId },
+        orderBy: { createdAt: 'asc' },
+        select: { createdByUserId: true, authorizedAt: true },
+      }),
+    );
+    return (
+      first !== null &&
+      first.createdByUserId === userId &&
+      first.authorizedAt !== null &&
+      first.authorizedAt.getTime() >= Date.now() - FRESH_TOPUP_PIN_MS
+    );
+  }
+
   /** Ata un cobro con QR a un saldo y lo cobra (todo o nada: si falla, el cobro sigue libre). */
   private async bindAndSettle(
     request: { id: string; tenantId: string; status: string; expiresAt: Date; walletId: string | null },
@@ -936,6 +1180,19 @@ export class WalletChargesService {
       newBalanceCents,
     };
   }
+}
+
+/** La chica o el camarero ponen el primer PIN solo en los 15 min tras la recarga. */
+const FRESH_TOPUP_PIN_MS = 15 * 60 * 1000;
+
+/** Fallos de PIN más viejos que esto ya no cuentan para el bloqueo. */
+const PIN_FAILS_EXPIRE_MS = 12 * 60 * 60 * 1000;
+
+/** La clave del servidor con la que se mezcla el PIN (no está en la base). */
+function pinPepper(): string {
+  const kek = process.env.ENCRYPTION_KEK;
+  if (!kek || kek.length < 32) throw new Error('ENCRYPTION_KEK no configurada: no se puede comprobar el PIN');
+  return kek;
 }
 
 function eur(cents: number): string {

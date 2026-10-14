@@ -4,9 +4,10 @@
  * y de "Pagado". El navegador habla en bytes y el API en base64url.
  *
  * Va dentro de plantillas de TypeScript: sin barras invertidas (se perderían).
- * Define en la página: pkSupported(), pkCreate(base), pkGet(base) y
- * pkPost(url, body), donde `base` es la ruta a la que se añaden
- * /options (crear) o /challenge (pagar) y el POST final.
+ * Define en la página: pkSupported(), pkCreate(url), pkGet(url),
+ * pkPrepare(url) y pkPost(url, body). pkPrepare pide el reto al abrir la
+ * página: al tocar "Pagar", Face ID sale al instante (y en el mismo toque,
+ * que es lo que exige el iPhone).
  */
 export const PASSKEY_BROWSER_JS = `
 function pkB64u(buf){var s='',b=new Uint8Array(buf);for(var i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s).split('+').join('-').split('/').join('_').split('=').join('');}
@@ -21,10 +22,13 @@ function pkCreate(optionsUrl){return pkPost(optionsUrl).then(function(o){
  }).then(function(c){var r=c.response;return {id:c.id,rawId:pkB64u(c.rawId),type:c.type,
   response:{clientDataJSON:pkB64u(r.clientDataJSON),attestationObject:pkB64u(r.attestationObject),transports:r.getTransports?r.getTransports():[]},
   authenticatorAttachment:c.authenticatorAttachment||undefined,clientExtensionResults:c.getClientExtensionResults()};});}
-function pkGet(challengeUrl){return pkPost(challengeUrl).then(function(o){
+function pkAssert(o){
   o.challenge=pkBytes(o.challenge);(o.allowCredentials||[]).forEach(function(c){c.id=pkBytes(c.id);});
-  return navigator.credentials.get({publicKey:o});
- }).then(function(c){var r=c.response;return {id:c.id,rawId:pkB64u(c.rawId),type:c.type,
+  return navigator.credentials.get({publicKey:o}).then(function(c){var r=c.response;return {id:c.id,rawId:pkB64u(c.rawId),type:c.type,
   response:{clientDataJSON:pkB64u(r.clientDataJSON),authenticatorData:pkB64u(r.authenticatorData),signature:pkB64u(r.signature),userHandle:r.userHandle?pkB64u(r.userHandle):undefined},
   authenticatorAttachment:c.authenticatorAttachment||undefined,clientExtensionResults:c.getClientExtensionResults()};});}
+function pkGet(challengeUrl){return pkPost(challengeUrl).then(pkAssert);}
+function pkPrepare(challengeUrl){var ready=null;
+  pkPost(challengeUrl).then(function(o){ready=o;},function(){});
+  return function(){var o=ready;ready=null;return o?pkAssert(o):pkGet(challengeUrl);};}
 `;

@@ -8,10 +8,14 @@ import {
   createQrWalletCharge,
   fetchServices,
   fetchWalletCharge,
+  lookupWalletCode,
+  payWalletChargeWithPin,
   type QrWalletCharge,
   type ServiceItem,
   type WalletChargeRequest,
+  type WalletLookup,
 } from '@/lib/api';
+import { PinPad } from './PinPad';
 
 interface Props {
   onCharged: () => void;
@@ -24,15 +28,16 @@ type Stage =
   | { kind: 'qr'; charge: QrWalletCharge }
   | { kind: 'done'; charge: QrWalletCharge; result: WalletChargeRequest };
 
-const POLL_MS = 1500;
+const POLL_MS = 1000;
 
 /**
- * Cobrar del saldo con Face ID:
+ * Cobrar del saldo:
  *   1. La chica elige el servicio de la carta (u otro importe).
  *   2. Le sale un QR: el cliente lo escanea con su móvil y paga desbloqueándolo
- *      (Face ID, huella o el PIN de su teléfono). Nadie más puede gastar su saldo.
+ *      (Face ID, huella o el PIN de su teléfono).
+ *      O, sin sacar su móvil: la chica pone su código y él teclea su PIN aquí.
  *   3. Aquí se ve al momento que está pagado y lo que le queda.
- * Sin batería o con un móvil que no puede: el encargado lo cobra desde el panel.
+ * Sin batería y sin PIN: el encargado lo cobra desde el panel.
  */
 export function ChargeFromBalance({ onCharged }: Props) {
   const [stage, setStage] = useState<Stage>({ kind: 'pick' });
@@ -163,6 +168,9 @@ function QrStep({
   const [now, setNow] = useState(() => Date.now());
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Sin sacar su móvil: código del cliente → su PIN en este móvil.
+  const [withPin, setWithPin] = useState(false);
+  const [wallet, setWallet] = useState<WalletLookup | null>(null);
   // El sondeo y "Cancelar" pueden ver la respuesta a la vez: se termina una vez.
   const finished = useRef(false);
 
@@ -209,6 +217,36 @@ function QrStep({
   }
 
   const secondsLeft = Math.max(0, Math.ceil((new Date(charge.expiresAt).getTime() - now) / 1000));
+  const what = `${formatEur(charge.amountCents)}${charge.serviceName ? ` · ${charge.serviceName}` : ''}`;
+
+  if (withPin && wallet && wallet.hasPin && !wallet.pinLocked) {
+    return (
+      <PinPad
+        mode="enter"
+        title={what}
+        hint={`Saldo ${wallet.code}`}
+        onCancel={() => setWallet(null)}
+        onPin={async (pin) => {
+          finish(await payWalletChargeWithPin(charge.id, wallet.code, pin));
+          return null;
+        }}
+      />
+    );
+  }
+
+  if (withPin) {
+    return (
+      <PinCodeStep
+        what={what}
+        wallet={wallet}
+        onFound={setWallet}
+        onBack={() => {
+          setWithPin(false);
+          setWallet(null);
+        }}
+      />
+    );
+  }
 
   return (
     <Card style={{ ...cardStyle, alignItems: 'center', textAlign: 'center' }}>
@@ -224,13 +262,83 @@ function QrStep({
       <p className="np-num" style={hintStyle}>
         Caduca en {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}
       </p>
-      <p style={noteStyle}>¿Sin batería o su móvil no puede? Avisa al encargado: lo cobra desde el panel.</p>
+      <Button variant="ghost" onClick={() => setWithPin(true)} disabled={canceling}>
+        Sin móvil: código + PIN
+      </Button>
+      <p style={noteStyle}>¿Sin batería y sin PIN? Avisa al encargado: lo cobra desde el panel.</p>
       {error ? <p style={errorStyle}>{error}</p> : null}
       <Button variant="ghost" onClick={() => void cancel()} loading={canceling}>
         Cancelar cobro
       </Button>
       <button type="button" onClick={onBack} style={linkBtnStyle} disabled={canceling}>
         ← Elegir otro servicio
+      </button>
+    </Card>
+  );
+}
+
+/** El código del cliente (K7Q-4M2) antes de que teclee su PIN. */
+function PinCodeStep({
+  what,
+  wallet,
+  onFound,
+  onBack,
+}: {
+  what: string;
+  wallet: WalletLookup | null;
+  onFound: (wallet: WalletLookup) => void;
+  onBack: () => void;
+}) {
+  const [code, setCode] = useState(wallet?.code ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function find(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      onFound(await lookupWalletCode(code));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const problem = !wallet
+    ? null
+    : wallet.pinLocked
+      ? 'Su PIN está bloqueado por fallos: avisa al encargado.'
+      : !wallet.hasPin
+        ? 'Este cliente aún no tiene PIN: que pague con el QR, o que lo elija con el encargado.'
+        : null;
+
+  return (
+    <Card style={cardStyle}>
+      <p style={{ ...kicker, textAlign: 'center' }}>Sin móvil: código + PIN</p>
+      <p className="np-num" style={{ ...balanceStyle, textAlign: 'center' }}>
+        {what}
+      </p>
+      <form onSubmit={find} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <Input
+          label="Código del cliente"
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''))}
+          placeholder="K7Q-4M2"
+          autoCapitalize="characters"
+          autoComplete="off"
+          autoFocus
+          disabled={busy}
+        />
+        <Button type="submit" size="lg" loading={busy} disabled={code.replace(/-/g, '').length < 6}>
+          Siguiente: su PIN
+        </Button>
+      </form>
+      {problem ? <p style={errorStyle}>{problem}</p> : null}
+      {error ? <p style={errorStyle}>{error}</p> : null}
+      <button type="button" onClick={onBack} style={linkBtnStyle} disabled={busy}>
+        ← Volver al QR
       </button>
     </Card>
   );

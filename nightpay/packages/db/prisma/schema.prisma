@@ -752,6 +752,14 @@ model ClientWallet {
   closeRequestedAt DateTime? @db.Timestamptz
   // Recarga sumada a otro saldo del mismo cliente (con su Face ID).
   mergedIntoId     String?   @db.Uuid
+  // PIN del cliente para pagar sin sacar el móvil (HMAC del servidor + scrypt).
+  pinHash          String?
+  // 5 PIN fallidos seguidos → bloqueado hasta que lo desbloquee el encargado.
+  pinFails         Int       @default(0)
+  pinLockedAt      DateTime? @db.Timestamptz
+  pinFailedAt      DateTime? @db.Timestamptz
+  // El encargado que puso el PIN sin el cliente delante: él no cobra con ese PIN.
+  pinSetById       String?   @db.Uuid
   createdAt    DateTime     @default(now()) @db.Timestamptz
   updatedAt    DateTime     @updatedAt @db.Timestamptz
 

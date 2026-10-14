@@ -150,6 +150,7 @@ async function bootstrap() {
       { path: 'pay/:token/passkey', method: RequestMethod.POST },
       { path: 'pay/:token/merge/challenge', method: RequestMethod.POST },
       { path: 'pay/:token/merge', method: RequestMethod.POST },
+      { path: 'pay/:token/pin', method: RequestMethod.POST },
       // Pagar con el saldo escaneando el QR de la chica (Face ID).
       { path: 's/:token', method: RequestMethod.GET },
       { path: 's/:token/challenge', method: RequestMethod.POST },

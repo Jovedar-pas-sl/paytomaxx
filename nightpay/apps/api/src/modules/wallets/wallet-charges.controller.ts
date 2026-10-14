@@ -40,6 +40,12 @@ const QrChargeSchema = z
 
 const ApproveSchema = z.object({ walletId: z.string().uuid() });
 
+/** El código del cliente y su PIN de 4 cifras (lo teclea él en el móvil de la chica). */
+const PinSchema = z.object({
+  code: z.string().trim().min(6).max(10),
+  pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras'),
+});
+
 const PayoutSchema = z.object({
   method: z.enum(['CARD', 'CASH']),
   bankReference: z.string().trim().max(60).optional(),
@@ -52,6 +58,9 @@ const PayoutSchema = z.object({
  *  - POST /v1/wallet-charges/qr                 → cobro con QR: el cliente lo paga con Face ID.
  *  - GET  /v1/wallet-charges/pending-qr         → (encargado) cobros con QR sin pagar.
  *  - POST /v1/wallet-charges/:id/approve        → (encargado) cobrarlo de un saldo sin Face ID.
+ *  - POST /v1/wallet-charges/:id/pin            → el cliente lo paga con su PIN (sin sacar el móvil).
+ *  - POST /v1/wallet-charges/pin                → el cliente elige su PIN (tras recargar, o con el encargado).
+ *  - POST /v1/wallet-charges/wallets/:id/pin/unlock|reset → (encargado) desbloquear o borrar el PIN.
  *  - POST /v1/wallet-charges                    → pedir un cobro (el cliente lo acepta en su móvil).
  *  - GET  /v1/wallet-charges/:id                → respuesta del cliente.
  *  - POST /v1/wallet-charges/:id/cancel         → retirar la petición.
@@ -114,8 +123,55 @@ export class WalletChargesController {
     return this.charges.approveWithoutFaceId({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body.walletId);
   }
 
+  /** El cliente no saca el móvil: teclea su PIN en el de la chica y paga este mismo cobro. */
+  @Post(':id/pin')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  @HttpCode(200)
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-pin' })
+  async payWithPin(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(PinSchema)) body: z.infer<typeof PinSchema>,
+  ): Promise<ChargeRequestView> {
+    return this.charges.payQrChargeWithPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body);
+  }
+
+  /** El cliente elige su PIN en el móvil de la chica (en los 15 min tras recargar, o con el encargado). */
+  @Post('pin')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  @HttpCode(200)
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-pin-set' })
+  async setPin(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(PinSchema)) body: z.infer<typeof PinSchema>,
+  ): Promise<WalletLookup> {
+    return this.charges.setPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, body);
+  }
+
+  @Post('wallets/:id/pin/unlock')
+  @Roles('OWNER', 'MANAGER')
+  @HttpCode(200)
+  async unlockPin(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<{ ok: true }> {
+    return this.charges.unlockPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id);
+  }
+
+  @Post('wallets/:id/pin/reset')
+  @Roles('OWNER', 'MANAGER')
+  @HttpCode(200)
+  async resetPin(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<{ ok: true }> {
+    return this.charges.resetPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id);
+  }
+
   // Contra probar códigos al azar: el personal de un local comparte IP, así
   // que el tope es holgado para el uso normal y corta un barrido.
+  /** La recarga recién cobrada: su código y si ya tiene PIN (para que lo elija aquí). */
+  @Get('wallets/:id/lookup')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-lookup' })
+  async lookupById(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<WalletLookup> {
+    return this.charges.lookupById({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id);
+  }
+
   @Get('lookup/:code')
   @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
   @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-lookup' })

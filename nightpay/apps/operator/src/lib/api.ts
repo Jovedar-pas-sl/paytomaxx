@@ -498,6 +498,34 @@ export interface WalletLookup {
   label: string | null;
   homeVenueName: string;
   pendingRequest: boolean;
+  /** Puede pagar sin sacar el móvil, con su PIN. */
+  hasPin: boolean;
+  /** 5 PIN fallidos: hasta que lo desbloquee el encargado. */
+  pinLocked: boolean;
+}
+
+/** La recarga recién cobrada: su código y si ya tiene PIN. */
+export async function fetchWalletById(walletId: string): Promise<WalletLookup> {
+  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/lookup`);
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Saldo'));
+  return res.json();
+}
+
+/** El cliente elige su PIN en el móvil de la chica (justo tras recargar). */
+export async function setWalletPin(code: string, pin: string): Promise<WalletLookup> {
+  const res = await authedFetch('/v1/wallet-charges/pin', { method: 'POST', body: JSON.stringify({ code, pin }) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'PIN del saldo'));
+  return res.json();
+}
+
+/** El cliente no saca el móvil: paga este cobro con su código y su PIN. */
+export async function payWalletChargeWithPin(id: string, code: string, pin: string): Promise<WalletChargeRequest> {
+  const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(id)}/pin`, {
+    method: 'POST',
+    body: JSON.stringify({ code, pin }),
+  });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'PIN del saldo'));
+  return res.json();
 }
 
 export type WalletChargeStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CANCELED';

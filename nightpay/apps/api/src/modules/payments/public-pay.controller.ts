@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import {
+  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
@@ -264,7 +265,7 @@ export class PublicPayController {
               // Solo en el móvil que pagó la recarga que creó el saldo.
               wallet:
                 payer && view.walletCode
-                  ? { code: view.walletCode, hasFaceId: view.walletHasFaceId, base: payBase(token) }
+                  ? { code: view.walletCode, hasFaceId: view.walletHasFaceId, hasPin: view.walletHasPin, base: payBase(token) }
                   : null,
             },
             lang,
@@ -330,6 +331,27 @@ export class PublicPayController {
   ): Promise<unknown> {
     const wallet = await this.payerWallet(token, res, host, origin, fetchSite);
     return this.passkeys.challenge(`merge:${wallet.id}`, host);
+  }
+
+  /** El cliente elige su PIN (para pagar sin sacar el móvil), en su móvil, tras recargar. */
+  @Public()
+  @Post(':token/pin')
+  @HttpCode(200)
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'pay-passkey' })
+  async walletPin(
+    @Param('token') token: string,
+    @Body() body: { pin?: unknown; pin2?: unknown } | undefined,
+    @Headers('host') host: string | undefined,
+    @Headers('origin') origin: string | undefined,
+    @Headers('sec-fetch-site') fetchSite: string | undefined,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<{ ok: true }> {
+    const pin = typeof body?.pin === 'string' ? body.pin : '';
+    if (!/^[0-9]{4}$/.test(pin)) throw new BadRequestException('El PIN son 4 cifras');
+    if (body?.pin2 !== pin) throw new BadRequestException('Los dos PIN no son iguales');
+    const wallet = await this.payerWallet(token, res, host, origin, fetchSite);
+    await this.charges.setPinFromPayer(wallet.id, pin);
+    return { ok: true };
   }
 
   /** "Sumar a mi saldo": su llave dice cuál es su saldo de siempre. */

@@ -41,6 +41,14 @@ export interface PayText {
   mergeButton: string;
   mergeDone: string;
   faceIdUnsupported: string;
+  pinAsk: string;
+  pinLabel: string;
+  pinRepeat: string;
+  pinButton: string;
+  pinDone: string;
+  pinOn: string;
+  pinFormat: string;
+  pinMismatch: string;
   walletMore: string;
   expiresIn: string;
   // Hacia el banco
@@ -106,14 +114,22 @@ const ES: PayText = {
     `Estás en el navegador de ${app}. Para pagar con Apple Pay o Google Pay, ábrelo en Safari o Chrome: toca ··· y «Abrir en el navegador». Con tarjeta puedes pagar aquí.`,
   statement: (name) => `En tu extracto aparecerá como «${name}».`,
   walletTitle: 'Tu saldo',
-  walletHow: 'Para pagar con tu saldo, escaneas el QR de la chica y desbloqueas tu móvil (Face ID, huella o el PIN del teléfono). Nadie más puede gastarlo.',
+  walletHow: 'Dos formas de pagar, y solo tú: con tu móvil (escaneas el QR de la chica y Face ID) o sin sacarlo (dices tu código y tecleas tu PIN en el móvil de ella).',
   faceIdOn: '🔒 Face ID activado. Ya puedes pagar con tu saldo.',
   faceIdButton: 'Activar Face ID',
   faceIdDone: '✓ Face ID activado. Ya puedes pagar con tu saldo.',
   mergeAsk: '¿Ya tenías saldo con Face ID? Súmale esta recarga:',
   mergeButton: 'Sumar a mi saldo',
   mergeDone: '✓ Sumado a tu saldo.',
-  faceIdUnsupported: 'Tu móvil no permite pagar así: pide al encargado que te cobre del saldo.',
+  faceIdUnsupported: 'Tu móvil no permite Face ID aquí: paga con tu PIN.',
+  pinAsk: 'Para pagar sin sacar el móvil, elige un PIN de 4 cifras:',
+  pinLabel: 'PIN',
+  pinRepeat: 'Repite el PIN',
+  pinButton: 'Guardar PIN',
+  pinDone: '✓ PIN guardado. Para pagar sin móvil, di tu código y teclea tu PIN.',
+  pinOn: '🔒 Tu saldo ya tiene PIN. Si no lo has elegido tú, avisa al encargado.',
+  pinFormat: 'El PIN son 4 cifras',
+  pinMismatch: 'Los dos PIN no son iguales',
   walletMore: 'Ver mi saldo y movimientos',
   expiresIn: 'Caduca en',
   openingTitle: 'Abriendo el pago…',
@@ -194,14 +210,22 @@ const EN: PayText = {
     `You are in the ${app} browser. To pay with Apple Pay or Google Pay, open this page in Safari or Chrome: tap ··· and "Open in browser". You can pay by card here.`,
   statement: (name) => `It will show on your statement as "${name}".`,
   walletTitle: 'Your balance',
-  walletHow: 'To pay with your balance, scan the staff QR and unlock your phone (Face ID, fingerprint or phone PIN). Nobody else can spend it.',
+  walletHow: 'Two ways to pay, and only you can: with your phone (scan the staff QR and use Face ID) or without it (say your code and type your PIN on their phone).',
   faceIdOn: '🔒 Face ID is on. You can now pay with your balance.',
   faceIdButton: 'Turn on Face ID',
   faceIdDone: '✓ Face ID is on. You can now pay with your balance.',
   mergeAsk: 'Already have a balance with Face ID? Add this top-up to it:',
   mergeButton: 'Add to my balance',
   mergeDone: '✓ Added to your balance.',
-  faceIdUnsupported: 'Your phone cannot pay this way: ask the manager to charge your balance.',
+  faceIdUnsupported: 'Your phone cannot use Face ID here: pay with your PIN.',
+  pinAsk: 'To pay without your phone, choose a 4-digit PIN:',
+  pinLabel: 'PIN',
+  pinRepeat: 'Repeat PIN',
+  pinButton: 'Save PIN',
+  pinDone: '✓ PIN saved. To pay without your phone, say your code and type your PIN.',
+  pinOn: '🔒 Your balance already has a PIN. If you did not choose it, tell the manager.',
+  pinFormat: 'The PIN is 4 digits',
+  pinMismatch: 'The two PINs do not match',
   walletMore: 'See my balance and activity',
   expiresIn: 'Expires in',
   openingTitle: 'Opening the payment…',

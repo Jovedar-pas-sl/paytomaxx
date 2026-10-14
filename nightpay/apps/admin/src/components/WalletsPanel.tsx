@@ -10,6 +10,8 @@ import {
   relinkWallet,
   approveQrCharge,
   fetchPendingQrCharges,
+  resetWalletPin,
+  unlockWalletPin,
   type PendingQrCharge,
   type WalletAdminRow,
   type WalletPayoutMethod,
@@ -48,6 +50,20 @@ export function WalletsPanel({ isOwner }: Props) {
   const [payoutFor, setPayoutFor] = useState<PayoutTarget | null>(null);
   const [relinkFor, setRelinkFor] = useState<PayoutTarget | null>(null);
   const [chargeFor, setChargeFor] = useState<PayoutTarget | null>(null);
+
+  async function pinAction(w: WalletAdminRow, kind: 'unlock' | 'reset') {
+    const ask =
+      kind === 'unlock'
+        ? `¿Desbloquear el PIN de ${w.code ?? 'este saldo'}? Comprueba antes que el cliente está delante.`
+        : `¿Borrar el PIN de ${w.code ?? 'este saldo'}? El cliente elegirá uno nuevo contigo.`;
+    if (!window.confirm(ask)) return;
+    try {
+      await (kind === 'unlock' ? unlockWalletPin(w.id) : resetWalletPin(w.id));
+      await reload();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
 
   async function reload() {
     try {
@@ -170,6 +186,11 @@ export function WalletsPanel({ isOwner }: Props) {
                       <span style={closeBadgeStyle}>Pide devolución</span>
                     ) : null}
                     {w.hasFaceId ? <span style={faceBadgeStyle}>Face ID</span> : null}
+                    {w.pinLocked ? (
+                      <span style={closeBadgeStyle}>PIN bloqueado</span>
+                    ) : w.hasPin ? (
+                      <span style={faceBadgeStyle}>PIN</span>
+                    ) : null}
                   </td>
                   <td style={tdRight}>
                     <span className="np-num">{(w.balanceCents / 100).toFixed(2)} €</span>
@@ -201,6 +222,16 @@ export function WalletsPanel({ isOwner }: Props) {
                       {w.status === 'ACTIVE' && w.balanceCents > 0 ? (
                         <Button variant="ghost" onClick={() => setChargeFor(rowTarget(w))}>
                           Cobrar sin Face ID
+                        </Button>
+                      ) : null}
+                      {w.pinLocked ? (
+                        <Button variant="primary" onClick={() => void pinAction(w, 'unlock')}>
+                          Desbloquear PIN
+                        </Button>
+                      ) : null}
+                      {w.hasPin ? (
+                        <Button variant="ghost" onClick={() => void pinAction(w, 'reset')}>
+                          Borrar PIN
                         </Button>
                       ) : null}
                     </div>

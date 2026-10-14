@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 
 import { parseEuroCents } from '@nightpay/contracts';
 import { io, type Socket } from 'socket.io-client';
 import { Button, Card, Input, StatusPill, type PaymentStatus } from '@nightpay/ui';
+import { NewWalletCard } from './NewWalletCard';
 import {
   cancelPayment,
   createPayment,
@@ -397,12 +398,7 @@ export function CreatePayment({ onCreated }: Props) {
               </strong>
             </p>
             <p style={{ ...hintStyle, textAlign: 'center' }}>Debe coincidir con el del móvil del cliente.</p>
-            {active.walletId ? (
-              <p style={{ margin: 0, textAlign: 'center', fontWeight: 600 }}>
-                Saldo cargado. Dile que active Face ID en su móvil, en la página donde ha pagado: así paga con su saldo
-                escaneando tu QR.
-              </p>
-            ) : null}
+            {active.walletId ? <NewWalletCard walletId={active.walletId} /> : null}
             {paidTipCents > 0 ? (
               <p className="np-num" style={{ margin: 0, textAlign: 'center', fontWeight: 700, fontSize: '1.25rem', color: 'var(--np-accent)' }}>
                 + {formatEur(paidTipCents)} de propina

@@ -648,7 +648,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           updatedAt: true,
           authorizedAt: true,
           walletId: true,
-          wallet: { select: { qrToken: true, shortCode: true, _count: { select: { passkeys: true } } } },
+          wallet: { select: { qrToken: true, shortCode: true, pinHash: true, _count: { select: { passkeys: true } } } },
           attempts: {
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
@@ -685,6 +685,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       walletClaimHash: wallet ? (attempts[0]?.claimHash ?? null) : null,
       walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
       walletHasFaceId: (wallet?._count.passkeys ?? 0) > 0,
+      walletHasPin: Boolean(wallet?.pinHash),
     };
   }
 
@@ -719,7 +720,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           authorizedAt: true,
           qrToken: true,
           walletId: true,
-          wallet: { select: { qrToken: true, shortCode: true, _count: { select: { passkeys: true } } } },
+          wallet: { select: { qrToken: true, shortCode: true, pinHash: true, _count: { select: { passkeys: true } } } },
           attempts: {
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
@@ -754,6 +755,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         walletClaimHash: wallet ? (payment.attempts[0]?.claimHash ?? null) : null,
         walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
         walletHasFaceId: (wallet?._count.passkeys ?? 0) > 0,
+        walletHasPin: Boolean(wallet?.pinHash),
         attemptStatus: thisAttempt?.status ?? null,
       };
     });

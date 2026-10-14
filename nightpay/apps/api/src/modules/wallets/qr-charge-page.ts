@@ -32,7 +32,7 @@ const TEXT: Record<PayLanguage, {
     left: 'Te quedan',
     expired: 'Este cobro ha caducado: pide a la chica que lo repita.',
     notPending: 'Este cobro ya no está pendiente.',
-    unsupported: 'Tu móvil no puede pagar así. Pídeselo al encargado.',
+    unsupported: 'Tu móvil no puede pagar así: di tu código a la chica y teclea tu PIN en su móvil.',
     noKey: 'Primero activa Face ID en la página de tu recarga.',
     expiresIn: 'Caduca en',
     other: { code: 'en', label: 'English' },
@@ -46,7 +46,7 @@ const TEXT: Record<PayLanguage, {
     left: 'Remaining',
     expired: 'This charge has expired: ask the staff to repeat it.',
     notPending: 'This charge is no longer pending.',
-    unsupported: 'Your phone cannot pay this way. Ask the manager.',
+    unsupported: 'Your phone cannot pay this way: tell the staff your code and type your PIN on their phone.',
     noKey: 'First turn on Face ID on your top-up page.',
     expiresIn: 'Expires in',
     other: { code: 'es', label: 'Español' },
@@ -103,12 +103,17 @@ $('pay').textContent=T.pay;$('lang').textContent=T.other.label;$('lang').href=C.
 var over=V.status!=='PENDING';
 if(over){$('pay').hidden=true;show('error',V.status==='EXPIRED'?T.expired:T.notPending);}
 else if(!pkSupported()){$('pay').hidden=true;show('error',T.unsupported);}
-var exp=new Date(V.expiresAt).getTime(),iv=setInterval(function(){var s=Math.max(0,Math.floor((exp-Date.now())/1000));
+var exp=new Date(V.expiresAt).getTime();
+function tick(){var s=Math.max(0,Math.floor((exp-Date.now())/1000));
   $('clock').textContent=over?'':T.expiresIn+' '+Math.floor(s/60)+':'+('0'+s%60).slice(-2);
-  if(s<=0&&!over){over=true;clearInterval(iv);$('pay').hidden=true;show('error',T.expired);}},1000);
+  if(s<=0&&!over){over=true;clearInterval(iv);$('pay').hidden=true;show('error',T.expired);}}
+var iv=setInterval(tick,1000);tick();
+// Face ID preparado ya: al tocar "Pagar" sale al momento.
+var go=over||!pkSupported()?null:pkPrepare(C.base+'/challenge');
 $('pay').addEventListener('click',function(){
   var b=$('pay');b.disabled=true;b.textContent=T.paying;show('error','');
-  pkGet(C.base+'/challenge').then(function(k){return pkPost(C.base+'/pay',{response:k});})
+  var k=go?go():pkGet(C.base+'/challenge');
+  k.then(function(k){return pkPost(C.base+'/pay',{response:k});})
    .then(function(r){over=true;clearInterval(iv);b.hidden=true;$('clock').textContent='';
      show('done',T.paid);show('left',T.left+': '+eur(r.balanceCents));})
    .catch(function(e){b.disabled=false;b.textContent=T.pay;if(!pkCancelled(e))show('error',(e&&e.message)||T.noKey);});

@@ -248,6 +248,8 @@ export function renderPaidPage(
 .wallet .wcode{font-size:2rem;font-weight:800;letter-spacing:.2em;color:#d4ff3a}
 .wallet .ok2{color:#5be38f;font-weight:700}
 .wallet .err{color:#ff6b6b}
+.wallet .pins{display:flex;gap:.5rem;justify-content:center}
+.wallet .pins input{width:7.5rem;font-size:1.4rem;text-align:center;padding:.6rem;border-radius:.75rem;border:2px solid #3a3a3a;background:#141414;color:#f5f5f0;letter-spacing:.3em}
 .wallet .small{font-size:.9rem}
 .wallet button{font:inherit;font-weight:800;width:100%;padding:1rem;border-radius:10px;border:2px solid #d4ff3a;background:#d4ff3a;color:#0b0b0b;cursor:pointer}
 .wallet button.alt{background:transparent;color:#f5f5f0;border-color:#3a3a3a}
@@ -276,7 +278,8 @@ ${args.receiptHref ? `<a href="${escapeHtml(args.receiptHref)}">${escapeHtml(t.r
 export interface WalletBlock {
   code: string;
   hasFaceId: boolean;
-  /** /pay/:token: a esta ruta se le añaden /passkey/options, /passkey, /merge/challenge y /merge. */
+  hasPin: boolean;
+  /** /pay/:token: a esta ruta se le añaden /passkey/options, /passkey, /merge/challenge, /merge y /pin. */
   base: string;
 }
 
@@ -293,25 +296,42 @@ ${w.hasFaceId
 <button class="pay" type="button" id="pkOn">${escapeHtml(t.faceIdButton)}</button>
 <p class="small">${escapeHtml(t.mergeAsk)}</p>
 <button class="pay alt" type="button" id="pkMerge">${escapeHtml(t.mergeButton)}</button>
-</div>
+</div>`}
 <p class="ok2" id="pkDone" hidden></p>
+${w.hasPin
+    ? `<p class="ok2">${escapeHtml(t.pinOn)}</p>`
+    : `<form id="pinBox" autocomplete="off">
+<p class="small">${escapeHtml(t.pinAsk)}</p>
+<div class="pins"><input id="pin1" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="${escapeHtml(t.pinLabel)}" placeholder="${escapeHtml(t.pinLabel)}"><input id="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="${escapeHtml(t.pinRepeat)}" placeholder="${escapeHtml(t.pinRepeat)}"></div>
+<button class="pay alt" type="submit" id="pinSave">${escapeHtml(t.pinButton)}</button>
+</form>`}
+<p class="ok2" id="pinOk" hidden></p>
 <p class="err" id="pkErr" role="alert" hidden></p>
-<script>
+${w.hasFaceId && w.hasPin ? '' : `<script>
 ${PASSKEY_BROWSER_JS}
 (function(){
-var C=JSON.parse(${config}),T=C.text,box=document.getElementById('pkBox');
+var C=JSON.parse(${config}),T=C.text;
 function $(id){return document.getElementById(id);}
 function show(id,text){$(id).textContent=text;$(id).hidden=!text;}
-if(!pkSupported()){box.hidden=true;show('pkErr',T.faceIdUnsupported);return;}
-function busy(v){$('pkOn').disabled=v;$('pkMerge').disabled=v;}
-function done(text){box.hidden=true;show('pkErr','');show('pkDone',text);}
+function busy(v){['pkOn','pkMerge','pinSave'].forEach(function(id){if($(id))$(id).disabled=v;});}
 function fail(e){busy(false);if(!pkCancelled(e))show('pkErr',(e&&e.message)||'Error');}
-$('pkOn').addEventListener('click',function(){busy(true);show('pkErr','');
+var box=$('pkBox'),pins=$('pinBox');
+if(box&&!pkSupported()){box.hidden=true;show('pkErr',T.faceIdUnsupported);}
+else if(box){
+ $('pkOn').addEventListener('click',function(){busy(true);show('pkErr','');
   pkCreate(C.base+'/passkey/options').then(function(k){return pkPost(C.base+'/passkey',{response:k});})
-   .then(function(){done(T.faceIdDone);}).catch(fail);});
-$('pkMerge').addEventListener('click',function(){busy(true);show('pkErr','');
+   .then(function(){busy(false);box.hidden=true;show('pkDone',T.faceIdDone);}).catch(fail);});
+ $('pkMerge').addEventListener('click',function(){busy(true);show('pkErr','');
   pkGet(C.base+'/merge/challenge').then(function(k){return pkPost(C.base+'/merge',{response:k});})
-   .then(function(){done(T.mergeDone);}).catch(fail);});
+   .then(function(){busy(false);box.hidden=true;if(pins)pins.hidden=true;show('pkDone',T.mergeDone);}).catch(fail);});
+}
+if(pins)pins.addEventListener('submit',function(ev){ev.preventDefault();show('pkErr','');
+ var a=$('pin1').value,b=$('pin2').value;
+ if(!/^[0-9]{4}$/.test(a)){show('pkErr',T.pinFormat);return;}
+ if(a!==b){show('pkErr',T.pinMismatch);return;}
+ busy(true);
+ pkPost(C.base+'/pin',{pin:a,pin2:b}).then(function(){busy(false);pins.hidden=true;show('pinOk',T.pinDone);})
+  .catch(function(e){$('pin1').value='';$('pin2').value='';fail(e);});});
 })();
 </script>`}
 ${moreHref ? `<a class="small" href="${escapeHtml(moreHref)}">${escapeHtml(t.walletMore)}</a>` : ''}
@@ -384,7 +404,7 @@ export function renderResultView(
         walletElsewhere,
         wallet:
           view.walletToken && view.walletCode
-            ? { code: view.walletCode, hasFaceId: view.walletHasFaceId, base: payBase(view.qrToken) }
+            ? { code: view.walletCode, hasFaceId: view.walletHasFaceId, hasPin: view.walletHasPin, base: payBase(view.qrToken) }
             : null,
       },
       lang,
