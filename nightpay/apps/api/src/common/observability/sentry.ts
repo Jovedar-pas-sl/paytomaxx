@@ -133,9 +133,6 @@ function scrubSensitive(event: Record<string, unknown>): Record<string, unknown>
       'token',
       'refreshToken',
       'externalTxId',
-      // PIN del saldo del cliente.
-      'pin',
-      'pin2',
     ]) {
       if (k in req.data) req.data[k] = '[REDACTED]';
     }

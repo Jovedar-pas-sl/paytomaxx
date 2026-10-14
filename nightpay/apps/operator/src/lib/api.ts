@@ -550,8 +550,6 @@ export async function chargeWalletWithPin(input: {
   serviceItemId?: string;
   amountCents?: number;
   pin: string;
-  /** Una por cobro: si se repite (se cortó la red), el mismo cobro. */
-  idempotencyKey?: string;
 }): Promise<WalletChargeRequest> {
   const res = await authedFetch('/v1/wallet-charges/pin-charge', { method: 'POST', body: JSON.stringify(input) });
   if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));

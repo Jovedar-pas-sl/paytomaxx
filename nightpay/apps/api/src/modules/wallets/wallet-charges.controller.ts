@@ -35,7 +35,6 @@ const PinChargeSchema = z
     amountCents: z.number().int().positive().max(10_000_00).optional(),
     category: z.enum(['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'EXTRA']).optional(),
     pin: PinField,
-    idempotencyKey: z.string().trim().min(8).max(64).optional(),
   })
   .refine((b) => Boolean(b.code) || Boolean(b.tag), { message: 'Falta el código o la pulsera del cliente' })
   .refine((b) => Boolean(b.serviceItemId) || Boolean(b.amountCents), {

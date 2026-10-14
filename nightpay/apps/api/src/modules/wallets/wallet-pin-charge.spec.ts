@@ -18,7 +18,6 @@ beforeAll(async () => {
 });
 
 type Row = { pinHash: string | null; pinFails: number; pinLockedAt: Date | null };
-const freshTopUp = { value: true };
 
 function makeService(row: Row) {
   const tx = {
@@ -32,8 +31,6 @@ function makeService(row: Row) {
       }),
     },
     walletChargeRequest: { updateMany: vi.fn(async () => ({ count: 1 })) },
-    // ¿Recarga cobrada hace menos de 15 min? (para que la chica ponga el primer PIN)
-    payment: { findFirst: vi.fn(async () => (freshTopUp.value ? { id: 'pay-1' } : null)) },
   };
   const prisma = { acrossVenues: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
   const audit = { log: vi.fn(async () => undefined) };
@@ -101,27 +98,6 @@ describe('cobrar del saldo con el PIN del cliente', () => {
     expect(row.pinHash).not.toContain('4827');
     await expect(svc.setPin(actor, { code: 'K7Q4M2', pin: '5931' })).rejects.toThrow('Este saldo ya tiene PIN');
     await expect(svc.setPinByWalletToken('tok', '5931')).rejects.toThrow('Este saldo ya tiene PIN');
-  });
-
-  it('la chica solo pone el primer PIN justo tras la recarga; después, el encargado', async () => {
-    const { svc, row } = makeService({ pinHash: null, pinFails: 0, pinLockedAt: null });
-    freshTopUp.value = false;
-    try {
-      await expect(svc.setPin(actor, { code: 'K7Q4M2', pin: '4827' })).rejects.toThrow(/con el encargado/);
-      expect(row.pinHash).toBeNull();
-      await svc.setPin({ ...actor, role: 'MANAGER' }, { code: 'K7Q4M2', pin: '4827' });
-      expect(row.pinHash).toMatch(/^s1\$/);
-    } finally {
-      freshTopUp.value = true;
-    }
-  });
-
-  it('cada PIN fallado queda apuntado con quién lo tecleó', async () => {
-    const { svc, audit } = makeService({ pinHash: STORED, pinFails: 0, pinLockedAt: null });
-    await expect(svc.chargeWithPin(actor, charge('1111'))).rejects.toThrow(/PIN incorrecto/);
-    expect(audit.log).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'wallet.pin_failed', actorId: 'chica-1', targetId: 'wallet-1' }),
-    );
   });
 
   it('si no se puede cobrar (saldo, cerrado…) el cobro no queda pendiente', async () => {

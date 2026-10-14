@@ -389,13 +389,10 @@ model WalletChargeRequest {
   expiresAt         DateTime  @db.Timestamptz
   decidedAt         DateTime? @db.Timestamptz
   consumptionId     String?   @db.Uuid
-  // Cobro con PIN: una clave por intento (si se repite, el mismo cobro).
-  idempotencyKey    String?
   createdAt         DateTime  @default(now()) @db.Timestamptz
 
   wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
-  @@unique([walletId, idempotencyKey])
   @@index([walletId, status])
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("wallet_charge_requests")

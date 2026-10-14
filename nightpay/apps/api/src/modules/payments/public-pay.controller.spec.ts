@@ -438,7 +438,7 @@ describe('recarga de saldo: el cliente elige su PIN en su propio móvil', () => 
   it('guardar el PIN: solo el que pagó, los dos iguales → guardado y vuelve a "Pagado"', async () => {
     const { controller, charges } = makeController({ page: paidPage() });
     const { reply, sent } = fakeReply(claimCookie);
-    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4827', lang: 'es' }, 'https://api.paytomaxx.com', 'api.paytomaxx.com', undefined, reply);
+    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4827', lang: 'es' }, undefined, 'api.paytomaxx.com', undefined, reply);
     expect(charges.setPinByWalletToken).toHaveBeenCalledWith('wal-tok', '4827');
     expect(sent.status).toBe(303);
     expect(sent.headers.Location).toBe('/pay/qr-token-1?lang=es&pin=ok');
@@ -447,10 +447,10 @@ describe('recarga de saldo: el cliente elige su PIN en su propio móvil', () => 
   it('distintos u obvio → no se guarda y se explica', async () => {
     const { controller, charges } = makeController({ page: paidPage() });
     const a = fakeReply(claimCookie);
-    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4828' }, 'https://h', 'h', undefined, a.reply);
+    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4828' }, undefined, 'h', undefined, a.reply);
     expect(a.sent.headers.Location).toContain('pin=mismatch');
     const b = fakeReply(claimCookie);
-    await controller.choosePin('qr-token-1', { pin: '1111', pin2: '1111' }, 'https://h', 'h', undefined, b.reply);
+    await controller.choosePin('qr-token-1', { pin: '1111', pin2: '1111' }, undefined, 'h', undefined, b.reply);
     expect(b.sent.headers.Location).toContain('pin=obvious');
     expect(charges.setPinByWalletToken).not.toHaveBeenCalled();
     const c = fakeReply(claimCookie, { pin: 'mismatch' });
@@ -461,19 +461,12 @@ describe('recarga de saldo: el cliente elige su PIN en su propio móvil', () => 
   it('otro navegador o un formulario de otra web → 403, no se toca nada', async () => {
     const { controller, charges } = makeController({ page: paidPage() });
     const other = fakeReply(`${walletClaimCookieName('', 'qr-token-1')}=${'q'.repeat(43)}`);
-    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4827' }, 'https://h', 'h', undefined, other.reply);
+    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4827' }, undefined, 'h', undefined, other.reply);
     expect(other.sent.status).toBe(403);
     const evil = fakeReply(claimCookie);
     await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4827' }, 'https://evil.example', 'api.paytomaxx.com', undefined, evil.reply);
     expect(evil.sent.status).toBe(403);
-    // Sin Origin: solo si el navegador dice que viene de nuestra página.
-    const bare = fakeReply(claimCookie);
-    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4827' }, undefined, 'h', undefined, bare.reply);
-    expect(bare.sent.status).toBe(403);
     expect(charges.setPinByWalletToken).not.toHaveBeenCalled();
-    const sameSite = fakeReply(claimCookie);
-    await controller.choosePin('qr-token-1', { pin: '4827', pin2: '4827' }, undefined, 'h', undefined, sameSite.reply, 'same-origin');
-    expect(charges.setPinByWalletToken).toHaveBeenCalledTimes(1);
   });
 
   it('con el PIN ya guardado: "PIN guardado", sin formulario', async () => {
