@@ -582,7 +582,14 @@ export class WalletsService {
     actorUserId: string;
     reason: string;
   }): Promise<{ refundedCents: number; newBalanceCents: number }> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.asSystem(async (tx) => {
+      // La wallet bloqueada: dos anulaciones a la vez (doble clic) o una
+      // anulación y una devolución del saldo no se pisan.
+      const locked = await tx.$queryRaw<Array<{ status: string }>>`
+        SELECT status::text AS status FROM client_wallets
+         WHERE id = ${input.walletId}::uuid AND "tenantId" = ${input.tenantId}::uuid
+         FOR UPDATE
+      `;
       const consumption = await tx.walletConsumption.findFirst({
         where: {
           id: input.consumptionId,
@@ -591,16 +598,13 @@ export class WalletsService {
         },
         include: { earning: true },
       });
-      if (!consumption) {
+      if (!consumption || locked.length === 0) {
         throw new NotFoundException('Consumption no encontrado');
       }
       if (consumption.reversedAt) {
         throw new ConflictException('Consumption ya estaba reversed');
       }
-      const wallet0 = await tx.clientWallet.findUnique({
-        where: { id: input.walletId },
-        select: { status: true },
-      });
+      const wallet0 = locked[0];
       // Una wallet ya devuelta o caducada no se reabre: el dinero se devuelve aparte.
       if (wallet0?.status === 'REFUNDED' || wallet0?.status === 'EXPIRED') {
         throw new ConflictException('El saldo de este cliente ya se cerró: devuélvele este importe aparte');
@@ -629,12 +633,23 @@ export class WalletsService {
         },
       });
 
-      // Si había earning, se anula entero: comisión y propina.
+      // Si había earning, se anula entero: comisión y propina. Si ya se le
+      // había pagado a la chica, queda como deuda para su siguiente pago.
       if (consumption.earning) {
-        await tx.operatorEarning.update({
-          where: { id: consumption.earning.id },
-          data: { reversedCents: consumption.earning.commissionCents + consumption.earning.tipCents },
-        });
+        const e = consumption.earning;
+        const owed = e.commissionCents + e.tipCents - e.reversedCents;
+        if (e.payoutId && owed > 0) {
+          await tx.$executeRaw`
+            INSERT INTO earning_reversals ("tenantId", "earningId", "consumptionId", "reversedDeltaCents", "afterPayout")
+            VALUES (${e.tenantId}::uuid, ${e.id}::uuid, ${consumption.id}::uuid, ${owed}::int, true)
+            ON CONFLICT ("consumptionId") DO NOTHING
+          `;
+        } else if (!e.payoutId) {
+          await tx.operatorEarning.update({
+            where: { id: e.id },
+            data: { reversedCents: e.commissionCents + e.tipCents },
+          });
+        }
       }
 
       const wallet = await tx.clientWallet.findUnique({

@@ -328,13 +328,17 @@ export class PosDeviceService {
         },
       );
     } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        return this.mismatch(p, op, 'Esta operación del datáfono ya está apuntada en otro cobro.');
-      }
-      if (!(err instanceof InvalidTransitionError)) throw err;
-      // Cambió de estado mientras se cobraba (otro lo confirmó o caducó).
+      const conflict = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+      if (!conflict && !(err instanceof InvalidTransitionError)) throw err;
+      // Cambió mientras se cobraba. Si quedó pagado con ESTA operación de ESTE
+      // datáfono, era el mismo resultado enviado dos veces: está pagado.
       const now = await this.paymentOf(device, paymentId);
-      if (PAID_STATES.has(now.status as PaymentMachineState)) return this.duplicate(p, op, device);
+      const paidHere = PAID_STATES.has(now.status as PaymentMachineState);
+      if (paidHere && now.posOperationNumber === op && now.posTerminalId === device.terminalId) {
+        return this.paid(p.id);
+      }
+      if (conflict) return this.mismatch(p, op, 'Esta operación del datáfono ya está apuntada en otro cobro.');
+      if (paidHere) return this.duplicate(p, op, device);
       return this.mismatch(p, op, 'El cobro ya no estaba abierto: anula esta operación.');
     }
 

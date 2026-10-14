@@ -17,6 +17,8 @@ export interface CheckoutChoice {
   tipCents: number;
   method: PayMethodChoice | null;
   language: 'es' | 'en';
+  /** Huella de la cookie del navegador que abre el intento (enlace del saldo). */
+  claimHash?: string | null;
 }
 
 export type PayRedirect =
@@ -55,6 +57,8 @@ export type PayRedirect =
       authorizedAt: Date | null;
       /** Recarga de saldo: enlace a la página del saldo del cliente. */
       walletToken: string | null;
+      /** Huella del navegador que hizo el pago aprobado (solo él ve el enlace). */
+      walletClaimHash: string | null;
     }
   | { kind: 'processing' }
   | { kind: 'closed'; reason: PayClosedReason };
@@ -69,6 +73,8 @@ export interface PayResultView {
   qrToken: string;
   /** Recarga de saldo: token de la página del saldo del cliente. */
   walletToken: string | null;
+  /** Huella del navegador que hizo el pago aprobado (solo él ve el enlace). */
+  walletClaimHash: string | null;
   /** Estado del intento concreto por el que vuelve el cliente (PENDING/APPROVED/DENIED). */
   attemptStatus: string | null;
 }
@@ -154,6 +160,8 @@ export interface PayablePayment {
   allowTip: boolean;
   /** Recarga de saldo: token de la página del saldo del cliente. */
   walletToken: string | null;
+  /** Huella del navegador que hizo el pago aprobado. */
+  walletClaimHash: string | null;
 }
 
 /**
@@ -170,6 +178,7 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       currency: p.currency,
       authorizedAt: p.authorizedAt,
       walletToken: p.walletToken,
+      walletClaimHash: p.walletClaimHash,
     };
   }
   const closed = CLOSED_REASON[p.status];
@@ -202,11 +211,17 @@ export const CHECKOUT_REPLAY_MS = 30_000;
  * del más reciente al más antiguo.
  */
 export function freshPendingOrder(
-  attempts: ReadonlyArray<{ providerTxId: string; status: string; createdAt: Date }>,
+  attempts: ReadonlyArray<{ providerTxId: string; status: string; createdAt: Date; claimHash?: string | null }>,
   now: Date,
+  /**
+   * Navegador que pide el formulario. Si se indica, solo se reutiliza su
+   * propio pedido: otro navegador con el mismo QR no se queda con él.
+   */
+  claimHash?: string | null,
 ): string | null {
   const latest = attempts[0];
   if (!latest || latest.status !== 'PENDING') return null;
+  if (claimHash !== undefined && (latest.claimHash ?? null) !== claimHash) return null;
   return now.getTime() - latest.createdAt.getTime() < CHECKOUT_REPLAY_MS ? latest.providerTxId : null;
 }
 

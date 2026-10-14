@@ -362,6 +362,8 @@ model PaymentAttempt {
   tipCents     Int?
   // wallet (Apple Pay / Google Pay) | card
   payMethod    String?
+  // Huella de la cookie del navegador que abrió el intento (enlace del saldo).
+  claimHash    String?
   createdAt    DateTime @default(now()) @db.Timestamptz
   updatedAt    DateTime @default(now()) @updatedAt @db.Timestamptz
 
@@ -586,7 +588,9 @@ model EarningReversal {
   id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId           String   @db.Uuid
   earningId          String   @db.Uuid
-  refundId           String   @unique @db.Uuid
+  // Origen de la deuda: una devolución del banco o un consumo del saldo anulado.
+  refundId           String?  @unique @db.Uuid
+  consumptionId      String?  @unique @db.Uuid
   reversedDeltaCents Int
   // true = el earning ya estaba pagado: el descuento es deuda de la chica y
   // se resta del siguiente payout (settledPayoutId = ese payout).
@@ -595,7 +599,7 @@ model EarningReversal {
   createdAt          DateTime @default(now()) @db.Timestamptz
 
   earning OperatorEarning @relation(fields: [earningId], references: [id], onDelete: Cascade)
-  refund  Refund          @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  refund  Refund?         @relation(fields: [refundId], references: [id], onDelete: Cascade)
 
   @@index([earningId])
   @@index([tenantId, createdAt(sort: Desc)])

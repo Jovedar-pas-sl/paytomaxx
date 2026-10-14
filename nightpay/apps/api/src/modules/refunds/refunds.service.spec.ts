@@ -45,6 +45,7 @@ function makeService(opts: MakeOptions = {}) {
       findUnique: vi.fn().mockResolvedValue(opts.user ?? null),
     },
     refund: {
+      aggregate: vi.fn().mockResolvedValue({ _sum: { amountCents: 0 } }),
       create: vi.fn().mockImplementation(async ({ data }: { data: { tenantId: string } }) => {
         const refund = { id: `refund-${refundCreated.length + 1}`, status: 'PENDING', ...data };
         refundCreated.push(refund);

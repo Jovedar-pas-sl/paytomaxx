@@ -549,8 +549,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       try {
         ({ providerTxId } = await this.startAuthorization(qrToken, choice));
       } catch (err) {
-        // Doble toque: el otro POST ya abrió el pedido → mismo formulario.
-        const order = await this.freshOrderOf(payment.id);
+        // Doble toque: el otro POST (de este navegador) ya abrió el pedido → mismo formulario.
+        const order = await this.freshOrderOf(payment.id, choice.claimHash ?? null);
         if (!order) throw err;
         return { kind: 'checkout', order };
       }
@@ -569,10 +569,10 @@ export class PaymentsService implements OnApplicationBootstrap {
         const attempts = await tx.paymentAttempt.findMany({
           where: { paymentId: payment.id },
           orderBy: { createdAt: 'desc' },
-          select: { providerTxId: true, status: true, createdAt: true },
+          select: { providerTxId: true, status: true, createdAt: true, claimHash: true },
         });
         const now = new Date();
-        const fresh = freshPendingOrder(attempts, now);
+        const fresh = freshPendingOrder(attempts, now, choice.claimHash ?? null);
         if (fresh) return { decision: 'replay' as const, order: fresh, attempts: attempts.length };
         const decision = decideRedsysRetry({
           attempts,
@@ -616,16 +616,16 @@ export class PaymentsService implements OnApplicationBootstrap {
     return view.kind === 'form' ? view : null;
   }
 
-  private async freshOrderOf(paymentId: string): Promise<string | null> {
+  private async freshOrderOf(paymentId: string, claimHash?: string | null): Promise<string | null> {
     const attempts = await this.prisma.asSystem((tx) =>
       tx.paymentAttempt.findMany({
         where: { paymentId },
         orderBy: { createdAt: 'desc' },
         take: 1,
-        select: { providerTxId: true, status: true, createdAt: true },
+        select: { providerTxId: true, status: true, createdAt: true, claimHash: true },
       }),
     );
-    return freshPendingOrder(attempts, new Date());
+    return freshPendingOrder(attempts, new Date(), claimHash);
   }
 
   private async findPayable(
@@ -647,6 +647,12 @@ export class PaymentsService implements OnApplicationBootstrap {
           authorizedAt: true,
           walletId: true,
           wallet: { select: { qrToken: true } },
+          attempts: {
+            where: { status: 'APPROVED' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { claimHash: true },
+          },
         },
       }),
     );
@@ -665,12 +671,13 @@ export class PaymentsService implements OnApplicationBootstrap {
         )
       )?.provider ??
       null;
-    const { walletId, wallet, ...rest } = payment;
+    const { walletId, wallet, attempts, ...rest } = payment;
     return {
       ...rest,
       status: payment.status as PaymentMachineState,
       allowTip: provider === 'REDSYS' && walletId === null,
       walletToken: wallet?.qrToken ?? null,
+      walletClaimHash: wallet ? (attempts[0]?.claimHash ?? null) : null,
     };
   }
 
@@ -696,6 +703,12 @@ export class PaymentsService implements OnApplicationBootstrap {
           authorizedAt: true,
           qrToken: true,
           wallet: { select: { qrToken: true } },
+          attempts: {
+            where: { status: 'APPROVED' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { claimHash: true },
+          },
         },
       });
       if (!payment) return null;
@@ -712,6 +725,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         authorizedAt: payment.authorizedAt,
         qrToken: payment.qrToken,
         walletToken: payment.wallet?.qrToken ?? null,
+        walletClaimHash: payment.wallet ? (payment.attempts[0]?.claimHash ?? null) : null,
         attemptStatus: thisAttempt?.status ?? null,
       };
     });
@@ -900,6 +914,8 @@ export class PaymentsService implements OnApplicationBootstrap {
                  "availableAmountCents" = ${result.nextContext.availableAmountCents},
                  "providerTxId" = ${result.nextContext.providerTxId ?? p.providerTxId},
                  provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | null}::"Provider",
+                 "authorizedAt" = CASE WHEN ${result.nextState}::text = 'AUTHORIZED'
+                                       THEN COALESCE("authorizedAt", NOW()) ELSE "authorizedAt" END,
                  "updatedAt" = NOW()
            WHERE id = ${paymentId}::uuid
         `;
@@ -935,10 +951,11 @@ export class PaymentsService implements OnApplicationBootstrap {
              FOR UPDATE
           `;
           const w = walletLocked[0];
-          if (w && w.status === 'ACTIVE') {
+          if (w && (w.status === 'ACTIVE' || w.status === 'DEPLETED')) {
             await tx.$executeRaw`
               UPDATE client_wallets
                  SET "balanceCents" = "balanceCents" + ${p.amountCents}::int,
+                     status = 'ACTIVE'::"WalletStatus",
                      "updatedAt" = now()
                WHERE id = ${p.walletId}::uuid
                  AND "tenantId" = ${p.tenantId}::uuid
@@ -1509,6 +1526,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           amountCents: chargeCents,
           tipCents,
           payMethod: choice?.method ?? null,
+          claimHash: choice?.claimHash ?? null,
         },
       });
     };

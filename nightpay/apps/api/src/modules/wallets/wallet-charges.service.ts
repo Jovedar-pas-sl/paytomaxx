@@ -157,6 +157,17 @@ export class WalletChargesService {
       amountCents = input.amountCents;
       category = resolved;
     }
+    // El mismo tope por cobro que tiene la chica con el QR (Ajustes del local).
+    if (actor.role === 'OPERATOR') {
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: actor.tenantId },
+        select: { operatorMaxCobroCents: true },
+      });
+      const max = venue?.operatorMaxCobroCents ?? null;
+      if (max !== null && amountCents > max) {
+        throw new ForbiddenException(`El máximo que puedes cobrar de una vez es ${eur(max)}`);
+      }
+    }
     const request = await this.prisma.acrossVenues(async (tx) => {
       const locked = await tx.$queryRaw<Array<{ balanceCents: number; status: string }>>`
         SELECT "balanceCents", status::text AS status FROM client_wallets WHERE id = ${wallet.id}::uuid FOR UPDATE
@@ -357,10 +368,13 @@ export class WalletChargesService {
           ...(newBalance === 0 ? { status: 'DEPLETED' } : {}),
         },
       });
-      await tx.walletChargeRequest.update({
-        where: { id: request.id },
+      // Condicional: si la chica lo canceló mientras tanto, no se cobra nada
+      // (el error deshace el consumo y el descuento de esta transacción).
+      const accepted = await tx.walletChargeRequest.updateMany({
+        where: { id: request.id, status: 'PENDING' },
         data: { status: 'ACCEPTED', decidedAt: new Date(), consumptionId: consumption.id },
       });
+      if (accepted.count === 0) throw new ConflictException(REQUEST_ERRORS['not-pending']);
     });
     this.logger.log(`Saldo ${wallet.id}: cobro ${requestId} aceptado por el cliente`);
     return this.clientState(qrToken);

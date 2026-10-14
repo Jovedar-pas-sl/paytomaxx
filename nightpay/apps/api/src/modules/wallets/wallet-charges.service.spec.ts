@@ -171,9 +171,17 @@ describe('el cliente acepta en su móvil', () => {
       where: { id: 'w-1' },
       data: { balanceCents: 20_000, closeRequestedAt: null },
     });
-    expect(tx.walletChargeRequest.update.mock.calls[0]![0]).toMatchObject({
+    expect(tx.walletChargeRequest.updateMany.mock.calls[0]![0]).toMatchObject({
+      where: { id: 'req-1', status: 'PENDING' },
       data: { status: 'ACCEPTED', consumptionId: 'cons-1' },
     });
+  });
+
+  it('si la chica lo canceló mientras el cliente aceptaba, no se cobra', async () => {
+    const { svc, tx } = makeService();
+    tx.walletChargeRequest.findFirst.mockResolvedValueOnce(request()).mockResolvedValue(null);
+    tx.walletChargeRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(svc.accept('tok', 'req-1')).rejects.toThrow(/ya no está pendiente/);
   });
 
   it('caducado o sin saldo → no se cobra nada', async () => {

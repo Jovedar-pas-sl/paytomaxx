@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import type { FastifyReply } from 'fastify';
 import { ConflictException } from '@nestjs/common';
 import { PublicPayController, walletClaimCookieName } from './public-pay.controller';
@@ -62,6 +63,7 @@ function view(overrides: Partial<PayResultView>): PayResultView {
     authorizedAt: null,
     qrToken: 'qr-token-1',
     walletToken: null,
+    walletClaimHash: null,
     attemptStatus: 'PENDING',
     ...overrides,
   };
@@ -111,16 +113,22 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
   });
 
   it('recarga de saldo pagada → botón para abrir el saldo, solo en el móvil que pagó', async () => {
-    const paid = view({ status: 'AUTHORIZED', walletToken: 'wal-tok' });
-    const claim = `${walletClaimCookieName('', 'qr-token-1')}=1`;
+    const PAYER = 'a'.repeat(43);
+    const paid = view({
+      status: 'AUTHORIZED',
+      walletToken: 'wal-tok',
+      walletClaimHash: createHash('sha256').update(PAYER).digest('hex'),
+    });
+    const name = walletClaimCookieName('', 'qr-token-1');
 
-    const payer = fakeReply(`otra=1; ${claim}`);
+    const payer = fakeReply(`otra=1; ${name}=${PAYER}`);
     await makeController({ view: paid }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, payer.reply);
     expect(payer.sent.body).toContain('href="/w/wal-tok?lang=es"');
     expect(payer.sent.body).toContain('Abrir mi saldo');
 
-    // La chica abre el mismo QR en su móvil: "Pagado", pero sin el enlace del saldo.
-    const staff = fakeReply('otra=1');
+    // La chica abre el mismo QR en su móvil (hasta pulsó "Pagar" y tiene su
+    // propia cookie): "Pagado", pero sin el enlace del saldo.
+    const staff = fakeReply(`otra=1; ${name}=${'b'.repeat(43)}`);
     await makeController({ view: paid }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, staff.reply);
     expect(staff.sent.body).toContain('<h1>Pagado</h1>');
     expect(staff.sent.body).not.toContain('/w/wal-tok');
@@ -263,12 +271,29 @@ describe('POST /pay/:token — el cliente pulsa un botón', () => {
       tipCents: 500,
       method: 'wallet',
       language: 'en',
+      claimHash: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
     expect(sent.status).toBe(303);
     expect(sent.headers.Location).toBe('/pay/qr-token-1/checkout?op=ORD123&lang=en');
-    // Este navegador queda marcado como el que paga (para enseñarle luego su saldo).
-    expect(sent.headers['Set-Cookie']).toContain(`${walletClaimCookieName('', 'qr-token-1')}=1; Path=/pay;`);
-    expect(sent.headers['Set-Cookie']).toContain('HttpOnly');
+    // Este navegador queda marcado con una cookie aleatoria propia; el intento
+    // guarda su huella (para enseñarle luego su saldo solo a él).
+    const cookie = sent.headers['Set-Cookie']!;
+    const value = new RegExp(`${walletClaimCookieName('', 'qr-token-1')}=([A-Za-z0-9_-]{43}); Path=/pay;`).exec(cookie)?.[1];
+    expect(value).toBeDefined();
+    expect(cookie).toContain('HttpOnly');
+    const sentHash = (payments.startCheckout.mock.calls[0]![1] as { claimHash: string }).claimHash;
+    expect(sentHash).toBe(createHash('sha256').update(value!).digest('hex'));
+  });
+
+  it('el mismo navegador conserva su cookie al volver a pulsar', async () => {
+    const MINE = 'c'.repeat(43);
+    const { controller, payments } = makeController({ checkout: { kind: 'checkout', order: 'ORD123' } });
+    const { reply, sent } = fakeReply(`${walletClaimCookieName('', 'qr-token-1')}=${MINE}`);
+    await controller.startCheckout('qr-token-1', { tip: '0', method: 'card', lang: 'es' }, undefined, reply);
+    expect((payments.startCheckout.mock.calls[0]![1] as { claimHash: string }).claimHash).toBe(
+      createHash('sha256').update(MINE).digest('hex'),
+    );
+    expect(sent.headers['Set-Cookie']).toContain(`=${MINE}; Path=/pay;`);
   });
 
   it('pasarela con formulario sin paso intermedio → lo pinta directamente', async () => {
@@ -282,7 +307,12 @@ describe('POST /pay/:token — el cliente pulsa un botón', () => {
     const { controller, payments } = makeController({ checkout: FORM });
     const { reply } = fakeReply();
     await controller.startCheckout('qr-token-1', { tip: '0', method: '', lang: 'es' }, undefined, reply);
-    expect(payments.startCheckout).toHaveBeenCalledWith('qr-token-1', { tipCents: 0, method: null, language: 'es' });
+    expect(payments.startCheckout).toHaveBeenCalledWith('qr-token-1', {
+      tipCents: 0,
+      method: null,
+      language: 'es',
+      claimHash: expect.any(String),
+    });
   });
 
   it('formulario manipulado → error sin ir al banco', async () => {

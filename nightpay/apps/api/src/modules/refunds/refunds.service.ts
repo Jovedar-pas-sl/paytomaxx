@@ -47,6 +47,12 @@ export interface BankRefundRequest {
 
 /** Ventana en la que una devolución del mismo importe se trata como posible repetida. */
 const DUPLICATE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Una devolución en curso (PENDING) reserva su importe mientras se habla con
+ * el banco (segundos). Si el proceso se cayó a mitad, a los 15 min deja de
+ * reservar para no bloquear para siempre las siguientes.
+ */
+const PENDING_RESERVE_MS = 15 * 60 * 1000;
 
 @Injectable()
 export class RefundsService {
@@ -124,17 +130,41 @@ export class RefundsService {
     if (!payment.providerTxId || !payment.provider) {
       throw new ConflictException('Payment has no provider transaction id');
     }
+    if (payment.walletId) {
+      throw new ConflictException('Es una recarga de saldo: se devuelve desde Wallets → Devolver saldo');
+    }
 
-    // 1) Crear registro Refund (PENDING)
-    const refund = await this.prisma.refund.create({
-      data: {
-        tenantId: payment.tenantId,
-        paymentId: payment.id,
-        amountCents: request.amountCents,
-        reason: request.reason,
-        requestedBy: actor.userId,
-        status: 'PENDING',
-      },
+    // 1) Crear registro Refund (PENDING) reservando el importe: con el mismo
+    //    candado que las devoluciones del banco, dos a la vez no pasan de lo
+    //    que queda por devolver (cuentan también las que aún están en curso).
+    const refund = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(hashtext(${`refund:${payment.id}`}))`;
+      const pending = await tx.refund.aggregate({
+        where: {
+          paymentId: payment.id,
+          status: 'PENDING',
+          createdAt: { gte: new Date(Date.now() - PENDING_RESERVE_MS) },
+        },
+        _sum: { amountCents: true },
+      });
+      const fresh = await tx.payment.findUnique({
+        where: { id: payment.id },
+        select: { availableAmountCents: true },
+      });
+      const free = (fresh?.availableAmountCents ?? 0) - (pending._sum.amountCents ?? 0);
+      if (request.amountCents > free) {
+        throw new ConflictException(`Solo quedan ${free} céntimos por devolver en este cobro`);
+      }
+      return tx.refund.create({
+        data: {
+          tenantId: payment.tenantId,
+          paymentId: payment.id,
+          amountCents: request.amountCents,
+          reason: request.reason,
+          requestedBy: actor.userId,
+          status: 'PENDING',
+        },
+      });
     });
 
     // 2) Llamar a la pasarela (idempotente por refund.id)

@@ -110,6 +110,7 @@ describe('qué ve el cliente al escanear (Fase 1B)', () => {
     authorizedAt: null,
     allowTip: true,
     walletToken: null,
+    walletClaimHash: null,
     ...o,
   });
 
@@ -189,5 +190,19 @@ describe('resolveRevenueCategory — quién puede cobrar qué', () => {
     expect(resolveRevenueCategory({ isWalletTopUp: false, creatorRole: 'WAITER', requested: 'VENUE_BAR' })).toBe(
       'VENUE_BAR',
     );
+  });
+});
+
+describe('reutilizar el pedido abierto: solo el del mismo navegador', () => {
+  it('otro navegador con el mismo QR no se queda con el pedido del cliente', async () => {
+    const { freshPendingOrder } = await import('./pay-redirect');
+    const now = new Date('2026-10-14T22:00:03Z');
+    const attempts = [
+      { providerTxId: 'ORD1', status: 'PENDING', createdAt: new Date('2026-10-14T22:00:00Z'), claimHash: 'cliente' },
+    ];
+    expect(freshPendingOrder(attempts, now, 'cliente')).toBe('ORD1');
+    expect(freshPendingOrder(attempts, now, 'chica')).toBeNull();
+    expect(freshPendingOrder(attempts, now, null)).toBeNull();
+    expect(freshPendingOrder(attempts, now)).toBe('ORD1');
   });
 });

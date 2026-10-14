@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { Body, Controller, Get, Headers, HttpCode, Inject, Logger, Param, Post, Query, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
@@ -36,9 +36,11 @@ const CheckoutFormSchema = z.object({
 const WALLET_CLAIM_MAX_AGE_S = 7 * 24 * 3600;
 
 /**
- * Nombre de la cookie que prueba que ESTE navegador empezó el pago de este
- * cobro. Solo con ella la página "Pagado" enseña el enlace del saldo: con ese
- * enlace se aceptan cobros, y el personal que abra el mismo QR no debe verlo.
+ * Nombre de la cookie que prueba que ESTE navegador hizo el pago de este
+ * cobro. Su valor es aleatorio y propio de cada navegador; el intento de cobro
+ * guarda su huella, y la página "Pagado" solo enseña el enlace del saldo al
+ * navegador del intento que aprobó el banco (con ese enlace se aceptan
+ * cobros: el personal que abra el mismo QR no debe verlo).
  */
 export function walletClaimCookieName(secret: string, payToken: string): string {
   const mac = createHmac('sha256', secret).update(`wallet-claim:${payToken}`).digest('base64url');
@@ -86,7 +88,7 @@ export class PublicPayController {
     const lang = resolveLanguage(langQuery, acceptLanguage);
     const view = op ? await this.payments.getResultView(op) : null;
     const refreshUrl = `/pay/result?op=${encodeURIComponent(op ?? '')}&lang=${lang}`;
-    const hidden = Boolean(view?.walletToken) && !this.hasWalletClaim(res, view?.qrToken ?? '');
+    const hidden = Boolean(view?.walletToken) && !this.hasWalletClaim(res, view?.qrToken ?? '', view?.walletClaimHash ?? null);
     const shown = hidden && view ? { ...view, walletToken: null } : view;
     sendHtml(res, 200, renderResultView(shown, lang, refreshUrl, hidden));
   }
@@ -163,11 +165,18 @@ export class PublicPayController {
       sendHtml(res, 400, renderErrorPage('generic', lang));
       return;
     }
-    const choice: CheckoutChoice = { tipCents: parsed.data.tip, method: parsed.data.method, language: lang };
+    // La cookie de este navegador: la que ya tenía para este cobro o una nueva.
+    const claim = this.claimValue(res, token) ?? randomBytes(32).toString('base64url');
+    const choice: CheckoutChoice = {
+      tipCents: parsed.data.tip,
+      method: parsed.data.method,
+      language: lang,
+      claimHash: sha256(claim),
+    };
     try {
       const view = await this.payments.startCheckout(token, choice);
       if (view.kind === 'checkout' || view.kind === 'form' || view.kind === 'redirect') {
-        this.setWalletClaim(res, token);
+        this.setWalletClaim(res, token, claim);
       }
       this.send(res, token, lang, view, undefined);
     } catch (err) {
@@ -224,8 +233,11 @@ export class PublicPayController {
               authorizedAt: view.authorizedAt,
               receiptHref: receiptHref(token, lang),
               walletHref:
-                view.walletToken && this.hasWalletClaim(res, token) ? walletHref(view.walletToken, lang) : null,
-              walletElsewhere: Boolean(view.walletToken) && !this.hasWalletClaim(res, token),
+                view.walletToken && this.hasWalletClaim(res, token, view.walletClaimHash)
+                  ? walletHref(view.walletToken, lang)
+                  : null,
+              walletElsewhere:
+                Boolean(view.walletToken) && !this.hasWalletClaim(res, token, view.walletClaimHash),
             },
             lang,
           ),
@@ -243,7 +255,7 @@ export class PublicPayController {
   private sendError(res: FastifyReply, token: string, lang: PayLanguage, err: unknown): void {
     const message = (err as Error).message || 'Error';
     // Logueamos detalles técnicos pero NO los mostramos al cliente
-    this.logger.warn(`/pay/${token} failed: ${message}`);
+    this.logger.warn(`/pay/${token.slice(0, 4)}… failed: ${message}`);
     sendHtml(res, 409, renderErrorPage(payErrorKey(message), lang));
   }
 
@@ -252,25 +264,43 @@ export class PublicPayController {
   }
 
   /** Path=/pay: también la recibe la vuelta del banco (/pay/result). */
-  private setWalletClaim(res: FastifyReply, payToken: string): void {
+  private setWalletClaim(res: FastifyReply, payToken: string, value: string): void {
     // SameSite=None: el banco devuelve al cliente desde otro sitio.
     const site = process.env.NODE_ENV === 'production' ? 'Secure; SameSite=None' : 'SameSite=Lax';
     res.header(
       'Set-Cookie',
-      `${this.walletClaimName(payToken)}=1; Path=/pay; Max-Age=${WALLET_CLAIM_MAX_AGE_S}; HttpOnly; ${site}`,
+      `${this.walletClaimName(payToken)}=${value}; Path=/pay; Max-Age=${WALLET_CLAIM_MAX_AGE_S}; HttpOnly; ${site}`,
     );
   }
 
-  private hasWalletClaim(res: FastifyReply, payToken: string): boolean {
+  /** Valor de la cookie de este navegador para este cobro (si la tiene). */
+  private claimValue(res: FastifyReply, payToken: string): string | null {
     const header = (res as { request?: { headers?: { cookie?: string } } }).request?.headers?.cookie ?? '';
-    const cookie = `${this.walletClaimName(payToken)}=1`;
-    return header.split(';').some((c) => c.trim() === cookie);
+    const prefix = `${this.walletClaimName(payToken)}=`;
+    for (const part of header.split(';')) {
+      const c = part.trim();
+      if (!c.startsWith(prefix)) continue;
+      const value = c.slice(prefix.length);
+      if (/^[A-Za-z0-9_-]{43}$/.test(value)) return value;
+    }
+    return null;
+  }
+
+  /** ¿Es este navegador el que hizo el pago aprobado? */
+  private hasWalletClaim(res: FastifyReply, payToken: string, claimHash: string | null): boolean {
+    if (!claimHash) return false;
+    const value = this.claimValue(res, payToken);
+    return value !== null && sha256(value) === claimHash;
   }
 
   private statementName(): string | null {
     const name = this.config.get<string>('PAY_STATEMENT_NAME')?.trim();
     return name ? name : null;
   }
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function sendHtml(res: FastifyReply, status: number, html: string): void {
