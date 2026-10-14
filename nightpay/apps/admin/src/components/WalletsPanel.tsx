@@ -9,6 +9,7 @@ import {
   payoutWallet,
   relinkWallet,
   approveQrCharge,
+  blockWalletCard,
   fetchPendingQrCharges,
   resetWalletPin,
   unlockWalletPin,
@@ -50,6 +51,16 @@ export function WalletsPanel({ isOwner }: Props) {
   const [payoutFor, setPayoutFor] = useState<PayoutTarget | null>(null);
   const [relinkFor, setRelinkFor] = useState<PayoutTarget | null>(null);
   const [chargeFor, setChargeFor] = useState<PayoutTarget | null>(null);
+
+  async function blockCard(w: WalletAdminRow) {
+    if (!window.confirm(`¿Bloquear la ficha de ${w.code ?? 'este saldo'}? Ya no servirá para pagar (el saldo sigue).`)) return;
+    try {
+      await blockWalletCard(w.id);
+      await reload();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
 
   async function pinAction(w: WalletAdminRow, kind: 'unlock' | 'reset') {
     const ask =
@@ -186,6 +197,7 @@ export function WalletsPanel({ isOwner }: Props) {
                       <span style={closeBadgeStyle}>Pide devolución</span>
                     ) : null}
                     {w.hasFaceId ? <span style={faceBadgeStyle}>Face ID</span> : null}
+                    {w.hasCard ? <span style={faceBadgeStyle}>Ficha</span> : null}
                     {w.pinLocked ? (
                       <span style={closeBadgeStyle}>PIN bloqueado</span>
                     ) : w.hasPin ? (
@@ -232,6 +244,11 @@ export function WalletsPanel({ isOwner }: Props) {
                       {w.hasPin ? (
                         <Button variant="ghost" onClick={() => void pinAction(w, 'reset')}>
                           Borrar PIN
+                        </Button>
+                      ) : null}
+                      {w.hasCard ? (
+                        <Button variant="ghost" onClick={() => void blockCard(w)}>
+                          Bloquear ficha
                         </Button>
                       ) : null}
                     </div>

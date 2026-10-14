@@ -8,8 +8,11 @@ import {
   type OperatorBalance,
   type OperatorUser,
 } from '@/lib/api';
+import { isWalletCardToken, WALLET_CARD_PARAM } from '@nightpay/contracts';
+import { clearFichaContext } from '@/lib/ficha-context';
 import { walletCodeFromQr } from '@/lib/wallet-qr';
 import { ChargeFromBalance } from './ChargeFromBalance';
+import { FichaTapped } from './FichaTapped';
 import { CreatePayment } from './CreatePayment';
 import { MyPayments } from './MyPayments';
 import { Earnings } from './Earnings';
@@ -31,6 +34,8 @@ export function Dashboard({ user, onLogout }: Props) {
   const [focusedPosId, setFocusedPosId] = useState<string | null>(null);
   // QR del saldo escaneado con la cámara del móvil: ?saldo=<código>.
   const [saldoCode, setSaldoCode] = useState<string | null>(null);
+  // Ficha NFC acercada a un iPhone: ?ficha=<código de la ficha>.
+  const [ficha, setFicha] = useState<string | null>(null);
 
   async function reload() {
     try {
@@ -61,6 +66,13 @@ export function Dashboard({ user, onLogout }: Props) {
       url.searchParams.delete('pos');
       window.history.replaceState({}, '', url.toString());
     }
+    const card = params.get(WALLET_CARD_PARAM) ?? '';
+    if (isWalletCardToken(card)) {
+      setFicha(card);
+      const url = new URL(window.location.href);
+      url.searchParams.delete(WALLET_CARD_PARAM);
+      window.history.replaceState({}, '', url.toString());
+    }
     const saldo = walletCodeFromQr(params.get('saldo') ?? '');
     if (saldo) {
       setSaldoCode(saldo);
@@ -72,6 +84,7 @@ export function Dashboard({ user, onLogout }: Props) {
   }, [user.role]);
 
   async function logout() {
+    clearFichaContext();
     await apiLogout();
     onLogout();
   }
@@ -94,7 +107,16 @@ export function Dashboard({ user, onLogout }: Props) {
         </Card>
       ) : null}
 
-      {tab === 'home' ? (
+      {ficha ? (
+        <FichaTapped
+          token={ficha}
+          userId={user.id}
+          onClose={() => {
+            setFicha(null);
+            void reload();
+          }}
+        />
+      ) : tab === 'home' ? (
         <HomeTab user={user} balance={balance} onCobroDone={reload} />
       ) : tab === 'wallet' ? (
         <ChargeFromBalance key={saldoCode ?? 'saldo'} onCharged={reload} initialCode={saldoCode} />

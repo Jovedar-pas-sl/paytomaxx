@@ -882,6 +882,8 @@ export interface WalletAdminRow {
   hasPin: boolean;
   /** 5 PIN fallidos: no puede pagar con PIN hasta que lo desbloquees. */
   pinLocked: boolean;
+  /** Tiene ficha NFC activa. */
+  hasCard: boolean;
 }
 
 /** Cobro con QR que la chica hizo y nadie ha pagado aún. */
@@ -913,6 +915,12 @@ export async function approveQrCharge(requestId: string, walletId: string): Prom
 /** Encargado o dueño: tras 5 PIN fallidos, el cliente vuelve a poder probar. */
 export async function unlockWalletPin(walletId: string): Promise<void> {
   const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/pin/unlock`, { method: 'POST' });
+  if (!res.ok) throw new Error(await readError(res));
+}
+
+/** Encargado o dueño: ficha NFC perdida → bloqueada (el saldo sigue con Face ID o código + PIN). */
+export async function blockWalletCard(walletId: string): Promise<void> {
+  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/card/block`, { method: 'POST' });
   if (!res.ok) throw new Error(await readError(res));
 }
 

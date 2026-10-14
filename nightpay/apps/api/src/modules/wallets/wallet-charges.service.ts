@@ -10,7 +10,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import type { Role } from '@nightpay/contracts';
+import { isWalletCardToken, normalizeWalletCardUid, type Role } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { resolveBpsForOperator, resolveRevenueCategory, type RevenueCategory } from '../payments/commission';
@@ -48,7 +48,12 @@ export interface WalletLookup {
   hasPin: boolean;
   /** 5 PIN fallidos: hasta que lo desbloquee el encargado. */
   pinLocked: boolean;
+  /** Tiene ficha NFC (la acerca y pone su PIN). */
+  hasCard: boolean;
 }
+
+/** Cómo dice el cliente cuál es su saldo, sin su móvil: su código o su ficha NFC. */
+export type WalletRef = { code: string } | { card: string; uid?: string | null };
 
 export interface ChargeRequestView {
   id: string;
@@ -171,9 +176,10 @@ export class WalletChargesService {
     venueId: string,
     wallet: Awaited<ReturnType<WalletChargesService['walletByCode']>>,
   ): Promise<WalletLookup> {
-    const [home, pending] = await Promise.all([
+    const [home, pending, cards] = await Promise.all([
       this.prisma.venue.findUnique({ where: { id: wallet.tenantId }, select: { name: true } }),
       this.pendingOf(wallet.id),
+      this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId: wallet.id, status: 'ACTIVE' } })),
     ]);
     return {
       walletId: wallet.id,
@@ -186,6 +192,7 @@ export class WalletChargesService {
       pendingRequest: pending !== null,
       hasPin: wallet.pinHash !== null,
       pinLocked: wallet.pinLockedAt !== null,
+      hasCard: cards > 0,
     };
   }
 
@@ -662,7 +669,7 @@ export class WalletChargesService {
    * El cliente no saca el móvil: la chica pone su código y él teclea su PIN
    * en el móvil de ella. Se paga el mismo cobro del QR (no queda otro colgado).
    */
-  async payQrChargeWithPin(actor: Actor, requestId: string, input: { code: string; pin: string }): Promise<ChargeRequestView> {
+  async payQrChargeWithPin(actor: Actor, requestId: string, input: WalletRef & { pin: string }): Promise<ChargeRequestView> {
     const request = await this.prisma.asSystem((tx) =>
       tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId, payToken: { not: null } } }),
     );
@@ -675,7 +682,7 @@ export class WalletChargesService {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw new ConflictException(REQUEST_ERRORS['not-pending']);
     }
-    const wallet = await this.walletByCode(actor.tenantId, input.code);
+    const wallet = await this.walletByRef(actor.tenantId, input);
     // Un PIN que puso el encargado sin el cliente: ni él cobra con ese PIN ni
     // aprueba un cobro suyo (hacen falta dos personas, como sin Face ID).
     if (wallet.pinSetById && (wallet.pinSetById === actor.userId || wallet.pinSetById === request.requestedByUserId)) {
@@ -683,8 +690,139 @@ export class WalletChargesService {
     }
     await this.checkPin(wallet.id, input.pin, actor);
     await this.bindAndSettle(request, wallet.id);
-    this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${actor.userId})`);
+    if ('card' in input) {
+      const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
+      await this.prisma.acrossVenues(async (tx) => {
+        await tx.walletCard.updateMany({ where: { token: input.card, walletId: wallet.id }, data: { lastUsedAt: new Date() } });
+        // Ficha dada desde un iPhone: su número de serie, la primera vez que la lee un Android.
+        if (uid) await tx.walletCard.updateMany({ where: { token: input.card, uid: null }, data: { uid } });
+      });
+    }
+    this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${'card' in input ? 'ficha' : 'código'}, ${actor.userId})`);
     return this.getRequest(actor, requestId);
+  }
+
+  // ─── Ficha NFC (dice de qué saldo es; el cliente pone su PIN) ──────────
+
+  /** La chica acerca la ficha: su saldo (si vale en este local). */
+  async lookupCard(venueId: string, input: { card: string; uid?: string | null }): Promise<WalletLookup> {
+    return this.lookupWallet(venueId, await this.walletByCard(venueId, input));
+  }
+
+  /**
+   * Código nuevo para grabar en una ficha vacía. Lo crea el servidor (al azar,
+   * 128 bits): solo las fichas grabadas así se pueden dar a un saldo.
+   */
+  async issueCard(actor: Actor): Promise<{ card: string }> {
+    const token = randomBytes(16).toString('base64url');
+    await this.prisma.acrossVenues((tx) => tx.walletCard.create({ data: { token, linkedById: actor.userId } }));
+    return { card: token };
+  }
+
+  /**
+   * Dar ficha a un saldo: la chica de la primera recarga (en sus 15 min) o el
+   * encargado. Una ficha de un saldo ya gastado o cerrado se reutiliza; la de
+   * otro cliente con saldo, no. Una ficha por saldo: la anterior se suelta.
+   */
+  async linkCard(actor: Actor, input: { code: string; card: string; uid?: string | null }): Promise<WalletLookup> {
+    if (!isWalletCardToken(input.card)) throw new BadRequestException('Esta ficha no es nuestra: grábala otra vez');
+    const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
+    const wallet = await this.walletByCode(actor.tenantId, input.code);
+    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    if (!manager && !(await this.freshTopUpBy(wallet.id, actor.userId))) {
+      throw new UnprocessableEntityException('La ficha se da justo al recargar (o con el encargado)');
+    }
+    const replaced = await this.prisma.acrossVenues(async (tx) => {
+      // Siempre en este orden (saldo, ficha): dos "dar ficha" a la vez esperan.
+      await tx.$queryRaw`SELECT id FROM client_wallets WHERE id = ${wallet.id}::uuid FOR UPDATE`;
+      const rows = await tx.$queryRaw<Array<{ id: string; uid: string | null; walletId: string | null; status: string }>>`
+        SELECT id, uid, "walletId", status FROM wallet_cards WHERE token = ${input.card} FOR UPDATE
+      `;
+      const card = rows[0];
+      if (!card) throw new BadRequestException('Esta ficha no es nuestra: grábala desde la app (Darle una ficha)');
+      if (card.status === 'BLOCKED') throw new ConflictException('Esta ficha está bloqueada (perdida): usa otra');
+      if (card.uid && uid && card.uid !== uid) throw new ConflictException('Esta ficha no es la original (¿copiada?): usa otra');
+      if (card.walletId && card.walletId !== wallet.id) {
+        const other = await tx.clientWallet.findUnique({
+          where: { id: card.walletId },
+          select: { status: true, balanceCents: true },
+        });
+        if (other?.status === 'ACTIVE' && other.balanceCents > 0) {
+          throw new ConflictException('Esta ficha es de otro cliente que aún tiene saldo');
+        }
+      }
+      const old = await tx.walletCard.updateMany({
+        where: { walletId: wallet.id, status: 'ACTIVE', NOT: { id: card.id } },
+        data: { walletId: null },
+      });
+      await tx.walletCard.update({
+        where: { id: card.id },
+        data: { walletId: wallet.id, uid: card.uid ?? uid, linkedById: actor.userId, linkedAt: new Date() },
+      });
+      return old.count;
+    });
+    await this.audit.log({
+      action: 'wallet.card_linked',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: wallet.id,
+      payload: { replacedCards: replaced, withUid: uid !== null },
+    });
+    return this.lookupWallet(actor.tenantId, wallet);
+  }
+
+  /** Encargado o dueño: ficha perdida → bloqueada. El saldo sigue (Face ID, código + PIN). */
+  async blockCard(actor: Actor, walletId: string): Promise<{ ok: true }> {
+    await this.managerWallet(actor, walletId);
+    const res = await this.prisma.acrossVenues((tx) =>
+      tx.walletCard.updateMany({
+        where: { walletId, status: 'ACTIVE' },
+        data: { status: 'BLOCKED', blockedAt: new Date() },
+      }),
+    );
+    if (res.count === 0) throw new ConflictException('Este saldo no tiene ficha');
+    await this.audit.log({
+      action: 'wallet.card_blocked',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: walletId,
+      payload: {},
+    });
+    return { ok: true };
+  }
+
+  private async walletByRef(venueId: string, ref: WalletRef) {
+    return 'card' in ref ? this.walletByCard(venueId, ref) : this.walletByCode(venueId, ref.code);
+  }
+
+  /** La ficha → su saldo: activa, con saldo abierto y del grupo de este local. */
+  private async walletByCard(venueId: string, input: { card: string; uid?: string | null }) {
+    const card = isWalletCardToken(input.card)
+      ? await this.prisma.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: input.card } }))
+      : null;
+    if (!card || card.status !== 'ACTIVE' || !card.walletId) {
+      throw new NotFoundException('Esta ficha no tiene saldo: dásela al cliente al recargar');
+    }
+    const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
+    if (card.uid && uid && card.uid !== uid) {
+      this.logger.warn(`Ficha ${card.id}: número de serie distinto (¿copia?)`);
+      throw new ConflictException('Esta ficha no es la original (¿copiada?): avisa al encargado');
+    }
+    const walletId = card.walletId;
+    const [wallet, venue] = await Promise.all([
+      this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: walletId } })),
+      this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } }),
+    ]);
+    if (
+      !wallet ||
+      wallet.status !== 'ACTIVE' ||
+      !sameWalletGroup(wallet, { id: venueId, walletGroup: venue?.walletGroup ?? null })
+    ) {
+      throw new NotFoundException('Esta ficha no tiene saldo en este local');
+    }
+    return wallet;
   }
 
   /**

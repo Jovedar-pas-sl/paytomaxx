@@ -769,6 +769,7 @@ model ClientWallet {
   chargeRequests WalletChargeRequest[]
   payouts        WalletPayout[]
   passkeys       WalletPasskey[]
+  cards          WalletCard[]
 
   @@index([tenantId, status])
   @@index([tenantId, identifier])
@@ -779,6 +780,28 @@ model ClientWallet {
 
 /// Llave del cliente para pagar con su saldo desbloqueando su móvil (Face ID,
 /// huella o el PIN del teléfono). Solo la clave pública.
+/// Ficha NFC del saldo: lleva grabado un enlace con `token` (?ficha=...).
+/// Dice de qué saldo es; para pagar, el cliente pone su PIN.
+model WalletCard {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  token      String    @unique
+  /// Número de serie (si se leyó con un Android): una copia no vale.
+  uid        String?
+  walletId   String?   @db.Uuid
+  /// ACTIVE | BLOCKED (perdida).
+  status     String    @default("ACTIVE")
+  linkedById String?   @db.Uuid
+  createdAt  DateTime  @default(now()) @db.Timestamptz
+  linkedAt   DateTime? @db.Timestamptz
+  blockedAt  DateTime? @db.Timestamptz
+  lastUsedAt DateTime? @db.Timestamptz
+
+  wallet ClientWallet? @relation(fields: [walletId], references: [id], onDelete: SetNull)
+
+  @@index([walletId])
+  @@map("wallet_cards")
+}
+
 model WalletPasskey {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   walletId     String    @db.Uuid

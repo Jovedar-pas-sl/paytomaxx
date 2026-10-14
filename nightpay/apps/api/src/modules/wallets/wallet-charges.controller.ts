@@ -46,6 +46,27 @@ const PinSchema = z.object({
   pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras'),
 });
 
+const CardToken = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra');
+const CardUid = z.string().trim().max(64).optional();
+
+/** Pagar con PIN: el saldo por su código o por su ficha NFC. */
+const PayPinSchema = z
+  .object({
+    code: z.string().trim().min(6).max(10).optional(),
+    card: CardToken.optional(),
+    uid: CardUid,
+    pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras'),
+  })
+  .refine((b) => Boolean(b.code) !== Boolean(b.card), { message: 'Falta el código o la ficha del cliente' });
+
+const CardLookupSchema = z.object({ card: CardToken, uid: CardUid });
+
+const LinkCardSchema = z.object({
+  code: z.string().trim().min(6).max(10),
+  card: CardToken,
+  uid: CardUid,
+});
+
 const PayoutSchema = z.object({
   method: z.enum(['CARD', 'CASH']),
   bankReference: z.string().trim().max(60).optional(),
@@ -61,6 +82,10 @@ const PayoutSchema = z.object({
  *  - POST /v1/wallet-charges/:id/pin            → el cliente lo paga con su PIN (sin sacar el móvil).
  *  - POST /v1/wallet-charges/pin                → el cliente elige su PIN (tras recargar, o con el encargado).
  *  - POST /v1/wallet-charges/wallets/:id/pin/unlock|reset → (encargado) desbloquear o borrar el PIN.
+ *  - POST /v1/wallet-charges/cards/lookup       → el saldo de la ficha NFC que acercan.
+ *  - POST /v1/wallet-charges/cards/new          → código nuevo para grabar en una ficha vacía.
+ *  - POST /v1/wallet-charges/cards              → dar ficha al saldo (al recargar, o el encargado).
+ *  - POST /v1/wallet-charges/wallets/:id/card/block → (encargado) ficha perdida.
  *  - POST /v1/wallet-charges                    → pedir un cobro (el cliente lo acepta en su móvil).
  *  - GET  /v1/wallet-charges/:id                → respuesta del cliente.
  *  - POST /v1/wallet-charges/:id/cancel         → retirar la petición.
@@ -131,9 +156,53 @@ export class WalletChargesController {
   async payWithPin(
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(PinSchema)) body: z.infer<typeof PinSchema>,
+    @Body(new ZodValidationPipe(PayPinSchema)) body: z.infer<typeof PayPinSchema>,
   ): Promise<ChargeRequestView> {
-    return this.charges.payQrChargeWithPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body);
+    const ref = body.card ? { card: body.card, uid: body.uid ?? null } : { code: body.code ?? '' };
+    return this.charges.payQrChargeWithPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, {
+      ...ref,
+      pin: body.pin,
+    });
+  }
+
+  /** La chica acerca la ficha NFC del cliente: su saldo (y si tiene PIN). En el cuerpo, no en la URL (registros). */
+  @Post('cards/lookup')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  @HttpCode(200)
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-lookup' })
+  async lookupCard(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(CardLookupSchema)) body: z.infer<typeof CardLookupSchema>,
+  ): Promise<WalletLookup> {
+    return this.charges.lookupCard(user.tenantId, { card: body.card, uid: body.uid ?? null });
+  }
+
+  /** Código nuevo (del servidor) para grabar en una ficha vacía. */
+  @Post('cards/new')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  @HttpCode(201)
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-card' })
+  async issueCard(@CurrentUser() user: JwtPayload): Promise<{ card: string }> {
+    return this.charges.issueCard({ userId: user.sub, role: user.role, tenantId: user.tenantId });
+  }
+
+  /** Dar ficha NFC al saldo recién recargado (o el encargado, a cualquiera). */
+  @Post('cards')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  @HttpCode(200)
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-card' })
+  async linkCard(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(LinkCardSchema)) body: z.infer<typeof LinkCardSchema>,
+  ): Promise<WalletLookup> {
+    return this.charges.linkCard({ userId: user.sub, role: user.role, tenantId: user.tenantId }, body);
+  }
+
+  @Post('wallets/:id/card/block')
+  @Roles('OWNER', 'MANAGER')
+  @HttpCode(200)
+  async blockCard(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<{ ok: true }> {
+    return this.charges.blockCard({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id);
   }
 
   /** El cliente elige su PIN en el móvil de la chica (en los 15 min tras recargar, o con el encargado). */

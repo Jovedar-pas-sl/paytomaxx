@@ -8,13 +8,18 @@ import {
   createQrWalletCharge,
   fetchServices,
   fetchWalletCharge,
+  lookupWalletCard,
   lookupWalletCode,
   payWalletChargeWithPin,
   type QrWalletCharge,
   type ServiceItem,
   type WalletChargeRequest,
+  getUser,
   type WalletLookup,
+  type WalletRef,
 } from '@/lib/api';
+import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
+import { nfcSupported, readCard } from '@/lib/nfc';
 import { PinPad } from './PinPad';
 
 interface Props {
@@ -168,9 +173,10 @@ function QrStep({
   const [now, setNow] = useState(() => Date.now());
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Sin sacar su móvil: código del cliente → su PIN en este móvil.
+  // Sin sacar su móvil: su ficha o su código → su PIN en este móvil.
   const [withPin, setWithPin] = useState(false);
   const [wallet, setWallet] = useState<WalletLookup | null>(null);
+  const [ref, setRef] = useState<WalletRef | null>(null);
   // El sondeo y "Cancelar" pueden ver la respuesta a la vez: se termina una vez.
   const finished = useRef(false);
 
@@ -200,6 +206,22 @@ function QrStep({
     // Solo importa el id del cobro.
   }, [charge.id]);
 
+  // iPhone: tras "Sin móvil", al acercar la ficha se abre otra pestaña
+  // (?ficha=…) que paga ESTE cobro.
+  useEffect(() => {
+    const userId = getUser()?.id;
+    if (!withPin || !userId) return;
+    saveFichaContext({
+      userId,
+      kind: 'cobro',
+      chargeId: charge.id,
+      amountCents: charge.amountCents,
+      serviceName: charge.serviceName,
+      expiresAt: charge.expiresAt,
+    });
+    return () => clearFichaContext((ctx) => ctx.kind === 'cobro' && ctx.chargeId === charge.id);
+  }, [withPin, charge.id, charge.amountCents, charge.serviceName, charge.expiresAt]);
+
   async function cancel() {
     setCanceling(true);
     setError(null);
@@ -219,15 +241,18 @@ function QrStep({
   const secondsLeft = Math.max(0, Math.ceil((new Date(charge.expiresAt).getTime() - now) / 1000));
   const what = `${formatEur(charge.amountCents)}${charge.serviceName ? ` · ${charge.serviceName}` : ''}`;
 
-  if (withPin && wallet && wallet.hasPin && !wallet.pinLocked) {
+  if (withPin && wallet && ref && wallet.hasPin && !wallet.pinLocked) {
     return (
       <PinPad
         mode="enter"
         title={what}
-        hint={`Saldo ${wallet.code}`}
-        onCancel={() => setWallet(null)}
+        hint={`Saldo ${wallet.code}${'card' in ref ? ' · ficha' : ''}`}
+        onCancel={() => {
+          setWallet(null);
+          setRef(null);
+        }}
         onPin={async (pin) => {
-          finish(await payWalletChargeWithPin(charge.id, wallet.code, pin));
+          finish(await payWalletChargeWithPin(charge.id, ref, pin));
           return null;
         }}
       />
@@ -239,10 +264,14 @@ function QrStep({
       <PinCodeStep
         what={what}
         wallet={wallet}
-        onFound={setWallet}
+        onFound={(w, r) => {
+          setWallet(w);
+          setRef(r);
+        }}
         onBack={() => {
           setWithPin(false);
           setWallet(null);
+          setRef(null);
         }}
       />
     );
@@ -263,7 +292,7 @@ function QrStep({
         Caduca en {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}
       </p>
       <Button variant="ghost" onClick={() => setWithPin(true)} disabled={canceling}>
-        Sin móvil: código + PIN
+        Sin móvil: ficha o código + PIN
       </Button>
       <p style={noteStyle}>¿Sin batería y sin PIN? Avisa al encargado: lo cobra desde el panel.</p>
       {error ? <p style={errorStyle}>{error}</p> : null}
@@ -277,7 +306,7 @@ function QrStep({
   );
 }
 
-/** El código del cliente (K7Q-4M2) antes de que teclee su PIN. */
+/** Su ficha NFC (o su código, K7Q-4M2) antes de que teclee su PIN. */
 function PinCodeStep({
   what,
   wallet,
@@ -286,23 +315,46 @@ function PinCodeStep({
 }: {
   what: string;
   wallet: WalletLookup | null;
-  onFound: (wallet: WalletLookup) => void;
+  onFound: (wallet: WalletLookup, ref: WalletRef) => void;
   onBack: () => void;
 }) {
   const [code, setCode] = useState(wallet?.code ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nfc, setNfc] = useState(false);
+  const [reading, setReading] = useState<AbortController | null>(null);
+
+  useEffect(() => setNfc(nfcSupported()), []);
+  useEffect(() => () => reading?.abort(), [reading]);
 
   async function find(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      onFound(await lookupWalletCode(code));
+      const w = await lookupWalletCode(code);
+      onFound(w, { code: w.code });
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function tapCard() {
+    const controller = new AbortController();
+    setReading(controller);
+    setError(null);
+    try {
+      const read = await readCard(controller.signal);
+      if (!read.token) throw new Error('Esta ficha está vacía: se le da al cliente al recargar');
+      const w = await lookupWalletCard(read.token, read.uid);
+      onFound(w, { card: read.token, uid: read.uid });
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') setError((err as Error).message);
+    } finally {
+      controller.abort();
+      setReading(null);
     }
   }
 
@@ -316,10 +368,25 @@ function PinCodeStep({
 
   return (
     <Card style={cardStyle}>
-      <p style={{ ...kicker, textAlign: 'center' }}>Sin móvil: código + PIN</p>
+      <p style={{ ...kicker, textAlign: 'center' }}>Sin móvil: ficha o código + PIN</p>
       <p className="np-num" style={{ ...balanceStyle, textAlign: 'center' }}>
         {what}
       </p>
+      {nfc ? (
+        reading ? (
+          <Button size="lg" variant="ghost" onClick={() => reading.abort()}>
+            Acerca la ficha a la parte de atrás del móvil… (cancelar)
+          </Button>
+        ) : (
+          <Button size="lg" onClick={() => void tapCard()} disabled={busy}>
+            Acercar su ficha
+          </Button>
+        )
+      ) : (
+        <p style={noteStyle}>
+          ¿Tiene ficha? En iPhone: acércala a la parte de arriba del móvil y toca el aviso que sale.
+        </p>
+      )}
       <form onSubmit={find} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         <Input
           label="Código del cliente"

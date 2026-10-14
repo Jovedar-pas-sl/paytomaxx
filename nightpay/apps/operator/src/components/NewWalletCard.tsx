@@ -2,7 +2,10 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Button } from '@nightpay/ui';
-import { fetchWalletById, setWalletPin, type WalletLookup } from '@/lib/api';
+import { walletCardUrl } from '@nightpay/contracts';
+import { fetchWalletById, getUser, issueWalletCard, linkWalletCard, setWalletPin, type WalletLookup } from '@/lib/api';
+import { saveFichaContext } from '@/lib/ficha-context';
+import { nfcSupported, readCard } from '@/lib/nfc';
 import { PinPad } from './PinPad';
 
 /**
@@ -14,12 +17,49 @@ export function NewWalletCard({ walletId }: { walletId: string }) {
   const [wallet, setWallet] = useState<WalletLookup | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nfc, setNfc] = useState(false);
+  const [reading, setReading] = useState<AbortController | null>(null);
+  const [iphoneHint, setIphoneHint] = useState(false);
 
   useEffect(() => {
+    setNfc(nfcSupported());
     fetchWalletById(walletId)
       .then(setWallet)
       .catch((err: Error) => setError(err.message));
   }, [walletId]);
+  useEffect(() => () => reading?.abort(), [reading]);
+
+  /** Android: lee la ficha; si está vacía, le graba su enlace; y se la da a este saldo. */
+  async function giveCard(code: string) {
+    const controller = new AbortController();
+    setReading(controller);
+    setError(null);
+    try {
+      // El código para una ficha vacía lo crea el servidor; se pide antes de
+      // acercarla (al grabar, la ficha tiene que seguir ahí).
+      const blank = issueWalletCard();
+      const read = await readCard(controller.signal);
+      let token = read.token;
+      if (!token) {
+        token = await blank;
+        await read.writeUrl(walletCardUrl(window.location.origin, token));
+      }
+      setWallet(await linkWalletCard(code, token, read.uid));
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') setError((err as Error).message);
+    } finally {
+      controller.abort();
+      setReading(null);
+    }
+  }
+
+  /** iPhone: la ficha (ya grabada) abre la app en otra pestaña, que se la da a este saldo. */
+  function giveCardIphone(code: string) {
+    const userId = getUser()?.id;
+    if (!userId) return;
+    saveFichaContext({ userId, kind: 'dar', code, at: Date.now() });
+    setIphoneHint(true);
+  }
 
   if (!wallet) return error ? <p style={errorStyle}>{error}</p> : null;
 
@@ -56,6 +96,27 @@ export function NewWalletCard({ walletId }: { walletId: string }) {
           Que elija su PIN aquí
         </Button>
       )}
+      {wallet.hasCard ? (
+        <p style={okStyle}>✓ Tiene ficha: la acerca y pone su PIN</p>
+      ) : reading ? (
+        <Button variant="ghost" onClick={() => reading.abort()}>
+          Acerca la ficha a la parte de atrás del móvil… (cancelar)
+        </Button>
+      ) : nfc ? (
+        <Button variant="ghost" onClick={() => void giveCard(wallet.code)}>
+          Darle una ficha NFC
+        </Button>
+      ) : (
+        <Button variant="ghost" onClick={() => giveCardIphone(wallet.code)}>
+          Darle una ficha NFC
+        </Button>
+      )}
+      {iphoneHint && !wallet.hasCard ? (
+        <p style={hintStyle}>
+          Acerca la ficha a la parte de arriba del iPhone y toca el aviso. (La ficha tiene que estar grabada antes, con un
+          Android.)
+        </p>
+      ) : null}
       {error ? <p style={errorStyle}>{error}</p> : null}
     </div>
   );

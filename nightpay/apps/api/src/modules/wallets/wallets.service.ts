@@ -711,7 +711,7 @@ export class WalletsService {
           closeRequestedAt: true,
           pinHash: true,
           pinLockedAt: true,
-          _count: { select: { consumptions: true, passkeys: true } },
+          _count: { select: { consumptions: true, passkeys: true, cards: { where: { status: 'ACTIVE' } } } },
         },
       }),
     );
@@ -730,6 +730,8 @@ export class WalletsService {
       /** Puede pagar sin sacar el móvil, con su PIN (y si está bloqueado por fallos). */
       hasPin: w.pinHash !== null,
       pinLocked: w.pinLockedAt !== null,
+      /** Tiene ficha NFC activa. */
+      hasCard: w._count.cards > 0,
     }));
   }
 

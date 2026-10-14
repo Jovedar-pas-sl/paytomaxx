@@ -502,6 +502,38 @@ export interface WalletLookup {
   hasPin: boolean;
   /** 5 PIN fallidos: hasta que lo desbloquee el encargado. */
   pinLocked: boolean;
+  /** Tiene ficha NFC. */
+  hasCard: boolean;
+}
+
+/** Cómo se dice cuál es el saldo sin el móvil del cliente: su código o su ficha. */
+export type WalletRef = { code: string } | { card: string; uid?: string | null };
+
+/** La ficha NFC que acercan → su saldo. */
+export async function lookupWalletCard(card: string, uid: string | null): Promise<WalletLookup> {
+  const res = await authedFetch('/v1/wallet-charges/cards/lookup', {
+    method: 'POST',
+    body: JSON.stringify({ card, ...(uid ? { uid } : {}) }),
+  });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Ficha'));
+  return res.json();
+}
+
+/** Código nuevo (lo crea el servidor) para grabar en una ficha vacía. */
+export async function issueWalletCard(): Promise<string> {
+  const res = await authedFetch('/v1/wallet-charges/cards/new', { method: 'POST' });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Ficha'));
+  return ((await res.json()) as { card: string }).card;
+}
+
+/** Dar ficha NFC al saldo (justo al recargar). */
+export async function linkWalletCard(code: string, card: string, uid: string | null): Promise<WalletLookup> {
+  const res = await authedFetch('/v1/wallet-charges/cards', {
+    method: 'POST',
+    body: JSON.stringify({ code, card, ...(uid ? { uid } : {}) }),
+  });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Ficha'));
+  return res.json();
 }
 
 /** La recarga recién cobrada: su código y si ya tiene PIN. */
@@ -518,11 +550,11 @@ export async function setWalletPin(code: string, pin: string): Promise<WalletLoo
   return res.json();
 }
 
-/** El cliente no saca el móvil: paga este cobro con su código y su PIN. */
-export async function payWalletChargeWithPin(id: string, code: string, pin: string): Promise<WalletChargeRequest> {
+/** El cliente no saca el móvil: paga este cobro con su código (o su ficha) y su PIN. */
+export async function payWalletChargeWithPin(id: string, ref: WalletRef, pin: string): Promise<WalletChargeRequest> {
   const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(id)}/pin`, {
     method: 'POST',
-    body: JSON.stringify({ code, pin }),
+    body: JSON.stringify({ ...ref, pin }),
   });
   if (!res.ok) throw new Error(await parseOperatorApiError(res, 'PIN del saldo'));
   return res.json();
