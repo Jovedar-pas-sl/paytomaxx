@@ -956,6 +956,7 @@ function PayoutConfirmModal({
   const [notes, setNotes] = useState('');
   const [externalTxId, setExternalTxId] = useState('');
   const [receiptUrl, setReceiptUrl] = useState('');
+  const [totpCode, setTotpCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exchangeRate, setExchangeRate] = useState<{ rate: number } | null>(null);
@@ -983,6 +984,7 @@ function PayoutConfirmModal({
         externalTxId: externalTxId.trim() || undefined,
         externalRail: payoutMethod ?? undefined,
         receiptUrl: receiptUrl.trim() || undefined,
+        totpCode: totpCode.trim() || undefined,
       });
       // Si admin pegó txhash + método cripto auto-verificable → llama verify
       if (externalTxId.trim() && isAutoVerifiable && payoutMethod) {
@@ -1112,6 +1114,15 @@ function PayoutConfirmModal({
           onChange={(e) => setNotes(e.target.value)}
           placeholder='"Pagado vía Binance", "Wire SEPA enviado", etc.'
           maxLength={500}
+        />
+        <Input
+          label="Código 2FA (si tienes la app de verificación activada)"
+          value={totpCode}
+          onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          placeholder="123456"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
         />
 
         {error ? (

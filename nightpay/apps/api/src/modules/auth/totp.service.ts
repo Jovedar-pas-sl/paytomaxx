@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import * as speakeasy from 'speakeasy';
 import { BRAND_NAME } from '../../common/brand';
 
@@ -31,6 +31,17 @@ export class TotpService {
    * Verifica un codigo TOTP de 6 digitos contra el secret del user.
    * Devuelve true si valida, false si no.
    */
+  /**
+   * 2FA "si la tiene activada": quien activó la app de verificación tiene que
+   * poner el código; quien no, sigue como antes (no se bloquea a nadie hasta
+   * que la active con `pnpm cli enroll-totp`).
+   */
+  assertIfEnrolled(secretBase32: string | null | undefined, code: string | undefined): void {
+    if (!secretBase32) return;
+    if (!code) throw new ForbiddenException('Pon el código de tu app de verificación (2FA)');
+    if (!this.verify(secretBase32, code)) throw new ForbiddenException('Código 2FA incorrecto o caducado');
+  }
+
   verify(secretBase32: string, code: string): boolean {
     if (!secretBase32 || !/^\d{6}$/.test(code)) return false;
     return speakeasy.totp.verify({

@@ -842,6 +842,8 @@ export async function createOperatorPayout(
     externalTxId?: string;
     externalRail?: PayoutMethod;
     receiptUrl?: string;
+    /** Código 2FA (obligatorio si el dueño lo tiene activado). */
+    totpCode?: string;
   },
 ): Promise<{ id: string; totalCents: number; earningCount: number; createdAt: string }> {
   const res = await authedFetch(`/v1/admin/operators/${id}/payouts`, {

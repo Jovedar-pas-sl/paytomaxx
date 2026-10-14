@@ -213,6 +213,8 @@ export const CreatePayoutSchema = z.object({
   externalTxId: z.string().min(4).max(200).optional(),
   externalRail: PayoutMethodSchema.optional(),
   receiptUrl: z.string().url().max(500).optional(),
+  /** Código de la app de verificación (2FA), obligatorio si el dueño la activó. */
+  totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 });
 export type CreatePayoutDto = z.infer<typeof CreatePayoutSchema>;
 

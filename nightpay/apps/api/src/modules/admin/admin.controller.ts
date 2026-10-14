@@ -24,6 +24,7 @@ import { Tenant } from '../../common/decorators/tenant.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RefreshTokenService } from '../auth/refresh-token.service';
+import { TotpService } from '../auth/totp.service';
 import { AuditService } from '../audit/audit.service';
 import { OperatorsService } from '../operators/operators.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -162,6 +163,7 @@ export class AdminController {
   private readonly operators: OperatorsService;
   private readonly payments: PaymentsService;
   private readonly cls: ClsService<{ ctx: RequestContext }>;
+  private readonly totp: TotpService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -170,6 +172,7 @@ export class AdminController {
     @Inject(OperatorsService) operators: OperatorsService,
     @Inject(PaymentsService) payments: PaymentsService,
     @Inject(ClsService) cls: ClsService<{ ctx: RequestContext }>,
+    @Inject(TotpService) totp: TotpService,
   ) {
     this.prisma = prisma;
     this.refreshTokens = refreshTokens;
@@ -177,6 +180,7 @@ export class AdminController {
     this.operators = operators;
     this.payments = payments;
     this.cls = cls;
+    this.totp = totp;
   }
 
   /**
@@ -850,6 +854,12 @@ export class AdminController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(CreatePayoutSchema)) dto: CreatePayoutDto,
   ) {
+    // Pagar a una chica mueve dinero: con 2FA activada, hace falta el código
+    // (una sesión robada no basta para mandar su dinero a otra cuenta).
+    const payer = await this.prisma.acrossVenues((tx) =>
+      tx.user.findUnique({ where: { id: user.sub }, select: { totpSecret: true } }),
+    );
+    this.totp.assertIfEnrolled(payer?.totpSecret, dto.totpCode);
     return this.operators.createPayout(tenantId, id, user.sub, dto.notes, {
       externalTxId: dto.externalTxId,
       externalRail: dto.externalRail,
