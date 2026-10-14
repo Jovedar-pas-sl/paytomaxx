@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderNoWalletPage, renderWalletPage } from './wallet-page';
+import { renderWalletPage } from './wallet-page';
 import type { ClientWalletState } from './wallet-charges.service';
 
 function state(o: Partial<ClientWalletState> = {}): ClientWalletState {
@@ -63,36 +63,3 @@ describe('página del saldo del cliente', () => {
     expect(html).toContain('/w/a%2Fb%22c');
   });
 });
-
-describe('móvil del cliente y Face ID / huella en la página', () => {
-  const script = (html: string): string => html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>'));
-
-  it('el script de la página es JavaScript válido (si se rompe, no funciona nada)', () => {
-    for (const lang of ['es', 'en'] as const) {
-      const html = renderWalletPage('tok-1', lang, { ...state(), device: { thisPhone: true, otherPhone: false, protected: true } });
-      expect(() => new Function(script(html))).not.toThrow();
-    }
-  });
-
-  it('lleva los textos de proteger con Face ID y el aviso de "este móvil recuerda tu saldo"', () => {
-    const html = renderWalletPage('tok-1', 'es', { ...state(), device: { thisPhone: true, otherPhone: false, protected: false } });
-    expect(html).toContain('Activar Face ID / huella');
-    expect(html).toContain('Este móvil recuerda tu saldo');
-    expect(html).toContain('id="protectCard"');
-    // Aceptar e irse pasan por Face ID si el saldo está protegido.
-    expect(script(html)).toContain("post('/requests/'+encodeURIComponent(this.dataset.id)+'/accept',true)");
-    expect(script(html)).toContain("post('/close',true)");
-    expect(script(html)).toContain("post('/requests/'+encodeURIComponent(this.dataset.id)+'/reject',true)");
-  });
-
-  it('el saldo se pide para el móvil desde la página (no al abrir el enlace)', () => {
-    const html = renderWalletPage('tok-1', 'es', { ...state(), device: { thisPhone: false, otherPhone: false, protected: false } });
-    expect(script(html)).toContain("if(!dv.thisPhone&&!dv.otherPhone)api('/claim')");
-  });
-
-  it('/w en un móvil sin saldo: lo explica, en los dos idiomas', () => {
-    expect(renderNoWalletPage('es')).toContain('En este móvil no hay ningún saldo guardado.');
-    expect(renderNoWalletPage('en')).toContain('There is no balance saved on this phone.');
-  });
-});
-

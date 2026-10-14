@@ -5,13 +5,12 @@ import { PublicWalletController } from './public-wallet.controller';
 import { WalletChargesController } from './wallet-charges.controller';
 import { WalletChargesService } from './wallet-charges.service';
 import { AdminWalletsController, WalletsController } from './wallets.controller';
-import { ClientDevicesService } from './client-devices.service';
 import { WalletsService } from './wallets.service';
 
 @Module({
   imports: [PrismaModule, AuditModule],
-  providers: [WalletsService, WalletChargesService, ClientDevicesService],
+  providers: [WalletsService, WalletChargesService],
   controllers: [WalletsController, AdminWalletsController, WalletChargesController, PublicWalletController],
-  exports: [WalletsService, ClientDevicesService],
+  exports: [WalletsService],
 })
 export class WalletsModule {}

@@ -7,8 +7,6 @@ import { Public } from '../../common/decorators/public.decorator';
 import { PaymentsService } from './payments.service';
 import { confirmationCode, type CheckoutChoice, type PayRedirect } from './pay-redirect';
 import { detectPayDevice } from './pay-device';
-import { readDeviceToken } from '../wallets/client-device';
-import { ClientDevicesService } from '../wallets/client-devices.service';
 import { payErrorKey, resolveLanguage, type PayLanguage } from './pay-i18n';
 import {
   payHref,
@@ -73,16 +71,10 @@ export class PublicPayController {
   private readonly logger = new Logger(PublicPayController.name);
   private readonly payments: PaymentsService;
   private readonly config: ConfigService;
-  private readonly devices: ClientDevicesService;
 
-  constructor(
-    @Inject(PaymentsService) payments: PaymentsService,
-    @Inject(ConfigService) config: ConfigService,
-    @Inject(ClientDevicesService) devices: ClientDevicesService,
-  ) {
+  constructor(@Inject(PaymentsService) payments: PaymentsService, @Inject(ConfigService) config: ConfigService) {
     this.payments = payments;
     this.config = config;
-    this.devices = devices;
   }
 
   @Public()
@@ -147,13 +139,12 @@ export class PublicPayController {
     @Query('lang') langQuery: string | undefined,
     @Headers('accept-language') acceptLanguage: string | undefined,
     @Headers('user-agent') userAgent: string | undefined,
-    @Headers('cookie') cookie: string | undefined,
     @Res() res: FastifyReply,
   ): Promise<void> {
     const lang = resolveLanguage(langQuery, acceptLanguage);
     try {
       const view = await this.payments.getPayPage(token);
-      this.send(res, token, lang, view, userAgent, await this.savedBalance(cookie, token, view));
+      this.send(res, token, lang, view, userAgent);
     } catch (err) {
       this.sendError(res, token, lang, err);
     }
@@ -199,7 +190,6 @@ export class PublicPayController {
     lang: PayLanguage,
     view: PayRedirect,
     userAgent: string | undefined,
-    savedBalanceCents: number | null = null,
   ): void {
     switch (view.kind) {
       case 'choose':
@@ -212,7 +202,6 @@ export class PublicPayController {
             device: detectPayDevice(userAgent),
             statementName: this.statementName(),
             now: new Date(),
-            savedBalanceCents,
           }),
         );
         return;
@@ -268,22 +257,6 @@ export class PublicPayController {
     // Logueamos detalles técnicos pero NO los mostramos al cliente
     this.logger.warn(`/pay/${token.slice(0, 4)}… failed: ${message}`);
     sendHtml(res, 409, renderErrorPage(payErrorKey(message), lang));
-  }
-
-  /**
-   * El móvil que escanea el QR ya tiene saldo que vale en este local: se le
-   * avisa (puede pagar enseñando su código). Solo en la página de elegir; un
-   * fallo aquí nunca impide pagar.
-   */
-  private async savedBalance(cookie: string | undefined, token: string, view: PayRedirect): Promise<number | null> {
-    if (view.kind !== 'choose') return null;
-    try {
-      const device = await this.devices.find(readDeviceToken(cookie));
-      return device ? await this.devices.balanceForPayment(device.id, token) : null;
-    } catch (err) {
-      this.logger.warn(`saldo del móvil no disponible: ${(err as Error).message}`);
-      return null;
-    }
   }
 
   private walletClaimName(payToken: string): string {

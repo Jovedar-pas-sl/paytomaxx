@@ -27,7 +27,6 @@ import {
   type ChargeRequestStatus,
   type WalletPayoutMethod,
 } from './wallet-rules';
-import type { DeviceWalletState } from './client-devices.service';
 
 type Actor = { userId: string; role: Role; tenantId: string };
 
@@ -73,8 +72,6 @@ export interface ClientWalletState {
     venueName: string | null;
     at: string;
   }>;
-  /** El móvil que lo mira (lo añade el controlador, ver ClientDevicesService). */
-  device?: DeviceWalletState;
 }
 
 const REQUEST_ERRORS: Record<'not-pending' | 'expired' | 'wallet-closed' | 'insufficient', string> = {
@@ -508,24 +505,14 @@ export class WalletChargesService {
     }
     if (wallet.status !== 'ACTIVE') throw new ConflictException('Este saldo ya está cerrado');
     const qrToken = newWalletToken();
-    // Enlace nuevo = el cliente perdió el suyo o el móvil: el saldo se suelta
-    // del móvil anterior y ese móvil pierde su Face ID (si era el del cliente,
-    // lo vuelve a activar; si se lo había quedado otro, deja de servirle). El
-    // primero que abra el enlace nuevo se lo queda.
-    const previousDevice = wallet.deviceId;
-    const removedKeys = await this.prisma.acrossVenues(async (tx) => {
-      await tx.clientWallet.update({ where: { id: walletId }, data: { qrToken, deviceId: null } });
-      return previousDevice
-        ? (await tx.clientDevicePasskey.deleteMany({ where: { deviceId: previousDevice } })).count
-        : 0;
-    });
+    await this.prisma.acrossVenues((tx) => tx.clientWallet.update({ where: { id: walletId }, data: { qrToken } }));
     await this.audit.log({
       action: 'wallet.relinked',
       tenantId: actor.tenantId,
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: walletId,
-      payload: { balanceCents: wallet.balanceCents, unboundDevice: previousDevice !== null, removedPasskeys: removedKeys },
+      payload: { balanceCents: wallet.balanceCents },
     });
     return { path: `/w/${qrToken}` };
   }

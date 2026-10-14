@@ -146,17 +146,11 @@ async function bootstrap() {
       { path: 'pay/:token/receipt', method: RequestMethod.GET },
       { path: 'pay/:token/checkout', method: RequestMethod.GET },
       // Saldo NightPay: página del cliente y sus acciones.
-      { path: 'w', method: RequestMethod.GET },
       { path: 'w/:token', method: RequestMethod.GET },
       { path: 'w/:token/state', method: RequestMethod.GET },
-      { path: 'w/:token/claim', method: RequestMethod.POST },
       { path: 'w/:token/requests/:id/accept', method: RequestMethod.POST },
       { path: 'w/:token/requests/:id/reject', method: RequestMethod.POST },
       { path: 'w/:token/close', method: RequestMethod.POST },
-      // Face ID / huella del móvil del cliente.
-      { path: 'w/:token/passkey/options', method: RequestMethod.POST },
-      { path: 'w/:token/passkey', method: RequestMethod.POST },
-      { path: 'w/:token/passkey/challenge', method: RequestMethod.POST },
     ],
   });
 

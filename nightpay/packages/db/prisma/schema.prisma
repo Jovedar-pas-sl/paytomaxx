@@ -747,13 +747,10 @@ model ClientWallet {
   shortCode        String?
   walletGroup      String?
   closeRequestedAt DateTime? @db.Timestamptz
-  // Móvil del cliente que lo abrió primero (ver ClientDevice).
-  deviceId         String?   @db.Uuid
   createdAt    DateTime     @default(now()) @db.Timestamptz
   updatedAt    DateTime     @updatedAt @db.Timestamptz
 
   venue          Venue                 @relation(fields: [tenantId], references: [id])
-  device         ClientDevice?         @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   topUps         Payment[]
   consumptions   WalletConsumption[]
   chargeRequests WalletChargeRequest[]
@@ -762,39 +759,7 @@ model ClientWallet {
   @@index([tenantId, status])
   @@index([tenantId, identifier])
   @@index([tenantId, createdAt(sort: Desc)])
-  @@index([deviceId])
   @@map("client_wallets")
-}
-
-/// Móvil de un cliente: una llave aleatoria en su navegador (cookie np_dev) y
-/// aquí solo su sha256. No es de ningún local: el mismo móvil sirve en todos.
-model ClientDevice {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tokenHash  String   @unique
-  createdAt  DateTime @default(now()) @db.Timestamptz
-  lastSeenAt DateTime @default(now()) @db.Timestamptz
-
-  wallets  ClientWallet[]
-  passkeys ClientDevicePasskey[]
-
-  @@map("client_devices")
-}
-
-/// Face ID / huella del móvil (WebAuthn). Solo la clave pública.
-model ClientDevicePasskey {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  deviceId     String    @db.Uuid
-  credentialId String    @unique
-  publicKey    Bytes
-  counter      BigInt    @default(0)
-  transports   String[]  @default([])
-  createdAt    DateTime  @default(now()) @db.Timestamptz
-  lastUsedAt   DateTime? @db.Timestamptz
-
-  device ClientDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-
-  @@index([deviceId])
-  @@map("client_device_passkeys")
 }
 
 // Cada consumo del balance de una wallet. Atómicamente:
