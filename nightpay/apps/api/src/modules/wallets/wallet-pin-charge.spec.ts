@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
 import { WalletChargesService } from './wallet-charges.service';
 import { hashPin } from './wallet-pin';
 
@@ -72,7 +72,7 @@ describe('cobrar del saldo con el PIN del cliente', () => {
     await expect(svc.chargeWithPin(actor, charge('0001'))).rejects.toThrow('Queda 1 intento');
     await expect(svc.chargeWithPin(actor, charge('0002'))).rejects.toThrow(/Saldo bloqueado/);
     expect(row.pinLockedAt).toBeInstanceOf(Date);
-    await expect(svc.chargeWithPin(actor, charge('4827'))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.chargeWithPin(actor, charge('4827'))).rejects.toBeInstanceOf(UnprocessableEntityException);
     expect(settleRequest).not.toHaveBeenCalled();
 
     // La chica no puede desbloquear; el encargado sí.

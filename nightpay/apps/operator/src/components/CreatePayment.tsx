@@ -17,6 +17,7 @@ import {
   type ServiceItem,
   type ZoneOption,
 } from '@/lib/api';
+import { NewWalletCard } from './NewWalletCard';
 
 /**
  * Categorías de ingreso visibles al crear cobro.
@@ -397,6 +398,7 @@ export function CreatePayment({ onCreated }: Props) {
               </strong>
             </p>
             <p style={{ ...hintStyle, textAlign: 'center' }}>Debe coincidir con el del móvil del cliente.</p>
+            {active.walletId ? <NewWalletCard walletId={active.walletId} /> : null}
             {paidTipCents > 0 ? (
               <p className="np-num" style={{ margin: 0, textAlign: 'center', fontWeight: 700, fontSize: '1.25rem', color: 'var(--np-accent)' }}>
                 + {formatEur(paidTipCents)} de propina

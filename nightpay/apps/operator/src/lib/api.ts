@@ -356,6 +356,8 @@ export async function createPayment(input: {
   currency?: string;
   /** Phase 1B — si set, crea una wallet etiquetada con identifier. */
   walletIdentifier?: string;
+  /** Recargar el saldo que ya tiene el cliente (otra noche o más dinero). */
+  walletId?: string;
   /** POS — el camarero confirma tras procesar tarjeta en datáfono externo. */
   captureMethod?: 'QR' | 'POS_EXTERNAL';
   /** Categoría contable: CHICA_SERVICE | VENUE_BAR | VENUE_ROOM | VENUE_FOOD | EXTRA */
@@ -381,7 +383,9 @@ export async function createPayment(input: {
       if (input.zoneCustom) body.zoneCustom = input.zoneCustom;
     }
   }
-  if (input.walletIdentifier) {
+  if (input.walletId) {
+    body.wallet = { walletId: input.walletId };
+  } else if (input.walletIdentifier) {
     body.wallet = { create: true, identifier: input.walletIdentifier };
   }
   if (input.captureMethod) {
@@ -497,7 +501,15 @@ export interface WalletLookup {
   balanceCents: number;
   label: string | null;
   homeVenueName: string;
+  isHomeVenue: boolean;
+  closeRequested: boolean;
   pendingRequest: boolean;
+  /** El cliente ya eligió su PIN (si no, lo elige antes del primer cobro). */
+  hasPin: boolean;
+  /** 5 PIN fallidos: bloqueado hasta que lo desbloquee el encargado. */
+  pinLocked: boolean;
+  /** Tiene pulsera o tarjeta NFC. */
+  hasTag: boolean;
 }
 
 export type WalletChargeStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CANCELED';
@@ -515,6 +527,46 @@ export interface WalletChargeRequest {
 export async function lookupWalletCode(code: string): Promise<WalletLookup> {
   const res = await authedFetch(`/v1/wallet-charges/lookup/${encodeURIComponent(code)}`);
   if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Código de saldo'));
+  return res.json();
+}
+
+/** El saldo por la pulsera NFC del cliente. */
+export async function lookupWalletTag(tag: string): Promise<WalletLookup> {
+  const res = await authedFetch(`/v1/wallet-charges/lookup-tag/${encodeURIComponent(tag)}`);
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Pulsera'));
+  return res.json();
+}
+
+/** El saldo por su id (la recarga recién cobrada). */
+export async function fetchWalletById(walletId: string): Promise<WalletLookup> {
+  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}`);
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Saldo'));
+  return res.json();
+}
+
+/** Cobrar del saldo con el PIN del cliente: se cobra al momento. */
+export async function chargeWalletWithPin(input: {
+  code: string;
+  serviceItemId?: string;
+  amountCents?: number;
+  pin: string;
+}): Promise<WalletChargeRequest> {
+  const res = await authedFetch('/v1/wallet-charges/pin-charge', { method: 'POST', body: JSON.stringify(input) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));
+  return res.json();
+}
+
+/** El cliente elige su PIN en este móvil (solo si aún no tiene). */
+export async function setWalletPin(code: string, pin: string): Promise<WalletLookup> {
+  const res = await authedFetch('/v1/wallet-charges/pin', { method: 'POST', body: JSON.stringify({ code, pin }) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'PIN'));
+  return res.json();
+}
+
+/** Pulsera o tarjeta NFC para este saldo. */
+export async function assignWalletTag(code: string, tag: string): Promise<WalletLookup> {
+  const res = await authedFetch('/v1/wallet-charges/tag', { method: 'POST', body: JSON.stringify({ code, tag }) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Pulsera'));
   return res.json();
 }
 

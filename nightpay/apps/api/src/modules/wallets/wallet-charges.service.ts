@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import type { Role } from '@nightpay/contracts';
@@ -598,13 +599,14 @@ export class WalletChargesService {
         throw new NotFoundException('Saldo no encontrado');
       case 'no-pin':
         throw new ConflictException('El cliente aún no tiene PIN: que lo elija primero');
+      // 422 (no 403): la app enseña el texto tal cual ("No tienes permiso" confundiría).
       case 'locked':
-        throw new ForbiddenException('Saldo bloqueado por PIN fallado: avisa al encargado para desbloquearlo');
+        throw new UnprocessableEntityException('Saldo bloqueado por PIN fallado: avisa al encargado para desbloquearlo');
       case 'now-locked':
         this.logger.warn(`Saldo ${walletId}: bloqueado tras ${PIN_MAX_FAILS} PIN fallidos`);
-        throw new ForbiddenException('PIN incorrecto. Saldo bloqueado: avisa al encargado para desbloquearlo');
+        throw new UnprocessableEntityException('PIN incorrecto. Saldo bloqueado: avisa al encargado para desbloquearlo');
       case 'wrong':
-        throw new ForbiddenException(
+        throw new UnprocessableEntityException(
           `PIN incorrecto. ${outcome.left === 1 ? 'Queda 1 intento' : `Quedan ${outcome.left} intentos`}`,
         );
     }
