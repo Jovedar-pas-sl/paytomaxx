@@ -69,7 +69,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       checks,
       // DIAG temporal — marker para confirmar deploy aplicado
-      build: 'saldo-pin-2026-10-14',
+      build: 'pendientes-2026-10-14',
     } as Health & { build: string };
   }
 }
