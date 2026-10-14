@@ -1,7 +1,6 @@
 import { Controller, Get, Inject, Logger, Query, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
-import { Public } from '../../common/decorators/public.decorator';
 import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { BRAND_NAME } from '../../common/brand';
@@ -78,7 +77,6 @@ export class PeanpeDebugController {
     this.peanpe = peanpe;
   }
 
-  @Public()
   @Get('keycheck')
   keycheck(): PeanpeConfigCheckResponse {
     this.auditHit('keycheck');
@@ -110,7 +108,6 @@ export class PeanpeDebugController {
     };
   }
 
-  @Public()
   @Get('dry-run')
   dryRun(
     @Query('amount') amountRaw?: string,

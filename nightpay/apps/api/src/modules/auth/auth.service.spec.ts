@@ -77,7 +77,9 @@ describe('AuthService.login', () => {
     await expect(svc.login({ email: 'nobody@x.test', password: 'whatever12' })).rejects.toThrow(
       UnauthorizedException,
     );
-    expect(lockoutMock.recordFailure).toHaveBeenCalledOnce();
+    // Por IP (5 fallos) y por cuenta (30 fallos, cualquier IP).
+    expect(lockoutMock.recordFailure).toHaveBeenCalledTimes(2);
+    expect(lockoutMock.recordFailure.mock.calls[1]![0]).toMatch(/^cuenta:/);
   });
 
   it('rejects bad password + records failure', async () => {
@@ -94,7 +96,9 @@ describe('AuthService.login', () => {
     await expect(svc.login({ email: 'a@b.test', password: 'wrong12345' })).rejects.toThrow(
       UnauthorizedException,
     );
-    expect(lockoutMock.recordFailure).toHaveBeenCalledOnce();
+    // Por IP (5 fallos) y por cuenta (30 fallos, cualquier IP).
+    expect(lockoutMock.recordFailure).toHaveBeenCalledTimes(2);
+    expect(lockoutMock.recordFailure.mock.calls[1]![0]).toMatch(/^cuenta:/);
   });
 
   it('issues token + clears lockout on success', async () => {
@@ -116,7 +120,7 @@ describe('AuthService.login', () => {
     expect(result.accessToken).toBe('JWT.X');
     expect(result.refreshToken).toBe('rt.secret');
     expect(result.refreshExpiresIn).toBeGreaterThan(0);
-    expect(lockoutMock.clear).toHaveBeenCalledOnce();
+    expect(lockoutMock.clear).toHaveBeenCalledTimes(2);
     expect(auditMock.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.login.ok' }));
     expect(jwtMock.signAsync).toHaveBeenCalledOnce();
   });

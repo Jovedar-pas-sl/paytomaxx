@@ -7,6 +7,8 @@ const TENANT_ID = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 
 function makeProcessor(rawBody: string, provider = 'REDSYS') {
   const prisma = {
+    // El cobro es de la misma pasarela que el aviso.
+    payment: { findUnique: vi.fn().mockResolvedValue({ provider }) },
     webhookDelivery: {
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         id: BigInt(7),
@@ -67,5 +69,15 @@ describe('WebhookIngestProcessor — formato del body persistido', () => {
       _paymentId: PAYMENT_ID,
     });
     expect(payments.transition).toHaveBeenCalled();
+  });
+});
+
+describe('WebhookIngestProcessor — cada pasarela solo toca sus cobros', () => {
+  it('un aviso de Paytef no puede marcar pagado un cobro de Redsys', async () => {
+    const { processor, payments, prisma, job } = makeProcessor('{"data":{}}', 'PAYTEF');
+    prisma.payment.findUnique.mockResolvedValueOnce({ provider: 'REDSYS' });
+    await processor.process(job as never);
+    expect(payments.transition).not.toHaveBeenCalled();
+    expect(prisma.webhookDelivery.update).toHaveBeenCalled();
   });
 });

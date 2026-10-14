@@ -16,16 +16,15 @@ const SwitchTenantRequestSchema = z.object({
   tenantId: z.string().uuid(),
 });
 import { Public } from '../../common/decorators/public.decorator';
-import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
+import { IpRateLimit, clientIp } from '../../common/guards/ip-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { AuthService } from './auth.service';
 import type { RequestContext } from '../../common/context/request-context';
 import { ClsService } from 'nestjs-cls';
 
+// La IP real (CF-Connecting-IP detrás de Cloudflare), la misma que el límite de peticiones.
 function extractIp(req: FastifyRequest): string | undefined {
-  const xff = req.headers['x-forwarded-for'];
-  const ipHeader = Array.isArray(xff) ? xff[0] : xff;
-  return ((ipHeader as string | undefined) ?? req.ip)?.split(',')[0]?.trim();
+  return clientIp(req) ?? undefined;
 }
 
 @Controller('auth')

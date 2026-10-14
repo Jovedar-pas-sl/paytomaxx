@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Guard para endpoints /v1/debug/*.
@@ -26,14 +27,30 @@ import { ConfigService } from '@nestjs/config';
 export class DebugEndpointsGuard implements CanActivate {
   private readonly logger = new Logger(DebugEndpointsGuard.name);
   private readonly config: ConfigService;
+  private readonly prisma: PrismaService;
 
-  constructor(@Inject(ConfigService) config: ConfigService) {
+  constructor(@Inject(ConfigService) config: ConfigService, @Inject(PrismaService) prisma: PrismaService) {
     this.config = config;
+    this.prisma = prisma;
   }
 
-  canActivate(ctx: ExecutionContext): boolean {
+  /**
+   * Fuera de producción, con sesión basta. En producción hacen falta las dos
+   * cosas: el interruptor DEBUG_ENDPOINTS_ENABLED y una sesión de superadmin
+   * (estos endpoints enseñan datos de todos los locales).
+   */
+  async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const nodeEnv = this.config.get<string>('NODE_ENV');
     if (nodeEnv !== 'production') return true;
+    const userId = ctx.switchToHttp().getRequest<{ user?: { sub?: string } }>().user?.sub;
+    const admin = userId
+      ? await this.prisma.asSystem((tx) =>
+          tx.user.findUnique({ where: { id: userId }, select: { isSuperAdmin: true, deletedAt: true } }),
+        )
+      : null;
+    if (!admin || admin.deletedAt || !admin.isSuperAdmin) {
+      throw new ForbiddenException('Solo superadmin');
+    }
 
     // ConfigModule.forRoot() lee process.env directo sin Zod parsing,
     // así que DEBUG_ENDPOINTS_ENABLED llega como string "true" no boolean.

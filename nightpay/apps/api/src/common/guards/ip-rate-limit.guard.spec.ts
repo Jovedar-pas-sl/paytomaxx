@@ -127,3 +127,19 @@ describe('IpRateLimit decorator', () => {
     expect(typeof decorator).toBe('function');
   });
 });
+
+describe('clientIp (la IP que cuenta para el login y los límites)', () => {
+  it('detrás de Cloudflare manda CF-Connecting-IP aunque el cliente invente X-Forwarded-For', async () => {
+    const { clientIp } = await import('./ip-rate-limit.guard');
+    const req = { headers: { 'cf-connecting-ip': '81.0.0.7', 'x-forwarded-for': '1.2.3.4, 81.0.0.7' } };
+    expect(clientIp(req)).toBe('81.0.0.7');
+    const otra = { headers: { 'cf-connecting-ip': '81.0.0.7', 'x-forwarded-for': '9.9.9.9' } };
+    expect(clientIp(otra)).toBe('81.0.0.7');
+  });
+
+  it('sin Cloudflare (dev): X-Forwarded-For y si no, la del socket', async () => {
+    const { clientIp } = await import('./ip-rate-limit.guard');
+    expect(clientIp({ headers: { 'x-forwarded-for': '10.0.0.1, 10.0.0.2' } })).toBe('10.0.0.1');
+    expect(clientIp({ headers: {}, socket: { remoteAddress: '127.0.0.1' } })).toBe('127.0.0.1');
+  });
+});

@@ -34,7 +34,7 @@ export class LockoutService {
    * Registra un fallo. Si supera threshold, activa el lock.
    * Devuelve el contador actual y si quedo locked.
    */
-  async recordFailure(key: string): Promise<{ count: number; locked: boolean }> {
+  async recordFailure(key: string, threshold: number = FAILED_THRESHOLD): Promise<{ count: number; locked: boolean }> {
     const failKey = `nightpay:lockout:fail:${key}`;
     const lockedKey = `nightpay:lockout:locked:${key}`;
     const count = await this.redis.incr(failKey);
@@ -42,7 +42,7 @@ export class LockoutService {
       // Primera falla — set TTL
       await this.redis.expire(failKey, FAILURE_WINDOW_SEC);
     }
-    if (count >= FAILED_THRESHOLD) {
+    if (count >= threshold) {
       await this.redis.set(lockedKey, '1', 'EX', LOCKOUT_DURATION_SEC);
       this.logger.warn(`Locked ${key} (count=${count}) for ${LOCKOUT_DURATION_SEC}s`);
       return { count, locked: true };

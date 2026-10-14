@@ -16,7 +16,11 @@ import { RefreshTokenService } from './refresh-token.service';
 import type { JwtPayload, LoginRequest, LoginResponse, RefreshResponse } from '@nightpay/contracts';
 
 const BCRYPT_ROUNDS = 10;
-const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 * 12; // 12h — staff interno
+// 1 h: el refresco (automático en las apps) comprueba que el usuario sigue
+// activo, así que una baja o un cambio de contraseña cortan el acceso en 1 h.
+const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
+/** Fallos en total sobre una cuenta (cualquier IP) antes de bloquearla. */
+const ACCOUNT_FAILED_THRESHOLD = 30;
 
 @Injectable()
 export class AuthService {
@@ -58,9 +62,16 @@ export class AuthService {
    * - Audit log de exitos y fallos.
    */
   async login(input: LoginRequest, ip?: string, userAgent?: string): Promise<LoginResponse> {
-    const key = input.email.toLowerCase();
+    // Dos niveles: 5 fallos desde la misma IP bloquean a esa IP para esta
+    // cuenta (un atacante no deja fuera al dueño con 5 intentos); 30 fallos
+    // en total bloquean la cuenta (fuerza bruta cambiando de IP).
+    const emailKey = input.email.toLowerCase();
+    const key = `${emailKey}|${ip ?? '-'}`;
+    const accountKey = `cuenta:${emailKey}`;
 
-    const lock = await this.lockout.isLocked(key);
+    const ipLock = await this.lockout.isLocked(key);
+    const accountLock = await this.lockout.isLocked(accountKey);
+    const lock = ipLock.locked ? ipLock : accountLock;
     if (lock.locked) {
       this.metrics.authLogins.inc({ outcome: 'locked' });
       this.logger.warn(`Login locked for ${key} (${lock.ttlSeconds}s remaining)`);
@@ -83,6 +94,7 @@ export class AuthService {
 
     if (!user || user.deletedAt) {
       const result = await this.lockout.recordFailure(key);
+      await this.lockout.recordFailure(accountKey, ACCOUNT_FAILED_THRESHOLD);
       this.metrics.authLogins.inc({ outcome: 'failed' });
       await this.audit.log({
         action: 'auth.login.failed',
@@ -97,6 +109,7 @@ export class AuthService {
     const ok = await this.verifyPassword(input.password, user.passwordHash);
     if (!ok) {
       const result = await this.lockout.recordFailure(key);
+      await this.lockout.recordFailure(accountKey, ACCOUNT_FAILED_THRESHOLD);
       this.metrics.authLogins.inc({ outcome: 'failed' });
       await this.audit.log({
         action: 'auth.login.failed',
@@ -127,6 +140,7 @@ export class AuthService {
     }
 
     await this.lockout.clear(key);
+    await this.lockout.clear(accountKey);
 
     const payload: JwtPayload = {
       sub: user.id,

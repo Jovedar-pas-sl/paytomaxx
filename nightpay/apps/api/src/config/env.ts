@@ -76,6 +76,10 @@ const EnvSchema = z.object({
   // grupo) del dueño con el bot.
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
+  // Solo a través de Cloudflare: secreto que Cloudflare añade como cabecera
+  // X-Origin-Auth (regla de transformación). Sin él, el servidor acepta
+  // también peticiones directas a su IP. Ver docs/PUESTA-EN-MARCHA.md.
+  ORIGIN_AUTH_SECRET: z.string().min(24).optional(),
   // Copias de seguridad: Dokploy las sube a un S3 (R2, Backblaze…); con esto
   // el API mira la fecha de la última y avisa si pasa más de un día sin
   // copias. Basta una clave de solo lectura. Ver docs/BACKUPS.md.

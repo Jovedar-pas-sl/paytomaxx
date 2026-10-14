@@ -342,8 +342,8 @@ export class OperatorsService {
       select: { name: true },
     });
     const html = `
-      <h2>Bienvenida a ${venue.name}</h2>
-      <p>Hola ${dto.displayName},</p>
+      <h2>Bienvenida a ${escapeHtml(venue.name)}</h2>
+      <p>Hola ${escapeHtml(dto.displayName)},</p>
       <p>Has sido añadida como operadora. Activa tu cuenta y crea tu contraseña en este enlace
       (válido durante ${INVITE_TTL_HOURS} h):</p>
       <p><a href="${inviteUrl}">Activar cuenta</a></p>
@@ -706,9 +706,19 @@ export class OperatorsService {
     if (dto.needsHelpWallet !== undefined) data.needsHelpWallet = dto.needsHelpWallet;
     if (dto.needsHelpDocs !== undefined) data.needsHelpDocs = dto.needsHelpDocs;
     if (dto.onboardingNotes !== undefined) data.onboardingNotes = dto.onboardingNotes;
-    if (dto.payoutMethod !== undefined) data.payoutMethod = dto.payoutMethod;
-    if (dto.payoutAddress !== undefined) data.payoutAddress = dto.payoutAddress;
-    if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
+    // A dónde va su dinero: solo la primera vez. Si ya tiene cuenta de cobro,
+    // el enlace (que puede generar un encargado) no la cambia: lo hace el dueño.
+    const existing = operator as unknown as { payoutMethod?: string | null; payoutAddress?: string | null };
+    const hasPayout = Boolean(existing.payoutMethod || existing.payoutAddress);
+    const wantsPayout =
+      dto.payoutMethod !== undefined || dto.payoutAddress !== undefined || dto.payoutLabel !== undefined;
+    if (hasPayout && wantsPayout) {
+      this.logger.warn(`Self-onboarding ${(operator as { id: string }).id}: cambio de cuenta de cobro ignorado (ya tenía una)`);
+    } else {
+      if (dto.payoutMethod !== undefined) data.payoutMethod = dto.payoutMethod;
+      if (dto.payoutAddress !== undefined) data.payoutAddress = dto.payoutAddress;
+      if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
+    }
 
     // Marca progreso de onboarding automáticamente si todavía está NEW
     const current = operator as unknown as { onboardingStatus: string | null };
@@ -1107,4 +1117,13 @@ export class OperatorsService {
       onboardingNotes: u.onboardingNotes ?? null,
     };
   }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

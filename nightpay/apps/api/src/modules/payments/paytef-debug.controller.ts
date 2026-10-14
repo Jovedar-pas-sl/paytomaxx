@@ -1,6 +1,5 @@
 import { Controller, Get, Inject, Logger, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Public } from '../../common/decorators/public.decorator';
 import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
 
 /**
@@ -23,7 +22,6 @@ export class PaytefDebugController {
    * elige en runtime. Si esto devuelve algo distinto a lo que aparece en
    * "Branch not found" del error de /save, hay bug en el adapter.
    */
-  @Public()
   @Get('picked')
   async picked(): Promise<unknown> {
     const raw = (await this.branches()) as { body?: { data?: unknown[] } };
@@ -65,7 +63,6 @@ export class PaytefDebugController {
     };
   }
 
-  @Public()
   @Get('branches')
   async branches(): Promise<unknown> {
     const baseUrl = this.config.get<string>('PAYTEF_API_URL') ?? 'https://api.paytef.es/gcf';

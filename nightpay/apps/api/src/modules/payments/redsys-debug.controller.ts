@@ -1,6 +1,5 @@
 import { Controller, Get, Inject, NotFoundException, Param, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Public } from '../../common/decorators/public.decorator';
 import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
@@ -66,7 +65,6 @@ export class RedsysDebugController {
     this.redsys = redsys;
   }
 
-  @Public()
   @Get('keycheck')
   keycheck(): KeyCheckResponse {
     const merchantCode = this.config.get<string>('REDSYS_MERCHANT_CODE') ?? '';
@@ -124,7 +122,6 @@ export class RedsysDebugController {
    * Si null en todos los cobros recientes → BBVA no lo tiene activo o
    * REDSYS_REQUEST_TOKEN no estaba en el env al hacer el cobro.
    */
-  @Public()
   @Get('last-tokenized')
   async lastTokenized(): Promise<{
     found: boolean;
@@ -184,7 +181,6 @@ export class RedsysDebugController {
    * está atascado en AUTHORIZING (= webhook no llegó) o en AUTHORIZED (=
    * webhook OK pero UI no refresca).
    */
-  @Public()
   @Get('recent-payments')
   async recentPayments(): Promise<{ total: number; payments: PaymentSummary[] }> {
     const rows = await this.prisma.$queryRawUnsafe<Array<{
@@ -224,7 +220,6 @@ export class RedsysDebugController {
    * Redsys NO llamó a nuestro webhook (panel BBVA mal configurado o
    * comunicación on-line off).
    */
-  @Public()
   @Get('recent-webhooks')
   async recentWebhooks(): Promise<{ total: number; webhooks: WebhookSummary[] }> {
     const rows = await this.prisma.$queryRawUnsafe<Array<{
@@ -264,7 +259,6 @@ export class RedsysDebugController {
    * URL). Útil cuando consult devuelve UNKNOWN — el adapter swallow el
    * error original, este endpoint lo expone para diagnosticar.
    */
-  @Public()
   @Get('consult-raw/:paymentId')
   async consultRaw(@Param('paymentId') paymentId: string): Promise<unknown> {
     const rows = await this.prisma.$queryRawUnsafe<Array<{
@@ -349,7 +343,6 @@ export class RedsysDebugController {
    * la BD. Para reconciliar de verdad, el orphan-reconcile processor
    * agarra ese estado y avanza el FSM.
    */
-  @Public()
   @Get('consult/:paymentId')
   async consult(@Param('paymentId') paymentId: string): Promise<{
     paymentId: string;

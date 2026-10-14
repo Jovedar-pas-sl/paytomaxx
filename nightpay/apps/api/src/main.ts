@@ -9,7 +9,8 @@ import {
 } from '@nestjs/platform-fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import { redactWalletToken } from './common/logging/redact-url';
+import { redactSecretsInUrl } from './common/logging/redact-url';
+import { ORIGIN_AUTH_HEADER, originAllowed } from './common/http/origin-guard';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
 import { initSentry } from './common/observability/sentry';
@@ -34,7 +35,7 @@ async function bootstrap() {
       serializers: {
         req: (req: { method: string; url: string; hostname?: string; ip?: string }) => ({
           method: req.method,
-          url: redactWalletToken(req.url),
+          url: redactSecretsInUrl(req.url),
           hostname: req.hostname,
           remoteAddress: req.ip,
         }),
@@ -89,6 +90,21 @@ async function bootstrap() {
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   });
 
+  // Solo a través de Cloudflare (si está ORIGIN_AUTH_SECRET): lo que llegue
+  // directo al servidor se corta antes de todo lo demás. El secreto se quita
+  // de la petición para que no acabe en logs ni en Sentry.
+  if (env.ORIGIN_AUTH_SECRET) {
+    const secret = env.ORIGIN_AUTH_SECRET;
+    app
+      .getHttpAdapter()
+      .getInstance()
+      .addHook('onRequest', async (req: { headers: Record<string, string | string[] | undefined>; url: string }, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) => {
+        const ok = originAllowed(req.headers, req.url, secret);
+        delete req.headers[ORIGIN_AUTH_HEADER];
+        if (!ok) return reply.code(403).send({ title: 'Forbidden', status: 403 });
+      });
+  }
+
   // Rate limit global — 100 req/min/IP. Endpoints sensibles (login, refresh,
   // accept-invite) tienen su propio @IpRateLimit más estricto via guard Redis.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,8 +114,16 @@ async function bootstrap() {
     // La página del saldo del cliente consulta su estado cada pocos segundos y
     // en un local muchos clientes comparten la IP del wifi: va con su propio
     // límite (@IpRateLimit en PublicWalletController), no con el global.
-    allowList: (req: { ip: string; method: string; url: string }) =>
-      req.ip === '127.0.0.1' || req.ip === '::1' || (req.method === 'GET' && /^\/w\/[^/]+\/state(\?|$)/.test(req.url)),
+    // "localhost" por la conexión real (req.ip sale de X-Forwarded-For y se puede inventar).
+    allowList: (req: { method: string; url: string; raw?: { socket?: { remoteAddress?: string } } }) => {
+      const peer = req.raw?.socket?.remoteAddress ?? '';
+      return (
+        peer === '127.0.0.1' ||
+        peer === '::1' ||
+        peer === '::ffff:127.0.0.1' ||
+        (req.method === 'GET' && /^\/w\/[^/]+\/state(\?|$)/.test(req.url))
+      );
+    },
     keyGenerator: (req: { headers: Record<string, string | string[] | undefined>; ip: string }) => {
       // Detrás de Cloudflare: CF-Connecting-IP no lo puede falsear el cliente;
       // el primer valor de X-Forwarded-For sí.

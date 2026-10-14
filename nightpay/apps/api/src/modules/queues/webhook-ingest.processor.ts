@@ -59,6 +59,21 @@ export class WebhookIngestProcessor extends WorkerHost {
       return;
     }
 
+    // Un aviso de una pasarela solo puede tocar cobros de esa pasarela: con el
+    // secreto de la URL de Paytef (o un aviso de Peanpe) no se puede marcar
+    // pagado un cobro de Redsys.
+    const target = await this.prisma.payment.findUnique({
+      where: { id: fsmEvent.paymentId },
+      select: { provider: true },
+    });
+    if (!target || target.provider !== delivery.provider) {
+      this.logger.warn(
+        `webhook ${deliveryId}: el cobro ${fsmEvent.paymentId} no es de ${delivery.provider} (es ${target?.provider ?? 'desconocido'}) — ignorado`,
+      );
+      await this.markProcessed(deliveryId);
+      return;
+    }
+
     try {
       // Defensa cross-tenant: si el delivery trae tenantId (lo setea
       // webhooks.controller al validar el webhook), lo pasamos a transition

@@ -94,7 +94,13 @@ export class RefreshTokenService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    // Borrar jti viejo + indices
+    // Consumirlo de forma atómica: si otro refresco ya lo consumió, este no vale.
+    const claimed = await this.redis.del(this.key(parsed.jti));
+    if (claimed !== 1) {
+      this.logger.warn(`Refresh token ya consumido (jti=${parsed.jti})`);
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+    // Borrar índices del jti viejo
     await this.deleteJti(parsed.jti, stored);
 
     // Emitir nuevo en misma family

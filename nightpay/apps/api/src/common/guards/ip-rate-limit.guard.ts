@@ -73,7 +73,7 @@ export class IpRateLimitGuard implements CanActivate {
     if (!config) return true;
 
     const req = ctx.switchToHttp().getRequest<MinimalReq>();
-    const ip = extractIp(req);
+    const ip = clientIp(req);
     if (!ip) return true; // sin IP confiable no rate-limitamos (raro pero defensivo)
 
     // Fixed window: bucket = floor(now / windowSec). Reset implícito al cambiar bucket.
@@ -116,8 +116,10 @@ export class IpRateLimitGuard implements CanActivate {
  * Extrae la IP real. Detrás de Cloudflare manda CF-Connecting-IP: lo pone
  * Cloudflare y el cliente no puede falsearlo (el primer valor de
  * X-Forwarded-For sí). Sin él, X-Forwarded-For; en dev, socket.remoteAddress.
+ * La usan también el login y su bloqueo por intentos: con el primer
+ * X-Forwarded-For bastaba cambiarlo en cada intento para no llenar el contador.
  */
-function extractIp(req: MinimalReq): string | null {
+export function clientIp(req: MinimalReq): string | null {
   const cf = req.headers['cf-connecting-ip'];
   const cfStr = Array.isArray(cf) ? cf[0] : cf;
   if (typeof cfStr === 'string' && cfStr.trim().length > 0) return cfStr.trim();

@@ -8,6 +8,8 @@
  * Sin DSN o sin paquete: no-op silencioso (en prod un WARN).
  */
 
+import { redactSecretsInUrl } from '../logging/redact-url';
+
 interface SentryLike {
   init: (opts: Record<string, unknown>) => void;
   captureException: (err: unknown) => void;
@@ -70,6 +72,10 @@ export function initSentry(env: {
     beforeSend(event: Record<string, unknown>) {
       return scrubSensitive(event);
     },
+    // Las trazas de rendimiento llevan la URL de cada petición: misma limpieza.
+    beforeSendTransaction(event: Record<string, unknown>) {
+      return scrubSensitive(event);
+    },
   });
   initialized = true;
   // eslint-disable-next-line no-console
@@ -91,8 +97,26 @@ export function reportError(
 
 function scrubSensitive(event: Record<string, unknown>): Record<string, unknown> | null {
   const req = event.request as
-    | { headers?: Record<string, string>; data?: Record<string, unknown> }
+    | {
+        headers?: Record<string, string>;
+        data?: Record<string, unknown>;
+        url?: string;
+        query_string?: unknown;
+      }
     | undefined;
+  // Tokens y secretos que van en la URL (QR, saldo, avisos de Paytef…).
+  if (req?.url) {
+    try {
+      const u = new URL(req.url, 'http://x');
+      req.url = req.url.startsWith('http')
+        ? `${u.origin}${redactSecretsInUrl(u.pathname)}`
+        : redactSecretsInUrl(u.pathname);
+    } catch {
+      req.url = '[REDACTED]';
+    }
+  }
+  if (req && 'query_string' in req) req.query_string = '[REDACTED]';
+  if (typeof event.transaction === 'string') event.transaction = redactSecretsInUrl(event.transaction);
   if (req?.headers) {
     for (const k of Object.keys(req.headers)) {
       const lk = k.toLowerCase();

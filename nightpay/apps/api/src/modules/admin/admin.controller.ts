@@ -188,6 +188,8 @@ export class AdminController {
   @Get('debug-state')
   @Roles('OWNER', 'MANAGER')
   async debugState(@CurrentUser() user: JwtPayload) {
+    // Enseña todos los locales: solo superadmin.
+    await this.assertSuperAdmin(user.sub);
     const result: Record<string, unknown> = {};
     result.actor = {
       userId: user.sub,
@@ -797,8 +799,9 @@ export class AdminController {
    * Response devuelve la password EN CLARO una sola vez para que el admin la
    * copie y se la envíe por WhatsApp. NightPay nunca la persiste en claro.
    */
+  // Solo el dueño: con una contraseña nueva se entra como la chica.
   @Post('operators/:id/reset-password')
-  @Roles('OWNER', 'MANAGER')
+  @Roles('OWNER')
   @HttpCode(200)
   async resetPassword(
     @Tenant() tenantId: string,
