@@ -31,16 +31,6 @@ export interface PayText {
   payCard: string;
   inAppWarning: (app: string) => string;
   statement: (name: string) => string;
-  /** Recarga de saldo: su código, el PIN y el enlace a los movimientos. */
-  walletTitle: string;
-  walletCodeHint: string;
-  pinChoose: string;
-  pinFirst: string;
-  pinRepeat: string;
-  pinSave: string;
-  pinSaved: string;
-  pinMismatch: string;
-  walletMore: string;
   expiresIn: string;
   // Hacia el banco
   openingTitle: string;
@@ -104,15 +94,6 @@ const ES: PayText = {
   inAppWarning: (app) =>
     `Estás en el navegador de ${app}. Para pagar con Apple Pay o Google Pay, ábrelo en Safari o Chrome: toca ··· y «Abrir en el navegador». Con tarjeta puedes pagar aquí.`,
   statement: (name) => `En tu extracto aparecerá como «${name}».`,
-  walletTitle: 'Tu código de saldo',
-  walletCodeHint: 'Haz una foto. Para pagar con tu saldo, enseña este código (o tu pulsera) y pon tu PIN.',
-  pinChoose: 'Elige tu PIN de 4 cifras. Solo lo sabrás tú: nadie del local lo ve.',
-  pinFirst: 'PIN',
-  pinRepeat: 'Repite el PIN',
-  pinSave: 'Guardar mi PIN',
-  pinSaved: '✓ PIN guardado. Ya puedes pagar con tu saldo.',
-  pinMismatch: 'Los dos PIN no son iguales.',
-  walletMore: 'Ver mi saldo y movimientos',
   expiresIn: 'Caduca en',
   openingTitle: 'Abriendo el pago…',
   openingHint: 'Si no avanza en 2 segundos, pulsa el botón.',
@@ -191,15 +172,6 @@ const EN: PayText = {
   inAppWarning: (app) =>
     `You are in the ${app} browser. To pay with Apple Pay or Google Pay, open this page in Safari or Chrome: tap ··· and "Open in browser". You can pay by card here.`,
   statement: (name) => `It will show on your statement as "${name}".`,
-  walletTitle: 'Your balance code',
-  walletCodeHint: 'Take a photo. To pay with your balance, show this code (or your wristband) and enter your PIN.',
-  pinChoose: 'Choose a 4-digit PIN. Only you will know it: the staff never see it.',
-  pinFirst: 'PIN',
-  pinRepeat: 'Repeat the PIN',
-  pinSave: 'Save my PIN',
-  pinSaved: '✓ PIN saved. You can now pay with your balance.',
-  pinMismatch: 'The two PINs do not match.',
-  walletMore: 'See my balance and activity',
   expiresIn: 'Expires in',
   openingTitle: 'Opening the payment…',
   openingHint: 'If nothing happens in 2 seconds, tap the button.',

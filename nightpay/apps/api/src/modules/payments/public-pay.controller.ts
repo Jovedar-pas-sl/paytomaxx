@@ -5,17 +5,13 @@ import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { Public } from '../../common/decorators/public.decorator';
 import { PaymentsService } from './payments.service';
-import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { confirmationCode, type CheckoutChoice, type PayRedirect } from './pay-redirect';
 import { detectPayDevice } from './pay-device';
-import { PAY_TEXT, payErrorKey, resolveLanguage, type PayLanguage } from './pay-i18n';
-import { PIN_PROBLEM_TEXT, pinProblem } from '../wallets/wallet-pin';
-import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
+import { payErrorKey, resolveLanguage, type PayLanguage } from './pay-i18n';
 import {
   payHref,
   receiptHref,
   walletHref,
-  pinAction,
   renderCheckoutForm,
   renderChoosePage,
   renderClosedPage,
@@ -27,13 +23,6 @@ import {
 } from './public-pay.pages';
 
 /** Formulario de la página de pago. `method` vacío = sin preferencia. */
-/** El PIN que elige el cliente en "Pagado" tras recargar su saldo. */
-const PinFormSchema = z.object({
-  pin: z.string().trim(),
-  pin2: z.string().trim(),
-  lang: z.enum(['es', 'en']).optional(),
-});
-
 const CheckoutFormSchema = z.object({
   tip: z.coerce.number().int().min(0).max(100_000).default(0),
   method: z
@@ -82,16 +71,10 @@ export class PublicPayController {
   private readonly logger = new Logger(PublicPayController.name);
   private readonly payments: PaymentsService;
   private readonly config: ConfigService;
-  private readonly charges: WalletChargesService;
 
-  constructor(
-    @Inject(PaymentsService) payments: PaymentsService,
-    @Inject(ConfigService) config: ConfigService,
-    @Inject(WalletChargesService) charges: WalletChargesService,
-  ) {
+  constructor(@Inject(PaymentsService) payments: PaymentsService, @Inject(ConfigService) config: ConfigService) {
     this.payments = payments;
     this.config = config;
-    this.charges = charges;
   }
 
   @Public()
@@ -237,9 +220,7 @@ export class PublicPayController {
       case 'form':
         sendHtml(res, 200, renderCheckoutForm(view.action, view.fields, lang, payHref(token, lang)));
         return;
-      case 'paid': {
-        const payer = Boolean(view.walletToken) && this.hasWalletClaim(res, token, view.walletClaimHash);
-        const pinState = (res as { request?: { query?: { pin?: unknown } } }).request?.query?.pin;
+      case 'paid':
         sendHtml(
           res,
           200,
@@ -251,79 +232,23 @@ export class PublicPayController {
               code: confirmationCode(view.paymentId),
               authorizedAt: view.authorizedAt,
               receiptHref: receiptHref(token, lang),
-              walletHref: payer && view.walletToken ? walletHref(view.walletToken, lang) : null,
-              walletElsewhere: Boolean(view.walletToken) && !payer,
-              // Solo en el móvil que pagó: su código y, si aún no tiene, elegir su PIN.
-              wallet:
-                payer && view.walletCode
-                  ? {
-                      code: view.walletCode,
-                      hasPin: view.walletHasPin,
-                      pinAction: pinAction(token),
-                      pinSaved: pinState === 'ok',
-                      pinError: typeof pinState === 'string' && pinState !== 'ok' ? pinErrorText(pinState, lang) : null,
-                    }
+              walletHref:
+                view.walletToken && this.hasWalletClaim(res, token, view.walletClaimHash)
+                  ? walletHref(view.walletToken, lang)
                   : null,
+              walletElsewhere:
+                Boolean(view.walletToken) && !this.hasWalletClaim(res, token, view.walletClaimHash),
             },
             lang,
           ),
         );
         return;
-      }
       case 'processing':
         sendHtml(res, 200, renderProcessingPage(lang, payHref(token, lang), true));
         return;
       case 'closed':
         sendHtml(res, 409, renderClosedPage(view.reason, lang));
         return;
-    }
-  }
-
-  /**
-   * El cliente elige su PIN en "Pagado", en su propio móvil (nadie del local lo
-   * ve). Solo el navegador que pagó la recarga y solo si aún no tiene PIN; un
-   * formulario de otra web no sirve (comprobamos de dónde viene).
-   */
-  @Public()
-  @Post(':token/pin')
-  @HttpCode(200)
-  @IpRateLimit({ max: 10, windowSec: 60, scope: 'pay-pin' })
-  async choosePin(
-    @Param('token') token: string,
-    @Body() body: unknown,
-    @Headers('origin') origin: string | undefined,
-    @Headers('host') host: string | undefined,
-    @Headers('accept-language') acceptLanguage: string | undefined,
-    @Res() res: FastifyReply,
-  ): Promise<void> {
-    const parsed = PinFormSchema.safeParse(body ?? {});
-    const lang = resolveLanguage(parsed.success ? parsed.data.lang : undefined, acceptLanguage);
-    const back = (state: string): void => {
-      res
-        .status(303)
-        .header('Location', `/pay/${encodeURIComponent(token)}?lang=${lang}&pin=${state}`)
-        .header('Cache-Control', 'no-store')
-        .send();
-    };
-    if (origin && !sameHost(origin, host)) {
-      sendHtml(res, 403, renderErrorPage('generic', lang));
-      return;
-    }
-    try {
-      const view = await this.payments.getPayPage(token);
-      if (view.kind !== 'paid' || !view.walletToken || !this.hasWalletClaim(res, token, view.walletClaimHash)) {
-        sendHtml(res, 403, renderErrorPage('generic', lang));
-        return;
-      }
-      if (!parsed.success) return back('format');
-      if (parsed.data.pin !== parsed.data.pin2) return back('mismatch');
-      const problem = pinProblem(parsed.data.pin);
-      if (problem) return back(problem);
-      await this.charges.setPinByWalletToken(view.walletToken, parsed.data.pin);
-      return back('ok');
-    } catch (err) {
-      this.logger.warn(`/pay/${token.slice(0, 4)}…/pin: ${(err as Error).message}`);
-      return back('error');
     }
   }
 
@@ -385,29 +310,3 @@ function sendHtml(res: FastifyReply, status: number, html: string): void {
     .header('Cache-Control', 'no-store')
     .send(html);
 }
-
-/** Por qué no se guardó el PIN (vuelve a "Pagado" con ?pin=…). */
-function pinErrorText(state: string, lang: PayLanguage): string {
-  const es: Record<string, string> = {
-    mismatch: PAY_TEXT.es.pinMismatch,
-    format: PIN_PROBLEM_TEXT.format,
-    obvious: PIN_PROBLEM_TEXT.obvious,
-  };
-  const en: Record<string, string> = {
-    mismatch: PAY_TEXT.en.pinMismatch,
-    format: 'The PIN is 4 digits',
-    obvious: 'That PIN is too easy to guess: choose another one',
-  };
-  const fallback = lang === 'en' ? 'Your PIN could not be saved. Please try again.' : 'No se ha podido guardar el PIN. Inténtalo otra vez.';
-  return (lang === 'en' ? en : es)[state] ?? fallback;
-}
-
-/** El formulario viene de nuestra propia página (Origin "null" o de otra web, no). */
-function sameHost(origin: string, host: string | undefined): boolean {
-  try {
-    return Boolean(host) && new URL(origin).host === host;
-  } catch {
-    return false;
-  }
-}
-

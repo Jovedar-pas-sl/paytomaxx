@@ -145,8 +145,6 @@ async function bootstrap() {
       { path: 'pay/:token', method: RequestMethod.POST },
       { path: 'pay/:token/receipt', method: RequestMethod.GET },
       { path: 'pay/:token/checkout', method: RequestMethod.GET },
-      // El cliente elige el PIN de su saldo en "Pagado" (su propio móvil).
-      { path: 'pay/:token/pin', method: RequestMethod.POST },
       // Saldo NightPay: página del cliente y sus acciones.
       { path: 'w/:token', method: RequestMethod.GET },
       { path: 'w/:token/state', method: RequestMethod.GET },

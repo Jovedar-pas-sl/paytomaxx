@@ -21,39 +21,6 @@ const CreateRequestSchema = z
     message: 'Elige un servicio de la carta o pon un importe',
   });
 
-/** El saldo, por su código o por la pulsera NFC (uno de los dos). */
-const WalletRef = {
-  code: z.string().trim().min(6).max(10).optional(),
-  tag: z.string().trim().min(8).max(64).optional(),
-};
-const PinField = z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras');
-
-const PinChargeSchema = z
-  .object({
-    ...WalletRef,
-    serviceItemId: z.string().uuid().optional(),
-    amountCents: z.number().int().positive().max(10_000_00).optional(),
-    category: z.enum(['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'EXTRA']).optional(),
-    pin: PinField,
-  })
-  .refine((b) => Boolean(b.code) || Boolean(b.tag), { message: 'Falta el código o la pulsera del cliente' })
-  .refine((b) => Boolean(b.serviceItemId) || Boolean(b.amountCents), {
-    message: 'Elige un servicio de la carta o pon un importe',
-  });
-
-const SetPinSchema = z
-  .object({ ...WalletRef, pin: PinField })
-  .refine((b) => Boolean(b.code) || Boolean(b.tag), { message: 'Falta el código o la pulsera del cliente' });
-
-const AssignTagSchema = z.object({
-  code: z.string().trim().min(6).max(10),
-  tag: z.string().trim().min(8).max(64),
-});
-
-function actorOf(user: JwtPayload) {
-  return { userId: user.sub, role: user.role, tenantId: user.tenantId };
-}
-
 const PayoutSchema = z.object({
   method: z.enum(['CARD', 'CASH']),
   bankReference: z.string().trim().max(60).optional(),
@@ -63,10 +30,6 @@ const PayoutSchema = z.object({
 /**
  * Saldo NightPay — personal del local.
  *  - GET  /v1/wallet-charges/lookup/:code       → saldo del cliente por su código.
- *  - GET  /v1/wallet-charges/lookup-tag/:tag   → saldo del cliente por su pulsera NFC.
- *  - POST /v1/wallet-charges/pin-charge         → cobrar con el PIN del cliente (al momento).
- *  - POST /v1/wallet-charges/pin | /tag         → el cliente elige su PIN · pulsera NFC.
- *  - POST /v1/wallet-charges/wallets/:id/unlock-pin | reset-pin → encargado o dueño.
  *  - POST /v1/wallet-charges                    → pedir un cobro (el cliente lo acepta en su móvil).
  *  - GET  /v1/wallet-charges/:id                → respuesta del cliente.
  *  - POST /v1/wallet-charges/:id/cancel         → retirar la petición.
@@ -85,75 +48,6 @@ export class WalletChargesController {
   ) {
     this.charges = charges;
     this.config = config;
-  }
-
-  /** La pulsera o tarjeta NFC del cliente (Android). */
-  @Get('lookup-tag/:tag')
-  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
-  @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-lookup' })
-  async lookupTag(@CurrentUser() user: JwtPayload, @Param('tag') tag: string): Promise<WalletLookup> {
-    return this.charges.lookupByTag(user.tenantId, tag);
-  }
-
-  /** El saldo de una recarga recién cobrada (para el PIN y la pulsera). */
-  @Get('wallets/:id')
-  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
-  async walletById(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<WalletLookup> {
-    return this.charges.lookupById(user.tenantId, id);
-  }
-
-  /**
-   * Cobrar del saldo con el PIN del cliente: se cobra al momento. 5 PIN
-   * fallidos bloquean el saldo (por cliente, no por IP).
-   */
-  @Post('pin-charge')
-  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
-  @HttpCode(201)
-  @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-charge' })
-  async chargeWithPin(
-    @CurrentUser() user: JwtPayload,
-    @Body(new ZodValidationPipe(PinChargeSchema)) body: z.infer<typeof PinChargeSchema>,
-  ): Promise<ChargeRequestView> {
-    return this.charges.chargeWithPin(actorOf(user), body);
-  }
-
-  /** El cliente elige su PIN en el móvil de la chica (si aún no tiene). */
-  @Post('pin')
-  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
-  @HttpCode(200)
-  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-pin' })
-  async setPin(
-    @CurrentUser() user: JwtPayload,
-    @Body(new ZodValidationPipe(SetPinSchema)) body: z.infer<typeof SetPinSchema>,
-  ): Promise<WalletLookup> {
-    return this.charges.setPin(actorOf(user), body);
-  }
-
-  /** Pulsera o tarjeta NFC para este saldo. */
-  @Post('tag')
-  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
-  @HttpCode(200)
-  async assignTag(
-    @CurrentUser() user: JwtPayload,
-    @Body(new ZodValidationPipe(AssignTagSchema)) body: z.infer<typeof AssignTagSchema>,
-  ): Promise<WalletLookup> {
-    return this.charges.assignTag(actorOf(user), body);
-  }
-
-  /** Encargado o dueño: tras 5 PIN fallidos, desbloquear. */
-  @Post('wallets/:id/unlock-pin')
-  @Roles('OWNER', 'MANAGER')
-  @HttpCode(200)
-  async unlockPin(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<{ ok: true }> {
-    return this.charges.unlockPin(actorOf(user), id);
-  }
-
-  /** Encargado o dueño: el cliente olvidó su PIN → lo borra y elige otro. */
-  @Post('wallets/:id/reset-pin')
-  @Roles('OWNER', 'MANAGER')
-  @HttpCode(200)
-  async resetPin(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<{ ok: true }> {
-    return this.charges.resetPin(actorOf(user), id);
   }
 
   // Contra probar códigos al azar: el personal de un local comparte IP, así

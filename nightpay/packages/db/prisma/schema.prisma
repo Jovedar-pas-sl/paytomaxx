@@ -747,13 +747,6 @@ model ClientWallet {
   shortCode        String?
   walletGroup      String?
   closeRequestedAt DateTime? @db.Timestamptz
-  // PIN de 4 cifras del cliente (HMAC + scrypt, nunca en claro), fallos
-  // seguidos y bloqueo (5 fallos → hasta que lo desbloquee el encargado).
-  pinHash          String?
-  pinFails         Int       @default(0)
-  pinLockedAt      DateTime? @db.Timestamptz
-  // Pulsera o tarjeta NFC del cliente (número de serie).
-  nfcTag           String?   @unique
   createdAt    DateTime     @default(now()) @db.Timestamptz
   updatedAt    DateTime     @updatedAt @db.Timestamptz
 
