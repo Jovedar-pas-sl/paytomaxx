@@ -44,7 +44,8 @@ export class DebugEndpointsGuard implements CanActivate {
     if (nodeEnv !== 'production') return true;
     const userId = ctx.switchToHttp().getRequest<{ user?: { sub?: string } }>().user?.sub;
     const admin = userId
-      ? await this.prisma.asSystem((tx) =>
+      ? // Sin el filtro por local: el super-admin puede estar viendo otro local.
+        await this.prisma.acrossVenues((tx) =>
           tx.user.findUnique({ where: { id: userId }, select: { isSuperAdmin: true, deletedAt: true } }),
         )
       : null;

@@ -348,7 +348,9 @@ export class AdminController {
 
   /** Helper: lanza 403 si el user no es super admin. */
   private async assertSuperAdmin(userId: string): Promise<void> {
-    const u = await this.prisma.asSystem((tx) =>
+    // El super-admin pertenece a SU local: con otro local activo, el filtro por
+    // local del middleware no lo encontraría (403/401). acrossVenues lo quita.
+    const u = await this.prisma.acrossVenues((tx) =>
       tx.user.findUnique({
         where: { id: userId },
         select: { isSuperAdmin: true, deletedAt: true },

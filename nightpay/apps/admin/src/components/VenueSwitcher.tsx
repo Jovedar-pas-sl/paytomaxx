@@ -15,12 +15,11 @@ interface Props {
  *   2. Reemplaza el accessToken en localStorage
  *   3. window.location.reload() para que toda la app cargue con contexto nuevo
  *
- * Refresh token NO rota — sigue ligado al user original. Si el JWT expira
- * en 12h y el refresh hace su trabajo, el endpoint /refresh devuelve un
- * nuevo access con el tenantId PRIMARIO del user (el de su row en DB),
- * no el switcheado. Esto es intencional: el switch se vuelve a hacer
- * explícitamente para audit trail. En la práctica con TTL 12h funciona
- * para una sesión laboral completa sin re-switchear.
+ * El refresh token sigue ligado al usuario: /refresh devuelve el token de su
+ * local de siempre y lib/api.ts (keepSelectedVenue) vuelve a pedir el local
+ * elegido, sin recargar. En el API, el super-admin se busca sin el filtro
+ * por local (acrossVenues): con otro local activo no se le encontraba y
+ * perdía el desplegable y el cambio de local.
  */
 export function VenueSwitcher({ currentSlug }: Props) {
   const [venues, setVenues] = useState<VenueListItem[]>([]);

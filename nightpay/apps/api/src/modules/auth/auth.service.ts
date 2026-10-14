@@ -246,7 +246,9 @@ export class AuthService {
     ip?: string,
     userAgent?: string,
   ): Promise<{ accessToken: string; expiresIn: number; tenantId: string; venueSlug: string }> {
-    const user = await this.prisma.asSystem((tx) =>
+    // El super-admin pertenece a SU local: con otro local activo, el filtro por
+    // local del middleware no lo encontraría (403/401). acrossVenues lo quita.
+    const user = await this.prisma.acrossVenues((tx) =>
       tx.user.findUnique({
         where: { id: userId },
         select: {
