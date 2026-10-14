@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Select } from '@nightpay/ui';
+import { parseEuroCents } from '@nightpay/contracts';
 import {
   createServiceItem,
   fetchCarta,
@@ -162,7 +163,7 @@ function ServiceForm({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    const priceCents = Math.round(parseFloat(price.replace(',', '.')) * 100);
+    const priceCents = parseEuroCents(price) ?? Number.NaN;
     const durationMin = duration.trim() ? parseInt(duration, 10) : null;
     if (!name.trim()) return setError('Pon un nombre, por ejemplo «30 min».');
     if (!Number.isFinite(priceCents) || priceCents <= 0) return setError('Pon un precio mayor que 0.');

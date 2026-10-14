@@ -164,7 +164,12 @@ export function getRefreshToken(): string | null {
 export function getUser(): OperatorUser | null {
   if (typeof window === 'undefined') return null;
   const raw = window.localStorage.getItem(USER_KEY);
-  return raw ? (JSON.parse(raw) as OperatorUser) : null;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as OperatorUser;
+  } catch {
+    return null;
+  }
 }
 export function setSession(login: LoginResponse): void {
   window.localStorage.setItem(TOKEN_KEY, login.accessToken);
@@ -209,7 +214,32 @@ export async function logout(): Promise<void> {
   clearSession();
 }
 
-async function refreshAccessToken(): Promise<string> {
+/**
+ * Un solo refresco a la vez: si varias peticiones caducan juntas y cada una
+ * refresca, el API ve el mismo refresh token dos veces, lo toma por robado y
+ * cierra la sesión (la chica se queda fuera en mitad de un cobro).
+ */
+let refreshing: Promise<string> | null = null;
+function refreshAccessToken(failed: string | null = getToken()): Promise<string> {
+  refreshing ??= withRefreshLock(() => doRefreshAccessToken(failed)).finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
+/**
+ * Las pestañas abiertas comparten la sesión (localStorage): el refresco va de
+ * una en una también entre pestañas (Web Locks; sin ellos, como antes).
+ */
+function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  return locks ? (locks.request(`${REFRESH_KEY}:lock`, fn) as Promise<T>) : fn();
+}
+
+async function doRefreshAccessToken(failed: string | null): Promise<string> {
+  // Otra pestaña ya lo renovó mientras esperábamos: vale el suyo.
+  const current = getToken();
+  if (current && current !== failed) return current;
   const refreshToken = getRefreshToken();
   if (!refreshToken) {
     clearSession();
@@ -221,7 +251,11 @@ async function refreshAccessToken(): Promise<string> {
     body: JSON.stringify({ refreshToken }),
   });
   if (!res.ok) {
-    clearSession();
+    const after = getToken();
+    if (after && after !== failed) return after;
+    // Solo un "no" del API cierra la sesión; un 429 o un 5xx (p. ej. mientras
+    // se despliega) no echa a nadie.
+    if (res.status === 401 || res.status === 403) clearSession();
     throw new Error('Sesión expirada');
   }
   const refreshed = (await res.json()) as RefreshResponse;
@@ -237,7 +271,7 @@ async function authedFetch(path: string, init: RequestInit = {}): Promise<Respon
   if (res.status !== 401) return res;
   let newToken: string;
   try {
-    newToken = await refreshAccessToken();
+    newToken = await refreshAccessToken(token);
   } catch {
     throw new Error('Sesión expirada');
   }
@@ -328,8 +362,10 @@ export async function createPayment(input: {
   revenueCategory?: 'CHICA_SERVICE' | 'VENUE_BAR' | 'VENUE_ROOM' | 'VENUE_FOOD' | 'EXTRA';
   /** Fase 1A — servicio de la carta: el servidor usa su precio y su categoría. */
   serviceItemId?: string;
+  /** Una por intento de cobro (la pantalla la reutiliza si se repite). */
+  idempotencyKey?: string;
 }): Promise<CreatedPayment> {
-  const idemKey = `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const idemKey = input.idempotencyKey ?? newIdempotencyKey();
   const body: Record<string, unknown> = {
     amountCents: input.amountCents,
     currency: input.currency ?? 'EUR',
@@ -600,3 +636,8 @@ export async function acceptInvite(token: string, password: string): Promise<{ o
 
 export const apiBase = API_BASE;
 export const wsBase = process.env.NEXT_PUBLIC_WS_URL ?? API_BASE.replace(/^http/, 'ws');
+
+/** Clave para que el API no cree dos veces el mismo cobro. */
+export function newIdempotencyKey(): string {
+  return `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}

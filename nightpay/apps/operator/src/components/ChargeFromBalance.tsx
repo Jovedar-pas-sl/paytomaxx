@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
+import { parseEuroCents } from '@nightpay/contracts';
 import {
   cancelWalletCharge,
   fetchServices,
@@ -201,9 +202,9 @@ function PickStep({
 
   function sendCustom(e: FormEvent) {
     e.preventDefault();
-    const cents = Math.round(Number(amount.replace(',', '.')) * 100);
-    if (!Number.isFinite(cents) || cents <= 0) {
-      setError('Pon el importe');
+    const cents = parseEuroCents(amount);
+    if (cents === null) {
+      setError('Pon el importe (por ejemplo 50 o 50,50)');
       return;
     }
     if (cents > wallet.balanceCents) {

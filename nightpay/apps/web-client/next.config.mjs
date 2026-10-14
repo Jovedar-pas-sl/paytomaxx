@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // No usamos next/image: sin el optimizador de imágenes (y sus fallos de seguridad).
+  images: { unoptimized: true },
+  poweredByHeader: false,
   output: 'standalone',
   outputFileTracingRoot: process.env.NEXT_BUILD_TRACE_ROOT || undefined,
   transpilePackages: ['@nightpay/contracts', '@nightpay/ui'],

@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { parseEuroCents } from '@nightpay/contracts';
 import { io, type Socket } from 'socket.io-client';
 import { Button, Card, Input, StatusPill, type PaymentStatus } from '@nightpay/ui';
 import {
   cancelPayment,
   createPayment,
+  newIdempotencyKey,
   fetchServices,
   fetchTerminals,
   fetchZones,
@@ -149,25 +151,32 @@ export function CreatePayment({ onCreated }: Props) {
     setMode(next);
   }
 
+  // Misma clave mientras sea el mismo intento: si se repite (red lenta, doble
+  // toque), el API devuelve el cobro ya creado en vez de crear otro. Si cambia
+  // lo que se cobra (importe, servicio, zona…), es otro cobro y otra clave.
+  const attempt = useRef<{ key: string; what: string } | null>(null);
+  const inFlight = useRef(false);
+
   // La carta aplica a cobros por QR o datáfono; la recarga de wallet es libre.
   const usingService = mode !== 'wallet' && picked !== null && picked !== 'custom';
   const showCarta = mode !== 'wallet' && services.length > 0 && picked === null;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    // Un doble toque antes de que se pinte "enviando" no crea otro cobro.
+    if (inFlight.current) return;
     if (terminals.length === 0 && zones.length === 0) {
       setError('No hay terminales configurados en el local');
       return;
     }
     if ('vibrate' in navigator) navigator.vibrate(10);
+    inFlight.current = true;
     setSubmitting(true);
     setError(null);
     try {
       const service = usingService ? (picked as ServiceItem) : null;
-      const cents = service
-        ? service.priceCents
-        : Math.round(parseFloat(amount.replace(',', '.')) * 100);
-      if (!Number.isFinite(cents) || cents <= 0) throw new Error('Importe inválido');
+      const cents = service ? service.priceCents : parseEuroCents(amount);
+      if (cents === null) throw new Error('Importe inválido');
       if (mode === 'wallet' && !walletIdentifier.trim()) {
         throw new Error('Pon una etiqueta al wallet (Mesa 3, Pulsera azul...) para no confundirlo');
       }
@@ -177,6 +186,8 @@ export function CreatePayment({ onCreated }: Props) {
       if (usingZone && !selectedZone) {
         throw new Error('Elige una zona (Barra, Habitaciones, Mesas…)');
       }
+      const what = JSON.stringify([cents, mode, usingZone ? selectedZone : null, walletIdentifier.trim(), revCategory, service?.id ?? null]);
+      if (attempt.current?.what !== what) attempt.current = { key: newIdempotencyKey(), what };
       const created = await createPayment({
         amountCents: cents,
         // Si pasamos zone, el backend resuelve PAX; si no, fallback al primero.
@@ -186,13 +197,16 @@ export function CreatePayment({ onCreated }: Props) {
         captureMethod: mode === 'pos' ? 'POS_EXTERNAL' : undefined,
         revenueCategory: revCategory,
         serviceItemId: service?.id,
+        idempotencyKey: attempt.current.key,
       });
+      attempt.current = null;
       setActiveLabel(service ? serviceLabel(service) : null);
       setActive(created);
       setStatus(created.status as PaymentStatus);
     } catch (err) {
       setError((err as Error).message);
     } finally {
+      inFlight.current = false;
       setSubmitting(false);
     }
   }

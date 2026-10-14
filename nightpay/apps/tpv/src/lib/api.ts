@@ -99,7 +99,32 @@ export async function logout(): Promise<void> {
   clearSession();
 }
 
-async function refreshAccessToken(): Promise<string> {
+/**
+ * Un solo refresco a la vez: si varias peticiones caducan juntas y cada una
+ * refresca, el API ve el mismo refresh token dos veces, lo toma por robado y
+ * cierra la sesión (la chica se queda fuera en mitad de un cobro).
+ */
+let refreshing: Promise<string> | null = null;
+function refreshAccessToken(failed: string | null = getToken()): Promise<string> {
+  refreshing ??= withRefreshLock(() => doRefreshAccessToken(failed)).finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
+/**
+ * Las pestañas abiertas comparten la sesión (localStorage): el refresco va de
+ * una en una también entre pestañas (Web Locks; sin ellos, como antes).
+ */
+function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  return locks ? (locks.request(`${REFRESH_KEY}:lock`, fn) as Promise<T>) : fn();
+}
+
+async function doRefreshAccessToken(failed: string | null): Promise<string> {
+  // Otra pestaña ya lo renovó mientras esperábamos: vale el suyo.
+  const current = getToken();
+  if (current && current !== failed) return current;
   const refreshToken = getRefreshToken();
   if (!refreshToken) {
     clearSession();
@@ -111,7 +136,11 @@ async function refreshAccessToken(): Promise<string> {
     body: JSON.stringify({ refreshToken }),
   });
   if (!res.ok) {
-    clearSession();
+    const after = getToken();
+    if (after && after !== failed) return after;
+    // Solo un "no" del API cierra la sesión; un 429 o un 5xx (p. ej. mientras
+    // se despliega) no echa a nadie.
+    if (res.status === 401 || res.status === 403) clearSession();
     throw new Error('Sesión expirada');
   }
   const refreshed = (await res.json()) as RefreshResponse;
@@ -126,7 +155,7 @@ async function authedFetch(path: string, init: RequestInit = {}): Promise<Respon
   if (res.status !== 401) return res;
   let newToken: string;
   try {
-    newToken = await refreshAccessToken();
+    newToken = await refreshAccessToken(token);
   } catch {
     throw new Error('Sesión expirada');
   }

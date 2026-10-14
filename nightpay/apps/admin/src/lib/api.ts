@@ -258,13 +258,57 @@ export function getRefreshToken(): string | null {
 export function getUser(): User | null {
   if (typeof window === 'undefined') return null;
   const raw = window.localStorage.getItem(USER_KEY);
-  return raw ? (JSON.parse(raw) as User) : null;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as User;
+  } catch {
+    return null;
+  }
 }
 
 export function setSession(login: LoginResponse): void {
   window.localStorage.setItem(TOKEN_KEY, login.accessToken);
   window.localStorage.setItem(REFRESH_KEY, login.refreshToken);
   window.localStorage.setItem(USER_KEY, JSON.stringify(login.user));
+}
+
+/**
+ * Tras refrescar, el token vale para el local principal del usuario (el
+ * cambio de local del superadmin no sobrevive al refresco). Si la pantalla
+ * enseñaba otro local, se corrige y se recarga para no operar en el que no es.
+ */
+/** Local (tenantId) y slug que lleva un token; null si no se puede leer. */
+function claimsOfToken(accessToken: string): { tenantId?: string; venueSlug?: string } | null {
+  try {
+    const part = accessToken.split('.')[1] ?? '';
+    return JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/'))) as {
+      tenantId?: string;
+      venueSlug?: string;
+    };
+  } catch {
+    return null;
+  }
+}
+
+function venueOfToken(accessToken: string): string | null {
+  return claimsOfToken(accessToken)?.tenantId ?? null;
+}
+
+function syncVenueFromToken(accessToken: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const claims = claimsOfToken(accessToken);
+    if (!claims) return;
+    const user = getUser();
+    if (!user || !claims.tenantId || claims.tenantId === user.tenantId) return;
+    window.localStorage.setItem(
+      USER_KEY,
+      JSON.stringify({ ...user, tenantId: claims.tenantId, venueSlug: claims.venueSlug ?? user.venueSlug }),
+    );
+    window.location.reload();
+  } catch {
+    // Token ilegible: se deja como estaba.
+  }
 }
 
 function updateTokens(refreshed: RefreshResponse): void {
@@ -314,7 +358,32 @@ export async function logout(): Promise<void> {
  * Devuelve el nuevo access token y rota el refresh.
  * Si el refresh es invalido (caducado, reusado, revocado), limpia la sesion y lanza.
  */
-async function refreshAccessToken(): Promise<string> {
+/**
+ * Un solo refresco a la vez: si varias peticiones caducan juntas y cada una
+ * refresca, el API ve el mismo refresh token dos veces, lo toma por robado y
+ * cierra la sesión (la chica se queda fuera en mitad de un cobro).
+ */
+let refreshing: Promise<string> | null = null;
+function refreshAccessToken(failed: string | null = getToken()): Promise<string> {
+  refreshing ??= withRefreshLock(() => doRefreshAccessToken(failed)).finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
+/**
+ * Las pestañas abiertas comparten la sesión (localStorage): el refresco va de
+ * una en una también entre pestañas (Web Locks; sin ellos, como antes).
+ */
+function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  return locks ? (locks.request(`${REFRESH_KEY}:lock`, fn) as Promise<T>) : fn();
+}
+
+async function doRefreshAccessToken(failed: string | null): Promise<string> {
+  // Otra pestaña ya lo renovó mientras esperábamos: vale el suyo.
+  const current = getToken();
+  if (current && current !== failed) return current;
   const refreshToken = getRefreshToken();
   if (!refreshToken) {
     clearSession();
@@ -326,12 +395,45 @@ async function refreshAccessToken(): Promise<string> {
     body: JSON.stringify({ refreshToken }),
   });
   if (!res.ok) {
-    clearSession();
+    const after = getToken();
+    if (after && after !== failed) return after;
+    // Solo un "no" del API cierra la sesión; un 429 o un 5xx (p. ej. mientras
+    // se despliega) no echa a nadie.
+    if (res.status === 401 || res.status === 403) clearSession();
     throw new Error('Sesión expirada');
   }
   const refreshed = (await res.json()) as RefreshResponse;
   updateTokens(refreshed);
-  return refreshed.accessToken;
+  return keepSelectedVenue(refreshed.accessToken);
+}
+
+/**
+ * El refresh da el token del local de siempre. El super-admin que había
+ * elegido otro local lo recupera aquí, sin recargar la página; si no se
+ * puede, se vuelve a su local (syncVenueFromToken).
+ */
+async function keepSelectedVenue(accessToken: string): Promise<string> {
+  const user = getUser();
+  const venue = venueOfToken(accessToken);
+  if (!user || !venue || venue === user.tenantId) return accessToken;
+  if (user.isSuperAdmin) {
+    try {
+      const res = await doFetch(
+        '/v1/auth/switch-tenant',
+        { method: 'POST', body: JSON.stringify({ tenantId: user.tenantId }) },
+        accessToken,
+      );
+      if (res.ok) {
+        const switched = (await res.json()) as { accessToken: string };
+        window.localStorage.setItem(TOKEN_KEY, switched.accessToken);
+        return switched.accessToken;
+      }
+    } catch {
+      // Abajo: se vuelve a su local.
+    }
+  }
+  syncVenueFromToken(accessToken);
+  return accessToken;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -365,7 +467,7 @@ async function authedFetch(path: string, init: RequestInit = {}): Promise<Respon
   // 401 — probar refresh una vez
   let newToken: string;
   try {
-    newToken = await refreshAccessToken();
+    newToken = await refreshAccessToken(token);
   } catch {
     throw new Error('Sesión expirada');
   }

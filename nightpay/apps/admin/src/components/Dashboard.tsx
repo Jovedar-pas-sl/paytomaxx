@@ -12,6 +12,7 @@ import {
   ThemeToggle,
   type PaymentStatus,
 } from '@nightpay/ui';
+import { parseEuroCents } from '@nightpay/contracts';
 import {
   fetchMetrics,
   fetchPayments,
@@ -630,7 +631,7 @@ function RefundModal({
     return <Modal open={open} onClose={onClose}>{null}</Modal>;
   }
 
-  const cents = Math.round(parseFloat(amount.replace(',', '.')) * 100);
+  const cents = parseEuroCents(amount) ?? Number.NaN;
   const requires2FA = Number.isFinite(cents) && cents >= 100_00;
 
   async function handleSubmit(e: FormEvent) {

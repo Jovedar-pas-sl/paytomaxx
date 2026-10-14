@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
+import { parseEuroCents } from '@nightpay/contracts';
 import {
   fetchVenueSettings,
   updateVenueSettings,
@@ -65,7 +66,7 @@ export function SettingsPanel({ isOwner }: Props) {
     setError(null);
     setSaved(false);
     const platformBps = Math.round(parseFloat(platformPct.replace(',', '.')) * 100);
-    const maxCents = Math.round(parseFloat(maxCobroEur.replace(',', '.')) * 100);
+    const maxCents = parseEuroCents(maxCobroEur) ?? Number.NaN;
     if (!Number.isFinite(platformBps) || platformBps < 0 || platformBps > 10_000) {
       setError('Comisión plataforma debe estar entre 0% y 100%');
       return;

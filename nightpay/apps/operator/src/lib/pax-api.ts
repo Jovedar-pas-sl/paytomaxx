@@ -168,8 +168,22 @@ export const fetchPaxPending = (): Promise<PaxCharge[]> => call('/v1/pos-device/
 export const startPaxCharge = (id: string): Promise<{ reference: string; amountCents: number; currency: string }> =>
   call(`/v1/pos-device/charges/${id}/start`, { method: 'POST', body: '{}' });
 
-export const reportPaxResult = (id: string, result: PaytefResult): Promise<SaleOutcome> =>
-  call(`/v1/pos-device/charges/${id}/result`, { method: 'POST', body: JSON.stringify(result) });
+/**
+ * El reenvío del resultado pendiente y el propio cobro pueden coincidir: el
+ * mismo resultado (cobro + operación) se envía una sola vez a la vez.
+ */
+const sendingResults = new Map<string, Promise<SaleOutcome>>();
+export const reportPaxResult = (id: string, result: PaytefResult): Promise<SaleOutcome> => {
+  const key = `${id}:${String(result.paytefOperationNumber ?? '')}`;
+  const current = sendingResults.get(key);
+  if (current) return current;
+  const sent = call<SaleOutcome>(`/v1/pos-device/charges/${id}/result`, {
+    method: 'POST',
+    body: JSON.stringify(result),
+  }).finally(() => sendingResults.delete(key));
+  sendingResults.set(key, sent);
+  return sent;
+};
 
 export const reportPaxVoid = (
   id: string,

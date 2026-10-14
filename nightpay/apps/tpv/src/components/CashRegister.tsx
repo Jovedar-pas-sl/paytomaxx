@@ -13,6 +13,7 @@ import {
   ThemeToggle,
   type PaymentStatus,
 } from '@nightpay/ui';
+import { parseEuroCents } from '@nightpay/contracts';
 import {
   createPayment,
   fetchTerminals,
@@ -74,8 +75,8 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
     setError(null);
     setSubmitting(true);
     try {
-      const cents = Math.round(parseFloat(amount.replace(',', '.')) * 100);
-      if (!Number.isFinite(cents) || cents <= 0) throw new Error('Importe inválido');
+      const cents = parseEuroCents(amount);
+      if (cents === null) throw new Error('Importe inválido');
       if (!terminal) throw new Error('Selecciona un terminal');
       const created = await createPayment({ amountCents: cents, terminalExternalId: terminal });
       setActive(created);

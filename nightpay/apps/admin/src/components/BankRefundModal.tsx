@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Input, Modal } from '@nightpay/ui';
 import { registerBankRefund, type PaymentRow } from '@/lib/api';
+import { parseEuroCents } from '@nightpay/contracts';
 
 /**
  * Fase 1C — devolución hecha en el portal de BBVA. Redsys no devuelve por API
@@ -47,8 +48,8 @@ export function BankRefundModal({
     e.preventDefault();
     if (!payment) return;
     setError(null);
-    const cents = Math.round(parseFloat(amount.replace(',', '.')) * 100);
-    if (!Number.isFinite(cents) || cents <= 0) return setError('Pon el importe devuelto.');
+    const cents = parseEuroCents(amount);
+    if (cents === null) return setError('Pon el importe devuelto (por ejemplo 20 o 20,50).');
     if (cents > payment.availableAmountCents) return setError('Es más de lo que queda por devolver en este cobro.');
     if (reason.trim().length < 3) return setError('Explica brevemente el motivo.');
     if (needsConfirm && !confirmed) return setError('Marca la casilla si es otra devolución distinta.');

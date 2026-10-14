@@ -474,7 +474,7 @@ function OperatorDetailModal({
         ) : tab === 'payouts' ? (
           <PayoutsTable payouts={payouts} />
         ) : tab === 'edit' ? (
-          <EditOperatorForm operator={operator} onSaved={() => { onChanged(); onClose(); }} />
+          <EditOperatorForm operator={operator} isOwner={isOwner} onSaved={() => { onChanged(); onClose(); }} />
         ) : (
           <OnboardingForm operator={operator} onSaved={onChanged} />
         )}
@@ -568,7 +568,15 @@ function PayoutsTable({ payouts }: { payouts: OperatorPayout[] }) {
   );
 }
 
-function EditOperatorForm({ operator, onSaved }: { operator: Operator; onSaved: () => void }) {
+function EditOperatorForm({
+  operator,
+  isOwner,
+  onSaved,
+}: {
+  operator: Operator;
+  isOwner: boolean;
+  onSaved: () => void;
+}) {
   const [displayName, setDisplayName] = useState(operator.displayName ?? '');
   const [commissionPct, setCommissionPct] = useState((operator.commissionBps / 100).toFixed(2));
   const [active, setActive] = useState(operator.active);
@@ -648,7 +656,7 @@ function EditOperatorForm({ operator, onSaved }: { operator: Operator; onSaved: 
         }}>
           Acceso & contraseña
         </h4>
-        <AccessPanel operator={operator} />
+        <AccessPanel operator={operator} isOwner={isOwner} />
       </div>
 
       <div style={{
@@ -691,11 +699,11 @@ function EditOperatorForm({ operator, onSaved }: { operator: Operator; onSaved: 
 /**
  * Bloque dentro del modal Editar Operadora para gestionar acceso:
  *   - Si la operadora está pendiente (invitedAt!=null) → mostrar "Re-generar invite"
- *   - Siempre disponible → "Resetear contraseña" (admin pone una o random)
+ *   - Solo el dueño (el API lo exige) → "Resetear contraseña" (pone una o random)
  * Las credenciales se muestran UNA vez tras la acción para copiar y mandar
  * por WhatsApp. NightPay no las persiste en claro.
  */
-function AccessPanel({ operator }: { operator: Operator }) {
+function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boolean }) {
   const [busy, setBusy] = useState<'invite' | 'reset' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [inviteResult, setInviteResult] = useState<{ url: string; expiresAt: string } | null>(null);
@@ -816,7 +824,8 @@ function AccessPanel({ operator }: { operator: Operator }) {
         </div>
       ) : null}
 
-      {/* Resetear contraseña — siempre disponible */}
+      {/* Resetear contraseña — solo el dueño (el API lo rechaza a los demás) */}
+      {isOwner ? (
       <div>
         <p style={{ margin: '0 0 0.3rem', fontSize: '0.8125rem', fontWeight: 500 }}>
           Resetear contraseña
@@ -879,6 +888,7 @@ function AccessPanel({ operator }: { operator: Operator }) {
           </Button>
         </div>
       </div>
+      ) : null}
 
       {resetResult ? (
         <div style={{
