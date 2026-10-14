@@ -11,6 +11,8 @@ import { WalletPasskeysService } from './wallet-passkeys.service';
 
 const ORIGIN = 'https://api.paytomaxx.com';
 const HOST = 'api.paytomaxx.com';
+// La llave va al dominio común (vale en api. y en pay.).
+const RP_ID = 'paytomaxx.com';
 const b64u = (b: Uint8Array | Buffer): string => Buffer.from(b).toString('base64url');
 
 // ─── CBOR mínimo (lo que usa WebAuthn: enteros, textos, bytes y mapas) ──────
@@ -35,7 +37,7 @@ class SoftAuthenticator {
   private readonly key: { privateKey: KeyObject; publicKey: KeyObject };
   private count = 0;
 
-  constructor(private readonly rpID = HOST) {
+  constructor(private readonly rpID = RP_ID) {
     this.key = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   }
 
@@ -156,7 +158,7 @@ describe('Face ID del saldo (passkey)', () => {
   it('activar: una llave del móvil para este saldo; la pide con la cara/huella/PIN y sin saber de antemano de quién es', async () => {
     const { svc, keys } = makeService();
     const options = await svc.registrationOptions(WALLET, HOST);
-    expect(options.rp.id).toBe(HOST);
+    expect(options.rp.id).toBe(RP_ID);
     expect(options.authenticatorSelection).toMatchObject({ residentKey: 'required', userVerification: 'required' });
     expect(options.user.name).toContain('K7Q-4M2');
     await svc.register(WALLET.id, HOST, new SoftAuthenticator().register(options.challenge));
