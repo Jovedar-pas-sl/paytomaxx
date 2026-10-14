@@ -50,7 +50,7 @@ function makeController(opts: {
     getCheckoutForm: vi.fn().mockResolvedValue(opts.checkoutForm ?? null),
   };
   const config = { get: vi.fn().mockReturnValue(opts.statementName) };
-  return { controller: new PublicPayController(payments as never, config as never), payments };
+  return { controller: new PublicPayController(payments as never, config as never, {} as never, {} as never), payments };
 }
 
 function view(overrides: Partial<PayResultView>): PayResultView {

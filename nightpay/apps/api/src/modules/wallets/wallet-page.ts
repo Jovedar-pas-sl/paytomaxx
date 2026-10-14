@@ -1,6 +1,7 @@
 import type { PayLanguage } from '../payments/pay-i18n';
 import type { ClientWalletState } from './wallet-charges.service';
 import { BRAND_NAME } from '../../common/brand';
+import { PASSKEY_BROWSER_JS } from './passkey-browser';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, look "Club".
@@ -27,6 +28,11 @@ interface WalletText {
   closed: string;
   depleted: string;
   error: string;
+  faceIdTitle: string;
+  faceIdHint: string;
+  faceIdButton: string;
+  faceIdOn: string;
+  faceIdUnsupported: string;
   other: { code: PayLanguage; label: string };
 }
 
@@ -36,7 +42,7 @@ const TEXT: Record<PayLanguage, WalletText> = {
     locale: 'es-ES',
     title: `Tu saldo ${BRAND_NAME}`,
     balance: 'Saldo',
-    codeHint: 'Enséñale este QR o el código a la chica para pagar con tu saldo',
+    codeHint: 'Tu código de saldo (por si te lo pide el encargado)',
     saveHint: 'Guarda esta página (Compartir → Añadir a pantalla de inicio) para volver a tu saldo.',
     pendingTitle: 'Te quieren cobrar',
     accept: 'Aceptar',
@@ -49,6 +55,11 @@ const TEXT: Record<PayLanguage, WalletText> = {
     closed: 'Este saldo ya está cerrado.',
     depleted: 'Has gastado todo el saldo.',
     error: 'No se ha podido completar. Inténtalo otra vez.',
+    faceIdTitle: 'Paga con tu móvil',
+    faceIdHint: 'Activa Face ID (o la huella o el PIN de tu móvil): para pagar, escaneas el QR de la chica y desbloqueas el móvil. Nadie más puede gastar tu saldo.',
+    faceIdButton: 'Activar Face ID',
+    faceIdOn: '🔒 Face ID activado: para pagar, escanea el QR de la chica y desbloquea tu móvil.',
+    faceIdUnsupported: 'Tu móvil no permite pagar así: pídeselo al encargado.',
     other: { code: 'en', label: 'English' },
   },
   en: {
@@ -56,7 +67,7 @@ const TEXT: Record<PayLanguage, WalletText> = {
     locale: 'en-GB',
     title: `Your ${BRAND_NAME} balance`,
     balance: 'Balance',
-    codeHint: 'Show this QR or the code to the staff to pay with your balance',
+    codeHint: 'Your balance code (in case the manager asks for it)',
     saveHint: 'Save this page (Share → Add to Home Screen) to come back to your balance.',
     pendingTitle: 'Payment request',
     accept: 'Accept',
@@ -69,6 +80,11 @@ const TEXT: Record<PayLanguage, WalletText> = {
     closed: 'This balance is closed.',
     depleted: 'You have spent all your balance.',
     error: 'That did not work. Please try again.',
+    faceIdTitle: 'Pay with your phone',
+    faceIdHint: 'Turn on Face ID (or your fingerprint or phone PIN): to pay, scan the staff QR and unlock your phone. Nobody else can spend your balance.',
+    faceIdButton: 'Turn on Face ID',
+    faceIdOn: '🔒 Face ID on: to pay, scan the staff QR and unlock your phone.',
+    faceIdUnsupported: 'Your phone cannot pay this way: ask the manager.',
     other: { code: 'es', label: 'Español' },
   },
 };
@@ -77,21 +93,11 @@ function jsString(s: string): string {
   return JSON.stringify(s).replace(/</g, '\\u003c');
 }
 
-/** Solo un <svg> generado aquí (qrcode): nada de scripts ni otras etiquetas. */
-function safeQrSvg(svg: string | null | undefined): string {
-  if (!svg) return '';
-  const trimmed = svg.trim();
-  if (!trimmed.startsWith('<svg') || /<script|<foreignObject|on\w+=/i.test(trimmed)) return '';
-  return trimmed;
-}
-
 export function renderWalletPage(
   token: string,
   lang: PayLanguage,
   state: ClientWalletState,
-  opts: { codeQrSvg?: string | null } = {},
 ): string {
-  const qr = safeQrSvg(opts.codeQrSvg);
   const t = TEXT[lang];
   const base = `/w/${encodeURIComponent(token)}`;
   const config = jsString(JSON.stringify({ base, lang, locale: t.locale, text: t, state }));
@@ -122,11 +128,14 @@ li .plus{color:#5be38f;font-weight:700}
 li .minus{color:#f5f5f0;font-weight:700}
 .note{border:2px solid #ffb020;border-radius:10px;padding:.75rem 1rem;color:#ffb020}
 .lang{color:#d4ff3a;font-weight:700;text-decoration:none;text-align:center}
+.ok{color:#5be38f;font-weight:700;text-align:center}
 [hidden]{display:none!important}
 </style></head><body><main>
 <p class="kick" id="title"></p>
 <section class="card"><p id="balanceLabel"></p><div class="balance" id="balance"></div></section>
-<section class="card" id="codeCard">${qr ? `<div class="qr" aria-hidden="true">${qr}</div>` : ''}<div class="code" id="code"></div><p id="codeHint" style="text-align:center"></p></section>
+<section class="card" id="faceCard" hidden><p class="kick" id="faceTitle"></p><p id="faceHint"></p><button id="faceOn"></button></section>
+<p class="ok" id="faceNote" hidden></p>
+<section class="card" id="codeCard"><div class="code" id="code"></div><p id="codeHint" style="text-align:center"></p></section>
 <section class="card pending" id="pending" hidden>
   <p class="kick" id="pendingTitle"></p>
   <div class="amount" id="pendingAmount"></div>
@@ -140,6 +149,7 @@ li .minus{color:#f5f5f0;font-weight:700}
 <a class="lang" id="lang"></a>
 </main>
 <script>
+${PASSKEY_BROWSER_JS}
 (function(){
 var C=JSON.parse(${config}),T=C.text,busy=false;
 function $(id){return document.getElementById(id);}
@@ -149,6 +159,7 @@ $('title').textContent=T.title;$('balanceLabel').textContent=T.balance;$('codeHi
 $('pendingTitle').textContent=T.pendingTitle;$('accept').textContent=T.accept;$('reject').textContent=T.reject;
 $('movementsTitle').textContent=T.movements;$('leave').textContent=T.leave;$('saveHint').textContent=T.saveHint;
 $('lang').textContent=T.other.label;$('lang').href=C.base+'?lang='+T.other.code;
+$('faceTitle').textContent=T.faceIdTitle;$('faceHint').textContent=T.faceIdHint;$('faceOn').textContent=T.faceIdButton;
 function render(s){
   $('balance').textContent=eur(s.balanceCents);
   $('code').textContent=s.code;
@@ -157,6 +168,9 @@ function render(s){
   var notice=!active?(s.status==='DEPLETED'?T.depleted:T.closed):(s.closeRequested?T.leaveRequested:'');
   $('notice').hidden=!notice;$('notice').textContent=notice;
   $('leave').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
+  $('faceCard').hidden=!active||s.hasFaceId;
+  $('faceNote').hidden=!s.hasFaceId;$('faceNote').textContent=s.hasFaceId?T.faceIdOn:'';
+  if(active&&!s.hasFaceId&&!pkSupported()){$('faceOn').hidden=true;$('faceHint').textContent=T.faceIdUnsupported;}
   var p=s.pending;$('pending').hidden=!p;
   if(p){$('pendingAmount').textContent=eur(p.amountCents);
     $('pendingWho').textContent=[p.serviceName,p.requestedByName,p.venueName].filter(Boolean).join(' · ');
@@ -177,6 +191,10 @@ function refresh(){if(busy)return;fetch(C.base+'/state',{cache:'no-store'}).then
 $('accept').addEventListener('click',function(){if(!busy)post('/requests/'+encodeURIComponent(this.dataset.id)+'/accept');});
 $('reject').addEventListener('click',function(){if(!busy)post('/requests/'+encodeURIComponent(this.dataset.id)+'/reject');});
 $('leave').addEventListener('click',function(){if(!busy&&confirm(T.leaveConfirm))post('/close');});
+$('faceOn').addEventListener('click',function(){if(busy)return;busy=true;$('faceOn').disabled=true;
+  pkCreate(C.base+'/passkey/options').then(function(k){return pkPost(C.base+'/passkey',{response:k});})
+   .then(render).catch(function(e){if(!pkCancelled(e))alert((e&&e.message)||T.error);})
+   .finally(function(){busy=false;$('faceOn').disabled=false;});});
 render(C.state);setInterval(function(){if(document.visibilityState==='visible')refresh();},3000);
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')refresh();});
 })();

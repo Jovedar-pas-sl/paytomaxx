@@ -55,6 +55,7 @@ import {
 } from './pay-redirect';
 import { defaultTipGoesTo, readChargedTip, settleChargedTip, tipOptionsFor } from './tip';
 import { expectedChicaReversal } from './refund-share';
+import { formatWalletCode } from '../wallets/wallet-rules';
 import { BRAND_NAME } from '../../common/brand';
 
 const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
@@ -647,7 +648,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           updatedAt: true,
           authorizedAt: true,
           walletId: true,
-          wallet: { select: { qrToken: true } },
+          wallet: { select: { qrToken: true, shortCode: true, _count: { select: { passkeys: true } } } },
           attempts: {
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
@@ -672,14 +673,28 @@ export class PaymentsService implements OnApplicationBootstrap {
         )
       )?.provider ??
       null;
-    const { walletId, wallet, attempts, ...rest } = payment;
+    const { walletId, wallet: rawWallet, attempts, ...rest } = payment;
+    // Recarga de un saldo que ya existía: quien la paga no se lleva su código,
+    // su enlace ni su Face ID (solo la recarga que lo creó).
+    const wallet = rawWallet && (await this.isFirstTopUp(walletId, payment.id)) ? rawWallet : null;
     return {
       ...rest,
       status: payment.status as PaymentMachineState,
       allowTip: provider === 'REDSYS' && walletId === null,
       walletToken: wallet?.qrToken ?? null,
       walletClaimHash: wallet ? (attempts[0]?.claimHash ?? null) : null,
+      walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
+      walletHasFaceId: (wallet?._count.passkeys ?? 0) > 0,
     };
+  }
+
+  /** ¿Es este el cobro con el que se creó (y cargó por primera vez) el saldo? */
+  private async isFirstTopUp(walletId: string | null, paymentId: string): Promise<boolean> {
+    if (!walletId) return false;
+    const first = await this.prisma.acrossVenues((tx) =>
+      tx.payment.findFirst({ where: { walletId }, orderBy: { createdAt: 'asc' }, select: { id: true } }),
+    );
+    return first?.id === paymentId;
   }
 
   /**
@@ -703,7 +718,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           currency: true,
           authorizedAt: true,
           qrToken: true,
-          wallet: { select: { qrToken: true } },
+          walletId: true,
+          wallet: { select: { qrToken: true, shortCode: true, _count: { select: { passkeys: true } } } },
           attempts: {
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
@@ -717,6 +733,15 @@ export class PaymentsService implements OnApplicationBootstrap {
         where: { paymentId: payment.id, providerTxId },
         select: { status: true },
       });
+      const firstTopUp = payment.walletId
+        ? await tx.payment.findFirst({
+            where: { walletId: payment.walletId },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true },
+          })
+        : null;
+      // Recarga de un saldo que ya existía: sin código, enlace ni Face ID para quien paga.
+      const wallet = firstTopUp?.id === payment.id ? payment.wallet : null;
       return {
         paymentId: payment.id,
         status: payment.status as PaymentMachineState,
@@ -725,8 +750,10 @@ export class PaymentsService implements OnApplicationBootstrap {
         currency: payment.currency,
         authorizedAt: payment.authorizedAt,
         qrToken: payment.qrToken,
-        walletToken: payment.wallet?.qrToken ?? null,
-        walletClaimHash: payment.wallet ? (payment.attempts[0]?.claimHash ?? null) : null,
+        walletToken: wallet?.qrToken ?? null,
+        walletClaimHash: wallet ? (payment.attempts[0]?.claimHash ?? null) : null,
+        walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
+        walletHasFaceId: (wallet?._count.passkeys ?? 0) > 0,
         attemptStatus: thisAttempt?.status ?? null,
       };
     });
@@ -944,15 +971,16 @@ export class PaymentsService implements OnApplicationBootstrap {
           // H3: filtro tenantId en SELECT FOR UPDATE (no solo defensa post-lock
           // sino que el lock se adquiere sobre la fila correcta del tenant).
           const walletLocked = await tx.$queryRaw<
-            Array<{ id: string; balanceCents: number; status: string }>
+            Array<{ id: string; balanceCents: number; status: string; mergedIntoId: string | null }>
           >`
-            SELECT id, "balanceCents", status FROM client_wallets
+            SELECT id, "balanceCents", status, "mergedIntoId" FROM client_wallets
              WHERE id = ${p.walletId}::uuid
                AND "tenantId" = ${p.tenantId}::uuid
              FOR UPDATE
           `;
           const w = walletLocked[0];
-          if (w && (w.status === 'ACTIVE' || w.status === 'DEPLETED')) {
+          // Un saldo ya sumado a otro (Face ID) no recibe nada: va a revisión.
+          if (w && !w.mergedIntoId && (w.status === 'ACTIVE' || w.status === 'DEPLETED')) {
             await tx.$executeRaw`
               UPDATE client_wallets
                  SET "balanceCents" = "balanceCents" + ${p.amountCents}::int,
@@ -971,7 +999,7 @@ export class PaymentsService implements OnApplicationBootstrap {
             //   1. Métrica Prometheus (alerta a >0)
             //   2. Audit log con action específico searchable
             //   3. Log ERROR (no WARN — esto es crítico)
-            const walletStatus = w?.status ?? 'missing';
+            const walletStatus = w?.mergedIntoId ? 'merged' : (w?.status ?? 'missing');
             this.metrics.walletCreditSkipped.inc({
               venue: p.tenantId,
               wallet_status: walletStatus,

@@ -1,10 +1,26 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { Body, Controller, Get, Headers, HttpCode, Inject, Logger, Param, Post, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Headers,
+  HttpCode,
+  Inject,
+  Logger,
+  Param,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { Public } from '../../common/decorators/public.decorator';
 import { PaymentsService } from './payments.service';
+import { WalletChargesService } from '../wallets/wallet-charges.service';
+import { WalletPasskeysService } from '../wallets/wallet-passkeys.service';
+import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { confirmationCode, type CheckoutChoice, type PayRedirect } from './pay-redirect';
 import { detectPayDevice } from './pay-device';
 import { payErrorKey, resolveLanguage, type PayLanguage } from './pay-i18n';
@@ -12,6 +28,7 @@ import {
   payHref,
   receiptHref,
   walletHref,
+  payBase,
   renderCheckoutForm,
   renderChoosePage,
   renderClosedPage,
@@ -71,10 +88,19 @@ export class PublicPayController {
   private readonly logger = new Logger(PublicPayController.name);
   private readonly payments: PaymentsService;
   private readonly config: ConfigService;
+  private readonly charges: WalletChargesService;
+  private readonly passkeys: WalletPasskeysService;
 
-  constructor(@Inject(PaymentsService) payments: PaymentsService, @Inject(ConfigService) config: ConfigService) {
+  constructor(
+    @Inject(PaymentsService) payments: PaymentsService,
+    @Inject(ConfigService) config: ConfigService,
+    @Inject(WalletChargesService) charges: WalletChargesService,
+    @Inject(WalletPasskeysService) passkeys: WalletPasskeysService,
+  ) {
     this.payments = payments;
     this.config = config;
+    this.charges = charges;
+    this.passkeys = passkeys;
   }
 
   @Public()
@@ -220,7 +246,8 @@ export class PublicPayController {
       case 'form':
         sendHtml(res, 200, renderCheckoutForm(view.action, view.fields, lang, payHref(token, lang)));
         return;
-      case 'paid':
+      case 'paid': {
+        const payer = Boolean(view.walletToken) && this.hasWalletClaim(res, token, view.walletClaimHash);
         sendHtml(
           res,
           200,
@@ -232,17 +259,19 @@ export class PublicPayController {
               code: confirmationCode(view.paymentId),
               authorizedAt: view.authorizedAt,
               receiptHref: receiptHref(token, lang),
-              walletHref:
-                view.walletToken && this.hasWalletClaim(res, token, view.walletClaimHash)
-                  ? walletHref(view.walletToken, lang)
+              walletHref: payer && view.walletToken ? walletHref(view.walletToken, lang) : null,
+              walletElsewhere: Boolean(view.walletToken) && !payer,
+              // Solo en el móvil que pagó la recarga que creó el saldo.
+              wallet:
+                payer && view.walletCode
+                  ? { code: view.walletCode, hasFaceId: view.walletHasFaceId, base: payBase(token) }
                   : null,
-              walletElsewhere:
-                Boolean(view.walletToken) && !this.hasWalletClaim(res, token, view.walletClaimHash),
             },
             lang,
           ),
         );
         return;
+      }
       case 'processing':
         sendHtml(res, 200, renderProcessingPage(lang, payHref(token, lang), true));
         return;
@@ -250,6 +279,99 @@ export class PublicPayController {
         sendHtml(res, 409, renderClosedPage(view.reason, lang));
         return;
     }
+  }
+
+  // ─── Recarga de saldo: activar Face ID o sumarla al saldo de siempre ─────
+  // Solo el móvil que pagó (cookie del pago), desde nuestra página, y solo en
+  // la recarga que creó el saldo (la vista no da el saldo en otras).
+
+  @Public()
+  @Post(':token/passkey/options')
+  @HttpCode(200)
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'pay-passkey' })
+  async walletPasskeyOptions(
+    @Param('token') token: string,
+    @Headers('host') host: string | undefined,
+    @Headers('origin') origin: string | undefined,
+    @Headers('sec-fetch-site') fetchSite: string | undefined,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<unknown> {
+    const wallet = await this.payerWallet(token, res, host, origin, fetchSite);
+    return this.passkeys.registrationOptions(wallet, host);
+  }
+
+  @Public()
+  @Post(':token/passkey')
+  @HttpCode(200)
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'pay-passkey' })
+  async walletPasskeyRegister(
+    @Param('token') token: string,
+    @Body() body: { response?: unknown } | undefined,
+    @Headers('host') host: string | undefined,
+    @Headers('origin') origin: string | undefined,
+    @Headers('sec-fetch-site') fetchSite: string | undefined,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<{ ok: true }> {
+    const wallet = await this.payerWallet(token, res, host, origin, fetchSite);
+    await this.passkeys.register(wallet.id, host, body?.response);
+    return { ok: true };
+  }
+
+  @Public()
+  @Post(':token/merge/challenge')
+  @HttpCode(200)
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'pay-passkey' })
+  async walletMergeChallenge(
+    @Param('token') token: string,
+    @Headers('host') host: string | undefined,
+    @Headers('origin') origin: string | undefined,
+    @Headers('sec-fetch-site') fetchSite: string | undefined,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<unknown> {
+    const wallet = await this.payerWallet(token, res, host, origin, fetchSite);
+    return this.passkeys.challenge(`merge:${wallet.id}`, host);
+  }
+
+  /** "Sumar a mi saldo": su llave dice cuál es su saldo de siempre. */
+  @Public()
+  @Post(':token/merge')
+  @HttpCode(200)
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'pay-passkey' })
+  async walletMerge(
+    @Param('token') token: string,
+    @Body() body: { response?: unknown } | undefined,
+    @Headers('host') host: string | undefined,
+    @Headers('origin') origin: string | undefined,
+    @Headers('sec-fetch-site') fetchSite: string | undefined,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<{ balanceCents: number }> {
+    const wallet = await this.payerWallet(token, res, host, origin, fetchSite);
+    const target = await this.passkeys.verify(`merge:${wallet.id}`, host, body?.response);
+    return this.charges.mergeInto(wallet.id, target);
+  }
+
+  /** El saldo de la recarga que creó este cobro, si esta petición es del móvil que la pagó. */
+  private async payerWallet(
+    token: string,
+    res: FastifyReply,
+    host: string | undefined,
+    origin: string | undefined,
+    fetchSite: string | undefined,
+  ): Promise<{ id: string; shortCode: string | null }> {
+    // La cookie del pago es SameSite=None (vuelve del banco): solo si el
+    // navegador dice que viene de nuestra página.
+    const fromUs = origin ? sameHost(origin, host) : fetchSite === 'same-origin';
+    const view = fromUs ? await this.payments.getPayPage(token) : null;
+    if (
+      !view ||
+      view.kind !== 'paid' ||
+      !view.walletToken ||
+      !view.walletCode ||
+      !this.hasWalletClaim(res, token, view.walletClaimHash)
+    ) {
+      throw new ForbiddenException('Esto solo se puede hacer desde el móvil que pagó la recarga');
+    }
+    return this.charges.walletRefByToken(view.walletToken);
   }
 
   private sendError(res: FastifyReply, token: string, lang: PayLanguage, err: unknown): void {
@@ -310,3 +432,13 @@ function sendHtml(res: FastifyReply, status: number, html: string): void {
     .header('Cache-Control', 'no-store')
     .send(html);
 }
+
+/** La petición viene de nuestra propia página (Origin "null" o de otra web, no). */
+function sameHost(origin: string, host: string | undefined): boolean {
+  try {
+    return Boolean(host) && new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+

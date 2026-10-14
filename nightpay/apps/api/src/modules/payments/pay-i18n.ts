@@ -31,6 +31,17 @@ export interface PayText {
   payCard: string;
   inAppWarning: (app: string) => string;
   statement: (name: string) => string;
+  /** Recarga de saldo: su código, activar Face ID o sumarla a su saldo. */
+  walletTitle: string;
+  walletHow: string;
+  faceIdOn: string;
+  faceIdButton: string;
+  faceIdDone: string;
+  mergeAsk: string;
+  mergeButton: string;
+  mergeDone: string;
+  faceIdUnsupported: string;
+  walletMore: string;
   expiresIn: string;
   // Hacia el banco
   openingTitle: string;
@@ -94,6 +105,16 @@ const ES: PayText = {
   inAppWarning: (app) =>
     `Estás en el navegador de ${app}. Para pagar con Apple Pay o Google Pay, ábrelo en Safari o Chrome: toca ··· y «Abrir en el navegador». Con tarjeta puedes pagar aquí.`,
   statement: (name) => `En tu extracto aparecerá como «${name}».`,
+  walletTitle: 'Tu saldo',
+  walletHow: 'Para pagar con tu saldo, escaneas el QR de la chica y desbloqueas tu móvil (Face ID, huella o el PIN del teléfono). Nadie más puede gastarlo.',
+  faceIdOn: '🔒 Face ID activado. Ya puedes pagar con tu saldo.',
+  faceIdButton: 'Activar Face ID',
+  faceIdDone: '✓ Face ID activado. Ya puedes pagar con tu saldo.',
+  mergeAsk: '¿Ya tenías saldo con Face ID? Súmale esta recarga:',
+  mergeButton: 'Sumar a mi saldo',
+  mergeDone: '✓ Sumado a tu saldo.',
+  faceIdUnsupported: 'Tu móvil no permite pagar así: pide al encargado que te cobre del saldo.',
+  walletMore: 'Ver mi saldo y movimientos',
   expiresIn: 'Caduca en',
   openingTitle: 'Abriendo el pago…',
   openingHint: 'Si no avanza en 2 segundos, pulsa el botón.',
@@ -172,6 +193,16 @@ const EN: PayText = {
   inAppWarning: (app) =>
     `You are in the ${app} browser. To pay with Apple Pay or Google Pay, open this page in Safari or Chrome: tap ··· and "Open in browser". You can pay by card here.`,
   statement: (name) => `It will show on your statement as "${name}".`,
+  walletTitle: 'Your balance',
+  walletHow: 'To pay with your balance, scan the staff QR and unlock your phone (Face ID, fingerprint or phone PIN). Nobody else can spend it.',
+  faceIdOn: '🔒 Face ID is on. You can now pay with your balance.',
+  faceIdButton: 'Turn on Face ID',
+  faceIdDone: '✓ Face ID is on. You can now pay with your balance.',
+  mergeAsk: 'Already have a balance with Face ID? Add this top-up to it:',
+  mergeButton: 'Add to my balance',
+  mergeDone: '✓ Added to your balance.',
+  faceIdUnsupported: 'Your phone cannot pay this way: ask the manager to charge your balance.',
+  walletMore: 'See my balance and activity',
   expiresIn: 'Expires in',
   openingTitle: 'Opening the payment…',
   openingHint: 'If nothing happens in 2 seconds, tap the button.',

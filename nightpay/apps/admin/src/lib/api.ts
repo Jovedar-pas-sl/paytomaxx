@@ -876,6 +876,34 @@ export interface WalletAdminRow {
   expiresAt: string | null;
   consumptionCount: number;
   createdAt: string;
+  /** El cliente activó Face ID (paga escaneando el QR de la chica). */
+  hasFaceId: boolean;
+}
+
+/** Cobro con QR que la chica hizo y nadie ha pagado aún. */
+export interface PendingQrCharge {
+  id: string;
+  amountCents: number;
+  serviceName: string | null;
+  requestedByName: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/** Encargado o dueño: cobros con QR sin pagar (cliente sin batería…). */
+export async function fetchPendingQrCharges(): Promise<PendingQrCharge[]> {
+  const res = await authedFetch('/v1/wallet-charges/pending-qr');
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+/** Encargado o dueño: cobrar ese cobro de este saldo, sin Face ID (queda registrado). */
+export async function approveQrCharge(requestId: string, walletId: string): Promise<void> {
+  const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(requestId)}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ walletId }),
+  });
+  if (!res.ok) throw new Error(await readError(res));
 }
 
 export interface WalletsAdminStats {

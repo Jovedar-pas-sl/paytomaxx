@@ -379,7 +379,8 @@ model PaymentAttempt {
 model WalletChargeRequest {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId          String    @db.Uuid
-  walletId          String    @db.Uuid
+  // Null en un cobro con QR hasta que el cliente lo paga con su Face ID.
+  walletId          String?   @db.Uuid
   requestedByUserId String    @db.Uuid
   amountCents       Int
   category          String
@@ -389,9 +390,11 @@ model WalletChargeRequest {
   expiresAt         DateTime  @db.Timestamptz
   decidedAt         DateTime? @db.Timestamptz
   consumptionId     String?   @db.Uuid
+  // Cobro con QR: el token del enlace /s/<payToken> que escanea el cliente.
+  payToken          String?   @unique
   createdAt         DateTime  @default(now()) @db.Timestamptz
 
-  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  wallet ClientWallet? @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
   @@index([walletId, status])
   @@index([tenantId, createdAt(sort: Desc)])
@@ -747,6 +750,8 @@ model ClientWallet {
   shortCode        String?
   walletGroup      String?
   closeRequestedAt DateTime? @db.Timestamptz
+  // Recarga sumada a otro saldo del mismo cliente (con su Face ID).
+  mergedIntoId     String?   @db.Uuid
   createdAt    DateTime     @default(now()) @db.Timestamptz
   updatedAt    DateTime     @updatedAt @db.Timestamptz
 
@@ -755,11 +760,31 @@ model ClientWallet {
   consumptions   WalletConsumption[]
   chargeRequests WalletChargeRequest[]
   payouts        WalletPayout[]
+  passkeys       WalletPasskey[]
 
   @@index([tenantId, status])
   @@index([tenantId, identifier])
   @@index([tenantId, createdAt(sort: Desc)])
+  @@index([mergedIntoId])
   @@map("client_wallets")
+}
+
+/// Llave del cliente para pagar con su saldo desbloqueando su móvil (Face ID,
+/// huella o el PIN del teléfono). Solo la clave pública.
+model WalletPasskey {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId     String    @db.Uuid
+  credentialId String    @unique
+  publicKey    Bytes
+  counter      BigInt    @default(0)
+  transports   String[]  @default([])
+  createdAt    DateTime  @default(now()) @db.Timestamptz
+  lastUsedAt   DateTime? @db.Timestamptz
+
+  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@map("wallet_passkeys")
 }
 
 // Cada consumo del balance de una wallet. Atómicamente:

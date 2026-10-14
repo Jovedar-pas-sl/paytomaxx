@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Header,
@@ -12,13 +13,12 @@ import {
   Res,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
-import * as QRCode from 'qrcode';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { resolveLanguage } from '../payments/pay-i18n';
 import { WalletChargesService, type ClientWalletState } from './wallet-charges.service';
+import { WalletPasskeysService } from './wallet-passkeys.service';
 import { renderWalletPage } from './wallet-page';
-import { operatorBaseUrl, walletCodeQrContent } from './wallet-rules';
 
 /**
  * Saldo NightPay — páginas del cliente (fuera de /v1). Sin cuenta: el enlace
@@ -35,9 +35,40 @@ import { operatorBaseUrl, walletCodeQrContent } from './wallet-rules';
 @Controller('w')
 export class PublicWalletController {
   private readonly charges: WalletChargesService;
+  private readonly passkeys: WalletPasskeysService;
 
-  constructor(@Inject(WalletChargesService) charges: WalletChargesService) {
+  constructor(
+    @Inject(WalletChargesService) charges: WalletChargesService,
+    @Inject(WalletPasskeysService) passkeys: WalletPasskeysService,
+  ) {
     this.charges = charges;
+    this.passkeys = passkeys;
+  }
+
+  /** Activar Face ID, paso 1 (con el enlace del saldo; solo si aún no tiene). */
+  @Public()
+  @Post(':token/passkey/options')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-passkey' })
+  async passkeyOptions(@Param('token') token: string, @Headers('host') host: string | undefined): Promise<unknown> {
+    return this.passkeys.registrationOptions(await this.charges.walletRefByToken(token), host);
+  }
+
+  /** Activar Face ID, paso 2: la respuesta de su móvil. */
+  @Public()
+  @Post(':token/passkey')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-passkey' })
+  async passkeyRegister(
+    @Param('token') token: string,
+    @Body() body: { response?: unknown } | undefined,
+    @Headers('host') host: string | undefined,
+  ): Promise<ClientWalletState> {
+    const wallet = await this.charges.walletRefByToken(token);
+    await this.passkeys.register(wallet.id, host, body?.response);
+    return this.charges.clientState(token);
   }
 
   @Public()
@@ -49,23 +80,14 @@ export class PublicWalletController {
     @Headers('accept-language') acceptLanguage: string | undefined,
     @Res() res: FastifyReply,
   ): Promise<void> {
+    // Ya no hay QR del código: para pagar, el cliente escanea el QR de la
+    // chica y desbloquea su móvil (Face ID).
     const state = await this.charges.clientState(token);
-    // El QR lleva solo el código (la chica lo escanea), no el enlace del saldo.
-    const codeQrSvg =
-      state.status === 'ACTIVE'
-        ? await QRCode.toString(
-            walletCodeQrContent(
-              state.code,
-              operatorBaseUrl(process.env.NEXT_PUBLIC_API_URL, process.env.NEXT_PUBLIC_OPERATOR_URL),
-            ),
-            { type: 'svg', errorCorrectionLevel: 'M', margin: 1, color: { dark: '#0b0b0b', light: '#ffffff' } },
-          )
-        : null;
     res
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
       .header('Cache-Control', 'no-store')
-      .send(renderWalletPage(token, resolveLanguage(langQuery, acceptLanguage), state, { codeQrSvg }));
+      .send(renderWalletPage(token, resolveLanguage(langQuery, acceptLanguage), state));
   }
 
   @Public()

@@ -55,6 +55,7 @@ function makeService(opts: { wallet?: ReturnType<typeof wallet> | null; pending?
     },
     operatorEarning: { create: vi.fn().mockResolvedValue({}) },
     walletPayout: { create: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]) },
+    walletPasskey: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), count: vi.fn().mockResolvedValue(0) },
     payment: { findMany: vi.fn().mockResolvedValue([]) },
     user: {
       findUnique: vi.fn().mockResolvedValue({ role: 'OPERATOR', commissionBps: null, displayName: 'Lola' }),
@@ -69,6 +70,7 @@ function makeService(opts: { wallet?: ReturnType<typeof wallet> | null; pending?
     asSystem: vi.fn().mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx)),
     acrossVenues: vi.fn().mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx)),
     $transaction: vi.fn().mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    walletPasskey: { count: vi.fn().mockResolvedValue(0) },
     venue: {
       findUnique: vi.fn().mockResolvedValue({ name: 'Local Centro', walletGroup: opts.venueGroup === undefined ? 'principal' : opts.venueGroup }),
       findMany: vi.fn().mockResolvedValue([{ id: 'other', name: 'Local Norte' }]),

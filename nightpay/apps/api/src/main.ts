@@ -145,12 +145,23 @@ async function bootstrap() {
       { path: 'pay/:token', method: RequestMethod.POST },
       { path: 'pay/:token/receipt', method: RequestMethod.GET },
       { path: 'pay/:token/checkout', method: RequestMethod.GET },
+      // Recarga: el cliente activa Face ID o la suma a su saldo, en "Pagado".
+      { path: 'pay/:token/passkey/options', method: RequestMethod.POST },
+      { path: 'pay/:token/passkey', method: RequestMethod.POST },
+      { path: 'pay/:token/merge/challenge', method: RequestMethod.POST },
+      { path: 'pay/:token/merge', method: RequestMethod.POST },
+      // Pagar con el saldo escaneando el QR de la chica (Face ID).
+      { path: 's/:token', method: RequestMethod.GET },
+      { path: 's/:token/challenge', method: RequestMethod.POST },
+      { path: 's/:token/pay', method: RequestMethod.POST },
       // Saldo NightPay: página del cliente y sus acciones.
       { path: 'w/:token', method: RequestMethod.GET },
       { path: 'w/:token/state', method: RequestMethod.GET },
       { path: 'w/:token/requests/:id/accept', method: RequestMethod.POST },
       { path: 'w/:token/requests/:id/reject', method: RequestMethod.POST },
       { path: 'w/:token/close', method: RequestMethod.POST },
+      { path: 'w/:token/passkey/options', method: RequestMethod.POST },
+      { path: 'w/:token/passkey', method: RequestMethod.POST },
     ],
   });
 

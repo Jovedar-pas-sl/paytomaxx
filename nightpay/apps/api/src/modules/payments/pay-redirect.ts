@@ -59,6 +59,8 @@ export type PayRedirect =
       walletToken: string | null;
       /** Huella del navegador que hizo el pago aprobado (solo él ve el enlace). */
       walletClaimHash: string | null;
+      walletCode: string | null;
+      walletHasFaceId: boolean;
     }
   | { kind: 'processing' }
   | { kind: 'closed'; reason: PayClosedReason };
@@ -75,6 +77,9 @@ export interface PayResultView {
   walletToken: string | null;
   /** Huella del navegador que hizo el pago aprobado (solo él ve el enlace). */
   walletClaimHash: string | null;
+  /** Recarga que creó el saldo: su código (K7Q-4M2) y si ya tiene Face ID. */
+  walletCode: string | null;
+  walletHasFaceId: boolean;
   /** Estado del intento concreto por el que vuelve el cliente (PENDING/APPROVED/DENIED). */
   attemptStatus: string | null;
 }
@@ -162,6 +167,9 @@ export interface PayablePayment {
   walletToken: string | null;
   /** Huella del navegador que hizo el pago aprobado. */
   walletClaimHash: string | null;
+  /** Recarga que creó el saldo: su código (K7Q-4M2) y si ya tiene Face ID. */
+  walletCode: string | null;
+  walletHasFaceId: boolean;
 }
 
 /**
@@ -179,6 +187,8 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       authorizedAt: p.authorizedAt,
       walletToken: p.walletToken,
       walletClaimHash: p.walletClaimHash,
+      walletCode: p.walletCode,
+      walletHasFaceId: p.walletHasFaceId,
     };
   }
   const closed = CLOSED_REASON[p.status];

@@ -397,6 +397,12 @@ export function CreatePayment({ onCreated }: Props) {
               </strong>
             </p>
             <p style={{ ...hintStyle, textAlign: 'center' }}>Debe coincidir con el del móvil del cliente.</p>
+            {active.walletId ? (
+              <p style={{ margin: 0, textAlign: 'center', fontWeight: 600 }}>
+                Saldo cargado. Dile que active Face ID en su móvil, en la página donde ha pagado: así paga con su saldo
+                escaneando tu QR.
+              </p>
+            ) : null}
             {paidTipCents > 0 ? (
               <p className="np-num" style={{ margin: 0, textAlign: 'center', fontWeight: 700, fontSize: '1.25rem', color: 'var(--np-accent)' }}>
                 + {formatEur(paidTipCents)} de propina

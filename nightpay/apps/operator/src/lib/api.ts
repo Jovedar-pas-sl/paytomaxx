@@ -518,6 +518,22 @@ export async function lookupWalletCode(code: string): Promise<WalletLookup> {
   return res.json();
 }
 
+/** Cobro del saldo con QR: el cliente lo escanea y paga desbloqueando su móvil (Face ID). */
+export interface QrWalletCharge extends WalletChargeRequest {
+  payToken: string;
+  payUrl: string;
+  qrPngDataUrl: string;
+}
+
+export async function createQrWalletCharge(input: {
+  serviceItemId?: string;
+  amountCents?: number;
+}): Promise<QrWalletCharge> {
+  const res = await authedFetch('/v1/wallet-charges/qr', { method: 'POST', body: JSON.stringify(input) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));
+  return res.json();
+}
+
 /** Pide el cobro: con un servicio de la carta o un importe. */
 export async function requestWalletCharge(input: {
   code: string;

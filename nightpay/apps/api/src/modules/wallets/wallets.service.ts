@@ -709,7 +709,7 @@ export class WalletsService {
           createdAt: true,
           shortCode: true,
           closeRequestedAt: true,
-          _count: { select: { consumptions: true } },
+          _count: { select: { consumptions: true, passkeys: true } },
         },
       }),
     );
@@ -723,6 +723,8 @@ export class WalletsService {
       expiresAt: w.expiresAt?.toISOString() ?? null,
       consumptionCount: w._count.consumptions,
       createdAt: w.createdAt.toISOString(),
+      /** El cliente activó Face ID (paga escaneando el QR de la chica). */
+      hasFaceId: w._count.passkeys > 0,
     }));
   }
 

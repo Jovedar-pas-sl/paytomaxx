@@ -8,6 +8,9 @@ import {
   lookupWalletCode,
   payoutWallet,
   relinkWallet,
+  approveQrCharge,
+  fetchPendingQrCharges,
+  type PendingQrCharge,
   type WalletAdminRow,
   type WalletPayoutMethod,
   type WalletsAdminStats,
@@ -44,6 +47,7 @@ export function WalletsPanel({ isOwner }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [payoutFor, setPayoutFor] = useState<PayoutTarget | null>(null);
   const [relinkFor, setRelinkFor] = useState<PayoutTarget | null>(null);
+  const [chargeFor, setChargeFor] = useState<PayoutTarget | null>(null);
 
   async function reload() {
     try {
@@ -165,6 +169,7 @@ export function WalletsPanel({ isOwner }: Props) {
                     {w.status === 'ACTIVE' && w.closeRequestedAt ? (
                       <span style={closeBadgeStyle}>Pide devolución</span>
                     ) : null}
+                    {w.hasFaceId ? <span style={faceBadgeStyle}>Face ID</span> : null}
                   </td>
                   <td style={tdRight}>
                     <span className="np-num">{(w.balanceCents / 100).toFixed(2)} €</span>
@@ -191,6 +196,11 @@ export function WalletsPanel({ isOwner }: Props) {
                       {isOwner && w.status === 'ACTIVE' ? (
                         <Button variant="ghost" onClick={() => setRelinkFor(rowTarget(w))}>
                           Enlace nuevo
+                        </Button>
+                      ) : null}
+                      {w.status === 'ACTIVE' && w.balanceCents > 0 ? (
+                        <Button variant="ghost" onClick={() => setChargeFor(rowTarget(w))}>
+                          Cobrar sin Face ID
                         </Button>
                       ) : null}
                     </div>
@@ -222,6 +232,16 @@ export function WalletsPanel({ isOwner }: Props) {
       ) : null}
 
       {relinkFor ? <RelinkModal target={relinkFor} onClose={() => setRelinkFor(null)} /> : null}
+      {chargeFor ? (
+        <ChargeWithoutFaceIdModal
+          target={chargeFor}
+          onClose={() => setChargeFor(null)}
+          onDone={() => {
+            setChargeFor(null);
+            void reload();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -444,6 +464,93 @@ function PayoutModal({
   );
 }
 
+/**
+ * El cliente no puede pagar con su móvil (sin batería, móvil antiguo): el
+ * encargado cobra de su saldo un cobro con QR que hizo la chica. La parte de
+ * la chica queda como siempre y queda registrado quién lo aprobó.
+ */
+function ChargeWithoutFaceIdModal({
+  target,
+  onClose,
+  onDone,
+}: {
+  target: PayoutTarget;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [pending, setPending] = useState<PendingQrCharge[] | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchPendingQrCharges()
+      .then(setPending)
+      .catch((err: Error) => setError(err.message));
+  }, []);
+
+  async function handleApprove() {
+    if (!chosen) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await approveQrCharge(chosen, target.walletId);
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Cobrar sin Face ID">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={summaryStyle}>
+          <p style={{ margin: 0, fontSize: '0.85rem' }}>
+            Saldo del cliente: <strong className="np-num">{eur(target.balanceCents)}</strong>
+          </p>
+          <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
+            {[target.code, target.label].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+        <p style={helpStyle}>
+          Para el cliente que no puede pagar con su móvil (sin batería, móvil antiguo). Elige el cobro que le ha hecho la
+          chica: se descuenta de este saldo y queda registrado que lo aprobaste tú.
+        </p>
+        {pending === null ? (
+          <p style={helpStyle}>Cargando cobros pendientes…</p>
+        ) : pending.length === 0 ? (
+          <p style={helpStyle}>No hay cobros con QR pendientes. Que la chica genere el cobro en su móvil y vuelve aquí.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            {pending.map((p) => (
+              <MethodOption
+                key={p.id}
+                active={chosen === p.id}
+                disabled={p.amountCents > target.balanceCents}
+                title={`${eur(p.amountCents)}${p.serviceName ? ` · ${p.serviceName}` : ''}`}
+                text={`${p.requestedByName} · ${new Date(p.createdAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}${
+                  p.amountCents > target.balanceCents ? ' · no le llega el saldo' : ''
+                }`}
+                onClick={() => setChosen(p.id)}
+              />
+            ))}
+          </div>
+        )}
+        {error ? <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>{error}</p> : null}
+        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancelar
+          </Button>
+          <Button onClick={handleApprove} loading={busy} disabled={!chosen}>
+            Cobrar del saldo
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 /** Enlace nuevo del saldo: el cliente escanea el QR con su móvil. */
 function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -475,7 +582,9 @@ function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose: () =>
         </div>
         {link ? (
           <>
-            <p style={helpStyle}>Que el cliente escanee este QR con su móvil y guarde la página. Es su saldo.</p>
+            <p style={helpStyle}>
+              Que el cliente escanee este QR con su móvil y vuelva a activar Face ID en esa página. Es su saldo.
+            </p>
             <img
               src={link.qrDataUrl}
               alt="QR del enlace del saldo"
@@ -489,8 +598,8 @@ function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose: () =>
         ) : (
           <>
             <p style={helpStyle}>
-              Para el cliente que ya no encuentra su página de saldo. El enlace que tenía deja de funcionar y se le da
-              uno nuevo con un QR.
+              Para el cliente que perdió su móvil o su página de saldo. El enlace que tenía y su Face ID dejan de
+              funcionar; con el enlace nuevo lo activa otra vez en su móvil nuevo.
             </p>
             {error ? <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>{error}</p> : null}
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
@@ -670,6 +779,12 @@ const closeBadgeStyle: CSSProperties = {
   color: 'var(--np-warning)',
   fontSize: '0.72rem',
   fontWeight: 600,
+};
+
+const faceBadgeStyle: CSSProperties = {
+  ...closeBadgeStyle,
+  border: '1px solid var(--np-success)',
+  color: 'var(--np-success)',
 };
 
 const summaryStyle: CSSProperties = {

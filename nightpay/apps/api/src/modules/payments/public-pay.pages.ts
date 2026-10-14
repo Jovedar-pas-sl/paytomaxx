@@ -10,6 +10,7 @@ import {
   type PayRedirect,
   type PayResultView,
 } from './pay-redirect';
+import { PASSKEY_BROWSER_JS } from '../wallets/passkey-browser';
 
 /**
  * Páginas del cliente en /pay/... (Fase 1B). Look "Club": negro + lima, letra
@@ -73,6 +74,11 @@ function formatDateTime(d: Date, t: PayText): string {
 
 export function payHref(token: string, lang: PayLanguage): string {
   return `/pay/${encodeURIComponent(token)}?lang=${lang}`;
+}
+
+/** /pay/:token: rutas del Face ID del saldo en "Pagado". */
+export function payBase(payToken: string): string {
+  return `/pay/${encodeURIComponent(payToken)}`;
 }
 
 export function walletHref(token: string, lang: PayLanguage): string {
@@ -226,6 +232,8 @@ export function renderPaidPage(
     walletHref?: string | null;
     /** Recarga de saldo vista desde otro navegador: sin enlace, con aviso. */
     walletElsewhere?: boolean;
+    /** Recarga que creó el saldo, en el móvil que pagó: código, Face ID o sumarla. */
+    wallet?: WalletBlock | null;
   },
   lang: PayLanguage,
 ): string {
@@ -236,6 +244,15 @@ export function renderPaidPage(
 .code{margin-top:.5rem;border:2px solid #2a2a2a;border-radius:10px;padding:.75rem 1rem;width:100%}
 .code b{display:block;font-size:2.4rem;letter-spacing:.3em;color:#d4ff3a}
 .clock{font-variant-numeric:tabular-nums;font-size:1.4rem;font-weight:700;color:#f5f5f0}
+.wallet{border:2px solid #d4ff3a;border-radius:12px;padding:1rem;width:100%;display:flex;flex-direction:column;gap:.6rem}
+.wallet .wcode{font-size:2rem;font-weight:800;letter-spacing:.2em;color:#d4ff3a}
+.wallet .ok2{color:#5be38f;font-weight:700}
+.wallet .err{color:#ff6b6b}
+.wallet .small{font-size:.9rem}
+.wallet button{font:inherit;font-weight:800;width:100%;padding:1rem;border-radius:10px;border:2px solid #d4ff3a;background:#d4ff3a;color:#0b0b0b;cursor:pointer}
+.wallet button.alt{background:transparent;color:#f5f5f0;border-color:#3a3a3a}
+.wallet button:disabled{opacity:.55}
+[hidden]{display:none!important}
 </style>`;
   const total = formatAmount(args.amountCents + args.tipCents, args.currency, t);
   const body = `
@@ -246,13 +263,59 @@ ${args.tipCents > 0 ? `<p>${escapeHtml(t.includesTip(formatAmount(args.tipCents,
 ${args.authorizedAt ? `<p>${escapeHtml(t.confirmedAt(formatTime(args.authorizedAt, t)))}</p>` : ''}
 <div class="code"><p>${escapeHtml(t.codeLabel)}</p><b>${escapeHtml(args.code)}</b><p>${escapeHtml(t.codeHint)}</p></div>
 <div class="clock" id="clock" aria-label="${escapeHtml(t.clockLabel)}"></div>
-${args.walletHref ? `<p>${escapeHtml(t.walletReady)}</p><a class="btn" href="${escapeHtml(args.walletHref)}">${escapeHtml(t.walletOpen)}</a>` : ''}
+${args.wallet ? walletBlock(args.wallet, args.walletHref ?? null, lang) : args.walletHref ? `<p>${escapeHtml(t.walletReady)}</p><a class="btn" href="${escapeHtml(args.walletHref)}">${escapeHtml(t.walletOpen)}</a>` : ''}
 ${!args.walletHref && args.walletElsewhere ? `<p>${escapeHtml(t.walletElsewhere)}</p>` : ''}
 ${args.receiptHref ? `<a href="${escapeHtml(args.receiptHref)}">${escapeHtml(t.receiptLink)}</a>` : ''}
 <script>
 (function(){var el=document.getElementById('clock');function t(){el.textContent=new Date().toLocaleTimeString(${jsString(t.locale)},{timeZone:'Europe/Madrid'});}t();setInterval(t,1000);})();
 </script>`;
   return page(t, t.paidTitle, body, css);
+}
+
+/** "Pagado" de la recarga que creó el saldo, en el móvil que pagó. */
+export interface WalletBlock {
+  code: string;
+  hasFaceId: boolean;
+  /** /pay/:token: a esta ruta se le añaden /passkey/options, /passkey, /merge/challenge y /merge. */
+  base: string;
+}
+
+function walletBlock(w: WalletBlock, moreHref: string | null, lang: PayLanguage): string {
+  const t = PAY_TEXT[lang];
+  const config = jsString(JSON.stringify({ base: w.base, text: t }));
+  return `<section class="wallet">
+<p class="kick">${escapeHtml(t.walletTitle)}</p>
+<div class="wcode">${escapeHtml(w.code)}</div>
+<p class="small">${escapeHtml(t.walletHow)}</p>
+${w.hasFaceId
+    ? `<p class="ok2">${escapeHtml(t.faceIdOn)}</p>`
+    : `<div id="pkBox">
+<button class="pay" type="button" id="pkOn">${escapeHtml(t.faceIdButton)}</button>
+<p class="small">${escapeHtml(t.mergeAsk)}</p>
+<button class="pay alt" type="button" id="pkMerge">${escapeHtml(t.mergeButton)}</button>
+</div>
+<p class="ok2" id="pkDone" hidden></p>
+<p class="err" id="pkErr" role="alert" hidden></p>
+<script>
+${PASSKEY_BROWSER_JS}
+(function(){
+var C=JSON.parse(${config}),T=C.text,box=document.getElementById('pkBox');
+function $(id){return document.getElementById(id);}
+function show(id,text){$(id).textContent=text;$(id).hidden=!text;}
+if(!pkSupported()){box.hidden=true;show('pkErr',T.faceIdUnsupported);return;}
+function busy(v){$('pkOn').disabled=v;$('pkMerge').disabled=v;}
+function done(text){box.hidden=true;show('pkErr','');show('pkDone',text);}
+function fail(e){busy(false);if(!pkCancelled(e))show('pkErr',(e&&e.message)||'Error');}
+$('pkOn').addEventListener('click',function(){busy(true);show('pkErr','');
+  pkCreate(C.base+'/passkey/options').then(function(k){return pkPost(C.base+'/passkey',{response:k});})
+   .then(function(){done(T.faceIdDone);}).catch(fail);});
+$('pkMerge').addEventListener('click',function(){busy(true);show('pkErr','');
+  pkGet(C.base+'/merge/challenge').then(function(k){return pkPost(C.base+'/merge',{response:k});})
+   .then(function(){done(T.mergeDone);}).catch(fail);});
+})();
+</script>`}
+${moreHref ? `<a class="small" href="${escapeHtml(moreHref)}">${escapeHtml(t.walletMore)}</a>` : ''}
+</section>`;
 }
 
 export function renderProcessingPage(lang: PayLanguage, refreshUrl: string, offerNewCharge = false): string {
@@ -319,6 +382,10 @@ export function renderResultView(
         receiptHref: receiptHref(view.qrToken, lang),
         walletHref: view.walletToken ? walletHref(view.walletToken, lang) : null,
         walletElsewhere,
+        wallet:
+          view.walletToken && view.walletCode
+            ? { code: view.walletCode, hasFaceId: view.walletHasFaceId, base: payBase(view.qrToken) }
+            : null,
       },
       lang,
     );
