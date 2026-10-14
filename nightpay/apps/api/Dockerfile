@@ -55,4 +55,7 @@ HEALTHCHECK --interval=30s --timeout=8s --start-period=45s --retries=5 \
 # Al arrancar se llaman tsx y prisma directamente (pnpm lo preparó corepack
 # para root); el código queda de root y solo de lectura para el proceso.
 USER node
-CMD ["sh", "-c", "cd /repo/packages/db && ./node_modules/.bin/tsx scripts/db-heal.ts && ./node_modules/.bin/prisma migrate deploy && cd /repo/apps/api && exec ./node_modules/.bin/tsx src/main.ts"]
+# db-heal antes de migrar (arreglos que las migraciones necesitan) y después
+# (columnas que solo crea db-heal; en una base nueva es cuando de verdad
+# actúa). Sus pasos son idempotentes: la segunda pasada no cambia nada.
+CMD ["sh", "-c", "cd /repo/packages/db && ./node_modules/.bin/tsx scripts/db-heal.ts && ./node_modules/.bin/prisma migrate deploy && ./node_modules/.bin/tsx scripts/db-heal.ts && cd /repo/apps/api && exec ./node_modules/.bin/tsx src/main.ts"]

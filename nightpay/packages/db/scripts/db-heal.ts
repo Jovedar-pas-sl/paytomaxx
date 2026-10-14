@@ -27,6 +27,18 @@ async function main() {
   const prisma = new PrismaClient({ log: ['error'] });
 
   try {
+    // Base de datos nueva (una instalación desde cero, una copia restaurada
+    // vacía…): aún no hay nada que curar. Antes esto daba FATAL y el API no
+    // arrancaba nunca. Las migraciones la crean y el arranque vuelve a pasar
+    // por aquí después (ver CMD del Dockerfile del API).
+    const ready = await prisma.$queryRawUnsafe<Array<{ t: string | null }>>(
+      `SELECT to_regclass('public._prisma_migrations')::text AS t`,
+    );
+    if (!ready[0]?.t) {
+      console.log('[db-heal] base de datos nueva: primero las migraciones');
+      return;
+    }
+
     // Una migración que falló NO se da por aplicada: su SQL se deshizo entero
     // y la app arrancaría con la base a medias sin avisar. Se deja que
     // `prisma migrate deploy` se niegue a seguir (la API no arranca y el log
