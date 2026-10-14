@@ -5,7 +5,7 @@
 # resueltas por symlinks pnpm como en dev. Tradeoff: ~50ms startup mas, ~100MB
 # imagen mas grande. Acceptable para tool interno de 5 usuarios.
 
-FROM node:20-alpine
+FROM node:22-alpine
 
 # openssl + libc6-compat para que Prisma engines funcionen en Alpine
 RUN apk add --no-cache openssl libc6-compat

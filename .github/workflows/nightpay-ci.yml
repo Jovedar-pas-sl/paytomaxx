@@ -1,0 +1,58 @@
+# Comprobaciones de OxioPay (nightpay/) en cada push a main y en cada PR:
+# tipos de las 5 apps, tests del API y del operador, y aviso de dependencias.
+# (El ci.yml que había dentro de nightpay/.github no lo ejecutaba GitHub.)
+name: nightpay-ci
+
+on:
+  push:
+    branches: [main]
+    paths: ['nightpay/**', '.github/workflows/nightpay-ci.yml']
+  pull_request:
+    branches: [main]
+    paths: ['nightpay/**', '.github/workflows/nightpay-ci.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightpay-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: nightpay
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: nightpay/pnpm-lock.yaml
+      - name: Dependencias
+        run: pnpm install --frozen-lockfile
+      - name: Cliente de Prisma
+        run: pnpm --filter @nightpay/db exec prisma generate
+      - name: Tipos (las 5 apps)
+        run: |
+          for app in api admin operator tpv web-client; do
+            echo "::group::$app"
+            (cd apps/$app && npx tsc --noEmit -p .) || exit 1
+            echo "::endgroup::"
+          done
+      - name: Tests del API
+        working-directory: nightpay/apps/api
+        run: npx vitest run
+      - name: Tests del operador
+        working-directory: nightpay/apps/operator
+        run: npx vitest run
+      - name: Vulnerabilidades en dependencias (aviso)
+        run: pnpm audit --prod --audit-level=critical || echo "::warning::Hay vulnerabilidades críticas en dependencias (Next 14 / Nest 10)"

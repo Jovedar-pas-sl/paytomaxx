@@ -8,7 +8,8 @@
  */
 import { createHmac, createHash } from 'node:crypto';
 const API = 'http://localhost:4100';
-const JWT_SECRET = 'bf4382381f7725c21f57394a05c7487669020d2e596a9caa080b6a04b3ef0a98';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('Pon JWT_SECRET en el entorno (el de .env.local)');
 
 function b64url(buf) {
   return Buffer.from(buf).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');

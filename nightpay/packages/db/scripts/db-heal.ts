@@ -27,16 +27,17 @@ async function main() {
   const prisma = new PrismaClient({ log: ['error'] });
 
   try {
+    // Una migración que falló NO se da por aplicada: su SQL se deshizo entero
+    // y la app arrancaría con la base a medias sin avisar. Se deja que
+    // `prisma migrate deploy` se niegue a seguir (la API no arranca y el log
+    // lo dice); se arregla mirándola y con `prisma migrate resolve`.
     const failed = await prisma.$queryRawUnsafe<Array<{ migration_name: string }>>(
-      `SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NULL`,
+      `SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL`,
     );
     if (failed.length > 0) {
-      console.log(
-        `[db-heal] marking ${failed.length} stuck migration(s) as resolved:`,
-        failed.map((r) => r.migration_name).join(', '),
-      );
-      await prisma.$executeRawUnsafe(
-        `UPDATE _prisma_migrations SET finished_at = NOW(), logs = COALESCE(logs,'') || E'\n[db-heal] auto-resolved' WHERE finished_at IS NULL`,
+      console.error(
+        `[db-heal] MIGRACIONES FALLIDAS (no se tocan): ${failed.map((r) => r.migration_name).join(', ')}. ` +
+          'Revísalas y usa `prisma migrate resolve --rolled-back <nombre>` antes de volver a desplegar.',
       );
     } else {
       console.log('[db-heal] no stuck migrations');
@@ -125,17 +126,14 @@ async function main() {
       { name: 'Provider enum +PAYTEF', sql: `DO $$ BEGIN ALTER TYPE "Provider" ADD VALUE IF NOT EXISTS 'PAYTEF'; EXCEPTION WHEN undefined_object THEN NULL; END $$` },
       { name: 'Provider enum +REDSYS', sql: `DO $$ BEGIN ALTER TYPE "Provider" ADD VALUE IF NOT EXISTS 'REDSYS'; EXCEPTION WHEN undefined_object THEN NULL; END $$` },
 
-      // ─── CHECK constraints — clean data first, then re-add ─────────
-      { name: 'drop operator_payouts CHECK', sql: `ALTER TABLE "operator_payouts" DROP CONSTRAINT IF EXISTS operator_payouts_total_positive` },
-      { name: 'clean operator_payouts bad data', sql: `DELETE FROM "operator_payouts" WHERE "totalCents" <= 0` },
-      { name: 'add operator_payouts CHECK', sql: `ALTER TABLE "operator_payouts" ADD CONSTRAINT operator_payouts_total_positive CHECK ("totalCents" > 0)` },
-      { name: 'drop operator_earnings CHECK', sql: `ALTER TABLE "operator_earnings" DROP CONSTRAINT IF EXISTS operator_earnings_reversed_bounded` },
-      { name: 'clean operator_earnings high reversedCents', sql: `UPDATE "operator_earnings" SET "reversedCents" = LEAST("reversedCents", "commissionCents" + COALESCE("tipCents",0)) WHERE "reversedCents" > "commissionCents" + COALESCE("tipCents",0)` },
-      { name: 'clean operator_earnings negative reversedCents', sql: `UPDATE "operator_earnings" SET "reversedCents" = 0 WHERE "reversedCents" < 0` },
-      { name: 'add operator_earnings CHECK', sql: `ALTER TABLE "operator_earnings" ADD CONSTRAINT operator_earnings_reversed_bounded CHECK ("reversedCents" >= 0 AND "reversedCents" <= "commissionCents" + COALESCE("tipCents", 0))` },
-      { name: 'drop payments revenueCategory CHECK', sql: `ALTER TABLE "payments" DROP CONSTRAINT IF EXISTS payments_revenue_category_valid` },
-      { name: 'clean payments bad revenueCategory', sql: `UPDATE "payments" SET "revenueCategory" = 'EXTRA' WHERE "revenueCategory" NOT IN ('CHICA_SERVICE','VENUE_BAR','VENUE_ROOM','VENUE_FOOD','EXTRA')` },
-      { name: 'add payments revenueCategory CHECK', sql: `ALTER TABLE "payments" ADD CONSTRAINT payments_revenue_category_valid CHECK ("revenueCategory" IN ('CHICA_SERVICE','VENUE_BAR','VENUE_ROOM','VENUE_FOOD','EXTRA'))` },
+      // ─── CHECK constraints — solo si faltan ────────────────────────
+      // Antes se quitaban, se limpiaban datos (con un DELETE de pagos a chicas)
+      // y se volvían a poner en CADA arranque, bloqueando tablas enteras
+      // mientras la versión anterior seguía atendiendo. Ahora, si ya están,
+      // no se toca nada.
+      { name: 'operator_payouts CHECK (si falta)', sql: `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operator_payouts_total_positive') THEN DELETE FROM "operator_payouts" WHERE "totalCents" <= 0; ALTER TABLE "operator_payouts" ADD CONSTRAINT operator_payouts_total_positive CHECK ("totalCents" > 0); END IF; END $$` },
+      { name: 'operator_earnings CHECK (si falta)', sql: `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operator_earnings_reversed_bounded') THEN UPDATE "operator_earnings" SET "reversedCents" = LEAST(GREATEST("reversedCents", 0), "commissionCents" + COALESCE("tipCents",0)) WHERE "reversedCents" < 0 OR "reversedCents" > "commissionCents" + COALESCE("tipCents",0); ALTER TABLE "operator_earnings" ADD CONSTRAINT operator_earnings_reversed_bounded CHECK ("reversedCents" >= 0 AND "reversedCents" <= "commissionCents" + COALESCE("tipCents", 0)); END IF; END $$` },
+      { name: 'payments revenueCategory CHECK (si falta)', sql: `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payments_revenue_category_valid') THEN UPDATE "payments" SET "revenueCategory" = 'EXTRA' WHERE "revenueCategory" NOT IN ('CHICA_SERVICE','VENUE_BAR','VENUE_ROOM','VENUE_FOOD','EXTRA'); ALTER TABLE "payments" ADD CONSTRAINT payments_revenue_category_valid CHECK ("revenueCategory" IN ('CHICA_SERVICE','VENUE_BAR','VENUE_ROOM','VENUE_FOOD','EXTRA')); END IF; END $$` },
     ];
 
     let okCount = 0;

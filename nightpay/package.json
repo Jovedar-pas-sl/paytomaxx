@@ -34,5 +34,18 @@
     "@eslint/js": "^9.9.0",
     "@typescript-eslint/parser": "^8.3.0",
     "@typescript-eslint/eslint-plugin": "^8.3.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "proxy-addr": "^2.0.8",
+      "ws@8": "^8.21.0",
+      "engine.io": "^6.6.10",
+      "socket.io-parser": "^4.2.7",
+      "undici@7": "^7.28.0",
+      "lodash": "^4.18.0",
+      "postcss": "^8.5.12",
+      "nanoid@3": "^3.3.16",
+      "source-map-js": "^1.2.2"
+    }
   }
 }

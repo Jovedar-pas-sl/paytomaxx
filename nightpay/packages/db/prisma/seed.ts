@@ -38,6 +38,10 @@ const MANAGERS = [
 ];
 
 async function main() {
+  // Crea usuarios con una contraseña conocida: nunca contra producción.
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PROD_SEED !== '1') {
+    throw new Error('seed: no se ejecuta en producción (crea usuarios con contraseña conocida)');
+  }
   console.log('Seeding NightPay dev database...');
   console.log('-'.repeat(60));
 
