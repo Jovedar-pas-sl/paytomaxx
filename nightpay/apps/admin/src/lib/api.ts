@@ -25,7 +25,7 @@ export interface VenueListItem {
 
 export async function fetchAllVenues(): Promise<VenueListItem[]> {
   const res = await authedFetch('/v1/admin/venues');
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -38,7 +38,7 @@ export async function createVenue(input: {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -49,7 +49,7 @@ export async function switchTenant(
     method: 'POST',
     body: JSON.stringify({ tenantId }),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -532,7 +532,7 @@ export async function refundPayment(
     method: 'POST',
     body: JSON.stringify({ amountCents, reason, totpCode }),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -737,7 +737,7 @@ export async function createOperator(input: {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -771,7 +771,7 @@ export async function updateOperator(
     method: 'PATCH',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -786,7 +786,7 @@ export async function createSelfOnboardingLink(
     method: 'POST',
     body: '{}',
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -801,7 +801,7 @@ export async function regenerateInvite(
     method: 'POST',
     body: '{}',
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -819,7 +819,7 @@ export async function resetOperatorPassword(
     method: 'POST',
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -850,7 +850,7 @@ export async function createOperatorPayout(
     method: 'POST',
     body: JSON.stringify(options ?? {}),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -1024,7 +1024,7 @@ export async function verifyPayout(
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -1032,7 +1032,7 @@ export async function confirmPayoutManual(payoutId: string): Promise<{ ok: true 
   const res = await authedFetch(`/v1/admin/treasury/payouts/${payoutId}/confirm-manual`, {
     method: 'POST',
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -1040,7 +1040,7 @@ export async function reconcilePending(): Promise<{ checked: number; matched: nu
   const res = await authedFetch('/v1/admin/treasury/reconcile', {
     method: 'POST',
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -1079,7 +1079,7 @@ export async function updateVenueSettings(input: {
     method: 'PATCH',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -1143,7 +1143,7 @@ export async function createTerminal(input: {
     method: 'POST',
     body: JSON.stringify({ active: true, ...input }),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -1158,7 +1158,7 @@ export async function bulkCreateTerminals(input: {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 
@@ -1177,7 +1177,7 @@ export async function updateTerminal(
     method: 'PATCH',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Error: ${await res.text()}`);
+  if (!res.ok) throw new Error(await readError(res));
   return res.json();
 }
 

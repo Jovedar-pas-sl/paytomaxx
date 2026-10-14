@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -16,6 +17,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
+import { operatorAppBaseUrl } from './operator-app-url';
 import { parseHoldDays, payoutCutoff, payoutTotalCents } from './payout-math';
 import type {
   CreateOperatorDto,
@@ -75,6 +77,21 @@ export class OperatorsService {
     this.config = config;
     this.jwt = jwt;
     this.fxFactory = fxFactory;
+  }
+
+  /**
+   * La app de las chicas (enlaces de invitación y onboarding). Si no se sabe,
+   * avisa ANTES de crear o cambiar nada.
+   */
+  private operatorAppUrl(): string {
+    const url = operatorAppBaseUrl({
+      operatorBaseUrl: this.config.get<string>('OPERATOR_BASE_URL'),
+      operatorUrl: this.config.get<string>('NEXT_PUBLIC_OPERATOR_URL'),
+      apiUrl: this.config.get<string>('NEXT_PUBLIC_API_URL'),
+      production: this.config.get<string>('NODE_ENV') === 'production',
+    });
+    if (!url) throw new ServiceUnavailableException('Falta la dirección de la app de las chicas: configura OPERATOR_BASE_URL');
+    return url;
   }
 
   /**
@@ -301,6 +318,8 @@ export class OperatorsService {
     if (existing) {
       throw new ConflictException(`Email ${email} ya está registrado`);
     }
+    // Antes de crear nada: sin la dirección de la app no hay enlace de invitación.
+    const baseUrl = this.operatorAppUrl();
 
     // Pre-generamos el userId para poder firmar el JWT antes de persistir y mantener
     // todo el alta en una sola transacción atómica (insert user + JWT con su id +
@@ -333,8 +352,7 @@ export class OperatorsService {
       });
     });
 
-    const baseUrl = this.config.getOrThrow<string>('OPERATOR_BASE_URL');
-    const inviteUrl = `${baseUrl.replace(/\/$/, '')}/accept-invite?token=${inviteToken}`;
+    const inviteUrl = `${baseUrl}/accept-invite?token=${inviteToken}`;
 
     // Intentar enviar email — si falla / NoOp, devolvemos URL al admin
     const venue = await this.prisma.venue.findUniqueOrThrow({
@@ -471,6 +489,7 @@ export class OperatorsService {
         'Esta operadora ya activó su contraseña. Usa "Resetear contraseña" en su lugar.',
       );
     }
+    const baseUrl = this.operatorAppUrl();
 
     const inviteToken = await this.jwt.signAsync(
       { sub: operator.id, tenantId, purpose: 'operator-invite' } satisfies InviteJwtPayload,
@@ -486,8 +505,7 @@ export class OperatorsService {
       },
     });
 
-    const baseUrl = this.config.getOrThrow<string>('OPERATOR_BASE_URL');
-    const inviteUrl = `${baseUrl.replace(/\/$/, '')}/accept-invite?token=${inviteToken}`;
+    const inviteUrl = `${baseUrl}/accept-invite?token=${inviteToken}`;
     const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
 
     await this.audit.log({
@@ -588,6 +606,7 @@ export class OperatorsService {
     });
     if (!operator) throw new NotFoundException('Operadora no encontrada');
     if (operator.deletedAt) throw new ConflictException('Operadora dada de baja');
+    const baseUrl = this.operatorAppUrl();
 
     const token = await this.jwt.signAsync(
       {
@@ -604,8 +623,7 @@ export class OperatorsService {
       data: { selfOnboardingToken: tokenHash },
     });
 
-    const baseUrl = this.config.getOrThrow<string>('OPERATOR_BASE_URL');
-    const url = `${baseUrl.replace(/\/$/, '')}/onboarding/${token}`;
+    const url = `${baseUrl}/onboarding/${token}`;
     const expiresAt = new Date(Date.now() + SELF_ONBOARDING_TTL_HOURS * 60 * 60 * 1000);
 
     await this.audit.log({
