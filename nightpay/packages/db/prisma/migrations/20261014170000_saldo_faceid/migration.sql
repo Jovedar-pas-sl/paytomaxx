@@ -1,3 +1,7 @@
+-- Sustituye al saldo atado al móvil (20261014150000_movil_saldo): client_devices,
+-- client_device_passkeys y client_wallets."deviceId" ya no se usan. Se dejan
+-- (sin borrar datos) hasta confirmar que nadie los necesita.
+
 -- Saldo con Face ID: el cliente paga desde su móvil desbloqueándolo como
 -- siempre (Face ID, huella o el PIN del teléfono: lo decide su móvil). Aquí
 -- solo la clave pública de esa llave (passkey); no sirve para pagar.
