@@ -87,6 +87,12 @@ const POS_AUTH_CODE_REUSED =
 /** Un código de autorización no confirma dos cobros del mismo datáfono en este tiempo. */
 const POS_AUTH_CODE_WINDOW_MS = 24 * 3600 * 1000;
 
+/**
+ * Error de la pasarela para quien paga (endpoints públicos). Dice "pasarela"
+ * para que /pay enseñe su página de "el banco no responde" (payErrorKey).
+ */
+export const GATEWAY_ERROR_PUBLIC = 'No se pudo abrir el pago en la pasarela. Inténtalo de nuevo en unos segundos.';
+
 const TIP_TOO_HIGH = 'La propina no puede pasar del importe del cobro ni de 500,00 €';
 const TIP_DESTINATION_NOT_ALLOWED = 'Desde tu app la propina solo puede ser para ti o para el local';
 
@@ -850,7 +856,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       });
     } catch (err) {
       this.logger.error(`Reintento Redsys falló para ${payment.id}: ${(err as Error).message}`);
-      throw new ConflictException(`Gateway error: ${((err as Error).message || '').slice(0, 300)}`);
+      // El detalle (puede llevar lo enviado al banco) solo al log, nunca al cliente.
+      throw new ConflictException(GATEWAY_ERROR_PUBLIC);
     }
     if (outcome.order) {
       if (outcome.decision === 'retry') {
@@ -1807,8 +1814,9 @@ export class PaymentsService implements OnApplicationBootstrap {
       } catch (e2) {
         if (!(e2 instanceof InvalidTransitionError)) throw e2;
       }
-      // Propagar mensaje real durante bring-up (sin tener acceso a logs Dokploy).
-      throw new ConflictException(`Gateway error: ${errMsg.slice(0, 300)}`);
+      // El detalle va al log de arriba: el error de la pasarela puede llevar lo
+      // que se le mandó (sent:/branchesRaw: de Paytef) y esto es público.
+      throw new ConflictException(GATEWAY_ERROR_PUBLIC);
     }
 
     // 5) Encolar orphan-reconcile (se autocancela si llega webhook antes)
