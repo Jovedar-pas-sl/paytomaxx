@@ -1,37 +1,38 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Button, Card, StatusPill, type PaymentStatus } from '@nightpay/ui';
-import { cancelPayment, fetchMyPayments, type MyPayment } from '@/lib/api';
+import { cancelPayment, fetchMyPayments, pollErrorText, SessionExpiredError, type MyPayment } from '@/lib/api';
+import { formatEur } from '@/lib/money';
+import { usePolling } from '@/lib/use-polling';
+
+const POLL_MS = 5000;
 
 export function MyPayments() {
-  const [items, setItems] = useState<MyPayment[]>([]);
-  const [loading, setLoading] = useState(true);
+  // null: aún no ha llegado la primera carga.
+  const [items, setItems] = useState<MyPayment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  async function reload() {
-    try {
-      setItems(await fetchMyPayments());
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    reload();
-    const int = setInterval(reload, 5000);
-    return () => clearInterval(int);
-  }, []);
+  const refresh = usePolling(
+    async (signal) => {
+      try {
+        setItems(await fetchMyPayments(signal));
+        setError(null);
+      } catch (err) {
+        if (signal.aborted) return 'slow';
+        setError(pollErrorText(err));
+        return err instanceof SessionExpiredError ? 'stop' : 'slow';
+      }
+    },
+    { intervalMs: POLL_MS },
+  );
 
   async function onCancel(id: string) {
     setBusyId(id);
     try {
       await cancelPayment(id);
-      await reload();
+      refresh();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -39,20 +40,21 @@ export function MyPayments() {
     }
   }
 
-  if (loading) {
-    return <p style={emptyText}>Cargando…</p>;
-  }
-  if (items.length === 0) {
-    return <p style={emptyText}>Aún no has creado cobros.</p>;
+  // El error va primero: con la lista vacía no se escondía detrás de "Aún no has creado cobros".
+  const errorCard = error ? (
+    <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
+      <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>{error}</p>
+    </Card>
+  ) : null;
+
+  if (items === null) {
+    return errorCard ?? <p style={emptyText}>Cargando…</p>;
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      {error ? (
-        <Card style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
-          <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>{error}</p>
-        </Card>
-      ) : null}
+      {errorCard}
+      {items.length === 0 ? <p style={emptyText}>Aún no has creado cobros.</p> : null}
       {items.map((p) => {
         const cancelable =
           p.status === 'CREATED' || p.status === 'AWAITING_CAPTURE';
@@ -60,7 +62,7 @@ export function MyPayments() {
           <Card key={p.id} style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
               <span className="np-num" style={amountStyle}>
-                {(p.amountCents / 100).toFixed(2)} {p.currency}
+                {formatEur(p.amountCents)}
               </span>
               <span style={timeStyle}>{formatTime(p.createdAt)}</span>
             </div>

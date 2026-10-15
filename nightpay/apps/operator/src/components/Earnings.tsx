@@ -9,6 +9,7 @@ import {
   type MyEarning,
   type MyPayout,
 } from '@/lib/api';
+import { formatBps, formatEur, formatSignedEur } from '@/lib/money';
 
 type Mode = 'earnings' | 'payouts';
 
@@ -46,7 +47,7 @@ export function Earnings() {
         </SwitchBtn>
       </div>
       {error ? (
-        <Card style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
+        <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
           <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>{error}</p>
         </Card>
       ) : null}
@@ -64,15 +65,15 @@ export function Earnings() {
                   className="np-num"
                   style={{
                     fontWeight: 600,
-                    color: e.netCents < e.commissionCents ? 'var(--np-warning)' : 'var(--np-success)',
+                    color: netColor(e),
                   }}
                 >
-                  +{(e.netCents / 100).toFixed(2)} €
+                  {formatSignedEur(e.netCents)}
                 </span>
               </div>
               <p style={smallMeta}>
-                Cobro {(e.paymentAmountCents / 100).toFixed(2)} € · {(e.commissionBps / 100).toFixed(0)}%
-                {e.reversedCents > 0 ? ` · −${(e.reversedCents / 100).toFixed(2)} (refund)` : ''}
+                Cobro {formatEur(e.paymentAmountCents)} · {formatBps(e.commissionBps)}
+                {e.reversedCents > 0 ? ` · devolución −${formatEur(e.reversedCents)}` : ''}
                 {e.payoutId ? ' · liquidada' : ' · pendiente'}
               </p>
             </Card>
@@ -86,7 +87,7 @@ export function Earnings() {
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={timeStyle}>{formatTime(p.createdAt)}</span>
               <span className="np-num" style={{ fontWeight: 600 }}>
-                {(p.totalCents / 100).toFixed(2)} €
+                {formatEur(p.totalCents)}
               </span>
             </div>
             <p style={smallMeta}>
@@ -98,6 +99,12 @@ export function Earnings() {
       )}
     </div>
   );
+}
+
+/** En rojo si se le descuenta; en ámbar si una devolución se comió parte. */
+function netColor(e: MyEarning): string {
+  if (e.netCents < 0) return 'var(--np-danger)';
+  return e.netCents < e.commissionCents ? 'var(--np-warning)' : 'var(--np-success)';
 }
 
 function SwitchBtn({

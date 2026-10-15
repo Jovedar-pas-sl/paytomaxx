@@ -35,17 +35,20 @@ export function LoginForm({ onSuccess }: Props) {
       style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}
     >
       <Input
+        label="Email"
         type="email"
         autoComplete="email"
-        placeholder="email"
+        autoCapitalize="none"
+        spellCheck={false}
+        placeholder="tu@email.com"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
       />
       <Input
+        label="Contraseña"
         type="password"
         autoComplete="current-password"
-        placeholder="contraseña"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required

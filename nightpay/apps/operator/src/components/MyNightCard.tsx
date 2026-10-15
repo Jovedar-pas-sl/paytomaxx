@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Card } from '@nightpay/ui';
 import { fetchMyNight, type MyNight } from '@/lib/api';
+import { formatEur } from '@/lib/money';
 
 /**
  * Fase 1D — "Esta noche": cuántos cobros lleva la chica y cuánto es suyo
@@ -25,7 +26,7 @@ export function MyNightCard() {
 
   if (error) {
     return (
-      <Card style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
+      <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
         <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.9rem' }}>{error}</p>
       </Card>
     );
@@ -42,20 +43,16 @@ export function MyNightCard() {
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '1rem' }}>
         <span style={{ fontSize: '1.0625rem', fontWeight: 600 }}>Tu parte</span>
         <span className="np-num" style={{ fontSize: '2.25rem', fontWeight: 700, color: 'var(--np-accent)' }}>
-          {eur(night.netCents)}
+          {formatEur(night.netCents, { compact: true })}
         </span>
       </div>
       <p style={meta}>
-        {night.count} {night.count === 1 ? 'cobro' : 'cobros'} · {eur(night.chargedCents)} cobrado
-        {night.tipsCents > 0 ? ` · ${eur(night.tipsCents)} de propinas` : ''}
-        {night.reversedCents > 0 ? ` · −${eur(night.reversedCents)} por devoluciones` : ''}
+        {night.count} {night.count === 1 ? 'cobro' : 'cobros'} · {formatEur(night.chargedCents, { compact: true })} cobrado
+        {night.tipsCents > 0 ? ` · ${formatEur(night.tipsCents, { compact: true })} de propinas` : ''}
+        {night.reversedCents > 0 ? ` · −${formatEur(night.reversedCents, { compact: true })} por devoluciones` : ''}
       </p>
     </Card>
   );
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2).replace('.', ',')} €`;
 }
 
 function formatTime(iso: string): string {

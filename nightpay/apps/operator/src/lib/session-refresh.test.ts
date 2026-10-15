@@ -27,6 +27,7 @@ const json = (status: number, body: unknown) =>
 
 let storage: Storage;
 let fetchMock: ReturnType<typeof vi.fn>;
+let dispatched: string[];
 
 async function api() {
   vi.resetModules();
@@ -38,7 +39,14 @@ beforeEach(() => {
   storage.setItem(TOKEN, 'viejo');
   storage.setItem(REFRESH, 'r1');
   storage.setItem('np_op_user', JSON.stringify({ id: 'u1' }));
-  vi.stubGlobal('window', { localStorage: storage });
+  dispatched = [];
+  vi.stubGlobal('window', {
+    localStorage: storage,
+    dispatchEvent: (e: Event) => {
+      dispatched.push(e.type);
+      return true;
+    },
+  });
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -82,22 +90,114 @@ describe('renovar la sesión', () => {
     expect(storage.getItem(TOKEN)).toBe('de-la-otra');
   });
 
-  it('el API caído o desplegando (503) no cierra la sesión', async () => {
+  it('el API caído o desplegando (503) no cierra la sesión: «servidor no disponible»', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
       url.endsWith('/v1/auth/refresh') ? json(503, {}) : balanceRoute(url, init)!,
     );
-    const { fetchBalance } = await api();
-    await expect(fetchBalance()).rejects.toThrow('Sesión expirada');
+    const { fetchBalance, ServerUnavailableError } = await api();
+    await expect(fetchBalance()).rejects.toBeInstanceOf(ServerUnavailableError);
     expect(storage.getItem(REFRESH)).toBe('r1');
+    expect(dispatched).toEqual([]);
   });
 
-  it('refresh rechazado de verdad (401) → se cierra la sesión', async () => {
+  it('sin red: «servidor no disponible», no «sesión caducada»', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    const { fetchBalance, ServerUnavailableError } = await api();
+    await expect(fetchBalance()).rejects.toBeInstanceOf(ServerUnavailableError);
+    expect(storage.getItem(TOKEN)).toBe('viejo');
+  });
+
+  it('refresh rechazado de verdad (401) → se cierra la sesión y la app vuelve al login', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
       url.endsWith('/v1/auth/refresh') ? json(401, {}) : balanceRoute(url, init)!,
     );
-    const { fetchBalance } = await api();
-    await expect(fetchBalance()).rejects.toThrow('Sesión expirada');
+    const { fetchBalance, SessionExpiredError, SESSION_EXPIRED_EVENT } = await api();
+    await expect(fetchBalance()).rejects.toBeInstanceOf(SessionExpiredError);
     expect(storage.getItem(REFRESH)).toBeNull();
     expect(storage.getItem(TOKEN)).toBeNull();
+    expect(dispatched).toEqual([SESSION_EXPIRED_EVENT]);
+  });
+
+  it('sin sesión guardada (se cerró en otra pestaña) → vuelve al login', async () => {
+    storage.clear();
+    const { fetchBalance, SessionExpiredError, SESSION_EXPIRED_EVENT } = await api();
+    await expect(fetchBalance()).rejects.toBeInstanceOf(SessionExpiredError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dispatched).toEqual([SESSION_EXPIRED_EVENT]);
+  });
+});
+
+describe('salir', () => {
+  const noContent = () => new Response(null, { status: 204 });
+  const bodyOf = (init?: RequestInit) => JSON.parse(String(init?.body ?? '{}')) as unknown;
+  const authOf = (init?: RequestInit) => new Headers(init?.headers).get('Authorization');
+
+  it('cierra la sesión local al momento y la del servidor con el refresh token', async () => {
+    const calls: Array<{ url: string; body: unknown; auth: string | null }> = [];
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: bodyOf(init), auth: authOf(init) });
+      return noContent();
+    });
+    const { logout } = await api();
+    const done = logout();
+    // Borrada antes de esperar a la red.
+    expect(storage.getItem(TOKEN)).toBeNull();
+    expect(storage.getItem(REFRESH)).toBeNull();
+    await expect(done).resolves.toBe(true);
+    expect(calls).toEqual([
+      { url: expect.stringMatching(/\/v1\/auth\/logout$/), body: { refreshToken: 'r1' }, auth: 'Bearer viejo' },
+    ]);
+  });
+
+  it('access token caducado (401): repite sin Authorization, solo con el refresh token', async () => {
+    const auths: Array<string | null> = [];
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      auths.push(authOf(init));
+      expect(bodyOf(init)).toEqual({ refreshToken: 'r1' });
+      return authOf(init) ? json(401, {}) : noContent();
+    });
+    const { logout } = await api();
+    await expect(logout()).resolves.toBe(true);
+    expect(auths).toEqual(['Bearer viejo', null]);
+  });
+
+  it('el servidor no lo confirma (o no hay red): sale igual y lo dice', async () => {
+    fetchMock.mockResolvedValue(json(401, {}));
+    const { logout } = await api();
+    await expect(logout()).resolves.toBe(false);
+    expect(storage.getItem(TOKEN)).toBeNull();
+
+    storage.setItem(REFRESH, 'r1');
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await expect(logout()).resolves.toBe(false);
+    expect(storage.getItem(REFRESH)).toBeNull();
+  });
+
+  it('sin refresh token no hay nada que cerrar en el servidor', async () => {
+    storage.removeItem(REFRESH);
+    const { logout } = await api();
+    await expect(logout()).resolves.toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('el refresh limitado (429) o con 403', () => {
+  it('429: demasiadas peticiones no es una sesión caducada', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.endsWith('/v1/auth/refresh') ? json(429, {}) : balanceRoute(url, init)!,
+    );
+    const { fetchBalance, ServerUnavailableError } = await api();
+    await expect(fetchBalance()).rejects.toBeInstanceOf(ServerUnavailableError);
+    expect(storage.getItem(REFRESH)).toBe('r1');
+    expect(dispatched).toEqual([]);
+  });
+
+  it('403: el API dice que no → vuelve al login', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.endsWith('/v1/auth/refresh') ? json(403, {}) : balanceRoute(url, init)!,
+    );
+    const { fetchBalance, SessionExpiredError } = await api();
+    await expect(fetchBalance()).rejects.toBeInstanceOf(SessionExpiredError);
+    expect(storage.getItem(REFRESH)).toBeNull();
   });
 });

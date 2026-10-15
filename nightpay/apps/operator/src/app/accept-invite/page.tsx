@@ -7,7 +7,7 @@ import { acceptInvite } from '@/lib/api';
 
 export default function AcceptInvitePage() {
   return (
-    <Suspense fallback={<main style={pageStyle}>Cargando…</main>}>
+    <Suspense fallback={<main className="np-screen" style={pageStyle}>Cargando…</main>}>
       <Inner />
     </Suspense>
   );
@@ -51,7 +51,7 @@ function Inner() {
   }
 
   return (
-    <main style={pageStyle}>
+    <main className="np-screen" style={pageStyle}>
       <header style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
         <Logo height="3rem" />
         <h1 style={{ margin: 0, fontSize: 'var(--np-t-h2)', fontWeight: 600, letterSpacing: '-0.02em' }}>
@@ -69,6 +69,7 @@ function Inner() {
             <Input
               type="password"
               label="Contraseña nueva (mín. 8)"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -76,6 +77,7 @@ function Inner() {
             <Input
               type="password"
               label="Repite la contraseña"
+              autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               required
@@ -96,7 +98,6 @@ function Inner() {
 }
 
 const pageStyle = {
-  minHeight: '100vh',
   display: 'flex',
   flexDirection: 'column' as const,
   alignItems: 'center',

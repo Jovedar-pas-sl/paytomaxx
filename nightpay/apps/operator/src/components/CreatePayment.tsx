@@ -2,22 +2,20 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { parseEuroCents } from '@nightpay/contracts';
-import { io, type Socket } from 'socket.io-client';
-import { Button, Card, Input, StatusPill, type PaymentStatus } from '@nightpay/ui';
-import { NewWalletCard } from './NewWalletCard';
+import { Button, Card, Input } from '@nightpay/ui';
 import {
-  cancelPayment,
   createPayment,
   newIdempotencyKey,
-  fetchServices,
   fetchTerminals,
   fetchZones,
-  getUser,
-  wsBase,
   type CreatedPayment,
+  type OperatorUser,
   type ServiceItem,
   type ZoneOption,
 } from '@/lib/api';
+import { formatEur } from '@/lib/money';
+import { ActivePayment } from './ActivePayment';
+import { CartaRetry, serviceLabel, useCarta } from './carta';
 
 /**
  * Categorías de ingreso visibles al crear cobro.
@@ -37,12 +35,22 @@ const REV_CAT_LABEL: Record<RevCat, string> = {
 };
 
 interface Props {
+  /** Quién cobra: la chica solo sus servicios; el resto, barra, habitación, comida. */
+  role: OperatorUser['role'];
+  /** Cobro pagado (o vuelta al formulario): refrescar el saldo. */
   onCreated: () => void;
 }
 
 type CobroMode = 'qr' | 'wallet' | 'pos';
 
-export function CreatePayment({ onCreated }: Props) {
+/** El cobro en pantalla y cómo se creó (el modo puede cambiar luego en el formulario). */
+interface Active {
+  payment: CreatedPayment;
+  isPos: boolean;
+  label: string | null;
+}
+
+export function CreatePayment({ role, onCreated }: Props) {
   const [terminals, setTerminals] = useState<Array<{ externalId: string; label: string }>>([]);
   const [zones, setZones] = useState<ZoneOption[]>([]);
   const [selectedZone, setSelectedZone] = useState<string>('');
@@ -51,8 +59,6 @@ export function CreatePayment({ onCreated }: Props) {
   // saldo prepago) o POS (camarero cobra con datáfono externo).
   const [mode, setMode] = useState<CobroMode>('qr');
   const [walletIdentifier, setWalletIdentifier] = useState('');
-  // Rol del usuario logueado — determina qué categorías puede usar.
-  const role = getUser()?.role ?? 'OPERATOR';
   // Categorías permitidas: la chica solo cobra sus servicios (el servidor lo
   // exige); barra, habitación y comida las cobra el camarero.
   const categoryOptions: RevCat[] =
@@ -65,25 +71,11 @@ export function CreatePayment({ onCreated }: Props) {
   );
   // Fase 1A — carta del local. La chica toca un servicio en vez de teclear
   // el importe; "Otro importe" sigue disponible (con el tope del local).
-  const [services, setServices] = useState<ServiceItem[]>([]);
+  const { services, failed: cartaFailed, retry: retryCarta } = useCarta();
   const [picked, setPicked] = useState<ServiceItem | 'custom' | null>(null);
-  const [activeLabel, setActiveLabel] = useState<string | null>(null);
-  // Fase 1B — propina que eligió el cliente en su página de pago.
-  const [paidTipCents, setPaidTipCents] = useState(0);
-  const [active, setActive] = useState<CreatedPayment | null>(null);
-  const [status, setStatus] = useState<PaymentStatus | null>(null);
+  const [active, setActive] = useState<Active | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [wsDown, setWsDown] = useState(false);
-  const [now, setNow] = useState<number>(() => Date.now());
-
-  // Tick global para countdown del QR
-  useEffect(() => {
-    if (!active) return;
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  }, [active]);
 
   useEffect(() => {
     fetchTerminals()
@@ -102,45 +94,7 @@ export function CreatePayment({ onCreated }: Props) {
       .catch(() => {
         /* zonas opcional — backwards compat fallback */
       });
-    fetchServices()
-      .then(setServices)
-      .catch(() => {
-        /* sin carta: se cobra tecleando el importe, como antes */
-      });
   }, []);
-
-  useEffect(() => {
-    if (!active) return;
-    const socket: Socket = io(`${wsBase}/rt`, { transports: ['websocket', 'polling'] });
-    socket.on('connect', () => {
-      setWsDown(false);
-      socket.emit('payment:subscribe', { paymentId: active.id });
-    });
-    socket.on('disconnect', () => setWsDown(true));
-    socket.on('connect_error', () => setWsDown(true));
-    socket.on('payment:update', (e: { paymentId: string; status: PaymentStatus }) => {
-      if (e.paymentId === active.id) setStatus(e.status);
-    });
-    socket.on(
-      'payment:completed',
-      (e: {
-        paymentId: string;
-        status: 'AUTHORIZED' | 'FAILED' | 'EXPIRED' | 'CANCELED';
-        tipCents?: number;
-      }) => {
-        if (e.paymentId === active.id) {
-          setStatus(e.status);
-          if (e.status === 'AUTHORIZED') {
-            setPaidTipCents(e.tipCents ?? 0);
-            onCreated();
-          }
-        }
-      },
-    );
-    return () => {
-      socket.disconnect();
-    };
-  }, [active, onCreated]);
 
   // La recarga de wallet no sale de la carta: al cambiar a wallet se suelta
   // el servicio elegido para no arrastrar su precio.
@@ -201,9 +155,7 @@ export function CreatePayment({ onCreated }: Props) {
         idempotencyKey: attempt.current.key,
       });
       attempt.current = null;
-      setActiveLabel(service ? serviceLabel(service) : null);
-      setActive(created);
-      setStatus(created.status as PaymentStatus);
+      setActive({ payment: created, isPos: mode === 'pos', label: service ? serviceLabel(service) : null });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -212,214 +164,25 @@ export function CreatePayment({ onCreated }: Props) {
     }
   }
 
-  async function handleCancel() {
-    if (!active) return;
-    setSubmitting(true);
-    try {
-      await cancelPayment(active.id);
-      setActive(null);
-      setStatus(null);
-      setAmount('');
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function copyUrl() {
-    if (!active) return;
-    try {
-      await navigator.clipboard.writeText(active.qrUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* ignore */
-    }
-  }
-
   function reset() {
     setActive(null);
-    setStatus(null);
     setAmount('');
     setPicked(null);
-    setActiveLabel(null);
-    setPaidTipCents(0);
-    setCopied(false);
     setError(null);
     setWalletIdentifier('');
     onCreated();
   }
 
   if (active) {
-    const canCancel = status === 'CREATED' || status === 'AWAITING_CAPTURE';
-    // POS_EXTERNAL: el QR no es para el cliente, es para que el camarero vea
-    // el cobro pendiente. Mostramos código corto humano-legible.
-    const isPosFlow = mode === 'pos';
-    const refCode = active.id.slice(-6).toUpperCase();
-    // Countdown del QR — solo en estados pre-cobro
-    const isPreCobro = !status || status === 'CREATED' || status === 'AWAITING_CAPTURE';
-    const expiryMs = new Date(active.qrExpiresAt).getTime();
-    const secondsLeft = isPreCobro && Number.isFinite(expiryMs)
-      ? Math.max(0, Math.floor((expiryMs - now) / 1000))
-      : null;
-    const showCountdown = secondsLeft !== null && secondsLeft > 0;
-    const countdownUrgent = secondsLeft !== null && secondsLeft < 60;
     return (
-      <Card variant="glow" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div style={{ textAlign: 'center' }}>
-          <p style={kicker}>{isPosFlow ? 'Cobro POS' : 'Importe'}</p>
-          <p className="np-num" style={amountBig}>
-            {(active.amountCents / 100).toFixed(2)}{' '}
-            <span style={{ fontSize: '0.95rem', color: 'var(--np-text-mute)', fontWeight: 500 }}>
-              {active.currency}
-            </span>
-          </p>
-          {activeLabel ? (
-            <p style={{ margin: '0.25rem 0 0', fontWeight: 700, fontSize: '1.0625rem' }}>{activeLabel}</p>
-          ) : null}
-          {isPosFlow ? (
-            <p style={{
-              margin: '0.5rem 0 0',
-              fontSize: '0.9rem',
-              color: 'var(--np-text-mute)',
-            }}>
-              Llama al camarero. Código: <strong style={{ fontFamily: 'var(--np-font-mono)', letterSpacing: '0.15em', color: 'var(--np-accent)' }}>#{refCode}</strong>
-            </p>
-          ) : null}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <StatusPill status={status ?? 'CREATED'} />
-        </div>
-
-        {showCountdown ? (
-          <p
-            style={{
-              margin: 0,
-              textAlign: 'center',
-              fontSize: '0.875rem',
-              color: countdownUrgent ? 'var(--np-warning)' : 'var(--np-text-mute)',
-              fontVariantNumeric: 'tabular-nums',
-              letterSpacing: '0.02em',
-            }}
-          >
-            QR caduca en {Math.floor(secondsLeft! / 60)}:{(secondsLeft! % 60).toString().padStart(2, '0')}
-          </p>
-        ) : null}
-
-        {wsDown && isPreCobro ? (
-          <p
-            role="status"
-            style={{
-              margin: 0,
-              textAlign: 'center',
-              fontSize: '0.75rem',
-              color: 'var(--np-warning)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.375rem',
-            }}
-          >
-            <span
-              aria-hidden
-              style={{
-                width: '0.5rem',
-                height: '0.5rem',
-                borderRadius: '50%',
-                background: 'var(--np-warning)',
-                animation: 'np-blink 1.2s ease-in-out infinite',
-              }}
-            />
-            Reconectando con el servidor…
-            <style>{`@keyframes np-blink {0%,100%{opacity:0.4}50%{opacity:1}}`}</style>
-          </p>
-        ) : null}
-
-        {isPosFlow ? (
-          <>
-            <div
-              style={{
-                background: 'white',
-                borderRadius: 'var(--np-r-md)',
-                padding: '0.75rem',
-                display: 'flex',
-                justifyContent: 'center',
-              }}
-            >
-              <img
-                src={active.qrPngDataUrl}
-                alt="QR del cobro POS"
-                style={{ width: '100%', maxWidth: '12rem', height: 'auto', display: 'block' }}
-              />
-            </div>
-            <div style={{
-              padding: '1rem',
-              background: 'var(--np-surface-2)',
-              borderRadius: 'var(--np-r-md)',
-              border: '1px dashed var(--np-border)',
-              textAlign: 'center',
-            }}>
-              <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: 1.6 }}>
-                <strong>Camarero:</strong> escanea el QR con tu móvil (o usa código <strong style={{ fontFamily: 'var(--np-font-mono)', letterSpacing: '0.15em', color: 'var(--np-accent)' }}>#{refCode}</strong>).<br />
-                Cobra <strong>{(active.amountCents / 100).toFixed(2)} €</strong> en el datáfono, luego confirma en tu app.
-              </p>
-            </div>
-          </>
-        ) : (
-          <>
-            <div
-              style={{
-                background: 'white',
-                borderRadius: 'var(--np-r-md)',
-                padding: '0.75rem',
-                display: 'flex',
-                justifyContent: 'center',
-              }}
-            >
-              <img
-                src={active.qrPngDataUrl}
-                alt="QR del cobro"
-                style={{ width: '100%', maxWidth: '20rem', height: 'auto', display: 'block' }}
-              />
-            </div>
-            <Button onClick={copyUrl} variant="ghost" size="md">
-              {copied ? '✓ Copiado' : 'Copiar link del cobro'}
-            </Button>
-          </>
-        )}
-
-        {status === 'AUTHORIZED' ? (
-          <>
-            <p style={{ ...kicker, textAlign: 'center' }}>
-              Código de confirmación{' '}
-              <strong className="np-num" style={{ fontSize: '1.5rem', color: 'var(--np-text)', letterSpacing: '0.2em' }}>
-                {confirmationCode(active.id)}
-              </strong>
-            </p>
-            <p style={{ ...hintStyle, textAlign: 'center' }}>Debe coincidir con el del móvil del cliente.</p>
-            {active.walletId ? <NewWalletCard walletId={active.walletId} /> : null}
-            {paidTipCents > 0 ? (
-              <p className="np-num" style={{ margin: 0, textAlign: 'center', fontWeight: 700, fontSize: '1.25rem', color: 'var(--np-accent)' }}>
-                + {formatEur(paidTipCents)} de propina
-              </p>
-            ) : null}
-            <Button onClick={reset} size="lg">
-              ✓ Cobrado — nuevo
-            </Button>
-          </>
-        ) : canCancel ? (
-          <Button onClick={handleCancel} variant="danger" size="md" loading={submitting}>
-            Cancelar cobro
-          </Button>
-        ) : (
-          <Button onClick={reset} variant="ghost" size="md">
-            Nuevo cobro
-          </Button>
-        )}
-
-        {error ? <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem', textAlign: 'center' }}>{error}</p> : null}
-      </Card>
+      <ActivePayment
+        key={active.payment.id}
+        payment={active.payment}
+        isPos={active.isPos}
+        label={active.label}
+        onPaid={onCreated}
+        onClose={reset}
+      />
     );
   }
 
@@ -441,7 +204,7 @@ export function CreatePayment({ onCreated }: Props) {
             >
               <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
               <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
-                {formatEur(svc.priceCents)}
+                {formatEur(svc.priceCents, { compact: true })}
               </span>
             </button>
           ))}
@@ -469,6 +232,9 @@ export function CreatePayment({ onCreated }: Props) {
     mode === 'wallet' ? 'Cargar wallet del cliente'
     : mode === 'pos' ? 'Cobro con datáfono'
     : 'Crear nuevo cobro';
+  // El importe tecleado, ya escrito como importe ("50,50 €") para el botón.
+  const typedCents = parseEuroCents(amount);
+  const typedLabel = typedCents === null ? null : formatEur(typedCents, { compact: true });
 
   return (
     <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -499,13 +265,15 @@ export function CreatePayment({ onCreated }: Props) {
         </button>
       </div>
 
+      {cartaFailed && mode !== 'wallet' ? <CartaRetry onRetry={retryCarta} /> : null}
+
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {usingService ? (
           <div style={pickedStyle}>
             <div style={{ minWidth: 0 }}>
               <p style={{ margin: 0, fontWeight: 700, fontSize: '1.125rem' }}>{serviceLabel(picked as ServiceItem)}</p>
               <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700 }}>
-                {formatEur((picked as ServiceItem).priceCents)}
+                {formatEur((picked as ServiceItem).priceCents, { compact: true })}
               </p>
             </div>
             <Button
@@ -579,7 +347,7 @@ export function CreatePayment({ onCreated }: Props) {
               required
             />
             <p style={hintStyle}>
-              El cliente paga una vez. Luego le cobras desde la pestaña Wallet.
+              El cliente paga una vez. Luego le cobras desde la pestaña Saldo.
             </p>
           </>
         ) : mode === 'pos' ? (
@@ -635,11 +403,11 @@ export function CreatePayment({ onCreated }: Props) {
 
         <Button type="submit" size="lg" loading={submitting}>
           {mode === 'wallet'
-            ? `Cargar ${amount ? `${amount} €` : 'wallet'}`
+            ? `Cargar ${typedLabel ?? 'wallet'}`
             : mode === 'pos'
-              ? `Generar cobro POS ${amount ? `(${amount} €)` : ''}`
-              : amount
-                ? `Cobrar ${amount} €`
+              ? `Generar cobro POS${typedLabel ? ` (${typedLabel})` : ''}`
+              : typedLabel
+                ? `Cobrar ${typedLabel}`
                 : 'Cobrar'}
         </Button>
         {error ? (
@@ -735,29 +503,6 @@ const kicker: CSSProperties = {
   fontWeight: 700,
 };
 
-const amountBig: CSSProperties = {
-  margin: '0.25rem 0 0',
-  fontSize: '2.5rem',
-  fontWeight: 600,
-  letterSpacing: '-0.03em',
-  fontVariantNumeric: 'tabular-nums',
-};
-
-/** Mismo código que ve el cliente en su pantalla "Pagado" (últimos 3 del id). */
-function confirmationCode(paymentId: string): string {
-  return paymentId.replace(/-/g, '').slice(-3).toUpperCase();
-}
-
-/** Nombre del servicio y, si no lo dice ya el nombre, su duración. */
-function serviceLabel(svc: ServiceItem): string {
-  return svc.durationMin && !svc.name.includes(String(svc.durationMin))
-    ? `${svc.name} · ${svc.durationMin} min`
-    : svc.name;
-}
-
-function formatEur(cents: number): string {
-  return `${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)} €`;
-}
 
 const cartaGridStyle: CSSProperties = {
   display: 'grid',

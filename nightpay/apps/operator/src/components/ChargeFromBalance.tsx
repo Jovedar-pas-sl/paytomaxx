@@ -6,26 +6,27 @@ import { parseEuroCents } from '@nightpay/contracts';
 import {
   cancelWalletCharge,
   createQrWalletCharge,
-  fetchServices,
   fetchWalletCharge,
   lookupWalletCard,
   lookupWalletCode,
   payWalletChargeWithPin,
   type QrWalletCharge,
-  type ServiceItem,
   type WalletChargeRequest,
   getUser,
+  pollErrorText,
+  SessionExpiredError,
   type WalletLookup,
   type WalletRef,
 } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
+import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard } from '@/lib/nfc';
+import { usePolling } from '@/lib/use-polling';
+import { CartaRetry, serviceLabel, useCarta, type Carta } from './carta';
 import { PinPad } from './PinPad';
 
 interface Props {
   onCharged: () => void;
-  /** Ya no se usa (antes: el código del cliente por el enlace ?saldo=…). */
-  initialCode?: string | null;
 }
 
 type Stage =
@@ -34,6 +35,8 @@ type Stage =
   | { kind: 'done'; charge: QrWalletCharge; result: WalletChargeRequest };
 
 const POLL_MS = 1000;
+/** Con el servidor caído o saturado (429), se pregunta menos. */
+const POLL_SLOW_MS = 3000;
 
 /**
  * Cobrar del saldo:
@@ -46,17 +49,11 @@ const POLL_MS = 1000;
  */
 export function ChargeFromBalance({ onCharged }: Props) {
   const [stage, setStage] = useState<Stage>({ kind: 'pick' });
-  const [services, setServices] = useState<ServiceItem[]>([]);
-
-  useEffect(() => {
-    fetchServices()
-      .then(setServices)
-      .catch(() => setServices([]));
-  }, []);
+  const carta = useCarta();
 
   switch (stage.kind) {
     case 'pick':
-      return <PickStep services={services} onCreated={(charge) => setStage({ kind: 'qr', charge })} />;
+      return <PickStep carta={carta} onCreated={(charge) => setStage({ kind: 'qr', charge })} />;
     case 'qr':
       return (
         <QrStep
@@ -73,7 +70,7 @@ export function ChargeFromBalance({ onCharged }: Props) {
   }
 }
 
-function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated: (charge: QrWalletCharge) => void }) {
+function PickStep({ carta, onCreated }: { carta: Carta; onCreated: (charge: QrWalletCharge) => void }) {
   const [custom, setCustom] = useState(false);
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
@@ -91,6 +88,8 @@ function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated:
       setBusy(false);
     }
   }
+
+  const typedCents = parseEuroCents(amount);
 
   function sendCustom(e: FormEvent) {
     e.preventDefault();
@@ -120,7 +119,7 @@ function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated:
             disabled={busy}
           />
           <Button type="submit" size="lg" loading={busy} disabled={!amount.trim()}>
-            Cobrar {amount ? `${amount} €` : ''}
+            Cobrar {typedCents === null ? '' : formatEur(typedCents, { compact: true })}
           </Button>
           <Button type="button" variant="ghost" onClick={() => setCustom(false)} disabled={busy}>
             Volver a la carta
@@ -128,7 +127,7 @@ function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated:
         </form>
       ) : (
         <div style={gridStyle}>
-          {services.map((svc) => (
+          {carta.services.map((svc) => (
             <button
               key={svc.id}
               type="button"
@@ -138,7 +137,7 @@ function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated:
             >
               <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
               <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
-                {formatEur(svc.priceCents)}
+                {formatEur(svc.priceCents, { compact: true })}
               </span>
             </button>
           ))}
@@ -156,7 +155,12 @@ function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated:
           </button>
         </div>
       )}
-      {error ? <p style={errorStyle}>{error}</p> : null}
+      {carta.failed && !custom ? <CartaRetry onRetry={carta.retry} /> : null}
+      {error ? (
+        <p role="alert" style={errorStyle}>
+          {error}
+        </p>
+      ) : null}
     </Card>
   );
 }
@@ -177,34 +181,40 @@ function QrStep({
   const [withPin, setWithPin] = useState(false);
   const [wallet, setWallet] = useState<WalletLookup | null>(null);
   const [ref, setRef] = useState<WalletRef | null>(null);
-  // El sondeo y "Cancelar" pueden ver la respuesta a la vez: se termina una vez.
+  // El sondeo, el PIN y "Cancelar" pueden ver la respuesta a la vez: se
+  // termina una vez (y nada llega a la pantalla después de "Elegir otro").
   const finished = useRef(false);
 
-  function finish(fresh: WalletChargeRequest): void {
-    if (finished.current || fresh.status === 'PENDING') return;
+  /** true si el cobro ya terminó (ahora o antes). */
+  function finish(fresh: WalletChargeRequest): boolean {
+    if (finished.current || fresh.status === 'PENDING') return finished.current;
     finished.current = true;
     onFinished(fresh);
+    return true;
   }
 
+  // La cuenta atrás solo pinta: no pregunta nada al servidor.
   useEffect(() => {
-    let stopped = false;
-    const id = setInterval(async () => {
-      setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // ¿Ya ha pagado? Una pregunta por segundo, sin solapes; para al terminar.
+  usePolling(
+    async (signal) => {
+      if (finished.current) return 'stop';
       try {
-        const fresh = await fetchWalletCharge(charge.id);
-        if (stopped) return;
+        const fresh = await fetchWalletCharge(charge.id, signal);
         setError(null);
-        finish(fresh);
+        return finish(fresh) ? 'stop' : undefined;
       } catch (err) {
-        if (!stopped) setError((err as Error).message);
+        if (signal.aborted) return 'slow';
+        setError(pollErrorText(err));
+        return err instanceof SessionExpiredError ? 'stop' : 'slow';
       }
-    }, POLL_MS);
-    return () => {
-      stopped = true;
-      clearInterval(id);
-    };
-    // Solo importa el id del cobro.
-  }, [charge.id]);
+    },
+    { intervalMs: POLL_MS, slowIntervalMs: POLL_SLOW_MS, initialDelayMs: POLL_MS },
+  );
 
   // iPhone: tras "Sin móvil", al acercar la ficha se abre otra pestaña
   // (?ficha=…) que paga ESTE cobro.
@@ -222,7 +232,11 @@ function QrStep({
     return () => clearFichaContext((ctx) => ctx.kind === 'cobro' && ctx.chargeId === charge.id);
   }, [withPin, charge.id, charge.amountCents, charge.serviceName, charge.expiresAt]);
 
-  async function cancel() {
+  /**
+   * Cancela el cobro (si mientras tanto lo pagó, se ve el pagado). Con
+   * thenBack, después vuelve a la carta: el QR viejo no se queda pendiente.
+   */
+  async function cancel(thenBack: boolean) {
     setCanceling(true);
     setError(null);
     try {
@@ -231,7 +245,16 @@ function QrStep({
       // Ya no estaba pendiente (el cliente acaba de pagar): se ve abajo.
     }
     try {
-      finish(await fetchWalletCharge(charge.id));
+      const fresh = await fetchWalletCharge(charge.id);
+      if (thenBack && fresh.status !== 'PENDING' && fresh.status !== 'ACCEPTED' && !finished.current) {
+        finished.current = true;
+        onBack();
+        return;
+      }
+      if (!finish(fresh)) {
+        setError('No se ha podido cancelar. Inténtalo otra vez.');
+        setCanceling(false);
+      }
     } catch (err) {
       setError((err as Error).message);
       setCanceling(false);
@@ -239,7 +262,7 @@ function QrStep({
   }
 
   const secondsLeft = Math.max(0, Math.ceil((new Date(charge.expiresAt).getTime() - now) / 1000));
-  const what = `${formatEur(charge.amountCents)}${charge.serviceName ? ` · ${charge.serviceName}` : ''}`;
+  const what = `${formatEur(charge.amountCents, { compact: true })}${charge.serviceName ? ` · ${charge.serviceName}` : ''}`;
 
   if (withPin && wallet && ref && wallet.hasPin && !wallet.pinLocked) {
     return (
@@ -252,7 +275,9 @@ function QrStep({
           setRef(null);
         }}
         onPin={async (pin) => {
-          finish(await payWalletChargeWithPin(charge.id, ref, pin));
+          const result = await payWalletChargeWithPin(charge.id, ref, pin);
+          if (result.status === 'PENDING') return 'No se ha cobrado todavía: vuelve a intentarlo.';
+          finish(result);
           return null;
         }}
       />
@@ -281,7 +306,7 @@ function QrStep({
     <Card style={{ ...cardStyle, alignItems: 'center', textAlign: 'center' }}>
       <p style={kicker}>Cobrar del saldo</p>
       <p className="np-num" style={balanceStyle}>
-        {formatEur(charge.amountCents)}
+        {formatEur(charge.amountCents, { compact: true })}
       </p>
       {charge.serviceName ? <p style={hintStyle}>{charge.serviceName}</p> : null}
       <img src={charge.qrPngDataUrl} alt="QR para pagar con el saldo" width={260} height={260} style={qrStyle} />
@@ -296,10 +321,10 @@ function QrStep({
       </Button>
       <p style={noteStyle}>¿Sin batería y sin PIN? Avisa al encargado: lo cobra desde el panel.</p>
       {error ? <p style={errorStyle}>{error}</p> : null}
-      <Button variant="ghost" onClick={() => void cancel()} loading={canceling}>
+      <Button variant="ghost" onClick={() => void cancel(false)} loading={canceling}>
         Cancelar cobro
       </Button>
-      <button type="button" onClick={onBack} style={linkBtnStyle} disabled={canceling}>
+      <button type="button" onClick={() => void cancel(true)} style={linkBtnStyle} disabled={canceling}>
         ← Elegir otro servicio
       </button>
     </Card>
@@ -432,28 +457,17 @@ function DoneStep({
     <Card style={{ ...cardStyle, textAlign: 'center' }}>
       <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: text.color }}>{text.title}</p>
       <p className="np-num" style={{ ...balanceStyle, textAlign: 'center' }}>
-        {formatEur(charge.amountCents)}
+        {formatEur(charge.amountCents, { compact: true })}
       </p>
       {charge.serviceName ? <p style={{ ...hintStyle, textAlign: 'center' }}>{charge.serviceName}</p> : null}
       {result.status === 'ACCEPTED' && result.newBalanceCents !== null ? (
-        <p style={{ margin: 0, fontSize: '1.05rem' }}>Le quedan {formatEur(result.newBalanceCents)}</p>
+        <p style={{ margin: 0, fontSize: '1.05rem' }}>Le quedan {formatEur(result.newBalanceCents, { compact: true })}</p>
       ) : null}
       <Button size="lg" onClick={onAgain}>
         Nuevo cobro del saldo
       </Button>
     </Card>
   );
-}
-
-/** Nombre del servicio y, si no lo dice ya el nombre, su duración. */
-function serviceLabel(svc: ServiceItem): string {
-  return svc.durationMin && !svc.name.includes(String(svc.durationMin))
-    ? `${svc.name} · ${svc.durationMin} min`
-    : svc.name;
-}
-
-function formatEur(cents: number): string {
-  return `${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)} €`;
 }
 
 const cardStyle: CSSProperties = {

@@ -1,19 +1,27 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
 import {
   confirmPosPayment,
   fetchPendingPos,
   fetchZones,
+  pollErrorText,
+  SessionExpiredError,
   type PendingPosPayment,
   type ZoneOption,
 } from '@/lib/api';
+import { playAlertBeep } from '@/lib/alert-sound';
+import { formatEur, formatEurAmount } from '@/lib/money';
+import { newArrivals } from '@/lib/pending-pos';
+import { usePolling } from '@/lib/use-polling';
 
 interface Props {
   onConfirmed: () => void;
   /** Si viene de un deep-link (?pos=<id> tras escanear QR), pre-selecciona ese cobro. */
   focusPaymentId?: string | null;
+  /** Ya se abrió el cobro del enlace: "← Lista" no lo vuelve a abrir en el siguiente refresco. */
+  onFocusConsumed?: () => void;
 }
 
 /**
@@ -33,128 +41,91 @@ interface Props {
  * pasa por el PSP del bar (datáfono físico). NightPay solo registra la
  * transacción para repartir comisión a la chica.
  */
-export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
+export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Props) {
   const [pending, setPending] = useState<PendingPosPayment[]>([]);
   const [zones, setZones] = useState<ZoneOption[]>([]);
-  // 'all' = sin filtro; canonical zone otherwise.
+  // 'all' = sin filtro; canonical zone otherwise. El ref es la zona que vale
+  // ahora mismo: una respuesta de otra zona que llega tarde se descarta.
   const [zoneFilter, setZoneFilter] = useState<string>('all');
+  const zoneRef = useRef('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<PendingPosPayment | null>(null);
   // M3: sound + vibrate cuando llega un cobro pendiente nuevo. Sin esto
-  // el camarero tiene que mirar la pantalla constantemente. Comparamos el
-  // set de IDs entre polls — si aparece uno nuevo, suena.
+  // el camarero tiene que mirar la pantalla constantemente.
   // Mute state persiste en localStorage para que cada usuario decida.
-  const [muted, setMuted] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem('np-pending-pos-muted') === '1';
-  });
-  // Conjunto de IDs ya vistos — usado para detectar "nuevos".
-  // Ref-like: lo guardamos en estado pero solo lo comparamos en reload.
-  const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
+  const [muted, setMuted] = useState(readMuted);
+  // IDs ya vistos (null: aún no hay primera carga de esta zona).
+  const seenIds = useRef<Set<string> | null>(null);
 
-  function playAlert(): void {
-    if (muted || typeof window === 'undefined') return;
-    // Sonido corto sin asset externo — WebAudio sintetiza un beep dual.
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const Ctx: typeof AudioContext = (window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
-      const ac = new Ctx();
-      const beep = (freq: number, t: number, dur: number) => {
-        const osc = ac.createOscillator();
-        const gain = ac.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        osc.connect(gain);
-        gain.connect(ac.destination);
-        gain.gain.setValueAtTime(0.2, ac.currentTime + t);
-        gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + dur);
-        osc.start(ac.currentTime + t);
-        osc.stop(ac.currentTime + t + dur);
-      };
-      beep(880, 0, 0.12);
-      beep(1320, 0.15, 0.18);
-    } catch {
-      /* Audio no soportado o usuario no ha interactuado → silente */
-    }
-    if ('vibrate' in navigator) {
-      navigator.vibrate([100, 50, 150]);
-    }
+  function alertNew(): void {
+    if (muted) return;
+    playAlertBeep();
+    if ('vibrate' in navigator) navigator.vibrate([100, 50, 150]);
   }
 
   function toggleMute(): void {
     const next = !muted;
     setMuted(next);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('np-pending-pos-muted', next ? '1' : '0');
-    }
-  }
-
-  async function reload(zoneArg?: string) {
     try {
-      const filter = zoneArg ?? zoneFilter;
-      const list = await fetchPendingPos(filter === 'all' ? undefined : filter);
-
-      // M3: detectar IDs nuevos vs el último poll. Si hay alguno nuevo y NO
-      // es el primer load, sonar alerta.
-      const currentIds = new Set(list.map((p) => p.id));
-      const firstLoad = seenIds.size === 0 && pending.length === 0;
-      if (!firstLoad) {
-        const hasNew = list.some((p) => !seenIds.has(p.id));
-        if (hasNew) playAlert();
-      }
-      setSeenIds(currentIds);
-
-      setPending(list);
-      // Si el seleccionado ya no está (alguien lo confirmó), reset.
-      if (selected && !list.find((p) => p.id === selected.id)) {
-        setSelected(null);
-      }
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
+      window.localStorage.setItem(MUTED_KEY, next ? '1' : '0');
+    } catch {
+      // Sin almacenamiento: vale para esta sesión.
     }
   }
+
+  // Cada vuelta usa el estado de ahora (usePolling): zona, silencio y seleccionado.
+  const refresh = usePolling(
+    async (signal) => {
+      const filter = zoneRef.current;
+      try {
+        const list = await fetchPendingPos(filter === 'all' ? undefined : filter, signal);
+        // Respuesta de la zona anterior: ni se pinta ni quita el "Cargando…".
+        if (filter !== zoneRef.current) return;
+        const arrivals = newArrivals(seenIds.current, list.map((p) => p.id));
+        seenIds.current = arrivals.seen;
+        if (arrivals.hasNew) alertNew();
+        setPending(list);
+        // Si el seleccionado ya no está (alguien lo confirmó), se vuelve a la lista.
+        setSelected((sel) => (sel && !list.some((p) => p.id === sel.id) ? null : sel));
+        setError(null);
+        setLoading(false);
+      } catch (err) {
+        if (signal.aborted) return 'slow';
+        setError(pollErrorText(err));
+        setLoading(false);
+        return err instanceof SessionExpiredError ? 'stop' : 'slow';
+      }
+    },
+    { intervalMs: POLL_MS },
+  );
 
   useEffect(() => {
-    // H8: cada reload() devuelve Promise — sin .catch React loggea unhandled
-    // rejection y puede intentar setState tras unmount. Tragamos error con
-    // log silente (loading=false ya se resetea en finally del propio reload).
     fetchZones()
       .then((zs) => setZones(zs.filter((z) => z.activeCount > 0)))
       .catch(() => {
         /* zonas opcional */
       });
-    reload().catch((e: unknown) => {
-      console.warn('PendingPos initial reload failed', e);
-    });
-    const id = setInterval(() => {
-      reload().catch((e: unknown) => {
-        console.warn('PendingPos poll reload failed', e);
-      });
-    }, 5000);
-    return () => clearInterval(id);
   }, []);
 
-  // Deep-link: cuando llega un focusPaymentId y la lista ya cargó, pre-selecciona.
-  // Si todavía no está en la lista (acaba de crearse), reintentamos cada poll.
+  // Deep-link: cuando llega un focusPaymentId y la lista ya cargó, pre-selecciona
+  // una sola vez. Si todavía no está en la lista (acaba de crearse), en el siguiente refresco.
   useEffect(() => {
     if (!focusPaymentId) return;
     const match = pending.find((p) => p.id === focusPaymentId);
     if (match) {
       setSelected(match);
+      onFocusConsumed?.();
     }
-  }, [focusPaymentId, pending]);
+  }, [focusPaymentId, pending, onFocusConsumed]);
 
   function changeZone(z: string): void {
+    zoneRef.current = z;
+    seenIds.current = null; // lo que ya hay en la otra zona no avisa
     setZoneFilter(z);
+    setPending([]);
     setLoading(true);
-    reload(z).catch((e: unknown) => {
-      console.warn('PendingPos changeZone reload failed', e);
-    });
+    refresh();
   }
 
   if (selected) {
@@ -164,9 +135,7 @@ export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
         onBack={() => setSelected(null)}
         onConfirmed={() => {
           setSelected(null);
-          reload().catch((e: unknown) => {
-            console.warn('PendingPos onConfirmed reload failed', e);
-          });
+          refresh();
           onConfirmed();
         }}
       />
@@ -187,6 +156,7 @@ export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
           type="button"
           onClick={toggleMute}
           aria-label={muted ? 'Activar sonido de alerta' : 'Silenciar alerta'}
+          aria-pressed={muted}
           title={muted ? 'Activar sonido' : 'Silenciar'}
           style={muteBtnStyle}
         >
@@ -199,6 +169,7 @@ export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
           <button
             type="button"
             onClick={() => changeZone('all')}
+            aria-pressed={zoneFilter === 'all'}
             style={{
               ...zoneTabStyle,
               ...(zoneFilter === 'all' ? zoneTabActiveStyle : {}),
@@ -211,6 +182,7 @@ export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
               key={z.zone}
               type="button"
               onClick={() => changeZone(z.zone)}
+              aria-pressed={zoneFilter === z.zone}
               style={{
                 ...zoneTabStyle,
                 ...(zoneFilter === z.zone ? zoneTabActiveStyle : {}),
@@ -222,7 +194,11 @@ export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
         </div>
       ) : null}
 
-      {error ? <p style={errorStyle}>{error}</p> : null}
+      {error ? (
+        <p role="alert" style={errorStyle}>
+          {error}
+        </p>
+      ) : null}
 
       {loading && pending.length === 0 ? (
         <p style={emptyStyle}>Cargando…</p>
@@ -251,7 +227,7 @@ export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
                   </p>
                 </div>
                 <p className="np-num" style={amountStyle}>
-                  {(p.amountCents / 100).toFixed(2)}
+                  {formatEurAmount(p.amountCents)}
                   <span style={{ fontSize: '0.7rem', color: 'var(--np-text-mute)' }}> €</span>
                 </p>
               </button>
@@ -263,6 +239,17 @@ export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
   );
 }
 
+const POLL_MS = 5000;
+const MUTED_KEY = 'np-pending-pos-muted';
+
+function readMuted(): boolean {
+  try {
+    return window.localStorage.getItem(MUTED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 function ConfirmForm({
   payment,
   onBack,
@@ -272,6 +259,7 @@ function ConfirmForm({
   onBack: () => void;
   onConfirmed: () => void;
 }) {
+  const photoInputId = useId();
   const [posRef, setPosRef] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -328,7 +316,7 @@ function ConfirmForm({
       <div style={confirmPillStyle}>
         <span style={kickerStyle}>⚠️ Teclea EXACTAMENTE en el datáfono</span>
         <p className="np-num" style={amountBigStyle}>
-          {(payment.amountCents / 100).toFixed(2)} <span style={currStyle}>EUR</span>
+          {formatEurAmount(payment.amountCents)} <span style={currStyle}>EUR</span>
         </p>
         <p style={amountDigitsStyle}>
           {/* Importe deletreado dígito-a-dígito para evitar typos visuales en el IM30 */}
@@ -348,7 +336,7 @@ function ConfirmForm({
           Pasos:
         </p>
         <ol style={stepsListStyle}>
-          <li>Cobra {(payment.amountCents / 100).toFixed(2)} € en el datáfono del bar.</li>
+          <li>Cobra {formatEur(payment.amountCents)} en el datáfono del bar.</li>
           <li>Cliente paga con su tarjeta.</li>
           <li><strong>Teclea el código de autorización</strong> del ticket (6 caracteres, pone "AUT" o "Nº autorización").</li>
           <li>Foto del ticket (opcional pero recomendado).</li>
@@ -369,6 +357,7 @@ function ConfirmForm({
 
       <div>
         <label
+          htmlFor={photoInputId}
           style={{
             display: 'block',
             fontSize: '0.875rem',
@@ -380,6 +369,7 @@ function ConfirmForm({
           Foto del ticket (opcional)
         </label>
         <input
+          id={photoInputId}
           type="file"
           accept="image/*"
           capture="environment"
@@ -417,7 +407,11 @@ function ConfirmForm({
         ) : null}
       </div>
 
-      {error ? <p style={errorStyle}>{error}</p> : null}
+      {error ? (
+        <p role="alert" style={errorStyle}>
+          {error}
+        </p>
+      ) : null}
 
       <Button onClick={handleConfirm} loading={submitting} size="lg">
         ✓ Confirmar pagado en el datáfono
@@ -447,7 +441,10 @@ function timeAgo(iso: string): string {
 async function compressImage(file: File, maxW: number, quality: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    // La foto original en memoria se suelta en cuanto se ha leído.
+    const src = URL.createObjectURL(file);
     img.onload = () => {
+      URL.revokeObjectURL(src);
       const ratio = Math.min(maxW / img.width, maxW / img.height, 1);
       const w = Math.round(img.width * ratio);
       const h = Math.round(img.height * ratio);
@@ -462,8 +459,11 @@ async function compressImage(file: File, maxW: number, quality: number): Promise
       ctx.drawImage(img, 0, 0, w, h);
       resolve(canvas.toDataURL('image/jpeg', quality));
     };
-    img.onerror = () => reject(new Error('image load failed'));
-    img.src = URL.createObjectURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(src);
+      reject(new Error('image load failed'));
+    };
+    img.src = src;
   });
 }
 

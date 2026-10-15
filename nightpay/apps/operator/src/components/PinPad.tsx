@@ -50,8 +50,9 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
     if (mode === 'choose' && first !== value) return restart('Los dos PIN no son iguales: empieza otra vez');
     setBusy(true);
     try {
-      const problem = await onPin(value);
-      if (problem) restart(problem);
+      // Si la pantalla sigue aquí (no se terminó), se vuelve a empezar: con
+      // las 4 cifras puestas ya no se podía teclear nada.
+      restart(await onPin(value));
     } catch (err) {
       restart((err as Error).message);
     } finally {
@@ -77,10 +78,11 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
       <p style={titleStyle}>{title}</p>
       {hint ? <p style={hintStyle}>{hint}</p> : null}
       <p style={stepStyle}>{step}</p>
-      <div style={dotsStyle} aria-live="polite" aria-label={`${pin.length} de ${PIN_LENGTH} cifras`}>
+      <div role="status" style={dotsStyle}>
         {Array.from({ length: PIN_LENGTH }, (_, i) => (
-          <span key={i} style={{ ...dotStyle, ...(i < pin.length ? dotFull : {}) }} />
+          <span key={i} aria-hidden style={{ ...dotStyle, ...(i < pin.length ? dotFull : {}) }} />
         ))}
+        <span style={srOnly}>{`${pin.length} de ${PIN_LENGTH} cifras`}</span>
       </div>
       {error ? (
         <p role="alert" style={errorStyle}>
@@ -147,6 +149,19 @@ const dotStyle: CSSProperties = {
   border: '2px solid var(--np-border-hi)',
 };
 const dotFull: CSSProperties = { background: 'var(--np-accent)', borderColor: 'var(--np-accent)' };
+
+/** Solo para lectores de pantalla. */
+const srOnly: CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
 
 const errorStyle: CSSProperties = { margin: 0, fontSize: '0.95rem', color: 'var(--np-danger)', fontWeight: 600 };
 
