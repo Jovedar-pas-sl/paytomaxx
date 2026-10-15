@@ -78,22 +78,7 @@ export type CreateWalletTopUpDto = z.infer<typeof CreateWalletTopUpSchema>;
 
 // Cobrar del saldo: con el QR de la chica (Face ID) o con su código / ficha y
 // su PIN (/v1/wallet-charges). Ya no hay cobro directo sin el cliente.
-
-/** Refund manual del balance restante (PSP refund o crédito futuro). */
-export const RefundWalletSchema = z.object({
-  method: z.enum(['CARD', 'CREDIT']),
-  notes: z.string().max(500).optional(),
-});
-export type RefundWalletDto = z.infer<typeof RefundWalletSchema>;
-
-export const RefundWalletResultSchema = z.object({
-  walletId: UuidSchema,
-  method: z.enum(['CARD', 'CREDIT']),
-  refundedCents: z.number().int().nonnegative(),
-  newStatus: ClientClientWalletStatusSchema,
-  expiresAt: z.string().datetime().nullable(),
-});
-export type RefundWalletResult = z.infer<typeof RefundWalletResultSchema>;
+// Devolver el saldo: /v1/wallet-charges/wallets/:id/payout (tarjeta o efectivo).
 
 /** Rollback de un consumo concreto. */
 export const ReverseConsumptionSchema = z.object({

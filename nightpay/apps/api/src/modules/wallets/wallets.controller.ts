@@ -11,14 +11,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  RefundWalletSchema,
-  ReverseConsumptionSchema,
-  type JwtPayload,
-  type RefundWalletDto,
-  type RefundWalletResult,
-  type ReverseConsumptionDto,
-} from '@nightpay/contracts';
+import { ReverseConsumptionSchema, type JwtPayload, type ReverseConsumptionDto } from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -32,12 +25,14 @@ import { WalletsService } from './wallets.service';
  *
  * Endpoints:
  *  - GET  /v1/wallets/public/:qrToken            (cliente — sin auth)
- *  - POST /v1/wallets/:id/refund                 (OWNER)
  *  - POST /v1/wallets/:id/consumptions/:cid/reverse (OWNER/MANAGER)
- *  - GET  /v1/admin/wallets/stats                (admin — vía AdminController)
+ *  - GET  /v1/wallets                            (OWNER/MANAGER — saldos abiertos)
+ *  - GET  /v1/wallets/:id                        (OWNER/MANAGER)
+ *  - GET  /v1/admin/wallets[/stats]              (OWNER/MANAGER — panel de saldos)
  *
  * El top-up flow (POST /payments con wallet:{create:true}) vive en PaymentsController
- * porque crea un Payment + dispara el flow de pasarela.
+ * porque crea un Payment + dispara el flow de pasarela. Cobrar y devolver el
+ * saldo: /v1/wallet-charges (WalletChargesController).
  */
 @Controller('wallets')
 @UseGuards(RolesGuard)
@@ -59,23 +54,6 @@ export class WalletsController {
       throw new BadRequestException('qrToken inválido');
     }
     return this.wallets.getPublicByToken(qrToken);
-  }
-
-  @Post(':id/refund')
-  @HttpCode(200)
-  @Roles('OWNER')
-  async refund(
-    @Tenant() tenantId: string,
-    @CurrentUser() user: JwtPayload,
-    @Param('id', new ParseUUIDPipe()) walletId: string,
-    @Body(new ZodValidationPipe(RefundWalletSchema)) dto: RefundWalletDto,
-  ): Promise<RefundWalletResult> {
-    return this.wallets.refund({
-      tenantId,
-      walletId,
-      actor: { userId: user.sub, role: user.role, tenantId },
-      dto,
-    });
   }
 
   @Post(':id/consumptions/:consumptionId/reverse')

@@ -38,4 +38,12 @@ describe('rutas de saldos para el personal', () => {
       expect.arrayContaining(['GET public/:qrToken', 'POST :id/consumptions/:consumptionId/reverse', 'GET :id']),
     );
   });
+
+  it('la devolución vieja del saldo (siempre fallaba y pisaba el saldo) ya no existe', () => {
+    // El saldo se devuelve con /v1/wallet-charges/wallets/:id/payout (tarjeta o efectivo).
+    expect(routesOf(WalletsController)).not.toContain('POST :id/refund');
+    expect('refund' in WalletsService.prototype).toBe(false);
+    // Las recargas las suma al saldo el cobro (payments), no este servicio.
+    expect('creditFromTopUp' in WalletsService.prototype).toBe(false);
+  });
 });
