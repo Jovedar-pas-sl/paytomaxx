@@ -113,9 +113,8 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
 
   return (
     <main
-      className="np-app-root"
+      className="np-app-root np-screen"
       style={{
-        minHeight: '100dvh',
         padding: '1.5rem',
         maxWidth: '64rem',
         margin: '0 auto',
@@ -238,7 +237,6 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
 
 function playBeep() {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Ctor: typeof AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!Ctor) return;
     const ctx = new Ctor();

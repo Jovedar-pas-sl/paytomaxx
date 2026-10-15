@@ -138,6 +138,10 @@ html {
 
 body {
   min-height: 100vh;
+  min-height: 100dvh;
+  /* viewport-fit=cover: en horizontal, nada debajo del notch del iPhone. */
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
   font-family: var(--np-font-sans);
   font-size: var(--np-t-body);
   line-height: 1.55;
@@ -157,6 +161,12 @@ main,
 .np-app-root {
   position: relative;
   z-index: 2;
+}
+
+/* Pantalla completa: dvh no salta con la barra del navegador móvil; vh si no lo hay. */
+.np-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 a {
