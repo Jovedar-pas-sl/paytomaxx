@@ -9,9 +9,9 @@ import {
 } from '@nestjs/platform-fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import { redactSecretsInUrl } from './common/logging/redact-url';
+import { httpLoggerOptions } from './common/logging/logger-options';
 import { originAuthHook } from './common/http/origin-guard';
-import { clientIp, trustInternalProxy, type ClientIpRequest } from './common/http/client-ip';
+import { trustInternalProxy } from './common/http/client-ip';
 import {
   GLOBAL_RATE_LIMIT_MAX,
   GLOBAL_RATE_LIMIT_WINDOW,
@@ -41,18 +41,9 @@ async function bootstrap() {
   });
 
   const adapter = new FastifyAdapter({
-    logger: {
-      level: env.LOG_LEVEL,
-      // El enlace del saldo (/w/<token>) es la credencial del cliente: no a los logs.
-      serializers: {
-        req: (req: ClientIpRequest & { method: string; url: string; hostname?: string }) => ({
-          method: req.method,
-          url: redactSecretsInUrl(req.url),
-          hostname: req.hostname,
-          remoteAddress: clientIp(req) ?? undefined,
-        }),
-      },
-    },
+    // Tokens de la URL tapados, IP de fiar y `redact` de cabeceras de sesión,
+    // PIN, secretos y firmas de Redsys (common/logging/logger-options.ts).
+    logger: httpLoggerOptions(env.LOG_LEVEL),
     bodyLimit: 1024 * 1024, // 1 MB max — webhooks normalmente <10KB
     // Default Fastify es 100; JWT en path (self-onboarding link, accept-invite)
     // tienen ~250 chars. Subimos a 500 para no rechazar tokens válidos con 404.

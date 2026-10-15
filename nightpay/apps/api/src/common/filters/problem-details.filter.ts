@@ -7,7 +7,11 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { ClsServiceManager } from 'nestjs-cls';
 import { reportError } from '../observability/sentry';
+import { redactSecretsInUrl } from '../logging/redact-url';
+import { sanitizeTraceId } from '../context/trace-id';
+import type { RequestContext } from '../context/request-context';
 
 interface ProblemDetails {
   type: string;
@@ -90,10 +94,17 @@ export class ProblemDetailsFilter implements ExceptionFilter {
           }
         }
       }
+    } else if (isClientStatusError(exception)) {
+      // Errores de Fastify y sus plugins con statusCode 4xx (límite global de
+      // peticiones, cuerpo demasiado grande, JSON mal formado…): mensajes del
+      // framework, sin datos internos. Antes salían como 500.
+      status = exception.statusCode;
+      title = exception.message;
     } else if (exception instanceof Error) {
       // En prod NO exponemos message ni name al cliente (puede leak DB
       // internals tipo "column does not exist", paths de archivos, etc.).
       // En dev sí lo exponemos para feedback inmediato.
+      status = serverStatusOf(exception);
       if (this.isProd) {
         title = 'Internal Server Error';
         detail = undefined;
@@ -116,21 +127,15 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       reportError(exception, { tag: 'http.5xx' });
     }
 
-    // traceId — desde header X-Trace-Id o desde req.id
-    const traceHeader = req.headers['x-trace-id'];
-    const traceId =
-      typeof traceHeader === 'string'
-        ? traceHeader
-        : Array.isArray(traceHeader)
-          ? traceHeader[0]
-          : (req.id as string | undefined);
+    const traceId = traceIdOf(req);
 
     const body: ProblemDetails & Record<string, unknown> = {
       type: 'about:blank',
       title,
       status,
       ...(detail ? { detail } : {}),
-      instance: req.url,
+      // Sin el token de la URL (/w/<token>, /pay/<token>…).
+      instance: redactSecretsInUrl(req.url),
       ...(traceId ? { traceId } : {}),
       // httpExtra: campos custom de HttpException (hint, issues, etc.) —
       // controlados por nuestro código, OK en prod.
@@ -143,4 +148,32 @@ export class ProblemDetailsFilter implements ExceptionFilter {
 
     res.status(status).type('application/problem+json').send(body);
   }
+}
+
+type StatusError = Error & { statusCode: number };
+
+function hasStatusCode(exception: unknown): exception is StatusError {
+  return exception instanceof Error && typeof (exception as Partial<StatusError>).statusCode === 'number';
+}
+
+function isClientStatusError(exception: unknown): exception is StatusError {
+  return hasStatusCode(exception) && exception.statusCode >= 400 && exception.statusCode < 500;
+}
+
+/** 5xx de Fastify (p. ej. 503 al cerrar) se respeta; el resto, 500. */
+function serverStatusOf(exception: Error): number {
+  return hasStatusCode(exception) && exception.statusCode >= 500 && exception.statusCode <= 599
+    ? exception.statusCode
+    : HttpStatus.INTERNAL_SERVER_ERROR;
+}
+
+/**
+ * El mismo traceId que se guarda en audit_events (contexto CLS, ya validado
+ * en app.module); si no hay contexto, la cabecera solo si es válida, o el id
+ * de la petición.
+ */
+function traceIdOf(req: FastifyRequest): string | undefined {
+  const cls = ClsServiceManager.getClsService<{ ctx?: RequestContext }>();
+  const fromCls = cls.isActive() ? cls.get('ctx')?.traceId : undefined;
+  return fromCls ?? sanitizeTraceId(req.headers['x-trace-id']) ?? (req.id as string | undefined);
 }

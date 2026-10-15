@@ -43,7 +43,7 @@ function makeHost(url = '/v1/test', headers: Record<string, string> = {}): {
       getResponse: () => res,
       getRequest: () => req,
     }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
   } as any;
   return { host, capture };
 }
@@ -140,5 +140,39 @@ describe('ProblemDetailsFilter — shape RFC 7807', () => {
     const { host, capture } = makeHost();
     filter.catch(new Error('boom'), host);
     expect(capture.body.status).toBe(500);
+  });
+
+  it('errores de Fastify con statusCode 4xx (límite global, cuerpo grande…) conservan su estado', () => {
+    const filter = new ProblemDetailsFilter(true);
+    const { host, capture } = makeHost();
+    const rateLimited = Object.assign(new Error('Rate limit exceeded, retry in 1 minute'), { statusCode: 429 });
+    filter.catch(rateLimited, host);
+    expect(capture.status).toBe(429);
+    expect(capture.body.title).toBe('Rate limit exceeded, retry in 1 minute');
+
+    const { host: h2, capture: c2 } = makeHost();
+    filter.catch(Object.assign(new Error('fallo interno con detalles'), { statusCode: 503 }), h2);
+    expect(c2.status).toBe(503);
+    expect(c2.body.title).toBe('Internal Server Error');
+  });
+});
+
+describe('ProblemDetailsFilter — sin secretos ni ids inventados', () => {
+  it('instance sin el token de la URL', () => {
+    const filter = new ProblemDetailsFilter(true);
+    const { host, capture } = makeHost('/w/tok123/state?x=1');
+    filter.catch(new NotFoundException(), host);
+    expect(capture.body.instance).toBe('/w/***/state?x=1');
+  });
+
+  it('traceId del cliente solo si es válido; si no, el de la petición', () => {
+    const filter = new ProblemDetailsFilter(true);
+    const ok = makeHost('/v1/x', { 'x-trace-id': 'abc-123' });
+    filter.catch(new NotFoundException(), ok.host);
+    expect(ok.capture.body.traceId).toBe('abc-123');
+
+    const malo = makeHost('/v1/x', { 'x-trace-id': '<img src=x>'.repeat(10) });
+    filter.catch(new NotFoundException(), malo.host);
+    expect(malo.capture.body.traceId).toBe('req-test');
   });
 });
