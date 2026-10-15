@@ -12,6 +12,7 @@ import rateLimit from '@fastify/rate-limit';
 import { httpLoggerOptions } from './common/logging/logger-options';
 import { originAuthHook } from './common/http/origin-guard';
 import { trustInternalProxy } from './common/http/client-ip';
+import { corsOrigin, parseCorsOrigins } from './common/http/cors';
 import {
   GLOBAL_RATE_LIMIT_MAX,
   GLOBAL_RATE_LIMIT_WINDOW,
@@ -157,7 +158,7 @@ async function bootstrap() {
   // CORS estricto via env CORS_ORIGINS (CSV). Dev: permite todo.
   const allowed = parseCorsOrigins(env.CORS_ORIGINS);
   app.enableCors({
-    origin: isProd ? (allowed.length > 0 ? allowed : false) : true,
+    origin: corsOrigin(isProd, allowed),
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     maxAge: 600,
@@ -176,14 +177,6 @@ async function bootstrap() {
 
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
   logger.log(`NightPay API escuchando en http://0.0.0.0:${env.PORT} (${env.NODE_ENV})`);
-}
-
-function parseCorsOrigins(value: string | undefined): string[] {
-  if (!value) return [];
-  return value
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
 }
 
 bootstrap().catch((err: unknown) => {
