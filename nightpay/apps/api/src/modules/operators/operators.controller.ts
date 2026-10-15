@@ -103,7 +103,7 @@ export class OperatorsController {
   async submitSelfOnboarding(
     @Param('token') token: string,
     @Body(new ZodValidationPipe(SelfOnboardingSubmitSchema)) dto: SelfOnboardingSubmitDto,
-  ): Promise<{ ok: true }> {
+  ): Promise<{ ok: true; payoutIgnored?: 'existing' | 'owner_required' }> {
     return this.operators.submitSelfOnboarding(token, dto);
   }
 }

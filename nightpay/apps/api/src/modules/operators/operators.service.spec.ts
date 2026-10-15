@@ -177,3 +177,101 @@ describe('OperatorsService.createPayout — un hash on-chain no se apunta en dos
     expect(payouts.create).toHaveBeenCalled();
   });
 });
+
+describe('OperatorsService.createOperator — la comisión la fija el dueño', () => {
+  beforeEach(() => vi.clearAllMocks());
+  const dto = { email: 'Nueva@Example.com', displayName: 'Nueva', commissionBps: 10_000 };
+
+  it('encargado: la comisión que mande se ignora (se aplica la del local) y se le dice; el enlace de invitación sigue', async () => {
+    const { svc, prisma, audit } = makeOps({ operator: null });
+    const res = await svc.createOperator('t-1', 'u-manager', dto, 'MANAGER');
+    expect(prisma.user.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ commissionBps: null, role: 'OPERATOR' }),
+    });
+    expect(res.inviteUrl).toMatch(/^https:\/\/chicas\.example\.com\/accept-invite\?token=/);
+    expect(res.notice).toMatch(/comisión la fija el dueño/);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'operator.created', payload: expect.objectContaining({ commissionIgnored: true }) }),
+    );
+  });
+
+  it('dueño: la que ponga; sin ella, la del local (null)', async () => {
+    const owner = makeOps({ operator: null });
+    const res = await owner.svc.createOperator('t-1', 'u-owner', { ...dto, commissionBps: 1500 }, 'OWNER');
+    expect(owner.prisma.user.create).toHaveBeenCalledWith({ data: expect.objectContaining({ commissionBps: 1500 }) });
+    expect(res.notice).toBeUndefined();
+    const ownerDefault = makeOps({ operator: null });
+    await ownerDefault.svc.createOperator('t-1', 'u-owner', { email: 'x@example.com', displayName: 'X' }, 'OWNER');
+    expect(ownerDefault.prisma.user.create).toHaveBeenCalledWith({ data: expect.objectContaining({ commissionBps: null }) });
+  });
+
+  it('encargado sin comisión en el cuerpo → sin aviso', async () => {
+    const { svc } = makeOps({ operator: null });
+    const res = await svc.createOperator('t-1', 'u-manager', { email: 'y@example.com', displayName: 'Y' }, 'MANAGER');
+    expect(res.notice).toBeUndefined();
+  });
+});
+
+describe('Enlace de la chica — su primera cuenta de cobro solo con enlace del dueño', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('el enlace lleva si permite la cuenta de cobro: del dueño sí, del encargado no', async () => {
+    const owner = makeOps();
+    await owner.svc.createSelfOnboardingLink('t-1', 'op-1', 'u-owner', 'OWNER');
+    expect(owner.jwt.signAsync).toHaveBeenCalledWith(expect.objectContaining({ payout: true }), expect.anything());
+    const manager = makeOps();
+    await manager.svc.createSelfOnboardingLink('t-1', 'op-1', 'u-manager', 'MANAGER');
+    expect(manager.jwt.signAsync).toHaveBeenCalledWith(expect.objectContaining({ payout: false }), expect.anything());
+  });
+
+  it('enlace del encargado: la cuenta de cobro NO se guarda; queda como propuesta para el dueño', async () => {
+    const { svc, prisma, audit } = makeOps({
+      tokenPayload: { sub: 'op-1', tenantId: 't-1', purpose: 'operator-self-onboarding', payout: false },
+    });
+    const res = await svc.submitSelfOnboarding('header.payload.signature-token', {
+      phone: '600000000',
+      payoutMethod: 'USDT_TRC20',
+      payoutAddress: TRON,
+    });
+    expect(res).toEqual({ ok: true, payoutIgnored: 'owner_required' });
+    const data = prisma.user.update.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data.phone).toBe('600000000');
+    expect(data).not.toHaveProperty('payoutAddress');
+    expect(data).not.toHaveProperty('payoutMethod');
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'operator.self_onboarding.submitted',
+        payload: expect.objectContaining({ proposedPayout: { method: 'USDT_TRC20', address: TRON, label: null } }),
+      }),
+    );
+  });
+
+  it('enlaces de antes (sin el dato) cuentan como del encargado', async () => {
+    const { svc, prisma } = makeOps({
+      tokenPayload: { sub: 'op-1', tenantId: 't-1', purpose: 'operator-self-onboarding' },
+    });
+    await svc.submitSelfOnboarding('header.payload.signature-token', { payoutMethod: 'USDT_TRC20', payoutAddress: TRON });
+    expect(prisma.user.update.mock.calls[0]![0].data).not.toHaveProperty('payoutAddress');
+  });
+
+  it('enlace del dueño pero ya tenía cuenta → no se cambia (lo hace el dueño en el panel)', async () => {
+    const { svc, prisma } = makeOps({ operator: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON } });
+    const res = await svc.submitSelfOnboarding('header.payload.signature-token', {
+      payoutMethod: 'USDT_BEP20',
+      payoutAddress: EVM,
+    });
+    expect(res).toEqual({ ok: true, payoutIgnored: 'existing' });
+    expect(prisma.user.update.mock.calls[0]![0].data).not.toHaveProperty('payoutAddress');
+  });
+
+  it('el formulario sabe si puede pedir la cuenta de cobro', async () => {
+    const owner = makeOps();
+    expect((await owner.svc.getSelfOnboardingProfile('header.payload.signature-token')).canSetPayout).toBe(true);
+    const manager = makeOps({
+      tokenPayload: { sub: 'op-1', tenantId: 't-1', purpose: 'operator-self-onboarding', payout: false },
+    });
+    expect((await manager.svc.getSelfOnboardingProfile('header.payload.signature-token')).canSetPayout).toBe(false);
+    const hasOne = makeOps({ operator: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON } });
+    expect((await hasOne.svc.getSelfOnboardingProfile('header.payload.signature-token')).canSetPayout).toBe(false);
+  });
+});

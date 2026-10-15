@@ -752,7 +752,8 @@ export class AdminController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(CreateOperatorSchema)) dto: CreateOperatorDto,
   ) {
-    return this.operators.createOperator(tenantId, user.sub, dto);
+    // Un encargado no fija la comisión: el servicio la ignora y avisa.
+    return this.operators.createOperator(tenantId, user.sub, dto, user.role);
   }
 
   @Patch('operators/:id')
@@ -780,7 +781,8 @@ export class AdminController {
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
-    return this.operators.createSelfOnboardingLink(tenantId, id, user.sub);
+    // Con enlace de encargado la chica no puede poner su cuenta de cobro (solo el dueño).
+    return this.operators.createSelfOnboardingLink(tenantId, id, user.sub, user.role);
   }
 
   /**

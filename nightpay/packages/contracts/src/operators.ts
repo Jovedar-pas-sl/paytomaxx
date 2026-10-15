@@ -251,7 +251,11 @@ export type OperatorWithBalance = z.infer<typeof OperatorWithBalanceSchema>;
 export const CreateOperatorSchema = z.object({
   email: z.string().email(),
   displayName: z.string().min(1).max(80),
-  commissionBps: z.number().int().min(0).max(10_000).describe('basis points: 1500 = 15%'),
+  /**
+   * basis points (1500 = 15 %). Solo la fija el DUEÑO: si da de alta un
+   * encargado se ignora y se aplica la del local. Sin ella, la del local.
+   */
+  commissionBps: z.number().int().min(0).max(10_000).optional().describe('basis points: 1500 = 15%'),
 });
 export type CreateOperatorDto = z.infer<typeof CreateOperatorSchema>;
 
@@ -381,6 +385,11 @@ export const SelfOnboardingProfileSchema = z.object({
   payoutAddress: z.string().nullable(),
   payoutLabel: z.string().nullable(),
   venueName: z.string(),
+  /**
+   * Si el formulario puede pedir la cuenta de cobro: solo con un enlace
+   * generado por el dueño y si aún no tiene una (cambiarla, en el panel).
+   */
+  canSetPayout: z.boolean().optional(),
 });
 export type SelfOnboardingProfile = z.infer<typeof SelfOnboardingProfileSchema>;
 
@@ -417,5 +426,7 @@ export const CreateOperatorResponseSchema = z.object({
   operator: OperatorPublicViewSchema,
   inviteUrl: z.string().url().describe('Link único para set-password — TTL 24h'),
   emailSent: z.boolean(),
+  /** Aviso para quien la dio de alta (p. ej. comisión ignorada a un encargado). */
+  notice: z.string().optional(),
 });
 export type CreateOperatorResponse = z.infer<typeof CreateOperatorResponseSchema>;
