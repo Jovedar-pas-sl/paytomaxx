@@ -8,18 +8,21 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { clientIp, type ClientIpRequest } from '../http/client-ip';
+
+type DebugRequest = ClientIpRequest & { url?: string; user?: { sub?: string } };
 
 /**
  * Guard para endpoints /v1/debug/*.
  *
- * Política:
- *   - NODE_ENV !== 'production'  → siempre permite (developer trabajando local)
- *   - NODE_ENV === 'production'  → solo permite si DEBUG_ENDPOINTS_ENABLED=true
+ * Política (en TODOS los entornos): hace falta el interruptor
+ * DEBUG_ENDPOINTS_ENABLED=true Y una sesión de superadmin. Antes, fuera de
+ * producción bastaba con cualquier sesión, y con NODE_ENV mal puesto eso
+ * dejaba datos de todos los locales a cualquier camarero.
  *
- * Razón: los endpoints debug exponen estado interno (config metadata, payment
- * records, webhook raw bodies). En producción deben estar cerrados por defecto.
- * El operador flipa DEBUG_ENDPOINTS_ENABLED=true en Dokploy cuando necesita
- * diagnosticar, y back a false cuando termina.
+ * Razón: los endpoints debug consultan pagos y avisos de todos los locales.
+ * El dueño activa DEBUG_ENDPOINTS_ENABLED en Dokploy para diagnosticar y lo
+ * vuelve a poner a false al terminar (aviso al arrancar mientras esté abierto).
  *
  * Logueamos cada bloqueo para detectar scans hostiles.
  */
@@ -34,44 +37,35 @@ export class DebugEndpointsGuard implements CanActivate {
     this.prisma = prisma;
   }
 
-  /**
-   * Fuera de producción, con sesión basta. En producción hacen falta las dos
-   * cosas: el interruptor DEBUG_ENDPOINTS_ENABLED y una sesión de superadmin
-   * (estos endpoints enseñan datos de todos los locales).
-   */
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const nodeEnv = this.config.get<string>('NODE_ENV');
-    if (nodeEnv !== 'production') return true;
-    const userId = ctx.switchToHttp().getRequest<{ user?: { sub?: string } }>().user?.sub;
-    const admin = userId
-      ? // Sin el filtro por local: el super-admin puede estar viendo otro local.
-        await this.prisma.acrossVenues((tx) =>
-          tx.user.findUnique({ where: { id: userId }, select: { isSuperAdmin: true, deletedAt: true } }),
-        )
-      : null;
-    if (!admin || admin.deletedAt || !admin.isSuperAdmin) {
+    const req = ctx.switchToHttp().getRequest<DebugRequest>();
+    if (!this.enabled()) {
+      this.logBlocked(req, 'interruptor apagado');
+      throw new ForbiddenException('Endpoints de debug desactivados (DEBUG_ENDPOINTS_ENABLED).');
+    }
+    if (!(await this.isSuperAdmin(req.user?.sub))) {
+      this.logBlocked(req, 'no es superadmin');
       throw new ForbiddenException('Solo superadmin');
     }
+    return true;
+  }
 
-    // ConfigModule.forRoot() lee process.env directo sin Zod parsing,
-    // así que DEBUG_ENDPOINTS_ENABLED llega como string "true" no boolean.
-    const raw = this.config.get<string | boolean | undefined>(
-      'DEBUG_ENDPOINTS_ENABLED',
+  /** ConfigService ya devuelve el booleano validado; se acepta también el texto. */
+  private enabled(): boolean {
+    const raw = this.config.get<string | boolean | undefined>('DEBUG_ENDPOINTS_ENABLED');
+    return raw === true || raw === 'true' || raw === '1';
+  }
+
+  private async isSuperAdmin(userId: string | undefined): Promise<boolean> {
+    if (!userId) return false;
+    // Sin el filtro por local: el super-admin puede estar viendo otro local.
+    const user = await this.prisma.acrossVenues((tx) =>
+      tx.user.findUnique({ where: { id: userId }, select: { isSuperAdmin: true, deletedAt: true } }),
     );
-    const enabled = raw === true || raw === 'true' || raw === '1';
-    if (enabled) return true;
+    return Boolean(user && !user.deletedAt && user.isSuperAdmin);
+  }
 
-    const req = ctx.switchToHttp().getRequest<{
-      url?: string;
-      ip?: string;
-      headers?: Record<string, string | string[] | undefined>;
-    }>();
-    const ip = req.headers?.['x-forwarded-for'] ?? req.ip ?? 'unknown';
-    const url = req.url ?? '(unknown)';
-    this.logger.warn(`Debug endpoint blocked: ${url} from ip=${String(ip)}`);
-
-    throw new ForbiddenException(
-      'Debug endpoints are disabled in production. Set DEBUG_ENDPOINTS_ENABLED=true in env to enable temporarily.',
-    );
+  private logBlocked(req: DebugRequest, reason: string): void {
+    this.logger.warn(`Debug endpoint bloqueado (${reason}): ${req.url ?? '(desconocida)'} ip=${clientIp(req) ?? 'unknown'}`);
   }
 }

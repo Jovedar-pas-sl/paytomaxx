@@ -22,9 +22,8 @@ interface PeanpeDryRunResponse {
 }
 
 interface PeanpeConfigCheckResponse {
-  apiKeyPresent: boolean;
-  apiKeyLength: number;
-  apiKeyLooksHex: boolean;
+  /** La apikey tiene el formato de Peanpe (64 hex); ni su longitud ni si está. */
+  apiKeyOk: boolean;
   accountIdPresent: boolean;
   accountId: string | null;
   baseUrl: string | null;
@@ -38,8 +37,8 @@ interface PeanpeConfigCheckResponse {
 
 /**
  * Endpoints debug-only para verificar/diagnosticar Peanpe sin tocar al
- * compañero ni al panel peanpe.com. Gated por `DEBUG_ENDPOINTS_ENABLED=true`
- * en producción (en dev siempre activos).
+ * compañero ni al panel peanpe.com. Solo superadmin y con `DEBUG_ENDPOINTS_ENABLED=true`
+ * en todos los entornos (DebugEndpointsGuard).
  *
  * Casos de uso:
  *  - `GET /v1/debug/peanpe/keycheck` → verifica que las env vars están bien
@@ -89,9 +88,7 @@ export class PeanpeDebugController {
     const format =
       formatRaw === 'cents' || formatRaw === 'euros' ? formatRaw : null;
     return {
-      apiKeyPresent: apiKey.length > 0,
-      apiKeyLength: apiKey.length,
-      apiKeyLooksHex: /^[0-9a-fA-F]+$/.test(apiKey) && apiKey.length === 64,
+      apiKeyOk: /^[0-9a-fA-F]{64}$/.test(apiKey),
       accountIdPresent: accountId.length > 0,
       accountId: accountId.length > 0 ? accountId : null,
       baseUrl,

@@ -4,8 +4,9 @@ import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
 
 /**
  * TEMP DIAG controller. Llama directamente a Paytef /getBranches y devuelve
- * la respuesta cruda. Sin auth porque el usuario no puede pegar tokens en
- * Dokploy logs. Borrar después de descifrar el shape de Paytef.
+ * el estado y el cuerpo (sin las cabeceras de la respuesta). Solo superadmin
+ * y con DEBUG_ENDPOINTS_ENABLED (DebugEndpointsGuard). Borrar después de
+ * descifrar el shape de Paytef.
  */
 @Controller('debug/paytef')
 @UseGuards(DebugEndpointsGuard)
@@ -79,8 +80,6 @@ export class PaytefDebugController {
         headers: { Authorization: authHeader },
       });
       const status = res.status;
-      const headers: Record<string, string> = {};
-      res.headers.forEach((v, k) => { headers[k] = v; });
       let body: unknown = null;
       let bodyText: string | null = null;
       try {
@@ -88,7 +87,7 @@ export class PaytefDebugController {
       } catch {
         bodyText = await res.text().catch(() => null);
       }
-      return { status, headers, body, bodyText };
+      return { status, body, bodyText };
     } catch (e) {
       this.logger.error(`debug/paytef/branches failed: ${(e as Error).message}`);
       return { error: (e as Error).message };
