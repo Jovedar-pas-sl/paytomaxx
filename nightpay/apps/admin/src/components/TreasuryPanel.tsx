@@ -1,163 +1,192 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Button, Card } from '@nightpay/ui';
 import {
   fetchExchangeRate,
   fetchTreasuryStats,
   reconcilePending,
+  type ReconciliationStatus,
   type TreasuryStats,
 } from '@/lib/api';
+import { formatDateTime } from '@/lib/dates';
+import { formatDecimal, formatEur } from '@/lib/money';
+import { RECONCILIATION_LABELS } from '@/lib/payout-verify';
+import { usePolling } from '@/lib/use-polling';
+import { useVenueTimezone } from '@/lib/venue-context';
+import { Notice } from './Notice';
 import { PAYOUT_METHOD_LABELS } from './PayoutMethodForm';
 
 interface Props {
   isOwner: boolean;
 }
 
+const POLL_MS = 30_000;
+
+type Rate = { rate: number; at: string; degraded: boolean } | 'unavailable';
+
+/**
+ * Tesorería: lo pendiente de pagar a las chicas y la tasa EUR→USDT. Si la
+ * tasa falla, solo falta la tasa (antes se caía el panel entero); si fallan
+ * las cifras, se avisa encima y se siguen viendo las últimas.
+ */
 export function TreasuryPanel({ isOwner }: Props) {
+  const tz = useVenueTimezone();
   const [stats, setStats] = useState<TreasuryStats | null>(null);
-  const [rate, setRate] = useState<{ rate: number; at: string; degraded: boolean } | null>(null);
+  const [rate, setRate] = useState<Rate | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reconciling, setReconciling] = useState(false);
-  const [reconcileMsg, setReconcileMsg] = useState<string | null>(null);
+  const [reconcileResult, setReconcileResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  async function reload() {
-    try {
-      const [s, r] = await Promise.all([fetchTreasuryStats(), fetchExchangeRate()]);
-      setStats(s);
-      setRate({ rate: r.rate, at: r.at, degraded: r.degraded });
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
-  useEffect(() => {
-    reload();
-    const interval = setInterval(reload, 30_000); // refresca cada 30s
-    return () => clearInterval(interval);
-  }, []);
+  const reload = usePolling(
+    async (signal) => {
+      const [s, r] = await Promise.allSettled([fetchTreasuryStats(), fetchExchangeRate()]);
+      if (signal.aborted) return true;
+      if (r.status === 'fulfilled') {
+        setRate({ rate: r.value.rate, at: r.value.at, degraded: r.value.degraded });
+      } else {
+        setRate('unavailable');
+      }
+      if (s.status === 'fulfilled') {
+        setStats(s.value);
+        setError(null);
+        return true;
+      }
+      setError((s.reason as Error).message);
+      return false;
+    },
+    { intervalMs: POLL_MS },
+    [],
+  );
 
   async function handleReconcile() {
     setReconciling(true);
-    setReconcileMsg(null);
+    setReconcileResult(null);
     try {
       const result = await reconcilePending();
-      setReconcileMsg(`Reconciliación: ${result.matched}/${result.checked} verificados.`);
-      await reload();
+      setReconcileResult({ ok: true, text: `Reconciliación: ${result.matched}/${result.checked} verificados.` });
+      reload();
     } catch (err) {
-      setReconcileMsg(`Error: ${(err as Error).message}`);
+      setReconcileResult({ ok: false, text: `No se pudo reconciliar: ${(err as Error).message}` });
     } finally {
       setReconciling(false);
     }
   }
 
-  if (error) {
-    return (
-      <Card style={{ padding: '1rem', borderColor: 'var(--np-danger)' }}>
-        <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>{error}</p>
-      </Card>
-    );
-  }
-
-  if (!stats) return <p style={loadingText}>Cargando treasury…</p>;
+  const liveRate = rate && rate !== 'unavailable' ? rate : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      {/* Métricas grandes */}
-      <section style={metricsGrid}>
-        <MetricTile
-          title="Saldo pendiente a chicas"
-          value={(stats.pendingPayoutsCents / 100).toFixed(2)}
-          unit="EUR"
-          subtitle={`${stats.pendingOperatorCount} chica${stats.pendingOperatorCount === 1 ? '' : 's'}`}
-          highlight
-        />
-        <MetricTile
-          title="Pagos este mes"
-          value={String(stats.payoutsThisMonthCount)}
-          subtitle={`${(stats.payoutsThisMonthCents / 100).toFixed(2)} €`}
-        />
-        <MetricTile
-          title={rate?.degraded ? '⚠️ EUR → USDT (degraded)' : 'EUR → USDT (Binance live)'}
-          value={rate ? rate.rate.toFixed(4) : '—'}
-          unit="USDT"
-          subtitle={
-            rate
-              ? rate.degraded
-                ? `Binance no responde — usando último-bueno o fallback`
-                : `Actualizado ${formatTime(rate.at)}`
-              : ''
-          }
-        />
-        <MetricTile
-          title="USDT necesarios (pendiente)"
-          value={
-            rate ? ((stats.pendingPayoutsCents / 100) * rate.rate).toFixed(2) : '—'
-          }
-          unit="USDT"
-          subtitle="Para liquidar todos los pendientes"
-        />
-      </section>
-
-      {/* Reconciliación */}
-      {isOwner ? (
-        <Card style={{ padding: '1.25rem' }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-            flexWrap: 'wrap',
-            gap: '1rem',
-          }}>
-            <div>
-              <h3 style={sectionTitle}>Reconciliación on-chain</h3>
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--np-text-mute)' }}>
-                Recorre payouts UNRECONCILED con hash on-chain y reintenta verificación contra Tronscan / BscScan / Polygonscan / Solscan.
-              </p>
-              {reconcileMsg ? (
-                <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: 'var(--np-success)' }}>
-                  {reconcileMsg}
-                </p>
-              ) : null}
-            </div>
-            <Button onClick={handleReconcile} loading={reconciling}>
-              Reconciliar ahora
-            </Button>
-          </div>
-        </Card>
+      {error ? (
+        <Notice tone="danger" action={{ label: 'Reintentar', onClick: reload }}>
+          {error}
+          {stats ? ' · se siguen enseñando los últimos datos.' : ''}
+        </Notice>
       ) : null}
 
-      {/* Split por método */}
-      <Card style={{ padding: '1.25rem' }}>
-        <h3 style={sectionTitle}>Payouts por método</h3>
-        <div style={splitGrid}>
-          {Object.entries(stats.byMethod).map(([method, count]) => (
-            <SplitTile
-              key={method}
-              label={method === 'UNSET' ? 'No configurado' : PAYOUT_METHOD_LABELS[method as keyof typeof PAYOUT_METHOD_LABELS] ?? method}
-              count={count}
+      {stats === null ? (
+        error ? null : <p style={loadingText}>Cargando treasury…</p>
+      ) : (
+        <>
+          <section style={metricsGrid}>
+            <MetricTile
+              title="Saldo pendiente a chicas"
+              value={formatEur(stats.pendingPayoutsCents)}
+              subtitle={`${stats.pendingOperatorCount} chica${stats.pendingOperatorCount === 1 ? '' : 's'}`}
+              highlight
             />
-          ))}
-          {Object.keys(stats.byMethod).length === 0 ? (
-            <p style={{ color: 'var(--np-text-dim)', fontSize: '0.85rem', margin: 0 }}>
-              Sin payouts todavía.
-            </p>
-          ) : null}
-        </div>
-      </Card>
+            <MetricTile
+              title="Pagos este mes"
+              value={String(stats.payoutsThisMonthCount)}
+              subtitle={formatEur(stats.payoutsThisMonthCents)}
+            />
+            <MetricTile
+              title={liveRate?.degraded ? 'EUR → USDT (aproximada)' : 'EUR → USDT (Binance)'}
+              value={liveRate ? formatDecimal(liveRate.rate, 4) : '—'}
+              unit={liveRate ? 'USDT' : undefined}
+              subtitle={
+                rate === 'unavailable'
+                  ? 'Tasa no disponible ahora'
+                  : liveRate
+                    ? liveRate.degraded
+                      ? 'Binance no responde: último valor bueno o de reserva'
+                      : `Actualizado ${formatDateTime(liveRate.at, tz, 'time')}`
+                    : ''
+              }
+            />
+            <MetricTile
+              title="USDT necesarios (pendiente)"
+              value={liveRate ? formatDecimal((stats.pendingPayoutsCents / 100) * liveRate.rate, 2) : '—'}
+              unit={liveRate ? 'USDT' : undefined}
+              subtitle={liveRate ? 'Para liquidar todos los pendientes' : 'Sin tasa no se calcula'}
+            />
+          </section>
 
-      {/* Split por reconciliationStatus */}
-      <Card style={{ padding: '1.25rem' }}>
-        <h3 style={sectionTitle}>Estado de reconciliación</h3>
-        <div style={splitGrid}>
-          {Object.entries(stats.byReconciliationStatus).map(([status, count]) => (
-            <SplitTile key={status} label={status} count={count} variant={statusVariant(status)} />
-          ))}
-        </div>
-      </Card>
+          {isOwner ? (
+            <Card style={{ padding: '1.25rem' }}>
+              <div style={reconcileRow}>
+                <div>
+                  <h3 style={sectionTitle}>Reconciliación on-chain</h3>
+                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--np-text-mute)' }}>
+                    Recorre los pagos sin verificar con hash on-chain y reintenta contra Tronscan / BscScan /
+                    Polygonscan / Solscan.
+                  </p>
+                  {reconcileResult ? (
+                    <p
+                      role={reconcileResult.ok ? 'status' : 'alert'}
+                      style={{
+                        margin: '0.5rem 0 0',
+                        fontSize: '0.85rem',
+                        color: reconcileResult.ok ? 'var(--np-success)' : 'var(--np-danger)',
+                      }}
+                    >
+                      {reconcileResult.text}
+                    </p>
+                  ) : null}
+                </div>
+                <Button onClick={handleReconcile} loading={reconciling}>
+                  Reconciliar ahora
+                </Button>
+              </div>
+            </Card>
+          ) : null}
+
+          <Card style={{ padding: '1.25rem' }}>
+            <h3 style={sectionTitle}>Payouts por método</h3>
+            <div style={splitGrid}>
+              {Object.entries(stats.byMethod).map(([method, count]) => (
+                <SplitTile
+                  key={method}
+                  label={
+                    method === 'UNSET'
+                      ? 'No configurado'
+                      : (PAYOUT_METHOD_LABELS[method as keyof typeof PAYOUT_METHOD_LABELS] ?? method)
+                  }
+                  count={count}
+                />
+              ))}
+              {Object.keys(stats.byMethod).length === 0 ? (
+                <p style={{ color: 'var(--np-text-dim)', fontSize: '0.85rem', margin: 0 }}>Sin payouts todavía.</p>
+              ) : null}
+            </div>
+          </Card>
+
+          <Card style={{ padding: '1.25rem' }}>
+            <h3 style={sectionTitle}>Estado de reconciliación</h3>
+            <div style={splitGrid}>
+              {Object.entries(stats.byReconciliationStatus).map(([status, count]) => (
+                <SplitTile key={status} label={reconciliationLabel(status)} count={count} variant={statusVariant(status)} />
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
     </div>
   );
+}
+
+function reconciliationLabel(status: string): string {
+  return RECONCILIATION_LABELS[status as ReconciliationStatus]?.label ?? status;
 }
 
 function MetricTile({
@@ -191,21 +220,31 @@ function MetricTile({
   );
 }
 
-function SplitTile({ label, count, variant }: { label: string; count: number; variant?: 'success' | 'warning' | 'danger' | 'neutral' }) {
+function SplitTile({
+  label,
+  count,
+  variant,
+}: {
+  label: string;
+  count: number;
+  variant?: 'success' | 'warning' | 'danger' | 'neutral';
+}) {
   const colors: Record<string, string> = {
     success: 'var(--np-success)',
-    warning: 'var(--np-warning, #f59e0b)',
+    warning: 'var(--np-warning)',
     danger: 'var(--np-danger)',
     neutral: 'var(--np-text)',
   };
   const color = colors[variant ?? 'neutral'];
   return (
-    <div style={{
-      border: '1px solid var(--np-border)',
-      borderRadius: 'var(--np-r-md)',
-      padding: '0.75rem 1rem',
-      minWidth: 0,
-    }}>
+    <div
+      style={{
+        border: '1px solid var(--np-border)',
+        borderRadius: 'var(--np-r-md)',
+        padding: '0.75rem 1rem',
+        minWidth: 0,
+      }}
+    >
       <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>{label}</p>
       <p className="np-num" style={{ margin: '0.25rem 0 0', fontSize: '1.5rem', fontWeight: 600, color }}>
         {count}
@@ -221,11 +260,6 @@ function statusVariant(status: string): 'success' | 'warning' | 'danger' | 'neut
   return 'neutral';
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-}
-
 const metricsGrid: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(13rem, 1fr))',
@@ -237,6 +271,14 @@ const splitGrid: CSSProperties = {
   gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))',
   gap: '0.75rem',
   marginTop: '0.75rem',
+};
+
+const reconcileRow: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  flexWrap: 'wrap',
+  gap: '1rem',
 };
 
 const metricLabel: CSSProperties = {
