@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { PeanpeAdapter } from './peanpe.adapter';
+import { PeanpeAdapter, peanpeCantidad } from './peanpe.adapter';
 
 const API_KEY_HEX = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
 const ACCOUNT_ID = '91816';
@@ -32,7 +32,6 @@ function makeAdapter(prismaOverrides: Record<string, unknown> = {}) {
     },
     ...prismaOverrides,
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { adapter: new PeanpeAdapter(config as any, metrics as any, prisma as any), prisma };
 }
 
@@ -50,10 +49,8 @@ describe('PeanpeAdapter.authorize', () => {
     expect(res.provider).toBe('PEANPE');
     expect(res.providerTxId).toMatch(/^[A-Z0-9]{6}$/);
     expect(res.status).toBe('PROCESSING');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((prisma as any).peanpeCall.create).toHaveBeenCalledOnce();
     const callArgs =
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ((prisma as any).peanpeCall.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.data.paymentId).toBe('payment-uuid-1');
     expect(callArgs.data.amountCents).toBe(5000);
@@ -83,7 +80,6 @@ describe('PeanpeAdapter.authorize', () => {
     const config = { get: vi.fn().mockReturnValue(undefined), getOrThrow: vi.fn() };
     const metrics = { gatewayDuration: { observe: vi.fn() }, circuitState: { set: vi.fn() } };
     const prisma = { peanpeCall: { findUnique: vi.fn(), create: vi.fn() } };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const adapter = new PeanpeAdapter(config as any, metrics as any, prisma as any);
     await expect(
       adapter.authorize({
@@ -131,7 +127,6 @@ describe('PeanpeAdapter.authorize', () => {
         update: vi.fn(),
       },
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const adapter = new PeanpeAdapter(config as any, metrics as any, prisma as any);
     const res = await adapter.authorize({
       tenantId: 'v', paymentId: 'p', amountCents: 100_000,
@@ -281,7 +276,7 @@ describe('PeanpeAdapter.mapWebhookToFsmEvent', () => {
     }
   });
 
-  it('FAILED cuando status != 200', () => {
+  it('status != 200 → null: una denegación no cierra el cobro (el cliente puede reintentar)', () => {
     const { adapter } = makeAdapter();
     const evt = adapter.mapWebhookToFsmEvent({
       identificador_llamada: 'ABC123',
@@ -289,10 +284,12 @@ describe('PeanpeAdapter.mapWebhookToFsmEvent', () => {
       msg: 'Card Error',
       _paymentId: 'payment-uuid-1',
     });
-    expect(evt!.event.type).toBe('FAILED');
-    if (evt!.event.type === 'FAILED') {
-      expect(evt!.event.reason).toMatch(/101/);
-    }
+    expect(evt).toBeNull();
+  });
+
+  it('sin identificador_llamada → null (nunca un pedido vacío)', () => {
+    const { adapter } = makeAdapter();
+    expect(adapter.mapWebhookToFsmEvent({ status: '200', _paymentId: 'payment-uuid-1' })).toBeNull();
   });
 
   it('null sin _paymentId resuelto', () => {
@@ -316,7 +313,6 @@ describe('PeanpeAdapter — helpers para webhook controller', () => {
     });
     const token = await adapter.getSecurityTokenForCall('ABC123');
     expect(token).toBe('9876543210');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((prisma as any).peanpeCall.findUnique).toHaveBeenCalledWith({
       where: { identificadorLlamada: 'ABC123' },
       select: { securityToken: true },
@@ -352,5 +348,67 @@ describe('PeanpeAdapter — helpers para webhook controller', () => {
       seguridad: '0000000000',
     });
     expect(fail).toBeNull();
+  });
+});
+
+describe('PeanpeAdapter.proveApproval — el aviso de Peanpe no prueba nada (#1)', () => {
+  it('siempre unverifiable: el cobro nunca se da por pagado solo con el aviso', async () => {
+    const { adapter } = makeAdapter();
+    expect(
+      await adapter.proveApproval({
+        paymentId: 'payment-uuid-1',
+        providerTxId: 'ABC123',
+        payload: { identificador_llamada: 'ABC123', status: '200', seguridad: '1234567890' },
+      }),
+    ).toEqual({ kind: 'unverifiable', reason: 'peanpe-sin-consulta' });
+  });
+});
+
+describe('Peanpe en euros enteros (#55)', () => {
+  function eurosAdapter() {
+    const config = {
+      get: vi.fn().mockImplementation((key: string) => {
+        if (key === 'GATEWAY_TIMEOUT_MS') return 5000;
+        if (key === 'PEANPE_API_KEY') return API_KEY_HEX;
+        if (key === 'PEANPE_ACCOUNT_ID') return ACCOUNT_ID;
+        if (key === 'PEANPE_API_BASE_URL') return 'http://test.peanpe.com';
+        if (key === 'PEANPE_AMOUNT_FORMAT_VERIFIED') return 'euros';
+        return undefined;
+      }),
+      getOrThrow: vi.fn().mockImplementation((key: string) => {
+        if (key === 'PEANPE_API_KEY') return API_KEY_HEX;
+        if (key === 'PEANPE_ACCOUNT_ID') return ACCOUNT_ID;
+        throw new Error(`unknown config key: ${key}`);
+      }),
+    };
+    const metrics = { gatewayDuration: { observe: vi.fn() }, circuitState: { set: vi.fn() } };
+    const prisma = { peanpeCall: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() } };
+    return { adapter: new PeanpeAdapter(config as any, metrics as any, prisma as any), prisma };
+  }
+
+  it('peanpeCantidad: céntimos tal cual; euros enteros divididos; con céntimos → error claro', () => {
+    expect(peanpeCantidad(1250, 'cents')).toBe('1250');
+    expect(peanpeCantidad(1200, 'euros')).toBe('12');
+    expect(() => peanpeCantidad(1250, 'euros')).toThrow(/no puede cobrar 12,50 €/);
+  });
+
+  it('12,50 € en modo euros: no se redondea a 13 € — se rechaza antes de crear nada', async () => {
+    const { adapter, prisma } = eurosAdapter();
+    await expect(
+      adapter.authorize({
+        tenantId: 'v', paymentId: 'p', amountCents: 1250,
+        currency: 'EUR', terminalExternalId: '', reference: 'p',
+      }),
+    ).rejects.toThrow(/peanpe-solo-euros-enteros/);
+    expect(prisma.peanpeCall.create).not.toHaveBeenCalled();
+    expect(() =>
+      adapter.buildPaymentUrl({ identificadorLlamada: 'ABC123', amountCents: 1250, concepto: 'x' }),
+    ).toThrow(/euros enteros/);
+  });
+
+  it('importe en euros enteros: cantidad sin céntimos', () => {
+    const { adapter } = eurosAdapter();
+    const url = adapter.buildPaymentUrl({ identificadorLlamada: 'ABC123', amountCents: 1200, concepto: 'x' });
+    expect(new URL(url).searchParams.get('cantidad')).toBe('12');
   });
 });

@@ -17,7 +17,9 @@ import {
   walletOpenBalanceIncident,
   bankMismatchIncident,
   backupIncidents,
+  paymentAnomalyIncident,
   type BankItemRow,
+  type PaymentAnomalyRow,
   type WalletBalanceRow,
   stuckIncident,
   walletCreditSkippedIncident,
@@ -74,6 +76,7 @@ export class IncidentsService {
       walletsToClose,
       walletsLeftOpen,
       bankItems,
+      anomalies,
     ] = await Promise.all([
       this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt"
@@ -226,6 +229,24 @@ export class IncidentsService {
          ORDER BY COALESCE(i."occurredAt", i."createdAt") DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
+      // Avisos de cobro aprobado que no se dieron por buenos (webhook-ingest).
+      // "Sin comprobar" se quita sola cuando el cobro se resuelve.
+      this.prisma.$queryRaw<PaymentAnomalyRow[]>`
+        SELECT e.id::text AS id, e."eventType", e."paymentId",
+               (p."amountCents" + p."tipCents")::int AS "amountCents", e."occurredAt", e.payload
+          FROM payment_events e
+          JOIN payments p ON p.id = e."paymentId"
+         WHERE e."tenantId" = ${tenantId}::uuid
+           AND e."eventType" IN ('payment.approval_unverified', 'payment.amount_mismatch', 'payment.approval_unbooked')
+           AND e."occurredAt" >= ${since}
+           AND (e."eventType" <> 'payment.approval_unverified' OR p.status::text IN ('AUTHORIZING', 'ORPHAN'))
+           AND NOT EXISTS (SELECT 1 FROM incident_acks k
+                            WHERE k."tenantId" = e."tenantId"
+                              AND k.kind IN ('amount_mismatch', 'approval_unbooked')
+                              AND k."refId" = e.id::text)
+         ORDER BY e."occurredAt" DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `,
     ]);
 
     const all: Incident[] = [
@@ -242,6 +263,8 @@ export class IncidentsService {
       ...walletsLeftOpen.map(walletOpenBalanceIncident),
       // La misma diferencia repetida (dos subidas a la vez) sale una vez.
       ...uniqueBy(bankItems.map(bankMismatchIncident), (i) => i.refId),
+      // "Sin comprobar" va por cobro: varios avisos del mismo cobro, uno solo.
+      ...uniqueBy(anomalies.map(paymentAnomalyIncident), (i) => `${i.kind}:${i.refId}`),
       ...(this.backups
         ? backupIncidents(await this.backups.verdict(now), now, process.env.NODE_ENV === 'production')
         : []),

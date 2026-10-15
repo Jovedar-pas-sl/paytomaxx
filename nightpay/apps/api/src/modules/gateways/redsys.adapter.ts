@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createCipheriv, createHmac, timingSafeEqual } from 'node:crypto';
 import type CircuitBreaker from 'opossum';
 import {
   createRedsysAPI,
@@ -17,7 +18,7 @@ import type {
   RefundResult,
   WebhookVerifyResult,
 } from '@nightpay/contracts';
-import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
+import type { ApprovalClaim, ApprovalProof, GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, timedFire } from './circuit-breaker';
 import { parseFormUrlEncoded, parseWebhookBody } from './header-utils';
 import { MetricsService } from '../metrics/metrics.service';
@@ -130,7 +131,6 @@ export class RedsysAdapter implements GatewayAdapter {
 
   // ─── implementaciones tras el circuit breaker ─────────────────────
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   private async doAuthorize(input: AuthorizeInput): Promise<AuthorizeResult> {
     const creds = this.requireCreds();
     const api = this.getApi();
@@ -221,7 +221,6 @@ export class RedsysAdapter implements GatewayAdapter {
           DS_MERCHANT_COF_TYPE: 'Z',
         }
       : {};
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const form = api.createRedirectForm({ ...baseParams, ...tokenParams } as any);
 
     this.logger.log(
@@ -246,7 +245,10 @@ export class RedsysAdapter implements GatewayAdapter {
    *
    * Returns:
    *  - 'AUTHORIZED' si Ds_Response 0000-0099
-   *  - 'FAILED' si Ds_Response >= 100 (denegación/error)
+   *  - 'FAILED' si Ds_Response >= 100: denegado AHORA. No es definitivo —
+   *    Redsys deja reintentar en su página con el mismo pedido — y solo
+   *    habla de ESE pedido: la conciliación nunca da un cobro por fallido
+   *    con esto (lo deja ORPHAN para resolver a mano).
    *  - 'UNKNOWN' en cualquier otro caso (sin respuesta, red caída, etc.)
    *    → el caller (orphan-reconcile) reintentará más tarde.
    */
@@ -286,7 +288,6 @@ export class RedsysAdapter implements GatewayAdapter {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   private async doRefund(_input: RefundInput): Promise<RefundResult> {
     throw new Error(
       'Redsys refund vía API no implementado. Refundea manualmente desde el panel del banco.',
@@ -332,21 +333,22 @@ export class RedsysAdapter implements GatewayAdapter {
     }
 
     try {
-      const api = this.getApi();
-      // processRestNotification valida la firma + decodifica los params.
-      // Si la firma es incorrecta, throw → caemos al catch.
-      const parsed = api.processRestNotification({
+      // Firma comprobada en tiempo constante y después decodificada.
+      const parsed = this.decodeSigned({
         Ds_SignatureVersion: dsSigVer,
         Ds_MerchantParameters: dsParams,
         Ds_Signature: dsSig,
       });
+      if (!parsed) return { valid: false, reason: 'signature-mismatch' };
 
       // Defensa: el MerchantCode del callback debe coincidir con el nuestro.
-      if (parsed.Ds_MerchantCode && parsed.Ds_MerchantCode !== creds.merchantCode) {
+      const merchantCode = str(parsed.Ds_MerchantCode);
+      if (merchantCode && merchantCode !== creds.merchantCode) {
         return { valid: false, reason: 'merchant-code-mismatch' };
       }
 
-      if (!parsed.Ds_Order) {
+      const order = str(parsed.Ds_Order);
+      if (!order) {
         return { valid: false, reason: 'missing-ds-order' };
       }
 
@@ -356,14 +358,12 @@ export class RedsysAdapter implements GatewayAdapter {
       // firma siga siendo válida.
       // Ventana 30 min: cubre delay de reintentos legítimos de Redsys + skew
       // de reloj. Demasiado corta = rechazaríamos webhooks lentos.
-      const replayCheck = checkRedsysReplayWindow(
-        (parsed.Ds_Date ?? '') as string,
-        (parsed.Ds_Hour ?? '') as string,
-        30 * 60 * 1000,
-      );
+      const dsDate = str(parsed.Ds_Date) ?? '';
+      const dsHour = str(parsed.Ds_Hour) ?? '';
+      const replayCheck = checkRedsysReplayWindow(dsDate, dsHour, 30 * 60 * 1000);
       if (!replayCheck.ok) {
         this.logger.warn(
-          `Redsys webhook fuera de ventana replay: ${replayCheck.reason} (Ds_Date=${parsed.Ds_Date ?? ''} Ds_Hour=${parsed.Ds_Hour ?? ''})`,
+          `Redsys webhook fuera de ventana replay: ${replayCheck.reason} (Ds_Date=${dsDate} Ds_Hour=${dsHour})`,
         );
         return { valid: false, reason: replayCheck.reason };
       }
@@ -372,11 +372,11 @@ export class RedsysAdapter implements GatewayAdapter {
       // página con el mismo pedido, así que un KO y el OK posterior son avisos
       // distintos y no deben deduplicarse entre sí. Reenvíos del mismo aviso
       // sí comparten id.
-      const dsResponse = String(parsed.Ds_Response ?? '').trim();
+      const dsResponse = str(parsed.Ds_Response) ?? '';
       return {
         valid: true,
-        externalEventId: `${parsed.Ds_Order}-${dsResponse}`,
-        paymentRef: parsed.Ds_Order,
+        externalEventId: `${order}-${dsResponse}`,
+        paymentRef: order,
       };
     } catch (e) {
       this.logger.warn(`Redsys webhook signature invalid: ${(e as Error).message}`);
@@ -395,16 +395,17 @@ export class RedsysAdapter implements GatewayAdapter {
     if (typeof sigVer !== 'string' || typeof params !== 'string' || typeof sig !== 'string') {
       return null;
     }
-    let parsed: Record<string, unknown>;
+    let parsed: Record<string, unknown> | null;
     try {
-      parsed = this.getApi().processRestNotification({
+      parsed = this.decodeSigned({
         Ds_SignatureVersion: sigVer,
         Ds_MerchantParameters: params,
         Ds_Signature: sig,
-      }) as unknown as Record<string, unknown>;
+      });
     } catch {
       return null;
     }
+    if (!parsed) return null;
     const order = str(parsed.Ds_Order);
     if (!order) return null;
 
@@ -421,11 +422,15 @@ export class RedsysAdapter implements GatewayAdapter {
       responseNum <= 99 &&
       transactionType === '0';
     const cardNumber = str(parsed.Ds_Card_Number);
+    const amount = str(parsed.Ds_Amount);
     return {
       order,
       response,
       transactionType,
       approved,
+      // Importe y moneda van dentro de la firma: son lo que cobró el banco.
+      amountCents: amount !== null && /^\d+$/.test(amount) ? Number(amount) : null,
+      currency: redsysCodeToCurrency(str(parsed.Ds_Currency)),
       payMethodCode: str(parsed.Ds_ProcessedPayMethod),
       cardBrand: str(parsed.Ds_Card_Brand),
       cardType: str(parsed.Ds_Card_Type),
@@ -434,6 +439,22 @@ export class RedsysAdapter implements GatewayAdapter {
       authCode: str(parsed.Ds_AuthorisationCode),
       secure3ds: str(parsed.Ds_SecurePayment) === null ? null : str(parsed.Ds_SecurePayment) === '1',
     };
+  }
+
+  /**
+   * Prueba de la aprobación: el propio aviso, firmado por el banco con la
+   * clave del comercio (se vuelve a comprobar la firma aquí). Importe y moneda
+   * salen de la parte firmada; Ds_Order tiene que ser el pedido del aviso.
+   */
+  proveApproval(claim: ApprovalClaim): Promise<ApprovalProof> {
+    const n = this.parseNotification(claim.payload);
+    if (!n) return Promise.resolve({ kind: 'rejected', reason: 'aviso-sin-firma-valida' });
+    if (n.order !== claim.providerTxId) {
+      return Promise.resolve({ kind: 'rejected', reason: 'pedido-distinto' });
+    }
+    if (!n.approved) return Promise.resolve({ kind: 'rejected', reason: 'no-aprobado' });
+    if (n.amountCents === null) return Promise.resolve({ kind: 'rejected', reason: 'aviso-sin-importe' });
+    return Promise.resolve({ kind: 'confirmed', amountCents: n.amountCents, currency: n.currency });
   }
 
   mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
@@ -490,17 +511,17 @@ export class RedsysAdapter implements GatewayAdapter {
     if (!parsedRaw.Ds_MerchantParameters || !parsedRaw.Ds_SignatureVersion || !parsedRaw.Ds_Signature) {
       return null;
     }
-    let parsed: Record<string, unknown>;
+    let parsed: Record<string, unknown> | null;
     try {
-      const api = this.getApi();
-      parsed = api.processRestNotification({
+      parsed = this.decodeSigned({
         Ds_SignatureVersion: parsedRaw.Ds_SignatureVersion,
         Ds_MerchantParameters: parsedRaw.Ds_MerchantParameters,
         Ds_Signature: parsedRaw.Ds_Signature,
-      }) as unknown as Record<string, unknown>;
+      });
     } catch {
       return null;
     }
+    if (!parsed) return null;
 
     const identifier =
       typeof parsed.Ds_Merchant_Identifier === 'string'
@@ -539,6 +560,25 @@ export class RedsysAdapter implements GatewayAdapter {
   }
 
   // ─── helpers ─────────────────────────────────────────────────────
+
+  /**
+   * Comprueba la firma de un aviso en tiempo constante y, si vale, lo
+   * decodifica con redsys-easy (que la vuelve a comparar, pero ya solo con
+   * firmas buenas: su comparación no es de tiempo constante). null = firma
+   * mala. Lanza si faltan las credenciales.
+   */
+  private decodeSigned(fields: {
+    Ds_SignatureVersion: string;
+    Ds_MerchantParameters: string;
+    Ds_Signature: string;
+  }): Record<string, unknown> | null {
+    if (fields.Ds_SignatureVersion !== 'HMAC_SHA256_V1') return null;
+    const { secretKey } = this.requireCreds();
+    if (!redsysSignatureMatches(secretKey, fields.Ds_MerchantParameters, fields.Ds_Signature)) {
+      return null;
+    }
+    return this.getApi().processRestNotification(fields) as unknown as Record<string, unknown>;
+  }
 
   /**
    * Lazy-construye el cliente redsys-easy con las URLs adecuadas (sandbox
@@ -612,6 +652,59 @@ export function currencyToRedsysCode(
     JPY: '392',
   };
   return map[currency.toUpperCase()] ?? '978';
+}
+
+/**
+ * Código numérico de Redsys (Ds_Currency) → ISO-4217. Un código que no
+ * conocemos se devuelve tal cual: no coincidirá con la moneda del cobro y el
+ * aviso no se dará por bueno. null si el aviso no trae moneda.
+ */
+export function redsysCodeToCurrency(code: string | null): string | null {
+  if (code === null) return null;
+  const map: Record<string, string> = { '978': 'EUR', '840': 'USD', '826': 'GBP', '392': 'JPY' };
+  return map[code] ?? code;
+}
+
+/**
+ * Firma HMAC_SHA256_V1 de Redsys comprobada en tiempo constante (la de
+ * redsys-easy compara con Buffer.equals). Clave = 3DES(clave del comercio,
+ * Ds_Order); firma = HMAC-SHA256(Ds_MerchantParameters tal cual llega).
+ * Acepta la firma en base64 o base64url (Redsys usa la segunda).
+ */
+export function redsysSignatureMatches(
+  secretKey: string,
+  merchantParams: string,
+  signature: string,
+): boolean {
+  let order: unknown;
+  try {
+    const params = JSON.parse(Buffer.from(merchantParams, 'base64').toString('utf8')) as Record<string, unknown>;
+    order = params.Ds_Order ?? params.DS_ORDER;
+  } catch {
+    return false;
+  }
+  if (typeof order !== 'string' || order === '') return false;
+  let expected: Buffer;
+  try {
+    expected = Buffer.from(redsysSign(secretKey, order, merchantParams), 'base64');
+  } catch {
+    return false; // clave del comercio mal formada
+  }
+  const received = Buffer.from(signature, 'base64');
+  return received.length === expected.length && timingSafeEqual(received, expected);
+}
+
+/** HMAC_SHA256_V1: lo mismo que hace redsys-easy (y el SDK oficial). */
+function redsysSign(secretKey: string, order: string, payload: string): string {
+  const message = Buffer.from(order, 'utf8');
+  const padded = Buffer.concat([message, Buffer.alloc((8 - (message.length % 8)) % 8, 0)]);
+  const cipher = createCipheriv('des-ede3-cbc', Buffer.from(secretKey, 'base64'), Buffer.alloc(8, 0));
+  cipher.setAutoPadding(false);
+  const orderKey = Buffer.concat([cipher.update(padded), cipher.final()]).subarray(
+    0,
+    Math.ceil(message.length / 8) * 8,
+  );
+  return createHmac('sha256', orderKey).update(payload).digest('base64');
 }
 
 /**
@@ -696,6 +789,10 @@ export interface RedsysNotification {
   transactionType: string;
   /** Ds_Response 0-99 y TransactionType 0 (autorización). */
   approved: boolean;
+  /** Ds_Amount (céntimos en EUR). null si el aviso no lo trae o no es un número. */
+  amountCents: number | null;
+  /** Ds_Currency en ISO-4217 (ver redsysCodeToCurrency). */
+  currency: string | null;
   payMethodCode: string | null;
   cardBrand: string | null;
   cardType: string | null;

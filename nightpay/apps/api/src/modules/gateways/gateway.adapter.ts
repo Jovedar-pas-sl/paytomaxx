@@ -19,6 +19,33 @@ export interface WebhookFsmEvent {
 }
 
 /**
+ * Un aviso que dice "cobro aprobado". Antes de dar el pago por pagado hay
+ * que probarlo con algo que el cliente no pueda falsificar.
+ */
+export interface ApprovalClaim {
+  paymentId: string;
+  /** Pedido/operación de la pasarela que dice el aviso. */
+  providerTxId: string;
+  /** El aviso tal cual se guardó en webhook_deliveries, ya parseado. */
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Prueba de la aprobación, sacada de una fuente fiable: un aviso firmado por
+ * el banco (Redsys, Cecabank) o una consulta a la API de la pasarela (Paytef).
+ *  - confirmed: aprobado por este importe. `currency` ISO 4217 (null = la
+ *    pasarela no la dice; solo se compara el importe).
+ *  - rejected: la pasarela no lo da por aprobado, o no es de este cobro.
+ *  - unverifiable: la pasarela no ofrece forma de comprobarlo (Peanpe).
+ *  - unavailable: no se pudo consultar ahora (red, 5xx): se reintenta.
+ */
+export type ApprovalProof =
+  | { kind: 'confirmed'; amountCents: number; currency: string | null }
+  | { kind: 'rejected'; reason: string }
+  | { kind: 'unverifiable'; reason: string }
+  | { kind: 'unavailable'; reason: string };
+
+/**
  * Interfaz común que toda pasarela debe implementar (ADR-005).
  * El módulo de pagos NUNCA importa clases concretas — solo esta interfaz.
  */
@@ -39,4 +66,11 @@ export interface GatewayAdapter {
 
   /** Mapea el payload del webhook a un evento FSM (o null si no aplica). */
   mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null;
+
+  /**
+   * Comprueba un aviso de cobro aprobado sin fiarse de lo que dice el aviso:
+   * firma del banco o consulta a la pasarela. El procesador de avisos solo
+   * da el pago por pagado si devuelve `confirmed` y el importe cuadra.
+   */
+  proveApproval(claim: ApprovalClaim): Promise<ApprovalProof>;
 }

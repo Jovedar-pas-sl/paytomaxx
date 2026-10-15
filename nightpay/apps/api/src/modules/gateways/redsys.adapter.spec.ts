@@ -5,6 +5,8 @@ import {
   checkRedsysReplayWindow,
   currencyToRedsysCode,
   parseFormUrlEncoded,
+  redsysCodeToCurrency,
+  redsysSignatureMatches,
 } from './redsys.adapter';
 
 // Credenciales PÚBLICAS de pruebas de Redsys (comercio de test de su doc).
@@ -33,7 +35,6 @@ function makeAdapter(opts?: { withCreds?: boolean; apiUrl?: string; merchantName
     gatewayDuration: { observe: vi.fn() },
     circuitState: { set: vi.fn() },
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new RedsysAdapter(config as any, metrics as any);
 }
 
@@ -378,6 +379,8 @@ describe('RedsysAdapter webhook — notificación firmada', () => {
     const body = parseFormUrlEncoded(
       signedNotification({
         ...OK_FIELDS,
+        Ds_Amount: '10500',
+        Ds_Currency: '978',
         Ds_TransactionType: '0',
         Ds_Card_Type: 'D',
         Ds_Card_Country: '724',
@@ -391,6 +394,8 @@ describe('RedsysAdapter webhook — notificación firmada', () => {
       response: '0000',
       transactionType: '0',
       approved: true,
+      amountCents: 10_500,
+      currency: 'EUR',
       payMethodCode: '78',
       cardBrand: '1',
       cardType: 'D',
@@ -410,6 +415,14 @@ describe('RedsysAdapter webhook — notificación firmada', () => {
     expect(adapter.parseNotification(tampered)).toBeNull();
   });
 
+  it('firma en base64url (como la manda Redsys) también vale', () => {
+    const urlSafe = signedNotification(OK_FIELDS).replace(/Ds_Signature=([^&]+)/, (_m, sig: string) => {
+      const b64 = decodeURIComponent(sig);
+      return `Ds_Signature=${encodeURIComponent(b64.replace(/\+/g, '-').replace(/\//g, '_'))}`;
+    });
+    expect(adapter.verifyWebhook({}, Buffer.from(urlSafe)).valid).toBe(true);
+  });
+
   it('extractTokenizationData lee el body form-urlencoded real', () => {
     const raw = Buffer.from(
       signedNotification({
@@ -422,5 +435,88 @@ describe('RedsysAdapter webhook — notificación firmada', () => {
     const token = adapter.extractTokenizationData(raw);
     expect(token?.identifier).toBe('tok-123456789');
     expect(token?.cardLast4).toBe('0003');
+  });
+});
+
+describe('RedsysAdapter.proveApproval — el aviso firmado es la prueba (importe incluido)', () => {
+  const adapter = makeAdapter();
+  const APPROVED = {
+    Ds_Order: 'a1b2c3d4e5f6',
+    Ds_MerchantCode: MERCHANT_CODE,
+    Ds_Response: '0000',
+    Ds_TransactionType: '0',
+    Ds_Amount: '10500',
+    Ds_Currency: '978',
+  };
+  const claim = (fields: Record<string, string>, providerTxId = 'a1b2c3d4e5f6') => ({
+    paymentId: PAYMENT_ID,
+    providerTxId,
+    payload: parseFormUrlEncoded(`${signedNotification(fields)}&_paymentId=${PAYMENT_ID}`),
+  });
+
+  it('aprobado → importe y moneda de la parte firmada', async () => {
+    expect(await adapter.proveApproval(claim(APPROVED))).toEqual({
+      kind: 'confirmed',
+      amountCents: 10_500,
+      currency: 'EUR',
+    });
+  });
+
+  it('denegado, de otro pedido, sin importe o con firma tocada → no prueba nada', async () => {
+    expect(await adapter.proveApproval(claim({ ...APPROVED, Ds_Response: '0190' }))).toMatchObject({
+      kind: 'rejected',
+      reason: 'no-aprobado',
+    });
+    expect(await adapter.proveApproval(claim(APPROVED, 'otro-pedido'))).toMatchObject({
+      kind: 'rejected',
+      reason: 'pedido-distinto',
+    });
+    const { Ds_Amount: _omit, ...noAmount } = APPROVED;
+    expect(await adapter.proveApproval(claim(noAmount))).toMatchObject({
+      kind: 'rejected',
+      reason: 'aviso-sin-importe',
+    });
+    const tampered = claim(APPROVED);
+    tampered.payload.Ds_Signature = 'AAAA';
+    expect(await adapter.proveApproval(tampered)).toMatchObject({ kind: 'rejected' });
+  });
+
+  it('el importe no se puede cambiar sin romper la firma', async () => {
+    const signed = parseFormUrlEncoded(signedNotification(APPROVED));
+    const params = JSON.parse(Buffer.from(String(signed.Ds_MerchantParameters), 'base64').toString('utf8'));
+    const forged = {
+      ...signed,
+      Ds_MerchantParameters: Buffer.from(JSON.stringify({ ...params, Ds_Amount: '1' })).toString('base64'),
+    };
+    expect(adapter.parseNotification(forged)).toBeNull();
+  });
+});
+
+describe('redsysSignatureMatches — firma en tiempo constante', () => {
+  const fields = { Ds_Order: '1234abcdefgh', Ds_MerchantCode: MERCHANT_CODE, Ds_Response: '0000' };
+  const signed = serializeAndSignJSONRequest(SECRET, { Ds_Merchant_Order: fields.Ds_Order, ...fields } as any);
+
+  it('acepta la firma que calcula redsys-easy (base64 y base64url)', () => {
+    expect(redsysSignatureMatches(SECRET, signed.Ds_MerchantParameters, signed.Ds_Signature)).toBe(true);
+    const urlSafe = signed.Ds_Signature.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    expect(redsysSignatureMatches(SECRET, signed.Ds_MerchantParameters, urlSafe)).toBe(true);
+  });
+
+  it('rechaza otra clave, otra firma, parámetros tocados o basura', () => {
+    expect(redsysSignatureMatches('Mk9m98IfEblmPfrpsawt7BmxObt98Jev', signed.Ds_MerchantParameters, signed.Ds_Signature)).toBe(false);
+    expect(redsysSignatureMatches(SECRET, signed.Ds_MerchantParameters, 'AAAA')).toBe(false);
+    const other = Buffer.from(JSON.stringify({ ...fields, Ds_Response: '0190' })).toString('base64');
+    expect(redsysSignatureMatches(SECRET, other, signed.Ds_Signature)).toBe(false);
+    expect(redsysSignatureMatches(SECRET, 'no-es-base64-json', signed.Ds_Signature)).toBe(false);
+    const noOrder = Buffer.from(JSON.stringify({ Ds_Response: '0000' })).toString('base64');
+    expect(redsysSignatureMatches(SECRET, noOrder, signed.Ds_Signature)).toBe(false);
+  });
+});
+
+describe('redsysCodeToCurrency', () => {
+  it('978 → EUR; desconocido tal cual (no cuadrará); sin moneda → null', () => {
+    expect(redsysCodeToCurrency('978')).toBe('EUR');
+    expect(redsysCodeToCurrency('999')).toBe('999');
+    expect(redsysCodeToCurrency(null)).toBeNull();
   });
 });

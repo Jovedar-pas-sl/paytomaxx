@@ -11,7 +11,7 @@ import type {
   RefundResult,
   WebhookVerifyResult,
 } from '@nightpay/contracts';
-import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
+import type { ApprovalProof, GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, timedFire } from './circuit-breaker';
 import { MetricsService } from '../metrics/metrics.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -34,13 +34,31 @@ function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
  *      (100 céntimos). Comprobar en panel Peanpe el importe registrado.
  *   2. Si registra "1.00 EUR" → formato correcto, set env
  *      `PEANPE_AMOUNT_FORMAT_VERIFIED=cents`.
- *   3. Si registra "100.00 EUR" → cantidad espera euros; cambiar
- *      buildPaymentUrl() para enviar `Math.round(amountCents/100)` y set
- *      `PEANPE_AMOUNT_FORMAT_VERIFIED=euros`.
+ *   3. Si registra "100.00 EUR" → cantidad espera euros: set
+ *      `PEANPE_AMOUNT_FORMAT_VERIFIED=euros` (se envían euros enteros y los
+ *      cobros con céntimos se rechazan: ver peanpeCantidad).
  *   4. El guard se desactiva cuando `PEANPE_AMOUNT_FORMAT_VERIFIED` está set
  *      a `cents` o `euros`.
  */
 const PEANPE_SAFETY_MAX_UNVERIFIED_CENTS = 50_000;
+
+/**
+ * `cantidad` que se manda a Peanpe. En euros la doc pide "número entero sin
+ * puntos ni comas": un importe con céntimos (12,50 €) NO se redondea — se
+ * rechaza con un mensaje claro (antes se cobraban 13 € sin avisar).
+ */
+export function peanpeCantidad(amountCents: number, format: 'cents' | 'euros'): string {
+  if (format === 'cents') return String(amountCents);
+  if (amountCents % 100 !== 0) {
+    const euros = (amountCents / 100).toFixed(2).replace('.', ',');
+    throw new Error(
+      `peanpe-solo-euros-enteros: Peanpe está configurado en euros enteros ` +
+        `(PEANPE_AMOUNT_FORMAT_VERIFIED=euros) y no puede cobrar ${euros} €. ` +
+        `Cobra un importe sin céntimos o usa otra pasarela.`,
+    );
+  }
+  return String(amountCents / 100);
+}
 
 /**
  * Peanpe API v2.0 adapter — implementado según doc oficial (Vers: 2.0).
@@ -59,15 +77,23 @@ const PEANPE_SAFETY_MAX_UNVERIFIED_CENTS = 50_000;
  *         responde con `securityToken` (10 dígitos, texto plano).
  *      b) GET /v1/webhooks/peanpe/notify con status, msg, identificador_llamada,
  *         debug, accion, seguridad → NightPay valida seguridad === securityToken
- *         + dispara FSM transition.
+ *         y apunta el resultado (sin marcar el cobro pagado: ver abajo).
  *
  * Limitaciones documentadas:
  *  - identificador_llamada max 6 chars (tabla mapping resuelve el problema con
  *    nuestros UUIDs).
  *  - No hay endpoint refund por API — refund manual desde panel peanpe.com.
  *  - No hay endpoint status — orphan-reconcile no puede consultar Peanpe.
+ *  - El aviso de resultado NO prueba nada: el identificador_llamada va en la
+ *    URL que ve el cliente, y el reto (POST) devuelve el securityToken a
+ *    quien lo pida. Cualquiera puede mandar "status=200". Por eso un aviso
+ *    "pagado" de Peanpe nunca marca el cobro como pagado: queda apuntado,
+ *    sale en Incidencias y el dueño lo comprueba en el panel de Peanpe y lo
+ *    resuelve a mano (proveApproval → unverifiable).
  *  - HTTP en URL base (riesgo MITM; mitigación: la firma HMAC protege la
- *    integridad de los parámetros aunque la URL viaje en HTTP).
+ *    integridad de los parámetros aunque la URL viaje en HTTP). La base es
+ *    configurable (PEANPE_API_BASE_URL); no se fuerza https porque no está
+ *    comprobado que el API de Peanpe responda igual por https.
  */
 @Injectable()
 export class PeanpeAdapter implements GatewayAdapter {
@@ -116,6 +142,9 @@ export class PeanpeAdapter implements GatewayAdapter {
   }
 
   async authorize(input: AuthorizeInput): Promise<AuthorizeResult> {
+    // Antes del circuit breaker: un importe que Peanpe no admite es un error
+    // del cobro, no de la pasarela (no debe contar para abrir el breaker).
+    peanpeCantidad(input.amountCents, this.amountFormat());
     return timedFire(
       () => this.authorizeBreaker.fire(input),
       (dur, outcome) =>
@@ -307,26 +336,33 @@ export class PeanpeAdapter implements GatewayAdapter {
     // El controller habrá hecho el lookup paymentRef → paymentId y lo añade
     // como _paymentId al payload antes de llamar mapWebhookToFsmEvent.
     const paymentId = p._paymentId;
-    if (!paymentId) return null;
+    const idLlamada = p.identificador_llamada ?? '';
+    if (!paymentId || !idLlamada) return null;
 
-    // Status "200" → AUTHORIZED. Cualquier otro → FAILED.
+    // Status "200" = el aviso DICE que está pagado. Es solo eso: el
+    // procesador pide la prueba (proveApproval) y, como Peanpe no la puede
+    // dar, no lo marca pagado — lo deja en Incidencias para comprobarlo.
     if (p.status === '200' || p.status === 200) {
       return {
         paymentId,
-        event: {
-          type: 'AUTHORIZED',
-          providerTxId: p.identificador_llamada ?? '',
-          provider: 'PEANPE',
-        },
+        event: { type: 'AUTHORIZED', providerTxId: idLlamada, provider: 'PEANPE' },
       };
     }
-    return {
-      paymentId,
-      event: {
-        type: 'FAILED',
-        reason: `peanpe_${p.status}_${p.msg ?? 'unknown'}`.slice(0, 100),
-      },
-    };
+    // Denegación: NO se marca FAILED. El cliente puede reintentar en la
+    // página de Peanpe, y este aviso lo puede mandar cualquiera. El
+    // resultado queda guardado en peanpe_calls (persistCallbackResult).
+    this.logger.log(`Peanpe aviso no pagado: id_llamada=${idLlamada} status=${String(p.status)}`);
+    return null;
+  }
+
+  /**
+   * Peanpe no tiene API para consultar un cobro y su aviso no va firmado
+   * (ver cabecera): no hay forma de probar que se pagó. Nunca se da por
+   * pagado solo; el dueño lo comprueba en el panel y lo resuelve a mano. Si
+   * Peanpe ofrece algún día consulta de estado, se usa aquí.
+   */
+  proveApproval(): Promise<ApprovalProof> {
+    return Promise.resolve({ kind: 'unverifiable', reason: 'peanpe-sin-consulta' });
   }
 
   // ─── Helpers públicos para webhook controller + endpoint redirect ─
@@ -350,20 +386,17 @@ export class PeanpeAdapter implements GatewayAdapter {
   }): string {
     const apiKey = this.config.getOrThrow<string>('PEANPE_API_KEY');
     const accountId = this.config.getOrThrow<string>('PEANPE_ACCOUNT_ID');
+    // Base configurable; por defecto http (la doc de Peanpe da http y no está
+    // comprobado que su API funcione igual por https).
     const base = this.config.get<string>('PEANPE_API_BASE_URL') ?? 'http://peanpe.com';
 
     // H1: la doc oficial Peanpe NO especifica si `cantidad` es céntimos o
     // euros. Default céntimos (más común en PSPs ES). Si el usuario verifica
-    // empíricamente que Peanpe espera euros, set PEANPE_AMOUNT_FORMAT_VERIFIED=euros
-    // y el adapter divide por 100 (entero, sin decimales — la doc dice
-    // "número entero sin puntos ni comas").
-    const envFormat = this.config.get<string>('PEANPE_AMOUNT_FORMAT_VERIFIED');
-    const format: 'cents' | 'euros' =
-      input.formatOverride ?? (envFormat === 'euros' ? 'euros' : 'cents');
-    const cantidad =
-      format === 'euros'
-        ? String(Math.round(input.amountCents / 100))
-        : String(input.amountCents);
+    // empíricamente que Peanpe espera euros, set PEANPE_AMOUNT_FORMAT_VERIFIED=euros:
+    // se mandan euros enteros (la doc dice "número entero sin puntos ni
+    // comas") y un importe con céntimos se rechaza en vez de redondearlo.
+    const format = input.formatOverride ?? this.amountFormat();
+    const cantidad = peanpeCantidad(input.amountCents, format);
 
     // Firma según doc: concat(id_llamada, account, cantidad) firmado con
     // HMAC-SHA256, donde la apikey es HEX y debe convertirse a bytes raw.
@@ -399,7 +432,8 @@ export class PeanpeAdapter implements GatewayAdapter {
   /**
    * Resolución id_llamada → paymentId para el webhook GET de resultado.
    * También valida que el `seguridad` recibido coincida con el securityToken
-   * persistido (anti-spoof).
+   * persistido. Ojo: eso NO autentica a Peanpe (el reto entrega el token a
+   * quien lo pida); solo filtra avisos con un id_llamada inventado.
    */
   async resolvePaymentFromCallback(input: {
     identificadorLlamada: string;
@@ -427,6 +461,11 @@ export class PeanpeAdapter implements GatewayAdapter {
       return null;
     }
     return { paymentId: call.paymentId, tenantId: call.tenantId };
+  }
+
+  /** Formato de `cantidad` verificado en el entorno (céntimos por defecto). */
+  private amountFormat(): 'cents' | 'euros' {
+    return this.config.get<string>('PEANPE_AMOUNT_FORMAT_VERIFIED') === 'euros' ? 'euros' : 'cents';
   }
 
   /** Persiste el resultado del callback (idempotente). */

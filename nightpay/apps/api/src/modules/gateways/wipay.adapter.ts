@@ -10,7 +10,7 @@ import type {
   RefundResult,
   WebhookVerifyResult,
 } from '@nightpay/contracts';
-import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
+import type { ApprovalClaim, ApprovalProof, GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, timedFire } from './circuit-breaker';
 import { MetricsService } from '../metrics/metrics.service';
 
@@ -140,7 +140,6 @@ export class WipayAdapter implements GatewayAdapter {
    * authorize() en Cecabank no hace HTTP — genera los campos firmados
    * del formulario que el navegador del cliente debe enviar por POST.
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
   private async doAuthorize(input: AuthorizeInput): Promise<AuthorizeResult> {
     const creds = this.requireCreds();
     const numOp = numOperacionFromPaymentId(input.paymentId);
@@ -207,7 +206,6 @@ export class WipayAdapter implements GatewayAdapter {
    * usar en flujo normal (webhook entrega el estado). Implementación
    * mínima: devuelve UNKNOWN si no hay datos persistidos.
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
   private async doGetStatus(_tenantId: string, _providerTxId: string): Promise<GatewayStatus> {
     // TODO: implementar consulta vía /webapp/ConsTpvVirtWeb/ConsTpvVirtS si
     //   se necesita para reconciliación. Por ahora la fuente de verdad
@@ -220,7 +218,6 @@ export class WipayAdapter implements GatewayAdapter {
    * apuntando a la operación original. Fuera de scope del sprint inicial —
    * los refunds se hacen desde el panel de Cecabank manualmente.
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
   private async doRefund(_input: RefundInput): Promise<RefundResult> {
     throw new Error(
       'Cecabank refund vía API no implementado en este sprint. Refundea manualmente desde https://comercios.ceca.es',
@@ -271,34 +268,17 @@ export class WipayAdapter implements GatewayAdapter {
       return { valid: false, reason: 'merchant-id-mismatch' };
     }
 
-    const expected = signWebhook({
-      claveEncriptacion: creds.claveEncriptacion,
-      merchantId: parsed.MerchantID,
-      acquirerBin: parsed.AcquirerBIN ?? '',
-      terminalId: parsed.TerminalID ?? '',
-      numOperacion: parsed.Num_operacion,
-      importe: parsed.Importe ?? '',
-      tipoMoneda: parsed.TipoMoneda ?? '',
-      exponente: parsed.Exponente ?? '',
-      referencia: parsed.Referencia ?? '',
-    });
-
-    let valid = false;
-    try {
-      const a = Buffer.from(parsed.Firma, 'hex');
-      const b = Buffer.from(expected, 'hex');
-      valid = a.length === b.length && timingSafeEqual(a, b);
-    } catch {
-      return { valid: false, reason: 'invalid-signature-encoding' };
-    }
-    if (!valid) return { valid: false, reason: 'signature-mismatch' };
+    const signature = checkWebhookSignature(parsed, creds.claveEncriptacion);
+    if (signature === 'invalid-encoding') return { valid: false, reason: 'invalid-signature-encoding' };
+    if (signature === 'mismatch') return { valid: false, reason: 'signature-mismatch' };
 
     return {
       valid: true,
-      // externalEventId = Num_operacion = nuestro Payment.id (formato corto).
-      // Idempotency: si Cecabank reenvía el mismo webhook 2 veces, el unique
-      // (provider, externalEventId) lo deduplica.
-      externalEventId: parsed.Num_operacion,
+      // externalEventId = Num_operacion (nuestro Payment.id en formato corto)
+      // + lo que dice el aviso: Cecabank deja reintentar con la misma
+      // operación, así que una denegación y el OK posterior son avisos
+      // distintos. Reenvíos del mismo aviso sí se deduplican.
+      externalEventId: `${parsed.Num_operacion}-${wipayOutcome(parsed)}`,
       paymentRef: parsed.Num_operacion,
     };
   }
@@ -308,27 +288,54 @@ export class WipayAdapter implements GatewayAdapter {
     if (!p.Num_operacion) return null;
 
     const paymentId = paymentIdFromNumOperacion(p.Num_operacion);
-
-    // En operaciones OK Cecabank envía Num_aut (autorización de la entidad
-    // emisora). Si está set y no es un código de error → AUTHORIZED.
-    // Códigos de error >= 100 (ej 190, 400) vienen en COD_AUT.
-    const codAut = (p.COD_AUT ?? '').trim();
-    const numAut = (p.Num_aut ?? '').trim();
-
-    if (codAut && codAut !== '000' && codAut !== '0' && Number(codAut) >= 100) {
-      return {
-        paymentId,
-        event: { type: 'FAILED', reason: `cecabank-cod_aut-${codAut}` },
-      };
-    }
-    if (numAut && numAut !== '') {
+    const outcome = wipayOutcome(p);
+    if (outcome === 'approved') {
       return {
         paymentId,
         event: { type: 'AUTHORIZED', providerTxId: p.Num_operacion, provider: 'WIPAY' },
       };
     }
-    // Fallback defensivo — si no podemos determinar, no transicionamos.
+    // Denegación (COD_AUT >= 100): NO se marca FAILED. Cecabank deja
+    // reintentar con la misma operación; si el cliente acaba pagando, el
+    // aviso OK tiene que poder apuntarse. Sin datos claros, tampoco se toca.
+    if (outcome === 'denied') {
+      this.logger.log(`Cecabank aviso denegado: op=${p.Num_operacion} COD_AUT=${(p.COD_AUT ?? '').trim()}`);
+    }
     return null;
+  }
+
+  /**
+   * Prueba de la aprobación: el aviso firmado por Cecabank (se vuelve a
+   * comprobar la firma). Importe, moneda y operación salen de la parte
+   * firmada. Num_aut / COD_AUT NO van en la firma: solo sirven para saber si
+   * el aviso dice "aprobado"; no se guardan como autorización ni deciden el
+   * importe. Riesgo que queda (solo con un aviso firmado capturado en el
+   * camino Cecabank → API): convertir una denegación en aprobado. Cerrarlo
+   * del todo pide la consulta de estado de Cecabank (sin implementar).
+   */
+  proveApproval(claim: ApprovalClaim): Promise<ApprovalProof> {
+    return Promise.resolve(this.proofFrom(claim));
+  }
+
+  private proofFrom(claim: ApprovalClaim): ApprovalProof {
+    const p = claim.payload as CecabankWebhook;
+    let clave: string;
+    try {
+      clave = this.requireCreds().claveEncriptacion;
+    } catch (e) {
+      return { kind: 'unavailable', reason: (e as Error).message };
+    }
+    if (checkWebhookSignature(p, clave) !== 'ok') return { kind: 'rejected', reason: 'aviso-sin-firma-valida' };
+    if (p.Num_operacion !== claim.providerTxId) return { kind: 'rejected', reason: 'operacion-distinta' };
+    // Exponente 2 = Importe en céntimos (el único que mandamos).
+    if ((p.Exponente ?? '').trim() !== '2') return { kind: 'rejected', reason: 'exponente-no-soportado' };
+    const importe = (p.Importe ?? '').trim();
+    if (!/^\d+$/.test(importe)) return { kind: 'rejected', reason: 'aviso-sin-importe' };
+    return {
+      kind: 'confirmed',
+      amountCents: Number(importe),
+      currency: cecabankCodeToCurrency((p.TipoMoneda ?? '').trim()),
+    };
   }
 
   // ─── helpers ─────────────────────────────────────────────────────
@@ -404,24 +411,86 @@ export function paymentIdFromNumOperacion(numOp: string): string {
   ].join('-');
 }
 
+/** Manual sección 10: ISO-4217 → código numérico Cecabank. */
+const CECABANK_CURRENCY: Readonly<Record<string, string>> = {
+  EUR: '978',
+  USD: '840',
+  GBP: '826',
+  AUD: '036',
+  MXN: '484',
+  CHF: '756',
+  JPY: '392',
+  DKK: '208',
+  SEK: '752',
+  NOK: '578',
+};
+
 /**
  * ISO-4217 → código numérico Cecabank.
  * Manual sección 10: EUR=978, USD=840, GBP=826, etc.
  */
 export function currencyToCecabankCode(currency: string): string {
-  const map: Record<string, string> = {
-    EUR: '978',
-    USD: '840',
-    GBP: '826',
-    AUD: '036',
-    MXN: '484',
-    CHF: '756',
-    JPY: '392',
-    DKK: '208',
-    SEK: '752',
-    NOK: '578',
-  };
-  return map[currency.toUpperCase()] ?? '978';
+  return CECABANK_CURRENCY[currency.toUpperCase()] ?? '978';
+}
+
+/**
+ * Código numérico Cecabank (TipoMoneda) → ISO-4217. Uno desconocido se
+ * devuelve tal cual: no coincidirá con la moneda del cobro.
+ */
+export function cecabankCodeToCurrency(code: string): string {
+  const hit = Object.entries(CECABANK_CURRENCY).find(([, num]) => num === code);
+  return hit ? hit[0] : code;
+}
+
+/**
+ * Qué dice un aviso de Cecabank. Num_aut y COD_AUT van FUERA de la firma:
+ * esto solo clasifica el aviso (para deduplicar y para saber si dice
+ * "aprobado"); la prueba del cobro es la parte firmada (proveApproval).
+ */
+export function wipayOutcome(p: {
+  Num_aut?: string;
+  COD_AUT?: string;
+}): 'approved' | 'denied' | 'unknown' {
+  // Códigos de error >= 100 (ej 190, 400) vienen en COD_AUT.
+  const codAut = (p.COD_AUT ?? '').trim();
+  if (codAut && codAut !== '000' && codAut !== '0' && Number(codAut) >= 100) return 'denied';
+  // En operaciones OK Cecabank envía Num_aut (autorización de la emisora).
+  return (p.Num_aut ?? '').trim() ? 'approved' : 'unknown';
+}
+
+/** Firma del aviso de Cecabank comparada en tiempo constante. */
+export function checkWebhookSignature(
+  p: {
+    MerchantID?: string;
+    AcquirerBIN?: string;
+    TerminalID?: string;
+    Num_operacion?: string;
+    Importe?: string;
+    TipoMoneda?: string;
+    Exponente?: string;
+    Referencia?: string;
+    Firma?: string;
+  },
+  claveEncriptacion: string,
+): 'ok' | 'mismatch' | 'invalid-encoding' {
+  const expected = signWebhook({
+    claveEncriptacion,
+    merchantId: p.MerchantID ?? '',
+    acquirerBin: p.AcquirerBIN ?? '',
+    terminalId: p.TerminalID ?? '',
+    numOperacion: p.Num_operacion ?? '',
+    importe: p.Importe ?? '',
+    tipoMoneda: p.TipoMoneda ?? '',
+    exponente: p.Exponente ?? '',
+    referencia: p.Referencia ?? '',
+  });
+  try {
+    const a = Buffer.from(p.Firma ?? '', 'hex');
+    const b = Buffer.from(expected, 'hex');
+    return a.length === b.length && timingSafeEqual(a, b) ? 'ok' : 'mismatch';
+  } catch {
+    return 'invalid-encoding';
+  }
 }
 
 /**

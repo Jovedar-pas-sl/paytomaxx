@@ -20,7 +20,7 @@ import type { Queue } from 'bullmq';
 import type { FastifyRequest } from 'fastify';
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Provider } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -57,6 +57,13 @@ const PeanpePostBodySchema = z
 // en verifyWebhook — aquí solo necesitamos shape laxa para re-codificar a
 // rawBody form-urlencoded.
 const FormUrlencodedBodySchema = z.record(z.union([z.string(), z.number(), z.boolean(), z.null()]));
+
+/** Secreto de la URL comparado en tiempo constante, sin delatar su longitud. */
+export function sameSecret(received: string, expected: string): boolean {
+  const a = createHash('sha256').update(received, 'utf8').digest();
+  const b = createHash('sha256').update(expected, 'utf8').digest();
+  return timingSafeEqual(a, b);
+}
 
 function reencodeFormBody(body: Record<string, unknown>): Buffer {
   const rawText =
@@ -235,7 +242,8 @@ export class WebhooksController {
    * Webhook Paytef con URL secreta.
    * Paytef NO firma HMAC — la "firma" es que solo Paytef conoce esta URL
    * (configurada en notifyResultURL del panel). Validamos secret contra env
-   * + dejamos que el adapter valide payload.
+   * + dejamos que el adapter valide payload. Un "aprobado" se confirma con la
+   * API de Paytef antes de dar el cobro por pagado (proveApproval).
    */
   @Public()
   @Post('paytef/:secret')
@@ -249,16 +257,10 @@ export class WebhooksController {
       this.logger.warn('PAYTEF_WEBHOOK_SECRET not configured — refusing webhook');
       throw new UnauthorizedException();
     }
-    // timing-safe compare
-    const a = Buffer.from(secret);
-    const b = Buffer.from(expectedSecret);
-    if (a.length !== b.length) {
-      this.metrics.webhooksReceived.inc({ provider: 'PAYTEF', outcome: 'invalid' });
-      throw new UnauthorizedException();
-    }
-    let match = 0;
-    for (let i = 0; i < a.length; i++) match |= a[i]! ^ b[i]!;
-    if (match !== 0) {
+    // Comparación en tiempo constante (también la longitud: se comparan los
+    // SHA-256). La URL secreta solo deja pasar el aviso; para dar un cobro por
+    // pagado, el procesador lo comprueba con la API de Paytef.
+    if (!sameSecret(secret, expectedSecret)) {
       this.metrics.webhooksReceived.inc({ provider: 'PAYTEF', outcome: 'invalid' });
       throw new UnauthorizedException();
     }
@@ -364,8 +366,11 @@ export class WebhooksController {
   /**
    * Peanpe result callback — paso 2 del flujo (GET).
    * Peanpe GET a esta URL con status, msg, identificador_llamada, debug,
-   * accion, seguridad. Validamos seguridad === securityToken persistido +
-   * encolamos job para transitar FSM.
+   * accion, seguridad. Validamos seguridad === securityToken persistido,
+   * guardamos el resultado y encolamos el aviso. Ojo: esto NO prueba que
+   * pagó (el cliente tiene el identificador y el reto le da el token): el
+   * procesador nunca marca pagado un cobro por este aviso — lo deja en
+   * Incidencias para comprobarlo en el panel de Peanpe.
    */
   @Public()
   @Get('peanpe/notify')
@@ -734,6 +739,11 @@ export class WebhooksController {
           data: { status: n.approved ? 'APPROVED' : 'DENIED', responseCode: n.response },
         });
         if (n.approved) {
+          // Solo los datos de la tarjeta, mientras el cobro no esté pagado.
+          // authorizedAt NO se pone aquí: lo pone transition() al pasar de
+          // verdad a AUTHORIZED (COALESCE(authorizedAt, NOW())). Si el aviso
+          // no se puede dar por bueno (importe que no cuadra, cobro
+          // caducado…), el cobro no debe parecer pagado en informes ni recibos.
           await tx.payment.updateMany({
             where: { id: paymentId, authorizedAt: null },
             data: {
@@ -744,7 +754,6 @@ export class WebhooksController {
               cardLast4: n.cardLast4,
               authCode: n.authCode,
               secure3ds: n.secure3ds,
-              authorizedAt: new Date(),
             },
           });
         }

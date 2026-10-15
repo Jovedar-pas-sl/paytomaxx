@@ -21,7 +21,10 @@ export type IncidentKind =
   | 'wallet_open_balance'
   | 'bank_mismatch'
   | 'backup_stale'
-  | 'backup_unmonitored';
+  | 'backup_unmonitored'
+  | 'approval_unverified'
+  | 'amount_mismatch'
+  | 'approval_unbooked';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -30,7 +33,25 @@ export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'wallet_close_requested',
   'wallet_open_balance',
   'backup_stale',
+  'approval_unverified',
 ]);
+
+/**
+ * Las que se quitan marcándolas como revisadas (las demás, al resolverlas).
+ * El endpoint de "revisada" acepta exactamente estas.
+ */
+export const ACKABLE_KINDS = [
+  'duplicate_charge',
+  'earning_reverse_failed',
+  'wallet_credit_skipped',
+  'night_closed_pending',
+  'pos_charge_mismatch',
+  'pos_unmatched_op',
+  'bank_mismatch',
+  'backup_unmonitored',
+  'amount_mismatch',
+  'approval_unbooked',
+] as const satisfies readonly IncidentKind[];
 
 export interface Incident {
   kind: IncidentKind;
@@ -359,6 +380,82 @@ export function backupIncidents(verdict: BackupVerdict, now: Date, production: b
       ackable: false,
     },
   ];
+}
+
+/**
+ * Avisos de cobro aprobado que NO se dieron por buenos (procesador de avisos,
+ * payment_events con estos tipos): el banco puede haber cobrado y aquí el
+ * cobro no consta como pagado.
+ */
+export interface PaymentAnomalyRow extends EventRow {
+  eventType: string;
+}
+
+/** Quién avisa y dónde comprobarlo, por pasarela. */
+const PROVIDER_TEXT: Record<string, { who: string; where: string }> = {
+  REDSYS: { who: 'El banco (Redsys)', where: 'el portal del banco' },
+  PAYTEF: { who: 'Paytef', where: 'el panel de Paytef' },
+  PEANPE: { who: 'Peanpe', where: 'el panel de Peanpe' },
+  WIPAY: { who: 'Cecabank', where: 'el portal de Cecabank' },
+};
+const UNKNOWN_PROVIDER_TEXT = { who: 'La pasarela', where: 'el panel de la pasarela' };
+
+const STATUS_TEXT: Record<string, string> = {
+  EXPIRED: 'caducado',
+  CANCELED: 'cancelado',
+  CREATED: 'sin empezar',
+  AWAITING_CAPTURE: 'sin empezar',
+};
+
+function num(payload: unknown, key: string): number | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const v = (payload as Record<string, unknown>)[key];
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
+  const provider = PROVIDER_TEXT[str(r.payload, 'provider') ?? ''] ?? UNKNOWN_PROVIDER_TEXT;
+  const order = str(r.payload, 'providerTxId');
+  const orderText = order ? ` (pedido ${order})` : '';
+  const base = { occurredAt: r.occurredAt.toISOString(), paymentId: r.paymentId };
+
+  if (r.eventType === 'payment.amount_mismatch') {
+    const charged = num(r.payload, 'chargedCents');
+    const expected = num(r.payload, 'expectedCents');
+    const currency = str(r.payload, 'chargedCurrency');
+    const other = currency && currency !== 'EUR' ? ` (${currency})` : '';
+    return {
+      ...base,
+      kind: 'amount_mismatch',
+      refId: r.id,
+      title: 'El banco aprobó un importe distinto',
+      detail: `Aprobado ${charged === null ? '?' : eur(charged)}${other} · el cobro era de ${expected === null ? '?' : eur(expected)}${orderText}. No se ha dado por pagado: compruébalo en ${provider.where} y resuélvelo en Pagos → Resolver (o devuelve el cargo).`,
+      amountCents: charged ?? r.amountCents,
+      ackable: true,
+    };
+  }
+  if (r.eventType === 'payment.approval_unbooked') {
+    const status = STATUS_TEXT[str(r.payload, 'fromStatus') ?? ''] ?? 'cerrado';
+    return {
+      ...base,
+      kind: 'approval_unbooked',
+      refId: r.id,
+      title: 'El banco cobró un pago que aquí no se pudo apuntar',
+      detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}El cobro estaba ${status} cuando llegó la aprobación${orderText}. Devuélveselo al cliente desde ${provider.where}.`,
+      amountCents: r.amountCents,
+      ackable: true,
+    };
+  }
+  // payment.approval_unverified: uno por cobro; se quita solo al resolverlo.
+  return {
+    ...base,
+    kind: 'approval_unverified',
+    refId: r.paymentId ?? r.id,
+    title: 'Aviso de pago sin comprobar',
+    detail: `${provider.who} avisa de que el cliente pagó${r.amountCents === null ? '' : ` ${eur(r.amountCents)}`}, pero no se ha podido comprobar y NO se ha dado por pagado. Míralo en ${provider.where}${orderText} y, si está cobrado, resuélvelo en Pagos → Resolver.`,
+    amountCents: r.amountCents,
+    ackable: false,
+  };
 }
 
 /** Más recientes primero; quita las ya revisadas. */
