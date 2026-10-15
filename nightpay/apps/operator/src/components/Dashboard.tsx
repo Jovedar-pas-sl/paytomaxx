@@ -10,6 +10,7 @@ import {
 } from '@/lib/api';
 import { isWalletCardToken, WALLET_CARD_PARAM } from '@nightpay/contracts';
 import { clearFichaContext } from '@/lib/ficha-context';
+import { formatEur, formatEurAmount } from '@/lib/money';
 import { walletCodeFromQr } from '@/lib/wallet-qr';
 import { ChargeFromBalance } from './ChargeFromBalance';
 import { FichaTapped } from './FichaTapped';
@@ -165,15 +166,15 @@ function HomeTab({
             color: negative ? 'var(--np-danger)' : 'var(--np-success)',
           }}
         >
-          {balance ? (balance.pendingCents / 100).toFixed(2) : '—'}{' '}
+          {balance ? formatEurAmount(balance.pendingCents) : '—'}{' '}
           <span style={curr}>EUR</span>
         </p>
         {balance && balance.availableCents !== undefined ? (
           <p style={{ margin: '0.25rem 0 0', fontSize: '0.9375rem', color: 'var(--np-text-mute)' }}>
-            Próximo pago <strong className="np-num">{(Math.max(0, balance.availableCents) / 100).toFixed(2)} €</strong>
-            {balance.heldCents ? <> · en espera {(balance.heldCents / 100).toFixed(2)} €</> : null}
+            Próximo pago <strong className="np-num">{formatEur(Math.max(0, balance.availableCents))}</strong>
+            {balance.heldCents ? <> · en espera {formatEur(balance.heldCents)}</> : null}
             {balance.debtCents ? (
-              <span style={{ color: 'var(--np-danger)' }}> · devoluciones −{(balance.debtCents / 100).toFixed(2)} €</span>
+              <span style={{ color: 'var(--np-danger)' }}> · devoluciones −{formatEur(balance.debtCents)}</span>
             ) : null}
           </p>
         ) : null}

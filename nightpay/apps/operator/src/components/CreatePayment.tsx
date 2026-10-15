@@ -18,6 +18,7 @@ import {
   type ServiceItem,
   type ZoneOption,
 } from '@/lib/api';
+import { formatEur, formatEurAmount } from '@/lib/money';
 
 /**
  * Categorías de ingreso visibles al crear cobro.
@@ -270,7 +271,7 @@ export function CreatePayment({ onCreated }: Props) {
         <div style={{ textAlign: 'center' }}>
           <p style={kicker}>{isPosFlow ? 'Cobro POS' : 'Importe'}</p>
           <p className="np-num" style={amountBig}>
-            {(active.amountCents / 100).toFixed(2)}{' '}
+            {formatEurAmount(active.amountCents)}{' '}
             <span style={{ fontSize: '0.95rem', color: 'var(--np-text-mute)', fontWeight: 500 }}>
               {active.currency}
             </span>
@@ -362,7 +363,7 @@ export function CreatePayment({ onCreated }: Props) {
             }}>
               <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: 1.6 }}>
                 <strong>Camarero:</strong> escanea el QR con tu móvil (o usa código <strong style={{ fontFamily: 'var(--np-font-mono)', letterSpacing: '0.15em', color: 'var(--np-accent)' }}>#{refCode}</strong>).<br />
-                Cobra <strong>{(active.amountCents / 100).toFixed(2)} €</strong> en el datáfono, luego confirma en tu app.
+                Cobra <strong>{formatEur(active.amountCents)}</strong> en el datáfono, luego confirma en tu app.
               </p>
             </div>
           </>
@@ -401,7 +402,7 @@ export function CreatePayment({ onCreated }: Props) {
             {active.walletId ? <NewWalletCard walletId={active.walletId} /> : null}
             {paidTipCents > 0 ? (
               <p className="np-num" style={{ margin: 0, textAlign: 'center', fontWeight: 700, fontSize: '1.25rem', color: 'var(--np-accent)' }}>
-                + {formatEur(paidTipCents)} de propina
+                + {formatEur(paidTipCents, { compact: true })} de propina
               </p>
             ) : null}
             <Button onClick={reset} size="lg">
@@ -441,7 +442,7 @@ export function CreatePayment({ onCreated }: Props) {
             >
               <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
               <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
-                {formatEur(svc.priceCents)}
+                {formatEur(svc.priceCents, { compact: true })}
               </span>
             </button>
           ))}
@@ -469,6 +470,9 @@ export function CreatePayment({ onCreated }: Props) {
     mode === 'wallet' ? 'Cargar wallet del cliente'
     : mode === 'pos' ? 'Cobro con datáfono'
     : 'Crear nuevo cobro';
+  // El importe tecleado, ya escrito como importe ("50,50 €") para el botón.
+  const typedCents = parseEuroCents(amount);
+  const typedLabel = typedCents === null ? null : formatEur(typedCents, { compact: true });
 
   return (
     <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -505,7 +509,7 @@ export function CreatePayment({ onCreated }: Props) {
             <div style={{ minWidth: 0 }}>
               <p style={{ margin: 0, fontWeight: 700, fontSize: '1.125rem' }}>{serviceLabel(picked as ServiceItem)}</p>
               <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700 }}>
-                {formatEur((picked as ServiceItem).priceCents)}
+                {formatEur((picked as ServiceItem).priceCents, { compact: true })}
               </p>
             </div>
             <Button
@@ -635,11 +639,11 @@ export function CreatePayment({ onCreated }: Props) {
 
         <Button type="submit" size="lg" loading={submitting}>
           {mode === 'wallet'
-            ? `Cargar ${amount ? `${amount} €` : 'wallet'}`
+            ? `Cargar ${typedLabel ?? 'wallet'}`
             : mode === 'pos'
-              ? `Generar cobro POS ${amount ? `(${amount} €)` : ''}`
-              : amount
-                ? `Cobrar ${amount} €`
+              ? `Generar cobro POS${typedLabel ? ` (${typedLabel})` : ''}`
+              : typedLabel
+                ? `Cobrar ${typedLabel}`
                 : 'Cobrar'}
         </Button>
         {error ? (
@@ -753,10 +757,6 @@ function serviceLabel(svc: ServiceItem): string {
   return svc.durationMin && !svc.name.includes(String(svc.durationMin))
     ? `${svc.name} · ${svc.durationMin} min`
     : svc.name;
-}
-
-function formatEur(cents: number): string {
-  return `${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)} €`;
 }
 
 const cartaGridStyle: CSSProperties = {

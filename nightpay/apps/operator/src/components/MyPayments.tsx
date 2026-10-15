@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Card, StatusPill, type PaymentStatus } from '@nightpay/ui';
 import { cancelPayment, fetchMyPayments, type MyPayment } from '@/lib/api';
+import { formatEur } from '@/lib/money';
 
 export function MyPayments() {
   const [items, setItems] = useState<MyPayment[]>([]);
@@ -60,7 +61,7 @@ export function MyPayments() {
           <Card key={p.id} style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
               <span className="np-num" style={amountStyle}>
-                {(p.amountCents / 100).toFixed(2)} {p.currency}
+                {formatEur(p.amountCents)}
               </span>
               <span style={timeStyle}>{formatTime(p.createdAt)}</span>
             </div>

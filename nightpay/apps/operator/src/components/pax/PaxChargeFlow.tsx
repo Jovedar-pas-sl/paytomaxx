@@ -13,6 +13,7 @@ import {
   type PaxCharge,
   type SaleOutcome,
 } from '@/lib/pax-api';
+import { formatEur } from '@/lib/money';
 
 type Step =
   | { kind: 'reading' }
@@ -151,7 +152,7 @@ export function PaxChargeFlow({ charge, onDone }: { charge: PaxCharge; onDone: (
         {charge.createdByName} · código {charge.code}
       </p>
       <p className="np-num" style={{ margin: 0, fontSize: '3rem', fontWeight: 700 }}>
-        {eur(charge.amountCents)}
+        {formatEur(charge.amountCents)}
       </p>
 
       {step.kind === 'reading' ? (
@@ -242,10 +243,6 @@ function readerErrorText(error: string): string {
     default:
       return 'El lector dio un error.';
   }
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
 const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };

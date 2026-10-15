@@ -9,6 +9,7 @@ import {
   type PendingPosPayment,
   type ZoneOption,
 } from '@/lib/api';
+import { formatEur, formatEurAmount } from '@/lib/money';
 
 interface Props {
   onConfirmed: () => void;
@@ -57,7 +58,6 @@ export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
     if (muted || typeof window === 'undefined') return;
     // Sonido corto sin asset externo — WebAudio sintetiza un beep dual.
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const Ctx: typeof AudioContext = (window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
       const ac = new Ctx();
@@ -251,7 +251,7 @@ export function PendingPos({ onConfirmed, focusPaymentId }: Props) {
                   </p>
                 </div>
                 <p className="np-num" style={amountStyle}>
-                  {(p.amountCents / 100).toFixed(2)}
+                  {formatEurAmount(p.amountCents)}
                   <span style={{ fontSize: '0.7rem', color: 'var(--np-text-mute)' }}> €</span>
                 </p>
               </button>
@@ -328,7 +328,7 @@ function ConfirmForm({
       <div style={confirmPillStyle}>
         <span style={kickerStyle}>⚠️ Teclea EXACTAMENTE en el datáfono</span>
         <p className="np-num" style={amountBigStyle}>
-          {(payment.amountCents / 100).toFixed(2)} <span style={currStyle}>EUR</span>
+          {formatEurAmount(payment.amountCents)} <span style={currStyle}>EUR</span>
         </p>
         <p style={amountDigitsStyle}>
           {/* Importe deletreado dígito-a-dígito para evitar typos visuales en el IM30 */}
@@ -348,7 +348,7 @@ function ConfirmForm({
           Pasos:
         </p>
         <ol style={stepsListStyle}>
-          <li>Cobra {(payment.amountCents / 100).toFixed(2)} € en el datáfono del bar.</li>
+          <li>Cobra {formatEur(payment.amountCents)} en el datáfono del bar.</li>
           <li>Cliente paga con su tarjeta.</li>
           <li><strong>Teclea el código de autorización</strong> del ticket (6 caracteres, pone "AUT" o "Nº autorización").</li>
           <li>Foto del ticket (opcional pero recomendado).</li>

@@ -17,6 +17,7 @@ import {
   type PaxInfo,
   type ShiftSummary,
 } from '@/lib/pax-api';
+import { formatEur } from '@/lib/money';
 import { PaxChargeFlow } from './PaxChargeFlow';
 
 const POLL_MS = 3000;
@@ -140,7 +141,7 @@ export function PaxScreen() {
               style={{ ...chargeBtn, borderColor: c.forThisTerminal ? 'var(--np-accent)' : 'var(--np-border-hi)' }}
             >
               <span className="np-num" style={{ fontSize: '2rem', fontWeight: 700 }}>
-                {eur(c.amountCents)}
+                {formatEur(c.amountCents)}
               </span>
               <span style={{ fontSize: '1.0625rem', fontWeight: 600 }}>{c.createdByName}</span>
               <span style={muted}>
@@ -237,10 +238,6 @@ function ShiftCheck() {
       {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
     </Card>
   );
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
 function minutesAgo(iso: string): string {

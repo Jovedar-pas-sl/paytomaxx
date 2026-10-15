@@ -19,6 +19,7 @@ import {
   type WalletRef,
 } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
+import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard } from '@/lib/nfc';
 import { PinPad } from './PinPad';
 
@@ -138,7 +139,7 @@ function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated:
             >
               <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
               <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
-                {formatEur(svc.priceCents)}
+                {formatEur(svc.priceCents, { compact: true })}
               </span>
             </button>
           ))}
@@ -239,7 +240,7 @@ function QrStep({
   }
 
   const secondsLeft = Math.max(0, Math.ceil((new Date(charge.expiresAt).getTime() - now) / 1000));
-  const what = `${formatEur(charge.amountCents)}${charge.serviceName ? ` · ${charge.serviceName}` : ''}`;
+  const what = `${formatEur(charge.amountCents, { compact: true })}${charge.serviceName ? ` · ${charge.serviceName}` : ''}`;
 
   if (withPin && wallet && ref && wallet.hasPin && !wallet.pinLocked) {
     return (
@@ -281,7 +282,7 @@ function QrStep({
     <Card style={{ ...cardStyle, alignItems: 'center', textAlign: 'center' }}>
       <p style={kicker}>Cobrar del saldo</p>
       <p className="np-num" style={balanceStyle}>
-        {formatEur(charge.amountCents)}
+        {formatEur(charge.amountCents, { compact: true })}
       </p>
       {charge.serviceName ? <p style={hintStyle}>{charge.serviceName}</p> : null}
       <img src={charge.qrPngDataUrl} alt="QR para pagar con el saldo" width={260} height={260} style={qrStyle} />
@@ -432,11 +433,11 @@ function DoneStep({
     <Card style={{ ...cardStyle, textAlign: 'center' }}>
       <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: text.color }}>{text.title}</p>
       <p className="np-num" style={{ ...balanceStyle, textAlign: 'center' }}>
-        {formatEur(charge.amountCents)}
+        {formatEur(charge.amountCents, { compact: true })}
       </p>
       {charge.serviceName ? <p style={{ ...hintStyle, textAlign: 'center' }}>{charge.serviceName}</p> : null}
       {result.status === 'ACCEPTED' && result.newBalanceCents !== null ? (
-        <p style={{ margin: 0, fontSize: '1.05rem' }}>Le quedan {formatEur(result.newBalanceCents)}</p>
+        <p style={{ margin: 0, fontSize: '1.05rem' }}>Le quedan {formatEur(result.newBalanceCents, { compact: true })}</p>
       ) : null}
       <Button size="lg" onClick={onAgain}>
         Nuevo cobro del saldo
@@ -450,10 +451,6 @@ function serviceLabel(svc: ServiceItem): string {
   return svc.durationMin && !svc.name.includes(String(svc.durationMin))
     ? `${svc.name} · ${svc.durationMin} min`
     : svc.name;
-}
-
-function formatEur(cents: number): string {
-  return `${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)} €`;
 }
 
 const cardStyle: CSSProperties = {

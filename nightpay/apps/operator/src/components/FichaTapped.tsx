@@ -4,6 +4,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@nightpay/ui';
 import { linkWalletCard, lookupWalletCard, payWalletChargeWithPin, type WalletLookup } from '@/lib/api';
 import { clearFichaContext, readFichaContext, type FichaContext } from '@/lib/ficha-context';
+import { formatEur } from '@/lib/money';
 import { PinPad } from './PinPad';
 
 type View =
@@ -96,7 +97,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
     return (
       <PinPad
         mode="enter"
-        title={`${eur(ctx.amountCents)}${ctx.serviceName ? ` · ${ctx.serviceName}` : ''}`}
+        title={`${formatEur(ctx.amountCents, { compact: true })}${ctx.serviceName ? ` · ${ctx.serviceName}` : ''}`}
         hint={`Saldo ${wallet.code} · ficha`}
         onCancel={onClose}
         onPin={async (pin) => {
@@ -107,7 +108,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
             ok: r.status === 'ACCEPTED',
             text:
               r.status === 'ACCEPTED'
-                ? `✓ Cobrado del saldo${r.newBalanceCents !== null ? ` · le quedan ${eur(r.newBalanceCents)}` : ''}`
+                ? `✓ Cobrado del saldo${r.newBalanceCents !== null ? ` · le quedan ${formatEur(r.newBalanceCents, { compact: true })}` : ''}`
                 : 'Este cobro ya no estaba pendiente',
           });
           return null;
@@ -125,7 +126,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
           <p className="np-num" style={bigStyle}>
             {view.wallet.code}
           </p>
-          <p style={{ margin: 0 }}>Le quedan {eur(view.wallet.balanceCents)}</p>
+          <p style={{ margin: 0 }}>Le quedan {formatEur(view.wallet.balanceCents, { compact: true })}</p>
           <p style={hintStyle}>Para cobrarle: elige el servicio en «Saldo» y acerca otra vez la ficha.</p>
         </>
       ) : null}
@@ -139,10 +140,6 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
       </Button>
     </Card>
   );
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)} €`;
 }
 
 const cardStyle: CSSProperties = {
