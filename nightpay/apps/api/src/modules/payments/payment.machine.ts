@@ -4,8 +4,13 @@ import type { PaymentStatus } from '@nightpay/contracts';
 /**
  * Máquina de estados del pago — ADR-003.
  *
- * Estados terminales: AUTHORIZED (con sub-flujo de refunds), FAILED, EXPIRED.
- * ORPHAN es resoluble (saga reconcile) — convierte a AUTHORIZED o FAILED.
+ * Estados terminales: AUTHORIZED (con sub-flujo de refunds), EXPIRED,
+ * CANCELED y REFUNDED. ORPHAN es resoluble (saga reconcile o a mano).
+ *
+ * FAILED NO es del todo final: si después llega la aprobación del banco
+ * (el cliente reintentó en la página de la pasarela con el mismo pedido, o
+ * el aviso aprobado llega tarde), el cobro pasa a AUTHORIZED. El dinero ya
+ * está cobrado: perder ese aviso deja la tarjeta cargada y nada apuntado.
  *
  * Las transiciones son DECLARATIVAS aquí: si un evento llega en estado
  * incorrecto, el actor NO transiciona y `transition()` lanza
@@ -26,8 +31,12 @@ export type PaymentEvent =
   | { type: 'POS_CONFIRMED'; posReceiptRef?: string }
   | { type: 'FAILED'; reason: string }
   | { type: 'TIMEOUT' }
+  /**
+   * Devolución (parcial o total): la total es la que deja el importe
+   * devolvible a 0 (guard `refundIsTotal`). No hay evento aparte para la
+   * total: REFUND_FULL no lo enviaba nadie y se quitó.
+   */
   | { type: 'REFUND_PARTIAL'; amountCents: number }
-  | { type: 'REFUND_FULL' }
   | { type: 'CANCELED'; reason?: string };
 
 export interface PaymentContext {
@@ -109,7 +118,6 @@ export const paymentMachine = setup({
           { target: 'REFUNDED', guard: 'refundIsTotal', actions: 'deductRefund' },
           { target: 'PARTIALLY_REFUNDED', actions: 'deductRefund' },
         ],
-        REFUND_FULL: 'REFUNDED',
       },
     },
     PARTIALLY_REFUNDED: {
@@ -118,7 +126,6 @@ export const paymentMachine = setup({
           { target: 'REFUNDED', guard: 'refundIsTotal', actions: 'deductRefund' },
           { target: 'PARTIALLY_REFUNDED', actions: 'deductRefund' },
         ],
-        REFUND_FULL: 'REFUNDED',
       },
     },
     ORPHAN: {
@@ -127,7 +134,15 @@ export const paymentMachine = setup({
         FAILED: { target: 'FAILED', actions: 'persistFailure' },
       },
     },
-    FAILED: { type: 'final' },
+    // Aprobación del banco tras un FAILED (denegación previa, aviso tardío o
+    // resolución a mano equivocada): el cobro se apunta. Solo AUTHORIZED
+    // saca un pago de FAILED; quien lo emite (aviso verificado, conciliación
+    // con la pasarela) ya ha comprobado la aprobación.
+    FAILED: {
+      on: {
+        AUTHORIZED: { target: 'AUTHORIZED', actions: 'persistAuth' },
+      },
+    },
     EXPIRED: { type: 'final' },
     REFUNDED: { type: 'final' },
     CANCELED: { type: 'final' },
@@ -203,14 +218,18 @@ export class InvalidTransitionError extends Error {
   }
 }
 
+/** Estados en los que el cobro ya se hizo (aunque luego se haya devuelto). */
+const PAID_STATES: ReadonlySet<string> = new Set(['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED']);
+
 /**
  * Distingue: ¿la transición fue rechazada porque el pago YA está en el
  * estado destino (idempotencia válida, OK) o porque está en un estado
  * incompatible (bug real, no debería marcarse como procesado)?
  *
  * Ej. webhook AUTHORIZED llega cuando payment ya está AUTHORIZED → idempotente.
- *     webhook AUTHORIZED llega cuando payment está EXPIRED → bug (replay o
- *     mapeo cruzado), no marcar procesado, dejar que BullMQ reintente.
+ *     webhook AUTHORIZED llega cuando payment está EXPIRED → NO idempotente:
+ *     el banco cobró un pago que aquí no se puede dar por pagado. Quien
+ *     procesa el aviso lo apunta como incidencia (no se pierde en silencio).
  */
 export function isIdempotentTransition(
   err: InvalidTransitionError,
@@ -222,9 +241,13 @@ export function isIdempotentTransition(
   if (err.fromState === 'PARTIALLY_REFUNDED' && err.eventType === 'AUTHORIZED') return true;
   // REFUNDED igual — el cobro original sí ocurrió
   if (err.fromState === 'REFUNDED' && err.eventType === 'AUTHORIZED') return true;
-  // EXPIRED / CANCELED son terminales: cualquier evento tardío es info-only,
-  // no es bug — ya no queremos revivirlos.
-  if (err.fromState === 'EXPIRED') return true;
-  if (err.fromState === 'CANCELED') return true;
+  // Denegación que llega después de la aprobación (aviso viejo): el cobro
+  // ya está hecho y una denegación anterior no lo deshace.
+  if (PAID_STATES.has(err.fromState) && err.eventType === 'FAILED') return true;
+  // EXPIRED / CANCELED son terminales: un evento tardío es info-only — salvo
+  // una aprobación del banco, que es dinero cobrado y no se puede ignorar.
+  if (err.fromState === 'EXPIRED' || err.fromState === 'CANCELED') {
+    return err.eventType !== 'AUTHORIZED';
+  }
   return false;
 }
