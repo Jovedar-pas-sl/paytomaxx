@@ -96,6 +96,19 @@ export interface DevolucionRow {
   afterPayout: boolean | null;
 }
 
+/**
+ * Ajustes de noches ya cerradas: lo apuntado después de generar su Z con
+ * fecha de entonces (su Z está congelado, así que van al Z siguiente).
+ */
+export interface AdjustmentRows {
+  /** Cobros que quedaron pagados tarde (aviso del banco tardío, resueltos a mano…). */
+  cobros: CobroRow[];
+  /** Devoluciones apuntadas con la fecha del banco de un día ya cerrado. */
+  devoluciones: DevolucionRow[];
+  /** Consumos del saldo de noches anteriores anulados después. */
+  consumosAnulados: ConsumoRow[];
+}
+
 /** Un pago a una chica hecho en el periodo. */
 export interface LiquidacionRow {
   id: string;
