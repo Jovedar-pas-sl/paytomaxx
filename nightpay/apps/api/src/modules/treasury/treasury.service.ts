@@ -7,9 +7,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from './payout-verifier.factory';
+import { parseHoldDays, payableSummary, payoutCutoff } from '../operators/payout-math';
 import {
   isAutoVerifiable,
   type VerifyResult,
@@ -30,15 +32,18 @@ export class TreasuryService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
   private readonly verifierFactory: PayoutVerifierFactory;
+  private readonly config: ConfigService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
     @Inject(PayoutVerifierFactory) verifierFactory: PayoutVerifierFactory,
+    @Inject(ConfigService) config: ConfigService,
   ) {
     this.prisma = prisma;
     this.audit = audit;
     this.verifierFactory = verifierFactory;
+    this.config = config;
   }
 
   /**
@@ -259,16 +264,7 @@ export class TreasuryService {
     firstOfMonth.setDate(1);
     firstOfMonth.setHours(0, 0, 0, 0);
 
-    const pendingRows = await this.prisma.$queryRaw<
-      Array<{ pendingCents: bigint; operatorCount: bigint }>
-    >`
-      SELECT
-        COALESCE(SUM("commissionCents" - "reversedCents"), 0)::bigint AS "pendingCents",
-        COUNT(DISTINCT "operatorId")::bigint AS "operatorCount"
-        FROM operator_earnings
-       WHERE "tenantId" = ${tenantId}::uuid
-         AND "payoutId" IS NULL
-    `;
+    const pending = payableSummary(await this.operatorBalances(tenantId));
 
     const monthRows = await this.prisma.$queryRaw<
       Array<{ count: bigint; totalCents: bigint }>
@@ -298,8 +294,10 @@ export class TreasuryService {
     `;
 
     return {
-      pendingPayoutsCents: Number(pendingRows[0]?.pendingCents ?? 0),
-      pendingOperatorCount: Number(pendingRows[0]?.operatorCount ?? 0),
+      pendingPayoutsCents: pending.payableCents,
+      pendingOperatorCount: pending.operatorCount,
+      heldPayoutsCents: pending.heldCents,
+      operatorDebtCents: pending.debtCents,
       payoutsThisMonthCount: Number(monthRows[0]?.count ?? 0),
       payoutsThisMonthCents: Number(monthRows[0]?.totalCents ?? 0),
       byMethod: Object.fromEntries(byMethodRows.map((r) => [r.rail ?? 'UNSET', Number(r.count)])),
@@ -307,6 +305,49 @@ export class TreasuryService {
         byStatusRows.map((r) => [r.status, Number(r.count)]),
       ),
     };
+  }
+
+  /**
+   * Saldo de cada chica del local con la misma cuenta que OperatorsService.
+   * getBalance y createPayout: comisión + propina − devuelto de lo no pagado,
+   * lo que sigue en espera (PAYOUT_HOLD_DAYS) y la deuda por devoluciones
+   * llegadas con la comisión ya pagada.
+   */
+  private async operatorBalances(tenantId: string) {
+    const cutoff = payoutCutoff(new Date(), parseHoldDays(this.config.get('PAYOUT_HOLD_DAYS')));
+    const rows = await this.prisma.$queryRaw<
+      Array<{ operatorId: string; unpaidCents: bigint; heldCents: bigint; debtCents: bigint }>
+    >`
+      SELECT o."operatorId",
+             COALESCE(u."unpaidCents", 0)::bigint AS "unpaidCents",
+             COALESCE(u."heldCents", 0)::bigint AS "heldCents",
+             COALESCE(d."debtCents", 0)::bigint AS "debtCents"
+        FROM (SELECT DISTINCT "operatorId" FROM operator_earnings WHERE "tenantId" = ${tenantId}::uuid) o
+        LEFT JOIN (
+          SELECT "operatorId",
+                 SUM("commissionCents" + COALESCE("tipCents", 0) - "reversedCents") AS "unpaidCents",
+                 SUM(CASE WHEN "createdAt" > ${cutoff}
+                          THEN "commissionCents" + COALESCE("tipCents", 0) - "reversedCents" ELSE 0 END) AS "heldCents"
+            FROM operator_earnings
+           WHERE "tenantId" = ${tenantId}::uuid
+             AND "payoutId" IS NULL
+           GROUP BY "operatorId"
+        ) u ON u."operatorId" = o."operatorId"
+        LEFT JOIN (
+          SELECT e."operatorId", SUM(r."reversedDeltaCents") AS "debtCents"
+            FROM earning_reversals r
+            JOIN operator_earnings e ON e.id = r."earningId"
+           WHERE e."tenantId" = ${tenantId}::uuid
+             AND r."afterPayout"
+             AND r."settledPayoutId" IS NULL
+           GROUP BY e."operatorId"
+        ) d ON d."operatorId" = o."operatorId"
+    `;
+    return rows.map((r) => ({
+      unpaidCents: Number(r.unpaidCents),
+      heldCents: Number(r.heldCents),
+      debtCents: Number(r.debtCents),
+    }));
   }
 
   /**

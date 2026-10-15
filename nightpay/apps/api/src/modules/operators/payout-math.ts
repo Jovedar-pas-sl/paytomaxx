@@ -25,6 +25,40 @@ export function payoutTotalCents(
   return earned - debt;
 }
 
+/** Sumas de una chica: lo no pagado, la parte aún en espera y la deuda abierta. */
+export interface BalanceSums {
+  unpaidCents: number;
+  heldCents: number;
+  debtCents: number;
+}
+
+/**
+ * Lo que entra ya en su próximo pago (como createPayout): lo no pagado menos
+ * lo que sigue en espera menos la deuda por devoluciones tras un pago.
+ */
+export function availableCentsOf(s: BalanceSums): number {
+  return s.unpaidCents - Math.max(0, s.heldCents) - s.debtCents;
+}
+
+/**
+ * Tesorería: lo que hay que pagar ya a las chicas. La deuda de una no resta
+ * a las demás (su disponible negativo cuenta 0); en espera y deuda, aparte.
+ */
+export function payableSummary(rows: ReadonlyArray<BalanceSums>): {
+  payableCents: number;
+  operatorCount: number;
+  heldCents: number;
+  debtCents: number;
+} {
+  const available = rows.map(availableCentsOf);
+  return {
+    payableCents: available.reduce((sum, a) => sum + Math.max(0, a), 0),
+    operatorCount: available.filter((a) => a > 0).length,
+    heldCents: rows.reduce((sum, r) => sum + Math.max(0, r.heldCents), 0),
+    debtCents: rows.reduce((sum, r) => sum + r.debtCents, 0),
+  };
+}
+
 /** Fecha límite: los earnings creados antes (o en) este instante ya se pueden pagar. */
 export function payoutCutoff(now: Date, holdDays: number): Date {
   return new Date(now.getTime() - holdDays * 24 * 3600 * 1000);

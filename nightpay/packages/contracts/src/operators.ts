@@ -314,8 +314,14 @@ export type VerifyPayoutResult = z.infer<typeof VerifyPayoutResultSchema>;
 
 /** Estadísticas treasury para tab admin */
 export const TreasuryStatsSchema = z.object({
+  /** Lo que hay que pagar ya (como createPayout): sin lo que está en espera y menos la deuda de cada chica. */
   pendingPayoutsCents: z.number().int(),
+  /** Chicas con algo que cobrar ya. */
   pendingOperatorCount: z.number().int().nonnegative(),
+  /** Comisiones aún en espera (PAYOUT_HOLD_DAYS): se pagarán más adelante. */
+  heldPayoutsCents: z.number().int().nonnegative().optional(),
+  /** Deuda abierta de las chicas por devoluciones tras un pago (se descuenta de sus pagos). */
+  operatorDebtCents: z.number().int().nonnegative().optional(),
   payoutsThisMonthCount: z.number().int().nonnegative(),
   payoutsThisMonthCents: z.number().int().nonnegative(),
   byMethod: z.record(z.string(), z.number().int().nonnegative()),

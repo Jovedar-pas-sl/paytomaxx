@@ -18,7 +18,7 @@ import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
 import { operatorAppBaseUrl } from './operator-app-url';
-import { parseHoldDays, payoutCutoff, payoutTotalCents } from './payout-math';
+import { availableCentsOf, parseHoldDays, payoutCutoff, payoutTotalCents } from './payout-math';
 import { payoutRoutingChanges } from './payout-routing';
 import type {
   CreateOperatorDto,
@@ -141,7 +141,7 @@ export class OperatorsService {
     const held = Math.max(0, Number(r.heldCents));
     return {
       pendingCents: unpaid - debtCents,
-      availableCents: unpaid - held - debtCents,
+      availableCents: availableCentsOf({ unpaidCents: unpaid, heldCents: held, debtCents }),
       heldCents: held,
       debtCents,
       paidCents: Math.max(0, Number(r.paidCents)),
