@@ -13,6 +13,7 @@ import { lastNightCutoff } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
 import { summarize } from '../reports/export-csv';
 import type { TimeWindow } from '../reports/report-period';
+import { afterPayoutDebt, paymentAt } from '../reports/reporting-sql';
 import { ReportsService } from '../reports/reports.service';
 import { autoCloseAt, buildAdjustments, buildNightZ, decideClose, zStart, type NightZ } from './night-rules';
 
@@ -252,22 +253,25 @@ export class NightsService {
              COALESCE(SUM(x.tips), 0)::int AS "tipsCents",
              COALESCE(SUM(x.reversed), 0)::int AS "reversedCents"
         FROM (
-          -- Cobros con tarjeta / datáfono.
+          -- Cobros con tarjeta / datáfono. Lo descontado incluye la deuda de
+          -- devoluciones llegadas con ella ya pagada (como «Parte chica» del CSV).
           SELECT p."amountCents" + p."tipCents" AS charged, e."commissionCents" AS commission,
-                 e."tipCents" AS tips, e."reversedCents" AS reversed
+                 e."tipCents" AS tips, e."reversedCents" + ${afterPayoutDebt('e')} AS reversed
             FROM operator_earnings e
             JOIN payments p ON p.id = e."paymentId"
            WHERE e."tenantId" = ${tenantId}::uuid
              AND e."operatorId" = ${operatorId}::uuid
-             AND COALESCE(p."authorizedAt", p."createdAt") >= ${from}
-             AND COALESCE(p."authorizedAt", p."createdAt") < ${to}
+             AND ${paymentAt('p')} >= ${from}
+             AND ${paymentAt('p')} < ${to}
           UNION ALL
-          -- Lo que cobró del saldo del cliente (los anulados ya llevan su reverso).
+          -- Lo que cobró del saldo del cliente. Los anulados no cuentan (como
+          -- en el informe de la gestoría): ni cobro, ni comisión, ni descuento.
           SELECT c."amountCents" + c."tipCents", e."commissionCents", e."tipCents", e."reversedCents"
             FROM operator_earnings e
             JOIN wallet_consumptions c ON c.id = e."consumptionId"
            WHERE e."tenantId" = ${tenantId}::uuid
              AND e."operatorId" = ${operatorId}::uuid
+             AND c."reversedAt" IS NULL
              AND c."createdAt" >= ${from}
              AND c."createdAt" < ${to}
         ) x

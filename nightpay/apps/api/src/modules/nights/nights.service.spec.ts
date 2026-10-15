@@ -238,6 +238,20 @@ describe('cierre automático y noche de la chica', () => {
     expect(mine).toMatchObject({ nightOpen: true, to: null, count: 3, netCents: 28_500, from: OPENED.toISOString() });
   });
 
+  it('la noche de la chica no cuenta consumos del saldo anulados y descuenta su deuda por devoluciones', async () => {
+    const { svc, prisma } = makeService();
+    const sqls: string[] = [];
+    prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      sqls.push(Prisma.sql(strings, ...values).text);
+      return [{ count: 0, chargedCents: 0, commissionCents: 0, tipsCents: 0, reversedCents: 0 }];
+    });
+    await svc.mine('t-1', 'op-1');
+    const sql = sqls.find((s) => s.includes('wallet_consumptions'))!;
+    const consumos = sql.slice(sql.indexOf('JOIN wallet_consumptions'));
+    expect(consumos).toContain('c."reversedAt" IS NULL');
+    expect(sql).toContain('"afterPayout"');
+  });
+
   it('la noche ya cerrada: la chica sigue viendo esa noche hasta su cierre', async () => {
     const { svc, prisma } = makeService({ open: null });
     const closedAt = new Date('2026-10-14T00:30:00Z');
