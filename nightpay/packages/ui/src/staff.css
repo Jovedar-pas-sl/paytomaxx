@@ -1,0 +1,520 @@
+/* Componentes de las apps del personal (operadora y TPV). Importado desde
+   styles.css. Movimiento solo con transform/opacity; nada parpadea más de
+   3 veces por segundo; con «reducir movimiento» manda la regla de styles.css
+   (salvo la franja del resultado, que pasa a fundido). */
+
+/* ─── Resultado a pantalla completa (PaymentOutcome) ─────────────────── */
+
+.np-outcome {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--np-outcome-bg);
+  color: var(--np-outcome-ink);
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
+  animation: np-outcome-in var(--np-d-base) var(--np-ease);
+}
+
+.np-outcome[data-kind='paid'] {
+  --np-outcome-bg: var(--np-outcome-paid);
+}
+
+.np-outcome[data-kind='failed'] {
+  --np-outcome-bg: var(--np-outcome-failed);
+}
+
+.np-outcome[data-kind='expired'] {
+  --np-outcome-bg: var(--np-outcome-expired);
+}
+
+@keyframes np-outcome-in {
+  from { opacity: 0; transform: scale(1.03); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+
+/* Franja con la palabra y la hora, moviéndose despacio (~60 px/s): una
+   captura vieja se queda quieta. */
+.np-outcome-band {
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 0.5rem 0;
+  border-bottom: 3px solid var(--np-outcome-ink);
+}
+
+.np-outcome-band-track {
+  display: flex;
+  width: max-content;
+  font-family: var(--np-font-mono);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  animation: np-outcome-band 32s linear infinite;
+}
+
+.np-outcome-band-track > span {
+  padding-right: 2rem;
+}
+
+@keyframes np-outcome-band {
+  from { transform: translateX(0);    }
+  to   { transform: translateX(-50%); }
+}
+
+@keyframes np-outcome-band-fade {
+  from { opacity: 1;    }
+  to   { opacity: 0.25; }
+}
+
+.np-outcome-body {
+  flex: 1;
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1.25rem 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.np-outcome-icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  flex-shrink: 0;
+}
+
+/* --np-fit: ancho del texto en em (lo pone el componente): la letra se
+   ajusta para que quepa en una línea. */
+.np-outcome-title {
+  margin: 0;
+  font-family: var(--np-font-mono);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  font-size: 2.75rem;
+  font-size: min(7rem, calc(90vw / var(--np-fit, 6)));
+}
+
+.np-outcome-amount {
+  margin: 0;
+  font-family: var(--np-font-mono);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  font-size: 2.5rem;
+  font-size: min(6rem, calc(90vw / var(--np-fit, 6)));
+}
+
+.np-outcome-message {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.np-outcome-detail {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.np-outcome-detail p {
+  margin: 0;
+}
+
+.np-outcome-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.625rem 1.5rem 0.75rem;
+  border: 3px solid var(--np-outcome-ink);
+  border-radius: var(--np-r-lg);
+}
+
+.np-outcome-code-label {
+  font-size: var(--np-t-label);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* ≥ 3rem: se compara con el del móvil del cliente a un metro. */
+.np-outcome-code-value {
+  font-family: var(--np-font-mono);
+  font-size: 3.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.18em;
+  margin-right: -0.18em;
+  font-variant-numeric: tabular-nums;
+}
+
+.np-outcome-code-hint {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.np-outcome-ago {
+  margin: 0;
+  font-family: var(--np-font-mono);
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.np-outcome-error {
+  margin: 0;
+  padding: 0.625rem 1rem;
+  border-radius: var(--np-r-md);
+  background: var(--np-outcome-ink);
+  color: #fff;
+  font-weight: 600;
+}
+
+.np-outcome-actions {
+  width: 100%;
+  max-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.np-outcome-btn {
+  min-height: 4.25rem;
+  padding: 0.5rem 1.5rem;
+  border: 3px solid var(--np-outcome-ink);
+  border-radius: var(--np-r-md);
+  font-family: var(--np-font-sans);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--np-d-fast) var(--np-ease),
+    opacity var(--np-d-fast);
+}
+
+.np-outcome-btn[data-variant='primary'] {
+  background: var(--np-outcome-ink);
+  color: var(--np-outcome-bg);
+}
+
+.np-outcome-btn[data-variant='secondary'] {
+  background: transparent;
+  color: var(--np-outcome-ink);
+}
+
+.np-outcome-btn[data-variant='secondary']:hover:not(:disabled) {
+  background: rgb(11 11 11 / 0.08);
+}
+
+.np-outcome-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.np-outcome-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* El anillo lima de :focus-visible no se ve sobre lima: aquí, tinta. */
+.np-outcome-btn:focus-visible {
+  outline: 4px solid var(--np-outcome-ink);
+  outline-offset: 4px;
+  border-radius: var(--np-r-md);
+}
+
+/* ─── Aviso de conexión (ConnectionBanner) ───────────────────────────── */
+
+.np-conn-banner {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+}
+
+.np-conn-banner[data-open='true'] {
+  background: var(--np-banner-bg);
+  color: var(--np-banner-ink);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 0.35);
+}
+
+.np-conn-banner-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: calc(0.75rem + env(safe-area-inset-top, 0px)) 1rem 0.75rem;
+  animation: np-banner-in var(--np-d-base) var(--np-ease);
+}
+
+.np-conn-banner-icon {
+  width: 1.625rem;
+  height: 1.625rem;
+  flex-shrink: 0;
+  margin-top: 0.0625rem;
+}
+
+.np-conn-banner-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.np-conn-banner-hint {
+  margin: 0.125rem 0 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+@keyframes np-banner-in {
+  from { opacity: 0; transform: translateY(-0.5rem); }
+  to   { opacity: 1; transform: translateY(0);       }
+}
+
+/* ─── Teclado de importe (AmountKeypad) ──────────────────────────────── */
+
+.np-keypad {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.np-keypad-display {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.625rem 0.75rem 0.75rem;
+  border: 2px solid var(--np-border-hi);
+  border-radius: var(--np-r-lg);
+  background: var(--np-surface-2);
+}
+
+.np-keypad-label {
+  font-size: var(--np-t-label);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--np-text-label);
+}
+
+.np-keypad-amount {
+  font-family: var(--np-font-mono);
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--np-text);
+  font-size: 2.25rem;
+  font-size: min(3rem, calc(92cqi / var(--np-fit, 6)));
+}
+
+.np-keypad-display[data-empty='true'] .np-keypad-amount {
+  color: var(--np-text-dim);
+}
+
+.np-keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+/* Alto según la pantalla: grande en el móvil, sin pasarse en un portátil. */
+.np-keypad-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: clamp(3.25rem, 7.5vh, 4.5rem);
+  height: clamp(3.25rem, 7.5dvh, 4.5rem);
+  padding: 0;
+  border: 2px solid var(--np-border-hi);
+  border-radius: var(--np-r-lg);
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  font-family: var(--np-font-mono);
+  font-size: 1.625rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition:
+    transform var(--np-d-fast) var(--np-ease),
+    background var(--np-d-fast),
+    border-color var(--np-d-fast);
+}
+
+.np-keypad-key[data-key='00'],
+.np-keypad-key[data-key='back'] {
+  font-size: 1.25rem;
+  color: var(--np-text-mute);
+}
+
+.np-keypad-key:hover:not(:disabled) {
+  border-color: var(--np-text-dim);
+}
+
+.np-keypad-key:active:not(:disabled) {
+  transform: scale(0.95);
+  background: var(--np-border);
+  border-color: var(--np-accent);
+}
+
+.np-keypad-key:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── Cuenta atrás del QR (QrCountdown) ──────────────────────────────── */
+
+.np-qrcd {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.np-qrcd-frame {
+  border-radius: var(--np-r-md);
+  outline: 3px solid transparent;
+  outline-offset: 3px;
+  transition:
+    outline-color var(--np-d-base),
+    opacity var(--np-d-base);
+}
+
+.np-qrcd[data-phase='ending'] .np-qrcd-frame {
+  outline-color: var(--np-warning);
+}
+
+/* Caducado: el QR se apaga para que nadie lo escanee. */
+.np-qrcd[data-phase='over'] .np-qrcd-frame {
+  outline-color: var(--np-danger);
+  opacity: 0.3;
+}
+
+.np-qrcd-track {
+  height: 0.5rem;
+  overflow: hidden;
+  border-radius: var(--np-r-pill);
+  border: 1px solid var(--np-border);
+  background: var(--np-surface-2);
+}
+
+.np-qrcd-fill {
+  height: 100%;
+  background: var(--np-accent);
+  transform-origin: left center;
+  transition: transform 1s linear;
+}
+
+.np-qrcd[data-phase='ending'] .np-qrcd-fill {
+  background: var(--np-warning);
+}
+
+.np-qrcd-label {
+  margin: 0;
+  text-align: center;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--np-text-mute);
+}
+
+.np-qrcd[data-phase='ending'] .np-qrcd-label {
+  color: var(--np-warning);
+  font-weight: 700;
+}
+
+.np-qrcd[data-phase='over'] .np-qrcd-label {
+  color: var(--np-danger);
+  font-weight: 700;
+}
+
+/* ─── Selector de modo y botón fijo abajo ────────────────────────────── */
+
+.np-seg {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface-2);
+}
+
+.np-seg-btn {
+  flex: 1;
+  min-height: 2.75rem;
+  padding: 0.375rem 0.5rem;
+  border: none;
+  border-radius: var(--np-r-sm);
+  background: transparent;
+  color: var(--np-text-mute);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--np-d-fast) var(--np-ease),
+    background var(--np-d-fast),
+    color var(--np-d-fast);
+}
+
+.np-seg-btn[aria-pressed='true'] {
+  background: var(--np-accent);
+  color: var(--np-on-accent);
+}
+
+.np-seg-btn:hover:not([aria-pressed='true']) {
+  background: var(--np-border);
+  color: var(--np-text);
+}
+
+.np-seg-btn:active {
+  transform: scale(0.96);
+}
+
+.np-seg-btn:focus-visible {
+  outline-offset: 1px;
+}
+
+/* El botón de cobrar se queda a mano (pegado abajo) aunque el formulario sea
+   largo. `bottom` lo pone cada app (encima de su barra de pestañas). */
+.np-sticky-action {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 1rem 0 0.5rem;
+  background: linear-gradient(to bottom, transparent, var(--np-surface) 1rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* La franja no se desplaza: se funde despacio (un ciclo cada 5 s). Gana a
+     la regla general de styles.css, que mata todas las animaciones. */
+  .np-outcome-band-track {
+    animation-name: np-outcome-band-fade !important;
+    animation-duration: 2.5s !important;
+    animation-timing-function: ease-in-out !important;
+    animation-iteration-count: infinite !important;
+    animation-direction: alternate !important;
+  }
+}
