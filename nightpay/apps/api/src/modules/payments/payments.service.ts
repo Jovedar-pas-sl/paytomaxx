@@ -129,6 +129,8 @@ interface PaymentDraft {
   topUp: TopUpWallet | null;
   ttlSeconds: number;
   platformCommissionBps: number;
+  /** % de la chica fijado al crear (#54); null si no lo crea una chica. */
+  operatorCommissionBps: number | null;
 }
 
 /**
@@ -180,6 +182,8 @@ export interface LockedPaymentRow {
   tipGoesTo: string | null;
   tipBeneficiaryUserId: string | null;
   revenueCategory: string;
+  /** % de la chica fijado al crear el cobro (null en cobros anteriores). */
+  operatorCommissionBps?: number | null;
 }
 
 export interface TransitionOptions {
@@ -355,7 +359,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     if (replayed) return replayed;
 
     // 2. Validar y resolver todo antes de escribir nada.
-    const draft = await this.draftPayment(tenantId, dto, creatorRole);
+    const draft = await this.draftPayment(tenantId, dto, { userId: creatorUserId, role: creatorRole });
 
     // 3. Cobro + evento inicial (+ saldo nuevo de una recarga) — atómico.
     let payment: { id: string; amountCents: number };
@@ -416,8 +420,9 @@ export class PaymentsService implements OnApplicationBootstrap {
   private async draftPayment(
     tenantId: string,
     dto: CreatePaymentDto,
-    creatorRole: string | undefined,
+    creator: { userId: string | null; role: string | undefined },
   ): Promise<PaymentDraft> {
+    const creatorRole = creator.role;
     const terminalId = await this.resolveTerminalId(tenantId, dto);
     const isWalletTopUp = Boolean(dto.wallet);
     const isPosExternal = dto.captureMethod === 'POS_EXTERNAL';
@@ -478,7 +483,37 @@ export class PaymentsService implements OnApplicationBootstrap {
       // datáfono) — TTL más generoso. Wallet topup y QR normal: 5 min default.
       ttlSeconds: isPosExternal ? POS_QR_TTL_SECONDS : QR_TTL_SECONDS,
       platformCommissionBps: venue.platformCommissionBps,
+      operatorCommissionBps: await this.operatorCommissionSnapshot({
+        creator,
+        isWalletTopUp,
+        revenueCategory,
+        venueMap: venue.operatorCommissionDefaults as Partial<OperatorCommissionDefaults> | null,
+      }),
     };
+  }
+
+  /**
+   * #54: el % de la chica se fija al crear el cobro (su commissionBps o el del
+   * local para la categoría). Antes se leía al pagarse: un cambio de % mientras
+   * el cliente pagaba se aplicaba a un cobro ya creado. Recargas de saldo: la
+   * comisión va por consumo, no aquí.
+   */
+  private async operatorCommissionSnapshot(args: {
+    creator: { userId: string | null; role: string | undefined };
+    isWalletTopUp: boolean;
+    revenueCategory: RevenueCategory;
+    venueMap: Partial<OperatorCommissionDefaults> | null;
+  }): Promise<number | null> {
+    const { userId, role } = args.creator;
+    if (role !== 'OPERATOR' || !userId || args.isWalletTopUp) return null;
+    const user = await this.prisma.asSystem((tx) =>
+      tx.user.findFirst({ where: { id: userId }, select: { commissionBps: true } }),
+    );
+    return resolveBpsForOperator({
+      category: args.revenueCategory,
+      userCommissionBpsOverride: user?.commissionBps ?? null,
+      venueMap: args.venueMap,
+    });
   }
 
   /**
@@ -598,6 +633,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           // Snapshot del % plataforma al momento del cobro (contabilidad histórica
           // estable aunque el venue cambie el % mañana).
           platformCommissionBps: draft.platformCommissionBps,
+          operatorCommissionBps: draft.operatorCommissionBps,
           tipCents,
           revenueCategory: draft.revenueCategory,
           ...(tipGoesTo ? { tipGoesTo } : {}),
@@ -1109,7 +1145,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
                  "providerTxId", provider, "createdByUserId", "walletId",
                  "tipCents", "tipGoesTo", "tipBeneficiaryUserId",
-                 "revenueCategory"
+                 "revenueCategory", "operatorCommissionBps"
             FROM payments
            WHERE id = ${paymentId}::uuid
            FOR UPDATE
@@ -1239,7 +1275,8 @@ export class PaymentsService implements OnApplicationBootstrap {
         // NOTA: si p.walletId está set, NO generamos earning aquí — el earning
         // se genera per-consumption en wallets.service (chica cobra granular).
         if (result.nextState === 'AUTHORIZED' && p.createdByUserId && !p.walletId) {
-          const bpsForOperator = resolveBpsForOperator({
+          // #54: el % fijado al crear el cobro; en cobros anteriores, el de ahora.
+          const bpsForOperator = p.operatorCommissionBps ?? resolveBpsForOperator({
             category: p.revenueCategory,
             userCommissionBpsOverride: creatorCommissionBps,
             venueMap: venueCommissionMap as Partial<OperatorCommissionDefaults>,

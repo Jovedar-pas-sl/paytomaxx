@@ -281,6 +281,10 @@ model Payment {
   // Snapshot del % plataforma al momento del cobro. Si Venue.platformCommissionBps
   // cambia mañana, contabilidad histórica usa este valor congelado.
   platformCommissionBps Int?
+  // Snapshot del % de la chica (OPERATOR) al crear el cobro: su commissionBps
+  // o el del local para la categoría. Al pagarse se usa este, no el de ese
+  // momento. Null = cobro anterior o que no es de una chica (se calcula al pagar).
+  operatorCommissionBps Int?
 
   // Propina opcional (cliente decide añadir). Campos:
   //  - tipCents: importe extra sobre amountCents (no entra en availableAmountCents

@@ -270,3 +270,27 @@ describe('create — Idempotency-Key ligada a quién y a qué (#32)', () => {
     expect(created).toHaveLength(0);
   });
 });
+
+describe('create — el % de la chica se fija al crear el cobro (#54)', () => {
+  it('cobro de la chica: su % de ahora (o el del local) queda guardado', async () => {
+    const own = makeService();
+    own.db.user.findFirst.mockResolvedValueOnce({ id: 'op-1', commissionBps: 7_000 });
+    await own.service.create('tenant-1', 'idem-key-0200', dto(), operator);
+    expect(own.created[0]).toMatchObject({ operatorCommissionBps: 7_000, revenueCategory: 'CHICA_SERVICE' });
+
+    const venueDefault = makeService();
+    venueDefault.db.user.findFirst.mockResolvedValueOnce({ id: 'op-1', commissionBps: null });
+    await venueDefault.service.create('tenant-1', 'idem-key-0201', dto(), operator);
+    expect(venueDefault.created[0]).toMatchObject({ operatorCommissionBps: 9_000 });
+  });
+
+  it('cobros del local y recargas de saldo: sin % fijado', async () => {
+    const byOwner = makeService();
+    await byOwner.service.create('tenant-1', 'idem-key-0202', dto({ revenueCategory: 'VENUE_BAR' }), owner);
+    expect(byOwner.created[0]).toMatchObject({ operatorCommissionBps: null });
+
+    const topUp = makeService();
+    await topUp.service.create('tenant-1', 'idem-key-0203', dto({ wallet: { create: true } }), operator);
+    expect(topUp.created[0]).toMatchObject({ operatorCommissionBps: null });
+  });
+});

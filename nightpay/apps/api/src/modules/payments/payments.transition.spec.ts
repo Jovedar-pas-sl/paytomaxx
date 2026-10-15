@@ -320,3 +320,26 @@ describe('transition — recarga de saldo cobrada (#7, #56)', () => {
     });
   });
 });
+
+describe('transition — comisión con el % fijado al crear (#54)', () => {
+  it('el dueño cambió el % mientras el cliente pagaba → cuenta el del momento de crear', async () => {
+    const { service, executed } = makeTransitionService({
+      locked: { ...baseRow, operatorCommissionBps: 5_000 },
+      attemptTip: 0,
+      creatorBps: 9_000,
+    });
+    await service.transition(PAYMENT_ID, authorized);
+    // tenant, chica, cobro, importe, bps, comisión, propina
+    expect(earningInsert(executed)?.slice(3)).toEqual([10_000, 5_000, 5_000, 0]);
+  });
+
+  it('cobro de antes (sin % guardado) → el de ahora, como siempre', async () => {
+    const { service, executed } = makeTransitionService({
+      locked: { ...baseRow, operatorCommissionBps: null },
+      attemptTip: 0,
+      creatorBps: 8_000,
+    });
+    await service.transition(PAYMENT_ID, authorized);
+    expect(earningInsert(executed)?.slice(3)).toEqual([10_000, 8_000, 8_000, 0]);
+  });
+});
