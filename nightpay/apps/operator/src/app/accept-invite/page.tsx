@@ -69,6 +69,7 @@ function Inner() {
             <Input
               type="password"
               label="Contraseña nueva (mín. 8)"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -76,6 +77,7 @@ function Inner() {
             <Input
               type="password"
               label="Repite la contraseña"
+              autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               required

@@ -47,7 +47,7 @@ export function Earnings() {
         </SwitchBtn>
       </div>
       {error ? (
-        <Card style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
+        <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
           <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>{error}</p>
         </Card>
       ) : null}

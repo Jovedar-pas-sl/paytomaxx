@@ -26,7 +26,7 @@ export function MyNightCard() {
 
   if (error) {
     return (
-      <Card style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
+      <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
         <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.9rem' }}>{error}</p>
       </Card>
     );

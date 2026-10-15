@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useId, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Logo, Select } from '@nightpay/ui';
 import {
   fetchSelfOnboardingProfile,
@@ -90,6 +90,15 @@ export function SelfOnboardingClient({ token }: Props) {
   const [payoutAddress, setPayoutAddress] = useState('');
   const [payoutLabel, setPayoutLabel] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Cada etiqueta, unida a su campo (antes los desplegables no tenían nombre).
+  const fieldId = useId();
+  const ids = {
+    country: `${fieldId}-pais`,
+    provider: `${fieldId}-wallet`,
+    kyc: `${fieldId}-kyc`,
+    method: `${fieldId}-metodo`,
+    notes: `${fieldId}-notas`,
+  };
 
   useEffect(() => {
     fetchSelfOnboardingProfile(token)
@@ -213,8 +222,9 @@ export function SelfOnboardingClient({ token }: Props) {
               inputMode="tel"
             />
             <div style={{ marginTop: '0.75rem' }}>
-              <label style={selectLabel}>País del pasaporte</label>
+              <label htmlFor={ids.country} style={selectLabel}>País del pasaporte</label>
               <Select
+                id={ids.country}
                 value={passportCountry}
                 onChange={(e) => setPassportCountry(e.target.value)}
                 disabled={submitting}
@@ -272,8 +282,9 @@ export function SelfOnboardingClient({ token }: Props) {
           <section>
             <h2 style={sectionHead}>Wallet / Exchange donde recibir tu dinero</h2>
             <div style={{ marginTop: '0.5rem' }}>
-              <label style={selectLabel}>¿Dónde tienes tu wallet?</label>
+              <label htmlFor={ids.provider} style={selectLabel}>¿Dónde tienes tu wallet?</label>
               <Select
+                id={ids.provider}
                 value={walletProvider}
                 onChange={(e) => setWalletProvider(e.target.value as WalletProvider | '')}
                 disabled={submitting}
@@ -285,8 +296,9 @@ export function SelfOnboardingClient({ token }: Props) {
               </Select>
             </div>
             <div style={{ marginTop: '0.75rem' }}>
-              <label style={selectLabel}>¿Cómo va el KYC?</label>
+              <label htmlFor={ids.kyc} style={selectLabel}>¿Cómo va el KYC?</label>
               <Select
+                id={ids.kyc}
                 value={walletStatus}
                 onChange={(e) => setWalletStatus(e.target.value as WalletStatusKYC | '')}
                 disabled={submitting}
@@ -316,8 +328,9 @@ export function SelfOnboardingClient({ token }: Props) {
               y el admin te ayuda.
             </p>
             <div style={{ marginTop: '0.5rem' }}>
-              <label style={selectLabel}>Método</label>
+              <label htmlFor={ids.method} style={selectLabel}>Método</label>
               <Select
+                id={ids.method}
                 value={payoutMethod}
                 onChange={(e) => setPayoutMethod(e.target.value as PayoutMethod | '')}
                 disabled={submitting}
@@ -375,8 +388,11 @@ export function SelfOnboardingClient({ token }: Props) {
 
           {/* Notas */}
           <section>
-            <h2 style={sectionHead}>Notas (opcional)</h2>
+            <h2 style={sectionHead}>
+              <label htmlFor={ids.notes}>Notas (opcional)</label>
+            </h2>
             <textarea
+              id={ids.notes}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
