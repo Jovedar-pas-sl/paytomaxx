@@ -50,8 +50,9 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
     if (mode === 'choose' && first !== value) return restart('Los dos PIN no son iguales: empieza otra vez');
     setBusy(true);
     try {
-      const problem = await onPin(value);
-      if (problem) restart(problem);
+      // Si la pantalla sigue aquí (no se terminó), se vuelve a empezar: con
+      // las 4 cifras puestas ya no se podía teclear nada.
+      restart(await onPin(value));
     } catch (err) {
       restart((err as Error).message);
     } finally {

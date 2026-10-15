@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Button } from '@nightpay/ui';
 import { walletCardUrl } from '@nightpay/contracts';
 import { fetchWalletById, getUser, issueWalletCard, linkWalletCard, setWalletPin, type WalletLookup } from '@/lib/api';
@@ -20,6 +20,9 @@ export function NewWalletCard({ walletId }: { walletId: string }) {
   const [nfc, setNfc] = useState(false);
   const [reading, setReading] = useState<AbortController | null>(null);
   const [iphoneHint, setIphoneHint] = useState(false);
+  // Código para una ficha vacía: se pide una vez y se guarda hasta grabarlo
+  // (antes uno nuevo en cada intento, aunque la ficha ya tuviera el suyo).
+  const blankCode = useRef<Promise<string> | null>(null);
 
   useEffect(() => {
     setNfc(nfcSupported());
@@ -29,20 +32,34 @@ export function NewWalletCard({ walletId }: { walletId: string }) {
   }, [walletId]);
   useEffect(() => () => reading?.abort(), [reading]);
 
+  /** El código para grabar en una ficha vacía; si la petición falla, el siguiente intento pide otro. */
+  function codeForBlankCard(): Promise<string> {
+    if (!blankCode.current) {
+      const request = issueWalletCard();
+      // Con manejador: un fallo no queda como promesa rechazada sin atender.
+      request.catch(() => {
+        if (blankCode.current === request) blankCode.current = null;
+      });
+      blankCode.current = request;
+    }
+    return blankCode.current;
+  }
+
   /** Android: lee la ficha; si está vacía, le graba su enlace; y se la da a este saldo. */
   async function giveCard(code: string) {
     const controller = new AbortController();
     setReading(controller);
     setError(null);
     try {
-      // El código para una ficha vacía lo crea el servidor; se pide antes de
-      // acercarla (al grabar, la ficha tiene que seguir ahí).
-      const blank = issueWalletCard();
+      // El código lo crea el servidor; se pide antes de acercarla (al grabar,
+      // la ficha tiene que seguir ahí).
+      const blank = codeForBlankCard();
       const read = await readCard(controller.signal);
       let token = read.token;
       if (!token) {
         token = await blank;
         await read.writeUrl(walletCardUrl(window.location.origin, token));
+        blankCode.current = null; // ya está en la ficha
       }
       setWallet(await linkWalletCard(code, token, read.uid));
     } catch (err) {
@@ -61,7 +78,15 @@ export function NewWalletCard({ walletId }: { walletId: string }) {
     setIphoneHint(true);
   }
 
-  if (!wallet) return error ? <p style={errorStyle}>{error}</p> : null;
+  if (!wallet) {
+    return error ? (
+      <p role="alert" style={errorStyle}>
+        {error}
+      </p>
+    ) : (
+      <p style={hintStyle}>Cargando el saldo del cliente…</p>
+    );
+  }
 
   if (choosing) {
     return (
@@ -117,7 +142,11 @@ export function NewWalletCard({ walletId }: { walletId: string }) {
           Android.)
         </p>
       ) : null}
-      {error ? <p style={errorStyle}>{error}</p> : null}
+      {error ? (
+        <p role="alert" style={errorStyle}>
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
