@@ -251,6 +251,60 @@ describe('la página del saldo del cliente', () => {
   });
 });
 
+/** El SQL de una llamada a $queryRaw (con ? en lugar de los valores). */
+const sqlOf = (call: unknown[]): string => (call[0] as TemplateStringsArray).join('?');
+
+describe('sumar una recarga al saldo de su Face ID', () => {
+  function mergeService(o: { open?: Array<{ id: string }>; target?: Record<string, unknown>; codeTaken?: boolean } = {}) {
+    const made = makeService();
+    const rows = [
+      { id: 'src', tenantId: 'home', walletGroup: 'principal', balanceCents: 8000, status: 'ACTIVE', shortCode: 'AAAAAA', mergedIntoId: null },
+      { id: 'tgt', tenantId: 'home', walletGroup: 'principal', balanceCents: 0, status: 'DEPLETED', shortCode: 'K7Q4M2', mergedIntoId: null, ...o.target },
+    ];
+    made.tx.$queryRaw.mockImplementation(async (sql: TemplateStringsArray, ...values: unknown[]) => {
+      const q = sql.join('?');
+      if (q.includes('FROM payments')) return o.open ?? [];
+      if (q.includes('"shortCode" = ?')) return o.codeTaken && values[0] === 'K7Q4M2' ? [{ id: 'otro' }] : [];
+      return rows;
+    });
+    return made;
+  }
+
+  it('bloquea primero los pagos a medias de la recarga (como el cobro: pago → saldo) y luego los saldos', async () => {
+    const { svc, tx } = mergeService();
+    await svc.mergeInto('src', 'tgt');
+    const sqls = tx.$queryRaw.mock.calls.map(sqlOf);
+    expect(sqls[0]).toMatch(/FROM payments[\s\S]*"walletId" = \?::uuid[\s\S]*ORPHAN[\s\S]*FOR UPDATE/);
+    expect(sqls[1]).toMatch(/FROM client_wallets[\s\S]*FOR UPDATE/);
+  });
+
+  it('con un pago de la recarga a medias no se junta nada', async () => {
+    const { svc, tx } = mergeService({ open: [{ id: 'pay-1' }] });
+    await expect(svc.mergeInto('src', 'tgt')).rejects.toThrow(/a medias/);
+    expect(tx.clientWallet.update).not.toHaveBeenCalled();
+  });
+
+  it('el saldo a 0 se reabre; si su código lo tiene ya otro cliente, con uno nuevo', async () => {
+    const { svc, tx } = mergeService({ codeTaken: true });
+    expect(await svc.mergeInto('src', 'tgt')).toEqual({ balanceCents: 8000 });
+    const targetUpdate = tx.clientWallet.update.mock.calls.find((c) => c[0].where.id === 'tgt')![0];
+    expect(targetUpdate.data).toMatchObject({ balanceCents: { increment: 8000 }, status: 'ACTIVE' });
+    expect(targetUpdate.data.shortCode).toMatch(/^[A-HJKMNP-Z2-9]{6}$/);
+    expect(targetUpdate.data.shortCode).not.toBe('K7Q4M2');
+    expect(tx.clientWallet.update.mock.calls.find((c) => c[0].where.id === 'src')![0].data).toEqual({
+      balanceCents: 0,
+      status: 'DEPLETED',
+      mergedIntoId: 'tgt',
+    });
+  });
+
+  it('un saldo que ya se sumó a otro no recibe recargas', async () => {
+    const { svc, tx } = mergeService({ target: { mergedIntoId: 'otro' } });
+    await expect(svc.mergeInto('src', 'tgt')).rejects.toThrow(/cerrado/);
+    expect(tx.clientWallet.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('el cliente perdió el enlace de su saldo', () => {
   it('el dueño le da uno nuevo y el viejo deja de valer', async () => {
     const { svc, tx, audit } = makeService();

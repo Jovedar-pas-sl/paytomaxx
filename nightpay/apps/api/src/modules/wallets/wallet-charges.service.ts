@@ -16,6 +16,7 @@ import { AuditService } from '../audit/audit.service';
 import { resolveBpsForOperator, resolveRevenueCategory, type RevenueCategory } from '../payments/commission';
 import { applyServiceItem } from '../payments/service-item';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
+import { reopenData } from './wallet-activation';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
@@ -550,12 +551,32 @@ export class WalletChargesService {
   async mergeInto(sourceWalletId: string, targetWalletId: string): Promise<{ balanceCents: number }> {
     if (sourceWalletId === targetWalletId) throw new ConflictException('Es el mismo saldo');
     const result = await this.prisma.acrossVenues(async (tx) => {
-      // Siempre en el mismo orden: dos fusiones a la vez no se bloquean entre sí.
+      // 1) Los pagos a medias de la recarga, bloqueados ANTES que los saldos
+      //    (el mismo orden que el cobro: pago → saldo, sin abrazos mortales).
+      //    Un cobro que se está confirmando ahora mismo termina antes (y lo
+      //    que suma ya cuenta aquí); uno que llegue después espera a que esto
+      //    acabe. ORPHAN también: la conciliación aún lo puede dar por pagado.
+      const open = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM payments
+         WHERE "walletId" = ${sourceWalletId}::uuid
+           AND status IN ('CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING', 'ORPHAN')
+         FOR UPDATE
+      `;
+      if (open.length > 0) throw new ConflictException('Esta recarga tiene otro pago a medias: inténtalo en unos minutos');
+      // 2) Los dos saldos, siempre en el mismo orden: dos fusiones a la vez no se bloquean entre sí.
       const ids = [sourceWalletId, targetWalletId].sort();
       const rows = await tx.$queryRaw<
-        Array<{ id: string; tenantId: string; walletGroup: string | null; balanceCents: number; status: string }>
+        Array<{
+          id: string;
+          tenantId: string;
+          walletGroup: string | null;
+          balanceCents: number;
+          status: string;
+          shortCode: string | null;
+          mergedIntoId: string | null;
+        }>
       >`
-        SELECT id, "tenantId", "walletGroup", "balanceCents", status::text AS status
+        SELECT id, "tenantId", "walletGroup", "balanceCents", status::text AS status, "shortCode", "mergedIntoId"
           FROM client_wallets WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE
       `;
       const source = rows.find((r) => r.id === sourceWalletId);
@@ -564,17 +585,19 @@ export class WalletChargesService {
       if (!sameWalletGroup(target, { id: source.tenantId, walletGroup: source.walletGroup })) {
         throw new ConflictException('Ese saldo es de otro local: no se pueden juntar');
       }
-      if (source.status !== 'ACTIVE' || source.balanceCents <= 0) throw new ConflictException('Esta recarga ya no se puede sumar');
-      if (target.status !== 'ACTIVE' && target.status !== 'DEPLETED') throw new ConflictException('Tu saldo está cerrado');
+      if (source.status !== 'ACTIVE' || source.balanceCents <= 0 || source.mergedIntoId) {
+        throw new ConflictException('Esta recarga ya no se puede sumar');
+      }
+      // Un saldo ya sumado a otro no recibe dinero: el del cliente es aquel.
+      if ((target.status !== 'ACTIVE' && target.status !== 'DEPLETED') || target.mergedIntoId) {
+        throw new ConflictException('Tu saldo está cerrado');
+      }
       const keys = await tx.walletPasskey.count({ where: { walletId: sourceWalletId } });
       if (keys > 0) throw new ConflictException('Esta recarga ya tiene su propio Face ID');
-      const open = await tx.payment.count({
-        where: { walletId: sourceWalletId, status: { in: ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING'] } },
-      });
-      if (open > 0) throw new ConflictException('Esta recarga tiene otro pago a medias: inténtalo en unos minutos');
+      // A 0 (DEPLETED) se reabre; si su código lo tiene ya otro cliente, con uno nuevo.
       await tx.clientWallet.update({
         where: { id: targetWalletId },
-        data: { balanceCents: { increment: source.balanceCents }, status: 'ACTIVE' },
+        data: { balanceCents: { increment: source.balanceCents }, ...(await reopenData(tx, target)) },
       });
       await tx.clientWallet.update({
         where: { id: sourceWalletId },
