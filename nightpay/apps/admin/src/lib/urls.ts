@@ -10,3 +10,8 @@ export function safeHttpUrl(raw: string | null | undefined): string | null {
     return null;
   }
 }
+
+/** Imagen PNG en línea (el QR de la 2FA). Otra cosa no se pinta como imagen. */
+export function isPngDataUrl(raw: string | null | undefined): raw is string {
+  return typeof raw === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(raw);
+}
