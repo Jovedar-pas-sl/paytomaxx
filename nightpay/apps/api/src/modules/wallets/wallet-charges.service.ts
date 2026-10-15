@@ -17,6 +17,7 @@ import { resolveBpsForOperator, resolveRevenueCategory, type RevenueCategory } f
 import { applyServiceItem } from '../payments/service-item';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 import { reopenData } from './wallet-activation';
+import { mergedWalletIds } from './wallet-merge-chain';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
@@ -1151,13 +1152,7 @@ export class WalletChargesService {
   }
 
   private async refundToCard(actor: Actor, walletId: string, amountCents: number, bankReference?: string): Promise<number> {
-    const topUps = await this.prisma.acrossVenues((tx) =>
-      tx.payment.findMany({
-        where: { walletId, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED'] }, availableAmountCents: { gt: 0 } },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, availableAmountCents: true },
-      }),
-    );
+    const topUps = await this.cardTopUps(actor, walletId);
     const plan = allocateCardRefund(
       topUps.map((t) => ({ paymentId: t.id, availableAmountCents: t.availableAmountCents })),
       amountCents,
@@ -1183,6 +1178,29 @@ export class WalletChargesService {
       }
     }
     return done;
+  }
+
+  /**
+   * Las recargas que se pueden devolver a la tarjeta: las de este saldo y las
+   * de los saldos que se sumaron a él (su dinero está aquí), la más reciente
+   * primero. Solo las de este local: las devoluciones las apunta el local de
+   * la recarga (una recarga sumada desde otro local del grupo se devuelve en
+   * efectivo).
+   */
+  private async cardTopUps(actor: Actor, walletId: string): Promise<Array<{ id: string; availableAmountCents: number }>> {
+    return this.prisma.acrossVenues(async (tx) => {
+      const walletIds = await mergedWalletIds(tx, walletId);
+      return tx.payment.findMany({
+        where: {
+          walletId: { in: walletIds },
+          tenantId: actor.tenantId,
+          status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED'] },
+          availableAmountCents: { gt: 0 },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, availableAmountCents: true },
+      });
+    });
   }
 
   private refunds(): RefundsService {

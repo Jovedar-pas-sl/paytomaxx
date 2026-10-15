@@ -373,6 +373,29 @@ describe('devolver el saldo al cliente que se va', () => {
     expect(refunds.registerBankRefund.mock.calls[0]![2]).toEqual({ walletPayout: true });
   });
 
+  it('a la tarjeta tras sumar recargas (Face ID): cuentan también las de los saldos sumados a este', async () => {
+    const { svc, tx, refunds } = makeService();
+    const row = [{ id: 'w-1', balanceCents: 30_000, status: 'ACTIVE' }];
+    tx.$queryRaw.mockImplementation(async (sql: TemplateStringsArray) =>
+      sql.join('?').includes('WITH RECURSIVE') ? [{ id: 'w-1' }, { id: 'w-recarga' }] : row,
+    );
+    // El saldo solo tiene 10 € de recargas suyas; los otros 20 € vienen de la recarga sumada.
+    tx.payment.findMany.mockResolvedValueOnce([
+      { id: 'top-recarga', availableAmountCents: 20_000 },
+      { id: 'top-1', availableAmountCents: 10_000 },
+    ]);
+    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).resolves.toEqual({ refundedCents: 30_000, method: 'CARD' });
+    expect(tx.payment.findMany.mock.calls[0]![0].where).toMatchObject({
+      walletId: { in: ['w-1', 'w-recarga'] },
+      // Las devoluciones las apunta el local de las recargas (el de quien devuelve).
+      tenantId: 'home',
+    });
+    expect(refunds.registerBankRefund.mock.calls.map((c) => [c[0].paymentId, c[0].amountCents])).toEqual([
+      ['top-recarga', 20_000],
+      ['top-1', 10_000],
+    ]);
+  });
+
   it('a la tarjeta solo el dueño; si una devolución falla, queda abierto el resto', async () => {
     const { svc } = makeService({ wallet: wallet({ closeRequestedAt: new Date() }) });
     await expect(svc.payout(manager, 'w-1', { method: 'CARD' })).rejects.toThrow(ForbiddenException);
