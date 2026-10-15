@@ -59,7 +59,6 @@ function Spinner() {
           animation: 'np-spin 700ms linear infinite',
         }}
       />
-      <style>{`@keyframes np-spin { to { transform: rotate(360deg); } }`}</style>
     </span>
   );
 }

@@ -306,6 +306,33 @@ input::placeholder {
   color: var(--np-text-dim);
 }
 
+/* Flecha del <select>. En un data: URI no entran variables CSS: el trazo es el
+   --np-text-dim de cada tema (#8a8a83 oscuro, #66665f claro). */
+.np-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%238a8a83' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  background-size: 0.75rem;
+}
+
+[data-theme='light'] .np-select {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%2366665f' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
+}
+
+/* Solo para lectores de pantalla (p. ej. el importe entero de AmountDisplay). */
+.np-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Modal entry */
 @keyframes np-fade-in {
   from { opacity: 0; }
@@ -315,6 +342,56 @@ input::placeholder {
 @keyframes np-modal-in {
   from { opacity: 0; transform: translateY(8px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+/* Alto con dvh: en el móvil la barra del navegador no tapa el final. El panel
+   recibe el foco al abrir (para el lector de pantalla), sin anillo: no es un
+   control. */
+.np-modal-panel {
+  max-height: 90vh;
+  max-height: 90dvh;
+}
+
+.np-modal-panel:focus {
+  outline: none;
+}
+
+.np-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: -0.5rem -0.5rem 0 auto;
+  padding: 0;
+  border: none;
+  border-radius: var(--np-r-pill);
+  background: transparent;
+  color: var(--np-text-mute);
+  transition:
+    background var(--np-d-fast),
+    color var(--np-d-fast);
+}
+
+.np-modal-close:hover {
+  background: var(--np-border);
+  color: var(--np-text);
+}
+
+/* Animaciones de los componentes: aquí una vez, no un <style> por cada uno. */
+@keyframes np-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes np-amount-breathe {
+  0%, 100% { opacity: 1;    }
+  50%      { opacity: 0.55; }
+}
+
+@keyframes np-pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  100% { transform: scale(2.4); opacity: 0;   }
 }
 
 /* Tables */
