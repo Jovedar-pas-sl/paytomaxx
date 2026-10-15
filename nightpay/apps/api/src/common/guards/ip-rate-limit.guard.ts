@@ -11,6 +11,13 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.module';
+import { clientIp, type ClientIpRequest } from '../http/client-ip';
+
+/**
+ * La IP real (de fiar) del cliente: ver common/http/client-ip.ts. Se
+ * re-exporta aquí porque el login y otros módulos la importan de este archivo.
+ */
+export { clientIp };
 
 const META_KEY = 'np:ip-rate-limit';
 
@@ -36,11 +43,7 @@ export interface IpRateLimitConfig {
 export const IpRateLimit = (config: IpRateLimitConfig) =>
   SetMetadata(META_KEY, config);
 
-interface MinimalReq {
-  headers: Record<string, string | string[] | undefined>;
-  ip?: string;
-  socket?: { remoteAddress?: string };
-}
+type MinimalReq = ClientIpRequest;
 
 /**
  * Guard que lee el meta del handler y aplica fixed-window INCR en Redis.
@@ -110,24 +113,4 @@ export class IpRateLimitGuard implements CanActivate {
     }
     return true;
   }
-}
-
-/**
- * Extrae la IP real. Detrás de Cloudflare manda CF-Connecting-IP: lo pone
- * Cloudflare y el cliente no puede falsearlo (el primer valor de
- * X-Forwarded-For sí). Sin él, X-Forwarded-For; en dev, socket.remoteAddress.
- * La usan también el login y su bloqueo por intentos: con el primer
- * X-Forwarded-For bastaba cambiarlo en cada intento para no llenar el contador.
- */
-export function clientIp(req: MinimalReq): string | null {
-  const cf = req.headers['cf-connecting-ip'];
-  const cfStr = Array.isArray(cf) ? cf[0] : cf;
-  if (typeof cfStr === 'string' && cfStr.trim().length > 0) return cfStr.trim();
-  const xff = req.headers['x-forwarded-for'];
-  const xffStr = Array.isArray(xff) ? xff[0] : xff;
-  if (typeof xffStr === 'string' && xffStr.length > 0) {
-    const first = xffStr.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  return req.ip ?? req.socket?.remoteAddress ?? null;
 }

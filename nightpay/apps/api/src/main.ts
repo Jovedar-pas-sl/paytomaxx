@@ -10,7 +10,14 @@ import {
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { redactSecretsInUrl } from './common/logging/redact-url';
-import { ORIGIN_AUTH_HEADER, originAllowed } from './common/http/origin-guard';
+import { originAuthHook } from './common/http/origin-guard';
+import { clientIp, trustInternalProxy, type ClientIpRequest } from './common/http/client-ip';
+import {
+  GLOBAL_RATE_LIMIT_MAX,
+  GLOBAL_RATE_LIMIT_WINDOW,
+  globalRateLimitKey,
+  isGlobalRateLimitExempt,
+} from './common/http/global-rate-limit';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
 import { envWarnings } from './config/env-warnings';
@@ -38,11 +45,11 @@ async function bootstrap() {
       level: env.LOG_LEVEL,
       // El enlace del saldo (/w/<token>) es la credencial del cliente: no a los logs.
       serializers: {
-        req: (req: { method: string; url: string; hostname?: string; ip?: string }) => ({
+        req: (req: ClientIpRequest & { method: string; url: string; hostname?: string }) => ({
           method: req.method,
           url: redactSecretsInUrl(req.url),
           hostname: req.hostname,
-          remoteAddress: req.ip,
+          remoteAddress: clientIp(req) ?? undefined,
         }),
       },
     },
@@ -50,7 +57,9 @@ async function bootstrap() {
     // Default Fastify es 100; JWT en path (self-onboarding link, accept-invite)
     // tienen ~250 chars. Subimos a 500 para no rechazar tokens válidos con 404.
     maxParamLength: 500,
-    trustProxy: true, // detras de Cloudflare/Coolify
+    // Cabeceras de proxy (X-Forwarded-*) solo de la red interna (Traefik).
+    // Con `true`, req.ip era el primer X-Forwarded-For: lo que quisiera el cliente.
+    trustProxy: trustInternalProxy,
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
@@ -95,46 +104,22 @@ async function bootstrap() {
   });
 
   // Solo a través de Cloudflare (si está ORIGIN_AUTH_SECRET): lo que llegue
-  // directo al servidor se corta antes de todo lo demás. El secreto se quita
-  // de la petición para que no acabe en logs ni en Sentry.
+  // directo al servidor se corta antes de todo lo demás; lo que trae la
+  // cabecera buena queda marcado (CF-Connecting-IP de fiar). El secreto se
+  // quita de la petición para que no acabe en logs ni en Sentry.
   if (env.ORIGIN_AUTH_SECRET) {
-    const secret = env.ORIGIN_AUTH_SECRET;
-    app
-      .getHttpAdapter()
-      .getInstance()
-      .addHook('onRequest', async (req: { headers: Record<string, string | string[] | undefined>; url: string }, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) => {
-        const ok = originAllowed(req.headers, req.url, secret);
-        delete req.headers[ORIGIN_AUTH_HEADER];
-        if (!ok) return reply.code(403).send({ title: 'Forbidden', status: 403 });
-      });
+    app.getHttpAdapter().getInstance().addHook('onRequest', originAuthHook(env.ORIGIN_AUTH_SECRET));
   }
 
-  // Rate limit global — 100 req/min/IP. Endpoints sensibles (login, refresh,
-  // accept-invite) tienen su propio @IpRateLimit más estricto via guard Redis.
+  // Rate limit global por IP de fiar (common/http/client-ip.ts). Endpoints
+  // sensibles (login, refresh, accept-invite) tienen además su @IpRateLimit.
+  // Exentos: el sondeo del saldo (con su propio límite) y el healthcheck del
+  // propio contenedor por loopback (ver global-rate-limit.ts).
   await app.register(rateLimit as any, {
-    max: 100,
-    timeWindow: '1 minute',
-    // La página del saldo del cliente consulta su estado cada pocos segundos y
-    // en un local muchos clientes comparten la IP del wifi: va con su propio
-    // límite (@IpRateLimit en PublicWalletController), no con el global.
-    // "localhost" por la conexión real (req.ip sale de X-Forwarded-For y se puede inventar).
-    allowList: (req: { method: string; url: string; raw?: { socket?: { remoteAddress?: string } } }) => {
-      const peer = req.raw?.socket?.remoteAddress ?? '';
-      return (
-        peer === '127.0.0.1' ||
-        peer === '::1' ||
-        peer === '::ffff:127.0.0.1' ||
-        (req.method === 'GET' && /^\/w\/[^/]+\/state(\?|$)/.test(req.url))
-      );
-    },
-    keyGenerator: (req: { headers: Record<string, string | string[] | undefined>; ip: string }) => {
-      // Detrás de Cloudflare: CF-Connecting-IP no lo puede falsear el cliente;
-      // el primer valor de X-Forwarded-For sí.
-      const cf = req.headers['cf-connecting-ip'];
-      if (typeof cf === 'string' && cf) return cf;
-      const xff = req.headers['x-forwarded-for'];
-      return Array.isArray(xff) ? (xff[0] ?? req.ip) : ((xff as string | undefined) ?? req.ip);
-    },
+    max: GLOBAL_RATE_LIMIT_MAX,
+    timeWindow: GLOBAL_RATE_LIMIT_WINDOW,
+    allowList: isGlobalRateLimitExempt,
+    keyGenerator: globalRateLimitKey,
   });
 
   // /pay/:token es público para clientes que escanean QR — fuera del prefix /v1

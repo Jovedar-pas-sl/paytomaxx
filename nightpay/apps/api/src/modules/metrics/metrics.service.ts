@@ -42,12 +42,22 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
-  readonly earningReversalFailed = new Counter({
+  private readonly earningReversalFailedCounter = new Counter({
     name: 'nightpay_earning_reversal_failed_total',
     help: 'Earning reverse silenciado (refund OK pero comisión chica no descontada)',
-    labelNames: ['venue', 'payment_id'],
+    labelNames: ['venue'],
     registers: [this.registry],
   });
+  /**
+   * Solo por local. El id del cobro era etiqueta: una serie nueva por cobro
+   * (cardinalidad sin límite). El id va en el log y en audit_events
+   * ('refund.earning_reverse_failed'); si alguien aún lo pasa, se ignora.
+   */
+  readonly earningReversalFailed = {
+    inc: (labels: { venue: string; payment_id?: string }, value = 1): void => {
+      this.earningReversalFailedCounter.inc({ venue: labels.venue }, value);
+    },
+  };
 
   // Wallet top-up AUTHORIZED pero credit no aplicado (wallet status != ACTIVE).
   // También crítico — el cliente fue cargado y el wallet no recibió el saldo.
