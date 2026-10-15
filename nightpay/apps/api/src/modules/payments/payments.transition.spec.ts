@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
+import { ConflictException } from '@nestjs/common';
+import { Prisma } from '@nightpay/db';
 import { PaymentsService, type LockedPaymentRow } from './payments.service';
 
 /**
@@ -36,13 +38,17 @@ export interface FakeDb {
   wallets?: Record<string, Row>;
   /** Códigos cortos ya usados por saldos ACTIVE. */
   takenCodes?: string[];
+  /** Lo que lee el servicio antes de la transición (confirmar, cancelar). */
+  payment?: Row | null;
+  /** Otro cobro de este datáfono ya confirmado con el mismo código. */
+  reusedAuthCode?: boolean;
 }
 
-export function sqlOf(strings: unknown): string {
+function sqlOf(strings: unknown): string {
   return Array.isArray(strings) ? (strings as string[]).join('?') : String(strings);
 }
 
-export function makeTransitionService(db: FakeDb) {
+function makeTransitionService(db: FakeDb) {
   const executed: Array<{ sql: string; values: unknown[] }> = [];
   const queryRaw = vi.fn(async (strings: unknown, ...values: unknown[]) => {
     const sql = sqlOf(strings);
@@ -66,9 +72,19 @@ export function makeTransitionService(db: FakeDb) {
     return 1;
   });
   const executeRawUnsafe = vi.fn(async () => 0);
-  const tx = { $queryRaw: queryRaw, $executeRaw: executeRaw, $executeRawUnsafe: executeRawUnsafe };
+  const tx = {
+    $queryRaw: queryRaw,
+    $executeRaw: executeRaw,
+    $executeRawUnsafe: executeRawUnsafe,
+    payment: {
+      findFirst: vi.fn(async () => (db.reusedAuthCode ? { id: 'other-payment' } : null)),
+      update: vi.fn(async () => ({})),
+    },
+    paymentEvent: { create: vi.fn(async () => ({})) },
+  };
   const prisma = {
     $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    payment: { findUnique: vi.fn(async () => db.payment ?? null) },
   };
   const metrics = {
     paymentsTransitioned: { inc: vi.fn() },
@@ -141,5 +157,86 @@ describe('transition — la propina es la que cobró el banco (#3)', () => {
     const { service, updates } = makeTransitionService({ locked: { ...baseRow }, attemptTip: 0 });
     await service.transition(PAYMENT_ID, authorized);
     expect(updates('SET "tipCents"')).toHaveLength(0);
+  });
+});
+
+describe('confirmPosPayment — el camarero confirma el cobro del datáfono (#13)', () => {
+  const posRow = {
+    id: PAYMENT_ID,
+    tenantId: 'tenant-1',
+    terminalId: 'term-1',
+    captureMethod: 'POS_EXTERNAL',
+    status: 'CREATED',
+    createdByUserId: 'op-1',
+  };
+  const waiter = { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' };
+  const locked = {
+    ...baseRow,
+    status: 'CREATED' as const,
+    provider: null,
+    providerTxId: null,
+    tipCents: 3_000,
+    availableAmountCents: 13_000,
+    tipGoesTo: 'operator',
+  };
+
+  it('código, prueba y pagado en la misma transacción; sin propina (nadie la confirmó)', async () => {
+    const { service, tx, updates, executed } = makeTransitionService({ locked, payment: posRow });
+    await expect(
+      service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'ab12 cd', notes: 'mesa 3' }),
+    ).resolves.toEqual({ status: 'AUTHORIZED' });
+
+    // Candado por datáfono + código antes de comprobar si ya se usó.
+    const lockCall = tx.$queryRaw.mock.calls.find((c) => sqlOf(c[0]).includes('pg_advisory_xact_lock'))!;
+    expect(lockCall[1]).toBe('pos-auth:term-1:AB12CD');
+    expect(tx.payment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { not: PAYMENT_ID }, terminalId: 'term-1', authCode: 'AB12CD' }),
+      }),
+    );
+    expect(tx.payment.update).toHaveBeenCalledWith({
+      where: { id: PAYMENT_ID },
+      data: expect.objectContaining({ authCode: 'AB12CD', tipCents: 0, availableAmountCents: 10_000, tipGoesTo: null }),
+    });
+    expect(tx.paymentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventType: 'pos.confirmed',
+          payload: expect.objectContaining({ confirmedByUserId: 'waiter-1', notes: 'mesa 3' }),
+        }),
+      }),
+    );
+    // Lo devolvible es solo el importe y la chica no se lleva la propina inventada.
+    expect(updates('SET status')[0]!.values[1]).toBe(10_000);
+    expect(earningInsert(executed)?.slice(-1)).toEqual([0]);
+  });
+
+  it('código ya usado en otro cobro de este datáfono → 409 y no se marca pagado', async () => {
+    const { service, tx, updates } = makeTransitionService({ locked, payment: posRow, reusedAuthCode: true });
+    await expect(service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD' })).rejects.toThrow(
+      /ya se usó en otro cobro/,
+    );
+    expect(tx.payment.update).not.toHaveBeenCalled();
+    expect(updates('SET status')).toHaveLength(0);
+  });
+
+  it('dos confirmaciones cruzadas: el índice único de la base → el mismo 409', async () => {
+    const { service, tx } = makeTransitionService({ locked, payment: posRow });
+    tx.payment.update.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'test' }),
+    );
+    await expect(service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD' })).rejects.toThrow(
+      ConflictException,
+    );
+  });
+
+  it('ya no está pendiente (lo cambió otro) → 409', async () => {
+    const { service } = makeTransitionService({
+      locked: { ...locked, status: 'CANCELED' as const },
+      payment: posRow,
+    });
+    await expect(service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD' })).rejects.toThrow(
+      /cannot be confirmed/,
+    );
   });
 });

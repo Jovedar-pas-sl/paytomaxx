@@ -9,6 +9,7 @@ import {
   type OnApplicationBootstrap,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
+import { Prisma } from '@nightpay/db';
 import type { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { ClsService } from 'nestjs-cls';
@@ -73,6 +74,11 @@ const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-cat
     'Desde tu app solo puedes cobrar tus servicios. La barra, la habitación y la comida las cobra el camarero desde la caja.',
   'invalid-category': 'Ese servicio tiene una categoría no válida. Revísalo en la carta del panel.',
 };
+
+const POS_AUTH_CODE_REUSED =
+  'Ese código de autorización ya se usó en otro cobro de este datáfono. Revisa el ticket.';
+/** Un código de autorización no confirma dos cobros del mismo datáfono en este tiempo. */
+const POS_AUTH_CODE_WINDOW_MS = 24 * 3600 * 1000;
 
 const TIP_TOO_HIGH = 'La propina no puede pasar del importe del cobro ni de 500,00 €';
 const TIP_DESTINATION_NOT_ALLOWED = 'Desde tu app la propina solo puede ser para ti o para el local';
@@ -1375,31 +1381,20 @@ export class PaymentsService implements OnApplicationBootstrap {
       );
     }
 
-    // El código de autorización identifica UNA operación del datáfono: si ya
-    // confirmó otro cobro del mismo terminal en las últimas 24 h, es un ticket
-    // reutilizado (o un error de tecleo) y no se acepta.
     const authCode = dto.posReceiptRef.replace(/\s+/g, '').toUpperCase();
-    const reused = await this.prisma.payment.findFirst({
-      where: {
-        id: { not: paymentId },
-        terminalId: payment.terminalId,
-        authCode,
-        authorizedAt: { gte: new Date(Date.now() - 24 * 3600 * 1000) },
-      },
-      select: { id: true },
-    });
-    if (reused) {
-      throw new ConflictException(
-        'Ese código de autorización ya se usó en otro cobro de este datáfono. Revisa el ticket.',
-      );
-    }
-
     try {
+      // Comprobar el código, apuntarlo con la prueba del camarero y marcar
+      // pagado van en la MISMA transacción que reparte la comisión (antes eran
+      // tres pasos sueltos: dos camareros podían confirmar con el mismo ticket).
       // H2: expectedTenantId para defensa cross-tenant en confirmPosPayment.
       await this.transition(
         paymentId,
         { type: 'POS_CONFIRMED', posReceiptRef: authCode },
         actor.tenantId,
+        {
+          prepare: (tx, locked) =>
+            this.recordPosConfirmation(tx, locked, { terminalId: payment.terminalId, authCode, actor, dto }),
+        },
       );
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
@@ -1407,21 +1402,62 @@ export class PaymentsService implements OnApplicationBootstrap {
           `Payment cannot be confirmed in state ${payment.status}`,
         );
       }
+      // Red del índice único (dos confirmaciones cruzadas con el mismo código).
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException(POS_AUTH_CODE_REUSED);
+      }
       throw err;
     }
 
-    await this.prisma.payment.update({
-      where: { id: paymentId },
-      data: { authCode, authorizedAt: new Date() },
-    });
+    this.logger.log(
+      `Payment ${paymentId} POS_CONFIRMED by ${actor.role}=${actor.userId} ref=${dto.posReceiptRef} photo=${!!dto.posReceiptPhoto}`,
+    );
 
-    // Audit log con la prueba de cobro (ref + foto opcional). Si hay disputa
-    // o auditoría AEAT, este registro es lo que demuestra que la chica
-    // efectivamente cobró en el datáfono (no se inventó el AUTHORIZED).
-    await this.prisma.paymentEvent.create({
+    return { status: 'AUTHORIZED' };
+  }
+
+  /**
+   * Dentro de la transición, con el cobro bloqueado. El código de
+   * autorización identifica UNA operación del datáfono: si ya confirmó otro
+   * cobro de este datáfono en las últimas 24 h es un ticket reutilizado (o un
+   * error de tecleo) y no se acepta. Se apunta con la prueba del camarero
+   * (ref + foto opcional: lo que demuestra el cobro si hay disputa o
+   * auditoría) y sin propina: el camarero no la confirma y nadie la ha pagado.
+   */
+  private async recordPosConfirmation(
+    tx: TransactionalClient,
+    locked: LockedPaymentRow,
+    input: {
+      terminalId: string;
+      authCode: string;
+      actor: { userId: string; role: string };
+      dto: { posReceiptRef: string; posReceiptPhoto?: string; notes?: string };
+    },
+  ): Promise<Partial<LockedPaymentRow>> {
+    const { terminalId, authCode, actor, dto } = input;
+    // De uno en uno por datáfono y código: el segundo espera y ve al primero.
+    const lockKey = `pos-auth:${terminalId}:${authCode}`;
+    await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    const reused = await tx.payment.findFirst({
+      where: {
+        id: { not: locked.id },
+        terminalId,
+        authCode,
+        authorizedAt: { gte: new Date(Date.now() - POS_AUTH_CODE_WINDOW_MS) },
+      },
+      select: { id: true },
+    });
+    if (reused) throw new ConflictException(POS_AUTH_CODE_REUSED);
+
+    const noTip = { tipCents: 0, availableAmountCents: locked.amountCents, tipGoesTo: null };
+    await tx.payment.update({
+      where: { id: locked.id },
+      data: { authCode, authorizedAt: new Date(), ...noTip },
+    });
+    await tx.paymentEvent.create({
       data: {
-        paymentId,
-        tenantId: actor.tenantId,
+        paymentId: locked.id,
+        tenantId: locked.tenantId,
         eventType: 'pos.confirmed',
         payload: {
           posReceiptRef: dto.posReceiptRef,
@@ -1436,12 +1472,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
       },
     });
-
-    this.logger.log(
-      `Payment ${paymentId} POS_CONFIRMED by ${actor.role}=${actor.userId} ref=${dto.posReceiptRef} photo=${!!dto.posReceiptPhoto}`,
-    );
-
-    return { status: 'AUTHORIZED' };
+    return noTip;
   }
 
   /**
