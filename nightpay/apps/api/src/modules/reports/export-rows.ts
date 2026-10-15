@@ -32,22 +32,43 @@ export interface CobroRow {
   commissionCents: number | null;
   earningTipCents: number | null;
   reversedCents: number | null;
+  /**
+   * Lo descontado por devoluciones que llegaron con la chica ya pagada: es
+   * deuda suya (earning_reversals.afterPayout) y no está en reversedCents.
+   */
+  reversedAfterPayoutCents: number;
 }
 
 /**
- * Un consumo del saldo del cliente con parte para una chica (lo que cobró del
- * saldo, no de tarjeta). El dinero entró con la recarga; aquí solo cuenta su
- * parte. Los consumos anulados no salen.
+ * Un consumo del saldo del cliente (no anulado). El dinero entró con la
+ * recarga: aquí cuenta como venta por tipo y, si lo cobró una chica, su parte
+ * (sin chica, los campos de la chica van a null: p. ej. la barra).
  */
 export interface ConsumoRow {
   id: string;
   at: Date;
   amountCents: number;
   tipCents: number;
+  /** Tipo de venta (CHICA_SERVICE, VENUE_BAR…). */
+  category: string;
   operatorName: string | null;
-  operatorEmail: string;
-  commissionCents: number;
-  earningTipCents: number;
+  operatorEmail: string | null;
+  commissionCents: number | null;
+  earningTipCents: number | null;
+}
+
+/**
+ * Saldo devuelto al cliente que se va. CASH = en efectivo en el local (solo
+ * queda aquí); CARD = a la tarjeta en BBVA (además, ya está apuntado como
+ * devolución de sus recargas).
+ */
+export interface PagoSaldoRow {
+  id: string;
+  at: Date;
+  amountCents: number;
+  method: string;
+  paidByName: string | null;
+  paidByEmail: string | null;
 }
 
 /** Una devolución hecha en el periodo. */
@@ -73,6 +94,19 @@ export interface DevolucionRow {
   reversedDeltaCents: number | null;
   /** La devolución llegó cuando ya se le había pagado: queda como deuda. */
   afterPayout: boolean | null;
+}
+
+/**
+ * Ajustes de noches ya cerradas: lo apuntado después de generar su Z con
+ * fecha de entonces (su Z está congelado, así que van al Z siguiente).
+ */
+export interface AdjustmentRows {
+  /** Cobros que quedaron pagados tarde (aviso del banco tardío, resueltos a mano…). */
+  cobros: CobroRow[];
+  /** Devoluciones apuntadas con la fecha del banco de un día ya cerrado. */
+  devoluciones: DevolucionRow[];
+  /** Consumos del saldo de noches anteriores anulados después. */
+  consumosAnulados: ConsumoRow[];
 }
 
 /** Un pago a una chica hecho en el periodo. */
@@ -141,8 +175,14 @@ export function person(name: string | null, email: string | null): string {
   return name?.trim() || email || '';
 }
 
-/** Parte de la chica de un cobro: comisión + su propina − lo descontado por devoluciones. */
-export function chicaShareCents(r: Pick<CobroRow, 'commissionCents' | 'earningTipCents' | 'reversedCents'>): number {
+/**
+ * Parte de la chica de un cobro: comisión + su propina − lo descontado por
+ * devoluciones, también lo que quedó como deuda por llegar con ella ya pagada
+ * (igual que el resumen, que resta todo lo descontado).
+ */
+export function chicaShareCents(
+  r: Pick<CobroRow, 'commissionCents' | 'earningTipCents' | 'reversedCents' | 'reversedAfterPayoutCents'>,
+): number {
   if (r.commissionCents === null) return 0;
-  return r.commissionCents + (r.earningTipCents ?? 0) - (r.reversedCents ?? 0);
+  return r.commissionCents + (r.earningTipCents ?? 0) - (r.reversedCents ?? 0) - r.reversedAfterPayoutCents;
 }

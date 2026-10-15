@@ -1,0 +1,201 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { buildMetrics, buildPeriodZ, type ZCategoryRow, type ZGroupRow, type ZOperatorRow } from './period-reports';
+import { totalsFromRow, type PeriodTotals, type PeriodTotalsRow } from './period-totals';
+import type { TimeWindow } from './report-period';
+import { PAID_STATUSES_SQL, afterPayoutDebt, paymentAt, refundAt, refundTipPart } from './reporting-sql';
+import { madridQuarter, madridRecentDaysWindow, madridTodayWindow } from './reporting-window';
+import { buildVat303, vatExempt } from './vat-303';
+
+/** La semana de las métricas: hoy y los 7 días anteriores (como antes). */
+const METRICS_PAST_DAYS = 7;
+
+type Count = { count: number | bigint | null };
+
+/**
+ * Métricas del panel, Z de un periodo e IVA 303 (antes en AdminController).
+ * Agregados en SQL con el local explícito y las reglas de reporting-sql.ts:
+ * las mismas fechas y filtros que el informe de la gestoría y las noches.
+ */
+@Injectable()
+export class PeriodReportsService {
+  private readonly prisma: PrismaService;
+
+  constructor(@Inject(PrismaService) prisma: PrismaService) {
+    this.prisma = prisma;
+  }
+
+  /** Hoy y la semana (días de Madrid). El panel lo pide cada pocos segundos: pocas consultas. */
+  async metrics(tenantId: string, now: Date = new Date()) {
+    const today = madridTodayWindow(now);
+    const [todayTotals, weekTotals, statuses] = await Promise.all([
+      this.totals(tenantId, today),
+      this.totals(tenantId, madridRecentDaysWindow(now, METRICS_PAST_DAYS)),
+      this.statusCounts(tenantId, today),
+    ]);
+    return buildMetrics({ today: todayTotals, week: weekTotals, statuses });
+  }
+
+  /** Z (cierre de caja) de un periodo cualquiera. */
+  async periodZ(tenantId: string, window: TimeWindow, now: Date = new Date()) {
+    const [totals, groups, categories, operators, payouts] = await Promise.all([
+      this.totals(tenantId, window),
+      this.groups(tenantId, window),
+      this.categories(tenantId, window),
+      this.operators(tenantId, window),
+      this.operatorPayouts(tenantId, window),
+    ]);
+    const operatorPayouts = payouts[0] ?? { count: 0, totalCents: 0 };
+    return buildPeriodZ({ window, totals, groups, categories, operators, operatorPayouts, now });
+  }
+
+  /** Modelo 303 del trimestre (o del actual): suma de sus tres meses de Madrid. */
+  async vat303(tenantId: string, quarterLabel: string | undefined, now: Date = new Date()) {
+    const quarter = madridQuarter(quarterLabel, now);
+    const venue = await this.prisma.venue.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: { name: true, vatBps: true, vatRegime: true },
+    });
+    if (venue.vatRegime === 'EXENTO') return vatExempt(quarter, venue);
+    const [months, consumptions] = await Promise.all([
+      Promise.all(quarter.months.map((m) => this.totals(tenantId, m))),
+      this.consumptionTotals(tenantId, quarter),
+    ]);
+    return buildVat303({ quarter, venue, months, consumptions, now });
+  }
+
+  /** Cobros, devoluciones y saldo devuelto del periodo, en una sola consulta. */
+  async totals(tenantId: string, w: TimeWindow): Promise<PeriodTotals> {
+    // TODO(merge): con fix/rev-wallets, la CTE «saldo» filtra también wp."status" = 'DONE'
+    // (una devolución a la tarjeta queda PENDING hasta completarse).
+    const rows = await this.prisma.$queryRaw<PeriodTotalsRow[]>`
+      WITH cobros AS (
+        SELECT COUNT(*)::int AS "paymentCount",
+               COALESCE(SUM(p."amountCents"), 0)::bigint AS "grossCents",
+               COALESCE(SUM(p."tipCents"), 0)::bigint AS "tipCents"
+          FROM payments p
+         WHERE p."tenantId" = ${tenantId}::uuid
+           AND p.status IN ${PAID_STATUSES_SQL}
+           AND ${paymentAt('p')} >= ${w.from} AND ${paymentAt('p')} < ${w.to}
+      ), devoluciones AS (
+        SELECT COUNT(*)::int AS "refundCount",
+               COALESCE(SUM(r."amountCents"), 0)::bigint AS "refundedCents",
+               COALESCE(SUM(${refundTipPart('r', 'p')}), 0)::bigint AS "refundedTipCents"
+          FROM refunds r
+          JOIN payments p ON p.id = r."paymentId"
+         WHERE r."tenantId" = ${tenantId}::uuid
+           AND r.status = 'SUCCEEDED'
+           AND ${refundAt('r')} >= ${w.from} AND ${refundAt('r')} < ${w.to}
+      ), saldo AS (
+        SELECT COUNT(*) FILTER (WHERE wp.method = 'CASH')::int AS "walletCashPayoutCount",
+               COALESCE(SUM(wp."amountCents") FILTER (WHERE wp.method = 'CASH'), 0)::bigint AS "walletCashPayoutCents",
+               COUNT(*) FILTER (WHERE wp.method = 'CARD')::int AS "walletCardPayoutCount",
+               COALESCE(SUM(wp."amountCents") FILTER (WHERE wp.method = 'CARD'), 0)::bigint AS "walletCardPayoutCents"
+          FROM wallet_payouts wp
+         WHERE wp."tenantId" = ${tenantId}::uuid
+           AND wp."createdAt" >= ${w.from} AND wp."createdAt" < ${w.to}
+      )
+      SELECT * FROM cobros, devoluciones, saldo
+    `;
+    return totalsFromRow(rows[0]);
+  }
+
+  /** Cobros por estado (también los no pagados: fallidos, caducados…). */
+  private async statusCounts(tenantId: string, w: TimeWindow): Promise<Array<{ status: string; count: number }>> {
+    return this.prisma.$queryRaw<Array<{ status: string; count: number }>>`
+      SELECT p.status::text AS status, COUNT(*)::int AS count
+        FROM payments p
+       WHERE p."tenantId" = ${tenantId}::uuid
+         AND ${paymentAt('p')} >= ${w.from} AND ${paymentAt('p')} < ${w.to}
+       GROUP BY p.status
+    `;
+  }
+
+  private async groups(tenantId: string, w: TimeWindow): Promise<ZGroupRow[]> {
+    return this.prisma.$queryRaw<ZGroupRow[]>`
+      SELECT p."captureMethod", p.provider::text AS provider, t.zone,
+             COUNT(*)::int AS count,
+             COALESCE(SUM(p."amountCents"), 0)::bigint AS "grossCents",
+             COALESCE(SUM(p."tipCents"), 0)::bigint AS "tipCents"
+        FROM payments p
+        LEFT JOIN terminals t ON t.id = p."terminalId"
+       WHERE p."tenantId" = ${tenantId}::uuid
+         AND p.status IN ${PAID_STATUSES_SQL}
+         AND ${paymentAt('p')} >= ${w.from} AND ${paymentAt('p')} < ${w.to}
+       GROUP BY p."captureMethod", p.provider, t.zone
+    `;
+  }
+
+  /** Cobros (aparte las recargas) y consumos del saldo, por tipo. */
+  private async categories(tenantId: string, w: TimeWindow): Promise<ZCategoryRow[]> {
+    return this.prisma.$queryRaw<ZCategoryRow[]>`
+      SELECT CASE WHEN p."walletId" IS NULL THEN 'CARD' ELSE 'TOPUP' END AS source,
+             p."revenueCategory" AS category,
+             COUNT(*)::int AS count,
+             COALESCE(SUM(p."amountCents"), 0)::bigint AS "grossCents",
+             COALESCE(SUM(p."tipCents"), 0)::bigint AS "tipCents"
+        FROM payments p
+       WHERE p."tenantId" = ${tenantId}::uuid
+         AND p.status IN ${PAID_STATUSES_SQL}
+         AND ${paymentAt('p')} >= ${w.from} AND ${paymentAt('p')} < ${w.to}
+       GROUP BY 1, 2
+      UNION ALL
+      SELECT 'WALLET' AS source, c.category,
+             COUNT(*)::int AS count,
+             COALESCE(SUM(c."amountCents"), 0)::bigint AS "grossCents",
+             COALESCE(SUM(c."tipCents"), 0)::bigint AS "tipCents"
+        FROM wallet_consumptions c
+       WHERE c."tenantId" = ${tenantId}::uuid
+         AND c."reversedAt" IS NULL
+         AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to}
+       GROUP BY c.category
+    `;
+  }
+
+  /**
+   * Parte de cada chica de lo cobrado en el periodo (con tarjeta o del saldo):
+   * comisión + propina − lo descontado, también la deuda de devoluciones
+   * llegadas después de pagarle (como la columna «Parte chica» del CSV).
+   */
+  private async operators(tenantId: string, w: TimeWindow): Promise<ZOperatorRow[]> {
+    return this.prisma.$queryRaw<ZOperatorRow[]>`
+      SELECT e."operatorId", u."displayName", u.email,
+             COUNT(*)::int AS "earningCount",
+             COALESCE(SUM(e."commissionCents" + COALESCE(e."tipCents", 0) - e."reversedCents" - ${afterPayoutDebt('e')}), 0)::bigint AS "netCents"
+        FROM operator_earnings e
+        JOIN users u ON u.id = e."operatorId"
+        LEFT JOIN payments p ON p.id = e."paymentId"
+        LEFT JOIN wallet_consumptions c ON c.id = e."consumptionId"
+       WHERE e."tenantId" = ${tenantId}::uuid
+         AND (
+           (p.status IN ${PAID_STATUSES_SQL} AND ${paymentAt('p')} >= ${w.from} AND ${paymentAt('p')} < ${w.to})
+           OR (c."reversedAt" IS NULL AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to})
+         )
+       GROUP BY e."operatorId", u."displayName", u.email
+    `;
+  }
+
+  private async operatorPayouts(
+    tenantId: string,
+    w: TimeWindow,
+  ): Promise<Array<Count & { totalCents: number | bigint | null }>> {
+    return this.prisma.$queryRaw<Array<Count & { totalCents: number | bigint | null }>>`
+      SELECT COUNT(*)::int AS count, COALESCE(SUM(po."totalCents"), 0)::bigint AS "totalCents"
+        FROM operator_payouts po
+       WHERE po."tenantId" = ${tenantId}::uuid
+         AND po."createdAt" >= ${w.from} AND po."createdAt" < ${w.to}
+    `;
+  }
+
+  /** Consumos del saldo del trimestre (informativo en el 303). */
+  private async consumptionTotals(tenantId: string, w: TimeWindow): Promise<{ count: number; cents: number }> {
+    const rows = await this.prisma.$queryRaw<Array<Count & { cents: number | bigint | null }>>`
+      SELECT COUNT(*)::int AS count, COALESCE(SUM(c."amountCents"), 0)::bigint AS cents
+        FROM wallet_consumptions c
+       WHERE c."tenantId" = ${tenantId}::uuid
+         AND c."reversedAt" IS NULL
+         AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to}
+    `;
+    return { count: Number(rows[0]?.count ?? 0), cents: Number(rows[0]?.cents ?? 0) };
+  }
+}

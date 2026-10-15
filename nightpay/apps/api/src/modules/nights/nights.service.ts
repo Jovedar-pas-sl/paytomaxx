@@ -13,8 +13,9 @@ import { lastNightCutoff } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
 import { summarize } from '../reports/export-csv';
 import type { TimeWindow } from '../reports/report-period';
+import { afterPayoutDebt, paymentAt } from '../reports/reporting-sql';
 import { ReportsService } from '../reports/reports.service';
-import { autoCloseAt, buildNightZ, decideClose, type NightZ } from './night-rules';
+import { autoCloseAt, buildAdjustments, buildNightZ, decideClose, zStart, type NightZ } from './night-rules';
 
 /** Cobro que impide cerrar la noche: atascado con el banco o datáfono sin confirmar. */
 export interface PendingPayment {
@@ -91,6 +92,9 @@ interface PendingResult {
  * Noche del local (Fase 1D): se abre, se cierra con informe Z congelado y
  * resumen por chica, y no se cierra con cobros sin resolver. Las cuentas son
  * las mismas que las del informe de la gestoría (ReportsService + summarize).
+ * Lo que se apunta después de un Z con fecha de su noche (un cobro que el
+ * banco confirma tarde, una devolución con fecha atrás) va como ajuste en el
+ * Z siguiente: los Z congelados no cambian y nada se queda fuera.
  */
 @Injectable()
 export class NightsService {
@@ -156,7 +160,8 @@ export class NightsService {
     }
 
     const now = new Date();
-    const window = { from: await this.zFrom(tenantId, night.openedAt), to: now };
+    const start = await this.zBounds(tenantId, night.openedAt);
+    const window = { from: start.from, to: now };
     const pending = await this.pending(tenantId, window);
     const decision = decideClose({ pendingCount: pending.count, force: opts.force, role: actor.role, note: opts.note });
     if (!decision.ok) {
@@ -171,7 +176,7 @@ export class NightsService {
       throw new BadRequestException('Explica en la nota por qué cierras con cobros sin resolver');
     }
 
-    const z = await this.buildZ(tenantId, window, pending.count, now);
+    const z = await this.buildZ(tenantId, window, pending.count, now, start.since);
     const closed = await this.markClosed(night.id, tenantId, {
       closedAt: now,
       closedBy: actor.userId,
@@ -248,22 +253,25 @@ export class NightsService {
              COALESCE(SUM(x.tips), 0)::int AS "tipsCents",
              COALESCE(SUM(x.reversed), 0)::int AS "reversedCents"
         FROM (
-          -- Cobros con tarjeta / datáfono.
+          -- Cobros con tarjeta / datáfono. Lo descontado incluye la deuda de
+          -- devoluciones llegadas con ella ya pagada (como «Parte chica» del CSV).
           SELECT p."amountCents" + p."tipCents" AS charged, e."commissionCents" AS commission,
-                 e."tipCents" AS tips, e."reversedCents" AS reversed
+                 e."tipCents" AS tips, e."reversedCents" + ${afterPayoutDebt('e')} AS reversed
             FROM operator_earnings e
             JOIN payments p ON p.id = e."paymentId"
            WHERE e."tenantId" = ${tenantId}::uuid
              AND e."operatorId" = ${operatorId}::uuid
-             AND COALESCE(p."authorizedAt", p."createdAt") >= ${from}
-             AND COALESCE(p."authorizedAt", p."createdAt") < ${to}
+             AND ${paymentAt('p')} >= ${from}
+             AND ${paymentAt('p')} < ${to}
           UNION ALL
-          -- Lo que cobró del saldo del cliente (los anulados ya llevan su reverso).
+          -- Lo que cobró del saldo del cliente. Los anulados no cuentan (como
+          -- en el informe de la gestoría): ni cobro, ni comisión, ni descuento.
           SELECT c."amountCents" + c."tipCents", e."commissionCents", e."tipCents", e."reversedCents"
             FROM operator_earnings e
             JOIN wallet_consumptions c ON c.id = e."consumptionId"
            WHERE e."tenantId" = ${tenantId}::uuid
              AND e."operatorId" = ${operatorId}::uuid
+             AND c."reversedAt" IS NULL
              AND c."createdAt" >= ${from}
              AND c."createdAt" < ${to}
         ) x
@@ -292,9 +300,10 @@ export class NightsService {
       if (!cutoff) continue;
       // Cada noche por separado: un local con un fallo no bloquea a los demás.
       try {
-        const window = { from: await this.zFrom(night.tenantId, night.openedAt), to: cutoff };
+        const start = await this.zBounds(night.tenantId, night.openedAt);
+        const window = { from: start.from, to: cutoff };
         const pending = await this.pending(night.tenantId, window);
-        const z = await this.buildZ(night.tenantId, window, pending.count, now);
+        const z = await this.buildZ(night.tenantId, window, pending.count, now, start.since);
         const closed = await this.markClosed(night.id, night.tenantId, {
           closedAt: cutoff,
           closedBy: null,
@@ -326,19 +335,19 @@ export class NightsService {
   }
 
   /**
-   * Desde dónde cuenta el Z de una noche: desde el cierre de la anterior
-   * (como el Z de una caja), así ningún cobro se queda fuera —por ejemplo uno
-   * que el banco confirma después de cerrar—. La primera noche, desde que se abrió.
+   * Desde dónde cuenta el Z de una noche (desde el cierre de la anterior,
+   * como el Z de una caja; la primera noche, desde que se abrió) y desde
+   * cuándo busca ajustes (desde que se generó el Z anterior): night-rules.zStart.
    */
-  private async zFrom(tenantId: string, openedAt: Date): Promise<Date> {
+  private async zBounds(tenantId: string, openedAt: Date): Promise<{ from: Date; since: Date }> {
     const previous = await this.prisma.asSystem((tx) =>
       tx.venueNight.findFirst({
         where: { tenantId, closedAt: { not: null, lte: openedAt } },
         orderBy: { closedAt: 'desc' },
-        select: { closedAt: true },
+        select: { closedAt: true, zReport: true },
       }),
     );
-    return previous?.closedAt ?? openedAt;
+    return zStart(previous, openedAt);
   }
 
   private async openNight(tenantId: string): Promise<NightRow | null> {
@@ -346,13 +355,14 @@ export class NightsService {
   }
 
   private async view(night: NightRow): Promise<NightView> {
-    const open = night.closedAt === null;
     const now = new Date();
-    const window = open ? { from: await this.zFrom(night.tenantId, night.openedAt), to: now } : null;
+    const start = night.closedAt === null ? await this.zBounds(night.tenantId, night.openedAt) : null;
+    const window = start ? { from: start.from, to: now } : null;
     const pending = window ? await this.pending(night.tenantId, window) : { items: [], count: 0 };
-    const z = window
-      ? await this.buildZ(night.tenantId, window, pending.count, now)
-      : (night.zReport as unknown as NightZ);
+    const z =
+      window && start
+        ? await this.buildZ(night.tenantId, window, pending.count, now, start.since)
+        : (night.zReport as unknown as NightZ);
     return {
       id: night.id,
       openedAt: night.openedAt.toISOString(),
@@ -365,14 +375,29 @@ export class NightsService {
     };
   }
 
-  private async buildZ(tenantId: string, window: TimeWindow, pendingCount: number, now: Date): Promise<NightZ> {
-    const [cobros, devoluciones, liquidaciones, consumos] = await Promise.all([
-      this.reports.cobros(tenantId, window),
-      this.reports.devoluciones(tenantId, window),
+  /**
+   * Z de la noche tal como está en `now` (lo apuntado después irá como ajuste
+   * del Z siguiente) y los ajustes de noches anteriores apuntados desde `since`.
+   */
+  private async buildZ(
+    tenantId: string,
+    window: TimeWindow,
+    pendingCount: number,
+    now: Date,
+    since: Date,
+  ): Promise<NightZ> {
+    const asOf = { recordedBefore: now };
+    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, late] = await Promise.all([
+      this.reports.cobros(tenantId, window, asOf),
+      this.reports.devoluciones(tenantId, window, asOf),
       this.reports.liquidaciones(tenantId, window),
-      this.reports.consumos(tenantId, window),
+      this.reports.consumos(tenantId, window, asOf),
+      this.reports.pagosSaldo(tenantId, window),
+      this.reports.ajustes(tenantId, { before: window.from, since, until: now }),
     ]);
-    return buildNightZ(window, summarize(cobros, devoluciones, liquidaciones, consumos), pendingCount, now);
+    const summary = summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo);
+    const adjustments = buildAdjustments({ before: window.from, since, rows: late });
+    return buildNightZ(window, summary, pendingCount, now, adjustments);
   }
 
   /**
