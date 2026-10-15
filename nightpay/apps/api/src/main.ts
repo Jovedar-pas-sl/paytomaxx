@@ -26,6 +26,8 @@ import { RedisIoAdapter } from './modules/realtime/realtime.adapter';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
 
 const logger = new Logger('Bootstrap');
+/** Para recibir la petición entera (cabeceras + cuerpo de hasta 1 MB). */
+const REQUEST_TIMEOUT_MS = 60_000;
 
 async function bootstrap() {
   const env = loadEnv();
@@ -51,6 +53,13 @@ async function bootstrap() {
     // Cabeceras de proxy (X-Forwarded-*) solo de la red interna (Traefik).
     // Con `true`, req.ip era el primer X-Forwarded-For: lo que quisiera el cliente.
     trustProxy: trustInternalProxy,
+    // Tiempo máximo para recibir la petición entera (Fastify lo deja en 0 =
+    // sin límite: conexiones lentas a medias se quedarían abiertas).
+    requestTimeout: REQUEST_TIMEOUT_MS,
+    // Al apagar: 503 a lo nuevo y se cierran las conexiones inactivas
+    // (keep-alive) para no esperar a que caduquen.
+    return503OnClosing: true,
+    forceCloseConnections: 'idle',
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
@@ -159,6 +168,11 @@ async function bootstrap() {
 
   // Socket.io con Redis pub/sub adapter (ADR-001)
   app.useWebSocketAdapter(new RedisIoAdapter(app));
+
+  // Apagado ordenado (SIGTERM de Docker/Dokploy): Nest cierra el servidor HTTP
+  // y los sockets y ejecuta onModuleDestroy (Prisma, Redis, alertas, cierre
+  // automático de noches). Sin esto el proceso moría a medias.
+  app.enableShutdownHooks();
 
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
   logger.log(`NightPay API escuchando en http://0.0.0.0:${env.PORT} (${env.NODE_ENV})`);
