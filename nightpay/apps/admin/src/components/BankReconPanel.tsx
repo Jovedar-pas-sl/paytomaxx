@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
 import {
   fetchBankStatement,
@@ -11,6 +11,10 @@ import {
   type BankStatementItem,
   type BankStatementSummary,
 } from '@/lib/api';
+import { formatDateTime, isValidRange } from '@/lib/dates';
+import { formatEur } from '@/lib/money';
+import { useVenueTimezone } from '@/lib/venue-context';
+import { Notice } from './Notice';
 
 const SOURCES: Array<{ value: BankSource; title: string; how: string }> = [
   {
@@ -41,16 +45,17 @@ const STATUS: Record<BankItemStatus, { label: string; tone: 'ok' | 'warn' | 'bad
  * y se compara con lo apuntado. Lo que no cuadra también sale en Incidencias.
  */
 export function BankReconPanel({ isOwner }: { isOwner: boolean }) {
-  const [statements, setStatements] = useState<BankStatementSummary[]>([]);
+  /** null = cargando (antes salía "no has subido nada" mientras cargaba). */
+  const [statements, setStatements] = useState<BankStatementSummary[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function reload() {
+    setLoadError(null);
     try {
       setStatements(await fetchBankStatements());
-      setError(null);
     } catch (err) {
-      setError((err as Error).message);
+      setLoadError((err as Error).message);
     }
   }
 
@@ -74,47 +79,54 @@ export function BankReconPanel({ isOwner }: { isOwner: boolean }) {
           setOpenId(s.id);
         }}
       />
-      {error ? <p style={errorStyle}>{error}</p> : null}
       {openId ? <StatementDetail id={openId} onClose={() => setOpenId(null)} /> : null}
       <Card style={{ padding: '1rem' }}>
         <h3 style={sectionTitle}>Cuadres anteriores</h3>
-        {statements.length === 0 ? (
+        {loadError ? (
+          <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => void reload() }} style={{ marginTop: '0.5rem' }}>
+            No se pudieron cargar los cuadres: {loadError}
+          </Notice>
+        ) : statements === null ? (
+          <p style={mutedStyle}>Cargando…</p>
+        ) : statements.length === 0 ? (
           <p style={mutedStyle}>Todavía no has subido ningún fichero del banco.</p>
         ) : (
-          <table style={tableStyle}>
-            <thead>
-              <tr style={theadRow}>
-                <th style={th}>Días</th>
-                <th style={th}>Banco</th>
-                <th style={thRight}>Operaciones</th>
-                <th style={thRight}>Diferencias</th>
-                <th style={thRight}>Banco / aquí</th>
-                <th style={th} />
-              </tr>
-            </thead>
-            <tbody>
-              {statements.map((s) => (
-                <tr key={s.id} style={{ ...trStyle, opacity: s.superseded ? 0.5 : 1 }}>
-                  <td style={td}>{period(s)}</td>
-                  <td style={td}>{s.source === 'REDSYS' ? 'TPV virtual' : 'Datáfonos'}</td>
-                  <td style={tdRight}>{s.rowsTotal}</td>
-                  <td style={{ ...tdRight, color: clean(s) ? 'var(--np-success)' : 'var(--np-danger)' }}>
-                    {clean(s) ? 'Cuadra' : s.problemCount + s.skippedCount + s.otherCount}
-                  </td>
-                  <td style={tdRight}>
-                    <span className="np-num">
-                      {eur(s.bankTotalCents)} / {eur(s.oursTotalCents)}
-                    </span>
-                  </td>
-                  <td style={td}>
-                    <Button variant="ghost" onClick={() => setOpenId(s.id)}>
-                      Ver
-                    </Button>
-                  </td>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr style={theadRow}>
+                  <th style={th}>Días</th>
+                  <th style={th}>Banco</th>
+                  <th style={thRight}>Operaciones</th>
+                  <th style={thRight}>Diferencias</th>
+                  <th style={thRight}>Banco / aquí</th>
+                  <th style={th} aria-label="Acciones" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {statements.map((s) => (
+                  <tr key={s.id} style={{ ...trStyle, opacity: s.superseded ? 0.5 : 1 }}>
+                    <td style={td}>{period(s)}</td>
+                    <td style={td}>{s.source === 'REDSYS' ? 'TPV virtual' : 'Datáfonos'}</td>
+                    <td style={tdRight}>{s.rowsTotal}</td>
+                    <td style={{ ...tdRight, color: clean(s) ? 'var(--np-success)' : 'var(--np-danger)' }}>
+                      {clean(s) ? 'Cuadra' : s.problemCount + s.skippedCount + s.otherCount}
+                    </td>
+                    <td style={tdRight}>
+                      <span className="np-num">
+                        {formatEur(s.bankTotalCents)} / {formatEur(s.oursTotalCents)}
+                      </span>
+                    </td>
+                    <td style={td}>
+                      <Button variant="ghost" onClick={() => setOpenId(s.id)}>
+                        Ver
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
     </div>
@@ -129,11 +141,17 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
   const [to, setTo] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const current = SOURCES.find((s) => s.value === source)!;
+  const fileInput = useRef<HTMLInputElement>(null);
+  const current = SOURCES.find((s) => s.value === source) ?? SOURCES[0]!;
+  const badRange = withDays && Boolean(from) && Boolean(to) && !isValidRange(from, to);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!file) return;
+    if (withDays && !isValidRange(from, to)) {
+      setError('El último día no puede ser anterior al primero.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -144,7 +162,9 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
           ...(withDays && from && to ? { periodFrom: from, periodTo: to } : {}),
         }),
       );
+      // El fichero ya está cuadrado: el campo se vacía de verdad (no solo el estado).
       setFile(null);
+      if (fileInput.current) fileInput.current.value = '';
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -178,6 +198,7 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
         </div>
         <p style={mutedStyle}>{current.how}</p>
         <input
+          ref={fileInput}
           type="file"
           accept=".csv,.txt,.xls,.htm,.html"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
@@ -188,13 +209,28 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
           El fichero no trae fechas (indicar los días)
         </label>
         {withDays ? (
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <Input label="Desde" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-            <Input label="Hasta" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 10rem' }}>
+              <Input label="Desde" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div style={{ flex: '1 1 10rem' }}>
+              <Input
+                label="Hasta"
+                type="date"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => setTo(e.target.value)}
+                error={badRange ? 'No puede ser anterior a «Desde».' : undefined}
+              />
+            </div>
           </div>
         ) : null}
-        {error ? <p style={errorStyle}>{error}</p> : null}
-        <Button type="submit" loading={busy} disabled={!file || (withDays && (!from || !to))}>
+        {error ? (
+          <p role="alert" style={errorStyle}>
+            {error}
+          </p>
+        ) : null}
+        <Button type="submit" loading={busy} disabled={!file || (withDays && (!from || !to || badRange))}>
           Cuadrar
         </Button>
       </form>
@@ -203,18 +239,37 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
 }
 
 function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
+  const tz = useVenueTimezone();
   const [data, setData] = useState<{ statement: BankStatementSummary; items: BankStatementItem[] } | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    // Otro cuadre (o reintento): fuera lo anterior, también el error, y una
+    // respuesta que llegue tarde de otro id no pisa esta.
+    let cancelled = false;
     setData(null);
+    setError(null);
     fetchBankStatement(id)
-      .then(setData)
-      .catch((err: Error) => setError(err.message));
-  }, [id]);
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, attempt]);
 
-  if (error) return <p style={errorStyle}>{error}</p>;
+  if (error) {
+    return (
+      <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => setAttempt((n) => n + 1) }}>
+        No se pudo abrir el cuadre: {error}
+      </Notice>
+    );
+  }
   if (!data) return <p style={mutedStyle}>Cargando el cuadre…</p>;
   const { statement, items } = data;
   const visible = showAll ? items : items.filter((i) => STATUS[i.status].tone !== 'ok');
@@ -229,7 +284,11 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <p style={mutedStyle}>
             {statement.rowsTotal} operaciones en el fichero · {statement.matchedCount} cuadran ·{' '}
             <strong style={{ color: clean(statement) ? 'var(--np-success)' : 'var(--np-danger)' }}>
-              {statement.problemCount > 0 ? `${statement.problemCount} diferencias` : clean(statement) ? 'todo cuadra' : 'sin diferencias en lo leído'}
+              {statement.problemCount > 0
+                ? `${statement.problemCount} diferencias`
+                : clean(statement)
+                  ? 'todo cuadra'
+                  : 'sin diferencias en lo leído'}
             </strong>
           </p>
           {statement.skippedCount > 0 ? (
@@ -243,8 +302,8 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
             </p>
           ) : null}
           <p style={mutedStyle}>
-            Neto banco <strong className="np-num">{eur(statement.bankTotalCents)}</strong> · neto aquí{' '}
-            <strong className="np-num">{eur(statement.oursTotalCents)}</strong>
+            Neto banco <strong className="np-num">{formatEur(statement.bankTotalCents)}</strong> · neto aquí{' '}
+            <strong className="np-num">{formatEur(statement.oursTotalCents)}</strong>
             {statement.superseded ? ' · sustituido por un fichero posterior' : ''}
           </p>
         </div>
@@ -259,35 +318,37 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
       {visible.length === 0 ? (
         <p style={{ ...mutedStyle, color: 'var(--np-success)' }}>No hay diferencias.</p>
       ) : (
-        <table style={tableStyle}>
-          <thead>
-            <tr style={theadRow}>
-              <th style={th}>Estado</th>
-              <th style={th}>Hora</th>
-              <th style={thRight}>Banco</th>
-              <th style={thRight}>Aquí</th>
-              <th style={th}>Referencia</th>
-              <th style={th}>Local</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((i) => (
-              <tr key={i.id} style={{ ...trStyle, opacity: i.superseded ? 0.5 : 1 }}>
-                <td style={{ ...td, color: toneColor(STATUS[i.status].tone), fontWeight: 600 }}>
-                  {STATUS[i.status].label}
-                </td>
-                <td style={td}>{i.occurredAt ? when(i.occurredAt) : '—'}</td>
-                <td style={tdRight}>{i.bankAmountCents !== null ? eur(sign(i) * i.bankAmountCents) : '—'}</td>
-                <td style={tdRight}>{i.oursAmountCents !== null ? eur(sign(i) * i.oursAmountCents) : '—'}</td>
-                <td style={td}>
-                  <span className="np-num">{i.reference ?? '—'}</span>
-                  {i.authCode ? <span style={mutedInline}> · aut. {i.authCode}</span> : null}
-                </td>
-                <td style={td}>{i.venueName ?? '—'}</td>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr style={theadRow}>
+                <th style={th}>Estado</th>
+                <th style={th}>Hora</th>
+                <th style={thRight}>Banco</th>
+                <th style={thRight}>Aquí</th>
+                <th style={th}>Referencia</th>
+                <th style={th}>Local</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {visible.map((i) => (
+                <tr key={i.id} style={{ ...trStyle, opacity: i.superseded ? 0.5 : 1 }}>
+                  <td style={{ ...td, color: toneColor(STATUS[i.status].tone), fontWeight: 600 }}>
+                    {STATUS[i.status].label}
+                  </td>
+                  <td style={td}>{i.occurredAt ? formatDateTime(i.occurredAt, tz, 'compact') : '—'}</td>
+                  <td style={tdRight}>{i.bankAmountCents !== null ? formatEur(sign(i) * i.bankAmountCents) : '—'}</td>
+                  <td style={tdRight}>{i.oursAmountCents !== null ? formatEur(sign(i) * i.oursAmountCents) : '—'}</td>
+                  <td style={td}>
+                    <span className="np-num">{i.reference ?? '—'}</span>
+                    {i.authCode ? <span style={mutedInline}> · aut. {i.authCode}</span> : null}
+                  </td>
+                  <td style={td}>{i.venueName ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </Card>
   );
@@ -311,25 +372,11 @@ function period(s: BankStatementSummary): string {
   return s.periodFrom === s.periodTo ? f(s.periodFrom) : `${f(s.periodFrom)} – ${f(s.periodTo)}`;
 }
 
-function when(iso: string): string {
-  return new Date(iso).toLocaleString('es-ES', {
-    timeZone: 'Europe/Madrid',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
-}
-
 const sectionTitle: CSSProperties = { margin: 0, fontSize: '0.95rem', fontWeight: 600 };
 const mutedStyle: CSSProperties = { margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--np-text-mute)' };
 const mutedInline: CSSProperties = { fontSize: '0.75rem', color: 'var(--np-text-mute)' };
 const errorStyle: CSSProperties = { margin: 0, fontSize: '0.85rem', color: 'var(--np-danger)' };
-const sourceRow: CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' };
+const sourceRow: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))', gap: '0.5rem' };
 const sourceBtn: CSSProperties = {
   padding: '0.75rem',
   background: 'var(--np-surface-2)',

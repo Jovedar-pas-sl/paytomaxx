@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Button, Card, Input, Modal } from '@nightpay/ui';
 import {
   closeNight,
@@ -12,6 +12,10 @@ import {
   type NightSummary,
   type NightView,
 } from '@/lib/api';
+import { formatDateTime } from '@/lib/dates';
+import { formatEur } from '@/lib/money';
+import { useVenueTimezone } from '@/lib/venue-context';
+import { Notice } from './Notice';
 
 /**
  * Noche del local (Fase 1D). Se abre al empezar y se cierra al terminar: el
@@ -19,25 +23,38 @@ import {
  * con cobros sin resolver; si nadie la cierra, se cierra sola a las 08:00.
  */
 export function NightsPanel({ isOwner }: { isOwner: boolean }) {
+  const tz = useVenueTimezone();
+  /** undefined = cargando; null = no hay noche abierta. */
   const [current, setCurrent] = useState<NightView | null | undefined>(undefined);
-  const [history, setHistory] = useState<NightListItem[]>([]);
+  const [history, setHistory] = useState<NightListItem[] | null>(null);
   const [detail, setDetail] = useState<NightView | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [forcing, setForcing] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const [note, setNote] = useState('');
+  const generation = useRef(0);
 
   const reload = useCallback(() => {
+    const gen = ++generation.current;
+    setLoadError(null);
     Promise.all([fetchCurrentNight(), fetchNights()])
       .then(([night, list]) => {
+        if (gen !== generation.current) return;
         setCurrent(night);
         setHistory(list);
       })
-      .catch((err) => setError((err as Error).message));
+      .catch((err: Error) => {
+        if (gen === generation.current) setLoadError(err.message);
+      });
   }, []);
 
   useEffect(() => {
     reload();
+    return () => {
+      generation.current += 1;
+    };
   }, [reload]);
 
   async function run(action: () => Promise<unknown>) {
@@ -46,6 +63,7 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
     try {
       await action();
       setForcing(false);
+      setConfirmingClose(false);
       setNote('');
       reload();
     } catch (err) {
@@ -64,6 +82,9 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
     }
   }
 
+  const time = (iso: string) => formatDateTime(iso, tz, 'time');
+  const day = (iso: string) => formatDateTime(iso, tz, 'weekday');
+
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <div>
@@ -74,6 +95,12 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
         </p>
       </div>
 
+      {loadError ? (
+        <Notice tone="danger" action={{ label: 'Reintentar', onClick: reload }}>
+          No se pudieron cargar las noches: {loadError}
+        </Notice>
+      ) : null}
+
       {error ? (
         <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
           {error}
@@ -81,7 +108,7 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
       ) : null}
 
       {current === undefined ? (
-        <p style={hintStyle}>Cargando…</p>
+        loadError ? null : <p style={hintStyle}>Cargando…</p>
       ) : current === null ? (
         <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
           <p style={{ margin: 0, fontWeight: 700, fontSize: '1.0625rem' }}>No hay ninguna noche abierta.</p>
@@ -93,7 +120,7 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
         <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={rowStyle}>
             <p style={{ margin: 0, fontWeight: 700, fontSize: '1.125rem' }}>
-              Noche abierta desde las {formatTime(current.openedAt)}
+              Noche abierta desde las {time(current.openedAt)}
             </p>
             <span style={liveStyle}>En vivo</span>
           </div>
@@ -108,7 +135,7 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
               <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem' }}>
                 {current.pending.slice(0, 8).map((p) => (
                   <li key={p.id} className="np-num">
-                    {formatTime(p.createdAt)} · {eur(p.amountCents)} · {pendingLabel(p)}
+                    {time(p.createdAt)} · {formatEur(p.amountCents)} · {pendingLabel(p)}
                   </li>
                 ))}
               </ul>
@@ -124,10 +151,7 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
                 placeholder="ej: BBVA lo confirma mañana"
               />
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <Button
-                  loading={busy}
-                  onClick={() => void run(() => closeNight(current.id, { force: true, note }))}
-                >
+                <Button loading={busy} onClick={() => void run(() => closeNight(current.id, { force: true, note }))}>
                   Cerrar igualmente
                 </Button>
                 <Button variant="ghost" onClick={() => setForcing(false)}>
@@ -135,11 +159,23 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
                 </Button>
               </div>
             </div>
+          ) : confirmingClose ? (
+            <div role="group" aria-label="Confirmar cierre" style={confirmBox}>
+              <p style={{ margin: 0, fontWeight: 600 }}>
+                ¿Cerrar la noche? Se guarda el informe Z y ya no cambia.
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <Button loading={busy} onClick={() => void run(() => closeNight(current.id, {}))}>
+                  Sí, cerrar la noche
+                </Button>
+                <Button variant="ghost" onClick={() => setConfirmingClose(false)} disabled={busy}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
           ) : (
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <Button loading={busy} onClick={() => void run(() => closeNight(current.id, {}))}>
-                Cerrar noche
-              </Button>
+              <Button onClick={() => setConfirmingClose(true)}>Cerrar noche</Button>
               {isOwner && current.pending.length > 0 ? (
                 <Button variant="ghost" onClick={() => setForcing(true)}>
                   Cerrar con pendientes…
@@ -161,25 +197,21 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
                 <th style={{ ...thStyle, textAlign: 'right' }}>Cobrado</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Neto</th>
                 <th style={thStyle}>Cierre</th>
-                <th style={thStyle} />
+                <th style={thStyle} aria-label="Acciones" />
               </tr>
             </thead>
             <tbody>
-              {history.map((n) => (
+              {(history ?? []).map((n) => (
                 <tr key={n.id}>
-                  <td style={tdStyle}>{formatDay(n.openedAt)}</td>
+                  <td style={tdStyle}>{day(n.openedAt)}</td>
                   <td style={tdStyle} className="np-num">
-                    {formatTime(n.openedAt)}–{n.closedAt ? formatTime(n.closedAt) : '…'}
+                    {time(n.openedAt)}–{n.closedAt ? time(n.closedAt) : '…'}
                   </td>
                   <td style={numTd}>{n.count ?? '—'}</td>
-                  <td style={numTd}>{n.chargedCents === null ? '—' : eur(n.chargedCents)}</td>
-                  <td style={numTd}>{n.netCents === null ? '—' : eur(n.netCents)}</td>
+                  <td style={numTd}>{n.chargedCents === null ? '—' : formatEur(n.chargedCents)}</td>
+                  <td style={numTd}>{n.netCents === null ? '—' : formatEur(n.netCents)}</td>
                   <td style={tdStyle}>
-                    {n.closedAt === null
-                      ? 'Abierta'
-                      : n.autoClosed
-                        ? 'Sola a las 08:00'
-                        : 'Cerrada'}
+                    {n.closedAt === null ? 'Abierta' : n.autoClosed ? 'Sola a las 08:00' : 'Cerrada'}
                     {n.pendingAtClose > 0 ? ` · ${n.pendingAtClose} pendientes` : ''}
                   </td>
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
@@ -189,10 +221,10 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
                   </td>
                 </tr>
               ))}
-              {history.length === 0 ? (
+              {history === null || history.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: 'var(--np-text-mute)' }}>
-                    Aún no hay noches.
+                    {history === null ? (loadError ? 'Sin datos.' : 'Cargando…') : 'Aún no hay noches.'}
                   </td>
                 </tr>
               ) : null}
@@ -204,13 +236,13 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
       <Modal
         open={detail !== null}
         onClose={() => setDetail(null)}
-        title={detail ? `Informe Z · ${formatDay(detail.openedAt)}` : undefined}
+        title={detail ? `Informe Z · ${day(detail.openedAt)}` : undefined}
         width="44rem"
       >
         {detail ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <p style={hintStyle}>
-              {formatTime(detail.openedAt)} – {detail.closedAt ? formatTime(detail.closedAt) : 'en curso'}
+              {time(detail.openedAt)} – {detail.closedAt ? time(detail.closedAt) : 'en curso'}
               {detail.autoClosed ? ' · cerrada sola a las 08:00' : ''}
               {detail.pendingAtClose > 0 ? ` · ${detail.pendingAtClose} cobros sin resolver al cerrar` : ''}
               {detail.closeNote ? ` · «${detail.closeNote}»` : ''}
@@ -240,7 +272,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
           <div key={label} style={totalBox}>
             <span style={hintSmall}>{label}</span>
             <span className="np-num" style={{ fontSize: '1.25rem', fontWeight: 700 }}>
-              {eur(cents)}
+              {formatEur(cents)}
             </span>
           </div>
         ))}
@@ -248,7 +280,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
       <p style={hintSmall}>
         {s.count} cobros
         {s.byType.length > 0 ? ' · ' : ''}
-        {s.byType.map((t) => `${t.label}: ${t.count} (${eur(t.chargedCents)})`).join(' · ')}
+        {s.byType.map((t) => `${t.label}: ${t.count} (${formatEur(t.chargedCents)})`).join(' · ')}
       </p>
       {s.perChica.length > 0 ? (
         <div style={{ overflowX: 'auto' }}>
@@ -268,10 +300,10 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
                 <tr key={c.name}>
                   <td style={tdStyle}>{c.name}</td>
                   <td style={numTd}>{c.count}</td>
-                  <td style={numTd}>{eur(c.chargedCents)}</td>
-                  <td style={numTd}>{eur(c.commissionCents)}</td>
-                  <td style={numTd}>{eur(c.tipsCents)}</td>
-                  <td style={{ ...numTd, fontWeight: 700 }}>{eur(c.netCents)}</td>
+                  <td style={numTd}>{formatEur(c.chargedCents)}</td>
+                  <td style={numTd}>{formatEur(c.commissionCents)}</td>
+                  <td style={numTd}>{formatEur(c.tipsCents)}</td>
+                  <td style={{ ...numTd, fontWeight: 700 }}>{formatEur(c.netCents)}</td>
                 </tr>
               ))}
             </tbody>
@@ -282,28 +314,10 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
   );
 }
 
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
-}
-
 function pendingLabel(p: NightView['pending'][number]): string {
   if (p.captureMethod === 'POS_EXTERNAL') return 'datáfono sin confirmar';
   if (p.status === 'ORPHAN') return 'el banco no lo confirmó: búscalo en BBVA';
   return 'esperando al banco';
-}
-
-// Horas de Madrid: la noche se cierra sola a las 08:00 de allí, se mire desde donde se mire.
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' });
-}
-
-function formatDay(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-ES', {
-    timeZone: 'Europe/Madrid',
-    weekday: 'short',
-    day: '2-digit',
-    month: '2-digit',
-  });
 }
 
 const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 700 };
@@ -323,6 +337,15 @@ const pendingBox: CSSProperties = {
   padding: '0.75rem 1rem',
   color: 'var(--np-warning)',
   fontSize: '0.9375rem',
+};
+const confirmBox: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.75rem',
+  padding: '0.875rem 1rem',
+  border: '1px solid var(--np-border-hi, var(--np-border))',
+  borderRadius: 'var(--np-r-md)',
+  background: 'var(--np-surface-2)',
 };
 const totalsGrid: CSSProperties = {
   display: 'grid',
