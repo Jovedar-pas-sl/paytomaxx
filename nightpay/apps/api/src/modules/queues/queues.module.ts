@@ -4,8 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { QrExpireProcessor } from './qr-expire.processor';
 import { OrphanReconcileProcessor } from './orphan-reconcile.processor';
 import { WebhookIngestProcessor } from './webhook-ingest.processor';
-import { ReconcileDailyProcessor } from './reconcile-daily.processor';
-import { ReconcileSchedulerService } from './reconcile-scheduler.service';
+import { RetireReconcileDailyService } from './retire-reconcile-daily.service';
 import {
   QR_EXPIRE_QUEUE,
   ORPHAN_RECONCILE_QUEUE,
@@ -47,6 +46,7 @@ import { PaymentsModule } from '../payments/payments.module';
       { name: QR_EXPIRE_QUEUE },
       { name: ORPHAN_RECONCILE_QUEUE },
       { name: WEBHOOKS_INGEST_QUEUE },
+      // Solo para retirar la conciliación diaria antigua (ver RetireReconcileDailyService).
       { name: RECONCILIATION_QUEUE },
     ),
     forwardRef(() => PaymentsModule),
@@ -55,8 +55,7 @@ import { PaymentsModule } from '../payments/payments.module';
     QrExpireProcessor,
     OrphanReconcileProcessor,
     WebhookIngestProcessor,
-    ReconcileDailyProcessor,
-    ReconcileSchedulerService,
+    RetireReconcileDailyService,
   ],
   exports: [BullModule],
 })
