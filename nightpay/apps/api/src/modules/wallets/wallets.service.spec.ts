@@ -208,3 +208,60 @@ describe('anular un consumo del saldo', () => {
     expect(txMock.$executeRaw.mock.calls.map(sqlOf).some((q) => q.includes('earning_reversals'))).toBe(false);
   });
 });
+
+describe('estadísticas del panel de saldos', () => {
+  function statsService() {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const tx = {
+      $queryRaw: vi.fn().mockImplementation(async (sql: TemplateStringsArray, ...values: unknown[]) => {
+        const q = sql.join('?');
+        calls.push({ sql: q, values });
+        if (q.includes('FROM client_wallets')) return [{ count: 3n, totalBalance: 12_000n }];
+        if (q.includes('FROM payments')) return [{ total: 20_000n }];
+        if (q.includes('FROM wallet_consumptions')) return [{ category: 'CHICA_SERVICE', total: 6_000n }, { category: 'VENUE_BAR', total: 1_500n }];
+        if (q.includes('FROM wallet_payouts')) return [{ total: 4_500n }];
+        return [];
+      }),
+    };
+    const prisma = {
+      asSystem: vi.fn().mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+      $queryRaw: tx.$queryRaw,
+    };
+    const svc = new WalletsService(prisma as never, { log: vi.fn() } as never);
+    return { svc, calls, prisma };
+  }
+
+  it('lo devuelto hoy son las devoluciones del saldo hechas en este local (tarjeta y efectivo), no 0', async () => {
+    const { svc, calls } = statsService();
+    const stats = await svc.getAdminStats('t-1');
+    expect(stats).toEqual({
+      activeCount: 3,
+      totalBalanceCents: 12_000,
+      todayTopUpsCents: 20_000,
+      todayConsumptionsCents: 7_500,
+      todayRefundsCents: 4_500,
+      byCategory: { CHICA_SERVICE: 6_000, VENUE_BAR: 1_500 },
+    });
+    const payouts = calls.find((c) => c.sql.includes('FROM wallet_payouts'))!;
+    // Solo las hechas (una a la tarjeta a medias aún no), del local.
+    expect(payouts.sql).toMatch(/status = 'DONE'/);
+    expect(payouts.values[0]).toBe('t-1');
+  });
+
+  it('"hoy" es el día de Madrid (desde sus 00:00), no el del servidor', async () => {
+    vi.useFakeTimers();
+    try {
+      // 00:30 del 16 de octubre en Madrid (verano: UTC+2) = 22:30 UTC del 15.
+      vi.setSystemTime(new Date('2026-10-15T22:30:00Z'));
+      const { svc, calls, prisma } = statsService();
+      await svc.getAdminStats('t-1');
+      const since = calls.filter((c) => /"createdAt" >= \?/.test(c.sql)).map((c) => (c.values.at(-1) as Date).toISOString());
+      expect(since).toHaveLength(3);
+      expect(new Set(since)).toEqual(new Set(['2026-10-15T22:00:00.000Z']));
+      // Con bypass de RLS (las tablas del saldo tienen RLS forzado) y el local filtrado a mano.
+      expect(prisma.asSystem).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

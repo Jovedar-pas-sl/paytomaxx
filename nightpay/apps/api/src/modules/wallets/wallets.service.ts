@@ -1,6 +1,7 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { madridDay, madridStartOfDay } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
 import { formatWalletCode, newWalletCode, newWalletToken, sameWalletGroup } from './wallet-rules';
 import { reopenData } from './wallet-activation';
@@ -327,56 +328,53 @@ export class WalletsService {
     };
   }
 
-  /** Stats agregadas para el admin panel. */
+  /**
+   * Stats agregadas para el panel. "Hoy" es el día de Madrid (desde sus 00:00).
+   * Con bypass de RLS (client_wallets y wallet_consumptions lo tienen forzado)
+   * y el local filtrado a mano.
+   */
   async getAdminStats(tenantId: string): Promise<WalletsAdminStats> {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const activeRows = await this.prisma.$queryRaw<
-      Array<{ count: bigint; totalBalance: bigint }>
-    >`
-      SELECT COUNT(*)::bigint AS count, COALESCE(SUM("balanceCents"),0)::bigint AS "totalBalance"
-        FROM client_wallets
-       WHERE "tenantId" = ${tenantId}::uuid AND status = 'ACTIVE'
-    `;
-
-    const topUpRows = await this.prisma.$queryRaw<
-      Array<{ total: bigint }>
-    >`
-      SELECT COALESCE(SUM("amountCents"),0)::bigint AS total
-        FROM payments
-       WHERE "tenantId" = ${tenantId}::uuid
-         AND "walletId" IS NOT NULL
-         AND status = 'AUTHORIZED'
-         AND "createdAt" >= ${todayStart}
-    `;
-
-    const consumptionRows = await this.prisma.$queryRaw<
-      Array<{ category: string; total: bigint }>
-    >`
-      SELECT category, COALESCE(SUM("amountCents"),0)::bigint AS total
-        FROM wallet_consumptions
-       WHERE "tenantId" = ${tenantId}::uuid
-         AND "reversedAt" IS NULL
-         AND "createdAt" >= ${todayStart}
-       GROUP BY category
-    `;
-
-    const todayConsumptionsCents = consumptionRows.reduce(
-      (sum, r) => sum + Number(r.total),
-      0,
-    );
-
-    return {
-      activeCount: Number(activeRows[0]?.count ?? 0),
-      totalBalanceCents: Number(activeRows[0]?.totalBalance ?? 0),
-      todayTopUpsCents: Number(topUpRows[0]?.total ?? 0),
-      todayConsumptionsCents,
-      // TODO: refunds requiere tabla refunds o tracking dedicado. Placeholder.
-      todayRefundsCents: 0,
-      byCategory: Object.fromEntries(
-        consumptionRows.map((r) => [r.category, Number(r.total)]),
-      ),
-    };
+    const todayStart = madridStartOfDay(madridDay());
+    return this.prisma.asSystem(async (tx) => {
+      const activeRows = await tx.$queryRaw<Array<{ count: bigint; totalBalance: bigint }>>`
+        SELECT COUNT(*)::bigint AS count, COALESCE(SUM("balanceCents"),0)::bigint AS "totalBalance"
+          FROM client_wallets
+         WHERE "tenantId" = ${tenantId}::uuid AND status = 'ACTIVE'
+      `;
+      const topUpRows = await tx.$queryRaw<Array<{ total: bigint }>>`
+        SELECT COALESCE(SUM("amountCents"),0)::bigint AS total
+          FROM payments
+         WHERE "tenantId" = ${tenantId}::uuid
+           AND "walletId" IS NOT NULL
+           AND status = 'AUTHORIZED'
+           AND "createdAt" >= ${todayStart}
+      `;
+      const consumptionRows = await tx.$queryRaw<Array<{ category: string; total: bigint }>>`
+        SELECT category, COALESCE(SUM("amountCents"),0)::bigint AS total
+          FROM wallet_consumptions
+         WHERE "tenantId" = ${tenantId}::uuid
+           AND "reversedAt" IS NULL
+           AND "createdAt" >= ${todayStart}
+         GROUP BY category
+      `;
+      // Devuelto hoy desde este local: las devoluciones del saldo hechas (a la
+      // tarjeta y en efectivo). Las de la tarjeta son también devoluciones de
+      // las recargas: se cuentan una vez, aquí.
+      const refundRows = await tx.$queryRaw<Array<{ total: bigint }>>`
+        SELECT COALESCE(SUM("amountCents"),0)::bigint AS total
+          FROM wallet_payouts
+         WHERE "tenantId" = ${tenantId}::uuid
+           AND status = 'DONE'
+           AND "createdAt" >= ${todayStart}
+      `;
+      return {
+        activeCount: Number(activeRows[0]?.count ?? 0),
+        totalBalanceCents: Number(activeRows[0]?.totalBalance ?? 0),
+        todayTopUpsCents: Number(topUpRows[0]?.total ?? 0),
+        todayConsumptionsCents: consumptionRows.reduce((sum, r) => sum + Number(r.total), 0),
+        todayRefundsCents: Number(refundRows[0]?.total ?? 0),
+        byCategory: Object.fromEntries(consumptionRows.map((r) => [r.category, Number(r.total)])),
+      };
+    });
   }
 }
