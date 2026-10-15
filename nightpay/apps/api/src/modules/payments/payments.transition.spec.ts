@@ -240,3 +240,83 @@ describe('confirmPosPayment — el camarero confirma el cobro del datáfono (#13
     );
   });
 });
+
+describe('transition — recarga de saldo cobrada (#7, #56)', () => {
+  const WALLET = '22222222-3333-4444-8555-666666666666';
+  const TARGET = '33333333-4444-4555-8666-777777777777';
+  const topUp = { ...baseRow, walletId: WALLET, revenueCategory: 'EXTRA', amountCents: 5_000, availableAmountCents: 5_000 };
+  const w = (o: Row = {}) => ({
+    id: WALLET,
+    tenantId: 'tenant-1',
+    walletGroup: 'grupo',
+    balanceCents: 0,
+    status: 'ACTIVE',
+    mergedIntoId: null,
+    shortCode: 'K7Q4M2',
+    ...o,
+  });
+  const credits = (executed: Array<{ sql: string; values: unknown[] }>) =>
+    executed.filter((e) => e.sql.includes('UPDATE client_wallets'));
+  const audits = (executed: Array<{ sql: string; values: unknown[] }>) =>
+    executed.filter((e) => e.sql.includes('INSERT INTO audit_events'));
+
+  it('saldo activo → se suma ahí', async () => {
+    const { service, executed } = makeTransitionService({ locked: topUp, attemptTip: 0, wallets: { [WALLET]: w() } });
+    await service.transition(PAYMENT_ID, authorized);
+    const c = credits(executed);
+    expect(c).toHaveLength(1);
+    expect(c[0]!.values).toEqual([5_000, 'K7Q4M2', WALLET]);
+    expect(audits(executed)).toHaveLength(0);
+  });
+
+  it('saldo ya sumado a otro (Face ID) → al saldo bueno, con constancia', async () => {
+    const { service, executed } = makeTransitionService({
+      locked: topUp,
+      attemptTip: 0,
+      wallets: {
+        [WALLET]: w({ status: 'DEPLETED', mergedIntoId: TARGET }),
+        [TARGET]: w({ id: TARGET, tenantId: 'tenant-2', balanceCents: 4_000, shortCode: 'AAA222' }),
+      },
+    });
+    await service.transition(PAYMENT_ID, authorized);
+    expect(credits(executed)[0]!.values).toEqual([5_000, 'AAA222', TARGET]);
+    const audit = audits(executed)[0]!;
+    expect(audit.sql).toContain('wallet.credit_followed_merge');
+    expect(JSON.parse(audit.values[2] as string)).toEqual({ from: WALLET, to: TARGET, amountCents: 5_000 });
+  });
+
+  it('saldo a cero cuyo código cogió otro saldo activo → se reactiva con código nuevo', async () => {
+    const { service, executed } = makeTransitionService({
+      locked: topUp,
+      attemptTip: 0,
+      wallets: { [WALLET]: w({ status: 'DEPLETED' }) },
+      takenCodes: ['K7Q4M2'],
+    });
+    await service.transition(PAYMENT_ID, authorized);
+    const code = credits(executed)[0]!.values[1] as string;
+    expect(code).toMatch(/^[A-Z0-9]{6}$/);
+    expect(code).not.toBe('K7Q4M2');
+  });
+
+  it('saldo devuelto → no se suma; incidencia con importe, cobro y qué hacer', async () => {
+    const { service, executed, metrics } = makeTransitionService({
+      locked: topUp,
+      attemptTip: 0,
+      wallets: { [WALLET]: w({ status: 'REFUNDED' }) },
+    });
+    await service.transition(PAYMENT_ID, authorized);
+    expect(credits(executed)).toHaveLength(0);
+    expect(metrics.walletCreditSkipped.inc).toHaveBeenCalledWith({ venue: 'tenant-1', wallet_status: 'REFUNDED' });
+    const audit = audits(executed)[0]!;
+    expect(audit.sql).toContain('wallet.credit_skipped_critical');
+    expect(JSON.parse(audit.values[2] as string)).toMatchObject({
+      walletId: WALLET,
+      walletStatus: 'REFUNDED',
+      amountCents: 5_000,
+      paymentId: PAYMENT_ID,
+      cause: 'closed',
+      action: 'Devolver la recarga en el banco o reactivar el saldo y sumarle el importe',
+      detail: expect.stringContaining('Recarga de 50,00 € cobrada'),
+    });
+  });
+});

@@ -66,6 +66,13 @@ import { expectedChicaReversal } from './refund-share';
 import { operatorCapProblem } from './operator-cap';
 import { formatWalletCode, newWalletCode, newWalletToken } from '../wallets/wallet-rules';
 import { idempotencyHashOf, sameIdempotentRequest } from './idempotency';
+import {
+  findCreditTarget,
+  shortCodeOnCredit,
+  skippedCreditDetail,
+  type CreditSkipCause,
+  type CreditWalletRow,
+} from './topup-credit';
 import { BRAND_NAME } from '../../common/brand';
 
 const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
@@ -122,6 +129,34 @@ interface PaymentDraft {
   topUp: TopUpWallet | null;
   ttlSeconds: number;
   platformCommissionBps: number;
+}
+
+/**
+ * Saldo bloqueado (FOR UPDATE) para sumarle una recarga. Con tenantId, solo
+ * el de ese local (H3); sin él, el saldo bueno de una fusión (puede ser de
+ * otro local del grupo: lo comprueba findCreditTarget).
+ */
+async function lockCreditWallet(
+  tx: TransactionalClient,
+  walletId: string,
+  tenantId: string | null,
+): Promise<CreditWalletRow | null> {
+  const rows = tenantId
+    ? await tx.$queryRaw<CreditWalletRow[]>`
+        SELECT id::text AS id, "tenantId"::text AS "tenantId", "walletGroup", "balanceCents",
+               status::text AS status, "mergedIntoId"::text AS "mergedIntoId", "shortCode"
+          FROM client_wallets
+         WHERE id = ${walletId}::uuid AND "tenantId" = ${tenantId}::uuid
+         FOR UPDATE
+      `
+    : await tx.$queryRaw<CreditWalletRow[]>`
+        SELECT id::text AS id, "tenantId"::text AS "tenantId", "walletGroup", "balanceCents",
+               status::text AS status, "mergedIntoId"::text AS "mergedIntoId", "shortCode"
+          FROM client_wallets
+         WHERE id = ${walletId}::uuid
+         FOR UPDATE
+      `;
+  return rows[0] ?? null;
 }
 
 /** Choque con la Idempotency-Key de otro cobro creado a la vez (P2002). */
@@ -1147,66 +1182,11 @@ export class PaymentsService implements OnApplicationBootstrap {
           )
         `;
 
-        // Phase 1B — hook de crédito a wallet: si el payment está ligado a una
-        // ClientWallet (top-up flow) y transitamos a AUTHORIZED, sumamos el importe
-        // al balance ATÓMICAMENTE en la misma transacción de la FSM. Lock con
-        // SELECT FOR UPDATE evita race con consumes simultáneos.
-        // Nota: el tip va SEPARADO del balance — propinas no son saldo gastable
-        // por el cliente, se asignan al beneficiario directamente.
+        // Phase 1B — recarga de saldo cobrada: se suma al saldo ATÓMICAMENTE en
+        // la misma transacción de la FSM (saldo bloqueado FOR UPDATE). El tip va
+        // SEPARADO del balance: propinas no son saldo gastable por el cliente.
         if (result.nextState === 'AUTHORIZED' && p.walletId) {
-          // H3: filtro tenantId en SELECT FOR UPDATE (no solo defensa post-lock
-          // sino que el lock se adquiere sobre la fila correcta del tenant).
-          const walletLocked = await tx.$queryRaw<
-            Array<{ id: string; balanceCents: number; status: string; mergedIntoId: string | null }>
-          >`
-            SELECT id, "balanceCents", status, "mergedIntoId" FROM client_wallets
-             WHERE id = ${p.walletId}::uuid
-               AND "tenantId" = ${p.tenantId}::uuid
-             FOR UPDATE
-          `;
-          const w = walletLocked[0];
-          // Un saldo ya sumado a otro (Face ID) no recibe nada: va a revisión.
-          if (w && !w.mergedIntoId && (w.status === 'ACTIVE' || w.status === 'DEPLETED')) {
-            await tx.$executeRaw`
-              UPDATE client_wallets
-                 SET "balanceCents" = "balanceCents" + ${p.amountCents}::int,
-                     status = 'ACTIVE'::"WalletStatus",
-                     "updatedAt" = now()
-               WHERE id = ${p.walletId}::uuid
-                 AND "tenantId" = ${p.tenantId}::uuid
-            `;
-            this.logger.log(
-              `Payment ${paymentId} AUTHORIZED → wallet ${p.walletId} credited +${p.amountCents}c (new balance: ${w.balanceCents + p.amountCents})`,
-            );
-          } else {
-            // C4: NO se acredita el wallet pero el cliente YA pagó al PSP.
-            // Discrepancia financiera. NO podemos throw aquí (rollback ⇒ webhook
-            // retry infinito), pero emitimos 3 canales de alerta:
-            //   1. Métrica Prometheus (alerta a >0)
-            //   2. Audit log con action específico searchable
-            //   3. Log ERROR (no WARN — esto es crítico)
-            const walletStatus = w?.mergedIntoId ? 'merged' : (w?.status ?? 'missing');
-            this.metrics.walletCreditSkipped.inc({
-              venue: p.tenantId,
-              wallet_status: walletStatus,
-            });
-            this.logger.error(
-              `CRITICAL: Payment ${paymentId} AUTHORIZED but wallet ${p.walletId} not creditable (status=${walletStatus}, amount=${p.amountCents}c). Customer charged. Manual review + refund or wallet revive required.`,
-            );
-            // Audit dentro de tx — si el commit falla, el log también.
-            await tx.$executeRaw`
-              INSERT INTO audit_events ("tenantId", action, "targetType", "targetId", payload, "occurredAt")
-              VALUES (${p.tenantId}::uuid, 'wallet.credit_skipped_critical',
-                      'Payment', ${paymentId},
-                      ${JSON.stringify({
-                        walletId: p.walletId,
-                        walletStatus,
-                        amountCents: p.amountCents,
-                        reason: 'wallet_not_active_at_authorized',
-                      })}::jsonb,
-                      now())
-            `;
-          }
+          await this.creditTopUp(tx, { ...p, walletId: p.walletId }, paymentId);
         }
 
         // Snapshot del creator role + comisiones del venue. Usado por:
@@ -1428,6 +1408,94 @@ export class PaymentsService implements OnApplicationBootstrap {
        WHERE id = ${p.id}::uuid
     `;
     return { ...p, ...settled };
+  }
+
+  /**
+   * Recarga cobrada → se suma al saldo, dentro de transition(). Si ese saldo
+   * ya se sumó a otro (Face ID), va al saldo bueno del mismo grupo (antes no
+   * se sumaba a nada). Si está cerrado, incidencia: cobrado y sin saldo. No
+   * lanza: un rollback dejaría el aviso del banco reintentando para siempre.
+   */
+  private async creditTopUp(
+    tx: TransactionalClient,
+    p: LockedPaymentRow & { walletId: string },
+    paymentId: string,
+  ): Promise<void> {
+    // H3: el saldo de la recarga, bloqueado y del local del cobro.
+    const first = await lockCreditWallet(tx, p.walletId, p.tenantId);
+    const target = await findCreditTarget(first, (id) => lockCreditWallet(tx, id, null));
+    if (!target.ok) {
+      await this.reportSkippedCredit(tx, p, paymentId, target);
+      return;
+    }
+    const w = target.wallet;
+    // #56: a cero no ocupa su código; si otro saldo activo lo cogió, uno nuevo.
+    const shortCode = await shortCodeOnCredit(
+      w,
+      async (code) =>
+        (
+          await tx.$queryRaw<Array<{ ok: number }>>`
+            SELECT 1 AS ok FROM client_wallets
+             WHERE "shortCode" = ${code} AND status = 'ACTIVE'::"WalletStatus" AND id <> ${w.id}::uuid
+             LIMIT 1
+          `
+        ).length > 0,
+      newWalletCode,
+    );
+    await tx.$executeRaw`
+      UPDATE client_wallets
+         SET "balanceCents" = "balanceCents" + ${p.amountCents}::int,
+             status = 'ACTIVE'::"WalletStatus",
+             "shortCode" = ${shortCode},
+             "updatedAt" = now()
+       WHERE id = ${w.id}::uuid
+    `;
+    this.logger.log(
+      `Payment ${paymentId} AUTHORIZED → wallet ${w.id} credited +${p.amountCents}c (new balance: ${w.balanceCents + p.amountCents})`,
+    );
+    if (shortCode !== w.shortCode) {
+      this.logger.warn(`Wallet ${w.id} reactivada con código nuevo (el anterior lo usaba otro saldo activo)`);
+    }
+    if (target.mergedFrom) {
+      await tx.$executeRaw`
+        INSERT INTO audit_events ("tenantId", action, "targetType", "targetId", payload, "occurredAt")
+        VALUES (${p.tenantId}::uuid, 'wallet.credit_followed_merge', 'Payment', ${paymentId},
+                ${JSON.stringify({ from: target.mergedFrom, to: w.id, amountCents: p.amountCents })}::jsonb, now())
+      `;
+    }
+  }
+
+  /**
+   * C4: NO se suma la recarga pero el cliente YA pagó. Tres alertas (métrica,
+   * registro ERROR y auditoría → bandeja de incidencias) con el importe, el
+   * cobro y qué hacer: devolverla en el banco o reactivar el saldo.
+   */
+  private async reportSkippedCredit(
+    tx: TransactionalClient,
+    p: LockedPaymentRow & { walletId: string },
+    paymentId: string,
+    skip: { cause: CreditSkipCause; walletStatus: string },
+  ): Promise<void> {
+    const detail = skippedCreditDetail({ ...skip, amountCents: p.amountCents, paymentId });
+    this.metrics.walletCreditSkipped.inc({ venue: p.tenantId, wallet_status: skip.walletStatus });
+    this.logger.error(`CRITICAL: Payment ${paymentId} AUTHORIZED, wallet ${p.walletId} sin sumar — ${detail}`);
+    // Audit dentro de tx — si el commit falla, el log también.
+    await tx.$executeRaw`
+      INSERT INTO audit_events ("tenantId", action, "targetType", "targetId", payload, "occurredAt")
+      VALUES (${p.tenantId}::uuid, 'wallet.credit_skipped_critical',
+              'Payment', ${paymentId},
+              ${JSON.stringify({
+                walletId: p.walletId,
+                walletStatus: skip.walletStatus,
+                amountCents: p.amountCents,
+                paymentId,
+                reason: 'wallet_not_active_at_authorized',
+                cause: skip.cause,
+                action: 'Devolver la recarga en el banco o reactivar el saldo y sumarle el importe',
+                detail,
+              })}::jsonb,
+              now())
+    `;
   }
 
   /**
