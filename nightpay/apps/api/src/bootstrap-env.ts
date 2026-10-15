@@ -24,8 +24,15 @@ const candidates = [
 for (const p of candidates) {
   if (existsSync(p)) {
     config({ path: p });
-    // eslint-disable-next-line no-console
     console.log(`[env] loaded ${p}`);
     break;
   }
+}
+
+// Sin NODE_ENV se arranca como producción (lo seguro), igual que el esquema de
+// config/env.ts. Se fija aquí, antes que nada, para que el código que lee
+// process.env.NODE_ENV directamente vea lo mismo. En local lo pone src/dev.ts.
+if (!process.env.NODE_ENV) {
+  process.env.NODE_ENV = 'production';
+  console.warn('[env] NODE_ENV no definido: se arranca como production (en local usa `pnpm dev`).');
 }

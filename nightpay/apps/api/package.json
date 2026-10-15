@@ -4,8 +4,8 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "pnpm --filter @nightpay/db heal && tsx watch src/main.ts",
-    "dev:noheal": "tsx watch src/main.ts",
+    "dev": "pnpm --filter @nightpay/db heal && tsx watch src/dev.ts",
+    "dev:noheal": "tsx watch src/dev.ts",
     "build": "nest build",
     "start": "node dist/main.js",
     "start:prod": "NODE_ENV=production node dist/main.js",

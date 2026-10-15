@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ClsModule } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
+import { configModuleOptions } from './config/env';
 import { AuthGuard } from './common/guards/auth.guard';
 import { IpRateLimitGuard } from './common/guards/ip-rate-limit.guard';
 import { EmailModule } from './common/email/email.module';
@@ -34,11 +35,9 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      cache: true,
-      envFilePath: ['.env.local', '.env'],
-    }),
+    // Validado y convertido con el esquema zod de config/env.ts: config.get()
+    // devuelve números/booleanos y ve los valores por defecto.
+    ConfigModule.forRoot(configModuleOptions()),
     ClsModule.forRoot({
       global: true,
       // Middleware-level mount so context is alive before any guard runs.

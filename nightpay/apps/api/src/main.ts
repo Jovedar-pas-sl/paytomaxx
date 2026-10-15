@@ -2,7 +2,7 @@ import './bootstrap-env'; // PRIMERO — carga .env.local antes que cualquier mo
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
-import { RequestMethod } from '@nestjs/common';
+import { Logger, RequestMethod } from '@nestjs/common';
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -13,13 +13,18 @@ import { redactSecretsInUrl } from './common/logging/redact-url';
 import { ORIGIN_AUTH_HEADER, originAllowed } from './common/http/origin-guard';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
+import { envWarnings } from './config/env-warnings';
 import { initSentry } from './common/observability/sentry';
 import { RedisIoAdapter } from './modules/realtime/realtime.adapter';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
 
+const logger = new Logger('Bootstrap');
+
 async function bootstrap() {
   const env = loadEnv();
   const isProd = env.NODE_ENV === 'production';
+  // Lo que no impide arrancar pero hay que corregir (ver config/env-warnings.ts).
+  for (const warning of envWarnings(env)) logger.warn(warning);
 
   // Sentry primero — para capturar fallos de bootstrap
   initSentry({
@@ -56,7 +61,6 @@ async function bootstrap() {
   // Casts a FastifyPluginCallback son por incompatibilidad de tipos entre
   // multiples versiones de fastify resueltas por pnpm (4.28.x vs 4.29.x).
   // Funcionan correctamente en runtime — solo molesta a tsc.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await app.register(helmet as any, {
     contentSecurityPolicy: isProd
       ? {
@@ -107,7 +111,6 @@ async function bootstrap() {
 
   // Rate limit global — 100 req/min/IP. Endpoints sensibles (login, refresh,
   // accept-invite) tienen su propio @IpRateLimit más estricto via guard Redis.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await app.register(rateLimit as any, {
     max: 100,
     timeWindow: '1 minute',
@@ -182,8 +185,7 @@ async function bootstrap() {
   app.useWebSocketAdapter(new RedisIoAdapter(app));
 
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
-  // eslint-disable-next-line no-console
-  console.log(`NightPay API listening on http://0.0.0.0:${env.PORT}`);
+  logger.log(`NightPay API escuchando en http://0.0.0.0:${env.PORT} (${env.NODE_ENV})`);
 }
 
 function parseCorsOrigins(value: string | undefined): string[] {
@@ -194,8 +196,7 @@ function parseCorsOrigins(value: string | undefined): string[] {
     .filter((s) => s.length > 0);
 }
 
-bootstrap().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('Bootstrap failed:', err);
+bootstrap().catch((err: unknown) => {
+  logger.error(`Fallo al arrancar: ${(err as Error)?.message ?? String(err)}`, (err as Error)?.stack);
   process.exit(1);
 });
