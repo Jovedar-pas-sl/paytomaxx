@@ -190,6 +190,11 @@ Debería detectar el migration folder `20260422235959_enable_rls` y aplicarlo.
 pnpm db:seed
 ```
 
+El seed solo crea lo que falta y **nunca cambia la contraseña de un usuario
+que ya existe**. La de los usuarios nuevos: la de `SEED_PASSWORD` (en
+`.env.local`, mín. 12 caracteres) o, si no hay, una al azar que se enseña una
+sola vez al final. En producción no se usa (ni va en la imagen).
+
 ### 5. Probar login
 
 ```powershell
@@ -199,7 +204,7 @@ pnpm --filter @nightpay/api dev
 # en otra ventana, login como owner
 curl -X POST http://localhost:4100/v1/auth/login `
   -H "Content-Type: application/json" `
-  -d '{"email":"owner@nightpay.local","password":"nightpay-dev-2026"}'
+  -d '{"email":"owner@nightpay.local","password":"<la del seed>"}'
 ```
 
 Esperado:
@@ -248,13 +253,13 @@ pnpm cli create-terminal --venue luna-bio --external-id BARRA-1 --label "Barra p
 pnpm cli reset-password --email manager.vlc@nightpay.local --password "nuevo-pwd"
 ```
 
-### 8. Credenciales dev (cámbialas ANTES de producción)
+### 8. Credenciales dev
 
-- password dev: `nightpay-dev-2026`
 - owner: `owner@nightpay.local`
 - managers: `manager.{vlc,mad,mrb,ibz}@nightpay.local`
+- contraseña: la que diste en `SEED_PASSWORD` o la que enseñó el seed.
 
-Usa `pnpm cli reset-password` para rotarlas.
+Si la pierdes: `pnpm cli reset-password --email <correo> --password "<nueva>"`.
 
 ## Sprint 3 + Sprint 4 (ya implementado)
 
@@ -283,7 +288,7 @@ Esperado en el log: `Mapped {/v1/payments, POST}`, `Mapped {/v1/webhooks/:provid
 ```powershell
 cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
 
-$body = @{ email='owner@nightpay.local'; password='nightpay-dev-2026' } | ConvertTo-Json
+$body = @{ email='owner@nightpay.local'; password='<la del seed>' } | ConvertTo-Json
 $r = Invoke-RestMethod -Method Post -Uri http://localhost:4100/v1/auth/login -ContentType 'application/json' -Body $body
 $token = $r.accessToken
 
@@ -367,7 +372,7 @@ pnpm --filter "@nightpay/tpv" dev
 ```
 
 Abre [http://localhost:4102](http://localhost:4102), login con
-`owner@nightpay.local` / `nightpay-dev-2026`. Selecciona "Barra 1", importe 48.50, "Cobrar".
+`owner@nightpay.local` y la contraseña del seed. Selecciona "Barra 1", importe 48.50, "Cobrar".
 
 ### 4. Arrancar web-client (otra ventana)
 
@@ -428,7 +433,7 @@ cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
 pnpm --filter "@nightpay/admin" dev
 ```
 
-[http://localhost:4103](http://localhost:4103) → login con `owner@nightpay.local` / `nightpay-dev-2026`.
+[http://localhost:4103](http://localhost:4103) → login con `owner@nightpay.local` y la contraseña del seed.
 
 Vista:
 - Tiles métricas (hoy + semana, neto destacado)
@@ -455,6 +460,6 @@ Scheduler programa job repetible 07:00 UTC para cada venue. Estado en tabla `rec
 
 - 2FA TOTP real (speakeasy) — ahora es placeholder
 - Audit log global (role changes, credentials, refunds)
-- Despliegue Hetzner + Coolify + Cloudflare
+- Despliegue Dokploy + Cloudflare (docs/DOKPLOY-STEPS.md)
 - Integración Wipay/Peanpe real con credenciales descifradas por venue
 - CLI `reconcile --day --venue`

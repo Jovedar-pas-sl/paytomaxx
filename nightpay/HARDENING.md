@@ -2,25 +2,22 @@
 
 Lista de operaciones que hay que hacer ANTES de exponer el API a tráfico real (aunque sea de tus 6 locales).
 
-## 1. Rotar passwords del seed (urgente)
+## 1. Contraseñas de los usuarios (hecho en código)
 
-El seed crea usuarios con `nightpay-dev-2026`. Ese password está en el repo
-público. Rótalos ya:
+El seed de desarrollo ya no lleva una contraseña conocida: la de los usuarios
+nuevos sale de `SEED_PASSWORD` o se genera al azar, nunca cambia la de un
+usuario que ya existe y se niega a correr en producción sin `SEED_PASSWORD`.
+Tampoco va en la imagen del API. En producción, los usuarios se crean con
+`pnpm cli create-owner` / `create-manager` (DOKPLOY-STEPS, D.7).
+
+Si alguna vez se usó en producción la contraseña de demostración antigua
+(la que publicaba esta documentación), cámbiala ya en cada usuario:
 
 ```powershell
-cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
-
-# Owner (tú)
-pnpm cli reset-password --email owner@nightpay.local --password "TU_PASSWORD_FUERTE_AQUI"
-
-# Cada manager (cada local)
-pnpm cli reset-password --email manager.vlc@nightpay.local --password "..."
-pnpm cli reset-password --email manager.mad@nightpay.local --password "..."
-pnpm cli reset-password --email manager.mrb@nightpay.local --password "..."
-pnpm cli reset-password --email manager.ibz@nightpay.local --password "..."
+pnpm cli reset-password --email <correo> --password "<contraseña larga>"
 ```
 
-Genera passwords con: `node -e "console.log(require('crypto').randomBytes(16).toString('base64'))"`.
+Genera contraseñas con: `node -e "console.log(require('crypto').randomBytes(16).toString('base64'))"`.
 
 ## 2. Backups diarios
 
@@ -82,7 +79,7 @@ Si encuentra atascados → exit 1 + (opcional) mensaje Telegram. Sigue runbook `
 icacls .env.local /inheritance:r /grant:r "$env:USERNAME:R"
 ```
 
-- En producción usa Coolify env vars (encrypted at rest) o systemd `LoadCredential=`.
+- En producción, las variables van en Dokploy → servicio → Environment (docs/DOKPLOY-STEPS.md).
 
 ## 5. Cifrado de credenciales pasarela (cuando integres Wipay/Peanpe real)
 
@@ -121,7 +118,7 @@ const tag = cipher.getAuthTag();
 
 Pino en formato JSON ya está configurado. En producción:
 
-- stdout va a Coolify → archivable a Loki/Grafana free tier
+- stdout va a los Logs de Dokploy → archivable a Loki/Grafana free tier
 - Filtrar warnings/errors por keyword `[ERROR]` o `level: 50`
 
 ## 8. Health checks

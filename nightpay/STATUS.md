@@ -1,6 +1,9 @@
 # NightPay — Status (2026-04-29)
 
-Documento canonico de "donde estamos". Si lees solo un MD, lee este.
+> **Foto de abril de 2026, desactualizada.** Desde entonces OxioPay está en
+> producción en Dokploy cobrando con Redsys/BBVA (ver [README.md](README.md)).
+> Despliegue: [docs/DOKPLOY-STEPS.md](docs/DOKPLOY-STEPS.md) · copias:
+> [docs/BACKUPS.md](docs/BACKUPS.md) · incidentes: [docs/runbooks/](docs/runbooks/).
 
 ---
 
@@ -108,7 +111,7 @@ Documento canonico de "donde estamos". Si lees solo un MD, lee este.
 2. **VPS Hetzner + Coolify** (tienes el VPS, falta provisionar)
 3. **Dominio + Cloudflare** (DNS + WAF + SSL)
 4. **Backups cron** real (script existe, falta cron VPS)
-5. **Rotar passwords seed** (todos los users tienen `nightpay-dev-2026`, ver `HARDENING.md`)
+5. **Contraseñas de los usuarios**: el seed ya no usa una conocida (ver `HARDENING.md` §1)
 6. **Rotar `JWT_SECRET` y `ENCRYPTION_KEK`** en `.env.production` (los del repo son demo)
 
 ### B. ALTO — primeras 2 semanas tras lanzar
@@ -332,8 +335,8 @@ pnpm --filter "@nightpay/web-client" dev # → 4101
 # 4. Login
 # admin: http://localhost:4103
 # user:  owner@nightpay.local
-# pwd:   nightpay-dev-2026  (rotalo via `pnpm cli reset-password`)
+# pwd:   la que diste en SEED_PASSWORD o la que enseñó `pnpm db:seed`
 
 # 5. Tests
-pnpm --filter "@nightpay/api" test       # 99 deben pasar
+pnpm --filter "@nightpay/api" test
 ```

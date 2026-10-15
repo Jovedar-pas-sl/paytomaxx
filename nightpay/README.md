@@ -3,22 +3,24 @@
 Plataforma de cobro híbrida **QR + NFC** para ocio nocturno (discotecas, festivales, bares).
 De 60–120s de checkout a <15s. Sin formularios.
 
-**Estado**: Sprint 8.5 — feature-complete a nivel local. 99 tests verdes. Falta integracion con
-pasarelas reales (Wipay/Peanpe credentials) y deploy a VPS. Ver [STATUS.md](STATUS.md) y
-[POST_LAUNCH.md](POST_LAUNCH.md).
+**Estado (octubre 2026)**: en producción como **OxioPay** en Dokploy, cobrando con Redsys
+(TPV de BBVA) — QR con Apple/Google Pay, saldo del cliente con Face ID / PIN / ficha NFC,
+datáfonos PAX de Paytef, cuadre con el banco e incidencias por Telegram. Despliegue:
+[docs/DOKPLOY-STEPS.md](docs/DOKPLOY-STEPS.md) · copias: [docs/BACKUPS.md](docs/BACKUPS.md) ·
+qué hacer si algo falla: [docs/runbooks/](docs/runbooks/). `STATUS.md` es una foto de abril.
 
 ## Lectura previa obligatoria
 
 Todo el diseño está en `docs/`:
 - [MASTER_PLAN_V2.md](docs/MASTER_PLAN_V2.md) — documento maestro (18 secciones)
 - [docs/adr/](docs/adr/) — 5 decisiones arquitectónicas
-- [docs/runbooks/](docs/runbooks/) — P0/P1 operativos
+- [docs/runbooks/](docs/runbooks/) — P0/P1 operativos (y [VPS perdido](docs/runbooks/P0-vps-perdido.md))
 - [docs/checklists/onboarding-local.md](docs/checklists/onboarding-local.md)
 
 ## Quickstart local
 
 ### Requisitos
-- Node 20 LTS (ver `.nvmrc`)
+- Node 22 LTS (ver `.nvmrc`)
 - pnpm 9 (`corepack enable && corepack prepare pnpm@9.12.0 --activate`)
 - Docker + Docker Compose
 - ~4GB RAM libre
@@ -48,9 +50,10 @@ curl http://localhost:4100/v1/health
 | Web Cliente (Next.js) | 4101 | http://localhost:4101 |
 | TPV (Next.js) | 4102 | http://localhost:4102 |
 | Admin (Next.js) | 4103 | http://localhost:4103 |
-| Mock Wipay | 4901 | http://localhost:4901 |
-| Mock Peanpe | 4902 | http://localhost:4902 |
-| MailHog UI | 4825 | http://localhost:4825 |
+| Operator (Next.js) | 4104 | http://localhost:4104 |
+| Simulador Wipay (solo dev) | 4901 | http://localhost:4901 |
+| Simulador Peanpe (solo dev) | 4902 | http://localhost:4902 |
+| Mailpit (correo de pruebas) | 4825 | http://localhost:4825 |
 
 ## Estructura
 
@@ -61,8 +64,11 @@ nightpay/
 │   ├── web-client/       # Next.js — cliente móvil (puerto 4101)
 │   ├── tpv/              # Next.js — terminal camarero (4102)
 │   ├── admin/            # Next.js — panel gestión (4103)
-│   ├── mock-wipay/       # Fastify mock pasarela
-│   └── mock-peanpe/      # Fastify mock pasarela
+│   ├── operator/         # Next.js — app de la chica / encargado (4104)
+│   ├── pax-android/      # App Android del datáfono PAX
+│   ├── e2e/              # Playwright (a mano; ver su README)
+│   ├── mock-wipay/       # Simulador de pasarela — SOLO desarrollo, nunca en producción
+│   └── mock-peanpe/      # Simulador de pasarela — SOLO desarrollo, nunca en producción
 ├── packages/
 │   ├── contracts/        # Zod schemas compartidos
 │   ├── db/               # Prisma schema + cliente
@@ -83,13 +89,14 @@ pnpm --filter @nightpay/web-client dev  # solo web cliente
 
 # Base de datos
 pnpm db:migrate                # aplicar migraciones
-pnpm db:seed                   # poblar datos demo
+pnpm db:seed                   # poblar datos demo (solo crea lo que falta; ver SETUP.md)
 pnpm db:studio                 # GUI Prisma Studio
 
 # Checks
 pnpm typecheck                 # toda la monorepo
 pnpm lint
 pnpm test                      # vitest
+pnpm --filter @nightpay/api test:integration   # contra Postgres real (apps/api/test/integration)
 pnpm build
 
 # Limpiar
@@ -106,14 +113,16 @@ docker compose down -v         # reset completo de volúmenes DB/Redis
 - [x] **Sprint 6**: Admin dashboard + refunds + reconciliacion diaria
 - [x] **Sprint 7**: Hardening seguridad (Helmet, rate-limit, CORS, lockout, ProblemDetails)
 - [x] **Sprint 8**: Audit log + Prometheus metrics + Redis lockout + CLI ops
-- [x] **Sprint 8.5** (esta sesion): Refresh tokens con rotacion, kill-switch, observability completa, 99 tests
+- [x] **Sprint 8.5**: Refresh tokens con rotacion, kill-switch, observability completa
+- [x] **Oct 2026**: Redsys/BBVA en producción, saldo del cliente, datáfonos PAX, cuadre con el banco, incidencias
 
 ## Endpoints expuestos (`/v1`)
 
 | Metodo | Path | Acceso | Descripcion |
 |--------|------|--------|-------------|
-| GET  | `/health`                                   | publico | Liveness probe |
-| GET  | `/metrics`                                  | publico | Prometheus exposition |
+| GET  | `/health`                                   | publico | API + base + Redis (503 si falla algo) |
+| GET  | `/health/live`                              | publico | Solo «el proceso responde» (healthcheck Docker) |
+| GET  | `/metrics`                                  | red interna o `METRICS_TOKEN` | Prometheus exposition |
 | POST | `/auth/login`                               | publico | Email + password → access + refresh |
 | POST | `/auth/refresh`                             | publico | Rotar refresh → nuevo access |
 | POST | `/auth/logout`                              | auth    | Revocar refresh server-side |
