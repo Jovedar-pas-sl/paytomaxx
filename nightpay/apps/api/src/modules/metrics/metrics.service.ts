@@ -99,6 +99,16 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // ─── Aislamiento por local ────────────────────────────────────────
+  // Consultas a un modelo por local sin local ni asSystem/acrossVenues (ver
+  // PrismaService). Debe estar en 0: si sube, hay un camino sin aislamiento.
+  readonly tenantUnscopedQueries = new Counter({
+    name: 'nightpay_tenant_unscoped_queries_total',
+    help: 'Consultas a modelos por local sin local en el contexto ni asSystem/acrossVenues',
+    labelNames: ['model', 'action'],
+    registers: [this.registry],
+  });
+
   // ─── WS / queues ──────────────────────────────────────────────────
   readonly wsConnectionsActive = new Gauge({
     name: 'nightpay_ws_connections_active',

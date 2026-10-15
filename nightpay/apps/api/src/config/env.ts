@@ -205,10 +205,16 @@ const EnvSchema = z.object({
     ])
     .default(false),
 
-  // GET /v1/metrics desde internet (vía Cloudflare) solo con
-  // `Authorization: Bearer <METRICS_TOKEN>`. El scrape interno de la red
-  // Docker no lo necesita. Sin definir → métricas cerradas a internet.
+  // GET /v1/metrics en producción solo con `Authorization: Bearer
+  // <METRICS_TOKEN>` (también el scrape interno de la red Docker). Sin
+  // definir → métricas cerradas (aviso al arrancar).
   METRICS_TOKEN: z.string().min(24, 'METRICS_TOKEN >= 24 chars').optional(),
+
+  // Consultas a un modelo por local sin local y sin asSystem/acrossVenues
+  // (posible fallo de aislamiento): 'log' = se registran (log + métrica
+  // nightpay_tenant_unscoped_queries_total) y siguen; 'throw' = se cortan.
+  // Pasar a 'throw' cuando la métrica lleve días en 0.
+  TENANCY_UNSCOPED_QUERIES: z.enum(['log', 'throw']).default('log'),
 
   // Días que una comisión de la chica queda "en espera" antes de poder
   // pagársela (cubre devoluciones tempranas y que el banco aún no abonó).

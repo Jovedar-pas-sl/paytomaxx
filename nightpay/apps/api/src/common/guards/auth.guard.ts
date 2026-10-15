@@ -9,9 +9,10 @@ import {
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { ClsService } from 'nestjs-cls';
-import { JwtPayloadSchema, type JwtPayload } from '@nightpay/contracts';
+import type { JwtPayload } from '@nightpay/contracts';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
-import type { RequestContext } from '../context/request-context';
+import { bindTenantContext, type RequestContext } from '../context/request-context';
+import { bearerToken, verifyStaffToken } from './staff-token';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -42,42 +43,25 @@ export class AuthGuard implements CanActivate {
       user?: JwtPayload;
     }>();
 
-    const header = req.headers['authorization'];
-    const token =
-      typeof header === 'string' && header.startsWith('Bearer ')
-        ? header.slice('Bearer '.length).trim()
-        : null;
-
+    const token = bearerToken(req.headers['authorization']);
     if (!token) throw new UnauthorizedException('Missing bearer token');
 
-    let raw: unknown;
-    try {
-      raw = await this.jwt.verifyAsync(token);
-    } catch (err) {
-      this.logger.debug(`JWT verify failed: ${(err as Error).message}`);
-      throw new UnauthorizedException('Invalid token');
+    const result = await verifyStaffToken(this.jwt, token);
+    if (!result.ok) {
+      this.logger.debug(`JWT rechazado: ${result.reason}`);
+      throw new UnauthorizedException(result.reason === 'invalid' ? 'Invalid token' : 'Malformed token');
     }
 
-    const parsed = JwtPayloadSchema.safeParse(raw);
-    if (!parsed.success) {
-      this.logger.warn('JWT payload failed zod validation', parsed.error.flatten());
-      throw new UnauthorizedException('Malformed token');
-    }
-
-    req.user = parsed.data;
-
-    // Inyectar contexto en CLS para que Prisma middleware lo recoja.
-    // Resiliente: si CLS no está activo (ej. tests, bootstrap), no crashea.
-    if (this.cls.isActive()) {
-      this.cls.set('ctx', {
-        tenantId: parsed.data.tenantId,
-        userId: parsed.data.sub,
-        role: parsed.data.role,
-        venueSlug: parsed.data.venueSlug,
-      });
-    } else {
-      this.logger.warn('CLS context not active — tenant filtering will not apply');
-    }
+    req.user = result.payload;
+    // Local en el contexto para el middleware de Prisma. Sin contexto CLS
+    // (p. ej. una ruta que se salte el middleware de CLS) se rechaza: antes
+    // seguía SIN filtro por local (fail-open).
+    bindTenantContext(this.cls, {
+      tenantId: result.payload.tenantId,
+      userId: result.payload.sub,
+      role: result.payload.role,
+      venueSlug: result.payload.venueSlug,
+    });
 
     return true;
   }
