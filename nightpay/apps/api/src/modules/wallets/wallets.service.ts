@@ -2,11 +2,76 @@ import { ConflictException, Inject, Injectable, Logger, NotFoundException } from
 import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { formatWalletCode, newWalletCode, newWalletToken } from './wallet-rules';
+import { formatWalletCode, newWalletCode, newWalletToken, sameWalletGroup } from './wallet-rules';
+import { reopenData } from './wallet-activation';
+import { lockLiveWallet } from './wallet-merge-chain';
 import type { ClientWalletView, WalletsAdminStats } from '@nightpay/contracts';
 
 /** Intentos para dar con un código corto libre (31^6 combinaciones). */
 const MAX_CODE_ATTEMPTS = 5;
+
+type RawTx = Pick<Prisma.TransactionClient, '$queryRaw' | '$executeRaw'>;
+
+interface LockedConsumption {
+  id: string;
+  amountCents: number;
+  tipCents: number;
+  notes: string | null;
+  reversedAt: Date | null;
+}
+
+/**
+ * El consumo de este saldo cobrado en este local, bloqueado: de dos
+ * anulaciones a la vez (doble clic), la segunda ya lo ve anulado.
+ */
+async function lockConsumption(
+  tx: RawTx,
+  input: { consumptionId: string; walletId: string; tenantId: string },
+): Promise<LockedConsumption | null> {
+  const rows = await tx.$queryRaw<LockedConsumption[]>`
+    SELECT id, "amountCents", "tipCents", notes, "reversedAt"
+      FROM wallet_consumptions
+     WHERE id = ${input.consumptionId}::uuid AND "walletId" = ${input.walletId}::uuid AND "tenantId" = ${input.tenantId}::uuid
+     FOR UPDATE
+  `;
+  return rows[0] ?? null;
+}
+
+/**
+ * Anula la parte de la chica de un consumo (comisión y propina) con su fila
+ * bloqueada, como applyRefundToEarning en payments. createPayout también la
+ * bloquea: o se anula antes de pagarle (y ya no cuenta en el pago) o se ve
+ * aquí ya pagada y queda como deuda para su siguiente pago
+ * (earning_reversals.afterPayout). Lo ya descontado no se descuenta otra vez.
+ */
+async function reverseEarningOf(tx: RawTx, consumptionId: string): Promise<void> {
+  const rows = await tx.$queryRaw<
+    Array<{ id: string; tenantId: string; commissionCents: number; tipCents: number; reversedCents: number; payoutId: string | null }>
+  >`
+    SELECT id, "tenantId", "commissionCents", "tipCents", "reversedCents", "payoutId"
+      FROM operator_earnings WHERE "consumptionId" = ${consumptionId}::uuid
+     FOR UPDATE
+  `;
+  const earning = rows[0];
+  if (!earning) return;
+  const debts = await tx.$queryRaw<Array<{ total: bigint }>>`
+    SELECT COALESCE(SUM("reversedDeltaCents"), 0)::bigint AS total
+      FROM earning_reversals WHERE "earningId" = ${earning.id}::uuid AND "afterPayout"
+  `;
+  const owed = earning.commissionCents + earning.tipCents - earning.reversedCents - Number(debts[0]?.total ?? 0);
+  if (owed <= 0) return;
+  if (earning.payoutId) {
+    await tx.$executeRaw`
+      INSERT INTO earning_reversals ("tenantId", "earningId", "consumptionId", "reversedDeltaCents", "afterPayout")
+      VALUES (${earning.tenantId}::uuid, ${earning.id}::uuid, ${consumptionId}::uuid, ${owed}::int, true)
+      ON CONFLICT ("consumptionId") DO NOTHING
+    `;
+    return;
+  }
+  await tx.$executeRaw`
+    UPDATE operator_earnings SET "reversedCents" = "reversedCents" + ${owed}::int WHERE id = ${earning.id}::uuid
+  `;
+}
 
 /**
  * Saldos para el panel (lista, ficha, estadísticas), la vista pública vieja
@@ -65,8 +130,11 @@ export class WalletsService {
   }
 
   /**
-   * Cancela un consumption. Devuelve el balance al wallet + marca el earning
-   * como reversed (si existía).
+   * Anula un consumo del saldo (lo hace el local donde se cobró): devuelve
+   * importe y propina al saldo que usa hoy el cliente y anula la parte de la
+   * chica. En una transacción, bloqueando en este orden: el consumo (doble
+   * clic), el saldo vivo (lo que se le devuelva o cobre a la vez) y la parte
+   * de la chica (un pago a la chica a la vez: si ya se le pagó, queda deuda).
    */
   async reverseConsumption(input: {
     tenantId: string;
@@ -75,95 +143,53 @@ export class WalletsService {
     actorUserId: string;
     reason: string;
   }): Promise<{ refundedCents: number; newBalanceCents: number }> {
-    return this.prisma.asSystem(async (tx) => {
-      // La wallet bloqueada: dos anulaciones a la vez (doble clic) o una
-      // anulación y una devolución del saldo no se pisan.
-      const locked = await tx.$queryRaw<Array<{ status: string }>>`
-        SELECT status::text AS status FROM client_wallets
-         WHERE id = ${input.walletId}::uuid AND "tenantId" = ${input.tenantId}::uuid
-         FOR UPDATE
-      `;
-      const consumption = await tx.walletConsumption.findFirst({
-        where: {
-          id: input.consumptionId,
-          walletId: input.walletId,
-          tenantId: input.tenantId,
-        },
-        include: { earning: true },
-      });
-      if (!consumption || locked.length === 0) {
+    const venue = await this.prisma.venue.findUnique({ where: { id: input.tenantId }, select: { walletGroup: true } });
+    const done = await this.prisma.acrossVenues(async (tx) => {
+      const consumption = await lockConsumption(tx, input);
+      if (!consumption) throw new NotFoundException('Consumption no encontrado');
+      if (consumption.reversedAt) throw new ConflictException('Consumption ya estaba reversed');
+      // El saldo por su id (vale en todo el grupo) y, si se sumó a otro con su
+      // Face ID, aquel: es donde el cliente tiene hoy su dinero.
+      const wallet = await lockLiveWallet(tx, input.walletId);
+      if (!wallet || !sameWalletGroup(wallet, { id: input.tenantId, walletGroup: venue?.walletGroup ?? null })) {
         throw new NotFoundException('Consumption no encontrado');
       }
-      if (consumption.reversedAt) {
-        throw new ConflictException('Consumption ya estaba reversed');
-      }
-      const wallet0 = locked[0];
-      // Una wallet ya devuelta o caducada no se reabre: el dinero se devuelve aparte.
-      if (wallet0?.status === 'REFUNDED' || wallet0?.status === 'EXPIRED') {
+      // Un saldo ya devuelto o caducado no se reabre: el dinero se devuelve aparte.
+      if (wallet.status === 'REFUNDED' || wallet.status === 'EXPIRED') {
         throw new ConflictException('El saldo de este cliente ya se cerró: devuélvele este importe aparte');
       }
-      // Se devuelve todo lo que se descontó: importe y propina.
+      // Se devuelve todo lo que se descontó: importe y propina. A 0 se reabre
+      // (con otro código si el suyo lo tiene ya otro cliente).
       const refunded = consumption.amountCents + consumption.tipCents;
-
       await tx.clientWallet.update({
-        where: { id: input.walletId },
-        data: {
-          balanceCents: { increment: refunded },
-          // Si estaba DEPLETED, vuelve a ACTIVE
-          status: 'ACTIVE',
-        },
+        where: { id: wallet.id },
+        data: { balanceCents: { increment: refunded }, ...(await reopenData(tx, wallet)) },
       });
-
-      // Marcar el consumption reversed
       await tx.walletConsumption.update({
-        where: { id: input.consumptionId },
+        where: { id: consumption.id },
         data: {
           reversedAt: new Date(),
           reversedByUserId: input.actorUserId,
-          notes: consumption.notes
-            ? `${consumption.notes}\n[REVERSED: ${input.reason}]`
-            : `[REVERSED: ${input.reason}]`,
+          notes: consumption.notes ? `${consumption.notes}\n[REVERSED: ${input.reason}]` : `[REVERSED: ${input.reason}]`,
         },
       });
-
-      // Si había earning, se anula entero: comisión y propina. Si ya se le
-      // había pagado a la chica, queda como deuda para su siguiente pago.
-      if (consumption.earning) {
-        const e = consumption.earning;
-        const owed = e.commissionCents + e.tipCents - e.reversedCents;
-        if (e.payoutId && owed > 0) {
-          await tx.$executeRaw`
-            INSERT INTO earning_reversals ("tenantId", "earningId", "consumptionId", "reversedDeltaCents", "afterPayout")
-            VALUES (${e.tenantId}::uuid, ${e.id}::uuid, ${consumption.id}::uuid, ${owed}::int, true)
-            ON CONFLICT ("consumptionId") DO NOTHING
-          `;
-        } else if (!e.payoutId) {
-          await tx.operatorEarning.update({
-            where: { id: e.id },
-            data: { reversedCents: e.commissionCents + e.tipCents },
-          });
-        }
-      }
-
-      const wallet = await tx.clientWallet.findUnique({
-        where: { id: input.walletId },
-        select: { balanceCents: true },
-      });
-
-      await this.audit.log({
-        action: 'wallet.consumption.reversed',
-        tenantId: input.tenantId,
-        actorId: input.actorUserId,
-        targetType: 'WalletConsumption',
-        targetId: input.consumptionId,
-        payload: { reason: input.reason, refundedCents: refunded },
-      });
-
-      return {
-        refundedCents: refunded,
-        newBalanceCents: wallet?.balanceCents ?? 0,
-      };
+      await reverseEarningOf(tx, consumption.id);
+      return { refunded, walletId: wallet.id, newBalanceCents: wallet.balanceCents + refunded };
     });
+
+    await this.audit.log({
+      action: 'wallet.consumption.reversed',
+      tenantId: input.tenantId,
+      actorId: input.actorUserId,
+      targetType: 'WalletConsumption',
+      targetId: input.consumptionId,
+      payload: {
+        reason: input.reason,
+        refundedCents: done.refunded,
+        ...(done.walletId !== input.walletId ? { creditedWalletId: done.walletId } : {}),
+      },
+    });
+    return { refundedCents: done.refunded, newBalanceCents: done.newBalanceCents };
   }
 
   /** Lista wallets del venue para el admin panel. */
