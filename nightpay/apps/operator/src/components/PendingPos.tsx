@@ -80,6 +80,7 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
       const filter = zoneRef.current;
       try {
         const list = await fetchPendingPos(filter === 'all' ? undefined : filter);
+        // Respuesta de la zona anterior: ni se pinta ni quita el "Cargando…".
         if (filter !== zoneRef.current) return;
         const arrivals = newArrivals(seenIds.current, list.map((p) => p.id));
         seenIds.current = arrivals.seen;
@@ -88,11 +89,11 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
         // Si el seleccionado ya no está (alguien lo confirmó), se vuelve a la lista.
         setSelected((sel) => (sel && !list.some((p) => p.id === sel.id) ? null : sel));
         setError(null);
+        setLoading(false);
       } catch (err) {
         setError(pollErrorText(err));
-        return err instanceof SessionExpiredError ? 'stop' : 'slow';
-      } finally {
         setLoading(false);
+        return err instanceof SessionExpiredError ? 'stop' : 'slow';
       }
     },
     { intervalMs: POLL_MS },
