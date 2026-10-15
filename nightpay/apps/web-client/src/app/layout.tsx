@@ -22,7 +22,9 @@ const mono = localFont({
 
 export const metadata: Metadata = {
   title: 'OxioPay — Pagar',
-  description: 'Paga en segundos acercando la tarjeta al datáfono.',
+  description: 'Paga desde el móvil escaneando el QR del local.',
+  // Como las páginas de pago del API: fuera de los buscadores.
+  robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {

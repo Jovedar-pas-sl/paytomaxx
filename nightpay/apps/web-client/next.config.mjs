@@ -1,3 +1,57 @@
+/**
+ * Cabeceras de seguridad para todas las páginas: no se deja meter en iframes
+ * de otros (engaños con clics), no ejecuta scripts de fuera y solo habla con
+ * el API. Next mete scripts en línea al hidratar (y el tema claro/oscuro va
+ * en línea en el layout): 'unsafe-inline' hace falta sin nonces;
+ * 'unsafe-eval' solo en desarrollo.
+ */
+const isDev = process.env.NODE_ENV !== 'production';
+
+/** esquema://host[:puerto] de una URL, o null si no lo es. */
+function originOf(url) {
+  try {
+    return url ? new URL(url).origin : null;
+  } catch {
+    return null;
+  }
+}
+
+// connect-src: esta web y el API de este build (NEXT_PUBLIC_* se fijan al
+// compilar, igual que en el código). El WebSocket también en http(s): socket.io
+// cae a polling si no conecta.
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
+const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? apiUrl.replace(/^http/, 'ws');
+const connectSrc = [
+  "'self'",
+  originOf(apiUrl),
+  originOf(wsUrl),
+  originOf(wsUrl.replace(/^ws/, 'http')),
+  ...(isDev ? ['http://localhost:*', 'ws://localhost:*', 'http://127.0.0.1:*', 'ws://127.0.0.1:*'] : []),
+].filter((src, i, all) => src && all.indexOf(src) === i);
+
+const securityHeaders = [
+  {
+    key: 'Content-Security-Policy',
+    value: [
+      "default-src 'self'",
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      `connect-src ${connectSrc.join(' ')}`,
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+    ].join('; '),
+  },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -10,52 +64,9 @@ const nextConfig = {
   experimental: {
     typedRoutes: true,
   },
+  // /pay/:token y /wallet/:token solo redirigen a las páginas del API.
   async headers() {
-    return [
-      {
-        // Cabeceras seguridad para TODAS las rutas. El web-client sirve la
-        // página de pago al cliente borracho — debe estar tan blindada como
-        // sea posible sin romper la integración con la pasarela.
-        source: '/:path*',
-        headers: [
-          // HSTS — fuerza HTTPS en producción. 1 año + subdominios + preload.
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=31536000; includeSubDomains; preload',
-          },
-          // Sin MIME sniffing — el navegador respeta el Content-Type que enviamos
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          // No incrustar en <iframe> de terceros — clickjacking
-          { key: 'X-Frame-Options', value: 'DENY' },
-          // Solo enviar referrer al mismo origin
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          // Bloquear APIs sensibles que no usamos en la página de pago
-          {
-            key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), payment=()',
-          },
-          // CSP — el web-client NO necesita inline scripts (todo es Next.js
-          // bundles). Allowlist apertura a Socket.io (mismo origen) +
-          // API backend (NEXT_PUBLIC_API_URL).
-          {
-            key: 'Content-Security-Policy',
-            value: [
-              "default-src 'self'",
-              "script-src 'self'",
-              "style-src 'self' 'unsafe-inline'", // Next.js inline styles
-              "img-src 'self' data: https:",
-              "font-src 'self' data:",
-              // connect-src abierto para ws/wss/https — el API_URL viene de env
-              // build-time; usamos wildcard sobre paytomaxx.com como compromiso.
-              "connect-src 'self' https: wss: ws:",
-              "frame-ancestors 'none'",
-              "base-uri 'self'",
-              "form-action 'self'",
-            ].join('; '),
-          },
-        ],
-      },
-    ];
+    return [{ source: '/:path*', headers: securityHeaders }];
   },
 };
 

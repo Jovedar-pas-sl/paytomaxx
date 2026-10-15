@@ -1,44 +1,13 @@
-import { Card, Stage } from '@nightpay/ui';
-import { fetchPaymentByToken } from '@/lib/api';
-import { PaymentClient } from './PaymentClient';
+import { notFound, redirect } from 'next/navigation';
+import { customerPageUrl, isQrToken } from '@/lib/customer-pages';
 
 interface PageProps {
   params: { token: string };
+  searchParams: { lang?: string | string[] };
 }
 
-export default async function PayPage({ params }: PageProps) {
-  const token = params.token;
-  let payment;
-  try {
-    payment = await fetchPaymentByToken(token);
-  } catch {
-    return (
-      <Stage>
-        <Card variant="glow" style={{ textAlign: 'center', maxWidth: '24rem' }}>
-          <h1
-            style={{
-              fontSize: 'var(--np-t-h2)',
-              margin: 0,
-              fontWeight: 600,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            QR no encontrado o expirado
-          </h1>
-          <p
-            style={{
-              color: 'var(--np-text-mute)',
-              marginTop: '1rem',
-              marginBottom: 0,
-              fontSize: '0.95rem',
-            }}
-          >
-            Pide al camarero que genere uno nuevo.
-          </p>
-        </Card>
-      </Stage>
-    );
-  }
-
-  return <PaymentClient initial={payment} token={token} />;
+/** El cobro lo hace la página del API (tarjeta, propina, saldo, Face ID): aquí solo se redirige. */
+export default function PayPage({ params, searchParams }: PageProps) {
+  if (!isQrToken(params.token)) notFound();
+  redirect(customerPageUrl('pay', params.token, searchParams.lang));
 }

@@ -1,22 +1,27 @@
-export default function Page() {
+import type { CSSProperties } from 'react';
+import { Logo, Stage } from '@nightpay/ui';
+
+/** Portada: al pago y al saldo se llega con el enlace del QR, no desde aquí. */
+export default function HomePage() {
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '2rem',
-        textAlign: 'center',
-      }}
-    >
-      <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>OxioPay</h1>
-      <p style={{ color: '#999', marginTop: 0 }}>Web cliente · Sprint 1 scaffold</p>
-      <p style={{ marginTop: '2rem', maxWidth: '28rem', lineHeight: 1.5 }}>
-        Escanea un QR generado por el TPV para comenzar un pago. Esta página inicial es solo un
-        placeholder hasta Sprint 5 (UX del cliente móvil).
-      </p>
-    </main>
+    <Stage>
+      <Logo height="2.5rem" />
+      <h1 style={titleStyle}>OxioPay</h1>
+      <p style={textStyle}>Para pagar, escanea el QR que te enseña el personal del local.</p>
+    </Stage>
   );
 }
+
+const titleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--np-t-h2)',
+  fontWeight: 600,
+  letterSpacing: '-0.02em',
+};
+
+const textStyle: CSSProperties = {
+  margin: 0,
+  maxWidth: '24rem',
+  textAlign: 'center',
+  color: 'var(--np-text-mute)',
+};
