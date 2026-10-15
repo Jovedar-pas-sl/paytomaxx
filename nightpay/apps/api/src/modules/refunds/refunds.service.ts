@@ -33,8 +33,8 @@ import {
   lockPaymentForRefund,
   settlePendingRefund,
 } from './refund-ledger';
-
-const TWO_FA_THRESHOLD_CENTS = 100_00; // 100€
+import { lockRefundsOf, refundTotalsOf, twoFactorReason } from './refund-two-factor';
+import type { TransactionalClient } from '../../common/prisma/prisma.service';
 
 /**
  * Una devolución pendiente no se resuelve a mano hasta pasado este rato: la
@@ -132,9 +132,8 @@ export class RefundsService {
     if (actor.role === 'WAITER') {
       throw new ForbiddenException('WAITER cannot refund');
     }
-    await this.assertTwoFactor(request, actor);
     const { payment, adapter } = await this.refundTarget(request);
-    const refund = await this.reserveApiRefund(payment, request, actor);
+    const { refund, twoFactorRequired } = await this.reserveApiRefund(payment, request, actor);
     const outcome = await this.askGateway(adapter, payment, refund.id, request);
     if (outcome.kind === 'rejected') return this.rejectRefund(payment, refund.id, outcome);
     if (outcome.kind === 'unknown') return this.keepRefundPending(payment, refund.id, request.amountCents, outcome, actor);
@@ -151,7 +150,7 @@ export class RefundsService {
         amountCents: request.amountCents,
         provider: payment.provider,
         providerRefundId: outcome.providerRefundId,
-        twoFactorRequired: request.amountCents >= TWO_FA_THRESHOLD_CENTS,
+        twoFactorRequired,
       },
     });
     const traceId = this.cls.get('ctx')?.traceId ?? randomUUID();
@@ -167,27 +166,44 @@ export class RefundsService {
     };
   }
 
-  /** 2FA TOTP requerido para refunds >= 100€ — verificación REAL con speakeasy. */
-  private async assertTwoFactor(request: RefundRequest, actor: Actor): Promise<void> {
-    if (request.amountCents < TWO_FA_THRESHOLD_CENTS) return;
+  /**
+   * 2FA según lo devuelto ACUMULADO por esta persona (mismo cobro y últimas
+   * 24 h), no por petición: 99,99 € × N ya no lo esquiva. Se decide dentro de
+   * la transacción de la reserva, con su candado por persona tomado, así que
+   * dos peticiones suyas a la vez no pasan las dos por debajo del umbral.
+   * Devuelve si se pidió el código.
+   */
+  private async checkTwoFactor(
+    tx: TransactionalClient,
+    request: RefundRequest,
+    actor: Actor,
+  ): Promise<boolean> {
+    const totals = await refundTotalsOf(tx, actor, request.paymentId);
+    const reason = twoFactorReason(request.amountCents, totals);
+    if (!reason) return false;
     if (!request.totpCode) {
-      throw new ForbiddenException('TOTP required for refunds >= 100 EUR');
+      throw new ForbiddenException({
+        message: `Hace falta el código 2FA: ${reason} devueltos (desde 100 € se pide).`,
+        code: 'TOTP_REQUIRED',
+      });
     }
-    const user = await this.prisma.user.findUnique({
+    const user = await tx.user.findUnique({
       where: { id: actor.userId },
       select: { totpSecret: true, email: true },
     });
     if (!user?.totpSecret) {
-      // El user nunca enrolo TOTP — bloquear refund hasta que lo haga.
-      throw new ForbiddenException(
-        'TOTP not enrolled for this user — contact owner to enroll before high-value refunds',
-      );
+      throw new ForbiddenException({
+        message:
+          'Para devolver desde 100 € hace falta la app de verificación (2FA) y no la tienes activada: pide al dueño que te la active.',
+        code: 'TOTP_NOT_ENROLLED',
+      });
     }
     if (!this.totp.verify(user.totpSecret, request.totpCode)) {
       this.logger.warn(`TOTP invalid for user ${actor.userId} (${user.email})`);
-      throw new ForbiddenException('Invalid TOTP code');
+      throw new ForbiddenException({ message: 'Código 2FA incorrecto o caducado', code: 'TOTP_INVALID' });
     }
-    this.logger.log(`TOTP verified for high-value refund: user=${actor.userId}`);
+    this.logger.log(`TOTP verified for refund (${reason}): user=${actor.userId}`);
+    return true;
   }
 
   /** Comprobaciones rápidas (sin candado) y la pasarela con la que se devolverá. */
@@ -228,17 +244,21 @@ export class RefundsService {
   }
 
   /**
-   * Reserva (PENDING) con la fila del cobro bloqueada: cuenta lo que queda por
-   * devolver menos lo que reservan otras devoluciones aún sin confirmar.
+   * Reserva (PENDING) con el candado de la persona (2FA) y la fila del cobro
+   * bloqueada: cuenta lo que queda por devolver menos lo que reservan otras
+   * devoluciones aún sin confirmar.
    */
   private async reserveApiRefund(payment: RefundTarget, request: RefundRequest, actor: Actor) {
     return this.prisma.$transaction(async (tx) => {
+      await lockRefundsOf(tx, actor.userId);
       const locked = await lockPaymentForRefund(tx, payment.id);
       if (!locked || !REFUNDABLE_STATUSES.has(locked.status)) {
         throw new ConflictException(`Cannot refund payment in state ${locked?.status ?? 'desconocido'}`);
       }
+      // Primero si cabe (no se pide un código para algo imposible), luego el 2FA.
       await assertRefundFits(tx, payment.id, locked, request.amountCents);
-      return tx.refund.create({
+      const twoFactorRequired = await this.checkTwoFactor(tx, request, actor);
+      const refund = await tx.refund.create({
         data: {
           tenantId: payment.tenantId,
           paymentId: payment.id,
@@ -248,6 +268,7 @@ export class RefundsService {
           status: 'PENDING',
         },
       });
+      return { refund, twoFactorRequired };
     });
   }
 

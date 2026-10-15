@@ -46,6 +46,9 @@ interface MakeOptions {
   reservedCents?: number;
   /** Devolución que busca resolvePending. */
   existingRefund?: RefundRowFixture | null;
+  /** Lo que esta persona ya devolvió por la pasarela en este cobro / en 24 h. */
+  userSamePaymentCents?: number;
+  userLastDayCents?: number;
 }
 
 function makeService(opts: MakeOptions = {}) {
@@ -60,7 +63,12 @@ function makeService(opts: MakeOptions = {}) {
       findUnique: vi.fn().mockResolvedValue(opts.user ?? null),
     },
     refund: {
-      aggregate: vi.fn().mockResolvedValue({ _sum: { amountCents: opts.reservedCents ?? 0 } }),
+      // Con requestedBy: lo devuelto por la persona (2FA); si no, lo reservado del cobro.
+      aggregate: vi.fn().mockImplementation(async ({ where }: { where: { requestedBy?: string; paymentId?: string } }) => {
+        if (!where.requestedBy) return { _sum: { amountCents: opts.reservedCents ?? 0 } };
+        const cents = where.paymentId ? opts.userSamePaymentCents : opts.userLastDayCents;
+        return { _sum: { amountCents: cents ?? 0 } };
+      }),
       create: vi.fn().mockImplementation(async ({ data }: { data: { id?: string; tenantId: string } }) => {
         const refund = { id: data.id ?? `refund-${refundCreated.length + 1}`, status: 'PENDING', ...data };
         refundCreated.push(refund);
@@ -187,11 +195,15 @@ describe('RefundsService.refund — authorization gates', () => {
     );
   });
 
-  it('requires TOTP for refunds >= 100 EUR', async () => {
-    const { svc } = makeService({ payment: bigPayment });
-    await expect(
-      svc.refund({ paymentId: 'pay-1', amountCents: 10_000 }, manager),
-    ).rejects.toThrow(/TOTP required/);
+  it('requires TOTP for refunds >= 100 EUR (code TOTP_REQUIRED para que el panel pida el código)', async () => {
+    const { svc, prismaMock } = makeService({ payment: bigPayment });
+    const err = await svc.refund({ paymentId: 'pay-1', amountCents: 10_000 }, manager).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect((err as ForbiddenException).getResponse()).toMatchObject({
+      code: 'TOTP_REQUIRED',
+      message: expect.stringMatching(/código 2FA.*100,00 €/),
+    });
+    expect(prismaMock.refund.create).not.toHaveBeenCalled();
   });
 
   it('blocks refund when user has no TOTP enrolled', async () => {
@@ -201,18 +213,73 @@ describe('RefundsService.refund — authorization gates', () => {
     });
     await expect(
       svc.refund({ paymentId: 'pay-1', amountCents: 10_000, totpCode: '123456' }, manager),
-    ).rejects.toThrow(/TOTP not enrolled/);
+    ).rejects.toThrow(/no la tienes activada/);
   });
 
   it('rejects invalid TOTP code', async () => {
-    const { svc } = makeService({
+    const { svc, prismaMock } = makeService({
       payment: bigPayment,
       user: enrolledUser,
       totpValid: false,
     });
     await expect(
       svc.refund({ paymentId: 'pay-1', amountCents: 10_000, totpCode: '000000' }, manager),
-    ).rejects.toThrow(/Invalid TOTP/);
+    ).rejects.toThrow(/2FA incorrecto/);
+    expect(prismaMock.refund.create).not.toHaveBeenCalled();
+  });
+
+  it('código válido → pasa y queda en el registro que se pidió 2FA', async () => {
+    const { svc, auditMock } = makeService({ payment: bigPayment, user: enrolledUser, totpValid: true });
+    const result = await svc.refund({ paymentId: 'pay-1', amountCents: 10_000, totpCode: '123456' }, manager);
+    expect(result.status).toBe('SUCCEEDED');
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'refund.created', payload: expect.objectContaining({ twoFactorRequired: true }) }),
+    );
+  });
+
+  it('99,99 € × N en el MISMO cobro: la que llega a 100 € acumulados pide el código', async () => {
+    const { svc, totpMock } = makeService({ payment: bigPayment, userSamePaymentCents: 9_999, userLastDayCents: 9_999 });
+    await expect(svc.refund({ paymentId: 'pay-1', amountCents: 9_999 }, manager)).rejects.toThrow(
+      /en este cobro sumas 199,98 €/,
+    );
+    expect(totpMock.verify).not.toHaveBeenCalled();
+  });
+
+  it('99,99 € × N en cobros DISTINTOS: pide el código por lo devuelto en 24 h', async () => {
+    const { svc } = makeService({ payment: bigPayment, userSamePaymentCents: 0, userLastDayCents: 30_000 });
+    await expect(svc.refund({ paymentId: 'pay-1', amountCents: 9_999 }, manager)).rejects.toThrow(
+      /en las últimas 24 h sumas 399,99 €/,
+    );
+  });
+
+  it('el acumulado es de ESA persona, por la pasarela, pendiente o hecha (no fallidas ni del banco)', async () => {
+    const { svc, prismaMock } = makeService({ payment: okPayment });
+    await svc.refund({ paymentId: 'pay-1', amountCents: 500 }, manager);
+    const wheres = prismaMock.refund.aggregate.mock.calls
+      .map(([arg]: [{ where: Record<string, unknown> }]) => arg.where)
+      .filter((w: Record<string, unknown>) => 'requestedBy' in w);
+    expect(wheres).toHaveLength(2);
+    for (const w of wheres) {
+      expect(w).toMatchObject({
+        tenantId: 't-1',
+        requestedBy: 'u-1',
+        registeredManually: false,
+        status: { in: ['PENDING', 'SUCCEEDED'] },
+      });
+    }
+    expect(wheres.some((w: Record<string, unknown>) => w.paymentId === 'pay-1')).toBe(true);
+    expect(wheres.some((w: Record<string, unknown>) => 'createdAt' in w)).toBe(true);
+  });
+
+  it('se decide con candado por persona y la fila del cobro bloqueada (sin carreras entre peticiones suyas)', async () => {
+    const { svc, prismaMock } = makeService({ payment: okPayment });
+    await svc.refund({ paymentId: 'pay-1', amountCents: 500 }, manager);
+    const calls = (prismaMock as unknown as { $queryRaw: { mock: { calls: Array<[TemplateStringsArray, ...unknown[]]> } } })
+      .$queryRaw.mock.calls;
+    const userLock = calls.findIndex(([s, key]) => s.join('?').includes('pg_advisory_xact_lock') && key === 'refund-user:u-1');
+    const rowLock = calls.findIndex(([s]) => s.join('?').includes('FOR UPDATE'));
+    expect(userLock).toBeGreaterThanOrEqual(0);
+    expect(rowLock).toBeGreaterThan(userLock);
   });
 
   it('does NOT require TOTP for sub-100€ refunds', async () => {
