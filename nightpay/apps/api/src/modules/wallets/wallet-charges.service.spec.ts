@@ -328,16 +328,83 @@ describe('el cliente perdió el enlace de su saldo', () => {
 });
 
 describe('devolver el saldo al cliente que se va', () => {
-  it('en efectivo (encargado, el cliente pulsó "Me voy"): todo el saldo, wallet cerrada y apuntado', async () => {
-    const { svc, tx } = makeService({ wallet: wallet({ closeRequestedAt: new Date() }) });
+  interface PayoutRow {
+    id: string;
+    walletId: string;
+    amountCents: number;
+    method: string;
+    status: string;
+    claimedAt: Date | null;
+    createdAt: Date;
+    bankReference: string | null;
+  }
+
+  /**
+   * Saldo y devoluciones con estado: lo que se apunta en el banco suma a lo
+   * "registrado" (las devoluciones de las recargas desde que empezó la suya).
+   */
+  function payoutService(o: { wallet?: Record<string, unknown>; payouts?: PayoutRow[]; registered?: number } = {}) {
+    const made = makeService({ wallet: wallet({ closeRequestedAt: new Date(), ...o.wallet }) });
+    const state = {
+      wallet: { id: 'w-1', balanceCents: 30_000, status: 'ACTIVE', shortCode: 'K7Q4M2', ...o.wallet },
+      payouts: [...(o.payouts ?? [])],
+      registered: o.registered ?? 0,
+    };
+    const { tx, refunds } = made;
+    tx.$queryRaw.mockImplementation(async (sql: TemplateStringsArray) => {
+      const q = sql.join('?');
+      if (q.includes('WITH RECURSIVE')) return [{ id: 'w-1' }];
+      if (q.includes('FROM refunds')) return [{ total: BigInt(state.registered) }];
+      if (q.includes('"shortCode" = ?')) return [];
+      return [{ ...state.wallet }];
+    });
+    tx.clientWallet.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      const b = data.balanceCents as number | { increment: number } | undefined;
+      if (typeof b === 'number') state.wallet.balanceCents = b;
+      else if (b) state.wallet.balanceCents += b.increment;
+      if (data.status) state.wallet.status = data.status as string;
+      return {};
+    });
+    const payoutMock = {
+      findFirst: vi.fn().mockImplementation(async ({ where }: { where: { id?: string; status?: string } }) =>
+        state.payouts.find((p) => (where.id ? p.id === where.id : p.status === where.status)) ?? null,
+      ),
+      create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: `po-${state.payouts.length + 1}`, createdAt: new Date(), claimedAt: null, bankReference: null, ...data } as PayoutRow;
+        state.payouts.push(row);
+        return row;
+      }),
+      update: vi.fn().mockImplementation(async ({ where, data }: { where: { id: string }; data: Partial<PayoutRow> }) =>
+        Object.assign(state.payouts.find((p) => p.id === where.id)!, data),
+      ),
+      delete: vi.fn().mockImplementation(async ({ where }: { where: { id: string } }) => {
+        state.payouts = state.payouts.filter((p) => p.id !== where.id);
+        return {};
+      }),
+      findMany: vi.fn().mockResolvedValue([]),
+    };
+    Object.assign(tx.walletPayout, payoutMock);
+    refunds.registerBankRefund.mockImplementation(async (req: { amountCents: number }) => {
+      state.registered += req.amountCents;
+      return {};
+    });
+    tx.payment.findMany.mockResolvedValue([
+      { id: 'top-2', availableAmountCents: 20_000 },
+      { id: 'top-1', availableAmountCents: 20_000 },
+    ]);
+    return { ...made, state, payoutMock };
+  }
+
+  it('en efectivo (encargado, el cliente pulsó "Me voy"): en una transacción, saldo cerrado y devolución apuntada', async () => {
+    const { svc, prisma, state, payoutMock } = payoutService();
+    const callsBefore = prisma.acrossVenues.mock.calls.length;
     const out = await svc.payout(manager, 'w-1', { method: 'CASH' });
     expect(out).toEqual({ refundedCents: 30_000, method: 'CASH' });
-    expect(tx.clientWallet.update).toHaveBeenLastCalledWith({
-      where: { id: 'w-1' },
-      data: { balanceCents: 0, status: 'REFUNDED' },
-    });
-    expect(tx.walletPayout.create.mock.calls[0]![0]).toMatchObject({
-      data: { amountCents: 30_000, method: 'CASH', paidByUserId: 'man-1' },
+    // La lectura previa y UNA transacción que cierra y apunta.
+    expect(prisma.acrossVenues.mock.calls.length - callsBefore).toBe(2);
+    expect(state.wallet).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });
+    expect(payoutMock.create.mock.calls[0]![0]).toMatchObject({
+      data: { amountCents: 30_000, method: 'CASH', status: 'DONE', paidByUserId: 'man-1' },
     });
   });
 
@@ -345,75 +412,103 @@ describe('devolver el saldo al cliente que se va', () => {
     const { svc, tx } = makeService();
     await expect(svc.payout(manager, 'w-1', { method: 'CASH' })).rejects.toThrow(/Me voy/);
     expect(tx.clientWallet.update).not.toHaveBeenCalled();
-    await expect(svc.payout(owner, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
+    const ok = payoutService({ wallet: { closeRequestedAt: null } });
+    await expect(ok.svc.payout(owner, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
   });
 
-  it('si algo falla a mitad, la wallet no se queda congelada: vuelve a abrirse con su saldo', async () => {
-    const { svc, tx, refunds } = makeService();
-    tx.payment.findMany.mockRejectedValueOnce(new Error('db caída'));
-    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow('db caída');
-    expect(refunds.registerBankRefund).not.toHaveBeenCalled();
-    expect(tx.clientWallet.update).toHaveBeenLastCalledWith({
-      where: { id: 'w-1' },
-      data: { balanceCents: 30_000, status: 'ACTIVE' },
+  it('a la tarjeta: primero el saldo pasa a una devolución PENDING (saldo abierto a 0), luego el banco y al final se cierra', async () => {
+    const { svc, state, refunds } = payoutService();
+    const seenAtBank: Array<{ balance: number; status: string; payout: string }> = [];
+    refunds.registerBankRefund.mockImplementation(async (req: { amountCents: number }) => {
+      seenAtBank.push({ balance: state.wallet.balanceCents, status: state.wallet.status, payout: state.payouts[0]!.status });
+      state.registered += req.amountCents;
+      return {};
     });
-  });
-
-  it('a la tarjeta (dueño): se reparte entre las recargas como devoluciones de BBVA', async () => {
-    const { svc, tx, refunds } = makeService();
-    tx.payment.findMany.mockResolvedValueOnce([
-      { id: 'top-2', availableAmountCents: 20_000 },
-      { id: 'top-1', availableAmountCents: 20_000 },
-    ]);
-    await svc.payout(owner, 'w-1', { method: 'CARD', bankReference: 'DEV-9' });
+    await expect(svc.payout(owner, 'w-1', { method: 'CARD', bankReference: 'DEV-9' })).resolves.toEqual({
+      refundedCents: 30_000,
+      method: 'CARD',
+    });
+    expect(seenAtBank[0]).toEqual({ balance: 0, status: 'ACTIVE', payout: 'PENDING' });
     expect(refunds.registerBankRefund.mock.calls.map((c) => [c[0].paymentId, c[0].amountCents])).toEqual([
       ['top-2', 20_000],
       ['top-1', 10_000],
     ]);
     expect(refunds.registerBankRefund.mock.calls[0]![2]).toEqual({ walletPayout: true });
+    expect(state.payouts).toEqual([expect.objectContaining({ status: 'DONE', amountCents: 30_000, method: 'CARD', claimedAt: null })]);
+    expect(state.wallet).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });
   });
 
-  it('a la tarjeta tras sumar recargas (Face ID): cuentan también las de los saldos sumados a este', async () => {
-    const { svc, tx, refunds } = makeService();
-    const row = [{ id: 'w-1', balanceCents: 30_000, status: 'ACTIVE' }];
-    tx.$queryRaw.mockImplementation(async (sql: TemplateStringsArray) =>
-      sql.join('?').includes('WITH RECURSIVE') ? [{ id: 'w-1' }, { id: 'w-recarga' }] : row,
-    );
-    // El saldo solo tiene 10 € de recargas suyas; los otros 20 € vienen de la recarga sumada.
-    tx.payment.findMany.mockResolvedValueOnce([
-      { id: 'top-recarga', availableAmountCents: 20_000 },
-      { id: 'top-1', availableAmountCents: 10_000 },
-    ]);
-    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).resolves.toEqual({ refundedCents: 30_000, method: 'CARD' });
-    expect(tx.payment.findMany.mock.calls[0]![0].where).toMatchObject({
-      walletId: { in: ['w-1', 'w-recarga'] },
-      // Las devoluciones las apunta el local de las recargas (el de quien devuelve).
-      tenantId: 'home',
-    });
-    expect(refunds.registerBankRefund.mock.calls.map((c) => [c[0].paymentId, c[0].amountCents])).toEqual([
-      ['top-recarga', 20_000],
-      ['top-1', 10_000],
-    ]);
-  });
-
-  it('a la tarjeta solo el dueño; si una devolución falla, queda abierto el resto', async () => {
+  it('a la tarjeta solo el dueño, desde el local de las recargas', async () => {
     const { svc } = makeService({ wallet: wallet({ closeRequestedAt: new Date() }) });
     await expect(svc.payout(manager, 'w-1', { method: 'CARD' })).rejects.toThrow(ForbiddenException);
     // Desde otro local del grupo: en efectivo sí, a la tarjeta no (las recargas son del otro local).
     await expect(svc.payout({ ...owner, tenantId: 'other' }, 'w-1', { method: 'CARD' })).rejects.toThrow(
       /donde el cliente cargó/,
     );
+  });
 
-    const partial = makeService();
-    partial.tx.payment.findMany.mockResolvedValueOnce([
-      { id: 'top-2', availableAmountCents: 20_000 },
-      { id: 'top-1', availableAmountCents: 20_000 },
-    ]);
-    partial.refunds.registerBankRefund.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('fallo'));
-    await expect(partial.svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow(/quedan 100,00 €/);
-    expect(partial.tx.clientWallet.update).toHaveBeenLastCalledWith({
-      where: { id: 'w-1' },
-      data: { balanceCents: 10_000, status: 'ACTIVE' },
+  it('si una devolución falla, se apunta lo hecho y el resto vuelve al saldo (abierto)', async () => {
+    const { svc, state, refunds } = payoutService();
+    refunds.registerBankRefund
+      .mockImplementationOnce(async (req: { amountCents: number }) => {
+        state.registered += req.amountCents;
+        return {};
+      })
+      .mockRejectedValueOnce(new Error('fallo'));
+    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow(/quedan 100,00 €/);
+    expect(state.payouts).toEqual([expect.objectContaining({ status: 'DONE', amountCents: 20_000 })]);
+    expect(state.wallet).toMatchObject({ balanceCents: 10_000, status: 'ACTIVE' });
+  });
+
+  it('si algo falla a mitad, la wallet no se queda congelada: vuelve a abrirse con su saldo', async () => {
+    const { svc, state, tx, refunds } = payoutService();
+    tx.payment.findMany.mockRejectedValueOnce(new Error('db caída'));
+    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow('db caída');
+    expect(refunds.registerBankRefund).not.toHaveBeenCalled();
+    // Nada apuntado: la devolución no queda y el saldo vuelve entero.
+    expect(state.payouts).toEqual([]);
+    expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
+  });
+
+  it('se cayó entre el banco y el cierre: queda PENDING con el importe; otro clic al momento espera, pasado el rato se retoma sin repetir', async () => {
+    const { svc, state, prisma, refunds } = payoutService();
+    // La transacción del cierre falla (el proceso "se cae" justo ahí).
+    const real = prisma.acrossVenues.getMockImplementation()!;
+    let calls = 0;
+    prisma.acrossVenues.mockImplementation(async (fn: never) => {
+      calls += 1;
+      if (calls === 5) throw new Error('se cayó');
+      return real(fn);
     });
+    refunds.registerBankRefund
+      .mockImplementationOnce(async (req: { amountCents: number }) => {
+        state.registered += req.amountCents;
+        return {};
+      })
+      .mockRejectedValueOnce(new Error('fallo'));
+    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow('se cayó');
+    // Recuperable: el saldo está en la devolución PENDING, no perdido ni gastable.
+    expect(state.wallet).toMatchObject({ balanceCents: 0, status: 'ACTIVE' });
+    expect(state.payouts).toEqual([expect.objectContaining({ status: 'PENDING', amountCents: 30_000 })]);
+    prisma.acrossVenues.mockImplementation(real);
+
+    // Doble clic / otro intento al momento: no se apunta dos veces.
+    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow(/Ya se está apuntando/);
+    expect(refunds.registerBankRefund).toHaveBeenCalledTimes(2);
+
+    // En efectivo tampoco se "devuelve" otra vez: avisa de la que está a medias.
+    await expect(svc.payout(owner, 'w-1', { method: 'CASH' })).rejects.toThrow(/a medias/);
+
+    // Pasado el rato, se retoma: solo lo que faltaba (10 €) y se cierra.
+    state.payouts[0]!.claimedAt = new Date(Date.now() - 10 * 60 * 1000);
+    refunds.registerBankRefund.mockClear();
+    refunds.registerBankRefund.mockImplementation(async (req: { amountCents: number }) => {
+      state.registered += req.amountCents;
+      return {};
+    });
+    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).resolves.toEqual({ refundedCents: 30_000, method: 'CARD' });
+    expect(refunds.registerBankRefund.mock.calls.map((c) => c[0].amountCents)).toEqual([10_000]);
+    expect(state.payouts).toEqual([expect.objectContaining({ status: 'DONE', amountCents: 30_000 })]);
+    expect(state.wallet).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });
   });
 });

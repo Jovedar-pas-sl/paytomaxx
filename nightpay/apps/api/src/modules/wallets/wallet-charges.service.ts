@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { isWalletCardToken, normalizeWalletCardUid, type Role } from '@nightpay/contracts';
+import type { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { resolveBpsForOperator, resolveRevenueCategory, type RevenueCategory } from '../payments/commission';
@@ -300,7 +301,8 @@ export class WalletChargesService {
       ),
       this.prisma.asSystem((tx) =>
         tx.walletPayout.findMany({
-          where: { walletId: wallet.id },
+          // Solo las hechas (una a la tarjeta a medias aún no es una devolución).
+          where: { walletId: wallet.id, status: 'DONE' },
           orderBy: { createdAt: 'desc' },
           select: { amountCents: true, method: true, tenantId: true, createdAt: true },
         }),
@@ -1022,9 +1024,9 @@ export class WalletChargesService {
 
   /**
    * Devuelve todo el saldo y cierra la wallet.
-   *  - CASH: en efectivo en el local (dueño o encargado).
+   *  - CASH: en efectivo en el local (dueño o encargado), en una transacción.
    *  - CARD: ya hecho en el portal de BBVA (solo el dueño): se reparte entre
-   *    las recargas y se apunta como devolución de cada una.
+   *    las recargas y se apunta como devolución de cada una (payoutCard).
    */
   async payout(
     actor: Actor,
@@ -1050,43 +1052,164 @@ export class WalletChargesService {
     if (actor.role === 'MANAGER' && !wallet.closeRequestedAt) {
       throw new ForbiddenException('El cliente tiene que pulsar «Me voy» en su página de saldo (o que lo haga el dueño)');
     }
+    return input.method === 'CASH' ? this.payoutCash(actor, walletId, input) : this.payoutCard(actor, walletId, input);
+  }
 
-    // 1) Se congela el saldo: mientras se devuelve no se puede gastar.
-    const frozen = await this.prisma.acrossVenues(async (tx) => {
-      const rows = await tx.$queryRaw<Array<{ balanceCents: number; status: string }>>`
-        SELECT "balanceCents", status::text AS status FROM client_wallets WHERE id = ${walletId}::uuid FOR UPDATE
-      `;
-      const w = rows[0];
+  /** En efectivo: en una sola transacción se cierra el saldo y se apunta la devolución. */
+  private async payoutCash(
+    actor: Actor,
+    walletId: string,
+    input: { bankReference?: string; note?: string },
+  ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
+    const amount = await this.prisma.acrossVenues(async (tx) => {
+      const w = await lockWallet(tx, walletId);
       if (!w || w.status !== 'ACTIVE' || w.balanceCents <= 0) {
-        throw new ConflictException('Este saldo no tiene nada que devolver');
+        const halfDone = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+        throw new ConflictException(
+          halfDone
+            ? `Hay una devolución a la tarjeta de ${eur(halfDone.amountCents)} a medias: que el dueño vuelva a pulsar «A la tarjeta» para terminarla`
+            : 'Este saldo no tiene nada que devolver',
+        );
       }
-      await tx.clientWallet.update({ where: { id: walletId }, data: { status: 'REFUNDED' } });
+      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: 0, status: 'REFUNDED' } });
+      await tx.walletPayout.create({
+        data: {
+          tenantId: actor.tenantId,
+          walletId,
+          amountCents: w.balanceCents,
+          method: 'CASH',
+          status: 'DONE',
+          bankReference: input.bankReference ?? null,
+          note: input.note ?? null,
+          paidByUserId: actor.userId,
+        },
+      });
       return w.balanceCents;
     });
-
-    // 2) Tarjeta: una devolución apuntada por recarga (ya hecha en BBVA).
-    let refunded = 0;
-    try {
-      refunded = input.method === 'CARD' ? await this.refundToCard(actor, walletId, frozen, input.bankReference) : frozen;
-    } finally {
-      // 3) Se descuenta lo devuelto; si faltó algo, la wallet vuelve a abrirse con el resto.
-      await this.settlePayout(actor, walletId, frozen, refunded, input);
-    }
-    const remaining = frozen - refunded;
     await this.audit.log({
       action: 'wallet.payout',
       tenantId: actor.tenantId,
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: walletId,
-      payload: { method: input.method, refundedCents: refunded, remainingCents: remaining },
+      payload: { method: 'CASH', refundedCents: amount, remainingCents: 0 },
     });
-    if (remaining > 0) {
+    return { refundedCents: amount, method: 'CASH' };
+  }
+
+  /**
+   * A la tarjeta (ya hecha en el portal de BBVA), en pasos que se pueden retomar:
+   *  1) el saldo pasa a una devolución PENDING (la wallet sigue abierta, a 0: no se gasta);
+   *  2) se apunta en cada recarga lo que falte (lo ya apuntado por esta devolución no se repite);
+   *  3) en una transacción, la devolución queda hecha por lo apuntado, lo que no se pudo
+   *     apuntar vuelve al saldo y la wallet se cierra si se quedó a 0.
+   * Si el proceso se cae entre 1 y 3, la PENDING guarda el importe y, al volver a
+   * pulsar (pasados unos minutos), se retoma donde se quedó.
+   */
+  private async payoutCard(
+    actor: Actor,
+    walletId: string,
+    input: { bankReference?: string; note?: string },
+  ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
+    const pending = await this.claimCardPayout(actor, walletId, input);
+    let outcome = { refunded: 0, remaining: pending.amountCents };
+    try {
+      const already = await this.prisma.acrossVenues((tx) => registeredSince(tx, walletId, pending.createdAt));
+      const missing = pending.amountCents - already;
+      if (missing > 0) await this.refundToCard(actor, walletId, missing, pending.bankReference ?? undefined);
+    } finally {
+      // Siempre (aunque algo falle): lo apuntado sale del saldo y lo que no, vuelve.
+      outcome = await this.completeCardPayout(walletId, pending);
+      await this.audit.log({
+        action: 'wallet.payout',
+        tenantId: actor.tenantId,
+        actorId: actor.userId,
+        targetType: 'ClientWallet',
+        targetId: walletId,
+        payload: {
+          method: 'CARD',
+          refundedCents: outcome.refunded,
+          remainingCents: outcome.remaining,
+          payoutId: pending.id,
+          resumed: pending.resumed,
+        },
+      });
+    }
+    if (outcome.remaining > 0) {
       throw new ConflictException(
-        `Se apuntaron ${eur(refunded)}; quedan ${eur(remaining)} que las recargas no cubren. Devuélvelos en efectivo.`,
+        `Se apuntaron ${eur(outcome.refunded)}; quedan ${eur(outcome.remaining)} que las recargas no cubren. Devuélvelos en efectivo.`,
       );
     }
-    return { refundedCents: refunded, method: input.method };
+    return { refundedCents: outcome.refunded, method: 'CARD' };
+  }
+
+  /**
+   * Paso 1: el saldo pasa a una devolución PENDING, o se retoma la que quedó a
+   * medias. Con la wallet bloqueada: dos clics a la vez no la apuntan dos veces.
+   */
+  private async claimCardPayout(
+    actor: Actor,
+    walletId: string,
+    input: { bankReference?: string; note?: string },
+  ): Promise<{ id: string; amountCents: number; createdAt: Date; bankReference: string | null; resumed: boolean }> {
+    return this.prisma.acrossVenues(async (tx) => {
+      const w = await lockWallet(tx, walletId);
+      if (!w) throw new NotFoundException('Saldo no encontrado');
+      const open = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+      if (open) {
+        if (open.claimedAt && Date.now() - open.claimedAt.getTime() < PAYOUT_CLAIM_MS) {
+          throw new ConflictException('Ya se está apuntando la devolución de este saldo: espera un momento');
+        }
+        // Se quedó a medias (el proceso se cayó): se retoma con lo que ya se apuntó.
+        await tx.walletPayout.update({ where: { id: open.id }, data: { claimedAt: new Date() } });
+        this.logger.warn(`Saldo ${walletId}: se retoma la devolución a la tarjeta ${open.id} que quedó a medias`);
+        return { id: open.id, amountCents: open.amountCents, createdAt: open.createdAt, bankReference: open.bankReference, resumed: true };
+      }
+      if (w.status !== 'ACTIVE' || w.balanceCents <= 0) throw new ConflictException('Este saldo no tiene nada que devolver');
+      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: 0 } });
+      const created = await tx.walletPayout.create({
+        data: {
+          tenantId: actor.tenantId,
+          walletId,
+          amountCents: w.balanceCents,
+          method: 'CARD',
+          status: 'PENDING',
+          claimedAt: new Date(),
+          bankReference: input.bankReference ?? null,
+          note: input.note ?? null,
+          paidByUserId: actor.userId,
+        },
+      });
+      return { id: created.id, amountCents: created.amountCents, createdAt: created.createdAt, bankReference: created.bankReference, resumed: false };
+    });
+  }
+
+  /**
+   * Paso 3, en una transacción: la devolución queda hecha por lo que de verdad
+   * se apuntó en el banco (las devoluciones, no lo que creímos), lo demás
+   * vuelve al saldo (que se reabre) y, si se quedó a 0, se cierra.
+   */
+  private async completeCardPayout(
+    walletId: string,
+    pending: { id: string; createdAt: Date },
+  ): Promise<{ refunded: number; remaining: number }> {
+    return this.prisma.acrossVenues(async (tx) => {
+      const w = await lockWallet(tx, walletId);
+      const row = await tx.walletPayout.findFirst({ where: { id: pending.id } });
+      if (!w || !row) throw new NotFoundException('Saldo no encontrado');
+      if (row.status === 'DONE') return { refunded: row.amountCents, remaining: 0 };
+      const refunded = Math.min(await registeredSince(tx, walletId, pending.createdAt), row.amountCents);
+      const remaining = row.amountCents - refunded;
+      if (refunded > 0) {
+        await tx.walletPayout.update({ where: { id: row.id }, data: { status: 'DONE', amountCents: refunded, claimedAt: null } });
+      } else {
+        await tx.walletPayout.delete({ where: { id: row.id } });
+      }
+      const balance = w.balanceCents + remaining;
+      const status = balance > 0 ? await reopenData(tx, w) : w.status === 'ACTIVE' ? { status: 'REFUNDED' as const } : {};
+      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: { increment: remaining }, ...status } });
+      return { refunded, remaining };
+    });
   }
 
   /**
@@ -1120,35 +1243,6 @@ export class WalletChargesService {
       payload: { balanceCents: wallet.balanceCents, removedPasskeys: removedKeys },
     });
     return { path: `/w/${qrToken}` };
-  }
-
-  private async settlePayout(
-    actor: Actor,
-    walletId: string,
-    frozen: number,
-    refunded: number,
-    input: { method: WalletPayoutMethod; bankReference?: string; note?: string },
-  ): Promise<void> {
-    const remaining = frozen - refunded;
-    await this.prisma.acrossVenues(async (tx) => {
-      await tx.clientWallet.update({
-        where: { id: walletId },
-        data: { balanceCents: remaining, status: remaining > 0 ? 'ACTIVE' : 'REFUNDED' },
-      });
-      if (refunded > 0) {
-        await tx.walletPayout.create({
-          data: {
-            tenantId: actor.tenantId,
-            walletId,
-            amountCents: refunded,
-            method: input.method,
-            bankReference: input.bankReference ?? null,
-            note: input.note ?? null,
-            paidByUserId: actor.userId,
-          },
-        });
-      }
-    });
   }
 
   private async refundToCard(actor: Actor, walletId: string, amountCents: number, bankReference?: string): Promise<number> {
@@ -1263,6 +1357,42 @@ const FRESH_TOPUP_PIN_MS = 15 * 60 * 1000;
 
 /** Fallos de PIN más viejos que esto ya no cuentan para el bloqueo. */
 const PIN_FAILS_EXPIRE_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Una devolución a la tarjeta que se empezó a apuntar hace menos de esto está
+ * en curso (otro clic espera); más vieja, el proceso se cayó y se retoma.
+ */
+const PAYOUT_CLAIM_MS = 2 * 60 * 1000;
+
+type RawTx = Pick<Prisma.TransactionClient, '$queryRaw'>;
+
+/** La wallet bloqueada (FOR UPDATE), con lo que hace falta para devolver o reabrir. */
+async function lockWallet(
+  tx: RawTx,
+  walletId: string,
+): Promise<{ id: string; balanceCents: number; status: string; shortCode: string | null } | null> {
+  const rows = await tx.$queryRaw<Array<{ id: string; balanceCents: number; status: string; shortCode: string | null }>>`
+    SELECT id, "balanceCents", status::text AS status, "shortCode" FROM client_wallets WHERE id = ${walletId}::uuid FOR UPDATE
+  `;
+  return rows[0] ?? null;
+}
+
+/**
+ * Lo ya apuntado en el banco por la devolución a la tarjeta de este saldo que
+ * empezó en `since`: las devoluciones hechas de sus recargas (y de las de los
+ * saldos sumados a él) desde entonces. Solo la devolución del saldo toca esas
+ * recargas (el resto de vías rechaza los cobros de recargas) y solo hay una a
+ * medias por saldo: todo lo de después es suyo.
+ */
+async function registeredSince(tx: RawTx, walletId: string, since: Date): Promise<number> {
+  const walletIds = await mergedWalletIds(tx, walletId);
+  const rows = await tx.$queryRaw<Array<{ total: bigint }>>`
+    SELECT COALESCE(SUM(r."amountCents"), 0)::bigint AS total
+      FROM refunds r JOIN payments p ON p.id = r."paymentId"
+     WHERE p."walletId" = ANY(${walletIds}::uuid[]) AND r.status = 'SUCCEEDED' AND r."createdAt" >= ${since}
+  `;
+  return Number(rows[0]?.total ?? 0);
+}
 
 /** Encargado o dueño del local. */
 function isManager(actor: { role: Role }): boolean {

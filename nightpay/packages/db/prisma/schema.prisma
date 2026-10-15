@@ -413,6 +413,13 @@ model WalletPayout {
   note          String?
   paidByUserId  String   @db.Uuid
   createdAt     DateTime @default(now()) @db.Timestamptz
+  // DONE (hecha) | PENDING (a la tarjeta, apuntándose en el banco: el saldo
+  // ya salió de la wallet; se retoma si se quedó a medias). Una PENDING por
+  // wallet (índice parcial wallet_payouts_one_pending_per_wallet). Las sumas
+  // de lo devuelto, solo con DONE.
+  status        String    @default("DONE")
+  // Cuándo se empezó a apuntar (un segundo clic no la apunta dos veces).
+  claimedAt     DateTime? @db.Timestamptz
 
   wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
