@@ -117,11 +117,26 @@ describe('qué ve el cliente al escanear (Fase 1B)', () => {
   it('cobro nuevo → página de pago con propinas; no abre nada en el banco', () => {
     const p = payable({});
     expect(settledPayView(p, NOW)).toBeNull();
-    expect(choosePayPage(p)).toMatchObject({ kind: 'choose', amountCents: 10_000, tipOptionsCents: [0, 500, 1000] });
+    // 100 €: 10 % y 15 %; «Otra» hasta 100 €.
+    expect(choosePayPage(p)).toMatchObject({
+      kind: 'choose',
+      amountCents: 10_000,
+      tipOptionsCents: [0, 1_000, 1_500],
+      tipMaxCents: 10_000,
+    });
   });
 
   it('recarga de wallet u otra pasarela → sin propina', () => {
-    expect(choosePayPage(payable({ allowTip: false }))).toMatchObject({ tipOptionsCents: [0] });
+    expect(choosePayPage(payable({ allowTip: false }))).toMatchObject({ tipOptionsCents: [0], tipMaxCents: 0 });
+  });
+
+  it('cabecera de confianza: local, concepto y si la propina va al personal', () => {
+    expect(choosePayPage(payable({ venueName: 'Luna', concept: 'Copa', tipToStaff: true }))).toMatchObject({
+      venueName: 'Luna',
+      concept: 'Copa',
+      tipToStaff: true,
+    });
+    expect(choosePayPage(payable({}))).toMatchObject({ venueName: null, concept: null, tipToStaff: false });
   });
 
   it('pedido pendiente recién abierto → se reutiliza (doble toque); viejo o resuelto → no', () => {

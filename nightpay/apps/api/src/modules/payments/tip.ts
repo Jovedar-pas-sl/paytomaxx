@@ -10,22 +10,79 @@ import type { TransactionalClient } from '../../common/prisma/prisma.service';
  * Solo con Redsys: el resto de pasarelas cobran el importe, como antes.
  */
 
-/** Sin propina, 5 € y 10 €. */
-export const TIP_PRESETS_CENTS: readonly number[] = [0, 500, 1000];
+/** Hasta este importe se sugieren euros fijos; por encima, porcentajes. */
+export const TIP_FLAT_UP_TO_CENTS = 40_00;
+/** Propinas sugeridas para importes pequeños: +2 € y +5 €. */
+export const TIP_FLAT_PRESETS_CENTS: readonly number[] = [200, 500];
+/** Propinas sugeridas para el resto: 10 % y 15 %, en euros enteros. */
+export const TIP_PERCENT_PRESETS: readonly number[] = [10, 15];
+
+/** Propina sugerida: su importe y, si sale de un porcentaje, cuál. */
+export interface TipPreset {
+  cents: number;
+  percent: number | null;
+}
 
 /**
- * Propinas que se ofrecen. Sin propina si no se puede (recarga de wallet u
- * otra pasarela). Si el cobro ya traía una propina puesta por el local,
- * también se ofrece.
+ * Propinas sugeridas para un importe (además de «Sin propina» y «Otra»).
+ * Las que pasarían del máximo no se sugieren.
  */
-export function tipOptionsFor(p: { tipCents: number; allowTip: boolean }): number[] {
+export function tipPresetsFor(amountCents: number): TipPreset[] {
+  const cap = maxTipCents(amountCents);
+  const raw: TipPreset[] =
+    amountCents <= TIP_FLAT_UP_TO_CENTS
+      ? TIP_FLAT_PRESETS_CENTS.map((cents) => ({ cents, percent: null }))
+      : TIP_PERCENT_PRESETS.map((percent) => ({
+          cents: Math.max(100, Math.round((amountCents * percent) / 10_000) * 100),
+          percent,
+        }));
+  const seen = new Set<number>();
+  return raw.filter((t) => {
+    if (t.cents > cap || seen.has(t.cents)) return false;
+    seen.add(t.cents);
+    return true;
+  });
+}
+
+/**
+ * Propinas que se ofrecen como botón. Sin propina si no se puede (recarga de
+ * wallet u otra pasarela). Si el cobro ya traía una propina puesta por el
+ * local, también se ofrece (nunca marcada: la marcada es «Sin propina»).
+ */
+export function tipOptionsFor(p: { amountCents: number; tipCents: number; allowTip: boolean }): number[] {
   if (!p.allowTip) return [0];
-  return [...new Set([...TIP_PRESETS_CENTS, p.tipCents])].sort((a, b) => a - b);
+  const presets = tipPresetsFor(p.amountCents).map((t) => t.cents);
+  return [...new Set([0, ...presets, p.tipCents])].sort((a, b) => a - b);
+}
+
+/**
+ * ¿Vale la propina que eligió el cliente? «Sin propina» siempre. Si se puede
+ * dejar propina, cualquier importe entero de céntimos hasta el máximo (las
+ * sugeridas y la de «Otra»), o la que ya traía el cobro.
+ */
+export function tipChoiceAllowed(
+  p: { amountCents: number; tipCents: number; allowTip: boolean },
+  chosenCents: number,
+): boolean {
+  if (!Number.isInteger(chosenCents) || chosenCents < 0) return false;
+  if (chosenCents === 0) return true;
+  if (!p.allowTip) return false;
+  return chosenCents <= maxTipCents(p.amountCents) || chosenCents === p.tipCents;
 }
 
 /** Si lo cobró una chica, la propina es suya; si no, del local. */
 export function defaultTipGoesTo(creatorRole: string | null | undefined): 'operator' | 'venue' {
   return creatorRole === 'OPERATOR' ? 'operator' : 'venue';
+}
+
+/**
+ * ¿Va la propina entera a una persona del personal? Solo entonces se le dice
+ * al cliente «Va entera para el personal»; si es del local, no se dice.
+ */
+export function tipGoesToStaff(p: { tipGoesTo: string | null; creatorRole: string | null }): boolean {
+  if (p.tipGoesTo === 'beneficiary') return true;
+  if (p.tipGoesTo) return p.tipGoesTo === 'operator' && p.creatorRole === 'OPERATOR';
+  return defaultTipGoesTo(p.creatorRole) === 'operator';
 }
 
 /** Propina como mucho del importe del cobro y nunca más de esto. */

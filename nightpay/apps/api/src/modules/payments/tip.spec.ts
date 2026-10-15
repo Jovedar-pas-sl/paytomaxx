@@ -6,8 +6,11 @@ import {
   maxTipCents,
   readChargedTip,
   settleChargedTip,
+  tipChoiceAllowed,
   tipDestinationAllowed,
+  tipGoesToStaff,
   tipOptionsFor,
+  tipPresetsFor,
 } from './tip';
 
 describe('propina que pone quien crea el cobro', () => {
@@ -43,17 +46,96 @@ describe('propina que pone quien crea el cobro', () => {
   });
 });
 
+describe('tipPresetsFor — propinas que crecen con el importe', () => {
+  it('hasta 40 €: +2 € y +5 €', () => {
+    expect(tipPresetsFor(1_500)).toEqual([
+      { cents: 200, percent: null },
+      { cents: 500, percent: null },
+    ]);
+    expect(tipPresetsFor(4_000)).toEqual([
+      { cents: 200, percent: null },
+      { cents: 500, percent: null },
+    ]);
+  });
+
+  it('más de 40 €: 10 % y 15 %, redondeados a euros enteros', () => {
+    expect(tipPresetsFor(6_500)).toEqual([
+      { cents: 700, percent: 10 },
+      { cents: 1_000, percent: 15 },
+    ]);
+    expect(tipPresetsFor(4_100)).toEqual([
+      { cents: 400, percent: 10 },
+      { cents: 600, percent: 15 },
+    ]);
+    expect(tipPresetsFor(20_000)).toEqual([
+      { cents: 2_000, percent: 10 },
+      { cents: 3_000, percent: 15 },
+    ]);
+  });
+
+  it('nunca por encima del máximo: importes pequeños o enormes se quedan sin las que no caben', () => {
+    // 3 €: como mucho 3 € de propina → +2 € sí, +5 € no.
+    expect(tipPresetsFor(300)).toEqual([{ cents: 200, percent: null }]);
+    // 4.000 €: el 15 % (600 €) pasa de 500 €.
+    expect(tipPresetsFor(400_000)).toEqual([{ cents: 40_000, percent: 10 }]);
+    expect(tipPresetsFor(0)).toEqual([]);
+  });
+});
+
 describe('tipOptionsFor', () => {
-  it('ofrece sin propina, 5 € y 10 €', () => {
-    expect(tipOptionsFor({ tipCents: 0, allowTip: true })).toEqual([0, 500, 1000]);
+  it('sin propina y las dos del importe', () => {
+    expect(tipOptionsFor({ amountCents: 2_000, tipCents: 0, allowTip: true })).toEqual([0, 200, 500]);
+    expect(tipOptionsFor({ amountCents: 10_000, tipCents: 0, allowTip: true })).toEqual([0, 1_000, 1_500]);
   });
 
   it('incluye la propina que ya traía el cobro', () => {
-    expect(tipOptionsFor({ tipCents: 300, allowTip: true })).toEqual([0, 300, 500, 1000]);
+    expect(tipOptionsFor({ amountCents: 2_000, tipCents: 300, allowTip: true })).toEqual([0, 200, 300, 500]);
   });
 
   it('sin propina cuando no se puede (recarga de wallet u otra pasarela)', () => {
-    expect(tipOptionsFor({ tipCents: 500, allowTip: false })).toEqual([0]);
+    expect(tipOptionsFor({ amountCents: 2_000, tipCents: 500, allowTip: false })).toEqual([0]);
+  });
+});
+
+describe('tipChoiceAllowed — lo que acepta el servidor al pulsar «Pagar»', () => {
+  const p = { amountCents: 6_500, tipCents: 0, allowTip: true };
+
+  it('sin propina siempre vale', () => {
+    expect(tipChoiceAllowed(p, 0)).toBe(true);
+    expect(tipChoiceAllowed({ ...p, allowTip: false }, 0)).toBe(true);
+  });
+
+  it('las propinas sugeridas (10 % y 15 %) valen', () => {
+    for (const c of tipOptionsFor(p)) expect(tipChoiceAllowed(p, c)).toBe(true);
+  });
+
+  it('«Otra»: cualquier importe hasta el máximo; por encima, no', () => {
+    expect(tipChoiceAllowed(p, 300)).toBe(true);
+    expect(tipChoiceAllowed(p, 1_234)).toBe(true);
+    expect(tipChoiceAllowed(p, maxTipCents(6_500))).toBe(true);
+    expect(tipChoiceAllowed(p, maxTipCents(6_500) + 1)).toBe(false);
+    expect(tipChoiceAllowed({ amountCents: 200_000, tipCents: 0, allowTip: true }, 50_001)).toBe(false);
+  });
+
+  it('negativa, con decimales o donde no se puede dejar propina → no', () => {
+    expect(tipChoiceAllowed(p, -100)).toBe(false);
+    expect(tipChoiceAllowed(p, 150.5)).toBe(false);
+    expect(tipChoiceAllowed(p, Number.NaN)).toBe(false);
+    expect(tipChoiceAllowed({ ...p, allowTip: false }, 500)).toBe(false);
+  });
+
+  it('«Va entera para el personal» solo si de verdad va a una persona', () => {
+    expect(tipGoesToStaff({ tipGoesTo: null, creatorRole: 'OPERATOR' })).toBe(true);
+    expect(tipGoesToStaff({ tipGoesTo: 'beneficiary', creatorRole: 'OWNER' })).toBe(true);
+    // Cobro del camarero o del encargado: la propina es del local.
+    expect(tipGoesToStaff({ tipGoesTo: null, creatorRole: 'MANAGER' })).toBe(false);
+    expect(tipGoesToStaff({ tipGoesTo: 'venue', creatorRole: 'OPERATOR' })).toBe(false);
+    expect(tipGoesToStaff({ tipGoesTo: 'shared', creatorRole: 'OPERATOR' })).toBe(false);
+    expect(tipGoesToStaff({ tipGoesTo: null, creatorRole: null })).toBe(false);
+  });
+
+  it('la propina que ya traía el cobro sigue valiendo', () => {
+    expect(tipChoiceAllowed({ amountCents: 1_000, tipCents: 1_000, allowTip: true }, 1_000)).toBe(true);
   });
 });
 

@@ -59,8 +59,9 @@ import {
   maxTipCents,
   readChargedTip,
   settleChargedTip,
+  tipChoiceAllowed,
   tipDestinationAllowed,
-  tipOptionsFor,
+  tipGoesToStaff,
 } from './tip';
 import { expectedChicaReversal } from './refund-share';
 import { operatorCapProblem } from './operator-cap';
@@ -811,8 +812,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     const payment = await this.findPayable(qrToken);
     const settled = settledPayView(payment);
     if (settled) return settled;
-    const tips = tipOptionsFor({ tipCents: payment.tipCents, allowTip: payment.allowTip });
-    if (!tips.includes(choice.tipCents)) throw new BadRequestException('Propina no válida');
+    // Las sugeridas o la de «Otra», hasta el máximo para este importe.
+    if (!tipChoiceAllowed(payment, choice.tipCents)) throw new BadRequestException('Propina no válida');
 
     if (payment.status !== 'AUTHORIZING') {
       let providerTxId: string | undefined;
@@ -917,6 +918,11 @@ export class PaymentsService implements OnApplicationBootstrap {
           updatedAt: true,
           authorizedAt: true,
           walletId: true,
+          // Cabecera de la página de pago: local, concepto y a quién va la propina.
+          serviceName: true,
+          tipGoesTo: true,
+          venue: { select: { name: true } },
+          createdBy: { select: { role: true } },
           wallet: { select: { qrToken: true, shortCode: true, pinHash: true, _count: { select: { passkeys: true } } } },
           attempts: {
             where: { status: 'APPROVED' },
@@ -931,7 +937,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Pasarela que cobrará: la del cobro o, si aún no ha ido al banco, la
     // activa del local. La propina solo se cobra (y se reparte) con Redsys.
     const provider = payment.provider ?? (await this.activeProvider(payment.tenantId));
-    const { walletId, wallet: rawWallet, attempts, ...rest } = payment;
+    const { walletId, wallet: rawWallet, attempts, venue, createdBy, serviceName, tipGoesTo, ...rest } = payment;
     // Recarga de un saldo que ya existía: quien la paga no se lleva su código,
     // su enlace ni su Face ID (solo la recarga que lo creó).
     const wallet = rawWallet && (await this.isFirstTopUp(walletId, payment.id)) ? rawWallet : null;
@@ -939,6 +945,9 @@ export class PaymentsService implements OnApplicationBootstrap {
       ...rest,
       status: payment.status as PaymentMachineState,
       allowTip: provider === 'REDSYS' && walletId === null,
+      venueName: venue?.name ?? null,
+      concept: serviceName ?? null,
+      tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null }),
       walletToken: wallet?.qrToken ?? null,
       walletClaimHash: wallet ? (attempts[0]?.claimHash ?? null) : null,
       walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
