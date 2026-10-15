@@ -255,6 +255,25 @@ export const AcceptInviteSchema = z.object({
 });
 export type AcceptInviteDto = z.infer<typeof AcceptInviteSchema>;
 
+/**
+ * Cuerpo de /admin/operators/:id/reset-password: o el dueño pone la
+ * contraseña (8–128) o, sin ella (o vacía), el servidor genera una.
+ */
+export const ResetOperatorPasswordSchema = z
+  .object({
+    password: z
+      .union([
+        z.literal(''),
+        z
+          .string()
+          .min(8, 'La contraseña necesita al menos 8 caracteres')
+          .max(128, 'La contraseña admite como mucho 128 caracteres'),
+      ])
+      .optional(),
+  })
+  .default({});
+export type ResetOperatorPasswordDto = z.infer<typeof ResetOperatorPasswordSchema>;
+
 // ─── Self-onboarding (Phase 1A.2) ───────────────────────────────────
 // La chica recibe un link único 72h del admin y rellena su perfil ella sola.
 

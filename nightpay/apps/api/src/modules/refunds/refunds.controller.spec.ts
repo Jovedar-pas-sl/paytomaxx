@@ -23,6 +23,12 @@ function rolesOf(handler: keyof RefundsController): string[] {
   return Reflect.getMetadata(ROLES_KEY, RefundsController.prototype[handler]) as string[];
 }
 
+describe('RefundsController — el id del cobro siempre es un UUID', () => {
+  it.each(['create', 'registerBank', 'list'])('%s valida :id con ParseUUIDPipe', (handler) => {
+    expect(hasUuidPipe(routeParams(handler).find((p) => p.data === 'id'))).toBe(true);
+  });
+});
+
 describe('RefundsController — resolver una devolución pendiente', () => {
   it('solo el dueño, y los dos ids de la ruta son UUID', () => {
     expect(rolesOf('resolvePending')).toEqual(['OWNER']);

@@ -34,11 +34,13 @@ import { ClsService } from 'nestjs-cls';
 import {
   CreateOperatorSchema,
   CreatePayoutSchema,
+  ResetOperatorPasswordSchema,
   UpdateOperatorSchema,
   type CreateOperatorDto,
   type CreatePayoutDto,
   type JwtPayload,
   type PaymentStatus,
+  type ResetOperatorPasswordDto,
   type UpdateOperatorDto,
 } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
@@ -813,14 +815,9 @@ export class AdminController {
     @Tenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() body: { password?: string } = {},
+    @Body(new ZodValidationPipe(ResetOperatorPasswordSchema)) body: ResetOperatorPasswordDto,
   ) {
-    return this.operators.resetPassword(
-      tenantId,
-      id,
-      user.sub,
-      typeof body.password === 'string' && body.password.length > 0 ? body.password : null,
-    );
+    return this.operators.resetPassword(tenantId, id, user.sub, body.password ? body.password : null);
   }
 
   @Get('operators/:id/earnings')

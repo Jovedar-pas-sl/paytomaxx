@@ -64,7 +64,7 @@ export class RefundsController {
   @HttpCode(201)
   @Roles('OWNER', 'MANAGER')
   async create(
-    @Param('id') paymentId: string,
+    @Param('id', ParseUUIDPipe) paymentId: string,
     @Body(new ZodValidationPipe(RefundBodySchema)) body: RefundBody,
     @CurrentUser() user: JwtPayload,
   ) {
@@ -126,7 +126,7 @@ export class RefundsController {
 
   @Get(':id/refunds')
   @Roles('OWNER', 'MANAGER', 'WAITER')
-  async list(@Param('id') paymentId: string) {
+  async list(@Param('id', ParseUUIDPipe) paymentId: string) {
     return this.refunds.listForPayment(paymentId);
   }
 }
