@@ -11,7 +11,10 @@ export interface VerifyResult {
   matched: boolean;
   status: ReconciliationStatus;
   occurredAt: Date | null;
+  /** En céntimos de EUR (con la foto del tipo del pago); null si no se sabe. */
   actualAmountCents: number | null;
+  /** Lo que llegó a su dirección, en USDT/USDC (suma de las transferencias). */
+  actualAmountUsdt?: number | null;
   reason: string | null;
 }
 

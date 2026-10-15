@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_PAYOUT_HOLD_DAYS,
+  availableCentsOf,
   earningNetCents,
+  payableSummary,
   parseHoldDays,
   payoutCutoff,
   payoutTotalCents,
@@ -41,5 +43,21 @@ describe('payout-math', () => {
     expect(parseHoldDays('abc')).toBe(DEFAULT_PAYOUT_HOLD_DAYS);
     expect(parseHoldDays('-1')).toBe(DEFAULT_PAYOUT_HOLD_DAYS);
     expect(parseHoldDays('3')).toBe(3);
+  });
+
+  it('disponible para pagar = no pagado − en espera − deuda (como el saldo de la chica)', () => {
+    expect(availableCentsOf({ unpaidCents: 12_000, heldCents: 3_000, debtCents: 1_000 })).toBe(8_000);
+    expect(availableCentsOf({ unpaidCents: 1_000, heldCents: 0, debtCents: 9_000 })).toBe(-8_000);
+    // Un "en espera" negativo (devoluciones de algo aún en espera) no suma.
+    expect(availableCentsOf({ unpaidCents: 500, heldCents: -200, debtCents: 0 })).toBe(500);
+  });
+
+  it('lo que hay que pagar ya: la deuda de una chica no resta a las demás; en espera y deuda aparte', () => {
+    const s = payableSummary([
+      { unpaidCents: 12_000, heldCents: 3_000, debtCents: 1_000 }, // 8.000 a pagar
+      { unpaidCents: 1_000, heldCents: 0, debtCents: 9_000 }, // debe: 0
+      { unpaidCents: 4_000, heldCents: 4_000, debtCents: 0 }, // todo en espera: 0
+    ]);
+    expect(s).toEqual({ payableCents: 8_000, operatorCount: 1, heldCents: 7_000, debtCents: 10_000 });
   });
 });

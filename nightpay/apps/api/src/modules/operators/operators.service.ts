@@ -17,15 +17,20 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
+import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury/payout-tx-guard';
+import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { operatorAppBaseUrl } from './operator-app-url';
-import { parseHoldDays, payoutCutoff, payoutTotalCents } from './payout-math';
+import { availableCentsOf, parseHoldDays, payoutCutoff, payoutTotalCents } from './payout-math';
+import { payoutRoutingChanges } from './payout-routing';
 import type {
   CreateOperatorDto,
   CreateOperatorResponse,
   OperatorBalance,
   OperatorPublicView,
   OperatorWithBalance,
+  Role,
   EarningView,
+  PayoutMethod,
   PayoutView,
   SelfOnboardingLinkResponse,
   SelfOnboardingProfile,
@@ -35,6 +40,8 @@ import type {
 
 const INVITE_TTL_HOURS = 24;
 const SELF_ONBOARDING_TTL_HOURS = 72;
+const COMMISSION_OWNER_ONLY_NOTICE =
+  'La comisión la fija el dueño: a esta chica se le aplica la del local hasta que él la cambie.';
 
 interface InviteJwtPayload {
   sub: string; // userId
@@ -46,11 +53,24 @@ interface SelfOnboardingJwtPayload {
   sub: string; // operatorId
   tenantId: string;
   purpose: 'operator-self-onboarding';
+  /** Enlace generado por el dueño: la chica puede poner su PRIMERA cuenta de cobro. */
+  payout?: boolean;
 }
 
 /** Hash sha256 hex del token JWT. Persistimos el hash, no el token, en users.inviteToken. */
 function hashInviteToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+/** El encargado no fija comisiones: la que mande se ignora (se aplica la del local). */
+function commissionOnCreate(actorRole: Role, requested: number | undefined): { commissionBps: number | null; ignored: boolean } {
+  if (actorRole === 'OWNER') return { commissionBps: requested ?? null, ignored: false };
+  return { commissionBps: null, ignored: requested !== undefined };
+}
+
+/** Ya tiene a dónde se le paga. */
+function hasPayoutRouting(u: { payoutMethod?: string | null; payoutAddress?: string | null }): boolean {
+  return Boolean(u.payoutMethod || u.payoutAddress);
 }
 
 @Injectable()
@@ -140,7 +160,7 @@ export class OperatorsService {
     const held = Math.max(0, Number(r.heldCents));
     return {
       pendingCents: unpaid - debtCents,
-      availableCents: unpaid - held - debtCents,
+      availableCents: availableCentsOf({ unpaidCents: unpaid, heldCents: held, debtCents }),
       heldCents: held,
       debtCents,
       paidCents: Math.max(0, Number(r.paidCents)),
@@ -308,8 +328,10 @@ export class OperatorsService {
     tenantId: string,
     actorUserId: string,
     dto: CreateOperatorDto,
+    actorRole: Role,
   ): Promise<CreateOperatorResponse> {
     const email = dto.email.toLowerCase();
+    const commission = commissionOnCreate(actorRole, dto.commissionBps);
 
     // Validar email único
     const existing = await this.prisma.asSystem((tx) =>
@@ -345,7 +367,7 @@ export class OperatorsService {
           displayName: dto.displayName,
           passwordHash: placeholderHash,
           role: 'OPERATOR',
-          commissionBps: dto.commissionBps,
+          commissionBps: commission.commissionBps,
           invitedAt: new Date(),
           inviteToken: inviteTokenHash,
         },
@@ -383,7 +405,8 @@ export class OperatorsService {
       payload: {
         email,
         displayName: dto.displayName,
-        commissionBps: dto.commissionBps,
+        commissionBps: commission.commissionBps,
+        commissionIgnored: commission.ignored,
         emailDelivered: sent.delivered,
       },
     });
@@ -396,6 +419,7 @@ export class OperatorsService {
       operator: this.toPublicView(user),
       inviteUrl,
       emailSent: sent.delivered,
+      ...(commission.ignored ? { notice: COMMISSION_OWNER_ONLY_NOTICE } : {}),
     };
   }
 
@@ -599,7 +623,11 @@ export class OperatorsService {
     tenantId: string,
     operatorId: string,
     actorUserId: string,
+    actorRole: Role,
   ): Promise<SelfOnboardingLinkResponse> {
+    // Solo con enlace del dueño puede la chica poner su primera cuenta de cobro:
+    // un encargado no decide a dónde va su dinero (como en el PATCH).
+    const payout = actorRole === 'OWNER';
     const operator = await this.prisma.user.findFirst({
       where: { id: operatorId, tenantId, role: 'OPERATOR' },
       select: { id: true, email: true, deletedAt: true },
@@ -613,6 +641,7 @@ export class OperatorsService {
         sub: operator.id,
         tenantId,
         purpose: 'operator-self-onboarding',
+        payout,
       } satisfies SelfOnboardingJwtPayload,
       { expiresIn: `${SELF_ONBOARDING_TTL_HOURS}h` },
     );
@@ -632,7 +661,7 @@ export class OperatorsService {
       actorId: actorUserId,
       targetType: 'User',
       targetId: operator.id,
-      payload: { ttlHours: SELF_ONBOARDING_TTL_HOURS },
+      payload: { ttlHours: SELF_ONBOARDING_TTL_HOURS, payoutAllowed: payout },
     });
     this.logger.log(
       `Self-onboarding link created for operator=${operator.id} by actor=${actorUserId}`,
@@ -646,7 +675,7 @@ export class OperatorsService {
    * pre-rellenados en el form. Sin auth — el token JWT es la cred.
    */
   async getSelfOnboardingProfile(token: string): Promise<SelfOnboardingProfile> {
-    const operator = await this.validateSelfOnboardingToken(token);
+    const { operator, payoutAllowed } = await this.validateSelfOnboardingToken(token);
     const venue = await this.prisma.asSystem((tx) =>
       tx.venue.findUniqueOrThrow({
         where: { id: operator.tenantId },
@@ -691,6 +720,7 @@ export class OperatorsService {
       payoutAddress: u.payoutAddress,
       payoutLabel: u.payoutLabel,
       venueName: venue.name,
+      canSetPayout: payoutAllowed && !hasPayoutRouting(u),
     };
   }
 
@@ -705,8 +735,8 @@ export class OperatorsService {
   async submitSelfOnboarding(
     token: string,
     dto: SelfOnboardingSubmitDto,
-  ): Promise<{ ok: true }> {
-    const operator = await this.validateSelfOnboardingToken(token);
+  ): Promise<{ ok: true; payoutIgnored?: 'existing' | 'owner_required' }> {
+    const { operator, payoutAllowed } = await this.validateSelfOnboardingToken(token);
 
     const data: Record<string, unknown> = {};
     if (dto.phone !== undefined) data.phone = dto.phone;
@@ -724,17 +754,23 @@ export class OperatorsService {
     if (dto.needsHelpWallet !== undefined) data.needsHelpWallet = dto.needsHelpWallet;
     if (dto.needsHelpDocs !== undefined) data.needsHelpDocs = dto.needsHelpDocs;
     if (dto.onboardingNotes !== undefined) data.onboardingNotes = dto.onboardingNotes;
-    // A dónde va su dinero: solo la primera vez. Si ya tiene cuenta de cobro,
-    // el enlace (que puede generar un encargado) no la cambia: lo hace el dueño.
+    // A dónde va su dinero: solo la primera vez y solo con enlace del dueño.
+    // Si ya tiene cuenta, o el enlace lo generó un encargado, no se toca: queda
+    // como propuesta en el registro y la pone el dueño desde el panel.
     const existing = operator as unknown as { payoutMethod?: string | null; payoutAddress?: string | null };
-    const hasPayout = Boolean(existing.payoutMethod || existing.payoutAddress);
     const wantsPayout =
       dto.payoutMethod !== undefined || dto.payoutAddress !== undefined || dto.payoutLabel !== undefined;
-    if (hasPayout && wantsPayout) {
-      this.logger.warn(`Self-onboarding ${(operator as { id: string }).id}: cambio de cuenta de cobro ignorado (ya tenía una)`);
+    const payoutIgnored = !wantsPayout
+      ? undefined
+      : hasPayoutRouting(existing)
+        ? ('existing' as const)
+        : payoutAllowed
+          ? undefined
+          : ('owner_required' as const);
+    if (payoutIgnored) {
+      this.logger.warn(`Self-onboarding ${(operator as { id: string }).id}: cuenta de cobro no aplicada (${payoutIgnored})`);
     } else {
-      if (dto.payoutMethod !== undefined) data.payoutMethod = dto.payoutMethod;
-      if (dto.payoutAddress !== undefined) data.payoutAddress = dto.payoutAddress;
+      Object.assign(data, payoutRoutingChanges(existing, dto));
       if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
     }
 
@@ -748,10 +784,8 @@ export class OperatorsService {
     // link nuevo si quiere volver a editar.
     data.selfOnboardingToken = null;
 
-    await this.prisma.user.update({
-      where: { id: operator.id },
-      data,
-    });
+    // Ruta pública (sin local en el contexto): como la lectura del token, con asSystem.
+    await this.prisma.asSystem((tx) => tx.user.update({ where: { id: operator.id }, data }));
 
     await this.audit.log({
       action: 'operator.self_onboarding.submitted',
@@ -759,11 +793,24 @@ export class OperatorsService {
       actorId: operator.id, // la propia chica es el actor
       targetType: 'User',
       targetId: operator.id,
-      payload: { fields: Object.keys(data), tokenInvalidated: true },
+      payload: {
+        fields: Object.keys(data),
+        tokenInvalidated: true,
+        ...(payoutIgnored
+          ? {
+              payoutIgnored,
+              proposedPayout: {
+                method: dto.payoutMethod ?? null,
+                address: dto.payoutAddress ?? null,
+                label: dto.payoutLabel ?? null,
+              },
+            }
+          : {}),
+      },
     });
 
     this.logger.log(`Self-onboarding submitted by operator=${operator.id} (token invalidated)`);
-    return { ok: true };
+    return payoutIgnored ? { ok: true, payoutIgnored } : { ok: true };
   }
 
   /**
@@ -796,7 +843,8 @@ export class OperatorsService {
     if (!operator) {
       throw new UnauthorizedException('Token inválido o ya rotado');
     }
-    return operator;
+    // Enlaces de antes (sin el dato) cuentan como de encargado.
+    return { operator, payoutAllowed: decoded.payout === true };
   }
 
   /**
@@ -846,9 +894,8 @@ export class OperatorsService {
     if (dto.active !== undefined) {
       data.deletedAt = dto.active ? null : new Date();
     }
-    // Phase 1A — payout routing
-    if (dto.payoutMethod !== undefined) data.payoutMethod = dto.payoutMethod;
-    if (dto.payoutAddress !== undefined) data.payoutAddress = dto.payoutAddress;
+    // Phase 1A — payout routing (la dirección tiene que ser del método que queda)
+    Object.assign(data, payoutRoutingChanges(operator as { payoutMethod?: string | null; payoutAddress?: string | null }, dto));
     if (dto.payoutMetadata !== undefined) data.payoutMetadata = dto.payoutMetadata;
     if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
     // Phase 1A.1 — Onboarding tracking
@@ -936,6 +983,14 @@ export class OperatorsService {
     if (!operator) throw new NotFoundException('Operadora no encontrada');
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Un hash on-chain solo vale para un pago del local.
+      const txId = options?.externalTxId?.trim();
+      const rail = options?.externalRail ?? operator.payoutMethod ?? null;
+      if (txId && isAutoVerifiable(rail as PayoutMethod | null)) {
+        const other = await otherPayoutWithTx(tx, tenantId, null, txId);
+        if (other) throw txAlreadyUsed(other);
+      }
+
       // SELECT FOR UPDATE de earnings pendientes — incluye tipCents en SUM.
       // L2 (audit): el cálculo previo omitía tipCents → payout subestimaba.
       // Solo earnings con más de N días (PAYOUT_HOLD_DAYS): el dinero ya está
@@ -1035,6 +1090,10 @@ export class OperatorsService {
       }
 
       return { payout, count: pending.length };
+    }).catch((err: unknown) => {
+      // A la vez, otro pago se quedó el mismo hash (índice único parcial).
+      if (isUniqueViolation(err)) throw txAlreadyUsed();
+      throw err;
     });
 
     await this.audit.log({

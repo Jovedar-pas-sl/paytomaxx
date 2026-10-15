@@ -34,11 +34,13 @@ import { ClsService } from 'nestjs-cls';
 import {
   CreateOperatorSchema,
   CreatePayoutSchema,
+  ResetOperatorPasswordSchema,
   UpdateOperatorSchema,
   type CreateOperatorDto,
   type CreatePayoutDto,
   type JwtPayload,
   type PaymentStatus,
+  type ResetOperatorPasswordDto,
   type UpdateOperatorDto,
 } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
@@ -750,7 +752,8 @@ export class AdminController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(CreateOperatorSchema)) dto: CreateOperatorDto,
   ) {
-    return this.operators.createOperator(tenantId, user.sub, dto);
+    // Un encargado no fija la comisión: el servicio la ignora y avisa.
+    return this.operators.createOperator(tenantId, user.sub, dto, user.role);
   }
 
   @Patch('operators/:id')
@@ -778,7 +781,8 @@ export class AdminController {
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
-    return this.operators.createSelfOnboardingLink(tenantId, id, user.sub);
+    // Con enlace de encargado la chica no puede poner su cuenta de cobro (solo el dueño).
+    return this.operators.createSelfOnboardingLink(tenantId, id, user.sub, user.role);
   }
 
   /**
@@ -813,14 +817,9 @@ export class AdminController {
     @Tenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() body: { password?: string } = {},
+    @Body(new ZodValidationPipe(ResetOperatorPasswordSchema)) body: ResetOperatorPasswordDto,
   ) {
-    return this.operators.resetPassword(
-      tenantId,
-      id,
-      user.sub,
-      typeof body.password === 'string' && body.password.length > 0 ? body.password : null,
-    );
+    return this.operators.resetPassword(tenantId, id, user.sub, body.password ? body.password : null);
   }
 
   @Get('operators/:id/earnings')

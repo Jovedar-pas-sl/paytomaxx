@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 import {
+  ReceiptUrlSchema,
   VerifyPayoutSchema,
   type JwtPayload,
   type VerifyPayoutDto,
@@ -25,10 +26,10 @@ import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { TreasuryService } from './treasury.service';
 
 /** Body schema para confirm-manual — requiere al menos un artifact. */
-const ConfirmManualSchema = z
+export const ConfirmManualSchema = z
   .object({
     externalTxId: z.string().min(4).max(200).optional(),
-    receiptUrl: z.string().url().max(500).optional(),
+    receiptUrl: ReceiptUrlSchema.optional(),
     notes: z.string().max(500).optional(),
   })
   .refine(

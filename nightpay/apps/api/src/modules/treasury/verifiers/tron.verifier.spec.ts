@@ -55,7 +55,9 @@ describe('TronVerifier.verify', () => {
     });
     expect(result.matched).toBe(true);
     expect(result.status).toBe('MATCHED');
-    expect(result.actualAmountCents).toBe(10_700); // 107 USDT in cents
+    // Lo recibido va en USDT; en EUR lo pasa el servicio con la foto del tipo del pago.
+    expect(result.actualAmountUsdt).toBe(107);
+    expect(result.actualAmountCents).toBeNull();
   });
 
   it('returns MISMATCH when destination address differs', async () => {
@@ -75,10 +77,10 @@ describe('TronVerifier.verify', () => {
     });
     expect(result.matched).toBe(false);
     expect(result.status).toBe('MISMATCH');
-    expect(result.reason).toMatch(/tron_to_mismatch/);
+    expect(result.reason).toMatch(/^destino_distinto: /);
   });
 
-  it('returns MISMATCH when amount is outside 2% tolerance', async () => {
+  it('returns MISMATCH when amount is outside tolerance', async () => {
     // Esperado 107 USDT, actual 90 USDT (16% off → mismatch)
     vi.stubGlobal('fetch', mockFetch(200, makeBody({
       trc20TransferInfo: [
@@ -96,17 +98,17 @@ describe('TronVerifier.verify', () => {
     });
     expect(result.matched).toBe(false);
     expect(result.status).toBe('MISMATCH');
-    expect(result.reason).toMatch(/tron_amount/);
+    expect(result.reason).toBe('importe_distinto: llegaron 90,00 USDT y se esperaban 107,00 USDT (margen ±0,54)');
   });
 
-  it('returns MATCHED when amount is within 2% tolerance', async () => {
-    // 107 ± 2% → [104.86, 109.14]. Probamos 106 (1% off).
+  it('returns MATCHED when amount is within 0.5% tolerance', async () => {
+    // 107 ± 0,5 % → ±0,535. Probamos 106,6.
     vi.stubGlobal('fetch', mockFetch(200, makeBody({
       trc20TransferInfo: [
         {
           contract_address: USDT_TRC20_CONTRACT,
           to_address: EXPECTED_TO,
-          amount_str: '106000000',
+          amount_str: '106600000',
         },
       ],
     })));
@@ -152,7 +154,7 @@ describe('TronVerifier.verify', () => {
     });
     expect(result.matched).toBe(false);
     expect(result.status).toBe('MISMATCH');
-    expect(result.reason).toBe('tron_status_REVERT');
+    expect(result.reason).toMatch(/^tx_fallida: .*REVERT/);
   });
 
   it('returns MISMATCH when tx has no USDT transfer (wrong token contract)', async () => {
@@ -172,7 +174,7 @@ describe('TronVerifier.verify', () => {
     });
     expect(result.matched).toBe(false);
     expect(result.status).toBe('MISMATCH');
-    expect(result.reason).toBe('tron_no_usdt_transfer');
+    expect(result.reason).toMatch(/^sin_usdt: /);
   });
 
   it('returns UNRECONCILED on HTTP error from Tronscan', async () => {
@@ -240,5 +242,36 @@ describe('TronVerifier.verify', () => {
     });
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers['TRON-PRO-API-KEY']).toBeUndefined();
+  });
+
+  it('1 % de diferencia ya no pasa (antes ±2 %)', async () => {
+    vi.stubGlobal('fetch', mockFetch(200, makeBody({
+      trc20TransferInfo: [{ contract_address: USDT_TRC20_CONTRACT, to_address: EXPECTED_TO, amount_str: '106000000' }],
+    })));
+    const result = await verifier.verify({ externalTxId: TX_HASH, expectedToAddress: EXPECTED_TO, expectedAmountCents: EXPECTED_CENTS });
+    expect(result.status).toBe('MISMATCH');
+  });
+
+  it('mira TODAS las transferencias: la primera a otra persona no tapa la de la chica', async () => {
+    vi.stubGlobal('fetch', mockFetch(200, makeBody({
+      trc20TransferInfo: [
+        { contract_address: USDT_TRC20_CONTRACT, to_address: 'TOtraChicaOtraChicaOtraChicaOtraCh', amount_str: '50000000' },
+        { contract_address: USDT_TRC20_CONTRACT, to_address: EXPECTED_TO, amount_str: '107000000' },
+      ],
+    })));
+    const result = await verifier.verify({ externalTxId: TX_HASH, expectedToAddress: EXPECTED_TO, expectedAmountCents: EXPECTED_CENTS });
+    expect(result).toMatchObject({ matched: true, actualAmountUsdt: 107 });
+  });
+
+  it('suma las transferencias a su dirección (y solo de USDT)', async () => {
+    vi.stubGlobal('fetch', mockFetch(200, makeBody({
+      trc20TransferInfo: [
+        { contract_address: USDT_TRC20_CONTRACT, to_address: EXPECTED_TO, amount_str: '50000000' },
+        { contract_address: USDT_TRC20_CONTRACT, to_address: EXPECTED_TO, amount_str: '57000000' },
+        { contract_address: 'TOtroTokenOtroTokenOtroTokenOtroTo', to_address: EXPECTED_TO, amount_str: '999000000' },
+      ],
+    })));
+    const result = await verifier.verify({ externalTxId: TX_HASH, expectedToAddress: EXPECTED_TO, expectedAmountCents: EXPECTED_CENTS });
+    expect(result).toMatchObject({ matched: true, actualAmountUsdt: 107 });
   });
 });
