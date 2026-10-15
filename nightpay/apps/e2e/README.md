@@ -65,9 +65,16 @@ pnpm --filter @nightpay/e2e test -- --grep "@security"
 
 ## CI
 
-El workflow GitHub Actions (`.github/workflows/e2e.yml` — TODO) debe:
-1. Levantar Postgres + Redis vía services.
-2. Ejecutar `pnpm --filter @nightpay/db push:dev` para schema.
-3. Seedear owner + 1 operadora.
-4. Lanzar API + admin en background.
-5. `pnpm --filter @nightpay/e2e test`.
+No está en CI, a propósito: estas pruebas necesitan el API **y** las webs
+corriendo, un owner y una operadora concretos ya creados (`E2E_OWNER_SUB`,
+`E2E_TENANT_ID`), el `JWT_SECRET` del API y además prueban el límite de
+peticiones; montado en el job `docker` saldrían intermitentes. Lo que CI sí
+cubre: las imágenes arrancan y responden (job `docker`), y los flujos del
+dinero contra un Postgres real (job `integracion`,
+`apps/api/test/integration/`).
+
+Para lanzarlas antes de un despliegue grande: el apartado *Prerequisitos* de
+arriba en local y `pnpm --filter @nightpay/e2e test`.
+
+Los scripts sueltos antiguos (`test-e2e-*.mjs`) están en
+[`legacy-scripts/`](legacy-scripts/README.md).
