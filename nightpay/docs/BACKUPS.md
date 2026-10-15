@@ -5,8 +5,12 @@ saldos de los clientes y lo que se debe a cada chica. Si se pierde el disco del
 VPS sin copia, se pierde todo. Esto deja:
 
 - **copias automáticas** cada 6 horas en Cloudflare R2 (fuera del VPS);
+- **una segunda copia que no depende de Dokploy** (restic, cifrada, en
+  Backblaze B2): si Dokploy se rompe o se borra el proyecto, sigue habiendo
+  copias (apartado 7);
 - **un vigilante** en el API: si pasa más de un día sin copias, sale en
-  Incidencias y llega por Telegram.
+  Incidencias y llega por Telegram;
+- **una prueba de restauración con guion** (`scripts/restore-check.sh`).
 
 Tiempo: unos 20 minutos. Coste: 0 € (R2 regala 10 GB; una copia comprimida
 ocupa unos pocos MB).
@@ -97,6 +101,25 @@ Cómo saber que funciona:
 Una copia que nunca se ha restaurado no es una copia. **No restaures encima de
 la base de producción** para probar: la sobrescribe.
 
+**Con el guion (recomendado).** Descarga la última copia de R2 (Cloudflare →
+R2 → `oxiopay-copias` → la carpeta de Postgres → el `.sql.gz` más reciente) o
+la de restic (apartado 7) y, en cualquier máquina con Docker (el propio VPS
+vale):
+
+```bash
+nightpay/scripts/restore-check.sh ./nightpay-xxxx.sql.gz
+```
+
+Levanta un Postgres 16 de usar y tirar (sin volumen: desaparece al acabar),
+restaura la copia y comprueba que hay cobros (`payments`), saldos
+(`client_wallets`) y comisiones (`operator_earnings`). Sale con error si la
+copia no se restaura o alguna tabla está vacía. Para exigir además que la copia
+sea reciente: `MAX_LAST_PAYMENT_AGE_DAYS=2 nightpay/scripts/restore-check.sh …`.
+Sin Docker, contra una base vacía creada a mano: `… --url postgresql://…`
+(se niega si la base tiene tablas).
+
+**Desde el panel de Dokploy (alternativa).**
+
 1. En el proyecto `nightpay` → **Create Service → Database → PostgreSQL**,
    nombre `restore-prueba`, imagen `postgres:16-alpine`, base `nightpay`.
 2. En `restore-prueba` → **Backups** → **Restore** → Destination `R2 copias` →
@@ -123,4 +146,96 @@ la base de producción** para probar: la sobrescribe.
   vigilante del API lo detecta igual (no ve copias nuevas).
 - Si cambias el nombre del servicio de Postgres, cambia la carpeta en R2:
   actualiza `BACKUP_S3_PREFIX`.
-- Redis no necesita copia: solo guarda colas y marcas temporales.
+- Redis no necesita copia: solo guarda colas y marcas temporales. Pero sí
+  tiene que estar configurado para no perder trabajos (apartado 8).
+
+## 7. Segunda copia, independiente de Dokploy (restic + Backblaze B2)
+
+Las copias del apartado 3 las hace Dokploy: si Dokploy deja de funcionar, se
+reinstala o alguien borra el servicio, se acaban. Esta segunda copia la hace un
+contenedor pequeño que arranca Docker por su cuenta (no es un servicio de
+Dokploy), cifra con [restic](https://restic.net) y guarda en otro proveedor
+(Backblaze B2): ni Cloudflare ni Dokploy son punto único de fallo.
+
+Coste: B2 regala 10 GB; las copias cifradas de restic deduplican y ocupan muy
+poco.
+
+1. **Backblaze** → B2 → **Create a Bucket** `oxiopay-restic` (privado) →
+   **Application Keys → Add a New Application Key** solo para ese bucket,
+   con lectura y escritura. Apunta `keyID` y `applicationKey`.
+2. **Contraseña de restic**: genera una larga
+   (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`)
+   y guárdala en tu gestor de contraseñas **y en papel**. Sin ella las copias no
+   se pueden abrir: ni tú ni nadie.
+3. En el VPS, un fichero solo para root, `/root/restic-oxiopay.env`
+   (`chmod 600`):
+
+   ```env
+   PGHOST=nightpay-postgres        # el nombre interno del Postgres en Dokploy
+   PGUSER=np
+   PGPASSWORD=<la de Postgres>
+   PGDATABASE=nightpay
+   RESTIC_REPOSITORY=b2:oxiopay-restic:nightpay
+   RESTIC_PASSWORD=<la del paso 2>
+   B2_ACCOUNT_ID=<keyID>
+   B2_ACCOUNT_KEY=<applicationKey>
+   # Opcional: aviso a Telegram si falla una copia (el mismo bot del API).
+   TELEGRAM_BOT_TOKEN=
+   TELEGRAM_CHAT_ID=
+   ```
+
+4. El guion de la copia: copia `nightpay/scripts/restic-backup.sh` del repo al
+   VPS como `/root/oxiopay-restic.sh` (`chmod 755`). Hace `pg_dump` → restic,
+   borra las copias viejas (guarda 7 días de copias de cada 6 h, 8 semanas y
+   12 meses) y avisa por Telegram si falla.
+5. El contenedor (una sola vez; Docker lo vuelve a levantar solo tras
+   reiniciar el VPS). Copia cada 6 h, a y media:
+
+   ```bash
+   docker run -d --name oxiopay-restic --restart unless-stopped \
+     --network dokploy-network --env-file /root/restic-oxiopay.env \
+     -v /root/oxiopay-restic.sh:/copia.sh:ro \
+     alpine:3.24 sh -c 'apk add --no-cache postgresql16-client restic curl >/dev/null \
+       && (restic cat config >/dev/null 2>&1 || restic init) \
+       && export -p > /env.sh \
+       && echo "30 */6 * * * . /env.sh && /copia.sh" | crontab - \
+       && /copia.sh; exec crond -f -l 8'
+   ```
+
+   (El `-v` monta un fichero, no un volumen de Docker. `export -p` deja las
+   variables a mano para el cron.)
+6. Comprueba: `docker logs oxiopay-restic` → `copia OK …`, y
+   `docker exec oxiopay-restic restic snapshots` lista la copia.
+
+**Restaurar desde restic** (o probar, con el guion del apartado 5):
+
+```bash
+docker exec oxiopay-restic restic dump latest nightpay.dump > nightpay.dump
+nightpay/scripts/restore-check.sh ./nightpay.dump
+```
+
+Para devolverla a producción, igual que en el apartado 6 pero con
+`pg_restore --clean --if-exists --no-owner -d nightpay < nightpay.dump`
+dentro del contenedor de Postgres (con el API parado).
+
+## 8. Redis: que no tire trabajos
+
+El API guarda en Redis las colas (BullMQ: avisos del banco, conciliaciones,
+alertas). Redis tiene que:
+
+- **no borrar claves aunque se llene** (`maxmemory-policy noeviction`): con la
+  política por defecto podría tirar trabajos pendientes;
+- **guardar en disco** (`appendonly yes`): un reinicio no pierde la cola.
+
+En Dokploy → `nightpay-redis` → **Advanced** → *Command* (o *Args*):
+
+```
+redis-server --requirepass <la de Redis> --appendonly yes --maxmemory-policy noeviction
+```
+
+Guarda, **Redeploy** de Redis y compruébalo en su **Terminal**:
+
+```bash
+redis-cli -a '<la de Redis>' CONFIG GET maxmemory-policy   # → noeviction
+redis-cli -a '<la de Redis>' CONFIG GET appendonly         # → yes
+```

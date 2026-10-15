@@ -1,16 +1,30 @@
-# Comprobaciones de OxioPay (nightpay/) en cada push a main y en cada PR:
-# tipos de las 5 apps, tests del API y del operador, aviso de dependencias, y
-# las 5 imágenes Docker construidas y arrancadas (sin root).
-# (El ci.yml que había dentro de nightpay/.github no lo ejecutaba GitHub.)
+# Comprobaciones de OxioPay (nightpay/) en cada push a main, fix/** y feat/**
+# y en cada PR (a cualquier rama):
+#   check       tipos de las 5 apps, tests del API (con cobertura mínima) y del
+#               operador, y vulnerabilidades críticas/altas (scripts/audit-gate.mjs)
+#   lint        ESLint de la raíz; de momento NO bloquea (hay avisos viejos)
+#   integracion migraciones en un Postgres 16 vacío con un rol SIN superusuario
+#               (FORCE RLS de verdad), esquema = schema.prisma, y las pruebas
+#               de integración del API contra esa base
+#   docker      las 5 imágenes que despliega Dokploy, construidas y arrancadas
+#
+# Las acciones de terceros van fijadas por commit (el comentario dice la versión).
 name: nightpay-ci
 
 on:
   push:
-    branches: [main]
-    paths: ['nightpay/**', '.github/workflows/nightpay-ci.yml']
+    branches: [main, 'fix/**', 'feat/**']
+    paths:
+      - 'nightpay/**'
+      - 'package.json'
+      - 'nightpay/pnpm-workspace.yaml'
+      - '.github/workflows/**'
   pull_request:
-    branches: [main]
-    paths: ['nightpay/**', '.github/workflows/nightpay-ci.yml']
+    paths:
+      - 'nightpay/**'
+      - 'package.json'
+      - 'nightpay/pnpm-workspace.yaml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
@@ -29,12 +43,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # La versión de pnpm la fija "packageManager" del package.json de la raíz.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
+          node-version-file: nightpay/.nvmrc
           cache: pnpm
           cache-dependency-path: nightpay/pnpm-lock.yaml
       - name: Dependencias
@@ -48,14 +62,96 @@ jobs:
             (cd apps/$app && npx tsc --noEmit -p .) || exit 1
             echo "::endgroup::"
           done
-      - name: Tests del API
+      - name: Tests del API (con cobertura mínima, ver vitest.config.ts)
         working-directory: nightpay/apps/api
-        run: npx vitest run
+        run: pnpm test:coverage
       - name: Tests del operador
         working-directory: nightpay/apps/operator
         run: npx vitest run
-      - name: Vulnerabilidades en dependencias (aviso)
-        run: pnpm audit --prod --audit-level=critical || echo "::warning::Hay vulnerabilidades críticas en dependencias (Next 14 / Nest 10)"
+      - name: Vulnerabilidades críticas/altas (aceptadas solo las de .audit-allowlist.json)
+        run: node scripts/audit-gate.mjs
+      - name: Informe de cobertura
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cobertura-api
+          path: nightpay/apps/api/coverage/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # ESLint de la raíz sobre apps/** y packages/**. Hay ~100 avisos antiguos
+  # (se limpian en la fase 2): el job puede salir en rojo pero no bloquea.
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: nightpay/.nvmrc
+          cache: pnpm
+          cache-dependency-path: nightpay/pnpm-lock.yaml
+      - name: Dependencias
+        run: pnpm install --frozen-lockfile
+      - name: ESLint (raíz)
+        run: pnpm lint:root
+
+  # Base de datos de verdad. El rol np_app NO es superusuario y es el dueño de
+  # la base: así Postgres le aplica FORCE ROW LEVEL SECURITY (a un superusuario
+  # no). Migraciones y pruebas corren como np_app.
+  integracion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://np_app:np_app@localhost:5432/nightpay
+      SHADOW_DATABASE_URL: postgresql://np_app:np_app@localhost:5432/nightpay_shadow
+      # Solo para las pruebas (40 caracteres, no es ningún secreto real).
+      ENCRYPTION_KEK: ci-kek-solo-para-pruebas-0123456789abcde
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: nightpay/.nvmrc
+          cache: pnpm
+          cache-dependency-path: nightpay/pnpm-lock.yaml
+      - name: Dependencias
+        run: pnpm install --frozen-lockfile
+      - name: Cliente de Prisma
+        run: pnpm --filter @nightpay/db exec prisma generate
+      - name: Rol np_app (sin superusuario), dueño de nightpay y de la base sombra
+        run: |
+          psql() { docker exec -i "${{ job.services.postgres.id }}" psql -v ON_ERROR_STOP=1 -U postgres -d postgres "$@"; }
+          psql -c "CREATE ROLE np_app LOGIN PASSWORD 'np_app' NOSUPERUSER NOCREATEDB NOCREATEROLE"
+          psql -c "CREATE DATABASE nightpay OWNER np_app"
+          psql -c "CREATE DATABASE nightpay_shadow OWNER np_app"
+          psql -tAc "SELECT 'np_app superusuario: ' || rolsuper FROM pg_roles WHERE rolname = 'np_app'"
+      - name: Esquema sin drift (migraciones en una base vacía = schema.prisma)
+        working-directory: nightpay/packages/db
+        run: node scripts/check-drift.mjs --shadow-database-url "$SHADOW_DATABASE_URL"
+      - name: Migraciones como en el arranque del API (db-heal → migrate deploy → db-heal)
+        working-directory: nightpay/packages/db
+        run: |
+          ./node_modules/.bin/tsx scripts/db-heal.ts
+          ./node_modules/.bin/prisma migrate deploy
+          ./node_modules/.bin/tsx scripts/db-heal.ts
+          node scripts/check-drift.mjs --from-url "$DATABASE_URL"
+      - name: Pruebas de integración del API (Postgres real, RLS forzado)
+        working-directory: nightpay/apps/api
+        run: pnpm test:integration
 
   # Las imágenes que despliega Dokploy: se construyen y se arrancan de verdad
   # (sin root), el API contra un Postgres y un Redis reales. Si una no arranca,
@@ -78,12 +174,15 @@ jobs:
         image: redis:7-alpine
         ports: ['6379:6379']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Construir las 5 imágenes
         run: |
           for app in api admin operator tpv web-client; do
             echo "::group::$app"
-            docker build -f apps/$app/Dockerfile -t np-$app . || exit 1
+            docker build -f apps/$app/Dockerfile \
+              --build-arg GIT_SHA=${{ github.sha }} \
+              --build-arg BUILD_MARKER=ci-${{ github.run_number }} \
+              -t np-$app . || exit 1
             echo "::endgroup::"
           done
       - name: Las webs arrancan sin root y responden
@@ -111,6 +210,8 @@ jobs:
             -e JWT_SECRET=ci-jwt-secret-solo-para-la-prueba-0123456789 \
             -e COOKIE_SECRET=ci-cookie-secret-solo-para-la-prueba-012345 \
             -e ENCRYPTION_KEK=Y2ktdW5hLWNsYXZlLWRlLTMyLWJ5dGVzLXBhcmEtcHJ1ZWJh \
+            -e ORIGIN_AUTH_SECRET=ci-origin-auth-solo-para-la-prueba-0123 \
+            -e METRICS_TOKEN=ci-metrics-token-solo-para-la-prueba-0123 \
             -e PEANPE_API_URL=https://peanpe.invalid/api \
             -e PEANPE_WEBHOOK_SECRET=ci-peanpe-secret \
             -e NEXT_PUBLIC_API_URL=https://api.ci.invalid \
@@ -125,6 +226,18 @@ jobs:
           full=$(curl -s -w ' %{http_code}' http://127.0.0.1:4100/v1/health || true)
           echo "API (uid $uid): /live → $live · /health → $full"
           if [ "$live" != "200" ] || [ "${full##* }" != "200" ]; then docker logs np-api; exit 1; fi
+          pid1=$(docker exec np-api cat /proc/1/comm)
+          echo "PID 1 del API: $pid1"
+          [ "$pid1" = "node" ] || { echo "::error::el PID 1 del API es $pid1, no node (no le llegaría el SIGTERM)"; exit 1; }
+      - name: El API se para limpio con SIGTERM
+        run: |
+          start=$(date +%s)
+          docker stop -t 30 np-api
+          code=$(docker inspect -f '{{.State.ExitCode}}' np-api)
+          echo "docker stop: $(( $(date +%s) - start )) s, código de salida $code"
+          docker logs np-api 2>&1 | tail -15
+          # 137 = Docker tuvo que matarlo (SIGKILL): no atendió el SIGTERM.
+          [ "$code" != "137" ] || { echo "::error::el API no se paró con SIGTERM"; exit 1; }
       - name: Registros si algo falló
         if: failure()
         run: for c in np-api np-admin np-operator np-tpv np-web-client; do echo "::group::$c"; docker logs $c 2>&1 | tail -80 || true; echo "::endgroup::"; done

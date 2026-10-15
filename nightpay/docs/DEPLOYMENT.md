@@ -1,3 +1,10 @@
+> ## ⚠️ OBSOLETO — no lo sigas
+>
+> Este documento describe un despliegue con Coolify que ya no se usa. El
+> despliegue vigente es Dokploy: **[DOKPLOY-STEPS.md](DOKPLOY-STEPS.md)**
+> (copias en [BACKUPS.md](BACKUPS.md), incidentes en [runbooks/](runbooks/)).
+> Se conserva solo como histórico.
+
 # NightPay — Deployment guide (Hetzner VPS + Dockploy/Coolify + Cloudflare + Grafana Cloud)
 
 > **Nota**: este doc usa Coolify en los ejemplos. Si usas Dockploy (recomendado tambien),

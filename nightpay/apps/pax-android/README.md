@@ -20,9 +20,22 @@ Contrato del puente web ↔ app: `apps/operator/src/lib/pax-bridge.ts`.
 ## Compilar
 
 Sin Android Studio: en GitHub → Actions → **pax-android** → *Run workflow*.
-El APK de prueba sale en *Artifacts* de la ejecución.
+En *Artifacts* de la ejecución sale el APK de prueba (debug) y, si están los
+secretos de firma, el APK de producción firmado (release). El `versionCode` es
+el número de la ejecución: cada APK sube de versión y se instala encima del
+anterior.
 
-Con Android Studio: abrir esta carpeta y `gradle assembleDebug` (Gradle 8.7, JDK 17).
+Secretos de firma (GitHub → Settings → Secrets and variables → Actions):
+`PAX_KEYSTORE_BASE64` (el `.jks` en base64: `base64 -w0 pax.jks`),
+`PAX_KEYSTORE_PASSWORD`, `PAX_KEY_ALIAS` y `PAX_KEY_PASSWORD`. Guarda el
+`.jks` y sus contraseñas también fuera de GitHub: sin esa misma clave no se
+puede publicar una actualización de la app.
+
+Con Android Studio / Gradle 8.7 y JDK 17: `gradle assembleDebug`
+(`-PversionCode=N` para fijar la versión; para firmar el release, las
+variables de entorno `PAX_KEYSTORE_FILE`, `PAX_KEYSTORE_PASSWORD`,
+`PAX_KEY_ALIAS` y `PAX_KEY_PASSWORD`). No hay Gradle wrapper en el repo:
+generarlo pide tener Gradle instalado (`gradle wrapper --gradle-version 8.7`).
 
 ## Instalar en los datáfonos
 

@@ -3,17 +3,25 @@
 **/.turbo
 **/dist
 **/.git
-**/.env
-**/.env.local
-**/.env.development
-**/.env.test
 **/coverage
 **/.vscode
 **/.idea
 **/*.log
+**/*.bak
 **/.DS_Store
+
+# Ningún .env entra en una imagen (los secretos van en Dokploy → Environment).
+**/.env*
+!**/.env.example
+
+# El seed de desarrollo crea usuarios: no va en ninguna imagen.
+packages/db/prisma/seed.ts
+
+# Pruebas de integración del API (necesitan su propio Postgres).
+apps/api/test
+
 docs
 *.md
-docker-compose.yml
+docker-compose*.yml
 .github
 .husky

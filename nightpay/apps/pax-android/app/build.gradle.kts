@@ -12,8 +12,10 @@ android {
         // PAX A920 (Android 5.1 / 7.1) y A920 Pro.
         minSdk = 22
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI pasa -PversionCode=<nº de ejecución>: cada APK sube de versión y
+        // PAXSTORE / Android aceptan instalarlo encima del anterior.
+        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = "0.1.$versionCode"
         // Pantalla del datáfono servida por la web del operador. Otro dominio:
         // gradle assembleDebug -PpaxUrl=https://operator.nuevodominio.com/pax
         val paxUrl = (project.findProperty("paxUrl") as String?)?.takeIf { it.isNotBlank() }
@@ -29,9 +31,25 @@ android {
         buildConfig = true
     }
 
+    // Firma del APK de producción: solo si CI (o quien compile) da el almacén
+    // de claves por variables de entorno. Sin ellas, el release sale sin firmar
+    // y se usa el APK de prueba (debug), como hasta ahora.
+    val keystore = System.getenv("PAX_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("PAX_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("PAX_KEY_ALIAS")
+                keyPassword = System.getenv("PAX_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
 

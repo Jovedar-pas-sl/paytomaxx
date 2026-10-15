@@ -1,460 +1,314 @@
-# NightPay — Deployment paso a paso en Dokploy
+# OxioPay / NightPay — despliegue paso a paso en Dokploy
 
-Guion concreto para deployar NightPay en tu VPS Contabo (38.242.131.141)
-con Dokploy + Cloudflare. Sigue las fases en orden.
+Guion para montar OxioPay en un VPS con Dokploy detrás de Cloudflare (o para
+rehacerlo si se pierde el servidor: ver también
+[`runbooks/P0-vps-perdido.md`](runbooks/P0-vps-perdido.md)). Sigue las fases
+en orden. En los ejemplos, `<IP-del-VPS>` es la IP pública del servidor y
+`paytomaxx.com` el dominio actual.
+
+> Este es el documento vigente. `DEPLOYMENT.md` (Coolify) está obsoleto.
 
 ---
 
-## Fase 0 — Generar secretos (una sola vez)
+## Fase 0 — Secretos (una sola vez)
 
-En tu maquina local, genera 4 secrets:
+Genera cada uno en tu equipo y guárdalos en el gestor de contraseñas **antes**
+de seguir:
 
 ```powershell
-# JWT_SECRET
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-
-# ENCRYPTION_KEK
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-
-# Postgres password
-node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
-
-# Redis password
-node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
 ```
 
-Anotalos en tu password manager. Los necesitaras durante el deploy.
+| Secreto | Para qué | Ojo |
+|---|---|---|
+| `JWT_SECRET` | Firma las sesiones | Cambiarlo cierra todas las sesiones |
+| `COOKIE_SECRET` | Firma las cookies | |
+| `ENCRYPTION_KEK` | Cifra credenciales de pasarela y el PIN del saldo | **Si se pierde, no se recupera**: guárdalo en dos sitios |
+| `ORIGIN_AUTH_SECRET` | Cabecera que pone Cloudflare (Fase F) | Mín. 24 caracteres |
+| `METRICS_TOKEN` | Leer `/v1/metrics` desde fuera | Mín. 24 caracteres |
+| Contraseña de Postgres | Usuario `np` | `base64url`, sin `@ : /` |
+| Contraseña de Redis | | igual |
 
 ---
 
 ## Fase A — Conectar Dokploy a GitHub
 
-1. Dokploy UI → avatar superior derecha → **Settings**
-2. **Git Providers** (o similar) → **GitHub** → **Add**
-3. Click **Connect with GitHub** → autoriza la app en GitHub
-4. **Install GitHub App** → en GitHub elige "Only select repositories" → marca `paytomaxx`
+1. Dokploy → **Settings → Git Providers → GitHub → Add**.
+2. **Connect with GitHub**, instala la app en GitHub solo para el repositorio
+   `paytomaxx`.
 
-**Verificacion**: vuelve a Dokploy, en Git Providers debe aparecer "GitHub: Connected".
-
----
-
-## Fase B — Proyecto + Postgres + Redis
-
-### B.1 Crear proyecto
-
-Projects → **Create Project** → name: `nightpay`
-
-### B.2 Postgres
-
-Dentro de `nightpay` → **Create Service** → **Database** → **PostgreSQL**:
-- Application Name: `nightpay-postgres`
-- Image: `postgres:16-alpine`
-- Database name: `nightpay`
-- Username: `np`
-- Password: el que generaste en Fase 0
-- External port: vacio (NO exponer)
-- Click Create → Deploy
-
-**Anota** el Internal Host (algo como `nightpay-postgres-xxxxx`).
-
-### B.3 Redis
-
-**Create Service** → **Database** → **Redis**:
-- Application Name: `nightpay-redis`
-- Image: `redis:7-alpine`
-- Password: el de Fase 0
-- External port: vacio
-- Si Dokploy ofrece campo "Command" o "Args": `--maxmemory-policy noeviction --appendonly yes`
-  (si no lo ofrece, saltar — lo arreglamos despues)
-- Create → Deploy
-
-**Anota** el Internal Host.
+Comprobación: en Git Providers sale «GitHub: Connected».
 
 ---
 
-## Fase C — Mocks Wipay + Peanpe (mientras llegan credenciales reales)
+## Fase B — Proyecto, Postgres y Redis
 
-Los mocks tambien se deployan desde el repo GitHub. Esto permite probar el flujo
-de pago E2E en produccion sin credentials reales.
+1. **Projects → Create Project** → `nightpay`.
+2. **Create Service → Database → PostgreSQL**: nombre `nightpay-postgres`,
+   imagen `postgres:16-alpine`, base `nightpay`, usuario `np`, la contraseña
+   de la Fase 0, **sin puerto externo**. Create → Deploy. Apunta el *Internal
+   Host*.
+3. **Create Service → Database → Redis**: nombre `nightpay-redis`, imagen
+   `redis:7-alpine`, la contraseña de la Fase 0, sin puerto externo. En
+   **Advanced → Command**:
+   `redis-server --requirepass <contraseña> --appendonly yes --maxmemory-policy noeviction`
+   (obligatorio para las colas: ver [`BACKUPS.md`](BACKUPS.md) apartado 8).
+   Create → Deploy.
+4. Copias de seguridad: [`BACKUPS.md`](BACKUPS.md) (hazlo el mismo día).
 
-### C.1 Mock Wipay
+---
 
-`nightpay` proyecto → **Create Service** → **Application**:
-- Name: `nightpay-mock-wipay`
-- Source: GitHub
-- Repo: `ainhoanochesdeverano-dotcom/paytomaxx`
-- Branch: `main`
-- Build Type: **Dockerfile**
-- Build Context: `nightpay/apps/mock-wipay`
-- Dockerfile: `Dockerfile`
-- Port: `3000`
-- Domains: vacio (servicio interno solo)
-- Deploy
+## Fase C — Simuladores de pasarela: NO en producción
 
-### C.2 Mock Peanpe
-
-Idem pero:
-- Name: `nightpay-mock-peanpe`
-- Build Context: `nightpay/apps/mock-peanpe`
+`apps/mock-wipay` y `apps/mock-peanpe` son simuladores para **desarrollo**
+(aceptan cualquier pago). No se despliegan en Dokploy. En local van en
+`docker compose up mock-wipay mock-peanpe`. Si existen servicios
+`nightpay-mock-*` en Dokploy de una instalación antigua, bórralos.
 
 ---
 
 ## Fase D — API
 
-### D.1 Crear servicio API
+### D.1 Servicio
 
-`nightpay` proyecto → **Create Service** → **Application**:
-- Name: `nightpay-api`
-- Source: GitHub
-- Repo: `ainhoanochesdeverano-dotcom/paytomaxx`
-- Branch: `main`
-- Build Type: **Dockerfile**
-- Build Context: `nightpay`
-- Dockerfile: `apps/api/Dockerfile`
-- Port: `4100`
+`nightpay` → **Create Service → Application**:
+
+| Campo | Valor |
+|---|---|
+| Name | `nightpay-api` |
+| Source | GitHub, repo `ainhoanochesdeverano-dotcom/paytomaxx`, rama `main` |
+| Build Type | Dockerfile |
+| Build Context | `nightpay` |
+| Dockerfile | `apps/api/Dockerfile` |
+| Port | `4100` |
+| Build Args (opcional) | `GIT_SHA=<commit>` y `BUILD_MARKER=<etiqueta>`: salen en `/v1/health` |
 
 ### D.2 Variables de entorno
 
-En la pestaña **Environment**, pega esto sustituyendo CAMBIAR_X:
+Pestaña **Environment** (lista completa y explicada en `nightpay/.env.example`):
 
 ```env
 NODE_ENV=production
 PORT=4100
+LOG_LEVEL=info
 
-DATABASE_URL=postgresql://np:CAMBIAR_POSTGRES_PASSWORD@nightpay-postgres:5432/nightpay
-REDIS_URL=redis://default:CAMBIAR_REDIS_PASSWORD@nightpay-redis:6379
+DATABASE_URL=postgresql://np:<POSTGRES_PASSWORD>@nightpay-postgres:5432/nightpay
+REDIS_URL=redis://default:<REDIS_PASSWORD>@nightpay-redis:6379
 
-JWT_SECRET=CAMBIAR_JWT_SECRET_64_HEX
-ENCRYPTION_KEK=CAMBIAR_ENCRYPTION_KEK_64_HEX
+JWT_SECRET=<Fase 0>
+COOKIE_SECRET=<Fase 0>
+ENCRYPTION_KEK=<Fase 0>
+ORIGIN_AUTH_SECRET=<Fase 0>
+METRICS_TOKEN=<Fase 0>
 
-WIPAY_API_URL=http://nightpay-mock-wipay:3000
-WIPAY_WEBHOOK_SECRET=mock-wipay-webhook-secret-32-bytes-of-padding-here-replace-real
-PEANPE_API_URL=http://nightpay-mock-peanpe:3000
-PEANPE_WEBHOOK_SECRET=mock-peanpe-webhook-secret-32-bytes-of-padding-here-replace-real
-
+NEXT_PUBLIC_API_URL=https://api.paytomaxx.com
+NEXT_PUBLIC_OPERATOR_URL=https://operator.paytomaxx.com
+NEXT_PUBLIC_WEB_CLIENT_URL=https://pay.paytomaxx.com
+OPERATOR_BASE_URL=https://operator.paytomaxx.com
 CORS_ORIGINS=https://admin.paytomaxx.com,https://operator.paytomaxx.com,https://pay.paytomaxx.com,https://tpv.paytomaxx.com
 
-GATEWAY_TIMEOUT_MS=5000
-LOG_LEVEL=info
+# Redsys (TPV de BBVA)
+REDSYS_API_URL=https://sis.redsys.es/sis/realizarPago
+REDSYS_MERCHANT_CODE=<FUC>
+REDSYS_TERMINAL=<terminal>
+REDSYS_SECRET_KEY=<clave de firma>
+
+# Obligatorias aunque Peanpe no se use
+PEANPE_API_URL=https://peanpe.invalid/api
+PEANPE_WEBHOOK_SECRET=<cualquier cadena de 8+>
+
+# Avisos y copias (ver PUESTA-EN-MARCHA.md y BACKUPS.md)
+TELEGRAM_BOT_TOKEN=<token>
+TELEGRAM_CHAT_ID=<chat id>
+BACKUP_S3_ENDPOINT=https://<id-de-cuenta>.r2.cloudflarestorage.com
+BACKUP_S3_REGION=auto
+BACKUP_S3_BUCKET=oxiopay-copias
+BACKUP_S3_PREFIX=nightpay-postgres-xxxxx/
+BACKUP_S3_ACCESS_KEY_ID=<solo lectura>
+BACKUP_S3_SECRET_ACCESS_KEY=<solo lectura>
+BACKUP_MAX_AGE_HOURS=8
+
+DEBUG_ENDPOINTS_ENABLED=false
 ```
 
 Notas:
-- El hostname interno de Postgres en Dokploy suele ser exactamente el "Application Name". Si falla, verifica con `docker network inspect dokploy-network`.
-- Redis suele requerir prefijo `default:` antes de la password: `redis://default:PASS@host:port`.
+- El host interno de Postgres/Redis es el *Application Name*; si falla,
+  `docker network inspect dokploy-network`.
+- Redis lleva el prefijo `default:` antes de la contraseña.
+- `NODE_ENV` sin poner también arranca como producción; ponlo igual.
+- Sin `ORIGIN_AUTH_SECRET` o `METRICS_TOKEN` el API no arranca en producción.
 
-### D.3 Dominio
+### D.3 Salud, parada y despliegues sin cortes
 
-Pestaña **Domains** → Add:
-- Host: `api.paytomaxx.com`
-- Path: `/`
-- HTTPS: ✅ ON
-- Certificate Provider: **Let's Encrypt**
-- Path Type: prefix
-- Save
+En **Advanced** (Swarm Settings) del servicio:
 
-### D.4 Deploy
+- **Health check**: el de la imagen (`/v1/health/live`, cada 30 s). Si Dokploy
+  pide uno: test `CMD node -e "require('http').get('http://127.0.0.1:4100/v1/health/live',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"`,
+  interval 30 s, timeout 8 s, start period 60 s, retries 5.
+- **Update Config**: `Order: start-first` y `FailureAction: rollback`: el
+  contenedor nuevo arranca, aplica migraciones y tiene que estar *healthy*
+  antes de quitar el viejo; si no llega a sano, se queda el viejo.
+- **Stop grace period**: `30s`. Al redesplegar, el API recibe SIGTERM y
+  termina lo que tiene entre manos antes de cerrarse.
 
-Click **Deploy** → ver logs en tiempo real.
+`/v1/health/live` solo dice «el proceso responde» (no mira la base: reiniciar
+el API no arregla una base caída). `/v1/health` mira Postgres y Redis y da
+503 si falla algo: es el del monitor externo (Fase G).
 
-Build tarda 3-5 min la primera vez. Verás:
-- `pnpm install --frozen-lockfile` (1-2 min)
-- `pnpm --filter @nightpay/db generate` (~10s)
-- `pnpm --filter @nightpay/api build` (~30s)
-- Image build completo
-- Container arranca
+### D.4 Dominio
 
-**Si ves error "Cannot find module @prisma/client"**: el build no genero Prisma. Ver troubleshooting abajo.
+**Domains → Add**: host `api.paytomaxx.com`, path `/`, HTTPS con Let's
+Encrypt.
 
-### D.5 Migrar la DB (CRITICO — solo primera vez)
+### D.5 Deploy
 
-La API necesita las tablas. Ejecuta migraciones desde dentro del container:
+**Deploy** y mira el log. El build tarda 3–5 min la primera vez
+(`pnpm install --frozen-lockfile`, `prisma generate`). Al arrancar, el
+contenedor:
 
-```bash
-ssh root@38.242.131.141
+1. `db-heal`: avisa si hay migraciones fallidas (no cambia nada).
+2. `prisma migrate deploy`: crea o pone al día la base. **No hay paso de
+   migración a mano**, tampoco la primera vez.
+3. `db-heal` otra vez (avisos de solo lectura).
+4. Arranca el API.
 
-# Encuentra el container API
-docker ps | grep nightpay-api
-
-# Entra al container y migra
-docker exec -it $(docker ps -q -f name=nightpay-api) sh
-cd /repo
-pnpm --filter @nightpay/db migrate
-exit
-```
-
-Si no funciona dentro del container porque falta `prisma` CLI, ejecuta desde el host con la misma DATABASE_URL:
+### D.6 Comprobar
 
 ```bash
-# En el host del VPS
-docker run --rm --network dokploy-network \
-  -e DATABASE_URL="postgresql://np:CAMBIAR_PASSWORD@nightpay-postgres:5432/nightpay" \
-  -v $(pwd):/app -w /app \
-  node:20-alpine sh -c "
-    corepack enable && corepack prepare pnpm@9.12.0 --activate &&
-    npx prisma migrate deploy --schema=/dev/stdin
-  "
-```
-
-(Mas facil: clonar el repo en el VPS y ejecutar las migrations desde alli — siguiente paso opcional)
-
-### D.6 Verificar API
-
-```bash
-# Desde el VPS
-curl http://localhost:4100/v1/health
-
-# Desde Internet (cuando Cloudflare propague + Lets Encrypt firme cert)
 curl https://api.paytomaxx.com/v1/health
+# {"status":"ok",…,"checks":{"api":"ok","db":"ok","redis":"ok"}}
 ```
 
-Esperado:
-```json
-{"status":"ok","version":"0.0.0","checks":{"api":"ok","db":"ok","redis":"ok"}}
-```
+### D.7 Primer local y primer usuario (solo en una instalación nueva)
 
-### D.7 Seed inicial (crear venues + owner)
+No hay seed en producción (el de desarrollo ni siquiera va en la imagen).
+Dokploy → `nightpay-api` → **Terminal**:
 
 ```bash
-ssh root@38.242.131.141
-docker exec -it $(docker ps -q -f name=nightpay-api) sh
-cd /repo
-pnpm --filter @nightpay/db seed
-exit
+cd /repo/packages/db
+./node_modules/.bin/tsx scripts/cli.ts create-venue --name "Luna Valencia" --slug luna-vlc
+./node_modules/.bin/tsx scripts/cli.ts create-owner --venue luna-vlc --email <tu-correo> --password '<contraseña larga>'
+./node_modules/.bin/tsx scripts/activate-redsys.ts --venue luna-vlc          # enseña qué haría
+./node_modules/.bin/tsx scripts/activate-redsys.ts --venue luna-vlc --apply  # deja Redsys activo
 ```
 
-Crea 6 venues + owner + 4 managers con password `nightpay-dev-2026`.
+`activate-redsys.ts` deja Redsys como pasarela del local (antes lo hacía el
+arranque del API en todos los locales, cada vez). En producción ya está hecho
+para los locales actuales: solo hace falta con un local nuevo.
 
-**ROTA EL PASSWORD INMEDIATAMENTE**:
-```bash
-docker exec -it $(docker ps -q -f name=nightpay-api) sh -c "cd /repo && pnpm cli reset-password --email owner@nightpay.local --password 'PASSWORD_NUEVO_FUERTE'"
-```
+### D.8 Si falla una migración
+
+El API no arranca y el log dice `MIGRACIONES FALLIDAS: <nombre>` o
+`P3009`. **No borres la base ni el esquema.**
+
+1. Lee el error de esa migración en el log del despliegue.
+2. Restaura una copia en una base de prueba (BACKUPS.md, apartado 5) y
+   reproduce el problema allí.
+3. Arregla la causa (normalmente datos que la migración no esperaba) y marca
+   la migración como deshecha para que se vuelva a aplicar:
+   `./node_modules/.bin/prisma migrate resolve --rolled-back <nombre>`
+   (Terminal de `nightpay-api`, carpeta `/repo/packages/db`).
+4. **Redeploy**.
+
+Mientras tanto, con `start-first` sigue sirviendo la versión anterior. Si no,
+**Deployments → la anterior → Rollback**.
 
 ---
 
-## Fase E — Frontends
+## Fase E — Webs
 
-Repetir tres veces (admin, tpv, web-client) con los mismos parametros excepto:
+Repetir por cada una con los mismos campos que el API salvo:
 
-| App | Build Context | Dockerfile | Port | Dominio |
-|-----|---------------|------------|------|---------|
-| admin | `nightpay` | `apps/admin/Dockerfile` | `4103` | `admin.paytomaxx.com` |
-| operator | `nightpay` | `apps/operator/Dockerfile` | `4104` | `operator.paytomaxx.com` |
-| tpv | `nightpay` | `apps/tpv/Dockerfile` | `4102` | `tpv.paytomaxx.com` |
-| web-client | `nightpay` | `apps/web-client/Dockerfile` | `4101` | `pay.paytomaxx.com` |
+| App | Dockerfile | Port | Dominio |
+|-----|------------|------|---------|
+| admin | `apps/admin/Dockerfile` | `4103` | `admin.paytomaxx.com` |
+| operator | `apps/operator/Dockerfile` | `4104` | `operator.paytomaxx.com` |
+| tpv | `apps/tpv/Dockerfile` | `4102` | `tpv.paytomaxx.com` |
+| web-client | `apps/web-client/Dockerfile` | `4101` | `pay.paytomaxx.com` |
 
-Variables de entorno (mismas para los 3):
-```env
-NODE_ENV=production
+`NEXT_PUBLIC_API_URL` y `NEXT_PUBLIC_WS_URL` se meten **al construir** la
+imagen, no al arrancar: van en **Build Args** (no en Environment), y cambiarlas
+exige **Rebuild**:
+
+```
 NEXT_PUBLIC_API_URL=https://api.paytomaxx.com
 NEXT_PUBLIC_WS_URL=wss://api.paytomaxx.com
-NEXT_TELEMETRY_DISABLED=1
 ```
+
+En **Environment** basta `NEXT_TELEMETRY_DISABLED=1`.
 
 ---
 
-## Fase F — Cloudflare SSL strict (despues de Lets Encrypt)
+## Fase F — Cloudflare
 
-1. Cloudflare → tu sitio → **SSL/TLS** → **Overview**
-2. Cambiar de **Full** a **Full (strict)**
-3. Verificar `https://api.paytomaxx.com/v1/health` sigue OK
-
-Esto fuerza que CF↔origin use cert valido (que Dokploy ya genero via Lets Encrypt).
-
----
-
-## Fase G — Grafana Cloud
-
-### G.1 Cuenta Grafana
-
-1. https://grafana.com → Sign up Free (no requiere tarjeta)
-2. Stack name: `nightpay`
-3. Region: `prod-eu-west-2` (Frankfurt)
-4. Te lleva a tu Grafana en `https://nightpay.grafana.net`
-
-### G.2 Get Prometheus credentials
-
-Dentro de tu stack:
-1. Sidebar → **Connections** → **Data sources** → **prometheus** (default)
-2. Click → **Data source settings**
-3. Anota:
-   - URL: `https://prometheus-prod-XX-prod-eu-west-2.grafana.net/api/prom`
-   - Username (instance ID): un numero, ej `2123456`
-4. Sidebar → **My Account** → **Access Policies** → **Add access policy**
-   - Name: `nightpay-write`
-   - Realm: tu stack
-   - Scopes: `metrics:write`
-   - Token: Generate → copia `glc_xxxxxxxxxx`
-
-Ahora tienes:
-- `GRAFANA_REMOTE_WRITE_URL` (URL anterior + `/push`)
-- `GRAFANA_USERNAME`
-- `GRAFANA_API_KEY`
-
-### G.3 Instalar Grafana Agent en VPS
-
-```bash
-ssh root@38.242.131.141
-
-# Descargar agent
-cd /tmp
-curl -O -L https://github.com/grafana/agent/releases/download/v0.42.0/grafana-agent-linux-amd64.zip
-apt install -y unzip
-unzip grafana-agent-linux-amd64.zip
-mv grafana-agent-linux-amd64 /usr/local/bin/grafana-agent
-chmod +x /usr/local/bin/grafana-agent
-
-# Config
-mkdir -p /etc/grafana-agent
-nano /etc/grafana-agent/config.yaml
-```
-
-Pega esto en `config.yaml` (sustituye los 3 placeholders):
-
-```yaml
-server:
-  log_level: info
-
-metrics:
-  global:
-    scrape_interval: 30s
-    external_labels:
-      cluster: paytomaxx-prod
-      env: production
-  configs:
-    - name: nightpay
-      scrape_configs:
-        - job_name: nightpay-api
-          metrics_path: /v1/metrics
-          static_configs:
-            - targets: ['nightpay-api:4100']
-      remote_write:
-        - url: REEMPLAZAR_GRAFANA_REMOTE_WRITE_URL
-          basic_auth:
-            username: 'REEMPLAZAR_GRAFANA_USERNAME'
-            password: 'REEMPLAZAR_GRAFANA_API_KEY'
-```
-
-### G.4 Ejecutar agent dentro de la red Dokploy
-
-Como el agent necesita resolver `nightpay-api:4100`, debe correr en la misma
-network Docker. Lo mas facil: deployarlo como servicio Dokploy.
-
-**Alternativa simple — Docker run manual**:
-
-```bash
-docker run -d \
-  --name grafana-agent \
-  --network dokploy-network \
-  --restart unless-stopped \
-  -v /etc/grafana-agent/config.yaml:/etc/agent/config.yaml \
-  grafana/agent:v0.42.0 \
-  --config.file=/etc/agent/config.yaml
-
-# Verificar
-docker logs -f grafana-agent
-```
-
-Al cabo de 30-60s deberias ver en los logs algo como:
-```
-ts=... level=info msg="Scraping target" target=nightpay-api:4100
-```
-
-### G.5 Verificar metrics llegan
-
-En Grafana Cloud UI → **Explore** → query:
-
-```promql
-nightpay_payments_created_total
-```
-
-Si aparece (aunque sea 0), funciona. Si no aparece despues de 1-2min, ver logs del agent.
-
-### G.6 Importar dashboard
-
-1. Grafana Cloud UI → **Dashboards** → **New** → **Import**
-2. Upload JSON: `nightpay/docs/grafana-dashboard.json` (esta en el repo)
-3. Select datasource: tu Prometheus default
-4. Import
-
-10 paneles operativos listos.
-
-### G.7 Alertas P0/P1
-
-Grafana → **Alerting** → **Alert rules** → **New rule**:
-
-| Nombre | Query | For | Severidad |
-|--------|-------|-----|-----------|
-| API down | `up{job="nightpay-api"} == 0` | 1m | P0 |
-| Circuit breaker open | `nightpay_circuit_state >= 2` | 1m | P0 |
-| Tasa autorizacion baja | `sum(rate(nightpay_payments_transitioned_total{to="AUTHORIZED"}[5m])) / sum(rate(nightpay_payments_transitioned_total{from="AUTHORIZING"}[5m])) < 0.9` | 5m | P1 |
-| Webhooks invalid altos | `sum(rate(nightpay_webhooks_received_total{outcome="invalid"}[5m])) / sum(rate(nightpay_webhooks_received_total[5m])) > 0.05` | 5m | P1 |
-
-Contact point: configura Telegram bot o email.
+1. DNS: `api`, `admin`, `operator`, `tpv`, `pay` → `<IP-del-VPS>`, proxy
+   naranja.
+2. **SSL/TLS → Full (strict)** (cuando Let's Encrypt ya haya emitido).
+3. **Rules → Transform Rules → Modify Request Header**: añadir
+   `X-Origin-Auth: <ORIGIN_AUTH_SECRET>` en las peticiones a
+   `api.paytomaxx.com`. Sin ella el API rechaza lo que no venga de Cloudflare
+   (salvo `/v1/health*` y los avisos del banco). Más en
+   [`PUESTA-EN-MARCHA.md`](PUESTA-EN-MARCHA.md).
+4. **Network → WebSockets: On** (tiempo real del TPV y del operador).
 
 ---
 
-## Troubleshooting comun
+## Fase G — Saber que algo se ha caído
 
-### "build context too large" en Dokploy
-El monorepo se copia entero. `.dockerignore` ya excluye node_modules/.next. Si aun asi peta, mover apps no usadas a un branch separado.
-
-### "Cannot find module @prisma/client"
-El stage `pnpm --filter @nightpay/db generate` falló. Logs del build mostraran el error. Verifica que `packages/db/prisma/schema.prisma` esta en el commit.
-
-### API arranca pero `/v1/health` da 502
-Cloudflare puede estar mandando trafico antes de que el container este listo. Espera 1 min. Si persiste:
-```bash
-docker logs $(docker ps -q -f name=nightpay-api) | tail -50
-```
-
-### Lets Encrypt no firma cert
-Verificar que Cloudflare proxy NO esta en orange (paradoja: para que Lets Encrypt funcione DESDE el origen, el dominio debe resolver al VPS sin proxy CF temporalmente, O usar HTTP-01 challenge a traves de Traefik).
-
-Workaround: en Cloudflare, desactivar proxy del subdominio `api` durante 5 min (gris en vez de naranja). Dokploy emite cert. Volver a activar proxy.
-
-Alternativa permanente: usar Cloudflare Origin Certificate (ver Fase F del DEPLOYMENT.md).
-
-### Migrations fallan: "P3018 The migration cannot be applied"
-Probablemente DB sucia. Drop y recrear:
-```bash
-docker exec -it $(docker ps -q -f name=nightpay-postgres) psql -U np -d nightpay -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-docker exec -it $(docker ps -q -f name=nightpay-api) sh -c "cd /repo && pnpm --filter @nightpay/db migrate"
-```
+1. **Monitor externo** (UptimeRobot o Better Stack, plan gratis): monitor
+   HTTP(S) a `https://api.paytomaxx.com/v1/health`, cada 1–5 min, alerta si no
+   responde 200. Aviso a **Telegram** (integración nativa de los dos) al mismo
+   grupo que las alertas del API. Añade uno por web (`https://admin…`, etc.).
+   Es lo único que avisa si se cae el VPS entero: las alertas del API no salen
+   si el API no está.
+2. **Alertas del propio API por Telegram** (incidencias, copias, resumen de
+   las 9:00): [`PUESTA-EN-MARCHA.md`](PUESTA-EN-MARCHA.md) apartado 3.
+3. **Métricas** (opcional): `GET https://api.paytomaxx.com/v1/metrics` con
+   `Authorization: Bearer <METRICS_TOKEN>` (formato Prometheus). Para
+   gráficas, un Grafana Agent / Alloy en la red `dokploy-network` que lea
+   `http://nightpay-api:4100/v1/metrics` (dentro de la red no hace falta el
+   token) y lo mande a Grafana Cloud. Panel de ejemplo:
+   `docs/grafana-dashboard.json`. Reglas útiles: `nightpay_circuit_state >= 2`
+   (pasarela cortada), `nightpay_duplicate_charges_total` que sube.
 
 ---
 
-## Resumen visual del orden
+## Problemas frecuentes
+
+### El build falla en `pnpm install --frozen-lockfile`
+`pnpm-lock.yaml` no cuadra con algún `package.json`: en local
+`pnpm install`, commit del lockfile y push.
+
+### El API arranca pero `/v1/health` da 502
+Cloudflare manda tráfico antes de que el contenedor esté listo (con
+`start-first` no debería pasar). Si sigue: Dokploy → `nightpay-api` → Logs.
+
+### `/v1/health` da 503
+Mira `checks`: `db: fail` → [`runbooks/P1-db-overload.md`](runbooks/P1-db-overload.md);
+`redis: fail` → Redis caído o contraseña mal en `REDIS_URL`.
+
+### Let's Encrypt no emite el certificado
+Pon el subdominio en gris (sin proxy) 5 min en Cloudflare, deja que Dokploy
+emita y vuelve a naranja. Alternativa permanente: certificado de origen de
+Cloudflare.
+
+### Volver a la versión anterior
+Dokploy → servicio → **Deployments** → la anterior → **Rollback**
+(o Redeploy de ese commit). Las migraciones no se deshacen solas: si la
+versión nueva traía una, la anterior tiene que convivir con ella (todas las
+migraciones de este repo son aditivas).
+
+---
+
+## Resumen del orden
 
 ```
-┌─────────────────────────────────────────────────┐
-│ Fase 0: Generar secretos                        │
-└────────────────┬────────────────────────────────┘
-                 ▼
-┌─────────────────────────────────────────────────┐
-│ Fase A: Dokploy ↔ GitHub                        │
-└────────────────┬────────────────────────────────┘
-                 ▼
-┌─────────────────────────────────────────────────┐
-│ Fase B: Postgres + Redis (services Dokploy)     │
-└────────────────┬────────────────────────────────┘
-                 ▼
-┌─────────────────────────────────────────────────┐
-│ Fase C: Mock Wipay + Peanpe (apps Dokploy)      │
-└────────────────┬────────────────────────────────┘
-                 ▼
-┌─────────────────────────────────────────────────┐
-│ Fase D: API (app Dokploy + migrate + seed)      │
-└────────────────┬────────────────────────────────┘
-                 ▼
-┌─────────────────────────────────────────────────┐
-│ Fase E: Frontends admin + tpv + web-client      │
-└────────────────┬────────────────────────────────┘
-                 ▼
-┌─────────────────────────────────────────────────┐
-│ Fase F: Cloudflare SSL Full (strict)            │
-└────────────────┬────────────────────────────────┘
-                 ▼
-┌─────────────────────────────────────────────────┐
-│ Fase G: Grafana Cloud + Agent + dashboard       │
-└─────────────────────────────────────────────────┘
+Fase 0  Secretos
+Fase A  Dokploy ↔ GitHub
+Fase B  Postgres + Redis (+ copias: BACKUPS.md)
+Fase C  (simuladores: no en producción)
+Fase D  API: variables, salud/parada, deploy (migra solo), primer usuario
+Fase E  Webs (NEXT_PUBLIC_* como Build Args)
+Fase F  Cloudflare: DNS, Full (strict), X-Origin-Auth, WebSockets
+Fase G  Monitor externo → Telegram, alertas del API, métricas
 ```

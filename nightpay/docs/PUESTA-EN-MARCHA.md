@@ -96,7 +96,7 @@ Marca cada punto:
 Son cambios en el VPS y en Cloudflare, sin código. Mejor hacerlos juntos y
 con calma, porque un error deja la web sin servicio:
 
-1. **El panel de Dokploy** está en `http://38.242.131.141:3000`, sin https y
+1. **El panel de Dokploy** está en `http://<IP-del-VPS>:3000`, sin https y
    abierto a internet. Ponle un dominio con https (Dokploy → Settings → Web
    Server) o deja el puerto 3000 cerrado salvo para tu IP, y activa el doble
    factor del usuario de Dokploy.

@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@9.12.0",
   "engines": {
-    "node": ">=20.0.0",
+    "node": ">=22.0.0",
     "pnpm": ">=9.0.0"
   },
   "scripts": {
@@ -29,7 +29,7 @@
     "turbo": "^2.1.0",
     "typescript": "^5.5.4",
     "prettier": "^3.3.3",
-    "@types/node": "^20.14.0",
+    "@types/node": "^22.20.0",
     "eslint": "^9.9.0",
     "@eslint/js": "^9.9.0",
     "@typescript-eslint/parser": "^8.3.0",
@@ -45,7 +45,11 @@
       "lodash": "^4.18.0",
       "postcss": "^8.5.12",
       "nanoid@3": "^3.3.16",
-      "source-map-js": "^1.2.2"
+      "source-map-js": "^1.2.2",
+      "fast-uri@2": "^2.4.7",
+      "fast-uri@3": "^3.1.8",
+      "fflate": "^0.8.3",
+      "fast-copy@3": "^3.1.0"
     }
   }
 }

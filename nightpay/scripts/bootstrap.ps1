@@ -39,17 +39,17 @@ if (-not $nodePath) {
     Die @"
 node no encontrado en PATH ni en ubicaciones tipicas.
 Cierra esta PowerShell, abre una NUEVA ventana y verifica:
-  node -v    (debe imprimir v20.x)
+  node -v    (debe imprimir v22.x)
   pnpm -v    (debe imprimir 9.x)
 Si node -v falla en la nueva ventana, ejecuta (en esa nueva ventana):
-  nvm use 20.17.0
-Si sigue fallando, instala Node 20 manualmente desde https://nodejs.org
+  nvm install 22.23.3; nvm use 22.23.3
+Si sigue fallando, instala Node 22 LTS manualmente desde https://nodejs.org
 "@
 }
 
 $nodeV = (node -v)
-if ($nodeV -notmatch '^v20\.') {
-    Warn "Node $nodeV - recomendado v20 LTS. 'nvm use 20.17.0' en una ventana nueva"
+if ($nodeV -notmatch '^v22\.') {
+    Warn "Node $nodeV - recomendado v22 LTS. 'nvm install 22.23.3; nvm use 22.23.3' en una ventana nueva"
 }
 
 if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {

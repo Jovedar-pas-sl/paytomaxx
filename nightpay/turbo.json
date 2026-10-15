@@ -1,40 +1,135 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": [".env", ".env.local"],
+  "globalDependencies": [
+    ".env",
+    ".env.local"
+  ],
   "globalEnv": [
-    "DATABASE_URL",
-    "REDIS_URL",
     "NODE_ENV",
-    "JWT_SECRET",
-    "COOKIE_SECRET",
-    "ENCRYPTION_KEK",
-    "WIPAY_API_URL",
-    "PEANPE_API_URL",
-    "API_URL",
-    "WS_URL",
     "NEXT_PUBLIC_API_URL",
-    "NEXT_PUBLIC_WS_URL"
+    "NEXT_PUBLIC_WS_URL",
+    "NEXT_PUBLIC_OPERATOR_URL",
+    "NEXT_PUBLIC_WEB_CLIENT_URL",
+    "NEXT_PUBLIC_PAX_SIMULATOR",
+    "BRAND_NAME"
+  ],
+  "globalPassThroughEnv": [
+    "BACKUP_MAX_AGE_HOURS",
+    "BACKUP_S3_ACCESS_KEY_ID",
+    "BACKUP_S3_BUCKET",
+    "BACKUP_S3_ENDPOINT",
+    "BACKUP_S3_PREFIX",
+    "BACKUP_S3_REGION",
+    "BACKUP_S3_SECRET_ACCESS_KEY",
+    "BSCSCAN_API_KEY",
+    "BUILD_MARKER",
+    "CI",
+    "COOKIE_SECRET",
+    "CORS_ORIGINS",
+    "DATABASE_URL",
+    "DEBUG_ENDPOINTS_ENABLED",
+    "E2E_ADMIN_URL",
+    "E2E_API_URL",
+    "E2E_OPERATOR_URL",
+    "E2E_OWNER_EMAIL",
+    "E2E_OWNER_SUB",
+    "E2E_TENANT_ID",
+    "E2E_VENUE_SLUG",
+    "E2E_WEB_CLIENT_URL",
+    "EMAIL_FROM",
+    "ENCRYPTION_KEK",
+    "GATEWAY_TIMEOUT_MS",
+    "GIT_SHA",
+    "HELIUS_API_KEY",
+    "JWT_SECRET",
+    "LOG_LEVEL",
+    "METRICS_TOKEN",
+    "NIGHTPAY_DISABLE_ALERTS",
+    "NIGHTPAY_DISABLE_NIGHT_AUTOCLOSE",
+    "NIGHTPAY_DISABLE_RECONCILE",
+    "OPERATOR_BASE_URL",
+    "ORIGIN_AUTH_SECRET",
+    "PASSKEY_RP_ID",
+    "PAYOUT_HOLD_DAYS",
+    "PAYTEF_API_TOKEN",
+    "PAYTEF_API_URL",
+    "PAYTEF_BRANCH_ID",
+    "PAYTEF_COMPANY_ID",
+    "PAYTEF_RETURN_URL",
+    "PAYTEF_WEBHOOK_SECRET",
+    "PAYTEF_WEBHOOK_URL",
+    "PAY_STATEMENT_NAME",
+    "PEANPE_ACCOUNT_ID",
+    "PEANPE_API_BASE_URL",
+    "PEANPE_API_KEY",
+    "PEANPE_API_URL",
+    "PEANPE_THANKYOU_URL",
+    "PEANPE_WEBHOOK_SECRET",
+    "PEANPE_WEBHOOK_URL",
+    "POLYGONSCAN_API_KEY",
+    "PORT",
+    "POS_DEVICE_TOKEN_MAX_AGE_DAYS",
+    "REDIS_URL",
+    "REDSYS_API_URL",
+    "REDSYS_MERCHANT_CODE",
+    "REDSYS_MERCHANT_NAME",
+    "REDSYS_PAYMETHODS",
+    "REDSYS_SECRET_KEY",
+    "REDSYS_TERMINAL",
+    "RESEND_API_KEY",
+    "SEED_PASSWORD",
+    "SENTRY_DSN",
+    "SHADOW_DATABASE_URL",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+    "TENANCY_UNSCOPED_QUERIES",
+    "TRONSCAN_API_KEY",
+    "VIVA_API_KEY",
+    "VIVA_BASE_URL",
+    "VIVA_MERCHANT_ID",
+    "VIVA_WEBHOOK_SECRET",
+    "WIPAY_ACQUIRER_BIN",
+    "WIPAY_API_URL",
+    "WIPAY_CLAVE_ENCRIPTACION",
+    "WIPAY_MERCHANT_ID",
+    "WIPAY_TERMINAL_ID"
   ],
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**"
+      ]
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
-    "lint": { "outputs": [] },
+    "lint": {
+      "outputs": []
+    },
     "typecheck": {
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       "outputs": []
     },
     "test": {
-      "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "coverage/**"
+      ]
     },
     "e2e": {
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       "cache": false
     },
     "clean": {

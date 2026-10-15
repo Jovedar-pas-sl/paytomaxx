@@ -1,23 +1,40 @@
 import { PrismaClient, Role, Provider } from '../src/generated/client';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 /**
- * Seed de desarrollo. Datos placeholder — ajustar con los reales
- * del usuario cuando corresponda. Las credenciales aquí NO se usan en
- * producción; son sólo para que el dev pueda probar login E2E.
+ * Seed de DESARROLLO: 6 locales de ejemplo, 1 OWNER + 4 MANAGERS, 2 terminales
+ * por local y una pasarela de prueba en los locales que no tengan ninguna.
  *
- * Venues: 6 locales (cámbialos por los reales).
- * Users: 1 OWNER (el usuario) + 4 MANAGERS, cada manager asignado a 1 venue.
+ * Contraseña de los usuarios NUEVOS: SEED_PASSWORD (mín. 12 caracteres). Si no
+ * se da, en desarrollo se genera una al azar y se enseña una vez al final; en
+ * producción (NODE_ENV=production) el seed no arranca sin SEED_PASSWORD.
  *
- * Como el usuario opera los 6 locales él mismo, el OWNER se asocia al venue
- * principal — puede cambiar de contexto en login con `venueSlug` (campo
- * de contrato `LoginRequest.venueSlug`).
+ * Nunca toca lo que ya existe: ni contraseñas, ni roles, ni nombres de locales,
+ * ni terminales, ni pasarelas. Solo crea lo que falta. No va en la imagen
+ * Docker del API (.dockerignore).
  */
 
-const DEMO_PASSWORD = 'nightpay-dev-2026'; // solo dev; cambiar via CLI para prod
+const MIN_PASSWORD = 12;
+
+function seedPassword(): { password: string; generated: boolean } {
+  const given = process.env.SEED_PASSWORD;
+  if (given) {
+    if (given.length < MIN_PASSWORD) {
+      throw new Error(`seed: SEED_PASSWORD necesita al menos ${MIN_PASSWORD} caracteres`);
+    }
+    return { password: given, generated: false };
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'seed: en producción hace falta SEED_PASSWORD (la contraseña de los usuarios que cree). ' +
+        'Los que ya existan no se tocan.',
+    );
+  }
+  return { password: randomBytes(12).toString('base64url'), generated: true };
+}
 
 const VENUES = [
   { name: 'Luna Valencia',   slug: 'luna-vlc',    timezone: 'Europe/Madrid', isPrimary: true  },
@@ -38,91 +55,68 @@ const MANAGERS = [
 ];
 
 async function main() {
-  // Crea usuarios con una contraseña conocida: nunca contra producción.
-  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PROD_SEED !== '1') {
-    throw new Error('seed: no se ejecuta en producción (crea usuarios con contraseña conocida)');
-  }
-  console.log('Seeding NightPay dev database...');
+  const { password, generated } = seedPassword();
+  console.log('Seed de desarrollo de NightPay (solo crea lo que falta)...');
   console.log('-'.repeat(60));
+  const created: string[] = [];
 
   // RLS bypass para todo el seed (somos sistema)
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
 
-    // 1) Venues
+    // 1) Locales: si el slug ya existe, se deja como está.
     const venues: Record<string, string> = {};
     for (const v of VENUES) {
-      const created = await tx.venue.upsert({
-        where: { slug: v.slug },
-        update: { name: v.name, timezone: v.timezone },
-        create: { name: v.name, slug: v.slug, timezone: v.timezone },
-      });
-      venues[v.slug] = created.id;
-      console.log(`  venue  ${v.slug.padEnd(12)} → ${created.id}`);
+      const venue =
+        (await tx.venue.findUnique({ where: { slug: v.slug } })) ??
+        (await tx.venue.create({ data: { name: v.name, slug: v.slug, timezone: v.timezone } }));
+      venues[v.slug] = venue.id;
+      console.log(`  local  ${v.slug.padEnd(12)} → ${venue.id}`);
     }
 
-    // 2) Owner (el usuario). Asociado al venue primario.
-    const primaryVenueSlug = VENUES.find((v) => v.isPrimary)?.slug ?? VENUES[0]!.slug;
-    const primaryVenueId = venues[primaryVenueSlug]!;
-    const ownerHash = await bcrypt.hash(DEMO_PASSWORD, 10);
-    const owner = await tx.user.upsert({
-      where: { email: 'owner@nightpay.local' },
-      update: { passwordHash: ownerHash, role: Role.OWNER, tenantId: primaryVenueId, deletedAt: null },
-      create: {
-        email: 'owner@nightpay.local',
-        passwordHash: ownerHash,
-        role: Role.OWNER,
-        tenantId: primaryVenueId,
-      },
-    });
-    console.log(`  owner  ${owner.email.padEnd(32)} → venue ${primaryVenueSlug}`);
-
-    // 3) Managers
-    for (const m of MANAGERS) {
-      const venueId = venues[m.venueSlug];
-      if (!venueId) continue;
-      const hash = await bcrypt.hash(DEMO_PASSWORD, 10);
-      const user = await tx.user.upsert({
-        where: { email: m.email },
-        update: { passwordHash: hash, role: Role.MANAGER, tenantId: venueId, deletedAt: null },
-        create: {
-          email: m.email,
-          passwordHash: hash,
-          role: Role.MANAGER,
-          tenantId: venueId,
-        },
-      });
-      console.log(`  mngr   ${user.email.padEnd(32)} → venue ${m.venueSlug}`);
+    // 2) Usuarios: solo se crean; uno que ya existe NO se toca (ni su contraseña).
+    const hash = await bcrypt.hash(password, 10);
+    const primarySlug = VENUES.find((v) => v.isPrimary)?.slug ?? VENUES[0]!.slug;
+    const people = [
+      { email: 'owner@nightpay.local', role: Role.OWNER, venueSlug: primarySlug },
+      ...MANAGERS.map((m) => ({ email: m.email, role: Role.MANAGER, venueSlug: m.venueSlug })),
+    ];
+    for (const p of people) {
+      const tenantId = venues[p.venueSlug];
+      if (!tenantId) continue;
+      const existing = await tx.user.findUnique({ where: { email: p.email } });
+      if (existing) {
+        console.log(`  user   ${p.email.padEnd(32)} ya existe: no se toca`);
+        continue;
+      }
+      await tx.user.create({ data: { email: p.email, passwordHash: hash, role: p.role, tenantId } });
+      created.push(p.email);
+      console.log(`  user   ${p.email.padEnd(32)} creado (${p.role}, ${p.venueSlug})`);
     }
 
-    // 4) Terminal demo por venue (2 por venue)
+    // 3) Dos terminales de barra por local (si faltan).
     for (const v of VENUES) {
       const venueId = venues[v.slug]!;
       for (let i = 1; i <= 2; i++) {
         const externalId = `BARRA-${i}`;
         await tx.terminal.upsert({
           where: { tenantId_externalId: { tenantId: venueId, externalId } },
-          update: { label: `Barra ${i}` },
+          update: {},
           create: { tenantId: venueId, externalId, label: `Barra ${i}` },
         });
       }
     }
-    console.log(`  terminals × 2 por venue`);
+    console.log('  terminales: BARRA-1 y BARRA-2 en cada local (si faltaban)');
 
-    // 5) Credenciales de pasarela mock (placeholder cifrado) — 1 Wipay activa por venue
+    // 4) Pasarela de prueba (Wipay con bytes de relleno) solo en locales SIN
+    //    ninguna pasarela activa: nunca junto a la que ya cobra.
     for (const v of VENUES) {
       const venueId = venues[v.slug]!;
+      const active = await tx.gatewayCredential.count({ where: { tenantId: venueId, active: true } });
+      if (active > 0) continue;
       const placeholder = Buffer.from(randomUUID());
-      await tx.gatewayCredential.upsert({
-        where: {
-          tenantId_provider_active: {
-            tenantId: venueId,
-            provider: Provider.WIPAY,
-            active: true,
-          },
-        },
-        update: {},
-        create: {
+      await tx.gatewayCredential.create({
+        data: {
           tenantId: venueId,
           provider: Provider.WIPAY,
           encKey: placeholder,
@@ -131,21 +125,20 @@ async function main() {
           kekVersion: 1,
         },
       });
+      console.log(`  pasarela de prueba (Wipay) en ${v.slug}`);
     }
-    console.log(`  gateway credentials (Wipay placeholder) × 6`);
   });
 
   console.log('-'.repeat(60));
-  console.log('Credenciales de dev (cambiar via CLI antes de prod):');
-  console.log(`  password: ${DEMO_PASSWORD}`);
-  console.log(`  OWNER:    owner@nightpay.local`);
-  console.log(`  MANAGERS: ${MANAGERS.map((m) => m.email).join(', ')}`);
-  console.log('');
-  console.log('Próximos pasos:');
-  console.log('  curl -X POST http://localhost:3100/v1/auth/login \\');
-  console.log('    -H "Content-Type: application/json" \\');
-  console.log(`    -d '{"email":"owner@nightpay.local","password":"${DEMO_PASSWORD}"}'`);
-  console.log('');
+  if (created.length === 0) {
+    console.log('No se creó ningún usuario (ya existían todos).');
+  } else if (generated) {
+    console.log(`Usuarios nuevos: ${created.join(', ')}`);
+    console.log(`Contraseña (generada ahora, no se vuelve a enseñar): ${password}`);
+  } else {
+    console.log(`Usuarios nuevos: ${created.join(', ')} — con la contraseña de SEED_PASSWORD`);
+  }
+  console.log('Cámbiala con `pnpm cli reset-password` si hace falta. Login: POST http://localhost:4100/v1/auth/login');
   console.log('Done.');
 }
 

@@ -87,7 +87,7 @@ pero conviene atacar tras los primeros días en producción.
 - ~~Connection pooling PgBouncer~~ — para 6 venues no es necesario hasta 50k req/día
 - ~~CDN multi-región~~ — clientes solo España, una zona Cloudflare basta
 - ~~Multi-cloud~~ — Hetzner único es suficiente
-- ~~Kubernetes~~ — overkill para tu escala; Coolify simple basta
+- ~~Kubernetes~~ — overkill para tu escala; Dokploy basta
 
 ## Notas operativas
 

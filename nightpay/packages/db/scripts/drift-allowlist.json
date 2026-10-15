@@ -1,0 +1,69 @@
+{
+  "_leeme": "Diferencias ENTRE LAS MIGRACIONES Y schema.prisma que se aceptan a propósito. check-drift.mjs falla con cualquier otra. Cada entrada es una sentencia tal y como la escribe `prisma migrate diff --script` (los espacios dan igual). Para quitar una, o se describe en schema.prisma o se borra de la base con una migración.",
+  "statements": [
+    {
+      "sql": "ALTER TABLE \"bank_statement_items\" DROP CONSTRAINT \"bank_statement_items_paymentId_fkey\";",
+      "reason": "FK solo en la base (cuadre con el banco → cobro). schema.prisma no tiene la relación."
+    },
+    {
+      "sql": "ALTER TABLE \"bank_statement_items\" DROP CONSTRAINT \"bank_statement_items_refundId_fkey\";",
+      "reason": "FK solo en la base (cuadre con el banco → devolución)."
+    },
+    {
+      "sql": "ALTER TABLE \"bank_statement_items\" DROP CONSTRAINT \"bank_statement_items_tenantId_fkey\";",
+      "reason": "FK solo en la base (línea del cuadre → local)."
+    },
+    {
+      "sql": "ALTER TABLE \"bank_statements\" DROP CONSTRAINT \"bank_statements_tenantId_fkey\";",
+      "reason": "FK solo en la base (fichero del banco → local)."
+    },
+    {
+      "sql": "ALTER TABLE \"earning_reversals\" DROP CONSTRAINT \"earning_reversals_consumptionId_fkey\";",
+      "reason": "FK solo en la base (deuda de la chica → consumo anulado)."
+    },
+    {
+      "sql": "ALTER TABLE \"earning_reversals\" DROP CONSTRAINT \"earning_reversals_tenantId_fkey\";",
+      "reason": "FK solo en la base (deuda → local)."
+    },
+    {
+      "sql": "ALTER TABLE \"wallet_charge_requests\" DROP CONSTRAINT \"wallet_charge_requests_tenantId_fkey\";",
+      "reason": "FK solo en la base (cobro del saldo → local)."
+    },
+    {
+      "sql": "ALTER TABLE \"wallet_payouts\" DROP CONSTRAINT \"wallet_payouts_tenantId_fkey\";",
+      "reason": "FK solo en la base (devolución del saldo → local)."
+    },
+    {
+      "sql": "ALTER TABLE \"client_wallets\" DROP CONSTRAINT \"client_wallets_mergedIntoId_fkey\";",
+      "reason": "FK solo en la base (recarga sumada a otro saldo)."
+    },
+    {
+      "sql": "DROP INDEX \"payments_tenant_category_created_idx\";",
+      "reason": "Índice de informes (Z por categoría) creado en 20260514002000_revenue_category; schema.prisma no lo declara."
+    },
+    {
+      "sql": "ALTER TABLE \"client_device_passkeys\" DROP CONSTRAINT \"client_device_passkeys_deviceId_fkey\";",
+      "reason": "Saldo-en-el-móvil retirado (20261014150000_movil_saldo, ya aplicada en producción). Se conserva hasta decidir con copia de seguridad."
+    },
+    {
+      "sql": "ALTER TABLE \"client_wallets\" DROP CONSTRAINT \"client_wallets_deviceId_fkey\";",
+      "reason": "Saldo-en-el-móvil retirado (ver arriba)."
+    },
+    {
+      "sql": "DROP INDEX \"client_wallets_deviceId_idx\";",
+      "reason": "Saldo-en-el-móvil retirado (ver arriba)."
+    },
+    {
+      "sql": "ALTER TABLE \"client_wallets\" DROP COLUMN \"deviceId\";",
+      "reason": "Saldo-en-el-móvil retirado (ver arriba)."
+    },
+    {
+      "sql": "DROP TABLE \"client_device_passkeys\";",
+      "reason": "Saldo-en-el-móvil retirado (ver arriba)."
+    },
+    {
+      "sql": "DROP TABLE \"client_devices\";",
+      "reason": "Saldo-en-el-móvil retirado (ver arriba)."
+    }
+  ]
+}
