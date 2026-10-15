@@ -5,21 +5,16 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
-import type { Incident } from './incident-rules';
+import { ACKABLE_KINDS, type Incident } from './incident-rules';
 import { IncidentsService } from './incidents.service';
 import { TelegramService } from './telegram.service';
 import { BRAND_NAME } from '../../common/brand';
 
 const AckSchema = z.object({
-  kind: z.enum([
-    'duplicate_charge',
-    'earning_reverse_failed',
-    'wallet_credit_skipped',
-    'night_closed_pending',
-    'pos_charge_mismatch',
-    'pos_unmatched_op',
-  ]),
-  refId: z.string().trim().min(1).max(64),
+  kind: z.enum(ACKABLE_KINDS),
+  // El de las diferencias con el banco es una clave compuesta (bankMismatchKey)
+  // que pasa de 64 caracteres; el servicio comprueba que exista en la bandeja.
+  refId: z.string().trim().min(1).max(512),
   note: z.string().trim().max(300).optional(),
 });
 type AckBody = z.infer<typeof AckSchema>;

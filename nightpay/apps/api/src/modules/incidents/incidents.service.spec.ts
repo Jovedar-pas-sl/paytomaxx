@@ -7,7 +7,10 @@ import type { Incident } from './incident-rules';
 
 const at = (iso: string) => new Date(iso);
 
-/** $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches, revisadas, datáfono (3), saldos (2), banco. */
+/**
+ * $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches,
+ * revisadas, datáfono (3), saldos (2), banco y avisos de cobro no dados por buenos.
+ */
 function makeIncidents(rows: {
   stuck?: unknown[];
   dup?: unknown[];
@@ -20,6 +23,7 @@ function makeIncidents(rows: {
   walletsToClose?: unknown[];
   walletsLeftOpen?: unknown[];
   bankItems?: unknown[];
+  anomalies?: unknown[];
 }) {
   const prisma = {
     $queryRaw: vi
@@ -34,7 +38,8 @@ function makeIncidents(rows: {
       .mockResolvedValueOnce(rows.posUnreconciled ?? [])
       .mockResolvedValueOnce(rows.walletsToClose ?? [])
       .mockResolvedValueOnce(rows.walletsLeftOpen ?? [])
-      .mockResolvedValueOnce(rows.bankItems ?? []),
+      .mockResolvedValueOnce(rows.bankItems ?? [])
+      .mockResolvedValueOnce(rows.anomalies ?? []),
     incidentAck: { upsert: vi.fn().mockResolvedValue({}) },
     asSystem: vi.fn(),
   };
@@ -151,6 +156,46 @@ describe('bandeja de incidencias', () => {
     expect(items[1]!.detail).toContain('no lo pagues a la chica');
     // Identificador estable: no depende de la línea (volver a subir conserva lo revisado).
     expect(items[1]!.refId).toBe('REDSYS|NOT_IN_BANK|SALE|2610MLbhyfNg|p-1||6000|');
+  });
+
+  it('avisos de cobro aprobado no dados por buenos: uno "sin comprobar" por cobro; importe distinto aparte', async () => {
+    const anomaly = (id: string, eventType: string, paymentId: string, payload: Record<string, unknown>) => ({
+      id,
+      eventType,
+      paymentId,
+      amountCents: 5000,
+      occurredAt: at(`2026-10-14T0${id.slice(-1)}:00:00Z`),
+      payload,
+    });
+    const { svc } = makeIncidents({
+      anomalies: [
+        anomaly('903', 'payment.approval_unverified', 'p-1', { provider: 'PEANPE', providerTxId: 'ABC123' }),
+        anomaly('902', 'payment.approval_unverified', 'p-1', { provider: 'PEANPE', providerTxId: 'ABC123' }),
+        anomaly('901', 'payment.amount_mismatch', 'p-2', { provider: 'REDSYS', chargedCents: 100, expectedCents: 5000 }),
+      ],
+    });
+    const items = await svc.list('t-1', at('2026-10-14T09:00:00Z'));
+    expect(items.map((i) => [i.kind, i.refId, i.ackable])).toEqual([
+      ['approval_unverified', 'p-1', false],
+      ['amount_mismatch', '901', true],
+    ]);
+  });
+
+  it('importe distinto se marca como revisado; "sin comprobar" no (se quita al resolver el cobro)', async () => {
+    const row = {
+      id: '901',
+      eventType: 'payment.amount_mismatch',
+      paymentId: 'p-2',
+      amountCents: 5000,
+      occurredAt: at('2026-10-14T01:00:00Z'),
+      payload: { chargedCents: 100, expectedCents: 5000 },
+    };
+    const ok = makeIncidents({ anomalies: [row] });
+    await ok.svc.ack('t-1', 'owner', { kind: 'amount_mismatch', refId: '901', note: 'devuelto' });
+    expect(ok.prisma.incidentAck.upsert).toHaveBeenCalled();
+    await expect(
+      makeIncidents({}).svc.ack('t-1', 'owner', { kind: 'approval_unverified', refId: 'p-1' }),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('marcar como revisada: solo las que no se resuelven solas y que existen en este local', async () => {
