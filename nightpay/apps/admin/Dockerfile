@@ -7,27 +7,34 @@ WORKDIR /repo
 
 FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
-COPY apps/api/package.json apps/api/
-COPY apps/mock-wipay/package.json apps/mock-wipay/
-COPY apps/mock-peanpe/package.json apps/mock-peanpe/
+# Un package.json por proyecto del workspace (los importers de pnpm-lock.yaml),
+# igual en las cuatro apps Next: si falta uno, --frozen-lockfile instala otro árbol.
 COPY apps/admin/package.json apps/admin/
+COPY apps/api/package.json apps/api/
+COPY apps/e2e/package.json apps/e2e/
+COPY apps/mock-peanpe/package.json apps/mock-peanpe/
+COPY apps/mock-wipay/package.json apps/mock-wipay/
+COPY apps/operator/package.json apps/operator/
 COPY apps/tpv/package.json apps/tpv/
 COPY apps/web-client/package.json apps/web-client/
+COPY packages/config/package.json packages/config/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/
-COPY packages/config/package.json packages/config/
 COPY packages/ui/package.json packages/ui/
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS builder
 COPY packages/contracts ./packages/contracts
 COPY packages/config ./packages/config
+# packages/ui: componentes, estilos y las fuentes (next/font/local, sin Google).
 COPY packages/ui ./packages/ui
 COPY apps/admin ./apps/admin
 ENV NEXT_BUILD_TRACE_ROOT=/repo
 ENV NEXT_TELEMETRY_DISABLED=1
-# NEXT_PUBLIC_* variables se inyectan en build-time (no runtime)
-# Otro dominio: build args NEXT_PUBLIC_API_URL / NEXT_PUBLIC_WS_URL en Dokploy.
+# NEXT_PUBLIC_* se hornean al compilar: quedan dentro del JS y de las cabeceras
+# (CSP connect-src). Cambiarlas en el contenedor ya construido no hace nada: para
+# otro dominio, build args NEXT_PUBLIC_API_URL / NEXT_PUBLIC_WS_URL en Dokploy y
+# reconstruir. Los valores por defecto son los de producción (Dokploy cuenta con ellos).
 ARG NEXT_PUBLIC_API_URL=https://api.paytomaxx.com
 ARG NEXT_PUBLIC_WS_URL=wss://api.paytomaxx.com
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
