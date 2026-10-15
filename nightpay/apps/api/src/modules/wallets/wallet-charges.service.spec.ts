@@ -120,6 +120,44 @@ describe('la chica encuentra el saldo por el código del cliente', () => {
   });
 });
 
+describe('un cobro solo lo sigue o lo retira quien lo hizo (o el encargado)', () => {
+  const otraChica = { userId: 'op-2', role: 'OPERATOR' as const, tenantId: 'other' };
+  const camarero = { userId: 'wt-1', role: 'WAITER' as const, tenantId: 'other' };
+  const encargadoDelLocal = { userId: 'man-2', role: 'MANAGER' as const, tenantId: 'other' };
+
+  it('otra chica o el camarero no ven el cobro de una compañera ni lo pueden cancelar', async () => {
+    const { svc, tx } = makeService();
+    tx.walletChargeRequest.findFirst.mockResolvedValue(request({ requestedByUserId: 'op-1' }));
+    for (const actor of [otraChica, camarero]) {
+      await expect(svc.getRequest(actor, 'req-1')).rejects.toThrow(NotFoundException);
+      await expect(svc.cancelRequest(actor, 'req-1')).rejects.toThrow(NotFoundException);
+    }
+    expect(tx.walletChargeRequest.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('la chica que lo hizo y el encargado del local, sí', async () => {
+    const { svc, tx } = makeService();
+    tx.walletChargeRequest.findFirst.mockResolvedValue(request({ requestedByUserId: 'op-1' }));
+    await expect(svc.getRequest(chica, 'req-1')).resolves.toMatchObject({ id: 'req-1', status: 'PENDING' });
+    await expect(svc.getRequest(encargadoDelLocal, 'req-1')).resolves.toMatchObject({ id: 'req-1' });
+    await expect(svc.cancelRequest(chica, 'req-1')).resolves.toEqual({ ok: true });
+    await expect(svc.cancelRequest(encargadoDelLocal, 'req-1')).resolves.toEqual({ ok: true });
+    // Siempre del local de quien lo pide.
+    expect(tx.walletChargeRequest.findFirst.mock.calls[0]![0]).toMatchObject({ where: { id: 'req-1', tenantId: 'other' } });
+    expect(tx.walletChargeRequest.updateMany.mock.calls[0]![0]).toMatchObject({
+      where: { id: 'req-1', tenantId: 'other', status: 'PENDING' },
+      data: { status: 'CANCELED' },
+    });
+  });
+
+  it('uno ya pagado o caducado no se cancela', async () => {
+    const { svc, tx } = makeService();
+    tx.walletChargeRequest.findFirst.mockResolvedValue(request({ requestedByUserId: 'op-1' }));
+    tx.walletChargeRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(svc.cancelRequest(chica, 'req-1')).rejects.toThrow(/ya no está pendiente/);
+  });
+});
+
 describe('pedir un cobro del saldo', () => {
   it('con un servicio de la carta: precio y categoría del local, espera al cliente', async () => {
     const { svc, tx } = makeService();

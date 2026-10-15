@@ -161,7 +161,7 @@ export class WalletChargesService {
       this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: walletId } })),
       this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: { walletGroup: true } }),
     ]);
-    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    const manager = isManager(actor);
     if (
       !wallet ||
       !sameWalletGroup(wallet, { id: actor.tenantId, walletGroup: venue?.walletGroup ?? null }) ||
@@ -283,12 +283,9 @@ export class WalletChargesService {
     return { amountCents, category, serviceName };
   }
 
-  /** La chica espera la respuesta del cliente. */
+  /** La chica espera a que el cliente pague (solo la que lo hizo, o el encargado). */
   async getRequest(actor: Actor, requestId: string): Promise<ChargeRequestView> {
-    const request = await this.prisma.asSystem((tx) =>
-      tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId } }),
-    );
-    if (!request) throw new NotFoundException('Cobro no encontrado');
+    const request = await this.ownRequest(actor, requestId);
     const walletId = request.walletId;
     const wallet = walletId
       ? await this.prisma.acrossVenues((tx) =>
@@ -298,7 +295,9 @@ export class WalletChargesService {
     return this.requestView(request, request.status === 'ACCEPTED' ? (wallet?.balanceCents ?? null) : null);
   }
 
+  /** Retirar el cobro: la chica que lo hizo o el encargado. */
   async cancelRequest(actor: Actor, requestId: string): Promise<{ ok: true }> {
+    await this.ownRequest(actor, requestId);
     const res = await this.prisma.asSystem((tx) =>
       tx.walletChargeRequest.updateMany({
         where: { id: requestId, tenantId: actor.tenantId, status: 'PENDING' },
@@ -307,6 +306,21 @@ export class WalletChargesService {
     );
     if (res.count === 0) throw new ConflictException('Este cobro ya no está pendiente');
     return { ok: true };
+  }
+
+  /**
+   * Un cobro de este local que puede ver quien lo pide: la persona que lo hizo
+   * o el encargado / dueño. Al resto, como si no existiera (ni su importe ni
+   * en qué saldo se cobró).
+   */
+  private async ownRequest(actor: Actor, requestId: string) {
+    const request = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId } }),
+    );
+    if (!request || (request.requestedByUserId !== actor.userId && !isManager(actor))) {
+      throw new NotFoundException('Cobro no encontrado');
+    }
+    return request;
   }
 
   // ─── Cliente (página de su saldo, sin cuenta: el enlace es la credencial) ──
@@ -558,7 +572,7 @@ export class WalletChargesService {
 
   /** Encargado o dueño: cobros con QR que nadie ha pagado aún (cliente sin batería…). */
   async pendingQrCharges(actor: Actor): Promise<PendingQrCharge[]> {
-    if (actor.role !== 'OWNER' && actor.role !== 'MANAGER') throw new ForbiddenException('Solo el encargado o el dueño');
+    if (!isManager(actor)) throw new ForbiddenException('Solo el encargado o el dueño');
     const now = new Date();
     const rows = await this.prisma.asSystem((tx) =>
       tx.walletChargeRequest.findMany({
@@ -674,7 +688,7 @@ export class WalletChargesService {
       tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId, payToken: { not: null } } }),
     );
     if (!request) throw new NotFoundException('Cobro no encontrado');
-    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    const manager = isManager(actor);
     if (request.requestedByUserId !== actor.userId && !manager) {
       throw new ForbiddenException('Este cobro lo ha hecho otra persona');
     }
@@ -728,7 +742,7 @@ export class WalletChargesService {
     if (!isWalletCardToken(input.card)) throw new BadRequestException('Esta ficha no es nuestra: grábala otra vez');
     const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
     const wallet = await this.walletByCode(actor.tenantId, input.code);
-    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    const manager = isManager(actor);
     if (!manager && !(await this.freshTopUpBy(wallet.id, actor.userId))) {
       throw new UnprocessableEntityException('La ficha se da justo al recargar (o con el encargado)');
     }
@@ -834,7 +848,7 @@ export class WalletChargesService {
   async setPin(actor: Actor, input: { code: string; pin: string }): Promise<WalletLookup> {
     const wallet = await this.walletByCode(actor.tenantId, input.code);
     const fresh = await this.freshTopUpBy(wallet.id, actor.userId);
-    if (!fresh && actor.role !== 'MANAGER' && actor.role !== 'OWNER') {
+    if (!fresh && !isManager(actor)) {
       throw new UnprocessableEntityException('Este saldo no tiene PIN: que lo elija con el encargado (o en su móvil al recargar)');
     }
     await this.storeFirstPin(wallet.id, input.pin, fresh ? null : actor.userId);
@@ -1036,7 +1050,7 @@ export class WalletChargesService {
   }
 
   private async managerWallet(actor: Actor, walletId: string): Promise<void> {
-    if (actor.role !== 'OWNER' && actor.role !== 'MANAGER') {
+    if (!isManager(actor)) {
       throw new ForbiddenException('Solo el encargado o el dueño');
     }
     const venue = await this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: { walletGroup: true } });
@@ -1098,7 +1112,7 @@ export class WalletChargesService {
     if (input.method === 'CARD' && actor.role !== 'OWNER') {
       throw new ForbiddenException('La devolución a la tarjeta la registra el dueño (se hace en el portal de BBVA)');
     }
-    if (input.method === 'CASH' && actor.role !== 'OWNER' && actor.role !== 'MANAGER') {
+    if (input.method === 'CASH' && !isManager(actor)) {
       throw new ForbiddenException('Devolver en efectivo lo hace el encargado');
     }
     const venue = await this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: { walletGroup: true } });
@@ -1255,8 +1269,7 @@ export class WalletChargesService {
   }
 
   private refunds(): RefundsService {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return this.moduleRef.get('RefundsService' as any, { strict: false }) as RefundsService;
+    return this.moduleRef.get<RefundsService>('RefundsService', { strict: false });
   }
 
   // ─── Auxiliares ────────────────────────────────────────────────────────
@@ -1325,6 +1338,11 @@ const FRESH_TOPUP_PIN_MS = 15 * 60 * 1000;
 
 /** Fallos de PIN más viejos que esto ya no cuentan para el bloqueo. */
 const PIN_FAILS_EXPIRE_MS = 12 * 60 * 60 * 1000;
+
+/** Encargado o dueño del local. */
+function isManager(actor: { role: Role }): boolean {
+  return actor.role === 'MANAGER' || actor.role === 'OWNER';
+}
 
 /** La clave del servidor con la que se mezcla el PIN (no está en la base). */
 function pinPepper(): string {
