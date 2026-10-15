@@ -20,7 +20,7 @@ export function HomeTab({ user, showBalance, balance, onCobroDone }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1 }}>
       {showBalance ? <BalanceCard user={user} balance={balance} /> : <StaffCard user={user} />}
-      <CreatePayment onCreated={onCobroDone} />
+      <CreatePayment role={user.role} onCreated={onCobroDone} />
     </div>
   );
 }

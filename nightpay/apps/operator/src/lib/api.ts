@@ -1,6 +1,8 @@
 // Operator app API client (mobile-first PWA).
 // Sesion JWT en localStorage, igual patrón que TPV/Admin.
 
+import type { PaymentStatus } from '@nightpay/contracts';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
 
 const TOKEN_KEY = 'np_op_token';
@@ -557,6 +559,17 @@ export async function confirmPosPayment(
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Confirmación POS'));
+  return res.json();
+}
+
+/**
+ * Estado de un cobro por su QR (la misma consulta pública que hace la página
+ * del cliente). Respaldo del tiempo real: si el socket se cae, el «pagado» se
+ * ve igual.
+ */
+export async function fetchPaymentStatus(qrToken: string): Promise<{ id: string; status: PaymentStatus }> {
+  const res = await publicFetch(`/v1/payments/public/${encodeURIComponent(qrToken)}`, { cache: 'no-store' });
+  if (!res.ok) throw loadError(res, 'No se pudo consultar el cobro');
   return res.json();
 }
 

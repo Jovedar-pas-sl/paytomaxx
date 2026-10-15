@@ -6,13 +6,11 @@ import { parseEuroCents } from '@nightpay/contracts';
 import {
   cancelWalletCharge,
   createQrWalletCharge,
-  fetchServices,
   fetchWalletCharge,
   lookupWalletCard,
   lookupWalletCode,
   payWalletChargeWithPin,
   type QrWalletCharge,
-  type ServiceItem,
   type WalletChargeRequest,
   getUser,
   pollErrorText,
@@ -24,6 +22,7 @@ import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard } from '@/lib/nfc';
 import { usePolling } from '@/lib/use-polling';
+import { CartaRetry, serviceLabel, useCarta, type Carta } from './carta';
 import { PinPad } from './PinPad';
 
 interface Props {
@@ -50,17 +49,11 @@ const POLL_SLOW_MS = 3000;
  */
 export function ChargeFromBalance({ onCharged }: Props) {
   const [stage, setStage] = useState<Stage>({ kind: 'pick' });
-  const [services, setServices] = useState<ServiceItem[]>([]);
-
-  useEffect(() => {
-    fetchServices()
-      .then(setServices)
-      .catch(() => setServices([]));
-  }, []);
+  const carta = useCarta();
 
   switch (stage.kind) {
     case 'pick':
-      return <PickStep services={services} onCreated={(charge) => setStage({ kind: 'qr', charge })} />;
+      return <PickStep carta={carta} onCreated={(charge) => setStage({ kind: 'qr', charge })} />;
     case 'qr':
       return (
         <QrStep
@@ -77,7 +70,7 @@ export function ChargeFromBalance({ onCharged }: Props) {
   }
 }
 
-function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated: (charge: QrWalletCharge) => void }) {
+function PickStep({ carta, onCreated }: { carta: Carta; onCreated: (charge: QrWalletCharge) => void }) {
   const [custom, setCustom] = useState(false);
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
@@ -95,6 +88,8 @@ function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated:
       setBusy(false);
     }
   }
+
+  const typedCents = parseEuroCents(amount);
 
   function sendCustom(e: FormEvent) {
     e.preventDefault();
@@ -124,7 +119,7 @@ function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated:
             disabled={busy}
           />
           <Button type="submit" size="lg" loading={busy} disabled={!amount.trim()}>
-            Cobrar {amount ? `${amount} €` : ''}
+            Cobrar {typedCents === null ? '' : formatEur(typedCents, { compact: true })}
           </Button>
           <Button type="button" variant="ghost" onClick={() => setCustom(false)} disabled={busy}>
             Volver a la carta
@@ -132,7 +127,7 @@ function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated:
         </form>
       ) : (
         <div style={gridStyle}>
-          {services.map((svc) => (
+          {carta.services.map((svc) => (
             <button
               key={svc.id}
               type="button"
@@ -160,7 +155,12 @@ function PickStep({ services, onCreated }: { services: ServiceItem[]; onCreated:
           </button>
         </div>
       )}
-      {error ? <p style={errorStyle}>{error}</p> : null}
+      {carta.failed && !custom ? <CartaRetry onRetry={carta.retry} /> : null}
+      {error ? (
+        <p role="alert" style={errorStyle}>
+          {error}
+        </p>
+      ) : null}
     </Card>
   );
 }
@@ -467,13 +467,6 @@ function DoneStep({
       </Button>
     </Card>
   );
-}
-
-/** Nombre del servicio y, si no lo dice ya el nombre, su duración. */
-function serviceLabel(svc: ServiceItem): string {
-  return svc.durationMin && !svc.name.includes(String(svc.durationMin))
-    ? `${svc.name} · ${svc.durationMin} min`
-    : svc.name;
 }
 
 const cardStyle: CSSProperties = {
