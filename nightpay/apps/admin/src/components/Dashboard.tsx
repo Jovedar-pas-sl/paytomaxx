@@ -39,7 +39,8 @@ import { VenueSwitcher } from './VenueSwitcher';
 
 interface Props {
   user: User;
-  onLogout: () => void;
+  /** `serverConfirmed`: el API revocó la sesión (si no, el login lo avisa). */
+  onLogout: (serverConfirmed: boolean) => void;
 }
 
 type TabKey =
@@ -86,9 +87,11 @@ export function Dashboard({ user, onLogout }: Props) {
     return () => clearInterval(interval);
   }, [filter]);
 
+  const [loggingOut, setLoggingOut] = useState(false);
+
   async function logout() {
-    await apiLogout();
-    onLogout();
+    setLoggingOut(true);
+    onLogout(await apiLogout());
   }
 
   return (
@@ -122,7 +125,7 @@ export function Dashboard({ user, onLogout }: Props) {
             </p>
           </div>
           <ThemeToggle />
-          <Button variant="ghost" onClick={logout}>
+          <Button variant="ghost" onClick={() => void logout()} loading={loggingOut}>
             Salir
           </Button>
         </div>

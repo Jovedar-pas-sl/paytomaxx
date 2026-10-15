@@ -5,7 +5,7 @@ import { Button, Card, Input, Modal } from '@nightpay/ui';
 import {
   createVenue,
   fetchAllVenues,
-  switchTenant,
+  switchToVenue,
   type VenueListItem,
 } from '@/lib/api';
 
@@ -49,18 +49,9 @@ export function VenuesPanel({ currentSlug }: Props) {
   }, []);
 
   async function handleSwitch(tenantId: string) {
+    setError(null);
     try {
-      const res = await switchTenant(tenantId);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('np_admin_token', res.accessToken);
-        const raw = window.localStorage.getItem('np_admin_user');
-        if (raw) {
-          const u = JSON.parse(raw) as { tenantId: string; venueSlug: string };
-          u.tenantId = res.tenantId;
-          u.venueSlug = res.venueSlug;
-          window.localStorage.setItem('np_admin_user', JSON.stringify(u));
-        }
-      }
+      await switchToVenue(tenantId);
       window.location.reload();
     } catch (err) {
       setError((err as Error).message);

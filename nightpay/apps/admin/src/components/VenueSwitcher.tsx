@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { fetchAllVenues, switchTenant, type VenueListItem } from '@/lib/api';
+import { fetchAllVenues, switchToVenue, type VenueListItem } from '@/lib/api';
 
 interface Props {
   currentSlug: string;
@@ -12,7 +12,8 @@ interface Props {
  *
  * Al cambiar:
  *   1. Llama POST /v1/auth/switch-tenant → API emite JWT nuevo
- *   2. Reemplaza el accessToken en localStorage
+ *   2. lib/api.ts (switchToVenue) guarda token y local nuevos; las otras
+ *      pestañas abiertas lo ven (evento storage) y se recargan también
  *   3. window.location.reload() para que toda la app cargue con contexto nuevo
  *
  * El refresh token sigue ligado al usuario: /refresh devuelve el token de su
@@ -40,19 +41,7 @@ export function VenueSwitcher({ currentSlug }: Props) {
     setSwitching(true);
     setError(null);
     try {
-      const res = await switchTenant(tenantId);
-      // Reemplazar accessToken — refresh stays.
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('np_admin_token', res.accessToken);
-        // Actualizar user JSON con nuevo tenantId/slug.
-        const raw = window.localStorage.getItem('np_admin_user');
-        if (raw) {
-          const u = JSON.parse(raw) as { tenantId: string; venueSlug: string };
-          u.tenantId = res.tenantId;
-          u.venueSlug = res.venueSlug;
-          window.localStorage.setItem('np_admin_user', JSON.stringify(u));
-        }
-      }
+      await switchToVenue(tenantId);
       // Reload — carga todos los paneles con el nuevo contexto.
       window.location.reload();
     } catch (err) {
@@ -62,6 +51,14 @@ export function VenueSwitcher({ currentSlug }: Props) {
   }
 
   if (loading) return null;
+  // Sin lista no hay desplegable, pero el error se ve (antes se escondía).
+  if (error && venues.length === 0) {
+    return (
+      <p role="alert" style={errStyle}>
+        No se pudieron cargar los locales: {error}
+      </p>
+    );
+  }
   if (venues.length <= 1) return null; // No vale la pena el dropdown si solo hay un local
 
   const currentVenue = venues.find((v) => v.slug === currentSlug);
@@ -84,7 +81,7 @@ export function VenueSwitcher({ currentSlug }: Props) {
           </option>
         ))}
       </select>
-      {error ? <p style={errStyle}>{error}</p> : null}
+      {error ? <p role="alert" style={errStyle}>{error}</p> : null}
     </div>
   );
 }

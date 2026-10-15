@@ -1,5 +1,14 @@
 // Admin API client — JWT en localStorage, mismo flujo que TPV.
 
+import {
+  ApiError,
+  NETWORK_ERROR_MESSAGE,
+  errorFromBody,
+  humanizeTotpError,
+  loginErrorMessage,
+} from './api-errors';
+import { classifySessionChange, type SessionChange } from './session-sync';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
 
 const TOKEN_KEY = 'np_admin_token';
@@ -25,7 +34,7 @@ export interface VenueListItem {
 
 export async function fetchAllVenues(): Promise<VenueListItem[]> {
   const res = await authedFetch('/v1/admin/venues');
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -38,7 +47,7 @@ export async function createVenue(input: {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -49,8 +58,28 @@ export async function switchTenant(
     method: 'POST',
     body: JSON.stringify({ tenantId }),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
+}
+
+/**
+ * Tras cambiar de local (super-admin): token nuevo y local nuevo en la sesión
+ * guardada. Las otras pestañas lo ven por el evento `storage` y se recargan.
+ */
+export function applySwitchedTenant(switched: { accessToken: string; tenantId: string; venueSlug: string }): void {
+  const user = getUser();
+  window.localStorage.setItem(TOKEN_KEY, switched.accessToken);
+  if (user) {
+    window.localStorage.setItem(
+      USER_KEY,
+      JSON.stringify({ ...user, tenantId: switched.tenantId, venueSlug: switched.venueSlug }),
+    );
+  }
+}
+
+/** Cambia el local activo del super-admin. Quien llama recarga la página después. */
+export async function switchToVenue(tenantId: string): Promise<void> {
+  applySwitchedTenant(await switchTenant(tenantId));
 }
 
 export interface OperatorBalance {
@@ -323,34 +352,104 @@ export function clearSession(): void {
   window.localStorage.removeItem(USER_KEY);
 }
 
+/**
+ * Evento de `window`: la sesión ha muerto (el refresh ya no vale). La página
+ * vuelve al login; antes se quedaba el panel con "Sesión expirada" en rojo.
+ */
+export const SESSION_EXPIRED_EVENT = 'np:session-expired';
+
+/** Mientras se sale a propósito, una sesión que ya estaba caducada no es "caducada". */
+let loggingOut = false;
+
+function expireSession(): void {
+  clearSession();
+  if (!loggingOut && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
+}
+
+/**
+ * Lo que pasa con la sesión en otras pestañas (salir, entrar, cambiar de
+ * local). Devuelve la función para dejar de escuchar.
+ */
+export function watchSessionFromOtherTabs(onChange: (change: SessionChange) => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  function onStorage(e: StorageEvent): void {
+    if (e.storageArea !== window.localStorage) return;
+    const change = classifySessionChange(e.key, e.oldValue, e.newValue, { token: TOKEN_KEY, user: USER_KEY });
+    if (change) onChange(change);
+  }
+  window.addEventListener('storage', onStorage);
+  return () => window.removeEventListener('storage', onStorage);
+}
+
 export async function login(email: string, password: string): Promise<LoginResponse> {
-  const res = await fetch(`${API_BASE}/v1/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) throw new Error('Credenciales inválidas');
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch {
+    throw new ApiError(NETWORK_ERROR_MESSAGE, 0);
+  }
+  if (!res.ok) {
+    const { message } = errorFromBody(await res.text().catch(() => ''), res.status);
+    throw new ApiError(loginErrorMessage(res.status, message), res.status);
+  }
   return res.json();
 }
 
-export async function logout(): Promise<void> {
-  const refreshToken = getRefreshToken();
-  const accessToken = getToken();
-  if (refreshToken && accessToken) {
-    try {
-      await fetch(`${API_BASE}/v1/auth/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ refreshToken }),
-      });
-    } catch {
-      // Best-effort — siempre limpiamos local aunque el server falle
-    }
+function postLogout(refreshToken: string, accessToken: string | null): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  return fetch(`${API_BASE}/v1/auth/logout`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ refreshToken }),
+  });
+}
+
+/**
+ * Un login que no se va a usar (cuenta sin acceso al panel): se revoca en el
+ * API para no dejar una sesión viva. Es limpieza: si falla, caduca sola.
+ */
+export async function discardLogin(session: LoginResponse): Promise<void> {
+  try {
+    await postLogout(session.refreshToken, session.accessToken);
+  } catch {
+    // Sin red: el refresh caduca solo y aquí no se guardó nada.
   }
-  clearSession();
+}
+
+/**
+ * Cierra la sesión. El refresh token se manda aunque el access haya caducado
+ * (el API lo revoca solo con él); si el API aún pide un access válido (401),
+ * se renueva una vez y se repite con el refresh nuevo. La sesión local se
+ * borra siempre. Devuelve si el API confirmó el cierre.
+ */
+export async function logout(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  let confirmed = refreshToken === null; // nada que revocar
+  loggingOut = true;
+  try {
+    if (refreshToken) {
+      let res = await postLogout(refreshToken, getToken());
+      if (res.status === 401) {
+        const access = await refreshAccessToken(getToken()).catch(() => null);
+        const rotated = getRefreshToken();
+        if (access && rotated) res = await postLogout(rotated, access);
+      }
+      confirmed = res.ok;
+    }
+  } catch {
+    confirmed = false;
+  } finally {
+    loggingOut = false;
+    clearSession();
+  }
+  return confirmed;
 }
 
 /**
@@ -386,7 +485,7 @@ async function doRefreshAccessToken(failed: string | null): Promise<string> {
   if (current && current !== failed) return current;
   const refreshToken = getRefreshToken();
   if (!refreshToken) {
-    clearSession();
+    expireSession();
     throw new Error('Sesión expirada');
   }
   const res = await fetch(`${API_BASE}/v1/auth/refresh`, {
@@ -399,8 +498,11 @@ async function doRefreshAccessToken(failed: string | null): Promise<string> {
     if (after && after !== failed) return after;
     // Solo un "no" del API cierra la sesión; un 429 o un 5xx (p. ej. mientras
     // se despliega) no echa a nadie.
-    if (res.status === 401 || res.status === 403) clearSession();
-    throw new Error('Sesión expirada');
+    if (res.status === 401 || res.status === 403) {
+      expireSession();
+      throw new Error('Sesión expirada');
+    }
+    throw new Error(SESSION_RENEW_FAILED);
   }
   const refreshed = (await res.json()) as RefreshResponse;
   updateTokens(refreshed);
@@ -438,29 +540,35 @@ async function keepSelectedVenue(accessToken: string): Promise<string> {
 
 // ─── Helpers ───────────────────────────────────────────────────────
 
-/** Mensaje legible de un error del API (ProblemDetails: detail / title). */
-async function readError(res: Response): Promise<string> {
-  const text = await res.text();
-  try {
-    const body = JSON.parse(text) as { detail?: unknown; title?: unknown; message?: unknown };
-    const msg = body.detail ?? body.message ?? body.title;
-    if (typeof msg === 'string' && msg) return msg;
-    if (Array.isArray(msg)) return msg.join(' · ');
-  } catch {
-    // no es JSON
-  }
-  return text || `Error ${res.status}`;
+/** Error del API (ProblemDetails: detail / title) con su código HTTP. */
+async function apiError(res: Response): Promise<ApiError> {
+  const text = await res.text().catch(() => '');
+  const { message, code } = errorFromBody(text, res.status);
+  return new ApiError(message, res.status, code);
 }
+
+/** Igual, con los errores de 2FA (que el API da en inglés) en castellano. */
+async function totpAwareError(res: Response): Promise<ApiError> {
+  const err = await apiError(res);
+  return new ApiError(humanizeTotpError(err.message), err.status, err.code);
+}
+
+const SESSION_RENEW_FAILED = 'No se pudo renovar la sesión. Revisa la conexión y vuelve a probar.';
 
 /**
  * Fetch autenticado con auto-refresh en 401:
  *   1. Intenta con el access token actual
  *   2. Si recibe 401 y tenemos refresh token, intercambia y reintenta UNA vez
- *   3. Si el reintento falla (o no hay refresh), limpia sesion y lanza
+ *   3. Si el refresh ya no vale (o el reintento da 401), la sesión muere:
+ *      se borra y se avisa (SESSION_EXPIRED_EVENT) para volver al login.
+ *      Si el API no respondió al refresh, la sesión sigue y se reintenta luego.
  */
 async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
-  if (!token) throw new Error('No autenticado');
+  if (!token) {
+    expireSession();
+    throw new Error('Sesión expirada');
+  }
   const res = await doFetch(path, init, token);
   if (res.status !== 401) return res;
 
@@ -468,12 +576,12 @@ async function authedFetch(path: string, init: RequestInit = {}): Promise<Respon
   let newToken: string;
   try {
     newToken = await refreshAccessToken(token);
-  } catch {
-    throw new Error('Sesión expirada');
+  } catch (err) {
+    throw new Error(getRefreshToken() ? SESSION_RENEW_FAILED : (err as Error).message || 'Sesión expirada');
   }
   const retry = await doFetch(path, init, newToken);
   if (retry.status === 401) {
-    clearSession();
+    expireSession();
     throw new Error('Sesión expirada');
   }
   return retry;
@@ -485,7 +593,13 @@ async function doFetch(path: string, init: RequestInit, token: string): Promise<
   if (init.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  return fetch(`${API_BASE}${path}`, { ...init, headers });
+  try {
+    return await fetch(`${API_BASE}${path}`, { ...init, headers });
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw err;
+    // "Failed to fetch" en inglés no le dice nada a nadie.
+    throw new ApiError(NETWORK_ERROR_MESSAGE, 0);
+  }
 }
 
 // ─── Endpoints ─────────────────────────────────────────────────────
@@ -532,7 +646,7 @@ export async function refundPayment(
     method: 'POST',
     body: JSON.stringify({ amountCents, reason, totpCode }),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await totpAwareError(res);
   return res.json();
 }
 
@@ -548,7 +662,7 @@ export async function resolveStuckPayment(
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -570,7 +684,7 @@ export async function registerBankRefund(
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -580,7 +694,7 @@ export type ExportKind = 'cobros' | 'devoluciones' | 'liquidaciones' | 'resumen'
 export async function downloadExport(kind: ExportKind, from: string, to: string): Promise<Blob> {
   const qs = new URLSearchParams({ from, to }).toString();
   const res = await authedFetch(`/v1/admin/export/${kind}?${qs}`);
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.blob();
 }
 
@@ -614,18 +728,18 @@ export interface Incident {
 
 export async function fetchIncidents(): Promise<{ items: Incident[]; telegram: boolean }> {
   const res = await authedFetch('/v1/incidents');
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
 export async function ackIncident(input: { kind: IncidentKind; refId: string; note?: string }): Promise<void> {
   const res = await authedFetch('/v1/incidents/ack', { method: 'POST', body: JSON.stringify(input) });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
 }
 
 export async function sendTelegramTest(): Promise<boolean> {
   const res = await authedFetch('/v1/incidents/telegram-test', { method: 'POST', body: '{}' });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return ((await res.json()) as { sent: boolean }).sent;
 }
 
@@ -692,31 +806,31 @@ export interface NightListItem {
 
 export async function fetchCurrentNight(): Promise<NightView | null> {
   const res = await authedFetch('/v1/nights/current');
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return ((await res.json()) as { night: NightView | null }).night;
 }
 
 export async function openNight(): Promise<NightView> {
   const res = await authedFetch('/v1/nights/open', { method: 'POST', body: '{}' });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
 export async function closeNight(id: string, input: { force?: boolean; note?: string }): Promise<NightView> {
   const res = await authedFetch(`/v1/nights/${id}/close`, { method: 'POST', body: JSON.stringify(input) });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
 export async function fetchNights(): Promise<NightListItem[]> {
   const res = await authedFetch('/v1/nights');
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
 export async function fetchNight(id: string): Promise<NightView> {
   const res = await authedFetch(`/v1/nights/${id}`);
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -737,7 +851,7 @@ export async function createOperator(input: {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -771,7 +885,7 @@ export async function updateOperator(
     method: 'PATCH',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -786,7 +900,7 @@ export async function createSelfOnboardingLink(
     method: 'POST',
     body: '{}',
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -801,7 +915,7 @@ export async function regenerateInvite(
     method: 'POST',
     body: '{}',
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -819,7 +933,7 @@ export async function resetOperatorPassword(
     method: 'POST',
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -850,7 +964,7 @@ export async function createOperatorPayout(
     method: 'POST',
     body: JSON.stringify(options ?? {}),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await totpAwareError(res);
   return res.json();
 }
 
@@ -899,7 +1013,7 @@ export interface PendingQrCharge {
 /** Encargado o dueño: cobros con QR sin pagar (cliente sin batería…). */
 export async function fetchPendingQrCharges(): Promise<PendingQrCharge[]> {
   const res = await authedFetch('/v1/wallet-charges/pending-qr');
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -909,25 +1023,25 @@ export async function approveQrCharge(requestId: string, walletId: string): Prom
     method: 'POST',
     body: JSON.stringify({ walletId }),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
 }
 
 /** Encargado o dueño: tras 5 PIN fallidos, el cliente vuelve a poder probar. */
 export async function unlockWalletPin(walletId: string): Promise<void> {
   const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/pin/unlock`, { method: 'POST' });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
 }
 
 /** Encargado o dueño: ficha NFC perdida → bloqueada (el saldo sigue con Face ID o código + PIN). */
 export async function blockWalletCard(walletId: string): Promise<void> {
   const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/card/block`, { method: 'POST' });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
 }
 
 /** Encargado o dueño: el cliente olvidó su PIN → se borra y elige otro. */
 export async function resetWalletPin(walletId: string): Promise<void> {
   const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/pin/reset`, { method: 'POST' });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
 }
 
 export interface WalletsAdminStats {
@@ -973,7 +1087,7 @@ export interface WalletLookup {
 
 export async function lookupWalletCode(code: string): Promise<WalletLookup> {
   const res = await authedFetch(`/v1/wallet-charges/lookup/${encodeURIComponent(code)}`);
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -985,7 +1099,7 @@ export async function relinkWallet(walletId: string): Promise<{ url: string; qrD
   const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/relink`, {
     method: 'POST',
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1004,7 +1118,7 @@ export async function payoutWallet(
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1032,7 +1146,7 @@ export async function verifyPayout(
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1040,7 +1154,7 @@ export async function confirmPayoutManual(payoutId: string): Promise<{ ok: true 
   const res = await authedFetch(`/v1/admin/treasury/payouts/${payoutId}/confirm-manual`, {
     method: 'POST',
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1048,7 +1162,7 @@ export async function reconcilePending(): Promise<{ checked: number; matched: nu
   const res = await authedFetch('/v1/admin/treasury/reconcile', {
     method: 'POST',
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1087,7 +1201,7 @@ export async function updateVenueSettings(input: {
     method: 'PATCH',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1110,13 +1224,13 @@ export interface Terminal {
 /** Código para vincular la app NightPay de un datáfono (vale 15 minutos). */
 export async function createPairingCode(terminalId: string): Promise<{ code: string; expiresAt: string }> {
   const res = await authedFetch(`/v1/pos-device/terminals/${terminalId}/pairing-code`, { method: 'POST', body: '{}' });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
 export async function unpairTerminal(terminalId: string): Promise<void> {
   const res = await authedFetch(`/v1/pos-device/terminals/${terminalId}/device`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
 }
 
 export interface Zone {
@@ -1151,7 +1265,7 @@ export async function createTerminal(input: {
     method: 'POST',
     body: JSON.stringify({ active: true, ...input }),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1166,7 +1280,7 @@ export async function bulkCreateTerminals(input: {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1185,7 +1299,7 @@ export async function updateTerminal(
     method: 'PATCH',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1213,13 +1327,13 @@ export interface ServiceItemInput {
 
 export async function fetchCarta(): Promise<ServiceItem[]> {
   const res = await authedFetch('/v1/services/all');
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
 export async function createServiceItem(input: ServiceItemInput): Promise<ServiceItem> {
   const res = await authedFetch('/v1/services', { method: 'POST', body: JSON.stringify(input) });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1228,7 +1342,7 @@ export async function updateServiceItem(
   input: Partial<ServiceItemInput> & { active?: boolean },
 ): Promise<ServiceItem> {
   const res = await authedFetch(`/v1/services/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1300,13 +1414,13 @@ export async function importBankStatement(input: {
       ...(input.periodFrom && input.periodTo ? { periodFrom: input.periodFrom, periodTo: input.periodTo } : {}),
     }),
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
 export async function fetchBankStatements(): Promise<BankStatementSummary[]> {
   const res = await authedFetch('/v1/bank-recon');
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -1314,7 +1428,7 @@ export async function fetchBankStatement(
   id: string,
 ): Promise<{ statement: BankStatementSummary; items: BankStatementItem[] }> {
   const res = await authedFetch(`/v1/bank-recon/${encodeURIComponent(id)}`);
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
