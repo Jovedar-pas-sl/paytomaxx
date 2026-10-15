@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, HttpException, UnauthorizedException } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
-import { WebhooksController } from './webhooks.controller';
+import { WebhooksController, sameSecret } from './webhooks.controller';
 
 interface MakeOptions {
   verifyResult?:
@@ -126,31 +126,21 @@ function makeController(opts: MakeOptions = {}) {
   };
 
   const controller = new WebhooksController(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     prisma as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     gateways as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     queue as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     metrics as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     config as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     redis as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     peanpe as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     wipay as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     redsys as any,
   );
 
-  return { controller, genericAdapter, wipay, redsys, gateways, prisma, paymentTx, queue, metrics, peanpe, redis };
+  return { controller, genericAdapter, wipay, redsys, gateways, prisma, paymentTx, queue, metrics, peanpe, redis, config };
 }
 
 function fakeWipayRequest(body: Record<string, string> = { Num_operacion: 'op-test-1', Firma: 'abc' }): FastifyRequest {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return {
     headers: {},
     body,
@@ -162,28 +152,24 @@ describe('WebhooksController.receive — provider validation (genérico)', () =>
 
   it('rejects unknown providers with 400', async () => {
     const { controller } = makeController();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fakeReq = { headers: {}, body: {} } as any;
     await expect(controller.receive('GOOGLEPAY', fakeReq)).rejects.toThrow(BadRequestException);
   });
 
   it('rejects PAYTEF on generic endpoint (uses secret path route)', async () => {
     const { controller } = makeController();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fakeReq = { headers: {}, body: {} } as any;
     await expect(controller.receive('paytef', fakeReq)).rejects.toThrow(UnauthorizedException);
   });
 
   it('rejects PEANPE on generic endpoint (uses challenge-response route)', async () => {
     const { controller } = makeController();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fakeReq = { headers: {}, body: {} } as any;
     await expect(controller.receive('peanpe', fakeReq)).rejects.toThrow(UnauthorizedException);
   });
 
   it('rejects WIPAY on generic endpoint (uses /webhooks/wipay dedicated route)', async () => {
     const { controller } = makeController();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fakeReq = { headers: {}, body: {} } as any;
     await expect(controller.receive('wipay', fakeReq)).rejects.toThrow(UnauthorizedException);
   });
@@ -219,7 +205,6 @@ describe('WebhooksController.receiveWipay — Cecabank form POST', () => {
 
   it('devuelve $*$NOK$*$ cuando falta externalEventId', async () => {
     const { controller, queue } = makeController({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       verifyResult: { valid: true, externalEventId: '', paymentRef: 'x' } as any,
     });
     const result = await controller.receiveWipay(fakeWipayRequest());
@@ -424,6 +409,9 @@ describe('WebhooksController.receiveRedsys — resolución Ds_Order → payment'
       authCode: '123456',
       secure3ds: true,
     });
+    // #24: la hora de pago la pone transition() al pasar a AUTHORIZED, no la
+    // llegada del aviso (que aún puede no darse por bueno).
+    expect(update.data).not.toHaveProperty('authorizedAt');
   });
 
   it('aviso denegado: intento DENIED y no toca el pago', async () => {
@@ -466,5 +454,39 @@ describe('WebhooksController.receiveRedsys — resolución Ds_Order → payment'
 
     expect(metrics.duplicateCharges.inc).not.toHaveBeenCalled();
     expect(paymentTx.paymentEvent.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('WebhooksController.receivePaytef — URL secreta', () => {
+  const SECRET = 'paytef-url-secret-0123456789abcdef';
+  function paytefController() {
+    const made = makeController({ verifyResult: { valid: true, externalEventId: 'pl-1_t-1', paymentRef: 'pay-uuid' } });
+    made.config.get = vi.fn().mockImplementation((k: string) => (k === 'PAYTEF_WEBHOOK_SECRET' ? SECRET : undefined));
+    return made;
+  }
+  const req = { headers: {}, body: {} } as any;
+
+  it('sameSecret: igual → sí; distinto (o de otra longitud) → no', () => {
+    expect(sameSecret(SECRET, SECRET)).toBe(true);
+    expect(sameSecret(`${SECRET}x`, SECRET)).toBe(false);
+    expect(sameSecret(SECRET.replace(/f$/, 'e'), SECRET)).toBe(false);
+    expect(sameSecret('', SECRET)).toBe(false);
+  });
+
+  it('secreto incorrecto → 401 y no se guarda nada', async () => {
+    const { controller, prisma, queue } = paytefController();
+    await expect(controller.receivePaytef('otro-secreto', req)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.webhookDelivery.create).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('secreto correcto → se guarda y se encola (el procesador lo comprobará con Paytef)', async () => {
+    const { controller, queue } = paytefController();
+    await expect(controller.receivePaytef(SECRET, req)).resolves.toEqual({ received: true });
+    expect(queue.add).toHaveBeenCalledWith(
+      'process-webhook',
+      { deliveryId: '42' },
+      expect.objectContaining({ jobId: 'webhook-PAYTEF-pl-1_t-1' }),
+    );
   });
 });
