@@ -1,6 +1,7 @@
 // Qué enseñar tras verificar un pago a una chica: antes el resultado se tiraba
 // y el modal se cerraba como si todo hubiera ido bien.
 import type { ReconciliationStatus } from './api';
+import { safeHttpUrl } from './urls';
 
 export type Tone = 'success' | 'warning' | 'danger' | 'info';
 
@@ -70,4 +71,15 @@ export function describeVerifyResult(result: {
     return { tone: 'info', message: reason ?? 'Referencia apuntada.' };
   }
   return { tone: 'warning', message: `Aún sin verificar. ${reason ?? ''}`.trim() };
+}
+
+/** Referencia y recibo de un pago: lo que el API rechazaría, avisado antes. */
+export function payoutReferenceError(input: { externalTxId: string; receiptUrl: string }): string | null {
+  const tx = input.externalTxId.trim();
+  if (tx && tx.length < 4) return 'La referencia es muy corta (mínimo 4 caracteres).';
+  if (tx.length > 200) return 'La referencia es muy larga (máximo 200 caracteres).';
+  if (input.receiptUrl.trim() && !safeHttpUrl(input.receiptUrl)) {
+    return 'El enlace del recibo tiene que ser una dirección web (https://…).';
+  }
+  return null;
 }

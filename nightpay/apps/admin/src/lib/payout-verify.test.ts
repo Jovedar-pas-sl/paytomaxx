@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeVerifyReason, describeVerifyResult } from './payout-verify';
+import { describeVerifyReason, describeVerifyResult, payoutReferenceError } from './payout-verify';
 
 describe('describeVerifyResult', () => {
   it('cuadra → éxito', () => {
@@ -42,5 +42,17 @@ describe('describeVerifyReason', () => {
   it('un código desconocido se enseña como motivo', () => {
     expect(describeVerifyReason('raro_xyz')).toBe('Motivo: raro_xyz');
     expect(describeVerifyReason(null)).toBeNull();
+  });
+});
+
+describe('payoutReferenceError', () => {
+  it('referencia corta o recibo que no es web', () => {
+    expect(payoutReferenceError({ externalTxId: 'abc', receiptUrl: '' })).toMatch(/corta/);
+    expect(payoutReferenceError({ externalTxId: '', receiptUrl: 'javascript:alert(1)' })).toMatch(/https/);
+  });
+
+  it('vacío o correcto vale', () => {
+    expect(payoutReferenceError({ externalTxId: '', receiptUrl: '' })).toBeNull();
+    expect(payoutReferenceError({ externalTxId: '0xabcd', receiptUrl: 'https://x.com/r.png' })).toBeNull();
   });
 });

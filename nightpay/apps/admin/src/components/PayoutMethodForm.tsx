@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useState, type CSSProperties } from 'react';
 import { Input, Select } from '@nightpay/ui';
-import type { PayoutMethod, PayoutMetadata } from '@/lib/api';
+import type { PayoutMetadata, PayoutMethod } from '@/lib/api';
+import { payoutAddressError, payoutValue, type PayoutValue } from '@/lib/payout-address';
 
 /** Etiquetas humanas por método. */
 export const PAYOUT_METHOD_LABELS: Record<PayoutMethod, string> = {
@@ -27,8 +28,31 @@ export const PAYOUT_METHOD_LABELS: Record<PayoutMethod, string> = {
   MANUAL_CASH: 'Efectivo (registro contable)',
 };
 
+/** Nombre corto para tablas. */
+export const PAYOUT_METHOD_SHORT: Record<PayoutMethod, string> = {
+  USDT_TRC20: 'USDT TRC20',
+  USDT_BEP20: 'USDT BEP20',
+  USDC_POLY: 'USDC Polygon',
+  USDC_SOL: 'USDC Solana',
+  BINANCE_PAY_ID: 'Binance Pay',
+  OKX_INTERNAL: 'OKX',
+  BYBIT_INTERNAL: 'Bybit',
+  FASTERPAY_EMAIL: 'FasterPay',
+  PAYQUICKER_EMAIL: 'PayQuicker',
+  HYPERWALLET_TOKEN: 'Hyperwallet',
+  REVOLUT_TAG: 'Revolut',
+  PAYONEER_EMAIL: 'Payoneer',
+  SEPA_IBAN: 'SEPA',
+  WIRE_INTERNATIONAL: 'Wire',
+  MERCADOPAGO_CVU: 'MercadoPago',
+  PIX_KEY: 'Pix',
+  NEQUI_PHONE: 'Nequi',
+  DAVIPLATA_PHONE: 'Daviplata',
+  MANUAL_CASH: 'Efectivo',
+};
+
 /** Grupos para el select agrupado. */
-const METHOD_GROUPS: Array<{ label: string; methods: PayoutMethod[] }> = [
+export const PAYOUT_METHOD_GROUPS: Array<{ label: string; methods: PayoutMethod[] }> = [
   { label: 'Cripto on-chain (verificación automática)', methods: ['USDT_TRC20', 'USDT_BEP20', 'USDC_POLY', 'USDC_SOL'] },
   { label: 'Exchange (transferencia interna)', methods: ['BINANCE_PAY_ID', 'OKX_INTERNAL', 'BYBIT_INTERNAL'] },
   { label: 'E-wallet internacional', methods: ['FASTERPAY_EMAIL', 'PAYQUICKER_EMAIL', 'HYPERWALLET_TOKEN', 'REVOLUT_TAG', 'PAYONEER_EMAIL'] },
@@ -36,6 +60,27 @@ const METHOD_GROUPS: Array<{ label: string; methods: PayoutMethod[] }> = [
   { label: 'Wallets LatAm locales', methods: ['MERCADOPAGO_CVU', 'PIX_KEY', 'NEQUI_PHONE', 'DAVIPLATA_PHONE'] },
   { label: 'Otros', methods: ['MANUAL_CASH'] },
 ];
+
+/** Las <optgroup> de métodos, opcionalmente filtradas. */
+export function PayoutMethodOptions({ include }: { include?: (m: PayoutMethod) => boolean }) {
+  return (
+    <>
+      {PAYOUT_METHOD_GROUPS.map((group) => {
+        const methods = include ? group.methods.filter(include) : group.methods;
+        if (methods.length === 0) return null;
+        return (
+          <optgroup key={group.label} label={group.label}>
+            {methods.map((m) => (
+              <option key={m} value={m}>
+                {PAYOUT_METHOD_LABELS[m]}
+              </option>
+            ))}
+          </optgroup>
+        );
+      })}
+    </>
+  );
+}
 
 /** Placeholder + ayuda contextual por método. */
 const METHOD_HINTS: Record<PayoutMethod, { placeholder: string; hint: string }> = {
@@ -51,7 +96,7 @@ const METHOD_HINTS: Record<PayoutMethod, { placeholder: string; hint: string }> 
   HYPERWALLET_TOKEN: { placeholder: 'usr-...', hint: 'Token de usuario Hyperwallet.' },
   REVOLUT_TAG: { placeholder: '@ana123 o +34...', hint: 'Tag Revolut o teléfono asociado.' },
   PAYONEER_EMAIL: { placeholder: 'ana@ejemplo.com', hint: 'Email registrado en Payoneer.' },
-  SEPA_IBAN: { placeholder: 'ES12 3456 ...', hint: 'IBAN europeo SEPA.' },
+  SEPA_IBAN: { placeholder: 'ES12 3456 ...', hint: 'IBAN europeo SEPA (se comprueba el dígito de control).' },
   WIRE_INTERNATIONAL: { placeholder: 'GE12 NB12 0000 ...', hint: 'IBAN o número cuenta + completar bank name + SWIFT abajo.' },
   MERCADOPAGO_CVU: { placeholder: '0000003100012345678901', hint: 'CVU MercadoPago Argentina (22 dígitos) o CBU.' },
   PIX_KEY: { placeholder: '+55 11 99999-9999 / CPF / email', hint: 'Clave Pix (teléfono, CPF, email o random key).' },
@@ -66,16 +111,13 @@ interface Props {
   address: string | null;
   metadata: PayoutMetadata | null;
   label: string | null;
-  onChange: (next: {
-    method: PayoutMethod | null;
-    address: string | null;
-    metadata: PayoutMetadata | null;
-    label: string | null;
-  }) => void;
+  /** Valor ya limpio (ver payoutValue): dirección normalizada, sin campos vacíos. */
+  onChange: (next: PayoutValue) => void;
   disabled?: boolean;
 }
 
 export function PayoutMethodForm({ method, address, metadata, label, onChange, disabled }: Props) {
+  const selectId = useId();
   const [localMethod, setLocalMethod] = useState<PayoutMethod | ''>(method ?? '');
   const [localAddress, setLocalAddress] = useState(address ?? '');
   const [localLabel, setLocalLabel] = useState(label ?? '');
@@ -86,41 +128,37 @@ export function PayoutMethodForm({ method, address, metadata, label, onChange, d
 
   // Propaga cambios al padre cada vez que el usuario edita.
   useEffect(() => {
-    const meta: PayoutMetadata | null =
-      localMethod === 'WIRE_INTERNATIONAL'
-        ? { bankName, swiftBic, country, accountHolder }
-        : null;
-    onChange({
-      method: localMethod === '' ? null : (localMethod as PayoutMethod),
-      address: localAddress.trim() || null,
-      metadata: meta,
-      label: localLabel.trim() || null,
-    });
+    onChange(
+      payoutValue(localMethod === '' ? null : localMethod, localAddress, localLabel, {
+        bankName,
+        swiftBic,
+        country,
+        accountHolder,
+      }),
+    );
   }, [localMethod, localAddress, localLabel, bankName, swiftBic, country, accountHolder]);
 
   const showAddress = localMethod !== '' && localMethod !== 'MANUAL_CASH';
   const showWireExtra = localMethod === 'WIRE_INTERNATIONAL';
-  const hint = localMethod ? METHOD_HINTS[localMethod as PayoutMethod] : null;
+  const hint = localMethod ? METHOD_HINTS[localMethod] : null;
+  // Se avisa en cuanto hay algo escrito que no vale (vacío se avisa al guardar).
+  const addressError =
+    showAddress && localAddress.trim() ? payoutAddressError(localMethod || null, localAddress) : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
       <div>
-        <label style={labelStyle}>Método de payout</label>
+        <label htmlFor={selectId} style={labelStyle}>
+          Método de payout
+        </label>
         <Select
+          id={selectId}
           value={localMethod}
           onChange={(e) => setLocalMethod(e.target.value as PayoutMethod | '')}
           disabled={disabled}
         >
           <option value="">— No configurado —</option>
-          {METHOD_GROUPS.map((group) => (
-            <optgroup key={group.label} label={group.label}>
-              {group.methods.map((m) => (
-                <option key={m} value={m}>
-                  {PAYOUT_METHOD_LABELS[m]}
-                </option>
-              ))}
-            </optgroup>
-          ))}
+          <PayoutMethodOptions />
         </Select>
       </div>
 
@@ -131,6 +169,10 @@ export function PayoutMethodForm({ method, address, metadata, label, onChange, d
           onChange={(e) => setLocalAddress(e.target.value)}
           placeholder={hint.placeholder}
           hint={hint.hint}
+          error={addressError ?? undefined}
+          aria-invalid={addressError ? true : undefined}
+          autoComplete="off"
+          spellCheck={false}
           disabled={disabled}
         />
       ) : null}

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { isAutoVerifiable, isValidIban, normalizePayoutAddress, payoutAddressError } from './payout-address';
+import {
+  isAutoVerifiable,
+  isValidIban,
+  normalizePayoutAddress,
+  payoutAddressError,
+  payoutValue,
+  payoutValueFromSaved,
+} from './payout-address';
+import { changedFields } from './diff';
 
 describe('isValidIban', () => {
   it('acepta IBAN correctos, con o sin espacios', () => {
@@ -72,5 +80,41 @@ describe('isAutoVerifiable', () => {
     expect(isAutoVerifiable('USDT_TRC20')).toBe(true);
     expect(isAutoVerifiable('SEPA_IBAN')).toBe(false);
     expect(isAutoVerifiable(null)).toBe(false);
+  });
+});
+
+describe('payoutValue', () => {
+  it('efectivo no lleva dirección aunque quede escrita de antes', () => {
+    expect(payoutValue('MANUAL_CASH', 'ES91 2100', 'caja', null)).toEqual({
+      method: 'MANUAL_CASH',
+      address: null,
+      metadata: null,
+      label: 'caja',
+    });
+  });
+
+  it('wire: solo los datos del banco rellenos', () => {
+    expect(payoutValue('WIRE_INTERNATIONAL', '0012', '', { bankName: ' TBC ', swiftBic: '', country: 'Georgia' })).toEqual({
+      method: 'WIRE_INTERNATIONAL',
+      address: '0012',
+      metadata: { bankName: 'TBC', country: 'Georgia' },
+      label: null,
+    });
+  });
+
+  it('el formulario sin tocar no cambia nada frente a lo guardado', () => {
+    const saved = {
+      payoutMethod: 'WIRE_INTERNATIONAL' as const,
+      payoutAddress: 'GE29NB0000000101904917',
+      payoutMetadata: { bankName: 'TBC' },
+      payoutLabel: 'TBC Camila',
+    };
+    const form = payoutValue('WIRE_INTERNATIONAL', 'GE29 NB00 0000 0101 9049 17', 'TBC Camila ', {
+      bankName: 'TBC',
+      swiftBic: '',
+      country: '',
+      accountHolder: '',
+    });
+    expect(changedFields(payoutValueFromSaved(saved), form)).toEqual({});
   });
 });

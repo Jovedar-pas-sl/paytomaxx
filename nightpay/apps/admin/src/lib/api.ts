@@ -1150,9 +1150,17 @@ export async function verifyPayout(
   return res.json();
 }
 
-export async function confirmPayoutManual(payoutId: string): Promise<{ ok: true }> {
+/**
+ * Marca un pago a una chica como confirmado a mano (métodos sin verificación
+ * automática). El API pide al menos una prueba: referencia, recibo o nota.
+ */
+export async function confirmPayoutManual(
+  payoutId: string,
+  artifact: { externalTxId?: string; receiptUrl?: string; notes?: string },
+): Promise<{ ok: true }> {
   const res = await authedFetch(`/v1/admin/treasury/payouts/${payoutId}/confirm-manual`, {
     method: 'POST',
+    body: JSON.stringify(artifact),
   });
   if (!res.ok) throw await apiError(res);
   return res.json();

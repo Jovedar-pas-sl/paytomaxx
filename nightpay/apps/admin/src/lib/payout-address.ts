@@ -1,7 +1,7 @@
 // Direcciones de cobro de las chicas: se comprueban antes de guardar para que
 // un error al teclear no mande su dinero a otra cuenta. El API vuelve a
 // comprobarlas; aquí es para avisar en el momento.
-import type { PayoutMethod } from './api';
+import type { PayoutMetadata, PayoutMethod } from './api';
 
 /** Cripto on-chain: el pago se verifica solo contra la red. */
 export const AUTO_VERIFIABLE_METHODS: readonly PayoutMethod[] = [
@@ -79,4 +79,60 @@ export function payoutAddressError(method: PayoutMethod | null, raw: string): st
       }
       return null;
   }
+}
+
+/** Lo que el formulario de cobro manda al API (ya limpio). */
+export interface PayoutValue {
+  method: PayoutMethod | null;
+  address: string | null;
+  metadata: PayoutMetadata | null;
+  label: string | null;
+}
+
+export interface WireFields {
+  bankName: string;
+  swiftBic: string;
+  country: string;
+  accountHolder: string;
+}
+
+const WIRE_KEYS: ReadonlyArray<keyof WireFields> = ['bankName', 'swiftBic', 'country', 'accountHolder'];
+
+function compactWire(fields: Partial<WireFields> | null | undefined): PayoutMetadata | null {
+  const entries = WIRE_KEYS.map((k) => [k, (fields?.[k] ?? '').trim()] as const).filter(([, v]) => v !== '');
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
+/**
+ * Valor limpio del formulario: sin dirección en efectivo, IBAN junto, datos
+ * del banco solo en wire internacional y sin campos vacíos.
+ */
+export function payoutValue(
+  method: PayoutMethod | null,
+  rawAddress: string,
+  rawLabel: string,
+  wire: Partial<WireFields> | null,
+): PayoutValue {
+  const needsAddress = method !== null && method !== 'MANUAL_CASH';
+  return {
+    method,
+    address: needsAddress ? normalizePayoutAddress(method, rawAddress) || null : null,
+    metadata: method === 'WIRE_INTERNATIONAL' ? compactWire(wire) : null,
+    label: method ? rawLabel.trim() || null : null,
+  };
+}
+
+/** Lo guardado de una chica, limpio igual que el formulario (para saber qué cambió). */
+export function payoutValueFromSaved(saved: {
+  payoutMethod?: PayoutMethod | null;
+  payoutAddress?: string | null;
+  payoutMetadata?: PayoutMetadata | null;
+  payoutLabel?: string | null;
+}): PayoutValue {
+  return payoutValue(
+    saved.payoutMethod ?? null,
+    saved.payoutAddress ?? '',
+    saved.payoutLabel ?? '',
+    saved.payoutMetadata ?? null,
+  );
 }
