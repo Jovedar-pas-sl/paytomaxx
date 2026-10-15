@@ -9,8 +9,10 @@ import { clockTime, OUTCOME_TITLE, type OutcomeKind } from '../lib/outcome';
 export interface OutcomeAction {
   label: string;
   onClick: () => void;
-  /** Esperando al servidor (p. ej. creando otro QR): el botón no se puede volver a pulsar. */
+  /** Esperando al servidor (p. ej. creando otro QR): dice «Un momento…» y no se puede pulsar. */
   loading?: boolean;
+  /** No se puede pulsar ahora (p. ej. mientras el otro botón espera al servidor). */
+  disabled?: boolean;
 }
 
 export interface PaymentOutcomeProps {
@@ -160,7 +162,7 @@ const OutcomeButton = forwardRef<HTMLButtonElement, OutcomeButtonProps>(function
       className="np-outcome-btn"
       data-variant={variant}
       onClick={action.onClick}
-      disabled={action.loading}
+      disabled={action.loading || action.disabled}
       aria-busy={action.loading || undefined}
     >
       {action.loading ? 'Un momento…' : action.label}
