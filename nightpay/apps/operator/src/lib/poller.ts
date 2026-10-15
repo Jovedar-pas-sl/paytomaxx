@@ -1,0 +1,99 @@
+/**
+ * Sondeo para las pantallas que se refrescan solas. La siguiente vuelta se
+ * programa cuando acaba la anterior: nunca dos peticiones a la vez aunque la
+ * red vaya lenta (con setInterval se amontonaban). Con la pantalla oculta no
+ * se pregunta; poke() pregunta ya (al volver, al reconectar…).
+ */
+
+/** void: seguir · 'slow': falló (servidor caído, 429), esperar más · 'stop': no seguir. */
+export type PollOutcome = void | 'stop' | 'slow';
+
+export interface PollerOptions {
+  task: () => Promise<PollOutcome>;
+  /** Pausa entre el final de una vuelta y la siguiente (se lee en cada vuelta). */
+  intervalMs: number | (() => number);
+  /** Pausa tras una vuelta 'slow' o que lanzó. Por defecto, el triple. */
+  slowIntervalMs?: number;
+  /** ¿Pantalla oculta (otra app, móvil bloqueado)? Entonces se para hasta poke(). */
+  isHidden?: () => boolean;
+}
+
+export interface Poller {
+  /** Primera vuelta tras `delayMs` (0: ya). */
+  start(delayMs?: number): void;
+  stop(): void;
+  /** Una vuelta ya; si hay una en marcha, otra justo al acabar. */
+  poke(): void;
+}
+
+export function createPoller({ task, intervalMs, slowIntervalMs, isHidden = () => false }: PollerOptions): Poller {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let active = false;
+  let running = false;
+  let again = false;
+
+  function pause(outcome: PollOutcome): number {
+    const base = typeof intervalMs === 'function' ? intervalMs() : intervalMs;
+    return outcome === 'slow' ? (slowIntervalMs ?? base * 3) : base;
+  }
+
+  function clear(): void {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  }
+
+  function schedule(ms: number): void {
+    clear();
+    if (active) timer = setTimeout(() => void tick(), ms);
+  }
+
+  async function run(): Promise<PollOutcome> {
+    running = true;
+    try {
+      return await task();
+    } catch {
+      return 'slow';
+    } finally {
+      running = false;
+    }
+  }
+
+  async function tick(): Promise<void> {
+    timer = null;
+    if (!active || running) return;
+    // Oculta: sin vuelta ni programación; poke() la retoma al volver a verse.
+    if (isHidden()) return;
+    const outcome = await run();
+    if (outcome === 'stop') {
+      active = false;
+      return;
+    }
+    if (again) {
+      again = false;
+      schedule(0);
+      return;
+    }
+    schedule(pause(outcome));
+  }
+
+  return {
+    start(delayMs = 0) {
+      active = true;
+      again = false;
+      schedule(delayMs);
+    },
+    stop() {
+      active = false;
+      again = false;
+      clear();
+    },
+    poke() {
+      if (!active) return;
+      if (running) {
+        again = true;
+        return;
+      }
+      schedule(0);
+    },
+  };
+}

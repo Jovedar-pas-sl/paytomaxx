@@ -15,12 +15,15 @@ import {
   type ServiceItem,
   type WalletChargeRequest,
   getUser,
+  pollErrorText,
+  SessionExpiredError,
   type WalletLookup,
   type WalletRef,
 } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard } from '@/lib/nfc';
+import { usePolling } from '@/lib/use-polling';
 import { PinPad } from './PinPad';
 
 interface Props {
@@ -35,6 +38,8 @@ type Stage =
   | { kind: 'done'; charge: QrWalletCharge; result: WalletChargeRequest };
 
 const POLL_MS = 1000;
+/** Con el servidor caído o saturado (429), se pregunta menos. */
+const POLL_SLOW_MS = 3000;
 
 /**
  * Cobrar del saldo:
@@ -178,34 +183,39 @@ function QrStep({
   const [withPin, setWithPin] = useState(false);
   const [wallet, setWallet] = useState<WalletLookup | null>(null);
   const [ref, setRef] = useState<WalletRef | null>(null);
-  // El sondeo y "Cancelar" pueden ver la respuesta a la vez: se termina una vez.
+  // El sondeo, el PIN y "Cancelar" pueden ver la respuesta a la vez: se
+  // termina una vez (y nada llega a la pantalla después de "Elegir otro").
   const finished = useRef(false);
 
-  function finish(fresh: WalletChargeRequest): void {
-    if (finished.current || fresh.status === 'PENDING') return;
+  /** true si el cobro ya terminó (ahora o antes). */
+  function finish(fresh: WalletChargeRequest): boolean {
+    if (finished.current || fresh.status === 'PENDING') return finished.current;
     finished.current = true;
     onFinished(fresh);
+    return true;
   }
 
+  // La cuenta atrás solo pinta: no pregunta nada al servidor.
   useEffect(() => {
-    let stopped = false;
-    const id = setInterval(async () => {
-      setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // ¿Ya ha pagado? Una pregunta por segundo, sin solapes; para al terminar.
+  usePolling(
+    async () => {
+      if (finished.current) return 'stop';
       try {
         const fresh = await fetchWalletCharge(charge.id);
-        if (stopped) return;
         setError(null);
-        finish(fresh);
+        return finish(fresh) ? 'stop' : undefined;
       } catch (err) {
-        if (!stopped) setError((err as Error).message);
+        setError(pollErrorText(err));
+        return err instanceof SessionExpiredError ? 'stop' : 'slow';
       }
-    }, POLL_MS);
-    return () => {
-      stopped = true;
-      clearInterval(id);
-    };
-    // Solo importa el id del cobro.
-  }, [charge.id]);
+    },
+    { intervalMs: POLL_MS, slowIntervalMs: POLL_SLOW_MS, initialDelayMs: POLL_MS },
+  );
 
   // iPhone: tras "Sin móvil", al acercar la ficha se abre otra pestaña
   // (?ficha=…) que paga ESTE cobro.
@@ -223,7 +233,11 @@ function QrStep({
     return () => clearFichaContext((ctx) => ctx.kind === 'cobro' && ctx.chargeId === charge.id);
   }, [withPin, charge.id, charge.amountCents, charge.serviceName, charge.expiresAt]);
 
-  async function cancel() {
+  /**
+   * Cancela el cobro (si mientras tanto lo pagó, se ve el pagado). Con
+   * thenBack, después vuelve a la carta: el QR viejo no se queda pendiente.
+   */
+  async function cancel(thenBack: boolean) {
     setCanceling(true);
     setError(null);
     try {
@@ -232,7 +246,16 @@ function QrStep({
       // Ya no estaba pendiente (el cliente acaba de pagar): se ve abajo.
     }
     try {
-      finish(await fetchWalletCharge(charge.id));
+      const fresh = await fetchWalletCharge(charge.id);
+      if (thenBack && fresh.status !== 'PENDING' && fresh.status !== 'ACCEPTED' && !finished.current) {
+        finished.current = true;
+        onBack();
+        return;
+      }
+      if (!finish(fresh)) {
+        setError('No se ha podido cancelar. Inténtalo otra vez.');
+        setCanceling(false);
+      }
     } catch (err) {
       setError((err as Error).message);
       setCanceling(false);
@@ -253,7 +276,9 @@ function QrStep({
           setRef(null);
         }}
         onPin={async (pin) => {
-          finish(await payWalletChargeWithPin(charge.id, ref, pin));
+          const result = await payWalletChargeWithPin(charge.id, ref, pin);
+          if (result.status === 'PENDING') return 'No se ha cobrado todavía: vuelve a intentarlo.';
+          finish(result);
           return null;
         }}
       />
@@ -297,10 +322,10 @@ function QrStep({
       </Button>
       <p style={noteStyle}>¿Sin batería y sin PIN? Avisa al encargado: lo cobra desde el panel.</p>
       {error ? <p style={errorStyle}>{error}</p> : null}
-      <Button variant="ghost" onClick={() => void cancel()} loading={canceling}>
+      <Button variant="ghost" onClick={() => void cancel(false)} loading={canceling}>
         Cancelar cobro
       </Button>
-      <button type="button" onClick={onBack} style={linkBtnStyle} disabled={canceling}>
+      <button type="button" onClick={() => void cancel(true)} style={linkBtnStyle} disabled={canceling}>
         ← Elegir otro servicio
       </button>
     </Card>
