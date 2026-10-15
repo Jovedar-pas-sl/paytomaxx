@@ -4,6 +4,7 @@ import {
   Get,
   Inject,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   UseGuards,
@@ -79,7 +80,7 @@ export class TerminalsController {
   @UseGuards(RolesGuard)
   @Roles('OWNER', 'MANAGER')
   async update(
-    @Param('id') terminalId: string,
+    @Param('id', ParseUUIDPipe) terminalId: string,
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(UpdateTerminalSchema)) dto: UpdateTerminalDto,
   ): Promise<TerminalView> {

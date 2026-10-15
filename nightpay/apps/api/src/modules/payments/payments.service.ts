@@ -1544,7 +1544,7 @@ export class PaymentsService implements OnApplicationBootstrap {
 
   /**
    * Cancela un pago en estado CREATED|AWAITING_CAPTURE.
-   * - OPERATOR solo puede cancelar payments creados por ella.
+   * - OPERATOR solo puede cancelar payments creados por ella; WAITER, los suyos.
    * - OWNER/MANAGER pueden cancelar cualquier payment del venue.
    * Returns 409 si el FSM no permite (estado terminal).
    */
@@ -1557,6 +1557,10 @@ export class PaymentsService implements OnApplicationBootstrap {
 
     if (actor.role === 'OPERATOR' && payment.createdByUserId !== actor.userId) {
       throw new ForbiddenException('No puedes cancelar cobros de otra operadora');
+    }
+    // El camarero solo cancela los cobros que ha creado él (los de la chica no).
+    if (actor.role === 'WAITER' && payment.createdByUserId !== actor.userId) {
+      throw new ForbiddenException('Solo puedes cancelar los cobros que has creado tú');
     }
 
     try {

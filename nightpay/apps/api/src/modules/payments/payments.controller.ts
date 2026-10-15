@@ -6,6 +6,7 @@ import {
   HttpCode,
   Inject,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -79,7 +80,7 @@ export class PaymentsController {
   @UseGuards(RolesGuard)
   @Roles('OWNER', 'MANAGER', 'WAITER')
   async confirmPos(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(ConfirmPosPaymentSchema)) dto: ConfirmPosPaymentDto,
   ): Promise<{ status: string }> {
@@ -92,15 +93,15 @@ export class PaymentsController {
 
   /**
    * Cancela un pago en estado CREATED|AWAITING_CAPTURE.
-   * - OPERATOR solo cancela los suyos (createdByUserId === userId).
+   * - OPERATOR y WAITER solo cancelan los suyos (createdByUserId === userId).
    * - OWNER/MANAGER cancelan cualquiera del venue.
    */
   @Post(':id/cancel')
   @HttpCode(200)
   @UseGuards(RolesGuard)
-  @Roles('OWNER', 'MANAGER', 'OPERATOR')
+  @Roles('OWNER', 'MANAGER', 'OPERATOR', 'WAITER')
   async cancel(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: JwtPayload,
   ): Promise<{ status: string }> {
     return this.payments.cancel(id, {
@@ -116,7 +117,7 @@ export class PaymentsController {
   @Get(':id')
   @UseGuards(RolesGuard)
   @Roles('OWNER', 'MANAGER', 'WAITER')
-  async findOne(@Param('id') id: string, @CurrentUser() _user: JwtPayload) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() _user: JwtPayload) {
     return this.payments.findById(id);
   }
 

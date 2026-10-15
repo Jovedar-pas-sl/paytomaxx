@@ -343,3 +343,34 @@ describe('transition — comisión con el % fijado al crear (#54)', () => {
     expect(earningInsert(executed)?.slice(3)).toEqual([10_000, 8_000, 8_000, 0]);
   });
 });
+
+describe('cancel — quién puede cancelar', () => {
+  const created = { id: PAYMENT_ID, tenantId: 'tenant-1', status: 'CREATED', createdByUserId: 'waiter-1' };
+  const locked = { ...baseRow, status: 'CREATED' as const };
+
+  it('el camarero cancela los cobros que creó él', async () => {
+    const { service, updates } = makeTransitionService({ locked, payment: created });
+    await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).resolves.toEqual({
+      status: 'CANCELED',
+    });
+    expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+  });
+
+  it('el camarero no cancela los de otro (ni la chica los de otra)', async () => {
+    const { service, updates } = makeTransitionService({ locked, payment: { ...created, createdByUserId: 'op-1' } });
+    await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).rejects.toThrow(
+      /que has creado tú/,
+    );
+    await expect(service.cancel(PAYMENT_ID, { userId: 'op-2', role: 'OPERATOR', tenantId: 'tenant-1' })).rejects.toThrow(
+      /otra operadora/,
+    );
+    expect(updates('SET status')).toHaveLength(0);
+  });
+
+  it('el encargado cancela cualquiera del local', async () => {
+    const { service } = makeTransitionService({ locked, payment: { ...created, createdByUserId: 'op-1' } });
+    await expect(
+      service.cancel(PAYMENT_ID, { userId: 'manager-1', role: 'MANAGER', tenantId: 'tenant-1' }),
+    ).resolves.toEqual({ status: 'CANCELED' });
+  });
+});
