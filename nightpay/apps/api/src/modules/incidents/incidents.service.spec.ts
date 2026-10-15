@@ -3,13 +3,14 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { IncidentsService } from './incidents.service';
 import { AlertsService } from './alerts.service';
 import { TelegramService } from './telegram.service';
-import type { Incident } from './incident-rules';
+import { REFUND_PENDING_MINUTES, type Incident, type PendingRefundRow } from './incident-rules';
 
 const at = (iso: string) => new Date(iso);
 
 /**
  * $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches,
- * revisadas, datáfono (3), saldos (2), banco y avisos de cobro no dados por buenos.
+ * revisadas, datáfono (3), saldos (2), banco, avisos de cobro no dados por buenos
+ * y devoluciones sin confirmar.
  */
 function makeIncidents(rows: {
   stuck?: unknown[];
@@ -24,6 +25,7 @@ function makeIncidents(rows: {
   walletsLeftOpen?: unknown[];
   bankItems?: unknown[];
   anomalies?: unknown[];
+  pendingRefunds?: unknown[];
 }) {
   const prisma = {
     $queryRaw: vi
@@ -39,7 +41,8 @@ function makeIncidents(rows: {
       .mockResolvedValueOnce(rows.walletsToClose ?? [])
       .mockResolvedValueOnce(rows.walletsLeftOpen ?? [])
       .mockResolvedValueOnce(rows.bankItems ?? [])
-      .mockResolvedValueOnce(rows.anomalies ?? []),
+      .mockResolvedValueOnce(rows.anomalies ?? [])
+      .mockResolvedValueOnce(rows.pendingRefunds ?? []),
     incidentAck: { upsert: vi.fn().mockResolvedValue({}) },
     asSystem: vi.fn(),
   };
@@ -214,6 +217,82 @@ describe('bandeja de incidencias', () => {
   });
 });
 
+describe('devoluciones sin confirmar (refund_pending)', () => {
+  const NOW = at('2026-10-14T00:12:00Z');
+  const pending = (over: Partial<PendingRefundRow> = {}): PendingRefundRow => ({
+    id: 'r-1',
+    paymentId: 'p-1',
+    amountCents: 2500,
+    paymentAmountCents: 8000,
+    provider: 'PAYTEF',
+    providerTxId: 'PT-7781',
+    settleFailed: false,
+    createdAt: at('2026-10-14T00:00:00Z'),
+    ...over,
+  });
+
+  it('sale con texto para el dueño, el cobro y un refId estable (el id de la devolución)', async () => {
+    const { svc } = makeIncidents({ pendingRefunds: [pending()] });
+    const [i] = await svc.list('t-1', NOW);
+    expect(i).toEqual({
+      kind: 'refund_pending',
+      refId: 'r-1',
+      title: 'Devolución sin confirmar del banco',
+      detail: expect.stringContaining('25,00 € del cobro de 80,00 € (pedido PT-7781), hace 12 min.'),
+      occurredAt: '2026-10-14T00:00:00.000Z',
+      amountCents: 2500,
+      paymentId: 'p-1',
+      ackable: false,
+    });
+    expect(i!.detail).toMatch(/Revisa en el panel de Paytef .*pulsa Resolver/);
+    // El mismo refId en la siguiente vuelta, aunque el texto cambie ("hace 17 min").
+    const { svc: later } = makeIncidents({ pendingRefunds: [pending()] });
+    const [again] = await later.list('t-1', at('2026-10-14T00:17:00Z'));
+    expect(again!.refId).toBe(i!.refId);
+    expect(again!.detail).toContain('hace 17 min');
+  });
+
+  it('hecha en la pasarela pero sin apuntar (refund.settle_failed): pide marcarla como hecha', async () => {
+    const { svc } = makeIncidents({ pendingRefunds: [pending({ settleFailed: true, provider: 'REDSYS' })] });
+    const [i] = await svc.list('t-1', NOW);
+    expect(i!.detail).toMatch(/El banco \(Redsys\) dice que la hizo.*Resolver → Hecha\. No la repitas\./);
+  });
+
+  it(`umbral: solo las PENDING de hace más de ${REFUND_PENDING_MINUTES} min (constante con nombre)`, async () => {
+    expect(REFUND_PENDING_MINUTES).toBe(5);
+    const { svc, prisma } = makeIncidents({});
+    await svc.list('t-1', NOW);
+    const call = prisma.$queryRaw.mock.calls.find(([strings]) =>
+      (strings as TemplateStringsArray).join('?').includes('FROM refunds r'),
+    ) as [TemplateStringsArray, ...unknown[]] | undefined;
+    expect(call).toBeDefined();
+    const sql = call![0].join('?');
+    expect(sql).toContain("r.status = 'PENDING'");
+    expect(sql).toMatch(/r\."createdAt" < \?/);
+    expect(call!.slice(1)).toContainEqual(new Date(NOW.getTime() - REFUND_PENDING_MINUTES * 60 * 1000));
+  });
+
+  it('se quita sola al resolverla (ya no está PENDING) y no se puede marcar como revisada', async () => {
+    const { svc } = makeIncidents({ pendingRefunds: [] });
+    expect(await svc.list('t-1', NOW)).toEqual([]);
+    await expect(makeIncidents({}).svc.ack('t-1', 'owner', { kind: 'refund_pending', refId: 'r-1' })).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('tiempo: minutos, luego horas y días', async () => {
+    const { svc } = makeIncidents({
+      pendingRefunds: [
+        pending({ id: 'r-h', createdAt: at('2026-10-13T21:00:00Z') }),
+        pending({ id: 'r-d', createdAt: at('2026-10-11T00:00:00Z') }),
+      ],
+    });
+    const items = await svc.list('t-1', NOW);
+    expect(items.find((i) => i.refId === 'r-h')!.detail).toContain('hace 3 h.');
+    expect(items.find((i) => i.refId === 'r-d')!.detail).toContain('hace 3 días.');
+  });
+});
+
 describe('alertas por Telegram', () => {
   const incident = (refId: string): Incident => ({
     kind: 'duplicate_charge',
@@ -250,7 +329,7 @@ describe('alertas por Telegram', () => {
     };
     const telegram = { send: vi.fn().mockResolvedValue(true), isConfigured: () => true };
     const svc = new AlertsService(prisma as never, redis as never, incidents as never, reports as never, telegram as never);
-    return { svc, telegram, reports };
+    return { svc, telegram, reports, incidents };
   }
 
   it('cada incidencia se avisa una sola vez', async () => {
@@ -260,6 +339,25 @@ describe('alertas por Telegram', () => {
     await svc.tick(night);
     expect(telegram.send).toHaveBeenCalledTimes(2);
     expect(telegram.send.mock.calls[0]![0]).toContain('Local Centro');
+  });
+
+  it('devolución sin confirmar: se avisa una vez aunque el texto cambie en cada vuelta', async () => {
+    const pendingRefund = (detail: string): Incident => ({
+      kind: 'refund_pending',
+      refId: 'r-1',
+      title: 'Devolución sin confirmar del banco',
+      detail,
+      occurredAt: '2026-10-13T22:50:00.000Z',
+      amountCents: 2500,
+      paymentId: 'p-1',
+      ackable: false,
+    });
+    const { svc, telegram, incidents } = makeAlerts([pendingRefund('… hace 10 min.')]);
+    await svc.tick(at('2026-10-13T23:00:00Z'));
+    incidents.list.mockResolvedValue([pendingRefund('… hace 15 min.')]);
+    await svc.tick(at('2026-10-13T23:05:00Z'));
+    expect(telegram.send).toHaveBeenCalledTimes(1);
+    expect(telegram.send.mock.calls[0]![0]).toContain('Devolución sin confirmar del banco');
   });
 
   it('como mucho 10 avisos por vuelta', async () => {

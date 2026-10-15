@@ -24,7 +24,8 @@ export type IncidentKind =
   | 'backup_unmonitored'
   | 'approval_unverified'
   | 'amount_mismatch'
-  | 'approval_unbooked';
+  | 'approval_unbooked'
+  | 'refund_pending';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -34,6 +35,7 @@ export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'wallet_open_balance',
   'backup_stale',
   'approval_unverified',
+  'refund_pending',
 ]);
 
 /**
@@ -454,6 +456,59 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
     title: 'Aviso de pago sin comprobar',
     detail: `${provider.who} avisa de que el cliente pagó${r.amountCents === null ? '' : ` ${eur(r.amountCents)}`}, pero no se ha podido comprobar y NO se ha dado por pagado. Míralo en ${provider.where}${orderText} y, si está cobrado, resuélvelo en Pagos → Resolver.`,
     amountCents: r.amountCents,
+    ackable: false,
+  };
+}
+
+/**
+ * Una devolución por la pasarela sigue PENDING pasado este rato: la pasarela
+ * no contestó (o contestó y no se pudo apuntar en el cobro). Normalmente se
+ * confirma en segundos; el dueño puede resolverla a mano a partir de 2 min.
+ */
+export const REFUND_PENDING_MINUTES = 5;
+
+/** Devolución por la pasarela que sigue PENDING (reservando importe del cobro). */
+export interface PendingRefundRow {
+  id: string;
+  paymentId: string;
+  amountCents: number;
+  /** Lo cobrado (importe + propina). */
+  paymentAmountCents: number;
+  provider: string | null;
+  providerTxId: string | null;
+  /** La pasarela dijo que la hizo, pero no se pudo apuntar en el cobro (refund.settle_failed). */
+  settleFailed: boolean;
+  createdAt: Date;
+}
+
+function elapsed(ms: number): string {
+  const minutes = Math.max(0, Math.floor(ms / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} h`;
+  return `${Math.floor(hours / 24)} días`;
+}
+
+/**
+ * Sale a los REFUND_PENDING_MINUTES y se quita sola al resolverla (deja de
+ * estar PENDING). refId = id de la devolución: una por devolución, y Telegram
+ * la avisa una sola vez.
+ */
+export function refundPendingIncident(r: PendingRefundRow, now: Date): Incident {
+  const provider = PROVIDER_TEXT[r.provider ?? ''] ?? UNKNOWN_PROVIDER_TEXT;
+  const order = r.providerTxId ? ` (pedido ${r.providerTxId})` : '';
+  const what = `${eur(r.amountCents)} del cobro de ${eur(r.paymentAmountCents)}${order}, hace ${elapsed(now.getTime() - r.createdAt.getTime())}.`;
+  const todo = r.settleFailed
+    ? `${provider.who} dice que la hizo, pero no se pudo apuntar en el cobro: compruébalo en ${provider.where} y pulsa Resolver → Hecha. No la repitas.`
+    : `Revisa en ${provider.where} si se hizo y pulsa Resolver en el cobro. Mientras, ese importe no se puede volver a devolver.`;
+  return {
+    kind: 'refund_pending',
+    refId: r.id,
+    title: 'Devolución sin confirmar del banco',
+    detail: `${what} ${todo}`,
+    occurredAt: r.createdAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: r.paymentId,
     ackable: false,
   };
 }
