@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
 import { ackIncident, fetchIncidents, sendTelegramTest, type Incident } from '@/lib/api';
+import { formatDateTime } from '@/lib/dates';
+import { useVenueTimezone } from '@/lib/venue-context';
+import { Notice } from './Notice';
 
 /**
  * Bandeja de incidencias (Fase 1E): lo que el dueño tiene que mirar. Los
@@ -10,8 +13,10 @@ import { ackIncident, fetchIncidents, sendTelegramTest, type Incident } from '@/
  * marca como revisado (con nota) cuando ya está hecho.
  */
 export function IncidentsPanel({ isOwner }: { isOwner: boolean }) {
+  const tz = useVenueTimezone();
   const [items, setItems] = useState<Incident[] | null>(null);
   const [telegram, setTelegram] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [acking, setAcking] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -19,13 +24,13 @@ export function IncidentsPanel({ isOwner }: { isOwner: boolean }) {
   const [testResult, setTestResult] = useState<string | null>(null);
 
   const reload = useCallback(() => {
+    setLoadError(null);
     fetchIncidents()
       .then((r) => {
         setItems(r.items);
         setTelegram(r.telegram);
-        setError(null);
       })
-      .catch((err) => setError((err as Error).message));
+      .catch((err: Error) => setLoadError(err.message));
   }, []);
 
   useEffect(() => {
@@ -88,6 +93,12 @@ export function IncidentsPanel({ isOwner }: { isOwner: boolean }) {
         ) : null}
       </Card>
 
+      {loadError ? (
+        <Notice tone="danger" action={{ label: 'Reintentar', onClick: reload }}>
+          No se pudieron cargar las incidencias: {loadError}
+        </Notice>
+      ) : null}
+
       {error ? (
         <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
           {error}
@@ -95,7 +106,7 @@ export function IncidentsPanel({ isOwner }: { isOwner: boolean }) {
       ) : null}
 
       {items === null ? (
-        <p style={hintStyle}>Cargando…</p>
+        loadError ? null : <p style={hintStyle}>Cargando…</p>
       ) : items.length === 0 ? (
         <Card style={{ padding: '1.25rem' }}>
           <p style={{ margin: 0, fontWeight: 600 }}>Todo en orden: no hay nada pendiente.</p>
@@ -108,7 +119,7 @@ export function IncidentsPanel({ isOwner }: { isOwner: boolean }) {
               <Card key={key} style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <div style={rowStyle}>
                   <p style={{ margin: 0, fontWeight: 700, fontSize: '1.0625rem' }}>{i.title}</p>
-                  <span style={hintSmall}>{formatWhen(i.occurredAt)}</span>
+                  <span style={hintSmall}>{formatDateTime(i.occurredAt, tz, 'compact')}</span>
                 </div>
                 <p style={{ margin: 0 }}>{i.detail}</p>
                 {i.ackable && !isOwner ? (
@@ -156,16 +167,6 @@ export function IncidentsPanel({ isOwner }: { isOwner: boolean }) {
       )}
     </section>
   );
-}
-
-function formatWhen(iso: string): string {
-  return new Date(iso).toLocaleString('es-ES', {
-    timeZone: 'Europe/Madrid',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 700 };

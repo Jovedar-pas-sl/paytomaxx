@@ -2,7 +2,8 @@
 
 import { useState, type FormEvent } from 'react';
 import { Button, Input } from '@nightpay/ui';
-import { login, setSession, type User } from '@/lib/api';
+import { discardLogin, login, setSession, type User } from '@/lib/api';
+import { canUsePanel } from '@/lib/roles';
 
 interface Props {
   onSuccess: (user: User) => void;
@@ -20,6 +21,12 @@ export function LoginForm({ onSuccess }: Props) {
     setBusy(true);
     try {
       const result = await login(email.trim().toLowerCase(), password);
+      // Camareros y chicas tienen sus apps: aquí todas las pestañas les darían 403.
+      if (!canUsePanel(result.user.role)) {
+        await discardLogin(result);
+        setError('Esta cuenta no tiene acceso al panel. Entra con la cuenta del dueño o del encargado.');
+        return;
+      }
       setSession(result);
       onSuccess(result.user);
     } catch (err) {
@@ -42,6 +49,7 @@ export function LoginForm({ onSuccess }: Props) {
       <Input
         type="email"
         autoComplete="email"
+        aria-label="Email"
         placeholder="email@nightpay.local"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
@@ -50,6 +58,7 @@ export function LoginForm({ onSuccess }: Props) {
       <Input
         type="password"
         autoComplete="current-password"
+        aria-label="Contraseña"
         placeholder="contraseña"
         value={password}
         onChange={(e) => setPassword(e.target.value)}

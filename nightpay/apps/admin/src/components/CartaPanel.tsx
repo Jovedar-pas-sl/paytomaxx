@@ -11,6 +11,8 @@ import {
   type ServiceItem,
   type ServiceItemInput,
 } from '@/lib/api';
+import { centsToInput, formatEur } from '@/lib/money';
+import { Notice } from './Notice';
 
 const CATEGORY_LABEL: Record<RevenueCategory, string> = {
   CHICA_SERVICE: 'Servicio de la chica',
@@ -27,13 +29,15 @@ const CATEGORY_LABEL: Record<RevenueCategory, string> = {
  */
 export function CartaPanel() {
   const [items, setItems] = useState<ServiceItem[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
 
   const reload = useCallback(() => {
+    setLoadError(null);
     fetchCarta()
       .then(setItems)
-      .catch((err) => setError((err as Error).message));
+      .catch((err: Error) => setLoadError(err.message));
   }, []);
 
   useEffect(() => {
@@ -77,8 +81,14 @@ export function CartaPanel() {
         </p>
       ) : null}
 
+      {loadError ? (
+        <Notice tone="danger" action={{ label: 'Reintentar', onClick: reload }}>
+          No se pudo cargar la carta: {loadError}
+        </Notice>
+      ) : null}
+
       {items === null ? (
-        <p style={hintStyle}>Cargando carta…</p>
+        loadError ? null : <p style={hintStyle}>Cargando carta…</p>
       ) : items.length === 0 ? (
         <Card style={{ padding: '1.25rem' }}>
           <p style={{ margin: 0 }}>
@@ -122,7 +132,7 @@ export function CartaPanel() {
                     </p>
                   </div>
                   <span className="np-num" style={priceStyle}>
-                    {(item.priceCents / 100).toFixed(2)} €
+                    {formatEur(item.priceCents)}
                   </span>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <Button variant="ghost" style={smallBtn} onClick={() => setEditing(item.id)}>
@@ -155,7 +165,7 @@ function ServiceForm({
 }) {
   const [name, setName] = useState(initial?.name ?? '');
   const [duration, setDuration] = useState(initial?.durationMin ? String(initial.durationMin) : '');
-  const [price, setPrice] = useState(initial ? (initial.priceCents / 100).toFixed(2) : '');
+  const [price, setPrice] = useState(initial ? centsToInput(initial.priceCents) : '');
   const [category, setCategory] = useState<RevenueCategory>(initial?.category ?? 'CHICA_SERVICE');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);

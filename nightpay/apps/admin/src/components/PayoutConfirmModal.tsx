@@ -1,0 +1,381 @@
+'use client';
+
+import { useEffect, useId, useState, type CSSProperties, type FormEvent } from 'react';
+import { Button, Input, Modal, Select } from '@nightpay/ui';
+import {
+  confirmPayoutManual,
+  createOperatorPayout,
+  fetchExchangeRate,
+  verifyPayout,
+  type PayoutMethod,
+} from '@/lib/api';
+import { ApiError } from '@/lib/api-errors';
+import { formatDecimal, formatEur } from '@/lib/money';
+import { isAutoVerifiable, payoutAddressError } from '@/lib/payout-address';
+import { describeVerifyResult, payoutReferenceError, type VerifyOutcome } from '@/lib/payout-verify';
+import { Notice } from './Notice';
+import { PAYOUT_METHOD_LABELS, PayoutMethodOptions } from './PayoutMethodForm';
+
+interface Props {
+  operatorId: string;
+  balanceCents: number;
+  payoutMethod: PayoutMethod | null;
+  payoutAddress: string | null;
+  payoutLabel: string | null;
+  onClose: () => void;
+  /** El pago quedó apuntado (haya ido bien o no la verificación): refrescar. */
+  onDone: () => void;
+}
+
+type Rate = { rate: number; degraded: boolean } | 'loading' | 'unavailable' | null;
+
+interface Created {
+  totalCents: number;
+  earningCount: number;
+  outcome: VerifyOutcome;
+}
+
+/**
+ * "Marcar pagado": apunta la liquidación y, si hay referencia, la verifica
+ * (cripto, contra la red) o la confirma a mano. El resultado se enseña antes
+ * de cerrar: antes un fallo de verificación iba a la consola y el modal se
+ * cerraba como si todo hubiera ido bien.
+ */
+export function PayoutConfirmModal({
+  operatorId,
+  balanceCents,
+  payoutMethod,
+  payoutAddress,
+  payoutLabel,
+  onClose,
+  onDone,
+}: Props) {
+  // Sin método guardado no se supone efectivo: hay que elegir cómo se pagó.
+  const [rail, setRail] = useState<PayoutMethod | ''>(payoutMethod ?? '');
+  const [notes, setNotes] = useState('');
+  const [externalTxId, setExternalTxId] = useState('');
+  const [receiptUrl, setReceiptUrl] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [rate, setRate] = useState<Rate>(null);
+  const [created, setCreated] = useState<Created | null>(null);
+  const confirmId = useId();
+  const railId = useId();
+
+  const chosenRail = rail === '' ? null : rail;
+  const autoVerifiable = isAutoVerifiable(chosenRail);
+  // La dirección guardada es la del método guardado; pagando por otra vía no aplica.
+  const address = chosenRail === payoutMethod ? payoutAddress : null;
+  const savedAddressProblem = address && chosenRail ? payoutAddressError(chosenRail, address) : null;
+
+  useEffect(() => {
+    if (!autoVerifiable) {
+      setRate(null);
+      return undefined;
+    }
+    let cancelled = false;
+    setRate('loading');
+    fetchExchangeRate()
+      .then((r) => {
+        if (!cancelled) setRate({ rate: r.rate, degraded: r.degraded });
+      })
+      .catch(() => {
+        // Sin tasa no se inventa una: se dice que no está.
+        if (!cancelled) setRate('unavailable');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [autoVerifiable]);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!chosenRail) return setError('Elige cómo le has pagado.');
+    const referenceProblem = payoutReferenceError({ externalTxId, receiptUrl });
+    if (referenceProblem) return setError(referenceProblem);
+    if (totpCode && !/^\d{6}$/.test(totpCode)) return setError('El código 2FA son 6 números.');
+    if (!confirmed) return setError('Marca la casilla para confirmar el pago.');
+
+    setSubmitting(true);
+    const txId = externalTxId.trim();
+    const receipt = receiptUrl.trim();
+    try {
+      const payout = await createOperatorPayout(operatorId, {
+        notes: notes.trim() || undefined,
+        externalTxId: txId || undefined,
+        externalRail: chosenRail,
+        receiptUrl: receipt || undefined,
+        totpCode: totpCode || undefined,
+      });
+      const outcome = await settle(payout.id, chosenRail, txId, receipt);
+      setCreated({ totalCents: payout.totalCents, earningCount: payout.earningCount, outcome });
+    } catch (err) {
+      // No se apuntó nada: se puede corregir y volver a probar.
+      setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const closeGuarded = submitting ? () => undefined : created ? onDone : onClose;
+  const currency = chosenRail?.startsWith('USDC') ? 'USDC' : 'USDT';
+
+  if (created) {
+    return (
+      <Modal open onClose={closeGuarded} title="Pago apuntado" width="32rem">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <p style={{ margin: 0 }}>
+            Liquidación de <strong className="np-num">{formatEur(created.totalCents)}</strong> (
+            {created.earningCount === 1 ? '1 comisión' : `${created.earningCount} comisiones`}).
+          </p>
+          <Notice tone={created.outcome.tone}>{created.outcome.message}</Notice>
+          <Button onClick={onDone}>Cerrar</Button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal open onClose={closeGuarded} title="Marcar pagado" width="32rem">
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <p style={{ margin: 0, fontSize: '0.95rem' }}>
+          Saldo pendiente a liquidar: <strong className="np-num">{formatEur(balanceCents)}</strong>
+          {autoVerifiable ? <RateNote rate={rate} balanceCents={balanceCents} currency={currency} /> : null}
+        </p>
+
+        {payoutMethod ? (
+          <div style={methodBox}>
+            <p style={methodKicker}>Método de la chica</p>
+            <p style={{ margin: '0.25rem 0 0' }}>
+              <strong>{PAYOUT_METHOD_LABELS[payoutMethod]}</strong>
+            </p>
+            {payoutAddress ? (
+              <p style={addressStyle}>
+                {payoutAddress}
+                <button
+                  type="button"
+                  onClick={() => void navigator.clipboard?.writeText(payoutAddress)}
+                  style={copyBtn}
+                >
+                  Copiar
+                </button>
+              </p>
+            ) : null}
+            {payoutLabel ? (
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-dim)' }}>
+                Alias: {payoutLabel}
+              </p>
+            ) : null}
+            {savedAddressProblem ? (
+              <Notice tone="warning" style={{ marginTop: '0.5rem' }}>
+                La dirección guardada no parece válida para este método ({savedAddressProblem}) Revísala en Editar
+                antes de pagar.
+              </Notice>
+            ) : null}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <Notice tone="warning">
+              Esta chica no tiene método de cobro guardado. Elige cómo le has pagado. Para verificar pagos cripto
+              solos, guarda antes su dirección en Editar.
+            </Notice>
+            <label htmlFor={railId} style={fieldLabel}>
+              ¿Cómo le has pagado?
+            </label>
+            <Select id={railId} value={rail} onChange={(e) => setRail(e.target.value as PayoutMethod | '')} required>
+              <option value="">— Elige el método —</option>
+              {/* Sin dirección guardada no hay verificación on-chain posible. */}
+              <PayoutMethodOptions include={(m) => !isAutoVerifiable(m)} />
+            </Select>
+          </div>
+        )}
+
+        <Input
+          label={autoVerifiable ? 'Hash de la transacción on-chain' : 'Referencia externa (receipt ID, SEPA ref, etc.)'}
+          value={externalTxId}
+          onChange={(e) => setExternalTxId(e.target.value)}
+          placeholder={autoVerifiable ? '0x... o TxId Tron' : 'Receipt ID, número SEPA, etc.'}
+          hint={
+            autoVerifiable
+              ? 'Se verificará contra la red al apuntarlo.'
+              : 'Opcional. Si la pones, el pago queda confirmado a mano.'
+          }
+          maxLength={200}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Input
+          label="Receipt URL (opcional, screenshot)"
+          value={receiptUrl}
+          onChange={(e) => setReceiptUrl(e.target.value)}
+          placeholder="https://..."
+          inputMode="url"
+          maxLength={500}
+        />
+        <Input
+          label="Notas (opcional)"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder='"Pagado vía Binance", "Wire SEPA enviado", etc.'
+          maxLength={500}
+        />
+        <Input
+          label="Código 2FA (si tienes la app de verificación activada)"
+          value={totpCode}
+          onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          placeholder="123456"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+        />
+
+        <label htmlFor={confirmId} style={confirmStyle}>
+          <input
+            id={confirmId}
+            type="checkbox"
+            checked={confirmed}
+            onChange={(e) => setConfirmed(e.target.checked)}
+            style={{ marginTop: '0.2rem' }}
+          />
+          <span>
+            Confirmo que he pagado <strong className="np-num">{formatEur(balanceCents)}</strong>
+            {chosenRail ? <> por {PAYOUT_METHOD_LABELS[chosenRail]}</> : null}
+            {address ? (
+              <>
+                {' '}
+                a <code style={inlineCode}>{address}</code>
+              </>
+            ) : null}
+            .
+          </span>
+        </label>
+
+        {error ? (
+          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+            {error}
+          </p>
+        ) : null}
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <Button variant="ghost" type="button" onClick={onClose} disabled={submitting} style={{ flex: 1 }}>
+            Cancelar
+          </Button>
+          <Button type="submit" loading={submitting} disabled={!confirmed || !chosenRail} style={{ flex: 1 }}>
+            Confirmar liquidación
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/**
+ * Tras apuntar la liquidación: verificar (cripto) o confirmar a mano (con
+ * referencia). Un fallo aquí no deshace el pago: se cuenta qué pasó.
+ */
+async function settle(payoutId: string, rail: PayoutMethod, txId: string, receipt: string): Promise<VerifyOutcome> {
+  if (!txId) {
+    return {
+      tone: 'info',
+      message: 'Sin referencia queda «sin verificar». Puedes añadirla luego en Liquidaciones → Verificar.',
+    };
+  }
+  try {
+    if (isAutoVerifiable(rail)) {
+      const result = await verifyPayout(payoutId, {
+        externalTxId: txId,
+        externalRail: rail,
+        receiptUrl: receipt || undefined,
+      });
+      return describeVerifyResult(result);
+    }
+    await confirmPayoutManual(payoutId, { externalTxId: txId, ...(receipt ? { receiptUrl: receipt } : {}) });
+    return { tone: 'success', message: 'Referencia apuntada y pago confirmado a mano.' };
+  } catch (err) {
+    // Ese hash ya justifica otro pago: no es un fallo pasajero, hay que poner el bueno.
+    const txUsed = err instanceof ApiError && err.code === 'PAYOUT_TX_ALREADY_USED';
+    return {
+      tone: txUsed ? 'danger' : 'warning',
+      message: `El pago quedó apuntado, pero no se pudo ${isAutoVerifiable(rail) ? 'verificar' : 'confirmar'}: ${
+        (err as Error).message
+      } ${txUsed ? 'Pon el hash correcto' : 'Puedes reintentarlo'} en Liquidaciones → Verificar.`,
+    };
+  }
+}
+
+function RateNote({ rate, balanceCents, currency }: { rate: Rate; balanceCents: number; currency: string }) {
+  if (rate === null || rate === 'loading') return null;
+  if (rate === 'unavailable') {
+    return <span style={rateStyle}>· tasa no disponible</span>;
+  }
+  return (
+    <span style={rateStyle}>
+      ≈ {formatDecimal((balanceCents / 100) * rate.rate, 2)} {currency}
+      {rate.degraded ? ' (tasa aproximada: Binance no responde)' : ''}
+    </span>
+  );
+}
+
+const rateStyle: CSSProperties = { color: 'var(--np-text-mute)', fontSize: '0.85rem', marginLeft: '0.5rem' };
+
+const methodBox: CSSProperties = {
+  background: 'var(--np-surface-2)',
+  border: '1px solid var(--np-border)',
+  borderRadius: 'var(--np-r-md)',
+  padding: '0.75rem 1rem',
+  fontSize: '0.85rem',
+};
+
+const methodKicker: CSSProperties = {
+  margin: 0,
+  color: 'var(--np-text-mute)',
+  fontSize: '0.75rem',
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+};
+
+const addressStyle: CSSProperties = {
+  margin: '0.25rem 0 0',
+  fontFamily: 'var(--np-font-mono)',
+  fontSize: '0.78rem',
+  color: 'var(--np-text-mute)',
+  wordBreak: 'break-all',
+};
+
+const copyBtn: CSSProperties = {
+  marginLeft: '0.5rem',
+  background: 'none',
+  border: '1px solid var(--np-border)',
+  color: 'var(--np-text-mute)',
+  fontSize: '0.7rem',
+  padding: '0.15rem 0.5rem',
+  borderRadius: '4px',
+  cursor: 'pointer',
+};
+
+const fieldLabel: CSSProperties = {
+  fontSize: '0.8125rem',
+  fontWeight: 700,
+  color: 'var(--np-text-mute)',
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+};
+
+const confirmStyle: CSSProperties = {
+  display: 'flex',
+  gap: '0.6rem',
+  alignItems: 'flex-start',
+  fontSize: '0.875rem',
+  padding: '0.75rem',
+  border: '1px solid var(--np-border)',
+  borderRadius: 'var(--np-r-md)',
+  cursor: 'pointer',
+};
+
+const inlineCode: CSSProperties = {
+  fontFamily: 'var(--np-font-mono)',
+  fontSize: '0.78rem',
+  wordBreak: 'break-all',
+};

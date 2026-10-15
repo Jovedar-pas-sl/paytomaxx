@@ -2,93 +2,69 @@
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Modal } from '@nightpay/ui';
-import {
-  confirmPayoutManual,
-  createOperator,
-  createOperatorPayout,
-  fetchExchangeRate,
-  fetchOperatorEarnings,
-  fetchOperatorPayouts,
-  fetchOperators,
-  regenerateInvite,
-  resetOperatorPassword,
-  updateOperator,
-  verifyPayout,
-  type Operator,
-  type OperatorEarning,
-  type OperatorPayout,
-  type PayoutMethod,
-  type PayoutMetadata,
-} from '@/lib/api';
-import { PAYOUT_METHOD_LABELS, PayoutMethodForm } from './PayoutMethodForm';
-import { OnboardingForm } from './OnboardingForm';
+import { createOperator, fetchOperators, fetchVenueSettings, type Operator } from '@/lib/api';
+import { formatPercent, parsePercentToBps } from '@/lib/commission';
+import { formatEur } from '@/lib/money';
+import { usePolling } from '@/lib/use-polling';
+import { Notice } from './Notice';
+import { OperatorDetailModal } from './OperatorDetailModal';
+import { Pill, type Tone } from './Pill';
 
 interface Props {
   isOwner: boolean;
 }
 
+const POLL_MS = 10_000;
+
+/** Lo que se enseña tras crear una chica (el aviso solo con el API nuevo). */
+interface CreateResult {
+  inviteUrl: string;
+  emailSent: boolean;
+  notice?: string;
+}
+
 export function OperatorsPanel({ isOwner }: Props) {
-  const [operators, setOperators] = useState<Operator[]>([]);
+  /** null = aún no ha llegado la primera lista. */
+  const [operators, setOperators] = useState<Operator[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
-  const [createResult, setCreateResult] = useState<{ inviteUrl: string; emailSent: boolean } | null>(
-    null,
-  );
+  const [createResult, setCreateResult] = useState<CreateResult | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filterNeedsHelp, setFilterNeedsHelp] = useState(false);
 
-  const needsHelpCount = operators.filter(
-    (o) => o.needsHelpWallet || o.needsHelpDocs,
-  ).length;
-  const visibleOperators = filterNeedsHelp
-    ? operators.filter((o) => o.needsHelpWallet || o.needsHelpDocs)
-    : operators;
+  const list = operators ?? [];
+  const needsHelpCount = list.filter((o) => o.needsHelpWallet || o.needsHelpDocs).length;
+  const visibleOperators = filterNeedsHelp ? list.filter((o) => o.needsHelpWallet || o.needsHelpDocs) : list;
 
-  async function reload() {
-    try {
-      const list = await fetchOperators();
-      setOperators(list);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const reload = usePolling(
+    async (signal) => {
+      try {
+        const fresh = await fetchOperators();
+        if (signal.aborted) return true;
+        setOperators(fresh);
+        setError(null);
+        return true;
+      } catch (err) {
+        if (!signal.aborted) setError((err as Error).message);
+        return false;
+      }
+    },
+    { intervalMs: POLL_MS },
+    [],
+  );
 
-  useEffect(() => {
-    reload();
-    const int = setInterval(reload, 10000);
-    return () => clearInterval(int);
-  }, []);
-
-  const selected = operators.find((o) => o.id === selectedId) ?? null;
+  const selected = list.find((o) => o.id === selectedId) ?? null;
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-end',
-          gap: '1rem',
-          flexWrap: 'wrap',
-        }}
-      >
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
         <h2 style={sectionTitle}>Operadoras</h2>
         {needsHelpCount > 0 ? (
           <label
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              fontSize: '0.85rem',
-              background: filterNeedsHelp ? 'var(--np-warning-bg, #fef3c7)' : 'var(--np-surface-2)',
-              border: '1px solid var(--np-border)',
-              borderRadius: 'var(--np-r-pill)',
-              padding: '0.4rem 0.875rem',
-              cursor: 'pointer',
-              color: filterNeedsHelp ? '#78350f' : 'var(--np-text)',
+              ...helpFilter,
+              background: filterNeedsHelp ? 'var(--np-pill-warning-bg)' : 'var(--np-surface-2)',
+              color: filterNeedsHelp ? 'var(--np-warning)' : 'var(--np-text)',
             }}
           >
             <input
@@ -97,7 +73,7 @@ export function OperatorsPanel({ isOwner }: Props) {
               onChange={(e) => setFilterNeedsHelp(e.target.checked)}
               style={{ margin: 0 }}
             />
-            ⚠️ Solo las que necesitan ayuda ({needsHelpCount})
+            Solo las que piden ayuda ({needsHelpCount})
           </label>
         ) : null}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem' }}>
@@ -109,9 +85,10 @@ export function OperatorsPanel({ isOwner }: Props) {
       </div>
 
       {error ? (
-        <Card style={{ padding: '1rem', borderColor: 'var(--np-danger)' }}>
-          <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>{error}</p>
-        </Card>
+        <Notice tone="danger" action={{ label: 'Reintentar', onClick: reload }}>
+          {error}
+          {operators ? ' · se siguen enseñando los últimos datos.' : ''}
+        </Notice>
       ) : null}
 
       <Card style={{ padding: 0, overflow: 'hidden' }}>
@@ -125,20 +102,20 @@ export function OperatorsPanel({ isOwner }: Props) {
                 <th style={numCol}>Saldo pendiente</th>
                 <th style={numCol}>Pagado total</th>
                 <th>Estado</th>
-                <th></th>
+                <th aria-label="Acciones" />
               </tr>
             </thead>
             <tbody>
-              {loading ? (
+              {operators === null ? (
                 <tr>
                   <td colSpan={7} style={emptyCell}>
-                    Cargando…
+                    {error ? 'No se pudo cargar la lista.' : 'Cargando…'}
                   </td>
                 </tr>
               ) : visibleOperators.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={emptyCell}>
-                    {operators.length === 0
+                    {list.length === 0
                       ? 'Aún no hay operadoras. Crea la primera con "+ Nueva operadora".'
                       : 'Ninguna coincide con el filtro.'}
                   </td>
@@ -152,27 +129,20 @@ export function OperatorsPanel({ isOwner }: Props) {
                       onClick={() => setSelectedId(op.id)}
                       style={{
                         cursor: 'pointer',
-                        background: needsHelp ? 'var(--np-warning-bg, #fef3c7)' : undefined,
+                        background: needsHelp ? 'var(--np-pill-warning-bg)' : undefined,
                       }}
                     >
                       <td>
                         {op.displayName ?? '—'}
                         {needsHelp ? (
-                          <span
-                            style={{
-                              marginLeft: '0.5rem',
-                              fontSize: '0.7rem',
-                              color: '#78350f',
-                              fontWeight: 600,
-                            }}
-                          >
-                            ⚠️ ayuda
-                          </span>
+                          <Pill tone="warning" style={{ marginLeft: '0.5rem' }}>
+                            pide ayuda
+                          </Pill>
                         ) : null}
                       </td>
                       <td style={cellMeta}>{op.email}</td>
                       <td className="np-num" style={numCell}>
-                        {(op.commissionBps / 100).toFixed(2)} %
+                        {formatPercent(op.commissionBps)}
                       </td>
                       <td
                         className="np-num"
@@ -181,10 +151,10 @@ export function OperatorsPanel({ isOwner }: Props) {
                           color: op.balance.pendingCents < 0 ? 'var(--np-danger)' : 'var(--np-text)',
                         }}
                       >
-                        {(op.balance.pendingCents / 100).toFixed(2)} €
+                        {formatEur(op.balance.pendingCents)}
                       </td>
                       <td className="np-num" style={numCell}>
-                        {(op.balance.paidCents / 100).toFixed(2)} €
+                        {formatEur(op.balance.paidCents)}
                       </td>
                       <td style={cellMeta}>
                         <OnboardingBadge operator={op} />
@@ -213,6 +183,7 @@ export function OperatorsPanel({ isOwner }: Props) {
 
       <CreateOperatorModal
         open={createOpen}
+        isOwner={isOwner}
         onClose={() => {
           setCreateOpen(false);
           setCreateResult(null);
@@ -226,6 +197,7 @@ export function OperatorsPanel({ isOwner }: Props) {
 
       {selected ? (
         <OperatorDetailModal
+          key={selected.id}
           operator={selected}
           isOwner={isOwner}
           onClose={() => setSelectedId(null)}
@@ -236,16 +208,46 @@ export function OperatorsPanel({ isOwner }: Props) {
   );
 }
 
+/**
+ * Comisión de una chica nueva creada por el encargado: la del local para
+ * servicios de chica (solo el dueño la elige).
+ */
+function useVenueChicaCommission(enabled: boolean) {
+  const [bps, setBps] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let cancelled = false;
+    setError(null);
+    fetchVenueSettings()
+      .then((s) => {
+        if (!cancelled) setBps(s.operatorCommissionDefaults.CHICA_SERVICE);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, attempt]);
+
+  return { bps, error, retry: () => setAttempt((n) => n + 1) };
+}
+
 function CreateOperatorModal({
   open,
+  isOwner,
   onClose,
   onCreated,
   result,
 }: {
   open: boolean;
+  isOwner: boolean;
   onClose: () => void;
-  onCreated: (r: { inviteUrl: string; emailSent: boolean }) => void;
-  result: { inviteUrl: string; emailSent: boolean } | null;
+  onCreated: (r: CreateResult) => void;
+  result: CreateResult | null;
 }) {
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -253,6 +255,7 @@ function CreateOperatorModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const venueCommission = useVenueChicaCommission(open && !isOwner);
 
   useEffect(() => {
     if (open && !result) {
@@ -266,17 +269,24 @@ function CreateOperatorModal({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setSubmitting(true);
     setError(null);
+    const commissionBps = isOwner ? parsePercentToBps(commissionPct) : venueCommission.bps;
+    if (commissionBps === null) {
+      setError(
+        isOwner
+          ? 'Comisión inválida: un porcentaje de 0 a 100 (por ejemplo 15 o 15,5).'
+          : 'Falta la comisión del local: vuelve a cargarla.',
+      );
+      return;
+    }
+    setSubmitting(true);
     try {
-      const pct = parseFloat(commissionPct.replace(',', '.'));
-      if (!Number.isFinite(pct) || pct < 0 || pct > 100) throw new Error('Comisión inválida');
       const res = await createOperator({
         email: email.trim().toLowerCase(),
         displayName: displayName.trim(),
-        commissionBps: Math.round(pct * 100),
+        commissionBps,
       });
-      onCreated({ inviteUrl: res.inviteUrl, emailSent: res.emailSent });
+      onCreated({ inviteUrl: res.inviteUrl, emailSent: res.emailSent, notice: res.notice });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -291,7 +301,7 @@ function CreateOperatorModal({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      /* ignore */
+      setError('No se pudo copiar: selecciona el enlace y cópialo a mano.');
     }
   }
 
@@ -299,20 +309,26 @@ function CreateOperatorModal({
     <Modal open={open} onClose={onClose} title="Nueva operadora" width="32rem">
       {result ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <p style={{ margin: 0, fontSize: '0.95rem' }}>
-            ✅ Operadora creada.{' '}
+          <Notice tone="success">
+            Operadora creada.{' '}
             {result.emailSent
               ? 'Email de invitación enviado.'
-              : 'No hay SMTP configurado — copia el link y mándaselo por WhatsApp.'}
-          </p>
+              : 'No hay SMTP configurado: copia el enlace y mándaselo por WhatsApp.'}
+          </Notice>
+          {result.notice ? <Notice tone="info">{result.notice}</Notice> : null}
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
             <code style={urlCode}>{result.inviteUrl}</code>
             <Button variant="ghost" size="md" onClick={copy}>
-              {copied ? '✓ Copiado' : 'Copiar'}
+              {copied ? 'Copiado' : 'Copiar'}
             </Button>
           </div>
+          {error ? (
+            <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+              {error}
+            </p>
+          ) : null}
           <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
-            El link es válido durante 24 h y se invalida tras el primer uso.
+            El enlace vale 24 h y deja de valer tras el primer uso.
           </p>
           <Button onClick={onClose}>Cerrar</Button>
         </div>
@@ -323,6 +339,7 @@ function CreateOperatorModal({
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             required
+            maxLength={80}
             placeholder="Ana"
           />
           <Input
@@ -333,15 +350,27 @@ function CreateOperatorModal({
             required
             placeholder="ana@ejemplo.com"
           />
-          <Input
-            label="Comisión (%)"
-            type="text"
-            inputMode="decimal"
-            value={commissionPct}
-            onChange={(e) => setCommissionPct(e.target.value)}
-            required
-            hint="Ejemplo: 15 = 15%"
-          />
+          {isOwner ? (
+            <Input
+              label="Comisión (%)"
+              type="text"
+              inputMode="decimal"
+              value={commissionPct}
+              onChange={(e) => setCommissionPct(e.target.value)}
+              required
+              hint="Ejemplo: 15 = 15%"
+            />
+          ) : venueCommission.error ? (
+            <Notice tone="danger" action={{ label: 'Reintentar', onClick: venueCommission.retry }}>
+              No se pudo cargar la comisión del local: {venueCommission.error}
+            </Notice>
+          ) : (
+            <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
+              Comisión: la del local para servicios de chica
+              {venueCommission.bps !== null ? ` (${formatPercent(venueCommission.bps)})` : '…'}. Solo el dueño
+              puede cambiarla.
+            </p>
+          )}
           {error ? (
             <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
               {error}
@@ -351,8 +380,13 @@ function CreateOperatorModal({
             <Button variant="ghost" type="button" onClick={onClose} style={{ flex: 1 }}>
               Cancelar
             </Button>
-            <Button type="submit" loading={submitting} style={{ flex: 1 }}>
-              Crear y generar invite
+            <Button
+              type="submit"
+              loading={submitting}
+              disabled={!isOwner && venueCommission.bps === null}
+              style={{ flex: 1 }}
+            >
+              Crear y generar invitación
             </Button>
           </div>
         </form>
@@ -361,786 +395,23 @@ function CreateOperatorModal({
   );
 }
 
-function OperatorDetailModal({
-  operator,
-  isOwner,
-  onClose,
-  onChanged,
-}: {
-  operator: Operator;
-  isOwner: boolean;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const [earnings, setEarnings] = useState<OperatorEarning[]>([]);
-  const [payouts, setPayouts] = useState<OperatorPayout[]>([]);
-  const [tab, setTab] = useState<'earnings' | 'payouts' | 'edit' | 'onboarding'>('earnings');
-  const [error, setError] = useState<string | null>(null);
-  const [payoutOpen, setPayoutOpen] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([fetchOperatorEarnings(operator.id), fetchOperatorPayouts(operator.id)])
-      .then(([e, p]) => {
-        if (cancelled) return;
-        setEarnings(e);
-        setPayouts(p);
-      })
-      .catch((err) => !cancelled && setError((err as Error).message));
-    return () => {
-      cancelled = true;
-    };
-  }, [operator.id]);
-
-  const balance = operator.balance.pendingCents;
-  // Lo que un pago liquida hoy (comisiones con más de 7 días, menos deuda por
-  // devoluciones). Si el API es antiguo y no lo manda, cae al pendiente total.
-  const payable = operator.balance.availableCents ?? balance;
-
-  return (
-    <Modal open onClose={onClose} title={operator.displayName ?? operator.email} width="40rem">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            gap: '0.75rem',
-            padding: '1rem',
-            background: 'var(--np-surface)',
-            borderRadius: 'var(--np-r-md)',
-          }}
-        >
-          <span style={{ fontSize: '0.7rem', color: 'var(--np-text-dim)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            Saldo pendiente
-          </span>
-          <span
-            className="np-num"
-            style={{
-              fontSize: '1.75rem',
-              fontWeight: 600,
-              marginLeft: 'auto',
-              color: balance < 0 ? 'var(--np-danger)' : 'var(--np-success)',
-            }}
-          >
-            {(balance / 100).toFixed(2)} €
-          </span>
-          {isOwner && payable > 0 ? (
-            <Button onClick={() => setPayoutOpen(true)} size="md">
-              Marcar pagado
-            </Button>
-          ) : null}
-        </div>
-
-        {operator.balance.availableCents !== undefined ? (
-          <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem' }}>
-            A pagar ahora <strong className="np-num">{(Math.max(0, payable) / 100).toFixed(2)} €</strong>
-            {operator.balance.heldCents ? <> · en espera (menos de 7 días) {(operator.balance.heldCents / 100).toFixed(2)} €</> : null}
-            {operator.balance.debtCents ? (
-              <span style={{ color: 'var(--np-danger)' }}> · deuda por devoluciones {(operator.balance.debtCents / 100).toFixed(2)} €</span>
-            ) : null}
-          </p>
-        ) : null}
-
-        <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--np-border)', flexWrap: 'wrap' }}>
-          {(['earnings', 'payouts', 'edit', 'onboarding'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: tab === t ? 'var(--np-accent)' : 'var(--np-text-mute)',
-                padding: '0.5rem 1rem',
-                fontWeight: 500,
-                borderBottom: tab === t ? '2px solid var(--np-accent)' : '2px solid transparent',
-                cursor: 'pointer',
-              }}
-            >
-              {t === 'earnings'
-                ? 'Ganancias'
-                : t === 'payouts'
-                  ? 'Liquidaciones'
-                  : t === 'edit'
-                    ? 'Editar'
-                    : `Onboarding${operator.needsHelpWallet || operator.needsHelpDocs ? ' ⚠️' : ''}`}
-            </button>
-          ))}
-        </div>
-
-        {error ? <p style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
-
-        {tab === 'earnings' ? (
-          <EarningsTable earnings={earnings} />
-        ) : tab === 'payouts' ? (
-          <PayoutsTable payouts={payouts} />
-        ) : tab === 'edit' ? (
-          <EditOperatorForm operator={operator} isOwner={isOwner} onSaved={() => { onChanged(); onClose(); }} />
-        ) : (
-          <OnboardingForm operator={operator} onSaved={onChanged} />
-        )}
-      </div>
-
-      {payoutOpen ? (
-        <PayoutConfirmModal
-          operatorId={operator.id}
-          balanceCents={payable}
-          payoutMethod={operator.payoutMethod ?? null}
-          payoutAddress={operator.payoutAddress ?? null}
-          payoutLabel={operator.payoutLabel ?? null}
-          onClose={() => setPayoutOpen(false)}
-          onDone={() => {
-            setPayoutOpen(false);
-            onChanged();
-            onClose();
-          }}
-        />
-      ) : null}
-    </Modal>
-  );
+function onboardingDisplay(operator: Operator): { label: string; tone: Tone } {
+  const status = operator.onboardingStatus ?? 'NEW';
+  if (!operator.active) return { label: 'Inactiva', tone: 'neutral' };
+  if (status === 'READY') return { label: 'Operativa', tone: 'success' };
+  if (status === 'BLOCKED') return { label: 'Bloqueada', tone: 'danger' };
+  if (status === 'BINANCE_PENDING') return { label: 'KYC pendiente', tone: 'info' };
+  if (status === 'INVITE_ACTIVATED') return { label: 'Activada', tone: 'warning' };
+  if (status === 'PROFILE_CREATED') {
+    return { label: operator.invitedAt ? 'Invitada' : 'Perfil creado', tone: 'warning' };
+  }
+  if (operator.invitedAt) return { label: 'Invitada', tone: 'warning' };
+  return { label: 'Nueva', tone: 'neutral' };
 }
 
-function EarningsTable({ earnings }: { earnings: OperatorEarning[] }) {
-  if (earnings.length === 0) {
-    return <p style={emptyText}>Aún no hay ganancias.</p>;
-  }
-  return (
-    <div style={{ maxHeight: '24rem', overflowY: 'auto' }}>
-      <table className="np-table">
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th style={numCol}>Importe</th>
-            <th style={numCol}>Comisión</th>
-            <th>Estado</th>
-          </tr>
-        </thead>
-        <tbody>
-          {earnings.map((e) => (
-            <tr key={e.id}>
-              <td style={cellMeta}>{new Date(e.createdAt).toLocaleString('es-ES')}</td>
-              <td className="np-num" style={numCell}>
-                {(e.paymentAmountCents / 100).toFixed(2)} €
-              </td>
-              <td className="np-num" style={{ ...numCell, color: e.netCents < e.commissionCents ? 'var(--np-warning)' : 'var(--np-text)' }}>
-                {(e.netCents / 100).toFixed(2)} €{' '}
-                {e.reversedCents > 0 ? `(−${(e.reversedCents / 100).toFixed(2)})` : ''}
-              </td>
-              <td style={cellMeta}>{e.payoutId ? 'Liquidada' : 'Pendiente'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function PayoutsTable({ payouts }: { payouts: OperatorPayout[] }) {
-  if (payouts.length === 0) {
-    return <p style={emptyText}>Aún no hay liquidaciones.</p>;
-  }
-  return (
-    <div style={{ maxHeight: '24rem', overflowY: 'auto' }}>
-      <table className="np-table">
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th style={numCol}>Total</th>
-            <th style={numCol}>Earnings</th>
-            <th>Pagado por</th>
-          </tr>
-        </thead>
-        <tbody>
-          {payouts.map((p) => (
-            <tr key={p.id}>
-              <td style={cellMeta}>{new Date(p.createdAt).toLocaleString('es-ES')}</td>
-              <td className="np-num" style={numCell}>
-                {(p.totalCents / 100).toFixed(2)} €
-              </td>
-              <td className="np-num" style={numCell}>
-                {p.earningCount}
-              </td>
-              <td style={cellMeta}>{p.paidByEmail ?? '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function EditOperatorForm({
-  operator,
-  isOwner,
-  onSaved,
-}: {
-  operator: Operator;
-  isOwner: boolean;
-  onSaved: () => void;
-}) {
-  const [displayName, setDisplayName] = useState(operator.displayName ?? '');
-  const [commissionPct, setCommissionPct] = useState((operator.commissionBps / 100).toFixed(2));
-  const [active, setActive] = useState(operator.active);
-  const [payout, setPayout] = useState<{
-    method: PayoutMethod | null;
-    address: string | null;
-    metadata: PayoutMetadata | null;
-    label: string | null;
-  }>({
-    method: operator.payoutMethod ?? null,
-    address: operator.payoutAddress ?? null,
-    metadata: operator.payoutMetadata ?? null,
-    label: operator.payoutLabel ?? null,
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const pct = parseFloat(commissionPct.replace(',', '.'));
-      if (!Number.isFinite(pct) || pct < 0 || pct > 100) throw new Error('Comisión inválida');
-      // Validar que si hay method seleccionado, address esté informada (excepto MANUAL_CASH)
-      if (payout.method && payout.method !== 'MANUAL_CASH' && !payout.address) {
-        throw new Error('Falta la address/email/IBAN para el método seleccionado');
-      }
-      await updateOperator(operator.id, {
-        displayName,
-        commissionBps: Math.round(pct * 100),
-        active,
-        payoutMethod: payout.method,
-        payoutAddress: payout.address,
-        payoutMetadata: payout.metadata,
-        payoutLabel: payout.label,
-      });
-      onSaved();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <Input
-        label="Nombre"
-        value={displayName}
-        onChange={(e) => setDisplayName(e.target.value)}
-      />
-      <Input
-        label="Comisión (%)"
-        type="text"
-        inputMode="decimal"
-        value={commissionPct}
-        onChange={(e) => setCommissionPct(e.target.value)}
-      />
-      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
-        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-        Activa (puede crear cobros)
-      </label>
-
-      <div style={{
-        marginTop: '0.5rem',
-        paddingTop: '1rem',
-        borderTop: '1px solid var(--np-border)',
-      }}>
-        <h4 style={{
-          margin: '0 0 0.75rem',
-          fontSize: '0.7rem',
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          color: 'var(--np-text-dim)',
-          fontWeight: 500,
-        }}>
-          Acceso & contraseña
-        </h4>
-        <AccessPanel operator={operator} isOwner={isOwner} />
-      </div>
-
-      <div style={{
-        marginTop: '0.5rem',
-        paddingTop: '1rem',
-        borderTop: '1px solid var(--np-border)',
-      }}>
-        <h4 style={{
-          margin: '0 0 0.75rem',
-          fontSize: '0.7rem',
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          color: 'var(--np-text-dim)',
-          fontWeight: 500,
-        }}>
-          Routing del payout (Phase 1A)
-        </h4>
-        <PayoutMethodForm
-          method={payout.method}
-          address={payout.address}
-          metadata={payout.metadata}
-          label={payout.label}
-          onChange={setPayout}
-          disabled={submitting}
-        />
-      </div>
-
-      {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
-          {error}
-        </p>
-      ) : null}
-      <Button type="submit" loading={submitting}>
-        Guardar
-      </Button>
-    </form>
-  );
-}
-
-/**
- * Bloque dentro del modal Editar Operadora para gestionar acceso:
- *   - Si la operadora está pendiente (invitedAt!=null) → mostrar "Re-generar invite"
- *   - Solo el dueño (el API lo exige) → "Resetear contraseña" (pone una o random)
- * Las credenciales se muestran UNA vez tras la acción para copiar y mandar
- * por WhatsApp. NightPay no las persiste en claro.
- */
-function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boolean }) {
-  const [busy, setBusy] = useState<'invite' | 'reset' | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [inviteResult, setInviteResult] = useState<{ url: string; expiresAt: string } | null>(null);
-  const [resetResult, setResetResult] = useState<{ password: string } | null>(null);
-  const [explicitPass, setExplicitPass] = useState('');
-  const [showPass, setShowPass] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
-
-  async function handleRegenerateInvite() {
-    setBusy('invite');
-    setError(null);
-    setInviteResult(null);
-    setResetResult(null);
-    try {
-      const r = await regenerateInvite(operator.id);
-      setInviteResult({ url: r.inviteUrl, expiresAt: r.expiresAt });
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleResetPassword(explicit: boolean) {
-    setBusy('reset');
-    setError(null);
-    setInviteResult(null);
-    setResetResult(null);
-    try {
-      if (explicit && explicitPass.length < 8) {
-        throw new Error('Password mínimo 8 caracteres');
-      }
-      const r = await resetOperatorPassword(operator.id, explicit ? explicitPass : null);
-      setResetResult({ password: r.password });
-      setExplicitPass('');
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function copyToClipboard(text: string, kind: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(kind);
-      setTimeout(() => setCopied(null), 2500);
-    } catch {
-      /* ignore — browser sin clipboard API */
-    }
-  }
-
-  const isPending = Boolean(operator.invitedAt);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      <p style={{
-        margin: 0,
-        fontSize: '0.8125rem',
-        color: 'var(--np-text-mute)',
-      }}>
-        Estado: <strong style={{ color: isPending ? 'var(--np-warning, #b45309)' : 'var(--np-success)' }}>
-          {isPending ? 'Pendiente de activar' : 'Cuenta activada'}
-        </strong>
-        {' '}· Email: <code style={{ fontFamily: 'var(--np-font-mono)', fontSize: '0.78rem' }}>{operator.email}</code>
-      </p>
-
-      {/* Re-generar invite — solo para pending */}
-      {isPending ? (
-        <div>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={handleRegenerateInvite}
-            loading={busy === 'invite'}
-            disabled={busy !== null}
-          >
-            🔗 Re-generar invite link (24h)
-          </Button>
-          <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
-            Si el link original caducó o no llegó por email.
-          </p>
-        </div>
-      ) : null}
-
-      {inviteResult ? (
-        <div style={{
-          background: 'var(--np-surface-2)',
-          border: '1px solid var(--np-border)',
-          borderRadius: '0.5rem',
-          padding: '0.75rem',
-          display: 'flex', flexDirection: 'column', gap: '0.4rem',
-        }}>
-          <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>
-            ✅ Nuevo invite link — válido hasta {new Date(inviteResult.expiresAt).toLocaleString('es-ES')}
-          </p>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <code style={{
-              flex: 1,
-              fontFamily: 'var(--np-font-mono)',
-              fontSize: '0.72rem',
-              padding: '0.5rem',
-              background: 'var(--np-surface)',
-              borderRadius: '0.3rem',
-              wordBreak: 'break-all',
-            }}>{inviteResult.url}</code>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => copyToClipboard(inviteResult.url, 'invite')}
-            >
-              {copied === 'invite' ? '✓' : 'Copiar'}
-            </Button>
-          </div>
-          <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--np-text-dim)' }}>
-            Mánda este link por WhatsApp a la chica. Cuando lo abra y ponga su contraseña, el link se invalida.
-          </p>
-        </div>
-      ) : null}
-
-      {/* Resetear contraseña — solo el dueño (el API lo rechaza a los demás) */}
-      {isOwner ? (
-      <div>
-        <p style={{ margin: '0 0 0.3rem', fontSize: '0.8125rem', fontWeight: 500 }}>
-          Resetear contraseña
-        </p>
-        <p style={{ margin: '0 0 0.5rem', fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
-          Útil si la chica olvidó su contraseña. La verás UNA vez para copiarla.
-        </p>
-        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'stretch', marginBottom: '0.4rem' }}>
-          <input
-            type={showPass ? 'text' : 'password'}
-            value={explicitPass}
-            onChange={(e) => setExplicitPass(e.target.value)}
-            placeholder="Escribe una pass (mín 8) o deja vacío"
-            disabled={busy !== null}
-            style={{
-              flex: 1,
-              padding: '0.55rem',
-              borderRadius: '0.4rem',
-              border: '1px solid var(--np-border)',
-              background: 'var(--np-bg-input, var(--np-surface))',
-              color: 'var(--np-text)',
-              fontSize: '0.875rem',
-              fontFamily: showPass ? 'var(--np-font-mono)' : 'inherit',
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => setShowPass((s) => !s)}
-            title={showPass ? 'Ocultar' : 'Mostrar'}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--np-border)',
-              borderRadius: '0.4rem',
-              padding: '0 0.7rem',
-              cursor: 'pointer',
-              color: 'var(--np-text-mute)',
-            }}
-          >
-            {showPass ? '🙈' : '👁'}
-          </button>
-        </div>
-        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => handleResetPassword(true)}
-            disabled={busy !== null || explicitPass.length === 0}
-            loading={busy === 'reset' && explicitPass.length > 0}
-          >
-            Usar esta contraseña
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => handleResetPassword(false)}
-            disabled={busy !== null}
-            loading={busy === 'reset' && explicitPass.length === 0}
-          >
-            🎲 Generar aleatoria
-          </Button>
-        </div>
-      </div>
-      ) : null}
-
-      {resetResult ? (
-        <div style={{
-          background: 'var(--np-surface-2)',
-          border: '2px solid var(--np-success, #10b981)',
-          borderRadius: '0.5rem',
-          padding: '0.75rem',
-          display: 'flex', flexDirection: 'column', gap: '0.4rem',
-        }}>
-          <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>
-            ✅ Nueva contraseña — apúntala AHORA, no se mostrará otra vez
-          </p>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <code style={{
-              flex: 1,
-              fontFamily: 'var(--np-font-mono)',
-              fontSize: '1.05rem',
-              fontWeight: 600,
-              padding: '0.6rem',
-              background: 'var(--np-surface)',
-              borderRadius: '0.3rem',
-              textAlign: 'center',
-              letterSpacing: '0.05em',
-            }}>{resetResult.password}</code>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => copyToClipboard(resetResult.password, 'pass')}
-            >
-              {copied === 'pass' ? '✓' : 'Copiar'}
-            </Button>
-          </div>
-          <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--np-text-dim)' }}>
-            Email para login: <code>{operator.email}</code> · Mándale ambos por WhatsApp.
-          </p>
-        </div>
-      ) : null}
-
-      {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function PayoutConfirmModal({
-  operatorId,
-  balanceCents,
-  payoutMethod,
-  payoutAddress,
-  payoutLabel,
-  onClose,
-  onDone,
-}: {
-  operatorId: string;
-  balanceCents: number;
-  payoutMethod?: PayoutMethod | null;
-  payoutAddress?: string | null;
-  payoutLabel?: string | null;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [notes, setNotes] = useState('');
-  const [externalTxId, setExternalTxId] = useState('');
-  const [receiptUrl, setReceiptUrl] = useState('');
-  const [totpCode, setTotpCode] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [exchangeRate, setExchangeRate] = useState<{ rate: number } | null>(null);
-
-  const isAutoVerifiable =
-    payoutMethod &&
-    ['USDT_TRC20', 'USDT_BEP20', 'USDC_POLY', 'USDC_SOL'].includes(payoutMethod);
-
-  // Cargar tasa EUR→USDT solo si cripto
-  useEffect(() => {
-    if (!isAutoVerifiable) return;
-    fetchExchangeRate()
-      .then((r) => setExchangeRate({ rate: r.rate }))
-      .catch(() => setExchangeRate({ rate: 1.07 }));
-  }, [isAutoVerifiable]);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      // Crear el payout con referencia externa si la hay
-      const created = await createOperatorPayout(operatorId, {
-        notes: notes || undefined,
-        externalTxId: externalTxId.trim() || undefined,
-        externalRail: payoutMethod ?? undefined,
-        receiptUrl: receiptUrl.trim() || undefined,
-        totpCode: totpCode.trim() || undefined,
-      });
-      // Si admin pegó txhash + método cripto auto-verificable → llama verify
-      if (externalTxId.trim() && isAutoVerifiable && payoutMethod) {
-        try {
-          await verifyPayout(created.id, {
-            externalTxId: externalTxId.trim(),
-            externalRail: payoutMethod,
-            receiptUrl: receiptUrl.trim() || undefined,
-          });
-        } catch (verifyErr) {
-          // Si la verificación falla, el payout sigue creado. Mostramos warning.
-          // eslint-disable-next-line no-console
-          console.warn('Auto-verify falló:', (verifyErr as Error).message);
-        }
-      } else if (!isAutoVerifiable && externalTxId.trim()) {
-        // Método manual con referencia → admin puede marcar MANUAL_OK
-        try {
-          await confirmPayoutManual(created.id);
-        } catch (confErr) {
-          // eslint-disable-next-line no-console
-          console.warn('Confirm manual falló:', (confErr as Error).message);
-        }
-      }
-      onDone();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const balanceEur = balanceCents / 100;
-  const usdtEquiv = exchangeRate ? (balanceEur * exchangeRate.rate).toFixed(2) : null;
-
-  return (
-    <Modal open onClose={onClose} title="Marcar pagado" width="32rem">
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <p style={{ margin: 0, fontSize: '0.95rem' }}>
-          Saldo pendiente a liquidar:{' '}
-          <strong className="np-num">{balanceEur.toFixed(2)} €</strong>
-          {usdtEquiv ? (
-            <span style={{ color: 'var(--np-text-mute)', fontSize: '0.85rem', marginLeft: '0.5rem' }}>
-              ≈ {usdtEquiv} USDT
-            </span>
-          ) : null}
-        </p>
-
-        {payoutMethod ? (
-          <div style={{
-            background: 'var(--np-surface-2)',
-            border: '1px solid var(--np-border)',
-            borderRadius: 'var(--np-r-md)',
-            padding: '0.75rem 1rem',
-            fontSize: '0.85rem',
-          }}>
-            <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Método chica
-            </p>
-            <p style={{ margin: '0.25rem 0 0' }}>
-              <strong>{PAYOUT_METHOD_LABELS[payoutMethod]}</strong>
-            </p>
-            {payoutAddress ? (
-              <p style={{
-                margin: '0.25rem 0 0',
-                fontFamily: 'var(--np-font-mono)',
-                fontSize: '0.78rem',
-                color: 'var(--np-text-mute)',
-                wordBreak: 'break-all',
-              }}>
-                {payoutAddress}
-                <button
-                  type="button"
-                  onClick={() => navigator.clipboard?.writeText(payoutAddress)}
-                  style={{
-                    marginLeft: '0.5rem',
-                    background: 'none',
-                    border: '1px solid var(--np-border)',
-                    color: 'var(--np-text-mute)',
-                    fontSize: '0.7rem',
-                    padding: '0.15rem 0.5rem',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Copiar
-                </button>
-              </p>
-            ) : null}
-            {payoutLabel ? (
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-dim)' }}>
-                Alias: {payoutLabel}
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          <div style={{
-            background: 'var(--np-warning-bg, #fef3c7)',
-            border: '1px solid #fcd34d',
-            borderRadius: 'var(--np-r-md)',
-            padding: '0.75rem 1rem',
-            fontSize: '0.85rem',
-            color: '#78350f',
-          }}>
-            Esta chica no tiene método de payout configurado. Se marcará como MANUAL_CASH.
-            Configura su método en "Edit" antes para usar verificación automática.
-          </div>
-        )}
-
-        <Input
-          label={isAutoVerifiable ? 'Hash de la transacción on-chain' : 'Referencia externa (receipt ID, SEPA ref, etc.)'}
-          value={externalTxId}
-          onChange={(e) => setExternalTxId(e.target.value)}
-          placeholder={isAutoVerifiable ? '0x... o TxId Tron' : 'Receipt ID, número SEPA, etc.'}
-          hint={isAutoVerifiable ? 'Se verificará automáticamente contra el explorer.' : 'Opcional. Si lo pegas se marca MANUAL_OK.'}
-          maxLength={200}
-        />
-        <Input
-          label="Receipt URL (opcional, screenshot)"
-          value={receiptUrl}
-          onChange={(e) => setReceiptUrl(e.target.value)}
-          placeholder="https://..."
-          maxLength={500}
-        />
-        <Input
-          label="Notas (opcional)"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder='"Pagado vía Binance", "Wire SEPA enviado", etc.'
-          maxLength={500}
-        />
-        <Input
-          label="Código 2FA (si tienes la app de verificación activada)"
-          value={totpCode}
-          onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-          placeholder="123456"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={6}
-        />
-
-        {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
-            {error}
-          </p>
-        ) : null}
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <Button variant="ghost" type="button" onClick={onClose} style={{ flex: 1 }}>
-            Cancelar
-          </Button>
-          <Button type="submit" loading={submitting} style={{ flex: 1 }}>
-            Confirmar liquidación
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
+function OnboardingBadge({ operator }: { operator: Operator }) {
+  const display = onboardingDisplay(operator);
+  return <Pill tone={display.tone}>{display.label}</Pill>;
 }
 
 const sectionTitle: CSSProperties = {
@@ -1148,6 +419,17 @@ const sectionTitle: CSSProperties = {
   fontSize: 'var(--np-t-h2)',
   fontWeight: 600,
   letterSpacing: '-0.02em',
+};
+
+const helpFilter: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '0.5rem',
+  fontSize: '0.85rem',
+  border: '1px solid var(--np-border)',
+  borderRadius: 'var(--np-r-pill)',
+  padding: '0.4rem 0.875rem',
+  cursor: 'pointer',
 };
 
 const numCol: CSSProperties = { textAlign: 'right' };
@@ -1158,12 +440,6 @@ const emptyCell: CSSProperties = {
   color: 'var(--np-text-dim)',
   padding: '3rem 1rem',
   fontSize: '0.875rem',
-};
-const emptyText: CSSProperties = {
-  textAlign: 'center',
-  color: 'var(--np-text-dim)',
-  padding: '2rem 1rem',
-  margin: 0,
 };
 const urlCode: CSSProperties = {
   flex: 1,
@@ -1181,25 +457,3 @@ const urlCode: CSSProperties = {
   height: '3rem',
   minWidth: 0,
 };
-
-function OnboardingBadge({ operator }: { operator: Operator }) {
-  const status = operator.onboardingStatus ?? 'NEW';
-  const display: { label: string; color: string } = (() => {
-    if (!operator.active) return { label: 'Inactiva', color: 'var(--np-text-dim)' };
-    if (status === 'READY') return { label: '🟢 Operativa', color: 'var(--np-success)' };
-    if (status === 'BLOCKED') return { label: '🔴 Bloqueada', color: 'var(--np-danger)' };
-    if (status === 'BINANCE_PENDING') return { label: '🔵 KYC pending', color: 'var(--np-accent)' };
-    if (status === 'INVITE_ACTIVATED') return { label: '🟠 Activada', color: 'var(--np-warning, #f59e0b)' };
-    if (status === 'PROFILE_CREATED') {
-      if (operator.invitedAt) return { label: '🟡 Invitada', color: 'var(--np-warning, #f59e0b)' };
-      return { label: '🟡 Perfil creado', color: 'var(--np-warning, #f59e0b)' };
-    }
-    if (operator.invitedAt) return { label: '🟡 Invitada', color: 'var(--np-warning, #f59e0b)' };
-    return { label: '⚪ Nueva', color: 'var(--np-text-mute)' };
-  })();
-  return (
-    <span style={{ fontSize: '0.75rem', fontWeight: 500, color: display.color }}>
-      {display.label}
-    </span>
-  );
-}
