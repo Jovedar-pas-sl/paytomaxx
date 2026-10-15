@@ -5,9 +5,10 @@ import { PASSKEY_BROWSER_JS } from './passkey-browser';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, look "Club".
- * El estado se pinta en el navegador y se refresca cada pocos segundos: así le
- * aparece al momento el cobro que tiene que aceptar. Todo texto dinámico va
- * con textContent (nada de HTML inyectado).
+ * El estado se pinta en el navegador y se refresca cada pocos segundos: así ve
+ * al momento lo que acaba de pagar. Aquí no se paga (se paga con el QR de la
+ * chica o con el PIN): saldo, Face ID, movimientos y "Me voy". Todo texto
+ * dinámico va con textContent (nada de HTML inyectado).
  */
 
 interface WalletText {
@@ -17,9 +18,6 @@ interface WalletText {
   balance: string;
   codeHint: string;
   saveHint: string;
-  pendingTitle: string;
-  accept: string;
-  reject: string;
   movements: string;
   noMovements: string;
   leave: string;
@@ -44,9 +42,6 @@ const TEXT: Record<PayLanguage, WalletText> = {
     balance: 'Saldo',
     codeHint: 'Tu código de saldo (por si te lo pide el encargado)',
     saveHint: 'Guarda esta página (Compartir → Añadir a pantalla de inicio) para volver a tu saldo.',
-    pendingTitle: 'Te quieren cobrar',
-    accept: 'Aceptar',
-    reject: 'Rechazar',
     movements: 'Movimientos',
     noMovements: 'Aún no hay movimientos.',
     leave: 'Me voy: devolver mi saldo',
@@ -69,9 +64,6 @@ const TEXT: Record<PayLanguage, WalletText> = {
     balance: 'Balance',
     codeHint: 'Your balance code (in case the manager asks for it)',
     saveHint: 'Save this page (Share → Add to Home Screen) to come back to your balance.',
-    pendingTitle: 'Payment request',
-    accept: 'Accept',
-    reject: 'Decline',
     movements: 'Activity',
     noMovements: 'No activity yet.',
     leave: "I'm leaving: refund my balance",
@@ -115,9 +107,6 @@ p{margin:0;color:#b4b4ac;line-height:1.45}
 .qr{background:#fff;border-radius:12px;padding:10px;width:min(220px,70vw);margin:0 auto}
 .qr svg{display:block;width:100%;height:auto}
 .code{font-size:2.6rem;font-weight:800;letter-spacing:.2em;color:#d4ff3a;text-align:center;font-variant-numeric:tabular-nums}
-.pending{border-color:#d4ff3a;background:#141a06}
-.pending .amount{font-size:2.4rem;font-weight:800;color:#f5f5f0}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
 button{font:inherit;font-weight:800;border-radius:10px;padding:1rem;cursor:pointer;border:2px solid #d4ff3a;background:#d4ff3a;color:#0b0b0b;width:100%}
 button.alt{background:transparent;color:#f5f5f0;border-color:#3a3a3a}
 button:disabled{opacity:.55}
@@ -136,12 +125,6 @@ li .minus{color:#f5f5f0;font-weight:700}
 <section class="card" id="faceCard" hidden><p class="kick" id="faceTitle"></p><p id="faceHint"></p><button id="faceOn"></button></section>
 <p class="ok" id="faceNote" hidden></p>
 <section class="card" id="codeCard"><div class="code" id="code"></div><p id="codeHint" style="text-align:center"></p></section>
-<section class="card pending" id="pending" hidden>
-  <p class="kick" id="pendingTitle"></p>
-  <div class="amount" id="pendingAmount"></div>
-  <p id="pendingWho"></p>
-  <div class="row"><button class="alt" id="reject"></button><button id="accept"></button></div>
-</section>
 <p class="note" id="notice" hidden></p>
 <section class="card"><p class="kick" id="movementsTitle"></p><ul id="movements"></ul></section>
 <button class="alt" id="leave" hidden></button>
@@ -156,7 +139,6 @@ function $(id){return document.getElementById(id);}
 function eur(c){return (c/100).toLocaleString(C.locale,{style:'currency',currency:'EUR'});}
 function when(iso){return new Date(iso).toLocaleString(C.locale,{timeZone:'Europe/Madrid',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}
 $('title').textContent=T.title;$('balanceLabel').textContent=T.balance;$('codeHint').textContent=T.codeHint;
-$('pendingTitle').textContent=T.pendingTitle;$('accept').textContent=T.accept;$('reject').textContent=T.reject;
 $('movementsTitle').textContent=T.movements;$('leave').textContent=T.leave;$('saveHint').textContent=T.saveHint;
 $('lang').textContent=T.other.label;$('lang').href=C.base+'?lang='+T.other.code;
 $('faceTitle').textContent=T.faceIdTitle;$('faceHint').textContent=T.faceIdHint;$('faceOn').textContent=T.faceIdButton;
@@ -171,10 +153,6 @@ function render(s){
   $('faceCard').hidden=!active||s.hasFaceId;
   $('faceNote').hidden=!s.hasFaceId;$('faceNote').textContent=s.hasFaceId?T.faceIdOn:'';
   if(active&&!s.hasFaceId&&!pkSupported()){$('faceOn').hidden=true;$('faceHint').textContent=T.faceIdUnsupported;}
-  var p=s.pending;$('pending').hidden=!p;
-  if(p){$('pendingAmount').textContent=eur(p.amountCents);
-    $('pendingWho').textContent=[p.serviceName,p.requestedByName,p.venueName].filter(Boolean).join(' · ');
-    $('accept').dataset.id=p.id;$('reject').dataset.id=p.id;}
   var ul=$('movements');ul.textContent='';
   if(!s.movements.length){var e=document.createElement('li');e.textContent=T.noMovements;ul.appendChild(e);}
   s.movements.forEach(function(m){var li=document.createElement('li'),a=document.createElement('span'),b=document.createElement('span');
@@ -182,14 +160,12 @@ function render(s){
     b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=m.amountCents>0?'plus':'minus';
     li.appendChild(a);li.appendChild(b);ul.appendChild(li);});
 }
-function post(path){busy=true;$('accept').disabled=$('reject').disabled=$('leave').disabled=true;
+function post(path){busy=true;$('leave').disabled=true;
   return fetch(C.base+path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
    .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.detail||j.message||T.error);return j;});})
    .then(render).catch(function(e){alert(e.message||T.error);refresh();})
-   .finally(function(){busy=false;$('accept').disabled=$('reject').disabled=$('leave').disabled=false;});}
+   .finally(function(){busy=false;$('leave').disabled=false;});}
 function refresh(){if(busy)return;fetch(C.base+'/state',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(s){if(s)render(s);}).catch(function(){});}
-$('accept').addEventListener('click',function(){if(!busy)post('/requests/'+encodeURIComponent(this.dataset.id)+'/accept');});
-$('reject').addEventListener('click',function(){if(!busy)post('/requests/'+encodeURIComponent(this.dataset.id)+'/reject');});
 $('leave').addEventListener('click',function(){if(!busy&&confirm(T.leaveConfirm))post('/close');});
 $('faceOn').addEventListener('click',function(){if(busy)return;busy=true;$('faceOn').disabled=true;
   pkCreate(C.base+'/passkey/options').then(function(k){return pkPost(C.base+'/passkey',{response:k});})

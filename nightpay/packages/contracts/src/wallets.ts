@@ -76,45 +76,9 @@ export const CreateWalletTopUpSchema = z.object({
 });
 export type CreateWalletTopUpDto = z.infer<typeof CreateWalletTopUpSchema>;
 
-/** Cobra contra una wallet existente. */
-export const ConsumeWalletSchema = z.object({
-  amountCents: z.number().int().min(1).max(1_000_000),
-  category: z.string().min(1).max(40),
-  notes: z.string().max(500).optional(),
-  /**
-   * Propina opcional añadida al consumo. 100% va al providedBy (chica) si
-   * tipGoesTo='operator' o si es OPERATOR y no se especifica.
-   */
-  tipCents: z.number().int().nonnegative().max(500_000).optional(),
-  tipGoesTo: z.enum(['operator', 'venue', 'shared']).optional(),
-});
-export type ConsumeWalletDto = z.infer<typeof ConsumeWalletSchema>;
-
-export const ConsumeWalletResultSchema = z.object({
-  consumptionId: UuidSchema,
-  newBalanceCents: z.number().int().nonnegative(),
-  earningCreated: z.boolean(),
-  earningCommissionCents: z.number().int().nullable(),
-  /** Propinas asignadas al earning (si aplica). */
-  tipCents: z.number().int().nonnegative().optional(),
-});
-export type ConsumeWalletResult = z.infer<typeof ConsumeWalletResultSchema>;
-
-/** Refund manual del balance restante (PSP refund o crédito futuro). */
-export const RefundWalletSchema = z.object({
-  method: z.enum(['CARD', 'CREDIT']),
-  notes: z.string().max(500).optional(),
-});
-export type RefundWalletDto = z.infer<typeof RefundWalletSchema>;
-
-export const RefundWalletResultSchema = z.object({
-  walletId: UuidSchema,
-  method: z.enum(['CARD', 'CREDIT']),
-  refundedCents: z.number().int().nonnegative(),
-  newStatus: ClientClientWalletStatusSchema,
-  expiresAt: z.string().datetime().nullable(),
-});
-export type RefundWalletResult = z.infer<typeof RefundWalletResultSchema>;
+// Cobrar del saldo: con el QR de la chica (Face ID) o con su código / ficha y
+// su PIN (/v1/wallet-charges). Ya no hay cobro directo sin el cliente.
+// Devolver el saldo: /v1/wallet-charges/wallets/:id/payout (tarjeta o efectivo).
 
 /** Rollback de un consumo concreto. */
 export const ReverseConsumptionSchema = z.object({

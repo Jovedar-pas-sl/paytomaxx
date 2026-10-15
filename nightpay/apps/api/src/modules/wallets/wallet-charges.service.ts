@@ -11,15 +11,17 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { isWalletCardToken, normalizeWalletCardUid, type Role } from '@nightpay/contracts';
+import type { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { resolveBpsForOperator, resolveRevenueCategory, type RevenueCategory } from '../payments/commission';
 import { applyServiceItem } from '../payments/service-item';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
+import { reopenData } from './wallet-activation';
+import { mergedWalletIds } from './wallet-merge-chain';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
-  CHARGE_REQUEST_TTL_MS,
   allocateCardRefund,
   decideAccept,
   effectiveRequestStatus,
@@ -43,7 +45,12 @@ export interface WalletLookup {
   isHomeVenue: boolean;
   /** El cliente pulsó "Me voy". */
   closeRequested: boolean;
-  pendingRequest: boolean;
+  /**
+   * @deprecated Siempre false: ya no hay cobros que el cliente acepte en su
+   * página (se paga con el QR de la chica o con el PIN). Se deja para no
+   * romper las apps que aún lo leen.
+   */
+  pendingRequest: false;
   /** Puede pagar sin sacar el móvil, con su PIN. */
   hasPin: boolean;
   /** 5 PIN fallidos: hasta que lo desbloquee el encargado. */
@@ -96,14 +103,6 @@ export interface ClientWalletState {
   closeRequested: boolean;
   /** El cliente activó Face ID (paga escaneando el QR de la chica). */
   hasFaceId: boolean;
-  pending: {
-    id: string;
-    amountCents: number;
-    serviceName: string | null;
-    requestedByName: string;
-    venueName: string;
-    expiresAt: string;
-  } | null;
   movements: Array<{
     kind: 'topup' | 'consumption' | 'payout';
     amountCents: number;
@@ -124,9 +123,10 @@ const REQUEST_ERRORS: Record<'not-pending' | 'expired' | 'wallet-closed' | 'insu
 };
 
 /**
- * Saldo NightPay. La chica encuentra el saldo por el código que enseña el
- * cliente y le pide un cobro; el cliente lo acepta en su móvil. Al irse, el
- * encargado le devuelve el saldo a la tarjeta (hecho en BBVA) o en efectivo.
+ * Saldo NightPay. La chica hace el cobro con un QR: el cliente lo paga desde
+ * su móvil con Face ID o, sin sacar el móvil, con su código o su ficha NFC y
+ * su PIN; sin batería, lo aprueba otro encargado. Al irse, el encargado le
+ * devuelve el saldo a la tarjeta (hecho en BBVA) o en efectivo.
  */
 @Injectable()
 export class WalletChargesService {
@@ -161,7 +161,7 @@ export class WalletChargesService {
       this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: walletId } })),
       this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: { walletGroup: true } }),
     ]);
-    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    const manager = isManager(actor);
     if (
       !wallet ||
       !sameWalletGroup(wallet, { id: actor.tenantId, walletGroup: venue?.walletGroup ?? null }) ||
@@ -176,9 +176,8 @@ export class WalletChargesService {
     venueId: string,
     wallet: Awaited<ReturnType<WalletChargesService['walletByCode']>>,
   ): Promise<WalletLookup> {
-    const [home, pending, cards] = await Promise.all([
+    const [home, cards] = await Promise.all([
       this.prisma.venue.findUnique({ where: { id: wallet.tenantId }, select: { name: true } }),
-      this.pendingOf(wallet.id),
       this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId: wallet.id, status: 'ACTIVE' } })),
     ]);
     return {
@@ -189,55 +188,11 @@ export class WalletChargesService {
       homeVenueName: home?.name ?? '',
       isHomeVenue: wallet.tenantId === venueId,
       closeRequested: wallet.closeRequestedAt !== null,
-      pendingRequest: pending !== null,
+      pendingRequest: false,
       hasPin: wallet.pinHash !== null,
       pinLocked: wallet.pinLockedAt !== null,
       hasCard: cards > 0,
     };
-  }
-
-  /**
-   * Pide un cobro del saldo: con un servicio de la carta (precio y categoría
-   * del local) o un importe. El cliente lo tiene que aceptar en su móvil.
-   */
-  async createRequest(
-    actor: Actor,
-    input: { code: string; serviceItemId?: string; amountCents?: number; category?: string },
-  ): Promise<ChargeRequestView> {
-    const wallet = await this.walletByCode(actor.tenantId, input.code);
-    if (await this.hasFaceId(wallet.id)) {
-      throw new ConflictException('Este cliente paga con Face ID: enséñale el QR del cobro');
-    }
-    const { amountCents, category, serviceName } = await this.resolveCharge(actor, input);
-    const request = await this.prisma.acrossVenues(async (tx) => {
-      const locked = await tx.$queryRaw<Array<{ balanceCents: number; status: string }>>`
-        SELECT "balanceCents", status::text AS status FROM client_wallets WHERE id = ${wallet.id}::uuid FOR UPDATE
-      `;
-      const w = locked[0];
-      if (!w || w.status !== 'ACTIVE') throw new ConflictException('Este saldo ya está cerrado');
-      if (amountCents > w.balanceCents) {
-        throw new ConflictException(`Al cliente le quedan ${eur(w.balanceCents)}: no llega para ${eur(amountCents)}`);
-      }
-      const now = new Date();
-      await tx.walletChargeRequest.updateMany({
-        where: { walletId: wallet.id, status: 'PENDING', expiresAt: { lte: now } },
-        data: { status: 'EXPIRED', decidedAt: now },
-      });
-      const pending = await tx.walletChargeRequest.findFirst({ where: { walletId: wallet.id, status: 'PENDING' } });
-      if (pending) throw new ConflictException('El cliente tiene otro cobro esperando su confirmación');
-      return tx.walletChargeRequest.create({
-        data: {
-          tenantId: actor.tenantId,
-          walletId: wallet.id,
-          requestedByUserId: actor.userId,
-          amountCents,
-          category,
-          serviceName,
-          expiresAt: new Date(now.getTime() + CHARGE_REQUEST_TTL_MS),
-        },
-      });
-    });
-    return this.requestView(request, null);
   }
 
   /** Importe, categoría y nombre del cobro: de la carta o tecleado (con el tope de la chica). */
@@ -283,12 +238,9 @@ export class WalletChargesService {
     return { amountCents, category, serviceName };
   }
 
-  /** La chica espera la respuesta del cliente. */
+  /** La chica espera a que el cliente pague (solo la que lo hizo, o el encargado). */
   async getRequest(actor: Actor, requestId: string): Promise<ChargeRequestView> {
-    const request = await this.prisma.asSystem((tx) =>
-      tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId } }),
-    );
-    if (!request) throw new NotFoundException('Cobro no encontrado');
+    const request = await this.ownRequest(actor, requestId);
     const walletId = request.walletId;
     const wallet = walletId
       ? await this.prisma.acrossVenues((tx) =>
@@ -298,7 +250,9 @@ export class WalletChargesService {
     return this.requestView(request, request.status === 'ACCEPTED' ? (wallet?.balanceCents ?? null) : null);
   }
 
+  /** Retirar el cobro: la chica que lo hizo o el encargado. */
   async cancelRequest(actor: Actor, requestId: string): Promise<{ ok: true }> {
+    await this.ownRequest(actor, requestId);
     const res = await this.prisma.asSystem((tx) =>
       tx.walletChargeRequest.updateMany({
         where: { id: requestId, tenantId: actor.tenantId, status: 'PENDING' },
@@ -309,12 +263,26 @@ export class WalletChargesService {
     return { ok: true };
   }
 
+  /**
+   * Un cobro de este local que puede ver quien lo pide: la persona que lo hizo
+   * o el encargado / dueño. Al resto, como si no existiera (ni su importe ni
+   * en qué saldo se cobró).
+   */
+  private async ownRequest(actor: Actor, requestId: string) {
+    const request = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId } }),
+    );
+    if (!request || (request.requestedByUserId !== actor.userId && !isManager(actor))) {
+      throw new NotFoundException('Cobro no encontrado');
+    }
+    return request;
+  }
+
   // ─── Cliente (página de su saldo, sin cuenta: el enlace es la credencial) ──
 
   async clientState(qrToken: string): Promise<ClientWalletState> {
     const wallet = await this.walletByToken(qrToken);
-    const [pending, consumptions, topUps, payouts] = await Promise.all([
-      this.pendingOf(wallet.id),
+    const [consumptions, topUps, payouts] = await Promise.all([
       this.prisma.asSystem((tx) =>
         tx.walletConsumption.findMany({
           where: { walletId: wallet.id, reversedAt: null },
@@ -333,23 +301,17 @@ export class WalletChargesService {
       ),
       this.prisma.asSystem((tx) =>
         tx.walletPayout.findMany({
-          where: { walletId: wallet.id },
+          // Solo las hechas (una a la tarjeta a medias aún no es una devolución).
+          where: { walletId: wallet.id, status: 'DONE' },
           orderBy: { createdAt: 'desc' },
           select: { amountCents: true, method: true, tenantId: true, createdAt: true },
         }),
       ),
     ]);
     const hasFaceId = (await this.prisma.walletPasskey.count({ where: { walletId: wallet.id } })) > 0;
-    const venueIds = [
-      ...new Set([...consumptions, ...topUps, ...payouts].map((m) => m.tenantId).concat(pending ? [pending.tenantId] : [])),
-    ];
+    const venueIds = [...new Set([...consumptions, ...topUps, ...payouts].map((m) => m.tenantId))];
     const venues = await this.prisma.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true } });
     const venueName = (id: string): string => venues.find((v) => v.id === id)?.name ?? '';
-    const requester = pending
-      ? await this.prisma.asSystem((tx) =>
-          tx.user.findUnique({ where: { id: pending.requestedByUserId }, select: { displayName: true } }),
-        )
-      : null;
 
     const movements: ClientWalletState['movements'] = [
       ...consumptions.map((c) => ({
@@ -381,62 +343,33 @@ export class WalletChargesService {
       status: wallet.status,
       closeRequested: wallet.closeRequestedAt !== null,
       hasFaceId,
-      pending: pending
-        ? {
-            id: pending.id,
-            amountCents: pending.amountCents,
-            serviceName: pending.serviceName,
-            requestedByName: requester?.displayName ?? 'El personal',
-            venueName: venueName(pending.tenantId),
-            expiresAt: pending.expiresAt.toISOString(),
-          }
-        : null,
       movements,
     };
   }
 
   /**
-   * El cliente acepta: en una transacción con la wallet bloqueada se descuenta
-   * el saldo, se apunta el consumo en el local donde se cobra y la parte de la
-   * chica (con la comisión de esa categoría en ese local).
-   */
-  async accept(qrToken: string, requestId: string): Promise<ClientWalletState> {
-    const wallet = await this.walletByToken(qrToken);
-    // Con Face ID activado, el enlace ya no paga: aunque alguien lo tenga, sin
-    // su móvil no puede gastar el saldo.
-    if (await this.hasFaceId(wallet.id)) {
-      throw new ForbiddenException('Tu saldo se paga con Face ID: escanea el QR del cobro');
-    }
-    // Sin local en el contexto y con bypass de RLS: la wallet, el consumo y la
-    // parte de la chica pueden ser de locales distintos del grupo.
-    await this.settleRequest(wallet.id, requestId);
-    this.logger.log(`Saldo ${wallet.id}: cobro ${requestId} aceptado por el cliente`);
-    return this.clientState(qrToken);
-  }
-
-  /**
-   * Cobra un cobro pendiente de este saldo: con el saldo bloqueado se
+   * Ata el cobro con QR a este saldo y lo cobra: con el saldo bloqueado se
    * descuenta, se apunta el consumo en el local donde se cobra y la parte de
-   * la chica (con la comisión de esa categoría en ese local).
+   * la chica (con la comisión de esa categoría en ese local). Sin local en el
+   * contexto y con bypass de RLS: el saldo, el consumo y la parte de la chica
+   * pueden ser de locales distintos del grupo. Todo o nada: si algo falla, el
+   * rollback deja el cobro libre otra vez.
    */
-  private async settleRequest(walletId: string, requestId: string, bind = false): Promise<void> {
+  private async settleRequest(walletId: string, requestId: string): Promise<void> {
     const wallet = { id: walletId };
     await this.prisma.acrossVenues(async (tx) => {
       const locked = await tx.$queryRaw<Array<{ id: string; balanceCents: number; status: string }>>`
         SELECT id, "balanceCents", status::text AS status FROM client_wallets WHERE id = ${wallet.id}::uuid FOR UPDATE
       `;
       const w = locked[0];
-      if (bind && w) {
-        // Cobro con QR: se ata a este saldo aquí mismo; si algo falla, el
-        // rollback lo deja libre otra vez (nada queda atado a medias).
-        const bound = await tx.walletChargeRequest.updateMany({
-          where: { id: requestId, walletId: null, status: 'PENDING' },
-          data: { walletId: wallet.id },
-        });
-        if (bound.count === 0) throw new ConflictException(REQUEST_ERRORS['not-pending']);
-      }
+      if (!w) throw new NotFoundException('Saldo no encontrado');
+      const bound = await tx.walletChargeRequest.updateMany({
+        where: { id: requestId, walletId: null, status: 'PENDING' },
+        data: { walletId: wallet.id },
+      });
+      if (bound.count === 0) throw new ConflictException(REQUEST_ERRORS['not-pending']);
       const request = await tx.walletChargeRequest.findFirst({ where: { id: requestId, walletId: wallet.id } });
-      if (!w || !request) throw new NotFoundException('Cobro no encontrado');
+      if (!request) throw new NotFoundException('Cobro no encontrado');
       const decision = decideAccept(request, w, new Date());
       if (!decision.ok) throw new ConflictException(REQUEST_ERRORS[decision.reason]);
 
@@ -558,7 +491,7 @@ export class WalletChargesService {
 
   /** Encargado o dueño: cobros con QR que nadie ha pagado aún (cliente sin batería…). */
   async pendingQrCharges(actor: Actor): Promise<PendingQrCharge[]> {
-    if (actor.role !== 'OWNER' && actor.role !== 'MANAGER') throw new ForbiddenException('Solo el encargado o el dueño');
+    if (!isManager(actor)) throw new ForbiddenException('Solo el encargado o el dueño');
     const now = new Date();
     const rows = await this.prisma.asSystem((tx) =>
       tx.walletChargeRequest.findMany({
@@ -621,12 +554,32 @@ export class WalletChargesService {
   async mergeInto(sourceWalletId: string, targetWalletId: string): Promise<{ balanceCents: number }> {
     if (sourceWalletId === targetWalletId) throw new ConflictException('Es el mismo saldo');
     const result = await this.prisma.acrossVenues(async (tx) => {
-      // Siempre en el mismo orden: dos fusiones a la vez no se bloquean entre sí.
+      // 1) Los pagos a medias de la recarga, bloqueados ANTES que los saldos
+      //    (el mismo orden que el cobro: pago → saldo, sin abrazos mortales).
+      //    Un cobro que se está confirmando ahora mismo termina antes (y lo
+      //    que suma ya cuenta aquí); uno que llegue después espera a que esto
+      //    acabe. ORPHAN también: la conciliación aún lo puede dar por pagado.
+      const open = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM payments
+         WHERE "walletId" = ${sourceWalletId}::uuid
+           AND status IN ('CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING', 'ORPHAN')
+         FOR UPDATE
+      `;
+      if (open.length > 0) throw new ConflictException('Esta recarga tiene otro pago a medias: inténtalo en unos minutos');
+      // 2) Los dos saldos, siempre en el mismo orden: dos fusiones a la vez no se bloquean entre sí.
       const ids = [sourceWalletId, targetWalletId].sort();
       const rows = await tx.$queryRaw<
-        Array<{ id: string; tenantId: string; walletGroup: string | null; balanceCents: number; status: string }>
+        Array<{
+          id: string;
+          tenantId: string;
+          walletGroup: string | null;
+          balanceCents: number;
+          status: string;
+          shortCode: string | null;
+          mergedIntoId: string | null;
+        }>
       >`
-        SELECT id, "tenantId", "walletGroup", "balanceCents", status::text AS status
+        SELECT id, "tenantId", "walletGroup", "balanceCents", status::text AS status, "shortCode", "mergedIntoId"
           FROM client_wallets WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE
       `;
       const source = rows.find((r) => r.id === sourceWalletId);
@@ -635,17 +588,19 @@ export class WalletChargesService {
       if (!sameWalletGroup(target, { id: source.tenantId, walletGroup: source.walletGroup })) {
         throw new ConflictException('Ese saldo es de otro local: no se pueden juntar');
       }
-      if (source.status !== 'ACTIVE' || source.balanceCents <= 0) throw new ConflictException('Esta recarga ya no se puede sumar');
-      if (target.status !== 'ACTIVE' && target.status !== 'DEPLETED') throw new ConflictException('Tu saldo está cerrado');
+      if (source.status !== 'ACTIVE' || source.balanceCents <= 0 || source.mergedIntoId) {
+        throw new ConflictException('Esta recarga ya no se puede sumar');
+      }
+      // Un saldo ya sumado a otro no recibe dinero: el del cliente es aquel.
+      if ((target.status !== 'ACTIVE' && target.status !== 'DEPLETED') || target.mergedIntoId) {
+        throw new ConflictException('Tu saldo está cerrado');
+      }
       const keys = await tx.walletPasskey.count({ where: { walletId: sourceWalletId } });
       if (keys > 0) throw new ConflictException('Esta recarga ya tiene su propio Face ID');
-      const open = await tx.payment.count({
-        where: { walletId: sourceWalletId, status: { in: ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING'] } },
-      });
-      if (open > 0) throw new ConflictException('Esta recarga tiene otro pago a medias: inténtalo en unos minutos');
+      // A 0 (DEPLETED) se reabre; si su código lo tiene ya otro cliente, con uno nuevo.
       await tx.clientWallet.update({
         where: { id: targetWalletId },
-        data: { balanceCents: { increment: source.balanceCents }, status: 'ACTIVE' },
+        data: { balanceCents: { increment: source.balanceCents }, ...(await reopenData(tx, target)) },
       });
       await tx.clientWallet.update({
         where: { id: sourceWalletId },
@@ -674,7 +629,7 @@ export class WalletChargesService {
       tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId, payToken: { not: null } } }),
     );
     if (!request) throw new NotFoundException('Cobro no encontrado');
-    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    const manager = isManager(actor);
     if (request.requestedByUserId !== actor.userId && !manager) {
       throw new ForbiddenException('Este cobro lo ha hecho otra persona');
     }
@@ -703,6 +658,21 @@ export class WalletChargesService {
   }
 
   // ─── Ficha NFC (dice de qué saldo es; el cliente pone su PIN) ──────────
+  //
+  // Límite conocido (iPhone): Safari no lee NFC; el propio iPhone abre el
+  // enlace grabado en la ficha y la app recibe solo {card} (el código), sin el
+  // número de serie (uid). Así, con un iPhone no se puede ver si la ficha es
+  // una copia (alguien que copió el enlace en otra ficha o lo tiene a mano):
+  // la comprobación del uid solo vale cuando la lee un Android (o cuando la
+  // ficha ya tiene uid y el móvil lo manda). Por eso la ficha nunca basta para
+  // pagar: siempre hace falta el PIN del cliente (5 fallos → bloqueado, ver
+  // checkPin), igual que con el código. Una ficha perdida se bloquea (blockCard).
+  //
+  // Las fichas (wallet_cards) no tienen local ni RLS: una ficha se graba en
+  // blanco y luego se da a un saldo de cualquier local del grupo. El acceso va
+  // siempre por el saldo: walletByCard y linkCard comprueban que el saldo vale
+  // en el local de quien la usa (sameWalletGroup) y las lecturas van con
+  // acrossVenues; blockCard pasa por managerWallet (mismo grupo).
 
   /** La chica acerca la ficha: su saldo (si vale en este local). */
   async lookupCard(venueId: string, input: { card: string; uid?: string | null }): Promise<WalletLookup> {
@@ -728,7 +698,7 @@ export class WalletChargesService {
     if (!isWalletCardToken(input.card)) throw new BadRequestException('Esta ficha no es nuestra: grábala otra vez');
     const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
     const wallet = await this.walletByCode(actor.tenantId, input.code);
-    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    const manager = isManager(actor);
     if (!manager && !(await this.freshTopUpBy(wallet.id, actor.userId))) {
       throw new UnprocessableEntityException('La ficha se da justo al recargar (o con el encargado)');
     }
@@ -806,6 +776,8 @@ export class WalletChargesService {
       throw new NotFoundException('Esta ficha no tiene saldo: dásela al cliente al recargar');
     }
     const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
+    // Sin uid (la lee un iPhone) no se puede comprobar que sea la original:
+    // vale solo para saber de qué saldo es; pagar sigue pidiendo su PIN.
     if (card.uid && uid && card.uid !== uid) {
       this.logger.warn(`Ficha ${card.id}: número de serie distinto (¿copia?)`);
       throw new ConflictException('Esta ficha no es la original (¿copiada?): avisa al encargado');
@@ -834,7 +806,7 @@ export class WalletChargesService {
   async setPin(actor: Actor, input: { code: string; pin: string }): Promise<WalletLookup> {
     const wallet = await this.walletByCode(actor.tenantId, input.code);
     const fresh = await this.freshTopUpBy(wallet.id, actor.userId);
-    if (!fresh && actor.role !== 'MANAGER' && actor.role !== 'OWNER') {
+    if (!fresh && !isManager(actor)) {
       throw new UnprocessableEntityException('Este saldo no tiene PIN: que lo elija con el encargado (o en su móvil al recargar)');
     }
     await this.storeFirstPin(wallet.id, input.pin, fresh ? null : actor.userId);
@@ -1021,12 +993,7 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: request.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new ConflictException('Tu saldo no vale en este local');
     }
-    await this.settleRequest(walletId, request.id, true);
-  }
-
-  private async hasFaceId(walletId: string): Promise<boolean> {
-    const keys = await this.prisma.acrossVenues((tx) => tx.walletPasskey.count({ where: { walletId } }));
-    return keys > 0;
+    await this.settleRequest(walletId, request.id);
   }
 
   private async qrRequest(payToken: string) {
@@ -1036,7 +1003,7 @@ export class WalletChargesService {
   }
 
   private async managerWallet(actor: Actor, walletId: string): Promise<void> {
-    if (actor.role !== 'OWNER' && actor.role !== 'MANAGER') {
+    if (!isManager(actor)) {
       throw new ForbiddenException('Solo el encargado o el dueño');
     }
     const venue = await this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: { walletGroup: true } });
@@ -1046,18 +1013,6 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: actor.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new NotFoundException('Saldo no encontrado');
     }
-  }
-
-  async reject(qrToken: string, requestId: string): Promise<ClientWalletState> {
-    const wallet = await this.walletByToken(qrToken);
-    const res = await this.prisma.asSystem((tx) =>
-      tx.walletChargeRequest.updateMany({
-        where: { id: requestId, walletId: wallet.id, status: 'PENDING' },
-        data: { status: 'REJECTED', decidedAt: new Date() },
-      }),
-    );
-    if (res.count === 0) throw new ConflictException('Este cobro ya no está pendiente');
-    return this.clientState(qrToken);
   }
 
   /** "Me voy": el cliente pide que le devuelvan el saldo (sale en Incidencias). */
@@ -1086,9 +1041,9 @@ export class WalletChargesService {
 
   /**
    * Devuelve todo el saldo y cierra la wallet.
-   *  - CASH: en efectivo en el local (dueño o encargado).
+   *  - CASH: en efectivo en el local (dueño o encargado), en una transacción.
    *  - CARD: ya hecho en el portal de BBVA (solo el dueño): se reparte entre
-   *    las recargas y se apunta como devolución de cada una.
+   *    las recargas y se apunta como devolución de cada una (payoutCard).
    */
   async payout(
     actor: Actor,
@@ -1098,7 +1053,7 @@ export class WalletChargesService {
     if (input.method === 'CARD' && actor.role !== 'OWNER') {
       throw new ForbiddenException('La devolución a la tarjeta la registra el dueño (se hace en el portal de BBVA)');
     }
-    if (input.method === 'CASH' && actor.role !== 'OWNER' && actor.role !== 'MANAGER') {
+    if (input.method === 'CASH' && !isManager(actor)) {
       throw new ForbiddenException('Devolver en efectivo lo hace el encargado');
     }
     const venue = await this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: { walletGroup: true } });
@@ -1114,47 +1069,164 @@ export class WalletChargesService {
     if (actor.role === 'MANAGER' && !wallet.closeRequestedAt) {
       throw new ForbiddenException('El cliente tiene que pulsar «Me voy» en su página de saldo (o que lo haga el dueño)');
     }
+    return input.method === 'CASH' ? this.payoutCash(actor, walletId, input) : this.payoutCard(actor, walletId, input);
+  }
 
-    // 1) Se congela el saldo: mientras se devuelve no se puede gastar.
-    const frozen = await this.prisma.acrossVenues(async (tx) => {
-      const rows = await tx.$queryRaw<Array<{ balanceCents: number; status: string }>>`
-        SELECT "balanceCents", status::text AS status FROM client_wallets WHERE id = ${walletId}::uuid FOR UPDATE
-      `;
-      const w = rows[0];
+  /** En efectivo: en una sola transacción se cierra el saldo y se apunta la devolución. */
+  private async payoutCash(
+    actor: Actor,
+    walletId: string,
+    input: { bankReference?: string; note?: string },
+  ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
+    const amount = await this.prisma.acrossVenues(async (tx) => {
+      const w = await lockWallet(tx, walletId);
       if (!w || w.status !== 'ACTIVE' || w.balanceCents <= 0) {
-        throw new ConflictException('Este saldo no tiene nada que devolver');
+        const halfDone = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+        throw new ConflictException(
+          halfDone
+            ? `Hay una devolución a la tarjeta de ${eur(halfDone.amountCents)} a medias: que el dueño vuelva a pulsar «A la tarjeta» para terminarla`
+            : 'Este saldo no tiene nada que devolver',
+        );
       }
-      await tx.clientWallet.update({ where: { id: walletId }, data: { status: 'REFUNDED' } });
-      await tx.walletChargeRequest.updateMany({
-        where: { walletId, status: 'PENDING' },
-        data: { status: 'CANCELED', decidedAt: new Date() },
+      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: 0, status: 'REFUNDED' } });
+      await tx.walletPayout.create({
+        data: {
+          tenantId: actor.tenantId,
+          walletId,
+          amountCents: w.balanceCents,
+          method: 'CASH',
+          status: 'DONE',
+          bankReference: input.bankReference ?? null,
+          note: input.note ?? null,
+          paidByUserId: actor.userId,
+        },
       });
       return w.balanceCents;
     });
-
-    // 2) Tarjeta: una devolución apuntada por recarga (ya hecha en BBVA).
-    let refunded = 0;
-    try {
-      refunded = input.method === 'CARD' ? await this.refundToCard(actor, walletId, frozen, input.bankReference) : frozen;
-    } finally {
-      // 3) Se descuenta lo devuelto; si faltó algo, la wallet vuelve a abrirse con el resto.
-      await this.settlePayout(actor, walletId, frozen, refunded, input);
-    }
-    const remaining = frozen - refunded;
     await this.audit.log({
       action: 'wallet.payout',
       tenantId: actor.tenantId,
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: walletId,
-      payload: { method: input.method, refundedCents: refunded, remainingCents: remaining },
+      payload: { method: 'CASH', refundedCents: amount, remainingCents: 0 },
     });
-    if (remaining > 0) {
+    return { refundedCents: amount, method: 'CASH' };
+  }
+
+  /**
+   * A la tarjeta (ya hecha en el portal de BBVA), en pasos que se pueden retomar:
+   *  1) el saldo pasa a una devolución PENDING (la wallet sigue abierta, a 0: no se gasta);
+   *  2) se apunta en cada recarga lo que falte (lo ya apuntado por esta devolución no se repite);
+   *  3) en una transacción, la devolución queda hecha por lo apuntado, lo que no se pudo
+   *     apuntar vuelve al saldo y la wallet se cierra si se quedó a 0.
+   * Si el proceso se cae entre 1 y 3, la PENDING guarda el importe y, al volver a
+   * pulsar (pasados unos minutos), se retoma donde se quedó.
+   */
+  private async payoutCard(
+    actor: Actor,
+    walletId: string,
+    input: { bankReference?: string; note?: string },
+  ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
+    const pending = await this.claimCardPayout(actor, walletId, input);
+    let outcome = { refunded: 0, remaining: pending.amountCents };
+    try {
+      const already = await this.prisma.acrossVenues((tx) => registeredSince(tx, walletId, pending.createdAt));
+      const missing = pending.amountCents - already;
+      if (missing > 0) await this.refundToCard(actor, walletId, missing, pending.bankReference ?? undefined);
+    } finally {
+      // Siempre (aunque algo falle): lo apuntado sale del saldo y lo que no, vuelve.
+      outcome = await this.completeCardPayout(walletId, pending);
+      await this.audit.log({
+        action: 'wallet.payout',
+        tenantId: actor.tenantId,
+        actorId: actor.userId,
+        targetType: 'ClientWallet',
+        targetId: walletId,
+        payload: {
+          method: 'CARD',
+          refundedCents: outcome.refunded,
+          remainingCents: outcome.remaining,
+          payoutId: pending.id,
+          resumed: pending.resumed,
+        },
+      });
+    }
+    if (outcome.remaining > 0) {
       throw new ConflictException(
-        `Se apuntaron ${eur(refunded)}; quedan ${eur(remaining)} que las recargas no cubren. Devuélvelos en efectivo.`,
+        `Se apuntaron ${eur(outcome.refunded)}; quedan ${eur(outcome.remaining)} que las recargas no cubren. Devuélvelos en efectivo.`,
       );
     }
-    return { refundedCents: refunded, method: input.method };
+    return { refundedCents: outcome.refunded, method: 'CARD' };
+  }
+
+  /**
+   * Paso 1: el saldo pasa a una devolución PENDING, o se retoma la que quedó a
+   * medias. Con la wallet bloqueada: dos clics a la vez no la apuntan dos veces.
+   */
+  private async claimCardPayout(
+    actor: Actor,
+    walletId: string,
+    input: { bankReference?: string; note?: string },
+  ): Promise<{ id: string; amountCents: number; createdAt: Date; bankReference: string | null; resumed: boolean }> {
+    return this.prisma.acrossVenues(async (tx) => {
+      const w = await lockWallet(tx, walletId);
+      if (!w) throw new NotFoundException('Saldo no encontrado');
+      const open = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+      if (open) {
+        if (open.claimedAt && Date.now() - open.claimedAt.getTime() < PAYOUT_CLAIM_MS) {
+          throw new ConflictException('Ya se está apuntando la devolución de este saldo: espera un momento');
+        }
+        // Se quedó a medias (el proceso se cayó): se retoma con lo que ya se apuntó.
+        await tx.walletPayout.update({ where: { id: open.id }, data: { claimedAt: new Date() } });
+        this.logger.warn(`Saldo ${walletId}: se retoma la devolución a la tarjeta ${open.id} que quedó a medias`);
+        return { id: open.id, amountCents: open.amountCents, createdAt: open.createdAt, bankReference: open.bankReference, resumed: true };
+      }
+      if (w.status !== 'ACTIVE' || w.balanceCents <= 0) throw new ConflictException('Este saldo no tiene nada que devolver');
+      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: 0 } });
+      const created = await tx.walletPayout.create({
+        data: {
+          tenantId: actor.tenantId,
+          walletId,
+          amountCents: w.balanceCents,
+          method: 'CARD',
+          status: 'PENDING',
+          claimedAt: new Date(),
+          bankReference: input.bankReference ?? null,
+          note: input.note ?? null,
+          paidByUserId: actor.userId,
+        },
+      });
+      return { id: created.id, amountCents: created.amountCents, createdAt: created.createdAt, bankReference: created.bankReference, resumed: false };
+    });
+  }
+
+  /**
+   * Paso 3, en una transacción: la devolución queda hecha por lo que de verdad
+   * se apuntó en el banco (las devoluciones, no lo que creímos), lo demás
+   * vuelve al saldo (que se reabre) y, si se quedó a 0, se cierra.
+   */
+  private async completeCardPayout(
+    walletId: string,
+    pending: { id: string; createdAt: Date },
+  ): Promise<{ refunded: number; remaining: number }> {
+    return this.prisma.acrossVenues(async (tx) => {
+      const w = await lockWallet(tx, walletId);
+      const row = await tx.walletPayout.findFirst({ where: { id: pending.id } });
+      if (!w || !row) throw new NotFoundException('Saldo no encontrado');
+      if (row.status === 'DONE') return { refunded: row.amountCents, remaining: 0 };
+      const refunded = Math.min(await registeredSince(tx, walletId, pending.createdAt), row.amountCents);
+      const remaining = row.amountCents - refunded;
+      if (refunded > 0) {
+        await tx.walletPayout.update({ where: { id: row.id }, data: { status: 'DONE', amountCents: refunded, claimedAt: null } });
+      } else {
+        await tx.walletPayout.delete({ where: { id: row.id } });
+      }
+      const balance = w.balanceCents + remaining;
+      const status = balance > 0 ? await reopenData(tx, w) : w.status === 'ACTIVE' ? { status: 'REFUNDED' as const } : {};
+      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: { increment: remaining }, ...status } });
+      return { refunded, remaining };
+    });
   }
 
   /**
@@ -1190,43 +1262,8 @@ export class WalletChargesService {
     return { path: `/w/${qrToken}` };
   }
 
-  private async settlePayout(
-    actor: Actor,
-    walletId: string,
-    frozen: number,
-    refunded: number,
-    input: { method: WalletPayoutMethod; bankReference?: string; note?: string },
-  ): Promise<void> {
-    const remaining = frozen - refunded;
-    await this.prisma.acrossVenues(async (tx) => {
-      await tx.clientWallet.update({
-        where: { id: walletId },
-        data: { balanceCents: remaining, status: remaining > 0 ? 'ACTIVE' : 'REFUNDED' },
-      });
-      if (refunded > 0) {
-        await tx.walletPayout.create({
-          data: {
-            tenantId: actor.tenantId,
-            walletId,
-            amountCents: refunded,
-            method: input.method,
-            bankReference: input.bankReference ?? null,
-            note: input.note ?? null,
-            paidByUserId: actor.userId,
-          },
-        });
-      }
-    });
-  }
-
   private async refundToCard(actor: Actor, walletId: string, amountCents: number, bankReference?: string): Promise<number> {
-    const topUps = await this.prisma.acrossVenues((tx) =>
-      tx.payment.findMany({
-        where: { walletId, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED'] }, availableAmountCents: { gt: 0 } },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, availableAmountCents: true },
-      }),
-    );
+    const topUps = await this.cardTopUps(actor, walletId);
     const plan = allocateCardRefund(
       topUps.map((t) => ({ paymentId: t.id, availableAmountCents: t.availableAmountCents })),
       amountCents,
@@ -1254,9 +1291,31 @@ export class WalletChargesService {
     return done;
   }
 
+  /**
+   * Las recargas que se pueden devolver a la tarjeta: las de este saldo y las
+   * de los saldos que se sumaron a él (su dinero está aquí), la más reciente
+   * primero. Solo las de este local: las devoluciones las apunta el local de
+   * la recarga (una recarga sumada desde otro local del grupo se devuelve en
+   * efectivo).
+   */
+  private async cardTopUps(actor: Actor, walletId: string): Promise<Array<{ id: string; availableAmountCents: number }>> {
+    return this.prisma.acrossVenues(async (tx) => {
+      const walletIds = await mergedWalletIds(tx, walletId);
+      return tx.payment.findMany({
+        where: {
+          walletId: { in: walletIds },
+          tenantId: actor.tenantId,
+          status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED'] },
+          availableAmountCents: { gt: 0 },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, availableAmountCents: true },
+      });
+    });
+  }
+
   private refunds(): RefundsService {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return this.moduleRef.get('RefundsService' as any, { strict: false }) as RefundsService;
+    return this.moduleRef.get<RefundsService>('RefundsService', { strict: false });
   }
 
   // ─── Auxiliares ────────────────────────────────────────────────────────
@@ -1295,16 +1354,6 @@ export class WalletChargesService {
     return wallet;
   }
 
-  private async pendingOf(walletId: string) {
-    const now = new Date();
-    return this.prisma.acrossVenues((tx) =>
-      tx.walletChargeRequest.findFirst({
-        where: { walletId, status: 'PENDING', expiresAt: { gt: now } },
-        orderBy: { createdAt: 'desc' },
-      }),
-    );
-  }
-
   private requestView(
     r: { id: string; status: string; amountCents: number; serviceName: string | null; expiresAt: Date },
     newBalanceCents: number | null,
@@ -1325,6 +1374,47 @@ const FRESH_TOPUP_PIN_MS = 15 * 60 * 1000;
 
 /** Fallos de PIN más viejos que esto ya no cuentan para el bloqueo. */
 const PIN_FAILS_EXPIRE_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Una devolución a la tarjeta que se empezó a apuntar hace menos de esto está
+ * en curso (otro clic espera); más vieja, el proceso se cayó y se retoma.
+ */
+const PAYOUT_CLAIM_MS = 2 * 60 * 1000;
+
+type RawTx = Pick<Prisma.TransactionClient, '$queryRaw'>;
+
+/** La wallet bloqueada (FOR UPDATE), con lo que hace falta para devolver o reabrir. */
+async function lockWallet(
+  tx: RawTx,
+  walletId: string,
+): Promise<{ id: string; balanceCents: number; status: string; shortCode: string | null } | null> {
+  const rows = await tx.$queryRaw<Array<{ id: string; balanceCents: number; status: string; shortCode: string | null }>>`
+    SELECT id, "balanceCents", status::text AS status, "shortCode" FROM client_wallets WHERE id = ${walletId}::uuid FOR UPDATE
+  `;
+  return rows[0] ?? null;
+}
+
+/**
+ * Lo ya apuntado en el banco por la devolución a la tarjeta de este saldo que
+ * empezó en `since`: las devoluciones hechas de sus recargas (y de las de los
+ * saldos sumados a él) desde entonces. Solo la devolución del saldo toca esas
+ * recargas (el resto de vías rechaza los cobros de recargas) y solo hay una a
+ * medias por saldo: todo lo de después es suyo.
+ */
+async function registeredSince(tx: RawTx, walletId: string, since: Date): Promise<number> {
+  const walletIds = await mergedWalletIds(tx, walletId);
+  const rows = await tx.$queryRaw<Array<{ total: bigint }>>`
+    SELECT COALESCE(SUM(r."amountCents"), 0)::bigint AS total
+      FROM refunds r JOIN payments p ON p.id = r."paymentId"
+     WHERE p."walletId" = ANY(${walletIds}::uuid[]) AND r.status = 'SUCCEEDED' AND r."createdAt" >= ${since}
+  `;
+  return Number(rows[0]?.total ?? 0);
+}
+
+/** Encargado o dueño del local. */
+function isManager(actor: { role: Role }): boolean {
+  return actor.role === 'MANAGER' || actor.role === 'OWNER';
+}
 
 /** La clave del servidor con la que se mezcla el PIN (no está en la base). */
 function pinPepper(): string {

@@ -427,6 +427,13 @@ model WalletPayout {
   note          String?
   paidByUserId  String   @db.Uuid
   createdAt     DateTime @default(now()) @db.Timestamptz
+  // DONE (hecha) | PENDING (a la tarjeta, apuntándose en el banco: el saldo
+  // ya salió de la wallet; se retoma si se quedó a medias). Una PENDING por
+  // wallet (índice parcial wallet_payouts_one_pending_per_wallet). Las sumas
+  // de lo devuelto, solo con DONE.
+  status        String    @default("DONE")
+  // Cuándo se empezó a apuntar (un segundo clic no la apunta dos veces).
+  claimedAt     DateTime? @db.Timestamptz
 
   wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
@@ -792,10 +799,11 @@ model ClientWallet {
   @@map("client_wallets")
 }
 
-/// Llave del cliente para pagar con su saldo desbloqueando su móvil (Face ID,
-/// huella o el PIN del teléfono). Solo la clave pública.
 /// Ficha NFC del saldo: lleva grabado un enlace con `token` (?ficha=...).
 /// Dice de qué saldo es; para pagar, el cliente pone su PIN.
+/// Sin tenantId ni RLS a propósito: se graba en blanco y se da a un saldo de
+/// cualquier local del grupo. El acceso va siempre por el saldo (la API
+/// comprueba sameWalletGroup con el local de quien la usa; WalletChargesService).
 model WalletCard {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   token      String    @unique
@@ -816,6 +824,8 @@ model WalletCard {
   @@map("wallet_cards")
 }
 
+/// Llave del cliente para pagar con su saldo desbloqueando su móvil (Face ID,
+/// huella o el PIN del teléfono). Solo la clave pública.
 model WalletPasskey {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   walletId     String    @db.Uuid

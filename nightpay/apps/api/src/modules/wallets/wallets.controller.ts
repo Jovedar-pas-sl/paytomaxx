@@ -3,7 +3,6 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   HttpCode,
   Inject,
   Param,
@@ -12,17 +11,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ConsumeWalletSchema,
-  RefundWalletSchema,
-  ReverseConsumptionSchema,
-  type ConsumeWalletDto,
-  type ConsumeWalletResult,
-  type JwtPayload,
-  type RefundWalletDto,
-  type RefundWalletResult,
-  type ReverseConsumptionDto,
-} from '@nightpay/contracts';
+import { ReverseConsumptionSchema, type JwtPayload, type ReverseConsumptionDto } from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -36,13 +25,14 @@ import { WalletsService } from './wallets.service';
  *
  * Endpoints:
  *  - GET  /v1/wallets/public/:qrToken            (cliente — sin auth)
- *  - POST /v1/wallets/:id/consume                (OPERATOR/MANAGER/WAITER/OWNER)
- *  - POST /v1/wallets/:id/refund                 (OWNER)
  *  - POST /v1/wallets/:id/consumptions/:cid/reverse (OWNER/MANAGER)
- *  - GET  /v1/admin/wallets/stats                (admin — vía AdminController)
+ *  - GET  /v1/wallets                            (OWNER/MANAGER — saldos abiertos)
+ *  - GET  /v1/wallets/:id                        (OWNER/MANAGER)
+ *  - GET  /v1/admin/wallets[/stats]              (OWNER/MANAGER — panel de saldos)
  *
  * El top-up flow (POST /payments con wallet:{create:true}) vive en PaymentsController
- * porque crea un Payment + dispara el flow de pasarela.
+ * porque crea un Payment + dispara el flow de pasarela. Cobrar y devolver el
+ * saldo: /v1/wallet-charges (WalletChargesController).
  */
 @Controller('wallets')
 @UseGuards(RolesGuard)
@@ -66,50 +56,6 @@ export class WalletsController {
     return this.wallets.getPublicByToken(qrToken);
   }
 
-  @Post(':id/consume')
-  @HttpCode(200)
-  // Saldo NightPay: lo normal es que el cliente acepte cada cobro en su móvil
-  // (/v1/wallet-charges). Cobrar sin su confirmación queda para el encargado
-  // o el dueño (p. ej. el cliente se quedó sin batería), y queda registrado.
-  @Roles('MANAGER', 'OWNER')
-  async consume(
-    @Tenant() tenantId: string,
-    @CurrentUser() user: JwtPayload,
-    @Param('id', new ParseUUIDPipe()) walletId: string,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
-    @Body(new ZodValidationPipe(ConsumeWalletSchema)) dto: ConsumeWalletDto,
-  ): Promise<ConsumeWalletResult> {
-    if (!idempotencyKey || idempotencyKey.length < 8) {
-      throw new BadRequestException(
-        'Header Idempotency-Key obligatorio (>=8 chars) para evitar doble-cobro',
-      );
-    }
-    return this.wallets.consume({
-      tenantId,
-      walletId,
-      providedByUserId: user.sub,
-      idempotencyKey,
-      dto,
-    });
-  }
-
-  @Post(':id/refund')
-  @HttpCode(200)
-  @Roles('OWNER')
-  async refund(
-    @Tenant() tenantId: string,
-    @CurrentUser() user: JwtPayload,
-    @Param('id', new ParseUUIDPipe()) walletId: string,
-    @Body(new ZodValidationPipe(RefundWalletSchema)) dto: RefundWalletDto,
-  ): Promise<RefundWalletResult> {
-    return this.wallets.refund({
-      tenantId,
-      walletId,
-      actor: { userId: user.sub, role: user.role, tenantId },
-      dto,
-    });
-  }
-
   @Post(':id/consumptions/:consumptionId/reverse')
   @HttpCode(200)
   @Roles('OWNER', 'MANAGER')
@@ -130,13 +76,13 @@ export class WalletsController {
   }
 
   /**
-   * Lista wallets activas del venue para staff (chica/recepción/camarero).
-   * Sin esto la chica tendría que escanear el QR del cliente cada vez — viola
-   * la regla "no molestar al cliente". Con esto ve la lista de wallets vivos
-   * etiquetados por identifier (Mesa 3, Pulsera azul, etc.) y cobra directo.
+   * Saldos abiertos del local, para el encargado o el dueño. Lleva el código
+   * de cada cliente (con el código y su PIN se paga), su etiqueta y su saldo:
+   * la chica y el camarero no la ven; encuentran el saldo por el código que
+   * les dice el cliente o por su ficha (/v1/wallet-charges/lookup).
    */
   @Get()
-  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  @Roles('MANAGER', 'OWNER')
   async listActive(
     @Tenant() tenantId: string,
     @Query('limit') limit?: string,

@@ -1,182 +1,100 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { describe, it, expect, vi } from 'vitest';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { WalletsService } from './wallets.service';
 
 /**
  * Tests con mocks de Prisma — no toca DB. Cubrimos lo que la DB no garantiza
- * sola: orden de validaciones, generación de earnings para OPERATOR, idempotency
- * de consume, semantica del refund CARD vs CREDIT, rollback de consumption.
+ * sola: el alta del saldo y el orden de bloqueos y decisiones al anular un
+ * consumo (los choques de verdad, en las pruebas contra Postgres).
  */
 
 const TENANT = 't-1';
-const WALLET_ID = 'w-1';
-const PAYMENT_ID = 'p-1';
-const USER_OP = 'u-op';
-const USER_WAITER = 'u-wt';
+
+/** El SQL de una llamada a $queryRaw / $executeRaw (con ? en lugar de los valores). */
+const sqlOf = (call: unknown[]): string => (call[0] as TemplateStringsArray).join('?');
 
 interface WalletRow {
   id: string;
-  balanceCents: number;
-  status: 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED';
   tenantId: string;
-  expiresAt: Date | null;
+  walletGroup: string | null;
+  balanceCents: number;
+  status: string;
+  shortCode: string | null;
+  mergedIntoId: string | null;
 }
 
-interface PrismaMockOptions {
-  walletRow?: WalletRow | null;
-  walletStatus?: WalletRow['status'];
-  walletBalance?: number;
-  providerRole?: 'OPERATOR' | 'WAITER' | 'MANAGER' | 'OWNER' | null;
-  providerCommissionBps?: number | null;
-  existingConsumption?: { id: string; reversedAt?: Date | null; amountCents: number; earning?: { id: string; commissionCents: number } } | null;
+interface ReversalOptions {
+  consumption?: Record<string, unknown> | null;
+  wallets?: Record<string, Partial<WalletRow>>;
+  earning?: Record<string, unknown> | null;
+  debtCents?: number;
+  /** Otro saldo activo tiene ya este código. */
+  takenCode?: string;
+  actorGroup?: string | null;
 }
 
-function makeService(opts: PrismaMockOptions = {}) {
-  const wallet: WalletRow = opts.walletRow ?? {
-    id: WALLET_ID,
-    balanceCents: opts.walletBalance ?? 50_000,
-    status: opts.walletStatus ?? 'ACTIVE',
-    tenantId: TENANT,
-    expiresAt: null,
+function makeService(o: ReversalOptions = {}) {
+  const wallets: Record<string, WalletRow> = {};
+  const base: WalletRow = {
+    id: 'w-1',
+    tenantId: 'home',
+    walletGroup: 'principal',
+    balanceCents: 1000,
+    status: 'ACTIVE',
+    shortCode: 'K7Q4M2',
+    mergedIntoId: null,
   };
-
-  const createdConsumptions: Array<Record<string, unknown>> = [];
-  const createdEarnings: Array<Record<string, unknown>> = [];
-  let txWalletUpdates: Array<Record<string, unknown>> = [];
-
-  // Mock $queryRaw returns a SNAPSHOT of the locked wallet row.
-  // En producción la DB devuelve una copia (no aliased con el "estado en memoria"
-  // del wallet); replicamos eso aquí para evitar falsos positivos donde un
-  // update posterior mutaba w.balanceCents en el caller.
-  const queryRawMock = vi.fn().mockImplementation(async () => [{ ...wallet }]);
-
-  const findManyMock = vi.fn().mockResolvedValue([
-    { id: PAYMENT_ID, availableAmountCents: wallet.balanceCents },
-  ]);
+  for (const [id, row] of Object.entries({ 'w-1': {}, ...o.wallets })) wallets[id] = { ...base, id, ...row };
+  const consumption =
+    o.consumption === null
+      ? null
+      : { id: 'c-1', tenantId: 'other', amountCents: 4000, tipCents: 500, notes: null, reversedAt: null, ...o.consumption };
+  const earning =
+    o.earning === null
+      ? null
+      : { id: 'e-1', tenantId: 'other', commissionCents: 2000, tipCents: 500, reversedCents: 0, payoutId: null, ...o.earning };
 
   const txMock = {
-    $queryRaw: queryRawMock,
-    payment: {
-      findMany: findManyMock,
-    },
-    walletConsumption: {
-      create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
-        const c = { id: `c-${createdConsumptions.length + 1}`, ...data };
-        createdConsumptions.push(c);
-        return c;
-      }),
-      findUnique: vi.fn().mockResolvedValue(null),
-      findFirst: vi.fn().mockResolvedValue(opts.existingConsumption ?? null),
-      update: vi.fn().mockResolvedValue({}),
-    },
-    operatorEarning: {
-      create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
-        const e = { id: `e-${createdEarnings.length + 1}`, ...data };
-        createdEarnings.push(e);
-        return e;
-      }),
-      update: vi.fn().mockResolvedValue({}),
-    },
+    $queryRaw: vi.fn().mockImplementation(async (sql: TemplateStringsArray, ...values: unknown[]) => {
+      const q = sql.join('?');
+      if (q.includes('FROM wallet_consumptions')) return consumption ? [consumption] : [];
+      if (q.includes('"shortCode" = ?')) return values[0] === o.takenCode ? [{ id: 'otro' }] : [];
+      if (q.includes('FROM client_wallets')) {
+        const w = wallets[values[0] as string];
+        return w ? [{ ...w }] : [];
+      }
+      if (q.includes('FROM operator_earnings')) return earning ? [earning] : [];
+      if (q.includes('FROM earning_reversals')) return [{ total: BigInt(o.debtCents ?? 0) }];
+      return [];
+    }),
+    $executeRaw: vi.fn().mockResolvedValue(1),
+    walletConsumption: { update: vi.fn().mockResolvedValue({}) },
     clientWallet: {
-      update: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
-        txWalletUpdates.push(data);
-        // simula la mutación en el row local
-        if (typeof data.balanceCents === 'number') {
-          wallet.balanceCents = data.balanceCents;
-        } else if (
-          typeof data.balanceCents === 'object' &&
-          data.balanceCents !== null &&
-          'increment' in (data.balanceCents as Record<string, unknown>)
-        ) {
-          wallet.balanceCents += Number(
-            (data.balanceCents as Record<string, unknown>).increment,
-          );
-        }
-        if (data.status) wallet.status = data.status as WalletRow['status'];
-        if (data.expiresAt) wallet.expiresAt = data.expiresAt as Date;
-        return wallet;
-      }),
-      findUnique: vi.fn().mockResolvedValue(wallet),
+      update: vi.fn().mockResolvedValue({}),
       create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
         id: 'w-new',
         qrToken: 'tok-abc123',
         ...data,
       })),
-      findFirst: vi.fn().mockResolvedValue(wallet),
-    },
-    venue: {
-      // Sin ajustes propios: la comisión por defecto (90 % en servicios de chica).
-      findUnique: vi.fn().mockResolvedValue({ operatorCommissionDefaults: null }),
-    },
-    user: {
-      findFirst: vi.fn().mockResolvedValue(
-        opts.providerRole
-          ? { role: opts.providerRole, commissionBps: opts.providerCommissionBps ?? null }
-          : null,
-      ),
     },
   };
-
+  const run = async <T>(cb: (tx: typeof txMock) => Promise<T>) => cb(txMock);
   const prismaMock = {
-    asSystem: vi.fn().mockImplementation(async <T>(cb: (tx: typeof txMock) => Promise<T>) => cb(txMock)),
-    $transaction: vi.fn().mockImplementation(async <T>(cb: (tx: typeof txMock) => Promise<T>) => cb(txMock)),
-    // El refundCardFlow llama prisma.clientWallet.update fuera de transacción
-    // tras los refunds PSP. Delegamos al mock del tx para mantener estado.
-    clientWallet: {
-      update: vi.fn().mockImplementation(async (args: { data: Record<string, unknown> }) =>
-        txMock.clientWallet.update(args),
-      ),
+    asSystem: vi.fn().mockImplementation(run),
+    acrossVenues: vi.fn().mockImplementation(run),
+    $transaction: vi.fn().mockImplementation(run),
+    venue: {
+      findUnique: vi.fn().mockResolvedValue({ walletGroup: o.actorGroup === undefined ? 'principal' : o.actorGroup }),
     },
-    venue: { findUnique: vi.fn().mockResolvedValue({ walletGroup: 'principal' }) },
   };
-
   const auditMock = { log: vi.fn().mockResolvedValue(undefined) };
-
-  // Mock RefundsService — devuelve éxito por defecto. Tests CARD pueden
-  // override el comportamiento para simular fallos.
-  const refundsMock = {
-    refund: vi.fn().mockImplementation(async (req: { paymentId: string; amountCents: number }) => ({
-      id: `r-${Date.now()}-${Math.random()}`,
-      paymentId: req.paymentId,
-      amountCents: req.amountCents,
-      status: 'SUCCEEDED' as const,
-      providerRefundId: 'psp-refund-1',
-    })),
-  };
-
-  const moduleRefMock = {
-    // En test asumimos que CUALQUIER provider que pidamos resolve a refundsMock.
-    // Solo hay un caller (onModuleInit pide RefundsService) — no hay ambigüedad.
-    get: vi.fn().mockReturnValue(refundsMock),
-  };
-
-  const svc = new WalletsService(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    prismaMock as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    auditMock as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    moduleRefMock as any,
-  );
-  // No hay onModuleInit — la resolución de RefundsService es lazy via getRefundsService().
-  return {
-    svc,
-    prismaMock,
-    txMock,
-    auditMock,
-    refundsMock,
-    moduleRefMock,
-    wallet,
-    createdConsumptions,
-    createdEarnings,
-    txWalletUpdates,
-  };
+  const svc = new WalletsService(prismaMock as never, auditMock as never);
+  return { svc, prismaMock, txMock, auditMock, wallets };
 }
+
+/** Anula c-1 de w-1 desde el local "other" (donde se cobró). */
+const reverse = (svc: WalletsService) =>
+  svc.reverseConsumption({ tenantId: 'other', walletId: 'w-1', consumptionId: 'c-1', actorUserId: 'u-man', reason: 'error' });
 
 describe('WalletsService.createEmpty', () => {
   it('creates wallet with balance 0 and base64url qrToken', async () => {
@@ -185,7 +103,7 @@ describe('WalletsService.createEmpty', () => {
     expect(w.id).toBe('w-new');
     expect(w.qrToken).toBeDefined();
     expect(txMock.clientWallet.create).toHaveBeenCalledOnce();
-    const callArgs = (txMock.clientWallet.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const callArgs = txMock.clientWallet.create.mock.calls[0]![0];
     expect(callArgs.data.tenantId).toBe(TENANT);
     expect(callArgs.data.identifier).toBe('phone-123');
     expect(callArgs.data.qrToken).toMatch(/^[A-Za-z0-9_-]+$/);
@@ -195,222 +113,155 @@ describe('WalletsService.createEmpty', () => {
   });
 });
 
-describe('WalletsService.creditFromTopUp', () => {
-  it('adds amount to balance atomically', async () => {
-    const { svc, txMock, wallet } = makeService({ walletBalance: 1000 });
-    const result = await svc.creditFromTopUp({
-      tenantId: TENANT,
-      walletId: WALLET_ID,
-      amountCents: 5000,
-      paymentId: PAYMENT_ID,
+describe('anular un consumo del saldo', () => {
+  it('no existe (o es de otro local) → 404; ya anulado → 409', async () => {
+    await expect(reverse(makeService({ consumption: null }).svc)).rejects.toThrow(NotFoundException);
+    await expect(reverse(makeService({ consumption: { reversedAt: new Date() } }).svc)).rejects.toThrow(ConflictException);
+  });
+
+  it('el consumo se bloquea (doble clic) y es el del local que lo anula', async () => {
+    const { svc, txMock } = makeService();
+    await reverse(svc);
+    const first = sqlOf(txMock.$queryRaw.mock.calls[0]!);
+    expect(first).toMatch(/FROM wallet_consumptions[\s\S]*"tenantId" = \?::uuid[\s\S]*FOR UPDATE/);
+    expect(txMock.$queryRaw.mock.calls[0]!.slice(1)).toEqual(['c-1', 'w-1', 'other']);
+  });
+
+  it('consumo de otro local del grupo: se anula (el saldo se busca por su id, no por el local)', async () => {
+    const { svc, txMock } = makeService();
+    const out = await reverse(svc);
+    expect(out).toEqual({ refundedCents: 4500, newBalanceCents: 5500 });
+    const walletLocks = txMock.$queryRaw.mock.calls.map(sqlOf).filter((q) => /FROM client_wallets[\s\S]*FOR UPDATE/.test(q));
+    expect(walletLocks.length).toBeGreaterThan(0);
+    for (const q of walletLocks) expect(q).not.toMatch(/"tenantId" =/);
+    expect(txMock.clientWallet.update).toHaveBeenCalledWith({
+      where: { id: 'w-1' },
+      data: { balanceCents: { increment: 4500 } },
     });
-    expect(result.newBalanceCents).toBe(6000);
-    expect(txMock.clientWallet.update).toHaveBeenCalledOnce();
-    expect(wallet.balanceCents).toBe(6000);
   });
 
-  it('rejects negative or zero amount', async () => {
-    const { svc } = makeService();
-    await expect(
-      svc.creditFromTopUp({ tenantId: TENANT, walletId: WALLET_ID, amountCents: 0, paymentId: PAYMENT_ID }),
-    ).rejects.toThrow(BadRequestException);
+  it('desde un local de otro grupo, no', async () => {
+    await expect(reverse(makeService({ actorGroup: 'otro-dueño' }).svc)).rejects.toThrow(NotFoundException);
   });
 
-  it('rejects credit on non-ACTIVE wallet', async () => {
-    const { svc } = makeService({ walletStatus: 'REFUNDED' });
-    await expect(
-      svc.creditFromTopUp({ tenantId: TENANT, walletId: WALLET_ID, amountCents: 1000, paymentId: PAYMENT_ID }),
-    ).rejects.toThrow(ConflictException);
+  it('saldo ya devuelto o caducado: no se reabre (se le devuelve aparte)', async () => {
+    for (const status of ['REFUNDED', 'EXPIRED']) {
+      const { svc, txMock } = makeService({ wallets: { 'w-1': { status } } });
+      await expect(reverse(svc)).rejects.toThrow(/devuélvele este importe aparte/);
+      expect(txMock.clientWallet.update).not.toHaveBeenCalled();
+    }
   });
 
-  it('throws ForbiddenException when wallet belongs to a different tenant', async () => {
-    const { svc } = makeService({
-      walletRow: {
-        id: WALLET_ID,
-        balanceCents: 5000,
-        status: 'ACTIVE',
-        tenantId: 'OTHER-TENANT',
-        expiresAt: null,
-      },
+  it('a 0 (DEPLETED) se reabre; si su código lo tiene ya otro cliente activo, con uno nuevo', async () => {
+    const { svc, txMock } = makeService({ wallets: { 'w-1': { status: 'DEPLETED', balanceCents: 0 } }, takenCode: 'K7Q4M2' });
+    await reverse(svc);
+    const data = txMock.clientWallet.update.mock.calls[0]![0].data;
+    expect(data).toMatchObject({ balanceCents: { increment: 4500 }, status: 'ACTIVE' });
+    expect(data.shortCode).toMatch(/^[A-HJKMNP-Z2-9]{6}$/);
+    expect(data.shortCode).not.toBe('K7Q4M2');
+  });
+
+  it('saldo sumado a otro (Face ID): el dinero vuelve al saldo que usa el cliente; el viejo sigue cerrado', async () => {
+    const { svc, txMock, auditMock } = makeService({
+      wallets: { 'w-1': { status: 'DEPLETED', balanceCents: 0, mergedIntoId: 'w-2' }, 'w-2': { balanceCents: 3000 } },
     });
-    await expect(
-      svc.creditFromTopUp({ tenantId: TENANT, walletId: WALLET_ID, amountCents: 1000, paymentId: PAYMENT_ID }),
-    ).rejects.toThrow(ForbiddenException);
-  });
-});
-
-describe('WalletsService.consume', () => {
-  const baseInput = (overrides: Record<string, unknown> = {}) => ({
-    tenantId: TENANT,
-    walletId: WALLET_ID,
-    providedByUserId: USER_OP,
-    idempotencyKey: 'idem-12345',
-    dto: { amountCents: 2000, category: 'time' },
-    ...overrides,
-  });
-
-  it('debits balance + creates consumption (no earning when WAITER)', async () => {
-    const { svc, createdConsumptions, createdEarnings, wallet } = makeService({
-      providerRole: 'WAITER',
-      walletBalance: 10_000,
+    const out = await reverse(svc);
+    expect(out).toEqual({ refundedCents: 4500, newBalanceCents: 7500 });
+    expect(txMock.clientWallet.update).toHaveBeenCalledTimes(1);
+    expect(txMock.clientWallet.update).toHaveBeenCalledWith({
+      where: { id: 'w-2' },
+      data: { balanceCents: { increment: 4500 } },
     });
-    const result = await svc.consume(baseInput({ providedByUserId: USER_WAITER }));
-    expect(result.newBalanceCents).toBe(8000);
-    expect(result.earningCreated).toBe(false);
-    expect(createdConsumptions).toHaveLength(1);
-    expect(createdEarnings).toHaveLength(0);
-    expect(wallet.balanceCents).toBe(8000);
-  });
-
-  it('creates OperatorEarning when provider is OPERATOR with commissionBps', async () => {
-    const { svc, createdEarnings } = makeService({
-      providerRole: 'OPERATOR',
-      providerCommissionBps: 9000, // 90%
-      walletBalance: 10_000,
-    });
-    const result = await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'CHICA_SERVICE' } })); // 20€
-    expect(result.earningCreated).toBe(true);
-    // 2000 * 9000 / 10000 = 1800 cents
-    expect(result.earningCommissionCents).toBe(1800);
-    expect(createdEarnings).toHaveLength(1);
-    expect(createdEarnings[0].consumptionId).toBeDefined();
-    expect(createdEarnings[0].commissionCents).toBe(1800);
-  });
-
-  it('chica sin % propio → la comisión por defecto del local (antes no se le apuntaba nada)', async () => {
-    const { svc, createdEarnings } = makeService({ providerRole: 'OPERATOR', providerCommissionBps: null, walletBalance: 10_000 });
-    const result = await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'CHICA_SERVICE' } }));
-    expect(result.earningCommissionCents).toBe(1800);
-    expect(createdEarnings[0].commissionBps).toBe(9000);
-  });
-
-  it('venta del local (barra) → nada para la chica, como con tarjeta', async () => {
-    const { svc, createdEarnings } = makeService({ providerRole: 'OPERATOR', providerCommissionBps: 9000, walletBalance: 10_000 });
-    const result = await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'VENUE_BAR' } }));
-    expect(result.earningCreated).toBe(false);
-    expect(createdEarnings).toHaveLength(0);
-  });
-
-  it('rejects when balance is insufficient', async () => {
-    const { svc, createdConsumptions } = makeService({
-      providerRole: 'OPERATOR',
-      providerCommissionBps: 9000,
-      walletBalance: 1000, // only 10€
-    });
-    await expect(svc.consume(baseInput({ dto: { amountCents: 5000, category: 'time' } }))).rejects.toThrow(
-      ConflictException,
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'wallet.consumption.reversed',
+        payload: expect.objectContaining({ creditedWalletId: 'w-2' }),
+      }),
     );
-    expect(createdConsumptions).toHaveLength(0);
   });
 
-  it('rejects on non-ACTIVE wallet', async () => {
-    const { svc } = makeService({ providerRole: 'OPERATOR', walletStatus: 'REFUNDED' });
-    await expect(svc.consume(baseInput())).rejects.toThrow(ConflictException);
+  it('la parte de la chica sin pagar se anula entera (con su fila bloqueada)', async () => {
+    const { svc, txMock } = makeService();
+    await reverse(svc);
+    const earningLock = txMock.$queryRaw.mock.calls.map(sqlOf).find((q) => q.includes('FROM operator_earnings'));
+    expect(earningLock).toMatch(/"consumptionId" = \?::uuid[\s\S]*FOR UPDATE/);
+    const writes = txMock.$executeRaw.mock.calls.map(sqlOf);
+    expect(writes.some((q) => q.includes('INSERT INTO earning_reversals'))).toBe(false);
+    const update = txMock.$executeRaw.mock.calls.find((c) => sqlOf(c).includes('UPDATE operator_earnings'))!;
+    expect(sqlOf(update)).toMatch(/"reversedCents" = "reversedCents" \+ \?/);
+    expect(update.slice(1)).toEqual([2500, 'e-1']);
   });
 
-  it('marks wallet DEPLETED when balance reaches exactly 0', async () => {
-    const { svc, wallet } = makeService({
-      providerRole: 'WAITER',
-      walletBalance: 2000,
-    });
-    await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'bar' } }));
-    expect(wallet.balanceCents).toBe(0);
-    expect(wallet.status).toBe('DEPLETED');
+  it('ya pagada a la chica (lo dice la fila bloqueada): deuda para su siguiente pago, el earning no se toca', async () => {
+    const { svc, txMock } = makeService({ earning: { payoutId: 'po-1' } });
+    await reverse(svc);
+    const writes = txMock.$executeRaw.mock.calls.map(sqlOf);
+    expect(writes.some((q) => q.includes('UPDATE operator_earnings'))).toBe(false);
+    const debt = txMock.$executeRaw.mock.calls.find((c) => sqlOf(c).includes('INSERT INTO earning_reversals'))!;
+    expect(sqlOf(debt)).toMatch(/"afterPayout"[\s\S]*true/);
+    expect(debt.slice(1)).toEqual(['other', 'e-1', 'c-1', 2500]);
+  });
+
+  it('lo ya descontado (deudas de antes) no se descuenta dos veces', async () => {
+    const { svc, txMock } = makeService({ earning: { payoutId: 'po-1' }, debtCents: 2500 });
+    await reverse(svc);
+    expect(txMock.$executeRaw.mock.calls.map(sqlOf).some((q) => q.includes('earning_reversals'))).toBe(false);
   });
 });
 
-describe('WalletsService.refund', () => {
-  it('CARD method: empties balance + sets REFUNDED', async () => {
-    const { svc, wallet } = makeService({ walletBalance: 3000 });
-    const result = await svc.refund({
-      tenantId: TENANT,
-      walletId: WALLET_ID,
-      actor: { userId: 'u-owner', role: 'OWNER', tenantId: TENANT },
-      dto: { method: 'CARD' },
+describe('estadísticas del panel de saldos', () => {
+  function statsService() {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const tx = {
+      $queryRaw: vi.fn().mockImplementation(async (sql: TemplateStringsArray, ...values: unknown[]) => {
+        const q = sql.join('?');
+        calls.push({ sql: q, values });
+        if (q.includes('FROM client_wallets')) return [{ count: 3n, totalBalance: 12_000n }];
+        if (q.includes('FROM payments')) return [{ total: 20_000n }];
+        if (q.includes('FROM wallet_consumptions')) return [{ category: 'CHICA_SERVICE', total: 6_000n }, { category: 'VENUE_BAR', total: 1_500n }];
+        if (q.includes('FROM wallet_payouts')) return [{ total: 4_500n }];
+        return [];
+      }),
+    };
+    const prisma = {
+      asSystem: vi.fn().mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+      $queryRaw: tx.$queryRaw,
+    };
+    const svc = new WalletsService(prisma as never, { log: vi.fn() } as never);
+    return { svc, calls, prisma };
+  }
+
+  it('lo devuelto hoy son las devoluciones del saldo hechas en este local (tarjeta y efectivo), no 0', async () => {
+    const { svc, calls } = statsService();
+    const stats = await svc.getAdminStats('t-1');
+    expect(stats).toEqual({
+      activeCount: 3,
+      totalBalanceCents: 12_000,
+      todayTopUpsCents: 20_000,
+      todayConsumptionsCents: 7_500,
+      todayRefundsCents: 4_500,
+      byCategory: { CHICA_SERVICE: 6_000, VENUE_BAR: 1_500 },
     });
-    expect(result.method).toBe('CARD');
-    expect(result.refundedCents).toBe(3000);
-    expect(result.newStatus).toBe('REFUNDED');
-    expect(wallet.balanceCents).toBe(0);
-    expect(wallet.status).toBe('REFUNDED');
+    const payouts = calls.find((c) => c.sql.includes('FROM wallet_payouts'))!;
+    // Solo las hechas (una a la tarjeta a medias aún no), del local.
+    expect(payouts.sql).toMatch(/status = 'DONE'/);
+    expect(payouts.values[0]).toBe('t-1');
   });
 
-  it('CREDIT method: keeps ACTIVE + extends expiresAt 30 days', async () => {
-    const { svc, wallet } = makeService({ walletBalance: 2500 });
-    const before = Date.now();
-    const result = await svc.refund({
-      tenantId: TENANT,
-      walletId: WALLET_ID,
-      actor: { userId: 'u-owner', role: 'OWNER', tenantId: TENANT },
-      dto: { method: 'CREDIT' },
-    });
-    expect(result.newStatus).toBe('ACTIVE');
-    expect(result.refundedCents).toBe(2500);
-    expect(wallet.balanceCents).toBe(2500); // intacto
-    expect(wallet.expiresAt).toBeTruthy();
-    const expiresDelta = wallet.expiresAt!.getTime() - before;
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    expect(expiresDelta).toBeGreaterThan(thirtyDaysMs - 5000);
-    expect(expiresDelta).toBeLessThan(thirtyDaysMs + 5000);
-  });
-
-  it('rejects refund on non-ACTIVE wallet', async () => {
-    const { svc } = makeService({ walletStatus: 'REFUNDED' });
-    await expect(
-      svc.refund({
-        tenantId: TENANT,
-        walletId: WALLET_ID,
-        actor: { userId: 'u-owner', role: 'OWNER', tenantId: TENANT },
-        dto: { method: 'CARD' },
-      }),
-    ).rejects.toThrow(ConflictException);
-  });
-
-  it('throws NotFoundException when wallet missing', async () => {
-    const { svc, txMock } = makeService();
-    (txMock.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    await expect(
-      svc.refund({
-        tenantId: TENANT,
-        walletId: WALLET_ID,
-        actor: { userId: 'u-owner', role: 'OWNER', tenantId: TENANT },
-        dto: { method: 'CARD' },
-      }),
-    ).rejects.toThrow(NotFoundException);
-  });
-});
-
-describe('WalletsService.reverseConsumption', () => {
-  it('throws when consumption not found', async () => {
-    const { svc, txMock } = makeService();
-    (txMock.walletConsumption.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    await expect(
-      svc.reverseConsumption({
-        tenantId: TENANT,
-        walletId: WALLET_ID,
-        consumptionId: 'c-bogus',
-        actorUserId: 'u-owner',
-        reason: 'mistake',
-      }),
-    ).rejects.toThrow(NotFoundException);
-  });
-
-  it('throws when consumption already reversed', async () => {
-    const { svc } = makeService({
-      existingConsumption: {
-        id: 'c-1',
-        reversedAt: new Date(),
-        amountCents: 1000,
-      },
-    });
-    await expect(
-      svc.reverseConsumption({
-        tenantId: TENANT,
-        walletId: WALLET_ID,
-        consumptionId: 'c-1',
-        actorUserId: 'u-owner',
-        reason: 'duplicate',
-      }),
-    ).rejects.toThrow(ConflictException);
+  it('"hoy" es el día de Madrid (desde sus 00:00), no el del servidor', async () => {
+    vi.useFakeTimers();
+    try {
+      // 00:30 del 16 de octubre en Madrid (verano: UTC+2) = 22:30 UTC del 15.
+      vi.setSystemTime(new Date('2026-10-15T22:30:00Z'));
+      const { svc, calls, prisma } = statsService();
+      await svc.getAdminStats('t-1');
+      const since = calls.filter((c) => /"createdAt" >= \?/.test(c.sql)).map((c) => (c.values.at(-1) as Date).toISOString());
+      expect(since).toHaveLength(3);
+      expect(new Set(since)).toEqual(new Set(['2026-10-15T22:00:00.000Z']));
+      // Con bypass de RLS (las tablas del saldo tienen RLS forzado) y el local filtrado a mano.
+      expect(prisma.asSystem).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

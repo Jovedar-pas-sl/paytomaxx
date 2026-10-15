@@ -9,11 +9,12 @@ function state(o: Partial<ClientWalletState> = {}): ClientWalletState {
     status: 'ACTIVE',
     closeRequested: false,
     hasFaceId: false,
-    pending: null,
     movements: [],
     ...o,
   };
 }
+
+const script = (html: string): string => html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>'));
 
 describe('página del saldo del cliente', () => {
   it('lleva el estado inicial, el idioma y las rutas del saldo', () => {
@@ -36,14 +37,15 @@ describe('página del saldo del cliente', () => {
       'tok-1',
       'es',
       state({
-        pending: {
-          id: 'req-1',
-          amountCents: 5000,
-          serviceName: '</script><img src=x onerror=alert(1)>',
-          requestedByName: 'Lola',
-          venueName: 'Local',
-          expiresAt: new Date().toISOString(),
-        },
+        movements: [
+          {
+            kind: 'consumption',
+            amountCents: -5000,
+            label: '</script><img src=x onerror=alert(1)>',
+            venueName: 'Local',
+            at: new Date().toISOString(),
+          },
+        ],
       }),
     );
     expect(html).not.toContain('</script><img');
@@ -51,7 +53,6 @@ describe('página del saldo del cliente', () => {
   });
 
   it('sin QR del código (ya no se paga enseñándolo); con "Activar Face ID" y JS válido', () => {
-    const script = (html: string): string => html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>'));
     for (const lang of ['es', 'en'] as const) {
       const html = renderWalletPage('tok-1', lang, state());
       expect(html).not.toContain('class="qr"');
@@ -61,6 +62,17 @@ describe('página del saldo del cliente', () => {
     const es = renderWalletPage('tok-1', 'es', state());
     expect(es).toContain('Activar Face ID');
     expect(script(es)).toContain("pkCreate(C.base+'/passkey/options')");
+  });
+
+  it('ya no hay cobros que aceptar o rechazar aquí: se paga con el QR de la chica o con el PIN', () => {
+    for (const lang of ['es', 'en'] as const) {
+      const html = renderWalletPage('tok-1', lang, state());
+      expect(html).not.toContain('id="pending"');
+      expect(html).not.toContain('id="accept"');
+      expect(script(html)).not.toContain('/requests/');
+      // "Me voy" sigue.
+      expect(script(html)).toContain("post('/close')");
+    }
   });
 
   it('el token va codificado en la ruta', () => {
