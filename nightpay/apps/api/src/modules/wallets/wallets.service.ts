@@ -19,13 +19,10 @@ import { formatWalletCode, newWalletCode, newWalletToken } from './wallet-rules'
 import type { Role } from '@nightpay/contracts';
 import type {
   ClientWalletView,
-  ConsumeWalletDto,
-  ConsumeWalletResult,
   RefundWalletDto,
   RefundWalletResult,
   WalletsAdminStats,
 } from '@nightpay/contracts';
-import { resolveBpsForOperator } from '../payments/commission';
 
 /** Intentos para dar con un código corto libre (31^6 combinaciones). */
 const MAX_CODE_ATTEMPTS = 5;
@@ -62,8 +59,7 @@ export class WalletsService {
     if (this.refundsResolved) return this.refundsService;
     this.refundsResolved = true;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this.refundsService = this.moduleRef.get('RefundsService' as any, { strict: false });
+      this.refundsService = this.moduleRef.get<RefundsService>('RefundsService', { strict: false });
     } catch {
       this.logger.warn('RefundsService no resoluble — wallet refund CARD caerá a modo DB-only');
       this.refundsService = null;
@@ -153,213 +149,6 @@ export class WalletsService {
         `Wallet ${input.walletId} credited +${input.amountCents}c by payment ${input.paymentId}. balance=${newBalance}`,
       );
       return { newBalanceCents: newBalance };
-    });
-  }
-
-  /**
-   * Cobra contra el balance de la wallet. Atómico:
-   *  1. SELECT FOR UPDATE del wallet
-   *  2. valida balance suficiente + status ACTIVE
-   *  3. crea WalletConsumption
-   *  4. si providedBy.role=OPERATOR → crea OperatorEarning con snapshot bps
-   *  5. UPDATE wallet.balanceCents
-   *
-   * Idempotency-Key obligatoria para evitar doble-cobro del camarero (UI puede
-   * mandar 2 clicks). El unique constraint (tenantId, idempotencyKey) garantiza
-   * que la 2da llamada falle con 409 y devolvamos el resultado original.
-   */
-  async consume(input: {
-    tenantId: string;
-    walletId: string;
-    providedByUserId: string;
-    idempotencyKey: string;
-    dto: ConsumeWalletDto;
-  }): Promise<ConsumeWalletResult> {
-    // 0. Idempotency check rápido — si ya existe el consumption, devolvemos el resultado original.
-    const existing = await this.prisma.asSystem((tx) =>
-      tx.walletConsumption.findUnique({
-        where: {
-          tenantId_idempotencyKey: {
-            tenantId: input.tenantId,
-            idempotencyKey: input.idempotencyKey,
-          },
-        },
-        include: {
-          earning: { select: { id: true, commissionCents: true } },
-          wallet: { select: { balanceCents: true } },
-        },
-      }),
-    );
-    if (existing) {
-      return {
-        consumptionId: existing.id,
-        newBalanceCents: existing.wallet.balanceCents,
-        earningCreated: existing.earning !== null,
-        earningCommissionCents: existing.earning?.commissionCents ?? null,
-      };
-    }
-
-    // Tip handling: default 'operator' si la providedBy es OPERATOR; si no, 'venue'.
-    const tipCents = input.dto.tipCents ?? 0;
-    const tipGoesTo = input.dto.tipGoesTo ?? null;
-
-    try {
-      return await this.consumeOnce(input, tipCents, tipGoesTo);
-    } catch (err) {
-      // Dos clics a la vez: el segundo choca con la clave única → resultado del primero.
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        const first = await this.prisma.asSystem((tx) =>
-          tx.walletConsumption.findUnique({
-            where: { tenantId_idempotencyKey: { tenantId: input.tenantId, idempotencyKey: input.idempotencyKey } },
-            include: {
-              earning: { select: { commissionCents: true } },
-              wallet: { select: { balanceCents: true } },
-            },
-          }),
-        );
-        if (first) {
-          return {
-            consumptionId: first.id,
-            newBalanceCents: first.wallet.balanceCents,
-            earningCreated: first.earning !== null,
-            earningCommissionCents: first.earning?.commissionCents ?? null,
-          };
-        }
-      }
-      throw err;
-    }
-  }
-
-  private async consumeOnce(
-    input: { tenantId: string; walletId: string; providedByUserId: string; idempotencyKey: string; dto: ConsumeWalletDto },
-    tipCents: number,
-    tipGoesTo: string | null,
-  ): Promise<ConsumeWalletResult> {
-    return this.prisma.$transaction(async (tx) => {
-      // 1. Lock wallet
-      const locked = await tx.$queryRaw<
-        Array<{
-          id: string;
-          balanceCents: number;
-          status: string;
-          tenantId: string;
-        }>
-      >`
-        SELECT id, "balanceCents", status, "tenantId"
-          FROM client_wallets
-         WHERE id = ${input.walletId}::uuid
-           FOR UPDATE
-      `;
-      if (locked.length === 0) {
-        throw new NotFoundException(`Wallet ${input.walletId} no encontrada`);
-      }
-      const w = locked[0]!;
-      if (w.tenantId !== input.tenantId) {
-        throw new ForbiddenException('Wallet no pertenece a tu venue');
-      }
-      if (w.status !== 'ACTIVE') {
-        throw new ConflictException(`Wallet en status ${w.status} — no se puede cobrar`);
-      }
-      // El tip se descuenta también del balance (cliente pagó por adelantado todo).
-      const totalDebit = input.dto.amountCents + tipCents;
-      if (w.balanceCents < totalDebit) {
-        throw new ConflictException(
-          `Balance insuficiente: tiene ${(w.balanceCents / 100).toFixed(2)}€, ` +
-            `intentas cobrar ${(input.dto.amountCents / 100).toFixed(2)}€` +
-            (tipCents > 0 ? ` + propina ${(tipCents / 100).toFixed(2)}€` : ''),
-        );
-      }
-
-      // 2. Lee role + commissionBps del provider (para decidir si hay earning)
-      const provider = await tx.user.findFirst({
-        where: { id: input.providedByUserId, tenantId: input.tenantId },
-        select: { role: true, commissionBps: true },
-      });
-      if (!provider) {
-        throw new ForbiddenException('Usuario no pertenece a este venue');
-      }
-
-      // 3. Crea consumption (con tip metadata).
-      const effectiveTipGoesTo =
-        tipCents > 0
-          ? tipGoesTo ?? (provider.role === 'OPERATOR' ? 'operator' : 'venue')
-          : null;
-      const consumption = await tx.walletConsumption.create({
-        data: {
-          tenantId: input.tenantId,
-          walletId: input.walletId,
-          amountCents: input.dto.amountCents,
-          providedByUserId: input.providedByUserId,
-          category: input.dto.category,
-          notes: input.dto.notes ?? null,
-          idempotencyKey: input.idempotencyKey,
-          tipCents,
-          ...(effectiveTipGoesTo ? { tipGoesTo: effectiveTipGoesTo } : {}),
-        },
-      });
-
-      // 4. Si es OPERATOR (chica), genera earning ligado al consumption.
-      //    Math.round (no floor) evita bias unidireccional contra operadora.
-      //    Tip se suma al earning solo si tipGoesTo='operator' (default cuando la
-      //    chica cobra) o no se especifica.
-      //    La comisión, con la misma regla que los cobros con tarjeta y los que
-      //    acepta el cliente (resolveBpsForOperator): la suya o la del local, y
-      //    nada en ventas del local (barra, habitación…).
-      let earningCommissionCents: number | null = null;
-      let earningTipCents = 0;
-      if (provider.role === 'OPERATOR') {
-        const venue = await tx.venue.findUnique({
-          where: { id: input.tenantId },
-          select: { operatorCommissionDefaults: true },
-        });
-        const bps = resolveBpsForOperator({
-          category: input.dto.category,
-          userCommissionBpsOverride: provider.commissionBps,
-          venueMap: (venue?.operatorCommissionDefaults ?? null) as Record<string, number> | null,
-        });
-        const commissionCents = Math.round((input.dto.amountCents * bps) / 10_000);
-        if (tipCents > 0 && effectiveTipGoesTo === 'operator') {
-          earningTipCents = tipCents;
-        }
-        if (commissionCents > 0 || earningTipCents > 0) {
-          await tx.operatorEarning.create({
-            data: {
-              tenantId: input.tenantId,
-              operatorId: input.providedByUserId,
-              consumptionId: consumption.id,
-              paymentAmountCents: input.dto.amountCents,
-              commissionBps: bps,
-              commissionCents,
-              tipCents: earningTipCents,
-            },
-          });
-          earningCommissionCents = commissionCents;
-        }
-      }
-
-      // 5. Decrement balance + marcar DEPLETED si llegó a 0
-      const newBalance = w.balanceCents - totalDebit;
-      await tx.clientWallet.update({
-        where: { id: input.walletId },
-        data: {
-          balanceCents: newBalance,
-          // Solo marcamos DEPLETED si llegó exactamente a 0 — el refund flow
-          // se encarga del "wallet en uso con balance>0 al cierre".
-          ...(newBalance === 0 ? { status: 'DEPLETED' } : {}),
-        },
-      });
-
-      this.logger.log(
-        `Wallet ${input.walletId} consumed -${input.dto.amountCents}c (tip ${tipCents}c) by ${input.providedByUserId} (${provider.role}) cat=${input.dto.category}. balance=${newBalance}`,
-      );
-
-      return {
-        consumptionId: consumption.id,
-        newBalanceCents: newBalance,
-        earningCreated: earningCommissionCents !== null,
-        earningCommissionCents,
-        tipCents: earningTipCents,
-      };
     });
   }
 

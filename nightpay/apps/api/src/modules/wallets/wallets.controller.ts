@@ -3,7 +3,6 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   HttpCode,
   Inject,
   Param,
@@ -13,11 +12,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
-  ConsumeWalletSchema,
   RefundWalletSchema,
   ReverseConsumptionSchema,
-  type ConsumeWalletDto,
-  type ConsumeWalletResult,
   type JwtPayload,
   type RefundWalletDto,
   type RefundWalletResult,
@@ -36,7 +32,6 @@ import { WalletsService } from './wallets.service';
  *
  * Endpoints:
  *  - GET  /v1/wallets/public/:qrToken            (cliente — sin auth)
- *  - POST /v1/wallets/:id/consume                (OPERATOR/MANAGER/WAITER/OWNER)
  *  - POST /v1/wallets/:id/refund                 (OWNER)
  *  - POST /v1/wallets/:id/consumptions/:cid/reverse (OWNER/MANAGER)
  *  - GET  /v1/admin/wallets/stats                (admin — vía AdminController)
@@ -64,33 +59,6 @@ export class WalletsController {
       throw new BadRequestException('qrToken inválido');
     }
     return this.wallets.getPublicByToken(qrToken);
-  }
-
-  @Post(':id/consume')
-  @HttpCode(200)
-  // Saldo NightPay: lo normal es que el cliente acepte cada cobro en su móvil
-  // (/v1/wallet-charges). Cobrar sin su confirmación queda para el encargado
-  // o el dueño (p. ej. el cliente se quedó sin batería), y queda registrado.
-  @Roles('MANAGER', 'OWNER')
-  async consume(
-    @Tenant() tenantId: string,
-    @CurrentUser() user: JwtPayload,
-    @Param('id', new ParseUUIDPipe()) walletId: string,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
-    @Body(new ZodValidationPipe(ConsumeWalletSchema)) dto: ConsumeWalletDto,
-  ): Promise<ConsumeWalletResult> {
-    if (!idempotencyKey || idempotencyKey.length < 8) {
-      throw new BadRequestException(
-        'Header Idempotency-Key obligatorio (>=8 chars) para evitar doble-cobro',
-      );
-    }
-    return this.wallets.consume({
-      tenantId,
-      walletId,
-      providedByUserId: user.sub,
-      idempotencyKey,
-      dto,
-    });
   }
 
   @Post(':id/refund')

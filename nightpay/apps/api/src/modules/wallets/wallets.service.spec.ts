@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   BadRequestException,
   ConflictException,
@@ -9,15 +9,13 @@ import { WalletsService } from './wallets.service';
 
 /**
  * Tests con mocks de Prisma — no toca DB. Cubrimos lo que la DB no garantiza
- * sola: orden de validaciones, generación de earnings para OPERATOR, idempotency
- * de consume, semantica del refund CARD vs CREDIT, rollback de consumption.
+ * sola: orden de validaciones, semantica del refund CARD vs CREDIT, rollback
+ * de consumption.
  */
 
 const TENANT = 't-1';
 const WALLET_ID = 'w-1';
 const PAYMENT_ID = 'p-1';
-const USER_OP = 'u-op';
-const USER_WAITER = 'u-wt';
 
 interface WalletRow {
   id: string;
@@ -47,7 +45,7 @@ function makeService(opts: PrismaMockOptions = {}) {
 
   const createdConsumptions: Array<Record<string, unknown>> = [];
   const createdEarnings: Array<Record<string, unknown>> = [];
-  let txWalletUpdates: Array<Record<string, unknown>> = [];
+  const txWalletUpdates: Array<Record<string, unknown>> = [];
 
   // Mock $queryRaw returns a SNAPSHOT of the locked wallet row.
   // En producción la DB devuelve una copia (no aliased con el "estado en memoria"
@@ -155,14 +153,7 @@ function makeService(opts: PrismaMockOptions = {}) {
     get: vi.fn().mockReturnValue(refundsMock),
   };
 
-  const svc = new WalletsService(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    prismaMock as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    auditMock as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    moduleRefMock as any,
-  );
+  const svc = new WalletsService(prismaMock as never, auditMock as never, moduleRefMock as never);
   // No hay onModuleInit — la resolución de RefundsService es lazy via getRefundsService().
   return {
     svc,
@@ -236,86 +227,6 @@ describe('WalletsService.creditFromTopUp', () => {
     await expect(
       svc.creditFromTopUp({ tenantId: TENANT, walletId: WALLET_ID, amountCents: 1000, paymentId: PAYMENT_ID }),
     ).rejects.toThrow(ForbiddenException);
-  });
-});
-
-describe('WalletsService.consume', () => {
-  const baseInput = (overrides: Record<string, unknown> = {}) => ({
-    tenantId: TENANT,
-    walletId: WALLET_ID,
-    providedByUserId: USER_OP,
-    idempotencyKey: 'idem-12345',
-    dto: { amountCents: 2000, category: 'time' },
-    ...overrides,
-  });
-
-  it('debits balance + creates consumption (no earning when WAITER)', async () => {
-    const { svc, createdConsumptions, createdEarnings, wallet } = makeService({
-      providerRole: 'WAITER',
-      walletBalance: 10_000,
-    });
-    const result = await svc.consume(baseInput({ providedByUserId: USER_WAITER }));
-    expect(result.newBalanceCents).toBe(8000);
-    expect(result.earningCreated).toBe(false);
-    expect(createdConsumptions).toHaveLength(1);
-    expect(createdEarnings).toHaveLength(0);
-    expect(wallet.balanceCents).toBe(8000);
-  });
-
-  it('creates OperatorEarning when provider is OPERATOR with commissionBps', async () => {
-    const { svc, createdEarnings } = makeService({
-      providerRole: 'OPERATOR',
-      providerCommissionBps: 9000, // 90%
-      walletBalance: 10_000,
-    });
-    const result = await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'CHICA_SERVICE' } })); // 20€
-    expect(result.earningCreated).toBe(true);
-    // 2000 * 9000 / 10000 = 1800 cents
-    expect(result.earningCommissionCents).toBe(1800);
-    expect(createdEarnings).toHaveLength(1);
-    expect(createdEarnings[0].consumptionId).toBeDefined();
-    expect(createdEarnings[0].commissionCents).toBe(1800);
-  });
-
-  it('chica sin % propio → la comisión por defecto del local (antes no se le apuntaba nada)', async () => {
-    const { svc, createdEarnings } = makeService({ providerRole: 'OPERATOR', providerCommissionBps: null, walletBalance: 10_000 });
-    const result = await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'CHICA_SERVICE' } }));
-    expect(result.earningCommissionCents).toBe(1800);
-    expect(createdEarnings[0].commissionBps).toBe(9000);
-  });
-
-  it('venta del local (barra) → nada para la chica, como con tarjeta', async () => {
-    const { svc, createdEarnings } = makeService({ providerRole: 'OPERATOR', providerCommissionBps: 9000, walletBalance: 10_000 });
-    const result = await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'VENUE_BAR' } }));
-    expect(result.earningCreated).toBe(false);
-    expect(createdEarnings).toHaveLength(0);
-  });
-
-  it('rejects when balance is insufficient', async () => {
-    const { svc, createdConsumptions } = makeService({
-      providerRole: 'OPERATOR',
-      providerCommissionBps: 9000,
-      walletBalance: 1000, // only 10€
-    });
-    await expect(svc.consume(baseInput({ dto: { amountCents: 5000, category: 'time' } }))).rejects.toThrow(
-      ConflictException,
-    );
-    expect(createdConsumptions).toHaveLength(0);
-  });
-
-  it('rejects on non-ACTIVE wallet', async () => {
-    const { svc } = makeService({ providerRole: 'OPERATOR', walletStatus: 'REFUNDED' });
-    await expect(svc.consume(baseInput())).rejects.toThrow(ConflictException);
-  });
-
-  it('marks wallet DEPLETED when balance reaches exactly 0', async () => {
-    const { svc, wallet } = makeService({
-      providerRole: 'WAITER',
-      walletBalance: 2000,
-    });
-    await svc.consume(baseInput({ dto: { amountCents: 2000, category: 'bar' } }));
-    expect(wallet.balanceCents).toBe(0);
-    expect(wallet.status).toBe('DEPLETED');
   });
 });
 
