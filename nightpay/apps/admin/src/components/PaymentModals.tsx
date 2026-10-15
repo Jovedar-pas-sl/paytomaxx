@@ -4,11 +4,17 @@ import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Input, Modal, Select } from '@nightpay/ui';
 import { parseEuroCents } from '@nightpay/contracts';
 import { refundPayment, resolveStuckPayment, type PaymentRow } from '@/lib/api';
+import { isRefundOutcomeUnknown, needsTotpCode } from '@/lib/api-errors';
 import { formatDateTime } from '@/lib/dates';
 import { centsToInput, formatEur, formatMoney } from '@/lib/money';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { Notice } from './Notice';
 
-/** Reembolsos de este importe o más piden el código de la app de verificación (igual que el API). */
+/**
+ * Desde este importe el código de la app de verificación se pide seguro. El
+ * API nuevo lo pide también por lo devuelto acumulado (TOTP_REQUIRED): entonces
+ * aparece el campo y se vuelve a confirmar.
+ */
 const TWO_FA_THRESHOLD_CENTS = 100_00;
 
 export function ResolveModal({
@@ -195,15 +201,20 @@ export function RefundModal({
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [totp, setTotp] = useState('');
+  const [askedForCode, setAskedForCode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** La pasarela no confirmó: la devolución queda pendiente (no repetirla). */
+  const [unknownOutcome, setUnknownOutcome] = useState<string | null>(null);
 
   useEffect(() => {
     if (payment) {
       setAmount(centsToInput(payment.availableAmountCents));
       setReason('');
       setTotp('');
+      setAskedForCode(false);
       setError(null);
+      setUnknownOutcome(null);
     }
   }, [payment]);
 
@@ -212,7 +223,7 @@ export function RefundModal({
   }
 
   const cents = parseEuroCents(amount) ?? Number.NaN;
-  const requires2FA = Number.isFinite(cents) && cents >= TWO_FA_THRESHOLD_CENTS;
+  const requires2FA = askedForCode || (Number.isFinite(cents) && cents >= TWO_FA_THRESHOLD_CENTS);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -226,10 +237,34 @@ export function RefundModal({
       await refundPayment(payment.id, cents, reason || undefined, requires2FA ? totp : undefined);
       onDone();
     } catch (err) {
-      setError((err as Error).message);
+      if (isRefundOutcomeUnknown(err)) {
+        setUnknownOutcome((err as Error).message);
+      } else if (needsTotpCode(err) && !requires2FA) {
+        // Lo devuelto acumulado llega a 100 €: el API pide el código aunque este importe sea menor.
+        setAskedForCode(true);
+        setError(`${(err as Error).message} Pon el código y vuelve a confirmar.`);
+      } else {
+        setTotp('');
+        setError((err as Error).message);
+      }
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (unknownOutcome) {
+    return (
+      <Modal open={open} onClose={onDone} title="Devolución sin confirmar">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <Notice tone="warning">
+            El banco no ha confirmado la devolución; queda pendiente. Revísala en el portal de la pasarela y, pasados
+            2 minutos, márcala como hecha o no hecha en «Devoluciones» de este cobro. No la repitas.
+          </Notice>
+          <p style={metaStyle}>{unknownOutcome}</p>
+          <Button onClick={onDone}>Entendido</Button>
+        </div>
+      </Modal>
+    );
   }
 
   return (
@@ -267,7 +302,7 @@ export function RefundModal({
             value={totp}
             onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
             required
-            hint="Los reembolsos de 100 € o más piden los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
+            hint="Lo devuelto desde 100 € (de una vez o sumando) pide los 6 números de tu app de verificación; cada código vale una sola vez. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
           />
         ) : null}
         {error ? (

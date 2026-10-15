@@ -4,7 +4,9 @@ import {
   errorFromBody,
   humanizeTotpError,
   isDuplicateRefundError,
+  isRefundOutcomeUnknown,
   loginErrorMessage,
+  needsTotpCode,
 } from './api-errors';
 
 describe('errorFromBody', () => {
@@ -67,5 +69,22 @@ describe('isDuplicateRefundError', () => {
     expect(isDuplicateRefundError(new ApiError('Solo se registran devoluciones de cobros pagados', 409))).toBe(false);
     expect(isDuplicateRefundError(new ApiError(dup, 500))).toBe(false);
     expect(isDuplicateRefundError('no es un error')).toBe(false);
+  });
+});
+
+describe('2FA y devoluciones del API nuevo', () => {
+  it('TOTP_REQUIRED por código (también por lo acumulado) o por el texto antiguo', () => {
+    expect(needsTotpCode(new ApiError('Hace falta el código 2FA: 120,00 € devueltos', 403, 'TOTP_REQUIRED'))).toBe(true);
+    expect(needsTotpCode(new ApiError('Este importe pide el código de tu app de verificación (2FA).', 403))).toBe(true);
+    expect(needsTotpCode(new ApiError('Código 2FA incorrecto o caducado', 403, 'TOTP_INVALID'))).toBe(false);
+  });
+
+  it('código incorrecto: avisa de que no se puede repetir en 30 s', () => {
+    expect(humanizeTotpError('Código 2FA incorrecto o caducado', 'TOTP_INVALID')).toMatch(/30 s/);
+  });
+
+  it('devolución sin confirmar por la pasarela', () => {
+    expect(isRefundOutcomeUnknown(new ApiError('No sabemos…', 502, 'REFUND_OUTCOME_UNKNOWN'))).toBe(true);
+    expect(isRefundOutcomeUnknown(new ApiError('Bad gateway', 502))).toBe(false);
   });
 });

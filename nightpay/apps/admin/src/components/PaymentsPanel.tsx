@@ -10,6 +10,7 @@ import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { BankRefundModal } from './BankRefundModal';
 import { RefundModal, ResolveModal } from './PaymentModals';
+import { RefundsModal } from './RefundsModal';
 
 const PAGE_SIZE = 50;
 /** Tope de `limit` en GET /v1/admin/payments. */
@@ -47,6 +48,7 @@ export function PaymentsPanel({ user }: { user: User }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [refundFor, setRefundFor] = useState<PaymentRow | null>(null);
   const [resolveFor, setResolveFor] = useState<PaymentRow | null>(null);
+  const [refundsFor, setRefundsFor] = useState<PaymentRow | null>(null);
   // Filas cargadas (el refresco pide las mismas) y filtro vigente (para
   // descartar un "Cargar más" que vuelve después de cambiar el filtro).
   const loadedRef = useRef(0);
@@ -135,7 +137,15 @@ export function PaymentsPanel({ user }: { user: User }) {
 
       <section style={metricsGrid}>
         <MetricTile title="Hoy · pagos" value={metrics ? String(metrics.today.count) : '—'} />
-        <MetricTile title="Hoy · bruto" value={eurOrDash(metrics?.today.grossCents)} />
+        <MetricTile
+          title="Hoy · cobrado"
+          value={eurOrDash(metrics ? (metrics.today.chargedCents ?? metrics.today.grossCents) : undefined)}
+          note={
+            metrics?.today.tipCents
+              ? `${formatEur(metrics.today.grossCents)} + ${formatEur(metrics.today.tipCents)} de propinas`
+              : undefined
+          }
+        />
         <MetricTile title="Hoy · reembolsos" value={eurOrDash(metrics?.today.refundedCents)} />
         <MetricTile title="Hoy · neto" value={eurOrDash(metrics?.today.netCents)} highlight />
         <MetricTile title="Semana · neto" value={eurOrDash(metrics?.week.netCents)} />
@@ -208,6 +218,12 @@ export function PaymentsPanel({ user }: { user: User }) {
                             {bankRefund ? 'Devolución BBVA' : 'Reembolsar'}
                           </Button>
                         ) : null}
+                        {/* Ya hay algo devuelto o reservado (p. ej. una devolución sin confirmar). */}
+                        {p.availableAmountCents < p.amountCents ? (
+                          <Button variant="ghost" onClick={() => setRefundsFor(p)} size="md" style={smallBtn}>
+                            Devoluciones
+                          </Button>
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -256,6 +272,15 @@ export function PaymentsPanel({ user }: { user: User }) {
         onClose={() => setRefundFor(null)}
         onDone={afterAction(() => setRefundFor(null))}
       />
+
+      {refundsFor ? (
+        <RefundsModal
+          payment={refundsFor}
+          isOwner={user.role === 'OWNER'}
+          onClose={() => setRefundsFor(null)}
+          onChanged={refresh}
+        />
+      ) : null}
     </>
   );
 }
@@ -279,7 +304,17 @@ function bankSummary(p: PaymentRow): string {
   return parts.length > 0 ? parts.join(' · ') : '—';
 }
 
-function MetricTile({ title, value, highlight }: { title: string; value: string; highlight?: boolean }) {
+function MetricTile({
+  title,
+  value,
+  note,
+  highlight,
+}: {
+  title: string;
+  value: string;
+  note?: string;
+  highlight?: boolean;
+}) {
   return (
     <Card variant={highlight ? 'glow' : 'default'} style={{ padding: '1.25rem 1.5rem' }}>
       <p style={metricLabel}>{title}</p>
@@ -292,9 +327,12 @@ function MetricTile({ title, value, highlight }: { title: string; value: string;
       >
         {value}
       </p>
+      {note ? <p style={metricNote}>{note}</p> : null}
     </Card>
   );
 }
+
+const metricNote: CSSProperties = { margin: '0.35rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-dim)' };
 
 const errorRow: CSSProperties = {
   display: 'flex',

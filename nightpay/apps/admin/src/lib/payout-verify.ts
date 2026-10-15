@@ -17,12 +17,26 @@ export interface VerifyOutcome {
   message: string;
 }
 
+/** Motivos del API nuevo: "codigo: detalle" (o solo el código). */
+const REASON_LABELS: Record<string, string> = {
+  importe_distinto: 'El importe no cuadra',
+  destino_distinto: 'Fue a otra dirección, no a la de la chica',
+  sin_usdt: 'No es un envío de USDT/USDC',
+  tx_fallida: 'La transacción falló en la red',
+  tx_anterior_al_pago: 'La transacción es anterior al pago',
+  sin_fecha: 'El explorador no da la fecha de la transacción: revísala a mano',
+};
+
 /**
- * Motivo del verificador (códigos como "tron_amount_95.00_vs_100.00") → frase.
- * Un motivo que ya viene en frase (el API puede mandarlo así) se enseña tal cual.
+ * Motivo del verificador → frase. API nuevo: "importe_distinto: llegaron …";
+ * API antiguo: códigos como "tron_amount_95.00_vs_100.00". Un motivo que ya
+ * viene en frase se enseña tal cual.
  */
 export function describeVerifyReason(reason: string | null): string | null {
   if (!reason) return null;
+  const coded = /^([a-z_]+)(?::\s*([\s\S]*))?$/.exec(reason);
+  const label = coded?.[1] ? REASON_LABELS[coded[1]] : undefined;
+  if (coded && label) return coded[2] ? `${label}: ${coded[2]}` : `${label}.`;
   const amount = /_amount_([\d.]+)_vs_([\d.]+)$/.exec(reason);
   if (amount) {
     return `Se enviaron ${amount[1]} y tocaban ${amount[2]} (USDT/USDC).`;
@@ -56,8 +70,15 @@ export function describeVerifyResult(result: {
   matched: boolean;
   status: ReconciliationStatus;
   reason: string | null;
+  actualAmountUsdt?: number | null;
 }): VerifyOutcome {
-  const reason = describeVerifyReason(result.reason);
+  const described = describeVerifyReason(result.reason);
+  // Lo que llegó on-chain (API nuevo), si el motivo no lo dice ya.
+  const arrived =
+    typeof result.actualAmountUsdt === 'number' && !/llegaron/i.test(described ?? '')
+      ? ` Llegaron ${result.actualAmountUsdt.toLocaleString('es-ES', { maximumFractionDigits: 2 })} USDT/USDC.`
+      : '';
+  const reason = described || arrived ? `${described ?? ''}${arrived}`.trim() : null;
   if (result.matched) {
     return {
       tone: 'success',

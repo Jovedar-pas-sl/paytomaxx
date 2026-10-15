@@ -56,3 +56,28 @@ describe('payoutReferenceError', () => {
     expect(payoutReferenceError({ externalTxId: '0xabcd', receiptUrl: 'https://x.com/r.png' })).toBeNull();
   });
 });
+
+describe('motivos del API nuevo', () => {
+  it('"codigo: detalle" → etiqueta en castellano y el detalle', () => {
+    const out = describeVerifyResult({
+      matched: false,
+      status: 'MISMATCH',
+      reason: 'importe_distinto: llegaron 95 USDT y se esperaban 100 USDT (margen ±0,5)',
+      actualAmountUsdt: 95,
+    });
+    expect(out.tone).toBe('danger');
+    expect(out.message).toContain('El importe no cuadra');
+    expect(out.message).not.toContain('importe_distinto');
+    expect(out.message).not.toMatch(/Llegaron 95/); // ya lo dice el motivo
+  });
+
+  it('solo el código', () => {
+    expect(describeVerifyReason('sin_usdt')).toBe('No es un envío de USDT/USDC.');
+    expect(describeVerifyReason('tx_anterior_al_pago: la transacción es del 2026-10-01')).toContain('anterior al pago');
+  });
+
+  it('lo que llegó se añade si el motivo no lo dice', () => {
+    const out = describeVerifyResult({ matched: false, status: 'MISMATCH', reason: 'destino_distinto', actualAmountUsdt: 50 });
+    expect(out.message).toContain('Llegaron 50');
+  });
+});

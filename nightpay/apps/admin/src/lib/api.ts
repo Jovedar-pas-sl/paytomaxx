@@ -194,6 +194,10 @@ export interface OperatorPayout {
 export interface TreasuryStats {
   pendingPayoutsCents: number;
   pendingOperatorCount: number;
+  /** API nuevo: comisiones aún en espera (se pagarán más adelante). */
+  heldPayoutsCents?: number;
+  /** API nuevo: deuda de las chicas por devoluciones tras un pago. */
+  operatorDebtCents?: number;
   payoutsThisMonthCount: number;
   payoutsThisMonthCents: number;
   byMethod: Record<string, number>;
@@ -205,6 +209,8 @@ export interface VerifyPayoutResult {
   status: ReconciliationStatus;
   occurredAt: string | null;
   actualAmountCents: number | null;
+  /** API nuevo: lo que llegó on-chain, en USDT/USDC. */
+  actualAmountUsdt?: number | null;
   reason: string | null;
 }
 
@@ -212,6 +218,8 @@ export interface CreateOperatorResponse {
   operator: Omit<Operator, 'balance'>;
   inviteUrl: string;
   emailSent: boolean;
+  /** API nuevo: aviso (p. ej. el encargado no fija la comisión: se aplica la del local). */
+  notice?: string;
 }
 
 export interface LoginResponse {
@@ -256,9 +264,22 @@ export interface PaymentRow {
   terminal: { externalId: string; label: string };
 }
 
+export interface MetricsPeriod {
+  count: number;
+  /** Sin propinas. */
+  grossCents: number;
+  refundedCents: number;
+  /** API nuevo: cobrado − devoluciones − saldo devuelto en efectivo, con propinas. */
+  netCents: number;
+  /** API nuevo: propinas y cobrado (importe + propina). El API antiguo no los manda. */
+  tipCents?: number;
+  chargedCents?: number;
+  walletCashPayoutCents?: number;
+}
+
 export interface Metrics {
-  today: { count: number; grossCents: number; refundedCents: number; netCents: number };
-  week: { count: number; grossCents: number; refundedCents: number; netCents: number };
+  today: MetricsPeriod;
+  week: MetricsPeriod;
   statusBreakdown: Record<string, number>;
 }
 
@@ -550,7 +571,7 @@ async function apiError(res: Response): Promise<ApiError> {
 /** Igual, con los errores de 2FA (que el API da en inglés) en castellano. */
 async function totpAwareError(res: Response): Promise<ApiError> {
   const err = await apiError(res);
-  return new ApiError(humanizeTotpError(err.message), err.status, err.code);
+  return new ApiError(humanizeTotpError(err.message, err.code), err.status, err.code);
 }
 
 const SESSION_RENEW_FAILED = 'No se pudo renovar la sesión. Revisa la conexión y vuelve a probar.';
@@ -625,8 +646,25 @@ export async function fetchPayments(params: {
 }
 
 export async function fetchRefunds(paymentId: string): Promise<Refund[]> {
-  const res = await authedFetch(`/v1/payments/${paymentId}/refunds`);
-  if (!res.ok) throw new Error('Error cargando refunds');
+  const res = await authedFetch(`/v1/payments/${encodeURIComponent(paymentId)}/refunds`);
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/**
+ * Devolución que quedó PENDIENTE porque la pasarela no confirmó: el dueño la
+ * mira en el portal y la marca hecha o no hecha (pasados 2 minutos).
+ */
+export async function resolvePendingRefund(
+  paymentId: string,
+  refundId: string,
+  input: { outcome: 'SUCCEEDED' | 'FAILED'; note: string },
+): Promise<{ id: string; status: string }> {
+  const res = await authedFetch(
+    `/v1/payments/${encodeURIComponent(paymentId)}/refunds/${encodeURIComponent(refundId)}/resolve`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
@@ -707,7 +745,10 @@ export type IncidentKind =
   | 'wallet_open_balance'
   | 'bank_mismatch'
   | 'backup_stale'
-  | 'backup_unmonitored';
+  | 'backup_unmonitored'
+  | 'approval_unverified'
+  | 'amount_mismatch'
+  | 'approval_unbooked';
 
 export interface Incident {
   kind: IncidentKind;
@@ -766,6 +807,26 @@ export interface NightSummary {
     netCents: number;
     paidCents: number;
   }>;
+  // API nuevo (los Z congelados antes no los traen):
+  /** Saldo devuelto al cliente en efectivo: resta del neto. */
+  walletCashPayoutsCents?: number;
+  /** Saldo devuelto a la tarjeta: ya está en las devoluciones (solo se informa). */
+  walletCardPayoutsCents?: number;
+  /** Consumos del saldo (ventas, no dinero nuevo). */
+  consumptionsCount?: number;
+  consumptionsCents?: number;
+  saldoByType?: Array<{ label: string; count: number; chargedCents: number }>;
+}
+
+/** Lo apuntado tarde con fecha de noches ya cerradas: va en el Z siguiente. */
+export interface NightAdjustments {
+  since: string;
+  before: string;
+  count: number;
+  summary: NightSummary;
+  reversedConsumptionsCount: number;
+  reversedConsumptionsCents: number;
+  reversedConsumptionsChicaCents: number;
 }
 
 export interface NightZ {
@@ -774,6 +835,8 @@ export interface NightZ {
   generatedAt: string;
   summary: NightSummary;
   pendingCount: number;
+  /** API nuevo: ajustes de noches anteriores. */
+  adjustments?: NightAdjustments;
 }
 
 export interface NightView {

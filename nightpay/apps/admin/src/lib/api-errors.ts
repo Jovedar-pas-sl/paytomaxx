@@ -54,16 +54,34 @@ export function loginErrorMessage(status: number, detail: string): string {
   return `No se pudo entrar (error ${status}).`;
 }
 
-/** Los errores de 2FA del API llegan en inglés: aquí, en castellano. */
-export function humanizeTotpError(message: string): string {
+const TOTP_REUSE_HINT = 'Si acabas de usar ese código, espera al siguiente (cambia cada 30 s).';
+
+/**
+ * Errores de 2FA → castellano. El API antiguo los da en inglés; el nuevo, en
+ * castellano y con código (TOTP_REQUIRED / TOTP_NOT_ENROLLED / TOTP_INVALID).
+ */
+export function humanizeTotpError(message: string, code: string | null = null): string {
   if (/TOTP required/i.test(message)) {
     return 'Este importe pide el código de tu app de verificación (2FA).';
   }
   if (/TOTP not enrolled/i.test(message)) {
     return 'Para este importe hace falta la verificación en dos pasos: actívala en Ajustes → Verificación en dos pasos.';
   }
-  if (/Invalid TOTP/i.test(message)) return 'Código 2FA incorrecto o caducado.';
+  if (/Invalid TOTP/i.test(message)) return `Código 2FA incorrecto o caducado. ${TOTP_REUSE_HINT}`;
+  if (code === 'TOTP_INVALID' && !message.includes('30 s')) return `${message.replace(/\.$/, '')}. ${TOTP_REUSE_HINT}`;
   return message;
+}
+
+/** El API pide el código 2FA para seguir (también por lo devuelto acumulado, no solo desde 100 € de golpe). */
+export function needsTotpCode(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err instanceof ApiError && err.code === 'TOTP_REQUIRED') return true;
+  return /TOTP required|pide el código de tu app|hace falta el código 2FA/i.test(err.message);
+}
+
+/** La pasarela no confirmó la devolución: queda pendiente (502 REFUND_OUTCOME_UNKNOWN). */
+export function isRefundOutcomeUnknown(err: unknown): boolean {
+  return err instanceof ApiError && err.code === 'REFUND_OUTCOME_UNKNOWN';
 }
 
 const DUPLICATE_REFUND_TEXT = /ya hay una devoluci[oó]n|conf[ií]rmalo/i;
