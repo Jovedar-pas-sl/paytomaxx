@@ -53,8 +53,17 @@ import {
   type PayResultView,
   type RetryDecision,
 } from './pay-redirect';
-import { defaultTipGoesTo, readChargedTip, settleChargedTip, tipOptionsFor } from './tip';
+import {
+  creatorTipConfirmable,
+  defaultTipGoesTo,
+  maxTipCents,
+  readChargedTip,
+  settleChargedTip,
+  tipDestinationAllowed,
+  tipOptionsFor,
+} from './tip';
 import { expectedChicaReversal } from './refund-share';
+import { operatorCapProblem } from './operator-cap';
 import { formatWalletCode } from '../wallets/wallet-rules';
 import { BRAND_NAME } from '../../common/brand';
 
@@ -64,6 +73,20 @@ const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-cat
     'Desde tu app solo puedes cobrar tus servicios. La barra, la habitación y la comida las cobra el camarero desde la caja.',
   'invalid-category': 'Ese servicio tiene una categoría no válida. Revísalo en la carta del panel.',
 };
+
+const TIP_TOO_HIGH = 'La propina no puede pasar del importe del cobro ni de 500,00 €';
+const TIP_DESTINATION_NOT_ALLOWED = 'Desde tu app la propina solo puede ser para ti o para el local';
+
+/** Propina que se apunta al crear el cobro (la que pone quien lo crea). */
+interface CreatorTip {
+  tipCents: number;
+  tipGoesTo: string | null;
+  tipBeneficiaryUserId: string | null;
+  /** Propina pedida que no se apunta (la pasarela no la cobraría). */
+  ignoredCents: number;
+}
+
+const NO_TIP: CreatorTip = { tipCents: 0, tipGoesTo: null, tipBeneficiaryUserId: null, ignoredCents: 0 };
 
 /** Fila del cobro bloqueada (FOR UPDATE) dentro de transition(). */
 export interface LockedPaymentRow {
@@ -336,14 +359,27 @@ export class PaymentsService implements OnApplicationBootstrap {
       service = { serviceItemId: item.id, serviceName: charge.serviceName, durationMin: charge.durationMin };
     }
 
-    if (creatorRole === 'OPERATOR' && !isWalletTopUp && !service) {
-      if (amountCents > venue.operatorMaxCobroCents) {
-        throw new BadRequestException(
-          `Importe ${(amountCents / 100).toFixed(2)} € supera el límite del local (${(venue.operatorMaxCobroCents / 100).toFixed(2)} €). ` +
-            `Para wallet top-up no aplica el cap; para cobros puntuales pídele al OWNER que suba el cap en Ajustes.`,
-        );
-      }
-    }
+    // Propina que pone quien crea el cobro: solo si el banco la va a cobrar y
+    // confirmar (Redsys); por datáfono cuenta la del datáfono. Y el tope del
+    // local para la chica es sobre importe + propina.
+    const isPosExternal = dto.captureMethod === 'POS_EXTERNAL';
+    const tip = await this.resolveCreatorTip({
+      tenantId,
+      dto,
+      amountCents,
+      creatorRole,
+      isPosExternal,
+      isWalletTopUp,
+    });
+    const capProblem = operatorCapProblem({
+      creatorRole,
+      isWalletTopUp,
+      fromMenu: service !== null,
+      amountCents,
+      tipCents: tip.tipCents,
+      capCents: venue.operatorMaxCobroCents,
+    });
+    if (capProblem) throw new BadRequestException(capProblem);
 
     // 2c. Phase 1B — si dto.wallet, resolver walletId antes de crear el payment.
     // create:true → crea wallet vacía + usa su id. walletId:<id> → valida pertenencia.
@@ -377,7 +413,6 @@ export class PaymentsService implements OnApplicationBootstrap {
     const qrToken = randomUUID();
     // POS_EXTERNAL puede tardar más en confirmarse (camarero camina con el
     // datáfono) — TTL más generoso. Wallet topup y QR normal: 5 min default.
-    const isPosExternal = dto.captureMethod === 'POS_EXTERNAL';
     const ttlSeconds = isPosExternal ? POS_QR_TTL_SECONDS : QR_TTL_SECONDS;
     const qrExpiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
@@ -393,36 +428,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       ? 'WALLET_TOPUP'
       : dto.captureMethod ?? null;
 
-    // Tip handling: si hay tipCents, valida coherencia y resuelve política default.
-    // Default: si creator es OPERATOR y no se especifica tipGoesTo → 'operator'.
-    const tipCents = dto.tipCents ?? 0;
-    let tipGoesTo: string | null = dto.tipGoesTo ?? null;
-    let tipBeneficiaryUserId: string | null = dto.tipBeneficiaryUserId ?? null;
-    if (tipCents > 0) {
-      if (!tipGoesTo) {
-        tipGoesTo = defaultTipGoesTo(creatorRole);
-      }
-      if (tipGoesTo === 'beneficiary' && !tipBeneficiaryUserId) {
-        throw new BadRequestException(
-          'tipGoesTo=beneficiary requiere tipBeneficiaryUserId',
-        );
-      }
-      if (tipBeneficiaryUserId) {
-        const beneficiary = await this.prisma.asSystem((tx) =>
-          tx.user.findFirst({
-            where: { id: tipBeneficiaryUserId!, tenantId, deletedAt: null },
-            select: { id: true },
-          }),
-        );
-        if (!beneficiary) {
-          throw new BadRequestException('tipBeneficiaryUserId no pertenece al venue');
-        }
-      }
-    } else {
-      // Sin tip: limpiar campos para no persistir basura.
-      tipGoesTo = null;
-      tipBeneficiaryUserId = null;
-    }
+    const { tipCents, tipGoesTo, tipBeneficiaryUserId } = tip;
 
     const revenueCategory = resolveRevenueCategory({
       isWalletTopUp: Boolean(resolvedWalletId),
@@ -469,6 +475,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           payload: {
             amountCents: p.amountCents,
             tipCents,
+            ...(tip.ignoredCents > 0 ? { tipIgnoredCents: tip.ignoredCents } : {}),
             terminal: dto.terminalExternalId,
             walletId: resolvedWalletId,
           },
@@ -496,6 +503,67 @@ export class PaymentsService implements OnApplicationBootstrap {
     this.metrics.paymentsCreated.inc({ venue: tenantId, provider: 'pending' });
     this.logger.log(`Payment created ${payment.id} amount=${payment.amountCents} venue=${tenantId}`);
     return this.toCreatedResponse(payment.id);
+  }
+
+  /**
+   * Propina que pone quien crea el cobro. Solo se apunta si el banco la va a
+   * cobrar y confirmar (Redsys, cobro con QR); si no, 0 (antes quedaba como
+   * propina de la chica y devolvible sin que nadie la hubiera pagado). Como
+   * mucho el importe (y 500 €); la chica, solo para ella o para el local.
+   */
+  private async resolveCreatorTip(input: {
+    tenantId: string;
+    dto: CreatePaymentDto;
+    amountCents: number;
+    creatorRole: string | undefined;
+    isPosExternal: boolean;
+    isWalletTopUp: boolean;
+  }): Promise<CreatorTip> {
+    const { dto, tenantId } = input;
+    if (!tipDestinationAllowed(input.creatorRole, dto.tipGoesTo)) {
+      throw new BadRequestException(TIP_DESTINATION_NOT_ALLOWED);
+    }
+    const declared = dto.tipCents ?? 0;
+    if (declared <= 0) return NO_TIP;
+    const provider = await this.activeProvider(tenantId);
+    const confirmable = creatorTipConfirmable({
+      provider,
+      isPosExternal: input.isPosExternal,
+      isWalletTopUp: input.isWalletTopUp,
+    });
+    if (!confirmable) {
+      this.logger.warn(
+        `Propina de ${declared}c no apuntada (venue=${tenantId} provider=${provider ?? '-'}): la pasarela no la cobra`,
+      );
+      return { ...NO_TIP, ignoredCents: declared };
+    }
+    if (declared > maxTipCents(input.amountCents)) throw new BadRequestException(TIP_TOO_HIGH);
+    const tipGoesTo = dto.tipGoesTo ?? defaultTipGoesTo(input.creatorRole);
+    const tipBeneficiaryUserId = dto.tipBeneficiaryUserId ?? null;
+    if (tipGoesTo === 'beneficiary' && !tipBeneficiaryUserId) {
+      throw new BadRequestException('tipGoesTo=beneficiary requiere tipBeneficiaryUserId');
+    }
+    if (tipBeneficiaryUserId) await this.assertVenueUser(tenantId, tipBeneficiaryUserId);
+    return { tipCents: declared, tipGoesTo, tipBeneficiaryUserId, ignoredCents: 0 };
+  }
+
+  private async assertVenueUser(tenantId: string, userId: string): Promise<void> {
+    const user = await this.prisma.asSystem((tx) =>
+      tx.user.findFirst({ where: { id: userId, tenantId, deletedAt: null }, select: { id: true } }),
+    );
+    if (!user) throw new BadRequestException('tipBeneficiaryUserId no pertenece al venue');
+  }
+
+  /** Pasarela activa del local (la que cobrará cuando el cliente pague). */
+  private async activeProvider(tenantId: string): Promise<Provider | null> {
+    const credential = await this.prisma.asSystem((tx) =>
+      tx.gatewayCredential.findFirst({
+        where: { tenantId, active: true },
+        orderBy: { createdAt: 'asc' },
+        select: { provider: true },
+      }),
+    );
+    return credential?.provider ?? null;
   }
 
   /**
@@ -661,18 +729,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     if (!payment) throw new NotFoundException('Payment not found');
     // Pasarela que cobrará: la del cobro o, si aún no ha ido al banco, la
     // activa del local. La propina solo se cobra (y se reparte) con Redsys.
-    const provider =
-      payment.provider ??
-      (
-        await this.prisma.asSystem((tx) =>
-          tx.gatewayCredential.findFirst({
-            where: { tenantId: payment.tenantId, active: true },
-            orderBy: { createdAt: 'asc' },
-            select: { provider: true },
-          }),
-        )
-      )?.provider ??
-      null;
+    const provider = payment.provider ?? (await this.activeProvider(payment.tenantId));
     const { walletId, wallet: rawWallet, attempts, ...rest } = payment;
     // Recarga de un saldo que ya existía: quien la paga no se lleva su código,
     // su enlace ni su Face ID (solo la recarga que lo creó).
@@ -1214,20 +1271,32 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Fija en el cobro la propina del intento que cobró el banco. Devuelve una
-   * copia de la fila con la propina y el importe devolvible ya ajustados.
+   * Fija en el cobro la propina del intento que cobró el banco. Sin ese dato
+   * (otra pasarela, intento sin propina registrada) no hay propina: nunca la
+   * que puso quien creó el cobro, que nadie ha pagado. Devuelve una copia de
+   * la fila con la propina y el importe devolvible ya ajustados.
    */
   private async withChargedTip<
-    T extends { id: string; amountCents: number; tipGoesTo: string | null },
+    T extends {
+      id: string;
+      amountCents: number;
+      availableAmountCents: number;
+      tipCents: number;
+      tipGoesTo: string | null;
+    },
   >(tx: TransactionalClient, p: T, event: { provider: string; providerTxId: string }): Promise<T> {
     const charged = await readChargedTip(tx, p.id, event);
-    if (!charged) return p;
     const settled = settleChargedTip({
       amountCents: p.amountCents,
-      tipCents: charged.tipCents,
+      tipCents: charged?.tipCents ?? 0,
       tipGoesTo: p.tipGoesTo,
-      creatorRole: charged.creatorRole,
+      creatorRole: charged?.creatorRole ?? null,
     });
+    const unchanged =
+      settled.tipCents === p.tipCents &&
+      settled.availableAmountCents === p.availableAmountCents &&
+      settled.tipGoesTo === p.tipGoesTo;
+    if (unchanged) return p;
     await tx.$executeRaw`
       UPDATE payments
          SET "tipCents" = ${settled.tipCents}::int,

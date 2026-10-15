@@ -8,7 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { InvalidTransitionError, type PaymentMachineState } from '../payments/payment.machine';
 import { PAID_STATES, confirmationCode } from '../payments/pay-redirect';
 import { PaymentsService } from '../payments/payments.service';
-import { settleChargedTip } from '../payments/tip';
+import { maxTipCents, settleChargedTip } from '../payments/tip';
 import type { PosDevice } from './device.guard';
 import {
   PAIRING_CODE_TTL_MS,
@@ -68,8 +68,6 @@ type PosPayment = {
 
 /** Un cobro tiene que haberse iniciado en el mismo datáfono hace poco. */
 const START_VALID_MS = 15 * 60 * 1000;
-/** Propina pedida en el datáfono: como mucho el importe y nunca más de esto. */
-const MAX_TERMINAL_TIP_CENTS = 500_00;
 
 /**
  * Datáfono PAX con la app NightPay. El datáfono pide el cobro, manda el
@@ -276,8 +274,9 @@ export class PosDeviceService {
     if (!(await this.startedHere(p.id, device.terminalId))) {
       return this.mismatch(p, op, 'Este cobro no se inició en este datáfono: anula esta operación.');
     }
+    // Propina pedida en el datáfono: como mucho el importe y nunca más de 500 €.
     const tip = r.tipAmount ?? 0;
-    if (tip > Math.min(p.amountCents, MAX_TERMINAL_TIP_CENTS)) {
+    if (tip > maxTipCents(p.amountCents)) {
       return this.mismatch(p, op, `Propina de ${eur(tip)} fuera de lo normal: anula esta operación.`);
     }
 
@@ -291,15 +290,14 @@ export class PosDeviceService {
         p.tenantId,
         {
           prepare: async (tx, locked) => {
-            const settled =
-              tip > 0
-                ? settleChargedTip({
-                    amountCents: locked.amountCents,
-                    tipCents: tip,
-                    tipGoesTo: locked.tipGoesTo,
-                    creatorRole: p.createdBy?.role ?? null,
-                  })
-                : null;
+            // La propina es la que cobró el datáfono (0 si no hubo), nunca la
+            // que puso quien creó el cobro.
+            const settled = settleChargedTip({
+              amountCents: locked.amountCents,
+              tipCents: tip,
+              tipGoesTo: locked.tipGoesTo,
+              creatorRole: p.createdBy?.role ?? null,
+            });
             await tx.paymentEvent.create({
               data: {
                 paymentId: p.id,
@@ -320,10 +318,10 @@ export class PosDeviceService {
                 cardLast4: last4Of(r),
                 cardBrand: cardBrandOf(r),
                 payMethodCode: payMethodCodeOf(r),
-                ...(settled ?? {}),
+                ...settled,
               },
             });
-            return { provider: 'PAYTEF', providerTxId: op, ...(settled ?? {}) };
+            return { provider: 'PAYTEF', providerTxId: op, ...settled };
           },
         },
       );

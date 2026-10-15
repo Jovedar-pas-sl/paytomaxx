@@ -127,9 +127,14 @@ export const CreatePaymentSchema = z.object({
    */
   captureMethod: CaptureMethodSchema.optional(),
   /**
-   * Propina opcional. Si tipCents > 0:
-   *  - el importe se suma al cargo en tarjeta (cliente paga amount + tip).
+   * Propina opcional. Solo se apunta si la pasarela del local la cobra y la
+   * confirma (Redsys, cobro con QR): el cliente la ve como opción en la página
+   * de pago y al pagarse cuenta la que cobró el banco. Por datáfono cuenta la
+   * que diga el datáfono; con otras pasarelas y en recargas de saldo se ignora
+   * (queda a 0). El servidor rechaza más que el importe o más de 500 €, y el
+   * tope del local para la chica cuenta importe + propina.
    *  - se asigna según tipGoesTo (default 'operator' si el creator es OPERATOR).
+   *    La chica (OPERATOR) solo puede elegir 'operator' o 'venue'.
    *  - tipBeneficiaryUserId override cuando tipGoesTo='beneficiary'.
    */
   tipCents: z.number().int().nonnegative().max(5_000_00, 'Tip máx 5.000,00 EUR').optional(),

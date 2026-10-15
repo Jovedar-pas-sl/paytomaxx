@@ -42,7 +42,9 @@ const lockedRow = {
   revenueCategory: 'CHICA_SERVICE',
 };
 
-function makeService(opts: { payment?: ReturnType<typeof payment> | null; started?: boolean } = {}) {
+function makeService(
+  opts: { payment?: ReturnType<typeof payment> | null; started?: boolean; locked?: Partial<typeof lockedRow> } = {},
+) {
   const tx = {
     payment: {
       findFirst: vi.fn().mockResolvedValue(opts.payment === undefined ? payment() : opts.payment),
@@ -71,7 +73,7 @@ function makeService(opts: { payment?: ReturnType<typeof payment> | null; starte
   const prepared: unknown[] = [];
   const payments = {
     transition: vi.fn().mockImplementation(async (_id: string, _ev: unknown, _t: string, o?: { prepare?: (t: unknown, l: unknown) => Promise<unknown> }) => {
-      if (o?.prepare) prepared.push(await o.prepare(prepareTx, lockedRow));
+      if (o?.prepare) prepared.push(await o.prepare(prepareTx, { ...lockedRow, ...opts.locked }));
     }),
   };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
@@ -115,8 +117,14 @@ describe('venta en el datáfono', () => {
         payMethodCode: 'PAX_CONTACTLESS',
       }),
     });
-    // La transición escribe la pasarela y la operación con lo que devuelve "prepare".
-    expect(prepared[0]).toEqual({ provider: 'PAYTEF', providerTxId: '99812' });
+    // La transición escribe la pasarela, la operación y la propina (ninguna) con lo que devuelve "prepare".
+    expect(prepared[0]).toEqual({
+      provider: 'PAYTEF',
+      providerTxId: '99812',
+      tipCents: 0,
+      availableAmountCents: 10_000,
+      tipGoesTo: null,
+    });
     // "Pagado en el datáfono" se apunta dentro de la misma transacción.
     expect(prepareTx.paymentEvent.create.mock.calls[0]![0]).toMatchObject({
       data: { eventType: 'pos.device_confirmed', payload: { operationNumber: '99812', terminalId: 'term-1' } },
@@ -131,6 +139,25 @@ describe('venta en el datáfono', () => {
       data: { tipCents: 500, availableAmountCents: 10_500, tipGoesTo: 'operator' },
     });
     expect(prepared[0]).toMatchObject({ tipCents: 500, availableAmountCents: 10_500 });
+  });
+
+  it('sin propina en el datáfono → la que puso quien creó el cobro no cuenta (nadie la pagó)', async () => {
+    const { svc, prepareTx, prepared } = makeService({
+      locked: { tipCents: 3_000, availableAmountCents: 13_000, tipGoesTo: 'operator' },
+    });
+    await svc.reportResult(device, PAYMENT_ID, approved);
+    expect(prepareTx.payment.update.mock.calls[0]![0]).toMatchObject({
+      data: { tipCents: 0, availableAmountCents: 10_000, tipGoesTo: null },
+    });
+    expect(prepared[0]).toMatchObject({ tipCents: 0, availableAmountCents: 10_000, tipGoesTo: null });
+  });
+
+  it('con propina en el datáfono → la del datáfono, no la de quien creó el cobro', async () => {
+    const { svc, prepared } = makeService({
+      locked: { tipCents: 3_000, availableAmountCents: 13_000, tipGoesTo: 'operator' },
+    });
+    await svc.reportResult(device, PAYMENT_ID, { ...approved, tipAmount: 200 });
+    expect(prepared[0]).toMatchObject({ tipCents: 200, availableAmountCents: 10_200, tipGoesTo: 'operator' });
   });
 
   it('propina fuera de lo normal → no se acepta, hay que anular', async () => {

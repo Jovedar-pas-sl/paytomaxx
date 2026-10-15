@@ -28,6 +28,42 @@ export function defaultTipGoesTo(creatorRole: string | null | undefined): 'opera
   return creatorRole === 'OPERATOR' ? 'operator' : 'venue';
 }
 
+/** Propina como mucho del importe del cobro y nunca más de esto. */
+export const MAX_TIP_CENTS = 500_00;
+
+/** Propina máxima para un cobro de este importe (la misma regla en el datáfono). */
+export function maxTipCents(amountCents: number): number {
+  return Math.max(0, Math.min(amountCents, MAX_TIP_CENTS));
+}
+
+/**
+ * ¿Vale la propina que pone quien crea el cobro? Solo si la cobra el banco y
+ * nos dice cuánta cobró (Redsys, con la página de pago): esa es la que
+ * cuenta al pagarse. Por datáfono la dice el datáfono; en el resto (otras
+ * pasarelas, recargas de saldo) no se cobra propina, así que no se apunta:
+ * si no, sería dinero inventado para la chica y para las devoluciones.
+ */
+export function creatorTipConfirmable(args: {
+  provider: string | null;
+  isPosExternal: boolean;
+  isWalletTopUp: boolean;
+}): boolean {
+  return args.provider === 'REDSYS' && !args.isPosExternal && !args.isWalletTopUp;
+}
+
+/**
+ * La chica solo da la propina para ella o para el local. Para otra persona
+ * se perdería: su comisión y esa propina irían al mismo cobro (una sola fila
+ * de comisión por cobro).
+ */
+export function tipDestinationAllowed(
+  creatorRole: string | null | undefined,
+  tipGoesTo: string | null | undefined,
+): boolean {
+  if (creatorRole !== 'OPERATOR' || !tipGoesTo) return true;
+  return tipGoesTo === 'operator' || tipGoesTo === 'venue';
+}
+
 /** Campos del cobro una vez se sabe qué propina cobró el banco. */
 export function settleChargedTip(args: {
   amountCents: number;
@@ -71,9 +107,10 @@ export function chargedAttemptTip(
 
 /**
  * Propina del intento que cobró el banco (`providerTxId` del evento
- * AUTHORIZED) y rol de quien creó el cobro. `null` = intento anterior a la
- * Fase 1B u otra pasarela: no se toca la propina. SQL crudo: se llama dentro
- * de transition(), fuera del middleware de tenant.
+ * AUTHORIZED) y rol de quien creó el cobro. `null` = no consta qué propina
+ * cobró (otra pasarela, que solo cobra el importe, o intento anterior a la
+ * Fase 1B): transition() la deja a 0. SQL crudo: se llama dentro de
+ * transition(), fuera del middleware de tenant.
  */
 export async function readChargedTip(
   tx: TransactionalClient,

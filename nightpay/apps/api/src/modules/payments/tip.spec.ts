@@ -1,11 +1,47 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   chargedAttemptTip,
+  creatorTipConfirmable,
   defaultTipGoesTo,
+  maxTipCents,
   readChargedTip,
   settleChargedTip,
+  tipDestinationAllowed,
   tipOptionsFor,
 } from './tip';
+
+describe('propina que pone quien crea el cobro', () => {
+  it('solo vale con Redsys en un cobro con QR: el banco dice cuánta cobró', () => {
+    expect(creatorTipConfirmable({ provider: 'REDSYS', isPosExternal: false, isWalletTopUp: false })).toBe(true);
+  });
+
+  it('por datáfono, en otras pasarelas o en recargas de saldo no vale (sería dinero inventado)', () => {
+    expect(creatorTipConfirmable({ provider: 'REDSYS', isPosExternal: true, isWalletTopUp: false })).toBe(false);
+    expect(creatorTipConfirmable({ provider: 'REDSYS', isPosExternal: false, isWalletTopUp: true })).toBe(false);
+    expect(creatorTipConfirmable({ provider: 'PAYTEF', isPosExternal: false, isWalletTopUp: false })).toBe(false);
+    expect(creatorTipConfirmable({ provider: 'PEANPE', isPosExternal: false, isWalletTopUp: false })).toBe(false);
+    expect(creatorTipConfirmable({ provider: null, isPosExternal: false, isWalletTopUp: false })).toBe(false);
+  });
+
+  it('como mucho el importe del cobro y nunca más de 500 €', () => {
+    expect(maxTipCents(2_000)).toBe(2_000);
+    expect(maxTipCents(100_000)).toBe(50_000);
+    expect(maxTipCents(0)).toBe(0);
+  });
+
+  it('la chica solo la da para ella o para el local', () => {
+    expect(tipDestinationAllowed('OPERATOR', 'operator')).toBe(true);
+    expect(tipDestinationAllowed('OPERATOR', 'venue')).toBe(true);
+    expect(tipDestinationAllowed('OPERATOR', null)).toBe(true);
+    expect(tipDestinationAllowed('OPERATOR', 'beneficiary')).toBe(false);
+    expect(tipDestinationAllowed('OPERATOR', 'shared')).toBe(false);
+  });
+
+  it('el local (dueño, encargado, camarero) puede darla a otra persona', () => {
+    expect(tipDestinationAllowed('OWNER', 'beneficiary')).toBe(true);
+    expect(tipDestinationAllowed('WAITER', 'beneficiary')).toBe(true);
+  });
+});
 
 describe('tipOptionsFor', () => {
   it('ofrece sin propina, 5 € y 10 €', () => {

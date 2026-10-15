@@ -89,11 +89,57 @@ export function makeTransitionService(db: FakeDb) {
 
 const authorized = { type: 'AUTHORIZED' as const, provider: 'REDSYS' as const, providerTxId: 'ORDER1' };
 
+/** Valores del INSERT de la comisión: tenant, chica, cobro, importe, bps, comisión, propina. */
+function earningInsert(executed: Array<{ sql: string; values: unknown[] }>) {
+  return executed.find((e) => e.sql.includes('INSERT INTO operator_earnings'))?.values;
+}
+
 describe('transition — como asSystem', () => {
   it('sin depender de un usuario de base superusuario: salta el RLS antes de leer el cobro', async () => {
     const { service, executeRawUnsafe, tx } = makeTransitionService({ locked: { ...baseRow } });
     await service.transition(PAYMENT_ID, authorized);
     expect(executeRawUnsafe).toHaveBeenCalledWith(`SET LOCAL app.bypass_rls = 'on'`);
     expect(executeRawUnsafe.mock.invocationCallOrder[0]!).toBeLessThan(tx.$queryRaw.mock.invocationCallOrder[0]!);
+  });
+});
+
+describe('transition — la propina es la que cobró el banco (#3)', () => {
+  it('Redsys: la del intento aprobado pasa al cobro y a la chica', async () => {
+    const { service, updates, executed } = makeTransitionService({ locked: { ...baseRow }, attemptTip: 500 });
+    await service.transition(PAYMENT_ID, authorized);
+    const tipUpdate = updates('SET "tipCents"')[0]!;
+    expect(tipUpdate.values.slice(0, 3)).toEqual([500, 10_500, 'operator']);
+    expect(earningInsert(executed)?.slice(-1)).toEqual([500]);
+  });
+
+  it('otra pasarela (solo cobra el importe): la propina que puso quien creó el cobro no cuenta', async () => {
+    const locked = {
+      ...baseRow,
+      provider: 'PAYTEF' as const,
+      tipCents: 3_000,
+      availableAmountCents: 13_000,
+      tipGoesTo: 'operator',
+    };
+    const { service, updates, executed } = makeTransitionService({ locked, attemptTip: null });
+    await service.transition(PAYMENT_ID, { type: 'AUTHORIZED', provider: 'PAYTEF', providerTxId: 'ORDER1' });
+    expect(updates('SET "tipCents"')[0]!.values.slice(0, 3)).toEqual([0, 10_000, null]);
+    // Lo devolvible es solo el importe y la chica no se lleva propina.
+    const statusUpdate = updates('SET status')[0]!;
+    expect(statusUpdate.values[1]).toBe(10_000);
+    expect(earningInsert(executed)?.slice(-1)).toEqual([0]);
+  });
+
+  it('Redsys sin intento que lo diga: sin propina', async () => {
+    const locked = { ...baseRow, tipCents: 2_000, availableAmountCents: 12_000, tipGoesTo: 'operator' };
+    const { service, updates, executed } = makeTransitionService({ locked });
+    await service.transition(PAYMENT_ID, authorized);
+    expect(updates('SET "tipCents"')[0]!.values.slice(0, 3)).toEqual([0, 10_000, null]);
+    expect(earningInsert(executed)?.slice(-1)).toEqual([0]);
+  });
+
+  it('sin propina en ningún lado: no reescribe nada', async () => {
+    const { service, updates } = makeTransitionService({ locked: { ...baseRow }, attemptTip: 0 });
+    await service.transition(PAYMENT_ID, authorized);
+    expect(updates('SET "tipCents"')).toHaveLength(0);
   });
 });
