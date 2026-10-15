@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@nightpay/ui';
-import { callReader, type BridgeResponse } from '@/lib/pax-bridge';
+import { callReader, type BridgeResponse, type PaytefResult } from '@/lib/pax-bridge';
 import {
   clearPendingResult,
+  hasPendingResults,
   isFinalRejection,
+  isResultForReference,
   reportPaxResult,
   reportPaxVoid,
   savePendingResult,
@@ -20,6 +22,8 @@ type Step =
   | { kind: 'sending' }
   | { kind: 'outcome'; outcome: SaleOutcome }
   | { kind: 'readerError'; message: string; canRecover: boolean }
+  /** Aprobada en el lector pero sin llegar a OxioPay: se reenvía; nunca se vuelve a cobrar. */
+  | { kind: 'unsent'; message: string; result: PaytefResult }
   | { kind: 'voided'; message: string };
 
 /** Vuelta automática a la lista tras un cobro pagado. */
@@ -27,6 +31,11 @@ const BACK_AFTER_PAID_MS = 4000;
 
 /** Errores del lector tras los que el cliente pudo haber pagado igualmente. */
 const MAYBE_CHARGED = new Set(['timeout', 'serviceIsDown', 'httpError', 'deviceError']);
+
+const PENDING_BLOCK_TEXT =
+  'Hay un cobro aprobado que aún no ha llegado a OxioPay: espera a que se envíe antes de cobrar otro.';
+const UNKNOWN_TEXT =
+  'No sabemos si se cobró: la última operación del datáfono no es la de este cobro. Revísalo en el datáfono antes de volver a cobrar.';
 
 /**
  * Un cobro en el lector: importe al datáfono, el cliente acerca la tarjeta,
@@ -38,6 +47,12 @@ export function PaxChargeFlow({ charge, onDone }: { charge: PaxCharge; onDone: (
   const [busy, setBusy] = useState(false);
   const reference = useRef<string | null>(null);
   const started = useRef(false);
+  // La lista de fondo se refresca sola: la vuelta tras "Pagado" no puede
+  // depender de que onDone sea siempre la misma función (antes nunca saltaba).
+  const onDoneRef = useRef(onDone);
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  });
 
   async function handleReader(r: BridgeResponse, autoRecover = true): Promise<void> {
     if (!r.ok || !r.result) {
@@ -47,26 +62,40 @@ export function PaxChargeFlow({ charge, onDone }: { charge: PaxCharge; onDone: (
         await recover(false);
         return;
       }
-      const message = r.ok ? 'El lector no devolvió resultado.' : (r.message ?? readerErrorText(r.error));
-      setStep({ kind: 'readerError', message, canRecover: !r.ok && r.error !== 'cancelled' });
+      showReaderFailure(r);
       return;
     }
+    await deliver(r.result);
+  }
+
+  function showReaderFailure(r: BridgeResponse): void {
+    const message = r.ok ? 'El lector no devolvió resultado.' : (r.message ?? readerErrorText(r.error));
+    setStep({ kind: 'readerError', message, canRecover: !r.ok && r.error !== 'cancelled' });
+  }
+
+  /** El resultado del lector a OxioPay. Si está aprobado, se guarda antes: si la red falla, se reenvía. */
+  async function deliver(result: PaytefResult): Promise<void> {
     setStep({ kind: 'sending' });
-    // Se guarda antes de enviar: si la red falla, la pantalla lo reenvía sola.
-    if (r.result.approved) savePendingResult(charge.id, r.result);
+    if (result.approved) savePendingResult(charge.id, result);
     try {
-      const outcome = await reportPaxResult(charge.id, r.result);
-      clearPendingResult();
+      const outcome = await reportPaxResult(charge.id, result);
+      clearPendingResult(charge.id, result);
       setStep({ kind: 'outcome', outcome });
     } catch (err) {
       const final = isFinalRejection(err);
-      if (final) clearPendingResult();
-      const retryNote = r.result.approved && !final ? ' El cobro está aprobado: se volverá a enviar solo.' : '';
-      setStep({ kind: 'readerError', message: `${(err as Error).message}.${retryNote}`, canRecover: false });
+      if (final) clearPendingResult(charge.id, result);
+      const message = sentence((err as Error).message);
+      if (result.approved && !final) setStep({ kind: 'unsent', message, result });
+      else setStep({ kind: 'readerError', message, canRecover: false });
     }
   }
 
   async function begin() {
+    // Con una venta aprobada sin enviar, no se empieza otra: se cobraría dos veces.
+    if (hasPendingResults()) {
+      setStep({ kind: 'readerError', message: PENDING_BLOCK_TEXT, canRecover: false });
+      return;
+    }
     setStep({ kind: 'reading' });
     try {
       const s = await startPaxCharge(charge.id);
@@ -85,33 +114,31 @@ export function PaxChargeFlow({ charge, onDone }: { charge: PaxCharge; onDone: (
   }, []);
 
   useEffect(() => {
-    if (step.kind === 'outcome' && step.outcome.status === 'PAID') {
-      const t = setTimeout(onDone, BACK_AFTER_PAID_MS);
-      return () => clearTimeout(t);
-    }
-    return undefined;
-  }, [step, onDone]);
+    if (step.kind !== 'outcome' || step.outcome.status !== 'PAID') return undefined;
+    const t = setTimeout(() => onDoneRef.current(), BACK_AFTER_PAID_MS);
+    return () => clearTimeout(t);
+  }, [step]);
 
   async function recover(manual = true) {
     setBusy(true);
     const r = await callReader('lastResult');
     setBusy(false);
-    if (r.ok && r.result && r.result.transactionReference !== reference.current) {
-      setStep({
-        kind: 'readerError',
-        message: 'La última operación del datáfono es de otro cobro: este no se cobró.',
-        canRecover: false,
-      });
+    if (r.ok && r.result) {
+      // Otra operación (o sin referencia): no se sabe si este se cobró. Nunca
+      // "no se cobró": volver a cobrar podría cobrarle dos veces.
+      if (isResultForReference(r.result, reference.current)) await deliver(r.result);
+      else setStep({ kind: 'readerError', message: UNKNOWN_TEXT, canRecover: true });
       return;
     }
-    await handleReader(r, false);
     if (!manual && !r.ok) {
       setStep({
         kind: 'readerError',
         message: 'No sabemos si se cobró. Mira el datáfono antes de volver a cobrar.',
         canRecover: true,
       });
+      return;
     }
+    showReaderFailure(r);
   }
 
   async function voidOperation(operationNumber: string) {
@@ -220,6 +247,17 @@ export function PaxChargeFlow({ charge, onDone }: { charge: PaxCharge; onDone: (
         </>
       ) : null}
 
+      {step.kind === 'unsent' ? (
+        <>
+          <p style={{ ...big, color: 'var(--np-warning)' }}>Cobrado en el datáfono, falta que llegue a OxioPay</p>
+          <p style={muted}>{step.message} Se vuelve a enviar solo: no lo cobres otra vez.</p>
+          <Button onClick={() => void deliver(step.result)}>Reenviar ahora</Button>
+          <Button variant="ghost" onClick={onDone}>
+            Volver
+          </Button>
+        </>
+      ) : null}
+
       {step.kind === 'voided' ? (
         <>
           <p style={big}>{step.message}</p>
@@ -228,6 +266,11 @@ export function PaxChargeFlow({ charge, onDone }: { charge: PaxCharge; onDone: (
       ) : null}
     </Card>
   );
+}
+
+/** Un mensaje como frase (con su punto, sin duplicarlo). */
+function sentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
 function readerErrorText(error: string): string {

@@ -4,20 +4,20 @@ import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } 
 import { Button, Card, Input } from '@nightpay/ui';
 import { callReader, hasReader } from '@/lib/pax-bridge';
 import {
-  clearPendingResult,
   fetchPaxInfo,
   fetchPaxPending,
+  flushPendingResults,
   getDeviceToken,
-  getPendingResult,
-  isFinalRejection,
+  getPendingResults,
   pairDevice,
-  reportPaxResult,
+  PaxApiError,
   reportPaxShift,
   type PaxCharge,
   type PaxInfo,
   type ShiftSummary,
 } from '@/lib/pax-api';
 import { formatEur } from '@/lib/money';
+import { usePolling } from '@/lib/use-polling';
 import { PaxChargeFlow } from './PaxChargeFlow';
 
 const POLL_MS = 3000;
@@ -33,45 +33,49 @@ export function PaxScreen() {
   const [charges, setCharges] = useState<PaxCharge[]>([]);
   const [selected, setSelected] = useState<PaxCharge | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Ventas aprobadas que aún no han llegado a OxioPay: mientras haya, no se cobra otra.
+  const [unsent, setUnsent] = useState(0);
 
   useEffect(() => {
     setPaired(Boolean(getDeviceToken()));
+    setUnsent(getPendingResults().length);
   }, []);
 
-  const refresh = useCallback(() => {
-    // Una venta aprobada que no llegó a OxioPay se reenvía antes que nada.
-    const pendingResult = getPendingResult();
-    if (pendingResult) {
-      reportPaxResult(pendingResult.paymentId, pendingResult.result)
-        .then(() => clearPendingResult())
-        .catch((err) => {
-          // Rechazo definitivo: no se reintenta (queda en el cobro). Si no, en la siguiente vuelta.
-          if (isFinalRejection(err)) clearPendingResult();
-        });
+  /** /me decide si sigue vinculado: si responde 401, el aparato se olvida y se vuelve a vincular. */
+  const checkPairing = useCallback(async () => {
+    try {
+      setInfo(await fetchPaxInfo());
+    } catch (err) {
+      setError((err as Error).message);
     }
-    fetchPaxPending()
-      .then((list) => {
-        setCharges(list);
-        setError(null);
-      })
-      .catch((err) => {
-        setError((err as Error).message);
-        if (!getDeviceToken()) setPaired(false);
-      });
+    if (!getDeviceToken()) setPaired(false);
   }, []);
 
   useEffect(() => {
-    if (!paired) return;
-    fetchPaxInfo()
-      .then(setInfo)
-      .catch((err) => {
+    if (paired) void checkPairing();
+  }, [paired, checkPairing]);
+
+  // Sin solapes y en pausa con la pantalla apagada o durante un cobro.
+  const refresh = usePolling(
+    async () => {
+      // Una venta aprobada que no llegó a OxioPay se reenvía antes que nada.
+      await flushPendingResults();
+      setUnsent(getPendingResults().length);
+      try {
+        setCharges(await fetchPaxPending());
+        setError(null);
+      } catch (err) {
         setError((err as Error).message);
-        if (!getDeviceToken()) setPaired(false);
-      });
-    refresh();
-    const t = setInterval(refresh, POLL_MS);
-    return () => clearInterval(t);
-  }, [paired, refresh]);
+        // ¿Lo desvincularon en el panel? Antes no se notaba hasta reiniciar.
+        if (err instanceof PaxApiError && err.status === 401) await checkPairing();
+        return 'slow';
+      }
+    },
+    { intervalMs: POLL_MS, enabled: paired === true && selected === null },
+  );
+
+  // Al cerrar el cobro vuelve el sondeo (y con él, la lista al momento).
+  const closeCharge = useCallback(() => setSelected(null), []);
 
   if (paired === null) return <main style={mainStyle} />;
   if (!paired) {
@@ -90,13 +94,7 @@ export function PaxScreen() {
   if (selected) {
     return (
       <main style={mainStyle}>
-        <PaxChargeFlow
-          charge={selected}
-          onDone={() => {
-            setSelected(null);
-            refresh();
-          }}
-        />
+        <PaxChargeFlow charge={selected} onDone={closeCharge} />
       </main>
     );
   }
@@ -120,8 +118,16 @@ export function PaxScreen() {
       {!reader ? (
         <p style={warnBox}>Para cobrar, abre esta pantalla desde la app OxioPay del datáfono.</p>
       ) : null}
-      {getPendingResult() ? (
-        <p style={warnBox}>Hay un cobro aprobado pendiente de enviar a OxioPay: se reenvía solo.</p>
+      {unsent > 0 ? (
+        <div role="status" style={{ ...warnBox, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <span>
+            {unsent === 1 ? 'Hay un cobro aprobado' : `Hay ${unsent} cobros aprobados`} pendiente{unsent === 1 ? '' : 's'} de
+            enviar a OxioPay: se reenvía solo. Hasta que llegue no se puede cobrar otro.
+          </span>
+          <Button variant="ghost" onClick={refresh}>
+            Reenviar ahora
+          </Button>
+        </div>
       ) : null}
       {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
 
@@ -136,7 +142,7 @@ export function PaxScreen() {
             <button
               key={c.id}
               type="button"
-              disabled={!reader}
+              disabled={!reader || unsent > 0}
               onClick={() => setSelected(c)}
               style={{ ...chargeBtn, borderColor: c.forThisTerminal ? 'var(--np-accent)' : 'var(--np-border-hi)' }}
             >
