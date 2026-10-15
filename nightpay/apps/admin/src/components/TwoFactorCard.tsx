@@ -67,7 +67,7 @@ export function TwoFactorCard() {
         setStatus({ enabled: true });
         setDone('La verificación en dos pasos ya estaba activada.');
       } else {
-        setError((err as Error).message);
+        setError(codeErrorMessage(err));
       }
     } finally {
       setBusy(false);
@@ -93,7 +93,8 @@ export function TwoFactorCard() {
           : 'Verificación en dos pasos desactivada.',
       );
     } catch (err) {
-      setError((err as Error).message);
+      setCode('');
+      setError(codeErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -175,6 +176,18 @@ export function TwoFactorCard() {
       ) : null}
     </Card>
   );
+}
+
+/** 403 = código mal o ya usado (no se repite en 30 s); 429 = demasiados intentos. */
+function codeErrorMessage(err: unknown): string {
+  const message = (err as Error).message;
+  if (err instanceof ApiError && err.status === 429) {
+    return 'Demasiados intentos con códigos incorrectos. Espera unos minutos y vuelve a probar.';
+  }
+  if (err instanceof ApiError && err.status === 403 && !message.includes('30 s')) {
+    return `${message.replace(/\.$/, '')}. Si acabas de usar ese código, espera al siguiente (cambia cada 30 s).`;
+  }
+  return message;
 }
 
 function SetupSteps({

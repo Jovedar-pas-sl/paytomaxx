@@ -8,6 +8,7 @@ import {
   fetchNight,
   fetchNights,
   openNight,
+  type NightAdjustments,
   type NightListItem,
   type NightSummary,
   type NightView,
@@ -125,6 +126,7 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
             <span style={liveStyle}>En vivo</span>
           </div>
           <ZSummary summary={current.z.summary} />
+          <AdjustmentsBox adjustments={current.z.adjustments} />
           {current.pending.length > 0 ? (
             <div style={pendingBox}>
               <p style={{ margin: 0, fontWeight: 700 }}>
@@ -248,6 +250,7 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
               {detail.closeNote ? ` · «${detail.closeNote}»` : ''}
             </p>
             <ZSummary summary={detail.z.summary} />
+            <AdjustmentsBox adjustments={detail.z.adjustments} />
           </div>
         ) : null}
       </Modal>
@@ -261,6 +264,8 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
     ['Cobrado', s.chargedCents],
     ['Propinas', s.tipsCents],
     ['Devoluciones', -s.refundsCents],
+    // API nuevo: el saldo devuelto en efectivo resta del neto (los Z antiguos no lo traen).
+    ...(s.walletCashPayoutsCents ? ([['Saldo devuelto en efectivo', -s.walletCashPayoutsCents]] as Array<[string, number]>) : []),
     ['Neto', s.netCents],
     ['Para las chicas', s.chicaNetCents],
     ['Para el local', s.venueNetCents],
@@ -282,6 +287,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
         {s.byType.length > 0 ? ' · ' : ''}
         {s.byType.map((t) => `${t.label}: ${t.count} (${formatEur(t.chargedCents)})`).join(' · ')}
       </p>
+      <SaldoLine summary={s} />
       {s.perChica.length > 0 ? (
         <div style={{ overflowX: 'auto' }}>
           <table style={tableStyle}>
@@ -309,6 +315,66 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
             </tbody>
           </table>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Consumos del saldo y saldo devuelto (API nuevo; los Z congelados antes no los traen). */
+function SaldoLine({ summary: s }: { summary: NightSummary }) {
+  const parts: string[] = [];
+  if (s.consumptionsCount) {
+    const byType = (s.saldoByType ?? []).map((t) => `${t.label}: ${t.count} (${formatEur(t.chargedCents)})`);
+    parts.push(
+      `Consumos del saldo: ${s.consumptionsCount} (${formatEur(s.consumptionsCents ?? 0)})${
+        byType.length > 0 ? ` · ${byType.join(' · ')}` : ''
+      }`,
+    );
+  }
+  if (s.walletCardPayoutsCents) {
+    parts.push(`Saldo devuelto a la tarjeta: ${formatEur(s.walletCardPayoutsCents)} (ya está en devoluciones)`);
+  }
+  if (parts.length === 0) return null;
+  return <p style={hintSmall}>{parts.join(' · ')}</p>;
+}
+
+/**
+ * Ajustes de noches anteriores: lo apuntado tarde con fecha de una noche ya
+ * cerrada (cobro confirmado tarde, devolución con fecha del banco, consumo
+ * anulado). Esos Z no cambian: los ajustes van en el siguiente.
+ */
+function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) {
+  if (!a || a.count === 0) return null;
+  const s = a.summary;
+  const totals: Array<[string, number]> = [
+    ['Cobrado', s.chargedCents],
+    ['Devoluciones', -s.refundsCents],
+    ['Neto', s.netCents],
+    ['Para las chicas', s.chicaNetCents],
+    ['Para el local', s.venueNetCents],
+  ];
+  return (
+    <div style={adjustBox}>
+      <p style={{ margin: 0, fontWeight: 700 }}>Ajustes de noches anteriores ({a.count})</p>
+      <p style={hintSmall}>
+        Apuntado después con fecha de noches ya cerradas: cobros que el banco confirmó tarde, devoluciones con la
+        fecha del banco o consumos anulados. Aquellos Z no cambian; van aquí.
+      </p>
+      <div style={totalsGrid}>
+        {totals.map(([label, cents]) => (
+          <div key={label} style={totalBox}>
+            <span style={hintSmall}>{label}</span>
+            <span className="np-num" style={{ fontWeight: 700 }}>
+              {formatEur(cents)}
+            </span>
+          </div>
+        ))}
+      </div>
+      {a.reversedConsumptionsCount > 0 ? (
+        <p style={hintSmall}>
+          Consumos del saldo anulados: {a.reversedConsumptionsCount} ({formatEur(a.reversedConsumptionsCents)}); la
+          parte de las chicas que se descuenta: {formatEur(a.reversedConsumptionsChicaCents)}.
+        </p>
       ) : null}
     </div>
   );
@@ -346,6 +412,14 @@ const confirmBox: CSSProperties = {
   border: '1px solid var(--np-border-hi, var(--np-border))',
   borderRadius: 'var(--np-r-md)',
   background: 'var(--np-surface-2)',
+};
+const adjustBox: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.6rem',
+  padding: '0.875rem 1rem',
+  border: '1px dashed var(--np-warning)',
+  borderRadius: 'var(--np-r-md)',
 };
 const totalsGrid: CSSProperties = {
   display: 'grid',
