@@ -37,6 +37,7 @@ function makeService(opts: { open?: ReturnType<typeof night> | null; pending?: u
     devoluciones: vi.fn().mockResolvedValue([]),
     liquidaciones: vi.fn().mockResolvedValue([]),
     consumos: vi.fn().mockResolvedValue([]),
+    pagosSaldo: vi.fn().mockResolvedValue([]),
   };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const svc = new NightsService(prisma as never, reports as never, audit as never);
@@ -76,6 +77,21 @@ describe('abrir la noche', () => {
 describe('cerrar la noche', () => {
   const manager = { userId: 'u-1', role: 'MANAGER' };
   const owner = { userId: 'u-2', role: 'OWNER' };
+
+  it('el Z congelado lleva el saldo devuelto: el efectivo resta del neto, la tarjeta solo se informa', async () => {
+    const { svc, prisma, reports } = makeService();
+    reports.pagosSaldo.mockResolvedValueOnce([
+      { id: 'wp-1', at: OPENED, amountCents: 8000, method: 'CASH', paidByName: null, paidByEmail: 'jefe@local.es' },
+      { id: 'wp-2', at: OPENED, amountCents: 3000, method: 'CARD', paidByName: null, paidByEmail: 'jefe@local.es' },
+    ]);
+    await svc.close('t-1', manager, 'night-1', { force: false });
+    const data = (prisma.venueNight.updateMany.mock.calls[0]![0] as { data: { zReport: { summary: unknown } } }).data;
+    expect(data.zReport.summary).toMatchObject({
+      walletCashPayoutsCents: 8000,
+      walletCardPayoutsCents: 3000,
+      netCents: -8000,
+    });
+  });
 
   it('sin pendientes: congela el Z y la cierra', async () => {
     const { svc, prisma, audit } = makeService();

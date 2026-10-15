@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { cobrosCsv, devolucionesCsv, liquidacionesCsv, resumenCsv, summarize } from './export-csv';
-import type { CobroRow, ConsumoRow, DevolucionRow, LiquidacionRow } from './export-rows';
+import type { CobroRow, ConsumoRow, DevolucionRow, LiquidacionRow, PagoSaldoRow } from './export-rows';
 import { parseReportPeriod } from './report-period';
 
 const cobro = (o: Partial<CobroRow>): CobroRow => ({
@@ -28,6 +28,7 @@ const cobro = (o: Partial<CobroRow>): CobroRow => ({
   commissionCents: 9000,
   earningTipCents: 500,
   reversedCents: 0,
+  reversedAfterPayoutCents: 0,
   ...o,
 });
 
@@ -102,6 +103,16 @@ describe('libro de cobros', () => {
     );
     expect(row).toContain(';Barra;Barra;barra@local.es;');
     expect(row).toContain(';100,00;0,00;100,00;20,00;80,00;0,00;80,00;Devuelto en parte;');
+  });
+
+  it('devolución después de pagar a la chica: su parte descuenta la deuda, como el resumen', () => {
+    // Se devuelve la mitad (52,50 €) con la chica ya pagada: no toca reversedCents,
+    // queda como deuda de 47,50 € (comisión + propina en proporción).
+    const c = cobro({ status: 'PARTIALLY_REFUNDED', refundedCents: 5250, reversedCents: 0, reversedAfterPayoutCents: 4750 });
+    const [, row] = lines(cobrosCsv([c], 'Local'));
+    expect(row).toContain(';100,00;5,00;105,00;52,50;52,50;47,50;5,00;Devuelto en parte;');
+    const s = summarize([c], [devolucion({ amountCents: 5250, reversedDeltaCents: 4750, afterPayout: true })], []);
+    expect(s.chicaNetCents).toBe(4750);
   });
 });
 
@@ -221,18 +232,20 @@ describe('resumen', () => {
   });
 });
 
+const consumo = (o: Partial<ConsumoRow>): ConsumoRow => ({
+  id: 'c1',
+  at: new Date('2026-10-13T23:00:00Z'),
+  amountCents: 6000,
+  tipCents: 1000,
+  category: 'CHICA_SERVICE',
+  operatorName: 'Lola',
+  operatorEmail: 'lola@local.es',
+  commissionCents: 5400,
+  earningTipCents: 1000,
+  ...o,
+});
+
 describe('resumen: lo que las chicas cobran del saldo del cliente', () => {
-  const consumo = (o: Partial<ConsumoRow>): ConsumoRow => ({
-    id: 'c1',
-    at: new Date('2026-10-13T23:00:00Z'),
-    amountCents: 6000,
-    tipCents: 1000,
-    operatorName: 'Lola',
-    operatorEmail: 'lola@local.es',
-    commissionCents: 5400,
-    earningTipCents: 1000,
-    ...o,
-  });
   const cobros = [cobro({})];
   const sin = summarize(cobros, [], []);
   const con = summarize(cobros, [], [], [consumo({}), consumo({ id: 'c2', operatorName: 'Ana', operatorEmail: 'ana@local.es', tipCents: 0, earningTipCents: 0, commissionCents: 2700, amountCents: 3000 })]);
@@ -251,5 +264,94 @@ describe('resumen: lo que las chicas cobran del saldo del cliente', () => {
     const lola = con.perChica.find((c) => c.name === 'Lola')!;
     expect(lola).toMatchObject({ count: 2, chargedCents: 10_500 + 7000, commissionCents: 9000 + 5400, tipsCents: 500 + 1000 });
     expect(con.perChica.find((c) => c.name === 'Ana')).toMatchObject({ count: 1, commissionCents: 2700, netCents: 2700 });
+  });
+});
+
+describe('resumen: el saldo del cliente (recarga, consumos y lo que se le devuelve)', () => {
+  // Recarga de 200 €; gasta 60 + 10 de propina con Lola y 50 en barra (sin chica).
+  const recarga = cobro({
+    id: 'w',
+    walletId: 'w-1',
+    revenueCategory: 'EXTRA',
+    captureMethod: 'WALLET_TOPUP',
+    amountCents: 20_000,
+    tipCents: 0,
+    commissionCents: null,
+    earningTipCents: null,
+    reversedCents: null,
+    earningOperatorName: null,
+    earningOperatorEmail: null,
+  });
+  const consumos = [
+    consumo({}),
+    consumo({
+      id: 'c2',
+      category: 'VENUE_BAR',
+      amountCents: 5000,
+      tipCents: 0,
+      operatorName: null,
+      operatorEmail: null,
+      commissionCents: null,
+      earningTipCents: null,
+    }),
+  ];
+  const pago = (o: Partial<PagoSaldoRow>): PagoSaldoRow => ({
+    id: 'wp-1',
+    at: new Date('2026-10-14T03:00:00Z'),
+    amountCents: 8000,
+    method: 'CASH',
+    paidByName: 'Encargado',
+    paidByEmail: 'jefe@local.es',
+    ...o,
+  });
+
+  it('devuelto en efectivo: resta del neto (recarga 200, devuelve 80 → cuenta 120)', () => {
+    const s = summarize([recarga], [], [], consumos, [pago({})]);
+    expect(s).toMatchObject({
+      chargedCents: 20_000,
+      refundsCents: 0,
+      walletCashPayoutsCount: 1,
+      walletCashPayoutsCents: 8000,
+      netCents: 12_000,
+    });
+    expect(s.venueNetCents).toBe(12_000 - s.chicaNetCents);
+  });
+
+  it('devuelto a la tarjeta: ya es una devolución de la recarga, no se resta dos veces', () => {
+    const refund = devolucion({ amountCents: 8000, chargedCents: 20_000, reversedDeltaCents: null, afterPayout: null, chicaName: null, chicaEmail: null });
+    const s = summarize([recarga], [refund], [], consumos, [pago({ method: 'CARD' })]);
+    expect(s).toMatchObject({
+      refundsCents: 8000,
+      walletCardPayoutsCount: 1,
+      walletCardPayoutsCents: 8000,
+      walletCashPayoutsCents: 0,
+      netCents: 12_000,
+    });
+  });
+
+  it('consumos del saldo por tipo, también los de la barra (sin parte de chica)', () => {
+    const s = summarize([recarga], [], [], consumos, []);
+    expect(s.consumptionsCount).toBe(2);
+    expect(s.consumptionsCents).toBe(7000 + 5000);
+    expect(s.saldoByType).toEqual([
+      { label: 'Servicio de chica', count: 1, chargedCents: 7000 },
+      { label: 'Barra', count: 1, chargedCents: 5000 },
+    ]);
+    expect(s.perChica.map((c) => c.name)).toEqual(['Lola']);
+    expect(s.chicaCommissionCents).toBe(5400);
+    // Los consumos no son dinero nuevo: lo cobrado es solo la recarga.
+    expect(s.chargedCents).toBe(20_000);
+  });
+
+  it('el CSV del resumen enseña lo devuelto del saldo y los consumos por tipo', () => {
+    const r = parseReportPeriod('2026-10-01', '2026-10-31');
+    if (!r.ok) throw new Error(r.error);
+    const summary = summarize([recarga], [], [], consumos, [pago({}), pago({ id: 'wp-2', method: 'CARD', amountCents: 1000 })]);
+    const csv = resumenCsv({ venueName: 'Local', period: r.period, generatedAt: new Date('2026-11-02T09:00:00Z'), summary });
+    expect(csv).toContain('Saldo devuelto en efectivo;-80,00;1');
+    expect(csv).toContain('Neto cobrado;120,00');
+    expect(csv).toContain('Consumos del saldo;120,00;2');
+    expect(csv).toContain('Barra;50,00;1');
+    expect(csv).toContain('Devuelto a la tarjeta (ya está en devoluciones);-10,00;1');
   });
 });

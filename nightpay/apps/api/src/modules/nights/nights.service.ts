@@ -366,13 +366,15 @@ export class NightsService {
   }
 
   private async buildZ(tenantId: string, window: TimeWindow, pendingCount: number, now: Date): Promise<NightZ> {
-    const [cobros, devoluciones, liquidaciones, consumos] = await Promise.all([
+    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo] = await Promise.all([
       this.reports.cobros(tenantId, window),
       this.reports.devoluciones(tenantId, window),
       this.reports.liquidaciones(tenantId, window),
       this.reports.consumos(tenantId, window),
+      this.reports.pagosSaldo(tenantId, window),
     ]);
-    return buildNightZ(window, summarize(cobros, devoluciones, liquidaciones, consumos), pendingCount, now);
+    const summary = summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo);
+    return buildNightZ(window, summary, pendingCount, now);
   }
 
   /**

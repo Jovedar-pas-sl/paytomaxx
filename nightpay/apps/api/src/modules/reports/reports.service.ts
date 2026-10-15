@@ -1,7 +1,8 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import type { CobroRow, ConsumoRow, DevolucionRow, LiquidacionRow } from './export-rows';
+import type { CobroRow, ConsumoRow, DevolucionRow, LiquidacionRow, PagoSaldoRow } from './export-rows';
 import type { TimeWindow } from './report-period';
+import { afterPayoutDebt } from './reporting-sql';
 
 /** Tope de filas por informe: un local con mucho movimiento hace ~10k cobros al mes. */
 export const MAX_EXPORT_ROWS = 100_000;
@@ -49,7 +50,8 @@ export class ReportsService {
              COALESCE(r.refunded, 0)::int AS "refundedCents",
              e."commissionCents",
              e."tipCents" AS "earningTipCents",
-             e."reversedCents"
+             e."reversedCents",
+             ${afterPayoutDebt('e')}::int AS "reversedAfterPayoutCents"
         FROM payments p
         LEFT JOIN users u ON u.id = p."createdByUserId"
         LEFT JOIN operator_earnings e ON e."paymentId" = p.id
@@ -75,21 +77,25 @@ export class ReportsService {
     `);
   }
 
-  /** Consumos del saldo con parte para una chica, por fecha del consumo (sin los anulados). */
+  /**
+   * Consumos del saldo hechos en este local, por fecha del consumo (sin los
+   * anulados): todos, con la parte de la chica si la cobró una.
+   */
   async consumos(tenantId: string, p: TimeWindow): Promise<ConsumoRow[]> {
     return capped(await this.prisma.$queryRaw<ConsumoRow[]>`
       SELECT c.id,
              c."createdAt" AS "at",
              c."amountCents",
              c."tipCents",
+             c.category,
              u."displayName" AS "operatorName",
              u.email AS "operatorEmail",
              e."commissionCents",
              e."tipCents" AS "earningTipCents"
-        FROM operator_earnings e
-        JOIN wallet_consumptions c ON c.id = e."consumptionId"
-        JOIN users u ON u.id = e."operatorId"
-       WHERE e."tenantId" = ${tenantId}::uuid
+        FROM wallet_consumptions c
+        LEFT JOIN operator_earnings e ON e."consumptionId" = c.id
+        LEFT JOIN users u ON u.id = e."operatorId"
+       WHERE c."tenantId" = ${tenantId}::uuid
          AND c."reversedAt" IS NULL
          AND c."createdAt" >= ${p.from}
          AND c."createdAt" < ${p.to}
@@ -131,6 +137,28 @@ export class ReportsService {
          AND COALESCE(r."bankRefundedAt", r."createdAt") >= ${p.from}
          AND COALESCE(r."bankRefundedAt", r."createdAt") < ${p.to}
        ORDER BY "refundedAt" ASC
+       LIMIT ${MAX_EXPORT_ROWS + 1}
+    `);
+  }
+
+  /**
+   * Saldo devuelto a los clientes en este local en el periodo. El de efectivo
+   * solo está aquí; el de tarjeta, además, como devoluciones de las recargas.
+   */
+  async pagosSaldo(tenantId: string, p: TimeWindow): Promise<PagoSaldoRow[]> {
+    return capped(await this.prisma.$queryRaw<PagoSaldoRow[]>`
+      SELECT wp.id,
+             wp."createdAt" AS "at",
+             wp."amountCents",
+             wp.method,
+             pb."displayName" AS "paidByName",
+             pb.email AS "paidByEmail"
+        FROM wallet_payouts wp
+        LEFT JOIN users pb ON pb.id = wp."paidByUserId"
+       WHERE wp."tenantId" = ${tenantId}::uuid
+         AND wp."createdAt" >= ${p.from}
+         AND wp."createdAt" < ${p.to}
+       ORDER BY wp."createdAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
     `);
   }

@@ -2,10 +2,8 @@ import { cardBrandLabel } from '../payments/card-brand';
 import { confirmationCode } from '../payments/pay-redirect';
 import { code, date, money, text, time, toCsv, type CsvCell } from './csv';
 import {
-  CATEGORY_LABEL,
   RECONCILIATION_LABEL,
   STATUS_LABEL,
-  WALLET_LABEL,
   captureLabel,
   cardTypeLabel,
   chicaShareCents,
@@ -13,10 +11,10 @@ import {
   methodLabel,
   person,
   type CobroRow,
-  type ConsumoRow,
   type DevolucionRow,
   type LiquidacionRow,
 } from './export-rows';
+import type { ExportSummary } from './export-summary';
 import type { ReportPeriod } from './report-period';
 import { BRAND_NAME } from '../../common/brand';
 
@@ -117,134 +115,9 @@ export function liquidacionesCsv(rows: ReadonlyArray<LiquidacionRow>): string {
 
 // ─── Resumen ────────────────────────────────────────────────────────────
 
-export interface ChicaSummary {
-  name: string;
-  count: number;
-  chargedCents: number;
-  commissionCents: number;
-  tipsCents: number;
-  reversalsCents: number;
-  netCents: number;
-  paidCents: number;
-}
-
-export interface ExportSummary {
-  count: number;
-  grossCents: number;
-  tipsCents: number;
-  chargedCents: number;
-  refundsCount: number;
-  refundsCents: number;
-  netCents: number;
-  byType: Array<{ label: string; count: number; chargedCents: number }>;
-  chicaCommissionCents: number;
-  chicaTipsCents: number;
-  chicaReversalsCents: number;
-  chicaNetCents: number;
-  venueTipsCents: number;
-  venueNetCents: number;
-  payoutsCount: number;
-  payoutsCents: number;
-  perChica: ChicaSummary[];
-}
-
-const TYPE_ORDER = [...Object.values(CATEGORY_LABEL), WALLET_LABEL];
-
-/**
- * Totales del periodo. Cobros por fecha de cobro; devoluciones y pagos a
- * chicas por su propia fecha (una devolución de octubre de un cobro de
- * septiembre cuenta en octubre, como en el banco).
- */
-export function summarize(
-  cobros: ReadonlyArray<CobroRow>,
-  devoluciones: ReadonlyArray<DevolucionRow>,
-  liquidaciones: ReadonlyArray<LiquidacionRow>,
-  consumos: ReadonlyArray<ConsumoRow> = [],
-): ExportSummary {
-  const sum = <T>(xs: ReadonlyArray<T>, f: (x: T) => number): number => xs.reduce((a, x) => a + f(x), 0);
-  const grossCents = sum(cobros, (r) => r.amountCents);
-  const tipsCents = sum(cobros, (r) => r.tipCents);
-  const refundsCents = sum(devoluciones, (r) => r.amountCents);
-  // La parte de las chicas: de los cobros con tarjeta y de lo que cobraron
-  // del saldo del cliente (ese dinero entró con la recarga, ya contada).
-  const cardChicaTipsCents = sum(cobros, (r) => (r.commissionCents === null ? 0 : (r.earningTipCents ?? 0)));
-  const chicaCommissionCents =
-    sum(cobros, (r) => r.commissionCents ?? 0) + sum(consumos, (r) => r.commissionCents);
-  const chicaTipsCents = cardChicaTipsCents + sum(consumos, (r) => r.earningTipCents);
-  const chicaReversalsCents = sum(devoluciones, (r) => r.reversedDeltaCents ?? 0);
-  const chicaNetCents = chicaCommissionCents + chicaTipsCents - chicaReversalsCents;
-  const netCents = grossCents + tipsCents - refundsCents;
-
-  const byType = TYPE_ORDER.map((label) => {
-    const rows = cobros.filter((r) => cobroType(r) === label);
-    return { label, count: rows.length, chargedCents: sum(rows, (r) => r.amountCents + r.tipCents) };
-  }).filter((t) => t.count > 0);
-
-  return {
-    count: cobros.length,
-    grossCents,
-    tipsCents,
-    chargedCents: grossCents + tipsCents,
-    refundsCount: devoluciones.length,
-    refundsCents,
-    netCents,
-    byType,
-    chicaCommissionCents,
-    chicaTipsCents,
-    chicaReversalsCents,
-    chicaNetCents,
-    // Propinas con tarjeta que se queda el local (las del saldo no entran aquí).
-    venueTipsCents: tipsCents - cardChicaTipsCents,
-    venueNetCents: netCents - chicaNetCents,
-    payoutsCount: liquidaciones.length,
-    payoutsCents: sum(liquidaciones, (r) => r.totalCents),
-    perChica: perChica(cobros, devoluciones, liquidaciones, consumos),
-  };
-}
-
-function perChica(
-  cobros: ReadonlyArray<CobroRow>,
-  devoluciones: ReadonlyArray<DevolucionRow>,
-  liquidaciones: ReadonlyArray<LiquidacionRow>,
-  consumos: ReadonlyArray<ConsumoRow>,
-): ChicaSummary[] {
-  const byKey = new Map<string, ChicaSummary>();
-  const entry = (key: string, name: string): ChicaSummary => {
-    const found = byKey.get(key);
-    if (found) return found;
-    const fresh: ChicaSummary = {
-      name, count: 0, chargedCents: 0, commissionCents: 0, tipsCents: 0, reversalsCents: 0, netCents: 0, paidCents: 0,
-    };
-    byKey.set(key, fresh);
-    return fresh;
-  };
-  // Acumuladores locales a esta función: se rellenan y se devuelven copiados.
-  for (const r of cobros) {
-    if (r.commissionCents === null || !r.earningOperatorEmail) continue;
-    const e = entry(r.earningOperatorEmail, person(r.earningOperatorName, r.earningOperatorEmail));
-    e.count += 1;
-    e.chargedCents += r.amountCents + r.tipCents;
-    e.commissionCents += r.commissionCents;
-    e.tipsCents += r.earningTipCents ?? 0;
-  }
-  for (const r of consumos) {
-    const e = entry(r.operatorEmail, person(r.operatorName, r.operatorEmail));
-    e.count += 1;
-    e.chargedCents += r.amountCents + r.tipCents;
-    e.commissionCents += r.commissionCents;
-    e.tipsCents += r.earningTipCents;
-  }
-  for (const r of devoluciones) {
-    if (!r.reversedDeltaCents || !r.chicaEmail) continue;
-    entry(r.chicaEmail, person(r.chicaName, r.chicaEmail)).reversalsCents += r.reversedDeltaCents;
-  }
-  for (const r of liquidaciones) {
-    entry(r.operatorEmail, person(r.operatorName, r.operatorEmail)).paidCents += r.totalCents;
-  }
-  return [...byKey.values()]
-    .map((c) => ({ ...c, netCents: c.commissionCents + c.tipsCents - c.reversalsCents }))
-    .sort((a, b) => b.netCents - a.netCents || a.name.localeCompare(b.name, 'es'));
-}
+// Las cuentas del resumen viven en export-summary.ts (también las usan las
+// noches y el aviso de la mañana); se reexportan aquí.
+export { summarize, type ChicaSummary, type ExportSummary, type TypeLine } from './export-summary';
 
 export function resumenCsv(args: {
   venueName: string;
@@ -253,21 +126,51 @@ export function resumenCsv(args: {
   summary: ExportSummary;
 }): string {
   const s = args.summary;
-  const rows: CsvCell[][] = [
+  return toCsv([
     ['Resumen para la gestoría', text(args.venueName)],
     ['Periodo', `${date(args.period.from)} – ${date(new Date(args.period.to.getTime() - 1))}`],
     ['Generado', `${date(args.generatedAt)} ${time(args.generatedAt)}`],
     [],
+    ...totalRows(s),
+    [],
+    ['Por tipo de cobro', 'Total cobrado (€)', 'Número'],
+    ...s.byType.map((t): CsvCell[] => [t.label, money(t.chargedCents), t.count]),
+    [],
+    ...saldoRows(s),
+    [],
+    ...repartoRows(s),
+    [],
+    ...NOTES,
+    [],
+    ...perChicaRows(s),
+  ]);
+}
+
+function totalRows(s: ExportSummary): CsvCell[][] {
+  return [
     ['Concepto', 'Importe (€)', 'Número'],
     ['Cobros (sin propinas)', money(s.grossCents), s.count],
     ['Propinas cobradas', money(s.tipsCents)],
     ['Total cobrado', money(s.chargedCents)],
     ['Devoluciones del periodo', money(-s.refundsCents), s.refundsCount],
+    ['Saldo devuelto en efectivo', money(-s.walletCashPayoutsCents), s.walletCashPayoutsCount],
     ['Neto cobrado', money(s.netCents)],
-    [],
-    ['Por tipo de cobro', 'Total cobrado (€)', 'Número'],
-    ...s.byType.map((t): CsvCell[] => [t.label, money(t.chargedCents), t.count]),
-    [],
+  ];
+}
+
+/** El saldo de los clientes: consumos (no son dinero nuevo) y lo que se les devolvió. */
+function saldoRows(s: ExportSummary): CsvCell[][] {
+  return [
+    ['Saldo de los clientes', 'Importe (€)', 'Número'],
+    ['Consumos del saldo', money(s.consumptionsCents), s.consumptionsCount],
+    ...s.saldoByType.map((t): CsvCell[] => [t.label, money(t.chargedCents), t.count]),
+    ['Devuelto en efectivo (restado arriba)', money(-s.walletCashPayoutsCents), s.walletCashPayoutsCount],
+    ['Devuelto a la tarjeta (ya está en devoluciones)', money(-s.walletCardPayoutsCents), s.walletCardPayoutsCount],
+  ];
+}
+
+function repartoRows(s: ExportSummary): CsvCell[][] {
+  return [
     ['Reparto', 'Importe (€)'],
     ['Comisión de las chicas', money(s.chicaCommissionCents)],
     ['Propinas de las chicas', money(s.chicaTipsCents)],
@@ -277,12 +180,19 @@ export function resumenCsv(args: {
     ['Total para el local', money(s.venueNetCents)],
     [],
     ['Pagado a chicas en el periodo', money(s.payoutsCents), s.payoutsCount],
-    [],
-    ['Notas'],
-    ['El IVA depende de si el local actúa como intermediario (IVA solo sobre su parte) o como principal (sobre todo lo cobrado). Decídelo con tu asesor.'],
-    ['Las propinas van aparte porque normalmente no forman parte de la base del IVA.'],
-    ['La comisión del banco no está incluida: sale en el extracto de BBVA.'],
-    [],
+  ];
+}
+
+const NOTES: CsvCell[][] = [
+  ['Notas'],
+  ['El IVA depende de si el local actúa como intermediario (IVA solo sobre su parte) o como principal (sobre todo lo cobrado). Decídelo con tu asesor.'],
+  ['Las propinas van aparte porque normalmente no forman parte de la base del IVA.'],
+  ['Las recargas de saldo cuentan como cobradas al cargarlas; lo que se devuelve del saldo resta (en efectivo, arriba; a la tarjeta, en las devoluciones). Los consumos del saldo no son dinero nuevo.'],
+  ['La comisión del banco no está incluida: sale en el extracto de BBVA.'],
+];
+
+function perChicaRows(s: ExportSummary): CsvCell[][] {
+  return [
     ['Por chica', 'Cobros', 'Total cobrado (€)', 'Comisión (€)', 'Propinas (€)', 'Descontado por devoluciones (€)', 'Total para ella (€)', 'Pagado en el periodo (€)'],
     ...s.perChica.map((c): CsvCell[] => [
       text(c.name),
@@ -295,5 +205,4 @@ export function resumenCsv(args: {
       money(c.paidCents),
     ]),
   ];
-  return toCsv(rows);
 }

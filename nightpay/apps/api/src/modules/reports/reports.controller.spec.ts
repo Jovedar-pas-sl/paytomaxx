@@ -28,6 +28,9 @@ function makeController() {
     devoluciones: vi.fn().mockResolvedValue([]),
     liquidaciones: vi.fn().mockResolvedValue([]),
     consumos: vi.fn().mockResolvedValue([]),
+    pagosSaldo: vi.fn().mockResolvedValue([
+      { id: 'wp-1', at: new Date('2026-08-01T03:00:00Z'), amountCents: 8000, method: 'CASH', paidByName: null, paidByEmail: 'jefe@local.es' },
+    ]),
     venueName: vi.fn().mockResolvedValue('Local Centro'),
   };
   return { controller: new ReportsController(reports as never), reports };
@@ -52,6 +55,10 @@ describe('GET /v1/admin/export/:kind', () => {
     expect(reports.devoluciones).toHaveBeenCalled();
     expect(reports.liquidaciones).toHaveBeenCalled();
     expect(sent.body).toContain('Resumen para la gestoría;Local Centro');
+    // El saldo devuelto en efectivo también cuenta (antes no salía en ningún informe).
+    expect(reports.pagosSaldo).toHaveBeenCalledWith('t-1', expect.objectContaining({ fromDay: '2026-07-01' }));
+    expect(sent.body).toContain('Saldo devuelto en efectivo;-80,00;1');
+    expect(sent.body).toContain('Neto cobrado;-80,00');
   });
 
   it('informe desconocido o fechas mal → 400 sin consultar nada', async () => {
