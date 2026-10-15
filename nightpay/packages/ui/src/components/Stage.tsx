@@ -9,7 +9,7 @@ interface StageProps {
 export function Stage({ children, centered = true }: StageProps) {
   return (
     <main
-      className="np-app-root"
+      className="np-app-root np-screen"
       style={{
         ...wrap,
         justifyContent: centered ? 'center' : 'flex-start',
@@ -36,7 +36,6 @@ export function StageMeta({ venue, terminal }: MetaProps) {
 
 const wrap: CSSProperties = {
   position: 'relative',
-  minHeight: '100dvh',
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',

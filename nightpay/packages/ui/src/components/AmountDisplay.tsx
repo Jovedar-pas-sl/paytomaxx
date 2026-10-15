@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { amountParts } from '../format';
 import type { PaymentStatus } from './StatusPill';
 
 interface AmountDisplayProps {
@@ -8,8 +9,7 @@ interface AmountDisplayProps {
 }
 
 export function AmountDisplay({ amountCents, currency, status = 'CREATED' }: AmountDisplayProps) {
-  const whole = Math.floor(amountCents / 100);
-  const decimals = (amountCents % 100).toString().padStart(2, '0');
+  const amount = amountParts(amountCents, currency);
 
   const isAuthorizing = status === 'AUTHORIZING' || status === 'ORPHAN';
   const isFinal = status === 'AUTHORIZED';
@@ -42,9 +42,11 @@ export function AmountDisplay({ amountCents, currency, status = 'CREATED' }: Amo
         }}
       />
 
+      {/* El lector de pantalla lee "48,50 €" de una vez, no los trozos. */}
+      <span className="np-sr-only">{amount.text}</span>
       <div
         className="np-num"
-        aria-label={`${(amountCents / 100).toFixed(2)} ${currency}`}
+        aria-hidden
         style={{
           ...amountWrap,
           color: accent,
@@ -52,19 +54,16 @@ export function AmountDisplay({ amountCents, currency, status = 'CREATED' }: Amo
         }}
       >
         <span style={{ fontSize: 'var(--np-t-amount)', fontWeight: 600, letterSpacing: '-0.04em' }}>
-          {whole}
+          {amount.whole}
         </span>
-        <span style={separator}>.</span>
-        <span style={cents}>{decimals}</span>
-        <span style={curr}>{currency}</span>
+        {amount.fraction ? (
+          <>
+            <span style={separator}>{amount.decimal}</span>
+            <span style={cents}>{amount.fraction}</span>
+          </>
+        ) : null}
+        <span style={curr}>{amount.code}</span>
       </div>
-
-      <style>{`
-        @keyframes np-amount-breathe {
-          0%, 100% { opacity: 1;    }
-          50%      { opacity: 0.55; }
-        }
-      `}</style>
     </div>
   );
 }

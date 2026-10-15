@@ -47,21 +47,17 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   hint?: string;
 }
 
-export function Select({ label, hint, style, children, ...rest }: SelectProps) {
+export function Select({ label, hint, style, className, children, ...rest }: SelectProps) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%' }}>
       {label ? <span style={labelStyle}>{label}</span> : null}
       <select
         {...rest}
+        // np-select: la flecha, con el color de cada tema (styles.css).
+        className={['np-select', className].filter(Boolean).join(' ')}
         style={{
           ...inputBase,
           ...sizeMd,
-          appearance: 'none',
-          backgroundImage:
-            'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 12 8\' fill=\'none\' stroke=\'%23999\' stroke-width=\'1.5\' stroke-linecap=\'round\'><path d=\'M2 2 L6 6 L10 2\'/></svg>")',
-          backgroundRepeat: 'no-repeat',
-          backgroundPosition: 'right 1rem center',
-          backgroundSize: '0.75rem',
           paddingRight: '2.5rem',
           ...style,
         }}
@@ -95,10 +91,11 @@ const inputBase: CSSProperties = {
   fontSize: '1.0625rem',
   fontWeight: 500,
   color: 'var(--np-text)',
-  background: 'var(--np-surface)',
+  // backgroundColor (no `background`): el atajo borraría la flecha de .np-select.
+  backgroundColor: 'var(--np-surface)',
   border: '2px solid var(--np-border)',
   borderRadius: 'var(--np-r-md)',
-  outline: 'none',
+  // Sin outline: 'none': con el teclado se ve el anillo de :focus-visible.
   transition: 'border-color var(--np-d-fast), box-shadow var(--np-d-fast)',
 };
 

@@ -234,12 +234,6 @@ function Pulse({ color }: { color: string }) {
           background: color,
         }}
       />
-      <style>{`
-        @keyframes np-pulse-ring {
-          0%   { transform: scale(1);   opacity: 0.7; }
-          100% { transform: scale(2.4); opacity: 0;   }
-        }
-      `}</style>
     </span>
   );
 }

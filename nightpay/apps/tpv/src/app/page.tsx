@@ -1,14 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { CashRegister } from '@/components/CashRegister';
-import { getToken, getVenueSlug } from '@/lib/api';
+import { SESSION_EXPIRED_EVENT, getToken, getVenueSlug } from '@/lib/api';
+import { MESSAGES } from '@/lib/http';
+
+const LOGOUT_NOT_CONFIRMED = 'Has salido. El servidor no respondió: la sesión caducará sola.';
 
 export default function Page() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [venueSlug, setVenueSlug] = useState<string | null>(null);
+  // Aviso en la pantalla de entrada: sesión caducada o salida sin respuesta del API.
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const token = getToken();
@@ -16,11 +21,21 @@ export default function Page() {
     setVenueSlug(getVenueSlug());
   }, []);
 
+  // El API rechazó la sesión: de vuelta al login en vez de un formulario que falla siempre.
+  useEffect(() => {
+    function onExpired() {
+      setAuthed(false);
+      setNotice(MESSAGES.session);
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
+
   if (authed === null) {
     return (
       <main
+        className="np-screen"
         style={{
-          minHeight: '100vh',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -35,8 +50,8 @@ export default function Page() {
   if (!authed) {
     return (
       <main
+        className="np-screen"
         style={{
-          minHeight: '100vh',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -61,9 +76,15 @@ export default function Page() {
             TPV
           </h1>
         </header>
+        {notice ? (
+          <p role="status" style={noticeStyle}>
+            {notice}
+          </p>
+        ) : null}
         <Card variant="glow" style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
           <LoginForm
             onSuccess={() => {
+              setNotice(null);
               setAuthed(true);
               setVenueSlug(getVenueSlug());
             }}
@@ -73,5 +94,21 @@ export default function Page() {
     );
   }
 
-  return <CashRegister venueSlug={venueSlug ?? '—'} onLogout={() => setAuthed(false)} />;
+  return (
+    <CashRegister
+      venueSlug={venueSlug ?? '—'}
+      onLogout={(revoked) => {
+        setNotice(revoked ? null : LOGOUT_NOT_CONFIRMED);
+        setAuthed(false);
+      }}
+    />
+  );
 }
+
+const noticeStyle: CSSProperties = {
+  margin: 0,
+  maxWidth: '24rem',
+  textAlign: 'center',
+  color: 'var(--np-warning)',
+  fontSize: '0.9375rem',
+};
