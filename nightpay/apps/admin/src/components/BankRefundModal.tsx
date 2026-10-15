@@ -3,6 +3,9 @@
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Input, Modal } from '@nightpay/ui';
 import { registerBankRefund, type PaymentRow } from '@/lib/api';
+import { isDuplicateRefundError } from '@/lib/api-errors';
+import { madridToday } from '@/lib/dates';
+import { centsToInput, formatEur } from '@/lib/money';
 import { parseEuroCents } from '@nightpay/contracts';
 
 /**
@@ -20,7 +23,7 @@ export function BankRefundModal({
   onDone: () => void;
 }) {
   const [amount, setAmount] = useState('');
-  const [refundedOn, setRefundedOn] = useState(today());
+  const [refundedOn, setRefundedOn] = useState(madridToday());
   const [bankReference, setBankReference] = useState('');
   const [reason, setReason] = useState('');
   const [needsConfirm, setNeedsConfirm] = useState(false);
@@ -30,8 +33,8 @@ export function BankRefundModal({
 
   useEffect(() => {
     if (payment) {
-      setAmount((payment.availableAmountCents / 100).toFixed(2));
-      setRefundedOn(today());
+      setAmount(centsToInput(payment.availableAmountCents));
+      setRefundedOn(madridToday());
       setBankReference('');
       setReason('');
       setNeedsConfirm(false);
@@ -64,10 +67,10 @@ export function BankRefundModal({
       });
       onDone();
     } catch (err) {
-      const message = (err as Error).message;
-      // Ya hay una devolución igual: se pide confirmar que es otra.
-      if (message.includes('confírmalo')) setNeedsConfirm(true);
-      setError(message);
+      // Ya hay una devolución igual: se pide confirmar que es otra (por el 409
+      // del API y su aviso, no solo por una palabra del texto).
+      if (isDuplicateRefundError(err)) setNeedsConfirm(true);
+      setError((err as Error).message);
     } finally {
       setSubmitting(false);
     }
@@ -86,7 +89,7 @@ export function BankRefundModal({
         </li>
       </ol>
       <p style={metaStyle}>
-        Queda por devolver <span className="np-num">{(payment.availableAmountCents / 100).toFixed(2)} €</span>
+        Queda por devolver <span className="np-num">{formatEur(payment.availableAmountCents)}</span>
       </p>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
         <Input
@@ -102,7 +105,7 @@ export function BankRefundModal({
           label="Día de la devolución en el banco"
           type="date"
           value={refundedOn}
-          max={today()}
+          max={madridToday()}
           onChange={(e) => setRefundedOn(e.target.value)}
           required
         />
@@ -143,12 +146,6 @@ export function BankRefundModal({
       </form>
     </Modal>
   );
-}
-
-/** Hoy en el navegador del dueño, como AAAA-MM-DD. */
-function today(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 const stepsStyle: CSSProperties = {

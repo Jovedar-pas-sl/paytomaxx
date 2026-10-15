@@ -11,6 +11,9 @@ import {
   updateTerminal,
   type Terminal,
 } from '@/lib/api';
+import { formatDateTime } from '@/lib/dates';
+import { useVenueTimezone } from '@/lib/venue-context';
+import { Notice } from './Notice';
 
 interface Props {
   isOwner: boolean;
@@ -34,9 +37,27 @@ const HARDWARE_LABEL: Record<Hardware, string> = {
   OTRO: 'Otro',
 };
 
+const ZONE_LABEL: Record<Zone, string> = {
+  BARRA: 'Barra',
+  HABITACIONES: 'Habitaciones',
+  MESAS: 'Mesas',
+  OTRO: 'Otro',
+};
+
+/** El API guarda el modelo como texto: el nombre bonito si es uno conocido. */
+function hardwareLabel(model: string | null): string {
+  if (!model) return '—';
+  return HARDWARE_LABEL[model as Hardware] ?? model;
+}
+
+/** Tope de POST /v1/terminals/bulk. */
+const BULK_MAX = 50;
+
 export function TerminalsPanel({ isOwner }: Props) {
-  const [terminals, setTerminals] = useState<Terminal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const tz = useVenueTimezone();
+  /** null = cargando. */
+  const [terminals, setTerminals] = useState<Terminal[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -52,14 +73,11 @@ export function TerminalsPanel({ isOwner }: Props) {
   const [deviceSerial, setDeviceSerial] = useState('');
 
   async function reload(): Promise<void> {
+    setLoadError(null);
     try {
-      const list = await fetchTerminals();
-      setTerminals(list);
-      setError(null);
+      setTerminals(await fetchTerminals());
     } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
+      setLoadError((err as Error).message);
     }
   }
 
@@ -96,11 +114,12 @@ export function TerminalsPanel({ isOwner }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {error ? (
-        <Card style={{ padding: '0.75rem', borderColor: 'var(--np-danger)' }}>
-          <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>{error}</p>
-        </Card>
+      {loadError ? (
+        <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => void reload() }}>
+          No se pudieron cargar los datáfonos: {loadError}
+        </Notice>
       ) : null}
+      {error ? <Notice tone="danger">{error}</Notice> : null}
 
       <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
@@ -174,13 +193,14 @@ export function TerminalsPanel({ isOwner }: Props) {
       </Card>
 
       <Card style={{ padding: '1.25rem' }}>
-        {loading ? (
-          <p style={{ margin: 0, fontSize: '0.875rem' }}>Cargando…</p>
+        {terminals === null ? (
+          <p style={{ margin: 0, fontSize: '0.875rem' }}>{loadError ? 'Sin datos.' : 'Cargando…'}</p>
         ) : terminals.length === 0 ? (
           <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
             No hay terminales todavía. Crea uno arriba o usa "Crear lote".
           </p>
         ) : (
+          <div style={{ overflowX: 'auto' }}>
           <table className="np-table" style={{ width: '100%' }}>
             <thead>
               <tr>
@@ -191,7 +211,7 @@ export function TerminalsPanel({ isOwner }: Props) {
                 <th style={thStyle}>S/N</th>
                 <th style={thStyle}>Estado</th>
                 <th style={thStyle}>App OxioPay</th>
-                <th style={thStyle}></th>
+                <th style={thStyle} aria-label="Acciones" />
               </tr>
             </thead>
             <tbody>
@@ -200,7 +220,7 @@ export function TerminalsPanel({ isOwner }: Props) {
                   <td style={tdStyle}>{t.externalId}</td>
                   <td style={tdStyle}>{t.label}</td>
                   <td style={tdStyle}>{t.zoneDisplay ?? '—'}</td>
-                  <td style={tdStyle}>{t.hardwareModel ?? '—'}</td>
+                  <td style={tdStyle}>{hardwareLabel(t.hardwareModel)}</td>
                   <td style={tdStyle}>{t.deviceSerial ?? '—'}</td>
                   <td style={tdStyle}>
                     <span
@@ -220,7 +240,10 @@ export function TerminalsPanel({ isOwner }: Props) {
                       <span>
                         Vinculada
                         {t.deviceLastSeenAt ? (
-                          <span style={{ color: 'var(--np-text-mute)' }}> · vista {formatSeen(t.deviceLastSeenAt)}</span>
+                          <span style={{ color: 'var(--np-text-mute)' }}>
+                            {' '}
+                            · vista {formatDateTime(t.deviceLastSeenAt, tz, 'compact')}
+                          </span>
                         ) : null}
                       </span>
                     ) : (
@@ -243,6 +266,7 @@ export function TerminalsPanel({ isOwner }: Props) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
 
@@ -286,7 +310,8 @@ function BulkCreateModal({
   onClose: () => void;
   onCreated: () => void;
 }): JSX.Element | null {
-  const [count, setCount] = useState(6);
+  // Texto tal cual (antes, al borrar el campo saltaba a 1).
+  const [count, setCount] = useState('6');
   const [prefix, setPrefix] = useState('PAX-BARRA-');
   const [zone, setZone] = useState<Zone>('BARRA');
   const [zoneCustom, setZoneCustom] = useState('');
@@ -296,13 +321,20 @@ function BulkCreateModal({
 
   if (!open) return null;
 
+  const parsedCount = /^\d{1,2}$/.test(count) ? Number(count) : Number.NaN;
+  const countOk = Number.isInteger(parsedCount) && parsedCount >= 1 && parsedCount <= BULK_MAX;
+
   async function handleSubmit(e: FormEvent): Promise<void> {
     e.preventDefault();
+    if (!countOk) {
+      setError(`Cantidad: de 1 a ${BULK_MAX}.`);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       await bulkCreateTerminals({
-        count,
+        count: parsedCount,
         prefix: prefix.trim(),
         zone,
         zoneCustom: zone === 'OTRO' ? zoneCustom.trim() : undefined,
@@ -321,11 +353,11 @@ function BulkCreateModal({
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <Input
           label="Cantidad"
-          type="number"
-          min={1}
-          max={50}
+          type="text"
+          inputMode="numeric"
           value={count}
-          onChange={(e) => setCount(parseInt(e.target.value, 10) || 1)}
+          onChange={(e) => setCount(e.target.value.replace(/\D/g, '').slice(0, 2))}
+          error={count !== '' && !countOk ? `De 1 a ${BULK_MAX}.` : undefined}
           required
         />
         <Input
@@ -359,17 +391,21 @@ function BulkCreateModal({
             <option key={h} value={h}>{HARDWARE_LABEL[h]}</option>
           ))}
         </Select>
-        {error ? <p style={{ color: 'var(--np-danger)', fontSize: '0.85rem' }}>{error}</p> : null}
+        {error ? (
+          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.85rem' }}>
+            {error}
+          </p>
+        ) : null}
         <p style={{ fontSize: '0.8rem', color: 'var(--np-text-mute)' }}>
-          Crea {count} terminales con externalId {prefix}1, {prefix}2,… asignados a zona{' '}
-          <strong>{zone === 'OTRO' ? zoneCustom || '?' : zone}</strong>.
+          Crea {countOk ? parsedCount : '?'} terminales con externalId {prefix}1, {prefix}2,… asignados a zona{' '}
+          <strong>{zone === 'OTRO' ? zoneCustom || '?' : ZONE_LABEL[zone]}</strong>.
         </p>
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
           <Button variant="ghost" type="button" onClick={onClose}>
             Cancelar
           </Button>
-          <Button type="submit" loading={submitting}>
-            Crear {count}
+          <Button type="submit" loading={submitting} disabled={!countOk}>
+            Crear {countOk ? parsedCount : ''}
           </Button>
         </div>
       </form>
@@ -441,7 +477,11 @@ function EditTerminalModal({
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
           <span>Activo</span>
         </label>
-        {error ? <p style={{ color: 'var(--np-danger)', fontSize: '0.85rem' }}>{error}</p> : null}
+        {error ? (
+          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.85rem' }}>
+            {error}
+          </p>
+        ) : null}
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
           <Button variant="ghost" type="button" onClick={onClose}>
             Cancelar
@@ -477,6 +517,7 @@ const tdStyle: CSSProperties = {
  * pagado sin teclear el código del ticket.
  */
 function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClose: () => void }) {
+  const tz = useVenueTimezone();
   const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -502,6 +543,9 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
   }
 
   async function unpair() {
+    if (!window.confirm('¿Desvincular la app de este datáfono? No recibirá cobros hasta que lo vuelvas a vincular.')) {
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -528,12 +572,7 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
               {code.code}
             </p>
             <p style={{ margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.875rem' }}>
-              Caduca a las{' '}
-              {new Date(code.expiresAt).toLocaleTimeString('es-ES', {
-                timeZone: 'Europe/Madrid',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
+              Caduca a las {formatDateTime(code.expiresAt, tz, 'time')}
             </p>
           </div>
         ) : null}
@@ -556,14 +595,4 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
       </div>
     </Modal>
   );
-}
-
-function formatSeen(iso: string): string {
-  return new Date(iso).toLocaleString('es-ES', {
-    timeZone: 'Europe/Madrid',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }

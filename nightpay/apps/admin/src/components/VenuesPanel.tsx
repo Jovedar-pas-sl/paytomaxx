@@ -8,6 +8,8 @@ import {
   switchToVenue,
   type VenueListItem,
 } from '@/lib/api';
+import { formatDateTime } from '@/lib/dates';
+import { Notice } from './Notice';
 
 interface Props {
   currentSlug: string;
@@ -76,12 +78,13 @@ export function VenuesPanel({ currentSlug }: Props) {
       </Card>
 
       {error ? (
-        <Card style={{ padding: '1rem', borderColor: 'var(--np-danger)' }}>
-          <p style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p>
-        </Card>
+        <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => void reload() }}>
+          {error}
+        </Notice>
       ) : null}
 
       <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
         <table style={tableStyle}>
           <thead>
             <tr>
@@ -103,7 +106,7 @@ export function VenuesPanel({ currentSlug }: Props) {
                   <td style={tdMonoStyle}>{v.slug}</td>
                   <td style={tdStyle}>{v.timezone}</td>
                   <td style={tdMonoStyle}>
-                    {new Date(v.createdAt).toLocaleDateString('es-ES')}
+                    {formatDateTime(v.createdAt, v.timezone, 'date')}
                   </td>
                   <td style={tdStyle}>
                     {isActive ? (
@@ -119,6 +122,7 @@ export function VenuesPanel({ currentSlug }: Props) {
             })}
           </tbody>
         </table>
+        </div>
       </Card>
 
       <CreateVenueModal

@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
 import { downloadExport, type ExportKind } from '@/lib/api';
+import { isValidRange, lastDayOfMonth, presetRange, type ReportPreset } from '@/lib/dates';
 
 const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
   {
@@ -27,9 +28,7 @@ const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
   },
 ];
 
-type Preset = 'lastMonth' | 'thisMonth' | 'lastQuarter' | 'thisYear';
-
-const PRESETS: Array<{ key: Preset; label: string }> = [
+const PRESETS: Array<{ key: ReportPreset; label: string }> = [
   { key: 'lastMonth', label: 'Mes pasado' },
   { key: 'thisMonth', label: 'Este mes' },
   { key: 'lastQuarter', label: 'Trimestre pasado' },
@@ -41,7 +40,9 @@ const PRESETS: Array<{ key: Preset; label: string }> = [
  * (separador ";", decimales con coma). Solo el dueño.
  */
 export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
-  const initial = presetRange('lastMonth', new Date());
+  // Días de Madrid, como el API: a las 00:30 del día 1 ya es "este mes" aunque
+  // el navegador esté en otra zona.
+  const [initial] = useState(() => presetRange('lastMonth', new Date()));
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [busy, setBusy] = useState<ExportKind | null>(null);
@@ -55,7 +56,7 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
     );
   }
 
-  function applyPreset(p: Preset) {
+  function applyPreset(p: ReportPreset) {
     const r = presetRange(p, new Date());
     setFrom(r.from);
     setTo(r.to);
@@ -64,7 +65,7 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
 
   async function download(kind: ExportKind) {
     setError(null);
-    if (!from || !to || to < from) {
+    if (!isValidRange(from, to)) {
       setError('Elige un periodo: la fecha final no puede ser anterior a la inicial.');
       return;
     }
@@ -130,33 +131,9 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
   );
 }
 
-function day(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-/** Periodos rápidos, en días del calendario del navegador (el dueño está en España). */
-export function presetRange(p: Preset, now: Date): { from: string; to: string } {
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  switch (p) {
-    case 'lastMonth':
-      return { from: day(new Date(y, m - 1, 1)), to: day(new Date(y, m, 0)) };
-    case 'thisMonth':
-      return { from: day(new Date(y, m, 1)), to: day(now) };
-    case 'lastQuarter': {
-      const q = Math.floor(m / 3);
-      return { from: day(new Date(y, (q - 1) * 3, 1)), to: day(new Date(y, q * 3, 0)) };
-    }
-    case 'thisYear':
-      return { from: day(new Date(y, 0, 1)), to: day(now) };
-  }
-}
-
 /** "2026-10" si es un mes entero; si no, las dos fechas. Igual que el servidor. */
 function fileSlug(from: string, to: string): string {
-  const [y, m] = to.split('-').map(Number) as [number, number];
-  const lastDay = day(new Date(y, m, 0));
-  const wholeMonth = from.slice(0, 7) === to.slice(0, 7) && from.endsWith('-01') && to === lastDay;
+  const wholeMonth = from.slice(0, 7) === to.slice(0, 7) && from.endsWith('-01') && to === lastDayOfMonth(to);
   return wholeMonth ? from.slice(0, 7) : `${from}_${to}`;
 }
 

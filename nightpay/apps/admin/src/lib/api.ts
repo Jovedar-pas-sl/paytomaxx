@@ -624,12 +624,6 @@ export async function fetchPayments(params: {
   return res.json();
 }
 
-export async function fetchPaymentDetail(id: string): Promise<PaymentRow> {
-  const res = await authedFetch(`/v1/payments/${id}`);
-  if (!res.ok) throw new Error('Error cargando pago');
-  return res.json();
-}
-
 export async function fetchRefunds(paymentId: string): Promise<Refund[]> {
   const res = await authedFetch(`/v1/payments/${paymentId}/refunds`);
   if (!res.ok) throw new Error('Error cargando refunds');
@@ -1290,22 +1284,9 @@ export async function unpairTerminal(terminalId: string): Promise<void> {
   if (!res.ok) throw await apiError(res);
 }
 
-export interface Zone {
-  zone: string;
-  zoneDisplay: string;
-  terminalCount: number;
-  activeCount: number;
-}
-
 export async function fetchTerminals(): Promise<Terminal[]> {
   const res = await authedFetch('/v1/terminals');
   if (!res.ok) throw new Error('Error cargando terminales');
-  return res.json();
-}
-
-export async function fetchZones(): Promise<Zone[]> {
-  const res = await authedFetch('/v1/terminals/zones');
-  if (!res.ok) throw new Error('Error cargando zonas');
   return res.json();
 }
 
