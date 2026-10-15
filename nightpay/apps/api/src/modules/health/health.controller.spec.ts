@@ -79,6 +79,6 @@ describe('HealthController: versión y marca del despliegue', () => {
     vi.stubEnv('npm_package_version', '1.2.3');
     const result = (await ok().get()) as Awaited<ReturnType<HealthController['get']>> & { build: string };
     expect(result.version).toBe('1.2.3');
-    expect(result.build).toBe('saldo-fichas-2026-10-14');
+    expect(result.build).toBe('revision-2026-10-15');
   });
 });
