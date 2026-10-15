@@ -34,7 +34,8 @@ function makeService(
     .mockResolvedValueOnce([{ total: BigInt(priorDebtCents) }]);
   const executeRaw = vi.fn().mockResolvedValue(1);
   const tx = { $queryRaw: queryRaw, $executeRaw: executeRaw };
-  const prisma = { $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
+  // asSystem: la transacción con el bypass de RLS (operator_earnings con RLS forzado).
+  const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
 
   const service = Object.create(PaymentsService.prototype) as PaymentsService;
   Object.assign(service, {

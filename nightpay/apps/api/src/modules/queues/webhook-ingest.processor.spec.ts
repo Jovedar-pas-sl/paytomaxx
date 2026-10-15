@@ -51,6 +51,8 @@ function makeProcessor(o: Options = {}) {
     },
     asSystem: vi.fn().mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
+  // El cobro se busca con asSystem (trabajo sin local): la misma búsqueda dentro de la transacción.
+  Object.assign(tx, { payment: prisma.payment });
   const payments = { transition: vi.fn().mockResolvedValue(undefined) };
   const adapter = {
     provider,

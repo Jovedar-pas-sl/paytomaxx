@@ -79,7 +79,9 @@ export class OrphanReconcileProcessor extends WorkerHost {
     const attempt = job.attemptsMade + 1;
     const maxAttempts = job.opts.attempts ?? 1;
 
-    const payment: ReconcilablePayment = await this.payments.findById(paymentId);
+    // Sin petición no hay local en el contexto: lectura de sistema (si no, cuenta
+    // como consulta sin local y con TENANCY_UNSCOPED_QUERIES=throw se cortaría).
+    const payment: ReconcilablePayment = await this.prisma.asSystem(() => this.payments.findById(paymentId));
     if (!RECONCILABLE.has(payment.status)) {
       this.logger.debug(`Orphan ${paymentId} ya resuelto (${payment.status}) — nada que conciliar`);
       return;

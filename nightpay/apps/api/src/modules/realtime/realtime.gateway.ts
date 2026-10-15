@@ -25,7 +25,7 @@ export const LEGACY_SUBSCRIBE_WINDOW_MS = 30 * 60 * 1000;
 const SubscribeSchema = z.object({ paymentId: z.string().uuid() });
 
 type SubscribeResult = { ok: true; room: string } | { ok: false; error: string };
-type StaffSocket = Socket & { data: { staff?: JwtPayload; legacyWarned?: boolean } };
+type StaffSocket = Socket & { data: { staff?: JwtPayload; legacyWarned?: boolean; authReady?: Promise<void> } };
 
 /**
  * Gateway WS para sincronizacion en tiempo real cliente movil ↔ TPV.
@@ -65,6 +65,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   /** Al conectar: si trae la sesión del personal, se guarda (si no vale, como sin sesión). */
   async handleConnection(client: StaffSocket): Promise<void> {
     this.metrics.wsConnectionsActive.inc();
+    // Un payment:subscribe puede llegar antes de que acabe la comprobación:
+    // maySubscribe espera a esta promesa (si no, iría por la vía sin sesión).
+    client.data.authReady = this.authenticate(client);
+    await client.data.authReady;
+  }
+
+  private async authenticate(client: StaffSocket): Promise<void> {
     const token = handshakeToken(client);
     if (!token) return;
     const result = await verifyStaffToken(this.jwt, token);
@@ -131,6 +138,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   private async maySubscribe(client: StaffSocket, paymentId: string): Promise<boolean> {
+    await client.data.authReady;
     // Consulta de sistema: el local se comprueba aquí, contra el de la sesión.
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({ where: { id: paymentId }, select: { tenantId: true, createdAt: true } }),

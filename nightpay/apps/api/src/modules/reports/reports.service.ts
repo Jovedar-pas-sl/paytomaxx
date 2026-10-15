@@ -117,8 +117,7 @@ export class ReportsService {
    * solo está aquí; el de tarjeta, además, como devoluciones de las recargas.
    */
   async pagosSaldo(tenantId: string, p: TimeWindow): Promise<PagoSaldoRow[]> {
-    // TODO(merge): con fix/rev-wallets, AND wp."status" = 'DONE' (una devolución a la
-    // tarjeta queda PENDING hasta completarse).
+    // Solo las hechas: una devolución a la tarjeta queda PENDING hasta completarse.
     return capped(await this.prisma.$queryRaw<PagoSaldoRow[]>`
       SELECT wp.id,
              wp."createdAt" AS "at",
@@ -129,6 +128,7 @@ export class ReportsService {
         FROM wallet_payouts wp
         LEFT JOIN users pb ON pb.id = wp."paidByUserId"
        WHERE wp."tenantId" = ${tenantId}::uuid
+         AND wp."status" = 'DONE'
          AND wp."createdAt" >= ${p.from}
          AND wp."createdAt" < ${p.to}
        ORDER BY wp."createdAt" ASC
@@ -138,7 +138,7 @@ export class ReportsService {
 
   /** Pagos a chicas hechos en el periodo. */
   async liquidaciones(tenantId: string, p: TimeWindow): Promise<LiquidacionRow[]> {
-    return capped(await this.prisma.$queryRaw<LiquidacionRow[]>`
+    return capped(await this.prisma.asSystem((tx) => tx.$queryRaw<LiquidacionRow[]>`
       SELECT po.id,
              po."createdAt" AS "paidAt",
              po."totalCents",
@@ -159,12 +159,12 @@ export class ReportsService {
          AND po."createdAt" < ${p.to}
        ORDER BY po."createdAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
-    `);
+    `));
   }
 
   /** Cobros pagados del local que cumplen `where` (alias p). */
   private cobrosWhere(tenantId: string, where: Prisma.Sql): Promise<CobroRow[]> {
-    return this.prisma.$queryRaw<CobroRow[]>`
+    return this.prisma.asSystem((tx) => tx.$queryRaw<CobroRow[]>`
       SELECT p.id,
              ${paymentAt('p')} AS "paidAt",
              p.status::text AS status,
@@ -211,12 +211,12 @@ export class ReportsService {
          AND ${where}
        ORDER BY "paidAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
-    `;
+    `);
   }
 
   /** Consumos del saldo del local que cumplen `where` (alias c), con la parte de la chica si la hay. */
   private consumosWhere(tenantId: string, where: Prisma.Sql): Promise<ConsumoRow[]> {
-    return this.prisma.$queryRaw<ConsumoRow[]>`
+    return this.prisma.asSystem((tx) => tx.$queryRaw<ConsumoRow[]>`
       SELECT c.id,
              c."createdAt" AS "at",
              c."amountCents",
@@ -233,12 +233,12 @@ export class ReportsService {
          AND ${where}
        ORDER BY c."createdAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
-    `;
+    `);
   }
 
   /** Devoluciones hechas del local que cumplen `where` (alias r), con lo descontado a la chica. */
   private devolucionesWhere(tenantId: string, where: Prisma.Sql): Promise<DevolucionRow[]> {
-    return this.prisma.$queryRaw<DevolucionRow[]>`
+    return this.prisma.asSystem((tx) => tx.$queryRaw<DevolucionRow[]>`
       SELECT r.id,
              ${refundAt('r')} AS "refundedAt",
              r."amountCents",
@@ -269,7 +269,7 @@ export class ReportsService {
          AND ${where}
        ORDER BY "refundedAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
-    `;
+    `);
   }
 }
 

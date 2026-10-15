@@ -19,7 +19,10 @@ function makeTreasury(opts: Opts = {}) {
       if (sql.includes('GROUP BY "reconciliationStatus"')) return [{ status: 'MATCHED', count: 2n }];
       return [{ count: 2n, totalCents: 15_000n }];
     }),
+    asSystem: vi.fn(),
   };
+  // Las lecturas de operator_earnings van con asSystem (RLS forzado): misma consulta.
+  prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
   const config = { get: vi.fn((k: string) => (k === 'PAYOUT_HOLD_DAYS' ? opts.holdDays : undefined)) };
   const svc = new TreasuryService(prisma as never, { log: vi.fn() } as never, {} as never, config as never);
   return { svc, sqls, params };

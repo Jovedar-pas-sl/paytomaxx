@@ -29,7 +29,10 @@ function makeService(venue = { name: 'Local Centro', vatBps: 2100, vatRegime: 'G
       return [];
     }),
     venue: { findUniqueOrThrow: vi.fn().mockResolvedValue(venue) },
+    asSystem: vi.fn(),
   };
+  // Las lecturas de tablas con RLS forzado van con asSystem: misma consulta.
+  prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
   return { svc: new PeriodReportsService(prisma as never), queries };
 }
 

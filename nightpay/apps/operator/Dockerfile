@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # NightPay Operator (Next.js standalone) — app de la chica
 
-FROM node:22-alpine AS base
+FROM node:22.23.3-alpine3.24 AS base
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 
@@ -41,7 +41,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 RUN pnpm --filter @nightpay/operator build
 
-FROM node:22-alpine AS runner
+FROM node:22.23.3-alpine3.24 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

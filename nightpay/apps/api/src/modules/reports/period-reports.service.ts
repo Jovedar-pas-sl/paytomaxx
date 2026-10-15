@@ -66,8 +66,8 @@ export class PeriodReportsService {
 
   /** Cobros, devoluciones y saldo devuelto del periodo, en una sola consulta. */
   async totals(tenantId: string, w: TimeWindow): Promise<PeriodTotals> {
-    // TODO(merge): con fix/rev-wallets, la CTE «saldo» filtra también wp."status" = 'DONE'
-    // (una devolución a la tarjeta queda PENDING hasta completarse).
+    // La CTE «saldo» cuenta solo las devoluciones hechas (status DONE): una a la
+    // tarjeta queda PENDING hasta completarse.
     const rows = await this.prisma.$queryRaw<PeriodTotalsRow[]>`
       WITH cobros AS (
         SELECT COUNT(*)::int AS "paymentCount",
@@ -93,6 +93,7 @@ export class PeriodReportsService {
                COALESCE(SUM(wp."amountCents") FILTER (WHERE wp.method = 'CARD'), 0)::bigint AS "walletCardPayoutCents"
           FROM wallet_payouts wp
          WHERE wp."tenantId" = ${tenantId}::uuid
+           AND wp."status" = 'DONE'
            AND wp."createdAt" >= ${w.from} AND wp."createdAt" < ${w.to}
       )
       SELECT * FROM cobros, devoluciones, saldo
@@ -128,7 +129,7 @@ export class PeriodReportsService {
 
   /** Cobros (aparte las recargas) y consumos del saldo, por tipo. */
   private async categories(tenantId: string, w: TimeWindow): Promise<ZCategoryRow[]> {
-    return this.prisma.$queryRaw<ZCategoryRow[]>`
+    return this.prisma.asSystem((tx) => tx.$queryRaw<ZCategoryRow[]>`
       SELECT CASE WHEN p."walletId" IS NULL THEN 'CARD' ELSE 'TOPUP' END AS source,
              p."revenueCategory" AS category,
              COUNT(*)::int AS count,
@@ -149,7 +150,7 @@ export class PeriodReportsService {
          AND c."reversedAt" IS NULL
          AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to}
        GROUP BY c.category
-    `;
+    `);
   }
 
   /**
@@ -158,7 +159,7 @@ export class PeriodReportsService {
    * llegadas después de pagarle (como la columna «Parte chica» del CSV).
    */
   private async operators(tenantId: string, w: TimeWindow): Promise<ZOperatorRow[]> {
-    return this.prisma.$queryRaw<ZOperatorRow[]>`
+    return this.prisma.asSystem((tx) => tx.$queryRaw<ZOperatorRow[]>`
       SELECT e."operatorId", u."displayName", u.email,
              COUNT(*)::int AS "earningCount",
              COALESCE(SUM(e."commissionCents" + COALESCE(e."tipCents", 0) - e."reversedCents" - ${afterPayoutDebt('e')}), 0)::bigint AS "netCents"
@@ -172,30 +173,30 @@ export class PeriodReportsService {
            OR (c."reversedAt" IS NULL AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to})
          )
        GROUP BY e."operatorId", u."displayName", u.email
-    `;
+    `);
   }
 
   private async operatorPayouts(
     tenantId: string,
     w: TimeWindow,
   ): Promise<Array<Count & { totalCents: number | bigint | null }>> {
-    return this.prisma.$queryRaw<Array<Count & { totalCents: number | bigint | null }>>`
+    return this.prisma.asSystem((tx) => tx.$queryRaw<Array<Count & { totalCents: number | bigint | null }>>`
       SELECT COUNT(*)::int AS count, COALESCE(SUM(po."totalCents"), 0)::bigint AS "totalCents"
         FROM operator_payouts po
        WHERE po."tenantId" = ${tenantId}::uuid
          AND po."createdAt" >= ${w.from} AND po."createdAt" < ${w.to}
-    `;
+    `);
   }
 
   /** Consumos del saldo del trimestre (informativo en el 303). */
   private async consumptionTotals(tenantId: string, w: TimeWindow): Promise<{ count: number; cents: number }> {
-    const rows = await this.prisma.$queryRaw<Array<Count & { cents: number | bigint | null }>>`
+    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<Array<Count & { cents: number | bigint | null }>>`
       SELECT COUNT(*)::int AS count, COALESCE(SUM(c."amountCents"), 0)::bigint AS cents
         FROM wallet_consumptions c
        WHERE c."tenantId" = ${tenantId}::uuid
          AND c."reversedAt" IS NULL
          AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to}
-    `;
+    `);
     return { count: Number(rows[0]?.count ?? 0), cents: Number(rows[0]?.cents ?? 0) };
   }
 }

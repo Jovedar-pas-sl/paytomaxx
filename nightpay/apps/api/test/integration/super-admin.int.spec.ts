@@ -9,7 +9,7 @@ import { AuthService } from '../../src/modules/auth/auth.service';
 import { AdminController } from '../../src/modules/admin/admin.controller';
 
 const cls = new ClsService(new AsyncLocalStorage());
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const prisma = new PrismaService(cls as any);
 const audit = { log: async () => undefined };
 const jwt = new JwtService({ secret: 'x'.repeat(40) });

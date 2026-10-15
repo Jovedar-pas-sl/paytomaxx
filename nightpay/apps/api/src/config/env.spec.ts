@@ -115,6 +115,18 @@ describe('avisos de arranque (producción)', () => {
     expect(envWarnings(largo).join('\n')).not.toMatch(/PAYTEF_WEBHOOK_SECRET/);
   });
 
+  it('Paytef activo sin secreto de avisos → aviso (los avisos se rechazan)', () => {
+    const sinSecreto = validateConfig({ ...PROD, PAYTEF_API_TOKEN: 'tok' });
+    expect(envWarnings(sinSecreto).join('\n')).toMatch(/PAYTEF_WEBHOOK_SECRET no está definido/);
+    const conSecreto = validateConfig({ ...PROD, PAYTEF_API_TOKEN: 'tok', PAYTEF_WEBHOOK_SECRET: 'a'.repeat(32) });
+    expect(envWarnings(conSecreto).join('\n')).not.toMatch(/PAYTEF_WEBHOOK_SECRET/);
+  });
+
+  it('PAYTEF_FORCE_TEST distinto de true/false → aviso (se ignora)', () => {
+    expect(envWarnings(validateConfig({ ...PROD, PAYTEF_FORCE_TEST: 'TRUE' })).join('\n')).toMatch(/PAYTEF_FORCE_TEST/);
+    expect(envWarnings(validateConfig({ ...PROD, PAYTEF_FORCE_TEST: 'true' })).join('\n')).not.toMatch(/PAYTEF_FORCE_TEST/);
+  });
+
   it('debug abierto en producción → aviso', () => {
     const env = validateConfig({ ...PROD, DEBUG_ENDPOINTS_ENABLED: 'true' });
     expect(envWarnings(env).join('\n')).toMatch(/DEBUG_ENDPOINTS_ENABLED/);

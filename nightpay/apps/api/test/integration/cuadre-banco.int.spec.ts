@@ -8,7 +8,7 @@ import { BankReconService } from '../../src/modules/bank-recon/bank-recon.servic
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const prisma = new PrismaService(cls as any);
 const audit = { log: async () => undefined };
 const svc = new BankReconService(prisma as never, audit as never);

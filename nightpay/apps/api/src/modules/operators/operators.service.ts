@@ -135,7 +135,7 @@ export class OperatorsService {
 
   async getBalance(operatorId: string, tenantId: string): Promise<OperatorBalance> {
     const cutoff = payoutCutoff(new Date(), this.holdDays());
-    const rows = await this.prisma.$queryRaw<
+    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<
       Array<{
         pendingCents: bigint;
         heldCents: bigint;
@@ -153,7 +153,7 @@ export class OperatorsService {
       FROM operator_earnings
       WHERE "operatorId" = ${operatorId}::uuid
         AND "tenantId" = ${tenantId}::uuid
-    `;
+    `);
     const r = rows[0]!;
     const debtCents = await this.openDebtCents(operatorId, tenantId);
     const unpaid = Number(r.pendingCents);
@@ -175,7 +175,7 @@ export class OperatorsService {
 
   /** Devoluciones llegadas con la comisión ya pagada, aún sin descontar. */
   private async openDebtCents(operatorId: string, tenantId: string): Promise<number> {
-    const rows = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
+    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<Array<{ total: bigint }>>`
       SELECT COALESCE(SUM(r."reversedDeltaCents"), 0)::bigint AS total
         FROM earning_reversals r
         JOIN operator_earnings e ON e.id = r."earningId"
@@ -183,7 +183,7 @@ export class OperatorsService {
          AND e."tenantId" = ${tenantId}::uuid
          AND r."afterPayout"
          AND r."settledPayoutId" IS NULL
-    `;
+    `);
     return Number(rows[0]?.total ?? 0);
   }
 
@@ -192,7 +192,7 @@ export class OperatorsService {
     tenantId: string,
     limit = 50,
   ): Promise<EarningView[]> {
-    const rows = await this.prisma.$queryRaw<
+    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<
       Array<{
         id: string;
         paymentId: string | null;
@@ -217,7 +217,7 @@ export class OperatorsService {
          AND e."tenantId" = ${tenantId}::uuid
        ORDER BY e."createdAt" DESC
        LIMIT ${limit}
-    `;
+    `);
     return rows.map((r) => ({
       id: r.id,
       paymentId: r.paymentId,
@@ -256,7 +256,7 @@ export class OperatorsService {
     tenantId: string,
     limit = 50,
   ): Promise<PayoutView[]> {
-    const rows = await this.prisma.$queryRaw<
+    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<
       Array<{
         id: string;
         totalCents: number;
@@ -289,7 +289,7 @@ export class OperatorsService {
          AND po."tenantId" = ${tenantId}::uuid
        ORDER BY po."createdAt" DESC
        LIMIT ${limit}
-    `;
+    `);
     return rows.map((r) => ({
       id: r.id,
       totalCents: r.totalCents,

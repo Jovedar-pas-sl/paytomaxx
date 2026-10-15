@@ -7,7 +7,7 @@ import {
   type ExecutionContext,
 } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
-import type { RequestContext } from '../../common/context/request-context';
+import { bindTenantContext, type RequestContext } from '../../common/context/request-context';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { deviceTokenExpired, deviceTokenMaxAgeMs, sha256 } from './paytef';
 
@@ -89,10 +89,9 @@ export class DeviceGuard implements CanActivate {
       zone: terminal.zone,
       tokenHash,
     };
-    // Contexto del local para el middleware de Prisma (como hace AuthGuard).
-    if (this.cls.isActive()) {
-      this.cls.set('ctx', { ...(this.cls.get('ctx') ?? {}), tenantId: terminal.tenantId });
-    }
+    // Contexto del local para el middleware de Prisma (como hace AuthGuard):
+    // sin contexto CLS se corta, en vez de seguir sin filtro por local.
+    bindTenantContext(this.cls, { tenantId: terminal.tenantId });
     if (!terminal.deviceLastSeenAt || Date.now() - terminal.deviceLastSeenAt.getTime() > LAST_SEEN_EVERY_MS) {
       await this.prisma.asSystem((tx) =>
         tx.terminal.update({ where: { id: terminal.id }, data: { deviceLastSeenAt: new Date() } }),

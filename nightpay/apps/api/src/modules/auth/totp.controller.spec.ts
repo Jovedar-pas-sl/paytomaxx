@@ -11,7 +11,8 @@ const user = {
   tenantId: '00000000-0000-4000-8000-0000000000aa',
   venueSlug: 'luna',
 };
-const req = { headers: { 'user-agent': 'x'.repeat(2000), 'cf-connecting-ip': '203.0.113.7' } };
+// Conexión directa (sin proxy): la IP es la del socket (clientIp, common/http/client-ip).
+const req = { headers: { 'user-agent': 'x'.repeat(2000) }, socket: { remoteAddress: '203.0.113.7' } };
 
 function makeController() {
   const enrollment = {

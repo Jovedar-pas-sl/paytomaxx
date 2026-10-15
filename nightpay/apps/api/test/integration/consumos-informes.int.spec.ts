@@ -14,7 +14,7 @@ vi.useFakeTimers({ toFake: ['Date'] });
 vi.setSystemTime(new Date('2026-10-12T21:00:00Z'));
 
 const cls = new ClsService(new AsyncLocalStorage());
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const prisma = new PrismaService(cls as any);
 
 // Producción entra hoy como superusuario: Postgres no le aplica RLS. Aquí la
@@ -100,14 +100,14 @@ describe('consumos del saldo en informes y en "Mi noche" (Postgres real)', () =>
     expect(s.perChica[0]).toMatchObject({ name: 'Lola', count: 2, commissionCents: 14_400 });
   });
 
-  it('"Mi noche" de la chica suma tarjeta + saldo (el anulado, con su reverso)', async () => {
+  it('"Mi noche" de la chica suma tarjeta + saldo; el anulado no cuenta (como en el informe)', async () => {
     const mine = await sys(({ nights }) => nights.mine(A, lola));
     expect(mine).toMatchObject({
-      count: 3,
-      chargedCents: 10_500 + 7000 + 2000,
-      commissionCents: 9000 + 5400 + 1800,
+      count: 2,
+      chargedCents: 10_500 + 7000,
+      commissionCents: 9000 + 5400,
       tipsCents: 500 + 1000,
-      reversedCents: 1800,
+      reversedCents: 0,
       netCents: 9000 + 5400 + 500 + 1000,
     });
   });

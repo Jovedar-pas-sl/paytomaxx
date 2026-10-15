@@ -8,7 +8,7 @@ import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.s
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const prisma = new PrismaService(cls as any);
 const audit = { log: async () => undefined };
 const svc = new WalletChargesService(prisma as never, audit as never, { get: () => null } as never);
@@ -28,7 +28,7 @@ function asPublic<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 const r = randomUUID().slice(0, 8);
-let A: string, B: string, C: string, chica: string, managerB: string, walletId: string, requestId: string;
+let A: string, B: string, C: string, chica: string, managerB: string, walletId: string, requestId: string, payToken: string;
 const CODE = 'K7Q4M2';
 const TOKEN = `tok-${r}-abcdefghijkl`;
 
@@ -82,22 +82,21 @@ describe('saldo contra Postgres real (RLS forzado, rol dueño no superusuario)',
     await expect(asTenant(C, () => svc.lookup(C, CODE))).rejects.toThrow(/No hay ningún saldo/);
   });
 
-  it('pide un cobro; un segundo a la vez no', async () => {
+  it('la chica hace un cobro con QR (aún sin saldo); la página del cliente no tiene cobros que aceptar', async () => {
     const actor = { userId: chica, role: 'OPERATOR' as const, tenantId: B };
-    const req = await asTenant(B, () => svc.createRequest(actor, { code: CODE, amountCents: 10_000 }));
+    const req = await asTenant(B, () => svc.createQrCharge(actor, { amountCents: 10_000 }));
     expect(req.status).toBe('PENDING');
     requestId = req.id;
-    await expect(asTenant(B, () => svc.createRequest(actor, { code: CODE, amountCents: 1000 }))).rejects.toThrow(
-      /otro cobro/,
-    );
+    payToken = req.payToken;
     const state = await asPublic(() => svc.clientState(TOKEN));
-    expect(state.pending?.id).toBe(requestId);
+    expect(state).not.toHaveProperty('pending');
   });
 
-  it('el cliente acepta en su móvil: se descuenta, consumo en B y la parte de la chica', async () => {
-    const state = await asPublic(() => svc.accept(TOKEN, requestId));
+  it('el cliente paga el QR (Face ID): se descuenta, consumo en B y la parte de la chica', async () => {
+    const paid = await asPublic(() => svc.payQrCharge(payToken, walletId));
+    expect(paid.balanceCents).toBe(20_000);
+    const state = await asPublic(() => svc.clientState(TOKEN));
     expect(state.balanceCents).toBe(20_000);
-    expect(state.pending).toBeNull();
     const [consumption, earning] = await asPublic(() =>
       prisma.asSystem(async (tx) => [
         await tx.walletConsumption.findFirst({ where: { walletId } }),
@@ -108,8 +107,8 @@ describe('saldo contra Postgres real (RLS forzado, rol dueño no superusuario)',
     expect(earning).toMatchObject({ tenantId: B, commissionBps: 9000, commissionCents: 9000 });
     const view = await asTenant(B, () => svc.getRequest({ userId: chica, role: 'OPERATOR', tenantId: B }, requestId));
     expect(view).toMatchObject({ status: 'ACCEPTED', newBalanceCents: 20_000 });
-    // Aceptar dos veces no cobra dos veces.
-    await expect(asPublic(() => svc.accept(TOKEN, requestId))).rejects.toThrow(/ya no está pendiente/);
+    // Pagar dos veces no cobra dos veces.
+    await expect(asPublic(() => svc.payQrCharge(payToken, walletId))).rejects.toThrow(/ya no está pendiente/);
   });
 
   it('"Me voy" sale en Incidencias del local de la recarga', async () => {

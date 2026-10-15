@@ -155,10 +155,13 @@ export class WebhookIngestProcessor extends WorkerHost {
     // Un id que no es UUID (aviso raro o manipulado) no es ningún cobro: sin
     // esto la consulta falla y el aviso se reintenta 5 veces para nada.
     if (!UUID_RE.test(paymentId)) return null;
-    return this.prisma.payment.findUnique({
-      where: { id: paymentId },
-      select: { id: true, tenantId: true, provider: true, amountCents: true, currency: true },
-    });
+    // Sin local en el contexto (es un trabajo, no una petición): lectura de sistema.
+    return this.prisma.asSystem((tx) =>
+      tx.payment.findUnique({
+        where: { id: paymentId },
+        select: { id: true, tenantId: true, provider: true, amountCents: true, currency: true },
+      }),
+    );
   }
 
   /**

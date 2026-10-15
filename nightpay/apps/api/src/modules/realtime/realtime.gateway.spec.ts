@@ -99,6 +99,16 @@ describe('RealtimeGateway: suscripción a un cobro', () => {
     expect((await g.gateway.handleSubscribe({ paymentId: '7d0f4f9e-0000-4000-8000-0000000000ff' }, client as never)).ok).toBe(false);
   });
 
+  it('un subscribe que llega antes de comprobar la sesión espera a la comprobación', async () => {
+    const client = makeClient({ token: 'buen-token' });
+    const connecting = g.gateway.handleConnection(client as never); // sin await: aún verificando
+    // Cobro de otro local, reciente: por la vía sin sesión pasaría; con la sesión, no.
+    const res = await g.gateway.handleSubscribe({ paymentId: PAY_B }, client as never);
+    await connecting;
+    expect(res.ok).toBe(false);
+    expect(client.rooms.has(`payment:${PAY_B}`)).toBe(false);
+  });
+
   it('token inválido: como sin sesión (no da acceso a otros locales)', async () => {
     const client = makeClient({ token: 'malo' });
     await g.gateway.handleConnection(client as never);

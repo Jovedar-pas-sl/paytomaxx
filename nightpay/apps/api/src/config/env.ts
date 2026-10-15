@@ -179,6 +179,12 @@ const EnvSchema = z.object({
   // Para la cuenta "Rapido Sin Riesgos": companyID=76861, branches RSR5..RSR12.
   PAYTEF_COMPANY_ID: z.coerce.number().int().optional(),
   PAYTEF_BRANCH_ID: z.coerce.number().int().optional(),
+  // Sandbox de Paytef: "true" o "false" (otro valor se ignora, con aviso).
+  // Sin definir: en producción modo real, en desarrollo sandbox.
+  PAYTEF_FORCE_TEST: z.string().optional(),
+  // Días que vale la credencial del datáfono PAX (sin definir: no caduca).
+  // Antes de activarlo, rotar las credenciales con /v1/pos-device/rotate.
+  POS_DEVICE_TOKEN_MAX_AGE_DAYS: z.string().optional(),
   // Observability — Sentry (opcional, si no está el SDK no se inicializa).
   SENTRY_DSN: z.string().url().optional(),
   // Inyectado por CI / Docker label — útil para tagging de releases en Sentry.

@@ -283,10 +283,10 @@ export const FsmEventTypeSchema = z.enum([
   'QR_VIEWED',
   'AUTHORIZING',
   'AUTHORIZED',
+  'POS_CONFIRMED',
   'FAILED',
   'TIMEOUT',
   'REFUND_PARTIAL',
-  'REFUND_FULL',
   'CANCELED',
 ]);
 export type FsmEventType = z.infer<typeof FsmEventTypeSchema>;

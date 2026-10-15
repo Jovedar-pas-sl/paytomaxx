@@ -264,32 +264,32 @@ export class TreasuryService {
 
     const pending = payableSummary(await this.operatorBalances(tenantId));
 
-    const monthRows = await this.prisma.$queryRaw<
+    const monthRows = await this.prisma.asSystem((tx) => tx.$queryRaw<
       Array<{ count: bigint; totalCents: bigint }>
     >`
       SELECT COUNT(*)::bigint AS count, COALESCE(SUM("totalCents"), 0)::bigint AS "totalCents"
         FROM operator_payouts
        WHERE "tenantId" = ${tenantId}::uuid
          AND "createdAt" >= ${firstOfMonth}
-    `;
+    `);
 
-    const byMethodRows = await this.prisma.$queryRaw<
+    const byMethodRows = await this.prisma.asSystem((tx) => tx.$queryRaw<
       Array<{ rail: string | null; count: bigint }>
     >`
       SELECT COALESCE("externalRail", 'UNSET') AS rail, COUNT(*)::bigint AS count
         FROM operator_payouts
        WHERE "tenantId" = ${tenantId}::uuid
        GROUP BY "externalRail"
-    `;
+    `);
 
-    const byStatusRows = await this.prisma.$queryRaw<
+    const byStatusRows = await this.prisma.asSystem((tx) => tx.$queryRaw<
       Array<{ status: string; count: bigint }>
     >`
       SELECT "reconciliationStatus" AS status, COUNT(*)::bigint AS count
         FROM operator_payouts
        WHERE "tenantId" = ${tenantId}::uuid
        GROUP BY "reconciliationStatus"
-    `;
+    `);
 
     return {
       pendingPayoutsCents: pending.payableCents,
@@ -313,7 +313,7 @@ export class TreasuryService {
    */
   private async operatorBalances(tenantId: string) {
     const cutoff = payoutCutoff(new Date(), parseHoldDays(this.config.get('PAYOUT_HOLD_DAYS')));
-    const rows = await this.prisma.$queryRaw<
+    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<
       Array<{ operatorId: string; unpaidCents: bigint; heldCents: bigint; debtCents: bigint }>
     >`
       SELECT o."operatorId",
@@ -340,7 +340,7 @@ export class TreasuryService {
              AND r."settledPayoutId" IS NULL
            GROUP BY e."operatorId"
         ) d ON d."operatorId" = o."operatorId"
-    `;
+    `);
     return rows.map((r) => ({
       unpaidCents: Number(r.unpaidCents),
       heldCents: Number(r.heldCents),

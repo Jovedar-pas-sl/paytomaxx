@@ -30,6 +30,14 @@ const PRODUCTION_CHECKS: ReadonlyArray<Check> = [
 
 const ALWAYS_CHECKS: ReadonlyArray<Check> = [
   (env) =>
+    env.PAYTEF_API_TOKEN && !env.PAYTEF_WEBHOOK_SECRET
+      ? 'PAYTEF_WEBHOOK_SECRET no está definido con Paytef activo: los avisos de Paytef se rechazan y los cobros solo se confirman al consultarlos.'
+      : null,
+  (env) =>
+    env.PAYTEF_FORCE_TEST !== undefined && env.PAYTEF_FORCE_TEST !== 'true' && env.PAYTEF_FORCE_TEST !== 'false'
+      ? 'PAYTEF_FORCE_TEST solo admite "true" o "false" (en minúsculas): el valor actual se ignora.'
+      : null,
+  (env) =>
     env.PAYTEF_WEBHOOK_SECRET && env.PAYTEF_WEBHOOK_SECRET.length < MIN_PAYTEF_SECRET_LENGTH
       ? `PAYTEF_WEBHOOK_SECRET es corto (< ${MIN_PAYTEF_SECRET_LENGTH} caracteres): genera uno con \`openssl rand -hex 32\`.`
       : null,

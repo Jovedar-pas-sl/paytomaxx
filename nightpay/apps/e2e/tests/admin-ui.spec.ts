@@ -39,7 +39,7 @@ test.describe('Admin UI @admin', () => {
 
   test('Tab Operadoras carga la lista sin crash', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: /Operadoras/i }).click();
+    await page.getByRole('tab', { name: /Operadoras/i }).click();
     await expect(page.locator('body')).not.toContainText('Error cargando operadoras', {
       timeout: 5_000,
     });
@@ -47,14 +47,14 @@ test.describe('Admin UI @admin', () => {
 
   test('Tab Treasury muestra metric tiles + EUR→USDT rate', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: /Treasury/i }).click();
+    await page.getByRole('tab', { name: /Treasury/i }).click();
     await expect(page.getByText(/EUR.*USDT/i).first()).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText(/Saldo pendiente/i)).toBeVisible();
   });
 
   test('Tab Ajustes (Settings) carga el form (OWNER only)', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: /Ajustes/i }).click();
+    await page.getByRole('tab', { name: /Ajustes/i }).click();
     await expect(page.getByText(/comisión|commission/i).first()).toBeVisible({
       timeout: 5_000,
     });

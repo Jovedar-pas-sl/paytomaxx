@@ -68,6 +68,9 @@ jobs:
       - name: Tests del operador
         working-directory: nightpay/apps/operator
         run: npx vitest run
+      - name: Tests del panel
+        working-directory: nightpay/apps/admin
+        run: npx vitest run
       - name: Vulnerabilidades críticas/altas (aceptadas solo las de .audit-allowlist.json)
         run: node scripts/audit-gate.mjs
       - name: Informe de cobertura

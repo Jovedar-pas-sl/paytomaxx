@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Logger, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Inject, Logger, Query, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
@@ -115,6 +115,10 @@ export class PeanpeDebugController {
     // encima sin riesgo (no crea Payment ni peanpeCall en BD).
     const amountInputCents = Math.max(1, Math.min(99_999, Number(amountRaw ?? '100') | 0));
     const format: 'cents' | 'euros' = formatRaw === 'euros' ? 'euros' : 'cents';
+    // En euros Peanpe solo admite euros enteros (el adapter lanza con céntimos).
+    if (format === 'euros' && amountInputCents % 100 !== 0) {
+      throw new BadRequestException('Con format=euros el importe (amount, en céntimos) tiene que ser de euros enteros: p. ej. 100, 500.');
+    }
     this.auditHit(`dry-run amount=${amountInputCents}c format=${format}`);
 
     // Generamos un id_llamada SIN persistir en BD (dry-run = no side effects).

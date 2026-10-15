@@ -28,6 +28,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { WipayAdapter } from '../gateways/wipay.adapter';
+import { sealTokenizationData } from '../payments/tokenization-seal';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
 import { parseWebhookBody } from '../gateways/header-utils';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
@@ -646,17 +647,20 @@ export class WebhooksController {
     // Idempotente: si ya estaba persistido, no sobreescribe (lo hacemos en
     // el processor también, pero aquí lo hacemos inmediato para que el
     // endpoint debug /v1/debug/redsys/last-tokenized lo vea sin esperar).
+    // El token se guarda cifrado (sealTokenizationData) y en el pago resuelto:
+    // con varios intentos, payments.providerTxId solo tiene el último Ds_Order.
     try {
-      const tokenData = this.redsys.extractTokenizationData(rawBody);
-      if (tokenData) {
-        await this.prisma.$executeRaw`
+      const tokenData = payment ? this.redsys.extractTokenizationData(rawBody) : null;
+      if (payment && tokenData) {
+        const sealed = sealTokenizationData({ ...tokenData }, process.env.ENCRYPTION_KEK);
+        await this.prisma.asSystem((tx) => tx.$executeRaw`
           UPDATE payments
-             SET "tokenizationData" = ${JSON.stringify(tokenData)}::jsonb
-           WHERE "providerTxId" = ${dsOrder}
+             SET "tokenizationData" = ${JSON.stringify(sealed)}::jsonb
+           WHERE id = ${payment.id}::uuid
              AND "tokenizationData" IS NULL
-        `;
+        `);
         this.logger.log(
-          `[REDSYS TOKEN CAPTURED] dsOrder=${dsOrder} identifier=${tokenData.identifier.slice(0, 8)}*** last4=${tokenData.cardLast4} brand=${tokenData.cardBrand} expiry=${tokenData.expiry}`,
+          `[REDSYS TOKEN CAPTURED] payment=${payment.id} last4=${tokenData.cardLast4} brand=${tokenData.cardBrand} expiry=${tokenData.expiry}`,
         );
       }
     } catch (e) {

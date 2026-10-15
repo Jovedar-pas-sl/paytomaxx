@@ -147,8 +147,6 @@ async function bootstrap() {
       // Saldo NightPay: página del cliente y sus acciones.
       { path: 'w/:token', method: RequestMethod.GET },
       { path: 'w/:token/state', method: RequestMethod.GET },
-      { path: 'w/:token/requests/:id/accept', method: RequestMethod.POST },
-      { path: 'w/:token/requests/:id/reject', method: RequestMethod.POST },
       { path: 'w/:token/close', method: RequestMethod.POST },
       { path: 'w/:token/passkey/options', method: RequestMethod.POST },
       { path: 'w/:token/passkey', method: RequestMethod.POST },

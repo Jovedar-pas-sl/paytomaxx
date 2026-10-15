@@ -446,11 +446,14 @@ export class AdminController {
           provider: payment.provider,
           providerTxId: body.bankOrder ?? payment.providerTxId,
         });
-        // Si llegó un aviso tardío con los datos del banco, no se pisan.
-        await this.prisma.payment.updateMany({
-          where: { id: paymentId, authorizedAt: null },
-          data: { authCode, authorizedAt: new Date() },
-        });
+        // transition() ya puso authorizedAt. El código del banco solo se
+        // apunta si no llegó antes con un aviso tardío (no se pisa).
+        if (authCode) {
+          await this.prisma.payment.updateMany({
+            where: { id: paymentId, authCode: null },
+            data: { authCode },
+          });
+        }
       } else {
         // AUTHORIZING no puede ir directo a FAILED sin pasar por ORPHAN.
         if (payment.status === 'AUTHORIZING') {

@@ -246,6 +246,7 @@ describe('alertas por Telegram', () => {
       devoluciones: vi.fn().mockResolvedValue([]),
       liquidaciones: vi.fn().mockResolvedValue([]),
       consumos: vi.fn().mockResolvedValue([]),
+      pagosSaldo: vi.fn().mockResolvedValue([]),
     };
     const telegram = { send: vi.fn().mockResolvedValue(true), isConfigured: () => true };
     const svc = new AlertsService(prisma as never, redis as never, incidents as never, reports as never, telegram as never);

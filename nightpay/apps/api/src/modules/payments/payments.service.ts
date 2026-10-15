@@ -691,8 +691,8 @@ export class PaymentsService implements OnApplicationBootstrap {
   ): Promise<string> {
     for (let attempt = 1; attempt <= MAX_WALLET_CODE_ATTEMPTS; attempt += 1) {
       const rows = await tx.$queryRaw<Array<{ id: string }>>`
-        INSERT INTO client_wallets ("tenantId", identifier, "qrToken", "shortCode", "walletGroup")
-        VALUES (${tenantId}::uuid, ${input.identifier}, ${newWalletToken()}, ${newWalletCode()}, ${input.walletGroup})
+        INSERT INTO client_wallets ("tenantId", identifier, "qrToken", "shortCode", "walletGroup", "updatedAt")
+        VALUES (${tenantId}::uuid, ${input.identifier}, ${newWalletToken()}, ${newWalletCode()}, ${input.walletGroup}, NOW())
         ON CONFLICT ("shortCode") WHERE status = 'ACTIVE' AND "shortCode" IS NOT NULL DO NOTHING
         RETURNING id::text AS id
       `;
@@ -1945,7 +1945,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     refundAmountCents: number,
   ): Promise<void> {
     if (refundAmountCents <= 0) return;
-    await this.prisma.$transaction(async (tx) => {
+    // asSystem: operator_earnings tiene RLS forzado (con un usuario de BD sin
+    // superusuario, una transacción normal no ve la ganancia).
+    await this.prisma.asSystem(async (tx) => {
       // 0. Idempotency check: si ya aplicamos este refund, no-op.
       const already = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM earning_reversals WHERE "refundId" = ${refundId}::uuid
