@@ -28,8 +28,6 @@ import { PinPad } from './PinPad';
 
 interface Props {
   onCharged: () => void;
-  /** Ya no se usa (antes: el código del cliente por el enlace ?saldo=…). */
-  initialCode?: string | null;
 }
 
 type Stage =

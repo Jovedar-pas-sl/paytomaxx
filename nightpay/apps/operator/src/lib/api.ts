@@ -193,22 +193,6 @@ export interface CreatedPayment {
   walletId?: string | null;
 }
 
-// ─── Phase 1B — Wallet ─────────────────────────────────────────────
-
-export interface WalletPublicView {
-  id: string;
-  balanceCents: number;
-  status: 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED';
-  expiresAt: string | null;
-  consumptions: Array<{
-    id: string;
-    amountCents: number;
-    category: string;
-    providedByName: string | null;
-    createdAt: string;
-  }>;
-}
-
 // ─── Token storage ────────────────────────────────────────────────
 
 export function getToken(): string | null {
@@ -619,15 +603,6 @@ export async function fetchZones(): Promise<ZoneOption[]> {
   return res.json();
 }
 
-// ─── Phase 1B — Wallet ─────────────────────────────────────────────
-
-/** Lee el wallet del cliente por su qrToken (sin auth). */
-export async function fetchWalletPublic(qrToken: string): Promise<WalletPublicView> {
-  const res = await fetch(`${API_BASE}/v1/wallets/public/${encodeURIComponent(qrToken)}`);
-  if (!res.ok) throw new Error('Wallet no encontrada');
-  return res.json();
-}
-
 // ─── Saldo NightPay: cobrar del saldo con confirmación del cliente ───
 
 /** Saldo del cliente encontrado por el código que enseña en su móvil. */
@@ -730,17 +705,6 @@ export async function createQrWalletCharge(input: {
   amountCents?: number;
 }): Promise<QrWalletCharge> {
   const res = await authedFetch('/v1/wallet-charges/qr', { method: 'POST', body: JSON.stringify(input) });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));
-  return res.json();
-}
-
-/** Pide el cobro: con un servicio de la carta o un importe. */
-export async function requestWalletCharge(input: {
-  code: string;
-  serviceItemId?: string;
-  amountCents?: number;
-}): Promise<WalletChargeRequest> {
-  const res = await authedFetch('/v1/wallet-charges', { method: 'POST', body: JSON.stringify(input) });
   if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));
   return res.json();
 }

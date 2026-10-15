@@ -11,7 +11,6 @@ import {
 import { isWalletCardToken, WALLET_CARD_PARAM } from '@nightpay/contracts';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { formatEur, formatEurAmount } from '@/lib/money';
-import { walletCodeFromQr } from '@/lib/wallet-qr';
 import { ChargeFromBalance } from './ChargeFromBalance';
 import { FichaTapped } from './FichaTapped';
 import { CreatePayment } from './CreatePayment';
@@ -33,8 +32,6 @@ export function Dashboard({ user, onLogout }: Props) {
   // Deep-link: si la URL tiene ?pos=<paymentId>, el camarero llegó aquí
   // escaneando el QR de un cobro POS — saltamos a la tab POS pre-filtrada.
   const [focusedPosId, setFocusedPosId] = useState<string | null>(null);
-  // QR del saldo escaneado con la cámara del móvil: ?saldo=<código>.
-  const [saldoCode, setSaldoCode] = useState<string | null>(null);
   // Ficha NFC acercada a un iPhone: ?ficha=<código de la ficha>.
   const [ficha, setFicha] = useState<string | null>(null);
 
@@ -72,14 +69,6 @@ export function Dashboard({ user, onLogout }: Props) {
       setFicha(card);
       const url = new URL(window.location.href);
       url.searchParams.delete(WALLET_CARD_PARAM);
-      window.history.replaceState({}, '', url.toString());
-    }
-    const saldo = walletCodeFromQr(params.get('saldo') ?? '');
-    if (saldo) {
-      setSaldoCode(saldo);
-      setTab('wallet');
-      const url = new URL(window.location.href);
-      url.searchParams.delete('saldo');
       window.history.replaceState({}, '', url.toString());
     }
   }, [user.role]);
@@ -122,7 +111,7 @@ export function Dashboard({ user, onLogout }: Props) {
       ) : tab === 'home' ? (
         <HomeTab user={user} balance={balance} onCobroDone={reload} />
       ) : tab === 'wallet' ? (
-        <ChargeFromBalance key={saldoCode ?? 'saldo'} onCharged={reload} initialCode={saldoCode} />
+        <ChargeFromBalance onCharged={reload} />
       ) : tab === 'pos' ? (
         <PendingPos onConfirmed={reload} focusPaymentId={focusedPosId} />
       ) : tab === 'payments' ? (
