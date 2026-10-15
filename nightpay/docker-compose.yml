@@ -1,3 +1,6 @@
+# Entorno de DESARROLLO local (Postgres, Redis, correo de pruebas y los
+# simuladores de pasarela). Producción no usa este fichero: va en Dokploy
+# (docs/DOKPLOY-STEPS.md).
 services:
   postgres:
     image: postgres:16-alpine
@@ -17,14 +20,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: '1.0'
-        reservations:
-          memory: 256m
-          cpus: '0.25'
+    mem_limit: 1g
+    cpus: 1.0
+    mem_reservation: 256m
 
   redis:
     image: redis:7-alpine
@@ -40,26 +38,19 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    deploy:
-      resources:
-        limits:
-          memory: 320m
-          cpus: '0.5'
-        reservations:
-          memory: 64m
-          cpus: '0.1'
+    mem_limit: 320m
+    cpus: 0.5
+    mem_reservation: 64m
 
-  mailhog:
-    image: mailhog/mailhog:latest
-    container_name: nightpay_mailhog
+  # Correo de pruebas (sustituye a MailHog, abandonado): SMTP 4525, web 4825.
+  mailpit:
+    image: axllent/mailpit:v1.31.6
+    container_name: nightpay_mailpit
     ports:
       - '4525:1025' # SMTP
       - '4825:8025' # UI
-    deploy:
-      resources:
-        limits:
-          memory: 128m
-          cpus: '0.25'
+    mem_limit: 128m
+    cpus: 0.25
 
   mock-wipay:
     build:
@@ -74,11 +65,8 @@ services:
       WEBHOOK_SECRET: dev_wipay_secret
     extra_hosts:
       - 'host.docker.internal:host-gateway'
-    deploy:
-      resources:
-        limits:
-          memory: 128m
-          cpus: '0.25'
+    mem_limit: 128m
+    cpus: 0.25
 
   mock-peanpe:
     build:
@@ -98,11 +86,8 @@ services:
       ACCOUNT_ID: '91816'
     extra_hosts:
       - 'host.docker.internal:host-gateway'
-    deploy:
-      resources:
-        limits:
-          memory: 128m
-          cpus: '0.25'
+    mem_limit: 128m
+    cpus: 0.25
 
 volumes:
   pgdata:
