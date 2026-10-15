@@ -84,9 +84,11 @@ export function Dashboard({ user, onLogout }: Props) {
     }
   }, [user.role]);
 
-  async function logout() {
+  // La sesión local se cierra al momento; la del servidor sigue por detrás
+  // (sin red no se queda nadie esperando en «Salir»).
+  function logout() {
     clearFichaContext();
-    await apiLogout();
+    void apiLogout();
     onLogout();
   }
 

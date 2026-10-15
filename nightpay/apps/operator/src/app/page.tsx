@@ -1,21 +1,32 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
 import { WALLET_CARD_PARAM } from '@nightpay/contracts';
-import { getToken, getUser, type OperatorUser } from '@/lib/api';
+import { getToken, getUser, onSessionEnded, type OperatorUser } from '@/lib/api';
 
 export default function Page() {
   const [user, setUser] = useState<OperatorUser | null | undefined>(undefined);
   // Abierta desde una ficha NFC (?ficha=…) por alguien sin sesión: el cliente.
   const [fromCard, setFromCard] = useState(false);
+  // La sesión se acabó sola (caducada, o cerrada en otra pestaña): se dice en el login.
+  const [notice, setNotice] = useState<string | null>(null);
+  const loggedIn = useRef(false);
+
+  useEffect(() => {
+    loggedIn.current = Boolean(user);
+  }, [user]);
 
   useEffect(() => {
     if (getToken()) setUser(getUser());
     else setUser(null);
     setFromCard(new URLSearchParams(window.location.search).has(WALLET_CARD_PARAM));
+    return onSessionEnded(() => {
+      if (loggedIn.current) setNotice('Tu sesión ha caducado. Vuelve a entrar.');
+      setUser(null);
+    });
   }, []);
 
   if (user === undefined) {
@@ -61,8 +72,18 @@ export default function Page() {
             Esta es una ficha de saldo. Para pagar, acércala al móvil de quien te cobra.
           </p>
         ) : null}
+        {notice ? (
+          <p role="status" style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-warning)', fontWeight: 600 }}>
+            {notice}
+          </p>
+        ) : null}
         <Card variant="glow" style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
-          <LoginForm onSuccess={(u) => setUser(u)} />
+          <LoginForm
+            onSuccess={(u) => {
+              setNotice(null);
+              setUser(u);
+            }}
+          />
         </Card>
       </main>
     );

@@ -27,6 +27,7 @@ const json = (status: number, body: unknown) =>
 
 let storage: Storage;
 let fetchMock: ReturnType<typeof vi.fn>;
+let dispatched: string[];
 
 async function api() {
   vi.resetModules();
@@ -38,7 +39,14 @@ beforeEach(() => {
   storage.setItem(TOKEN, 'viejo');
   storage.setItem(REFRESH, 'r1');
   storage.setItem('np_op_user', JSON.stringify({ id: 'u1' }));
-  vi.stubGlobal('window', { localStorage: storage });
+  dispatched = [];
+  vi.stubGlobal('window', {
+    localStorage: storage,
+    dispatchEvent: (e: Event) => {
+      dispatched.push(e.type);
+      return true;
+    },
+  });
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -82,22 +90,80 @@ describe('renovar la sesión', () => {
     expect(storage.getItem(TOKEN)).toBe('de-la-otra');
   });
 
-  it('el API caído o desplegando (503) no cierra la sesión', async () => {
+  it('el API caído o desplegando (503) no cierra la sesión: «servidor no disponible»', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
       url.endsWith('/v1/auth/refresh') ? json(503, {}) : balanceRoute(url, init)!,
     );
-    const { fetchBalance } = await api();
-    await expect(fetchBalance()).rejects.toThrow('Sesión expirada');
+    const { fetchBalance, ServerUnavailableError } = await api();
+    await expect(fetchBalance()).rejects.toBeInstanceOf(ServerUnavailableError);
     expect(storage.getItem(REFRESH)).toBe('r1');
+    expect(dispatched).toEqual([]);
   });
 
-  it('refresh rechazado de verdad (401) → se cierra la sesión', async () => {
+  it('sin red: «servidor no disponible», no «sesión caducada»', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    const { fetchBalance, ServerUnavailableError } = await api();
+    await expect(fetchBalance()).rejects.toBeInstanceOf(ServerUnavailableError);
+    expect(storage.getItem(TOKEN)).toBe('viejo');
+  });
+
+  it('refresh rechazado de verdad (401) → se cierra la sesión y la app vuelve al login', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
       url.endsWith('/v1/auth/refresh') ? json(401, {}) : balanceRoute(url, init)!,
     );
-    const { fetchBalance } = await api();
-    await expect(fetchBalance()).rejects.toThrow('Sesión expirada');
+    const { fetchBalance, SessionExpiredError, SESSION_EXPIRED_EVENT } = await api();
+    await expect(fetchBalance()).rejects.toBeInstanceOf(SessionExpiredError);
     expect(storage.getItem(REFRESH)).toBeNull();
+    expect(storage.getItem(TOKEN)).toBeNull();
+    expect(dispatched).toEqual([SESSION_EXPIRED_EVENT]);
+  });
+
+  it('sin sesión guardada (se cerró en otra pestaña) → vuelve al login', async () => {
+    storage.clear();
+    const { fetchBalance, SessionExpiredError, SESSION_EXPIRED_EVENT } = await api();
+    await expect(fetchBalance()).rejects.toBeInstanceOf(SessionExpiredError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dispatched).toEqual([SESSION_EXPIRED_EVENT]);
+  });
+});
+
+describe('salir', () => {
+  const noContent = () => new Response(null, { status: 204 });
+  const bodyOf = (init?: RequestInit) => JSON.parse(String(init?.body ?? '{}')) as unknown;
+
+  it('cierra la sesión local al momento y la del servidor con el refresh token', async () => {
+    const calls: Array<{ url: string; body: unknown; auth: string | null }> = [];
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: bodyOf(init), auth: new Headers(init?.headers).get('Authorization') });
+      return noContent();
+    });
+    const { logout } = await api();
+    await logout();
+    expect(storage.getItem(TOKEN)).toBeNull();
+    expect(storage.getItem(REFRESH)).toBeNull();
+    expect(calls).toEqual([
+      { url: expect.stringMatching(/\/v1\/auth\/logout$/), body: { refreshToken: 'r1' }, auth: 'Bearer viejo' },
+    ]);
+  });
+
+  it('API antiguo y access token caducado (401): saca uno nuevo y cierra con él, sin guardarlo', async () => {
+    const logoutBodies: unknown[] = [];
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/v1/auth/refresh')) return json(200, { accessToken: 'nuevo', refreshToken: 'r2' });
+      logoutBodies.push(bodyOf(init));
+      return new Headers(init?.headers).get('Authorization') === 'Bearer nuevo' ? noContent() : json(401, {});
+    });
+    const { logout } = await api();
+    await logout();
+    expect(logoutBodies).toEqual([{ refreshToken: 'r1' }, { refreshToken: 'r2' }]);
+    expect(storage.getItem(TOKEN)).toBeNull();
+    expect(storage.getItem(REFRESH)).toBeNull();
+  });
+
+  it('sin red: sale igual', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    const { logout } = await api();
+    await expect(logout()).resolves.toBeUndefined();
     expect(storage.getItem(TOKEN)).toBeNull();
   });
 });

@@ -7,48 +7,106 @@ const TOKEN_KEY = 'np_op_token';
 const REFRESH_KEY = 'np_op_refresh';
 const USER_KEY = 'np_op_user';
 
+// ─── Errores ──────────────────────────────────────────────────────
+
+/** La sesión se acabó de verdad: la app (page.tsx) lo escucha y vuelve al login. */
+export const SESSION_EXPIRED_EVENT = 'np:session-expired';
+
+const SESSION_EXPIRED_TEXT = 'Tu sesión ha caducado. Vuelve a iniciar sesión.';
+const SERVER_DOWN_TEXT = 'El servidor está teniendo problemas. Vuelve a intentarlo en unos segundos.';
+const NO_CONNECTION_TEXT = 'No se pudo conectar con el servidor. Comprueba la conexión y vuelve a intentarlo.';
+const TOO_MANY_TEXT = 'Demasiados intentos. Espera un momento.';
+
+/** El API dijo que no (refresh rechazado) o ya no hay sesión: hay que volver a entrar. */
+export class SessionExpiredError extends Error {
+  constructor() {
+    super(SESSION_EXPIRED_TEXT);
+    this.name = 'SessionExpiredError';
+  }
+}
+
+/** Sin red, servidor caído o saturado (5xx, 429): la sesión sigue y se reintenta. */
+export class ServerUnavailableError extends Error {
+  constructor(message = NO_CONNECTION_TEXT) {
+    super(message);
+    this.name = 'ServerUnavailableError';
+  }
+}
+
+/** Lo que enseña una pantalla que se refresca sola cuando falla una vuelta. */
+export function pollErrorText(err: unknown): string {
+  if (err instanceof ServerUnavailableError) return 'Servidor no disponible, reintentando…';
+  return err instanceof Error ? err.message : 'Algo ha fallado.';
+}
+
+const isTransientStatus = (status: number): boolean => status === 429 || status >= 500;
+
+/** Una carga que falla: si el servidor está caído o saturado, se dice así (se reintenta sola). */
+function loadError(res: Response, message: string): Error {
+  return isTransientStatus(res.status) ? new ServerUnavailableError(SERVER_DOWN_TEXT) : new Error(message);
+}
+
 /**
  * Convierte error HTTP en mensaje legible para la chica en un club ruidoso.
- * Prioriza el `detail` del backend cuando viene en formato Problem Details
- * RFC 7807. Para 4xx/5xx mapea a frases concretas.
- *
- * NO devolvemos JSON crudo, stack, ni códigos técnicos.
+ * Lee el `detail` del backend (Problem Details RFC 7807).
  */
 export async function parseOperatorApiError(res: Response, context: string): Promise<string> {
-  const status = res.status;
-  let backendDetail: string | undefined;
+  return operatorErrorMessage(res.status, await readBackendDetail(res), context);
+}
+
+async function readBackendDetail(res: Response): Promise<string | undefined> {
   try {
     const text = await res.text();
     if (text.startsWith('{')) {
-      const parsed = JSON.parse(text) as {
-        title?: string;
-        detail?: string;
-        message?: string;
-        userMessage?: string;
-      };
-      backendDetail = parsed.userMessage ?? parsed.detail ?? parsed.message ?? parsed.title;
-    } else if (text && text.length < 100) {
-      backendDetail = text;
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      const value = parsed.userMessage ?? parsed.detail ?? parsed.message ?? parsed.title;
+      return typeof value === 'string' ? value : undefined;
     }
+    return text && text.length < 100 ? text : undefined;
   } catch {
-    // ignore
+    return undefined;
   }
+}
 
-  if (status === 401) return 'Tu sesión ha caducado. Vuelve a iniciar sesión.';
-  if (status === 403) return 'No tienes permiso para esta acción.';
+/**
+ * Error HTTP → frase concreta. El texto del servidor se enseña cuando es
+ * corto y no técnico: los 403/409/422 de negocio dicen qué pasa ("El máximo
+ * que puedes cobrar de una vez es 300 €", "Este PIN lo pusiste tú…").
+ * NO devolvemos JSON crudo, stack, ni códigos técnicos.
+ */
+export function operatorErrorMessage(status: number, backendDetail: string | undefined, context: string): string {
+  const detail = shownDetail(backendDetail);
+  if (status === 401) return SESSION_EXPIRED_TEXT;
+  if (status === 403) return detail ?? 'No tienes permiso para esta acción.';
   if (status === 404) return `${context} no encontrado.`;
   if (status === 409) {
-    if (backendDetail && backendDetail.length < 120) return backendDetail;
-    return 'Esta operación ya está en curso o no se puede repetir.';
+    return detail && detail.length < 120 ? detail : 'Esta operación ya está en curso o no se puede repetir.';
   }
-  if (status === 422) {
-    if (backendDetail && backendDetail.length < 200) return backendDetail;
-    return 'Los datos enviados no son válidos.';
+  if (status === 422) return detail ?? 'Los datos enviados no son válidos.';
+  if (status === 429) return TOO_MANY_TEXT;
+  if (status >= 500) return SERVER_DOWN_TEXT;
+  return detail ?? `${context} no se pudo completar.`;
+}
+
+/** Textos técnicos del API (guardas de rol, títulos HTTP): no se enseñan tal cual. */
+const TECHNICAL_DETAIL =
+  /\bnot allowed\b|\brequires one of\b|^authentication required$|^(bad request|unauthorized|forbidden|forbidden resource|not found|conflict|gone|unprocessable entity|too many requests|internal server error|service unavailable)$/i;
+
+function shownDetail(detail: string | undefined): string | undefined {
+  const text = detail?.trim();
+  if (!text || text.length >= 200 || TECHNICAL_DETAIL.test(text)) return undefined;
+  return text;
+}
+
+/** Por qué no se pudo entrar (null = sin respuesta: sin red). */
+export function loginErrorMessage(status: number | null, detail?: string): string {
+  if (status === null || status >= 500) return 'No se pudo conectar con el servidor. Inténtalo de nuevo.';
+  // El bloqueo por fallos llega como 401 "Too many attempts" o como 429.
+  if (status === 429 || /too many/i.test(detail ?? '')) {
+    return 'Demasiados intentos. Espera unos minutos y vuelve a probar.';
   }
-  if (status === 429) return 'Demasiados intentos. Espera un momento.';
-  if (status >= 500) return 'El servidor está teniendo problemas. Vuelve a intentarlo en unos segundos.';
-  if (backendDetail && backendDetail.length < 200) return backendDetail;
-  return `${context} no se pudo completar.`;
+  if (status === 400 || status === 401 || status === 422) return 'Email o contraseña incorrectos.';
+  return 'No se pudo entrar. Inténtalo de nuevo.';
 }
 
 export interface OperatorUser {
@@ -177,41 +235,93 @@ export function setSession(login: LoginResponse): void {
   window.localStorage.setItem(USER_KEY, JSON.stringify(login.user));
 }
 export function clearSession(): void {
+  if (typeof window === 'undefined') return;
   window.localStorage.removeItem(TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_KEY);
   window.localStorage.removeItem(USER_KEY);
 }
 
+/** La sesión se acabó: se borra y la app vuelve al login (evento para page.tsx). */
+function endSession(): SessionExpiredError {
+  clearSession();
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
+  return new SessionExpiredError();
+}
+
+/**
+ * Avisa cuando la sesión se acaba: caducada aquí (evento) o cerrada en otra
+ * pestaña (comparten localStorage). Devuelve cómo dejar de escuchar.
+ */
+export function onSessionEnded(handler: () => void): () => void {
+  const onStorage = (e: StorageEvent) => {
+    if ((e.key === null || e.key === TOKEN_KEY) && !getToken()) handler();
+  };
+  window.addEventListener(SESSION_EXPIRED_EVENT, handler);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(SESSION_EXPIRED_EVENT, handler);
+    window.removeEventListener('storage', onStorage);
+  };
+}
+
 // ─── Auth ─────────────────────────────────────────────────────────
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
-  const res = await fetch(`${API_BASE}/v1/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) throw new Error('Credenciales inválidas');
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch {
+    throw new Error(loginErrorMessage(null));
+  }
+  if (!res.ok) throw new Error(loginErrorMessage(res.status, await readBackendDetail(res)));
   return res.json();
 }
 
+/**
+ * Salir: la sesión local se cierra al momento (sin esperar a la red) y la del
+ * servidor con el refresh token, aunque el access token ya haya caducado.
+ */
 export async function logout(): Promise<void> {
   const refreshToken = getRefreshToken();
   const accessToken = getToken();
-  if (refreshToken && accessToken) {
-    try {
-      await fetch(`${API_BASE}/v1/auth/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ refreshToken }),
-      });
-    } catch {
-      /* best-effort */
-    }
-  }
   clearSession();
+  if (refreshToken) await revokeSession(refreshToken, accessToken);
+}
+
+/** Nunca falla: sin red, el refresh token caduca solo (y aquí ya no está). */
+async function revokeSession(refreshToken: string, accessToken: string | null): Promise<void> {
+  try {
+    const res = await postLogout(refreshToken, accessToken);
+    if (res.status !== 401) return;
+    // Un API que aún pide un access token vigente: se saca uno con el refresh
+    // (sin guardarlo) y se cierra con él.
+    const refreshed = await fetch(`${API_BASE}/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!refreshed.ok) return; // ya no valía: no queda nada que cerrar
+    const pair = (await refreshed.json()) as RefreshResponse;
+    await postLogout(pair.refreshToken, pair.accessToken);
+  } catch {
+    // Sin red: la sesión local ya está cerrada.
+  }
+}
+
+function postLogout(refreshToken: string, accessToken: string | null): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  return fetch(`${API_BASE}/v1/auth/logout`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ refreshToken }),
+  });
 }
 
 /**
@@ -241,22 +351,24 @@ async function doRefreshAccessToken(failed: string | null): Promise<string> {
   const current = getToken();
   if (current && current !== failed) return current;
   const refreshToken = getRefreshToken();
-  if (!refreshToken) {
-    clearSession();
-    throw new Error('Sesión expirada');
+  if (!refreshToken) throw endSession();
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+  } catch {
+    throw new ServerUnavailableError();
   }
-  const res = await fetch(`${API_BASE}/v1/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
-  });
   if (!res.ok) {
     const after = getToken();
     if (after && after !== failed) return after;
     // Solo un "no" del API cierra la sesión; un 429 o un 5xx (p. ej. mientras
     // se despliega) no echa a nadie.
-    if (res.status === 401 || res.status === 403) clearSession();
-    throw new Error('Sesión expirada');
+    if (res.status === 400 || res.status === 401 || res.status === 403) throw endSession();
+    throw new ServerUnavailableError(SERVER_DOWN_TEXT);
   }
   const refreshed = (await res.json()) as RefreshResponse;
   window.localStorage.setItem(TOKEN_KEY, refreshed.accessToken);
@@ -264,22 +376,44 @@ async function doRefreshAccessToken(failed: string | null): Promise<string> {
   return refreshed.accessToken;
 }
 
+/**
+ * ¿El JWT caduca en menos de `marginMs`? Si no se puede leer, se da por
+ * bueno (ya lo dirá el servidor).
+ */
+export function tokenExpiresSoon(token: string, now = Date.now(), marginMs = 60_000): boolean {
+  const payload = token.split('.')[1];
+  if (!payload) return false;
+  try {
+    const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: unknown };
+    return typeof claims.exp === 'number' && claims.exp * 1000 - now < marginMs;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * El access token para el socket en tiempo real (se manda al conectar y al
+ * reconectar): si está a punto de caducar, se renueva antes.
+ */
+export async function freshAccessToken(): Promise<string | null> {
+  const token = getToken();
+  if (!token || !tokenExpiresSoon(token)) return token;
+  try {
+    return await refreshAccessToken(token);
+  } catch {
+    return getToken();
+  }
+}
+
 async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
-  if (!token) throw new Error('No autenticado');
+  if (!token) throw endSession();
   const res = await doFetch(path, init, token);
   if (res.status !== 401) return res;
-  let newToken: string;
-  try {
-    newToken = await refreshAccessToken(token);
-  } catch {
-    throw new Error('Sesión expirada');
-  }
+  // Caducada de verdad → SessionExpiredError; servidor caído → ServerUnavailableError.
+  const newToken = await refreshAccessToken(token);
   const retry = await doFetch(path, init, newToken);
-  if (retry.status === 401) {
-    clearSession();
-    throw new Error('Sesión expirada');
-  }
+  if (retry.status === 401) throw endSession();
   return retry;
 }
 
@@ -289,14 +423,20 @@ async function doFetch(path: string, init: RequestInit, token: string): Promise<
   if (init.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  return fetch(`${API_BASE}${path}`, { ...init, headers });
+  try {
+    return await fetch(`${API_BASE}${path}`, { ...init, headers });
+  } catch (err) {
+    // Cancelada a propósito (AbortController): no es que el servidor no conteste.
+    if ((err as Error)?.name === 'AbortError') throw err;
+    throw new ServerUnavailableError();
+  }
 }
 
 // ─── Endpoints ────────────────────────────────────────────────────
 
 export async function fetchBalance(): Promise<OperatorBalance> {
   const res = await authedFetch('/v1/operators/me/balance');
-  if (!res.ok) throw new Error('Error cargando saldo');
+  if (!res.ok) throw loadError(res, 'Error cargando saldo');
   return res.json();
 }
 
@@ -316,25 +456,25 @@ export interface MyNight {
 
 export async function fetchMyNight(): Promise<MyNight> {
   const res = await authedFetch('/v1/nights/mine');
-  if (!res.ok) throw new Error('Error cargando tu noche');
+  if (!res.ok) throw loadError(res, 'Error cargando tu noche');
   return res.json();
 }
 
 export async function fetchMyEarnings(): Promise<MyEarning[]> {
   const res = await authedFetch('/v1/operators/me/earnings');
-  if (!res.ok) throw new Error('Error cargando ganancias');
+  if (!res.ok) throw loadError(res, 'Error cargando ganancias');
   return res.json();
 }
 
 export async function fetchMyPayments(): Promise<MyPayment[]> {
   const res = await authedFetch('/v1/operators/me/payments');
-  if (!res.ok) throw new Error('Error cargando cobros');
+  if (!res.ok) throw loadError(res, 'Error cargando cobros');
   return res.json();
 }
 
 export async function fetchMyPayouts(): Promise<MyPayout[]> {
   const res = await authedFetch('/v1/operators/me/payouts');
-  if (!res.ok) throw new Error('Error cargando liquidaciones');
+  if (!res.ok) throw loadError(res, 'Error cargando liquidaciones');
   return res.json();
 }
 
@@ -420,7 +560,7 @@ export interface PendingPosPayment {
 export async function fetchPendingPos(zone?: string): Promise<PendingPosPayment[]> {
   const qs = zone ? `?zone=${encodeURIComponent(zone)}` : '';
   const res = await authedFetch(`/v1/payments/pending-pos${qs}`);
-  if (!res.ok) throw new Error('Error cargando POS pendientes');
+  if (!res.ok) throw loadError(res, 'Error cargando POS pendientes');
   return res.json();
 }
 
@@ -444,7 +584,7 @@ export async function cancelPayment(id: string): Promise<{ status: string }> {
 
 export async function fetchTerminals(): Promise<Array<{ externalId: string; label: string }>> {
   const res = await authedFetch('/v1/venues/me/terminals');
-  if (!res.ok) throw new Error('Error cargando terminales');
+  if (!res.ok) throw loadError(res, 'Error cargando terminales');
   return res.json();
 }
 
@@ -469,13 +609,13 @@ export interface ServiceItem {
 /** Lo que quien llama puede cobrar (la chica solo ve sus servicios). */
 export async function fetchServices(): Promise<ServiceItem[]> {
   const res = await authedFetch('/v1/services');
-  if (!res.ok) throw new Error('Error cargando la carta');
+  if (!res.ok) throw loadError(res, 'Error cargando la carta');
   return res.json();
 }
 
 export async function fetchZones(): Promise<ZoneOption[]> {
   const res = await authedFetch('/v1/terminals/zones');
-  if (!res.ok) throw new Error('Error cargando zonas');
+  if (!res.ok) throw loadError(res, 'Error cargando zonas');
   return res.json();
 }
 
@@ -618,6 +758,15 @@ export async function cancelWalletCharge(id: string): Promise<void> {
 
 // ─── Public — Self-onboarding ─────────────────────────────────────
 
+/** Petición sin sesión (enlaces de alta e invitación): sin red, un mensaje claro. */
+async function publicFetch(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${API_BASE}${path}`, init);
+  } catch {
+    throw new ServerUnavailableError();
+  }
+}
+
 export type WalletProvider =
   | 'BINANCE' | 'BYBIT' | 'OKX' | 'CRYPTO_COM' | 'TRUST_WALLET'
   | 'FASTERPAY' | 'PAYQUICKER' | 'WISE' | 'REVOLUT' | 'OTHER' | 'NONE';
@@ -674,7 +823,7 @@ export interface SelfOnboardingSubmitDto {
 }
 
 export async function fetchSelfOnboardingProfile(token: string): Promise<SelfOnboardingProfile> {
-  const res = await fetch(`${API_BASE}/v1/operators/self-onboarding/${encodeURIComponent(token)}`);
+  const res = await publicFetch(`/v1/operators/self-onboarding/${encodeURIComponent(token)}`);
   if (!res.ok) {
     if (res.status === 401) throw new Error('El link expiró o no es válido. Pide uno nuevo al admin.');
     throw new Error(await parseOperatorApiError(res, 'Onboarding'));
@@ -686,7 +835,7 @@ export async function submitSelfOnboarding(
   token: string,
   dto: SelfOnboardingSubmitDto,
 ): Promise<{ ok: true }> {
-  const res = await fetch(`${API_BASE}/v1/operators/self-onboarding/${encodeURIComponent(token)}`, {
+  const res = await publicFetch(`/v1/operators/self-onboarding/${encodeURIComponent(token)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(dto),
@@ -701,7 +850,7 @@ export async function submitSelfOnboarding(
 // ─── Public — accept invite ───────────────────────────────────────
 
 export async function acceptInvite(token: string, password: string): Promise<{ ok: true }> {
-  const res = await fetch(`${API_BASE}/v1/operators/accept-invite`, {
+  const res = await publicFetch('/v1/operators/accept-invite', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, password }),
@@ -713,7 +862,20 @@ export async function acceptInvite(token: string, password: string): Promise<{ o
 export const apiBase = API_BASE;
 export const wsBase = process.env.NEXT_PUBLIC_WS_URL ?? API_BASE.replace(/^http/, 'ws');
 
-/** Clave para que el API no cree dos veces el mismo cobro. */
+/** Clave para que el API no cree dos veces el mismo cobro (UUID v4 aleatorio de verdad). */
 export function newIdempotencyKey(): string {
-  return `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `op-${randomUuid()}`;
+}
+
+/**
+ * crypto.randomUUID solo existe en HTTPS (o localhost): probando el móvil
+ * contra la IP del ordenador, un v4 con getRandomValues, que sí está.
+ */
+function randomUuid(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6]! & 0x0f) | 0x40;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const hex = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
