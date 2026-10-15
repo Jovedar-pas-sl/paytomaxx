@@ -137,6 +137,12 @@ Notas:
 - Redis lleva el prefijo `default:` antes de la contraseña.
 - `NODE_ENV` sin poner también arranca como producción; ponlo igual.
 - Sin `ORIGIN_AUTH_SECRET` o `METRICS_TOKEN` el API no arranca en producción.
+- `REALTIME_LEGACY_SUBSCRIBE_UNTIL` (opcional): hasta cuándo las apps
+  antiguas pueden seguir un cobro en tiempo real sin sesión. Sin ponerla, el
+  2026-11-15 00:00 (Madrid); después contestan «Inicia sesión otra vez». Fecha
+  ISO con zona (`2026-12-01T00:00:00+01:00`) para alargarla, `off` para
+  cerrarla ya. Antes de la fecha, `nightpay_ws_legacy_subscribes_total` en
+  `/v1/metrics` debería haber dejado de subir.
 
 ### D.3 Salud, parada y despliegues sin cortes
 

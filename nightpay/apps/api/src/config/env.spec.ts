@@ -137,3 +137,20 @@ describe('avisos de arranque (producción)', () => {
     expect(envWarnings(env)).toEqual([]);
   });
 });
+
+describe('entorno: REALTIME_LEGACY_SUBSCRIBE_UNTIL (tiempo real sin sesión)', () => {
+  it('opcional; fecha ISO con zona u "off"', () => {
+    expect(validateConfig(PROD).REALTIME_LEGACY_SUBSCRIBE_UNTIL).toBeUndefined();
+    for (const ok of ['2026-12-01T00:00:00+01:00', '2026-12-01T00:00Z', ' off ', 'OFF', '']) {
+      expect(() => validateConfig({ ...PROD, REALTIME_LEGACY_SUBSCRIBE_UNTIL: ok })).not.toThrow();
+    }
+  });
+
+  it('una fecha sin zona o mal escrita no arranca, y dice qué variable es', () => {
+    for (const bad of ['2026-11-15', '2026-11-15T00:00:00', '15/11/2026', 'nunca', '2026-13-45T00:00:00Z']) {
+      expect(() => validateConfig({ ...PROD, REALTIME_LEGACY_SUBSCRIBE_UNTIL: bad })).toThrow(
+        /REALTIME_LEGACY_SUBSCRIBE_UNTIL/,
+      );
+    }
+  });
+});

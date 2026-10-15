@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { ConfigModuleOptions } from '@nestjs/config';
 import { z } from 'zod';
+import { LEGACY_SUBSCRIBE_UNTIL_HINT, isValidLegacySubscribeUntil } from './realtime-legacy';
 
 /**
  * Secretos de ejemplo de .env.example. Valen en local; en producción
@@ -221,6 +222,18 @@ const EnvSchema = z.object({
   // nightpay_tenant_unscoped_queries_total) y siguen; 'throw' = se cortan.
   // Pasar a 'throw' cuando la métrica lleve días en 0.
   TENANCY_UNSCOPED_QUERIES: z.enum(['log', 'throw']).default('log'),
+
+  // Tiempo real: payment:subscribe sin sesión (apps antiguas en caché) solo
+  // hasta esta fecha; luego se pide iniciar sesión otra vez. Sin definir:
+  // 2026-11-15T00:00:00+01:00. Fecha ISO con zona para cambiarla, u "off"
+  // para apagarla ya. Antes de la fecha, la métrica
+  // nightpay_ws_legacy_subscribes_total debería estar en 0. Ver
+  // config/realtime-legacy.ts.
+  REALTIME_LEGACY_SUBSCRIBE_UNTIL: z
+    .string()
+    .trim()
+    .refine(isValidLegacySubscribeUntil, LEGACY_SUBSCRIBE_UNTIL_HINT)
+    .optional(),
 
   // Días que una comisión de la chica queda "en espera" antes de poder
   // pagársela (cubre devoluciones tempranas y que el banco aún no abonó).
