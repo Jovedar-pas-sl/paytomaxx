@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import { Prisma } from '@nightpay/db';
 import type { CreatePaymentDto } from '@nightpay/contracts';
 import { PaymentsService } from './payments.service';
 
@@ -176,5 +177,96 @@ describe('create — destino de la propina (#53)', () => {
       tipGoesTo: 'beneficiary',
       tipBeneficiaryUserId: '0b6f4a8e-6f1e-4e0b-9a51-0c2f3c4d5e6f',
     });
+  });
+});
+
+describe('create — Idempotency-Key ligada a quién y a qué (#32)', () => {
+  const body = dto({ amountCents: 4_000 });
+
+  it('la misma petición repetida → el mismo cobro, sin crear otro', async () => {
+    const first = makeService();
+    await first.service.create('tenant-1', 'idem-key-0100', body, operator);
+    const hash = first.created[0]!.idempotencyHash as string;
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
+
+    const again = makeService();
+    again.db.payment.findUnique.mockResolvedValueOnce({ id: 'pay-1', idempotencyHash: hash, createdByUserId: 'op-1' });
+    await expect(again.service.create('tenant-1', 'idem-key-0100', body, operator)).resolves.toMatchObject({ id: 'pay-1' });
+    expect(again.created).toHaveLength(0);
+  });
+
+  it('la misma clave con otra persona o con otros datos → 409 (no se entrega el cobro de otro)', async () => {
+    const first = makeService();
+    await first.service.create('tenant-1', 'idem-key-0101', body, operator);
+    const stored = { id: 'pay-1', idempotencyHash: first.created[0]!.idempotencyHash, createdByUserId: 'op-1' };
+
+    const otherUser = makeService();
+    otherUser.db.payment.findUnique.mockResolvedValueOnce(stored);
+    await expect(otherUser.service.create('tenant-1', 'idem-key-0101', body, owner)).rejects.toThrow(ConflictException);
+
+    const otherBody = makeService();
+    otherBody.db.payment.findUnique.mockResolvedValueOnce(stored);
+    await expect(
+      otherBody.service.create('tenant-1', 'idem-key-0101', dto({ amountCents: 9_999 }), operator),
+    ).rejects.toThrow(/ya se usó para otro cobro/);
+    expect(otherBody.created).toHaveLength(0);
+  });
+
+  it('cobro de antes de guardar la huella: solo lo recibe quien lo creó', async () => {
+    const legacy = { id: 'pay-1', idempotencyHash: null, createdByUserId: 'op-1' };
+    const mine = makeService();
+    mine.db.payment.findUnique.mockResolvedValueOnce(legacy);
+    await expect(mine.service.create('tenant-1', 'idem-key-0102', body, operator)).resolves.toMatchObject({ id: 'pay-1' });
+    const theirs = makeService();
+    theirs.db.payment.findUnique.mockResolvedValueOnce(legacy);
+    await expect(theirs.service.create('tenant-1', 'idem-key-0102', body, owner)).rejects.toThrow(ConflictException);
+  });
+
+  it('dos peticiones a la vez con la misma clave: la que pierde devuelve el cobro de la otra (no un 500)', async () => {
+    const { service, db } = makeService();
+    const winnerHash = await (async () => {
+      const w = makeService();
+      await w.service.create('tenant-1', 'idem-key-0103', body, operator);
+      return w.created[0]!.idempotencyHash;
+    })();
+    db.payment.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('unique', {
+        code: 'P2002',
+        clientVersion: 'test',
+        meta: { target: ['tenantId', 'idempotencyKey'] },
+      }),
+    );
+    db.payment.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'pay-1', idempotencyHash: winnerHash, createdByUserId: 'op-1' });
+    await expect(service.create('tenant-1', 'idem-key-0103', body, operator)).resolves.toMatchObject({ id: 'pay-1' });
+  });
+
+  it('recarga que crea saldo: el saldo se crea en la misma transacción que el cobro', async () => {
+    const { service, db, created } = makeService();
+    await service.create('tenant-1', 'idem-key-0104', dto({ wallet: { create: true, identifier: 'mesa 4' } }), owner);
+    const insert = db.$queryRaw.mock.calls[0]!;
+    expect((insert[0] as unknown as string[]).join('?')).toContain('INSERT INTO client_wallets');
+    expect((insert[0] as unknown as string[]).join('?')).toContain('ON CONFLICT ("shortCode")');
+    expect(created[0]).toMatchObject({ walletId: 'wallet-new', captureMethod: 'WALLET_TOPUP' });
+    // Todo dentro de UNA transacción del sistema: si el cobro falla, el saldo tampoco queda.
+    expect(db.$queryRaw.mock.invocationCallOrder[0]!).toBeLessThan(db.payment.create.mock.invocationCallOrder[0]!);
+  });
+
+  it('código corto ya cogido por otro saldo activo → prueba otro sin romper la transacción', async () => {
+    const { service, db, created } = makeService();
+    db.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'wallet-2' }]);
+    await service.create('tenant-1', 'idem-key-0105', dto({ wallet: { create: true } }), owner);
+    expect(db.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(created[0]).toMatchObject({ walletId: 'wallet-2' });
+  });
+
+  it('recarga por datáfono externo → 400 antes de crear nada', async () => {
+    const { service, db, created } = makeService();
+    await expect(
+      service.create('tenant-1', 'idem-key-0106', dto({ wallet: { create: true }, captureMethod: 'POS_EXTERNAL' }), owner),
+    ).rejects.toThrow(/POS externo/);
+    expect(db.$queryRaw).not.toHaveBeenCalled();
+    expect(created).toHaveLength(0);
   });
 });
