@@ -1,151 +1,51 @@
-# Runbook P1: Base de datos sobrecargada
+# Runbook P1: base de datos lenta o caída
 
-**Severidad**: P1 (P0 si CPU sostenido >95% o connections pool agotado)
-**Tiempo objetivo**: 15 min
+**Severidad**: P1; P0 si `/v1/health` da `db: fail` (no se puede cobrar).
+**Objetivo**: 15 min.
 
 ## Síntomas
 
-- Alerta: `[P1] NightPay: db_cpu > 80% for 5m` o `pg_connections_used > 18/20`
-- API latency p95 subiendo (>1s)
-- Logs: `PrismaClientKnownRequestError: P2024 connection pool timeout`
-- Dashboard **Database** muestra picos en `active queries`
+- `https://api.paytomaxx.com/v1/health` → 503 con `"db":"fail"` (lo ve el
+  monitor externo → Telegram).
+- El panel y los cobros van lentos; en el log del API,
+  `P2024` (*connection pool timeout*) o `Can't reach database server`.
 
-## Diagnóstico en 30 segundos
+## Diagnóstico (5 min)
 
-### Queries más lentas
+1. **Dokploy → nightpay-postgres**: ¿está *Running*? Pestaña **Monitoring**:
+   CPU, memoria. **Logs**: `FATAL`, `out of memory`, `No space left on device`.
+2. **Disco del VPS lleno** (causa típica): en el VPS, `df -h` y
+   `docker system df`. Imágenes viejas de despliegues:
+   `docker image prune -a` (no borra volúmenes ni contenedores en marcha;
+   **nunca** `docker volume prune`).
+3. **Consultas colgadas**: `nightpay-postgres` → **Terminal**:
 
-```bash
-docker exec nightpay_postgres psql -U np -d nightpay -c "
-  SELECT pid, now() - pg_stat_activity.query_start AS duration,
-         usename, application_name, state, query
-  FROM pg_stat_activity
-  WHERE state != 'idle'
-    AND query NOT ILIKE '%pg_stat_activity%'
-  ORDER BY duration DESC
-  LIMIT 10;
-"
-```
+   ```bash
+   psql -U np -d nightpay -c "
+     SELECT pid, now() - query_start AS dura, state, left(query, 80) AS consulta
+       FROM pg_stat_activity
+      WHERE state <> 'idle' AND pid <> pg_backend_pid()
+      ORDER BY dura DESC LIMIT 10;"
+   ```
 
-### Locks
-
-```sql
-SELECT blocked_locks.pid AS blocked_pid,
-       blocking_locks.pid AS blocking_pid,
-       blocked_activity.query AS blocked_query,
-       blocking_activity.query AS blocking_query
-FROM pg_locks blocked_locks
-JOIN pg_stat_activity blocked_activity ON blocked_activity.pid = blocked_locks.pid
-JOIN pg_locks blocking_locks
-  ON blocking_locks.locktype = blocked_locks.locktype
-  AND blocking_locks.database IS NOT DISTINCT FROM blocked_locks.database
-  AND blocking_locks.pid != blocked_locks.pid
-JOIN pg_stat_activity blocking_activity ON blocking_activity.pid = blocking_locks.pid
-WHERE NOT blocked_locks.granted;
-```
-
-### Pool connections
-
-```bash
-curl -s http://localhost:3000/internal/metrics | grep pg_pool
-# pg_pool_active 18
-# pg_pool_idle 1
-# pg_pool_waiting 5   ← malo
-```
+   Una que lleve minutos y bloquee al resto:
+   `psql -U np -d nightpay -c "SELECT pg_cancel_backend(<pid>);"`
+   (cancela la consulta; `pg_terminate_backend` corta la conexión, solo si lo
+   anterior no basta).
 
 ## Acciones
 
-### Caso A — Query ad-hoc o reporte bloqueando
+- **Postgres parado**: Deploy de `nightpay-postgres`. Si no arranca por disco
+  lleno, libera espacio (punto 2) y vuelve a intentarlo.
+- **API con el pool agotado** tras un pico: **Redeploy** de `nightpay-api`
+  (con `start-first` no hay corte).
+- **VPS sin memoria**: Dokploy → Monitoring del servidor. Para salir del paso,
+  parar lo que no sea imprescindible; luego, más RAM.
+- **Base dañada**: no repares a mano. Restaura la última copia buena:
+  [`../BACKUPS.md`](../BACKUPS.md) apartado 6.
 
-Si ves una query `SELECT ... FROM payment_events JOIN ...` de más de 10s:
+## Comprobar
 
-```sql
--- cancelar con precaución
-SELECT pg_cancel_backend(<pid>);
--- si no responde, terminate (más agresivo)
-SELECT pg_terminate_backend(<pid>);
-```
-
-Contactar a quien la lanzó. Probable export CSV masivo sin stream.
-
-### Caso B — Connection pool agotado por slow queries
-
-1. **Reducir keep-alive en exports**: los jobs de export CSV deben usar cursor streaming (verificar `workers/export-csv.ts`).
-2. **Aumentar pool temporalmente** (precaución con memoria Postgres):
-   ```bash
-   # editar DATABASE_URL con connection_limit=40 (de 20)
-   # Coolify env vars, luego rolling restart
-   ```
-3. Solución de fondo: identificar endpoint que consume pool — probable N+1 o JOIN no indexado.
-
-### Caso C — Autovacuum behind
-
-Si `pg_stat_user_tables` muestra `n_dead_tup > 100k` en `payments` o `payment_events`:
-
-```sql
--- disparar manual
-VACUUM ANALYZE payments;
-VACUUM ANALYZE payment_events_2026_04;  -- partición activa del mes
-```
-
-Revisar config autovacuum:
-```sql
-SHOW autovacuum_vacuum_cost_delay;  -- default 2ms, bajar a 10ms si lentísimo
-SHOW autovacuum_max_workers;        -- default 3, considerar 4 si tablas grandes
-```
-
-### Caso D — Índice falta o no usado
-
-```sql
-EXPLAIN (ANALYZE, BUFFERS) SELECT ... ;  -- query lenta del caso
--- buscar "Seq Scan on X rows=..."
-```
-
-Si falta índice → crear con `CREATE INDEX CONCURRENTLY` (no bloquea):
-
-```sql
-CREATE INDEX CONCURRENTLY idx_xxx ON tabla (col1, col2);
-```
-
-Luego commit a migrations para perpetuar:
-```bash
-pnpm prisma migrate dev --name add_idx_xxx
-```
-
-### Caso E — Disk I/O saturado
-
-```bash
-docker exec nightpay_postgres iostat -x 1 3
-# %util >90% → saturado
-```
-
-Causa probable: particiones muy grandes sin pruning. Verificar:
-```sql
-SELECT tablename, pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size
-FROM pg_tables
-WHERE schemaname = 'public'
-ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC
-LIMIT 10;
-```
-
-Si `payment_events_2026_XX` >20GB → archivar particiones viejas (`DETACH + export`).
-
-## Verificación
-
-- [ ] CPU postgres <50% sostenido
-- [ ] p95 API <800ms
-- [ ] Pool `waiting = 0`
-- [ ] `pg_stat_statements` no muestra queries >5s
-- [ ] Dashboard **Database** verde
-
-## Prevención
-
-- Alertas proactivas: `pg_waiting_queries > 0 for 1m`, `pg_slow_queries_1s > 10/min`
-- Job weekly: `VACUUM ANALYZE` preventivo (fuera de horario nocturno)
-- Review de query performance tras cada release (comparar `pg_stat_statements` snapshots)
-- Considerar réplica read-only cuando haya >50 venues o queries admin saturando primary
-
-## Postmortem si
-
-- Incidente duró >1h
-- Algún pago se perdió o duplicó por locks
-- Requirió aumentar resources (CPX upgrade) permanentemente
+- [ ] `/v1/health` → `"db":"ok"`.
+- [ ] Un cobro de prueba de 1 € sale bien.
+- [ ] Si hubo corte con clientes pagando: [P0-pagos-atascados.md](P0-pagos-atascados.md).

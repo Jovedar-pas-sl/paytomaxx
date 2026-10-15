@@ -160,7 +160,7 @@ Consultar `docs/runbooks/P0-pagos-atascados.md` — el pago se queda en AUTHORIZ
 - [ ] Mostrar: qué hacer si QR expira (botón "Nuevo")
 - [ ] Mostrar: qué hacer si pago tarda (esperar 30s, si no completa — llamar manager)
 - [ ] **NO** deben intentar hacer reembolsos (no tienen permiso)
-- [ ] Entregar cheatsheet impresa (`docs/cheatsheets/waiter.pdf`)
+- [ ] Explicar al camarero el TPV en el propio local (aún no hay chuleta impresa)
 
 ---
 
