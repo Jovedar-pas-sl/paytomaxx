@@ -9,6 +9,7 @@ import {
   verifyPayout,
   type PayoutMethod,
 } from '@/lib/api';
+import { ApiError } from '@/lib/api-errors';
 import { formatDecimal, formatEur } from '@/lib/money';
 import { isAutoVerifiable, payoutAddressError } from '@/lib/payout-address';
 import { describeVerifyResult, payoutReferenceError, type VerifyOutcome } from '@/lib/payout-verify';
@@ -293,11 +294,13 @@ async function settle(payoutId: string, rail: PayoutMethod, txId: string, receip
     await confirmPayoutManual(payoutId, { externalTxId: txId, ...(receipt ? { receiptUrl: receipt } : {}) });
     return { tone: 'success', message: 'Referencia apuntada y pago confirmado a mano.' };
   } catch (err) {
+    // Ese hash ya justifica otro pago: no es un fallo pasajero, hay que poner el bueno.
+    const txUsed = err instanceof ApiError && err.code === 'PAYOUT_TX_ALREADY_USED';
     return {
-      tone: 'warning',
+      tone: txUsed ? 'danger' : 'warning',
       message: `El pago quedó apuntado, pero no se pudo ${isAutoVerifiable(rail) ? 'verificar' : 'confirmar'}: ${
         (err as Error).message
-      } Puedes reintentarlo en Liquidaciones → Verificar.`,
+      } ${txUsed ? 'Pon el hash correcto' : 'Puedes reintentarlo'} en Liquidaciones → Verificar.`,
     };
   }
 }

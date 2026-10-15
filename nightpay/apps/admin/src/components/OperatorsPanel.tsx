@@ -16,12 +16,19 @@ interface Props {
 
 const POLL_MS = 10_000;
 
+/** Lo que se enseña tras crear una chica (el aviso solo con el API nuevo). */
+interface CreateResult {
+  inviteUrl: string;
+  emailSent: boolean;
+  notice?: string;
+}
+
 export function OperatorsPanel({ isOwner }: Props) {
   /** null = aún no ha llegado la primera lista. */
   const [operators, setOperators] = useState<Operator[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [createResult, setCreateResult] = useState<{ inviteUrl: string; emailSent: boolean } | null>(null);
+  const [createResult, setCreateResult] = useState<CreateResult | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filterNeedsHelp, setFilterNeedsHelp] = useState(false);
 
@@ -239,8 +246,8 @@ function CreateOperatorModal({
   open: boolean;
   isOwner: boolean;
   onClose: () => void;
-  onCreated: (r: { inviteUrl: string; emailSent: boolean }) => void;
-  result: { inviteUrl: string; emailSent: boolean } | null;
+  onCreated: (r: CreateResult) => void;
+  result: CreateResult | null;
 }) {
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -279,7 +286,7 @@ function CreateOperatorModal({
         displayName: displayName.trim(),
         commissionBps,
       });
-      onCreated({ inviteUrl: res.inviteUrl, emailSent: res.emailSent });
+      onCreated({ inviteUrl: res.inviteUrl, emailSent: res.emailSent, notice: res.notice });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -308,6 +315,7 @@ function CreateOperatorModal({
               ? 'Email de invitación enviado.'
               : 'No hay SMTP configurado: copia el enlace y mándaselo por WhatsApp.'}
           </Notice>
+          {result.notice ? <Notice tone="info">{result.notice}</Notice> : null}
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
             <code style={urlCode}>{result.inviteUrl}</code>
             <Button variant="ghost" size="md" onClick={copy}>

@@ -92,7 +92,7 @@ export function TreasuryPanel({ isOwner }: Props) {
             <MetricTile
               title="Saldo pendiente a chicas"
               value={formatEur(stats.pendingPayoutsCents)}
-              subtitle={`${stats.pendingOperatorCount} chica${stats.pendingOperatorCount === 1 ? '' : 's'}`}
+              subtitle={pendingSubtitle(stats)}
               highlight
             />
             <MetricTile
@@ -183,6 +183,14 @@ export function TreasuryPanel({ isOwner }: Props) {
       )}
     </div>
   );
+}
+
+/** Chicas con algo que cobrar ya y, con el API nuevo, lo que está en espera y la deuda. */
+function pendingSubtitle(stats: TreasuryStats): string {
+  const parts = [`${stats.pendingOperatorCount} chica${stats.pendingOperatorCount === 1 ? '' : 's'}`];
+  if (stats.heldPayoutsCents) parts.push(`${formatEur(stats.heldPayoutsCents)} en espera`);
+  if (stats.operatorDebtCents) parts.push(`deuda por devoluciones ${formatEur(stats.operatorDebtCents)}`);
+  return parts.join(' · ');
 }
 
 function reconciliationLabel(status: string): string {
