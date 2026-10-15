@@ -4,12 +4,16 @@
  *
  * Uso:
  *   pnpm cli create-venue --name "Luna VLC" --slug luna-vlc [--timezone Europe/Madrid]
- *   pnpm cli create-manager --venue luna-vlc --email alice@nightpay.local --password "..."
- *   pnpm cli create-owner   --venue luna-vlc --email owner@nightpay.local --password "..."
+ *   pnpm cli create-manager --venue luna-vlc --email alice@nightpay.local
+ *   pnpm cli create-owner   --venue luna-vlc --email owner@nightpay.local
  *   pnpm cli list-venues
  *   pnpm cli list-users --venue luna-vlc
  *   pnpm cli create-terminal --venue luna-vlc --external-id BARRA-1 --label "Barra 1"
- *   pnpm cli reset-password --email alice@nightpay.local --password "..."
+ *   pnpm cli reset-password --email alice@nightpay.local
+ *
+ * Contraseñas: se piden sin que se vean (o NP_PASSWORD=... pnpm cli ...).
+ * --password "..." sigue valiendo, pero queda en el historial de la terminal
+ * y en la lista de procesos: avisa.
  *
  * Todas las operaciones corren con RLS bypass (app.bypass_rls=on) por ser herramientas
  * de sistema operadas solo por el OWNER humano desde la terminal.
@@ -17,6 +21,7 @@
 
 import * as bcrypt from 'bcryptjs';
 import { createHash } from 'node:crypto';
+import * as readline from 'node:readline';
 import { PrismaClient, Prisma, Role } from '../src/generated/client';
 
 const prisma = new PrismaClient();
@@ -64,6 +69,80 @@ async function withBypass<T>(fn: (tx: TxClient) => Promise<T>): Promise<T> {
   });
 }
 
+const MIN_PASSWORD_LENGTH = 8;
+
+/**
+ * Contraseña sin dejarla en el historial de la terminal ni en `ps`:
+ * NP_PASSWORD=... o se pide sin eco (dos veces). Con la entrada redirigida
+ * (echo ... | pnpm cli ...) se lee la primera línea. --password sigue
+ * valiendo, con aviso.
+ */
+async function readPassword(args: Args): Promise<string> {
+  const fromFlag = args.password;
+  if (typeof fromFlag === 'string' && fromFlag.length > 0) {
+    console.warn(
+      '[aviso] --password deja la contraseña en el historial de la terminal y en la lista de procesos. ' +
+        'Mejor NP_PASSWORD=... o sin nada (te la pide sin que se vea).',
+    );
+    return fromFlag;
+  }
+  if (process.env.NP_PASSWORD) return process.env.NP_PASSWORD;
+  if (!process.stdin.isTTY) return readStdinLine();
+
+  const first = await promptHidden('Contraseña: ');
+  const again = await promptHidden('Repítela: ');
+  if (first !== again) throw new Error('las contraseñas no coinciden');
+  return first;
+}
+
+async function readNewPassword(args: Args): Promise<string> {
+  const password = await readPassword(args);
+  if (!password) throw new Error('falta la contraseña (NP_PASSWORD=..., o escríbela cuando la pida)');
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`la contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`);
+  }
+  return password;
+}
+
+/** Pregunta en la terminal sin mostrar lo que se escribe. */
+function promptHidden(question: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const stdin = process.stdin;
+    const typed: string[] = [];
+    const finish = (err?: Error) => {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.removeListener('data', onData);
+      process.stdout.write('\n');
+      if (err) reject(err);
+      else resolve(typed.join(''));
+    };
+    const onData = (chunk: Buffer) => {
+      for (const ch of chunk.toString('utf8')) {
+        if (ch === '\r' || ch === '\n' || ch === '\u0004') return finish();
+        if (ch === '\u0003') return finish(new Error('cancelado'));
+        if (ch === '\u007f' || ch === '\b') typed.pop();
+        else typed.push(ch);
+      }
+    };
+    process.stdout.write(question);
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on('data', onData);
+  });
+}
+
+/** Primera línea de la entrada estándar (cuando viene redirigida). */
+async function readStdinLine(): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, terminal: false });
+  try {
+    for await (const line of rl) return line;
+    return '';
+  } finally {
+    rl.close();
+  }
+}
+
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -96,9 +175,7 @@ async function cmdCreateVenue(args: Args) {
 async function cmdCreateUser(args: Args, role: Role) {
   const venueSlug = must(args, 'venue');
   const email = must(args, 'email').toLowerCase();
-  const password = must(args, 'password');
-
-  if (password.length < 8) throw new Error('password must be >= 8 chars');
+  const password = await readNewPassword(args);
 
   const hash = await bcrypt.hash(password, 10);
 
@@ -137,8 +214,7 @@ async function cmdCreateTerminal(args: Args) {
 
 async function cmdResetPassword(args: Args) {
   const email = must(args, 'email').toLowerCase();
-  const password = must(args, 'password');
-  if (password.length < 8) throw new Error('password must be >= 8 chars');
+  const password = await readNewPassword(args);
 
   const hash = await bcrypt.hash(password, 10);
   const user = await withBypass((tx) =>
@@ -248,33 +324,60 @@ async function cmdSetCredential(args: Args) {
   console.log(`[ok] credential cifrada para venue=${venueSlug} provider=${provider}`);
 }
 
+/**
+ * Secreto 2FA cifrado para users.totpSecret, con el MISMO formato que el API
+ * (apps/api/src/modules/auth/totp-crypto.ts):
+ *   tv1:<nonce>:<cifrado>:<tag>   (base64url, AES-256-GCM, AAD "tv1")
+ *   clave = HMAC-SHA256(ENCRYPTION_KEK, "nightpay:totp-secret:v1")
+ * Si cambias algo aquí, cámbialo allí (y al revés).
+ */
+export function sealTotpSecret(secretBase32: string, kek: string | undefined): string {
+  if (!kek || kek.length < 32) {
+    throw new Error('ENCRYPTION_KEK no configurada: hace falta para guardar la 2FA cifrada');
+  }
+  const key = crypto.createHmac('sha256', kek).update('nightpay:totp-secret:v1').digest();
+  const nonce = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
+  cipher.setAAD(Buffer.from('tv1'));
+  const enc = Buffer.concat([cipher.update(secretBase32, 'utf8'), cipher.final()]);
+  return ['tv1', nonce, enc, cipher.getAuthTag()]
+    .map((part) => (typeof part === 'string' ? part : part.toString('base64url')))
+    .join(':');
+}
+
+/** Igual que buildOtpauthUrl del API: etiqueta "Emisor:cuenta" + issuer. */
+function otpauthUrl(secretBase32: string, account: string, issuer: string): string {
+  const label = `${encodeURIComponent(issuer)}:${encodeURIComponent(account)}`;
+  return `otpauth://totp/${label}?secret=${secretBase32}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+}
+
 async function cmdEnrollTotp(args: Args) {
   const email = must(args, 'email').toLowerCase();
-  const issuer = (args.issuer as string) || 'NightPay';
+  const issuer = (args.issuer as string) || process.env.BRAND_NAME?.trim() || 'OxioPay';
 
-  const result = speakeasy.generateSecret({
-    name: `${issuer} (${email})`,
-    issuer,
-    length: 20,
-  });
+  const secret = speakeasy.generateSecret({ length: 20 }).base32;
+  // Antes de tocar la base: sin ENCRYPTION_KEK no se guarda nada.
+  const sealed = sealTotpSecret(secret, process.env.ENCRYPTION_KEK);
 
   const updated = await withBypass(async (tx) => {
     const user = await tx.user.findUnique({ where: { email } });
     if (!user) throw new Error(`user not found: ${email}`);
     return tx.user.update({
       where: { email },
-      data: { totpSecret: result.base32 },
+      data: { totpSecret: sealed },
     });
   });
 
-  console.log(`[ok] TOTP enrolled for ${updated.email}`);
+  console.log(`[ok] 2FA activada para ${updated.email} (secreto guardado cifrado)`);
   console.log('');
-  console.log('Escanea este QR con Google Authenticator / Authy:');
-  console.log(`  otpauth URL: ${result.otpauth_url}`);
+  console.log('Escanea este enlace como QR con Google Authenticator / Authy:');
+  console.log(`  otpauth URL: ${otpauthUrl(secret, email, issuer)}`);
   console.log('');
-  console.log(`O introduce el secret manual: ${result.base32}`);
+  console.log(`O introduce el secreto a mano: ${secret}`);
   console.log('');
-  console.log('IMPORTANTE: el secret NO se vuelve a mostrar. Guardalo si lo necesitas.');
+  console.log('IMPORTANTE: el secreto NO se vuelve a mostrar. Guárdalo si lo necesitas.');
+  console.log('OJO: se cifró con la ENCRYPTION_KEK de este entorno; tiene que ser la MISMA que la del API.');
+  console.log('     (Más fácil: que cada uno la active desde su app, en la pantalla de 2FA.)');
 }
 
 async function cmdReconcile(args: Args) {
@@ -375,7 +478,6 @@ async function cmdCreateOperator(args: Args) {
   // Generar invite JWT manualmente (sin nest) — secret igual que el API
   const jwtSecret = process.env.JWT_SECRET;
   if (!jwtSecret) throw new Error('JWT_SECRET not set in env (necesario para generar invite)');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const jwtLib = require('jsonwebtoken') as typeof import('jsonwebtoken');
   const inviteToken = jwtLib.sign(
     { sub: result.user.id, tenantId: result.venue.id, purpose: 'operator-invite' },
@@ -415,7 +517,6 @@ async function cmdRevokeSessions(args: Args) {
   const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:4379';
   // Import via require para evitar problemas con dynamic import + Node16 module resolution.
   // ioredis se carga lazy (lazyConnect:true) — no abre conexion hasta connect().
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const Redis = require('ioredis') as typeof import('ioredis').Redis;
   const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
   await redis.connect();
@@ -458,7 +559,7 @@ async function cmdRevokeSessions(args: Args) {
       revoked += 1;
     }
     console.log(`[ok] revoked ${revoked} session(s) for ${email}`);
-    console.log('     access tokens vivos siguen funcionando hasta su expiracion (max 12h)');
+    console.log('     los access tokens ya emitidos siguen valiendo hasta que caducan (máx. 1 h)');
   } finally {
     redis.disconnect();
   }
@@ -641,7 +742,7 @@ async function cmdSetPeanpeActive(args: Args) {
 }
 
 async function cmdSetSuperAdmin(args: Args) {
-  const email = (args.email ?? '').toLowerCase();
+  const email = typeof args.email === 'string' ? args.email.toLowerCase() : '';
   if (!email) {
     console.error('--email <email> requerido');
     process.exit(1);
@@ -705,22 +806,25 @@ function printUsage(): void {
   console.log('NightPay CLI — uso:');
   console.log('');
   console.log('  pnpm cli create-venue    --name "Luna VLC" [--slug luna-vlc] [--timezone Europe/Madrid]');
-  console.log('  pnpm cli create-owner    --venue <slug> --email <email> --password <pwd>');
-  console.log('  pnpm cli create-manager  --venue <slug> --email <email> --password <pwd>');
-  console.log('  pnpm cli create-waiter   --venue <slug> --email <email> --password <pwd>');
+  console.log('  pnpm cli create-owner    --venue <slug> --email <email>');
+  console.log('  pnpm cli create-manager  --venue <slug> --email <email>');
+  console.log('  pnpm cli create-waiter   --venue <slug> --email <email>');
   console.log('  pnpm cli create-operator --venue <slug> --email <email> --display-name "Ana" --commission 15');
   console.log('  pnpm cli create-terminal --venue <slug> --external-id BARRA-1 [--label "Barra 1"]');
-  console.log('  pnpm cli reset-password  --email <email> --password <new>');
+  console.log('  pnpm cli reset-password  --email <email>');
   console.log('  pnpm cli list-venues');
   console.log('  pnpm cli list-users      [--venue <slug>]');
   console.log('  pnpm cli set-credential  --venue <slug> --provider WIPAY|PEANPE --api-key <key>');
-  console.log('  pnpm cli enroll-totp     --email <email>');
+  console.log('  pnpm cli enroll-totp     --email <email> [--issuer OxioPay]   (secreto cifrado con ENCRYPTION_KEK)');
   console.log('  pnpm cli reconcile       --venue <slug> --day YYYY-MM-DD');
   console.log('  pnpm cli revoke-sessions --email <email>   (kill-switch para movil perdido)');
   console.log('  pnpm cli set-super-admin --email <email>   [--revoke true]  (grant/revoke superadmin)');
   console.log('  pnpm cli set-wipay-active --venue <slug>   (activa WIPAY + desactiva otros providers)');
   console.log('  pnpm cli set-redsys-active --venue <slug>  (activa REDSYS/BBVA + desactiva otros providers)');
   console.log('  pnpm cli set-peanpe-active --venue <slug>  (activa PEANPE + desactiva otros providers)');
+  console.log('');
+  console.log('Contraseñas (create-*, reset-password): se piden sin que se vean, o NP_PASSWORD=... pnpm cli ...');
+  console.log('  --password <pwd> sigue valiendo pero queda en el historial de la terminal (avisa).');
   console.log('');
 }
 
@@ -743,11 +847,13 @@ async function main() {
   await handler(args);
 }
 
-main()
-  .catch((err) => {
-    console.error(`[error] ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (require.main === module) {
+  main()
+    .catch((err) => {
+      console.error(`[error] ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}
