@@ -1112,7 +1112,10 @@ export class PaymentsService implements OnApplicationBootstrap {
   async findById(paymentId: string) {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
-    return payment;
+    // El token de la tarjeta (Redsys, cobros recurrentes) no sale nunca por la
+    // API del personal (#60).
+    const { tokenizationData: _token, ...rest } = payment;
+    return rest;
   }
 
   /**

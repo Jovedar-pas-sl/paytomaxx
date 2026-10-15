@@ -49,3 +49,14 @@ describe('startAuthorization — error de la pasarela', () => {
     expect(payErrorKey(GATEWAY_ERROR_PUBLIC)).toBe('gateway');
   });
 });
+
+describe('findById — detalle del cobro para el personal', () => {
+  it('nunca incluye el token de la tarjeta (#60)', async () => {
+    const service = Object.create(PaymentsService.prototype) as PaymentsService;
+    const row = { id: 'pay-1', amountCents: 1_000, provider: 'REDSYS', tokenizationData: { identifier: 'tok' } };
+    Object.assign(service, { prisma: { payment: { findUnique: vi.fn().mockResolvedValue(row) } } });
+    const out = await service.findById('pay-1');
+    expect(out).toEqual({ id: 'pay-1', amountCents: 1_000, provider: 'REDSYS' });
+    expect(out).not.toHaveProperty('tokenizationData');
+  });
+});
