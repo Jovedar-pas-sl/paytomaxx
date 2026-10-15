@@ -34,13 +34,31 @@ function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
  *      (100 céntimos). Comprobar en panel Peanpe el importe registrado.
  *   2. Si registra "1.00 EUR" → formato correcto, set env
  *      `PEANPE_AMOUNT_FORMAT_VERIFIED=cents`.
- *   3. Si registra "100.00 EUR" → cantidad espera euros; cambiar
- *      buildPaymentUrl() para enviar `Math.round(amountCents/100)` y set
- *      `PEANPE_AMOUNT_FORMAT_VERIFIED=euros`.
+ *   3. Si registra "100.00 EUR" → cantidad espera euros: set
+ *      `PEANPE_AMOUNT_FORMAT_VERIFIED=euros` (se envían euros enteros y los
+ *      cobros con céntimos se rechazan: ver peanpeCantidad).
  *   4. El guard se desactiva cuando `PEANPE_AMOUNT_FORMAT_VERIFIED` está set
  *      a `cents` o `euros`.
  */
 const PEANPE_SAFETY_MAX_UNVERIFIED_CENTS = 50_000;
+
+/**
+ * `cantidad` que se manda a Peanpe. En euros la doc pide "número entero sin
+ * puntos ni comas": un importe con céntimos (12,50 €) NO se redondea — se
+ * rechaza con un mensaje claro (antes se cobraban 13 € sin avisar).
+ */
+export function peanpeCantidad(amountCents: number, format: 'cents' | 'euros'): string {
+  if (format === 'cents') return String(amountCents);
+  if (amountCents % 100 !== 0) {
+    const euros = (amountCents / 100).toFixed(2).replace('.', ',');
+    throw new Error(
+      `peanpe-solo-euros-enteros: Peanpe está configurado en euros enteros ` +
+        `(PEANPE_AMOUNT_FORMAT_VERIFIED=euros) y no puede cobrar ${euros} €. ` +
+        `Cobra un importe sin céntimos o usa otra pasarela.`,
+    );
+  }
+  return String(amountCents / 100);
+}
 
 /**
  * Peanpe API v2.0 adapter — implementado según doc oficial (Vers: 2.0).
@@ -116,6 +134,9 @@ export class PeanpeAdapter implements GatewayAdapter {
   }
 
   async authorize(input: AuthorizeInput): Promise<AuthorizeResult> {
+    // Antes del circuit breaker: un importe que Peanpe no admite es un error
+    // del cobro, no de la pasarela (no debe contar para abrir el breaker).
+    peanpeCantidad(input.amountCents, this.amountFormat());
     return timedFire(
       () => this.authorizeBreaker.fire(input),
       (dur, outcome) =>
@@ -350,20 +371,17 @@ export class PeanpeAdapter implements GatewayAdapter {
   }): string {
     const apiKey = this.config.getOrThrow<string>('PEANPE_API_KEY');
     const accountId = this.config.getOrThrow<string>('PEANPE_ACCOUNT_ID');
+    // Base configurable; por defecto http (la doc de Peanpe da http y no está
+    // comprobado que su API funcione igual por https).
     const base = this.config.get<string>('PEANPE_API_BASE_URL') ?? 'http://peanpe.com';
 
     // H1: la doc oficial Peanpe NO especifica si `cantidad` es céntimos o
     // euros. Default céntimos (más común en PSPs ES). Si el usuario verifica
-    // empíricamente que Peanpe espera euros, set PEANPE_AMOUNT_FORMAT_VERIFIED=euros
-    // y el adapter divide por 100 (entero, sin decimales — la doc dice
-    // "número entero sin puntos ni comas").
-    const envFormat = this.config.get<string>('PEANPE_AMOUNT_FORMAT_VERIFIED');
-    const format: 'cents' | 'euros' =
-      input.formatOverride ?? (envFormat === 'euros' ? 'euros' : 'cents');
-    const cantidad =
-      format === 'euros'
-        ? String(Math.round(input.amountCents / 100))
-        : String(input.amountCents);
+    // empíricamente que Peanpe espera euros, set PEANPE_AMOUNT_FORMAT_VERIFIED=euros:
+    // se mandan euros enteros (la doc dice "número entero sin puntos ni
+    // comas") y un importe con céntimos se rechaza en vez de redondearlo.
+    const format = input.formatOverride ?? this.amountFormat();
+    const cantidad = peanpeCantidad(input.amountCents, format);
 
     // Firma según doc: concat(id_llamada, account, cantidad) firmado con
     // HMAC-SHA256, donde la apikey es HEX y debe convertirse a bytes raw.
@@ -427,6 +445,11 @@ export class PeanpeAdapter implements GatewayAdapter {
       return null;
     }
     return { paymentId: call.paymentId, tenantId: call.tenantId };
+  }
+
+  /** Formato de `cantidad` verificado en el entorno (céntimos por defecto). */
+  private amountFormat(): 'cents' | 'euros' {
+    return this.config.get<string>('PEANPE_AMOUNT_FORMAT_VERIFIED') === 'euros' ? 'euros' : 'cents';
   }
 
   /** Persiste el resultado del callback (idempotente). */
