@@ -270,33 +270,23 @@ export async function login(email: string, password: string): Promise<LoginRespo
 }
 
 /**
- * Salir: la sesión local se cierra al momento (sin esperar a la red) y la del
- * servidor con el refresh token, aunque el access token ya haya caducado.
+ * Salir: la sesión local se borra siempre y al momento (sin esperar a la red)
+ * y la del servidor se cierra con el refresh token, aunque el access token ya
+ * haya caducado. Devuelve si el servidor lo confirmó (si no, el refresh token
+ * caduca solo; aquí ya no está). Nunca falla.
  */
-export async function logout(): Promise<void> {
+export async function logout(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   const accessToken = getToken();
   clearSession();
-  if (refreshToken) await revokeSession(refreshToken, accessToken);
-}
-
-/** Nunca falla: sin red, el refresh token caduca solo (y aquí ya no está). */
-async function revokeSession(refreshToken: string, accessToken: string | null): Promise<void> {
+  if (!refreshToken) return true;
   try {
-    const res = await postLogout(refreshToken, accessToken);
-    if (res.status !== 401) return;
-    // Un API que aún pide un access token vigente: se saca uno con el refresh
-    // (sin guardarlo) y se cierra con él.
-    const refreshed = await fetch(`${API_BASE}/v1/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (!refreshed.ok) return; // ya no valía: no queda nada que cerrar
-    const pair = (await refreshed.json()) as RefreshResponse;
-    await postLogout(pair.refreshToken, pair.accessToken);
+    let res = await postLogout(refreshToken, accessToken);
+    // Access token caducado: el API acepta el refresh token solo, sin cabecera.
+    if (res.status === 401 && accessToken) res = await postLogout(refreshToken, null);
+    return res.ok;
   } catch {
-    // Sin red: la sesión local ya está cerrada.
+    return false;
   }
 }
 
@@ -353,7 +343,7 @@ async function doRefreshAccessToken(failed: string | null): Promise<string> {
     if (after && after !== failed) return after;
     // Solo un "no" del API cierra la sesión; un 429 o un 5xx (p. ej. mientras
     // se despliega) no echa a nadie.
-    if (res.status === 400 || res.status === 401 || res.status === 403) throw endSession();
+    if (res.status === 401 || res.status === 403) throw endSession();
     throw new ServerUnavailableError(SERVER_DOWN_TEXT);
   }
   const refreshed = (await res.json()) as RefreshResponse;
@@ -625,7 +615,6 @@ export interface WalletLookup {
   balanceCents: number;
   label: string | null;
   homeVenueName: string;
-  pendingRequest: boolean;
   /** Puede pagar sin sacar el móvil, con su PIN. */
   hasPin: boolean;
   /** 5 PIN fallidos: hasta que lo desbloquee el encargado. */

@@ -5,7 +5,7 @@ import { Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
 import { WALLET_CARD_PARAM } from '@nightpay/contracts';
-import { getToken, getUser, onSessionEnded, type OperatorUser } from '@/lib/api';
+import { getToken, getUser, logout, onSessionEnded, type OperatorUser } from '@/lib/api';
 
 export default function Page() {
   const [user, setUser] = useState<OperatorUser | null | undefined>(undefined);
@@ -89,5 +89,18 @@ export default function Page() {
     );
   }
 
-  return <Dashboard user={user} onLogout={() => setUser(null)} />;
+  // La sesión local se borra ya (logout) y el login sale al momento; la del
+  // servidor sigue por detrás: si no la confirma, se avisa en el login.
+  function handleLogout() {
+    const closed = logout();
+    setNotice(null);
+    setUser(null);
+    void closed.then((confirmed) => {
+      if (!confirmed && !loggedIn.current) {
+        setNotice('Has salido en este móvil, pero el servidor no lo ha confirmado: la sesión caducará sola.');
+      }
+    });
+  }
+
+  return <Dashboard user={user} onLogout={handleLogout} />;
 }

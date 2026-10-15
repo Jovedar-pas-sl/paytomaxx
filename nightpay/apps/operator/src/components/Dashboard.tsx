@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
-import { logout as apiLogout, type OperatorUser } from '@/lib/api';
+import type { OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { roleAccess, type TabKey } from '@/lib/roles';
 import { ChargeFromBalance } from './ChargeFromBalance';
@@ -17,6 +17,7 @@ import { TabBar } from './TabBar';
 
 interface Props {
   user: OperatorUser;
+  /** «Salir»: quien monta el Dashboard cierra la sesión (y avisa si el servidor no lo confirma). */
   onLogout: () => void;
 }
 
@@ -36,11 +37,8 @@ export function Dashboard({ user, onLogout }: Props) {
   // primer toque en la app (iPhone no suena sin uno) y se cierra al salir.
   useEffect(() => (access.posQueue ? primeAlertSound() : undefined), [access.posQueue]);
 
-  // La sesión local se cierra al momento; la del servidor sigue por detrás
-  // (sin red no se queda nadie esperando en «Salir»).
   function logout() {
     clearFichaContext();
-    void apiLogout();
     onLogout();
   }
 
