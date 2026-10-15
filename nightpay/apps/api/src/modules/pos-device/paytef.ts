@@ -126,6 +126,24 @@ export function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+const DAY_MS = 24 * 3600 * 1000;
+
+/**
+ * Caducidad de la credencial del datáfono (POS_DEVICE_TOKEN_MAX_AGE_DAYS, en
+ * días). Vacío, 0 o inválido = no caduca: es lo de por defecto para no dejar
+ * sin servicio datáfonos que aún no rotan su credencial.
+ */
+export function deviceTokenMaxAgeMs(raw: string | undefined): number | null {
+  const days = Number((raw ?? '').trim());
+  return Number.isFinite(days) && days > 0 ? days * DAY_MS : null;
+}
+
+/** ¿Ha caducado una credencial entregada en `issuedAt`? Sin fecha, no. */
+export function deviceTokenExpired(issuedAt: Date | null, now: Date, maxAgeMs: number | null): boolean {
+  if (maxAgeMs === null || !issuedAt) return false;
+  return now.getTime() - issuedAt.getTime() > maxAgeMs;
+}
+
 /** Operación del cierre de jornada del datáfono (para cuadrar). */
 export const PaytefShiftOperationSchema = z
   .object({

@@ -158,6 +158,12 @@ model Terminal {
   deviceLastSeenAt     DateTime? @db.Timestamptz
   pairingCodeHash      String?   @unique
   pairingCodeExpiresAt DateTime? @db.Timestamptz
+  // Rotación de la credencial: la nueva convive con la anterior hasta que el
+  // datáfono la usa (si no le llega la respuesta, la anterior sigue valiendo).
+  // Fecha de la credencial en uso, para la caducidad opcional
+  // (POS_DEVICE_TOKEN_MAX_AGE_DAYS; sin ella, no caduca).
+  deviceTokenNextHash  String?   @unique
+  deviceTokenIssuedAt  DateTime? @db.Timestamptz
 
   venue    Venue     @relation(fields: [tenantId], references: [id])
   payments Payment[]

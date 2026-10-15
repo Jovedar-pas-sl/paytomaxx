@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { PosDeviceService } from './pos-device.service';
@@ -7,7 +7,13 @@ import { posReference, sha256 } from './paytef';
 import type { PosDevice } from './device.guard';
 
 const PAYMENT_ID = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
-const device: PosDevice = { terminalId: 'term-1', tenantId: 't-1', label: 'Barra 1', zone: 'BARRA' };
+const device: PosDevice = {
+  terminalId: 'term-1',
+  tenantId: 't-1',
+  label: 'Barra 1',
+  zone: 'BARRA',
+  tokenHash: sha256('credencial-en-uso'),
+};
 
 function payment(o: Record<string, unknown> = {}) {
   return {
@@ -79,7 +85,7 @@ function makeService(
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const cls = { get: vi.fn().mockReturnValue(undefined) };
   const svc = new PosDeviceService(prisma as never, payments as never, audit as never, cls as never);
-  return { svc, tx, payments, prepareTx, prepared };
+  return { svc, tx, payments, prepareTx, prepared, audit };
 }
 
 const approved = {
@@ -287,7 +293,36 @@ describe('vinculación', () => {
     expect(call.where).toMatchObject({ id: 'term-1', pairingCodeHash: sha256('ABCD2345') });
     expect(call.data.deviceTokenHash).toBe(sha256(out.token));
     expect(call.data.pairingCodeHash).toBeNull();
+    // Credencial recién entregada: cuenta desde ahora y sin una nueva pendiente.
+    expect(call.data.deviceTokenIssuedAt).toBeInstanceOf(Date);
+    expect(call.data.deviceTokenNextHash).toBeNull();
     expect(out).toMatchObject({ venueName: 'Local Centro', terminal: { label: 'Barra 1' } });
+  });
+
+  it('rotar: credencial nueva pendiente, solo si la que llama sigue siendo la buena', async () => {
+    const { svc, tx, audit } = makeService();
+    const out = await svc.rotateToken(device);
+    expect(out.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(tx.terminal.updateMany).toHaveBeenCalledWith({
+      where: { id: 'term-1', deviceTokenHash: device.tokenHash, active: true },
+      data: { deviceTokenNextHash: sha256(out.token), deviceTokenIssuedAt: expect.any(Date) },
+    });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'terminal.device.token_rotated' }));
+  });
+
+  it('rotar con una credencial que ya no es la buena → 401', async () => {
+    const { svc, tx, audit } = makeService();
+    tx.terminal.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(svc.rotateToken(device)).rejects.toThrow(UnauthorizedException);
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('desvincular borra también la credencial pendiente', async () => {
+    const { svc, tx } = makeService();
+    await svc.unpair('t-1', 'term-1', 'owner-1');
+    expect(tx.terminal.update.mock.calls[0]![0]).toMatchObject({
+      data: { deviceTokenHash: null, deviceTokenNextHash: null, deviceTokenIssuedAt: null },
+    });
   });
 
   it('dos datáfonos con el mismo código a la vez → solo uno; caducado → no', async () => {

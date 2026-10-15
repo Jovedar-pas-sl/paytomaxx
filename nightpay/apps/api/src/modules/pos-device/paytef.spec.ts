@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   POS_REFERENCE_LENGTH,
   cardBrandOf,
+  deviceTokenExpired,
+  deviceTokenMaxAgeMs,
   formatPairingCode,
   last4Of,
   newPairingCode,
@@ -11,6 +13,31 @@ import {
   posReference,
   shiftAmountCents,
 } from './paytef';
+
+describe('caducidad de la credencial del datáfono', () => {
+  const day = 24 * 3600 * 1000;
+
+  it('sin POS_DEVICE_TOKEN_MAX_AGE_DAYS (o 0 o inválida) no caduca: por defecto', () => {
+    expect(deviceTokenMaxAgeMs(undefined)).toBeNull();
+    expect(deviceTokenMaxAgeMs('')).toBeNull();
+    expect(deviceTokenMaxAgeMs('0')).toBeNull();
+    expect(deviceTokenMaxAgeMs('-3')).toBeNull();
+    expect(deviceTokenMaxAgeMs('mucho')).toBeNull();
+    expect(deviceTokenExpired(new Date(0), new Date(), null)).toBe(false);
+  });
+
+  it('con días: caduca la credencial más vieja que eso', () => {
+    const max = deviceTokenMaxAgeMs(' 90 ');
+    expect(max).toBe(90 * day);
+    const now = new Date('2026-10-15T10:00:00Z');
+    expect(deviceTokenExpired(new Date(now.getTime() - 89 * day), now, max)).toBe(false);
+    expect(deviceTokenExpired(new Date(now.getTime() - 91 * day), now, max)).toBe(true);
+  });
+
+  it('sin fecha de la credencial no se da por caducada (no deja datáfonos sin servicio)', () => {
+    expect(deviceTokenExpired(null, new Date(), 1)).toBe(false);
+  });
+});
 
 describe('datáfono PAX: resultado de Paytef', () => {
   const approved = {

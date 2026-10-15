@@ -26,6 +26,7 @@ const ShiftSchema = z.object({ transactions: z.array(PaytefShiftOperationSchema)
  *   - DELETE /v1/pos-device/terminals/:id/device       → desvincularlo.
  *  Datáfono (Authorization: Device <credencial>):
  *   - POST /v1/pos-device/pair                   → canjea el código por la credencial.
+ *   - POST /v1/pos-device/rotate                 → credencial nueva (la anterior vale hasta usarla).
  *   - GET  /v1/pos-device/me | /pending          → quién soy y cobros por cobrar.
  *   - POST /v1/pos-device/charges/:id/start      → referencia e importe para el lector.
  *   - POST /v1/pos-device/charges/:id/result     → resultado de Paytef.
@@ -77,6 +78,16 @@ export class PosDeviceController {
   @Get('me')
   async me(@CurrentDevice() device: PosDevice) {
     return this.pos.me(device);
+  }
+
+  /** Credencial nueva; la anterior vale hasta que el datáfono use esta. */
+  @Public()
+  @UseGuards(DeviceGuard)
+  @Post('rotate')
+  @HttpCode(200)
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'pos-device-rotate' })
+  async rotate(@CurrentDevice() device: PosDevice): Promise<{ token: string }> {
+    return this.pos.rotateToken(device);
   }
 
   @Public()

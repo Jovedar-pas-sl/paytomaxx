@@ -1,4 +1,12 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { ClsService } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
@@ -126,7 +134,14 @@ export class PosDeviceService {
     await this.prisma.asSystem((tx) =>
       tx.terminal.update({
         where: { id: terminalId },
-        data: { deviceTokenHash: null, devicePairedAt: null, pairingCodeHash: null, pairingCodeExpiresAt: null },
+        data: {
+          deviceTokenHash: null,
+          deviceTokenNextHash: null,
+          deviceTokenIssuedAt: null,
+          devicePairedAt: null,
+          pairingCodeHash: null,
+          pairingCodeExpiresAt: null,
+        },
       }),
     );
     await this.audit.log({
@@ -156,6 +171,8 @@ export class PosDeviceService {
         where: { id: terminal.id, pairingCodeHash: sha256(code), pairingCodeExpiresAt: { gt: new Date() } },
         data: {
           deviceTokenHash: sha256(token),
+          deviceTokenNextHash: null,
+          deviceTokenIssuedAt: new Date(),
           devicePairedAt: new Date(),
           deviceLastSeenAt: new Date(),
           pairingCodeHash: null,
@@ -172,6 +189,31 @@ export class PosDeviceService {
       payload: {},
     });
     return { token, terminal: { label: terminal.label, zone: terminal.zone }, venueName: terminal.venue.name };
+  }
+
+  /**
+   * El datáfono pide una credencial nueva (conviene hacerlo de vez en cuando;
+   * obligatorio si se configura POS_DEVICE_TOKEN_MAX_AGE_DAYS). La anterior
+   * sigue valiendo hasta que el datáfono use la nueva: si se corta la red y no
+   * le llega la respuesta, no se queda sin servicio (la vuelve a pedir).
+   */
+  async rotateToken(device: PosDevice): Promise<{ token: string }> {
+    const token = newDeviceToken();
+    const rotated = await this.prisma.asSystem((tx) =>
+      tx.terminal.updateMany({
+        where: { id: device.terminalId, deviceTokenHash: device.tokenHash, active: true },
+        data: { deviceTokenNextHash: sha256(token), deviceTokenIssuedAt: new Date() },
+      }),
+    );
+    if (rotated.count === 0) throw new UnauthorizedException('Datáfono sin vincular');
+    await this.audit.log({
+      action: 'terminal.device.token_rotated',
+      tenantId: device.tenantId,
+      targetType: 'Terminal',
+      targetId: device.terminalId,
+      payload: {},
+    });
+    return { token };
   }
 
   async me(device: PosDevice): Promise<{ terminal: { label: string; zone: string | null }; venueName: string }> {

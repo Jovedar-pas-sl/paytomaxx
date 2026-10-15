@@ -9,7 +9,7 @@ import {
 import { ClsService } from 'nestjs-cls';
 import type { RequestContext } from '../../common/context/request-context';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { sha256 } from './paytef';
+import { deviceTokenExpired, deviceTokenMaxAgeMs, sha256 } from './paytef';
 
 /** Datáfono vinculado que hace la petición. */
 export interface PosDevice {
@@ -17,14 +17,24 @@ export interface PosDevice {
   tenantId: string;
   label: string;
   zone: string | null;
+  /** Hash de la credencial con la que llamó (para rotarla). */
+  tokenHash: string;
 }
 
 /** "Visto por última vez" se apunta como mucho una vez por minuto. */
 const LAST_SEEN_EVERY_MS = 60_000;
 
+const NOT_PAIRED = 'Datáfono sin vincular';
+const EXPIRED = 'La credencial del datáfono ha caducado: vuelve a vincularlo desde el panel';
+
 /**
  * Autenticación del datáfono: `Authorization: Device <credencial>`. Va con
  * @Public() (no hay usuario): la credencial identifica el terminal y su local.
+ *
+ * Vale la credencial en uso o la nueva de una rotación (POST /rotate); la
+ * primera vez que llega la nueva, pasa a ser la única. Con
+ * POS_DEVICE_TOKEN_MAX_AGE_DAYS, una credencial más vieja que eso ya no vale
+ * (sin la variable no caduca: es lo de por defecto).
  */
 @Injectable()
 export class DeviceGuard implements CanActivate {
@@ -46,17 +56,39 @@ export class DeviceGuard implements CanActivate {
     }>();
     const header = req.headers['authorization'];
     const token = typeof header === 'string' && header.startsWith('Device ') ? header.slice(7).trim() : '';
-    if (!token) throw new UnauthorizedException('Datáfono sin vincular');
+    if (!token) throw new UnauthorizedException(NOT_PAIRED);
 
+    const tokenHash = sha256(token);
     const terminal = await this.prisma.asSystem((tx) =>
       tx.terminal.findFirst({
-        where: { deviceTokenHash: sha256(token), active: true },
-        select: { id: true, tenantId: true, label: true, zone: true, deviceLastSeenAt: true },
+        where: { active: true, OR: [{ deviceTokenHash: tokenHash }, { deviceTokenNextHash: tokenHash }] },
+        select: {
+          id: true,
+          tenantId: true,
+          label: true,
+          zone: true,
+          deviceLastSeenAt: true,
+          deviceTokenHash: true,
+          deviceTokenIssuedAt: true,
+          devicePairedAt: true,
+        },
       }),
     );
-    if (!terminal) throw new UnauthorizedException('Datáfono sin vincular');
+    if (!terminal) throw new UnauthorizedException(NOT_PAIRED);
 
-    req.posDevice = { terminalId: terminal.id, tenantId: terminal.tenantId, label: terminal.label, zone: terminal.zone };
+    const issuedAt = terminal.deviceTokenIssuedAt ?? terminal.devicePairedAt;
+    if (deviceTokenExpired(issuedAt, new Date(), deviceTokenMaxAgeMs(process.env.POS_DEVICE_TOKEN_MAX_AGE_DAYS))) {
+      throw new UnauthorizedException(EXPIRED);
+    }
+    if (terminal.deviceTokenHash !== tokenHash) await this.promoteNextToken(terminal.id, tokenHash);
+
+    req.posDevice = {
+      terminalId: terminal.id,
+      tenantId: terminal.tenantId,
+      label: terminal.label,
+      zone: terminal.zone,
+      tokenHash,
+    };
     // Contexto del local para el middleware de Prisma (como hace AuthGuard).
     if (this.cls.isActive()) {
       this.cls.set('ctx', { ...(this.cls.get('ctx') ?? {}), tenantId: terminal.tenantId });
@@ -68,10 +100,27 @@ export class DeviceGuard implements CanActivate {
     }
     return true;
   }
+
+  /** El datáfono ya usa la credencial nueva: la anterior deja de valer. */
+  private async promoteNextToken(terminalId: string, tokenHash: string): Promise<void> {
+    const promoted = await this.prisma.asSystem((tx) =>
+      tx.terminal.updateMany({
+        where: { id: terminalId, deviceTokenNextHash: tokenHash },
+        data: { deviceTokenHash: tokenHash, deviceTokenNextHash: null, deviceTokenIssuedAt: new Date() },
+      }),
+    );
+    // Otra petición con la misma credencial nueva ya la cambió: sigue valiendo.
+    if (promoted.count === 0) {
+      const current = await this.prisma.asSystem((tx) =>
+        tx.terminal.findFirst({ where: { id: terminalId, deviceTokenHash: tokenHash }, select: { id: true } }),
+      );
+      if (!current) throw new UnauthorizedException(NOT_PAIRED);
+    }
+  }
 }
 
 export const CurrentDevice = createParamDecorator((_data: unknown, ctx: ExecutionContext): PosDevice => {
   const device = ctx.switchToHttp().getRequest<{ posDevice?: PosDevice }>().posDevice;
-  if (!device) throw new UnauthorizedException('Datáfono sin vincular');
+  if (!device) throw new UnauthorizedException(NOT_PAIRED);
   return device;
 });
