@@ -1,11 +1,16 @@
 # syntax=docker/dockerfile:1.7
-# NightPay API — runtime tsx (sin compilar, evita problemas de monorepo + module resolution)
+# OxioPay / NightPay API — TypeScript ejecutado con tsx (sin compilar: evita
+# líos de resolución de módulos en el monorepo; los @nightpay/* se resuelven
+# por los enlaces de pnpm, como en desarrollo).
 #
-# Filosofia: tsx ejecuta TypeScript directamente. Workspace deps (@nightpay/*)
-# resueltas por symlinks pnpm como en dev. Tradeoff: ~50ms startup mas, ~100MB
-# imagen mas grande. Acceptable para tool interno de 5 usuarios.
+# Una sola etapa a propósito: en tiempo de ejecución hacen falta paquetes que
+# son devDependencies (tsx para arrancar, el CLI de prisma para las
+# migraciones), así que una etapa final "--prod" no arrancaría. Lo que sí se
+# recorta: solo se instala el API y lo que usa (@nightpay/db, contracts,
+# config), no las webs Next ni Playwright.
 
-FROM node:22-alpine
+# Versión fija (la misma de nightpay/.nvmrc). Al subirla, cambiar las dos.
+FROM node:22.23.3-alpine3.24
 
 # openssl + libc6-compat para que Prisma engines funcionen en Alpine
 RUN apk add --no-cache openssl libc6-compat
@@ -13,25 +18,38 @@ RUN apk add --no-cache openssl libc6-compat
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 
-# 1. Instalar deps (NO usar --frozen-lockfile en monorepo si lockfile cambia)
+# 1. Dependencias. El lockfile manda (--frozen-lockfile): si no cuadra con los
+#    package.json, el build falla en vez de instalar otra cosa. Se copian los
+#    manifiestos de TODOS los proyectos del workspace (los "importers" del
+#    lockfile) para que pnpm vea el mismo workspace que en desarrollo.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
-COPY apps/api/package.json apps/api/
-COPY apps/mock-wipay/package.json apps/mock-wipay/
-COPY apps/mock-peanpe/package.json apps/mock-peanpe/
 COPY apps/admin/package.json apps/admin/
+COPY apps/api/package.json apps/api/
+COPY apps/e2e/package.json apps/e2e/
+COPY apps/mock-peanpe/package.json apps/mock-peanpe/
+COPY apps/mock-wipay/package.json apps/mock-wipay/
+COPY apps/operator/package.json apps/operator/
 COPY apps/tpv/package.json apps/tpv/
 COPY apps/web-client/package.json apps/web-client/
+COPY packages/config/package.json packages/config/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/
-COPY packages/config/package.json packages/config/
-RUN pnpm install --frozen-lockfile
+COPY packages/ui/package.json packages/ui/
+RUN pnpm install --frozen-lockfile --filter "@nightpay/api..."
 
-# 2. Copiar codigo fuente (TS, no compilamos)
+# 2. Código fuente (TS, no se compila). prisma/seed.ts no entra (.dockerignore).
 COPY packages ./packages
 COPY apps/api ./apps/api
 
-# 3. Generar Prisma client en src/generated (donde db/src/index.ts lo importa)
+# 3. Cliente de Prisma en packages/db/src/generated (donde lo importa db/src/index.ts)
 RUN pnpm --filter @nightpay/db generate
+
+# Qué versión corre: /v1/health lo enseña (y Sentry lo usa de release).
+# Dokploy: Build Args GIT_SHA=<commit> y, si quieres, BUILD_MARKER=<etiqueta>.
+ARG GIT_SHA=""
+ARG BUILD_MARKER=""
+ENV GIT_SHA=${GIT_SHA}
+ENV BUILD_MARKER=${BUILD_MARKER}
 
 WORKDIR /repo/apps/api
 ENV NODE_ENV=production
@@ -45,17 +63,15 @@ EXPOSE 4100
 HEALTHCHECK --interval=30s --timeout=8s --start-period=45s --retries=5 \
   CMD node -e "require('http').get('http://127.0.0.1:4100/v1/health/live',{timeout:6000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1)).on('timeout',()=>process.exit(1))"
 
-# Aplicar migraciones prisma antes de arrancar el API.
-# 1) db-heal: marca migraciones colgadas como resueltas + asegura columnas críticas
-#    con ADD COLUMN IF NOT EXISTS. Idempotente. Sin esto, una migración a medio
-#    aplicar bloquea TODOS los deploys siguientes.
-# 2) migrate deploy: aplica las pendientes (no toca las ya marcadas)
-# 3) exec tsx: reemplaza sh por Node como PID 1 → SIGTERM llega correctamente
 # Sin root: si alguien encuentra un fallo en el API, no manda en el contenedor.
-# Al arrancar se llaman tsx y prisma directamente (pnpm lo preparó corepack
-# para root); el código queda de root y solo de lectura para el proceso.
+# El código queda de root y solo de lectura para el proceso.
 USER node
-# db-heal antes de migrar (arreglos que las migraciones necesitan) y después
-# (columnas que solo crea db-heal; en una base nueva es cuando de verdad
-# actúa). Sus pasos son idempotentes: la segunda pasada no cambia nada.
-CMD ["sh", "-c", "cd /repo/packages/db && ./node_modules/.bin/tsx scripts/db-heal.ts && ./node_modules/.bin/prisma migrate deploy && ./node_modules/.bin/tsx scripts/db-heal.ts && cd /repo/apps/api && exec ./node_modules/.bin/tsx src/main.ts"]
+
+# Al arrancar:
+#   1. db-heal: avisa de migraciones fallidas (no cambia nada; ver el script).
+#   2. prisma migrate deploy: aplica las que falten. Si una falla, el API no
+#      arranca (mejor eso que arrancar con la base a medias).
+#   3. db-heal otra vez: avisos de solo lectura sobre la base ya migrada.
+#   4. exec node: Node pasa a ser el PID 1 y recibe él el SIGTERM de Docker
+#      (Dokploy al redesplegar o parar) para cerrar ordenadamente.
+CMD ["sh", "-c", "cd /repo/packages/db && ./node_modules/.bin/tsx scripts/db-heal.ts && ./node_modules/.bin/prisma migrate deploy && ./node_modules/.bin/tsx scripts/db-heal.ts && cd /repo/apps/api && exec node --import tsx src/main.ts"]
