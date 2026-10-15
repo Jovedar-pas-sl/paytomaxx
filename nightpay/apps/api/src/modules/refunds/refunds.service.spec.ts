@@ -1,13 +1,18 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   NotFoundException,
 } from '@nestjs/common';
 import { RefundsService } from './refunds.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
+import { totpForbidden } from '../auth/totp-code';
+import { sealTotpSecret } from '../auth/totp-crypto';
+import { createFakeRedis } from '../auth/testing/fake-redis';
+import { makeTotpKit, totpCodeAt } from '../auth/testing/totp-kit';
 import type { Role } from '@nightpay/contracts';
 
 interface PaymentFixture {
@@ -38,6 +43,8 @@ interface MakeOptions {
   payment?: PaymentFixture | null;
   user?: UserFixture | null;
   totpValid?: boolean;
+  /** TotpService de verdad (con Redis falso) en vez del doble. */
+  totp?: unknown;
   gatewayResult?: { providerRefundId: string; status: 'SUCCEEDED' | 'FAILED' | 'PENDING' };
   gatewayThrows?: Error;
   // Fase 1C: devoluciones iguales ya registradas en los últimos 7 días.
@@ -131,7 +138,9 @@ function makeService(opts: MakeOptions = {}) {
   };
 
   const totpMock = {
-    verify: vi.fn().mockReturnValue(opts.totpValid ?? false),
+    checkStoredForUser: opts.totpValid
+      ? vi.fn().mockResolvedValue(undefined)
+      : vi.fn().mockRejectedValue(totpForbidden('invalid')),
   };
 
   const auditMock = {
@@ -148,7 +157,7 @@ function makeService(opts: MakeOptions = {}) {
     clsMock as any,
     gatewaysMock as any,
     paymentsMock as any,
-    totpMock as any,
+    (opts.totp ?? totpMock) as any,
     auditMock as any,
     metricsMock as any,
   );
@@ -247,7 +256,7 @@ describe('RefundsService.refund — authorization gates', () => {
     await expect(svc.refund({ paymentId: 'pay-1', amountCents: 9_999 }, manager)).rejects.toThrow(
       /en este cobro sumas 199,98 €/,
     );
-    expect(totpMock.verify).not.toHaveBeenCalled();
+    expect(totpMock.checkStoredForUser).not.toHaveBeenCalled();
   });
 
   it('99,99 € × N en cobros DISTINTOS: pide el código por lo devuelto en 24 h', async () => {
@@ -291,7 +300,91 @@ describe('RefundsService.refund — authorization gates', () => {
     const { svc, totpMock } = makeService({ payment: okPayment });
     const result = await svc.refund({ paymentId: 'pay-1', amountCents: 5000 }, manager);
     expect(result.status).toBe('SUCCEEDED');
-    expect(totpMock.verify).not.toHaveBeenCalled();
+    expect(totpMock.checkStoredForUser).not.toHaveBeenCalled();
+  });
+});
+
+describe('RefundsService.refund — 2FA con intentos y códigos usados en Redis (varias réplicas)', () => {
+  const KEK = 'test_kek_0123456789abcdef0123456789abcdef_v1';
+  const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+  const big = { paymentId: 'pay-1', amountCents: 10_000 };
+  let previousKek: string | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-15T22:00:10Z'));
+    previousKek = process.env.ENCRYPTION_KEK;
+    process.env.ENCRYPTION_KEK = KEK;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env.ENCRYPTION_KEK = previousKek;
+  });
+
+  /** RefundsService con un TotpService de verdad sobre el Redis que se le pase. */
+  function withRealTotp(redis = createFakeRedis()) {
+    const user = { email: 'manager@nightpay.local', totpSecret: sealTotpSecret(SECRET, KEK) };
+    const kit = makeTotpKit({ redis });
+    return { ...makeService({ payment: bigPayment, user, totp: kit.totp }), redis };
+  }
+
+  async function failureOf(promise: Promise<unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
+    const err = await promise.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    if (!(err instanceof HttpException)) throw new Error(`se esperaba un error HTTP y llegó ${String(err)}`);
+    return { status: err.getStatus(), body: err.getResponse() as Record<string, unknown> };
+  }
+
+  it('sin código → 403 TOTP_REQUIRED (el panel pide el código)', async () => {
+    const { svc, prismaMock } = withRealTotp();
+    const res = await failureOf(svc.refund(big, manager));
+    expect(res).toEqual({ status: 403, body: expect.objectContaining({ code: 'TOTP_REQUIRED' }) });
+    expect(prismaMock.refund.create).not.toHaveBeenCalled();
+  });
+
+  it('código incorrecto → 403 TOTP_INVALID y no se reserva nada', async () => {
+    const { svc, prismaMock } = withRealTotp();
+    const res = await failureOf(svc.refund({ ...big, totpCode: '000000' }, manager));
+    expect(res).toEqual({
+      status: 403,
+      body: expect.objectContaining({ code: 'TOTP_INVALID', message: 'Código 2FA incorrecto o caducado' }),
+    });
+    expect(prismaMock.refund.create).not.toHaveBeenCalled();
+  });
+
+  it('el mismo código otra vez → 403 TOTP_INVALID con «espera al siguiente (cambia cada 30 s)»', async () => {
+    const { svc } = withRealTotp();
+    const code = totpCodeAt(SECRET);
+    await expect(svc.refund({ ...big, totpCode: code }, manager)).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    const res = await failureOf(svc.refund({ ...big, totpCode: code }, manager));
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ code: 'TOTP_INVALID' });
+    expect(String(res.body.message)).toMatch(/[Ee]spera al siguiente \(cambia cada 30 s\)/);
+  });
+
+  it('5 códigos malos → 429 con su mensaje, y el bueno tampoco pasa mientras dura', async () => {
+    const { svc } = withRealTotp();
+    for (let i = 0; i < 4; i++) {
+      expect((await failureOf(svc.refund({ ...big, totpCode: '000000' }, manager))).status).toBe(403);
+    }
+    const locked = await failureOf(svc.refund({ ...big, totpCode: '000000' }, manager));
+    expect(locked.status).toBe(429);
+    expect(String(locked.body.message)).toMatch(/Demasiados códigos 2FA incorrectos\. Espera 15 min/);
+    expect((await failureOf(svc.refund({ ...big, totpCode: totpCodeAt(SECRET) }, manager))).status).toBe(429);
+  });
+
+  it('dos réplicas (mismo Redis): el código usado en una se rechaza en la otra', async () => {
+    const redis = createFakeRedis();
+    const a = withRealTotp(redis);
+    const b = withRealTotp(redis);
+    const code = totpCodeAt(SECRET);
+    await expect(a.svc.refund({ ...big, totpCode: code }, manager)).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    const res = await failureOf(b.svc.refund({ ...big, totpCode: code }, manager));
+    expect(res).toEqual({ status: 403, body: expect.objectContaining({ code: 'TOTP_INVALID' }) });
+    expect(b.prismaMock.refund.create).not.toHaveBeenCalled();
   });
 });
 

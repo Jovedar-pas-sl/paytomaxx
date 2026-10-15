@@ -16,6 +16,7 @@ import type { GatewayAdapter } from '../gateways/gateway.adapter';
 import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { TotpService } from '../auth/totp.service';
+import { totpForbidden } from '../auth/totp-code';
 import { AuditService } from '../audit/audit.service';
 import { MetricsService } from '../metrics/metrics.service';
 import type { Provider, Role } from '@nightpay/contracts';
@@ -41,6 +42,9 @@ import type { TransactionalClient } from '../../common/prisma/prisma.service';
  * pasarela aún puede estar contestando a la petición original.
  */
 const MANUAL_RESOLVE_AFTER_MS = 2 * 60 * 1000;
+
+const REFUND_TOTP_NOT_ENROLLED =
+  'Para devolver desde 100 € hace falta la app de verificación (2FA) y no la tienes activada: pide al dueño que te la active.';
 
 export interface RefundRequest {
   paymentId: string;
@@ -171,7 +175,8 @@ export class RefundsService {
    * 24 h), no por petición: 99,99 € × N ya no lo esquiva. Se decide dentro de
    * la transacción de la reserva, con su candado por persona tomado, así que
    * dos peticiones suyas a la vez no pasan las dos por debajo del umbral.
-   * Devuelve si se pidió el código.
+   * Intentos y códigos usados, por persona en Redis (vale con varias
+   * réplicas). Devuelve si se pidió el código.
    */
   private async checkTwoFactor(
     tx: TransactionalClient,
@@ -182,10 +187,7 @@ export class RefundsService {
     const reason = twoFactorReason(request.amountCents, totals);
     if (!reason) return false;
     if (!request.totpCode) {
-      throw new ForbiddenException({
-        message: `Hace falta el código 2FA: ${reason} devueltos (desde 100 € se pide).`,
-        code: 'TOTP_REQUIRED',
-      });
+      throw totpForbidden('required', `Hace falta el código 2FA: ${reason} devueltos (desde 100 € se pide).`);
     }
     // Su propia ficha, sin el filtro de local: un super-admin que está mirando
     // otro local no aparece en ese local (antes daba «no la tienes activada»).
@@ -195,16 +197,12 @@ export class RefundsService {
         select: { totpSecret: true, email: true },
       }),
     );
-    if (!user?.totpSecret) {
-      throw new ForbiddenException({
-        message:
-          'Para devolver desde 100 € hace falta la app de verificación (2FA) y no la tienes activada: pide al dueño que te la active.',
-        code: 'TOTP_NOT_ENROLLED',
-      });
-    }
-    if (!this.totp.verify(user.totpSecret, request.totpCode)) {
-      this.logger.warn(`TOTP invalid for user ${actor.userId} (${user.email})`);
-      throw new ForbiddenException({ message: 'Código 2FA incorrecto o caducado', code: 'TOTP_INVALID' });
+    if (!user?.totpSecret) throw totpForbidden('notEnrolled', REFUND_TOTP_NOT_ENROLLED);
+    try {
+      await this.totp.checkStoredForUser(actor.userId, user.totpSecret, request.totpCode);
+    } catch (err) {
+      this.logger.warn(`2FA rechazada en una devolución: user ${actor.userId} (${user.email})`);
+      throw err;
     }
     this.logger.log(`TOTP verified for refund (${reason}): user=${actor.userId}`);
     return true;

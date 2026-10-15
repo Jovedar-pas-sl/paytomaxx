@@ -753,10 +753,8 @@ export class AdminController {
   ) {
     // Pagar a una chica mueve dinero: con 2FA activada, hace falta el código
     // (una sesión robada no basta para mandar su dinero a otra cuenta).
-    const payer = await this.prisma.acrossVenues((tx) =>
-      tx.user.findUnique({ where: { id: user.sub }, select: { totpSecret: true } }),
-    );
-    this.totp.assertIfEnrolled(payer?.totpSecret, dto.totpCode);
+    // Intentos y códigos usados en Redis: valen entre réplicas del API.
+    await this.totp.assertIfEnrolledForUser(user.sub, dto.totpCode);
     return this.operators.createPayout(tenantId, id, user.sub, dto.notes, {
       externalTxId: dto.externalTxId,
       externalRail: dto.externalRail,
