@@ -276,7 +276,7 @@ describe('PeanpeAdapter.mapWebhookToFsmEvent', () => {
     }
   });
 
-  it('FAILED cuando status != 200', () => {
+  it('status != 200 → null: una denegación no cierra el cobro (el cliente puede reintentar)', () => {
     const { adapter } = makeAdapter();
     const evt = adapter.mapWebhookToFsmEvent({
       identificador_llamada: 'ABC123',
@@ -284,10 +284,12 @@ describe('PeanpeAdapter.mapWebhookToFsmEvent', () => {
       msg: 'Card Error',
       _paymentId: 'payment-uuid-1',
     });
-    expect(evt!.event.type).toBe('FAILED');
-    if (evt!.event.type === 'FAILED') {
-      expect(evt!.event.reason).toMatch(/101/);
-    }
+    expect(evt).toBeNull();
+  });
+
+  it('sin identificador_llamada → null (nunca un pedido vacío)', () => {
+    const { adapter } = makeAdapter();
+    expect(adapter.mapWebhookToFsmEvent({ status: '200', _paymentId: 'payment-uuid-1' })).toBeNull();
   });
 
   it('null sin _paymentId resuelto', () => {
@@ -346,6 +348,19 @@ describe('PeanpeAdapter — helpers para webhook controller', () => {
       seguridad: '0000000000',
     });
     expect(fail).toBeNull();
+  });
+});
+
+describe('PeanpeAdapter.proveApproval — el aviso de Peanpe no prueba nada (#1)', () => {
+  it('siempre unverifiable: el cobro nunca se da por pagado solo con el aviso', async () => {
+    const { adapter } = makeAdapter();
+    expect(
+      await adapter.proveApproval({
+        paymentId: 'payment-uuid-1',
+        providerTxId: 'ABC123',
+        payload: { identificador_llamada: 'ABC123', status: '200', seguridad: '1234567890' },
+      }),
+    ).toEqual({ kind: 'unverifiable', reason: 'peanpe-sin-consulta' });
   });
 });
 

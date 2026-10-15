@@ -11,7 +11,7 @@ import type {
   RefundResult,
   WebhookVerifyResult,
 } from '@nightpay/contracts';
-import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
+import type { ApprovalProof, GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, timedFire } from './circuit-breaker';
 import { MetricsService } from '../metrics/metrics.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -77,15 +77,23 @@ export function peanpeCantidad(amountCents: number, format: 'cents' | 'euros'): 
  *         responde con `securityToken` (10 dígitos, texto plano).
  *      b) GET /v1/webhooks/peanpe/notify con status, msg, identificador_llamada,
  *         debug, accion, seguridad → NightPay valida seguridad === securityToken
- *         + dispara FSM transition.
+ *         y apunta el resultado (sin marcar el cobro pagado: ver abajo).
  *
  * Limitaciones documentadas:
  *  - identificador_llamada max 6 chars (tabla mapping resuelve el problema con
  *    nuestros UUIDs).
  *  - No hay endpoint refund por API — refund manual desde panel peanpe.com.
  *  - No hay endpoint status — orphan-reconcile no puede consultar Peanpe.
+ *  - El aviso de resultado NO prueba nada: el identificador_llamada va en la
+ *    URL que ve el cliente, y el reto (POST) devuelve el securityToken a
+ *    quien lo pida. Cualquiera puede mandar "status=200". Por eso un aviso
+ *    "pagado" de Peanpe nunca marca el cobro como pagado: queda apuntado,
+ *    sale en Incidencias y el dueño lo comprueba en el panel de Peanpe y lo
+ *    resuelve a mano (proveApproval → unverifiable).
  *  - HTTP en URL base (riesgo MITM; mitigación: la firma HMAC protege la
- *    integridad de los parámetros aunque la URL viaje en HTTP).
+ *    integridad de los parámetros aunque la URL viaje en HTTP). La base es
+ *    configurable (PEANPE_API_BASE_URL); no se fuerza https porque no está
+ *    comprobado que el API de Peanpe responda igual por https.
  */
 @Injectable()
 export class PeanpeAdapter implements GatewayAdapter {
@@ -328,26 +336,33 @@ export class PeanpeAdapter implements GatewayAdapter {
     // El controller habrá hecho el lookup paymentRef → paymentId y lo añade
     // como _paymentId al payload antes de llamar mapWebhookToFsmEvent.
     const paymentId = p._paymentId;
-    if (!paymentId) return null;
+    const idLlamada = p.identificador_llamada ?? '';
+    if (!paymentId || !idLlamada) return null;
 
-    // Status "200" → AUTHORIZED. Cualquier otro → FAILED.
+    // Status "200" = el aviso DICE que está pagado. Es solo eso: el
+    // procesador pide la prueba (proveApproval) y, como Peanpe no la puede
+    // dar, no lo marca pagado — lo deja en Incidencias para comprobarlo.
     if (p.status === '200' || p.status === 200) {
       return {
         paymentId,
-        event: {
-          type: 'AUTHORIZED',
-          providerTxId: p.identificador_llamada ?? '',
-          provider: 'PEANPE',
-        },
+        event: { type: 'AUTHORIZED', providerTxId: idLlamada, provider: 'PEANPE' },
       };
     }
-    return {
-      paymentId,
-      event: {
-        type: 'FAILED',
-        reason: `peanpe_${p.status}_${p.msg ?? 'unknown'}`.slice(0, 100),
-      },
-    };
+    // Denegación: NO se marca FAILED. El cliente puede reintentar en la
+    // página de Peanpe, y este aviso lo puede mandar cualquiera. El
+    // resultado queda guardado en peanpe_calls (persistCallbackResult).
+    this.logger.log(`Peanpe aviso no pagado: id_llamada=${idLlamada} status=${String(p.status)}`);
+    return null;
+  }
+
+  /**
+   * Peanpe no tiene API para consultar un cobro y su aviso no va firmado
+   * (ver cabecera): no hay forma de probar que se pagó. Nunca se da por
+   * pagado solo; el dueño lo comprueba en el panel y lo resuelve a mano. Si
+   * Peanpe ofrece algún día consulta de estado, se usa aquí.
+   */
+  proveApproval(): Promise<ApprovalProof> {
+    return Promise.resolve({ kind: 'unverifiable', reason: 'peanpe-sin-consulta' });
   }
 
   // ─── Helpers públicos para webhook controller + endpoint redirect ─
@@ -417,7 +432,8 @@ export class PeanpeAdapter implements GatewayAdapter {
   /**
    * Resolución id_llamada → paymentId para el webhook GET de resultado.
    * También valida que el `seguridad` recibido coincida con el securityToken
-   * persistido (anti-spoof).
+   * persistido. Ojo: eso NO autentica a Peanpe (el reto entrega el token a
+   * quien lo pida); solo filtra avisos con un id_llamada inventado.
    */
   async resolvePaymentFromCallback(input: {
     identificadorLlamada: string;

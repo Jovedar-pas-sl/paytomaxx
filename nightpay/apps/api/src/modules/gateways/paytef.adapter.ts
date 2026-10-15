@@ -11,7 +11,7 @@ import type {
   RefundResult,
   WebhookVerifyResult,
 } from '@nightpay/contracts';
-import type { GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
+import type { ApprovalClaim, ApprovalProof, GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, fetchWithTimeout, timedFire } from './circuit-breaker';
 import { pickHeader } from './header-utils';
 import { MetricsService } from '../metrics/metrics.service';
@@ -60,6 +60,33 @@ const PaytefWebhookPayloadSchema = z.object({
 });
 type PaytefWebhookPayload = z.infer<typeof PaytefWebhookPayloadSchema>;
 
+/** Respuesta de `GET /payment-link/get/{paymentID}`. */
+const PaytefGetResponseSchema = z.object({ data: PaytefPaymentLinkSchema.optional() });
+
+/**
+ * ¿Modo test (sandbox) en Paytef? PAYTEF_FORCE_TEST=true|false manda. Sin la
+ * variable: en producción NO (antes era test por defecto: los cobros reales
+ * se quedaban en sandbox) y en desarrollo sí. `warn` = producción sin la
+ * variable, para avisar en el log.
+ */
+export function paytefTestMode(
+  forceTest: string | undefined,
+  nodeEnv: string | undefined,
+): { isTest: boolean; warn: boolean } {
+  if (forceTest === 'true') return { isTest: true, warn: false };
+  if (forceTest === 'false') return { isTest: false, warn: false };
+  const production = nodeEnv === 'production';
+  return { isTest: !production, warn: production };
+}
+
+/** Id del Payment LINK de un aviso: `data.id` o `paymentID` (si vienen los dos, iguales). */
+function linkIdOf(p: PaytefWebhookPayload): string | null {
+  const fromData = p.data?.id?.trim() || null;
+  const fromRoot = p.paymentID?.trim() || null;
+  if (fromData && fromRoot && fromData !== fromRoot) return null;
+  return fromData ?? fromRoot;
+}
+
 @Injectable()
 export class PaytefAdapter implements GatewayAdapter {
   readonly provider = 'PAYTEF' as const;
@@ -77,6 +104,8 @@ export class PaytefAdapter implements GatewayAdapter {
   // Cache de la respuesta cruda de /getBranches para debugging (qué IDs y
   // shape devolvió Paytef cuando auto-resolvimos).
   private cachedBranchRaw: string | null = null;
+  // Aviso "producción sin PAYTEF_FORCE_TEST" una sola vez por proceso.
+  private testModeWarned = false;
 
   constructor(
     @Inject(ConfigService) config: ConfigService,
@@ -171,11 +200,9 @@ export class PaytefAdapter implements GatewayAdapter {
         userEmail: 'cliente@nightpay.local',
         expirationHours: 24,
         language: 'ES',
-        // FORCED TEST MODE: cuenta del cliente puede estar activada SOLO en
-        // test mode (sandbox) mientras Paytef tramita el alta producción.
-        // Si esto destraba el /save, sabemos que la cuenta no está aún en prod.
-        // Override con env var PAYTEF_FORCE_TEST=false cuando esté en prod.
-        isTest: this.config.get<string>('PAYTEF_FORCE_TEST') === 'false' ? false : true,
+        // Modo test (sandbox): ver paytefTestMode. PAYTEF_FORCE_TEST=true lo
+        // fuerza (cuenta aún sin alta en producción).
+        isTest: this.isTestMode(),
         notifyResultURL: this.webhookUrl(),
         notifyResultURLKo: this.webhookUrl(), // mismo endpoint, evento distingue
       },
@@ -252,14 +279,30 @@ export class PaytefAdapter implements GatewayAdapter {
   }
 
   private async doGetStatus(_tenantId: string, providerTxId: string): Promise<GatewayStatus> {
-    const res = await fetchWithTimeout(
-      `${this.baseUrl()}/payment-link/get/${providerTxId}`,
-      { headers: { Authorization: this.authHeader() } },
-      this.timeoutMs,
-    );
-    if (!res.ok) return 'UNKNOWN';
-    const data = (await res.json()) as { data?: PaytefPaymentLink };
-    return mapPaytefStatus(data.data);
+    const found = await this.fetchLink(providerTxId);
+    return found.ok ? mapPaytefStatus(found.link) : 'UNKNOWN';
+  }
+
+  /**
+   * El Payment LINK tal como lo tiene Paytef (fuente de verdad). ok=false si
+   * no se pudo consultar (red, 5xx, respuesta rara): quien llama reintenta.
+   */
+  private async fetchLink(
+    linkId: string,
+  ): Promise<{ ok: true; link: PaytefPaymentLink | undefined } | { ok: false; reason: string }> {
+    try {
+      const res = await fetchWithTimeout(
+        `${this.baseUrl()}/payment-link/get/${encodeURIComponent(linkId)}`,
+        { headers: { Authorization: this.authHeader() } },
+        this.timeoutMs,
+      );
+      if (!res.ok) return { ok: false, reason: `paytef-http-${res.status}` };
+      const parsed = PaytefGetResponseSchema.safeParse(await res.json());
+      if (!parsed.success) return { ok: false, reason: 'paytef-respuesta-rara' };
+      return { ok: true, link: parsed.data.data };
+    } catch (err) {
+      return { ok: false, reason: `paytef-sin-respuesta: ${(err as Error).message}`.slice(0, 200) };
+    }
   }
 
   /**
@@ -287,10 +330,10 @@ export class PaytefAdapter implements GatewayAdapter {
   //    Solo Paytef conoce esa URL (admin la configura en notifyResultURL).
   //    Eso ya filtra el 99% de tráfico atacante.
   //
-  // 2) Validación cruzada: el adapter relee `paymentID` contra Paytef
-  //    (`GET /payment-link/get/{id}`) para confirmar el estado — un atacante
-  //    que conozca la URL no puede falsear estados, Paytef es la fuente de
-  //    verdad.
+  // 2) Validación cruzada: antes de dar un cobro por pagado, proveApproval
+  //    relee el link contra Paytef (`GET /payment-link/get/{id}`): aprobado,
+  //    del mismo cobro (clientID) y por el mismo importe. Quien conozca la
+  //    URL no puede marcar nada como pagado: Paytef es la fuente de verdad.
   //
   // Cuando Paytef añada firma HMAC al webhook (PR pedido), actualizamos.
   //
@@ -338,7 +381,9 @@ export class PaytefAdapter implements GatewayAdapter {
       return { valid: false, reason: 'invalid-json' };
     }
 
-    const paymentID = parsed.paymentID ?? parsed.data?.id;
+    // Id del link no vacío (y el mismo si viene dos veces): un providerTxId ''
+    // dejaría el cobro sin pedido de Paytef y sin poder devolverlo.
+    const paymentID = linkIdOf(parsed);
     const paymentRef = parsed.data?.clientID; // nuestro UUID interno
     if (!paymentID || !paymentRef) {
       return { valid: false, reason: 'missing-paymentID-or-clientID' };
@@ -358,8 +403,20 @@ export class PaytefAdapter implements GatewayAdapter {
     const p = result.data;
     const data = p.data;
     if (!data || !data.clientID) return null;
+    const linkId = linkIdOf(p);
+    if (!linkId) return null;
 
-    // Cancelado o expirado → FAILED
+    // Aprobado → AUTHORIZED (antes que caducado: un link pagado que luego
+    // caduca sigue estando pagado). El procesador lo comprueba con Paytef
+    // (proveApproval) antes de darlo por pagado.
+    if (data.lastResult?.isApproved === true) {
+      return {
+        paymentId: data.clientID,
+        event: { type: 'AUTHORIZED', providerTxId: linkId, provider: 'PAYTEF' },
+      };
+    }
+
+    // Cancelado o caducado en Paytef: ya no se puede pagar ese link.
     if (data.isCanceled || data.isExpired) {
       return {
         paymentId: data.clientID,
@@ -367,31 +424,26 @@ export class PaytefAdapter implements GatewayAdapter {
       };
     }
 
-    // Resultado aprobado → AUTHORIZED
-    if (data.lastResult?.isApproved === true) {
-      return {
-        paymentId: data.clientID,
-        event: {
-          type: 'AUTHORIZED',
-          providerTxId: data.id ?? '',
-          provider: 'PAYTEF',
-        },
-      };
-    }
-
-    // Resultado declinado (lastResult presente pero isApproved=false)
-    if (data.lastResult && data.lastResult.isApproved === false) {
-      return {
-        paymentId: data.clientID,
-        event: {
-          type: 'FAILED',
-          reason: data.lastResult.resultReason ?? data.lastResult.resultCode ?? 'declined',
-        },
-      };
-    }
-
-    // No es un evento terminal — ignorar (lifecycle interno Paytef)
+    // Denegación (lastResult con isApproved=false): NO se marca FAILED. El
+    // cliente puede reintentar con otra tarjeta en el mismo link.
+    // Lo demás no es un evento terminal (lifecycle interno Paytef).
     return null;
+  }
+
+  /**
+   * Prueba de la aprobación: el link tal como lo tiene Paytef. Tiene que estar
+   * aprobado, ser de este cobro (clientID) y traer importe. El aviso solo lo
+   * protege la URL secreta, así que de él no se usa nada más que el id.
+   */
+  async proveApproval(claim: ApprovalClaim): Promise<ApprovalProof> {
+    const found = await this.fetchLink(claim.providerTxId);
+    if (!found.ok) return { kind: 'unavailable', reason: found.reason };
+    const link = found.link;
+    if (!link) return { kind: 'rejected', reason: 'paytef-link-desconocido' };
+    if (link.clientID !== claim.paymentId) return { kind: 'rejected', reason: 'paytef-link-de-otro-cobro' };
+    if (link.lastResult?.isApproved !== true) return { kind: 'rejected', reason: 'paytef-no-aprobado' };
+    if (typeof link.amountCents !== 'number') return { kind: 'rejected', reason: 'paytef-sin-importe' };
+    return { kind: 'confirmed', amountCents: link.amountCents, currency: link.currency ?? null };
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────
@@ -525,6 +577,20 @@ export class PaytefAdapter implements GatewayAdapter {
     return this.config.get<string>('PAYTEF_API_URL') ?? 'https://api.paytef.es/gcf';
   }
 
+  private isTestMode(): boolean {
+    const mode = paytefTestMode(
+      this.config.get<string>('PAYTEF_FORCE_TEST'),
+      this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV,
+    );
+    if (mode.warn && !this.testModeWarned) {
+      this.testModeWarned = true;
+      this.logger.warn(
+        'PAYTEF_FORCE_TEST sin definir en producción: los links de Paytef se crean en modo REAL (isTest=false). Pon PAYTEF_FORCE_TEST=true si la cuenta aún es de pruebas.',
+      );
+    }
+    return mode.isTest;
+  }
+
   /**
    * Construye el header Authorization. Acepta token con o sin prefijo
    * "PAYTEF-TOKEN " (algunos admins copian el header completo del panel).
@@ -549,16 +615,18 @@ export class PaytefAdapter implements GatewayAdapter {
 
 /**
  * Mapea el estado de un PaymentLink Paytef al status interno NightPay.
+ *  - lastResult.isApproved=true → AUTHORIZED (aunque luego haya caducado:
+ *    un link pagado sigue pagado)
  *  - isCanceled/isExpired → FAILED
- *  - lastResult.isApproved=true → AUTHORIZED
- *  - lastResult.isApproved=false → FAILED
+ *  - lastResult.isApproved=false → FAILED (denegado ahora; el cliente puede
+ *    reintentar: la conciliación no cierra el cobro con esto)
  *  - isFinished sin lastResult → UNKNOWN (caso raro)
  *  - default (esperando pago) → PROCESSING
  */
 function mapPaytefStatus(data: PaytefPaymentLink | undefined): GatewayStatus {
   if (!data) return 'UNKNOWN';
-  if (data.isCanceled || data.isExpired) return 'FAILED';
   if (data.lastResult?.isApproved === true) return 'AUTHORIZED';
+  if (data.isCanceled || data.isExpired) return 'FAILED';
   if (data.lastResult && data.lastResult.isApproved === false) return 'FAILED';
   if (data.isFinished) return 'UNKNOWN';
   return 'PROCESSING';

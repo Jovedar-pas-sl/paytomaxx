@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   WipayAdapter,
+  cecabankCodeToCurrency,
   signRequest,
   signWebhook,
   numOperacionFromPaymentId,
   paymentIdFromNumOperacion,
   currencyToCecabankCode,
   parseFormUrlEncoded,
+  wipayOutcome,
 } from './wipay.adapter';
 
 const MERCHANT_ID = '111950028';
@@ -39,7 +41,6 @@ function makeAdapter(opts?: { withCreds?: boolean; apiUrl?: string }) {
     gatewayDuration: { observe: vi.fn() },
     circuitState: { set: vi.fn() },
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new WipayAdapter(config as any, metrics as any);
 }
 
@@ -258,9 +259,17 @@ describe('WipayAdapter.verifyWebhook — firma Cecabank', () => {
     const result = adapter.verifyWebhook({}, Buffer.from(body));
     expect(result.valid).toBe(true);
     if (result.valid) {
-      expect(result.externalEventId).toBe('op-test-1');
+      expect(result.externalEventId).toBe('op-test-1-approved');
       expect(result.paymentRef).toBe('op-test-1');
     }
+  });
+
+  it('una denegación y el OK posterior de la misma operación no se deduplican entre sí', () => {
+    const ko = adapter.verifyWebhook({}, Buffer.from(buildWebhookBody({ Num_aut: '', COD_AUT: '190' })));
+    const ok = adapter.verifyWebhook({}, Buffer.from(buildWebhookBody()));
+    expect(ko.valid && ok.valid).toBe(true);
+    expect(ko.externalEventId).toBe('op-test-1-denied');
+    expect(ok.externalEventId).not.toBe(ko.externalEventId);
   });
 
   it('rechaza firma incorrecta', () => {
@@ -312,25 +321,26 @@ describe('WipayAdapter.mapWebhookToFsmEvent — códigos Cecabank', () => {
     }
   });
 
-  it('COD_AUT=190 → FAILED', () => {
+  it('COD_AUT=190 (denegada) → null: no se cierra el cobro, el cliente puede reintentar (#5)', () => {
     const evt = adapter.mapWebhookToFsmEvent({
       Num_operacion: 'op-x',
       COD_AUT: '190',
     });
-    expect(evt?.event.type).toBe('FAILED');
+    expect(evt).toBeNull();
   });
 
-  it('COD_AUT=400 (anulación) NO se trata como FAILED de pago (no >= 100)', () => {
-    // 400 según manual = "Anulación aceptada" → es operación correcta de anulación
-    // pero NO un FAILED. En NightPay no transicionamos para este código.
+  it('COD_AUT=400 (anulación) → null: no es un cobro ni lo cierra', () => {
     const evt = adapter.mapWebhookToFsmEvent({
       Num_operacion: 'op-x',
       COD_AUT: '400',
     });
-    // 400 >= 100 → según nuestro mapping cae a FAILED. Documentamos esta
-    // limitación: refunds vía Cecabank los gestionamos manualmente, así
-    // que ver FAILED aquí no es bloqueante (anulación = no compra exitosa).
-    expect(evt?.event.type).toBe('FAILED');
+    expect(evt).toBeNull();
+  });
+
+  it('COD_AUT de error manda aunque venga también Num_aut', () => {
+    expect(wipayOutcome({ Num_aut: '101010', COD_AUT: '190' })).toBe('denied');
+    expect(wipayOutcome({ Num_aut: '101010', COD_AUT: '000' })).toBe('approved');
+    expect(wipayOutcome({})).toBe('unknown');
   });
 
   it('sin Num_aut y sin COD_AUT → null (defensivo)', () => {
@@ -341,5 +351,77 @@ describe('WipayAdapter.mapWebhookToFsmEvent — códigos Cecabank', () => {
   it('sin Num_operacion → null', () => {
     const evt = adapter.mapWebhookToFsmEvent({ Num_aut: '101010' });
     expect(evt).toBeNull();
+  });
+});
+
+describe('WipayAdapter.proveApproval — importe de la parte firmada (#51)', () => {
+  const OP = 'aabbccdd112233445566778899aabbcc';
+  function signedPayload(overrides: Record<string, string> = {}): Record<string, string> {
+    const fields: Record<string, string> = {
+      MerchantID: MERCHANT_ID,
+      AcquirerBIN: ACQUIRER_BIN,
+      TerminalID: TERMINAL_ID,
+      Num_operacion: OP,
+      Importe: '4850',
+      TipoMoneda: '978',
+      Exponente: '2',
+      Referencia: 'ref1',
+      Num_aut: '101010',
+      ...overrides,
+    };
+    const Firma = signWebhook({
+      claveEncriptacion: CLAVE,
+      merchantId: fields.MerchantID!,
+      acquirerBin: fields.AcquirerBIN!,
+      terminalId: fields.TerminalID!,
+      numOperacion: fields.Num_operacion!,
+      importe: fields.Importe!,
+      tipoMoneda: fields.TipoMoneda!,
+      exponente: fields.Exponente!,
+      referencia: fields.Referencia!,
+    });
+    return { ...fields, Firma };
+  }
+  const claim = (payload: Record<string, string>) => ({
+    paymentId: 'aabbccdd-1122-3344-5566-778899aabbcc',
+    providerTxId: OP,
+    payload,
+  });
+
+  it('firma buena → importe (céntimos) y moneda ISO del aviso firmado', async () => {
+    expect(await makeAdapter().proveApproval(claim(signedPayload()))).toEqual({
+      kind: 'confirmed',
+      amountCents: 4850,
+      currency: 'EUR',
+    });
+  });
+
+  it('importe tocado después de firmar → rejected', async () => {
+    const forged = { ...signedPayload(), Importe: '1' };
+    expect(await makeAdapter().proveApproval(claim(forged))).toMatchObject({ kind: 'rejected' });
+  });
+
+  it('Num_aut no va en la firma: cambiarlo no cambia la prueba (ni se usa como autorización)', async () => {
+    const other = { ...signedPayload(), Num_aut: '999999' };
+    expect(await makeAdapter().proveApproval(claim(other))).toMatchObject({ kind: 'confirmed', amountCents: 4850 });
+  });
+
+  it('otra operación, otro exponente o sin credenciales → no se da por bueno', async () => {
+    expect(await makeAdapter().proveApproval({ ...claim(signedPayload()), providerTxId: 'otra' })).toMatchObject({
+      kind: 'rejected',
+      reason: 'operacion-distinta',
+    });
+    expect(await makeAdapter().proveApproval(claim(signedPayload({ Exponente: '0' })))).toMatchObject({
+      kind: 'rejected',
+      reason: 'exponente-no-soportado',
+    });
+    expect(await makeAdapter({ withCreds: false }).proveApproval(claim(signedPayload()))).toMatchObject({
+      kind: 'unavailable',
+    });
+  });
+
+  it('cecabankCodeToCurrency: 978 → EUR; desconocido tal cual', () => {
+    expect(cecabankCodeToCurrency('978')).toBe('EUR');
+    expect(cecabankCodeToCurrency('123')).toBe('123');
   });
 });
