@@ -39,8 +39,13 @@ export class TotpService {
 
   /** Secreto nuevo + URL otpauth para el QR. Se guarda con sealSecret(). */
   generateSecret(label: string, issuer = BRAND_NAME): { base32: string; otpauthUrl: string } {
-    const { base32 } = speakeasy.generateSecret({ length: 20 });
+    const base32 = this.newSecret();
     return { base32, otpauthUrl: buildOtpauthUrl(base32, label, issuer) };
+  }
+
+  /** Secreto base32 nuevo (160 bits, lo recomendado por RFC 4226). */
+  newSecret(): string {
+    return speakeasy.generateSecret({ length: 20 }).base32;
   }
 
   /** Lo que se guarda en users.totpSecret: el secreto cifrado con ENCRYPTION_KEK. */

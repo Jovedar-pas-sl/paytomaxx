@@ -12,6 +12,16 @@ const KEK = 'test_kek_0123456789abcdef0123456789abcdef_v1';
 const NOW = new Date('2026-10-15T22:00:10Z');
 const STEP = totpStepAt(NOW.getTime());
 
+/** Código HTTP con el que falla la promesa (null si no falla). */
+async function statusOf(promise: Promise<unknown>): Promise<number | null> {
+  try {
+    await promise;
+    return null;
+  } catch (e) {
+    return e instanceof HttpException ? e.getStatus() : -1;
+  }
+}
+
 function codeAt(secret: string, step = STEP): string {
   return speakeasy.totp({ secret, encoding: 'base32', counter: step });
 }
@@ -149,8 +159,7 @@ describe('API por usuario (Redis): assertIfEnrolledForUser / assertForUser', () 
     await expect(totp.assertIfEnrolledForUser('u1', undefined)).rejects.toThrow(/Pon el código/);
 
     for (let i = 0; i < 3; i++) await expect(totp.assertForUser('u1', '000000')).rejects.toThrow(/incorrecto/);
-    const err = await totp.assertForUser('u1', '000000').catch((e: unknown) => e as HttpException);
-    expect(err.getStatus()).toBe(429);
+    expect(await statusOf(totp.assertForUser('u1', '000000'))).toBe(429);
     await expect(totp.assertForUser('u1', codeAt(secret, STEP + 1))).rejects.toThrow(/Demasiados/);
   });
 

@@ -63,3 +63,34 @@ export const SwitchTenantRequestSchema = z.object({
   venueSlug: z.string().min(1).max(80),
 });
 export type SwitchTenantRequest = z.infer<typeof SwitchTenantRequestSchema>;
+
+// ── 2FA (app de verificación) ─────────────────────────────────────────
+//   GET  /v1/auth/totp          → TotpStatusResponse
+//   POST /v1/auth/totp/setup    → TotpSetupResponse (409 si ya está activada)
+//   POST /v1/auth/totp/confirm  TotpCodeRequest → { enabled: true }
+//   POST /v1/auth/totp/disable  TotpCodeRequest → { enabled: false }
+
+/** Código de 6 cifras de la app de verificación (acepta "123 456"). */
+export const TotpCodeRequestSchema = z.object({
+  code: z
+    .string()
+    .max(20)
+    .transform((s) => s.replace(/\s+/g, ''))
+    .pipe(z.string().regex(/^\d{6}$/, 'El código son 6 cifras')),
+});
+export type TotpCodeRequest = z.infer<typeof TotpCodeRequestSchema>;
+
+export const TotpStatusResponseSchema = z.object({
+  enabled: z.boolean(),
+});
+export type TotpStatusResponse = z.infer<typeof TotpStatusResponseSchema>;
+
+export const TotpSetupResponseSchema = z.object({
+  /** otpauth://totp/… — lo mismo que el QR, para copiar en el móvil. */
+  otpauthUrl: z.string(),
+  /** Secreto base32 para teclearlo a mano si no se puede escanear. */
+  secret: z.string(),
+  /** data:image/png;base64,… del QR. */
+  qrPngDataUrl: z.string(),
+});
+export type TotpSetupResponse = z.infer<typeof TotpSetupResponseSchema>;
