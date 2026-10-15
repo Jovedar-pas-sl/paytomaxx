@@ -16,17 +16,6 @@ import {
   type WalletLookup,
 } from './wallet-charges.service';
 
-const CreateRequestSchema = z
-  .object({
-    code: z.string().trim().min(6).max(10),
-    serviceItemId: z.string().uuid().optional(),
-    amountCents: z.number().int().positive().max(10_000_00).optional(),
-    category: z.enum(['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'EXTRA']).optional(),
-  })
-  .refine((b) => Boolean(b.serviceItemId) || Boolean(b.amountCents), {
-    message: 'Elige un servicio de la carta o pon un importe',
-  });
-
 /** Cobro con QR: la chica elige el servicio (o un importe); el cliente paga con Face ID. */
 const QrChargeSchema = z
   .object({
@@ -86,9 +75,8 @@ const PayoutSchema = z.object({
  *  - POST /v1/wallet-charges/cards/new          → código nuevo para grabar en una ficha vacía.
  *  - POST /v1/wallet-charges/cards              → dar ficha al saldo (al recargar, o el encargado).
  *  - POST /v1/wallet-charges/wallets/:id/card/block → (encargado) ficha perdida.
- *  - POST /v1/wallet-charges                    → pedir un cobro (el cliente lo acepta en su móvil).
- *  - GET  /v1/wallet-charges/:id                → respuesta del cliente.
- *  - POST /v1/wallet-charges/:id/cancel         → retirar la petición.
+ *  - GET  /v1/wallet-charges/:id                → el cobro con QR: ¿ya lo pagó? (quien lo hizo o el encargado).
+ *  - POST /v1/wallet-charges/:id/cancel         → retirar el cobro con QR (quien lo hizo o el encargado).
  *  - POST /v1/wallet-charges/wallets/:id/payout → devolver el saldo (tarjeta o efectivo).
  *  - POST /v1/wallet-charges/wallets/:id/relink → enlace nuevo para el cliente (dueño).
  */
@@ -246,17 +234,6 @@ export class WalletChargesController {
   @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-lookup' })
   async lookup(@CurrentUser() user: JwtPayload, @Param('code') code: string): Promise<WalletLookup> {
     return this.charges.lookup(user.tenantId, code);
-  }
-
-  @Post()
-  @HttpCode(201)
-  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
-  @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-charge' })
-  async create(
-    @CurrentUser() user: JwtPayload,
-    @Body(new ZodValidationPipe(CreateRequestSchema)) body: z.infer<typeof CreateRequestSchema>,
-  ): Promise<ChargeRequestView> {
-    return this.charges.createRequest({ userId: user.sub, role: user.role, tenantId: user.tenantId }, body);
   }
 
   @Get(':id')

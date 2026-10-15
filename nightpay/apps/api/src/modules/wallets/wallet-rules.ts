@@ -4,7 +4,8 @@ import { randomBytes, randomInt } from 'node:crypto';
  * Saldo NightPay del cliente (rediseño de la wallet). Reglas puras:
  *  - el código corto que enseña el cliente (en su móvil) para que la chica lo
  *    encuentre, sin listas de "Mesa 3";
- *  - cada gasto lo acepta el cliente en su móvil (solicitud con caducidad);
+ *  - cada gasto es un cobro con caducidad que paga el cliente (QR + Face ID, o
+ *    su código / ficha + PIN);
  *  - el saldo vale en todos los locales del mismo grupo (mismo dueño).
  */
 
@@ -64,9 +65,6 @@ export function sameWalletGroup(
   if (wallet.tenantId === venue.id) return true;
   return wallet.walletGroup !== null && wallet.walletGroup === venue.walletGroup;
 }
-
-/** El cliente tiene este tiempo para aceptar un cobro en su móvil. */
-export const CHARGE_REQUEST_TTL_MS = 3 * 60 * 1000;
 
 export type ChargeRequestStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CANCELED';
 

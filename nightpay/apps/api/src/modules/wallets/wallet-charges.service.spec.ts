@@ -34,7 +34,7 @@ function request(o: Record<string, unknown> = {}) {
   };
 }
 
-function makeService(opts: { wallet?: ReturnType<typeof wallet> | null; pending?: unknown; venueGroup?: string | null } = {}) {
+function makeService(opts: { wallet?: ReturnType<typeof wallet> | null; venueGroup?: string | null } = {}) {
   const w = opts.wallet === undefined ? wallet() : opts.wallet;
   const tx = {
     clientWallet: {
@@ -44,7 +44,8 @@ function makeService(opts: { wallet?: ReturnType<typeof wallet> | null; pending?
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     walletChargeRequest: {
-      findFirst: vi.fn().mockResolvedValue(opts.pending ?? null),
+      findFirst: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'req-new', status: 'PENDING', ...data })),
       update: vi.fn().mockResolvedValue({}),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -158,90 +159,88 @@ describe('un cobro solo lo sigue o lo retira quien lo hizo (o el encargado)', ()
   });
 });
 
-describe('pedir un cobro del saldo', () => {
-  it('con un servicio de la carta: precio y categoría del local, espera al cliente', async () => {
+describe('la chica hace un cobro con QR', () => {
+  it('con un servicio de la carta: precio y categoría del local; aún sin saldo (lo dice el cliente al pagar)', async () => {
     const { svc, tx } = makeService();
-    const out = await svc.createRequest(chica, { code: 'K7Q4M2', serviceItemId: 'svc-1' });
+    const out = await svc.createQrCharge(chica, { serviceItemId: 'svc-1' });
     expect(out).toMatchObject({ status: 'PENDING', amountCents: 10_000, serviceName: '30 min' });
+    expect(out.payToken.length).toBeGreaterThanOrEqual(32);
     expect(tx.walletChargeRequest.create.mock.calls[0]![0]).toMatchObject({
-      data: { tenantId: 'other', walletId: 'w-1', requestedByUserId: 'op-1', category: 'CHICA_SERVICE' },
+      data: { tenantId: 'other', walletId: null, requestedByUserId: 'op-1', category: 'CHICA_SERVICE' },
     });
-  });
-
-  it('se comprueba con la wallet bloqueada y los pendientes caducados se cierran antes', async () => {
-    const { svc, tx } = makeService();
-    await svc.createRequest(chica, { code: 'K7Q4M2', amountCents: 1000 });
-    expect(tx.$queryRaw).toHaveBeenCalled();
-    expect(tx.walletChargeRequest.updateMany.mock.calls[0]![0]).toMatchObject({
-      where: { walletId: 'w-1', status: 'PENDING' },
-      data: { status: 'EXPIRED' },
-    });
-  });
-
-  it('más de lo que queda o con otro cobro esperando → no', async () => {
-    const poor = makeService({ wallet: wallet({ balanceCents: 5000 }) });
-    await expect(poor.svc.createRequest(chica, { code: 'K7Q4M2', serviceItemId: 'svc-1' })).rejects.toThrow(
-      /no llega/,
-    );
-    const busy = makeService({ pending: request() });
-    await expect(busy.svc.createRequest(chica, { code: 'K7Q4M2', amountCents: 1000 })).rejects.toThrow(
-      /otro cobro/,
-    );
   });
 
   it('la chica no puede cobrar barra con importe libre', async () => {
     const { svc } = makeService();
-    await expect(
-      svc.createRequest(chica, { code: 'K7Q4M2', amountCents: 1000, category: 'VENUE_BAR' }),
-    ).rejects.toThrow(/tus servicios/);
+    await expect(svc.createQrCharge(chica, { amountCents: 1000, category: 'VENUE_BAR' })).rejects.toThrow(/tus servicios/);
   });
 });
 
-describe('el cliente acepta en su móvil', () => {
-  it('descuenta el saldo, apunta el consumo en el local donde se cobra y la parte de la chica', async () => {
-    const { svc, tx } = makeService();
-    tx.walletChargeRequest.findFirst.mockResolvedValueOnce(request()).mockResolvedValue(null);
-    await svc.accept('tok', 'req-1');
+describe('el cliente paga el QR con su Face ID', () => {
+  /** El cobro con QR: sin saldo hasta que alguien lo paga. */
+  function qrService() {
+    const made = makeService();
+    made.tx.walletChargeRequest.findUnique.mockResolvedValue(request({ walletId: null, payToken: 'pay-tok' }));
+    // Dentro de la transacción, ya atado a este saldo.
+    made.tx.walletChargeRequest.findFirst.mockResolvedValue(request());
+    return made;
+  }
+
+  it('se ata a su saldo, descuenta, apunta el consumo en el local donde se cobra y la parte de la chica', async () => {
+    const { svc, tx } = qrService();
+    await svc.payQrCharge('pay-tok', 'w-1');
+    expect(tx.walletChargeRequest.updateMany.mock.calls[0]![0]).toMatchObject({
+      where: { id: 'req-1', walletId: null, status: 'PENDING' },
+      data: { walletId: 'w-1' },
+    });
     expect(tx.walletConsumption.create.mock.calls[0]![0]).toMatchObject({
       data: { tenantId: 'other', walletId: 'w-1', amountCents: 10_000, providedByUserId: 'op-1', idempotencyKey: 'charge-request:req-1' },
     });
     expect(tx.operatorEarning.create.mock.calls[0]![0]).toMatchObject({
       data: { tenantId: 'other', operatorId: 'op-1', commissionBps: 9000, commissionCents: 9000 },
     });
-    // El que acepta un cobro sigue en el local: se le quita el "Me voy".
+    // El que paga un cobro sigue en el local: se le quita el "Me voy".
     expect(tx.clientWallet.update).toHaveBeenCalledWith({
       where: { id: 'w-1' },
       data: { balanceCents: 20_000, closeRequestedAt: null },
     });
-    expect(tx.walletChargeRequest.updateMany.mock.calls[0]![0]).toMatchObject({
+    expect(tx.walletChargeRequest.updateMany.mock.calls[1]![0]).toMatchObject({
       where: { id: 'req-1', status: 'PENDING' },
       data: { status: 'ACCEPTED', consumptionId: 'cons-1' },
     });
   });
 
-  it('si la chica lo canceló mientras el cliente aceptaba, no se cobra', async () => {
-    const { svc, tx } = makeService();
-    tx.walletChargeRequest.findFirst.mockResolvedValueOnce(request()).mockResolvedValue(null);
-    tx.walletChargeRequest.updateMany.mockResolvedValueOnce({ count: 0 });
-    await expect(svc.accept('tok', 'req-1')).rejects.toThrow(/ya no está pendiente/);
+  it('si la chica lo canceló mientras el cliente pagaba, no se cobra', async () => {
+    const { svc, tx } = qrService();
+    tx.walletChargeRequest.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    await expect(svc.payQrCharge('pay-tok', 'w-1')).rejects.toThrow(/ya no está pendiente/);
   });
 
   it('caducado o sin saldo → no se cobra nada', async () => {
     const expired = makeService();
-    expired.tx.walletChargeRequest.findFirst.mockResolvedValueOnce(request({ expiresAt: new Date(Date.now() - 1) }));
-    await expect(expired.svc.accept('tok', 'req-1')).rejects.toThrow(/caducado/);
+    expired.tx.walletChargeRequest.findUnique.mockResolvedValue(
+      request({ walletId: null, payToken: 'pay-tok', expiresAt: new Date(Date.now() - 1) }),
+    );
+    await expect(expired.svc.payQrCharge('pay-tok', 'w-1')).rejects.toThrow(/ya no está pendiente/);
     expect(expired.tx.walletConsumption.create).not.toHaveBeenCalled();
 
-    const poor = makeService();
+    const poor = qrService();
     poor.tx.$queryRaw.mockResolvedValueOnce([{ id: 'w-1', balanceCents: 5000, status: 'ACTIVE' }]);
-    poor.tx.walletChargeRequest.findFirst.mockResolvedValueOnce(request());
-    await expect(poor.svc.accept('tok', 'req-1')).rejects.toThrow(ConflictException);
+    await expect(poor.svc.payQrCharge('pay-tok', 'w-1')).rejects.toThrow(ConflictException);
+    expect(poor.tx.walletConsumption.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('la página del saldo del cliente', () => {
+  it('ya no trae cobros que aceptar: solo saldo, Face ID y movimientos', async () => {
+    const { svc } = makeService();
+    const state = await svc.clientState('tok');
+    expect(state).toMatchObject({ code: 'K7Q-4M2', balanceCents: 30_000, status: 'ACTIVE', hasFaceId: false });
+    expect(state).not.toHaveProperty('pending');
   });
 
-  it('rechazar y "me voy"', async () => {
+  it('"me voy" se apunta una sola vez', async () => {
     const { svc, tx, audit } = makeService();
-    await svc.reject('tok', 'req-1');
-    expect(tx.walletChargeRequest.updateMany.mock.calls[0]![0]).toMatchObject({ data: { status: 'REJECTED' } });
     await svc.requestClose('tok');
     expect(tx.clientWallet.updateMany.mock.calls[0]![0]).toMatchObject({ where: { id: 'w-1', closeRequestedAt: null } });
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.close_requested' }));

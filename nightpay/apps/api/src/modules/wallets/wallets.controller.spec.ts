@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
+import { PublicWalletController } from './public-wallet.controller';
+import { WalletChargesController } from './wallet-charges.controller';
+import { WalletChargesService } from './wallet-charges.service';
 import { AdminWalletsController, WalletsController } from './wallets.controller';
 import { WalletsService } from './wallets.service';
 
@@ -45,5 +48,25 @@ describe('rutas de saldos para el personal', () => {
     expect('refund' in WalletsService.prototype).toBe(false);
     // Las recargas las suma al saldo el cobro (payments), no este servicio.
     expect('creditFromTopUp' in WalletsService.prototype).toBe(false);
+  });
+});
+
+describe('el cobro con petición que el cliente aceptaba en su página ya no existe', () => {
+  it('ni pedirlo (POST /v1/wallet-charges) ni aceptarlo o rechazarlo en /w/:token', () => {
+    expect(routesOf(WalletChargesController)).not.toContain('POST /');
+    expect(routesOf(PublicWalletController)).not.toContain('POST :token/requests/:id/accept');
+    expect(routesOf(PublicWalletController)).not.toContain('POST :token/requests/:id/reject');
+    for (const gone of ['createRequest', 'accept', 'reject']) {
+      expect(gone in WalletChargesService.prototype).toBe(false);
+    }
+  });
+
+  it('el cobro con QR sigue: crearlo, seguirlo, retirarlo, pagarlo con PIN y que lo apruebe el encargado', () => {
+    expect(routesOf(WalletChargesController)).toEqual(
+      expect.arrayContaining(['POST qr', 'GET :id', 'POST :id/cancel', 'POST :id/pin', 'POST :id/approve']),
+    );
+    expect(routesOf(PublicWalletController)).toEqual(
+      expect.arrayContaining(['GET :token', 'GET :token/state', 'POST :token/close', 'POST :token/passkey']),
+    );
   });
 });

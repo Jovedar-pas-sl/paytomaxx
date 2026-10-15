@@ -19,7 +19,6 @@ import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from 
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
-  CHARGE_REQUEST_TTL_MS,
   allocateCardRefund,
   decideAccept,
   effectiveRequestStatus,
@@ -43,7 +42,12 @@ export interface WalletLookup {
   isHomeVenue: boolean;
   /** El cliente pulsó "Me voy". */
   closeRequested: boolean;
-  pendingRequest: boolean;
+  /**
+   * @deprecated Siempre false: ya no hay cobros que el cliente acepte en su
+   * página (se paga con el QR de la chica o con el PIN). Se deja para no
+   * romper las apps que aún lo leen.
+   */
+  pendingRequest: false;
   /** Puede pagar sin sacar el móvil, con su PIN. */
   hasPin: boolean;
   /** 5 PIN fallidos: hasta que lo desbloquee el encargado. */
@@ -96,14 +100,6 @@ export interface ClientWalletState {
   closeRequested: boolean;
   /** El cliente activó Face ID (paga escaneando el QR de la chica). */
   hasFaceId: boolean;
-  pending: {
-    id: string;
-    amountCents: number;
-    serviceName: string | null;
-    requestedByName: string;
-    venueName: string;
-    expiresAt: string;
-  } | null;
   movements: Array<{
     kind: 'topup' | 'consumption' | 'payout';
     amountCents: number;
@@ -124,9 +120,10 @@ const REQUEST_ERRORS: Record<'not-pending' | 'expired' | 'wallet-closed' | 'insu
 };
 
 /**
- * Saldo NightPay. La chica encuentra el saldo por el código que enseña el
- * cliente y le pide un cobro; el cliente lo acepta en su móvil. Al irse, el
- * encargado le devuelve el saldo a la tarjeta (hecho en BBVA) o en efectivo.
+ * Saldo NightPay. La chica hace el cobro con un QR: el cliente lo paga desde
+ * su móvil con Face ID o, sin sacar el móvil, con su código o su ficha NFC y
+ * su PIN; sin batería, lo aprueba otro encargado. Al irse, el encargado le
+ * devuelve el saldo a la tarjeta (hecho en BBVA) o en efectivo.
  */
 @Injectable()
 export class WalletChargesService {
@@ -176,9 +173,8 @@ export class WalletChargesService {
     venueId: string,
     wallet: Awaited<ReturnType<WalletChargesService['walletByCode']>>,
   ): Promise<WalletLookup> {
-    const [home, pending, cards] = await Promise.all([
+    const [home, cards] = await Promise.all([
       this.prisma.venue.findUnique({ where: { id: wallet.tenantId }, select: { name: true } }),
-      this.pendingOf(wallet.id),
       this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId: wallet.id, status: 'ACTIVE' } })),
     ]);
     return {
@@ -189,55 +185,11 @@ export class WalletChargesService {
       homeVenueName: home?.name ?? '',
       isHomeVenue: wallet.tenantId === venueId,
       closeRequested: wallet.closeRequestedAt !== null,
-      pendingRequest: pending !== null,
+      pendingRequest: false,
       hasPin: wallet.pinHash !== null,
       pinLocked: wallet.pinLockedAt !== null,
       hasCard: cards > 0,
     };
-  }
-
-  /**
-   * Pide un cobro del saldo: con un servicio de la carta (precio y categoría
-   * del local) o un importe. El cliente lo tiene que aceptar en su móvil.
-   */
-  async createRequest(
-    actor: Actor,
-    input: { code: string; serviceItemId?: string; amountCents?: number; category?: string },
-  ): Promise<ChargeRequestView> {
-    const wallet = await this.walletByCode(actor.tenantId, input.code);
-    if (await this.hasFaceId(wallet.id)) {
-      throw new ConflictException('Este cliente paga con Face ID: enséñale el QR del cobro');
-    }
-    const { amountCents, category, serviceName } = await this.resolveCharge(actor, input);
-    const request = await this.prisma.acrossVenues(async (tx) => {
-      const locked = await tx.$queryRaw<Array<{ balanceCents: number; status: string }>>`
-        SELECT "balanceCents", status::text AS status FROM client_wallets WHERE id = ${wallet.id}::uuid FOR UPDATE
-      `;
-      const w = locked[0];
-      if (!w || w.status !== 'ACTIVE') throw new ConflictException('Este saldo ya está cerrado');
-      if (amountCents > w.balanceCents) {
-        throw new ConflictException(`Al cliente le quedan ${eur(w.balanceCents)}: no llega para ${eur(amountCents)}`);
-      }
-      const now = new Date();
-      await tx.walletChargeRequest.updateMany({
-        where: { walletId: wallet.id, status: 'PENDING', expiresAt: { lte: now } },
-        data: { status: 'EXPIRED', decidedAt: now },
-      });
-      const pending = await tx.walletChargeRequest.findFirst({ where: { walletId: wallet.id, status: 'PENDING' } });
-      if (pending) throw new ConflictException('El cliente tiene otro cobro esperando su confirmación');
-      return tx.walletChargeRequest.create({
-        data: {
-          tenantId: actor.tenantId,
-          walletId: wallet.id,
-          requestedByUserId: actor.userId,
-          amountCents,
-          category,
-          serviceName,
-          expiresAt: new Date(now.getTime() + CHARGE_REQUEST_TTL_MS),
-        },
-      });
-    });
-    return this.requestView(request, null);
   }
 
   /** Importe, categoría y nombre del cobro: de la carta o tecleado (con el tope de la chica). */
@@ -327,8 +279,7 @@ export class WalletChargesService {
 
   async clientState(qrToken: string): Promise<ClientWalletState> {
     const wallet = await this.walletByToken(qrToken);
-    const [pending, consumptions, topUps, payouts] = await Promise.all([
-      this.pendingOf(wallet.id),
+    const [consumptions, topUps, payouts] = await Promise.all([
       this.prisma.asSystem((tx) =>
         tx.walletConsumption.findMany({
           where: { walletId: wallet.id, reversedAt: null },
@@ -354,16 +305,9 @@ export class WalletChargesService {
       ),
     ]);
     const hasFaceId = (await this.prisma.walletPasskey.count({ where: { walletId: wallet.id } })) > 0;
-    const venueIds = [
-      ...new Set([...consumptions, ...topUps, ...payouts].map((m) => m.tenantId).concat(pending ? [pending.tenantId] : [])),
-    ];
+    const venueIds = [...new Set([...consumptions, ...topUps, ...payouts].map((m) => m.tenantId))];
     const venues = await this.prisma.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true } });
     const venueName = (id: string): string => venues.find((v) => v.id === id)?.name ?? '';
-    const requester = pending
-      ? await this.prisma.asSystem((tx) =>
-          tx.user.findUnique({ where: { id: pending.requestedByUserId }, select: { displayName: true } }),
-        )
-      : null;
 
     const movements: ClientWalletState['movements'] = [
       ...consumptions.map((c) => ({
@@ -395,62 +339,33 @@ export class WalletChargesService {
       status: wallet.status,
       closeRequested: wallet.closeRequestedAt !== null,
       hasFaceId,
-      pending: pending
-        ? {
-            id: pending.id,
-            amountCents: pending.amountCents,
-            serviceName: pending.serviceName,
-            requestedByName: requester?.displayName ?? 'El personal',
-            venueName: venueName(pending.tenantId),
-            expiresAt: pending.expiresAt.toISOString(),
-          }
-        : null,
       movements,
     };
   }
 
   /**
-   * El cliente acepta: en una transacción con la wallet bloqueada se descuenta
-   * el saldo, se apunta el consumo en el local donde se cobra y la parte de la
-   * chica (con la comisión de esa categoría en ese local).
-   */
-  async accept(qrToken: string, requestId: string): Promise<ClientWalletState> {
-    const wallet = await this.walletByToken(qrToken);
-    // Con Face ID activado, el enlace ya no paga: aunque alguien lo tenga, sin
-    // su móvil no puede gastar el saldo.
-    if (await this.hasFaceId(wallet.id)) {
-      throw new ForbiddenException('Tu saldo se paga con Face ID: escanea el QR del cobro');
-    }
-    // Sin local en el contexto y con bypass de RLS: la wallet, el consumo y la
-    // parte de la chica pueden ser de locales distintos del grupo.
-    await this.settleRequest(wallet.id, requestId);
-    this.logger.log(`Saldo ${wallet.id}: cobro ${requestId} aceptado por el cliente`);
-    return this.clientState(qrToken);
-  }
-
-  /**
-   * Cobra un cobro pendiente de este saldo: con el saldo bloqueado se
+   * Ata el cobro con QR a este saldo y lo cobra: con el saldo bloqueado se
    * descuenta, se apunta el consumo en el local donde se cobra y la parte de
-   * la chica (con la comisión de esa categoría en ese local).
+   * la chica (con la comisión de esa categoría en ese local). Sin local en el
+   * contexto y con bypass de RLS: el saldo, el consumo y la parte de la chica
+   * pueden ser de locales distintos del grupo. Todo o nada: si algo falla, el
+   * rollback deja el cobro libre otra vez.
    */
-  private async settleRequest(walletId: string, requestId: string, bind = false): Promise<void> {
+  private async settleRequest(walletId: string, requestId: string): Promise<void> {
     const wallet = { id: walletId };
     await this.prisma.acrossVenues(async (tx) => {
       const locked = await tx.$queryRaw<Array<{ id: string; balanceCents: number; status: string }>>`
         SELECT id, "balanceCents", status::text AS status FROM client_wallets WHERE id = ${wallet.id}::uuid FOR UPDATE
       `;
       const w = locked[0];
-      if (bind && w) {
-        // Cobro con QR: se ata a este saldo aquí mismo; si algo falla, el
-        // rollback lo deja libre otra vez (nada queda atado a medias).
-        const bound = await tx.walletChargeRequest.updateMany({
-          where: { id: requestId, walletId: null, status: 'PENDING' },
-          data: { walletId: wallet.id },
-        });
-        if (bound.count === 0) throw new ConflictException(REQUEST_ERRORS['not-pending']);
-      }
+      if (!w) throw new NotFoundException('Saldo no encontrado');
+      const bound = await tx.walletChargeRequest.updateMany({
+        where: { id: requestId, walletId: null, status: 'PENDING' },
+        data: { walletId: wallet.id },
+      });
+      if (bound.count === 0) throw new ConflictException(REQUEST_ERRORS['not-pending']);
       const request = await tx.walletChargeRequest.findFirst({ where: { id: requestId, walletId: wallet.id } });
-      if (!w || !request) throw new NotFoundException('Cobro no encontrado');
+      if (!request) throw new NotFoundException('Cobro no encontrado');
       const decision = decideAccept(request, w, new Date());
       if (!decision.ok) throw new ConflictException(REQUEST_ERRORS[decision.reason]);
 
@@ -1035,12 +950,7 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: request.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new ConflictException('Tu saldo no vale en este local');
     }
-    await this.settleRequest(walletId, request.id, true);
-  }
-
-  private async hasFaceId(walletId: string): Promise<boolean> {
-    const keys = await this.prisma.acrossVenues((tx) => tx.walletPasskey.count({ where: { walletId } }));
-    return keys > 0;
+    await this.settleRequest(walletId, request.id);
   }
 
   private async qrRequest(payToken: string) {
@@ -1060,18 +970,6 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: actor.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new NotFoundException('Saldo no encontrado');
     }
-  }
-
-  async reject(qrToken: string, requestId: string): Promise<ClientWalletState> {
-    const wallet = await this.walletByToken(qrToken);
-    const res = await this.prisma.asSystem((tx) =>
-      tx.walletChargeRequest.updateMany({
-        where: { id: requestId, walletId: wallet.id, status: 'PENDING' },
-        data: { status: 'REJECTED', decidedAt: new Date() },
-      }),
-    );
-    if (res.count === 0) throw new ConflictException('Este cobro ya no está pendiente');
-    return this.clientState(qrToken);
   }
 
   /** "Me voy": el cliente pide que le devuelvan el saldo (sale en Incidencias). */
@@ -1139,10 +1037,6 @@ export class WalletChargesService {
         throw new ConflictException('Este saldo no tiene nada que devolver');
       }
       await tx.clientWallet.update({ where: { id: walletId }, data: { status: 'REFUNDED' } });
-      await tx.walletChargeRequest.updateMany({
-        where: { walletId, status: 'PENDING' },
-        data: { status: 'CANCELED', decidedAt: new Date() },
-      });
       return w.balanceCents;
     });
 
@@ -1306,16 +1200,6 @@ export class WalletChargesService {
     const wallet = await this.prisma.asSystem((tx) => tx.clientWallet.findUnique({ where: { qrToken } }));
     if (!wallet) throw new NotFoundException('Saldo no encontrado');
     return wallet;
-  }
-
-  private async pendingOf(walletId: string) {
-    const now = new Date();
-    return this.prisma.acrossVenues((tx) =>
-      tx.walletChargeRequest.findFirst({
-        where: { walletId, status: 'PENDING', expiresAt: { gt: now } },
-        orderBy: { createdAt: 'desc' },
-      }),
-    );
   }
 
   private requestView(
