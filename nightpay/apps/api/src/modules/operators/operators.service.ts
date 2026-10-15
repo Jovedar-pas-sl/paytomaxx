@@ -19,6 +19,7 @@ import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
 import { operatorAppBaseUrl } from './operator-app-url';
 import { parseHoldDays, payoutCutoff, payoutTotalCents } from './payout-math';
+import { payoutRoutingChanges } from './payout-routing';
 import type {
   CreateOperatorDto,
   CreateOperatorResponse,
@@ -733,8 +734,7 @@ export class OperatorsService {
     if (hasPayout && wantsPayout) {
       this.logger.warn(`Self-onboarding ${(operator as { id: string }).id}: cambio de cuenta de cobro ignorado (ya tenía una)`);
     } else {
-      if (dto.payoutMethod !== undefined) data.payoutMethod = dto.payoutMethod;
-      if (dto.payoutAddress !== undefined) data.payoutAddress = dto.payoutAddress;
+      Object.assign(data, payoutRoutingChanges(existing, dto));
       if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
     }
 
@@ -846,9 +846,8 @@ export class OperatorsService {
     if (dto.active !== undefined) {
       data.deletedAt = dto.active ? null : new Date();
     }
-    // Phase 1A — payout routing
-    if (dto.payoutMethod !== undefined) data.payoutMethod = dto.payoutMethod;
-    if (dto.payoutAddress !== undefined) data.payoutAddress = dto.payoutAddress;
+    // Phase 1A — payout routing (la dirección tiene que ser del método que queda)
+    Object.assign(data, payoutRoutingChanges(operator as { payoutMethod?: string | null; payoutAddress?: string | null }, dto));
     if (dto.payoutMetadata !== undefined) data.payoutMetadata = dto.payoutMetadata;
     if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
     // Phase 1A.1 — Onboarding tracking
