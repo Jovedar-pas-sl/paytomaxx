@@ -147,11 +147,11 @@ export function SelfOnboardingClient({ token }: Props) {
   }
 
   if (loading) {
-    return <main style={pageStyle}>Cargando tu perfil…</main>;
+    return <main className="np-screen" style={pageStyle}>Cargando tu perfil…</main>;
   }
   if (error && !profile) {
     return (
-      <main style={pageStyle}>
+      <main className="np-screen" style={pageStyle}>
         <Card style={{ ...cardStyle, textAlign: 'center', borderColor: 'var(--np-danger)' }}>
           <Logo height="2rem" />
           <h1 style={{ marginTop: '1rem', color: 'var(--np-danger)' }}>Link inválido</h1>
@@ -165,7 +165,7 @@ export function SelfOnboardingClient({ token }: Props) {
   }
   if (done) {
     return (
-      <main style={pageStyle}>
+      <main className="np-screen" style={pageStyle}>
         <Card style={{ ...cardStyle, textAlign: 'center', borderColor: 'var(--np-success)' }}>
           <Logo height="2rem" />
           <h1 style={{ marginTop: '1rem', color: 'var(--np-success)', fontSize: '1.5rem' }}>✓ Guardado</h1>
@@ -182,7 +182,7 @@ export function SelfOnboardingClient({ token }: Props) {
   if (!profile) return null;
 
   return (
-    <main style={pageStyle}>
+    <main className="np-screen" style={pageStyle}>
       <header style={headerStyle}>
         <Logo height="2rem" />
         <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: 'var(--np-text-mute)' }}>
@@ -465,7 +465,6 @@ function CheckBoxRow({
 }
 
 const pageStyle: CSSProperties = {
-  minHeight: '100dvh',
   padding: '1.5rem 1rem 3rem',
   display: 'flex',
   flexDirection: 'column',

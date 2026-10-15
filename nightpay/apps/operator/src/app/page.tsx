@@ -32,8 +32,8 @@ export default function Page() {
   if (user === undefined) {
     return (
       <main
+        className="np-screen"
         style={{
-          minHeight: '100vh',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -48,8 +48,8 @@ export default function Page() {
   if (!user) {
     return (
       <main
+        className="np-screen"
         style={{
-          minHeight: '100vh',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',

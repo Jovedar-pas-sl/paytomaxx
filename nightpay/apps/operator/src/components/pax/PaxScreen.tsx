@@ -77,10 +77,10 @@ export function PaxScreen() {
   // Al cerrar el cobro vuelve el sondeo (y con él, la lista al momento).
   const closeCharge = useCallback(() => setSelected(null), []);
 
-  if (paired === null) return <main style={mainStyle} />;
+  if (paired === null) return <main className="np-screen" style={mainStyle} />;
   if (!paired) {
     return (
-      <main style={mainStyle}>
+      <main className="np-screen" style={mainStyle}>
         <PairingForm
           onPaired={(i) => {
             setInfo(i);
@@ -93,7 +93,7 @@ export function PaxScreen() {
 
   if (selected) {
     return (
-      <main style={mainStyle}>
+      <main className="np-screen" style={mainStyle}>
         <PaxChargeFlow charge={selected} onDone={closeCharge} />
       </main>
     );
@@ -101,7 +101,7 @@ export function PaxScreen() {
 
   const reader = hasReader();
   return (
-    <main style={mainStyle}>
+    <main className="np-screen" style={mainStyle}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem' }}>
         <div>
           <p style={kicker}>{info?.venueName ?? 'OxioPay'}</p>
@@ -252,7 +252,6 @@ function minutesAgo(iso: string): string {
 }
 
 const mainStyle: CSSProperties = {
-  minHeight: '100vh',
   padding: '1rem',
   display: 'flex',
   flexDirection: 'column',

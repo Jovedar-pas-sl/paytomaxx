@@ -47,7 +47,7 @@ export function Dashboard({ user, onLogout }: Props) {
   const showing = (key: TabKey) => links.ficha === null && tab === key;
 
   return (
-    <main className="np-app-root" style={mainStyle}>
+    <main className="np-app-root np-screen" style={mainStyle}>
       <header style={headerStyle}>
         <Logo height="1.75rem" />
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
@@ -109,7 +109,6 @@ function PollErrorBanner({ error }: { error: PollError }) {
 }
 
 const mainStyle: CSSProperties = {
-  minHeight: '100dvh',
   display: 'flex',
   flexDirection: 'column',
   // Padding bottom = altura nav + safe-area home indicator iOS.
