@@ -14,6 +14,9 @@ interface Opts {
   provider?: string | null;
   capCents?: number;
   beneficiaryExists?: boolean;
+  /** Local en pausa (consola del super-admin). */
+  pausedAt?: Date | null;
+  businessStatus?: 'ACTIVE' | 'PAUSED';
 }
 
 function makeService(opts: Opts = {}) {
@@ -55,6 +58,8 @@ function makeService(opts: Opts = {}) {
         platformCommissionBps: 1000,
         operatorCommissionDefaults: null,
         walletGroup: null,
+        pausedAt: opts.pausedAt ?? null,
+        business: opts.businessStatus ? { status: opts.businessStatus } : null,
       }),
     },
     gatewayCredential: {
@@ -292,5 +297,34 @@ describe('create — el % de la chica se fija al crear el cobro (#54)', () => {
     const topUp = makeService();
     await topUp.service.create('tenant-1', 'idem-key-0203', dto({ wallet: { create: true } }), operator);
     expect(topUp.created[0]).toMatchObject({ operatorCommissionBps: null });
+  });
+});
+
+describe('create — local o negocio en pausa (consola del super-admin)', () => {
+  it('local en pausa: 423 VENUE_PAUSED y no se guarda nada (cobro ni recarga)', async () => {
+    const paused = makeService({ pausedAt: new Date() });
+    await expect(paused.service.create('tenant-1', 'idem-key-0300', dto(), owner)).rejects.toMatchObject({
+      status: 423,
+      response: expect.objectContaining({ code: 'VENUE_PAUSED', pausedBy: 'venue' }),
+    });
+    await expect(
+      paused.service.create('tenant-1', 'idem-key-0301', dto({ wallet: { create: true } }), operator),
+    ).rejects.toMatchObject({ status: 423 });
+    expect(paused.created).toHaveLength(0);
+  });
+
+  it('negocio en pausa: también 423 (pausedBy business)', async () => {
+    const paused = makeService({ businessStatus: 'PAUSED' });
+    await expect(paused.service.create('tenant-1', 'idem-key-0302', dto(), owner)).rejects.toMatchObject({
+      status: 423,
+      response: expect.objectContaining({ code: 'VENUE_PAUSED', pausedBy: 'business' }),
+    });
+    expect(paused.created).toHaveLength(0);
+  });
+
+  it('negocio activo y local sin pausa: se cobra como siempre', async () => {
+    const active = makeService({ businessStatus: 'ACTIVE' });
+    await active.service.create('tenant-1', 'idem-key-0303', dto(), owner);
+    expect(active.created).toHaveLength(1);
   });
 });

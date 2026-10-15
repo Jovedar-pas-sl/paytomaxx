@@ -19,6 +19,7 @@ import { applyServiceItem } from '../payments/service-item';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 import { reopenData } from './wallet-activation';
 import { mergedWalletIds } from './wallet-merge-chain';
+import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
@@ -115,11 +116,12 @@ export interface ClientWalletState {
 /** El QR del cobro con Face ID caduca a los 5 minutos. */
 const QR_CHARGE_TTL_MS = 5 * 60 * 1000;
 
-const REQUEST_ERRORS: Record<'not-pending' | 'expired' | 'wallet-closed' | 'insufficient', string> = {
+const REQUEST_ERRORS: Record<'not-pending' | 'expired' | 'wallet-closed' | 'insufficient' | 'blocked', string> = {
   'not-pending': 'Este cobro ya no está pendiente',
   expired: 'Este cobro ha caducado: pide a la chica que lo repita',
   'wallet-closed': 'Este saldo ya está cerrado',
   insufficient: 'No hay saldo suficiente para este cobro',
+  blocked: 'Este saldo está bloqueado: no se puede pagar con él. Avisa al encargado.',
 };
 
 /**
@@ -358,8 +360,12 @@ export class WalletChargesService {
   private async settleRequest(walletId: string, requestId: string): Promise<void> {
     const wallet = { id: walletId };
     await this.prisma.acrossVenues(async (tx) => {
-      const locked = await tx.$queryRaw<Array<{ id: string; balanceCents: number; status: string }>>`
-        SELECT id, "balanceCents", status::text AS status FROM client_wallets WHERE id = ${wallet.id}::uuid FOR UPDATE
+      // blockedAt: saldo bloqueado por el super-admin → no paga (decideAccept).
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; balanceCents: number; status: string; blockedAt: Date | null }>
+      >`
+        SELECT id, "balanceCents", status::text AS status, "blockedAt"
+          FROM client_wallets WHERE id = ${wallet.id}::uuid FOR UPDATE
       `;
       const w = locked[0];
       if (!w) throw new NotFoundException('Saldo no encontrado');
@@ -436,6 +442,8 @@ export class WalletChargesService {
     actor: Actor,
     input: { serviceItemId?: string; amountCents?: number; category?: string },
   ): Promise<QrChargeView> {
+    // Local (o su negocio) en pausa: sin cobros del saldo nuevos (423 VENUE_PAUSED).
+    await this.prisma.asSystem((tx) => assertVenueAcceptsCharges(tx, actor.tenantId));
     const { amountCents, category, serviceName } = await this.resolveCharge(actor, input);
     const payToken = randomBytes(24).toString('base64url');
     const request = await this.prisma.asSystem((tx) =>
@@ -984,6 +992,8 @@ export class WalletChargesService {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw new ConflictException(REQUEST_ERRORS['not-pending']);
     }
+    // Un cobro hecho antes de la pausa tampoco se cobra mientras dure (423).
+    await this.prisma.asSystem((tx) => assertVenueAcceptsCharges(tx, request.tenantId));
     const [wallet, venue] = await Promise.all([
       this.prisma.acrossVenues((tx) =>
         tx.clientWallet.findUnique({ where: { id: walletId }, select: { tenantId: true, walletGroup: true } }),

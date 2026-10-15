@@ -30,6 +30,7 @@ import { GatewayRegistry } from '../gateways/gateway.registry';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
+import { VENUE_PAUSE_SELECT, assertVenueNotPaused } from '../venues/venue-pause';
 import {
   resolveBpsForOperator,
   resolveRevenueCategory,
@@ -441,9 +442,12 @@ export class PaymentsService implements OnApplicationBootstrap {
           platformCommissionBps: true,
           operatorCommissionDefaults: true,
           walletGroup: true,
+          ...VENUE_PAUSE_SELECT,
         },
       }),
     );
+    // Local (o su negocio) en pausa: ni cobros ni recargas nuevos (423 VENUE_PAUSED).
+    assertVenueNotPaused(venue);
     const { amountCents, service, serviceCategory } = await this.resolveCharge(tenantId, dto, creatorRole);
 
     // Propina que pone quien crea el cobro: solo si el banco la va a cobrar y

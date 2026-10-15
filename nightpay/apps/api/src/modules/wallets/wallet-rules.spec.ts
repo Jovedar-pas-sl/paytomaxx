@@ -59,6 +59,14 @@ describe('el cliente acepta cada gasto en su móvil', () => {
       reason: 'insufficient',
     });
   });
+
+  it('saldo bloqueado por el super-admin → no paga aunque tenga saldo; sin bloqueo (null), como siempre', () => {
+    expect(decideAccept(pending, { status: 'ACTIVE', balanceCents: 99_999, blockedAt: NOW }, NOW)).toEqual({
+      ok: false,
+      reason: 'blocked',
+    });
+    expect(decideAccept(pending, { status: 'ACTIVE', balanceCents: 99_999, blockedAt: null }, NOW)).toEqual({ ok: true });
+  });
 });
 
 describe('devolver el saldo a la tarjeta', () => {

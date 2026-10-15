@@ -512,3 +512,38 @@ describe('devolver el saldo al cliente que se va', () => {
     expect(state.wallet).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });
   });
 });
+
+describe('consola del super-admin: local en pausa y saldo bloqueado', () => {
+  function qrService() {
+    const made = makeService();
+    made.tx.walletChargeRequest.findUnique.mockResolvedValue(request({ walletId: null, payToken: 'pay-tok' }));
+    made.tx.walletChargeRequest.findFirst.mockResolvedValue(request());
+    return made;
+  }
+
+  it('local en pausa: la chica no puede hacer un cobro con QR (423) y no se crea nada', async () => {
+    const { svc, tx } = makeService();
+    tx.venue.findUnique.mockResolvedValueOnce({ pausedAt: new Date(), business: null });
+    await expect(svc.createQrCharge(chica, { serviceItemId: 'svc-1' })).rejects.toMatchObject({
+      status: 423,
+      response: expect.objectContaining({ code: 'VENUE_PAUSED' }),
+    });
+    expect(tx.walletChargeRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('negocio en pausa: un cobro hecho antes tampoco se cobra (423) y no se descuenta nada', async () => {
+    const { svc, tx } = qrService();
+    tx.venue.findUnique.mockResolvedValueOnce({ pausedAt: null, business: { status: 'PAUSED' } });
+    await expect(svc.payQrCharge('pay-tok', 'w-1')).rejects.toMatchObject({ status: 423 });
+    expect(tx.walletConsumption.create).not.toHaveBeenCalled();
+    expect(tx.clientWallet.update).not.toHaveBeenCalled();
+  });
+
+  it('saldo bloqueado: no paga aunque tenga saldo (409, sin consumo ni descuento)', async () => {
+    const { svc, tx } = qrService();
+    tx.$queryRaw.mockResolvedValueOnce([{ id: 'w-1', balanceCents: 30_000, status: 'ACTIVE', blockedAt: new Date() }]);
+    await expect(svc.payQrCharge('pay-tok', 'w-1')).rejects.toThrow(/bloqueado/);
+    expect(tx.walletConsumption.create).not.toHaveBeenCalled();
+    expect(tx.clientWallet.update).not.toHaveBeenCalled();
+  });
+});
