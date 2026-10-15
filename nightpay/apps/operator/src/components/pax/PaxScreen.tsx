@@ -57,14 +57,15 @@ export function PaxScreen() {
 
   // Sin solapes y en pausa con la pantalla apagada o durante un cobro.
   const refresh = usePolling(
-    async () => {
+    async (signal) => {
       // Una venta aprobada que no llegó a OxioPay se reenvía antes que nada.
       await flushPendingResults();
       setUnsent(getPendingResults().length);
       try {
-        setCharges(await fetchPaxPending());
+        setCharges(await fetchPaxPending(signal));
         setError(null);
       } catch (err) {
+        if (signal.aborted) return 'slow';
         setError((err as Error).message);
         // ¿Lo desvincularon en el panel? Antes no se notaba hasta reiniciar.
         if (err instanceof PaxApiError && err.status === 401) await checkPairing();

@@ -263,7 +263,8 @@ export function isFinalRejection(err: unknown): boolean {
   );
 }
 
-export const fetchPaxPending = (): Promise<PaxCharge[]> => call('/v1/pos-device/pending');
+export const fetchPaxPending = (signal?: AbortSignal): Promise<PaxCharge[]> =>
+  call('/v1/pos-device/pending', { signal });
 
 export const startPaxCharge = (id: string): Promise<{ reference: string; amountCents: number; currency: string }> =>
   call(`/v1/pos-device/charges/${id}/start`, { method: 'POST', body: '{}' });

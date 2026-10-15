@@ -9,6 +9,8 @@ import { createPoller } from '@/lib/poller';
 const POLL_LIVE_MS = 15_000;
 /** Sin tiempo real (wifi del local, servidor reiniciando), se pregunta a menudo. */
 const POLL_OFFLINE_MS = 4_000;
+/** Plazo de cada consulta del estado: una colgada no deja de vigilar el cobro. */
+const POLL_TIMEOUT_MS = 10_000;
 /** El servidor cerró o rechazó la conexión (p. ej. token caducado): socket.io no reintenta solo. */
 const RECONNECT_MS = 10_000;
 
@@ -56,10 +58,11 @@ export function usePaymentLive(
 
     const poller = createPoller({
       intervalMs: () => (live ? POLL_LIVE_MS : POLL_OFFLINE_MS),
+      timeoutMs: POLL_TIMEOUT_MS,
       isHidden,
-      task: async () => {
+      task: async (signal) => {
         if (final) return 'stop';
-        const current = await fetchPaymentStatus(qrToken);
+        const current = await fetchPaymentStatus(qrToken, signal);
         if (current.id === id) emit({ status: current.status });
         return final ? 'stop' : undefined;
       },

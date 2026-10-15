@@ -15,11 +15,12 @@ export function MyPayments() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const refresh = usePolling(
-    async () => {
+    async (signal) => {
       try {
-        setItems(await fetchMyPayments());
+        setItems(await fetchMyPayments(signal));
         setError(null);
       } catch (err) {
+        if (signal.aborted) return 'slow';
         setError(pollErrorText(err));
         return err instanceof SessionExpiredError ? 'stop' : 'slow';
       }

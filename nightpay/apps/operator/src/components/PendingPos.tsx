@@ -76,10 +76,10 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
 
   // Cada vuelta usa el estado de ahora (usePolling): zona, silencio y seleccionado.
   const refresh = usePolling(
-    async () => {
+    async (signal) => {
       const filter = zoneRef.current;
       try {
-        const list = await fetchPendingPos(filter === 'all' ? undefined : filter);
+        const list = await fetchPendingPos(filter === 'all' ? undefined : filter, signal);
         // Respuesta de la zona anterior: ni se pinta ni quita el "Cargando…".
         if (filter !== zoneRef.current) return;
         const arrivals = newArrivals(seenIds.current, list.map((p) => p.id));
@@ -91,6 +91,7 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
         setError(null);
         setLoading(false);
       } catch (err) {
+        if (signal.aborted) return 'slow';
         setError(pollErrorText(err));
         setLoading(false);
         return err instanceof SessionExpiredError ? 'stop' : 'slow';

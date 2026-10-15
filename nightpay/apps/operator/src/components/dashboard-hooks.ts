@@ -29,11 +29,12 @@ export function useOwnBalance(enabled: boolean): OwnBalance {
   const [balance, setBalance] = useState<OperatorBalance | null>(null);
   const [error, setError] = useState<PollError | null>(null);
   const refresh = usePolling(
-    async () => {
+    async (signal) => {
       try {
-        setBalance(await fetchBalance());
+        setBalance(await fetchBalance(signal));
         setError(null);
       } catch (err) {
+        if (signal.aborted) return 'slow';
         setError({ text: pollErrorText(err), transient: err instanceof ServerUnavailableError });
         return err instanceof SessionExpiredError ? 'stop' : 'slow';
       }

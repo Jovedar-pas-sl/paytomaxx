@@ -3,6 +3,8 @@ import { createPoller, type Poller, type PollOutcome } from './poller';
 
 export interface PollingOptions {
   intervalMs: number;
+  /** Plazo de cada vuelta (por defecto, el de createPoller: 15 s). */
+  timeoutMs?: number;
   /** Pausa tras un fallo (servidor caído, 429). Por defecto, el triple. */
   slowIntervalMs?: number;
   /** false: parado (p. ej. mientras no hace falta). */
@@ -20,8 +22,8 @@ const isHidden = (): boolean => document.visibilityState === 'hidden';
  * el intervalo). Devuelve cómo pedir una vuelta ya.
  */
 export function usePolling(
-  task: () => Promise<PollOutcome>,
-  { intervalMs, slowIntervalMs, enabled = true, initialDelayMs = 0 }: PollingOptions,
+  task: (signal: AbortSignal) => Promise<PollOutcome>,
+  { intervalMs, slowIntervalMs, timeoutMs, enabled = true, initialDelayMs = 0 }: PollingOptions,
 ): () => void {
   const taskRef = useRef(task);
   const pollerRef = useRef<Poller | null>(null);
@@ -32,7 +34,13 @@ export function usePolling(
 
   useEffect(() => {
     if (!enabled) return undefined;
-    const poller = createPoller({ task: () => taskRef.current(), intervalMs, slowIntervalMs, isHidden });
+    const poller = createPoller({
+      task: (signal) => taskRef.current(signal),
+      intervalMs,
+      slowIntervalMs,
+      timeoutMs,
+      isHidden,
+    });
     pollerRef.current = poller;
     const onVisibility = () => {
       if (!isHidden()) poller.poke();
@@ -44,7 +52,7 @@ export function usePolling(
       poller.stop();
       if (pollerRef.current === poller) pollerRef.current = null;
     };
-  }, [enabled, intervalMs, slowIntervalMs, initialDelayMs]);
+  }, [enabled, intervalMs, slowIntervalMs, timeoutMs, initialDelayMs]);
 
   return useCallback(() => pollerRef.current?.poke(), []);
 }

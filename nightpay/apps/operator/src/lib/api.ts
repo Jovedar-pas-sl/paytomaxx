@@ -410,8 +410,8 @@ async function doFetch(path: string, init: RequestInit, token: string): Promise<
 
 // ─── Endpoints ────────────────────────────────────────────────────
 
-export async function fetchBalance(): Promise<OperatorBalance> {
-  const res = await authedFetch('/v1/operators/me/balance');
+export async function fetchBalance(signal?: AbortSignal): Promise<OperatorBalance> {
+  const res = await authedFetch('/v1/operators/me/balance', { signal });
   if (!res.ok) throw loadError(res, 'Error cargando saldo');
   return res.json();
 }
@@ -442,8 +442,8 @@ export async function fetchMyEarnings(): Promise<MyEarning[]> {
   return res.json();
 }
 
-export async function fetchMyPayments(): Promise<MyPayment[]> {
-  const res = await authedFetch('/v1/operators/me/payments');
+export async function fetchMyPayments(signal?: AbortSignal): Promise<MyPayment[]> {
+  const res = await authedFetch('/v1/operators/me/payments', { signal });
   if (!res.ok) throw loadError(res, 'Error cargando cobros');
   return res.json();
 }
@@ -533,9 +533,9 @@ export interface PendingPosPayment {
   terminalLabel: string | null;
 }
 
-export async function fetchPendingPos(zone?: string): Promise<PendingPosPayment[]> {
+export async function fetchPendingPos(zone?: string, signal?: AbortSignal): Promise<PendingPosPayment[]> {
   const qs = zone ? `?zone=${encodeURIComponent(zone)}` : '';
-  const res = await authedFetch(`/v1/payments/pending-pos${qs}`);
+  const res = await authedFetch(`/v1/payments/pending-pos${qs}`, { signal });
   if (!res.ok) throw loadError(res, 'Error cargando POS pendientes');
   return res.json();
 }
@@ -557,8 +557,11 @@ export async function confirmPosPayment(
  * del cliente). Respaldo del tiempo real: si el socket se cae, el «pagado» se
  * ve igual.
  */
-export async function fetchPaymentStatus(qrToken: string): Promise<{ id: string; status: PaymentStatus }> {
-  const res = await publicFetch(`/v1/payments/public/${encodeURIComponent(qrToken)}`, { cache: 'no-store' });
+export async function fetchPaymentStatus(
+  qrToken: string,
+  signal?: AbortSignal,
+): Promise<{ id: string; status: PaymentStatus }> {
+  const res = await publicFetch(`/v1/payments/public/${encodeURIComponent(qrToken)}`, { cache: 'no-store', signal });
   if (!res.ok) throw loadError(res, 'No se pudo consultar el cobro');
   return res.json();
 }
@@ -711,8 +714,8 @@ export async function createQrWalletCharge(input: {
   return res.json();
 }
 
-export async function fetchWalletCharge(id: string): Promise<WalletChargeRequest> {
-  const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(id)}`);
+export async function fetchWalletCharge(id: string, signal?: AbortSignal): Promise<WalletChargeRequest> {
+  const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(id)}`, { signal });
   if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));
   return res.json();
 }

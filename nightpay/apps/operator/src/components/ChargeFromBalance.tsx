@@ -201,13 +201,14 @@ function QrStep({
 
   // ¿Ya ha pagado? Una pregunta por segundo, sin solapes; para al terminar.
   usePolling(
-    async () => {
+    async (signal) => {
       if (finished.current) return 'stop';
       try {
-        const fresh = await fetchWalletCharge(charge.id);
+        const fresh = await fetchWalletCharge(charge.id, signal);
         setError(null);
         return finish(fresh) ? 'stop' : undefined;
       } catch (err) {
+        if (signal.aborted) return 'slow';
         setError(pollErrorText(err));
         return err instanceof SessionExpiredError ? 'stop' : 'slow';
       }

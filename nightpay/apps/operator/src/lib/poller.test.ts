@@ -142,4 +142,27 @@ describe('sondeo sin solapes', () => {
     poller.stop();
     expect(at).toEqual([2000, 6000, 7000]);
   });
+
+  it('una petición colgada no congela el sondeo: al plazo se cancela, cuenta como fallo y se vuelve a preguntar', async () => {
+    const signals: AbortSignal[] = [];
+    const poller = createPoller({
+      intervalMs: 1000,
+      slowIntervalMs: 2000,
+      timeoutMs: 15_000,
+      task: (signal) => {
+        signals.push(signal);
+        return new Promise(() => undefined);
+      },
+    });
+    poller.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signals).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(signals).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signals[0]!.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(signals).toHaveLength(2);
+    poller.stop();
+  });
 });
