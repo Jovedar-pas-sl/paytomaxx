@@ -9,6 +9,7 @@ import {
   type OnApplicationBootstrap,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
+import { Prisma } from '@nightpay/db';
 import type { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { ClsService } from 'nestjs-cls';
@@ -35,7 +36,6 @@ import {
   type OperatorCommissionDefaults,
   type RevenueCategory,
 } from './commission';
-import { WalletsService } from '../wallets/wallets.service';
 import { applyServiceItem } from './service-item';
 import type { Provider } from '@nightpay/contracts';
 import {
@@ -53,9 +53,26 @@ import {
   type PayResultView,
   type RetryDecision,
 } from './pay-redirect';
-import { defaultTipGoesTo, readChargedTip, settleChargedTip, tipOptionsFor } from './tip';
+import {
+  creatorTipConfirmable,
+  defaultTipGoesTo,
+  maxTipCents,
+  readChargedTip,
+  settleChargedTip,
+  tipDestinationAllowed,
+  tipOptionsFor,
+} from './tip';
 import { expectedChicaReversal } from './refund-share';
-import { formatWalletCode } from '../wallets/wallet-rules';
+import { operatorCapProblem } from './operator-cap';
+import { formatWalletCode, newWalletCode, newWalletToken } from '../wallets/wallet-rules';
+import { idempotencyHashOf, sameIdempotentRequest } from './idempotency';
+import {
+  findCreditTarget,
+  shortCodeOnCredit,
+  skippedCreditDetail,
+  type CreditSkipCause,
+  type CreditWalletRow,
+} from './topup-credit';
 import { BRAND_NAME } from '../../common/brand';
 
 const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
@@ -64,6 +81,97 @@ const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-cat
     'Desde tu app solo puedes cobrar tus servicios. La barra, la habitación y la comida las cobra el camarero desde la caja.',
   'invalid-category': 'Ese servicio tiene una categoría no válida. Revísalo en la carta del panel.',
 };
+
+const POS_AUTH_CODE_REUSED =
+  'Ese código de autorización ya se usó en otro cobro de este datáfono. Revisa el ticket.';
+/** Un código de autorización no confirma dos cobros del mismo datáfono en este tiempo. */
+const POS_AUTH_CODE_WINDOW_MS = 24 * 3600 * 1000;
+
+/**
+ * Error de la pasarela para quien paga (endpoints públicos). Dice "pasarela"
+ * para que /pay enseñe su página de "el banco no responde" (payErrorKey).
+ */
+export const GATEWAY_ERROR_PUBLIC = 'No se pudo abrir el pago en la pasarela. Inténtalo de nuevo en unos segundos.';
+
+const TIP_TOO_HIGH = 'La propina no puede pasar del importe del cobro ni de 500,00 €';
+const TIP_DESTINATION_NOT_ALLOWED = 'Desde tu app la propina solo puede ser para ti o para el local';
+
+/** Propina que se apunta al crear el cobro (la que pone quien lo crea). */
+interface CreatorTip {
+  tipCents: number;
+  tipGoesTo: string | null;
+  tipBeneficiaryUserId: string | null;
+  /** Propina pedida que no se apunta (la pasarela no la cobraría). */
+  ignoredCents: number;
+}
+
+const NO_TIP: CreatorTip = { tipCents: 0, tipGoesTo: null, tipBeneficiaryUserId: null, ignoredCents: 0 };
+
+const IDEMPOTENCY_KEY_REUSED =
+  'Esa Idempotency-Key ya se usó para otro cobro (de otra persona o con otros datos). Usa una clave nueva.';
+/** Intentos de código corto al crear el saldo de una recarga. */
+const MAX_WALLET_CODE_ATTEMPTS = 5;
+
+/** Servicio de la carta del que sale el cobro (Fase 1A). */
+interface ServiceSnapshot {
+  serviceItemId: string;
+  serviceName: string;
+  durationMin: number | null;
+}
+
+/** Saldo de una recarga: uno que ya existe o uno nuevo que se crea con el cobro. */
+type TopUpWallet =
+  | { walletId: string }
+  | { create: { identifier: string | null; walletGroup: string | null } };
+
+/** Cobro validado, listo para guardar. */
+interface PaymentDraft {
+  terminalId: string;
+  amountCents: number;
+  service: ServiceSnapshot | null;
+  tip: CreatorTip;
+  revenueCategory: RevenueCategory;
+  captureMethod: string | null;
+  topUp: TopUpWallet | null;
+  ttlSeconds: number;
+  platformCommissionBps: number;
+  /** % de la chica fijado al crear (#54); null si no lo crea una chica. */
+  operatorCommissionBps: number | null;
+}
+
+/**
+ * Saldo bloqueado (FOR UPDATE) para sumarle una recarga. Con tenantId, solo
+ * el de ese local (H3); sin él, el saldo bueno de una fusión (puede ser de
+ * otro local del grupo: lo comprueba findCreditTarget).
+ */
+async function lockCreditWallet(
+  tx: TransactionalClient,
+  walletId: string,
+  tenantId: string | null,
+): Promise<CreditWalletRow | null> {
+  const rows = tenantId
+    ? await tx.$queryRaw<CreditWalletRow[]>`
+        SELECT id::text AS id, "tenantId"::text AS "tenantId", "walletGroup", "balanceCents",
+               status::text AS status, "mergedIntoId"::text AS "mergedIntoId", "shortCode"
+          FROM client_wallets
+         WHERE id = ${walletId}::uuid AND "tenantId" = ${tenantId}::uuid
+         FOR UPDATE
+      `
+    : await tx.$queryRaw<CreditWalletRow[]>`
+        SELECT id::text AS id, "tenantId"::text AS "tenantId", "walletGroup", "balanceCents",
+               status::text AS status, "mergedIntoId"::text AS "mergedIntoId", "shortCode"
+          FROM client_wallets
+         WHERE id = ${walletId}::uuid
+         FOR UPDATE
+      `;
+  return rows[0] ?? null;
+}
+
+/** Choque con la Idempotency-Key de otro cobro creado a la vez (P2002). */
+function isIdempotencyKeyClash(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
+  return JSON.stringify(err.meta?.target ?? '').includes('idempotencyKey');
+}
 
 /** Fila del cobro bloqueada (FOR UPDATE) dentro de transition(). */
 export interface LockedPaymentRow {
@@ -80,6 +188,8 @@ export interface LockedPaymentRow {
   tipGoesTo: string | null;
   tipBeneficiaryUserId: string | null;
   revenueCategory: string;
+  /** % de la chica fijado al crear el cobro (null en cobros anteriores). */
+  operatorCommissionBps?: number | null;
 }
 
 export interface TransitionOptions {
@@ -111,7 +221,6 @@ export class PaymentsService implements OnApplicationBootstrap {
   private readonly gateways: GatewayRegistry;
   private readonly realtime: RealtimeGateway;
   private readonly metrics: MetricsService;
-  private readonly wallets: WalletsService;
   private readonly peanpe: PeanpeAdapter;
   private readonly redis: Redis;
 
@@ -123,7 +232,6 @@ export class PaymentsService implements OnApplicationBootstrap {
     @Inject(GatewayRegistry) gateways: GatewayRegistry,
     @Inject(RealtimeGateway) realtime: RealtimeGateway,
     @Inject(MetricsService) metrics: MetricsService,
-    @Inject(WalletsService) wallets: WalletsService,
     @Inject(PeanpeAdapter) peanpe: PeanpeAdapter,
     @Inject(REDIS_CLIENT) redis: Redis,
   ) {
@@ -134,7 +242,6 @@ export class PaymentsService implements OnApplicationBootstrap {
     this.gateways = gateways;
     this.realtime = realtime;
     this.metrics = metrics;
-    this.wallets = wallets;
     this.peanpe = peanpe;
     this.redis = redis;
   }
@@ -237,7 +344,10 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Crea un pago. Idempotente: misma idempotencyKey + tenantId → mismo pago.
+   * Crea un pago. Idempotente: la misma Idempotency-Key de la misma persona
+   * con la misma petición → el mismo pago. Con otra persona u otra petición →
+   * 409 (antes devolvía el cobro de otra persona, con su QR, o un cobro
+   * antiguo distinto del pedido).
    */
   async create(
     tenantId: string,
@@ -245,238 +355,30 @@ export class PaymentsService implements OnApplicationBootstrap {
     dto: CreatePaymentDto,
     actor?: { userId: string; role: string },
   ): Promise<CreatedPaymentResponse> {
-    // 1. Idempotency: si ya existe pago con esta key, devuélvelo
-    const existing = await this.prisma.payment.findUnique({
-      where: { tenantId_idempotencyKey: { tenantId, idempotencyKey } },
-    });
-    if (existing) {
-      this.logger.log(`Idempotent hit: key=${idempotencyKey} → payment=${existing.id}`);
-      return this.toCreatedResponse(existing.id);
-    }
-
-    // 2. Resolver terminal:
-    //    - Si dto.terminalExternalId: lookup directo (backwards compat).
-    //    - Si dto.zone (sin externalId): elegir cualquier terminal activo de
-    //      esa zona. Si no hay → 400 con mensaje claro.
-    //    - Si ambos: terminalExternalId gana.
-    let terminal;
-    if (dto.terminalExternalId) {
-      terminal = await this.prisma.terminal.findUnique({
-        where: {
-          tenantId_externalId: { tenantId, externalId: dto.terminalExternalId },
-        },
-      });
-      if (!terminal || !terminal.active) {
-        throw new BadRequestException(
-          `Terminal '${dto.terminalExternalId}' not found or inactive`,
-        );
-      }
-    } else if (dto.zone) {
-      // Normalizamos: si zone=OTRO, el canonical zone es 'OTRO/<zoneCustom>'.
-      const canonicalZone =
-        dto.zone === 'OTRO' && dto.zoneCustom
-          ? `OTRO/${dto.zoneCustom.trim().toUpperCase()}`
-          : dto.zone;
-      terminal = await this.prisma.terminal.findFirst({
-        where: { tenantId, zone: canonicalZone, active: true },
-        // Terminal model no tiene timestamps; ordenamos por externalId estable.
-        orderBy: { externalId: 'asc' },
-      });
-      if (!terminal) {
-        throw new BadRequestException(
-          `No hay PAX activos en zona '${canonicalZone}'. Revisa con el admin que haya terminales dados de alta y activos.`,
-        );
-      }
-    } else {
-      throw new BadRequestException(
-        'Debes pasar terminalExternalId o zone para resolver el datáfono',
-      );
-    }
-
-    // 2b. Si el creador es OPERATOR, validar cap del venue. Owner/Manager lo ignoran.
-    // Excepciones al cap:
-    //  - Wallet top-up: el cliente decide cuánto cargar (prepago); el cap
-    //    de cobros puntuales no aplica.
-    //  - Otros modos (QR cliente, POS_EXTERNAL): cap normal aplica como
-    //    protección contra typos.
     const ctx = this.cls.get('ctx');
     const creatorUserId = actor?.userId ?? ctx?.userId ?? null;
     const creatorRole = actor?.role ?? ctx?.role;
-    const isWalletTopUp = Boolean(dto.wallet);
-    // Leemos el venue siempre (necesitamos platformCommissionBps para snapshot).
-    const venue = await this.prisma.asSystem((tx) =>
-      tx.venue.findUniqueOrThrow({
-        where: { id: tenantId },
-        select: {
-          operatorMaxCobroCents: true,
-          platformCommissionBps: true,
-          operatorCommissionDefaults: true,
-        },
-      }),
-    );
-    // Fase 1A — cobro desde la carta: importe y categoría los fija el local
-    // (los del cliente se ignoran). El tope de importe libre no aplica.
-    let amountCents = dto.amountCents;
-    let service: { serviceItemId: string; serviceName: string; durationMin: number | null } | null =
-      null;
-    let serviceCategory: RevenueCategory | undefined;
-    if (dto.serviceItemId && !isWalletTopUp) {
-      const item = await this.prisma.serviceItem.findFirst({
-        where: { id: dto.serviceItemId, tenantId },
-      });
-      if (!item) {
-        throw new NotFoundException('Ese servicio no está en la carta de este local');
-      }
-      const charge = applyServiceItem(item, creatorRole);
-      if (!charge.ok) {
-        throw new BadRequestException(SERVICE_ITEM_ERRORS[charge.reason]);
-      }
-      amountCents = charge.amountCents;
-      serviceCategory = charge.revenueCategory;
-      service = { serviceItemId: item.id, serviceName: charge.serviceName, durationMin: charge.durationMin };
+    const requestHash = idempotencyHashOf(creatorUserId, dto);
+
+    // 1. La misma petición repetida → el mismo cobro.
+    const replayed = await this.replayIdempotent(tenantId, idempotencyKey, requestHash, creatorUserId);
+    if (replayed) return replayed;
+
+    // 2. Validar y resolver todo antes de escribir nada.
+    const draft = await this.draftPayment(tenantId, dto, { userId: creatorUserId, role: creatorRole });
+
+    // 3. Cobro + evento inicial (+ saldo nuevo de una recarga) — atómico.
+    let payment: { id: string; amountCents: number };
+    try {
+      payment = await this.insertPayment({ tenantId, idempotencyKey, requestHash, creatorUserId, dto, draft });
+    } catch (err) {
+      // Dos peticiones a la vez con la misma clave: gana una y la otra
+      // devuelve ese cobro (si es la misma petición) en vez de un 500.
+      if (!isIdempotencyKeyClash(err)) throw err;
+      const raced = await this.replayIdempotent(tenantId, idempotencyKey, requestHash, creatorUserId);
+      if (raced) return raced;
+      throw err;
     }
-
-    if (creatorRole === 'OPERATOR' && !isWalletTopUp && !service) {
-      if (amountCents > venue.operatorMaxCobroCents) {
-        throw new BadRequestException(
-          `Importe ${(amountCents / 100).toFixed(2)} € supera el límite del local (${(venue.operatorMaxCobroCents / 100).toFixed(2)} €). ` +
-            `Para wallet top-up no aplica el cap; para cobros puntuales pídele al OWNER que suba el cap en Ajustes.`,
-        );
-      }
-    }
-
-    // 2c. Phase 1B — si dto.wallet, resolver walletId antes de crear el payment.
-    // create:true → crea wallet vacía + usa su id. walletId:<id> → valida pertenencia.
-    let resolvedWalletId: string | null = null;
-    const walletDto = dto.wallet;
-    if (walletDto) {
-      if ('create' in walletDto && walletDto.create) {
-        const created = await this.wallets.createEmpty({
-          tenantId,
-          identifier: walletDto.identifier ?? null,
-        });
-        resolvedWalletId = created.id;
-      } else if ('walletId' in walletDto) {
-        const existing = await this.prisma.asSystem((tx) =>
-          tx.clientWallet.findFirst({
-            where: { id: walletDto.walletId, tenantId },
-            select: { id: true, status: true },
-          }),
-        );
-        if (!existing) {
-          throw new NotFoundException('Wallet no encontrada en este venue');
-        }
-        if (existing.status !== 'ACTIVE') {
-          throw new BadRequestException(`Wallet en status ${existing.status} — no se puede recargar`);
-        }
-        resolvedWalletId = existing.id;
-      }
-    }
-
-    // 3. Crear payment + evento inicial — atómico
-    const qrToken = randomUUID();
-    // POS_EXTERNAL puede tardar más en confirmarse (camarero camina con el
-    // datáfono) — TTL más generoso. Wallet topup y QR normal: 5 min default.
-    const isPosExternal = dto.captureMethod === 'POS_EXTERNAL';
-    const ttlSeconds = isPosExternal ? POS_QR_TTL_SECONDS : QR_TTL_SECONDS;
-    const qrExpiresAt = new Date(Date.now() + ttlSeconds * 1000);
-
-    // Mutex: no se puede top-upear wallet via POS_EXTERNAL (PSP externo no nos
-    // notifica AUTHORIZED por webhook → no podríamos creditar el wallet).
-    if (isPosExternal && resolvedWalletId) {
-      throw new BadRequestException(
-        'No se puede cargar wallet vía POS externo — usa modo QR normal.',
-      );
-    }
-
-    const effectiveCaptureMethod = resolvedWalletId
-      ? 'WALLET_TOPUP'
-      : dto.captureMethod ?? null;
-
-    // Tip handling: si hay tipCents, valida coherencia y resuelve política default.
-    // Default: si creator es OPERATOR y no se especifica tipGoesTo → 'operator'.
-    const tipCents = dto.tipCents ?? 0;
-    let tipGoesTo: string | null = dto.tipGoesTo ?? null;
-    let tipBeneficiaryUserId: string | null = dto.tipBeneficiaryUserId ?? null;
-    if (tipCents > 0) {
-      if (!tipGoesTo) {
-        tipGoesTo = defaultTipGoesTo(creatorRole);
-      }
-      if (tipGoesTo === 'beneficiary' && !tipBeneficiaryUserId) {
-        throw new BadRequestException(
-          'tipGoesTo=beneficiary requiere tipBeneficiaryUserId',
-        );
-      }
-      if (tipBeneficiaryUserId) {
-        const beneficiary = await this.prisma.asSystem((tx) =>
-          tx.user.findFirst({
-            where: { id: tipBeneficiaryUserId!, tenantId, deletedAt: null },
-            select: { id: true },
-          }),
-        );
-        if (!beneficiary) {
-          throw new BadRequestException('tipBeneficiaryUserId no pertenece al venue');
-        }
-      }
-    } else {
-      // Sin tip: limpiar campos para no persistir basura.
-      tipGoesTo = null;
-      tipBeneficiaryUserId = null;
-    }
-
-    const revenueCategory = resolveRevenueCategory({
-      isWalletTopUp: Boolean(resolvedWalletId),
-      creatorRole,
-      requested: serviceCategory ?? (dto.revenueCategory as RevenueCategory | undefined),
-    });
-    if (!revenueCategory) {
-      throw new BadRequestException(
-        'Desde tu app solo puedes cobrar tus servicios. La barra, la habitación y la comida las cobra el camarero desde la caja.',
-      );
-    }
-
-    const payment = await this.prisma.$transaction(async (tx) => {
-      const p = await tx.payment.create({
-        data: {
-          tenantId,
-          terminalId: terminal.id,
-          createdByUserId: creatorUserId,
-          idempotencyKey,
-          amountCents,
-          // availableAmountCents incluye tip — refunds pueden cubrir todo.
-          availableAmountCents: amountCents + tipCents,
-          currency: dto.currency,
-          status: 'CREATED',
-          qrToken,
-          qrExpiresAt,
-          // Snapshot del % plataforma al momento del cobro (contabilidad histórica
-          // estable aunque el venue cambie el % mañana).
-          platformCommissionBps: venue.platformCommissionBps,
-          tipCents,
-          revenueCategory,
-          ...(tipGoesTo ? { tipGoesTo } : {}),
-          ...(tipBeneficiaryUserId ? { tipBeneficiaryUserId } : {}),
-          ...(effectiveCaptureMethod ? { captureMethod: effectiveCaptureMethod } : {}),
-          ...(resolvedWalletId ? { walletId: resolvedWalletId } : {}),
-          ...(service ?? {}),
-        },
-      });
-      await tx.paymentEvent.create({
-        data: {
-          paymentId: p.id,
-          tenantId,
-          eventType: 'payment.created',
-          payload: {
-            amountCents: p.amountCents,
-            tipCents,
-            terminal: dto.terminalExternalId,
-            walletId: resolvedWalletId,
-          },
-          traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
-        },
-      });
-      return p;
-    });
 
     // 4. Encolar job de expiración (id determinista → idempotente al encolar)
     await this.qrExpireQueue.add(
@@ -487,7 +389,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         // H7: usar el TTL calculado para este payment (5min QR / 30min POS),
         // antes era siempre QR_TTL_SECONDS → POS expiraba a los 5min con el
         // camarero todavía en camino al datáfono.
-        delay: ttlSeconds * 1000,
+        delay: draft.ttlSeconds * 1000,
         removeOnComplete: true,
         removeOnFail: 100,
       },
@@ -496,6 +398,372 @@ export class PaymentsService implements OnApplicationBootstrap {
     this.metrics.paymentsCreated.inc({ venue: tenantId, provider: 'pending' });
     this.logger.log(`Payment created ${payment.id} amount=${payment.amountCents} venue=${tenantId}`);
     return this.toCreatedResponse(payment.id);
+  }
+
+  /** Cobro ya creado con esta clave: el mismo si es la misma petición; si no, 409. */
+  private async replayIdempotent(
+    tenantId: string,
+    idempotencyKey: string,
+    requestHash: string,
+    creatorUserId: string | null,
+  ): Promise<CreatedPaymentResponse | null> {
+    const existing = await this.prisma.asSystem((tx) =>
+      tx.payment.findUnique({
+        where: { tenantId_idempotencyKey: { tenantId, idempotencyKey } },
+        select: { id: true, idempotencyHash: true, createdByUserId: true },
+      }),
+    );
+    if (!existing) return null;
+    if (!sameIdempotentRequest(existing, requestHash, creatorUserId)) {
+      this.logger.warn(`Idempotency-Key reutilizada con otra petición: key=${idempotencyKey} payment=${existing.id}`);
+      throw new ConflictException(IDEMPOTENCY_KEY_REUSED);
+    }
+    this.logger.log(`Idempotent hit: key=${idempotencyKey} → payment=${existing.id}`);
+    return this.toCreatedResponse(existing.id);
+  }
+
+  /** Lo que se va a guardar, ya validado (sin escribir nada todavía). */
+  private async draftPayment(
+    tenantId: string,
+    dto: CreatePaymentDto,
+    creator: { userId: string | null; role: string | undefined },
+  ): Promise<PaymentDraft> {
+    const creatorRole = creator.role;
+    const terminalId = await this.resolveTerminalId(tenantId, dto);
+    const isWalletTopUp = Boolean(dto.wallet);
+    const isPosExternal = dto.captureMethod === 'POS_EXTERNAL';
+    // Leemos el venue siempre (necesitamos platformCommissionBps para snapshot).
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: {
+          operatorMaxCobroCents: true,
+          platformCommissionBps: true,
+          operatorCommissionDefaults: true,
+          walletGroup: true,
+        },
+      }),
+    );
+    const { amountCents, service, serviceCategory } = await this.resolveCharge(tenantId, dto, creatorRole);
+
+    // Propina que pone quien crea el cobro: solo si el banco la va a cobrar y
+    // confirmar (Redsys); por datáfono cuenta la del datáfono. Y el tope del
+    // local para la chica es sobre importe + propina.
+    const tip = await this.resolveCreatorTip({ tenantId, dto, amountCents, creatorRole, isPosExternal, isWalletTopUp });
+    const capProblem = operatorCapProblem({
+      creatorRole,
+      isWalletTopUp,
+      fromMenu: service !== null,
+      amountCents,
+      tipCents: tip.tipCents,
+      capCents: venue.operatorMaxCobroCents,
+    });
+    if (capProblem) throw new BadRequestException(capProblem);
+
+    // Mutex: no se puede top-upear wallet via POS_EXTERNAL (PSP externo no nos
+    // notifica AUTHORIZED por webhook → no podríamos creditar el wallet).
+    if (isPosExternal && isWalletTopUp) {
+      throw new BadRequestException('No se puede cargar wallet vía POS externo — usa modo QR normal.');
+    }
+    const topUp = await this.resolveTopUp(tenantId, dto, venue.walletGroup);
+
+    const revenueCategory = resolveRevenueCategory({
+      isWalletTopUp,
+      creatorRole,
+      requested: serviceCategory ?? (dto.revenueCategory as RevenueCategory | undefined),
+    });
+    if (!revenueCategory) {
+      throw new BadRequestException(
+        'Desde tu app solo puedes cobrar tus servicios. La barra, la habitación y la comida las cobra el camarero desde la caja.',
+      );
+    }
+    return {
+      terminalId,
+      amountCents,
+      service,
+      tip,
+      revenueCategory,
+      captureMethod: isWalletTopUp ? 'WALLET_TOPUP' : (dto.captureMethod ?? null),
+      topUp,
+      // POS_EXTERNAL puede tardar más en confirmarse (camarero camina con el
+      // datáfono) — TTL más generoso. Wallet topup y QR normal: 5 min default.
+      ttlSeconds: isPosExternal ? POS_QR_TTL_SECONDS : QR_TTL_SECONDS,
+      platformCommissionBps: venue.platformCommissionBps,
+      operatorCommissionBps: await this.operatorCommissionSnapshot({
+        creator,
+        isWalletTopUp,
+        revenueCategory,
+        venueMap: venue.operatorCommissionDefaults as Partial<OperatorCommissionDefaults> | null,
+      }),
+    };
+  }
+
+  /**
+   * #54: el % de la chica se fija al crear el cobro (su commissionBps o el del
+   * local para la categoría). Antes se leía al pagarse: un cambio de % mientras
+   * el cliente pagaba se aplicaba a un cobro ya creado. Recargas de saldo: la
+   * comisión va por consumo, no aquí.
+   */
+  private async operatorCommissionSnapshot(args: {
+    creator: { userId: string | null; role: string | undefined };
+    isWalletTopUp: boolean;
+    revenueCategory: RevenueCategory;
+    venueMap: Partial<OperatorCommissionDefaults> | null;
+  }): Promise<number | null> {
+    const { userId, role } = args.creator;
+    if (role !== 'OPERATOR' || !userId || args.isWalletTopUp) return null;
+    const user = await this.prisma.asSystem((tx) =>
+      tx.user.findFirst({ where: { id: userId }, select: { commissionBps: true } }),
+    );
+    return resolveBpsForOperator({
+      category: args.revenueCategory,
+      userCommissionBpsOverride: user?.commissionBps ?? null,
+      venueMap: args.venueMap,
+    });
+  }
+
+  /**
+   * Datáfono del cobro:
+   *  - Si dto.terminalExternalId: lookup directo (backwards compat).
+   *  - Si dto.zone (sin externalId): cualquier terminal activo de esa zona.
+   *    Si no hay → 400 con mensaje claro.
+   *  - Si ambos: terminalExternalId gana.
+   */
+  private async resolveTerminalId(tenantId: string, dto: CreatePaymentDto): Promise<string> {
+    if (dto.terminalExternalId) {
+      const externalId = dto.terminalExternalId;
+      const terminal = await this.prisma.asSystem((tx) =>
+        tx.terminal.findUnique({ where: { tenantId_externalId: { tenantId, externalId } } }),
+      );
+      if (!terminal || !terminal.active) {
+        throw new BadRequestException(`Terminal '${externalId}' not found or inactive`);
+      }
+      return terminal.id;
+    }
+    if (!dto.zone) {
+      throw new BadRequestException('Debes pasar terminalExternalId o zone para resolver el datáfono');
+    }
+    // Normalizamos: si zone=OTRO, el canonical zone es 'OTRO/<zoneCustom>'.
+    const canonicalZone =
+      dto.zone === 'OTRO' && dto.zoneCustom ? `OTRO/${dto.zoneCustom.trim().toUpperCase()}` : dto.zone;
+    const terminal = await this.prisma.asSystem((tx) =>
+      tx.terminal.findFirst({
+        where: { tenantId, zone: canonicalZone, active: true },
+        // Terminal model no tiene timestamps; ordenamos por externalId estable.
+        orderBy: { externalId: 'asc' },
+      }),
+    );
+    if (!terminal) {
+      throw new BadRequestException(
+        `No hay PAX activos en zona '${canonicalZone}'. Revisa con el admin que haya terminales dados de alta y activos.`,
+      );
+    }
+    return terminal.id;
+  }
+
+  /**
+   * Fase 1A — cobro desde la carta: importe y categoría los fija el local (los
+   * del cliente se ignoran). El tope de importe libre no aplica.
+   */
+  private async resolveCharge(
+    tenantId: string,
+    dto: CreatePaymentDto,
+    creatorRole: string | undefined,
+  ): Promise<{ amountCents: number; service: ServiceSnapshot | null; serviceCategory?: RevenueCategory }> {
+    if (!dto.serviceItemId || dto.wallet) return { amountCents: dto.amountCents, service: null };
+    const item = await this.prisma.serviceItem.findFirst({ where: { id: dto.serviceItemId, tenantId } });
+    if (!item) throw new NotFoundException('Ese servicio no está en la carta de este local');
+    const charge = applyServiceItem(item, creatorRole);
+    if (!charge.ok) throw new BadRequestException(SERVICE_ITEM_ERRORS[charge.reason]);
+    return {
+      amountCents: charge.amountCents,
+      service: { serviceItemId: item.id, serviceName: charge.serviceName, durationMin: charge.durationMin },
+      serviceCategory: charge.revenueCategory,
+    };
+  }
+
+  /**
+   * Phase 1B — recarga de saldo. walletId:<id> → valida que es de este local y
+   * está activo. create:true → el saldo nuevo se crea al guardar el cobro, en
+   * la misma transacción (antes se creaba antes y quedaba huérfano si el
+   * cobro fallaba).
+   */
+  private async resolveTopUp(
+    tenantId: string,
+    dto: CreatePaymentDto,
+    walletGroup: string | null,
+  ): Promise<TopUpWallet | null> {
+    const walletDto = dto.wallet;
+    if (!walletDto) return null;
+    if ('create' in walletDto) return { create: { identifier: walletDto.identifier ?? null, walletGroup } };
+    const existing = await this.prisma.asSystem((tx) =>
+      tx.clientWallet.findFirst({
+        where: { id: walletDto.walletId, tenantId },
+        select: { id: true, status: true },
+      }),
+    );
+    if (!existing) throw new NotFoundException('Wallet no encontrada en este venue');
+    if (existing.status !== 'ACTIVE') {
+      throw new BadRequestException(`Wallet en status ${existing.status} — no se puede recargar`);
+    }
+    return { walletId: existing.id };
+  }
+
+  private async insertPayment(input: {
+    tenantId: string;
+    idempotencyKey: string;
+    requestHash: string;
+    creatorUserId: string | null;
+    dto: CreatePaymentDto;
+    draft: PaymentDraft;
+  }): Promise<{ id: string; amountCents: number }> {
+    const { tenantId, draft, dto } = input;
+    const { tipCents, tipGoesTo, tipBeneficiaryUserId, ignoredCents } = draft.tip;
+    const qrExpiresAt = new Date(Date.now() + draft.ttlSeconds * 1000);
+    return this.prisma.asSystem(async (tx) => {
+      const walletId = await this.topUpWalletId(tx, tenantId, draft.topUp);
+      const p = await tx.payment.create({
+        data: {
+          tenantId,
+          terminalId: draft.terminalId,
+          createdByUserId: input.creatorUserId,
+          idempotencyKey: input.idempotencyKey,
+          idempotencyHash: input.requestHash,
+          amountCents: draft.amountCents,
+          // availableAmountCents incluye tip — refunds pueden cubrir todo.
+          availableAmountCents: draft.amountCents + tipCents,
+          currency: dto.currency,
+          status: 'CREATED',
+          qrToken: randomUUID(),
+          qrExpiresAt,
+          // Snapshot del % plataforma al momento del cobro (contabilidad histórica
+          // estable aunque el venue cambie el % mañana).
+          platformCommissionBps: draft.platformCommissionBps,
+          operatorCommissionBps: draft.operatorCommissionBps,
+          tipCents,
+          revenueCategory: draft.revenueCategory,
+          ...(tipGoesTo ? { tipGoesTo } : {}),
+          ...(tipBeneficiaryUserId ? { tipBeneficiaryUserId } : {}),
+          ...(draft.captureMethod ? { captureMethod: draft.captureMethod } : {}),
+          ...(walletId ? { walletId } : {}),
+          ...(draft.service ?? {}),
+        },
+        select: { id: true, amountCents: true },
+      });
+      await tx.paymentEvent.create({
+        data: {
+          paymentId: p.id,
+          tenantId,
+          eventType: 'payment.created',
+          payload: {
+            amountCents: p.amountCents,
+            tipCents,
+            ...(ignoredCents > 0 ? { tipIgnoredCents: ignoredCents } : {}),
+            terminal: dto.terminalExternalId,
+            walletId,
+          },
+          traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
+        },
+      });
+      return p;
+    });
+  }
+
+  private async topUpWalletId(
+    tx: TransactionalClient,
+    tenantId: string,
+    topUp: TopUpWallet | null,
+  ): Promise<string | null> {
+    if (!topUp) return null;
+    if ('walletId' in topUp) return topUp.walletId;
+    return this.insertEmptyWallet(tx, tenantId, topUp.create);
+  }
+
+  /**
+   * Saldo vacío para una recarga, dentro de la transacción del cobro. Código
+   * corto único entre los activos: si coincide se prueba otro, sin romper la
+   * transacción (ON CONFLICT con el índice parcial del código).
+   */
+  private async insertEmptyWallet(
+    tx: TransactionalClient,
+    tenantId: string,
+    input: { identifier: string | null; walletGroup: string | null },
+  ): Promise<string> {
+    for (let attempt = 1; attempt <= MAX_WALLET_CODE_ATTEMPTS; attempt += 1) {
+      const rows = await tx.$queryRaw<Array<{ id: string }>>`
+        INSERT INTO client_wallets ("tenantId", identifier, "qrToken", "shortCode", "walletGroup")
+        VALUES (${tenantId}::uuid, ${input.identifier}, ${newWalletToken()}, ${newWalletCode()}, ${input.walletGroup})
+        ON CONFLICT ("shortCode") WHERE status = 'ACTIVE' AND "shortCode" IS NOT NULL DO NOTHING
+        RETURNING id::text AS id
+      `;
+      const created = rows[0];
+      if (created) {
+        this.logger.log(`Wallet created id=${created.id} tenant=${tenantId} identifier=${input.identifier ?? '-'}`);
+        return created.id;
+      }
+    }
+    throw new ConflictException('No se pudo crear el saldo: inténtalo otra vez');
+  }
+
+  /**
+   * Propina que pone quien crea el cobro. Solo se apunta si el banco la va a
+   * cobrar y confirmar (Redsys, cobro con QR); si no, 0 (antes quedaba como
+   * propina de la chica y devolvible sin que nadie la hubiera pagado). Como
+   * mucho el importe (y 500 €); la chica, solo para ella o para el local.
+   */
+  private async resolveCreatorTip(input: {
+    tenantId: string;
+    dto: CreatePaymentDto;
+    amountCents: number;
+    creatorRole: string | undefined;
+    isPosExternal: boolean;
+    isWalletTopUp: boolean;
+  }): Promise<CreatorTip> {
+    const { dto, tenantId } = input;
+    if (!tipDestinationAllowed(input.creatorRole, dto.tipGoesTo)) {
+      throw new BadRequestException(TIP_DESTINATION_NOT_ALLOWED);
+    }
+    const declared = dto.tipCents ?? 0;
+    if (declared <= 0) return NO_TIP;
+    const provider = await this.activeProvider(tenantId);
+    const confirmable = creatorTipConfirmable({
+      provider,
+      isPosExternal: input.isPosExternal,
+      isWalletTopUp: input.isWalletTopUp,
+    });
+    if (!confirmable) {
+      this.logger.warn(
+        `Propina de ${declared}c no apuntada (venue=${tenantId} provider=${provider ?? '-'}): la pasarela no la cobra`,
+      );
+      return { ...NO_TIP, ignoredCents: declared };
+    }
+    if (declared > maxTipCents(input.amountCents)) throw new BadRequestException(TIP_TOO_HIGH);
+    const tipGoesTo = dto.tipGoesTo ?? defaultTipGoesTo(input.creatorRole);
+    const tipBeneficiaryUserId = dto.tipBeneficiaryUserId ?? null;
+    if (tipGoesTo === 'beneficiary' && !tipBeneficiaryUserId) {
+      throw new BadRequestException('tipGoesTo=beneficiary requiere tipBeneficiaryUserId');
+    }
+    if (tipBeneficiaryUserId) await this.assertVenueUser(tenantId, tipBeneficiaryUserId);
+    return { tipCents: declared, tipGoesTo, tipBeneficiaryUserId, ignoredCents: 0 };
+  }
+
+  private async assertVenueUser(tenantId: string, userId: string): Promise<void> {
+    const user = await this.prisma.asSystem((tx) =>
+      tx.user.findFirst({ where: { id: userId, tenantId, deletedAt: null }, select: { id: true } }),
+    );
+    if (!user) throw new BadRequestException('tipBeneficiaryUserId no pertenece al venue');
+  }
+
+  /** Pasarela activa del local (la que cobrará cuando el cliente pague). */
+  private async activeProvider(tenantId: string): Promise<Provider | null> {
+    const credential = await this.prisma.asSystem((tx) =>
+      tx.gatewayCredential.findFirst({
+        where: { tenantId, active: true },
+        orderBy: { createdAt: 'asc' },
+        select: { provider: true },
+      }),
+    );
+    return credential?.provider ?? null;
   }
 
   /**
@@ -588,7 +856,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       });
     } catch (err) {
       this.logger.error(`Reintento Redsys falló para ${payment.id}: ${(err as Error).message}`);
-      throw new ConflictException(`Gateway error: ${((err as Error).message || '').slice(0, 300)}`);
+      // El detalle (puede llevar lo enviado al banco) solo al log, nunca al cliente.
+      throw new ConflictException(GATEWAY_ERROR_PUBLIC);
     }
     if (outcome.order) {
       if (outcome.decision === 'retry') {
@@ -661,18 +930,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     if (!payment) throw new NotFoundException('Payment not found');
     // Pasarela que cobrará: la del cobro o, si aún no ha ido al banco, la
     // activa del local. La propina solo se cobra (y se reparte) con Redsys.
-    const provider =
-      payment.provider ??
-      (
-        await this.prisma.asSystem((tx) =>
-          tx.gatewayCredential.findFirst({
-            where: { tenantId: payment.tenantId, active: true },
-            orderBy: { createdAt: 'asc' },
-            select: { provider: true },
-          }),
-        )
-      )?.provider ??
-      null;
+    const provider = payment.provider ?? (await this.activeProvider(payment.tenantId));
     const { walletId, wallet: rawWallet, attempts, ...rest } = payment;
     // Recarga de un saldo que ya existía: quien la paga no se lleva su código,
     // su enlace ni su Face ID (solo la recarga que lo creó).
@@ -854,7 +1112,10 @@ export class PaymentsService implements OnApplicationBootstrap {
   async findById(paymentId: string) {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
-    return payment;
+    // El token de la tarjeta (Redsys, cobros recurrentes) no sale nunca por la
+    // API del personal (#60).
+    const { tokenizationData: _token, ...rest } = payment;
+    return rest;
   }
 
   /**
@@ -886,11 +1147,15 @@ export class PaymentsService implements OnApplicationBootstrap {
 
     await this.prisma.$transaction(
       async (tx) => {
+        // Como asSystem: interna (avisos, trabajos, devoluciones) y sin depender
+        // de que el usuario de la base sea superusuario (FORCE RLS en cobros,
+        // saldos y comisiones). La defensa entre locales es expectedTenantId.
+        await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
         const rows = await tx.$queryRaw<LockedPaymentRow[]>`
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
                  "providerTxId", provider, "createdByUserId", "walletId",
                  "tipCents", "tipGoesTo", "tipBeneficiaryUserId",
-                 "revenueCategory"
+                 "revenueCategory", "operatorCommissionBps"
             FROM payments
            WHERE id = ${paymentId}::uuid
            FOR UPDATE
@@ -963,222 +1228,16 @@ export class PaymentsService implements OnApplicationBootstrap {
           )
         `;
 
-        // Phase 1B — hook de crédito a wallet: si el payment está ligado a una
-        // ClientWallet (top-up flow) y transitamos a AUTHORIZED, sumamos el importe
-        // al balance ATÓMICAMENTE en la misma transacción de la FSM. Lock con
-        // SELECT FOR UPDATE evita race con consumes simultáneos.
-        // Nota: el tip va SEPARADO del balance — propinas no son saldo gastable
-        // por el cliente, se asignan al beneficiario directamente.
+        // Phase 1B — recarga de saldo cobrada: se suma al saldo ATÓMICAMENTE en
+        // la misma transacción de la FSM (saldo bloqueado FOR UPDATE). El tip va
+        // SEPARADO del balance: propinas no son saldo gastable por el cliente.
         if (result.nextState === 'AUTHORIZED' && p.walletId) {
-          // H3: filtro tenantId en SELECT FOR UPDATE (no solo defensa post-lock
-          // sino que el lock se adquiere sobre la fila correcta del tenant).
-          const walletLocked = await tx.$queryRaw<
-            Array<{ id: string; balanceCents: number; status: string; mergedIntoId: string | null }>
-          >`
-            SELECT id, "balanceCents", status, "mergedIntoId" FROM client_wallets
-             WHERE id = ${p.walletId}::uuid
-               AND "tenantId" = ${p.tenantId}::uuid
-             FOR UPDATE
-          `;
-          const w = walletLocked[0];
-          // Un saldo ya sumado a otro (Face ID) no recibe nada: va a revisión.
-          if (w && !w.mergedIntoId && (w.status === 'ACTIVE' || w.status === 'DEPLETED')) {
-            await tx.$executeRaw`
-              UPDATE client_wallets
-                 SET "balanceCents" = "balanceCents" + ${p.amountCents}::int,
-                     status = 'ACTIVE'::"WalletStatus",
-                     "updatedAt" = now()
-               WHERE id = ${p.walletId}::uuid
-                 AND "tenantId" = ${p.tenantId}::uuid
-            `;
-            this.logger.log(
-              `Payment ${paymentId} AUTHORIZED → wallet ${p.walletId} credited +${p.amountCents}c (new balance: ${w.balanceCents + p.amountCents})`,
-            );
-          } else {
-            // C4: NO se acredita el wallet pero el cliente YA pagó al PSP.
-            // Discrepancia financiera. NO podemos throw aquí (rollback ⇒ webhook
-            // retry infinito), pero emitimos 3 canales de alerta:
-            //   1. Métrica Prometheus (alerta a >0)
-            //   2. Audit log con action específico searchable
-            //   3. Log ERROR (no WARN — esto es crítico)
-            const walletStatus = w?.mergedIntoId ? 'merged' : (w?.status ?? 'missing');
-            this.metrics.walletCreditSkipped.inc({
-              venue: p.tenantId,
-              wallet_status: walletStatus,
-            });
-            this.logger.error(
-              `CRITICAL: Payment ${paymentId} AUTHORIZED but wallet ${p.walletId} not creditable (status=${walletStatus}, amount=${p.amountCents}c). Customer charged. Manual review + refund or wallet revive required.`,
-            );
-            // Audit dentro de tx — si el commit falla, el log también.
-            await tx.$executeRaw`
-              INSERT INTO audit_events ("tenantId", action, "targetType", "targetId", payload, "occurredAt")
-              VALUES (${p.tenantId}::uuid, 'wallet.credit_skipped_critical',
-                      'Payment', ${paymentId},
-                      ${JSON.stringify({
-                        walletId: p.walletId,
-                        walletStatus,
-                        amountCents: p.amountCents,
-                        reason: 'wallet_not_active_at_authorized',
-                      })}::jsonb,
-                      now())
-            `;
-          }
+          await this.creditTopUp(tx, { ...p, walletId: p.walletId }, paymentId);
         }
 
-        // Snapshot del creator role + comisiones del venue. Usado por:
-        //   1) Earning del creator si role=OPERATOR (CHICA_SERVICE → 90%, VENUE_* → 0% por defecto)
-        //   2) Tip-only earning a beneficiary si creator NO es OPERATOR
-        let creatorRole: string | null = null;
-        let creatorCommissionBps: number | null = null;
-        // Map de comisiones por categoría del venue (operatorCommissionDefaults).
-        // Lo cargamos aquí para que la resolución de bps por categoría sea pura.
-        let venueCommissionMap: Record<string, number> = {
-          CHICA_SERVICE: 9000,
-          VENUE_BAR: 0,
-          VENUE_ROOM: 0,
-          VENUE_FOOD: 0,
-          EXTRA: 0,
-        };
-        if (result.nextState === 'AUTHORIZED' && p.createdByUserId) {
-          const creatorRows = await tx.$queryRaw<
-            Array<{ role: string; commissionBps: number | null }>
-          >`
-            SELECT role::text AS role, "commissionBps"
-              FROM users
-             WHERE id = ${p.createdByUserId}::uuid
-          `;
-          if (creatorRows[0]) {
-            creatorRole = creatorRows[0].role;
-            creatorCommissionBps = creatorRows[0].commissionBps;
-          }
-          const venueRows = await tx.$queryRaw<
-            Array<{ operatorCommissionDefaults: Record<string, number> | null }>
-          >`
-            SELECT "operatorCommissionDefaults"
-              FROM venues
-             WHERE id = ${p.tenantId}::uuid
-          `;
-          if (venueRows[0]?.operatorCommissionDefaults) {
-            venueCommissionMap = {
-              ...venueCommissionMap,
-              ...venueRows[0].operatorCommissionDefaults,
-            };
-          }
-        }
-
-        // Hook de earning para OPERATOR — si transitamos a AUTHORIZED y el creador
-        // del payment es una operadora, snapshot de comisión en operator_earnings.
-        // Math.round (no floor) evita bias unidireccional contra la operadora —
-        // el céntimo perdido por redondeo se reparte 50/50 estadísticamente.
-        // Idempotente: la unique en paymentId rechaza un segundo insert (defensa
-        // contra una transición duplicada que la FSM ya filtra).
-        // NOTA: si p.walletId está set, NO generamos earning aquí — el earning
-        // se genera per-consumption en wallets.service (chica cobra granular).
-        if (result.nextState === 'AUTHORIZED' && p.createdByUserId && !p.walletId) {
-          const bpsForOperator = resolveBpsForOperator({
-            category: p.revenueCategory,
-            userCommissionBpsOverride: creatorCommissionBps,
-            venueMap: venueCommissionMap as Partial<OperatorCommissionDefaults>,
-          });
-          // Solo creamos earning si:
-          //   - creator es OPERATOR
-          //   - bps resolvidos > 0 (en VENUE_* con default 0 no hay earning)
-          if (creatorRole === 'OPERATOR') {
-            const creator = { id: p.createdByUserId };
-            const bps = bpsForOperator;
-            const commissionCents = Math.round((p.amountCents * bps) / 10_000);
-
-            // Tip: si la propina va a la chica creator (o a beneficiary explícito
-            // que coincide con ella), 100% se suma al earning. Si va a venue/shared
-            // o a otro beneficiario, el earning lleva solo la comisión.
-            let earningTipCents = 0;
-            if (p.tipCents > 0) {
-              const goes = p.tipGoesTo ?? 'operator';
-              if (goes === 'operator') {
-                earningTipCents = p.tipCents;
-              } else if (goes === 'beneficiary' && p.tipBeneficiaryUserId === creator.id) {
-                earningTipCents = p.tipCents;
-              }
-            }
-
-            // Sin comisión pero con propina para ella: la propina también le llega.
-            if (bps > 0 || earningTipCents > 0) {
-              await tx.$executeRaw`
-                INSERT INTO operator_earnings (
-                  "tenantId", "operatorId", "paymentId",
-                  "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
-                )
-                VALUES (
-                  ${p.tenantId}::uuid,
-                  ${creator.id}::uuid,
-                  ${paymentId}::uuid,
-                  ${p.amountCents}::int,
-                  ${bps}::int,
-                  ${commissionCents}::int,
-                  ${earningTipCents}::int
-                )
-                ON CONFLICT ("paymentId") DO NOTHING
-              `;
-            }
-          }
-        }
-
-        // Si tip va a un beneficiary específico que NO es el creator OPERATOR,
-        // y ese beneficiary es OPERATOR del venue, crear un earning aparte
-        // (consumptionId/paymentId ambos null no son válidos en el schema actual;
-        // por simplicidad, los tips a no-creator se ligan al mismo paymentId pero
-        // como una "tip-only" earning row con commissionCents=0 y tipCents>0).
-        // NOTA: por unique(paymentId), si ya hay earning para el creator, este
-        // segundo insert falla. Por eso, este flujo solo aplica cuando creator NO
-        // es OPERATOR (createdByUserId null o role!=OPERATOR) y hay un beneficiary
-        // OPERATOR distinto. Caso típico: OWNER crea cobro POS para mesa atendida
-        // por chica X — tip va a X via tipBeneficiaryUserId.
-        if (
-          result.nextState === 'AUTHORIZED' &&
-          p.tipCents > 0 &&
-          p.tipGoesTo === 'beneficiary' &&
-          p.tipBeneficiaryUserId &&
-          !p.walletId
-        ) {
-          const benefRows = await tx.$queryRaw<
-            Array<{ id: string; role: string; commissionBps: number | null }>
-          >`
-            SELECT id, role::text AS role, "commissionBps"
-              FROM users
-             WHERE id = ${p.tipBeneficiaryUserId}::uuid
-          `;
-          const benef = benefRows[0];
-          // C5 FIX: el guard previo usaba `createdByUserId !== null` (siempre true
-          // si OWNER/MANAGER crea el cobro → beneficiary nunca recibía tip).
-          // Ahora usamos el role real del creator: si NO es OPERATOR, no hay earning
-          // del creator y podemos crear el tip-only earning del beneficiary sin
-          // colisionar con la unique(paymentId).
-          const creatorIsOperator = creatorRole === 'OPERATOR';
-          if (
-            benef?.role === 'OPERATOR' &&
-            benef.id !== p.createdByUserId &&
-            !creatorIsOperator
-          ) {
-            await tx.$executeRaw`
-              INSERT INTO operator_earnings (
-                "tenantId", "operatorId", "paymentId",
-                "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
-              )
-              VALUES (
-                ${p.tenantId}::uuid,
-                ${benef.id}::uuid,
-                ${paymentId}::uuid,
-                ${p.amountCents}::int,
-                0::int,
-                0::int,
-                ${p.tipCents}::int
-              )
-              ON CONFLICT ("paymentId") DO NOTHING
-            `;
-            this.logger.log(
-              `Payment ${paymentId} AUTHORIZED → tip-only earning created for beneficiary=${benef.id} amount=${p.tipCents}c`,
-            );
-          }
+        // Comisión de la chica / propina a otra chica: misma transacción.
+        if (result.nextState === 'AUTHORIZED') {
+          await this.recordEarnings(tx, p, paymentId);
         }
 
         prevState = p.status;
@@ -1210,20 +1269,195 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Fija en el cobro la propina del intento que cobró el banco. Devuelve una
-   * copia de la fila con la propina y el importe devolvible ya ajustados.
+   * Comisión de la chica (y propina para otra chica del local) al pagarse un
+   * cobro: en la misma transacción de transition(). Extraído tal cual de
+   * transition() (sin cambios de lógica).
+   */
+  private async recordEarnings(tx: TransactionalClient, p: LockedPaymentRow, paymentId: string): Promise<void> {
+    // Snapshot del creator role + comisiones del venue. Usado por:
+    //   1) Earning del creator si role=OPERATOR (CHICA_SERVICE → 90%, VENUE_* → 0% por defecto)
+    //   2) Tip-only earning a beneficiary si creator NO es OPERATOR
+    let creatorRole: string | null = null;
+    let creatorCommissionBps: number | null = null;
+    // Map de comisiones por categoría del venue (operatorCommissionDefaults).
+    // Lo cargamos aquí para que la resolución de bps por categoría sea pura.
+    let venueCommissionMap: Record<string, number> = {
+      CHICA_SERVICE: 9000,
+      VENUE_BAR: 0,
+      VENUE_ROOM: 0,
+      VENUE_FOOD: 0,
+      EXTRA: 0,
+    };
+    if (p.createdByUserId) {
+      const creatorRows = await tx.$queryRaw<
+        Array<{ role: string; commissionBps: number | null }>
+      >`
+        SELECT role::text AS role, "commissionBps"
+          FROM users
+         WHERE id = ${p.createdByUserId}::uuid
+      `;
+      if (creatorRows[0]) {
+        creatorRole = creatorRows[0].role;
+        creatorCommissionBps = creatorRows[0].commissionBps;
+      }
+      const venueRows = await tx.$queryRaw<
+        Array<{ operatorCommissionDefaults: Record<string, number> | null }>
+      >`
+        SELECT "operatorCommissionDefaults"
+          FROM venues
+         WHERE id = ${p.tenantId}::uuid
+      `;
+      if (venueRows[0]?.operatorCommissionDefaults) {
+        venueCommissionMap = {
+          ...venueCommissionMap,
+          ...venueRows[0].operatorCommissionDefaults,
+        };
+      }
+    }
+
+    // Hook de earning para OPERATOR — si transitamos a AUTHORIZED y el creador
+    // del payment es una operadora, snapshot de comisión en operator_earnings.
+    // Math.round (no floor) evita bias unidireccional contra la operadora —
+    // el céntimo perdido por redondeo se reparte 50/50 estadísticamente.
+    // Idempotente: la unique en paymentId rechaza un segundo insert (defensa
+    // contra una transición duplicada que la FSM ya filtra).
+    // NOTA: si p.walletId está set, NO generamos earning aquí — el earning
+    // se genera per-consumption en wallets.service (chica cobra granular).
+    if (p.createdByUserId && !p.walletId) {
+      // #54: el % fijado al crear el cobro; en cobros anteriores, el de ahora.
+      const bpsForOperator = p.operatorCommissionBps ?? resolveBpsForOperator({
+        category: p.revenueCategory,
+        userCommissionBpsOverride: creatorCommissionBps,
+        venueMap: venueCommissionMap as Partial<OperatorCommissionDefaults>,
+      });
+      // Solo creamos earning si:
+      //   - creator es OPERATOR
+      //   - bps resolvidos > 0 (en VENUE_* con default 0 no hay earning)
+      if (creatorRole === 'OPERATOR') {
+        const creator = { id: p.createdByUserId };
+        const bps = bpsForOperator;
+        const commissionCents = Math.round((p.amountCents * bps) / 10_000);
+
+        // Tip: si la propina va a la chica creator (o a beneficiary explícito
+        // que coincide con ella), 100% se suma al earning. Si va a venue/shared
+        // o a otro beneficiario, el earning lleva solo la comisión.
+        let earningTipCents = 0;
+        if (p.tipCents > 0) {
+          const goes = p.tipGoesTo ?? 'operator';
+          if (goes === 'operator') {
+            earningTipCents = p.tipCents;
+          } else if (goes === 'beneficiary' && p.tipBeneficiaryUserId === creator.id) {
+            earningTipCents = p.tipCents;
+          }
+        }
+
+        // Sin comisión pero con propina para ella: la propina también le llega.
+        if (bps > 0 || earningTipCents > 0) {
+          await tx.$executeRaw`
+            INSERT INTO operator_earnings (
+              "tenantId", "operatorId", "paymentId",
+              "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
+            )
+            VALUES (
+              ${p.tenantId}::uuid,
+              ${creator.id}::uuid,
+              ${paymentId}::uuid,
+              ${p.amountCents}::int,
+              ${bps}::int,
+              ${commissionCents}::int,
+              ${earningTipCents}::int
+            )
+            ON CONFLICT ("paymentId") DO NOTHING
+          `;
+        }
+      }
+    }
+
+    // Si tip va a un beneficiary específico que NO es el creator OPERATOR,
+    // y ese beneficiary es OPERATOR del venue, crear un earning aparte
+    // (consumptionId/paymentId ambos null no son válidos en el schema actual;
+    // por simplicidad, los tips a no-creator se ligan al mismo paymentId pero
+    // como una "tip-only" earning row con commissionCents=0 y tipCents>0).
+    // NOTA: por unique(paymentId), si ya hay earning para el creator, este
+    // segundo insert falla. Por eso, este flujo solo aplica cuando creator NO
+    // es OPERATOR (createdByUserId null o role!=OPERATOR) y hay un beneficiary
+    // OPERATOR distinto. Caso típico: OWNER crea cobro POS para mesa atendida
+    // por chica X — tip va a X via tipBeneficiaryUserId.
+    if (
+      p.tipCents > 0 &&
+      p.tipGoesTo === 'beneficiary' &&
+      p.tipBeneficiaryUserId &&
+      !p.walletId
+    ) {
+      const benefRows = await tx.$queryRaw<
+        Array<{ id: string; role: string; commissionBps: number | null }>
+      >`
+        SELECT id, role::text AS role, "commissionBps"
+          FROM users
+         WHERE id = ${p.tipBeneficiaryUserId}::uuid
+      `;
+      const benef = benefRows[0];
+      // C5 FIX: el guard previo usaba `createdByUserId !== null` (siempre true
+      // si OWNER/MANAGER crea el cobro → beneficiary nunca recibía tip).
+      // Ahora usamos el role real del creator: si NO es OPERATOR, no hay earning
+      // del creator y podemos crear el tip-only earning del beneficiary sin
+      // colisionar con la unique(paymentId).
+      const creatorIsOperator = creatorRole === 'OPERATOR';
+      if (
+        benef?.role === 'OPERATOR' &&
+        benef.id !== p.createdByUserId &&
+        !creatorIsOperator
+      ) {
+        await tx.$executeRaw`
+          INSERT INTO operator_earnings (
+            "tenantId", "operatorId", "paymentId",
+            "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
+          )
+          VALUES (
+            ${p.tenantId}::uuid,
+            ${benef.id}::uuid,
+            ${paymentId}::uuid,
+            ${p.amountCents}::int,
+            0::int,
+            0::int,
+            ${p.tipCents}::int
+          )
+          ON CONFLICT ("paymentId") DO NOTHING
+        `;
+        this.logger.log(
+          `Payment ${paymentId} AUTHORIZED → tip-only earning created for beneficiary=${benef.id} amount=${p.tipCents}c`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Fija en el cobro la propina del intento que cobró el banco. Sin ese dato
+   * (otra pasarela, intento sin propina registrada) no hay propina: nunca la
+   * que puso quien creó el cobro, que nadie ha pagado. Devuelve una copia de
+   * la fila con la propina y el importe devolvible ya ajustados.
    */
   private async withChargedTip<
-    T extends { id: string; amountCents: number; tipGoesTo: string | null },
+    T extends {
+      id: string;
+      amountCents: number;
+      availableAmountCents: number;
+      tipCents: number;
+      tipGoesTo: string | null;
+    },
   >(tx: TransactionalClient, p: T, event: { provider: string; providerTxId: string }): Promise<T> {
     const charged = await readChargedTip(tx, p.id, event);
-    if (!charged) return p;
     const settled = settleChargedTip({
       amountCents: p.amountCents,
-      tipCents: charged.tipCents,
+      tipCents: charged?.tipCents ?? 0,
       tipGoesTo: p.tipGoesTo,
-      creatorRole: charged.creatorRole,
+      creatorRole: charged?.creatorRole ?? null,
     });
+    const unchanged =
+      settled.tipCents === p.tipCents &&
+      settled.availableAmountCents === p.availableAmountCents &&
+      settled.tipGoesTo === p.tipGoesTo;
+    if (unchanged) return p;
     await tx.$executeRaw`
       UPDATE payments
          SET "tipCents" = ${settled.tipCents}::int,
@@ -1235,8 +1469,96 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
+   * Recarga cobrada → se suma al saldo, dentro de transition(). Si ese saldo
+   * ya se sumó a otro (Face ID), va al saldo bueno del mismo grupo (antes no
+   * se sumaba a nada). Si está cerrado, incidencia: cobrado y sin saldo. No
+   * lanza: un rollback dejaría el aviso del banco reintentando para siempre.
+   */
+  private async creditTopUp(
+    tx: TransactionalClient,
+    p: LockedPaymentRow & { walletId: string },
+    paymentId: string,
+  ): Promise<void> {
+    // H3: el saldo de la recarga, bloqueado y del local del cobro.
+    const first = await lockCreditWallet(tx, p.walletId, p.tenantId);
+    const target = await findCreditTarget(first, (id) => lockCreditWallet(tx, id, null));
+    if (!target.ok) {
+      await this.reportSkippedCredit(tx, p, paymentId, target);
+      return;
+    }
+    const w = target.wallet;
+    // #56: a cero no ocupa su código; si otro saldo activo lo cogió, uno nuevo.
+    const shortCode = await shortCodeOnCredit(
+      w,
+      async (code) =>
+        (
+          await tx.$queryRaw<Array<{ ok: number }>>`
+            SELECT 1 AS ok FROM client_wallets
+             WHERE "shortCode" = ${code} AND status = 'ACTIVE'::"WalletStatus" AND id <> ${w.id}::uuid
+             LIMIT 1
+          `
+        ).length > 0,
+      newWalletCode,
+    );
+    await tx.$executeRaw`
+      UPDATE client_wallets
+         SET "balanceCents" = "balanceCents" + ${p.amountCents}::int,
+             status = 'ACTIVE'::"WalletStatus",
+             "shortCode" = ${shortCode},
+             "updatedAt" = now()
+       WHERE id = ${w.id}::uuid
+    `;
+    this.logger.log(
+      `Payment ${paymentId} AUTHORIZED → wallet ${w.id} credited +${p.amountCents}c (new balance: ${w.balanceCents + p.amountCents})`,
+    );
+    if (shortCode !== w.shortCode) {
+      this.logger.warn(`Wallet ${w.id} reactivada con código nuevo (el anterior lo usaba otro saldo activo)`);
+    }
+    if (target.mergedFrom) {
+      await tx.$executeRaw`
+        INSERT INTO audit_events ("tenantId", action, "targetType", "targetId", payload, "occurredAt")
+        VALUES (${p.tenantId}::uuid, 'wallet.credit_followed_merge', 'Payment', ${paymentId},
+                ${JSON.stringify({ from: target.mergedFrom, to: w.id, amountCents: p.amountCents })}::jsonb, now())
+      `;
+    }
+  }
+
+  /**
+   * C4: NO se suma la recarga pero el cliente YA pagó. Tres alertas (métrica,
+   * registro ERROR y auditoría → bandeja de incidencias) con el importe, el
+   * cobro y qué hacer: devolverla en el banco o reactivar el saldo.
+   */
+  private async reportSkippedCredit(
+    tx: TransactionalClient,
+    p: LockedPaymentRow & { walletId: string },
+    paymentId: string,
+    skip: { cause: CreditSkipCause; walletStatus: string },
+  ): Promise<void> {
+    const detail = skippedCreditDetail({ ...skip, amountCents: p.amountCents, paymentId });
+    this.metrics.walletCreditSkipped.inc({ venue: p.tenantId, wallet_status: skip.walletStatus });
+    this.logger.error(`CRITICAL: Payment ${paymentId} AUTHORIZED, wallet ${p.walletId} sin sumar — ${detail}`);
+    // Audit dentro de tx — si el commit falla, el log también.
+    await tx.$executeRaw`
+      INSERT INTO audit_events ("tenantId", action, "targetType", "targetId", payload, "occurredAt")
+      VALUES (${p.tenantId}::uuid, 'wallet.credit_skipped_critical',
+              'Payment', ${paymentId},
+              ${JSON.stringify({
+                walletId: p.walletId,
+                walletStatus: skip.walletStatus,
+                amountCents: p.amountCents,
+                paymentId,
+                reason: 'wallet_not_active_at_authorized',
+                cause: skip.cause,
+                action: 'Devolver la recarga en el banco o reactivar el saldo y sumarle el importe',
+                detail,
+              })}::jsonb,
+              now())
+    `;
+  }
+
+  /**
    * Cancela un pago en estado CREATED|AWAITING_CAPTURE.
-   * - OPERATOR solo puede cancelar payments creados por ella.
+   * - OPERATOR solo puede cancelar payments creados por ella; WAITER, los suyos.
    * - OWNER/MANAGER pueden cancelar cualquier payment del venue.
    * Returns 409 si el FSM no permite (estado terminal).
    */
@@ -1249,6 +1571,10 @@ export class PaymentsService implements OnApplicationBootstrap {
 
     if (actor.role === 'OPERATOR' && payment.createdByUserId !== actor.userId) {
       throw new ForbiddenException('No puedes cancelar cobros de otra operadora');
+    }
+    // El camarero solo cancela los cobros que ha creado él (los de la chica no).
+    if (actor.role === 'WAITER' && payment.createdByUserId !== actor.userId) {
+      throw new ForbiddenException('Solo puedes cancelar los cobros que has creado tú');
     }
 
     try {
@@ -1302,31 +1628,20 @@ export class PaymentsService implements OnApplicationBootstrap {
       );
     }
 
-    // El código de autorización identifica UNA operación del datáfono: si ya
-    // confirmó otro cobro del mismo terminal en las últimas 24 h, es un ticket
-    // reutilizado (o un error de tecleo) y no se acepta.
     const authCode = dto.posReceiptRef.replace(/\s+/g, '').toUpperCase();
-    const reused = await this.prisma.payment.findFirst({
-      where: {
-        id: { not: paymentId },
-        terminalId: payment.terminalId,
-        authCode,
-        authorizedAt: { gte: new Date(Date.now() - 24 * 3600 * 1000) },
-      },
-      select: { id: true },
-    });
-    if (reused) {
-      throw new ConflictException(
-        'Ese código de autorización ya se usó en otro cobro de este datáfono. Revisa el ticket.',
-      );
-    }
-
     try {
+      // Comprobar el código, apuntarlo con la prueba del camarero y marcar
+      // pagado van en la MISMA transacción que reparte la comisión (antes eran
+      // tres pasos sueltos: dos camareros podían confirmar con el mismo ticket).
       // H2: expectedTenantId para defensa cross-tenant en confirmPosPayment.
       await this.transition(
         paymentId,
         { type: 'POS_CONFIRMED', posReceiptRef: authCode },
         actor.tenantId,
+        {
+          prepare: (tx, locked) =>
+            this.recordPosConfirmation(tx, locked, { terminalId: payment.terminalId, authCode, actor, dto }),
+        },
       );
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
@@ -1334,21 +1649,62 @@ export class PaymentsService implements OnApplicationBootstrap {
           `Payment cannot be confirmed in state ${payment.status}`,
         );
       }
+      // Red del índice único (dos confirmaciones cruzadas con el mismo código).
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException(POS_AUTH_CODE_REUSED);
+      }
       throw err;
     }
 
-    await this.prisma.payment.update({
-      where: { id: paymentId },
-      data: { authCode, authorizedAt: new Date() },
-    });
+    this.logger.log(
+      `Payment ${paymentId} POS_CONFIRMED by ${actor.role}=${actor.userId} ref=${dto.posReceiptRef} photo=${!!dto.posReceiptPhoto}`,
+    );
 
-    // Audit log con la prueba de cobro (ref + foto opcional). Si hay disputa
-    // o auditoría AEAT, este registro es lo que demuestra que la chica
-    // efectivamente cobró en el datáfono (no se inventó el AUTHORIZED).
-    await this.prisma.paymentEvent.create({
+    return { status: 'AUTHORIZED' };
+  }
+
+  /**
+   * Dentro de la transición, con el cobro bloqueado. El código de
+   * autorización identifica UNA operación del datáfono: si ya confirmó otro
+   * cobro de este datáfono en las últimas 24 h es un ticket reutilizado (o un
+   * error de tecleo) y no se acepta. Se apunta con la prueba del camarero
+   * (ref + foto opcional: lo que demuestra el cobro si hay disputa o
+   * auditoría) y sin propina: el camarero no la confirma y nadie la ha pagado.
+   */
+  private async recordPosConfirmation(
+    tx: TransactionalClient,
+    locked: LockedPaymentRow,
+    input: {
+      terminalId: string;
+      authCode: string;
+      actor: { userId: string; role: string };
+      dto: { posReceiptRef: string; posReceiptPhoto?: string; notes?: string };
+    },
+  ): Promise<Partial<LockedPaymentRow>> {
+    const { terminalId, authCode, actor, dto } = input;
+    // De uno en uno por datáfono y código: el segundo espera y ve al primero.
+    const lockKey = `pos-auth:${terminalId}:${authCode}`;
+    await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    const reused = await tx.payment.findFirst({
+      where: {
+        id: { not: locked.id },
+        terminalId,
+        authCode,
+        authorizedAt: { gte: new Date(Date.now() - POS_AUTH_CODE_WINDOW_MS) },
+      },
+      select: { id: true },
+    });
+    if (reused) throw new ConflictException(POS_AUTH_CODE_REUSED);
+
+    const noTip = { tipCents: 0, availableAmountCents: locked.amountCents, tipGoesTo: null };
+    await tx.payment.update({
+      where: { id: locked.id },
+      data: { authCode, authorizedAt: new Date(), ...noTip },
+    });
+    await tx.paymentEvent.create({
       data: {
-        paymentId,
-        tenantId: actor.tenantId,
+        paymentId: locked.id,
+        tenantId: locked.tenantId,
         eventType: 'pos.confirmed',
         payload: {
           posReceiptRef: dto.posReceiptRef,
@@ -1363,12 +1719,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
       },
     });
-
-    this.logger.log(
-      `Payment ${paymentId} POS_CONFIRMED by ${actor.role}=${actor.userId} ref=${dto.posReceiptRef} photo=${!!dto.posReceiptPhoto}`,
-    );
-
-    return { status: 'AUTHORIZED' };
+    return noTip;
   }
 
   /**
@@ -1481,8 +1832,9 @@ export class PaymentsService implements OnApplicationBootstrap {
       } catch (e2) {
         if (!(e2 instanceof InvalidTransitionError)) throw e2;
       }
-      // Propagar mensaje real durante bring-up (sin tener acceso a logs Dokploy).
-      throw new ConflictException(`Gateway error: ${errMsg.slice(0, 300)}`);
+      // El detalle va al log de arriba: el error de la pasarela puede llevar lo
+      // que se le mandó (sent:/branchesRaw: de Paytef) y esto es público.
+      throw new ConflictException(GATEWAY_ERROR_PUBLIC);
     }
 
     // 5) Encolar orphan-reconcile (se autocancela si llega webhook antes)
@@ -1708,11 +2060,9 @@ export class PaymentsService implements OnApplicationBootstrap {
   private async toCreatedResponse(paymentId: string): Promise<CreatedPaymentResponse> {
     // CLS ya tiene tenantId del request (AuthGuard lo seteo). El middleware de
     // Prisma inyecta WHERE tenantId — y como el pago lo acabamos de crear con
-    // ese mismo tenant, la query devuelve el registro correcto.
-    const p = await this.prisma.payment.findUniqueOrThrow({
-      where: { id: paymentId },
-      include: { wallet: { select: { id: true } } },
-    });
+    // ese mismo tenant, la query devuelve el registro correcto. asSystem: sin
+    // depender de un usuario de base superusuario (FORCE RLS en payments).
+    const p = await this.prisma.asSystem((tx) => tx.payment.findUniqueOrThrow({ where: { id: paymentId } }));
     // Helper para tratar string vacío y whitespace como "no configurado".
     // process.env.X devuelve undefined si no existe, pero "" si Dokploy
     // tiene la variable definida sin valor → ?? no la captura.

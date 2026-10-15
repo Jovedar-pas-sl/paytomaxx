@@ -1,4 +1,12 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { ClsService } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
@@ -8,7 +16,7 @@ import { AuditService } from '../audit/audit.service';
 import { InvalidTransitionError, type PaymentMachineState } from '../payments/payment.machine';
 import { PAID_STATES, confirmationCode } from '../payments/pay-redirect';
 import { PaymentsService } from '../payments/payments.service';
-import { settleChargedTip } from '../payments/tip';
+import { maxTipCents, settleChargedTip } from '../payments/tip';
 import type { PosDevice } from './device.guard';
 import {
   PAIRING_CODE_TTL_MS,
@@ -68,8 +76,6 @@ type PosPayment = {
 
 /** Un cobro tiene que haberse iniciado en el mismo datáfono hace poco. */
 const START_VALID_MS = 15 * 60 * 1000;
-/** Propina pedida en el datáfono: como mucho el importe y nunca más de esto. */
-const MAX_TERMINAL_TIP_CENTS = 500_00;
 
 /**
  * Datáfono PAX con la app NightPay. El datáfono pide el cobro, manda el
@@ -128,7 +134,14 @@ export class PosDeviceService {
     await this.prisma.asSystem((tx) =>
       tx.terminal.update({
         where: { id: terminalId },
-        data: { deviceTokenHash: null, devicePairedAt: null, pairingCodeHash: null, pairingCodeExpiresAt: null },
+        data: {
+          deviceTokenHash: null,
+          deviceTokenNextHash: null,
+          deviceTokenIssuedAt: null,
+          devicePairedAt: null,
+          pairingCodeHash: null,
+          pairingCodeExpiresAt: null,
+        },
       }),
     );
     await this.audit.log({
@@ -158,6 +171,8 @@ export class PosDeviceService {
         where: { id: terminal.id, pairingCodeHash: sha256(code), pairingCodeExpiresAt: { gt: new Date() } },
         data: {
           deviceTokenHash: sha256(token),
+          deviceTokenNextHash: null,
+          deviceTokenIssuedAt: new Date(),
           devicePairedAt: new Date(),
           deviceLastSeenAt: new Date(),
           pairingCodeHash: null,
@@ -174,6 +189,31 @@ export class PosDeviceService {
       payload: {},
     });
     return { token, terminal: { label: terminal.label, zone: terminal.zone }, venueName: terminal.venue.name };
+  }
+
+  /**
+   * El datáfono pide una credencial nueva (conviene hacerlo de vez en cuando;
+   * obligatorio si se configura POS_DEVICE_TOKEN_MAX_AGE_DAYS). La anterior
+   * sigue valiendo hasta que el datáfono use la nueva: si se corta la red y no
+   * le llega la respuesta, no se queda sin servicio (la vuelve a pedir).
+   */
+  async rotateToken(device: PosDevice): Promise<{ token: string }> {
+    const token = newDeviceToken();
+    const rotated = await this.prisma.asSystem((tx) =>
+      tx.terminal.updateMany({
+        where: { id: device.terminalId, deviceTokenHash: device.tokenHash, active: true },
+        data: { deviceTokenNextHash: sha256(token), deviceTokenIssuedAt: new Date() },
+      }),
+    );
+    if (rotated.count === 0) throw new UnauthorizedException('Datáfono sin vincular');
+    await this.audit.log({
+      action: 'terminal.device.token_rotated',
+      tenantId: device.tenantId,
+      targetType: 'Terminal',
+      targetId: device.terminalId,
+      payload: {},
+    });
+    return { token };
   }
 
   async me(device: PosDevice): Promise<{ terminal: { label: string; zone: string | null }; venueName: string }> {
@@ -276,8 +316,9 @@ export class PosDeviceService {
     if (!(await this.startedHere(p.id, device.terminalId))) {
       return this.mismatch(p, op, 'Este cobro no se inició en este datáfono: anula esta operación.');
     }
+    // Propina pedida en el datáfono: como mucho el importe y nunca más de 500 €.
     const tip = r.tipAmount ?? 0;
-    if (tip > Math.min(p.amountCents, MAX_TERMINAL_TIP_CENTS)) {
+    if (tip > maxTipCents(p.amountCents)) {
       return this.mismatch(p, op, `Propina de ${eur(tip)} fuera de lo normal: anula esta operación.`);
     }
 
@@ -291,15 +332,14 @@ export class PosDeviceService {
         p.tenantId,
         {
           prepare: async (tx, locked) => {
-            const settled =
-              tip > 0
-                ? settleChargedTip({
-                    amountCents: locked.amountCents,
-                    tipCents: tip,
-                    tipGoesTo: locked.tipGoesTo,
-                    creatorRole: p.createdBy?.role ?? null,
-                  })
-                : null;
+            // La propina es la que cobró el datáfono (0 si no hubo), nunca la
+            // que puso quien creó el cobro.
+            const settled = settleChargedTip({
+              amountCents: locked.amountCents,
+              tipCents: tip,
+              tipGoesTo: locked.tipGoesTo,
+              creatorRole: p.createdBy?.role ?? null,
+            });
             await tx.paymentEvent.create({
               data: {
                 paymentId: p.id,
@@ -320,10 +360,10 @@ export class PosDeviceService {
                 cardLast4: last4Of(r),
                 cardBrand: cardBrandOf(r),
                 payMethodCode: payMethodCodeOf(r),
-                ...(settled ?? {}),
+                ...settled,
               },
             });
-            return { provider: 'PAYTEF', providerTxId: op, ...(settled ?? {}) };
+            return { provider: 'PAYTEF', providerTxId: op, ...settled };
           },
         },
       );
