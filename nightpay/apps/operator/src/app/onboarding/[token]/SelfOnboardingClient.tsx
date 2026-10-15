@@ -5,12 +5,13 @@ import { Button, Card, Input, Logo, Select } from '@nightpay/ui';
 import {
   fetchSelfOnboardingProfile,
   submitSelfOnboarding,
-  type PayoutMethod,
   type SelfOnboardingProfile,
   type SelfOnboardingSubmitDto,
   type WalletProvider,
   type WalletStatusKYC,
 } from '@/lib/api';
+import { normalizePayoutAddress, payoutFormProblem } from '@/lib/payout-address';
+import { PayoutSection, type PayoutValues } from './PayoutSection';
 
 const LATAM_COUNTRIES = [
   'Argentina', 'Bolivia', 'Brasil', 'Chile', 'Colombia',
@@ -41,28 +42,6 @@ const WALLET_STATUS_LABELS: Record<WalletStatusKYC, string> = {
   KYC_REJECTED: '⛔ KYC rechazado',
 };
 
-const PAYOUT_METHOD_LABELS: Record<PayoutMethod, string> = {
-  USDT_TRC20: 'USDT en red Tron (recomendado, ~0.5€)',
-  USDT_BEP20: 'USDT en red BSC (Binance Smart Chain)',
-  USDC_POLY: 'USDC en red Polygon',
-  USDC_SOL: 'USDC en red Solana',
-  BINANCE_PAY_ID: 'Binance Pay ID (transferencia interna)',
-  OKX_INTERNAL: 'OKX (transferencia interna)',
-  BYBIT_INTERNAL: 'Bybit (transferencia interna)',
-  FASTERPAY_EMAIL: 'FasterPay (email)',
-  PAYQUICKER_EMAIL: 'PayQuicker (email)',
-  HYPERWALLET_TOKEN: 'Hyperwallet',
-  REVOLUT_TAG: 'Revolut (@tag)',
-  PAYONEER_EMAIL: 'Payoneer (email)',
-  SEPA_IBAN: 'Transferencia SEPA (IBAN)',
-  WIRE_INTERNATIONAL: 'Transferencia internacional (SWIFT)',
-  MERCADOPAGO_CVU: 'MercadoPago (CVU)',
-  PIX_KEY: 'Pix (Brasil)',
-  NEQUI_PHONE: 'Nequi (Colombia, teléfono)',
-  DAVIPLATA_PHONE: 'Daviplata (Colombia, teléfono)',
-  MANUAL_CASH: 'Efectivo en mano',
-};
-
 interface Props {
   token: string;
 }
@@ -86,17 +65,20 @@ export function SelfOnboardingClient({ token }: Props) {
   const [needsHelpWallet, setNeedsHelpWallet] = useState(false);
   const [needsHelpDocs, setNeedsHelpDocs] = useState(false);
   const [notes, setNotes] = useState('');
-  const [payoutMethod, setPayoutMethod] = useState<PayoutMethod | ''>('');
-  const [payoutAddress, setPayoutAddress] = useState('');
-  const [payoutLabel, setPayoutLabel] = useState('');
+  const [payout, setPayout] = useState<PayoutValues>({ method: '', address: '', confirm: '', label: '' });
   const [submitting, setSubmitting] = useState(false);
+  // Tras el primer intento de guardar, los errores se marcan en su campo.
+  const [triedSubmit, setTriedSubmit] = useState(false);
+  // El servidor guardó todo menos la forma de cobro (no se puede cambiar desde el enlace).
+  const [payoutIgnored, setPayoutIgnored] = useState(false);
+  // API viejo (sin el campo): se puede, como antes.
+  const canSetPayout = profile?.canSetPayout !== false;
   // Cada etiqueta, unida a su campo (antes los desplegables no tenían nombre).
   const fieldId = useId();
   const ids = {
     country: `${fieldId}-pais`,
     provider: `${fieldId}-wallet`,
     kyc: `${fieldId}-kyc`,
-    method: `${fieldId}-metodo`,
     notes: `${fieldId}-notas`,
   };
 
@@ -116,9 +98,12 @@ export function SelfOnboardingClient({ token }: Props) {
         setNeedsHelpWallet(p.needsHelpWallet);
         setNeedsHelpDocs(p.needsHelpDocs);
         setNotes(p.onboardingNotes ?? '');
-        setPayoutMethod(p.payoutMethod ?? '');
-        setPayoutAddress(p.payoutAddress ?? '');
-        setPayoutLabel(p.payoutLabel ?? '');
+        setPayout({
+          method: p.payoutMethod ?? '',
+          address: p.payoutAddress ?? '',
+          confirm: '',
+          label: p.payoutLabel ?? '',
+        });
       })
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
@@ -126,6 +111,14 @@ export function SelfOnboardingClient({ token }: Props) {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setTriedSubmit(true);
+    const payoutProblem = canSetPayout
+      ? payoutFormProblem(payout.method, payout.address, payout.confirm, profile?.payoutAddress ?? null)
+      : null;
+    if (payoutProblem) {
+      setError(payoutProblem);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -142,11 +135,16 @@ export function SelfOnboardingClient({ token }: Props) {
         needsHelpWallet,
         needsHelpDocs,
         onboardingNotes: notes.trim() || null,
-        payoutMethod: payoutMethod === '' ? null : payoutMethod,
-        payoutAddress: payoutAddress.trim() || null,
-        payoutLabel: payoutLabel.trim() || null,
+        ...(canSetPayout
+          ? {
+              payoutMethod: payout.method === '' ? null : payout.method,
+              payoutAddress: normalizePayoutAddress(payout.method, payout.address) || null,
+              payoutLabel: payout.label.trim() || null,
+            }
+          : {}),
       };
-      await submitSelfOnboarding(token, dto);
+      const saved = await submitSelfOnboarding(token, dto);
+      setPayoutIgnored(saved.payoutIgnored === true);
       setDone(true);
     } catch (err) {
       setError((err as Error).message);
@@ -181,6 +179,11 @@ export function SelfOnboardingClient({ token }: Props) {
           <p style={{ color: 'var(--np-text-mute)', marginTop: '0.75rem' }}>
             Hemos recibido tus datos. Si necesitas cambiarlos, pídele al admin un link nuevo.
           </p>
+          {payoutIgnored ? (
+            <p role="status" style={{ marginTop: '0.75rem', color: 'var(--np-warning)' }}>
+              Tu forma de cobro no se ha cambiado: la configura el admin del local. Si quieres otra, díselo.
+            </p>
+          ) : null}
           <p style={{ marginTop: '1rem', fontSize: '0.85rem', color: 'var(--np-text-dim)' }}>
             Ya puedes cerrar esta página.
           </p>
@@ -320,50 +323,21 @@ export function SelfOnboardingClient({ token }: Props) {
             </div>
           </section>
 
-          {/* Método de payout */}
-          <section>
-            <h2 style={sectionHead}>Cómo quieres cobrar (opcional)</h2>
-            <p style={hintStyle}>
-              Si ya sabes cómo quieres recibir tu dinero, dínoslo aquí. Si no, déjalo en blanco
-              y el admin te ayuda.
-            </p>
-            <div style={{ marginTop: '0.5rem' }}>
-              <label htmlFor={ids.method} style={selectLabel}>Método</label>
-              <Select
-                id={ids.method}
-                value={payoutMethod}
-                onChange={(e) => setPayoutMethod(e.target.value as PayoutMethod | '')}
-                disabled={submitting}
-              >
-                <option value="">— No sé todavía —</option>
-                {(Object.keys(PAYOUT_METHOD_LABELS) as PayoutMethod[]).map((m) => (
-                  <option key={m} value={m}>{PAYOUT_METHOD_LABELS[m]}</option>
-                ))}
-              </Select>
-            </div>
-            {payoutMethod ? (
-              <>
-                <div style={{ marginTop: '0.75rem' }}>
-                  <Input
-                    label="Dirección / IBAN / Email / Teléfono según método"
-                    value={payoutAddress}
-                    onChange={(e) => setPayoutAddress(e.target.value)}
-                    placeholder="TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV"
-                    disabled={submitting}
-                  />
-                </div>
-                <div style={{ marginTop: '0.75rem' }}>
-                  <Input
-                    label="Etiqueta (opcional, para que el admin sepa de qué wallet hablas)"
-                    value={payoutLabel}
-                    onChange={(e) => setPayoutLabel(e.target.value)}
-                    placeholder="Mi Binance principal"
-                    disabled={submitting}
-                  />
-                </div>
-              </>
-            ) : null}
-          </section>
+          {/* Método de payout: si el local no deja cambiarlo desde aquí, ni se enseña. */}
+          {canSetPayout ? (
+            <PayoutSection
+              values={payout}
+              onChange={setPayout}
+              savedAddress={profile.payoutAddress}
+              showErrors={triedSubmit}
+              disabled={submitting}
+            />
+          ) : (
+            <section>
+              <h2 style={sectionHead}>Cómo cobras</h2>
+              <p style={hintStyle}>Tu forma de cobro la configura el admin del local: si quieres cambiarla, díselo.</p>
+            </section>
+          )}
 
           {/* Ayuda */}
           <section>

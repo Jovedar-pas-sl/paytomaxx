@@ -768,6 +768,8 @@ export interface SelfOnboardingProfile {
   payoutAddress: string | null;
   payoutLabel: string | null;
   venueName: string;
+  /** false: la forma de cobro no se cambia desde el enlace (la pone el admin). Sin el campo, sí. */
+  canSetPayout?: boolean;
 }
 
 export interface SelfOnboardingSubmitDto {
@@ -800,7 +802,7 @@ export async function fetchSelfOnboardingProfile(token: string): Promise<SelfOnb
 export async function submitSelfOnboarding(
   token: string,
   dto: SelfOnboardingSubmitDto,
-): Promise<{ ok: true }> {
+): Promise<{ ok: true; /** Se guardó todo menos la forma de cobro. */ payoutIgnored?: boolean }> {
   const res = await publicFetch(`/v1/operators/self-onboarding/${encodeURIComponent(token)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
