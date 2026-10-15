@@ -886,6 +886,10 @@ export class PaymentsService implements OnApplicationBootstrap {
 
     await this.prisma.$transaction(
       async (tx) => {
+        // Como asSystem: interna (avisos, trabajos, devoluciones) y sin depender
+        // de que el usuario de la base sea superusuario (FORCE RLS en cobros,
+        // saldos y comisiones). La defensa entre locales es expectedTenantId.
+        await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
         const rows = await tx.$queryRaw<LockedPaymentRow[]>`
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
                  "providerTxId", provider, "createdByUserId", "walletId",
