@@ -5,6 +5,29 @@
  * sin nonces; 'unsafe-eval' solo en desarrollo.
  */
 const isDev = process.env.NODE_ENV !== 'production';
+
+/** esquema://host[:puerto] de una URL, o null si no lo es. */
+function originOf(url) {
+  try {
+    return url ? new URL(url).origin : null;
+  } catch {
+    return null;
+  }
+}
+
+// connect-src: esta web y el API de este build (NEXT_PUBLIC_* se fijan al
+// compilar, igual que en el código). El WebSocket también en http(s): socket.io
+// cae a polling si no conecta.
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
+const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? apiUrl.replace(/^http/, 'ws');
+const connectSrc = [
+  "'self'",
+  originOf(apiUrl),
+  originOf(wsUrl),
+  originOf(wsUrl.replace(/^ws/, 'http')),
+  ...(isDev ? ['http://localhost:*', 'ws://localhost:*', 'http://127.0.0.1:*', 'ws://127.0.0.1:*'] : []),
+].filter((src, i, all) => src && all.indexOf(src) === i);
+
 const securityHeaders = [
   {
     key: 'Content-Security-Policy',
@@ -14,7 +37,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      "connect-src 'self' https: wss:" + (isDev ? ' http: ws:' : ''),
+      `connect-src ${connectSrc.join(' ')}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
@@ -24,7 +47,7 @@ const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
 ];
 
