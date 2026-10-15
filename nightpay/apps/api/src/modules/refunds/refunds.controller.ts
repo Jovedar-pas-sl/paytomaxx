@@ -45,6 +45,13 @@ const BankRefundBodySchema = z.object({
 });
 type BankRefundBody = z.infer<typeof BankRefundBodySchema>;
 
+/** El dueño comprobó en la pasarela una devolución que quedó sin confirmar. */
+export const ResolvePendingBodySchema = z.object({
+  outcome: z.enum(['SUCCEEDED', 'FAILED']),
+  note: z.string().trim().min(3, 'Explica qué viste en la pasarela (mínimo 3 letras)').max(500),
+});
+type ResolvePendingBody = z.infer<typeof ResolvePendingBodySchema>;
+
 @Controller('payments')
 @UseGuards(RolesGuard)
 export class RefundsController {
@@ -93,6 +100,26 @@ export class RefundsController {
         refundedAt: refundedAtOf(body.refundedOn),
         confirmDuplicate: body.confirmDuplicate,
       },
+      { userId: user.sub, role: user.role, tenantId: user.tenantId },
+    );
+  }
+
+  /**
+   * Devolución que quedó PENDIENTE porque la pasarela no confirmó (timeout,
+   * error de red…): el dueño la mira en el portal y la marca hecha (se
+   * descuenta del cobro y a la chica) o no hecha (se libera lo reservado).
+   */
+  @Post(':id/refunds/:refundId/resolve')
+  @HttpCode(200)
+  @Roles('OWNER')
+  async resolvePending(
+    @Param('id', ParseUUIDPipe) paymentId: string,
+    @Param('refundId', ParseUUIDPipe) refundId: string,
+    @Body(new ZodValidationPipe(ResolvePendingBodySchema)) body: ResolvePendingBody,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.refunds.resolvePending(
+      { paymentId, refundId, outcome: body.outcome, note: body.note },
       { userId: user.sub, role: user.role, tenantId: user.tenantId },
     );
   }
