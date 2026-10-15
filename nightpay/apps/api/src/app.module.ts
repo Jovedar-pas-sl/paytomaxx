@@ -4,6 +4,8 @@ import { ConfigModule } from '@nestjs/config';
 import { ClsModule } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
+import { configModuleOptions } from './config/env';
+import { sanitizeTraceId } from './common/context/trace-id';
 import { AuthGuard } from './common/guards/auth.guard';
 import { IpRateLimitGuard } from './common/guards/ip-rate-limit.guard';
 import { EmailModule } from './common/email/email.module';
@@ -34,11 +36,9 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      cache: true,
-      envFilePath: ['.env.local', '.env'],
-    }),
+    // Validado y convertido con el esquema zod de config/env.ts: config.get()
+    // devuelve números/booleanos y ve los valores por defecto.
+    ConfigModule.forRoot(configModuleOptions()),
     ClsModule.forRoot({
       global: true,
       // Middleware-level mount so context is alive before any guard runs.
@@ -49,11 +49,9 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
         generateId: true,
         idGenerator: () => randomUUID(),
         setup: (cls, req: FastifyRequest) => {
-          const headerTraceId = req?.headers?.['x-trace-id'];
-          const traceId =
-            typeof headerTraceId === 'string' && headerTraceId.length > 0
-              ? headerTraceId
-              : cls.getId();
+          // X-Trace-Id del cliente solo si es corto y limpio (se guarda en
+          // audit_events y se devuelve en los errores); si no, uno nuevo.
+          const traceId = sanitizeTraceId(req?.headers?.['x-trace-id']) ?? cls.getId();
           cls.set('ctx', { traceId });
         },
       },

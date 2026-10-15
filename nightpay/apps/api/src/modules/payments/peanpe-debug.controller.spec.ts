@@ -39,20 +39,20 @@ function makeController(opts: MakeOpts = {}) {
   const prisma = {
     peanpeCall: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const peanpe = new PeanpeAdapter(config as any, metrics as any, prisma as any);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   return { controller: new PeanpeDebugController(config as any, peanpe), config };
 }
 
 describe('PeanpeDebugController.keycheck', () => {
-  it('reporta apikey hex válida (64 chars)', () => {
+  it('reporta apikey válida sin decir su longitud ni si está (solo ok / no ok)', () => {
     const { controller } = makeController();
-    const res = controller.keycheck();
-    expect(res.apiKeyPresent).toBe(true);
-    expect(res.apiKeyLength).toBe(64);
-    expect(res.apiKeyLooksHex).toBe(true);
+    const res = controller.keycheck() as unknown as Record<string, unknown>;
+    expect(res.apiKeyOk).toBe(true);
+    for (const key of ['apiKeyPresent', 'apiKeyLength', 'apiKeyLooksHex']) expect(res).not.toHaveProperty(key);
+    expect(JSON.stringify(res)).not.toContain('00112233445566778899');
     expect(res.accountId).toBe('91816');
     expect(res.webhookUrlExpected).toBe('https://api.paytomaxx.com/v1/webhooks/peanpe/notify');
   });
@@ -88,19 +88,16 @@ describe('PeanpeDebugController.keycheck', () => {
     expect(res.safetyGuardActive).toBe(true);
   });
 
-  it('apikey con longitud != 64 se reporta apiKeyLooksHex=false', () => {
+  it('apikey con longitud != 64 se reporta apiKeyOk=false', () => {
     const { controller } = makeController({ apiKey: '00112233' });
-    const res = controller.keycheck();
-    expect(res.apiKeyLength).toBe(8);
-    expect(res.apiKeyLooksHex).toBe(false);
+    expect(controller.keycheck().apiKeyOk).toBe(false);
   });
 
-  it('apikey con chars no-hex se reporta apiKeyLooksHex=false', () => {
+  it('apikey con chars no-hex se reporta apiKeyOk=false', () => {
     const { controller } = makeController({
       apiKey: 'ZZZ12233445566778899aabbccddeeff00112233445566778899aabbccddeeff',
     });
-    const res = controller.keycheck();
-    expect(res.apiKeyLooksHex).toBe(false);
+    expect(controller.keycheck().apiKeyOk).toBe(false);
   });
 });
 

@@ -8,7 +8,9 @@
  * Sin DSN o sin paquete: no-op silencioso (en prod un WARN).
  */
 
-import { redactSecretsInUrl } from '../logging/redact-url';
+import { scrubBreadcrumb, scrubSensitive } from './sentry-scrub';
+
+export { scrubBreadcrumb, scrubSensitive };
 
 interface SentryLike {
   init: (opts: Record<string, unknown>) => void;
@@ -29,7 +31,7 @@ let initialized = false;
 function loadSentry(): SentryLike | null {
   if (Sentry) return Sentry;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     Sentry = require('@sentry/node') as SentryLike;
     return Sentry;
   } catch {
@@ -45,7 +47,7 @@ export function initSentry(env: {
   if (initialized) return;
   if (!env.SENTRY_DSN) {
     if (env.NODE_ENV === 'production') {
-      // eslint-disable-next-line no-console
+       
       console.warn(
         '[observability] SENTRY_DSN no configurado en prod — errores solo van a stdout',
       );
@@ -54,7 +56,7 @@ export function initSentry(env: {
   }
   const sdk = loadSentry();
   if (!sdk) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       '[observability] @sentry/node no instalado — saltando init (pnpm install para activar)',
     );
@@ -76,9 +78,14 @@ export function initSentry(env: {
     beforeSendTransaction(event: Record<string, unknown>) {
       return scrubSensitive(event);
     },
+    // Llamadas salientes (Telegram lleva el token en la ruta; los exploradores
+    // la clave en la query): limpias antes de guardarse en el breadcrumb.
+    beforeBreadcrumb(breadcrumb: Record<string, unknown>) {
+      return scrubBreadcrumb(breadcrumb);
+    },
   });
   initialized = true;
-  // eslint-disable-next-line no-console
+   
   console.log('[observability] Sentry initialized');
 }
 
@@ -93,52 +100,4 @@ export function reportError(
     if (context?.tag) scope.setTag('module', context.tag);
     Sentry!.captureException(err);
   });
-}
-
-function scrubSensitive(event: Record<string, unknown>): Record<string, unknown> | null {
-  const req = event.request as
-    | {
-        headers?: Record<string, string>;
-        data?: Record<string, unknown>;
-        url?: string;
-        query_string?: unknown;
-      }
-    | undefined;
-  // Tokens y secretos que van en la URL (QR, saldo, avisos de Paytef…).
-  if (req?.url) {
-    try {
-      const u = new URL(req.url, 'http://x');
-      req.url = req.url.startsWith('http')
-        ? `${u.origin}${redactSecretsInUrl(u.pathname)}`
-        : redactSecretsInUrl(u.pathname);
-    } catch {
-      req.url = '[REDACTED]';
-    }
-  }
-  if (req && 'query_string' in req) req.query_string = '[REDACTED]';
-  if (typeof event.transaction === 'string') event.transaction = redactSecretsInUrl(event.transaction);
-  if (req?.headers) {
-    for (const k of Object.keys(req.headers)) {
-      const lk = k.toLowerCase();
-      if (lk === 'authorization' || lk === 'cookie' || lk.startsWith('x-csrf')) {
-        req.headers[k] = '[REDACTED]';
-      }
-    }
-  }
-  if (req?.data && typeof req.data === 'object') {
-    for (const k of [
-      'password',
-      'passportLast4',
-      'payoutAddress',
-      'token',
-      'refreshToken',
-      'externalTxId',
-      // PIN del saldo del cliente.
-      'pin',
-      'pin2',
-    ]) {
-      if (k in req.data) req.data[k] = '[REDACTED]';
-    }
-  }
-  return event;
 }

@@ -1,130 +1,168 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { ClsService } from 'nestjs-cls';
-import { PrismaService } from './prisma.service';
+import { PrismaService, TENANT_SCOPED_MODELS, UnscopedTenantQueryError } from './prisma.service';
 
 /**
  * Verifica el comportamiento del middleware Prisma de aislamiento por tenant.
  * NO usa DB real — mockea $use para capturar los params que pasarían a cada query.
  */
 
-function makeCls(ctx: { tenantId?: string } | undefined) {
-  return {
-    get: vi.fn().mockReturnValue(ctx),
-  };
-}
+type Params = { model?: string; action: string; args?: Record<string, unknown> };
 
-function runMiddleware(
-  prisma: PrismaService,
-  params: { model?: string; action: string; args?: Record<string, unknown> },
-) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mws = (prisma as any)._middlewares as Array<any>;
+function runMiddleware(prisma: PrismaService, params: Params) {
+  const mws = (prisma as unknown as { _middlewares: Array<(p: Params, next: (p: Params) => unknown) => unknown> })
+    ._middlewares;
   const fn = mws?.[0];
   if (!fn) throw new Error('middleware not registered');
-  return fn(params, (p: unknown) => Promise.resolve(p));
+  return fn(params, (p: Params) => Promise.resolve(p)) as Promise<Params>;
 }
 
-/**
- * Instala el middleware simulando onModuleInit sin conectar a DB real.
- */
+/** Instala el middleware simulando onModuleInit sin conectar a DB real. */
 async function installMiddleware(prisma: PrismaService) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (prisma as any)._middlewares = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (prisma as any).$use = (fn: any) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma as any)._middlewares.push(fn);
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (prisma as any).$connect = vi.fn();
+  const target = prisma as unknown as Record<string, unknown>;
+  target._middlewares = [];
+  target.$use = (fn: unknown) => (target._middlewares as unknown[]).push(fn);
+  target.$connect = vi.fn();
+  target.$transaction = async (fn: (tx: unknown) => unknown) => fn({ $executeRawUnsafe: vi.fn() });
   await prisma.onModuleInit();
+}
+
+function makePrisma(policy?: 'log' | 'throw') {
+  const cls = new ClsService(new AsyncLocalStorage());
+  const metrics = { tenantUnscopedQueries: { inc: vi.fn() } };
+  const config = { get: vi.fn((k: string) => (k === 'TENANCY_UNSCOPED_QUERIES' ? policy : undefined)) };
+  const prisma = new PrismaService(cls as never, config as never, metrics as never);
+  return { cls, prisma, metrics };
+}
+
+function inTenant<T>(cls: ClsService, tenantId: string | undefined, fn: () => Promise<T>): Promise<T> {
+  return cls.run(async () => {
+    cls.set('ctx', { tenantId, traceId: 't-1' });
+    return fn();
+  });
 }
 
 describe('PrismaService tenant middleware', () => {
   let prisma: PrismaService;
-  let cls: ReturnType<typeof makeCls>;
+  let cls: ClsService;
 
   beforeEach(async () => {
-    cls = makeCls({ tenantId: 'tenant-A' });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    prisma = new PrismaService(cls as any);
+    ({ prisma, cls } = makePrisma());
     await installMiddleware(prisma);
   });
 
   it('injects tenantId into findMany where', async () => {
-    const result = await runMiddleware(prisma, {
-      model: 'Payment',
-      action: 'findMany',
-      args: { where: { status: 'AUTHORIZED' } },
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((result as any).args.where).toEqual({ status: 'AUTHORIZED', tenantId: 'tenant-A' });
+    const result = await inTenant(cls, 'tenant-A', () =>
+      runMiddleware(prisma, { model: 'Payment', action: 'findMany', args: { where: { status: 'AUTHORIZED' } } }),
+    );
+    expect(result.args?.where).toEqual({ status: 'AUTHORIZED', tenantId: 'tenant-A' });
   });
 
   it('injects tenantId into create data', async () => {
-    const result = await runMiddleware(prisma, {
-      model: 'Payment',
-      action: 'create',
-      args: { data: { amountCents: 1000 } },
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((result as any).args.data).toEqual({ amountCents: 1000, tenantId: 'tenant-A' });
+    const result = await inTenant(cls, 'tenant-A', () =>
+      runMiddleware(prisma, { model: 'Payment', action: 'create', args: { data: { amountCents: 1000 } } }),
+    );
+    expect(result.args?.data).toEqual({ amountCents: 1000, tenantId: 'tenant-A' });
   });
 
   it('does NOT inject on non-tenant-scoped models (Venue)', async () => {
-    const result = await runMiddleware(prisma, {
-      model: 'Venue',
-      action: 'findMany',
-      args: { where: { slug: 'luna-vlc' } },
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((result as any).args.where).toEqual({ slug: 'luna-vlc' });
+    const result = await inTenant(cls, 'tenant-A', () =>
+      runMiddleware(prisma, { model: 'Venue', action: 'findMany', args: { where: { slug: 'luna-vlc' } } }),
+    );
+    expect(result.args?.where).toEqual({ slug: 'luna-vlc' });
   });
 
   it('cross-tenant: user in tenant-A cannot query tenant-B payments via explicit where', async () => {
-    // Usuario malicioso intenta poner tenantId de otro venue
-    const result = await runMiddleware(prisma, {
-      model: 'Payment',
-      action: 'findMany',
-      args: { where: { tenantId: 'tenant-B' } },
-    });
-    // El middleware SOBREESCRIBE con el tenantId del CLS (A), ignorando el intento
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((result as any).args.where.tenantId).toBe('tenant-A');
+    const result = await inTenant(cls, 'tenant-A', () =>
+      runMiddleware(prisma, { model: 'Payment', action: 'findMany', args: { where: { tenantId: 'tenant-B' } } }),
+    );
+    expect((result.args?.where as { tenantId: string }).tenantId).toBe('tenant-A');
   });
 
-  it('lets system queries pass when tenantId missing (seed/CLI)', async () => {
-    cls.get.mockReturnValue(undefined);
-    const result = await runMiddleware(prisma, {
-      model: 'Payment',
-      action: 'findMany',
-      args: { where: {} },
-    });
-    // Sin tenant, sin inyección — RLS bypass se activa en código explícito (asSystem)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((result as any).args.where.tenantId).toBeUndefined();
+  it('PaymentAttempt y EarningReversal también van por local', async () => {
+    expect(TENANT_SCOPED_MODELS.has('PaymentAttempt')).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has('EarningReversal')).toBe(true);
+    const result = await inTenant(cls, 'tenant-A', () =>
+      runMiddleware(prisma, { model: 'PaymentAttempt', action: 'findMany', args: { where: { paymentId: 'p' } } }),
+    );
+    expect(result.args?.where).toEqual({ paymentId: 'p', tenantId: 'tenant-A' });
+  });
+
+  it('los que cruzan locales por diseño no se filtran (saldo del grupo, avisos sin local)', () => {
+    for (const model of ['ClientWallet', 'WalletConsumption', 'WalletPasskey', 'WalletCard', 'WebhookDelivery', 'AuditEvent']) {
+      expect(TENANT_SCOPED_MODELS.has(model)).toBe(false);
+    }
+  });
+});
+
+describe('consultas por local sin local ni permiso explícito (fail loud)', () => {
+  it('sin contexto: pasa (modo log) pero queda en la métrica', async () => {
+    const { prisma, metrics } = makePrisma();
+    await installMiddleware(prisma);
+    const result = await runMiddleware(prisma, { model: 'Payment', action: 'findUnique', args: { where: { id: 'p' } } });
+    expect(result.args?.where).toEqual({ id: 'p' });
+    expect(metrics.tenantUnscopedQueries.inc).toHaveBeenCalledWith({ model: 'Payment', action: 'findUnique' });
+  });
+
+  it('con contexto de petición pública (sin local): también cuenta', async () => {
+    const { prisma, cls, metrics } = makePrisma();
+    await installMiddleware(prisma);
+    await inTenant(cls, undefined, () => runMiddleware(prisma, { model: 'User', action: 'update', args: { where: { id: 'u' } } }));
+    expect(metrics.tenantUnscopedQueries.inc).toHaveBeenCalledWith({ model: 'User', action: 'update' });
+  });
+
+  it('dentro de asSystem o acrossVenues es explícito: no cuenta', async () => {
+    const { prisma, cls, metrics } = makePrisma();
+    await installMiddleware(prisma);
+    const q: Params = { model: 'Payment', action: 'findFirst', args: { where: { id: 'p' } } };
+    await prisma.asSystem(() => runMiddleware(prisma, structuredClone(q)));
+    await inTenant(cls, undefined, () => prisma.asSystem(() => runMiddleware(prisma, structuredClone(q))));
+    await prisma.acrossVenues(() => runMiddleware(prisma, structuredClone(q)));
+    expect(metrics.tenantUnscopedQueries.inc).not.toHaveBeenCalled();
+  });
+
+  it('asSystem con local en el contexto sigue filtrando por ese local (solo salta RLS)', async () => {
+    const { prisma, cls } = makePrisma();
+    await installMiddleware(prisma);
+    const inside = await inTenant(cls, 'tenant-A', () =>
+      prisma.asSystem(() => runMiddleware(prisma, { model: 'Payment', action: 'findFirst', args: { where: { id: 'p' } } })),
+    );
+    expect(inside.args?.where).toEqual({ id: 'p', tenantId: 'tenant-A' });
+  });
+
+  it('modo throw (TENANCY_UNSCOPED_QUERIES=throw): se corta la consulta', async () => {
+    const { prisma } = makePrisma('throw');
+    await installMiddleware(prisma);
+    await expect(runMiddleware(prisma, { model: 'Payment', action: 'findMany', args: {} })).rejects.toThrow(
+      UnscopedTenantQueryError,
+    );
+    await expect(
+      prisma.asSystem(() => runMiddleware(prisma, { model: 'Payment', action: 'findMany', args: {} })),
+    ).resolves.toBeDefined();
+  });
+
+  it('sin MetricsService ni ConfigService (como en los tests con BD real) funciona igual', async () => {
+    const cls = new ClsService(new AsyncLocalStorage());
+    const prisma = new PrismaService(cls as never);
+    await installMiddleware(prisma);
+    await expect(runMiddleware(prisma, { model: 'Payment', action: 'count', args: {} })).resolves.toBeDefined();
   });
 });
 
 describe('PrismaService.acrossVenues', () => {
   it('dentro no filtra por local; fuera el contexto sigue igual', async () => {
-    const cls = new ClsService(new AsyncLocalStorage());
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const prisma = new PrismaService(cls as any);
+    const { prisma, cls } = makePrisma();
     await installMiddleware(prisma);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma as any).$transaction = async (fn: (tx: unknown) => unknown) => fn({ $executeRawUnsafe: vi.fn() });
-    const query = { model: 'WalletChargeRequest', action: 'findFirst', args: { where: { walletId: 'w-1' } } };
+    const query: Params = { model: 'WalletChargeRequest', action: 'findFirst', args: { where: { walletId: 'w-1' } } };
 
     await cls.run(async () => {
       cls.set('ctx', { tenantId: 'tenant-A' });
       const inside = await prisma.acrossVenues(() => runMiddleware(prisma, structuredClone(query)));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((inside as any).args.where).toEqual({ walletId: 'w-1' });
+      expect(inside.args?.where).toEqual({ walletId: 'w-1' });
       const outside = await runMiddleware(prisma, structuredClone(query));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((outside as any).args.where).toEqual({ walletId: 'w-1', tenantId: 'tenant-A' });
+      expect(outside.args?.where).toEqual({ walletId: 'w-1', tenantId: 'tenant-A' });
+      expect(cls.get('ctx')).toEqual({ tenantId: 'tenant-A' });
     });
   });
 });

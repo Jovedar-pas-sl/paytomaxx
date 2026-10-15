@@ -2,24 +2,39 @@ import './bootstrap-env'; // PRIMERO — carga .env.local antes que cualquier mo
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
-import { RequestMethod } from '@nestjs/common';
+import { Logger, RequestMethod } from '@nestjs/common';
 import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import { redactSecretsInUrl } from './common/logging/redact-url';
-import { ORIGIN_AUTH_HEADER, originAllowed } from './common/http/origin-guard';
+import { httpLoggerOptions } from './common/logging/logger-options';
+import { originAuthHook } from './common/http/origin-guard';
+import { trustInternalProxy } from './common/http/client-ip';
+import { corsOrigin, parseCorsOrigins } from './common/http/cors';
+import {
+  GLOBAL_RATE_LIMIT_MAX,
+  GLOBAL_RATE_LIMIT_WINDOW,
+  globalRateLimitKey,
+  isGlobalRateLimitExempt,
+} from './common/http/global-rate-limit';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
+import { envWarnings } from './config/env-warnings';
 import { initSentry } from './common/observability/sentry';
 import { RedisIoAdapter } from './modules/realtime/realtime.adapter';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
 
+const logger = new Logger('Bootstrap');
+/** Para recibir la petición entera (cabeceras + cuerpo de hasta 1 MB). */
+const REQUEST_TIMEOUT_MS = 60_000;
+
 async function bootstrap() {
   const env = loadEnv();
   const isProd = env.NODE_ENV === 'production';
+  // Lo que no impide arrancar pero hay que corregir (ver config/env-warnings.ts).
+  for (const warning of envWarnings(env)) logger.warn(warning);
 
   // Sentry primero — para capturar fallos de bootstrap
   initSentry({
@@ -29,23 +44,23 @@ async function bootstrap() {
   });
 
   const adapter = new FastifyAdapter({
-    logger: {
-      level: env.LOG_LEVEL,
-      // El enlace del saldo (/w/<token>) es la credencial del cliente: no a los logs.
-      serializers: {
-        req: (req: { method: string; url: string; hostname?: string; ip?: string }) => ({
-          method: req.method,
-          url: redactSecretsInUrl(req.url),
-          hostname: req.hostname,
-          remoteAddress: req.ip,
-        }),
-      },
-    },
+    // Tokens de la URL tapados, IP de fiar y `redact` de cabeceras de sesión,
+    // PIN, secretos y firmas de Redsys (common/logging/logger-options.ts).
+    logger: httpLoggerOptions(env.LOG_LEVEL),
     bodyLimit: 1024 * 1024, // 1 MB max — webhooks normalmente <10KB
     // Default Fastify es 100; JWT en path (self-onboarding link, accept-invite)
     // tienen ~250 chars. Subimos a 500 para no rechazar tokens válidos con 404.
     maxParamLength: 500,
-    trustProxy: true, // detras de Cloudflare/Coolify
+    // Cabeceras de proxy (X-Forwarded-*) solo de la red interna (Traefik).
+    // Con `true`, req.ip era el primer X-Forwarded-For: lo que quisiera el cliente.
+    trustProxy: trustInternalProxy,
+    // Tiempo máximo para recibir la petición entera (Fastify lo deja en 0 =
+    // sin límite: conexiones lentas a medias se quedarían abiertas).
+    requestTimeout: REQUEST_TIMEOUT_MS,
+    // Al apagar: 503 a lo nuevo y se cierran las conexiones inactivas
+    // (keep-alive) para no esperar a que caduquen.
+    return503OnClosing: true,
+    forceCloseConnections: 'idle',
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
@@ -56,7 +71,6 @@ async function bootstrap() {
   // Casts a FastifyPluginCallback son por incompatibilidad de tipos entre
   // multiples versiones de fastify resueltas por pnpm (4.28.x vs 4.29.x).
   // Funcionan correctamente en runtime — solo molesta a tsc.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await app.register(helmet as any, {
     contentSecurityPolicy: isProd
       ? {
@@ -91,47 +105,22 @@ async function bootstrap() {
   });
 
   // Solo a través de Cloudflare (si está ORIGIN_AUTH_SECRET): lo que llegue
-  // directo al servidor se corta antes de todo lo demás. El secreto se quita
-  // de la petición para que no acabe en logs ni en Sentry.
+  // directo al servidor se corta antes de todo lo demás; lo que trae la
+  // cabecera buena queda marcado (CF-Connecting-IP de fiar). El secreto se
+  // quita de la petición para que no acabe en logs ni en Sentry.
   if (env.ORIGIN_AUTH_SECRET) {
-    const secret = env.ORIGIN_AUTH_SECRET;
-    app
-      .getHttpAdapter()
-      .getInstance()
-      .addHook('onRequest', async (req: { headers: Record<string, string | string[] | undefined>; url: string }, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) => {
-        const ok = originAllowed(req.headers, req.url, secret);
-        delete req.headers[ORIGIN_AUTH_HEADER];
-        if (!ok) return reply.code(403).send({ title: 'Forbidden', status: 403 });
-      });
+    app.getHttpAdapter().getInstance().addHook('onRequest', originAuthHook(env.ORIGIN_AUTH_SECRET));
   }
 
-  // Rate limit global — 100 req/min/IP. Endpoints sensibles (login, refresh,
-  // accept-invite) tienen su propio @IpRateLimit más estricto via guard Redis.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Rate limit global por IP de fiar (common/http/client-ip.ts). Endpoints
+  // sensibles (login, refresh, accept-invite) tienen además su @IpRateLimit.
+  // Exentos: el sondeo del saldo (con su propio límite) y el healthcheck del
+  // propio contenedor por loopback (ver global-rate-limit.ts).
   await app.register(rateLimit as any, {
-    max: 100,
-    timeWindow: '1 minute',
-    // La página del saldo del cliente consulta su estado cada pocos segundos y
-    // en un local muchos clientes comparten la IP del wifi: va con su propio
-    // límite (@IpRateLimit en PublicWalletController), no con el global.
-    // "localhost" por la conexión real (req.ip sale de X-Forwarded-For y se puede inventar).
-    allowList: (req: { method: string; url: string; raw?: { socket?: { remoteAddress?: string } } }) => {
-      const peer = req.raw?.socket?.remoteAddress ?? '';
-      return (
-        peer === '127.0.0.1' ||
-        peer === '::1' ||
-        peer === '::ffff:127.0.0.1' ||
-        (req.method === 'GET' && /^\/w\/[^/]+\/state(\?|$)/.test(req.url))
-      );
-    },
-    keyGenerator: (req: { headers: Record<string, string | string[] | undefined>; ip: string }) => {
-      // Detrás de Cloudflare: CF-Connecting-IP no lo puede falsear el cliente;
-      // el primer valor de X-Forwarded-For sí.
-      const cf = req.headers['cf-connecting-ip'];
-      if (typeof cf === 'string' && cf) return cf;
-      const xff = req.headers['x-forwarded-for'];
-      return Array.isArray(xff) ? (xff[0] ?? req.ip) : ((xff as string | undefined) ?? req.ip);
-    },
+    max: GLOBAL_RATE_LIMIT_MAX,
+    timeWindow: GLOBAL_RATE_LIMIT_WINDOW,
+    allowList: isGlobalRateLimitExempt,
+    keyGenerator: globalRateLimitKey,
   });
 
   // /pay/:token es público para clientes que escanean QR — fuera del prefix /v1
@@ -169,7 +158,7 @@ async function bootstrap() {
   // CORS estricto via env CORS_ORIGINS (CSV). Dev: permite todo.
   const allowed = parseCorsOrigins(env.CORS_ORIGINS);
   app.enableCors({
-    origin: isProd ? (allowed.length > 0 ? allowed : false) : true,
+    origin: corsOrigin(isProd, allowed),
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     maxAge: 600,
@@ -181,21 +170,16 @@ async function bootstrap() {
   // Socket.io con Redis pub/sub adapter (ADR-001)
   app.useWebSocketAdapter(new RedisIoAdapter(app));
 
+  // Apagado ordenado (SIGTERM de Docker/Dokploy): Nest cierra el servidor HTTP
+  // y los sockets y ejecuta onModuleDestroy (Prisma, Redis, alertas, cierre
+  // automático de noches). Sin esto el proceso moría a medias.
+  app.enableShutdownHooks();
+
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
-  // eslint-disable-next-line no-console
-  console.log(`NightPay API listening on http://0.0.0.0:${env.PORT}`);
+  logger.log(`NightPay API escuchando en http://0.0.0.0:${env.PORT} (${env.NODE_ENV})`);
 }
 
-function parseCorsOrigins(value: string | undefined): string[] {
-  if (!value) return [];
-  return value
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-bootstrap().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('Bootstrap failed:', err);
+bootstrap().catch((err: unknown) => {
+  logger.error(`Fallo al arrancar: ${(err as Error)?.message ?? String(err)}`, (err as Error)?.stack);
   process.exit(1);
 });

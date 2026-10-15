@@ -7,12 +7,14 @@ const TOKEN = 'metrics-token-de-prueba-0123456789';
 
 function makeGuard(env: Record<string, string | undefined>) {
   const config = { get: vi.fn().mockImplementation((k: string) => env[k]) };
-  return new MetricsAccessGuard(config as any);
+  return new MetricsAccessGuard(config as never);
 }
 
-function ctx(headers: Record<string, string>): ExecutionContext {
+function ctx(headers: Record<string, string>, peer = '10.0.1.7'): ExecutionContext {
   return {
-    switchToHttp: () => ({ getRequest: () => ({ headers, url: '/v1/metrics' }) }),
+    switchToHttp: () => ({
+      getRequest: () => ({ headers, url: '/v1/metrics', raw: { socket: { remoteAddress: peer } } }),
+    }),
   } as unknown as ExecutionContext;
 }
 
@@ -22,35 +24,31 @@ describe('MetricsAccessGuard', () => {
     expect(guard.canActivate(ctx({ 'cf-ray': 'abc' }))).toBe(true);
   });
 
-  it('producción: scrape interno (sin cabeceras de proxy) pasa', () => {
-    const guard = makeGuard({ NODE_ENV: 'production' });
-    expect(guard.canActivate(ctx({}))).toBe(true);
+  it('producción: sin token, ni siquiera la red interna (las cabeceras de proxy no prueban nada)', () => {
+    const guard = makeGuard({ NODE_ENV: 'production', METRICS_TOKEN: TOKEN });
+    expect(() => guard.canActivate(ctx({}))).toThrow(NotFoundException);
+    expect(() => guard.canActivate(ctx({}, '127.0.0.1'))).toThrow(NotFoundException);
   });
 
-  it('producción: petición de internet (vía Cloudflare/Traefik) → 404', () => {
-    const guard = makeGuard({ NODE_ENV: 'production' });
+  it('producción: petición de internet sin token → 404', () => {
+    const guard = makeGuard({ NODE_ENV: 'production', METRICS_TOKEN: TOKEN });
     expect(() => guard.canActivate(ctx({ 'cf-ray': 'abc', 'x-forwarded-for': '1.2.3.4' }))).toThrow(
       NotFoundException,
     );
-    expect(() => guard.canActivate(ctx({ 'x-forwarded-for': '1.2.3.4' }))).toThrow(NotFoundException);
   });
 
-  it('producción: desde internet con METRICS_TOKEN correcto pasa', () => {
+  it('producción: con METRICS_TOKEN correcto pasa (scrape interno o desde internet)', () => {
     const guard = makeGuard({ NODE_ENV: 'production', METRICS_TOKEN: TOKEN });
-    expect(
-      guard.canActivate(ctx({ 'cf-ray': 'abc', authorization: `Bearer ${TOKEN}` })),
-    ).toBe(true);
+    expect(guard.canActivate(ctx({ authorization: `Bearer ${TOKEN}` }))).toBe(true);
+    expect(guard.canActivate(ctx({ 'cf-ray': 'abc', authorization: `Bearer ${TOKEN}` }))).toBe(true);
   });
 
   it('producción: token incorrecto o sin token configurado → 404', () => {
     const withToken = makeGuard({ NODE_ENV: 'production', METRICS_TOKEN: TOKEN });
-    expect(() =>
-      withToken.canActivate(ctx({ 'cf-ray': 'abc', authorization: 'Bearer otro-token' })),
-    ).toThrow(NotFoundException);
+    expect(() => withToken.canActivate(ctx({ authorization: 'Bearer otro-token' }))).toThrow(NotFoundException);
 
     const noToken = makeGuard({ NODE_ENV: 'production' });
-    expect(() =>
-      noToken.canActivate(ctx({ 'cf-ray': 'abc', authorization: 'Bearer ' })),
-    ).toThrow(NotFoundException);
+    expect(() => noToken.canActivate(ctx({ authorization: 'Bearer ' }))).toThrow(NotFoundException);
+    expect(() => noToken.canActivate(ctx({}))).toThrow(NotFoundException);
   });
 });

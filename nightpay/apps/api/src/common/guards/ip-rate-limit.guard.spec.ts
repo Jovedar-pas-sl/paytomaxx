@@ -18,7 +18,8 @@ function makeRedis() {
 
 function makeCtx(meta: IpRateLimitConfig | undefined, ip = '203.0.113.5') {
   const headers: Record<string, string | string[] | undefined> = {};
-  const req = { headers, ip };
+  // La conexión llega de `ip` (el socket); los tests de proxy pasan la de Traefik.
+  const req = { headers, ip, socket: { remoteAddress: ip } };
   const res = { header: vi.fn() };
   return {
     getHandler: () => () => undefined,
@@ -86,27 +87,42 @@ describe('IpRateLimitGuard', () => {
     expect(ctx2._res.header).toHaveBeenCalledWith('Retry-After', 60);
   });
 
-  it('uses X-Forwarded-For when present (proxy-aware)', async () => {
+  it('detrás del proxy interno (Traefik) cuenta el último salto de X-Forwarded-For', async () => {
     const config: IpRateLimitConfig = { max: 100, windowSec: 60, scope: 'test' };
     const guard = new IpRateLimitGuard(makeReflector(config), redis as never);
-    const ctx = makeCtx(config);
-    ctx.switchToHttp().getRequest().headers['x-forwarded-for'] = '198.51.100.42, 10.0.0.1';
+    const ctx = makeCtx(config, '10.0.1.7');
+    ctx.switchToHttp().getRequest().headers['x-forwarded-for'] = '9.9.9.9, 198.51.100.42';
     await guard.canActivate(ctx);
     const key = redis.incr.mock.calls[0][0];
     expect(key).toMatch(/198\.51\.100\.42/);
+    expect(key).not.toMatch(/9\.9\.9\.9/);
   });
 
-  it('detrás de Cloudflare usa CF-Connecting-IP (X-Forwarded-For se puede falsear)', async () => {
+  it('detrás de Cloudflare usa CF-Connecting-IP (el último salto es de Cloudflare)', async () => {
     const config: IpRateLimitConfig = { max: 100, windowSec: 60, scope: 'test' };
     const guard = new IpRateLimitGuard(makeReflector(config), redis as never);
-    const ctx = makeCtx(config);
+    const ctx = makeCtx(config, '10.0.1.7');
     const headers = ctx.switchToHttp().getRequest().headers;
-    headers['x-forwarded-for'] = '1.2.3.4';
+    headers['x-forwarded-for'] = '1.2.3.4, 172.70.1.2';
     headers['cf-connecting-ip'] = '203.0.113.7';
     await guard.canActivate(ctx);
     const key = redis.incr.mock.calls.at(-1)[0];
     expect(key).toMatch(/203\.0\.113\.7/);
     expect(key).not.toMatch(/1\.2\.3\.4/);
+  });
+
+  it('una CF-Connecting-IP inventada (sin pasar por Cloudflare) no cambia el contador', async () => {
+    const config: IpRateLimitConfig = { max: 1, windowSec: 60, scope: 'test' };
+    const guard = new IpRateLimitGuard(makeReflector(config), redis as never);
+    const intento = (fake: string) => {
+      const ctx = makeCtx(config, '10.0.1.7');
+      const headers = ctx.switchToHttp().getRequest().headers;
+      headers['x-forwarded-for'] = '198.51.100.42';
+      headers['cf-connecting-ip'] = fake;
+      return guard.canActivate(ctx);
+    };
+    await intento('1.1.1.1');
+    await expect(intento('2.2.2.2')).rejects.toThrow(HttpException);
   });
 
   it('isolates IPs in different Redis keys', async () => {
@@ -129,17 +145,14 @@ describe('IpRateLimit decorator', () => {
 });
 
 describe('clientIp (la IP que cuenta para el login y los límites)', () => {
-  it('detrás de Cloudflare manda CF-Connecting-IP aunque el cliente invente X-Forwarded-For', async () => {
+  it('se sigue exportando desde aquí (el login la importa de este archivo)', async () => {
     const { clientIp } = await import('./ip-rate-limit.guard');
-    const req = { headers: { 'cf-connecting-ip': '81.0.0.7', 'x-forwarded-for': '1.2.3.4, 81.0.0.7' } };
-    expect(clientIp(req)).toBe('81.0.0.7');
-    const otra = { headers: { 'cf-connecting-ip': '81.0.0.7', 'x-forwarded-for': '9.9.9.9' } };
-    expect(clientIp(otra)).toBe('81.0.0.7');
-  });
-
-  it('sin Cloudflare (dev): X-Forwarded-For y si no, la del socket', async () => {
-    const { clientIp } = await import('./ip-rate-limit.guard');
-    expect(clientIp({ headers: { 'x-forwarded-for': '10.0.0.1, 10.0.0.2' } })).toBe('10.0.0.1');
+    const viaCloudflare = {
+      headers: { 'cf-connecting-ip': '81.0.0.7', 'x-forwarded-for': '1.2.3.4, 162.158.0.9' },
+      socket: { remoteAddress: '10.0.1.7' },
+    };
+    expect(clientIp(viaCloudflare)).toBe('81.0.0.7');
+    // Más casos en common/http/client-ip.spec.ts.
     expect(clientIp({ headers: {}, socket: { remoteAddress: '127.0.0.1' } })).toBe('127.0.0.1');
   });
 });

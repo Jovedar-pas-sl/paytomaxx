@@ -42,12 +42,22 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
-  readonly earningReversalFailed = new Counter({
+  private readonly earningReversalFailedCounter = new Counter({
     name: 'nightpay_earning_reversal_failed_total',
     help: 'Earning reverse silenciado (refund OK pero comisión chica no descontada)',
-    labelNames: ['venue', 'payment_id'],
+    labelNames: ['venue'],
     registers: [this.registry],
   });
+  /**
+   * Solo por local. El id del cobro era etiqueta: una serie nueva por cobro
+   * (cardinalidad sin límite). El id va en el log y en audit_events
+   * ('refund.earning_reverse_failed'); si alguien aún lo pasa, se ignora.
+   */
+  readonly earningReversalFailed = {
+    inc: (labels: { venue: string; payment_id?: string }, value = 1): void => {
+      this.earningReversalFailedCounter.inc({ venue: labels.venue }, value);
+    },
+  };
 
   // Wallet top-up AUTHORIZED pero credit no aplicado (wallet status != ACTIVE).
   // También crítico — el cliente fue cargado y el wallet no recibió el saldo.
@@ -86,6 +96,16 @@ export class MetricsService implements OnModuleInit {
     name: 'nightpay_circuit_state',
     help: 'Estado del circuit breaker (0=closed, 1=half-open, 2=open)',
     labelNames: ['provider', 'op'],
+    registers: [this.registry],
+  });
+
+  // ─── Aislamiento por local ────────────────────────────────────────
+  // Consultas a un modelo por local sin local ni asSystem/acrossVenues (ver
+  // PrismaService). Debe estar en 0: si sube, hay un camino sin aislamiento.
+  readonly tenantUnscopedQueries = new Counter({
+    name: 'nightpay_tenant_unscoped_queries_total',
+    help: 'Consultas a modelos por local sin local en el contexto ni asSystem/acrossVenues',
+    labelNames: ['model', 'action'],
     registers: [this.registry],
   });
 

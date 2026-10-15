@@ -1,19 +1,14 @@
-import { Controller, Get, Inject, NotFoundException, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DebugEndpointsGuard } from '../../common/guards/debug-endpoints.guard';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
 
 interface KeyCheckResponse {
-  merchantCodePresent: boolean;
-  merchantCodeLength: number;
-  terminalPresent: boolean;
+  merchantCodeOk: boolean;
   terminal: string | null;
-  secretKeyPresent: boolean;
-  secretKeyLength: number;
-  secretKeyLooksBase64: boolean;
-  secretKeyExpectedLength: number;
-  secretKeyMatchesExpected: boolean;
+  /** La clave de firma tiene el formato de Redsys (sin decir longitud ni contenido). */
+  secretKeyOk: boolean;
   apiUrl: string | null;
   nextPublicApiUrl: string | null;
   merchantUrlWeWillSend: string;
@@ -39,14 +34,27 @@ interface WebhookSummary {
   processedAt: string | null;
   createdAt: string;
   ageSeconds: number;
-  rawBodyPreview: string;
+  /** Tamaño del aviso; el cuerpo crudo ya no se devuelve (datos del pago y firma). */
+  rawBodyBytes: number;
 }
 
+interface PaymentRow {
+  id: string;
+  status: string;
+  provider: string | null;
+  providerTxId: string | null;
+  tenantId: string;
+}
+
+const REDSYS_KEY_LENGTH = 32;
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
 /**
- * TEMP DIAG. Reports configuración Redsys + estado reciente de pagos +
- * webhooks recibidos para diagnosticar fallos sin acceso a terminal.
- *
- * NO leak la secret key — solo length + match contra esperado.
+ * TEMP DIAG. Configuración Redsys + estado reciente de pagos y avisos para
+ * diagnosticar sin acceso a terminal. Solo superadmin y con
+ * DEBUG_ENDPOINTS_ENABLED (DebugEndpointsGuard). Cruza locales a propósito:
+ * consultas de sistema (asSystem), parametrizadas. No devuelve la clave de
+ * firma (ni su longitud), ni tokens de tarjeta, ni el cuerpo de los avisos.
  */
 @Controller('debug/redsys')
 @UseGuards(DebugEndpointsGuard)
@@ -70,98 +78,54 @@ export class RedsysDebugController {
     const merchantCode = this.config.get<string>('REDSYS_MERCHANT_CODE') ?? '';
     const terminal = this.config.get<string>('REDSYS_TERMINAL') ?? '';
     const secretKey = this.config.get<string>('REDSYS_SECRET_KEY') ?? '';
-    const apiUrl = this.config.get<string>('REDSYS_API_URL') ?? null;
     const nextPublicApiUrl = this.config.get<string>('NEXT_PUBLIC_API_URL') ?? null;
-    const paymethods = this.config.get<string>('REDSYS_PAYMETHODS') ?? null;
     const merchantUrlWeWillSend = `${(nextPublicApiUrl ?? 'http://localhost:4100').replace(/\/+$/, '')}/v1/webhooks/redsys`;
-
-    const looksBase64 = /^[A-Za-z0-9+/]+={0,2}$/.test(secretKey);
-    const expectedLen = 32;
-
-    let hint = '';
-    if (!secretKey) {
-      hint = 'REDSYS_SECRET_KEY no está configurado en Dokploy.';
-    } else if (secretKey.length !== expectedLen) {
-      hint = `Clave tiene ${secretKey.length} chars; estándar Redsys es ${expectedLen}.`;
-    } else if (!looksBase64) {
-      hint = 'Clave tiene 32 chars pero charset fuera de base64.';
-    } else if (!nextPublicApiUrl) {
-      hint = 'NEXT_PUBLIC_API_URL no configurado — MERCHANTURL apunta a localhost y Redsys NUNCA podrá entregar el webhook. Configura NEXT_PUBLIC_API_URL=https://api.paytomaxx.com en Dokploy.';
-    } else if (!nextPublicApiUrl.startsWith('https://')) {
-      hint = `NEXT_PUBLIC_API_URL=${nextPublicApiUrl} no es HTTPS. Redsys exige HTTPS para webhooks.`;
-    } else {
-      hint = `OK. MERCHANTURL que mandamos a Redsys: ${merchantUrlWeWillSend}`;
-    }
+    const secretKeyOk = secretKey.length === REDSYS_KEY_LENGTH && BASE64.test(secretKey);
 
     return {
-      merchantCodePresent: merchantCode.length > 0,
-      merchantCodeLength: merchantCode.length,
-      terminalPresent: terminal.length > 0,
+      merchantCodeOk: /^\d{1,9}$/.test(merchantCode),
       terminal: terminal || null,
-      secretKeyPresent: secretKey.length > 0,
-      secretKeyLength: secretKey.length,
-      secretKeyLooksBase64: looksBase64,
-      secretKeyExpectedLength: expectedLen,
-      secretKeyMatchesExpected: secretKey.length === expectedLen && looksBase64,
-      apiUrl,
+      secretKeyOk,
+      apiUrl: this.config.get<string>('REDSYS_API_URL') ?? null,
       nextPublicApiUrl,
       merchantUrlWeWillSend,
-      paymethods,
-      hint,
+      paymethods: this.config.get<string>('REDSYS_PAYMETHODS') ?? null,
+      hint: keycheckHint(secretKey, secretKeyOk, nextPublicApiUrl, merchantUrlWeWillSend),
     };
   }
 
   /**
-   * Etapa A — tokenización probe. Devuelve el ÚLTIMO cobro Redsys con
-   * `tokenizationData` capturado (= Redsys/BBVA devolvió un token de
-   * tarjeta en el callback porque el authorize lo pidió con
-   * REDSYS_REQUEST_TOKEN=true).
-   *
-   * Si `tokenizationData != null` → BBVA tiene Pago por Referencia activo,
-   * podemos hacer plan PIN con MIT.
-   * Si null en todos los cobros recientes → BBVA no lo tiene activo o
-   * REDSYS_REQUEST_TOKEN no estaba en el env al hacer el cobro.
+   * Etapa A — tokenización probe. ¿Hay algún cobro Redsys con token de tarjeta
+   * guardado? (= BBVA tiene Pago por Referencia activo). Solo dice si existe:
+   * el token de la tarjeta no sale de la base de datos.
    */
   @Get('last-tokenized')
   async lastTokenized(): Promise<{
     found: boolean;
     requestTokenEnvActive: boolean;
     hint: string;
-    payment: {
-      id: string;
-      providerTxId: string | null;
-      amountCents: number;
-      createdAt: string;
-      tokenizationData: unknown;
-    } | null;
+    payment: { id: string; providerTxId: string | null; amountCents: number; createdAt: string } | null;
   }> {
     const requestTokenEnvActive =
       (this.config.get<string>('REDSYS_REQUEST_TOKEN') ?? '').toLowerCase() === 'true';
 
-    const rows = await this.prisma.$queryRawUnsafe<
-      Array<{
-        id: string;
-        providerTxId: string | null;
-        amountCents: number;
-        createdAt: Date;
-        tokenizationData: unknown;
-      }>
-    >(
-      `SELECT id::text, "providerTxId", "amountCents", "createdAt", "tokenizationData"
-         FROM payments
-        WHERE provider = 'REDSYS' AND "tokenizationData" IS NOT NULL
-        ORDER BY "createdAt" DESC
-        LIMIT 1`,
+    const rows = await this.prisma.asSystem((tx) =>
+      tx.$queryRaw<Array<{ id: string; providerTxId: string | null; amountCents: number; createdAt: Date }>>`
+        SELECT id::text, "providerTxId", "amountCents", "createdAt"
+          FROM payments
+         WHERE provider = 'REDSYS' AND "tokenizationData" IS NOT NULL
+         ORDER BY "createdAt" DESC
+         LIMIT 1`,
     );
 
-    if (rows.length === 0) {
+    const row = rows[0];
+    if (!row) {
       const hint = !requestTokenEnvActive
         ? 'REDSYS_REQUEST_TOKEN no está set a "true" en Dokploy — el authorize no pide token. Configura y haz un cobro de prueba.'
         : 'Aún ningún cobro Redsys ha devuelto tokenización. Posibles causas: (a) BBVA no tiene activado "Pago por Referencia"; (b) el cobro de prueba aún no se ha hecho; (c) el callback no llegó (revisa /recent-webhooks).';
       return { found: false, requestTokenEnvActive, hint, payment: null };
     }
 
-    const row = rows[0]!;
     return {
       found: true,
       requestTokenEnvActive,
@@ -171,42 +135,29 @@ export class RedsysDebugController {
         providerTxId: row.providerTxId,
         amountCents: row.amountCents,
         createdAt: row.createdAt.toISOString(),
-        tokenizationData: row.tokenizationData,
       },
     };
   }
 
   /**
-   * Últimos 20 payments en BD (cualquier provider). Permite ver si tu 0,01€
-   * está atascado en AUTHORIZING (= webhook no llegó) o en AUTHORIZED (=
-   * webhook OK pero UI no refresca).
+   * Últimos 20 payments en BD (cualquier provider). Permite ver si un cobro
+   * está atascado en AUTHORIZING (= webhook no llegó) o en AUTHORIZED.
    */
   @Get('recent-payments')
   async recentPayments(): Promise<{ total: number; payments: PaymentSummary[] }> {
-    const rows = await this.prisma.$queryRawUnsafe<Array<{
-      id: string;
-      status: string;
-      provider: string | null;
-      providerTxId: string | null;
-      amountCents: number;
-      createdAt: Date;
-      updatedAt: Date;
-    }>>(
-      `SELECT id::text, status::text, provider::text, "providerTxId", "amountCents", "createdAt", "updatedAt"
-       FROM payments
-       ORDER BY "createdAt" DESC
-       LIMIT 20`,
+    const rows = await this.prisma.asSystem((tx) =>
+      tx.$queryRaw<Array<Omit<PaymentSummary, 'createdAt' | 'updatedAt' | 'ageSeconds'> & { createdAt: Date; updatedAt: Date }>>`
+        SELECT id::text, status::text, provider::text, "providerTxId", "amountCents", "createdAt", "updatedAt"
+          FROM payments
+         ORDER BY "createdAt" DESC
+         LIMIT 20`,
     );
 
     const now = Date.now();
     return {
       total: rows.length,
       payments: rows.map((p) => ({
-        id: p.id,
-        status: p.status,
-        provider: p.provider,
-        providerTxId: p.providerTxId,
-        amountCents: p.amountCents,
+        ...p,
         createdAt: p.createdAt.toISOString(),
         updatedAt: p.updatedAt.toISOString(),
         ageSeconds: Math.floor((now - p.createdAt.getTime()) / 1000),
@@ -215,69 +166,51 @@ export class RedsysDebugController {
   }
 
   /**
-   * Últimos 20 webhook deliveries de cualquier provider. Si tu cobro pasó
-   * por Redsys pero esta lista no tiene una entrada REDSYS reciente →
-   * Redsys NO llamó a nuestro webhook (panel BBVA mal configurado o
-   * comunicación on-line off).
+   * Últimos 20 avisos de pasarela (cualquier provider). Si un cobro pasó por
+   * Redsys y aquí no hay un REDSYS reciente → Redsys NO llamó al webhook.
    */
   @Get('recent-webhooks')
   async recentWebhooks(): Promise<{ total: number; webhooks: WebhookSummary[] }> {
-    const rows = await this.prisma.$queryRawUnsafe<Array<{
-      id: bigint;
-      provider: string;
-      externalEventId: string;
-      processedAt: Date | null;
-      createdAt: Date;
-      rawBody: Buffer;
-    }>>(
-      `SELECT id, provider::text, "externalEventId", "processedAt", "createdAt", "rawBody"
-       FROM webhook_deliveries
-       ORDER BY "createdAt" DESC
-       LIMIT 20`,
+    const rows = await this.prisma.asSystem((tx) =>
+      tx.$queryRaw<
+        Array<{
+          id: bigint;
+          provider: string;
+          externalEventId: string;
+          processedAt: Date | null;
+          createdAt: Date;
+          rawBodyBytes: number | null;
+        }>
+      >`
+        SELECT id, provider::text, "externalEventId", "processedAt", "createdAt",
+               octet_length("rawBody")::int AS "rawBodyBytes"
+          FROM webhook_deliveries
+         ORDER BY "createdAt" DESC
+         LIMIT 20`,
     );
 
     const now = Date.now();
     return {
       total: rows.length,
-      webhooks: rows.map((w) => {
-        const text = Buffer.isBuffer(w.rawBody) ? w.rawBody.toString('utf8') : '';
-        return {
-          id: w.id.toString(),
-          provider: w.provider,
-          externalEventId: w.externalEventId,
-          processedAt: w.processedAt ? w.processedAt.toISOString() : null,
-          createdAt: w.createdAt.toISOString(),
-          ageSeconds: Math.floor((now - w.createdAt.getTime()) / 1000),
-          rawBodyPreview: text.length > 500 ? text.slice(0, 500) + '...' : text,
-        };
-      }),
+      webhooks: rows.map((w) => ({
+        id: w.id.toString(),
+        provider: w.provider,
+        externalEventId: w.externalEventId,
+        processedAt: w.processedAt ? w.processedAt.toISOString() : null,
+        createdAt: w.createdAt.toISOString(),
+        ageSeconds: Math.floor((now - w.createdAt.getTime()) / 1000),
+        rawBodyBytes: w.rawBodyBytes ?? 0,
+      })),
     };
   }
 
   /**
-   * Como `consult/:paymentId` pero con detalles del error (stack, mensaje,
-   * URL). Útil cuando consult devuelve UNKNOWN — el adapter swallow el
-   * error original, este endpoint lo expone para diagnosticar.
+   * Como `consult/:paymentId` pero con detalles del error (mensaje, código).
+   * Útil cuando consult devuelve UNKNOWN — el adapter se traga el error.
    */
   @Get('consult-raw/:paymentId')
-  async consultRaw(@Param('paymentId') paymentId: string): Promise<unknown> {
-    const rows = await this.prisma.$queryRawUnsafe<Array<{
-      id: string;
-      status: string;
-      provider: string | null;
-      providerTxId: string | null;
-      tenantId: string;
-    }>>(
-      `SELECT id::text, status::text, provider::text, "providerTxId", "tenantId"::text
-       FROM payments
-       WHERE id = $1::uuid
-       LIMIT 1`,
-      paymentId,
-    );
-    const payment = rows[0];
-    if (!payment) {
-      throw new NotFoundException(`Payment ${paymentId} not found`);
-    }
+  async consultRaw(@Param('paymentId', new ParseUUIDPipe()) paymentId: string): Promise<unknown> {
+    const payment = await this.findPayment(paymentId);
     if (payment.provider !== 'REDSYS' || !payment.providerTxId) {
       return { error: 'not-a-redsys-payment', payment };
     }
@@ -298,26 +231,18 @@ export class RedsysDebugController {
       return { error: 'creds-missing', message: (e as Error).message };
     }
 
-    const terminal = creds.terminal.padStart(3, '0');
     const params = {
       DS_MERCHANT_AMOUNT: '1',
       DS_MERCHANT_ORDER: payment.providerTxId,
       DS_MERCHANT_MERCHANTCODE: creds.merchantCode,
       DS_MERCHANT_CURRENCY: '978',
       DS_MERCHANT_TRANSACTIONTYPE: '44',
-      DS_MERCHANT_TERMINAL: terminal,
+      DS_MERCHANT_TERMINAL: creds.terminal.padStart(3, '0'),
     };
 
     try {
-      const api = adapter.getApi();
-      const result = await api.restTrataPeticion(params);
-      return {
-        ok: true,
-        paymentId,
-        providerTxId: payment.providerTxId,
-        paramsSent: params,
-        redsysResponse: result,
-      };
+      const result = await adapter.getApi().restTrataPeticion(params);
+      return { ok: true, paymentId, providerTxId: payment.providerTxId, paramsSent: params, redsysResponse: result };
     } catch (e) {
       const err = e as Error & { code?: string; cause?: unknown };
       return {
@@ -329,61 +254,64 @@ export class RedsysDebugController {
         errorMessage: err.message,
         errorCode: err.code ?? null,
         errorCause: err.cause ? String(err.cause) : null,
-        errorStack: (err.stack ?? '').split('\n').slice(0, 8).join(' | '),
       };
     }
   }
 
   /**
-   * Pregunta a Redsys el estado real de un payment (vía REST trataPeticion
-   * TransactionType=44). Útil para diagnosticar pagos atascados sin esperar
-   * al job de reconciliación automática.
-   *
-   * Devuelve lo que Redsys dice (AUTHORIZED / FAILED / UNKNOWN) sin tocar
-   * la BD. Para reconciliar de verdad, el orphan-reconcile processor
-   * agarra ese estado y avanza el FSM.
+   * Pregunta a Redsys el estado real de un payment (REST trataPeticion,
+   * TransactionType=44) sin tocar la BD. Para reconciliar de verdad, el
+   * orphan-reconcile processor avanza el FSM.
    */
   @Get('consult/:paymentId')
-  async consult(@Param('paymentId') paymentId: string): Promise<{
+  async consult(@Param('paymentId', new ParseUUIDPipe()) paymentId: string): Promise<{
     paymentId: string;
     dbStatus: string;
     provider: string | null;
     providerTxId: string | null;
     redsysStatus: 'AUTHORIZED' | 'FAILED' | 'UNKNOWN';
   }> {
-    const rows = await this.prisma.$queryRawUnsafe<Array<{
-      id: string;
-      status: string;
-      provider: string | null;
-      providerTxId: string | null;
-      tenantId: string;
-    }>>(
-      `SELECT id::text, status::text, provider::text, "providerTxId", "tenantId"::text
-       FROM payments
-       WHERE id = $1::uuid
-       LIMIT 1`,
-      paymentId,
-    );
-    const payment = rows[0];
-    if (!payment) {
-      throw new NotFoundException(`Payment ${paymentId} not found`);
-    }
-    if (payment.provider !== 'REDSYS' || !payment.providerTxId) {
-      return {
-        paymentId,
-        dbStatus: payment.status,
-        provider: payment.provider,
-        providerTxId: payment.providerTxId,
-        redsysStatus: 'UNKNOWN',
-      };
-    }
-    const redsysStatus = await this.redsys.getStatus(payment.tenantId, payment.providerTxId);
-    return {
+    const payment = await this.findPayment(paymentId);
+    const base = {
       paymentId,
       dbStatus: payment.status,
       provider: payment.provider,
       providerTxId: payment.providerTxId,
-      redsysStatus: redsysStatus as 'AUTHORIZED' | 'FAILED' | 'UNKNOWN',
     };
+    if (payment.provider !== 'REDSYS' || !payment.providerTxId) {
+      return { ...base, redsysStatus: 'UNKNOWN' };
+    }
+    const redsysStatus = await this.redsys.getStatus(payment.tenantId, payment.providerTxId);
+    return { ...base, redsysStatus: redsysStatus as 'AUTHORIZED' | 'FAILED' | 'UNKNOWN' };
   }
+
+  private async findPayment(paymentId: string): Promise<PaymentRow> {
+    const rows = await this.prisma.asSystem((tx) =>
+      tx.$queryRaw<PaymentRow[]>`
+        SELECT id::text, status::text, provider::text, "providerTxId", "tenantId"::text
+          FROM payments
+         WHERE id = ${paymentId}::uuid
+         LIMIT 1`,
+    );
+    const payment = rows[0];
+    if (!payment) throw new NotFoundException(`Payment ${paymentId} not found`);
+    return payment;
+  }
+}
+
+function keycheckHint(
+  secretKey: string,
+  secretKeyOk: boolean,
+  nextPublicApiUrl: string | null,
+  merchantUrlWeWillSend: string,
+): string {
+  if (!secretKey) return 'REDSYS_SECRET_KEY no está configurado en Dokploy.';
+  if (!secretKeyOk) return 'REDSYS_SECRET_KEY no tiene el formato de Redsys (32 caracteres en base64): revísala en el portal del banco.';
+  if (!nextPublicApiUrl) {
+    return 'NEXT_PUBLIC_API_URL no configurado — MERCHANTURL apunta a localhost y Redsys NUNCA podrá entregar el webhook. Configura NEXT_PUBLIC_API_URL=https://api.paytomaxx.com en Dokploy.';
+  }
+  if (!nextPublicApiUrl.startsWith('https://')) {
+    return `NEXT_PUBLIC_API_URL=${nextPublicApiUrl} no es HTTPS. Redsys exige HTTPS para webhooks.`;
+  }
+  return `OK. MERCHANTURL que mandamos a Redsys: ${merchantUrlWeWillSend}`;
 }
