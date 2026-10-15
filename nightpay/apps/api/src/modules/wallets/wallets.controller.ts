@@ -130,13 +130,13 @@ export class WalletsController {
   }
 
   /**
-   * Lista wallets activas del venue para staff (chica/recepción/camarero).
-   * Sin esto la chica tendría que escanear el QR del cliente cada vez — viola
-   * la regla "no molestar al cliente". Con esto ve la lista de wallets vivos
-   * etiquetados por identifier (Mesa 3, Pulsera azul, etc.) y cobra directo.
+   * Saldos abiertos del local, para el encargado o el dueño. Lleva el código
+   * de cada cliente (con el código y su PIN se paga), su etiqueta y su saldo:
+   * la chica y el camarero no la ven; encuentran el saldo por el código que
+   * les dice el cliente o por su ficha (/v1/wallet-charges/lookup).
    */
   @Get()
-  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  @Roles('MANAGER', 'OWNER')
   async listActive(
     @Tenant() tenantId: string,
     @Query('limit') limit?: string,
