@@ -1235,161 +1235,9 @@ export class PaymentsService implements OnApplicationBootstrap {
           await this.creditTopUp(tx, { ...p, walletId: p.walletId }, paymentId);
         }
 
-        // Snapshot del creator role + comisiones del venue. Usado por:
-        //   1) Earning del creator si role=OPERATOR (CHICA_SERVICE → 90%, VENUE_* → 0% por defecto)
-        //   2) Tip-only earning a beneficiary si creator NO es OPERATOR
-        let creatorRole: string | null = null;
-        let creatorCommissionBps: number | null = null;
-        // Map de comisiones por categoría del venue (operatorCommissionDefaults).
-        // Lo cargamos aquí para que la resolución de bps por categoría sea pura.
-        let venueCommissionMap: Record<string, number> = {
-          CHICA_SERVICE: 9000,
-          VENUE_BAR: 0,
-          VENUE_ROOM: 0,
-          VENUE_FOOD: 0,
-          EXTRA: 0,
-        };
-        if (result.nextState === 'AUTHORIZED' && p.createdByUserId) {
-          const creatorRows = await tx.$queryRaw<
-            Array<{ role: string; commissionBps: number | null }>
-          >`
-            SELECT role::text AS role, "commissionBps"
-              FROM users
-             WHERE id = ${p.createdByUserId}::uuid
-          `;
-          if (creatorRows[0]) {
-            creatorRole = creatorRows[0].role;
-            creatorCommissionBps = creatorRows[0].commissionBps;
-          }
-          const venueRows = await tx.$queryRaw<
-            Array<{ operatorCommissionDefaults: Record<string, number> | null }>
-          >`
-            SELECT "operatorCommissionDefaults"
-              FROM venues
-             WHERE id = ${p.tenantId}::uuid
-          `;
-          if (venueRows[0]?.operatorCommissionDefaults) {
-            venueCommissionMap = {
-              ...venueCommissionMap,
-              ...venueRows[0].operatorCommissionDefaults,
-            };
-          }
-        }
-
-        // Hook de earning para OPERATOR — si transitamos a AUTHORIZED y el creador
-        // del payment es una operadora, snapshot de comisión en operator_earnings.
-        // Math.round (no floor) evita bias unidireccional contra la operadora —
-        // el céntimo perdido por redondeo se reparte 50/50 estadísticamente.
-        // Idempotente: la unique en paymentId rechaza un segundo insert (defensa
-        // contra una transición duplicada que la FSM ya filtra).
-        // NOTA: si p.walletId está set, NO generamos earning aquí — el earning
-        // se genera per-consumption en wallets.service (chica cobra granular).
-        if (result.nextState === 'AUTHORIZED' && p.createdByUserId && !p.walletId) {
-          // #54: el % fijado al crear el cobro; en cobros anteriores, el de ahora.
-          const bpsForOperator = p.operatorCommissionBps ?? resolveBpsForOperator({
-            category: p.revenueCategory,
-            userCommissionBpsOverride: creatorCommissionBps,
-            venueMap: venueCommissionMap as Partial<OperatorCommissionDefaults>,
-          });
-          // Solo creamos earning si:
-          //   - creator es OPERATOR
-          //   - bps resolvidos > 0 (en VENUE_* con default 0 no hay earning)
-          if (creatorRole === 'OPERATOR') {
-            const creator = { id: p.createdByUserId };
-            const bps = bpsForOperator;
-            const commissionCents = Math.round((p.amountCents * bps) / 10_000);
-
-            // Tip: si la propina va a la chica creator (o a beneficiary explícito
-            // que coincide con ella), 100% se suma al earning. Si va a venue/shared
-            // o a otro beneficiario, el earning lleva solo la comisión.
-            let earningTipCents = 0;
-            if (p.tipCents > 0) {
-              const goes = p.tipGoesTo ?? 'operator';
-              if (goes === 'operator') {
-                earningTipCents = p.tipCents;
-              } else if (goes === 'beneficiary' && p.tipBeneficiaryUserId === creator.id) {
-                earningTipCents = p.tipCents;
-              }
-            }
-
-            // Sin comisión pero con propina para ella: la propina también le llega.
-            if (bps > 0 || earningTipCents > 0) {
-              await tx.$executeRaw`
-                INSERT INTO operator_earnings (
-                  "tenantId", "operatorId", "paymentId",
-                  "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
-                )
-                VALUES (
-                  ${p.tenantId}::uuid,
-                  ${creator.id}::uuid,
-                  ${paymentId}::uuid,
-                  ${p.amountCents}::int,
-                  ${bps}::int,
-                  ${commissionCents}::int,
-                  ${earningTipCents}::int
-                )
-                ON CONFLICT ("paymentId") DO NOTHING
-              `;
-            }
-          }
-        }
-
-        // Si tip va a un beneficiary específico que NO es el creator OPERATOR,
-        // y ese beneficiary es OPERATOR del venue, crear un earning aparte
-        // (consumptionId/paymentId ambos null no son válidos en el schema actual;
-        // por simplicidad, los tips a no-creator se ligan al mismo paymentId pero
-        // como una "tip-only" earning row con commissionCents=0 y tipCents>0).
-        // NOTA: por unique(paymentId), si ya hay earning para el creator, este
-        // segundo insert falla. Por eso, este flujo solo aplica cuando creator NO
-        // es OPERATOR (createdByUserId null o role!=OPERATOR) y hay un beneficiary
-        // OPERATOR distinto. Caso típico: OWNER crea cobro POS para mesa atendida
-        // por chica X — tip va a X via tipBeneficiaryUserId.
-        if (
-          result.nextState === 'AUTHORIZED' &&
-          p.tipCents > 0 &&
-          p.tipGoesTo === 'beneficiary' &&
-          p.tipBeneficiaryUserId &&
-          !p.walletId
-        ) {
-          const benefRows = await tx.$queryRaw<
-            Array<{ id: string; role: string; commissionBps: number | null }>
-          >`
-            SELECT id, role::text AS role, "commissionBps"
-              FROM users
-             WHERE id = ${p.tipBeneficiaryUserId}::uuid
-          `;
-          const benef = benefRows[0];
-          // C5 FIX: el guard previo usaba `createdByUserId !== null` (siempre true
-          // si OWNER/MANAGER crea el cobro → beneficiary nunca recibía tip).
-          // Ahora usamos el role real del creator: si NO es OPERATOR, no hay earning
-          // del creator y podemos crear el tip-only earning del beneficiary sin
-          // colisionar con la unique(paymentId).
-          const creatorIsOperator = creatorRole === 'OPERATOR';
-          if (
-            benef?.role === 'OPERATOR' &&
-            benef.id !== p.createdByUserId &&
-            !creatorIsOperator
-          ) {
-            await tx.$executeRaw`
-              INSERT INTO operator_earnings (
-                "tenantId", "operatorId", "paymentId",
-                "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
-              )
-              VALUES (
-                ${p.tenantId}::uuid,
-                ${benef.id}::uuid,
-                ${paymentId}::uuid,
-                ${p.amountCents}::int,
-                0::int,
-                0::int,
-                ${p.tipCents}::int
-              )
-              ON CONFLICT ("paymentId") DO NOTHING
-            `;
-            this.logger.log(
-              `Payment ${paymentId} AUTHORIZED → tip-only earning created for beneficiary=${benef.id} amount=${p.tipCents}c`,
-            );
-          }
+        // Comisión de la chica / propina a otra chica: misma transacción.
+        if (result.nextState === 'AUTHORIZED') {
+          await this.recordEarnings(tx, p, paymentId);
         }
 
         prevState = p.status;
@@ -1416,6 +1264,169 @@ export class PaymentsService implements OnApplicationBootstrap {
         nextState === 'CANCELED'
       ) {
         this.realtime.emitPaymentCompleted(paymentId, nextState, tipCents);
+      }
+    }
+  }
+
+  /**
+   * Comisión de la chica (y propina para otra chica del local) al pagarse un
+   * cobro: en la misma transacción de transition(). Extraído tal cual de
+   * transition() (sin cambios de lógica).
+   */
+  private async recordEarnings(tx: TransactionalClient, p: LockedPaymentRow, paymentId: string): Promise<void> {
+    // Snapshot del creator role + comisiones del venue. Usado por:
+    //   1) Earning del creator si role=OPERATOR (CHICA_SERVICE → 90%, VENUE_* → 0% por defecto)
+    //   2) Tip-only earning a beneficiary si creator NO es OPERATOR
+    let creatorRole: string | null = null;
+    let creatorCommissionBps: number | null = null;
+    // Map de comisiones por categoría del venue (operatorCommissionDefaults).
+    // Lo cargamos aquí para que la resolución de bps por categoría sea pura.
+    let venueCommissionMap: Record<string, number> = {
+      CHICA_SERVICE: 9000,
+      VENUE_BAR: 0,
+      VENUE_ROOM: 0,
+      VENUE_FOOD: 0,
+      EXTRA: 0,
+    };
+    if (p.createdByUserId) {
+      const creatorRows = await tx.$queryRaw<
+        Array<{ role: string; commissionBps: number | null }>
+      >`
+        SELECT role::text AS role, "commissionBps"
+          FROM users
+         WHERE id = ${p.createdByUserId}::uuid
+      `;
+      if (creatorRows[0]) {
+        creatorRole = creatorRows[0].role;
+        creatorCommissionBps = creatorRows[0].commissionBps;
+      }
+      const venueRows = await tx.$queryRaw<
+        Array<{ operatorCommissionDefaults: Record<string, number> | null }>
+      >`
+        SELECT "operatorCommissionDefaults"
+          FROM venues
+         WHERE id = ${p.tenantId}::uuid
+      `;
+      if (venueRows[0]?.operatorCommissionDefaults) {
+        venueCommissionMap = {
+          ...venueCommissionMap,
+          ...venueRows[0].operatorCommissionDefaults,
+        };
+      }
+    }
+
+    // Hook de earning para OPERATOR — si transitamos a AUTHORIZED y el creador
+    // del payment es una operadora, snapshot de comisión en operator_earnings.
+    // Math.round (no floor) evita bias unidireccional contra la operadora —
+    // el céntimo perdido por redondeo se reparte 50/50 estadísticamente.
+    // Idempotente: la unique en paymentId rechaza un segundo insert (defensa
+    // contra una transición duplicada que la FSM ya filtra).
+    // NOTA: si p.walletId está set, NO generamos earning aquí — el earning
+    // se genera per-consumption en wallets.service (chica cobra granular).
+    if (p.createdByUserId && !p.walletId) {
+      // #54: el % fijado al crear el cobro; en cobros anteriores, el de ahora.
+      const bpsForOperator = p.operatorCommissionBps ?? resolveBpsForOperator({
+        category: p.revenueCategory,
+        userCommissionBpsOverride: creatorCommissionBps,
+        venueMap: venueCommissionMap as Partial<OperatorCommissionDefaults>,
+      });
+      // Solo creamos earning si:
+      //   - creator es OPERATOR
+      //   - bps resolvidos > 0 (en VENUE_* con default 0 no hay earning)
+      if (creatorRole === 'OPERATOR') {
+        const creator = { id: p.createdByUserId };
+        const bps = bpsForOperator;
+        const commissionCents = Math.round((p.amountCents * bps) / 10_000);
+
+        // Tip: si la propina va a la chica creator (o a beneficiary explícito
+        // que coincide con ella), 100% se suma al earning. Si va a venue/shared
+        // o a otro beneficiario, el earning lleva solo la comisión.
+        let earningTipCents = 0;
+        if (p.tipCents > 0) {
+          const goes = p.tipGoesTo ?? 'operator';
+          if (goes === 'operator') {
+            earningTipCents = p.tipCents;
+          } else if (goes === 'beneficiary' && p.tipBeneficiaryUserId === creator.id) {
+            earningTipCents = p.tipCents;
+          }
+        }
+
+        // Sin comisión pero con propina para ella: la propina también le llega.
+        if (bps > 0 || earningTipCents > 0) {
+          await tx.$executeRaw`
+            INSERT INTO operator_earnings (
+              "tenantId", "operatorId", "paymentId",
+              "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
+            )
+            VALUES (
+              ${p.tenantId}::uuid,
+              ${creator.id}::uuid,
+              ${paymentId}::uuid,
+              ${p.amountCents}::int,
+              ${bps}::int,
+              ${commissionCents}::int,
+              ${earningTipCents}::int
+            )
+            ON CONFLICT ("paymentId") DO NOTHING
+          `;
+        }
+      }
+    }
+
+    // Si tip va a un beneficiary específico que NO es el creator OPERATOR,
+    // y ese beneficiary es OPERATOR del venue, crear un earning aparte
+    // (consumptionId/paymentId ambos null no son válidos en el schema actual;
+    // por simplicidad, los tips a no-creator se ligan al mismo paymentId pero
+    // como una "tip-only" earning row con commissionCents=0 y tipCents>0).
+    // NOTA: por unique(paymentId), si ya hay earning para el creator, este
+    // segundo insert falla. Por eso, este flujo solo aplica cuando creator NO
+    // es OPERATOR (createdByUserId null o role!=OPERATOR) y hay un beneficiary
+    // OPERATOR distinto. Caso típico: OWNER crea cobro POS para mesa atendida
+    // por chica X — tip va a X via tipBeneficiaryUserId.
+    if (
+      p.tipCents > 0 &&
+      p.tipGoesTo === 'beneficiary' &&
+      p.tipBeneficiaryUserId &&
+      !p.walletId
+    ) {
+      const benefRows = await tx.$queryRaw<
+        Array<{ id: string; role: string; commissionBps: number | null }>
+      >`
+        SELECT id, role::text AS role, "commissionBps"
+          FROM users
+         WHERE id = ${p.tipBeneficiaryUserId}::uuid
+      `;
+      const benef = benefRows[0];
+      // C5 FIX: el guard previo usaba `createdByUserId !== null` (siempre true
+      // si OWNER/MANAGER crea el cobro → beneficiary nunca recibía tip).
+      // Ahora usamos el role real del creator: si NO es OPERATOR, no hay earning
+      // del creator y podemos crear el tip-only earning del beneficiary sin
+      // colisionar con la unique(paymentId).
+      const creatorIsOperator = creatorRole === 'OPERATOR';
+      if (
+        benef?.role === 'OPERATOR' &&
+        benef.id !== p.createdByUserId &&
+        !creatorIsOperator
+      ) {
+        await tx.$executeRaw`
+          INSERT INTO operator_earnings (
+            "tenantId", "operatorId", "paymentId",
+            "paymentAmountCents", "commissionBps", "commissionCents", "tipCents"
+          )
+          VALUES (
+            ${p.tenantId}::uuid,
+            ${benef.id}::uuid,
+            ${paymentId}::uuid,
+            ${p.amountCents}::int,
+            0::int,
+            0::int,
+            ${p.tipCents}::int
+          )
+          ON CONFLICT ("paymentId") DO NOTHING
+        `;
+        this.logger.log(
+          `Payment ${paymentId} AUTHORIZED → tip-only earning created for beneficiary=${benef.id} amount=${p.tipCents}c`,
+        );
       }
     }
   }
