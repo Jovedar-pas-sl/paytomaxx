@@ -68,3 +68,23 @@ export function parseHoldDays(raw: unknown): number {
   const n = Number(raw ?? DEFAULT_PAYOUT_HOLD_DAYS);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_PAYOUT_HOLD_DAYS;
 }
+
+/** Tope de los días de espera por local (igual que PAYOUT_HOLD_DAYS y el CHECK de venues). */
+export const MAX_PAYOUT_HOLD_DAYS = 60;
+
+/**
+ * Días de espera de un local: los suyos (venues.payoutHoldDays, 0–60; 0 = se
+ * paga al cierre de la noche) o, si no tiene (null) o no valen, los del
+ * entorno (PAYOUT_HOLD_DAYS).
+ */
+export function resolveHoldDays(venueHoldDays: number | null | undefined, envRaw: unknown): number {
+  if (
+    typeof venueHoldDays === 'number' &&
+    Number.isInteger(venueHoldDays) &&
+    venueHoldDays >= 0 &&
+    venueHoldDays <= MAX_PAYOUT_HOLD_DAYS
+  ) {
+    return venueHoldDays;
+  }
+  return parseHoldDays(envRaw);
+}
