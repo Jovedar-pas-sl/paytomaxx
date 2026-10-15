@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { ACCOUNT_POLICY } from './lockout.service';
+import { passwordFingerprint, RefreshTokenReuseError } from './refresh-token.service';
 
 interface Overrides {
   /** Lo que devuelve la búsqueda del login (email sin distinguir mayúsculas). */
@@ -54,8 +55,10 @@ function makeService(overrides: Overrides = {}) {
       overrides.refreshTokenResult ?? { token: 'rt.secret', family: 'fam-1', ttlSeconds: 2592000 },
     ),
     rotate: vi.fn(),
-    revoke: vi.fn().mockResolvedValue(undefined),
+    revoke: vi.fn().mockResolvedValue(null),
     revokeAllForUser: vi.fn().mockResolvedValue(0),
+    revokeFamily: vi.fn().mockResolvedValue(undefined),
+    stampFingerprint: vi.fn().mockResolvedValue(undefined),
   };
   const svc = new AuthService(
     prismaMock as never,
@@ -231,6 +234,87 @@ describe('AuthService.login', () => {
       verifyPasswordResult: true,
     });
     await svc.login({ email: 'a@b.test', password: 'correct12' });
-    expect(refreshTokensMock.issue).toHaveBeenCalledWith('u1', 't1');
+    expect(refreshTokensMock.issue).toHaveBeenCalledWith('u1', 't1', {
+      pwdFp: passwordFingerprint('$2a$10$fakehash'),
+    });
+  });
+});
+
+describe('AuthService.refresh', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const rotated = (overrides: Record<string, unknown> = {}) => ({
+    userId: 'u1',
+    tenantId: 't1',
+    family: 'fam-1',
+    pwdFp: passwordFingerprint('$2a$10$fakehash'),
+    token: 'rt.new',
+    ttlSeconds: 2592000,
+    ...overrides,
+  });
+
+  it('misma contraseña → access token nuevo y refresh rotado', async () => {
+    const { svc, refreshTokensMock } = makeService({ findUniqueResult: makeUser(), signAsyncResult: 'JWT.R' });
+    refreshTokensMock.rotate.mockResolvedValue(rotated());
+    const res = await svc.refresh('rt.old');
+    expect(res).toMatchObject({ accessToken: 'JWT.R', refreshToken: 'rt.new' });
+    expect(refreshTokensMock.revokeFamily).not.toHaveBeenCalled();
+  });
+
+  it('la contraseña cambió desde el login → revoca la sesión entera y 401', async () => {
+    const { svc, refreshTokensMock, auditMock } = makeService({
+      findUniqueResult: makeUser({ passwordHash: '$2a$10$nuevaContrasena' }),
+    });
+    refreshTokensMock.rotate.mockResolvedValue(rotated());
+    await expect(svc.refresh('rt.old')).rejects.toThrow(/contraseña ha cambiado/);
+    expect(refreshTokensMock.revokeFamily).toHaveBeenCalledWith('fam-1');
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.refresh.password_changed', actorId: 'u1' }),
+    );
+  });
+
+  it('token de antes de esta versión (sin huella) → vale y se le apunta la huella actual', async () => {
+    const { svc, refreshTokensMock } = makeService({ findUniqueResult: makeUser() });
+    refreshTokensMock.rotate.mockResolvedValue(rotated({ pwdFp: undefined }));
+    await expect(svc.refresh('rt.old')).resolves.toMatchObject({ refreshToken: 'rt.new' });
+    expect(refreshTokensMock.stampFingerprint).toHaveBeenCalledWith('rt.new', passwordFingerprint('$2a$10$fakehash'));
+  });
+
+  it('usuario dado de baja → revoca todo lo suyo y 401', async () => {
+    const { svc, refreshTokensMock } = makeService({ findUniqueResult: makeUser({ deletedAt: new Date() }) });
+    refreshTokensMock.rotate.mockResolvedValue(rotated());
+    await expect(svc.refresh('rt.old')).rejects.toThrow(UnauthorizedException);
+    expect(refreshTokensMock.revokeAllForUser).toHaveBeenCalledWith('u1');
+  });
+
+  it('reuso de un token ya usado → queda en el audit y 401', async () => {
+    const { svc, refreshTokensMock, auditMock } = makeService({ findUniqueResult: makeUser() });
+    refreshTokensMock.rotate.mockRejectedValue(
+      new RefreshTokenReuseError({ userId: 'u1', tenantId: 't1', family: 'fam-1' }),
+    );
+    await expect(svc.refresh('rt.old', '1.2.3.4')).rejects.toThrow(UnauthorizedException);
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.refresh.reuse_detected', actorId: 'u1', ip: '1.2.3.4' }),
+    );
+  });
+});
+
+describe('AuthService.logout', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('con solo el refresh token: lo revoca y lo apunta a nombre de su dueño', async () => {
+    const { svc, refreshTokensMock, auditMock } = makeService();
+    refreshTokensMock.revoke.mockResolvedValue({ userId: 'u1', tenantId: 't1' });
+    await svc.logout('rt.x', '1.2.3.4', 'UA');
+    expect(refreshTokensMock.revoke).toHaveBeenCalledWith('rt.x');
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.logout', actorId: 'u1', tenantId: 't1', ip: '1.2.3.4' }),
+    );
+  });
+
+  it('token desconocido → no falla ni apunta nada', async () => {
+    const { svc, auditMock } = makeService();
+    await expect(svc.logout('rt.x')).resolves.toBeUndefined();
+    expect(auditMock.log).not.toHaveBeenCalled();
   });
 });

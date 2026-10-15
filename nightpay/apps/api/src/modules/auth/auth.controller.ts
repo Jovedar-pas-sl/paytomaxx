@@ -22,9 +22,17 @@ import { AuthService } from './auth.service';
 import type { RequestContext } from '../../common/context/request-context';
 import { ClsService } from 'nestjs-cls';
 
+const MAX_USER_AGENT_LENGTH = 512;
+
 // La IP real (CF-Connecting-IP detrás de Cloudflare), la misma que el límite de peticiones.
 function extractIp(req: FastifyRequest): string | undefined {
   return clientIp(req) ?? undefined;
+}
+
+// Lo manda el cliente y acaba en el audit: recortado.
+function extractUserAgent(req: FastifyRequest): string | undefined {
+  const ua = req.headers['user-agent'];
+  return typeof ua === 'string' ? ua.slice(0, MAX_USER_AGENT_LENGTH) : undefined;
 }
 
 @Controller('auth')
@@ -49,7 +57,7 @@ export class AuthController {
     @Req() req: FastifyRequest,
   ): Promise<LoginResponse> {
     const ip = extractIp(req);
-    const userAgent = req.headers['user-agent'] as string | undefined;
+    const userAgent = extractUserAgent(req);
     return this.auth.login(body, ip, userAgent);
   }
 
@@ -62,20 +70,24 @@ export class AuthController {
     @Req() req: FastifyRequest,
   ): Promise<RefreshResponse> {
     const ip = extractIp(req);
-    const userAgent = req.headers['user-agent'] as string | undefined;
+    const userAgent = extractUserAgent(req);
     return this.auth.refresh(body.refreshToken, ip, userAgent);
   }
 
+  /**
+   * Pública a propósito: basta el refresh token (las apps mandan también el
+   * access token, que puede estar caducado; se ignora). Así cerrar sesión
+   * revoca el refresh aunque haya pasado la hora del access token.
+   */
+  @Public()
   @Post('logout')
   @HttpCode(204)
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'auth-logout' })
   async logout(
     @Body(new ZodValidationPipe(LogoutRequestSchema)) body: LogoutRequest,
     @Req() req: FastifyRequest,
   ): Promise<void> {
-    const ip = extractIp(req);
-    const userAgent = req.headers['user-agent'] as string | undefined;
-    const ctx = this.cls.get('ctx');
-    await this.auth.logout(body.refreshToken, ctx?.userId, ctx?.tenantId, ip, userAgent);
+    await this.auth.logout(body.refreshToken, extractIp(req), extractUserAgent(req));
   }
 
   /**
@@ -93,7 +105,7 @@ export class AuthController {
       throw new UnauthorizedException('No autenticado');
     }
     const ip = extractIp(req);
-    const userAgent = req.headers['user-agent'] as string | undefined;
+    const userAgent = extractUserAgent(req);
     return this.auth.switchTenant(ctx.userId, body.tenantId, ip, userAgent);
   }
 }

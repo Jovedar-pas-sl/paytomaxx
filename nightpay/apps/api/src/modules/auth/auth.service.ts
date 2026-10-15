@@ -14,7 +14,12 @@ import { AuditService } from '../audit/audit.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { ACCOUNT_POLICY, LockoutService } from './lockout.service';
 import { clampEmail, loginLockKeys, normalizeLoginEmail, type LoginLockKeys } from './login-keys';
-import { RefreshTokenService } from './refresh-token.service';
+import {
+  passwordFingerprint,
+  RefreshTokenReuseError,
+  RefreshTokenService,
+  type RotatedRefresh,
+} from './refresh-token.service';
 import type { JwtPayload, LoginRequest, LoginResponse, RefreshResponse } from '@nightpay/contracts';
 
 const BCRYPT_ROUNDS = 10;
@@ -116,7 +121,9 @@ export class AuthService {
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
     });
 
-    const refresh = await this.refreshTokens.issue(user.id, user.tenantId);
+    const refresh = await this.refreshTokens.issue(user.id, user.tenantId, {
+      pwdFp: passwordFingerprint(user.passwordHash),
+    });
 
     this.metrics.authLogins.inc({ outcome: 'ok' });
     await this.audit.log({
@@ -226,7 +233,7 @@ export class AuthService {
    * Falla con 401 si el token no es valido, esta caducado o se detecta reuso.
    */
   async refresh(refreshToken: string, ip?: string, userAgent?: string): Promise<RefreshResponse> {
-    const rotated = await this.refreshTokens.rotate(refreshToken);
+    const rotated = await this.rotateRefresh(refreshToken, ip, userAgent);
 
     // Cargar user actualizado para verificar que sigue activo y obtener role/venueSlug actuales
     const user = await this.prisma.asSystem((tx) =>
@@ -238,8 +245,9 @@ export class AuthService {
     if (!user || user.deletedAt) {
       // Usuario desactivado tras emitir el refresh — invalidamos todo lo suyo y rechazamos.
       await this.refreshTokens.revokeAllForUser(rotated.userId);
-      throw new UnauthorizedException('User disabled');
+      throw new UnauthorizedException('Usuario desactivado');
     }
+    await this.assertSamePassword(rotated, user, ip, userAgent);
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -267,6 +275,55 @@ export class AuthService {
       refreshToken: rotated.token,
       refreshExpiresIn: rotated.ttlSeconds,
     };
+  }
+
+  /** Rota el refresh; si era un reuso (robo), lo deja en el audit antes de rechazarlo. */
+  private async rotateRefresh(refreshToken: string, ip?: string, userAgent?: string): Promise<RotatedRefresh> {
+    try {
+      return await this.refreshTokens.rotate(refreshToken);
+    } catch (err) {
+      if (err instanceof RefreshTokenReuseError) {
+        await this.audit.log({
+          action: 'auth.refresh.reuse_detected',
+          actorId: err.userId,
+          tenantId: err.tenantId,
+          ip,
+          userAgent,
+          payload: { family: err.family },
+        });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Si la contraseña cambió desde que se abrió la sesión (reset del admin, CLI,
+   * invitación…), la sesión entera se cierra. Los tokens de antes de esta
+   * versión no traen huella: se les apunta la actual.
+   */
+  private async assertSamePassword(
+    rotated: RotatedRefresh,
+    user: { id: string; email: string; tenantId: string; passwordHash: string },
+    ip?: string,
+    userAgent?: string,
+  ): Promise<void> {
+    const current = passwordFingerprint(user.passwordHash);
+    if (!rotated.pwdFp) {
+      await this.refreshTokens.stampFingerprint(rotated.token, current);
+      return;
+    }
+    if (rotated.pwdFp === current) return;
+
+    await this.refreshTokens.revokeFamily(rotated.family);
+    await this.audit.log({
+      action: 'auth.refresh.password_changed',
+      actorId: user.id,
+      actorEmail: user.email,
+      tenantId: user.tenantId,
+      ip,
+      userAgent,
+    });
+    throw new UnauthorizedException('Tu contraseña ha cambiado: vuelve a iniciar sesión');
   }
 
   /**
@@ -345,17 +402,19 @@ export class AuthService {
     };
   }
 
-  /** Revoca un refresh token (logout). Idempotente — no falla si ya estaba revocado. */
-  async logout(refreshToken: string, actorId?: string, tenantId?: string, ip?: string, userAgent?: string): Promise<void> {
-    await this.refreshTokens.revoke(refreshToken);
-    if (actorId) {
-      await this.audit.log({
-        action: 'auth.logout',
-        actorId,
-        tenantId,
-        ip,
-        userAgent,
-      });
-    }
+  /**
+   * Revoca un refresh token (logout). Basta el refresh token (el access token
+   * puede estar caducado). Idempotente — no falla si ya estaba revocado.
+   */
+  async logout(refreshToken: string, ip?: string, userAgent?: string): Promise<void> {
+    const session = await this.refreshTokens.revoke(refreshToken);
+    if (!session) return;
+    await this.audit.log({
+      action: 'auth.logout',
+      actorId: session.userId,
+      tenantId: session.tenantId,
+      ip,
+      userAgent,
+    });
   }
 }

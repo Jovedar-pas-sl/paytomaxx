@@ -2,8 +2,23 @@ import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/commo
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
+import { deriveKey, openText, sealText } from './aes-gcm';
 
 export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30d
+/**
+ * Margen para dos refrescos con el mismo token (dos pestañas a la vez, una
+ * respuesta que se perdió): durante estos segundos el token ya usado devuelve
+ * el MISMO par nuevo en vez de tomarse por robado.
+ */
+export const REFRESH_GRACE_SECONDS = 10;
+/** Si el otro refresco aún no ha publicado el par nuevo, se le espera un poco. */
+const GRACE_POLL_MS = 50;
+const GRACE_POLL_ATTEMPTS = 4;
+const GRACE_KEY_PURPOSE = 'nightpay:refresh-grace:v1';
+const GRACE_AAD = 'refresh-grace';
+
+const MSG_INVALID = 'Sesión caducada: vuelve a iniciar sesión';
+const MSG_REUSED = 'Sesión cerrada por seguridad: vuelve a iniciar sesión';
 
 interface StoredRefresh {
   userId: string;
@@ -12,6 +27,58 @@ interface StoredRefresh {
   secretHash: string;
   issuedAt: number;
   lastUsedAt: number;
+  /** Huella de users.passwordHash al emitirlo (passwordFingerprint). Falta en los anteriores. */
+  pwdFp?: string;
+}
+
+/** Rastro de un refresh ya usado (jti → family) para detectar si alguien lo reutiliza. */
+interface UsedRefresh {
+  userId: string;
+  tenantId: string;
+  family: string;
+  secretHash: string;
+  consumedAt: number;
+}
+
+interface ParsedToken {
+  jti: string;
+  secret: string;
+}
+
+export interface IssueOptions {
+  /** Family a la que pertenece (rotación); sin ella, sesión nueva. */
+  family?: string;
+  /** passwordFingerprint del usuario al emitirlo. */
+  pwdFp?: string;
+}
+
+export interface RotatedRefresh {
+  userId: string;
+  tenantId: string;
+  family: string;
+  /** Huella con la que se emitió la sesión (undefined = token anterior a esta versión). */
+  pwdFp?: string;
+  token: string;
+  ttlSeconds: number;
+}
+
+/** Un refresh ya usado volvió fuera del margen: señal de robo. La family ya está revocada. */
+export class RefreshTokenReuseError extends UnauthorizedException {
+  readonly userId: string;
+  readonly tenantId: string;
+  readonly family: string;
+
+  constructor(session: { userId: string; tenantId: string; family: string }) {
+    super(MSG_REUSED);
+    this.userId = session.userId;
+    this.tenantId = session.tenantId;
+    this.family = session.family;
+  }
+}
+
+/** Huella corta de users.passwordHash: si cambia la contraseña, cambia la huella. */
+export function passwordFingerprint(passwordHash: string): string {
+  return createHash('sha256').update(passwordHash).digest('hex').slice(0, 16);
 }
 
 /**
@@ -25,10 +92,15 @@ interface StoredRefresh {
  *   nightpay:refresh:<jti> -> JSON StoredRefresh (TTL 30d)
  *   nightpay:refresh:family:<familyId>:<jti> -> '1' (TTL 30d)  // indice para revoke-all
  *   nightpay:refresh:user:<userId>:<jti> -> '1' (TTL 30d)      // indice para revoke-user
+ *   nightpay:refresh:used:<jti> -> JSON UsedRefresh (TTL 30d)  // rastro tras rotarlo
+ *   nightpay:refresh:grace:<jti> -> par nuevo cifrado con el secreto viejo (TTL 10 s)
  *
- * Rotacion: en cada `refresh()` se borra el jti viejo y se emite uno nuevo en la
- * misma family. Si llega un refresh con un jti ya consumido (no existe en Redis
- * pero el cliente cree que es valido), se invalida la family entera — senal de robo.
+ * Rotacion: cada `refresh()` marca el jti como usado (atómico), emite uno nuevo
+ * en la misma family y borra el viejo. Si vuelve un jti usado:
+ *   - dentro del margen (10 s) → el mismo par nuevo (dos pestañas, reintentos);
+ *   - después → se revoca la family entera (alguien tenía una copia: robo).
+ * La huella de la contraseña viaja con la sesión: AuthService la compara al
+ * refrescar y, si la contraseña cambió, revoca la family.
  */
 @Injectable()
 export class RefreshTokenService {
@@ -40,24 +112,31 @@ export class RefreshTokenService {
   }
 
   /** Emite un refresh token nuevo y devuelve el string opaco al cliente. */
-  async issue(userId: string, tenantId: string, family?: string): Promise<{ token: string; family: string; ttlSeconds: number }> {
+  async issue(
+    userId: string,
+    tenantId: string,
+    opts: IssueOptions = {},
+  ): Promise<{ token: string; family: string; ttlSeconds: number }> {
     const jti = randomUUID();
     const secret = randomBytes(32).toString('hex');
-    const familyId = family ?? randomUUID();
+    const familyId = opts.family ?? randomUUID();
+    const now = Date.now();
     const stored: StoredRefresh = {
       userId,
       tenantId,
       family: familyId,
       secretHash: hashSecret(secret),
-      issuedAt: Date.now(),
-      lastUsedAt: Date.now(),
+      issuedAt: now,
+      lastUsedAt: now,
+      ...(opts.pwdFp ? { pwdFp: opts.pwdFp } : {}),
     };
 
-    const tx = this.redis.multi();
-    tx.set(this.key(jti), JSON.stringify(stored), 'EX', REFRESH_TOKEN_TTL_SECONDS);
-    tx.set(this.familyKey(familyId, jti), '1', 'EX', REFRESH_TOKEN_TTL_SECONDS);
-    tx.set(this.userKey(userId, jti), '1', 'EX', REFRESH_TOKEN_TTL_SECONDS);
-    await tx.exec();
+    await this.redis
+      .multi()
+      .set(this.key(jti), JSON.stringify(stored), 'EX', REFRESH_TOKEN_TTL_SECONDS)
+      .set(this.familyKey(familyId, jti), '1', 'EX', REFRESH_TOKEN_TTL_SECONDS)
+      .set(this.userKey(userId, jti), '1', 'EX', REFRESH_TOKEN_TTL_SECONDS)
+      .exec();
 
     return {
       token: `${jti}.${secret}`,
@@ -67,59 +146,68 @@ export class RefreshTokenService {
   }
 
   /**
-   * Rota un refresh token: valida, borra el viejo y emite uno nuevo en la misma family.
-   * Lanza UnauthorizedException si el token no existe, esta caducado, o tiene secret invalido.
-   * Si detecta reuso (token consumido), revoca toda la family.
+   * Rota un refresh token: valida, lo marca como usado, emite uno nuevo en la
+   * misma family y borra el viejo. Lanza UnauthorizedException si no vale;
+   * RefreshTokenReuseError (y revoca la family) si es un reuso.
    */
-  async rotate(rawToken: string): Promise<{ userId: string; tenantId: string; token: string; ttlSeconds: number }> {
+  async rotate(rawToken: string): Promise<RotatedRefresh> {
     const parsed = parseToken(rawToken);
-    if (!parsed) throw new UnauthorizedException('Invalid refresh token');
+    if (!parsed) throw invalidRefresh();
 
     const stored = await this.fetch(parsed.jti);
-    if (!stored) {
-      // Token no existe en Redis. Posibles causas: expiro, ya rotado (reuso!), o nunca existio.
-      // No tenemos forma directa de saber a que family pertenecia, asi que solo logueamos.
-      this.logger.warn(`Refresh token reuse or expired (jti=${parsed.jti})`);
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+    if (!stored) return this.rotateUsed(parsed);
 
-    // Verifica secret en tiempo constante
-    const expected = Buffer.from(stored.secretHash, 'hex');
-    const candidate = Buffer.from(hashSecret(parsed.secret), 'hex');
-    const ok = expected.length === candidate.length && timingSafeEqual(expected, candidate);
-    if (!ok) {
+    if (!secretMatches(stored.secretHash, parsed.secret)) {
       // Secret incorrecto pero jti existe — probablemente robo. Revocar family.
       this.logger.warn(`Refresh secret mismatch for jti=${parsed.jti} — revoking family ${stored.family}`);
       await this.revokeFamily(stored.family);
-      throw new UnauthorizedException('Invalid refresh token');
+      throw invalidRefresh();
     }
 
-    // Consumirlo de forma atómica: si otro refresco ya lo consumió, este no vale.
-    const claimed = await this.redis.del(this.key(parsed.jti));
-    if (claimed !== 1) {
-      this.logger.warn(`Refresh token ya consumido (jti=${parsed.jti})`);
-      throw new UnauthorizedException('Invalid refresh token');
-    }
-    // Borrar índices del jti viejo
-    await this.deleteJti(parsed.jti, stored);
+    // Solo una petición consigue marcarlo; la otra va por el margen.
+    if (!(await this.markUsed(parsed.jti, stored))) return this.rotateUsed(parsed);
 
-    // Emitir nuevo en misma family
-    const issued = await this.issue(stored.userId, stored.tenantId, stored.family);
+    const issued = await this.issue(stored.userId, stored.tenantId, { family: stored.family, pwdFp: stored.pwdFp });
+    await this.retire(parsed, stored, issued.token);
     return {
       userId: stored.userId,
       tenantId: stored.tenantId,
+      family: stored.family,
+      pwdFp: stored.pwdFp,
       token: issued.token,
       ttlSeconds: issued.ttlSeconds,
     };
   }
 
-  /** Revoca un refresh token concreto (logout). No falla si ya estaba revocado. */
-  async revoke(rawToken: string): Promise<void> {
+  /**
+   * Revoca un refresh token (logout). Exige el token entero (jti + secreto).
+   * Con uno ya rotado (la app no guardó el nuevo) cierra la sesión entera.
+   * Devuelve de quién era, o null si no valía (un token que no vale no es un error).
+   */
+  async revoke(rawToken: string): Promise<{ userId: string; tenantId: string } | null> {
     const parsed = parseToken(rawToken);
-    if (!parsed) return;
+    if (!parsed) return null;
+
     const stored = await this.fetch(parsed.jti);
-    if (!stored) return;
-    await this.deleteJti(parsed.jti, stored);
+    if (stored) {
+      if (!secretMatches(stored.secretHash, parsed.secret)) return null;
+      await this.deleteJti(parsed.jti, stored);
+      return { userId: stored.userId, tenantId: stored.tenantId };
+    }
+
+    const used = await this.fetchUsed(parsed.jti);
+    if (!used || !secretMatches(used.secretHash, parsed.secret)) return null;
+    await this.revokeFamily(used.family);
+    return { userId: used.userId, tenantId: used.tenantId };
+  }
+
+  /** Tokens de antes de esta versión: se les apunta la huella de la contraseña actual. */
+  async stampFingerprint(rawToken: string, pwdFp: string): Promise<void> {
+    const parsed = parseToken(rawToken);
+    const stored = parsed ? await this.fetch(parsed.jti) : null;
+    if (!parsed || !stored || stored.pwdFp) return;
+    // XX: solo si sigue vivo (nunca resucitar uno usado o revocado); KEEPTTL: misma caducidad.
+    await this.redis.set(this.key(parsed.jti), JSON.stringify({ ...stored, pwdFp }), 'KEEPTTL', 'XX');
   }
 
   /** Revoca todos los refresh tokens activos de un usuario (kill-switch para device theft). */
@@ -142,8 +230,8 @@ export class RefreshTokenService {
     return count;
   }
 
-  /** Revoca toda una family (deteccion de reuso). */
-  private async revokeFamily(familyId: string): Promise<void> {
+  /** Revoca toda una family (reuso detectado, contraseña cambiada). */
+  async revokeFamily(familyId: string): Promise<void> {
     const pattern = `nightpay:refresh:family:${familyId}:*`;
     const keys = await this.scanKeys(pattern);
     for (const k of keys) {
@@ -155,14 +243,78 @@ export class RefreshTokenService {
     }
   }
 
-  private async fetch(jti: string): Promise<StoredRefresh | null> {
-    const raw = await this.redis.get(this.key(jti));
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as StoredRefresh;
-    } catch {
-      return null;
+  /** Marca atómica de "usado": devuelve false si otra petición lo marcó antes. */
+  private async markUsed(jti: string, stored: StoredRefresh): Promise<boolean> {
+    const used: UsedRefresh = {
+      userId: stored.userId,
+      tenantId: stored.tenantId,
+      family: stored.family,
+      secretHash: stored.secretHash,
+      consumedAt: Date.now(),
+    };
+    const ok = await this.redis.set(this.usedKey(jti), JSON.stringify(used), 'EX', REFRESH_TOKEN_TTL_SECONDS, 'NX');
+    return ok === 'OK';
+  }
+
+  /** Borra el token usado y deja el par nuevo, cifrado con el secreto viejo, durante el margen. */
+  private async retire(parsed: ParsedToken, stored: StoredRefresh, nextToken: string): Promise<void> {
+    await this.redis
+      .multi()
+      .set(this.graceKey(parsed.jti), sealForGrace(nextToken, parsed.secret), 'EX', REFRESH_GRACE_SECONDS)
+      .del(this.key(parsed.jti), this.familyKey(stored.family, parsed.jti), this.userKey(stored.userId, parsed.jti))
+      .exec();
+  }
+
+  /** Token ya usado: en el margen, el mismo par nuevo; fuera, reuso → revoca la family. */
+  private async rotateUsed(parsed: ParsedToken): Promise<RotatedRefresh> {
+    const used = await this.fetchUsed(parsed.jti);
+    if (!used || !secretMatches(used.secretHash, parsed.secret)) {
+      this.logger.warn(`Refresh token desconocido o caducado (jti=${parsed.jti})`);
+      throw invalidRefresh();
     }
+
+    const replay = await this.replayWithinGrace(parsed, used);
+    if (replay) return replay;
+    // En el margen sin par que devolver (a medias o ya rotado otra vez): no es un robo.
+    if (withinGrace(used)) throw invalidRefresh();
+
+    this.logger.warn(`Reuso de un refresh ya usado (jti=${parsed.jti}) — revocando la family ${used.family}`);
+    await this.revokeFamily(used.family);
+    throw new RefreshTokenReuseError(used);
+  }
+
+  private async replayWithinGrace(parsed: ParsedToken, used: UsedRefresh): Promise<RotatedRefresh | null> {
+    const sealed = await this.waitForGrace(parsed.jti, used);
+    const next = sealed ? openGrace(sealed, parsed.secret) : null;
+    const nextParsed = next ? parseToken(next) : null;
+    const nextStored = nextParsed ? await this.fetch(nextParsed.jti) : null;
+    if (!next || !nextStored || nextStored.family !== used.family) return null;
+    return {
+      userId: nextStored.userId,
+      tenantId: nextStored.tenantId,
+      family: nextStored.family,
+      pwdFp: nextStored.pwdFp,
+      token: next,
+      ttlSeconds: REFRESH_TOKEN_TTL_SECONDS,
+    };
+  }
+
+  /** Si el otro refresco va a la vez, el par nuevo tarda unos ms en aparecer. */
+  private async waitForGrace(jti: string, used: UsedRefresh): Promise<string | null> {
+    for (let attempt = 0; attempt <= GRACE_POLL_ATTEMPTS; attempt++) {
+      const sealed = await this.redis.get(this.graceKey(jti));
+      if (sealed || !withinGrace(used)) return sealed;
+      if (attempt < GRACE_POLL_ATTEMPTS) await sleep(GRACE_POLL_MS);
+    }
+    return null;
+  }
+
+  private async fetch(jti: string): Promise<StoredRefresh | null> {
+    return parseJson<StoredRefresh>(await this.redis.get(this.key(jti)));
+  }
+
+  private async fetchUsed(jti: string): Promise<UsedRefresh | null> {
+    return parseJson<UsedRefresh>(await this.redis.get(this.usedKey(jti)));
   }
 
   private async deleteJti(jti: string, stored: StoredRefresh): Promise<void> {
@@ -193,13 +345,60 @@ export class RefreshTokenService {
   private userKey(userId: string, jti: string): string {
     return `nightpay:refresh:user:${userId}:${jti}`;
   }
+  private usedKey(jti: string): string {
+    return `nightpay:refresh:used:${jti}`;
+  }
+  private graceKey(jti: string): string {
+    return `nightpay:refresh:grace:${jti}`;
+  }
+}
+
+function invalidRefresh(): UnauthorizedException {
+  return new UnauthorizedException(MSG_INVALID);
+}
+
+function withinGrace(used: UsedRefresh): boolean {
+  return Date.now() - used.consumedAt < REFRESH_GRACE_SECONDS * 1000;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function hashSecret(secret: string): string {
   return createHash('sha256').update(secret).digest('hex');
 }
 
-function parseToken(raw: string): { jti: string; secret: string } | null {
+/** Compara en tiempo constante el secreto presentado con el hash guardado. */
+function secretMatches(expectedHashHex: string, secret: string): boolean {
+  const expected = Buffer.from(expectedHashHex, 'hex');
+  const candidate = Buffer.from(hashSecret(secret), 'hex');
+  return expected.length === candidate.length && timingSafeEqual(expected, candidate);
+}
+
+function sealForGrace(nextToken: string, oldSecret: string): string {
+  return sealText(deriveKey(oldSecret, GRACE_KEY_PURPOSE), nextToken, GRACE_AAD);
+}
+
+/** null si no se puede abrir (el secreto ya se comprobó contra el hash: sería un dato corrupto). */
+function openGrace(sealed: string, oldSecret: string): string | null {
+  try {
+    return openText(deriveKey(oldSecret, GRACE_KEY_PURPOSE), sealed, GRACE_AAD);
+  } catch {
+    return null;
+  }
+}
+
+function parseJson<T>(raw: string | null): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function parseToken(raw: string): ParsedToken | null {
   const dot = raw.indexOf('.');
   if (dot < 1 || dot === raw.length - 1) return null;
   const jti = raw.slice(0, dot);
