@@ -1,36 +1,38 @@
 #!/usr/bin/env node
 /**
- * db-heal — self-healing pre-migrate step.
+ * db-heal — comprobaciones de la base al arrancar el API, antes y después de
+ * `prisma migrate deploy` (ver CMD de apps/api/Dockerfile).
  *
- * Runs BEFORE `prisma migrate deploy` on every container startup. Idempotent.
+ * Ya NO cambia ni el esquema ni los datos. Lo que antes hacía en cada arranque
+ * (columnas, NOT NULL, CHECKs —borrando liquidaciones a 0 €—, y activar Redsys
+ * en todos los locales desactivando las demás pasarelas) está congelado en la
+ * migración 20261015080000_congelar_db_heal; activar Redsys en un local es un
+ * paso aparte y explícito: scripts/activate-redsys.ts.
  *
- * Why this exists:
- *   `prisma migrate deploy` refuses to run if ANY migration in `_prisma_migrations`
- *   is in a failed state (finished_at IS NULL). On a production box without
- *   shell access, a partially-applied migration can wedge all subsequent deploys.
+ * Qué hace:
+ *   1. Base nueva (sin _prisma_migrations): nada, primero las migraciones.
+ *   2. Migraciones fallidas: las nombra y dice cómo resolverlas. No las toca:
+ *      `prisma migrate deploy` se negará a seguir y el API no arrancará hasta
+ *      que alguien las mire (una migración a medias no se da por buena).
+ *   3. Comprobaciones de solo lectura: CHECKs o claves ajenas que quedaron
+ *      NOT VALID (filas antiguas que no los cumplen) → aviso en el log.
  *
- * IMPORTANT: Prisma's $executeRawUnsafe uses extended query protocol which only
- *   runs ONE statement per call (any `;` after the first is ignored). So every
- *   ALTER must be its own line in the steps array.
- *
- * Exits 0 on success (including no-op). Exits 1 only on connect failure.
+ * Sale con 0 (también si no hay nada que decir). Con 1 solo si no puede
+ * conectar con la base.
  */
 
 import { PrismaClient } from '../src/generated/client';
 
-async function main() {
+async function main(): Promise<void> {
   if (!process.env.DATABASE_URL) {
-    console.error('[db-heal] DATABASE_URL not set — skipping');
-    process.exit(0);
+    console.error('[db-heal] DATABASE_URL no está definida: nada que comprobar');
+    return;
   }
 
   const prisma = new PrismaClient({ log: ['error'] });
-
   try {
-    // Base de datos nueva (una instalación desde cero, una copia restaurada
-    // vacía…): aún no hay nada que curar. Antes esto daba FATAL y el API no
-    // arrancaba nunca. Las migraciones la crean y el arranque vuelve a pasar
-    // por aquí después (ver CMD del Dockerfile del API).
+    // Base de datos nueva (instalación desde cero, copia restaurada vacía…):
+    // las migraciones la crean y el arranque vuelve a pasar por aquí después.
     const ready = await prisma.$queryRawUnsafe<Array<{ t: string | null }>>(
       `SELECT to_regclass('public._prisma_migrations')::text AS t`,
     );
@@ -40,169 +42,35 @@ async function main() {
     }
 
     // Una migración que falló NO se da por aplicada: su SQL se deshizo entero
-    // y la app arrancaría con la base a medias sin avisar. Se deja que
-    // `prisma migrate deploy` se niegue a seguir (la API no arranca y el log
-    // lo dice); se arregla mirándola y con `prisma migrate resolve`.
+    // y la app arrancaría con la base a medias sin avisar.
     const failed = await prisma.$queryRawUnsafe<Array<{ migration_name: string }>>(
-      `SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL`,
+      `SELECT migration_name FROM _prisma_migrations
+        WHERE finished_at IS NULL AND rolled_back_at IS NULL
+        ORDER BY started_at`,
     );
     if (failed.length > 0) {
       console.error(
         `[db-heal] MIGRACIONES FALLIDAS (no se tocan): ${failed.map((r) => r.migration_name).join(', ')}. ` +
-          'Revísalas y usa `prisma migrate resolve --rolled-back <nombre>` antes de volver a desplegar.',
+          'Mira su error en el log, arréglalo y márcala con `prisma migrate resolve --rolled-back <nombre>` ' +
+          'antes de volver a desplegar (ver docs/DOKPLOY-STEPS.md, «Si falla una migración»).',
       );
     } else {
-      console.log('[db-heal] no stuck migrations');
+      console.log('[db-heal] migraciones: ninguna fallida');
     }
 
-    // Cada step = UN solo statement SQL (Prisma extended protocol limitation).
-    const steps: Array<{ name: string; sql: string }> = [
-      // ─── venues ────────────────────────────────────────────────────
-      { name: 'venues.operatorCommissionDefaults add', sql: `ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "operatorCommissionDefaults" JSONB DEFAULT '{"CHICA_SERVICE":9000,"VENUE_BAR":0,"VENUE_ROOM":0,"VENUE_FOOD":0,"EXTRA":0}'::jsonb` },
-      { name: 'venues.operatorCommissionDefaults backfill', sql: `UPDATE "venues" SET "operatorCommissionDefaults" = '{"CHICA_SERVICE":9000,"VENUE_BAR":0,"VENUE_ROOM":0,"VENUE_FOOD":0,"EXTRA":0}'::jsonb WHERE "operatorCommissionDefaults" IS NULL` },
-      { name: 'venues.operatorCommissionDefaults set not null', sql: `ALTER TABLE "venues" ALTER COLUMN "operatorCommissionDefaults" SET NOT NULL` },
-      { name: 'venues.platformCommissionBps add', sql: `ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "platformCommissionBps" INT DEFAULT 1000` },
-      { name: 'venues.platformCommissionBps backfill', sql: `UPDATE "venues" SET "platformCommissionBps" = 1000 WHERE "platformCommissionBps" IS NULL` },
-      { name: 'venues.platformCommissionBps set not null', sql: `ALTER TABLE "venues" ALTER COLUMN "platformCommissionBps" SET NOT NULL` },
-      { name: 'venues.operatorMaxCobroCents add', sql: `ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "operatorMaxCobroCents" INT DEFAULT 20000` },
-      { name: 'venues.operatorMaxCobroCents backfill', sql: `UPDATE "venues" SET "operatorMaxCobroCents" = 20000 WHERE "operatorMaxCobroCents" IS NULL` },
-      { name: 'venues.operatorMaxCobroCents set not null', sql: `ALTER TABLE "venues" ALTER COLUMN "operatorMaxCobroCents" SET NOT NULL` },
-      { name: 'venues.vatBps add', sql: `ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "vatBps" INT DEFAULT 2100` },
-      { name: 'venues.vatRegime add', sql: `ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "vatRegime" TEXT DEFAULT 'GENERAL'` },
-      { name: 'venues.vatBps backfill', sql: `UPDATE "venues" SET "vatBps" = 2100 WHERE "vatBps" IS NULL` },
-      { name: 'venues.vatRegime backfill', sql: `UPDATE "venues" SET "vatRegime" = 'GENERAL' WHERE "vatRegime" IS NULL` },
-      { name: 'venues.vatBps set not null', sql: `ALTER TABLE "venues" ALTER COLUMN "vatBps" SET NOT NULL` },
-      { name: 'venues.vatRegime set not null', sql: `ALTER TABLE "venues" ALTER COLUMN "vatRegime" SET NOT NULL` },
-
-      // ─── payments ──────────────────────────────────────────────────
-      { name: 'payments.captureMethod add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "captureMethod" TEXT` },
-      { name: 'payments.walletId add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "walletId" UUID` },
-      { name: 'payments.platformCommissionBps add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "platformCommissionBps" INT` },
-      { name: 'payments.revenueCategory add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "revenueCategory" TEXT DEFAULT 'EXTRA'` },
-      { name: 'payments.revenueCategory backfill', sql: `UPDATE "payments" SET "revenueCategory" = CASE WHEN "walletId" IS NULL AND "createdByUserId" IS NOT NULL THEN 'CHICA_SERVICE' ELSE 'EXTRA' END WHERE "revenueCategory" IS NULL` },
-      { name: 'payments.revenueCategory set not null', sql: `ALTER TABLE "payments" ALTER COLUMN "revenueCategory" SET NOT NULL` },
-      { name: 'payments.tipCents add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipCents" INT DEFAULT 0` },
-      { name: 'payments.tipGoesTo add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipGoesTo" TEXT` },
-      { name: 'payments.tipBeneficiaryUserId add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tipBeneficiaryUserId" UUID` },
-      { name: 'payments.gatewayPaymentUrl add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "gatewayPaymentUrl" TEXT` },
-      { name: 'payments.gatewayCheckoutForm add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "gatewayCheckoutForm" JSONB` },
-      // Tokenización Redsys / Peanpe: si el adapter recibe en el callback un
-      // identifier (token de tarjeta) + last4/expiry/brand, los persistimos
-      // aquí para reusar en cobros recurrentes MIT (PIN-flow).
-      // Shape: { identifier, expiry, cardLast4, cardBrand, cofTxnId, capturedAt }
-      { name: 'payments.tokenizationData add', sql: `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "tokenizationData" JSONB` },
-      { name: 'payments.tipCents backfill', sql: `UPDATE "payments" SET "tipCents" = 0 WHERE "tipCents" IS NULL` },
-      { name: 'payments.tipCents set not null', sql: `ALTER TABLE "payments" ALTER COLUMN "tipCents" SET NOT NULL` },
-
-      // ─── terminals ─────────────────────────────────────────────────
-      { name: 'terminals.zone add', sql: `ALTER TABLE "terminals" ADD COLUMN IF NOT EXISTS "zone" TEXT` },
-      { name: 'terminals.hardwareModel add', sql: `ALTER TABLE "terminals" ADD COLUMN IF NOT EXISTS "hardwareModel" TEXT` },
-      { name: 'terminals.deviceSerial add', sql: `ALTER TABLE "terminals" ADD COLUMN IF NOT EXISTS "deviceSerial" TEXT` },
-
-      // ─── users ─────────────────────────────────────────────────────
-      { name: 'users.isSuperAdmin add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "isSuperAdmin" BOOLEAN DEFAULT false` },
-      { name: 'users.isSuperAdmin backfill', sql: `UPDATE "users" SET "isSuperAdmin" = false WHERE "isSuperAdmin" IS NULL` },
-      { name: 'users.isSuperAdmin set not null', sql: `ALTER TABLE "users" ALTER COLUMN "isSuperAdmin" SET NOT NULL` },
-      { name: 'users.displayName add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "displayName" TEXT` },
-      { name: 'users.invitedAt add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "invitedAt" TIMESTAMPTZ` },
-      { name: 'users.inviteToken add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "inviteToken" TEXT` },
-      { name: 'users.selfOnboardingToken add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "selfOnboardingToken" TEXT` },
-      { name: 'users.commissionBps add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "commissionBps" INT` },
-      { name: 'users.payoutMethod add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutMethod" TEXT` },
-      { name: 'users.payoutAddress add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutAddress" TEXT` },
-      { name: 'users.payoutMetadata add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutMetadata" JSONB` },
-      { name: 'users.payoutLabel add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "payoutLabel" TEXT` },
-      { name: 'users.phone add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "phone" TEXT` },
-      { name: 'users.passportCountry add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "passportCountry" TEXT` },
-      { name: 'users.passportLast4 add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "passportLast4" TEXT` },
-      { name: 'users.hasEmpadronamiento add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hasEmpadronamiento" BOOLEAN DEFAULT false` },
-      { name: 'users.hasEmpadronamiento backfill', sql: `UPDATE "users" SET "hasEmpadronamiento" = false WHERE "hasEmpadronamiento" IS NULL` },
-      { name: 'users.hasNie add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hasNie" BOOLEAN DEFAULT false` },
-      { name: 'users.hasNie backfill', sql: `UPDATE "users" SET "hasNie" = false WHERE "hasNie" IS NULL` },
-      { name: 'users.hasTie add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "hasTie" BOOLEAN DEFAULT false` },
-      { name: 'users.hasTie backfill', sql: `UPDATE "users" SET "hasTie" = false WHERE "hasTie" IS NULL` },
-      { name: 'users.walletProvider add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletProvider" TEXT` },
-      { name: 'users.walletStatus add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletStatus" TEXT` },
-      { name: 'users.walletTestPassed add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletTestPassed" BOOLEAN DEFAULT false` },
-      { name: 'users.walletTestPassed backfill', sql: `UPDATE "users" SET "walletTestPassed" = false WHERE "walletTestPassed" IS NULL` },
-      { name: 'users.walletTestAt add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "walletTestAt" TIMESTAMPTZ` },
-      { name: 'users.needsHelpWallet add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "needsHelpWallet" BOOLEAN DEFAULT false` },
-      { name: 'users.needsHelpWallet backfill', sql: `UPDATE "users" SET "needsHelpWallet" = false WHERE "needsHelpWallet" IS NULL` },
-      { name: 'users.needsHelpDocs add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "needsHelpDocs" BOOLEAN DEFAULT false` },
-      { name: 'users.needsHelpDocs backfill', sql: `UPDATE "users" SET "needsHelpDocs" = false WHERE "needsHelpDocs" IS NULL` },
-      { name: 'users.onboardingStatus add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "onboardingStatus" TEXT DEFAULT 'NEW'` },
-      { name: 'users.onboardingStatus backfill', sql: `UPDATE "users" SET "onboardingStatus" = 'NEW' WHERE "onboardingStatus" IS NULL` },
-      { name: 'users.onboardingNotes add', sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "onboardingNotes" TEXT` },
-
-      // ─── Provider enum ─────────────────────────────────────────────
-      { name: 'Provider enum +PAYTEF', sql: `DO $$ BEGIN ALTER TYPE "Provider" ADD VALUE IF NOT EXISTS 'PAYTEF'; EXCEPTION WHEN undefined_object THEN NULL; END $$` },
-      { name: 'Provider enum +REDSYS', sql: `DO $$ BEGIN ALTER TYPE "Provider" ADD VALUE IF NOT EXISTS 'REDSYS'; EXCEPTION WHEN undefined_object THEN NULL; END $$` },
-
-      // ─── CHECK constraints — solo si faltan ────────────────────────
-      // Antes se quitaban, se limpiaban datos (con un DELETE de pagos a chicas)
-      // y se volvían a poner en CADA arranque, bloqueando tablas enteras
-      // mientras la versión anterior seguía atendiendo. Ahora, si ya están,
-      // no se toca nada.
-      { name: 'operator_payouts CHECK (si falta)', sql: `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operator_payouts_total_positive') THEN DELETE FROM "operator_payouts" WHERE "totalCents" <= 0; ALTER TABLE "operator_payouts" ADD CONSTRAINT operator_payouts_total_positive CHECK ("totalCents" > 0); END IF; END $$` },
-      { name: 'operator_earnings CHECK (si falta)', sql: `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operator_earnings_reversed_bounded') THEN UPDATE "operator_earnings" SET "reversedCents" = LEAST(GREATEST("reversedCents", 0), "commissionCents" + COALESCE("tipCents",0)) WHERE "reversedCents" < 0 OR "reversedCents" > "commissionCents" + COALESCE("tipCents",0); ALTER TABLE "operator_earnings" ADD CONSTRAINT operator_earnings_reversed_bounded CHECK ("reversedCents" >= 0 AND "reversedCents" <= "commissionCents" + COALESCE("tipCents", 0)); END IF; END $$` },
-      { name: 'payments revenueCategory CHECK (si falta)', sql: `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payments_revenue_category_valid') THEN UPDATE "payments" SET "revenueCategory" = 'EXTRA' WHERE "revenueCategory" NOT IN ('CHICA_SERVICE','VENUE_BAR','VENUE_ROOM','VENUE_FOOD','EXTRA'); ALTER TABLE "payments" ADD CONSTRAINT payments_revenue_category_valid CHECK ("revenueCategory" IN ('CHICA_SERVICE','VENUE_BAR','VENUE_ROOM','VENUE_FOOD','EXTRA')); END IF; END $$` },
-    ];
-
-    let okCount = 0;
-    let errCount = 0;
-    for (const step of steps) {
-      try {
-        await prisma.$executeRawUnsafe(step.sql);
-        okCount++;
-      } catch (e) {
-        errCount++;
-        console.error(`[db-heal] err ${step.name}: ${(e as Error).message}`);
-      }
-    }
-    console.log(`[db-heal] done — ${okCount} ok, ${errCount} err out of ${steps.length} steps`);
-
-    // ─── Auto-activación de provider según env vars ───────────────────
-    // Si REDSYS_MERCHANT_CODE está definido, activamos REDSYS para todos
-    // los venues y desactivamos cualquier otro provider activo.
-    // Idempotente: si ya está activo, no hace nada.
-    if (process.env.REDSYS_MERCHANT_CODE && process.env.REDSYS_SECRET_KEY) {
-      try {
-        const venues = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
-          `SELECT id FROM venues WHERE "deletedAt" IS NULL`,
-        );
-        for (const venue of venues) {
-          // Desactivar todos los providers activos del venue (PAYTEF, WIPAY, etc.)
-          await prisma.$executeRawUnsafe(
-            `UPDATE gateway_credentials SET active = false WHERE "tenantId" = $1::uuid AND active = true AND provider != 'REDSYS'`,
-            venue.id,
-          );
-          // Comprobar si ya existe fila REDSYS
-          const existing = await prisma.$queryRawUnsafe<Array<{ id: string; active: boolean }>>(
-            `SELECT id, active FROM gateway_credentials WHERE "tenantId" = $1::uuid AND provider = 'REDSYS' LIMIT 1`,
-            venue.id,
-          );
-          if (existing.length === 0) {
-            // Crear nueva fila REDSYS activa (dummy bytes — adapter lee creds de env)
-            await prisma.$executeRawUnsafe(
-              `INSERT INTO gateway_credentials (id, "tenantId", provider, active, "encKey", "encNonce", "encTag", "kekVersion", "createdAt")
-               VALUES (gen_random_uuid(), $1::uuid, 'REDSYS', true, '\\x00'::bytea, '\\x00'::bytea, '\\x00'::bytea, 1, now())`,
-              venue.id,
-            );
-            console.log(`[db-heal] REDSYS creado y activado para venue ${venue.id}`);
-          } else if (!existing[0]!.active) {
-            await prisma.$executeRawUnsafe(
-              `UPDATE gateway_credentials SET active = true WHERE id = $1::uuid`,
-              existing[0]!.id,
-            );
-            console.log(`[db-heal] REDSYS reactivado para venue ${venue.id}`);
-          }
-        }
-        console.log(`[db-heal] REDSYS auto-activation: ${venues.length} venue(s) procesados`);
-      } catch (e) {
-        console.error(`[db-heal] err REDSYS auto-activation: ${(e as Error).message}`);
-      }
-    } else {
-      console.log('[db-heal] REDSYS env vars no configuradas — auto-activation skip');
+    // Restricciones que una migración dejó NOT VALID porque había filas
+    // antiguas que no las cumplían: obligan a las filas nuevas, pero esas
+    // filas hay que revisarlas a mano. Solo se avisa.
+    const notValid = await prisma.$queryRawUnsafe<Array<{ tabla: string; nombre: string }>>(
+      `SELECT conrelid::regclass::text AS tabla, conname AS nombre
+         FROM pg_constraint
+        WHERE NOT convalidated AND connamespace = 'public'::regnamespace
+        ORDER BY 1, 2`,
+    );
+    for (const c of notValid) {
+      console.warn(
+        `[db-heal] aviso: ${c.tabla}.${c.nombre} está NOT VALID: hay filas antiguas que no la cumplen (revísalas a mano)`,
+      );
     }
   } catch (e) {
     console.error('[db-heal] FATAL:', (e as Error).message);
@@ -212,4 +80,4 @@ async function main() {
   }
 }
 
-main();
+void main();
