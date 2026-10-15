@@ -187,10 +187,14 @@ export class RefundsService {
         code: 'TOTP_REQUIRED',
       });
     }
-    const user = await tx.user.findUnique({
-      where: { id: actor.userId },
-      select: { totpSecret: true, email: true },
-    });
+    // Su propia ficha, sin el filtro de local: un super-admin que está mirando
+    // otro local no aparece en ese local (antes daba «no la tienes activada»).
+    const user = await this.prisma.acrossVenues((across) =>
+      across.user.findUnique({
+        where: { id: actor.userId },
+        select: { totpSecret: true, email: true },
+      }),
+    );
     if (!user?.totpSecret) {
       throw new ForbiddenException({
         message:
@@ -626,10 +630,8 @@ export class RefundsService {
       //      → searchable en admin UI + queryable para reconciliación nocturna
       //   3. Log ERROR con stack completo
       const errorMsg = err instanceof Error ? err.message : String(err);
-      this.metrics.earningReversalFailed.inc({
-        venue: payment.tenantId,
-        payment_id: payment.id,
-      });
+      // Sin payment_id como etiqueta (cardinalidad): el cobro va en el log y el audit.
+      this.metrics.earningReversalFailed.inc({ venue: payment.tenantId });
       this.logger.error(
         `Earning reverse failed for payment ${payment.id} refund ${refundId} (amount=${amountCents}c): ${errorMsg}`,
         err instanceof Error ? err.stack : undefined,

@@ -784,10 +784,8 @@ export class OperatorsService {
     // link nuevo si quiere volver a editar.
     data.selfOnboardingToken = null;
 
-    await this.prisma.user.update({
-      where: { id: operator.id },
-      data,
-    });
+    // Ruta pública (sin local en el contexto): como la lectura del token, con asSystem.
+    await this.prisma.asSystem((tx) => tx.user.update({ where: { id: operator.id }, data }));
 
     await this.audit.log({
       action: 'operator.self_onboarding.submitted',

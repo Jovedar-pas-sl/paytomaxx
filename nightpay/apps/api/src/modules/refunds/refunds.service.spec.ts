@@ -59,8 +59,10 @@ function makeService(opts: MakeOptions = {}) {
     payment: {
       findUnique: vi.fn().mockResolvedValue(payment),
     },
+    // Con el filtro de local no se encuentra (super-admin en otro local):
+    // el secreto TOTP tiene que leerse con acrossVenues.
     user: {
-      findUnique: vi.fn().mockResolvedValue(opts.user ?? null),
+      findUnique: vi.fn().mockResolvedValue(null),
     },
     refund: {
       // Con requestedBy: lo devuelto por la persona (2FA); si no, lo reservado del cobro.
@@ -93,6 +95,9 @@ function makeService(opts: MakeOptions = {}) {
       strings.join('?').includes('FOR UPDATE') ? (lockedRow ? [lockedRow] : []) : [{ ok: 1 }],
     ),
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prismaMock)),
+    acrossVenues: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({ user: { findUnique: vi.fn().mockResolvedValue(opts.user ?? null) } }),
+    ),
   });
 
   const clsMock = {
@@ -531,7 +536,7 @@ describe('RefundsService.refund — happy path', () => {
     paymentsMock.applyRefundToEarning.mockRejectedValueOnce(new Error('deadlock'));
     const result = await svc.refund({ paymentId: 'pay-1', amountCents: 500 }, manager);
     expect(result.status).toBe('SUCCEEDED');
-    expect(metricsMock.earningReversalFailed.inc).toHaveBeenCalled();
+    expect(metricsMock.earningReversalFailed.inc).toHaveBeenCalledWith({ venue: 't-1' });
     expect(auditMock.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'refund.earning_reverse_failed' }));
   });
 });

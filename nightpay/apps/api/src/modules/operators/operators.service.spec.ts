@@ -29,11 +29,17 @@ interface MakeOptions {
 
 function makeOps(opts: MakeOptions = {}) {
   const operator = opts.operator === null ? null : { ...baseOperator, ...(opts.operator ?? {}) };
+  /** Si cada user.update corrió dentro de asSystem (rutas públicas sin local). */
+  const updateInSystem: boolean[] = [];
+  let inSystem = false;
   const prisma = {
     user: {
       findFirst: vi.fn().mockResolvedValue(operator),
       findUnique: vi.fn().mockResolvedValue(null),
-      update: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...operator, ...data })),
+      update: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+        updateInSystem.push(inSystem);
+        return { ...operator, ...data };
+      }),
       create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
         ...baseOperator,
         invitedAt: new Date(),
@@ -45,7 +51,14 @@ function makeOps(opts: MakeOptions = {}) {
     },
   };
   Object.assign(prisma, {
-    asSystem: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma)),
+    asSystem: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      inSystem = true;
+      try {
+        return await fn(prisma);
+      } finally {
+        inSystem = false;
+      }
+    }),
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma)),
   });
   const email = { send: vi.fn().mockResolvedValue({ delivered: false }) };
@@ -68,7 +81,7 @@ function makeOps(opts: MakeOptions = {}) {
     jwt as never,
     fx as never,
   );
-  return { svc, prisma, audit, jwt, email };
+  return { svc, prisma, audit, jwt, email, updateInSystem };
 }
 
 describe('OperatorsService.updateOperator — dirección de cobro válida para su método', () => {
@@ -117,6 +130,12 @@ describe('OperatorsService.submitSelfOnboarding — la chica pone su cuenta de c
       svc.submitSelfOnboarding('header.payload.signature-token', { payoutMethod: 'USDT_TRC20', payoutAddress: EVM }),
     ).rejects.toThrow(BadRequestException);
     expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('ruta pública: se guarda con asSystem (sin local en el contexto)', async () => {
+    const { svc, updateInSystem } = makeOps();
+    await svc.submitSelfOnboarding('header.payload.signature-token', { phone: '600000000' });
+    expect(updateInSystem).toEqual([true]);
   });
 
   it('válida → se guarda normalizada', async () => {

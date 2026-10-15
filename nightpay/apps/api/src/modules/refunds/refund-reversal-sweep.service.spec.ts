@@ -59,7 +59,7 @@ describe('RefundReversalSweepService.sweep — reintenta el descuento a la chica
     payments.applyRefundToEarning.mockRejectedValueOnce(new Error('deadlock detected'));
     const res = await svc.sweep();
     expect(res).toEqual({ checked: 2, applied: 1, failed: 1 });
-    expect(metrics.earningReversalFailed.inc).toHaveBeenCalledWith({ venue: 't-1', payment_id: 'p-a' });
+    expect(metrics.earningReversalFailed.inc).toHaveBeenCalledWith({ venue: 't-1' });
     expect(payments.applyRefundToEarning).toHaveBeenCalledTimes(2);
   });
 

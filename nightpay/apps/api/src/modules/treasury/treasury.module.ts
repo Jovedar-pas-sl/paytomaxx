@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditModule } from '../audit/audit.module';
 import { TreasuryService } from './treasury.service';
 import { TreasuryController } from './treasury.controller';
@@ -17,7 +16,8 @@ import { PayoutVerifierFactory } from './payout-verifier.factory';
 @Module({
   imports: [AuditModule],
   controllers: [TreasuryController],
-  providers: [TreasuryService, PrismaService, PayoutVerifierFactory],
+  // PrismaService viene del PrismaModule global (no otro cliente con su pool).
+  providers: [TreasuryService, PayoutVerifierFactory],
   // PayoutVerifierFactory se exporta para que otros módulos (operators)
   // puedan snapshotear la tasa EUR↔USDT al crear un payout cripto.
   exports: [TreasuryService, PayoutVerifierFactory],

@@ -119,7 +119,7 @@ export class RefundReversalSweepService implements OnModuleInit, OnModuleDestroy
   }
 
   private failed(m: MissingReversal, why: string): void {
-    this.metrics.earningReversalFailed.inc({ venue: m.tenantId, payment_id: m.paymentId });
+    this.metrics.earningReversalFailed.inc({ venue: m.tenantId });
     this.logger.error(
       `Repaso: la devolución ${m.refundId} (cobro ${m.paymentId}, ${m.amountCents}c) sigue sin descontarse a la chica: ${why}`,
     );
