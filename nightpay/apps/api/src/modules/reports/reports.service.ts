@@ -117,6 +117,8 @@ export class ReportsService {
    * solo está aquí; el de tarjeta, además, como devoluciones de las recargas.
    */
   async pagosSaldo(tenantId: string, p: TimeWindow): Promise<PagoSaldoRow[]> {
+    // TODO(merge): con fix/rev-wallets, AND wp."status" = 'DONE' (una devolución a la
+    // tarjeta queda PENDING hasta completarse).
     return capped(await this.prisma.$queryRaw<PagoSaldoRow[]>`
       SELECT wp.id,
              wp."createdAt" AS "at",

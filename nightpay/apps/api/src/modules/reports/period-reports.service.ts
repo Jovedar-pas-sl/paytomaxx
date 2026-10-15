@@ -66,6 +66,8 @@ export class PeriodReportsService {
 
   /** Cobros, devoluciones y saldo devuelto del periodo, en una sola consulta. */
   async totals(tenantId: string, w: TimeWindow): Promise<PeriodTotals> {
+    // TODO(merge): con fix/rev-wallets, la CTE «saldo» filtra también wp."status" = 'DONE'
+    // (una devolución a la tarjeta queda PENDING hasta completarse).
     const rows = await this.prisma.$queryRaw<PeriodTotalsRow[]>`
       WITH cobros AS (
         SELECT COUNT(*)::int AS "paymentCount",
