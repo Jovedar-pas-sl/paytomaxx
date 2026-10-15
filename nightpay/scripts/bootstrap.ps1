@@ -48,8 +48,8 @@ Si sigue fallando, instala Node 22 LTS manualmente desde https://nodejs.org
 }
 
 $nodeV = (node -v)
-if ($nodeV -notmatch '^v20\.') {
-    Warn "Node $nodeV - recomendado v20 LTS. 'nvm install 22.23.3; nvm use 22.23.3' en una ventana nueva"
+if ($nodeV -notmatch '^v22\.') {
+    Warn "Node $nodeV - recomendado v22 LTS. 'nvm install 22.23.3; nvm use 22.23.3' en una ventana nueva"
 }
 
 if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
