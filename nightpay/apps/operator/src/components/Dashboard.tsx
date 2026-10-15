@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, Card, Logo, ThemeToggle } from '@nightpay/ui';
+import { primeAlertSound } from '@/lib/alert-sound';
 import { logout as apiLogout, type OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { roleAccess, type TabKey } from '@/lib/roles';
@@ -30,6 +31,10 @@ export function Dashboard({ user, onLogout }: Props) {
   useEffect(() => {
     if (links.focusedPosId) setTab('pos');
   }, [links.focusedPosId]);
+
+  // Quien confirma el datáfono: el pitido de cobro nuevo queda listo con su
+  // primer toque en la app (iPhone no suena sin uno) y se cierra al salir.
+  useEffect(() => (access.posQueue ? primeAlertSound() : undefined), [access.posQueue]);
 
   // La sesión local se cierra al momento; la del servidor sigue por detrás
   // (sin red no se queda nadie esperando en «Salir»).
