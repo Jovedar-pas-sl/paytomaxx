@@ -8,10 +8,12 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import type { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MetricsService } from '../metrics/metrics.service';
-import { LockoutService } from './lockout.service';
+import { ACCOUNT_POLICY, LockoutService } from './lockout.service';
+import { clampEmail, loginLockKeys, normalizeLoginEmail, type LoginLockKeys } from './login-keys';
 import { RefreshTokenService } from './refresh-token.service';
 import type { JwtPayload, LoginRequest, LoginResponse, RefreshResponse } from '@nightpay/contracts';
 
@@ -19,8 +21,18 @@ const BCRYPT_ROUNDS = 10;
 // 1 h: el refresco (automático en las apps) comprueba que el usuario sigue
 // activo, así que una baja o un cambio de contraseña cortan el acceso en 1 h.
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
-/** Fallos en total sobre una cuenta (cualquier IP) antes de bloquearla. */
-const ACCOUNT_FAILED_THRESHOLD = 30;
+/**
+ * Hash bcrypt (coste 10) de un valor aleatorio que nadie conoce. Con un email
+ * que no existe comparamos contra él: así tarda lo mismo que una contraseña
+ * mala y el tiempo de respuesta no delata qué emails tienen cuenta.
+ */
+const DUMMY_BCRYPT_HASH = '$2a$10$YCDVBJQHMCybY9.Zlf5Dm.oZuv2KIafKULqsAsPLpccT3vUlP/CxK';
+/** Usuarios con el mismo email salvo mayúsculas: más que esto no es un caso real. */
+const MAX_LOGIN_CANDIDATES = 10;
+const MSG_BAD_CREDENTIALS = 'Email o contraseña incorrectos';
+const MSG_TOO_MANY_ATTEMPTS = 'Demasiados intentos. Espera unos minutos y vuelve a probar.';
+
+type LoginUser = Prisma.UserGetPayload<{ include: { venue: true } }>;
 
 @Injectable()
 export class AuthService {
@@ -58,69 +70,18 @@ export class AuthService {
 
   /**
    * Login. Cross-tenant por diseno (no sabemos tenant antes del lookup).
-   * - Lockout via Redis (multi-nodo safe).
+   * - Lockout via Redis (multi-nodo safe); política en LockoutService.
    * - Audit log de exitos y fallos.
    */
   async login(input: LoginRequest, ip?: string, userAgent?: string): Promise<LoginResponse> {
-    // Dos niveles: 5 fallos desde la misma IP bloquean a esa IP para esta
-    // cuenta (un atacante no deja fuera al dueño con 5 intentos); 30 fallos
-    // en total bloquean la cuenta (fuerza bruta cambiando de IP).
-    const emailKey = input.email.toLowerCase();
-    const key = `${emailKey}|${ip ?? '-'}`;
-    const accountKey = `cuenta:${emailKey}`;
+    const keys = loginLockKeys(input.email, ip);
+    await this.assertLoginAllowed(keys, input.email, ip, userAgent);
 
-    const ipLock = await this.lockout.isLocked(key);
-    const accountLock = await this.lockout.isLocked(accountKey);
-    const lock = ipLock.locked ? ipLock : accountLock;
-    if (lock.locked) {
-      this.metrics.authLogins.inc({ outcome: 'locked' });
-      this.logger.warn(`Login locked for ${key} (${lock.ttlSeconds}s remaining)`);
-      await this.audit.log({
-        action: 'auth.login.locked',
-        actorEmail: input.email,
-        ip,
-        userAgent,
-        payload: { ttlSeconds: lock.ttlSeconds },
-      });
-      throw new UnauthorizedException('Too many attempts; try again later');
-    }
-
-    const user = await this.prisma.asSystem((tx) =>
-      tx.user.findUnique({
-        where: { email: input.email },
-        include: { venue: true },
-      }),
-    );
-
-    if (!user || user.deletedAt) {
-      const result = await this.lockout.recordFailure(key);
-      await this.lockout.recordFailure(accountKey, ACCOUNT_FAILED_THRESHOLD);
-      this.metrics.authLogins.inc({ outcome: 'failed' });
-      await this.audit.log({
-        action: 'auth.login.failed',
-        actorEmail: input.email,
-        ip,
-        userAgent,
-        payload: { reason: 'unknown_user', count: result.count, locked: result.locked },
-      });
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    const ok = await this.verifyPassword(input.password, user.passwordHash);
-    if (!ok) {
-      const result = await this.lockout.recordFailure(key);
-      await this.lockout.recordFailure(accountKey, ACCOUNT_FAILED_THRESHOLD);
-      this.metrics.authLogins.inc({ outcome: 'failed' });
-      await this.audit.log({
-        action: 'auth.login.failed',
-        actorId: user.id,
-        actorEmail: user.email,
-        tenantId: user.tenantId,
-        ip,
-        userAgent,
-        payload: { reason: 'bad_password', count: result.count, locked: result.locked },
-      });
-      throw new UnauthorizedException('Invalid credentials');
+    const user = await this.findLoginUser(input.email);
+    // Sin usuario se compara igual contra un hash ficticio (mismo tiempo).
+    const ok = await this.verifyPassword(input.password, user?.passwordHash ?? DUMMY_BCRYPT_HASH);
+    if (!user || !ok) {
+      return this.failLogin(keys, input.email, user, ip, userAgent);
     }
 
     if (input.venueSlug && input.venueSlug !== user.venue.slug) {
@@ -136,11 +97,12 @@ export class AuthService {
         userAgent,
         payload: { reason: 'venue_mismatch', requested: input.venueSlug },
       });
-      throw new UnauthorizedException('Invalid venue for this user');
+      throw new UnauthorizedException('Este usuario no es de ese local');
     }
 
-    await this.lockout.clear(key);
-    await this.lockout.clear(accountKey);
+    await this.lockout.clear(keys.ip);
+    await this.lockout.clear(keys.account);
+    if (keys.trusted) await this.lockout.markTrusted(keys.trusted);
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -182,6 +144,81 @@ export class AuthService {
         isSuperAdmin: user.isSuperAdmin,
       },
     };
+  }
+
+  /** Bloqueo por IP siempre; el de cuenta no aplica a una pareja email|IP de confianza. */
+  private async assertLoginAllowed(
+    keys: LoginLockKeys,
+    email: string,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<void> {
+    const ipLock = await this.lockout.isLocked(keys.ip);
+    const lock = ipLock.locked ? ipLock : await this.accountLock(keys);
+    if (!lock.locked) return;
+
+    this.metrics.authLogins.inc({ outcome: 'locked' });
+    this.logger.warn(`Login locked for ${keys.ip} (${lock.ttlSeconds}s remaining)`);
+    await this.audit.log({
+      action: 'auth.login.locked',
+      actorEmail: clampEmail(email),
+      ip,
+      userAgent,
+      payload: { ttlSeconds: lock.ttlSeconds, scope: ipLock.locked ? 'ip' : 'account' },
+    });
+    throw new UnauthorizedException(MSG_TOO_MANY_ATTEMPTS);
+  }
+
+  private async accountLock(keys: LoginLockKeys): Promise<{ locked: boolean; ttlSeconds: number }> {
+    const lock = await this.lockout.isLocked(keys.account);
+    if (!lock.locked || !keys.trusted) return lock;
+    return (await this.lockout.isTrusted(keys.trusted)) ? { locked: false, ttlSeconds: 0 } : lock;
+  }
+
+  /**
+   * Email sin distinguir mayúsculas (hay usuarios antiguos guardados con
+   * mayúsculas). ILIKE trata el guion bajo como comodín, así que se filtra
+   * otra vez en código; si hay varias variantes gana la exacta y, si no hay
+   * exacta, no se adivina cuál es.
+   */
+  private async findLoginUser(email: string): Promise<LoginUser | null> {
+    const wanted = normalizeLoginEmail(email);
+    const candidates = await this.prisma.asSystem((tx) =>
+      tx.user.findMany({
+        where: { email: { equals: wanted, mode: 'insensitive' }, deletedAt: null },
+        include: { venue: true },
+        take: MAX_LOGIN_CANDIDATES,
+      }),
+    );
+    const same = candidates.filter((u) => u.email.toLowerCase() === wanted);
+    const exact = same.find((u) => u.email === email.trim());
+    if (exact) return exact;
+    if (same.length > 1) {
+      this.logger.warn(`Login: ${same.length} cuentas con el mismo email salvo mayúsculas; ninguna exacta`);
+    }
+    return same.length === 1 ? (same[0] ?? null) : null;
+  }
+
+  private async failLogin(
+    keys: LoginLockKeys,
+    email: string,
+    user: LoginUser | null,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<never> {
+    const result = await this.lockout.recordFailure(keys.ip);
+    await this.lockout.recordFailure(keys.account, ACCOUNT_POLICY);
+    this.metrics.authLogins.inc({ outcome: 'failed' });
+    await this.audit.log({
+      action: 'auth.login.failed',
+      actorId: user?.id,
+      actorEmail: user?.email ?? clampEmail(email),
+      tenantId: user?.tenantId,
+      ip,
+      userAgent,
+      payload: { reason: user ? 'bad_password' : 'unknown_user', count: result.count, locked: result.locked },
+    });
+    throw new UnauthorizedException(MSG_BAD_CREDENTIALS);
   }
 
   /**

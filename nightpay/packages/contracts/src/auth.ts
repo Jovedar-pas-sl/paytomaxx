@@ -5,7 +5,8 @@ export const RoleSchema = z.enum(['OWNER', 'MANAGER', 'WAITER', 'OPERATOR']);
 export type Role = z.infer<typeof RoleSchema>;
 
 export const LoginRequestSchema = z.object({
-  email: z.string().email(),
+  // 254 = máximo de un email (RFC 5321); también acota lo que llega a los logs.
+  email: z.string().email().max(254),
   password: z.string().min(8).max(200),
   // venueSlug opcional: permite a un OWNER cambiar de venue al loguearse
   venueSlug: z.string().min(1).max(80).optional(),
