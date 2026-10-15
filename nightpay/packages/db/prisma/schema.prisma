@@ -643,6 +643,9 @@ model OperatorPayout {
 
   @@index([tenantId, operatorId, createdAt(sort: Desc)])
   @@index([tenantId, reconciliationStatus])
+  // Solo en SQL (migración 20261015040000): índice único parcial
+  // operator_payouts_tenant_onchain_tx_key (tenantId, lower(btrim(externalTxId)))
+  // para rails cripto auto-verificables — un hash on-chain, un solo pago.
   @@map("operator_payouts")
 }
 

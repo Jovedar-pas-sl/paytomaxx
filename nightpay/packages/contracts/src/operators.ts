@@ -284,7 +284,7 @@ export type UpdateOperatorDto = z.infer<typeof UpdateOperatorSchema>;
 export const CreatePayoutSchema = z.object({
   notes: z.string().max(500).optional(),
   // Phase 1A — referencia externa opcional al crear (si admin ya hizo el envío)
-  externalTxId: z.string().min(4).max(200).optional(),
+  externalTxId: z.string().trim().min(4).max(200).optional(),
   externalRail: PayoutMethodSchema.optional(),
   receiptUrl: ReceiptUrlSchema.optional(),
   /** Código de la app de verificación (2FA), obligatorio si el dueño la activó. */
@@ -294,7 +294,7 @@ export type CreatePayoutDto = z.infer<typeof CreatePayoutSchema>;
 
 /** Verificar un payout existente contra blockchain (cripto) o marcar manualmente OK. */
 export const VerifyPayoutSchema = z.object({
-  externalTxId: z.string().min(4).max(200),
+  externalTxId: z.string().trim().min(4).max(200),
   externalRail: PayoutMethodSchema,
   receiptUrl: ReceiptUrlSchema.optional(),
   /** Si true, fuerza MANUAL_OK aunque el verifier auto pudiera correr. */
@@ -307,7 +307,11 @@ export const VerifyPayoutResultSchema = z.object({
   matched: z.boolean(),
   status: ReconciliationStatusSchema,
   occurredAt: z.string().datetime().nullable(),
+  /** Lo recibido en céntimos de EUR (con el tipo de cambio guardado en el pago); null si no se sabe. */
   actualAmountCents: z.number().int().nullable(),
+  /** Lo recibido en la dirección de la chica, en USDT/USDC (suma de transferencias). */
+  actualAmountUsdt: z.number().nullable().optional(),
+  /** Motivo (`codigo: detalle`) cuando no cuadra o no se pudo comprobar. */
   reason: z.string().nullable(),
 });
 export type VerifyPayoutResult = z.infer<typeof VerifyPayoutResultSchema>;

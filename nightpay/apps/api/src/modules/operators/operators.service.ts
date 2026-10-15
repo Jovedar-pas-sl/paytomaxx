@@ -17,6 +17,8 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
+import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury/payout-tx-guard';
+import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { operatorAppBaseUrl } from './operator-app-url';
 import { availableCentsOf, parseHoldDays, payoutCutoff, payoutTotalCents } from './payout-math';
 import { payoutRoutingChanges } from './payout-routing';
@@ -27,6 +29,7 @@ import type {
   OperatorPublicView,
   OperatorWithBalance,
   EarningView,
+  PayoutMethod,
   PayoutView,
   SelfOnboardingLinkResponse,
   SelfOnboardingProfile,
@@ -935,6 +938,14 @@ export class OperatorsService {
     if (!operator) throw new NotFoundException('Operadora no encontrada');
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Un hash on-chain solo vale para un pago del local.
+      const txId = options?.externalTxId?.trim();
+      const rail = options?.externalRail ?? operator.payoutMethod ?? null;
+      if (txId && isAutoVerifiable(rail as PayoutMethod | null)) {
+        const other = await otherPayoutWithTx(tx, tenantId, null, txId);
+        if (other) throw txAlreadyUsed(other);
+      }
+
       // SELECT FOR UPDATE de earnings pendientes — incluye tipCents en SUM.
       // L2 (audit): el cálculo previo omitía tipCents → payout subestimaba.
       // Solo earnings con más de N días (PAYOUT_HOLD_DAYS): el dinero ya está
@@ -1034,6 +1045,10 @@ export class OperatorsService {
       }
 
       return { payout, count: pending.length };
+    }).catch((err: unknown) => {
+      // A la vez, otro pago se quedó el mismo hash (índice único parcial).
+      if (isUniqueViolation(err)) throw txAlreadyUsed();
+      throw err;
     });
 
     await this.audit.log({

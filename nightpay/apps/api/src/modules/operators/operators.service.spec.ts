@@ -131,3 +131,49 @@ describe('OperatorsService.submitSelfOnboarding — la chica pone su cuenta de c
     });
   });
 });
+
+describe('OperatorsService.createPayout — un hash on-chain no se apunta en dos pagos', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function withPayoutDb(opts: { other?: { id: string; createdAt: Date } | null; createError?: Error } = {}) {
+    const made = makeOps({ operator: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON } });
+    const prisma = made.prisma as unknown as Record<string, unknown>;
+    Object.assign(prisma, {
+      $queryRaw: vi.fn().mockImplementation(async (strings: TemplateStringsArray) =>
+        strings.join('?').includes('earning_reversals')
+          ? []
+          : [{ id: 'e-1', commissionCents: 9000, tipCents: 0, reversedCents: 0 }],
+      ),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      operatorPayout: {
+        findFirst: vi.fn().mockResolvedValue(opts.other ?? null),
+        create: opts.createError
+          ? vi.fn().mockRejectedValue(opts.createError)
+          : vi.fn().mockResolvedValue({ id: 'po-1', totalCents: 9000, createdAt: new Date() }),
+      },
+    });
+    return { ...made, payouts: prisma.operatorPayout as { findFirst: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> } };
+  }
+
+  it('el hash ya está en otro pago del local → 409 sin crear nada', async () => {
+    const { svc, payouts } = withPayoutDb({ other: { id: 'po-0', createdAt: new Date('2026-10-01T00:00:00Z') } });
+    await expect(
+      svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalTxId: 'abcd1234', externalRail: 'USDT_TRC20' }),
+    ).rejects.toThrow(/ya está apuntado en otro pago/);
+    expect(payouts.create).not.toHaveBeenCalled();
+  });
+
+  it('a la vez (índice único, P2002) → 409', async () => {
+    const { svc } = withPayoutDb({ createError: Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }) });
+    await expect(
+      svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalTxId: 'abcd1234', externalRail: 'USDT_TRC20' }),
+    ).rejects.toThrow(/ya está apuntado en otro pago/);
+  });
+
+  it('referencia de un método manual: no se cruza', async () => {
+    const { svc, payouts } = withPayoutDb({ other: { id: 'po-0', createdAt: new Date() } });
+    await svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalTxId: 'EFECTIVO', externalRail: 'MANUAL_CASH' });
+    expect(payouts.findFirst).not.toHaveBeenCalled();
+    expect(payouts.create).toHaveBeenCalled();
+  });
+});

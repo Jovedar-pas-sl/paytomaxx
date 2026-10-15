@@ -8,7 +8,6 @@ import type { PayoutVerifier, VerifyResult, VerifyInput } from './payout-verifie
  * El admin marca MANUAL_OK desde la UI; este verifier nunca lo hace solo.
  */
 export class ManualVerifier implements PayoutVerifier {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async verify(_input: VerifyInput): Promise<VerifyResult> {
     return {
       matched: false,

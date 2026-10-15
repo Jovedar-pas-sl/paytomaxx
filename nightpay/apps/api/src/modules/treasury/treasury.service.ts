@@ -16,6 +16,8 @@ import {
   isAutoVerifiable,
   type VerifyResult,
 } from './verifiers/payout-verifier.interface';
+import { checkTxTime, usdtToEurCents } from './verifiers/onchain-check';
+import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from './payout-tx-guard';
 import type {
   PayoutMethod,
   TreasuryStats,
@@ -49,7 +51,9 @@ export class TreasuryService {
   /**
    * Verifica un payout existente contra el rail externo.
    * - Si manualOverride=true → MANUAL_OK sin llamar al verifier.
-   * - Si rail tiene verifier auto (cripto on-chain) → llama API blockchain.
+   * - Si rail tiene verifier auto (cripto on-chain) → llama API blockchain. El
+   *   hash no puede estar en otro pago del local (409) y la transacción no
+   *   puede ser de más de 24 h antes de apuntar el pago (MISMATCH).
    * - Si rail es manual (e-wallet, wire, etc.) → status UNRECONCILED, admin debe
    *   confirmar via /confirm-manual.
    * Idempotencia: si el payout ya está MATCHED/MANUAL_OK con el mismo externalTxId,
@@ -61,32 +65,13 @@ export class TreasuryService {
     actorUserId: string,
     dto: VerifyPayoutDto,
   ): Promise<VerifyPayoutResult> {
-    const payout = await this.prisma.asSystem((tx) =>
-      tx.operatorPayout.findUnique({
-        where: { id: payoutId },
-        include: {
-          operator: {
-            select: {
-              id: true,
-              email: true,
-              tenantId: true,
-              payoutMethod: true,
-              payoutAddress: true,
-            },
-          },
-        },
-      }),
-    );
-    if (!payout) throw new NotFoundException('Payout no encontrado');
-    if (payout.tenantId !== tenantId) {
-      throw new ForbiddenException('Payout no pertenece a tu venue');
-    }
+    const payout = await this.payoutToVerify(tenantId, payoutId);
+    const req = { ...dto, externalTxId: dto.externalTxId.trim() };
 
     // Idempotencia: si ya está reconciliado con el mismo txid no re-verifica.
     if (
-      (payout.reconciliationStatus === 'MATCHED' ||
-        payout.reconciliationStatus === 'MANUAL_OK') &&
-      payout.externalTxId === dto.externalTxId
+      (payout.reconciliationStatus === 'MATCHED' || payout.reconciliationStatus === 'MANUAL_OK') &&
+      payout.externalTxId === req.externalTxId
     ) {
       return {
         matched: true,
@@ -96,71 +81,13 @@ export class TreasuryService {
         reason: 'already_reconciled',
       };
     }
-
-    const op = payout.operator;
-
-    let result: VerifyResult;
-    if (dto.manualOverride) {
-      result = {
-        matched: true,
-        status: 'MANUAL_OK',
-        occurredAt: new Date(),
-        actualAmountCents: null,
-        reason: 'manual_override',
-      };
-    } else if (isAutoVerifiable(dto.externalRail)) {
-      if (!op.payoutAddress) {
-        throw new BadRequestException(
-          'La operadora no tiene payoutAddress configurada — no se puede verificar on-chain',
-        );
-      }
-      const verifier = this.verifierFactory.forMethod(dto.externalRail);
-      // FX snapshot persistido al crear el payout (Sprint 2026-05-13 fix #15).
-      const snapshotUsdt = payout.expectedAmountUsdt
-        ? Number(payout.expectedAmountUsdt.toString())
-        : undefined;
-      result = await verifier.verify({
-        externalTxId: dto.externalTxId,
-        expectedToAddress: op.payoutAddress,
-        expectedAmountCents: payout.totalCents,
-        expectedAmountUsdt: snapshotUsdt,
-      });
-    } else {
-      // Métodos manuales — guardamos la referencia y dejamos UNRECONCILED.
-      // Admin debe llamar /confirm-manual aparte si quiere marcarlo MANUAL_OK.
-      result = {
-        matched: false,
-        status: 'UNRECONCILED',
-        occurredAt: null,
-        actualAmountCents: null,
-        reason: 'manual_required',
-      };
+    if (isAutoVerifiable(req.externalRail) && !req.manualOverride) {
+      const other = await this.prisma.asSystem((tx) => otherPayoutWithTx(tx, tenantId, payoutId, req.externalTxId));
+      if (other) throw txAlreadyUsed(other);
     }
 
-    const updateData: {
-      externalTxId: string;
-      externalRail: PayoutMethod;
-      reconciliationStatus: typeof result.status;
-      receiptUrl?: string;
-      reconciledAt?: Date;
-      reconciledByUserId?: string;
-    } = {
-      externalTxId: dto.externalTxId,
-      externalRail: dto.externalRail,
-      reconciliationStatus: result.status,
-    };
-    if (dto.receiptUrl) updateData.receiptUrl = dto.receiptUrl;
-    if (result.matched) {
-      updateData.reconciledAt = result.occurredAt ?? new Date();
-      updateData.reconciledByUserId = actorUserId;
-    }
-    await this.prisma.asSystem((tx) =>
-      tx.operatorPayout.update({
-        where: { id: payoutId },
-        data: updateData,
-      }),
-    );
-
+    const result = await this.runVerification(payout, req);
+    await this.saveVerification(payoutId, actorUserId, req, result);
     await this.audit.log({
       action: 'operator.payout.verified',
       tenantId,
@@ -168,26 +95,94 @@ export class TreasuryService {
       targetType: 'OperatorPayout',
       targetId: payoutId,
       payload: {
-        externalRail: dto.externalRail,
-        externalTxId: dto.externalTxId,
+        externalRail: req.externalRail,
+        externalTxId: req.externalTxId,
         matched: result.matched,
         status: result.status,
         reason: result.reason,
-        manualOverride: dto.manualOverride ?? false,
+        manualOverride: req.manualOverride ?? false,
       },
     });
-
     this.logger.log(
-      `Payout ${payoutId} verify rail=${dto.externalRail} matched=${result.matched} status=${result.status} reason=${result.reason ?? '-'}`,
+      `Payout ${payoutId} verify rail=${req.externalRail} matched=${result.matched} status=${result.status} reason=${result.reason ?? '-'}`,
     );
-
+    const actualAmountUsdt = result.actualAmountUsdt ?? null;
     return {
       matched: result.matched,
       status: result.status,
       occurredAt: result.occurredAt?.toISOString() ?? null,
-      actualAmountCents: result.actualAmountCents,
+      actualAmountCents: result.actualAmountCents ?? usdtToEurCents(actualAmountUsdt, payout.payoutFxRate?.toString()),
+      actualAmountUsdt,
       reason: result.reason,
     };
+  }
+
+  private async payoutToVerify(tenantId: string, payoutId: string) {
+    const payout = await this.prisma.asSystem((tx) =>
+      tx.operatorPayout.findUnique({
+        where: { id: payoutId },
+        include: {
+          operator: {
+            select: { id: true, email: true, tenantId: true, payoutMethod: true, payoutAddress: true },
+          },
+        },
+      }),
+    );
+    if (!payout) throw new NotFoundException('Payout no encontrado');
+    if (payout.tenantId !== tenantId) {
+      throw new ForbiddenException('Payout no pertenece a tu venue');
+    }
+    return payout;
+  }
+
+  private async runVerification(
+    payout: Awaited<ReturnType<TreasuryService['payoutToVerify']>>,
+    req: VerifyPayoutDto,
+  ): Promise<VerifyResult> {
+    if (req.manualOverride) {
+      return { matched: true, status: 'MANUAL_OK', occurredAt: new Date(), actualAmountCents: null, reason: 'manual_override' };
+    }
+    if (!isAutoVerifiable(req.externalRail)) {
+      // Métodos manuales — guardamos la referencia y dejamos UNRECONCILED.
+      // Admin debe llamar /confirm-manual aparte si quiere marcarlo MANUAL_OK.
+      return { matched: false, status: 'UNRECONCILED', occurredAt: null, actualAmountCents: null, reason: 'manual_required' };
+    }
+    if (!payout.operator.payoutAddress) {
+      throw new BadRequestException(
+        'La operadora no tiene payoutAddress configurada — no se puede verificar on-chain',
+      );
+    }
+    const verifier = this.verifierFactory.forMethod(req.externalRail);
+    // FX snapshot persistido al crear el payout (Sprint 2026-05-13 fix #15).
+    const result = await verifier.verify({
+      externalTxId: req.externalTxId,
+      expectedToAddress: payout.operator.payoutAddress,
+      expectedAmountCents: payout.totalCents,
+      expectedAmountUsdt: payout.expectedAmountUsdt ? Number(payout.expectedAmountUsdt.toString()) : undefined,
+    });
+    return checkTxTime(result, payout.createdAt);
+  }
+
+  private async saveVerification(
+    payoutId: string,
+    actorUserId: string,
+    req: VerifyPayoutDto,
+    result: VerifyResult,
+  ): Promise<void> {
+    const data = {
+      externalTxId: req.externalTxId,
+      externalRail: req.externalRail as PayoutMethod,
+      reconciliationStatus: result.status,
+      ...(req.receiptUrl ? { receiptUrl: req.receiptUrl } : {}),
+      ...(result.matched ? { reconciledAt: result.occurredAt ?? new Date(), reconciledByUserId: actorUserId } : {}),
+    };
+    try {
+      await this.prisma.asSystem((tx) => tx.operatorPayout.update({ where: { id: payoutId }, data }));
+    } catch (err) {
+      // Otro pago se quedó el mismo hash a la vez (índice único parcial).
+      if (isUniqueViolation(err)) throw txAlreadyUsed();
+      throw err;
+    }
   }
 
   /**
@@ -239,7 +234,10 @@ export class TreasuryService {
           ...(artifact.notes ? { notes: artifact.notes } : {}),
         },
       }),
-    );
+    ).catch((err: unknown) => {
+      if (isUniqueViolation(err)) throw txAlreadyUsed();
+      throw err;
+    });
 
     await this.audit.log({
       action: 'operator.payout.confirmed_manual',
@@ -367,7 +365,8 @@ export class TreasuryService {
   /**
    * Reconciliación nocturna: recorre payouts UNRECONCILED con externalTxId
    * + rail auto-verifiable y reintenta. Procesa en batches con allSettled para
-   * que un explorer lento/caído no bloquee el resto.
+   * que un explorer lento/caído no bloquee el resto. Mismas reglas que
+   * verifyPayout: hash de un solo pago y transacción no anterior al pago.
    */
   async reconcilePending(tenantId: string): Promise<{ checked: number; matched: number }> {
     const pending = await this.prisma.asSystem((tx) =>
@@ -389,41 +388,9 @@ export class TreasuryService {
     let matched = 0;
     for (let i = 0; i < pending.length; i += RECON_BATCH_SIZE) {
       const batch = pending.slice(i, i + RECON_BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map(async (p) => {
-          const addr = p.operator.payoutAddress;
-          const rail = p.externalRail as PayoutMethod | null;
-          const txId = p.externalTxId;
-          if (!addr || !rail || !txId) return { id: p.id, matched: false };
-          const verifier = this.verifierFactory.forMethod(rail);
-          // FX snapshot persistido al crear el payout — uso exacto para evitar
-          // falsos MISMATCH por volatilidad EUR↔USDT entre creación y verify.
-          const snapshotUsdt = p.expectedAmountUsdt
-            ? Number(p.expectedAmountUsdt.toString())
-            : undefined;
-          const result = await verifier.verify({
-            externalTxId: txId,
-            expectedToAddress: addr,
-            expectedAmountCents: p.totalCents,
-            expectedAmountUsdt: snapshotUsdt,
-          });
-          if (result.matched) {
-            await this.prisma.asSystem((tx) =>
-              tx.operatorPayout.update({
-                where: { id: p.id },
-                data: {
-                  reconciliationStatus: 'MATCHED',
-                  reconciledAt: result.occurredAt ?? new Date(),
-                },
-              }),
-            );
-            return { id: p.id, matched: true };
-          }
-          return { id: p.id, matched: false };
-        }),
-      );
+      const results = await Promise.allSettled(batch.map((p) => this.reconcileOne(p)));
       for (const r of results) {
-        if (r.status === 'fulfilled' && r.value.matched) matched += 1;
+        if (r.status === 'fulfilled' && r.value) matched += 1;
         if (r.status === 'rejected') {
           this.logger.warn(`recon batch item rejected: ${(r.reason as Error).message}`);
         }
@@ -433,5 +400,44 @@ export class TreasuryService {
       `reconcilePending tenant=${tenantId} checked=${pending.length} matched=${matched}`,
     );
     return { checked: pending.length, matched };
+  }
+
+  /** true si quedó MATCHED. */
+  private async reconcileOne(p: {
+    id: string;
+    tenantId: string;
+    totalCents: number;
+    createdAt: Date;
+    externalRail: string | null;
+    externalTxId: string | null;
+    expectedAmountUsdt: { toString(): string } | null;
+    operator: { payoutAddress: string | null };
+  }): Promise<boolean> {
+    const addr = p.operator.payoutAddress;
+    const rail = p.externalRail as PayoutMethod | null;
+    const txId = p.externalTxId?.trim();
+    if (!addr || !rail || !txId) return false;
+    const other = await this.prisma.asSystem((tx) => otherPayoutWithTx(tx, p.tenantId, p.id, txId));
+    if (other) {
+      this.logger.warn(`recon: payout ${p.id} comparte hash con ${other.id} — no se concilia solo`);
+      return false;
+    }
+    // FX snapshot persistido al crear el payout — uso exacto para evitar
+    // falsos MISMATCH por volatilidad EUR↔USDT entre creación y verify.
+    const raw = await this.verifierFactory.forMethod(rail).verify({
+      externalTxId: txId,
+      expectedToAddress: addr,
+      expectedAmountCents: p.totalCents,
+      expectedAmountUsdt: p.expectedAmountUsdt ? Number(p.expectedAmountUsdt.toString()) : undefined,
+    });
+    const result = checkTxTime(raw, p.createdAt);
+    if (!result.matched) return false;
+    await this.prisma.asSystem((tx) =>
+      tx.operatorPayout.update({
+        where: { id: p.id },
+        data: { reconciliationStatus: 'MATCHED', reconciledAt: result.occurredAt ?? new Date() },
+      }),
+    );
+    return true;
   }
 }
