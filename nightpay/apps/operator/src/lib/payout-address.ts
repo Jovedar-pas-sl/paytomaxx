@@ -58,16 +58,36 @@ export function needsPayoutConfirmation(method: PayoutMethod | '', address: stri
   return value !== '' && value !== normalizePayoutAddress(method, saved ?? '');
 }
 
-/** Lo que impide guardar el método de cobro: dirección mal escrita o que no coincide al repetirla. */
+/** La forma de cobro que tenía guardada al abrir el enlace. */
+export interface SavedPayout {
+  method: PayoutMethod | null;
+  address: string | null;
+}
+
+/** ¿Ha cambiado el método o la dirección respecto a lo guardado? */
+export function payoutChanged(method: PayoutMethod | '', address: string, saved: SavedPayout): boolean {
+  return (
+    method !== (saved.method ?? '') ||
+    normalizePayoutAddress(method, address) !== normalizePayoutAddress(method, saved.address ?? '')
+  );
+}
+
+/**
+ * Lo que impide guardar el método de cobro: dirección mal escrita o que no
+ * coincide al repetirla. Sin método («No sé todavía») no se manda dirección:
+ * nada que comprobar. Sin cambios respecto a lo guardado, tampoco (una
+ * dirección antigua que no pasa el formato no bloquea el resto del alta).
+ */
 export function payoutFormProblem(
   method: PayoutMethod | '',
   address: string,
   confirm: string,
-  saved: string | null,
+  saved: SavedPayout,
 ): string | null {
+  if (!method || !payoutChanged(method, address, saved)) return null;
   const problem = payoutAddressProblem(method, address);
   if (problem) return problem;
-  if (!needsPayoutConfirmation(method, address, saved)) return null;
+  if (!needsPayoutConfirmation(method, address, saved.address)) return null;
   return normalizePayoutAddress(method, confirm) === normalizePayoutAddress(method, address)
     ? null
     : 'Las dos direcciones no coinciden: revísalas.';

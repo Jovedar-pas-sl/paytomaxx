@@ -3,7 +3,12 @@
 import { useId, type CSSProperties } from 'react';
 import { Input, Select } from '@nightpay/ui';
 import type { PayoutMethod } from '@/lib/api';
-import { needsPayoutConfirmation, payoutAddressProblem } from '@/lib/payout-address';
+import {
+  needsPayoutConfirmation,
+  payoutAddressProblem,
+  payoutChanged,
+  type SavedPayout,
+} from '@/lib/payout-address';
 
 const PAYOUT_METHOD_LABELS: Record<PayoutMethod, string> = {
   USDT_TRC20: 'USDT en red Tron (recomendado, ~0.5€)',
@@ -38,19 +43,20 @@ export interface PayoutValues {
 interface Props {
   values: PayoutValues;
   onChange: (next: PayoutValues) => void;
-  /** La dirección que ya tenía guardada: si no cambia, no hay que repetirla. */
-  savedAddress: string | null;
+  /** Lo que ya tenía guardado: si no cambia, ni se repite ni se vuelve a comprobar. */
+  saved: SavedPayout;
   /** Tras intentar guardar: se marcan los errores en cada campo. */
   showErrors: boolean;
   disabled: boolean;
 }
 
 /** "Cómo quieres cobrar": método, dirección (comprobada según el método) y etiqueta. */
-export function PayoutSection({ values, onChange, savedAddress, showErrors, disabled }: Props) {
+export function PayoutSection({ values, onChange, saved, showErrors, disabled }: Props) {
   const methodId = useId();
   const set = (patch: Partial<PayoutValues>) => onChange({ ...values, ...patch });
-  const addressProblem = showErrors ? payoutAddressProblem(values.method, values.address) : null;
-  const mustConfirm = needsPayoutConfirmation(values.method, values.address, savedAddress);
+  const changed = payoutChanged(values.method, values.address, saved);
+  const addressProblem = showErrors && changed ? payoutAddressProblem(values.method, values.address) : null;
+  const mustConfirm = needsPayoutConfirmation(values.method, values.address, saved.address);
 
   return (
     <section>

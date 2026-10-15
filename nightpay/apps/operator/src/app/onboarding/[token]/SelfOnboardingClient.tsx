@@ -10,7 +10,7 @@ import {
   type WalletProvider,
   type WalletStatusKYC,
 } from '@/lib/api';
-import { normalizePayoutAddress, payoutFormProblem } from '@/lib/payout-address';
+import { normalizePayoutAddress, payoutFormProblem, type SavedPayout } from '@/lib/payout-address';
 import { PayoutSection, type PayoutValues } from './PayoutSection';
 
 const LATAM_COUNTRIES = [
@@ -73,6 +73,10 @@ export function SelfOnboardingClient({ token }: Props) {
   const [payoutIgnored, setPayoutIgnored] = useState(false);
   // API viejo (sin el campo): se puede, como antes.
   const canSetPayout = profile?.canSetPayout !== false;
+  const savedPayout: SavedPayout = {
+    method: profile?.payoutMethod ?? null,
+    address: profile?.payoutAddress ?? null,
+  };
   // Cada etiqueta, unida a su campo (antes los desplegables no tenían nombre).
   const fieldId = useId();
   const ids = {
@@ -113,7 +117,7 @@ export function SelfOnboardingClient({ token }: Props) {
     e.preventDefault();
     setTriedSubmit(true);
     const payoutProblem = canSetPayout
-      ? payoutFormProblem(payout.method, payout.address, payout.confirm, profile?.payoutAddress ?? null)
+      ? payoutFormProblem(payout.method, payout.address, payout.confirm, savedPayout)
       : null;
     if (payoutProblem) {
       setError(payoutProblem);
@@ -137,9 +141,10 @@ export function SelfOnboardingClient({ token }: Props) {
         onboardingNotes: notes.trim() || null,
         ...(canSetPayout
           ? {
+              // «No sé todavía»: sin método no se manda la dirección ni la etiqueta (ocultas).
               payoutMethod: payout.method === '' ? null : payout.method,
-              payoutAddress: normalizePayoutAddress(payout.method, payout.address) || null,
-              payoutLabel: payout.label.trim() || null,
+              payoutAddress: payout.method ? normalizePayoutAddress(payout.method, payout.address) || null : null,
+              payoutLabel: payout.method ? payout.label.trim() || null : null,
             }
           : {}),
       };
@@ -328,7 +333,7 @@ export function SelfOnboardingClient({ token }: Props) {
             <PayoutSection
               values={payout}
               onChange={setPayout}
-              savedAddress={profile.payoutAddress}
+              saved={savedPayout}
               showErrors={triedSubmit}
               disabled={submitting}
             />

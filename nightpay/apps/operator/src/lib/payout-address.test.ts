@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isValidIban, needsPayoutConfirmation, payoutAddressProblem, payoutFormProblem } from './payout-address';
+import {
+  isValidIban,
+  needsPayoutConfirmation,
+  payoutAddressProblem,
+  payoutChanged,
+  payoutFormProblem,
+} from './payout-address';
 
 describe('dirección de cobro según el método', () => {
   it('USDT en Tron (TRC20): T + 33 caracteres base58', () => {
@@ -54,13 +60,26 @@ describe('repetir la dirección para confirmarla', () => {
 
 describe('antes de guardar', () => {
   const trc = 'TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV';
+  const nothingSaved = { method: null, address: null };
   it('dirección nueva: tiene que estar bien escrita y repetida igual', () => {
-    expect(payoutFormProblem('USDT_TRC20', trc, trc, null)).toBeNull();
-    expect(payoutFormProblem('USDT_TRC20', trc, `${trc.slice(0, -1)}W`, null)).toMatch(/no coinciden/);
-    expect(payoutFormProblem('USDT_TRC20', 'Txx', 'Txx', null)).toMatch(/Tron/);
+    expect(payoutFormProblem('USDT_TRC20', trc, trc, nothingSaved)).toBeNull();
+    expect(payoutFormProblem('USDT_TRC20', trc, `${trc.slice(0, -1)}W`, nothingSaved)).toMatch(/no coinciden/);
+    expect(payoutFormProblem('USDT_TRC20', 'Txx', 'Txx', nothingSaved)).toMatch(/Tron/);
   });
   it('la de siempre, sin cambios: no hace falta repetirla', () => {
-    expect(payoutFormProblem('USDT_TRC20', trc, '', trc)).toBeNull();
-    expect(payoutFormProblem('', '', '', null)).toBeNull();
+    expect(payoutFormProblem('USDT_TRC20', trc, '', { method: 'USDT_TRC20', address: trc })).toBeNull();
+    expect(payoutFormProblem('', '', '', nothingSaved)).toBeNull();
+  });
+  it('método vuelto a «No sé todavía»: ni dirección ni repetición que comprobar', () => {
+    expect(payoutFormProblem('', trc, '', nothingSaved)).toBeNull();
+    expect(payoutFormProblem('', 'lo que sea', 'otra cosa', { method: 'USDT_TRC20', address: trc })).toBeNull();
+  });
+  it('una dirección antigua guardada que no pasa el formato no bloquea si no se toca', () => {
+    const legacy = { method: 'USDT_TRC20' as const, address: 'Tvieja-mal-escrita' };
+    expect(payoutFormProblem('USDT_TRC20', 'Tvieja-mal-escrita', '', legacy)).toBeNull();
+    // Cambiar el método (o la dirección) sí la comprueba.
+    expect(payoutFormProblem('USDT_BEP20', 'Tvieja-mal-escrita', '', legacy)).toMatch(/0x/);
+    expect(payoutChanged('USDT_TRC20', ' Tvieja-mal-escrita ', legacy)).toBe(false);
+    expect(payoutChanged('USDT_TRC20', 'Tnueva', legacy)).toBe(true);
   });
 });
