@@ -1,2 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Se ejecutan dentro de contenedores Linux: siempre LF, también en Windows
+# (un CRLF rompe el shebang y los RUN/CMD).
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+# Scripts de Windows: siempre CRLF.
+*.bat text eol=crlf
