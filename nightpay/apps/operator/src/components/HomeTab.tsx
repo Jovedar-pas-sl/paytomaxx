@@ -54,7 +54,7 @@ function BalanceCard({ user, balance }: { user: OperatorUser; balance: OperatorB
         </p>
       ) : null}
       {balance && balance.count > 0 ? (
-        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
+        <p style={{ margin: 0, fontSize: 'var(--np-t-label)', color: 'var(--np-text-mute)' }}>
           {balance.count} cobro{balance.count === 1 ? '' : 's'} contabilizado{balance.count === 1 ? '' : 's'}
         </p>
       ) : null}
@@ -76,13 +76,14 @@ function StaffCard({ user }: { user: OperatorUser }) {
   );
 }
 
+// «Saldo pendiente» y compañía: mínimo 0.8125rem y el gris claro de etiquetas (11:1).
 const kicker: CSSProperties = {
   margin: '0 0 0.25rem',
-  fontSize: '0.7rem',
-  color: 'var(--np-text-dim)',
+  fontSize: 'var(--np-t-label)',
+  color: 'var(--np-text-label)',
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
-  fontWeight: 500,
+  fontWeight: 600,
 };
 
 const balanceBig: CSSProperties = {

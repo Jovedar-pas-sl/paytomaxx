@@ -104,8 +104,8 @@ const amountStyle: CSSProperties = {
 };
 
 const timeStyle: CSSProperties = {
-  fontSize: '0.75rem',
-  color: 'var(--np-text-dim)',
+  fontSize: 'var(--np-t-label)',
+  color: 'var(--np-text-mute)',
 };
 
 const emptyText: CSSProperties = {

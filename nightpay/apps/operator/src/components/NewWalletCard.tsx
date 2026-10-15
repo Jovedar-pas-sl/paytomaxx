@@ -163,7 +163,7 @@ const boxStyle: CSSProperties = {
 
 const kicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.75rem',
+  fontSize: 'var(--np-t-label)',
   fontWeight: 700,
   letterSpacing: '0.12em',
   textTransform: 'uppercase',
