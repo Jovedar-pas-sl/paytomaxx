@@ -36,6 +36,11 @@ const PinSchema = z.object({
 });
 
 const CardToken = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra');
+/**
+ * Número de serie de la ficha: solo lo manda un Android (Web NFC). Desde un
+ * iPhone llega solo {card} y no se puede detectar una copia: por eso pagar
+ * con ficha pide siempre el PIN (ver WalletChargesService, "Ficha NFC").
+ */
 const CardUid = z.string().trim().max(64).optional();
 
 /** Pagar con PIN: el saldo por su código o por su ficha NFC. */

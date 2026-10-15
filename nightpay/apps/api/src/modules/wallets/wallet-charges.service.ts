@@ -658,6 +658,21 @@ export class WalletChargesService {
   }
 
   // ─── Ficha NFC (dice de qué saldo es; el cliente pone su PIN) ──────────
+  //
+  // Límite conocido (iPhone): Safari no lee NFC; el propio iPhone abre el
+  // enlace grabado en la ficha y la app recibe solo {card} (el código), sin el
+  // número de serie (uid). Así, con un iPhone no se puede ver si la ficha es
+  // una copia (alguien que copió el enlace en otra ficha o lo tiene a mano):
+  // la comprobación del uid solo vale cuando la lee un Android (o cuando la
+  // ficha ya tiene uid y el móvil lo manda). Por eso la ficha nunca basta para
+  // pagar: siempre hace falta el PIN del cliente (5 fallos → bloqueado, ver
+  // checkPin), igual que con el código. Una ficha perdida se bloquea (blockCard).
+  //
+  // Las fichas (wallet_cards) no tienen local ni RLS: una ficha se graba en
+  // blanco y luego se da a un saldo de cualquier local del grupo. El acceso va
+  // siempre por el saldo: walletByCard y linkCard comprueban que el saldo vale
+  // en el local de quien la usa (sameWalletGroup) y las lecturas van con
+  // acrossVenues; blockCard pasa por managerWallet (mismo grupo).
 
   /** La chica acerca la ficha: su saldo (si vale en este local). */
   async lookupCard(venueId: string, input: { card: string; uid?: string | null }): Promise<WalletLookup> {
@@ -761,6 +776,8 @@ export class WalletChargesService {
       throw new NotFoundException('Esta ficha no tiene saldo: dásela al cliente al recargar');
     }
     const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
+    // Sin uid (la lee un iPhone) no se puede comprobar que sea la original:
+    // vale solo para saber de qué saldo es; pagar sigue pidiendo su PIN.
     if (card.uid && uid && card.uid !== uid) {
       this.logger.warn(`Ficha ${card.id}: número de serie distinto (¿copia?)`);
       throw new ConflictException('Esta ficha no es la original (¿copiada?): avisa al encargado');
