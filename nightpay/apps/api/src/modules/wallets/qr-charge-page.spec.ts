@@ -42,39 +42,42 @@ describe('"Pagado" de la recarga que creó el saldo', () => {
     currency: 'EUR',
     code: 'A1B',
     authorizedAt: new Date('2026-10-14T22:00:00Z'),
+    now: new Date('2026-10-14T22:00:05Z'),
     receiptHref: null,
     walletHref: '/w/wt?lang=es',
   };
 
-  it('sin Face ID ni PIN: código, "Activar Face ID", "Sumar a mi saldo" y elegir PIN; JS válido', () => {
+  it('sin Face ID: UNA pregunta (activar, con «Ahora no»), explicada antes; sin PIN en el mismo paso; JS válido', () => {
     for (const lang of ['es', 'en'] as const) {
-      const html = renderPaidPage({ ...base, wallet: { code: 'K7Q-4M2', hasFaceId: false, hasPin: false, base: '/pay/qr1' } }, lang);
-      expect(html).toContain('K7Q-4M2');
-      expect(html).toContain('id="pkOn"');
-      expect(html).toContain('id="pkMerge"');
-      expect(html).toContain('id="pinBox"');
+      const html = renderPaidPage({ ...base, wallet: { hasFaceId: false, base: '/pay/qr1' } }, lang);
+      expect(html).toContain('id="fidOn"');
+      expect(html).toContain('id="fidLater"');
+      expect(html).not.toContain('id="pinBox"');
+      expect(html).not.toContain('id="pkMerge"');
       for (const js of scripts(html)) expect(() => new Function(js)).not.toThrow();
     }
-    const es = renderPaidPage({ ...base, wallet: { code: 'K7Q-4M2', hasFaceId: false, hasPin: false, base: '/pay/qr1' } }, 'es');
+    const es = renderPaidPage({ ...base, wallet: { hasFaceId: false, base: '/pay/qr1' } }, 'es');
+    expect(es).toContain('Ahora no');
+    // Palabras de cada plataforma, elegidas en el móvil.
     expect(es).toContain('Activar Face ID');
-    expect(es).toContain('Guardar PIN');
-    expect(es).toContain("pkPost(C.base+'/pin'");
+    expect(es).toContain('huella o bloqueo de pantalla');
+    expect(es).toContain('Solo quien desbloquee este móvil puede gastar tu saldo');
+    expect(es).toContain("pkCreate(C.base+'/passkey/options')");
+    // El PIN y sumar a otro saldo, en la página del saldo.
+    expect(es).toContain('href="/w/wt?lang=es#sumar"');
+    expect(es).toContain('href="/w/wt?lang=es"');
   });
 
-  it('con Face ID y sin PIN: el aviso de Face ID y solo el PIN por elegir', () => {
-    const html = renderPaidPage({ ...base, wallet: { code: 'K7Q-4M2', hasFaceId: true, hasPin: false, base: '/pay/qr1' } }, 'es');
-    expect(html).toContain('Face ID activado');
-    expect(html).not.toContain('id="pkOn"');
-    expect(html).toContain('id="pinBox"');
+  it('con Face ID: solo la confirmación, sin pregunta ni «sumar»', () => {
+    const html = renderPaidPage({ ...base, wallet: { hasFaceId: true, base: '/pay/qr1' } }, 'es');
+    expect(html).not.toContain('#sumar');
+    expect(scripts(html).join('\n')).toContain('if(C.hasFaceId)');
     for (const js of scripts(html)) expect(() => new Function(js)).not.toThrow();
   });
 
-  it('con los dos: solo los avisos, sin botones ni JS', () => {
-    const html = renderPaidPage({ ...base, wallet: { code: 'K7Q-4M2', hasFaceId: true, hasPin: true, base: '/pay/qr1' } }, 'es');
-    expect(html).toContain('Face ID activado');
-    expect(html).toContain('ya tiene PIN');
-    expect(html).not.toContain('id="pkOn"');
-    expect(html).not.toContain('id="pinBox"');
-    expect(scripts(html).some((js) => js.includes('pkCreate'))).toBe(false);
+  it('otra recarga (sin saldo nuevo): sin pregunta de Face ID', () => {
+    const html = renderPaidPage({ ...base, wallet: null }, 'es');
+    expect(html).not.toContain('id="fidOn"');
+    expect(html).toContain('Ver mi saldo');
   });
 });
