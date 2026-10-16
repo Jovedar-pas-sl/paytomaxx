@@ -1,39 +1,49 @@
 import { BRAND_NAME } from '../../common/brand';
-import type { PayLanguage } from '../payments/pay-i18n';
+import { CLUB_BASE_CSS, escapeHtml, jsConfig } from '../payments/club-ui';
+import { PAID_SCREEN_CSS, PAID_SCREEN_JS, paidScreenJsText, renderPaidScreen } from '../payments/paid-screen';
+import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import type { QrChargeClientView } from './wallet-charges.service';
 
 /**
- * Página que abre el cliente al escanear el QR del cobro de la chica:
+ * Página que abre el cliente al escanear el QR del cobro del personal:
  * "Te cobran 60 € · Masaje" → pagar con su saldo desbloqueando su móvil
- * (Face ID, huella o el PIN del teléfono). Texto dinámico con textContent.
+ * (Face ID, huella o el PIN del teléfono). Al pagar, el mismo «Pagado» a
+ * pantalla completa que el pago con tarjeta, con «Te quedan X €». Si se abre
+ * un cobro ya pagado, «Ya pagado · hace 23 min» en gris. Texto dinámico con
+ * textContent.
  */
 
-const TEXT: Record<PayLanguage, {
-  title: string;
-  youPay: string;
-  pay: string;
-  paying: string;
-  paid: string;
-  left: string;
-  expired: string;
-  notPending: string;
-  unsupported: string;
-  noKey: string;
-  expiresIn: string;
-  other: { code: PayLanguage; label: string };
-}> = {
+const TEXT: Record<
+  PayLanguage,
+  {
+    title: string;
+    youPay: string;
+    pay: string;
+    paying: string;
+    left: string;
+    expired: string;
+    notPending: string;
+    askStaff: string;
+    unsupported: string;
+    unknown: string;
+    reload: string;
+    expiresIn: string;
+    other: { code: PayLanguage; label: string };
+  }
+> = {
   es: {
     title: `Pagar con tu saldo ${BRAND_NAME}`,
     youPay: 'Te cobran',
     pay: 'Pagar con mi saldo',
     paying: 'Desbloquea tu móvil…',
-    paid: '✓ Pagado con tu saldo',
     left: 'Te quedan',
-    expired: 'Este cobro ha caducado: pide a la chica que lo repita.',
-    notPending: 'Este cobro ya no está pendiente.',
-    unsupported: 'Tu móvil no puede pagar así: di tu código a la chica y teclea tu PIN en su móvil.',
-    noKey: 'Primero activa Face ID en la página de tu recarga.',
+    expired: 'Este cobro ha caducado',
+    notPending: 'Este cobro ya no está pendiente',
+    askStaff: 'Pide al personal que lo repita.',
+    unsupported: 'Tu móvil no puede pagar así: di tu código al personal y teclea tu PIN en su móvil.',
+    unknown: 'No sabemos si se ha cobrado. Vuelve a cargar la página antes de pagar otra vez.',
+    reload: 'Volver a cargar',
     expiresIn: 'Caduca en',
     other: { code: 'en', label: 'English' },
   },
@@ -42,82 +52,118 @@ const TEXT: Record<PayLanguage, {
     youPay: 'You are paying',
     pay: 'Pay with my balance',
     paying: 'Unlock your phone…',
-    paid: '✓ Paid with your balance',
     left: 'Remaining',
-    expired: 'This charge has expired: ask the staff to repeat it.',
-    notPending: 'This charge is no longer pending.',
+    expired: 'This charge has expired',
+    notPending: 'This charge is no longer pending',
+    askStaff: 'Ask the staff to repeat it.',
     unsupported: 'Your phone cannot pay this way: tell the staff your code and type your PIN on their phone.',
-    noKey: 'First turn on Face ID on your top-up page.',
+    unknown: 'We do not know whether it was charged. Reload the page before paying again.',
+    reload: 'Reload',
     expiresIn: 'Expires in',
     other: { code: 'es', label: 'Español' },
   },
 };
 
-function jsString(s: string): string {
-  return JSON.stringify(s).replace(/</g, '\\u003c');
-}
+const QR_CSS = `
+.c{max-width:26rem;margin:0 auto;min-height:100vh;min-height:100svh;padding:1.5rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.9rem;text-align:center}
+.amount{font-size:clamp(3rem,16vw,4.25rem);font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--fg)}
+.who{color:var(--fg)}
+.small{font-size:.9rem}
+.safe{display:flex;align-items:center;gap:.5rem;padding:.55rem .9rem;border-radius:999px;background:#1b2208;color:var(--lime);font-weight:800}
+.hint{width:100%;padding:.9rem 1rem;border-left:4px solid var(--lime);border-radius:4px;background:var(--surface);color:var(--fg);font-weight:700;text-align:left}
+.after{max-width:26rem;margin:0 auto;padding:1rem;display:flex;flex-direction:column;align-items:center}
+`;
 
-export function renderQrChargePage(token: string, lang: PayLanguage, view: QrChargeClientView): string {
+export function renderQrChargePage(
+  token: string,
+  lang: PayLanguage,
+  view: QrChargeClientView,
+  now: Date = new Date(),
+): string {
   const t = TEXT[lang];
+  const p = PAY_TEXT[lang];
+  const h = escapeHtml;
   const base = `/s/${encodeURIComponent(token)}`;
-  const config = jsString(JSON.stringify({ base, locale: lang === 'en' ? 'en-GB' : 'es-ES', text: t, view }));
+  const locale = p.locale;
+  const eur = (c: number): string => (c / 100).toLocaleString(locale, { style: 'currency', currency: 'EUR' });
+  const isPaid = view.status === 'ACCEPTED';
+  const paidAt = isPaid && view.paidAt ? new Date(view.paidAt) : null;
+  const config = jsConfig({ base, locale, text: { ...t, paid: paidScreenJsText(p), paidTitle: p.paidTitle }, view });
+  const who = [view.serviceName, view.requestedByName, view.venueName].filter(Boolean).join(' · ');
+  // Ya pagado (alguien vuelve a abrir el QR): el «Pagado» en gris, sin formulario.
+  const screen = renderPaidScreen({
+    t: p,
+    amount: isPaid ? eur(view.amountCents) : '',
+    authorizedAt: paidAt,
+    now,
+    code: null,
+    hidden: !isPaid,
+    fromBalance: true,
+  });
+  // Caducado, cancelado o rechazado: no se cobró nada.
+  const closed = view.status !== 'PENDING' && !isPaid;
   return `<!DOCTYPE html>
-<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0b0b"><title>${t.title}</title>
-<style>
-*{box-sizing:border-box}
-body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;margin:0;padding:1.5rem 1rem 2rem;background:#0b0b0b;color:#f5f5f0;font-size:18px}
-main{max-width:26rem;margin:0 auto;display:flex;flex-direction:column;gap:1rem;text-align:center}
-p{margin:0;color:#b4b4ac;line-height:1.45}
-.kick{font-size:.8rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#8a8a83}
-.amount{font-size:3.2rem;font-weight:800;letter-spacing:-.03em;color:#f5f5f0}
-.who{color:#f5f5f0}
-button{font:inherit;font-weight:800;font-size:1.15rem;border-radius:12px;padding:1.1rem;cursor:pointer;border:2px solid #d4ff3a;background:#d4ff3a;color:#0b0b0b;width:100%}
-button:disabled{opacity:.55}
-.ok{font-size:1.4rem;font-weight:800;color:#5be38f}
-.err{color:#ff6b6b}
-.lang{color:#d4ff3a;font-weight:700;text-decoration:none}
-[hidden]{display:none!important}
-</style></head><body><main>
-<p class="kick" id="title"></p>
-<p id="youPay"></p>
-<div class="amount" id="amount"></div>
-<p class="who" id="who"></p>
-<button id="pay"></button>
-<p class="ok" id="done" hidden></p>
-<p id="left" hidden></p>
+<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0b0b"><title>${h(t.title)}</title>
+<style>${CLUB_BASE_CSS}${QR_CSS}${PAID_SCREEN_CSS}</style></head><body>
+${screen}
+<main class="${isPaid ? 'after' : 'c'}" id="ask">
+${
+  isPaid
+    ? ''
+    : closed
+    ? `<p class="kick">${h(t.title)}</p>
+<h1>${h(view.status === 'EXPIRED' ? t.expired : t.notPending)}</h1>
+<p class="safe">${h(p.notCharged)}</p>
+<p class="hint">${h(t.askStaff)}</p>`
+    : `<p class="kick">${h(t.title)}</p>
+<p>${h(t.youPay)}</p>
+<h1 class="amount num">${h(eur(view.amountCents))}</h1>
+${who ? `<p class="who">${h(who)}</p>` : ''}
+<button class="btn" type="button" id="pay">${h(t.pay)}</button>
 <p class="err" id="error" role="alert" hidden></p>
-<p id="clock"></p>
-<a class="lang" id="lang"></a>
+<p class="safe" id="notCharged" hidden>${h(p.notCharged)}</p>
+<button class="btn alt" type="button" id="reload" hidden>${h(t.reload)}</button>
+<p class="small num" id="clock" aria-hidden="true"></p>`
+}
+<a class="link" href="${h(`${base}?lang=${t.other.code}`)}" lang="${t.other.code}" hreflang="${t.other.code}">${h(t.other.label)}</a>
 </main>
 <script>
 ${PASSKEY_BROWSER_JS}
+${PAID_SCREEN_JS}
 (function(){
-var C=JSON.parse(${config}),T=C.text,V=C.view;
+var C=JSON.parse(${config}),T=C.text,V=C.view,el=document.getElementById('paid');
 function $(id){return document.getElementById(id);}
 function eur(c){return (c/100).toLocaleString(C.locale,{style:'currency',currency:'EUR'});}
 function show(id,text){$(id).textContent=text;$(id).hidden=!text;}
-$('title').textContent=T.title;$('youPay').textContent=T.youPay;$('amount').textContent=eur(V.amountCents);
-$('who').textContent=[V.serviceName,V.requestedByName,V.venueName].filter(Boolean).join(' · ');
-$('pay').textContent=T.pay;$('lang').textContent=T.other.label;$('lang').href=C.base+'?lang='+T.other.code;
-var over=V.status!=='PENDING';
-if(over){$('pay').hidden=true;show('error',V.status==='EXPIRED'?T.expired:T.notPending);}
-else if(!pkSupported()){$('pay').hidden=true;show('error',T.unsupported);}
-var exp=new Date(V.expiresAt).getTime();
+if(!el.hidden){npPaid(el,T.paid);return;}
+if(V.status!=='PENDING')return;
+var over=false,exp=new Date(V.expiresAt).getTime(),iv;
+function stop(text){over=true;clearInterval(iv);$('pay').hidden=true;$('clock').textContent='';if(text)show('error',text);}
 function tick(){var s=Math.max(0,Math.floor((exp-Date.now())/1000));
-  $('clock').textContent=over?'':T.expiresIn+' '+Math.floor(s/60)+':'+('0'+s%60).slice(-2);
-  if(s<=0&&!over){over=true;clearInterval(iv);$('pay').hidden=true;show('error',T.expired);}}
-var iv=setInterval(tick,1000);tick();
+ $('clock').textContent=over?'':T.expiresIn+' '+Math.floor(s/60)+':'+('0'+s%60).slice(-2);
+ if(s<=0&&!over)stop(T.expired+'. '+T.askStaff);}
+if(!pkSupported()){stop(T.unsupported);return;}
+iv=setInterval(tick,1000);tick();
 // Face ID preparado ya: al tocar "Pagar" sale al momento.
-var go=over||!pkSupported()?null:pkPrepare(C.base+'/challenge');
+var go=pkPrepare(C.base+'/challenge');
+function paid(r){stop('');$('ask').hidden=true;
+ var t=Date.now();el.setAttribute('data-at',String(t));el.setAttribute('data-now',String(t));el.classList.remove('stale');
+ el.querySelector('[data-title]').textContent=T.paidTitle;el.querySelector('[data-amount]').textContent=eur(r.amountCents);
+ var line=document.createElement('p');line.className='pline';line.textContent=T.left+': '+eur(r.balanceCents);el.querySelector('[data-lines]').appendChild(line);
+ el.hidden=false;window.scrollTo(0,0);npPaid(el,T.paid);}
 $('pay').addEventListener('click',function(){
-  var b=$('pay');b.disabled=true;b.textContent=T.paying;show('error','');
-  var k=go?go():pkGet(C.base+'/challenge');
-  k.then(function(k){return pkPost(C.base+'/pay',{response:k});})
-   .then(function(r){over=true;clearInterval(iv);b.hidden=true;$('clock').textContent='';
-     show('done',T.paid);show('left',T.left+': '+eur(r.balanceCents));})
-   .catch(function(e){b.disabled=false;b.textContent=T.pay;if(!pkCancelled(e))show('error',(e&&e.message)||T.noKey);});
+ var b=$('pay');if(b.disabled)return;b.disabled=true;b.textContent=T.paying;show('error','');$('notCharged').hidden=true;$('reload').hidden=true;
+ var k=go?go():pkGet(C.base+'/challenge');go=null;
+ k.then(function(k){return pkPost(C.base+'/pay',{response:k});})
+  .then(paid)
+  .catch(function(e){b.disabled=false;b.textContent=T.pay;if(pkCancelled(e))return;
+   if(!e||!e.status){show('error',T.unknown);$('reload').hidden=false;return;}
+   show('error',e.message||T.notPending);
+   // 409: puede que un intento anterior sí se cobrara; recargar enseña el estado real.
+   if(e.status===409)$('reload').hidden=false;else $('notCharged').hidden=false;});
 });
+$('reload').addEventListener('click',function(){location.reload();});
 })();
 </script></body></html>`;
 }
