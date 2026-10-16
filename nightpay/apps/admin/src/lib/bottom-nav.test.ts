@@ -17,7 +17,7 @@ describe('bottomNavItems', () => {
     expect(keys(more)).toContain('bank');
     expect(keys(more)).toContain('reports');
     expect(keys(more)).not.toContain('payments');
-    expect(keys(more)).not.toContain('venues');
+    expect(keys(more)).not.toContain('superadmin');
   });
 
   it('el encargado no ve Banco ni Informes, tampoco en «Más»', () => {
@@ -29,8 +29,8 @@ describe('bottomNavItems', () => {
   });
 
   it('Locales solo en «Más» del super-admin', () => {
-    expect(keys(nav({ role: 'OWNER', isSuperAdmin: true }).more)).toContain('venues');
-    expect(keys(nav({ role: 'MANAGER' }).more)).not.toContain('venues');
+    expect(keys(nav({ role: 'OWNER', isSuperAdmin: true }).more)).toContain('superadmin');
+    expect(keys(nav({ role: 'MANAGER' }).more)).not.toContain('superadmin');
   });
 
   it('cada pestaña visible sale una sola vez (abajo o en «Más»)', () => {

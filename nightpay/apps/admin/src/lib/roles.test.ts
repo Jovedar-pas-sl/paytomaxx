@@ -22,11 +22,11 @@ describe('visibleTabs', () => {
     expect(tabs).toContain('settings');
   });
 
-  it('el dueño ve Banco e Informes; Locales solo si es super-admin', () => {
+  it('el dueño ve Banco e Informes; Super admin solo si es super-admin', () => {
     expect(keys({ role: 'OWNER' })).toContain('bank');
     expect(keys({ role: 'OWNER' })).toContain('reports');
-    expect(keys({ role: 'OWNER' })).not.toContain('venues');
-    expect(keys({ role: 'OWNER', isSuperAdmin: true })).toContain('venues');
+    expect(keys({ role: 'OWNER' })).not.toContain('superadmin');
+    expect(keys({ role: 'OWNER', isSuperAdmin: true })).toContain('superadmin');
   });
 
   it('camareros y chicas: ninguna pestaña', () => {
