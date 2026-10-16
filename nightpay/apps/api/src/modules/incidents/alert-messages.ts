@@ -22,6 +22,8 @@ export function morningSummaryMessage(
   openIncidents: number,
   /** Hubo cobros y nadie ha subido el fichero del banco de esa noche. */
   bankFilePending = false,
+  /** Diferencia de caja al cerrar (contado − esperado); null/0 = cuadró o no se contó. */
+  cashDiffCents: number | null = null,
 ): string {
   const lines = [
     `☀️ ${venueName} — anoche`,
@@ -31,6 +33,7 @@ export function morningSummaryMessage(
   if (s.refundsCents > 0) lines.push(`Devoluciones: −${eur(s.refundsCents)}`);
   lines.push(`Para las chicas: ${eur(s.chicaNetCents)} · para el local: ${eur(s.venueNetCents)}`);
   if (s.perChica.length > 0) lines.push(`Chicas que cobraron: ${s.perChica.length} (detalle en el panel → Noches)`);
+  if (cashDiffCents) lines.push(cashDiffLine(cashDiffCents));
   lines.push(
     openIncidents > 0
       ? `Incidencias por mirar: ${openIncidents} (panel → Incidencias)`
@@ -38,4 +41,9 @@ export function morningSummaryMessage(
   );
   if (bankFilePending) lines.push('Cuadre con el banco: sube el fichero de ayer (panel → Banco)');
   return lines.join('\n');
+}
+
+/** «Caja: faltan 12,50 €» / «Caja: sobran 5,00 €» (contado − esperado al cerrar). */
+export function cashDiffLine(diffCents: number): string {
+  return `Caja: ${diffCents < 0 ? 'faltan' : 'sobran'} ${eur(Math.abs(diffCents))} al cerrar (panel → Noches)`;
 }

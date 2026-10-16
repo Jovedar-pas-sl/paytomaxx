@@ -96,6 +96,15 @@ describe('resumen de las 9:00', () => {
       ].join('\n'),
     );
   });
+
+  it('la diferencia de caja al cerrar, solo si la hay', () => {
+    expect(morningSummaryMessage('Local Centro', summary, 0, false, -1250)).toContain(
+      'Caja: faltan 12,50 € al cerrar (panel → Noches)',
+    );
+    expect(morningSummaryMessage('Local Centro', summary, 0, false, 500)).toContain('Caja: sobran 5,00 €');
+    expect(morningSummaryMessage('Local Centro', summary, 0, false, 0)).not.toContain('Caja');
+    expect(morningSummaryMessage('Local Centro', summary, 0, false, null)).not.toContain('Caja');
+  });
 });
 
 describe('avisos de cobro aprobado que no se dieron por buenos', () => {
