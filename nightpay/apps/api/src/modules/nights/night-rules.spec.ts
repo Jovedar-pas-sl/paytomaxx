@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { evaluateCash, type NightCash } from '@nightpay/contracts';
+import { summarize } from '../reports/export-csv';
 import type { CobroRow, ConsumoRow, DevolucionRow } from '../reports/export-rows';
-import { autoCloseAt, buildAdjustments, decideClose, zStart } from './night-rules';
+import { autoCloseAt, buildAdjustments, buildNightCaja, buildNightZ, zStart } from './night-rules';
 
 describe('desde dónde cuenta el Z y desde cuándo busca ajustes', () => {
   const opened = new Date('2026-10-14T20:00:00Z');
@@ -68,30 +70,48 @@ describe('ajustes de noches anteriores', () => {
   });
 });
 
-describe('cerrar la noche', () => {
-  it('sin cobros pendientes → se cierra', () => {
-    expect(decideClose({ pendingCount: 0, force: false, role: 'MANAGER', note: undefined })).toEqual({ ok: true });
+describe('la caja en el Z', () => {
+  const cash: NightCash = {
+    openingFloatCents: 20_000,
+    cashInCents: 0,
+    walletCashPayoutsCount: 1,
+    walletCashPayoutsCents: 3000,
+    chicaCashPayoutsCount: 1,
+    chicaCashPayoutsCents: 9000,
+    cashOutCents: 12_000,
+    expectedCents: 8000,
+  };
+  const now = new Date('2026-10-14T02:30:00Z');
+  const window = { from: new Date('2026-10-13T20:00:00Z'), to: now };
+
+  it('contada con diferencia: esperado, contado, diferencia, nota y hora', () => {
+    const caja = buildNightCaja(cash, evaluateCash(cash, { countedCents: 6750 }), '  faltan monedas ', now);
+    expect(caja).toEqual({
+      openingFloatCents: 20_000,
+      cashInCents: 0,
+      walletCashPayoutsCount: 1,
+      walletCashPayoutsCents: 3000,
+      chicaCashPayoutsCount: 1,
+      chicaCashPayoutsCents: 9000,
+      cashOutCents: 12_000,
+      expectedCents: 8000,
+      countedCents: 6750,
+      diffCents: -1250,
+      note: 'faltan monedas',
+      frozenAt: now.toISOString(),
+    });
   });
 
-  it('con cobros sin resolver → no se cierra', () => {
-    expect(decideClose({ pendingCount: 2, force: false, role: 'OWNER', note: undefined })).toEqual({
-      ok: false,
-      reason: 'pending',
-    });
+  it('sin contar (cierre automático): lo que debería haber, sin contado ni diferencia', () => {
+    const caja = buildNightCaja(cash, evaluateCash(cash), null, now);
+    expect(caja).toMatchObject({ expectedCents: 8000, countedCents: null, diffCents: null, note: null });
   });
 
-  it('cerrar igualmente: solo el dueño y con nota', () => {
-    expect(decideClose({ pendingCount: 2, force: true, role: 'MANAGER', note: 'lo miro mañana' })).toEqual({
-      ok: false,
-      reason: 'force-owner-only',
-    });
-    expect(decideClose({ pendingCount: 2, force: true, role: 'OWNER', note: ' ' })).toEqual({
-      ok: false,
-      reason: 'note-required',
-    });
-    expect(decideClose({ pendingCount: 2, force: true, role: 'OWNER', note: 'BBVA lo confirma mañana' })).toEqual({
-      ok: true,
-    });
+  it('el Z la lleva al cerrar; el de una noche abierta (o de antes) no tiene el campo', () => {
+    const summary = summarize([], [], []);
+    const caja = buildNightCaja(cash, evaluateCash(cash, { countedCents: 8000 }), null, now);
+    expect(buildNightZ(window, summary, 0, now, undefined, caja).caja).toMatchObject({ diffCents: 0 });
+    expect('caja' in buildNightZ(window, summary, 0, now)).toBe(false);
   });
 });
 

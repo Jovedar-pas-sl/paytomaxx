@@ -1,12 +1,19 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  evaluateCash,
+  nightCloseRefusal,
+  withCashInput,
+  type NightCloseCheck,
+  type NightCloseStep,
+  type NightCloseStepKey,
+} from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
@@ -15,7 +22,17 @@ import { summarize } from '../reports/export-csv';
 import type { TimeWindow } from '../reports/report-period';
 import { afterPayoutDebt, paymentAt } from '../reports/reporting-sql';
 import { ReportsService } from '../reports/reports.service';
-import { autoCloseAt, buildAdjustments, buildNightZ, decideClose, zStart, type NightZ } from './night-rules';
+import { CloseCheckService } from './close-check.service';
+import {
+  autoCloseAt,
+  buildAdjustments,
+  buildNightCaja,
+  buildNightZ,
+  unresolvedPaymentsWhere,
+  zStart,
+  type NightCaja,
+  type NightZ,
+} from './night-rules';
 
 /** Cobro que impide cerrar la noche: atascado con el banco o datáfono sin confirmar. */
 export interface PendingPayment {
@@ -33,7 +50,9 @@ export interface NightView {
   autoClosed: boolean;
   pendingAtClose: number;
   closeNote: string | null;
-  /** Congelado si la noche está cerrada; en vivo si está abierta. */
+  /** Fondo de caja con el que empezó (null = no se apuntó). */
+  openingFloatCents: number | null;
+  /** Congelado si la noche está cerrada (con su caja); en vivo si está abierta. */
   z: NightZ;
   /** Solo con la noche abierta. */
   pending: PendingPayment[];
@@ -48,6 +67,8 @@ export interface NightListItem {
   count: number | null;
   chargedCents: number | null;
   netCents: number | null;
+  /** Diferencia de caja al cerrar (contado − esperado); null si no se contó. */
+  cashDiffCents: number | null;
 }
 
 /** Lo que ve la chica de su noche: la abierta, o la última si acaba de cerrarse. */
@@ -76,8 +97,27 @@ type NightRow = {
   autoClosed: boolean;
   pendingAtClose: number;
   closeNote: string | null;
+  openingFloatCents: number | null;
   zReport: Prisma.JsonValue | null;
 };
+
+/** Lo que manda quien cierra: avisos confirmados, nota y arqueo de caja (CloseNightDto). */
+export interface CloseNightOptions {
+  acknowledged?: ReadonlyArray<NightCloseStepKey>;
+  note?: string;
+  cashCountedCents?: number;
+  openingFloatCents?: number;
+  cashNote?: string;
+}
+
+/** Caja que se guarda en venue_nights al cerrar (además de en el Z). */
+interface CashColumns {
+  openingFloatCents: number | null;
+  cashCountedCents: number | null;
+  cashExpectedCents: number;
+  cashDiffCents: number | null;
+  cashNote: string | null;
+}
 
 const AUTO_CLOSE_NOTE = 'Cierre automático a las 08:00';
 
@@ -87,14 +127,21 @@ const LAST_NIGHT_VISIBLE_MS = 16 * 60 * 60 * 1000;
 /** Cuántos cobros pendientes se listan (el número total va aparte). */
 const PENDING_LIST_LIMIT = 100;
 
+const CLOSE_REFUSAL_HINT: Record<'blocked' | 'needs-ack', string> = {
+  blocked: 'No se puede cerrar todavía.',
+  'needs-ack': 'Confirma antes estos avisos:',
+};
+
 interface PendingResult {
   items: PendingPayment[];
   count: number;
 }
 
 /**
- * Noche del local (Fase 1D): se abre, se cierra con informe Z congelado y
- * resumen por chica, y no se cierra con cobros sin resolver. Las cuentas son
+ * Noche del local (Fase 1D): se abre, se cierra en pasos (cobros, datáfonos,
+ * saldo, arqueo de caja, chicas, incidencias) y se congela el informe Z con
+ * su caja. Un paso que bloquea no deja cerrar y los avisos se confirman
+ * (close-check-rules + nightCloseRefusal de @nightpay/contracts). Las cuentas son
  * las mismas que las del informe de la gestoría (ReportsService + summarize).
  * Lo que se apunta después de un Z con fecha de su noche (un cobro que el
  * banco confirma tarde, una devolución con fecha atrás) va como ajuste en el
@@ -106,15 +153,18 @@ export class NightsService {
   private readonly prisma: PrismaService;
   private readonly reports: ReportsService;
   private readonly audit: AuditService;
+  private readonly checks: CloseCheckService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(ReportsService) reports: ReportsService,
     @Inject(AuditService) audit: AuditService,
+    @Inject(CloseCheckService) checks: CloseCheckService,
   ) {
     this.prisma = prisma;
     this.reports = reports;
     this.audit = audit;
+    this.checks = checks;
   }
 
   async current(tenantId: string): Promise<NightView | null> {
@@ -123,11 +173,13 @@ export class NightsService {
     return night ? this.view(night) : null;
   }
 
-  async open(tenantId: string, userId: string): Promise<NightView> {
+  async open(tenantId: string, userId: string, openingFloatCents?: number): Promise<NightView> {
     await this.safeAutoClose(tenantId);
     let night: NightRow;
     try {
-      night = await this.prisma.venueNight.create({ data: { tenantId, openedBy: userId } });
+      night = await this.prisma.venueNight.create({
+        data: { tenantId, openedBy: userId, openingFloatCents: openingFloatCents ?? null },
+      });
     } catch (err) {
       // Índice único parcial: una sola noche abierta por local.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -141,16 +193,31 @@ export class NightsService {
       actorId: userId,
       targetType: 'VenueNight',
       targetId: night.id,
-      payload: { openedAt: night.openedAt.toISOString() },
+      payload: { openedAt: night.openedAt.toISOString(), openingFloatCents: night.openingFloatCents },
     });
     return this.view(night);
   }
 
+  /** Los pasos para cerrar la noche abierta (qué falta, la caja y lo de cada chica). */
+  async closeCheck(tenantId: string): Promise<NightCloseCheck> {
+    await this.safeAutoClose(tenantId);
+    const night = await this.openNight(tenantId);
+    if (!night) throw new NotFoundException('No hay ninguna noche abierta');
+    const now = new Date();
+    const start = await this.zBounds(tenantId, night.openedAt);
+    return this.checks.check(tenantId, night, { from: start.from, to: now }, now);
+  }
+
+  /**
+   * Cierra la noche si ningún paso bloquea y los avisos están confirmados:
+   * congela el Z con su caja (lo contado y la diferencia). Los pasos se
+   * recalculan aquí, al cerrar: lo que vio el panel puede ser de hace un rato.
+   */
   async close(
     tenantId: string,
     actor: { userId: string; role: string },
     nightId: string,
-    opts: { force: boolean; note?: string },
+    opts: CloseNightOptions = {},
   ): Promise<NightView> {
     // Pasadas las 08:00 la noche ya está vencida: se cierra sola (con el Z
     // hasta las 08:00) en vez de meter en ella los cobros de la mañana.
@@ -166,21 +233,13 @@ export class NightsService {
     const now = new Date();
     const start = await this.zBounds(tenantId, night.openedAt);
     const window = { from: start.from, to: now };
-    const pending = await this.pending(tenantId, window);
-    const decision = decideClose({ pendingCount: pending.count, force: opts.force, role: actor.role, note: opts.note });
-    if (!decision.ok) {
-      if (decision.reason === 'pending') {
-        throw new ConflictException(
-          `${pending.count === 1 ? 'Queda 1 cobro' : `Quedan ${pending.count} cobros`} sin resolver. Resuélvelos en Pagos o, si eres el dueño, cierra igualmente con una nota.`,
-        );
-      }
-      if (decision.reason === 'force-owner-only') {
-        throw new ForbiddenException('Solo el dueño puede cerrar la noche con cobros sin resolver');
-      }
-      throw new BadRequestException('Explica en la nota por qué cierras con cobros sin resolver');
-    }
+    const check = await this.checks.check(tenantId, night, window, now);
+    const input = { openingFloatCents: opts.openingFloatCents, countedCents: opts.cashCountedCents };
+    assertCanClose(withCashInput(check.steps, check.cash, input), opts.acknowledged ?? [], opts.note);
 
-    const z = await this.buildZ(tenantId, window, pending.count, now, start.since);
+    const caja = buildNightCaja(check.cash, evaluateCash(check.cash, input), opts.cashNote, now);
+    const pending = await this.pending(tenantId, window);
+    const z = await this.buildZ(tenantId, window, pending.count, now, start.since, caja);
     const closed = await this.markClosed(night.id, tenantId, {
       closedAt: now,
       closedBy: actor.userId,
@@ -188,6 +247,7 @@ export class NightsService {
       pendingAtClose: pending.count,
       closeNote: opts.note?.trim() || null,
       z,
+      cash: cashColumns(caja),
     });
     if (!closed) throw new ConflictException('Esta noche ya está cerrada (puede que se cerrara sola a las 08:00)');
 
@@ -197,7 +257,17 @@ export class NightsService {
       actorId: actor.userId,
       targetType: 'VenueNight',
       targetId: night.id,
-      payload: { forced: opts.force, pendingAtClose: pending.count, netCents: z.summary.netCents },
+      payload: {
+        pendingAtClose: pending.count,
+        netCents: z.summary.netCents,
+        acknowledged: [...(opts.acknowledged ?? [])],
+        cash: {
+          openingFloatCents: caja.openingFloatCents,
+          expectedCents: caja.expectedCents,
+          countedCents: caja.countedCents,
+          diffCents: caja.diffCents,
+        },
+      },
     });
     return this.get(tenantId, night.id);
   }
@@ -220,6 +290,7 @@ export class NightsService {
         count: z?.summary.count ?? null,
         chargedCents: z?.summary.chargedCents ?? null,
         netCents: z?.summary.netCents ?? null,
+        cashDiffCents: n.cashDiffCents,
       };
     });
   }
@@ -342,7 +413,10 @@ export class NightsService {
         const start = await this.zBounds(night.tenantId, night.openedAt);
         const window = { from: start.from, to: cutoff };
         const pending = await this.pending(night.tenantId, window);
-        const z = await this.buildZ(night.tenantId, window, pending.count, now, start.since);
+        // Nadie contó la caja: el Z lleva lo que debería haber, sin contado.
+        const cash = await this.checks.cash(night.tenantId, window, night.openingFloatCents);
+        const caja = buildNightCaja(cash, evaluateCash(cash), null, now);
+        const z = await this.buildZ(night.tenantId, window, pending.count, now, start.since, caja);
         const closed = await this.markClosed(night.id, night.tenantId, {
           closedAt: cutoff,
           closedBy: null,
@@ -350,6 +424,7 @@ export class NightsService {
           pendingAtClose: pending.count,
           closeNote: AUTO_CLOSE_NOTE,
           z,
+          cash: cashColumns(caja),
         });
         if (closed) {
           closedCount += 1;
@@ -409,6 +484,7 @@ export class NightsService {
       autoClosed: night.autoClosed,
       pendingAtClose: night.pendingAtClose,
       closeNote: night.closeNote,
+      openingFloatCents: night.openingFloatCents,
       z,
       pending: pending.items,
     };
@@ -416,7 +492,8 @@ export class NightsService {
 
   /**
    * Z de la noche tal como está en `now` (lo apuntado después irá como ajuste
-   * del Z siguiente) y los ajustes de noches anteriores apuntados desde `since`.
+   * del Z siguiente), los ajustes de noches anteriores apuntados desde
+   * `since` y, al cerrar, la caja.
    */
   private async buildZ(
     tenantId: string,
@@ -424,6 +501,7 @@ export class NightsService {
     pendingCount: number,
     now: Date,
     since: Date,
+    caja?: NightCaja,
   ): Promise<NightZ> {
     const asOf = { recordedBefore: now };
     const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, late] = await Promise.all([
@@ -436,28 +514,19 @@ export class NightsService {
     ]);
     const summary = summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo);
     const adjustments = buildAdjustments({ before: window.from, since, rows: late });
-    return buildNightZ(window, summary, pendingCount, now, adjustments);
+    return buildNightZ(window, summary, pendingCount, now, adjustments, caja);
   }
 
   /**
    * Cobros de la noche sin resolver: atascados con el banco o datáfono sin
-   * confirmar. Misma fecha que el Z (sin autorizar = la de creación) y la
-   * misma hora de corte para todo.
+   * confirmar (night-rules.unresolvedPaymentsWhere).
    */
   private async pending(tenantId: string, window: TimeWindow): Promise<PendingResult> {
     const rows = await this.prisma.$queryRaw<Array<PendingPayment & { total: number }>>`
       SELECT id, status::text AS status, "amountCents", "createdAt", "captureMethod",
              (COUNT(*) OVER ())::int AS total
         FROM payments
-       WHERE "tenantId" = ${tenantId}::uuid
-         AND COALESCE("authorizedAt", "createdAt") >= ${window.from}
-         AND COALESCE("authorizedAt", "createdAt") < ${window.to}
-         AND (
-           status IN ('AUTHORIZING', 'ORPHAN')
-           OR ("captureMethod" = 'POS_EXTERNAL'
-               AND status IN ('CREATED', 'AWAITING_CAPTURE')
-               AND "qrExpiresAt" > ${window.to})
-         )
+       WHERE ${unresolvedPaymentsWhere(tenantId, window)}
        ORDER BY "createdAt" ASC
        LIMIT ${PENDING_LIST_LIMIT}
     `;
@@ -478,6 +547,7 @@ export class NightsService {
       pendingAtClose: number;
       closeNote: string | null;
       z: NightZ;
+      cash: CashColumns;
     },
   ): Promise<boolean> {
     const res = await this.prisma.asSystem((tx) =>
@@ -490,9 +560,47 @@ export class NightsService {
           pendingAtClose: data.pendingAtClose,
           closeNote: data.closeNote,
           zReport: data.z as unknown as Prisma.InputJsonValue,
+          ...data.cash,
         },
       }),
     );
     return res.count > 0;
   }
+}
+
+/** Columnas de caja de venue_nights a partir del bloque «Caja» del Z. */
+function cashColumns(caja: NightCaja): CashColumns {
+  return {
+    openingFloatCents: caja.openingFloatCents,
+    cashCountedCents: caja.countedCents,
+    cashExpectedCents: caja.expectedCents,
+    cashDiffCents: caja.diffCents,
+    cashNote: caja.note,
+  };
+}
+
+/**
+ * 409 con los pasos si alguno bloquea o hay avisos sin confirmar; 400 si
+ * falta explicar por qué se cierra con cobros sin terminar.
+ */
+function assertCanClose(
+  steps: NightCloseStep[],
+  acknowledged: ReadonlyArray<NightCloseStepKey>,
+  note: string | undefined,
+): void {
+  const refusal = nightCloseRefusal(steps, acknowledged, note);
+  if (!refusal) return;
+  if (refusal.kind === 'note-required') {
+    throw new BadRequestException({
+      message: 'Explica en la nota por qué cierras con cobros sin terminar',
+      code: 'NIGHT_CLOSE_NOTE_REQUIRED',
+    });
+  }
+  const what = refusal.steps.map((s) => `${s.title}: ${s.detail}`).join(' ');
+  throw new ConflictException({
+    message: `${CLOSE_REFUSAL_HINT[refusal.kind]} ${what}`,
+    code: refusal.kind === 'blocked' ? 'NIGHT_CLOSE_BLOCKED' : 'NIGHT_CLOSE_NEEDS_ACK',
+    steps,
+    missing: refusal.steps.map((s) => s.key),
+  });
 }

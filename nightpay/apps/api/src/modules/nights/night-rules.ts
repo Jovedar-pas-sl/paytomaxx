@@ -1,3 +1,5 @@
+import type { CashOutcome, NightCash } from '@nightpay/contracts';
+import { Prisma } from '@nightpay/db';
 import { nextNightCutoff } from '../../common/time/madrid';
 import { summarize, type ExportSummary } from '../reports/export-csv';
 import type { AdjustmentRows, ConsumoRow } from '../reports/export-rows';
@@ -29,6 +31,29 @@ export interface NightAdjustments {
   reversedConsumptionsChicaCents: number;
 }
 
+/**
+ * Caja de la noche, congelada en el Z: lo que debería haber (fondo + entradas
+ * − salidas en efectivo), lo contado y la diferencia. OxioPay no cobra en
+ * efectivo: hoy las entradas son 0 y solo cuentan las salidas.
+ */
+export interface NightCaja {
+  openingFloatCents: number | null;
+  cashInCents: number;
+  walletCashPayoutsCount: number;
+  walletCashPayoutsCents: number;
+  chicaCashPayoutsCount: number;
+  chicaCashPayoutsCents: number;
+  cashOutCents: number;
+  expectedCents: number;
+  /** null = nadie la contó (cierre automático, o sin efectivo). */
+  countedCents: number | null;
+  /** Contado − esperado (negativo = falta). null si no se contó. */
+  diffCents: number | null;
+  note: string | null;
+  /** Cuándo se congeló. */
+  frozenAt: string;
+}
+
 /** Informe Z: totales de la noche. Al cerrar se guarda y ya no cambia. */
 export interface NightZ {
   from: string;
@@ -39,6 +64,8 @@ export interface NightZ {
   pendingCount: number;
   /** Ajustes de noches anteriores (los Z congelados antes del 15-oct-2026 no lo traen). */
   adjustments?: NightAdjustments;
+  /** Caja (los Z congelados antes del 16-oct-2026 y los de una noche abierta no la traen). */
+  caja?: NightCaja;
 }
 
 export function buildNightZ(
@@ -47,6 +74,7 @@ export function buildNightZ(
   pendingCount: number,
   now: Date,
   adjustments?: NightAdjustments,
+  caja?: NightCaja,
 ): NightZ {
   return {
     from: window.from.toISOString(),
@@ -55,6 +83,25 @@ export function buildNightZ(
     summary,
     pendingCount,
     ...(adjustments ? { adjustments } : {}),
+    ...(caja ? { caja } : {}),
+  };
+}
+
+/** El bloque «Caja» del Z con el efectivo de la noche y lo contado (evaluateCash). */
+export function buildNightCaja(cash: NightCash, outcome: CashOutcome, note: string | null | undefined, now: Date): NightCaja {
+  return {
+    openingFloatCents: outcome.floatCents,
+    cashInCents: cash.cashInCents,
+    walletCashPayoutsCount: cash.walletCashPayoutsCount,
+    walletCashPayoutsCents: cash.walletCashPayoutsCents,
+    chicaCashPayoutsCount: cash.chicaCashPayoutsCount,
+    chicaCashPayoutsCents: cash.chicaCashPayoutsCents,
+    cashOutCents: cash.cashOutCents,
+    expectedCents: outcome.expectedCents,
+    countedCents: outcome.countedCents,
+    diffCents: outcome.diffCents,
+    note: note?.trim() || null,
+    frozenAt: now.toISOString(),
   };
 }
 
@@ -98,26 +145,22 @@ export function buildAdjustments(args: { before: Date; since: Date; rows: Adjust
   };
 }
 
-export type CloseDecision =
-  | { ok: true }
-  | { ok: false; reason: 'pending' | 'force-owner-only' | 'note-required' };
-
 /**
- * No se cierra con cobros sin resolver: se resuelven antes en Pagos. Solo el
- * dueño puede cerrar igualmente, y dejando una nota de por qué.
+ * Cobros de la noche sin resolver (WHERE sobre payments): atascados con el
+ * banco, sin confirmar por él o datáfono sin confirmar aún en vigor. Misma
+ * fecha que el Z (sin autorizar = la de creación) y la misma hora de corte.
+ * Lo usan pendingAtClose del Z y el paso «Cobros sin terminar» del cierre.
  */
-export function decideClose(args: {
-  pendingCount: number;
-  force: boolean;
-  role: string;
-  note: string | undefined;
-}): CloseDecision {
-  if (args.force) {
-    if (args.role !== 'OWNER') return { ok: false, reason: 'force-owner-only' };
-    if ((args.note?.trim().length ?? 0) < 3) return { ok: false, reason: 'note-required' };
-    return { ok: true };
-  }
-  return args.pendingCount > 0 ? { ok: false, reason: 'pending' } : { ok: true };
+export function unresolvedPaymentsWhere(tenantId: string, window: TimeWindow): Prisma.Sql {
+  return Prisma.sql`"tenantId" = ${tenantId}::uuid
+         AND COALESCE("authorizedAt", "createdAt") >= ${window.from}
+         AND COALESCE("authorizedAt", "createdAt") < ${window.to}
+         AND (
+           status IN ('AUTHORIZING', 'ORPHAN')
+           OR ("captureMethod" = 'POS_EXTERNAL'
+               AND status IN ('CREATED', 'AWAITING_CAPTURE')
+               AND "qrExpiresAt" > ${window.to})
+         )`;
 }
 
 /**

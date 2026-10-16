@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import type { NightCash, NightCloseCheck, NightCloseStep } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
+import { buildCloseSteps } from './close-check-rules';
 import { NightsService } from './nights.service';
 
 const OPENED = new Date('2026-10-13T20:00:00Z'); // 22:00 de Madrid
@@ -14,12 +16,67 @@ function night(o: Record<string, unknown> = {}) {
     autoClosed: false,
     pendingAtClose: 0,
     closeNote: null,
+    openingFloatCents: null,
     zReport: null,
     ...o,
   };
 }
 
-function makeService(opts: { open?: ReturnType<typeof night> | null; pending?: unknown[]; closedCount?: number } = {}) {
+const NO_CASH: NightCash = {
+  openingFloatCents: null,
+  cashInCents: 0,
+  walletCashPayoutsCount: 0,
+  walletCashPayoutsCents: 0,
+  chicaCashPayoutsCount: 0,
+  chicaCashPayoutsCents: 0,
+  cashOutCents: 0,
+  expectedCents: 0,
+};
+
+/** Una noche con 50 € devueltos del saldo en efectivo y 90 € pagados en efectivo a una chica; fondo de 200 €. */
+const CASH: NightCash = {
+  openingFloatCents: 20_000,
+  cashInCents: 0,
+  walletCashPayoutsCount: 1,
+  walletCashPayoutsCents: 5000,
+  chicaCashPayoutsCount: 1,
+  chicaCashPayoutsCents: 9000,
+  cashOutCents: 14_000,
+  expectedCents: 6000,
+};
+
+/** Los pasos del cierre con las reglas de verdad (todo en orden salvo lo que se cambie). */
+function check(o: { cash?: NightCash; steps?: Partial<Record<NightCloseStep['key'], NightCloseStep['status']>> } = {}): NightCloseCheck {
+  const cash = o.cash ?? NO_CASH;
+  const steps = buildCloseSteps({
+    now: new Date('2026-10-13T23:00:00Z'),
+    holdDays: 0,
+    payments: [],
+    refunds: [],
+    posStarted: [],
+    posUnreconciled: [],
+    pairedDevices: 0,
+    walletPayouts: [],
+    walletsToClose: [],
+    cash,
+    chicas: [],
+    incidents: [],
+  }).map((s) => (o.steps?.[s.key] ? { ...s, status: o.steps[s.key]! } : s));
+  return {
+    nightId: 'night-1',
+    openedAt: OPENED.toISOString(),
+    from: OPENED.toISOString(),
+    generatedAt: '2026-10-13T23:00:00.000Z',
+    holdDays: 0,
+    steps,
+    cash,
+    chicas: [],
+  };
+}
+
+function makeService(
+  opts: { open?: ReturnType<typeof night> | null; pending?: unknown[]; closedCount?: number; check?: NightCloseCheck } = {},
+) {
   const prisma = {
     venueNight: {
       create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => night(data)),
@@ -42,8 +99,19 @@ function makeService(opts: { open?: ReturnType<typeof night> | null; pending?: u
     ajustes: vi.fn().mockResolvedValue({ cobros: [], devoluciones: [], consumosAnulados: [] }),
   };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
-  const svc = new NightsService(prisma as never, reports as never, audit as never);
-  return { svc, prisma, reports, audit };
+  const checks = {
+    check: vi.fn().mockResolvedValue(opts.check ?? check()),
+    cash: vi.fn().mockResolvedValue((opts.check ?? check()).cash),
+  };
+  const svc = new NightsService(prisma as never, reports as never, audit as never, checks as never);
+  return { svc, prisma, reports, audit, checks };
+}
+
+/** Datos con los que se cerró (updateMany de venue_nights). */
+function closedData(prisma: ReturnType<typeof makeService>['prisma']): Record<string, unknown> & {
+  zReport: { summary: Record<string, unknown>; caja?: Record<string, unknown> };
+} {
+  return (prisma.venueNight.updateMany.mock.calls[0]![0] as { data: never }).data;
 }
 
 const PENDING = [
@@ -78,7 +146,6 @@ describe('abrir la noche', () => {
 
 describe('cerrar la noche', () => {
   const manager = { userId: 'u-1', role: 'MANAGER' };
-  const owner = { userId: 'u-2', role: 'OWNER' };
 
   it('el Z congelado lleva el saldo devuelto: el efectivo resta del neto, la tarjeta solo se informa', async () => {
     const { svc, prisma, reports } = makeService();
@@ -86,60 +153,155 @@ describe('cerrar la noche', () => {
       { id: 'wp-1', at: OPENED, amountCents: 8000, method: 'CASH', paidByName: null, paidByEmail: 'jefe@local.es' },
       { id: 'wp-2', at: OPENED, amountCents: 3000, method: 'CARD', paidByName: null, paidByEmail: 'jefe@local.es' },
     ]);
-    await svc.close('t-1', manager, 'night-1', { force: false });
-    const data = (prisma.venueNight.updateMany.mock.calls[0]![0] as { data: { zReport: { summary: unknown } } }).data;
-    expect(data.zReport.summary).toMatchObject({
+    await svc.close('t-1', manager, 'night-1');
+    expect(closedData(prisma).zReport.summary).toMatchObject({
       walletCashPayoutsCents: 8000,
       walletCardPayoutsCents: 3000,
       netCents: -8000,
     });
   });
 
-  it('sin pendientes: congela el Z y la cierra', async () => {
-    const { svc, prisma, audit } = makeService();
-    await svc.close('t-1', manager, 'night-1', { force: false });
-    const call = prisma.venueNight.updateMany.mock.calls[0]![0] as {
-      where: Record<string, unknown>;
-      data: { zReport: { summary: { count: number } }; autoClosed: boolean; pendingAtClose: number };
-    };
+  it('todo en orden: el encargado la cierra y congela el Z (sin efectivo, caja sin contar)', async () => {
+    const { svc, prisma, audit, checks } = makeService();
+    await svc.close('t-1', manager, 'night-1');
+    const call = prisma.venueNight.updateMany.mock.calls[0]![0] as { where: Record<string, unknown> };
     expect(call.where).toEqual({ id: 'night-1', tenantId: 't-1', closedAt: null });
-    expect(call.data.autoClosed).toBe(false);
-    expect(call.data.pendingAtClose).toBe(0);
-    expect(call.data.zReport.summary.count).toBe(0);
+    expect(closedData(prisma)).toMatchObject({
+      autoClosed: false,
+      pendingAtClose: 0,
+      cashExpectedCents: 0,
+      cashCountedCents: null,
+      cashDiffCents: null,
+    });
+    expect(closedData(prisma).zReport.caja).toMatchObject({ expectedCents: 0, countedCents: null });
+    // Los pasos se recalculan al cerrar, con la misma ventana que el Z.
+    expect(checks.check).toHaveBeenCalledWith('t-1', expect.objectContaining({ id: 'night-1' }), {
+      from: OPENED,
+      to: new Date('2026-10-13T23:00:00Z'),
+    }, new Date('2026-10-13T23:00:00Z'));
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'night.closed' }));
   });
 
-  it('con cobros sin resolver → no se cierra', async () => {
-    const { svc, prisma } = makeService({ pending: PENDING });
-    await expect(svc.close('t-1', manager, 'night-1', { force: false })).rejects.toThrow(/Queda 1 cobro sin resolver/);
+  it('un paso que bloquea → 409 con los pasos, y no se cierra', async () => {
+    const { svc, prisma } = makeService({ check: check({ steps: { cobros: 'block' } }) });
+    const err = await svc.close('t-1', manager, 'night-1', { acknowledged: ['cobros'] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    const body = (err as ConflictException).getResponse() as { code: string; steps: NightCloseStep[]; missing: string[] };
+    expect(body.code).toBe('NIGHT_CLOSE_BLOCKED');
+    expect(body.missing).toEqual(['cobros']);
+    expect(body.steps).toHaveLength(7);
     expect(prisma.venueNight.updateMany).not.toHaveBeenCalled();
   });
 
-  it('cerrar igualmente: el encargado no puede; el dueño sí, con nota', async () => {
-    const { svc, prisma } = makeService({ pending: PENDING });
-    await expect(svc.close('t-1', manager, 'night-1', { force: true, note: 'mañana' })).rejects.toThrow(
-      ForbiddenException,
+  it('avisos sin confirmar → 409 NIGHT_CLOSE_NEEDS_ACK; confirmados, se cierra', async () => {
+    const { svc, prisma } = makeService({ check: check({ steps: { saldo: 'warn', incidencias: 'warn' } }) });
+    const err = await svc.close('t-1', manager, 'night-1', { acknowledged: ['saldo'] }).catch((e: unknown) => e);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      code: 'NIGHT_CLOSE_NEEDS_ACK',
+      missing: ['incidencias'],
+    });
+    expect(prisma.venueNight.updateMany).not.toHaveBeenCalled();
+    await svc.close('t-1', manager, 'night-1', { acknowledged: ['saldo', 'incidencias'] });
+    expect(prisma.venueNight.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('con cobros sin terminar: el encargado cierra confirmándolo y con nota (queda en pendingAtClose)', async () => {
+    const { svc, prisma } = makeService({ pending: PENDING, check: check({ steps: { cobros: 'warn' } }) });
+    await expect(svc.close('t-1', manager, 'night-1')).rejects.toThrow(/Confirma antes/);
+    await expect(svc.close('t-1', manager, 'night-1', { acknowledged: ['cobros'] })).rejects.toThrow(
+      BadRequestException,
     );
-    await expect(svc.close('t-1', owner, 'night-1', { force: true })).rejects.toThrow(BadRequestException);
-    await svc.close('t-1', owner, 'night-1', { force: true, note: 'BBVA lo confirma mañana' });
-    const data = (prisma.venueNight.updateMany.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
-    expect(data).toMatchObject({ pendingAtClose: 1, closeNote: 'BBVA lo confirma mañana' });
+    await svc.close('t-1', manager, 'night-1', { acknowledged: ['cobros'], note: 'BBVA lo confirma mañana' });
+    expect(closedData(prisma)).toMatchObject({ pendingAtClose: 1, closeNote: 'BBVA lo confirma mañana' });
+  });
+
+  it('con efectivo: sin contar no se cierra; contado y cuadrado, la caja va al Z y a la noche', async () => {
+    const { svc, prisma } = makeService({ check: check({ cash: CASH }) });
+    const err = await svc.close('t-1', manager, 'night-1').catch((e: unknown) => e);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'NIGHT_CLOSE_BLOCKED', missing: ['efectivo'] });
+
+    await svc.close('t-1', manager, 'night-1', { cashCountedCents: 6000 });
+    expect(closedData(prisma)).toMatchObject({
+      openingFloatCents: 20_000,
+      cashExpectedCents: 6000,
+      cashCountedCents: 6000,
+      cashDiffCents: 0,
+    });
+    expect(closedData(prisma).zReport.caja).toMatchObject({
+      walletCashPayoutsCents: 5000,
+      chicaCashPayoutsCents: 9000,
+      expectedCents: 6000,
+      countedCents: 6000,
+      diffCents: 0,
+    });
+  });
+
+  it('contado ≠ esperado: hay que confirmarlo y la diferencia queda congelada', async () => {
+    const { svc, prisma, audit } = makeService({ check: check({ cash: CASH }) });
+    await expect(svc.close('t-1', manager, 'night-1', { cashCountedCents: 4750 })).rejects.toThrow(/Faltan 12,50 €/);
+    await svc.close('t-1', manager, 'night-1', {
+      cashCountedCents: 4750,
+      acknowledged: ['efectivo'],
+      cashNote: 'cambio mal dado',
+    });
+    expect(closedData(prisma)).toMatchObject({ cashCountedCents: 4750, cashDiffCents: -1250, cashNote: 'cambio mal dado' });
+    expect(closedData(prisma).zReport.caja).toMatchObject({ diffCents: -1250, note: 'cambio mal dado' });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ cash: expect.objectContaining({ diffCents: -1250 }) }),
+      }),
+    );
+  });
+
+  it('salió efectivo sin fondo apuntado: hay que decirlo al cerrar', async () => {
+    const noFloat = { ...CASH, openingFloatCents: null, expectedCents: -14_000 };
+    const { svc, prisma } = makeService({ check: check({ cash: noFloat }) });
+    await expect(svc.close('t-1', manager, 'night-1', { cashCountedCents: 0 })).rejects.toThrow(/fondo/);
+    await svc.close('t-1', manager, 'night-1', { openingFloatCents: 14_000, cashCountedCents: 0 });
+    expect(closedData(prisma)).toMatchObject({ openingFloatCents: 14_000, cashExpectedCents: 0, cashDiffCents: 0 });
   });
 
   it('cerrar a mano pasadas las 08:00 → ya se cerró sola, con el Z hasta las 08:00', async () => {
     vi.setSystemTime(new Date('2026-10-14T07:30:00Z')); // 09:30 de Madrid
     const { svc, prisma } = makeService({ open: night() });
     prisma.venueNight.findFirst.mockResolvedValue(night({ closedAt: new Date('2026-10-14T06:00:00Z'), autoClosed: true }));
-    await expect(svc.close('t-1', manager, 'night-1', { force: false })).rejects.toThrow(/se cerró sola a las 08:00/);
-    const data = (prisma.venueNight.updateMany.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
-    expect(data).toMatchObject({ autoClosed: true, closedAt: new Date('2026-10-14T06:00:00Z') });
+    await expect(svc.close('t-1', manager, 'night-1')).rejects.toThrow(/se cerró sola a las 08:00/);
+    expect(closedData(prisma)).toMatchObject({ autoClosed: true, closedAt: new Date('2026-10-14T06:00:00Z') });
   });
 
   it('ya cerrada (o cerrada a la vez por otro) → 409', async () => {
     const { svc } = makeService({ open: night({ closedAt: new Date() }) });
-    await expect(svc.close('t-1', manager, 'night-1', { force: false })).rejects.toThrow(ConflictException);
+    await expect(svc.close('t-1', manager, 'night-1')).rejects.toThrow(ConflictException);
     const race = makeService({ closedCount: 0 });
-    await expect(race.svc.close('t-1', manager, 'night-1', { force: false })).rejects.toThrow(ConflictException);
+    await expect(race.svc.close('t-1', manager, 'night-1')).rejects.toThrow(ConflictException);
+  });
+});
+
+describe('los pasos del cierre y el fondo de caja', () => {
+  it('sin noche abierta → 404', async () => {
+    const { svc } = makeService({ open: null });
+    await expect(svc.closeCheck('t-1')).rejects.toThrow(NotFoundException);
+  });
+
+  it('con la noche abierta: los pasos desde el inicio del Z hasta ahora', async () => {
+    const { svc, checks } = makeService();
+    const result = await svc.closeCheck('t-1');
+    expect(result.steps).toHaveLength(7);
+    expect(checks.check).toHaveBeenCalledWith(
+      't-1',
+      expect.objectContaining({ id: 'night-1', openingFloatCents: null }),
+      { from: OPENED, to: new Date('2026-10-13T23:00:00Z') },
+      new Date('2026-10-13T23:00:00Z'),
+    );
+  });
+
+  it('abrir con fondo de caja: se guarda y se ve', async () => {
+    const { svc, prisma } = makeService({ open: null });
+    const view = await svc.open('t-1', 'u-1', 15_000);
+    expect(prisma.venueNight.create).toHaveBeenCalledWith({
+      data: { tenantId: 't-1', openedBy: 'u-1', openingFloatCents: 15_000 },
+    });
+    expect(view.openingFloatCents).toBe(15_000);
   });
 });
 
@@ -169,7 +331,7 @@ describe('lo apuntado después de cerrar una noche: ajuste en el Z siguiente', (
     const { svc, prisma, reports } = makeService();
     withPrevious(prisma, { closedAt: PREV_CLOSED, zReport: { generatedAt: PREV_Z.toISOString() } });
     reports.ajustes.mockResolvedValueOnce({ cobros: [LATE_COBRO], devoluciones: [], consumosAnulados: [] });
-    await svc.close('t-1', manager, 'night-1', { force: false });
+    await svc.close('t-1', manager, 'night-1');
 
     // Lo de antes de las 08:10 ya lo contó el Z anterior; lo de después con fecha anterior al cierre, aquí.
     expect(reports.ajustes).toHaveBeenCalledWith('t-1', { before: PREV_CLOSED, since: PREV_Z, until: NOW });
@@ -188,7 +350,7 @@ describe('lo apuntado después de cerrar una noche: ajuste en el Z siguiente', (
   it('primera noche del local: ajustes desde que se abrió', async () => {
     const { svc, prisma, reports } = makeService();
     withPrevious(prisma, null);
-    await svc.close('t-1', manager, 'night-1', { force: false });
+    await svc.close('t-1', manager, 'night-1');
     expect(reports.ajustes).toHaveBeenCalledWith('t-1', { before: OPENED, since: OPENED, until: NOW });
   });
 
@@ -203,12 +365,19 @@ describe('lo apuntado después de cerrar una noche: ajuste en el Z siguiente', (
 });
 
 describe('cierre automático y noche de la chica', () => {
-  it('a las 08:00 cierra sola la noche, con el Z hasta las 08:00', async () => {
-    const { svc, prisma, reports } = makeService({ open: night() });
+  it('a las 08:00 cierra sola la noche, con el Z hasta las 08:00 y la caja sin contar', async () => {
+    const { svc, prisma, reports, checks } = makeService({ open: night({ openingFloatCents: 20_000 }), check: check({ cash: CASH }) });
     const closed = await svc.autoCloseDue(undefined, new Date('2026-10-14T09:00:00Z'));
     expect(closed).toBe(1);
-    const data = (prisma.venueNight.updateMany.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
-    expect(data).toMatchObject({ autoClosed: true, closedAt: new Date('2026-10-14T06:00:00Z') });
+    expect(closedData(prisma)).toMatchObject({
+      autoClosed: true,
+      closedAt: new Date('2026-10-14T06:00:00Z'),
+      cashExpectedCents: 6000,
+      cashCountedCents: null,
+      cashDiffCents: null,
+    });
+    expect(closedData(prisma).zReport.caja).toMatchObject({ expectedCents: 6000, countedCents: null });
+    expect(checks.cash).toHaveBeenCalledWith('t-1', { from: OPENED, to: new Date('2026-10-14T06:00:00Z') }, 20_000);
     // Hasta las 08:00 por fecha; y solo lo apuntado antes de generar el Z (09:00).
     expect(reports.cobros).toHaveBeenCalledWith(
       't-1',
