@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TreasuryService } from './treasury.service';
 
 interface Opts {
@@ -28,7 +28,7 @@ function makeTreasury(opts: Opts = {}) {
   prisma.withTenant.mockImplementation(async (_tenantId: string, fn: (tx: unknown) => unknown) => fn(prisma));
   const config = { get: vi.fn((k: string) => (k === 'PAYOUT_HOLD_DAYS' ? opts.holdDays : undefined)) };
   const svc = new TreasuryService(prisma as never, { log: vi.fn() } as never, {} as never, config as never);
-  return { svc, sqls, params };
+  return { svc, sqls, params, withTenant: prisma.withTenant };
 }
 
 describe('TreasuryService.getStats — pendiente a chicas = lo que hay que pagar ya', () => {
@@ -51,9 +51,18 @@ describe('TreasuryService.getStats — pendiente a chicas = lo que hay que pagar
     });
   });
 
+  // Reloj fijo: el corte se compara exacto, sin márgenes que dependan de la máquina.
+  const NOW = new Date('2026-10-17T03:30:00Z');
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('la consulta suma propinas, separa lo que está en espera con el corte de PAYOUT_HOLD_DAYS y lee la deuda abierta', async () => {
     const { svc, sqls, params } = makeTreasury({ holdDays: '3' });
-    const before = Date.now();
     await svc.getStats('t-1');
     const i = sqls.findIndex((s) => s.includes('operator_earnings'));
     const sql = sqls[i]!;
@@ -63,17 +72,26 @@ describe('TreasuryService.getStats — pendiente a chicas = lo que hay que pagar
     expect(sql).toMatch(/"afterPayout"/);
     expect(sql).toMatch(/"settledPayoutId" IS NULL/);
     const cutoff = params[i]!.find((v): v is Date => v instanceof Date)!;
-    const expected = before - 3 * 24 * 3600 * 1000;
-    expect(Math.abs(cutoff.getTime() - expected)).toBeLessThan(5_000);
+    expect(cutoff).toEqual(new Date('2026-10-14T03:30:00Z'));
   });
 
   it('con días de espera del local, mandan los del local (0 = todo se puede pagar ya), no PAYOUT_HOLD_DAYS', async () => {
     const { svc, sqls, params } = makeTreasury({ holdDays: '3', venueHoldDays: 0 });
-    const before = Date.now();
     await svc.getStats('t-1');
     const i = sqls.findIndex((s) => s.includes('operator_earnings'));
     const cutoff = params[i]!.find((v): v is Date => v instanceof Date)!;
-    expect(Math.abs(cutoff.getTime() - before)).toBeLessThan(5_000);
+    expect(cutoff).toEqual(NOW);
+  });
+
+  it('todas las consultas van con el local en la sesión y filtradas por el local', async () => {
+    const { svc, sqls, params, withTenant } = makeTreasury();
+    await svc.getStats('t-1');
+    expect(sqls.length).toBeGreaterThan(0);
+    expect(withTenant.mock.calls.map((c) => c[0])).toEqual(sqls.map(() => 't-1'));
+    sqls.forEach((sql, i) => {
+      expect(sql).toMatch(/"tenantId" = \?/);
+      expect(params[i]).toContain('t-1');
+    });
   });
 
   it('sin chicas → todo a cero', async () => {
