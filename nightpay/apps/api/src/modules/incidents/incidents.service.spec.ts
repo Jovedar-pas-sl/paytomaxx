@@ -10,7 +10,7 @@ const at = (iso: string) => new Date(iso);
 /**
  * $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches,
  * revisadas, datáfono (3), saldos (2), banco, avisos de cobro no dados por buenos
- * y devoluciones sin confirmar.
+ * devoluciones sin confirmar y solicitudes de «Por aprobar» sin decidir.
  */
 function makeIncidents(rows: {
   stuck?: unknown[];
@@ -26,6 +26,7 @@ function makeIncidents(rows: {
   bankItems?: unknown[];
   anomalies?: unknown[];
   pendingRefunds?: unknown[];
+  pendingApprovals?: unknown[];
 }) {
   const prisma = {
     $queryRaw: vi
@@ -42,7 +43,8 @@ function makeIncidents(rows: {
       .mockResolvedValueOnce(rows.walletsLeftOpen ?? [])
       .mockResolvedValueOnce(rows.bankItems ?? [])
       .mockResolvedValueOnce(rows.anomalies ?? [])
-      .mockResolvedValueOnce(rows.pendingRefunds ?? []),
+      .mockResolvedValueOnce(rows.pendingRefunds ?? [])
+      .mockResolvedValueOnce(rows.pendingApprovals ?? []),
     incidentAck: { upsert: vi.fn().mockResolvedValue({}) },
     asSystem: vi.fn(),
   };

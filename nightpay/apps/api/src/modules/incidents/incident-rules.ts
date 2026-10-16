@@ -25,7 +25,8 @@ export type IncidentKind =
   | 'approval_unverified'
   | 'amount_mismatch'
   | 'approval_unbooked'
-  | 'refund_pending';
+  | 'refund_pending'
+  | 'approval_pending';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -36,6 +37,7 @@ export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'backup_stale',
   'approval_unverified',
   'refund_pending',
+  'approval_pending',
 ]);
 
 /**
@@ -509,6 +511,38 @@ export function refundPendingIncident(r: PendingRefundRow, now: Date): Incident 
     occurredAt: r.createdAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.paymentId,
+    ackable: false,
+  };
+}
+
+/** Solicitud de «Por aprobar» sin decidir (pedida por el encargado, sin caducar). */
+export interface PendingApprovalRow {
+  id: string;
+  kind: 'PAYOUT' | 'REFUND';
+  amountCents: number;
+  requestedAt: Date;
+  /** Quien la pidió (nombre visible o principio del email). */
+  requester: string | null;
+  /** La chica, en las de pago. */
+  operatorName: string | null;
+}
+
+/**
+ * Sale a los APPROVAL_INCIDENT_MINUTES (30) y se quita sola al aprobarla,
+ * rechazarla o caducar (24 h). refId = id de la solicitud: Telegram la avisa
+ * una sola vez (la misma marca que el aviso de cuando se pidió).
+ */
+export function approvalPendingIncident(r: PendingApprovalRow, now: Date): Incident {
+  const payout = r.kind === 'PAYOUT';
+  const what = payout ? `pagar ${eur(r.amountCents)} a ${r.operatorName ?? 'una chica'}` : `devolver ${eur(r.amountCents)}`;
+  return {
+    kind: 'approval_pending',
+    refId: r.id,
+    title: payout ? 'Pago a una chica por aprobar' : 'Devolución por aprobar',
+    detail: `${r.requester ?? 'El encargado'} pidió ${what} hace ${elapsed(now.getTime() - r.requestedAt.getTime())}. Apruébalo o recházalo en «Por aprobar»: caduca a las 24 h.`,
+    occurredAt: r.requestedAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
     ackable: false,
   };
 }

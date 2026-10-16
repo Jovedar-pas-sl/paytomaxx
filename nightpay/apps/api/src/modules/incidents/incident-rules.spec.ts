@@ -3,6 +3,7 @@ import {
   ACKABLE_KINDS,
   SELF_RESOLVING,
   ackKey,
+  approvalPendingIncident,
   backupIncidents,
   bankMismatchIncident,
   duplicateChargeIncident,
@@ -168,5 +169,25 @@ describe('qué se puede marcar como revisada', () => {
     // La clave de las diferencias con el banco pasa de 64 caracteres.
     expect(bank.refId.length).toBeGreaterThan(64);
     for (const kind of ACKABLE_KINDS) expect(SELF_RESOLVING.has(kind)).toBe(false);
+  });
+});
+
+describe('«Por aprobar» sin decidir', () => {
+  const now = at('2026-10-16T03:40:00Z');
+  const row = { id: 'ap-1', amountCents: 14_000, requestedAt: at('2026-10-16T03:00:00Z'), requester: 'Ana', operatorName: 'Lola' };
+
+  it('pago: quién pidió qué y hace cuánto; se quita sola al decidirla (no se marca)', () => {
+    const i = approvalPendingIncident({ ...row, kind: 'PAYOUT' }, now);
+    expect(i).toMatchObject({ kind: 'approval_pending', refId: 'ap-1', ackable: false, amountCents: 14_000, paymentId: null });
+    expect(i.title).toBe('Pago a una chica por aprobar');
+    expect(i.detail).toBe('Ana pidió pagar 140,00 € a Lola hace 40 min. Apruébalo o recházalo en «Por aprobar»: caduca a las 24 h.');
+    expect(SELF_RESOLVING.has('approval_pending')).toBe(true);
+    expect((ACKABLE_KINDS as readonly string[]).includes('approval_pending')).toBe(false);
+  });
+
+  it('devolución', () => {
+    const i = approvalPendingIncident({ ...row, kind: 'REFUND', operatorName: null, requester: null }, now);
+    expect(i.title).toBe('Devolución por aprobar');
+    expect(i.detail).toMatch(/^El encargado pidió devolver 140,00 € hace 40 min/);
   });
 });
