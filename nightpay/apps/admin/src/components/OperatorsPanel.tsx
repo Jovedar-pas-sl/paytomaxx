@@ -4,6 +4,7 @@ import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Modal } from '@nightpay/ui';
 import { createOperator, fetchOperators, fetchVenueSettings, type Operator } from '@/lib/api';
 import { formatPercent, parsePercentToBps } from '@/lib/commission';
+import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
 import { Notice } from './Notice';
@@ -41,7 +42,7 @@ export function OperatorsPanel({ isOwner }: Props) {
       try {
         const fresh = await fetchOperators();
         if (signal.aborted) return true;
-        setOperators(fresh);
+        setOperators((prev) => keepIfSame(prev, fresh));
         setError(null);
         return true;
       } catch (err) {

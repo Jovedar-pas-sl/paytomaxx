@@ -12,6 +12,7 @@ import {
   type WalletsAdminStats,
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
+import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
@@ -67,8 +68,8 @@ export function WalletsPanel({ isOwner }: Props) {
           fetchWalletsList({ status: statusFilter === '' ? undefined : statusFilter, limit: WALLETS_LIMIT }),
         ]);
         if (signal.aborted) return true;
-        setStats(s);
-        setRows(list);
+        setStats((prev) => keepIfSame(prev, s));
+        setRows((prev) => keepIfSame(prev, list));
         setError(null);
         return true;
       } catch (err) {

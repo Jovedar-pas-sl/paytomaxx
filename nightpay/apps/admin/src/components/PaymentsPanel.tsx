@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Button, Card, Select, StatusPill, type PaymentStatus } from '@nightpay/ui';
 import { fetchMetrics, fetchPayments, type Metrics, type PaymentRow, type User } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
+import { keepIfSame } from '@/lib/diff';
 import { formatEur, formatMoney } from '@/lib/money';
 import { appendPage, mergeLatestPage } from '@/lib/pagination';
 import { usePolling } from '@/lib/use-polling';
@@ -35,7 +36,8 @@ const STUCK_AUTHORIZING_MS = 15 * 60 * 1000;
 /**
  * Pestaña Pagos: métricas y últimos cobros. Solo pide datos mientras está a
  * la vista (pestaña del panel y del navegador), espera más si el API falla y
- * una respuesta vieja no pisa la de un filtro nuevo.
+ * una respuesta vieja no pisa la de un filtro nuevo. Si llega lo mismo, no se
+ * repinta nada (nada parpadea en cada refresco).
  */
 export function PaymentsPanel({ user }: { user: User }) {
   const tz = useVenueTimezone();
@@ -68,8 +70,8 @@ export function PaymentsPanel({ user }: { user: User }) {
           fetchPayments({ status: filter ? [filter] : undefined, limit }),
         ]);
         if (signal.aborted) return true;
-        setMetrics(m);
-        setPayments((prev) => (prev ? mergeLatestPage(page.items, prev) : page.items));
+        setMetrics((prev) => keepIfSame(prev, m));
+        setPayments((prev) => (prev ? keepIfSame(prev, mergeLatestPage(page.items, prev)) : page.items));
         // Si entretanto se cargó otra página, su cursor es el bueno.
         if (loaded <= MAX_PAGE_SIZE && loaded === loadedRef.current) setNextCursor(page.nextCursor);
         setError(null);
