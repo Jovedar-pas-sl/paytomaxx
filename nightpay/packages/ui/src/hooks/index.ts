@@ -1,3 +1,5 @@
+'use client';
+
 // Hooks de las apps del personal (operadora y TPV). Solo en componentes de cliente.
 
 import { useEffect, useState, useSyncExternalStore } from 'react';

@@ -17,7 +17,7 @@ interface OperatorSeed {
   operatorEmail: string;
 }
 
-let cached: { owner: OwnerSeed; operators: OperatorSeed[] } | null = null;
+const cached: { owner: OwnerSeed; operators: OperatorSeed[] } | null = null;
 
 /**
  * Resuelve el OWNER + operadoras desde el API. Cachea entre tests para
@@ -33,7 +33,6 @@ export async function loadSeed(): Promise<{
   // Conocemos los valores estables del dev-seed (owner@nightpay.local en luna-vlc).
   // Si fallan, falla con mensaje claro para que el dev haga el seed primero.
   const ownerEmail = 'owner@nightpay.local';
-  const venueSlug = 'luna-vlc';
 
   // Mintamos un token "bootstrap" con datos hardcoded — el API valida el JWT
   // (firma + claims), pero el sub/tenantId pueden ser placeholders sin existir
