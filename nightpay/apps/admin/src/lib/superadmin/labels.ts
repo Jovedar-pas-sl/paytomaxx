@@ -50,6 +50,27 @@ export const MOVEMENT_LABELS: Readonly<Record<CustomerMovement['kind'], string>>
   payout: 'Devolución',
 };
 
+/** Estado de un movimiento del saldo (cobro de la recarga, consumo o devolución). */
+const MOVEMENT_STATUS: Readonly<Record<string, string>> = {
+  AUTHORIZED: 'Cobrada',
+  CREATED: 'Sin cobrar',
+  AWAITING_CAPTURE: 'Sin cobrar',
+  AUTHORIZING: 'Cobrándose',
+  FAILED: 'Fallida',
+  EXPIRED: 'Caducada',
+  CANCELED: 'Cancelada',
+  REFUNDED: 'Devuelta',
+  PARTIALLY_REFUNDED: 'Devuelta en parte',
+  ORPHAN: 'Sin cuadrar',
+  OK: 'Hecho',
+  REVERSED: 'Devuelto',
+  DONE: 'Hecha',
+};
+
+export function movementStatusLabel(status: string): string {
+  return MOVEMENT_STATUS[status] ?? status;
+}
+
 /** "+20,00 €" / "−5,00 €" (signo de verdad, no guion). */
 export function formatSignedEur(cents: number): string {
   if (cents === 0) return formatEur(0);

@@ -4,6 +4,7 @@ import {
   formatSignedEur,
   holdDaysText,
   lastAccessText,
+  movementStatusLabel,
   pauseLine,
   personName,
   venuePauseLabel,
@@ -57,5 +58,14 @@ describe('textos', () => {
   it('enlace completo del saldo', () => {
     expect(absoluteApiUrl('https://api.oxiopay.com/', '/w/abc')).toBe('https://api.oxiopay.com/w/abc');
     expect(absoluteApiUrl('http://localhost:4100', 'w/abc')).toBe('http://localhost:4100/w/abc');
+  });
+});
+
+describe('movementStatusLabel', () => {
+  it('estados de la recarga, el consumo y la devolución en llano', () => {
+    expect(movementStatusLabel('AUTHORIZED')).toBe('Cobrada');
+    expect(movementStatusLabel('REVERSED')).toBe('Devuelto');
+    expect(movementStatusLabel('DONE')).toBe('Hecha');
+    expect(movementStatusLabel('NUEVO')).toBe('NUEVO');
   });
 });
