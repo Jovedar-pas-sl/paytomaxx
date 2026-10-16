@@ -20,7 +20,8 @@ import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
 import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury/payout-tx-guard';
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { operatorAppBaseUrl } from './operator-app-url';
-import { availableCentsOf, parseHoldDays, payoutCutoff, payoutTotalCents } from './payout-math';
+import { availableCentsOf, payoutCutoff, payoutTotalCents } from './payout-math';
+import { venueHoldDays } from './venue-hold-days';
 import { payoutRoutingChanges } from './payout-routing';
 import type {
   CreateOperatorDto,
@@ -134,7 +135,7 @@ export class OperatorsService {
   // del middleware CLS).
 
   async getBalance(operatorId: string, tenantId: string): Promise<OperatorBalance> {
-    const cutoff = payoutCutoff(new Date(), this.holdDays());
+    const cutoff = payoutCutoff(new Date(), await this.holdDays(tenantId));
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         pendingCents: bigint;
@@ -169,8 +170,9 @@ export class OperatorsService {
     };
   }
 
-  private holdDays(): number {
-    return parseHoldDays(this.config.get('PAYOUT_HOLD_DAYS'));
+  /** Los del local (regla del super-admin; 0 = al cierre de la noche) o PAYOUT_HOLD_DAYS. */
+  private holdDays(tenantId: string): Promise<number> {
+    return venueHoldDays(this.prisma, this.config.get('PAYOUT_HOLD_DAYS'), tenantId);
   }
 
   /** Devoluciones llegadas con la comisión ya pagada, aún sin descontar. */
@@ -981,6 +983,7 @@ export class OperatorsService {
       where: { id: operatorId, tenantId, role: 'OPERATOR' },
     }) as unknown as { id: string; payoutMethod: string | null } | null;
     if (!operator) throw new NotFoundException('Operadora no encontrada');
+    const holdDays = await this.holdDays(tenantId);
 
     const result = await this.prisma.withTenant(tenantId, async (tx) => {
       // Un hash on-chain solo vale para un pago del local.
@@ -993,9 +996,8 @@ export class OperatorsService {
 
       // SELECT FOR UPDATE de earnings pendientes — incluye tipCents en SUM.
       // L2 (audit): el cálculo previo omitía tipCents → payout subestimaba.
-      // Solo earnings con más de N días (PAYOUT_HOLD_DAYS): el dinero ya está
-      // abonado por el banco y una devolución temprana no deja deuda.
-      const holdDays = this.holdDays();
+      // Solo earnings con más de N días (los del local o PAYOUT_HOLD_DAYS): el
+      // dinero ya está abonado por el banco y una devolución temprana no deja deuda.
       const cutoff = payoutCutoff(new Date(), holdDays);
       const pending = await tx.$queryRaw<
         Array<{ id: string; commissionCents: number; tipCents: number; reversedCents: number }>
@@ -1011,7 +1013,9 @@ export class OperatorsService {
 
       if (pending.length === 0) {
         throw new ConflictException(
-          `No hay comisiones con más de ${holdDays} días para liquidar. Las más recientes siguen en espera.`,
+          holdDays === 0
+            ? 'No hay comisiones pendientes para liquidar.'
+            : `No hay comisiones con más de ${holdDays} días para liquidar. Las más recientes siguen en espera.`,
         );
       }
 

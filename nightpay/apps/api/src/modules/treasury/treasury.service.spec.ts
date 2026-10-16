@@ -4,12 +4,15 @@ import { TreasuryService } from './treasury.service';
 interface Opts {
   balances?: Array<{ operatorId: string; unpaidCents: bigint; heldCents: bigint; debtCents: bigint }>;
   holdDays?: string;
+  /** venues.payoutHoldDays (regla del local; null = PAYOUT_HOLD_DAYS). */
+  venueHoldDays?: number | null;
 }
 
 function makeTreasury(opts: Opts = {}) {
   const sqls: string[] = [];
   const params: unknown[][] = [];
   const prisma = {
+    venue: { findUnique: vi.fn().mockResolvedValue({ payoutHoldDays: opts.venueHoldDays ?? null }) },
     $queryRaw: vi.fn().mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const sql = strings.join('?');
       sqls.push(sql);
@@ -62,6 +65,15 @@ describe('TreasuryService.getStats — pendiente a chicas = lo que hay que pagar
     const cutoff = params[i]!.find((v): v is Date => v instanceof Date)!;
     const expected = before - 3 * 24 * 3600 * 1000;
     expect(Math.abs(cutoff.getTime() - expected)).toBeLessThan(5_000);
+  });
+
+  it('con días de espera del local, mandan los del local (0 = todo se puede pagar ya), no PAYOUT_HOLD_DAYS', async () => {
+    const { svc, sqls, params } = makeTreasury({ holdDays: '3', venueHoldDays: 0 });
+    const before = Date.now();
+    await svc.getStats('t-1');
+    const i = sqls.findIndex((s) => s.includes('operator_earnings'));
+    const cutoff = params[i]!.find((v): v is Date => v instanceof Date)!;
+    expect(Math.abs(cutoff.getTime() - before)).toBeLessThan(5_000);
   });
 
   it('sin chicas → todo a cero', async () => {

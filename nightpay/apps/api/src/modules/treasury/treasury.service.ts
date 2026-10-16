@@ -11,7 +11,8 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from './payout-verifier.factory';
-import { parseHoldDays, payableSummary, payoutCutoff } from '../operators/payout-math';
+import { payableSummary, payoutCutoff } from '../operators/payout-math';
+import { venueHoldDays } from '../operators/venue-hold-days';
 import {
   isAutoVerifiable,
   type VerifyResult,
@@ -308,11 +309,12 @@ export class TreasuryService {
   /**
    * Saldo de cada chica del local con la misma cuenta que OperatorsService.
    * getBalance y createPayout: comisión + propina − devuelto de lo no pagado,
-   * lo que sigue en espera (PAYOUT_HOLD_DAYS) y la deuda por devoluciones
-   * llegadas con la comisión ya pagada.
+   * lo que sigue en espera (días del local o PAYOUT_HOLD_DAYS) y la deuda por
+   * devoluciones llegadas con la comisión ya pagada.
    */
   private async operatorBalances(tenantId: string) {
-    const cutoff = payoutCutoff(new Date(), parseHoldDays(this.config.get('PAYOUT_HOLD_DAYS')));
+    const holdDays = await venueHoldDays(this.prisma, this.config.get('PAYOUT_HOLD_DAYS'), tenantId);
+    const cutoff = payoutCutoff(new Date(), holdDays);
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{ operatorId: string; unpaidCents: bigint; heldCents: bigint; debtCents: bigint }>
     >`

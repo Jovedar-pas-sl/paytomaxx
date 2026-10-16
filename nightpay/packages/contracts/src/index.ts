@@ -10,3 +10,4 @@ export * from './services';
 export * from './money';
 export * from './wallet-pin';
 export * from './wallet-card';
+export * from './superadmin';

@@ -41,10 +41,25 @@ model Venue {
   vatRegime             String    @default("GENERAL")
   // Saldo NightPay: locales del mismo grupo (mismo dueño) comparten el saldo del cliente.
   walletGroup           String?
+  // Consola del super-admin (20261016100000): negocio cliente al que pertenece.
+  businessId            String?   @db.Uuid
+  // Local en pausa (o su negocio): sin cobros, recargas ni cobros del saldo nuevos (423 VENUE_PAUSED).
+  pausedAt              DateTime? @db.Timestamptz
+  pausedReason          String?
+  // IBAN donde el banco liquida los cobros con tarjeta (sin espacios, mod-97 en el API).
+  settlementIban        String?
+  settlementHolder      String?
+  // Días de espera antes de pagar a las chicas (0-60). Null = PAYOUT_HOLD_DAYS del entorno.
+  payoutHoldDays        Int?
+  // Reglas de aprobación (las aplica la bandeja de aprobaciones): devoluciones
+  // desde este importe y pagos a las chicas los pide el encargado y los aprueba el dueño con 2FA.
+  refundApprovalThresholdCents Int     @default(10000)
+  payoutRequiresApproval       Boolean @default(true)
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz
 
+  business           Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
   users              User[]
   terminals          Terminal[]
   gatewayCredentials GatewayCredential[]
@@ -59,7 +74,38 @@ model Venue {
   incidentAcks       IncidentAck[]
   posTerminalOps     PosTerminalOp[]
 
+  @@index([businessId])
   @@map("venues")
+}
+
+enum BusinessStatus {
+  ACTIVE
+  PAUSED
+}
+
+// Negocio cliente de OxioPay (razón social con sus locales). Global, sin local:
+// solo lo gestiona el super-admin (acrossVenues; RLS solo con bypass).
+// En pausa: ninguno de sus locales acepta cobros nuevos.
+model Business {
+  id                           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                         String
+  // NIF/CIF en mayúsculas, sin espacios ni guiones.
+  taxId                        String?        @unique
+  contactName                  String?
+  contactEmail                 String?
+  contactPhone                 String?
+  notes                        String?
+  status                       BusinessStatus @default(ACTIVE)
+  pausedAt                     DateTime?      @db.Timestamptz
+  pausedReason                 String?
+  // Comisión de la plataforma para sus locales nuevos (null = la general del local).
+  defaultPlatformCommissionBps Int?
+  createdAt                    DateTime       @default(now()) @db.Timestamptz
+  updatedAt                    DateTime       @default(now()) @updatedAt @db.Timestamptz
+
+  venues Venue[]
+
+  @@map("businesses")
 }
 
 enum Role {
@@ -784,6 +830,9 @@ model ClientWallet {
   pinFailedAt      DateTime? @db.Timestamptz
   // El encargado que puso el PIN sin el cliente delante: él no cobra con ese PIN.
   pinSetById       String?   @db.Uuid
+  // Bloqueado por el super-admin: no paga (sí se le puede devolver). 20261016100100.
+  blockedAt        DateTime? @db.Timestamptz
+  blockedReason    String?
   createdAt    DateTime     @default(now()) @db.Timestamptz
   updatedAt    DateTime     @updatedAt @db.Timestamptz
 

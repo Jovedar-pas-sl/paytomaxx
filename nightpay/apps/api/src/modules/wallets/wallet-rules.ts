@@ -76,17 +76,18 @@ export function effectiveRequestStatus(r: { status: string; expiresAt: Date }, n
 
 export type AcceptDecision =
   | { ok: true }
-  | { ok: false; reason: 'not-pending' | 'expired' | 'wallet-closed' | 'insufficient' };
+  | { ok: false; reason: 'not-pending' | 'expired' | 'wallet-closed' | 'insufficient' | 'blocked' };
 
-/** ¿Se puede aceptar ahora este cobro con este saldo? */
+/** ¿Se puede aceptar ahora este cobro con este saldo? (bloqueado por el super-admin: no paga) */
 export function decideAccept(
   request: { status: string; expiresAt: Date; amountCents: number },
-  wallet: { status: string; balanceCents: number },
+  wallet: { status: string; balanceCents: number; blockedAt?: Date | null },
   now: Date,
 ): AcceptDecision {
   const status = effectiveRequestStatus(request, now);
   if (status === 'EXPIRED') return { ok: false, reason: 'expired' };
   if (status !== 'PENDING') return { ok: false, reason: 'not-pending' };
+  if (wallet.blockedAt) return { ok: false, reason: 'blocked' };
   if (wallet.status !== 'ACTIVE') return { ok: false, reason: 'wallet-closed' };
   if (wallet.balanceCents < request.amountCents) return { ok: false, reason: 'insufficient' };
   return { ok: true };

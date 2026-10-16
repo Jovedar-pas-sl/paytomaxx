@@ -7,6 +7,7 @@ import {
   parseHoldDays,
   payoutCutoff,
   payoutTotalCents,
+  resolveHoldDays,
 } from './payout-math';
 
 describe('payout-math', () => {
@@ -43,6 +44,18 @@ describe('payout-math', () => {
     expect(parseHoldDays('abc')).toBe(DEFAULT_PAYOUT_HOLD_DAYS);
     expect(parseHoldDays('-1')).toBe(DEFAULT_PAYOUT_HOLD_DAYS);
     expect(parseHoldDays('3')).toBe(3);
+  });
+
+  it('días de espera del local: los suyos (0 incluido) o, si son null o no valen, PAYOUT_HOLD_DAYS', () => {
+    expect(resolveHoldDays(0, '7')).toBe(0);
+    expect(resolveHoldDays(2, '7')).toBe(2);
+    expect(resolveHoldDays(60, '7')).toBe(60);
+    expect(resolveHoldDays(null, '3')).toBe(3);
+    expect(resolveHoldDays(undefined, undefined)).toBe(DEFAULT_PAYOUT_HOLD_DAYS);
+    // Fuera de rango o no entero (no debería pasar: CHECK en la base): el del entorno.
+    expect(resolveHoldDays(61, '3')).toBe(3);
+    expect(resolveHoldDays(-1, '3')).toBe(3);
+    expect(resolveHoldDays(1.5, '3')).toBe(3);
   });
 
   it('disponible para pagar = no pagado − en espera − deuda (como el saldo de la chica)', () => {

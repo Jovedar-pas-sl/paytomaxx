@@ -30,6 +30,7 @@ import { NightsModule } from './modules/nights/nights.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { BankReconModule } from './modules/bank-recon/bank-recon.module';
 import { PosDeviceModule } from './modules/pos-device/pos-device.module';
+import { SuperAdminModule } from './modules/superadmin/superadmin.module';
 import { VenuesModule } from './modules/venues/venues.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
@@ -78,6 +79,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     IncidentsModule,
     BankReconModule,
     PosDeviceModule,
+    SuperAdminModule,
     WalletsModule,
     WebhooksModule,
   ],

@@ -48,6 +48,8 @@ function makeOps(opts: MakeOptions = {}) {
     },
     venue: {
       findUniqueOrThrow: vi.fn().mockResolvedValue({ name: 'Local', operatorCommissionDefaults: { CHICA_SERVICE: 9000 } }),
+      // Días de espera del local: null = PAYOUT_HOLD_DAYS.
+      findUnique: vi.fn().mockResolvedValue({ payoutHoldDays: null }),
     },
   };
   Object.assign(prisma, {
@@ -202,6 +204,54 @@ describe('OperatorsService.createPayout — un hash on-chain no se apunta en dos
     await svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalTxId: 'EFECTIVO', externalRail: 'MANUAL_CASH' });
     const { withTenant } = prisma as unknown as { withTenant: ReturnType<typeof vi.fn> };
     expect(withTenant).toHaveBeenCalledWith('t-1', expect.any(Function));
+  });
+});
+
+describe('OperatorsService — días de espera del local (pago al cierre de la noche)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /** El corte (fecha) que llega a la consulta de comisiones pendientes. */
+  function cutoffOf(queryRaw: ReturnType<typeof vi.fn>): Date {
+    const call = queryRaw.mock.calls.find(([strings]) => (strings as string[]).join('?').includes('"createdAt" <='));
+    return (call!.slice(1) as unknown[]).find((v): v is Date => v instanceof Date)!;
+  }
+
+  function withVenueHoldDays(payoutHoldDays: number | null) {
+    const made = makeOps({ operator: { payoutMethod: 'MANUAL_CASH' } });
+    const prisma = made.prisma as unknown as Record<string, unknown> & { venue: { findUnique: ReturnType<typeof vi.fn> } };
+    prisma.venue.findUnique.mockResolvedValue({ payoutHoldDays });
+    const queryRaw = vi.fn().mockImplementation(async (strings: TemplateStringsArray) =>
+      strings.join('?').includes('earning_reversals') ? [] : [{ id: 'e-1', commissionCents: 9000, tipCents: 0, reversedCents: 0 }],
+    );
+    Object.assign(prisma, {
+      $queryRaw: queryRaw,
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      operatorPayout: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'po-1', totalCents: 9000, createdAt: new Date() }),
+      },
+    });
+    return { ...made, queryRaw };
+  }
+
+  it('el local con 0 días: se paga todo lo de la noche (corte = ahora), sin mirar PAYOUT_HOLD_DAYS', async () => {
+    const { svc, queryRaw } = withVenueHoldDays(0);
+    const before = Date.now();
+    await svc.createPayout('t-1', 'op-1', 'u-owner');
+    expect(Math.abs(cutoffOf(queryRaw).getTime() - before)).toBeLessThan(5_000);
+  });
+
+  it('sin regla del local (null): PAYOUT_HOLD_DAYS (7 por defecto)', async () => {
+    const { svc, queryRaw } = withVenueHoldDays(null);
+    const before = Date.now();
+    await svc.createPayout('t-1', 'op-1', 'u-owner');
+    expect(Math.abs(cutoffOf(queryRaw).getTime() - (before - 7 * 24 * 3600 * 1000))).toBeLessThan(5_000);
+  });
+
+  it('0 días y nada pendiente: el aviso no habla de "más de 0 días"', async () => {
+    const { svc, queryRaw } = withVenueHoldDays(0);
+    queryRaw.mockResolvedValue([]);
+    await expect(svc.createPayout('t-1', 'op-1', 'u-owner')).rejects.toThrow('No hay comisiones pendientes para liquidar.');
   });
 });
 
