@@ -93,7 +93,8 @@ export class SuperAdminCustomersService {
       return found;
     });
 
-    const unique = [...new Map(matches.map((m) => [m.wallet.id, m])).values()].slice(0, MAX_RESULTS);
+    // Un saldo una vez, con la primera forma en que se encontró.
+    const unique = matches.filter((m, i) => matches.findIndex((o) => o.wallet.id === m.wallet.id) === i).slice(0, MAX_RESULTS);
     const venueNames = await this.venueNames(unique.map((m) => m.wallet.tenantId));
     return unique.map(({ wallet: w, matchedBy }) => ({
       walletId: w.id,
