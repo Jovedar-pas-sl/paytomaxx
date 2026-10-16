@@ -18,6 +18,8 @@ interface Props<K extends string> {
   size?: 'md' | 'sm';
   /** Clase extra (p. ej. para ocultarla en el móvil, donde va la barra de abajo). */
   className?: string;
+  /** Globo con un número junto a la etiqueta (p. ej. lo que hay por aprobar) y lo que se lee. */
+  badges?: Partial<Record<K, { text: string; spoken: string } | null>>;
 }
 
 export function tabId(prefix: string, key: string): string {
@@ -42,6 +44,7 @@ export function TabBar<K extends string>({
   idPrefix,
   size = 'md',
   className,
+  badges,
 }: Props<K>) {
   const buttons = useRef(new Map<K, HTMLButtonElement>());
 
@@ -78,6 +81,7 @@ export function TabBar<K extends string>({
     >
       {tabs.map((t, i) => {
         const selected = t.key === active;
+        const badge = badges?.[t.key] ?? null;
         return (
           <button
             key={t.key}
@@ -96,6 +100,14 @@ export function TabBar<K extends string>({
             className="np-tab"
           >
             {t.label}
+            {badge ? (
+              <>
+                <span className="np-tab-badge" aria-hidden="true">
+                  {badge.text}
+                </span>
+                <span className="np-sr-only">, {badge.spoken}</span>
+              </>
+            ) : null}
           </button>
         );
       })}

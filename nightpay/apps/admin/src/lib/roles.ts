@@ -21,9 +21,11 @@ export type TabKey =
   | 'treasury'
   | 'terminals'
   | 'settings'
-  | 'venues';
+  | 'venues'
+  | 'approvals'
+  | 'requests';
 
-type TabAccess = 'staff' | 'owner' | 'superadmin';
+type TabAccess = 'staff' | 'owner' | 'manager' | 'superadmin';
 
 export interface PanelTab {
   key: TabKey;
@@ -33,6 +35,9 @@ export interface PanelTab {
 
 export const PANEL_TABS: readonly PanelTab[] = [
   { key: 'payments', label: 'Pagos', access: 'staff' },
+  // «Por aprobar»: aprobar y rechazar son solo del dueño; el encargado ve lo que pidió.
+  { key: 'approvals', label: 'Por aprobar', access: 'owner' },
+  { key: 'requests', label: 'Mis solicitudes', access: 'manager' },
   { key: 'nights', label: 'Noches', access: 'staff' },
   { key: 'incidents', label: 'Incidencias', access: 'staff' },
   // /v1/bank-recon/*: solo OWNER.
@@ -52,6 +57,7 @@ export function visibleTabs(user: { role: string; isSuperAdmin?: boolean }): Pan
   if (!canUsePanel(user.role)) return [];
   return PANEL_TABS.filter((t) => {
     if (t.access === 'owner') return user.role === 'OWNER';
+    if (t.access === 'manager') return user.role === 'MANAGER';
     if (t.access === 'superadmin') return Boolean(user.isSuperAdmin);
     return true;
   });

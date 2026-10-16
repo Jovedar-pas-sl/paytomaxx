@@ -22,7 +22,9 @@ export type IncidentKind =
   | 'amount_mismatch'
   | 'approval_unbooked'
   /** Devolución PENDIENTE con el banco más de 5 min (no se marca: se quita sola al resolverla). */
-  | 'refund_pending';
+  | 'refund_pending'
+  /** «Por aprobar» sin decidir desde hace más de 30 min (se quita sola al decidirla o caducar). */
+  | 'approval_pending';
 
 export interface Incident {
   kind: IncidentKind;

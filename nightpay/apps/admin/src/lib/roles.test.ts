@@ -29,6 +29,13 @@ describe('visibleTabs', () => {
     expect(keys({ role: 'OWNER', isSuperAdmin: true })).toContain('venues');
   });
 
+  it('«Por aprobar» solo el dueño; «Mis solicitudes» solo el encargado', () => {
+    expect(keys({ role: 'OWNER' })).toContain('approvals');
+    expect(keys({ role: 'OWNER' })).not.toContain('requests');
+    expect(keys({ role: 'MANAGER' })).toContain('requests');
+    expect(keys({ role: 'MANAGER' })).not.toContain('approvals');
+  });
+
   it('camareros y chicas: ninguna pestaña', () => {
     expect(keys({ role: 'WAITER' })).toEqual([]);
     expect(keys({ role: 'OPERATOR', isSuperAdmin: true })).toEqual([]);

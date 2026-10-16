@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { badgeText, bottomNavItems, isMoreActive } from '@/lib/bottom-nav';
+import { bottomNavItems, isMoreActive, navBadge } from '@/lib/bottom-nav';
 import type { PanelTab, TabKey } from '@/lib/roles';
 
 interface Props {
@@ -10,6 +10,8 @@ interface Props {
   onChange: (key: TabKey) => void;
   /** Incidencias abiertas (null = aún no se sabe). */
   openIncidents: number | null;
+  /** Solicitudes que este dueño puede aprobar (null = aún no se sabe, o no es dueño). */
+  pendingApprovals?: number | null;
   /** Cuenta y «Salir»: en el móvil viven en «Más». */
   account: ReactNode;
 }
@@ -19,7 +21,7 @@ interface Props {
  * Pagos · Noche · Incidencias · Chicas · Más. «Más» abre una hoja con el resto
  * de pestañas que ese rol ve, y la cuenta.
  */
-export function BottomNav({ tabs, active, onChange, openIncidents, account }: Props) {
+export function BottomNav({ tabs, active, onChange, openIncidents, pendingApprovals = null, account }: Props) {
   const model = bottomNavItems(tabs);
   const [sheetOpen, setSheetOpen] = useState(false);
   const moreButton = useRef<HTMLButtonElement>(null);
@@ -36,7 +38,7 @@ export function BottomNav({ tabs, active, onChange, openIncidents, account }: Pr
       <nav className="np-bottomnav" aria-label="Secciones del panel">
         <ul>
           {model.primary.map((item) => {
-            const badge = item.key === 'incidents' ? badgeText(openIncidents ?? 0) : '';
+            const badge = navBadge(item.key, { incidents: openIncidents, approvals: pendingApprovals });
             return (
               <li key={item.key}>
                 <button
@@ -49,12 +51,12 @@ export function BottomNav({ tabs, active, onChange, openIncidents, account }: Pr
                     <NavIcon name={item.key} />
                     {badge ? (
                       <span className="np-bottomnav-badge" aria-hidden="true">
-                        {badge}
+                        {badge.text}
                       </span>
                     ) : null}
                   </span>
                   <span className="np-bottomnav-label">{item.label}</span>
-                  {badge ? <span className="np-sr-only">, {openIncidents} abiertas</span> : null}
+                  {badge ? <span className="np-sr-only">, {badge.spoken}</span> : null}
                 </button>
               </li>
             );
@@ -189,6 +191,7 @@ const ICON_PATHS: Partial<Record<IconName, string>> = {
   nights: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z',
   incidents: 'M12 4v9M12 17.5v.5M10.3 3.6 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z',
   operators: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20a6.5 6.5 0 0 1 13 0M16 4.3a3.5 3.5 0 0 1 0 6.4M18 14.5a6.5 6.5 0 0 1 3.5 5.5',
+  approvals: 'M8.5 12.5l2.5 2.5 4.5-5M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   close: 'M6 6l12 12M18 6 6 18',
 };
