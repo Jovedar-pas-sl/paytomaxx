@@ -26,3 +26,11 @@ export function changedFields<T extends object>(initial: T, current: T): Partial
     {},
   );
 }
+
+/**
+ * Para los refrescos automáticos: `setX((prev) => keepIfSame(prev, next))`.
+ * Si llega lo mismo, se queda el objeto anterior y la pantalla no se repinta.
+ */
+export function keepIfSame<T>(previous: T, next: T): T {
+  return sameValue(previous, next) ? previous : next;
+}
