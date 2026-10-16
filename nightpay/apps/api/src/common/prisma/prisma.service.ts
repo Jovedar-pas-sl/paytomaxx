@@ -1,10 +1,11 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ClsService } from 'nestjs-cls';
-import { PrismaClient } from '@nightpay/db';
+import { Prisma, PrismaClient } from '@nightpay/db';
 import type { RequestContext } from '../context/request-context';
 import { MetricsService } from '../../modules/metrics/metrics.service';
 import { TENANT_SCOPED_MODELS, scopeToTenant } from './tenant-scope';
+import { TENANT_GUC, forcedRlsTarget } from './rls';
 
 export { TENANT_SCOPED_MODELS };
 
@@ -20,8 +21,25 @@ export class UnscopedTenantQueryError extends Error {
   }
 }
 
+/**
+ * Consulta a una tabla con FORCE RLS fuera de una transacción de
+ * PrismaService: esa conexión no lleva ni el local ni el bypass, así que con
+ * un rol sin superusuario no ve filas. Solo se lanza con
+ * TENANCY_UNSCOPED_QUERIES=throw; por defecto se registra (log + métrica).
+ */
+export class RlsOutsideTransactionError extends Error {
+  constructor(target: string, action: string) {
+    super(`Consulta a ${target} (${action}) fuera de una transacción: usa withTenant, asSystem o acrossVenues`);
+    this.name = 'RlsOutsideTransactionError';
+  }
+}
+
 /** Un aviso por modelo.acción cada 10 min (la métrica cuenta todas). */
 const UNSCOPED_LOG_EVERY_MS = 10 * 60 * 1000;
+
+type BatchOptions = { isolationLevel?: Prisma.TransactionIsolationLevel };
+type ItxOptions = BatchOptions & { maxWait?: number; timeout?: number };
+type UnwrapTuple<P extends readonly unknown[]> = { [K in keyof P]: Awaited<P[K]> };
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -50,6 +68,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   async onModuleInit(): Promise<void> {
     // Middleware: inyecta tenantId desde CLS en todas las queries tenant-scoped
     this.$use(async (params, next) => {
+      // Las tablas con FORCE RLS solo dentro de una transacción (local o bypass en la sesión).
+      if (!params.runInTransaction) this.checkForcedRls(params);
       if (!params.model || !TENANT_SCOPED_MODELS.has(params.model)) return next(params);
       const ctx = this.currentContext();
       if (ctx?.tenantId) return next(scopeToTenant(params, ctx.tenantId));
@@ -66,6 +86,46 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   async onModuleDestroy(): Promise<void> {
     await this.$disconnect();
+  }
+
+  /**
+   * El $transaction de Prisma y, si es trabajo de un local (contexto con
+   * local, fuera de asSystem/acrossVenues), con ese local en la sesión de la
+   * transacción (`app.current_tenant_id`, solo mientras dura): las políticas
+   * de RLS de la base aíslan por local también en las tablas con FORCE RLS.
+   * Cuesta una sentencia más por transacción. Sin local en el contexto, igual
+   * que antes.
+   */
+  override $transaction<P extends Prisma.PrismaPromise<unknown>[]>(
+    arg: [...P],
+    options?: BatchOptions,
+  ): Promise<UnwrapTuple<P>>;
+  override $transaction<R>(fn: (tx: TransactionalClient) => Promise<R>, options?: ItxOptions): Promise<R>;
+  override $transaction(arg: unknown, options?: ItxOptions): Promise<unknown> {
+    const tenantId = this.sessionTenant();
+    if (typeof arg === 'function') {
+      const fn = arg as (tx: TransactionalClient) => Promise<unknown>;
+      if (!tenantId) return super.$transaction(fn, options);
+      return super.$transaction(async (tx) => {
+        await tx.$executeRaw(tenantStatement(tenantId));
+        return fn(tx);
+      }, options);
+    }
+    const ops = arg as Prisma.PrismaPromise<unknown>[];
+    if (!tenantId) return super.$transaction(ops, options);
+    return super.$transaction([this.$executeRaw(tenantStatement(tenantId)), ...ops], options).then(([, ...rest]) => rest);
+  }
+
+  /**
+   * Trabajo de UN local con RLS de verdad: una transacción con ese local en
+   * la sesión y sin bypass. En las tablas con FORCE RLS solo se ven (y solo se
+   * pueden escribir) filas de ese local aunque la consulta no filtrara, y el
+   * middleware también filtra por él. Para el panel y la app de las chicas, y
+   * para trabajos que saben de qué local son.
+   */
+  async withTenant<T>(tenantId: string, fn: (tx: TransactionalClient) => Promise<T>): Promise<T> {
+    if (!tenantId) throw new Error('withTenant necesita un local');
+    return this.withContext({ tenantId, system: false, acrossVenues: false }, () => this.$transaction(fn));
   }
 
   /**
@@ -105,23 +165,51 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     return this.cls.isActive() ? this.cls.get('ctx') : undefined;
   }
 
+  /** El local que va en la sesión de las transacciones (no en asSystem/acrossVenues: llevan bypass). */
+  private sessionTenant(): string | undefined {
+    const ctx = this.currentContext();
+    return ctx?.tenantId && !ctx.system && !ctx.acrossVenues ? ctx.tenantId : undefined;
+  }
+
+  /** Tabla con FORCE RLS fuera de una transacción: se avisa (y con la política throw se corta). */
+  private checkForcedRls(params: { model?: string; action: string; args?: unknown }): void {
+    const target = forcedRlsTarget(params);
+    if (!target) return;
+    this.metrics?.rlsOutsideTransaction.inc({ target, action: params.action });
+    const traceId = this.currentContext()?.traceId ?? '-';
+    this.logEvery10Min(
+      `rls:${target}.${params.action}`,
+      `Consulta a ${target} (${params.action}) fuera de una transacción (traceId=${traceId}): ` +
+        'con un rol de base de datos sin superusuario no ve filas (FORCE RLS). Usa withTenant/asSystem/acrossVenues',
+    );
+    if (this.unscopedPolicy() === 'throw') throw new RlsOutsideTransactionError(target, params.action);
+  }
+
   private reportUnscoped(model: string, action: string, traceId: string | undefined): void {
     this.metrics?.tenantUnscopedQueries.inc({ model, action });
-    const key = `${model}.${action}`;
-    const now = Date.now();
-    if (now - (this.lastUnscopedLog.get(key) ?? 0) >= UNSCOPED_LOG_EVERY_MS) {
-      this.lastUnscopedLog.set(key, now);
-      this.logger.error(
-        `Consulta a ${key} sin local ni asSystem/acrossVenues (traceId=${traceId ?? '-'}): revisar aislamiento por local`,
-      );
-    }
+    this.logEvery10Min(
+      `${model}.${action}`,
+      `Consulta a ${model}.${action} sin local ni asSystem/acrossVenues (traceId=${traceId ?? '-'}): revisar aislamiento por local`,
+    );
     if (this.unscopedPolicy() === 'throw') throw new UnscopedTenantQueryError(model, action);
+  }
+
+  private logEvery10Min(key: string, message: string): void {
+    const now = Date.now();
+    if (now - (this.lastUnscopedLog.get(key) ?? 0) < UNSCOPED_LOG_EVERY_MS) return;
+    this.lastUnscopedLog.set(key, now);
+    this.logger.error(message);
   }
 
   private unscopedPolicy(): 'log' | 'throw' {
     const raw = this.config?.get<string>('TENANCY_UNSCOPED_QUERIES') ?? process.env.TENANCY_UNSCOPED_QUERIES;
     return raw === 'throw' ? 'throw' : 'log';
   }
+}
+
+/** Pone el local en la sesión solo para la transacción en curso (is_local = true). */
+function tenantStatement(tenantId: string): Prisma.Sql {
+  return Prisma.sql`SELECT set_config(${TENANT_GUC}, ${tenantId}, true)`;
 }
 
 /**
