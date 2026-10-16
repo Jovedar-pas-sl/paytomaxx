@@ -1,0 +1,167 @@
+/* Panel (admin) · franja «Esta noche» encima de Pagos.
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Solo se anima
+   transform/opacity, y nada con prefers-reduced-motion. Móvil = hasta 640px. */
+
+/* ─── «Esta noche» (encima de Pagos) ──────────────────────────────── */
+
+.np-tonight {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--np-border);
+  border-top: 3px solid var(--np-accent);
+  border-radius: var(--np-r-lg);
+  background: var(--np-surface);
+  animation: np-rise-in var(--np-d-slow) var(--np-ease);
+}
+
+@keyframes np-rise-in {
+  from { transform: translateY(6px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+.np-tonight-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
+}
+
+.np-tonight-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--np-text);
+}
+
+.np-tonight-since {
+  font-size: 0.8125rem;
+  color: var(--np-text-mute);
+}
+
+.np-tonight-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.np-tonight-fig {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.25rem 1.25rem;
+  border-left: 1px solid var(--np-border);
+}
+
+.np-tonight-fig:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.np-tonight-fig dt {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--np-text-dim);
+}
+
+.np-tonight-fig dd {
+  margin: 0;
+  font-family: var(--np-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(1.5rem, 1rem + 2vw, 2.5rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-tonight-fig[data-hero] dd {
+  color: var(--np-accent);
+}
+
+.np-tonight-note {
+  font-size: 0.75rem;
+  color: var(--np-text-mute);
+}
+
+.np-tonight-link {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--np-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--np-accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.np-tonight-link:hover {
+  color: var(--np-accent);
+}
+
+.np-tonight-link:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 3px;
+}
+
+@media (max-width: 640px) {
+  .np-tonight {
+    padding: 1rem 1.125rem;
+  }
+
+  .np-tonight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 1rem;
+  }
+
+  .np-tonight-fig {
+    padding: 0.25rem 0 0.25rem 1rem;
+  }
+
+  .np-tonight-fig:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  /* Dos columnas en 375px: la cifra entera en una línea ("12.345,67 €"). */
+  .np-tonight-fig dd {
+    font-size: clamp(1.125rem, 5vw, 1.75rem);
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  /* Las cifras de "Hoy" de Pagos, de dos en dos y más compactas. */
+  .np-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.625rem !important;
+  }
+
+  .np-metric {
+    padding: 0.875rem 1rem !important;
+  }
+
+  .np-metric-value {
+    font-size: 1.25rem !important;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-tonight {
+    animation: none;
+  }
+}

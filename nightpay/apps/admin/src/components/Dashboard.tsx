@@ -115,7 +115,7 @@ export function Dashboard({ user, onLogout }: Props) {
             aria-labelledby={tabId(TABS_ID, tab)}
             style={{ display: 'flex', flexDirection: 'column', gap: '2rem', minWidth: 0 }}
           >
-            <ActivePanel tab={tab} user={user} />
+            <ActivePanel tab={tab} user={user} onNavigate={goTo} />
           </div>
         </main>
 
@@ -153,11 +153,11 @@ function AccountLines({ user }: { user: User }) {
   );
 }
 
-function ActivePanel({ tab, user }: { tab: TabKey; user: User }) {
+function ActivePanel({ tab, user, onNavigate }: { tab: TabKey; user: User; onNavigate: (key: TabKey) => void }) {
   const isOwner = user.role === 'OWNER';
   switch (tab) {
     case 'payments':
-      return <PaymentsPanel user={user} />;
+      return <PaymentsPanel user={user} onNavigate={onNavigate} />;
     case 'nights':
       return <NightsPanel isOwner={isOwner} />;
     case 'incidents':

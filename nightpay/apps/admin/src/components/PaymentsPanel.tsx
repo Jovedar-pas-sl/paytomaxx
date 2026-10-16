@@ -7,11 +7,13 @@ import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur, formatMoney } from '@/lib/money';
 import { appendPage, mergeLatestPage } from '@/lib/pagination';
+import type { TabKey } from '@/lib/roles';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { BankRefundModal } from './BankRefundModal';
 import { RefundModal, ResolveModal } from './PaymentModals';
 import { RefundsModal } from './RefundsModal';
+import { TonightStrip } from './TonightStrip';
 
 const PAGE_SIZE = 50;
 /** Tope de `limit` en GET /v1/admin/payments. */
@@ -33,13 +35,18 @@ const STATUS_FILTERS: Array<{ value: string; label: string }> = [
 
 const STUCK_AUTHORIZING_MS = 15 * 60 * 1000;
 
+interface Props {
+  user: User;
+  onNavigate?: (key: TabKey) => void;
+}
+
 /**
- * Pestaña Pagos: métricas y últimos cobros. Solo pide datos mientras está a
- * la vista (pestaña del panel y del navegador), espera más si el API falla y
- * una respuesta vieja no pisa la de un filtro nuevo. Si llega lo mismo, no se
- * repinta nada (nada parpadea en cada refresco).
+ * Pestaña Pagos: «Esta noche», métricas y últimos cobros. Solo pide datos
+ * mientras está a la vista (pestaña del panel y del navegador), espera más si
+ * el API falla y una respuesta vieja no pisa la de un filtro nuevo. Si llega
+ * lo mismo, no se repinta nada (nada parpadea en cada refresco).
  */
-export function PaymentsPanel({ user }: { user: User }) {
+export function PaymentsPanel({ user, onNavigate }: Props) {
   const tz = useVenueTimezone();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   /** null = aún no ha llegado la primera página. */
@@ -123,6 +130,8 @@ export function PaymentsPanel({ user }: { user: User }) {
 
   return (
     <>
+      <TonightStrip onNavigate={onNavigate} />
+
       {error ? (
         <Card style={{ padding: '1rem', borderColor: 'var(--np-danger)' }}>
           <div style={errorRow}>
@@ -137,7 +146,7 @@ export function PaymentsPanel({ user }: { user: User }) {
         </Card>
       ) : null}
 
-      <section style={metricsGrid}>
+      <section className="np-metrics" style={metricsGrid}>
         <MetricTile title="Hoy · pagos" value={metrics ? String(metrics.today.count) : '—'} />
         <MetricTile
           title="Hoy · cobrado"
@@ -324,10 +333,10 @@ function MetricTile({
   highlight?: boolean;
 }) {
   return (
-    <Card variant={highlight ? 'glow' : 'default'} style={{ padding: '1.25rem 1.5rem' }}>
+    <Card variant={highlight ? 'glow' : 'default'} className="np-metric" style={{ padding: '1.25rem 1.5rem' }}>
       <p style={metricLabel}>{title}</p>
       <p
-        className="np-num"
+        className="np-num np-metric-value"
         style={{
           ...metricValue,
           color: highlight ? 'var(--np-accent)' : 'var(--np-text)',
