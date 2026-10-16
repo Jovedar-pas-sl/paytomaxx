@@ -1,0 +1,139 @@
+# Consola del super-admin (`/v1/superadmin/*`)
+
+API para que el dueño de la plataforma (usuario con `users.isSuperAdmin = true`)
+lo controle todo desde un sitio: negocios clientes, locales, personal, cuentas
+de cobro de las chicas, clientes con saldo y el registro. El panel la usará más
+adelante; los contratos (zod + tipos) están en
+`packages/contracts/src/superadmin.ts` (`@nightpay/contracts`).
+
+Código: `apps/api/src/modules/superadmin/`. Migraciones:
+`20261016100000_superadmin_negocios` y `20261016100100_saldo_bloqueado`.
+
+## Reglas comunes
+
+- **Acceso.** Sesión normal (Bearer) y además `SuperAdminGuard`: lee
+  `isSuperAdmin` y la baja (`deletedAt`) de la base **en cada petición**. Un JWT
+  emitido antes de quitarle el permiso no sirve. Fallo → 403 `Solo para super-admins`.
+- **Todos los locales.** El super-admin tiene su local activo en la sesión; la
+  consola consulta con `acrossVenues` (sin filtro de local y con bypass de RLS),
+  así que ve todo, también las tablas con FORCE RLS (saldos, consumos…).
+- **Step-up 2FA.** Las escrituras que mueven dinero o identidades piden
+  `totpCode` (código de 6 cifras de la app del propio super-admin) en el cuerpo,
+  aunque la sesión esté abierta. Errores (`code` en la respuesta):
+  - `TOTP_NOT_ENROLLED` 403: el super-admin no tiene 2FA → tiene que activarla
+    antes (perfil).
+  - `TOTP_REQUIRED` 403: falta el código.
+  - `TOTP_INVALID` 403: código malo o ya usado (cada código vale una vez).
+  - `TOTP_LOCKED` 429: demasiados códigos malos; esperar.
+  Cada fallo queda en el registro (`superadmin.step_up.failed`, con la acción intentada).
+- **Registro.** Toda escritura deja una fila en `audit_events` con acción
+  `superadmin.*`, quién (id, email, IP, navegador), el local afectado, antes y
+  después y el motivo. Contraseñas, tokens y secretos 2FA no se guardan nunca;
+  IBAN y cuentas van tapados (`ES12 •••• •••• 1234`, `T…9f2a`, `a•••@dominio`).
+- **Límites.** Además del global (100/min por IP): escrituras 30/min, ver una
+  cuenta de cobro entera 10/min, búsqueda de clientes 60/min.
+- **Validación.** Cuerpos y filtros con zod: 400 con `issues` si algo no vale.
+
+En la tabla: **2FA** = pide `totpCode`; **Motivo** = pide `reason` (3–500 letras).
+
+## Vista general
+
+| Método y ruta | Qué hace | 2FA | Registro |
+|---|---|---|---|
+| `GET /superadmin/overview` | Por negocio y por local: cobrado hoy (desde las 00:00 de Madrid) y en la semana (hoy + 7 días), cobros de hoy, a pagar ya a las chicas (con los días de espera de **cada** local, como Tesorería), en espera, deuda de las chicas, saldo vivo de clientes (ACTIVE) e incidencias abiertas (la misma bandeja del local). Locales sin negocio, en «Sin negocio». | — | — |
+
+El dinero sale de 5 consultas agregadas para todos los locales a la vez; las
+incidencias se cuentan con la bandeja de cada local (4 locales a la vez).
+
+## Negocios
+
+| Método y ruta | Qué hace | 2FA | Registro |
+|---|---|---|---|
+| `GET /superadmin/businesses?q=&status=` | Lista (busca por nombre, NIF/CIF o email). | — | — |
+| `GET /superadmin/businesses/:id` | Ficha con sus locales. | — | — |
+| `POST /superadmin/businesses` | Alta: razón social, NIF/CIF (único, se guarda sin espacios ni guiones), contacto, notas, comisión por defecto para sus locales nuevos. | — | `business.created` |
+| `PATCH /superadmin/businesses/:id` | Cambiar esos datos. | — | `business.updated` (solo lo que cambia) |
+| `POST /superadmin/businesses/:id/pause` | Pausa el negocio: **ninguno de sus locales** acepta cobros nuevos. Motivo. | Sí | `business.paused` (con los locales afectados) |
+| `POST /superadmin/businesses/:id/resume` | Quita la pausa (motivo opcional). | Sí | `business.resumed` |
+| `POST /superadmin/businesses/:id/venues` | Mete locales en el negocio (`venueIds`; si estaban en otro, se cambian). | — | `venue.business_assigned` por local |
+| `POST /superadmin/businesses/:id/venues/:venueId/unassign` | Saca un local del negocio. | — | `venue.business_assigned` |
+
+## Locales
+
+| Método y ruta | Qué hace | 2FA | Registro |
+|---|---|---|---|
+| `GET /superadmin/venues?q=&businessId=&paused=` | Todos los locales con su negocio, pausa e IBAN tapado. | — | — |
+| `GET /superadmin/venues/:id` | Ficha: perfil, IBAN completo y titular, reglas (con los días de espera que se aplican hoy), número de usuarios, chicas y datáfonos. | — | — |
+| `POST /superadmin/venues` | Alta (nombre, slug único, zona, negocio, grupo del saldo, comisión; sin comisión: la del negocio o la general). `GET/POST /v1/admin/venues` siguen igual para el desplegable del panel. | — | `venue.created` |
+| `PATCH /superadmin/venues/:id/profile` | Nombre, zona horaria, IVA (`vatBps`, `vatRegime`) y grupo del saldo (`walletGroup`, null = sin grupo). | Solo si toca `walletGroup`, `vatBps` o `vatRegime` | `venue.profile_updated` |
+| `PATCH /superadmin/venues/:id/rules` | Reglas: tope por cobro de la chica, comisión de la plataforma, comisiones por categoría (parciales; se mezclan con las guardadas), días de espera para pagar a las chicas (0–60, null = `PAYOUT_HOLD_DAYS`), umbral de aprobación de devoluciones y si los pagos a chicas necesitan aprobación. La chica + la plataforma no pueden pasar del 100 % en ninguna categoría, tampoco con el % propio más alto de una chica del local (400). | Sí | `venue.rules_updated` |
+| `PUT /superadmin/venues/:id/settlement-account` | IBAN donde el banco liquida los cobros con tarjeta y su titular (mod-97; se guarda sin espacios). Para cuadre e informes. | Sí | `venue.settlement_account_set` (tapado) |
+| `POST /superadmin/venues/:id/settlement-account/clear` | Quita el IBAN. Motivo. | Sí | `venue.settlement_account_cleared` |
+| `POST /superadmin/venues/:id/pause` | Pausa el local. Motivo. | Sí | `venue.paused` |
+| `POST /superadmin/venues/:id/resume` | Quita la pausa (si su negocio sigue en pausa, sigue sin cobrar). | Sí | `venue.resumed` |
+
+### Qué hace la pausa
+
+Local en pausa, o local de un negocio en pausa → **423** con
+`code: "VENUE_PAUSED"`, `pausedBy: "venue" | "business"` y el texto en español:
+
+- crear cobros (`POST /v1/payments`), también recargas de saldo;
+- cobros del saldo: crear el QR del cobro y cobrarlo (Face ID, código/ficha +
+  PIN, aprobado por el encargado), aunque el QR se hiciera antes de la pausa.
+
+Siguen funcionando: devoluciones, incidencias, cierre de la noche, entrar en
+las apps, devolver el saldo al cliente.
+
+### Días de espera por local
+
+`venues.payoutHoldDays` manda sobre `PAYOUT_HOLD_DAYS` en el saldo de la chica,
+en el pago (`createPayout`) y en Tesorería. `null` = el del entorno. `0` = se
+les paga al cierre de la noche (todo lo cobrado ya se puede liquidar).
+
+### Reglas de aprobación (solo se guardan)
+
+`refundApprovalThresholdCents` (100 € por defecto) y `payoutRequiresApproval`
+(sí por defecto) se guardan y se enseñan. Las aplicará la bandeja de
+aprobaciones (encargado pide, el dueño aprueba con 2FA, quien pide no aprueba);
+hoy no cambian nada (TODO en `venues.service.ts`).
+
+## Personal y administradores
+
+| Método y ruta | Qué hace | 2FA | Registro |
+|---|---|---|---|
+| `GET /superadmin/users?venueId=&role=&q=&active=&superAdmin=&cursor=&limit=` | Todos los usuarios: local, rol, activo, invitación pendiente, 2FA activada, super-admin, último login (del registro). Paginado por cursor. | — | — |
+| `GET /superadmin/users/:id` | Uno. | — | — |
+| `POST /superadmin/users` | Alta de OWNER, MANAGER, WAITER u OPERATOR en un local. **Nunca devuelve contraseña**: enlace de invitación de 24 h (`/accept-invite` de la app de las chicas, el mismo de siempre) y se intenta mandar por email. Chica: el alta de siempre (nombre y % propio opcional). Email ya usado → 409. | Sí | `user.created` |
+| `POST /superadmin/users/:id/reset-password` | Como el de la chica hoy: sin activar → invitación nueva; activada → contraseña temporal de 12 caracteres que se ve **una vez**. Cierra sus sesiones. Motivo. | Sí | `user.password_reset` (sin la contraseña) |
+| `POST /superadmin/users/:id/disable` | Baja: no entra y se cierran sus sesiones. No a uno mismo ni al último super-admin. Motivo. | Sí | `user.disabled` |
+| `POST /superadmin/users/:id/enable` | Vuelve a darle de alta. Motivo. | Sí | `user.enabled` |
+| `POST /superadmin/users/:id/revoke-sessions` | Cierra todas sus sesiones (el token vivo caduca solo, ≤ 1 h). Motivo. | — | `user.sessions_revoked` |
+| `POST /superadmin/users/:id/totp/reset` | Borra su 2FA: tendrá que activarla otra vez. Cierra sus sesiones. No la propia (se cambia en el perfil). Motivo. | Sí | `user.totp_reset` |
+| `POST /superadmin/users/:id/super-admin` | Dar (`enabled: true`, solo a un OWNER activo) o quitar el permiso. Nunca deja la plataforma sin super-admins (tampoco quitándotelo tú si eres el último): 409. Motivo. | Sí | `user.super_admin_granted` / `user.super_admin_revoked` |
+
+La CLI (`pnpm cli …`) sigue igual.
+
+## Cuentas de cobro de las chicas
+
+| Método y ruta | Qué hace | 2FA | Registro |
+|---|---|---|---|
+| `GET /superadmin/payout-accounts?venueId=&method=&q=&missing=&includeInactive=` | Chicas de todos los locales con su cuenta **tapada** (`ES12 •••• •••• 1234`, `T…9f2a`, `a•••@dominio`). | — | — |
+| `POST /superadmin/payout-accounts/:userId/reveal` | La cuenta entera. Motivo. | Sí | `payout_account.revealed` |
+| `PUT /superadmin/payout-accounts/:userId` | Cambiarla (o quitarla con método y cuenta a null). Validada según el método con las reglas del panel: TRC20, EVM (BEP20/Polygon), Solana, IBAN mod-97, email. Motivo. | Sí | `payout_account.updated` (antes/después tapados) |
+
+## Clientes con saldo
+
+| Método y ruta | Qué hace | 2FA | Registro |
+|---|---|---|---|
+| `GET /superadmin/customers/search?q=` | Busca en **todos** los locales por código del cliente (`K7Q-4M2`), ficha NFC (código grabado o número de serie), id del saldo o id de un cobro (recarga). | — | — |
+| `GET /superadmin/customers/:walletId` | Saldo, estado, grupo, local de origen, bloqueo, «Me voy», llaves (Face ID), fichas, PIN (tiene, bloqueado, fallos) y los últimos 50 movimientos (recargas, consumos, devoluciones) con su local. | — | — |
+| `POST /superadmin/customers/:walletId/block` | Bloquea el saldo: **no paga** (Face ID, PIN, sin Face ID). Se le puede seguir devolviendo. Motivo. | — | `wallet.blocked` |
+| `POST /superadmin/customers/:walletId/unblock` | Desbloquea. Motivo. | Sí | `wallet.unblocked` |
+| `POST /superadmin/customers/:walletId/unlock-pin` | Tras 5 PIN fallidos, deja probar otra vez (como el encargado). Motivo. | Sí | `wallet.pin_unlocked` |
+| `POST /superadmin/customers/:walletId/relink` | Enlace nuevo del saldo (`path: /w/<token>`): el viejo deja de valer y sus llaves (Face ID) se borran. El enlace no va al registro. Motivo. | Sí | `wallet.relinked` |
+
+## Registro
+
+| Método y ruta | Qué hace | 2FA | Registro |
+|---|---|---|---|
+| `GET /superadmin/audit?venueId=&actorId=&action=&from=&to=&cursor=&limit=` | `audit_events` de todos los locales, del más reciente al más antiguo. `action` es un prefijo (`superadmin.`, `auth.login`, `refund.`…). `from`/`to` en ISO; `cursor` = id de la última fila. El payload sale con lo secreto tapado. | — | — |
