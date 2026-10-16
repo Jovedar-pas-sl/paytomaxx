@@ -19,6 +19,7 @@ import { resolveLanguage } from '../payments/pay-i18n';
 import { WalletChargesService, type ClientWalletState } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { renderWalletPage } from './wallet-page';
+import { GoogleWalletService } from './google-wallet/google-wallet.service';
 
 /**
  * Saldo NightPay — páginas del cliente (fuera de /v1). Sin cuenta: el enlace
@@ -29,6 +30,8 @@ import { renderWalletPage } from './wallet-page';
  *  - POST /w/:token/pin                      → elegir PIN (si aún no tiene).
  *  - POST /w/:token/merge/challenge, /merge  → sumar este saldo al de su Face ID.
  *  - POST /w/:token/close                    → "Me voy: devolver mi saldo".
+ *  - POST /w/:token/google-wallet            → guardar el saldo en Google Wallet
+ *    (GoogleWalletController; el botón sale solo en Android y si está configurado).
  * Aquí no se paga: se paga escaneando el QR de la chica (/s/:token, con Face
  * ID) o con el código o la ficha y el PIN en el móvil de la chica.
  *
@@ -40,13 +43,16 @@ import { renderWalletPage } from './wallet-page';
 export class PublicWalletController {
   private readonly charges: WalletChargesService;
   private readonly passkeys: WalletPasskeysService;
+  private readonly gwallet: GoogleWalletService;
 
   constructor(
     @Inject(WalletChargesService) charges: WalletChargesService,
     @Inject(WalletPasskeysService) passkeys: WalletPasskeysService,
+    @Inject(GoogleWalletService) gwallet: GoogleWalletService,
   ) {
     this.charges = charges;
     this.passkeys = passkeys;
+    this.gwallet = gwallet;
   }
 
   /** Activar Face ID, paso 1 (con el enlace del saldo; solo si aún no tiene). */
@@ -139,7 +145,11 @@ export class PublicWalletController {
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
       .header('Cache-Control', 'no-store')
-      .send(renderWalletPage(token, resolveLanguage(langQuery, acceptLanguage), state));
+      .send(
+        renderWalletPage(token, resolveLanguage(langQuery, acceptLanguage), state, {
+          googleWallet: this.gwallet.enabled,
+        }),
+      );
   }
 
   @Public()

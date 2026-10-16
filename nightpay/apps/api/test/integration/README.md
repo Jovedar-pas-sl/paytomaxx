@@ -20,6 +20,7 @@ probarían nada de eso.
 | `super-admin.int.spec.ts` | Super-admin con otro local activo |
 | `personal-sin-superusuario.int.spec.ts` | Lo del personal sin asSystem en la prueba (solo el local en el contexto): chicas, comisiones y pagos (crear y verificar), devolución con deuda, tesorería, saldos del panel, «Mi noche» y Z, Incidencias, Peanpe |
 | `aislamiento-rls.int.spec.ts` | RLS de la base aísla sola las seis tablas con FORCE RLS: con el local A en la sesión no se ve ni se escribe nada de B aunque la consulta no filtre; el local no se queda en la conexión |
+| `google-wallet.int.spec.ts` | Migración de `wallet_passes` (sin RLS, cascada, idempotente), consulta del repaso de Google Wallet con RLS forzado y el repaso entero con un Google de mentira |
 
 ## Lanzarlas en local
 

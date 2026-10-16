@@ -843,6 +843,7 @@ model ClientWallet {
   payouts        WalletPayout[]
   passkeys       WalletPasskey[]
   cards          WalletCard[]
+  passes         WalletPass[]
 
   @@index([tenantId, status])
   @@index([tenantId, identifier])
@@ -892,6 +893,42 @@ model WalletPasskey {
 
   @@index([walletId])
   @@map("wallet_passkeys")
+}
+
+/// Dónde está guardado el pase del saldo (hoy solo Google Wallet; Apple, más adelante).
+enum WalletPassProvider {
+  GOOGLE
+}
+
+/// Pase del saldo guardado en el móvil del cliente (Google Wallet). Un repaso
+/// cada ~2 min lo pone al día cuando el saldo o su estado cambian.
+/// Sin tenantId ni RLS a propósito, como wallet_passkeys y wallet_cards: el
+/// saldo vale en todo el grupo y el acceso va siempre por el saldo (el enlace
+/// /w del cliente o el repaso del sistema, que lee client_wallets con asSystem).
+/// No guarda el enlace: solo su hash (tokenHash) y el id del pase en Google,
+/// que también sale de ese hash.
+model WalletPass {
+  id                     String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId               String             @db.Uuid
+  provider               WalletPassProvider @default(GOOGLE)
+  /// Id del pase en Google: <emisor>.<clase>-<hash del enlace>.
+  objectId               String             @unique
+  /// sha256 del enlace del saldo cuando se hizo el pase: si el dueño da un
+  /// enlace nuevo, el pase viejo se apaga (revokedAt).
+  tokenHash              String
+  lastSyncedBalanceCents Int
+  lastSyncedStatus       WalletStatus
+  lastSyncedAt           DateTime           @default(now()) @db.Timestamptz
+  /// Último intento del repaso (bien o mal): los que fallan pasan al final de
+  /// la cola y no tapan a los demás.
+  lastAttemptAt          DateTime?          @db.Timestamptz
+  revokedAt              DateTime?          @db.Timestamptz
+  createdAt              DateTime           @default(now()) @db.Timestamptz
+
+  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@map("wallet_passes")
 }
 
 // Cada consumo del balance de una wallet. Atómicamente:

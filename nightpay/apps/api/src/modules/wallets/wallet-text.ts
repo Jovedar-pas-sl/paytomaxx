@@ -58,6 +58,9 @@ export interface WalletText {
   refundDoneCard: string;
   refundDoneCash: string;
   refundDoneMixed: string;
+  // Google Wallet (solo Android y si está configurado; el botón es el oficial)
+  gwHint: string;
+  gwPreparing: string;
   other: { code: PayLanguage; label: string };
 }
 
@@ -113,6 +116,8 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     refundDoneCard: 'Devuelto a tu tarjeta {cards}. El banco puede tardar unos días en enseñarlo.',
     refundDoneCash: 'Devuelto en efectivo.',
     refundDoneMixed: 'Devuelto: parte a tu tarjeta {cards} y parte en efectivo.',
+    gwHint: 'Lleva tu saldo en Google Wallet: se actualiza solo.',
+    gwPreparing: 'Preparando tu pase…',
     other: { code: 'en', label: 'English' },
   },
   en: {
@@ -166,6 +171,8 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     refundDoneCard: 'Refunded to your card {cards}. Your bank may take a few days to show it.',
     refundDoneCash: 'Refunded in cash.',
     refundDoneMixed: 'Refunded: part to your card {cards} and part in cash.',
+    gwHint: 'Keep your balance in Google Wallet: it updates itself.',
+    gwPreparing: 'Preparing your pass…',
     other: { code: 'es', label: 'Español' },
   },
 };

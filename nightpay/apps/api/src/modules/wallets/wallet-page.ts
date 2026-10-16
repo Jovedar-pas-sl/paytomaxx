@@ -3,14 +3,16 @@ import { CLUB_BASE_CSS, escapeHtml, jsConfig } from '../payments/club-ui';
 import type { ClientWalletState } from './wallet-charges.service';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { WALLET_TEXT } from './wallet-text';
+import { GOOGLE_WALLET_BUTTONS } from './google-wallet/google-wallet-button';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, look "Club".
  * El saldo es el protagonista y hay UNA acción principal (activar el pago
  * desbloqueando el móvil, o el seguimiento del «Me voy»); elegir PIN, sumar a
  * otro saldo y «Me voy» son secundarias y se hacen en hojas dentro de la
- * página (nada de confirm()/alert()). El estado se refresca cada pocos
- * segundos. Aquí no se paga (se paga con el QR del personal o con el PIN).
+ * página (nada de confirm()/alert()). «Añadir a Google Wallet» también es
+ * secundaria: solo en Android y si está configurado. El estado se refresca
+ * cada pocos segundos. Aquí no se paga (se paga con el QR del personal o con el PIN).
  * Todo texto dinámico va con textContent (nada de HTML inyectado).
  */
 
@@ -54,6 +56,11 @@ dialog.sheet h2{font-size:1.4rem}
 .pins input{width:7.5rem;min-height:3.25rem;font:inherit;font-size:1.4rem;text-align:center;border-radius:12px;border:2px solid #45453f;background:var(--bg);color:var(--fg);letter-spacing:.3em}
 .pins input:focus-visible{outline:3px solid var(--lime);outline-offset:2px}
 .pins input::placeholder{letter-spacing:normal;font-size:1rem;color:var(--dim)}
+.gw{display:flex;flex-direction:column;align-items:center;gap:.5rem;padding:.5rem 0;text-align:center}
+.gwb{display:block;max-width:100%;padding:0;margin:.5rem 0;border:0;border-radius:28px;background:none;line-height:0;cursor:pointer}
+.gwb img{display:block;height:3.5rem;width:auto;max-width:100%;object-fit:contain}
+.gwb:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
+.gwb:disabled{cursor:progress}
 .toast{position:fixed;left:1rem;right:1rem;bottom:calc(1rem + env(safe-area-inset-bottom));max-width:26rem;margin:0 auto;padding:.9rem 1rem;border-radius:12px;background:var(--fg);color:var(--ink);font-weight:700;text-align:center;z-index:10;animation:np-in .2s ease}
 `;
 
@@ -73,10 +80,50 @@ function jsText(lang: PayLanguage): Record<string, unknown> {
   };
 }
 
-export function renderWalletPage(token: string, lang: PayLanguage, state: ClientWalletState): string {
+export interface WalletPageOptions {
+  /** Google Wallet configurado: el botón oficial sale (solo en Android). */
+  googleWallet?: boolean;
+}
+
+/**
+ * «Añadir a Google Wallet»: acción secundaria, solo en Android, con el botón
+ * oficial servido desde nuestro dominio (sin dibujarlo ni retocarlo: alto
+ * mínimo 48 dp y 8 dp libres alrededor, normas de marca de Google).
+ */
+function googleWalletSection(lang: PayLanguage): string {
+  const t = WALLET_TEXT[lang];
+  const b = GOOGLE_WALLET_BUTTONS[lang];
+  const h = escapeHtml;
+  return `<section class="gw" id="gwCard" hidden aria-label="Google Wallet">
+<button class="gwb" type="button" id="gwAdd"><img src="/w/assets/google-wallet/${lang}" width="${b.width}" height="${b.height}" alt="${h(b.alt)}"></button>
+<p class="small" id="gwMsg" role="status">${h(t.gwHint)}</p>
+<p class="err" id="gwErr" role="alert" hidden></p>
+</section>
+`;
+}
+
+/**
+ * Al tocarlo: el API prepara el pase y devuelve el enlace de Google para
+ * guardarlo. Solo se abre si es de verdad de Google (pay.google.com).
+ */
+const GOOGLE_WALLET_JS = `
+$('gwAdd').addEventListener('click',function(){var b=$('gwAdd');if(busy)return;busy=true;b.disabled=true;
+ $('gwMsg').textContent=T.gwPreparing;show('gwErr','');
+ post('/google-wallet').then(function(r){var u=r&&r.saveUrl;
+   if(typeof u==='string'&&u.indexOf('https://pay.google.com/gp/v/save/')===0)location.href=u;else show('gwErr',T.error);})
+  .catch(function(e){show('gwErr',msg(e));})
+  .then(function(){busy=false;b.disabled=false;$('gwMsg').textContent=T.gwHint;});});`;
+
+export function renderWalletPage(
+  token: string,
+  lang: PayLanguage,
+  state: ClientWalletState,
+  options: WalletPageOptions = {},
+): string {
   const t = WALLET_TEXT[lang];
   const base = `/w/${encodeURIComponent(token)}`;
-  const config = jsConfig({ base, lang, locale: t.locale, text: jsText(lang), state });
+  const gw = options.googleWallet === true;
+  const config = jsConfig({ base, lang, locale: t.locale, text: jsText(lang), state, gw });
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -104,7 +151,7 @@ export function renderWalletPage(token: string, lang: PayLanguage, state: Client
 <button class="row" type="button" id="mergeOpen" hidden>${h(t.mergeRow)}<small>${h(t.mergeRowHint)}</small></button>
 <button class="row" type="button" id="leaveOpen" hidden>${h(t.leaveRow)}<small>${h(t.leaveRowHint)}</small></button>
 </nav>
-<section class="card" id="codeCard"><p class="kick">${h(t.codeTitle)}</p><p class="code num" id="code">${h(state.code)}</p><p class="small">${h(t.codeHint)}</p></section>
+${gw ? googleWalletSection(lang) : ''}<section class="card" id="codeCard"><p class="kick">${h(t.codeTitle)}</p><p class="code num" id="code">${h(state.code)}</p><p class="small">${h(t.codeHint)}</p></section>
 <section class="card"><h2 class="kick">${h(t.movements)}</h2><ul id="movements"></ul></section>
 <p class="small">${h(t.saveHint)}</p>
 </main>
@@ -142,6 +189,7 @@ function show(id,text){$(id).textContent=text||'';$(id).hidden=!text;}
 function toast(text){show('toast',text);clearTimeout(toastT);toastT=setTimeout(function(){show('toast','');},4000);}
 var ua=navigator.userAgent||'',P=/iPhone|iPad|iPod/.test(ua)||(ua.indexOf('Macintosh')>-1&&navigator.maxTouchPoints>1)?'ios':ua.indexOf('Android')>-1?'android':'other',U=T.unlock[P];
 function cards(){return (S.cards||[]).map(function(c){return '••'+c;}).join(' · ');}
+var gw=C.gw?$('gwCard'):null;
 function openSheet(d){if(d.showModal){if(!d.open)d.showModal();}else d.setAttribute('open','');}
 function closeSheet(d){if(d.close&&d.open)d.close();else d.removeAttribute('open');}
 Array.prototype.forEach.call(document.querySelectorAll('dialog.sheet'),function(d){
@@ -175,6 +223,7 @@ function render(s){S=s;S.cards=s.cards||[];
  $('mergeOpen').hidden=!(active&&!r&&!s.hasFaceId&&!s.merged&&s.balanceCents>0);
  $('leaveOpen').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
  $('more').hidden=$('pinOpen').hidden&&$('mergeOpen').hidden&&$('leaveOpen').hidden;
+ if(gw)gw.hidden=!(P==='android'&&active&&!r&&!s.merged);
  var ul=$('movements');ul.textContent='';
  if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}
  s.movements.forEach(function(m){var li=document.createElement('li'),a=document.createElement('span'),b=document.createElement('span');li.className='mv';
@@ -209,7 +258,7 @@ $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)retu
  pkGet(C.base+'/merge/challenge').then(function(k){return post('/merge',{response:k});})
   .then(function(r){closeSheet($('mergeSheet'));toast(fill(T.mergeDone,'amount',eur(r.balanceCents)));busy=false;refresh();})
   .catch(function(e){if(!pkCancelled(e))show('mergeErr',msg(e));})
-  .then(function(){busy=false;busyBtn(b,false);});});
+  .then(function(){busy=false;busyBtn(b,false);});});${gw ? GOOGLE_WALLET_JS : ''}
 render(S);
 if(location.hash==='#sumar'&&!$('mergeOpen').hidden)openSheet($('mergeSheet'));
 setInterval(function(){if(document.visibilityState==='visible')refresh();},3000);

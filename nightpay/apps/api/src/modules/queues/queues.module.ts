@@ -5,13 +5,16 @@ import { QrExpireProcessor } from './qr-expire.processor';
 import { OrphanReconcileProcessor } from './orphan-reconcile.processor';
 import { WebhookIngestProcessor } from './webhook-ingest.processor';
 import { RetireReconcileDailyService } from './retire-reconcile-daily.service';
+import { GoogleWalletSyncProcessor, GoogleWalletSyncScheduler } from './google-wallet-sync.processor';
 import {
   QR_EXPIRE_QUEUE,
   ORPHAN_RECONCILE_QUEUE,
   WEBHOOKS_INGEST_QUEUE,
   RECONCILIATION_QUEUE,
+  GOOGLE_WALLET_SYNC_QUEUE,
 } from './queue-tokens';
 import { PaymentsModule } from '../payments/payments.module';
+import { WalletsModule } from '../wallets/wallets.module';
 
 /**
  * Setup global de BullMQ + procesadores.
@@ -48,14 +51,19 @@ import { PaymentsModule } from '../payments/payments.module';
       { name: WEBHOOKS_INGEST_QUEUE },
       // Solo para retirar la conciliación diaria antigua (ver RetireReconcileDailyService).
       { name: RECONCILIATION_QUEUE },
+      // Pases de Google Wallet: repaso cada ~2 min (solo si está configurado).
+      { name: GOOGLE_WALLET_SYNC_QUEUE },
     ),
     forwardRef(() => PaymentsModule),
+    WalletsModule,
   ],
   providers: [
     QrExpireProcessor,
     OrphanReconcileProcessor,
     WebhookIngestProcessor,
     RetireReconcileDailyService,
+    GoogleWalletSyncProcessor,
+    GoogleWalletSyncScheduler,
   ],
   exports: [BullModule],
 })

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { PublicWalletController } from './public-wallet.controller';
 
-function makeController() {
+function makeController(googleWalletEnabled = false) {
   const charges = {
     walletRefByToken: vi.fn().mockResolvedValue({ id: 'w-1', shortCode: 'K7Q4M2' }),
     setPinFromPayer: vi.fn().mockResolvedValue(undefined),
@@ -13,8 +13,51 @@ function makeController() {
     challenge: vi.fn().mockResolvedValue({ challenge: 'abc' }),
     verify: vi.fn().mockResolvedValue('w-target'),
   };
-  return { controller: new PublicWalletController(charges as never, passkeys as never), charges, passkeys };
+  const gwallet = { enabled: googleWalletEnabled };
+  return {
+    controller: new PublicWalletController(charges as never, passkeys as never, gwallet as never),
+    charges,
+    passkeys,
+  };
 }
+
+function fakeReply() {
+  const reply = {
+    body: '',
+    status: () => reply,
+    header: () => reply,
+    send(body: string) {
+      reply.body = body;
+      return reply;
+    },
+  };
+  return reply;
+}
+
+describe('/w/:token — la página sabe si Google Wallet está configurado', () => {
+  const state = {
+    code: 'K7Q-4M2',
+    balanceCents: 1000,
+    status: 'ACTIVE',
+    closeRequested: false,
+    hasFaceId: false,
+    hasPin: false,
+    merged: false,
+    refund: null,
+    cards: [],
+    movements: [],
+  };
+
+  it('configurado → la página lleva el botón (el JS lo enseña en Android); sin configurar, no', async () => {
+    for (const enabled of [true, false]) {
+      const { controller, charges } = makeController(enabled);
+      charges.clientState.mockResolvedValueOnce(state);
+      const reply = fakeReply();
+      await controller.page('tok', 'es', undefined, reply as never);
+      expect(reply.body.includes('id="gwCard"')).toBe(enabled);
+    }
+  });
+});
 
 describe('/w/:token — PIN y sumar a otro saldo (acciones secundarias de la página del saldo)', () => {
   it('PIN: 4 cifras y repetido igual; se guarda en el saldo de este enlace', async () => {
