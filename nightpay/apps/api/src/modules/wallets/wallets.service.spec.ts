@@ -246,6 +246,12 @@ describe('estadísticas del panel de saldos', () => {
     // Solo las hechas (una a la tarjeta a medias aún no), del local.
     expect(payouts.sql).toMatch(/status = 'DONE'/);
     expect(payouts.values[0]).toBe('t-1');
+    // Las cuatro consultas, filtradas por el local (no solo por el RLS de la sesión).
+    expect(calls).toHaveLength(4);
+    for (const c of calls) {
+      expect(c.sql).toMatch(/"tenantId" = \?/);
+      expect(c.values).toContain('t-1');
+    }
   });
 
   it('"hoy" es el día de Madrid (desde sus 00:00), no el del servidor', async () => {
