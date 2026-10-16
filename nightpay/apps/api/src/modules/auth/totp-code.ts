@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { ForbiddenException, HttpException, HttpStatus } from '@nestjs/common';
 import * as speakeasy from 'speakeasy';
 
 /** RFC 6238: un código nuevo cada 30 s. */
@@ -15,6 +15,30 @@ export const TOTP_MESSAGES = {
   unreadable: 'No se puede comprobar tu 2FA. Hay que volver a activarla.',
   notEnrolled: 'Activa antes la verificación en dos pasos (2FA) en tu perfil.',
 } as const;
+
+export type TotpErrorKind = keyof typeof TOTP_MESSAGES;
+
+/**
+ * Código de cada error 2FA: el panel (admin, api-errors.ts) decide con él si
+ * pide el código (TOTP_REQUIRED), si añade la pista de los 30 s
+ * (TOTP_INVALID, también para el código ya usado) o si manda activar la 2FA
+ * (TOTP_NOT_ENROLLED). Todos los errores 2FA salen de aquí.
+ */
+export const TOTP_ERROR_CODES = {
+  required: 'TOTP_REQUIRED',
+  invalid: 'TOTP_INVALID',
+  reused: 'TOTP_INVALID',
+  unreadable: 'TOTP_UNREADABLE',
+  notEnrolled: 'TOTP_NOT_ENROLLED',
+} as const satisfies Record<TotpErrorKind, string>;
+
+/** El 429 del bloqueo por códigos malos. */
+export const TOTP_LOCKED_CODE = 'TOTP_LOCKED';
+
+/** 403 `{ message, code }`; el texto por defecto es el de TOTP_MESSAGES. */
+export function totpForbidden(kind: TotpErrorKind, message: string = TOTP_MESSAGES[kind]): ForbiddenException {
+  return new ForbiddenException({ message, code: TOTP_ERROR_CODES[kind] });
+}
 
 export function totpStepAt(nowMs: number): number {
   return Math.floor(nowMs / 1000 / TOTP_STEP_SECONDS);
@@ -42,6 +66,7 @@ export function totpLockedError(ttlSeconds: number): HttpException {
       statusCode: HttpStatus.TOO_MANY_REQUESTS,
       error: 'Too Many Requests',
       message: `Demasiados códigos 2FA incorrectos. Espera ${minutes} min y vuelve a probar.`,
+      code: TOTP_LOCKED_CODE,
     },
     HttpStatus.TOO_MANY_REQUESTS,
   );

@@ -27,6 +27,11 @@
   el anterior → Rollback**. Lo mismo con la web afectada.
 - Mientras tanto: recargar la página del TPV / de la chica muestra el estado
   real (el cobro está bien guardado; solo falla el aviso en vivo).
+- Solo en un móvil o TPV, desde el 15-nov-2026: es una versión antigua de la
+  app (sin sesión en el tiempo real). Cerrar sesión, recargar la página y
+  volver a entrar. Cuántas quedan: métrica
+  `nightpay_ws_legacy_subscribes_total` (`result="closed"`). Para dar más
+  margen: `REALTIME_LEGACY_SUBSCRIBE_UNTIL` (ver `DOKPLOY-STEPS.md`).
 
 ## Comprobar
 

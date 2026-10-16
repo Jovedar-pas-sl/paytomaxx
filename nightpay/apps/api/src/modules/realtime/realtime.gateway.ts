@@ -1,4 +1,5 @@
-import { Inject, Logger } from '@nestjs/common';
+import { Inject, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
   ConnectedSocket,
@@ -13,6 +14,7 @@ import type { Server, Socket } from 'socket.io';
 import { z } from 'zod';
 import type { JwtPayload } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { legacySubscribeUntil } from '../../config/realtime-legacy';
 import { bearerToken, verifyStaffToken } from '../../common/guards/staff-token';
 import { MetricsService } from '../metrics/metrics.service';
 import type { PaymentMachineState } from '../payments/payment.machine';
@@ -21,11 +23,16 @@ import type { PaymentMachineState } from '../payments/payment.machine';
 export const MAX_ROOMS_PER_SOCKET = 20;
 /** Sin sesión (apps antiguas) solo se siguen cobros de los últimos 30 min. */
 export const LEGACY_SUBSCRIBE_WINDOW_MS = 30 * 60 * 1000;
+/** Respuesta a un subscribe sin sesión pasada la fecha de corte. */
+export const LEGACY_SUBSCRIBE_CLOSED_ERROR = 'Inicia sesión otra vez';
 
 const SubscribeSchema = z.object({ paymentId: z.string().uuid() });
 
 type SubscribeResult = { ok: true; room: string } | { ok: false; error: string };
-type StaffSocket = Socket & { data: { staff?: JwtPayload; legacyWarned?: boolean; authReady?: Promise<void> } };
+type StaffSocket = Socket & {
+  data: { staff?: JwtPayload; legacyWarned?: boolean; legacyClosedLogged?: boolean; authReady?: Promise<void> };
+};
+type LegacyResult = 'allowed' | 'denied' | 'closed';
 
 /**
  * Gateway WS para sincronizacion en tiempo real cliente movil ↔ TPV.
@@ -36,9 +43,12 @@ type StaffSocket = Socket & { data: { staff?: JwtPayload; legacyWarned?: boolean
  *   - server → room: payment:completed { paymentId, status: AUTHORIZED|FAILED|EXPIRED, tipCents }
  *
  * Acceso: con la sesión del personal en el handshake (`auth: { token }` o
- * `Authorization: Bearer`), solo cobros de SU local. Sin sesión (apps de la
- * chica y del TPV que aún no mandan el token) se mantiene, de forma temporal y
- * con aviso en el log, la suscripción a cobros creados en los últimos 30 min.
+ * `Authorization: Bearer`), solo cobros de SU local. Sin sesión (versiones
+ * antiguas en caché de las apps de la chica y del TPV) se mantiene, con aviso
+ * en el log y la métrica nightpay_ws_legacy_subscribes_total, la suscripción a
+ * cobros creados en los últimos 30 min, y solo hasta
+ * REALTIME_LEGACY_SUBSCRIBE_UNTIL (por defecto 2026-11-15 00:00 de Madrid).
+ * Después se responde «Inicia sesión otra vez».
  * El id tiene que ser un UUID y hay un máximo de cobros por conexión.
  * Origen (CORS) restringido a CORS_ORIGINS en producción: ver realtime.adapter.ts.
  */
@@ -48,6 +58,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private readonly jwt: JwtService;
   private readonly prisma: PrismaService;
   private readonly metrics: MetricsService;
+  /** Hasta cuándo vale la vía sin sesión (null = apagada). */
+  private readonly legacyUntil: Date | null;
 
   @WebSocketServer()
   server!: Server;
@@ -56,17 +68,19 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @Inject(JwtService) jwt: JwtService,
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(MetricsService) metrics: MetricsService,
+    @Optional() @Inject(ConfigService) config?: ConfigService,
   ) {
     this.jwt = jwt;
     this.prisma = prisma;
     this.metrics = metrics;
+    this.legacyUntil = legacySubscribeUntil(config?.get<string>('REALTIME_LEGACY_SUBSCRIBE_UNTIL'));
   }
 
   /** Al conectar: si trae la sesión del personal, se guarda (si no vale, como sin sesión). */
   async handleConnection(client: StaffSocket): Promise<void> {
     this.metrics.wsConnectionsActive.inc();
     // Un payment:subscribe puede llegar antes de que acabe la comprobación:
-    // maySubscribe espera a esta promesa (si no, iría por la vía sin sesión).
+    // handleSubscribe espera a esta promesa (si no, iría por la vía sin sesión).
     client.data.authReady = this.authenticate(client);
     await client.data.authReady;
   }
@@ -90,7 +104,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (subscribedRooms(client) >= MAX_ROOMS_PER_SOCKET) return { ok: false, error: 'Demasiadas suscripciones' };
 
     const { paymentId } = parsed.data;
-    const allowed = await this.maySubscribe(client, paymentId);
+    await client.data.authReady;
+    const staff = client.data.staff;
+    if (!staff && !this.legacyOpen()) return this.rejectLegacy(client);
+
+    const allowed = staff
+      ? await this.staffMaySubscribe(staff, paymentId)
+      : await this.legacyMaySubscribe(client, paymentId);
     if (!allowed) return { ok: false, error: 'Cobro no encontrado' };
 
     const room = `payment:${paymentId}`;
@@ -137,24 +157,52 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     });
   }
 
-  private async maySubscribe(client: StaffSocket, paymentId: string): Promise<boolean> {
-    await client.data.authReady;
-    // Consulta de sistema: el local se comprueba aquí, contra el de la sesión.
-    const payment = await this.prisma.asSystem((tx) =>
+  private async staffMaySubscribe(staff: JwtPayload, paymentId: string): Promise<boolean> {
+    const payment = await this.findPayment(paymentId);
+    return payment !== null && payment.tenantId === staff.tenantId;
+  }
+
+  /** Vía sin sesión, mientras siga abierta: solo cobros recientes. */
+  private async legacyMaySubscribe(client: StaffSocket, paymentId: string): Promise<boolean> {
+    this.warnLegacy(client);
+    const payment = await this.findPayment(paymentId);
+    const allowed = payment !== null && Date.now() - payment.createdAt.getTime() <= LEGACY_SUBSCRIBE_WINDOW_MS;
+    this.countLegacy(allowed ? 'allowed' : 'denied');
+    return allowed;
+  }
+
+  /** Consulta de sistema: el local se comprueba en quien llama, contra el de la sesión. */
+  private findPayment(paymentId: string): Promise<{ tenantId: string; createdAt: Date } | null> {
+    return this.prisma.asSystem((tx) =>
       tx.payment.findUnique({ where: { id: paymentId }, select: { tenantId: true, createdAt: true } }),
     );
-    if (!payment) return false;
-    const staff = client.data.staff;
-    if (staff) return payment.tenantId === staff.tenantId;
-    this.warnLegacy(client);
-    return Date.now() - payment.createdAt.getTime() <= LEGACY_SUBSCRIBE_WINDOW_MS;
+  }
+
+  private legacyOpen(): boolean {
+    return this.legacyUntil !== null && Date.now() < this.legacyUntil.getTime();
+  }
+
+  /** Pasada la fecha de corte: sin sesión no hay suscripción (sin mirar el cobro). */
+  private rejectLegacy(client: StaffSocket): SubscribeResult {
+    this.countLegacy('closed');
+    if (!client.data.legacyClosedLogged) {
+      client.data.legacyClosedLogged = true;
+      this.logger.warn(
+        `socket ${client.id}: payment:subscribe sin sesión rechazado (la vía antigua se cerró${this.legacyUntil ? ` el ${this.legacyUntil.toISOString()}` : ''}). La app tiene que volver a iniciar sesión.`,
+      );
+    }
+    return { ok: false, error: LEGACY_SUBSCRIBE_CLOSED_ERROR };
+  }
+
+  private countLegacy(result: LegacyResult): void {
+    this.metrics.wsLegacySubscribes.inc({ result });
   }
 
   private warnLegacy(client: StaffSocket): void {
     if (client.data.legacyWarned) return;
     client.data.legacyWarned = true;
     this.logger.warn(
-      `socket ${client.id}: payment:subscribe sin sesión (OBSOLETO). La app debe conectar con io(url, { auth: { token } }); de momento solo cobros de los últimos 30 min.`,
+      `socket ${client.id}: payment:subscribe sin sesión (OBSOLETO). La app debe conectar con io(url, { auth: { token } }); de momento solo cobros de los últimos 30 min, hasta ${this.legacyUntil?.toISOString()}.`,
     );
   }
 }

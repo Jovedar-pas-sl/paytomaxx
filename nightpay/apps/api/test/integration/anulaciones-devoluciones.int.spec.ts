@@ -6,12 +6,14 @@ import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { WalletsService } from '../../src/modules/wallets/wallets.service';
 import { RefundsService } from '../../src/modules/refunds/refunds.service';
+import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
  
 const prisma = new PrismaService(cls as any);
 const audit = { log: async () => undefined };
 const wallets = new WalletsService(prisma as never, audit as never);
+const incidents = new IncidentsService(prisma as never, audit as never);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let gatewayCalls = 0;
@@ -260,5 +262,76 @@ describe('dos devoluciones a la vez del mismo cobro (Postgres real)', () => {
     const rejected = out.find((o) => o.status === 'rejected') as PromiseRejectedResult;
     expect(String(rejected.reason.message)).toMatch(/Solo quedan 0/);
     expect(gatewayCalls).toBe(1);
+  });
+});
+
+describe('devolución sin confirmar → Incidencias (Postgres real)', () => {
+  it('sale pasados 5 min (una por devolución), avisa si se hizo sin apuntar, y se quita al resolverla', async () => {
+    const pay = await asSystemCtx(() =>
+      prisma.asSystem((tx) =>
+        tx.payment.create({
+          data: {
+            tenantId: A,
+            terminalId: term,
+            idempotencyKey: `rp-${r}`,
+            amountCents: 6000,
+            tipCents: 500,
+            availableAmountCents: 6000,
+            qrToken: `qr-rp-${r}`,
+            qrExpiresAt: new Date(Date.now() + 3600_000),
+            status: 'AUTHORIZED',
+            provider: 'PAYTEF',
+            providerTxId: `PT${r}`,
+          },
+        }),
+      ),
+    );
+    const now = new Date();
+    const pending = (minutesAgo: number, amountCents: number) =>
+      asSystemCtx(() =>
+        prisma.asSystem((tx) =>
+          tx.refund.create({
+            data: {
+              tenantId: A,
+              paymentId: pay.id,
+              amountCents,
+              requestedBy: owner,
+              status: 'PENDING',
+              createdAt: new Date(now.getTime() - minutesAgo * 60_000),
+            },
+          }),
+        ),
+      );
+    const unknown = await pending(12, 2500);
+    const unbooked = await pending(8, 1500);
+    const recent = await pending(4, 1000);
+    await asSystemCtx(() =>
+      prisma.asSystem((tx) =>
+        tx.auditEvent.create({
+          data: {
+            tenantId: A,
+            action: 'refund.settle_failed',
+            targetType: 'Payment',
+            targetId: pay.id,
+            payload: { refundId: unbooked.id, amountCents: 1500, provider: 'PAYTEF', error: 'x' },
+          },
+        }),
+      ),
+    );
+
+    const open = (await asTenant(A, () => incidents.list(A, now))).filter((i) => i.kind === 'refund_pending');
+    expect(open.map((i) => i.refId)).toEqual([unbooked.id, unknown.id]);
+    expect(open.some((i) => i.refId === recent.id)).toBe(false);
+    const [first, second] = open;
+    expect(second!.detail).toContain(`25,00 € del cobro de 65,00 € (pedido PT${r}), hace 12 min.`);
+    expect(second!.detail).toMatch(/pulsa Resolver/);
+    expect(first!.detail).toMatch(/Paytef dice que la hizo, pero no se pudo apuntar/);
+
+    const actor = { userId: owner, role: 'OWNER' as const, tenantId: A };
+    await asTenant(A, () =>
+      refunds.resolvePending({ paymentId: pay.id, refundId: unknown.id, outcome: 'FAILED', note: 'no está en Paytef' }, actor),
+    );
+    const after = (await asTenant(A, () => incidents.list(A, now))).filter((i) => i.kind === 'refund_pending');
+    expect(after.map((i) => i.refId)).toEqual([unbooked.id]);
   });
 });

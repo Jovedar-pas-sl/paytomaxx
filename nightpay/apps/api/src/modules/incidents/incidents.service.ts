@@ -18,7 +18,10 @@ import {
   bankMismatchIncident,
   backupIncidents,
   paymentAnomalyIncident,
+  refundPendingIncident,
+  REFUND_PENDING_MINUTES,
   type BankItemRow,
+  type PendingRefundRow,
   type PaymentAnomalyRow,
   type WalletBalanceRow,
   stuckIncident,
@@ -63,6 +66,7 @@ export class IncidentsService {
     const since = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     const stuckBefore = new Date(now.getTime() - STUCK_MINUTES * 60 * 1000);
     const reconcileBefore = new Date(now.getTime() - RECONCILE_WITHIN_HOURS * 60 * 60 * 1000);
+    const refundPendingBefore = new Date(now.getTime() - REFUND_PENDING_MINUTES * 60 * 1000);
     const nightStart = lastNightCutoff(now);
     const [
       stuck,
@@ -77,6 +81,7 @@ export class IncidentsService {
       walletsLeftOpen,
       bankItems,
       anomalies,
+      pendingRefunds,
     ] = await Promise.all([
       this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt"
@@ -247,6 +252,27 @@ export class IncidentsService {
          ORDER BY e."occurredAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
+      // Devoluciones por la pasarela sin confirmar (refund.outcome_unknown) o
+      // hechas y sin apuntar (refund.settle_failed). Sin límite de antigüedad:
+      // mientras sigan PENDING reservan importe del cobro. Se quitan al resolverlas.
+      this.prisma.$queryRaw<PendingRefundRow[]>`
+        SELECT r.id::text AS id, r."paymentId"::text AS "paymentId", r."amountCents",
+               (p."amountCents" + p."tipCents")::int AS "paymentAmountCents",
+               p.provider::text AS provider, p."providerTxId", r."createdAt",
+               EXISTS (SELECT 1 FROM audit_events a
+                        WHERE a.action = 'refund.settle_failed'
+                          AND a."tenantId" = r."tenantId"
+                          AND a."targetId" = r."paymentId"::text
+                          AND a.payload ->> 'refundId' = r.id::text) AS "settleFailed"
+          FROM refunds r
+          JOIN payments p ON p.id = r."paymentId"
+         WHERE r."tenantId" = ${tenantId}::uuid
+           AND r.status = 'PENDING'
+           AND r."registeredManually" = false
+           AND r."createdAt" < ${refundPendingBefore}
+         ORDER BY r."createdAt" DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `,
     ]);
 
     const all: Incident[] = [
@@ -265,6 +291,7 @@ export class IncidentsService {
       ...uniqueBy(bankItems.map(bankMismatchIncident), (i) => i.refId),
       // "Sin comprobar" va por cobro: varios avisos del mismo cobro, uno solo.
       ...uniqueBy(anomalies.map(paymentAnomalyIncident), (i) => `${i.kind}:${i.refId}`),
+      ...pendingRefunds.map((r) => refundPendingIncident(r, now)),
       ...(this.backups
         ? backupIncidents(await this.backups.verdict(now), now, process.env.NODE_ENV === 'production')
         : []),

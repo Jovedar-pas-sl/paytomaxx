@@ -115,6 +115,15 @@ export class MetricsService implements OnModuleInit {
     help: 'Conexiones Socket.io activas',
     registers: [this.registry],
   });
+  // payment:subscribe sin sesión del personal (apps antiguas). Tiene que
+  // llegar a 0 antes de REALTIME_LEGACY_SUBSCRIBE_UNTIL; después solo sube
+  // "closed" (se rechaza y se pide iniciar sesión).
+  readonly wsLegacySubscribes = new Counter({
+    name: 'nightpay_ws_legacy_subscribes_total',
+    help: 'payment:subscribe sin sesión del personal (apps antiguas)',
+    labelNames: ['result'], // allowed|denied|closed
+    registers: [this.registry],
+  });
   readonly queueDepth = new Gauge({
     name: 'nightpay_queue_depth',
     help: 'Tamaño actual de cada cola BullMQ',
