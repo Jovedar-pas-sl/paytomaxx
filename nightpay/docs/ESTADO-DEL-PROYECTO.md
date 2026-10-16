@@ -93,7 +93,7 @@ ese saldo durante la noche **sin volver a molestarlo**.
 
 | App | Puerto | Para quién | Tech |
 |---|---|---|---|
-| `apps/api` | 4100 | Backend único | NestJS 10 + Fastify |
+| `apps/api` | 4100 | Backend único | NestJS 11 + Fastify 5 |
 | `apps/admin` | 4103 | Dueño del venue (OWNER) | Next.js 14 |
 | `apps/operator` | 4101/4104 | Chica (móvil PWA) | Next.js 14 mobile-first |
 | `apps/web-client` | 4102 | Cliente final (móvil) | Next.js 14 SSR |
