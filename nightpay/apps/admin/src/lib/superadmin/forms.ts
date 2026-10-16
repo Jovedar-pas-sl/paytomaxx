@@ -320,14 +320,26 @@ function parseRules(form: RulesForm): FormResult<ParsedRules> {
 
 const yesNo = (v: boolean): string => (v ? 'sí' : 'no');
 
-/** Reglas cambiadas (solo lo que cambia) y la lista para la confirmación. */
-export function rulesPayload(saved: VenueRules, form: RulesForm, generalHoldDays: number): FormResult<RulesChange> {
+/**
+ * Reglas cambiadas (solo lo que cambia) y la lista para la confirmación.
+ * `generalHoldDays`: los días de espera generales (PAYOUT_HOLD_DAYS) si se
+ * saben; null = no se saben (el local tenía los suyos).
+ */
+export function rulesPayload(
+  saved: VenueRules,
+  form: RulesForm,
+  generalHoldDays: number | null,
+): FormResult<RulesChange> {
   const parsed = parseRules(form);
   if (!parsed.ok) return parsed;
   const p = parsed.value;
   const changedCategories = CATEGORY_KEYS.filter((k) => p.categories[k] !== saved.operatorCommissionDefaults[k]);
   const holdText = (d: number | null): string =>
-    d === null ? `lo general (${holdDaysText(generalHoldDays).toLowerCase()})` : holdDaysText(d).toLowerCase();
+    d !== null
+      ? holdDaysText(d).toLowerCase()
+      : generalHoldDays === null
+        ? 'lo general'
+        : `lo general (${holdDaysText(generalHoldDays).toLowerCase()})`;
 
   const dto: RulesDto = {
     ...(p.maxCobro !== saved.operatorMaxCobroCents ? { operatorMaxCobroCents: p.maxCobro } : {}),
@@ -368,6 +380,11 @@ export function rulesPayload(saved: VenueRules, form: RulesForm, generalHoldDays
 
   if (changes.length === 0) return fail('No has cambiado nada.');
   return ok({ dto, changes });
+}
+
+/** Días generales si el local usa los generales (si no, no se saben). */
+export function generalHoldDaysOf(rules: VenueRules): number | null {
+  return rules.payoutHoldDays === null ? rules.effectivePayoutHoldDays : null;
 }
 
 /** Umbral por defecto (100 €), para el texto de ayuda. */

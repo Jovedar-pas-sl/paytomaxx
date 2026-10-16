@@ -217,6 +217,10 @@ describe('reglas del local', () => {
       ok: true,
       value: { dto: { payoutHoldDays: null }, changes: ['días de espera: 7 días → lo general (3 días)'] },
     });
+    expect(rulesPayload(rules, { ...form, holdDays: '' }, null)).toMatchObject({
+      ok: true,
+      value: { changes: ['días de espera: 7 días → lo general'] },
+    });
     expect(rulesPayload(rules, { ...form, holdDays: '61' }, 3)).toMatchObject({ ok: false });
     expect(rulesPayload(rules, { ...form, holdDays: '2,5' }, 3)).toMatchObject({ ok: false });
   });
