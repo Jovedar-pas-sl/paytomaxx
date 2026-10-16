@@ -19,10 +19,10 @@ function makeTreasury(opts: Opts = {}) {
       if (sql.includes('GROUP BY "reconciliationStatus"')) return [{ status: 'MATCHED', count: 2n }];
       return [{ count: 2n, totalCents: 15_000n }];
     }),
-    asSystem: vi.fn(),
+    withTenant: vi.fn(),
   };
-  // Las lecturas de operator_earnings van con asSystem (RLS forzado): misma consulta.
-  prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
+  // Las lecturas de operator_earnings van con el local en la sesión (RLS forzado): misma consulta.
+  prisma.withTenant.mockImplementation(async (_tenantId: string, fn: (tx: unknown) => unknown) => fn(prisma));
   const config = { get: vi.fn((k: string) => (k === 'PAYOUT_HOLD_DAYS' ? opts.holdDays : undefined)) };
   const svc = new TreasuryService(prisma as never, { log: vi.fn() } as never, {} as never, config as never);
   return { svc, sqls, params };
@@ -105,7 +105,10 @@ function makeVerify(opts: VerifyOpts = {}) {
       update: opts.updateError ? vi.fn().mockRejectedValue(opts.updateError) : vi.fn().mockResolvedValue(payout),
     },
   };
-  const prisma = { asSystem: vi.fn().mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx)) };
+  const prisma = {
+    asSystem: vi.fn().mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx)),
+    withTenant: vi.fn().mockImplementation(async (_tenantId: string, fn: (t: unknown) => unknown) => fn(tx)),
+  };
   const verifier = {
     verify: vi.fn().mockResolvedValue(
       opts.verifierResult ?? {

@@ -60,6 +60,7 @@ function makeOps(opts: MakeOptions = {}) {
       }
     }),
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma)),
+    withTenant: vi.fn().mockImplementation(async (_tenantId: string, fn: (tx: unknown) => unknown) => fn(prisma)),
   });
   const email = { send: vi.fn().mockResolvedValue({ delivered: false }) };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
@@ -194,6 +195,13 @@ describe('OperatorsService.createPayout — un hash on-chain no se apunta en dos
     await svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalTxId: 'EFECTIVO', externalRail: 'MANUAL_CASH' });
     expect(payouts.findFirst).not.toHaveBeenCalled();
     expect(payouts.create).toHaveBeenCalled();
+  });
+
+  it('se apunta con el local en la sesión (RLS forzado en comisiones y pagos)', async () => {
+    const { svc, prisma } = withPayoutDb();
+    await svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalTxId: 'EFECTIVO', externalRail: 'MANUAL_CASH' });
+    const { withTenant } = prisma as unknown as { withTenant: ReturnType<typeof vi.fn> };
+    expect(withTenant).toHaveBeenCalledWith('t-1', expect.any(Function));
   });
 });
 

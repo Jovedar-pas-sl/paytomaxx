@@ -3,6 +3,14 @@ import { createHmac } from 'node:crypto';
 import { PeanpeAdapter, peanpeCantidad } from './peanpe.adapter';
 
 const API_KEY_HEX = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
+
+/** peanpe_calls tiene FORCE RLS: el adapter la usa dentro de withTenant / asSystem (aquí, el propio mock). */
+function inTx<T extends object>(prisma: T): T {
+  return Object.assign(prisma, {
+    withTenant: (_tenantId: string, fn: (tx: T) => unknown) => fn(prisma),
+    asSystem: (fn: (tx: T) => unknown) => fn(prisma),
+  });
+}
 const ACCOUNT_ID = '91816';
 
 function makeAdapter(prismaOverrides: Record<string, unknown> = {}) {
@@ -32,7 +40,7 @@ function makeAdapter(prismaOverrides: Record<string, unknown> = {}) {
     },
     ...prismaOverrides,
   };
-  return { adapter: new PeanpeAdapter(config as any, metrics as any, prisma as any), prisma };
+  return { adapter: new PeanpeAdapter(config as any, metrics as any, inTx(prisma) as any), prisma };
 }
 
 describe('PeanpeAdapter.authorize', () => {
@@ -80,7 +88,7 @@ describe('PeanpeAdapter.authorize', () => {
     const config = { get: vi.fn().mockReturnValue(undefined), getOrThrow: vi.fn() };
     const metrics = { gatewayDuration: { observe: vi.fn() }, circuitState: { set: vi.fn() } };
     const prisma = { peanpeCall: { findUnique: vi.fn(), create: vi.fn() } };
-    const adapter = new PeanpeAdapter(config as any, metrics as any, prisma as any);
+    const adapter = new PeanpeAdapter(config as any, metrics as any, inTx(prisma) as any);
     await expect(
       adapter.authorize({
         tenantId: 'v', paymentId: 'p', amountCents: 100,
@@ -127,7 +135,7 @@ describe('PeanpeAdapter.authorize', () => {
         update: vi.fn(),
       },
     };
-    const adapter = new PeanpeAdapter(config as any, metrics as any, prisma as any);
+    const adapter = new PeanpeAdapter(config as any, metrics as any, inTx(prisma) as any);
     const res = await adapter.authorize({
       tenantId: 'v', paymentId: 'p', amountCents: 100_000,
       currency: 'EUR', terminalExternalId: '', reference: 'p',
@@ -383,7 +391,7 @@ describe('Peanpe en euros enteros (#55)', () => {
     };
     const metrics = { gatewayDuration: { observe: vi.fn() }, circuitState: { set: vi.fn() } };
     const prisma = { peanpeCall: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() } };
-    return { adapter: new PeanpeAdapter(config as any, metrics as any, prisma as any), prisma };
+    return { adapter: new PeanpeAdapter(config as any, metrics as any, inTx(prisma) as any), prisma };
   }
 
   it('peanpeCantidad: céntimos tal cual; euros enteros divididos; con céntimos → error claro', () => {

@@ -82,7 +82,7 @@ export class TreasuryService {
       };
     }
     if (isAutoVerifiable(req.externalRail) && !req.manualOverride) {
-      const other = await this.prisma.asSystem((tx) => otherPayoutWithTx(tx, tenantId, payoutId, req.externalTxId));
+      const other = await this.prisma.withTenant(tenantId, (tx) => otherPayoutWithTx(tx, tenantId, payoutId, req.externalTxId));
       if (other) throw txAlreadyUsed(other);
     }
 
@@ -264,7 +264,7 @@ export class TreasuryService {
 
     const pending = payableSummary(await this.operatorBalances(tenantId));
 
-    const monthRows = await this.prisma.asSystem((tx) => tx.$queryRaw<
+    const monthRows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{ count: bigint; totalCents: bigint }>
     >`
       SELECT COUNT(*)::bigint AS count, COALESCE(SUM("totalCents"), 0)::bigint AS "totalCents"
@@ -273,7 +273,7 @@ export class TreasuryService {
          AND "createdAt" >= ${firstOfMonth}
     `);
 
-    const byMethodRows = await this.prisma.asSystem((tx) => tx.$queryRaw<
+    const byMethodRows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{ rail: string | null; count: bigint }>
     >`
       SELECT COALESCE("externalRail", 'UNSET') AS rail, COUNT(*)::bigint AS count
@@ -282,7 +282,7 @@ export class TreasuryService {
        GROUP BY "externalRail"
     `);
 
-    const byStatusRows = await this.prisma.asSystem((tx) => tx.$queryRaw<
+    const byStatusRows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{ status: string; count: bigint }>
     >`
       SELECT "reconciliationStatus" AS status, COUNT(*)::bigint AS count
@@ -313,7 +313,7 @@ export class TreasuryService {
    */
   private async operatorBalances(tenantId: string) {
     const cutoff = payoutCutoff(new Date(), parseHoldDays(this.config.get('PAYOUT_HOLD_DAYS')));
-    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{ operatorId: string; unpaidCents: bigint; heldCents: bigint; debtCents: bigint }>
     >`
       SELECT o."operatorId",
@@ -369,7 +369,7 @@ export class TreasuryService {
    * verifyPayout: hash de un solo pago y transacción no anterior al pago.
    */
   async reconcilePending(tenantId: string): Promise<{ checked: number; matched: number }> {
-    const pending = await this.prisma.asSystem((tx) =>
+    const pending = await this.prisma.withTenant(tenantId, (tx) =>
       tx.operatorPayout.findMany({
         where: {
           tenantId,
@@ -417,7 +417,7 @@ export class TreasuryService {
     const rail = p.externalRail as PayoutMethod | null;
     const txId = p.externalTxId?.trim();
     if (!addr || !rail || !txId) return false;
-    const other = await this.prisma.asSystem((tx) => otherPayoutWithTx(tx, p.tenantId, p.id, txId));
+    const other = await this.prisma.withTenant(p.tenantId, (tx) => otherPayoutWithTx(tx, p.tenantId, p.id, txId));
     if (other) {
       this.logger.warn(`recon: payout ${p.id} comparte hash con ${other.id} — no se concilia solo`);
       return false;
@@ -432,7 +432,7 @@ export class TreasuryService {
     });
     const result = checkTxTime(raw, p.createdAt);
     if (!result.matched) return false;
-    await this.prisma.asSystem((tx) =>
+    await this.prisma.withTenant(p.tenantId, (tx) =>
       tx.operatorPayout.update({
         where: { id: p.id },
         data: { reconciliationStatus: 'MATCHED', reconciledAt: result.occurredAt ?? new Date() },
