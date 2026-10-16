@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import { pendingRefundApprovalCents } from '../approvals/approval-store';
 
 /**
  * Piezas de las devoluciones que van DENTRO de una transacción con la fila
@@ -42,6 +43,9 @@ export async function lockPaymentForRefund(
 /**
  * Lo que tienen reservado las devoluciones aún pendientes del cobro: no
  * cuentan todavía en availableAmountCents pero el dinero puede estar saliendo.
+ * También lo pedido al dueño y aún sin decidir («Por aprobar»): al aprobarla,
+ * la solicitud deja de reservar en la misma transacción en que se reserva la
+ * devolución, así que nunca cuenta dos veces ni deja un hueco.
  */
 export async function reservedRefundCents(
   tx: TransactionalClient,
@@ -56,7 +60,7 @@ export async function reservedRefundCents(
     },
     _sum: { amountCents: true },
   });
-  return agg._sum.amountCents ?? 0;
+  return (agg._sum.amountCents ?? 0) + (await pendingRefundApprovalCents(tx, paymentId, now));
 }
 
 /** Lo que aún se puede devolver: lo devolvible menos lo reservado. Si no cabe, 409. */

@@ -12,6 +12,7 @@ import { EmailModule } from './common/email/email.module';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { RedisModule } from './common/redis/redis.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { GatewaysModule } from './modules/gateways/gateways.module';
@@ -80,6 +81,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     BankReconModule,
     PosDeviceModule,
     SuperAdminModule,
+    ApprovalsModule,
     WalletsModule,
     WebhooksModule,
   ],

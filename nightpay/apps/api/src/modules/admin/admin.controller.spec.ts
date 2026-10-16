@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { HttpException } from '@nestjs/common';
 import type { JwtPayload } from '@nightpay/contracts';
 import { AdminController, quarterRange } from './admin.controller';
+import { payoutRoute, type VenueApprovalRules } from '../approvals/approval-rules';
 import { sealTotpSecret } from '../auth/totp-crypto';
 import { createFakeRedis, type FakeRedis } from '../auth/testing/fake-redis';
 import { makeTotpKit, totpCodeAt } from '../auth/testing/totp-kit';
@@ -69,14 +70,24 @@ describe('POST /admin/operators/:id/payouts — 2FA del que paga (Redis, vale co
     process.env.ENCRYPTION_KEK = previousKek;
   });
 
-  function controller(totpSecret: string | null, redis: FakeRedis = createFakeRedis()) {
-    const { totp } = makeTotpKit({ redis, users: { [OWNER]: totpSecret } });
+  function controller(
+    totpSecret: string | null,
+    redis: FakeRedis = createFakeRedis(),
+    who: JwtPayload = owner,
+    rules: VenueApprovalRules = { payoutRequiresApproval: true, refundApprovalThresholdCents: 10_000 },
+  ) {
+    const { totp } = makeTotpKit({ redis, users: { [who.sub]: totpSecret } });
     const operators = { createPayout: vi.fn().mockResolvedValue({ id: 'po-1' }) };
+    const approvals = {
+      payoutRouteFor: vi.fn(async (actor: { role: JwtPayload['role'] }) => payoutRoute(actor.role, rules)),
+      requestPayout: vi.fn().mockResolvedValue({ approvalRequestId: 'ap-1', status: 'PENDING' }),
+    };
     const none = {} as never;
-    const ctrl = new AdminController(none, none, none, operators as never, none, none, totp);
+    const ctrl = new AdminController(none, none, none, operators as never, none, none, totp, approvals as never);
+    const reply = { status: vi.fn() };
     const pay = (totpCode?: string) =>
-      ctrl.createOperatorPayout('t-1', owner, 'op-1', { notes: 'semana', ...(totpCode ? { totpCode } : {}) });
-    return { pay, operators };
+      ctrl.createOperatorPayout('t-1', who, 'op-1', { notes: 'semana', ...(totpCode ? { totpCode } : {}) }, reply as never);
+    return { pay, operators, approvals, reply };
   }
 
   async function failureOf(promise: Promise<unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -109,6 +120,40 @@ describe('POST /admin/operators/:id/payouts — 2FA del que paga (Redis, vale co
     expect(reused.body).toMatchObject({ code: 'TOTP_INVALID' });
     expect(String(reused.body.message)).toMatch(/cambia cada 30 s/);
     expect(operators.createPayout).toHaveBeenCalledTimes(1);
+  });
+
+  it('el pago directo comprueba dentro de la transacción que no haya un pago pedido para la chica', async () => {
+    const { pay, operators } = controller(null);
+    await pay();
+    const options = operators.createPayout.mock.calls[0]![4] as { inTransaction?: unknown };
+    expect(typeof options.inTransaction).toBe('function');
+  });
+
+  it('encargado con aprobación del local: no paga, lo pide (202) y sin pedirle código', async () => {
+    const manager = { sub: 'man-1', tenantId: 't-1', role: 'MANAGER' } as unknown as JwtPayload;
+    const { pay, operators, approvals, reply } = controller(null, createFakeRedis(), manager);
+    await expect(pay()).resolves.toEqual({ approvalRequestId: 'ap-1', status: 'PENDING' });
+    expect(reply.status).toHaveBeenCalledWith(202);
+    expect(approvals.requestPayout).toHaveBeenCalledWith(
+      { userId: 'man-1', role: 'MANAGER', tenantId: 't-1' },
+      'op-1',
+      expect.objectContaining({ notes: 'semana' }),
+    );
+    expect(operators.createPayout).not.toHaveBeenCalled();
+  });
+
+  it('encargado sin aprobación del local: paga él, con 2FA obligatoria', async () => {
+    const manager = { sub: 'man-1', tenantId: 't-1', role: 'MANAGER' } as unknown as JwtPayload;
+    const direct = { payoutRequiresApproval: false, refundApprovalThresholdCents: 10_000 };
+    const without = controller(null, createFakeRedis(), manager, direct);
+    expect(await failureOf(without.pay())).toEqual({ status: 403, body: expect.objectContaining({ code: 'TOTP_NOT_ENROLLED' }) });
+    expect(without.operators.createPayout).not.toHaveBeenCalled();
+
+    const enrolled = controller(sealTotpSecret(SECRET, KEK), createFakeRedis(), manager, direct);
+    expect(await failureOf(enrolled.pay())).toEqual({ status: 403, body: expect.objectContaining({ code: 'TOTP_REQUIRED' }) });
+    await expect(enrolled.pay(totpCodeAt(SECRET))).resolves.toEqual({ id: 'po-1' });
+    expect(enrolled.reply.status).not.toHaveBeenCalled();
+    expect(enrolled.approvals.requestPayout).not.toHaveBeenCalled();
   });
 
   it('dos réplicas con el mismo Redis: el código usado en una no paga en la otra', async () => {

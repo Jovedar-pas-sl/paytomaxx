@@ -14,8 +14,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -23,6 +25,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Tenant } from '../../common/decorators/tenant.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { ApprovalRequestsService } from '../approvals/approval-requests.service';
+import { assertNoPendingPayout } from '../approvals/approval-store';
 import { RefreshTokenService } from '../auth/refresh-token.service';
 import { TotpService } from '../auth/totp.service';
 import { AuditService } from '../audit/audit.service';
@@ -131,6 +135,7 @@ export class AdminController {
   private readonly payments: PaymentsService;
   private readonly cls: ClsService<{ ctx: RequestContext }>;
   private readonly totp: TotpService;
+  private readonly approvals: ApprovalRequestsService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -140,6 +145,7 @@ export class AdminController {
     @Inject(PaymentsService) payments: PaymentsService,
     @Inject(ClsService) cls: ClsService<{ ctx: RequestContext }>,
     @Inject(TotpService) totp: TotpService,
+    @Inject(ApprovalRequestsService) approvals: ApprovalRequestsService,
   ) {
     this.prisma = prisma;
     this.refreshTokens = refreshTokens;
@@ -148,6 +154,7 @@ export class AdminController {
     this.payments = payments;
     this.cls = cls;
     this.totp = totp;
+    this.approvals = approvals;
   }
 
   /**
@@ -740,25 +747,40 @@ export class AdminController {
 
   /**
    * Marca payout — agrupa earnings pendientes y los liquida.
-   * Restringido a OWNER (auditoría — payout = movimiento de dinero).
+   * El dueño lo hace directo. El encargado, si el local tiene
+   * payoutRequiresApproval, no paga: lo pide al dueño y responde 202
+   * `{ approvalRequestId, status: 'PENDING', … }` («Por aprobar»); si no, paga
+   * él con 2FA obligatoria. Con una petición pendiente para la chica, nadie le
+   * paga por otro lado (sus comisiones están reservadas).
    */
   @Post('operators/:id/payouts')
-  @Roles('OWNER')
+  @Roles('OWNER', 'MANAGER')
   @HttpCode(201)
   async createOperatorPayout(
     @Tenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(CreatePayoutSchema)) dto: CreatePayoutDto,
+    @Res({ passthrough: true }) reply?: FastifyReply,
   ) {
+    const actor = { userId: user.sub, role: user.role, tenantId };
+    const route = await this.approvals.payoutRouteFor(actor);
+    if (route.kind === 'forbidden') throw new ForbiddenException('Solo el dueño o el encargado pagan a las chicas');
+    if (route.kind === 'request') {
+      reply?.status(202);
+      return this.approvals.requestPayout(actor, id, dto);
+    }
     // Pagar a una chica mueve dinero: con 2FA activada, hace falta el código
-    // (una sesión robada no basta para mandar su dinero a otra cuenta).
-    // Intentos y códigos usados en Redis: valen entre réplicas del API.
-    await this.totp.assertIfEnrolledForUser(user.sub, dto.totpCode);
+    // (una sesión robada no basta para mandar su dinero a otra cuenta); el
+    // encargado que paga directo, siempre. Intentos y códigos usados en
+    // Redis: valen entre réplicas del API.
+    if (route.twoFactor === 'required') await this.totp.assertForUser(user.sub, dto.totpCode);
+    else await this.totp.assertIfEnrolledForUser(user.sub, dto.totpCode);
     return this.operators.createPayout(tenantId, id, user.sub, dto.notes, {
       externalTxId: dto.externalTxId,
       externalRail: dto.externalRail,
       receiptUrl: dto.receiptUrl,
+      inTransaction: (tx) => assertNoPendingPayout(tx, tenantId, id),
     });
   }
 }

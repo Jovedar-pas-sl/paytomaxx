@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ApprovalsCoreModule } from '../approvals/approvals-core.module';
 import { AuthModule } from '../auth/auth.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { RefundReversalSweepService } from './refund-reversal-sweep.service';
@@ -6,7 +7,7 @@ import { RefundsController } from './refunds.controller';
 import { RefundsService } from './refunds.service';
 
 @Module({
-  imports: [PaymentsModule, AuthModule],
+  imports: [PaymentsModule, AuthModule, ApprovalsCoreModule],
   controllers: [RefundsController],
   // El repaso reintenta los descuentos a la chica que no llegaron a aplicarse.
   providers: [RefundsService, RefundReversalSweepService],
