@@ -13,7 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
@@ -21,6 +21,14 @@ import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { operatorAppBaseUrl } from './operator-app-url';
 import { availableCentsOf, payoutCutoff, payoutTotalCents } from './payout-math';
+import {
+  exactSelection,
+  lockOperatorPayouts,
+  payableSelection,
+  payoutChanged,
+  settleSelection,
+  type ExactPayout,
+} from './payout-selection';
 import { venueHoldDays } from './venue-hold-days';
 import { payoutRoutingChanges } from './payout-routing';
 import type {
@@ -67,6 +75,25 @@ function hashInviteToken(token: string): string {
 function commissionOnCreate(actorRole: Role, requested: number | undefined): { commissionBps: number | null; ignored: boolean } {
   if (actorRole === 'OWNER') return { commissionBps: requested ?? null, ignored: false };
   return { commissionBps: null, ignored: requested !== undefined };
+}
+
+/** Opciones de createPayout (referencia externa y lo de «Por aprobar»). */
+export interface PayoutOptions {
+  externalTxId?: string;
+  externalRail?: string;
+  receiptUrl?: string;
+  /** Dentro de la transacción, con el candado de la chica, antes de leer sus comisiones. */
+  inTransaction?: (tx: TransactionalClient) => Promise<void>;
+  /** Pago aprobado: exactamente estas comisiones y deudas, por este total. */
+  exact?: ExactPayout;
+  /** En la misma transacción, con el pago ya creado. */
+  afterCreate?: (tx: TransactionalClient, payoutId: string) => Promise<void>;
+  /** Para el registro. */
+  approvalRequestId?: string;
+}
+
+function eur(cents: number): string {
+  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
 /** Ya tiene a dónde se le paga. */
@@ -966,17 +993,20 @@ export class OperatorsService {
    * Marca un payout para una operadora — agrupa todos los earnings sin
    * payoutId actual y los liquida atómicamente.
    * Si el neto agregado es <= 0 (ej. solo deudas pendientes) → 409.
+   *
+   * «Por aprobar»: con `exact` se pagan exactamente las comisiones y deudas que
+   * fijó la petición y por ese total; si algo cambió (ya pagadas, devoluciones
+   * nuevas…), 409 y no se apunta nada. `inTransaction` corre dentro de la
+   * transacción, con el candado de la chica tomado y antes de leer nada (la
+   * aprobación se marca ahí; el pago directo comprueba que no haya una
+   * petición pendiente); `afterCreate`, en la misma transacción, con el pago.
    */
   async createPayout(
     tenantId: string,
     operatorId: string,
     paidByUserId: string,
     notes?: string,
-    options?: {
-      externalTxId?: string;
-      externalRail?: string;
-      receiptUrl?: string;
-    },
+    options?: PayoutOptions,
   ) {
     // Verificar pertenencia + leer payoutMethod por defecto
     const operator = await this.prisma.user.findFirst({
@@ -984,115 +1014,36 @@ export class OperatorsService {
     }) as unknown as { id: string; payoutMethod: string | null } | null;
     if (!operator) throw new NotFoundException('Operadora no encontrada');
     const holdDays = await this.holdDays(tenantId);
+    // Rail efectivo: el del dto si viene, sino el preferido de la chica.
+    const rail = options?.externalRail ?? operator.payoutMethod ?? null;
 
     const result = await this.prisma.withTenant(tenantId, async (tx) => {
+      await lockOperatorPayouts(tx, operatorId);
+      await options?.inTransaction?.(tx);
       // Un hash on-chain solo vale para un pago del local.
       const txId = options?.externalTxId?.trim();
-      const rail = options?.externalRail ?? operator.payoutMethod ?? null;
       if (txId && isAutoVerifiable(rail as PayoutMethod | null)) {
         const other = await otherPayoutWithTx(tx, tenantId, null, txId);
         if (other) throw txAlreadyUsed(other);
       }
 
-      // SELECT FOR UPDATE de earnings pendientes — incluye tipCents en SUM.
-      // L2 (audit): el cálculo previo omitía tipCents → payout subestimaba.
-      // Solo earnings con más de N días (los del local o PAYOUT_HOLD_DAYS): el
-      // dinero ya está abonado por el banco y una devolución temprana no deja deuda.
-      const cutoff = payoutCutoff(new Date(), holdDays);
-      const pending = await tx.$queryRaw<
-        Array<{ id: string; commissionCents: number; tipCents: number; reversedCents: number }>
-      >`
-        SELECT id, "commissionCents", "tipCents", "reversedCents"
-          FROM operator_earnings
-         WHERE "operatorId" = ${operatorId}::uuid
-           AND "tenantId" = ${tenantId}::uuid
-           AND "payoutId" IS NULL
-           AND "createdAt" <= ${cutoff}
-         FOR UPDATE
-      `;
-
-      if (pending.length === 0) {
-        throw new ConflictException(
-          holdDays === 0
-            ? 'No hay comisiones pendientes para liquidar.'
-            : `No hay comisiones con más de ${holdDays} días para liquidar. Las más recientes siguen en espera.`,
-        );
-      }
-
-      // Deuda por devoluciones llegadas después de un pago anterior.
-      const debts = await tx.$queryRaw<Array<{ id: string; reversedDeltaCents: number }>>`
-        SELECT r.id, r."reversedDeltaCents"
-          FROM earning_reversals r
-          JOIN operator_earnings e ON e.id = r."earningId"
-         WHERE e."operatorId" = ${operatorId}::uuid
-           AND e."tenantId" = ${tenantId}::uuid
-           AND r."afterPayout"
-           AND r."settledPayoutId" IS NULL
-         FOR UPDATE OF r
-      `;
-
+      const { pending, debts } = options?.exact
+        ? await exactSelection(tx, tenantId, operatorId, options.exact)
+        : await payableSelection(tx, tenantId, operatorId, holdDays);
       const totalCents = payoutTotalCents(pending, debts);
-
       if (totalCents <= 0) {
         throw new ConflictException(
           `Saldo neto ${totalCents / 100} € — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
         );
       }
-
-      // Rail efectivo: el del dto si viene, sino el preferido de la chica.
-      const railEffective = options?.externalRail ?? operator.payoutMethod ?? null;
-
-      const payoutData: Record<string, unknown> = {
-        tenantId,
-        operatorId,
-        totalCents,
-        paidByUserId,
-        notes,
-      };
-      if (options?.externalTxId) payoutData.externalTxId = options.externalTxId;
-      if (railEffective) payoutData.externalRail = railEffective;
-      if (options?.receiptUrl) payoutData.receiptUrl = options.receiptUrl;
-
-      // FX snapshot (Track sprint 2026-05-13 #15): si el rail es cripto,
-      // congelamos la tasa EUR↔USDT al momento de creación. El verifier
-      // on-chain usará este snapshot, no la tasa actual — evita falsos
-      // MISMATCH por volatilidad entre creación y verificación.
-      if (railEffective && OperatorsService.CRYPTO_RAILS.has(railEffective)) {
-        try {
-          const fx = await this.fxFactory.getEurToUsdtRateInfo();
-          payoutData.payoutFxRate = fx.rate.toFixed(6);
-          payoutData.expectedAmountUsdt = ((totalCents / 100) * fx.rate).toFixed(6);
-          if (fx.degraded) {
-            this.logger.warn(
-              `Payout FX snapshot tomado en modo degraded (Binance API down) — payout=${operatorId} rate=${fx.rate} usando fallback`,
-            );
-          }
-        } catch (err) {
-          // Si falla el FX lookup, dejamos el payout sin snapshot (legacy mode)
-          this.logger.error(
-            `FX snapshot failed for operator=${operatorId}: ${(err as Error).message}. Payout creado sin snapshot.`,
-          );
-        }
+      if (options?.exact && totalCents !== options.exact.totalCents) {
+        throw payoutChanged(`El saldo de la chica ha cambiado desde que se pidió (ahora ${eur(totalCents)}).`);
       }
 
+      const payoutData = await this.payoutData({ tenantId, operatorId, totalCents, paidByUserId, notes, rail, options });
       const payout = await tx.operatorPayout.create({ data: payoutData as never });
-
-      // Atomic UPDATE de todos los earnings agrupados
-      const ids = pending.map((e) => e.id);
-      await tx.$executeRaw`
-        UPDATE operator_earnings
-           SET "payoutId" = ${payout.id}::uuid
-         WHERE id = ANY(${ids}::uuid[])
-      `;
-      if (debts.length > 0) {
-        const debtIds = debts.map((d) => d.id);
-        await tx.$executeRaw`
-          UPDATE earning_reversals
-             SET "settledPayoutId" = ${payout.id}::uuid
-           WHERE id = ANY(${debtIds}::uuid[])
-        `;
-      }
-
+      await settleSelection(tx, payout.id, pending, debts);
+      await options?.afterCreate?.(tx, payout.id);
       return { payout, count: pending.length };
     }).catch((err: unknown) => {
       // A la vez, otro pago se quedó el mismo hash (índice único parcial).
@@ -1111,6 +1062,7 @@ export class OperatorsService {
         totalCents: result.payout.totalCents,
         earningCount: result.count,
         notes,
+        ...(options?.approvalRequestId ? { approvalRequestId: options.approvalRequestId } : {}),
       },
     });
 
@@ -1124,6 +1076,44 @@ export class OperatorsService {
       earningCount: result.count,
       createdAt: result.payout.createdAt.toISOString(),
     };
+  }
+
+  /**
+   * Datos del pago. Rail cripto → FX snapshot (Track sprint 2026-05-13 #15):
+   * congelamos la tasa EUR↔USDT al crearlo; el verifier on-chain usará este
+   * snapshot, no la tasa actual — evita falsos MISMATCH por volatilidad.
+   */
+  private async payoutData(input: {
+    tenantId: string;
+    operatorId: string;
+    totalCents: number;
+    paidByUserId: string;
+    notes: string | undefined;
+    rail: string | null;
+    options: PayoutOptions | undefined;
+  }): Promise<Record<string, unknown>> {
+    const { tenantId, operatorId, totalCents, paidByUserId, notes, rail, options } = input;
+    const data: Record<string, unknown> = { tenantId, operatorId, totalCents, paidByUserId, notes };
+    if (options?.externalTxId) data.externalTxId = options.externalTxId;
+    if (rail) data.externalRail = rail;
+    if (options?.receiptUrl) data.receiptUrl = options.receiptUrl;
+    if (!rail || !OperatorsService.CRYPTO_RAILS.has(rail)) return data;
+    try {
+      const fx = await this.fxFactory.getEurToUsdtRateInfo();
+      data.payoutFxRate = fx.rate.toFixed(6);
+      data.expectedAmountUsdt = ((totalCents / 100) * fx.rate).toFixed(6);
+      if (fx.degraded) {
+        this.logger.warn(
+          `Payout FX snapshot tomado en modo degraded (Binance API down) — payout=${operatorId} rate=${fx.rate} usando fallback`,
+        );
+      }
+    } catch (err) {
+      // Si falla el FX lookup, dejamos el payout sin snapshot (legacy mode)
+      this.logger.error(
+        `FX snapshot failed for operator=${operatorId}: ${(err as Error).message}. Payout creado sin snapshot.`,
+      );
+    }
+    return data;
   }
 
   async ensureBelongsToVenue(operatorId: string, tenantId: string): Promise<void> {
