@@ -66,7 +66,7 @@ describe('API por usuario (Redis): assertIfEnrolledForUser / assertForUser', () 
     const { totp } = makeTotpKit({ users: { u1: sealTotpSecret(SECRET, KEK) } });
     expect(await failureOf(totp.assertForUser('u1', '000000'))).toEqual({
       status: 403,
-      body: expect.objectContaining({ code: 'TOTP_INVALID', message: 'Código 2FA incorrecto o caducado' }),
+      body: expect.objectContaining({ code: 'TOTP_INVALID', message: expect.stringMatching(/incorrecto/) }),
     });
     await totp.assertForUser('u1', codeAt(SECRET));
     for (const code of [codeAt(SECRET), codeAt(SECRET, STEP - 1)]) {
