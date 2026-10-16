@@ -17,6 +17,7 @@ probarían nada de eso.
 | `cuadre-banco.int.spec.ts` | Importar el fichero de Redsys, clasificar líneas, Incidencias |
 | `consumos-informes.int.spec.ts` | Consumos del saldo en informes y en «Mi noche» |
 | `super-admin.int.spec.ts` | Super-admin con otro local activo |
+| `google-wallet.int.spec.ts` | Migración de `wallet_passes` (sin RLS, cascada, idempotente), consulta del repaso de Google Wallet con RLS forzado y el repaso entero con un Google de mentira |
 
 ## Lanzarlas en local
 
