@@ -9,15 +9,22 @@ import {
   verifyPayout,
   type PayoutMethod,
 } from '@/lib/api';
-import { ApiError } from '@/lib/api-errors';
+import { ApiError, needsTotpCode, totpLockedUntil } from '@/lib/api-errors';
+import { payoutSummary } from '@/lib/confirm-summary';
 import { formatDecimal, formatEur } from '@/lib/money';
 import { isAutoVerifiable, payoutAddressError } from '@/lib/payout-address';
 import { describeVerifyResult, payoutReferenceError, type VerifyOutcome } from '@/lib/payout-verify';
+import { useLockActive } from '@/lib/use-lock';
+import { useVenue } from '@/lib/venue-context';
+import { ConfirmLine } from './ConfirmLine';
 import { Notice } from './Notice';
-import { PAYOUT_METHOD_LABELS, PayoutMethodOptions } from './PayoutMethodForm';
+import { OtpInput } from './OtpInput';
+import { PAYOUT_METHOD_LABELS, PAYOUT_METHOD_SHORT, PayoutMethodOptions } from './PayoutMethodForm';
 
 interface Props {
   operatorId: string;
+  /** Para la frase de confirmación ("… a Ana"). */
+  operatorName: string;
   balanceCents: number;
   payoutMethod: PayoutMethod | null;
   payoutAddress: string | null;
@@ -43,6 +50,7 @@ interface Created {
  */
 export function PayoutConfirmModal({
   operatorId,
+  operatorName,
   balanceCents,
   payoutMethod,
   payoutAddress,
@@ -61,6 +69,12 @@ export function PayoutConfirmModal({
   const [error, setError] = useState<string | null>(null);
   const [rate, setRate] = useState<Rate>(null);
   const [created, setCreated] = useState<Created | null>(null);
+  /** El API pidió el código (403 TOTP_REQUIRED): la cuenta tiene la 2FA activada. */
+  const [askedForCode, setAskedForCode] = useState(false);
+  /** 429 TOTP_LOCKED: hasta cuándo no se puede probar otro código. */
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const locked = useLockActive(lockedUntil);
+  const venue = useVenue();
   const confirmId = useId();
   const railId = useId();
 
@@ -92,10 +106,13 @@ export function PayoutConfirmModal({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    // El código se envía solo al completarlo: un Intro a la vez no apunta el pago dos veces.
+    if (submitting) return;
     setError(null);
     if (!chosenRail) return setError('Elige cómo le has pagado.');
     const referenceProblem = payoutReferenceError({ externalTxId, receiptUrl });
     if (referenceProblem) return setError(referenceProblem);
+    if (askedForCode && !totpCode) return setError('Pon los 6 números de tu app de verificación.');
     if (totpCode && !/^\d{6}$/.test(totpCode)) return setError('El código 2FA son 6 números.');
     if (!confirmed) return setError('Marca la casilla para confirmar el pago.');
 
@@ -114,6 +131,15 @@ export function PayoutConfirmModal({
       setCreated({ totalCents: payout.totalCents, earningCount: payout.earningCount, outcome });
     } catch (err) {
       // No se apuntó nada: se puede corregir y volver a probar.
+      const lockEnds = totpLockedUntil(err, Date.now());
+      if (lockEnds !== null) {
+        setLockedUntil(lockEnds);
+        setTotpCode('');
+      } else if (needsTotpCode(err)) {
+        setAskedForCode(true);
+      } else if (err instanceof ApiError && err.code === 'TOTP_INVALID') {
+        setTotpCode('');
+      }
       setError((err as Error).message);
     } finally {
       setSubmitting(false);
@@ -222,16 +248,6 @@ export function PayoutConfirmModal({
           placeholder='"Pagado vía Binance", "Wire SEPA enviado", etc.'
           maxLength={500}
         />
-        <Input
-          label="Código 2FA (si tienes la app de verificación activada)"
-          value={totpCode}
-          onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-          placeholder="123456"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={6}
-        />
-
         <label htmlFor={confirmId} style={confirmStyle}>
           <input
             id={confirmId}
@@ -253,6 +269,32 @@ export function PayoutConfirmModal({
           </span>
         </label>
 
+        {chosenRail && balanceCents > 0 ? (
+          <ConfirmLine>
+            {payoutSummary({
+              amountCents: balanceCents,
+              operatorName,
+              methodLabel: PAYOUT_METHOD_SHORT[chosenRail],
+              target: address,
+              venueName: venue.name ?? venue.slug,
+            })}
+          </ConfirmLine>
+        ) : null}
+
+        <OtpInput
+          label={askedForCode ? 'Código de tu app de verificación (2FA)' : 'Código 2FA (si tienes la app activada)'}
+          value={totpCode}
+          onChange={setTotpCode}
+          autoSubmit={confirmed && Boolean(chosenRail)}
+          lockedUntil={lockedUntil}
+          required={askedForCode}
+          hint={
+            confirmed
+              ? 'Al poner el sexto número se confirma la liquidación. Cada código vale una sola vez.'
+              : 'Marca antes la casilla; luego, al poner el sexto número, se confirma.'
+          }
+        />
+
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
             {error}
@@ -262,7 +304,12 @@ export function PayoutConfirmModal({
           <Button variant="ghost" type="button" onClick={onClose} disabled={submitting} style={{ flex: 1 }}>
             Cancelar
           </Button>
-          <Button type="submit" loading={submitting} disabled={!confirmed || !chosenRail} style={{ flex: 1 }}>
+          <Button
+            type="submit"
+            loading={submitting}
+            disabled={!confirmed || !chosenRail || (askedForCode && locked)}
+            style={{ flex: 1 }}
+          >
             Confirmar liquidación
           </Button>
         </div>

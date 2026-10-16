@@ -163,6 +163,7 @@ export function OperatorDetailModal({
       {payoutOpen ? (
         <PayoutConfirmModal
           operatorId={operator.id}
+          operatorName={operator.displayName ?? operator.email}
           balanceCents={payable}
           payoutMethod={operator.payoutMethod ?? null}
           payoutAddress={operator.payoutAddress ?? null}

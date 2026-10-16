@@ -1,0 +1,144 @@
+/* Panel (admin) · código 2FA de 6 casillas y resumen antes de mover dinero.
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Solo se anima
+   transform/opacity, y nada con prefers-reduced-motion. Móvil = hasta 640px. */
+
+/* ─── Código 2FA (6 casillas) ─────────────────────────────────────── */
+
+.np-otp {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.np-otp-label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--np-text-mute);
+}
+
+.np-otp-field {
+  position: relative;
+  width: 100%;
+  max-width: 24rem;
+}
+
+/* Un solo campo (pegar, autocompletar y lector de pantalla van solos) encima
+   de las casillas, que solo pintan. */
+.np-otp-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 16px; /* iOS no hace zoom */
+  letter-spacing: 0;
+  opacity: 0.01;
+  cursor: text;
+}
+
+.np-otp-input:focus,
+.np-otp-input:focus-visible {
+  outline: none;
+  box-shadow: none !important;
+}
+
+.np-otp-boxes {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.np-otp-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 4 / 5;
+  max-height: 4.25rem;
+  border: 2px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  font-family: var(--np-font-mono);
+  font-size: clamp(1.375rem, 1rem + 2vw, 2rem);
+  font-weight: 700;
+  color: var(--np-text);
+  transition:
+    border-color var(--np-d-fast),
+    box-shadow var(--np-d-fast),
+    transform var(--np-d-fast) var(--np-ease);
+}
+
+.np-otp-box[data-filled='true'] {
+  border-color: var(--np-border-hi);
+}
+
+.np-otp-input:focus ~ .np-otp-boxes .np-otp-box[data-active='true'] {
+  border-color: var(--np-accent);
+  box-shadow: 0 0 0 3px var(--np-glow);
+  transform: translateY(-2px);
+}
+
+.np-otp-field[data-invalid='true'] .np-otp-box {
+  border-color: var(--np-danger);
+}
+
+.np-otp-input:disabled ~ .np-otp-boxes .np-otp-box {
+  opacity: 0.55;
+}
+
+.np-otp-hint {
+  font-size: 0.8125rem;
+  color: var(--np-text-dim);
+}
+
+.np-otp-error {
+  font-size: 0.8125rem;
+  color: var(--np-danger);
+}
+
+/* ─── Resumen antes de mover dinero ───────────────────────────────── */
+
+.np-confirm-line {
+  display: flex;
+  gap: 0.625rem;
+  align-items: flex-start;
+  margin: 0;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--np-border-hi);
+  border-left: 4px solid var(--np-warning);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--np-text);
+}
+
+.np-confirm-line svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: var(--np-warning);
+}
+
+@media (max-width: 640px) {
+  .np-otp-boxes {
+    gap: 0.375rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-otp-box {
+    transition: none;
+  }
+
+  .np-otp-input:focus ~ .np-otp-boxes .np-otp-box[data-active='true'] {
+    transform: none;
+  }
+}

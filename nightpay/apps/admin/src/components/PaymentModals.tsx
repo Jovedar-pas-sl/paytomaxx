@@ -4,11 +4,15 @@ import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Input, Modal, Select } from '@nightpay/ui';
 import { parseEuroCents } from '@nightpay/contracts';
 import { refundPayment, resolveStuckPayment, type PaymentRow } from '@/lib/api';
-import { isRefundOutcomeUnknown, needsTotpCode } from '@/lib/api-errors';
+import { isRefundOutcomeUnknown, needsTotpCode, totpLockedUntil } from '@/lib/api-errors';
+import { refundSummary } from '@/lib/confirm-summary';
 import { formatDateTime } from '@/lib/dates';
+import { useLockActive } from '@/lib/use-lock';
 import { centsToInput, formatEur, formatMoney } from '@/lib/money';
-import { useVenueTimezone } from '@/lib/venue-context';
+import { useVenue, useVenueTimezone } from '@/lib/venue-context';
+import { ConfirmLine } from './ConfirmLine';
 import { Notice } from './Notice';
+import { OtpInput } from './OtpInput';
 
 /**
  * Desde este importe el código de la app de verificación se pide seguro. El
@@ -202,10 +206,14 @@ export function RefundModal({
   const [reason, setReason] = useState('');
   const [totp, setTotp] = useState('');
   const [askedForCode, setAskedForCode] = useState(false);
+  /** 429 del API (demasiados códigos malos): hasta cuándo no se puede probar otro. Es de la cuenta, no del cobro. */
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const locked = useLockActive(lockedUntil);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** La pasarela no confirmó: la devolución queda pendiente (no repetirla). */
   const [unknownOutcome, setUnknownOutcome] = useState<string | null>(null);
+  const venue = useVenue();
 
   useEffect(() => {
     if (payment) {
@@ -225,9 +233,12 @@ export function RefundModal({
   const cents = parseEuroCents(amount) ?? Number.NaN;
   const requires2FA = askedForCode || (Number.isFinite(cents) && cents >= TWO_FA_THRESHOLD_CENTS);
 
+  const validAmount = Number.isFinite(cents) && cents > 0 && cents <= payment.availableAmountCents;
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!payment) return;
+    // El código se envía solo al completarlo: un Intro a la vez no repite la devolución.
+    if (!payment || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -237,8 +248,15 @@ export function RefundModal({
       await refundPayment(payment.id, cents, reason || undefined, requires2FA ? totp : undefined);
       onDone();
     } catch (err) {
+      const lockEnds = totpLockedUntil(err, Date.now());
       if (isRefundOutcomeUnknown(err)) {
         setUnknownOutcome((err as Error).message);
+      } else if (lockEnds !== null) {
+        // 429 TOTP_LOCKED: el campo se bloquea hasta que el API deje probar otro.
+        setLockedUntil(lockEnds);
+        setAskedForCode(true);
+        setTotp('');
+        setError((err as Error).message);
       } else if (needsTotpCode(err) && !requires2FA) {
         // Lo devuelto acumulado llega a 100 €: el API pide el código aunque este importe sea menor.
         setAskedForCode(true);
@@ -291,18 +309,24 @@ export function RefundModal({
           onChange={(e) => setReason(e.target.value)}
           maxLength={500}
         />
+        {validAmount ? (
+          <ConfirmLine>
+            {refundSummary({
+              amountCents: cents,
+              cardLast4: payment.cardLast4 ?? null,
+              venueName: venue.name ?? venue.slug,
+            })}
+          </ConfirmLine>
+        ) : null}
         {requires2FA ? (
-          <Input
+          <OtpInput
             label="Código de tu app de verificación (2FA)"
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="\d{6}"
-            maxLength={6}
             value={totp}
-            onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            onChange={setTotp}
+            autoSubmit
+            lockedUntil={lockedUntil}
             required
-            hint="Lo devuelto desde 100 € (de una vez o sumando) pide los 6 números de tu app de verificación; cada código vale una sola vez. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
+            hint="Lo devuelto desde 100 € (de una vez o sumando) pide los 6 números de tu app de verificación; cada código vale una sola vez. Al poner el sexto número se confirma. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
           />
         ) : null}
         {error ? (
@@ -314,7 +338,7 @@ export function RefundModal({
           <Button variant="ghost" type="button" onClick={onClose} style={{ flex: 1 }}>
             Cancelar
           </Button>
-          <Button type="submit" loading={submitting} style={{ flex: 1 }}>
+          <Button type="submit" loading={submitting} disabled={requires2FA && locked} style={{ flex: 1 }}>
             Confirmar reembolso
           </Button>
         </div>
