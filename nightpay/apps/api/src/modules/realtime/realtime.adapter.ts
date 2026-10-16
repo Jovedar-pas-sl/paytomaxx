@@ -17,7 +17,8 @@ const defaultRedis: RedisFactory = (url) => new Redis(url, { lazyConnect: false 
  * critico cuando escalemos a >1 nodo tras balanceador.
  */
 export class RedisIoAdapter extends IoAdapter {
-  private readonly logger = new Logger(RedisIoAdapter.name);
+  // Nest 11: IoAdapter ya trae un `logger` protegido; se sustituye por este.
+  protected override readonly logger = new Logger(RedisIoAdapter.name);
   private readonly adapterConstructor: ReturnType<typeof createAdapter>;
   private readonly pubClient: Redis;
   private readonly subClient: Redis;
