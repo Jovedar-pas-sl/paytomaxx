@@ -11,3 +11,4 @@ export * from './money';
 export * from './wallet-pin';
 export * from './wallet-card';
 export * from './superadmin';
+export * from './approvals';
