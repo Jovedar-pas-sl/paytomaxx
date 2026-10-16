@@ -11,6 +11,7 @@ import type { TabKey } from '@/lib/roles';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { BankRefundModal } from './BankRefundModal';
+import { Notice } from './Notice';
 import { RefundModal, ResolveModal } from './PaymentModals';
 import { RefundsModal } from './RefundsModal';
 import { TonightStrip } from './TonightStrip';
@@ -38,6 +39,9 @@ const STUCK_AUTHORIZING_MS = 15 * 60 * 1000;
 interface Props {
   user: User;
   onNavigate?: (key: TabKey) => void;
+  /** Cobro a abrir al llegar (desde una incidencia): se abren sus devoluciones. */
+  focusPaymentId?: string | null;
+  onFocusDone?: () => void;
 }
 
 /**
@@ -46,7 +50,7 @@ interface Props {
  * el API falla y una respuesta vieja no pisa la de un filtro nuevo. Si llega
  * lo mismo, no se repinta nada (nada parpadea en cada refresco).
  */
-export function PaymentsPanel({ user, onNavigate }: Props) {
+export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocusDone }: Props) {
   const tz = useVenueTimezone();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   /** null = aún no ha llegado la primera página. */
@@ -58,6 +62,8 @@ export function PaymentsPanel({ user, onNavigate }: Props) {
   const [refundFor, setRefundFor] = useState<PaymentRow | null>(null);
   const [resolveFor, setResolveFor] = useState<PaymentRow | null>(null);
   const [refundsFor, setRefundsFor] = useState<PaymentRow | null>(null);
+  /** «Abrir cobro» de una incidencia que no está entre los cobros cargados. */
+  const [focusMissing, setFocusMissing] = useState(false);
   // Filas cargadas (el refresco pide las mismas) y filtro vigente (para
   // descartar un "Cargar más" que vuelve después de cambiar el filtro).
   const loadedRef = useRef(0);
@@ -66,6 +72,16 @@ export function PaymentsPanel({ user, onNavigate }: Props) {
   useEffect(() => {
     loadedRef.current = payments?.length ?? 0;
   }, [payments]);
+
+  // Desde una incidencia (devolución sin confirmar): en cuanto llega la lista,
+  // se abren las devoluciones de ese cobro, donde está «Resolver».
+  useEffect(() => {
+    if (!focusPaymentId || payments === null) return;
+    const row = payments.find((p) => p.id === focusPaymentId);
+    if (row) setRefundsFor(row);
+    setFocusMissing(!row);
+    onFocusDone?.();
+  }, [focusPaymentId, payments, onFocusDone]);
 
   const refresh = usePolling(
     async (signal) => {
@@ -131,6 +147,12 @@ export function PaymentsPanel({ user, onNavigate }: Props) {
   return (
     <>
       <TonightStrip onNavigate={onNavigate} />
+
+      {focusMissing ? (
+        <Notice tone="info" action={{ label: 'Entendido', onClick: () => setFocusMissing(false) }}>
+          Ese cobro no está entre los últimos cargados. Pulsa «Cargar más» abajo y, en él, Devoluciones → Resolver.
+        </Notice>
+      ) : null}
 
       {error ? (
         <Card style={{ padding: '1rem', borderColor: 'var(--np-danger)' }}>

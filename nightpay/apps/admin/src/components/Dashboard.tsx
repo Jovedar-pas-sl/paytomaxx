@@ -4,7 +4,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Logo, ThemeToggle } from '@nightpay/ui';
 import { fetchVenueSettings, logout as apiLogout, type User } from '@/lib/api';
 import { DEFAULT_TIMEZONE } from '@/lib/dates';
-import { visibleTabs, type TabKey } from '@/lib/roles';
+import { visibleTabs, type PanelTab, type TabKey } from '@/lib/roles';
 import { IncidentsContext, useIncidentsFeed } from '@/lib/use-incidents';
 import { VenueContext, type VenueInfo } from '@/lib/venue-context';
 import { BankReconPanel } from './BankReconPanel';
@@ -46,6 +46,8 @@ export function Dashboard({ user, onLogout }: Props) {
   const venue = useVenueInfo(user);
   const incidents = useIncidentsFeed(user.tenantId, venue.timezone);
   const [loggingOut, setLoggingOut] = useState(false);
+  /** Cobro a abrir en Pagos (desde una incidencia: «Abrir cobro»). */
+  const [focusPayment, setFocusPayment] = useState<string | null>(null);
 
   async function logout() {
     setLoggingOut(true);
@@ -56,6 +58,11 @@ export function Dashboard({ user, onLogout }: Props) {
   function goTo(key: TabKey): void {
     setSelected(key);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
+  }
+
+  function openPayment(paymentId: string): void {
+    setFocusPayment(paymentId);
+    goTo('payments');
   }
 
   return (
@@ -115,7 +122,15 @@ export function Dashboard({ user, onLogout }: Props) {
             aria-labelledby={tabId(TABS_ID, tab)}
             style={{ display: 'flex', flexDirection: 'column', gap: '2rem', minWidth: 0 }}
           >
-            <ActivePanel tab={tab} user={user} onNavigate={goTo} />
+            <ActivePanel
+              tab={tab}
+              tabs={tabs}
+              user={user}
+              onNavigate={goTo}
+              onOpenPayment={openPayment}
+              focusPayment={focusPayment}
+              onFocusPaymentDone={() => setFocusPayment(null)}
+            />
           </div>
         </main>
 
@@ -153,15 +168,42 @@ function AccountLines({ user }: { user: User }) {
   );
 }
 
-function ActivePanel({ tab, user, onNavigate }: { tab: TabKey; user: User; onNavigate: (key: TabKey) => void }) {
+interface ActivePanelProps {
+  tab: TabKey;
+  tabs: readonly PanelTab[];
+  user: User;
+  onNavigate: (key: TabKey) => void;
+  onOpenPayment: (paymentId: string) => void;
+  focusPayment: string | null;
+  onFocusPaymentDone: () => void;
+}
+
+function ActivePanel({
+  tab,
+  tabs,
+  user,
+  onNavigate,
+  onOpenPayment,
+  focusPayment,
+  onFocusPaymentDone,
+}: ActivePanelProps) {
   const isOwner = user.role === 'OWNER';
   switch (tab) {
     case 'payments':
-      return <PaymentsPanel user={user} onNavigate={onNavigate} />;
+      return (
+        <PaymentsPanel
+          user={user}
+          onNavigate={onNavigate}
+          focusPaymentId={focusPayment}
+          onFocusDone={onFocusPaymentDone}
+        />
+      );
     case 'nights':
       return <NightsPanel isOwner={isOwner} />;
     case 'incidents':
-      return <IncidentsPanel isOwner={isOwner} />;
+      return (
+        <IncidentsPanel isOwner={isOwner} tabs={tabs} onNavigate={onNavigate} onOpenPayment={onOpenPayment} />
+      );
     case 'bank':
       return <BankReconPanel isOwner={isOwner} />;
     case 'operators':
