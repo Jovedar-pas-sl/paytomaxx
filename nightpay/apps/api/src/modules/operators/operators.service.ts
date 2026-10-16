@@ -20,6 +20,7 @@ import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
 import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury/payout-tx-guard';
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { operatorAppBaseUrl } from './operator-app-url';
+import { debtView, payoutAccountView, type DebtRow, type MyPayoutInfo } from './my-payout-info';
 import { availableCentsOf, parseHoldDays, payoutCutoff, payoutTotalCents } from './payout-math';
 import { payoutRoutingChanges } from './payout-routing';
 import type {
@@ -303,6 +304,38 @@ export class OperatorsService {
       receiptUrl: r.receiptUrl,
       reconciledAt: r.reconciledAt?.toISOString() ?? null,
     }));
+  }
+
+  /**
+   * «Ganancias» de la chica: días de espera antes de pagar, su cuenta de
+   * cobro (enmascarada) y las devoluciones que llegaron con el cobro ya
+   * pagado (abiertas primero: se descuentan del próximo pago).
+   */
+  async getMyPayoutInfo(operatorId: string, tenantId: string, limit = 30): Promise<MyPayoutInfo> {
+    const [user, debts] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: { id: operatorId, tenantId },
+        select: { payoutMethod: true, payoutAddress: true, payoutLabel: true },
+      }),
+      this.prisma.asSystem((tx) => tx.$queryRaw<DebtRow[]>`
+        SELECT r.id, e."paymentId", e."paymentAmountCents" AS "chargeCents",
+               r."reversedDeltaCents" AS cents, r."createdAt" AS at, e."createdAt" AS "chargedAt",
+               r."settledPayoutId", po."createdAt" AS "settledAt"
+          FROM earning_reversals r
+          JOIN operator_earnings e ON e.id = r."earningId"
+          LEFT JOIN operator_payouts po ON po.id = r."settledPayoutId"
+         WHERE e."operatorId" = ${operatorId}::uuid
+           AND e."tenantId" = ${tenantId}::uuid
+           AND r."afterPayout"
+         ORDER BY (r."settledPayoutId" IS NULL) DESC, r."createdAt" DESC
+         LIMIT ${limit}
+      `),
+    ]);
+    return {
+      holdDays: this.holdDays(),
+      account: payoutAccountView(user),
+      debts: debts.map(debtView),
+    };
   }
 
   // ─── Admin (OWNER/MANAGER del venue) ──────────────────────────────

@@ -25,6 +25,7 @@ import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import type { JwtPayload } from '@nightpay/contracts';
+import type { MyPayoutInfo } from './my-payout-info';
 import { OperatorsService } from './operators.service';
 
 /**
@@ -66,6 +67,14 @@ export class OperatorsController {
   @Roles('OPERATOR')
   async myPayouts(@CurrentUser() user: JwtPayload): Promise<PayoutView[]> {
     return this.operators.getMyPayouts(user.sub, user.tenantId);
+  }
+
+  /** Días de espera, su cuenta de cobro (enmascarada) y sus deudas por devoluciones. */
+  @Get('me/payout-info')
+  @UseGuards(RolesGuard)
+  @Roles('OPERATOR')
+  async myPayoutInfo(@CurrentUser() user: JwtPayload): Promise<MyPayoutInfo> {
+    return this.operators.getMyPayoutInfo(user.sub, user.tenantId);
   }
 
   /**

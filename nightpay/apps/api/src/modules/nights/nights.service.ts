@@ -62,6 +62,10 @@ export interface MyNight {
   tipsCents: number;
   reversedCents: number;
   netCents: number;
+  /** De esta noche, lo que aún no se le ha pagado (comisión + propinas − devoluciones). */
+  unpaidCents: number;
+  /** Lo ganado fuera de esta noche (otras noches) y aún sin pagar. Sin restar deudas. */
+  otherUnpaidCents: number;
 }
 
 type NightRow = {
@@ -277,12 +281,47 @@ export class NightsService {
         ) x
     `);
     const r = rows[0] ?? { count: 0, chargedCents: 0, commissionCents: 0, tipsCents: 0, reversedCents: 0 };
+    const unpaid = await this.unpaidSplit(tenantId, operatorId, from, to);
     return {
       from: from.toISOString(),
       to: last?.closedAt?.toISOString() ?? null,
       nightOpen: Boolean(open),
       ...r,
       netCents: r.commissionCents + r.tipsCents - r.reversedCents,
+      ...unpaid,
+    };
+  }
+
+  /**
+   * Lo que aún no se le ha pagado a la chica, partido en esta noche y el
+   * resto (otras noches). Misma fecha de cada cobro que en `mine`: la del
+   * banco en tarjeta y datáfono, la del consumo en el saldo.
+   */
+  private async unpaidSplit(
+    tenantId: string,
+    operatorId: string,
+    from: Date,
+    to: Date,
+  ): Promise<{ unpaidCents: number; otherUnpaidCents: number }> {
+    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<
+      Array<{ unpaidCents: number | null; otherUnpaidCents: number | null }>
+    >`
+      SELECT COALESCE(SUM(x.net) FILTER (WHERE x.at >= ${from} AND x.at < ${to}), 0)::int AS "unpaidCents",
+             COALESCE(SUM(x.net) FILTER (WHERE NOT (x.at >= ${from} AND x.at < ${to})), 0)::int AS "otherUnpaidCents"
+        FROM (
+          SELECT e."commissionCents" + COALESCE(e."tipCents", 0) - e."reversedCents" AS net,
+                 COALESCE(${paymentAt('p')}, c."createdAt", e."createdAt") AS at
+            FROM operator_earnings e
+            LEFT JOIN payments p ON p.id = e."paymentId"
+            LEFT JOIN wallet_consumptions c ON c.id = e."consumptionId"
+           WHERE e."tenantId" = ${tenantId}::uuid
+             AND e."operatorId" = ${operatorId}::uuid
+             AND e."payoutId" IS NULL
+        ) x
+    `);
+    return {
+      unpaidCents: Number(rows[0]?.unpaidCents ?? 0),
+      otherUnpaidCents: Number(rows[0]?.otherUnpaidCents ?? 0),
     };
   }
 
