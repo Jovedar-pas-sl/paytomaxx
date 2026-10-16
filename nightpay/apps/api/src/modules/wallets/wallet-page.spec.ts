@@ -134,3 +134,50 @@ describe('página del saldo del cliente', () => {
     expect(html).toContain('/w/a%2Fb%22c');
   });
 });
+
+describe('«Añadir a Google Wallet» en la página del saldo', () => {
+  it('sin Google Wallet configurado no hay botón ni código para él', () => {
+    for (const html of [renderWalletPage('tok-1', 'es', state()), renderWalletPage('tok-1', 'es', state(), { googleWallet: false })]) {
+      expect(html).not.toContain('id="gwCard"');
+      expect(html).not.toContain('google-wallet');
+      expect(script(html)).not.toContain("post('/google-wallet')");
+      expect(html).toContain('\\"gw\\":false');
+    }
+  });
+
+  it('configurado: el botón OFICIAL desde nuestro dominio, como acción secundaria (tras «Más opciones»)', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { googleWallet: true });
+    expect(html).toContain('<img src="/w/assets/google-wallet/es" width="298" height="50" alt="Añadir a Google Wallet">');
+    expect(html.indexOf('id="gwCard"')).toBeGreaterThan(html.indexOf('id="more"'));
+    expect(html.indexOf('id="gwCard"')).toBeLessThan(html.indexOf('id="codeCard"'));
+    // Sale escondida: el JS la enseña solo en Android.
+    expect(html).toContain('<section class="gw" id="gwCard" hidden');
+    const en = renderWalletPage('tok-1', 'en', state(), { googleWallet: true });
+    expect(en).toContain('<img src="/w/assets/google-wallet/en" width="283" height="50" alt="Add to Google Wallet">');
+  });
+
+  it('solo en Android, con el saldo activo, sin devolución en curso y sin sumar a otro', () => {
+    for (const lang of ['es', 'en'] as const) {
+      const js = script(renderWalletPage('tok-1', lang, state(), { googleWallet: true }));
+      expect(js).toContain("if(gw)gw.hidden=!(P==='android'&&active&&!r&&!s.merged);");
+      expect(js).toContain("var gw=C.gw?$('gwCard'):null;");
+      expect(() => new Function(script(renderWalletPage('tok-1', lang, state(), { googleWallet: true })))).not.toThrow();
+    }
+  });
+
+  it('al tocarlo: pide el enlace al API (con el token de /w) y abre Google Wallet; si falla, lo dice', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state(), { googleWallet: true }));
+    expect(js).toContain("post('/google-wallet')");
+    // Solo se abre un enlace de Google; si no, error.
+    expect(js).toContain("u.indexOf('https://pay.google.com/gp/v/save/')===0)location.href=u;else show('gwErr',T.error);");
+    expect(js).toContain("$('gwMsg').textContent=T.gwPreparing");
+    expect(js).toContain("show('gwErr',msg(e))");
+    // Al volver a la página, el texto de siempre (no «Preparando…»).
+    expect(js).toContain("busy=false;b.disabled=false;$('gwMsg').textContent=T.gwHint;");
+    expect(js).not.toContain('alert(');
+    // Sin barras invertidas: el JS va dentro de una plantilla de TypeScript.
+    const gwJs = js.slice(js.indexOf("$('gwAdd')"), js.indexOf('render(S);'));
+    expect(gwJs.length).toBeGreaterThan(50);
+    expect(gwJs.includes(String.fromCharCode(92))).toBe(false);
+  });
+});
