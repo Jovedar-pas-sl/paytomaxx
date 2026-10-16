@@ -8,17 +8,21 @@ import { AdminWalletsController, WalletsController } from './wallets.controller'
 import { PublicSaldoController } from './public-saldo.controller';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { WalletsService } from './wallets.service';
+import { GoogleWalletController } from './google-wallet/google-wallet.controller';
+import { GoogleWalletService } from './google-wallet/google-wallet.service';
 
 @Module({
   imports: [PrismaModule, AuditModule],
-  providers: [WalletsService, WalletChargesService, WalletPasskeysService],
+  providers: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService],
   controllers: [
     WalletsController,
     AdminWalletsController,
     WalletChargesController,
     PublicWalletController,
     PublicSaldoController,
+    GoogleWalletController,
   ],
-  exports: [WalletsService, WalletChargesService, WalletPasskeysService],
+  // GoogleWalletService: lo usa el repaso de la cola google-wallet-sync (QueuesModule).
+  exports: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService],
 })
 export class WalletsModule {}

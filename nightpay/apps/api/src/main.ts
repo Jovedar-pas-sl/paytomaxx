@@ -154,6 +154,9 @@ async function bootstrap() {
       { path: 'w/:token/pin', method: RequestMethod.POST },
       { path: 'w/:token/merge/challenge', method: RequestMethod.POST },
       { path: 'w/:token/merge', method: RequestMethod.POST },
+      // Google Wallet: guardar el saldo (Android) y el botón oficial.
+      { path: 'w/:token/google-wallet', method: RequestMethod.POST },
+      { path: 'w/assets/google-wallet/:lang', method: RequestMethod.GET },
     ],
   });
 
