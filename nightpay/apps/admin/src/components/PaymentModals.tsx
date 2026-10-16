@@ -2,9 +2,10 @@
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Input, Modal, Select } from '@nightpay/ui';
-import { parseEuroCents } from '@nightpay/contracts';
+import { isApprovalRequested, parseEuroCents, type ApprovalRequestedResponse } from '@nightpay/contracts';
 import { refundPayment, resolveStuckPayment, type PaymentRow } from '@/lib/api';
 import { isRefundOutcomeUnknown, needsTotpCode, totpLockedUntil } from '@/lib/api-errors';
+import { refundGoesToApproval, requestSummary } from '@/lib/approvals';
 import { refundSummary } from '@/lib/confirm-summary';
 import { formatDateTime } from '@/lib/dates';
 import { useLockActive } from '@/lib/use-lock';
@@ -196,11 +197,14 @@ export function RefundModal({
   payment,
   onClose,
   onDone,
+  requestFromCents = null,
 }: {
   open: boolean;
   payment: PaymentRow | null;
   onClose: () => void;
   onDone: () => void;
+  /** «Por aprobar»: el encargado pide al dueño las devoluciones desde este importe (null = el dueño, nunca). */
+  requestFromCents?: number | null;
 }) {
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
@@ -213,6 +217,8 @@ export function RefundModal({
   const [error, setError] = useState<string | null>(null);
   /** La pasarela no confirmó: la devolución queda pendiente (no repetirla). */
   const [unknownOutcome, setUnknownOutcome] = useState<string | null>(null);
+  /** 202: no se devolvió, se pidió al dueño. */
+  const [requested, setRequested] = useState<ApprovalRequestedResponse | null>(null);
   const venue = useVenue();
 
   useEffect(() => {
@@ -223,6 +229,7 @@ export function RefundModal({
       setAskedForCode(false);
       setError(null);
       setUnknownOutcome(null);
+      setRequested(null);
     }
   }, [payment]);
 
@@ -231,7 +238,9 @@ export function RefundModal({
   }
 
   const cents = parseEuroCents(amount) ?? Number.NaN;
-  const requires2FA = askedForCode || (Number.isFinite(cents) && cents >= TWO_FA_THRESHOLD_CENTS);
+  // Desde el umbral del local, el encargado la pide al dueño (que la aprueba con su 2FA).
+  const asking = refundGoesToApproval(requestFromCents, cents);
+  const requires2FA = !asking && (askedForCode || (Number.isFinite(cents) && cents >= TWO_FA_THRESHOLD_CENTS));
 
   const validAmount = Number.isFinite(cents) && cents > 0 && cents <= payment.availableAmountCents;
 
@@ -245,7 +254,11 @@ export function RefundModal({
       if (!Number.isFinite(cents) || cents <= 0) throw new Error('Importe inválido');
       if (cents > payment.availableAmountCents) throw new Error('Excede el importe disponible');
       if (requires2FA && !/^\d{6}$/.test(totp)) throw new Error('Pon los 6 números de tu app de verificación.');
-      await refundPayment(payment.id, cents, reason || undefined, requires2FA ? totp : undefined);
+      const result = await refundPayment(payment.id, cents, reason || undefined, requires2FA ? totp : undefined);
+      if (isApprovalRequested(result)) {
+        setRequested(result);
+        return;
+      }
       onDone();
     } catch (err) {
       const lockEnds = totpLockedUntil(err, Date.now());
@@ -268,6 +281,21 @@ export function RefundModal({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (requested) {
+    return (
+      <Modal open={open} onClose={onDone} title="Pedido al dueño">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <Notice tone="info">{requested.message}</Notice>
+          <p style={metaStyle}>
+            Devolución de <span className="np-num">{formatEur(requested.amountCents)}</span>: no se hace hasta que el
+            dueño la apruebe. Mientras, ese importe queda reservado. La verás en «Mis solicitudes».
+          </p>
+          <Button onClick={onDone}>Entendido</Button>
+        </div>
+      </Modal>
+    );
   }
 
   if (unknownOutcome) {
@@ -309,7 +337,16 @@ export function RefundModal({
           onChange={(e) => setReason(e.target.value)}
           maxLength={500}
         />
-        {validAmount ? (
+        {validAmount && asking ? (
+          <ConfirmLine>
+            {requestSummary({
+              kind: 'REFUND',
+              amountCents: cents,
+              to: payment.cardLast4 ? `a la tarjeta ••${payment.cardLast4}` : 'al cliente de este cobro',
+              venueName: venue.name ?? venue.slug,
+            })}
+          </ConfirmLine>
+        ) : validAmount ? (
           <ConfirmLine>
             {refundSummary({
               amountCents: cents,
@@ -339,7 +376,7 @@ export function RefundModal({
             Cancelar
           </Button>
           <Button type="submit" loading={submitting} disabled={requires2FA && locked} style={{ flex: 1 }}>
-            Confirmar reembolso
+            {asking ? 'Pedir al dueño' : 'Confirmar reembolso'}
           </Button>
         </div>
       </form>

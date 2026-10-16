@@ -1,5 +1,6 @@
 // Operadoras: alta, edición, ganancias, liquidaciones y tesorería.
 
+import type { ApprovalRequestedResponse } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
 
 export interface OperatorBalance {
@@ -267,7 +268,8 @@ export async function createOperatorPayout(
     /** Código 2FA (obligatorio si el dueño lo tiene activado). */
     totpCode?: string;
   },
-): Promise<{ id: string; totalCents: number; earningCount: number; createdAt: string }> {
+): Promise<{ id: string; totalCents: number; earningCount: number; createdAt: string } | ApprovalRequestedResponse> {
+  // El encargado con aprobación del local: 202 «pedido al dueño» (isApprovalRequested).
   const res = await authedFetch(`/v1/admin/operators/${id}/payouts`, {
     method: 'POST',
     body: JSON.stringify(options ?? {}),

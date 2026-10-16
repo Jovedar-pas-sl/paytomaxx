@@ -8,6 +8,7 @@ import { keepIfSame } from '@/lib/diff';
 import { formatEur, formatMoney } from '@/lib/money';
 import { appendPage, mergeLatestPage } from '@/lib/pagination';
 import type { TabKey } from '@/lib/roles';
+import { useApprovals } from '@/lib/use-approvals';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { BankRefundModal } from './BankRefundModal';
@@ -52,6 +53,8 @@ interface Props {
  */
 export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocusDone }: Props) {
   const tz = useVenueTimezone();
+  // «Por aprobar»: desde cuánto pide el encargado las devoluciones al dueño.
+  const refundRequestFromCents = useApprovals().rules?.refundRequestFromCents ?? null;
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   /** null = aún no ha llegado la primera página. */
   const [payments, setPayments] = useState<PaymentRow[] | null>(null);
@@ -310,6 +313,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         payment={refundFor?.provider === 'REDSYS' ? null : refundFor}
         onClose={() => setRefundFor(null)}
         onDone={afterAction(() => setRefundFor(null))}
+        requestFromCents={user.role === 'MANAGER' ? refundRequestFromCents : null}
       />
 
       {refundsFor ? (

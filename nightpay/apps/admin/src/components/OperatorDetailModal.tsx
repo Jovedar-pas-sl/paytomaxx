@@ -13,6 +13,7 @@ import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import { RECONCILIATION_LABELS } from '@/lib/payout-verify';
 import { safeHttpUrl } from '@/lib/urls';
+import { useApprovals } from '@/lib/use-approvals';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { EditOperatorForm } from './EditOperatorForm';
 import { Notice } from './Notice';
@@ -51,6 +52,7 @@ export function OperatorDetailModal({
   const [verifyFor, setVerifyFor] = useState<OperatorPayout | null>(null);
   const generation = useRef(0);
   const tabsId = `np-op-${operator.id.slice(0, 8)}`;
+  const payoutMode = payoutModeFor(isOwner, useApprovals().rules?.payout);
 
   async function loadHistory(): Promise<void> {
     const gen = ++generation.current;
@@ -108,9 +110,9 @@ export function OperatorDetailModal({
           >
             {formatEur(balance)}
           </span>
-          {isOwner && payable > 0 ? (
+          {payoutMode && payable > 0 ? (
             <Button onClick={() => setPayoutOpen(true)} size="md">
-              Marcar pagado
+              {payoutMode === 'request' ? 'Pedir pago' : 'Marcar pagado'}
             </Button>
           ) : null}
         </div>
@@ -168,6 +170,7 @@ export function OperatorDetailModal({
           payoutMethod={operator.payoutMethod ?? null}
           payoutAddress={operator.payoutAddress ?? null}
           payoutLabel={operator.payoutLabel ?? null}
+          mode={payoutMode ?? 'pay'}
           onClose={() => setPayoutOpen(false)}
           onDone={() => {
             setPayoutOpen(false);
@@ -187,6 +190,17 @@ export function OperatorDetailModal({
       ) : null}
     </Modal>
   );
+}
+
+/**
+ * Quién paga a la chica desde aquí: el dueño siempre; el encargado lo pide al
+ * dueño si el local lo exige o paga él con 2FA si no. null = no se enseña.
+ */
+function payoutModeFor(isOwner: boolean, rule: string | undefined): 'pay' | 'pay_2fa' | 'request' | null {
+  if (isOwner) return 'pay';
+  if (rule === 'request') return 'request';
+  if (rule === 'direct_2fa') return 'pay_2fa';
+  return null;
 }
 
 function EarningsTable({ earnings }: { earnings: OperatorEarning[] }) {
