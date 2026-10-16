@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
 import type { OperatorUser } from '@/lib/api';
@@ -8,7 +8,7 @@ import { clearFichaContext } from '@/lib/ficha-context';
 import { roleAccess, type TabKey } from '@/lib/roles';
 import { ChargeFromBalance } from './ChargeFromBalance';
 import { ConnectionStatus } from './ConnectionStatus';
-import { useDeepLinks, useOwnBalance, type PollError } from './dashboard-hooks';
+import { useDeepLinks, useMyNight, useOwnBalance, type PollError } from './dashboard-hooks';
 import { Earnings } from './Earnings';
 import { FichaTapped } from './FichaTapped';
 import { HomeTab } from './HomeTab';
@@ -29,6 +29,13 @@ export function Dashboard({ user, onLogout }: Props) {
   const [tab, setTab] = useState<TabKey>('home');
   const links = useDeepLinks(access.posQueue);
   const own = useOwnBalance(access.ownEarnings);
+  const night = useMyNight(access.ownEarnings);
+  const { refresh: refreshBalance } = own;
+  const { refresh: refreshNight } = night;
+  const refreshMoney = useCallback(() => {
+    refreshBalance();
+    refreshNight();
+  }, [refreshBalance, refreshNight]);
 
   // ?pos=<id>: el camarero llegó escaneando el QR de un cobro con datáfono.
   useEffect(() => {
@@ -69,7 +76,7 @@ export function Dashboard({ user, onLogout }: Props) {
           userId={user.id}
           onClose={() => {
             links.clearFicha();
-            own.refresh();
+            refreshMoney();
           }}
         />
       ) : null}
@@ -77,16 +84,25 @@ export function Dashboard({ user, onLogout }: Props) {
       {/* Inicio y Saldo siguen montados al cambiar de pestaña: un cobro a medias
           (su QR, el tiempo real, el sondeo) no se pierde ni queda huérfano. */}
       <TabPanel visible={showing('home')}>
-        <HomeTab user={user} showBalance={access.ownEarnings} balance={own.balance} onCobroDone={own.refresh} />
+        <HomeTab
+          user={user}
+          showBalance={access.ownEarnings}
+          balance={own.balance}
+          night={night.night}
+          onCobroDone={refreshMoney}
+          onOpenEarnings={() => setTab('earnings')}
+        />
       </TabPanel>
       <TabPanel visible={showing('wallet')}>
-        <ChargeFromBalance onCharged={own.refresh} />
+        <ChargeFromBalance onCharged={refreshMoney} />
       </TabPanel>
       {access.posQueue && showing('pos') ? (
-        <PendingPos onConfirmed={own.refresh} focusPaymentId={links.focusedPosId} onFocusConsumed={links.clearFocus} />
+        <PendingPos onConfirmed={refreshMoney} focusPaymentId={links.focusedPosId} onFocusConsumed={links.clearFocus} />
       ) : null}
       {access.ownPayments && showing('payments') ? <MyPayments /> : null}
-      {access.ownEarnings && showing('earnings') ? <Earnings /> : null}
+      {access.ownEarnings && showing('earnings') ? (
+        <Earnings night={night.night} balance={own.balance} nightError={night.error} />
+      ) : null}
 
       <TabBar tabs={access.tabs} active={tab} onSelect={setTab} />
     </main>

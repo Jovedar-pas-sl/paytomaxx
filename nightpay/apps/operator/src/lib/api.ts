@@ -150,14 +150,18 @@ export interface OperatorBalance {
 
 export interface MyEarning {
   id: string;
-  paymentId: string;
+  /** null: lo cobró del saldo del cliente (no hay cobro con tarjeta). */
+  paymentId: string | null;
   paymentAmountCents: number;
   commissionBps: number;
   commissionCents: number;
+  /** Propina del cliente para ella (entera, sin comisión). */
+  tipCents?: number;
   reversedCents: number;
+  /** commissionCents + tipCents − reversedCents. */
   netCents: number;
   payoutId: string | null;
-  paymentStatus: string;
+  paymentStatus: string | null;
   createdAt: string;
 }
 
@@ -179,6 +183,40 @@ export interface MyPayout {
   notes: string | null;
   earningCount: number;
   createdAt: string;
+  /** Cómo se le pagó (USDT_TRC20, SEPA_IBAN, MANUAL_CASH…). */
+  externalRail?: PayoutMethod | null;
+}
+
+/** A dónde se le paga, sin la dirección entera («••••1332»). */
+export interface PayoutAccount {
+  method: PayoutMethod | null;
+  label: string | null;
+  masked: string | null;
+}
+
+/** Devolución de un cobro que ya se le había pagado: se le descuenta de un pago. */
+export interface MyDebt {
+  id: string;
+  paymentId: string | null;
+  /** El cobro devuelto. */
+  chargeCents: number;
+  /** Lo que se le descuenta. */
+  cents: number;
+  /** Cuándo llegó la devolución. */
+  at: string;
+  /** Cuándo fue el cobro. */
+  chargedAt: string;
+  /** null: se descontará del próximo pago. */
+  settledPayoutId: string | null;
+  settledAt: string | null;
+}
+
+export interface MyPayoutInfo {
+  /** Días que espera un cobro antes de pagarse (0: al cerrar la noche). */
+  holdDays: number;
+  account: PayoutAccount | null;
+  /** Abiertas primero; luego las ya descontadas. */
+  debts: MyDebt[];
 }
 
 export interface CreatedPayment {
@@ -428,11 +466,22 @@ export interface MyNight {
   tipsCents: number;
   reversedCents: number;
   netCents: number;
+  /** De esta noche, lo que aún no le han pagado (un API antiguo no lo manda). */
+  unpaidCents?: number;
+  /** Ganado en otras noches y aún sin pagar, sin restar deudas (un API antiguo no lo manda). */
+  otherUnpaidCents?: number;
 }
 
-export async function fetchMyNight(): Promise<MyNight> {
-  const res = await authedFetch('/v1/nights/mine');
+export async function fetchMyNight(signal?: AbortSignal): Promise<MyNight> {
+  const res = await authedFetch('/v1/nights/mine', { signal });
   if (!res.ok) throw loadError(res, 'Error cargando tu noche');
+  return res.json();
+}
+
+/** Días de espera, su cuenta de cobro (enmascarada) y sus deudas por devoluciones. */
+export async function fetchMyPayoutInfo(): Promise<MyPayoutInfo> {
+  const res = await authedFetch('/v1/operators/me/payout-info');
+  if (!res.ok) throw loadError(res, 'Error cargando tus pagos');
   return res.json();
 }
 

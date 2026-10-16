@@ -1,0 +1,124 @@
+'use client';
+
+import type { CSSProperties } from 'react';
+import type { MyPayout, PayoutAccount } from '@/lib/api';
+import { dayLabel, timeLabel } from '@/lib/earnings-view';
+import { formatEur } from '@/lib/money';
+import { payoutMethodLabel } from '@/lib/payout-method';
+
+/** Cuántos pagos se enseñan (los últimos). */
+const SHOWN = 10;
+
+interface Props {
+  payouts: MyPayout[] | null;
+  /** undefined: aún cargando; null: no tiene cuenta de cobro puesta. */
+  account: PayoutAccount | null | undefined;
+}
+
+/** «Pagos recibidos»: los últimos, con fecha, cómo y cuánto, y a qué cuenta se le paga. */
+export function PayoutsReceived({ payouts, account }: Props) {
+  return (
+    <section aria-labelledby="pagos-recibidos" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <h2 id="pagos-recibidos" style={sectionTitle}>
+        Pagos recibidos
+      </h2>
+      {account !== undefined ? <AccountLine account={account} /> : null}
+      {payouts === null ? (
+        <p style={emptyText}>Cargando…</p>
+      ) : payouts.length === 0 ? (
+        <p style={emptyText}>Aún no te han pagado nada desde la app.</p>
+      ) : (
+        <ul style={listStyle}>
+          {payouts.slice(0, SHOWN).map((p) => (
+            <li key={p.id} style={itemStyle}>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: '1.0625rem' }}>
+                  {dayLabel(p.createdAt)} <span style={muted}>· {timeLabel(p.createdAt)}</span>
+                </p>
+                <p style={metaText}>
+                  {payoutMethodLabel(p.externalRail)} · {p.earningCount} {p.earningCount === 1 ? 'cobro' : 'cobros'}
+                  {p.notes ? ` · ${p.notes}` : ''}
+                </p>
+              </div>
+              <span className="np-num" style={amountStyle}>
+                {formatEur(p.totalCents, { compact: true })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function AccountLine({ account }: { account: PayoutAccount | null }) {
+  if (!account) {
+    return <p style={accountStyle}>Aún no tienes cuenta de cobro: pídesela al encargado.</p>;
+  }
+  const parts = [payoutMethodLabel(account.method), account.masked, account.label].filter(Boolean);
+  return (
+    <p style={accountStyle}>
+      <span style={muted}>Te pagan a </span>
+      <strong className="np-num" style={{ fontSize: '0.9375rem', letterSpacing: '0.02em' }}>
+        {parts.join(' · ')}
+      </strong>
+    </p>
+  );
+}
+
+const sectionTitle: CSSProperties = {
+  margin: '0.5rem 0 0',
+  fontSize: 'var(--np-t-label)',
+  color: 'var(--np-text-label)',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  fontWeight: 700,
+};
+
+const accountStyle: CSSProperties = {
+  margin: 0,
+  padding: '0.75rem 1rem',
+  background: 'var(--np-surface-2)',
+  border: '1px dashed var(--np-border-hi)',
+  borderRadius: 'var(--np-r-md)',
+  lineHeight: 1.5,
+  overflowWrap: 'anywhere',
+};
+
+const listStyle: CSSProperties = {
+  listStyle: 'none',
+  margin: 0,
+  padding: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  borderTop: '1px solid var(--np-border)',
+};
+
+const itemStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: '1rem',
+  padding: '0.875rem 0.25rem',
+  borderBottom: '1px solid var(--np-border)',
+};
+
+const amountStyle: CSSProperties = {
+  fontSize: '1.25rem',
+  fontWeight: 700,
+  whiteSpace: 'nowrap',
+};
+
+const muted: CSSProperties = { color: 'var(--np-text-mute)', fontWeight: 500 };
+
+const metaText: CSSProperties = {
+  margin: '0.125rem 0 0',
+  fontSize: '0.9375rem',
+  color: 'var(--np-text-mute)',
+};
+
+const emptyText: CSSProperties = {
+  margin: 0,
+  padding: '1rem 0',
+  color: 'var(--np-text-mute)',
+};
