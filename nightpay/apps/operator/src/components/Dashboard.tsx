@@ -5,6 +5,7 @@ import { Button, Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
 import type { OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
+import { tabForOpenCharge, useOpenCharges } from '@/lib/open-charges';
 import { roleAccess, type TabKey } from '@/lib/roles';
 import { ChargeFromBalance } from './ChargeFromBalance';
 import { ConnectionStatus } from './ConnectionStatus';
@@ -15,6 +16,7 @@ import { HomeTab } from './HomeTab';
 import { TAB_BAR_HEIGHT } from './layout';
 import { MyPayments } from './MyPayments';
 import { PendingPos } from './PendingPos';
+import { useSessionExpired } from './session-context';
 import { TabBar } from './TabBar';
 
 interface Props {
@@ -28,8 +30,12 @@ export function Dashboard({ user, onLogout }: Props) {
   const access = roleAccess(user.role);
   const [tab, setTab] = useState<TabKey>('home');
   const links = useDeepLinks(access.posQueue);
-  const own = useOwnBalance(access.ownEarnings);
-  const night = useMyNight(access.ownEarnings);
+  // Sesión caducada con un cobro abierto: el saldo y la noche dejan de
+  // preguntar y vuelven solos al entrar otra vez.
+  const expired = useSessionExpired();
+  const own = useOwnBalance(access.ownEarnings && !expired);
+  const night = useMyNight(access.ownEarnings && !expired);
+  const charges = useOpenCharges();
   const { refresh: refreshBalance } = own;
   const { refresh: refreshNight } = night;
   const refreshMoney = useCallback(() => {
@@ -41,6 +47,14 @@ export function Dashboard({ user, onLogout }: Props) {
   useEffect(() => {
     if (links.focusedPosId) setTab('pos');
   }, [links.focusedPosId]);
+
+  // Al caducar la sesión, delante el cobro abierto (su QR sigue vivo en su pestaña).
+  useEffect(() => {
+    if (!expired) return;
+    const target = tabForOpenCharge(charges.spots, tab);
+    if (target) setTab(target);
+    // Solo al caducar: luego la chica mira lo que quiera.
+  }, [expired]);
 
   // El sonido (cobro pagado o fallido; y el pitido de cobro nuevo en el POS)
   // queda listo con el primer toque en la app (iPhone no suena sin uno) y se
@@ -68,7 +82,8 @@ export function Dashboard({ user, onLogout }: Props) {
         </div>
       </header>
 
-      {own.error && !own.error.transient ? <PollErrorBanner error={own.error} /> : null}
+      {/* Con la sesión caducada lo dice la hoja de entrar: aquí empujaría el QR hacia abajo. */}
+      {own.error && !own.error.transient && !expired ? <PollErrorBanner error={own.error} /> : null}
 
       {links.ficha ? (
         <FichaTapped

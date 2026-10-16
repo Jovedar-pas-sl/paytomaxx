@@ -8,6 +8,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
 const TOKEN_KEY = 'np_op_token';
 const REFRESH_KEY = 'np_op_refresh';
 const USER_KEY = 'np_op_user';
+/** Marca de «Salir» (cambia en cada salida): las otras pestañas saben que no caducó, que se salió. */
+const LOGOUT_KEY = 'np_op_logout';
 
 // ─── Errores ──────────────────────────────────────────────────────
 
@@ -274,20 +276,46 @@ function endSession(): SessionExpiredError {
   return new SessionExpiredError();
 }
 
+/** Por qué se acabó la sesión: caducó (aquí o en otra pestaña) o alguien le dio a «Salir». */
+export type SessionEndReason = 'expired' | 'logout';
+
 /**
- * Avisa cuando la sesión se acaba: caducada aquí (evento) o cerrada en otra
- * pestaña (comparten localStorage). Devuelve cómo dejar de escuchar.
+ * Un cambio en el almacenamiento hecho por otra pestaña: ¿se acabó la sesión?
+ * «Salir» deja su marca antes de borrar la sesión; si la sesión desaparece sin
+ * marca, caducó allí. Borrar todo el almacenamiento cuenta como salir.
  */
-export function onSessionEnded(handler: () => void): () => void {
+export function sessionEndFromStorage(key: string | null, newValue: string | null, hasToken: boolean): SessionEndReason | null {
+  if (key === LOGOUT_KEY) return newValue ? 'logout' : null;
+  if (hasToken) return null;
+  if (key === null) return 'logout';
+  return key === TOKEN_KEY ? 'expired' : null;
+}
+
+/**
+ * Avisa cuando la sesión se acaba: caducada aquí (evento), o caducada o
+ * cerrada en otra pestaña (comparten localStorage). Devuelve cómo dejar de escuchar.
+ */
+export function onSessionEnded(handler: (reason: SessionEndReason) => void): () => void {
+  const onExpired = () => handler('expired');
   const onStorage = (e: StorageEvent) => {
-    if ((e.key === null || e.key === TOKEN_KEY) && !getToken()) handler();
+    const reason = sessionEndFromStorage(e.key, e.newValue, Boolean(getToken()));
+    if (reason) handler(reason);
   };
-  window.addEventListener(SESSION_EXPIRED_EVENT, handler);
+  window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
   window.addEventListener('storage', onStorage);
   return () => {
-    window.removeEventListener(SESSION_EXPIRED_EVENT, handler);
+    window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
     window.removeEventListener('storage', onStorage);
   };
+}
+
+/** Deja la marca de «Salir» para las otras pestañas (antes de borrar la sesión). */
+function markLogout(): void {
+  try {
+    window.localStorage.setItem(LOGOUT_KEY, `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  } catch {
+    // Sin almacenamiento: las otras pestañas lo verán como sesión caducada.
+  }
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────
@@ -316,6 +344,7 @@ export async function login(email: string, password: string): Promise<LoginRespo
 export async function logout(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   const accessToken = getToken();
+  markLogout();
   clearSession();
   if (!refreshToken) return true;
   try {

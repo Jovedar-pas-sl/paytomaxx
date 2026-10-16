@@ -6,10 +6,13 @@ import { login, setSession, type OperatorUser } from '@/lib/api';
 
 interface Props {
   onSuccess: (user: OperatorUser) => void;
+  /** Volver a entrar: el email de quien estaba (se puede cambiar). */
+  initialEmail?: string;
+  submitLabel?: string;
 }
 
-export function LoginForm({ onSuccess }: Props) {
-  const [email, setEmail] = useState('');
+export function LoginForm({ onSuccess, initialEmail = '', submitLabel = 'Entrar' }: Props) {
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,7 +57,7 @@ export function LoginForm({ onSuccess }: Props) {
         required
       />
       <Button type="submit" loading={busy} size="lg">
-        Entrar
+        {submitLabel}
       </Button>
       {error ? (
         <p
