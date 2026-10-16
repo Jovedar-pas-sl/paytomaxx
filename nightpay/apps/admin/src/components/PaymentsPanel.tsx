@@ -170,7 +170,7 @@ export function PaymentsPanel({ user }: { user: User }) {
           </div>
         </div>
 
-        <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table className="np-table">
               <thead>
@@ -195,19 +195,25 @@ export function PaymentsPanel({ user }: { user: User }) {
                   const canResolve = user.role === 'OWNER' && isStuck(p);
                   return (
                     <tr key={p.id}>
-                      <td style={cellMeta}>{formatDateTime(p.createdAt, tz, 'short')}</td>
-                      <td className="np-num" style={numCell}>
+                      <td data-label="Hora" data-card="top" style={cellMeta}>
+                        {formatDateTime(p.createdAt, tz, 'short')}
+                      </td>
+                      <td data-label="Importe" data-card="amount" className="np-num" style={numCell}>
                         {formatMoney(p.amountCents, p.currency)}
                       </td>
-                      <td className="np-num" style={numCell}>
+                      <td data-label="Disponible" className="np-num" style={numCell}>
                         {formatMoney(p.availableAmountCents, p.currency)}
                       </td>
-                      <td>
+                      <td data-label="Estado" data-card="status">
                         <StatusPill status={p.status as PaymentStatus} size="sm" />
                       </td>
-                      <td style={cellMeta}>{p.terminal.label}</td>
-                      <td style={cellMeta}>{bankSummary(p)}</td>
-                      <td style={{ textAlign: 'right' }}>
+                      <td data-label="Terminal" data-card="top" style={cellMeta}>
+                        {p.terminal.label}
+                      </td>
+                      <td data-label="Banco" style={cellMeta}>
+                        {bankSummary(p)}
+                      </td>
+                      <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
                         {canResolve ? (
                           <Button onClick={() => setResolveFor(p)} size="md" style={smallBtn}>
                             Resolver

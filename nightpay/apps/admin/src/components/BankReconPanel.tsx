@@ -80,7 +80,7 @@ export function BankReconPanel({ isOwner }: { isOwner: boolean }) {
         }}
       />
       {openId ? <StatementDetail id={openId} onClose={() => setOpenId(null)} /> : null}
-      <Card style={{ padding: '1rem' }}>
+      <Card className="np-table-host" style={{ padding: '1rem' }}>
         <h3 style={sectionTitle}>Cuadres anteriores</h3>
         {loadError ? (
           <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => void reload() }} style={{ marginTop: '0.5rem' }}>
@@ -92,32 +92,41 @@ export function BankReconPanel({ isOwner }: { isOwner: boolean }) {
           <p style={mutedStyle}>Todavía no has subido ningún fichero del banco.</p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={tableStyle}>
+            <table className="np-table">
               <thead>
-                <tr style={theadRow}>
-                  <th style={th}>Días</th>
-                  <th style={th}>Banco</th>
-                  <th style={thRight}>Operaciones</th>
-                  <th style={thRight}>Diferencias</th>
-                  <th style={thRight}>Banco / aquí</th>
-                  <th style={th} aria-label="Acciones" />
+                <tr>
+                  <th>Días</th>
+                  <th>Banco</th>
+                  <th style={alignRight}>Operaciones</th>
+                  <th style={alignRight}>Diferencias</th>
+                  <th style={alignRight}>Banco / aquí</th>
+                  <th aria-label="Acciones" />
                 </tr>
               </thead>
               <tbody>
                 {statements.map((s) => (
-                  <tr key={s.id} style={{ ...trStyle, opacity: s.superseded ? 0.5 : 1 }}>
-                    <td style={td}>{period(s)}</td>
-                    <td style={td}>{s.source === 'REDSYS' ? 'TPV virtual' : 'Datáfonos'}</td>
-                    <td style={tdRight}>{s.rowsTotal}</td>
-                    <td style={{ ...tdRight, color: clean(s) ? 'var(--np-success)' : 'var(--np-danger)' }}>
+                  <tr key={s.id} style={{ opacity: s.superseded ? 0.5 : 1 }}>
+                    <td data-label="Días" data-card="title">
+                      {period(s)}
+                    </td>
+                    <td data-label="Banco" data-card="top">
+                      {s.source === 'REDSYS' ? 'TPV virtual' : 'Datáfonos'}
+                    </td>
+                    <td data-label="Operaciones" style={numTd}>
+                      {s.rowsTotal}
+                    </td>
+                    <td
+                      data-label="Diferencias"
+                      style={{ ...numTd, color: clean(s) ? 'var(--np-success)' : 'var(--np-danger)' }}
+                    >
                       {clean(s) ? 'Cuadra' : s.problemCount + s.skippedCount + s.otherCount}
                     </td>
-                    <td style={tdRight}>
+                    <td data-label="Banco / aquí" style={numTd}>
                       <span className="np-num">
                         {formatEur(s.bankTotalCents)} / {formatEur(s.oursTotalCents)}
                       </span>
                     </td>
-                    <td style={td}>
+                    <td data-label="Acciones" data-card="actions">
                       <Button variant="ghost" onClick={() => setOpenId(s.id)}>
                         Ver
                       </Button>
@@ -275,7 +284,7 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const visible = showAll ? items : items.filter((i) => STATUS[i.status].tone !== 'ok');
 
   return (
-    <Card style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+    <Card className="np-table-host" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start' }}>
         <div>
           <h3 style={sectionTitle}>
@@ -319,31 +328,41 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
         <p style={{ ...mutedStyle, color: 'var(--np-success)' }}>No hay diferencias.</p>
       ) : (
         <div style={{ overflowX: 'auto' }}>
-          <table style={tableStyle}>
+          <table className="np-table">
             <thead>
-              <tr style={theadRow}>
-                <th style={th}>Estado</th>
-                <th style={th}>Hora</th>
-                <th style={thRight}>Banco</th>
-                <th style={thRight}>Aquí</th>
-                <th style={th}>Referencia</th>
-                <th style={th}>Local</th>
+              <tr>
+                <th>Estado</th>
+                <th>Hora</th>
+                <th style={alignRight}>Banco</th>
+                <th style={alignRight}>Aquí</th>
+                <th>Referencia</th>
+                <th>Local</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((i) => (
-                <tr key={i.id} style={{ ...trStyle, opacity: i.superseded ? 0.5 : 1 }}>
-                  <td style={{ ...td, color: toneColor(STATUS[i.status].tone), fontWeight: 600 }}>
+                <tr key={i.id} style={{ opacity: i.superseded ? 0.5 : 1 }}>
+                  <td
+                    data-label="Estado"
+                    data-card="title"
+                    style={{ color: toneColor(STATUS[i.status].tone), fontWeight: 600 }}
+                  >
                     {STATUS[i.status].label}
                   </td>
-                  <td style={td}>{i.occurredAt ? formatDateTime(i.occurredAt, tz, 'compact') : '—'}</td>
-                  <td style={tdRight}>{i.bankAmountCents !== null ? formatEur(sign(i) * i.bankAmountCents) : '—'}</td>
-                  <td style={tdRight}>{i.oursAmountCents !== null ? formatEur(sign(i) * i.oursAmountCents) : '—'}</td>
-                  <td style={td}>
+                  <td data-label="Hora" data-card="top">
+                    {i.occurredAt ? formatDateTime(i.occurredAt, tz, 'compact') : '—'}
+                  </td>
+                  <td data-label="Banco" data-card="amount" style={numTd}>
+                    {i.bankAmountCents !== null ? formatEur(sign(i) * i.bankAmountCents) : '—'}
+                  </td>
+                  <td data-label="Aquí" style={numTd}>
+                    {i.oursAmountCents !== null ? formatEur(sign(i) * i.oursAmountCents) : '—'}
+                  </td>
+                  <td data-label="Referencia">
                     <span className="np-num">{i.reference ?? '—'}</span>
                     {i.authCode ? <span style={mutedInline}> · aut. {i.authCode}</span> : null}
                   </td>
-                  <td style={td}>{i.venueName ?? '—'}</td>
+                  <td data-label="Local">{i.venueName ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -388,17 +407,5 @@ const sourceBtn: CSSProperties = {
   cursor: 'pointer',
   textAlign: 'left',
 };
-const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' };
-const theadRow: CSSProperties = { borderBottom: '1px solid var(--np-border)', color: 'var(--np-text-mute)' };
-const th: CSSProperties = {
-  padding: '0.5rem 0.6rem',
-  textAlign: 'left',
-  fontSize: '0.72rem',
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  fontWeight: 500,
-};
-const thRight: CSSProperties = { ...th, textAlign: 'right' };
-const trStyle: CSSProperties = { borderBottom: '1px solid var(--np-border)' };
-const td: CSSProperties = { padding: '0.55rem 0.6rem' };
-const tdRight: CSSProperties = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+const alignRight: CSSProperties = { textAlign: 'right' };
+const numTd: CSSProperties = { textAlign: 'right', fontVariantNumeric: 'tabular-nums' };

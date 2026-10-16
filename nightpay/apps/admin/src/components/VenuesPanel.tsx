@@ -83,32 +83,34 @@ export function VenuesPanel({ currentSlug }: Props) {
         </Notice>
       ) : null}
 
-      <Card style={{ padding: 0, overflow: 'hidden' }}>
+      <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
-        <table style={tableStyle}>
+        <table className="np-table">
           <thead>
             <tr>
-              <th style={thStyle}>Nombre</th>
-              <th style={thStyle}>Slug</th>
-              <th style={thStyle}>Zona horaria</th>
-              <th style={thStyle}>Creado</th>
-              <th style={thStyle}>Acción</th>
+              <th>Nombre</th>
+              <th>Slug</th>
+              <th>Zona horaria</th>
+              <th>Creado</th>
+              <th>Acción</th>
             </tr>
           </thead>
           <tbody>
             {venues.map((v) => {
               const isActive = v.slug === currentSlug;
               return (
-                <tr key={v.id} style={isActive ? rowActiveStyle : rowStyle}>
-                  <td style={tdStyle}>
+                <tr key={v.id} style={isActive ? rowActiveStyle : undefined}>
+                  <td data-label="Nombre" data-card="title">
                     {v.name} {isActive ? <span style={badgeStyle}>activo</span> : null}
                   </td>
-                  <td style={tdMonoStyle}>{v.slug}</td>
-                  <td style={tdStyle}>{v.timezone}</td>
-                  <td style={tdMonoStyle}>
+                  <td data-label="Slug" style={monoCell}>
+                    {v.slug}
+                  </td>
+                  <td data-label="Zona horaria">{v.timezone}</td>
+                  <td data-label="Creado" style={monoCell}>
                     {formatDateTime(v.createdAt, v.timezone, 'date')}
                   </td>
-                  <td style={tdStyle}>
+                  <td data-label="Acción" data-card="actions">
                     {isActive ? (
                       <span style={{ color: 'var(--np-text-dim)', fontSize: '0.8rem' }}>—</span>
                     ) : (
@@ -259,40 +261,11 @@ const headerRow: CSSProperties = {
   flexWrap: 'wrap',
 };
 
-const tableStyle: CSSProperties = {
-  width: '100%',
-  borderCollapse: 'collapse',
-  fontSize: '0.875rem',
-};
-
-const thStyle: CSSProperties = {
-  textAlign: 'left',
-  padding: '0.75rem 1rem',
-  background: 'var(--np-surface-2)',
-  borderBottom: '1px solid var(--np-border)',
-  fontSize: '0.7rem',
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: 'var(--np-text-dim)',
-  fontWeight: 600,
-};
-
-const rowStyle: CSSProperties = {
-  borderBottom: '1px solid var(--np-border)',
-};
-
 const rowActiveStyle: CSSProperties = {
-  ...rowStyle,
   background: 'var(--np-surface-2)',
 };
 
-const tdStyle: CSSProperties = {
-  padding: '0.75rem 1rem',
-  verticalAlign: 'middle',
-};
-
-const tdMonoStyle: CSSProperties = {
-  ...tdStyle,
+const monoCell: CSSProperties = {
   fontFamily: 'var(--np-font-mono)',
   fontSize: '0.8rem',
   color: 'var(--np-text-mute)',

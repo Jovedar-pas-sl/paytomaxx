@@ -188,35 +188,43 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
         </Card>
       )}
 
-      <Card style={{ padding: 0, overflow: 'hidden' }}>
+      <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={tableStyle}>
+          <table className="np-table">
             <thead>
               <tr>
-                <th style={thStyle}>Noche</th>
-                <th style={thStyle}>Horario</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Cobros</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Cobrado</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Neto</th>
-                <th style={thStyle}>Cierre</th>
-                <th style={thStyle} aria-label="Acciones" />
+                <th>Noche</th>
+                <th>Horario</th>
+                <th style={numHead}>Cobros</th>
+                <th style={numHead}>Cobrado</th>
+                <th style={numHead}>Neto</th>
+                <th>Cierre</th>
+                <th aria-label="Acciones" />
               </tr>
             </thead>
             <tbody>
               {(history ?? []).map((n) => (
                 <tr key={n.id}>
-                  <td style={tdStyle}>{day(n.openedAt)}</td>
-                  <td style={tdStyle} className="np-num">
+                  <td data-label="Noche" data-card="title">
+                    {day(n.openedAt)}
+                  </td>
+                  <td data-label="Horario" data-card="top" className="np-num">
                     {time(n.openedAt)}–{n.closedAt ? time(n.closedAt) : '…'}
                   </td>
-                  <td style={numTd}>{n.count ?? '—'}</td>
-                  <td style={numTd}>{n.chargedCents === null ? '—' : formatEur(n.chargedCents)}</td>
-                  <td style={numTd}>{n.netCents === null ? '—' : formatEur(n.netCents)}</td>
-                  <td style={tdStyle}>
+                  <td data-label="Cobros" style={numTd}>
+                    {n.count ?? '—'}
+                  </td>
+                  <td data-label="Cobrado" data-card="amount" style={numTd}>
+                    {n.chargedCents === null ? '—' : formatEur(n.chargedCents)}
+                  </td>
+                  <td data-label="Neto" style={numTd}>
+                    {n.netCents === null ? '—' : formatEur(n.netCents)}
+                  </td>
+                  <td data-label="Cierre">
                     {n.closedAt === null ? 'Abierta' : n.autoClosed ? 'Sola a las 08:00' : 'Cerrada'}
                     {n.pendingAtClose > 0 ? ` · ${n.pendingAtClose} pendientes` : ''}
                   </td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                  <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
                     <Button variant="ghost" style={smallBtn} onClick={() => void showNight(n.id)}>
                       Ver Z
                     </Button>
@@ -225,7 +233,7 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
               ))}
               {history === null || history.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: 'var(--np-text-mute)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', color: 'var(--np-text-mute)' }}>
                     {history === null ? (loadError ? 'Sin datos.' : 'Cargando…') : 'Aún no hay noches.'}
                   </td>
                 </tr>
@@ -290,26 +298,38 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
       <SaldoLine summary={s} />
       {s.perChica.length > 0 ? (
         <div style={{ overflowX: 'auto' }}>
-          <table style={tableStyle}>
+          <table className="np-table">
             <thead>
               <tr>
-                <th style={thStyle}>Chica</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Cobros</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Cobrado</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Comisión</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Propinas</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Para ella</th>
+                <th>Chica</th>
+                <th style={numHead}>Cobros</th>
+                <th style={numHead}>Cobrado</th>
+                <th style={numHead}>Comisión</th>
+                <th style={numHead}>Propinas</th>
+                <th style={numHead}>Para ella</th>
               </tr>
             </thead>
             <tbody>
               {s.perChica.map((c) => (
                 <tr key={c.name}>
-                  <td style={tdStyle}>{c.name}</td>
-                  <td style={numTd}>{c.count}</td>
-                  <td style={numTd}>{formatEur(c.chargedCents)}</td>
-                  <td style={numTd}>{formatEur(c.commissionCents)}</td>
-                  <td style={numTd}>{formatEur(c.tipsCents)}</td>
-                  <td style={{ ...numTd, fontWeight: 700 }}>{formatEur(c.netCents)}</td>
+                  <td data-label="Chica" data-card="title">
+                    {c.name}
+                  </td>
+                  <td data-label="Cobros" style={numTd}>
+                    {c.count}
+                  </td>
+                  <td data-label="Cobrado" style={numTd}>
+                    {formatEur(c.chargedCents)}
+                  </td>
+                  <td data-label="Comisión" style={numTd}>
+                    {formatEur(c.commissionCents)}
+                  </td>
+                  <td data-label="Propinas" style={numTd}>
+                    {formatEur(c.tipsCents)}
+                  </td>
+                  <td data-label="Para ella" data-card="amount" style={{ ...numTd, fontWeight: 700 }}>
+                    {formatEur(c.netCents)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -434,16 +454,6 @@ const totalBox: CSSProperties = {
   border: '1px solid var(--np-border)',
   borderRadius: 'var(--np-r-md)',
 };
-const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: '0.9375rem' };
-const thStyle: CSSProperties = {
-  textAlign: 'left',
-  padding: '0.625rem 0.875rem',
-  fontSize: '0.75rem',
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: 'var(--np-text-mute)',
-  borderBottom: '1px solid var(--np-border)',
-};
-const tdStyle: CSSProperties = { padding: '0.625rem 0.875rem', borderBottom: '1px solid var(--np-border)' };
-const numTd: CSSProperties = { ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+const numHead: CSSProperties = { textAlign: 'right' };
+const numTd: CSSProperties = { textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
 const smallBtn: CSSProperties = { height: '2.25rem', padding: '0 0.875rem', fontSize: '0.8125rem' };

@@ -91,7 +91,7 @@ export function OperatorsPanel({ isOwner }: Props) {
         </Notice>
       ) : null}
 
-      <Card style={{ padding: 0, overflow: 'hidden' }}>
+      <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
           <table className="np-table">
             <thead>
@@ -126,13 +126,14 @@ export function OperatorsPanel({ isOwner }: Props) {
                   return (
                     <tr
                       key={op.id}
+                      className="np-row-link"
                       onClick={() => setSelectedId(op.id)}
                       style={{
                         cursor: 'pointer',
                         background: needsHelp ? 'var(--np-pill-warning-bg)' : undefined,
                       }}
                     >
-                      <td>
+                      <td data-label="Nombre" data-card="title">
                         {op.displayName ?? '—'}
                         {needsHelp ? (
                           <Pill tone="warning" style={{ marginLeft: '0.5rem' }}>
@@ -140,11 +141,15 @@ export function OperatorsPanel({ isOwner }: Props) {
                           </Pill>
                         ) : null}
                       </td>
-                      <td style={cellMeta}>{op.email}</td>
-                      <td className="np-num" style={numCell}>
+                      <td data-label="Email" style={cellMeta}>
+                        {op.email}
+                      </td>
+                      <td data-label="Comisión" className="np-num" style={numCell}>
                         {formatPercent(op.commissionBps)}
                       </td>
                       <td
+                        data-label="Saldo pendiente"
+                        data-card="amount"
                         className="np-num"
                         style={{
                           ...numCell,
@@ -153,13 +158,13 @@ export function OperatorsPanel({ isOwner }: Props) {
                       >
                         {formatEur(op.balance.pendingCents)}
                       </td>
-                      <td className="np-num" style={numCell}>
+                      <td data-label="Pagado total" className="np-num" style={numCell}>
                         {formatEur(op.balance.paidCents)}
                       </td>
-                      <td style={cellMeta}>
+                      <td data-label="Estado" data-card="status" style={cellMeta}>
                         <OnboardingBadge operator={op} />
                       </td>
-                      <td style={{ textAlign: 'right' }}>
+                      <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
                         <Button
                           variant="ghost"
                           size="md"

@@ -1,0 +1,209 @@
+/* Panel (admin) · tablas .np-table como tarjetas en el móvil (solo CSS).
+   Cada <td> lleva data-label; data-card coloca la celda: top | title | amount |
+   status | actions | hide (el resto, «etiqueta: valor»).
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Solo se anima
+   transform/opacity, y nada con prefers-reduced-motion. Móvil = hasta 640px. */
+
+@media (max-width: 640px) {
+  /* La tarjeta que envolvía la tabla desaparece: cada fila es su tarjeta. */
+  .np-table-host {
+    padding: 0 !important;
+    border-color: transparent !important;
+    background: transparent !important;
+    overflow: visible !important;
+  }
+
+  .np-table {
+    display: block;
+  }
+
+  .np-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .np-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+
+  /* Fila → tarjeta. Orden: arriba (hora, terminal, nombre) · importe y estado ·
+     «etiqueta: valor» · acciones. ::before y ::after son los saltos de línea. */
+  .np-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--np-border);
+    border-radius: var(--np-r-lg);
+    background: var(--np-surface);
+    transition: transform var(--np-d-fast) var(--np-ease);
+  }
+
+  .np-table tbody tr::before,
+  .np-table tbody tr::after {
+    content: '';
+    flex-basis: 100%;
+    height: 0;
+  }
+
+  .np-table tbody tr::before {
+    order: 2;
+  }
+
+  .np-table tbody tr::after {
+    order: 4;
+  }
+
+  .np-table tbody tr.np-row-link:active {
+    transform: scale(0.985);
+  }
+
+  .np-table tbody td {
+    order: 5;
+    display: flex;
+    flex: 1 1 100%;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    min-width: 0;
+    padding: 0.3rem 0 !important;
+    border: 0 !important;
+    font-size: 0.9375rem;
+    text-align: right !important;
+    overflow-wrap: anywhere;
+  }
+
+  .np-table tbody td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    max-width: 50%;
+    font-family: var(--np-font-sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--np-text-dim);
+  }
+
+  .np-table tbody td:not([data-label])::before,
+  .np-table tbody td[data-label='']::before {
+    content: none;
+  }
+
+  .np-table tbody td:empty {
+    display: none;
+  }
+
+  /* Arriba: hora, terminal… (tenue) y el nombre (fuerte). */
+  .np-table tbody td[data-card='top'],
+  .np-table tbody td[data-card='title'] {
+    order: 1;
+    flex: 0 1 auto;
+    padding: 0 0 0.35rem !important;
+    text-align: left !important;
+  }
+
+  .np-table tbody td[data-card='top'] {
+    font-size: 0.8125rem;
+    color: var(--np-text-dim) !important;
+  }
+
+  .np-table tbody td[data-card='title'] {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    color: var(--np-text) !important;
+  }
+
+  .np-table tbody td[data-card='top'] ~ td[data-card='top'],
+  .np-table tbody td[data-card='title'] ~ td[data-card='top'] {
+    margin-left: auto;
+    text-align: right !important;
+  }
+
+  .np-table tbody td[data-card='top']::before,
+  .np-table tbody td[data-card='title']::before,
+  .np-table tbody td[data-card='status']::before,
+  .np-table tbody td[data-card='actions']::before {
+    content: none;
+  }
+
+  /* Importe: grande, en Unbounded, con su etiqueta pequeña encima. */
+  .np-table tbody td[data-card='amount'] {
+    order: 3;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    padding: 0.2rem 0 0.5rem !important;
+    font-family: var(--np-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 1.75rem;
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    text-align: left !important;
+  }
+
+  .np-table tbody td[data-card='amount']::before {
+    max-width: none;
+    letter-spacing: 0.08em;
+  }
+
+  .np-table tbody td[data-card='status'] {
+    order: 3;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    padding: 0.2rem 0 0.5rem !important;
+  }
+
+  .np-table tbody td[data-card='actions'] {
+    order: 6;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+    padding: 0.75rem 0 0 !important;
+    border-top: 1px solid var(--np-border) !important;
+  }
+
+  .np-table tbody td[data-card='actions'] > div {
+    flex-wrap: wrap;
+  }
+
+  .np-table tbody td[data-card='actions'] .np-btn {
+    flex: 1 1 auto;
+    min-height: 2.75rem;
+  }
+
+  .np-table tbody td[data-card='hide'] {
+    display: none;
+  }
+
+  /* Filas de "Cargando…" o "Sin pagos". */
+  .np-table tbody td[colspan] {
+    justify-content: center;
+    text-align: center !important;
+  }
+
+  .np-table tbody td[colspan]::before {
+    content: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-table tbody tr {
+    transition: none;
+  }
+
+  .np-table tbody tr.np-row-link:active {
+    transform: none;
+  }
+}

@@ -157,7 +157,7 @@ export function WalletsPanel({ isOwner }: Props) {
 
       <CodeSearch onFound={setPayoutFor} />
 
-      <Card style={{ padding: '1rem' }}>
+      <Card className="np-table-host" style={{ padding: '1rem' }}>
         <div style={listHeader}>
           <h3 style={sectionTitle}>Lista de wallets</h3>
           <Select
@@ -180,28 +180,30 @@ export function WalletsPanel({ isOwner }: Props) {
           <p style={mutedText}>Sin wallets para este filtro.</p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={tableStyle}>
+            <table className="np-table">
               <thead>
-                <tr style={theadRow}>
-                  <th style={th}>Código</th>
-                  <th style={th}>Cliente</th>
-                  <th style={th}>Estado</th>
-                  <th style={thRight}>Saldo</th>
-                  <th style={thRight}>Consumos</th>
-                  <th style={th}>Creada</th>
-                  <th style={th}>Acciones</th>
+                <tr>
+                  <th>Código</th>
+                  <th>Cliente</th>
+                  <th>Estado</th>
+                  <th style={alignRight}>Saldo</th>
+                  <th style={alignRight}>Consumos</th>
+                  <th>Creada</th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {closeRequestsFirst(rows).map((w) => (
-                  <tr key={w.id} style={trStyle}>
-                    <td style={td}>
+                  <tr key={w.id}>
+                    <td data-label="Código" data-card="title">
                       <span className="np-num" style={{ fontWeight: 700, letterSpacing: '0.08em' }}>
                         {w.code ?? '—'}
                       </span>
                     </td>
-                    <td style={td}>{w.identifier ?? <em style={{ color: 'var(--np-text-dim)' }}>anónimo</em>}</td>
-                    <td style={td}>
+                    <td data-label="Cliente">
+                      {w.identifier ?? <em style={{ color: 'var(--np-text-dim)' }}>anónimo</em>}
+                    </td>
+                    <td data-label="Estado">
                       <div style={badgeRow}>
                         <Pill tone={STATUS_BADGES[w.status].tone}>{STATUS_BADGES[w.status].label}</Pill>
                         {w.status === 'ACTIVE' && w.closeRequestedAt ? <Pill tone="warning">Pide devolución</Pill> : null}
@@ -214,12 +216,16 @@ export function WalletsPanel({ isOwner }: Props) {
                         ) : null}
                       </div>
                     </td>
-                    <td style={tdRight}>
+                    <td data-label="Saldo" data-card="amount" style={numTd}>
                       <span className="np-num">{formatEur(w.balanceCents)}</span>
                     </td>
-                    <td style={tdRight}>{w.consumptionCount}</td>
-                    <td style={td}>{formatDateTime(w.createdAt, tz, 'short')}</td>
-                    <td style={td}>
+                    <td data-label="Consumos" style={numTd}>
+                      {w.consumptionCount}
+                    </td>
+                    <td data-label="Creada" data-card="top">
+                      {formatDateTime(w.createdAt, tz, 'short')}
+                    </td>
+                    <td data-label="Acciones" data-card="actions">
                       <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                         {w.status === 'ACTIVE' && w.balanceCents > 0 ? (
                           <Button
@@ -373,37 +379,9 @@ const categoryItem: CSSProperties = {
   fontSize: '0.85rem',
 };
 
-const tableStyle: CSSProperties = {
-  width: '100%',
-  borderCollapse: 'collapse',
-  fontSize: '0.85rem',
-};
+const alignRight: CSSProperties = { textAlign: 'right' };
 
-const theadRow: CSSProperties = {
-  borderBottom: '1px solid var(--np-border)',
-  color: 'var(--np-text-mute)',
-};
-
-const th: CSSProperties = {
-  padding: '0.5rem 0.6rem',
-  textAlign: 'left',
-  fontSize: '0.72rem',
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  fontWeight: 500,
-};
-
-const thRight: CSSProperties = { ...th, textAlign: 'right' };
-
-const trStyle: CSSProperties = {
-  borderBottom: '1px solid var(--np-border)',
-};
-
-const td: CSSProperties = {
-  padding: '0.55rem 0.6rem',
-};
-
-const tdRight: CSSProperties = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+const numTd: CSSProperties = { textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
 
 const badgeRow: CSSProperties = { display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' };
 
