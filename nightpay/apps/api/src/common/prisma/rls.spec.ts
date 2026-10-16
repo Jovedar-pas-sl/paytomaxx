@@ -2,13 +2,25 @@ import { describe, it, expect } from 'vitest';
 import { FORCED_RLS_MODELS, FORCED_RLS_TABLES, forcedRlsTarget, forcedTableIn, rawSqlText } from './rls';
 
 describe('tablas con FORCE RLS', () => {
-  it('las seis de las migraciones (y sus modelos)', () => {
-    expect([...FORCED_RLS_TABLES].sort()).toEqual(
-      ['client_wallets', 'earning_reversals', 'operator_earnings', 'operator_payouts', 'peanpe_calls', 'wallet_consumptions'],
-    );
-    expect([...FORCED_RLS_MODELS].sort()).toEqual(
-      ['ClientWallet', 'EarningReversal', 'OperatorEarning', 'OperatorPayout', 'PeanpeCall', 'WalletConsumption'],
-    );
+  it('las de las migraciones (y sus modelos)', () => {
+    expect([...FORCED_RLS_TABLES].sort()).toEqual([
+      'approval_requests',
+      'client_wallets',
+      'earning_reversals',
+      'operator_earnings',
+      'operator_payouts',
+      'peanpe_calls',
+      'wallet_consumptions',
+    ]);
+    expect([...FORCED_RLS_MODELS].sort()).toEqual([
+      'ApprovalRequest',
+      'ClientWallet',
+      'EarningReversal',
+      'OperatorEarning',
+      'OperatorPayout',
+      'PeanpeCall',
+      'WalletConsumption',
+    ]);
   });
 
   it('el SQL crudo: plantilla o texto, nombre completo de la tabla', () => {
@@ -25,6 +37,7 @@ describe('forcedRlsTarget', () => {
   it('modelo con FORCE RLS', () => {
     expect(forcedRlsTarget({ model: 'OperatorPayout', action: 'findMany', args: {} })).toBe('OperatorPayout');
     expect(forcedRlsTarget({ model: 'PeanpeCall', action: 'create', args: { data: {} } })).toBe('PeanpeCall');
+    expect(forcedRlsTarget({ model: 'ApprovalRequest', action: 'findMany', args: {} })).toBe('ApprovalRequest');
   });
 
   it('otro modelo que llega a una de ellas por una relación (include, select, _count, filtro)', () => {

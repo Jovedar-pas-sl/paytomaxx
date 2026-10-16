@@ -5,7 +5,7 @@ import ts from 'typescript';
 import { FORCED_RLS_TABLES } from './rls';
 
 /**
- * Guardia estática: las seis tablas con FORCE RLS solo se tocan dentro de una
+ * Guardia estática: las tablas con FORCE RLS solo se tocan dentro de una
  * transacción de PrismaService (withTenant, asSystem, acrossVenues o
  * $transaction), que es donde va el local (o el bypass) en la sesión. Con el
  * rol de producción sin superusuario, una consulta fuera de ella no ve filas.
@@ -32,6 +32,7 @@ const FORCED_DELEGATES = new Set([
   'operatorPayout',
   'earningReversal',
   'peanpeCall',
+  'approvalRequest',
 ]);
 const FORCED_SQL = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b|afterPayoutDebt\\(`);
 /** Tipo de parámetro que dice «esto es una transacción». */

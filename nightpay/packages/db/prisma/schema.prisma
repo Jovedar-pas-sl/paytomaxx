@@ -73,6 +73,7 @@ model Venue {
   nights             VenueNight[]
   incidentAcks       IncidentAck[]
   posTerminalOps     PosTerminalOp[]
+  approvalRequests   ApprovalRequest[]
 
   @@index([businessId])
   @@map("venues")
@@ -519,6 +520,54 @@ model IncidentAck {
 
   @@unique([tenantId, kind, refId])
   @@map("incident_acks")
+}
+
+// «Por aprobar» (20261016300000): el encargado pide pagos a las chicas (si el
+// local tiene payoutRequiresApproval) y devoluciones desde
+// refundApprovalThresholdCents; el dueño las aprueba con 2FA y quien pide no
+// aprueba. `payload` lleva lo necesario para hacerlo luego (chica, método,
+// cuenta tapada, comisiones y deudas que entran; o cobro, importe y motivo).
+// Mientras está PENDING (y no ha caducado, 24 h) reserva: las comisiones de la
+// chica no se pagan por otro lado y el importe del cobro no se devuelve dos veces.
+// FORCE RLS (como operator_payouts): solo dentro de una transacción de PrismaService.
+// Solo en SQL: índice único parcial (una pendiente por chica), índice parcial
+// de las devoluciones pendientes por cobro y los CHECK (quien decide ≠ quien pide…).
+model ApprovalRequest {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String         @db.Uuid
+  kind          ApprovalKind
+  status        ApprovalStatus @default(PENDING)
+  // La chica (PAYOUT) o el cobro (REFUND).
+  targetId      String         @db.Uuid
+  amountCents   Int
+  payload       Json
+  requestedById String         @db.Uuid
+  requestedAt   DateTime       @default(now()) @db.Timestamptz
+  decidedById   String?        @db.Uuid
+  decidedAt     DateTime?      @db.Timestamptz
+  decisionNote  String?
+  // Pago a la chica o devolución que salió al aprobarla.
+  resultRef     String?        @db.Uuid
+  failureReason String?
+  updatedAt     DateTime       @default(now()) @updatedAt @db.Timestamptz
+
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("approval_requests")
+}
+
+enum ApprovalKind {
+  PAYOUT
+  REFUND
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  FAILED
 }
 
 // Fase 1D — noche del local: se abre y se cierra con informe Z congelado.
