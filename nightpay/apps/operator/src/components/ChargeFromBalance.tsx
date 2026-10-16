@@ -23,10 +23,12 @@ import { useHealthReport } from '@/lib/connection-health';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard } from '@/lib/nfc';
+import { useOpenCharge } from '@/lib/open-charges';
 import { usePolling } from '@/lib/use-polling';
 import { CartaRetry, serviceLabel, useCarta, type Carta } from './carta';
 import { STICKY_ACTION_BOTTOM } from './layout';
 import { PinPad } from './PinPad';
+import { useSessionExpired } from './session-context';
 import { StaffOutcome } from './StaffOutcome';
 
 interface Props {
@@ -57,6 +59,8 @@ const POLL_SLOW_MS = 3000;
 export function ChargeFromBalance({ onCharged }: Props) {
   const [stage, setStage] = useState<Stage>({ kind: 'pick' });
   const carta = useCarta();
+  // Con su QR o su resultado en pantalla: si la sesión caduca, se entra encima sin perderlo.
+  useOpenCharge('saldo', stage.kind !== 'pick', stage.kind === 'qr');
 
   switch (stage.kind) {
     case 'pick':
@@ -218,6 +222,8 @@ function QrStep({
   const [pollDown, setPollDown] = useState(false);
   useWakeLock(true);
   useHealthReport(`saldo:${charge.id}`, { serverDown: pollDown });
+  // Este estado pide la sesión de la chica: caducada, se para; al volver a entrar, sigue solo.
+  const expired = useSessionExpired();
 
   // ¿Ya ha pagado? Una pregunta por segundo, sin solapes; para al terminar.
   usePolling(
@@ -238,7 +244,7 @@ function QrStep({
         return err instanceof SessionExpiredError ? 'stop' : 'slow';
       }
     },
-    { intervalMs: POLL_MS, slowIntervalMs: POLL_SLOW_MS, initialDelayMs: POLL_MS },
+    { intervalMs: POLL_MS, slowIntervalMs: POLL_SLOW_MS, initialDelayMs: POLL_MS, enabled: !expired },
   );
 
   // iPhone: tras "Sin móvil", al acercar la ficha se abre otra pestaña

@@ -4,16 +4,29 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
+import { ReloginSheet } from '@/components/ReloginSheet';
+import { SessionExpiredContext } from '@/components/session-context';
 import { WALLET_CARD_PARAM } from '@nightpay/contracts';
 import { getToken, getUser, logout, onSessionEnded, type OperatorUser } from '@/lib/api';
+import { clearFichaContext } from '@/lib/ficha-context';
+import { useOpenCharges } from '@/lib/open-charges';
+import { afterRelogin, shellView } from '@/lib/session-resume';
+
+const EXPIRED_NOTICE = 'Tu sesión ha caducado. Vuelve a entrar.';
+const LOGGED_OUT_ELSEWHERE_NOTICE = 'Has salido desde otra pestaña.';
 
 export default function Page() {
   const [user, setUser] = useState<OperatorUser | null | undefined>(undefined);
+  // La sesión caducó: con un cobro abierto, la app sigue debajo y se entra encima.
+  const [expired, setExpired] = useState(false);
+  // Sube cuando entra otra persona (u otro local): la app empieza de cero.
+  const [generation, setGeneration] = useState(0);
   // Abierta desde una ficha NFC (?ficha=…) por alguien sin sesión: el cliente.
   const [fromCard, setFromCard] = useState(false);
   // La sesión se acabó sola (caducada, o cerrada en otra pestaña): se dice en el login.
   const [notice, setNotice] = useState<string | null>(null);
   const loggedIn = useRef(false);
+  const charges = useOpenCharges();
 
   useEffect(() => {
     loggedIn.current = Boolean(user);
@@ -23,13 +36,50 @@ export default function Page() {
     if (getToken()) setUser(getUser());
     else setUser(null);
     setFromCard(new URLSearchParams(window.location.search).has(WALLET_CARD_PARAM));
-    return onSessionEnded(() => {
-      if (loggedIn.current) setNotice('Tu sesión ha caducado. Vuelve a entrar.');
-      setUser(null);
+    return onSessionEnded((reason) => {
+      if (!loggedIn.current) return;
+      if (reason === 'logout') {
+        // «Salir» en otra pestaña: fuera aquí también, con cobro abierto o sin él.
+        setNotice(LOGGED_OUT_ELSEWHERE_NOTICE);
+        setExpired(false);
+        setUser(null);
+        return;
+      }
+      setNotice(EXPIRED_NOTICE);
+      setExpired(true);
     });
   }, []);
 
-  if (user === undefined) {
+  /** Entrar (o volver a entrar). Otra persona u otro local: nada de lo de antes. */
+  function enter(next: OperatorUser) {
+    if (afterRelogin(user, next) === 'reset') {
+      clearFichaContext();
+      setGeneration((g) => g + 1);
+    }
+    setNotice(null);
+    setExpired(false);
+    setUser(next);
+  }
+
+  // La sesión local se borra ya (logout) y el login sale al momento; la del
+  // servidor sigue por detrás: si no la confirma, se avisa en el login.
+  function handleLogout() {
+    // Ya fuera: un sondeo que caduque ahora mismo no dice «Tu sesión ha caducado».
+    loggedIn.current = false;
+    const closed = logout();
+    setNotice(null);
+    setExpired(false);
+    setUser(null);
+    void closed.then((confirmed) => {
+      if (!confirmed && !loggedIn.current) {
+        setNotice('Has salido en este móvil, pero el servidor no lo ha confirmado: la sesión caducará sola.');
+      }
+    });
+  }
+
+  const view = shellView({ user, expired, chargeOpen: charges.open });
+
+  if (view === 'loading') {
     return (
       <main
         className="np-screen"
@@ -45,62 +95,61 @@ export default function Page() {
     );
   }
 
-  if (!user) {
-    return (
-      <main
-        className="np-screen"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '2rem',
-          gap: '2rem',
-        }}
-      >
-        <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem' }}>
-          <ThemeToggle />
-        </div>
-        <header style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
-          <Logo height="3rem" />
-          <h1 style={{ margin: 0, fontSize: 'var(--np-t-h1)', fontWeight: 600, letterSpacing: '-0.03em' }}>
-            Operadora
-          </h1>
-        </header>
-        {fromCard ? (
-          <p style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-text-mute)' }}>
-            Esta es una ficha de saldo. Para pagar, acércala al móvil de quien te cobra.
-          </p>
-        ) : null}
-        {notice ? (
-          <p role="status" style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-warning)', fontWeight: 600 }}>
-            {notice}
-          </p>
-        ) : null}
-        <Card variant="glow" style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
-          <LoginForm
-            onSuccess={(u) => {
-              setNotice(null);
-              setUser(u);
-            }}
-          />
-        </Card>
-      </main>
-    );
+  if (view === 'login' || !user) {
+    return <LoginScreen fromCard={fromCard} notice={notice} onSuccess={enter} />;
   }
 
-  // La sesión local se borra ya (logout) y el login sale al momento; la del
-  // servidor sigue por detrás: si no la confirma, se avisa en el login.
-  function handleLogout() {
-    const closed = logout();
-    setNotice(null);
-    setUser(null);
-    void closed.then((confirmed) => {
-      if (!confirmed && !loggedIn.current) {
-        setNotice('Has salido en este móvil, pero el servidor no lo ha confirmado: la sesión caducará sola.');
-      }
-    });
-  }
+  return (
+    <SessionExpiredContext.Provider value={expired}>
+      <Dashboard key={generation} user={user} onLogout={handleLogout} />
+      {view === 'relogin' ? (
+        <ReloginSheet email={user.email} chargePending={charges.pending} onSuccess={enter} />
+      ) : null}
+    </SessionExpiredContext.Provider>
+  );
+}
 
-  return <Dashboard user={user} onLogout={handleLogout} />;
+function LoginScreen({
+  fromCard,
+  notice,
+  onSuccess,
+}: {
+  fromCard: boolean;
+  notice: string | null;
+  onSuccess: (user: OperatorUser) => void;
+}) {
+  return (
+    <main
+      className="np-screen"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '2rem',
+        gap: '2rem',
+      }}
+    >
+      <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem' }}>
+        <ThemeToggle />
+      </div>
+      <header style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+        <Logo height="3rem" />
+        <h1 style={{ margin: 0, fontSize: 'var(--np-t-h1)', fontWeight: 600, letterSpacing: '-0.03em' }}>Operadora</h1>
+      </header>
+      {fromCard ? (
+        <p style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-text-mute)' }}>
+          Esta es una ficha de saldo. Para pagar, acércala al móvil de quien te cobra.
+        </p>
+      ) : null}
+      {notice ? (
+        <p role="status" style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-warning)', fontWeight: 600 }}>
+          {notice}
+        </p>
+      ) : null}
+      <Card variant="glow" style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
+        <LoginForm onSuccess={onSuccess} />
+      </Card>
+    </main>
+  );
 }

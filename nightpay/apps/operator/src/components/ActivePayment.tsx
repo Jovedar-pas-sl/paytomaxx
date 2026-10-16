@@ -19,6 +19,7 @@ import {
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
 import { useHealthReport } from '@/lib/connection-health';
 import { formatEur, formatEurAmount } from '@/lib/money';
+import { useOpenCharge } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { NewWalletCard } from './NewWalletCard';
 import { StaffOutcome } from './StaffOutcome';
@@ -85,6 +86,8 @@ export function ActivePayment({ payment, isPos, label, onPaid, onClose, onRetry,
   const shown = effectiveStatus(status, deadline, now);
   const open = !isFinalStatus(shown);
   useWakeLock(open);
+  // En pantalla (esperando o con su resultado): si la sesión caduca, se entra encima sin perderlo.
+  useOpenCharge('cobro', true, open);
   useHealthReport(
     `cobro:${payment.id}`,
     open

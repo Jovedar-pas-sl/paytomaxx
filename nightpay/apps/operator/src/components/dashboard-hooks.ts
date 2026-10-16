@@ -2,14 +2,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { isWalletCardToken, WALLET_CARD_PARAM } from '@nightpay/contracts';
 import {
   fetchBalance,
+  fetchMyNight,
   pollErrorText,
   ServerUnavailableError,
   SessionExpiredError,
+  type MyNight,
   type OperatorBalance,
 } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 
 const BALANCE_POLL_MS = 8000;
+/** La noche cuesta más al API (suma la noche entera): menos a menudo, y ya tras cada cobro. */
+const NIGHT_POLL_MS = 30_000;
 
 export interface PollError {
   text: string;
@@ -42,6 +46,33 @@ export function useOwnBalance(enabled: boolean): OwnBalance {
     { intervalMs: BALANCE_POLL_MS, enabled },
   );
   return { balance, error, refresh };
+}
+
+export interface OwnNight {
+  night: MyNight | null;
+  /** No se pudo cargar (el servidor caído ya lo dice la franja de arriba). */
+  error: string | null;
+  refresh: () => void;
+}
+
+/** «Esta noche» de la chica, cada 30 s y al pedirlo (tras un cobro). Solo si `enabled`. */
+export function useMyNight(enabled: boolean): OwnNight {
+  const [night, setNight] = useState<MyNight | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = usePolling(
+    async (signal) => {
+      try {
+        setNight(await fetchMyNight(signal));
+        setError(null);
+      } catch (err) {
+        if (signal.aborted) return 'slow';
+        setError(err instanceof ServerUnavailableError ? null : pollErrorText(err));
+        return err instanceof SessionExpiredError ? 'stop' : 'slow';
+      }
+    },
+    { intervalMs: NIGHT_POLL_MS, enabled },
+  );
+  return { night, error, refresh };
 }
 
 export interface DeepLinks {

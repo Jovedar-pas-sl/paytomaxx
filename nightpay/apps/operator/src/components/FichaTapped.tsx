@@ -5,6 +5,7 @@ import { Button, Card } from '@nightpay/ui';
 import { linkWalletCard, lookupWalletCard, payWalletChargeWithPin, type WalletLookup } from '@/lib/api';
 import { clearFichaContext, readFichaContext, type FichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
+import { useOpenCharge } from '@/lib/open-charges';
 import { PinPad } from './PinPad';
 import { StaffOutcome } from './StaffOutcome';
 
@@ -25,6 +26,8 @@ type View =
 export function FichaTapped({ token, userId, onClose }: { token: string; userId: string; onClose: () => void }) {
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
+  // Abierta: si la sesión caduca, se entra encima sin perderla.
+  useOpenCharge('ficha', true, view.kind === 'loading' || view.kind === 'confirm' || view.kind === 'pin');
 
   useEffect(() => {
     const ctx = readFichaContext(userId);

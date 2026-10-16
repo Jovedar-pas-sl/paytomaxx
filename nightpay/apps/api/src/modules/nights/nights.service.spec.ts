@@ -264,4 +264,33 @@ describe('cierre automático y noche de la chica', () => {
     const mine = await svc.mine('t-1', 'op-1');
     expect(mine).toMatchObject({ nightOpen: false, from: OPENED.toISOString(), to: closedAt.toISOString() });
   });
+
+  it('lo que aún no se le ha pagado, partido en esta noche y otras noches (mismo tramo que la noche)', async () => {
+    const { svc, prisma } = makeService();
+    const queries: Array<{ text: string; values: unknown[] }> = [];
+    prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = Prisma.sql(strings, ...values);
+      queries.push({ text: sql.text, values: sql.values });
+      return sql.text.includes('"otherUnpaidCents"')
+        ? [{ unpaidCents: 12_000, otherUnpaidCents: 8_500 }]
+        : [{ count: 2, chargedCents: 20_000, commissionCents: 12_000, tipsCents: 0, reversedCents: 0 }];
+    });
+    const mine = await svc.mine('t-1', 'op-1');
+    expect(mine).toMatchObject({ netCents: 12_000, unpaidCents: 12_000, otherUnpaidCents: 8_500 });
+    const split = queries.find((q) => q.text.includes('"otherUnpaidCents"'))!;
+    expect(split.text).toContain('"payoutId" IS NULL');
+    expect(split.values).toEqual(
+      expect.arrayContaining([OPENED, new Date('2026-10-13T23:00:00Z'), 't-1', 'op-1']),
+    );
+  });
+
+  it('sin nada pendiente de pago: ceros, no undefined', async () => {
+    const { svc, prisma } = makeService();
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ count: 0, chargedCents: 0, commissionCents: 0, tipsCents: 0, reversedCents: 0 }])
+      .mockResolvedValueOnce([{ unpaidCents: null, otherUnpaidCents: null }]);
+    const mine = await svc.mine('t-1', 'op-1');
+    expect(mine.unpaidCents).toBe(0);
+    expect(mine.otherUnpaidCents).toBe(0);
+  });
 });
