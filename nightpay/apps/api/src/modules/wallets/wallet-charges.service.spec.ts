@@ -210,6 +210,21 @@ describe('el cliente paga el QR con su Face ID', () => {
     });
   });
 
+  it('lo que ve el cliente: pendiente sin hora de pago; pagado con su hora («Ya pagado · hace…»)', async () => {
+    const pending = qrService();
+    await expect(pending.svc.qrChargeForClient('pay-tok')).resolves.toMatchObject({ status: 'PENDING', paidAt: null });
+
+    const decidedAt = new Date('2026-10-15T21:40:00Z');
+    const paid = makeService();
+    paid.tx.walletChargeRequest.findUnique.mockResolvedValue(
+      request({ walletId: 'w-1', payToken: 'pay-tok', status: 'ACCEPTED', decidedAt }),
+    );
+    await expect(paid.svc.qrChargeForClient('pay-tok')).resolves.toMatchObject({
+      status: 'ACCEPTED',
+      paidAt: decidedAt.toISOString(),
+    });
+  });
+
   it('si la chica lo canceló mientras el cliente pagaba, no se cobra', async () => {
     const { svc, tx } = qrService();
     tx.walletChargeRequest.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
@@ -236,7 +251,39 @@ describe('la página del saldo del cliente', () => {
     const { svc } = makeService();
     const state = await svc.clientState('tok');
     expect(state).toMatchObject({ code: 'K7Q-4M2', balanceCents: 30_000, status: 'ACTIVE', hasFaceId: false });
+    expect(state).toMatchObject({ hasPin: false, merged: false, refund: null, cards: [] });
     expect(state).not.toHaveProperty('pending');
+  });
+
+  it('«Me voy» pedido: devolución de lo que queda, a las tarjetas de sus recargas', async () => {
+    const { svc, tx } = makeService({ wallet: wallet({ closeRequestedAt: new Date(), pinHash: 'h' }) });
+    tx.payment.findMany.mockResolvedValueOnce([
+      { amountCents: 30_000, tenantId: 'home', authorizedAt: new Date(), createdAt: new Date(), cardLast4: '4242' },
+    ]);
+    const state = await svc.clientState('tok');
+    expect(state).toMatchObject({
+      hasPin: true,
+      cards: ['4242'],
+      refund: { stage: 'requested', amountCents: 30_000, methods: [] },
+    });
+  });
+
+  it('devolución a la tarjeta a medias → paso «Aprobado», sin salir aún en movimientos', async () => {
+    const { svc, tx } = makeService({ wallet: wallet({ closeRequestedAt: new Date(), balanceCents: 0 }) });
+    tx.walletPayout.findMany.mockResolvedValueOnce([
+      { amountCents: 30_000, method: 'CARD', status: 'PENDING', tenantId: 'home', createdAt: new Date() },
+    ]);
+    const state = await svc.clientState('tok');
+    expect(state.refund).toMatchObject({ stage: 'approved', amountCents: 30_000, methods: ['CARD'] });
+    expect(state.movements.some((m) => m.kind === 'payout')).toBe(false);
+    expect(tx.walletPayout.findMany.mock.calls[0]![0]).toMatchObject({
+      where: { walletId: 'w-1', status: { in: ['DONE', 'PENDING'] } },
+    });
+  });
+
+  it('recarga sumada a otro saldo → lo dice (no «has gastado todo»)', async () => {
+    const { svc } = makeService({ wallet: wallet({ status: 'DEPLETED', balanceCents: 0, mergedIntoId: 'w-2' }) });
+    await expect(svc.clientState('tok')).resolves.toMatchObject({ merged: true, refund: null });
   });
 
   it('"me voy" se apunta una sola vez', async () => {
