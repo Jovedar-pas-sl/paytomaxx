@@ -20,7 +20,7 @@
 
 ### Arquitectura y stack
 - Monorepo pnpm + Turborepo: `apps/` (api, web-client, tpv, admin, mock-wipay, mock-peanpe) + `packages/` (db, contracts, config)
-- API NestJS 10 + Fastify, Prisma 5 + Postgres 16, Redis 7 + BullMQ
+- API NestJS 11 + Fastify 5, Prisma 5 + Postgres 16, Redis 7 + BullMQ
 - Frontends Next.js 14 (cliente movil, TPV, admin)
 - Docker Compose dev (postgres, redis, mock pasarelas) — `docker compose up -d`
 

@@ -148,7 +148,7 @@ pnpm install
 ```
 
 ### Node 25 me da `ERR_REQUIRE_ESM`
-Estás en Node 25; vuelve a Node 20 LTS (ver paso 1). Muchas libs (Prisma, NestJS 10) no están probadas con Node 25.
+Estás en Node 25; vuelve a Node 20 LTS (ver paso 1). Muchas libs (Prisma, NestJS 11) no están probadas con Node 25.
 
 ---
 

@@ -50,7 +50,8 @@ async function bootstrap() {
     bodyLimit: 1024 * 1024, // 1 MB max — webhooks normalmente <10KB
     // Default Fastify es 100; JWT en path (self-onboarding link, accept-invite)
     // tienen ~250 chars. Subimos a 500 para no rechazar tokens válidos con 404.
-    maxParamLength: 500,
+    // Fastify 5: las opciones del router van en `routerOptions` (FSTDEP022).
+    routerOptions: { maxParamLength: 500 },
     // Cabeceras de proxy (X-Forwarded-*) solo de la red interna (Traefik).
     // Con `true`, req.ip era el primer X-Forwarded-For: lo que quisiera el cliente.
     trustProxy: trustInternalProxy,
@@ -68,10 +69,9 @@ async function bootstrap() {
   });
 
   // ─── Security middleware ──────────────────────────────────────────
-  // Casts a FastifyPluginCallback son por incompatibilidad de tipos entre
-  // multiples versiones de fastify resueltas por pnpm (4.28.x vs 4.29.x).
-  // Funcionan correctamente en runtime — solo molesta a tsc.
-  await app.register(helmet as any, {
+  // Sin casts: con Fastify 5 pnpm resuelve una sola versión de fastify y los
+  // tipos de los plugins cuadran (antes había 4.28 y 4.29 a la vez).
+  await app.register(helmet, {
     contentSecurityPolicy: isProd
       ? {
           directives: {
@@ -102,6 +102,9 @@ async function bootstrap() {
         }
       : false,
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    // HSTS de 180 días, como hasta ahora: helmet 8 sube el valor por defecto
+    // a 365. Subirlo es una decisión aparte (no cabe en la subida de versión).
+    strictTransportSecurity: { maxAge: 180 * 24 * 60 * 60, includeSubDomains: true },
   });
 
   // Solo a través de Cloudflare (si está ORIGIN_AUTH_SECRET): lo que llegue
@@ -116,7 +119,7 @@ async function bootstrap() {
   // sensibles (login, refresh, accept-invite) tienen además su @IpRateLimit.
   // Exentos: el sondeo del saldo (con su propio límite) y el healthcheck del
   // propio contenedor por loopback (ver global-rate-limit.ts).
-  await app.register(rateLimit as any, {
+  await app.register(rateLimit, {
     max: GLOBAL_RATE_LIMIT_MAX,
     timeWindow: GLOBAL_RATE_LIMIT_WINDOW,
     allowList: isGlobalRateLimitExempt,
