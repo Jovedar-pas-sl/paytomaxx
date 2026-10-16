@@ -135,6 +135,9 @@ Notas:
 - El host interno de Postgres/Redis es el *Application Name*; si falla,
   `docker network inspect dokploy-network`.
 - Redis lleva el prefijo `default:` antes de la contraseña.
+- `DATABASE_URL` con `np` (superusuario) es el montaje inicial. Para que el API
+  entre con un rol sin superusuario (RLS de la base aísla los locales):
+  [`DB-ROLE.md`](DB-ROLE.md).
 - `NODE_ENV` sin poner también arranca como producción; ponlo igual.
 - Sin `ORIGIN_AUTH_SECRET` o `METRICS_TOKEN` el API no arranca en producción.
 
