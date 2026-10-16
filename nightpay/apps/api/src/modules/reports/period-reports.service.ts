@@ -129,7 +129,7 @@ export class PeriodReportsService {
 
   /** Cobros (aparte las recargas) y consumos del saldo, por tipo. */
   private async categories(tenantId: string, w: TimeWindow): Promise<ZCategoryRow[]> {
-    return this.prisma.asSystem((tx) => tx.$queryRaw<ZCategoryRow[]>`
+    return this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<ZCategoryRow[]>`
       SELECT CASE WHEN p."walletId" IS NULL THEN 'CARD' ELSE 'TOPUP' END AS source,
              p."revenueCategory" AS category,
              COUNT(*)::int AS count,
@@ -159,7 +159,7 @@ export class PeriodReportsService {
    * llegadas después de pagarle (como la columna «Parte chica» del CSV).
    */
   private async operators(tenantId: string, w: TimeWindow): Promise<ZOperatorRow[]> {
-    return this.prisma.asSystem((tx) => tx.$queryRaw<ZOperatorRow[]>`
+    return this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<ZOperatorRow[]>`
       SELECT e."operatorId", u."displayName", u.email,
              COUNT(*)::int AS "earningCount",
              COALESCE(SUM(e."commissionCents" + COALESCE(e."tipCents", 0) - e."reversedCents" - ${afterPayoutDebt('e')}), 0)::bigint AS "netCents"
@@ -180,7 +180,7 @@ export class PeriodReportsService {
     tenantId: string,
     w: TimeWindow,
   ): Promise<Array<Count & { totalCents: number | bigint | null }>> {
-    return this.prisma.asSystem((tx) => tx.$queryRaw<Array<Count & { totalCents: number | bigint | null }>>`
+    return this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<Array<Count & { totalCents: number | bigint | null }>>`
       SELECT COUNT(*)::int AS count, COALESCE(SUM(po."totalCents"), 0)::bigint AS "totalCents"
         FROM operator_payouts po
        WHERE po."tenantId" = ${tenantId}::uuid
@@ -190,7 +190,7 @@ export class PeriodReportsService {
 
   /** Consumos del saldo del trimestre (informativo en el 303). */
   private async consumptionTotals(tenantId: string, w: TimeWindow): Promise<{ count: number; cents: number }> {
-    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<Array<Count & { cents: number | bigint | null }>>`
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<Array<Count & { cents: number | bigint | null }>>`
       SELECT COUNT(*)::int AS count, COALESCE(SUM(c."amountCents"), 0)::bigint AS cents
         FROM wallet_consumptions c
        WHERE c."tenantId" = ${tenantId}::uuid

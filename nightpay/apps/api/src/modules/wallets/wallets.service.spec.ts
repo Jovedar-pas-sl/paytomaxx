@@ -224,7 +224,7 @@ describe('estadísticas del panel de saldos', () => {
       }),
     };
     const prisma = {
-      asSystem: vi.fn().mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+      withTenant: vi.fn().mockImplementation(async (_tenantId: string, fn: (t: typeof tx) => unknown) => fn(tx)),
       $queryRaw: tx.$queryRaw,
     };
     const svc = new WalletsService(prisma as never, { log: vi.fn() } as never);
@@ -258,8 +258,8 @@ describe('estadísticas del panel de saldos', () => {
       const since = calls.filter((c) => /"createdAt" >= \?/.test(c.sql)).map((c) => (c.values.at(-1) as Date).toISOString());
       expect(since).toHaveLength(3);
       expect(new Set(since)).toEqual(new Set(['2026-10-15T22:00:00.000Z']));
-      // Con bypass de RLS (las tablas del saldo tienen RLS forzado) y el local filtrado a mano.
-      expect(prisma.asSystem).toHaveBeenCalled();
+      // Con el local en la sesión (las tablas del saldo tienen RLS forzado) y, además, filtrado a mano.
+      expect(prisma.withTenant).toHaveBeenCalledWith('t-1', expect.any(Function));
     } finally {
       vi.useRealTimers();
     }

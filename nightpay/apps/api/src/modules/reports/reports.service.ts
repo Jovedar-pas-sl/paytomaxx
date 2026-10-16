@@ -138,7 +138,7 @@ export class ReportsService {
 
   /** Pagos a chicas hechos en el periodo. */
   async liquidaciones(tenantId: string, p: TimeWindow): Promise<LiquidacionRow[]> {
-    return capped(await this.prisma.asSystem((tx) => tx.$queryRaw<LiquidacionRow[]>`
+    return capped(await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<LiquidacionRow[]>`
       SELECT po.id,
              po."createdAt" AS "paidAt",
              po."totalCents",
@@ -164,7 +164,7 @@ export class ReportsService {
 
   /** Cobros pagados del local que cumplen `where` (alias p). */
   private cobrosWhere(tenantId: string, where: Prisma.Sql): Promise<CobroRow[]> {
-    return this.prisma.asSystem((tx) => tx.$queryRaw<CobroRow[]>`
+    return this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<CobroRow[]>`
       SELECT p.id,
              ${paymentAt('p')} AS "paidAt",
              p.status::text AS status,
@@ -216,7 +216,7 @@ export class ReportsService {
 
   /** Consumos del saldo del local que cumplen `where` (alias c), con la parte de la chica si la hay. */
   private consumosWhere(tenantId: string, where: Prisma.Sql): Promise<ConsumoRow[]> {
-    return this.prisma.asSystem((tx) => tx.$queryRaw<ConsumoRow[]>`
+    return this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<ConsumoRow[]>`
       SELECT c.id,
              c."createdAt" AS "at",
              c."amountCents",
@@ -238,7 +238,7 @@ export class ReportsService {
 
   /** Devoluciones hechas del local que cumplen `where` (alias r), con lo descontado a la chica. */
   private devolucionesWhere(tenantId: string, where: Prisma.Sql): Promise<DevolucionRow[]> {
-    return this.prisma.asSystem((tx) => tx.$queryRaw<DevolucionRow[]>`
+    return this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<DevolucionRow[]>`
       SELECT r.id,
              ${refundAt('r')} AS "refundedAt",
              r."amountCents",

@@ -135,7 +135,7 @@ export class OperatorsService {
 
   async getBalance(operatorId: string, tenantId: string): Promise<OperatorBalance> {
     const cutoff = payoutCutoff(new Date(), this.holdDays());
-    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         pendingCents: bigint;
         heldCents: bigint;
@@ -175,7 +175,7 @@ export class OperatorsService {
 
   /** Devoluciones llegadas con la comisión ya pagada, aún sin descontar. */
   private async openDebtCents(operatorId: string, tenantId: string): Promise<number> {
-    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<Array<{ total: bigint }>>`
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<Array<{ total: bigint }>>`
       SELECT COALESCE(SUM(r."reversedDeltaCents"), 0)::bigint AS total
         FROM earning_reversals r
         JOIN operator_earnings e ON e.id = r."earningId"
@@ -192,7 +192,7 @@ export class OperatorsService {
     tenantId: string,
     limit = 50,
   ): Promise<EarningView[]> {
-    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         id: string;
         paymentId: string | null;
@@ -256,7 +256,7 @@ export class OperatorsService {
     tenantId: string,
     limit = 50,
   ): Promise<PayoutView[]> {
-    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         id: string;
         totalCents: number;
@@ -982,7 +982,7 @@ export class OperatorsService {
     }) as unknown as { id: string; payoutMethod: string | null } | null;
     if (!operator) throw new NotFoundException('Operadora no encontrada');
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.withTenant(tenantId, async (tx) => {
       // Un hash on-chain solo vale para un pago del local.
       const txId = options?.externalTxId?.trim();
       const rail = options?.externalRail ?? operator.payoutMethod ?? null;

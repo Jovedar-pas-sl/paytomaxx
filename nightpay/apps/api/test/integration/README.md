@@ -17,6 +17,8 @@ probarían nada de eso.
 | `cuadre-banco.int.spec.ts` | Importar el fichero de Redsys, clasificar líneas, Incidencias |
 | `consumos-informes.int.spec.ts` | Consumos del saldo en informes y en «Mi noche» |
 | `super-admin.int.spec.ts` | Super-admin con otro local activo |
+| `personal-sin-superusuario.int.spec.ts` | Lo del personal sin asSystem en la prueba (solo el local en el contexto): chicas, comisiones y pagos (crear y verificar), devolución con deuda, tesorería, saldos del panel, «Mi noche» y Z, Incidencias, Peanpe |
+| `aislamiento-rls.int.spec.ts` | RLS de la base aísla sola las seis tablas con FORCE RLS: con el local A en la sesión no se ve ni se escribe nada de B aunque la consulta no filtre; el local no se queda en la conexión |
 
 ## Lanzarlas en local
 
@@ -57,11 +59,13 @@ y lanza `pnpm test:integration`.
 
 ## Notas
 
-- Producción entra hoy en Postgres como superusuario, así que allí RLS no se
-  aplica. `consumos-informes` lo refleja: los informes y «Mi noche» leen
-  `wallet_consumptions` (FORCE RLS) fuera de una transacción con local, y con
-  un rol sin superusuario saldrían vacíos; la prueba les da una conexión con el
-  bypass puesto. Si el API pasa a entrar con un rol normal, eso hay que
-  arreglarlo antes (y esta prueba, cambiarla).
+- Producción entraba en Postgres como superusuario (`np`), que salta RLS.
+  Para pasar a un rol normal, dueño de las tablas: [`docs/DB-ROLE.md`](../../../../docs/DB-ROLE.md).
+  El API ya funciona así: el trabajo de un local va con su local en la sesión
+  (`withTenant`, o cualquier `$transaction` con local en el contexto) y lo de
+  sistema con bypass (`asSystem` / `acrossVenues`).
+- `setup.ts` pone `TENANCY_UNSCOPED_QUERIES=throw`: una consulta por local sin
+  local, o a una tabla con FORCE RLS fuera de una transacción, hace fallar la
+  prueba (en producción solo se avisa, salvo que se active).
 - `consumos-informes` fija el reloj (23:00 de Madrid): «Mi noche» cuenta desde
   las 08:00 y sin eso fallaría según la hora a la que corra.

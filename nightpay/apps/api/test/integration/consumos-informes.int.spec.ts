@@ -16,25 +16,17 @@ vi.setSystemTime(new Date('2026-10-12T21:00:00Z'));
 const cls = new ClsService(new AsyncLocalStorage());
  
 const prisma = new PrismaService(cls as any);
+const reports = new ReportsService(prisma as never);
+const nights = new NightsService(prisma as never, reports, { log: async () => undefined } as never);
 
-// Producción entra hoy como superusuario: Postgres no le aplica RLS. Aquí la
-// base es del rol dueño SIN superusuario (FORCE RLS sí aplica), así que los
-// servicios reciben la conexión de una transacción con el bypass puesto.
-// OJO: reports/nights leen wallet_consumptions (FORCE RLS) fuera de cualquier
-// transacción con local: con un rol sin superusuario saldrían vacíos.
-function sys<T>(fn: (s: { reports: ReportsService; nights: NightsService }) => Promise<T>): Promise<T> {
+// Como una petición del panel o de la app de la chica: el local en el contexto
+// (lo pone AuthGuard) y NADA de asSystem. La base es del rol dueño SIN
+// superusuario (FORCE RLS sí aplica): informes y «Mi noche» leen
+// wallet_consumptions y operator_earnings con el local en la sesión.
+function asStaff<T>(tenantId: string, fn: (s: { reports: ReportsService; nights: NightsService }) => Promise<T>): Promise<T> {
   return cls.run(async () => {
-    cls.set('ctx', { traceId: 't', acrossVenues: true });
-    return prisma.asSystem((tx) => {
-      // La transacción hace de cliente; su asSystem es ella misma (ya lleva el bypass).
-      const db = new Proxy(tx, {
-        get: (target, key) =>
-          key === 'asSystem' ? <R>(f: (t: typeof tx) => Promise<R>) => f(tx) : Reflect.get(target, key),
-      });
-      const reports = new ReportsService(db as never);
-      const nights = new NightsService(db as never, reports, { log: async () => undefined } as never);
-      return fn({ reports, nights });
-    });
+    cls.set('ctx', { traceId: 't', tenantId });
+    return fn({ reports, nights });
   });
 }
 
@@ -89,11 +81,11 @@ afterAll(async () => {
 
 describe('consumos del saldo en informes y en "Mi noche" (Postgres real)', () => {
   it('el informe trae el consumo con parte para la chica y no el anulado', async () => {
-    const rows = await sys(({ reports }) => reports.consumos(A, { from: minutesAgo(120), to: minutesAgo(-1) }));
+    const rows = await asStaff(A, ({ reports }) => reports.consumos(A, { from: minutesAgo(120), to: minutesAgo(-1) }));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ amountCents: 6000, tipCents: 1000, commissionCents: 5400, earningTipCents: 1000, operatorName: 'Lola' });
 
-    const cobros = await sys(({ reports }) => reports.cobros(A, { from: minutesAgo(120), to: minutesAgo(-1) }));
+    const cobros = await asStaff(A, ({ reports }) => reports.cobros(A, { from: minutesAgo(120), to: minutesAgo(-1) }));
     const s = summarize(cobros, [], [], rows);
     expect(s.chicaCommissionCents).toBe(9000 + 5400);
     expect(s.chicaTipsCents).toBe(500 + 1000);
@@ -101,7 +93,7 @@ describe('consumos del saldo en informes y en "Mi noche" (Postgres real)', () =>
   });
 
   it('"Mi noche" de la chica suma tarjeta + saldo; el anulado no cuenta (como en el informe)', async () => {
-    const mine = await sys(({ nights }) => nights.mine(A, lola));
+    const mine = await asStaff(A, ({ nights }) => nights.mine(A, lola));
     expect(mine).toMatchObject({
       count: 2,
       chargedCents: 10_500 + 7000,

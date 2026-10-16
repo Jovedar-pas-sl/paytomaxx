@@ -204,15 +204,18 @@ export class PeanpeAdapter implements GatewayAdapter {
     for (let attempt = 0; attempt < 5; attempt++) {
       const candidate = generate6CharId();
       try {
-        await this.prisma.peanpeCall.create({
-          data: {
-            identificadorLlamada: candidate,
-            paymentId: input.paymentId,
-            tenantId: input.tenantId,
-            securityToken,
-            amountCents: input.amountCents,
-          },
-        });
+        // peanpe_calls tiene FORCE RLS: se escribe con el local del cobro en la sesión.
+        await this.prisma.withTenant(input.tenantId, (tx) =>
+          tx.peanpeCall.create({
+            data: {
+              identificadorLlamada: candidate,
+              paymentId: input.paymentId,
+              tenantId: input.tenantId,
+              securityToken,
+              amountCents: input.amountCents,
+            },
+          }),
+        );
         idLlamada = candidate;
         break;
       } catch (err) {
@@ -422,10 +425,13 @@ export class PeanpeAdapter implements GatewayAdapter {
    * Llamado por webhooks.controller cuando Peanpe hace el POST inicial.
    */
   async getSecurityTokenForCall(identificadorLlamada: string): Promise<string | null> {
-    const call = await this.prisma.peanpeCall.findUnique({
-      where: { identificadorLlamada },
-      select: { securityToken: true },
-    });
+    // El aviso llega sin local: búsqueda de sistema (peanpe_calls tiene FORCE RLS).
+    const call = await this.prisma.asSystem((tx) =>
+      tx.peanpeCall.findUnique({
+        where: { identificadorLlamada },
+        select: { securityToken: true },
+      }),
+    );
     return call?.securityToken ?? null;
   }
 
@@ -439,10 +445,12 @@ export class PeanpeAdapter implements GatewayAdapter {
     identificadorLlamada: string;
     seguridad: string;
   }): Promise<{ paymentId: string; tenantId: string } | null> {
-    const call = await this.prisma.peanpeCall.findUnique({
-      where: { identificadorLlamada: input.identificadorLlamada },
-      select: { paymentId: true, tenantId: true, securityToken: true },
-    });
+    const call = await this.prisma.asSystem((tx) =>
+      tx.peanpeCall.findUnique({
+        where: { identificadorLlamada: input.identificadorLlamada },
+        select: { paymentId: true, tenantId: true, securityToken: true },
+      }),
+    );
     if (!call) {
       this.logger.warn(`Peanpe callback con id_llamada desconocido: ${input.identificadorLlamada}`);
       return null;
@@ -474,14 +482,16 @@ export class PeanpeAdapter implements GatewayAdapter {
     status: string,
     msg: string | null,
   ): Promise<void> {
-    await this.prisma.peanpeCall.update({
-      where: { identificadorLlamada },
-      data: {
-        resultStatus: status,
-        resultMsg: msg ?? null,
-        resultReceivedAt: new Date(),
-      },
-    });
+    await this.prisma.asSystem((tx) =>
+      tx.peanpeCall.update({
+        where: { identificadorLlamada },
+        data: {
+          resultStatus: status,
+          resultMsg: msg ?? null,
+          resultReceivedAt: new Date(),
+        },
+      }),
+    );
   }
 }
 

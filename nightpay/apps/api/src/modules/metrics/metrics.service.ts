@@ -109,6 +109,16 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // Consultas a una tabla con FORCE RLS (saldos, consumos, comisiones, pagos
+  // a chicas, Peanpe) fuera de una transacción de PrismaService: con un rol de
+  // base de datos sin superusuario no ven filas. Debe estar en 0.
+  readonly rlsOutsideTransaction = new Counter({
+    name: 'nightpay_rls_outside_transaction_total',
+    help: 'Consultas a tablas con FORCE RLS fuera de withTenant/asSystem/acrossVenues/$transaction',
+    labelNames: ['target', 'action'],
+    registers: [this.registry],
+  });
+
   // ─── WS / queues ──────────────────────────────────────────────────
   readonly wsConnectionsActive = new Gauge({
     name: 'nightpay_ws_connections_active',
