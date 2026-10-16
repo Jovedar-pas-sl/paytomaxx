@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
+import { CloseCheckService } from '../../src/modules/nights/close-check.service';
 import { NightsService } from '../../src/modules/nights/nights.service';
 import type { NightZ } from '../../src/modules/nights/night-rules';
 
@@ -12,7 +13,9 @@ const cls = new ClsService(new AsyncLocalStorage());
  
 const prisma = new PrismaService(cls as any);
 const reports = new ReportsService(prisma as never);
-const nights = new NightsService(prisma as never, reports, { log: async () => undefined } as never);
+// El cierre automático solo lee la caja de los pasos del cierre.
+const checks = new CloseCheckService(prisma, {} as never, { get: () => undefined } as never);
+const nights = new NightsService(prisma as never, reports, { log: async () => undefined } as never, checks);
 
 function sys<T>(fn: () => Promise<T>): Promise<T> {
   return cls.run(async () => {

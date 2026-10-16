@@ -15,6 +15,7 @@ import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { RefundsService } from '../../src/modules/refunds/refunds.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
 import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
+import { CloseCheckService } from '../../src/modules/nights/close-check.service';
 import { NightsService } from '../../src/modules/nights/nights.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { PeanpeAdapter } from '../../src/modules/gateways/peanpe.adapter';
@@ -70,8 +71,8 @@ const refunds = new RefundsService(
 );
 const reports = new ReportsService(prisma);
 const period = new PeriodReportsService(prisma);
-const nights = new NightsService(prisma, reports, audit as never);
 const incidents = new IncidentsService(prisma, audit as never);
+const nights = new NightsService(prisma, reports, audit as never, new CloseCheckService(prisma, incidents, config as never));
 
 /** Una petición del panel o de la app de la chica de ese local (como tras AuthGuard). */
 function asStaff<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
@@ -270,7 +271,10 @@ describe('el personal con un rol sin superusuario (FORCE RLS, sin asSystem en la
     expect(mine).toMatchObject({ count: 2, chargedCents: 5500 + 2000, commissionCents: 4500 + 1000, tipsCents: 500, netCents: 6000 });
 
     const opened = await asStaff(A.id, () => nights.open(A.id, A.owner));
-    const closed = await asStaff(A.id, () => nights.close(A.id, { userId: A.owner, role: 'OWNER' }, opened.id, { force: false }));
+    // El «Me voy» del saldo sigue sin devolver: se confirma al cerrar (cierre en pasos).
+    const closed = await asStaff(A.id, () =>
+      nights.close(A.id, { userId: A.owner, role: 'OWNER' }, opened.id, { acknowledged: ['saldo', 'incidencias'] }),
+    );
     // Desde el cierre anterior: el pago a la chica de hoy (el del otro local no) y la devolución apuntada.
     expect(closed.z.summary).toMatchObject({ payoutsCount: 1, payoutsCents: 9000 });
 
