@@ -5,8 +5,10 @@ import {
   humanizeTotpError,
   isDuplicateRefundError,
   isRefundOutcomeUnknown,
+  isTotpUnreadable,
   loginErrorMessage,
   needsTotpCode,
+  totpLockedUntil,
 } from './api-errors';
 
 describe('errorFromBody', () => {
@@ -86,5 +88,45 @@ describe('2FA y devoluciones del API nuevo', () => {
   it('devolución sin confirmar por la pasarela', () => {
     expect(isRefundOutcomeUnknown(new ApiError('No sabemos…', 502, 'REFUND_OUTCOME_UNKNOWN'))).toBe(true);
     expect(isRefundOutcomeUnknown(new ApiError('Bad gateway', 502))).toBe(false);
+  });
+});
+
+describe('2FA: errores del API unificado', () => {
+  const NOW = Date.UTC(2026, 9, 15, 2, 0, 0);
+
+  it('pago a una chica sin código: 403 TOTP_REQUIRED pide el código', () => {
+    expect(needsTotpCode(new ApiError('Hace falta el código 2FA.', 403, 'TOTP_REQUIRED'))).toBe(true);
+  });
+
+  it('bloqueo (429 TOTP_LOCKED): hasta los minutos que dice el mensaje', () => {
+    const err = new ApiError('Demasiados códigos 2FA incorrectos. Espera 12 min y vuelve a probar.', 429, 'TOTP_LOCKED');
+    expect(totpLockedUntil(err, NOW)).toBe(NOW + 12 * 60_000);
+  });
+
+  it('bloqueo sin minutos en el mensaje: 15 min (la política del API)', () => {
+    expect(totpLockedUntil(new ApiError('Bloqueado', 429, 'TOTP_LOCKED'), NOW)).toBe(NOW + 15 * 60_000);
+  });
+
+  it('429 de 2FA del API de antes (sin código) también bloquea', () => {
+    const err = new ApiError('Demasiados códigos 2FA incorrectos. Espera 3 min y vuelve a probar.', 429);
+    expect(totpLockedUntil(err, NOW)).toBe(NOW + 3 * 60_000);
+  });
+
+  it('un código reusado o malo no bloquea; otro 429 cualquiera tampoco', () => {
+    expect(totpLockedUntil(new ApiError('Código usado', 403, 'TOTP_INVALID'), NOW)).toBeNull();
+    expect(totpLockedUntil(new ApiError('Demasiadas peticiones', 429), NOW)).toBeNull();
+    expect(totpLockedUntil(new Error('x'), NOW)).toBeNull();
+  });
+
+  it('secreto ilegible (TOTP_UNREADABLE): mensaje del API y volver a darla de alta', () => {
+    const err = new ApiError('No se pudo leer tu verificación en dos pasos.', 403, 'TOTP_UNREADABLE');
+    expect(isTotpUnreadable(err)).toBe(true);
+    const text = humanizeTotpError(err.message, err.code);
+    expect(text).toContain('No se pudo leer tu verificación en dos pasos');
+    expect(text).toContain('Ajustes → Verificación en dos pasos');
+  });
+
+  it('código reusado: se mantiene el aviso de los 30 s', () => {
+    expect(humanizeTotpError('Ese código ya se usó.', 'TOTP_INVALID')).toContain('30 s');
   });
 });

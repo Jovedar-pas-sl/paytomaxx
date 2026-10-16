@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Card, Input, Modal, Select } from '@nightpay/ui';
 import {
   bulkCreateTerminals,
@@ -192,7 +192,7 @@ export function TerminalsPanel({ isOwner }: Props) {
         </form>
       </Card>
 
-      <Card style={{ padding: '1.25rem' }}>
+      <Card className="np-table-host" style={{ padding: '1.25rem' }}>
         {terminals === null ? (
           <p style={{ margin: 0, fontSize: '0.875rem' }}>{loadError ? 'Sin datos.' : 'Cargando…'}</p>
         ) : terminals.length === 0 ? (
@@ -201,28 +201,32 @@ export function TerminalsPanel({ isOwner }: Props) {
           </p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-          <table className="np-table" style={{ width: '100%' }}>
+          <table className="np-table">
             <thead>
               <tr>
-                <th style={thStyle}>ExternalId</th>
-                <th style={thStyle}>Label</th>
-                <th style={thStyle}>Zona</th>
-                <th style={thStyle}>Hardware</th>
-                <th style={thStyle}>S/N</th>
-                <th style={thStyle}>Estado</th>
-                <th style={thStyle}>App OxioPay</th>
-                <th style={thStyle} aria-label="Acciones" />
+                <th>ExternalId</th>
+                <th>Label</th>
+                <th>Zona</th>
+                <th>Hardware</th>
+                <th>S/N</th>
+                <th>Estado</th>
+                <th>App OxioPay</th>
+                <th aria-label="Acciones" />
               </tr>
             </thead>
             <tbody>
               {terminals.map((t) => (
                 <tr key={t.id}>
-                  <td style={tdStyle}>{t.externalId}</td>
-                  <td style={tdStyle}>{t.label}</td>
-                  <td style={tdStyle}>{t.zoneDisplay ?? '—'}</td>
-                  <td style={tdStyle}>{hardwareLabel(t.hardwareModel)}</td>
-                  <td style={tdStyle}>{t.deviceSerial ?? '—'}</td>
-                  <td style={tdStyle}>
+                  <td data-label="ExternalId" data-card="top">
+                    {t.externalId}
+                  </td>
+                  <td data-label="Label" data-card="title">
+                    {t.label}
+                  </td>
+                  <td data-label="Zona">{t.zoneDisplay ?? '—'}</td>
+                  <td data-label="Hardware">{hardwareLabel(t.hardwareModel)}</td>
+                  <td data-label="S/N">{t.deviceSerial ?? '—'}</td>
+                  <td data-label="Estado">
                     <span
                       style={{
                         fontSize: '0.75rem',
@@ -235,7 +239,7 @@ export function TerminalsPanel({ isOwner }: Props) {
                       {t.active ? 'Activo' : 'Inactivo'}
                     </span>
                   </td>
-                  <td style={tdStyle}>
+                  <td data-label="App OxioPay">
                     {t.devicePaired ? (
                       <span>
                         Vinculada
@@ -250,7 +254,7 @@ export function TerminalsPanel({ isOwner }: Props) {
                       <span style={{ color: 'var(--np-text-mute)' }}>Sin vincular</span>
                     )}
                   </td>
-                  <td style={tdStyle}>
+                  <td data-label="Acciones" data-card="actions">
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <Button variant="ghost" size="md" onClick={() => setEditing(t)}>
                         Editar
@@ -494,22 +498,6 @@ function EditTerminalModal({
     </Modal>
   );
 }
-
-const thStyle: CSSProperties = {
-  textAlign: 'left',
-  padding: '0.5rem 0.75rem',
-  fontSize: '0.75rem',
-  color: 'var(--np-text-mute)',
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-  borderBottom: '1px solid var(--np-border)',
-};
-
-const tdStyle: CSSProperties = {
-  padding: '0.625rem 0.75rem',
-  fontSize: '0.875rem',
-  borderBottom: '1px solid var(--np-border)',
-};
 
 /**
  * Vincular la app OxioPay del datáfono: código de un solo uso que se teclea

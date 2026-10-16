@@ -55,12 +55,18 @@ export function loginErrorMessage(status: number, detail: string): string {
 }
 
 const TOTP_REUSE_HINT = 'Si acabas de usar ese código, espera al siguiente (cambia cada 30 s).';
+const TOTP_REENROL_HINT =
+  'Vuelve a darla de alta en Ajustes → Verificación en dos pasos (y, si no te deja, avisa a soporte).';
 
 /**
  * Errores de 2FA → castellano. El API antiguo los da en inglés; el nuevo, en
- * castellano y con código (TOTP_REQUIRED / TOTP_NOT_ENROLLED / TOTP_INVALID).
+ * castellano y con código (TOTP_REQUIRED / TOTP_NOT_ENROLLED / TOTP_INVALID /
+ * TOTP_LOCKED / TOTP_UNREADABLE).
  */
 export function humanizeTotpError(message: string, code: string | null = null): string {
+  if (code === 'TOTP_UNREADABLE' && !message.includes('Ajustes')) {
+    return `${message.replace(/\.$/, '')}. ${TOTP_REENROL_HINT}`;
+  }
   if (/TOTP required/i.test(message)) {
     return 'Este importe pide el código de tu app de verificación (2FA).';
   }
@@ -77,6 +83,27 @@ export function needsTotpCode(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   if (err instanceof ApiError && err.code === 'TOTP_REQUIRED') return true;
   return /TOTP required|pide el código de tu app|hace falta el código 2FA/i.test(err.message);
+}
+
+/** No se puede leer el secreto 2FA guardado (403 TOTP_UNREADABLE): hay que volver a darla de alta. */
+export function isTotpUnreadable(err: unknown): boolean {
+  return err instanceof ApiError && err.code === 'TOTP_UNREADABLE';
+}
+
+/** Bloqueo del API tras 5 códigos malos (TOTP_LOCK_POLICY): 15 minutos. */
+const TOTP_LOCK_FALLBACK_MS = 15 * 60_000;
+const TOTP_429_TEXT = /2FA|c[oó]digo/i;
+
+/**
+ * Demasiados códigos malos (429 TOTP_LOCKED; el API de antes, 429 sin código):
+ * hasta cuándo no se puede probar otro (epoch ms). El mensaje dice los
+ * minutos ("Espera 12 min"); si no, 15. null = no es un bloqueo de 2FA.
+ */
+export function totpLockedUntil(err: unknown, now: number): number | null {
+  if (!(err instanceof ApiError) || err.status !== 429) return null;
+  if (err.code !== 'TOTP_LOCKED' && !TOTP_429_TEXT.test(err.message)) return null;
+  const minutes = /(\d+)\s*min/.exec(err.message)?.[1];
+  return now + (minutes ? Number(minutes) * 60_000 : TOTP_LOCK_FALLBACK_MS);
 }
 
 /** La pasarela no confirmó la devolución: queda pendiente (502 REFUND_OUTCOME_UNKNOWN). */

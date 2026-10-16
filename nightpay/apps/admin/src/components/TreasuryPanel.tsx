@@ -10,6 +10,7 @@ import {
   type TreasuryStats,
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
+import { keepIfSame } from '@/lib/diff';
 import { formatDecimal, formatEur } from '@/lib/money';
 import { RECONCILIATION_LABELS } from '@/lib/payout-verify';
 import { usePolling } from '@/lib/use-polling';
@@ -43,12 +44,14 @@ export function TreasuryPanel({ isOwner }: Props) {
       const [s, r] = await Promise.allSettled([fetchTreasuryStats(), fetchExchangeRate()]);
       if (signal.aborted) return true;
       if (r.status === 'fulfilled') {
-        setRate({ rate: r.value.rate, at: r.value.at, degraded: r.value.degraded });
+        const next: Rate = { rate: r.value.rate, at: r.value.at, degraded: r.value.degraded };
+        setRate((prev) => keepIfSame(prev, next));
       } else {
         setRate('unavailable');
       }
       if (s.status === 'fulfilled') {
-        setStats(s.value);
+        const next = s.value;
+        setStats((prev) => keepIfSame(prev, next));
         setError(null);
         return true;
       }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Card } from '@nightpay/ui';
 import {
   confirmTotp,
   disableTotp,
@@ -9,9 +9,10 @@ import {
   startTotpSetup,
   type TotpSetup,
 } from '@/lib/api';
-import { ApiError } from '@/lib/api-errors';
+import { ApiError, isTotpUnreadable, totpLockedUntil } from '@/lib/api-errors';
 import { isPngDataUrl } from '@/lib/urls';
 import { Notice } from './Notice';
+import { OtpInput } from './OtpInput';
 import { Pill } from './Pill';
 
 type Status = 'loading' | 'unavailable' | { enabled: boolean };
@@ -31,6 +32,8 @@ export function TwoFactorCard() {
   const [done, setDone] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  /** 429 del API (demasiados códigos malos): hasta cuándo no se puede probar otro. */
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +79,8 @@ export function TwoFactorCard() {
 
   async function submitCode(e: FormEvent, action: 'confirm' | 'disable'): Promise<void> {
     e.preventDefault();
+    // Se envía solo al completar el código: un Intro a la vez no lo repite.
+    if (busy) return;
     setError(null);
     if (!/^\d{6}$/.test(code)) {
       setError('El código son los 6 números que enseña la app ahora mismo.');
@@ -94,6 +99,7 @@ export function TwoFactorCard() {
       );
     } catch (err) {
       setCode('');
+      setLockedUntil(totpLockedUntil(err, Date.now()));
       setError(codeErrorMessage(err));
     } finally {
       setBusy(false);
@@ -138,6 +144,7 @@ export function TwoFactorCard() {
           code={code}
           onCode={setCode}
           busy={busy}
+          lockedUntil={lockedUntil}
           copied={copied}
           onCopy={() => void copySecret(setup.secret)}
           onSubmit={(e) => void submitCode(e, 'confirm')}
@@ -148,14 +155,13 @@ export function TwoFactorCard() {
         />
       ) : status.enabled ? (
         <form onSubmit={(e) => void submitCode(e, 'disable')} style={formStyle}>
-          <Input
+          <OtpInput
             label="Para desactivarla, pon un código de tu app"
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
-            placeholder="123456"
+            onChange={setCode}
+            autoSubmit
+            lockedUntil={lockedUntil}
+            hint="Se envía solo al poner el sexto número."
           />
           <Button type="submit" variant="danger" loading={busy} disabled={code.length !== 6}>
             Desactivar
@@ -178,11 +184,17 @@ export function TwoFactorCard() {
   );
 }
 
-/** 403 = código mal o ya usado (no se repite en 30 s); 429 = demasiados intentos. */
+/**
+ * 403 = código mal o ya usado (no se repite en 30 s); 429 = demasiados intentos
+ * (el API dice los minutos); TOTP_UNREADABLE = el secreto guardado no se lee.
+ */
 function codeErrorMessage(err: unknown): string {
   const message = (err as Error).message;
+  if (isTotpUnreadable(err)) return message;
   if (err instanceof ApiError && err.status === 429) {
-    return 'Demasiados intentos con códigos incorrectos. Espera unos minutos y vuelve a probar.';
+    return /\d+\s*min/.test(message)
+      ? message
+      : 'Demasiados intentos con códigos incorrectos. Espera unos minutos y vuelve a probar.';
   }
   if (err instanceof ApiError && err.status === 403 && !message.includes('30 s')) {
     return `${message.replace(/\.$/, '')}. Si acabas de usar ese código, espera al siguiente (cambia cada 30 s).`;
@@ -195,6 +207,7 @@ function SetupSteps({
   code,
   onCode,
   busy,
+  lockedUntil,
   copied,
   onCopy,
   onSubmit,
@@ -204,6 +217,7 @@ function SetupSteps({
   code: string;
   onCode: (code: string) => void;
   busy: boolean;
+  lockedUntil: number | null;
   copied: boolean;
   onCopy: () => void;
   onSubmit: (e: FormEvent) => void;
@@ -231,14 +245,13 @@ function SetupSteps({
           {copied ? 'Copiada' : 'Copiar clave'}
         </Button>
       </div>
-      <Input
+      <OtpInput
         label="Código de la app"
         value={code}
-        onChange={(e) => onCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        maxLength={6}
-        placeholder="123456"
+        onChange={onCode}
+        autoSubmit
+        lockedUntil={lockedUntil}
+        hint="Se envía solo al poner el sexto número."
       />
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         <Button type="submit" loading={busy} disabled={code.length !== 6}>

@@ -4,9 +4,11 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Logo, ThemeToggle } from '@nightpay/ui';
 import { fetchVenueSettings, logout as apiLogout, type User } from '@/lib/api';
 import { DEFAULT_TIMEZONE } from '@/lib/dates';
-import { visibleTabs, type TabKey } from '@/lib/roles';
+import { visibleTabs, type PanelTab, type TabKey } from '@/lib/roles';
+import { IncidentsContext, useIncidentsFeed } from '@/lib/use-incidents';
 import { VenueContext, type VenueInfo } from '@/lib/venue-context';
 import { BankReconPanel } from './BankReconPanel';
+import { BottomNav } from './BottomNav';
 import { CartaPanel } from './CartaPanel';
 import { IncidentsPanel } from './IncidentsPanel';
 import { NightsPanel } from './NightsPanel';
@@ -42,76 +44,166 @@ export function Dashboard({ user, onLogout }: Props) {
   // Una pestaña que este rol no ve nunca se pinta (se vuelve a Pagos).
   const tab = tabs.some((t) => t.key === selected) ? selected : 'payments';
   const venue = useVenueInfo(user);
+  const incidents = useIncidentsFeed(user.tenantId, venue.timezone);
   const [loggingOut, setLoggingOut] = useState(false);
+  /** Cobro a abrir en Pagos (desde una incidencia: «Abrir cobro»). */
+  const [focusPayment, setFocusPayment] = useState<string | null>(null);
 
   async function logout() {
     setLoggingOut(true);
     onLogout(await apiLogout());
   }
 
+  /** Desde la barra de abajo (o un enlace dentro de un panel): al principio de la sección. */
+  function goTo(key: TabKey): void {
+    setSelected(key);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
+  }
+
+  function openPayment(paymentId: string): void {
+    setFocusPayment(paymentId);
+    goTo('payments');
+  }
+
   return (
     <VenueContext.Provider value={venue}>
-      <main
-        className="np-app-root"
-        style={{
-          minHeight: '100dvh',
-          padding: 'clamp(1rem, 4vw, 2rem)',
-          maxWidth: '88rem',
-          margin: '0 auto',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '2rem',
-        }}
-      >
-        <header style={headerStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', minWidth: 0 }}>
-            <Logo height="2.25rem" />
-            <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1.25rem', minWidth: 0 }}>
-              <p style={brandKicker}>Panel · local activo</p>
-              {/* El local en grande: con varios locales, que nadie opere en el que no es. */}
-              <h1 style={brandTitle}>{venue.name ?? user.venueSlug}</h1>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-            {user.isSuperAdmin ? <VenueSwitcher currentSlug={user.venueSlug} /> : null}
-            <div style={{ textAlign: 'right' }}>
-              <p style={userEmail}>{user.email}</p>
-              <p style={userMeta}>
-                <code style={code}>{user.venueSlug}</code> · {ROLE_LABELS[user.role]}
-                {user.isSuperAdmin ? ' · super-admin' : ''}
-              </p>
-            </div>
-            <ThemeToggle />
-            <Button variant="ghost" onClick={() => void logout()} loading={loggingOut}>
-              Salir
-            </Button>
-          </div>
-        </header>
-
-        <TabBar tabs={tabs} active={tab} onChange={setSelected} ariaLabel="Secciones del panel" idPrefix={TABS_ID} />
-
-        <div
-          role="tabpanel"
-          id={tabPanelId(TABS_ID, tab)}
-          aria-labelledby={tabId(TABS_ID, tab)}
-          style={{ display: 'flex', flexDirection: 'column', gap: '2rem', minWidth: 0 }}
+      <IncidentsContext.Provider value={incidents}>
+        <main
+          className="np-app-root"
+          style={{
+            minHeight: '100dvh',
+            padding: 'clamp(1rem, 4vw, 2rem)',
+            maxWidth: '88rem',
+            margin: '0 auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '2rem',
+          }}
         >
-          <ActivePanel tab={tab} user={user} />
-        </div>
-      </main>
+          <header style={headerStyle}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', minWidth: 0 }}>
+              <Logo height="2.25rem" />
+              <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1.25rem', minWidth: 0 }}>
+                <p style={brandKicker}>Panel · local activo</p>
+                {/* El local en grande: con varios locales, que nadie opere en el que no es. */}
+                <h1 style={brandTitle}>{venue.name ?? user.venueSlug}</h1>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              {user.isSuperAdmin ? <VenueSwitcher currentSlug={user.venueSlug} /> : null}
+              <div className="np-header-account" style={{ textAlign: 'right' }}>
+                <AccountLines user={user} />
+              </div>
+              <ThemeToggle />
+              <Button
+                variant="ghost"
+                className="np-header-account"
+                onClick={() => void logout()}
+                loading={loggingOut}
+              >
+                Salir
+              </Button>
+            </div>
+          </header>
+
+          <TabBar
+            tabs={tabs}
+            active={tab}
+            onChange={setSelected}
+            ariaLabel="Secciones del panel"
+            idPrefix={TABS_ID}
+            className="np-tabbar-main"
+          />
+
+          <div
+            role="tabpanel"
+            className="np-panel-body"
+            id={tabPanelId(TABS_ID, tab)}
+            aria-labelledby={tabId(TABS_ID, tab)}
+            style={{ display: 'flex', flexDirection: 'column', gap: '2rem', minWidth: 0 }}
+          >
+            <ActivePanel
+              tab={tab}
+              tabs={tabs}
+              user={user}
+              onNavigate={goTo}
+              onOpenPayment={openPayment}
+              focusPayment={focusPayment}
+              onFocusPaymentDone={() => setFocusPayment(null)}
+            />
+          </div>
+        </main>
+
+        <BottomNav
+          tabs={tabs}
+          active={tab}
+          onChange={goTo}
+          openIncidents={incidents.open ? incidents.open.length : null}
+          account={
+            <>
+              <p>
+                <AccountLines user={user} />
+              </p>
+              <Button variant="ghost" onClick={() => void logout()} loading={loggingOut}>
+                Salir
+              </Button>
+            </>
+          }
+        />
+      </IncidentsContext.Provider>
     </VenueContext.Provider>
   );
 }
 
-function ActivePanel({ tab, user }: { tab: TabKey; user: User }) {
+/** Quién está dentro: email, local y rol. */
+function AccountLines({ user }: { user: User }) {
+  return (
+    <>
+      <span style={userEmail}>{user.email}</span>
+      <span style={userMeta}>
+        <code style={code}>{user.venueSlug}</code> · {ROLE_LABELS[user.role]}
+        {user.isSuperAdmin ? ' · super-admin' : ''}
+      </span>
+    </>
+  );
+}
+
+interface ActivePanelProps {
+  tab: TabKey;
+  tabs: readonly PanelTab[];
+  user: User;
+  onNavigate: (key: TabKey) => void;
+  onOpenPayment: (paymentId: string) => void;
+  focusPayment: string | null;
+  onFocusPaymentDone: () => void;
+}
+
+function ActivePanel({
+  tab,
+  tabs,
+  user,
+  onNavigate,
+  onOpenPayment,
+  focusPayment,
+  onFocusPaymentDone,
+}: ActivePanelProps) {
   const isOwner = user.role === 'OWNER';
   switch (tab) {
     case 'payments':
-      return <PaymentsPanel user={user} />;
+      return (
+        <PaymentsPanel
+          user={user}
+          onNavigate={onNavigate}
+          focusPaymentId={focusPayment}
+          onFocusDone={onFocusPaymentDone}
+        />
+      );
     case 'nights':
       return <NightsPanel isOwner={isOwner} />;
     case 'incidents':
-      return <IncidentsPanel isOwner={isOwner} />;
+      return (
+        <IncidentsPanel isOwner={isOwner} tabs={tabs} onNavigate={onNavigate} onOpenPayment={onOpenPayment} />
+      );
     case 'bank':
       return <BankReconPanel isOwner={isOwner} />;
     case 'operators':
@@ -186,6 +278,7 @@ const brandTitle: CSSProperties = {
 };
 
 const userEmail: CSSProperties = {
+  display: 'block',
   margin: 0,
   fontSize: '0.875rem',
   fontWeight: 500,
@@ -193,6 +286,7 @@ const userEmail: CSSProperties = {
 };
 
 const userMeta: CSSProperties = {
+  display: 'block',
   margin: '0.25rem 0 0',
   fontSize: '0.75rem',
   color: 'var(--np-text-mute)',

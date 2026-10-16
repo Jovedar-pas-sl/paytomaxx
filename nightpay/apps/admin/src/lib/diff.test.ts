@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changedFields, sameValue } from './diff';
+import { changedFields, keepIfSame, sameValue } from './diff';
 
 describe('changedFields', () => {
   const initial = {
@@ -34,5 +34,19 @@ describe('sameValue', () => {
   it('null y objeto vacío no son lo mismo', () => {
     expect(sameValue(null, {})).toBe(false);
     expect(sameValue({ a: undefined }, {})).toBe(true);
+  });
+});
+
+describe('keepIfSame (refrescos sin parpadeo)', () => {
+  it('si lo nuevo es igual, se queda el objeto de antes (React no repinta)', () => {
+    const prev = { count: 3, items: [{ id: 'a' }] };
+    expect(keepIfSame(prev, { count: 3, items: [{ id: 'a' }] })).toBe(prev);
+  });
+
+  it('si cambió algo, lo nuevo', () => {
+    const prev = { count: 3 };
+    const next = { count: 4 };
+    expect(keepIfSame(prev, next)).toBe(next);
+    expect(keepIfSame(null, next)).toBe(next);
   });
 });

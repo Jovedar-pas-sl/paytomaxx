@@ -1,0 +1,382 @@
+/* Panel (admin) · pestañas, barra de abajo del móvil y hoja «Más».
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Solo se anima
+   transform/opacity, y nada con prefers-reduced-motion. Móvil = hasta 640px. */
+
+:root {
+  --np-panel-nav-h: 4.25rem;
+}
+
+/* ─── Pestañas (escritorio) ───────────────────────────────────────── */
+
+.np-tabbar {
+  display: flex;
+  gap: 0.25rem;
+  max-width: 100%;
+  border-bottom: 1px solid var(--np-border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.np-tab {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 0.75rem 1.125rem;
+  border: 0;
+  border-radius: var(--np-r-sm) var(--np-r-sm) 0 0;
+  background: transparent;
+  color: var(--np-text-mute);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--np-d-fast),
+    background var(--np-d-fast);
+}
+
+.np-tabbar[data-size='sm'] .np-tab {
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem;
+}
+
+/* El subrayado crece desde el centro: también marca la activa sin depender del color. */
+.np-tab::after {
+  content: '';
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--np-accent);
+  transform: scaleX(0);
+  transition:
+    transform var(--np-d-base) var(--np-ease),
+    opacity var(--np-d-fast);
+}
+
+.np-tab:hover {
+  color: var(--np-text);
+  background: var(--np-surface);
+}
+
+.np-tab:hover::after {
+  transform: scaleX(0.3);
+  opacity: 0.5;
+}
+
+.np-tab[aria-selected='true'] {
+  color: var(--np-accent);
+}
+
+.np-tab[aria-selected='true']::after {
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+.np-tab:active {
+  background: var(--np-surface-2);
+}
+
+.np-tab:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: -2px;
+  border-radius: var(--np-r-sm);
+}
+
+/* ─── Barra de abajo (móvil) ──────────────────────────────────────── */
+
+.np-bottomnav {
+  display: none;
+}
+
+.np-bottomnav ul {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-bottomnav-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  width: 100%;
+  height: var(--np-panel-nav-h);
+  padding: 0.5rem 0.25rem 0.4rem;
+  border: 0;
+  background: transparent;
+  color: var(--np-text-mute);
+  font-family: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--np-d-fast);
+}
+
+.np-bottomnav-item svg {
+  transition: transform var(--np-d-fast) var(--np-ease);
+}
+
+/* Marca de la activa: barra arriba (no solo color) y etiqueta en negrita. */
+.np-bottomnav-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 28%;
+  right: 28%;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: var(--np-accent);
+  transform: scaleX(0);
+  transition: transform var(--np-d-base) var(--np-ease);
+}
+
+.np-bottomnav-item[aria-current='page'] {
+  color: var(--np-accent);
+  font-weight: 800;
+}
+
+.np-bottomnav-item[aria-current='page']::before {
+  transform: scaleX(1);
+}
+
+.np-bottomnav-item:active svg {
+  transform: scale(0.88);
+}
+
+.np-bottomnav-item:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: -4px;
+  border-radius: var(--np-r-md);
+}
+
+.np-bottomnav-icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.np-bottomnav-badge {
+  position: absolute;
+  top: -0.45rem;
+  left: calc(100% - 0.55rem);
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3rem;
+  border: 2px solid var(--np-bg);
+  border-radius: var(--np-r-pill);
+  background: var(--np-accent);
+  color: var(--np-on-accent);
+  font-family: var(--np-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.np-bottomnav-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Hoja «Más» ──────────────────────────────────────────────────── */
+
+.np-sheet {
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--np-text);
+  inset: auto 0 0 0;
+  position: fixed;
+}
+
+.np-sheet::backdrop {
+  background: var(--np-backdrop);
+  animation: np-fade-in var(--np-d-base) var(--np-ease);
+}
+
+.np-sheet-panel {
+  max-height: 85vh;
+  max-height: 85dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.5rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  border-top: 2px solid var(--np-accent);
+  border-radius: var(--np-r-lg) var(--np-r-lg) 0 0;
+  background: var(--np-surface-2);
+  animation: np-sheet-in var(--np-d-base) var(--np-ease);
+}
+
+@keyframes np-sheet-in {
+  from { transform: translateY(100%); opacity: 0.6; }
+  to   { transform: translateY(0);    opacity: 1;   }
+}
+
+.np-sheet-grip {
+  width: 2.5rem;
+  height: 0.25rem;
+  margin: 0.25rem auto 0.75rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-border-hi);
+}
+
+.np-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.np-sheet-title {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--np-text-dim);
+}
+
+.np-sheet-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-sheet-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  color: var(--np-text);
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: left;
+  transition:
+    transform var(--np-d-fast) var(--np-ease),
+    background var(--np-d-fast);
+}
+
+.np-sheet-link:active {
+  transform: scale(0.97);
+}
+
+.np-sheet-link[aria-current='page'] {
+  border-color: var(--np-accent);
+  box-shadow: inset 4px 0 0 var(--np-accent);
+}
+
+.np-sheet-link[aria-current='page']::after {
+  content: 'Abierta';
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--np-accent);
+}
+
+.np-sheet-link:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 2px;
+}
+
+.np-sheet-account {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--np-border);
+}
+
+.np-sheet-account p {
+  margin: 0;
+  min-width: 0;
+  flex: 1 1 10rem;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+  overflow-wrap: anywhere;
+}
+
+.np-sheet-account strong {
+  display: block;
+  color: var(--np-text);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .np-app-root,
+  .np-panel-body {
+    gap: 1.25rem !important;
+  }
+
+  /* Que lo último no quede debajo de la barra. */
+  .np-app-root {
+    padding-bottom: calc(var(--np-panel-nav-h) + 2rem + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  /* Cabecera ligera: la cuenta y «Salir» pasan a «Más»; las pestañas, abajo. */
+  .np-header-account,
+  .np-tabbar-main {
+    display: none !important;
+  }
+
+  .np-bottomnav {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    border-top: 1px solid var(--np-border);
+    background: var(--np-bg);
+    box-shadow: 0 -12px 32px rgb(0 0 0 / 0.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-tab::after,
+  .np-bottomnav-item::before,
+  .np-bottomnav-item svg,
+  .np-sheet-link {
+    transition: none;
+  }
+
+  .np-sheet-panel,
+  .np-sheet::backdrop {
+    animation: none;
+  }
+
+  .np-bottomnav-item:active svg,
+  .np-sheet-link:active {
+    transform: none;
+  }
+}

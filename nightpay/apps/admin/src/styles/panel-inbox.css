@@ -1,0 +1,111 @@
+/* Panel (admin) · bandeja de incidencias.
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Solo se anima
+   transform/opacity, y nada con prefers-reduced-motion. Móvil = hasta 640px. */
+
+/* ─── Bandeja de incidencias ──────────────────────────────────────── */
+
+.np-inbox {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-inbox-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+  margin: 0 0 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--np-text-mute);
+}
+
+.np-inbox-count {
+  font-family: var(--np-font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+  color: var(--np-text);
+}
+
+.np-inbox-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1rem 1.125rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-lg);
+  background: var(--np-surface);
+}
+
+.np-inbox-item[data-state='open'] {
+  border-left: 4px solid var(--np-accent);
+  padding-left: 1rem;
+}
+
+.np-inbox-item[data-state='done'] {
+  background: transparent;
+  border-style: dashed;
+}
+
+.np-inbox-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--np-text-mute);
+}
+
+.np-inbox-kicker {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--np-text);
+}
+
+.np-inbox-item[data-state='done'] .np-inbox-kicker {
+  color: var(--np-success);
+}
+
+.np-inbox-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.35;
+  font-weight: 800;
+  color: var(--np-text);
+}
+
+.np-inbox-item[data-state='done'] .np-inbox-title {
+  font-weight: 500;
+  color: var(--np-text-mute);
+}
+
+.np-inbox-detail {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--np-text-mute);
+}
+
+.np-inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.np-inbox-empty {
+  margin: 0;
+  padding: 1rem 1.125rem;
+  border: 1px dashed var(--np-border-hi);
+  border-radius: var(--np-r-lg);
+  color: var(--np-text-mute);
+  font-size: 0.9375rem;
+}

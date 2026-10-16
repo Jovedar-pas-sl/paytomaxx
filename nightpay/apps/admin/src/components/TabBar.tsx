@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, type CSSProperties, type KeyboardEvent } from 'react';
+import { useRef, type KeyboardEvent } from 'react';
 
 export interface TabItem<K extends string> {
   key: K;
@@ -16,6 +16,8 @@ interface Props<K extends string> {
   /** Prefijo de los ids de pestaña y panel (único en la página). */
   idPrefix: string;
   size?: 'md' | 'sm';
+  /** Clase extra (p. ej. para ocultarla en el móvil, donde va la barra de abajo). */
+  className?: string;
 }
 
 export function tabId(prefix: string, key: string): string {
@@ -30,8 +32,17 @@ export function tabPanelId(prefix: string, key: string): string {
  * Pestañas accesibles (role=tablist/tab, aria-selected, flechas e Inicio/Fin)
  * que se desplazan en horizontal en el móvil en vez de salirse de la pantalla.
  * El contenido va en un elemento con role="tabpanel" e id={tabPanelId(...)}.
+ * Estilos (activa, hover, foco) en styles/panel-nav.css.
  */
-export function TabBar<K extends string>({ tabs, active, onChange, ariaLabel, idPrefix, size = 'md' }: Props<K>) {
+export function TabBar<K extends string>({
+  tabs,
+  active,
+  onChange,
+  ariaLabel,
+  idPrefix,
+  size = 'md',
+  className,
+}: Props<K>) {
   const buttons = useRef(new Map<K, HTMLButtonElement>());
 
   function onKeyDown(e: KeyboardEvent<HTMLButtonElement>, index: number): void {
@@ -59,7 +70,12 @@ export function TabBar<K extends string>({ tabs, active, onChange, ariaLabel, id
   }
 
   return (
-    <div role="tablist" aria-label={ariaLabel} style={listStyle}>
+    <div
+      role="tablist"
+      aria-label={ariaLabel}
+      data-size={size}
+      className={['np-tabbar', className].filter(Boolean).join(' ')}
+    >
       {tabs.map((t, i) => {
         const selected = t.key === active;
         return (
@@ -77,11 +93,7 @@ export function TabBar<K extends string>({ tabs, active, onChange, ariaLabel, id
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(t.key)}
             onKeyDown={(e) => onKeyDown(e, i)}
-            style={{
-              ...(size === 'sm' ? tabSm : tabMd),
-              color: selected ? 'var(--np-accent)' : 'var(--np-text-mute)',
-              borderBottom: selected ? '2px solid var(--np-accent)' : '2px solid transparent',
-            }}
+            className="np-tab"
           >
             {t.label}
           </button>
@@ -90,27 +102,3 @@ export function TabBar<K extends string>({ tabs, active, onChange, ariaLabel, id
     </div>
   );
 }
-
-const listStyle: CSSProperties = {
-  display: 'flex',
-  gap: '0.5rem',
-  borderBottom: '1px solid var(--np-border)',
-  overflowX: 'auto',
-  overflowY: 'hidden',
-  scrollbarWidth: 'thin',
-  WebkitOverflowScrolling: 'touch',
-  maxWidth: '100%',
-};
-
-const tabBase: CSSProperties = {
-  flex: '0 0 auto',
-  whiteSpace: 'nowrap',
-  background: 'transparent',
-  border: 'none',
-  fontWeight: 500,
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-};
-
-const tabMd: CSSProperties = { ...tabBase, padding: '0.625rem 1.25rem', fontSize: '0.95rem' };
-const tabSm: CSSProperties = { ...tabBase, padding: '0.5rem 1rem' };

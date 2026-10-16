@@ -1,0 +1,111 @@
+// Bandeja de incidencias: grupo y título por tipo, dónde se arregla cada una
+// y el registro de «Resueltas hoy». El API solo devuelve las abiertas, así que
+// lo resuelto se apunta en este dispositivo (lo que se marcó aquí y lo que
+// desapareció de la lista mientras se miraba).
+
+import type { Incident, IncidentKind } from './api';
+import type { PanelTab, TabKey } from './roles';
+
+interface KindMeta {
+  /** Etiqueta corta encima del título (se lee sin depender del color). */
+  group: string;
+  /** Título si el API no manda uno. */
+  title: string;
+  /** Pestaña donde se arregla (null: fuera del panel). */
+  tab: TabKey | null;
+  /** Se arregla en el propio cobro (Pagos → Devoluciones → Resolver): «Abrir cobro». */
+  opensPayment?: boolean;
+}
+
+export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
+  stuck_payment: { group: 'Cobro', title: 'Cobro atascado esperando al banco', tab: 'payments' },
+  duplicate_charge: { group: 'Cobro', title: 'El cliente pagó dos veces', tab: 'payments' },
+  amount_mismatch: { group: 'Cobro', title: 'El banco aprobó un importe distinto', tab: 'payments' },
+  approval_unverified: { group: 'Cobro', title: 'Aviso de pago sin comprobar', tab: 'payments' },
+  approval_unbooked: { group: 'Cobro', title: 'Cobro del banco sin apuntar', tab: 'payments' },
+  refund_pending: {
+    group: 'Devolución',
+    title: 'Devolución sin confirmar por el banco',
+    tab: 'payments',
+    opensPayment: true,
+  },
+  earning_reverse_failed: { group: 'Chicas', title: 'Devolución sin descontar a la chica', tab: 'operators' },
+  night_closed_pending: { group: 'Noche', title: 'Noche cerrada con cobros sin resolver', tab: 'nights' },
+  pos_charge_mismatch: { group: 'Datáfono', title: 'Venta del datáfono que no cuadra', tab: 'terminals' },
+  pos_unmatched_op: { group: 'Datáfono', title: 'Venta del datáfono sin cobro', tab: 'terminals' },
+  pos_unreconciled: { group: 'Datáfono', title: 'Cobro del datáfono sin cuadrar', tab: 'terminals' },
+  wallet_credit_skipped: { group: 'Saldo', title: 'Recarga cobrada sin saldo', tab: 'wallets' },
+  wallet_close_requested: { group: 'Saldo', title: 'Un cliente pide su saldo', tab: 'wallets' },
+  wallet_open_balance: { group: 'Saldo', title: 'Saldo de un cliente sin devolver', tab: 'wallets' },
+  bank_mismatch: { group: 'Banco', title: 'Diferencia con el banco', tab: 'bank' },
+  backup_stale: { group: 'Copias', title: 'Sin copia de seguridad reciente', tab: null },
+  backup_unmonitored: { group: 'Copias', title: 'Las copias de seguridad no se vigilan', tab: null },
+};
+
+const UNKNOWN_KIND: KindMeta = { group: 'Aviso', title: 'Incidencia', tab: null };
+
+/** Un tipo nuevo del API que esta versión no conoce no rompe la bandeja. */
+export function kindMeta(kind: string): KindMeta {
+  return INCIDENT_KINDS[kind as IncidentKind] ?? UNKNOWN_KIND;
+}
+
+export function incidentKey(i: { kind: string; refId: string }): string {
+  return `${i.kind}:${i.refId}`;
+}
+
+/** El título del API (concreto) y, si viene vacío, el del tipo. */
+export function incidentHeading(i: Pick<Incident, 'kind' | 'title'>): string {
+  return i.title.trim() || kindMeta(i.kind).title;
+}
+
+/** Pestaña donde se arregla, solo si ese rol la ve. */
+export function fixTabFor(kind: string, tabs: readonly PanelTab[]): TabKey | null {
+  const tab = kindMeta(kind).tab;
+  return tab && tabs.some((t) => t.key === tab) ? tab : null;
+}
+
+/** Abiertas antes que ya no vienen: se resolvieron (aquí, en otro sitio o solas). */
+export function vanished(previous: readonly Incident[], next: readonly Incident[]): Incident[] {
+  const still = new Set(next.map(incidentKey));
+  return previous.filter((i) => !still.has(incidentKey(i)));
+}
+
+export interface ResolvedIncident {
+  key: string;
+  kind: string;
+  title: string;
+  /** ISO */
+  resolvedAt: string;
+  /** 'ack' = marcada aquí; 'gone' = desapareció de la lista. */
+  how: 'ack' | 'gone';
+  note?: string;
+}
+
+/** Lo resuelto en un día del local ("AAAA-MM-DD"). */
+export interface ResolvedLog {
+  day: string;
+  items: ResolvedIncident[];
+}
+
+const MAX_RESOLVED = 50;
+
+export function resolvedToday(log: ResolvedLog | null, day: string): ResolvedIncident[] {
+  return log && log.day === day ? log.items : [];
+}
+
+/** Registro nuevo con lo recién resuelto delante; un día nuevo empieza de cero. */
+export function recordResolved(
+  log: ResolvedLog | null,
+  day: string,
+  fresh: readonly ResolvedIncident[],
+): ResolvedLog {
+  const byKey = new Map<string, ResolvedIncident>();
+  for (const item of [...resolvedToday(log, day), ...fresh]) {
+    const known = byKey.get(item.key);
+    if (!known || item.resolvedAt >= known.resolvedAt) byKey.set(item.key, item);
+  }
+  const items = [...byKey.values()]
+    .sort((a, b) => (a.resolvedAt < b.resolvedAt ? 1 : a.resolvedAt > b.resolvedAt ? -1 : 0))
+    .slice(0, MAX_RESOLVED);
+  return { day, items };
+}

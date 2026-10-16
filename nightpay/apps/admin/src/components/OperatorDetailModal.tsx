@@ -163,6 +163,7 @@ export function OperatorDetailModal({
       {payoutOpen ? (
         <PayoutConfirmModal
           operatorId={operator.id}
+          operatorName={operator.displayName ?? operator.email}
           balanceCents={payable}
           payoutMethod={operator.payoutMethod ?? null}
           payoutAddress={operator.payoutAddress ?? null}
@@ -207,17 +208,23 @@ function EarningsTable({ earnings }: { earnings: OperatorEarning[] }) {
         <tbody>
           {earnings.map((e) => (
             <tr key={e.id}>
-              <td style={cellMeta}>{formatDateTime(e.createdAt, tz, 'datetime')}</td>
-              <td className="np-num" style={numCell}>
+              <td data-label="Fecha" data-card="top" style={cellMeta}>
+                {formatDateTime(e.createdAt, tz, 'datetime')}
+              </td>
+              <td data-label="Importe" className="np-num" style={numCell}>
                 {formatEur(e.paymentAmountCents)}
               </td>
               <td
+                data-label="Comisión"
+                data-card="amount"
                 className="np-num"
                 style={{ ...numCell, color: e.netCents < e.commissionCents ? 'var(--np-warning)' : 'var(--np-text)' }}
               >
                 {formatEur(e.netCents)} {e.reversedCents > 0 ? `(−${formatEur(e.reversedCents)})` : ''}
               </td>
-              <td style={cellMeta}>{e.payoutId ? 'Liquidada' : 'Pendiente'}</td>
+              <td data-label="Estado" data-card="status" style={cellMeta}>
+                {e.payoutId ? 'Liquidada' : 'Pendiente'}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -262,18 +269,22 @@ function PayoutsTable({
             const settled = p.reconciliationStatus === 'MATCHED' || p.reconciliationStatus === 'MANUAL_OK';
             return (
               <tr key={p.id}>
-                <td style={cellMeta}>{formatDateTime(p.createdAt, tz, 'datetime')}</td>
-                <td className="np-num" style={numCell}>
+                <td data-label="Fecha" data-card="top" style={cellMeta}>
+                  {formatDateTime(p.createdAt, tz, 'datetime')}
+                </td>
+                <td data-label="Total" data-card="amount" className="np-num" style={numCell}>
                   {formatEur(p.totalCents)}
                 </td>
-                <td className="np-num" style={numCell}>
+                <td data-label="Comisiones" className="np-num" style={numCell}>
                   {p.earningCount}
                 </td>
-                <td style={cellMeta}>{p.externalRail ? PAYOUT_METHOD_SHORT[p.externalRail] : '—'}</td>
-                <td>
+                <td data-label="Vía" style={cellMeta}>
+                  {p.externalRail ? PAYOUT_METHOD_SHORT[p.externalRail] : '—'}
+                </td>
+                <td data-label="Verificación" data-card="status">
                   <Pill tone={status.tone}>{status.label}</Pill>
                 </td>
-                <td style={{ ...cellMeta, maxWidth: '12rem' }}>
+                <td data-label="Referencia" style={{ ...cellMeta, maxWidth: '12rem' }}>
                   {p.externalTxId ? (
                     <code style={refCode} title={p.externalTxId}>
                       {p.externalTxId}
@@ -290,9 +301,11 @@ function PayoutsTable({
                     </>
                   ) : null}
                 </td>
-                <td style={cellMeta}>{p.paidByEmail ?? '—'}</td>
+                <td data-label="Pagado por" style={cellMeta}>
+                  {p.paidByEmail ?? '—'}
+                </td>
                 {canVerify ? (
-                  <td style={{ textAlign: 'right' }}>
+                  <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
                     {settled ? null : (
                       <Button variant="ghost" onClick={() => onVerify(p)} style={smallBtn}>
                         Verificar
