@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { googleWalletWarning } from './google-wallet';
 
 /**
  * Avisos de arranque: configuraciones que no impiden arrancar (tumbar
@@ -47,6 +48,7 @@ const ALWAYS_CHECKS: ReadonlyArray<Check> = [
     env.PASSKEY_RP_ID && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(env.PASSKEY_RP_ID)
       ? 'PASSKEY_RP_ID no parece un dominio (p. ej. paytomaxx.com, sin https:// ni barras).'
       : null,
+  (env) => googleWalletWarning(env),
 ];
 
 function invalidUrlWarning(key: string, value: string | undefined): string | null {

@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { ConfigModuleOptions } from '@nestjs/config';
 import { z } from 'zod';
+import { DEFAULT_GOOGLE_WALLET_CLASS_SUFFIX } from './google-wallet';
 
 /**
  * Secretos de ejemplo de .env.example. Valen en local; en producción
@@ -144,6 +145,19 @@ const EnvSchema = z.object({
   NEXT_PUBLIC_OPERATOR_URL: z.string().optional(),
   NEXT_PUBLIC_WEB_CLIENT_URL: z.string().optional(),
   PASSKEY_RP_ID: z.string().optional(),
+  // Google Wallet: el cliente guarda su saldo en Google Wallet (Android) y el
+  // pase se actualiza solo. Opcional: sin el emisor y la clave de la cuenta
+  // de servicio el botón no sale y no corre nada. Lo mal escrito no impide
+  // arrancar: se apaga y se avisa (config/google-wallet.ts, env-warnings.ts).
+  // Ver docs/GOOGLE-WALLET.md.
+  //   GOOGLE_WALLET_ISSUER_ID — "Issuer ID" de la Google Pay & Wallet Console.
+  //   GOOGLE_WALLET_SERVICE_ACCOUNT_JSON — el JSON de la clave, tal cual; o
+  //   GOOGLE_WALLET_SERVICE_ACCOUNT_JSON_B64 — el mismo JSON en base64.
+  //   GOOGLE_WALLET_CLASS_SUFFIX — nombre de la clase de los pases.
+  GOOGLE_WALLET_ISSUER_ID: z.string().trim().optional(),
+  GOOGLE_WALLET_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  GOOGLE_WALLET_SERVICE_ACCOUNT_JSON_B64: z.string().optional(),
+  GOOGLE_WALLET_CLASS_SUFFIX: z.string().trim().default(DEFAULT_GOOGLE_WALLET_CLASS_SUFFIX),
   // Phase 1A — API keys de blockchain explorers (opcionales, free tier sirve).
   TRONSCAN_API_KEY: z.string().optional(),
   BSCSCAN_API_KEY: z.string().optional(),
