@@ -150,6 +150,10 @@ async function bootstrap() {
       { path: 'w/:token/close', method: RequestMethod.POST },
       { path: 'w/:token/passkey/options', method: RequestMethod.POST },
       { path: 'w/:token/passkey', method: RequestMethod.POST },
+      // PIN y sumar a otro saldo: acciones secundarias de la página del saldo.
+      { path: 'w/:token/pin', method: RequestMethod.POST },
+      { path: 'w/:token/merge/challenge', method: RequestMethod.POST },
+      { path: 'w/:token/merge', method: RequestMethod.POST },
     ],
   });
 

@@ -263,10 +263,7 @@ export class PublicPayController {
               walletHref: payer && view.walletToken ? walletHref(view.walletToken, lang) : null,
               walletElsewhere: Boolean(view.walletToken) && !payer,
               // Solo en el móvil que pagó la recarga que creó el saldo.
-              wallet:
-                payer && view.walletCode
-                  ? { code: view.walletCode, hasFaceId: view.walletHasFaceId, hasPin: view.walletHasPin, base: payBase(token) }
-                  : null,
+              wallet: payer && view.walletCode ? { hasFaceId: view.walletHasFaceId, base: payBase(token) } : null,
             },
             lang,
           ),
@@ -400,7 +397,7 @@ export class PublicPayController {
     const message = (err as Error).message || 'Error';
     // Logueamos detalles técnicos pero NO los mostramos al cliente
     this.logger.warn(`/pay/${token.slice(0, 4)}… failed: ${message}`);
-    sendHtml(res, 409, renderErrorPage(payErrorKey(message), lang));
+    sendHtml(res, 409, renderErrorPage(payErrorKey(message), lang, payHref(token, lang)));
   }
 
   private walletClaimName(payToken: string): string {

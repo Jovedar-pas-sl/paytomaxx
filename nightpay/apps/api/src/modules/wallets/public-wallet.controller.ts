@@ -1,4 +1,17 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Inject, Param, Post, Query, Res } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Header,
+  Headers,
+  HttpCode,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
@@ -13,6 +26,8 @@ import { renderWalletPage } from './wallet-page';
  *  - GET  /w/:token                          → página del saldo.
  *  - GET  /w/:token/state                    → estado (la página lo refresca).
  *  - POST /w/:token/passkey/options, /passkey → activar Face ID.
+ *  - POST /w/:token/pin                      → elegir PIN (si aún no tiene).
+ *  - POST /w/:token/merge/challenge, /merge  → sumar este saldo al de su Face ID.
  *  - POST /w/:token/close                    → "Me voy: devolver mi saldo".
  * Aquí no se paga: se paga escaneando el QR de la chica (/s/:token, con Face
  * ID) o con el código o la ficha y el PIN en el móvil de la chica.
@@ -58,6 +73,54 @@ export class PublicWalletController {
     const wallet = await this.charges.walletRefByToken(token);
     await this.passkeys.register(wallet.id, host, body?.response);
     return this.charges.clientState(token);
+  }
+
+  /**
+   * Elegir PIN (para pagar sin sacar el móvil), desde la página del saldo.
+   * Lo mismo que en el «Pagado» de la recarga: solo si aún no tiene PIN.
+   */
+  @Public()
+  @Post(':token/pin')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-pin' })
+  async pin(
+    @Param('token') token: string,
+    @Body() body: { pin?: unknown; pin2?: unknown } | undefined,
+  ): Promise<ClientWalletState> {
+    const pin = typeof body?.pin === 'string' ? body.pin : '';
+    if (!/^[0-9]{4}$/.test(pin)) throw new BadRequestException('El PIN son 4 cifras');
+    if (body?.pin2 !== pin) throw new BadRequestException('Los dos PIN no son iguales');
+    const wallet = await this.charges.walletRefByToken(token);
+    await this.charges.setPinFromPayer(wallet.id, pin);
+    return this.charges.clientState(token);
+  }
+
+  /** Sumar este saldo al de siempre, paso 1: reto para su llave (Face ID…). */
+  @Public()
+  @Post(':token/merge/challenge')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-merge' })
+  async mergeChallenge(@Param('token') token: string, @Headers('host') host: string | undefined): Promise<unknown> {
+    const wallet = await this.charges.walletRefByToken(token);
+    return this.passkeys.challenge(`merge:${wallet.id}`, host);
+  }
+
+  /** Paso 2: su llave dice cuál es su saldo de siempre; este se suma a aquel. */
+  @Public()
+  @Post(':token/merge')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-merge' })
+  async merge(
+    @Param('token') token: string,
+    @Body() body: { response?: unknown } | undefined,
+    @Headers('host') host: string | undefined,
+  ): Promise<{ balanceCents: number }> {
+    const wallet = await this.charges.walletRefByToken(token);
+    const target = await this.passkeys.verify(`merge:${wallet.id}`, host, body?.response);
+    return this.charges.mergeInto(wallet.id, target);
   }
 
   @Public()

@@ -1,5 +1,5 @@
 import type { PaymentMachineState } from './payment.machine';
-import { tipOptionsFor } from './tip';
+import { maxTipCents, tipOptionsFor } from './tip';
 
 /** Por qué un QR ya no se puede pagar (texto para el cliente en public-pay). */
 export type PayClosedReason =
@@ -44,9 +44,17 @@ export type PayRedirect =
       kind: 'choose';
       amountCents: number;
       currency: string;
+      /** Propinas con botón (0 = «Sin propina», que es la marcada). */
       tipOptionsCents: number[];
+      /** Máximo de «Otra» (0 = aquí no se puede dejar propina). */
+      tipMaxCents: number;
       tipCents: number;
       qrExpiresAt: Date;
+      /** Cabecera: nombre del local y concepto del cobro (si lo hay). */
+      venueName?: string | null;
+      concept?: string | null;
+      /** La propina va entera a una persona del personal (no al local). */
+      tipToStaff?: boolean;
     }
   | {
       kind: 'paid';
@@ -165,6 +173,11 @@ export interface PayablePayment {
   authorizedAt: Date | null;
   /** Propina solo con Redsys y fuera de recargas de wallet. */
   allowTip: boolean;
+  /** Nombre del local y concepto del cobro, para la cabecera de la página de pago. */
+  venueName?: string | null;
+  concept?: string | null;
+  /** La propina va entera a una persona del personal (no al local). */
+  tipToStaff?: boolean;
   /** Recarga de saldo: token de la página del saldo del cliente. */
   walletToken: string | null;
   /** Huella del navegador que hizo el pago aprobado. */
@@ -207,9 +220,13 @@ export function choosePayPage(p: PayablePayment): PayRedirect {
     kind: 'choose',
     amountCents: p.amountCents,
     currency: p.currency,
-    tipOptionsCents: tipOptionsFor({ tipCents: p.tipCents, allowTip: p.allowTip }),
+    tipOptionsCents: tipOptionsFor(p),
+    tipMaxCents: p.allowTip ? maxTipCents(p.amountCents) : 0,
     tipCents: p.tipCents,
     qrExpiresAt: p.qrExpiresAt,
+    venueName: p.venueName ?? null,
+    concept: p.concept ?? null,
+    tipToStaff: p.tipToStaff ?? false,
   };
 }
 

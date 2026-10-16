@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import type { FastifyReply } from 'fastify';
 import { ConflictException } from '@nestjs/common';
@@ -73,10 +73,21 @@ const CHOOSE: PayRedirect = {
   kind: 'choose',
   amountCents: 10_000,
   currency: 'EUR',
-  tipOptionsCents: [0, 500, 1000],
+  tipOptionsCents: [0, 1_000, 1_500],
+  tipMaxCents: 10_000,
   tipCents: 0,
   qrExpiresAt: new Date(Date.now() + 4 * 60_000),
 };
+
+/** El «Pagado» lima (recién pagado) o gris (enlace ya pagado). */
+const PAID_FRESH = 'class="paid" id="paid"';
+const PAID_STALE = 'class="paid stale" id="paid"';
+const scripts = (html: string): string[] =>
+  html.split('<script>').slice(1).map((part) => part.slice(0, part.indexOf('</script>')));
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
   it('sin pedido conocido nunca dice "Pagado"', async () => {
@@ -84,7 +95,9 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     const { reply, sent } = fakeReply();
     await controller.paymentResult('inventado', 'es', undefined, reply);
     expect(sent.body).toContain('No encontramos este pago');
-    expect(sent.body).not.toContain('<h1>Pagado</h1>');
+    expect(sent.body).not.toContain('class="paid');
+    // No se sabe si se cobró: no se dice «No se te ha cobrado nada».
+    expect(sent.body).not.toContain('No se te ha cobrado nada');
   });
 
   it('pago aún sin aviso del banco → "Comprobando", aunque la URL diga status=ok', async () => {
@@ -94,22 +107,52 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     expect(sent.body).toContain('Comprobando el pago');
     expect(sent.body).toContain('http-equiv="refresh"');
     expect(sent.body).toContain('url=/pay/result?op=a1b2c3d4e5f6&amp;lang=es');
-    expect(sent.body).not.toContain('<h1>Pagado</h1>');
+    expect(sent.body).not.toContain('class="paid');
   });
 
-  it('pago confirmado → "Pagado" con total, código, hora y justificante', async () => {
+  it('pago confirmado → «Pagado» a pantalla completa: total, «hace 0:12», reloj, código y justificante', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-13T08:15:14Z'));
     const { controller } = makeController({
       view: view({ status: 'AUTHORIZED', tipCents: 500, authorizedAt: new Date('2026-10-13T08:15:02Z') }),
     });
     const { reply, sent } = fakeReply();
     await controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, reply);
-    expect(sent.body).toContain('<h1>Pagado</h1>');
-    expect(sent.body).toContain('6,00');
-    expect(sent.body).toContain('Incluye 5,00');
-    expect(sent.body).toContain('A6B');
-    expect(sent.body).toContain('10:15');
-    expect(sent.body).toContain('href="/pay/qr-token-1/receipt?lang=es"');
+    const html = sent.body!;
+    expect(html).toContain(PAID_FRESH);
+    expect(html).toContain('aria-live="polite">Pagado</h1>');
+    expect(html).toContain('6,00');
+    expect(html).toContain('Incluye 5,00');
+    expect(html).toContain('A6B');
+    expect(html).toContain('hace 0:12');
+    // Hora del banco y reloj con segundos (hora de Madrid).
+    expect(html).toContain('10:15');
+    expect(html).toContain('10:15:14');
+    expect(html).toContain(`data-at="${Date.parse('2026-10-13T08:15:02Z')}"`);
+    expect(html).toContain('href="/pay/qr-token-1/receipt?lang=es"');
     expect(sent.headers['Cache-Control']).toBe('no-store');
+    // La pantalla no se apaga y una captura vieja no se mueve.
+    const js = scripts(html).join('\n');
+    expect(js).toContain("navigator.wakeLock.request('screen')");
+    expect(js).toContain('visibilitychange');
+    expect(html).toContain('class="band"');
+    expect(html).toContain('prefers-reduced-motion');
+    for (const s of scripts(html)) expect(() => new Function(s)).not.toThrow();
+  });
+
+  it('«Ya pagado»: abrir otra vez un enlace pagado hace rato → gris, «hace 23 min» y «No es un pago nuevo»', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-13T08:38:02Z'));
+    const { controller } = makeController({
+      view: view({ status: 'AUTHORIZED', authorizedAt: new Date('2026-10-13T08:15:02Z') }),
+    });
+    const { reply, sent } = fakeReply();
+    await controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, reply);
+    expect(sent.body).toContain(PAID_STALE);
+    expect(sent.body).toContain('aria-live="polite">Ya pagado</h1>');
+    expect(sent.body).toContain('hace 23 min');
+    expect(sent.body).toContain('No es un pago nuevo');
+    expect(sent.body).not.toContain(PAID_FRESH);
   });
 
   it('recarga de saldo pagada → botón para abrir el saldo, solo en el móvil que pagó', async () => {
@@ -124,13 +167,13 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     const payer = fakeReply(`otra=1; ${name}=${PAYER}`);
     await makeController({ view: paid }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, payer.reply);
     expect(payer.sent.body).toContain('href="/w/wal-tok?lang=es"');
-    expect(payer.sent.body).toContain('Abrir mi saldo');
+    expect(payer.sent.body).toContain('Ver mi saldo');
 
     // La chica abre el mismo QR en su móvil (hasta pulsó "Pagar" y tiene su
     // propia cookie): "Pagado", pero sin el enlace del saldo.
     const staff = fakeReply(`otra=1; ${name}=${'b'.repeat(43)}`);
     await makeController({ view: paid }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, staff.reply);
-    expect(staff.sent.body).toContain('<h1>Pagado</h1>');
+    expect(staff.sent.body).toContain('class="paid');
     expect(staff.sent.body).not.toContain('/w/wal-tok');
     // …y si es el cliente en otro navegador, sabe qué hacer.
     expect(staff.sent.body).toContain('pide en el local un enlace nuevo');
@@ -142,22 +185,28 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     const { reply, sent } = fakeReply();
     await controller.paymentResult('a1b2c3d4e5f6', 'en', undefined, reply);
     expect(sent.body).toContain('<html lang="en">');
-    expect(sent.body).toContain('<h1>Paid</h1>');
+    // Sin hora de autorización no se puede decir que sea de ahora: «Already paid».
+    expect(sent.body).toContain('aria-live="polite">Already paid</h1>');
   });
 
-  it('intento denegado → ofrece probar otra vez con el mismo QR', async () => {
+  it('intento denegado → qué pasó, «No se te ha cobrado nada» y UNA acción: otro método', async () => {
     const { controller } = makeController({ view: view({ attemptStatus: 'DENIED' }) });
     const { reply, sent } = fakeReply();
     await controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, reply);
     expect(sent.body).toContain('El banco no ha aceptado el pago');
+    expect(sent.body).toContain('No se te ha cobrado nada');
     expect(sent.body).toContain('href="/pay/qr-token-1?lang=es"');
+    expect(sent.body).toContain('Probar con otro método');
+    expect(sent.body).not.toContain('class="hint"');
   });
 
-  it('pago sin confirmar (ORPHAN) → no dice "Pagado"', async () => {
+  it('pago sin confirmar (ORPHAN) → no dice "Pagado" ni que no se cobró', async () => {
     const { controller } = makeController({ view: view({ status: 'ORPHAN' }) });
     const { reply, sent } = fakeReply();
     await controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, reply);
     expect(sent.body).toContain('Sin confirmación del banco');
+    expect(sent.body).not.toContain('class="paid');
+    expect(sent.body).not.toContain('No se te ha cobrado nada');
   });
 });
 
@@ -169,18 +218,99 @@ describe('GET /pay/:token — página de pago', () => {
     expect(sent.status).toBe(200);
     expect(sent.body).toContain('100,00');
     expect(sent.body).toContain('Sin propina');
-    expect(sent.body).toContain('value="500"');
+    expect(sent.body).toContain('value="1000"');
     expect(sent.body).toContain('method="POST" action="/pay/qr-token-1"');
     expect(payments.startCheckout).not.toHaveBeenCalled();
+    for (const s of scripts(sent.body!)) expect(() => new Function(s)).not.toThrow();
   });
 
-  it('iPhone → "Pagar con Apple Pay" y "Pagar con tarjeta"', async () => {
+  it('sin botón de wallet hecho a mano: un solo «Pagar 100 €» y debajo «Apple Pay · Google Pay · tarjeta»', async () => {
     const { controller } = makeController({ page: CHOOSE });
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
-    expect(sent.body).toContain('Pagar con Apple Pay');
-    expect(sent.body).toContain('value="wallet"');
-    expect(sent.body).toContain('Pagar con tarjeta');
+    const html = sent.body!;
+    expect(html).not.toContain('Pagar con Apple Pay');
+    expect(html).not.toContain('Pagar con Google Pay');
+    expect(html).not.toContain('value="wallet"');
+    expect(html.match(/type="submit"/g)).toHaveLength(1);
+    expect(html).toMatch(/<button class="btn" id="payBtn" type="submit">Pagar 100\s€<\/button>/);
+    expect(html).toContain('<input type="hidden" name="method" value="">');
+    expect(html).toContain('Apple Pay · Google Pay · tarjeta');
+    // El botón dice lo que hace mientras envía (no solo se apaga).
+    expect(html).toContain('Enviando…');
+  });
+
+  it('«Sin propina» marcada por defecto, aunque el cobro traiga una propina del local', async () => {
+    const { controller } = makeController({
+      page: { ...CHOOSE, tipOptionsCents: [0, 300, 1_000, 1_500], tipCents: 300 } as PayRedirect,
+    });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    const checked = sent.body!.match(/<input type="radio" name="tip" value="(\d+)" checked>/g) ?? [];
+    expect(checked).toEqual(['<input type="radio" name="tip" value="0" checked>']);
+    expect(sent.body).toContain('value="300"');
+  });
+
+  it('propinas según el importe: hasta 40 € +2 € y +5 €; por encima 10 % y 15 %; y «Otra» hasta el máximo', async () => {
+    const small = makeController({
+      page: { ...CHOOSE, amountCents: 2_000, tipOptionsCents: [0, 200, 500], tipMaxCents: 2_000 } as PayRedirect,
+    });
+    const s = fakeReply();
+    await small.controller.payPage('qr-token-1', 'es', undefined, IPHONE, s.reply);
+    expect(s.sent.body).toMatch(/value="200"><span><b class="num">\+2\s€<\/b>/);
+    expect(s.sent.body).toMatch(/value="500"><span><b class="num">\+5\s€<\/b>/);
+    expect(s.sent.body).toMatch(/Como mucho 20\s€/);
+
+    const big = makeController({
+      page: { ...CHOOSE, amountCents: 6_500, tipOptionsCents: [0, 700, 1_000], tipMaxCents: 6_500 } as PayRedirect,
+    });
+    const b = fakeReply();
+    await big.controller.payPage('qr-token-1', 'es', undefined, IPHONE, b.reply);
+    expect(b.sent.body).toMatch(/value="700"><span><b>10\s%<\/b><small class="num">\+7\s€<\/small>/);
+    expect(b.sent.body).toMatch(/value="1000"><span><b>15\s%<\/b><small class="num">\+10\s€<\/small>/);
+    // «Otra» necesita JS: empieza oculta.
+    expect(b.sent.body).toContain('<label id="otherOpt" hidden><input type="radio" name="tip" value="0" id="otherRadio">');
+    expect(b.sent.body).toContain('id="otherIn" type="text" inputmode="numeric"');
+    expect(b.sent.body).toMatch(/Como mucho 65\s€/);
+  });
+
+  it('«Va entera para el personal» solo si la propina va a una persona', async () => {
+    const toStaff = makeController({ page: { ...CHOOSE, tipToStaff: true } as PayRedirect });
+    const a = fakeReply();
+    await toStaff.controller.payPage('qr-token-1', 'es', undefined, IPHONE, a.reply);
+    expect(a.sent.body).toContain('Va entera para el personal');
+
+    const toVenue = makeController({ page: { ...CHOOSE, tipToStaff: false } as PayRedirect });
+    const b = fakeReply();
+    await toVenue.controller.payPage('qr-token-1', 'es', undefined, IPHONE, b.reply);
+    expect(b.sent.body).not.toContain('Va entera para el personal');
+  });
+
+  it('sin propina posible (recarga, otra pasarela) → ni propinas ni «Otra»', async () => {
+    const { controller } = makeController({
+      page: { ...CHOOSE, tipOptionsCents: [0], tipMaxCents: 0 } as PayRedirect,
+    });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.body).toContain('<input type="hidden" name="tip" value="0">');
+    expect(sent.body).not.toContain('Sin propina');
+    expect(sent.body).not.toContain('id="otherRadio"');
+  });
+
+  it('cabecera de confianza, de arriba abajo: local, importe, concepto y extracto', async () => {
+    const { controller } = makeController({
+      page: { ...CHOOSE, venueName: 'Luna', concept: 'Copa' } as PayRedirect,
+      statementName: 'MAXX SERVICIOS',
+    });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    const html = sent.body!;
+    const at = (s: string): number => html.indexOf(s);
+    expect(at('class="venue">Luna<')).toBeGreaterThan(-1);
+    expect(at('class="venue">Luna<')).toBeLessThan(at('class="amount num"'));
+    expect(at('class="amount num"')).toBeLessThan(at('class="concept">Copa<'));
+    expect(at('class="concept">Copa<')).toBeLessThan(at('En tu extracto'));
+    expect(at('En tu extracto')).toBeLessThan(at('<form'));
   });
 
   it('dentro de Instagram → aviso y solo tarjeta', async () => {
@@ -197,7 +327,8 @@ describe('GET /pay/:token — página de pago', () => {
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', undefined, 'de-DE,de;q=0.9', IPHONE, reply);
     expect(sent.body).toContain('You are paying');
-    expect(sent.body).toContain('Pay with Apple Pay');
+    expect(sent.body).toContain('Pay €100');
+    expect(sent.body).toContain('Apple Pay · Google Pay · card');
     expect(sent.body).toContain('href="/pay/qr-token-1?lang=es"');
   });
 
@@ -205,7 +336,7 @@ describe('GET /pay/:token — página de pago', () => {
     const { controller } = makeController({ page: CHOOSE, statementName: 'MAXX SERVICIOS' });
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
-    expect(sent.body).toContain('En tu extracto aparecerá como «MAXX SERVICIOS»');
+    expect(sent.body).toContain('En tu extracto: «MAXX SERVICIOS»');
   });
 
   it('QR ya cobrado → "Pagado", nunca vuelve al banco', async () => {
@@ -223,7 +354,7 @@ describe('GET /pay/:token — página de pago', () => {
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     expect(sent.status).toBe(200);
-    expect(sent.body).toContain('<h1>Pagado</h1>');
+    expect(sent.body).toContain('class="paid');
     expect(sent.body).not.toContain('<form');
   });
 
@@ -241,6 +372,8 @@ describe('GET /pay/:token — página de pago', () => {
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     expect(sent.status).toBe(409);
     expect(sent.body).toContain('Este cobro ha caducado');
+    expect(sent.body).toContain('No se te ha cobrado nada');
+    expect(sent.body).toContain('Pide uno nuevo al personal');
   });
 
   it('textos de cliente sin "chica" ni "habitación"', async () => {
@@ -330,6 +463,28 @@ describe('POST /pay/:token — el cliente pulsa un botón', () => {
     expect(sent.status).toBe(409);
     expect(sent.body).toContain('El banco no responde ahora mismo');
     expect(sent.body).not.toContain('SIS0042');
+    // Plantilla de error: qué pasó, que no se cobró nada y UNA acción (volver a intentarlo).
+    expect(sent.body).toContain('No se te ha cobrado nada');
+    expect(sent.body).toContain('href="/pay/qr-token-1?lang=es">Intentar otra vez</a>');
+    expect(sent.body).not.toContain('class="hint"');
+  });
+
+  it('cobro en curso → no dice que no se cobró; una acción: comprobar otra vez', async () => {
+    const { controller } = makeController({ checkout: new ConflictException('Payment already in progress') });
+    const { reply, sent } = fakeReply();
+    await controller.startCheckout('qr-token-1', { tip: '0', method: 'card', lang: 'es' }, undefined, reply);
+    expect(sent.body).toContain('Este cobro ya se está procesando');
+    expect(sent.body).not.toContain('No se te ha cobrado nada');
+    expect(sent.body).toContain('Comprobar otra vez');
+  });
+
+  it('formulario manipulado → aviso con una sola indicación (sin botón de vuelta)', async () => {
+    const { controller } = makeController({ checkout: { kind: 'checkout', order: 'X' } });
+    const { reply, sent } = fakeReply();
+    await controller.startCheckout('qr-token-1', { tip: 'abc' }, undefined, reply);
+    expect(sent.status).toBe(400);
+    expect(sent.body).toContain('class="hint"');
+    expect(sent.body).not.toContain('class="btn"');
   });
 });
 

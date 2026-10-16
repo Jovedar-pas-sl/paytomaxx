@@ -19,6 +19,7 @@ import { applyServiceItem } from '../payments/service-item';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 import { reopenData } from './wallet-activation';
 import { mergedWalletIds } from './wallet-merge-chain';
+import { clientRefundState, refundCards, type ClientRefundState } from './wallet-refund-view';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
@@ -84,6 +85,8 @@ export interface QrChargeClientView {
   venueName: string;
   requestedByName: string | null;
   expiresAt: string;
+  /** Cuándo se pagó (solo si ya está pagado): el «Ya pagado · hace 23 min». */
+  paidAt: string | null;
 }
 
 /** Para el encargado: cobros con QR sin pagar. */
@@ -103,6 +106,14 @@ export interface ClientWalletState {
   closeRequested: boolean;
   /** El cliente activó Face ID (paga escaneando el QR de la chica). */
   hasFaceId: boolean;
+  /** Ya tiene PIN (para pagar sin sacar el móvil). */
+  hasPin: boolean;
+  /** Esta recarga se sumó a otro saldo del mismo cliente. */
+  merged: boolean;
+  /** «Me voy»: cuánto se devuelve, cómo y en qué paso va (null = no hay devolución). */
+  refund: ClientRefundState | null;
+  /** Últimas 4 cifras de las tarjetas de sus recargas (a ellas se devuelve a la tarjeta). */
+  cards: string[];
   movements: Array<{
     kind: 'topup' | 'consumption' | 'payout';
     amountCents: number;
@@ -282,7 +293,7 @@ export class WalletChargesService {
 
   async clientState(qrToken: string): Promise<ClientWalletState> {
     const wallet = await this.walletByToken(qrToken);
-    const [consumptions, topUps, payouts] = await Promise.all([
+    const [consumptions, topUps, allPayouts] = await Promise.all([
       this.prisma.asSystem((tx) =>
         tx.walletConsumption.findMany({
           where: { walletId: wallet.id, reversedAt: null },
@@ -296,18 +307,20 @@ export class WalletChargesService {
           where: { walletId: wallet.id, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
           orderBy: { createdAt: 'desc' },
           take: 10,
-          select: { amountCents: true, tenantId: true, authorizedAt: true, createdAt: true },
+          select: { amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true },
         }),
       ),
       this.prisma.asSystem((tx) =>
         tx.walletPayout.findMany({
-          // Solo las hechas (una a la tarjeta a medias aún no es una devolución).
-          where: { walletId: wallet.id, status: 'DONE' },
+          // Hechas y la que se está apuntando a la tarjeta (paso «Aprobado» del «Me voy»).
+          where: { walletId: wallet.id, status: { in: ['DONE', 'PENDING'] } },
           orderBy: { createdAt: 'desc' },
-          select: { amountCents: true, method: true, tenantId: true, createdAt: true },
+          select: { amountCents: true, method: true, status: true, tenantId: true, createdAt: true },
         }),
       ),
     ]);
+    // En movimientos, solo las hechas (una a la tarjeta a medias aún no es una devolución).
+    const payouts = allPayouts.filter((p) => p.status === 'DONE');
     const hasFaceId = (await this.prisma.walletPasskey.count({ where: { walletId: wallet.id } })) > 0;
     const venueIds = [...new Set([...consumptions, ...topUps, ...payouts].map((m) => m.tenantId))];
     const venues = await this.prisma.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true } });
@@ -337,12 +350,17 @@ export class WalletChargesService {
       })),
     ].sort((a, b) => b.at.localeCompare(a.at));
 
+    const closeRequested = wallet.closeRequestedAt !== null;
     return {
       code: formatWalletCode(wallet.shortCode ?? ''),
       balanceCents: wallet.balanceCents,
       status: wallet.status,
-      closeRequested: wallet.closeRequestedAt !== null,
+      closeRequested,
       hasFaceId,
+      hasPin: Boolean(wallet.pinHash),
+      merged: Boolean(wallet.mergedIntoId),
+      refund: clientRefundState({ status: wallet.status, balanceCents: wallet.balanceCents, closeRequested }, allPayouts),
+      cards: refundCards(topUps.map((t) => t.cardLast4)),
       movements,
     };
   }
@@ -464,13 +482,15 @@ export class WalletChargesService {
         tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { displayName: true } }),
       ),
     ]);
+    const status = effectiveRequestStatus(request, new Date());
     return {
-      status: effectiveRequestStatus(request, new Date()),
+      status,
       amountCents: request.amountCents,
       serviceName: request.serviceName,
       venueName: venue?.name ?? '',
       requestedByName: requester?.displayName ?? null,
       expiresAt: request.expiresAt.toISOString(),
+      paidAt: status === 'ACCEPTED' && request.decidedAt ? request.decidedAt.toISOString() : null,
     };
   }
 
