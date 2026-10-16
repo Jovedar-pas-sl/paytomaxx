@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input } from '@nightpay/ui';
-import { parseEuroCents } from '@nightpay/contracts';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { AmountKeypad, Button, Card, Input, QrCountdown, qrDeadline, useNow, useWakeLock } from '@nightpay/ui';
+import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import {
   cancelWalletCharge,
   createQrWalletCharge,
@@ -14,25 +14,32 @@ import {
   type WalletChargeRequest,
   getUser,
   pollErrorText,
+  ServerUnavailableError,
   SessionExpiredError,
   type WalletLookup,
   type WalletRef,
 } from '@/lib/api';
+import { useHealthReport } from '@/lib/connection-health';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard } from '@/lib/nfc';
 import { usePolling } from '@/lib/use-polling';
 import { CartaRetry, serviceLabel, useCarta, type Carta } from './carta';
+import { STICKY_ACTION_BOTTOM } from './layout';
 import { PinPad } from './PinPad';
+import { StaffOutcome } from './StaffOutcome';
 
 interface Props {
   onCharged: () => void;
 }
 
+/** Lo que se pidió (servicio o importe): «Otro QR · mismo importe» lo repite sin teclear. */
+type ChargeInput = { serviceItemId?: string; amountCents?: number };
+
 type Stage =
   | { kind: 'pick' }
-  | { kind: 'qr'; charge: QrWalletCharge }
-  | { kind: 'done'; charge: QrWalletCharge; result: WalletChargeRequest };
+  | { kind: 'qr'; charge: QrWalletCharge; input: ChargeInput }
+  | { kind: 'done'; charge: QrWalletCharge; result: WalletChargeRequest; input: ChargeInput };
 
 const POLL_MS = 1000;
 /** Con el servidor caído o saturado (429), se pregunta menos. */
@@ -53,35 +60,50 @@ export function ChargeFromBalance({ onCharged }: Props) {
 
   switch (stage.kind) {
     case 'pick':
-      return <PickStep carta={carta} onCreated={(charge) => setStage({ kind: 'qr', charge })} />;
+      return <PickStep carta={carta} onCreated={(charge, input) => setStage({ kind: 'qr', charge, input })} />;
     case 'qr':
       return (
         <QrStep
+          key={stage.charge.id}
           charge={stage.charge}
           onFinished={(result) => {
             if (result.status === 'ACCEPTED') onCharged();
-            setStage({ kind: 'done', charge: stage.charge, result });
+            setStage({ kind: 'done', charge: stage.charge, result, input: stage.input });
           }}
           onBack={() => setStage({ kind: 'pick' })}
         />
       );
     case 'done':
-      return <DoneStep charge={stage.charge} result={stage.result} onAgain={() => setStage({ kind: 'pick' })} />;
+      return (
+        <DoneStep
+          charge={stage.charge}
+          result={stage.result}
+          input={stage.input}
+          onRetried={(charge) => setStage({ kind: 'qr', charge, input: stage.input })}
+          onAgain={() => setStage({ kind: 'pick' })}
+        />
+      );
   }
 }
 
-function PickStep({ carta, onCreated }: { carta: Carta; onCreated: (charge: QrWalletCharge) => void }) {
+function PickStep({
+  carta,
+  onCreated,
+}: {
+  carta: Carta;
+  onCreated: (charge: QrWalletCharge, input: ChargeInput) => void;
+}) {
   const [custom, setCustom] = useState(false);
-  const [amount, setAmount] = useState('');
+  const [amountCents, setAmountCents] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function send(input: { serviceItemId?: string; amountCents?: number }) {
+  async function send(input: ChargeInput) {
     setBusy(true);
     setError(null);
     try {
       if ('vibrate' in navigator) navigator.vibrate(10);
-      onCreated(await createQrWalletCharge(input));
+      onCreated(await createQrWalletCharge(input), input);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -89,16 +111,13 @@ function PickStep({ carta, onCreated }: { carta: Carta; onCreated: (charge: QrWa
     }
   }
 
-  const typedCents = parseEuroCents(amount);
-
   function sendCustom(e: FormEvent) {
     e.preventDefault();
-    const cents = parseEuroCents(amount);
-    if (cents === null) {
-      setError('Pon el importe (por ejemplo 50 o 50,50)');
+    if (amountCents <= 0) {
+      setError('Pon el importe');
       return;
     }
-    void send({ amountCents: cents });
+    void send({ amountCents });
   }
 
   return (
@@ -109,21 +128,20 @@ function PickStep({ carta, onCreated }: { carta: Carta; onCreated: (charge: QrWa
       </p>
       {custom ? (
         <form onSubmit={sendCustom} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <Input
-            label="Importe (€)"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))}
-            placeholder="50"
-            inputMode="decimal"
-            autoFocus
+          <AmountKeypad
+            valueCents={amountCents}
+            onChange={setAmountCents}
+            maxCents={MAX_TYPED_AMOUNT_CENTS}
             disabled={busy}
           />
-          <Button type="submit" size="lg" loading={busy} disabled={!amount.trim()}>
-            Cobrar {typedCents === null ? '' : formatEur(typedCents, { compact: true })}
-          </Button>
           <Button type="button" variant="ghost" onClick={() => setCustom(false)} disabled={busy}>
             Volver a la carta
           </Button>
+          <div className="np-sticky-action" style={{ bottom: STICKY_ACTION_BOTTOM }}>
+            <Button type="submit" size="lg" loading={busy} disabled={amountCents <= 0}>
+              {amountCents > 0 ? `Cobrar ${formatEur(amountCents, { compact: true })}` : 'Cobrar'}
+            </Button>
+          </div>
         </form>
       ) : (
         <div style={gridStyle}>
@@ -174,7 +192,6 @@ function QrStep({
   onFinished: (result: WalletChargeRequest) => void;
   onBack: () => void;
 }) {
-  const [now, setNow] = useState(() => Date.now());
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Sin sacar su móvil: su ficha o su código → su PIN en este móvil.
@@ -194,10 +211,13 @@ function QrStep({
   }
 
   // La cuenta atrás solo pinta: no pregunta nada al servidor.
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  const [receivedAt] = useState(() => Date.now());
+  const deadline = useMemo(() => qrDeadline(charge.expiresAt, receivedAt), [charge.expiresAt, receivedAt]);
+  const now = useNow(true);
+  // Cobro abierto: pantalla encendida; y si el API no contesta, lo dice la franja de arriba.
+  const [pollDown, setPollDown] = useState(false);
+  useWakeLock(true);
+  useHealthReport(`saldo:${charge.id}`, { serverDown: pollDown });
 
   // ¿Ya ha pagado? Una pregunta por segundo, sin solapes; para al terminar.
   usePolling(
@@ -206,9 +226,14 @@ function QrStep({
       try {
         const fresh = await fetchWalletCharge(charge.id, signal);
         setError(null);
+        setPollDown(false);
         return finish(fresh) ? 'stop' : undefined;
       } catch (err) {
-        if (signal.aborted) return 'slow';
+        // Sin respuesta (o plazo agotado): servidor caído, lo dice la franja.
+        if (signal.aborted || err instanceof ServerUnavailableError) {
+          setPollDown(true);
+          return 'slow';
+        }
         setError(pollErrorText(err));
         return err instanceof SessionExpiredError ? 'stop' : 'slow';
       }
@@ -261,7 +286,6 @@ function QrStep({
     }
   }
 
-  const secondsLeft = Math.max(0, Math.ceil((new Date(charge.expiresAt).getTime() - now) / 1000));
   const what = `${formatEur(charge.amountCents, { compact: true })}${charge.serviceName ? ` · ${charge.serviceName}` : ''}`;
 
   if (withPin && wallet && ref && wallet.hasPin && !wallet.pinLocked) {
@@ -309,12 +333,11 @@ function QrStep({
         {formatEur(charge.amountCents, { compact: true })}
       </p>
       {charge.serviceName ? <p style={hintStyle}>{charge.serviceName}</p> : null}
-      <img src={charge.qrPngDataUrl} alt="QR para pagar con el saldo" width={260} height={260} style={qrStyle} />
+      <QrCountdown deadline={deadline} nowMs={now}>
+        <img src={charge.qrPngDataUrl} alt="QR para pagar con el saldo" width={260} height={260} style={qrStyle} />
+      </QrCountdown>
       <p style={{ margin: 0, fontSize: '1rem' }}>
         Que el cliente lo escanee con su móvil y lo desbloquee (Face ID, huella o su PIN).
-      </p>
-      <p className="np-num" style={hintStyle}>
-        Caduca en {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}
       </p>
       <Button variant="ghost" onClick={() => setWithPin(true)} disabled={canceling}>
         Sin móvil: ficha o código + PIN
@@ -446,13 +469,71 @@ const DONE_TEXT: Record<Exclude<WalletChargeRequest['status'], 'PENDING'>, { tit
 function DoneStep({
   charge,
   result,
+  input,
+  onRetried,
   onAgain,
 }: {
   charge: QrWalletCharge;
   result: WalletChargeRequest;
+  input: ChargeInput;
+  /** «Otro QR · mismo importe» ya creado: a su QR. */
+  onRetried: (charge: QrWalletCharge) => void;
   onAgain: () => void;
 }) {
-  const text = DONE_TEXT[result.status === 'PENDING' ? 'EXPIRED' : result.status];
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const inFlight = useRef(false);
+  const status = result.status === 'PENDING' ? 'EXPIRED' : result.status;
+  const text = DONE_TEXT[status];
+
+  async function retry() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      onRetried(await createQrWalletCharge(input));
+    } catch (err) {
+      setRetryError((err as Error).message);
+      setRetrying(false);
+    } finally {
+      inFlight.current = false;
+    }
+  }
+
+  if (status === 'ACCEPTED') {
+    return (
+      <StaffOutcome
+        kind="paid"
+        amountCents={charge.amountCents}
+        message="Cobrado del saldo."
+        detail={
+          <>
+            {charge.serviceName ? <p>{charge.serviceName}</p> : null}
+            {result.newBalanceCents !== null ? (
+              <p>Le quedan {formatEur(result.newBalanceCents, { compact: true })}</p>
+            ) : null}
+          </>
+        }
+        primary={{ label: 'Nuevo cobro del saldo', onClick: onAgain }}
+      />
+    );
+  }
+
+  if (status === 'REJECTED' || status === 'EXPIRED') {
+    return (
+      <StaffOutcome
+        kind={status === 'REJECTED' ? 'failed' : 'expired'}
+        amountCents={charge.amountCents}
+        message={`${text.title}.`}
+        detail={charge.serviceName ? <p>{charge.serviceName}</p> : null}
+        primary={{ label: 'Otro QR · mismo importe', onClick: () => void retry(), loading: retrying }}
+        secondary={{ label: 'Elegir otro servicio', onClick: onAgain, disabled: retrying }}
+        error={retryError}
+      />
+    );
+  }
+
   return (
     <Card style={{ ...cardStyle, textAlign: 'center' }}>
       <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: text.color }}>{text.title}</p>
@@ -479,7 +560,7 @@ const cardStyle: CSSProperties = {
 
 const kicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.75rem',
+  fontSize: 'var(--np-t-label)',
   fontWeight: 700,
   letterSpacing: '0.12em',
   textTransform: 'uppercase',

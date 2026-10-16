@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import type { PaymentStatus } from '@nightpay/contracts';
-import { fetchPaymentStatus, freshAccessToken, wsBase } from '@/lib/api';
+import { fetchPaymentStatus, freshAccessToken, ServerUnavailableError, wsBase } from '@/lib/api';
 import { isFinalStatus } from '@/lib/payment-status';
 import { createPoller } from '@/lib/poller';
 
@@ -20,6 +20,13 @@ export interface PaymentUpdate {
   tipCents?: number;
 }
 
+export interface PaymentLiveState {
+  /** El tiempo real (socket) está conectado. */
+  live: boolean;
+  /** Se habla con el API: con el socket o, si está caído, con el sondeo (su última respuesta llegó). */
+  reachable: boolean;
+}
+
 const isHidden = (): boolean => document.visibilityState === 'hidden';
 
 /**
@@ -27,13 +34,15 @@ const isHidden = (): boolean => document.visibilityState === 'hidden';
  * que pregunta a menudo cuando el socket está caído. Al (re)conectar se pide
  * el estado: un «pagado» emitido sin conexión no se pierde. Solo depende del
  * id del cobro: re-renders de la pantalla no tiran el socket.
- * Devuelve si el tiempo real está conectado (para el «Reconectando…»).
+ * Devuelve si el tiempo real está conectado y si se llega al API (para el
+ * aviso de conexión de arriba).
  */
 export function usePaymentLive(
   payment: { id: string; qrToken: string } | null,
   onUpdate: (update: PaymentUpdate) => void,
-): boolean {
+): PaymentLiveState {
   const [connected, setConnected] = useState(true);
+  const [pollOk, setPollOk] = useState(true);
   const onUpdateRef = useRef(onUpdate);
   useEffect(() => {
     onUpdateRef.current = onUpdate;
@@ -50,6 +59,7 @@ export function usePaymentLive(
     let closed = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
     setConnected(true);
+    setPollOk(true);
 
     const emit = (update: PaymentUpdate) => {
       if (isFinalStatus(update.status)) final = true;
@@ -62,8 +72,15 @@ export function usePaymentLive(
       isHidden,
       task: async (signal) => {
         if (final) return 'stop';
-        const current = await fetchPaymentStatus(qrToken, signal);
-        if (current.id === id) emit({ status: current.status });
+        try {
+          const current = await fetchPaymentStatus(qrToken, signal);
+          if (!closed) setPollOk(true);
+          if (current.id === id) emit({ status: current.status });
+        } catch (err) {
+          // Sin respuesta, 5xx o 429: el API no contesta (otro error no dice eso).
+          if (!closed && err instanceof ServerUnavailableError) setPollOk(false);
+          throw err;
+        }
         return final ? 'stop' : undefined;
       },
     });
@@ -116,5 +133,5 @@ export function usePaymentLive(
     };
   }, [id, qrToken]);
 
-  return connected;
+  return { live: connected, reachable: connected || pollOk };
 }

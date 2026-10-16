@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 import type { TabKey } from '@/lib/roles';
+import { TAB_BAR_HEIGHT } from './layout';
 
 const TAB_LABEL: Record<TabKey, string> = {
   home: 'Inicio',
@@ -106,23 +107,25 @@ const ICON_PATHS: Record<TabKey, ReactNode> = {
   ),
 };
 
+// Alto fijo (TAB_BAR_HEIGHT): el botón de cobrar se queda pegado justo encima.
+// Etiquetas a 0.8125rem y sin mayúsculas: «Ganancias» cabe en 4 pestañas a 320 px.
 const tabBtnStyle: CSSProperties = {
   background: 'transparent',
   border: 'none',
   flex: 1,
-  // 44px+ touch target en iOS — min-height fuerza zona tap aunque
-  // padding pierda al safe-area-inset.
-  minHeight: '3rem',
-  padding: '0.625rem 0',
+  minWidth: 0,
+  height: TAB_BAR_HEIGHT,
+  padding: '0.5rem 0',
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
+  justifyContent: 'center',
   gap: '0.25rem',
   cursor: 'pointer',
-  fontSize: '0.7rem',
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  fontWeight: 500,
+  fontSize: 'var(--np-t-label)',
+  lineHeight: 1.2,
+  letterSpacing: '0.01em',
+  fontWeight: 600,
 };
 
 const tabBarStyle: CSSProperties = {

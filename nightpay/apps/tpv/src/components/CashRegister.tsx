@@ -1,13 +1,28 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input, Logo, Select, ThemeToggle } from '@nightpay/ui';
-import { parseEuroCents } from '@nightpay/contracts';
+import {
+  AmountKeypad,
+  Button,
+  Card,
+  ConnectionBanner,
+  Logo,
+  Select,
+  SERVER_DOWN_GRACE_MS,
+  ThemeToggle,
+  classifyConnection,
+  formatEur,
+  useDelayedFlag,
+  useNow,
+  useOnline,
+  type PaymentStatus,
+} from '@nightpay/ui';
+import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { createPayment, fetchTerminals, logout as apiLogout, type CreatedPayment } from '@/lib/api';
 import { attemptFor, chargeFingerprint, type ChargeAttempt } from '@/lib/charge-attempt';
 import { unlockBeep } from '@/lib/beep';
 import { usePaymentStatus } from '@/lib/usePaymentStatus';
-import { ActivePayment } from './ActivePayment';
+import { ActivePayment, FINISHED_STATUSES } from './ActivePayment';
 
 interface Props {
   venueSlug: string;
@@ -20,17 +35,30 @@ interface Terminal {
   label: string;
 }
 
+/** El cobro en pantalla y el terminal con el que se creó (para repetirlo igual). */
+interface Active {
+  payment: CreatedPayment;
+  terminalExternalId: string;
+}
+
 export function CashRegister({ venueSlug, onLogout }: Props) {
   const [terminals, setTerminals] = useState<Terminal[]>([]);
   const [terminal, setTerminal] = useState<string>('');
-  const [amount, setAmount] = useState('');
-  const [active, setActive] = useState<CreatedPayment | null>(null);
+  // Importe del teclado propio, en céntimos (0: aún nada).
+  const [amountCents, setAmountCents] = useState(0);
+  const [active, setActive] = useState<Active | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   // Intento en curso: la misma Idempotency-Key si se reintenta lo mismo.
   const attemptRef = useRef<ChargeAttempt | null>(null);
-  const { status, live } = usePaymentStatus(active);
+  // «Otro QR · mismo importe»: una clave por cobro que se repite (dos clics, un cobro).
+  const retryRef = useRef<ChargeAttempt | null>(null);
+  const inFlight = useRef(false);
+  const { status, live } = usePaymentStatus(active?.payment ?? null);
+  const issue = useConnectionIssue(active !== null, status, live);
 
   useEffect(() => {
     fetchTerminals()
@@ -41,38 +69,62 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
       .catch((err) => setError((err as Error).message));
   }, []);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e?: FormEvent) {
+    e?.preventDefault();
+    if (inFlight.current) return;
     if ('vibrate' in navigator) navigator.vibrate(15);
     // Gesto de la cajera: deja listo el audio para el pitido de "pagado".
     unlockBeep();
     setError(null);
-    const cents = parseEuroCents(amount);
-    if (cents === null) {
-      setError('Importe inválido');
+    if (amountCents <= 0) {
+      setError('Pon el importe');
       return;
     }
     if (!terminal) {
       setError('Selecciona un terminal');
       return;
     }
-    const attempt = attemptFor(attemptRef.current, chargeFingerprint(cents, terminal));
+    const attempt = attemptFor(attemptRef.current, chargeFingerprint(amountCents, terminal));
     attemptRef.current = attempt;
+    inFlight.current = true;
     setSubmitting(true);
     try {
-      const created = await createPayment({ amountCents: cents, terminalExternalId: terminal }, attempt.key);
+      const created = await createPayment({ amountCents, terminalExternalId: terminal }, attempt.key);
       attemptRef.current = null;
-      setActive(created);
+      setActive({ payment: created, terminalExternalId: terminal });
     } catch (err) {
       setError((err as Error).message);
     } finally {
+      inFlight.current = false;
       setSubmitting(false);
+    }
+  }
+
+  /** Rechazado o caducado: el mismo importe en el mismo terminal, sin teclear. */
+  async function retrySame() {
+    if (!active || inFlight.current) return;
+    unlockBeep();
+    const { payment, terminalExternalId } = active;
+    const attempt = attemptFor(retryRef.current, `otro-qr|${payment.id}`);
+    retryRef.current = attempt;
+    inFlight.current = true;
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const created = await createPayment({ amountCents: payment.amountCents, terminalExternalId }, attempt.key);
+      setActive({ payment: created, terminalExternalId });
+    } catch (err) {
+      setRetryError((err as Error).message);
+    } finally {
+      inFlight.current = false;
+      setRetrying(false);
     }
   }
 
   function newCharge() {
     setActive(null);
-    setAmount('');
+    setAmountCents(0);
+    setRetryError(null);
   }
 
   async function logout() {
@@ -81,17 +133,9 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
   }
 
   return (
-    <main
-      className="np-app-root np-screen"
-      style={{
-        padding: '1.5rem',
-        maxWidth: '64rem',
-        margin: '0 auto',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1.5rem',
-      }}
-    >
+    <main className="np-app-root np-screen" style={mainStyle}>
+      {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
+      <ConnectionBanner issue={issue} style={{ margin: '-1.5rem -1.5rem 0' }} />
       <header style={headerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <Logo height="2rem" />
@@ -111,10 +155,18 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
       </header>
 
       {active ? (
-        <ActivePayment payment={active} status={status} live={live} onDone={newCharge} />
+        <ActivePayment
+          key={active.payment.id}
+          payment={active.payment}
+          status={status}
+          onDone={newCharge}
+          onRetry={() => void retrySame()}
+          retrying={retrying}
+          retryError={retryError}
+        />
       ) : (
-        <Card variant="glow" style={{ padding: '2rem', maxWidth: '32rem', margin: '2rem auto', width: '100%' }}>
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <Card variant="glow" style={formCardStyle}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <Select
               label="Terminal"
               value={terminal}
@@ -129,21 +181,24 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
               ))}
             </Select>
 
-            <Input
-              label="Importe (€)"
-              type="text"
-              inputMode="decimal"
-              placeholder="48,50"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-              size="lg"
-              autoFocus
-              style={{ textAlign: 'center', fontFamily: 'var(--np-font-mono)' }}
+            {/* Teclado propio (en céntimos): en la tablet no sale el del sistema.
+                Con teclado físico también vale: cifras, Retroceso e Intro. */}
+            <AmountKeypad
+              valueCents={amountCents}
+              onChange={setAmountCents}
+              maxCents={MAX_TYPED_AMOUNT_CENTS}
+              disabled={submitting}
+              captureKeyboard
+              onEnter={() => void handleSubmit()}
             />
 
-            <Button type="submit" loading={submitting} disabled={terminals.length === 0} size="lg">
-              Cobrar
+            <Button
+              type="submit"
+              loading={submitting}
+              disabled={terminals.length === 0 || amountCents <= 0}
+              size="lg"
+            >
+              {amountCents > 0 ? `Cobrar ${formatEur(amountCents)}` : 'Cobrar'}
             </Button>
 
             {error ? (
@@ -157,6 +212,42 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
     </main>
   );
 }
+
+/**
+ * Qué falla, para la franja de arriba: sin internet; el socket caído con un
+ * cobro abierto (el TPV no sabría que se ha pagado); o el banco tardando.
+ */
+function useConnectionIssue(hasCharge: boolean, status: PaymentStatus | null, live: boolean | null) {
+  const online = useOnline();
+  const open = hasCharge && status !== null && !FINISHED_STATUSES.has(status);
+  const serverDown = useDelayedFlag(open && live === false, SERVER_DOWN_GRACE_MS);
+  const [authorizingSince, setAuthorizingSince] = useState<number | null>(null);
+  useEffect(() => {
+    setAuthorizingSince((since) => (status === 'AUTHORIZING' ? (since ?? Date.now()) : null));
+  }, [status]);
+  const now = useNow(authorizingSince !== null);
+  return classifyConnection(
+    { online, serverDown, bankWaitingSinceMs: authorizingSince, orphan: status === 'ORPHAN' },
+    now,
+    'register',
+  );
+}
+
+const mainStyle: CSSProperties = {
+  padding: '1.5rem',
+  maxWidth: '64rem',
+  margin: '0 auto',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1.5rem',
+};
+
+const formCardStyle: CSSProperties = {
+  padding: '1.5rem',
+  maxWidth: '30rem',
+  margin: '0.5rem auto',
+  width: '100%',
+};
 
 const headerStyle: CSSProperties = {
   display: 'flex',
@@ -175,7 +266,7 @@ const brandLabel: CSSProperties = {
 
 const brandSub: CSSProperties = {
   margin: '0.25rem 0 0',
-  fontSize: '0.75rem',
+  fontSize: 'var(--np-t-label)',
   color: 'var(--np-text-mute)',
 };
 
@@ -184,12 +275,13 @@ const code: CSSProperties = {
   background: 'var(--np-surface-2)',
   padding: '0.1rem 0.4rem',
   borderRadius: '4px',
-  fontSize: '0.75rem',
+  fontSize: 'var(--np-t-label)',
 };
 
 const errStyle: CSSProperties = {
   color: 'var(--np-danger)',
   margin: 0,
   textAlign: 'center',
-  fontSize: '0.875rem',
+  fontSize: '0.9375rem',
+  fontWeight: 600,
 };

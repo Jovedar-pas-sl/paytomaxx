@@ -158,13 +158,13 @@ const cardStyle: CSSProperties = {
 };
 
 const timeStyle: CSSProperties = {
-  fontSize: '0.75rem',
-  color: 'var(--np-text-dim)',
+  fontSize: 'var(--np-t-label)',
+  color: 'var(--np-text-mute)',
 };
 
 const smallMeta: CSSProperties = {
   margin: 0,
-  fontSize: '0.75rem',
+  fontSize: 'var(--np-t-label)',
   color: 'var(--np-text-mute)',
 };
 

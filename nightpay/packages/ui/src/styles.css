@@ -2,6 +2,10 @@
    Dark es el tema principal (salas con poca luz); light a juego.
    Imported once from each app's root layout. */
 
+/* Componentes de las apps del personal (resultado, aviso de conexión, teclado
+   de importe, cuenta atrás del QR). @import va antes de cualquier regla. */
+@import './staff.css';
+
 :root {
   /* Spacing — 4px base */
   --np-s-1: 0.25rem;
@@ -27,6 +31,8 @@
   --np-t-h3: 1.375rem;
   --np-t-body: 1rem;
   --np-t-ui: 0.9375rem;
+  /* Mínimo para etiquetas pequeñas (kickers, pestañas): 0.8125rem ≈ 13,8 px. */
+  --np-t-label: 0.8125rem;
 
   /* Motion */
   --np-ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -39,6 +45,16 @@
     var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --np-font-mono:
     var(--font-mono), 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+
+  /* Resultado a pantalla completa y aviso de conexión: iguales en los dos
+     temas (son señales, no decoración). Tinta negra encima: lima 17:1,
+     rojo 6,4:1, ámbar 10,8:1. */
+  --np-outcome-ink: #0b0b0b;
+  --np-outcome-paid: #d4ff3a;
+  --np-outcome-failed: #ff5a5f;
+  --np-outcome-expired: #ffb020;
+  --np-banner-bg: #ffb020;
+  --np-banner-ink: #0b0b0b;
 }
 
 :root,
@@ -54,6 +70,8 @@
   --np-text: #f5f5f0;
   --np-text-mute: #b4b4ac;
   --np-text-dim: #8a8a83;
+  /* Etiquetas pequeñas: 11,7:1 sobre --np-bg, 10:1 sobre --np-surface-2. */
+  --np-text-label: #c8c8c0;
 
   /* Accent — lima. Siempre con texto negro encima (--np-on-accent). */
   --np-accent: #d4ff3a;
@@ -93,6 +111,8 @@
   --np-text: #0b0b0b;
   --np-text-mute: #4a4a45;
   --np-text-dim: #66665f;
+  /* 9,9:1 sobre --np-bg. */
+  --np-text-label: #3d3d38;
 
   /* En claro la lima no se lee como texto: acento = negro, con lima encima. */
   --np-accent: #0b0b0b;

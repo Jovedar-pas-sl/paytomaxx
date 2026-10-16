@@ -11,7 +11,7 @@ import {
   type PendingPosPayment,
   type ZoneOption,
 } from '@/lib/api';
-import { playAlertBeep } from '@/lib/alert-sound';
+import { isAlertSoundMuted, playAlertBeep, setAlertSoundMuted } from '@/lib/alert-sound';
 import { formatEur, formatEurAmount } from '@/lib/money';
 import { newArrivals } from '@/lib/pending-pos';
 import { usePolling } from '@/lib/use-polling';
@@ -54,7 +54,7 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
   // M3: sound + vibrate cuando llega un cobro pendiente nuevo. Sin esto
   // el camarero tiene que mirar la pantalla constantemente.
   // Mute state persiste en localStorage para que cada usuario decida.
-  const [muted, setMuted] = useState(readMuted);
+  const [muted, setMuted] = useState(isAlertSoundMuted);
   // IDs ya vistos (null: aún no hay primera carga de esta zona).
   const seenIds = useRef<Set<string> | null>(null);
 
@@ -67,11 +67,7 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
   function toggleMute(): void {
     const next = !muted;
     setMuted(next);
-    try {
-      window.localStorage.setItem(MUTED_KEY, next ? '1' : '0');
-    } catch {
-      // Sin almacenamiento: vale para esta sesión.
-    }
+    setAlertSoundMuted(next);
   }
 
   // Cada vuelta usa el estado de ahora (usePolling): zona, silencio y seleccionado.
@@ -228,7 +224,7 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
                 </div>
                 <p className="np-num" style={amountStyle}>
                   {formatEurAmount(p.amountCents)}
-                  <span style={{ fontSize: '0.7rem', color: 'var(--np-text-mute)' }}> €</span>
+                  <span style={{ fontSize: 'var(--np-t-label)', color: 'var(--np-text-mute)' }}> €</span>
                 </p>
               </button>
             </li>
@@ -240,15 +236,6 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
 }
 
 const POLL_MS = 5000;
-const MUTED_KEY = 'np-pending-pos-muted';
-
-function readMuted(): boolean {
-  try {
-    return window.localStorage.getItem(MUTED_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
 
 function ConfirmForm({
   payment,
@@ -326,7 +313,7 @@ function ConfirmForm({
             .map((c) => (c === '.' ? '·' : c))
             .join(' ')}
         </p>
-        <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
+        <p style={{ margin: '0.25rem 0 0', fontSize: 'var(--np-t-label)', color: 'var(--np-text-mute)' }}>
           Chica: {payment.createdByName}
         </p>
       </div>
@@ -513,7 +500,7 @@ const zoneBadgeStyle: CSSProperties = {
   background: 'var(--np-surface-2)',
   border: '1px solid var(--np-border)',
   color: 'var(--np-text-mute)',
-  fontSize: '0.7rem',
+  fontSize: 'var(--np-t-label)',
   fontWeight: 500,
   fontFamily: 'var(--np-font-sans)',
   letterSpacing: '0.02em',
@@ -528,7 +515,7 @@ const titleStyle: CSSProperties = {
 
 const hintStyle: CSSProperties = {
   margin: '0.25rem 0 0',
-  fontSize: '0.78rem',
+  fontSize: 'var(--np-t-label)',
   color: 'var(--np-text-mute)',
 };
 
@@ -587,7 +574,7 @@ const refStyle: CSSProperties = {
 
 const metaStyle: CSSProperties = {
   margin: '0.2rem 0 0',
-  fontSize: '0.72rem',
+  fontSize: 'var(--np-t-label)',
   color: 'var(--np-text-mute)',
 };
 
@@ -642,8 +629,8 @@ const confirmPillStyle: CSSProperties = {
 };
 
 const kickerStyle: CSSProperties = {
-  fontSize: '0.7rem',
-  color: 'var(--np-text-dim)',
+  fontSize: 'var(--np-t-label)',
+  color: 'var(--np-text-label)',
   textTransform: 'uppercase',
   letterSpacing: '0.1em',
 };

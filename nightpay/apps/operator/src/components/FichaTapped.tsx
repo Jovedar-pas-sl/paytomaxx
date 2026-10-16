@@ -6,12 +6,14 @@ import { linkWalletCard, lookupWalletCard, payWalletChargeWithPin, type WalletLo
 import { clearFichaContext, readFichaContext, type FichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { PinPad } from './PinPad';
+import { StaffOutcome } from './StaffOutcome';
 
 type View =
   | { kind: 'loading' }
   | { kind: 'confirm'; code: string }
   | { kind: 'pin'; wallet: WalletLookup; ctx: Extract<FichaContext, { kind: 'cobro' }> }
   | { kind: 'info'; wallet: WalletLookup }
+  | { kind: 'paid'; amountCents: number; serviceName: string | null; newBalanceCents: number | null }
   | { kind: 'done'; text: string; ok: boolean };
 
 /**
@@ -103,16 +105,32 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
         onPin={async (pin) => {
           const r = await payWalletChargeWithPin(ctx.chargeId, { card: token }, pin);
           clearFichaContext((c) => c.kind === 'cobro' && c.chargeId === ctx.chargeId);
-          setView({
-            kind: 'done',
-            ok: r.status === 'ACCEPTED',
-            text:
-              r.status === 'ACCEPTED'
-                ? `✓ Cobrado del saldo${r.newBalanceCents !== null ? ` · le quedan ${formatEur(r.newBalanceCents, { compact: true })}` : ''}`
-                : 'Este cobro ya no estaba pendiente',
-          });
+          setView(
+            r.status === 'ACCEPTED'
+              ? { kind: 'paid', amountCents: ctx.amountCents, serviceName: ctx.serviceName, newBalanceCents: r.newBalanceCents }
+              : { kind: 'done', ok: false, text: 'Este cobro ya no estaba pendiente' },
+          );
           return null;
         }}
+      />
+    );
+  }
+
+  if (view.kind === 'paid') {
+    return (
+      <StaffOutcome
+        kind="paid"
+        amountCents={view.amountCents}
+        message="Cobrado del saldo."
+        detail={
+          <>
+            {view.serviceName ? <p>{view.serviceName}</p> : null}
+            {view.newBalanceCents !== null ? (
+              <p>Le quedan {formatEur(view.newBalanceCents, { compact: true })}</p>
+            ) : null}
+          </>
+        }
+        primary={{ label: 'Listo', onClick: onClose }}
       />
     );
   }
@@ -152,7 +170,7 @@ const cardStyle: CSSProperties = {
 
 const kicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.75rem',
+  fontSize: 'var(--np-t-label)',
   fontWeight: 700,
   letterSpacing: '0.12em',
   textTransform: 'uppercase',

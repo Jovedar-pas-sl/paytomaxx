@@ -1,11 +1,26 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
-import { AmountDisplay, Button, Card, StatusPill, type PaymentStatus } from '@nightpay/ui';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import {
+  AmountDisplay,
+  Button,
+  Card,
+  PaymentOutcome,
+  QrCountdown,
+  StatusPill,
+  effectiveStatus,
+  isPreCobro,
+  outcomeKindOf,
+  qrDeadline,
+  useNow,
+  useWakeLock,
+  type PaymentStatus,
+  type QrDeadline,
+} from '@nightpay/ui';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
 
 /** Estados en los que el QR ya no se puede pagar: basta con "Nuevo cobro". */
-const FINISHED: ReadonlySet<PaymentStatus> = new Set<PaymentStatus>([
+export const FINISHED_STATUSES: ReadonlySet<PaymentStatus> = new Set<PaymentStatus>([
   'AUTHORIZED',
   'FAILED',
   'EXPIRED',
@@ -17,22 +32,36 @@ const FINISHED: ReadonlySet<PaymentStatus> = new Set<PaymentStatus>([
 interface Props {
   payment: CreatedPayment;
   status: PaymentStatus | null;
-  live: boolean | null;
   /** Vuelve al formulario para un cobro nuevo. */
   onDone: () => void;
+  /** «Otro QR · mismo importe» (rechazado o caducado): otro cobro igual, sin teclear. */
+  onRetry: () => void;
+  retrying: boolean;
+  retryError: string | null;
 }
 
 /**
- * El cobro en curso: QR, importe y estado. Si aún se puede pagar, "Cancelar
- * cobro" lo anula en el API antes de volver al formulario: si no, el QR
- * anterior seguiría pagándose. Si no se puede anular, se dice y la cajera
- * decide.
+ * El cobro en curso: QR con su cuenta atrás, importe y estado; al terminar,
+ * el resultado a pantalla completa. Si aún se puede pagar, "Cancelar cobro"
+ * lo anula en el API antes de volver al formulario: si no, el QR anterior
+ * seguiría pagándose. Si no se puede anular, se dice y la cajera decide.
+ * Mientras está abierto, la pantalla no se apaga.
  */
-export function ActivePayment({ payment, status, live, onDone }: Props) {
-  const current = status ?? 'CREATED';
-  const finished = FINISHED.has(current);
+export function ActivePayment({ payment, status, onDone, onRetry, retrying, retryError }: Props) {
   const [canceling, setCanceling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // El plazo cuenta desde que llegó la respuesta, con la duración que dio el servidor.
+  const [receivedAt] = useState(() => Date.now());
+  const deadline = useMemo(
+    () => qrDeadline(payment.qrExpiresAt, receivedAt, payment.createdAt),
+    [payment.qrExpiresAt, payment.createdAt, receivedAt],
+  );
+  const current = status ?? 'CREATED';
+  const now = useNow(isPreCobro(current));
+  // Sin socket no llega el «caducado»: pasado su plazo, se ve igual.
+  const shown = effectiveStatus(current, deadline, now);
+  const finished = FINISHED_STATUSES.has(shown);
+  useWakeLock(!finished);
 
   async function cancel() {
     setCanceling(true);
@@ -46,19 +75,38 @@ export function ActivePayment({ payment, status, live, onDone }: Props) {
     }
   }
 
+  const outcome = outcomeKindOf(shown);
+  if (outcome) {
+    return (
+      <PaymentOutcome
+        key={outcome}
+        kind={outcome}
+        amountCents={payment.amountCents}
+        currency={payment.currency}
+        message={outcome === 'failed' ? 'Que el cliente pruebe con otra tarjeta.' : undefined}
+        code={outcome === 'paid' ? confirmationCode(payment.id) : null}
+        codeHint="Debe coincidir con el del móvil del cliente."
+        primary={
+          outcome === 'paid'
+            ? { label: 'Nuevo cobro', onClick: onDone }
+            : { label: 'Otro QR · mismo importe', onClick: onRetry, loading: retrying }
+        }
+        secondary={outcome === 'paid' ? undefined : { label: 'Nuevo cobro', onClick: onDone, disabled: retrying }}
+        error={outcome === 'paid' ? null : retryError}
+      />
+    );
+  }
+
   return (
     <div style={gridStyle}>
-      <QrCard payment={payment} />
+      <QrCard payment={payment} deadline={isPreCobro(shown) ? deadline : null} now={now} />
 
       <Card variant="glow" style={{ padding: '2rem', textAlign: 'center' }}>
         <p style={sectionLabel}>Importe</p>
-        <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={current} />
+        <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={shown} />
         <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-          <StatusPill status={current} />
+          <StatusPill status={shown} />
         </div>
-        {live === false && !finished ? (
-          <p style={hintStyle}>Sin conexión en directo: el estado puede tardar en cambiar.</p>
-        ) : null}
         <div style={actionsStyle}>
           {finished ? (
             <Button variant="ghost" size="md" onClick={onDone}>
@@ -86,9 +134,14 @@ export function ActivePayment({ payment, status, live, onDone }: Props) {
   );
 }
 
+/** Mismo código que ve el cliente en su pantalla "Pagado" (últimos 3 del id). */
+function confirmationCode(paymentId: string): string {
+  return paymentId.replace(/-/g, '').slice(-3).toUpperCase();
+}
+
 type CopyState = 'idle' | 'copied' | 'failed';
 
-function QrCard({ payment }: { payment: CreatedPayment }) {
+function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline: QrDeadline | null; now: number }) {
   const [copy, setCopy] = useState<CopyState>('idle');
 
   useEffect(() => {
@@ -111,8 +164,12 @@ function QrCard({ payment }: { payment: CreatedPayment }) {
     <Card style={{ padding: '2rem' }}>
       <p style={sectionLabel}>QR del cobro</p>
       {/* Fondo blanco en los dos temas: el lector del móvil lo necesita para leer el QR. */}
-      <div style={qrBox}>
-        <img src={payment.qrPngDataUrl} alt="QR del cobro" style={qrImg} />
+      <div style={{ marginTop: '1rem' }}>
+        <QrCountdown deadline={deadline} nowMs={now}>
+          <div style={qrBox}>
+            <img src={payment.qrPngDataUrl} alt="QR del cobro" style={qrImg} />
+          </div>
+        </QrCountdown>
       </div>
       <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         <p style={sectionLabel}>URL</p>
@@ -135,16 +192,15 @@ const gridStyle: CSSProperties = {
 };
 
 const sectionLabel: CSSProperties = {
-  fontSize: '0.7rem',
-  fontWeight: 500,
-  color: 'var(--np-text-dim)',
+  fontSize: 'var(--np-t-label)',
+  fontWeight: 600,
+  color: 'var(--np-text-label)',
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
   margin: 0,
 };
 
 const qrBox: CSSProperties = {
-  marginTop: '1rem',
   background: 'white',
   borderRadius: 'var(--np-r-md)',
   padding: '1rem',
@@ -160,7 +216,7 @@ const urlCode: CSSProperties = {
   alignItems: 'center',
   padding: '0 0.875rem',
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.75rem',
+  fontSize: 'var(--np-t-label)',
   background: 'var(--np-bg)',
   color: 'var(--np-text-mute)',
   border: '1px solid var(--np-border)',
@@ -187,6 +243,6 @@ const errStyle: CSSProperties = {
 
 const hintStyle: CSSProperties = {
   margin: '0.75rem 0 0',
-  fontSize: '0.8125rem',
-  color: 'var(--np-text-dim)',
+  fontSize: '0.875rem',
+  color: 'var(--np-text-mute)',
 };

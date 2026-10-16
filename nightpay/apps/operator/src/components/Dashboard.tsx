@@ -7,10 +7,12 @@ import type { OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { roleAccess, type TabKey } from '@/lib/roles';
 import { ChargeFromBalance } from './ChargeFromBalance';
+import { ConnectionStatus } from './ConnectionStatus';
 import { useDeepLinks, useOwnBalance, type PollError } from './dashboard-hooks';
 import { Earnings } from './Earnings';
 import { FichaTapped } from './FichaTapped';
 import { HomeTab } from './HomeTab';
+import { TAB_BAR_HEIGHT } from './layout';
 import { MyPayments } from './MyPayments';
 import { PendingPos } from './PendingPos';
 import { TabBar } from './TabBar';
@@ -33,9 +35,10 @@ export function Dashboard({ user, onLogout }: Props) {
     if (links.focusedPosId) setTab('pos');
   }, [links.focusedPosId]);
 
-  // Quien confirma el datáfono: el pitido de cobro nuevo queda listo con su
-  // primer toque en la app (iPhone no suena sin uno) y se cierra al salir.
-  useEffect(() => (access.posQueue ? primeAlertSound() : undefined), [access.posQueue]);
+  // El sonido (cobro pagado o fallido; y el pitido de cobro nuevo en el POS)
+  // queda listo con el primer toque en la app (iPhone no suena sin uno) y se
+  // cierra al salir.
+  useEffect(() => primeAlertSound(), []);
 
   function logout() {
     clearFichaContext();
@@ -46,6 +49,8 @@ export function Dashboard({ user, onLogout }: Props) {
 
   return (
     <main className="np-app-root np-screen" style={mainStyle}>
+      {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
+      <ConnectionStatus serverDown={own.error?.transient === true} />
       <header style={headerStyle}>
         <Logo height="1.75rem" />
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
@@ -56,7 +61,7 @@ export function Dashboard({ user, onLogout }: Props) {
         </div>
       </header>
 
-      {own.error ? <PollErrorBanner error={own.error} /> : null}
+      {own.error && !own.error.transient ? <PollErrorBanner error={own.error} /> : null}
 
       {links.ficha ? (
         <FichaTapped
@@ -96,12 +101,11 @@ function TabPanel({ visible, children }: { visible: boolean; children: ReactNode
   );
 }
 
-/** Servidor caído: aviso en ámbar (se reintenta solo); otro fallo: en rojo. */
+/** Un fallo que no se arregla solo (el servidor caído ya lo dice la franja de arriba). */
 function PollErrorBanner({ error }: { error: PollError }) {
-  const color = error.transient ? 'var(--np-warning)' : 'var(--np-danger)';
   return (
-    <Card role="alert" style={{ padding: '0.875rem', borderColor: color }}>
-      <p style={{ color, margin: 0, fontSize: '0.85rem' }}>{error.text}</p>
+    <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
+      <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.9375rem' }}>{error.text}</p>
     </Card>
   );
 }
@@ -111,7 +115,7 @@ const mainStyle: CSSProperties = {
   flexDirection: 'column',
   // Padding bottom = altura nav + safe-area home indicator iOS.
   // Sin esto los iPhones modernos solapan la barra home con la tab bar.
-  padding: '1rem 1rem calc(5rem + env(safe-area-inset-bottom))',
+  padding: `1rem 1rem calc(${TAB_BAR_HEIGHT} + 1rem + env(safe-area-inset-bottom))`,
   gap: '1rem',
   maxWidth: '32rem',
   margin: '0 auto',
