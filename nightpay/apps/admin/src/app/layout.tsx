@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import localFont from 'next/font/local';
 import '@nightpay/ui/styles.css';
 // Estilos del panel, después de los de @nightpay/ui (pueden ajustar .np-table).
+import '../styles/panel-nav.css';
 import '../styles/panel-tables.css';
 
 // Fuentes dentro del repo (packages/ui/fonts, licencia OFL): el build no
