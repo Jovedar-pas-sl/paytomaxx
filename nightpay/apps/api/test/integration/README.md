@@ -17,6 +17,7 @@ probarían nada de eso.
 | `cuadre-banco.int.spec.ts` | Importar el fichero de Redsys, clasificar líneas, Incidencias |
 | `consumos-informes.int.spec.ts` | Consumos del saldo en informes y en «Mi noche» |
 | `super-admin.int.spec.ts` | Super-admin con otro local activo |
+| `superadmin.int.spec.ts` | Consola del super-admin: vista general de dos locales de dos negocios, búsqueda de clientes en todos los locales (FORCE RLS), saldo bloqueado, pausa (423) con 2FA de verdad, personal, cuentas de cobro y registro |
 
 ## Lanzarlas en local
 
