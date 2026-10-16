@@ -31,6 +31,7 @@ function makeService(opts: { open?: ReturnType<typeof night> | null; pending?: u
   };
   Object.assign(prisma, {
     asSystem: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma)),
+    withTenant: vi.fn().mockImplementation(async (_tenantId: string, fn: (tx: unknown) => unknown) => fn(prisma)),
   });
   const reports = {
     cobros: vi.fn().mockResolvedValue([]),

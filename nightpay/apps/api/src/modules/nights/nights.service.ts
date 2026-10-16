@@ -244,7 +244,7 @@ export class NightsService {
     // Para la chica, desde que se abrió la noche (el Z del local cuenta desde el cierre anterior).
     const from = night?.openedAt ?? lastNightCutoff(now);
     const to = last?.closedAt ?? now;
-    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{ count: number; chargedCents: number; commissionCents: number; tipsCents: number; reversedCents: number }>
     >`
       SELECT COUNT(*)::int AS count,

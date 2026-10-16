@@ -330,12 +330,12 @@ export class WalletsService {
 
   /**
    * Stats agregadas para el panel. "Hoy" es el día de Madrid (desde sus 00:00).
-   * Con bypass de RLS (client_wallets y wallet_consumptions lo tienen forzado)
-   * y el local filtrado a mano.
+   * Con el local en la sesión (client_wallets y wallet_consumptions tienen RLS
+   * forzado) y, además, filtrado a mano.
    */
   async getAdminStats(tenantId: string): Promise<WalletsAdminStats> {
     const todayStart = madridStartOfDay(madridDay());
-    return this.prisma.asSystem(async (tx) => {
+    return this.prisma.withTenant(tenantId, async (tx) => {
       const activeRows = await tx.$queryRaw<Array<{ count: bigint; totalBalance: bigint }>>`
         SELECT COUNT(*)::bigint AS count, COALESCE(SUM("balanceCents"),0)::bigint AS "totalBalance"
           FROM client_wallets
