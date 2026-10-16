@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { AmountKeypad, Button, Card, Input } from '@nightpay/ui';
 import {
@@ -44,8 +44,9 @@ interface Props {
 
 type CobroMode = 'qr' | 'wallet' | 'pos';
 
+// Cortos: los tres caben en una línea a 320 px (el título de arriba ya dice el modo entero).
 const MODES: ReadonlyArray<{ mode: CobroMode; label: string }> = [
-  { mode: 'qr', label: 'QR cliente' },
+  { mode: 'qr', label: 'QR' },
   { mode: 'wallet', label: 'Wallet' },
   { mode: 'pos', label: 'Datáfono' },
 ];
@@ -90,6 +91,8 @@ export function CreatePayment({ role, onCreated }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  // El botón de cobrar vive fuera de la tarjeta (pegado abajo): se une al formulario por su id.
+  const formId = useId();
 
   useEffect(() => {
     fetchTerminals()
@@ -274,150 +277,156 @@ export function CreatePayment({ role, onCreated }: Props) {
   const amountLabel = cents > 0 ? formatEur(cents, { compact: true }) : null;
 
   return (
-    <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <p style={{ ...kicker, textAlign: 'center' }}>{headline}</p>
+    <>
+      <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <p style={{ ...kicker, textAlign: 'center' }}>{headline}</p>
 
-      {cartaFailed && mode !== 'wallet' ? <CartaRetry onRetry={retryCarta} /> : null}
+        {cartaFailed && mode !== 'wallet' ? <CartaRetry onRetry={retryCarta} /> : null}
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        {usingService ? (
-          <div style={pickedStyle}>
-            <div style={{ minWidth: 0 }}>
-              <p style={{ margin: 0, fontWeight: 700, fontSize: '1.125rem' }}>{serviceLabel(picked as ServiceItem)}</p>
-              <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700 }}>
-                {formatEur((picked as ServiceItem).priceCents, { compact: true })}
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setPicked(null)}
-              style={{ height: '2.75rem', padding: '0 1rem' }}
-            >
-              Cambiar
-            </Button>
-          </div>
-        ) : (
-          // Teclado propio: el del sistema tapaba media pantalla (y el botón).
-          <AmountKeypad
-            valueCents={amountCents}
-            onChange={setAmountCents}
-            maxCents={MAX_TYPED_AMOUNT_CENTS}
-            label={mode === 'wallet' ? 'Importe a cargar' : 'Importe'}
-            disabled={submitting}
-          />
-        )}
-        {picked === 'custom' && mode !== 'wallet' && services.length > 0 ? (
-          <Button type="button" variant="ghost" onClick={() => setPicked(null)}>
-            Volver a la carta
-          </Button>
-        ) : null}
-
-        {/* Categoría — separa cobros de chica vs cobros del local. La chica
-            ve "Mi servicio" + opciones del local; camarero solo ve las del local.
-            Botones de un toque en vez de desplegable. */}
-        {categoryOptions.length > 1 ? (
-        <fieldset style={{ margin: 0, padding: 0, border: 'none' }}>
-          <legend style={fieldLabel}>¿Qué cobras?</legend>
-          <div style={catGridStyle}>
-            {categoryOptions.map((c) => (
-              <button
-                key={c}
-                type="button"
-                aria-pressed={revCategory === c}
-                onClick={() => setRevCategory(c)}
-                style={{ ...catBtnStyle, ...(revCategory === c ? catBtnActiveStyle : {}) }}
-              >
-                {REV_CAT_LABEL[c]}
-              </button>
-            ))}
-          </div>
-          <p style={{ ...hintStyle, marginTop: '0.5rem' }}>
-            {revCategory === 'CHICA_SERVICE'
-              ? 'Va a tus ganancias.'
-              : revCategory === 'EXTRA'
-                ? 'Cobro sin categoría.'
-                : 'Va al local.'}
-          </p>
-        </fieldset>
-        ) : null}
-
-        {mode === 'wallet' ? (
-          <>
-            <Input
-              label="Etiqueta del wallet"
-              type="text"
-              placeholder="Ej: Mesa 3, Pulsera azul, Camisa roja"
-              value={walletIdentifier}
-              onChange={(e) => setWalletIdentifier(e.target.value)}
-              required
-            />
-            <p style={hintStyle}>
-              El cliente paga una vez. Luego le cobras desde la pestaña Saldo.
-            </p>
-          </>
-        ) : mode === 'pos' ? (
-          <>
-            {zones.length > 1 ? (
-              <div>
-                <label htmlFor="zone-select" style={zoneLabelStyle}>
-                  Zona del PAX
-                </label>
-                <select
-                  id="zone-select"
-                  value={selectedZone}
-                  onChange={(e) => setSelectedZone(e.target.value)}
-                  required
-                  style={zoneSelectStyle}
-                >
-                  <option value="">Elige zona…</option>
-                  {zones.map((z) => (
-                    <option key={z.zone} value={z.zone}>
-                      {z.zoneDisplay} ({z.activeCount} PAX)
-                    </option>
-                  ))}
-                </select>
+        <form id={formId} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {usingService ? (
+            <div style={pickedStyle}>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: '1.125rem' }}>{serviceLabel(picked as ServiceItem)}</p>
+                <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700 }}>
+                  {formatEur((picked as ServiceItem).priceCents, { compact: true })}
+                </p>
               </div>
-            ) : zones.length === 1 ? (
-              <p style={{ ...hintStyle, textAlign: 'center' }}>
-                Zona: <strong>{zones[0]!.zoneDisplay}</strong> ({zones[0]!.activeCount} PAX disponibles)
-              </p>
-            ) : null}
-            <p style={hintStyle}>
-              El camarero lo cobra con el datáfono del bar y lo confirma en su app.
-            </p>
-          </>
-        ) : null}
-
-        {/* Abajo y a mano (encima de las pestañas): cómo paga y el botón de cobrar.
-            El selector ya no empuja el botón fuera de la pantalla. */}
-        <div className="np-sticky-action" style={{ bottom: STICKY_ACTION_BOTTOM }}>
-          <div className="np-seg" role="group" aria-label="Cómo paga el cliente">
-            {MODES.map(({ mode: m, label }) => (
-              <button
-                key={m}
+              <Button
                 type="button"
-                className="np-seg-btn"
-                aria-pressed={mode === m}
-                onClick={() => switchMode(m)}
+                variant="ghost"
+                onClick={() => setPicked(null)}
+                style={{ height: '2.75rem', padding: '0 1rem' }}
               >
-                {label}
-              </button>
-            ))}
-          </div>
-          <Button type="submit" size="lg" loading={submitting} disabled={cents <= 0}>
-            {submitLabel(mode, amountLabel)}
-          </Button>
-          {error ? (
-            <p role="alert" style={errorStyle}>
-              {error}
-            </p>
+                Cambiar
+              </Button>
+            </div>
+          ) : (
+            // Teclado propio: el del sistema tapaba media pantalla (y el botón).
+            <AmountKeypad
+              valueCents={amountCents}
+              onChange={setAmountCents}
+              maxCents={MAX_TYPED_AMOUNT_CENTS}
+              label={mode === 'wallet' ? 'Importe a cargar' : 'Importe'}
+              disabled={submitting}
+            />
+          )}
+          {picked === 'custom' && mode !== 'wallet' && services.length > 0 ? (
+            <Button type="button" variant="ghost" onClick={() => setPicked(null)}>
+              Volver a la carta
+            </Button>
           ) : null}
+
+          {/* Categoría — separa cobros de chica vs cobros del local. La chica
+              ve "Mi servicio" + opciones del local; camarero solo ve las del local.
+              Botones de un toque en vez de desplegable. */}
+          {categoryOptions.length > 1 ? (
+          <fieldset style={{ margin: 0, padding: 0, border: 'none' }}>
+            <legend style={fieldLabel}>¿Qué cobras?</legend>
+            <div style={catGridStyle}>
+              {categoryOptions.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-pressed={revCategory === c}
+                  onClick={() => setRevCategory(c)}
+                  style={{ ...catBtnStyle, ...(revCategory === c ? catBtnActiveStyle : {}) }}
+                >
+                  {REV_CAT_LABEL[c]}
+                </button>
+              ))}
+            </div>
+            <p style={{ ...hintStyle, marginTop: '0.5rem' }}>
+              {revCategory === 'CHICA_SERVICE'
+                ? 'Va a tus ganancias.'
+                : revCategory === 'EXTRA'
+                  ? 'Cobro sin categoría.'
+                  : 'Va al local.'}
+            </p>
+          </fieldset>
+          ) : null}
+
+          {mode === 'wallet' ? (
+            <>
+              <Input
+                label="Etiqueta del wallet"
+                type="text"
+                placeholder="Ej: Mesa 3, Pulsera azul, Camisa roja"
+                value={walletIdentifier}
+                onChange={(e) => setWalletIdentifier(e.target.value)}
+                required
+              />
+              <p style={hintStyle}>
+                El cliente paga una vez. Luego le cobras desde la pestaña Saldo.
+              </p>
+            </>
+          ) : mode === 'pos' ? (
+            <>
+              {zones.length > 1 ? (
+                <div>
+                  <label htmlFor="zone-select" style={zoneLabelStyle}>
+                    Zona del PAX
+                  </label>
+                  <select
+                    id="zone-select"
+                    value={selectedZone}
+                    onChange={(e) => setSelectedZone(e.target.value)}
+                    required
+                    style={zoneSelectStyle}
+                  >
+                    <option value="">Elige zona…</option>
+                    {zones.map((z) => (
+                      <option key={z.zone} value={z.zone}>
+                        {z.zoneDisplay} ({z.activeCount} PAX)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : zones.length === 1 ? (
+                <p style={{ ...hintStyle, textAlign: 'center' }}>
+                  Zona: <strong>{zones[0]!.zoneDisplay}</strong> ({zones[0]!.activeCount} PAX disponibles)
+                </p>
+              ) : null}
+              <p style={hintStyle}>
+                El camarero lo cobra con el datáfono del bar y lo confirma en su app.
+              </p>
+            </>
+          ) : null}
+
+        </form>
+      </Card>
+      {/* Abajo y a mano (encima de las pestañas): cómo paga y el botón de cobrar.
+          Fuera de la tarjeta para que se pegue abajo aunque la tarjeta empiece
+          muy abajo (pantallas bajas, con el aviso de conexión abierto). */}
+      <div className="np-sticky-action" style={stickyStyle}>
+        <div className="np-seg" role="group" aria-label="Cómo paga el cliente">
+          {MODES.map(({ mode: m, label }) => (
+            <button
+              key={m}
+              type="button"
+              className="np-seg-btn"
+              aria-pressed={mode === m}
+              onClick={() => switchMode(m)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      </form>
-    </Card>
+        <Button type="submit" form={formId} size="lg" loading={submitting} disabled={cents <= 0}>
+          {submitLabel(mode, amountLabel)}
+        </Button>
+        {error ? (
+          <p role="alert" style={errorStyle}>
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </>
   );
 }
+
+// Sobre el fondo de la página (no el de la tarjeta).
+const stickyStyle = { bottom: STICKY_ACTION_BOTTOM, '--np-sticky-bg': 'var(--np-bg)' } as CSSProperties;
 
 /** «Cobrar 50 €», «Cargar 20 €», «Generar cobro POS (30 €)». */
 function submitLabel(mode: CobroMode, amount: string | null): string {

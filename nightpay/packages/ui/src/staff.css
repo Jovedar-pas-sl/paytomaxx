@@ -466,8 +466,9 @@
   color: var(--np-text-mute);
   font-size: 0.9375rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
+  white-space: nowrap;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition:
@@ -495,7 +496,9 @@
 }
 
 /* El botón de cobrar se queda a mano (pegado abajo) aunque el formulario sea
-   largo. `bottom` lo pone cada app (encima de su barra de pestañas). */
+   largo. `bottom` lo pone cada app (encima de su barra de pestañas); el fondo,
+   --np-sticky-bg (por defecto el de las tarjetas). Ojo: sticky no sube por
+   encima del inicio de su contenedor. */
 .np-sticky-action {
   position: sticky;
   bottom: 0;
@@ -504,7 +507,7 @@
   flex-direction: column;
   gap: 0.625rem;
   padding: 1rem 0 0.5rem;
-  background: linear-gradient(to bottom, transparent, var(--np-surface) 1rem);
+  background: linear-gradient(to bottom, transparent, var(--np-sticky-bg, var(--np-surface)) 1rem);
 }
 
 @media (prefers-reduced-motion: reduce) {
