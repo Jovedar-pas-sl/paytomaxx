@@ -10,7 +10,7 @@ import {
 } from './api-errors';
 import { classifySessionChange, type SessionChange } from './session-sync';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
 
 const TOKEN_KEY = 'np_admin_token';
 const REFRESH_KEY = 'np_admin_refresh';

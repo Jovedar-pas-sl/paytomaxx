@@ -1,0 +1,971 @@
+/* Panel (admin) · «Super admin»: la consola de toda la plataforma.
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Look «Club»:
+   negro + lima, letra grande; Unbounded (--np-font-mono) para importes y
+   códigos. Solo se anima transform/opacity, y nada con prefers-reduced-motion.
+   Móvil = hasta 640px: una columna y los botones a mano del pulgar. */
+
+.np-sa {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.np-sa-body {
+  min-width: 0;
+}
+
+/* <main> (z-index 2) hace de capa propia y la barra de abajo (z-index 50)
+   quedaba encima de los diálogos: con uno abierto aquí, <main> sube. */
+.np-app-root:has(.np-sa .np-modal-panel) {
+  z-index: 60;
+}
+
+.np-sa-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+}
+
+.np-sa-detail {
+  max-width: 64rem;
+}
+
+.np-sa-stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  min-width: 0;
+}
+
+/* ─── Cabeceras y textos ──────────────────────────────────────────── */
+
+.np-sa-kicker {
+  margin: 0;
+  font-size: var(--np-t-label);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--np-text-label);
+}
+
+.np-sa-area {
+  color: var(--np-accent);
+}
+
+.np-sa-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  flex-wrap: wrap;
+}
+
+.np-sa-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  flex: 1 1 18rem;
+}
+
+.np-sa-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.np-sa-title {
+  margin: 0;
+  font-size: var(--np-t-h2);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-sa-subtitle {
+  margin: 0;
+  font-size: var(--np-t-h3);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-sa-sub,
+.np-sa-text {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--np-text-mute);
+}
+
+.np-sa-help {
+  display: block;
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--np-text-dim);
+}
+
+.np-sa-callout {
+  margin: 0;
+  padding: 0.625rem 0.875rem;
+  border-left: 4px solid var(--np-accent);
+  border-radius: var(--np-r-sm);
+  background: var(--np-pill-cyan-bg);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--np-text);
+}
+
+.np-sa-loading,
+.np-sa-empty {
+  margin: 0;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--np-text-dim);
+}
+
+.np-sa-empty {
+  border: 1px dashed var(--np-border-hi);
+  border-radius: var(--np-r-lg);
+}
+
+.np-sa-error {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--np-danger);
+}
+
+.np-sa-ok {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--np-success);
+}
+
+.np-sa-mono {
+  font-family: var(--np-font-mono);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.np-sa-dim {
+  color: var(--np-text-dim);
+}
+
+.np-sa-small {
+  font-size: 0.8125rem;
+}
+
+.np-sa-nowrap {
+  white-space: nowrap;
+}
+
+.np-sa-break {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.np-sa-cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.np-sa-btn-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.np-sa-status-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--np-text);
+}
+
+/* ─── Botones ─────────────────────────────────────────────────────── */
+
+.np-btn.np-sa-sm[data-size] {
+  height: 2.5rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+}
+
+.np-sa-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  padding: 0 0.25rem;
+  border: 0;
+  background: none;
+  color: var(--np-text-mute);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--np-d-fast);
+}
+
+.np-sa-back:hover {
+  color: var(--np-accent);
+}
+
+.np-sa-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--np-accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Botones de un formulario: pegados abajo mientras el formulario se ve. */
+.np-sa-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.np-sa-actions[data-sticky] {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin-top: 0.25rem;
+  padding: 0.875rem 0 0.25rem;
+  border-top: 1px solid var(--np-border);
+  background: var(--np-surface);
+}
+
+.np-modal-panel .np-sa-actions[data-sticky],
+[data-variant='elevated'] .np-sa-actions[data-sticky] {
+  background: var(--np-surface-2);
+}
+
+/* ─── Formularios ─────────────────────────────────────────────────── */
+
+.np-sa-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+  min-width: 0;
+}
+
+.np-sa-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 1.25rem;
+  align-items: start;
+}
+
+.np-sa-span-2 {
+  grid-column: 1 / -1;
+}
+
+.np-sa-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.np-sa-label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--np-text-mute);
+}
+
+.np-sa-textarea {
+  width: 100%;
+  min-height: 6rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background-color: var(--np-surface);
+  font-size: 1rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.np-sa-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 1.125rem;
+  border-top: 1px solid var(--np-border);
+}
+
+.np-sa-fieldset {
+  margin: 0;
+  padding: 1.125rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--np-border);
+  min-width: 0;
+}
+
+.np-sa-fieldset legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 0.5rem;
+  padding: 0;
+}
+
+.np-sa-fieldset .np-sa-help {
+  margin-bottom: 0.875rem;
+}
+
+.np-sa-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-height: 3rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  cursor: pointer;
+  transition: border-color var(--np-d-fast);
+}
+
+.np-sa-check:hover {
+  border-color: var(--np-border-hi);
+}
+
+.np-sa-check input {
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0.05rem 0 0;
+  accent-color: var(--np-accent);
+}
+
+.np-sa-check-label {
+  display: block;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+/* Filtros: tantas columnas como quepan; en el móvil, una. */
+.np-sa-toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.875rem;
+  align-items: end;
+}
+
+.np-sa-toolbar .np-sa-check {
+  min-height: 3.5rem;
+  align-items: center;
+}
+
+.np-sa-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.np-sa-search .np-btn {
+  height: 4.5rem;
+}
+
+.np-sa-scroll-x {
+  overflow-x: auto;
+}
+
+/* ─── Cifras ──────────────────────────────────────────────────────── */
+
+.np-sa-band {
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--np-border);
+  border-top: 3px solid var(--np-accent);
+  border-radius: var(--np-r-lg);
+  background: var(--np-surface);
+  animation: np-sa-rise var(--np-d-slow) var(--np-ease);
+}
+
+@keyframes np-sa-rise {
+  from { transform: translateY(6px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+.np-sa-figs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem 0;
+  margin: 0;
+}
+
+/* Cada cifra mide su casilla (cqi): el importe entero en una línea, sin
+   partirse por la mitad, tan grande como quepa. */
+.np-sa-fig {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.25rem 1.25rem;
+  border-left: 1px solid var(--np-border);
+}
+
+.np-sa-fig dt {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--np-text-dim);
+}
+
+.np-sa-fig dd {
+  margin: 0;
+  font-family: var(--np-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.25rem;
+  font-size: clamp(1rem, 9.5cqi, 2.5rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--np-text);
+  white-space: nowrap;
+}
+
+.np-sa-fig[data-hero] dd {
+  color: var(--np-accent);
+}
+
+.np-sa-fig[data-alert] dd {
+  color: var(--np-warning);
+}
+
+.np-sa-fig-note {
+  font-size: 0.75rem;
+  color: var(--np-text-mute);
+}
+
+/* ─── Resumen: negocios y locales ─────────────────────────────────── */
+
+.np-sa-biz {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.np-sa-biz-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+  flex-wrap: wrap;
+}
+
+.np-sa-biz-totals {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+}
+
+.np-sa-biz-totals strong {
+  color: var(--np-text);
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+
+.np-sa-venue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 0.875rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-sa-venue {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  width: 100%;
+  height: 100%;
+  padding: 1rem 1.125rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-lg);
+  background: var(--np-surface);
+  color: var(--np-text);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--np-d-fast) var(--np-ease),
+    border-color var(--np-d-fast),
+    box-shadow var(--np-d-fast);
+}
+
+.np-sa-venue:hover {
+  transform: translateY(-2px);
+  border-color: var(--np-accent);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+}
+
+.np-sa-venue:active {
+  transform: scale(0.985);
+}
+
+.np-sa-venue:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 3px;
+}
+
+.np-sa-venue[data-current] {
+  box-shadow: inset 4px 0 0 var(--np-accent);
+  cursor: default;
+}
+
+.np-sa-venue[data-current]:hover {
+  transform: none;
+}
+
+.np-sa-venue[data-paused] {
+  border-style: dashed;
+  border-color: var(--np-warning);
+}
+
+.np-sa-venue-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.np-sa-venue-name {
+  margin-right: auto;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.np-sa-venue-figs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.np-sa-venue-fig {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.np-sa-venue-fig-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--np-text-dim);
+}
+
+.np-sa-venue-fig-value {
+  font-family: var(--np-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+  font-size: clamp(0.8125rem, 9cqi, 1.125rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.np-sa-venue-fig[data-hero] {
+  grid-column: 1 / -1;
+}
+
+.np-sa-venue-fig[data-hero] .np-sa-venue-fig-value {
+  font-size: 1.75rem;
+  font-size: clamp(1.25rem, 10cqi, 2.25rem);
+  color: var(--np-accent);
+}
+
+.np-sa-venue-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--np-border);
+  font-size: 0.8125rem;
+  color: var(--np-text-mute);
+}
+
+.np-sa-venue-foot [data-alert] {
+  color: var(--np-warning);
+  font-weight: 700;
+}
+
+.np-sa-venue-go {
+  font-weight: 700;
+  color: var(--np-text);
+}
+
+.np-sa-venue:hover .np-sa-venue-go {
+  color: var(--np-accent);
+}
+
+/* ─── Fichas ──────────────────────────────────────────────────────── */
+
+.np-sa-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.875rem 1.25rem;
+  margin: 0;
+}
+
+.np-sa-meta div {
+  min-width: 0;
+}
+
+.np-sa-meta dt {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--np-text-dim);
+}
+
+.np-sa-meta dd {
+  margin: 0.2rem 0 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-sa-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-sa-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--np-border);
+}
+
+.np-sa-row-main {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.np-sa-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-sa-action {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  color: var(--np-text);
+  text-align: left;
+  transition:
+    transform var(--np-d-fast) var(--np-ease),
+    border-color var(--np-d-fast);
+}
+
+.np-sa-action:hover {
+  border-color: var(--np-accent);
+}
+
+.np-sa-action:active {
+  transform: scale(0.98);
+}
+
+.np-sa-action-label {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.np-sa-action[data-danger] .np-sa-action-label {
+  color: var(--np-danger);
+}
+
+.np-sa-action-help {
+  font-size: 0.8125rem;
+  color: var(--np-text-dim);
+}
+
+/* Algo que se pasa a alguien: enlace, contraseña. */
+.np-sa-secret {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 1rem;
+  border: 2px solid var(--np-accent);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.np-sa-secret-value {
+  max-width: 100%;
+  font-family: var(--np-font-mono);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  user-select: all;
+}
+
+.np-sa-secret[data-big] .np-sa-secret-value {
+  font-size: clamp(1.25rem, 1rem + 1.5vw, 1.75rem);
+  letter-spacing: 0.06em;
+}
+
+.np-sa-revealed {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  max-width: 22rem;
+}
+
+/* ─── Saldo de un cliente ─────────────────────────────────────────── */
+
+.np-sa-wallet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.np-sa-code {
+  margin: 0.25rem 0 0;
+  font-family: var(--np-font-mono);
+  font-size: clamp(1.375rem, 1rem + 1.5vw, 2rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-sa-balance {
+  margin: 0;
+  font-size: clamp(2.75rem, 1.5rem + 6vw, 5rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--np-accent);
+  overflow-wrap: anywhere;
+}
+
+.np-table td.np-sa-amount {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.np-sa-amount[data-sign='in'] {
+  color: var(--np-success);
+}
+
+.np-sa-qr-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.np-sa-qr {
+  display: block;
+  width: min(15rem, 100%);
+  height: auto;
+  border-radius: var(--np-r-md);
+}
+
+/* ─── Registro ────────────────────────────────────────────────────── */
+
+.np-sa-audit-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 0.8125rem;
+  color: var(--np-text-mute);
+  text-align: left;
+}
+
+.np-sa-pre {
+  max-width: min(36rem, 100%);
+  max-height: 18rem;
+  margin: 0;
+  padding: 0.75rem;
+  overflow: auto;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-sm);
+  background: var(--np-bg);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--np-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.np-sa-grow {
+  flex: 1 1 auto;
+  align-items: flex-start;
+}
+
+/* ─── Móvil ───────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .np-sa,
+  .np-sa-stack {
+    gap: 1.125rem;
+  }
+
+  .np-sa-grid-2,
+  .np-sa-search {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .np-sa-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .np-sa-band {
+    padding: 1rem;
+  }
+
+  .np-sa-figs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem 0;
+  }
+
+  /* «Cobrado hoy» a lo ancho, grande; el resto de dos en dos. */
+  .np-sa-fig {
+    padding: 0.25rem 0.875rem;
+  }
+
+  .np-sa-fig[data-hero] {
+    grid-column: 1 / -1;
+  }
+
+  .np-sa-fig[data-hero],
+  .np-sa-fig:nth-child(even) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .np-sa-fig[data-hero] dd {
+    font-size: clamp(1.75rem, 11cqi, 3rem);
+  }
+
+  .np-sa-venue-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .np-sa-head-actions {
+    width: 100%;
+  }
+
+  .np-sa-head-actions .np-btn {
+    flex: 1 1 auto;
+  }
+
+  /* Botones grandes y de lado a lado; pegados encima de la barra de abajo. */
+  .np-sa-actions .np-btn {
+    flex: 1 1 8rem;
+  }
+
+  .np-sa .np-sa-actions[data-sticky] {
+    bottom: calc(var(--np-panel-nav-h, 4.25rem) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .np-sa .np-modal-panel .np-sa-actions[data-sticky] {
+    bottom: 0;
+  }
+
+  /* Diálogos con menos relleno: el código 2FA cabe sin bajar tanto. */
+  .np-sa .np-modal-panel {
+    padding: 1.25rem !important;
+  }
+
+  .np-sa-revealed {
+    align-items: flex-end;
+    max-width: 100%;
+  }
+
+  .np-sa-row {
+    flex-wrap: wrap;
+  }
+}
+
+@media (min-width: 641px) {
+  .np-sa-fig:nth-child(3n + 1) {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-sa-band {
+    animation: none;
+  }
+
+  .np-sa-venue,
+  .np-sa-action,
+  .np-sa-check {
+    transition: none;
+  }
+
+  .np-sa-venue:hover,
+  .np-sa-venue:active,
+  .np-sa-action:active {
+    transform: none;
+  }
+}

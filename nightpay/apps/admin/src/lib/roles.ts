@@ -21,7 +21,7 @@ export type TabKey =
   | 'treasury'
   | 'terminals'
   | 'settings'
-  | 'venues';
+  | 'superadmin';
 
 type TabAccess = 'staff' | 'owner' | 'superadmin';
 
@@ -45,7 +45,8 @@ export const PANEL_TABS: readonly PanelTab[] = [
   { key: 'treasury', label: 'Treasury', access: 'staff' },
   { key: 'terminals', label: 'Datáfonos', access: 'staff' },
   { key: 'settings', label: 'Ajustes', access: 'staff' },
-  { key: 'venues', label: 'Locales', access: 'superadmin' },
+  // Consola de toda la plataforma (components/superadmin).
+  { key: 'superadmin', label: 'Super admin', access: 'superadmin' },
 ];
 
 export function visibleTabs(user: { role: string; isSuperAdmin?: boolean }): PanelTab[] {

@@ -16,11 +16,11 @@ import { OperatorsPanel } from './OperatorsPanel';
 import { PaymentsPanel } from './PaymentsPanel';
 import { ReportsPanel } from './ReportsPanel';
 import { SettingsPanel } from './SettingsPanel';
+import { SuperAdminPanel } from './superadmin/SuperAdminPanel';
 import { TabBar, tabId, tabPanelId } from './TabBar';
 import { TerminalsPanel } from './TerminalsPanel';
 import { TreasuryPanel } from './TreasuryPanel';
 import { VenueSwitcher } from './VenueSwitcher';
-import { VenuesPanel } from './VenuesPanel';
 import { WalletsPanel } from './WalletsPanel';
 
 interface Props {
@@ -220,8 +220,8 @@ function ActivePanel({
       return <TerminalsPanel isOwner={isOwner} />;
     case 'settings':
       return <SettingsPanel isOwner={isOwner} />;
-    case 'venues':
-      return user.isSuperAdmin ? <VenuesPanel currentSlug={user.venueSlug} /> : null;
+    case 'superadmin':
+      return user.isSuperAdmin ? <SuperAdminPanel user={user} onNavigate={onNavigate} /> : null;
   }
 }
 
