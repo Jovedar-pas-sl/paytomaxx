@@ -19,7 +19,8 @@ probarían nada de eso.
 | `consumos-informes.int.spec.ts` | Consumos del saldo en informes y en «Mi noche» |
 | `super-admin.int.spec.ts` | Super-admin con otro local activo |
 | `personal-sin-superusuario.int.spec.ts` | Lo del personal sin asSystem en la prueba (solo el local en el contexto): chicas, comisiones y pagos (crear y verificar), devolución con deuda, tesorería, saldos del panel, «Mi noche» y Z, Incidencias, Peanpe |
-| `aislamiento-rls.int.spec.ts` | RLS de la base aísla sola las seis tablas con FORCE RLS: con el local A en la sesión no se ve ni se escribe nada de B aunque la consulta no filtre; el local no se queda en la conexión |
+| `aislamiento-rls.int.spec.ts` | RLS de la base aísla sola las tablas con FORCE RLS (también `approval_requests`): con el local A en la sesión no se ve ni se escribe nada de B aunque la consulta no filtre; el local no se queda en la conexión |
+| `aprobaciones.int.spec.ts` | «Por aprobar»: el encargado pide el pago a la chica y el dueño lo aprueba con su 2FA (el pago existe y el saldo baja); quien pide no aprueba (ni la base lo deja); aprobar dos veces o a la vez paga una sola; dos peticiones a la vez no gastan de más; devoluciones desde el umbral a aprobación (202) y por debajo directas; rechazar; caducar a las 24 h; FAILED con la razón; Incidencias; otro local no la ve |
 
 ## Lanzarlas en local
 
