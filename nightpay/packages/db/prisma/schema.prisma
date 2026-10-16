@@ -535,6 +535,14 @@ model VenueNight {
   closeNote      String?
   zReport        Json?
   createdAt      DateTime  @default(now()) @db.Timestamptz
+  // Cierre en pasos con arqueo (20261016400000): fondo de caja al abrir (o al
+  // cerrar), lo que debería haber, lo contado y la diferencia (contado −
+  // esperado). También van congelados en el Z (bloque «Caja»).
+  openingFloatCents Int?
+  cashCountedCents  Int?
+  cashExpectedCents Int?
+  cashDiffCents     Int?
+  cashNote          String?
 
   venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
