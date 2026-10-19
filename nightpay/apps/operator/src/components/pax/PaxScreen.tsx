@@ -170,11 +170,12 @@ export function PaxScreen() {
       ) : null}
       {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
 
-      {/* TODO(formas de cobro): ocultar «Cobrar con saldo» con el saldo apagado. Hace falta
-          que el API lo diga al datáfono (/pos-device/me o reception/options no traen `wallet`). */}
-      <Button size="lg" variant="ghost" onClick={() => setSaldo(true)}>
-        Cobrar con saldo (ficha, QR o código + PIN)
-      </Button>
+      {/* «Pago con saldo» apagado por el dueño (lo dice /me): no se ofrece. */}
+      {info?.wallet === false ? null : (
+        <Button size="lg" variant="ghost" onClick={() => setSaldo(true)}>
+          Cobrar con saldo (ficha, QR o código + PIN)
+        </Button>
+      )}
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
         {desks && !desks.card && !desks.cash ? null : (
           <Button size="lg" variant="ghost" disabled={unsent > 0} onClick={() => setDesk('reception')} style={{ flex: 1 }}>

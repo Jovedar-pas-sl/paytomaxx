@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@nightpay/ui';
 import { callReader, type BridgeResponse, type PaytefResult } from '@/lib/pax-bridge';
 import {
+  PENDING_CONFIRM_TEXT,
   clearPendingResult,
   hasPendingResults,
   isFinalRejection,
@@ -234,6 +235,19 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
           <p style={{ ...big, color: 'var(--np-danger)' }}>Denegada</p>
           <p style={muted}>{step.outcome.message}</p>
           <Button onClick={() => void begin()}>Probar otra tarjeta</Button>
+          <Button variant="ghost" onClick={onDone}>
+            Volver
+          </Button>
+        </>
+      ) : null}
+
+      {step.kind === 'outcome' && step.outcome.status === 'PENDING' ? (
+        <>
+          {/* Cobrado en el lector: lo confirma el encargado con Paytef. Sin reintentar ni anular. */}
+          <p role="status" style={{ ...big, color: 'var(--np-warning)' }}>
+            {PENDING_CONFIRM_TEXT}
+          </p>
+          <p style={muted}>Operación {step.outcome.operationNumber}</p>
           <Button variant="ghost" onClick={onDone}>
             Volver
           </Button>

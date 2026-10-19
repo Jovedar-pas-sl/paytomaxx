@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { MAX_CASH_TOP_UP_CENTS, walletCardUrl, type ReceptionOptions } from '@nightpay/contracts';
 import { AmountKeypad, Button, Card } from '@nightpay/ui';
 import { createPayment, fetchTerminals, type CreatedPayment } from '@/lib/api';
+import { PENDING_CONFIRM_TEXT } from '@/lib/pax-api';
 import { blankCodeFrom, tapChip } from '@/lib/chip-tap';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
@@ -16,15 +17,16 @@ import {
   receptionDetail,
   receptionWhat,
   staffBackend,
+  topUpCheck,
   walletAfterCash,
   walletOfTarget,
   type DeviceCardSale,
   type PayMethod,
   type ReceptionAttempt,
   type ReceptionBackend,
-  type ReceptionCard,
   type ReceptionWallet,
   type Target,
+  type TopUpCheck,
 } from '@/lib/reception';
 import { ActivePayment } from '../ActivePayment';
 import { PaxChargeFlow } from '../pax/PaxChargeFlow';
@@ -38,11 +40,19 @@ type Step =
   | { kind: 'target'; method: PayMethod }
   | { kind: 'cash'; target: Target }
   /** `existing`: la ficha que ya tenía (null: saldo nuevo). */
-  | { kind: 'cardSale'; sale: DeviceCardSale; existing: ReceptionCard | null }
+  | { kind: 'cardSale'; sale: DeviceCardSale; existing: (Target & { kind: 'card' }) | null }
   | { kind: 'cardQr'; payment: CreatedPayment }
+  /** Recarga con tarjeta a una ficha que ya tenía: se pregunta cómo quedó (topups/:paymentId). */
+  | { kind: 'topUp'; paymentId: string; target: Target & { kind: 'card' } }
+  | { kind: 'topUpPending' }
+  | { kind: 'topUpNotPaid'; target: Target & { kind: 'card' } }
   | { kind: 'chip'; wallet: ReceptionWallet; method: PayMethod }
   | { kind: 'pin'; wallet: ReceptionWallet; method: PayMethod }
   | { kind: 'done'; detail: string; method: PayMethod };
+
+/** Preguntas por cómo quedó una recarga con tarjeta (cada 3 s, hasta 30 s). */
+const TOP_UP_POLL_MS = 3_000;
+const TOP_UP_POLL_TRIES = 10;
 
 /** Pasos antes de cobrar: ahí aún no hay nada que perder si la sesión caduca. */
 const BEFORE_CHARGE = new Set<Step['kind']>(['amount', 'method', 'target']);
@@ -94,6 +104,38 @@ export function ReceptionFlow({ on, onDone }: Props) {
       .catch((err: Error) => setError(err.message));
   }, [backend]);
   useEffect(() => () => reading?.abort(), [reading]);
+
+  // Recarga con tarjeta a una ficha que ya tenía: su resultado lo dice el servidor
+  // (sumada con el saldo, pendiente de Paytef o no cobrada). Si no contesta, lo de antes.
+  const topUpId = step.kind === 'topUp' ? step.paymentId : null;
+  useEffect(() => {
+    if (step.kind !== 'topUp') return undefined;
+    const { paymentId, target } = step;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const fallback = () => setStep({ kind: 'done', detail: existingTopUpDetail(target.view), method: 'card' });
+    const ask = async (tries: number): Promise<void> => {
+      let check: TopUpCheck;
+      try {
+        check = topUpCheck(await deviceBackend.topUp(paymentId));
+      } catch {
+        if (alive) fallback();
+        return;
+      }
+      if (!alive) return;
+      if (check.kind === 'done') setStep({ kind: 'done', detail: check.detail, method: 'card' });
+      else if (check.kind === 'pending') setStep({ kind: 'topUpPending' });
+      else if (check.kind === 'notPaid') setStep({ kind: 'topUpNotPaid', target });
+      else if (tries <= 1) fallback();
+      else timer = setTimeout(() => void ask(tries - 1), TOP_UP_POLL_MS);
+    };
+    void ask(TOP_UP_POLL_TRIES);
+    return () => {
+      alive = false;
+      if (timer !== null) clearTimeout(timer);
+    };
+    // Una vez por recarga.
+  }, [topUpId]);
 
   function restart(): void {
     attempt.current = null;
@@ -166,7 +208,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
         idempotencyKey: keyFor('card', target),
         wallet: target.kind === 'new' ? { create: true } : (walletOfTarget(target) as { card: string; uid?: string }),
       });
-      setStep({ kind: 'cardSale', sale, existing: target.kind === 'card' ? target.view : null });
+      setStep({ kind: 'cardSale', sale, existing: target.kind === 'card' ? target : null });
       return;
     }
     const terminal = (await fetchTerminals())[0]?.externalId;
@@ -207,7 +249,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
         start={() => Promise.resolve({ reference: sale.reference, amountCents: sale.amountCents })}
         onPaid={() =>
           existing
-            ? setStep({ kind: 'done', detail: existingTopUpDetail(existing), method: 'card' })
+            ? setStep({ kind: 'topUp', paymentId: sale.paymentId, target: existing })
             : void run(() => paidThen(sale.walletId, 'card'))
         }
         onDone={restart}
@@ -226,6 +268,52 @@ export function ReceptionFlow({ on, onDone }: Props) {
         onClose={restart}
         spot="recepcion"
       />
+    );
+  }
+
+  if (step.kind === 'topUp' || step.kind === 'topUpPending' || step.kind === 'topUpNotPaid') {
+    return (
+      <Card style={cardStyle}>
+        <p style={kicker}>Recepción</p>
+        <p className="np-num" style={amountStyle}>
+          {formatEur(amountCents)}
+        </p>
+        {step.kind === 'topUp' ? <p style={big}>Comprobando la recarga…</p> : null}
+        {step.kind === 'topUpPending' ? (
+          <p role="status" style={{ ...big, color: 'var(--np-warning)' }}>
+            {PENDING_CONFIRM_TEXT}
+          </p>
+        ) : null}
+        {step.kind === 'topUpNotPaid' ? (
+          <>
+            <p role="alert" style={{ ...big, color: 'var(--np-danger)' }}>
+              La recarga no consta como cobrada: no se ha sumado nada.
+            </p>
+            <Button
+              size="lg"
+              loading={busy}
+              onClick={() => {
+                const { target } = step;
+                // Otra venta: la anterior no se cobró, así que va con clave nueva.
+                attempt.current = null;
+                void run(() => startCard(target));
+              }}
+            >
+              Volver a cobrar {formatEur(amountCents)}
+            </Button>
+          </>
+        ) : null}
+        {step.kind === 'topUp' ? null : (
+          <Button variant="ghost" disabled={busy} onClick={restart}>
+            Otra recarga
+          </Button>
+        )}
+        {error ? (
+          <p role="alert" style={errorStyle}>
+            {error}
+          </p>
+        ) : null}
+      </Card>
     );
   }
 

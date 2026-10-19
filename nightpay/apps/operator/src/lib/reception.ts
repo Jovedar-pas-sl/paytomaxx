@@ -42,6 +42,39 @@ export interface ReceptionWallet {
   hasCard: boolean;
 }
 
+/**
+ * Cómo quedó una recarga con tarjeta que cobró este datáfono
+ * (GET /v1/pos-device/reception/topups/:paymentId, la última hora).
+ */
+export interface ReceptionTopUpView {
+  paymentId: string;
+  /** Sumada · cobrada y pendiente de Paytef · aún sin cobrar · no cobrada (caducada, cancelada). */
+  status: 'CREDITED' | 'PENDING' | 'OPEN' | 'NOT_PAID';
+  amountCents: number;
+  walletId: string;
+  codeHint: string;
+  balanceCents: number | null;
+  hasPin: boolean;
+  hasCard: boolean;
+}
+
+/** Lo que enseña la recepción con esa respuesta. */
+export type TopUpCheck =
+  | { kind: 'done'; detail: string }
+  | { kind: 'pending' }
+  | { kind: 'notPaid' }
+  /** Aún sin cobrar en el servidor: se vuelve a preguntar. */
+  | { kind: 'wait' };
+
+export function topUpCheck(view: ReceptionTopUpView): TopUpCheck {
+  if (view.status === 'PENDING') return { kind: 'pending' };
+  if (view.status === 'NOT_PAID') return { kind: 'notPaid' };
+  if (view.status === 'OPEN') return { kind: 'wait' };
+  const extras = [view.hasCard ? 'ficha' : null, view.hasPin ? 'PIN' : null].filter(Boolean).join(' y ');
+  const balance = view.balanceCents === null ? '' : ` · tiene ${formatEur(view.balanceCents)}`;
+  return { kind: 'done', detail: `Saldo ${view.codeHint}${balance}${extras ? ` · con ${extras}` : ''}` };
+}
+
 /** Venta con tarjeta en el lector del datáfono (recarga ya preparada en el servidor). */
 export interface DeviceCardSale {
   paymentId: string;
@@ -76,12 +109,14 @@ const cardBody = (card: string, uid: string | null) => (uid ? { card, uid } : { 
 /** El datáfono de recepción (Authorization: Device). */
 export const deviceBackend: ReceptionBackend & {
   cardSale(body: { amountCents: number; idempotencyKey: string; wallet: { create: true } | { card: string; uid?: string } }): Promise<DeviceCardSale>;
+  topUp(paymentId: string): Promise<ReceptionTopUpView>;
 } = {
   kind: 'device',
   options: () => call('/v1/pos-device/reception/options'),
   lookup: (card, uid) => call('/v1/pos-device/reception/lookup', json(cardBody(card, uid))),
   cash: (body) => call('/v1/pos-device/reception/cash', json(body)),
   cardSale: (body) => call('/v1/pos-device/reception/card', json(body)),
+  topUp: (paymentId) => call(`/v1/pos-device/reception/topups/${encodeURIComponent(paymentId)}`),
   wallet: (walletId) => call(`/v1/pos-device/reception/wallets/${encodeURIComponent(walletId)}`),
   link: (w, card, uid) => call(`/v1/pos-device/reception/wallets/${encodeURIComponent(w.walletId)}/card`, json(cardBody(card, uid))),
   setPin: (w, pin) => call(`/v1/pos-device/reception/wallets/${encodeURIComponent(w.walletId)}/pin`, json({ pin })),

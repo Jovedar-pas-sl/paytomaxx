@@ -12,8 +12,10 @@ import {
   receptionDetail,
   receptionWhat,
   stockOutcomeLine,
+  topUpCheck,
   walletAfterCash,
   walletOfTarget,
+  type ReceptionTopUpView,
   type Target,
 } from './reception';
 
@@ -170,5 +172,43 @@ describe('recarga de una ficha que ya tenía saldo', () => {
   it('con tarjeta: su ficha, sin pedir el saldo', () => {
     expect(existingTopUpDetail(view())).toBe('Saldo K7Q-••• · con ficha y PIN');
     expect(existingTopUpDetail({ ...view(), hasPin: false })).toBe('Saldo K7Q-••• · con ficha');
+  });
+});
+
+describe('cómo quedó la recarga con tarjeta de una ficha que ya tenía saldo', () => {
+  const view = (over: Partial<ReceptionTopUpView> = {}): ReceptionTopUpView => ({
+    paymentId: 'p-1',
+    status: 'CREDITED',
+    amountCents: 5_000,
+    walletId: 'w-1',
+    codeHint: 'K7Q-•••',
+    balanceCents: 8_000,
+    hasPin: true,
+    hasCard: true,
+    ...over,
+  });
+
+  it('sumada: el saldo que tiene ahora', () => {
+    const check = topUpCheck(view());
+    expect(check.kind).toBe('done');
+    expect(check.kind === 'done' && check.detail).toMatch(/^Saldo K7Q-••• · tiene 80,00\s€ · con ficha y PIN$/);
+    expect(topUpCheck(view({ balanceCents: null, hasPin: false }))).toEqual({ kind: 'done', detail: 'Saldo K7Q-••• · con ficha' });
+  });
+
+  it('pendiente de Paytef, no cobrada o aún abierta', () => {
+    expect(topUpCheck(view({ status: 'PENDING' }))).toEqual({ kind: 'pending' });
+    expect(topUpCheck(view({ status: 'NOT_PAID' }))).toEqual({ kind: 'notPaid' });
+    expect(topUpCheck(view({ status: 'OPEN' }))).toEqual({ kind: 'wait' });
+  });
+
+  it('se pregunta en el datáfono por su recarga', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(view()), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(deviceBackend.topUp('p 1')).resolves.toMatchObject({ status: 'CREDITED' });
+      expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toMatch(/\/v1\/pos-device\/reception\/topups\/p%201$/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
