@@ -12,6 +12,10 @@ import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
 import { NightsService } from '../../src/modules/nights/nights.service';
+import { PaymentsService } from '../../src/modules/payments/payments.service';
+import { posReference } from '../../src/modules/pos-device/paytef';
+import { PosDeviceReceptionService } from '../../src/modules/pos-device/pos-device-reception.service';
+import { PosDeviceService } from '../../src/modules/pos-device/pos-device.service';
 import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
 import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
@@ -33,6 +37,21 @@ const period = new PeriodReportsService(prisma);
 const cash = new CashTopUpService(prisma, audit as never);
 const cards = new WalletCardsService(prisma, audit as never);
 const charges = new WalletChargesService(prisma, audit as never, { get: () => null } as never, {} as never);
+const queue = { add: vi.fn(async () => undefined) };
+const payments = new PaymentsService(
+  prisma as never,
+  cls as never,
+  queue as never,
+  queue as never,
+  {} as never,
+  { emitPaymentUpdate: vi.fn(), emitPaymentCompleted: vi.fn() } as never,
+  { paymentsCreated: { inc: vi.fn() }, paymentsTransitioned: { inc: vi.fn() }, walletCreditSkipped: { inc: vi.fn() } } as never,
+  {} as never,
+  {} as never,
+  {} as never,
+);
+const pos = new PosDeviceService(prisma, payments, audit as never, cls as never);
+const reception = new PosDeviceReceptionService(prisma, payments, cash, audit as never, cls as never);
 
 /** Una petición de ese local (como tras AuthGuard o DeviceGuard). */
 function inVenue<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
@@ -208,6 +227,62 @@ describe('recepción en el datáfono: ficha y PIN sin persona (Postgres real)', 
   });
 });
 
+describe('recarga con tarjeta en el lector del datáfono (Postgres real)', () => {
+  const device = () => ({ terminalId: sala.term, tenantId: sala.id, label: 'Recepción', zone: null, tokenHash: 'x' });
+  const approved = (paymentId: string, amountCents: number, op: string, tipAmount?: number) => ({
+    approved: true,
+    authorisationCode: '047215',
+    paytefOperationNumber: op,
+    transactionReference: posReference(paymentId),
+    requestedAmount: amountCents,
+    ...(tipAmount ? { tipAmount } : {}),
+    cardInformation: { hiddenCardNumber: '************4242', cardTypeCode: 'VI', isContactless: true },
+  });
+
+  it('saldo nuevo: el cobro es del datáfono (sin persona) y al aprobarse se suma; luego ficha y PIN ahí mismo', async () => {
+    const sale = await inVenue(sala.id, () =>
+      reception.cardTopUp(device(), { amountCents: 6_000, idempotencyKey: key(), wallet: { create: true } }),
+    );
+    const p = (await seed((tx) => tx.payment.findUnique({ where: { id: sale.paymentId } })))!;
+    expect(p).toMatchObject({ captureMethod: 'WALLET_TOPUP', createdByUserId: null, terminalId: sala.term, walletId: sale.walletId, status: 'CREATED' });
+    expect(await balanceOf(sale.walletId)).toMatchObject({ balanceCents: 0 });
+
+    const out = await inVenue(sala.id, () => pos.reportResult(device(), sale.paymentId, approved(sale.paymentId, 6_000, `R${r}1`)));
+    expect(out).toMatchObject({ status: 'PAID' });
+    expect(await balanceOf(sale.walletId)).toEqual({ balanceCents: 6_000, status: 'ACTIVE' });
+    expect((await seed((tx) => tx.payment.findUnique({ where: { id: sale.paymentId } })))!).toMatchObject({
+      status: 'AUTHORIZED', posTerminalId: sala.term, provider: 'PAYTEF', tipCents: 0,
+    });
+    // El mismo datáfono, en sus 15 min: ficha (en blanco, grabada ahora) y el PIN del cliente.
+    const { card } = await inVenue(sala.id, () => cards.newStockToken(sala.id, { userId: null, terminalId: sala.term }));
+    await inVenue(sala.id, () => charges.linkCardFromTerminal({ terminalId: sala.term, tenantId: sala.id }, { walletId: sale.walletId, card }));
+    const view = await inVenue(sala.id, () => charges.setPinFromTerminal({ terminalId: sala.term, tenantId: sala.id }, sale.walletId, '5826'));
+    expect(view).toMatchObject({ balanceCents: 6_000, hasCard: true, hasPin: true });
+    // Reenviar el mismo resultado (se cortó la red) no suma dos veces.
+    await inVenue(sala.id, () => pos.reportResult(device(), sale.paymentId, approved(sale.paymentId, 6_000, `R${r}1`)));
+    expect(await balanceOf(sale.walletId)).toMatchObject({ balanceCents: 6_000 });
+  });
+
+  it('con propina en el lector: no se suma nada y se pide anularla', async () => {
+    const sale = await inVenue(sala.id, () =>
+      reception.cardTopUp(device(), { amountCents: 2_000, idempotencyKey: key(), wallet: { create: true } }),
+    );
+    const out = await inVenue(sala.id, () => pos.reportResult(device(), sale.paymentId, approved(sale.paymentId, 2_000, `R${r}2`, 300)));
+    expect(out).toMatchObject({ status: 'MISMATCH' });
+    expect(await balanceOf(sale.walletId)).toMatchObject({ balanceCents: 0 });
+  });
+
+  it('la recarga del datáfono de recepción no la cobra otro datáfono', async () => {
+    const sale = await inVenue(sala.id, () =>
+      reception.cardTopUp(device(), { amountCents: 1_500, idempotencyKey: key(), wallet: { create: true } }),
+    );
+    const barra = { ...device(), terminalId: sala.term2, label: 'Barra' };
+    const out = await inVenue(sala.id, () => pos.reportResult(barra, sale.paymentId, approved(sale.paymentId, 1_500, `R${r}3`)));
+    expect(out).toMatchObject({ status: 'MISMATCH' });
+    expect(await balanceOf(sale.walletId)).toMatchObject({ balanceCents: 0 });
+  });
+});
+
 describe('stock de fichas: preparar → dar → «Me voy» → perdida (Postgres real)', () => {
   it('el ciclo de vida queda en la ficha y en el resumen de la noche', async () => {
     const by = { userId: sala.manager };
@@ -249,7 +324,8 @@ describe('stock de fichas: preparar → dar → «Me voy» → perdida (Postgres
     const summary = await inVenue(sala.id, () => cards.summary(sala.id));
     // De la noche: t1 entregada y devuelta, t2 perdida; en el stock queda t1 (la del datáfono se dio antes de abrirla).
     expect(summary.nights[0]).toMatchObject({ nightId: night.id, open: true, entregadas: 1, devueltas: 1, perdidas: 1, enStock: 1 });
-    expect(summary).toMatchObject({ enStock: 1, entregadas: 1 });
+    // Ahora: en el stock, t1; entregadas, las de las recepciones de antes (no esta noche).
+    expect(summary.enStock).toBe(1);
 
     // Al cerrar, las fichas de la noche quedan congeladas en el Z.
     // Entraron 25 € en efectivo y salieron 25 € («Me voy»): con fondo 0, en la caja 0 €.
