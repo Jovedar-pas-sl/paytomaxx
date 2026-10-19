@@ -168,7 +168,8 @@ async function bootstrap() {
   app.enableCors({
     origin: corsOrigin(isProd, allowed),
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    // PUT: la consola lo usa (IBAN de liquidación, cuenta de pago de la chica).
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     maxAge: 600,
   });
 
