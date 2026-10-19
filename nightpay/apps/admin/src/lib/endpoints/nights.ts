@@ -1,6 +1,9 @@
-// Noches e informe Z (Fase 1D).
+// Noches e informe Z (Fase 1D), y el cierre en pasos con el arqueo de caja.
 
+import type { CloseNightDto, NightCloseCheck, NightCloseStep } from '@nightpay/contracts';
+import { ApiError, errorFromBody } from '../api-errors';
 import { apiError, authedFetch } from '../http';
+import { stepsFromBody } from '../night-close';
 
 // ─── Noches (Fase 1D) ──────────────────────────────────────────────
 
@@ -53,6 +56,24 @@ export interface NightAdjustments {
   reversedConsumptionsChicaCents: number;
 }
 
+/** Caja de la noche congelada en el Z: fondo, salidas en efectivo, lo esperado, lo contado y la diferencia. */
+export interface NightCaja {
+  openingFloatCents: number | null;
+  cashInCents: number;
+  walletCashPayoutsCount: number;
+  walletCashPayoutsCents: number;
+  chicaCashPayoutsCount: number;
+  chicaCashPayoutsCents: number;
+  cashOutCents: number;
+  expectedCents: number;
+  /** null = no se contó (cierre automático o sin efectivo). */
+  countedCents: number | null;
+  /** Contado − esperado (negativo = falta). */
+  diffCents: number | null;
+  note: string | null;
+  frozenAt: string;
+}
+
 export interface NightZ {
   from: string;
   to: string;
@@ -61,6 +82,8 @@ export interface NightZ {
   pendingCount: number;
   /** API nuevo: ajustes de noches anteriores. */
   adjustments?: NightAdjustments;
+  /** Caja (los Z de antes del cierre en pasos y los de una noche abierta no la traen). */
+  caja?: NightCaja;
 }
 
 export interface NightView {
@@ -70,6 +93,8 @@ export interface NightView {
   autoClosed: boolean;
   pendingAtClose: number;
   closeNote: string | null;
+  /** Fondo de caja con el que empezó (null = no se apuntó). */
+  openingFloatCents?: number | null;
   z: NightZ;
   pending: Array<{ id: string; status: string; amountCents: number; createdAt: string; captureMethod: string | null }>;
 }
@@ -83,6 +108,19 @@ export interface NightListItem {
   count: number | null;
   chargedCents: number | null;
   netCents: number | null;
+  /** Diferencia de caja al cerrar; null si no se contó. */
+  cashDiffCents?: number | null;
+}
+
+/** El API no dejó cerrar (409): trae los pasos tal como están ahora. */
+export class NightCloseRefused extends ApiError {
+  override name = 'NightCloseRefused';
+  readonly steps: NightCloseStep[];
+
+  constructor(message: string, status: number, code: string | null, steps: NightCloseStep[]) {
+    super(message, status, code);
+    this.steps = steps;
+  }
 }
 
 export async function fetchCurrentNight(): Promise<NightView | null> {
@@ -91,16 +129,28 @@ export async function fetchCurrentNight(): Promise<NightView | null> {
   return ((await res.json()) as { night: NightView | null }).night;
 }
 
-export async function openNight(): Promise<NightView> {
-  const res = await authedFetch('/v1/nights/open', { method: 'POST', body: '{}' });
+export async function openNight(input: { openingFloatCents?: number } = {}): Promise<NightView> {
+  const res = await authedFetch('/v1/nights/open', { method: 'POST', body: JSON.stringify(input) });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
-export async function closeNight(id: string, input: { force?: boolean; note?: string }): Promise<NightView> {
-  const res = await authedFetch(`/v1/nights/${id}/close`, { method: 'POST', body: JSON.stringify(input) });
+/** Los pasos para cerrar la noche abierta. */
+export async function fetchCloseCheck(): Promise<NightCloseCheck> {
+  const res = await authedFetch('/v1/nights/current/close-check');
   if (!res.ok) throw await apiError(res);
   return res.json();
+}
+
+/** Cerrar: avisos confirmados, nota y arqueo. Un 409 con pasos → NightCloseRefused. */
+export async function closeNight(id: string, input: Partial<CloseNightDto>): Promise<NightView> {
+  const res = await authedFetch(`/v1/nights/${id}/close`, { method: 'POST', body: JSON.stringify(input) });
+  if (res.ok) return res.json();
+  const text = await res.text().catch(() => '');
+  const { message, code } = errorFromBody(text, res.status);
+  const steps = stepsFromBody(text);
+  if (steps) throw new NightCloseRefused(message, res.status, code, steps);
+  throw new ApiError(message, res.status, code);
 }
 
 export async function fetchNights(): Promise<NightListItem[]> {

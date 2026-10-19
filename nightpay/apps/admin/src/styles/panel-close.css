@@ -1,0 +1,718 @@
+/* Panel (admin) · cerrar la noche en pasos, arqueo de caja y la caja del Z.
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Pantalla completa
+   en el móvil; en escritorio, una hoja centrada. Solo se anima
+   transform/opacity, y nada con prefers-reduced-motion. Móvil = hasta 640px. */
+
+/* ─── La pantalla ─────────────────────────────────────────────────── */
+
+.np-close {
+  position: fixed;
+  inset: 0;
+  z-index: 90; /* encima de la barra de abajo (50), debajo de los modales (100) */
+  display: flex;
+  justify-content: center;
+  background: var(--np-bg);
+}
+
+.np-close-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--np-bg);
+  animation: np-close-in var(--np-d-base) var(--np-ease);
+}
+
+@keyframes np-close-in {
+  from { transform: translateY(12px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@media (min-width: 900px) {
+  .np-close {
+    align-items: center;
+    padding: 2rem;
+    background: var(--np-backdrop);
+  }
+  .np-close-panel {
+    width: min(54rem, 100%);
+    height: min(100%, 60rem);
+    border: 1px solid var(--np-border);
+    border-top: 3px solid var(--np-accent);
+    border-radius: var(--np-r-lg);
+    overflow: hidden;
+  }
+}
+
+.np-close-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1rem 0.875rem;
+  border-bottom: 1px solid var(--np-border);
+  background: var(--np-surface);
+}
+
+@media (min-width: 641px) {
+  .np-close-head { padding: 1.25rem 1.75rem 1rem; }
+}
+
+.np-close-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.np-close-kicker {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--np-text-dim);
+}
+
+.np-close-title {
+  margin: 0;
+  font-size: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  color: var(--np-text);
+}
+
+.np-close-title:focus { outline: none; }
+
+.np-close-progress {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 1.5rem;
+  margin-top: 0.25rem;
+}
+
+.np-close-progress::before,
+.np-close-progress-bar {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: var(--np-r-pill);
+}
+
+.np-close-progress::before { background: var(--np-border); }
+
+.np-close-progress-bar {
+  background: var(--np-accent);
+  transform-origin: left center;
+  transition: transform var(--np-d-base) var(--np-ease);
+}
+
+.np-close-progress-text {
+  position: relative;
+  margin-left: auto;
+  padding-left: 0.75rem;
+  background: var(--np-surface);
+  font-family: var(--np-font-mono);
+  font-size: 0.75rem;
+  color: var(--np-text-mute);
+}
+
+.np-close-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem 1rem 1.5rem;
+}
+
+@media (min-width: 641px) {
+  .np-close-body { padding: 1.5rem 1.75rem 2rem; }
+}
+
+.np-close-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem calc(0.875rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--np-border);
+  background: var(--np-surface);
+}
+
+@media (min-width: 641px) {
+  .np-close-foot { padding: 1rem 1.75rem; }
+}
+
+.np-close-freeze { width: 100%; letter-spacing: 0.02em; }
+
+.np-close-freeze:not(:disabled) { box-shadow: 0 0 0 0 var(--np-glow), 0 10px 32px -12px var(--np-glow); }
+
+.np-close-freeze:focus-visible,
+.np-close-go:focus-visible,
+.np-chica-btn:focus-visible {
+  outline: 3px solid var(--np-accent);
+  outline-offset: 3px;
+}
+
+.np-close-hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+  text-align: center;
+}
+
+.np-close-error {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border-left: 4px solid var(--np-danger);
+  border-radius: var(--np-r-sm);
+  background: var(--np-pill-danger-bg);
+  font-size: 0.875rem;
+  color: var(--np-text);
+}
+
+/* ─── Los pasos ───────────────────────────────────────────────────── */
+
+.np-close-steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-close-step {
+  --np-step: var(--np-success);
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  gap: 0.875rem;
+  position: relative;
+  padding: 1.125rem 0;
+  border-bottom: 1px solid var(--np-border);
+}
+
+.np-close-step:last-child { border-bottom: 0; }
+
+.np-close-step[data-status='warn'] { --np-step: var(--np-warning); }
+.np-close-step[data-status='block'] { --np-step: var(--np-danger); }
+
+/* La línea entre pasos: el recorrido de la noche. */
+.np-close-step::before {
+  content: '';
+  position: absolute;
+  left: calc(1.25rem - 1px);
+  top: 3.75rem;
+  bottom: -0.25rem;
+  width: 2px;
+  background: var(--np-border);
+}
+
+.np-close-step:last-child::before { display: none; }
+
+.np-close-mark {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 2px solid var(--np-step);
+  border-radius: 50%;
+  background: var(--np-bg);
+  color: var(--np-step);
+}
+
+.np-close-step[data-status='ok'] .np-close-mark {
+  background: var(--np-pill-success-bg);
+}
+
+.np-close-step[data-status='block'] .np-close-mark {
+  background: var(--np-pill-danger-bg);
+}
+
+.np-close-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.np-close-step-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2.5rem;
+  padding-top: 0.35rem;
+}
+
+.np-close-step-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--np-text);
+}
+
+.np-close-step-n {
+  font-family: var(--np-font-mono);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--np-text-dim);
+}
+
+.np-close-badge {
+  flex-shrink: 0;
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--np-r-pill);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--np-success);
+  background: var(--np-pill-success-bg);
+}
+
+.np-close-badge[data-status='warn'] { color: var(--np-warning); background: var(--np-pill-warning-bg); }
+.np-close-badge[data-status='block'] { color: var(--np-danger); background: var(--np-pill-danger-bg); }
+
+.np-close-step-detail {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--np-text-mute);
+}
+
+.np-close-step[data-status='block'] .np-close-step-detail { color: var(--np-text); }
+
+.np-close-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-close-items li {
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--np-border-hi);
+  border-radius: var(--np-r-sm);
+  background: var(--np-surface);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-close-items li[data-status='warn'] { border-left-color: var(--np-warning); }
+.np-close-items li[data-status='block'] { border-left-color: var(--np-danger); }
+
+.np-close-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-top: 0.25rem;
+}
+
+.np-close-go.np-btn[data-size='md'] {
+  height: 2.5rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+}
+
+.np-close-ack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  font-size: 0.9375rem;
+  color: var(--np-text);
+  cursor: pointer;
+}
+
+.np-close-ack input {
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--np-accent);
+}
+
+.np-close-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.np-close-text {
+  width: 100%;
+  height: 3rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  color: var(--np-text);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.np-close-text:focus,
+.np-cash-input:focus {
+  outline: none;
+  border-color: var(--np-accent);
+  box-shadow: 0 0 0 3px var(--np-glow);
+}
+
+.np-close-link {
+  margin-left: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--np-accent);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* ─── Efectivo (arqueo) ───────────────────────────────────────────── */
+
+.np-cash {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-lg);
+  background: var(--np-surface);
+}
+
+.np-cash-why {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--np-text-mute);
+}
+
+.np-cash-moves {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-cash-moves li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px dashed var(--np-border);
+  font-size: 0.9375rem;
+  color: var(--np-text-mute);
+}
+
+.np-cash-moves li:last-child { border-bottom: 0; }
+
+.np-cash-moves .np-num { color: var(--np-text); font-family: var(--np-font-mono); white-space: nowrap; }
+
+.np-cash-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.np-cash-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--np-text-label);
+}
+
+.np-cash-input {
+  width: 100%;
+  height: 4.5rem;
+  padding: 0 1rem;
+  border: 2px solid var(--np-border-hi);
+  border-radius: var(--np-r-md);
+  background: var(--np-bg);
+  color: var(--np-text);
+  font-family: var(--np-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2rem, 1.4rem + 2.5vw, 2.75rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-align: right;
+}
+
+.np-cash-input-sm {
+  height: 3.25rem;
+  font-size: 1.5rem;
+}
+
+.np-cash-input[aria-invalid='true'] { border-color: var(--np-danger); }
+
+.np-cash-echo,
+.np-cash-error {
+  font-size: 0.8125rem;
+  text-align: right;
+  color: var(--np-text-mute);
+}
+
+.np-cash-error { color: var(--np-danger); }
+
+.np-cash-figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  overflow: hidden;
+}
+
+.np-cash-figures > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-left: 1px solid var(--np-border);
+  min-width: 0;
+}
+
+.np-cash-figures > div:first-child { border-left: 0; }
+
+.np-cash-figures dt,
+.np-caja-grid dt {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--np-text-dim);
+}
+
+.np-cash-figures dd,
+.np-caja-grid dd {
+  margin: 0;
+  font-family: var(--np-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(1rem, 0.8rem + 1vw, 1.375rem);
+  font-weight: 600;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-cash-diff[data-tone='ok'],
+.np-caja-diff[data-tone='ok'] { background: var(--np-pill-success-bg); }
+.np-cash-diff[data-tone='ok'] dd,
+.np-caja-diff[data-tone='ok'] dd { color: var(--np-success); }
+
+.np-cash-diff[data-tone='short'],
+.np-caja-diff[data-tone='short'] { background: var(--np-pill-danger-bg); }
+.np-cash-diff[data-tone='short'] dd,
+.np-caja-diff[data-tone='short'] dd { color: var(--np-danger); }
+
+.np-cash-diff[data-tone='over'],
+.np-caja-diff[data-tone='over'] { background: var(--np-pill-warning-bg); }
+.np-cash-diff[data-tone='over'] dd,
+.np-caja-diff[data-tone='over'] dd { color: var(--np-warning); }
+
+.np-cash-mismatch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.875rem;
+  border: 1px solid var(--np-warning);
+  border-radius: var(--np-r-md);
+  animation: np-close-in var(--np-d-base) var(--np-ease);
+}
+
+.np-cash-mismatch-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 800;
+  color: var(--np-text);
+}
+
+/* ─── Chicas ──────────────────────────────────────────────────────── */
+
+.np-chicas {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-chica {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.np-chica[data-due='true'] { border-left: 4px solid var(--np-accent); }
+
+.np-chica-who {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.np-chica-name { font-weight: 800; color: var(--np-text); }
+
+.np-chica-meta {
+  font-size: 0.8125rem;
+  color: var(--np-text-mute);
+}
+
+.np-chica-pay {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.np-chica-amount { font-size: 0.9375rem; color: var(--np-text); white-space: nowrap; }
+
+.np-chica-amount strong { font-family: var(--np-font-mono); font-size: 1.125rem; }
+
+.np-chica-btn.np-btn[data-size='md'] {
+  height: 2.75rem;
+  padding: 0 1.25rem;
+  font-size: 0.9375rem;
+}
+
+.np-chica-done {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--np-success);
+}
+
+/* ─── Caja congelada en el Z ──────────────────────────────────────── */
+
+.np-caja {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.125rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: var(--np-r-lg);
+  background: var(--np-surface);
+}
+
+.np-caja-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--np-accent);
+}
+
+.np-caja-kicker {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--np-text);
+}
+
+.np-caja-time {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: var(--np-text-mute);
+}
+
+.np-caja-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  overflow: hidden;
+}
+
+.np-caja-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.625rem 0.75rem;
+  border-left: 1px solid var(--np-border);
+  min-width: 0;
+}
+
+.np-caja-grid > div:first-child { border-left: 0; }
+
+.np-caja-note,
+.np-caja-quote {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--np-text-mute);
+}
+
+.np-caja-quote { color: var(--np-text); font-style: italic; }
+
+/* ─── Noche cerrada ───────────────────────────────────────────────── */
+
+.np-close-done {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  animation: np-close-in var(--np-d-slow) var(--np-ease);
+}
+
+.np-close-done-lead {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  color: var(--np-text);
+}
+
+/* ─── Móvil ───────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .np-close-step {
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0.625rem;
+  }
+  .np-close-mark { width: 2rem; height: 2rem; }
+  .np-close-mark svg { width: 18px; height: 18px; }
+  .np-close-step::before { left: calc(1rem - 1px); top: 3.25rem; }
+  .np-close-step-top { min-height: 2rem; padding-top: 0.15rem; }
+  .np-close-step-title { font-size: 1.0625rem; }
+  .np-cash { padding: 0.875rem; }
+  .np-cash-figures > div { padding: 0.625rem 0.5rem; }
+  .np-caja-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .np-caja-grid > div { border-left: 0; border-top: 1px solid var(--np-border); }
+  .np-caja-grid > div:nth-child(-n + 2) { border-top: 0; }
+  .np-caja-grid > div:nth-child(even) { border-left: 1px solid var(--np-border); }
+  .np-caja-diff { grid-column: 1 / -1; border-left: 0 !important; }
+  .np-chica-pay { width: 100%; justify-content: space-between; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-close-panel,
+  .np-cash-mismatch,
+  .np-close-done { animation: none; }
+  .np-close-progress-bar { transition: none; }
+}
