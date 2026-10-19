@@ -24,6 +24,8 @@ interface PaymentFixture {
   providerTxId: string | null;
   provider: 'WIPAY' | 'PEANPE' | 'REDSYS' | null;
   walletId?: string | null;
+  authorizedAt?: Date | null;
+  createdAt?: Date;
 }
 
 interface UserFixture {
@@ -706,9 +708,22 @@ describe('RefundsService.refund — happy path', () => {
 });
 
 describe('RefundsService.registerBankRefund — devolución hecha en el portal de BBVA (Fase 1C)', () => {
-  beforeEach(() => vi.clearAllMocks());
+  // Hoy = 19-oct-2026 (trimestre abierto: Q4, desde el 1-oct en Madrid).
+  const NOW = new Date('2026-10-19T12:00:00Z');
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => vi.useRealTimers());
 
-  const redsysPayment: PaymentFixture = { ...okPayment, provider: 'REDSYS', availableAmountCents: 10_500 };
+  const redsysPayment: PaymentFixture = {
+    ...okPayment,
+    provider: 'REDSYS',
+    availableAmountCents: 10_500,
+    authorizedAt: new Date('2026-10-11T21:30:00Z'),
+    createdAt: new Date('2026-10-11T21:29:00Z'),
+  };
 
   it('apunta la devolución sin llamar al banco, ajusta el cobro y descuenta a la chica', async () => {
     const { svc, prismaMock, paymentsMock, adapterMock, auditMock } = makeService({ payment: redsysPayment });
@@ -813,6 +828,54 @@ describe('RefundsService.registerBankRefund — devolución hecha en el portal d
       svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 5000, reason: 'motivo' }, owner),
     ).rejects.toThrow(/ya no admite esta devolución/);
     expect(paymentsMock.applyRefundToEarning).not.toHaveBeenCalled();
+  });
+
+  it('día de un trimestre ya cerrado (303): se apunta con fecha de hoy y el día del banco va en el motivo', async () => {
+    const payment = { ...redsysPayment, authorizedAt: new Date('2026-09-20T21:00:00Z') };
+    const { svc, prismaMock, auditMock } = makeService({ payment });
+    const result = await svc.registerBankRefund(
+      { paymentId: 'pay-1', amountCents: 500, reason: 'No reconoce el cargo', refundedAt: new Date('2026-09-28T12:00:00Z') },
+      owner,
+    );
+    expect(prismaMock.refund.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        bankRefundedAt: NOW,
+        reason:
+          'No reconoce el cargo · en el banco el 28/09/2026; apuntada con fecha de hoy porque su trimestre ya está cerrado',
+      }),
+    });
+    expect(result).toMatchObject({ refundedAt: NOW.toISOString(), dateAdjusted: 'closed_period' });
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'refund.bank_registered',
+        payload: expect.objectContaining({
+          refundedAt: NOW.toISOString(),
+          requestedRefundedAt: '2026-09-28T12:00:00.000Z',
+          dateAdjusted: 'closed_period',
+          reason: 'No reconoce el cargo',
+        }),
+      }),
+    );
+  });
+
+  it('nunca antes del cobro: un día anterior → hoy; su mismo día antes de su hora → la hora del cobro', async () => {
+    const before = makeService({ payment: redsysPayment });
+    const r1 = await before.svc.registerBankRefund(
+      { paymentId: 'pay-1', amountCents: 100, reason: 'motivo', refundedAt: new Date('2026-10-10T12:00:00Z') },
+      owner,
+    );
+    expect(r1).toMatchObject({ refundedAt: NOW.toISOString(), dateAdjusted: 'before_payment' });
+
+    const sameDay = makeService({ payment: redsysPayment });
+    // El 11 (Madrid) a mediodía UTC = 14:00, antes del cobro de las 23:30.
+    const r2 = await sameDay.svc.registerBankRefund(
+      { paymentId: 'pay-1', amountCents: 100, reason: 'motivo', refundedAt: new Date('2026-10-11T12:00:00Z') },
+      owner,
+    );
+    expect(r2).toMatchObject({ refundedAt: '2026-10-11T21:30:00.000Z', dateAdjusted: null });
+    expect(sameDay.prismaMock.refund.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ bankRefundedAt: new Date('2026-10-11T21:30:00Z'), reason: 'motivo' }),
+    });
   });
 
   it('fecha futura → no', async () => {
