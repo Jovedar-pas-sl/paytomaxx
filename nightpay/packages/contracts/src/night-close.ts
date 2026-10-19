@@ -45,15 +45,17 @@ export interface NightCloseStep {
 }
 
 /**
- * Efectivo de la noche (desde el cierre anterior, como el Z). OxioPay no cobra
- * en efectivo: hoy no entra nada por el sistema, solo sale (saldo devuelto en
- * efectivo y pagos en efectivo a las chicas).
+ * Efectivo de la noche (desde el cierre anterior, como el Z). Entra por las
+ * recargas del saldo en efectivo (recepción) y sale por el saldo devuelto en
+ * efectivo y los pagos en efectivo a las chicas.
  */
 export interface NightCash {
   /** Fondo de caja con el que empezó la noche (null = nadie lo apuntó). */
   openingFloatCents: number | null;
-  /** Efectivo que entra por OxioPay. Hoy siempre 0. */
+  /** Efectivo que entra por OxioPay: las recargas en efectivo. */
   cashInCents: number;
+  walletCashTopUpsCount: number;
+  walletCashTopUpsCents: number;
   walletCashPayoutsCount: number;
   walletCashPayoutsCents: number;
   chicaCashPayoutsCount: number;
@@ -176,7 +178,7 @@ export function evaluateCash(cash: NightCash, input: CashInput = {}): CashOutcom
       ...base,
       reason: 'float-missing',
       status: 'block',
-      detail: `Salieron ${eur(moves.cashOutCents)} en efectivo: apunta con cuánto empezó la caja (el fondo) y cuéntala.`,
+      detail: `${cashMovesText(moves)}: apunta con cuánto empezó la caja (el fondo) y cuéntala.`,
     };
   }
   if (required && countedCents === null) {
@@ -202,13 +204,26 @@ export function evaluateCash(cash: NightCash, input: CashInput = {}): CashOutcom
   return { ...base, reason: 'matches', status: 'ok', detail: `La caja cuadra: ${eur(expectedCents)}.` };
 }
 
+/** «Entraron 50,00 € y salieron 20,00 € en efectivo» (lo que se movió). */
+function cashMovesText(moves: { cashInCents: number; cashOutCents: number }): string {
+  if (moves.cashInCents > 0 && moves.cashOutCents > 0) {
+    return `Entraron ${eur(moves.cashInCents)} y salieron ${eur(moves.cashOutCents)} en efectivo`;
+  }
+  return moves.cashInCents > 0
+    ? `Entraron ${eur(moves.cashInCents)} en efectivo`
+    : `Salieron ${eur(moves.cashOutCents)} en efectivo`;
+}
+
+/** Movimientos de efectivo de la noche (recargas, saldo devuelto y pagos a chicas). */
+export function cashMovesCount(cash: NightCash): number {
+  return (cash.walletCashTopUpsCount ?? 0) + cash.walletCashPayoutsCount + cash.chicaCashPayoutsCount;
+}
+
 /** Los pasos con el de «Efectivo» recalculado con lo tecleado (no cambia el array de entrada). */
 export function withCashInput(steps: ReadonlyArray<NightCloseStep>, cash: NightCash, input: CashInput): NightCloseStep[] {
   const outcome = evaluateCash(cash, input);
   return steps.map((s) =>
-    s.key === 'efectivo'
-      ? { ...s, status: outcome.status, detail: outcome.detail, count: cash.walletCashPayoutsCount + cash.chicaCashPayoutsCount }
-      : s,
+    s.key === 'efectivo' ? { ...s, status: outcome.status, detail: outcome.detail, count: cashMovesCount(cash) } : s,
   );
 }
 

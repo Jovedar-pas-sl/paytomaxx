@@ -35,3 +35,93 @@ export function normalizeWalletCardUid(raw: string): string | null {
   const hex = raw.replace(/[^0-9a-f]/gi, '').toUpperCase();
   return hex.length >= 8 && hex.length <= 32 ? hex : null;
 }
+
+// ─── Ciclo de vida de la ficha (20261021100000) ─────────────────────────
+
+/**
+ * STOCK (grabada, sin dar) → ISSUED (dada a un saldo) → RETURNED (devuelta:
+ * otra vez en el stock) | LOST (perdida) | BLOCKED (bloqueada). Solo una
+ * ficha ISSUED dice de qué saldo es; las del stock se pueden dar.
+ */
+export const WALLET_CARD_STATUSES = ['STOCK', 'ISSUED', 'RETURNED', 'LOST', 'BLOCKED'] as const;
+export type WalletCardStatus = (typeof WALLET_CARD_STATUSES)[number];
+
+export const WALLET_CARD_STATUS_LABEL: Readonly<Record<WalletCardStatus, string>> = {
+  STOCK: 'En stock',
+  ISSUED: 'Entregada',
+  RETURNED: 'Devuelta',
+  LOST: 'Perdida',
+  BLOCKED: 'Bloqueada',
+};
+
+export function isWalletCardStatus(value: string): value is WalletCardStatus {
+  return (WALLET_CARD_STATUSES as readonly string[]).includes(value);
+}
+
+/** ¿Está en el stock del local (se puede dar)? */
+export function cardInStock(status: string): boolean {
+  return status === 'STOCK' || status === 'RETURNED';
+}
+
+/** Lo que el panel puede hacer con una ficha. */
+export type WalletCardPanelAction = 'block' | 'lost';
+
+/** Por qué no se puede (null: se puede). Una perdida o bloqueada ya no paga. */
+export function cardPanelActionProblem(status: string, action: WalletCardPanelAction): string | null {
+  if (status === 'BLOCKED') return 'Esta ficha ya está bloqueada';
+  if (status === 'LOST') return action === 'lost' ? 'Esta ficha ya está marcada como perdida' : 'Esta ficha está perdida: ya no paga';
+  return null;
+}
+
+/** Una ficha en la lista del panel (Clientes → Fichas). */
+export interface WalletCardRow {
+  id: string;
+  /** Número de serie (hex) si se leyó con NFC. */
+  uid: string | null;
+  /** Primeras letras del código grabado (para reconocerla, no para usarla). */
+  tokenHint: string;
+  status: WalletCardStatus;
+  /** Código del saldo al que está dada (K7Q-4M2), si está entregada. */
+  walletCode: string | null;
+  stockedAt: string | null;
+  linkedAt: string | null;
+  returnedAt: string | null;
+  lostAt: string | null;
+  blockedAt: string | null;
+  lastUsedAt: string | null;
+}
+
+/** Movimientos de fichas de una noche (o de la abierta, en vivo). */
+export interface FichasNight {
+  nightId: string;
+  from: string;
+  to: string | null;
+  open: boolean;
+  entregadas: number;
+  devueltas: number;
+  perdidas: number;
+  /** En stock al cerrar (o ahora, la abierta); null en noches de antes de las fichas. */
+  enStock: number | null;
+}
+
+export interface FichasSummary {
+  /** Ahora, en el stock del local (STOCK + RETURNED). */
+  enStock: number;
+  /** Ahora, entregadas desde este local. */
+  entregadas: number;
+  nights: FichasNight[];
+}
+
+/**
+ * Lo que dice el servidor al apuntar en el stock una ficha acercada
+ * («Preparar fichas»): grabada nueva, devuelta al stock (su saldo ya está
+ * gastado o cerrado) o apartada (con saldo, perdida, bloqueada o de otro local).
+ */
+export type StockOutcome =
+  | { outcome: 'stocked' }
+  | { outcome: 'returned'; codeHint: string }
+  | { outcome: 'already' }
+  | { outcome: 'in-use'; codeHint: string }
+  | { outcome: 'blocked' }
+  | { outcome: 'lost' }
+  | { outcome: 'foreign' };
