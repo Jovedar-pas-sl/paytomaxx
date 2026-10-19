@@ -1,5 +1,10 @@
 import { defineConfig } from 'vitest/config';
 
+// Como en producción y en CI (Docker en UTC). Se pone aquí, antes de lanzar el
+// proceso de las pruebas, para que lo herede: en un PC en Madrid, algunas cuentas
+// del cierre de la noche salían distintas.
+process.env.TZ = 'UTC';
+
 // Pruebas de integración contra un Postgres de verdad (RLS forzado, con el rol
 // dueño de la base y sin superusuario). No las coge `vitest run` (ese solo mira
 // src/**/*.spec.ts): se lanzan con `pnpm test:integration`. Ver

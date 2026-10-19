@@ -798,6 +798,8 @@ export class WalletChargesService {
     ref: TerminalWalletRef,
   ): Promise<TerminalWalletCheck> {
     const request = await this.terminalRequest(terminal, requestId);
+    // Ficha NFC apagada en Ajustes (Formas de cobro): tampoco en el datáfono.
+    if ('card' in ref) await this.assertMethods(terminal.tenantId, ['nfc']);
     const wallet = await this.walletByTerminalRef(terminal.tenantId, ref);
     if (wallet.blockedAt) throw new ConflictException(REQUEST_ERRORS.blocked);
     return {
@@ -816,6 +818,7 @@ export class WalletChargesService {
     input: TerminalWalletRef & { pin: string },
   ): Promise<ChargeRequestView> {
     const request = await this.terminalRequest(terminal, requestId);
+    if ('card' in input) await this.assertMethods(terminal.tenantId, ['nfc']);
     const wallet = await this.walletByTerminalRef(terminal.tenantId, input);
     if (wallet.pinSetById) {
       throw new ForbiddenException('Este PIN lo puso el personal: este cobro se hace desde la app, con otra persona');
