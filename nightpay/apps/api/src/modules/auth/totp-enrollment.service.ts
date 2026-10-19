@@ -6,6 +6,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
@@ -16,6 +17,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { BRAND_NAME } from '../../common/brand';
 import { AuditService } from '../audit/audit.service';
+import { TelegramService } from '../incidents/telegram.service';
 import { LockoutService, type LockPolicy } from './lockout.service';
 import { buildOtpauthUrl } from './totp-code';
 import { openTotpSecret } from './totp-crypto';
@@ -49,6 +51,7 @@ interface EnrollingUser {
   readonly tenantId: string;
   readonly totpSecret: string | null;
   readonly passwordHash: string;
+  readonly isSuperAdmin: boolean;
 }
 
 /** Activación pendiente en Redis: el secreto cifrado y la sesión (sid) que la empezó. */
@@ -66,6 +69,10 @@ interface PendingSecret {
  *   en users.totpSecret. Así una sesión robada sola no activa su propia 2FA.
  * disable → con un código bueno del secreto actual se borra.
  * Los códigos pasan por el mismo límite de intentos y anti-reutilización.
+ *
+ * Super-admin sin 2FA (obligatoria): en el login, con el ticket `enroll` de la
+ * contraseña (setupAtLogin / confirmAtLogin; el ticket ya probó la
+ * contraseña). Activarla en un super-admin avisa por Telegram.
  */
 @Injectable()
 export class TotpEnrollmentService {
@@ -75,6 +82,7 @@ export class TotpEnrollmentService {
   private readonly totp: TotpService;
   private readonly audit: AuditService;
   private readonly lockout: LockoutService;
+  private readonly telegram: TelegramService | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -82,12 +90,14 @@ export class TotpEnrollmentService {
     @Inject(TotpService) totp: TotpService,
     @Inject(AuditService) audit: AuditService,
     @Inject(LockoutService) lockout: LockoutService,
+    @Optional() @Inject(TelegramService) telegram?: TelegramService,
   ) {
     this.prisma = prisma;
     this.redis = redis;
     this.totp = totp;
     this.audit = audit;
     this.lockout = lockout;
+    this.telegram = telegram ?? null;
   }
 
   async status(userId: string): Promise<TotpStatusResponse> {
@@ -104,11 +114,7 @@ export class TotpEnrollmentService {
     const user = await this.loadUser(userId);
     if (user.totpSecret) throw new ConflictException(MSG.alreadyEnabled);
     await this.assertPassword(user, password);
-
-    const secret = (await this.readPending(userId, sessionId)) ?? (await this.createPending(userId, sessionId));
-    const otpauthUrl = buildOtpauthUrl(secret, user.email, BRAND_NAME);
-    const qrPngDataUrl = await QRCode.toDataURL(otpauthUrl, QR_OPTIONS);
-    return { otpauthUrl, secret, qrPngDataUrl };
+    return this.pendingQr(user, sessionId);
   }
 
   async confirm(userId: string, code: string, password: string, meta: ClientMeta = {}): Promise<{ enabled: true }> {
@@ -117,18 +123,75 @@ export class TotpEnrollmentService {
     const pending = parsePending(await this.redis.get(pendingKey(userId)));
     if (!pending) throw new ConflictException(MSG.noPending);
     await this.assertPassword(user, password);
+    await this.enable(user, pending, code, meta, 'settings');
+    return { enabled: true };
+  }
 
+  /**
+   * Login del super-admin sin 2FA: el QR para activarla. `scope` ata el
+   * secreto pendiente al ticket del login (otro ticket recibe otro secreto).
+   * La contraseña ya la comprobó el login (el ticket es la prueba).
+   */
+  async setupAtLogin(userId: string, scope: string): Promise<TotpSetupResponse> {
+    const user = await this.loadUser(userId);
+    if (user.totpSecret) throw new ConflictException(MSG.alreadyEnabled);
+    return this.pendingQr(user, scope);
+  }
+
+  /** Login del super-admin sin 2FA: un código del QR de ESTE ticket la activa. */
+  async confirmAtLogin(userId: string, code: string, scope: string, meta: ClientMeta = {}): Promise<void> {
+    const user = await this.loadUser(userId);
+    if (user.totpSecret) throw new ConflictException(MSG.alreadyEnabled);
+    const pending = parsePending(await this.redis.get(pendingKey(userId)));
+    if (!pending || pending.sid !== scope) throw new ConflictException(MSG.noPending);
+    await this.enable(user, pending, code, meta, 'login');
+  }
+
+  private async pendingQr(user: EnrollingUser, sessionId: string | undefined): Promise<TotpSetupResponse> {
+    const secret = (await this.readPending(user.id, sessionId)) ?? (await this.createPending(user.id, sessionId));
+    const otpauthUrl = buildOtpauthUrl(secret, user.email, BRAND_NAME);
+    const qrPngDataUrl = await QRCode.toDataURL(otpauthUrl, QR_OPTIONS);
+    return { otpauthUrl, secret, qrPngDataUrl };
+  }
+
+  /** Un código bueno del secreto pendiente lo guarda (si nadie se adelantó), lo apunta y, en un super-admin, avisa. */
+  private async enable(
+    user: EnrollingUser,
+    pending: PendingSecret,
+    code: string,
+    meta: ClientMeta,
+    via: 'settings' | 'login',
+  ): Promise<void> {
     const { sealed } = pending;
-    await this.totp.checkStoredForUser(userId, sealed, code);
+    await this.totp.checkStoredForUser(user.id, sealed, code);
     const saved = await this.prisma.acrossVenues((tx) =>
-      tx.user.updateMany({ where: { id: userId, totpSecret: null }, data: { totpSecret: sealed } }),
+      tx.user.updateMany({ where: { id: user.id, totpSecret: null }, data: { totpSecret: sealed } }),
     );
     if (saved.count === 0) throw new ConflictException(MSG.alreadyEnabled);
-    await this.redis.del(pendingKey(userId));
+    await this.redis.del(pendingKey(user.id));
 
-    await this.audit.log({ action: 'auth.totp.enabled', ...auditActor(user), ...meta });
+    await this.audit.log({
+      action: 'auth.totp.enabled',
+      ...auditActor(user),
+      ...meta,
+      ...(user.isSuperAdmin ? { payload: { superAdmin: true, via } } : {}),
+    });
     this.logger.log(`2FA activada: ${user.email}`);
-    return { enabled: true };
+    if (user.isSuperAdmin) await this.alertSuperAdminEnabled(user, meta);
+  }
+
+  /**
+   * Con la contraseña de un super-admin que aún no tenía 2FA, quien la active
+   * primero se queda la cuenta: que se sepa al momento (Telegram del entorno).
+   */
+  private async alertSuperAdminEnabled(user: EnrollingUser, meta: ClientMeta): Promise<void> {
+    const from = meta.ip ? ` desde la IP ${meta.ip}` : '';
+    this.logger.warn(`2FA activada en un super-admin: ${user.email}${from}`);
+    if (!this.telegram || process.env.NODE_ENV === 'test' || process.env.NIGHTPAY_DISABLE_ALERTS === '1') return;
+    await this.telegram.send(
+      `🔐 ${BRAND_NAME}: se ha activado la verificación en dos pasos (2FA) del super-admin ${user.email}${from}. ` +
+        'Si no ha sido esa persona: otro super-admin le restablece la 2FA en la consola y le cambia la contraseña.',
+    );
   }
 
   async disable(userId: string, code: string, meta: ClientMeta = {}): Promise<{ enabled: false }> {
@@ -151,7 +214,15 @@ export class TotpEnrollmentService {
     const user = await this.prisma.acrossVenues((tx) =>
       tx.user.findUnique({
         where: { id: userId },
-        select: { id: true, email: true, tenantId: true, totpSecret: true, passwordHash: true, deletedAt: true },
+        select: {
+          id: true,
+          email: true,
+          tenantId: true,
+          totpSecret: true,
+          passwordHash: true,
+          deletedAt: true,
+          isSuperAdmin: true,
+        },
       }),
     );
     if (!user || user.deletedAt) throw new UnauthorizedException(MSG.userGone);
@@ -161,6 +232,7 @@ export class TotpEnrollmentService {
       tenantId: user.tenantId,
       totpSecret: user.totpSecret || null,
       passwordHash: user.passwordHash,
+      isSuperAdmin: user.isSuperAdmin === true,
     };
   }
 

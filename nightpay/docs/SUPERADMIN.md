@@ -17,6 +17,16 @@ Código: `apps/api/src/modules/superadmin/`. Migraciones:
 - **Todos los locales.** El super-admin tiene su local activo en la sesión; la
   consola consulta con `acrossVenues` (sin filtro de local y con bypass de RLS),
   así que ve todo, también las tablas con FORCE RLS (saldos, consumos…).
+- **2FA obligatoria.** Un super-admin sin 2FA no abre sesión con la contraseña:
+  el login da 401 `TOTP_SETUP_REQUIRED` con un ticket (10 min) que solo sirve
+  para activarla (`POST /v1/auth/login/totp/setup` → QR; `POST
+  /v1/auth/login/totp/enroll` con un código → la guarda y entra). El panel lo
+  hace en la misma pantalla de entrar. También se puede dar de alta con
+  `pnpm cli enroll-totp` o, tras un `totp/reset` de otro super-admin, en el
+  siguiente login. Activarla en un super-admin queda en el registro
+  (`auth.totp.enabled` con `superAdmin: true`) y avisa por Telegram (chat de
+  `TELEGRAM_CHAT_ID`). Una sesión de super-admin que no entró con la 2FA (de
+  antes) o cuya 2FA se quitó se cierra al refrescar (`auth.refresh.two_factor_required`).
 - **Step-up 2FA.** Las escrituras que mueven dinero o identidades piden
   `totpCode` (código de 6 cifras de la app del propio super-admin) en el cuerpo,
   aunque la sesión esté abierta. Errores (`code` en la respuesta):

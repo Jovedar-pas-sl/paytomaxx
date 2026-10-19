@@ -5,6 +5,7 @@
 
 import {
   LoginCodeRequiredError,
+  LoginSetupRequiredError,
   ServerUnavailableError,
   SESSION_EXPIRED_EVENT,
   TotpError,
@@ -13,6 +14,7 @@ import {
   tokenClaims,
   type CallOptions,
   type LoginResult,
+  type LoginTotpSetup,
 } from '@nightpay/api-client';
 import { ApiError, genericStatusMessage, humanizeTotpError, loginErrorMessage, NETWORK_ERROR_MESSAGE } from './api-errors';
 import { classifySessionEvent, type SessionChange } from './session-sync';
@@ -96,15 +98,15 @@ export async function login(email: string, password: string): Promise<LoginRespo
   try {
     return await client.login({ email, password });
   } catch (err) {
-    // Super-admin con 2FA: la contraseña vale y falta el código (LoginForm lo pide).
-    if (err instanceof LoginCodeRequiredError) throw err;
+    // Super-admin: la contraseña vale y falta el código o, sin 2FA, activarla (LoginForm lo pide).
+    if (err instanceof LoginCodeRequiredError || err instanceof LoginSetupRequiredError) throw err;
     if (err instanceof ServerUnavailableError) throw new ApiError(err.message, 0);
     if (err instanceof ApiError) throw new ApiError(loginErrorMessage(err.status, err.message), err.status);
     throw err;
   }
 }
 
-export { LoginCodeRequiredError };
+export { LoginCodeRequiredError, LoginSetupRequiredError, type LoginTotpSetup };
 
 /**
  * Segundo paso del login con 2FA: el ticket de la contraseña y el código.
@@ -112,8 +114,25 @@ export { LoginCodeRequiredError };
  * (429) o ticket caducado (LOGIN_TICKET_EXPIRED: vuelta a la contraseña).
  */
 export async function loginWithCode(loginTicket: string, totpCode: string): Promise<LoginResponse> {
+  return withTotpErrors(() => client.loginWithCode(loginTicket, totpCode));
+}
+
+/** Super-admin sin 2FA (LoginSetupRequiredError): el QR para activarla. */
+export async function loginTotpSetup(loginTicket: string): Promise<LoginTotpSetup> {
+  return withTotpErrors(() => client.loginTotpSetup(loginTicket));
+}
+
+/**
+ * Super-admin sin 2FA: un código del QR la activa y abre la sesión. Errores
+ * como loginWithCode (y 409 si el QR caducó: volver a pedirlo).
+ */
+export async function loginWithNewCode(loginTicket: string, totpCode: string): Promise<LoginResponse> {
+  return withTotpErrors(() => client.loginWithNewCode(loginTicket, totpCode));
+}
+
+async function withTotpErrors<T>(call: () => Promise<T>): Promise<T> {
   try {
-    return await client.loginWithCode(loginTicket, totpCode);
+    return await call();
   } catch (err) {
     if (err instanceof ServerUnavailableError && err.status !== 429) throw new ApiError(err.message, 0);
     if (err instanceof ApiError) throw new ApiError(humanizeTotpError(err.message, err.code), err.status, err.code);

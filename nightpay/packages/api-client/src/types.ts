@@ -51,6 +51,13 @@ export interface LoginResult<U extends SessionUser = SessionUser> {
   readonly user: U;
 }
 
+/** QR para activar la 2FA en el login del super-admin (POST /v1/auth/login/totp/setup). */
+export interface LoginTotpSetup {
+  readonly otpauthUrl: string;
+  readonly secret: string;
+  readonly qrPngDataUrl: string;
+}
+
 /**
  * Lo que pasa con la sesión:
  *   - expired: el API dijo que no (aquí o en otra pestaña);
@@ -120,6 +127,10 @@ export interface ApiClient<U extends SessionUser = SessionUser> {
   login(input: LoginInput): Promise<LoginResult<U>>;
   /** Segundo paso del login con 2FA (super-admin): el ticket de LoginCodeRequiredError y el código. */
   loginWithCode(loginTicket: string, totpCode: string): Promise<LoginResult<U>>;
+  /** Super-admin sin 2FA (LoginSetupRequiredError): el QR para activarla con su ticket. No abre sesión. */
+  loginTotpSetup(loginTicket: string): Promise<LoginTotpSetup>;
+  /** Super-admin sin 2FA: el ticket y un código del QR la activan y abren la sesión. */
+  loginWithNewCode(loginTicket: string, totpCode: string): Promise<LoginResult<U>>;
   /** Salir: borra todo aquí al momento, avisa a las otras pestañas y cierra en el API. Devuelve si el API lo confirmó. */
   logout(): Promise<boolean>;
   /** Cierra en el API la sesión de un login que no se va a usar (no toca nada de aquí). */

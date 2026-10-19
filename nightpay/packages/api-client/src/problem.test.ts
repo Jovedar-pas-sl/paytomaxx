@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, TotpError, isTransientStatus } from './errors';
+import { ApiError, LoginCodeRequiredError, LoginSetupRequiredError, TotpError, isTransientStatus } from './errors';
 import { tokenExpiresSoon } from './jwt';
 import { parseProblemDetails, readApiError } from './problem';
 import { jwt, json } from './test-harness';
@@ -42,6 +42,27 @@ describe('readApiError', () => {
     expect(err).toBeInstanceOf(TotpError);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.code).toBe('TOTP_INVALID');
+  });
+});
+
+describe('readApiError: login del super-admin', () => {
+  const TICKET = 'a'.repeat(43);
+
+  it('401 TOTP_REQUIRED con ticket → LoginCodeRequiredError; TOTP_SETUP_REQUIRED → LoginSetupRequiredError', async () => {
+    const code = await readApiError(json(401, { message: 'Pon el código', code: 'TOTP_REQUIRED', loginTicket: TICKET, expiresIn: 300 }));
+    expect(code).toBeInstanceOf(LoginCodeRequiredError);
+    const setup = await readApiError(
+      json(401, { message: 'Debes activar la 2FA', code: 'TOTP_SETUP_REQUIRED', loginTicket: TICKET, expiresIn: 600 }),
+    );
+    expect(setup).toBeInstanceOf(LoginSetupRequiredError);
+    expect(setup).toMatchObject({ status: 401, code: 'TOTP_SETUP_REQUIRED', loginTicket: TICKET, expiresIn: 600 });
+    expect(setup).not.toBeInstanceOf(TotpError);
+  });
+
+  it('TOTP_SETUP_REQUIRED sin ticket → ApiError normal', async () => {
+    const err = await readApiError(json(401, { message: 'x', code: 'TOTP_SETUP_REQUIRED' }));
+    expect(err).not.toBeInstanceOf(LoginSetupRequiredError);
+    expect(err).toMatchObject({ code: 'TOTP_SETUP_REQUIRED' });
   });
 });
 

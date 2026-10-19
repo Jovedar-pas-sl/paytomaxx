@@ -22,11 +22,25 @@ export const LOGIN_TOTP_REQUIRED_CODE = 'TOTP_REQUIRED';
 /** El ticket caducó, ya se usó o la contraseña cambió: vuelta a la contraseña. */
 export const LOGIN_TICKET_EXPIRED_CODE = 'LOGIN_TICKET_EXPIRED';
 
+const LoginTicketSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Ticket de acceso no válido');
+
 export const LoginTotpRequestSchema = z.object({
-  loginTicket: z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Ticket de acceso no válido'),
+  loginTicket: LoginTicketSchema,
   totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras'),
 });
 export type LoginTotpRequest = z.infer<typeof LoginTotpRequestSchema>;
+
+/**
+ * Super-admin SIN 2FA: la 2FA es obligatoria. La contraseña da 401
+ * `{ code: 'TOTP_SETUP_REQUIRED', loginTicket, expiresIn }` y con ese ticket
+ * solo se puede activarla: POST /v1/auth/login/totp/setup { loginTicket } →
+ * QR (TotpSetupResponse) y POST /v1/auth/login/totp/enroll { loginTicket,
+ * totpCode } → la guarda y abre la sesión (como /login/totp).
+ */
+export const LOGIN_TOTP_SETUP_REQUIRED_CODE = 'TOTP_SETUP_REQUIRED';
+
+export const LoginTotpSetupRequestSchema = z.object({ loginTicket: LoginTicketSchema });
+export type LoginTotpSetupRequest = z.infer<typeof LoginTotpSetupRequestSchema>;
 
 /**
  * Sesión del personal: el refresh token va en una cookie HttpOnly del API

@@ -22,6 +22,7 @@ import {
   type LockManagerLike,
   type LoginInput,
   type LoginResult,
+  type LoginTotpSetup,
   type SessionEvent,
   type SessionUser,
 } from './types';
@@ -304,6 +305,18 @@ export function createApiClient<U extends SessionUser = SessionUser>(config: Api
     return openSession('/v1/auth/login/totp', { loginTicket, totpCode });
   }
 
+  /** Super-admin sin 2FA (tras LoginSetupRequiredError): el QR para activarla. No abre sesión. */
+  async function loginTotpSetup(loginTicket: string): Promise<LoginTotpSetup> {
+    const res = await cookiePost('/v1/auth/login/totp/setup', { loginTicket });
+    if (!res.ok) throw await readApiError(res);
+    return (await res.json()) as LoginTotpSetup;
+  }
+
+  /** Super-admin sin 2FA: el ticket y un código del QR la activan y abren la sesión. */
+  async function loginWithNewCode(loginTicket: string, totpCode: string): Promise<LoginResult<U>> {
+    return openSession('/v1/auth/login/totp/enroll', { loginTicket, totpCode });
+  }
+
   async function openSession(path: string, payload: unknown): Promise<LoginResult<U>> {
     // Con el candado: un refresco de otra pestaña no pisa la cookie que pone este login.
     const res = await withLock(() => cookiePost(path, payload));
@@ -387,6 +400,8 @@ export function createApiClient<U extends SessionUser = SessionUser>(config: Api
     clearSession,
     login,
     loginWithCode,
+    loginTotpSetup,
+    loginWithNewCode,
     logout,
     discardLogin,
     refreshAccessToken,

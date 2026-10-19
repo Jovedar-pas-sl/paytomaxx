@@ -75,6 +75,25 @@ describe('login', () => {
     fetchMock.mockResolvedValueOnce(json(429, {}));
     await expect(login('a@b.es', 'x')).rejects.toMatchObject({ status: 429, message: /Demasiados intentos/ });
   });
+
+  it('super-admin sin 2FA: el 401 TOTP_SETUP_REQUIRED llega con su ticket y el QR y el código van a sus rutas', async () => {
+    const { login, loginTotpSetup, loginWithNewCode, LoginSetupRequiredError } = await http();
+    const loginTicket = 'a'.repeat(43);
+    fetchMock.mockResolvedValueOnce(
+      json(401, { message: 'Debes activar la 2FA', code: 'TOTP_SETUP_REQUIRED', loginTicket, expiresIn: 600 }),
+    );
+    const err = await login('a@b.es', 'x').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LoginSetupRequiredError);
+    expect(err).toMatchObject({ loginTicket, message: 'Debes activar la 2FA' });
+
+    fetchMock.mockResolvedValueOnce(json(200, { otpauthUrl: 'otpauth://x', secret: 'ABC', qrPngDataUrl: 'data:image/png;base64,x' }));
+    await expect(loginTotpSetup(loginTicket)).resolves.toMatchObject({ secret: 'ABC' });
+    expect(String(fetchMock.mock.calls.at(-1)![0])).toMatch(/\/v1\/auth\/login\/totp\/setup$/);
+
+    fetchMock.mockResolvedValueOnce(json(403, { message: 'Código 2FA incorrecto', code: 'TOTP_INVALID' }));
+    await expect(loginWithNewCode(loginTicket, '000000')).rejects.toMatchObject({ status: 403, code: 'TOTP_INVALID' });
+    expect(String(fetchMock.mock.calls.at(-1)![0])).toMatch(/\/v1\/auth\/login\/totp\/enroll$/);
+  });
 });
 
 describe('super-admin: tras refrescar vuelve al local que había elegido', () => {

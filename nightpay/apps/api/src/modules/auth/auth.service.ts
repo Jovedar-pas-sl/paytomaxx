@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { createHash } from 'node:crypto';
 import type { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -22,14 +23,22 @@ import {
   type RotatedRefresh,
 } from './refresh-token.service';
 import { TotpService } from './totp.service';
-import { LOGIN_TICKET_TTL_SECONDS, LoginTicketService } from './login-ticket.service';
+import { TotpEnrollmentService } from './totp-enrollment.service';
+import {
+  LOGIN_ENROLL_TICKET_TTL_SECONDS,
+  LOGIN_TICKET_TTL_SECONDS,
+  LoginTicketService,
+  type LoginTicketPurpose,
+} from './login-ticket.service';
 import {
   LOGIN_TICKET_EXPIRED_CODE,
   LOGIN_TOTP_REQUIRED_CODE,
+  LOGIN_TOTP_SETUP_REQUIRED_CODE,
   type JwtPayload,
   type LoginRequest,
   type LoginResponse,
   type RefreshResponse,
+  type TotpSetupResponse,
 } from '@nightpay/contracts';
 
 const BCRYPT_ROUNDS = 10;
@@ -48,7 +57,19 @@ const MSG_BAD_CREDENTIALS = 'Email o contraseña incorrectos';
 const MSG_TOO_MANY_ATTEMPTS = 'Demasiados intentos. Espera unos minutos y vuelve a probar.';
 const MSG_LOGIN_TOTP = 'Pon el código de tu app de verificación (2FA) para entrar.';
 const MSG_LOGIN_TICKET_EXPIRED = 'Ha pasado demasiado tiempo: vuelve a poner tu contraseña.';
+const MSG_LOGIN_TOTP_SETUP =
+  'Debes activar la verificación en dos pasos (2FA) para entrar: es obligatoria para los super-admins.';
+const MSG_SUPERADMIN_RELOGIN = 'Por seguridad, vuelve a entrar con tu código de verificación (2FA).';
 const MSG_SESSION_CLOSED = 'Sesión caducada: vuelve a iniciar sesión';
+
+function ticketExpired(): UnauthorizedException {
+  return new UnauthorizedException({ message: MSG_LOGIN_TICKET_EXPIRED, code: LOGIN_TICKET_EXPIRED_CODE });
+}
+
+/** Ata el QR pendiente al ticket del login (no se guarda el ticket, solo su hash). */
+function ticketScope(ticket: string): string {
+  return `login:${createHash('sha256').update(ticket).digest('hex').slice(0, 32)}`;
+}
 
 /** Lo que le queda al access token (`exp`, en s), como mucho 1 h; sin `exp` o caducado, 401. */
 function remainingSeconds(exp: number | undefined, nowMs: number = Date.now()): number {
@@ -90,6 +111,7 @@ export class AuthService {
   private readonly refreshTokens: RefreshTokenService;
   private readonly totp: TotpService;
   private readonly loginTickets: LoginTicketService | null;
+  private readonly enrollment: TotpEnrollmentService | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -100,6 +122,7 @@ export class AuthService {
     @Inject(RefreshTokenService) refreshTokens: RefreshTokenService,
     @Inject(TotpService) totp: TotpService,
     @Optional() @Inject(LoginTicketService) loginTickets?: LoginTicketService,
+    @Optional() @Inject(TotpEnrollmentService) enrollment?: TotpEnrollmentService,
   ) {
     this.prisma = prisma;
     this.jwt = jwt;
@@ -109,6 +132,7 @@ export class AuthService {
     this.refreshTokens = refreshTokens;
     this.totp = totp;
     this.loginTickets = loginTickets ?? null;
+    this.enrollment = enrollment ?? null;
   }
 
   async hashPassword(plain: string): Promise<string> {
@@ -156,33 +180,58 @@ export class AuthService {
     await this.lockout.clear(keys.account);
     if (keys.trusted) await this.lockout.markTrusted(keys.trusted);
 
-    // Super-admin con la 2FA activada: la contraseña sola no abre la sesión
-    // (con ella se entra en todos los locales). 401 TOTP_REQUIRED con un ticket
-    // de 5 min; el panel pide el código y llama a /auth/login/totp.
-    if (user.isSuperAdmin && (await this.totp.isEnabled(user.id))) {
-      return this.askLoginCode(user, ip, userAgent);
+    // Super-admin: la contraseña sola no abre la sesión (con ella se entra en
+    // todos los locales). Con la 2FA, 401 TOTP_REQUIRED con un ticket de 5 min
+    // (el panel pide el código y llama a /auth/login/totp). Sin ella (es
+    // obligatoria), 401 TOTP_SETUP_REQUIRED: el ticket solo sirve para
+    // activarla (/auth/login/totp/setup y /enroll).
+    if (user.isSuperAdmin) {
+      const purpose: LoginTicketPurpose = (await this.totp.isEnabled(user.id)) ? 'code' : 'enroll';
+      return this.askSecondStep(user, purpose, ip, userAgent);
     }
     return this.issueLogin(user, ip, userAgent, false);
   }
 
   /** Segundo paso del login del super-admin: el ticket de la contraseña y el código 2FA. */
   async loginWithTotp(ticket: string, totpCode: string, ip?: string, userAgent?: string): Promise<IssuedLogin> {
+    const user = await this.ticketUser(ticket, 'code');
+    // Código malo: 403 TOTP_INVALID (el ticket sigue valiendo); 5 seguidos bloquean (429).
+    await this.totp.assertForUser(user.id, totpCode);
+    return this.finishTicketLogin(ticket, user, ip, userAgent);
+  }
+
+  /** Super-admin sin 2FA: con el ticket `enroll`, el QR para activarla (mismo QR mientras dure el ticket). */
+  async loginTotpSetup(ticket: string): Promise<TotpSetupResponse> {
+    const user = await this.ticketUser(ticket, 'enroll');
+    return this.requireEnrollment().setupAtLogin(user.id, ticketScope(ticket));
+  }
+
+  /** Super-admin sin 2FA: un código del QR la activa y abre la sesión (ya con la 2FA). */
+  async loginWithNewTotp(ticket: string, totpCode: string, ip?: string, userAgent?: string): Promise<IssuedLogin> {
+    const user = await this.ticketUser(ticket, 'enroll');
+    // Código malo: 403 (el ticket sigue valiendo); sin QR de este ticket: 409.
+    await this.requireEnrollment().confirmAtLogin(user.id, totpCode, ticketScope(ticket), { ip, userAgent });
+    return this.finishTicketLogin(ticket, user, ip, userAgent);
+  }
+
+  /** El usuario del ticket (de ese tipo); baja, contraseña cambiada o ya no super-admin: vuelta a empezar. */
+  private async ticketUser(ticket: string, purpose: LoginTicketPurpose): Promise<LoginUser> {
     const tickets = this.requireTickets();
     const pending = await tickets.peek(ticket);
-    if (!pending) throw new UnauthorizedException({ message: MSG_LOGIN_TICKET_EXPIRED, code: LOGIN_TICKET_EXPIRED_CODE });
+    if (!pending || pending.purpose !== purpose) throw ticketExpired();
     const user = await this.prisma.asSystem((tx) =>
       tx.user.findUnique({ where: { id: pending.userId }, include: { venue: true } }),
     );
-    // Baja o contraseña cambiada entre los dos pasos: se vuelve a empezar.
-    if (!user || user.deletedAt || passwordFingerprint(user.passwordHash) !== pending.pwdFp) {
+    if (!user || user.deletedAt || !user.isSuperAdmin || passwordFingerprint(user.passwordHash) !== pending.pwdFp) {
       await tickets.consume(ticket);
-      throw new UnauthorizedException({ message: MSG_LOGIN_TICKET_EXPIRED, code: LOGIN_TICKET_EXPIRED_CODE });
+      throw ticketExpired();
     }
-    // Código malo: 403 TOTP_INVALID (el ticket sigue valiendo); 5 seguidos bloquean (429).
-    await this.totp.assertForUser(user.id, totpCode);
-    if (!(await tickets.consume(ticket))) {
-      throw new UnauthorizedException({ message: MSG_LOGIN_TICKET_EXPIRED, code: LOGIN_TICKET_EXPIRED_CODE });
-    }
+    return user;
+  }
+
+  /** Gasta el ticket (dos peticiones a la vez no abren dos sesiones) y abre la sesión con la 2FA. */
+  private async finishTicketLogin(ticket: string, user: LoginUser, ip?: string, userAgent?: string): Promise<IssuedLogin> {
+    if (!(await this.requireTickets().consume(ticket))) throw ticketExpired();
     return this.issueLogin(user, ip, userAgent, true);
   }
 
@@ -191,10 +240,25 @@ export class AuthService {
     return this.loginTickets;
   }
 
-  private async askLoginCode(user: LoginUser, ip?: string, userAgent?: string): Promise<never> {
-    const loginTicket = await this.requireTickets().create({ userId: user.id, pwdFp: passwordFingerprint(user.passwordHash) });
+  private requireEnrollment(): TotpEnrollmentService {
+    if (!this.enrollment) throw new Error('TotpEnrollmentService no está disponible');
+    return this.enrollment;
+  }
+
+  private async askSecondStep(
+    user: LoginUser,
+    purpose: LoginTicketPurpose,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<never> {
+    const enroll = purpose === 'enroll';
+    const expiresIn = enroll ? LOGIN_ENROLL_TICKET_TTL_SECONDS : LOGIN_TICKET_TTL_SECONDS;
+    const loginTicket = await this.requireTickets().create(
+      { userId: user.id, pwdFp: passwordFingerprint(user.passwordHash), purpose },
+      expiresIn,
+    );
     await this.audit.log({
-      action: 'auth.login.totp_required',
+      action: enroll ? 'auth.login.totp_setup_required' : 'auth.login.totp_required',
       actorId: user.id,
       actorEmail: user.email,
       tenantId: user.tenantId,
@@ -202,10 +266,10 @@ export class AuthService {
       userAgent,
     });
     throw new UnauthorizedException({
-      message: MSG_LOGIN_TOTP,
-      code: LOGIN_TOTP_REQUIRED_CODE,
+      message: enroll ? MSG_LOGIN_TOTP_SETUP : MSG_LOGIN_TOTP,
+      code: enroll ? LOGIN_TOTP_SETUP_REQUIRED_CODE : LOGIN_TOTP_REQUIRED_CODE,
       loginTicket,
-      expiresIn: LOGIN_TICKET_TTL_SECONDS,
+      expiresIn,
     });
   }
 
@@ -355,6 +419,7 @@ export class AuthService {
       throw new UnauthorizedException('Usuario desactivado');
     }
     await this.assertSamePassword(rotated, user, ip, userAgent);
+    await this.assertSuperAdminTwoFactor(rotated.family, user, ip, userAgent);
 
     const venue = await this.sessionVenue(rotated.family, user);
     const payload: JwtPayload = {
@@ -454,6 +519,31 @@ export class AuthService {
       userAgent,
     });
     throw new UnauthorizedException('Tu contraseña ha cambiado: vuelve a iniciar sesión');
+  }
+
+  /**
+   * Super-admin: la 2FA es obligatoria. Una sesión que no entró con ella (de
+   * antes, o abierta antes de ser super-admin) o cuya 2FA se quitó después se
+   * cierra: vuelve a entrar (y, sin 2FA, la activa en el login).
+   */
+  private async assertSuperAdminTwoFactor(
+    family: string,
+    user: { id: string; email: string; tenantId: string; isSuperAdmin: boolean },
+    ip?: string,
+    userAgent?: string,
+  ): Promise<void> {
+    if (!user.isSuperAdmin) return;
+    if ((await this.refreshTokens.hasTwoFactor(family)) && (await this.totp.isEnabled(user.id))) return;
+    await this.refreshTokens.revokeFamily(family);
+    await this.audit.log({
+      action: 'auth.refresh.two_factor_required',
+      actorId: user.id,
+      actorEmail: user.email,
+      tenantId: user.tenantId,
+      ip,
+      userAgent,
+    });
+    throw new UnauthorizedException(MSG_SUPERADMIN_RELOGIN);
   }
 
   /**

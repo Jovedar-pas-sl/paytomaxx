@@ -11,6 +11,7 @@ import { TotpAttemptsService } from './totp-attempts.service';
 import { TotpEnrollmentService } from './totp-enrollment.service';
 import { TotpController } from './totp.controller';
 import { TotpService } from './totp.service';
+import { TelegramService } from '../incidents/telegram.service';
 
 @Module({
   imports: [
@@ -35,6 +36,8 @@ import { TotpService } from './totp.service';
     LoginTicketService,
     RefreshTokenService,
     StaffSessionTransport,
+    // Aviso al activar la 2FA de un super-admin (Telegram del entorno).
+    TelegramService,
   ],
   controllers: [AuthController, TotpController],
   exports: [AuthService, TotpService, RefreshTokenService, JwtModule],

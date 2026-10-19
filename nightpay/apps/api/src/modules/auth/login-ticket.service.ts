@@ -5,12 +5,22 @@ import { REDIS_CLIENT } from '../../common/redis/redis.module';
 
 /** Lo que dura el paso del código tras la contraseña. */
 export const LOGIN_TICKET_TTL_SECONDS = 5 * 60;
+/** Activar la 2FA en el login (instalar la app, escanear): lo mismo que dura el QR pendiente. */
+export const LOGIN_ENROLL_TICKET_TTL_SECONDS = 10 * 60;
+
+/**
+ * Para qué vale: `code` = poner el código 2FA (tiene la 2FA); `enroll` = solo
+ * activarla (super-admin sin 2FA: es obligatoria). Uno no sirve para lo otro.
+ */
+export type LoginTicketPurpose = 'code' | 'enroll';
 
 /** Lo que recuerda el ticket entre la contraseña y el código 2FA. */
 export interface LoginTicket {
   userId: string;
   /** Huella de la contraseña con la que se entró (si cambia entretanto, no vale). */
   pwdFp: string;
+  /** Sin él (tickets de antes): `code`. */
+  purpose?: LoginTicketPurpose;
 }
 
 const TICKET_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -28,9 +38,9 @@ export class LoginTicketService {
     this.redis = redis;
   }
 
-  async create(ticket: LoginTicket): Promise<string> {
+  async create(ticket: LoginTicket, ttlSeconds: number = LOGIN_TICKET_TTL_SECONDS): Promise<string> {
     const raw = randomBytes(32).toString('base64url');
-    await this.redis.set(this.key(raw), JSON.stringify(ticket), 'EX', LOGIN_TICKET_TTL_SECONDS);
+    await this.redis.set(this.key(raw), JSON.stringify(ticket), 'EX', ttlSeconds);
     return raw;
   }
 
@@ -56,7 +66,7 @@ function parseTicket(value: string | null): LoginTicket | null {
   try {
     const parsed = JSON.parse(value) as Partial<LoginTicket>;
     return typeof parsed.userId === 'string' && typeof parsed.pwdFp === 'string'
-      ? { userId: parsed.userId, pwdFp: parsed.pwdFp }
+      ? { userId: parsed.userId, pwdFp: parsed.pwdFp, purpose: parsed.purpose === 'enroll' ? 'enroll' : 'code' }
       : null;
   } catch {
     return null;
