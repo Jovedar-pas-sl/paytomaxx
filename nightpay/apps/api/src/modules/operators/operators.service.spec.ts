@@ -118,9 +118,33 @@ describe('OperatorsService.updateOperator — dirección de cobro válida para s
   });
 
   it('cambios que no tocan el cobro no revalidan lo guardado', async () => {
-    const { svc, prisma } = makeOps({ operator: { payoutMethod: 'USDT_TRC20', payoutAddress: 'vieja-mal' } });
+    const { svc, prisma, audit } = makeOps({ operator: { payoutMethod: 'USDT_TRC20', payoutAddress: 'vieja-mal' } });
     await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { displayName: 'Ana B.' });
     expect(prisma.user.update).toHaveBeenCalled();
+    expect(audit.log.mock.calls.map(([e]) => e.action)).toEqual(['operator.updated']);
+  });
+
+  it('cambiar la cuenta de cobro queda en el registro con la de antes; el código 2FA no se apunta', async () => {
+    const { svc, audit } = makeOps({ operator: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON, payoutLabel: 'Binance' } });
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', {
+      payoutMethod: 'USDT_BEP20',
+      payoutAddress: EVM,
+      totpCode: '123456',
+    });
+    const updated = audit.log.mock.calls.find(([e]) => e.action === 'operator.updated')![0];
+    expect(updated.payload.changes).not.toHaveProperty('totpCode');
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'operator.payout_account_changed',
+        tenantId: 't-1',
+        actorId: 'u-owner',
+        targetId: 'op-1',
+        payload: {
+          before: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON, payoutLabel: 'Binance' },
+          after: { payoutMethod: 'USDT_BEP20', payoutAddress: EVM, payoutLabel: 'Binance' },
+        },
+      }),
+    );
   });
 });
 

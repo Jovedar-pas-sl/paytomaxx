@@ -136,3 +136,11 @@ export function payoutValueFromSaved(saved: {
     saved.payoutMetadata ?? null,
   );
 }
+
+/** Los campos de la cuenta de cobro de una chica (a dónde va su dinero). */
+const PAYOUT_ACCOUNT_FIELDS = ['payoutMethod', 'payoutAddress', 'payoutMetadata', 'payoutLabel'] as const;
+
+/** ¿El cambio toca la cuenta de cobro? El API pide entonces el código 2FA (si el dueño la tiene). */
+export function touchesPayoutAccount(changes: Partial<Record<(typeof PAYOUT_ACCOUNT_FIELDS)[number], unknown>>): boolean {
+  return PAYOUT_ACCOUNT_FIELDS.some((field) => changes[field] !== undefined);
+}

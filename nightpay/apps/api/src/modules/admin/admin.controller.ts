@@ -31,6 +31,7 @@ import { RefreshTokenService } from '../auth/refresh-token.service';
 import { TotpService } from '../auth/totp.service';
 import { AuditService } from '../audit/audit.service';
 import { OperatorsService } from '../operators/operators.service';
+import { touchesPayoutAccount } from '../operators/payout-routing';
 import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { chargedAttemptTip } from '../payments/tip';
@@ -691,6 +692,12 @@ export class AdminController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(UpdateOperatorSchema)) dto: UpdateOperatorDto,
   ) {
+    // Cambiar a dónde va el dinero de una chica es como pagarle: con 2FA si el
+    // dueño la tiene (una sesión robada no basta). El encargado no puede (403
+    // en el servicio) y el cambio queda en el registro con lo de antes.
+    if (user.role === 'OWNER' && touchesPayoutAccount(dto)) {
+      await this.totp.assertIfEnrolledForUser(user.sub, dto.totpCode);
+    }
     return this.operators.updateOperator(tenantId, id, user.sub, user.role, dto);
   }
 

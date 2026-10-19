@@ -6,6 +6,7 @@ import {
   payoutAddressError,
   payoutValue,
   payoutValueFromSaved,
+  touchesPayoutAccount,
 } from './payout-address';
 import { changedFields } from './diff';
 
@@ -116,5 +117,16 @@ describe('payoutValue', () => {
       accountHolder: '',
     });
     expect(changedFields(payoutValueFromSaved(saved), form)).toEqual({});
+  });
+});
+
+describe('touchesPayoutAccount', () => {
+  it('método, dirección, datos o etiqueta de cobro → sí (también a null); nombre o comisión → no', () => {
+    expect(touchesPayoutAccount({ payoutAddress: 'ES91…' })).toBe(true);
+    expect(touchesPayoutAccount({ payoutMethod: null })).toBe(true);
+    expect(touchesPayoutAccount({ payoutMetadata: { network: 'TRC20' } })).toBe(true);
+    expect(touchesPayoutAccount({ payoutLabel: 'Binance' })).toBe(true);
+    expect(touchesPayoutAccount({ displayName: 'Ana', commissionBps: 8500 } as never)).toBe(false);
+    expect(touchesPayoutAccount({})).toBe(false);
   });
 });

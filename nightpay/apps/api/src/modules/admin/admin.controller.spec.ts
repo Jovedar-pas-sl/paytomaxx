@@ -167,6 +167,60 @@ describe('POST /admin/operators/:id/payouts — 2FA del que paga (Redis, vale co
   });
 });
 
+describe('PATCH /admin/operators/:id — cambiar la cuenta de cobro pide 2FA', () => {
+  const KEK = 'test_kek_0123456789abcdef0123456789abcdef_v1';
+  const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+  const owner = { sub: 'own-1', tenantId: 't-1', role: 'OWNER' } as unknown as JwtPayload;
+  let previousKek: string | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-15T22:00:10Z'));
+    previousKek = process.env.ENCRYPTION_KEK;
+    process.env.ENCRYPTION_KEK = KEK;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env.ENCRYPTION_KEK = previousKek;
+  });
+
+  function controller(totpSecret: string | null, who: JwtPayload = owner) {
+    const { totp } = makeTotpKit({ users: { [who.sub]: totpSecret } });
+    const operators = { updateOperator: vi.fn().mockResolvedValue({ id: 'op-1' }) };
+    const none = {} as never;
+    const ctrl = new AdminController(none, none, none, operators as never, none, none, totp, none);
+    const update = (dto: Record<string, unknown>) => ctrl.updateOperator('t-1', who, 'op-1', dto as never);
+    return { update, operators };
+  }
+
+  it('dueño con 2FA: sin código → 403 TOTP_REQUIRED y no se cambia nada', async () => {
+    const { update, operators } = controller(sealTotpSecret(SECRET, KEK));
+    for (const dto of [{ payoutAddress: 'ES9121000418450200051332' }, { payoutMethod: 'CASH' }, { payoutLabel: 'x' }]) {
+      const err = await update(dto).catch((e: unknown) => e);
+      expect((err as HttpException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
+    }
+    expect(operators.updateOperator).not.toHaveBeenCalled();
+  });
+
+  it('dueño con 2FA: con el código bueno se cambia', async () => {
+    const { update, operators } = controller(sealTotpSecret(SECRET, KEK));
+    await expect(update({ payoutMethod: 'CASH', totpCode: totpCodeAt(SECRET) })).resolves.toEqual({ id: 'op-1' });
+    expect(operators.updateOperator).toHaveBeenCalledOnce();
+  });
+
+  it('lo que no es la cuenta de cobro (nombre, comisión…) no pide código', async () => {
+    const { update, operators } = controller(sealTotpSecret(SECRET, KEK));
+    await update({ displayName: 'Ana', commissionBps: 8500 });
+    expect(operators.updateOperator).toHaveBeenCalledOnce();
+  });
+
+  it('dueño sin 2FA activada: se cambia como antes', async () => {
+    const { update, operators } = controller(null);
+    await update({ payoutMethod: 'CASH' });
+    expect(operators.updateOperator).toHaveBeenCalledOnce();
+  });
+});
+
 describe('PATCH /admin/venue/settings — comisiones del local', () => {
   const owner = { sub: 'own-1', tenantId: 't-1', role: 'OWNER' } as unknown as JwtPayload;
   const stored = {
