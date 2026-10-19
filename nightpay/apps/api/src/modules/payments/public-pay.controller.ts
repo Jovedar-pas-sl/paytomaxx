@@ -23,7 +23,7 @@ import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { WalletPasskeysService } from '../wallets/wallet-passkeys.service';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { PAID_STATES, confirmationCode, type CheckoutChoice, type PayRedirect } from './pay-redirect';
-import { detectPayDevice } from './pay-device';
+import { detectPayDevice, type PayDevice } from './pay-device';
 import { payErrorKey, resolveLanguage, type PayLanguage } from './pay-i18n';
 import {
   payHref,
@@ -194,7 +194,8 @@ export class PublicPayController {
     const claim = this.claimValue(res, token) ?? randomBytes(32).toString('base64url');
     const choice: CheckoutChoice = {
       tipCents: parsed.data.tip,
-      method: parsed.data.method,
+      // Con el botón directo apagado, una página vieja que aún pida xpay va al banco sin preferencia.
+      method: parsed.data.method === 'wallet' && !this.directWallet() ? null : parsed.data.method,
       language: lang,
       claimHash: sha256(claim),
     };
@@ -224,7 +225,7 @@ export class PublicPayController {
           renderChoosePage(view, {
             token,
             lang,
-            device: detectPayDevice(userAgent),
+            device: this.payDevice(userAgent),
             statementName: this.statementName(),
             now: new Date(),
           }),
@@ -436,6 +437,18 @@ export class PublicPayController {
     if (!claimHash) return false;
     const value = this.claimValue(res, payToken);
     return value !== null && sha256(value) === claimHash;
+  }
+
+  /** Sin el botón directo de Apple Pay / Google Pay (PAY_DIRECT_WALLET=false): un solo botón hacia el banco. */
+  private payDevice(userAgent: string | undefined): PayDevice {
+    const device = detectPayDevice(userAgent);
+    return this.directWallet() ? device : { ...device, wallet: null };
+  }
+
+  /** PAY_DIRECT_WALLET (por defecto, sí): ConfigService da el booleano validado o, sin validar, el texto. */
+  private directWallet(): boolean {
+    const raw = this.config.get<boolean | string | undefined>('PAY_DIRECT_WALLET');
+    return !(raw === false || raw === 'false' || raw === '0');
   }
 
   private statementName(): string | null {

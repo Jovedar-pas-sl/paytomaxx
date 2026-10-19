@@ -139,12 +139,16 @@ export const MAX_PAYMENT_ATTEMPTS = 3;
  */
 export const RETRY_WAIT_MS = 150_000;
 
-export type RetryDecision = 'retry' | 'wait' | 'expired' | 'max-attempts';
+export type RetryDecision = 'retry' | 'wait' | 'expired' | 'unconfirmed' | 'max-attempts';
 
 /**
  * Pago en AUTHORIZING por Redsys y el cliente vuelve a escanear el QR.
- *  - Último intento aprobado (aviso aún sin procesar) o pendiente reciente → esperar.
+ *  - Último intento aprobado (aviso aún sin procesar) o pendiente reciente → esperar
+ *    (salvo `switchingMethod`: pide otro botón, ver switchesMethod).
  *  - Denegado o abandonado → nuevo intento, si el QR sigue vigente y quedan intentos.
+ *  - QR caducado: «sin confirmar» si algún intento sigue sin respuesta del banco
+ *    (puede que sí cobrara: 3D Secure lento o aviso perdido), nunca «no se te ha
+ *    cobrado nada»; «caducado» solo si todos están contestados.
  * `attempts` va del más reciente al más antiguo. Sin intentos registrados
  * (pagos anteriores a Fase 0) cuenta como uno pendiente desde `paymentUpdatedAt`.
  */
@@ -153,6 +157,8 @@ export function decideRedsysRetry(args: {
   now: Date;
   qrExpiresAt: Date;
   paymentUpdatedAt: Date;
+  /** El cliente pulsó otro botón que el del intento pendiente: no se le hace esperar. */
+  switchingMethod?: boolean;
 }): RetryDecision {
   const latest = args.attempts[0];
   const latestStatus = latest?.status ?? 'PENDING';
@@ -160,12 +166,32 @@ export function decideRedsysRetry(args: {
   const count = Math.max(args.attempts.length, 1);
 
   if (latestStatus === 'APPROVED') return 'wait';
-  if (latestStatus === 'PENDING' && args.now.getTime() - latestAt.getTime() < RETRY_WAIT_MS) {
-    return 'wait';
-  }
-  if (args.qrExpiresAt <= args.now) return 'expired';
+  const recent = args.now.getTime() - latestAt.getTime() < RETRY_WAIT_MS;
+  if (latestStatus === 'PENDING' && recent && !args.switchingMethod) return 'wait';
+  if (args.qrExpiresAt <= args.now) return hasUnansweredAttempt(args.attempts) ? 'unconfirmed' : 'expired';
   if (count >= MAX_PAYMENT_ATTEMPTS) return 'max-attempts';
   return 'retry';
+}
+
+/** Algún pedido sin respuesta del banco (o ninguno registrado: pagos anteriores a Fase 0). */
+function hasUnansweredAttempt(attempts: ReadonlyArray<{ status: string }>): boolean {
+  return attempts.length === 0 || attempts.some((a) => a.status === 'PENDING');
+}
+
+/**
+ * El cliente pulsa un botón distinto del que abrió el intento pendiente (p.
+ * ej. «Pagar con tarjeta» tras cerrar la hoja de Apple Pay): se abre un
+ * pedido nuevo con ese método en vez de devolverle el mismo o hacerle esperar
+ * 2,5 min. Si los dos se acaban cobrando, es el doble cobro de siempre
+ * (second-approval: incidencia y se devuelve uno). Un intento sin preferencia
+ * (el banco enseña todos los métodos) ya sirve para cualquiera: no cuenta.
+ */
+export function switchesMethod(
+  latest: { status: string; payMethod?: string | null } | undefined,
+  method: PayMethodChoice | null,
+): boolean {
+  const pending = latest?.status === 'PENDING' ? (latest.payMethod ?? null) : null;
+  return pending !== null && method !== null && pending !== method;
 }
 
 /** Lo que hace falta del cobro para decidir qué página ve el cliente. */
@@ -276,6 +302,7 @@ export function freshPendingOrder(
 /** Qué ve el cliente cuando no toca abrir un intento nuevo. */
 export function retryOutcome(decision: Exclude<RetryDecision, 'retry'>): PayRedirect {
   if (decision === 'wait') return { kind: 'processing' };
+  if (decision === 'unconfirmed') return { kind: 'closed', reason: 'unconfirmed' };
   return { kind: 'closed', reason: decision === 'expired' ? 'expired' : 'too-many-attempts' };
 }
 

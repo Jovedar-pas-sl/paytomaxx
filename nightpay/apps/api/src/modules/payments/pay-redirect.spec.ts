@@ -9,6 +9,7 @@ import {
   decideRedsysRetry,
   retryOutcome,
   settledPayView,
+  switchesMethod,
   type PayablePayment,
 } from './pay-redirect';
 import { resolveRevenueCategory } from './commission';
@@ -72,6 +73,52 @@ describe('decideRedsysRetry — el cliente vuelve a escanear un QR en curso', ()
         paymentUpdatedAt: ago(5_000),
       }),
     ).toBe('expired');
+  });
+
+  it('QR caducado con un intento sin respuesta del banco → «sin confirmar», nunca «no se te ha cobrado nada»', () => {
+    // 3D Secure lento o aviso perdido: el banco puede haber cobrado.
+    expect(
+      decideRedsysRetry({
+        attempts: [{ status: 'PENDING', createdAt: ago(RETRY_WAIT_MS + 1_000) }],
+        now: NOW,
+        qrExpiresAt: PAST,
+        paymentUpdatedAt: ago(RETRY_WAIT_MS + 1_000),
+      }),
+    ).toBe('unconfirmed');
+    // Uno denegado al final, pero el anterior sigue sin respuesta: tampoco.
+    expect(
+      decideRedsysRetry({
+        attempts: [
+          { status: 'DENIED', createdAt: ago(5_000) },
+          { status: 'PENDING', createdAt: ago(RETRY_WAIT_MS + 1_000) },
+        ],
+        now: NOW,
+        qrExpiresAt: PAST,
+        paymentUpdatedAt: ago(5_000),
+      }),
+    ).toBe('unconfirmed');
+    // Sin intentos registrados (anterior a Fase 0): no se sabe.
+    expect(
+      decideRedsysRetry({ attempts: [], now: NOW, qrExpiresAt: PAST, paymentUpdatedAt: ago(RETRY_WAIT_MS + 1_000) }),
+    ).toBe('unconfirmed');
+  });
+
+  it('otro botón que el del intento pendiente (tarjeta tras Apple Pay) → nuevo intento sin esperar', () => {
+    const base = {
+      attempts: [{ status: 'PENDING', createdAt: ago(10_000) }],
+      now: NOW,
+      qrExpiresAt: FUTURE,
+      paymentUpdatedAt: ago(10_000),
+    };
+    expect(decideRedsysRetry({ ...base, switchingMethod: true })).toBe('retry');
+    expect(decideRedsysRetry(base)).toBe('wait');
+    // Ni con otro botón se pasa del máximo de intentos ni de la caducidad.
+    const full = Array.from({ length: MAX_PAYMENT_ATTEMPTS }, (_, i) => ({ status: 'PENDING', createdAt: ago(10_000 + i) }));
+    expect(decideRedsysRetry({ ...base, attempts: full, switchingMethod: true })).toBe('max-attempts');
+    expect(decideRedsysRetry({ ...base, qrExpiresAt: PAST, switchingMethod: true })).toBe('unconfirmed');
+    // Aprobado (aviso sin procesar): siempre esperar.
+    const approved = [{ status: 'APPROVED', createdAt: ago(10_000) }];
+    expect(decideRedsysRetry({ ...base, attempts: approved, switchingMethod: true })).toBe('wait');
   });
 
   it(`máximo ${MAX_PAYMENT_ATTEMPTS} intentos por QR`, () => {
@@ -169,6 +216,25 @@ describe('qué ve el cliente al escanear (Fase 1B)', () => {
     expect(retryOutcome('wait')).toEqual({ kind: 'processing' });
     expect(retryOutcome('expired')).toEqual({ kind: 'closed', reason: 'expired' });
     expect(retryOutcome('max-attempts')).toEqual({ kind: 'closed', reason: 'too-many-attempts' });
+    expect(retryOutcome('unconfirmed')).toEqual({ kind: 'closed', reason: 'unconfirmed' });
+  });
+});
+
+describe('switchesMethod — ¿otro botón que el del intento pendiente?', () => {
+  it('tarjeta tras un intento de Apple Pay / Google Pay pendiente → sí', () => {
+    expect(switchesMethod({ status: 'PENDING', payMethod: 'wallet' }, 'card')).toBe(true);
+    expect(switchesMethod({ status: 'PENDING', payMethod: 'card' }, 'wallet')).toBe(true);
+  });
+
+  it('el mismo botón, sin preferencia, sin intento o intento ya contestado → no', () => {
+    // El intento sin preferencia (el banco enseña todos los métodos) ya sirve para cualquiera.
+    expect(switchesMethod({ status: 'PENDING', payMethod: null }, 'card')).toBe(false);
+    expect(switchesMethod({ status: 'PENDING' }, 'wallet')).toBe(false);
+    expect(switchesMethod({ status: 'PENDING', payMethod: 'wallet' }, 'wallet')).toBe(false);
+    expect(switchesMethod({ status: 'PENDING', payMethod: 'wallet' }, null)).toBe(false);
+    expect(switchesMethod(undefined, 'card')).toBe(false);
+    expect(switchesMethod({ status: 'DENIED', payMethod: 'wallet' }, 'card')).toBe(false);
+    expect(switchesMethod({ status: 'APPROVED', payMethod: 'wallet' }, 'card')).toBe(false);
   });
 });
 

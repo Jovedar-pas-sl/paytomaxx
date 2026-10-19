@@ -53,6 +53,7 @@ import {
   freshPendingOrder,
   retryOutcome,
   settledPayView,
+  switchesMethod,
   type CheckoutChoice,
   type PayablePayment,
   type PayMethodChoice,
@@ -899,16 +900,19 @@ export class PaymentsService implements OnApplicationBootstrap {
         const attempts = await tx.paymentAttempt.findMany({
           where: { paymentId: payment.id },
           orderBy: { createdAt: 'desc' },
-          select: { providerTxId: true, status: true, createdAt: true, claimHash: true },
+          select: { providerTxId: true, status: true, createdAt: true, claimHash: true, payMethod: true },
         });
         const now = new Date();
-        const fresh = freshPendingOrder(attempts, now, choice.claimHash ?? null);
+        // Otro botón que el del intento pendiente (tarjeta tras Apple Pay): pedido nuevo.
+        const switchingMethod = switchesMethod(attempts[0], choice.method);
+        const fresh = switchingMethod ? null : freshPendingOrder(attempts, now, choice.claimHash ?? null);
         if (fresh) return { decision: 'replay' as const, order: fresh, attempts: attempts.length };
         const decision = decideRedsysRetry({
           attempts,
           now,
           qrExpiresAt: payment.qrExpiresAt,
           paymentUpdatedAt: payment.updatedAt,
+          switchingMethod,
         });
         if (decision !== 'retry') return { decision, order: null, attempts: attempts.length };
         const { providerTxId } = await this.authorizeAttempt(payment, 'REDSYS', tx, choice);
@@ -921,7 +925,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     }
     if (outcome.order) {
       if (outcome.decision === 'retry') {
-        this.logger.log(`Payment ${payment.id}: nuevo intento Redsys (${outcome.attempts + 1})`);
+        this.logger.log(
+          `Payment ${payment.id}: nuevo intento Redsys (${outcome.attempts + 1}${choice.method ? `, ${choice.method}` : ''})`,
+        );
       }
       return { kind: 'checkout', order: outcome.order };
     }
