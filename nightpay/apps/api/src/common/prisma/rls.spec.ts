@@ -10,6 +10,7 @@ describe('tablas con FORCE RLS', () => {
       'operator_earnings',
       'operator_payouts',
       'peanpe_calls',
+      'wallet_cash_topups',
       'wallet_consumptions',
     ]);
     expect([...FORCED_RLS_MODELS].sort()).toEqual([
@@ -19,6 +20,7 @@ describe('tablas con FORCE RLS', () => {
       'OperatorEarning',
       'OperatorPayout',
       'PeanpeCall',
+      'WalletCashTopUp',
       'WalletConsumption',
     ]);
   });
@@ -30,6 +32,7 @@ describe('tablas con FORCE RLS', () => {
     expect(forcedTableIn('SELECT * FROM earning_reversals er')).toBe('earning_reversals');
     expect(forcedTableIn('SELECT * FROM my_operator_earnings_view')).toBeNull();
     expect(forcedTableIn('SELECT * FROM wallet_payouts')).toBeNull();
+    expect(forcedTableIn('SELECT SUM("amountCents") FROM wallet_cash_topups ct')).toBe('wallet_cash_topups');
   });
 });
 
@@ -38,6 +41,7 @@ describe('forcedRlsTarget', () => {
     expect(forcedRlsTarget({ model: 'OperatorPayout', action: 'findMany', args: {} })).toBe('OperatorPayout');
     expect(forcedRlsTarget({ model: 'PeanpeCall', action: 'create', args: { data: {} } })).toBe('PeanpeCall');
     expect(forcedRlsTarget({ model: 'ApprovalRequest', action: 'findMany', args: {} })).toBe('ApprovalRequest');
+    expect(forcedRlsTarget({ model: 'WalletCashTopUp', action: 'create', args: { data: {} } })).toBe('WalletCashTopUp');
   });
 
   it('otro modelo que llega a una de ellas por una relación (include, select, _count, filtro)', () => {

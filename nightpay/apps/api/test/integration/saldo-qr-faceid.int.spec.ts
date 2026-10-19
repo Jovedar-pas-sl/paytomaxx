@@ -569,6 +569,12 @@ describe('devolver el saldo (Postgres real)', () => {
 
   it('#38 en efectivo: en una transacción, saldo cerrado y devolución hecha', async () => {
     const w = await wallet(A, 3_300, `fg-${r}`, 'D3');
+    // Entró en efectivo (en efectivo solo se devuelve lo que entró en efectivo).
+    await sys((tx) =>
+      tx.walletCashTopUp.create({
+        data: { tenantId: A, walletId: w, amountCents: 3_300, takenByUserId: ownerA, idempotencyKey: `d3-${r}`, createdAt: new Date(Date.now() - 86_400_000) },
+      }),
+    );
     const out = await inVenue(A, () => charges.payout(ownerActor(), w, { method: 'CASH', note: 'en mano' }));
     expect(out).toEqual({ refundedCents: 3_300, method: 'CASH' });
     expect(await balanceOf(w)).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });

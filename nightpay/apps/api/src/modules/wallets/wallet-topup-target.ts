@@ -1,6 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { isWalletCardToken, normalizeWalletCardUid } from '@nightpay/contracts';
 import type { PrismaService } from '../../common/prisma/prisma.service';
+import { isIssuedCard } from './wallet-card-ops';
 import { normalizeWalletCode, sameWalletGroup } from './wallet-rules';
 
 /**
@@ -62,7 +63,7 @@ async function byCode(db: PrismaService, raw: string) {
 async function byCard(db: PrismaService, ref: { card: string; uid?: string | null }) {
   if (!isWalletCardToken(ref.card)) throw new NotFoundException(NO_CARD);
   const card = await db.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: ref.card } }));
-  if (!card || card.status !== 'ISSUED' || !card.walletId) throw new NotFoundException(NO_CARD);
+  if (!card || !isIssuedCard(card) || !card.walletId) throw new NotFoundException(NO_CARD);
   const uid = ref.uid ? normalizeWalletCardUid(ref.uid) : null;
   if (card.uid && uid && card.uid !== uid) {
     throw new ConflictException('Esta ficha no es la original (¿copiada?): avisa al encargado');

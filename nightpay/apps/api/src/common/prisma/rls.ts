@@ -26,6 +26,8 @@ export const FORCED_RLS_TABLES = [
   'peanpe_calls',
   // «Por aprobar» (20261016300000): una fila es un permiso para mover dinero.
   'approval_requests',
+  // Efectivo que entra en los saldos (20261021200000): es dinero de la caja del local.
+  'wallet_cash_topups',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -36,6 +38,7 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'EarningReversal',
   'PeanpeCall',
   'ApprovalRequest',
+  'WalletCashTopUp',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);

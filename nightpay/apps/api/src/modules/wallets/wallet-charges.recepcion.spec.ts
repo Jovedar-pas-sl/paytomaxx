@@ -46,6 +46,10 @@ function table(prefix: string, defaults: Row = {}) {
     findFirst: vi.fn(async (a: Args): Promise<Row | null> => t.pick(t.list(a)[0], a.select)),
     findMany: vi.fn(async (a: Args): Promise<Row[]> => t.list(a)),
     count: vi.fn(async (a: Args): Promise<number> => t.list(a).length),
+    createMany: vi.fn(async (a: { data: Row[] }): Promise<{ count: number }> => {
+      a.data.forEach((d, i) => t.put({ id: `${prefix}-m${t.rows.size + i + 1}`, ...d }));
+      return { count: a.data.length };
+    }),
     create: vi.fn(async (a: Args): Promise<Row> => t.put({ id: `${prefix}-${t.rows.size + 1}`, createdAt: new Date(), ...a.data })),
     update: vi.fn(async (a: Args): Promise<Row> => t.put({ ...t.list(a)[0], ...a.data })),
     updateMany: vi.fn(async (a: Args): Promise<{ count: number }> => {
@@ -73,6 +77,7 @@ function setup(o: { cashBy?: Row | null; wallet?: Row } = {}) {
     clientWallet: table('w', { walletGroup: 'grupo', mergedIntoId: null, blockedAt: null, closeRequestedAt: null, pinHash: null, pinSetById: null }),
     walletCard: table('card', { uid: null, walletId: null, status: 'STOCK', venueId: SALA }),
     walletCashTopUp: table('cash'),
+    walletCardEvent: table('ev'),
     walletPayout: table('payout'),
     payment: table('pay'),
     walletConsumption: table('cons'),
@@ -81,10 +86,18 @@ function setup(o: { cashBy?: Row | null; wallet?: Row } = {}) {
   };
   const $queryRaw = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?');
+    if (text.includes('wallet_cash_topups')) {
+      // Lo que entró en efectivo y lo devuelto en efectivo del saldo (sin cadena: no hay sumados).
+      const cashIn = tables.walletCashTopUp.list({ where: { walletId: values[0] } }).reduce((a, r) => a + Number(r.amountCents), 0);
+      const cashOut = tables.walletPayout
+        .list({ where: { walletId: values[0], method: 'CASH', status: 'DONE' } })
+        .reduce((a, r) => a + Number(r.amountCents), 0);
+      return [{ inCents: cashIn, inWindowCents: cashIn, outCents: cashOut, outWindowCents: cashOut }];
+    }
     if (text.includes('FROM wallet_cards')) return tables.walletCard.list({ where: { token: values[0] } });
     return tables.clientWallet.list({ where: { id: values[0] } });
   });
-  const tx = { ...tables, $queryRaw };
+  const tx = { ...tables, $queryRaw, $executeRaw: vi.fn(async () => 0) };
   const run = async (fn: (t: typeof tx) => unknown) => fn(tx);
   const prisma = { ...tx, asSystem: vi.fn(run), acrossVenues: vi.fn(run) };
   tables.venue.put({ id: SALA, name: 'Sala Bambú', walletGroup: 'grupo' });

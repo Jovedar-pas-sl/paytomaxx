@@ -116,10 +116,15 @@ export const CloseNightSchema = z.object({
   note: z.string().trim().max(300).optional(),
   /** Efectivo contado en la caja (obligatorio si hubo efectivo o fondo). */
   cashCountedCents: CashCentsSchema.optional(),
-  /** Fondo de caja, si no se puso al abrir (o para corregirlo). */
+  /**
+   * Fondo de caja, si no se puso al abrir. Cambiar el que se apuntó al abrir
+   * lo aprueba el dueño con su 2FA (`totpCode`); si no, bloquea el cierre.
+   */
   openingFloatCents: CashCentsSchema.optional(),
   /** Explicación de la diferencia de caja. */
   cashNote: z.string().trim().max(300).optional(),
+  /** 2FA del dueño: solo para cambiar al cerrar el fondo apuntado al abrir. */
+  totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 });
 export type CloseNightDto = z.infer<typeof CloseNightSchema>;
 
@@ -137,13 +142,25 @@ export function expectedCashCents(
 export interface CashInput {
   openingFloatCents?: number | null;
   countedCents?: number | null;
+  /** El dueño aprobó con su 2FA cambiar el fondo apuntado al abrir (lo decide el API). */
+  floatChangeApproved?: boolean;
 }
 
-export type CashReason = 'not-needed' | 'float-missing' | 'count-missing' | 'matches' | 'short' | 'over';
+export type CashReason =
+  | 'not-needed'
+  | 'float-missing'
+  | 'float-changed'
+  | 'negative'
+  | 'count-missing'
+  | 'matches'
+  | 'short'
+  | 'over';
 
 export interface CashOutcome {
   /** El fondo que vale: el tecleado o, si no, el guardado. */
   floatCents: number | null;
+  /** El tecleado es distinto del apuntado al abrir (bloquea sin el 2FA del dueño). */
+  floatChanged: boolean;
   expectedCents: number;
   countedCents: number | null;
   /** Contado − esperado (negativo = falta dinero). */
@@ -158,27 +175,48 @@ export interface CashOutcome {
 /**
  * El paso «Efectivo» con lo tecleado:
  *  - sin efectivo ni fondo → no hace falta contar (ok);
+ *  - el fondo tecleado no es el que se apuntó al abrir → bloquea (lo aprueba
+ *    el dueño con su 2FA): si no, quien cierra cuadra la caja cambiando el fondo;
  *  - salió efectivo y nadie dijo el fondo → bloquea (sin fondo, lo esperado sería negativo);
+ *  - lo esperado sale negativo → bloquea (salió más de lo que entró más el fondo);
  *  - hay que contar y no se ha contado → bloquea;
  *  - contado ≠ esperado → aviso (se confirma y la diferencia va al Z);
  *  - cuadra → ok.
  */
 export function evaluateCash(cash: NightCash, input: CashInput = {}): CashOutcome {
-  const floatCents = input.openingFloatCents ?? cash.openingFloatCents;
+  const typed = input.openingFloatCents ?? null;
+  const floatChanged = typed !== null && cash.openingFloatCents !== null && typed !== cash.openingFloatCents;
+  const floatCents = typed ?? cash.openingFloatCents;
   const moves = { cashInCents: cash.cashInCents, cashOutCents: cash.cashOutCents };
   const expectedCents = expectedCashCents(floatCents, moves);
   const countedCents = input.countedCents ?? null;
   const moved = moves.cashInCents > 0 || moves.cashOutCents > 0;
   const required = moved || (floatCents ?? 0) > 0;
   const diffCents = countedCents === null ? null : countedCents - expectedCents;
-  const base = { floatCents, expectedCents, countedCents, diffCents, required };
+  const base = { floatCents, floatChanged, expectedCents, countedCents, diffCents, required };
 
+  if (floatChanged && !input.floatChangeApproved) {
+    return {
+      ...base,
+      reason: 'float-changed',
+      status: 'block',
+      detail: `El fondo se apuntó al abrir (${eur(cash.openingFloatCents ?? 0)}): cambiarlo al cerrar lo aprueba el dueño con su 2FA, y el Z guarda los dos.`,
+    };
+  }
   if (moved && floatCents === null) {
     return {
       ...base,
       reason: 'float-missing',
       status: 'block',
       detail: `${cashMovesText(moves)}: apunta con cuánto empezó la caja (el fondo) y cuéntala.`,
+    };
+  }
+  if (expectedCents < 0) {
+    return {
+      ...base,
+      reason: 'negative',
+      status: 'block',
+      detail: `Lo que debería haber sale negativo (${eur(expectedCents)}): salió más efectivo del que entró más el fondo. Revisa el fondo y los pagos en efectivo de la noche.`,
     };
   }
   if (required && countedCents === null) {

@@ -33,6 +33,7 @@ const FORCED_DELEGATES = new Set([
   'earningReversal',
   'peanpeCall',
   'approvalRequest',
+  'walletCashTopUp',
 ]);
 const FORCED_SQL = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b|afterPayoutDebt\\(`);
 /** Tipo de parámetro que dice «esto es una transacción». */

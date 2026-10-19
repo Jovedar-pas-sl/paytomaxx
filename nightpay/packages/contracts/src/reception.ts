@@ -14,6 +14,17 @@ import { z } from 'zod';
  */
 export const MAX_CASH_TOP_UP_CENTS = 99_999;
 
+/**
+ * Los pagos troceados de una misma operación suman (art. 7.1 de la Ley
+ * 7/2012): el efectivo que entra en un saldo (y en los sumados a él) en 24 h
+ * no puede llegar a 1.000 €. Lo mismo para el efectivo que se devuelve.
+ */
+export const CASH_LIMIT_CENTS = 100_000;
+export const CASH_LIMIT_WINDOW_HOURS = 24;
+
+/** Una recarga en efectivo mal tecleada se anula en este tiempo (después, «Me voy» o el dueño). */
+export const CASH_TOP_UP_VOID_WINDOW_MINUTES = 120;
+
 /** Una Idempotency-Key por intento: la genera la pantalla y la repite si se reintenta. */
 export const IdempotencyKeySchema = z.string().trim().min(8).max(100);
 
@@ -34,6 +45,23 @@ export const CashTopUpSchema = z.object({
   wallet: TopUpWalletSchema,
 });
 export type CashTopUpDto = z.infer<typeof CashTopUpSchema>;
+
+/** Anular una recarga en efectivo reciente (encargado o dueño, con su 2FA). */
+export const CashTopUpVoidSchema = z.object({
+  reason: z.string().trim().min(3, 'Explica por qué se anula').max(200),
+  totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
+});
+export type CashTopUpVoidDto = z.infer<typeof CashTopUpVoidSchema>;
+
+/** Lo que devuelve la anulación: la fila negativa y el saldo que queda. */
+export interface CashTopUpVoidResult {
+  voidId: string;
+  topUpId: string;
+  walletId: string;
+  /** Lo anulado (positivo): sale de la caja. */
+  amountCents: number;
+  balanceCents: number;
+}
 
 /** Recarga con tarjeta en el datáfono de recepción: el importe y el saldo (no hay efectivo). */
 export const DeviceCardTopUpSchema = z.object({

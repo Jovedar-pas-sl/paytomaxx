@@ -1,9 +1,12 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import {
   CashTopUpSchema,
+  CashTopUpVoidSchema,
   paymentMethodsOf,
   type CashTopUpDto,
   type CashTopUpResult,
+  type CashTopUpVoidDto,
+  type CashTopUpVoidResult,
   type JwtPayload,
   type ReceptionOptions,
   type StockOutcome,
@@ -18,7 +21,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { venuePauseScope, VENUE_PAUSE_SELECT } from '../venues/venue-pause';
-import { CashTopUpService } from './wallet-cash-topup.service';
+import { CashTopUpService, type RecentCashTopUp } from './wallet-cash-topup.service';
 import { WalletCardsService } from './wallet-cards.service';
 import { WalletChargesService, type ReceptionCardView } from './wallet-charges.service';
 
@@ -31,6 +34,8 @@ const CardSchema = z.object({
  * Recepción desde la app del personal (camarero, encargado o dueño):
  *  - GET  /v1/reception/options       → qué se puede aquí (tarjeta, efectivo, fichas).
  *  - POST /v1/reception/cash          → recarga en efectivo (permiso «cobrar recargas en efectivo»).
+ *  - GET  /v1/reception/cash/recent   → las recargas en efectivo que aún se pueden anular (encargado).
+ *  - POST /v1/reception/cash/:id/void → anular una (encargado o dueño, con 2FA, si el saldo la cubre).
  *  - POST /v1/reception/lookup        → la ficha acercada: de qué saldo es (sin enseñarlo).
  *  - POST /v1/reception/fichas/token  → código nuevo para grabar en una ficha vacía («Preparar fichas»).
  *  - POST /v1/reception/fichas/stock  → la ficha acercada, al stock del local.
@@ -89,6 +94,24 @@ export class ReceptionController {
       await this.prisma.asSystem((tx) => assertVenueAcceptsMethods(tx, user.tenantId, ['nfc']));
     }
     return this.cash.topUp(user.tenantId, { userId: user.sub, role: user.role }, body);
+  }
+
+  @Get('cash/recent')
+  @Roles('MANAGER', 'OWNER')
+  async recentCash(@CurrentUser() user: JwtPayload): Promise<RecentCashTopUp[]> {
+    return this.cash.recent(user.tenantId);
+  }
+
+  @Post('cash/:id/void')
+  @HttpCode(200)
+  @Roles('MANAGER', 'OWNER')
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'reception-cash-void' })
+  async voidCash(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(CashTopUpVoidSchema)) body: CashTopUpVoidDto,
+  ): Promise<CashTopUpVoidResult> {
+    return this.cash.voidTopUp({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body);
   }
 
   @Post('lookup')

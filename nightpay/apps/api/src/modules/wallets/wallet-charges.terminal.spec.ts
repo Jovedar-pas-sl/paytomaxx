@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -95,7 +96,7 @@ function setup(wallet: Row = {}) {
   const $queryRaw = vi.fn(async (_s: TemplateStringsArray, ...values: unknown[]) =>
     tables.clientWallet.list({ where: { id: values[0] } }),
   );
-  const tx = { ...tables, $queryRaw };
+  const tx = { ...tables, $queryRaw, $executeRaw: vi.fn(async () => 0) };
   const all = Object.values(tables);
   const run = async (fn: (t: typeof tx) => unknown) => {
     const snap = all.map((t) => new Map(t.rows));
@@ -277,14 +278,21 @@ describe('pagar con el PIN en el datáfono', () => {
     expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 8_000, pinFails: 0 });
   });
 
-  it('con el pase o el código también; la ficha que llega sin número de serie lo graba la primera vez', async () => {
+  it('con el pase o el código también; la ficha, solo leída por su lector (con número de serie), y pagar no lo fija', async () => {
     const { svc, db, audit } = setup();
     db.walletCard.put({ id: 'card-1', token: FICHA, uid: null, walletId: WALLET, status: 'ISSUED', lastUsedAt: null });
+    // Su enlace pasado a QR y leído con la cámara llega sin número de serie: no vale (ni gasta un intento de PIN).
+    await expect(svc.checkWalletForTerminal(barra, cobro(db), { card: FICHA })).rejects.toThrow(/lector del datáfono/);
+    await expect(svc.payQrChargeFromTerminal(barra, cobro(db), { card: FICHA, uid: null, pin: PIN })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 12_000, pinFails: 0 });
     await svc.payQrChargeFromTerminal(barra, cobro(db), { walletToken: PASE, pin: PIN });
     await svc.payQrChargeFromTerminal(barra, cobro(db), { code: 'K7Q4M2', pin: PIN });
     await svc.payQrChargeFromTerminal(barra, cobro(db), { ...conFicha, pin: PIN });
     expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 0, status: 'DEPLETED' });
-    expect(db.walletCard.get('card-1')).toMatchObject({ uid: UID });
+    // El número de serie se fija al dar la ficha, no al pagar (una copia que llegara antes no se queda con él).
+    expect(db.walletCard.get('card-1')).toMatchObject({ uid: null });
     expect(audit.log.mock.calls.map(([e]) => e.payload.via)).toEqual(['pase', 'código', 'ficha']);
   });
 

@@ -13,11 +13,18 @@ import {
   type WalletCardStatus,
 } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { fichasCounts, frozenFichas } from './fichas-counts';
-import { createCardToken, lockCard, type CardBy } from './wallet-card-ops';
+import {
+  ISSUED_CARD_STATUSES,
+  createCardToken,
+  isIssuedCard,
+  lockCard,
+  recordCardEvents,
+  type CardBy,
+} from './wallet-card-ops';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
 
 type Actor = { userId: string; role: Role; tenantId: string };
@@ -56,8 +63,9 @@ export class WalletCardsService {
    *  - recién grabada → stocked;
    *  - ya en el stock (aquí u otro local del grupo) → already (queda en este);
    *  - dada a un saldo gastado o cerrado → returned (vuelve al stock);
+   *  - sustituida por otra (perdida sin saldo) → returned: ha aparecido;
    *  - dada a un saldo con dinero → in-use (se aparta: es del cliente);
-   *  - perdida, bloqueada, copiada o de otro grupo → se aparta.
+   *  - marcada perdida desde el panel, bloqueada, copiada o de otro grupo → se aparta.
    */
   async stock(venueId: string, by: CardBy, input: { card: string; uid?: string | null }): Promise<StockOutcome> {
     await this.assertNfc(venueId);
@@ -74,12 +82,24 @@ export class WalletCardsService {
           return { outcome: 'foreign' } as const;
         }
       }
+      const now = new Date();
+      // Sustituida al dar otra al mismo saldo (perdida, sin saldo, y su último
+      // «perdida» dice de qué saldo era): ha aparecido, vuelve al stock. Una
+      // marcada perdida desde el panel, no (la recupera el encargado).
+      if (card.status === 'LOST' && !card.walletId && (await wasReplaced(tx, card.id))) {
+        await tx.walletCard.update({
+          where: { id: card.id },
+          data: { status: 'RETURNED', returnedAt: now, venueId, uid: card.uid ?? uid },
+        });
+        await recordCardEvents(tx, [{ cardId: card.id, walletId: null, kind: 'RETURNED' }], { venueId, by, now });
+        return { outcome: 'returned', codeHint: '•••-•••' } as const;
+      }
       if (card.status === 'LOST') return { outcome: 'lost' } as const;
       if (card.status === 'BLOCKED') return { outcome: 'blocked' } as const;
-      const now = new Date();
-      if (card.status === 'ISSUED' && card.walletId) {
+      const walletId = isIssuedCard(card) ? card.walletId : null;
+      if (walletId) {
         const wallet = await tx.clientWallet.findUnique({
-          where: { id: card.walletId },
+          where: { id: walletId },
           select: { status: true, balanceCents: true, shortCode: true },
         });
         const codeHint = `${(wallet?.shortCode ?? '').slice(0, 3)}-•••`;
@@ -88,13 +108,15 @@ export class WalletCardsService {
           where: { id: card.id },
           data: { status: 'RETURNED', walletId: null, returnedAt: now, venueId, uid: card.uid ?? uid },
         });
+        await recordCardEvents(tx, [{ cardId: card.id, walletId, kind: 'RETURNED' }], { venueId, by, now });
         return { outcome: 'returned', codeHint } as const;
       }
       const fresh = await tx.walletCard.findUnique({ where: { id: card.id }, select: { stockedAt: true } });
       await tx.walletCard.update({
         where: { id: card.id },
         data: {
-          ...(card.status === 'ISSUED' ? { status: 'STOCK' } : {}),
+          // ISSUED sin saldo, o ACTIVE sin saldo del API anterior: al stock.
+          ...(card.status === 'ISSUED' || card.status === 'ACTIVE' ? { status: 'STOCK' } : {}),
           venueId,
           uid: card.uid ?? uid,
           stockedAt: fresh?.stockedAt ?? now,
@@ -124,8 +146,7 @@ export class WalletCardsService {
       venueId,
       // Un código pedido y aún sin grabar no es una ficha.
       NOT: { status: 'STOCK', stockedAt: null },
-      ...(status ? { status } : {}),
-      ...(await this.searchWhere(input.q)),
+      AND: [status ? statusWhere(status) : {}, await this.searchWhere(input.q)],
     };
     const rows = await this.prisma.acrossVenues((tx) =>
       tx.walletCard.findMany({
@@ -160,9 +181,14 @@ export class WalletCardsService {
     const [current, nights] = await Promise.all([
       this.prisma.acrossVenues(async (tx) => ({
         enStock: await tx.walletCard.count({
-          where: { venueId, OR: [{ status: 'RETURNED' }, { status: 'STOCK', stockedAt: { not: null } }] },
+          where: {
+            venueId,
+            OR: [{ status: 'RETURNED' }, { status: { in: ['STOCK', 'ACTIVE'] }, walletId: null, stockedAt: { not: null } }],
+          },
         }),
-        entregadas: await tx.walletCard.count({ where: { venueId, status: 'ISSUED' } }),
+        entregadas: await tx.walletCard.count({
+          where: { venueId, status: { in: ISSUED_CARD_STATUSES }, walletId: { not: null } },
+        }),
       })),
       this.prisma.asSystem((tx) =>
         tx.venueNight.findMany({
@@ -204,12 +230,20 @@ export class WalletCardsService {
     const problem = cardPanelActionProblem(card.status, action);
     if (problem) throw new ConflictException(problem);
     const now = new Date();
-    const res = await this.prisma.acrossVenues((tx) =>
-      tx.walletCard.updateMany({
+    const res = await this.prisma.acrossVenues(async (tx) => {
+      const changed = await tx.walletCard.updateMany({
         where: { id: cardId, status: card.status },
         data: action === 'lost' ? { status: 'LOST', lostAt: now } : { status: 'BLOCKED', blockedAt: now },
-      }),
-    );
+      });
+      if (changed.count > 0) {
+        await recordCardEvents(
+          tx,
+          [{ cardId, walletId: card.walletId, kind: action === 'lost' ? 'LOST' : 'BLOCKED' }],
+          { venueId: actor.tenantId, by: { userId: actor.userId }, now },
+        );
+      }
+      return changed;
+    });
     if (res.count === 0) throw new ConflictException('La ficha acaba de cambiar: vuelve a cargar la lista');
     await this.audit.log({
       action: action === 'lost' ? 'wallet.card_lost' : 'wallet.card_blocked',
@@ -242,6 +276,33 @@ export class WalletCardsService {
   }
 }
 
+/**
+ * La ficha perdida lo es por sustituida (attachCard / moveWalletCards): su
+ * último evento «perdida» lleva el saldo del que se soltó. Las marcadas desde
+ * el panel llevan el saldo que tenían en la ficha (ninguno, si estaba en el stock).
+ */
+async function wasReplaced(tx: Pick<TransactionalClient, 'walletCardEvent'>, cardId: string): Promise<boolean> {
+  const last = await tx.walletCardEvent.findFirst({
+    where: { cardId, kind: 'LOST' },
+    orderBy: { at: 'desc' },
+    select: { walletId: true, byUserId: true, terminalId: true },
+  });
+  return last !== null && last.walletId !== null && last.byUserId === null && last.terminalId === null;
+}
+
+/** El filtro del panel por estado (ACTIVE del API anterior: con saldo, entregada; sin él, en stock). */
+function statusWhere(status: WalletCardStatus): Prisma.WalletCardWhereInput {
+  if (status === 'ISSUED') return { status: { in: ISSUED_CARD_STATUSES }, walletId: { not: null } };
+  if (status === 'STOCK') return { OR: [{ status: 'STOCK' }, { status: 'ACTIVE', walletId: null }] };
+  return { status };
+}
+
+/** El estado para el panel: ACTIVE (API anterior) con saldo es ISSUED, sin él STOCK. */
+function panelStatus(c: { status: string; walletId?: string | null }): WalletCardStatus {
+  if (c.status === 'ACTIVE') return c.walletId ? 'ISSUED' : 'STOCK';
+  return isWalletCardStatus(c.status) ? c.status : 'STOCK';
+}
+
 function iso(d: Date | null): string | null {
   return d ? d.toISOString() : null;
 }
@@ -251,6 +312,7 @@ type CardWithWallet = {
   uid: string | null;
   token: string;
   status: string;
+  walletId?: string | null;
   stockedAt: Date | null;
   linkedAt: Date | null;
   returnedAt: Date | null;
@@ -262,12 +324,13 @@ type CardWithWallet = {
 
 /** La ficha para el panel: sin el código grabado entero (solo sus primeras letras). */
 export function cardRow(c: CardWithWallet): WalletCardRow {
+  const status = panelStatus(c);
   return {
     id: c.id,
     uid: c.uid,
     tokenHint: c.token.slice(0, 6),
-    status: (isWalletCardStatus(c.status) ? c.status : 'STOCK') as WalletCardStatus,
-    walletCode: c.status === 'ISSUED' && c.wallet?.shortCode ? formatWalletCode(c.wallet.shortCode) : null,
+    status,
+    walletCode: status === 'ISSUED' && c.wallet?.shortCode ? formatWalletCode(c.wallet.shortCode) : null,
     stockedAt: iso(c.stockedAt),
     linkedAt: iso(c.linkedAt),
     returnedAt: iso(c.returnedAt),

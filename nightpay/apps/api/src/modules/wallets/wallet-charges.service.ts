@@ -20,7 +20,17 @@ import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from 
 import { reopenData } from './wallet-activation';
 import { mergedWalletIds } from './wallet-merge-chain';
 import { clientRefundState, refundCards, type ClientRefundState } from './wallet-refund-view';
-import { attachCard, createCardToken, returnWalletCards, type CardBy } from './wallet-card-ops';
+import {
+  ISSUED_CARD_STATUSES,
+  attachCard,
+  createCardToken,
+  isIssuedCard,
+  moveWalletCards,
+  recordCardEvents,
+  returnWalletCards,
+  type CardBy,
+} from './wallet-card-ops';
+import { cardRefundCapCents, cashPayoutCapCents, cashPayoutRefusal, walletCash } from './wallet-cash-limits';
 import { firstTopUp, isFreshTopUpBy, type TopUpBy } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
@@ -44,6 +54,13 @@ import {
 } from './wallet-rules';
 
 type Actor = { userId: string; role: Role; tenantId: string };
+
+/** Lo devuelto. remainingCents: lo que sigue en el saldo (en efectivo solo sale lo que entró en efectivo). */
+export interface WalletPayoutResult {
+  refundedCents: number;
+  method: WalletPayoutMethod;
+  remainingCents?: number;
+}
 
 export interface WalletLookup {
   walletId: string;
@@ -264,7 +281,7 @@ export class WalletChargesService {
   ): Promise<WalletLookup> {
     const [home, cards] = await Promise.all([
       this.prisma.venue.findUnique({ where: { id: wallet.tenantId }, select: { name: true } }),
-      this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId: wallet.id, status: 'ISSUED' } })),
+      this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } } })),
     ]);
     return {
       walletId: wallet.id,
@@ -428,7 +445,8 @@ export class WalletChargesService {
       ...cashTopUps.map((t) => ({
         kind: 'topup' as const,
         amountCents: t.amountCents,
-        label: 'Recarga en efectivo',
+        // Una recarga mal tecleada que el encargado anuló: fila negativa.
+        label: t.amountCents < 0 ? 'Recarga en efectivo anulada' : 'Recarga en efectivo',
         venueName: venueName(t.tenantId),
         at: t.createdAt.toISOString(),
       })),
@@ -739,6 +757,8 @@ export class WalletChargesService {
         where: { id: sourceWalletId },
         data: { balanceCents: 0, status: 'DEPLETED', mergedIntoId: targetWalletId },
       });
+      // Su ficha va con el dinero: si no, al pagar diría «no tiene saldo» y el stock la vería libre.
+      await moveWalletCards(tx, { walletId: sourceWalletId, venueId: source.tenantId }, targetWalletId);
       return { moved: source.balanceCents, tenantId: source.tenantId, balanceCents: target.balanceCents + source.balanceCents };
     });
     await this.audit.log({
@@ -785,14 +805,15 @@ export class WalletChargesService {
     return this.getRequest(actor, requestId);
   }
 
-  /** Ficha usada para pagar: cuándo, y su número de serie si aún no lo tenía. */
-  private async touchCard(walletId: string, input: { card: string; uid?: string | null }): Promise<void> {
-    const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
-    await this.prisma.acrossVenues(async (tx) => {
-      await tx.walletCard.updateMany({ where: { token: input.card, walletId }, data: { lastUsedAt: new Date() } });
-      // Ficha dada desde un iPhone: su número de serie, la primera vez que la lee un Android.
-      if (uid) await tx.walletCard.updateMany({ where: { token: input.card, uid: null }, data: { uid } });
-    });
+  /**
+   * Ficha usada para pagar: cuándo. El número de serie NO se fija aquí: solo
+   * al darla o al ponerla en el stock (si una copia llegara antes que la
+   * original, la original pasaría luego por «copia»).
+   */
+  private async touchCard(walletId: string, input: { card: string }): Promise<void> {
+    await this.prisma.acrossVenues((tx) =>
+      tx.walletCard.updateMany({ where: { token: input.card, walletId }, data: { lastUsedAt: new Date() } }),
+    );
   }
 
   // ─── Datáfono del local (Authorization: Device, sin persona) ────────────
@@ -921,8 +942,17 @@ export class WalletChargesService {
     if (status !== 'PENDING' || request.walletId) throw requestError('not-pending');
   }
 
+  /**
+   * En el datáfono la ficha se lee siempre con su lector NFC: sin número de
+   * serie (p. ej. su enlace pasado a QR y leído con la cámara) no vale, que es
+   * como se colaría una copia.
+   */
   private async walletByTerminalRef(venueId: string, ref: TerminalWalletRef) {
-    return 'walletToken' in ref ? this.walletByLinkToken(venueId, ref.walletToken) : this.walletByRef(venueId, ref);
+    if ('walletToken' in ref) return this.walletByLinkToken(venueId, ref.walletToken);
+    if ('card' in ref && !(ref.uid && normalizeWalletCardUid(ref.uid))) {
+      throw new BadRequestException(TERMINAL_CARD_NEEDS_UID);
+    }
+    return this.walletByRef(venueId, ref);
   }
 
   /**
@@ -988,7 +1018,7 @@ export class WalletChargesService {
   /** El saldo recién recargado en este datáfono: su código (el cliente lo apunta), saldo, PIN y ficha. */
   async receptionWallet(terminal: TerminalActor, walletId: string): Promise<ReceptionWalletView> {
     const wallet = await this.terminalFreshWallet(terminal, walletId);
-    const cards = await this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId, status: 'ISSUED' } }));
+    const cards = await this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId, status: { in: ISSUED_CARD_STATUSES } } }));
     return {
       walletId: wallet.id,
       code: formatWalletCode(wallet.shortCode ?? ''),
@@ -1121,12 +1151,24 @@ export class WalletChargesService {
   /** Encargado o dueño: ficha perdida → bloqueada. El saldo sigue (Face ID, código + PIN). */
   async blockCard(actor: Actor, walletId: string): Promise<{ ok: true }> {
     await this.managerWallet(actor, walletId);
-    const res = await this.prisma.acrossVenues((tx) =>
-      tx.walletCard.updateMany({
-        where: { walletId, status: 'ISSUED' },
-        data: { status: 'BLOCKED', blockedAt: new Date() },
-      }),
-    );
+    const res = await this.prisma.acrossVenues(async (tx) => {
+      const cards = await tx.walletCard.findMany({
+        where: { walletId, status: { in: ISSUED_CARD_STATUSES } },
+        select: { id: true },
+      });
+      if (cards.length === 0) return { count: 0 };
+      const now = new Date();
+      await tx.walletCard.updateMany({
+        where: { id: { in: cards.map((c) => c.id) } },
+        data: { status: 'BLOCKED', blockedAt: now },
+      });
+      await recordCardEvents(tx, cards.map((c) => ({ cardId: c.id, walletId, kind: 'BLOCKED' as const })), {
+        venueId: actor.tenantId,
+        by: { userId: actor.userId },
+        now,
+      });
+      return { count: cards.length };
+    });
     if (res.count === 0) throw new ConflictException('Este saldo no tiene ficha');
     await this.audit.log({
       action: 'wallet.card_blocked',
@@ -1148,7 +1190,7 @@ export class WalletChargesService {
     const card = isWalletCardToken(input.card)
       ? await this.prisma.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: input.card } }))
       : null;
-    if (!card || card.status !== 'ISSUED' || !card.walletId) {
+    if (!card || !isIssuedCard(card) || !card.walletId) {
       throw new NotFoundException('Esta ficha no tiene saldo: dásela al cliente al recargar');
     }
     const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
@@ -1420,17 +1462,21 @@ export class WalletChargesService {
   // ─── Devolver el saldo (encargado o dueño) ─────────────────────────────
 
   /**
-   * Devuelve todo el saldo y cierra la wallet.
+   * Devuelve el saldo (y lo cierra si queda a 0).
    *  - CASH: en efectivo en el local (dueño o encargado), en una transacción.
-   *    El encargado, desde el umbral del local, con su código 2FA.
+   *    Solo lo que entró en efectivo y sin llegar a 1.000 € en 24 h
+   *    (wallet-cash-limits): lo que entró con tarjeta sigue en el saldo y lo
+   *    devuelve el dueño «A la tarjeta». El encargado, desde el umbral del
+   *    local, con su código 2FA.
    *  - CARD: ya hecho en el portal de BBVA (solo el dueño): se reparte entre
-   *    las recargas y se apunta como devolución de cada una (payoutCard).
+   *    las recargas y se apunta como devolución de cada una (payoutCard). Como
+   *    mucho el saldo menos el efectivo que sigue en él (ese, en efectivo).
    */
   async payout(
     actor: Actor,
     walletId: string,
     input: { method: WalletPayoutMethod; bankReference?: string; note?: string; totpCode?: string },
-  ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
+  ): Promise<WalletPayoutResult> {
     if (input.method === 'CARD' && actor.role !== 'OWNER') {
       throw new ForbiddenException('La devolución a la tarjeta la registra el dueño (se hace en el portal de BBVA)');
     }
@@ -1459,42 +1505,53 @@ export class WalletChargesService {
   }
 
   /**
-   * En efectivo: en una sola transacción se cierra el saldo y se apunta la
-   * devolución. El 2FA del encargado se mira con el saldo ya bloqueado (lo
-   * que se devuelve es lo que hay ahora, no lo que vio el panel).
+   * En efectivo: en una sola transacción se apunta la devolución y el saldo
+   * baja (se cierra si queda a 0). Con el saldo bloqueado se mira lo que se
+   * puede devolver en efectivo y el 2FA del encargado (lo que se devuelve es
+   * lo que hay ahora, no lo que vio el panel). Con una devolución a la tarjeta
+   * a medias, nada: primero se termina aquella.
    */
   private async payoutCash(
     actor: Actor,
     walletId: string,
     input: { bankReference?: string; note?: string; totpCode?: string },
     thresholdCents: number | undefined,
-  ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
-    const { amount, twoFactor } = await this.prisma.acrossVenues(async (tx) => {
+  ): Promise<WalletPayoutResult> {
+    const { amount, remaining, twoFactor } = await this.prisma.acrossVenues(async (tx) => {
       const w = await lockWallet(tx, walletId);
-      if (!w || w.status !== 'ACTIVE' || w.balanceCents <= 0) {
-        const halfDone = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+      const halfDone = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+      if (halfDone) {
         throw new ConflictException(
-          halfDone
-            ? `Hay una devolución a la tarjeta de ${eur(halfDone.amountCents)} a medias: que el dueño vuelva a pulsar «A la tarjeta» para terminarla`
-            : 'Este saldo no tiene nada que devolver',
+          `Hay una devolución a la tarjeta de ${eur(halfDone.amountCents)} a medias: que el dueño vuelva a pulsar «A la tarjeta» para terminarla`,
         );
       }
+      if (!w || w.status !== 'ACTIVE' || w.balanceCents <= 0) {
+        throw new ConflictException('Este saldo no tiene nada que devolver');
+      }
+      const cash = await walletCash(tx, walletId);
+      const cap = cashPayoutCapCents(w.balanceCents, cash);
+      if (cap <= 0) throw new ConflictException(cashPayoutRefusal(w.balanceCents, cash));
       const asked = await assertManagerTwoFactor(
         this.totp,
         actor,
-        w.balanceCents,
+        cap,
         thresholdCents,
         input.totpCode,
-        `Devolver ${eur(w.balanceCents)} en efectivo`,
+        `Devolver ${eur(cap)} en efectivo`,
       );
-      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: 0, status: 'REFUNDED' } });
+      const left = w.balanceCents - cap;
+      // Lo que entró con tarjeta sigue en el saldo (abierto, con su «Me voy») para el dueño.
+      await tx.clientWallet.update({
+        where: { id: walletId },
+        data: left === 0 ? { balanceCents: 0, status: 'REFUNDED' } : { balanceCents: left },
+      });
       // «Me voy»: el cliente devuelve la ficha y vuelve al stock (si no, el encargado la marca perdida).
-      await returnWalletCards(tx, walletId, actor.tenantId);
+      if (left === 0) await returnWalletCards(tx, walletId, actor.tenantId, { userId: actor.userId });
       await tx.walletPayout.create({
         data: {
           tenantId: actor.tenantId,
           walletId,
-          amountCents: w.balanceCents,
+          amountCents: cap,
           method: 'CASH',
           status: 'DONE',
           bankReference: input.bankReference ?? null,
@@ -1502,7 +1559,7 @@ export class WalletChargesService {
           paidByUserId: actor.userId,
         },
       });
-      return { amount: w.balanceCents, twoFactor: asked };
+      return { amount: cap, remaining: left, twoFactor: asked };
     });
     await this.audit.log({
       action: 'wallet.payout',
@@ -1510,9 +1567,11 @@ export class WalletChargesService {
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: walletId,
-      payload: { method: 'CASH', refundedCents: amount, remainingCents: 0, twoFactor },
+      payload: { method: 'CASH', refundedCents: amount, remainingCents: remaining, twoFactor },
     });
-    return { refundedCents: amount, method: 'CASH' };
+    return remaining > 0
+      ? { refundedCents: amount, method: 'CASH', remainingCents: remaining }
+      : { refundedCents: amount, method: 'CASH' };
   }
 
   /**
@@ -1528,7 +1587,7 @@ export class WalletChargesService {
     actor: Actor,
     walletId: string,
     input: { bankReference?: string; note?: string },
-  ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
+  ): Promise<WalletPayoutResult> {
     const pending = await this.claimCardPayout(actor, walletId, input);
     let outcome = { refunded: 0, remaining: pending.amountCents };
     try {
@@ -1584,12 +1643,17 @@ export class WalletChargesService {
         return { id: open.id, amountCents: open.amountCents, createdAt: open.createdAt, bankReference: open.bankReference, resumed: true };
       }
       if (w.status !== 'ACTIVE' || w.balanceCents <= 0) throw new ConflictException('Este saldo no tiene nada que devolver');
-      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: 0 } });
+      // El efectivo que sigue en el saldo no sale por el banco: se devuelve en efectivo.
+      const amount = cardRefundCapCents(w.balanceCents, await walletCash(tx, walletId));
+      if (amount <= 0) {
+        throw new ConflictException('Este saldo entró en efectivo: se devuelve en efectivo, no a la tarjeta');
+      }
+      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: w.balanceCents - amount } });
       const created = await tx.walletPayout.create({
         data: {
           tenantId: actor.tenantId,
           walletId,
-          amountCents: w.balanceCents,
+          amountCents: amount,
           method: 'CARD',
           status: 'PENDING',
           claimedAt: new Date(),
@@ -1627,7 +1691,7 @@ export class WalletChargesService {
       const status = balance > 0 ? await reopenData(tx, w) : w.status === 'ACTIVE' ? { status: 'REFUNDED' as const } : {};
       await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: { increment: remaining }, ...status } });
       // Devuelto del todo: su ficha vuelve al stock del local que lo devuelve.
-      if (balance === 0) await returnWalletCards(tx, walletId, row.tenantId);
+      if (balance === 0) await returnWalletCards(tx, walletId, row.tenantId, { userId: row.paidByUserId });
       return { refunded, remaining };
     });
   }
@@ -1773,6 +1837,9 @@ export class WalletChargesService {
     };
   }
 }
+
+/** En el datáfono, una ficha sin su número de serie (leída por cámara) no vale. */
+const TERMINAL_CARD_NEEDS_UID = 'Acerca la ficha al lector del datáfono (sin leerla por NFC no vale: podría ser una copia)';
 
 /** Saldos sumados uno a otro que se siguen como mucho desde un pase viejo. */
 const MAX_MERGE_HOPS = 5;

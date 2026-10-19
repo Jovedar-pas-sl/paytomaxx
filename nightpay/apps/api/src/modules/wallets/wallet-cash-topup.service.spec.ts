@@ -53,6 +53,37 @@ function setup(o: { venue?: Row; wallet?: Row | null } = {}) {
       });
       return [{ id }];
     }
+    if (text.includes('wallet_cash_topups') && text.includes('FOR UPDATE')) {
+      // La recarga que se anula, de este local y sin ser ella una anulación.
+      const t = topUps.get(String(values[0]));
+      return t && t.tenantId === values[1] && !t.voidOfId ? [{ ...t }] : [];
+    }
+    if (text.includes('wallet_cash_topups')) {
+      const net = (t: Row) => Number(t.amountCents);
+      if (text.includes('"createdWallet"')) {
+        // Aviso de saldos nuevos seguidos: las de esa persona o datáfono que abrieron saldo.
+        // La persona o el datáfono van en un trozo de SQL (Prisma.sql) con su id.
+        const last = values[values.length - 1] as { values?: unknown[] };
+        const who = last?.values?.[0] ?? last;
+        const rows = [...topUps.values()].filter(
+          (t) => t.createdWallet && !t.voidOfId && (t.takenByUserId === who || t.terminalId === who),
+        );
+        const voided = (t: Row) => [...topUps.values()].filter((v) => v.voidOfId === t.id).reduce((a, v) => a + net(v), 0);
+        return [{ count: rows.length, totalCents: BigInt(rows.reduce((a, t) => a + net(t) + voided(t), 0)) }];
+      }
+      // El efectivo del saldo y de los sumados a él.
+      const ids = new Set([String(values[0]), ...[...wallets.values()].filter((w) => w.mergedIntoId === values[0]).map((w) => String(w.id))]);
+      const sum = [...topUps.values()].filter((t) => ids.has(String(t.walletId))).reduce((a, t) => a + net(t), 0);
+      return [{ inCents: BigInt(sum), inWindowCents: BigInt(sum), outCents: 0n, outWindowCents: 0n }];
+    }
+    if (text.includes('SELECT "mergedIntoId"')) {
+      const w = wallets.get(String(values[0]));
+      return w ? [{ mergedIntoId: w.mergedIntoId }] : [];
+    }
+    if (text.includes('SELECT "blockedAt"')) {
+      const w = wallets.get(String(values[0]));
+      return w ? [{ blockedAt: w.blockedAt }] : [];
+    }
     if (text.includes('FOR UPDATE')) {
       const w = wallets.get(String(values[0]));
       return w ? [{ ...w }] : [];
@@ -67,20 +98,24 @@ function setup(o: { venue?: Row; wallet?: Row | null } = {}) {
       findFirst: vi.fn(async (a: { where: { shortCode: string } }) => [...wallets.values()].find((w) => w.shortCode === a.where.shortCode && w.status === 'ACTIVE') ?? null),
       update: vi.fn(async (a: { where: { id: string }; data: Row }) => {
         const w = wallets.get(a.where.id)!;
-        const inc = (a.data.balanceCents as { increment: number }).increment;
-        const next = { ...w, ...a.data, balanceCents: Number(w.balanceCents) + inc };
+        const b = a.data.balanceCents as number | { increment: number };
+        const next = { ...w, ...a.data, balanceCents: typeof b === 'number' ? b : Number(w.balanceCents) + b.increment };
         wallets.set(a.where.id, next);
         return next;
       }),
     },
     walletCard: { findUnique: vi.fn(async (a: { where: { token: string } }) => cards.get(a.where.token) ?? null) },
     walletCashTopUp: {
-      findUnique: vi.fn(async (a: { where: { tenantId_idempotencyKey: { tenantId: string; idempotencyKey: string } } }) => {
-        const k = a.where.tenantId_idempotencyKey;
+      findUnique: vi.fn(async (a: { where: { tenantId_idempotencyKey?: { tenantId: string; idempotencyKey: string }; voidOfId?: string } }) => {
+        if (a.where.voidOfId) return [...topUps.values()].find((t) => t.voidOfId === a.where.voidOfId) ?? null;
+        const k = a.where.tenantId_idempotencyKey!;
         return [...topUps.values()].find((t) => t.tenantId === k.tenantId && t.idempotencyKey === k.idempotencyKey) ?? null;
       }),
+      findMany: vi.fn(async () => []),
       create: vi.fn(async (a: { data: Row }) => {
-        const clash = [...topUps.values()].some((t) => t.tenantId === a.data.tenantId && t.idempotencyKey === a.data.idempotencyKey);
+        const clash =
+          [...topUps.values()].some((t) => t.tenantId === a.data.tenantId && t.idempotencyKey === a.data.idempotencyKey) ||
+          (a.data.voidOfId !== undefined && [...topUps.values()].some((t) => t.voidOfId === a.data.voidOfId));
         if (clash) {
           throw new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'x', meta: { target: ['tenantId', 'idempotencyKey'] } });
         }
@@ -102,10 +137,11 @@ function setup(o: { venue?: Row; wallet?: Row | null } = {}) {
       throw err;
     }
   };
-  const prisma = { venue: tx.venue, asSystem: vi.fn(run), acrossVenues: vi.fn(run) };
+  const prisma = { venue: tx.venue, asSystem: vi.fn(run), acrossVenues: vi.fn(run), withTenant: vi.fn(async (_t: string, fn: (t: typeof tx) => unknown) => run(fn)) };
   const audit = { log: vi.fn(async (_e: Record<string, unknown>) => undefined) };
-  const svc = new CashTopUpService(prisma as never, audit as never);
-  return { svc, wallets, topUps, audit, venues };
+  const totp = { isEnabled: vi.fn(async () => true), assertForUser: vi.fn(async () => undefined) };
+  const svc = new CashTopUpService(prisma as never, audit as never, totp as never);
+  return { svc, wallets, topUps, audit, venues, totp, prisma };
 }
 
 const nueva = (amountCents: number, key = 'clave-nueva-0001') => ({ amountCents, idempotencyKey: key, wallet: { create: true as const } });
@@ -224,5 +260,115 @@ describe('quién puede cobrar efectivo', () => {
     const pausa = setup({ venue: { pausedAt: NOW } });
     await expect(pausa.svc.topUp(SALA, javi, nueva(1_000))).rejects.toMatchObject({ status: 423 });
     expect(sinEfectivo.topUps.size + sinSaldo.topUps.size + pausa.topUps.size).toBe(0);
+  });
+});
+
+describe('tope legal del efectivo: los pagos troceados suman (art. 7 Ley 7/2012)', () => {
+  const byCode = (amountCents: number, key: string) => ({ amountCents, idempotencyKey: key, wallet: { code: 'K7Q4M2' } });
+
+  it('dos recargas de 999,99 € al mismo saldo: la segunda no (409 CASH_LIMIT) y no se suma nada', async () => {
+    const { svc, wallets, topUps } = setup();
+    await svc.topUp(SALA, javi, byCode(MAX_CASH_TOP_UP_CENTS, 'clave-tope-00001'));
+    const err = await svc.topUp(SALA, javi, byCode(1, 'clave-tope-00002')).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'CASH_LIMIT' });
+    expect((err as Error).message).toMatch(/ya lleva 999,99 € en 24 h/);
+    expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_000 + MAX_CASH_TOP_UP_CENTS });
+    expect(topUps.size).toBe(1);
+  });
+
+  it('500 € y luego 600 €: dice cuánto cabe aún, y eso sí entra', async () => {
+    const { svc } = setup();
+    await svc.topUp(SALA, javi, byCode(50_000, 'clave-tope-00003'));
+    await expect(svc.topUp(SALA, javi, byCode(60_000, 'clave-tope-00004'))).rejects.toThrow(/como mucho 499,99 € más/);
+    await expect(svc.topUp(SALA, javi, byCode(49_999, 'clave-tope-00005'))).resolves.toMatchObject({ balanceCents: 2_000 + 99_999 });
+  });
+
+  it('cuenta también el efectivo de los saldos sumados a él (la cadena del Face ID)', async () => {
+    const { svc, wallets, topUps } = setup();
+    wallets.set('w-sumado', { id: 'w-sumado', tenantId: SALA, walletGroup: 'grupo-bambu', balanceCents: 0, status: 'DEPLETED', mergedIntoId: WALLET });
+    topUps.set('ct-viejo', { id: 'ct-viejo', tenantId: SALA, walletId: 'w-sumado', amountCents: 90_000, idempotencyKey: 'vieja', createdAt: NOW });
+    await expect(svc.topUp(SALA, javi, byCode(10_000, 'clave-tope-00006'))).rejects.toThrow(/ya lleva 900,00 €/);
+  });
+
+  it('el saldo se sumó a otro justo antes de cobrar: el efectivo va al bueno (sin «haz un saldo nuevo»)', async () => {
+    const { svc, wallets, venues, prisma } = setup();
+    const bueno = 'e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a80';
+    wallets.set(bueno, { id: bueno, tenantId: SALA, walletGroup: 'grupo-bambu', shortCode: 'BUENO1', balanceCents: 7_000, status: 'ACTIVE', mergedIntoId: null, blockedAt: null });
+    // Justo después de encontrar el saldo por su código (antes de cobrar), el cliente lo suma con su Face ID.
+    const tx = (await prisma.acrossVenues(async (t) => t)) as { clientWallet: { findFirst: ReturnType<typeof vi.fn> } };
+    const findFirst = tx.clientWallet.findFirst;
+    let merged = false;
+    prisma.venue.findUnique.mockImplementation(async (a: { where: { id: string } }) => {
+      if (findFirst.mock.calls.length > 0 && !merged) {
+        merged = true;
+        wallets.set(WALLET, { ...wallets.get(WALLET)!, balanceCents: 0, status: 'DEPLETED', mergedIntoId: bueno });
+        wallets.set(bueno, { ...wallets.get(bueno)!, balanceCents: 9_000 });
+      }
+      return venues.get(a.where.id) ?? null;
+    });
+    const out = await svc.topUp(SALA, javi, byCode(1_000, 'clave-carrera-01'));
+    expect(out).toMatchObject({ walletId: bueno, balanceCents: 10_000 });
+    expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 0, mergedIntoId: bueno });
+  });
+
+  it('saldos nuevos en efectivo seguidos de la misma persona: al pasar de 1.000 € sale el aviso (cada 1.000 €)', async () => {
+    const { svc, audit } = setup({ wallet: null });
+    const split = () => audit.log.mock.calls.filter((c) => c[0].action === 'wallet.cash_split_suspected');
+    await svc.topUp(SALA, javi, nueva(60_000, 'clave-trozo-0001'));
+    expect(split()).toHaveLength(0);
+    await svc.topUp(SALA, javi, nueva(60_000, 'clave-trozo-0002'));
+    expect(split()).toHaveLength(1);
+    expect(split()[0]![0]).toMatchObject({ tenantId: SALA, payload: { count: 2, amountCents: 120_000, userId: JAVI } });
+    await svc.topUp(SALA, javi, nueva(30_000, 'clave-trozo-0003'));
+    expect(split()).toHaveLength(1);
+    await svc.topUp(SALA, javi, nueva(60_000, 'clave-trozo-0004'));
+    expect(split()).toHaveLength(2);
+    // Otra persona empieza de cero.
+    await svc.topUp(SALA, { userId: PACO, role: 'OWNER' }, nueva(60_000, 'clave-trozo-0005'));
+    expect(split()).toHaveLength(2);
+  });
+});
+
+describe('anular una recarga en efectivo mal tecleada', () => {
+  const manager = { userId: JAVI, role: 'MANAGER' as const, tenantId: SALA };
+
+  it('el encargado con su 2FA: fila negativa que apunta a la recarga, el saldo baja y otra vez → 409', async () => {
+    const { svc, wallets, topUps, totp, audit } = setup();
+    const top = await svc.topUp(SALA, javi, { amountCents: 99_999, idempotencyKey: 'clave-anular-001', wallet: { code: 'K7Q4M2' } });
+    const out = await svc.voidTopUp(manager, top.topUpId, { reason: 'Era 99,99', totpCode: '123456' });
+    expect(totp.assertForUser).toHaveBeenCalledWith(JAVI, '123456');
+    expect(out).toMatchObject({ topUpId: top.topUpId, walletId: WALLET, amountCents: 99_999, balanceCents: 2_000 });
+    expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_000 });
+    expect([...topUps.values()].find((t) => t.voidOfId === top.topUpId)).toMatchObject({
+      tenantId: SALA, walletId: WALLET, amountCents: -99_999, takenByUserId: JAVI, reason: 'Era 99,99',
+    });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.cash_topup_voided' }));
+    await expect(svc.voidTopUp(manager, top.topUpId, { reason: 'otra vez', totpCode: '123456' })).rejects.toThrow(/ya está anulada/);
+    // Anulada, el tope de 24 h vuelve a tener sitio.
+    await expect(svc.topUp(SALA, javi, { amountCents: 99_999, idempotencyKey: 'clave-anular-002', wallet: { code: 'K7Q4M2' } })).resolves.toBeDefined();
+  });
+
+  it('sin 2FA → 403; el camarero no; de otro local o de hace más de 2 h no; si el saldo ya no la cubre → 409', async () => {
+    const { svc, topUps, wallets, totp } = setup();
+    const top = await svc.topUp(SALA, javi, { amountCents: 5_000, idempotencyKey: 'clave-anular-003', wallet: { code: 'K7Q4M2' } });
+    const noCode = await svc.voidTopUp(manager, top.topUpId, { reason: 'mal' }).catch((e: unknown) => e);
+    expect((noCode as HttpException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
+    totp.isEnabled.mockResolvedValueOnce(false);
+    const notEnrolled = await svc.voidTopUp(manager, top.topUpId, { reason: 'mal' }).catch((e: unknown) => e);
+    expect((notEnrolled as HttpException).getResponse()).toMatchObject({ code: 'TOTP_NOT_ENROLLED' });
+    await expect(svc.voidTopUp({ ...manager, role: 'WAITER' as never }, top.topUpId, { reason: 'mal', totpCode: '123456' })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(svc.voidTopUp({ ...manager, tenantId: NORTE }, top.topUpId, { reason: 'mal', totpCode: '123456' })).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    // Ya se gastó parte: con 40 € en el saldo no se anula una recarga de 50 €.
+    wallets.set(WALLET, { ...wallets.get(WALLET)!, balanceCents: 4_000 });
+    await expect(svc.voidTopUp(manager, top.topUpId, { reason: 'mal', totpCode: '123456' })).rejects.toThrow(/ya no cubre/);
+    wallets.set(WALLET, { ...wallets.get(WALLET)!, balanceCents: 7_000 });
+    topUps.set(top.topUpId, { ...topUps.get(top.topUpId)!, createdAt: new Date(NOW.getTime() - 3 * 60 * 60 * 1000) });
+    await expect(svc.voidTopUp(manager, top.topUpId, { reason: 'mal', totpCode: '123456' })).rejects.toThrow(/últimas 2 h/);
+    expect([...topUps.values()].filter((t) => t.voidOfId)).toHaveLength(0);
   });
 });

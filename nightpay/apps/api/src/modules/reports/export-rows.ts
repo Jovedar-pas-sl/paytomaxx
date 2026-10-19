@@ -67,6 +67,8 @@ export interface PagoSaldoRow {
   at: Date;
   amountCents: number;
   method: string;
+  /** Referencia de la devolución en el banco (a la tarjeta). */
+  bankReference?: string | null;
   paidByName: string | null;
   paidByEmail: string | null;
 }
@@ -79,7 +81,13 @@ export interface PagoSaldoRow {
 export interface RecargaEfectivoRow {
   id: string;
   at: Date;
+  /** Negativo en una anulación (voidOfId: la recarga que anula). */
   amountCents: number;
+  voidOfId?: string | null;
+  /** Por qué se anuló. */
+  reason?: string | null;
+  /** La recarga abrió un saldo nuevo. */
+  createdWallet?: boolean;
   takenByName: string | null;
   takenByEmail: string | null;
   terminalLabel: string | null;

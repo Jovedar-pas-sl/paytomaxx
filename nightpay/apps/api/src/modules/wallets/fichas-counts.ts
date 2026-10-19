@@ -1,11 +1,21 @@
+import { Prisma } from '@nightpay/db';
 import type { PrismaService } from '../../common/prisma/prisma.service';
 
 /**
- * Fichas de una noche del local: las que se dieron, las que volvieron, las
- * perdidas y las que hay en el stock. Por las fechas de cada ficha
- * (wallet_cards no tiene RLS: el local va explícito). Al cerrar la noche se
- * congela en el Z (bloque «fichas»): una ficha que se vuelve a dar otra noche
- * cambia sus fechas, y el Z de la noche anterior no debe cambiar.
+ * En el stock (alias c): devueltas y grabadas sin dar (también las ACTIVE sin
+ * saldo del API anterior, paso 1 de 2 de 20261021100000, si se grabaron).
+ */
+export const IN_STOCK_SQL = Prisma.sql`(c.status = 'RETURNED'
+  OR (c.status IN ('STOCK', 'ACTIVE') AND c."walletId" IS NULL AND c."stockedAt" IS NOT NULL))`;
+
+/**
+ * Fichas de una noche del local: las que se dieron, las que volvieron y las
+ * perdidas (o sustituidas), por los eventos de cada ficha con el local de ese
+ * momento (wallet_card_events): una ficha dada, devuelta y dada otra vez
+ * cuenta dos entregas, y la noche de un local no cambia si la ficha pasa luego
+ * a otro del grupo. Y las que hay ahora en el stock (la fila de cada ficha).
+ * Sin RLS: el local va explícito. Al cerrar la noche se congela en el Z
+ * (bloque «fichas»).
  */
 export interface FichasCounts {
   entregadas: number;
@@ -22,12 +32,14 @@ export async function fichasCounts(
 ): Promise<FichasCounts> {
   const rows = await db.$queryRaw<Array<{ entregadas: number; devueltas: number; perdidas: number; enStock: number }>>`
     SELECT
-      COUNT(*) FILTER (WHERE "linkedAt" >= ${window.from} AND "linkedAt" < ${window.to})::int AS entregadas,
-      COUNT(*) FILTER (WHERE "returnedAt" >= ${window.from} AND "returnedAt" < ${window.to})::int AS devueltas,
-      COUNT(*) FILTER (WHERE "lostAt" >= ${window.from} AND "lostAt" < ${window.to})::int AS perdidas,
-      COUNT(*) FILTER (WHERE status = 'RETURNED' OR (status = 'STOCK' AND "stockedAt" IS NOT NULL))::int AS "enStock"
-      FROM wallet_cards
-     WHERE "venueId" = ${venueId}::uuid
+      (SELECT COUNT(*) FILTER (WHERE e.kind = 'ISSUED')::int FROM wallet_card_events e
+        WHERE e."venueId" = ${venueId}::uuid AND e."at" >= ${window.from} AND e."at" < ${window.to}) AS entregadas,
+      (SELECT COUNT(*) FILTER (WHERE e.kind = 'RETURNED')::int FROM wallet_card_events e
+        WHERE e."venueId" = ${venueId}::uuid AND e."at" >= ${window.from} AND e."at" < ${window.to}) AS devueltas,
+      (SELECT COUNT(*) FILTER (WHERE e.kind = 'LOST')::int FROM wallet_card_events e
+        WHERE e."venueId" = ${venueId}::uuid AND e."at" >= ${window.from} AND e."at" < ${window.to}) AS perdidas,
+      (SELECT COUNT(*)::int FROM wallet_cards c
+        WHERE c."venueId" = ${venueId}::uuid AND ${IN_STOCK_SQL}) AS "enStock"
   `;
   const r = rows[0];
   return {

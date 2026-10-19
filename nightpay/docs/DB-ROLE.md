@@ -9,8 +9,8 @@ Con este cambio el API entra con `oxiopay_app`: un rol normal (sin
 superusuario) que es **dueño** de las tablas. Entonces la base aplica RLS en
 las tablas con `FORCE ROW LEVEL SECURITY` (`client_wallets`,
 `wallet_consumptions`, `operator_earnings`, `operator_payouts`,
-`earning_reversals`, `peanpe_calls` y, desde «Por aprobar»,
-`approval_requests`): aunque un fallo del código olvidara filtrar por local,
+`earning_reversals`, `peanpe_calls`, desde «Por aprobar»
+`approval_requests` y, desde la recepción, `wallet_cash_topups`): aunque un fallo del código olvidara filtrar por local,
 la base no enseñaría filas de otro local. **No todas las tablas del dinero
 aíslan**: ver «Qué tablas aísla la base» justo debajo.
 
@@ -24,13 +24,14 @@ tiene `FORCE`. Sin `FORCE`, lo que separa los locales es solo el código del API
 |---|---|---|
 | `client_wallets`, `wallet_consumptions`, `operator_earnings`, `operator_payouts`, `earning_reversals`, `peanpe_calls` | **Sí** | RLS con `FORCE`. |
 | `approval_requests` («Por aprobar») | **Sí** | RLS con `FORCE` (`20261016300000_aprobaciones`). |
-| `wallet_cash_topups` (efectivo que entra en los saldos: recepción y datáfono) | **No** | RLS sin `FORCE` (`20261021100000_recepcion_fichas`, como `wallet_payouts`): `oxiopay_app` se salta la política. |
+| `wallet_cash_topups` (efectivo que entra en los saldos: recepción y datáfono) | **Sí** | RLS con `FORCE` (`20261021200000_efectivo_fichas`). |
 | `wallet_payouts` (lo que se devuelve de un saldo) | **No** | RLS sin `FORCE`. |
 | `wallet_passes` (Google Wallet) | **No** | Sin RLS: cuelga del saldo por `walletId`, no lleva `tenantId`. |
+| `wallet_cards`, `wallet_card_events` (fichas NFC) | **No** | Sin RLS: la ficha se mueve entre locales del grupo y el local va siempre explícito en la consulta. |
 | `businesses` (negocios de la consola) | **No es de ningún local** | Global: RLS sin `FORCE` que solo deja pasar el bypass del super-admin; `oxiopay_app` (dueño) la ve entera. |
 | `payments`, `payment_events`, `refunds`, `reconciliations`, `users`, `terminals`, `gateway_credentials` | **No** | RLS sin `FORCE` desde `20260502000000_soften_rls_force`. |
 
-Añadir `FORCE` a una tabla (p. ej. `wallet_cash_topups`) es una migración
+Añadir `FORCE` a otra tabla es una migración
 aparte que hay que probar antes con la suite de integración
 (`aislamiento-rls`): todo lo que la toque tiene que llevar el local en la
 sesión o el bypass.

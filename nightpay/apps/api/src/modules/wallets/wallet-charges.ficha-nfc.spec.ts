@@ -55,6 +55,11 @@ function table(prefix: string, defaults: Row = {}) {
     findUnique: vi.fn(async (a: Args): Promise<Row | null> => t.pick(t.list(a)[0], a.select)),
     findFirst: vi.fn(async (a: Args): Promise<Row | null> => t.pick(t.list(a)[0], a.select)),
     count: vi.fn(async (a: Args): Promise<number> => t.list(a).length),
+    findMany: vi.fn(async (a: Args): Promise<Row[]> => t.list(a).map((r) => t.pick(r, a.select)!)),
+    createMany: vi.fn(async (a: { data: Row[] }): Promise<{ count: number }> => {
+      a.data.forEach((d) => t.put({ id: `${prefix}-${(t.seq += 1)}`, ...d }));
+      return { count: a.data.length };
+    }),
     create: vi.fn(async (a: Args): Promise<Row> => t.put({ id: `${prefix}-${(t.seq += 1)}`, createdAt: new Date(), ...a.data })),
     update: vi.fn(async (a: Args): Promise<Row> => {
       const row = t.list(a)[0];
@@ -110,6 +115,7 @@ function setup(o: { card?: Row | null; topUpAt?: Date } = {}) {
     operatorEarning: table('earn'),
     payment: table('pay'),
     walletCashTopUp: table('cash'),
+    walletCardEvent: table('ev'),
     user: table('user'),
     venue: table('venue', { pausedAt: null, business: null, operatorCommissionDefaults: null }),
   };
@@ -120,7 +126,7 @@ function setup(o: { card?: Row | null; topUpAt?: Date } = {}) {
     if (q.text.includes('FROM wallet_cards')) return tables.walletCard.list({ where: { token: values[0] } });
     return tables.clientWallet.list({ where: { id: values[0] } });
   });
-  const tx = { ...tables, $queryRaw };
+  const tx = { ...tables, $queryRaw, $executeRaw: vi.fn(async () => 0) };
   const all = Object.values(tables);
   const run = async (fn: (t: typeof tx) => unknown) => {
     const snap = all.map((t) => new Map(t.rows));
@@ -184,7 +190,7 @@ describe('grabar y dar una ficha', () => {
     expect(db.walletCard.list({ where: { token: a.card } })[0]).not.toHaveProperty('stockedAt');
   });
 
-  it('la chica de la recarga la da en sus 15 min: guarda el número de serie y suelta la ficha anterior', async () => {
+  it('la chica de la recarga la da en sus 15 min: guarda el número de serie y la ficha anterior queda sustituida (perdida)', async () => {
     const { svc, db, audit, queries } = setup({ card: { walletId: null } });
     db.walletCard.put({ id: 'card-vieja', token: 'fichaViejaDelCliente01', walletId: WALLET });
     const out = await svc.linkCard(lola, { code: 'k7q-4m2', card: FICHA, uid: UID });
@@ -192,8 +198,12 @@ describe('grabar y dar una ficha', () => {
     expect(db.walletCard.get('card-1')).toMatchObject({
       walletId: WALLET, status: 'ISSUED', uid: '04A23B5C1D8000', linkedById: LOLA, linkedAt: NOW, venueId: SALA,
     });
-    // La que tenía vuelve al stock (devuelta).
-    expect(db.walletCard.get('card-vieja')).toMatchObject({ walletId: null, status: 'RETURNED', returnedAt: NOW });
+    // La que tenía no vuelve al stock: el cliente la perdió o se la queda (vuelve si alguien la acerca en «Preparar fichas»).
+    expect(db.walletCard.get('card-vieja')).toMatchObject({ walletId: null, status: 'LOST', lostAt: NOW });
+    expect(db.walletCardEvent.list().map((e) => [e.cardId, e.kind, e.venueId])).toEqual([
+      ['card-vieja', 'LOST', SALA],
+      ['card-1', 'ISSUED', SALA],
+    ]);
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'wallet.card_linked', targetId: WALLET, payload: { replacedCards: 1, withUid: true } }),
     );
@@ -263,13 +273,14 @@ describe('cobrar con la ficha y el PIN', () => {
     expect(db.walletCard.findUnique).not.toHaveBeenCalled();
   });
 
-  it('con la ficha y el PIN se descuenta justo el importe; el primer Android que la lee graba su número de serie', async () => {
+  it('con la ficha y el PIN se descuenta justo el importe; pagar no fija su número de serie (solo al darla)', async () => {
     const { svc, db } = setup();
     const out = await svc.payQrChargeWithPin(lola, cobro(db), { card: FICHA, uid: UID, pin: PIN });
     expect(out).toMatchObject({ status: 'ACCEPTED', amountCents: 4_000, newBalanceCents: 8_000 });
     expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 8_000, status: 'ACTIVE' });
     expect(db.walletConsumption.list()).toEqual([expect.objectContaining({ walletId: WALLET, tenantId: SALA, amountCents: 4_000 })]);
-    expect(db.walletCard.get('card-1')).toMatchObject({ uid: '04A23B5C1D8000', lastUsedAt: NOW });
+    // Si una copia llegara antes que la original, la original pasaría luego por «copia».
+    expect(db.walletCard.get('card-1')).toMatchObject({ uid: null, lastUsedAt: NOW });
   });
 
   it('ficha perdida: el encargado la bloquea; ya no paga ni gasta intentos, pero el saldo sigue con código + PIN', async () => {

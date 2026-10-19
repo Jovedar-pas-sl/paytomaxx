@@ -84,6 +84,7 @@ model Venue {
   approvalRequests   ApprovalRequest[]
   walletCashTopUps   WalletCashTopUp[]
   walletCards        WalletCard[]
+  walletCardEvents   WalletCardEvent[]
 
   @@index([businessId])
   @@map("venues")
@@ -511,6 +512,9 @@ model WalletPayout {
 // (el de la caja; el saldo puede ser de otro local del grupo). Quién la cobró:
 // la persona (takenByUserId) o el datáfono de recepción (terminalId), al menos
 // uno (CHECK en SQL). La misma Idempotency-Key no carga dos veces.
+// Anular una recarga (20261021200000) es otra fila, NEGATIVA, con voidOfId
+// (una por recarga; CHECK de signo en SQL): resta en la caja, el Z y los
+// informes como cualquier otra. FORCE RLS: solo dentro de una transacción.
 model WalletCashTopUp {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId       String   @db.Uuid
@@ -520,13 +524,21 @@ model WalletCashTopUp {
   terminalId     String?  @db.Uuid
   idempotencyKey String
   createdAt      DateTime @default(now()) @db.Timestamptz
+  /// La recarga abrió un saldo nuevo (aviso de saldos nuevos en efectivo seguidos).
+  createdWallet  Boolean  @default(false)
+  /// Anulación: la recarga que anula (la fila es negativa).
+  voidOfId       String?  @unique @db.Uuid
+  /// Por qué se anuló (solo en las anulaciones).
+  reason         String?
 
-  venue  Venue        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  venue    Venue            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wallet   ClientWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  voidOf   WalletCashTopUp? @relation("CashTopUpVoid", fields: [voidOfId], references: [id], onDelete: Cascade)
+  voidedBy WalletCashTopUp? @relation("CashTopUpVoid")
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, createdAt(sort: Desc)])
-  @@index([walletId])
+  @@index([walletId, createdAt])
   @@map("wallet_cash_topups")
 }
 
@@ -972,8 +984,11 @@ model WalletCard {
   uid        String?
   walletId   String?   @db.Uuid
   /// STOCK (grabada, sin dar) → ISSUED (dada a un saldo) → RETURNED (devuelta,
-  /// otra vez en el stock) | LOST (perdida) | BLOCKED (bloqueada). Solo ISSUED paga.
-  status     String    @default("STOCK")
+  /// otra vez en el stock) | LOST (perdida o sustituida) | BLOCKED (bloqueada).
+  /// Solo ISSUED paga. ACTIVE = la del API anterior (paso 1 de 2 de
+  /// 20261021100000): con saldo vale como ISSUED, sin saldo como STOCK. Por eso
+  /// la base sigue con ACTIVE por defecto; el código pasa siempre el estado.
+  status     String    @default("ACTIVE")
   /// Local donde está: el de su stock o el que la dio.
   venueId    String?   @db.Uuid
   linkedById String?   @db.Uuid
@@ -987,12 +1002,35 @@ model WalletCard {
   blockedAt  DateTime? @db.Timestamptz
   lastUsedAt DateTime? @db.Timestamptz
 
-  wallet ClientWallet? @relation(fields: [walletId], references: [id], onDelete: SetNull)
-  venue  Venue?        @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  wallet ClientWallet?      @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  venue  Venue?             @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  events WalletCardEvent[]
 
   @@index([walletId])
   @@index([venueId, status])
   @@map("wallet_cards")
+}
+
+/// Lo que pasa con una ficha (20261021200000): dada (ISSUED), devuelta al stock
+/// (RETURNED), perdida o sustituida (LOST), bloqueada (BLOCKED), con el local
+/// de ese momento. Los contadores de la noche cuentan eventos. Sin RLS, como
+/// wallet_cards: el local va siempre explícito.
+model WalletCardEvent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cardId     String   @db.Uuid
+  venueId    String?  @db.Uuid
+  walletId   String?  @db.Uuid
+  kind       String
+  byUserId   String?  @db.Uuid
+  terminalId String?  @db.Uuid
+  at         DateTime @default(now()) @db.Timestamptz
+
+  card  WalletCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  venue Venue?     @relation(fields: [venueId], references: [id], onDelete: SetNull)
+
+  @@index([venueId, at])
+  @@index([cardId])
+  @@map("wallet_card_events")
 }
 
 /// Llave del cliente para pagar con su saldo desbloqueando su móvil (Face ID,

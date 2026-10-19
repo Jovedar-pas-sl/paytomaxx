@@ -10,10 +10,24 @@
 --       RETURNED devuelta, otra vez en el stock (tras «Me voy» o gastada)
 --       LOST     perdida
 --       BLOCKED  bloqueada (como antes)
---     Las fichas que ya existen siguen valiendo: las dadas pasan a ISSUED con
---     su saldo y las sin dar a STOCK.
+--     Las fichas que ya existen: ISSUED solo las de un saldo vivo (ACTIVE y
+--     sin sumar a otro); las de un saldo ya cerrado, gastado o sumado vuelven
+--     al stock (RETURNED, sin saldo); las sin saldo, a STOCK.
+--
+-- Paso 1 de 2 (se puede volver al API anterior, docs/DOKPLOY-STEPS.md):
+--   - el CHECK aún admite ACTIVE y el valor por defecto sigue siendo ACTIVE:
+--     el API anterior puede seguir creando y dando fichas;
+--   - el API nuevo lee ACTIVE como ISSUED (con saldo) o STOCK (sin saldo);
+--   - para volver atrás basta un UPDATE (ISSUED/STOCK/RETURNED → ACTIVE),
+--     sin tocar el esquema.
+--   El paso 2, en otra versión: convertir las ACTIVE que queden, cerrar el
+--   CHECK y poner STOCK por defecto.
 --
 -- Idempotente: se puede lanzar dos veces sin cambiar nada la segunda.
+
+-- Con el API anterior sirviendo: si una transacción suya tiene las tablas,
+-- mejor fallar en 5 s (y reintentar el despliegue) que encolar sus escrituras.
+SET lock_timeout = '5s';
 
 -- Los rellenos tienen que ver todas las filas aunque la lance un rol sin
 -- superusuario (FORCE RLS en client_wallets). Solo dura esta transacción.
@@ -66,7 +80,7 @@ CREATE INDEX IF NOT EXISTS "wallet_cash_topups_tenantId_createdAt_idx"
 CREATE INDEX IF NOT EXISTS "wallet_cash_topups_walletId_idx"
   ON "wallet_cash_topups" ("walletId");
 
--- ENABLE sin FORCE, como wallet_payouts (20260502000000_soften_rls_force).
+-- FORCE ROW LEVEL SECURITY: en 20261021200000_efectivo_fichas.
 ALTER TABLE "wallet_cash_topups" ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS wallet_cash_topups_tenant_isolation ON "wallet_cash_topups";
 CREATE POLICY wallet_cash_topups_tenant_isolation ON "wallet_cash_topups"
@@ -101,26 +115,31 @@ UPDATE "wallet_cards" c
   FROM "users" u
  WHERE c."venueId" IS NULL AND c."linkedById" = u."id";
 
--- ACTIVE → ISSUED (con saldo) o STOCK (sin saldo). El índice «una ficha dada
--- por saldo» pasa a mirar ISSUED: se quita antes y se vuelve a crear.
+-- ACTIVE → ISSUED solo si su saldo sigue vivo (ACTIVE y sin sumar a otro): el
+-- API anterior nunca soltaba la ficha al devolver, al gastarse o al sumar el
+-- saldo, así que las de saldos cerrados vuelven al stock (RETURNED, sin
+-- saldo). Las sin saldo, a STOCK. El índice «una ficha dada por saldo» se
+-- quita antes y se vuelve a crear (ahora mira ISSUED y ACTIVE).
 DROP INDEX IF EXISTS "wallet_cards_one_active_per_wallet";
-UPDATE "wallet_cards" SET "status" = 'ISSUED' WHERE "status" = 'ACTIVE' AND "walletId" IS NOT NULL;
+UPDATE "wallet_cards" c
+   SET "status" = 'ISSUED'
+  FROM "client_wallets" w
+ WHERE c."status" = 'ACTIVE' AND c."walletId" = w."id"
+   AND w."status" = 'ACTIVE' AND w."mergedIntoId" IS NULL;
+UPDATE "wallet_cards"
+   SET "status" = 'RETURNED', "walletId" = NULL, "returnedAt" = now()
+ WHERE "status" = 'ACTIVE' AND "walletId" IS NOT NULL;
 UPDATE "wallet_cards"
    SET "status" = 'STOCK', "stockedAt" = COALESCE("stockedAt", "createdAt")
  WHERE "status" = 'ACTIVE' AND "walletId" IS NULL;
-ALTER TABLE "wallet_cards" ALTER COLUMN "status" SET DEFAULT 'STOCK';
 
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wallet_cards_status_valid') THEN
-    ALTER TABLE "wallet_cards"
-      ADD CONSTRAINT "wallet_cards_status_valid"
-      CHECK ("status" IN ('STOCK', 'ISSUED', 'RETURNED', 'LOST', 'BLOCKED'));
-  END IF;
-END
-$$;
+-- ACTIVE sigue valiendo (paso 1 de 2): el API anterior la escribe.
+ALTER TABLE "wallet_cards" DROP CONSTRAINT IF EXISTS "wallet_cards_status_valid";
+ALTER TABLE "wallet_cards"
+  ADD CONSTRAINT "wallet_cards_status_valid"
+  CHECK ("status" IN ('STOCK', 'ISSUED', 'RETURNED', 'LOST', 'BLOCKED', 'ACTIVE'));
 
 -- Una ficha dada por saldo (dos «dar ficha» a la vez no dejan dos).
 CREATE UNIQUE INDEX IF NOT EXISTS "wallet_cards_one_active_per_wallet"
-  ON "wallet_cards" ("walletId") WHERE "status" = 'ISSUED' AND "walletId" IS NOT NULL;
+  ON "wallet_cards" ("walletId") WHERE "status" IN ('ISSUED', 'ACTIVE') AND "walletId" IS NOT NULL;
 CREATE INDEX IF NOT EXISTS "wallet_cards_venueId_status_idx" ON "wallet_cards" ("venueId", "status");

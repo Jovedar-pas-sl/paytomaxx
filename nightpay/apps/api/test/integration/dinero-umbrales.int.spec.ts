@@ -196,6 +196,15 @@ describe('M1 — un saldo bloqueado no se junta con otro (Postgres real)', () =>
   });
 });
 
+/** El saldo entró en efectivo (ayer): en efectivo solo se devuelve lo que entró en efectivo. */
+async function cashIn(walletId: string, amountCents: number): Promise<void> {
+  await sys((tx) =>
+    tx.walletCashTopUp.create({
+      data: { tenantId: V, walletId, amountCents, takenByUserId: owner, idempotencyKey: `en-efectivo-${walletId}`, createdAt: new Date(Date.now() - 86_400_000) },
+    }),
+  );
+}
+
 describe('M2 — el encargado desde el umbral pone su 2FA (Postgres real)', () => {
   it('anular 120 €: sin código 403 y nada cambia; con su código se anula', async () => {
     const w = await newWallet(0, { status: 'DEPLETED' });
@@ -217,6 +226,7 @@ describe('M2 — el encargado desde el umbral pone su 2FA (Postgres real)', () =
 
   it('devolver 150 € en efectivo: sin código 403 y el saldo sigue abierto; sin la app activada, TOTP_NOT_ENROLLED; con su código, hecho', async () => {
     const w = await newWallet(15_000, { closeRequested: true });
+    await cashIn(w, 15_000);
     await expect(inVenue(V, () => charges.payout(managerActor(manager), w, { method: 'CASH' }))).rejects.toMatchObject({
       response: { code: 'TOTP_REQUIRED' },
     });
@@ -234,10 +244,12 @@ describe('M2 — el encargado desde el umbral pone su 2FA (Postgres real)', () =
 
   it('por debajo del umbral el encargado devuelve en efectivo sin código; el dueño, siempre sin él', async () => {
     const small = await newWallet(9_999, { closeRequested: true });
+    await cashIn(small, 9_999);
     await expect(inVenue(V, () => charges.payout(managerActor(managerNo2fa), small, { method: 'CASH' }))).resolves.toMatchObject({
       refundedCents: 9_999,
     });
     const big = await newWallet(50_000);
+    await cashIn(big, 50_000);
     await expect(
       inVenue(V, () => charges.payout({ userId: owner, role: 'OWNER', tenantId: V }, big, { method: 'CASH' })),
     ).resolves.toMatchObject({ refundedCents: 50_000 });

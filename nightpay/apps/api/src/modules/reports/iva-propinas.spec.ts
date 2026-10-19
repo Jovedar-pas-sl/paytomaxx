@@ -82,6 +82,8 @@ describe('devoluciones en el mes en que se hacen', () => {
         queries.push(Prisma.sql(strings, ...values));
         return [{ ...EMPTY_TOTALS, grossCents: 15_000n, tipCents: 2000n, refundedCents: 5500n, refundedTipCents: 500n }];
       }),
+      // wallet_cash_topups tiene FORCE RLS: la consulta va con el local en la sesión.
+      withTenant: vi.fn(async (_tenantId: string, fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     const marzo = madridQuarter('Q1-2026').months[2]!;
     const t = await new PeriodReportsService(prisma as never).totals(TENANT, marzo);

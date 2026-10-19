@@ -35,7 +35,7 @@ const nights = new NightsService(prisma, reports, audit as never, checks);
 // Las noches de la prueba se abren «ahora»: entre las 08:00 y las 11:00 el cierre automático las cerraría.
 vi.spyOn(nights as unknown as { safeAutoClose(tenantId: string): Promise<void> }, 'safeAutoClose').mockResolvedValue(undefined);
 const period = new PeriodReportsService(prisma);
-const cash = new CashTopUpService(prisma, audit as never);
+const cash = new CashTopUpService(prisma, audit as never, { isEnabled: async () => true, assertForUser: async () => undefined } as never);
 const cards = new WalletCardsService(prisma, audit as never);
 const charges = new WalletChargesService(prisma, audit as never, { get: () => null } as never, {} as never);
 const queue = { add: vi.fn(async () => undefined) };
@@ -103,6 +103,17 @@ async function seedLocal(tag: string, group: string): Promise<Local> {
 }
 
 const managerOf = (l: Local) => ({ userId: l.manager, role: 'MANAGER' });
+
+/**
+ * El cierre cuenta hasta «ahora» (el reloj de Node) y las filas llevan la hora
+ * de Postgres: con la máquina cargada, Node puede ir unas decenas de ms por
+ * detrás. Antes de mirar la caja se espera a que lo alcance.
+ */
+async function afterDbClock(): Promise<void> {
+  const rows = await seed((tx) => tx.$queryRaw<Array<{ t: Date }>>`SELECT clock_timestamp() AS t`);
+  const ahead = (rows[0]?.t.getTime() ?? 0) - Date.now();
+  if (ahead >= 0) await new Promise((resolve) => setTimeout(resolve, ahead + 20));
+}
 const balanceOf = async (walletId: string) =>
   (await seed((tx) => tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true, status: true } })))!;
 
@@ -168,6 +179,7 @@ describe('recarga en efectivo y caja de la noche (Postgres real)', () => {
     await seed((tx) => tx.clientWallet.update({ where: { id: a.walletId }, data: { balanceCents: 2_000, closeRequestedAt: new Date() } }));
     await inVenue(norte.id, () => charges.payout({ userId: norte.manager, role: 'MANAGER', tenantId: norte.id }, a.walletId, { method: 'CASH' }));
 
+    await afterDbClock();
     const check = await inVenue(norte.id, () => nights.closeCheck(norte.id));
     expect(check.cash).toEqual({
       openingFloatCents: 10_000,
@@ -348,8 +360,8 @@ describe('stock de fichas: preparar → dar → «Me voy» → perdida (Postgres
     expect(after.nights.find((n) => n.nightId === night.id)).toMatchObject({ open: false, perdidas: 1, enStock: 1 });
   });
 
-  it('en la base: solo los estados del ciclo de vida y una ficha dada por saldo', async () => {
-    await expect(seed((tx) => tx.walletCard.create({ data: { token: `fichaRaraDeLaPrueba${r}`, status: 'ACTIVE' } }))).rejects.toThrow();
+  it('en la base: solo los estados del ciclo de vida (y ACTIVE, paso 1 de 2) y una ficha dada por saldo', async () => {
+    await expect(seed((tx) => tx.walletCard.create({ data: { token: `fichaRaraDeLaPrueba${r}`, status: 'RARO' } }))).rejects.toThrow();
     const top = await inVenue(sala.id, () =>
       cash.topUp(sala.id, managerOf(sala), { amountCents: 1_000, idempotencyKey: key(), wallet: { create: true } }),
     );
@@ -357,7 +369,7 @@ describe('stock de fichas: preparar → dar → «Me voy» → perdida (Postgres
     await expect(
       seed((tx) => tx.walletCard.create({ data: { token: `fichaDosDeLaPrueba${r}`, status: 'ISSUED', walletId: top.walletId } })),
     ).rejects.toThrow();
-    // Por defecto, una ficha nueva está en el stock.
-    expect((await seed((tx) => tx.walletCard.create({ data: { token: `fichaTresDeLaPrueba${r}` } }))).status).toBe('STOCK');
+    // Por defecto, ACTIVE (paso 1 de 2: el API anterior crea fichas sin decir el estado); el API nuevo siempre lo dice.
+    expect((await seed((tx) => tx.walletCard.create({ data: { token: `fichaTresDeLaPrueba${r}` } }))).status).toBe('ACTIVE');
   });
 });

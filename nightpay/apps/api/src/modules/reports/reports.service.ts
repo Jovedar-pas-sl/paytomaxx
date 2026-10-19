@@ -131,6 +131,7 @@ export class ReportsService {
              wp."createdAt" AS "at",
              wp."amountCents",
              wp.method,
+             wp."bankReference",
              pb."displayName" AS "paidByName",
              pb.email AS "paidByEmail"
         FROM wallet_payouts wp
@@ -146,14 +147,19 @@ export class ReportsService {
 
   /**
    * Recargas del saldo en efectivo cobradas en este local en el periodo (por
-   * cuándo se cobraron). Para un Z: las apuntadas antes de generarlo.
+   * cuándo se cobraron), con sus anulaciones (filas negativas, por cuándo se
+   * anularon). Para un Z: las apuntadas antes de generarlo. En withTenant:
+   * FORCE RLS.
    */
   async recargasEfectivo(tenantId: string, p: TimeWindow, asOf: AsOf = {}): Promise<RecargaEfectivoRow[]> {
     const recorded = asOf.recordedBefore ? Prisma.sql`AND ct."createdAt" < ${asOf.recordedBefore}` : Prisma.empty;
-    return capped(await this.prisma.$queryRaw<RecargaEfectivoRow[]>`
+    return capped(await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<RecargaEfectivoRow[]>`
       SELECT ct.id,
              ct."createdAt" AS "at",
              ct."amountCents",
+             ct."voidOfId",
+             ct.reason,
+             ct."createdWallet",
              u."displayName" AS "takenByName",
              u.email AS "takenByEmail",
              t.label AS "terminalLabel"
@@ -166,7 +172,7 @@ export class ReportsService {
          ${recorded}
        ORDER BY ct."createdAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
-    `);
+    `));
   }
 
   /** Pagos a chicas hechos en el periodo. */
