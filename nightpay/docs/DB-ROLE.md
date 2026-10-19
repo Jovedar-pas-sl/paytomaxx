@@ -9,9 +9,14 @@ Con este cambio el API entra con `oxiopay_app`: un rol normal (sin
 superusuario) que es **dueño** de las tablas. Entonces la base aplica RLS en
 las tablas del dinero de las chicas y de los saldos (`client_wallets`,
 `wallet_consumptions`, `operator_earnings`, `operator_payouts`,
-`earning_reversals`, `peanpe_calls` y, desde «Por aprobar»,
-`approval_requests`): aunque un fallo del código olvidara
-filtrar por local, la base no enseñaría filas de otro local.
+`earning_reversals`, `peanpe_calls`, desde «Por aprobar»
+`approval_requests` y, desde la recepción, `wallet_cash_topups`, el efectivo
+que entra en los saldos): aunque un fallo del código olvidara filtrar por
+local, la base no enseñaría filas de otro local. Las demás tablas tienen RLS
+sin FORCE (el dueño no pasa por las políticas): entre ellas `wallet_payouts`,
+`wallet_passes` y `businesses`; `wallet_cards` y `wallet_card_events` no
+tienen RLS (la ficha se mueve entre locales del grupo y el local va siempre
+explícito).
 
 - Tiempo: unos 20 minutos.
 - Corte: lo que tarda un redeploy normal del API (como cualquier deploy).

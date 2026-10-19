@@ -54,6 +54,9 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const approval = await tx.approvalRequest.create({
         data: { tenantId, kind: 'PAYOUT', targetId: chica, amountCents: 50, payload: {}, requestedById: owner },
       });
+      const cashTopUp = await tx.walletCashTopUp.create({
+        data: { tenantId, walletId: wallet.id, amountCents: 500, takenByUserId: owner, idempotencyKey: `rls-${tag}-${r}` },
+      });
       return {
         tenantId,
         rows: {
@@ -64,6 +67,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           earning_reversals: reversal.id,
           peanpe_calls: call.identificadorLlamada,
           approval_requests: approval.id,
+          wallet_cash_topups: cashTopUp.id,
         },
       };
     }),

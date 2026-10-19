@@ -3,7 +3,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { buildMetrics, buildPeriodZ, type ZCategoryRow, type ZGroupRow, type ZOperatorRow } from './period-reports';
 import { totalsFromRow, type PeriodTotals, type PeriodTotalsRow } from './period-totals';
 import type { TimeWindow } from './report-period';
-import { PAID_STATUSES_SQL, afterPayoutDebt, paymentAt, refundAt, refundTipPart } from './reporting-sql';
+import { PAID_STATUSES_SQL, afterPayoutDebt, cashTopUpCount, paymentAt, refundAt, refundTipPart } from './reporting-sql';
 import { madridQuarter, madridRecentDaysWindow, madridTodayWindow } from './reporting-window';
 import { buildVat303, vatExempt } from './vat-303';
 
@@ -68,7 +68,8 @@ export class PeriodReportsService {
   async totals(tenantId: string, w: TimeWindow): Promise<PeriodTotals> {
     // La CTE «saldo» cuenta solo las devoluciones hechas (status DONE): una a la
     // tarjeta queda PENDING hasta completarse.
-    const rows = await this.prisma.$queryRaw<PeriodTotalsRow[]>`
+    // En withTenant: wallet_cash_topups tiene FORCE RLS.
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<PeriodTotalsRow[]>`
       WITH cobros AS (
         SELECT COUNT(*)::int AS "paymentCount",
                COALESCE(SUM(p."amountCents"), 0)::bigint AS "grossCents",
@@ -96,14 +97,14 @@ export class PeriodReportsService {
            AND wp."status" = 'DONE'
            AND wp."createdAt" >= ${w.from} AND wp."createdAt" < ${w.to}
       ), efectivo AS (
-        SELECT COUNT(*)::int AS "walletCashTopUpCount",
+        SELECT ${cashTopUpCount('ct')}::int AS "walletCashTopUpCount",
                COALESCE(SUM(ct."amountCents"), 0)::bigint AS "walletCashTopUpCents"
           FROM wallet_cash_topups ct
          WHERE ct."tenantId" = ${tenantId}::uuid
            AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to}
       )
       SELECT * FROM cobros, devoluciones, saldo, efectivo
-    `;
+    `);
     return totalsFromRow(rows[0]);
   }
 
@@ -148,7 +149,7 @@ export class PeriodReportsService {
        GROUP BY 1, 2
       UNION ALL
       SELECT 'TOPUP' AS source, 'EXTRA' AS category,
-             COUNT(*)::int AS count,
+             ${cashTopUpCount('ct')}::int AS count,
              COALESCE(SUM(ct."amountCents"), 0)::bigint AS "grossCents",
              0::bigint AS "tipCents"
         FROM wallet_cash_topups ct

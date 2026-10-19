@@ -34,6 +34,15 @@ export function paymentAt(p: string): Prisma.Sql {
   return Prisma.raw(`COALESCE(${p}."authorizedAt", ${p}."createdAt")`);
 }
 
+/**
+ * Cuántas recargas en efectivo (`ct` = alias de wallet_cash_topups): las
+ * anulaciones (filas negativas, 20261021200000) restan una. El importe es la
+ * suma tal cual: la anulación ya es negativa.
+ */
+export function cashTopUpCount(ct: string): Prisma.Sql {
+  return Prisma.raw(`(COUNT(*) FILTER (WHERE ${ct}."amountCents" > 0) - COUNT(*) FILTER (WHERE ${ct}."amountCents" < 0))`);
+}
+
 /** Momento de una devolución: el día del banco (o cuando se apuntó). `r` = alias de refunds. */
 export function refundAt(r: string): Prisma.Sql {
   return Prisma.raw(`COALESCE(${r}."bankRefundedAt", ${r}."createdAt")`);
