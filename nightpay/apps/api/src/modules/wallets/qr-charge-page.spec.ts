@@ -60,6 +60,14 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(html).not.toContain('No se te ha cobrado nada');
   });
 
+  it('pagado hace un momento, abierto en OTRO móvil (el QR de la chica) → «Ya pagado» en gris; el lima solo tras SU pago', () => {
+    const html = renderQrChargePage('tok-1', 'es', { ...view, status: 'ACCEPTED', paidAt: new Date(NOW.getTime() - 5_000).toISOString() }, NOW);
+    expect(html).toContain('class="paid stale" id="paid"');
+    expect(html).toContain('>Ya pagado</h1>');
+    // El «Pagado» lima lo pinta el JS con la respuesta de su pago.
+    expect(html).toContain("el.classList.remove('stale')");
+  });
+
   it('caducado → qué pasó, «No se te ha cobrado nada» y una indicación', () => {
     const html = renderQrChargePage('tok-1', 'es', { ...view, status: 'EXPIRED' }, NOW);
     expect(html).toContain('Este cobro ha caducado');

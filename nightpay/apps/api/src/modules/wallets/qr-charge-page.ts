@@ -10,9 +10,10 @@ import type { QrChargeClientView } from './wallet-charges.service';
  * Página que abre el cliente al escanear el QR del cobro del personal:
  * "Te cobran 60 € · Masaje" → pagar con su saldo desbloqueando su móvil
  * (Face ID, huella o el PIN del teléfono). Al pagar, el mismo «Pagado» a
- * pantalla completa que el pago con tarjeta, con «Te quedan X €». Si se abre
- * un cobro ya pagado, «Ya pagado · hace 23 min» en gris. Texto dinámico con
- * textContent.
+ * pantalla completa que el pago con tarjeta, con «Te quedan X €» (lima solo
+ * en la respuesta de SU pago). Si se abre un cobro ya pagado (aunque sea
+ * recién pagado: el QR de la chica en otro móvil), «Ya pagado · hace…» en
+ * gris. Texto dinámico con textContent.
  */
 
 const TEXT: Record<

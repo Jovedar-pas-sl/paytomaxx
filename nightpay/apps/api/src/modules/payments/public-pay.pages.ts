@@ -294,6 +294,8 @@ export function renderPaidPage(
     wallet?: WalletBlock | null;
     /** Hora del servidor (para «hace 0:12» y para saber si es un enlace ya pagado). */
     now?: Date;
+    /** Este navegador hizo el pago aprobado (su cookie): solo él ve el «Pagado» lima. */
+    viewerPaid?: boolean;
   },
   lang: PayLanguage,
 ): string {
@@ -308,6 +310,7 @@ export function renderPaidPage(
     now,
     code: args.code,
     lines,
+    viewerPaid: args.viewerPaid === true,
   });
   const walletLinks = args.walletHref
     ? `${args.wallet ? '' : `<p>${escapeHtml(t.walletReady)}</p>`}
@@ -397,9 +400,9 @@ export function renderResultView(
   view: PayResultView | null,
   lang: PayLanguage,
   refreshUrl: string,
-  walletElsewhere = false,
-  now: Date = new Date(),
+  opts: { walletElsewhere?: boolean; viewerPaid?: boolean; now?: Date } = {},
 ): string {
+  const { walletElsewhere = false, viewerPaid = false, now = new Date() } = opts;
   const t = PAY_TEXT[lang];
   if (!view) return renderNoticePage(lang, t.notFound, 'warn');
   if (PAID_STATES.has(view.status)) {
@@ -418,6 +421,7 @@ export function renderResultView(
             ? { hasFaceId: view.walletHasFaceId, base: payBase(view.qrToken) }
             : null,
         now,
+        viewerPaid,
       },
       lang,
     );

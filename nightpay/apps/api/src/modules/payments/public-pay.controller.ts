@@ -115,7 +115,9 @@ export class PublicPayController {
     const refreshUrl = `/pay/result?op=${encodeURIComponent(op ?? '')}&lang=${lang}`;
     const hidden = Boolean(view?.walletToken) && !this.hasWalletClaim(res, view?.qrToken ?? '', view?.walletClaimHash ?? null);
     const shown = hidden && view ? { ...view, walletToken: null } : view;
-    sendHtml(res, 200, renderResultView(shown, lang, refreshUrl, hidden));
+    // «Pagado» lima solo en el navegador del intento aprobado; en los demás, «Ya pagado».
+    const viewerPaid = view ? this.hasWalletClaim(res, view.qrToken, view.approvedClaimHash ?? null) : false;
+    sendHtml(res, 200, renderResultView(shown, lang, refreshUrl, { walletElsewhere: hidden, viewerPaid }));
   }
 
   @Public()
@@ -270,6 +272,8 @@ export class PublicPayController {
               walletElsewhere: Boolean(view.walletToken) && !payer,
               // Solo en el móvil que pagó la recarga que creó el saldo.
               wallet: payer && view.walletCode ? { hasFaceId: view.walletHasFaceId, base: payBase(token) } : null,
+              // Un /pay reenviado a otro móvil ve «Ya pagado» en gris, nunca el lima.
+              viewerPaid: this.hasWalletClaim(res, token, view.approvedClaimHash ?? null),
             },
             lang,
           ),

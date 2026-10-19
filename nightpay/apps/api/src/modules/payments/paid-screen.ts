@@ -7,10 +7,13 @@ import type { PayText } from './pay-i18n';
  *  - Recién pagado: lima, «PAGADO» y el importe enormes en negro, «hace 0:12»
  *    desde que el banco lo autorizó, la hora con segundos y una franja que se
  *    mueve despacio (una captura vieja no se mueve ni tiene la hora buena).
- *    La pantalla no se apaga (Wake Lock) mientras está a la vista.
- *  - Pasados PAID_FRESH_MS, o al abrir otra vez un enlace ya pagado: gris,
- *    «YA PAGADO · hace 23 min» y «No es un pago nuevo» (no cuela como nuevo).
- *    El estado lo dice el texto, no solo el color.
+ *    La pantalla no se apaga (Wake Lock) mientras está a la vista. Solo en el
+ *    navegador que pagó (`viewerPaid`: su cookie del intento aprobado en /pay,
+ *    la respuesta del pago en /s).
+ *  - Pasados PAID_FRESH_MS, o en cualquier otro navegador (un /pay reenviado,
+ *    el /s de la chica abierto en otro móvil): gris, «YA PAGADO · hace 23 min»
+ *    y «No es un pago nuevo» (no cuela como nuevo). El estado lo dice el
+ *    texto, no solo el color.
  *
  * Funciona sin red una vez cargado (CSS y JS en la página). El reloj usa la
  * hora del servidor (data-now) para no depender de la del móvil.
@@ -105,6 +108,8 @@ export interface PaidScreenArgs {
   hidden?: boolean;
   /** Pagado con el saldo (/s): «Pagado con tu saldo a las…» en vez de «Confirmado por el banco…». */
   fromBalance?: boolean;
+  /** Este navegador es el que pagó: solo entonces puede salir lima (si no, siempre «Ya pagado»). */
+  viewerPaid?: boolean;
 }
 
 function formatClock(d: Date, t: PayText): string {
@@ -120,7 +125,7 @@ export function renderPaidScreen(a: PaidScreenArgs): string {
   const { t } = a;
   const id = a.id ?? 'paid';
   const at = a.authorizedAt?.getTime() ?? null;
-  const fresh = at !== null && a.now.getTime() - at < PAID_FRESH_MS;
+  const fresh = a.viewerPaid === true && at !== null && a.now.getTime() - at < PAID_FRESH_MS;
   const lines = (a.lines ?? []).map((l) => `<p class="pline">${escapeHtml(l)}</p>`).join('');
   return `<section class="paid${fresh ? '' : ' stale'}" id="${id}" data-at="${at ?? ''}" data-now="${a.now.getTime()}" data-fresh="${PAID_FRESH_MS}" aria-labelledby="${id}Title"${a.hidden ? ' hidden' : ''}>
 <div class="band" aria-hidden="true"></div>

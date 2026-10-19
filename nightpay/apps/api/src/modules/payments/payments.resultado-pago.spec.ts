@@ -263,6 +263,7 @@ describe('getResultView — el cliente vuelve del banco a /pay/result', () => {
       walletHasFaceId: false,
       walletHasPin: false,
       attemptStatus: 'DENIED',
+      approvedClaimHash: null,
     });
   });
 

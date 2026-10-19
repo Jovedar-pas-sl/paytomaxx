@@ -74,6 +74,8 @@ export type PayRedirect =
       walletHasPin: boolean;
       /** Recarga empezada en /w: a qué saldo vuelve el navegador que la empezó. */
       walletReturnToken?: string | null;
+      /** Huella del navegador del intento aprobado (solo él ve el «Pagado» lima). */
+      approvedClaimHash?: string | null;
     }
   | { kind: 'processing' }
   | { kind: 'closed'; reason: PayClosedReason };
@@ -98,6 +100,8 @@ export interface PayResultView {
   walletReturnToken?: string | null;
   /** Estado del intento concreto por el que vuelve el cliente (PENDING/APPROVED/DENIED). */
   attemptStatus: string | null;
+  /** Huella del navegador del intento aprobado (solo él ve el «Pagado» lima). */
+  approvedClaimHash?: string | null;
 }
 
 /** Justificante del cliente: sin datos personales (ni nombre ni dígitos de tarjeta). */
@@ -227,6 +231,8 @@ export interface PayablePayment {
    * no da el código ni el Face ID a quien la paga.
    */
   walletReturnToken?: string | null;
+  /** Huella del navegador del intento aprobado (de cualquier cobro, con o sin saldo). */
+  approvedClaimHash?: string | null;
 }
 
 /**
@@ -248,6 +254,7 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       walletHasFaceId: p.walletHasFaceId,
       walletHasPin: p.walletHasPin,
       ...(p.walletReturnToken ? { walletReturnToken: p.walletReturnToken } : {}),
+      approvedClaimHash: p.approvedClaimHash ?? null,
     };
   }
   const closed = CLOSED_REASON[p.status];

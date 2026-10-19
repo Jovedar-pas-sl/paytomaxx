@@ -1022,6 +1022,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       venueName: venue?.name ?? null,
       concept: serviceName ?? null,
       tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null }),
+      approvedClaimHash: attempts[0]?.claimHash ?? null,
       ...payerWalletFields({ wallet, firstTopUp, idempotencyKey, approvedClaimHash: attempts[0]?.claimHash ?? null }),
     };
   }
@@ -1093,6 +1094,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         approvedClaimHash: payment.attempts[0]?.claimHash ?? null,
       }),
       attemptStatus,
+      approvedClaimHash: payment.attempts[0]?.claimHash ?? null,
     };
   }
 

@@ -118,10 +118,17 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
   it('pago confirmado → «Pagado» a pantalla completa: total, «hace 0:12», reloj, código y justificante', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-13T08:15:14Z'));
+    const MINE = 'p'.repeat(43);
     const { controller } = makeController({
-      view: view({ status: 'AUTHORIZED', tipCents: 500, authorizedAt: new Date('2026-10-13T08:15:02Z') }),
+      view: view({
+        status: 'AUTHORIZED',
+        tipCents: 500,
+        authorizedAt: new Date('2026-10-13T08:15:02Z'),
+        approvedClaimHash: createHash('sha256').update(MINE).digest('hex'),
+      }),
     });
-    const { reply, sent } = fakeReply();
+    // El navegador que pagó (su cookie del intento aprobado).
+    const { reply, sent } = fakeReply(`${walletClaimCookieName('', 'qr-token-1')}=${MINE}`);
     await controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, reply);
     const html = sent.body!;
     expect(html).toContain(PAID_FRESH);
@@ -143,6 +150,41 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     expect(html).toContain('class="band"');
     expect(html).toContain('prefers-reduced-motion');
     for (const s of scripts(html)) expect(() => new Function(s)).not.toThrow();
+  });
+
+  it('recién pagado pero en OTRO navegador (enlace reenviado, sin la cookie del pago) → «Ya pagado» en gris', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-13T08:15:14Z'));
+    const approvedClaimHash = createHash('sha256').update('p'.repeat(43)).digest('hex');
+    const paid = { status: 'AUTHORIZED' as const, authorizedAt: new Date('2026-10-13T08:15:02Z'), approvedClaimHash };
+    const result = makeController({ view: view(paid) });
+    const other = fakeReply(`${walletClaimCookieName('', 'qr-token-1')}=${'o'.repeat(43)}`);
+    await result.controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, other.reply);
+    expect(other.sent.body).toContain(PAID_STALE);
+    expect(other.sent.body).toContain('aria-live="polite">Ya pagado</h1>');
+    // Lo mismo al abrir /pay/:token pagado.
+    const page = makeController({
+      page: {
+        kind: 'paid',
+        paymentId: PAYMENT_ID,
+        amountCents: 100,
+        tipCents: 0,
+        currency: 'EUR',
+        authorizedAt: paid.authorizedAt,
+        walletToken: null,
+        walletClaimHash: null,
+        walletCode: null,
+        walletHasFaceId: false,
+        walletHasPin: false,
+        approvedClaimHash,
+      },
+    });
+    const fresh = fakeReply(`${walletClaimCookieName('', 'qr-token-1')}=${'p'.repeat(43)}`);
+    await page.controller.payPage('qr-token-1', 'es', undefined, IPHONE, fresh.reply);
+    expect(fresh.sent.body).toContain(PAID_FRESH);
+    const forwarded = fakeReply();
+    await page.controller.payPage('qr-token-1', 'es', undefined, IPHONE, forwarded.reply);
+    expect(forwarded.sent.body).toContain(PAID_STALE);
   });
 
   it('«Ya pagado»: abrir otra vez un enlace pagado hace rato → gris, «hace 23 min» y «No es un pago nuevo»', async () => {
