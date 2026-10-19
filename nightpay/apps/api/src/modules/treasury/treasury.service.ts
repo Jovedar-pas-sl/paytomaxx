@@ -199,9 +199,12 @@ export class TreasuryService {
     actorUserId: string,
     artifact: { externalTxId?: string; receiptUrl?: string; notes?: string },
   ): Promise<{ ok: true }> {
+    // Sin espacios alrededor: una referencia o un enlace en blanco no son justificante.
+    const externalTxId = artifact.externalTxId?.trim() || undefined;
+    const receiptUrl = artifact.receiptUrl?.trim() || undefined;
     const hasArtifact =
-      (artifact.externalTxId && artifact.externalTxId.length >= 4) ||
-      (artifact.receiptUrl && artifact.receiptUrl.length > 0) ||
+      (externalTxId && externalTxId.length >= 4) ||
+      receiptUrl ||
       (artifact.notes && artifact.notes.trim().length > 0);
     if (!hasArtifact) {
       throw new BadRequestException(
@@ -231,8 +234,8 @@ export class TreasuryService {
           reconciliationStatus: 'MANUAL_OK',
           reconciledAt: new Date(),
           reconciledByUserId: actorUserId,
-          ...(artifact.externalTxId ? { externalTxId: artifact.externalTxId } : {}),
-          ...(artifact.receiptUrl ? { receiptUrl: artifact.receiptUrl } : {}),
+          ...(externalTxId ? { externalTxId } : {}),
+          ...(receiptUrl ? { receiptUrl } : {}),
           ...(artifact.notes ? { notes: artifact.notes } : {}),
         },
       }),
@@ -248,8 +251,8 @@ export class TreasuryService {
       targetType: 'OperatorPayout',
       targetId: payoutId,
       payload: {
-        hasExternalTxId: Boolean(artifact.externalTxId),
-        hasReceiptUrl: Boolean(artifact.receiptUrl),
+        hasExternalTxId: Boolean(externalTxId),
+        hasReceiptUrl: Boolean(receiptUrl),
         hasNotes: Boolean(artifact.notes),
       },
     });

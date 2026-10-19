@@ -64,16 +64,22 @@ describe('TreasuryService.confirmManual — hace falta un justificante', () => {
     expect(tx.operatorPayout.findUnique).not.toHaveBeenCalled();
   });
 
-  // BUG: treasury.service.ts:202 cuenta `externalTxId.length >= 4` sin recortar (las notas sí se
-  // recortan) y ConfirmManualSchema tampoco recorta: con externalTxId = '    ' el pago queda
-  // MANUAL_OK con una "referencia" en blanco y el registro dice hasExternalTxId: true.
-  // Esperado: 400 como con una nota en blanco. Real: { ok: true } y se guarda '    '.
-  it.skip('referencia solo con espacios no cuenta como justificante → 400', async () => {
+  // Antes una referencia o un enlace solo con espacios pasaban por justificante:
+  // el pago quedaba MANUAL_OK con una «referencia» en blanco.
+  it.each([
+    ['referencia solo con espacios', { externalTxId: '    ' }],
+    ['referencia corta con espacios alrededor', { externalTxId: '  T12  ' }],
+    ['enlace solo con espacios', { receiptUrl: '   ' }],
+  ])('%s no cuenta como justificante → 400', async (_caso, artifact) => {
     const { svc, tx } = makeService();
-    await expect(svc.confirmManual(TENANT, PAYOUT_ID, OWNER, { externalTxId: '    ' })).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(svc.confirmManual(TENANT, PAYOUT_ID, OWNER, artifact)).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.operatorPayout.update).not.toHaveBeenCalled();
+  });
+
+  it('la referencia se guarda sin espacios alrededor (así el índice único ve el hash repetido)', async () => {
+    const { svc, tx } = makeService();
+    await svc.confirmManual(TENANT, PAYOUT_ID, OWNER, { externalTxId: ' TRF-20261018-0042 ' });
+    expect(tx.operatorPayout.update.mock.calls[0]![0].data).toMatchObject({ externalTxId: 'TRF-20261018-0042' });
   });
 
   it.each([
