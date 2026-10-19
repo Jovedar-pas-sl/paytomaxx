@@ -146,6 +146,13 @@ Notas:
   ISO con zona (`2026-12-01T00:00:00+01:00`) para alargarla, `off` para
   cerrarla ya. Antes de la fecha, `nightpay_ws_legacy_subscribes_total` en
   `/v1/metrics` debería haber dejado de subir.
+- `AUTH_BODY_REFRESH_UNTIL` (opcional): hasta cuándo las apps antiguas del
+  personal pueden renovar la sesión con la llave a la antigua (en la
+  petición); las nuevas usan la cookie. Sin ponerla, 2026-11-30 00:00
+  (Madrid); fecha ISO con zona para alargarla, `off` para cerrarla ya. Antes,
+  `nightpay_auth_body_refresh_total{client="legacy"}` debería estar quieta.
+  `CORS_ORIGINS` tiene que llevar exactas las direcciones de las apps: sin
+  ellas no se puede entrar. Ver [`SESION-PERSONAL.md`](SESION-PERSONAL.md).
 
 ### D.3 Salud, parada y despliegues sin cortes
 

@@ -14,6 +14,7 @@ Documentación técnica de NightPay, plataforma de cobro híbrida QR + NFC para 
 - **[DOKPLOY-STEPS.md](DOKPLOY-STEPS.md)** — Despliegue vigente (Dokploy + Cloudflare). `DEPLOYMENT.md` está obsoleto.
 - **[BACKUPS.md](BACKUPS.md)** — Copias de seguridad, segunda copia con restic y prueba de restauración.
 - **[PUESTA-EN-MARCHA.md](PUESTA-EN-MARCHA.md)** — Telegram, cuadre con el banco, seguridad del servidor.
+- **[SESION-PERSONAL.md](SESION-PERSONAL.md)** — Sesión del personal en cookie HttpOnly: qué notan, `AUTH_BODY_REFRESH_UNTIL` y reglas CSRF.
 - **[runbooks/](runbooks/)** — Qué hacer cuando algo falla:
   - [P0 Cobros atascados](runbooks/P0-pagos-atascados.md)
   - [P0 Pasarela caída](runbooks/P0-pasarela-caida.md)
