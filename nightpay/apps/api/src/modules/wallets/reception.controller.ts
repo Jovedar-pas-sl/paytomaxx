@@ -16,6 +16,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
+import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { venuePauseScope, VENUE_PAUSE_SELECT } from '../venues/venue-pause';
 import { CashTopUpService } from './wallet-cash-topup.service';
 import { WalletCardsService } from './wallet-cards.service';
@@ -83,6 +84,10 @@ export class ReceptionController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(CashTopUpSchema)) body: CashTopUpDto,
   ): Promise<CashTopUpResult> {
+    // Recargar la ficha acercada necesita «Fichas NFC» encendido (como lookup).
+    if ('card' in body.wallet) {
+      await this.prisma.asSystem((tx) => assertVenueAcceptsMethods(tx, user.tenantId, ['nfc']));
+    }
     return this.cash.topUp(user.tenantId, { userId: user.sub, role: user.role }, body);
   }
 

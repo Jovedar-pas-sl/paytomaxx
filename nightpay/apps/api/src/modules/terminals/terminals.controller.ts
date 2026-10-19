@@ -84,6 +84,6 @@ export class TerminalsController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(UpdateTerminalSchema)) dto: UpdateTerminalDto,
   ): Promise<TerminalView> {
-    return this.service.update(user.tenantId, terminalId, user.sub, dto);
+    return this.service.update(user.tenantId, terminalId, user.sub, dto, user.role);
   }
 }
