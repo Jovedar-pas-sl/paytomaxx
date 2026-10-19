@@ -262,15 +262,11 @@ describe('receiveWipay — firma de Cecabank', () => {
     ]);
   });
 
-  // BUG: la firma de la comunicación on-line (wipay.adapter.ts:541, signWebhook) es
-  // SHA256 de los campos concatenados SIN separador, y la del formulario de pago
-  // (signRequest, :504) es la misma cadena + Cifrado + URL_OK + URL_NOK. El formulario
-  // (con su Firma) se entrega al navegador del cliente (doAuthorize, :172-200). Basta
-  // mandar a POST /webhooks/wipay esos campos con Referencia = Cifrado+URL_OK+URL_NOK y
-  // un Num_aut cualquiera: checkWebhookSignature (:462) da 'ok', el controlador responde
-  // $*$OKY$*$ y encola, y proveApproval (:316) lo confirma por el importe correcto →
-  // el cobro pasaría a AUTHORIZED sin pagar. Esperado: $*$NOK$*$ y nada guardado.
-  it.skip('aviso forjado con la Firma del formulario de pago → $*$NOK$*$', async () => {
+  // La firma del aviso (signWebhook) es la del formulario de pago (signRequest) sin
+  // Cifrado + URL_OK + URL_NOK al final, sin separadores. El formulario, con su
+  // Firma, lo ve el navegador del cliente: con Referencia = Cifrado+URL_OK+URL_NOK
+  // y un Num_aut cualquiera, el aviso pasaba la firma y el cobro quedaba pagado.
+  it('aviso forjado con la Firma del formulario de pago → $*$NOK$*$', async () => {
     const h = makeHarness();
     const auth = await h.wipay.authorize({
       tenantId: TENANT_ID,

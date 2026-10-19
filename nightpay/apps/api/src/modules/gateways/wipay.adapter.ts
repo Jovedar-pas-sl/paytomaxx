@@ -473,6 +473,11 @@ export function checkWebhookSignature(
   },
   claveEncriptacion: string,
 ): 'ok' | 'mismatch' | 'invalid-encoding' {
+  // La firma del aviso es la del formulario de pago sin Cifrado + URL_OK +
+  // URL_NOK al final (y sin separadores): con Referencia = "SHA2" + URL_OK +
+  // URL_NOK, la Firma del formulario, que ve el cliente, pasaría por la de un
+  // aviso de pago. Una referencia de Cecabank no lleva nada de una URL.
+  if (/[/?&=]/.test(p.Referencia ?? '')) return 'mismatch';
   const expected = signWebhook({
     claveEncriptacion,
     merchantId: p.MerchantID ?? '',

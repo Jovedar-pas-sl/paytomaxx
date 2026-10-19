@@ -280,13 +280,10 @@ describe('Wipay/Cecabank — el Importe firmado decide (adapter real)', () => {
     expectIncident(m, 'payment.approval_unverified', { reason: 'aviso-sin-firma-valida' });
   });
 
-  // BUG: ver webhooks.firmas.spec.ts — la Firma del formulario de pago (que ve el
-  // cliente) vale como firma de un aviso con Referencia = Cifrado+URL_OK+URL_NOK
-  // (wipay.adapter.ts:541 concatena sin separador). proveApproval
-  // (wipay.adapter.ts:316) lo da por 'confirmed' con el importe correcto y el
-  // procesador transita a AUTHORIZED (webhook-ingest.processor.ts:120) sin cobro real.
-  // Esperado: no transitar (incidencia approval_unverified).
-  it.skip('aviso forjado con la Firma del formulario de pago → no se paga', async () => {
+  // Ver webhooks.firmas.spec.ts: la Firma del formulario de pago (que ve el cliente)
+  // valía como firma de un aviso con Referencia = Cifrado+URL_OK+URL_NOK, y
+  // proveApproval lo confirmaba por el importe correcto. Ahora: sin transición.
+  it('aviso forjado con la Firma del formulario de pago → no se paga', async () => {
     const m = makeProcessor({ provider: 'WIPAY', rawBody: '' });
     const auth = await m.adapters.WIPAY.authorize({
       tenantId: TENANT_ID,
