@@ -20,6 +20,13 @@ import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
 import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury/payout-tx-guard';
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { operatorAppBaseUrl } from './operator-app-url';
+import {
+  isPayoutKeyClash,
+  payoutKeyReused,
+  replayPayout,
+  type PayoutCreatedView,
+  type PayoutIdempotency,
+} from './payout-idempotency';
 import { debtView, payoutAccountView, type DebtRow, type MyPayoutInfo } from './my-payout-info';
 import { availableCentsOf, payoutCutoff, payoutTotalCents } from './payout-math';
 import {
@@ -87,6 +94,10 @@ export interface PayoutOptions {
   inTransaction?: (tx: TransactionalClient) => Promise<void>;
   /** Pago aprobado: exactamente estas comisiones y deudas, por este total. */
   exact?: ExactPayout;
+  /** La cifra que vio quien paga: si lo pagable ya es otro total, 409 PAYOUT_CHANGED. */
+  expectedTotalCents?: number;
+  /** Idempotency-Key de la petición: repetida, devuelve el mismo pago (payout-idempotency). */
+  idempotency?: PayoutIdempotency;
   /** En la misma transacción, con el pago ya creado. */
   afterCreate?: (tx: TransactionalClient, payoutId: string) => Promise<void>;
   /** Para el registro. */
@@ -1045,6 +1056,9 @@ export class OperatorsService {
    * transacción, con el candado de la chica tomado y antes de leer nada (la
    * aprobación se marca ahí; el pago directo comprueba que no haya una
    * petición pendiente); `afterCreate`, en la misma transacción, con el pago.
+   * `expectedTotalCents`: si lo pagable ya no es lo que vio quien paga, 409
+   * PAYOUT_CHANGED. `idempotency`: la misma clave y petición devuelven el pago
+   * ya apuntado (comprobado con el candado de la chica tomado).
    */
   async createPayout(
     tenantId: string,
@@ -1064,6 +1078,11 @@ export class OperatorsService {
 
     const result = await this.prisma.withTenant(tenantId, async (tx) => {
       await lockOperatorPayouts(tx, operatorId);
+      const idempotency = options?.idempotency;
+      if (idempotency) {
+        const replay = await replayPayout(tx, { tenantId, operatorId, paidByUserId, idempotency });
+        if (replay) return { replay };
+      }
       await options?.inTransaction?.(tx);
       // Un hash on-chain solo vale para un pago del local.
       const txId = options?.externalTxId?.trim();
@@ -1084,6 +1103,11 @@ export class OperatorsService {
       if (options?.exact && totalCents !== options.exact.totalCents) {
         throw payoutChanged(`El saldo de la chica ha cambiado desde que se pidió (ahora ${eur(totalCents)}).`);
       }
+      if (options?.expectedTotalCents !== undefined && totalCents !== options.expectedTotalCents) {
+        throw payoutChanged(
+          `Lo que hay que pagar a la chica ha cambiado desde que lo abriste: ahora son ${eur(totalCents)}, no ${eur(options.expectedTotalCents)}.`,
+        );
+      }
 
       const payoutData = await this.payoutData({ tenantId, operatorId, totalCents, paidByUserId, notes, rail, options });
       const payout = await tx.operatorPayout.create({ data: payoutData as never });
@@ -1091,10 +1115,16 @@ export class OperatorsService {
       await options?.afterCreate?.(tx, payout.id);
       return { payout, count: pending.length };
     }).catch((err: unknown) => {
+      // A la vez, otro pago (de otra chica) con la misma Idempotency-Key.
+      if (isPayoutKeyClash(err)) throw payoutKeyReused();
       // A la vez, otro pago se quedó el mismo hash (índice único parcial).
       if (isUniqueViolation(err)) throw txAlreadyUsed();
       throw err;
     });
+    if ('replay' in result && result.replay) {
+      this.logger.log(`Payout ${result.replay.id} repetido con la misma Idempotency-Key: no se apunta otra vez`);
+      return result.replay;
+    }
 
     await this.audit.log({
       action: 'operator.payout.created',
@@ -1124,6 +1154,20 @@ export class OperatorsService {
   }
 
   /**
+   * El pago ya apuntado con esta Idempotency-Key por esta persona y para esta
+   * chica (null si no hay; 409 si la clave es de otra petición). El controlador
+   * lo mira antes de pedir el 2FA: repetir la petición no vuelve a pedirlo.
+   */
+  async findPayoutReplay(
+    tenantId: string,
+    operatorId: string,
+    paidByUserId: string,
+    idempotency: PayoutIdempotency,
+  ): Promise<PayoutCreatedView | null> {
+    return this.prisma.withTenant(tenantId, (tx) => replayPayout(tx, { tenantId, operatorId, paidByUserId, idempotency }));
+  }
+
+  /**
    * Datos del pago. Rail cripto → FX snapshot (Track sprint 2026-05-13 #15):
    * congelamos la tasa EUR↔USDT al crearlo; el verifier on-chain usará este
    * snapshot, no la tasa actual — evita falsos MISMATCH por volatilidad.
@@ -1139,6 +1183,10 @@ export class OperatorsService {
   }): Promise<Record<string, unknown>> {
     const { tenantId, operatorId, totalCents, paidByUserId, notes, rail, options } = input;
     const data: Record<string, unknown> = { tenantId, operatorId, totalCents, paidByUserId, notes };
+    if (options?.idempotency) {
+      data.idempotencyKey = options.idempotency.key;
+      data.idempotencyHash = options.idempotency.hash;
+    }
     if (options?.externalTxId) data.externalTxId = options.externalTxId;
     if (rail) data.externalRail = rail;
     if (options?.receiptUrl) data.receiptUrl = options.receiptUrl;

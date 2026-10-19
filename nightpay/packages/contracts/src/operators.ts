@@ -295,6 +295,11 @@ export const CreatePayoutSchema = z.object({
   receiptUrl: ReceiptUrlSchema.optional(),
   /** Código de la app de verificación (2FA), obligatorio si el dueño la activó. */
   totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
+  /**
+   * La cifra que vio quien paga: si lo pagable ya es otra (un cobro o una
+   * devolución entre medias), 409 PAYOUT_CHANGED en vez de apuntar otra cosa.
+   */
+  expectedTotalCents: z.number().int().positive().optional(),
 });
 export type CreatePayoutDto = z.infer<typeof CreatePayoutSchema>;
 

@@ -801,12 +801,18 @@ model OperatorPayout {
   expectedAmountUsdt   Decimal? @db.Decimal(20, 6)
   payoutFxRate         Decimal? @db.Decimal(12, 6)
 
+  // Idempotency-Key de «Marcar pagado» (repetirlo sin respuesta no paga dos
+  // veces) y la huella de quién y qué pidió: otra petición con la misma, 409.
+  idempotencyKey       String?
+  idempotencyHash      String?
+
   venue        Venue             @relation(fields: [tenantId], references: [id])
   operator     User              @relation("OperatorPayouts", fields: [operatorId], references: [id])
   paidBy       User              @relation("PayoutsPaid", fields: [paidByUserId], references: [id])
   reconciledBy User?             @relation("PayoutsReconciled", fields: [reconciledByUserId], references: [id])
   earnings     OperatorEarning[] @relation("EarningPayout")
 
+  @@unique([tenantId, idempotencyKey])
   @@index([tenantId, operatorId, createdAt(sort: Desc)])
   @@index([tenantId, reconciliationStatus])
   // Solo en SQL (migración 20261015040000): índice único parcial
