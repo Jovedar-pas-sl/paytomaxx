@@ -5,6 +5,8 @@ import { InvalidTransitionError } from '../payments/payment.machine';
 import { PosDeviceService } from './pos-device.service';
 import { posReference, sha256 } from './paytef';
 import type { PosDevice } from './device.guard';
+import type { ApprovalProof } from '../gateways/gateway.adapter';
+import { PaytefDeviceSaleProver, type PosSaleClaim } from './pos-sale-proof';
 
 const PAYMENT_ID = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
 const device: PosDevice = {
@@ -48,8 +50,17 @@ const lockedRow = {
   revenueCategory: 'CHICA_SERVICE',
 };
 
+/** Paytef confirma lo que dice el datáfono (lo de siempre en estas pruebas, salvo que se diga otra cosa). */
+const paytefConfirms = (claim: PosSaleClaim): Promise<ApprovalProof> =>
+  Promise.resolve({ kind: 'confirmed', amountCents: claim.amountCents, currency: 'EUR' });
+
 function makeService(
-  opts: { payment?: ReturnType<typeof payment> | null; started?: boolean; locked?: Partial<typeof lockedRow> } = {},
+  opts: {
+    payment?: ReturnType<typeof payment> | null;
+    started?: boolean;
+    locked?: Partial<typeof lockedRow>;
+    prove?: (claim: PosSaleClaim) => Promise<ApprovalProof>;
+  } = {},
 ) {
   const tx = {
     payment: {
@@ -84,8 +95,9 @@ function makeService(
   };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const cls = { get: vi.fn().mockReturnValue(undefined) };
-  const svc = new PosDeviceService(prisma as never, payments as never, audit as never, cls as never);
-  return { svc, tx, payments, prepareTx, prepared, audit };
+  const prover = { prove: vi.fn(opts.prove ?? paytefConfirms) };
+  const svc = new PosDeviceService(prisma as never, payments as never, audit as never, cls as never, prover);
+  return { svc, tx, payments, prepareTx, prepared, audit, prover };
 }
 
 const approved = {
@@ -269,6 +281,10 @@ describe('anular en el datáfono', () => {
     const ok = makeService();
     await ok.svc.reportVoid(device, PAYMENT_ID, { operationNumber: '99812', approved: true });
     expect(events(ok.tx)).toEqual(['pos.voided']);
+    // También la de una recarga que quedó pendiente de la prueba de Paytef.
+    expect(ok.tx.paymentEvent.count.mock.calls[0]![0]).toMatchObject({
+      where: { OR: [{ eventType: { in: ['pos.device_confirmed', 'pos.charge_mismatch', 'payment.approval_unverified'] } }, {}] },
+    });
 
     const forged = makeService();
     forged.tx.paymentEvent.count.mockResolvedValueOnce(0);
@@ -372,9 +388,18 @@ describe('cuadre con el cierre del datáfono', () => {
 describe('recarga del saldo cobrada en la recepción del datáfono', () => {
   const topUp = payment({ captureMethod: 'WALLET_TOPUP', createdBy: null });
 
-  it('la recarga que creó este datáfono se cobra en su lector y queda pagada (la suma al saldo va en la transición)', async () => {
-    const { svc, payments, prepared } = makeService({ payment: topUp, locked: { walletId: 'w-1', createdByUserId: null } });
+  it('la recarga que creó este datáfono, con la venta probada por Paytef, queda pagada (la suma al saldo va en la transición)', async () => {
+    const { svc, payments, prepared, prover } = makeService({ payment: topUp, locked: { walletId: 'w-1', createdByUserId: null } });
     await expect(svc.reportResult(device, PAYMENT_ID, approved)).resolves.toMatchObject({ status: 'PAID' });
+    expect(prover.prove).toHaveBeenCalledWith({
+      paymentId: PAYMENT_ID,
+      tenantId: 't-1',
+      terminalId: 'term-1',
+      operationNumber: '99812',
+      reference: posReference(PAYMENT_ID),
+      amountCents: 10_000,
+      authCode: '047215',
+    });
     expect(payments.transition).toHaveBeenCalledWith(
       PAYMENT_ID,
       { type: 'POS_CONFIRMED', posReceiptRef: '047215' },
@@ -397,5 +422,106 @@ describe('recarga del saldo cobrada en la recepción del datáfono', () => {
     const { svc, payments } = makeService({ payment: topUp, started: false });
     await expect(svc.reportResult(device, PAYMENT_ID, approved)).resolves.toMatchObject({ status: 'MISMATCH' });
     expect(payments.transition).not.toHaveBeenCalled();
+  });
+});
+
+describe('la palabra del datáfono no basta: prueba de Paytef (seguridad #1)', () => {
+  const topUp = payment({ captureMethod: 'WALLET_TOPUP', createdBy: null });
+  const noProof = new PaytefDeviceSaleProver();
+  const unverifiable = () => noProof.prove();
+  const eventTypes = (calls: unknown[][]) => calls.map((c) => (c[0] as { data: { eventType: string } }).data.eventType);
+
+  it('recarga sin poder probarla con Paytef → NO se suma: queda AUTHORIZING con la operación y la incidencia', async () => {
+    const { svc, payments, prepareTx, prepared } = makeService({
+      payment: topUp,
+      locked: { walletId: 'w-1', createdByUserId: null },
+      prove: unverifiable,
+    });
+    const out = await svc.reportResult(device, PAYMENT_ID, approved);
+    expect(out).toMatchObject({ status: 'PENDING', operationNumber: '99812' });
+    expect(out.message).toMatch(/NO se ha sumado al saldo/);
+    // Nunca POS_CONFIRMED: la recarga no llega a AUTHORIZED (ni al saldo).
+    expect(payments.transition).toHaveBeenCalledTimes(1);
+    expect(payments.transition).toHaveBeenCalledWith(
+      PAYMENT_ID,
+      { type: 'AUTHORIZING' },
+      't-1',
+      expect.objectContaining({ prepare: expect.any(Function) }),
+    );
+    expect(prepared[0]).toEqual({ provider: 'PAYTEF', providerTxId: '99812' });
+    const update = prepareTx.payment.update.mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(update.data).toMatchObject({ posOperationNumber: '99812', posTerminalId: 'term-1', authCode: '047215', cardLast4: '1111' });
+    expect(update.data).not.toHaveProperty('authorizedAt');
+    expect(prepareTx.paymentEvent.create.mock.calls[0]![0]).toMatchObject({
+      data: {
+        eventType: 'payment.approval_unverified',
+        payload: { provider: 'PAYTEF', providerTxId: '99812', source: 'pos-device', reason: 'paytef-device-sin-consulta-servidor' },
+      },
+    });
+  });
+
+  it('el mismo resultado otra vez, ya en espera de Paytef → PENDING sin tocar nada', async () => {
+    const waiting = payment({
+      captureMethod: 'WALLET_TOPUP',
+      createdBy: null,
+      status: 'AUTHORIZING',
+      posOperationNumber: '99812',
+      posTerminalId: 'term-1',
+    });
+    const { svc, payments, prover } = makeService({ payment: waiting, prove: unverifiable });
+    await expect(svc.reportResult(device, PAYMENT_ID, approved)).resolves.toMatchObject({ status: 'PENDING' });
+    expect(payments.transition).not.toHaveBeenCalled();
+    expect(prover.prove).not.toHaveBeenCalled();
+  });
+
+  it('Paytef dice que no (o que fue otro importe) → no se paga: anular', async () => {
+    const proofs: ApprovalProof[] = [
+      { kind: 'rejected', reason: 'paytef-no-aprobado' },
+      { kind: 'confirmed', amountCents: 100, currency: 'EUR' },
+    ];
+    for (const proof of proofs) {
+      const { svc, payments, tx } = makeService({ payment: topUp, prove: () => Promise.resolve(proof) });
+      const out = await svc.reportResult(device, PAYMENT_ID, approved);
+      expect(out).toMatchObject({ status: 'MISMATCH', operationNumber: '99812' });
+      expect(out.message).toMatch(/Paytef no tiene esta venta/);
+      expect(payments.transition).not.toHaveBeenCalled();
+      expect(events(tx)).toContain('pos.charge_mismatch');
+    }
+  });
+
+  it('cobro de una chica sin la prueba: pagado como hasta ahora, apuntado «sin comprobar» en la misma transacción', async () => {
+    const { svc, payments, prepareTx } = makeService({ prove: unverifiable });
+    await expect(svc.reportResult(device, PAYMENT_ID, approved)).resolves.toMatchObject({ status: 'PAID' });
+    expect(payments.transition).toHaveBeenCalledWith(
+      PAYMENT_ID,
+      { type: 'POS_CONFIRMED', posReceiptRef: '047215' },
+      't-1',
+      expect.anything(),
+    );
+    expect(eventTypes(prepareTx.paymentEvent.create.mock.calls)).toEqual(['pos.device_confirmed', 'pos.device_unproven']);
+  });
+
+  it('con la prueba no queda nada «sin comprobar»; y no se pregunta a Paytef por un cobro que no vale', async () => {
+    const ok = makeService();
+    await ok.svc.reportResult(device, PAYMENT_ID, approved);
+    expect(eventTypes(ok.prepareTx.paymentEvent.create.mock.calls)).toEqual(['pos.device_confirmed']);
+    const notHere = makeService({ started: false });
+    await notHere.svc.reportResult(device, PAYMENT_ID, approved);
+    expect(notHere.prover.prove).not.toHaveBeenCalled();
+  });
+
+  it('otra recarga ya tenía esa operación → anular; la misma espera apuntada a la vez → PENDING', async () => {
+    const clash = makeService({ payment: topUp, prove: unverifiable });
+    clash.payments.transition.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }),
+    );
+    await expect(clash.svc.reportResult(device, PAYMENT_ID, approved)).resolves.toMatchObject({ status: 'MISMATCH' });
+
+    const twin = makeService({ payment: topUp, prove: unverifiable });
+    twin.payments.transition.mockRejectedValueOnce(new InvalidTransitionError('AUTHORIZING', 'AUTHORIZING'));
+    twin.tx.payment.findFirst
+      .mockResolvedValueOnce(topUp)
+      .mockResolvedValueOnce({ ...topUp, status: 'AUTHORIZING', posOperationNumber: '99812', posTerminalId: 'term-1' });
+    await expect(twin.svc.reportResult(device, PAYMENT_ID, approved)).resolves.toMatchObject({ status: 'PENDING' });
   });
 });

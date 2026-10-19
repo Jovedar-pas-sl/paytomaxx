@@ -6,12 +6,13 @@ import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { DeviceGuard, type PosDevice } from '../../src/modules/pos-device/device.guard';
 import { PosDeviceService } from '../../src/modules/pos-device/pos-device.service';
+import { PaytefDeviceSaleProver } from '../../src/modules/pos-device/pos-sale-proof';
 
 const cls = new ClsService(new AsyncLocalStorage());
  
 const prisma = new PrismaService(cls as any);
 const audit = { log: vi.fn(async () => undefined) };
-const pos = new PosDeviceService(prisma as never, {} as never, audit as never, cls as never);
+const pos = new PosDeviceService(prisma as never, {} as never, audit as never, cls as never, new PaytefDeviceSaleProver());
 const guard = new DeviceGuard(prisma as never, cls as never);
 const r = randomUUID().slice(0, 6);
 let A: string, term: string;

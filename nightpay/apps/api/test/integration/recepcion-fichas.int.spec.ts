@@ -16,6 +16,7 @@ import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { posReference } from '../../src/modules/pos-device/paytef';
 import { PosDeviceReceptionService } from '../../src/modules/pos-device/pos-device-reception.service';
 import { PosDeviceService } from '../../src/modules/pos-device/pos-device.service';
+import type { PosSaleProver } from '../../src/modules/pos-device/pos-sale-proof';
 import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
 import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
@@ -50,7 +51,11 @@ const payments = new PaymentsService(
   {} as never,
   {} as never,
 );
-const pos = new PosDeviceService(prisma, payments, audit as never, cls as never);
+// Como si Paytef confirmara la venta (sin su prueba no se suma: datafono-prueba-topes.int.spec.ts).
+const paytefConfirms: PosSaleProver = {
+  prove: (claim) => Promise.resolve({ kind: 'confirmed', amountCents: claim.amountCents, currency: 'EUR' }),
+};
+const pos = new PosDeviceService(prisma, payments, audit as never, cls as never, paytefConfirms);
 const reception = new PosDeviceReceptionService(prisma, payments, cash, audit as never, cls as never);
 
 /** Una petición de ese local (como tras AuthGuard o DeviceGuard). */

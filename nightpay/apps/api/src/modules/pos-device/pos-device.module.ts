@@ -8,11 +8,17 @@ import { PosDeviceReceptionService } from './pos-device-reception.service';
 import { PosDeviceSaldoController } from './pos-device-saldo.controller';
 import { PosDeviceController } from './pos-device.controller';
 import { PosDeviceService } from './pos-device.service';
+import { POS_SALE_PROVER, PaytefDeviceSaleProver } from './pos-sale-proof';
 
 /** Datáfono PAX con la app NightPay (Paytef Device API), el cobro del saldo con PIN y la recepción. */
 @Module({
   imports: [AuthModule, PaymentsModule, WalletsModule],
   controllers: [PosDeviceController, PosDeviceSaldoController, PosDeviceReceptionController],
-  providers: [PosDeviceService, PosDeviceReceptionService, DeviceGuard],
+  providers: [
+    PosDeviceService,
+    PosDeviceReceptionService,
+    DeviceGuard,
+    { provide: POS_SALE_PROVER, useClass: PaytefDeviceSaleProver },
+  ],
 })
 export class PosDeviceModule {}

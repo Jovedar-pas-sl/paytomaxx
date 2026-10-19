@@ -138,6 +138,14 @@ describe('manualReconcile — quién y qué cobro se puede resolver', () => {
     await expect(h.resolver(COBRADO)).resolves.toEqual({ ok: true, newStatus: 'AUTHORIZED' });
     expect(h.eventos).toEqual([{ type: 'AUTHORIZED', provider: 'REDSYS', providerTxId: '2610AB12' }]);
   });
+
+  it('recarga del datáfono sin la prueba de Paytef (con operación): se resuelve al momento, no espera aviso', async () => {
+    const venta = { ...pago({ status: 'AUTHORIZING', provider: 'PAYTEF', providerTxId: '99812', updatedAt: new Date(AHORA.getTime() - MIN) }), posOperationNumber: '99812' };
+    const h = montar(venta);
+    const visto: Body = { decision: 'AUTHORIZED', reason: 'Visto en el panel de Paytef', bankAuthCode: '047215' };
+    await expect(h.resolver(visto)).resolves.toEqual({ ok: true, newStatus: 'AUTHORIZED' });
+    expect(h.eventos).toEqual([{ type: 'AUTHORIZED', provider: 'PAYTEF', providerTxId: '99812' }]);
+  });
 });
 
 describe('manualReconcile — marcar cobrado (AUTHORIZED)', () => {

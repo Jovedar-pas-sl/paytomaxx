@@ -349,6 +349,8 @@ const INCIDENT_ALERT_KIND: Readonly<Record<string, AlertKindKey>> = {
   pos_unmatched_op: 'pos',
   pos_unreconciled: 'pos',
   pos_voided_paid: 'pos',
+  pos_unproven_sales: 'pos',
+  pos_reception_limit: 'pos',
   wallet_credit_skipped: 'wallets',
   wallet_close_requested: 'wallets',
   wallet_open_balance: 'wallets',

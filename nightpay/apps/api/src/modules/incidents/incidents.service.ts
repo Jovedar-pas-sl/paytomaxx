@@ -30,6 +30,9 @@ import {
   type WalletBalanceRow,
   stuckIncident,
   walletCreditSkippedIncident,
+  posReceptionLimitIncident,
+  posUnprovenSalesIncident,
+  type UnprovenSalesRow,
   type EventRow,
   type Incident,
   type IncidentKind,
@@ -90,6 +93,7 @@ export class IncidentsService {
       pendingRefunds,
       pendingApprovals,
       posVoidedPaid,
+      unprovenSales,
     ] = await Promise.all([
       this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt"
@@ -126,10 +130,11 @@ export class IncidentsService {
                a."occurredAt", a.payload
           FROM audit_events a
          WHERE a."tenantId" = ${tenantId}::uuid
-           AND a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical')
+           AND a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical',
+                            'pos.reception_limit_exceeded')
            AND NOT EXISTS (SELECT 1 FROM incident_acks k
                             WHERE k."tenantId" = a."tenantId"
-                              AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped')
+                              AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped', 'pos_reception_limit')
                               AND k."refId" = a.id::text)
            AND a."occurredAt" >= ${since}
          ORDER BY a."occurredAt" DESC
@@ -315,14 +320,37 @@ export class IncidentsService {
          ORDER BY v."occurredAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
+      // Cobros de las chicas dados por pagados sin la prueba de Paytef (el
+      // datáfono lo dice), uno por noche; se quitan al cuadrarlos con el banco.
+      this.prisma.$queryRaw<UnprovenSalesRow[]>`
+        SELECT to_char(((e."occurredAt" AT TIME ZONE 'Europe/Madrid') - interval '8 hours')::date, 'YYYY-MM-DD') AS night,
+               COUNT(*)::int AS count, SUM(p."amountCents" + p."tipCents")::int AS "amountCents",
+               MAX(e."occurredAt") AS "lastAt"
+          FROM payment_events e
+          JOIN payments p ON p.id = e."paymentId"
+         WHERE e."tenantId" = ${tenantId}::uuid
+           AND e."eventType" = 'pos.device_unproven'
+           AND e."occurredAt" >= ${since}
+           AND p.status::text IN ('AUTHORIZED', 'PARTIALLY_REFUNDED')
+           AND NOT EXISTS (SELECT 1 FROM bank_statement_items i
+                            WHERE i."paymentId" = p.id AND i.status = 'MATCHED' AND i."supersededAt" IS NULL)
+         GROUP BY 1
+         ORDER BY 1 DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `,
     ]);
 
     const all: Incident[] = [
       ...stuck.map(stuckIncident),
       ...duplicates.map(duplicateChargeIncident),
       ...auditRows.map((r) =>
-        r.action === 'refund.earning_reverse_failed' ? earningReverseFailedIncident(r) : walletCreditSkippedIncident(r),
+        r.action === 'refund.earning_reverse_failed'
+          ? earningReverseFailedIncident(r)
+          : r.action === 'pos.reception_limit_exceeded'
+            ? posReceptionLimitIncident(r)
+            : walletCreditSkippedIncident(r),
       ),
+      ...unprovenSales.map(posUnprovenSalesIncident),
       ...nights.map(nightClosedPendingIncident),
       ...posMismatches.map(posChargeMismatchIncident),
       ...posUnmatched.map(posUnmatchedOpIncident),

@@ -455,6 +455,7 @@ export class AdminController {
         providerTxId: true,
         tenantId: true,
         updatedAt: true,
+        posOperationNumber: true,
       },
     });
     if (!payment) {
@@ -465,9 +466,11 @@ export class AdminController {
     }
     // ORPHAN (el banco no confirmó a tiempo) o AUTHORIZING atascado: más de
     // 15 min sin aviso del banco. Antes de eso el aviso aún puede llegar.
+    // Una venta del datáfono sin la prueba de Paytef (recarga en la recepción)
+    // no espera a ningún aviso: se resuelve al momento, mirando el panel de Paytef.
     const stuckAuthorizing =
       payment.status === 'AUTHORIZING' &&
-      Date.now() - payment.updatedAt.getTime() >= STUCK_AUTHORIZING_MS;
+      (Boolean(payment.posOperationNumber) || Date.now() - payment.updatedAt.getTime() >= STUCK_AUTHORIZING_MS);
     if (payment.status !== 'ORPHAN' && !stuckAuthorizing) {
       throw new ConflictException(
         payment.status === 'AUTHORIZING'

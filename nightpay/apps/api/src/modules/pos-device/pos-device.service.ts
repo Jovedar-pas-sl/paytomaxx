@@ -11,7 +11,7 @@ import { Prisma } from '@nightpay/db';
 import { ClsService } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import type { RequestContext } from '../../common/context/request-context';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { InvalidTransitionError, type PaymentMachineState } from '../payments/payment.machine';
 import { PAID_STATES, confirmationCode } from '../payments/pay-redirect';
@@ -34,6 +34,12 @@ import {
   type PaytefSaleResult,
   type PaytefShiftOperation,
 } from './paytef';
+import { POS_SALE_PROVER, judgeSaleProof, type PosSaleProver } from './pos-sale-proof';
+
+/** payment_events: el datáfono dice que cobró y Paytef no lo ha confirmado (bandeja de incidencias). */
+export const POS_APPROVAL_UNVERIFIED_EVENT = 'payment.approval_unverified';
+/** payment_events: cobro de una chica dado por pagado sin la prueba de Paytef. */
+export const POS_DEVICE_UNPROVEN_EVENT = 'pos.device_unproven';
 
 export interface PendingPosCharge {
   id: string;
@@ -50,6 +56,11 @@ export interface PendingPosCharge {
 
 export type SaleOutcome =
   | { status: 'PAID'; code: string; message: string }
+  /**
+   * Recarga cobrada en el lector y aún sin la prueba de Paytef: NO se ha
+   * sumado al saldo (no hay que anularla ni repetirla). La confirma el dueño.
+   */
+  | { status: 'PENDING'; message: string; operationNumber: string }
   | { status: 'DECLINED'; message: string }
   | { status: 'DUPLICATE'; message: string; operationNumber: string }
   | { status: 'MISMATCH'; message: string; operationNumber: string | null };
@@ -97,17 +108,20 @@ export class PosDeviceService {
   private readonly payments: PaymentsService;
   private readonly audit: AuditService;
   private readonly cls: ClsService<{ ctx: RequestContext }>;
+  private readonly prover: PosSaleProver;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(PaymentsService) payments: PaymentsService,
     @Inject(AuditService) audit: AuditService,
     @Inject(ClsService) cls: ClsService<{ ctx: RequestContext }>,
+    @Inject(POS_SALE_PROVER) prover: PosSaleProver,
   ) {
     this.prisma = prisma;
     this.payments = payments;
     this.audit = audit;
     this.cls = cls;
+    this.prover = prover;
   }
 
   // ─── Vinculación (panel del dueño) ─────────────────────────────────────
@@ -290,10 +304,18 @@ export class PosDeviceService {
   }
 
   /**
-   * Resultado de la venta en el lector. Aprobada → cobro pagado (como un
-   * POS confirmado, con la comisión de la chica). Si el dinero se cobró pero
-   * el cobro ya no admitía pago (pagado, caducado, otro importe), queda como
-   * incidencia y el datáfono pide anularla.
+   * Resultado de la venta en el lector. Lo manda el propio datáfono, así que
+   * antes de dar nada por cobrado se le pregunta a Paytef (PosSaleProver):
+   *  - probada → cobro pagado (como un POS confirmado, con la comisión de la
+   *    chica; la recarga se suma al saldo);
+   *  - Paytef dice que no (o otro importe) → no se paga: incidencia y anular;
+   *  - sin poder probarla: la RECARGA no se suma (queda AUTHORIZING, con la
+   *    incidencia «sin comprobar» y la resuelve el dueño en Pagos → Resolver);
+   *    el cobro de una chica se da por pagado como hasta ahora (lo mismo que
+   *    cuando lo confirma el camarero) y queda apuntado como «sin comprobar»
+   *    para cuadrarlo con el fichero del banco antes de pagarle.
+   * Si el dinero se cobró pero el cobro ya no admitía pago (pagado, caducado,
+   * otro importe), queda como incidencia y el datáfono pide anularla.
    */
   async reportResult(device: PosDevice, paymentId: string, r: PaytefSaleResult): Promise<SaleOutcome> {
     const p = await this.paymentOf(device, paymentId);
@@ -318,6 +340,10 @@ export class PosDeviceService {
     ) {
       return this.paid(p.id);
     }
+    // Reintento de una recarga que quedó esperando la prueba de Paytef.
+    if (p.posOperationNumber === op && p.posTerminalId === device.terminalId && p.status === 'AUTHORIZING') {
+      return pendingOutcome(op);
+    }
     if (r.requestedAmount !== p.amountCents) {
       return this.mismatch(p, op, `Se cobraron ${eur(r.requestedAmount)} y el cobro era de ${eur(p.amountCents)}: anula esta operación.`);
     }
@@ -341,6 +367,25 @@ export class PosDeviceService {
     }
 
     const authCode = r.authorisationCode?.trim().toUpperCase() || null;
+    const verdict = judgeSaleProof(
+      await this.prover.prove({
+        paymentId: p.id,
+        tenantId: p.tenantId,
+        terminalId: device.terminalId,
+        operationNumber: op,
+        reference: posReference(p.id),
+        amountCents: p.amountCents + tip,
+        authCode,
+      }),
+      p.amountCents + tip,
+    );
+    if (verdict.kind === 'rejected') {
+      return this.mismatch(p, op, 'Paytef no tiene esta venta aprobada por este importe: anula esta operación.');
+    }
+    const unproven = verdict.kind === 'unproven' ? verdict.reason : null;
+    if (unproven !== null && p.captureMethod === 'WALLET_TOPUP') {
+      return this.holdUnproven(device, p, r, { op, authCode, reason: unproven });
+    }
     try {
       // Operación, tarjeta y propina en la MISMA transacción que lo marca
       // pagado y reparte la comisión: o queda todo, o nada.
@@ -367,6 +412,9 @@ export class PosDeviceService {
                 traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
               },
             });
+            if (unproven !== null) {
+              await this.eventIn(tx, p, POS_DEVICE_UNPROVEN_EVENT, { operationNumber: op, terminalId: device.terminalId, reason: unproven });
+            }
             await tx.payment.update({
               where: { id: p.id },
               data: {
@@ -404,6 +452,63 @@ export class PosDeviceService {
     return this.paid(p.id);
   }
 
+  /**
+   * Recarga cobrada en el lector sin la prueba de Paytef: NO se suma al saldo.
+   * El cobro pasa a AUTHORIZING con la operación, la tarjeta y la incidencia
+   * «sin comprobar» (en la misma transacción). Así no caduca, sale en el
+   * cierre de la noche y en el cuadre con el banco, y el dueño la da por
+   * cobrada (Pagos → Resolver, con el código de autorización) o no.
+   */
+  private async holdUnproven(
+    device: PosDevice,
+    p: PosPayment,
+    r: PaytefSaleResult,
+    sale: { op: string; authCode: string | null; reason: string },
+  ): Promise<SaleOutcome> {
+    const { op, authCode, reason } = sale;
+    try {
+      await this.payments.transition(p.id, { type: 'AUTHORIZING' }, p.tenantId, {
+        prepare: async (tx) => {
+          await this.eventIn(tx, p, POS_APPROVAL_UNVERIFIED_EVENT, {
+            provider: 'PAYTEF',
+            providerTxId: op,
+            operationNumber: op,
+            terminalId: device.terminalId,
+            source: 'pos-device',
+            reason,
+          });
+          await tx.payment.update({
+            where: { id: p.id },
+            data: {
+              posOperationNumber: op,
+              posTerminalId: device.terminalId,
+              terminalId: device.terminalId,
+              authCode,
+              cardLast4: last4Of(r),
+              cardBrand: cardBrandOf(r),
+              payMethodCode: payMethodCodeOf(r),
+            },
+          });
+          return { provider: 'PAYTEF', providerTxId: op };
+        },
+      });
+    } catch (err) {
+      const conflict = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+      if (!conflict && !(err instanceof InvalidTransitionError)) throw err;
+      const now = await this.paymentOf(device, p.id);
+      if (now.status === 'AUTHORIZING' && now.posOperationNumber === op && now.posTerminalId === device.terminalId) {
+        return pendingOutcome(op);
+      }
+      if (conflict) return this.mismatch(p, op, 'Esta operación del datáfono ya está apuntada en otro cobro.');
+      if (PAID_STATES.has(now.status as PaymentMachineState)) return this.duplicate(p, op, device);
+      return this.mismatch(p, op, 'El cobro ya no estaba abierto: anula esta operación.');
+    }
+    this.logger.warn(
+      `Recarga ${p.id} cobrada en el datáfono ${device.terminalId} (operación ${op}) SIN la prueba de Paytef: no se suma (${reason})`,
+    );
+    return pendingOutcome(op);
+  }
+
   /** El datáfono anuló una operación (doble cobro o importe equivocado). */
   async reportVoid(
     device: PosDevice,
@@ -412,15 +517,15 @@ export class PosDeviceService {
   ): Promise<{ ok: true }> {
     const p = await this.paymentOf(device, paymentId);
     // Solo se anulan operaciones que el servidor ya procesó como cobradas en
-    // este cobro (pagado, doble cobro o que no cuadra): un aviso de anulación
-    // inventado no esconde una incidencia de otra operación.
+    // este cobro (pagado, pendiente de Paytef, doble cobro o que no cuadra):
+    // un aviso de anulación inventado no esconde una incidencia de otra operación.
     const known = await this.prisma.asSystem((tx) =>
       tx.paymentEvent.count({
         where: {
           paymentId: p.id,
           OR: [
             {
-              eventType: { in: ['pos.device_confirmed', 'pos.charge_mismatch'] },
+              eventType: { in: ['pos.device_confirmed', 'pos.charge_mismatch', POS_APPROVAL_UNVERIFIED_EVENT] },
               payload: { path: ['operationNumber'], equals: body.operationNumber },
             },
             { eventType: 'payment.duplicate_charge', payload: { path: ['order'], equals: body.operationNumber } },
@@ -549,18 +654,34 @@ export class PosDeviceService {
   }
 
   private async event(p: { id: string; tenantId: string }, eventType: string, payload: Record<string, unknown>) {
-    await this.prisma.asSystem((tx) =>
-      tx.paymentEvent.create({
-        data: {
-          paymentId: p.id,
-          tenantId: p.tenantId,
-          eventType,
-          payload: payload as Prisma.InputJsonValue,
-          traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
-        },
-      }),
-    );
+    await this.prisma.asSystem((tx) => this.eventIn(tx, p, eventType, payload));
   }
+
+  private async eventIn(
+    tx: TransactionalClient,
+    p: { id: string; tenantId: string },
+    eventType: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    await tx.paymentEvent.create({
+      data: {
+        paymentId: p.id,
+        tenantId: p.tenantId,
+        eventType,
+        payload: payload as Prisma.InputJsonValue,
+        traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
+      },
+    });
+  }
+}
+
+function pendingOutcome(operationNumber: string): SaleOutcome {
+  return {
+    status: 'PENDING',
+    operationNumber,
+    message:
+      'Cobrada en el datáfono, pendiente de comprobar con Paytef: todavía NO se ha sumado al saldo. No la anules ni la repitas; el dueño la confirma en Pagos → Resolver.',
+  };
 }
 
 /** Lo que se guarda del resultado: sin el número de tarjeta enmascarado ni los tickets. */
