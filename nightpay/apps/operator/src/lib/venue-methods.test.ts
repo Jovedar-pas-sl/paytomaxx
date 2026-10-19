@@ -21,6 +21,9 @@ describe('formas de cobro del local en la app del personal', () => {
     expect(cobroModeAllowed('wallet', m)).toBe(false);
     expect(cobroModeAllowed('pos', m)).toBe(false);
     expect(visibleTabsFor(['home', 'wallet', 'pos'], m)).toEqual(['home']);
+    // Sin saldo, tampoco la recepción (recargar el saldo).
+    expect(visibleTabsFor(['home', 'wallet', 'reception', 'pos'], m)).toEqual(['home']);
+    expect(visibleTabsFor(['home', 'wallet', 'reception', 'pos'], paymentMethodsOf({ pos: false }))).toEqual(['home', 'wallet', 'reception']);
     expect(visibleTabsFor(['home', 'wallet', 'payments', 'earnings'], m)).toEqual(['home', 'payments', 'earnings']);
   });
 });

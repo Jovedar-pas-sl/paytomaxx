@@ -1,0 +1,186 @@
+// Recepción: recargar el saldo del cliente (tarjeta o efectivo), darle una
+// ficha y que elija su PIN; y «Preparar fichas» (grabar fichas en blanco para
+// el stock). La misma pantalla en el datáfono (credencial del aparato) y en el
+// móvil del personal (su sesión): cambia el «backend» de llamadas.
+// Lógica pura probada en reception.test.ts.
+
+import type {
+  CashTopUpDto,
+  CashTopUpResult,
+  ReceptionOptions,
+  StockOutcome,
+  TopUpWalletDto,
+} from '@nightpay/contracts';
+import { call } from './pax-api';
+import {
+  fetchReceptionOptions,
+  fetchWalletById,
+  linkWalletCard,
+  receptionCashTopUp,
+  receptionFichaStock,
+  receptionFichaToken,
+  receptionLookupCard,
+  setWalletPin,
+} from './api';
+import { formatEur } from './money';
+
+/** La ficha acercada para recargar: de qué saldo es, sin enseñarlo. */
+export interface ReceptionCard {
+  walletId: string;
+  codeHint: string;
+  hasPin: boolean;
+  /** El saldo es de este local (con tarjeta solo se recarga aquí). */
+  isHomeVenue: boolean;
+}
+
+/** El saldo recién recargado (el cliente está delante). */
+export interface ReceptionWallet {
+  walletId: string;
+  code: string;
+  balanceCents: number;
+  hasPin: boolean;
+  hasCard: boolean;
+}
+
+/** Venta con tarjeta en el lector del datáfono (recarga ya preparada en el servidor). */
+export interface DeviceCardSale {
+  paymentId: string;
+  reference: string;
+  amountCents: number;
+  walletId: string;
+}
+
+/**
+ * Las llamadas de la recepción. El datáfono va con su credencial
+ * (/v1/pos-device/reception/*); el móvil, con la sesión de la persona
+ * (/v1/reception/* y la ficha y el PIN de siempre por /v1/wallet-charges).
+ */
+export interface ReceptionBackend {
+  kind: 'device' | 'staff';
+  options(): Promise<ReceptionOptions>;
+  lookup(card: string, uid: string | null): Promise<ReceptionCard>;
+  cash(body: CashTopUpDto): Promise<CashTopUpResult>;
+  wallet(walletId: string): Promise<ReceptionWallet>;
+  /** Da la ficha al saldo recién recargado (en el móvil va por su código). */
+  link(wallet: ReceptionWallet, card: string, uid: string | null): Promise<ReceptionWallet>;
+  setPin(wallet: ReceptionWallet, pin: string): Promise<ReceptionWallet>;
+  /** Código nuevo para grabar en una ficha en blanco. */
+  newToken(): Promise<string>;
+  /** La ficha acercada en «Preparar fichas», al stock. */
+  stock(card: string, uid: string | null): Promise<StockOutcome>;
+}
+
+const json = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
+const cardBody = (card: string, uid: string | null) => (uid ? { card, uid } : { card });
+
+/** El datáfono de recepción (Authorization: Device). */
+export const deviceBackend: ReceptionBackend & {
+  cardSale(body: { amountCents: number; idempotencyKey: string; wallet: { create: true } | { card: string; uid?: string } }): Promise<DeviceCardSale>;
+} = {
+  kind: 'device',
+  options: () => call('/v1/pos-device/reception/options'),
+  lookup: (card, uid) => call('/v1/pos-device/reception/lookup', json(cardBody(card, uid))),
+  cash: (body) => call('/v1/pos-device/reception/cash', json(body)),
+  cardSale: (body) => call('/v1/pos-device/reception/card', json(body)),
+  wallet: (walletId) => call(`/v1/pos-device/reception/wallets/${encodeURIComponent(walletId)}`),
+  link: (w, card, uid) => call(`/v1/pos-device/reception/wallets/${encodeURIComponent(w.walletId)}/card`, json(cardBody(card, uid))),
+  setPin: (w, pin) => call(`/v1/pos-device/reception/wallets/${encodeURIComponent(w.walletId)}/pin`, json({ pin })),
+  newToken: async () => (await call<{ card: string }>('/v1/pos-device/reception/fichas/token', json({}))).card,
+  stock: (card, uid) => call('/v1/pos-device/reception/fichas/stock', json(cardBody(card, uid))),
+};
+
+/** El móvil del personal (su sesión). */
+export const staffBackend: ReceptionBackend = {
+  kind: 'staff',
+  options: fetchReceptionOptions,
+  lookup: receptionLookupCard,
+  cash: receptionCashTopUp,
+  wallet: async (walletId) => receptionWalletOf(await fetchWalletById(walletId)),
+  link: async (w, card, uid) => receptionWalletOf(await linkWalletCard(w.code, card, uid)),
+  setPin: async (w, pin) => receptionWalletOf(await setWalletPin(w.code, pin)),
+  newToken: receptionFichaToken,
+  stock: receptionFichaStock,
+};
+
+function receptionWalletOf(w: { walletId: string; code: string; balanceCents: number; hasPin: boolean; hasCard: boolean }): ReceptionWallet {
+  return { walletId: w.walletId, code: w.code, balanceCents: w.balanceCents, hasPin: w.hasPin, hasCard: w.hasCard };
+}
+
+// ─── Pasos de la recepción ───────────────────────────────────────────────
+
+/** Cómo paga la recarga. */
+export type PayMethod = 'card' | 'cash';
+
+/** A qué saldo: uno nuevo o el de la ficha que acerca. */
+export type Target = { kind: 'new' } | { kind: 'card'; card: string; uid: string | null; view: ReceptionCard };
+
+/** El saldo de la recarga en el cuerpo de la petición. */
+export function walletOfTarget(target: Target): TopUpWalletDto {
+  if (target.kind === 'new') return { create: true };
+  return target.uid ? { card: target.card, uid: target.uid } : { card: target.card };
+}
+
+/** Por qué esta forma de pago no vale para este saldo (null: vale). */
+export function payProblem(method: PayMethod, target: Target, options: ReceptionOptions): string | null {
+  if (method === 'cash' && !options.cash) return options.cashBlockedReason ?? 'Aquí no se cobran recargas en efectivo.';
+  if (method === 'card' && !options.card) return 'Ahora no se pueden hacer recargas con tarjeta en este local.';
+  if (method === 'card' && target.kind === 'card' && !target.view.isHomeVenue) {
+    return 'Este saldo es de otro local del grupo: aquí, recárgalo en efectivo.';
+  }
+  return null;
+}
+
+/** Después de cobrar: ficha (si no tiene y hay fichas), PIN (si no tiene) y el resultado. */
+export type AfterPay = 'chip' | 'pin' | 'done';
+
+export function nextAfterPay(w: Pick<ReceptionWallet, 'hasCard' | 'hasPin'>, opts: { nfc: boolean; skipChip?: boolean; skipPin?: boolean }): AfterPay {
+  if (!w.hasCard && opts.nfc && !opts.skipChip) return 'chip';
+  if (!w.hasPin && !opts.skipPin) return 'pin';
+  return 'done';
+}
+
+/** Lo que dice el resultado: el saldo, lo que tiene y si tiene ficha y PIN. */
+export function receptionDetail(w: ReceptionWallet): string {
+  const extras = [w.hasCard ? 'ficha' : null, w.hasPin ? 'PIN' : null].filter(Boolean).join(' y ');
+  return `Saldo ${w.code} · tiene ${formatEur(w.balanceCents)}${extras ? ` · con ${extras}` : ''}`;
+}
+
+/** Una clave por intento de recarga: si se repite (corte, doble toque) no carga dos veces. */
+export function newReceptionKey(): string {
+  const rnd = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  return `rec-${rnd}`;
+}
+
+// ─── «Preparar fichas» ────────────────────────────────────────────────────
+
+/** Lo que pasó con la ficha acercada, para la lista de la pantalla. */
+export interface PrepareLine {
+  tone: 'ok' | 'info' | 'warn';
+  text: string;
+  /** Cuenta como preparada (grabada nueva o devuelta al stock). */
+  counts: boolean;
+}
+
+export function stockOutcomeLine(o: StockOutcome): PrepareLine {
+  switch (o.outcome) {
+    case 'stocked':
+      return { tone: 'ok', text: 'Grabada y en el stock', counts: true };
+    case 'returned':
+      return { tone: 'ok', text: `Era de ${o.codeHint} (ya sin saldo): vuelve al stock`, counts: true };
+    case 'already':
+      return { tone: 'info', text: 'Ya estaba en el stock', counts: false };
+    case 'in-use':
+      return { tone: 'warn', text: `Es de ${o.codeHint}, que aún tiene saldo: apártala`, counts: false };
+    case 'lost':
+      return { tone: 'warn', text: 'Estaba marcada como perdida: apártala (o recupérala en el panel)', counts: false };
+    case 'blocked':
+      return { tone: 'warn', text: 'Está bloqueada: apártala', counts: false };
+    case 'foreign':
+      return { tone: 'warn', text: 'No es una ficha de este local (o es una copia): apártala', counts: false };
+  }
+}
+
+/** «12 fichas preparadas» / «1 ficha preparada». */
+export function preparedText(n: number): string {
+  return n === 1 ? '1 ficha preparada' : `${n} fichas preparadas`;
+}

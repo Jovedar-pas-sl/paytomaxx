@@ -37,12 +37,24 @@ const PENDING_BLOCK_TEXT =
 const UNKNOWN_TEXT =
   'No sabemos si se cobró: la última operación del datáfono no es la de este cobro. Revísalo en el datáfono antes de volver a cobrar.';
 
+interface Props {
+  charge: PaxCharge;
+  onDone: () => void;
+  /**
+   * La referencia y el importe para el lector. Por defecto, /charges/:id/start
+   * (cobro de una chica); la recarga de la recepción ya los trae al crearse.
+   */
+  start?: () => Promise<{ reference: string; amountCents: number }>;
+  /** Pagado: quien lo usa sigue (la recepción pasa a la ficha y el PIN) en vez de volver a la lista. */
+  onPaid?: () => void;
+}
+
 /**
  * Un cobro en el lector: importe al datáfono, el cliente acerca la tarjeta,
  * el resultado va a NightPay. Si el dinero se cobró pero el cobro no lo
  * admitía (doble cobro, importe distinto), ofrece anular la operación.
  */
-export function PaxChargeFlow({ charge, onDone }: { charge: PaxCharge; onDone: () => void }) {
+export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
   const [step, setStep] = useState<Step>({ kind: 'reading' });
   const [busy, setBusy] = useState(false);
   const reference = useRef<string | null>(null);
@@ -98,7 +110,7 @@ export function PaxChargeFlow({ charge, onDone }: { charge: PaxCharge; onDone: (
     }
     setStep({ kind: 'reading' });
     try {
-      const s = await startPaxCharge(charge.id);
+      const s = start ? await start() : await startPaxCharge(charge.id);
       reference.current = s.reference;
       await handleReader(await callReader('startSale', { amountCents: s.amountCents, reference: s.reference }));
     } catch (err) {
@@ -113,8 +125,17 @@ export function PaxChargeFlow({ charge, onDone }: { charge: PaxCharge; onDone: (
     // Solo al abrir el cobro.
   }, []);
 
+  const onPaidRef = useRef(onPaid);
+  useEffect(() => {
+    onPaidRef.current = onPaid;
+  });
   useEffect(() => {
     if (step.kind !== 'outcome' || step.outcome.status !== 'PAID') return undefined;
+    const paid = onPaidRef.current;
+    if (paid) {
+      paid();
+      return undefined;
+    }
     const t = setTimeout(() => onDoneRef.current(), BACK_AFTER_PAID_MS);
     return () => clearTimeout(t);
   }, [step]);

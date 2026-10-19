@@ -3,7 +3,7 @@
 // va en una cookie HttpOnly del API y el access token solo en la memoria de
 // la pestaña. Aquí, los textos para la chica y los endpoints de la app.
 
-import type { PaymentStatus } from '@nightpay/contracts';
+import type { CashTopUpDto, CashTopUpResult, PaymentStatus, ReceptionOptions, StockOutcome } from '@nightpay/contracts';
 import {
   ApiError,
   ServerUnavailableError,
@@ -381,6 +381,10 @@ export async function createPayment(input: {
   currency?: string;
   /** Phase 1B — si set, crea una wallet etiquetada con identifier. */
   walletIdentifier?: string;
+  /** Recepción: recargar un saldo que ya existe (el de la ficha que acerca). */
+  walletId?: string;
+  /** Recepción: un saldo nuevo sin etiqueta. */
+  newWallet?: boolean;
   /** POS — el camarero confirma tras procesar tarjeta en datáfono externo. */
   captureMethod?: 'QR' | 'POS_EXTERNAL';
   /** Categoría contable: CHICA_SERVICE | VENUE_BAR | VENUE_ROOM | VENUE_FOOD | EXTRA */
@@ -408,6 +412,10 @@ export async function createPayment(input: {
   }
   if (input.walletIdentifier) {
     body.wallet = { create: true, identifier: input.walletIdentifier };
+  } else if (input.walletId) {
+    body.wallet = { walletId: input.walletId };
+  } else if (input.newWallet) {
+    body.wallet = { create: true };
   }
   if (input.captureMethod) {
     body.captureMethod = input.captureMethod;
@@ -761,4 +769,44 @@ function randomUuid(): string {
   b[8] = (b[8]! & 0x3f) | 0x80;
   const hex = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+// ─── Recepción (camarero, encargado o dueño) ─────────────────────────
+
+/** Qué se puede en la recepción de este local (tarjeta, efectivo, fichas). */
+export async function fetchReceptionOptions(): Promise<ReceptionOptions> {
+  const res = await authedFetch('/v1/reception/options');
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Recepción'));
+  return res.json();
+}
+
+/** Recarga en efectivo: sumada al momento (permiso «cobrar recargas en efectivo»). */
+export async function receptionCashTopUp(body: CashTopUpDto): Promise<CashTopUpResult> {
+  const res = await authedFetch('/v1/reception/cash', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Recarga en efectivo'));
+  return res.json();
+}
+
+/** La ficha acercada para recargar: de qué saldo es (sin enseñarlo). */
+export async function receptionLookupCard(
+  card: string,
+  uid: string | null,
+): Promise<{ walletId: string; codeHint: string; hasPin: boolean; isHomeVenue: boolean }> {
+  const res = await authedFetch('/v1/reception/lookup', { method: 'POST', body: JSON.stringify({ card, ...(uid ? { uid } : {}) }) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Ficha'));
+  return res.json();
+}
+
+/** «Preparar fichas»: código nuevo para la próxima ficha en blanco. */
+export async function receptionFichaToken(): Promise<string> {
+  const res = await authedFetch('/v1/reception/fichas/token', { method: 'POST' });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Ficha'));
+  return ((await res.json()) as { card: string }).card;
+}
+
+/** «Preparar fichas»: la ficha acercada, al stock del local (o por qué se aparta). */
+export async function receptionFichaStock(card: string, uid: string | null): Promise<StockOutcome> {
+  const res = await authedFetch('/v1/reception/fichas/stock', { method: 'POST', body: JSON.stringify({ card, ...(uid ? { uid } : {}) }) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Ficha'));
+  return res.json();
 }

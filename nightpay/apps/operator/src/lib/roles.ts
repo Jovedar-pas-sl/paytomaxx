@@ -1,7 +1,7 @@
 import type { OperatorUser } from './api';
 
 export type StaffRole = OperatorUser['role'];
-export type TabKey = 'home' | 'wallet' | 'pos' | 'payments' | 'earnings';
+export type TabKey = 'home' | 'wallet' | 'reception' | 'pos' | 'payments' | 'earnings';
 
 export interface RoleAccess {
   /** Pestañas de abajo, en orden. */
@@ -26,8 +26,9 @@ const OPERATOR_ACCESS: RoleAccess = {
   posQueue: false,
 };
 
+/** Camarero, encargado y dueño: además, la recepción (recargar saldo, ficha y PIN; preparar fichas). */
 const STAFF_ACCESS: RoleAccess = {
-  tabs: ['home', 'wallet', 'pos'],
+  tabs: ['home', 'wallet', 'reception', 'pos'],
   ownEarnings: false,
   ownPayments: false,
   posQueue: true,
