@@ -2,7 +2,7 @@ import './bootstrap-env'; // PRIMERO — carga .env.local antes que cualquier mo
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
-import { Logger, RequestMethod } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -13,6 +13,7 @@ import { httpLoggerOptions } from './common/logging/logger-options';
 import { originAuthHook } from './common/http/origin-guard';
 import { trustInternalProxy } from './common/http/client-ip';
 import { corsOrigin, parseCorsOrigins } from './common/http/cors';
+import { UNPREFIXED_ROUTES } from './common/http/unprefixed-routes';
 import {
   GLOBAL_RATE_LIMIT_MAX,
   GLOBAL_RATE_LIMIT_WINDOW,
@@ -126,42 +127,10 @@ async function bootstrap() {
     keyGenerator: globalRateLimitKey,
   });
 
-  // /pay/:token es público para clientes que escanean QR — fuera del prefix /v1
-  // para que el QR pueda apuntar a https://api.dominio.com/pay/{token}
-  // (limpio, sin /v1 en la URL que llega al teléfono).
-  // Fase 1B: también el POST de la página de pago, el formulario hacia el
-  // banco y el justificante.
-  app.setGlobalPrefix('v1', {
-    exclude: [
-      { path: 'pay/:token', method: RequestMethod.GET },
-      { path: 'pay/:token', method: RequestMethod.POST },
-      { path: 'pay/:token/receipt', method: RequestMethod.GET },
-      { path: 'pay/:token/checkout', method: RequestMethod.GET },
-      // Recarga: el cliente activa Face ID o la suma a su saldo, en "Pagado".
-      { path: 'pay/:token/passkey/options', method: RequestMethod.POST },
-      { path: 'pay/:token/passkey', method: RequestMethod.POST },
-      { path: 'pay/:token/merge/challenge', method: RequestMethod.POST },
-      { path: 'pay/:token/merge', method: RequestMethod.POST },
-      { path: 'pay/:token/pin', method: RequestMethod.POST },
-      // Pagar con el saldo escaneando el QR de la chica (Face ID).
-      { path: 's/:token', method: RequestMethod.GET },
-      { path: 's/:token/challenge', method: RequestMethod.POST },
-      { path: 's/:token/pay', method: RequestMethod.POST },
-      // Saldo NightPay: página del cliente y sus acciones.
-      { path: 'w/:token', method: RequestMethod.GET },
-      { path: 'w/:token/state', method: RequestMethod.GET },
-      { path: 'w/:token/close', method: RequestMethod.POST },
-      { path: 'w/:token/passkey/options', method: RequestMethod.POST },
-      { path: 'w/:token/passkey', method: RequestMethod.POST },
-      // PIN y sumar a otro saldo: acciones secundarias de la página del saldo.
-      { path: 'w/:token/pin', method: RequestMethod.POST },
-      { path: 'w/:token/merge/challenge', method: RequestMethod.POST },
-      { path: 'w/:token/merge', method: RequestMethod.POST },
-      // Google Wallet: guardar el saldo (Android) y el botón oficial.
-      { path: 'w/:token/google-wallet', method: RequestMethod.POST },
-      { path: 'w/assets/google-wallet/:lang', method: RequestMethod.GET },
-    ],
-  });
+  // Las páginas del cliente (/pay, /w, /s) van fuera del prefijo /v1 para que
+  // el QR apunte a https://api.dominio.com/pay/{token}, limpio. La lista (y
+  // por qué cada acción nueva tiene que estar en ella), en unprefixed-routes.ts.
+  app.setGlobalPrefix('v1', { exclude: [...UNPREFIXED_ROUTES] });
 
   // CORS estricto via env CORS_ORIGINS (CSV). Dev: permite todo.
   const allowed = parseCorsOrigins(env.CORS_ORIGINS);

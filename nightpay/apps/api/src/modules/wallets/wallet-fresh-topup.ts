@@ -13,6 +13,8 @@ import type { PrismaService } from '../../common/prisma/prisma.service';
 export const FRESH_TOPUP_MS = 15 * 60 * 1000;
 
 export interface FirstTopUp {
+  /** El cobro con tarjeta de esa recarga (null = fue en efectivo). */
+  paymentId: string | null;
   userId: string | null;
   terminalId: string | null;
   /** Cuándo quedó cargada (autorización del banco o el momento del efectivo); null = sin pagar. */
@@ -30,7 +32,7 @@ export async function firstTopUp(db: PrismaService, walletId: string): Promise<F
       tx.payment.findFirst({
         where: { walletId },
         orderBy: { createdAt: 'asc' },
-        select: { createdByUserId: true, authorizedAt: true, posTerminalId: true, createdAt: true },
+        select: { id: true, createdByUserId: true, authorizedAt: true, posTerminalId: true, createdAt: true },
       }),
     ),
     db.acrossVenues((tx) =>
@@ -42,10 +44,16 @@ export async function firstTopUp(db: PrismaService, walletId: string): Promise<F
     ),
   ]);
   const card: FirstTopUp | null = payment
-    ? { userId: payment.createdByUserId, terminalId: payment.posTerminalId, at: payment.authorizedAt, createdAt: payment.createdAt }
+    ? {
+        paymentId: payment.id,
+        userId: payment.createdByUserId,
+        terminalId: payment.posTerminalId,
+        at: payment.authorizedAt,
+        createdAt: payment.createdAt,
+      }
     : null;
   const inCash: FirstTopUp | null = cash
-    ? { userId: cash.takenByUserId, terminalId: cash.terminalId, at: cash.createdAt, createdAt: cash.createdAt }
+    ? { paymentId: null, userId: cash.takenByUserId, terminalId: cash.terminalId, at: cash.createdAt, createdAt: cash.createdAt }
     : null;
   if (!card) return inCash;
   if (!inCash) return card;

@@ -14,6 +14,8 @@ export const GOOGLE_WALLET_SYNC_BATCH = 100;
 
 export interface DuePass {
   id: string;
+  /** El saldo del pase (para el QR, que solo cobra: pass-charge-token.ts). */
+  walletId: string;
   objectId: string;
   lastSyncedBalanceCents: number;
   lastSyncedStatus: string;
@@ -52,6 +54,7 @@ type RawTx = Pick<Prisma.TransactionClient, '$queryRaw'>;
 export async function findDuePasses(tx: RawTx, limit: number = GOOGLE_WALLET_SYNC_BATCH): Promise<DuePass[]> {
   return tx.$queryRaw<DuePass[]>`
     SELECT p.id::text AS id,
+           p."walletId"::text AS "walletId",
            p."objectId",
            p."lastSyncedBalanceCents",
            p."lastSyncedStatus"::text AS "lastSyncedStatus",

@@ -50,7 +50,7 @@ export const NFC_TIMEOUT_MS = 60_000;
 
 export type ScanTarget = { kind: 'charge'; payToken: string } | { kind: 'wallet'; ref: SaldoRef } | { kind: 'unknown' };
 
-/** Los enlaces del cobro (/s/…), del pase (/w/…) y de la ficha. */
+/** Los enlaces del cobro (/s/…), del pase (/c/…, o /w/… en los de antes) y de la ficha. */
 const LINK_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
 /** El código del cliente (K7Q-4M2): 6 letras o números. */
 const WALLET_CODE = /^[A-Z0-9]{6}$/;
@@ -63,7 +63,8 @@ function walletCode(raw: string): string | null {
 /**
  * ¿Qué QR ha leído el datáfono?
  *  - …/s/<payToken>: el cobro que enseña la chica en su móvil;
- *  - …/w/<token>: el pase de Google Wallet del cliente (el enlace de su saldo);
+ *  - …/c/<token>: el pase de Google Wallet del cliente (solo para cobrarle);
+ *  - …/w/<token>: el de los pases de antes (el enlace de su saldo), hasta que se pongan al día;
  *  - …/?saldo=K7Q4M2: el QR de la página del saldo del cliente (solo su código);
  *  - …/?ficha=<token>: el enlace de una ficha (si alguien lo pasó a QR);
  *  - K7Q-4M2 suelto: su código.
@@ -83,7 +84,8 @@ export function parseScan(raw: string): ScanTarget {
   const [, segment, token, ...rest] = url.pathname.replace(/\/+$/, '').split('/');
   if (rest.length === 0 && token && LINK_TOKEN.test(token)) {
     if (segment === 's') return { kind: 'charge', payToken: token };
-    if (segment === 'w') return { kind: 'wallet', ref: { walletToken: token } };
+    // El API distingue los dos: el de /c lo comprueba con su firma (solo cobra).
+    if (segment === 'c' || segment === 'w') return { kind: 'wallet', ref: { walletToken: token } };
   }
   const card = walletCardTokenFromUrl(text);
   if (card) return { kind: 'wallet', ref: { card, uid: null } };

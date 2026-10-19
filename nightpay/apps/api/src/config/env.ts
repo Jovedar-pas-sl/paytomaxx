@@ -83,6 +83,13 @@ const EnvSchema = z.object({
   // BBVA). Se enseña en la página de pago para evitar "no lo reconozco".
   // Vacío = no se enseña.
   PAY_STATEMENT_NAME: z.string().max(40).optional(),
+  // Página de pago en el móvil: el botón principal abre directamente Apple
+  // Pay / Google Pay (pedido "xpay"). false → un solo botón hacia la página
+  // del banco (tarjeta y lo que BBVA tenga activo). Apágalo si BBVA no tiene
+  // xpay en el TPV: si no, el botón principal no deja pagar.
+  PAY_DIRECT_WALLET: z
+    .union([z.boolean(), z.string().transform((s) => !['false', '0', 'no', 'off'].includes(s.trim().toLowerCase()))])
+    .default(true),
   // Nombre de la marca en pantallas, concepto del cobro y correos (por
   // defecto OxioPay). No cambia el extracto del banco: eso lo fija BBVA.
   BRAND_NAME: z.string().trim().min(2).max(20).optional(),

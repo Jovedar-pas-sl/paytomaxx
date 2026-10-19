@@ -6,7 +6,8 @@ toca y guarda en Google Wallet una tarjeta con:
 
 - la marca (OxioPay) y el nombre del local;
 - el **saldo que le queda**, bien grande;
-- un **código QR** que abre la página de su saldo.
+- un **código QR** que solo sirve para cobrarle en el datáfono (con su PIN);
+  la página de su saldo se abre con el enlace «Ver mi saldo» de dentro.
 
 La tarjeta **se actualiza sola**: cuando gasta, recarga o se le devuelve el
 saldo, en unos 2 minutos cambia en su móvil. Cuando el saldo se cierra
@@ -183,9 +184,13 @@ cuenta.
   se apaga («Enlace antiguo») y deja de recibir el saldo. Desde el enlace
   nuevo puede añadirla otra vez.
 
-Ojo: el QR de la tarjeta abre la página de su saldo, igual que su enlace.
-Quien lo escanee ve esa página (como si tuviera el enlace); por eso Google
-pide desbloquear el móvil para enseñarla.
+El QR de la tarjeta (`/c/...`) solo sirve para cobrarle en el datáfono: el
+cliente teclea su PIN. Un móvil que lo escanee no abre nada (ni su saldo, ni
+«Me voy», ni el Face ID). La página de su saldo se abre con «Ver mi saldo»,
+dentro de la tarjeta, y por eso Google pide desbloquear el móvil para
+enseñarla. Los pases hechos antes de este cambio (con el QR del enlace `/w/...`)
+se ponen al día solos en el primer repaso tras la migración
+`20261022100000_pase_qr_solo_cobro`; mientras tanto, el datáfono acepta los dos.
 
 ---
 

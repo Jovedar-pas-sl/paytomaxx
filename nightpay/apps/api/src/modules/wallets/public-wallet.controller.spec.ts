@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PublicWalletController } from './public-wallet.controller';
+import { WalletPasskeysService } from './wallet-passkeys.service';
 
 function makeController(googleWalletEnabled = false) {
   const charges = {
@@ -8,10 +9,14 @@ function makeController(googleWalletEnabled = false) {
     setPinFromPayer: vi.fn().mockResolvedValue(undefined),
     clientState: vi.fn().mockResolvedValue({ code: 'K7Q-4M2', hasPin: true }),
     mergeInto: vi.fn().mockResolvedValue({ balanceCents: 35_000 }),
+    requestClose: vi.fn().mockResolvedValue({ code: 'K7Q-4M2', closeRequested: true }),
   };
   const passkeys = {
+    hasPasskey: vi.fn().mockResolvedValue(false),
     challenge: vi.fn().mockResolvedValue({ challenge: 'abc' }),
     verify: vi.fn().mockResolvedValue('w-target'),
+    // La de verdad (hasPasskey + verify de arriba).
+    assertOwner: WalletPasskeysService.prototype.assertOwner,
   };
   const gwallet = { enabled: googleWalletEnabled };
   const topUps = {
@@ -76,18 +81,65 @@ describe('/w/:token — la página sabe si Google Wallet está configurado', () 
 describe('/w/:token — PIN y sumar a otro saldo (acciones secundarias de la página del saldo)', () => {
   it('PIN: 4 cifras y repetido igual; se guarda en el saldo de este enlace', async () => {
     const { controller, charges } = makeController();
-    await expect(controller.pin('tok', { pin: '1234', pin2: '1234' })).resolves.toMatchObject({ hasPin: true });
+    await expect(controller.pin('tok', { pin: '1234', pin2: '1234' }, 'pay.example')).resolves.toMatchObject({ hasPin: true });
     expect(charges.walletRefByToken).toHaveBeenCalledWith('tok');
     expect(charges.setPinFromPayer).toHaveBeenCalledWith('w-1', '1234');
   });
 
   it('PIN mal escrito o distinto → 400 sin tocar nada', async () => {
     const { controller, charges } = makeController();
-    await expect(controller.pin('tok', { pin: '12a4', pin2: '12a4' })).rejects.toThrow(BadRequestException);
-    await expect(controller.pin('tok', { pin: '1234', pin2: '1235' })).rejects.toThrow(BadRequestException);
-    await expect(controller.pin('tok', { pin: 1234, pin2: 1234 })).rejects.toThrow(BadRequestException);
-    await expect(controller.pin('tok', undefined)).rejects.toThrow(BadRequestException);
+    await expect(controller.pin('tok', { pin: '12a4', pin2: '12a4' }, 'h')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PIN_FORMAT' }),
+    });
+    await expect(controller.pin('tok', { pin: '1234', pin2: '1235' }, 'h')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PIN_MISMATCH' }),
+    });
+    await expect(controller.pin('tok', { pin: 1234, pin2: 1234 }, 'h')).rejects.toThrow(BadRequestException);
+    await expect(controller.pin('tok', undefined, 'h')).rejects.toThrow(BadRequestException);
     expect(charges.setPinFromPayer).not.toHaveBeenCalled();
+  });
+
+  it('saldo con Face ID: con solo el enlace no se le pone PIN; con su llave (reto pin:<saldo>), sí', async () => {
+    const { controller, charges, passkeys } = makeController();
+    passkeys.hasPasskey.mockResolvedValue(true);
+    passkeys.verify.mockRejectedValueOnce(new ForbiddenException({ message: 'Confirma con Face ID', code: 'FACE_ID_REQUIRED' }));
+    await expect(controller.pin('tok', { pin: '1234', pin2: '1234' }, 'pay.example')).rejects.toThrow(ForbiddenException);
+    expect(passkeys.verify).toHaveBeenCalledWith('pin:w-1', 'pay.example', undefined);
+    // La llave de otro saldo tampoco.
+    passkeys.verify.mockResolvedValueOnce('otro-saldo');
+    await expect(controller.pin('tok', { pin: '1234', pin2: '1234', response: { id: 'k' } }, 'pay.example')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'FACE_ID_WRONG' }),
+    });
+    expect(charges.setPinFromPayer).not.toHaveBeenCalled();
+    passkeys.verify.mockResolvedValueOnce('w-1');
+    await controller.pin('tok', { pin: '1234', pin2: '1234', response: { id: 'k' } }, 'pay.example');
+    expect(charges.setPinFromPayer).toHaveBeenCalledWith('w-1', '1234');
+  });
+
+  it('reto para el PIN o «Me voy»: atado a la acción y al saldo; sin Face ID no hace falta (409)', async () => {
+    const { controller, passkeys } = makeController();
+    await expect(controller.pinChallenge('tok', 'pay.example')).rejects.toThrow(ConflictException);
+    passkeys.hasPasskey.mockResolvedValue(true);
+    await controller.pinChallenge('tok', 'pay.example');
+    expect(passkeys.challenge).toHaveBeenCalledWith('pin:w-1', 'pay.example');
+    await controller.closeChallenge('tok', 'pay.example');
+    expect(passkeys.challenge).toHaveBeenCalledWith('close:w-1', 'pay.example');
+  });
+
+  it('«Me voy»: sin Face ID basta el enlace; con Face ID, solo con su llave (reto close:<saldo>)', async () => {
+    const plain = makeController();
+    await expect(plain.controller.close('tok', undefined, 'pay.example')).resolves.toMatchObject({ closeRequested: true });
+    expect(plain.passkeys.verify).not.toHaveBeenCalled();
+
+    const { controller, charges, passkeys } = makeController();
+    passkeys.hasPasskey.mockResolvedValue(true);
+    passkeys.verify.mockRejectedValueOnce(new ForbiddenException('Confirma con Face ID'));
+    await expect(controller.close('tok', {}, 'pay.example')).rejects.toThrow(ForbiddenException);
+    expect(charges.requestClose).not.toHaveBeenCalled();
+    passkeys.verify.mockResolvedValueOnce('w-1');
+    await controller.close('tok', { response: { id: 'k' } }, 'pay.example');
+    expect(passkeys.verify).toHaveBeenLastCalledWith('close:w-1', 'pay.example', { id: 'k' });
+    expect(charges.requestClose).toHaveBeenCalledWith('tok');
   });
 
   it('sumar: el reto es solo para este saldo y la llave dice a cuál se suma', async () => {

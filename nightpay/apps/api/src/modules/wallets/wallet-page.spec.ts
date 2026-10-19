@@ -76,7 +76,7 @@ describe('página del saldo del cliente', () => {
       expect(html).not.toContain('id="accept"');
       expect(script(html)).not.toContain('/requests/');
       // "Me voy" sigue.
-      expect(script(html)).toContain("post('/close')");
+      expect(script(html)).toContain("withKey('/close',{})");
     }
   });
 
@@ -102,7 +102,10 @@ describe('página del saldo del cliente', () => {
     expect(html).toContain('id="mergeOpen"');
     expect(html).toContain('id="leaveOpen"');
     const js = script(html);
-    expect(js).toContain("post('/pin',{pin:a,pin2:c})");
+    expect(js).toContain("withKey('/pin',{pin:a,pin2:c})");
+    // Con Face ID, PIN y «Me voy» piden desbloquear el móvil (reto de /pin/challenge o /close/challenge).
+    expect(js).toContain("pkGet(C.base+path+'/challenge')");
+    expect(js).toContain('if(S.hasFaceId&&!pkSupported()){show(\'pinErr\',T.faceIdNeeded);return;}');
     expect(js).toContain("pkGet(C.base+'/merge/challenge')");
     expect(js).toContain("post('/merge',{response:k})");
     // Abre la hoja de sumar si viene del «Pagado» de la recarga.
@@ -125,7 +128,7 @@ describe('página del saldo del cliente', () => {
 
   it('botones ocupados dicen qué pasa (no solo se apagan)', () => {
     const js = script(renderWalletPage('tok-1', 'es', state()));
-    expect(js).toContain('busyBtn(b,true,T.sending)');
+    expect(js).toContain('busyBtn(b,true,S.hasFaceId?T.unlockWaiting:T.sending)');
     expect(js).toContain('busyBtn(b,true,T.unlockWaiting)');
   });
 

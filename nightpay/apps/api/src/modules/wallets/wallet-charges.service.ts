@@ -27,6 +27,8 @@ import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor } from './wallet-two-factor';
+import { WalletBlockedException } from './wallet-blocked';
+import { passChargeSecret, passChargeTokenValid, passChargeWalletId } from './google-wallet/pass-charge-token';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
@@ -182,6 +184,24 @@ const REQUEST_ERRORS: Record<'not-pending' | 'expired' | 'wallet-closed' | 'insu
   insufficient: 'No hay saldo suficiente para este cobro',
   blocked: 'Este saldo está bloqueado: no se puede pagar con él. Avisa al encargado.',
 };
+
+const REQUEST_ERROR_CODES: Record<keyof typeof REQUEST_ERRORS, string> = {
+  'not-pending': 'CHARGE_NOT_PENDING',
+  expired: 'CHARGE_EXPIRED',
+  'wallet-closed': 'WALLET_CLOSED',
+  insufficient: 'WALLET_INSUFFICIENT',
+  blocked: 'WALLET_BLOCKED',
+};
+
+/** 409 del cobro con QR, con su `code` (la página del cliente lo traduce; las apps leen el texto). */
+function requestError(reason: keyof typeof REQUEST_ERRORS): ConflictException {
+  return new ConflictException({ message: REQUEST_ERRORS[reason], code: REQUEST_ERROR_CODES[reason] });
+}
+
+/** «Sumar a mi saldo» que no se puede hacer (el texto, para las apps; el code, para la página). */
+function mergeError(message: string, code = 'MERGE_NOT_ALLOWED'): ConflictException {
+  return new ConflictException({ message, code });
+}
 
 const MERGE_BLOCKED = 'Uno de los dos saldos está bloqueado: no se pueden juntar. Pregunta en el local.';
 
@@ -460,11 +480,11 @@ export class WalletChargesService {
         where: { id: requestId, walletId: null, status: 'PENDING' },
         data: { walletId: wallet.id },
       });
-      if (bound.count === 0) throw new ConflictException(REQUEST_ERRORS['not-pending']);
+      if (bound.count === 0) throw requestError('not-pending');
       const request = await tx.walletChargeRequest.findFirst({ where: { id: requestId, walletId: wallet.id } });
       if (!request) throw new NotFoundException('Cobro no encontrado');
       const decision = decideAccept(request, w, new Date());
-      if (!decision.ok) throw new ConflictException(REQUEST_ERRORS[decision.reason]);
+      if (!decision.ok) throw requestError(decision.reason);
 
       const [provider, venue] = await Promise.all([
         tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true, commissionBps: true } }),
@@ -515,7 +535,7 @@ export class WalletChargesService {
         where: { id: request.id, status: 'PENDING' },
         data: { status: 'ACCEPTED', decidedAt: new Date(), consumptionId: consumption.id },
       });
-      if (accepted.count === 0) throw new ConflictException(REQUEST_ERRORS['not-pending']);
+      if (accepted.count === 0) throw requestError('not-pending');
     });
   }
 
@@ -661,7 +681,7 @@ export class WalletChargesService {
    * suyos, para devolverlos a la tarjeta).
    */
   async mergeInto(sourceWalletId: string, targetWalletId: string): Promise<{ balanceCents: number }> {
-    if (sourceWalletId === targetWalletId) throw new ConflictException('Es el mismo saldo');
+    if (sourceWalletId === targetWalletId) throw mergeError('Es el mismo saldo');
     const result = await this.prisma.acrossVenues(async (tx) => {
       // 1) Los pagos a medias de la recarga, bloqueados ANTES que los saldos
       //    (el mismo orden que el cobro: pago → saldo, sin abrazos mortales).
@@ -674,7 +694,7 @@ export class WalletChargesService {
            AND status IN ('CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING', 'ORPHAN')
          FOR UPDATE
       `;
-      if (open.length > 0) throw new ConflictException('Esta recarga tiene otro pago a medias: inténtalo en unos minutos');
+      if (open.length > 0) throw mergeError('Esta recarga tiene otro pago a medias: inténtalo en unos minutos', 'MERGE_BUSY');
       // 2) Los dos saldos, siempre en el mismo orden: dos fusiones a la vez no se bloquean entre sí.
       const ids = [sourceWalletId, targetWalletId].sort();
       const rows = await tx.$queryRaw<
@@ -697,19 +717,19 @@ export class WalletChargesService {
       if (!source || !target) throw new NotFoundException('Saldo no encontrado');
       // Bloqueado por el super-admin (no paga, decideAccept): tampoco se junta.
       // Si no, fusionar movería su dinero a un saldo sin bloquear (o al revés).
-      if (source.blockedAt || target.blockedAt) throw new ConflictException(MERGE_BLOCKED);
+      if (source.blockedAt || target.blockedAt) throw mergeError(MERGE_BLOCKED, 'WALLET_BLOCKED');
       if (!sameWalletGroup(target, { id: source.tenantId, walletGroup: source.walletGroup })) {
-        throw new ConflictException('Ese saldo es de otro local: no se pueden juntar');
+        throw mergeError('Ese saldo es de otro local: no se pueden juntar');
       }
       if (source.status !== 'ACTIVE' || source.balanceCents <= 0 || source.mergedIntoId) {
-        throw new ConflictException('Esta recarga ya no se puede sumar');
+        throw mergeError('Esta recarga ya no se puede sumar');
       }
       // Un saldo ya sumado a otro no recibe dinero: el del cliente es aquel.
       if ((target.status !== 'ACTIVE' && target.status !== 'DEPLETED') || target.mergedIntoId) {
-        throw new ConflictException('Tu saldo está cerrado');
+        throw mergeError('Tu saldo está cerrado', 'WALLET_CLOSED');
       }
       const keys = await tx.walletPasskey.count({ where: { walletId: sourceWalletId } });
-      if (keys > 0) throw new ConflictException('Esta recarga ya tiene su propio Face ID');
+      if (keys > 0) throw mergeError('Esta recarga ya tiene su propio Face ID');
       // A 0 (DEPLETED) se reabre; si su código lo tiene ya otro cliente, con uno nuevo.
       await tx.clientWallet.update({
         where: { id: targetWalletId },
@@ -750,7 +770,7 @@ export class WalletChargesService {
     if ('card' in input) await this.assertMethods(actor.tenantId, ['nfc']);
     // Que no se gaste un intento de PIN en un cobro que ya no se puede pagar.
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
-      throw new ConflictException(REQUEST_ERRORS['not-pending']);
+      throw requestError('not-pending');
     }
     const wallet = await this.walletByRef(actor.tenantId, input);
     // Un PIN que puso el encargado sin el cliente: ni él cobra con ese PIN ni
@@ -838,7 +858,7 @@ export class WalletChargesService {
     // Ficha NFC apagada en Ajustes (Formas de cobro): tampoco en el datáfono.
     if ('card' in ref) await this.assertMethods(terminal.tenantId, ['nfc']);
     const wallet = await this.walletByTerminalRef(terminal.tenantId, ref);
-    if (wallet.blockedAt) throw new ConflictException(REQUEST_ERRORS.blocked);
+    if (wallet.blockedAt) throw requestError('blocked');
     return {
       codeHint: codeHintOf(wallet.shortCode),
       hasPin: wallet.pinHash !== null,
@@ -897,8 +917,8 @@ export class WalletChargesService {
 
   private assertPayable(request: { status: string; expiresAt: Date; walletId: string | null }): void {
     const status = effectiveRequestStatus(request, new Date());
-    if (status === 'EXPIRED') throw new ConflictException(REQUEST_ERRORS.expired);
-    if (status !== 'PENDING' || request.walletId) throw new ConflictException(REQUEST_ERRORS['not-pending']);
+    if (status === 'EXPIRED') throw requestError('expired');
+    if (status !== 'PENDING' || request.walletId) throw requestError('not-pending');
   }
 
   private async walletByTerminalRef(venueId: string, ref: TerminalWalletRef) {
@@ -906,13 +926,15 @@ export class WalletChargesService {
   }
 
   /**
-   * El QR del pase de Google Wallet (el enlace /w/<token> del saldo): su saldo
-   * si sigue abierto y vale en este local. Una recarga sumada a otro saldo
-   * lleva a ese otro (el pase viejo sigue valiendo).
+   * El QR del pase de Google Wallet: el token solo para cobrar (/c/<token>,
+   * pass-charge-token.ts) o, en pases de antes que aún no se han puesto al
+   * día, el enlace /w/<token> del saldo. Su saldo si sigue abierto y vale en
+   * este local. Una recarga sumada a otro saldo lleva a ese otro (el pase
+   * viejo sigue valiendo).
    */
   private async walletByLinkToken(venueId: string, token: string) {
     const [first, venue] = await Promise.all([
-      this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { qrToken: token } })),
+      this.walletOfPassToken(token),
       this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } }),
     ]);
     let wallet = first;
@@ -928,6 +950,15 @@ export class WalletChargesService {
       throw new NotFoundException('Este pase no tiene saldo en este local');
     }
     return wallet;
+  }
+
+  /** El saldo del QR del pase: el token de cobro (comprobado con su enlace actual) o el enlace /w. */
+  private async walletOfPassToken(token: string) {
+    const chargeWalletId = passChargeWalletId(token);
+    if (!chargeWalletId) return this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { qrToken: token } }));
+    const wallet = await this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: chargeWalletId } }));
+    // Firma mala o enlace cambiado (pase viejo apagado): no es de nadie.
+    return wallet && passChargeTokenValid(passChargeSecret(), token, wallet) ? wallet : null;
   }
 
   // ─── Recepción en el datáfono (Authorization: Device) ───────────────────
@@ -1294,7 +1325,7 @@ export class WalletChargesService {
    */
   private async storeFirstPin(walletId: string, pin: string, setById: string | null): Promise<void> {
     const problem = pinProblem(pin);
-    if (problem) throw new BadRequestException(PIN_PROBLEM_TEXT[problem]);
+    if (problem) throw new BadRequestException({ message: PIN_PROBLEM_TEXT[problem], code: `PIN_${problem.toUpperCase()}` });
     const pinHash = await hashPin(pin, pinPepper());
     const res = await this.prisma.acrossVenues((tx) =>
       tx.clientWallet.updateMany({
@@ -1302,7 +1333,7 @@ export class WalletChargesService {
         data: { pinHash, pinFails: 0, pinFailedAt: null, pinLockedAt: null, pinSetById: setById },
       }),
     );
-    if (res.count === 0) throw new ConflictException('Este saldo ya tiene PIN');
+    if (res.count === 0) throw new ConflictException({ message: 'Este saldo ya tiene PIN', code: 'PIN_EXISTS' });
   }
 
   /**
@@ -1325,7 +1356,7 @@ export class WalletChargesService {
     walletId: string,
   ): Promise<void> {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
-      throw new ConflictException(REQUEST_ERRORS['not-pending']);
+      throw requestError('not-pending');
     }
     // Un cobro hecho antes de la pausa tampoco se cobra mientras dure (423),
     // ni con el pago con saldo apagado en Ajustes (409).
@@ -1340,7 +1371,7 @@ export class WalletChargesService {
       this.prisma.venue.findUnique({ where: { id: request.tenantId }, select: { walletGroup: true } }),
     ]);
     if (!wallet || !sameWalletGroup(wallet, { id: request.tenantId, walletGroup: venue?.walletGroup ?? null })) {
-      throw new ConflictException('Tu saldo no vale en este local');
+      throw new ConflictException({ message: 'Tu saldo no vale en este local', code: 'CHARGE_OTHER_VENUE' });
     }
     await this.settleRequest(walletId, request.id);
   }
@@ -1367,7 +1398,7 @@ export class WalletChargesService {
   /** "Me voy": el cliente pide que le devuelvan el saldo (sale en Incidencias). */
   async requestClose(qrToken: string): Promise<ClientWalletState> {
     const wallet = await this.walletByToken(qrToken);
-    if (wallet.balanceCents <= 0) throw new ConflictException('No te queda saldo que devolver');
+    if (wallet.balanceCents <= 0) throw new ConflictException({ message: 'No te queda saldo que devolver', code: 'NOTHING_TO_REFUND' });
     const res = await this.prisma.asSystem((tx) =>
       tx.clientWallet.updateMany({
         where: { id: wallet.id, status: 'ACTIVE', closeRequestedAt: null },
@@ -1702,6 +1733,8 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: venueId, walletGroup: venue?.walletGroup ?? null })) {
       throw new NotFoundException('No hay ningún saldo con ese código en este local');
     }
+    // Bloqueado por el super-admin: ni recargarlo (con tarjeta) ni pagar con él desde la app.
+    if (wallet.blockedAt) throw new WalletBlockedException();
     return wallet;
   }
 
@@ -1722,7 +1755,7 @@ export class WalletChargesService {
 
   private async walletByToken(qrToken: string) {
     const wallet = await this.prisma.asSystem((tx) => tx.clientWallet.findUnique({ where: { qrToken } }));
-    if (!wallet) throw new NotFoundException('Saldo no encontrado');
+    if (!wallet) throw new NotFoundException({ message: 'Saldo no encontrado', code: 'WALLET_NOT_FOUND' });
     return wallet;
   }
 

@@ -30,6 +30,7 @@ import {
   type PassWallet,
 } from './google-wallet-pass';
 import { findDuePasses, syncAction, type DuePass } from './google-wallet-sync';
+import { passChargeSecret, passChargeUrl } from './pass-charge-token';
 
 /** Para las pruebas: otro fetch en vez del global. */
 export const GOOGLE_WALLET_FETCH = Symbol('GOOGLE_WALLET_FETCH');
@@ -104,8 +105,8 @@ export class GoogleWalletService {
   /**
    * Enlace para guardar en Google Wallet el pase del saldo de este enlace.
    * Lo mismo que las demás acciones de /w: el enlace es la credencial. El
-   * enlace devuelto vale tanto como el de /w (el pase lleva su QR): solo se
-   * le da a quien ya tiene el de /w y no se guarda ni sale en el log.
+   * enlace devuelto vale tanto como el de /w (el pase lleva «Ver mi saldo»):
+   * solo se le da a quien ya tiene el de /w y no se guarda ni sale en el log.
    */
   async saveLink(qrToken: string): Promise<{ saveUrl: string }> {
     const { settings, client } = this.ready();
@@ -117,7 +118,9 @@ export class GoogleWalletService {
       }),
     );
     if (!wallet) throw new NotFoundException('Saldo no encontrado');
-    if (wallet.status !== 'ACTIVE' || wallet.mergedIntoId) throw new ConflictException('Este saldo ya está cerrado');
+    if (wallet.status !== 'ACTIVE' || wallet.mergedIntoId) {
+      throw new ConflictException({ message: 'Este saldo ya está cerrado', code: 'WALLET_CLOSED' });
+    }
 
     const tokenHash = linkHash(wallet.qrToken);
     await this.throttleSave(tokenHash);
@@ -130,10 +133,10 @@ export class GoogleWalletService {
     };
     try {
       await client.ensureClass(genericClass(settings.classId));
-      await client.saveObject(this.passObject(settings, objectId, wallet.qrToken, passWallet));
+      await client.saveObject(this.passObject(settings, objectId, { id: ref.id, qrToken: wallet.qrToken }, passWallet));
     } catch (err) {
       this.logger.warn(`Google Wallet: no se pudo preparar el pase del saldo ${ref.id}: ${(err as Error).message}`);
-      throw new ServiceUnavailableException('Google Wallet no responde ahora. Inténtalo en un rato.');
+      throw new ServiceUnavailableException({ message: 'Google Wallet no responde ahora. Inténtalo en un rato.', code: 'TRY_LATER' });
     }
 
     // El enlace para guardarlo solo sale si el pase quedó apuntado: así un pase
@@ -221,7 +224,8 @@ export class GoogleWalletService {
         venueName: pass.venueName,
       };
       await client.ensureClass(genericClass(settings.classId));
-      await client.syncObject(this.passObject(settings, pass.objectId, pass.qrToken, wallet));
+      // También cambia el QR de los pases hechos cuando era el enlace /w (migración 20261022100000).
+      await client.syncObject(this.passObject(settings, pass.objectId, { id: pass.walletId, qrToken: pass.qrToken }, wallet));
       await this.prisma.walletPass.update({
         where: { id: pass.id },
         data: {
@@ -257,16 +261,26 @@ export class GoogleWalletService {
       return;
     }
     if (count > SAVE_MAX_PER_MINUTE) {
-      throw new HttpException('Demasiados intentos: espera un minuto y vuelve a probar.', HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        { message: 'Demasiados intentos: espera un minuto y vuelve a probar.', code: 'RATE_LIMITED' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
   }
 
-  private passObject(settings: GoogleWalletSettings, objectId: string, qrToken: string, wallet: PassWallet): GenericObject {
+  private passObject(
+    settings: GoogleWalletSettings,
+    objectId: string,
+    link: { id: string; qrToken: string },
+    wallet: PassWallet,
+  ): GenericObject {
     return genericObject({
       objectId,
       classId: settings.classId,
       brand: BRAND_NAME,
-      walletUrl: `${this.publicOrigin}/w/${encodeURIComponent(qrToken)}`,
+      walletUrl: `${this.publicOrigin}/w/${encodeURIComponent(link.qrToken)}`,
+      // El QR solo cobra en el datáfono (con el PIN): no abre el saldo.
+      chargeUrl: passChargeUrl(this.publicOrigin, passChargeSecret(), link.id, link.qrToken),
       wallet,
     });
   }

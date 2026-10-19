@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
@@ -13,6 +12,7 @@ import {
   Post,
   Query,
   Res,
+  UseFilters,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
@@ -23,7 +23,7 @@ import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { WalletPasskeysService } from '../wallets/wallet-passkeys.service';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { PAID_STATES, confirmationCode, type CheckoutChoice, type PayRedirect } from './pay-redirect';
-import { detectPayDevice } from './pay-device';
+import { detectPayDevice, type PayDevice } from './pay-device';
 import { payErrorKey, resolveLanguage, type PayLanguage } from './pay-i18n';
 import {
   payHref,
@@ -41,6 +41,15 @@ import {
   renderResultView,
 } from './public-pay.pages';
 import { walletClaimCookieName, walletClaimSetCookie } from './wallet-claim';
+import { PayPageFilter } from './pay-page.filter';
+
+/**
+ * Páginas GET de /pay: fuera del límite global (global-rate-limit.ts) y con
+ * este, holgado: el «Comprobando» se refresca cada 3-5 s y en el local muchos
+ * clientes comparten el wifi. Pasado, una página que espera (PayPageFilter).
+ */
+const PAY_PAGE_LIMIT = { max: 600, windowSec: 60, scope: 'pay-page' } as const;
+import { checkedPin } from '../wallets/client-pin';
 
 /** Formulario de la página de pago. `method` vacío = sin preferencia. */
 const CheckoutFormSchema = z.object({
@@ -95,6 +104,8 @@ export class PublicPayController {
 
   @Public()
   @Get('result')
+  @IpRateLimit(PAY_PAGE_LIMIT)
+  @UseFilters(new PayPageFilter())
   async paymentResult(
     @Query('op') op: string | undefined,
     @Query('lang') langQuery: string | undefined,
@@ -115,11 +126,15 @@ export class PublicPayController {
     const refreshUrl = `/pay/result?op=${encodeURIComponent(op ?? '')}&lang=${lang}`;
     const hidden = Boolean(view?.walletToken) && !this.hasWalletClaim(res, view?.qrToken ?? '', view?.walletClaimHash ?? null);
     const shown = hidden && view ? { ...view, walletToken: null } : view;
-    sendHtml(res, 200, renderResultView(shown, lang, refreshUrl, hidden));
+    // «Pagado» lima solo en el navegador del intento aprobado; en los demás, «Ya pagado».
+    const viewerPaid = view ? this.hasWalletClaim(res, view.qrToken, view.approvedClaimHash ?? null) : false;
+    sendHtml(res, 200, renderResultView(shown, lang, refreshUrl, { walletElsewhere: hidden, viewerPaid }));
   }
 
   @Public()
   @Get(':token/receipt')
+  @IpRateLimit(PAY_PAGE_LIMIT)
+  @UseFilters(new PayPageFilter())
   async receipt(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,
@@ -141,6 +156,8 @@ export class PublicPayController {
 
   @Public()
   @Get(':token/checkout')
+  @IpRateLimit(PAY_PAGE_LIMIT)
+  @UseFilters(new PayPageFilter())
   async checkout(
     @Param('token') token: string,
     @Query('op') op: string | undefined,
@@ -159,6 +176,8 @@ export class PublicPayController {
 
   @Public()
   @Get(':token')
+  @IpRateLimit(PAY_PAGE_LIMIT)
+  @UseFilters(new PayPageFilter())
   async payPage(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,
@@ -194,7 +213,8 @@ export class PublicPayController {
     const claim = this.claimValue(res, token) ?? randomBytes(32).toString('base64url');
     const choice: CheckoutChoice = {
       tipCents: parsed.data.tip,
-      method: parsed.data.method,
+      // Con el botón directo apagado, una página vieja que aún pida xpay va al banco sin preferencia.
+      method: parsed.data.method === 'wallet' && !this.directWallet() ? null : parsed.data.method,
       language: lang,
       claimHash: sha256(claim),
     };
@@ -224,7 +244,7 @@ export class PublicPayController {
           renderChoosePage(view, {
             token,
             lang,
-            device: detectPayDevice(userAgent),
+            device: this.payDevice(userAgent),
             statementName: this.statementName(),
             now: new Date(),
           }),
@@ -269,6 +289,8 @@ export class PublicPayController {
               walletElsewhere: Boolean(view.walletToken) && !payer,
               // Solo en el móvil que pagó la recarga que creó el saldo.
               wallet: payer && view.walletCode ? { hasFaceId: view.walletHasFaceId, base: payBase(token) } : null,
+              // Un /pay reenviado a otro móvil ve «Ya pagado» en gris, nunca el lima.
+              viewerPaid: this.hasWalletClaim(res, token, view.approvedClaimHash ?? null),
             },
             lang,
           ),
@@ -348,9 +370,7 @@ export class PublicPayController {
     @Headers('sec-fetch-site') fetchSite: string | undefined,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<{ ok: true }> {
-    const pin = typeof body?.pin === 'string' ? body.pin : '';
-    if (!/^[0-9]{4}$/.test(pin)) throw new BadRequestException('El PIN son 4 cifras');
-    if (body?.pin2 !== pin) throw new BadRequestException('Los dos PIN no son iguales');
+    const pin = checkedPin(body);
     const wallet = await this.payerWallet(token, res, host, origin, fetchSite);
     await this.charges.setPinFromPayer(wallet.id, pin);
     return { ok: true };
@@ -393,7 +413,7 @@ export class PublicPayController {
       !view.walletCode ||
       !this.hasWalletClaim(res, token, view.walletClaimHash)
     ) {
-      throw new ForbiddenException('Esto solo se puede hacer desde el móvil que pagó la recarga');
+      throw new ForbiddenException({ message: 'Esto solo se puede hacer desde el móvil que pagó la recarga', code: 'PAYER_ONLY' });
     }
     return this.charges.walletRefByToken(view.walletToken);
   }
@@ -436,6 +456,18 @@ export class PublicPayController {
     if (!claimHash) return false;
     const value = this.claimValue(res, payToken);
     return value !== null && sha256(value) === claimHash;
+  }
+
+  /** Sin el botón directo de Apple Pay / Google Pay (PAY_DIRECT_WALLET=false): un solo botón hacia el banco. */
+  private payDevice(userAgent: string | undefined): PayDevice {
+    const device = detectPayDevice(userAgent);
+    return this.directWallet() ? device : { ...device, wallet: null };
+  }
+
+  /** PAY_DIRECT_WALLET (por defecto, sí): ConfigService da el booleano validado o, sin validar, el texto. */
+  private directWallet(): boolean {
+    const raw = this.config.get<boolean | string | undefined>('PAY_DIRECT_WALLET');
+    return !(raw === false || raw === 'false' || raw === '0');
   }
 
   private statementName(): string | null {

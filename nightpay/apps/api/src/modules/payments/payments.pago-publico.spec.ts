@@ -28,12 +28,15 @@ interface Attempt {
   status: string;
   createdAt: Date;
   claimHash?: string | null;
+  payMethod?: string | null;
 }
 interface Setup {
   payment?: Row | null;
   attempts?: Attempt[];
   /** Pasarela activa del local (null = ninguna). */
   provider?: string | null;
+  /** Pausa y formas de cobro del local (por defecto, abierto y todo encendido). */
+  venue?: Row;
   authorize?: (input: Row) => Promise<Row>;
 }
 
@@ -95,6 +98,8 @@ function makeService(setup: Setup = {}) {
       }),
     },
     gatewayCredential: { findFirst: vi.fn(async () => (provider === null ? null : { provider })) },
+    venue: { findUnique: vi.fn(async () => setup.venue ?? { pausedAt: null, business: null, paymentMethods: null }) },
+    walletCashTopUp: { findFirst: vi.fn(async () => null) },
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       locks.push(Prisma.sql(strings, ...values));
       return [{ ok: 1 }];
@@ -218,10 +223,18 @@ describe('getPayPage — lo que ve el cliente al escanear el QR', () => {
     await expect(service.getPayPage(QR)).resolves.toEqual({ kind: 'processing' });
   });
 
-  it('Redsys, intento abandonado con el QR ya caducado → cerrado', async () => {
+  it('Redsys, intento sin respuesta del banco con el QR ya caducado → «sin confirmar» (puede que sí cobrara)', async () => {
     const { service } = makeService({
       payment: { status: 'AUTHORIZING', provider: 'REDSYS', qrExpiresAt: secondsAgo(10) },
       attempts: [{ providerTxId: 'ORD-1', status: 'PENDING', createdAt: secondsAgo(200) }],
+    });
+    await expect(service.getPayPage(QR)).resolves.toEqual({ kind: 'closed', reason: 'unconfirmed' });
+  });
+
+  it('Redsys, intento denegado con el QR ya caducado → caducado (ahí sí: no se cobró nada)', async () => {
+    const { service } = makeService({
+      payment: { status: 'AUTHORIZING', provider: 'REDSYS', qrExpiresAt: secondsAgo(10) },
+      attempts: [{ providerTxId: 'ORD-1', status: 'DENIED', createdAt: secondsAgo(200) }],
     });
     await expect(service.getPayPage(QR)).resolves.toEqual({ kind: 'closed', reason: 'expired' });
   });
@@ -308,6 +321,41 @@ describe('startCheckout — el cliente pulsa «Pagar»', () => {
   });
 });
 
+describe('startCheckout — el local se pausó o apagó el QR con tarjeta después de crear el cobro', () => {
+  it('local en pausa → 423 sin ir al banco', async () => {
+    const { service, adapter, written } = makeService({ venue: { pausedAt: NOW, business: null, paymentMethods: null } });
+    await expect(service.startCheckout(QR, choice())).rejects.toMatchObject({ status: 423 });
+    expect(adapter.authorize).not.toHaveBeenCalled();
+    expect(written).toHaveLength(0);
+  });
+
+  it('negocio en pausa o «QR con tarjeta» apagado → no se cobra (tampoco al reintentar)', async () => {
+    const business = makeService({ venue: { pausedAt: null, business: { status: 'PAUSED' }, paymentMethods: null } });
+    await expect(business.service.startCheckout(QR, choice())).rejects.toMatchObject({ status: 423 });
+    const cardOff = makeService({ venue: { pausedAt: null, business: null, paymentMethods: { card: false } } });
+    await expect(cardOff.service.startCheckout(QR, choice())).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'PAYMENT_METHOD_DISABLED', method: 'card' }),
+    });
+    const retry = makeService({
+      payment: { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: 'ORD-1' },
+      attempts: [{ providerTxId: 'ORD-1', status: 'DENIED', createdAt: secondsAgo(60) }],
+      venue: { pausedAt: NOW, business: null, paymentMethods: null },
+    });
+    await expect(retry.service.startCheckout(QR, choice())).rejects.toMatchObject({ status: 423 });
+    for (const s of [business, cardOff, retry]) expect(s.adapter.authorize).not.toHaveBeenCalled();
+  });
+
+  it('recarga de saldo con «Saldo» apagado → 409; ya pagado → «Pagado» igualmente', async () => {
+    const topUp = makeService({ payment: { walletId: 'w-1' }, venue: { pausedAt: null, business: null, paymentMethods: { wallet: false } } });
+    await expect(topUp.service.startCheckout(QR, choice())).rejects.toMatchObject({
+      response: expect.objectContaining({ method: 'wallet' }),
+    });
+    const paid = makeService({ payment: { status: 'AUTHORIZED', provider: 'REDSYS' }, venue: { pausedAt: NOW } });
+    await expect(paid.service.startCheckout(QR, choice())).resolves.toMatchObject({ kind: 'paid' });
+  });
+});
+
 describe('startCheckout — reintento con Redsys (pago en AUTHORIZING)', () => {
   const inProgress = { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: 'ORD-1' };
 
@@ -348,6 +396,31 @@ describe('startCheckout — reintento con Redsys (pago en AUTHORIZING)', () => {
     await expect(tooMany.service.startCheckout(QR, choice())).resolves.toEqual({ kind: 'closed', reason: 'too-many-attempts' });
     expect(waiting.adapter.authorize).not.toHaveBeenCalled();
     expect(tooMany.adapter.authorize).not.toHaveBeenCalled();
+  });
+
+  it('«Pagar con tarjeta» tras tocar Apple Pay (intento pendiente de hace 10 s) → pedido NUEVO con tarjeta', async () => {
+    const { service, adapter, written } = makeService({
+      payment: inProgress,
+      attempts: [
+        { providerTxId: 'ORD-1', status: 'PENDING', createdAt: secondsAgo(10), claimHash: 'huella-cliente', payMethod: 'wallet' },
+      ],
+      authorize: async () => ({ providerTxId: 'ORD-2', checkoutForm: REDSYS_FORM }),
+    });
+    await expect(service.startCheckout(QR, choice({ method: 'card' }))).resolves.toEqual({ kind: 'checkout', order: 'ORD-2' });
+    expect(adapter.authorize).toHaveBeenCalledWith(expect.objectContaining({ payMethod: 'card' }));
+    expect(written).toEqual([expect.objectContaining({ providerTxId: 'ORD-2', payMethod: 'card' })]);
+  });
+
+  it('el mismo botón otra vez (doble toque de Apple Pay) → el mismo pedido; pasado el replay → esperar', async () => {
+    const pending = (s: number) => [
+      { providerTxId: 'ORD-1', status: 'PENDING', createdAt: secondsAgo(s), claimHash: 'huella-cliente', payMethod: 'wallet' },
+    ];
+    const replay = makeService({ payment: inProgress, attempts: pending(5) });
+    await expect(replay.service.startCheckout(QR, choice({ method: 'wallet' }))).resolves.toEqual({ kind: 'checkout', order: 'ORD-1' });
+    const waiting = makeService({ payment: inProgress, attempts: pending(60) });
+    await expect(waiting.service.startCheckout(QR, choice({ method: 'wallet' }))).resolves.toEqual({ kind: 'processing' });
+    expect(replay.adapter.authorize).not.toHaveBeenCalled();
+    expect(waiting.adapter.authorize).not.toHaveBeenCalled();
   });
 
   it('la pasarela falla al reintentar → 409 genérico; lo enviado al banco solo va al log', async () => {

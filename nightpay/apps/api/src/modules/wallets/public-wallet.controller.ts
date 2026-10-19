@@ -1,6 +1,6 @@
 import {
-  BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Get,
   Header,
@@ -22,6 +22,7 @@ import { WalletChargesService, type ClientWalletState } from './wallet-charges.s
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { WalletTopUpService } from './wallet-topup.service';
 import { renderWalletPage } from './wallet-page';
+import { checkedPin } from './client-pin';
 import { GoogleWalletService } from './google-wallet/google-wallet.service';
 
 /**
@@ -30,9 +31,12 @@ import { GoogleWalletService } from './google-wallet/google-wallet.service';
  *  - GET  /w/:token                          → página del saldo.
  *  - GET  /w/:token/state                    → estado (la página lo refresca).
  *  - POST /w/:token/passkey/options, /passkey → activar Face ID.
- *  - POST /w/:token/pin                      → elegir PIN (si aún no tiene).
+ *  - POST /w/:token/pin/challenge, /pin      → elegir PIN (si aún no tiene).
  *  - POST /w/:token/merge/challenge, /merge  → sumar este saldo al de su Face ID.
- *  - POST /w/:token/close                    → "Me voy: devolver mi saldo".
+ *  - POST /w/:token/close/challenge, /close  → "Me voy: devolver mi saldo".
+ *    Elegir PIN y «Me voy» con un saldo que tiene Face ID piden además su
+ *    llave (el reto de /challenge, atado a `pin:` / `close:` y a este saldo):
+ *    con solo el enlace no se le pone PIN para gastarlo con código + PIN.
  *  - POST /w/:token/topup/challenge, /topup  → «Recargar»: crea la recarga de
  *    este saldo (con su Face ID si lo tiene) y se paga en /pay/:token; al
  *    pagar, este navegador vuelve aquí con ?pagado=<cobro> (WalletTopUpService).
@@ -93,9 +97,20 @@ export class PublicWalletController {
     return this.charges.clientState(token);
   }
 
+  /** Elegir PIN o «Me voy» con Face ID, paso 1: reto para su llave (solo si el saldo tiene Face ID). */
+  @Public()
+  @Post(':token/pin/challenge')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-pin' })
+  async pinChallenge(@Param('token') token: string, @Headers('host') host: string | undefined): Promise<unknown> {
+    return this.ownerChallenge(token, 'pin', host);
+  }
+
   /**
    * Elegir PIN (para pagar sin sacar el móvil), desde la página del saldo.
-   * Lo mismo que en el «Pagado» de la recarga: solo si aún no tiene PIN.
+   * Lo mismo que en el «Pagado» de la recarga: solo si aún no tiene PIN. Con
+   * Face ID, solo desbloqueando el móvil del saldo (`response` del reto).
    */
   @Public()
   @Post(':token/pin')
@@ -104,12 +119,12 @@ export class PublicWalletController {
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-pin' })
   async pin(
     @Param('token') token: string,
-    @Body() body: { pin?: unknown; pin2?: unknown } | undefined,
+    @Body() body: { pin?: unknown; pin2?: unknown; response?: unknown } | undefined,
+    @Headers('host') host: string | undefined,
   ): Promise<ClientWalletState> {
-    const pin = typeof body?.pin === 'string' ? body.pin : '';
-    if (!/^[0-9]{4}$/.test(pin)) throw new BadRequestException('El PIN son 4 cifras');
-    if (body?.pin2 !== pin) throw new BadRequestException('Los dos PIN no son iguales');
+    const pin = checkedPin(body);
     const wallet = await this.charges.walletRefByToken(token);
+    await this.passkeys.assertOwner(wallet.id, `pin:${wallet.id}`, host, body?.response);
     await this.charges.setPinFromPayer(wallet.id, pin);
     return this.charges.clientState(token);
   }
@@ -217,11 +232,36 @@ export class PublicWalletController {
   }
 
   @Public()
+  @Post(':token/close/challenge')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-close' })
+  async closeChallenge(@Param('token') token: string, @Headers('host') host: string | undefined): Promise<unknown> {
+    return this.ownerChallenge(token, 'close', host);
+  }
+
+  /** «Me voy»: con Face ID, solo desbloqueando el móvil del saldo. */
+  @Public()
   @Post(':token/close')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-close' })
-  async close(@Param('token') token: string): Promise<ClientWalletState> {
+  async close(
+    @Param('token') token: string,
+    @Body() body: { response?: unknown } | undefined,
+    @Headers('host') host: string | undefined,
+  ): Promise<ClientWalletState> {
+    const wallet = await this.charges.walletRefByToken(token);
+    await this.passkeys.assertOwner(wallet.id, `close:${wallet.id}`, host, body?.response);
     return this.charges.requestClose(token);
+  }
+
+  /** Reto atado a esta acción y a este saldo; 409 si el saldo no tiene Face ID (no hace falta). */
+  private async ownerChallenge(token: string, action: 'pin' | 'close', host: string | undefined): Promise<unknown> {
+    const wallet = await this.charges.walletRefByToken(token);
+    if (!(await this.passkeys.hasPasskey(wallet.id))) {
+      throw new ConflictException({ message: 'Este saldo no tiene Face ID', code: 'FACE_ID_NOT_SET' });
+    }
+    return this.passkeys.challenge(`${action}:${wallet.id}`, host);
   }
 }

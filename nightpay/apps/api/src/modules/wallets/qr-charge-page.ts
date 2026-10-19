@@ -3,15 +3,17 @@ import { CLUB_BASE_CSS, escapeHtml, jsConfig } from '../payments/club-ui';
 import { PAID_SCREEN_CSS, PAID_SCREEN_JS, paidScreenJsText, renderPaidScreen } from '../payments/paid-screen';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
+import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
 import type { QrChargeClientView } from './wallet-charges.service';
 
 /**
  * Página que abre el cliente al escanear el QR del cobro del personal:
  * "Te cobran 60 € · Masaje" → pagar con su saldo desbloqueando su móvil
  * (Face ID, huella o el PIN del teléfono). Al pagar, el mismo «Pagado» a
- * pantalla completa que el pago con tarjeta, con «Te quedan X €». Si se abre
- * un cobro ya pagado, «Ya pagado · hace 23 min» en gris. Texto dinámico con
- * textContent.
+ * pantalla completa que el pago con tarjeta, con «Te quedan X €» (lima solo
+ * en la respuesta de SU pago). Si se abre un cobro ya pagado (aunque sea
+ * recién pagado: el QR de la chica en otro móvil), «Ya pagado · hace…» en
+ * gris. Texto dinámico con textContent.
  */
 
 const TEXT: Record<
@@ -88,7 +90,13 @@ export function renderQrChargePage(
   const eur = (c: number): string => (c / 100).toLocaleString(locale, { style: 'currency', currency: 'EUR' });
   const isPaid = view.status === 'ACCEPTED';
   const paidAt = isPaid && view.paidAt ? new Date(view.paidAt) : null;
-  const config = jsConfig({ base, locale, text: { ...t, paid: paidScreenJsText(p), paidTitle: p.paidTitle }, view });
+  const config = jsConfig({
+    base,
+    locale,
+    text: { ...t, paid: paidScreenJsText(p), paidTitle: p.paidTitle },
+    errors: clientErrorConfig(lang),
+    view,
+  });
   const who = [view.serviceName, view.requestedByName, view.venueName].filter(Boolean).join(' · ');
   // Ya pagado (alguien vuelve a abrir el QR): el «Pagado» en gris, sin formulario.
   const screen = renderPaidScreen({
@@ -130,6 +138,7 @@ ${who ? `<p class="who">${h(who)}</p>` : ''}
 </main>
 <script>
 ${PASSKEY_BROWSER_JS}
+${CLIENT_ERROR_JS}
 ${PAID_SCREEN_JS}
 (function(){
 var C=JSON.parse(${config}),T=C.text,V=C.view,el=document.getElementById('paid');
@@ -159,7 +168,7 @@ $('pay').addEventListener('click',function(){
   .then(paid)
   .catch(function(e){b.disabled=false;b.textContent=T.pay;if(pkCancelled(e))return;
    if(!e||!e.status){show('error',T.unknown);$('reload').hidden=false;return;}
-   show('error',e.message||T.notPending);
+   show('error',npErr(e,C.errors));
    // 409: puede que un intento anterior sí se cobrara; recargar enseña el estado real.
    if(e.status===409)$('reload').hidden=false;else $('notCharged').hidden=false;});
 });

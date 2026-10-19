@@ -75,7 +75,10 @@ Marca cada punto:
 - [ ] **Cobro con QR y propina**: la chica crea un cobro de 1 € → el cliente
       añade 0,50 € de propina → paga con tarjeta → «Pagado» en los dos móviles.
 - [ ] **Apple Pay / Google Pay**: otro cobro de 1 € con el botón de Apple Pay
-      (iPhone) o Google Pay (Android). Nunca se ha probado en producción.
+      (iPhone) o Google Pay (Android). Nunca se ha probado en producción. Si
+      BBVA no tiene Apple Pay / Google Pay («xpay») en el TPV, pon
+      `PAY_DIRECT_WALLET=false`: el botón principal lleva entonces a la página
+      del banco (tarjeta) en vez de abrir la cartera del móvil.
 - [ ] **Saldo**: recarga de 2 € → el móvil que paga ve «Abrir mi saldo» →
       la página del saldo enseña el QR → la chica pulsa «Escanear QR del
       cliente» → pide 1 € → el cliente acepta en su móvil → le quedan 1 €.

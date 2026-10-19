@@ -29,6 +29,8 @@ interface Setup {
   attempts?: AttemptRow[];
   /** Primer cobro del saldo (null = ninguno). */
   firstTopUpId?: string | null;
+  /** Primera recarga en efectivo del saldo (antes o después del primer cobro). */
+  firstCashAt?: Date | null;
   provider?: string | null;
 }
 
@@ -81,7 +83,7 @@ function makeService(setup: Setup = {}) {
       }),
       findFirst: vi.fn(async ({ where }: { where: { walletId?: string; id?: string; providerTxId?: string } }) => {
         if (where.walletId !== undefined) {
-          return setup.firstTopUpId === null ? null : { id: setup.firstTopUpId ?? PAYMENT_ID };
+          return setup.firstTopUpId === null ? null : { id: setup.firstTopUpId ?? PAYMENT_ID, createdAt: NOW };
         }
         if (!payment) return null;
         if (where.id !== undefined) return where.id === payment.id ? payment : null;
@@ -101,6 +103,11 @@ function makeService(setup: Setup = {}) {
     },
     gatewayCredential: {
       findFirst: vi.fn(async () => (setup.provider === null ? null : { provider: setup.provider ?? 'REDSYS' })),
+    },
+    walletCashTopUp: {
+      findFirst: vi.fn(async () =>
+        setup.firstCashAt ? { takenByUserId: null, terminalId: 'term-recepcion', createdAt: setup.firstCashAt } : null,
+      ),
     },
   };
   const prisma = {
@@ -145,6 +152,15 @@ describe('«Pagado» de una recarga: el saldo solo se entrega con la recarga que
       walletHasFaceId: true,
       walletHasPin: true,
     });
+  });
+
+  it('primera recarga con tarjeta de un saldo abierto en EFECTIVO → quien la paga no se lleva el saldo', async () => {
+    // Pagos #1: antes solo se miraban los cobros; un amigo que pagara 10 € se quedaba con el enlace y el Face ID.
+    const { service } = makeService({ payment: TOP_UP, firstTopUpId: PAYMENT_ID, firstCashAt: new Date(NOW.getTime() - 3_600_000) });
+    await expect(service.getPayPage(QR)).resolves.toMatchObject({ kind: 'paid', walletToken: null, walletCode: null, walletClaimHash: null });
+    // El efectivo después de la tarjeta no cambia nada: la tarjeta sí fue la primera.
+    const after = makeService({ payment: TOP_UP, firstTopUpId: PAYMENT_ID, firstCashAt: new Date(NOW.getTime() + 60_000) });
+    await expect(after.service.getPayPage(QR)).resolves.toMatchObject({ kind: 'paid', walletToken: 'wq-5f4e3d2c' });
   });
 
   it('recarga de un saldo que ya existía → quien paga no se lleva enlace, código ni Face ID', async () => {
@@ -247,6 +263,7 @@ describe('getResultView — el cliente vuelve del banco a /pay/result', () => {
       walletHasFaceId: false,
       walletHasPin: false,
       attemptStatus: 'DENIED',
+      approvedClaimHash: null,
     });
   });
 

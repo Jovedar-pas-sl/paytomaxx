@@ -294,6 +294,8 @@ export function renderPaidPage(
     wallet?: WalletBlock | null;
     /** Hora del servidor (para «hace 0:12» y para saber si es un enlace ya pagado). */
     now?: Date;
+    /** Este navegador hizo el pago aprobado (su cookie): solo él ve el «Pagado» lima. */
+    viewerPaid?: boolean;
   },
   lang: PayLanguage,
 ): string {
@@ -308,6 +310,7 @@ export function renderPaidPage(
     now,
     code: args.code,
     lines,
+    viewerPaid: args.viewerPaid === true,
   });
   const walletLinks = args.walletHref
     ? `${args.wallet ? '' : `<p>${escapeHtml(t.walletReady)}</p>`}
@@ -336,6 +339,20 @@ export function renderProcessingPage(lang: PayLanguage, refreshUrl: string, offe
 <p>${escapeHtml(t.processingBody)}</p>
 ${offerNewCharge ? `<p class="small">${escapeHtml(t.processingNewCharge)}</p>` : ''}`;
   return page(t, t.processingTitle, body, { head });
+}
+
+/**
+ * Demasiadas peticiones desde esta IP (el wifi del local): espera `seconds` y
+ * vuelve a cargar la misma página. Sin «no se te ha cobrado»: no lo sabemos.
+ */
+export function renderBusyPage(lang: PayLanguage, againHref: string, seconds: number): string {
+  const t = PAY_TEXT[lang];
+  const head = `<meta http-equiv="refresh" content="${Math.max(1, Math.round(seconds))};url=${escapeHtml(againHref)}">${SPIN_CSS}`;
+  const body = `
+<div class="spin" aria-hidden="true"></div>
+<h1 role="status">${escapeHtml(t.busyTitle)}</h1>
+<p>${escapeHtml(t.busyBody)}</p>`;
+  return page(t, t.busyTitle, body, { head });
 }
 
 // ─── Avisos: qué pasó, si no se cobró nada y UNA acción ─────────────────
@@ -397,9 +414,9 @@ export function renderResultView(
   view: PayResultView | null,
   lang: PayLanguage,
   refreshUrl: string,
-  walletElsewhere = false,
-  now: Date = new Date(),
+  opts: { walletElsewhere?: boolean; viewerPaid?: boolean; now?: Date } = {},
 ): string {
+  const { walletElsewhere = false, viewerPaid = false, now = new Date() } = opts;
   const t = PAY_TEXT[lang];
   if (!view) return renderNoticePage(lang, t.notFound, 'warn');
   if (PAID_STATES.has(view.status)) {
@@ -418,6 +435,7 @@ export function renderResultView(
             ? { hasFaceId: view.walletHasFaceId, base: payBase(view.qrToken) }
             : null,
         now,
+        viewerPaid,
       },
       lang,
     );

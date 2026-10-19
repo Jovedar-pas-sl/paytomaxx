@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException, ConflictException, ForbiddenException, HttpException, NotFoundException } from '@nestjs/common';
 import { PAYMENT_METHOD_DISABLED_CODE } from '@nightpay/contracts';
 import { WalletTopUpService } from './wallet-topup.service';
+import { WalletPasskeysService } from './wallet-passkeys.service';
 import { VENUE_PAUSED_STATUS } from '../venues/venue-pause';
 import { selfTopUpClaim, selfTopUpClaimHash, selfTopUpKey } from './wallet-topup-rules';
 
@@ -21,6 +22,9 @@ interface Setup {
   incr?: number | Error;
   created?: Record<string, unknown>;
   paidPayment?: Record<string, unknown> | null;
+  /** Recargas desde /w del saldo en las últimas 24 h: la 1ª consulta (antes de crear) y la 2ª (después). */
+  recent?: Array<Record<string, unknown>>;
+  recentAfter?: Array<Record<string, unknown>>;
 }
 
 function make(s: Setup = {}) {
@@ -39,6 +43,10 @@ function make(s: Setup = {}) {
         s.lastTerminal === null ? null : { terminal: s.lastTerminal ?? { externalId: 'BARRA-1', active: true } },
       ),
       findUnique: vi.fn(async () => (s.paidPayment === undefined ? null : s.paidPayment)),
+      findMany: vi
+        .fn()
+        .mockResolvedValueOnce(s.recent ?? [])
+        .mockImplementation(async () => s.recentAfter ?? [...(s.recent ?? []), { id: PAYMENT, ...row(5000, 'CREATED') }]),
     },
     terminal: { findFirst: vi.fn(async () => (s.anyTerminal === undefined ? { externalId: 'AAA-0' } : s.anyTerminal)) },
   };
@@ -47,6 +55,8 @@ function make(s: Setup = {}) {
     hasPasskey: vi.fn(async () => s.hasPasskey ?? false),
     verify: vi.fn(async () => s.verifiedWallet ?? WALLET),
     challenge: vi.fn(async () => ({ challenge: 'reto' })),
+    // La de verdad (hasPasskey + verify de arriba).
+    assertOwner: WalletPasskeysService.prototype.assertOwner,
   };
   const redis = {
     incr: vi.fn(async () => {
@@ -56,8 +66,9 @@ function make(s: Setup = {}) {
     expire: vi.fn(async () => 1),
   };
   const payments = {
+    transition: vi.fn(async () => undefined),
     create: vi.fn(async () => ({
-      id: '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b',
+      id: PAYMENT,
       status: 'CREATED',
       qrToken: 'pay-tok-1',
       qrExpiresAt: new Date(Date.now() + 300_000).toISOString(),
@@ -74,6 +85,12 @@ function make(s: Setup = {}) {
     moduleRef as never,
   );
   return { service, db, passkeys, redis, payments };
+}
+
+const PAYMENT = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
+/** Una recarga desde /w de las últimas 24 h (qrExpiresAt en el futuro: aún se puede pagar). */
+function row(amountCents: number, status: string, o: Record<string, unknown> = {}): Record<string, unknown> {
+  return { id: `p-${Math.random()}`, idempotencyKey: 'wtopup:otra', amountCents, status, qrExpiresAt: new Date(Date.now() + 60_000), ...o };
 }
 
 const start = (service: WalletTopUpService, o: Record<string, unknown> = {}) =>
@@ -179,10 +196,81 @@ describe('WalletTopUpService.start — seguridad', () => {
     expect(over.payments.create).not.toHaveBeenCalled();
   });
 
-  it('sin Redis no se bloquea al cliente (queda el límite por IP)', async () => {
+  it('sin Redis no se recarga desde el móvil (503 TRY_LATER): sin el límite por saldo quedaría solo el de la IP', async () => {
     const { service, payments } = make({ incr: new Error('ECONNREFUSED') });
-    await start(service);
-    expect(payments.create).toHaveBeenCalled();
+    const err = await start(service).catch((e: unknown) => e);
+    expect((err as HttpException).getStatus()).toBe(503);
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'TRY_LATER' });
+    expect(payments.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('WalletTopUpService.start — tope de 24 h por saldo (en la base)', () => {
+  it('cabe: 500 € pagados hoy + 50 € → se crea; + 150 € → 409 WALLET_TOPUP_DAILY_LIMIT', async () => {
+    const paid = [row(30_000, 'AUTHORIZED'), row(20_000, 'AUTHORIZED')];
+    const ok = make({ recent: paid });
+    await start(ok.service, { amountCents: 5000 });
+    expect(ok.payments.create).toHaveBeenCalled();
+    expect(ok.db.payment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ walletId: WALLET, idempotencyKey: { startsWith: 'wtopup:' } }),
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    );
+    const over = make({ recent: paid, hasPasskey: true });
+    const err = await start(over.service, { amountCents: 15_000 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'WALLET_TOPUP_DAILY_LIMIT' });
+    expect(over.payments.create).not.toHaveBeenCalled();
+    // Antes de pedir el Face ID: no se gasta un desbloqueo en algo que no cabe.
+    expect(over.passkeys.verify).not.toHaveBeenCalled();
+  });
+
+  it('4 pagadas en 24 h → 409 aunque el importe quepa; lo caducado, fallido o cancelado no cuenta', async () => {
+    const four = make({ recent: Array.from({ length: 4 }, () => row(2000, 'AUTHORIZED')) });
+    await expect(start(four.service, { amountCents: 2000 })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'WALLET_TOPUP_DAILY_LIMIT' }),
+    });
+    const dead = [
+      row(30_000, 'EXPIRED'),
+      row(30_000, 'FAILED'),
+      row(30_000, 'CANCELED'),
+      row(30_000, 'CREATED', { qrExpiresAt: new Date(Date.now() - 1000) }),
+    ];
+    const fine = make({ recent: dead });
+    await expect(start(fine.service, { amountCents: 30_000 })).resolves.toBeDefined();
+  });
+
+  it('3 a medias o sin confirmar (en el banco, ORPHAN o QR vigente) → 409 WALLET_TOPUP_PENDING_LIMIT', async () => {
+    const pending = make({ recent: [row(1000, 'AUTHORIZING'), row(1000, 'ORPHAN'), row(1000, 'CREATED')] });
+    await expect(start(pending.service)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'WALLET_TOPUP_PENDING_LIMIT' }),
+    });
+    expect(pending.payments.create).not.toHaveBeenCalled();
+  });
+
+  it('doble toque: la misma clave ya tiene su cobro → no se vuelve a mirar el tope (ni se cancela)', async () => {
+    const mine = { ...row(30_000, 'CREATED'), id: PAYMENT, idempotencyKey: selfTopUpKey(selfTopUpClaim(SECRET, WALLET, KEY)) };
+    const full = [row(30_000, 'AUTHORIZED'), mine];
+    const { service, payments } = make({ recent: full, recentAfter: full });
+    await expect(start(service, { amountCents: 30_000 })).resolves.toMatchObject({ payToken: 'pay-tok-1' });
+    expect(payments.transition).not.toHaveBeenCalled();
+  });
+
+  it('dos «Recargar» a la vez que no caben: la que se creó después se cancela y da 409', async () => {
+    // Antes de crear no había nada; al mirar otra vez, otra recarga de 400 € se creó justo antes que esta.
+    const earlier = row(40_000, 'CREATED');
+    const { service, payments } = make({
+      recent: [],
+      recentAfter: [earlier, { ...row(30_000, 'CREATED'), id: PAYMENT }],
+    });
+    const err = await start(service, { amountCents: 30_000 }).catch((e: unknown) => e);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'WALLET_TOPUP_DAILY_LIMIT' });
+    expect(payments.transition).toHaveBeenCalledWith(PAYMENT, { type: 'CANCELED', reason: 'wallet-topup-cap' });
+    // La que se creó antes no mira las de después: sigue.
+    const first = make({ recent: [], recentAfter: [{ ...row(30_000, 'CREATED'), id: PAYMENT }, row(40_000, 'CREATED')] });
+    await expect(start(first.service, { amountCents: 30_000 })).resolves.toBeDefined();
+    expect(first.payments.transition).not.toHaveBeenCalled();
   });
 });
 

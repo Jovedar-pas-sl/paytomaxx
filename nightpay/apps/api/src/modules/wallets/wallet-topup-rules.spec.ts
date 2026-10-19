@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
+  SELF_TOPUP_DAILY_MAX_CENTS,
+  SELF_TOPUP_DAILY_MAX_PAID,
+  SELF_TOPUP_MAX_UNRESOLVED,
   SELF_TOPUP_MAX_CENTS,
   SELF_TOPUP_MIN_CENTS,
   SELF_TOPUP_PRESETS_CENTS,
   TOPUP_BLOCK_MESSAGES,
   isClientTopUpKey,
   parseTopUpAmount,
+  selfTopUpCapProblem,
   selfTopUpClaim,
   selfTopUpClaimHash,
   selfTopUpKey,
@@ -28,6 +32,38 @@ const venue = (o: Partial<TopUpVenueState> = {}): TopUpVenueState => ({
   hasGateway: true,
   hasTerminal: true,
   ...o,
+});
+
+const NOW = new Date('2026-10-20T01:00:00Z');
+const later = new Date(NOW.getTime() + 60_000);
+const earlier = new Date(NOW.getTime() - 60_000);
+const t = (amountCents: number, status: string, qrExpiresAt: Date = later) => ({ amountCents, status, qrExpiresAt });
+
+describe('selfTopUpCapProblem — tope de 24 h por saldo de las recargas desde /w', () => {
+  it('600 € y 4 recargas pagadas cada 24 h; 3 a medias o sin confirmar a la vez', () => {
+    expect(SELF_TOPUP_DAILY_MAX_CENTS).toBe(60_000);
+    expect(SELF_TOPUP_DAILY_MAX_PAID).toBe(4);
+    expect(SELF_TOPUP_MAX_UNRESOLVED).toBe(3);
+  });
+
+  it('importe: lo pagado (también lo devuelto) + lo que aún puede cobrarse + esta', () => {
+    expect(selfTopUpCapProblem([], 30_000, NOW)).toBeNull();
+    expect(selfTopUpCapProblem([t(30_000, 'AUTHORIZED')], 30_000, NOW)).toBeNull();
+    expect(selfTopUpCapProblem([t(30_000, 'AUTHORIZED')], 30_100, NOW)).toBe('daily-amount');
+    expect(selfTopUpCapProblem([t(30_000, 'REFUNDED'), t(25_000, 'AUTHORIZING')], 10_000, NOW)).toBe('daily-amount');
+    expect(selfTopUpCapProblem([t(30_000, 'PARTIALLY_REFUNDED'), t(25_000, 'CREATED')], 5_000, NOW)).toBeNull();
+  });
+
+  it('lo caducado, fallido o cancelado no cuenta', () => {
+    const dead = [t(30_000, 'EXPIRED'), t(30_000, 'FAILED'), t(30_000, 'CANCELED'), t(30_000, 'CREATED', earlier)];
+    expect(selfTopUpCapProblem(dead, 30_000, NOW)).toBeNull();
+  });
+
+  it('nº de pagadas y de a medias', () => {
+    expect(selfTopUpCapProblem(Array.from({ length: 4 }, () => t(1_000, 'AUTHORIZED')), 1_000, NOW)).toBe('daily-count');
+    expect(selfTopUpCapProblem([t(1_000, 'AUTHORIZING'), t(1_000, 'ORPHAN'), t(1_000, 'CREATED')], 1_000, NOW)).toBe('unresolved');
+    expect(selfTopUpCapProblem([t(1_000, 'AUTHORIZING'), t(1_000, 'ORPHAN'), t(1_000, 'CREATED', earlier)], 1_000, NOW)).toBeNull();
+  });
 });
 
 describe('«Recargar» desde /w: importes', () => {

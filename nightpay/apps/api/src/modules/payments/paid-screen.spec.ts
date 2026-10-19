@@ -35,13 +35,20 @@ describe('pantalla «Pagado»', () => {
   const base = { t: es, amount: '65,00 €', authorizedAt: at, code: 'A6B' };
 
   it('recién pagado → lima («Pagado»); pasado el margen → gris («Ya pagado», «No es un pago nuevo»)', () => {
-    const fresh = renderPaidScreen({ ...base, now: new Date(at.getTime() + PAID_FRESH_MS - 1) });
+    const fresh = renderPaidScreen({ ...base, viewerPaid: true, now: new Date(at.getTime() + PAID_FRESH_MS - 1) });
     expect(fresh).toContain('class="paid" id="paid"');
     expect(fresh).toContain('>Pagado</h1>');
-    const stale = renderPaidScreen({ ...base, now: new Date(at.getTime() + PAID_FRESH_MS) });
+    const stale = renderPaidScreen({ ...base, viewerPaid: true, now: new Date(at.getTime() + PAID_FRESH_MS) });
     expect(stale).toContain('class="paid stale" id="paid"');
     expect(stale).toContain('>Ya pagado</h1>');
     expect(stale).toContain('No es un pago nuevo.');
+  });
+
+  it('otro navegador (no el que pagó) → gris aunque sea de hace un segundo', () => {
+    const html = renderPaidScreen({ ...base, now: new Date(at.getTime() + 1_000) });
+    expect(html).toContain('class="paid stale" id="paid"');
+    expect(html).toContain('>Ya pagado</h1>');
+    expect(renderPaidScreen({ ...base, viewerPaid: false, now: at })).toContain('class="paid stale"');
   });
 
   it('sin hora de autorización no puede pasar por nuevo', () => {

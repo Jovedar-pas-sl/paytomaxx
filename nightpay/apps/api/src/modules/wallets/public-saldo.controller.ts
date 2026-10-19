@@ -65,7 +65,9 @@ export class PublicSaldoController {
   @IpRateLimit({ max: 60, windowSec: 60, scope: 'saldo-qr-pay' })
   async challenge(@Param('token') token: string, @Headers('host') host: string | undefined): Promise<unknown> {
     const view = await this.charges.qrChargeForClient(token);
-    if (view.status !== 'PENDING') throw new ConflictException('Este cobro ya no está pendiente');
+    if (view.status !== 'PENDING') {
+      throw new ConflictException({ message: 'Este cobro ya no está pendiente', code: 'CHARGE_NOT_PENDING' });
+    }
     return this.passkeys.challenge(scopeOf(token), host);
   }
 

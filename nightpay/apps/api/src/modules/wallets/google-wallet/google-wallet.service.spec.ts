@@ -4,6 +4,7 @@ import { ConflictException, HttpException, NotFoundException, ServiceUnavailable
 import { GoogleWalletService } from './google-wallet.service';
 import { GOOGLE_OAUTH_TOKEN_URL, GOOGLE_WALLET_SAVE_URL } from './google-wallet-jwt';
 import { linkHash } from './google-wallet-pass';
+import { passChargeSecret, passChargeTokenValid } from './pass-charge-token';
 import type { FetchFn } from './google-wallet-client';
 import type { DuePass } from './google-wallet-sync';
 
@@ -15,6 +16,7 @@ const SA = JSON.stringify({
 });
 const ISSUER = '3388000000012345678';
 const TOKEN = 'tok-del-saldo-144bits';
+const WALLET_ID = '6b1d2c3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e';
 const ENV: Record<string, string> = {
   GOOGLE_WALLET_ISSUER_ID: ISSUER,
   GOOGLE_WALLET_SERVICE_ACCOUNT_JSON: SA,
@@ -80,7 +82,7 @@ function make(
     asSystem: vi.fn(async (fn: (t: unknown) => unknown) => fn({ ...tx, $queryRaw: vi.fn().mockResolvedValue(due) })),
     walletPass: { upsert: vi.fn().mockResolvedValue({}), update: vi.fn().mockResolvedValue({}) },
   };
-  const charges = { walletRefByToken: vi.fn().mockResolvedValue({ id: 'w-1', shortCode: 'K7Q4M2' }) };
+  const charges = { walletRefByToken: vi.fn().mockResolvedValue({ id: WALLET_ID, shortCode: 'K7Q4M2' }) };
   const config = { get: (key: string) => env[key] };
   const svc = new GoogleWalletService(prisma as never, charges as never, config as never, redis as never, fetchFn);
   return { svc, prisma, charges, tx, due, redis };
@@ -113,14 +115,18 @@ describe('«Añadir a Google Wallet» (POST /w/:token/google-wallet)', () => {
     const object = g.api[1].body as { id: string; barcode: { value: string }; header: { defaultValue: { value: string } } };
     const objectId = `${ISSUER}.oxiopay_saldo-${linkHash(TOKEN).slice(0, 40)}`;
     expect(object.id).toBe(objectId);
-    expect(object.barcode.value).toBe(`https://api.paytomaxx.com/w/${TOKEN}`);
+    // El QR solo cobra en el datáfono (con el PIN); el enlace del saldo va en «Ver mi saldo».
+    const charge = object.barcode.value.split('https://api.paytomaxx.com/c/')[1] ?? '';
+    expect(passChargeTokenValid(passChargeSecret(), charge, { id: WALLET_ID, qrToken: TOKEN })).toBe(true);
+    expect(object.barcode.value).not.toContain(TOKEN);
+    expect(JSON.stringify(object)).toContain(`https://api.paytomaxx.com/w/${TOKEN}`);
     expect(object.header.defaultValue.value).toMatch(/^200,00\s€$/);
 
     // Se guarda el hash del enlace, nunca el enlace.
     const upsert = prisma.walletPass.upsert.mock.calls[0][0];
     expect(upsert.where).toEqual({ objectId });
     expect(upsert.create).toMatchObject({
-      walletId: 'w-1',
+      walletId: WALLET_ID,
       provider: 'GOOGLE',
       objectId,
       tokenHash: linkHash(TOKEN),
@@ -192,6 +198,7 @@ describe('repaso (cola google-wallet-sync)', () => {
   function due(o: Partial<DuePass>): DuePass {
     return {
       id: 'p-1',
+      walletId: WALLET_ID,
       objectId: `${ISSUER}.oxiopay_saldo-aaa`,
       lastSyncedBalanceCents: 20_000,
       lastSyncedStatus: 'ACTIVE',

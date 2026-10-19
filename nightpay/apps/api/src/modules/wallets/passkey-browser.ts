@@ -8,7 +8,8 @@
  * pkPrepare(url) y pkPost(url, body). pkPrepare pide el reto al abrir la
  * página: al tocar "Pagar", Face ID sale al instante (y en el mismo toque,
  * que es lo que exige el iPhone). Si el servidor contesta con error, el
- * Error lleva `status` (sin él, no se sabe qué pasó: falló la red).
+ * Error lleva `status` (sin él, no se sabe qué pasó: falló la red), y `code`
+ * y `reason` si los da el API (la página traduce el `code`: client-errors.ts).
  */
 export const PASSKEY_BROWSER_JS = `
 function pkB64u(buf){var s='',b=new Uint8Array(buf);for(var i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s).split('+').join('-').split('/').join('_').split('=').join('');}
@@ -16,7 +17,7 @@ function pkBytes(s){s=s.split('-').join('+').split('_').join('/');while(s.length
 function pkSupported(){return !!(window.PublicKeyCredential&&navigator.credentials);}
 function pkCancelled(e){return e&&(e.name==='NotAllowedError'||e.name==='AbortError');}
 function pkPost(url,body){return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
-  .then(function(r){return r.json().catch(function(){return {};}).then(function(j){if(!r.ok){var e=new Error(j.detail||j.message||'Error');e.status=r.status;throw e;}return j;});});}
+  .then(function(r){return r.json().catch(function(){return {};}).then(function(j){if(!r.ok){var e=new Error(j.detail||j.message||'Error');e.status=r.status;e.code=j.code;e.reason=j.reason;throw e;}return j;});});}
 function pkCreate(optionsUrl){return pkPost(optionsUrl).then(function(o){
   o.challenge=pkBytes(o.challenge);o.user.id=pkBytes(o.user.id);(o.excludeCredentials||[]).forEach(function(c){c.id=pkBytes(c.id);});
   return navigator.credentials.create({publicKey:o});

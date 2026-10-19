@@ -29,7 +29,14 @@ describe('parseScan: qué QR ha leído el datáfono', () => {
     expect(parseScan(`  https://api.paytomaxx.com/s/${PAY_TOKEN}/ `)).toEqual({ kind: 'charge', payToken: PAY_TOKEN });
   });
 
-  it('el pase de Google Wallet (/w/<token>), la página del saldo (?saldo=) y el código suelto', () => {
+  it('el QR del pase de Google Wallet: el de solo cobrar (/c/<token>, 43 caracteres)', () => {
+    const CHARGE = 'Aq3x9Lm2Pz7Kd4Rt8Wy1Bv6Nc5Hj0Fs2Gu7Qe9Ta4Yo';
+    expect(parseScan(`https://api.paytomaxx.com/c/${CHARGE}`)).toEqual({ kind: 'wallet', ref: { walletToken: CHARGE } });
+    expect(parseScan(`https://api.paytomaxx.com/c/${CHARGE}/pay`)).toEqual({ kind: 'unknown' });
+    expect(parseScan('https://api.paytomaxx.com/c/corto')).toEqual({ kind: 'unknown' });
+  });
+
+  it('el pase de Google Wallet de antes (/w/<token>), la página del saldo (?saldo=) y el código suelto', () => {
     expect(parseScan(`https://api.paytomaxx.com/w/${WALLET_TOKEN}`)).toEqual({
       kind: 'wallet',
       ref: { walletToken: WALLET_TOKEN },

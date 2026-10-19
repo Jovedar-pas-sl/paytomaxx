@@ -74,6 +74,8 @@ export interface WalletText {
   topUpMethods: string;
   topUpFaceId: string;
   topUpNoKey: string;
+  /** Elegir PIN o «Me voy» en un saldo con Face ID, desde un navegador que no puede usarlo. */
+  faceIdNeeded: string;
   topUpOpening: string;
   topUpOff: string;
   topUpBlocked: string;
@@ -149,6 +151,7 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     topUpMethods: 'Sin propina: solo pagas lo que recargas.',
     topUpFaceId: 'Para confirmarlo, desbloquea tu móvil como al pagar.',
     topUpNoKey: 'Este saldo tiene Face ID: recarga desde el móvil donde lo activaste.',
+    faceIdNeeded: 'Este saldo tiene Face ID: hazlo desde el móvil donde lo activaste.',
     topUpOpening: 'Abriendo el pago…',
     topUpOff: 'Ahora no se puede recargar desde el móvil. Pide la recarga en el local.',
     topUpBlocked: 'Este saldo está bloqueado. Pregunta en el local.',
@@ -221,6 +224,7 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     topUpMethods: 'No tip: you only pay what you top up.',
     topUpFaceId: 'To confirm, unlock your phone as when you pay.',
     topUpNoKey: 'This balance uses Face ID: top up from the phone where you turned it on.',
+    faceIdNeeded: 'This balance uses Face ID: do this from the phone where you turned it on.',
     topUpOpening: 'Opening the payment…',
     topUpOff: 'Topping up from your phone is not available right now. Ask the staff to top up.',
     topUpBlocked: 'This balance is blocked. Ask at the venue.',

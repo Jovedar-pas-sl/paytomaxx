@@ -16,10 +16,14 @@ function makeRedis() {
   };
 }
 
-function makeCtx(meta: IpRateLimitConfig | undefined, ip = '203.0.113.5') {
-  const headers: Record<string, string | string[] | undefined> = {};
+function makeCtx(
+  meta: IpRateLimitConfig | undefined,
+  ip = '203.0.113.5',
+  extra: { headers?: Record<string, string>; query?: Record<string, string>; body?: Record<string, string> } = {},
+) {
+  const headers: Record<string, string | string[] | undefined> = { ...extra.headers };
   // La conexión llega de `ip` (el socket); los tests de proxy pasan la de Traefik.
-  const req = { headers, ip, socket: { remoteAddress: ip } };
+  const req = { headers, ip, socket: { remoteAddress: ip }, query: extra.query, body: extra.body };
   const res = { header: vi.fn() };
   return {
     getHandler: () => () => undefined,
@@ -76,6 +80,27 @@ describe('IpRateLimitGuard', () => {
     await guard.canActivate(makeCtx(config));
     await guard.canActivate(makeCtx(config));
     await expect(guard.canActivate(makeCtx(config))).rejects.toThrow(HttpException);
+  });
+
+  it('429 en el idioma de la página (?lang=, el lang del cuerpo o el del móvil) y con code estable', async () => {
+    const config: IpRateLimitConfig = { max: 0, windowSec: 60, scope: 'test' };
+    const guard = new IpRateLimitGuard(makeReflector(config), redis as never);
+    const responseOf = async (extra: Parameters<typeof makeCtx>[2]) =>
+      ((await guard.canActivate(makeCtx(config, '203.0.113.5', extra)).catch((e: unknown) => e)) as HttpException).getResponse();
+    await expect(responseOf({ headers: { 'accept-language': 'es-ES,es;q=0.9' } })).resolves.toMatchObject({
+      code: 'RATE_LIMITED',
+      message: 'Demasiados intentos seguidos: espera un momento y vuelve a probar.',
+    });
+    await expect(responseOf({ headers: { 'accept-language': 'de-DE' } })).resolves.toMatchObject({
+      message: 'Too many attempts in a row: wait a moment and try again.',
+    });
+    // La página en inglés en un móvil en castellano: manda la página.
+    await expect(responseOf({ headers: { 'accept-language': 'es-ES' }, query: { lang: 'en' } })).resolves.toMatchObject({
+      message: expect.stringMatching(/^Too many/),
+    });
+    await expect(responseOf({ headers: { 'accept-language': 'en-GB' }, body: { lang: 'es' } })).resolves.toMatchObject({
+      message: expect.stringMatching(/^Demasiados/),
+    });
   });
 
   it('sets Retry-After header on 429', async () => {

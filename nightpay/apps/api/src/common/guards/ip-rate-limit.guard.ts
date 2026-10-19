@@ -12,6 +12,7 @@ import { Reflector } from '@nestjs/core';
 import type { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.module';
 import { clientIp, type ClientIpRequest } from '../http/client-ip';
+import { resolveLanguage, type PayLanguage } from '../../modules/payments/pay-i18n';
 
 /**
  * La IP real (de fiar) del cliente: ver common/http/client-ip.ts. Se
@@ -43,7 +44,25 @@ export interface IpRateLimitConfig {
 export const IpRateLimit = (config: IpRateLimitConfig) =>
   SetMetadata(META_KEY, config);
 
-type MinimalReq = ClientIpRequest;
+type MinimalReq = ClientIpRequest & {
+  query?: { lang?: unknown };
+  body?: { lang?: unknown } | null;
+  headers?: Record<string, string | string[] | undefined>;
+};
+
+/** `code` estable del 429 (las páginas del cliente lo traducen; ver wallets/client-errors.ts). */
+export const RATE_LIMITED_CODE = 'RATE_LIMITED';
+
+/** El 429 en el idioma de la página que llama (?lang=, el `lang` del cuerpo o el del móvil). */
+export const RATE_LIMITED_MESSAGES: Readonly<Record<PayLanguage, string>> = {
+  es: 'Demasiados intentos seguidos: espera un momento y vuelve a probar.',
+  en: 'Too many attempts in a row: wait a moment and try again.',
+};
+
+function requestLanguage(req: MinimalReq): PayLanguage {
+  const accept = req.headers?.['accept-language'];
+  return resolveLanguage(req.query?.lang ?? req.body?.lang, Array.isArray(accept) ? accept[0] : accept);
+}
 
 /**
  * Guard que lee el meta del handler y aplica fixed-window INCR en Redis.
@@ -105,7 +124,9 @@ export class IpRateLimitGuard implements CanActivate {
       throw new HttpException(
         {
           statusCode: HttpStatus.TOO_MANY_REQUESTS,
-          message: 'Too Many Requests',
+          error: 'Too Many Requests',
+          message: RATE_LIMITED_MESSAGES[requestLanguage(req)],
+          code: RATE_LIMITED_CODE,
           retryAfter,
         },
         HttpStatus.TOO_MANY_REQUESTS,
