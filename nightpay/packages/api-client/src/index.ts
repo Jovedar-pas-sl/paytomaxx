@@ -5,6 +5,7 @@
 export { createApiClient } from './client';
 export {
   ApiError,
+  LoginCodeRequiredError,
   ServerUnavailableError,
   SessionExpiredError,
   TOTP_ERROR_CODES,
@@ -15,7 +16,7 @@ export {
   type UnavailableReason,
 } from './errors';
 export { tokenClaims, tokenExpiresSoon, type TokenClaims } from './jwt';
-export { parseProblemDetails, readApiError, type ProblemInfo } from './problem';
+export { loginTicketOf, parseProblemDetails, readApiError, type ProblemInfo } from './problem';
 export { LOGOUT_TIMEOUT_MS, REQUEST_TIMEOUT_MS, sendRequest, type FetchLike, type RequestMessages } from './request';
 export { parseTabMessage, type BroadcastChannelLike, type ChannelFactory, type TabMessage } from './tab-channel';
 export {

@@ -296,8 +296,17 @@ export function createApiClient<U extends SessionUser = SessionUser>(config: Api
   }
 
   async function login(input: LoginInput): Promise<LoginResult<U>> {
+    return openSession('/v1/auth/login', input);
+  }
+
+  /** Segundo paso del login con 2FA (tras LoginCodeRequiredError): el ticket y el código. */
+  async function loginWithCode(loginTicket: string, totpCode: string): Promise<LoginResult<U>> {
+    return openSession('/v1/auth/login/totp', { loginTicket, totpCode });
+  }
+
+  async function openSession(path: string, payload: unknown): Promise<LoginResult<U>> {
     // Con el candado: un refresco de otra pestaña no pisa la cookie que pone este login.
-    const res = await withLock(() => cookiePost('/v1/auth/login', input));
+    const res = await withLock(() => cookiePost(path, payload));
     if (!res.ok) throw await readApiError(res);
     const body = (await res.json()) as LoginResult<U> & { refreshToken?: unknown };
     return {
@@ -377,6 +386,7 @@ export function createApiClient<U extends SessionUser = SessionUser>(config: Api
     setSession,
     clearSession,
     login,
+    loginWithCode,
     logout,
     discardLogin,
     refreshAccessToken,

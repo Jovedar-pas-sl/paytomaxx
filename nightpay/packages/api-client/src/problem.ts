@@ -1,6 +1,6 @@
 // Cuerpos de error del API (RFC 7807 ProblemDetails) → mensaje y código.
 
-import { ApiError, TotpError, isTotpErrorCode } from './errors';
+import { ApiError, LoginCodeRequiredError, TotpError, isTotpErrorCode } from './errors';
 
 export interface ProblemInfo {
   /** El texto para enseñar; null si el API no explica nada útil. */
@@ -45,6 +45,20 @@ export async function readApiError(
   const text = await res.text().catch(() => '');
   const { message, code } = parseProblemDetails(text);
   const shown = message ?? fallback(res.status);
+  const ticket = code === 'TOTP_REQUIRED' ? loginTicketOf(text) : null;
+  if (ticket) return new LoginCodeRequiredError(shown, res.status, ticket.loginTicket, ticket.expiresIn);
   if (isTotpErrorCode(code)) return new TotpError(shown, res.status, code);
   return new ApiError(shown, res.status, code);
+}
+
+/** El ticket del login en dos pasos (401 TOTP_REQUIRED con `loginTicket`), si lo trae. */
+export function loginTicketOf(text: string): { loginTicket: string; expiresIn: number } | null {
+  try {
+    const body = JSON.parse(text) as Record<string, unknown> | null;
+    if (!body || typeof body.loginTicket !== 'string' || body.loginTicket === '') return null;
+    const expiresIn = typeof body.expiresIn === 'number' && body.expiresIn > 0 ? body.expiresIn : 300;
+    return { loginTicket: body.loginTicket, expiresIn };
+  } catch {
+    return null;
+  }
 }

@@ -66,6 +66,24 @@ export class TotpError extends ApiError {
   }
 }
 
+/**
+ * Login del super-admin con 2FA: la contraseña es buena y falta el código.
+ * Con `loginTicket` (5 min, un solo uso) y el código se abre la sesión
+ * (ApiClient.loginWithCode).
+ */
+export class LoginCodeRequiredError extends TotpError {
+  override name = 'LoginCodeRequiredError';
+  readonly loginTicket: string;
+  /** Segundos que vale el ticket. */
+  readonly expiresIn: number;
+
+  constructor(message: string, status: number, loginTicket: string, expiresIn: number) {
+    super(message, status, 'TOTP_REQUIRED');
+    this.loginTicket = loginTicket;
+    this.expiresIn = expiresIn;
+  }
+}
+
 /** 429 o 5xx: pasajero, se reintenta (no es culpa de la sesión). */
 export function isTransientStatus(status: number): boolean {
   return status === 429 || status >= 500;

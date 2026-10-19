@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LockoutService, PER_IP_POLICY } from './lockout.service';
+import { LoginTicketService } from './login-ticket.service';
 import { passwordFingerprint, RefreshTokenReuseError } from './refresh-token.service';
 import { createFakeRedis } from './testing/fake-redis';
 
@@ -19,6 +20,10 @@ interface Overrides {
   venues?: Record<string, { id: string; slug: string; deletedAt: Date | null }>;
   /** Local elegido en la sesión (refreshTokens.activeVenue). */
   activeVenue?: string | null;
+  /** La sesión entró con la 2FA (login en dos pasos). */
+  sessionTwoFactor?: boolean;
+  /** El usuario tiene la 2FA activada. */
+  totpEnabled?: boolean;
 }
 
 function makeService(overrides: Overrides = {}) {
@@ -65,8 +70,14 @@ function makeService(overrides: Overrides = {}) {
     stampFingerprint: vi.fn().mockResolvedValue(undefined),
     activeVenue: vi.fn().mockResolvedValue(overrides.activeVenue ?? null),
     setActiveVenue: vi.fn().mockResolvedValue(undefined),
+    markTwoFactor: vi.fn().mockResolvedValue(undefined),
+    hasTwoFactor: vi.fn().mockResolvedValue(overrides.sessionTwoFactor ?? false),
   };
-  const totpMock = { assertForUser: vi.fn().mockResolvedValue(undefined) };
+  const totpMock = {
+    assertForUser: vi.fn().mockResolvedValue(undefined),
+    isEnabled: vi.fn().mockResolvedValue(overrides.totpEnabled ?? false),
+  };
+  const tickets = new LoginTicketService(redis as never);
   const svc = new AuthService(
     prismaMock as never,
     jwtMock as never,
@@ -75,6 +86,7 @@ function makeService(overrides: Overrides = {}) {
     metricsMock as never,
     refreshTokensMock as never,
     totpMock as never,
+    tickets,
   );
   const verifyPassword = vi.spyOn(svc, 'verifyPassword');
   if (overrides.verifyPasswordResult !== undefined) {
@@ -92,6 +104,7 @@ function makeService(overrides: Overrides = {}) {
     metricsMock,
     refreshTokensMock,
     totpMock,
+    tickets,
     verifyPassword,
   };
 }
@@ -409,7 +422,7 @@ describe('AuthService.switchTenant', () => {
   const superAdmin = () => ({ ...makeUser({ isSuperAdmin: true }), tenantId: 't1' });
   const venues = { t1: { id: 't1', slug: 'luna-vlc', deletedAt: null }, t9: { id: 't9', slug: 'mar', deletedAt: null } };
 
-  it('a otro local: pide el código 2FA y la sesión recuerda el local', async () => {
+  it('sesión de antes del login en dos pasos: a otro local pide el código 2FA y la sesión recuerda el local', async () => {
     const { svc, totpMock, refreshTokensMock, jwtMock, auditMock } = makeService({ findUniqueResult: superAdmin(), venues });
     const res = await svc.switchTenant('u1', 't9', { totpCode: '123456', sessionId: 'fam-1' });
     expect(res).toMatchObject({ tenantId: 't9', venueSlug: 'mar' });
@@ -417,8 +430,30 @@ describe('AuthService.switchTenant', () => {
     expect(refreshTokensMock.setActiveVenue).toHaveBeenCalledWith('fam-1', 't9');
     expect(jwtMock.signAsync.mock.calls[0]![0]).toMatchObject({ tenantId: 't9', sid: 'fam-1' });
     expect(auditMock.log).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'auth.switch_tenant', payload: expect.objectContaining({ twoFactor: true }) }),
+      expect.objectContaining({ action: 'auth.switch_tenant', payload: expect.objectContaining({ twoFactor: 'code' }) }),
     );
+  });
+
+  it('la sesión entró con la 2FA: cambiar de local no vuelve a pedir el código', async () => {
+    const { svc, totpMock, refreshTokensMock, auditMock } = makeService({
+      findUniqueResult: superAdmin(),
+      venues,
+      sessionTwoFactor: true,
+      totpEnabled: true,
+    });
+    await expect(svc.switchTenant('u1', 't9', { sessionId: 'fam-1' })).resolves.toMatchObject({ tenantId: 't9' });
+    expect(refreshTokensMock.hasTwoFactor).toHaveBeenCalledWith('fam-1');
+    expect(totpMock.assertForUser).not.toHaveBeenCalled();
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.switch_tenant', payload: expect.objectContaining({ twoFactor: 'login' }) }),
+    );
+  });
+
+  it('entró con la 2FA pero la ha desactivado después: vuelve a pedir el código (y sin 2FA, no se puede)', async () => {
+    const { svc, totpMock } = makeService({ findUniqueResult: superAdmin(), venues, sessionTwoFactor: true, totpEnabled: false });
+    totpMock.assertForUser.mockRejectedValue(new ForbiddenException({ code: 'TOTP_NOT_ENROLLED' }));
+    await expect(svc.switchTenant('u1', 't9', { sessionId: 'fam-1' })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(totpMock.assertForUser).toHaveBeenCalledWith('u1', undefined);
   });
 
   it('sin código (o malo) → el error 2FA y ningún token', async () => {
@@ -460,5 +495,87 @@ describe('AuthService.logout', () => {
     const { svc, auditMock } = makeService();
     await expect(svc.logout('rt.x')).resolves.toBeUndefined();
     expect(auditMock.log).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.login — super-admin con 2FA en dos pasos', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const superAdmin = () => makeUser({ isSuperAdmin: true });
+
+  async function ticketFrom(promise: Promise<unknown>): Promise<string> {
+    const err = (await promise.then(
+      () => null,
+      (e: unknown) => e,
+    )) as UnauthorizedException | null;
+    expect(err).toBeInstanceOf(UnauthorizedException);
+    const body = err!.getResponse() as { code: string; loginTicket: string; expiresIn: number };
+    expect(body).toMatchObject({ code: 'TOTP_REQUIRED', expiresIn: 300 });
+    return body.loginTicket;
+  }
+
+  it('la contraseña sola no abre la sesión: 401 TOTP_REQUIRED con un ticket, sin tokens', async () => {
+    const { svc, refreshTokensMock, jwtMock, auditMock } = makeService({
+      loginCandidates: [superAdmin()],
+      verifyPasswordResult: true,
+      totpEnabled: true,
+    });
+    const ticket = await ticketFrom(svc.login({ email: 'a@b.test', password: 'pwd12345' }));
+    expect(ticket).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(refreshTokensMock.issue).not.toHaveBeenCalled();
+    expect(jwtMock.signAsync).not.toHaveBeenCalled();
+    expect(auditMock.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.login.totp_required' }));
+  });
+
+  it('con el ticket y un código bueno: sesión abierta y marcada con la 2FA; el ticket no vale dos veces', async () => {
+    const { svc, refreshTokensMock, totpMock, tx } = makeService({
+      loginCandidates: [superAdmin()],
+      verifyPasswordResult: true,
+      totpEnabled: true,
+    });
+    const ticket = await ticketFrom(svc.login({ email: 'a@b.test', password: 'pwd12345' }));
+    tx.user.findUnique.mockResolvedValue(superAdmin());
+    const res = await svc.loginWithTotp(ticket, '123456');
+    expect(res).toMatchObject({ accessToken: 'TOKEN', refreshToken: 'rt.secret', user: { isSuperAdmin: true } });
+    expect(totpMock.assertForUser).toHaveBeenCalledWith('u1', '123456');
+    expect(refreshTokensMock.markTwoFactor).toHaveBeenCalledWith('fam-1');
+    await expect(svc.loginWithTotp(ticket, '123456')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LOGIN_TICKET_EXPIRED' }),
+    });
+  });
+
+  it('código malo: el error 2FA y el ticket sigue valiendo para otro intento', async () => {
+    const { svc, totpMock, tx, refreshTokensMock } = makeService({
+      loginCandidates: [superAdmin()],
+      verifyPasswordResult: true,
+      totpEnabled: true,
+    });
+    const ticket = await ticketFrom(svc.login({ email: 'a@b.test', password: 'pwd12345' }));
+    tx.user.findUnique.mockResolvedValue(superAdmin());
+    totpMock.assertForUser.mockRejectedValueOnce(new ForbiddenException({ code: 'TOTP_INVALID' }));
+    await expect(svc.loginWithTotp(ticket, '000000')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(refreshTokensMock.issue).not.toHaveBeenCalled();
+    await expect(svc.loginWithTotp(ticket, '123456')).resolves.toMatchObject({ accessToken: 'TOKEN' });
+  });
+
+  it('ticket inventado, o la contraseña cambió entre los dos pasos → 401 LOGIN_TICKET_EXPIRED', async () => {
+    const { svc, tx } = makeService({ loginCandidates: [superAdmin()], verifyPasswordResult: true, totpEnabled: true });
+    await expect(svc.loginWithTotp('x'.repeat(43), '123456')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LOGIN_TICKET_EXPIRED' }),
+    });
+    const ticket = await ticketFrom(svc.login({ email: 'a@b.test', password: 'pwd12345' }));
+    tx.user.findUnique.mockResolvedValue(makeUser({ isSuperAdmin: true, passwordHash: '$2a$10$otrohash' }));
+    await expect(svc.loginWithTotp(ticket, '123456')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'LOGIN_TICKET_EXPIRED' }),
+    });
+  });
+
+  it('super-admin sin 2FA, o quien no es super-admin: entra como siempre (sin marca de 2FA)', async () => {
+    const { svc, refreshTokensMock } = makeService({ loginCandidates: [superAdmin()], verifyPasswordResult: true });
+    await expect(svc.login({ email: 'a@b.test', password: 'pwd12345' })).resolves.toMatchObject({ accessToken: 'TOKEN' });
+    expect(refreshTokensMock.markTwoFactor).not.toHaveBeenCalled();
+    const owner = makeService({ loginCandidates: [makeUser()], verifyPasswordResult: true, totpEnabled: true });
+    await expect(owner.svc.login({ email: 'a@b.test', password: 'pwd12345' })).resolves.toMatchObject({ accessToken: 'TOKEN' });
+    expect(owner.totpMock.isEnabled).not.toHaveBeenCalled();
   });
 });

@@ -263,7 +263,17 @@ export class RefreshTokenService {
       if (stored) await this.deleteJti(jti, stored);
       else await this.redis.del(k);
     }
-    await this.redis.del(this.venueKey(familyId));
+    await this.redis.del(this.venueKey(familyId), this.twoFactorKey(familyId));
+  }
+
+  /** La sesión se abrió con la 2FA (login en dos pasos del super-admin). */
+  async markTwoFactor(familyId: string): Promise<void> {
+    await this.redis.set(this.twoFactorKey(familyId), '1', 'EX', REFRESH_FAMILY_MAX_SECONDS);
+  }
+
+  /** ¿Se abrió esta sesión con la 2FA? Las de antes (o sin ella), no. */
+  async hasTwoFactor(familyId: string): Promise<boolean> {
+    return (await this.redis.get(this.twoFactorKey(familyId))) === '1';
   }
 
   /**
@@ -392,6 +402,9 @@ export class RefreshTokenService {
   }
   private venueKey(family: string): string {
     return `nightpay:refresh:venue:${family}`;
+  }
+  private twoFactorKey(family: string): string {
+    return `nightpay:refresh:2fa:${family}`;
   }
 }
 
