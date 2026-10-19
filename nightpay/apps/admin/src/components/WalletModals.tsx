@@ -11,11 +11,14 @@ import {
   type PendingQrCharge,
   type WalletPayoutMethod,
 } from '@/lib/api';
+import { totpRetryState } from '@/lib/api-errors';
 import { walletPayoutSummary } from '@/lib/confirm-summary';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
+import { useLockActive } from '@/lib/use-lock';
 import { useVenue, useVenueTimezone } from '@/lib/venue-context';
 import { ConfirmLine } from './ConfirmLine';
+import { OtpInput } from './OtpInput';
 
 /** Saldo a devolver: de la lista o encontrado por el código del cliente. */
 export interface PayoutTarget {
@@ -108,11 +111,18 @@ export function PayoutModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  /** El encargado en efectivo desde el umbral del local: el API pide su código 2FA. */
+  const [askedForCode, setAskedForCode] = useState(false);
+  const [totp, setTotp] = useState('');
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const locked = useLockActive(lockedUntil);
   const venue = useVenue();
   const amount = formatEur(target.balanceCents);
+  const withCode = askedForCode && method === 'CASH';
 
   async function handleSubmit() {
     if (submitting) return;
+    if (withCode && !/^\d{6}$/.test(totp)) return setError('Pon los 6 números de tu app de verificación.');
     setSubmitting(true);
     setError(null);
     try {
@@ -120,11 +130,16 @@ export function PayoutModal({
         method,
         bankReference: method === 'CARD' ? bankReference.trim() || undefined : undefined,
         note: note.trim() || undefined,
+        totpCode: withCode ? totp : undefined,
       });
       setDone(
         `Apuntado: ${formatEur(res.refundedCents)} devueltos ${res.method === 'CASH' ? 'en efectivo' : 'a la tarjeta'}. Saldo cerrado.`,
       );
     } catch (err) {
+      const retry = totpRetryState(err, Date.now());
+      if (retry.lockedUntil !== null) setLockedUntil(retry.lockedUntil);
+      if (retry.askCode) setAskedForCode(true);
+      setTotp('');
       setError((err as Error).message);
     } finally {
       setSubmitting(false);
@@ -226,6 +241,16 @@ export function PayoutModal({
                 })}
               </ConfirmLine>
             ) : null}
+            {withCode ? (
+              <OtpInput
+                label="Código de tu app de verificación (2FA)"
+                value={totp}
+                onChange={setTotp}
+                lockedUntil={lockedUntil}
+                required
+                hint="Devolver en efectivo desde el umbral del local pide los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
+              />
+            ) : null}
             {error ? (
               <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
                 {error}
@@ -235,7 +260,7 @@ export function PayoutModal({
               <Button variant="ghost" onClick={onClose} disabled={submitting}>
                 Cancelar
               </Button>
-              <Button onClick={handleSubmit} loading={submitting} disabled={!canPay}>
+              <Button onClick={handleSubmit} loading={submitting} disabled={!canPay || (withCode && locked)}>
                 Devolver {amount}
               </Button>
             </div>

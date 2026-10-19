@@ -34,7 +34,9 @@ function request(o: Record<string, unknown> = {}) {
   };
 }
 
-function makeService(opts: { wallet?: ReturnType<typeof wallet> | null; venueGroup?: string | null } = {}) {
+function makeService(
+  opts: { wallet?: ReturnType<typeof wallet> | null; venueGroup?: string | null; threshold?: number } = {},
+) {
   const w = opts.wallet === undefined ? wallet() : opts.wallet;
   const tx = {
     clientWallet: {
@@ -75,7 +77,11 @@ function makeService(opts: { wallet?: ReturnType<typeof wallet> | null; venueGro
     walletPasskey: { count: vi.fn().mockResolvedValue(0) },
     walletCard: { count: vi.fn().mockResolvedValue(0) },
     venue: {
-      findUnique: vi.fn().mockResolvedValue({ name: 'Local Centro', walletGroup: opts.venueGroup === undefined ? 'principal' : opts.venueGroup }),
+      findUnique: vi.fn().mockResolvedValue({
+        name: 'Local Centro',
+        walletGroup: opts.venueGroup === undefined ? 'principal' : opts.venueGroup,
+        ...(opts.threshold !== undefined ? { refundApprovalThresholdCents: opts.threshold } : {}),
+      }),
       findMany: vi.fn().mockResolvedValue([{ id: 'other', name: 'Local Norte' }]),
     },
     serviceItem: {
@@ -92,8 +98,9 @@ function makeService(opts: { wallet?: ReturnType<typeof wallet> | null; venueGro
   const refunds = { registerBankRefund: vi.fn().mockResolvedValue({}) };
   const moduleRef = { get: vi.fn().mockReturnValue(refunds) };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
-  const svc = new WalletChargesService(prisma as never, audit as never, moduleRef as never);
-  return { svc, tx, prisma, refunds, audit };
+  const totp = { assertForUser: vi.fn().mockResolvedValue(undefined), isEnabled: vi.fn().mockResolvedValue(true) };
+  const svc = new WalletChargesService(prisma as never, audit as never, moduleRef as never, totp as never);
+  return { svc, tx, prisma, refunds, audit, totp };
 }
 
 const chica = { userId: 'op-1', role: 'OPERATOR' as const, tenantId: 'other' };
@@ -404,8 +411,10 @@ describe('devolver el saldo al cliente que se va', () => {
    * Saldo y devoluciones con estado: lo que se apunta en el banco suma a lo
    * "registrado" (las devoluciones de las recargas desde que empezó la suya).
    */
-  function payoutService(o: { wallet?: Record<string, unknown>; payouts?: PayoutRow[]; registered?: number } = {}) {
-    const made = makeService({ wallet: wallet({ closeRequestedAt: new Date(), ...o.wallet }) });
+  function payoutService(
+    o: { wallet?: Record<string, unknown>; payouts?: PayoutRow[]; registered?: number; threshold?: number } = {},
+  ) {
+    const made = makeService({ wallet: wallet({ closeRequestedAt: new Date(), ...o.wallet }), threshold: o.threshold });
     const state = {
       wallet: { id: 'w-1', balanceCents: 30_000, status: 'ACTIVE', shortCode: 'K7Q4M2', ...o.wallet },
       payouts: [...(o.payouts ?? [])],
@@ -457,16 +466,42 @@ describe('devolver el saldo al cliente que se va', () => {
   }
 
   it('en efectivo (encargado, el cliente pulsó "Me voy"): en una transacción, saldo cerrado y devolución apuntada', async () => {
-    const { svc, prisma, state, payoutMock } = payoutService();
+    const { svc, prisma, state, payoutMock, totp } = payoutService();
     const callsBefore = prisma.acrossVenues.mock.calls.length;
-    const out = await svc.payout(manager, 'w-1', { method: 'CASH' });
+    const out = await svc.payout(manager, 'w-1', { method: 'CASH', totpCode: '123456' });
     expect(out).toEqual({ refundedCents: 30_000, method: 'CASH' });
+    // 300 € ≥ 100 € (el umbral por defecto): con su código 2FA.
+    expect(totp.assertForUser).toHaveBeenCalledWith('man-1', '123456');
     // La lectura previa y UNA transacción que cierra y apunta.
     expect(prisma.acrossVenues.mock.calls.length - callsBefore).toBe(2);
     expect(state.wallet).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });
     expect(payoutMock.create.mock.calls[0]![0]).toMatchObject({
       data: { amountCents: 30_000, method: 'CASH', status: 'DONE', paidByUserId: 'man-1' },
     });
+  });
+
+  it('encargado en efectivo desde el umbral del local, sin código: 403 TOTP_REQUIRED y no se toca nada', async () => {
+    const { svc, state, payoutMock, totp } = payoutService({ threshold: 30_000 });
+    const err = await svc.payout(manager, 'w-1', { method: 'CASH' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
+    expect((err as Error).message).toMatch(/Devolver 300,00 € en efectivo: desde 300,00 €/);
+    expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
+    expect(payoutMock.create).not.toHaveBeenCalled();
+    // Sin la app activada, se le dice (no un código que no puede poner).
+    totp.isEnabled.mockResolvedValueOnce(false);
+    const notEnrolled = await svc.payout(manager, 'w-1', { method: 'CASH' }).catch((e: unknown) => e);
+    expect((notEnrolled as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_NOT_ENROLLED' });
+  });
+
+  it('por debajo del umbral el encargado no pone código; el dueño nunca', async () => {
+    const below = payoutService({ threshold: 30_001 });
+    await expect(below.svc.payout(manager, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
+    expect(below.totp.assertForUser).not.toHaveBeenCalled();
+    const own = payoutService({ threshold: 0 });
+    await expect(own.svc.payout(owner, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
+    expect(own.totp.assertForUser).not.toHaveBeenCalled();
+    expect(own.totp.isEnabled).not.toHaveBeenCalled();
   });
 
   it('el encargado no devuelve sin el "Me voy" del cliente; el dueño sí', async () => {
