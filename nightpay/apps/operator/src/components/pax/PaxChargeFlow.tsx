@@ -57,6 +57,9 @@ interface Props {
 export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
   const [step, setStep] = useState<Step>({ kind: 'reading' });
   const [busy, setBusy] = useState(false);
+  // «Recuperar el resultado» ya contestó: hasta entonces no se ofrece cobrar
+  // otra vez (si la primera se aprobó, el cliente pagaría dos veces).
+  const [recoverAnswered, setRecoverAnswered] = useState(false);
   const reference = useRef<string | null>(null);
   const started = useRef(false);
   // La lista de fondo se refresca sola: la vuelta tras "Pagado" no puede
@@ -109,6 +112,7 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
       return;
     }
     setStep({ kind: 'reading' });
+    setRecoverAnswered(false);
     try {
       const s = start ? await start() : await startPaxCharge(charge.id);
       reference.current = s.reference;
@@ -144,6 +148,7 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
     setBusy(true);
     const r = await callReader('lastResult');
     setBusy(false);
+    if (manual) setRecoverAnswered(true);
     if (r.ok && r.result) {
       // Otra operación (o sin referencia): no se sabe si este se cobró. Nunca
       // "no se cobró": volver a cobrar podría cobrarle dos veces.
@@ -197,7 +202,8 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
   return (
     <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'center' }}>
       <p style={muted}>
-        {charge.createdByName} · código {charge.code}
+        {charge.createdByName}
+        {charge.code ? ` · código ${charge.code}` : null}
       </p>
       <p className="np-num" style={{ margin: 0, fontSize: '3rem', fontWeight: 700 }}>
         {formatEur(charge.amountCents)}
@@ -218,7 +224,8 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
         <>
           <p style={{ ...big, color: 'var(--np-success)' }}>Pagado ✓</p>
           <p style={muted}>Código de confirmación {step.outcome.code}</p>
-          <Button onClick={onDone}>Volver</Button>
+          {/* Con onPaid quien lo usa ya sigue (la recepción, a la ficha y el PIN): «Volver» competiría. */}
+          {onPaid ? <p style={muted}>Siguiendo…</p> : <Button onClick={onDone}>Volver</Button>}
         </>
       ) : null}
 
@@ -257,11 +264,18 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
               <Button loading={busy} onClick={() => void recover(true)}>
                 Recuperar el resultado
               </Button>
+              {/* Solo tras preguntar al lector, y diciendo que se ha mirado: si se cobró, sería cobrarle dos veces. */}
+              {recoverAnswered ? (
+                <Button variant="ghost" disabled={busy} onClick={() => void begin()}>
+                  He mirado el datáfono y no se cobró: cobrar otra vez
+                </Button>
+              ) : null}
             </>
-          ) : null}
-          <Button variant="ghost" onClick={() => void begin()}>
-            Volver a intentar
-          </Button>
+          ) : (
+            <Button variant="ghost" onClick={() => void begin()}>
+              Volver a intentar
+            </Button>
+          )}
           <Button variant="ghost" onClick={onDone}>
             Volver
           </Button>
