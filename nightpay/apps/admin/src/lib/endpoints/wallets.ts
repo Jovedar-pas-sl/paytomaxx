@@ -1,6 +1,6 @@
 // Saldos de clientes (Phase 1B).
 
-import { apiError, authedFetch } from '../http';
+import { apiError, authedFetch, totpAwareError } from '../http';
 
 // ─── Phase 1B — Wallets ─────────────────────────────────────────────
 
@@ -146,5 +146,36 @@ export async function payoutWallet(
     body: JSON.stringify(input),
   });
   if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+// ─── Recargas en efectivo recientes (recepción) ─────────────────────
+
+/** Una recarga en efectivo de este local que aún se puede anular (las 2 últimas horas). */
+export interface RecentCashTopUp {
+  id: string;
+  at: string;
+  amountCents: number;
+  /** K7Q-•••: para reconocer al cliente. */
+  codeHint: string;
+  voided: boolean;
+}
+
+export async function fetchRecentCashTopUps(): Promise<RecentCashTopUp[]> {
+  const res = await authedFetch('/v1/reception/cash/recent');
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** Anular una recarga en efectivo mal tecleada: encargado o dueño, siempre con su 2FA. */
+export async function voidCashTopUp(
+  id: string,
+  input: { reason: string; totpCode: string },
+): Promise<{ voidId: string; topUpId: string; walletId: string; amountCents: number; balanceCents: number }> {
+  const res = await authedFetch(`/v1/reception/cash/${encodeURIComponent(id)}/void`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw await totpAwareError(res);
   return res.json();
 }

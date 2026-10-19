@@ -18,6 +18,7 @@ import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
 import { Pill, type Tone } from './Pill';
+import { RecentCashTopUps } from './RecentCashTopUps';
 import { ChargeWithoutFaceIdModal, CodeSearch, PayoutModal, RelinkModal, type PayoutTarget } from './WalletModals';
 
 const POLL_MS = 15_000;
@@ -157,6 +158,8 @@ export function WalletsPanel({ isOwner }: Props) {
       )}
 
       <CodeSearch onFound={setPayoutFor} />
+
+      <RecentCashTopUps />
 
       <Card className="np-table-host" style={{ padding: '1rem' }}>
         <div style={listHeader}>
