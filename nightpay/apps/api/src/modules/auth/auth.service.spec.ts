@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ACCOUNT_POLICY } from './lockout.service';
+import { LockoutService, PER_IP_POLICY } from './lockout.service';
 import { passwordFingerprint, RefreshTokenReuseError } from './refresh-token.service';
+import { createFakeRedis } from './testing/fake-redis';
 
 interface Overrides {
   /** Lo que devuelve la búsqueda del login (email sin distinguir mayúsculas). */
@@ -10,8 +11,7 @@ interface Overrides {
   findUniqueResult?: unknown;
   signAsyncResult?: string;
   verifyPasswordResult?: boolean;
-  isLocked?: { locked: boolean; ttlSeconds: number };
-  /** Bloqueo por clave (gana a isLocked). */
+  /** Claves de bloqueo ya bloqueadas (segundos que quedan). */
   lockedKeys?: Record<string, number>;
   trustedKeys?: string[];
   refreshTokenResult?: { token: string; family: string; ttlSeconds: number };
@@ -19,31 +19,27 @@ interface Overrides {
 
 function makeService(overrides: Overrides = {}) {
   const findMany = vi.fn().mockResolvedValue(overrides.loginCandidates ?? []);
+  const tx = {
+    user: {
+      findMany,
+      findUnique: vi.fn().mockResolvedValue(overrides.findUniqueResult ?? null),
+    },
+  };
   const prismaMock = {
-    asSystem: vi.fn().mockImplementation(async (fn) =>
-      fn({
-        user: {
-          findMany,
-          findUnique: vi.fn().mockResolvedValue(overrides.findUniqueResult ?? null),
-        },
-      }),
-    ),
+    asSystem: vi.fn().mockImplementation(async (fn) => fn(tx)),
   };
   const jwtMock = {
     signAsync: vi.fn().mockResolvedValue(overrides.signAsyncResult ?? 'TOKEN'),
   };
-  const isLocked = vi.fn().mockImplementation(async (key: string) => {
-    const ttl = overrides.lockedKeys?.[key];
-    if (ttl !== undefined) return { locked: true, ttlSeconds: ttl };
-    return overrides.isLocked ?? { locked: false, ttlSeconds: 0 };
-  });
-  const lockoutMock = {
-    isLocked,
-    recordFailure: vi.fn().mockResolvedValue({ count: 1, locked: false }),
-    clear: vi.fn().mockResolvedValue(undefined),
-    markTrusted: vi.fn().mockResolvedValue(undefined),
-    isTrusted: vi.fn().mockImplementation(async (key: string) => (overrides.trustedKeys ?? []).includes(key)),
-  };
+  // El LockoutService de verdad sobre el Redis de mentira (el script Lua emulado).
+  const redis = createFakeRedis();
+  for (const [key, ttl] of Object.entries(overrides.lockedKeys ?? {})) {
+    void redis.set(`nightpay:lockout:locked:${key}`, '1', 'EX', ttl);
+  }
+  for (const key of overrides.trustedKeys ?? []) void redis.set(`nightpay:lockout:trusted:${key}`, '1', 'EX', 3600);
+  const lockoutMock = new LockoutService(redis as never);
+  vi.spyOn(lockoutMock, 'clear');
+  vi.spyOn(lockoutMock, 'markTrusted');
   const auditMock = {
     log: vi.fn().mockResolvedValue(undefined),
   };
@@ -63,7 +59,7 @@ function makeService(overrides: Overrides = {}) {
   const svc = new AuthService(
     prismaMock as never,
     jwtMock as never,
-    lockoutMock as never,
+    lockoutMock,
     auditMock as never,
     metricsMock as never,
     refreshTokensMock as never,
@@ -72,7 +68,24 @@ function makeService(overrides: Overrides = {}) {
   if (overrides.verifyPasswordResult !== undefined) {
     verifyPassword.mockResolvedValue(overrides.verifyPasswordResult);
   }
-  return { svc, prismaMock, findMany, jwtMock, lockoutMock, auditMock, metricsMock, refreshTokensMock, verifyPassword };
+  return {
+    svc,
+    prismaMock,
+    tx,
+    findMany,
+    jwtMock,
+    lockoutMock,
+    redis,
+    auditMock,
+    metricsMock,
+    refreshTokensMock,
+    verifyPassword,
+  };
+}
+
+/** Fallos contados en Redis para una clave de bloqueo (null = ninguno). */
+async function failCount(redis: ReturnType<typeof createFakeRedis>, key: string): Promise<string | null> {
+  return redis.get(`nightpay:lockout:fail:${key}`);
 }
 
 function makeUser(overrides: Record<string, unknown> = {}) {
@@ -93,21 +106,53 @@ describe('AuthService.login', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('rejects when account is locked', async () => {
-    const { svc } = makeService({ isLocked: { locked: true, ttlSeconds: 600 } });
+    const { svc, verifyPassword } = makeService({ lockedKeys: { 'x@y.test|-': 600 } });
     await expect(svc.login({ email: 'x@y.test', password: 'pwd12345' })).rejects.toThrow(
       UnauthorizedException,
     );
+    // Bloqueado: ni se mira la contraseña.
+    expect(verifyPassword).not.toHaveBeenCalled();
   });
 
   it('rejects unknown user + records failure', async () => {
-    const { svc, lockoutMock } = makeService({ loginCandidates: [], verifyPasswordResult: false });
+    const { svc, redis } = makeService({ loginCandidates: [], verifyPasswordResult: false });
     await expect(svc.login({ email: 'nobody@x.test', password: 'whatever12' })).rejects.toThrow(
       UnauthorizedException,
     );
     // Por IP (5 fallos) y por cuenta (30 fallos, cualquier IP).
-    expect(lockoutMock.recordFailure).toHaveBeenCalledTimes(2);
-    expect(lockoutMock.recordFailure.mock.calls[1]![0]).toMatch(/^cuenta:/);
-    expect(lockoutMock.recordFailure.mock.calls[1]![1]).toBe(ACCOUNT_POLICY);
+    expect(await failCount(redis, 'nobody@x.test|-')).toBe('1');
+    expect(await failCount(redis, 'cuenta:nobody@x.test')).toBe('1');
+  });
+
+  it('el intento se cuenta ANTES de bcrypt: 20 a la vez no prueban más de 5 contraseñas', async () => {
+    const { svc, verifyPassword, auditMock } = makeService({ loginCandidates: [makeUser()] });
+    verifyPassword.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return false;
+    });
+    const results = await Promise.allSettled(
+      Array.from({ length: 20 }, () => svc.login({ email: 'a@b.test', password: 'adivinanza1' }, '198.51.100.9')),
+    );
+    expect(results.every((r) => r.status === 'rejected')).toBe(true);
+    expect(verifyPassword).toHaveBeenCalledTimes(PER_IP_POLICY.threshold);
+    const locked = auditMock.log.mock.calls.filter(([e]) => e.action === 'auth.login.locked');
+    expect(locked).toHaveLength(20 - PER_IP_POLICY.threshold);
+    const failed = auditMock.log.mock.calls.filter(([e]) => e.action === 'auth.login.failed').map(([e]) => e.payload);
+    expect(failed.map((p) => p.count).sort()).toEqual([1, 2, 3, 4, 5]);
+    expect(failed.find((p) => p.count === PER_IP_POLICY.threshold)).toMatchObject({ locked: true });
+  });
+
+  it('con 4 fallos, el quinto intento con la contraseña buena entra y borra el bloqueo', async () => {
+    const { svc, verifyPassword, redis } = makeService({ loginCandidates: [makeUser()] });
+    verifyPassword.mockResolvedValue(false);
+    for (let i = 0; i < 4; i++) {
+      await expect(svc.login({ email: 'a@b.test', password: 'mala-12345' }, '198.51.100.9')).rejects.toThrow();
+    }
+    verifyPassword.mockResolvedValue(true);
+    await expect(svc.login({ email: 'a@b.test', password: 'buena-1234' }, '198.51.100.9')).resolves.toMatchObject({
+      accessToken: 'TOKEN',
+    });
+    expect(redis.keys().filter((k) => k.startsWith('nightpay:lockout:locked:'))).toEqual([]);
   });
 
   it('usuario desconocido: compara igualmente con bcrypt (mismo tiempo que una contraseña mala)', async () => {
@@ -119,13 +164,13 @@ describe('AuthService.login', () => {
   });
 
   it('rejects bad password + records failure', async () => {
-    const { svc, lockoutMock } = makeService({ loginCandidates: [makeUser()], verifyPasswordResult: false });
+    const { svc, redis } = makeService({ loginCandidates: [makeUser()], verifyPasswordResult: false });
     await expect(svc.login({ email: 'a@b.test', password: 'wrong12345' })).rejects.toThrow(
       UnauthorizedException,
     );
     // Por IP (5 fallos) y por cuenta (30 fallos, cualquier IP).
-    expect(lockoutMock.recordFailure).toHaveBeenCalledTimes(2);
-    expect(lockoutMock.recordFailure.mock.calls[1]![0]).toMatch(/^cuenta:/);
+    expect(await failCount(redis, 'a@b.test|-')).toBe('1');
+    expect(await failCount(redis, 'cuenta:a@b.test')).toBe('1');
   });
 
   it('busca el email sin distinguir mayúsculas (usuarios antiguos con mayúsculas)', async () => {
@@ -185,6 +230,16 @@ describe('AuthService.login', () => {
     });
     const result = await svc.login({ email: 'a@b.test', password: 'correct12' }, '203.0.113.7');
     expect(result.accessToken).toBe('TOKEN');
+  });
+
+  it('cuenta bloqueada desde una IP desconocida: no gasta intentos de esa IP', async () => {
+    const { svc, redis } = makeService({
+      loginCandidates: [makeUser()],
+      verifyPasswordResult: true,
+      lockedKeys: { 'cuenta:a@b.test': 200 },
+    });
+    await expect(svc.login({ email: 'a@b.test', password: 'correct12' }, '198.51.100.9')).rejects.toThrow();
+    expect(await failCount(redis, 'a@b.test|198.51.100.9')).toBeNull();
   });
 
   it('el bloqueo por IP manda aunque la IP sea de confianza', async () => {

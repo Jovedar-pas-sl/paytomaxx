@@ -12,7 +12,7 @@ import type { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MetricsService } from '../metrics/metrics.service';
-import { ACCOUNT_POLICY, LockoutService } from './lockout.service';
+import { ACCOUNT_POLICY, LockoutService, PER_IP_POLICY } from './lockout.service';
 import { clampEmail, loginLockKeys, normalizeLoginEmail, type LoginLockKeys } from './login-keys';
 import {
   passwordFingerprint,
@@ -79,18 +79,19 @@ export class AuthService {
 
   /**
    * Login. Cross-tenant por diseno (no sabemos tenant antes del lookup).
-   * - Lockout via Redis (multi-nodo safe); política en LockoutService.
+   * - Lockout via Redis (multi-nodo safe); política en LockoutService. El
+   *   intento se cuenta antes de bcrypt (reserveAttempt, atómico).
    * - Audit log de exitos y fallos.
    */
   async login(input: LoginRequest, ip?: string, userAgent?: string): Promise<IssuedLogin> {
     const keys = loginLockKeys(input.email, ip);
-    await this.assertLoginAllowed(keys, input.email, ip, userAgent);
+    const attempt = await this.reserveLoginAttempt(keys, input.email, ip, userAgent);
 
     const user = await this.findLoginUser(input.email);
     // Sin usuario se compara igual contra un hash ficticio (mismo tiempo).
     const ok = await this.verifyPassword(input.password, user?.passwordHash ?? DUMMY_BCRYPT_HASH);
     if (!user || !ok) {
-      return this.failLogin(keys, input.email, user, ip, userAgent);
+      return this.failLogin(attempt, input.email, user, ip, userAgent);
     }
 
     if (input.venueSlug && input.venueSlug !== user.venue.slug) {
@@ -157,33 +158,35 @@ export class AuthService {
     };
   }
 
-  /** Bloqueo por IP siempre; el de cuenta no aplica a una pareja email|IP de confianza. */
-  private async assertLoginAllowed(
+  /**
+   * Cuenta el intento (por IP y por cuenta) ANTES de mirar la contraseña, en
+   * un solo paso en Redis: muchas peticiones a la vez no prueban más de 5
+   * contraseñas. Bloqueo por IP siempre; el de cuenta no aplica a una pareja
+   * email|IP de confianza. Devuelve los fallos por IP contando este.
+   */
+  private async reserveLoginAttempt(
     keys: LoginLockKeys,
     email: string,
     ip?: string,
     userAgent?: string,
-  ): Promise<void> {
-    const ipLock = await this.lockout.isLocked(keys.ip);
-    const lock = ipLock.locked ? ipLock : await this.accountLock(keys);
-    if (!lock.locked) return;
+  ): Promise<number> {
+    const trusted = keys.trusted ? await this.lockout.isTrusted(keys.trusted) : false;
+    const attempt = await this.lockout.reserveAttempt([
+      { key: keys.ip, policy: PER_IP_POLICY },
+      { key: keys.account, policy: ACCOUNT_POLICY, enforce: !trusted },
+    ]);
+    if (attempt.allowed) return attempt.counts[0] ?? 0;
 
     this.metrics.authLogins.inc({ outcome: 'locked' });
-    this.logger.warn(`Login locked for ${keys.ip} (${lock.ttlSeconds}s remaining)`);
+    this.logger.warn(`Login locked for ${keys.ip} (${attempt.ttlSeconds}s remaining)`);
     await this.audit.log({
       action: 'auth.login.locked',
       actorEmail: clampEmail(email),
       ip,
       userAgent,
-      payload: { ttlSeconds: lock.ttlSeconds, scope: ipLock.locked ? 'ip' : 'account' },
+      payload: { ttlSeconds: attempt.ttlSeconds, scope: attempt.gate === 0 ? 'ip' : 'account' },
     });
     throw new UnauthorizedException(MSG_TOO_MANY_ATTEMPTS);
-  }
-
-  private async accountLock(keys: LoginLockKeys): Promise<{ locked: boolean; ttlSeconds: number }> {
-    const lock = await this.lockout.isLocked(keys.account);
-    if (!lock.locked || !keys.trusted) return lock;
-    return (await this.lockout.isTrusted(keys.trusted)) ? { locked: false, ttlSeconds: 0 } : lock;
   }
 
   /**
@@ -210,15 +213,15 @@ export class AuthService {
     return same.length === 1 ? (same[0] ?? null) : null;
   }
 
+  /** El intento ya se contó al reservarlo (reserveLoginAttempt): aquí solo queda apuntarlo. */
   private async failLogin(
-    keys: LoginLockKeys,
+    count: number,
     email: string,
     user: LoginUser | null,
     ip?: string,
     userAgent?: string,
   ): Promise<never> {
-    const result = await this.lockout.recordFailure(keys.ip);
-    await this.lockout.recordFailure(keys.account, ACCOUNT_POLICY);
+    const locked = count >= PER_IP_POLICY.threshold;
     this.metrics.authLogins.inc({ outcome: 'failed' });
     await this.audit.log({
       action: 'auth.login.failed',
@@ -227,7 +230,7 @@ export class AuthService {
       tenantId: user?.tenantId,
       ip,
       userAgent,
-      payload: { reason: user ? 'bad_password' : 'unknown_user', count: result.count, locked: result.locked },
+      payload: { reason: user ? 'bad_password' : 'unknown_user', count, locked },
     });
     throw new UnauthorizedException(MSG_BAD_CREDENTIALS);
   }
