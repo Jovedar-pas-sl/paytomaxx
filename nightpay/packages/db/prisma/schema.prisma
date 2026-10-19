@@ -221,6 +221,12 @@ model Terminal {
   // (POS_DEVICE_TOKEN_MAX_AGE_DAYS; sin ella, no caduca).
   deviceTokenNextHash  String?   @unique
   deviceTokenIssuedAt  DateTime? @db.Timestamptz
+  // Fecha de la credencial nueva (rotación): pasa a deviceTokenIssuedAt solo
+  // cuando el datáfono la usa. Rotar no rejuvenece la credencial en uso.
+  deviceTokenNextIssuedAt DateTime? @db.Timestamptz
+  // Datáfono de la recepción: el único que cobra recargas en efectivo (el
+  // datáfono no sabe quién lo lleva). Lo marca el dueño en Datáfonos.
+  reception            Boolean   @default(false)
 
   venue    Venue     @relation(fields: [tenantId], references: [id])
   payments Payment[]
