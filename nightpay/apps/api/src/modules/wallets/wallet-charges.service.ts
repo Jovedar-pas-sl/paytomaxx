@@ -27,6 +27,7 @@ import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor } from './wallet-two-factor';
+import { WalletBlockedException } from './wallet-blocked';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
@@ -1702,6 +1703,8 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: venueId, walletGroup: venue?.walletGroup ?? null })) {
       throw new NotFoundException('No hay ningún saldo con ese código en este local');
     }
+    // Bloqueado por el super-admin: ni recargarlo (con tarjeta) ni pagar con él desde la app.
+    if (wallet.blockedAt) throw new WalletBlockedException();
     return wallet;
   }
 

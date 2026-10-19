@@ -35,6 +35,8 @@ interface Setup {
   attempts?: Attempt[];
   /** Pasarela activa del local (null = ninguna). */
   provider?: string | null;
+  /** Pausa y formas de cobro del local (por defecto, abierto y todo encendido). */
+  venue?: Row;
   authorize?: (input: Row) => Promise<Row>;
 }
 
@@ -96,6 +98,8 @@ function makeService(setup: Setup = {}) {
       }),
     },
     gatewayCredential: { findFirst: vi.fn(async () => (provider === null ? null : { provider })) },
+    venue: { findUnique: vi.fn(async () => setup.venue ?? { pausedAt: null, business: null, paymentMethods: null }) },
+    walletCashTopUp: { findFirst: vi.fn(async () => null) },
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       locks.push(Prisma.sql(strings, ...values));
       return [{ ok: 1 }];
@@ -314,6 +318,41 @@ describe('startCheckout — el cliente pulsa «Pagar»', () => {
     // Otro navegador con el mismo QR no se queda con el pedido del cliente.
     const other = tapped();
     await expect(other.service.startCheckout(QR, choice({ claimHash: 'huella-otro' }))).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe('startCheckout — el local se pausó o apagó el QR con tarjeta después de crear el cobro', () => {
+  it('local en pausa → 423 sin ir al banco', async () => {
+    const { service, adapter, written } = makeService({ venue: { pausedAt: NOW, business: null, paymentMethods: null } });
+    await expect(service.startCheckout(QR, choice())).rejects.toMatchObject({ status: 423 });
+    expect(adapter.authorize).not.toHaveBeenCalled();
+    expect(written).toHaveLength(0);
+  });
+
+  it('negocio en pausa o «QR con tarjeta» apagado → no se cobra (tampoco al reintentar)', async () => {
+    const business = makeService({ venue: { pausedAt: null, business: { status: 'PAUSED' }, paymentMethods: null } });
+    await expect(business.service.startCheckout(QR, choice())).rejects.toMatchObject({ status: 423 });
+    const cardOff = makeService({ venue: { pausedAt: null, business: null, paymentMethods: { card: false } } });
+    await expect(cardOff.service.startCheckout(QR, choice())).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'PAYMENT_METHOD_DISABLED', method: 'card' }),
+    });
+    const retry = makeService({
+      payment: { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: 'ORD-1' },
+      attempts: [{ providerTxId: 'ORD-1', status: 'DENIED', createdAt: secondsAgo(60) }],
+      venue: { pausedAt: NOW, business: null, paymentMethods: null },
+    });
+    await expect(retry.service.startCheckout(QR, choice())).rejects.toMatchObject({ status: 423 });
+    for (const s of [business, cardOff, retry]) expect(s.adapter.authorize).not.toHaveBeenCalled();
+  });
+
+  it('recarga de saldo con «Saldo» apagado → 409; ya pagado → «Pagado» igualmente', async () => {
+    const topUp = makeService({ payment: { walletId: 'w-1' }, venue: { pausedAt: null, business: null, paymentMethods: { wallet: false } } });
+    await expect(topUp.service.startCheckout(QR, choice())).rejects.toMatchObject({
+      response: expect.objectContaining({ method: 'wallet' }),
+    });
+    const paid = makeService({ payment: { status: 'AUTHORIZED', provider: 'REDSYS' }, venue: { pausedAt: NOW } });
+    await expect(paid.service.startCheckout(QR, choice())).resolves.toMatchObject({ kind: 'paid' });
   });
 });
 

@@ -122,6 +122,14 @@ describe('la chica encuentra el saldo por el código del cliente', () => {
     });
   });
 
+  it('saldo bloqueado por el super-admin → 409 WALLET_BLOCKED (ni recargarlo ni cobrarle)', async () => {
+    const { svc } = makeService({ wallet: wallet({ blockedAt: new Date() }) });
+    await expect(svc.lookup('other', 'K7Q4M2')).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'WALLET_BLOCKED' }),
+    });
+  });
+
   it('no vale en un local de otro grupo; código mal escrito → aviso', async () => {
     const { svc } = makeService({ venueGroup: 'otro-dueño' });
     await expect(svc.lookup('ajeno', 'K7Q4M2')).rejects.toThrow(NotFoundException);

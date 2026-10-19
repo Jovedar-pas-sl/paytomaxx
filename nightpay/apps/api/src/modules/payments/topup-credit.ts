@@ -10,6 +10,8 @@ import { sameWalletGroup } from '../wallets/wallet-rules';
  *    a nada: el cliente pagaba y no tenía el saldo.
  *  - Devuelto o caducado (REFUNDED / EXPIRED), cadena rota o de otro grupo →
  *    no se suma: incidencia para devolver la recarga o reactivar el saldo.
+ *  - Bloqueado por el super-admin (después de crear el cobro: al crearlo ya
+ *    da 409) → tampoco: incidencia, como un saldo cerrado.
  */
 
 export interface CreditWalletRow {
@@ -20,12 +22,14 @@ export interface CreditWalletRow {
   status: string;
   mergedIntoId: string | null;
   shortCode: string | null;
+  /** Bloqueado por el super-admin (no siempre viene: null o ausente = no). */
+  blockedAt?: Date | null;
 }
 
 /** Saltos como mucho siguiendo saldos sumados a otros (y sin vueltas). */
 export const MAX_MERGE_DEPTH = 5;
 
-export type CreditSkipCause = 'missing' | 'closed' | 'merge-loop' | 'other-group';
+export type CreditSkipCause = 'missing' | 'closed' | 'merge-loop' | 'other-group' | 'blocked';
 
 export type CreditTarget =
   | { ok: true; wallet: CreditWalletRow; mergedFrom: string | null }
@@ -54,6 +58,7 @@ export async function findCreditTarget(
   if (current.status !== 'ACTIVE' && current.status !== 'DEPLETED') {
     return { ok: false, cause: 'closed', walletStatus: current.status };
   }
+  if (current.blockedAt) return { ok: false, cause: 'blocked', walletStatus: current.status };
   return { ok: true, wallet: current, mergedFrom: current.id === first.id ? null : first.id };
 }
 
@@ -84,6 +89,7 @@ const CAUSE_TEXT: Record<CreditSkipCause, string> = {
   missing: 'el saldo no existe',
   'merge-loop': 'el saldo está sumado a otro y no se encuentra el bueno',
   'other-group': 'el saldo está sumado a uno de otro grupo de locales',
+  blocked: 'el saldo está bloqueado',
 };
 
 /** Lo que tiene que hacer el dueño cuando una recarga cobrada no se pudo sumar. */

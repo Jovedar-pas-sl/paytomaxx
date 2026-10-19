@@ -75,6 +75,8 @@ import {
 import { expectedChicaReversal } from './refund-share';
 import { operatorCapProblem } from './operator-cap';
 import { insertEmptyWallet } from '../wallets/empty-wallet';
+import { firstTopUp } from '../wallets/wallet-fresh-topup';
+import { WalletBlockedException } from '../wallets/wallet-blocked';
 import { formatWalletCode, newWalletCode } from '../wallets/wallet-rules';
 import { selfTopUpClaimHash } from '../wallets/wallet-topup-rules';
 import { idempotencyHashOf, sameIdempotentRequest } from './idempotency';
@@ -172,14 +174,14 @@ async function lockCreditWallet(
   const rows = tenantId
     ? await tx.$queryRaw<CreditWalletRow[]>`
         SELECT id::text AS id, "tenantId"::text AS "tenantId", "walletGroup", "balanceCents",
-               status::text AS status, "mergedIntoId"::text AS "mergedIntoId", "shortCode"
+               status::text AS status, "mergedIntoId"::text AS "mergedIntoId", "shortCode", "blockedAt"
           FROM client_wallets
          WHERE id = ${walletId}::uuid AND "tenantId" = ${tenantId}::uuid
          FOR UPDATE
       `
     : await tx.$queryRaw<CreditWalletRow[]>`
         SELECT id::text AS id, "tenantId"::text AS "tenantId", "walletGroup", "balanceCents",
-               status::text AS status, "mergedIntoId"::text AS "mergedIntoId", "shortCode"
+               status::text AS status, "mergedIntoId"::text AS "mergedIntoId", "shortCode", "blockedAt"
           FROM client_wallets
          WHERE id = ${walletId}::uuid
          FOR UPDATE
@@ -673,10 +675,12 @@ export class PaymentsService implements OnApplicationBootstrap {
     const existing = await this.prisma.asSystem((tx) =>
       tx.clientWallet.findFirst({
         where: { id: walletDto.walletId, tenantId },
-        select: { id: true, status: true, mergedIntoId: true },
+        select: { id: true, status: true, mergedIntoId: true, blockedAt: true },
       }),
     );
     if (!existing) throw new NotFoundException('Wallet no encontrada en este venue');
+    // Bloqueado por el super-admin: ni con tarjeta (como en efectivo, en recepción o desde /w).
+    if (existing.blockedAt) throw new WalletBlockedException();
     // A 0 (DEPLETED) se recarga y se reabre al cobrarse; sumado a otro o cerrado, no.
     const rechargeable = existing.status === 'ACTIVE' || (existing.status === 'DEPLETED' && !existing.mergedIntoId);
     if (!rechargeable) {
@@ -874,6 +878,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     if (settled) return settled;
     // Las sugeridas o la de «Otra», hasta el máximo para este importe.
     if (!tipChoiceAllowed(payment, choice.tipCents)) throw new BadRequestException('Propina no válida');
+    // Un QR de antes de la pausa (o de apagar la forma de cobro) ya no va al banco.
+    await this.assertVenueStillCharges(payment);
 
     if (payment.status !== 'AUTHORIZING') {
       let providerTxId: string | undefined;
@@ -967,7 +973,7 @@ export class PaymentsService implements OnApplicationBootstrap {
 
   private async findPayable(
     qrToken: string,
-  ): Promise<PayablePayment & { tenantId: string; provider: Provider | null; updatedAt: Date }> {
+  ): Promise<PayablePayment & { tenantId: string; provider: Provider | null; updatedAt: Date; walletId: string | null }> {
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({
         where: { qrToken },
@@ -1009,6 +1015,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     const methods = paymentMethodsOf(venue?.paymentMethods);
     return {
       ...rest,
+      walletId,
       status: payment.status as PaymentMachineState,
       allowTip: provider === 'REDSYS' && walletId === null && methods.tips,
       tipPresets: { flatCents: methods.tipFlatCents, percents: methods.tipPercents },
@@ -1019,13 +1026,15 @@ export class PaymentsService implements OnApplicationBootstrap {
     };
   }
 
-  /** ¿Es este el cobro con el que se creó (y cargó por primera vez) el saldo? */
+  /**
+   * ¿Es este el cobro con el que se creó (y cargó por primera vez) el saldo?
+   * Cuenta también la recarga en efectivo (recepción, datáfono): en un saldo
+   * abierto en efectivo, la primera recarga con tarjeta NO es la que lo creó
+   * (si no, quien la pagara se llevaría su enlace, su Face ID y su saldo).
+   */
   private async isFirstTopUp(walletId: string | null, paymentId: string): Promise<boolean> {
     if (!walletId) return false;
-    const first = await this.prisma.acrossVenues((tx) =>
-      tx.payment.findFirst({ where: { walletId }, orderBy: { createdAt: 'asc' }, select: { id: true } }),
-    );
-    return first?.id === paymentId;
+    return (await firstTopUp(this.prisma, walletId))?.paymentId === paymentId;
   }
 
   /**
@@ -1034,7 +1043,7 @@ export class PaymentsService implements OnApplicationBootstrap {
    */
   async getResultView(providerTxId: string): Promise<PayResultView | null> {
     if (!providerTxId) return null;
-    return this.prisma.asSystem(async (tx) => {
+    const found = await this.prisma.asSystem(async (tx) => {
       const attempt = await tx.paymentAttempt.findFirst({
         where: { providerTxId },
         select: { paymentId: true },
@@ -1065,30 +1074,26 @@ export class PaymentsService implements OnApplicationBootstrap {
         where: { paymentId: payment.id, providerTxId },
         select: { status: true },
       });
-      const firstTopUp = payment.walletId
-        ? await tx.payment.findFirst({
-            where: { walletId: payment.walletId },
-            orderBy: { createdAt: 'asc' },
-            select: { id: true },
-          })
-        : null;
-      return {
-        paymentId: payment.id,
-        status: payment.status as PaymentMachineState,
-        amountCents: payment.amountCents,
-        tipCents: payment.tipCents,
-        currency: payment.currency,
-        authorizedAt: payment.authorizedAt,
-        qrToken: payment.qrToken,
-        ...payerWalletFields({
-          wallet: payment.wallet,
-          firstTopUp: firstTopUp?.id === payment.id,
-          idempotencyKey: payment.idempotencyKey,
-          approvedClaimHash: payment.attempts[0]?.claimHash ?? null,
-        }),
-        attemptStatus: thisAttempt?.status ?? null,
-      };
+      return { payment, attemptStatus: thisAttempt?.status ?? null };
     });
+    if (!found) return null;
+    const { payment, attemptStatus } = found;
+    return {
+      paymentId: payment.id,
+      status: payment.status as PaymentMachineState,
+      amountCents: payment.amountCents,
+      tipCents: payment.tipCents,
+      currency: payment.currency,
+      authorizedAt: payment.authorizedAt,
+      qrToken: payment.qrToken,
+      ...payerWalletFields({
+        wallet: payment.wallet,
+        firstTopUp: await this.isFirstTopUp(payment.walletId, payment.id),
+        idempotencyKey: payment.idempotencyKey,
+        approvedClaimHash: payment.attempts[0]?.claimHash ?? null,
+      }),
+      attemptStatus,
+    };
   }
 
   /** Justificante del cliente (solo cobros pagados). Sin datos personales. */
@@ -1887,6 +1892,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     if (payment.qrExpiresAt < new Date()) {
       throw new ConflictException('QR expired');
     }
+    await this.assertVenueStillCharges(payment);
 
     // Resolver provider activo del venue
     const credential = await this.prisma.asSystem((tx) =>
@@ -1960,6 +1966,20 @@ export class PaymentsService implements OnApplicationBootstrap {
       `Payment ${payment.id} authorizing via ${credential.provider} (txId=${providerTxId})`,
     );
     return { status: 'AUTHORIZING', providerTxId };
+  }
+
+  /**
+   * Al ir al banco se vuelve a mirar lo que se miró al crear el cobro: el
+   * local (o su negocio) en pausa → 423, y la forma de cobro apagada en
+   * Ajustes («QR con tarjeta»; la recarga, también «Saldo») → 409. Un QR
+   * creado antes no se cobra después, como el cobro con el saldo.
+   */
+  private async assertVenueStillCharges(payment: { tenantId: string; walletId: string | null }): Promise<void> {
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUnique({ where: { id: payment.tenantId }, select: { ...VENUE_PAUSE_SELECT, ...VENUE_METHODS_SELECT } }),
+    );
+    assertVenueNotPaused(venue);
+    assertMethodsEnabled(venue, methodsNeededForPayment({ isWalletTopUp: payment.walletId !== null, isPosExternal: false }));
   }
 
   /**

@@ -42,6 +42,20 @@ describe('findCreditTarget — a qué saldo va una recarga cobrada (#7)', () => 
     expect(out).toMatchObject({ ok: true, wallet: { id: 'w-3' }, mergedFrom: 'w-1' });
   });
 
+  it('bloqueado por el super-admin después de crear el cobro → no se suma (incidencia)', async () => {
+    expect(await findCreditTarget(wallet({ blockedAt: new Date() }), lockFrom([]))).toEqual({
+      ok: false,
+      cause: 'blocked',
+      walletStatus: 'ACTIVE',
+    });
+    // El bueno de una fusión, bloqueado: tampoco.
+    const out = await findCreditTarget(
+      wallet({ status: 'DEPLETED', mergedIntoId: 'w-2' }),
+      lockFrom([wallet({ id: 'w-2', blockedAt: new Date() })]),
+    );
+    expect(out).toMatchObject({ ok: false, cause: 'blocked' });
+  });
+
   it('el saldo bueno es de otro grupo → no se suma', async () => {
     const out = await findCreditTarget(
       wallet({ mergedIntoId: 'w-2', status: 'DEPLETED' }),

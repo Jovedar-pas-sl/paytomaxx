@@ -204,7 +204,12 @@ describe('create — recarga de saldo', () => {
     await expect(
       blocked.service.create(TENANT, 'idem-val-0022', dto({ wallet: { walletId: WALLET } }), owner),
     ).rejects.toThrow(/BLOCKED/);
-    expect([...other.created, ...blocked.created]).toHaveLength(0);
+    // Bloqueado por el super-admin (aunque siga ACTIVE): 409 WALLET_BLOCKED, ni con tarjeta.
+    const byAdmin = makeService({ wallet: { id: WALLET, status: 'ACTIVE', blockedAt: NOW } });
+    await expect(
+      byAdmin.service.create(TENANT, 'idem-val-0024', dto({ wallet: { walletId: WALLET } }), owner),
+    ).rejects.toMatchObject({ status: 409, response: expect.objectContaining({ code: 'WALLET_BLOCKED' }) });
+    expect([...other.created, ...blocked.created, ...byAdmin.created]).toHaveLength(0);
   });
 
   it('saldo nuevo: 5 códigos cortos ocupados seguidos → 409 y no se guarda el cobro', async () => {

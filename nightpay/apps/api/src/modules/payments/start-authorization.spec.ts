@@ -18,6 +18,7 @@ function makeService(authorizeError: Error) {
       update: vi.fn().mockResolvedValue({}),
     },
     gatewayCredential: { findFirst: vi.fn().mockResolvedValue({ provider: 'PAYTEF' }) },
+    venue: { findUnique: vi.fn().mockResolvedValue({ pausedAt: null, business: null, paymentMethods: null }) },
   };
   const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const service = Object.create(PaymentsService.prototype) as PaymentsService;

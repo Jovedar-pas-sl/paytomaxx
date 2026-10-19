@@ -58,6 +58,7 @@ function makeService(opts: Opts = {}) {
       }),
     },
     gatewayCredential: { findFirst: vi.fn(async () => (provider === null ? null : { provider })) },
+    venue: { findUnique: vi.fn(async () => ({ pausedAt: null, business: null, paymentMethods: null })) },
   };
   const prisma = { ...db, asSystem: vi.fn(async (fn: (tx: typeof db) => unknown) => fn(db)) };
   const authorize: (input: Row) => Promise<Row> =
