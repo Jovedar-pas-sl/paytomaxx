@@ -136,7 +136,7 @@ legend{color:var(--mute);margin:0 auto .6rem;padding:0;font-weight:600}
 </style>`;
 
 function tipChoices(view: ChooseView, t: PayText): string {
-  const presets = tipPresetsFor(view.amountCents);
+  const presets = tipPresetsFor(view.amountCents, view.tipPresets);
   const short = (c: number): string => formatShort(c, view.currency, t);
   const pct = (p: number): string => (p / 100).toLocaleString(t.locale, { style: 'percent' });
   const options = view.tipOptionsCents

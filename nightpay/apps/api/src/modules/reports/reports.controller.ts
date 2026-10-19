@@ -6,12 +6,14 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { cobrosCsv, devolucionesCsv, liquidacionesCsv, resumenCsv, summarize } from './export-csv';
 import { parseReportPeriod, periodSlug, type ReportPeriod } from './report-period';
 import { ReportsService } from './reports.service';
+import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
 const KINDS = ['cobros', 'devoluciones', 'liquidaciones', 'resumen'] as const;
 type ExportKind = (typeof KINDS)[number];
 
 /**
- * Informes para la gestoría en CSV (Fase 1C). Solo el dueño: datos fiscales.
+ * Informes para la gestoría en CSV (Fase 1C). El dueño, y el encargado si el
+ * dueño se lo deja (Ajustes → Permisos → ver informes): datos fiscales.
  *   GET /v1/admin/export/{cobros|devoluciones|liquidaciones|resumen}?from=AAAA-MM-DD&to=AAAA-MM-DD
  * Días de Madrid, ambos incluidos.
  */
@@ -25,7 +27,9 @@ export class ReportsController {
   }
 
   @Get(':kind')
-  @Roles('OWNER')
+  @Roles('OWNER', 'MANAGER')
+  @UseGuards(StaffPermissionGuard)
+  @RequiresPermission('reports')
   async export(
     @Tenant() tenantId: string,
     @Param('kind') kind: string,

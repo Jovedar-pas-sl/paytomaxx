@@ -55,6 +55,14 @@ model Venue {
   // desde este importe y pagos a las chicas los pide el encargado y los aprueba el dueño con 2FA.
   refundApprovalThresholdCents Int     @default(10000)
   payoutRequiresApproval       Boolean @default(true)
+  // Ajustes del dueño (20261020100000), JSON validado en el API
+  // (packages/contracts/src/venue-settings.ts). Null = lo de siempre.
+  // Formas de cobro encendidas y propinas.
+  paymentMethods        Json?
+  // Permisos del personal (por rol y por persona).
+  staffPermissions      Json?
+  // Avisos de Telegram: grupos, chat del local y nombres de las chicas.
+  alertSettings         Json?
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz

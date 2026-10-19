@@ -643,3 +643,34 @@ describe('consola del super-admin: local en pausa y saldo bloqueado', () => {
     expect(tx.clientWallet.update).not.toHaveBeenCalled();
   });
 });
+
+describe('formas de cobro del local (Ajustes): saldo y ficha NFC apagados', () => {
+  const disabled = (method: string) =>
+    expect.objectContaining({ status: 409, response: expect.objectContaining({ code: 'PAYMENT_METHOD_DISABLED', method }) });
+
+  it('pago con saldo apagado: la chica no puede hacer un cobro con QR (409) y no se crea nada', async () => {
+    const { svc, tx } = makeService();
+    tx.venue.findUnique.mockResolvedValue({ pausedAt: null, business: null, paymentMethods: { wallet: false } });
+    await expect(svc.createQrCharge(chica, { serviceItemId: 'svc-1' })).rejects.toEqual(disabled('wallet'));
+    expect(tx.walletChargeRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('pago con saldo apagado después de hacer el QR: el cliente ya no lo paga (409, sin descuento)', async () => {
+    const { svc, tx } = makeService();
+    tx.walletChargeRequest.findUnique.mockResolvedValue(request({ walletId: null, payToken: 'pay-tok' }));
+    tx.venue.findUnique.mockResolvedValue({ pausedAt: null, business: null, paymentMethods: { wallet: false } });
+    await expect(svc.payQrCharge('pay-tok', 'w-1')).rejects.toEqual(disabled('wallet'));
+    expect(tx.clientWallet.update).not.toHaveBeenCalled();
+  });
+
+  it('ficha NFC apagada: ni leerla, ni grabar una nueva, ni pagar con ella (con el código sí se sigue)', async () => {
+    const { svc, tx } = makeService();
+    tx.venue.findUnique.mockResolvedValue({ pausedAt: null, business: null, paymentMethods: { nfc: false } });
+    await expect(svc.lookupCard('t-1', { card: 'A'.repeat(22) })).rejects.toEqual(disabled('nfc'));
+    await expect(svc.issueCard(chica)).rejects.toEqual(disabled('nfc'));
+    tx.walletChargeRequest.findFirst.mockResolvedValue(request());
+    await expect(
+      svc.payQrChargeWithPin(chica, 'req-1', { card: 'A'.repeat(22), uid: null, pin: '1234' }),
+    ).rejects.toEqual(disabled('nfc'));
+  });
+});

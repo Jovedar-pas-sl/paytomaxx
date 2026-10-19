@@ -28,15 +28,16 @@ export class ApprovalNotifier {
   /** Sin Telegram configurado, en pruebas o con las alertas apagadas no se avisa. */
   enabled(): boolean {
     if (process.env.NODE_ENV === 'test' || process.env.NIGHTPAY_DISABLE_ALERTS === '1') return false;
-    return this.telegram.isConfigured();
+    return this.telegram.hasBot();
   }
 
-  async requested(tenantId: string, approvalId: string, text: string): Promise<boolean> {
-    if (!this.enabled()) return false;
+  /** `chatId`: el chat del local (Ajustes → Avisos); null = el de TELEGRAM_CHAT_ID. */
+  async requested(tenantId: string, approvalId: string, text: string, chatId: string | null = null): Promise<boolean> {
+    if (!this.enabled() || !this.telegram.isConfigured(chatId)) return false;
     const key = approvalAlertKey(tenantId, approvalId);
     try {
       if ((await this.redis.set(key, '1', 'EX', ALERT_SENT_TTL_S, 'NX')) !== 'OK') return false;
-      const sent = await this.telegram.send(text);
+      const sent = await this.telegram.send(text, chatId);
       if (!sent) await this.redis.del(key);
       return sent;
     } catch (err) {

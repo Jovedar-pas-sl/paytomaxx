@@ -36,8 +36,12 @@ import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { chargedAttemptTip } from '../payments/tip';
 import { planVenueRulesChange } from '../superadmin/superadmin-rules';
+import { resolveHoldDays } from '../operators/payout-math';
+import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 import { ClsService } from 'nestjs-cls';
 import {
+  MAX_OPERATOR_COBRO_CENTS,
+  MAX_VENUE_PAYOUT_HOLD_DAYS,
   CreateOperatorSchema,
   CreatePayoutSchema,
   ResetOperatorPasswordSchema,
@@ -77,8 +81,34 @@ const VenueSettingsUpdateSchema = z.object({
     VENUE_FOOD: z.number().int().min(0).max(10_000).optional(),
     EXTRA: z.number().int().min(0).max(10_000).optional(),
   }).optional(),
+  // Reglas del local que pone el dueño (Ajustes → Reglas del local).
+  /** null = el del entorno (PAYOUT_HOLD_DAYS). 0 = se paga al cierre de la noche. */
+  payoutHoldDays: z.number().int().min(0).max(MAX_VENUE_PAYOUT_HOLD_DAYS).nullable().optional(),
+  refundApprovalThresholdCents: z.number().int().min(0).max(MAX_OPERATOR_COBRO_CENTS).optional(),
+  payoutRequiresApproval: z.boolean().optional(),
+  /** Reglas de dinero: con la 2FA activada, el código. */
+  totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 });
 type VenueSettingsUpdate = z.infer<typeof VenueSettingsUpdateSchema>;
+
+/** Lo que enseña y cambia el dueño en Ajustes (la comisión de OxioPay solo se enseña). */
+const VENUE_SETTINGS_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  timezone: true,
+  operatorMaxCobroCents: true,
+  platformCommissionBps: true,
+  operatorCommissionDefaults: true,
+  payoutHoldDays: true,
+  refundApprovalThresholdCents: true,
+  payoutRequiresApproval: true,
+} as const;
+
+/** Con los días de espera que valen de verdad (los del local o los del entorno). */
+function withEffectiveHoldDays<T extends { payoutHoldDays: number | null }>(v: T): T & { effectivePayoutHoldDays: number } {
+  return { ...v, effectivePayoutHoldDays: resolveHoldDays(v.payoutHoldDays, process.env.PAYOUT_HOLD_DAYS) };
+}
 
 const MSG_PLATFORM_COMMISSION_SA_ONLY = 'La comisión de OxioPay solo la cambia OxioPay (super-admin)';
 
@@ -588,20 +618,9 @@ export class AdminController {
   @Roles('OWNER', 'MANAGER')
   async getVenueSettings(@Tenant() tenantId: string) {
     const venue = await this.prisma.asSystem((tx) =>
-      tx.venue.findUniqueOrThrow({
-        where: { id: tenantId },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          timezone: true,
-          operatorMaxCobroCents: true,
-          platformCommissionBps: true,
-          operatorCommissionDefaults: true,
-        },
-      }),
+      tx.venue.findUniqueOrThrow({ where: { id: tenantId }, select: VENUE_SETTINGS_SELECT }),
     );
-    return venue;
+    return withEffectiveHoldDays(venue);
   }
 
   @Patch('venue/settings')
@@ -611,10 +630,10 @@ export class AdminController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(VenueSettingsUpdateSchema)) dto: VenueSettingsUpdate,
   ) {
-    if (Object.keys(dto).length === 0) {
+    const { platformCommissionBps, totpCode, ...rules } = dto;
+    if (Object.keys(rules).length === 0 && platformCommissionBps === undefined) {
       throw new NotFoundException('No hay campos a actualizar');
     }
-    const { platformCommissionBps, ...rules } = dto;
     const { current, maxOverrideBps } = await this.prisma.asSystem(async (tx) => ({
       current: await tx.venue.findUniqueOrThrow({
         where: { id: tenantId },
@@ -641,28 +660,26 @@ export class AdminController {
     // queda tiene que cuadrar como en la consola: chica + plataforma ≤ 100 %.
     const plan = planVenueRulesChange(current, rules, maxOverrideBps ?? null);
     if (!plan.ok) throw new BadRequestException(plan.problem);
+    // Reglas de dinero (tope, comisiones, espera, aprobaciones): con la 2FA
+    // activada hace falta el código (una sesión robada no basta).
+    await this.totp.assertIfEnrolledForUser(user.sub, totpCode);
 
     const updated = await this.prisma.asSystem((tx) =>
-      tx.venue.update({
-        where: { id: tenantId },
-        data: plan.change,
-        select: {
-          id: true,
-          operatorMaxCobroCents: true,
-          platformCommissionBps: true,
-          operatorCommissionDefaults: true,
-        },
-      }),
+      tx.venue.update({ where: { id: tenantId }, data: plan.change, select: VENUE_SETTINGS_SELECT }),
+    );
+    const before = Object.fromEntries(
+      Object.keys(plan.change).map((k) => [k, current[k as keyof typeof current]]),
     );
     await this.audit.log({
       action: 'venue.settings.updated',
       tenantId,
       actorId: user.sub,
+      actorEmail: user.email,
       targetType: 'Venue',
       targetId: tenantId,
-      payload: { changes: rules },
+      payload: { changes: rules, before },
     });
-    return updated;
+    return withEffectiveHoldDays(updated);
   }
 
   // ─── Operadoras (chicas) ──────────────────────────────────────────
@@ -784,6 +801,8 @@ export class AdminController {
    */
   @Post('operators/:id/payouts')
   @Roles('OWNER', 'MANAGER')
+  @UseGuards(StaffPermissionGuard)
+  @RequiresPermission('payouts')
   @HttpCode(201)
   async createOperatorPayout(
     @Tenant() tenantId: string,

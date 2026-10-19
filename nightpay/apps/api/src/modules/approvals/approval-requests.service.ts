@@ -10,6 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   APPROVAL_REQUESTED_MESSAGE,
+  alertSettingsOf,
   type ApprovalListQuery,
   type ApprovalListResponse,
   type ApprovalRequestedResponse,
@@ -318,22 +319,28 @@ export class ApprovalRequestsService {
     row: ApprovalRow,
     detail: { operatorName?: string; paymentAmountCents?: number | null },
   ): Promise<void> {
-    const [venue, requester] = await Promise.all([
+    const [venue, requester, alerts] = await Promise.all([
       this.venueRules(actor.tenantId),
       this.prisma.acrossVenues((tx) =>
         tx.user.findUnique({ where: { id: actor.userId }, select: { displayName: true, email: true } }),
       ),
+      this.prisma.asSystem((tx) =>
+        tx.venue.findUnique({ where: { id: actor.tenantId }, select: { alertSettings: true } }),
+      ),
     ]);
+    // Ajustes → Avisos: «Por aprobar» apagado no se avisa; sin nombres, sin el de la chica.
+    const settings = alertSettingsOf(alerts?.alertSettings);
+    if (!settings.kinds.approvals) return;
     const text = requestAlertText({
       venueName: venue.name,
       kind: row.kind,
       requester: personName(requester),
       requesterRole: actor.role,
       amountCents: row.amountCents,
-      operatorName: detail.operatorName ?? null,
+      operatorName: settings.includeNames ? (detail.operatorName ?? null) : null,
       paymentAmountCents: detail.paymentAmountCents ?? null,
     });
-    await this.notifier.requested(actor.tenantId, row.id, text);
+    await this.notifier.requested(actor.tenantId, row.id, text, settings.chatId);
   }
 
   // ─── Leer ───────────────────────────────────────────────────────────

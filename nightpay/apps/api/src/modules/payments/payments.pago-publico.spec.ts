@@ -174,10 +174,23 @@ describe('getPayPage — lo que ve el cliente al escanear el QR', () => {
       venueName: 'Sala Bambú (Madrid)',
       concept: 'Copa en barra',
       tipToStaff: true,
+      // Sin ajustes del local: las propinas sugeridas de siempre.
+      tipPresets: { flatCents: [200, 500], percents: [10, 15] },
     });
     // Local con otra pasarela (Paytef): solo «Sin propina».
     const paytef = makeService({ provider: 'PAYTEF' });
     await expect(paytef.service.getPayPage(QR)).resolves.toMatchObject({ tipOptionsCents: [0], tipMaxCents: 0 });
+  });
+
+  it('propinas del local (Ajustes): apagadas → solo «Sin propina» y no se acepta otra; sugeridas propias → esas', async () => {
+    const off = makeService({ provider: 'REDSYS', payment: { venue: { name: 'Sala Bambú (Madrid)', paymentMethods: { tips: false } } } });
+    await expect(off.service.getPayPage(QR)).resolves.toMatchObject({ kind: 'choose', tipOptionsCents: [0], tipMaxCents: 0 });
+    const own = makeService({
+      provider: 'REDSYS',
+      payment: { venue: { name: 'Sala Bambú (Madrid)', paymentMethods: { tipPercents: [5, 20] } } },
+    });
+    // 45 €: 5 % → 2 € (redondeado a euros), 20 % → 9 €.
+    await expect(own.service.getPayPage(QR)).resolves.toMatchObject({ tipOptionsCents: [0, 200, 900] });
   });
 
   it('pago en curso con otra pasarela → reenvía a lo guardado (enlace o formulario); sin nada → 409', async () => {

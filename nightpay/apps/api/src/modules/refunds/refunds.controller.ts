@@ -22,6 +22,7 @@ import { madridDay } from '../../common/time/madrid';
 import { ApprovalRequestsService } from '../approvals/approval-requests.service';
 import { isRefundNeedsApproval } from '../approvals/approval-rules';
 import { RefundsService } from './refunds.service';
+import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
 const RefundBodySchema = z.object({
   amountCents: z.number().int().positive(),
@@ -78,6 +79,8 @@ export class RefundsController {
   @Post(':id/refunds')
   @HttpCode(201)
   @Roles('OWNER', 'MANAGER')
+  @UseGuards(StaffPermissionGuard)
+  @RequiresPermission('refund')
   async create(
     @Param('id', ParseUUIDPipe) paymentId: string,
     @Body(new ZodValidationPipe(RefundBodySchema)) body: RefundBody,

@@ -70,6 +70,11 @@ export interface Incident {
   paymentId: string | null;
   /** true = se quita marcándola como revisada; false = se quita resolviéndola. */
   ackable: boolean;
+  /**
+   * El detalle sin el nombre de la chica, para Telegram (un tercero) cuando
+   * el local no quiere nombres (Ajustes → Avisos). Sin él, el detalle no lleva nombres.
+   */
+  alertDetail?: string;
 }
 
 /** Filas crudas que lee el servicio, una por tipo. */
@@ -554,16 +559,20 @@ export interface PendingApprovalRow {
  */
 export function approvalPendingIncident(r: PendingApprovalRow, now: Date): Incident {
   const payout = r.kind === 'PAYOUT';
-  const what = payout ? `pagar ${eur(r.amountCents)} a ${r.operatorName ?? 'una chica'}` : `devolver ${eur(r.amountCents)}`;
+  const text = (operatorName: string | null): string => {
+    const what = payout ? `pagar ${eur(r.amountCents)} a ${operatorName ?? 'una chica'}` : `devolver ${eur(r.amountCents)}`;
+    return `${r.requester ?? 'El encargado'} pidió ${what} hace ${elapsed(now.getTime() - r.requestedAt.getTime())}. Apruébalo o recházalo en «Por aprobar»: caduca a las 24 h.`;
+  };
   return {
     kind: 'approval_pending',
     refId: r.id,
     title: payout ? 'Pago a una chica por aprobar' : 'Devolución por aprobar',
-    detail: `${r.requester ?? 'El encargado'} pidió ${what} hace ${elapsed(now.getTime() - r.requestedAt.getTime())}. Apruébalo o recházalo en «Por aprobar»: caduca a las 24 h.`,
+    detail: text(r.operatorName),
     occurredAt: r.requestedAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,
     ackable: false,
+    ...(payout && r.operatorName ? { alertDetail: text(null) } : {}),
   };
 }
 

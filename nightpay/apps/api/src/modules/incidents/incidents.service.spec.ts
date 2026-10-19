@@ -330,7 +330,12 @@ describe('alertas por Telegram', () => {
     ackable: true,
   });
 
-  function makeAlerts(open: Incident[], cobros: unknown[] = [], cashNights: Array<{ cashDiffCents: number }> = []) {
+  function makeAlerts(
+    open: Incident[],
+    cobros: unknown[] = [],
+    cashNights: Array<{ cashDiffCents: number }> = [],
+    alertSettings: unknown = null,
+  ) {
     const claimed = new Set<string>();
     const redis = {
       set: vi.fn().mockImplementation(async (key: string) => {
@@ -344,7 +349,7 @@ describe('alertas por Telegram', () => {
       }),
     };
     const prisma = {
-      venue: { findMany: vi.fn().mockResolvedValue([{ id: 't-1', name: 'Local Centro' }]) },
+      venue: { findMany: vi.fn().mockResolvedValue([{ id: 't-1', name: 'Local Centro', alertSettings }]) },
       venueNight: { findMany: vi.fn().mockResolvedValue(cashNights) },
       asSystem: vi.fn(),
     };
@@ -357,10 +362,54 @@ describe('alertas por Telegram', () => {
       consumos: vi.fn().mockResolvedValue([]),
       pagosSaldo: vi.fn().mockResolvedValue([]),
     };
-    const telegram = { send: vi.fn().mockResolvedValue(true), isConfigured: () => true };
+    const telegram = {
+      send: vi.fn().mockResolvedValue(true),
+      isConfigured: (chatId?: string | null) => chatId !== '@sin_bot_aqui',
+      hasBot: () => true,
+    };
     const svc = new AlertsService(prisma as never, redis as never, incidents as never, reports as never, telegram as never);
     return { svc, telegram, reports, incidents, prisma };
   }
+
+  it('Ajustes → Avisos: un grupo apagado no sale; el resto va al chat del local', async () => {
+    const pos: Incident = { ...incident('9'), kind: 'pos_unmatched_op', title: 'Venta del datáfono sin cobro' };
+    const { svc, telegram } = makeAlerts([incident('1'), pos], [], [], {
+      kinds: { pos: false },
+      chatId: '-1001234567890',
+    });
+    await svc.tick(at('2026-10-13T23:00:00Z'));
+    expect(telegram.send).toHaveBeenCalledTimes(1);
+    expect(telegram.send).toHaveBeenCalledWith(expect.stringContaining('pagó dos veces'), '-1001234567890');
+  });
+
+  it('sin nombres (lo de siempre): la solicitud de pago no lleva el nombre de la chica; con nombres, sí', async () => {
+    const approval: Incident = {
+      kind: 'approval_pending',
+      refId: 'ap-1',
+      title: 'Pago a una chica por aprobar',
+      detail: 'Pedro pidió pagar 90 € a Ana hace 31 min.',
+      alertDetail: 'Pedro pidió pagar 90 € a una chica hace 31 min.',
+      occurredAt: '2026-10-13T22:30:00.000Z',
+      amountCents: 9000,
+      paymentId: null,
+      ackable: false,
+    };
+    const anon = makeAlerts([approval]);
+    await anon.svc.tick(at('2026-10-13T23:00:00Z'));
+    expect(anon.telegram.send.mock.calls[0]![0]).toContain('a una chica');
+    expect(anon.telegram.send.mock.calls[0]![0]).not.toContain('Ana');
+    const named = makeAlerts([approval], [], [], { includeNames: true });
+    await named.svc.tick(at('2026-10-13T23:00:00Z'));
+    expect(named.telegram.send.mock.calls[0]![0]).toContain('a Ana');
+  });
+
+  it('el resumen de las 9:00 apagado no sale (los avisos sí)', async () => {
+    const fresh: Incident = { ...incident('1'), occurredAt: '2026-10-14T07:00:00.000Z' };
+    const { svc, telegram } = makeAlerts([fresh], [{ amountCents: 1000 }], [], { kinds: { summary: false } });
+    await svc.tick(at('2026-10-14T07:30:00Z'));
+    expect(telegram.send).toHaveBeenCalledTimes(1);
+    expect(telegram.send.mock.calls[0]![0]).not.toContain('anoche');
+  });
 
   it('cada incidencia se avisa una sola vez', async () => {
     const { svc, telegram } = makeAlerts([incident('1'), incident('2')]);
@@ -480,5 +529,16 @@ describe('Telegram', () => {
     expect(url).toBe('https://api.telegram.org/botTOKEN/sendMessage');
     expect(JSON.parse(init.body)).toMatchObject({ chat_id: '123', text: 'hola' });
     expect(await t.send('otra')).toBe(false);
+  });
+
+  it('chat propio del local (Ajustes → Avisos): con bot basta, aunque no haya chat por defecto', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const t = new TelegramService(config('TOKEN') as never);
+    expect(t.hasBot()).toBe(true);
+    expect(t.isConfigured()).toBe(false);
+    expect(t.isConfigured('-1001234567890')).toBe(true);
+    expect(await t.send('hola', '-1001234567890')).toBe(true);
+    expect(JSON.parse((fetchMock.mock.calls[0]! as [string, { body: string }])[1].body)).toMatchObject({ chat_id: '-1001234567890' });
   });
 });

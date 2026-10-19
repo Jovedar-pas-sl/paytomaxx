@@ -7,7 +7,11 @@ function make(sent = true) {
     set: vi.fn(async (key: string) => (marks.has(key) ? null : (marks.add(key), 'OK'))),
     del: vi.fn(async (key: string) => marks.delete(key)),
   };
-  const telegram = { isConfigured: () => true, send: vi.fn().mockResolvedValue(sent) };
+  const telegram = {
+    hasBot: () => true,
+    isConfigured: (chatId?: string | null) => chatId !== 'sin-chat',
+    send: vi.fn().mockResolvedValue(sent),
+  };
   return { notifier: new ApprovalNotifier(redis as never, telegram as never), redis, telegram };
 }
 
@@ -31,6 +35,15 @@ describe('aviso por Telegram de una solicitud nueva', () => {
     const { notifier, redis } = make(false);
     expect(await notifier.requested('t-1', 'ap-2', 'hola')).toBe(false);
     expect(redis.del).toHaveBeenCalledWith('np:alert:t-1:approval_pending:ap-2');
+  });
+
+  it('al chat del local si tiene uno (Ajustes → Avisos); sin chat al que mandar, nada', async () => {
+    process.env.NODE_ENV = 'production';
+    const { notifier, telegram } = make();
+    expect(await notifier.requested('t-1', 'ap-4', 'hola', '-100123456')).toBe(true);
+    expect(telegram.send).toHaveBeenCalledWith('hola', '-100123456');
+    expect(await notifier.requested('t-1', 'ap-5', 'hola', 'sin-chat')).toBe(false);
+    expect(telegram.send).toHaveBeenCalledTimes(1);
   });
 
   it('en pruebas no se manda nada', async () => {

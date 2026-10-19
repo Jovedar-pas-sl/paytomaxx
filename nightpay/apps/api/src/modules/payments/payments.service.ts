@@ -23,7 +23,13 @@ import {
   type PaymentEvent,
   type PaymentMachineState,
 } from './payment.machine';
-import type { CreatePaymentDto, CreatedPaymentResponse, PublicPaymentView } from '@nightpay/contracts';
+import {
+  methodsNeededForPayment,
+  paymentMethodsOf,
+  type CreatePaymentDto,
+  type CreatedPaymentResponse,
+  type PublicPaymentView,
+} from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
 import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
 import { GatewayRegistry } from '../gateways/gateway.registry';
@@ -31,6 +37,7 @@ import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
 import { VENUE_PAUSE_SELECT, assertVenueNotPaused } from '../venues/venue-pause';
+import { TipsDisabledException, VENUE_METHODS_SELECT, assertMethodsEnabled } from '../venues/venue-methods';
 import {
   resolveBpsForOperator,
   resolveRevenueCategory,
@@ -445,16 +452,22 @@ export class PaymentsService implements OnApplicationBootstrap {
           operatorCommissionDefaults: true,
           walletGroup: true,
           ...VENUE_PAUSE_SELECT,
+          ...VENUE_METHODS_SELECT,
         },
       }),
     );
     // Local (o su negocio) en pausa: ni cobros ni recargas nuevos (423 VENUE_PAUSED).
     assertVenueNotPaused(venue);
+    // Forma de cobro apagada en Ajustes (QR con tarjeta, datáfono; la recarga
+    // también necesita el saldo): 409 PAYMENT_METHOD_DISABLED.
+    const methods = assertMethodsEnabled(venue, methodsNeededForPayment({ isWalletTopUp, isPosExternal }));
     const { amountCents, service, serviceCategory } = await this.resolveCharge(tenantId, dto, creatorRole);
 
     // Propina que pone quien crea el cobro: solo si el banco la va a cobrar y
     // confirmar (Redsys); por datáfono cuenta la del datáfono. Y el tope del
-    // local para la chica es sobre importe + propina.
+    // local para la chica es sobre importe + propina. Con las propinas
+    // apagadas en el local, 409 TIPS_DISABLED.
+    if ((dto.tipCents ?? 0) > 0 && !methods.tips) throw new TipsDisabledException();
     const tip = await this.resolveCreatorTip({ tenantId, dto, amountCents, creatorRole, isPosExternal, isWalletTopUp });
     const capProblem = operatorCapProblem({
       creatorRole,
@@ -926,7 +939,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           // Cabecera de la página de pago: local, concepto y a quién va la propina.
           serviceName: true,
           tipGoesTo: true,
-          venue: { select: { name: true } },
+          venue: { select: { name: true, paymentMethods: true } },
           createdBy: { select: { role: true } },
           wallet: { select: { qrToken: true, shortCode: true, pinHash: true, _count: { select: { passkeys: true } } } },
           attempts: {
@@ -946,10 +959,13 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Recarga de un saldo que ya existía: quien la paga no se lleva su código,
     // su enlace ni su Face ID (solo la recarga que lo creó).
     const wallet = rawWallet && (await this.isFirstTopUp(walletId, payment.id)) ? rawWallet : null;
+    // Propinas del local (Ajustes → Formas de cobro): apagadas, no se ofrecen ni se aceptan.
+    const methods = paymentMethodsOf(venue?.paymentMethods);
     return {
       ...rest,
       status: payment.status as PaymentMachineState,
-      allowTip: provider === 'REDSYS' && walletId === null,
+      allowTip: provider === 'REDSYS' && walletId === null && methods.tips,
+      tipPresets: { flatCents: methods.tipFlatCents, percents: methods.tipPercents },
       venueName: venue?.name ?? null,
       concept: serviceName ?? null,
       tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null }),

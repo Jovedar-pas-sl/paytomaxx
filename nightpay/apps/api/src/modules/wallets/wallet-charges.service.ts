@@ -21,6 +21,7 @@ import { reopenData } from './wallet-activation';
 import { mergedWalletIds } from './wallet-merge-chain';
 import { clientRefundState, refundCards, type ClientRefundState } from './wallet-refund-view';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
+import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor } from './wallet-two-factor';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
@@ -468,7 +469,11 @@ export class WalletChargesService {
     input: { serviceItemId?: string; amountCents?: number; category?: string },
   ): Promise<QrChargeView> {
     // Local (o su negocio) en pausa: sin cobros del saldo nuevos (423 VENUE_PAUSED).
-    await this.prisma.asSystem((tx) => assertVenueAcceptsCharges(tx, actor.tenantId));
+    // Pago con saldo apagado en Ajustes: 409 PAYMENT_METHOD_DISABLED.
+    await this.prisma.asSystem(async (tx) => {
+      await assertVenueAcceptsCharges(tx, actor.tenantId);
+      await assertVenueAcceptsMethods(tx, actor.tenantId, ['wallet']);
+    });
     const { amountCents, category, serviceName } = await this.resolveCharge(actor, input);
     const payToken = randomBytes(24).toString('base64url');
     const request = await this.prisma.asSystem((tx) =>
@@ -672,6 +677,8 @@ export class WalletChargesService {
     if (request.requestedByUserId !== actor.userId && !manager) {
       throw new ForbiddenException('Este cobro lo ha hecho otra persona');
     }
+    // Con la ficha NFC apagada en Ajustes no se paga con ella (sí con el código).
+    if ('card' in input) await this.assertMethods(actor.tenantId, ['nfc']);
     // Que no se gaste un intento de PIN en un cobro que ya no se puede pagar.
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw new ConflictException(REQUEST_ERRORS['not-pending']);
@@ -715,7 +722,13 @@ export class WalletChargesService {
 
   /** La chica acerca la ficha: su saldo (si vale en este local). */
   async lookupCard(venueId: string, input: { card: string; uid?: string | null }): Promise<WalletLookup> {
+    await this.assertMethods(venueId, ['nfc']);
     return this.lookupWallet(venueId, await this.walletByCard(venueId, input));
+  }
+
+  /** 409 PAYMENT_METHOD_DISABLED si el local apagó esa forma de cobro (Ajustes). */
+  private async assertMethods(venueId: string, needed: Array<'wallet' | 'nfc'>): Promise<void> {
+    await this.prisma.asSystem((tx) => assertVenueAcceptsMethods(tx, venueId, needed));
   }
 
   /**
@@ -723,6 +736,7 @@ export class WalletChargesService {
    * 128 bits): solo las fichas grabadas así se pueden dar a un saldo.
    */
   async issueCard(actor: Actor): Promise<{ card: string }> {
+    await this.assertMethods(actor.tenantId, ['nfc']);
     const token = randomBytes(16).toString('base64url');
     await this.prisma.acrossVenues((tx) => tx.walletCard.create({ data: { token, linkedById: actor.userId } }));
     return { card: token };
@@ -735,6 +749,7 @@ export class WalletChargesService {
    */
   async linkCard(actor: Actor, input: { code: string; card: string; uid?: string | null }): Promise<WalletLookup> {
     if (!isWalletCardToken(input.card)) throw new BadRequestException('Esta ficha no es nuestra: grábala otra vez');
+    await this.assertMethods(actor.tenantId, ['nfc']);
     const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
     const wallet = await this.walletByCode(actor.tenantId, input.code);
     const manager = isManager(actor);
@@ -1023,8 +1038,12 @@ export class WalletChargesService {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw new ConflictException(REQUEST_ERRORS['not-pending']);
     }
-    // Un cobro hecho antes de la pausa tampoco se cobra mientras dure (423).
-    await this.prisma.asSystem((tx) => assertVenueAcceptsCharges(tx, request.tenantId));
+    // Un cobro hecho antes de la pausa tampoco se cobra mientras dure (423),
+    // ni con el pago con saldo apagado en Ajustes (409).
+    await this.prisma.asSystem(async (tx) => {
+      await assertVenueAcceptsCharges(tx, request.tenantId);
+      await assertVenueAcceptsMethods(tx, request.tenantId, ['wallet']);
+    });
     const [wallet, venue] = await Promise.all([
       this.prisma.acrossVenues((tx) =>
         tx.clientWallet.findUnique({ where: { id: walletId }, select: { tenantId: true, walletGroup: true } }),
