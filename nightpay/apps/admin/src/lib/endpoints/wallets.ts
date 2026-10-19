@@ -140,7 +140,7 @@ export type WalletPayoutMethod = 'CARD' | 'CASH';
 export async function payoutWallet(
   walletId: string,
   input: { method: WalletPayoutMethod; bankReference?: string; note?: string; totpCode?: string },
-): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
+): Promise<{ refundedCents: number; method: WalletPayoutMethod; remainingCents?: number }> {
   const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/payout`, {
     method: 'POST',
     body: JSON.stringify(input),

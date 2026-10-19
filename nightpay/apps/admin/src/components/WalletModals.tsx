@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import { totpRetryState } from '@/lib/api-errors';
 import { walletPayoutSummary } from '@/lib/confirm-summary';
+import { payoutDoneText } from '@/lib/wallet-payout';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import { useLockActive } from '@/lib/use-lock';
@@ -132,9 +133,8 @@ export function PayoutModal({
         note: note.trim() || undefined,
         totpCode: withCode ? totp : undefined,
       });
-      setDone(
-        `Apuntado: ${formatEur(res.refundedCents)} devueltos ${res.method === 'CASH' ? 'en efectivo' : 'a la tarjeta'}. Saldo cerrado.`,
-      );
+      // En efectivo puede salir solo una parte (lo que entró en efectivo): se dice lo que queda.
+      setDone(payoutDoneText(res));
     } catch (err) {
       const retry = totpRetryState(err, Date.now());
       if (retry.lockedUntil !== null) setLockedUntil(retry.lockedUntil);
@@ -177,7 +177,7 @@ export function PayoutModal({
               <MethodOption
                 active={method === 'CASH'}
                 title="Efectivo"
-                text="Se lo das ahora, de la caja de este local."
+                text="Se lo das ahora, de la caja de este local (solo lo que entró en efectivo)."
                 onClick={() => setMethod('CASH')}
               />
               <MethodOption
