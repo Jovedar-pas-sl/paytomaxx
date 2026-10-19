@@ -56,6 +56,13 @@ describe('devoluciones: desde el umbral del local, el encargado las pide', () =>
     expect(refundRoute('MANAGER', 1, { ...custom, refundApprovalThresholdCents: 0 })).toBe('request');
   });
 
+  it('partirla en el mismo cobro no se salta al dueño: cuenta lo que el encargado ya devolvió ahí', () => {
+    expect(refundRoute('MANAGER', 6_000, withApproval, 0)).toBe('direct');
+    expect(refundRoute('MANAGER', 6_000, withApproval, 4_000)).toBe('request');
+    expect(refundRoute('MANAGER', 6_000, withApproval, 3_999)).toBe('direct');
+    expect(refundRoute('OWNER', 6_000, withApproval, 1_000_000)).toBe('direct');
+  });
+
   it('el dueño siempre directa (su 2FA por lo devuelto acumulado sigue igual); el camarero no devuelve', () => {
     expect(refundRoute('OWNER', 1_000_000, withApproval)).toBe('direct');
     expect(refundRoute('WAITER', 100, withApproval)).toBe('forbidden');

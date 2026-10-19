@@ -83,7 +83,7 @@ export class RefundsController {
     @Res({ passthrough: true }) reply?: FastifyReply,
   ) {
     const actor = { userId: user.sub, role: user.role, tenantId: user.tenantId };
-    if ((await this.approvals.refundRouteFor(actor, body.amountCents)) === 'request') {
+    if ((await this.approvals.refundRouteFor(actor, body.amountCents, paymentId)) === 'request') {
       reply?.status(202);
       return this.approvals.requestRefund(actor, { paymentId, amountCents: body.amountCents, reason: body.reason });
     }

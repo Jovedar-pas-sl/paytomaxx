@@ -451,6 +451,43 @@ describe('devoluciones', () => {
     expect(await availableOf(payment)).toBe(0);
   });
 
+  it('partirla en trozos en el mismo cobro no se salta al dueño', async () => {
+    const chica = await newChica('Noa');
+    const payment = await newPayment(chica, 20_000);
+    const eli = await newManager('Eli');
+    const reply = { status: vi.fn() };
+    const piece = (amountCents: number) =>
+      asStaff(V, () => refundsController.create(payment, { amountCents }, jwtOf(managerOf(eli)), reply as never));
+    await expect(piece(6_000)).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    expect(reply.status).not.toHaveBeenCalled();
+    // 60 € ya devueltos por ella aquí + 50 € = 110 € ≥ 100 €: al dueño.
+    await expect(piece(5_000)).resolves.toMatchObject({ status: 'PENDING', kind: 'REFUND' });
+    expect(reply.status).toHaveBeenCalledWith(202);
+  });
+
+  it('el dueño apunta una devolución ya hecha en el banco aunque haya una pedida; la pedida falla si ya no cabe', async () => {
+    const chica = await newChica('Zoe');
+    const payment = await newPayment(chica, 15_000);
+    const asked = await askRefund(managerOf(manager), payment, 12_000);
+    const boss = await newOwner();
+    await expect(
+      asStaff(V, () =>
+        refunds.registerBankRefund(
+          { paymentId: payment, amountCents: 15_000, reason: 'devuelto en el portal de BBVA' },
+          { userId: boss, role: 'OWNER', tenantId: V },
+        ),
+      ),
+    ).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    expect(await availableOf(payment)).toBe(0);
+    const calls = gatewayCalls;
+    expect(await failure(approve(await newOwner(), asked.approvalRequestId))).toMatchObject({
+      status: 409,
+      body: { code: 'APPROVAL_FAILED' },
+    });
+    expect(gatewayCalls).toBe(calls);
+    expect(await rowOf(asked.approvalRequestId)).toMatchObject({ status: 'FAILED' });
+  });
+
   it('si la pasarela la rechaza al aprobarla: FAILED con la razón y el cobro queda igual', async () => {
     const chica = await newChica('Mía');
     const payment = await newPayment(chica, 15_000);

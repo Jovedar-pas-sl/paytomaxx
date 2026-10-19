@@ -540,7 +540,9 @@ export class RefundsService {
                 `Ya hay una devolución de ${eur(request.amountCents)} registrada en este cobro. Si es otra distinta, confírmalo.`,
               );
             }
-            await assertRefundFits(tx, payment.id, locked, request.amountCents);
+            // El dinero ya salió en el portal del banco: se apunta aunque haya una
+            // devolución pedida al dueño en este cobro (esa fallará si ya no cabe).
+            await assertRefundFits(tx, payment.id, locked, request.amountCents, { approvals: false });
             await tx.refund.create({
               data: {
                 id: refundId,

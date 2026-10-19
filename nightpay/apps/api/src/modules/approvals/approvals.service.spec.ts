@@ -68,7 +68,7 @@ function make(opts: { row: ApprovalRow; after?: ApprovalRow | null; refundStatus
     decidable: vi.fn().mockResolvedValue(opts.row),
     findRow: vi.fn().mockResolvedValue(opts.after === undefined ? { ...opts.row, status: 'APPROVED', resultRef: 'po-1' } : opts.after),
     view: vi.fn(async (_a: unknown, r: ApprovalRow) => ({ id: r.id, status: r.status, resultRef: r.resultRef })),
-    markFailed: vi.fn().mockResolvedValue(undefined),
+    markFailed: vi.fn().mockResolvedValue(true),
   };
   const operators = { createPayout: vi.fn().mockResolvedValue({ id: 'po-1' }) };
   const refunds = { refund: vi.fn().mockResolvedValue({ id: 'rf-1', status: 'SUCCEEDED' }) };
@@ -149,6 +149,16 @@ describe('ApprovalsService.approve', () => {
     const res = await failure(svc.approve(boss, 'ap-1', '123456'));
     expect(res).toMatchObject({ status: 409, body: { code: 'APPROVAL_FAILED', message: 'No se ha podido hacer: El saldo de la chica ha cambiado' } });
     expect(requests.markFailed).toHaveBeenCalledWith(expect.objectContaining({ id: 'ap-1' }), boss, 'El saldo de la chica ha cambiado', 'PENDING');
+  });
+
+  it('si otra persona la aprobó mientras fallaba la mía: no se marca FAILED, se devuelve cómo quedó', async () => {
+    const { svc, operators, requests } = make({ row: payoutRow(), after: payoutRow() });
+    operators.createPayout.mockRejectedValueOnce(new ConflictException('Parte de esas comisiones ya se ha pagado'));
+    requests.markFailed.mockResolvedValueOnce(false);
+    requests.findRow
+      .mockResolvedValueOnce(payoutRow())
+      .mockResolvedValueOnce(payoutRow({ status: 'APPROVED', resultRef: 'po-9' }));
+    await expect(svc.approve(boss, 'ap-1', '123456')).resolves.toMatchObject({ status: 'APPROVED', resultRef: 'po-9' });
   });
 
   it('fallo pasajero (base caída): sigue pendiente para reintentar', async () => {

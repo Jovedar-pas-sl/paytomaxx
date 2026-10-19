@@ -38,7 +38,9 @@ const venue = { name: 'Luna', payoutRequiresApproval: true, refundApprovalThresh
 
 const refunds = { refund: vi.fn() };
 const requests = {
-  refundRouteFor: vi.fn(async (actor: { role: 'OWNER' | 'MANAGER' }, cents: number) => refundRoute(actor.role, cents, venue)),
+  refundRouteFor: vi.fn(async (actor: { role: 'OWNER' | 'MANAGER' }, cents: number, _payment: string) =>
+    refundRoute(actor.role, cents, venue),
+  ),
   requestRefund: vi.fn(),
   list: vi.fn(),
   rules: vi.fn(),
@@ -131,6 +133,8 @@ describe('POST /v1/payments/:id/refunds — el encargado desde el umbral pide (2
       { paymentId: PAYMENT, amountCents: 15_000, reason: 'queja' },
     );
     expect(refunds.refund).not.toHaveBeenCalled();
+    // Lo que ya devolvió en ese cobro cuenta: se le pasa el cobro.
+    expect(requests.refundRouteFor).toHaveBeenCalledWith(expect.objectContaining({ role: 'MANAGER' }), 15_000, PAYMENT);
   });
 
   it('encargado por debajo del umbral, o el dueño: se hace como siempre (201)', async () => {

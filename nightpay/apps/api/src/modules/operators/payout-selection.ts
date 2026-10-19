@@ -46,6 +46,7 @@ export async function lockPayableEarnings(
        AND "tenantId" = ${tenantId}::uuid
        AND "payoutId" IS NULL
        AND "createdAt" <= ${cutoff}
+     ORDER BY id
      FOR UPDATE
   `;
 }
@@ -64,6 +65,7 @@ export async function lockEarningsById(
      WHERE id = ANY(${[...ids]}::uuid[])
        AND "operatorId" = ${operatorId}::uuid
        AND "tenantId" = ${tenantId}::uuid
+     ORDER BY id
      FOR UPDATE
   `;
 }
@@ -86,6 +88,7 @@ export async function lockOpenDebts(
          AND r."afterPayout"
          AND r."settledPayoutId" IS NULL
          AND r.id = ANY(${[...onlyIds]}::uuid[])
+       ORDER BY r.id
        FOR UPDATE OF r
     `;
   }
@@ -97,6 +100,7 @@ export async function lockOpenDebts(
        AND e."tenantId" = ${tenantId}::uuid
        AND r."afterPayout"
        AND r."settledPayoutId" IS NULL
+     ORDER BY r.id
      FOR UPDATE OF r
   `;
 }

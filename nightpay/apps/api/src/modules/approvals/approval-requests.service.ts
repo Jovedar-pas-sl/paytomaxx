@@ -26,6 +26,7 @@ import { payoutTotalCents } from '../operators/payout-math';
 import { lockOperatorPayouts, payableSelection } from '../operators/payout-selection';
 import { venueHoldDays } from '../operators/venue-hold-days';
 import { REFUNDABLE_STATUSES, assertRefundFits, lockPaymentForRefund } from '../refunds/refund-ledger';
+import { refundTotalsOf } from '../refunds/refund-two-factor';
 import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury/payout-tx-guard';
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { ApprovalNotifier } from './approval-notifier';
@@ -51,6 +52,7 @@ import {
 } from './approval-rules';
 import {
   expirePending,
+  expiryCutoff,
   payoutAlreadyRequested,
   pendingPayoutRequest,
   type ExpiredRow,
@@ -117,8 +119,12 @@ export class ApprovalRequestsService {
     return payoutRoute(actor.role, await this.venueRules(actor.tenantId));
   }
 
-  async refundRouteFor(actor: ApprovalActor, amountCents: number): Promise<RefundRoute> {
-    return refundRoute(actor.role, amountCents, await this.venueRules(actor.tenantId));
+  /** Contando lo que esta persona ya devolvió por la pasarela en ese cobro (pendiente o hecho). */
+  async refundRouteFor(actor: ApprovalActor, amountCents: number, paymentId: string): Promise<RefundRoute> {
+    const venue = await this.venueRules(actor.tenantId);
+    if (actor.role !== 'MANAGER') return refundRoute(actor.role, amountCents, venue);
+    const totals = await this.prisma.withTenant(actor.tenantId, (tx) => refundTotalsOf(tx, actor, paymentId));
+    return refundRoute(actor.role, amountCents, venue, totals.samePaymentCents);
   }
 
   // ─── Pedir ──────────────────────────────────────────────────────────
@@ -383,7 +389,7 @@ export class ApprovalRequestsService {
     if (row.status === 'REJECTED') return this.view(actor, row);
     const { count } = await this.prisma.withTenant(actor.tenantId, (tx) =>
       tx.approvalRequest.updateMany({
-        where: { id, tenantId: actor.tenantId, status: 'PENDING' },
+        where: { id, tenantId: actor.tenantId, status: 'PENDING', requestedAt: { gt: expiryCutoff(now) } },
         data: { status: 'REJECTED', decidedById: actor.userId, decidedAt: now, decisionNote: note },
       }),
     );
@@ -440,9 +446,9 @@ export class ApprovalRequestsService {
    * cabe…): queda fallida con la razón. `from` = el estado en que se dejó
    * (PENDING si falló antes de marcarla; APPROVED si la pasarela la rechazó).
    */
-  async markFailed(row: ApprovalRow, actor: ApprovalActor, reason: string, from: 'PENDING' | 'APPROVED'): Promise<void> {
+  async markFailed(row: ApprovalRow, actor: ApprovalActor, reason: string, from: 'PENDING' | 'APPROVED'): Promise<boolean> {
     const now = new Date();
-    await this.prisma.withTenant(row.tenantId, (tx) =>
+    const { count } = await this.prisma.withTenant(row.tenantId, (tx) =>
       tx.approvalRequest.updateMany({
         where: { id: row.id, tenantId: row.tenantId, status: from },
         data: {
@@ -452,6 +458,8 @@ export class ApprovalRequestsService {
         },
       }),
     );
+    // Otra persona la decidió entretanto: no se toca ni se apunta nada.
+    if (count !== 1) return false;
     await this.audit.log({
       action: 'approval.failed',
       tenantId: row.tenantId,
@@ -460,6 +468,7 @@ export class ApprovalRequestsService {
       targetId: row.id,
       payload: { kind: row.kind, amountCents: row.amountCents, reason, resultRef: row.resultRef },
     });
+    return true;
   }
 
   // ─── Caducar ────────────────────────────────────────────────────────

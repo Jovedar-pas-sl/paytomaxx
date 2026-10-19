@@ -139,16 +139,21 @@ export class ApprovalsService {
       throw new ConflictException({ message: notPendingMessage(current.status), code: 'APPROVAL_NOT_PENDING' });
     }
     if (current.status === 'PENDING' && isLastingFailure(err)) {
-      const reason = failureReasonOf(err);
-      await this.requests.markFailed(current, actor, reason, 'PENDING');
-      throw approvalFailed(reason);
+      return this.failWith(actor, current, err, 'PENDING');
     }
     if (current.status === 'APPROVED' && current.kind === 'REFUND' && (await this.refundFailed(current))) {
-      const reason = failureReasonOf(err);
-      await this.requests.markFailed(current, actor, reason, 'APPROVED');
-      throw approvalFailed(reason);
+      return this.failWith(actor, current, err, 'APPROVED');
     }
     throw err;
+  }
+
+  /** FAILED con la razón; si otra persona la decidió a la vez, cómo quedó de verdad. */
+  private async failWith(actor: ApprovalActor, row: ApprovalRow, err: unknown, from: 'PENDING' | 'APPROVED'): Promise<ApprovalView> {
+    const reason = failureReasonOf(err);
+    if (await this.requests.markFailed(row, actor, reason, from)) throw approvalFailed(reason);
+    const now = await this.requests.findRow(actor.tenantId, row.id);
+    if (now?.status === 'APPROVED') return this.requests.view(actor, now);
+    throw new ConflictException({ message: notPendingMessage(now?.status ?? 'FAILED'), code: 'APPROVAL_NOT_PENDING' });
   }
 
   /** La devolución que salió al aprobarla acabó FAILED (la pasarela la rechazó). */

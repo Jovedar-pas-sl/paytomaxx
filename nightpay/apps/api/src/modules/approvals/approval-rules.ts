@@ -35,10 +35,21 @@ export function payoutRoute(role: Role, venue: VenueApprovalRules): PayoutRoute 
   return { kind: 'forbidden' };
 }
 
-/** Devolver por la pasarela: el encargado pide desde el umbral del local (incluido). */
-export function refundRoute(role: Role, amountCents: number, venue: VenueApprovalRules): RefundRoute {
+/**
+ * Devolver por la pasarela: el encargado pide desde el umbral del local
+ * (incluido), contando lo que ya devolvió él en ese mismo cobro: partirla en
+ * trozos de 99 € no se salta al dueño (como el 2FA por lo acumulado).
+ */
+export function refundRoute(
+  role: Role,
+  amountCents: number,
+  venue: VenueApprovalRules,
+  alreadyOnPaymentCents = 0,
+): RefundRoute {
   if (role === 'OWNER') return 'direct';
-  if (role === 'MANAGER') return amountCents >= venue.refundApprovalThresholdCents ? 'request' : 'direct';
+  if (role === 'MANAGER') {
+    return amountCents + alreadyOnPaymentCents >= venue.refundApprovalThresholdCents ? 'request' : 'direct';
+  }
   return 'forbidden';
 }
 
