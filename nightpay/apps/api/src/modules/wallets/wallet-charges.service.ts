@@ -66,6 +66,30 @@ export interface WalletLookup {
 /** Cómo dice el cliente cuál es su saldo, sin su móvil: su código o su ficha NFC. */
 export type WalletRef = { code: string } | { card: string; uid?: string | null };
 
+/** Datáfono vinculado (Authorization: Device): no hay persona, solo su local. */
+export interface TerminalActor {
+  terminalId: string;
+  tenantId: string;
+}
+
+/** En el datáfono, además: el QR de su pase de Google Wallet (/w/<token>). */
+export type TerminalWalletRef = WalletRef | { walletToken: string };
+
+/**
+ * Lo que ve el datáfono del saldo antes del PIN: ni lo que tiene ni su
+ * nombre, solo si le llega para este cobro.
+ */
+export interface TerminalWalletCheck {
+  /** "K7Q-•••": que el cliente reconozca su saldo sin enseñarlo entero. */
+  codeHint: string;
+  hasPin: boolean;
+  pinLocked: boolean;
+  /** El PIN lo puso el personal: en el datáfono no vale (nadie sabe quién lo sostiene). */
+  pinByStaff: boolean;
+  /** Le llega para este cobro. */
+  enough: boolean;
+}
+
 export interface ChargeRequestView {
   id: string;
   status: ChargeRequestStatus;
@@ -535,6 +559,14 @@ export class WalletChargesService {
         take: 30,
       }),
     );
+    return this.pendingViews(rows, true);
+  }
+
+  /** Para el panel (con el email si no tiene nombre) o para el datáfono (solo el nombre). */
+  private async pendingViews(
+    rows: Array<{ id: string; amountCents: number; serviceName: string | null; requestedByUserId: string; createdAt: Date; expiresAt: Date }>,
+    withEmail: boolean,
+  ): Promise<PendingQrCharge[]> {
     const users = await this.prisma.asSystem((tx) =>
       tx.user.findMany({
         where: { id: { in: [...new Set(rows.map((r) => r.requestedByUserId))] } },
@@ -547,7 +579,7 @@ export class WalletChargesService {
         id: r.id,
         amountCents: r.amountCents,
         serviceName: r.serviceName,
-        requestedByName: u?.displayName ?? u?.email ?? '',
+        requestedByName: u?.displayName ?? (withEmail ? u?.email : null) ?? '',
         createdAt: r.createdAt.toISOString(),
         expiresAt: r.expiresAt.toISOString(),
       };
@@ -684,16 +716,171 @@ export class WalletChargesService {
     }
     await this.checkPin(wallet.id, input.pin, actor);
     await this.bindAndSettle(request, wallet.id);
-    if ('card' in input) {
-      const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
-      await this.prisma.acrossVenues(async (tx) => {
-        await tx.walletCard.updateMany({ where: { token: input.card, walletId: wallet.id }, data: { lastUsedAt: new Date() } });
-        // Ficha dada desde un iPhone: su número de serie, la primera vez que la lee un Android.
-        if (uid) await tx.walletCard.updateMany({ where: { token: input.card, uid: null }, data: { uid } });
-      });
-    }
+    if ('card' in input) await this.touchCard(wallet.id, input);
     this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${'card' in input ? 'ficha' : 'código'}, ${actor.userId})`);
     return this.getRequest(actor, requestId);
+  }
+
+  /** Ficha usada para pagar: cuándo, y su número de serie si aún no lo tenía. */
+  private async touchCard(walletId: string, input: { card: string; uid?: string | null }): Promise<void> {
+    const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
+    await this.prisma.acrossVenues(async (tx) => {
+      await tx.walletCard.updateMany({ where: { token: input.card, walletId }, data: { lastUsedAt: new Date() } });
+      // Ficha dada desde un iPhone: su número de serie, la primera vez que la lee un Android.
+      if (uid) await tx.walletCard.updateMany({ where: { token: input.card, uid: null }, data: { uid } });
+    });
+  }
+
+  // ─── Datáfono del local (Authorization: Device, sin persona) ────────────
+  //
+  // El datáfono lee de qué saldo es (ficha NFC, el QR del pase del cliente o
+  // su código) y el cliente teclea su PIN en él para pagar un cobro con QR que
+  // hizo una chica: el mismo cobro, con la parte de la chica de siempre. Solo
+  // cobros de su local y saldos de su grupo; los mismos 5 PIN fallidos
+  // bloquean el saldo. Nadie sabe quién sostiene el datáfono: un PIN que puso
+  // el personal (pinSetById) no vale aquí (la regla de las dos personas).
+
+  /** Los cobros con QR del local sin pagar, para elegir uno en el datáfono. */
+  async pendingQrChargesForTerminal(terminal: TerminalActor): Promise<PendingQrCharge[]> {
+    const rows = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findMany({
+        where: {
+          tenantId: terminal.tenantId,
+          walletId: null,
+          payToken: { not: null },
+          status: 'PENDING',
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+      }),
+    );
+    return this.pendingViews(rows, false);
+  }
+
+  /** El datáfono escaneó el QR del cobro en el móvil de la chica (/s/<payToken>). */
+  async qrChargeForTerminal(terminal: TerminalActor, payToken: string): Promise<PendingQrCharge> {
+    const request = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findFirst({ where: { payToken, tenantId: terminal.tenantId } }),
+    );
+    if (!request) throw new NotFoundException('Este QR no es de un cobro de este local');
+    this.assertPayable(request);
+    const [view] = await this.pendingViews([request], false);
+    if (!view) throw new NotFoundException('Cobro no encontrado');
+    return view;
+  }
+
+  /**
+   * ¿Se pagó? Tras un corte en el PIN el datáfono pregunta antes de decir nada
+   * (sin el saldo que le queda: eso solo lo ve quien tecleó el PIN bueno).
+   */
+  async qrChargeStatusForTerminal(terminal: TerminalActor, requestId: string): Promise<ChargeRequestView> {
+    const request = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findFirst({
+        where: { id: requestId, tenantId: terminal.tenantId, payToken: { not: null } },
+      }),
+    );
+    if (!request) throw new NotFoundException('Cobro no encontrado');
+    return this.requestView(request, null);
+  }
+
+  /** De quién es el saldo y si le llega, sin enseñar lo que tiene. No gasta intentos de PIN. */
+  async checkWalletForTerminal(
+    terminal: TerminalActor,
+    requestId: string,
+    ref: TerminalWalletRef,
+  ): Promise<TerminalWalletCheck> {
+    const request = await this.terminalRequest(terminal, requestId);
+    const wallet = await this.walletByTerminalRef(terminal.tenantId, ref);
+    if (wallet.blockedAt) throw new ConflictException(REQUEST_ERRORS.blocked);
+    return {
+      codeHint: `${(wallet.shortCode ?? '').slice(0, 3)}-•••`,
+      hasPin: wallet.pinHash !== null,
+      pinLocked: wallet.pinLockedAt !== null,
+      pinByStaff: wallet.pinSetById !== null,
+      enough: wallet.balanceCents >= request.amountCents,
+    };
+  }
+
+  /** El cliente tecleó su PIN en el datáfono: se cobra el cobro de su saldo. */
+  async payQrChargeFromTerminal(
+    terminal: TerminalActor,
+    requestId: string,
+    input: TerminalWalletRef & { pin: string },
+  ): Promise<ChargeRequestView> {
+    const request = await this.terminalRequest(terminal, requestId);
+    const wallet = await this.walletByTerminalRef(terminal.tenantId, input);
+    if (wallet.pinSetById) {
+      throw new ForbiddenException('Este PIN lo puso el personal: este cobro se hace desde la app, con otra persona');
+    }
+    const who = { tenantId: terminal.tenantId, userId: null, terminalId: terminal.terminalId };
+    await this.checkPin(wallet.id, input.pin, who);
+    await this.bindAndSettle(request, wallet.id);
+    if ('card' in input) await this.touchCard(wallet.id, input);
+    const via = 'card' in input ? 'ficha' : 'walletToken' in input ? 'pase' : 'código';
+    await this.audit.log({
+      action: 'wallet.pin_charge_terminal',
+      tenantId: terminal.tenantId,
+      targetType: 'ClientWallet',
+      targetId: wallet.id,
+      payload: { requestId, amountCents: request.amountCents, terminalId: terminal.terminalId, via },
+    });
+    this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN en el datáfono ${terminal.terminalId} (${via})`);
+    const [fresh, after] = await Promise.all([
+      this.prisma.asSystem((tx) => tx.walletChargeRequest.findFirst({ where: { id: request.id } })),
+      this.prisma.acrossVenues((tx) =>
+        tx.clientWallet.findUnique({ where: { id: wallet.id }, select: { balanceCents: true } }),
+      ),
+    ]);
+    const settled = fresh ?? request;
+    return this.requestView(settled, settled.status === 'ACCEPTED' ? (after?.balanceCents ?? null) : null);
+  }
+
+  /** Un cobro con QR de este local que aún se puede pagar (si no, ni se gasta un intento de PIN). */
+  private async terminalRequest(terminal: TerminalActor, requestId: string) {
+    const request = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findFirst({
+        where: { id: requestId, tenantId: terminal.tenantId, payToken: { not: null } },
+      }),
+    );
+    if (!request) throw new NotFoundException('Cobro no encontrado');
+    this.assertPayable(request);
+    return request;
+  }
+
+  private assertPayable(request: { status: string; expiresAt: Date; walletId: string | null }): void {
+    const status = effectiveRequestStatus(request, new Date());
+    if (status === 'EXPIRED') throw new ConflictException(REQUEST_ERRORS.expired);
+    if (status !== 'PENDING' || request.walletId) throw new ConflictException(REQUEST_ERRORS['not-pending']);
+  }
+
+  private async walletByTerminalRef(venueId: string, ref: TerminalWalletRef) {
+    return 'walletToken' in ref ? this.walletByLinkToken(venueId, ref.walletToken) : this.walletByRef(venueId, ref);
+  }
+
+  /**
+   * El QR del pase de Google Wallet (el enlace /w/<token> del saldo): su saldo
+   * si sigue abierto y vale en este local. Una recarga sumada a otro saldo
+   * lleva a ese otro (el pase viejo sigue valiendo).
+   */
+  private async walletByLinkToken(venueId: string, token: string) {
+    const [first, venue] = await Promise.all([
+      this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { qrToken: token } })),
+      this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } }),
+    ]);
+    let wallet = first;
+    for (let hops = 0; wallet?.mergedIntoId && hops < MAX_MERGE_HOPS; hops += 1) {
+      const nextId: string = wallet.mergedIntoId;
+      wallet = await this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: nextId } }));
+    }
+    if (
+      !wallet ||
+      wallet.status !== 'ACTIVE' ||
+      !sameWalletGroup(wallet, { id: venueId, walletGroup: venue?.walletGroup ?? null })
+    ) {
+      throw new NotFoundException('Este pase no tiene saldo en este local');
+    }
+    return wallet;
   }
 
   // ─── Ficha NFC (dice de qué saldo es; el cliente pone su PIN) ──────────
@@ -917,7 +1104,11 @@ export class WalletChargesService {
    * Comprueba el PIN con el saldo bloqueado (dos intentos a la vez no se
    * saltan el contador). Los fallos se guardan aunque el cobro no siga.
    */
-  private async checkPin(walletId: string, pin: string, actor: Actor): Promise<void> {
+  private async checkPin(
+    walletId: string,
+    pin: string,
+    actor: { tenantId: string; userId: string | null; terminalId?: string },
+  ): Promise<void> {
     const pepper = pinPepper();
     const outcome = await this.prisma.acrossVenues(async (tx) => {
       const rows = await tx.$queryRaw<
@@ -953,7 +1144,8 @@ export class WalletChargesService {
         actorId: actor.userId,
         targetType: 'ClientWallet',
         targetId: walletId,
-        payload: { attemptsLeft: outcome.left },
+        // Desde un datáfono no hay persona: queda cuál fue.
+        payload: { attemptsLeft: outcome.left, ...(actor.terminalId ? { terminalId: actor.terminalId } : {}) },
       });
     }
     switch (outcome.kind) {
@@ -1431,6 +1623,9 @@ export class WalletChargesService {
 
 /** La chica o el camarero ponen el primer PIN solo en los 15 min tras la recarga. */
 const FRESH_TOPUP_PIN_MS = 15 * 60 * 1000;
+
+/** Saldos sumados uno a otro que se siguen como mucho desde un pase viejo. */
+const MAX_MERGE_HOPS = 5;
 
 /** Fallos de PIN más viejos que esto ya no cuentan para el bloqueo. */
 const PIN_FAILS_EXPIRE_MS = 12 * 60 * 60 * 1000;
