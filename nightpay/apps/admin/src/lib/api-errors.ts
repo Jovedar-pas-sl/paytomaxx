@@ -1,18 +1,13 @@
 // Errores del API → mensajes en castellano para quien usa el panel.
 
-/** Error de una llamada al API: el mensaje para enseñar y el código HTTP. */
-export class ApiError extends Error {
-  override name = 'ApiError';
-  readonly status: number;
-  /** Código de error de máquina si el API lo manda (p. ej. "DUPLICATE_REFUND"). */
-  readonly code: string | null;
+import { ApiError, parseProblemDetails } from '@nightpay/api-client';
 
-  constructor(message: string, status: number, code: string | null = null) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
+/**
+ * Error de una llamada al API: el mensaje para enseñar, el código HTTP (0 =
+ * sin respuesta) y el código de máquina. Es el del cliente común: también lo
+ * son SessionExpiredError, ServerUnavailableError y TotpError.
+ */
+export { ApiError };
 
 export const NETWORK_ERROR_MESSAGE = 'No se pudo conectar con el servidor. Revisa la conexión e inténtalo de nuevo.';
 
@@ -30,18 +25,8 @@ export function genericStatusMessage(status: number): string {
  * → mensaje y código. Una página HTML de un proxy (502…) no se enseña tal cual.
  */
 export function errorFromBody(text: string, status: number): { message: string; code: string | null } {
-  try {
-    const body = JSON.parse(text) as { detail?: unknown; title?: unknown; message?: unknown; code?: unknown };
-    const msg = body.detail ?? body.message ?? body.title;
-    const code = typeof body.code === 'string' ? body.code : null;
-    if (typeof msg === 'string' && msg) return { message: msg, code };
-    if (Array.isArray(msg)) return { message: msg.join(' · '), code };
-  } catch {
-    // no es JSON
-  }
-  const plain = text.trim();
-  const readable = plain && !plain.startsWith('<') && plain.length <= 300;
-  return { message: readable ? plain : genericStatusMessage(status), code: null };
+  const { message, code } = parseProblemDetails(text);
+  return { message: message ?? genericStatusMessage(status), code };
 }
 
 /** Login fallido → qué le pasa a quien intenta entrar, según el código HTTP. */

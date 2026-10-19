@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 /**
  * Renovar la sesión: la chica no se queda fuera porque varias peticiones (o
- * pestañas) caduquen a la vez, ni porque el API esté desplegándose.
+ * pestañas) caduquen a la vez, ni porque el API esté desplegándose. El
+ * refresh token va en la cookie del API: aquí solo se ve que la petición la
+ * lleva (credentials: 'include' y la cabecera propia).
  */
 
-const TOKEN = 'np_op_token';
-const REFRESH = 'np_op_refresh';
+const USER = 'np_op_user';
 
 function fakeStorage(): Storage {
   const m = new Map<string, string>();
@@ -36,9 +37,8 @@ async function api() {
 
 beforeEach(() => {
   storage = fakeStorage();
-  storage.setItem(TOKEN, 'viejo');
-  storage.setItem(REFRESH, 'r1');
-  storage.setItem('np_op_user', JSON.stringify({ id: 'u1' }));
+  // Sesión de antes de recargar: solo quién es (el token no se guarda).
+  storage.setItem(USER, JSON.stringify({ id: 'u1', tenantId: 't1', email: 'ana@local.es', role: 'OPERATOR', venueSlug: 'luna' }));
   dispatched = [];
   vi.stubGlobal('window', {
     localStorage: storage,
@@ -47,9 +47,12 @@ beforeEach(() => {
       return true;
     },
   });
+  vi.stubGlobal('BroadcastChannel', undefined);
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 });
+
+const isRefresh = (url: string) => url.endsWith('/v1/auth/refresh');
 
 /** El API: 401 con el token viejo, 200 con cualquier otro. */
 function balanceRoute(url: string, init?: RequestInit): Response | null {
@@ -58,45 +61,71 @@ function balanceRoute(url: string, init?: RequestInit): Response | null {
   return auth === 'Bearer viejo' ? json(401, {}) : json(200, { pendingCents: 0 });
 }
 
+/** Una sesión con el token "viejo" en memoria, como tras entrar hace una hora. */
+async function withOldToken() {
+  const mod = await api();
+  mod.setSession({
+    accessToken: 'viejo',
+    expiresIn: 3600,
+    user: { id: 'u1', email: 'ana@local.es', role: 'OPERATOR', tenantId: 't1', venueSlug: 'luna' },
+  });
+  return mod;
+}
+
 describe('renovar la sesión', () => {
+  it('al recargar no hay token: lo pide con la cookie (una vez aunque haya varias peticiones)', async () => {
+    let refreshes = 0;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (isRefresh(url)) {
+        refreshes += 1;
+        expect(init?.credentials).toBe('include');
+        expect(new Headers(init?.headers).get('X-OxioPay-Client')).toBe('1');
+        await new Promise((r) => setTimeout(r, 20));
+        return json(200, { accessToken: 'nuevo' });
+      }
+      return balanceRoute(url, init)!;
+    });
+    const { fetchBalance, getToken } = await api();
+    await Promise.all([fetchBalance(), fetchBalance(), fetchBalance()]);
+    expect(refreshes).toBe(1);
+    expect(getToken()).toBe('nuevo');
+  });
+
   it('varias peticiones caducadas a la vez → un solo refresh', async () => {
     let refreshes = 0;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/v1/auth/refresh')) {
+      if (isRefresh(url)) {
         refreshes += 1;
         await new Promise((r) => setTimeout(r, 20));
-        return json(200, { accessToken: 'nuevo', refreshToken: 'r2' });
+        return json(200, { accessToken: 'nuevo' });
       }
       return balanceRoute(url, init)!;
     });
-    const { fetchBalance } = await api();
+    const { fetchBalance } = await withOldToken();
     await Promise.all([fetchBalance(), fetchBalance(), fetchBalance()]);
     expect(refreshes).toBe(1);
-    expect(storage.getItem(TOKEN)).toBe('nuevo');
   });
 
-  it('otra pestaña ya lo renovó (el API dice que el refresh está gastado) → usa el suyo y no cierra sesión', async () => {
-    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/v1/auth/refresh')) {
-        // Mientras, la otra pestaña guardó su token nuevo.
-        storage.setItem(TOKEN, 'de-la-otra');
-        storage.setItem(REFRESH, 'r2');
-        return json(401, {});
-      }
-      return balanceRoute(url, init)!;
-    });
-    const { fetchBalance } = await api();
-    await expect(fetchBalance()).resolves.toEqual({ pendingCents: 0 });
-    expect(storage.getItem(TOKEN)).toBe('de-la-otra');
+  it('el token nunca se guarda en el almacenamiento', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      isRefresh(url) ? json(200, { accessToken: 'nuevo' }) : balanceRoute(url, init)!,
+    );
+    const { fetchBalance } = await withOldToken();
+    await fetchBalance();
+    for (let i = 0; i < storage.length; i++) {
+      const value = storage.getItem(storage.key(i)!) ?? '';
+      expect(value).not.toContain('viejo');
+      expect(value).not.toContain('nuevo');
+    }
   });
 
   it('el API caído o desplegando (503) no cierra la sesión: «servidor no disponible»', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
-      url.endsWith('/v1/auth/refresh') ? json(503, {}) : balanceRoute(url, init)!,
+      isRefresh(url) ? json(503, {}) : balanceRoute(url, init)!,
     );
-    const { fetchBalance, ServerUnavailableError } = await api();
+    const { fetchBalance, ServerUnavailableError } = await withOldToken();
     await expect(fetchBalance()).rejects.toBeInstanceOf(ServerUnavailableError);
-    expect(storage.getItem(REFRESH)).toBe('r1');
+    expect(storage.getItem(USER)).not.toBeNull();
     expect(dispatched).toEqual([]);
   });
 
@@ -104,17 +133,18 @@ describe('renovar la sesión', () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
     const { fetchBalance, ServerUnavailableError } = await api();
     await expect(fetchBalance()).rejects.toBeInstanceOf(ServerUnavailableError);
-    expect(storage.getItem(TOKEN)).toBe('viejo');
+    expect(storage.getItem(USER)).not.toBeNull();
+    expect(dispatched).toEqual([]);
   });
 
   it('refresh rechazado de verdad (401) → se cierra la sesión y la app vuelve al login', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
-      url.endsWith('/v1/auth/refresh') ? json(401, {}) : balanceRoute(url, init)!,
+      isRefresh(url) ? json(401, {}) : balanceRoute(url, init)!,
     );
-    const { fetchBalance, SessionExpiredError, SESSION_EXPIRED_EVENT } = await api();
+    const { fetchBalance, SessionExpiredError, SESSION_EXPIRED_EVENT, getToken } = await withOldToken();
     await expect(fetchBalance()).rejects.toBeInstanceOf(SessionExpiredError);
-    expect(storage.getItem(REFRESH)).toBeNull();
-    expect(storage.getItem(TOKEN)).toBeNull();
+    expect(storage.getItem(USER)).toBeNull();
+    expect(getToken()).toBeNull();
     expect(dispatched).toEqual([SESSION_EXPIRED_EVENT]);
   });
 
@@ -125,79 +155,76 @@ describe('renovar la sesión', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(dispatched).toEqual([SESSION_EXPIRED_EVENT]);
   });
+
+  it('la sesión de la versión anterior (tokens en localStorage) pasa a la cookie sin volver a entrar', async () => {
+    storage.setItem('np_op_token', 'access-de-antes');
+    storage.setItem('np_op_refresh', 'refresh-de-antes-0123456789');
+    const bodies: unknown[] = [];
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (isRefresh(url)) {
+        bodies.push(JSON.parse(String(init?.body)));
+        return json(200, { accessToken: 'nuevo' });
+      }
+      return balanceRoute(url, init)!;
+    });
+    const { fetchBalance } = await api();
+    await expect(fetchBalance()).resolves.toEqual({ pendingCents: 0 });
+    expect(bodies).toEqual([{ refreshToken: 'refresh-de-antes-0123456789' }]);
+    expect(storage.getItem('np_op_refresh')).toBeNull();
+    expect(storage.getItem('np_op_token')).toBeNull();
+  });
 });
 
 describe('salir', () => {
   const noContent = () => new Response(null, { status: 204 });
-  const bodyOf = (init?: RequestInit) => JSON.parse(String(init?.body ?? '{}')) as unknown;
-  const authOf = (init?: RequestInit) => new Headers(init?.headers).get('Authorization');
 
-  it('cierra la sesión local al momento y la del servidor con el refresh token', async () => {
-    const calls: Array<{ url: string; body: unknown; auth: string | null }> = [];
+  it('cierra la sesión local al momento y la del servidor con la cookie', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      calls.push({ url, body: bodyOf(init), auth: authOf(init) });
+      calls.push({ url, init });
       return noContent();
     });
-    const { logout } = await api();
+    const { logout, getToken } = await withOldToken();
     const done = logout();
     // Borrada antes de esperar a la red.
-    expect(storage.getItem(TOKEN)).toBeNull();
-    expect(storage.getItem(REFRESH)).toBeNull();
+    expect(getToken()).toBeNull();
+    expect(storage.getItem(USER)).toBeNull();
     await expect(done).resolves.toBe(true);
-    expect(calls).toEqual([
-      { url: expect.stringMatching(/\/v1\/auth\/logout$/), body: { refreshToken: 'r1' }, auth: 'Bearer viejo' },
-    ]);
-  });
-
-  it('access token caducado (401): repite sin Authorization, solo con el refresh token', async () => {
-    const auths: Array<string | null> = [];
-    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
-      auths.push(authOf(init));
-      expect(bodyOf(init)).toEqual({ refreshToken: 'r1' });
-      return authOf(init) ? json(401, {}) : noContent();
-    });
-    const { logout } = await api();
-    await expect(logout()).resolves.toBe(true);
-    expect(auths).toEqual(['Bearer viejo', null]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toMatch(/\/v1\/auth\/logout$/);
+    expect(calls[0]!.init?.credentials).toBe('include');
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({});
+    expect(new Headers(calls[0]!.init?.headers).get('Authorization')).toBeNull();
   });
 
   it('el servidor no lo confirma (o no hay red): sale igual y lo dice', async () => {
-    fetchMock.mockResolvedValue(json(401, {}));
-    const { logout } = await api();
+    fetchMock.mockResolvedValue(json(403, {}));
+    const { logout } = await withOldToken();
     await expect(logout()).resolves.toBe(false);
-    expect(storage.getItem(TOKEN)).toBeNull();
+    expect(storage.getItem(USER)).toBeNull();
 
-    storage.setItem(REFRESH, 'r1');
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
     await expect(logout()).resolves.toBe(false);
-    expect(storage.getItem(REFRESH)).toBeNull();
-  });
-
-  it('sin refresh token no hay nada que cerrar en el servidor', async () => {
-    storage.removeItem(REFRESH);
-    const { logout } = await api();
-    await expect(logout()).resolves.toBe(true);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
 describe('el refresh limitado (429) o con 403', () => {
   it('429: demasiadas peticiones no es una sesión caducada', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
-      url.endsWith('/v1/auth/refresh') ? json(429, {}) : balanceRoute(url, init)!,
+      isRefresh(url) ? json(429, {}) : balanceRoute(url, init)!,
     );
-    const { fetchBalance, ServerUnavailableError } = await api();
+    const { fetchBalance, ServerUnavailableError } = await withOldToken();
     await expect(fetchBalance()).rejects.toBeInstanceOf(ServerUnavailableError);
-    expect(storage.getItem(REFRESH)).toBe('r1');
+    expect(storage.getItem(USER)).not.toBeNull();
     expect(dispatched).toEqual([]);
   });
 
   it('403: el API dice que no → vuelve al login', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
-      url.endsWith('/v1/auth/refresh') ? json(403, {}) : balanceRoute(url, init)!,
+      isRefresh(url) ? json(403, {}) : balanceRoute(url, init)!,
     );
-    const { fetchBalance, SessionExpiredError } = await api();
+    const { fetchBalance, SessionExpiredError } = await withOldToken();
     await expect(fetchBalance()).rejects.toBeInstanceOf(SessionExpiredError);
-    expect(storage.getItem(REFRESH)).toBeNull();
+    expect(storage.getItem(USER)).toBeNull();
   });
 });

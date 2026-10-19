@@ -7,7 +7,7 @@ import { Dashboard } from '@/components/Dashboard';
 import { ReloginSheet } from '@/components/ReloginSheet';
 import { SessionExpiredContext } from '@/components/session-context';
 import { WALLET_CARD_PARAM } from '@nightpay/contracts';
-import { getToken, getUser, logout, onSessionEnded, type OperatorUser } from '@/lib/api';
+import { getUser, hasSession, logout, onSessionEnded, type OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { useOpenCharges } from '@/lib/open-charges';
 import { afterRelogin, shellView } from '@/lib/session-resume';
@@ -33,7 +33,7 @@ export default function Page() {
   }, [user]);
 
   useEffect(() => {
-    if (getToken()) setUser(getUser());
+    if (hasSession()) setUser(getUser());
     else setUser(null);
     setFromCard(new URLSearchParams(window.location.search).has(WALLET_CARD_PARAM));
     return onSessionEnded((reason) => {

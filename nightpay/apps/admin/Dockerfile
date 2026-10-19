@@ -17,6 +17,7 @@ COPY apps/mock-wipay/package.json apps/mock-wipay/
 COPY apps/operator/package.json apps/operator/
 COPY apps/tpv/package.json apps/tpv/
 COPY apps/web-client/package.json apps/web-client/
+COPY packages/api-client/package.json packages/api-client/
 COPY packages/config/package.json packages/config/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/
@@ -24,6 +25,8 @@ COPY packages/ui/package.json packages/ui/
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS builder
+# packages/api-client: el cliente común del API (sesión con cookie).
+COPY packages/api-client ./packages/api-client
 COPY packages/contracts ./packages/contracts
 COPY packages/config ./packages/config
 # packages/ui: componentes, estilos y las fuentes (next/font/local, sin Google).

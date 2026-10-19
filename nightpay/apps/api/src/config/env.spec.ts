@@ -154,3 +154,18 @@ describe('entorno: REALTIME_LEGACY_SUBSCRIBE_UNTIL (tiempo real sin sesión)', (
     }
   });
 });
+
+describe('entorno: AUTH_BODY_REFRESH_UNTIL (refresh token en el cuerpo, apps antiguas)', () => {
+  it('opcional; fecha ISO con zona u "off"', () => {
+    expect(validateConfig(PROD).AUTH_BODY_REFRESH_UNTIL).toBeUndefined();
+    for (const ok of ['2026-12-15T00:00:00+01:00', '2026-12-01T00:00Z', ' off ', 'OFF', '']) {
+      expect(() => validateConfig({ ...PROD, AUTH_BODY_REFRESH_UNTIL: ok })).not.toThrow();
+    }
+  });
+
+  it('una fecha sin zona o mal escrita no arranca, y dice qué variable es', () => {
+    for (const bad of ['2026-11-30', '2026-11-30T00:00:00', '30/11/2026', 'nunca']) {
+      expect(() => validateConfig({ ...PROD, AUTH_BODY_REFRESH_UNTIL: bad })).toThrow(/AUTH_BODY_REFRESH_UNTIL/);
+    }
+  });
+});

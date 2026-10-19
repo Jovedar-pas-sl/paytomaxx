@@ -2,25 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * ¿Por qué se acabó la sesión? Caducada (aquí o en otra pestaña) → si hay un
- * cobro abierto se pide entrar encima; «Salir» en otra pestaña → fuera aquí también.
+ * cobro abierto se pide entrar encima; «Salir» en otra pestaña, o entró otra
+ * persona en otra pestaña → fuera aquí también. Los avisos entre pestañas van
+ * por BroadcastChannel (aquí, uno de mentira compartido por las "pestañas").
  */
 
-const TOKEN = 'np_op_token';
-const LOGOUT = 'np_op_logout';
+const USER = { id: 'u1', email: 'ana@local.es', role: 'OPERATOR' as const, tenantId: 't1', venueSlug: 'luna' };
 
-/** Almacenamiento en memoria que apunta cada escritura en `log`. */
-function fakeStorage(log: string[]): Storage {
+function fakeStorage(): Storage {
   const m = new Map<string, string>();
   return {
     getItem: (k) => m.get(k) ?? null,
-    setItem: (k, v) => {
-      log.push(`set:${k}`);
-      m.set(k, v);
-    },
-    removeItem: (k) => {
-      log.push(`remove:${k}`);
-      m.delete(k);
-    },
+    setItem: (k, v) => void m.set(k, v),
+    removeItem: (k) => void m.delete(k),
     clear: () => m.clear(),
     key: (i) => [...m.keys()][i] ?? null,
     get length() {
@@ -29,98 +23,136 @@ function fakeStorage(log: string[]): Storage {
   };
 }
 
-type Listener = (e: Event | StorageEvent) => void;
-let storage: Storage;
-let listeners: Map<string, Set<Listener>>;
-let writes: string[];
+/** BroadcastChannel de mentira: lo que manda una instancia lo reciben las demás del mismo nombre, después. */
+function fakeBroadcastChannel() {
+  const members = new Map<string, Set<FakeChannel>>();
+  class FakeChannel {
+    private readonly listeners = new Set<(e: { data: unknown }) => void>();
+    constructor(private readonly name: string) {
+      members.set(name, new Set([...(members.get(name) ?? []), this]));
+    }
+    postMessage(data: unknown) {
+      for (const other of members.get(this.name) ?? []) {
+        if (other !== this) setTimeout(() => other.listeners.forEach((l) => l({ data: structuredClone(data) })), 0);
+      }
+    }
+    addEventListener(_type: string, l: (e: { data: unknown }) => void) {
+      this.listeners.add(l);
+    }
+    close() {
+      members.get(this.name)?.delete(this);
+    }
+  }
+  return FakeChannel;
+}
 
-async function api() {
+let storage: Storage;
+let dispatched: string[];
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+/** Una pestaña de la app: su propia copia del módulo (memoria), mismo almacenamiento y canal. */
+async function tab() {
   vi.resetModules();
   return import('./api');
 }
 
-function fire(type: string, event: Partial<StorageEvent> & { type?: string } = {}) {
-  for (const l of listeners.get(type) ?? []) l({ type, ...event } as StorageEvent);
-}
+const json = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 beforeEach(() => {
-  writes = [];
-  storage = fakeStorage(writes);
-  storage.setItem(TOKEN, 't');
-  storage.setItem('np_op_refresh', 'r');
-  writes.length = 0;
-  listeners = new Map();
+  storage = fakeStorage();
+  dispatched = [];
   vi.stubGlobal('window', {
     localStorage: storage,
-    addEventListener: (type: string, l: Listener) => {
-      listeners.set(type, new Set([...(listeners.get(type) ?? []), l]));
-    },
-    removeEventListener: (type: string, l: Listener) => listeners.get(type)?.delete(l),
     dispatchEvent: (e: Event) => {
-      fire(e.type);
+      dispatched.push(e.type);
       return true;
     },
   });
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })));
+  vi.stubGlobal('BroadcastChannel', fakeBroadcastChannel());
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
 });
 
-describe('sessionEndFromStorage — lo que hizo otra pestaña', () => {
-  it('«Salir» deja su marca: es salir, no caducar', async () => {
-    const { sessionEndFromStorage } = await api();
-    expect(sessionEndFromStorage(LOGOUT, '123-abc', false)).toBe('logout');
-    expect(sessionEndFromStorage(LOGOUT, null, false)).toBeNull();
+describe('sessionEndReason — qué hace la app con cada aviso', () => {
+  it('caducada aquí o en otra pestaña: «expired» (con cobro abierto, se entra encima)', async () => {
+    const { sessionEndReason } = await tab();
+    expect(sessionEndReason({ type: 'expired', source: 'this-tab' })).toBe('expired');
+    expect(sessionEndReason({ type: 'expired', source: 'other-tab' })).toBe('expired');
   });
 
-  it('la sesión desaparece sin marca: caducó allí', async () => {
-    const { sessionEndFromStorage } = await api();
-    expect(sessionEndFromStorage(TOKEN, null, false)).toBe('expired');
+  it('«Salir» en otra pestaña u otra persona entró allí: «logout»', async () => {
+    const { sessionEndReason } = await tab();
+    expect(sessionEndReason({ type: 'logout', source: 'other-tab' })).toBe('logout');
+    expect(sessionEndReason({ type: 'changed', source: 'other-tab' })).toBe('logout');
   });
 
-  it('almacenamiento borrado entero: fuera', async () => {
-    const { sessionEndFromStorage } = await api();
-    expect(sessionEndFromStorage(null, null, false)).toBe('logout');
-  });
-
-  it('con sesión (renovada o recién entrada) no se acaba nada', async () => {
-    const { sessionEndFromStorage } = await api();
-    expect(sessionEndFromStorage(TOKEN, 'nuevo', true)).toBeNull();
-    expect(sessionEndFromStorage('np_op_user', null, false)).toBeNull();
-  });
-});
-
-describe('logout — la marca va antes de borrar la sesión', () => {
-  it('las otras pestañas ven «Salir» antes que la sesión borrada', async () => {
-    const { logout } = await api();
-    await logout();
-    const mark = writes.indexOf(`set:${LOGOUT}`);
-    expect(mark).toBeGreaterThanOrEqual(0);
-    expect(mark).toBeLessThan(writes.indexOf(`remove:${TOKEN}`));
-  });
-
-  it('cada salida deja una marca distinta (si no, el navegador no avisa)', async () => {
-    const { logout } = await api();
-    await logout();
-    const first = storage.getItem(LOGOUT);
-    storage.setItem(TOKEN, 't');
-    await logout();
-    expect(storage.getItem(LOGOUT)).not.toBe(first);
+  it('otra pestaña entró y esta no tenía sesión: nada se acaba', async () => {
+    const { sessionEndReason } = await tab();
+    expect(sessionEndReason({ type: 'signed-in', source: 'other-tab' })).toBeNull();
   });
 });
 
 describe('onSessionEnded', () => {
-  it('caducada aquí, caducada allí y salir allí', async () => {
-    const { onSessionEnded, SESSION_EXPIRED_EVENT } = await api();
+  it('«Salir» en otra pestaña → fuera aquí también', async () => {
+    const a = await tab();
+    a.setSession({ accessToken: 'ta', expiresIn: 3600, user: USER });
+    const b = await tab();
     const reasons: string[] = [];
-    const stop = onSessionEnded((r) => reasons.push(r));
+    const stop = b.onSessionEnded((r) => reasons.push(r));
+    expect(b.hasSession()).toBe(true);
 
-    fire(SESSION_EXPIRED_EVENT);
-    storage.removeItem(TOKEN);
-    fire('storage', { key: TOKEN, newValue: null });
-    fire('storage', { key: LOGOUT, newValue: 'x' });
-    expect(reasons).toEqual(['expired', 'expired', 'logout']);
+    await a.logout();
+    await flush();
+    expect(reasons).toEqual(['logout']);
+    stop();
+  });
+
+  it('caducada aquí (el API rechaza el refresco) y caducada en otra pestaña', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => (url.endsWith('/v1/auth/refresh') ? json(401, {}) : json(401, {}))),
+    );
+    const a = await tab();
+    a.setSession({ accessToken: 'ta', expiresIn: 3600, user: USER });
+    const b = await tab();
+    b.hasSession();
+    const here: string[] = [];
+    const there: string[] = [];
+    a.onSessionEnded((r) => here.push(r));
+    const stop = b.onSessionEnded((r) => there.push(r));
+
+    await a.fetchBalance().catch(() => undefined);
+    await flush();
+    expect(here).toEqual(['expired']);
+    expect(dispatched).toContain(a.SESSION_EXPIRED_EVENT);
+    expect(there).toEqual(['expired']);
 
     stop();
-    fire(SESSION_EXPIRED_EVENT);
-    expect(reasons).toHaveLength(3);
+  });
+
+  it('otra persona entra en otra pestaña → esta sale (no sigue con la sesión de otra)', async () => {
+    const a = await tab();
+    a.setSession({ accessToken: 'ta', expiresIn: 3600, user: USER });
+    const b = await tab();
+    b.hasSession();
+    const reasons: string[] = [];
+    b.onSessionEnded((r) => reasons.push(r));
+
+    a.setSession({ accessToken: 'tb', expiresIn: 3600, user: { ...USER, id: 'u2' } });
+    await flush();
+    expect(reasons).toEqual(['logout']);
+  });
+
+  it('dejar de escuchar', async () => {
+    const a = await tab();
+    a.setSession({ accessToken: 'ta', expiresIn: 3600, user: USER });
+    const b = await tab();
+    b.hasSession();
+    const reasons: string[] = [];
+    const stop = b.onSessionEnded((r) => reasons.push(r));
+    stop();
+    await a.logout();
+    await flush();
+    expect(reasons).toEqual([]);
   });
 });

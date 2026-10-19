@@ -134,6 +134,16 @@ export class MetricsService implements OnModuleInit {
     labelNames: ['result'], // allowed|denied|closed
     registers: [this.registry],
   });
+  // Sesión del personal con el refresh token en el cuerpo (apps antiguas,
+  // client="legacy"; o la app nueva pasándolo a la cookie, "migration").
+  // Tiene que quedarse quieta antes de AUTH_BODY_REFRESH_UNTIL; después solo
+  // sube result="closed".
+  readonly authBodyRefresh = new Counter({
+    name: 'nightpay_auth_body_refresh_total',
+    help: 'Refresh token en el cuerpo de login/refresh/logout (apps antiguas)',
+    labelNames: ['route', 'client', 'result'], // login|refresh|logout · legacy|migration · allowed|closed
+    registers: [this.registry],
+  });
   readonly queueDepth = new Gauge({
     name: 'nightpay_queue_depth',
     help: 'Tamaño actual de cada cola BullMQ',

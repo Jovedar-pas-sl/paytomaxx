@@ -1,8 +1,8 @@
 // Peticiones al API con tiempo máximo y errores en español para la cajera:
-// nunca el JSON crudo del API.
+// nunca el JSON crudo del API. Lo de fondo es el cliente común
+// (@nightpay/api-client), igual que en el panel y en la app de la chica.
 
-/** Tiempo máximo de una petición: sin él, un cobro colgado deja el botón girando. */
-const REQUEST_TIMEOUT_MS = 15_000;
+import { REQUEST_TIMEOUT_MS, parseProblemDetails, sendRequest } from '@nightpay/api-client';
 
 export const MESSAGES = {
   network: 'No se pudo conectar con el servidor. Revisa la conexión y vuelve a probar.',
@@ -12,25 +12,12 @@ export const MESSAGES = {
   session: 'Tu sesión ha caducado. Vuelve a entrar.',
 } as const;
 
-function timeoutSignal(ms: number): AbortSignal {
-  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms);
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), ms);
-  return controller.signal;
-}
-
-/** fetch con tiempo máximo. Sin respuesta (red o tiempo) lanza un Error con el texto para la cajera. */
-export async function send(
-  url: string,
-  init: RequestInit = {},
-  timeoutMs: number = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-  try {
-    return await fetch(url, { ...init, signal: timeoutSignal(timeoutMs) });
-  } catch (err) {
-    const name = err instanceof Error ? err.name : '';
-    throw new Error(name === 'TimeoutError' || name === 'AbortError' ? MESSAGES.timeout : MESSAGES.network);
-  }
+/**
+ * fetch con tiempo máximo (15 s). Sin respuesta (red o tiempo) lanza un
+ * ServerUnavailableError (un Error) con el texto para la cajera.
+ */
+export function send(url: string, init: RequestInit = {}, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<Response> {
+  return sendRequest((input, i) => fetch(input, i), url, init, timeoutMs, MESSAGES);
 }
 
 /** Errores que se explican igual en cualquier petición; null si es otro. */
@@ -48,13 +35,7 @@ export async function readError(res: Response, fallback: string): Promise<string
   } catch {
     return fallback;
   }
-  try {
-    const body = JSON.parse(text) as { detail?: unknown; message?: unknown; title?: unknown };
-    const msg = body.detail ?? body.message ?? body.title;
-    if (typeof msg === 'string' && msg.trim()) return msg;
-    if (Array.isArray(msg)) return msg.join(' · ');
-  } catch {
-    // No es JSON (p. ej. la página de error de un proxy): mejor el texto genérico.
-  }
-  return fallback;
+  // Un texto plano (p. ej. la página de error de un proxy) no se enseña: solo el JSON del API.
+  if (!text.trim().startsWith('{')) return fallback;
+  return parseProblemDetails(text).message ?? fallback;
 }

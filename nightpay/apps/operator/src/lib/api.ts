@@ -1,41 +1,39 @@
-// Operator app API client (mobile-first PWA).
-// Sesion JWT en localStorage, igual patrón que TPV/Admin.
+// Operator app API client (mobile-first PWA). La sesión es la del cliente
+// común @nightpay/api-client (igual que el panel y el TPV): el refresh token
+// va en una cookie HttpOnly del API y el access token solo en la memoria de
+// la pestaña. Aquí, los textos para la chica y los endpoints de la app.
 
 import type { PaymentStatus } from '@nightpay/contracts';
+import {
+  ApiError,
+  ServerUnavailableError,
+  SESSION_EXPIRED_EVENT,
+  SessionExpiredError,
+  createApiClient,
+  isTransientStatus,
+  parseProblemDetails,
+  tokenExpiresSoon,
+  type LoginResult,
+  type SessionEvent,
+} from '@nightpay/api-client';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
-
-const TOKEN_KEY = 'np_op_token';
-const REFRESH_KEY = 'np_op_refresh';
-const USER_KEY = 'np_op_user';
-/** Marca de «Salir» (cambia en cada salida): las otras pestañas saben que no caducó, que se salió. */
-const LOGOUT_KEY = 'np_op_logout';
 
 // ─── Errores ──────────────────────────────────────────────────────
 
 /** La sesión se acabó de verdad: la app (page.tsx) lo escucha y vuelve al login. */
-export const SESSION_EXPIRED_EVENT = 'np:session-expired';
+export { SESSION_EXPIRED_EVENT };
+/**
+ * SessionExpiredError: el API dijo que no (refresh rechazado) o ya no hay
+ * sesión, hay que volver a entrar. ServerUnavailableError: sin red, servidor
+ * caído o saturado (5xx, 429), la sesión sigue y se reintenta.
+ */
+export { ServerUnavailableError, SessionExpiredError, tokenExpiresSoon };
 
 const SESSION_EXPIRED_TEXT = 'Tu sesión ha caducado. Vuelve a iniciar sesión.';
 const SERVER_DOWN_TEXT = 'El servidor está teniendo problemas. Vuelve a intentarlo en unos segundos.';
 const NO_CONNECTION_TEXT = 'No se pudo conectar con el servidor. Comprueba la conexión y vuelve a intentarlo.';
 const TOO_MANY_TEXT = 'Demasiados intentos. Espera un momento.';
-
-/** El API dijo que no (refresh rechazado) o ya no hay sesión: hay que volver a entrar. */
-export class SessionExpiredError extends Error {
-  constructor() {
-    super(SESSION_EXPIRED_TEXT);
-    this.name = 'SessionExpiredError';
-  }
-}
-
-/** Sin red, servidor caído o saturado (5xx, 429): la sesión sigue y se reintenta. */
-export class ServerUnavailableError extends Error {
-  constructor(message = NO_CONNECTION_TEXT) {
-    super(message);
-    this.name = 'ServerUnavailableError';
-  }
-}
 
 /** Lo que enseña una pantalla que se refresca sola cuando falla una vuelta. */
 export function pollErrorText(err: unknown): string {
@@ -43,11 +41,9 @@ export function pollErrorText(err: unknown): string {
   return err instanceof Error ? err.message : 'Algo ha fallado.';
 }
 
-const isTransientStatus = (status: number): boolean => status === 429 || status >= 500;
-
 /** Una carga que falla: si el servidor está caído o saturado, se dice así (se reintenta sola). */
 function loadError(res: Response, message: string): Error {
-  return isTransientStatus(res.status) ? new ServerUnavailableError(SERVER_DOWN_TEXT) : new Error(message);
+  return isTransientStatus(res.status) ? new ServerUnavailableError(SERVER_DOWN_TEXT, res.status, 'server') : new Error(message);
 }
 
 /**
@@ -59,17 +55,8 @@ export async function parseOperatorApiError(res: Response, context: string): Pro
 }
 
 async function readBackendDetail(res: Response): Promise<string | undefined> {
-  try {
-    const text = await res.text();
-    if (text.startsWith('{')) {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      const value = parsed.userMessage ?? parsed.detail ?? parsed.message ?? parsed.title;
-      return typeof value === 'string' ? value : undefined;
-    }
-    return text && text.length < 100 ? text : undefined;
-  } catch {
-    return undefined;
-  }
+  const text = await res.text().catch(() => '');
+  return parseProblemDetails(text).message ?? undefined;
 }
 
 /**
@@ -122,19 +109,13 @@ export interface OperatorUser {
   displayName?: string | null;
 }
 
-export interface LoginResponse {
-  accessToken: string;
-  expiresIn: number;
-  refreshToken: string;
-  refreshExpiresIn: number;
-  user: OperatorUser;
-}
+/** Lo que devuelve el login: el access token (solo para la memoria) y quién es. El refresh va en la cookie. */
+export type LoginResponse = LoginResult<OperatorUser>;
 
 export interface RefreshResponse {
   accessToken: string;
   expiresIn: number;
-  refreshToken: string;
-  refreshExpiresIn: number;
+  refreshExpiresIn?: number;
 }
 
 export interface OperatorBalance {
@@ -235,244 +216,94 @@ export interface CreatedPayment {
   walletId?: string | null;
 }
 
-// ─── Token storage ────────────────────────────────────────────────
+// ─── Sesión ───────────────────────────────────────────────────────
 
+const client = createApiClient<OperatorUser>({
+  baseUrl: API_BASE,
+  storagePrefix: 'np_op',
+  messages: {
+    sessionExpired: SESSION_EXPIRED_TEXT,
+    network: NO_CONNECTION_TEXT,
+    timeout: 'El servidor tarda en responder. Vuelve a intentarlo en unos segundos.',
+    server: SERVER_DOWN_TEXT,
+    // Un refresco limitado no es «demasiados intentos» de la chica: el servidor no da abasto.
+    tooMany: SERVER_DOWN_TEXT,
+  },
+});
+
+/** El access token de esta pestaña (solo en memoria; null hasta el primer uso). */
 export function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(TOKEN_KEY);
+  return client.getAccessToken();
 }
-export function getRefreshToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(REFRESH_KEY);
+/** ¿Hay sesión en este móvil? (la cookie dirá si sigue viva al primer uso). */
+export function hasSession(): boolean {
+  return client.hasSession();
 }
+/** Quién es la sesión guardada (no secreto). */
 export function getUser(): OperatorUser | null {
-  if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(USER_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as OperatorUser;
-  } catch {
-    return null;
-  }
+  return client.getUser();
 }
 export function setSession(login: LoginResponse): void {
-  window.localStorage.setItem(TOKEN_KEY, login.accessToken);
-  window.localStorage.setItem(REFRESH_KEY, login.refreshToken);
-  window.localStorage.setItem(USER_KEY, JSON.stringify(login.user));
+  client.setSession(login);
 }
 export function clearSession(): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.removeItem(TOKEN_KEY);
-  window.localStorage.removeItem(REFRESH_KEY);
-  window.localStorage.removeItem(USER_KEY);
-}
-
-/** La sesión se acabó: se borra y la app vuelve al login (evento para page.tsx). */
-function endSession(): SessionExpiredError {
-  clearSession();
-  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
-  }
-  return new SessionExpiredError();
+  client.clearSession();
 }
 
 /** Por qué se acabó la sesión: caducó (aquí o en otra pestaña) o alguien le dio a «Salir». */
 export type SessionEndReason = 'expired' | 'logout';
 
 /**
- * Un cambio en el almacenamiento hecho por otra pestaña: ¿se acabó la sesión?
- * «Salir» deja su marca antes de borrar la sesión; si la sesión desaparece sin
- * marca, caducó allí. Borrar todo el almacenamiento cuenta como salir.
+ * Un aviso de la sesión → ¿se acabó? Caducada (aquí o allí) → si hay un cobro
+ * abierto se entra encima; «Salir» en otra pestaña, o entró otra persona en
+ * otra pestaña → fuera aquí también (no se sigue con la sesión de otra).
  */
-export function sessionEndFromStorage(key: string | null, newValue: string | null, hasToken: boolean): SessionEndReason | null {
-  if (key === LOGOUT_KEY) return newValue ? 'logout' : null;
-  if (hasToken) return null;
-  if (key === null) return 'logout';
-  return key === TOKEN_KEY ? 'expired' : null;
+export function sessionEndReason(event: SessionEvent): SessionEndReason | null {
+  if (event.type === 'expired') return 'expired';
+  if (event.type === 'logout' || event.type === 'changed') return 'logout';
+  return null;
 }
 
-/**
- * Avisa cuando la sesión se acaba: caducada aquí (evento), o caducada o
- * cerrada en otra pestaña (comparten localStorage). Devuelve cómo dejar de escuchar.
- */
+/** Avisa cuando la sesión se acaba (aquí o en otra pestaña). Devuelve cómo dejar de escuchar. */
 export function onSessionEnded(handler: (reason: SessionEndReason) => void): () => void {
-  const onExpired = () => handler('expired');
-  const onStorage = (e: StorageEvent) => {
-    const reason = sessionEndFromStorage(e.key, e.newValue, Boolean(getToken()));
+  return client.onSessionEvent((event) => {
+    const reason = sessionEndReason(event);
     if (reason) handler(reason);
-  };
-  window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
-  window.addEventListener('storage', onStorage);
-  return () => {
-    window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
-    window.removeEventListener('storage', onStorage);
-  };
-}
-
-/** Deja la marca de «Salir» para las otras pestañas (antes de borrar la sesión). */
-function markLogout(): void {
-  try {
-    window.localStorage.setItem(LOGOUT_KEY, `${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  } catch {
-    // Sin almacenamiento: las otras pestañas lo verán como sesión caducada.
-  }
+  });
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
-  let res: Response;
   try {
-    res = await fetch(`${API_BASE}/v1/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-  } catch {
-    throw new Error(loginErrorMessage(null));
+    return await client.login({ email, password });
+  } catch (err) {
+    if (err instanceof ServerUnavailableError) throw new Error(loginErrorMessage(null));
+    if (err instanceof ApiError) throw new Error(loginErrorMessage(err.status, err.message));
+    throw err;
   }
-  if (!res.ok) throw new Error(loginErrorMessage(res.status, await readBackendDetail(res)));
-  return res.json();
 }
 
 /**
- * Salir: la sesión local se borra siempre y al momento (sin esperar a la red)
- * y la del servidor se cierra con el refresh token, aunque el access token ya
- * haya caducado. Devuelve si el servidor lo confirmó (si no, el refresh token
- * caduca solo; aquí ya no está). Nunca falla.
+ * Salir: la sesión local se borra siempre y al momento (sin esperar a la red),
+ * las otras pestañas salen también, y la del servidor se cierra con la cookie
+ * aunque el access token ya haya caducado. Devuelve si el servidor lo
+ * confirmó (si no, la cookie caduca sola). Nunca falla.
  */
-export async function logout(): Promise<boolean> {
-  const refreshToken = getRefreshToken();
-  const accessToken = getToken();
-  markLogout();
-  clearSession();
-  if (!refreshToken) return true;
-  try {
-    let res = await postLogout(refreshToken, accessToken);
-    // Access token caducado: el API acepta el refresh token solo, sin cabecera.
-    if (res.status === 401 && accessToken) res = await postLogout(refreshToken, null);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-function postLogout(refreshToken: string, accessToken: string | null): Promise<Response> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-  return fetch(`${API_BASE}/v1/auth/logout`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ refreshToken }),
-  });
-}
-
-/**
- * Un solo refresco a la vez: si varias peticiones caducan juntas y cada una
- * refresca, el API ve el mismo refresh token dos veces, lo toma por robado y
- * cierra la sesión (la chica se queda fuera en mitad de un cobro).
- */
-let refreshing: Promise<string> | null = null;
-function refreshAccessToken(failed: string | null = getToken()): Promise<string> {
-  refreshing ??= withRefreshLock(() => doRefreshAccessToken(failed)).finally(() => {
-    refreshing = null;
-  });
-  return refreshing;
-}
-
-/**
- * Las pestañas abiertas comparten la sesión (localStorage): el refresco va de
- * una en una también entre pestañas (Web Locks; sin ellos, como antes).
- */
-function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
-  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
-  return locks ? (locks.request(`${REFRESH_KEY}:lock`, fn) as Promise<T>) : fn();
-}
-
-async function doRefreshAccessToken(failed: string | null): Promise<string> {
-  // Otra pestaña ya lo renovó mientras esperábamos: vale el suyo.
-  const current = getToken();
-  if (current && current !== failed) return current;
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) throw endSession();
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}/v1/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-  } catch {
-    throw new ServerUnavailableError();
-  }
-  if (!res.ok) {
-    const after = getToken();
-    if (after && after !== failed) return after;
-    // Solo un "no" del API cierra la sesión; un 429 o un 5xx (p. ej. mientras
-    // se despliega) no echa a nadie.
-    if (res.status === 401 || res.status === 403) throw endSession();
-    throw new ServerUnavailableError(SERVER_DOWN_TEXT);
-  }
-  const refreshed = (await res.json()) as RefreshResponse;
-  window.localStorage.setItem(TOKEN_KEY, refreshed.accessToken);
-  window.localStorage.setItem(REFRESH_KEY, refreshed.refreshToken);
-  return refreshed.accessToken;
-}
-
-/**
- * ¿El JWT caduca en menos de `marginMs`? Si no se puede leer, se da por
- * bueno (ya lo dirá el servidor).
- */
-export function tokenExpiresSoon(token: string, now = Date.now(), marginMs = 60_000): boolean {
-  const payload = token.split('.')[1];
-  if (!payload) return false;
-  try {
-    const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: unknown };
-    return typeof claims.exp === 'number' && claims.exp * 1000 - now < marginMs;
-  } catch {
-    return false;
-  }
+export function logout(): Promise<boolean> {
+  return client.logout();
 }
 
 /**
  * El access token para el socket en tiempo real (se manda al conectar y al
  * reconectar): si está a punto de caducar, se renueva antes.
  */
-export async function freshAccessToken(): Promise<string | null> {
-  const token = getToken();
-  if (!token || !tokenExpiresSoon(token)) return token;
-  try {
-    return await refreshAccessToken(token);
-  } catch {
-    return getToken();
-  }
+export function freshAccessToken(): Promise<string | null> {
+  return client.freshAccessToken();
 }
 
-async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = getToken();
-  if (!token) throw endSession();
-  const res = await doFetch(path, init, token);
-  if (res.status !== 401) return res;
-  // Caducada de verdad → SessionExpiredError; servidor caído → ServerUnavailableError.
-  const newToken = await refreshAccessToken(token);
-  const retry = await doFetch(path, init, newToken);
-  if (retry.status === 401) throw endSession();
-  return retry;
-}
-
-async function doFetch(path: string, init: RequestInit, token: string): Promise<Response> {
-  const headers = new Headers(init.headers ?? {});
-  headers.set('Authorization', `Bearer ${token}`);
-  if (init.body && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json');
-  }
-  try {
-    return await fetch(`${API_BASE}${path}`, { ...init, headers });
-  } catch (err) {
-    // Cancelada a propósito (AbortController): no es que el servidor no conteste.
-    if ((err as Error)?.name === 'AbortError') throw err;
-    throw new ServerUnavailableError();
-  }
+function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return client.authedFetch(path, init);
 }
 
 // ─── Endpoints ────────────────────────────────────────────────────
@@ -806,12 +637,8 @@ export async function cancelWalletCharge(id: string): Promise<void> {
 // ─── Public — Self-onboarding ─────────────────────────────────────
 
 /** Petición sin sesión (enlaces de alta e invitación): sin red, un mensaje claro. */
-async function publicFetch(path: string, init?: RequestInit): Promise<Response> {
-  try {
-    return await fetch(`${API_BASE}${path}`, init);
-  } catch {
-    throw new ServerUnavailableError();
-  }
+function publicFetch(path: string, init?: RequestInit): Promise<Response> {
+  return client.publicFetch(path, init);
 }
 
 export type WalletProvider =

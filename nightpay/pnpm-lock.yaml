@@ -51,6 +51,9 @@ importers:
 
   apps/admin:
     dependencies:
+      '@nightpay/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@nightpay/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -292,6 +295,9 @@ importers:
 
   apps/operator:
     dependencies:
+      '@nightpay/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@nightpay/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -332,6 +338,9 @@ importers:
 
   apps/tpv:
     dependencies:
+      '@nightpay/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@nightpay/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -400,6 +409,18 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+
+  packages/api-client:
+    devDependencies:
+      '@nightpay/config':
+        specifier: workspace:*
+        version: link:../config
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@22.20.5)(terser@5.46.1)
 
   packages/config: {}
 

@@ -12,6 +12,7 @@
     "clean": "rm -rf .next .turbo"
   },
   "dependencies": {
+    "@nightpay/api-client": "workspace:*",
     "@nightpay/contracts": "workspace:*",
     "@nightpay/ui": "workspace:*",
     "next": "^15.5.28",

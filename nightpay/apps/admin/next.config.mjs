@@ -59,7 +59,7 @@ const nextConfig = {
   poweredByHeader: false,
   output: 'standalone',
   outputFileTracingRoot: process.env.NEXT_BUILD_TRACE_ROOT || undefined,
-  transpilePackages: ['@nightpay/contracts', '@nightpay/ui'],
+  transpilePackages: ['@nightpay/api-client', '@nightpay/contracts', '@nightpay/ui'],
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

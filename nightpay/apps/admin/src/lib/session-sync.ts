@@ -1,43 +1,19 @@
-// Varias pestañas comparten la sesión (localStorage). Cuando otra pestaña
-// sale, entra o cambia de local, esta tiene que enterarse: si no, sigue
-// enseñando el local viejo mientras sus peticiones ya van al nuevo.
+// Varias pestañas del panel comparten la sesión (la cookie del API). Cuando
+// otra pestaña sale, entra o cambia de local, esta tiene que enterarse: si no,
+// sigue enseñando el local viejo mientras sus peticiones ya van al nuevo. Los
+// avisos llegan por BroadcastChannel (@nightpay/api-client), no por `storage`.
+
+import type { SessionEvent } from '@nightpay/api-client';
 
 export type SessionChange = 'signed-out' | 'signed-in' | 'venue-changed';
 
-interface SessionKeys {
-  token: string;
-  user: string;
-}
-
-function identity(raw: string): { id?: string; tenantId?: string } | null {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === 'object' ? (parsed as { id?: string; tenantId?: string }) : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Un evento `storage` → qué ha cambiado en la sesión (null = nada que hacer;
- * p. ej. otra pestaña solo renovó el token).
+ * Un aviso de la sesión → qué hace la página (null = nada; la caducidad en
+ * ESTA pestaña llega por SESSION_EXPIRED_EVENT).
  */
-export function classifySessionChange(
-  key: string | null,
-  oldValue: string | null,
-  newValue: string | null,
-  keys: SessionKeys,
-): SessionChange | null {
-  if (key === null) return 'signed-out'; // localStorage.clear()
-  if (key === keys.token) {
-    if (newValue === null) return 'signed-out';
-    return oldValue === null ? 'signed-in' : null;
-  }
-  if (key !== keys.user) return null;
-  if (newValue === null) return 'signed-out';
-  if (oldValue === null) return 'signed-in';
-  const before = identity(oldValue);
-  const after = identity(newValue);
-  if (!before || !after) return 'venue-changed';
-  return before.id !== after.id || before.tenantId !== after.tenantId ? 'venue-changed' : null;
+export function classifySessionEvent(event: SessionEvent): SessionChange | null {
+  if (event.type === 'changed') return 'venue-changed'; // otro local u otra persona
+  if (event.source !== 'other-tab') return null;
+  if (event.type === 'signed-in') return 'signed-in';
+  return 'signed-out'; // salió o caducó allí
 }

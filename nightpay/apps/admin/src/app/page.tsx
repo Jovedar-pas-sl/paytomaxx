@@ -7,8 +7,8 @@ import { Dashboard } from '@/components/Dashboard';
 import {
   SESSION_EXPIRED_EVENT,
   clearSession,
-  getToken,
   getUser,
+  hasSession,
   watchSessionFromOtherTabs,
   type User,
 } from '@/lib/api';
@@ -16,7 +16,7 @@ import { canUsePanel } from '@/lib/roles';
 
 /** Sesión guardada utilizable en el panel; una de camarero o chica (de antes) se descarta. */
 function storedPanelUser(): User | null {
-  const user = getToken() ? getUser() : null;
+  const user = hasSession() ? getUser() : null;
   if (user && !canUsePanel(user.role)) {
     clearSession();
     return null;
