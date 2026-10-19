@@ -7,6 +7,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { paymentMethodsOf } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { ClsService } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
@@ -242,9 +243,22 @@ export class PosDeviceService {
     return { token };
   }
 
-  async me(device: PosDevice): Promise<{ terminal: { label: string; zone: string | null }; venueName: string }> {
-    const venue = await this.prisma.venue.findUnique({ where: { id: device.tenantId }, select: { name: true } });
-    return { terminal: { label: device.label, zone: device.zone }, venueName: venue?.name ?? '' };
+  /**
+   * El datáfono y su local. `wallet`: «Pago con saldo» encendido en Ajustes →
+   * Formas de cobro (sin él, /pax esconde «Cobrar con saldo»).
+   */
+  async me(
+    device: PosDevice,
+  ): Promise<{ terminal: { label: string; zone: string | null }; venueName: string; wallet: boolean }> {
+    const venue = await this.prisma.venue.findUnique({
+      where: { id: device.tenantId },
+      select: { name: true, paymentMethods: true },
+    });
+    return {
+      terminal: { label: device.label, zone: device.zone },
+      venueName: venue?.name ?? '',
+      wallet: paymentMethodsOf(venue?.paymentMethods).wallet,
+    };
   }
 
   // ─── Cobros ────────────────────────────────────────────────────────────

@@ -525,3 +525,20 @@ describe('la palabra del datáfono no basta: prueba de Paytef (seguridad #1)', (
     await expect(twin.svc.reportResult(device, PAYMENT_ID, approved)).resolves.toMatchObject({ status: 'PENDING' });
   });
 });
+
+describe('GET /pos-device/me — «Pago con saldo» del local', () => {
+  it('wallet: encendido por defecto; apagado en Formas de cobro → false (/pax esconde «Cobrar con saldo»)', async () => {
+    const on = makeService();
+    await expect(on.svc.me(device)).resolves.toEqual({
+      terminal: { label: 'Barra 1', zone: 'BARRA' },
+      venueName: 'Local Centro',
+      wallet: true,
+    });
+    const off = makeService();
+    (off.svc as unknown as { prisma: { venue: { findUnique: ReturnType<typeof vi.fn> } } }).prisma.venue.findUnique.mockResolvedValueOnce({
+      name: 'Local Centro',
+      paymentMethods: { wallet: false },
+    });
+    await expect(off.svc.me(device)).resolves.toMatchObject({ wallet: false });
+  });
+});
