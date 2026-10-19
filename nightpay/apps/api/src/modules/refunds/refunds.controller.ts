@@ -8,8 +8,10 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -17,6 +19,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import type { JwtPayload } from '@nightpay/contracts';
 import { madridDay } from '../../common/time/madrid';
+import { ApprovalRequestsService } from '../approvals/approval-requests.service';
 import { RefundsService } from './refunds.service';
 
 const RefundBodySchema = z.object({
@@ -56,10 +59,20 @@ type ResolvePendingBody = z.infer<typeof ResolvePendingBodySchema>;
 @UseGuards(RolesGuard)
 export class RefundsController {
   private readonly refunds: RefundsService;
-  constructor(@Inject(RefundsService) refunds: RefundsService) {
+  private readonly approvals: ApprovalRequestsService;
+  constructor(
+    @Inject(RefundsService) refunds: RefundsService,
+    @Inject(ApprovalRequestsService) approvals: ApprovalRequestsService,
+  ) {
     this.refunds = refunds;
+    this.approvals = approvals;
   }
 
+  /**
+   * Devolución por la pasarela. El encargado, desde el umbral del local
+   * (refundApprovalThresholdCents), no la hace: se la pide al dueño y
+   * responde 202 `{ approvalRequestId, status: 'PENDING', … }` (ver «Por aprobar»).
+   */
   @Post(':id/refunds')
   @HttpCode(201)
   @Roles('OWNER', 'MANAGER')
@@ -67,7 +80,13 @@ export class RefundsController {
     @Param('id', ParseUUIDPipe) paymentId: string,
     @Body(new ZodValidationPipe(RefundBodySchema)) body: RefundBody,
     @CurrentUser() user: JwtPayload,
+    @Res({ passthrough: true }) reply?: FastifyReply,
   ) {
+    const actor = { userId: user.sub, role: user.role, tenantId: user.tenantId };
+    if ((await this.approvals.refundRouteFor(actor, body.amountCents, paymentId)) === 'request') {
+      reply?.status(202);
+      return this.approvals.requestRefund(actor, { paymentId, amountCents: body.amountCents, reason: body.reason });
+    }
     return this.refunds.refund(
       {
         paymentId,

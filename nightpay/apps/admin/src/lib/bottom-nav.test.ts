@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { badgeText, bottomNavItems, isMoreActive } from './bottom-nav';
+import { badgeText, bottomNavItems, isMoreActive, navBadge } from './bottom-nav';
 import { visibleTabs } from './roles';
 
 const nav = (user: { role: string; isSuperAdmin?: boolean }) => bottomNavItems(visibleTabs(user));
 const keys = (items: ReadonlyArray<{ key: string }>) => items.map((i) => i.key);
 
 describe('bottomNavItems', () => {
-  it('abajo siempre Pagos, Noche, Incidencias y Chicas, con nombres cortos', () => {
+  it('abajo siempre Pagos, Noche, Incidencias y Chicas, con nombres cortos; el dueño, también «Aprobar»', () => {
     const { primary } = nav({ role: 'OWNER' });
-    expect(keys(primary)).toEqual(['payments', 'nights', 'incidents', 'operators']);
-    expect(primary.map((p) => p.label)).toEqual(['Pagos', 'Noche', 'Incidencias', 'Chicas']);
+    expect(keys(primary)).toEqual(['payments', 'approvals', 'nights', 'incidents', 'operators']);
+    expect(primary.map((p) => p.label)).toEqual(['Pagos', 'Aprobar', 'Noche', 'Incidencias', 'Chicas']);
+    expect(keys(nav({ role: 'MANAGER' }).primary)).toEqual(['payments', 'nights', 'incidents', 'operators']);
+  });
+
+  it('«Mis solicitudes» del encargado va en «Más»', () => {
+    expect(keys(nav({ role: 'MANAGER' }).more)).toContain('requests');
   });
 
   it('el dueño ve Banco e Informes en «Más»', () => {
@@ -49,6 +54,17 @@ describe('isMoreActive', () => {
     const model = nav({ role: 'OWNER' });
     expect(isMoreActive(model, 'settings')).toBe(true);
     expect(isMoreActive(model, 'payments')).toBe(false);
+  });
+});
+
+describe('navBadge', () => {
+  it('incidencias abiertas y pendientes de aprobar; nada en las demás ni sin datos', () => {
+    const counts = { incidents: 2, approvals: 3 };
+    expect(navBadge('incidents', counts)).toEqual({ text: '2', spoken: '2 abiertas' });
+    expect(navBadge('approvals', counts)).toEqual({ text: '3', spoken: '3 por aprobar' });
+    expect(navBadge('payments', counts)).toBeNull();
+    expect(navBadge('approvals', { incidents: 0, approvals: 0 })).toBeNull();
+    expect(navBadge('approvals', { incidents: 0, approvals: null })).toBeNull();
   });
 });
 

@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import { pendingRefundApprovalCents } from '../approvals/approval-store';
 
 /**
  * Piezas de las devoluciones que van DENTRO de una transacción con la fila
@@ -42,11 +43,17 @@ export async function lockPaymentForRefund(
 /**
  * Lo que tienen reservado las devoluciones aún pendientes del cobro: no
  * cuentan todavía en availableAmountCents pero el dinero puede estar saliendo.
+ * También lo pedido al dueño y aún sin decidir («Por aprobar»): al aprobarla,
+ * la solicitud deja de reservar en la misma transacción en que se reserva la
+ * devolución, así que nunca cuenta dos veces ni deja un hueco. Con
+ * `approvals: false` no cuenta lo pedido (apuntar una devolución que ya salió
+ * del banco: si luego no cabe lo pedido, la solicitud falla al aprobarla).
  */
 export async function reservedRefundCents(
   tx: TransactionalClient,
   paymentId: string,
   now: Date = new Date(),
+  opts: { approvals?: boolean } = {},
 ): Promise<number> {
   const agg = await tx.refund.aggregate({
     where: {
@@ -56,7 +63,8 @@ export async function reservedRefundCents(
     },
     _sum: { amountCents: true },
   });
-  return agg._sum.amountCents ?? 0;
+  const pendingApprovals = opts.approvals === false ? 0 : await pendingRefundApprovalCents(tx, paymentId, now);
+  return (agg._sum.amountCents ?? 0) + pendingApprovals;
 }
 
 /** Lo que aún se puede devolver: lo devolvible menos lo reservado. Si no cabe, 409. */
@@ -65,8 +73,9 @@ export async function assertRefundFits(
   paymentId: string,
   locked: LockedRefundablePayment,
   amountCents: number,
+  opts: { approvals?: boolean } = {},
 ): Promise<void> {
-  const free = locked.availableAmountCents - (await reservedRefundCents(tx, paymentId));
+  const free = locked.availableAmountCents - (await reservedRefundCents(tx, paymentId, new Date(), opts));
   if (amountCents > free) {
     throw new ConflictException(`Solo quedan ${Math.max(0, free)} céntimos por devolver en este cobro`);
   }

@@ -40,6 +40,7 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
   bank_mismatch: { group: 'Banco', title: 'Diferencia con el banco', tab: 'bank' },
   backup_stale: { group: 'Copias', title: 'Sin copia de seguridad reciente', tab: null },
   backup_unmonitored: { group: 'Copias', title: 'Las copias de seguridad no se vigilan', tab: null },
+  approval_pending: { group: 'Por aprobar', title: 'Solicitud del encargado sin decidir', tab: 'approvals' },
 };
 
 const UNKNOWN_KIND: KindMeta = { group: 'Aviso', title: 'Incidencia', tab: null };

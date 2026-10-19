@@ -6,7 +6,7 @@ import { Prisma } from '@nightpay/db';
  *  - app_current_tenant() = el GUC `app.current_tenant_id` de la sesión;
  *  - app_rls_bypass()     = el GUC `app.bypass_rls` = 'on'.
  *
- * Estas seis tablas tienen FORCE ROW LEVEL SECURITY: las políticas valen
+ * Estas tablas tienen FORCE ROW LEVEL SECURITY: las políticas valen
  * también para el DUEÑO de las tablas. Con un rol sin superusuario (el de
  * producción a partir de docs/DB-ROLE.md), una consulta a ellas sin el local
  * en la sesión ni el bypass no ve ninguna fila (y un INSERT falla). Por eso
@@ -24,6 +24,8 @@ export const FORCED_RLS_TABLES = [
   'operator_payouts',
   'earning_reversals',
   'peanpe_calls',
+  // «Por aprobar» (20261016300000): una fila es un permiso para mover dinero.
+  'approval_requests',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -33,6 +35,7 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'OperatorPayout',
   'EarningReversal',
   'PeanpeCall',
+  'ApprovalRequest',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);

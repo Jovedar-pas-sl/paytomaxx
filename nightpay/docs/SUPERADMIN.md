@@ -90,12 +90,13 @@ las apps, devolver el saldo al cliente.
 en el pago (`createPayout`) y en Tesorería. `null` = el del entorno. `0` = se
 les paga al cierre de la noche (todo lo cobrado ya se puede liquidar).
 
-### Reglas de aprobación (solo se guardan)
+### Reglas de aprobación
 
 `refundApprovalThresholdCents` (100 € por defecto) y `payoutRequiresApproval`
-(sí por defecto) se guardan y se enseñan. Las aplicará la bandeja de
-aprobaciones (encargado pide, el dueño aprueba con 2FA, quien pide no aprueba);
-hoy no cambian nada (TODO en `venues.service.ts`).
+(sí por defecto) las aplica «Por aprobar»: el encargado pide los pagos a las
+chicas (si el local lo exige; si no, paga él con 2FA) y las devoluciones desde
+el umbral; el dueño las aprueba con 2FA y quien pide no aprueba. Ver
+[APROBACIONES.md](APROBACIONES.md).
 
 ## Personal y administradores
 

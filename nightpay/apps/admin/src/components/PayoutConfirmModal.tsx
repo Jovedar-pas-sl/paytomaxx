@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Input, Modal, Select } from '@nightpay/ui';
+import { isApprovalRequested, type ApprovalRequestedResponse } from '@nightpay/contracts';
 import {
   confirmPayoutManual,
   createOperatorPayout,
@@ -10,10 +11,10 @@ import {
   type PayoutMethod,
 } from '@/lib/api';
 import { ApiError, needsTotpCode, totpLockedUntil } from '@/lib/api-errors';
+import { requestSummary } from '@/lib/approvals';
 import { payoutSummary } from '@/lib/confirm-summary';
 import { formatDecimal, formatEur } from '@/lib/money';
 import { isAutoVerifiable, payoutAddressError } from '@/lib/payout-address';
-import { isPayoutRequested, type PayoutRequested } from '@/lib/payout-request';
 import { describeVerifyResult, payoutReferenceError, type VerifyOutcome } from '@/lib/payout-verify';
 import { useLockActive } from '@/lib/use-lock';
 import { useVenue } from '@/lib/venue-context';
@@ -31,8 +32,13 @@ interface Props {
   payoutAddress: string | null;
   payoutLabel: string | null;
   onClose: () => void;
-  /** El pago quedó apuntado (haya ido bien o no la verificación): refrescar. */
+  /** El pago quedó apuntado (haya ido bien o no la verificación) o pedido: refrescar. */
   onDone: () => void;
+  /**
+   * «Por aprobar»: 'pay' el dueño (2FA si la tiene); 'pay_2fa' el encargado
+   * que paga directo (2FA siempre); 'request' el encargado que lo pide al dueño.
+   */
+  mode?: 'pay' | 'pay_2fa' | 'request';
 }
 
 type Rate = { rate: number; degraded: boolean } | 'loading' | 'unavailable' | null;
@@ -58,7 +64,9 @@ export function PayoutConfirmModal({
   payoutLabel,
   onClose,
   onDone,
+  mode = 'pay',
 }: Props) {
+  const asking = mode === 'request';
   // Sin método guardado no se supone efectivo: hay que elegir cómo se pagó.
   const [rail, setRail] = useState<PayoutMethod | ''>(payoutMethod ?? '');
   const [notes, setNotes] = useState('');
@@ -71,9 +79,10 @@ export function PayoutConfirmModal({
   const [rate, setRate] = useState<Rate>(null);
   const [created, setCreated] = useState<Created | null>(null);
   /** 202: el local pide la aprobación del dueño; no se pagó, se pidió. */
-  const [requested, setRequested] = useState<PayoutRequested | null>(null);
   /** El API pidió el código (403 TOTP_REQUIRED): la cuenta tiene la 2FA activada. */
-  const [askedForCode, setAskedForCode] = useState(false);
+  const [askedForCode, setAskedForCode] = useState(mode === 'pay_2fa');
+  /** 202: el API no pagó, lo pidió al dueño. */
+  const [requested, setRequested] = useState<ApprovalRequestedResponse | null>(null);
   /** 429 TOTP_LOCKED: hasta cuándo no se puede probar otro código. */
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const locked = useLockActive(lockedUntil);
@@ -115,9 +124,9 @@ export function PayoutConfirmModal({
     if (!chosenRail) return setError('Elige cómo le has pagado.');
     const referenceProblem = payoutReferenceError({ externalTxId, receiptUrl });
     if (referenceProblem) return setError(referenceProblem);
-    if (askedForCode && !totpCode) return setError('Pon los 6 números de tu app de verificación.');
-    if (totpCode && !/^\d{6}$/.test(totpCode)) return setError('El código 2FA son 6 números.');
-    if (!confirmed) return setError('Marca la casilla para confirmar el pago.');
+    if (!asking && askedForCode && !totpCode) return setError('Pon los 6 números de tu app de verificación.');
+    if (!asking && totpCode && !/^\d{6}$/.test(totpCode)) return setError('El código 2FA son 6 números.');
+    if (!confirmed) return setError(asking ? 'Marca la casilla para pedirlo.' : 'Marca la casilla para confirmar el pago.');
 
     setSubmitting(true);
     const txId = externalTxId.trim();
@@ -128,9 +137,10 @@ export function PayoutConfirmModal({
         externalTxId: txId || undefined,
         externalRail: chosenRail,
         receiptUrl: receipt || undefined,
-        totpCode: totpCode || undefined,
+        totpCode: asking ? undefined : totpCode || undefined,
       });
-      if (isPayoutRequested(payout)) {
+      // El encargado (o un local que cambió de regla): pedido al dueño, no pagado.
+      if (isApprovalRequested(payout)) {
         setRequested(payout);
         return;
       }
@@ -160,11 +170,11 @@ export function PayoutConfirmModal({
     return (
       <Modal open onClose={closeGuarded} title="Pedido al dueño" width="32rem">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <p style={{ margin: 0 }}>
-            No se ha pagado aún: el pago de <strong className="np-num">{formatEur(requested.amountCents)}</strong> a{' '}
-            {operatorName} queda pedido al dueño, que lo aprueba en «Por aprobar».
-          </p>
           <Notice tone="info">{requested.message}</Notice>
+          <p style={{ margin: 0, fontSize: '0.9375rem' }}>
+            Pago de <strong className="np-num">{formatEur(requested.amountCents)}</strong> a {operatorName}. No se apunta
+            hasta que el dueño lo apruebe; lo verás en «Mis solicitudes» (y, si lo rechaza, el motivo).
+          </p>
           <Button onClick={onDone}>Cerrar</Button>
         </div>
       </Modal>
@@ -187,7 +197,7 @@ export function PayoutConfirmModal({
   }
 
   return (
-    <Modal open onClose={closeGuarded} title="Marcar pagado" width="32rem">
+    <Modal open onClose={closeGuarded} title={asking ? 'Pedir pago al dueño' : 'Marcar pagado'} width="32rem">
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <p style={{ margin: 0, fontSize: '0.95rem' }}>
           Saldo pendiente a liquidar: <strong className="np-num">{formatEur(balanceCents)}</strong>
@@ -279,7 +289,8 @@ export function PayoutConfirmModal({
             style={{ marginTop: '0.2rem' }}
           />
           <span>
-            Confirmo que he pagado <strong className="np-num">{formatEur(balanceCents)}</strong>
+            {asking ? 'Pido al dueño que apruebe pagar' : 'Confirmo que he pagado'}{' '}
+            <strong className="np-num">{formatEur(balanceCents)}</strong>
             {chosenRail ? <> por {PAYOUT_METHOD_LABELS[chosenRail]}</> : null}
             {address ? (
               <>
@@ -291,7 +302,16 @@ export function PayoutConfirmModal({
           </span>
         </label>
 
-        {chosenRail && balanceCents > 0 ? (
+        {chosenRail && balanceCents > 0 && asking ? (
+          <ConfirmLine>
+            {requestSummary({
+              kind: 'PAYOUT',
+              amountCents: balanceCents,
+              to: operatorName,
+              venueName: venue.name ?? venue.slug,
+            })}
+          </ConfirmLine>
+        ) : chosenRail && balanceCents > 0 ? (
           <ConfirmLine>
             {payoutSummary({
               amountCents: balanceCents,
@@ -303,6 +323,7 @@ export function PayoutConfirmModal({
           </ConfirmLine>
         ) : null}
 
+        {asking ? null : (
         <OtpInput
           label={askedForCode ? 'Código de tu app de verificación (2FA)' : 'Código 2FA (si tienes la app activada)'}
           value={totpCode}
@@ -316,6 +337,7 @@ export function PayoutConfirmModal({
               : 'Marca antes la casilla; luego, al poner el sexto número, se confirma.'
           }
         />
+        )}
 
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
@@ -329,10 +351,10 @@ export function PayoutConfirmModal({
           <Button
             type="submit"
             loading={submitting}
-            disabled={!confirmed || !chosenRail || (askedForCode && locked)}
+            disabled={!confirmed || !chosenRail || (!asking && askedForCode && locked)}
             style={{ flex: 1 }}
           >
-            Confirmar liquidación
+            {asking ? 'Pedir al dueño' : 'Confirmar liquidación'}
           </Button>
         </div>
       </form>
@@ -342,9 +364,10 @@ export function PayoutConfirmModal({
 
 /**
  * Tras apuntar la liquidación: verificar (cripto) o confirmar a mano (con
- * referencia). Un fallo aquí no deshace el pago: se cuenta qué pasó.
+ * referencia). Un fallo aquí no deshace el pago: se cuenta qué pasó. También
+ * al aprobar un pago pedido por el encargado con su referencia («Por aprobar»).
  */
-async function settle(payoutId: string, rail: PayoutMethod, txId: string, receipt: string): Promise<VerifyOutcome> {
+export async function settle(payoutId: string, rail: PayoutMethod, txId: string, receipt: string): Promise<VerifyOutcome> {
   if (!txId) {
     return {
       tone: 'info',

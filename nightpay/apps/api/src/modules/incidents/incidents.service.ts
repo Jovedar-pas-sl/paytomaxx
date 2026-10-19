@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { APPROVAL_INCIDENT_MINUTES, APPROVAL_TTL_MS } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
@@ -19,7 +20,9 @@ import {
   backupIncidents,
   paymentAnomalyIncident,
   refundPendingIncident,
+  approvalPendingIncident,
   REFUND_PENDING_MINUTES,
+  type PendingApprovalRow,
   type BankItemRow,
   type PendingRefundRow,
   type PaymentAnomalyRow,
@@ -68,6 +71,8 @@ export class IncidentsService {
     const reconcileBefore = new Date(now.getTime() - RECONCILE_WITHIN_HOURS * 60 * 60 * 1000);
     const refundPendingBefore = new Date(now.getTime() - REFUND_PENDING_MINUTES * 60 * 1000);
     const nightStart = lastNightCutoff(now);
+    const approvalPendingBefore = new Date(now.getTime() - APPROVAL_INCIDENT_MINUTES * 60 * 1000);
+    const approvalExpiredBefore = new Date(now.getTime() - APPROVAL_TTL_MS);
     const [
       stuck,
       duplicates,
@@ -82,6 +87,7 @@ export class IncidentsService {
       bankItems,
       anomalies,
       pendingRefunds,
+      pendingApprovals,
     ] = await Promise.all([
       this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt"
@@ -273,6 +279,21 @@ export class IncidentsService {
          ORDER BY r."createdAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
+      // «Por aprobar» sin decidir desde hace más de 30 min (y sin caducar).
+      // approval_requests tiene FORCE RLS: con bypass y filtrando por local aquí.
+      this.prisma.asSystem((tx) => tx.$queryRaw<PendingApprovalRow[]>`
+        SELECT a.id::text AS id, a.kind::text AS kind, a."amountCents", a."requestedAt",
+               COALESCE(NULLIF(btrim(u."displayName"), ''), split_part(u.email, '@', 1)) AS requester,
+               a.payload ->> 'operatorName' AS "operatorName"
+          FROM approval_requests a
+          LEFT JOIN users u ON u.id = a."requestedById"
+         WHERE a."tenantId" = ${tenantId}::uuid
+           AND a.status = 'PENDING'
+           AND a."requestedAt" < ${approvalPendingBefore}
+           AND a."requestedAt" > ${approvalExpiredBefore}
+         ORDER BY a."requestedAt" DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `),
     ]);
 
     const all: Incident[] = [
@@ -292,6 +313,7 @@ export class IncidentsService {
       // "Sin comprobar" va por cobro: varios avisos del mismo cobro, uno solo.
       ...uniqueBy(anomalies.map(paymentAnomalyIncident), (i) => `${i.kind}:${i.refId}`),
       ...pendingRefunds.map((r) => refundPendingIncident(r, now)),
+      ...pendingApprovals.map((r) => approvalPendingIncident(r, now)),
       ...(this.backups
         ? backupIncidents(await this.backups.verdict(now), now, process.env.NODE_ENV === 'production')
         : []),

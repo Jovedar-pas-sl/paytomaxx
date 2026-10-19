@@ -12,3 +12,4 @@ export * from './wallet-pin';
 export * from './wallet-card';
 export * from './superadmin';
 export * from './night-close';
+export * from './approvals';

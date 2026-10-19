@@ -1,5 +1,6 @@
 // Cobros: métricas, lista, devoluciones, resolver atascados e informes CSV.
 
+import type { ApprovalRequestedResponse } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
 
 export interface PaymentRow {
@@ -101,12 +102,16 @@ export async function resolvePendingRefund(
   return res.json();
 }
 
+/**
+ * Devolución por la pasarela. Si el encargado pide desde el umbral del local,
+ * el API no la hace: responde 202 «pedido al dueño» (isApprovalRequested).
+ */
 export async function refundPayment(
   paymentId: string,
   amountCents: number,
   reason?: string,
   totpCode?: string,
-): Promise<{ id: string; status: string; providerRefundId: string }> {
+): Promise<{ id: string; status: string; providerRefundId: string } | ApprovalRequestedResponse> {
   const res = await authedFetch(`/v1/payments/${paymentId}/refunds`, {
     method: 'POST',
     body: JSON.stringify({ amountCents, reason, totpCode }),

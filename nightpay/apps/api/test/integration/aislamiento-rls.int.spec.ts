@@ -1,4 +1,4 @@
-// Integración (Postgres real): RLS de la base aísla los locales por sí sola en las seis tablas con FORCE RLS,
+// Integración (Postgres real): RLS de la base aísla los locales por sí sola en las tablas con FORCE RLS,
 // con el rol dueño SIN superusuario, aunque la consulta no filtre por local. Ver README.md y docs/DB-ROLE.md.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -51,6 +51,9 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const call = await tx.peanpeCall.create({
         data: { tenantId, paymentId: payment.id, identificadorLlamada: `${tag}${r}`.slice(0, 6), securityToken: '1234567890', amountCents: 1000 },
       });
+      const approval = await tx.approvalRequest.create({
+        data: { tenantId, kind: 'PAYOUT', targetId: chica, amountCents: 50, payload: {}, requestedById: owner },
+      });
       return {
         tenantId,
         rows: {
@@ -60,6 +63,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           operator_payouts: payout.id,
           earning_reversals: reversal.id,
           peanpe_calls: call.identificadorLlamada,
+          approval_requests: approval.id,
         },
       };
     }),
@@ -88,7 +92,7 @@ afterAll(async () => {
 });
 
 describe('RLS de la base con un rol sin superusuario', () => {
-  it('la prueba vale: el rol no es superusuario, no salta RLS, es dueño de las tablas y las seis tienen FORCE', async () => {
+  it('la prueba vale: el rol no es superusuario, no salta RLS, es dueño de las tablas y todas tienen FORCE', async () => {
     const [role] = await prisma.$queryRaw<Array<{ rolsuper: boolean; rolbypassrls: boolean }>>`
       SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
     expect(role).toEqual({ rolsuper: false, rolbypassrls: false });
@@ -101,7 +105,7 @@ describe('RLS de la base con un rol sin superusuario', () => {
     for (const t of tables) expect(t).toMatchObject({ owner: t.me, forced: true });
   });
 
-  it('con el local A en la sesión, ninguna de las seis enseña filas de B aunque la consulta no filtre', async () => {
+  it('con el local A en la sesión, ninguna enseña filas de B aunque la consulta no filtre', async () => {
     for (const table of FORCED_RLS_TABLES) {
       expect(await inCtx(A, () => prisma.withTenant(A, (tx) => visibleTenants(tx, table))), table).toEqual([A]);
       expect(await inCtx(undefined, () => prisma.withTenant(B, (tx) => visibleTenants(tx, table))), table).toEqual([B]);

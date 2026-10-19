@@ -55,6 +55,14 @@ describe('incidentHeading', () => {
   });
 });
 
+describe('approval_pending (solicitud del encargado sin decidir)', () => {
+  it('se arregla en «Por aprobar», que solo ve el dueño', () => {
+    expect(INCIDENT_KINDS.approval_pending.group).toBe('Por aprobar');
+    expect(fixTabFor('approval_pending', visibleTabs({ role: 'OWNER' }))).toBe('approvals');
+    expect(fixTabFor('approval_pending', visibleTabs({ role: 'MANAGER' }))).toBeNull();
+  });
+});
+
 describe('refund_pending (devolución sin confirmar por el banco)', () => {
   it('no se marca a mano: se abre el cobro (Devoluciones → Resolver) y se quita sola', () => {
     expect(INCIDENT_KINDS.refund_pending.group).toBe('Devolución');

@@ -4,13 +4,18 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Logo, ThemeToggle } from '@nightpay/ui';
 import { fetchVenueSettings, logout as apiLogout, type User } from '@/lib/api';
 import { DEFAULT_TIMEZONE } from '@/lib/dates';
+import { decidableCount } from '@/lib/approvals';
+import { navBadge } from '@/lib/bottom-nav';
 import { visibleTabs, type PanelTab, type TabKey } from '@/lib/roles';
+import { ApprovalsContext, useApprovalsFeed } from '@/lib/use-approvals';
 import { IncidentsContext, useIncidentsFeed } from '@/lib/use-incidents';
 import { VenueContext, type VenueInfo } from '@/lib/venue-context';
+import { ApprovalsPanel } from './ApprovalsPanel';
 import { BankReconPanel } from './BankReconPanel';
 import { BottomNav } from './BottomNav';
 import { CartaPanel } from './CartaPanel';
 import { IncidentsPanel } from './IncidentsPanel';
+import { MyRequestsPanel } from './MyRequestsPanel';
 import { NightsPanel } from './NightsPanel';
 import { OperatorsPanel } from './OperatorsPanel';
 import { PaymentsPanel } from './PaymentsPanel';
@@ -45,6 +50,9 @@ export function Dashboard({ user, onLogout }: Props) {
   const tab = tabs.some((t) => t.key === selected) ? selected : 'payments';
   const venue = useVenueInfo(user);
   const incidents = useIncidentsFeed(user.tenantId, venue.timezone);
+  // «Por aprobar»: reglas del local para quien mira y, al dueño, lo pendiente (globo).
+  const approvals = useApprovalsFeed(user);
+  const pendingApprovals = decidableCount(approvals.pending);
   const [loggingOut, setLoggingOut] = useState(false);
   /** Cobro a abrir en Pagos (desde una incidencia: «Abrir cobro»). */
   const [focusPayment, setFocusPayment] = useState<string | null>(null);
@@ -68,6 +76,7 @@ export function Dashboard({ user, onLogout }: Props) {
   return (
     <VenueContext.Provider value={venue}>
       <IncidentsContext.Provider value={incidents}>
+        <ApprovalsContext.Provider value={approvals}>
         <main
           className="np-app-root"
           style={{
@@ -113,6 +122,7 @@ export function Dashboard({ user, onLogout }: Props) {
             ariaLabel="Secciones del panel"
             idPrefix={TABS_ID}
             className="np-tabbar-main"
+            badges={{ approvals: navBadge('approvals', { incidents: null, approvals: pendingApprovals }) }}
           />
 
           <div
@@ -139,6 +149,7 @@ export function Dashboard({ user, onLogout }: Props) {
           active={tab}
           onChange={goTo}
           openIncidents={incidents.open ? incidents.open.length : null}
+          pendingApprovals={pendingApprovals}
           account={
             <>
               <p>
@@ -150,6 +161,7 @@ export function Dashboard({ user, onLogout }: Props) {
             </>
           }
         />
+        </ApprovalsContext.Provider>
       </IncidentsContext.Provider>
     </VenueContext.Provider>
   );
@@ -222,6 +234,10 @@ function ActivePanel({
       return <SettingsPanel isOwner={isOwner} />;
     case 'superadmin':
       return user.isSuperAdmin ? <SuperAdminPanel user={user} onNavigate={onNavigate} /> : null;
+    case 'approvals':
+      return isOwner ? <ApprovalsPanel /> : null;
+    case 'requests':
+      return <MyRequestsPanel />;
   }
 }
 

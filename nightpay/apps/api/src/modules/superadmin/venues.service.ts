@@ -139,10 +139,9 @@ export class SuperAdminVenuesService {
 
   /**
    * Reglas del local (2FA). refundApprovalThresholdCents y payoutRequiresApproval
-   * solo se guardan y se enseñan.
-   * TODO(bandeja de aprobaciones): que las apliquen refunds (encargado pide
-   * devoluciones ≥ umbral, el dueño aprueba con 2FA, quien pide no aprueba) y
-   * el pago a las chicas (createPayout como petición si payoutRequiresApproval).
+   * las aplica «Por aprobar» (modules/approvals, docs/APROBACIONES.md): el
+   * encargado pide devoluciones ≥ umbral y pagos a las chicas, el dueño los
+   * aprueba con 2FA y quien pide no aprueba.
    */
   async updateRules(actor: SuperAdminActor, id: string, dto: UpdateVenueRulesDto): Promise<VenueDetail> {
     await this.stepUp.verify(actor, dto.totpCode, 'venue.rules');

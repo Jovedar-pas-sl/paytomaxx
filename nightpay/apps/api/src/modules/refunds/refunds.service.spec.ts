@@ -51,6 +51,8 @@ interface MakeOptions {
   similarRefunds?: number;
   /** Lo que reservan otras devoluciones pendientes del cobro. */
   reservedCents?: number;
+  /** Lo que reservan las solicitudes de devolución pendientes de aprobar. */
+  approvalReservedCents?: number;
   /** Devolución que busca resolvePending. */
   existingRefund?: RefundRowFixture | null;
   /** Lo que esta persona ya devolvió por la pasarela en este cobro / en 24 h. */
@@ -63,6 +65,10 @@ function makeService(opts: MakeOptions = {}) {
   const payment = opts.payment ?? null;
 
   const prismaMock = {
+    // «Por aprobar»: lo pedido al dueño y sin decidir también reserva (aquí, nada).
+    approvalRequest: {
+      aggregate: vi.fn().mockResolvedValue({ _sum: { amountCents: opts.approvalReservedCents ?? 0 } }),
+    },
     payment: {
       findUnique: vi.fn().mockResolvedValue(payment),
     },

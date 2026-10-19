@@ -9,6 +9,7 @@ import '../styles/panel-tonight.css';
 import '../styles/panel-inbox.css';
 import '../styles/panel-otp.css';
 import '../styles/panel-close.css';
+import '../styles/panel-approvals.css';
 
 // Fuentes dentro del repo (packages/ui/fonts, licencia OFL): el build no
 // descarga nada de Google Fonts. Variables, con los mismos pesos de antes.

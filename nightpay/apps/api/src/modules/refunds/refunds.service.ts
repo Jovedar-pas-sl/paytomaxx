@@ -80,6 +80,21 @@ export interface ResolvePendingRequest {
 
 type Actor = { userId: string; role: Role; tenantId: string };
 
+/**
+ * «Por aprobar»: devolución que pidió el encargado y aprobó el dueño (con su
+ * 2FA, ya comprobada). Se reserva como cualquier otra, pero dentro de esa
+ * misma transacción se marca la aprobación (deja de reservar justo cuando
+ * reserva la devolución) y se apunta qué devolución salió.
+ */
+export interface ApprovedRefund {
+  approvalRequestId: string;
+  approvedBy: string;
+  /** Marca la aprobación; si ya estaba decidida, lanza y no se reserva nada. */
+  claim: (tx: TransactionalClient) => Promise<void>;
+  /** Con la devolución ya creada (PENDING), en la misma transacción. */
+  onReserved: (tx: TransactionalClient, refundId: string) => Promise<void>;
+}
+
 interface RefundTarget {
   id: string;
   tenantId: string;
@@ -132,12 +147,12 @@ export class RefundsService {
    * descuento del cobro van en la MISMA transacción: en ningún momento deja
    * de contar, así que dos devoluciones a la vez no pasan de lo cobrado.
    */
-  async refund(request: RefundRequest, actor: Actor) {
+  async refund(request: RefundRequest, actor: Actor, approved?: ApprovedRefund) {
     if (actor.role === 'WAITER') {
       throw new ForbiddenException('WAITER cannot refund');
     }
     const { payment, adapter } = await this.refundTarget(request);
-    const { refund, twoFactorRequired } = await this.reserveApiRefund(payment, request, actor);
+    const { refund, twoFactorRequired } = await this.reserveApiRefund(payment, request, actor, approved);
     const outcome = await this.askGateway(adapter, payment, refund.id, request);
     if (outcome.kind === 'rejected') return this.rejectRefund(payment, refund.id, outcome);
     if (outcome.kind === 'unknown') return this.keepRefundPending(payment, refund.id, request.amountCents, outcome, actor);
@@ -155,6 +170,7 @@ export class RefundsService {
         provider: payment.provider,
         providerRefundId: outcome.providerRefundId,
         twoFactorRequired,
+        ...(approved ? { approvalRequestId: approved.approvalRequestId, approvedBy: approved.approvedBy } : {}),
       },
     });
     const traceId = this.cls.get('ctx')?.traceId ?? randomUUID();
@@ -250,16 +266,24 @@ export class RefundsService {
    * bloqueada: cuenta lo que queda por devolver menos lo que reservan otras
    * devoluciones aún sin confirmar.
    */
-  private async reserveApiRefund(payment: RefundTarget, request: RefundRequest, actor: Actor) {
+  private async reserveApiRefund(
+    payment: RefundTarget,
+    request: RefundRequest,
+    actor: Actor,
+    approved: ApprovedRefund | undefined,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await lockRefundsOf(tx, actor.userId);
       const locked = await lockPaymentForRefund(tx, payment.id);
       if (!locked || !REFUNDABLE_STATUSES.has(locked.status)) {
         throw new ConflictException(`Cannot refund payment in state ${locked?.status ?? 'desconocido'}`);
       }
-      // Primero si cabe (no se pide un código para algo imposible), luego el 2FA.
+      // Aprobada: deja de reservar como solicitud antes de contar lo reservado.
+      if (approved) await approved.claim(tx);
+      // Primero si cabe (no se pide un código para algo imposible), luego el 2FA
+      // (en una aprobada ya lo puso el dueño al aprobarla).
       await assertRefundFits(tx, payment.id, locked, request.amountCents);
-      const twoFactorRequired = await this.checkTwoFactor(tx, request, actor);
+      const twoFactorRequired = approved ? false : await this.checkTwoFactor(tx, request, actor);
       const refund = await tx.refund.create({
         data: {
           tenantId: payment.tenantId,
@@ -270,6 +294,7 @@ export class RefundsService {
           status: 'PENDING',
         },
       });
+      if (approved) await approved.onReserved(tx, refund.id);
       return { refund, twoFactorRequired };
     });
   }
@@ -515,7 +540,9 @@ export class RefundsService {
                 `Ya hay una devolución de ${eur(request.amountCents)} registrada en este cobro. Si es otra distinta, confírmalo.`,
               );
             }
-            await assertRefundFits(tx, payment.id, locked, request.amountCents);
+            // El dinero ya salió en el portal del banco: se apunta aunque haya una
+            // devolución pedida al dueño en este cobro (esa fallará si ya no cabe).
+            await assertRefundFits(tx, payment.id, locked, request.amountCents, { approvals: false });
             await tx.refund.create({
               data: {
                 id: refundId,
