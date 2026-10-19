@@ -11,7 +11,9 @@ const cls = new ClsService(new AsyncLocalStorage());
  
 const prisma = new PrismaService(cls as any);
 const audit = { log: async () => undefined };
-const svc = new WalletChargesService(prisma as never, audit as never, { get: () => null } as never);
+// 2FA del encargado (desde el umbral, en efectivo): aquí se da por buena; se prueba en dinero-umbrales.
+const totpOk = { isEnabled: async () => true, assertForUser: async () => undefined };
+const svc = new WalletChargesService(prisma as never, audit as never, { get: () => null } as never, totpOk as never);
 const incidents = new IncidentsService(prisma as never, audit as never);
 
 function asTenant<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
@@ -119,7 +121,7 @@ describe('saldo contra Postgres real (RLS forzado, rol dueño no superusuario)',
 
   it('el encargado de B lo devuelve en efectivo: wallet cerrada y apuntado en B', async () => {
     const out = await asTenant(B, () =>
-      svc.payout({ userId: managerB, role: 'MANAGER', tenantId: B }, walletId, { method: 'CASH' }),
+      svc.payout({ userId: managerB, role: 'MANAGER', tenantId: B }, walletId, { method: 'CASH', totpCode: '123456' }),
     );
     expect(out).toEqual({ refundedCents: 20_000, method: 'CASH' });
     const [w, payout] = await asPublic(() =>
