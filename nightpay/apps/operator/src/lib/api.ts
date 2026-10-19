@@ -16,6 +16,7 @@ import {
   type LoginResult,
   type SessionEvent,
 } from '@nightpay/api-client';
+import { codeErrorText } from './api-codes';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
 
@@ -51,12 +52,9 @@ function loadError(res: Response, message: string): Error {
  * Lee el `detail` del backend (Problem Details RFC 7807).
  */
 export async function parseOperatorApiError(res: Response, context: string): Promise<string> {
-  return operatorErrorMessage(res.status, await readBackendDetail(res), context);
-}
-
-async function readBackendDetail(res: Response): Promise<string | undefined> {
   const text = await res.text().catch(() => '');
-  return parseProblemDetails(text).message ?? undefined;
+  const { message, code } = parseProblemDetails(text);
+  return operatorErrorMessage(res.status, message ?? undefined, context, code);
 }
 
 /**
@@ -65,8 +63,16 @@ async function readBackendDetail(res: Response): Promise<string | undefined> {
  * que puedes cobrar de una vez es 300 €", "Este PIN lo pusiste tú…").
  * NO devolvemos JSON crudo, stack, ni códigos técnicos.
  */
-export function operatorErrorMessage(status: number, backendDetail: string | undefined, context: string): string {
+export function operatorErrorMessage(
+  status: number,
+  backendDetail: string | undefined,
+  context: string,
+  code?: string | null,
+): string {
   const detail = shownDetail(backendDetail);
+  // Tope de efectivo, saldo bloqueado…: la misma frase en todas partes.
+  const known = codeErrorText(code, detail);
+  if (known) return known;
   if (status === 401) return SESSION_EXPIRED_TEXT;
   if (status === 403) return detail ?? 'No tienes permiso para esta acción.';
   if (status === 404) return `${context} no encontrado.`;

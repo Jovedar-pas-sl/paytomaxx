@@ -2,6 +2,7 @@
 // aparato se identifica con su credencial (Authorization: Device …), que se
 // obtiene una vez con el código de vinculación del panel.
 
+import { codeErrorText } from './api-codes';
 import type { PaytefResult } from './pax-bridge';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
@@ -78,8 +79,10 @@ export function forgetDevice(): void {
 async function readMessage(res: Response): Promise<string> {
   const text = await res.text();
   try {
-    const body = JSON.parse(text) as { detail?: unknown; message?: unknown; title?: unknown };
+    const body = JSON.parse(text) as { detail?: unknown; message?: unknown; title?: unknown; code?: unknown };
     const msg = body.detail ?? body.message ?? body.title;
+    const known = codeErrorText(typeof body.code === 'string' ? body.code : null, typeof msg === 'string' ? msg : null);
+    if (known) return known;
     if (typeof msg === 'string' && msg) return msg;
   } catch {
     // no es JSON
