@@ -438,7 +438,7 @@ export class AdminController {
         if (!payment.provider || !payment.providerTxId) {
           throw new ConflictException('Pago sin provider/providerTxId — no se puede marcar AUTHORIZED');
         }
-        await this.checkResolvedTip(paymentId, body.bankOrder);
+        await this.checkResolvedTip(paymentId, body.bankOrder, payment.providerTxId);
         // El pedido cobrado (si se eligió) fija la propina en transition()
         // y queda como pedido del cobro, para devolverlo en el banco.
         await this.payments.transition(paymentId, {
@@ -499,16 +499,26 @@ export class AdminController {
    * Fase 1B: cada intento puede llevar una propina distinta. Si no se sabe
    * qué pedido cobró el banco, no se puede saber qué propina le toca a la
    * chica: hay que elegirlo. Los intentos denegados no cuentan, y los cobros
-   * sin intentos registrados (anteriores a la Fase 0) no se bloquean.
+   * sin intentos registrados (anteriores a la Fase 0) no se bloquean: su
+   * único pedido es el del cobro (otro sería el cargo de otro cobro).
    */
-  private async checkResolvedTip(paymentId: string, bankOrder: string | undefined): Promise<void> {
+  private async checkResolvedTip(
+    paymentId: string,
+    bankOrder: string | undefined,
+    paymentOrder: string,
+  ): Promise<void> {
     const attempts = await this.prisma.asSystem((tx) =>
       tx.paymentAttempt.findMany({
         where: { paymentId, status: { not: 'DENIED' } },
         select: { providerTxId: true, tipCents: true },
       }),
     );
-    if (attempts.length === 0) return;
+    if (attempts.length === 0) {
+      if (bankOrder && bankOrder !== paymentOrder) {
+        throw new BadRequestException('Ese número de pedido no es de este cobro');
+      }
+      return;
+    }
     const charged = chargedAttemptTip(attempts, bankOrder);
     if (!charged.ok) {
       throw new BadRequestException(

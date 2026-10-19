@@ -210,15 +210,23 @@ describe('manualReconcile — marcar cobrado (AUTHORIZED)', () => {
     expect(h.eventos).toEqual([{ type: 'AUTHORIZED', provider: 'REDSYS', providerTxId: '2610AB12' }]);
   });
 
-  // BUG: admin.controller.ts:512 (checkResolvedTip) — si el cobro no tiene
-  // intentos, `bankOrder` no se comprueba y en :447 pasa a ser el providerTxId
-  // del cobro. Entrada: cobro ORPHAN con providerTxId '2610AB12', sin intentos,
-  // bankOrder '2610ZZ99' (pedido de otro cobro). Esperado: BadRequest («no es de
-  // este cobro»). Real: AUTHORIZED con providerTxId '2610ZZ99' (devoluciones y
-  // conciliación apuntarían al cargo de otro cobro).
-  it.skip('cobro sin intentos con un pedido distinto al suyo → BadRequest', async () => {
+  // Antes, sin intentos no se comprobaba el pedido y pasaba a ser el del cobro:
+  // devoluciones y cuadre apuntaban al cargo de otro cobro.
+  it('cobro sin intentos con un pedido distinto al suyo → BadRequest', async () => {
     const h = montar(pago());
     await expect(h.resolver({ ...COBRADO, bankOrder: '2610ZZ99' })).rejects.toBeInstanceOf(BadRequestException);
+    expect(h.payments.transition).not.toHaveBeenCalled();
+  });
+
+  it('cobro sin intentos con su mismo pedido → se resuelve', async () => {
+    const h = montar(pago());
+    await h.resolver({ ...COBRADO, bankOrder: '2610AB12' });
+    expect(h.eventos).toEqual([{ type: 'AUTHORIZED', provider: 'REDSYS', providerTxId: '2610AB12' }]);
+  });
+
+  it('solo intentos denegados y un pedido que no es el del cobro → BadRequest', async () => {
+    const h = montar(pago(), [intento('2610AB11', 500, 'DENIED')]);
+    await expect(h.resolver({ ...COBRADO, bankOrder: '2610AB11' })).rejects.toBeInstanceOf(BadRequestException);
     expect(h.payments.transition).not.toHaveBeenCalled();
   });
 
