@@ -224,20 +224,30 @@ describe('GET /pay/:token — página de pago', () => {
     for (const s of scripts(sent.body!)) expect(() => new Function(s)).not.toThrow();
   });
 
-  it('sin botón de wallet hecho a mano: un solo «Pagar 100 €» y debajo «Apple Pay · Google Pay · tarjeta»', async () => {
+  it('iPhone: un solo «Pagar 100 €» que abre Apple Pay (Redsys solo cartera), sin botón de Apple hecho a mano, y «Pagar con tarjeta»', async () => {
     const { controller } = makeController({ page: CHOOSE });
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     const html = sent.body!;
     expect(html).not.toContain('Pagar con Apple Pay');
     expect(html).not.toContain('Pagar con Google Pay');
-    expect(html).not.toContain('value="wallet"');
     expect(html.match(/type="submit"/g)).toHaveLength(1);
     expect(html).toMatch(/<button class="btn" id="payBtn" type="submit">Pagar 100\s€<\/button>/);
-    expect(html).toContain('<input type="hidden" name="method" value="">');
-    expect(html).toContain('Apple Pay · Google Pay · tarjeta');
+    expect(html).toContain('<input type="hidden" name="method" value="wallet">');
+    expect(html).toContain('Se abre Apple Pay');
+    expect(html).toContain('<button class="link" id="cardBtn" type="button">Pagar con tarjeta</button>');
     // El botón dice lo que hace mientras envía (no solo se apaga).
     expect(html).toContain('Enviando…');
+  });
+
+  it('ordenador: el botón deja elegir en Redsys (sin método) y no hay «Pagar con tarjeta»', async () => {
+    const { controller } = makeController({ page: CHOOSE });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36', reply);
+    const html = sent.body!;
+    expect(html).toContain('<input type="hidden" name="method" value="">');
+    expect(html).toContain('Apple Pay · Google Pay · tarjeta');
+    expect(html).not.toContain('id="cardBtn"');
   });
 
   it('«Sin propina» marcada por defecto, aunque el cobro traiga una propina del local', async () => {
@@ -328,7 +338,8 @@ describe('GET /pay/:token — página de pago', () => {
     await controller.payPage('qr-token-1', undefined, 'de-DE,de;q=0.9', IPHONE, reply);
     expect(sent.body).toContain('You are paying');
     expect(sent.body).toContain('Pay €100');
-    expect(sent.body).toContain('Apple Pay · Google Pay · card');
+    expect(sent.body).toContain('Opens Apple Pay');
+    expect(sent.body).toContain('Pay by card');
     expect(sent.body).toContain('href="/pay/qr-token-1?lang=es"');
   });
 

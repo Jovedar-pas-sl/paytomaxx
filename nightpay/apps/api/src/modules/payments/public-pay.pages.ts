@@ -176,7 +176,7 @@ export function renderChoosePage(
   // Un solo botón: el banco enseña Apple Pay, Google Pay y tarjeta (las marcas
   // no permiten botones de wallet hechos a mano ni traducidos). Dentro de
   // Instagram y similares, solo tarjeta (ahí Apple Pay / Google Pay no van).
-  const { inApp } = ctx.device;
+  const { inApp, wallet } = ctx.device;
   const action = `/pay/${encodeURIComponent(ctx.token)}`;
   const other = t.otherLanguage;
   const config = jsConfig({
@@ -198,9 +198,10 @@ ${ctx.statementName ? `<p class="stmt">${escapeHtml(t.statement(ctx.statementNam
 ${withTips ? tipChoices(view, t) : '<input type="hidden" name="tip" value="0">'}
 ${inApp ? `<p class="warn" role="note">${escapeHtml(t.inAppWarning(inApp))}</p>` : ''}
 <div class="paybar"><div>
-<input type="hidden" name="method" value="${inApp ? 'card' : ''}">
+<input type="hidden" name="method" value="${inApp ? 'card' : wallet ? 'wallet' : ''}">
 <button class="btn" id="payBtn" type="submit">${escapeHtml(`${t.payPrefix} ${formatShort(view.amountCents, view.currency, t)}`)}</button>
-<p class="methods">${escapeHtml(inApp ? t.methodsCard : t.methods)}</p>
+<p class="methods">${escapeHtml(inApp ? t.methodsCard : wallet ? t.methodsWallet(wallet) : t.methods)}</p>
+${!inApp && wallet ? `<button class="link" id="cardBtn" type="button">${escapeHtml(t.payByCard)}</button>` : ''}
 </div></div>
 </form>
 <p class="small">${escapeHtml(t.expiresIn)} <b class="num" id="left"></b></p>
@@ -218,7 +219,9 @@ if(other){document.getElementById('otherOpt').hidden=false;inp.addEventListener(
 f.addEventListener('change',function(e){upd();if(other&&e.target===other&&other.checked)inp.focus();});
 f.addEventListener('submit',function(e){if(sent){e.preventDefault();return;}upd();sent=true;
  btn.textContent=T.sending;btn.setAttribute('aria-disabled','true');f.setAttribute('aria-busy','true');});
-window.addEventListener('pageshow',function(e){if(e.persisted){sent=false;btn.removeAttribute('aria-disabled');f.removeAttribute('aria-busy');upd();}});
+var cb=document.getElementById('cardBtn'),m0=f.elements.method.value;
+if(cb)cb.addEventListener('click',function(){if(sent)return;f.elements.method.value='card';if(f.requestSubmit)f.requestSubmit(btn);else{upd();sent=true;f.submit();}});
+window.addEventListener('pageshow',function(e){if(e.persisted){sent=false;f.elements.method.value=m0;btn.removeAttribute('aria-disabled');f.removeAttribute('aria-busy');upd();}});
 upd();
 var left=document.getElementById('left'),d=f.dataset,skew=+d.now-Date.now(),exp=+d.expires,iv;
 function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000));left.textContent=Math.floor(s/60)+':'+('0'+s%60).slice(-2);if(s<=0){clearInterval(iv);setTimeout(function(){location.reload();},1500);}}

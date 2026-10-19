@@ -47,6 +47,9 @@ export interface PayText {
   sending: string;
   methods: string;
   methodsCard: string;
+  /** El botón abre directamente la cartera del móvil (Apple Pay / Google Pay). */
+  methodsWallet: (wallet: string) => string;
+  payByCard: string;
   tipLegend: string;
   noTip: string;
   tipOther: string;
@@ -129,6 +132,8 @@ const ES: PayText = {
   sending: 'Enviando…',
   methods: 'Apple Pay · Google Pay · tarjeta',
   methodsCard: 'Con tarjeta',
+  methodsWallet: (wallet) => `Se abre ${wallet}`,
+  payByCard: 'Pagar con tarjeta',
   tipLegend: '¿Quieres dejar propina?',
   noTip: 'Sin propina',
   tipOther: 'Otra',
@@ -277,6 +282,8 @@ const EN: PayText = {
   sending: 'Sending…',
   methods: 'Apple Pay · Google Pay · card',
   methodsCard: 'By card',
+  methodsWallet: (wallet) => `Opens ${wallet}`,
+  payByCard: 'Pay by card',
   tipLegend: 'Add a tip?',
   noTip: 'No tip',
   tipOther: 'Other',
