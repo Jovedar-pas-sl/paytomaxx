@@ -190,7 +190,7 @@ cliente teclea su PIN. Un móvil que lo escanee no abre nada (ni su saldo, ni
 dentro de la tarjeta, y por eso Google pide desbloquear el móvil para
 enseñarla. Los pases hechos antes de este cambio (con el QR del enlace `/w/...`)
 se ponen al día solos en el primer repaso tras la migración
-`20261022100000_pase_qr_solo_cobro`; mientras tanto, el datáfono acepta los dos.
+`20261022110000_pase_qr_solo_cobro`; mientras tanto, el datáfono acepta los dos.
 
 ---
 

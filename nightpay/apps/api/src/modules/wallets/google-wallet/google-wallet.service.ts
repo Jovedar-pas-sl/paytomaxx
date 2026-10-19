@@ -224,7 +224,7 @@ export class GoogleWalletService {
         venueName: pass.venueName,
       };
       await client.ensureClass(genericClass(settings.classId));
-      // También cambia el QR de los pases hechos cuando era el enlace /w (migración 20261022100000).
+      // También cambia el QR de los pases hechos cuando era el enlace /w (migración 20261022110000).
       await client.syncObject(this.passObject(settings, pass.objectId, { id: pass.walletId, qrToken: pass.qrToken }, wallet));
       await this.prisma.walletPass.update({
         where: { id: pass.id },
