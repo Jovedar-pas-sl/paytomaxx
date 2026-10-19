@@ -81,7 +81,8 @@ async function readMessage(res: Response): Promise<string> {
   return text || `Error ${res.status}`;
 }
 
-async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
+/** Petición al API con la credencial del datáfono (también la usa el cobro del saldo, pax-saldo.ts). */
+export async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getDeviceToken();
   const headers = new Headers(init.headers ?? {});
   if (token) headers.set('Authorization', `Device ${token}`);

@@ -17,6 +17,23 @@ Toda la lógica está en la web y en la API: la app casi nunca hay que tocarla.
 
 Contrato del puente web ↔ app: `apps/operator/src/lib/pax-bridge.ts`.
 
+## Cobrar con saldo (app 0.2+)
+
+La pantalla /pax también cobra del saldo del cliente con su PIN tecleado en
+el datáfono (ver `docs/DATAFONO-SALDO.md`). Para eso la app expone:
+
+- `capabilities` → si hay NFC de Android (`ready`, `disabled`, `unavailable`) y cámara.
+- `scanQr` → abre la cámara trasera (`ScanActivity`, ZXing) y devuelve el texto del QR.
+- `readNfc` → modo lector de Android (NFC-A, fichas NTAG213/215/216): `{ uid, url }`.
+- `cancelRead` → corta la espera de la ficha.
+
+Única dependencia: `com.google.zxing:core:3.3.3` (Java puro, sin AndroidX ni
+Google Play, que los PAX no traen; la 3.4+ pide Android 7). Permisos:
+`CAMERA` (se pide al abrir la cámara) y `NFC`; cámara y NFC son opcionales en
+el manifiesto. Si el A920 Pro no deja el NFC a Android (lo reserva el lector
+de tarjetas), `capabilities` dice `unavailable` y la pantalla usa el QR o el
+código del cliente.
+
 ## Compilar
 
 Sin Android Studio: en GitHub → Actions → **pax-android** → *Run workflow*.
@@ -50,6 +67,10 @@ Device API (`X-Api-Key`), si Paytef la ha activado. Se guarda en el propio
 datáfono (SharedPreferences: el aparato es de uso exclusivo del local).
 
 ## Pendiente de confirmar con Paytef
+
+- Que el NFC del A920 Pro se pueda usar desde una app con `NfcAdapter`
+  (fichas del saldo) sin chocar con el lector de tarjetas; si no, la API
+  PICC del SDK de PAX (ver `docs/DATAFONO-SALDO.md`).
 
 - Que la Device API esté activa en nuestros PAX, con clave y HTTPS.
 - Importe en céntimos (`requestedAmount`) y longitud de `transactionReference`

@@ -3,6 +3,7 @@ package com.nightpay.pax
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
@@ -15,14 +16,16 @@ import android.widget.EditText
 
 /**
  * App NightPay del datáfono PAX: abre la pantalla /pax de NightPay y le da
- * acceso al lector a través de PaxBridge. Nada más: toda la lógica está en
- * la web y en la API, así se actualiza sin reinstalar la app.
+ * acceso al lector a través de PaxBridge (y a la cámara y el NFC para cobrar
+ * del saldo, LocalReaders). Nada más: toda la lógica está en la web y en la
+ * API, así se actualiza sin reinstalar la app.
  */
 class MainActivity : Activity() {
 
     private lateinit var webView: WebView
     private lateinit var paytef: PaytefClient
     private lateinit var bridge: PaxBridge
+    private lateinit var readers: LocalReaders
     private var settingsDialog: AlertDialog? = null
     private var backPresses = 0
     private var lastBackPress = 0L
@@ -44,7 +47,8 @@ class MainActivity : Activity() {
         webView.settings.allowFileAccess = false
         webView.settings.allowContentAccess = false
 
-        bridge = PaxBridge(webView, paytef)
+        readers = LocalReaders(this)
+        bridge = PaxBridge(webView, paytef, readers)
         webView.webViewClient = object : WebViewClient() {
             // Solo la web de NightPay por HTTPS: cualquier otro enlace se ignora.
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
@@ -78,12 +82,24 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        // Android apaga el modo lector NFC al salir: quien esperaba una ficha se entera.
+        readers.onPause()
         webView.onPause()
         super.onPause()
     }
 
+    /** Lo que leyó la cámara (ScanActivity). */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == LocalReaders.REQUEST_SCAN) {
+            readers.onScanResult(resultCode, data)
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
     override fun onDestroy() {
         settingsDialog?.dismiss()
+        readers.shutdown()
         bridge.shutdown()
         webView.removeJavascriptInterface("NightPayPax")
         webView.destroy()

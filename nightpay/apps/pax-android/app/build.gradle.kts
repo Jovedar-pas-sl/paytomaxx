@@ -15,7 +15,8 @@ android {
         // CI pasa -PversionCode=<nº de ejecución>: cada APK sube de versión y
         // PAXSTORE / Android aceptan instalarlo encima del anterior.
         versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
-        versionName = "0.1.$versionCode"
+        // 0.2: cámara (QR) y NFC (fichas) para cobrar del saldo.
+        versionName = "0.2.$versionCode"
         // Pantalla del datáfono servida por la web del operador. Otro dominio:
         // gradle assembleDebug -PpaxUrl=https://operator.nuevodominio.com/pax
         val paxUrl = (project.findProperty("paxUrl") as String?)?.takeIf { it.isNotBlank() }
@@ -60,4 +61,11 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    // Descodificar el QR de la cámara (ScanActivity). Java puro y ~0,5 MB: sin
+    // AndroidX ni Google Play Services, que los PAX no traen (por eso no ML Kit
+    // ni CameraX). La 3.3.x: la 3.4+ usa APIs de Java 8 que piden Android 7 (API 24).
+    implementation("com.google.zxing:core:3.3.3")
 }

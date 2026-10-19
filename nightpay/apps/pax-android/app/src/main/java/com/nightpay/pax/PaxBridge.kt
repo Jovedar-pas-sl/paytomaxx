@@ -18,8 +18,16 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Respuesta: { ok: true, result?, transactions? } | { ok: false, error, message }.
  * Mismo contrato que apps/operator/src/lib/pax-bridge.ts.
+ *
+ * Cobrar del saldo (LocalReaders): capabilities, scanQr (cámara), readNfc
+ * (ficha NFC) y cancelRead. La cámara y el NFC van "de uno en uno" con los
+ * cobros: el lector sin contacto es el mismo aparato.
  */
-class PaxBridge(private val webView: WebView, private val paytef: PaytefClient) {
+class PaxBridge(
+    private val webView: WebView,
+    private val paytef: PaytefClient,
+    private val readers: LocalReaders,
+) {
 
     // Hilos aparte: "cancelar" no puede esperar a que acabe la venta en curso.
     private val executor: ExecutorService = Executors.newCachedThreadPool()
@@ -53,6 +61,25 @@ class PaxBridge(private val webView: WebView, private val paytef: PaytefClient) 
 
     @JavascriptInterface
     fun shiftList(json: String) = run(json) { paytef.shiftList() }
+
+    /** ¿Hay NFC de Android (listo, apagado, no disponible) y cámara? */
+    @JavascriptInterface
+    fun capabilities(json: String) = run(json) { readers.capabilities() }
+
+    /** Cámara: el texto del QR (el del cobro de la chica o el del saldo del cliente). */
+    @JavascriptInterface
+    fun scanQr(json: String) = runExclusive(json) { req -> readers.scanQr(timeoutOf(req, SCAN_TIMEOUT_MS)) }
+
+    /** Ficha NFC: { uid, url } (número de serie y el enlace grabado). */
+    @JavascriptInterface
+    fun readNfc(json: String) = runExclusive(json) { req -> readers.readNfc(timeoutOf(req, NFC_TIMEOUT_MS)) }
+
+    /** Corta la espera de la ficha (el camarero pulsa Cancelar). */
+    @JavascriptInterface
+    fun cancelRead(json: String) = run(json) {
+        readers.cancel()
+        JSONObject().put("ok", true)
+    }
 
     /** Al cerrar la app: no se responde a una página que ya no existe. */
     fun shutdown() {
@@ -105,6 +132,10 @@ class PaxBridge(private val webView: WebView, private val paytef: PaytefClient) 
         }
     }
 
+    /** El plazo que pide la web, dentro de unos límites (la web espera algo más: 130 s). */
+    private fun timeoutOf(req: JSONObject, fallback: Long): Long =
+        req.optLong("timeoutMs", fallback).coerceIn(MIN_READ_MS, MAX_READ_MS)
+
     private fun failure(code: String, message: String): JSONObject =
         JSONObject().put("ok", false).put("error", code).put("message", message)
 
@@ -120,6 +151,10 @@ class PaxBridge(private val webView: WebView, private val paytef: PaytefClient) 
     }
 
     companion object {
+        private const val SCAN_TIMEOUT_MS = 90_000L
+        private const val NFC_TIMEOUT_MS = 60_000L
+        private const val MIN_READ_MS = 5_000L
+        private const val MAX_READ_MS = 90_000L
         private val REQUEST_ID = Regex("\"requestId\"\\s*:\\s*\"([^\"]{1,64})\"")
     }
 }
