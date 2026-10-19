@@ -43,7 +43,7 @@ const redis = {
   },
   expire: async () => 1,
 };
-const passkeys = { hasPasskey: vi.fn(async () => false), verify: vi.fn(), challenge: vi.fn() };
+const passkeys = { hasPasskey: vi.fn(async () => false), verify: vi.fn(), challenge: vi.fn(), assertOwner: vi.fn(async () => undefined) };
 const SECRET = 'secreto-de-cookies-de-integracion-0123456789';
 const topUps = new WalletTopUpService(
   prisma as never,

@@ -132,6 +132,17 @@ export class WalletPasskeysService {
   }
 
   /**
+   * Saldo con Face ID: solo quien desbloquea su móvil (no basta el enlace)
+   * puede hacer esto (`scope`: recargar, elegir PIN, «Me voy»…). Sin Face
+   * ID, no pide nada. 403 si la llave es de otro saldo.
+   */
+  async assertOwner(walletId: string, scope: string, host: string | undefined, response: unknown): Promise<void> {
+    if (!(await this.hasPasskey(walletId))) return;
+    const owner = await this.verify(scope, host, response);
+    if (owner !== walletId) throw new ForbiddenException({ message: 'Confirma con el Face ID de este saldo.', code: 'FACE_ID_WRONG' });
+  }
+
+  /**
    * Comprueba que el cliente desbloqueó su móvil con su llave para este
    * `scope`. Devuelve el saldo de esa llave.
    */
