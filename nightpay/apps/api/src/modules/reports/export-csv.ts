@@ -13,6 +13,8 @@ import {
   type CobroRow,
   type DevolucionRow,
   type LiquidacionRow,
+  type PagoSaldoRow,
+  type RecargaEfectivoRow,
 } from './export-rows';
 import type { ExportSummary } from './export-summary';
 import type { ReportPeriod } from './report-period';
@@ -108,6 +110,48 @@ export function liquidacionesCsv(rows: ReadonlyArray<LiquidacionRow>): string {
     RECONCILIATION_LABEL[r.reconciliationStatus] ?? r.reconciliationStatus,
     text(person(r.paidByName, r.paidByEmail)),
     text(r.notes),
+    r.id,
+  ]);
+  return toCsv([header, ...body]);
+}
+
+// ─── Recargas en efectivo y saldo devuelto (para la gestoría) ─────────────
+
+/**
+ * Las recargas del saldo en efectivo, línea a línea (las facturas
+ * simplificadas de la gestoría): las anulaciones van como líneas negativas
+ * que dicen qué recarga anulan. La suma es la del resumen.
+ */
+export function recargasEfectivoCsv(rows: ReadonlyArray<RecargaEfectivoRow>): string {
+  const header = [
+    'Fecha', 'Hora', 'Importe', 'Tipo', 'Anula a', 'Motivo', 'Saldo nuevo', 'Cobrada por', 'Datáfono',
+    `Referencia ${BRAND_NAME}`,
+  ];
+  const body = rows.map((r): CsvCell[] => [
+    date(r.at),
+    time(r.at),
+    money(r.amountCents),
+    r.voidOfId ? 'Anulación' : 'Recarga',
+    text(r.voidOfId ?? null),
+    text(r.reason ?? null),
+    r.voidOfId ? '' : r.createdWallet ? 'Sí' : 'No',
+    text(person(r.takenByName, r.takenByEmail)),
+    text(r.terminalLabel),
+    r.id,
+  ]);
+  return toCsv([header, ...body]);
+}
+
+/** El saldo devuelto a los clientes (en efectivo y a la tarjeta), línea a línea. */
+export function saldoDevueltoCsv(rows: ReadonlyArray<PagoSaldoRow>): string {
+  const header = ['Fecha', 'Hora', 'Importe', 'Vía', 'Referencia banco', 'Devuelto por', `Referencia ${BRAND_NAME}`];
+  const body = rows.map((r): CsvCell[] => [
+    date(r.at),
+    time(r.at),
+    money(r.amountCents),
+    r.method === 'CASH' ? 'Efectivo' : 'Tarjeta',
+    text(r.bankReference ?? null),
+    text(person(r.paidByName, r.paidByEmail)),
     r.id,
   ]);
   return toCsv([header, ...body]);

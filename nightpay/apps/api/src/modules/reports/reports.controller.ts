@@ -3,18 +3,26 @@ import type { FastifyReply } from 'fastify';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Tenant } from '../../common/decorators/tenant.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { cobrosCsv, devolucionesCsv, liquidacionesCsv, resumenCsv, summarize } from './export-csv';
+import {
+  cobrosCsv,
+  devolucionesCsv,
+  liquidacionesCsv,
+  recargasEfectivoCsv,
+  resumenCsv,
+  saldoDevueltoCsv,
+  summarize,
+} from './export-csv';
 import { parseReportPeriod, periodSlug, type ReportPeriod } from './report-period';
 import { ReportsService } from './reports.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
-const KINDS = ['cobros', 'devoluciones', 'liquidaciones', 'resumen'] as const;
+const KINDS = ['cobros', 'devoluciones', 'liquidaciones', 'resumen', 'recargas-efectivo', 'saldo-devuelto'] as const;
 type ExportKind = (typeof KINDS)[number];
 
 /**
  * Informes para la gestoría en CSV (Fase 1C). El dueño, y el encargado si el
  * dueño se lo deja (Ajustes → Permisos → ver informes): datos fiscales.
- *   GET /v1/admin/export/{cobros|devoluciones|liquidaciones|resumen}?from=AAAA-MM-DD&to=AAAA-MM-DD
+ *   GET /v1/admin/export/{cobros|devoluciones|liquidaciones|resumen|recargas-efectivo|saldo-devuelto}?from=AAAA-MM-DD&to=AAAA-MM-DD
  * Días de Madrid, ambos incluidos.
  */
 @Controller('admin/export')
@@ -62,6 +70,10 @@ export class ReportsController {
         return devolucionesCsv(await this.reports.devoluciones(tenantId, period));
       case 'liquidaciones':
         return liquidacionesCsv(await this.reports.liquidaciones(tenantId, period));
+      case 'recargas-efectivo':
+        return recargasEfectivoCsv(await this.reports.recargasEfectivo(tenantId, period));
+      case 'saldo-devuelto':
+        return saldoDevueltoCsv(await this.reports.pagosSaldo(tenantId, period));
       case 'resumen': {
         const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, venueName] = await Promise.all([
           this.reports.cobros(tenantId, period),

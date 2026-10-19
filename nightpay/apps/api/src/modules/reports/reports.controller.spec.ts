@@ -62,6 +62,17 @@ describe('GET /v1/admin/export/:kind', () => {
     expect(sent.body).toContain('Neto cobrado;-80,00');
   });
 
+  it('«recargas-efectivo» y «saldo-devuelto»: el detalle del efectivo para la gestoría', async () => {
+    const { controller, reports } = makeController();
+    const one = fakeReply();
+    await controller.export('t-1', 'recargas-efectivo', '2026-10-01', '2026-10-31', one.reply);
+    expect(reports.recargasEfectivo).toHaveBeenCalledWith('t-1', expect.objectContaining({ fromDay: '2026-10-01' }));
+    expect(one.sent.headers['Content-Disposition']).toBe('attachment; filename="recargas-efectivo-2026-10.csv"');
+    const two = fakeReply();
+    await controller.export('t-1', 'saldo-devuelto', '2026-10-01', '2026-10-31', two.reply);
+    expect(two.sent.body).toMatch(/;80,00;Efectivo;/);
+  });
+
   it('informe desconocido o fechas mal → 400 sin consultar nada', async () => {
     const { controller, reports } = makeController();
     const { reply } = fakeReply();

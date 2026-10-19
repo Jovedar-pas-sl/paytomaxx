@@ -82,6 +82,11 @@ function sum<T>(xs: ReadonlyArray<T>, f: (x: T) => number): number {
   return xs.reduce((a, x) => a + f(x), 0);
 }
 
+/** Recargas en efectivo: cada anulación (fila negativa) resta una. */
+export function cashTopUpsCount(rows: ReadonlyArray<Pick<RecargaEfectivoRow, 'amountCents'>>): number {
+  return sum(rows, (r) => (r.amountCents < 0 ? -1 : 1));
+}
+
 /**
  * Totales del periodo. Cobros por fecha de cobro; devoluciones, pagos a
  * chicas y saldo devuelto por su propia fecha (una devolución de octubre de
@@ -99,6 +104,7 @@ export function summarize(
   const tipsCents = sum(cobros, (r) => r.tipCents);
   const refundsCents = sum(devoluciones, (r) => r.amountCents);
   const cashTopUpsCents = sum(recargasEfectivo, (r) => r.amountCents);
+  const cashTopUpsN = cashTopUpsCount(recargasEfectivo);
   const saldo = saldoTotals(consumos, pagosSaldo);
   const { cardTipsCents, ...chica } = chicaTotals(cobros, devoluciones, consumos);
   const chargedCents = grossCents + tipsCents + cashTopUpsCents;
@@ -111,12 +117,12 @@ export function summarize(
     refundsCount: devoluciones.length,
     refundsCents,
     netCents,
-    walletCashTopUpsCount: recargasEfectivo.length,
+    walletCashTopUpsCount: cashTopUpsN,
     walletCashTopUpsCents: cashTopUpsCents,
     byType: [
       ...typeLines(cobros, TYPE_ORDER, cobroType, (r) => r.amountCents + r.tipCents),
       ...(recargasEfectivo.length > 0
-        ? [{ label: CASH_TOP_UP_LABEL, count: recargasEfectivo.length, chargedCents: cashTopUpsCents }]
+        ? [{ label: CASH_TOP_UP_LABEL, count: cashTopUpsN, chargedCents: cashTopUpsCents }]
         : []),
     ],
     ...chica,

@@ -3,7 +3,7 @@ import { evaluateCash, withCashInput, type NightCash } from '@nightpay/contracts
 import { morningSummaryMessage } from '../incidents/alert-messages';
 import { efectivoStep } from '../nights/close-check-rules';
 import { buildNightCaja } from '../nights/night-rules';
-import { resumenCsv, summarize } from './export-csv';
+import { recargasEfectivoCsv, resumenCsv, saldoDevueltoCsv, summarize } from './export-csv';
 import type { PagoSaldoRow, RecargaEfectivoRow } from './export-rows';
 import { CASH_TOP_UP_LABEL } from './export-summary';
 
@@ -98,5 +98,44 @@ describe('caja de la noche: el efectivo de las recargas entra', () => {
   it('el bloque «Caja» del Z congela las recargas en efectivo', () => {
     const caja = buildNightCaja(CASH, evaluateCash(CASH, { countedCents: 16_000 }), null, AT);
     expect(caja).toMatchObject({ cashInCents: 8_000, walletCashTopUpsCount: 2, walletCashTopUpsCents: 8_000, expectedCents: 16_000, diffCents: 0 });
+  });
+});
+
+describe('anular una recarga en efectivo (fila negativa)', () => {
+  const anulacion: RecargaEfectivoRow = {
+    id: 'ct-9', at: AT, amountCents: -3_000, voidOfId: 'ct-2', reason: 'Era 3 €, no 30 €', takenByName: 'Javi',
+    takenByEmail: 'javi@bambu.es', terminalLabel: null,
+  };
+
+  it('resta en el cobrado, en el número de recargas y en su línea por tipo', () => {
+    const s = summarize([], [], [], [], [], [recarga('ct-1', 5_000), recarga('ct-2', 3_000), anulacion]);
+    expect(s).toMatchObject({ chargedCents: 5_000, walletCashTopUpsCount: 1, walletCashTopUpsCents: 5_000, netCents: 5_000 });
+    expect(s.byType).toEqual([{ label: CASH_TOP_UP_LABEL, count: 1, chargedCents: 5_000 }]);
+  });
+});
+
+describe('CSV para la gestoría: recargas en efectivo y saldo devuelto, línea a línea', () => {
+  it('«recargas-efectivo»: cada recarga y cada anulación (negativa, con lo que anula y por qué); suma = la del resumen', () => {
+    const csv = recargasEfectivoCsv([
+      { ...recarga('ct-1', 5_000), createdWallet: true },
+      { ...recarga('ct-2', 3_000), createdWallet: false, terminalLabel: 'Recepción' },
+      { id: 'ct-3', at: AT, amountCents: -3_000, voidOfId: 'ct-2', reason: 'mal tecleada', takenByName: 'Javi', takenByEmail: 'javi@bambu.es', terminalLabel: null },
+    ]);
+    const lines = csv.trim().split(/\r?\n/);
+    expect(lines[0]).toMatch(/^Fecha;Hora;Importe;Tipo;Anula a;Motivo;Saldo nuevo;Cobrada por;Datáfono;Referencia/);
+    expect(lines[1]).toMatch(/;50,00;Recarga;;;Sí;Javi/);
+    expect(lines[2]).toMatch(/;30,00;Recarga;;;No;Javi.*;Recepción;ct-2$/);
+    expect(lines[3]).toMatch(/;-30,00;Anulación;ct-2;mal tecleada;;Javi/);
+  });
+
+  it('«saldo-devuelto»: efectivo y tarjeta, con la referencia del banco', () => {
+    const csv = saldoDevueltoCsv([
+      devolucionEfectivo,
+      { id: 'wp-2', at: AT, amountCents: 7_000, method: 'CARD', bankReference: 'DEV-9', paidByName: 'Dueña', paidByEmail: 'd@bambu.es' },
+    ]);
+    const lines = csv.trim().split(/\r?\n/);
+    expect(lines[0]).toMatch(/^Fecha;Hora;Importe;Vía;Referencia banco;Devuelto por;Referencia/);
+    expect(lines[1]).toMatch(/;20,00;Efectivo;;.*;wp-1$/);
+    expect(lines[2]).toMatch(/;70,00;Tarjeta;DEV-9;Dueña.*;wp-2$/);
   });
 });
