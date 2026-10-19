@@ -603,9 +603,10 @@ export class PaymentsService implements OnApplicationBootstrap {
 
   /**
    * Phase 1B — recarga de saldo. walletId:<id> → valida que es de este local y
-   * está activo. create:true → el saldo nuevo se crea al guardar el cobro, en
-   * la misma transacción (antes se creaba antes y quedaba huérfano si el
-   * cobro fallaba).
+   * está activo o a cero (DEPLETED: al cobrarse vuelve a estar activo, como en
+   * topup-credit; uno sumado a otro, no). create:true → el saldo nuevo se crea
+   * al guardar el cobro, en la misma transacción (antes se creaba antes y
+   * quedaba huérfano si el cobro fallaba).
    */
   private async resolveTopUp(
     tenantId: string,
@@ -618,11 +619,12 @@ export class PaymentsService implements OnApplicationBootstrap {
     const existing = await this.prisma.asSystem((tx) =>
       tx.clientWallet.findFirst({
         where: { id: walletDto.walletId, tenantId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, mergedIntoId: true },
       }),
     );
     if (!existing) throw new NotFoundException('Wallet no encontrada en este venue');
-    if (existing.status !== 'ACTIVE') {
+    const rechargeable = existing.status === 'ACTIVE' || (existing.status === 'DEPLETED' && !existing.mergedIntoId);
+    if (!rechargeable) {
       throw new BadRequestException(`Wallet en status ${existing.status} — no se puede recargar`);
     }
     return { walletId: existing.id };
