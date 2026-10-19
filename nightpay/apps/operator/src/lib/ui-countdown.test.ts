@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   agoLabel,
   awaitingServerExpiry,
+  clockTime,
   countdownPhase,
   effectiveStatus,
   formatClock,
@@ -106,5 +107,14 @@ describe('estado que se enseña', () => {
     for (const s of ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING', 'ORPHAN', 'CANCELED', 'REFUNDED'] as const) {
       expect(outcomeKindOf(s)).toBeNull();
     }
+  });
+});
+
+describe('hora de la pantalla «PAGADO»', () => {
+  it('en hora de Madrid, aunque el aparato esté en UTC (verano +2, invierno +1)', () => {
+    expect(clockTime(Date.parse('2026-07-15T21:41:07Z'))).toBe('23:41:07');
+    expect(clockTime(Date.parse('2026-01-15T22:41:07Z'))).toBe('23:41:07');
+    // Medianoche: «00», nunca «24».
+    expect(clockTime(Date.parse('2026-01-15T23:05:09Z'))).toBe('00:05:09');
   });
 });
