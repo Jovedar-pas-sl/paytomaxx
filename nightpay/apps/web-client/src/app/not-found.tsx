@@ -8,6 +8,9 @@ export default function NotFound() {
       <Card variant="glow" style={{ textAlign: 'center', maxWidth: '24rem' }}>
         <h1 style={titleStyle}>Este enlace no funciona</h1>
         <p style={textStyle}>Vuelve a escanear el QR o pide uno nuevo al personal del local.</p>
+        <p style={textStyle} lang="en">
+          This link does not work. Scan the QR code again or ask the venue staff for a new one.
+        </p>
       </Card>
     </Stage>
   );
