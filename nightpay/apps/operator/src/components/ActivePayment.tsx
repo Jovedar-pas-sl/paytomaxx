@@ -19,7 +19,7 @@ import {
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
 import { useHealthReport } from '@/lib/connection-health';
 import { formatEur, formatEurAmount } from '@/lib/money';
-import { useOpenCharge } from '@/lib/open-charges';
+import { useOpenCharge, type ChargeSpot } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { NewWalletCard } from './NewWalletCard';
 import { useVenueMethods } from '@/lib/venue-methods';
@@ -40,6 +40,8 @@ interface Props {
   onRetry?: () => void;
   retrying?: boolean;
   retryError?: string | null;
+  /** Dónde está abierto (si la sesión caduca, se vuelve a esa pestaña). Por defecto, Inicio. */
+  spot?: ChargeSpot;
 }
 
 /**
@@ -48,7 +50,17 @@ interface Props {
  * Sigue vivo aunque la chica cambie de pestaña; mientras está abierto, la
  * pantalla no se apaga.
  */
-export function ActivePayment({ payment, isPos, label, onPaid, onClose, onRetry, retrying = false, retryError = null }: Props) {
+export function ActivePayment({
+  payment,
+  isPos,
+  label,
+  onPaid,
+  onClose,
+  onRetry,
+  retrying = false,
+  retryError = null,
+  spot = 'cobro',
+}: Props) {
   const [status, setStatus] = useState<PaymentStatus>(payment.status as PaymentStatus);
   // Fase 1B — propina que eligió el cliente en su página de pago.
   const [tipCents, setTipCents] = useState(0);
@@ -88,7 +100,7 @@ export function ActivePayment({ payment, isPos, label, onPaid, onClose, onRetry,
   const open = !isFinalStatus(shown);
   useWakeLock(open);
   // En pantalla (esperando o con su resultado): si la sesión caduca, se entra encima sin perderlo.
-  useOpenCharge('cobro', true, open);
+  useOpenCharge(spot, true, open);
   useHealthReport(
     `cobro:${payment.id}`,
     open
@@ -258,7 +270,7 @@ function OutcomeDetail({ label, tipCents }: { label: string | null; tipCents: nu
 }
 
 function PaidBlock({ payment, tipCents, onNew }: { payment: CreatedPayment; tipCents: number; onNew: () => void }) {
-  // Ficha NFC apagada por el dueño: no se ofrece darla al recargar.
+  // Ficha NFC apagada por el dueño: no se ofrece darla al recargar (el código y el PIN, siempre).
   const methods = useVenueMethods();
   return (
     <>
@@ -269,7 +281,7 @@ function PaidBlock({ payment, tipCents, onNew }: { payment: CreatedPayment; tipC
         </strong>
       </p>
       <p style={{ ...hintStyle, textAlign: 'center' }}>Debe coincidir con el del móvil del cliente.</p>
-      {payment.walletId && methods.nfc ? <NewWalletCard walletId={payment.walletId} /> : null}
+      {payment.walletId ? <NewWalletCard walletId={payment.walletId} withCard={methods.nfc} /> : null}
       {tipCents > 0 ? (
         <p className="np-num" style={tipStyle}>
           + {formatEur(tipCents, { compact: true })} de propina

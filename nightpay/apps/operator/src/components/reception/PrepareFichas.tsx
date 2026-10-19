@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { walletCardUrl } from '@nightpay/contracts';
 import { Button, Card } from '@nightpay/ui';
-import { isChipTimeout, isFatalChipError, tapChip } from '@/lib/chip-tap';
+import { playOutcomeSound } from '@/lib/alert-sound';
+import { blankCodeFrom, isChipTimeout, isFatalChipError, tapChip } from '@/lib/chip-tap';
 import { deviceBackend, preparedText, staffBackend, stockOutcomeLine, type PrepareLine } from '@/lib/reception';
 import { isSameTapAgain } from '@/lib/prepare-fichas';
 import { useChipReader } from './use-chip-via';
@@ -29,8 +30,11 @@ export function PrepareFichas({ on, onDone }: Props) {
   const [running, setRunning] = useState<AbortController | null>(null);
   const [count, setCount] = useState(0);
   const [lines, setLines] = useState<Array<PrepareLine & { id: number }>>([]);
-  /** Código pedido para la próxima ficha en blanco (se reutiliza si esa no se grabó). */
-  const pending = useRef<string | null>(null);
+  /** Código pedido para la próxima ficha en blanco (se reutiliza si no se intentó grabar). */
+  const blank = useMemo(
+    () => blankCodeFrom(() => backend.newToken(), (token) => walletCardUrl(window.location.origin, token)),
+    [backend],
+  );
   const lastTap = useRef<{ uid: string | null; at: number } | null>(null);
   const seq = useRef(0);
 
@@ -41,29 +45,32 @@ export function PrepareFichas({ on, onDone }: Props) {
     const id = seq.current;
     setLines((prev) => [{ ...line, id }, ...prev].slice(0, MAX_LINES));
     if (line.counts) setCount((n) => n + 1);
+    // Se preparan mirando las fichas, no la pantalla: lo que hay que apartar suena y vibra.
+    if (line.tone === 'warn') playOutcomeSound('warn');
   }
 
-  async function blankUrl(): Promise<string> {
-    pending.current ??= await backend.newToken();
-    return walletCardUrl(window.location.origin, pending.current);
+  /** La línea de esta ficha; la misma ficha no se vuelve a mirar unos segundos. */
+  function answered(uid: string | null, line: PrepareLine): void {
+    lastTap.current = { uid, at: Date.now() };
+    addLine(line);
   }
 
   async function oneTap(signal: AbortSignal): Promise<void> {
     if (!reader.via) return;
-    const tap = await tapChip(reader.via, signal, reader.canWrite ? blankUrl : undefined);
+    const tap = await tapChip(reader.via, signal, reader.canWrite ? blank : undefined);
     // La misma ficha sigue apoyada: no se cuenta dos veces.
     if (isSameTapAgain(lastTap.current, tap.uid, Date.now())) return;
-    lastTap.current = { uid: tap.uid, at: Date.now() };
-    if (tap.written) pending.current = null;
     if (tap.other) {
-      addLine({ tone: 'warn', text: 'Tiene otra cosa grabada: no se toca, apártala', counts: false });
+      answered(tap.uid, { tone: 'warn', text: 'Tiene otra cosa grabada: no se toca, apártala', counts: false });
       return;
     }
     if (!tap.token) {
-      addLine({ tone: 'warn', text: reader.note ?? 'Ficha en blanco: aquí no se puede grabar', counts: false });
+      answered(tap.uid, { tone: 'warn', text: reader.note ?? 'Ficha en blanco: aquí no se puede grabar', counts: false });
       return;
     }
-    addLine(stockOutcomeLine(await backend.stock(tap.token, tap.uid)));
+    // Solo cuando el servidor contesta: si falla, acercarla otra vez la vuelve a mirar.
+    const outcome = await backend.stock(tap.token, tap.uid);
+    answered(tap.uid, stockOutcomeLine(outcome));
   }
 
   async function loop(controller: AbortController): Promise<void> {
@@ -122,7 +129,7 @@ export function PrepareFichas({ on, onDone }: Props) {
       )}
 
       {lines.length > 0 ? (
-        <ul style={listStyle} aria-label="Últimas fichas">
+        <ul role="log" aria-live="polite" style={listStyle} aria-label="Últimas fichas">
           {lines.map((l) => (
             <li key={l.id} style={{ ...lineStyle, borderColor: TONE[l.tone] }}>
               <span style={{ color: TONE[l.tone], fontWeight: 700 }}>{l.tone === 'warn' ? '!' : '✓'}</span> {l.text}

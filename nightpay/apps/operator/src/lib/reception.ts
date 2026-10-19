@@ -145,10 +145,44 @@ export function receptionDetail(w: ReceptionWallet): string {
   return `Saldo ${w.code} · tiene ${formatEur(w.balanceCents)}${extras ? ` · con ${extras}` : ''}`;
 }
 
+/**
+ * Recarga de un saldo que ya tenía (su ficha): el resultado sale de lo que
+ * devolvió el cobro, sin pedir el saldo otra vez (el datáfono solo puede
+ * pedir los saldos que creó él).
+ */
+export function walletAfterCash(out: Pick<CashTopUpResult, 'walletId' | 'code' | 'balanceCents'>, card: ReceptionCard): ReceptionWallet {
+  return { walletId: out.walletId, code: out.code, balanceCents: out.balanceCents, hasPin: card.hasPin, hasCard: true };
+}
+
+/** El resultado de una recarga con tarjeta a la ficha que ya tenía (el saldo nuevo no se sabe aquí). */
+export function existingTopUpDetail(card: ReceptionCard): string {
+  return `Saldo ${card.codeHint} · con ficha${card.hasPin ? ' y PIN' : ''}`;
+}
+
 /** Una clave por intento de recarga: si se repite (corte, doble toque) no carga dos veces. */
 export function newReceptionKey(): string {
   const rnd = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
   return `rec-${rnd}`;
+}
+
+/** La clave de la recarga y lo que se recarga con ella. */
+export interface ReceptionAttempt {
+  readonly key: string;
+  readonly what: string;
+}
+
+/** Lo que se recarga: importe, forma de pago y a qué saldo. */
+export function receptionWhat(amountCents: number, method: PayMethod, target: Target): string {
+  return `${amountCents}|${method}|${target.kind === 'new' ? 'nuevo' : `ficha:${target.card}`}`;
+}
+
+/**
+ * La misma clave solo si se repite lo mismo (corte, doble toque). Con otro
+ * importe, otra forma de pago u otro saldo, clave nueva: el servidor no
+ * devuelve la recarga anterior como si fuera esta.
+ */
+export function receptionAttempt(previous: ReceptionAttempt | null, what: string): ReceptionAttempt {
+  return previous?.what === what ? previous : { key: newReceptionKey(), what };
 }
 
 // ─── «Preparar fichas» ────────────────────────────────────────────────────
