@@ -80,8 +80,8 @@ export type SwitchTenantRequest = z.infer<typeof SwitchTenantRequestSchema>;
 
 // ── 2FA (app de verificación) ─────────────────────────────────────────
 //   GET  /v1/auth/totp          → TotpStatusResponse
-//   POST /v1/auth/totp/setup    → TotpSetupResponse (409 si ya está activada)
-//   POST /v1/auth/totp/confirm  TotpCodeRequest → { enabled: true }
+//   POST /v1/auth/totp/setup    TotpSetupRequest → TotpSetupResponse (409 si ya está activada)
+//   POST /v1/auth/totp/confirm  TotpConfirmRequest → { enabled: true }
 //   POST /v1/auth/totp/disable  TotpCodeRequest → { enabled: false }
 
 /** Código de 6 cifras de la app de verificación (acepta "123 456"). */
@@ -93,6 +93,15 @@ export const TotpCodeRequestSchema = z.object({
     .pipe(z.string().regex(/^\d{6}$/, 'El código son 6 cifras')),
 });
 export type TotpCodeRequest = z.infer<typeof TotpCodeRequestSchema>;
+
+/** La contraseña actual: una sesión robada sola no puede activar su propia 2FA. */
+const CurrentPasswordSchema = z.string().min(1).max(200);
+
+export const TotpSetupRequestSchema = z.object({ password: CurrentPasswordSchema });
+export type TotpSetupRequest = z.infer<typeof TotpSetupRequestSchema>;
+
+export const TotpConfirmRequestSchema = TotpCodeRequestSchema.extend({ password: CurrentPasswordSchema });
+export type TotpConfirmRequest = z.infer<typeof TotpConfirmRequestSchema>;
 
 export const TotpStatusResponseSchema = z.object({
   enabled: z.boolean(),

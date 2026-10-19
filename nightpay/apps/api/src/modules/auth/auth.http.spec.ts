@@ -193,8 +193,15 @@ describe('2FA: GET/POST /v1/auth/totp…', () => {
     expect(res.headers['cache-control']).toBe('no-store');
   });
 
+  it('POST setup sin la contraseña → 400; con una mala → 403 PASSWORD_INVALID (nunca 401)', async () => {
+    expect((await call('POST', '/v1/auth/totp/setup', {})).statusCode).toBe(400);
+    const res = await call('POST', '/v1/auth/totp/setup', { password: 'no-es-esta' });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: 'PASSWORD_INVALID' });
+  });
+
   it('POST setup → exactamente { otpauthUrl, secret, qrPngDataUrl }', async () => {
-    const res = await call('POST', '/v1/auth/totp/setup');
+    const res = await call('POST', '/v1/auth/totp/setup', { password: PASSWORD });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { otpauthUrl: string; secret: string; qrPngDataUrl: string };
     expect(Object.keys(body).sort()).toEqual(['otpauthUrl', 'qrPngDataUrl', 'secret']);
@@ -204,11 +211,12 @@ describe('2FA: GET/POST /v1/auth/totp…', () => {
   });
 
   it('POST confirm con código mal escrito → 400 (validación)', async () => {
-    expect((await call('POST', '/v1/auth/totp/confirm', { code: 'abc' })).statusCode).toBe(400);
+    expect((await call('POST', '/v1/auth/totp/confirm', { code: 'abc', password: PASSWORD })).statusCode).toBe(400);
+    expect((await call('POST', '/v1/auth/totp/confirm', { code: '123456' })).statusCode).toBe(400);
   });
 
   it('POST confirm con código malo → 403 en castellano', async () => {
-    const res = await call('POST', '/v1/auth/totp/confirm', { code: '000000' });
+    const res = await call('POST', '/v1/auth/totp/confirm', { code: '000000', password: PASSWORD });
     expect(res.statusCode).toBe(403);
     // El panel decide con el código; el texto solo tiene que ser en castellano.
     expect(res.json()).toMatchObject({ code: 'TOTP_INVALID', detail: expect.stringMatching(/incorrecto/) });
@@ -216,7 +224,10 @@ describe('2FA: GET/POST /v1/auth/totp…', () => {
 
   it('POST confirm con el código de la app ("123 456" también vale) → { enabled: true }', async () => {
     const code = codeAt(secret);
-    const res = await call('POST', '/v1/auth/totp/confirm', { code: `${code.slice(0, 3)} ${code.slice(3)}` });
+    const res = await call('POST', '/v1/auth/totp/confirm', {
+      code: `${code.slice(0, 3)} ${code.slice(3)}`,
+      password: PASSWORD,
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ enabled: true });
     expect(users.get(USER_ID)!.totpSecret).toMatch(/^tv1:/);
@@ -224,7 +235,7 @@ describe('2FA: GET/POST /v1/auth/totp…', () => {
   });
 
   it('POST setup ya activada → 409', async () => {
-    expect((await call('POST', '/v1/auth/totp/setup')).statusCode).toBe(409);
+    expect((await call('POST', '/v1/auth/totp/setup', { password: PASSWORD })).statusCode).toBe(409);
   });
 
   it('POST disable: código malo 403; bueno → { enabled: false }', async () => {

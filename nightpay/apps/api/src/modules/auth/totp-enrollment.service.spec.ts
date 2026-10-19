@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictException, ForbiddenException, HttpException, UnauthorizedException } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
 import * as speakeasy from 'speakeasy';
 import { LockoutService } from './lockout.service';
 import { CLAIM_STEP_LUA, TotpAttemptsService } from './totp-attempts.service';
@@ -11,6 +12,10 @@ import { claimStepScript, createFakeRedis } from './testing/fake-redis';
 
 const KEK = 'test_kek_0123456789abcdef0123456789abcdef_v1';
 const NOW = new Date('2026-10-15T22:00:10Z');
+const PASSWORD = 'Clave-del-dueno-1';
+const PASSWORD_HASH = bcrypt.hashSync(PASSWORD, 4);
+/** sid del access token (la sesión que empieza la activación). */
+const SID = 'fam-1';
 
 /** Código HTTP con el que falla la promesa (null si no falla). */
 async function statusOf(promise: Promise<unknown>): Promise<number | null> {
@@ -27,6 +32,7 @@ interface UserRow {
   email: string;
   tenantId: string;
   totpSecret: string | null;
+  passwordHash: string;
   deletedAt: Date | null;
 }
 
@@ -51,15 +57,24 @@ function makeService(rows: UserRow[]) {
   const redis = createFakeRedis();
   redis.defineScript(CLAIM_STEP_LUA, claimStepScript);
   const { users, prisma } = makeUsersTable(rows);
-  const attempts = new TotpAttemptsService(new LockoutService(redis as never), redis as never);
+  const lockout = new LockoutService(redis as never);
+  const attempts = new TotpAttemptsService(lockout, redis as never);
   const totp = new TotpService(prisma as never, attempts);
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
-  const svc = new TotpEnrollmentService(prisma as never, redis as never, totp, audit as never);
+  const svc = new TotpEnrollmentService(prisma as never, redis as never, totp, audit as never, lockout);
   return { svc, totp, users, redis, audit };
 }
 
 function owner(overrides: Partial<UserRow> = {}): UserRow {
-  return { id: 'u1', email: 'dueno@local.es', tenantId: 't1', totpSecret: null, deletedAt: null, ...overrides };
+  return {
+    id: 'u1',
+    email: 'dueno@local.es',
+    tenantId: 't1',
+    totpSecret: null,
+    passwordHash: PASSWORD_HASH,
+    deletedAt: null,
+    ...overrides,
+  };
 }
 
 function codeFor(secret: string, offsetSteps = 0): string {
@@ -89,7 +104,7 @@ describe('GET /v1/auth/totp → status', () => {
 describe('POST /v1/auth/totp/setup', () => {
   it('devuelve QR, URL y secreto; el pendiente queda cifrado en Redis 10 min', async () => {
     const { svc, redis } = makeService([owner()]);
-    const res = await svc.setup('u1');
+    const res = await svc.setup('u1', PASSWORD, SID);
 
     expect(res.secret).toMatch(/^[A-Z2-7]{32}$/);
     expect(res.otpauthUrl).toMatch(/^otpauth:\/\/totp\/OxioPay:dueno%40local\.es\?secret=[A-Z2-7]+&issuer=OxioPay/);
@@ -98,29 +113,68 @@ describe('POST /v1/auth/totp/setup', () => {
 
     const pending = await redis.get('nightpay:totp:pending:u1');
     expect(pending).not.toContain(res.secret);
-    expect(openTotpSecret(pending!, KEK).secret).toBe(res.secret);
+    const { sealed, sid } = JSON.parse(pending!) as { sealed: string; sid: string };
+    expect(sid).toBe(SID);
+    expect(openTotpSecret(sealed, KEK).secret).toBe(res.secret);
     expect(await redis.ttl('nightpay:totp:pending:u1')).toBe(600);
   });
 
   it('repetido dentro de los 10 min → el mismo secreto (recargar la pantalla no rompe el QR escaneado)', async () => {
     const { svc } = makeService([owner()]);
-    const first = await svc.setup('u1');
+    const first = await svc.setup('u1', PASSWORD, SID);
     vi.advanceTimersByTime(60_000);
-    expect((await svc.setup('u1')).secret).toBe(first.secret);
+    expect((await svc.setup('u1', PASSWORD, SID)).secret).toBe(first.secret);
+  });
+
+  it('desde otra sesión (o sin sid) → secreto nuevo; el que se enseñó antes ya no activa', async () => {
+    const { svc } = makeService([owner()]);
+    const first = await svc.setup('u1', PASSWORD, SID);
+    const other = await svc.setup('u1', PASSWORD, 'fam-otra');
+    expect(other.secret).not.toBe(first.secret);
+    const noSid = await svc.setup('u1', PASSWORD);
+    expect(noSid.secret).not.toBe(other.secret);
+    expect((await svc.setup('u1', PASSWORD)).secret).not.toBe(noSid.secret);
+    await expect(svc.confirm('u1', codeFor(first.secret), PASSWORD)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('pide la contraseña actual: mal → 403 PASSWORD_INVALID, sin secreto pendiente y apuntado', async () => {
+    const { svc, redis, audit } = makeService([owner()]);
+    const err = await svc.setup('u1', 'otra-cosa', SID).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'PASSWORD_INVALID' });
+    expect(await redis.get('nightpay:totp:pending:u1')).toBeNull();
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.totp.password_failed', actorId: 'u1' }));
+  });
+
+  it('5 contraseñas malas → 429 durante 15 min, también con la buena', async () => {
+    const { svc } = makeService([owner()]);
+    for (let i = 0; i < 4; i++) expect(await statusOf(svc.setup('u1', 'mala', SID))).toBe(403);
+    expect(await statusOf(svc.setup('u1', 'mala', SID))).toBe(403);
+    expect(await statusOf(svc.setup('u1', PASSWORD, SID))).toBe(429);
+    vi.advanceTimersByTime(15 * 60 * 1000 + 1);
+    expect(await statusOf(svc.setup('u1', PASSWORD, SID))).toBeNull();
+  });
+
+  it('la contraseña buena borra los fallos de antes', async () => {
+    const { svc } = makeService([owner()]);
+    for (let i = 0; i < 4; i++) expect(await statusOf(svc.setup('u1', 'mala', SID))).toBe(403);
+    await svc.setup('u1', PASSWORD, SID);
+    for (let i = 0; i < 4; i++) expect(await statusOf(svc.setup('u1', 'mala', SID))).toBe(403);
+    expect(await statusOf(svc.setup('u1', PASSWORD, SID))).toBeNull();
   });
 
   it('ya activada → 409', async () => {
     const { svc } = makeService([owner({ totpSecret: 'JBSWY3DPEHPK3PXP' })]);
-    await expect(svc.setup('u1')).rejects.toThrow(ConflictException);
+    await expect(svc.setup('u1', PASSWORD, SID)).rejects.toThrow(ConflictException);
   });
 });
 
 describe('POST /v1/auth/totp/confirm', () => {
   it('con el código bueno: guarda el secreto cifrado, borra el pendiente y lo apunta', async () => {
     const { svc, users, redis, audit } = makeService([owner()]);
-    const { secret } = await svc.setup('u1');
+    const { secret } = await svc.setup('u1', PASSWORD, SID);
 
-    expect(await svc.confirm('u1', codeFor(secret), { ip: '1.2.3.4' })).toEqual({ enabled: true });
+    expect(await svc.confirm('u1', codeFor(secret), PASSWORD, { ip: '1.2.3.4' })).toEqual({ enabled: true });
 
     const stored = users.get('u1')!.totpSecret!;
     expect(stored.startsWith('tv1:')).toBe(true);
@@ -134,46 +188,63 @@ describe('POST /v1/auth/totp/confirm', () => {
 
   it('el código usado para activar no vale después para pagar', async () => {
     const { svc, totp } = makeService([owner()]);
-    const { secret } = await svc.setup('u1');
+    const { secret } = await svc.setup('u1', PASSWORD, SID);
     const code = codeFor(secret);
-    await svc.confirm('u1', code);
+    await svc.confirm('u1', code, PASSWORD);
     await expect(totp.assertForUser('u1', code)).rejects.toThrow(/ya se ha usado/);
+  });
+
+  it('contraseña mala → 403 y la 2FA sigue sin activar (el código no se llega a mirar)', async () => {
+    const { svc, users } = makeService([owner()]);
+    const { secret } = await svc.setup('u1', PASSWORD, SID);
+    const err = await svc.confirm('u1', codeFor(secret), 'otra-cosa').catch((e: unknown) => e);
+    expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'PASSWORD_INVALID' });
+    expect(users.get('u1')!.totpSecret).toBeNull();
+    // El código sigue valiendo con la contraseña buena.
+    expect(await svc.confirm('u1', codeFor(secret), PASSWORD)).toEqual({ enabled: true });
+  });
+
+  it('activación pendiente de antes de esta versión (el secreto cifrado tal cual) → se puede confirmar', async () => {
+    const { svc, totp, redis } = makeService([owner()]);
+    const secret = totp.newSecret();
+    await redis.set('nightpay:totp:pending:u1', totp.sealSecret(secret), 'EX', 600);
+    expect(await svc.confirm('u1', codeFor(secret), PASSWORD)).toEqual({ enabled: true });
   });
 
   it('código malo → 403 y la 2FA sigue sin activar', async () => {
     const { svc, users } = makeService([owner()]);
-    await svc.setup('u1');
-    await expect(svc.confirm('u1', '000000')).rejects.toThrow(ForbiddenException);
+    await svc.setup('u1', PASSWORD, SID);
+    await expect(svc.confirm('u1', '000000', PASSWORD)).rejects.toThrow(ForbiddenException);
     expect(users.get('u1')!.totpSecret).toBeNull();
   });
 
   it('5 códigos malos → 429', async () => {
     const { svc } = makeService([owner()]);
-    await svc.setup('u1');
-    for (let i = 0; i < 4; i++) await expect(svc.confirm('u1', '000000')).rejects.toThrow(ForbiddenException);
-    expect(await statusOf(svc.confirm('u1', '000000'))).toBe(429);
+    await svc.setup('u1', PASSWORD, SID);
+    for (let i = 0; i < 4; i++) await expect(svc.confirm('u1', '000000', PASSWORD)).rejects.toThrow(ForbiddenException);
+    expect(await statusOf(svc.confirm('u1', '000000', PASSWORD))).toBe(429);
   });
 
   it('sin activación en curso (o caducada a los 10 min) → 409', async () => {
     const { svc } = makeService([owner()]);
-    await expect(svc.confirm('u1', '123456')).rejects.toThrow(/No hay ninguna activación/);
+    await expect(svc.confirm('u1', '123456', PASSWORD)).rejects.toThrow(/No hay ninguna activación/);
 
-    const { secret } = await svc.setup('u1');
+    const { secret } = await svc.setup('u1', PASSWORD, SID);
     vi.advanceTimersByTime(10 * 60 * 1000 + 1);
-    await expect(svc.confirm('u1', codeFor(secret))).rejects.toThrow(ConflictException);
+    await expect(svc.confirm('u1', codeFor(secret), PASSWORD)).rejects.toThrow(ConflictException);
   });
 
   it('ya activada → 409', async () => {
     const { svc } = makeService([owner({ totpSecret: 'JBSWY3DPEHPK3PXP' })]);
-    await expect(svc.confirm('u1', '123456')).rejects.toThrow(ConflictException);
+    await expect(svc.confirm('u1', '123456', PASSWORD)).rejects.toThrow(ConflictException);
   });
 });
 
 describe('POST /v1/auth/totp/disable', () => {
   async function enrolled() {
     const made = makeService([owner()]);
-    const { secret } = await made.svc.setup('u1');
-    await made.svc.confirm('u1', codeFor(secret, -1));
+    const { secret } = await made.svc.setup('u1', PASSWORD, SID);
+    await made.svc.confirm('u1', codeFor(secret, -1), PASSWORD);
     return { ...made, secret };
   }
 
@@ -205,7 +276,7 @@ describe('POST /v1/auth/totp/disable', () => {
   it('tras desactivar se puede volver a activar enseguida', async () => {
     const { svc, secret } = await enrolled();
     await svc.disable('u1', codeFor(secret));
-    const again = await svc.setup('u1');
-    expect(await svc.confirm('u1', codeFor(again.secret))).toEqual({ enabled: true });
+    const again = await svc.setup('u1', PASSWORD, SID);
+    expect(await svc.confirm('u1', codeFor(again.secret), PASSWORD)).toEqual({ enabled: true });
   });
 });
