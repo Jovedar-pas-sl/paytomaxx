@@ -58,7 +58,8 @@ describe('incidentHeading', () => {
 describe('approval_pending (solicitud del encargado sin decidir)', () => {
   it('se arregla en «Por aprobar», que solo ve el dueño', () => {
     expect(INCIDENT_KINDS.approval_pending.group).toBe('Por aprobar');
-    expect(fixTabFor('approval_pending', visibleTabs({ role: 'OWNER' }))).toBe('approvals');
+    // «Por aprobar» está en la misma bandeja: no hay a dónde ir.
+    expect(fixTabFor('approval_pending', visibleTabs({ role: 'OWNER' }))).toBeNull();
     expect(fixTabFor('approval_pending', visibleTabs({ role: 'MANAGER' }))).toBeNull();
   });
 });

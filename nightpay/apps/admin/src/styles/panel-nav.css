@@ -1,4 +1,4 @@
-/* Panel (admin) · pestañas, barra de abajo del móvil y hoja «Más».
+/* Panel (admin) · secciones y pestañas, barra de abajo del móvil y diálogos.
    Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Solo se anima
    transform/opacity, y nada con prefers-reduced-motion. Móvil = hasta 640px. */
 
@@ -95,7 +95,7 @@
 
 .np-bottomnav ul {
   display: grid;
-  /* Cinco o seis (el dueño tiene también «Aprobar»), todas iguales. */
+  /* Las cinco secciones, todas iguales. */
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
   margin: 0;
@@ -193,144 +193,62 @@
   white-space: nowrap;
 }
 
-/* ─── Hoja «Más» ──────────────────────────────────────────────────── */
+/* ─── Pestañas dentro de una sección ──────────────────────────────── */
 
-.np-sheet {
-  width: 100%;
-  max-width: 100%;
-  max-height: 100%;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--np-text);
-  inset: auto 0 0 0;
-  position: fixed;
+.np-panel-body,
+.np-panel-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
 }
 
-.np-sheet::backdrop {
-  background: var(--np-backdrop);
-  animation: np-fade-in var(--np-d-base) var(--np-ease);
+/* Sin cortar las etiquetas («Super admin», «Pagos a chicas»): se desplazan. */
+.np-subtabs {
+  margin-top: -0.5rem;
 }
 
-.np-sheet-panel {
-  max-height: 85vh;
-  max-height: 85dvh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0.5rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
-  border-top: 2px solid var(--np-accent);
-  border-radius: var(--np-r-lg) var(--np-r-lg) 0 0;
-  background: var(--np-surface-2);
-  animation: np-sheet-in var(--np-d-base) var(--np-ease);
+.np-subtabs .np-tab {
+  white-space: nowrap;
 }
 
-@keyframes np-sheet-in {
-  from { transform: translateY(100%); opacity: 0.6; }
-  to   { transform: translateY(0);    opacity: 1;   }
+/* ─── Diálogos por encima de la barra de abajo ───────────────────────
+   <main> (z-index 2, styles.css) es una capa propia: un diálogo dentro
+   (Modal, cerrar la noche…) no podía pasar por encima de la barra de abajo
+   (z-index 50) y quedaba tapado en el móvil. Con uno abierto, <main> sube. */
+.np-app-root:has(.np-modal-panel),
+.np-app-root:has([aria-modal='true']) {
+  z-index: 60;
 }
 
-.np-sheet-grip {
-  width: 2.5rem;
-  height: 0.25rem;
-  margin: 0.25rem auto 0.75rem;
-  border-radius: var(--np-r-pill);
-  background: var(--np-border-hi);
+.np-modal-panel {
+  max-height: calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
 }
 
-.np-sheet-head {
+/* ─── Aviso del super-admin sin 2FA ──────────────────────────────── */
+
+.np-2fa-banner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 0.75rem;
-}
-
-.np-sheet-title {
-  margin: 0;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--np-text-dim);
-}
-
-.np-sheet-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.np-sheet-link {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  width: 100%;
-  min-height: 3.5rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--np-border);
+  flex-wrap: wrap;
+  padding: 0.875rem 1.125rem;
+  border: 1px solid var(--np-warning, var(--np-accent));
+  border-left-width: 4px;
   border-radius: var(--np-r-md);
   background: var(--np-surface);
-  color: var(--np-text);
-  font-family: inherit;
-  font-size: 1rem;
-  font-weight: 600;
-  text-align: left;
-  transition:
-    transform var(--np-d-fast) var(--np-ease),
-    background var(--np-d-fast);
 }
 
-.np-sheet-link:active {
-  transform: scale(0.97);
-}
-
-.np-sheet-link[aria-current='page'] {
-  border-color: var(--np-accent);
-  box-shadow: inset 4px 0 0 var(--np-accent);
-}
-
-.np-sheet-link[aria-current='page']::after {
-  content: 'Abierta';
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--np-accent);
-}
-
-.np-sheet-link:focus-visible {
-  outline: 2px solid var(--np-accent);
-  outline-offset: 2px;
-}
-
-.np-sheet-account {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--np-border);
-}
-
-.np-sheet-account p {
+.np-2fa-banner p {
+  flex: 1 1 18rem;
   margin: 0;
-  min-width: 0;
-  flex: 1 1 10rem;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
   color: var(--np-text-mute);
-  overflow-wrap: anywhere;
 }
 
-.np-sheet-account strong {
-  display: block;
+.np-2fa-banner strong {
   color: var(--np-text);
-  font-weight: 600;
 }
 
 @media (max-width: 640px) {
@@ -344,7 +262,18 @@
     padding-bottom: calc(var(--np-panel-nav-h) + 2rem + env(safe-area-inset-bottom, 0px)) !important;
   }
 
-  /* Cabecera ligera: la cuenta y «Salir» pasan a «Más»; las pestañas, abajo. */
+  /* El nombre del local debajo del logo: entero, sin partir la palabra. */
+  .np-brand {
+    flex-wrap: wrap;
+    gap: 0.75rem !important;
+  }
+
+  .np-brand > div {
+    border-left: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  /* Cabecera ligera: la cuenta y «Salir» pasan a Ajustes → Seguridad; las secciones, abajo. */
   .np-header-account,
   .np-tabbar-main {
     display: none !important;
@@ -367,18 +296,11 @@
 @media (prefers-reduced-motion: reduce) {
   .np-tab::after,
   .np-bottomnav-item::before,
-  .np-bottomnav-item svg,
-  .np-sheet-link {
+  .np-bottomnav-item svg {
     transition: none;
   }
 
-  .np-sheet-panel,
-  .np-sheet::backdrop {
-    animation: none;
-  }
-
-  .np-bottomnav-item:active svg,
-  .np-sheet-link:active {
+  .np-bottomnav-item:active svg {
     transform: none;
   }
 }

@@ -15,11 +15,7 @@
   min-width: 0;
 }
 
-/* <main> (z-index 2) hace de capa propia y la barra de abajo (z-index 50)
-   quedaba encima de los diálogos: con uno abierto aquí, <main> sube. */
-.np-app-root:has(.np-sa .np-modal-panel) {
-  z-index: 60;
-}
+/* Diálogos por encima de la barra de abajo: en todo el panel (panel-nav.css). */
 
 .np-sa-stack {
   display: flex;

@@ -20,7 +20,7 @@ const POLL_MS = 20_000;
  * lo que espera (y cuándo caduca); debajo lo aprobado, rechazado (con el
  * motivo), caducado o lo que no se pudo hacer (con la razón).
  */
-export function MyRequestsPanel() {
+export function MyRequestsPanel({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean } = {}) {
   const [items, setItems] = useState<ApprovalView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const listId = useId();
@@ -44,6 +44,8 @@ export function MyRequestsPanel() {
   );
 
   const waiting = items?.filter((i) => i.status === 'PENDING').length ?? 0;
+  // En Avisos, sin nada pedido no ocupa sitio.
+  if (hideWhenEmpty && !error && (items === null || items.length === 0)) return null;
 
   return (
     <section aria-labelledby={listId} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useId, useState, type CSSProperties } from 'react';
-import { Button, Card, Input } from '@nightpay/ui';
-import { sendTelegramTest, type Incident } from '@/lib/api';
+import { Button, Input } from '@nightpay/ui';
+import type { Incident } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { fixTabFor, incidentHeading, incidentKey, kindMeta, type ResolvedIncident } from '@/lib/incident-inbox';
 import { formatEur } from '@/lib/money';
@@ -18,6 +18,8 @@ interface Props {
   onNavigate: (key: TabKey) => void;
   /** Abrir un cobro en Pagos (sus devoluciones). */
   onOpenPayment: (paymentId: string) => void;
+  /** Tipos que no se enseñan aquí (p. ej. «Por aprobar», que ya sale como tarjeta encima). */
+  hiddenKinds?: ReadonlySet<string>;
 }
 
 /**
@@ -26,8 +28,9 @@ interface Props {
  * nota). Las que se arreglan en otra pestaña (cobros atascados…) se quitan
  * solas. Debajo, lo resuelto hoy desde este dispositivo.
  */
-export function IncidentsPanel({ isOwner, tabs, onNavigate, onOpenPayment }: Props) {
+export function IncidentsPanel({ isOwner, tabs, onNavigate, onOpenPayment, hiddenKinds }: Props) {
   const feed = useIncidents();
+  const open = feed.open && hiddenKinds ? feed.open.filter((i) => !hiddenKinds.has(i.kind)) : feed.open;
   const openId = useId();
   const doneId = useId();
   const { refresh } = feed;
@@ -39,32 +42,26 @@ export function IncidentsPanel({ isOwner, tabs, onNavigate, onOpenPayment }: Pro
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <div>
-        <h2 style={titleStyle}>Incidencias</h2>
-        <p style={hintStyle}>
-          Lo que hay que mirar: cobros atascados, dobles cobros, descuentos que fallaron y noches cerradas con
-          pendientes.
-        </p>
-      </div>
+      <h2 style={titleStyle}>Incidencias</h2>
 
       {feed.error ? (
         <Notice tone="danger" action={{ label: 'Reintentar', onClick: refresh }}>
           No se pudieron cargar las incidencias: {feed.error}
-          {feed.open ? ' · se siguen enseñando las últimas.' : ''}
+          {open ? ' · se siguen enseñando las últimas.' : ''}
         </Notice>
       ) : null}
 
       <section aria-labelledby={openId} style={groupStyle}>
         <h3 id={openId} className="np-inbox-head">
-          Abiertas <span className="np-inbox-count">{feed.open ? feed.open.length : '…'}</span>
+          Abiertas <span className="np-inbox-count">{open ? open.length : '…'}</span>
         </h3>
-        {feed.open === null ? (
+        {open === null ? (
           feed.error ? null : <p style={hintStyle}>Cargando…</p>
-        ) : feed.open.length === 0 ? (
+        ) : open.length === 0 ? (
           <p className="np-inbox-empty">Todo en orden: no hay nada pendiente.</p>
         ) : (
           <ul className="np-inbox">
-            {feed.open.map((i) => (
+            {open.map((i) => (
               <OpenItem
                 key={incidentKey(i)}
                 incident={i}
@@ -95,8 +92,6 @@ export function IncidentsPanel({ isOwner, tabs, onNavigate, onOpenPayment }: Pro
           Lo resuelto hoy desde este dispositivo y lo que se quitó solo. El registro completo queda en la actividad.
         </p>
       </section>
-
-      <TelegramCard enabled={feed.telegram} isOwner={isOwner} />
     </section>
   );
 }
@@ -222,41 +217,6 @@ function ResolvedItem({ item }: { item: ResolvedIncident }) {
       <h4 className="np-inbox-title">{item.title}</h4>
       {item.note ? <p className="np-inbox-detail">«{item.note}»</p> : null}
     </li>
-  );
-}
-
-function TelegramCard({ enabled, isOwner }: { enabled: boolean; isOwner: boolean }) {
-  const [testResult, setTestResult] = useState<string | null>(null);
-
-  async function testTelegram() {
-    setTestResult(null);
-    try {
-      const sent = await sendTelegramTest();
-      setTestResult(
-        sent ? 'Enviado: mira tu Telegram.' : 'No llegó. Revisa en Dokploy el token del bot y el número del chat.',
-      );
-    } catch (err) {
-      setTestResult((err as Error).message);
-    }
-  }
-
-  return (
-    <Card style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-      <p style={{ margin: 0, fontWeight: 600 }}>Alertas por Telegram: {enabled ? 'activadas' : 'desactivadas'}</p>
-      <p style={hintSmall}>
-        {enabled
-          ? 'Cada incidencia nueva te llega una vez, y a las 9:00 el resumen de la noche de cada local. Un solo chat para todos tus locales.'
-          : 'Para activarlas, añade TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en Dokploy (nightpay-api → Environment) y vuelve a desplegar.'}
-      </p>
-      {enabled && isOwner ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <Button variant="ghost" style={smallBtn} onClick={() => void testTelegram()}>
-            Enviar mensaje de prueba
-          </Button>
-          {testResult ? <span style={hintSmall}>{testResult}</span> : null}
-        </div>
-      ) : null}
-    </Card>
   );
 }
 

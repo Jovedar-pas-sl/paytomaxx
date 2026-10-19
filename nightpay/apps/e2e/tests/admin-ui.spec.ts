@@ -48,25 +48,28 @@ test.describe('Admin UI @admin', () => {
     await expect(page.getByText(/Pagos/i).first()).toBeVisible({ timeout: 5_000 });
   });
 
-  test('Tab Operadoras carga la lista sin crash', async ({ page }) => {
+  test('Chicas carga la lista sin crash', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('tab', { name: /Operadoras/i }).click();
+    // Sección «Chicas» (la primera pestaña con ese nombre; dentro está la lista).
+    await page.getByRole('tab', { name: 'Chicas', exact: true }).first().click();
     await expect(page.locator('body')).not.toContainText('Error cargando operadoras', {
       timeout: 5_000,
     });
   });
 
-  test('Tab Treasury muestra metric tiles + EUR→USDT rate', async ({ page }) => {
+  test('Chicas → Pagos a chicas muestra metric tiles + EUR→USDT rate', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('tab', { name: /Treasury/i }).click();
+    await page.getByRole('tab', { name: 'Chicas', exact: true }).first().click();
+    await page.getByRole('tab', { name: /Pagos a chicas/i }).click();
     await expect(page.getByText(/EUR.*USDT/i).first()).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText(/Saldo pendiente/i)).toBeVisible();
   });
 
-  test('Tab Ajustes (Settings) carga el form (OWNER only)', async ({ page }) => {
+  test('Ajustes → Reglas del local carga el form (OWNER only)', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('tab', { name: /Ajustes/i }).click();
-    await expect(page.getByText(/comisión|commission/i).first()).toBeVisible({
+    await page.getByRole('tab', { name: /Reglas del local/i }).click();
+    await expect(page.getByText(/Tope por cobro/i).first()).toBeVisible({
       timeout: 5_000,
     });
   });

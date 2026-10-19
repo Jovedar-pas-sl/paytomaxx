@@ -83,7 +83,7 @@ export function SuperAdminPanel({ user, onNavigate }: Props) {
     return () => controller.abort();
   }, [listsVersion]);
 
-  const goToSettings = useCallback(() => onNavigate('settings'), [onNavigate]);
+  const goToSettings = useCallback(() => onNavigate('security'), [onNavigate]);
   const refreshLists = useCallback(() => setListsVersion((n) => n + 1), []);
   const openAuditFor = useCallback((actor: { id: string; label: string }) => {
     setAuditActor(actor);
