@@ -31,7 +31,7 @@ import {
   type ExactPayout,
 } from './payout-selection';
 import { venueHoldDays } from './venue-hold-days';
-import { payoutRoutingChanges } from './payout-routing';
+import { payoutRoutingChanges, touchesPayoutAccount } from './payout-routing';
 import type {
   CreateOperatorDto,
   CreateOperatorResponse,
@@ -983,14 +983,26 @@ export class OperatorsService {
       data,
     });
 
+    const { totpCode: _code, ...changes } = dto;
     await this.audit.log({
       action: 'operator.updated',
       tenantId,
       actorId: actorUserId,
       targetType: 'User',
       targetId: operatorId,
-      payload: { changes: dto },
+      payload: { changes },
     });
+    // A dónde va su dinero: con lo de antes (para saber a qué cuenta se pagaba).
+    if (touchesPayoutAccount(dto)) {
+      await this.audit.log({
+        action: 'operator.payout_account_changed',
+        tenantId,
+        actorId: actorUserId,
+        targetType: 'User',
+        targetId: operatorId,
+        payload: { before: payoutAccountOf(operator), after: payoutAccountOf(updated) },
+      });
+    }
 
     return this.toPublicView(updated);
   }
@@ -1230,4 +1242,13 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/** La cuenta de cobro de una chica, para el registro (operator.payout_account_changed). */
+function payoutAccountOf(u: {
+  payoutMethod?: string | null;
+  payoutAddress?: string | null;
+  payoutLabel?: string | null;
+}): { payoutMethod: string | null; payoutAddress: string | null; payoutLabel: string | null } {
+  return { payoutMethod: u.payoutMethod ?? null, payoutAddress: u.payoutAddress ?? null, payoutLabel: u.payoutLabel ?? null };
 }

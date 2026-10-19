@@ -6,6 +6,11 @@ import { deriveKey, openText, sealText } from './aes-gcm';
 
 export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30d
 /**
+ * Vida máxima de una sesión (family), contada desde el login: refrescar no la
+ * alarga más allá. Pasados 90 días hay que volver a entrar con la contraseña.
+ */
+export const REFRESH_FAMILY_MAX_SECONDS = 90 * 24 * 60 * 60;
+/**
  * Margen para dos refrescos con el mismo token (dos pestañas a la vez, una
  * respuesta que se perdió): durante estos segundos el token ya usado devuelve
  * el MISMO par nuevo en vez de tomarse por robado.
@@ -27,6 +32,8 @@ interface StoredRefresh {
   secretHash: string;
   issuedAt: number;
   lastUsedAt: number;
+  /** Cuándo empezó la sesión (login). Falta en los anteriores: se toma issuedAt. */
+  familyCreatedAt?: number;
   /** Huella de users.passwordHash al emitirlo (passwordFingerprint). Falta en los anteriores. */
   pwdFp?: string;
 }
@@ -50,6 +57,8 @@ export interface IssueOptions {
   family?: string;
   /** passwordFingerprint del usuario al emitirlo. */
   pwdFp?: string;
+  /** Inicio de la family (rotación): con él no se pasa de REFRESH_FAMILY_MAX_SECONDS. */
+  familyCreatedAt?: number;
 }
 
 export interface RotatedRefresh {
@@ -96,7 +105,10 @@ export function passwordFingerprint(passwordHash: string): string {
  *   nightpay:refresh:grace:<jti> -> par nuevo cifrado con el secreto viejo (TTL 10 s)
  *
  * Rotacion: cada `refresh()` marca el jti como usado (atómico), emite uno nuevo
- * en la misma family y borra el viejo. Si vuelve un jti usado:
+ * en la misma family y borra el viejo. La family vive como mucho 90 días desde
+ * el login (REFRESH_FAMILY_MAX_SECONDS). Un jti con un secreto que no es el
+ * suyo solo da 401: sin el secreto no se cierra la sesión de nadie. Si vuelve
+ * un jti usado:
  *   - dentro del margen (10 s) → el mismo par nuevo (dos pestañas, reintentos);
  *   - después → se revoca la family entera (alguien tenía una copia: robo).
  * La huella de la contraseña viaja con la sesión: AuthService la compara al
@@ -121,6 +133,8 @@ export class RefreshTokenService {
     const secret = randomBytes(32).toString('hex');
     const familyId = opts.family ?? randomUUID();
     const now = Date.now();
+    const familyCreatedAt = opts.familyCreatedAt ?? now;
+    const ttlSeconds = ttlWithinFamily(familyCreatedAt, now);
     const stored: StoredRefresh = {
       userId,
       tenantId,
@@ -128,21 +142,18 @@ export class RefreshTokenService {
       secretHash: hashSecret(secret),
       issuedAt: now,
       lastUsedAt: now,
+      familyCreatedAt,
       ...(opts.pwdFp ? { pwdFp: opts.pwdFp } : {}),
     };
 
     await this.redis
       .multi()
-      .set(this.key(jti), JSON.stringify(stored), 'EX', REFRESH_TOKEN_TTL_SECONDS)
-      .set(this.familyKey(familyId, jti), '1', 'EX', REFRESH_TOKEN_TTL_SECONDS)
-      .set(this.userKey(userId, jti), '1', 'EX', REFRESH_TOKEN_TTL_SECONDS)
+      .set(this.key(jti), JSON.stringify(stored), 'EX', ttlSeconds)
+      .set(this.familyKey(familyId, jti), '1', 'EX', ttlSeconds)
+      .set(this.userKey(userId, jti), '1', 'EX', ttlSeconds)
       .exec();
 
-    return {
-      token: `${jti}.${secret}`,
-      family: familyId,
-      ttlSeconds: REFRESH_TOKEN_TTL_SECONDS,
-    };
+    return { token: `${jti}.${secret}`, family: familyId, ttlSeconds };
   }
 
   /**
@@ -158,8 +169,15 @@ export class RefreshTokenService {
     if (!stored) return this.rotateUsed(parsed);
 
     if (!secretMatches(stored.secretHash, parsed.secret)) {
-      // Secret incorrecto pero jti existe — probablemente robo. Revocar family.
-      this.logger.warn(`Refresh secret mismatch for jti=${parsed.jti} — revoking family ${stored.family}`);
+      // Sin el secreto no se prueba nada: 401 y la sesión de su dueño sigue
+      // (si no, con un jti visto en un log se cerraría la sesión de cualquiera).
+      this.logger.warn(`Refresh con un secreto que no es el suyo (jti=${shortId(parsed.jti)})`);
+      throw invalidRefresh();
+    }
+
+    const familyCreatedAt = familyStartOf(stored);
+    if (familyExpired(familyCreatedAt)) {
+      // 90 días desde el login: se cierra la sesión entera y hay que volver a entrar.
       await this.revokeFamily(stored.family);
       throw invalidRefresh();
     }
@@ -167,7 +185,11 @@ export class RefreshTokenService {
     // Solo una petición consigue marcarlo; la otra va por el margen.
     if (!(await this.markUsed(parsed.jti, stored))) return this.rotateUsed(parsed);
 
-    const issued = await this.issue(stored.userId, stored.tenantId, { family: stored.family, pwdFp: stored.pwdFp });
+    const issued = await this.issue(stored.userId, stored.tenantId, {
+      family: stored.family,
+      pwdFp: stored.pwdFp,
+      familyCreatedAt,
+    });
     await this.retire(parsed, stored, issued.token);
     return {
       userId: stored.userId,
@@ -241,6 +263,23 @@ export class RefreshTokenService {
       if (stored) await this.deleteJti(jti, stored);
       else await this.redis.del(k);
     }
+    await this.redis.del(this.venueKey(familyId));
+  }
+
+  /**
+   * Super-admin: el local que eligió (con 2FA) en esta sesión. Al refrescar,
+   * el access token sale ya para ese local. null = vuelve al suyo.
+   */
+  async setActiveVenue(familyId: string, venueId: string | null): Promise<void> {
+    if (venueId === null) {
+      await this.redis.del(this.venueKey(familyId));
+      return;
+    }
+    await this.redis.set(this.venueKey(familyId), venueId, 'EX', REFRESH_FAMILY_MAX_SECONDS);
+  }
+
+  async activeVenue(familyId: string): Promise<string | null> {
+    return this.redis.get(this.venueKey(familyId));
   }
 
   /** Marca atómica de "usado": devuelve false si otra petición lo marcó antes. */
@@ -269,7 +308,7 @@ export class RefreshTokenService {
   private async rotateUsed(parsed: ParsedToken): Promise<RotatedRefresh> {
     const used = await this.fetchUsed(parsed.jti);
     if (!used || !secretMatches(used.secretHash, parsed.secret)) {
-      this.logger.warn(`Refresh token desconocido o caducado (jti=${parsed.jti})`);
+      this.logger.warn(`Refresh token desconocido o caducado (jti=${shortId(parsed.jti)})`);
       throw invalidRefresh();
     }
 
@@ -278,7 +317,7 @@ export class RefreshTokenService {
     // En el margen sin par que devolver (a medias o ya rotado otra vez): no es un robo.
     if (withinGrace(used)) throw invalidRefresh();
 
-    this.logger.warn(`Reuso de un refresh ya usado (jti=${parsed.jti}) — revocando la family ${used.family}`);
+    this.logger.warn(`Reuso de un refresh ya usado (jti=${shortId(parsed.jti)}): se cierra su sesión`);
     await this.revokeFamily(used.family);
     throw new RefreshTokenReuseError(used);
   }
@@ -295,7 +334,7 @@ export class RefreshTokenService {
       family: nextStored.family,
       pwdFp: nextStored.pwdFp,
       token: next,
-      ttlSeconds: REFRESH_TOKEN_TTL_SECONDS,
+      ttlSeconds: ttlWithinFamily(familyStartOf(nextStored), Date.now()),
     };
   }
 
@@ -351,6 +390,29 @@ export class RefreshTokenService {
   private graceKey(jti: string): string {
     return `nightpay:refresh:grace:${jti}`;
   }
+  private venueKey(family: string): string {
+    return `nightpay:refresh:venue:${family}`;
+  }
+}
+
+/** Inicio de la sesión; los tokens de antes no lo traen: desde su emisión. */
+function familyStartOf(stored: StoredRefresh): number {
+  return stored.familyCreatedAt ?? stored.issuedAt;
+}
+
+function familyExpired(familyCreatedAt: number, now = Date.now()): boolean {
+  return now - familyCreatedAt >= REFRESH_FAMILY_MAX_SECONDS * 1000;
+}
+
+/** 30 días, o lo que le quede a la sesión si es menos (como poco 1 s). */
+function ttlWithinFamily(familyCreatedAt: number, now: number): number {
+  const left = Math.floor((familyCreatedAt + REFRESH_FAMILY_MAX_SECONDS * 1000 - now) / 1000);
+  return Math.max(1, Math.min(REFRESH_TOKEN_TTL_SECONDS, left));
+}
+
+/** Para los logs: el principio del jti basta para seguirlo y no sirve para nada más. */
+function shortId(id: string): string {
+  return `${id.slice(0, 8)}…`;
 }
 
 function invalidRefresh(): UnauthorizedException {

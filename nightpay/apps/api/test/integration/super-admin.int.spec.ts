@@ -13,7 +13,15 @@ const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as any);
 const audit = { log: async () => undefined };
 const jwt = new JwtService({ secret: 'x'.repeat(40) });
-const auth = new AuthService(prisma as never, jwt, {} as never, audit as never, {} as never, {} as never);
+/** 2FA de mentira: vale el código '123456'. */
+const totpChecks: Array<{ userId: string; code: string | undefined }> = [];
+const totp = {
+  assertForUser: async (userId: string, code: string | undefined) => {
+    totpChecks.push({ userId, code });
+    if (code !== '123456') throw new Error('TOTP_REQUIRED');
+  },
+};
+const auth = new AuthService(prisma as never, jwt, {} as never, audit as never, {} as never, {} as never, totp as never);
 const admin = new AdminController(prisma as never, {} as never, audit as never, {} as never, {} as never, cls as never);
 
 function inVenue<T>(tenantId: string | undefined, fn: () => Promise<T>): Promise<T> {
@@ -59,14 +67,17 @@ describe('super-admin con OTRO local activo (Postgres real)', () => {
     expect(venues.map((v) => v.id)).toEqual(expect.arrayContaining([A, B, C]));
   });
 
-  it('puede cambiar de un local ajeno a otro, sin perder su rol', async () => {
-    const res = await inVenue(B, () => auth.switchTenant(superAdmin, C));
+  it('puede cambiar de un local ajeno a otro (con 2FA), sin perder su rol', async () => {
+    await expect(inVenue(B, () => auth.switchTenant(superAdmin, C))).rejects.toThrow(/TOTP_REQUIRED/);
+    const res = await inVenue(B, () => auth.switchTenant(superAdmin, C, { totpCode: '123456' }));
     expect(res.tenantId).toBe(C);
     const claims = jwt.decode(res.accessToken) as { tenantId: string; role: string; sub: string };
     expect(claims).toMatchObject({ tenantId: C, role: 'OWNER', sub: superAdmin });
-    // Y volver a su local.
+    // Y volver a su local (sin código: es el suyo).
+    totpChecks.length = 0;
     const back = await inVenue(C, () => auth.switchTenant(superAdmin, A));
     expect(back.tenantId).toBe(A);
+    expect(totpChecks).toEqual([]);
   });
 
   it('un usuario normal sigue sin poder (403)', async () => {
@@ -75,7 +86,9 @@ describe('super-admin con OTRO local activo (Postgres real)', () => {
         tx.user.create({ data: { tenantId: B, email: `normal-${r}@x.es`, passwordHash: 'x', role: 'OWNER' } }),
       ),
     );
-    await expect(inVenue(B, () => auth.switchTenant(normal.id, C))).rejects.toThrow(/super admins/);
+    await expect(inVenue(B, () => auth.switchTenant(normal.id, C, { totpCode: '123456' }))).rejects.toThrow(
+      /super admins/,
+    );
     await expect(
       inVenue(B, () => admin.listAllVenues({ sub: normal.id, tenantId: B, role: 'OWNER' } as never)),
     ).rejects.toThrow(/super admins/);

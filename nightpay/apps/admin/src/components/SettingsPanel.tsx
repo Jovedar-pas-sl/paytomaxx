@@ -13,9 +13,8 @@ interface Props {
   isOwner: boolean;
 }
 
-/** Campos del formulario (texto tal cual se teclea). */
+/** Campos del formulario (texto tal cual se teclea). La comisión de OxioPay solo se enseña. */
 interface SettingsForm {
-  platformPct: string;
   maxCobroEur: string;
   chicaServicePct: string;
   venueBarPct: string;
@@ -27,7 +26,6 @@ interface SettingsForm {
 function formFrom(s: VenueSettings): SettingsForm {
   const d = s.operatorCommissionDefaults;
   return {
-    platformPct: bpsToPercentInput(s.platformCommissionBps),
     maxCobroEur: centsToInput(s.operatorMaxCobroCents),
     chicaServicePct: bpsToPercentInput(d.CHICA_SERVICE),
     venueBarPct: bpsToPercentInput(d.VENUE_BAR),
@@ -86,7 +84,6 @@ export function SettingsPanel({ isOwner }: Props) {
         throw new Error('Tope cobro chica: un importe entre 0,01 € y 10.000 €.');
       }
       input = {
-        platformCommissionBps: percentField(form.platformPct, 'Comisión OxioPay'),
         operatorMaxCobroCents: maxCents,
         operatorCommissionDefaults: {
           CHICA_SERVICE: percentField(form.chicaServicePct, 'Servicio de chica'),
@@ -143,12 +140,10 @@ export function SettingsPanel({ isOwner }: Props) {
               <Input
                 label="Comisión OxioPay (%)"
                 type="text"
-                inputMode="decimal"
-                value={form.platformPct}
-                onChange={(e) => setField('platformPct', e.target.value)}
-                disabled={!isOwner || submitting}
-                required
-                hint="Porcentaje que cobra la plataforma sobre cada transacción AUTHORIZED. Default 10%."
+                value={formatPercent(settings.platformCommissionBps)}
+                readOnly
+                disabled
+                hint="Lo que cobra la plataforma sobre cada cobro. La fija OxioPay: para cambiarla, habla con soporte."
               />
 
               <Input

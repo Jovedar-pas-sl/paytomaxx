@@ -85,3 +85,53 @@ describe('LockoutService', () => {
     expect(await svc.isTrusted('a@b.es|1.2.3.4')).toBe(false);
   });
 });
+
+describe('LockoutService.reserveAttempt (el intento se cuenta antes de mirar la contraseña)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-15T22:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const ip = { key: 'a@b.es|1.2.3.4', policy: PER_IP_POLICY };
+  const account = { key: 'cuenta:a@b.es', policy: ACCOUNT_POLICY };
+
+  it('cuenta en todas las claves; el quinto deja la IP bloqueada y el sexto ya no pasa', async () => {
+    const { svc } = makeService();
+    for (let i = 1; i <= 4; i++) expect(await svc.reserveAttempt([ip, account])).toEqual({ allowed: true, counts: [i, i] });
+    expect(await svc.reserveAttempt([ip, account])).toEqual({ allowed: true, counts: [5, 5] });
+    expect((await svc.isLocked(ip.key)).ttlSeconds).toBe(PER_IP_POLICY.lockSec);
+    expect(await svc.reserveAttempt([ip, account])).toEqual({
+      allowed: false,
+      gate: 0,
+      ttlSeconds: PER_IP_POLICY.lockSec,
+    });
+  });
+
+  it('muchas a la vez: solo pasan tantas como el umbral', async () => {
+    const { svc } = makeService();
+    const all = await Promise.all(Array.from({ length: 50 }, () => svc.reserveAttempt([ip, account])));
+    expect(all.filter((r) => r.allowed)).toHaveLength(PER_IP_POLICY.threshold);
+  });
+
+  it('una clave bloqueada que cuenta → no se cuenta en ninguna', async () => {
+    const { svc, redis } = makeService();
+    await svc.reserveAttempt([ip, account]);
+    await redis.set(`nightpay:lockout:locked:${account.key}`, '1', 'EX', 120);
+    expect(await svc.reserveAttempt([ip, account])).toEqual({ allowed: false, gate: 1, ttlSeconds: 120 });
+    expect(await redis.get(`nightpay:lockout:fail:${ip.key}`)).toBe('1');
+  });
+
+  it('enforce: false (IP de confianza) → pasa aunque la cuenta esté bloqueada, y se cuenta', async () => {
+    const { svc, redis } = makeService();
+    await redis.set(`nightpay:lockout:locked:${account.key}`, '1', 'EX', 120);
+    expect(await svc.reserveAttempt([ip, { ...account, enforce: false }])).toEqual({ allowed: true, counts: [1, 1] });
+  });
+
+  it('clear tras un acierto borra el intento reservado y el bloqueo', async () => {
+    const { svc } = makeService();
+    for (let i = 0; i < 5; i++) await svc.reserveAttempt([ip]);
+    await svc.clear(ip.key);
+    expect(await svc.reserveAttempt([ip])).toEqual({ allowed: true, counts: [1] });
+  });
+});

@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Card, Input, Select } from '@nightpay/ui';
 import type { VenueDetail } from '@nightpay/contracts';
-import { switchToVenue } from '@/lib/api';
+import { VenueSwitchDialog } from '../VenueSwitchDialog';
 import { formatDateTime } from '@/lib/dates';
 import {
   clearSaSettlementAccount,
@@ -56,7 +56,7 @@ export function VenueDetailView({ venueId, onBack }: Props) {
                 actions={
                   <>
                     {pause ? <Pill tone="warning">{pause}</Pill> : <Pill tone="success">Cobrando</Pill>}
-                    <GoToVenueButton venueId={v.id} isCurrent={v.slug === sa.currentSlug} />
+                    <GoToVenueButton venueId={v.id} venueName={v.name} isCurrent={v.slug === sa.currentSlug} />
                   </>
                 }
               />
@@ -90,30 +90,15 @@ export function VenueDetailView({ venueId, onBack }: Props) {
   );
 }
 
-/** Cambiar el local activo del panel a este (como el desplegable de arriba). */
-function GoToVenueButton({ venueId, isCurrent }: { venueId: string; isCurrent: boolean }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+/** Cambiar el local activo del panel a este (como el desplegable de arriba, con 2FA). */
+function GoToVenueButton({ venueId, venueName, isCurrent }: { venueId: string; venueName: string; isCurrent: boolean }) {
+  const [asking, setAsking] = useState(false);
   if (isCurrent) return <Pill tone="info">Estás aquí</Pill>;
-
-  async function go(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    try {
-      await switchToVenue(venueId);
-      window.location.reload();
-    } catch (err) {
-      setError((err as Error).message);
-      setBusy(false);
-    }
-  }
 
   return (
     <>
-      <SmallButton onClick={() => void go()} loading={busy}>
-        Ir a este local
-      </SmallButton>
-      {error ? <ErrorLine>{error}</ErrorLine> : null}
+      <SmallButton onClick={() => setAsking(true)}>Ir a este local</SmallButton>
+      {asking ? <VenueSwitchDialog venueId={venueId} venueName={venueName} onClose={() => setAsking(false)} /> : null}
     </>
   );
 }

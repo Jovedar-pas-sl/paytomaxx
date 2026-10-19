@@ -188,13 +188,15 @@ export async function updateOperator(
     needsHelpDocs?: boolean;
     onboardingStatus?: OnboardingStatus;
     onboardingNotes?: string | null;
+    /** Código 2FA: lo pide el API (TOTP_REQUIRED) al cambiar la cuenta de cobro si el dueño tiene la 2FA. */
+    totpCode?: string;
   },
 ): Promise<Omit<Operator, 'balance'>> {
   const res = await authedFetch(`/v1/admin/operators/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw await apiError(res);
+  if (!res.ok) throw await totpAwareError(res);
   return res.json();
 }
 

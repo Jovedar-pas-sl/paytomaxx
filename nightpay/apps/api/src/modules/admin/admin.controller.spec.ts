@@ -166,3 +166,125 @@ describe('POST /admin/operators/:id/payouts — 2FA del que paga (Redis, vale co
     expect(b.operators.createPayout).not.toHaveBeenCalled();
   });
 });
+
+describe('PATCH /admin/operators/:id — cambiar la cuenta de cobro pide 2FA', () => {
+  const KEK = 'test_kek_0123456789abcdef0123456789abcdef_v1';
+  const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+  const owner = { sub: 'own-1', tenantId: 't-1', role: 'OWNER' } as unknown as JwtPayload;
+  let previousKek: string | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-15T22:00:10Z'));
+    previousKek = process.env.ENCRYPTION_KEK;
+    process.env.ENCRYPTION_KEK = KEK;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env.ENCRYPTION_KEK = previousKek;
+  });
+
+  function controller(totpSecret: string | null, who: JwtPayload = owner) {
+    const { totp } = makeTotpKit({ users: { [who.sub]: totpSecret } });
+    const operators = { updateOperator: vi.fn().mockResolvedValue({ id: 'op-1' }) };
+    const none = {} as never;
+    const ctrl = new AdminController(none, none, none, operators as never, none, none, totp, none);
+    const update = (dto: Record<string, unknown>) => ctrl.updateOperator('t-1', who, 'op-1', dto as never);
+    return { update, operators };
+  }
+
+  it('dueño con 2FA: sin código → 403 TOTP_REQUIRED y no se cambia nada', async () => {
+    const { update, operators } = controller(sealTotpSecret(SECRET, KEK));
+    for (const dto of [{ payoutAddress: 'ES9121000418450200051332' }, { payoutMethod: 'CASH' }, { payoutLabel: 'x' }]) {
+      const err = await update(dto).catch((e: unknown) => e);
+      expect((err as HttpException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
+    }
+    expect(operators.updateOperator).not.toHaveBeenCalled();
+  });
+
+  it('dueño con 2FA: con el código bueno se cambia', async () => {
+    const { update, operators } = controller(sealTotpSecret(SECRET, KEK));
+    await expect(update({ payoutMethod: 'CASH', totpCode: totpCodeAt(SECRET) })).resolves.toEqual({ id: 'op-1' });
+    expect(operators.updateOperator).toHaveBeenCalledOnce();
+  });
+
+  it('lo que no es la cuenta de cobro (nombre, comisión…) no pide código', async () => {
+    const { update, operators } = controller(sealTotpSecret(SECRET, KEK));
+    await update({ displayName: 'Ana', commissionBps: 8500 });
+    expect(operators.updateOperator).toHaveBeenCalledOnce();
+  });
+
+  it('dueño sin 2FA activada: se cambia como antes', async () => {
+    const { update, operators } = controller(null);
+    await update({ payoutMethod: 'CASH' });
+    expect(operators.updateOperator).toHaveBeenCalledOnce();
+  });
+});
+
+describe('PATCH /admin/venue/settings — comisiones del local', () => {
+  const owner = { sub: 'own-1', tenantId: 't-1', role: 'OWNER' } as unknown as JwtPayload;
+  const stored = {
+    operatorMaxCobroCents: 20_000,
+    platformCommissionBps: 1000,
+    operatorCommissionDefaults: { CHICA_SERVICE: 9000, VENUE_BAR: 0 },
+    payoutHoldDays: null,
+    refundApprovalThresholdCents: 10_000,
+    payoutRequiresApproval: false,
+  };
+
+  function controller(maxOverrideBps: number | null = null) {
+    const update = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 't-1', ...stored, ...data }));
+    const tx = {
+      venue: { findUniqueOrThrow: vi.fn().mockResolvedValue(stored), update },
+      user: { aggregate: vi.fn().mockResolvedValue({ _max: { commissionBps: maxOverrideBps } }) },
+    };
+    const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
+    const audit = { log: vi.fn().mockResolvedValue(undefined) };
+    const none = {} as never;
+    const ctrl = new AdminController(prisma as never, none, audit as never, none, none, none, none, none);
+    const save = (dto: Record<string, unknown>) => ctrl.updateVenueSettings('t-1', owner, dto as never);
+    return { save, update, audit };
+  }
+
+  async function statusOf(promise: Promise<unknown>): Promise<number | null> {
+    const err = await promise.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    return err instanceof HttpException ? err.getStatus() : null;
+  }
+
+  it('la comisión de la plataforma no la cambia el dueño (403); la misma de siempre se ignora', async () => {
+    const { save, update } = controller();
+    expect(await statusOf(save({ platformCommissionBps: 0 }))).toBe(403);
+    expect(update).not.toHaveBeenCalled();
+    await save({ platformCommissionBps: 1000, operatorMaxCobroCents: 30_000 });
+    expect(update.mock.calls[0]![0].data).toEqual({ operatorMaxCobroCents: 30_000 });
+  });
+
+  it('chica + plataforma > 100 % en una categoría → 400 y no se guarda', async () => {
+    const { save, update } = controller();
+    expect(await statusOf(save({ operatorCommissionDefaults: { CHICA_SERVICE: 9500 } }))).toBe(400);
+    expect(await statusOf(save({ operatorCommissionDefaults: { VENUE_BAR: 9001 } }))).toBe(400);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('comisiones parciales: se mezclan con las guardadas (y las que faltan, por defecto) y se apuntan', async () => {
+    const { save, update, audit } = controller();
+    await save({ operatorCommissionDefaults: { VENUE_BAR: 500 } });
+    expect(update.mock.calls[0]![0].data).toEqual({
+      operatorCommissionDefaults: expect.objectContaining({ CHICA_SERVICE: 9000, VENUE_BAR: 500 }),
+    });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'venue.settings.updated',
+        payload: { changes: { operatorCommissionDefaults: { VENUE_BAR: 500 } } },
+      }),
+    );
+  });
+
+  it('una chica con un % propio que ya no cuadra con la plataforma → 400 (como en la consola)', async () => {
+    const { save } = controller(9500);
+    expect(await statusOf(save({ operatorMaxCobroCents: 30_000 }))).toBe(400);
+  });
+});

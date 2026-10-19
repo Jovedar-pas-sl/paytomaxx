@@ -282,6 +282,8 @@ export const UpdateOperatorSchema = z.object({
   needsHelpDocs: z.boolean().optional(),
   onboardingStatus: OnboardingStatusSchema.optional(),
   onboardingNotes: z.string().max(2000).nullable().optional(),
+  /** Código 2FA: lo pide el API al cambiar la cuenta de cobro (payout*) si el dueño la tiene activada. */
+  totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 }).superRefine(refinePayoutAddress);
 export type UpdateOperatorDto = z.infer<typeof UpdateOperatorSchema>;
 

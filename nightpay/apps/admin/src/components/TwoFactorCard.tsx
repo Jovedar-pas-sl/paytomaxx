@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card } from '@nightpay/ui';
+import { Button, Card, Input } from '@nightpay/ui';
 import {
   confirmTotp,
   disableTotp,
@@ -21,11 +21,15 @@ type Status = 'loading' | 'unavailable' | { enabled: boolean };
  * Ajustes → Verificación en dos pasos: activar la app de verificación
  * (Google Authenticator, Authy…) para la cuenta que está dentro. Con ella,
  * los reembolsos de 100 € o más y los pagos a las chicas piden su código.
+ * Activarla pide la contraseña actual (una sesión robada sola no puede).
  */
 export function TwoFactorCard() {
   const [status, setStatus] = useState<Status>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [setup, setSetup] = useState<TotpSetup | null>(null);
+  /** Pidiendo la contraseña antes del QR; se guarda para confirmar con el código. */
+  const [askingPassword, setAskingPassword] = useState(false);
+  const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,16 +62,29 @@ export function TwoFactorCard() {
     setCopied(false);
   }
 
-  async function begin(): Promise<void> {
+  function cancelSetup(): void {
+    setSetup(null);
+    setAskingPassword(false);
+    setPassword('');
+    resetForm();
+  }
+
+  async function begin(e: FormEvent): Promise<void> {
+    e.preventDefault();
+    if (busy) return;
     resetForm();
     setDone(null);
+    if (!password) return setError('Pon tu contraseña.');
     setBusy(true);
     try {
-      setSetup(await startTotpSetup());
+      setSetup(await startTotpSetup(password));
+      setAskingPassword(false);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         // Ya estaba activada (otra pestaña, otro dispositivo).
         setStatus({ enabled: true });
+        setAskingPassword(false);
+        setPassword('');
         setDone('La verificación en dos pasos ya estaba activada.');
       } else {
         setError(codeErrorMessage(err));
@@ -88,9 +105,10 @@ export function TwoFactorCard() {
     }
     setBusy(true);
     try {
-      const next = action === 'confirm' ? await confirmTotp(code) : await disableTotp(code);
+      const next = action === 'confirm' ? await confirmTotp(code, password) : await disableTotp(code);
       setStatus({ enabled: next.enabled });
       setSetup(null);
+      setPassword('');
       resetForm();
       setDone(
         next.enabled
@@ -148,11 +166,29 @@ export function TwoFactorCard() {
           copied={copied}
           onCopy={() => void copySecret(setup.secret)}
           onSubmit={(e) => void submitCode(e, 'confirm')}
-          onCancel={() => {
-            setSetup(null);
-            resetForm();
-          }}
+          onCancel={cancelSetup}
         />
+      ) : askingPassword ? (
+        <form onSubmit={(e) => void begin(e)} style={formStyle}>
+          <Input
+            label="Tu contraseña"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoFocus
+            required
+            hint="La de entrar en el panel: así nadie con tu sesión abierta la activa por ti."
+          />
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <Button type="submit" loading={busy} disabled={!password}>
+              Continuar
+            </Button>
+            <Button type="button" variant="ghost" onClick={cancelSetup} disabled={busy}>
+              Cancelar
+            </Button>
+          </div>
+        </form>
       ) : status.enabled ? (
         <form onSubmit={(e) => void submitCode(e, 'disable')} style={formStyle}>
           <OtpInput
@@ -169,7 +205,13 @@ export function TwoFactorCard() {
         </form>
       ) : (
         <div>
-          <Button onClick={() => void begin()} loading={busy}>
+          <Button
+            onClick={() => {
+              resetForm();
+              setDone(null);
+              setAskingPassword(true);
+            }}
+          >
             Activar
           </Button>
         </div>
@@ -190,7 +232,7 @@ export function TwoFactorCard() {
  */
 function codeErrorMessage(err: unknown): string {
   const message = (err as Error).message;
-  if (isTotpUnreadable(err)) return message;
+  if (isTotpUnreadable(err) || isPasswordError(err)) return message;
   if (err instanceof ApiError && err.status === 429) {
     return /\d+\s*min/.test(message)
       ? message
@@ -200,6 +242,11 @@ function codeErrorMessage(err: unknown): string {
     return `${message.replace(/\.$/, '')}. Si acabas de usar ese código, espera al siguiente (cambia cada 30 s).`;
   }
   return message;
+}
+
+/** La contraseña actual mal (403 PASSWORD_INVALID) o demasiadas veces (429 PASSWORD_LOCKED). */
+function isPasswordError(err: unknown): boolean {
+  return err instanceof ApiError && (err.code === 'PASSWORD_INVALID' || err.code === 'PASSWORD_LOCKED');
 }
 
 function SetupSteps({

@@ -5,6 +5,7 @@ import {
   LoginRequestSchema,
   LogoutRequestSchema,
   RefreshRequestSchema,
+  type JwtPayload,
   type LoginRequest,
   type LoginResponse,
   type LogoutRequest,
@@ -14,7 +15,11 @@ import {
 
 const SwitchTenantRequestSchema = z.object({
   tenantId: z.string().uuid(),
+  /** Código 2FA: obligatorio para entrar en un local que no es el suyo. */
+  totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 });
+type SwitchTenantBody = z.infer<typeof SwitchTenantRequestSchema>;
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit, clientIp } from '../../common/guards/ip-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
@@ -122,23 +127,29 @@ export class AuthController {
   }
 
   /**
-   * Super-admin only: cambia el tenant activo del JWT.
-   * El frontend usa el nuevo accessToken y recarga la app. Va con el access
-   * token (Authorization), no con la cookie: no necesita la protección CSRF.
+   * Super-admin only: cambia el tenant activo del JWT. A otro local que el
+   * suyo, con el código 2FA (como la consola). El frontend usa el nuevo
+   * accessToken y recarga la app. Va con el access token (Authorization), no
+   * con la cookie: no necesita la protección CSRF.
    */
   @Post('switch-tenant')
   @HttpCode(200)
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'auth-switch-tenant' })
   async switchTenant(
-    @Body(new ZodValidationPipe(SwitchTenantRequestSchema)) body: { tenantId: string },
+    @Body(new ZodValidationPipe(SwitchTenantRequestSchema)) body: SwitchTenantBody,
+    @CurrentUser() user: JwtPayload | undefined,
     @Req() req: FastifyRequest,
   ): Promise<{ accessToken: string; expiresIn: number; tenantId: string; venueSlug: string }> {
     const ctx = this.cls.get('ctx');
     if (!ctx?.userId) {
       throw new UnauthorizedException('No autenticado');
     }
-    const ip = extractIp(req);
-    const userAgent = extractUserAgent(req);
-    return this.auth.switchTenant(ctx.userId, body.tenantId, ip, userAgent);
+    return this.auth.switchTenant(ctx.userId, body.tenantId, {
+      totpCode: body.totpCode,
+      sessionId: user?.sid,
+      ip: extractIp(req),
+      userAgent: extractUserAgent(req),
+    });
   }
 }
 

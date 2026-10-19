@@ -28,6 +28,8 @@ import { claimStepScript, createFakeRedis } from './testing/fake-redis';
  */
 const USER_ID = '00000000-0000-4000-8000-000000000001';
 const TENANT_ID = '00000000-0000-4000-8000-0000000000aa';
+/** Otro local (el super-admin entra en él con switch-tenant). */
+const OTHER_TENANT_ID = '00000000-0000-4000-8000-0000000000bb';
 
 const PASSWORD = 'Clave-de-prueba-1';
 // Coste 4: un hash de verdad para el login, sin hacer lentas las pruebas.
@@ -69,7 +71,14 @@ function makeUsers() {
       },
     ],
   ]);
+  const venues = new Map([
+    [TENANT_ID, { id: TENANT_ID, slug: 'luna', deletedAt: null }],
+    [OTHER_TENANT_ID, { id: OTHER_TENANT_ID, slug: 'mar', deletedAt: null }],
+  ]);
   const tx = {
+    venue: {
+      findUnique: async ({ where }: { where: { id: string } }) => venues.get(where.id) ?? null,
+    },
     user: {
       findUnique: async ({ where }: { where: { id: string } }) => users.get(where.id) ?? null,
       findMany: async ({ where }: { where: { email: { equals: string } } }) =>
@@ -184,8 +193,15 @@ describe('2FA: GET/POST /v1/auth/totp…', () => {
     expect(res.headers['cache-control']).toBe('no-store');
   });
 
+  it('POST setup sin la contraseña → 400; con una mala → 403 PASSWORD_INVALID (nunca 401)', async () => {
+    expect((await call('POST', '/v1/auth/totp/setup', {})).statusCode).toBe(400);
+    const res = await call('POST', '/v1/auth/totp/setup', { password: 'no-es-esta' });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: 'PASSWORD_INVALID' });
+  });
+
   it('POST setup → exactamente { otpauthUrl, secret, qrPngDataUrl }', async () => {
-    const res = await call('POST', '/v1/auth/totp/setup');
+    const res = await call('POST', '/v1/auth/totp/setup', { password: PASSWORD });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { otpauthUrl: string; secret: string; qrPngDataUrl: string };
     expect(Object.keys(body).sort()).toEqual(['otpauthUrl', 'qrPngDataUrl', 'secret']);
@@ -195,11 +211,12 @@ describe('2FA: GET/POST /v1/auth/totp…', () => {
   });
 
   it('POST confirm con código mal escrito → 400 (validación)', async () => {
-    expect((await call('POST', '/v1/auth/totp/confirm', { code: 'abc' })).statusCode).toBe(400);
+    expect((await call('POST', '/v1/auth/totp/confirm', { code: 'abc', password: PASSWORD })).statusCode).toBe(400);
+    expect((await call('POST', '/v1/auth/totp/confirm', { code: '123456' })).statusCode).toBe(400);
   });
 
   it('POST confirm con código malo → 403 en castellano', async () => {
-    const res = await call('POST', '/v1/auth/totp/confirm', { code: '000000' });
+    const res = await call('POST', '/v1/auth/totp/confirm', { code: '000000', password: PASSWORD });
     expect(res.statusCode).toBe(403);
     // El panel decide con el código; el texto solo tiene que ser en castellano.
     expect(res.json()).toMatchObject({ code: 'TOTP_INVALID', detail: expect.stringMatching(/incorrecto/) });
@@ -207,7 +224,10 @@ describe('2FA: GET/POST /v1/auth/totp…', () => {
 
   it('POST confirm con el código de la app ("123 456" también vale) → { enabled: true }', async () => {
     const code = codeAt(secret);
-    const res = await call('POST', '/v1/auth/totp/confirm', { code: `${code.slice(0, 3)} ${code.slice(3)}` });
+    const res = await call('POST', '/v1/auth/totp/confirm', {
+      code: `${code.slice(0, 3)} ${code.slice(3)}`,
+      password: PASSWORD,
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ enabled: true });
     expect(users.get(USER_ID)!.totpSecret).toMatch(/^tv1:/);
@@ -215,7 +235,7 @@ describe('2FA: GET/POST /v1/auth/totp…', () => {
   });
 
   it('POST setup ya activada → 409', async () => {
-    expect((await call('POST', '/v1/auth/totp/setup')).statusCode).toBe(409);
+    expect((await call('POST', '/v1/auth/totp/setup', { password: PASSWORD })).statusCode).toBe(409);
   });
 
   it('POST disable: código malo 403; bueno → { enabled: false }', async () => {
@@ -440,6 +460,72 @@ describe('sesión en cookie HttpOnly (apps nuevas)', () => {
     expect(tokenIn(setCookieOf(res))).not.toBe(token);
     expect(res.json()).not.toHaveProperty('refreshToken');
     expect(bodyRefreshMetric.inc).toHaveBeenCalledWith({ route: 'refresh', client: 'migration', result: 'allowed' });
+  });
+});
+
+describe('super-admin: POST /v1/auth/switch-tenant con 2FA; el local elegido sigue al refrescar', () => {
+  const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+
+  function post(url: string, body: unknown, authorization?: string) {
+    return app.inject({
+      method: 'POST',
+      url,
+      headers: { 'cf-connecting-ip': '203.0.113.13', origin: ADMIN_ORIGIN, ...(authorization ? { authorization } : {}) },
+      payload: body as object,
+    });
+  }
+
+  function claimsOf(accessToken: string): Record<string, unknown> {
+    return JSON.parse(Buffer.from(accessToken.split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
+  }
+
+  beforeEach(async () => {
+    await resetIpRateLimits();
+    users.set(USER_ID, { ...users.get(USER_ID)!, isSuperAdmin: true, totpSecret: SECRET });
+  });
+  afterEach(() => {
+    users.set(USER_ID, { ...users.get(USER_ID)!, isSuperAdmin: false, totpSecret: null });
+  });
+
+  it('a otro local: sin código 403 TOTP_REQUIRED; con él, token del local y el refresco lo mantiene; volver no pide código', async () => {
+    const login = (await post('/v1/auth/login', { email: EMAIL, password: PASSWORD })).json() as {
+      accessToken: string;
+      refreshToken: string;
+    };
+    const sid = claimsOf(login.accessToken).sid;
+    expect(sid).toEqual(expect.any(String));
+    const auth = `Bearer ${login.accessToken}`;
+
+    const noCode = await post('/v1/auth/switch-tenant', { tenantId: OTHER_TENANT_ID }, auth);
+    expect(noCode.statusCode).toBe(403);
+    expect(noCode.json()).toMatchObject({ code: 'TOTP_REQUIRED' });
+
+    const switched = await post('/v1/auth/switch-tenant', { tenantId: OTHER_TENANT_ID, totpCode: codeAt(SECRET) }, auth);
+    expect(switched.statusCode).toBe(200);
+    expect(switched.json()).toMatchObject({ tenantId: OTHER_TENANT_ID, venueSlug: 'mar' });
+    expect(claimsOf(switched.json().accessToken)).toMatchObject({ tenantId: OTHER_TENANT_ID, sid });
+
+    const refreshed = (await post('/v1/auth/refresh', { refreshToken: login.refreshToken })).json() as {
+      accessToken: string;
+      refreshToken: string;
+    };
+    expect(claimsOf(refreshed.accessToken)).toMatchObject({ tenantId: OTHER_TENANT_ID, venueSlug: 'mar', sid });
+
+    const back = await post('/v1/auth/switch-tenant', { tenantId: TENANT_ID }, `Bearer ${refreshed.accessToken}`);
+    expect(back.statusCode).toBe(200);
+    const again = (await post('/v1/auth/refresh', { refreshToken: refreshed.refreshToken })).json() as {
+      accessToken: string;
+    };
+    expect(claimsOf(again.accessToken)).toMatchObject({ tenantId: TENANT_ID, venueSlug: 'luna' });
+  });
+
+  it('tope por IP: a la 11.ª en un minuto, 429', async () => {
+    const login = (await post('/v1/auth/login', { email: EMAIL, password: PASSWORD })).json() as { accessToken: string };
+    const auth = `Bearer ${login.accessToken}`;
+    for (let i = 0; i < 10; i++) {
+      expect((await post('/v1/auth/switch-tenant', { tenantId: TENANT_ID }, auth)).statusCode).toBe(200);
+    }
+    expect((await post('/v1/auth/switch-tenant', { tenantId: TENANT_ID }, auth)).statusCode).toBe(429);
   });
 });
 

@@ -10,6 +10,7 @@ const user = {
   role: 'OWNER' as const,
   tenantId: '00000000-0000-4000-8000-0000000000aa',
   venueSlug: 'luna',
+  sid: 'fam-1',
 };
 // Conexión directa (sin proxy): la IP es la del socket (clientIp, common/http/client-ip).
 const req = { headers: { 'user-agent': 'x'.repeat(2000) }, socket: { remoteAddress: '203.0.113.7' } };
@@ -49,16 +50,19 @@ describe('TotpController — delega en el servicio con el usuario del token', ()
   it('status / setup', async () => {
     const { ctrl, enrollment } = makeController();
     await expect(ctrl.status(user)).resolves.toEqual({ enabled: false });
-    await ctrl.setup(user);
+    await ctrl.setup(user, { password: 'Clave-1' });
     expect(enrollment.status).toHaveBeenCalledWith(user.sub);
-    expect(enrollment.setup).toHaveBeenCalledWith(user.sub);
+    // La contraseña y la sesión (sid): solo la misma sesión vuelve a ver el secreto pendiente.
+    expect(enrollment.setup).toHaveBeenCalledWith(user.sub, 'Clave-1', 'fam-1');
   });
 
-  it('confirm / disable pasan código, IP y user-agent recortado', async () => {
+  it('confirm / disable pasan código (y contraseña al confirmar), IP y user-agent recortado', async () => {
     const { ctrl, enrollment } = makeController();
-    await expect(ctrl.confirm(user, { code: '123456' }, req as never)).resolves.toEqual({ enabled: true });
+    await expect(ctrl.confirm(user, { code: '123456', password: 'Clave-1' }, req as never)).resolves.toEqual({
+      enabled: true,
+    });
     await expect(ctrl.disable(user, { code: '654321' }, req as never)).resolves.toEqual({ enabled: false });
-    expect(enrollment.confirm).toHaveBeenCalledWith(user.sub, '123456', {
+    expect(enrollment.confirm).toHaveBeenCalledWith(user.sub, '123456', 'Clave-1', {
       ip: '203.0.113.7',
       userAgent: 'x'.repeat(512),
     });

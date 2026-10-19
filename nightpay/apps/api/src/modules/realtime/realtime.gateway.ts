@@ -25,6 +25,8 @@ export const MAX_ROOMS_PER_SOCKET = 20;
 export const LEGACY_SUBSCRIBE_WINDOW_MS = 30 * 60 * 1000;
 /** Respuesta a un subscribe sin sesión pasada la fecha de corte. */
 export const LEGACY_SUBSCRIBE_CLOSED_ERROR = 'Inicia sesión otra vez';
+/** La sesión del handshake caducó (la conexión sigue abierta): hay que reconectar con el token nuevo. */
+export const SESSION_EXPIRED_ERROR = 'Sesión caducada: vuelve a conectar';
 
 const SubscribeSchema = z.object({ paymentId: z.string().uuid() });
 
@@ -43,7 +45,9 @@ type LegacyResult = 'allowed' | 'denied' | 'closed';
  *   - server → room: payment:completed { paymentId, status: AUTHORIZED|FAILED|EXPIRED, tipCents }
  *
  * Acceso: con la sesión del personal en el handshake (`auth: { token }` o
- * `Authorization: Bearer`), solo cobros de SU local. Sin sesión (versiones
+ * `Authorization: Bearer`), solo cobros de SU local y mientras ese token no
+ * caduque (se mira en cada subscribe: la conexión puede durar más que él;
+ * las apps reconectan con el token del momento). Sin sesión (versiones
  * antiguas en caché de las apps de la chica y del TPV) se mantiene, con aviso
  * en el log y la métrica nightpay_ws_legacy_subscribes_total, la suscripción a
  * cobros creados en los últimos 30 min, y solo hasta
@@ -106,6 +110,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const { paymentId } = parsed.data;
     await client.data.authReady;
     const staff = client.data.staff;
+    if (staff && tokenExpired(staff)) return { ok: false, error: SESSION_EXPIRED_ERROR };
     if (!staff && !this.legacyOpen()) return this.rejectLegacy(client);
 
     const allowed = staff
@@ -211,6 +216,11 @@ function handshakeToken(client: Socket): string | null {
   const auth = client.handshake?.auth as { token?: unknown } | undefined;
   if (typeof auth?.token === 'string' && auth.token.length > 0) return auth.token.replace(/^Bearer\s+/i, '');
   return bearerToken(client.handshake?.headers?.authorization);
+}
+
+/** `exp` del JWT (s) ya pasado. Los tokens de sesión siempre lo llevan (AuthService). */
+function tokenExpired(staff: JwtPayload, now = Date.now()): boolean {
+  return typeof staff.exp === 'number' && staff.exp * 1000 <= now;
 }
 
 /** Salas de cobro de la conexión (la sala propia del socket no cuenta). */

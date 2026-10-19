@@ -12,7 +12,7 @@ import type { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MetricsService } from '../metrics/metrics.service';
-import { ACCOUNT_POLICY, LockoutService } from './lockout.service';
+import { ACCOUNT_POLICY, LockoutService, PER_IP_POLICY } from './lockout.service';
 import { clampEmail, loginLockKeys, normalizeLoginEmail, type LoginLockKeys } from './login-keys';
 import {
   passwordFingerprint,
@@ -20,6 +20,7 @@ import {
   RefreshTokenService,
   type RotatedRefresh,
 } from './refresh-token.service';
+import { TotpService } from './totp.service';
 import type { JwtPayload, LoginRequest, LoginResponse, RefreshResponse } from '@nightpay/contracts';
 
 const BCRYPT_ROUNDS = 10;
@@ -43,6 +44,20 @@ type LoginUser = Prisma.UserGetPayload<{ include: { venue: true } }>;
 export type IssuedLogin = LoginResponse & { refreshToken: string };
 export type IssuedRefresh = RefreshResponse & { refreshToken: string };
 
+export interface SwitchTenantOptions {
+  /** Código 2FA: obligatorio para entrar en un local que no es el suyo. */
+  totpCode?: string;
+  /** sid del access token: la sesión que recuerda el local elegido. */
+  sessionId?: string;
+  ip?: string;
+  userAgent?: string;
+}
+
+interface VenueRef {
+  readonly id: string;
+  readonly slug: string;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -52,6 +67,7 @@ export class AuthService {
   private readonly audit: AuditService;
   private readonly metrics: MetricsService;
   private readonly refreshTokens: RefreshTokenService;
+  private readonly totp: TotpService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -60,6 +76,7 @@ export class AuthService {
     @Inject(AuditService) audit: AuditService,
     @Inject(MetricsService) metrics: MetricsService,
     @Inject(RefreshTokenService) refreshTokens: RefreshTokenService,
+    @Inject(TotpService) totp: TotpService,
   ) {
     this.prisma = prisma;
     this.jwt = jwt;
@@ -67,6 +84,7 @@ export class AuthService {
     this.audit = audit;
     this.metrics = metrics;
     this.refreshTokens = refreshTokens;
+    this.totp = totp;
   }
 
   async hashPassword(plain: string): Promise<string> {
@@ -79,18 +97,19 @@ export class AuthService {
 
   /**
    * Login. Cross-tenant por diseno (no sabemos tenant antes del lookup).
-   * - Lockout via Redis (multi-nodo safe); política en LockoutService.
+   * - Lockout via Redis (multi-nodo safe); política en LockoutService. El
+   *   intento se cuenta antes de bcrypt (reserveAttempt, atómico).
    * - Audit log de exitos y fallos.
    */
   async login(input: LoginRequest, ip?: string, userAgent?: string): Promise<IssuedLogin> {
     const keys = loginLockKeys(input.email, ip);
-    await this.assertLoginAllowed(keys, input.email, ip, userAgent);
+    const attempt = await this.reserveLoginAttempt(keys, input.email, ip, userAgent);
 
     const user = await this.findLoginUser(input.email);
     // Sin usuario se compara igual contra un hash ficticio (mismo tiempo).
     const ok = await this.verifyPassword(input.password, user?.passwordHash ?? DUMMY_BCRYPT_HASH);
     if (!user || !ok) {
-      return this.failLogin(keys, input.email, user, ip, userAgent);
+      return this.failLogin(attempt, input.email, user, ip, userAgent);
     }
 
     if (input.venueSlug && input.venueSlug !== user.venue.slug) {
@@ -113,20 +132,21 @@ export class AuthService {
     await this.lockout.clear(keys.account);
     if (keys.trusted) await this.lockout.markTrusted(keys.trusted);
 
+    const refresh = await this.refreshTokens.issue(user.id, user.tenantId, {
+      pwdFp: passwordFingerprint(user.passwordHash),
+    });
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       tenantId: user.tenantId,
       venueSlug: user.venue.slug,
+      sid: refresh.family,
     };
 
     const accessToken = await this.jwt.signAsync(payload, {
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
-    });
-
-    const refresh = await this.refreshTokens.issue(user.id, user.tenantId, {
-      pwdFp: passwordFingerprint(user.passwordHash),
     });
 
     this.metrics.authLogins.inc({ outcome: 'ok' });
@@ -157,33 +177,35 @@ export class AuthService {
     };
   }
 
-  /** Bloqueo por IP siempre; el de cuenta no aplica a una pareja email|IP de confianza. */
-  private async assertLoginAllowed(
+  /**
+   * Cuenta el intento (por IP y por cuenta) ANTES de mirar la contraseña, en
+   * un solo paso en Redis: muchas peticiones a la vez no prueban más de 5
+   * contraseñas. Bloqueo por IP siempre; el de cuenta no aplica a una pareja
+   * email|IP de confianza. Devuelve los fallos por IP contando este.
+   */
+  private async reserveLoginAttempt(
     keys: LoginLockKeys,
     email: string,
     ip?: string,
     userAgent?: string,
-  ): Promise<void> {
-    const ipLock = await this.lockout.isLocked(keys.ip);
-    const lock = ipLock.locked ? ipLock : await this.accountLock(keys);
-    if (!lock.locked) return;
+  ): Promise<number> {
+    const trusted = keys.trusted ? await this.lockout.isTrusted(keys.trusted) : false;
+    const attempt = await this.lockout.reserveAttempt([
+      { key: keys.ip, policy: PER_IP_POLICY },
+      { key: keys.account, policy: ACCOUNT_POLICY, enforce: !trusted },
+    ]);
+    if (attempt.allowed) return attempt.counts[0] ?? 0;
 
     this.metrics.authLogins.inc({ outcome: 'locked' });
-    this.logger.warn(`Login locked for ${keys.ip} (${lock.ttlSeconds}s remaining)`);
+    this.logger.warn(`Login locked for ${keys.ip} (${attempt.ttlSeconds}s remaining)`);
     await this.audit.log({
       action: 'auth.login.locked',
       actorEmail: clampEmail(email),
       ip,
       userAgent,
-      payload: { ttlSeconds: lock.ttlSeconds, scope: ipLock.locked ? 'ip' : 'account' },
+      payload: { ttlSeconds: attempt.ttlSeconds, scope: attempt.gate === 0 ? 'ip' : 'account' },
     });
     throw new UnauthorizedException(MSG_TOO_MANY_ATTEMPTS);
-  }
-
-  private async accountLock(keys: LoginLockKeys): Promise<{ locked: boolean; ttlSeconds: number }> {
-    const lock = await this.lockout.isLocked(keys.account);
-    if (!lock.locked || !keys.trusted) return lock;
-    return (await this.lockout.isTrusted(keys.trusted)) ? { locked: false, ttlSeconds: 0 } : lock;
   }
 
   /**
@@ -210,15 +232,15 @@ export class AuthService {
     return same.length === 1 ? (same[0] ?? null) : null;
   }
 
+  /** El intento ya se contó al reservarlo (reserveLoginAttempt): aquí solo queda apuntarlo. */
   private async failLogin(
-    keys: LoginLockKeys,
+    count: number,
     email: string,
     user: LoginUser | null,
     ip?: string,
     userAgent?: string,
   ): Promise<never> {
-    const result = await this.lockout.recordFailure(keys.ip);
-    await this.lockout.recordFailure(keys.account, ACCOUNT_POLICY);
+    const locked = count >= PER_IP_POLICY.threshold;
     this.metrics.authLogins.inc({ outcome: 'failed' });
     await this.audit.log({
       action: 'auth.login.failed',
@@ -227,7 +249,7 @@ export class AuthService {
       tenantId: user?.tenantId,
       ip,
       userAgent,
-      payload: { reason: user ? 'bad_password' : 'unknown_user', count: result.count, locked: result.locked },
+      payload: { reason: user ? 'bad_password' : 'unknown_user', count, locked },
     });
     throw new UnauthorizedException(MSG_BAD_CREDENTIALS);
   }
@@ -253,12 +275,14 @@ export class AuthService {
     }
     await this.assertSamePassword(rotated, user, ip, userAgent);
 
+    const venue = await this.sessionVenue(rotated.family, user);
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
-      tenantId: user.tenantId,
-      venueSlug: user.venue.slug,
+      tenantId: venue.id,
+      venueSlug: venue.slug,
+      sid: rotated.family,
     };
     const accessToken = await this.jwt.signAsync(payload, {
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
@@ -279,6 +303,27 @@ export class AuthService {
       refreshToken: rotated.token,
       refreshExpiresIn: rotated.ttlSeconds,
     };
+  }
+
+  /**
+   * El local del access token: el suyo, o el que el super-admin eligió (con
+   * 2FA) en esta sesión, si sigue siendo super-admin y el local existe.
+   */
+  private async sessionVenue(
+    family: string,
+    user: { tenantId: string; isSuperAdmin: boolean; venue: { slug: string } },
+  ): Promise<VenueRef> {
+    const home: VenueRef = { id: user.tenantId, slug: user.venue.slug };
+    const chosen = await this.refreshTokens.activeVenue(family);
+    if (!chosen || chosen === home.id) return home;
+    const venue = user.isSuperAdmin
+      ? await this.prisma.asSystem((tx) =>
+          tx.venue.findUnique({ where: { id: chosen }, select: { id: true, slug: true, deletedAt: true } }),
+        )
+      : null;
+    if (venue && !venue.deletedAt) return { id: venue.id, slug: venue.slug };
+    await this.refreshTokens.setActiveVenue(family, null);
+    return home;
   }
 
   /** Rota el refresh; si era un reuso (robo), lo deja en el audit antes de rechazarlo. */
@@ -333,17 +378,20 @@ export class AuthService {
   /**
    * Super-admin only: cambia el tenant activo del JWT.
    * Emite un nuevo access token con tenantId destino. El refresh token
-   * permanece el mismo (sigue ligado al user original).
+   * permanece el mismo (sigue ligado al user original); la sesión (sid)
+   * recuerda el local elegido y los refrescos lo mantienen sin volver a
+   * pedir nada.
    *
    * Si el user no es super admin → 403.
+   * Otro local que el suyo → código 2FA (TOTP_REQUIRED / INVALID / LOCKED…).
    * Si el venue destino no existe / está borrado → 404.
    */
   async switchTenant(
     userId: string,
     targetTenantId: string,
-    ip?: string,
-    userAgent?: string,
+    opts: SwitchTenantOptions = {},
   ): Promise<{ accessToken: string; expiresIn: number; tenantId: string; venueSlug: string }> {
+    const { ip, userAgent } = opts;
     // El super-admin pertenece a SU local: con otro local activo, el filtro por
     // local del middleware no lo encontraría (403/401). acrossVenues lo quita.
     const user = await this.prisma.acrossVenues((tx) =>
@@ -353,6 +401,7 @@ export class AuthService {
           id: true,
           email: true,
           role: true,
+          tenantId: true,
           isSuperAdmin: true,
           deletedAt: true,
         },
@@ -364,6 +413,10 @@ export class AuthService {
     if (!user.isSuperAdmin) {
       throw new ForbiddenException('Solo super admins pueden cambiar de local');
     }
+    // Entrar como dueño en un local ajeno es lo mismo que la consola: con 2FA.
+    // Volver al suyo, no (el refresco ya se lo da).
+    const otherVenue = targetTenantId !== user.tenantId;
+    if (otherVenue) await this.totp.assertForUser(user.id, opts.totpCode);
 
     const venue = await this.prisma.asSystem((tx) =>
       tx.venue.findUnique({
@@ -375,12 +428,15 @@ export class AuthService {
       throw new NotFoundException('Local destino no encontrado');
     }
 
+    if (opts.sessionId) await this.refreshTokens.setActiveVenue(opts.sessionId, otherVenue ? venue.id : null);
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       tenantId: venue.id,
       venueSlug: venue.slug,
+      ...(opts.sessionId ? { sid: opts.sessionId } : {}),
     };
     const accessToken = await this.jwt.signAsync(payload, {
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
@@ -393,7 +449,7 @@ export class AuthService {
       tenantId: venue.id,
       ip,
       userAgent,
-      payload: { fromUser: user.id, toVenue: venue.slug },
+      payload: { fromUser: user.id, toVenue: venue.slug, twoFactor: otherVenue },
     });
 
     this.logger.log(`SUPER_ADMIN ${user.email} switched tenant to ${venue.slug}`);

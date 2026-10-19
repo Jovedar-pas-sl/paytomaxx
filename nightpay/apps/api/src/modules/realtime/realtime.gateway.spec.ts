@@ -5,6 +5,7 @@ import {
   MAX_ROOMS_PER_SOCKET,
   LEGACY_SUBSCRIBE_CLOSED_ERROR,
   LEGACY_SUBSCRIBE_WINDOW_MS,
+  SESSION_EXPIRED_ERROR,
 } from './realtime.gateway';
 
 /** Antes de la fecha de corte por defecto (2026-11-15 00:00 de Madrid). */
@@ -50,9 +51,12 @@ function makeGateway(legacyUntil?: string) {
   const findUnique = vi.fn(({ where }: { where: { id: string } }) => Promise.resolve(payments[where.id] ?? null));
   const prisma = { asSystem: vi.fn((fn: (tx: unknown) => unknown) => fn({ payment: { findUnique } })) };
   const jwt = {
-    verifyAsync: vi.fn((token: string) =>
-      token === 'buen-token' ? Promise.resolve(STAFF) : Promise.reject(new Error('invalid signature')),
-    ),
+    verifyAsync: vi.fn((token: string) => {
+      if (token === 'buen-token') return Promise.resolve(STAFF);
+      // Vale 1 min desde que se conecta (exp en segundos, como el JWT de verdad).
+      if (token === 'token-de-1-min') return Promise.resolve({ ...STAFF, exp: Math.floor(Date.now() / 1000) + 60 });
+      return Promise.reject(new Error('invalid signature'));
+    }),
   };
   const metrics = { wsConnectionsActive: { inc: vi.fn(), dec: vi.fn() }, wsLegacySubscribes: { inc: vi.fn() } };
   const config = { get: vi.fn((key: string) => (key === 'REALTIME_LEGACY_SUBSCRIBE_UNTIL' ? legacyUntil : undefined)) };
@@ -68,6 +72,20 @@ describe('RealtimeGateway: suscripción a un cobro', () => {
     g = makeGateway();
   });
   afterEach(() => vi.useRealTimers());
+
+  it('la sesión caduca con la conexión abierta: los subscribe siguientes se rechazan (sin pasar a la vía antigua)', async () => {
+    const client = makeClient({ token: 'token-de-1-min' });
+    await g.gateway.handleConnection(client as never);
+    await expect(g.gateway.handleSubscribe({ paymentId: PAY_A }, client as never)).resolves.toMatchObject({ ok: true });
+
+    vi.setSystemTime(BEFORE_CUTOFF.getTime() + 61_000);
+    await expect(g.gateway.handleSubscribe({ paymentId: PAY_A }, client as never)).resolves.toEqual({
+      ok: false,
+      error: SESSION_EXPIRED_ERROR,
+    });
+    // Ni un cobro reciente por la vía sin sesión.
+    expect(g.metrics.wsLegacySubscribes.inc).not.toHaveBeenCalled();
+  });
 
   it('con sesión del personal (handshake.auth.token): solo cobros de su local', async () => {
     const client = makeClient({ token: 'buen-token' });

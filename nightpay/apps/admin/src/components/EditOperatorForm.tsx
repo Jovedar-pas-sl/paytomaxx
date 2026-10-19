@@ -10,12 +10,15 @@ import {
   type PayoutMetadata,
   type PayoutMethod,
 } from '@/lib/api';
+import { ApiError, needsTotpCode, totpLockedUntil } from '@/lib/api-errors';
 import { bpsToPercentInput, parsePercentToBps } from '@/lib/commission';
 import { formatDateTime } from '@/lib/dates';
 import { changedFields } from '@/lib/diff';
-import { payoutAddressError, payoutValueFromSaved, type PayoutValue } from '@/lib/payout-address';
+import { OTP_LENGTH } from '@/lib/otp';
+import { payoutAddressError, payoutValueFromSaved, touchesPayoutAccount, type PayoutValue } from '@/lib/payout-address';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
+import { OtpInput } from './OtpInput';
 import { PayoutMethodForm } from './PayoutMethodForm';
 
 /** Lo que este formulario puede cambiar de una chica. */
@@ -46,6 +49,8 @@ function snapshotOf(operator: Operator): EditSnapshot {
  * Editar una chica. Solo se manda lo que se cambió: así no se pisa la
  * dirección de cobro que ella guardó desde su enlace mientras tanto. Comisión,
  * estado y método de cobro son del dueño (el API se lo rechaza al encargado).
+ * Cambiar la cuenta de cobro, con la 2FA activada, pide el código (el API lo
+ * dice con TOTP_REQUIRED y entonces aparece el campo).
  */
 export function EditOperatorForm({
   operator,
@@ -64,9 +69,15 @@ export function EditOperatorForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** El API pidió el código 2FA (403 TOTP_REQUIRED) para cambiar la cuenta de cobro. */
+  const [askedForCode, setAskedForCode] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
+  /** 429 TOTP_LOCKED: hasta cuándo no se puede probar otro código. */
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     setError(null);
     setNotice(null);
     const commissionBps = parsePercentToBps(commissionPct);
@@ -95,12 +106,18 @@ export function EditOperatorForm({
         ? { displayName: changes.displayName }
         : {};
     if (Object.keys(allowed).length === 0) return setNotice('No hay cambios que guardar.');
+    const withCode = askedForCode && touchesPayoutAccount(allowed);
+    if (withCode && totpCode.length !== OTP_LENGTH) return setError('Pon los 6 números de tu app de verificación.');
 
     setSubmitting(true);
     try {
-      await updateOperator(operator.id, allowed);
+      await updateOperator(operator.id, withCode ? { ...allowed, totpCode } : allowed);
       onSaved();
     } catch (err) {
+      const lockEnds = totpLockedUntil(err, Date.now());
+      if (lockEnds !== null) setLockedUntil(lockEnds);
+      if (needsTotpCode(err)) setAskedForCode(true);
+      if (lockEnds !== null || (err instanceof ApiError && err.code === 'TOTP_INVALID')) setTotpCode('');
       setError((err as Error).message);
     } finally {
       setSubmitting(false);
@@ -148,6 +165,18 @@ export function EditOperatorForm({
         />
       </div>
 
+      {askedForCode ? (
+        <OtpInput
+          label="Código de tu app de verificación (2FA)"
+          value={totpCode}
+          onChange={setTotpCode}
+          autoSubmit
+          lockedUntil={lockedUntil}
+          disabled={submitting}
+          required
+          hint="Cambiar a dónde va su dinero pide el código. Al poner el sexto número se guarda."
+        />
+      ) : null}
       {notice ? <Notice tone="info">{notice}</Notice> : null}
       {error ? (
         <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>

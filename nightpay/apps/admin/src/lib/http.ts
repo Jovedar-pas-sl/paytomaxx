@@ -120,14 +120,20 @@ export function logout(): Promise<boolean> {
 
 // ─── Cambio de local (super-admin) ────────────────────────────────
 
+/**
+ * A otro local que el suyo hace falta el código 2FA (403 TOTP_REQUIRED /
+ * TOTP_INVALID…, en castellano). El API recuerda el local elegido en la
+ * sesión: los refrescos ya traen el token de ese local.
+ */
 export async function switchTenant(
   tenantId: string,
+  totpCode?: string,
 ): Promise<{ accessToken: string; expiresIn: number; tenantId: string; venueSlug: string }> {
   const res = await authedFetch('/v1/auth/switch-tenant', {
     method: 'POST',
-    body: JSON.stringify({ tenantId }),
+    body: JSON.stringify(totpCode ? { tenantId, totpCode } : { tenantId }),
   });
-  if (!res.ok) throw await apiError(res);
+  if (!res.ok) throw await totpAwareError(res);
   return res.json();
 }
 
@@ -141,15 +147,16 @@ export function applySwitchedTenant(switched: { accessToken: string; tenantId: s
   if (user) client.updateUser({ ...user, tenantId: switched.tenantId, venueSlug: switched.venueSlug });
 }
 
-/** Cambia el local activo del super-admin. Quien llama recarga la página después. */
-export async function switchToVenue(tenantId: string): Promise<void> {
-  applySwitchedTenant(await switchTenant(tenantId));
+/** Cambia el local activo del super-admin (con su código 2FA). Quien llama recarga la página después. */
+export async function switchToVenue(tenantId: string, totpCode?: string): Promise<void> {
+  applySwitchedTenant(await switchTenant(tenantId, totpCode));
 }
 
 /**
- * El refresh da el token del local de siempre. El super-admin que había
- * elegido otro local lo recupera aquí, sin recargar la página; si no se
- * puede, se vuelve a su local (syncVenueFromToken).
+ * El API recuerda el local elegido en la sesión y el refresh ya trae su
+ * token. Si aun así da el del local de siempre (sesión de antes de eso), se
+ * pide otra vez el elegido; sin código 2FA el API no lo da y se vuelve a su
+ * local (syncVenueFromToken).
  */
 async function keepSelectedVenue(accessToken: string): Promise<string> {
   const user = getUser();

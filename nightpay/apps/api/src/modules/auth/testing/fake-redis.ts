@@ -3,6 +3,8 @@
  * Solo los comandos que usan sus servicios. La caducidad usa Date.now(), así
  * que vale con vi.useFakeTimers() / vi.setSystemTime().
  */
+import { RESERVE_ATTEMPT_LUA } from '../lockout.service';
+
 type ScriptHandler = (fake: FakeRedis, keys: string[], args: string[]) => Promise<unknown>;
 
 interface Entry {
@@ -38,6 +40,8 @@ function globToRegExp(pattern: string): RegExp {
 export class FakeRedis {
   private readonly store = new Map<string, Entry>();
   private readonly scripts = new Map<string, ScriptHandler>();
+  /** Como Redis: un script detrás de otro (sin esto, dos a la vez se intercalarían en los await). */
+  private scriptQueue: Promise<unknown> = Promise.resolve();
 
   defineScript(lua: string, handler: ScriptHandler): void {
     this.scripts.set(lua, handler);
@@ -105,7 +109,9 @@ export class FakeRedis {
     const handler = this.scripts.get(script);
     if (!handler) throw new Error('FakeRedis: script Lua no emulado');
     const all = rest.map(String);
-    return handler(this, all.slice(0, numKeys), all.slice(numKeys));
+    const run = this.scriptQueue.then(() => handler(this, all.slice(0, numKeys), all.slice(numKeys)));
+    this.scriptQueue = run.catch(() => undefined);
+    return run;
   }
 
   multi(): FakeMulti {
@@ -159,6 +165,35 @@ export async function claimStepScript(fake: FakeRedis, keys: string[], args: str
   return 1;
 }
 
+/**
+ * Misma semántica que RESERVE_ATTEMPT_LUA (lockout.service): si alguna clave
+ * que cuenta está bloqueada, nada; si no, cuenta en todas y bloquea al umbral.
+ * createFakeRedis() ya lo registra.
+ */
+export async function reserveAttemptScript(fake: FakeRedis, keys: string[], args: string[]): Promise<number[]> {
+  const n = keys.length / 2;
+  for (let i = 0; i < n; i++) {
+    if (args[i * 4 + 3] !== '1') continue;
+    const ttl = await fake.ttl(keys[i * 2 + 1]!);
+    if (ttl > 0) return [0, i + 1, ttl];
+  }
+  const out = [1];
+  for (let i = 0; i < n; i++) {
+    const [fail, locked] = [keys[i * 2]!, keys[i * 2 + 1]!];
+    const [threshold, window, lockSec] = [Number(args[i * 4]), Number(args[i * 4 + 1]), Number(args[i * 4 + 2])];
+    const c = await fake.incr(fail);
+    if (c === 1) await fake.expire(fail, window);
+    if (c >= threshold) {
+      await fake.set(locked, '1', 'EX', lockSec, 'NX');
+      await fake.del(fail);
+    }
+    out.push(c);
+  }
+  return out;
+}
+
 export function createFakeRedis(): FakeRedis {
-  return new FakeRedis();
+  const fake = new FakeRedis();
+  fake.defineScript(RESERVE_ATTEMPT_LUA, reserveAttemptScript);
+  return fake;
 }
