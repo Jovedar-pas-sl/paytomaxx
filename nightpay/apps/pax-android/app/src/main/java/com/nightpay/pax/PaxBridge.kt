@@ -1,5 +1,6 @@
 package com.nightpay.pax
 
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
@@ -20,8 +21,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Mismo contrato que apps/operator/src/lib/pax-bridge.ts.
  *
  * Cobrar del saldo (LocalReaders): capabilities, scanQr (cámara), readNfc
- * (ficha NFC) y cancelRead. La cámara y el NFC van "de uno en uno" con los
- * cobros: el lector sin contacto es el mismo aparato.
+ * (ficha NFC) y cancelRead. Recepción y «Preparar fichas»: writeNfc (graba el
+ * enlace de la ficha, solo si está en blanco y solo enlaces de fichas de la
+ * propia pantalla). La cámara y el NFC van "de uno en uno" con los cobros: el
+ * lector sin contacto es el mismo aparato.
  */
 class PaxBridge(
     private val webView: WebView,
@@ -73,6 +76,22 @@ class PaxBridge(
     /** Ficha NFC: { uid, url } (número de serie y el enlace grabado). */
     @JavascriptInterface
     fun readNfc(json: String) = runExclusive(json) { req -> readers.readNfc(timeoutOf(req, NFC_TIMEOUT_MS)) }
+
+    /**
+     * Ficha NFC en blanco: graba { url } y devuelve { uid, url, written }.
+     * Solo enlaces de ficha de la pantalla de OxioPay (…/?ficha=<código>): una
+     * página que no es la nuestra no graba nada (trusted) y la nuestra no
+     * puede grabar otra cosa.
+     */
+    @JavascriptInterface
+    fun writeNfc(json: String) = runExclusive(json) { req ->
+        val url = req.getString("url")
+        if (!isFichaUrl(url)) {
+            failure("badRequest", "Ese enlace no es de una ficha de OxioPay")
+        } else {
+            readers.writeNfc(url, req.optBoolean("onlyIfBlank", true), timeoutOf(req, NFC_TIMEOUT_MS))
+        }
+    }
 
     /** Corta la espera de la ficha (el camarero pulsa Cancelar). */
     @JavascriptInterface
@@ -132,6 +151,15 @@ class PaxBridge(
         }
     }
 
+    /** …/?ficha=<código> del mismo dominio que la pantalla del datáfono (BuildConfig.PAX_URL). */
+    private fun isFichaUrl(url: String): Boolean {
+        if (url.length > MAX_FICHA_URL) return false
+        val pax = Uri.parse(BuildConfig.PAX_URL)
+        val prefix = pax.scheme + "://" + pax.encodedAuthority + "/?ficha="
+        val token = url.removePrefix(prefix)
+        return url.startsWith(prefix) && FICHA_TOKEN.matches(token)
+    }
+
     /** El plazo que pide la web, dentro de unos límites (la web espera algo más: 130 s). */
     private fun timeoutOf(req: JSONObject, fallback: Long): Long =
         req.optLong("timeoutMs", fallback).coerceIn(MIN_READ_MS, MAX_READ_MS)
@@ -156,5 +184,8 @@ class PaxBridge(
         private const val MIN_READ_MS = 5_000L
         private const val MAX_READ_MS = 90_000L
         private val REQUEST_ID = Regex("\"requestId\"\\s*:\\s*\"([^\"]{1,64})\"")
+        /** El código de la ficha: 16–64 caracteres base64url (como isWalletCardToken). */
+        private val FICHA_TOKEN = Regex("[A-Za-z0-9_-]{16,64}")
+        private const val MAX_FICHA_URL = 200
     }
 }
