@@ -226,8 +226,14 @@ El API no arranca y el log dice `MIGRACIONES FALLIDAS: <nombre>` o
    (Terminal de `nightpay-api`, carpeta `/repo/packages/db`).
 4. **Redeploy**.
 
-Mientras tanto, con `start-first` sigue sirviendo la versión anterior. Si no,
-**Deployments → la anterior → Rollback**.
+Mientras tanto, con `start-first` sigue sirviendo la versión anterior (ojo:
+sobre la base que la migración haya dejado; ver «Volver a la versión
+anterior»). Si no, **Deployments → la anterior → Rollback**.
+
+Las migraciones toman candados: llevan `SET lock_timeout = '5s'` y, si una
+transacción del API anterior tiene la tabla, fallan en 5 s en vez de encolar
+las escrituras de los saldos. Entonces se vuelve a desplegar (de día, fuera
+de la noche de cobro).
 
 ---
 
@@ -311,8 +317,28 @@ Cloudflare.
 ### Volver a la versión anterior
 Dokploy → servicio → **Deployments** → la anterior → **Rollback**
 (o Redeploy de ese commit). Las migraciones no se deshacen solas: si la
-versión nueva traía una, la anterior tiene que convivir con ella (todas las
-migraciones de este repo son aditivas).
+versión nueva traía una, la anterior tiene que convivir con ella.
+
+**Fichas NFC (20261021100000_recepcion_fichas), paso 1 de 2.** Esta
+migración NO es solo aditiva: pasa las fichas `ACTIVE` a `ISSUED` (las de un
+saldo vivo), `RETURNED` (las de un saldo ya cerrado, gastado o sumado) o
+`STOCK` (sin saldo), y el API anterior a ella solo paga con fichas `ACTIVE`.
+Para que se pueda volver atrás, en este paso el CHECK aún admite `ACTIVE`, la
+columna sigue con `ACTIVE` por defecto y el API nuevo lee `ACTIVE` como
+`ISSUED` (con saldo) o `STOCK` (sin saldo). Si hay que volver a una versión
+anterior a ella, **antes** de que el API viejo sirva:
+
+```sql
+BEGIN;
+SELECT set_config('app.bypass_rls', 'on', true);
+UPDATE wallet_cards SET status = 'ACTIVE' WHERE status IN ('ISSUED', 'STOCK', 'RETURNED');
+COMMIT;
+```
+
+(Las perdidas siguen `LOST` y no pagan; las bloqueadas, `BLOCKED`.) Al volver
+a la versión nueva no hace falta nada: lee las `ACTIVE`. El paso 2, en otra
+versión cuando esta lleve un tiempo sin volver atrás: convertir las `ACTIVE`
+que queden, cerrar el CHECK sin `ACTIVE` y poner `STOCK` por defecto.
 
 ---
 

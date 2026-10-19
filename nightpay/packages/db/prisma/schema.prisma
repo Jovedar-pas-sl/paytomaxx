@@ -960,8 +960,11 @@ model WalletCard {
   uid        String?
   walletId   String?   @db.Uuid
   /// STOCK (grabada, sin dar) → ISSUED (dada a un saldo) → RETURNED (devuelta,
-  /// otra vez en el stock) | LOST (perdida) | BLOCKED (bloqueada). Solo ISSUED paga.
-  status     String    @default("STOCK")
+  /// otra vez en el stock) | LOST (perdida o sustituida) | BLOCKED (bloqueada).
+  /// Solo ISSUED paga. ACTIVE = la del API anterior (paso 1 de 2 de
+  /// 20261021100000): con saldo vale como ISSUED, sin saldo como STOCK. Por eso
+  /// la base sigue con ACTIVE por defecto; el código pasa siempre el estado.
+  status     String    @default("ACTIVE")
   /// Local donde está: el de su stock o el que la dio.
   venueId    String?   @db.Uuid
   linkedById String?   @db.Uuid
