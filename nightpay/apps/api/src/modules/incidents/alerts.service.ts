@@ -119,11 +119,26 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       this.reports.pagosSaldo(venue.id, window),
     ]);
     const summary = summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo);
-    if (summary.count === 0 && open.length === 0) return; // local cerrado y nada pendiente
+    const cashDiff = await this.cashDiffCents(venue.id, window);
+    if (summary.count === 0 && open.length === 0 && !cashDiff) return; // local cerrado y nada pendiente
     const bankFilePending = summary.count > 0 && !(await this.bankFileCovers(venue.id, madridDay(from)));
     await this.sendOnce(`np:summary:${venue.id}:${today}`, 2 * 24 * 60 * 60, () =>
-      morningSummaryMessage(venue.name, summary, open.length, bankFilePending),
+      morningSummaryMessage(venue.name, summary, open.length, bankFilePending, cashDiff),
     );
+  }
+
+  /**
+   * Diferencia de caja de las noches cerradas en ese tramo (contado −
+   * esperado). Las 08:00 entran: es la hora del cierre automático.
+   */
+  private async cashDiffCents(venueId: string, window: { from: Date; to: Date }): Promise<number> {
+    const nights = await this.prisma.asSystem((tx) =>
+      tx.venueNight.findMany({
+        where: { tenantId: venueId, closedAt: { gt: window.from, lte: window.to }, cashDiffCents: { not: null } },
+        select: { cashDiffCents: true },
+      }),
+    );
+    return nights.reduce((sum, n) => sum + (n.cashDiffCents ?? 0), 0);
   }
 
   /** ¿Algún local del grupo ya subió un fichero del banco que cubre ese día? */

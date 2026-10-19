@@ -17,6 +17,7 @@ probarían nada de eso.
 | `anulaciones-devoluciones.int.spec.ts` | Anular consumos (deuda de la chica si ya cobró) y devoluciones simultáneas |
 | `cuadre-banco.int.spec.ts` | Importar el fichero de Redsys, clasificar líneas, Incidencias |
 | `consumos-informes.int.spec.ts` | Consumos del saldo en informes y en «Mi noche» |
+| `cierre-noche.int.spec.ts` | Cierre de la noche en pasos con arqueo: efectivo esperado (fondo − saldo devuelto en efectivo − pagos en efectivo a las chicas), diferencia congelada en el Z, un cobro pagándose bloquea, los avisos se confirman (y la nota de los cobros), lista de las chicas con 0 y 7 días de espera, caja sin contar al cerrarse sola |
 | `super-admin.int.spec.ts` | Super-admin con otro local activo |
 | `personal-sin-superusuario.int.spec.ts` | Lo del personal sin asSystem en la prueba (solo el local en el contexto): chicas, comisiones y pagos (crear y verificar), devolución con deuda, tesorería, saldos del panel, «Mi noche» y Z, Incidencias, Peanpe |
 | `aislamiento-rls.int.spec.ts` | RLS de la base aísla sola las seis tablas con FORCE RLS: con el local A en la sesión no se ve ni se escribe nada de B aunque la consulta no filtre; el local no se queda en la conexión |

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
+import { CloseCheckService } from '../../src/modules/nights/close-check.service';
 import { NightsService } from '../../src/modules/nights/nights.service';
 import { summarize } from '../../src/modules/reports/export-csv';
 
@@ -17,7 +18,8 @@ const cls = new ClsService(new AsyncLocalStorage());
  
 const prisma = new PrismaService(cls as any);
 const reports = new ReportsService(prisma as never);
-const nights = new NightsService(prisma as never, reports, { log: async () => undefined } as never);
+const checks = new CloseCheckService(prisma as never, {} as never, { get: () => undefined } as never);
+const nights = new NightsService(prisma as never, reports, { log: async () => undefined } as never, checks);
 
 // Como una petición del panel o de la app de la chica: el local en el contexto
 // (lo pone AuthGuard) y NADA de asSystem. La base es del rol dueño SIN

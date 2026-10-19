@@ -199,7 +199,7 @@ function ActivePanel({
         />
       );
     case 'nights':
-      return <NightsPanel isOwner={isOwner} />;
+      return <NightsPanel tabs={tabs} onNavigate={onNavigate} />;
     case 'incidents':
       return (
         <IncidentsPanel isOwner={isOwner} tabs={tabs} onNavigate={onNavigate} onOpenPayment={onOpenPayment} />

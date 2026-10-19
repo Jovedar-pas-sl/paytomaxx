@@ -1,24 +1,25 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
-import { z } from 'zod';
-import type { JwtPayload } from '@nightpay/contracts';
+import {
+  CloseNightSchema,
+  OpenNightSchema,
+  type CloseNightDto,
+  type JwtPayload,
+  type NightCloseCheck,
+  type OpenNightDto,
+} from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { NightsService, type MyNight, type NightListItem, type NightView } from './nights.service';
 
-const CloseNightSchema = z.object({
-  /** Cerrar aunque queden cobros sin resolver (solo el dueño, con nota). */
-  force: z.boolean().optional().default(false),
-  note: z.string().trim().max(300).optional(),
-});
-type CloseNightBody = z.infer<typeof CloseNightSchema>;
-
 /**
  * Noche del local (Fase 1D).
  *  - GET  /v1/nights/current     → noche abierta con su Z en vivo y lo pendiente.
- *  - POST /v1/nights/open        → abrir (una sola abierta por local).
- *  - POST /v1/nights/:id/close   → cerrar y congelar el Z.
+ *  - GET  /v1/nights/current/close-check → los pasos para cerrarla (cierre-noche).
+ *  - POST /v1/nights/open        → abrir (una sola abierta por local), con el fondo de caja.
+ *  - POST /v1/nights/:id/close   → cerrar: pasos, arqueo de caja y Z congelado.
+ *    409 NIGHT_CLOSE_BLOCKED / NIGHT_CLOSE_NEEDS_ACK con los pasos.
  *  - GET  /v1/nights             → últimas noches.
  *  - GET  /v1/nights/:id         → una noche con su Z.
  *  - GET  /v1/nights/mine        → la noche en curso de la chica que llama.
@@ -38,6 +39,12 @@ export class NightsController {
     return { night: await this.nights.current(user.tenantId) };
   }
 
+  @Get('current/close-check')
+  @Roles('OWNER', 'MANAGER')
+  async closeCheck(@CurrentUser() user: JwtPayload): Promise<NightCloseCheck> {
+    return this.nights.closeCheck(user.tenantId);
+  }
+
   @Get('mine')
   @Roles('OPERATOR')
   async mine(@CurrentUser() user: JwtPayload): Promise<MyNight> {
@@ -47,8 +54,11 @@ export class NightsController {
   @Post('open')
   @HttpCode(201)
   @Roles('OWNER', 'MANAGER')
-  async open(@CurrentUser() user: JwtPayload): Promise<NightView> {
-    return this.nights.open(user.tenantId, user.sub);
+  async open(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(OpenNightSchema)) body: OpenNightDto,
+  ): Promise<NightView> {
+    return this.nights.open(user.tenantId, user.sub, body.openingFloatCents);
   }
 
   @Post(':id/close')
@@ -57,12 +67,9 @@ export class NightsController {
   async close(
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(CloseNightSchema)) body: CloseNightBody,
+    @Body(new ZodValidationPipe(CloseNightSchema)) body: CloseNightDto,
   ): Promise<NightView> {
-    return this.nights.close(user.tenantId, { userId: user.sub, role: user.role }, id, {
-      force: body.force,
-      note: body.note,
-    });
+    return this.nights.close(user.tenantId, { userId: user.sub, role: user.role }, id, body);
   }
 
   @Get()

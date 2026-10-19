@@ -12,5 +12,7 @@ import { TelegramService } from './telegram.service';
   imports: [AuthModule, ReportsModule],
   controllers: [IncidentsController],
   providers: [IncidentsService, TelegramService, AlertsService, BackupMonitorService],
+  // El cierre de la noche cuenta las incidencias abiertas.
+  exports: [IncidentsService],
 })
 export class IncidentsModule {}

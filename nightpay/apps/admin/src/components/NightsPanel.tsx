@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Button, Card, Input, Modal } from '@nightpay/ui';
 import {
-  closeNight,
   fetchCurrentNight,
   fetchNight,
   fetchNights,
@@ -15,15 +14,20 @@ import {
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
+import { diffLabel, parseCashInput } from '@/lib/night-close';
+import type { PanelTab, TabKey } from '@/lib/roles';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { NightCajaBlock } from './NightCajaBlock';
+import { NightCloseScreen } from './NightCloseScreen';
 import { Notice } from './Notice';
 
 /**
- * Noche del local (Fase 1D). Se abre al empezar y se cierra al terminar: el
- * cierre congela el informe Z (totales, por tipo y por chica). No se cierra
- * con cobros sin resolver; si nadie la cierra, se cierra sola a las 08:00.
+ * Noche del local (Fase 1D). Se abre al empezar (con el fondo de caja) y se
+ * cierra al terminar en pasos: cobros, datáfonos, saldo, arqueo de caja,
+ * chicas e incidencias; al final se congela el informe Z con su caja. Si
+ * nadie la cierra, se cierra sola a las 08:00 (con la caja sin contar).
  */
-export function NightsPanel({ isOwner }: { isOwner: boolean }) {
+export function NightsPanel({ tabs, onNavigate }: { tabs: readonly PanelTab[]; onNavigate: (key: TabKey) => void }) {
   const tz = useVenueTimezone();
   /** undefined = cargando; null = no hay noche abierta. */
   const [current, setCurrent] = useState<NightView | null | undefined>(undefined);
@@ -32,9 +36,10 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [forcing, setForcing] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
-  const [note, setNote] = useState('');
+  /** La pantalla de cierre en pasos está abierta. */
+  const [closing, setClosing] = useState(false);
+  /** Fondo de caja al abrir (opcional). */
+  const [floatText, setFloatText] = useState('');
   const generation = useRef(0);
 
   const reload = useCallback(() => {
@@ -63,9 +68,7 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
     setError(null);
     try {
       await action();
-      setForcing(false);
-      setConfirmingClose(false);
-      setNote('');
+      setFloatText('');
       reload();
     } catch (err) {
       setError((err as Error).message);
@@ -85,14 +88,15 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
 
   const time = (iso: string) => formatDateTime(iso, tz, 'time');
   const day = (iso: string) => formatDateTime(iso, tz, 'weekday');
+  const float = parseCashInput(floatText);
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <div>
         <h2 style={titleStyle}>Noches</h2>
         <p style={hintStyle}>
-          Abre la noche al empezar y ciérrala al terminar: el cierre guarda el informe Z y ya no cambia. Si nadie la
-          cierra, se cierra sola a las 08:00.
+          Abre la noche al empezar y ciérrala al terminar: el cierre repasa lo pendiente, cuenta la caja y guarda el
+          informe Z, que ya no cambia. Si nadie la cierra, se cierra sola a las 08:00.
         </p>
       </div>
 
@@ -113,7 +117,22 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
       ) : current === null ? (
         <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
           <p style={{ margin: 0, fontWeight: 700, fontSize: '1.0625rem' }}>No hay ninguna noche abierta.</p>
-          <Button loading={busy} onClick={() => void run(openNight)}>
+          <Input
+            label="Fondo de caja (opcional)"
+            value={floatText}
+            onChange={(e) => setFloatText(e.target.value)}
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0,00"
+            maxLength={12}
+            error={float === null ? 'Escribe un importe, p. ej. 150 o 150,50.' : undefined}
+            hint="El efectivo con el que empieza la caja. Si no lo pones ahora, se pide al cerrar si hay efectivo."
+          />
+          <Button
+            loading={busy}
+            disabled={float === null}
+            onClick={() => void run(() => openNight(typeof float === 'number' ? { openingFloatCents: float } : {}))}
+          >
             Abrir noche
           </Button>
         </Card>
@@ -125,6 +144,9 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
             </p>
             <span style={liveStyle}>En vivo</span>
           </div>
+          {typeof current.openingFloatCents === 'number' ? (
+            <p style={hintSmall}>Fondo de caja: {formatEur(current.openingFloatCents)}</p>
+          ) : null}
           <ZSummary summary={current.z.summary} />
           <AdjustmentsBox adjustments={current.z.adjustments} />
           {current.pending.length > 0 ? (
@@ -132,7 +154,6 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
               <p style={{ margin: 0, fontWeight: 700 }}>
                 {current.pending.length === 1 ? '1 cobro sin resolver' : `${current.pending.length} cobros sin resolver`}:
                 resuélvelos en Pagos antes de cerrar.
-                {isOwner ? '' : ' Solo el dueño puede cerrar con cobros pendientes.'}
               </p>
               <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem' }}>
                 {current.pending.slice(0, 8).map((p) => (
@@ -143,48 +164,9 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
               </ul>
             </div>
           ) : null}
-          {forcing ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <Input
-                label="Por qué cierras con cobros sin resolver"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                maxLength={300}
-                placeholder="ej: BBVA lo confirma mañana"
-              />
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <Button loading={busy} onClick={() => void run(() => closeNight(current.id, { force: true, note }))}>
-                  Cerrar igualmente
-                </Button>
-                <Button variant="ghost" onClick={() => setForcing(false)}>
-                  Cancelar
-                </Button>
-              </div>
-            </div>
-          ) : confirmingClose ? (
-            <div role="group" aria-label="Confirmar cierre" style={confirmBox}>
-              <p style={{ margin: 0, fontWeight: 600 }}>
-                ¿Cerrar la noche? Se guarda el informe Z y ya no cambia.
-              </p>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <Button loading={busy} onClick={() => void run(() => closeNight(current.id, {}))}>
-                  Sí, cerrar la noche
-                </Button>
-                <Button variant="ghost" onClick={() => setConfirmingClose(false)} disabled={busy}>
-                  Cancelar
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <Button onClick={() => setConfirmingClose(true)}>Cerrar noche</Button>
-              {isOwner && current.pending.length > 0 ? (
-                <Button variant="ghost" onClick={() => setForcing(true)}>
-                  Cerrar con pendientes…
-                </Button>
-              ) : null}
-            </div>
-          )}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <Button onClick={() => setClosing(true)}>Cerrar noche</Button>
+          </div>
         </Card>
       )}
 
@@ -223,6 +205,7 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
                   <td data-label="Cierre">
                     {n.closedAt === null ? 'Abierta' : n.autoClosed ? 'Sola a las 08:00' : 'Cerrada'}
                     {n.pendingAtClose > 0 ? ` · ${n.pendingAtClose} pendientes` : ''}
+                    {n.cashDiffCents ? ` · caja: ${diffLabel(n.cashDiffCents).toLowerCase()}` : ''}
                   </td>
                   <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
                     <Button variant="ghost" style={smallBtn} onClick={() => void showNight(n.id)}>
@@ -257,11 +240,28 @@ export function NightsPanel({ isOwner }: { isOwner: boolean }) {
               {detail.pendingAtClose > 0 ? ` · ${detail.pendingAtClose} cobros sin resolver al cerrar` : ''}
               {detail.closeNote ? ` · «${detail.closeNote}»` : ''}
             </p>
+            {detail.z.caja ? <NightCajaBlock caja={detail.z.caja} /> : null}
             <ZSummary summary={detail.z.summary} />
             <AdjustmentsBox adjustments={detail.z.adjustments} />
           </div>
         ) : null}
       </Modal>
+
+      {closing && current ? (
+        <NightCloseScreen
+          night={current}
+          tabs={tabs}
+          onNavigate={onNavigate}
+          onClose={() => {
+            setClosing(false);
+            reload();
+          }}
+          onClosed={() => {
+            setClosing(false);
+            reload();
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -423,15 +423,6 @@ const pendingBox: CSSProperties = {
   padding: '0.75rem 1rem',
   color: 'var(--np-warning)',
   fontSize: '0.9375rem',
-};
-const confirmBox: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '0.75rem',
-  padding: '0.875rem 1rem',
-  border: '1px solid var(--np-border-hi, var(--np-border))',
-  borderRadius: 'var(--np-r-md)',
-  background: 'var(--np-surface-2)',
 };
 const adjustBox: CSSProperties = {
   display: 'flex',

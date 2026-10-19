@@ -305,7 +305,7 @@ describe('alertas por Telegram', () => {
     ackable: true,
   });
 
-  function makeAlerts(open: Incident[], cobros: unknown[] = []) {
+  function makeAlerts(open: Incident[], cobros: unknown[] = [], cashNights: Array<{ cashDiffCents: number }> = []) {
     const claimed = new Set<string>();
     const redis = {
       set: vi.fn().mockImplementation(async (key: string) => {
@@ -318,7 +318,12 @@ describe('alertas por Telegram', () => {
         return 1;
       }),
     };
-    const prisma = { venue: { findMany: vi.fn().mockResolvedValue([{ id: 't-1', name: 'Local Centro' }]) } };
+    const prisma = {
+      venue: { findMany: vi.fn().mockResolvedValue([{ id: 't-1', name: 'Local Centro' }]) },
+      venueNight: { findMany: vi.fn().mockResolvedValue(cashNights) },
+      asSystem: vi.fn(),
+    };
+    prisma.asSystem.mockImplementation((fn: (tx: typeof prisma) => unknown) => fn(prisma));
     const incidents = { list: vi.fn().mockResolvedValue(open) };
     const reports = {
       cobros: vi.fn().mockResolvedValue(cobros),
@@ -329,7 +334,7 @@ describe('alertas por Telegram', () => {
     };
     const telegram = { send: vi.fn().mockResolvedValue(true), isConfigured: () => true };
     const svc = new AlertsService(prisma as never, redis as never, incidents as never, reports as never, telegram as never);
-    return { svc, telegram, reports, incidents };
+    return { svc, telegram, reports, incidents, prisma };
   }
 
   it('cada incidencia se avisa una sola vez', async () => {
@@ -400,6 +405,22 @@ describe('alertas por Telegram', () => {
     const { svc, telegram } = makeAlerts([], [{}]);
     await svc.tick(at('2026-10-14T13:00:00Z')); // 15:00 de Madrid
     expect(telegram.send).not.toHaveBeenCalled();
+  });
+
+  it('el resumen dice la diferencia de caja de las noches cerradas en ese tramo (las 08:00 entran)', async () => {
+    const { svc, telegram, prisma } = makeAlerts([], [], [{ cashDiffCents: -1250 }]);
+    await svc.tick(at('2026-10-14T07:30:00Z'));
+    // Sin cobros ni incidencias, pero la caja no cuadró: el dueño lo sabe.
+    expect(telegram.send).toHaveBeenCalledTimes(1);
+    expect(telegram.send.mock.calls[0]![0]).toContain('Caja: faltan 12,50 €');
+    expect(prisma.venueNight.findMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 't-1',
+        closedAt: { gt: at('2026-10-13T06:00:00Z'), lte: at('2026-10-14T06:00:00Z') },
+        cashDiffCents: { not: null },
+      },
+      select: { cashDiffCents: true },
+    });
   });
 
   it('local sin cobros ni incidencias: no manda resumen', async () => {

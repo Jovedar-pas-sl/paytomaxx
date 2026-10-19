@@ -13,6 +13,7 @@ import { ApiError, needsTotpCode, totpLockedUntil } from '@/lib/api-errors';
 import { payoutSummary } from '@/lib/confirm-summary';
 import { formatDecimal, formatEur } from '@/lib/money';
 import { isAutoVerifiable, payoutAddressError } from '@/lib/payout-address';
+import { isPayoutRequested, type PayoutRequested } from '@/lib/payout-request';
 import { describeVerifyResult, payoutReferenceError, type VerifyOutcome } from '@/lib/payout-verify';
 import { useLockActive } from '@/lib/use-lock';
 import { useVenue } from '@/lib/venue-context';
@@ -69,6 +70,8 @@ export function PayoutConfirmModal({
   const [error, setError] = useState<string | null>(null);
   const [rate, setRate] = useState<Rate>(null);
   const [created, setCreated] = useState<Created | null>(null);
+  /** 202: el local pide la aprobación del dueño; no se pagó, se pidió. */
+  const [requested, setRequested] = useState<PayoutRequested | null>(null);
   /** El API pidió el código (403 TOTP_REQUIRED): la cuenta tiene la 2FA activada. */
   const [askedForCode, setAskedForCode] = useState(false);
   /** 429 TOTP_LOCKED: hasta cuándo no se puede probar otro código. */
@@ -127,6 +130,10 @@ export function PayoutConfirmModal({
         receiptUrl: receipt || undefined,
         totpCode: totpCode || undefined,
       });
+      if (isPayoutRequested(payout)) {
+        setRequested(payout);
+        return;
+      }
       const outcome = await settle(payout.id, chosenRail, txId, receipt);
       setCreated({ totalCents: payout.totalCents, earningCount: payout.earningCount, outcome });
     } catch (err) {
@@ -146,8 +153,23 @@ export function PayoutConfirmModal({
     }
   }
 
-  const closeGuarded = submitting ? () => undefined : created ? onDone : onClose;
+  const closeGuarded = submitting ? () => undefined : created || requested ? onDone : onClose;
   const currency = chosenRail?.startsWith('USDC') ? 'USDC' : 'USDT';
+
+  if (requested) {
+    return (
+      <Modal open onClose={closeGuarded} title="Pedido al dueño" width="32rem">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <p style={{ margin: 0 }}>
+            No se ha pagado aún: el pago de <strong className="np-num">{formatEur(requested.amountCents)}</strong> a{' '}
+            {operatorName} queda pedido al dueño, que lo aprueba en «Por aprobar».
+          </p>
+          <Notice tone="info">{requested.message}</Notice>
+          <Button onClick={onDone}>Cerrar</Button>
+        </div>
+      </Modal>
+    );
+  }
 
   if (created) {
     return (
