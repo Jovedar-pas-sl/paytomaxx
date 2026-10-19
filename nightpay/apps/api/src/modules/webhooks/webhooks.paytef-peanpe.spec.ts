@@ -372,13 +372,9 @@ describe('peanpeResult — GET resultado (seguridad = token del reto)', () => {
     ]);
   });
 
-  // BUG: webhooks.controller.ts:418 construye el body sintético con `msg: msg ?? null`,
-  // pero PeanpeResultPayloadSchema (peanpe.adapter.ts:502) declara `msg: z.string().optional()`,
-  // que NO admite null. Si Peanpe llama al GET sin `msg`, verifyWebhook devuelve
-  // invalid-payload-shape y el controlador responde 400 (webhooks.controller.ts:428-430):
-  // el resultado no se anota en peanpe_calls ni se encola, así que el cobro nunca
-  // llega a Incidencias. Esperado: 200 { received: true } y aviso guardado.
-  it.skip('GET sin msg (opcional) → se acepta igual que con msg', async () => {
+  // Antes el cuerpo sintético llevaba `msg: null` y el esquema del adaptador (msg
+  // opcional, no null) lo rechazaba: 400, sin anotar el resultado ni encolarlo.
+  it('GET sin msg (opcional) → se acepta igual que con msg', async () => {
     const h = makeHarness();
     await expect(
       h.controller.peanpeResult(ID_LLAMADA, TOKEN, '200', undefined, undefined, undefined),
