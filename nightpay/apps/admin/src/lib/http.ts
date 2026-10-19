@@ -4,6 +4,7 @@
 // la memoria de la pestaña. Los endpoints van en lib/endpoints/.
 
 import {
+  LoginCodeRequiredError,
   ServerUnavailableError,
   SESSION_EXPIRED_EVENT,
   TotpError,
@@ -95,8 +96,27 @@ export async function login(email: string, password: string): Promise<LoginRespo
   try {
     return await client.login({ email, password });
   } catch (err) {
+    // Super-admin con 2FA: la contraseña vale y falta el código (LoginForm lo pide).
+    if (err instanceof LoginCodeRequiredError) throw err;
     if (err instanceof ServerUnavailableError) throw new ApiError(err.message, 0);
     if (err instanceof ApiError) throw new ApiError(loginErrorMessage(err.status, err.message), err.status);
+    throw err;
+  }
+}
+
+export { LoginCodeRequiredError };
+
+/**
+ * Segundo paso del login con 2FA: el ticket de la contraseña y el código.
+ * Errores: código malo (TOTP_INVALID, el ticket sigue valiendo), bloqueo
+ * (429) o ticket caducado (LOGIN_TICKET_EXPIRED: vuelta a la contraseña).
+ */
+export async function loginWithCode(loginTicket: string, totpCode: string): Promise<LoginResponse> {
+  try {
+    return await client.loginWithCode(loginTicket, totpCode);
+  } catch (err) {
+    if (err instanceof ServerUnavailableError && err.status !== 429) throw new ApiError(err.message, 0);
+    if (err instanceof ApiError) throw new ApiError(humanizeTotpError(err.message, err.code), err.status, err.code);
     throw err;
   }
 }

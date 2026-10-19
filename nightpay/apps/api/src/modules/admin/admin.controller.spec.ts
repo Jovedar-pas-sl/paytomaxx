@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { HttpException } from '@nestjs/common';
+import { ForbiddenException, HttpException } from '@nestjs/common';
 import type { JwtPayload } from '@nightpay/contracts';
 import { AdminController, quarterRange } from './admin.controller';
 import { payoutRoute, type VenueApprovalRules } from '../approvals/approval-rules';
@@ -240,10 +240,12 @@ describe('PATCH /admin/venue/settings — comisiones del local', () => {
     };
     const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
     const audit = { log: vi.fn().mockResolvedValue(undefined) };
+    const totp = { assertIfEnrolledForUser: vi.fn().mockResolvedValue(undefined) };
     const none = {} as never;
-    const ctrl = new AdminController(prisma as never, none, audit as never, none, none, none, none, none);
+    const ctrl = new AdminController(prisma as never, none, audit as never, none, none, none, totp as never, none);
     const save = (dto: Record<string, unknown>) => ctrl.updateVenueSettings('t-1', owner, dto as never);
-    return { save, update, audit };
+    const read = () => ctrl.getVenueSettings('t-1');
+    return { save, read, update, audit, totp };
   }
 
   async function statusOf(promise: Promise<unknown>): Promise<number | null> {
@@ -262,6 +264,47 @@ describe('PATCH /admin/venue/settings — comisiones del local', () => {
     expect(update.mock.calls[0]![0].data).toEqual({ operatorMaxCobroCents: 30_000 });
   });
 
+  it('reglas de dinero: con la 2FA activada pide el código (antes de guardar); sin código válido no se guarda', async () => {
+    const { save, update, totp } = controller();
+    totp.assertIfEnrolledForUser.mockRejectedValueOnce(new ForbiddenException({ code: 'TOTP_REQUIRED' }));
+    expect(await statusOf(save({ operatorMaxCobroCents: 30_000 }))).toBe(403);
+    expect(update).not.toHaveBeenCalled();
+    await save({ operatorMaxCobroCents: 30_000, totpCode: '123456' });
+    expect(totp.assertIfEnrolledForUser).toHaveBeenLastCalledWith('own-1', '123456');
+    // El código no se guarda en el local.
+    expect(update.mock.calls[0]![0].data).toEqual({ operatorMaxCobroCents: 30_000 });
+  });
+
+  it('días de espera (0 = al cierre de la noche), umbral de devolución y aprobación de pagos: se guardan y se apuntan con lo de antes', async () => {
+    const { save, update, audit } = controller();
+    const res = await save({ payoutHoldDays: 0, refundApprovalThresholdCents: 5_000, payoutRequiresApproval: true });
+    expect(update.mock.calls[0]![0].data).toEqual({
+      payoutHoldDays: 0,
+      refundApprovalThresholdCents: 5_000,
+      payoutRequiresApproval: true,
+    });
+    expect(res).toMatchObject({ payoutHoldDays: 0, effectivePayoutHoldDays: 0 });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          before: { payoutHoldDays: null, refundApprovalThresholdCents: 10_000, payoutRequiresApproval: false },
+        }),
+      }),
+    );
+  });
+
+  it('GET: con los días de espera que valen (sin regla del local, los del entorno)', async () => {
+    const { read } = controller();
+    const prev = process.env.PAYOUT_HOLD_DAYS;
+    process.env.PAYOUT_HOLD_DAYS = '3';
+    try {
+      expect(await read()).toMatchObject({ payoutHoldDays: null, effectivePayoutHoldDays: 3 });
+    } finally {
+      if (prev === undefined) delete process.env.PAYOUT_HOLD_DAYS;
+      else process.env.PAYOUT_HOLD_DAYS = prev;
+    }
+  });
+
   it('chica + plataforma > 100 % en una categoría → 400 y no se guarda', async () => {
     const { save, update } = controller();
     expect(await statusOf(save({ operatorCommissionDefaults: { CHICA_SERVICE: 9500 } }))).toBe(400);
@@ -278,7 +321,7 @@ describe('PATCH /admin/venue/settings — comisiones del local', () => {
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'venue.settings.updated',
-        payload: { changes: { operatorCommissionDefaults: { VENUE_BAR: 500 } } },
+        payload: expect.objectContaining({ changes: { operatorCommissionDefaults: { VENUE_BAR: 500 } } }),
       }),
     );
   });

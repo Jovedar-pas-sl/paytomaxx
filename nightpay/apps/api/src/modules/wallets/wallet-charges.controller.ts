@@ -15,6 +15,7 @@ import {
   type QrChargeView,
   type WalletLookup,
 } from './wallet-charges.service';
+import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
 /** Cobro con QR: la chica elige el servicio (o un importe); el cliente paga con Face ID. */
 const QrChargeSchema = z
@@ -68,6 +69,12 @@ const PayoutSchema = z.object({
   /** El encargado en efectivo, desde el umbral del local. */
   totpCode: z.string().regex(/^\d{6}$/).optional(),
 });
+
+/** Devolver el saldo en efectivo pide «dar efectivo»; a la tarjeta, «devolver». */
+export function payoutPermission(req: { body?: unknown }): 'cash' | 'refund' {
+  const method = (req.body as { method?: unknown } | undefined)?.method;
+  return method === 'CARD' ? 'refund' : 'cash';
+}
 
 /**
  * Saldo NightPay — personal del local.
@@ -259,6 +266,9 @@ export class WalletChargesController {
   @Post('wallets/:id/payout')
   @HttpCode(200)
   @Roles('OWNER', 'MANAGER')
+  @UseGuards(StaffPermissionGuard)
+  // En efectivo: «dar efectivo»; a la tarjeta es una devolución.
+  @RequiresPermission(payoutPermission)
   async payout(
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) walletId: string,

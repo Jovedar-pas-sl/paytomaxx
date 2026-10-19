@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LockoutService } from './lockout.service';
+import { LoginTicketService } from './login-ticket.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { StaffSessionTransport } from './staff-session.transport';
 import { TotpAttemptsService } from './totp-attempts.service';
@@ -31,6 +32,7 @@ import { TotpService } from './totp.service';
     TotpAttemptsService,
     TotpEnrollmentService,
     LockoutService,
+    LoginTicketService,
     RefreshTokenService,
     StaffSessionTransport,
   ],

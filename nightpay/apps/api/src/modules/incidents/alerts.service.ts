@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import type { Redis } from 'ioredis';
+import { alertKindForIncident, alertSettingsOf, type VenueAlertSettings } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { lastNightCutoff, madridAt, madridDay } from '../../common/time/madrid';
@@ -55,8 +56,9 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test' || process.env.NIGHTPAY_DISABLE_ALERTS === '1') return;
-    if (!this.telegram.isConfigured()) {
-      this.logger.log('Alertas por Telegram desactivadas (faltan TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)');
+    // Con bot basta: cada local puede tener su chat (Ajustes → Avisos de Telegram).
+    if (!this.telegram.hasBot()) {
+      this.logger.log('Alertas por Telegram desactivadas (falta TELEGRAM_BOT_TOKEN)');
       return;
     }
     this.timer = setInterval(() => void this.tick(), ALERT_EVERY_MS);
@@ -74,7 +76,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     try {
       const venues = await this.prisma.venue.findMany({
         where: { deletedAt: null },
-        select: { id: true, name: true },
+        select: { id: true, name: true, alertSettings: true },
       });
       const failures: string[] = [];
       for (const venue of venues) {
@@ -95,16 +97,25 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async alertVenue(venue: { id: string; name: string }, now: Date): Promise<void> {
+  private async alertVenue(venue: { id: string; name: string; alertSettings?: unknown }, now: Date): Promise<void> {
+    // Ajustes del local: qué grupos salen, a qué chat y si llevan los nombres de las chicas.
+    const settings: VenueAlertSettings = alertSettingsOf(venue.alertSettings);
+    if (!this.telegram.isConfigured(settings.chatId)) return; // sin chat al que mandar
+    const chatId = settings.chatId;
     const open = await this.incidents.list(venue.id, now);
-    const fresh = open.filter((i) => now.getTime() - new Date(i.occurredAt).getTime() <= ALERT_FRESH_MS);
+    const fresh = open.filter(
+      (i) =>
+        now.getTime() - new Date(i.occurredAt).getTime() <= ALERT_FRESH_MS && settings.kinds[alertKindForIncident(i.kind)],
+    );
     let sent = 0;
     for (const incident of fresh) {
       if (sent >= MAX_ALERTS_PER_TICK) break;
       const key = `np:alert:${venue.id}:${incident.kind}:${incident.refId}`;
-      if (await this.sendOnce(key, ALERT_SENT_TTL_S, () => incidentMessage(venue.name, incident))) sent += 1;
+      const message = () => incidentMessage(venue.name, incident, { includeNames: settings.includeNames });
+      if (await this.sendOnce(key, ALERT_SENT_TTL_S, message, chatId)) sent += 1;
     }
 
+    if (!settings.kinds.summary) return;
     const today = madridDay(now);
     if (now < madridAt(today, SUMMARY_HOUR) || now >= madridAt(today, SUMMARY_LAST_HOUR)) return;
     // La noche anterior: de las 08:00 de ayer a las 08:00 de hoy (como el cierre automático).
@@ -122,8 +133,11 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     const cashDiff = await this.cashDiffCents(venue.id, window);
     if (summary.count === 0 && open.length === 0 && !cashDiff) return; // local cerrado y nada pendiente
     const bankFilePending = summary.count > 0 && !(await this.bankFileCovers(venue.id, madridDay(from)));
-    await this.sendOnce(`np:summary:${venue.id}:${today}`, 2 * 24 * 60 * 60, () =>
-      morningSummaryMessage(venue.name, summary, open.length, bankFilePending, cashDiff),
+    await this.sendOnce(
+      `np:summary:${venue.id}:${today}`,
+      2 * 24 * 60 * 60,
+      () => morningSummaryMessage(venue.name, summary, open.length, bankFilePending, cashDiff),
+      chatId,
     );
   }
 
@@ -163,11 +177,16 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
    * Envía una sola vez: se reserva la marca en Redis (SET NX) y, si Telegram
    * falla, se quita para reintentar en la siguiente vuelta.
    */
-  private async sendOnce(key: string, ttlSeconds: number, message: () => string): Promise<boolean> {
+  private async sendOnce(
+    key: string,
+    ttlSeconds: number,
+    message: () => string,
+    chatId: string | null = null,
+  ): Promise<boolean> {
     if ((await this.redis.set(key, '1', 'EX', ttlSeconds, 'NX')) !== 'OK') return false;
     let ok = false;
     try {
-      ok = await this.telegram.send(message());
+      ok = await this.telegram.send(message(), chatId);
     } finally {
       if (!ok) await this.redis.del(key);
     }

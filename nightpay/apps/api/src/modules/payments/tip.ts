@@ -23,16 +23,24 @@ export interface TipPreset {
   percent: number | null;
 }
 
+/** Propinas sugeridas que eligió el local (Ajustes → Formas de cobro); sin ellas, las de siempre. */
+export interface TipPresetConfig {
+  flatCents?: readonly number[];
+  percents?: readonly number[];
+}
+
 /**
  * Propinas sugeridas para un importe (además de «Sin propina» y «Otra»).
  * Las que pasarían del máximo no se sugieren.
  */
-export function tipPresetsFor(amountCents: number): TipPreset[] {
+export function tipPresetsFor(amountCents: number, config: TipPresetConfig = {}): TipPreset[] {
   const cap = maxTipCents(amountCents);
+  const flat = config.flatCents?.length ? config.flatCents : TIP_FLAT_PRESETS_CENTS;
+  const percents = config.percents?.length ? config.percents : TIP_PERCENT_PRESETS;
   const raw: TipPreset[] =
     amountCents <= TIP_FLAT_UP_TO_CENTS
-      ? TIP_FLAT_PRESETS_CENTS.map((cents) => ({ cents, percent: null }))
-      : TIP_PERCENT_PRESETS.map((percent) => ({
+      ? flat.map((cents) => ({ cents, percent: null }))
+      : percents.map((percent) => ({
           cents: Math.max(100, Math.round((amountCents * percent) / 10_000) * 100),
           percent,
         }));
@@ -49,9 +57,14 @@ export function tipPresetsFor(amountCents: number): TipPreset[] {
  * wallet u otra pasarela). Si el cobro ya traía una propina puesta por el
  * local, también se ofrece (nunca marcada: la marcada es «Sin propina»).
  */
-export function tipOptionsFor(p: { amountCents: number; tipCents: number; allowTip: boolean }): number[] {
+export function tipOptionsFor(p: {
+  amountCents: number;
+  tipCents: number;
+  allowTip: boolean;
+  tipPresets?: TipPresetConfig;
+}): number[] {
   if (!p.allowTip) return [0];
-  const presets = tipPresetsFor(p.amountCents).map((t) => t.cents);
+  const presets = tipPresetsFor(p.amountCents, p.tipPresets).map((t) => t.cents);
   return [...new Set([0, ...presets, p.tipCents])].sort((a, b) => a - b);
 }
 

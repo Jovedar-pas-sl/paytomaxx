@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Card, Input, Select } from '@nightpay/ui';
 import type { VenueDetail } from '@nightpay/contracts';
-import { VenueSwitchDialog } from '../VenueSwitchDialog';
+import { useVenueSwitch } from '../VenueSwitchDialog';
 import { formatDateTime } from '@/lib/dates';
 import {
   clearSaSettlementAccount,
@@ -90,15 +90,18 @@ export function VenueDetailView({ venueId, onBack }: Props) {
   );
 }
 
-/** Cambiar el local activo del panel a este (como el desplegable de arriba, con 2FA). */
+/** Cambiar el local activo del panel a este (como el desplegable de arriba; la 2FA se pidió al entrar). */
 function GoToVenueButton({ venueId, venueName, isCurrent }: { venueId: string; venueName: string; isCurrent: boolean }) {
-  const [asking, setAsking] = useState(false);
+  const switcher = useVenueSwitch();
   if (isCurrent) return <Pill tone="info">Estás aquí</Pill>;
 
   return (
     <>
-      <SmallButton onClick={() => setAsking(true)}>Ir a este local</SmallButton>
-      {asking ? <VenueSwitchDialog venueId={venueId} venueName={venueName} onClose={() => setAsking(false)} /> : null}
+      <SmallButton onClick={() => switcher.start(venueId, venueName)} disabled={switcher.busy}>
+        Ir a este local
+      </SmallButton>
+      {switcher.error ? <span role="alert">{switcher.error}</span> : null}
+      {switcher.dialog}
     </>
   );
 }

@@ -64,6 +64,16 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 const post = <T>(path: string, body: unknown = {}): Promise<T> =>
   call<T>(path, { method: 'POST', body: JSON.stringify(body) });
+
+/**
+ * Cuerpo de una acción con 2FA: el motivo opcional vacío no se manda. Antes
+ * «Reanudar» sin motivo mandaba reason: '' y el API (mínimo 3 letras si
+ * viene) lo rechazaba con 400: no se podía reanudar un local en pausa.
+ */
+export function stepUpBody(input: StepUpInput): StepUpInput {
+  const reason = input.reason?.trim();
+  return reason ? { totpCode: input.totpCode, reason } : { totpCode: input.totpCode };
+}
 const patch = <T>(path: string, body: unknown): Promise<T> =>
   call<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
 const put = <T>(path: string, body: unknown): Promise<T> => call<T>(path, { method: 'PUT', body: JSON.stringify(body) });
@@ -103,7 +113,7 @@ export function pauseSaBusiness(businessId: string, input: StepUpInput): Promise
 }
 
 export function resumeSaBusiness(businessId: string, input: StepUpInput): Promise<BusinessView> {
-  return post(`/businesses/${id(businessId)}/resume`, input);
+  return post(`/businesses/${id(businessId)}/resume`, stepUpBody(input));
 }
 
 export function assignSaVenues(businessId: string, venueIds: string[]): Promise<BusinessDetail> {
@@ -153,7 +163,7 @@ export function pauseSaVenue(venueId: string, input: StepUpInput): Promise<Venue
 }
 
 export function resumeSaVenue(venueId: string, input: StepUpInput): Promise<VenueDetail> {
-  return post(`/venues/${id(venueId)}/resume`, input);
+  return post(`/venues/${id(venueId)}/resume`, stepUpBody(input));
 }
 
 // ─── Personas ───────────────────────────────────────────────────────

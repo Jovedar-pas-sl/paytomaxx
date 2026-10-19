@@ -2,25 +2,35 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Logo, ThemeToggle } from '@nightpay/ui';
-import { fetchVenueSettings, logout as apiLogout, type User } from '@/lib/api';
+import { fetchMyPermissions, fetchTotpStatus, fetchVenueSettings, logout as apiLogout, type User } from '@/lib/api';
 import { DEFAULT_TIMEZONE } from '@/lib/dates';
 import { decidableCount } from '@/lib/approvals';
-import { navBadge } from '@/lib/bottom-nav';
-import { visibleTabs, type PanelTab, type TabKey } from '@/lib/roles';
+import { avisosCount, navBadge } from '@/lib/bottom-nav';
+import {
+  resolveTab,
+  sectionOf,
+  visibleSections,
+  type PanelSection,
+  type PanelTab,
+  type SectionKey,
+  type TabKey,
+} from '@/lib/roles';
 import { ApprovalsContext, useApprovalsFeed } from '@/lib/use-approvals';
 import { IncidentsContext, useIncidentsFeed } from '@/lib/use-incidents';
 import { VenueContext, type VenueInfo } from '@/lib/venue-context';
-import { ApprovalsPanel } from './ApprovalsPanel';
+import { AvisosPanel } from './AvisosPanel';
 import { BankReconPanel } from './BankReconPanel';
 import { BottomNav } from './BottomNav';
 import { CartaPanel } from './CartaPanel';
-import { IncidentsPanel } from './IncidentsPanel';
-import { MyRequestsPanel } from './MyRequestsPanel';
 import { NightsPanel } from './NightsPanel';
 import { OperatorsPanel } from './OperatorsPanel';
 import { PaymentsPanel } from './PaymentsPanel';
 import { ReportsPanel } from './ReportsPanel';
-import { SettingsPanel } from './SettingsPanel';
+import { AlertsPanel } from './settings/AlertsPanel';
+import { PaymentMethodsPanel } from './settings/PaymentMethodsPanel';
+import { PermissionsPanel } from './settings/PermissionsPanel';
+import { RulesPanel } from './settings/RulesPanel';
+import { SecurityPanel } from './settings/SecurityPanel';
 import { SuperAdminPanel } from './superadmin/SuperAdminPanel';
 import { TabBar, tabId, tabPanelId } from './TabBar';
 import { TerminalsPanel } from './TerminalsPanel';
@@ -34,7 +44,8 @@ interface Props {
   onLogout: (serverConfirmed: boolean) => void;
 }
 
-const TABS_ID = 'np-panel';
+const SECTIONS_ID = 'np-panel';
+const SUBTABS_ID = 'np-sub';
 
 const ROLE_LABELS: Record<User['role'], string> = {
   OWNER: 'Dueño',
@@ -43,18 +54,29 @@ const ROLE_LABELS: Record<User['role'], string> = {
   OPERATOR: 'Operadora',
 };
 
+/**
+ * El panel: cinco secciones (Hoy, Chicas, Clientes, Informes, Ajustes)
+ * arriba en el escritorio y abajo en el móvil, y dentro de cada una sus
+ * pestañas. «Hoy» lleva un solo globo: incidencias + lo que hay por aprobar.
+ */
 export function Dashboard({ user, onLogout }: Props) {
-  const tabs = visibleTabs(user);
-  const [selected, setSelected] = useState<TabKey>('payments');
-  // Una pestaña que este rol no ve nunca se pinta (se vuelve a Pagos).
-  const tab = tabs.some((t) => t.key === selected) ? selected : 'payments';
   const venue = useVenueInfo(user);
+  const canSeeReports = useCanSeeReports(user);
+  const sections = visibleSections({ role: user.role, isSuperAdmin: user.isSuperAdmin, canSeeReports });
+  const tabs = sections.flatMap((s) => s.tabs);
+  const [selected, setSelected] = useState<TabKey>('payments');
+  /** La pestaña que se miró la última vez en cada sección (volver a la sección la abre). */
+  const [lastInSection, setLastInSection] = useState<Partial<Record<SectionKey, TabKey>>>({});
+  // Una pestaña que este rol no ve nunca se pinta (se vuelve a Cobros).
+  const tab: TabKey = tabs.some((t) => t.key === selected) ? selected : 'payments';
+  const section = sections.find((s) => s.key === sectionOf(tab)) ?? sections[0];
+  const isOwner = user.role === 'OWNER';
   const incidents = useIncidentsFeed(user.tenantId, venue.timezone);
-  // «Por aprobar»: reglas del local para quien mira y, al dueño, lo pendiente (globo).
   const approvals = useApprovalsFeed(user);
-  const pendingApprovals = decidableCount(approvals.pending);
+  const avisos = avisosCount({ incidents: incidents.open, approvals: decidableCount(approvals.pending), isOwner });
+  const missing2fa = useSuperAdminWithout2fa(user);
   const [loggingOut, setLoggingOut] = useState(false);
-  /** Cobro a abrir en Pagos (desde una incidencia: «Abrir cobro»). */
+  /** Cobro a abrir en Cobros (desde una incidencia: «Abrir cobro»). */
   const [focusPayment, setFocusPayment] = useState<string | null>(null);
 
   async function logout() {
@@ -62,10 +84,21 @@ export function Dashboard({ user, onLogout }: Props) {
     onLogout(await apiLogout());
   }
 
-  /** Desde la barra de abajo (o un enlace dentro de un panel): al principio de la sección. */
-  function goTo(key: TabKey): void {
-    setSelected(key);
+  /** Desde la barra, una pestaña o un enlace dentro de un panel: al principio de la sección. */
+  function goTo(key: TabKey | string): void {
+    const target = resolveTab(key);
+    if (!target) return;
+    setSelected(target);
+    setLastInSection((prev) => ({ ...prev, [sectionOf(target)]: target }));
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
+  }
+
+  function goToSection(key: SectionKey): void {
+    const next = sections.find((s) => s.key === key);
+    const first = next?.tabs[0];
+    if (!next || !first) return;
+    const last = lastInSection[key];
+    goTo(last && next.tabs.some((t) => t.key === last) ? last : first.key);
   }
 
   function openPayment(paymentId: string): void {
@@ -73,110 +106,124 @@ export function Dashboard({ user, onLogout }: Props) {
     goTo('payments');
   }
 
+  const hoyBadge = navBadge('hoy', avisos);
+
   return (
     <VenueContext.Provider value={venue}>
       <IncidentsContext.Provider value={incidents}>
         <ApprovalsContext.Provider value={approvals}>
-        <main
-          className="np-app-root"
-          style={{
-            minHeight: '100dvh',
-            padding: 'clamp(1rem, 4vw, 2rem)',
-            maxWidth: '88rem',
-            margin: '0 auto',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '2rem',
-          }}
-        >
-          <header style={headerStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', minWidth: 0 }}>
-              <Logo height="2.25rem" />
-              <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1.25rem', minWidth: 0 }}>
-                <p style={brandKicker}>Panel · local activo</p>
-                {/* El local en grande: con varios locales, que nadie opere en el que no es. */}
-                <h1 style={brandTitle}>{venue.name ?? user.venueSlug}</h1>
+          <main className="np-app-root" style={mainStyle}>
+            <header style={headerStyle}>
+              <div className="np-brand" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', minWidth: 0 }}>
+                <Logo height="2.25rem" />
+                <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1.25rem', minWidth: 0 }}>
+                  <p style={brandKicker}>Panel · local activo</p>
+                  {/* El local en grande: con varios locales, que nadie opere en el que no es. */}
+                  <h1 style={brandTitle}>{venue.name ?? user.venueSlug}</h1>
+                </div>
               </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-              {user.isSuperAdmin ? <VenueSwitcher currentSlug={user.venueSlug} /> : null}
-              <div className="np-header-account" style={{ textAlign: 'right' }}>
-                <AccountLines user={user} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                {user.isSuperAdmin ? <VenueSwitcher currentSlug={user.venueSlug} /> : null}
+                <div className="np-header-account" style={{ textAlign: 'right' }}>
+                  <span style={userEmail}>{user.email}</span>
+                  <span style={userMeta}>
+                    <code style={code}>{user.venueSlug}</code> · {ROLE_LABELS[user.role]}
+                    {user.isSuperAdmin ? ' · super-admin' : ''}
+                  </span>
+                </div>
+                <ThemeToggle />
+                <Button variant="ghost" className="np-header-account" onClick={() => void logout()} loading={loggingOut}>
+                  Salir
+                </Button>
               </div>
-              <ThemeToggle />
-              <Button
-                variant="ghost"
-                className="np-header-account"
-                onClick={() => void logout()}
-                loading={loggingOut}
-              >
-                Salir
-              </Button>
-            </div>
-          </header>
+            </header>
 
-          <TabBar
-            tabs={tabs}
-            active={tab}
-            onChange={setSelected}
-            ariaLabel="Secciones del panel"
-            idPrefix={TABS_ID}
-            className="np-tabbar-main"
-            badges={{ approvals: navBadge('approvals', { incidents: null, approvals: pendingApprovals }) }}
-          />
+            {missing2fa ? <Missing2faBanner onEnable={() => goTo('security')} /> : null}
 
-          <div
-            role="tabpanel"
-            className="np-panel-body"
-            id={tabPanelId(TABS_ID, tab)}
-            aria-labelledby={tabId(TABS_ID, tab)}
-            style={{ display: 'flex', flexDirection: 'column', gap: '2rem', minWidth: 0 }}
-          >
-            <ActivePanel
-              tab={tab}
-              tabs={tabs}
-              user={user}
-              onNavigate={goTo}
-              onOpenPayment={openPayment}
-              focusPayment={focusPayment}
-              onFocusPaymentDone={() => setFocusPayment(null)}
+            <TabBar
+              tabs={sections}
+              active={section?.key ?? 'hoy'}
+              onChange={goToSection}
+              ariaLabel="Secciones del panel"
+              idPrefix={SECTIONS_ID}
+              className="np-tabbar-main"
+              badges={{ hoy: hoyBadge }}
             />
-          </div>
-        </main>
 
-        <BottomNav
-          tabs={tabs}
-          active={tab}
-          onChange={goTo}
-          openIncidents={incidents.open ? incidents.open.length : null}
-          pendingApprovals={pendingApprovals}
-          account={
-            <>
-              <p>
-                <AccountLines user={user} />
-              </p>
-              <Button variant="ghost" onClick={() => void logout()} loading={loggingOut}>
-                Salir
-              </Button>
-            </>
-          }
-        />
+            {section ? (
+              <div
+                role="tabpanel"
+                className="np-panel-body"
+                id={tabPanelId(SECTIONS_ID, section.key)}
+                aria-labelledby={tabId(SECTIONS_ID, section.key)}
+              >
+                <SectionTabs section={section} active={tab} onChange={goTo} avisosBadge={hoyBadge} />
+                <div
+                  className="np-panel-view"
+                  {...(section.tabs.length > 1
+                    ? { role: 'tabpanel', id: tabPanelId(SUBTABS_ID, tab), 'aria-labelledby': tabId(SUBTABS_ID, tab) }
+                    : {})}
+                >
+                  <ActivePanel
+                    tab={tab}
+                    tabs={tabs}
+                    user={user}
+                    onNavigate={goTo}
+                    onOpenPayment={openPayment}
+                    focusPayment={focusPayment}
+                    onFocusPaymentDone={() => setFocusPayment(null)}
+                    onLogout={() => void logout()}
+                    loggingOut={loggingOut}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </main>
+
+          <BottomNav sections={sections} active={section?.key ?? 'hoy'} onChange={goToSection} avisos={avisos} />
         </ApprovalsContext.Provider>
       </IncidentsContext.Provider>
     </VenueContext.Provider>
   );
 }
 
-/** Quién está dentro: email, local y rol. */
-function AccountLines({ user }: { user: User }) {
+/** Las pestañas de una sección (si tiene más de una), en pequeño. */
+function SectionTabs({
+  section,
+  active,
+  onChange,
+  avisosBadge,
+}: {
+  section: PanelSection;
+  active: TabKey;
+  onChange: (key: TabKey) => void;
+  avisosBadge: { text: string; spoken: string } | null;
+}) {
+  if (section.tabs.length < 2) return null;
   return (
-    <>
-      <span style={userEmail}>{user.email}</span>
-      <span style={userMeta}>
-        <code style={code}>{user.venueSlug}</code> · {ROLE_LABELS[user.role]}
-        {user.isSuperAdmin ? ' · super-admin' : ''}
-      </span>
-    </>
+    <TabBar
+      tabs={section.tabs}
+      active={active}
+      onChange={onChange}
+      ariaLabel={`${section.label}: apartados`}
+      idPrefix={SUBTABS_ID}
+      size="sm"
+      className="np-subtabs"
+      badges={{ incidents: avisosBadge }}
+    />
+  );
+}
+
+/** Super-admin sin 2FA: con la contraseña sola se entraría en todos los locales. */
+function Missing2faBanner({ onEnable }: { onEnable: () => void }) {
+  return (
+    <div role="alert" className="np-2fa-banner">
+      <p>
+        <strong>Activa la verificación en dos pasos.</strong> Eres super-admin: sin ella, con tu contraseña se entra en
+        todos los locales, y no puedes cambiar de local.
+      </p>
+      <Button onClick={onEnable}>Activarla</Button>
+    </div>
   );
 }
 
@@ -188,17 +235,12 @@ interface ActivePanelProps {
   onOpenPayment: (paymentId: string) => void;
   focusPayment: string | null;
   onFocusPaymentDone: () => void;
+  onLogout: () => void;
+  loggingOut: boolean;
 }
 
-function ActivePanel({
-  tab,
-  tabs,
-  user,
-  onNavigate,
-  onOpenPayment,
-  focusPayment,
-  onFocusPaymentDone,
-}: ActivePanelProps) {
+function ActivePanel(props: ActivePanelProps) {
+  const { tab, tabs, user, onNavigate } = props;
   const isOwner = user.role === 'OWNER';
   switch (tab) {
     case 'payments':
@@ -206,38 +248,40 @@ function ActivePanel({
         <PaymentsPanel
           user={user}
           onNavigate={onNavigate}
-          focusPaymentId={focusPayment}
-          onFocusDone={onFocusPaymentDone}
+          focusPaymentId={props.focusPayment}
+          onFocusDone={props.onFocusPaymentDone}
         />
       );
-    case 'nights':
-      return <NightsPanel tabs={tabs} onNavigate={onNavigate} />;
     case 'incidents':
-      return (
-        <IncidentsPanel isOwner={isOwner} tabs={tabs} onNavigate={onNavigate} onOpenPayment={onOpenPayment} />
-      );
-    case 'bank':
-      return <BankReconPanel isOwner={isOwner} />;
+      return <AvisosPanel isOwner={isOwner} tabs={tabs} onNavigate={onNavigate} onOpenPayment={props.onOpenPayment} />;
     case 'operators':
       return <OperatorsPanel isOwner={isOwner} />;
-    case 'carta':
-      return <CartaPanel />;
-    case 'reports':
-      return <ReportsPanel isOwner={isOwner} />;
-    case 'wallets':
-      return <WalletsPanel isOwner={isOwner} />;
     case 'treasury':
       return <TreasuryPanel isOwner={isOwner} />;
+    case 'wallets':
+      return <WalletsPanel isOwner={isOwner} />;
+    case 'nights':
+      return <NightsPanel tabs={tabs} onNavigate={onNavigate} />;
+    case 'reports':
+      return <ReportsPanel isOwner={isOwner} />;
+    case 'bank':
+      return <BankReconPanel isOwner={isOwner} />;
+    case 'carta':
+      return <CartaPanel />;
     case 'terminals':
       return <TerminalsPanel isOwner={isOwner} />;
-    case 'settings':
-      return <SettingsPanel isOwner={isOwner} />;
+    case 'rules':
+      return isOwner ? <RulesPanel /> : null;
+    case 'methods':
+      return isOwner ? <PaymentMethodsPanel /> : null;
+    case 'permissions':
+      return isOwner ? <PermissionsPanel /> : null;
+    case 'alerts':
+      return isOwner ? <AlertsPanel /> : null;
+    case 'security':
+      return <SecurityPanel user={user} onLogout={props.onLogout} loggingOut={props.loggingOut} />;
     case 'superadmin':
       return user.isSuperAdmin ? <SuperAdminPanel user={user} onNavigate={onNavigate} /> : null;
-    case 'approvals':
-      return isOwner ? <ApprovalsPanel /> : null;
-    case 'requests':
-      return <MyRequestsPanel />;
   }
 }
 
@@ -265,6 +309,55 @@ function useVenueInfo(user: User): VenueInfo {
   return info;
 }
 
+/** El encargado ve los informes si el dueño le deja (Ajustes → Permisos). El dueño, siempre. */
+function useCanSeeReports(user: User): boolean {
+  const [can, setCan] = useState(false);
+  useEffect(() => {
+    setCan(false);
+    if (user.role !== 'MANAGER') return undefined;
+    let cancelled = false;
+    fetchMyPermissions()
+      .then((p) => {
+        if (!cancelled) setCan(p.reports);
+      })
+      .catch(() => {
+        // Sin respuesta, como siempre: el encargado no ve los informes.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.role, user.tenantId]);
+  return can;
+}
+
+/** Super-admin sin la 2FA activada (para el aviso de arriba). Ante la duda, no se avisa. */
+function useSuperAdminWithout2fa(user: User): boolean {
+  const [missing, setMissing] = useState(false);
+  useEffect(() => {
+    if (!user.isSuperAdmin) return undefined;
+    let cancelled = false;
+    fetchTotpStatus()
+      .then((s) => {
+        if (!cancelled) setMissing(!s.enabled);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [user.isSuperAdmin, user.id]);
+  return missing;
+}
+
+const mainStyle: CSSProperties = {
+  minHeight: '100dvh',
+  padding: 'clamp(1rem, 4vw, 2rem)',
+  maxWidth: '88rem',
+  margin: '0 auto',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1.5rem',
+};
+
 const headerStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'flex-start',
@@ -290,7 +383,8 @@ const brandTitle: CSSProperties = {
   fontWeight: 600,
   letterSpacing: '-0.03em',
   color: 'var(--np-text)',
-  overflowWrap: 'anywhere',
+  // Por palabras («Luna / Valencia»), no a mitad de una.
+  overflowWrap: 'break-word',
 };
 
 const userEmail: CSSProperties = {

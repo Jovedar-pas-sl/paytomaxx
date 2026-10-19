@@ -11,8 +11,13 @@ function eur(cents: number): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
-export function incidentMessage(venueName: string, i: Incident): string {
-  return [`⚠️ ${venueName}: ${i.title}`, i.detail].join('\n');
+/**
+ * Aviso de una incidencia. Sin nombres (lo de siempre): el detalle sin el
+ * nombre de la chica; con `includeNames` (Ajustes → Avisos), tal cual.
+ */
+export function incidentMessage(venueName: string, i: Incident, opts: { includeNames?: boolean } = {}): string {
+  const detail = opts.includeNames ? i.detail : (i.alertDetail ?? i.detail);
+  return [`⚠️ ${venueName}: ${i.title}`, detail].join('\n');
 }
 
 /** Resumen de las 9:00: la noche anterior del local y lo que queda por mirar. */

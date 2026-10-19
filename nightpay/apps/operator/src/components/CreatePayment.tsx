@@ -17,6 +17,7 @@ import { formatEur } from '@/lib/money';
 import { ActivePayment } from './ActivePayment';
 import { CartaRetry, serviceLabel, useCarta } from './carta';
 import { STICKY_ACTION_BOTTOM } from './layout';
+import { cobroModeAllowed, useVenueMethods, type CobroMode } from '@/lib/venue-methods';
 
 /**
  * Categorías de ingreso visibles al crear cobro.
@@ -41,8 +42,6 @@ interface Props {
   /** Cobro pagado (o vuelta al formulario): refrescar el saldo. */
   onCreated: () => void;
 }
-
-type CobroMode = 'qr' | 'wallet' | 'pos';
 
 // Cortos: los tres caben en una línea a 320 px (el título de arriba ya dice el modo entero).
 const MODES: ReadonlyArray<{ mode: CobroMode; label: string }> = [
@@ -112,6 +111,14 @@ export function CreatePayment({ role, onCreated }: Props) {
         /* zonas opcional — backwards compat fallback */
       });
   }, []);
+
+  // Formas de cobro del local: lo apagado por el dueño no sale (el API lo rechazaría).
+  const methods = useVenueMethods();
+  const modes = MODES.filter((m) => cobroModeAllowed(m.mode, methods));
+  useEffect(() => {
+    const first = modes[0];
+    if (first && !modes.some((m) => m.mode === mode)) setMode(first.mode);
+  }, [modes, mode]);
 
   // La recarga de wallet no sale de la carta: al cambiar a wallet se suelta
   // el servicio elegido para no arrastrar su precio.
@@ -262,9 +269,11 @@ export function CreatePayment({ role, onCreated }: Props) {
             <span style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>Teclearlo</span>
           </button>
         </div>
-        <Button type="button" variant="ghost" onClick={() => switchMode('wallet')}>
-          Cargar wallet del cliente
-        </Button>
+        {cobroModeAllowed('wallet', methods) ? (
+          <Button type="button" variant="ghost" onClick={() => switchMode('wallet')}>
+            Cargar wallet del cliente
+          </Button>
+        ) : null}
       </Card>
     );
   }
@@ -400,7 +409,7 @@ export function CreatePayment({ role, onCreated }: Props) {
           muy abajo (pantallas bajas, con el aviso de conexión abierto). */}
       <div className="np-sticky-action" style={stickyStyle}>
         <div className="np-seg" role="group" aria-label="Cómo paga el cliente">
-          {MODES.map(({ mode: m, label }) => (
+          {modes.map(({ mode: m, label }) => (
             <button
               key={m}
               type="button"

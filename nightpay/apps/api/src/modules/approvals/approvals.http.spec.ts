@@ -37,6 +37,13 @@ const USER = '00000000-0000-4000-8000-000000000001';
 const venue = { name: 'Luna', payoutRequiresApproval: true, refundApprovalThresholdCents: 10_000 };
 
 const refunds = { refund: vi.fn() };
+/** Permisos del local (Ajustes → Permisos) que lee el guard: null = los de siempre. */
+let staffPermissions: unknown = null;
+const prisma = {
+  asSystem: vi.fn(async (fn: (tx: unknown) => unknown) =>
+    fn({ venue: { findUnique: vi.fn(async () => ({ staffPermissions })) } }),
+  ),
+};
 const requests = {
   refundRouteFor: vi.fn(async (actor: { role: 'OWNER' | 'MANAGER' }, cents: number, _payment: string) =>
     refundRoute(actor.role, cents, venue),
@@ -58,7 +65,7 @@ beforeAll(async () => {
       { provide: REDIS_CLIENT, useValue: createFakeRedis() },
       { provide: MetricsService, useValue: { authLogins: { inc: vi.fn() } } },
       { provide: EmailService, useValue: { send: vi.fn() } },
-      { provide: PrismaService, useValue: {} },
+      { provide: PrismaService, useValue: prisma },
       { provide: AuditService, useValue: { log: vi.fn() } },
     ],
     exports: [REDIS_CLIENT, MetricsService, EmailService, PrismaService, AuditService],
@@ -99,6 +106,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  staffPermissions = null;
   refunds.refund.mockReset().mockResolvedValue({ id: 'rf-1', status: 'SUCCEEDED', amountCents: 5_000 });
   requests.requestRefund.mockReset().mockResolvedValue({
     approvalRequestId: APPROVAL,
@@ -145,6 +153,25 @@ describe('POST /v1/payments/:id/refunds — el encargado desde el umbral pide (2
     expect(own.statusCode).toBe(201);
     expect(refunds.refund).toHaveBeenCalledTimes(2);
     expect(requests.requestRefund).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /v1/payments/:id/refunds — permisos del personal (Ajustes)', () => {
+  it('el dueño le quitó «devolver» al encargado: 403 STAFF_PERMISSION_DENIED y no se pide ni se devuelve nada', async () => {
+    staffPermissions = { roles: { MANAGER: { refund: false } } };
+    const res = await call('POST', `/v1/payments/${PAYMENT}/refunds`, 'MANAGER', { amountCents: 5_000 });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: 'STAFF_PERMISSION_DENIED', permission: 'refund' });
+    expect(res.json().detail).toMatch(/no te deja hacer devoluciones/);
+    expect(refunds.refund).not.toHaveBeenCalled();
+    expect(requests.requestRefund).not.toHaveBeenCalled();
+  });
+
+  it('una excepción para esa persona manda sobre su rol; el dueño puede siempre', async () => {
+    staffPermissions = { roles: { MANAGER: { refund: false } }, people: { [USER]: { refund: true } } };
+    expect((await call('POST', `/v1/payments/${PAYMENT}/refunds`, 'MANAGER', { amountCents: 5_000 })).statusCode).toBe(201);
+    staffPermissions = { roles: { MANAGER: { refund: false } } };
+    expect((await call('POST', `/v1/payments/${PAYMENT}/refunds`, 'OWNER', { amountCents: 5_000 })).statusCode).toBe(201);
   });
 });
 

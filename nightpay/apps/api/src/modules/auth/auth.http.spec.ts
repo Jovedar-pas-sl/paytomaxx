@@ -463,7 +463,7 @@ describe('sesión en cookie HttpOnly (apps nuevas)', () => {
   });
 });
 
-describe('super-admin: POST /v1/auth/switch-tenant con 2FA; el local elegido sigue al refrescar', () => {
+describe('super-admin con 2FA: login en dos pasos y cambiar de local sin volver a pedir el código', () => {
   const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 
   function post(url: string, body: unknown, authorization?: string) {
@@ -479,28 +479,42 @@ describe('super-admin: POST /v1/auth/switch-tenant con 2FA; el local elegido sig
     return JSON.parse(Buffer.from(accessToken.split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
   }
 
+  function setTotp(secret: string | null): void {
+    users.set(USER_ID, { ...users.get(USER_ID)!, isSuperAdmin: true, totpSecret: secret });
+  }
+
   beforeEach(async () => {
     await resetIpRateLimits();
-    users.set(USER_ID, { ...users.get(USER_ID)!, isSuperAdmin: true, totpSecret: SECRET });
+    setTotp(SECRET);
   });
   afterEach(() => {
     users.set(USER_ID, { ...users.get(USER_ID)!, isSuperAdmin: false, totpSecret: null });
   });
 
-  it('a otro local: sin código 403 TOTP_REQUIRED; con él, token del local y el refresco lo mantiene; volver no pide código', async () => {
-    const login = (await post('/v1/auth/login', { email: EMAIL, password: PASSWORD })).json() as {
-      accessToken: string;
-      refreshToken: string;
-    };
+  it('la contraseña da 401 TOTP_REQUIRED con ticket; con el código, sesión; a otro local sin código y el refresco lo mantiene', async () => {
+    const first = await post('/v1/auth/login', { email: EMAIL, password: PASSWORD });
+    expect(first.statusCode).toBe(401);
+    const challenge = first.json() as { code: string; loginTicket: string; expiresIn: number; accessToken?: string };
+    expect(challenge).toMatchObject({ code: 'TOTP_REQUIRED', expiresIn: 300 });
+    expect(challenge.accessToken).toBeUndefined();
+
+    const wrong = await post('/v1/auth/login/totp', { loginTicket: challenge.loginTicket, totpCode: '000000' });
+    expect(wrong.statusCode).toBe(403);
+    expect(wrong.json()).toMatchObject({ code: 'TOTP_INVALID' });
+
+    const opened = await post('/v1/auth/login/totp', { loginTicket: challenge.loginTicket, totpCode: codeAt(SECRET) });
+    expect(opened.statusCode).toBe(200);
+    const login = opened.json() as { accessToken: string; refreshToken: string; user: { isSuperAdmin: boolean } };
+    expect(login.user.isSuperAdmin).toBe(true);
     const sid = claimsOf(login.accessToken).sid;
-    expect(sid).toEqual(expect.any(String));
     const auth = `Bearer ${login.accessToken}`;
 
-    const noCode = await post('/v1/auth/switch-tenant', { tenantId: OTHER_TENANT_ID }, auth);
-    expect(noCode.statusCode).toBe(403);
-    expect(noCode.json()).toMatchObject({ code: 'TOTP_REQUIRED' });
+    // El ticket ya se usó.
+    const replay = await post('/v1/auth/login/totp', { loginTicket: challenge.loginTicket, totpCode: codeAt(SECRET) });
+    expect(replay.statusCode).toBe(401);
+    expect(replay.json()).toMatchObject({ code: 'LOGIN_TICKET_EXPIRED' });
 
-    const switched = await post('/v1/auth/switch-tenant', { tenantId: OTHER_TENANT_ID, totpCode: codeAt(SECRET) }, auth);
+    const switched = await post('/v1/auth/switch-tenant', { tenantId: OTHER_TENANT_ID }, auth);
     expect(switched.statusCode).toBe(200);
     expect(switched.json()).toMatchObject({ tenantId: OTHER_TENANT_ID, venueSlug: 'mar' });
     expect(claimsOf(switched.json().accessToken)).toMatchObject({ tenantId: OTHER_TENANT_ID, sid });
@@ -519,7 +533,20 @@ describe('super-admin: POST /v1/auth/switch-tenant con 2FA; el local elegido sig
     expect(claimsOf(again.accessToken)).toMatchObject({ tenantId: TENANT_ID, venueSlug: 'luna' });
   });
 
+  it('una sesión que no entró con la 2FA (de antes): a otro local, sin código 403 TOTP_REQUIRED; con él, sí', async () => {
+    setTotp(null);
+    const login = (await post('/v1/auth/login', { email: EMAIL, password: PASSWORD })).json() as { accessToken: string };
+    setTotp(SECRET);
+    const auth = `Bearer ${login.accessToken}`;
+    const noCode = await post('/v1/auth/switch-tenant', { tenantId: OTHER_TENANT_ID }, auth);
+    expect(noCode.statusCode).toBe(403);
+    expect(noCode.json()).toMatchObject({ code: 'TOTP_REQUIRED' });
+    const withCode = await post('/v1/auth/switch-tenant', { tenantId: OTHER_TENANT_ID, totpCode: codeAt(SECRET, 1) }, auth);
+    expect(withCode.statusCode).toBe(200);
+  });
+
   it('tope por IP: a la 11.ª en un minuto, 429', async () => {
+    setTotp(null);
     const login = (await post('/v1/auth/login', { email: EMAIL, password: PASSWORD })).json() as { accessToken: string };
     const auth = `Bearer ${login.accessToken}`;
     for (let i = 0; i < 10; i++) {

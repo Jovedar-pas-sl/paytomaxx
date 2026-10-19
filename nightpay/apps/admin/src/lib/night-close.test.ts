@@ -136,7 +136,7 @@ describe('avisos confirmados', () => {
 describe('a dónde lleva cada paso', () => {
   it('a la pestaña si este rol la ve', () => {
     const tabs = visibleTabs({ role: 'MANAGER' });
-    expect(stepTab('payments', tabs)?.label).toBe('Pagos');
+    expect(stepTab('payments', tabs)?.label).toBe('Cobros');
     expect(stepTab('terminals', tabs)?.label).toBe('Datáfonos');
     expect(stepTab(null, tabs)).toBeNull();
     expect(stepTab('incidents', PANEL_TABS.filter((t) => t.key !== 'incidents'))).toBeNull();

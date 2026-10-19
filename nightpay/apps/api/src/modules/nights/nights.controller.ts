@@ -12,6 +12,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { NightsService, type MyNight, type NightListItem, type NightView } from './nights.service';
+import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
 /**
  * Noche del local (Fase 1D).
@@ -64,6 +65,8 @@ export class NightsController {
   @Post(':id/close')
   @HttpCode(200)
   @Roles('OWNER', 'MANAGER')
+  @UseGuards(StaffPermissionGuard)
+  @RequiresPermission('closeNight')
   async close(
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,

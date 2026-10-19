@@ -17,6 +17,8 @@ interface Opts {
   /** Local en pausa (consola del super-admin). */
   pausedAt?: Date | null;
   businessStatus?: 'ACTIVE' | 'PAUSED';
+  /** Formas de cobro del local (Ajustes); null = las de siempre. */
+  paymentMethods?: Record<string, unknown> | null;
 }
 
 function makeService(opts: Opts = {}) {
@@ -60,6 +62,7 @@ function makeService(opts: Opts = {}) {
         walletGroup: null,
         pausedAt: opts.pausedAt ?? null,
         business: opts.businessStatus ? { status: opts.businessStatus } : null,
+        paymentMethods: opts.paymentMethods ?? null,
       }),
     },
     gatewayCredential: {
@@ -326,5 +329,50 @@ describe('create — local o negocio en pausa (consola del super-admin)', () => 
     const active = makeService({ businessStatus: 'ACTIVE' });
     await active.service.create('tenant-1', 'idem-key-0303', dto(), owner);
     expect(active.created).toHaveLength(1);
+  });
+});
+
+describe('create — formas de cobro del local (Ajustes → Formas de cobro)', () => {
+  const disabled = (method: string) =>
+    expect.objectContaining({ status: 409, response: expect.objectContaining({ code: 'PAYMENT_METHOD_DISABLED', method }) });
+
+  it('QR con tarjeta apagado: 409 y no se guarda nada; el datáfono sigue', async () => {
+    const off = makeService({ paymentMethods: { card: false } });
+    await expect(off.service.create('tenant-1', 'idem-key-0400', dto(), owner)).rejects.toEqual(disabled('card'));
+    expect(off.created).toHaveLength(0);
+    await off.service.create('tenant-1', 'idem-key-0401', dto({ captureMethod: 'POS_EXTERNAL' }), owner);
+    expect(off.created).toHaveLength(1);
+  });
+
+  it('datáfono apagado: 409 al crear un cobro POS', async () => {
+    const off = makeService({ paymentMethods: { pos: false } });
+    await expect(off.service.create('tenant-1', 'idem-key-0402', dto({ captureMethod: 'POS_EXTERNAL' }), owner)).rejects.toEqual(
+      disabled('pos'),
+    );
+  });
+
+  it('saldo apagado: una recarga (que se paga con tarjeta) tampoco se crea', async () => {
+    const off = makeService({ paymentMethods: { wallet: false } });
+    await expect(off.service.create('tenant-1', 'idem-key-0403', dto({ wallet: { create: true } }), operator)).rejects.toEqual(
+      disabled('wallet'),
+    );
+    expect(off.created).toHaveLength(0);
+  });
+
+  it('propinas apagadas: una propina al crear → 409 TIPS_DISABLED; sin propina, se cobra', async () => {
+    const off = makeService({ paymentMethods: { tips: false } });
+    await expect(off.service.create('tenant-1', 'idem-key-0404', dto({ tipCents: 500 }), operator)).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'TIPS_DISABLED' }),
+    });
+    await off.service.create('tenant-1', 'idem-key-0405', dto(), operator);
+    expect(off.created).toHaveLength(1);
+  });
+
+  it('sin ajustes guardados: todo encendido, como antes', async () => {
+    const all = makeService({ paymentMethods: null });
+    await all.service.create('tenant-1', 'idem-key-0406', dto({ tipCents: 500 }), operator);
+    await all.service.create('tenant-1', 'idem-key-0407', dto({ captureMethod: 'POS_EXTERNAL' }), owner);
+    expect(all.created).toHaveLength(2);
   });
 });

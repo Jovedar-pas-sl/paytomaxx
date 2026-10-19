@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent } from 'react';
 
 export interface TabItem<K extends string> {
   key: K;
@@ -47,6 +47,19 @@ export function TabBar<K extends string>({
   badges,
 }: Props<K>) {
   const buttons = useRef(new Map<K, HTMLButtonElement>());
+
+  // En el móvil la barra se desplaza: la pestaña abierta, siempre a la vista
+  // (antes podía quedar cortada en el borde). Solo en horizontal.
+  useEffect(() => {
+    const el = buttons.current.get(active);
+    const bar = el?.parentElement;
+    if (!el || !bar || bar.scrollWidth <= bar.clientWidth) return;
+    const b = bar.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    const MARGIN = 16;
+    if (r.left < b.left) bar.scrollLeft -= b.left - r.left + MARGIN;
+    else if (r.right > b.right) bar.scrollLeft += r.right - b.right + MARGIN;
+  }, [active]);
 
   function onKeyDown(e: KeyboardEvent<HTMLButtonElement>, index: number): void {
     const last = tabs.length - 1;

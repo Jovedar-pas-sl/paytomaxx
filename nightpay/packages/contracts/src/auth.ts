@@ -14,6 +14,21 @@ export const LoginRequestSchema = z.object({
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
 /**
+ * Login en dos pasos del super-admin con 2FA: la contraseña da 401
+ * `{ code: 'TOTP_REQUIRED', loginTicket, expiresIn }` y este segundo paso,
+ * con el ticket y el código, abre la sesión.
+ */
+export const LOGIN_TOTP_REQUIRED_CODE = 'TOTP_REQUIRED';
+/** El ticket caducó, ya se usó o la contraseña cambió: vuelta a la contraseña. */
+export const LOGIN_TICKET_EXPIRED_CODE = 'LOGIN_TICKET_EXPIRED';
+
+export const LoginTotpRequestSchema = z.object({
+  loginTicket: z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Ticket de acceso no válido'),
+  totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras'),
+});
+export type LoginTotpRequest = z.infer<typeof LoginTotpRequestSchema>;
+
+/**
  * Sesión del personal: el refresh token va en una cookie HttpOnly del API
  * (apps con la cabecera X-OxioPay-Client). Solo las apps antiguas lo reciben
  * en el cuerpo, y solo hasta AUTH_BODY_REFRESH_UNTIL.

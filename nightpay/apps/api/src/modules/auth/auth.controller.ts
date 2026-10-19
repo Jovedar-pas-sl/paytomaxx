@@ -3,11 +3,13 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   LoginRequestSchema,
+  LoginTotpRequestSchema,
   LogoutRequestSchema,
   RefreshRequestSchema,
   type JwtPayload,
   type LoginRequest,
   type LoginResponse,
+  type LoginTotpRequest,
   type LogoutRequest,
   type RefreshRequest,
   type RefreshResponse,
@@ -15,7 +17,7 @@ import {
 
 const SwitchTenantRequestSchema = z.object({
   tenantId: z.string().uuid(),
-  /** Código 2FA: obligatorio para entrar en un local que no es el suyo. */
+  /** Código 2FA: solo si la sesión no entró con la 2FA (sesiones de antes del login en dos pasos). */
   totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 });
 type SwitchTenantBody = z.infer<typeof SwitchTenantRequestSchema>;
@@ -79,6 +81,25 @@ export class AuthController {
   }
 
   /**
+   * Segundo paso del login del super-admin con 2FA: el ticket que dio la
+   * contraseña (401 TOTP_REQUIRED) y el código. Abre la sesión como el login
+   * (cookie HttpOnly o, app antigua, en el cuerpo).
+   */
+  @Public()
+  @Post('login/totp')
+  @HttpCode(200)
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'auth-login-totp' })
+  async loginTotp(
+    @Body(new ZodValidationPipe(LoginTotpRequestSchema)) body: LoginTotpRequest,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<LoginResponse> {
+    const client = this.sessions.loginClient(req);
+    const result = await this.auth.loginWithTotp(body.loginTicket, body.totpCode, extractIp(req), extractUserAgent(req));
+    return this.sessions.deliver(client, 'login', result, reply);
+  }
+
+  /**
    * Access token nuevo con la cookie (y la cookie rotada). Las apps lo piden
    * al abrirse: el access token solo vive en la memoria de cada pestaña. Con
    * cada carga de pestaña hay un refresco: más margen por IP que antes (varios
@@ -128,7 +149,7 @@ export class AuthController {
 
   /**
    * Super-admin only: cambia el tenant activo del JWT. A otro local que el
-   * suyo, con el código 2FA (como la consola). El frontend usa el nuevo
+   * suyo, con la 2FA del login (o, en sesiones sin ella, el código). El frontend usa el nuevo
    * accessToken y recarga la app. Va con el access token (Authorization), no
    * con la cookie: no necesita la protección CSRF.
    */

@@ -1,5 +1,5 @@
 import type { PaymentMachineState } from './payment.machine';
-import { maxTipCents, tipOptionsFor } from './tip';
+import { maxTipCents, tipOptionsFor, type TipPresetConfig } from './tip';
 
 /** Por qué un QR ya no se puede pagar (texto para el cliente en public-pay). */
 export type PayClosedReason =
@@ -55,6 +55,8 @@ export type PayRedirect =
       concept?: string | null;
       /** La propina va entera a una persona del personal (no al local). */
       tipToStaff?: boolean;
+      /** Propinas sugeridas del local (para enseñar el % de cada botón). */
+      tipPresets?: TipPresetConfig;
     }
   | {
       kind: 'paid';
@@ -171,8 +173,10 @@ export interface PayablePayment {
   currency: string;
   qrExpiresAt: Date;
   authorizedAt: Date | null;
-  /** Propina solo con Redsys y fuera de recargas de wallet. */
+  /** Propina solo con Redsys, fuera de recargas de wallet y con las propinas encendidas en el local. */
   allowTip: boolean;
+  /** Propinas sugeridas del local (Ajustes); sin ellas, las de siempre. */
+  tipPresets?: TipPresetConfig;
   /** Nombre del local y concepto del cobro, para la cabecera de la página de pago. */
   venueName?: string | null;
   concept?: string | null;
@@ -227,6 +231,7 @@ export function choosePayPage(p: PayablePayment): PayRedirect {
     venueName: p.venueName ?? null,
     concept: p.concept ?? null,
     tipToStaff: p.tipToStaff ?? false,
+    ...(p.tipPresets ? { tipPresets: p.tipPresets } : {}),
   };
 }
 

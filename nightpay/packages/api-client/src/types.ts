@@ -118,6 +118,8 @@ export interface ApiClient<U extends SessionUser = SessionUser> {
   clearSession(): void;
   /** POST /v1/auth/login. Lanza ApiError (status 0 = sin respuesta). No guarda nada: eso es setSession. */
   login(input: LoginInput): Promise<LoginResult<U>>;
+  /** Segundo paso del login con 2FA (super-admin): el ticket de LoginCodeRequiredError y el código. */
+  loginWithCode(loginTicket: string, totpCode: string): Promise<LoginResult<U>>;
   /** Salir: borra todo aquí al momento, avisa a las otras pestañas y cierra en el API. Devuelve si el API lo confirmó. */
   logout(): Promise<boolean>;
   /** Cierra en el API la sesión de un login que no se va a usar (no toca nada de aquí). */

@@ -19,6 +19,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Tenant } from '../../common/decorators/tenant.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { WalletsService } from './wallets.service';
+import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
 /**
  * Phase 1B — Wallets.
@@ -60,6 +61,8 @@ export class WalletsController {
   @Post(':id/consumptions/:consumptionId/reverse')
   @HttpCode(200)
   @Roles('OWNER', 'MANAGER')
+  @UseGuards(StaffPermissionGuard)
+  @RequiresPermission('cash')
   async reverseConsumption(
     @Tenant() tenantId: string,
     @CurrentUser() user: JwtPayload,

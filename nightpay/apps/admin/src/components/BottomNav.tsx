@@ -1,203 +1,68 @@
 'use client';
 
-import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { bottomNavItems, isMoreActive, navBadge } from '@/lib/bottom-nav';
-import type { PanelTab, TabKey } from '@/lib/roles';
+import { bottomNavItems, navBadge } from '@/lib/bottom-nav';
+import type { PanelSection, SectionKey } from '@/lib/roles';
 
 interface Props {
-  tabs: readonly PanelTab[];
-  active: TabKey;
-  onChange: (key: TabKey) => void;
-  /** Incidencias abiertas (null = aún no se sabe). */
-  openIncidents: number | null;
-  /** Solicitudes que este dueño puede aprobar (null = aún no se sabe, o no es dueño). */
-  pendingApprovals?: number | null;
-  /** Cuenta y «Salir»: en el móvil viven en «Más». */
-  account: ReactNode;
+  sections: readonly PanelSection[];
+  active: SectionKey;
+  onChange: (key: SectionKey) => void;
+  /** Lo que hay en Avisos (incidencias + por aprobar); null = aún no se sabe. */
+  avisos: number | null;
 }
 
 /**
  * Barra fija de abajo en el móvil (en escritorio no se pinta: styles/panel-nav.css):
- * Pagos · Noche · Incidencias · Chicas · Más. «Más» abre una hoja con el resto
- * de pestañas que ese rol ve, y la cuenta.
+ * Hoy · Chicas · Clientes · Informes · Ajustes. Sin «Más»: cada sección
+ * tiene dentro sus pestañas; la cuenta y «Salir» están en Ajustes → Seguridad.
  */
-export function BottomNav({ tabs, active, onChange, openIncidents, pendingApprovals = null, account }: Props) {
-  const model = bottomNavItems(tabs);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const moreButton = useRef<HTMLButtonElement>(null);
-  const moreActive = isMoreActive(model, active);
-  const activeMore = model.more.find((t) => t.key === active);
-
-  function go(key: TabKey): void {
-    setSheetOpen(false);
-    onChange(key);
-  }
-
+export function BottomNav({ sections, active, onChange, avisos }: Props) {
   return (
-    <>
-      <nav className="np-bottomnav" aria-label="Secciones del panel">
-        <ul>
-          {model.primary.map((item) => {
-            const badge = navBadge(item.key, { incidents: openIncidents, approvals: pendingApprovals });
-            return (
-              <li key={item.key}>
-                <button
-                  type="button"
-                  className="np-bottomnav-item"
-                  aria-current={item.key === active ? 'page' : undefined}
-                  onClick={() => go(item.key)}
-                >
-                  <span className="np-bottomnav-icon">
-                    <NavIcon name={item.key} />
-                    {badge ? (
-                      <span className="np-bottomnav-badge" aria-hidden="true">
-                        {badge.text}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="np-bottomnav-label">{item.label}</span>
-                  {badge ? <span className="np-sr-only">, {badge.spoken}</span> : null}
-                </button>
-              </li>
-            );
-          })}
-          {model.more.length > 0 ? (
-            <li>
+    <nav className="np-bottomnav" aria-label="Secciones del panel">
+      <ul>
+        {bottomNavItems(sections).map((item) => {
+          const badge = navBadge(item.key, avisos);
+          return (
+            <li key={item.key}>
               <button
-                ref={moreButton}
                 type="button"
                 className="np-bottomnav-item"
-                aria-haspopup="dialog"
-                aria-expanded={sheetOpen}
-                aria-current={moreActive ? 'page' : undefined}
-                onClick={() => setSheetOpen(true)}
+                aria-current={item.key === active ? 'page' : undefined}
+                onClick={() => onChange(item.key)}
               >
                 <span className="np-bottomnav-icon">
-                  <NavIcon name="more" />
+                  <NavIcon name={item.key} />
+                  {badge ? (
+                    <span className="np-bottomnav-badge" aria-hidden="true">
+                      {badge.text}
+                    </span>
+                  ) : null}
                 </span>
-                <span className="np-bottomnav-label">{activeMore ? activeMore.label : 'Más'}</span>
-                {activeMore ? <span className="np-sr-only"> (más secciones)</span> : null}
+                <span className="np-bottomnav-label">{item.label}</span>
+                {badge ? <span className="np-sr-only">, {badge.spoken}</span> : null}
               </button>
             </li>
-          ) : null}
-        </ul>
-      </nav>
-
-      <MoreSheet
-        open={sheetOpen}
-        tabs={model.more}
-        active={active}
-        onPick={go}
-        onClose={() => setSheetOpen(false)}
-        returnFocus={moreButton}
-      >
-        {account}
-      </MoreSheet>
-    </>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }
 
-/**
- * Hoja de abajo con <dialog> nativo: foco dentro, Esc cierra y el fondo no se
- * toca. Al cerrar, el foco vuelve a «Más».
- */
-function MoreSheet({
-  open,
-  tabs,
-  active,
-  onPick,
-  onClose,
-  returnFocus,
-  children,
-}: {
-  open: boolean;
-  tabs: readonly PanelTab[];
-  active: TabKey;
-  onPick: (key: TabKey) => void;
-  onClose: () => void;
-  returnFocus: RefObject<HTMLButtonElement | null>;
-  children: ReactNode;
-}) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-
-  useEffect(() => {
-    const el = dialog.current;
-    if (!el) return;
-    if (open && !el.open) {
-      el.showModal();
-    } else if (!open && el.open) {
-      el.close();
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const el = dialog.current;
-    if (!el) return undefined;
-    function onNativeClose(): void {
-      onClose();
-      returnFocus.current?.focus();
-    }
-    el.addEventListener('close', onNativeClose);
-    return () => el.removeEventListener('close', onNativeClose);
-  }, [onClose, returnFocus]);
-
-  return (
-    <dialog
-      ref={dialog}
-      className="np-sheet"
-      aria-labelledby={titleId}
-      onClick={(e) => {
-        // Tocar el fondo (fuera de la hoja) la cierra.
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      {open ? (
-        <div className="np-sheet-panel">
-          <div className="np-sheet-grip" aria-hidden="true" />
-          <div className="np-sheet-head">
-            <h2 id={titleId} className="np-sheet-title">
-              Más secciones
-            </h2>
-            <button type="button" className="np-modal-close" aria-label="Cerrar" onClick={onClose}>
-              <NavIcon name="close" />
-            </button>
-          </div>
-          <ul className="np-sheet-list">
-            {tabs.map((t) => (
-              <li key={t.key}>
-                <button
-                  type="button"
-                  className="np-sheet-link"
-                  aria-current={t.key === active ? 'page' : undefined}
-                  onClick={() => onPick(t.key)}
-                >
-                  {t.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="np-sheet-account">{children}</div>
-        </div>
-      ) : null}
-    </dialog>
-  );
-}
-
-type IconName = 'payments' | 'nights' | 'incidents' | 'operators' | 'more' | 'close' | TabKey;
-
-const ICON_PATHS: Partial<Record<IconName, string>> = {
-  payments: 'M3 7h18v10H3zM3 11h18M7 15h3',
-  nights: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z',
-  incidents: 'M12 4v9M12 17.5v.5M10.3 3.6 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z',
-  operators: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20a6.5 6.5 0 0 1 13 0M16 4.3a3.5 3.5 0 0 1 0 6.4M18 14.5a6.5 6.5 0 0 1 3.5 5.5',
-  approvals: 'M8.5 12.5l2.5 2.5 4.5-5M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
-  more: 'M5 12h.01M12 12h.01M19 12h.01',
-  close: 'M6 6l12 12M18 6 6 18',
+const ICON_PATHS: Record<SectionKey, string> = {
+  // Luna: la noche de hoy (cobros y avisos).
+  hoy: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z',
+  chicas:
+    'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20a6.5 6.5 0 0 1 13 0M16 4.3a3.5 3.5 0 0 1 0 6.4M18 14.5a6.5 6.5 0 0 1 3.5 5.5',
+  // Tarjeta: el saldo de los clientes.
+  clientes: 'M3 7h18v10H3zM3 11h18M7 15h3',
+  // Barras: informes y noches.
+  informes: 'M5 20V11M12 20V5M19 20v-6M3 20h18',
+  // Ajustes: tres controles deslizantes.
+  ajustes: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4',
 };
 
-function NavIcon({ name }: { name: IconName }) {
-  const d = ICON_PATHS[name] ?? ICON_PATHS.more;
+function NavIcon({ name }: { name: SectionKey }) {
   return (
     <svg
       width="22"
@@ -205,12 +70,12 @@ function NavIcon({ name }: { name: IconName }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={name === 'more' ? 3 : 1.8}
+      strokeWidth={1.8}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d={d} />
+      <path d={ICON_PATHS[name]} />
     </svg>
   );
 }

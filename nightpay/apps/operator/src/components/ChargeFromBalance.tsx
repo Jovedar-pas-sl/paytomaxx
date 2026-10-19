@@ -24,6 +24,7 @@ import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard } from '@/lib/nfc';
 import { useOpenCharge } from '@/lib/open-charges';
+import { useVenueMethods } from '@/lib/venue-methods';
 import { usePolling } from '@/lib/use-polling';
 import { CartaRetry, serviceLabel, useCarta, type Carta } from './carta';
 import { STICKY_ACTION_BOTTOM } from './layout';
@@ -377,8 +378,10 @@ function PinCodeStep({
   const [error, setError] = useState<string | null>(null);
   const [nfc, setNfc] = useState(false);
   const [reading, setReading] = useState<AbortController | null>(null);
+  // Ficha NFC apagada por el dueño: solo código + PIN.
+  const nfcOn = useVenueMethods().nfc;
 
-  useEffect(() => setNfc(nfcSupported()), []);
+  useEffect(() => setNfc(nfcSupported() && nfcOn), [nfcOn]);
   useEffect(() => () => reading?.abort(), [reading]);
 
   async function find(e: FormEvent) {

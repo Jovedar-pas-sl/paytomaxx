@@ -7,6 +7,7 @@ import type { OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { tabForOpenCharge, useOpenCharges } from '@/lib/open-charges';
 import { roleAccess, type TabKey } from '@/lib/roles';
+import { VenueMethodsContext, useVenueMethodsFeed, visibleTabsFor } from '@/lib/venue-methods';
 import { ChargeFromBalance } from './ChargeFromBalance';
 import { ConnectionStatus } from './ConnectionStatus';
 import { useDeepLinks, useMyNight, useOwnBalance, type PollError } from './dashboard-hooks';
@@ -28,7 +29,11 @@ interface Props {
 export function Dashboard({ user, onLogout }: Props) {
   // Cada rol ve sus pestañas y pide solo lo suyo (sin 403 de fondo).
   const access = roleAccess(user.role);
-  const [tab, setTab] = useState<TabKey>('home');
+  // Formas de cobro apagadas por el dueño: sus pestañas no salen.
+  const methods = useVenueMethodsFeed(user.id);
+  const tabs = visibleTabsFor(access.tabs, methods);
+  const [selectedTab, setTab] = useState<TabKey>('home');
+  const tab: TabKey = tabs.includes(selectedTab) ? selectedTab : 'home';
   const links = useDeepLinks(access.posQueue);
   // Sesión caducada con un cobro abierto: el saldo y la noche dejan de
   // preguntar y vuelven solos al entrar otra vez.
@@ -69,6 +74,7 @@ export function Dashboard({ user, onLogout }: Props) {
   const showing = (key: TabKey) => links.ficha === null && tab === key;
 
   return (
+    <VenueMethodsContext.Provider value={methods}>
     <main className="np-app-root np-screen" style={mainStyle}>
       {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
       <ConnectionStatus serverDown={own.error?.transient === true} />
@@ -119,8 +125,9 @@ export function Dashboard({ user, onLogout }: Props) {
         <Earnings night={night.night} balance={own.balance} nightError={night.error} />
       ) : null}
 
-      <TabBar tabs={access.tabs} active={tab} onSelect={setTab} />
+      <TabBar tabs={tabs} active={tab} onSelect={setTab} />
     </main>
+    </VenueMethodsContext.Provider>
   );
 }
 

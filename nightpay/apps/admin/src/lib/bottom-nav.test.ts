@@ -1,70 +1,54 @@
 import { describe, expect, it } from 'vitest';
-import { badgeText, bottomNavItems, isMoreActive, navBadge } from './bottom-nav';
-import { visibleTabs } from './roles';
-
-const nav = (user: { role: string; isSuperAdmin?: boolean }) => bottomNavItems(visibleTabs(user));
-const keys = (items: ReadonlyArray<{ key: string }>) => items.map((i) => i.key);
+import { avisosCount, badgeText, bottomNavItems, inboxHiddenKinds, navBadge } from './bottom-nav';
+import { visibleSections } from './roles';
 
 describe('bottomNavItems', () => {
-  it('abajo siempre Pagos, Noche, Incidencias y Chicas, con nombres cortos; el dueño, también «Aprobar»', () => {
-    const { primary } = nav({ role: 'OWNER' });
-    expect(keys(primary)).toEqual(['payments', 'approvals', 'nights', 'incidents', 'operators']);
-    expect(primary.map((p) => p.label)).toEqual(['Pagos', 'Aprobar', 'Noche', 'Incidencias', 'Chicas']);
-    expect(keys(nav({ role: 'MANAGER' }).primary)).toEqual(['payments', 'nights', 'incidents', 'operators']);
+  it('las cinco secciones, sin «Más»', () => {
+    const items = bottomNavItems(visibleSections({ role: 'OWNER', isSuperAdmin: true }));
+    expect(items.map((i) => i.label)).toEqual(['Hoy', 'Chicas', 'Clientes', 'Informes', 'Ajustes']);
+    expect(items.map((i) => i.key as string)).not.toContain('more');
   });
 
-  it('«Mis solicitudes» del encargado va en «Más»', () => {
-    expect(keys(nav({ role: 'MANAGER' }).more)).toContain('requests');
-  });
-
-  it('el dueño ve Banco e Informes en «Más»', () => {
-    const { more } = nav({ role: 'OWNER' });
-    expect(keys(more)).toContain('bank');
-    expect(keys(more)).toContain('reports');
-    expect(keys(more)).not.toContain('payments');
-    expect(keys(more)).not.toContain('superadmin');
-  });
-
-  it('el encargado no ve Banco ni Informes, tampoco en «Más»', () => {
-    const { primary, more } = nav({ role: 'MANAGER' });
-    expect(keys(primary)).toHaveLength(4);
-    expect(keys(more)).not.toContain('bank');
-    expect(keys(more)).not.toContain('reports');
-    expect(keys(more)).toContain('settings');
-  });
-
-  it('Locales solo en «Más» del super-admin', () => {
-    expect(keys(nav({ role: 'OWNER', isSuperAdmin: true }).more)).toContain('superadmin');
-    expect(keys(nav({ role: 'MANAGER' }).more)).not.toContain('superadmin');
-  });
-
-  it('cada pestaña visible sale una sola vez (abajo o en «Más»)', () => {
-    const tabs = visibleTabs({ role: 'OWNER', isSuperAdmin: true });
-    const { primary, more } = bottomNavItems(tabs);
-    expect([...keys(primary), ...keys(more)].sort()).toEqual(keys(tabs).sort());
+  it('el encargado también ve las cinco (con menos pestañas dentro)', () => {
+    expect(bottomNavItems(visibleSections({ role: 'MANAGER' }))).toHaveLength(5);
   });
 
   it('sin panel (camarero, chica): nada', () => {
-    expect(nav({ role: 'WAITER' })).toEqual({ primary: [], more: [] });
+    expect(bottomNavItems(visibleSections({ role: 'WAITER' }))).toEqual([]);
   });
 });
 
-describe('isMoreActive', () => {
-  it('«Más» se marca cuando la pestaña abierta está dentro', () => {
-    const model = nav({ role: 'OWNER' });
-    expect(isMoreActive(model, 'settings')).toBe(true);
-    expect(isMoreActive(model, 'payments')).toBe(false);
+describe('avisosCount', () => {
+  const incidents = [{ kind: 'stuck_payment' }, { kind: 'approval_pending' }, { kind: 'bank_mismatch' }];
+
+  it('dueño: incidencias + lo que puede aprobar, sin contar dos veces la solicitud', () => {
+    expect(avisosCount({ incidents, approvals: 2, isOwner: true })).toBe(4);
+  });
+
+  it('encargado: solo las incidencias (aprobar es del dueño)', () => {
+    expect(avisosCount({ incidents, approvals: 5, isOwner: false })).toBe(3);
+  });
+
+  it('sin datos aún: null; con una de las dos, cuenta lo que hay', () => {
+    expect(avisosCount({ incidents: null, approvals: null, isOwner: true })).toBeNull();
+    expect(avisosCount({ incidents: null, approvals: 3, isOwner: false })).toBeNull();
+    expect(avisosCount({ incidents: null, approvals: 3, isOwner: true })).toBe(3);
+    expect(avisosCount({ incidents: [], approvals: null, isOwner: true })).toBe(0);
+  });
+
+  it('la bandeja del dueño no repite la incidencia de una solicitud por aprobar', () => {
+    expect(inboxHiddenKinds(true).has('approval_pending')).toBe(true);
+    expect(inboxHiddenKinds(false).size).toBe(0);
   });
 });
 
 describe('navBadge', () => {
-  it('incidencias abiertas y pendientes de aprobar; nada en las demás ni sin datos', () => {
-    const counts = { incidents: 2, approvals: 3 };
-    expect(navBadge('incidents', counts)).toEqual({ text: '2', spoken: '2 abiertas' });
-    expect(navBadge('approvals', counts)).toEqual({ text: '3', spoken: '3 por aprobar' });
-    expect(navBadge('payments', counts)).toBeNull();
-    expect(navBadge('approvals', { incidents: 0, approvals: 0 })).toBeNull();
-    expect(navBadge('approvals', { incidents: 0, approvals: null })).toBeNull();
+  it('solo en «Hoy», con el número de avisos', () => {
+    expect(navBadge('hoy', 3)).toEqual({ text: '3', spoken: '3 avisos' });
+    expect(navBadge('hoy', 1)).toEqual({ text: '1', spoken: '1 aviso' });
+    expect(navBadge('chicas', 3)).toBeNull();
+    expect(navBadge('hoy', 0)).toBeNull();
+    expect(navBadge('hoy', null)).toBeNull();
   });
 });
 
