@@ -8,6 +8,7 @@ import { WalletChargesService } from './wallet-charges.service';
 import { AdminWalletsController, WalletsController } from './wallets.controller';
 import { PublicSaldoController } from './public-saldo.controller';
 import { WalletPasskeysService } from './wallet-passkeys.service';
+import { WalletTopUpService } from './wallet-topup.service';
 import { WalletsService } from './wallets.service';
 import { GoogleWalletController } from './google-wallet/google-wallet.controller';
 import { GoogleWalletService } from './google-wallet/google-wallet.service';
@@ -15,7 +16,8 @@ import { GoogleWalletService } from './google-wallet/google-wallet.service';
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
   imports: [PrismaModule, AuditModule, AuthModule],
-  providers: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService],
+  // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
+  providers: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService, WalletTopUpService],
   controllers: [
     WalletsController,
     AdminWalletsController,
