@@ -373,7 +373,7 @@ function StatusIcon({ status }: { status: NightCloseStep['status'] }) {
  * Pantalla encima del panel: foco en el título al abrir, Esc para volver,
  * sin scroll de fondo, y el foco vuelve a donde estaba al cerrarla.
  */
-function useModalScreen(headingRef: RefObject<HTMLHeadingElement>, onEscape: () => void): void {
+function useModalScreen(headingRef: RefObject<HTMLHeadingElement | null>, onEscape: () => void): void {
   const escape = useRef(onEscape);
   escape.current = onEscape;
   useEffect(() => {
