@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  posVoidedPaidIncident,
   ACKABLE_KINDS,
   SELF_RESOLVING,
   ackKey,
@@ -171,7 +172,9 @@ describe('qué se puede marcar como revisada', () => {
       occurredAt: at('2026-10-13T21:18:59Z'),
     });
     const [unmonitored] = backupIncidents({ kind: 'unmonitored' } as never, at('2026-10-14T09:00:00Z'), true);
-    for (const i of [bank, unmonitored!]) {
+    const voided = posVoidedPaidIncident({ id: 'e-1', paymentId: 'p-1', amountCents: null, occurredAt: at('2026-10-13T21:00:00Z'), payload: {} });
+    expect(voided.detail).toMatch(/^El cliente no ha pagado/);
+    for (const i of [bank, unmonitored!, voided]) {
       expect(i.ackable).toBe(true);
       expect(ACKABLE_KINDS as readonly string[]).toContain(i.kind);
     }

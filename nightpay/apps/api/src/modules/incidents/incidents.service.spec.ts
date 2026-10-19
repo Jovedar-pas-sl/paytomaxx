@@ -27,6 +27,7 @@ function makeIncidents(rows: {
   anomalies?: unknown[];
   pendingRefunds?: unknown[];
   pendingApprovals?: unknown[];
+  posVoidedPaid?: unknown[];
 }) {
   const prisma = {
     $queryRaw: vi
@@ -44,7 +45,8 @@ function makeIncidents(rows: {
       .mockResolvedValueOnce(rows.bankItems ?? [])
       .mockResolvedValueOnce(rows.anomalies ?? [])
       .mockResolvedValueOnce(rows.pendingRefunds ?? [])
-      .mockResolvedValueOnce(rows.pendingApprovals ?? []),
+      .mockResolvedValueOnce(rows.pendingApprovals ?? [])
+      .mockResolvedValueOnce(rows.posVoidedPaid ?? []),
     incidentAck: { upsert: vi.fn().mockResolvedValue({}) },
     asSystem: vi.fn(),
   };
@@ -93,6 +95,27 @@ describe('bandeja de incidencias', () => {
     expect(items.map((i) => i.kind)).toEqual(['pos_unmatched_op', 'pos_charge_mismatch']);
     expect(items[0]!.detail).toContain('50,00 €');
     expect(items[1]!.detail).toContain('Operación 99812');
+  });
+
+  it('venta anulada en el datáfono que pagó el cobro, y el cobro sigue pagado (P4): incidencia marcable', async () => {
+    const { svc, prisma } = makeIncidents({
+      posVoidedPaid: [
+        { id: '31', paymentId: 'p-8', amountCents: 12_000, occurredAt: at('2026-10-13T23:50:00Z'), payload: { operationNumber: '4410', terminalId: 'term-1' } },
+      ],
+    });
+    const [i] = await svc.list('t-1');
+    expect(i).toMatchObject({ kind: 'pos_voided_paid', refId: '31', paymentId: 'p-8', amountCents: 12_000, ackable: true });
+    expect(i!.title).toBe('Venta anulada en el datáfono y el cobro sigue pagado');
+    expect(i!.detail).toContain('120,00 €');
+    expect(i!.detail).toContain('Operación 4410');
+    expect(i!.detail).toContain('regístralo como devolución');
+    // La venta anulada tiene que ser la que pagó el cobro, en ese datáfono, y el cobro seguir pagado.
+    const sql = (prisma.$queryRaw.mock.calls.at(-1)![0] as string[]).join('?');
+    expect(sql).toContain(`"eventType" = 'pos.voided'`);
+    expect(sql).toContain(`p."posOperationNumber" = v.payload ->> 'operationNumber'`);
+    expect(sql).toContain(`p."posTerminalId"::text = v.payload ->> 'terminalId'`);
+    expect(sql).toContain(`p.status::text IN ('AUTHORIZED', 'PARTIALLY_REFUNDED')`);
+    expect(sql).toContain(`k.kind = 'pos_voided_paid'`);
   });
 
   it('cobro del datáfono sin cuadrar en 24 h: se avisa y se quita solo al cuadrar', async () => {
