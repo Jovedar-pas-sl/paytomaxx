@@ -4,6 +4,7 @@ import {
   APPROVAL_STATUS,
   approvalReason,
   approvedMessage,
+  approveFailure,
   requestSummary,
   approvalTarget,
   approveSummary,
@@ -134,6 +135,30 @@ describe('tarjeta de «Por aprobar»', () => {
     expect(requestSummary({ kind: 'REFUND', amountCents: 15_000, to: 'a la tarjeta ••4242', venueName: 'Luna' })).toMatch(
       /^Vas a pedir al dueño que apruebe devolver .* a la tarjeta ••4242 desde Luna\./,
     );
+  });
+
+  it('si falla «Aprobar»: qué se hace en cada caso', () => {
+    expect(approveFailure(null)).toMatchObject({ kind: 'done', tone: 'warning', text: expect.stringMatching(/puede que sí se aprobara/) });
+    expect(approveFailure({ status: 0, code: null, message: 'sin red' })).toMatchObject({ kind: 'done' });
+    expect(approveFailure({ status: 409, code: 'APPROVAL_FAILED', message: 'No se ha podido hacer: x' })).toEqual({
+      kind: 'done',
+      tone: 'danger',
+      text: 'No se ha podido hacer: x',
+    });
+    expect(approveFailure({ status: 502, code: 'REFUND_OUTCOME_UNKNOWN', message: 'No sabemos' })).toMatchObject({ tone: 'warning' });
+    expect(approveFailure({ status: 403, code: 'TOTP_NOT_ENROLLED', message: 'x' })).toMatchObject({
+      kind: 'enrol',
+      text: expect.stringMatching(/Ajustes → Verificación en dos pasos/),
+    });
+    expect(approveFailure({ status: 403, code: 'TOTP_INVALID', message: 'Código malo' })).toEqual({
+      kind: 'retry',
+      text: 'Código malo',
+      clearCode: true,
+    });
+    expect(approveFailure({ status: 403, code: 'APPROVAL_OWN_REQUEST', message: 'Lo tuyo no' })).toMatchObject({
+      kind: 'retry',
+      clearCode: false,
+    });
   });
 
   it('rechazar pide el motivo', () => {

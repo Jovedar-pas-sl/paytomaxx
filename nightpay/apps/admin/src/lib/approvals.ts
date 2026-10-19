@@ -129,6 +129,41 @@ export function requestSummary(input: {
   return `Vas a pedir al dueño que apruebe ${what} desde ${input.venueName}. No se mueve dinero hasta que lo apruebe.`;
 }
 
+/** Ya no se puede decidir desde la tarjeta: se dice arriba y se refresca la lista. */
+const FINAL_CODES: ReadonlySet<string> = new Set([
+  'APPROVAL_FAILED',
+  'APPROVAL_NOT_PENDING',
+  'APPROVAL_EXPIRED',
+  'REFUND_OUTCOME_UNKNOWN',
+]);
+
+const ENROL_TEXT =
+  'Para aprobar hace falta tu app de verificación (2FA): actívala en Ajustes → Verificación en dos pasos.';
+const LOST_TEXT =
+  'No se pudo confirmar con el servidor. Mira la lista antes de volver a probar: puede que sí se aprobara.';
+
+export type ApproveFailure =
+  /** Ya no se decide aquí (hecha, fallida, caducada, sin respuesta): aviso arriba y refrescar. */
+  | { kind: 'done'; tone: 'danger' | 'warning'; text: string }
+  /** Sin 2FA activada: no sirve probar otro código. */
+  | { kind: 'enrol'; text: string }
+  /** Corregir y volver a probar (con el campo vacío si el código no valía). */
+  | { kind: 'retry'; text: string; clearCode: boolean };
+
+/**
+ * Qué hacer cuando falla «Aprobar». `err` = el error del API (estado, código
+ * y mensaje) o null si ni contestó (sin red): entonces no se sabe si se
+ * aprobó y se manda mirar la lista.
+ */
+export function approveFailure(err: { status: number; code: string | null; message: string } | null): ApproveFailure {
+  if (!err || err.status === 0) return { kind: 'done', tone: 'warning', text: LOST_TEXT };
+  if (err.code && FINAL_CODES.has(err.code)) {
+    return { kind: 'done', tone: err.code === 'REFUND_OUTCOME_UNKNOWN' ? 'warning' : 'danger', text: err.message };
+  }
+  if (err.code === 'TOTP_NOT_ENROLLED' || err.code === 'TOTP_UNREADABLE') return { kind: 'enrol', text: ENROL_TEXT };
+  return { kind: 'retry', text: err.message, clearCode: err.code === 'TOTP_INVALID' };
+}
+
 /** El motivo del rechazo: obligatorio (lo lee el encargado). null = vale. */
 export function rejectNoteProblem(note: string): string | null {
   return note.trim().length < 3 ? 'Explica por qué la rechazas (mínimo 3 letras).' : null;

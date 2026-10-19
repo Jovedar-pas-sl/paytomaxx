@@ -26,6 +26,11 @@
   list-style: none;
 }
 
+/* El resultado de aprobar o rechazar: recibe el foco (sin anillo: ya es un aviso). */
+.np-approvals-outcome:focus {
+  outline: none;
+}
+
 /* ─── Tarjeta ─────────────────────────────────────────────────────── */
 
 .np-approval {

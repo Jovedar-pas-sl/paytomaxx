@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Input, useNow } from '@nightpay/ui';
 import type { PayoutMethod } from '@nightpay/contracts';
 import { approveApproval, fetchApprovals, rejectApproval, type ApprovalView } from '@/lib/api';
@@ -9,6 +9,7 @@ import {
   APPROVAL_STATUS,
   approvalReason,
   approvalTarget,
+  approveFailure,
   approveSummary,
   approvedMessage,
   decisionLine,
@@ -31,8 +32,8 @@ import { Pill, type Tone } from './Pill';
 const methodLabel = (m: PayoutMethod) => PAYOUT_METHOD_SHORT[m] ?? m;
 /** Lo decidido que se enseña debajo. */
 const RECENT_LIMIT = 10;
-/** Ya no se puede decidir (otra persona, caducada, no se pudo hacer): se cuenta arriba y se refresca. */
-const FINAL_CODES = new Set(['APPROVAL_FAILED', 'APPROVAL_NOT_PENDING', 'APPROVAL_EXPIRED', 'REFUND_OUTCOME_UNKNOWN']);
+/** Ya no se puede decidir desde la tarjeta (otra persona, caducada…): se cuenta arriba y se refresca. */
+const FINAL_CODES = new Set(['APPROVAL_FAILED', 'APPROVAL_NOT_PENDING', 'APPROVAL_EXPIRED']);
 
 interface Outcome {
   tone: Tone;
@@ -49,18 +50,31 @@ export function ApprovalsPanel() {
   const { refresh } = feed;
   const [recent, setRecent] = useState<ApprovalView[] | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const outcomeBox = useRef<HTMLDivElement>(null);
+  const recentRun = useRef(0);
   const pendingId = useId();
   const recentId = useId();
   const now = new Date(useNow(true, 30_000));
 
   const loadRecent = useCallback(async () => {
+    const run = ++recentRun.current;
     try {
-      const items = await fetchApprovals(undefined, 30);
-      setRecent(items.filter((i) => i.status !== 'PENDING').slice(0, RECENT_LIMIT));
+      const items = await fetchApprovals(undefined, 50);
+      // Una respuesta vieja que llega tarde no pisa la nueva.
+      if (run === recentRun.current) {
+        setRecent(items.filter((i) => i.status !== 'PENDING').slice(0, RECENT_LIMIT));
+      }
     } catch {
       // Lo decidido es solo para mirar: si falla, se queda lo de antes.
     }
   }, []);
+
+  // En el móvil la tarjeta desaparece al decidirla: el resultado se trae a la vista (y el foco).
+  useEffect(() => {
+    if (!outcome) return;
+    outcomeBox.current?.scrollIntoView({ block: 'nearest' });
+    outcomeBox.current?.focus({ preventScroll: true });
+  }, [outcome]);
 
   // Al abrir la pestaña, lo último (la barra refresca cada 20 s).
   useEffect(() => {
@@ -85,9 +99,11 @@ export function ApprovalsPanel() {
       </div>
 
       {outcome ? (
-        <Notice tone={outcome.tone} action={{ label: 'Entendido', onClick: () => setOutcome(null) }}>
-          {outcome.text}
-        </Notice>
+        <div ref={outcomeBox} tabIndex={-1} className="np-approvals-outcome">
+          <Notice tone={outcome.tone} action={{ label: 'Entendido', onClick: () => setOutcome(null) }}>
+            {outcome.text}
+          </Notice>
+        </div>
       ) : null}
       {feed.error ? (
         <Notice tone="danger" action={{ label: 'Reintentar', onClick: refresh }}>
@@ -138,6 +154,12 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  /** Sin 2FA activada: el formulario no sirve, se dice dónde activarla. */
+  const [needsEnrol, setNeedsEnrol] = useState<string | null>(null);
+  /** Se sube tras un código malo: el campo vuelve a montarse vacío y con el foco (teclado abierto). */
+  const [otpKey, setOtpKey] = useState(0);
+  /** Una petición en marcha: el sexto número y un Intro a la vez no aprueban dos veces. */
+  const inFlight = useRef(false);
   const locked = useLockActive(lockedUntil);
   const reason = approvalReason(item);
 
@@ -149,9 +171,9 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
 
   async function approve(e: FormEvent): Promise<void> {
     e.preventDefault();
-    // El código se envía solo al completarlo: un Intro a la vez no aprueba dos veces.
-    if (busy) return;
+    if (inFlight.current) return;
     if (!/^\d{6}$/.test(code)) return setError('Pon los 6 números de tu app de verificación.');
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -160,6 +182,7 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
     } catch (err) {
       onApproveError(err);
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }
@@ -169,21 +192,27 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
     if (lockEnds !== null) {
       setLockedUntil(lockEnds);
       setCode('');
-    } else if (err instanceof ApiError && err.code === 'TOTP_INVALID') {
-      setCode('');
-    }
-    if (err instanceof ApiError && err.code && FINAL_CODES.has(err.code)) {
-      onDone({ tone: err.code === 'REFUND_OUTCOME_UNKNOWN' ? 'warning' : 'danger', text: err.message });
+      setError((err as Error).message);
       return;
     }
-    setError((err as Error).message);
+    const failure = approveFailure(
+      err instanceof ApiError ? { status: err.status, code: err.code, message: err.message } : null,
+    );
+    if (failure.kind === 'done') return onDone({ tone: failure.tone, text: failure.text });
+    if (failure.kind === 'enrol') return setNeedsEnrol(failure.text);
+    if (failure.clearCode) {
+      setCode('');
+      setOtpKey((k) => k + 1);
+    }
+    setError(failure.text);
   }
 
   async function reject(e: FormEvent): Promise<void> {
     e.preventDefault();
-    if (busy) return;
+    if (inFlight.current) return;
     const problem = rejectNoteProblem(note);
     if (problem) return setError(problem);
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -196,6 +225,7 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
       }
       setError((err as Error).message);
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }
@@ -220,16 +250,22 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
 
       {!item.canDecide ? (
         <p className="np-approval-meta">La pediste tú: la aprueba otra persona.</p>
+      ) : needsEnrol ? (
+        <p role="alert" className="np-approval-error">
+          {needsEnrol}
+        </p>
       ) : mode === 'approve' ? (
         <form onSubmit={(e) => void approve(e)} className="np-approval-form">
           <ConfirmLine>{approveSummary(item, venue.name ?? venue.slug, methodLabel)}</ConfirmLine>
           <OtpInput
+            key={otpKey}
             label="Código de tu app de verificación (2FA)"
             value={code}
             onChange={setCode}
             autoSubmit
             autoFocus
             required
+            disabled={busy}
             lockedUntil={lockedUntil}
             hint="Al poner el sexto número se aprueba. Cada código vale una sola vez."
           />
