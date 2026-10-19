@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { staffPermissionsOf } from '@nightpay/contracts';
 import type { VenueSettings } from './endpoints/settings';
 import {
+  PERMISSION_LABELS,
+  ROLE_LABELS,
   editablePermissions,
   hasOverride,
   holdDaysText,
@@ -94,9 +96,20 @@ describe('propinas sugeridas', () => {
 describe('permisos del personal', () => {
   const manager = { id: 'm-1', role: 'MANAGER' as const };
 
-  it('el encargado: los cinco; el camarero: ninguno (solo cobra desde su app)', () => {
-    expect(editablePermissions('MANAGER')).toHaveLength(5);
-    expect(editablePermissions('WAITER')).toEqual([]);
+  it('el encargado: los seis; el camarero y el datáfono de recepción: solo las recargas en efectivo', () => {
+    expect(editablePermissions('MANAGER')).toHaveLength(6);
+    expect(editablePermissions('WAITER')).toEqual(['cashTopUp']);
+    expect(editablePermissions('DEVICE')).toEqual(['cashTopUp']);
+    expect(PERMISSION_LABELS.cashTopUp).toBe('Cobrar recargas en efectivo');
+    expect(ROLE_LABELS.DEVICE).toBe('Datáfonos de recepción');
+  });
+
+  it('recargas en efectivo: por defecto el encargado sí, el camarero no; el dueño se lo da a uno', () => {
+    const perms = staffPermissionsOf({ people: { 'w-1': { cashTopUp: true } } });
+    expect(personCan(perms, manager, 'cashTopUp')).toBe(true);
+    expect(personCan(perms, { id: 'w-2', role: 'WAITER' }, 'cashTopUp')).toBe(false);
+    expect(personCan(perms, { id: 'w-1', role: 'WAITER' }, 'cashTopUp')).toBe(true);
+    expect(hasOverride(perms, { id: 'w-1', role: 'WAITER' })).toBe(true);
   });
 
   it('lo de la persona manda sobre lo del rol; sin excepción, lo del rol', () => {

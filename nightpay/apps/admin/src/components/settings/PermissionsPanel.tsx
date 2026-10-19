@@ -4,14 +4,15 @@ import { useState } from 'react';
 import { Button } from '@nightpay/ui';
 import type { PermissionRole, StaffPermissionKey, StaffPermissions, UpdateStaffPermissionsDto } from '@nightpay/contracts';
 import { fetchStaffPermissions, updateStaffPermissions, type PermissionPerson } from '@/lib/api';
-import { PERMISSION_LABELS, editablePermissions, hasOverride, personCan } from '@/lib/settings-forms';
+import { PERMISSION_LABELS, ROLE_LABELS, editablePermissions, hasOverride, personCan } from '@/lib/settings-forms';
 import { LoadState, SettingsCard, StatusLine, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 /**
  * Ajustes → Permisos del personal (dueño): qué deja hacer a los encargados
- * (devolver, dar efectivo, cerrar la noche, pagos a las chicas, informes) y,
- * si hace falta, a una persona en concreto. Por defecto, lo de siempre. El
- * API lo aplica en cada petición.
+ * (devolver, dar efectivo, cerrar la noche, pagos a las chicas, informes,
+ * recargas en efectivo) y, si hace falta, a una persona en concreto. A los
+ * camareros y a los datáfonos de recepción, solo las recargas en efectivo.
+ * Por defecto, lo de siempre. El API lo aplica en cada petición.
  */
 export function PermissionsPanel() {
   const { data, setData, error: loadError, retry } = useSettingsLoad(fetchStaffPermissions);
@@ -55,10 +56,10 @@ export function PermissionsPanel() {
         ))}
       </SettingsCard>
 
-      {managers.length > 0 ? (
-        <SettingsCard title="Por persona" hint="Solo si alguien necesita algo distinto a los demás encargados.">
+      {managers.length + waiters.length > 0 ? (
+        <SettingsCard title="Por persona" hint="Solo si alguien necesita algo distinto a los demás de su rol (p. ej. el camarero de recepción).">
           <ul className="np-set-people">
-            {managers.map((p) => (
+            {[...managers, ...waiters].map((p) => (
               <PersonRow
                 key={p.id}
                 person={p}
@@ -76,11 +77,34 @@ export function PermissionsPanel() {
 
       <SettingsCard
         title="Camareros"
-        hint={`Cobran y confirman datáfonos desde su app; ninguna de estas acciones les llega.${
+        hint={`Cobran y confirman datáfonos desde su app; de esto, solo pueden cobrar recargas en efectivo si se lo das.${
           waiters.length > 0 ? ` (${waiters.length} en el local)` : ''
         }`}
       >
-        {null}
+        {editablePermissions('WAITER').map((key) => (
+          <Switch
+            key={key}
+            label={PERMISSION_LABELS[key]}
+            checked={permissions.roles.WAITER[key]}
+            disabled={busy}
+            onChange={(v) => void save({ roles: { WAITER: { [key]: v } } })}
+          />
+        ))}
+      </SettingsCard>
+
+      <SettingsCard
+        title={ROLE_LABELS.DEVICE}
+        hint="El datáfono no sabe quién lo usa: actúa como el local. Si lo enciendes, cualquiera con el datáfono de recepción cobra recargas en efectivo (cuadran en la caja de la noche)."
+      >
+        {editablePermissions('DEVICE').map((key) => (
+          <Switch
+            key={key}
+            label={PERMISSION_LABELS[key]}
+            checked={permissions.roles.DEVICE[key]}
+            disabled={busy}
+            onChange={(v) => void save({ roles: { DEVICE: { [key]: v } } })}
+          />
+        ))}
       </SettingsCard>
 
       <StatusLine saved={saved} error={error} />
@@ -132,7 +156,7 @@ function PersonRow({
           ))}
           {custom ? (
             <Button type="button" variant="ghost" onClick={onReset} disabled={busy} className="np-set-small">
-              Volver a lo de los encargados
+              Volver a lo de los {ROLE_LABELS[role].toLowerCase()}
             </Button>
           ) : null}
         </div>

@@ -37,6 +37,9 @@ export interface NightSummary {
   // API nuevo (los Z congelados antes no los traen):
   /** Saldo devuelto al cliente en efectivo: resta del neto. */
   walletCashPayoutsCents?: number;
+  /** Recargas del saldo en efectivo (ya en «cobrado»; no son cobros del banco). */
+  walletCashTopUpsCount?: number;
+  walletCashTopUpsCents?: number;
   /** Saldo devuelto a la tarjeta: ya está en las devoluciones (solo se informa). */
   walletCardPayoutsCents?: number;
   /** Consumos del saldo (ventas, no dinero nuevo). */
@@ -59,7 +62,11 @@ export interface NightAdjustments {
 /** Caja de la noche congelada en el Z: fondo, salidas en efectivo, lo esperado, lo contado y la diferencia. */
 export interface NightCaja {
   openingFloatCents: number | null;
+  /** Lo que entró: las recargas del saldo en efectivo. */
   cashInCents: number;
+  /** Los Z congelados antes del 21-oct-2026 no lo traen. */
+  walletCashTopUpsCount?: number;
+  walletCashTopUpsCents?: number;
   walletCashPayoutsCount: number;
   walletCashPayoutsCents: number;
   chicaCashPayoutsCount: number;

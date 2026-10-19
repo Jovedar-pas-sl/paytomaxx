@@ -7,14 +7,22 @@ import { fetchPaymentMethods, updatePaymentMethods } from '@/lib/api';
 import { parseTipEuros, parseTipPercents, tipEurosText, tipPercentsText } from '@/lib/settings-forms';
 import { LoadState, SaveRow, SettingsCard, StatusLine, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
-type MethodKey = 'card' | 'wallet' | 'nfc' | 'pos';
+type MethodKey = 'card' | 'wallet' | 'nfc' | 'pos' | 'cashTopUp';
 
 const METHODS: ReadonlyArray<{ key: MethodKey; label: string; hint: string }> = [
   { key: 'card', label: 'QR con tarjeta, Apple Pay o Google Pay', hint: 'El cliente escanea y paga en la página del banco.' },
   { key: 'wallet', label: 'Pago con saldo', hint: 'Recargas y pagos con Face ID o con su código y PIN.' },
   { key: 'nfc', label: 'Ficha NFC', hint: 'Acercar la ficha del saldo al móvil (siempre con PIN).' },
   { key: 'pos', label: 'Datáfono', hint: 'Cobros con el PAX o el datáfono del bar.' },
+  {
+    key: 'cashTopUp',
+    label: 'Recarga en efectivo',
+    hint: 'Cargar el saldo en efectivo en recepción (hasta 999,99 €). Quién puede, en Permisos. Entra en la caja de la noche.',
+  },
 ];
+
+/** Las que cobran: al menos una encendida. La recarga en efectivo es aparte (solo recarga). */
+const CHARGE_METHODS: readonly MethodKey[] = ['card', 'wallet', 'nfc', 'pos'];
 
 /**
  * Ajustes → Formas de cobro (dueño): qué acepta el local. Lo apagado no sale
@@ -50,7 +58,7 @@ export function PaymentMethodsPanel() {
   }
 
   function toggle(key: MethodKey | 'tips', next: boolean): void {
-    if (!next && key !== 'tips' && METHODS.every((m) => m.key === key || !methods[m.key])) {
+    if (!next && CHARGE_METHODS.includes(key as MethodKey) && CHARGE_METHODS.every((m) => m === key || !methods[m])) {
       setError('Deja al menos una forma de cobro encendida.');
       return;
     }

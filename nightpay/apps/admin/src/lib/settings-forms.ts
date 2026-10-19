@@ -157,14 +157,16 @@ export const PERMISSION_LABELS: Readonly<Record<StaffPermissionKey, string>> = {
   closeNight: 'Cerrar la noche',
   payouts: 'Pedir y hacer pagos a las chicas',
   reports: 'Ver informes',
+  cashTopUp: 'Cobrar recargas en efectivo',
 };
 
 export const ROLE_LABELS: Readonly<Record<PermissionRole, string>> = {
   MANAGER: 'Encargados',
   WAITER: 'Camareros',
+  DEVICE: 'Datáfonos de recepción',
 };
 
-/** Permisos que se pueden tocar para ese rol (los camareros solo cobran: ninguno). */
+/** Permisos que se pueden tocar para ese rol (camareros y datáfonos: solo las recargas en efectivo). */
 export function editablePermissions(role: PermissionRole): readonly StaffPermissionKey[] {
   return STAFF_PERMISSION_KEYS.filter((k) => PERMISSION_CEILING[role].includes(k));
 }
