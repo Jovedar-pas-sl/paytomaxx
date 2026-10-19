@@ -104,11 +104,12 @@ function setup(o: { card?: Row | null; topUpAt?: Date } = {}) {
       walletGroup: 'grupo-bambu', identifier: null, closeRequestedAt: null, mergedIntoId: null, blockedAt: null,
       pinFails: 0, pinLockedAt: null, pinFailedAt: null, pinSetById: null,
     }),
-    walletCard: table('card', { uid: null, walletId: null, status: 'ACTIVE', blockedAt: null, lastUsedAt: null }),
+    walletCard: table('card', { uid: null, walletId: null, status: 'ISSUED', blockedAt: null, lastUsedAt: null, venueId: SALA }),
     walletChargeRequest: table('req', { walletId: null, decidedAt: null }),
     walletConsumption: table('cons'),
     operatorEarning: table('earn'),
     payment: table('pay'),
+    walletCashTopUp: table('cash'),
     user: table('user'),
     venue: table('venue', { pausedAt: null, business: null, operatorCommissionDefaults: null }),
   };
@@ -176,9 +177,11 @@ describe('grabar y dar una ficha', () => {
     expect(isWalletCardToken(a.card)).toBe(true);
     expect(a.card).toHaveLength(22); // 128 bits en base64url
     expect(a.card).not.toBe(b.card);
+    // En el stock del local, aún sin grabar (stockedAt lo pone quien la graba).
     expect(db.walletCard.list({ where: { token: a.card } })).toEqual([
-      expect.objectContaining({ linkedById: LOLA, walletId: null, status: 'ACTIVE' }),
+      expect.objectContaining({ linkedById: LOLA, walletId: null, status: 'STOCK', venueId: SALA }),
     ]);
+    expect(db.walletCard.list({ where: { token: a.card } })[0]).not.toHaveProperty('stockedAt');
   });
 
   it('la chica de la recarga la da en sus 15 min: guarda el número de serie y suelta la ficha anterior', async () => {
@@ -186,8 +189,11 @@ describe('grabar y dar una ficha', () => {
     db.walletCard.put({ id: 'card-vieja', token: 'fichaViejaDelCliente01', walletId: WALLET });
     const out = await svc.linkCard(lola, { code: 'k7q-4m2', card: FICHA, uid: UID });
     expect(out).toMatchObject({ walletId: WALLET, hasCard: true, hasPin: true });
-    expect(db.walletCard.get('card-1')).toMatchObject({ walletId: WALLET, uid: '04A23B5C1D8000', linkedById: LOLA, linkedAt: NOW });
-    expect(db.walletCard.get('card-vieja')).toMatchObject({ walletId: null });
+    expect(db.walletCard.get('card-1')).toMatchObject({
+      walletId: WALLET, status: 'ISSUED', uid: '04A23B5C1D8000', linkedById: LOLA, linkedAt: NOW, venueId: SALA,
+    });
+    // La que tenía vuelve al stock (devuelta).
+    expect(db.walletCard.get('card-vieja')).toMatchObject({ walletId: null, status: 'RETURNED', returnedAt: NOW });
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'wallet.card_linked', targetId: WALLET, payload: { replacedCards: 1, withUid: true } }),
     );
@@ -291,7 +297,7 @@ describe('cobrar con la ficha y el PIN', () => {
     const { svc, db, audit } = setup();
     await expect(svc.blockCard(lola, WALLET)).rejects.toBeInstanceOf(ForbiddenException);
     await expect(svc.blockCard(encargadoNeon, WALLET)).rejects.toBeInstanceOf(NotFoundException);
-    expect(db.walletCard.get('card-1')).toMatchObject({ status: 'ACTIVE' });
+    expect(db.walletCard.get('card-1')).toMatchObject({ status: 'ISSUED' });
     await expect(svc.blockCard(javi, OTRO)).rejects.toBeInstanceOf(ConflictException);
     expect(audit.log).not.toHaveBeenCalled();
   });

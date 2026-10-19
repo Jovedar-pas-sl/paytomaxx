@@ -59,7 +59,8 @@ function makeService(
     operatorEarning: { create: vi.fn().mockResolvedValue({}) },
     walletPayout: { create: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]) },
     walletPasskey: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), count: vi.fn().mockResolvedValue(0) },
-    walletCard: { count: vi.fn().mockResolvedValue(0) },
+    walletCard: { count: vi.fn().mockResolvedValue(0), updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    walletCashTopUp: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) },
     payment: { findMany: vi.fn().mockResolvedValue([]) },
     user: {
       findUnique: vi.fn().mockResolvedValue({ role: 'OPERATOR', commissionBps: null, displayName: 'Lola' }),

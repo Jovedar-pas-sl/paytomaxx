@@ -116,7 +116,7 @@ function setup(wallet: Row = {}) {
     qrToken: PASE, balanceCents: 12_000, status: 'ACTIVE', closeRequestedAt: null, mergedIntoId: null, blockedAt: null,
     pinHash: PIN_HASH, pinFails: 0, pinLockedAt: null, pinFailedAt: null, pinSetById: null, ...wallet,
   });
-  tables.walletCard.put({ id: 'card-1', token: FICHA, uid: UID, walletId: WALLET, status: 'ACTIVE', lastUsedAt: null });
+  tables.walletCard.put({ id: 'card-1', token: FICHA, uid: UID, walletId: WALLET, status: 'ISSUED', lastUsedAt: null });
   const audit = { log: vi.fn(async (_e: { action: string; actorId?: string | null; payload: Record<string, unknown> }) => undefined) };
   const svc = new WalletChargesService(prisma as never, audit as never, { get: vi.fn() } as never, {} as never);
   return { svc, db: tables, audit };
@@ -264,7 +264,7 @@ describe('pagar con el PIN en el datáfono', () => {
 
   it('con el pase o el código también; la ficha que llega sin número de serie lo graba la primera vez', async () => {
     const { svc, db, audit } = setup();
-    db.walletCard.put({ id: 'card-1', token: FICHA, uid: null, walletId: WALLET, status: 'ACTIVE', lastUsedAt: null });
+    db.walletCard.put({ id: 'card-1', token: FICHA, uid: null, walletId: WALLET, status: 'ISSUED', lastUsedAt: null });
     await svc.payQrChargeFromTerminal(barra, cobro(db), { walletToken: PASE, pin: PIN });
     await svc.payQrChargeFromTerminal(barra, cobro(db), { code: 'K7Q4M2', pin: PIN });
     await svc.payQrChargeFromTerminal(barra, cobro(db), { ...conFicha, pin: PIN });

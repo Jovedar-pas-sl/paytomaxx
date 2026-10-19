@@ -89,6 +89,7 @@ function makeService(
   Object.assign(prisma, {
     asSystem: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma)),
     withTenant: vi.fn().mockImplementation(async (_tenantId: string, fn: (tx: unknown) => unknown) => fn(prisma)),
+    acrossVenues: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma)),
   });
   const reports = {
     cobros: vi.fn().mockResolvedValue([]),
@@ -96,6 +97,7 @@ function makeService(
     liquidaciones: vi.fn().mockResolvedValue([]),
     consumos: vi.fn().mockResolvedValue([]),
     pagosSaldo: vi.fn().mockResolvedValue([]),
+    recargasEfectivo: vi.fn().mockResolvedValue([]),
     ajustes: vi.fn().mockResolvedValue({ cobros: [], devoluciones: [], consumosAnulados: [] }),
   };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };

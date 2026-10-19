@@ -104,6 +104,8 @@ describe('informes del periodo contra Postgres', () => {
       refundedTipCents: 250,
       walletCashPayoutCount: 1,
       walletCashPayoutCents: 8000,
+      walletCashTopUpCount: 0,
+      walletCashTopUpCents: 0,
       walletCardPayoutCount: 1,
       walletCardPayoutCents: 5000,
     });
@@ -118,6 +120,7 @@ describe('informes del periodo contra Postgres', () => {
     ]);
     expect(z.wallet).toEqual({
       topUpCount: 2, topUpCents: 25_000, consumptionCount: 2, consumptionCents: 9000, consumptionTipCents: 1000,
+      cashTopUpCount: 0, cashTopUpCents: 0,
       cashPayoutCount: 1, cashPayoutCents: 8000, cardPayoutCount: 1, cardPayoutCents: 5000,
     });
     expect(z.topOperators).toEqual([expect.objectContaining({ displayName: 'Lola', netCents: 4750 + 6400, earningCount: 2 })]);

@@ -22,6 +22,7 @@ import { summarize } from '../reports/export-csv';
 import type { TimeWindow } from '../reports/report-period';
 import { afterPayoutDebt, paymentAt } from '../reports/reporting-sql';
 import { ReportsService } from '../reports/reports.service';
+import { fichasCounts } from '../wallets/fichas-counts';
 import { CloseCheckService } from './close-check.service';
 import {
   autoCloseAt,
@@ -504,17 +505,20 @@ export class NightsService {
     caja?: NightCaja,
   ): Promise<NightZ> {
     const asOf = { recordedBefore: now };
-    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, late] = await Promise.all([
+    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas] = await Promise.all([
       this.reports.cobros(tenantId, window, asOf),
       this.reports.devoluciones(tenantId, window, asOf),
       this.reports.liquidaciones(tenantId, window),
       this.reports.consumos(tenantId, window, asOf),
       this.reports.pagosSaldo(tenantId, window),
+      this.reports.recargasEfectivo(tenantId, window, asOf),
       this.reports.ajustes(tenantId, { before: window.from, since, until: now }),
+      // Fichas de la noche: al cerrar se congelan en el Z (sus fechas cambian si se vuelven a dar).
+      this.prisma.acrossVenues((tx) => fichasCounts(tx, tenantId, window)),
     ]);
-    const summary = summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo);
+    const summary = summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo);
     const adjustments = buildAdjustments({ before: window.from, since, rows: late });
-    return buildNightZ(window, summary, pendingCount, now, adjustments, caja);
+    return { ...buildNightZ(window, summary, pendingCount, now, adjustments, caja), fichas };
   }
 
   /**

@@ -115,7 +115,7 @@ export class SuperAdminCustomersService {
       if (!wallet) throw new NotFoundException(WALLET_NOT_FOUND);
       // Una detrás de otra: es la misma transacción (una sola conexión).
       const passkeys = await tx.walletPasskey.count({ where: { walletId } });
-      const activeCards = await tx.walletCard.count({ where: { walletId, status: 'ACTIVE' } });
+      const activeCards = await tx.walletCard.count({ where: { walletId, status: 'ISSUED' } });
       const blockedCards = await tx.walletCard.count({ where: { walletId, status: 'BLOCKED' } });
       const topUps = await tx.payment.findMany({
         where: { walletId },

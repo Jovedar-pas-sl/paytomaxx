@@ -278,6 +278,7 @@ describe('estadísticas del panel de saldos', () => {
         if (q.includes('FROM payments')) return [{ total: 20_000n }];
         if (q.includes('FROM wallet_consumptions')) return [{ category: 'CHICA_SERVICE', total: 6_000n }, { category: 'VENUE_BAR', total: 1_500n }];
         if (q.includes('FROM wallet_payouts')) return [{ total: 4_500n }];
+        if (q.includes('FROM wallet_cash_topups')) return [{ total: 5_000n }];
         return [];
       }),
     };
@@ -295,7 +296,8 @@ describe('estadísticas del panel de saldos', () => {
     expect(stats).toEqual({
       activeCount: 3,
       totalBalanceCents: 12_000,
-      todayTopUpsCents: 20_000,
+      // Recargas de hoy: con tarjeta (200 €) y en efectivo en la recepción (50 €).
+      todayTopUpsCents: 25_000,
       todayConsumptionsCents: 7_500,
       todayRefundsCents: 4_500,
       byCategory: { CHICA_SERVICE: 6_000, VENUE_BAR: 1_500 },
@@ -304,8 +306,8 @@ describe('estadísticas del panel de saldos', () => {
     // Solo las hechas (una a la tarjeta a medias aún no), del local.
     expect(payouts.sql).toMatch(/status = 'DONE'/);
     expect(payouts.values[0]).toBe('t-1');
-    // Las cuatro consultas, filtradas por el local (no solo por el RLS de la sesión).
-    expect(calls).toHaveLength(4);
+    // Las cinco consultas, filtradas por el local (no solo por el RLS de la sesión).
+    expect(calls).toHaveLength(5);
     for (const c of calls) {
       expect(c.sql).toMatch(/"tenantId" = \?/);
       expect(c.values).toContain('t-1');
@@ -330,7 +332,7 @@ describe('estadísticas del panel de saldos', () => {
       const { svc, calls, prisma } = statsService();
       await svc.getAdminStats('t-1');
       const since = calls.map((c) => c.values.at(-1)).filter((v): v is Date => v instanceof Date).map((d) => d.toISOString());
-      expect(since).toHaveLength(3);
+      expect(since).toHaveLength(4);
       expect(new Set(since)).toEqual(new Set(['2026-10-15T22:00:00.000Z']));
       // Con el local en la sesión (las tablas del saldo tienen RLS forzado) y, además, filtrado a mano.
       expect(prisma.withTenant).toHaveBeenCalledWith('t-1', expect.any(Function));

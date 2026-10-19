@@ -122,16 +122,18 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     const to = lastNightCutoff(now);
     const from = lastNightCutoff(new Date(to.getTime() - 1));
     const window = { from, to };
-    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo] = await Promise.all([
+    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo] = await Promise.all([
       this.reports.cobros(venue.id, window),
       this.reports.devoluciones(venue.id, window),
       this.reports.liquidaciones(venue.id, window),
       this.reports.consumos(venue.id, window),
       this.reports.pagosSaldo(venue.id, window),
+      this.reports.recargasEfectivo(venue.id, window),
     ]);
-    const summary = summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo);
+    const summary = summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo);
     const cashDiff = await this.cashDiffCents(venue.id, window);
-    if (summary.count === 0 && open.length === 0 && !cashDiff) return; // local cerrado y nada pendiente
+    const quiet = summary.count === 0 && !summary.walletCashTopUpsCount;
+    if (quiet && open.length === 0 && !cashDiff) return; // local cerrado y nada pendiente
     const bankFilePending = summary.count > 0 && !(await this.bankFileCovers(venue.id, madridDay(from)));
     await this.sendOnce(
       `np:summary:${venue.id}:${today}`,

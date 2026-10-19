@@ -11,6 +11,8 @@ const TOTALS: PeriodTotals = {
   refundedTipCents: 100,
   walletCashPayoutCount: 1,
   walletCashPayoutCents: 8000,
+  walletCashTopUpCount: 1,
+  walletCashTopUpCents: 3000,
   walletCardPayoutCount: 1,
   walletCardPayoutCents: 4000,
 };
@@ -26,16 +28,18 @@ describe('métricas del panel (hoy y semana)', () => {
         { status: 'FAILED', count: 2 },
       ],
     });
+    // La recarga en efectivo (30 €) cuenta como cobrada: no es un cobro del banco (count).
     expect(m.today).toEqual({
       count: 4,
       grossCents: 38_000,
       tipCents: 500,
-      chargedCents: 38_500,
+      chargedCents: 38_500 + 3000,
       refundedCents: 2100,
       walletCashPayoutCents: 8000,
-      netCents: 38_500 - 2100 - 8000,
+      walletCashTopUpCents: 3000,
+      netCents: 38_500 + 3000 - 2100 - 8000,
     });
-    expect(m.week).toMatchObject({ count: 10, netCents: 100_500 - 2100 - 8000 });
+    expect(m.week).toMatchObject({ count: 10, netCents: 100_500 + 3000 - 2100 - 8000 });
     expect(m.statusBreakdown).toEqual({ AUTHORIZED: 3, REFUNDED: 1, FAILED: 2 });
   });
 });
@@ -77,12 +81,14 @@ describe('Z de un periodo', () => {
       paymentCount: 4,
       grossCents: 38_000,
       tipCents: 500,
-      chargedCents: 38_500,
+      chargedCents: 38_500 + 3000,
       refundCount: 1,
       refundedCents: 2100,
       walletCashPayoutCount: 1,
       walletCashPayoutCents: 8000,
-      netCents: 38_500 - 2100 - 8000,
+      walletCashTopUpCount: 1,
+      walletCashTopUpCents: 3000,
+      netCents: 38_500 + 3000 - 2100 - 8000,
     });
     expect(z.period).toEqual({ from: '2026-10-13T22:00:00.000Z', to: '2026-10-14T05:00:00.000Z' });
   });
@@ -137,6 +143,8 @@ describe('Z de un periodo', () => {
       consumptionCount: 4,
       consumptionCents: 12_000,
       consumptionTipCents: 1000,
+      cashTopUpCount: 1,
+      cashTopUpCents: 3000,
       cashPayoutCount: 1,
       cashPayoutCents: 8000,
       cardPayoutCount: 1,

@@ -169,6 +169,8 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
     expect(check.cash).toEqual({
       openingFloatCents: 20_000,
       cashInCents: 0,
+      walletCashTopUpsCount: 0,
+      walletCashTopUpsCents: 0,
       walletCashPayoutsCount: 1,
       walletCashPayoutsCents: 4500,
       chicaCashPayoutsCount: 1,

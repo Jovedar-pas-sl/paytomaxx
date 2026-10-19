@@ -109,6 +109,7 @@ function setup() {
     walletPayout: table('po'),
     walletPasskey: table('pk'),
     payment: table('pay'),
+    walletCashTopUp: table('cash'),
     user: table('user', { commissionBps: null }),
     venue: table('venue', { pausedAt: null, business: null, operatorCommissionDefaults: { CHICA_SERVICE: 6000 } }),
   };

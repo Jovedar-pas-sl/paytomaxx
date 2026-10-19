@@ -35,6 +35,10 @@ export function morningSummaryMessage(
     `${s.count} ${s.count === 1 ? 'cobro' : 'cobros'} · cobrado ${eur(s.chargedCents)}`,
   ];
   if (s.tipsCents > 0) lines.push(`Propinas: ${eur(s.tipsCents)}`);
+  if (s.walletCashTopUpsCount) {
+    const n = s.walletCashTopUpsCount;
+    lines.push(`Recargas en efectivo: ${n} · ${eur(s.walletCashTopUpsCents ?? 0)} (en la caja)`);
+  }
   if (s.refundsCents > 0) lines.push(`Devoluciones: −${eur(s.refundsCents)}`);
   lines.push(`Para las chicas: ${eur(s.chicaNetCents)} · para el local: ${eur(s.venueNetCents)}`);
   if (s.perChica.length > 0) lines.push(`Chicas que cobraron: ${s.perChica.length} (detalle en el panel → Noches)`);

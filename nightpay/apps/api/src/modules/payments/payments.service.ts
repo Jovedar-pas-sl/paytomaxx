@@ -73,7 +73,8 @@ import {
 } from './tip';
 import { expectedChicaReversal } from './refund-share';
 import { operatorCapProblem } from './operator-cap';
-import { formatWalletCode, newWalletCode, newWalletToken } from '../wallets/wallet-rules';
+import { insertEmptyWallet } from '../wallets/empty-wallet';
+import { formatWalletCode, newWalletCode } from '../wallets/wallet-rules';
 import { idempotencyHashOf, sameIdempotentRequest } from './idempotency';
 import {
   findCreditTarget,
@@ -119,8 +120,6 @@ const NO_TIP: CreatorTip = { tipCents: 0, tipGoesTo: null, tipBeneficiaryUserId:
 
 const IDEMPOTENCY_KEY_REUSED =
   'Esa Idempotency-Key ya se usó para otro cobro (de otra persona o con otros datos). Usa una clave nueva.';
-/** Intentos de código corto al crear el saldo de una recarga. */
-const MAX_WALLET_CODE_ATTEMPTS = 5;
 
 /** Servicio de la carta del que sale el cobro (Fase 1A). */
 interface ServiceSnapshot {
@@ -133,6 +132,15 @@ interface ServiceSnapshot {
 type TopUpWallet =
   | { walletId: string }
   | { create: { identifier: string | null; walletGroup: string | null } };
+
+export interface CreatePaymentOptions {
+  /**
+   * Recarga cobrada en la recepción del datáfono PAX (pos-device/reception):
+   * sin persona, con el datáfono como terminal; necesita «Datáfono» y «Saldo»
+   * encendidos (no el QR con tarjeta) y espera lo de un cobro por datáfono.
+   */
+  viaDevice?: { terminalId: string };
+}
 
 /** Cobro validado, listo para guardar. */
 interface PaymentDraft {
@@ -364,6 +372,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     idempotencyKey: string,
     dto: CreatePaymentDto,
     actor?: { userId: string; role: string },
+    opts: CreatePaymentOptions = {},
   ): Promise<CreatedPaymentResponse> {
     const ctx = this.cls.get('ctx');
     const creatorUserId = actor?.userId ?? ctx?.userId ?? null;
@@ -375,7 +384,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     if (replayed) return replayed;
 
     // 2. Validar y resolver todo antes de escribir nada.
-    const draft = await this.draftPayment(tenantId, dto, { userId: creatorUserId, role: creatorRole });
+    const draft = await this.draftPayment(tenantId, dto, { userId: creatorUserId, role: creatorRole }, opts.viaDevice);
 
     // 3. Cobro + evento inicial (+ saldo nuevo de una recarga) — atómico.
     let payment: { id: string; amountCents: number };
@@ -437,11 +446,16 @@ export class PaymentsService implements OnApplicationBootstrap {
     tenantId: string,
     dto: CreatePaymentDto,
     creator: { userId: string | null; role: string | undefined },
+    viaDevice?: { terminalId: string },
   ): Promise<PaymentDraft> {
     const creatorRole = creator.role;
-    const terminalId = await this.resolveTerminalId(tenantId, dto);
+    // Recarga en la recepción del datáfono: el cobro es de ese datáfono.
+    const terminalId = viaDevice?.terminalId ?? (await this.resolveTerminalId(tenantId, dto));
     const isWalletTopUp = Boolean(dto.wallet);
     const isPosExternal = dto.captureMethod === 'POS_EXTERNAL';
+    // Con la app del datáfono el resultado llega del propio aparato (no de un
+    // camarero): se cobra con el datáfono y la recarga se suma al confirmarlo.
+    const byDatafono = isPosExternal || viaDevice !== undefined;
     // Leemos el venue siempre (necesitamos platformCommissionBps para snapshot).
     const venue = await this.prisma.asSystem((tx) =>
       tx.venue.findUniqueOrThrow({
@@ -460,7 +474,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     assertVenueNotPaused(venue);
     // Forma de cobro apagada en Ajustes (QR con tarjeta, datáfono; la recarga
     // también necesita el saldo): 409 PAYMENT_METHOD_DISABLED.
-    const methods = assertMethodsEnabled(venue, methodsNeededForPayment({ isWalletTopUp, isPosExternal }));
+    const methods = assertMethodsEnabled(venue, methodsNeededForPayment({ isWalletTopUp, isPosExternal: byDatafono }));
     const { amountCents, service, serviceCategory } = await this.resolveCharge(tenantId, dto, creatorRole);
 
     // Propina que pone quien crea el cobro: solo si el banco la va a cobrar y
@@ -506,7 +520,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       topUp,
       // POS_EXTERNAL puede tardar más en confirmarse (camarero camina con el
       // datáfono) — TTL más generoso. Wallet topup y QR normal: 5 min default.
-      ttlSeconds: isPosExternal ? POS_QR_TTL_SECONDS : QR_TTL_SECONDS,
+      ttlSeconds: byDatafono ? POS_QR_TTL_SECONDS : QR_TTL_SECONDS,
       platformCommissionBps: venue.platformCommissionBps,
       operatorCommissionBps: await this.operatorCommissionSnapshot({
         creator,
@@ -622,7 +636,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       }),
     );
     if (!existing) throw new NotFoundException('Wallet no encontrada en este venue');
-    if (existing.status !== 'ACTIVE') {
+    // A 0 (DEPLETED) se recarga y se reabre al cobrarse (creditTopUp); cerrado, no.
+    if (existing.status !== 'ACTIVE' && existing.status !== 'DEPLETED') {
       throw new BadRequestException(`Wallet en status ${existing.status} — no se puede recargar`);
     }
     return { walletId: existing.id };
@@ -698,30 +713,15 @@ export class PaymentsService implements OnApplicationBootstrap {
     return this.insertEmptyWallet(tx, tenantId, topUp.create);
   }
 
-  /**
-   * Saldo vacío para una recarga, dentro de la transacción del cobro. Código
-   * corto único entre los activos: si coincide se prueba otro, sin romper la
-   * transacción (ON CONFLICT con el índice parcial del código).
-   */
+  /** Saldo vacío para una recarga, dentro de la transacción del cobro (wallets/empty-wallet). */
   private async insertEmptyWallet(
     tx: TransactionalClient,
     tenantId: string,
     input: { identifier: string | null; walletGroup: string | null },
   ): Promise<string> {
-    for (let attempt = 1; attempt <= MAX_WALLET_CODE_ATTEMPTS; attempt += 1) {
-      const rows = await tx.$queryRaw<Array<{ id: string }>>`
-        INSERT INTO client_wallets ("tenantId", identifier, "qrToken", "shortCode", "walletGroup", "updatedAt")
-        VALUES (${tenantId}::uuid, ${input.identifier}, ${newWalletToken()}, ${newWalletCode()}, ${input.walletGroup}, NOW())
-        ON CONFLICT ("shortCode") WHERE status = 'ACTIVE' AND "shortCode" IS NOT NULL DO NOTHING
-        RETURNING id::text AS id
-      `;
-      const created = rows[0];
-      if (created) {
-        this.logger.log(`Wallet created id=${created.id} tenant=${tenantId} identifier=${input.identifier ?? '-'}`);
-        return created.id;
-      }
-    }
-    throw new ConflictException('No se pudo crear el saldo: inténtalo otra vez');
+    const id = await insertEmptyWallet(tx, tenantId, input);
+    this.logger.log(`Wallet created id=${id} tenant=${tenantId} identifier=${input.identifier ?? '-'}`);
+    return id;
   }
 
   /**

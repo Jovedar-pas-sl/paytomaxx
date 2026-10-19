@@ -13,6 +13,8 @@ const TOTALS_ROW = {
   refundedTipCents: 0n,
   walletCashPayoutCount: 1,
   walletCashPayoutCents: 8000n,
+  walletCashTopUpCount: 0,
+  walletCashTopUpCents: 0n,
   walletCardPayoutCount: 0,
   walletCardPayoutCents: 0n,
 };

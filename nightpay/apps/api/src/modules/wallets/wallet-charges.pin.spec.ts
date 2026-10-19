@@ -107,6 +107,7 @@ function setup(wallet: Row = {}, topUp: Row | null = null) {
     walletConsumption: table('cons'),
     operatorEarning: table('earn'),
     payment: table('pay'),
+    walletCashTopUp: table('cash'),
     user: table('user'),
     venue: table('venue', { pausedAt: null, business: null, operatorCommissionDefaults: { CHICA_SERVICE: 6000 } }),
   };

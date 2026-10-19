@@ -71,6 +71,20 @@ describe('Modelo 303 del trimestre', () => {
     expect(r.to).toBe('2026-03-31T22:00:00.000Z');
   });
 
+  it('la recarga en efectivo factura como la de tarjeta: 121 € en efectivo → 100 € de base', () => {
+    const r = buildVat303({
+      quarter: q,
+      venue: VENUE,
+      months: [month({ walletCashTopUpCount: 1, walletCashTopUpCents: 12_100 }), month({}), month({})],
+      consumptions: { count: 2, cents: 12_100 },
+      now: NOW,
+    });
+    if ('exento' in r) throw new Error('no es exento');
+    expect(r.modelo303).toMatchObject({ baseImponibleCents: 10_000, cuotaIvaCents: 2100 });
+    expect(r.breakdown).toMatchObject({ walletCashTopUpCents: 12_100, netCobradoCents: 12_100, facturadoCents: 12_100 });
+    expect(r.byMonth[0]).toMatchObject({ walletCashTopUpCents: 12_100, facturadoCents: 12_100 });
+  });
+
   it('el trimestre es la suma de sus meses, céntimo a céntimo', () => {
     // 3 céntimos al mes: 2 de base + 1 de cuota. Redondeando el trimestre
     // entero saldrían 7 + 2; la suma de los meses da 6 + 3 (lo que se declara).
