@@ -29,12 +29,15 @@ import {
 } from './gateway-refund-outcome';
 import {
   REFUNDABLE_STATUSES,
+  apiRefundedOnPaymentCents,
   assertNotDuplicateBankRefund,
   assertRefundFits,
   lockPaymentForRefund,
   settlePendingRefund,
 } from './refund-ledger';
 import { lockRefundsOf, refundTotalsOf, twoFactorReason } from './refund-two-factor';
+import { adjustedReason, bankRefundDate } from './bank-refund-date';
+import { refundNeedsApproval, refundRoute } from '../approvals/approval-rules';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 
 /**
@@ -280,9 +283,10 @@ export class RefundsService {
       }
       // Aprobada: deja de reservar como solicitud antes de contar lo reservado.
       if (approved) await approved.claim(tx);
-      // Primero si cabe (no se pide un código para algo imposible), luego el 2FA
-      // (en una aprobada ya lo puso el dueño al aprobarla).
+      // Primero si cabe (no se pide un código para algo imposible), luego si le
+      // toca pedirla al dueño y el 2FA (en una aprobada ya lo puso el dueño).
       await assertRefundFits(tx, payment.id, locked, request.amountCents);
+      if (!approved) await assertBelowApprovalThreshold(tx, payment, request.amountCents, actor);
       const twoFactorRequired = approved ? false : await this.checkTwoFactor(tx, request, actor);
       const refund = await tx.refund.create({
         data: {
@@ -444,12 +448,16 @@ export class RefundsService {
       throw new ForbiddenException('Solo el dueño puede registrar devoluciones del banco');
     }
     const payment = await this.bankRefundablePayment(request, actor, opts);
-    const refundedAt = request.refundedAt ?? new Date();
-    if (refundedAt.getTime() > Date.now() + 60_000) {
+    const requestedAt = request.refundedAt ?? new Date();
+    if (requestedAt.getTime() > Date.now() + 60_000) {
       throw new BadRequestException('La fecha de la devolución no puede ser futura');
     }
+    // Ni antes del cobro ni en un trimestre ya cerrado (303): si no, ajuste con fecha de hoy.
+    const dated = bankRefundDate(requestedAt, payment.authorizedAt ?? payment.createdAt, new Date());
+    const refundedAt = dated.at;
+    const reason = dated.adjusted ? adjustedReason(request.reason, requestedAt, dated.adjusted) : request.reason;
     const refundId = randomUUID();
-    await this.applyBankRefund(payment, refundId, { ...request, refundedAt }, actor, opts);
+    await this.applyBankRefund(payment, refundId, { ...request, reason, refundedAt }, actor, opts);
 
     this.metrics.refundsCreated.inc({
       venue: payment.tenantId,
@@ -468,6 +476,7 @@ export class RefundsService {
         amountCents: request.amountCents,
         bankReference: request.bankReference ?? null,
         refundedAt: refundedAt.toISOString(),
+        ...(dated.adjusted ? { requestedRefundedAt: requestedAt.toISOString(), dateAdjusted: dated.adjusted } : {}),
         reason: request.reason,
         confirmedDuplicate: Boolean(request.confirmDuplicate),
       },
@@ -481,6 +490,9 @@ export class RefundsService {
       amountCents: request.amountCents,
       status: 'SUCCEEDED' as const,
       providerRefundId: request.bankReference ?? null,
+      /** El día con el que cuenta en los informes (hoy si se ajustó: dateAdjusted). */
+      refundedAt: refundedAt.toISOString(),
+      dateAdjusted: dated.adjusted,
     };
   }
 
@@ -495,6 +507,8 @@ export class RefundsService {
         availableAmountCents: true,
         walletId: true,
         provider: true,
+        authorizedAt: true,
+        createdAt: true,
       },
     });
     if (!payment || payment.tenantId !== actor.tenantId) throw new NotFoundException('Payment not found');
@@ -681,6 +695,31 @@ export class RefundsService {
       where: { paymentId },
       orderBy: { createdAt: 'desc' },
     });
+  }
+}
+
+/**
+ * «Por aprobar», otra vez con la fila del cobro bloqueada: el encargado no
+ * devuelve directo si con esta lo devuelto por la pasarela en el cobro (por
+ * todas las personas) llega al umbral del local. El controlador ya lo miró
+ * sin candado; así dos encargados a la vez (o dos pestañas) no pasan los dos
+ * por debajo. 409 REFUND_NEEDS_APPROVAL: el controlador la pide al dueño (202).
+ */
+async function assertBelowApprovalThreshold(
+  tx: TransactionalClient,
+  payment: { id: string; tenantId: string },
+  amountCents: number,
+  actor: Actor,
+): Promise<void> {
+  if (actor.role !== 'MANAGER') return;
+  const venue = await tx.venue.findUnique({
+    where: { id: payment.tenantId },
+    select: { payoutRequiresApproval: true, refundApprovalThresholdCents: true },
+  });
+  if (!venue) throw new NotFoundException('Local no encontrado');
+  const already = await apiRefundedOnPaymentCents(tx, payment.tenantId, payment.id);
+  if (refundRoute(actor.role, amountCents, venue, already) === 'request') {
+    throw refundNeedsApproval(already + amountCents, venue.refundApprovalThresholdCents);
   }
 }
 

@@ -83,6 +83,8 @@ export type CreateWalletTopUpDto = z.infer<typeof CreateWalletTopUpSchema>;
 /** Rollback de un consumo concreto. */
 export const ReverseConsumptionSchema = z.object({
   reason: z.string().min(1).max(500),
+  /** El encargado, desde el umbral del local (sumando lo ya anulado en el saldo). */
+  totpCode: z.string().regex(/^\d{6}$/).optional(),
 });
 export type ReverseConsumptionDto = z.infer<typeof ReverseConsumptionSchema>;
 

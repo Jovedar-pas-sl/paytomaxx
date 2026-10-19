@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { RefundsService } from './refunds.service';
+import { isRefundNeedsApproval } from '../approvals/approval-rules';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { totpForbidden } from '../auth/totp-code';
 import { sealTotpSecret } from '../auth/totp-crypto';
@@ -23,6 +24,8 @@ interface PaymentFixture {
   providerTxId: string | null;
   provider: 'WIPAY' | 'PEANPE' | 'REDSYS' | null;
   walletId?: string | null;
+  authorizedAt?: Date | null;
+  createdAt?: Date;
 }
 
 interface UserFixture {
@@ -58,6 +61,10 @@ interface MakeOptions {
   /** Lo que esta persona ya devolvió por la pasarela en este cobro / en 24 h. */
   userSamePaymentCents?: number;
   userLastDayCents?: number;
+  /** Lo devuelto por la pasarela en este cobro por todas las personas. */
+  paymentRefundedCents?: number;
+  /** Umbral de «Por aprobar» del local (aquí, por defecto, muy alto: no se cruza). */
+  approvalThresholdCents?: number;
 }
 
 function makeService(opts: MakeOptions = {}) {
@@ -72,6 +79,12 @@ function makeService(opts: MakeOptions = {}) {
     payment: {
       findUnique: vi.fn().mockResolvedValue(payment),
     },
+    venue: {
+      findUnique: vi.fn().mockResolvedValue({
+        payoutRequiresApproval: false,
+        refundApprovalThresholdCents: opts.approvalThresholdCents ?? 10_000_000,
+      }),
+    },
     // Con el filtro de local no se encuentra (super-admin en otro local):
     // el secreto TOTP tiene que leerse con acrossVenues.
     user: {
@@ -79,11 +92,16 @@ function makeService(opts: MakeOptions = {}) {
     },
     refund: {
       // Con requestedBy: lo devuelto por la persona (2FA); si no, lo reservado del cobro.
-      aggregate: vi.fn().mockImplementation(async ({ where }: { where: { requestedBy?: string; paymentId?: string } }) => {
+      aggregate: vi.fn().mockImplementation(
+        async ({ where }: { where: { requestedBy?: string; paymentId?: string; registeredManually?: boolean } }) => {
+        if (!where.requestedBy && where.registeredManually === false) {
+          return { _sum: { amountCents: opts.paymentRefundedCents ?? 0 } };
+        }
         if (!where.requestedBy) return { _sum: { amountCents: opts.reservedCents ?? 0 } };
         const cents = where.paymentId ? opts.userSamePaymentCents : opts.userLastDayCents;
         return { _sum: { amountCents: cents ?? 0 } };
-      }),
+      },
+      ),
       create: vi.fn().mockImplementation(async ({ data }: { data: { id?: string; tenantId: string } }) => {
         const refund = { id: data.id ?? `refund-${refundCreated.length + 1}`, status: 'PENDING', ...data };
         refundCreated.push(refund);
@@ -394,6 +412,55 @@ describe('RefundsService.refund — 2FA con intentos y códigos usados en Redis 
   });
 });
 
+describe('RefundsService.refund — «Por aprobar» otra vez con el cobro bloqueado (todas las personas)', () => {
+  const sixty = { paymentId: 'pay-1', amountCents: 6_000 };
+
+  it('encargado: con lo que otros ya devolvieron en el cobro llega al umbral → 409 REFUND_NEEDS_APPROVAL, nada reservado', async () => {
+    const { svc, prismaMock, adapterMock } = makeService({
+      payment: bigPayment,
+      approvalThresholdCents: 10_000,
+      paymentRefundedCents: 6_000,
+    });
+    const err = await svc.refund(sixty, manager).catch((e: unknown) => e);
+    expect(isRefundNeedsApproval(err)).toBe(true);
+    expect((err as ConflictException).message).toMatch(/120 €[\s\S]*100 €/);
+    expect(prismaMock.refund.create).not.toHaveBeenCalled();
+    expect(adapterMock.refund).not.toHaveBeenCalled();
+    // Lo mira dentro de la reserva: ya con la fila del cobro bloqueada (FOR UPDATE).
+    const sqls = (prismaMock as unknown as { $queryRaw: { mock: { calls: unknown[][] } } }).$queryRaw.mock.calls.map((c) =>
+      (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(sqls.some((q) => /FROM payments[\s\S]*FOR UPDATE/.test(q))).toBe(true);
+    const sums = prismaMock.refund.aggregate.mock.calls.map((c) => c[0].where);
+    // Sin requestedBy: lo de todas las personas, no solo lo suyo.
+    expect(sums).toContainEqual({
+      tenantId: 't-1',
+      paymentId: 'pay-1',
+      registeredManually: false,
+      status: { in: ['PENDING', 'SUCCEEDED'] },
+    });
+  });
+
+  it('por debajo del umbral sumando a todos: se devuelve directa', async () => {
+    const { svc, prismaMock } = makeService({ payment: bigPayment, approvalThresholdCents: 10_000, paymentRefundedCents: 3_999 });
+    await expect(svc.refund(sixty, manager)).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    expect(prismaMock.refund.create).toHaveBeenCalledOnce();
+  });
+
+  it('el dueño no pide permiso, y una ya aprobada por el dueño no se vuelve a frenar', async () => {
+    const opts = { payment: bigPayment, approvalThresholdCents: 10_000, paymentRefundedCents: 9_000 };
+    await expect(makeService(opts).svc.refund(sixty, owner)).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    const approved = {
+      approvalRequestId: 'ap-1',
+      approvedBy: 'u-owner',
+      claim: vi.fn().mockResolvedValue(undefined),
+      onReserved: vi.fn().mockResolvedValue(undefined),
+    };
+    await expect(makeService(opts).svc.refund(sixty, manager, approved)).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    expect(approved.onReserved).toHaveBeenCalledOnce();
+  });
+});
+
 describe('RefundsService.refund — payment-state gates', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -641,9 +708,22 @@ describe('RefundsService.refund — happy path', () => {
 });
 
 describe('RefundsService.registerBankRefund — devolución hecha en el portal de BBVA (Fase 1C)', () => {
-  beforeEach(() => vi.clearAllMocks());
+  // Hoy = 19-oct-2026 (trimestre abierto: Q4, desde el 1-oct en Madrid).
+  const NOW = new Date('2026-10-19T12:00:00Z');
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => vi.useRealTimers());
 
-  const redsysPayment: PaymentFixture = { ...okPayment, provider: 'REDSYS', availableAmountCents: 10_500 };
+  const redsysPayment: PaymentFixture = {
+    ...okPayment,
+    provider: 'REDSYS',
+    availableAmountCents: 10_500,
+    authorizedAt: new Date('2026-10-11T21:30:00Z'),
+    createdAt: new Date('2026-10-11T21:29:00Z'),
+  };
 
   it('apunta la devolución sin llamar al banco, ajusta el cobro y descuenta a la chica', async () => {
     const { svc, prismaMock, paymentsMock, adapterMock, auditMock } = makeService({ payment: redsysPayment });
@@ -748,6 +828,54 @@ describe('RefundsService.registerBankRefund — devolución hecha en el portal d
       svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 5000, reason: 'motivo' }, owner),
     ).rejects.toThrow(/ya no admite esta devolución/);
     expect(paymentsMock.applyRefundToEarning).not.toHaveBeenCalled();
+  });
+
+  it('día de un trimestre ya cerrado (303): se apunta con fecha de hoy y el día del banco va en el motivo', async () => {
+    const payment = { ...redsysPayment, authorizedAt: new Date('2026-09-20T21:00:00Z') };
+    const { svc, prismaMock, auditMock } = makeService({ payment });
+    const result = await svc.registerBankRefund(
+      { paymentId: 'pay-1', amountCents: 500, reason: 'No reconoce el cargo', refundedAt: new Date('2026-09-28T12:00:00Z') },
+      owner,
+    );
+    expect(prismaMock.refund.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        bankRefundedAt: NOW,
+        reason:
+          'No reconoce el cargo · en el banco el 28/09/2026; apuntada con fecha de hoy porque su trimestre ya está cerrado',
+      }),
+    });
+    expect(result).toMatchObject({ refundedAt: NOW.toISOString(), dateAdjusted: 'closed_period' });
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'refund.bank_registered',
+        payload: expect.objectContaining({
+          refundedAt: NOW.toISOString(),
+          requestedRefundedAt: '2026-09-28T12:00:00.000Z',
+          dateAdjusted: 'closed_period',
+          reason: 'No reconoce el cargo',
+        }),
+      }),
+    );
+  });
+
+  it('nunca antes del cobro: un día anterior → hoy; su mismo día antes de su hora → la hora del cobro', async () => {
+    const before = makeService({ payment: redsysPayment });
+    const r1 = await before.svc.registerBankRefund(
+      { paymentId: 'pay-1', amountCents: 100, reason: 'motivo', refundedAt: new Date('2026-10-10T12:00:00Z') },
+      owner,
+    );
+    expect(r1).toMatchObject({ refundedAt: NOW.toISOString(), dateAdjusted: 'before_payment' });
+
+    const sameDay = makeService({ payment: redsysPayment });
+    // El 11 (Madrid) a mediodía UTC = 14:00, antes del cobro de las 23:30.
+    const r2 = await sameDay.svc.registerBankRefund(
+      { paymentId: 'pay-1', amountCents: 100, reason: 'motivo', refundedAt: new Date('2026-10-11T12:00:00Z') },
+      owner,
+    );
+    expect(r2).toMatchObject({ refundedAt: '2026-10-11T21:30:00.000Z', dateAdjusted: null });
+    expect(sameDay.prismaMock.refund.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ bankRefundedAt: new Date('2026-10-11T21:30:00Z'), reason: 'motivo' }),
+    });
   });
 
   it('fecha futura → no', async () => {

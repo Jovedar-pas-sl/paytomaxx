@@ -65,6 +65,8 @@ const PayoutSchema = z.object({
   method: z.enum(['CARD', 'CASH']),
   bankReference: z.string().trim().max(60).optional(),
   note: z.string().trim().max(300).optional(),
+  /** El encargado en efectivo, desde el umbral del local. */
+  totpCode: z.string().regex(/^\d{6}$/).optional(),
 });
 
 /**

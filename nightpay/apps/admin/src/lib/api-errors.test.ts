@@ -9,6 +9,7 @@ import {
   loginErrorMessage,
   needsTotpCode,
   totpLockedUntil,
+  totpRetryState,
 } from './api-errors';
 
 describe('errorFromBody', () => {
@@ -88,6 +89,24 @@ describe('2FA y devoluciones del API nuevo', () => {
   it('devolución sin confirmar por la pasarela', () => {
     expect(isRefundOutcomeUnknown(new ApiError('No sabemos…', 502, 'REFUND_OUTCOME_UNKNOWN'))).toBe(true);
     expect(isRefundOutcomeUnknown(new ApiError('Bad gateway', 502))).toBe(false);
+  });
+});
+
+describe('totpRetryState (devolver el saldo en efectivo)', () => {
+  const NOW = 1_700_000_000_000;
+  it('lo pide (TOTP_REQUIRED) o se bloqueó (429): campo del código; otro error, no', () => {
+    expect(totpRetryState(new ApiError('Devolver 120,00 € en efectivo: desde 100,00 € pon el código', 403, 'TOTP_REQUIRED'), NOW)).toEqual({
+      askCode: true,
+      lockedUntil: null,
+    });
+    expect(totpRetryState(new ApiError('Espera 4 min', 429, 'TOTP_LOCKED'), NOW)).toEqual({
+      askCode: true,
+      lockedUntil: NOW + 4 * 60_000,
+    });
+    expect(totpRetryState(new ApiError('Este saldo no tiene nada que devolver', 409), NOW)).toEqual({
+      askCode: false,
+      lockedUntil: null,
+    });
   });
 });
 

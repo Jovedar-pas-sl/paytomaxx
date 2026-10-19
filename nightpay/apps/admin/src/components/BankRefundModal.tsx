@@ -108,6 +108,7 @@ export function BankRefundModal({
           max={madridToday()}
           onChange={(e) => setRefundedOn(e.target.value)}
           required
+          hint="Si el día es anterior al cobro o de un trimestre ya cerrado, se apunta con fecha de hoy (el 303 ya presentado no cambia) y el día del banco queda en el motivo."
         />
         <Input
           label="Referencia del banco (opcional)"

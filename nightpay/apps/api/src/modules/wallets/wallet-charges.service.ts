@@ -21,6 +21,8 @@ import { reopenData } from './wallet-activation';
 import { mergedWalletIds } from './wallet-merge-chain';
 import { clientRefundState, refundCards, type ClientRefundState } from './wallet-refund-view';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
+import { TotpService } from '../auth/totp.service';
+import { assertManagerTwoFactor } from './wallet-two-factor';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
@@ -135,6 +137,8 @@ const REQUEST_ERRORS: Record<'not-pending' | 'expired' | 'wallet-closed' | 'insu
   blocked: 'Este saldo está bloqueado: no se puede pagar con él. Avisa al encargado.',
 };
 
+const MERGE_BLOCKED = 'Uno de los dos saldos está bloqueado: no se pueden juntar. Pregunta en el local.';
+
 /**
  * Saldo NightPay. La chica hace el cobro con un QR: el cliente lo paga desde
  * su móvil con Face ID o, sin sacar el móvil, con su código o su ficha NFC y
@@ -147,15 +151,18 @@ export class WalletChargesService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
   private readonly moduleRef: ModuleRef;
+  private readonly totp: TotpService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
     @Inject(ModuleRef) moduleRef: ModuleRef,
+    @Inject(TotpService) totp: TotpService,
   ) {
     this.prisma = prisma;
     this.audit = audit;
     this.moduleRef = moduleRef;
+    this.totp = totp;
   }
 
   // ─── Personal del local ────────────────────────────────────────────────
@@ -605,14 +612,18 @@ export class WalletChargesService {
           status: string;
           shortCode: string | null;
           mergedIntoId: string | null;
+          blockedAt: Date | null;
         }>
       >`
-        SELECT id, "tenantId", "walletGroup", "balanceCents", status::text AS status, "shortCode", "mergedIntoId"
+        SELECT id, "tenantId", "walletGroup", "balanceCents", status::text AS status, "shortCode", "mergedIntoId", "blockedAt"
           FROM client_wallets WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE
       `;
       const source = rows.find((r) => r.id === sourceWalletId);
       const target = rows.find((r) => r.id === targetWalletId);
       if (!source || !target) throw new NotFoundException('Saldo no encontrado');
+      // Bloqueado por el super-admin (no paga, decideAccept): tampoco se junta.
+      // Si no, fusionar movería su dinero a un saldo sin bloquear (o al revés).
+      if (source.blockedAt || target.blockedAt) throw new ConflictException(MERGE_BLOCKED);
       if (!sameWalletGroup(target, { id: source.tenantId, walletGroup: source.walletGroup })) {
         throw new ConflictException('Ese saldo es de otro local: no se pueden juntar');
       }
@@ -1072,13 +1083,14 @@ export class WalletChargesService {
   /**
    * Devuelve todo el saldo y cierra la wallet.
    *  - CASH: en efectivo en el local (dueño o encargado), en una transacción.
+   *    El encargado, desde el umbral del local, con su código 2FA.
    *  - CARD: ya hecho en el portal de BBVA (solo el dueño): se reparte entre
    *    las recargas y se apunta como devolución de cada una (payoutCard).
    */
   async payout(
     actor: Actor,
     walletId: string,
-    input: { method: WalletPayoutMethod; bankReference?: string; note?: string },
+    input: { method: WalletPayoutMethod; bankReference?: string; note?: string; totpCode?: string },
   ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
     if (input.method === 'CARD' && actor.role !== 'OWNER') {
       throw new ForbiddenException('La devolución a la tarjeta la registra el dueño (se hace en el portal de BBVA)');
@@ -1086,7 +1098,10 @@ export class WalletChargesService {
     if (input.method === 'CASH' && !isManager(actor)) {
       throw new ForbiddenException('Devolver en efectivo lo hace el encargado');
     }
-    const venue = await this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: { walletGroup: true } });
+    const venue = await this.prisma.venue.findUnique({
+      where: { id: actor.tenantId },
+      select: { walletGroup: true, refundApprovalThresholdCents: true },
+    });
     const wallet = await this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: walletId } }));
     if (!wallet || !sameWalletGroup(wallet, { id: actor.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new NotFoundException('Saldo no encontrado');
@@ -1099,16 +1114,23 @@ export class WalletChargesService {
     if (actor.role === 'MANAGER' && !wallet.closeRequestedAt) {
       throw new ForbiddenException('El cliente tiene que pulsar «Me voy» en su página de saldo (o que lo haga el dueño)');
     }
-    return input.method === 'CASH' ? this.payoutCash(actor, walletId, input) : this.payoutCard(actor, walletId, input);
+    return input.method === 'CASH'
+      ? this.payoutCash(actor, walletId, input, venue?.refundApprovalThresholdCents)
+      : this.payoutCard(actor, walletId, input);
   }
 
-  /** En efectivo: en una sola transacción se cierra el saldo y se apunta la devolución. */
+  /**
+   * En efectivo: en una sola transacción se cierra el saldo y se apunta la
+   * devolución. El 2FA del encargado se mira con el saldo ya bloqueado (lo
+   * que se devuelve es lo que hay ahora, no lo que vio el panel).
+   */
   private async payoutCash(
     actor: Actor,
     walletId: string,
-    input: { bankReference?: string; note?: string },
+    input: { bankReference?: string; note?: string; totpCode?: string },
+    thresholdCents: number | undefined,
   ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
-    const amount = await this.prisma.acrossVenues(async (tx) => {
+    const { amount, twoFactor } = await this.prisma.acrossVenues(async (tx) => {
       const w = await lockWallet(tx, walletId);
       if (!w || w.status !== 'ACTIVE' || w.balanceCents <= 0) {
         const halfDone = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
@@ -1118,6 +1140,14 @@ export class WalletChargesService {
             : 'Este saldo no tiene nada que devolver',
         );
       }
+      const asked = await assertManagerTwoFactor(
+        this.totp,
+        actor,
+        w.balanceCents,
+        thresholdCents,
+        input.totpCode,
+        `Devolver ${eur(w.balanceCents)} en efectivo`,
+      );
       await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: 0, status: 'REFUNDED' } });
       await tx.walletPayout.create({
         data: {
@@ -1131,7 +1161,7 @@ export class WalletChargesService {
           paidByUserId: actor.userId,
         },
       });
-      return w.balanceCents;
+      return { amount: w.balanceCents, twoFactor: asked };
     });
     await this.audit.log({
       action: 'wallet.payout',
@@ -1139,7 +1169,7 @@ export class WalletChargesService {
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: walletId,
-      payload: { method: 'CASH', refundedCents: amount, remainingCents: 0 },
+      payload: { method: 'CASH', refundedCents: amount, remainingCents: 0, twoFactor },
     });
     return { refundedCents: amount, method: 'CASH' };
   }

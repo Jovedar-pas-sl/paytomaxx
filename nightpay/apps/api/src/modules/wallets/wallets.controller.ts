@@ -25,7 +25,8 @@ import { WalletsService } from './wallets.service';
  *
  * Endpoints:
  *  - GET  /v1/wallets/public/:qrToken            (cliente — sin auth)
- *  - POST /v1/wallets/:id/consumptions/:cid/reverse (OWNER/MANAGER)
+ *  - POST /v1/wallets/:id/consumptions/:cid/reverse (OWNER/MANAGER; el encargado,
+ *    desde el umbral del local, con totpCode)
  *  - GET  /v1/wallets                            (OWNER/MANAGER — saldos abiertos)
  *  - GET  /v1/wallets/:id                        (OWNER/MANAGER)
  *  - GET  /v1/admin/wallets[/stats]              (OWNER/MANAGER — panel de saldos)
@@ -71,6 +72,8 @@ export class WalletsController {
       walletId,
       consumptionId,
       actorUserId: user.sub,
+      actorRole: user.role,
+      totpCode: dto.totpCode,
       reason: dto.reason,
     });
   }

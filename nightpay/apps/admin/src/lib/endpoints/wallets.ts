@@ -132,13 +132,14 @@ export async function relinkWallet(walletId: string): Promise<{ url: string; qrD
 export type WalletPayoutMethod = 'CARD' | 'CASH';
 
 /**
- * Devolver el saldo al cliente que se va. Efectivo: se lo das ahora.
+ * Devolver el saldo al cliente que se va. Efectivo: se lo das ahora (el
+ * encargado, desde el umbral del local, con su código 2FA: 403 TOTP_REQUIRED).
  * Tarjeta (solo el dueño): primero se devuelve en el portal de BBVA y aquí se
  * apunta, repartido entre sus recargas.
  */
 export async function payoutWallet(
   walletId: string,
-  input: { method: WalletPayoutMethod; bankReference?: string; note?: string },
+  input: { method: WalletPayoutMethod; bankReference?: string; note?: string; totpCode?: string },
 ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
   const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/payout`, {
     method: 'POST',

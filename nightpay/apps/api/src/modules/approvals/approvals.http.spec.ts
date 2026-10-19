@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Global, Module } from '@nestjs/common';
+import { ConflictException, Global, Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -21,7 +21,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { RefundsController } from '../refunds/refunds.controller';
 import { RefundsService } from '../refunds/refunds.service';
 import { ApprovalRequestsService } from './approval-requests.service';
-import { refundRoute } from './approval-rules';
+import { refundNeedsApproval, refundRoute } from './approval-rules';
 import { ApprovalsController } from './approvals.controller';
 import { ApprovalsService } from './approvals.service';
 
@@ -144,6 +144,26 @@ describe('POST /v1/payments/:id/refunds — el encargado desde el umbral pide (2
     const own = await call('POST', `/v1/payments/${PAYMENT}/refunds`, 'OWNER', { amountCents: 50_000, totpCode: '123456' });
     expect(own.statusCode).toBe(201);
     expect(refunds.refund).toHaveBeenCalledTimes(2);
+    expect(requests.requestRefund).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /v1/payments/:id/refunds — a la vez otra devolución lo lleva al umbral', () => {
+  it('la reserva (con el cobro bloqueado) dice REFUND_NEEDS_APPROVAL: no se devuelve nada y se pide al dueño (202)', async () => {
+    refunds.refund.mockRejectedValueOnce(refundNeedsApproval(12_000, 10_000));
+    const res = await call('POST', `/v1/payments/${PAYMENT}/refunds`, 'MANAGER', { amountCents: 6_000, reason: 'queja' });
+    expect(res.statusCode).toBe(202);
+    expect(ApprovalRequestedResponseSchema.parse(res.json())).toMatchObject({ approvalRequestId: APPROVAL, status: 'PENDING' });
+    expect(requests.requestRefund).toHaveBeenCalledWith(
+      { userId: USER, role: 'MANAGER', tenantId: TENANT },
+      { paymentId: PAYMENT, amountCents: 6_000, reason: 'queja' },
+    );
+  });
+
+  it('otro 409 (no cabe…) sigue siendo un 409 y no se pide nada', async () => {
+    refunds.refund.mockRejectedValueOnce(new ConflictException('Solo quedan 0 céntimos por devolver en este cobro'));
+    const res = await call('POST', `/v1/payments/${PAYMENT}/refunds`, 'MANAGER', { amountCents: 6_000 });
+    expect(res.statusCode).toBe(409);
     expect(requests.requestRefund).not.toHaveBeenCalled();
   });
 });

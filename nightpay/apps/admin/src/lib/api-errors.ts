@@ -91,6 +91,16 @@ export function totpLockedUntil(err: unknown, now: number): number | null {
   return now + (minutes ? Number(minutes) * 60_000 : TOTP_LOCK_FALLBACK_MS);
 }
 
+/**
+ * Tras un error en algo que puede pedir el 2FA (devolver el saldo en
+ * efectivo…): si hay que enseñar el campo del código (lo pide, o se bloqueó
+ * por códigos malos) y hasta cuándo no se puede probar otro.
+ */
+export function totpRetryState(err: unknown, now: number): { askCode: boolean; lockedUntil: number | null } {
+  const lockedUntil = totpLockedUntil(err, now);
+  return { askCode: lockedUntil !== null || needsTotpCode(err), lockedUntil };
+}
+
 /** La pasarela no confirmó la devolución: queda pendiente (502 REFUND_OUTCOME_UNKNOWN). */
 export function isRefundOutcomeUnknown(err: unknown): boolean {
   return err instanceof ApiError && err.code === 'REFUND_OUTCOME_UNKNOWN';

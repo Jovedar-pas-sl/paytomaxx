@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { WalletsService } from './wallets.service';
+import { PAID_STATUSES_SQL, paymentAt } from '../reports/reporting-sql';
 
 /**
  * Tests con mocks de Prisma — no toca DB. Cubrimos lo que la DB no garantiza
@@ -31,6 +32,10 @@ interface ReversalOptions {
   /** Otro saldo activo tiene ya este código. */
   takenCode?: string;
   actorGroup?: string | null;
+  /** Umbral de «Por aprobar» del local. */
+  threshold?: number;
+  /** Lo ya anulado en el saldo (importe + propina). */
+  reversedCents?: number;
 }
 
 function makeService(o: ReversalOptions = {}) {
@@ -57,6 +62,9 @@ function makeService(o: ReversalOptions = {}) {
   const txMock = {
     $queryRaw: vi.fn().mockImplementation(async (sql: TemplateStringsArray, ...values: unknown[]) => {
       const q = sql.join('?');
+      if (q.includes('FROM wallet_consumptions') && q.includes('"reversedAt" IS NOT NULL')) {
+        return [{ total: BigInt(o.reversedCents ?? 0) }];
+      }
       if (q.includes('FROM wallet_consumptions')) return consumption ? [consumption] : [];
       if (q.includes('"shortCode" = ?')) return values[0] === o.takenCode ? [{ id: 'otro' }] : [];
       if (q.includes('FROM client_wallets')) {
@@ -84,12 +92,16 @@ function makeService(o: ReversalOptions = {}) {
     acrossVenues: vi.fn().mockImplementation(run),
     $transaction: vi.fn().mockImplementation(run),
     venue: {
-      findUnique: vi.fn().mockResolvedValue({ walletGroup: o.actorGroup === undefined ? 'principal' : o.actorGroup }),
+      findUnique: vi.fn().mockResolvedValue({
+        walletGroup: o.actorGroup === undefined ? 'principal' : o.actorGroup,
+        refundApprovalThresholdCents: o.threshold ?? 10_000,
+      }),
     },
   };
   const auditMock = { log: vi.fn().mockResolvedValue(undefined) };
-  const svc = new WalletsService(prismaMock as never, auditMock as never);
-  return { svc, prismaMock, txMock, auditMock, wallets };
+  const totpMock = { assertForUser: vi.fn().mockResolvedValue(undefined), isEnabled: vi.fn().mockResolvedValue(true) };
+  const svc = new WalletsService(prismaMock as never, auditMock as never, totpMock as never);
+  return { svc, prismaMock, txMock, auditMock, wallets, totpMock };
 }
 
 /** Anula c-1 de w-1 desde el local "other" (donde se cobró). */
@@ -209,6 +221,52 @@ describe('anular un consumo del saldo', () => {
   });
 });
 
+describe('anular un consumo: el encargado, desde el umbral del local, con su 2FA', () => {
+  const asManager = (svc: WalletsService, totpCode?: string) =>
+    svc.reverseConsumption({
+      tenantId: 'other',
+      walletId: 'w-1',
+      consumptionId: 'c-1',
+      actorUserId: 'u-man',
+      actorRole: 'MANAGER',
+      totpCode,
+      reason: 'error',
+    });
+
+  it('sumando lo ya anulado en el saldo llega al umbral: sin código 403 TOTP_REQUIRED y nada anulado', async () => {
+    // 45 € de este consumo + 60 € ya anulados = 105 € ≥ 100 €.
+    const { svc, txMock } = makeService({ reversedCents: 6_000 });
+    const err = await asManager(svc).catch((e: unknown) => e);
+    expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
+    expect((err as Error).message).toMatch(/Anular 105,00 € en este saldo \(sumando lo ya anulado\)/);
+    expect(txMock.clientWallet.update).not.toHaveBeenCalled();
+    expect(txMock.walletConsumption.update).not.toHaveBeenCalled();
+    // Lo ya anulado se suma en el saldo del consumo y en el que usa hoy el cliente.
+    const sum = txMock.$queryRaw.mock.calls.find((c) => sqlOf(c).includes('"reversedAt" IS NOT NULL'))!;
+    expect(sum[1]).toEqual(['w-1']);
+  });
+
+  it('con su código se anula (y queda en el registro que se pidió)', async () => {
+    const { svc, totpMock, auditMock } = makeService({ reversedCents: 6_000 });
+    await expect(asManager(svc, '123456')).resolves.toEqual({ refundedCents: 4500, newBalanceCents: 5500 });
+    expect(totpMock.assertForUser).toHaveBeenCalledWith('u-man', '123456');
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'wallet.consumption.reversed', payload: expect.objectContaining({ twoFactor: true }) }),
+    );
+  });
+
+  it('por debajo del umbral, sin código; el dueño nunca', async () => {
+    const below = makeService({ reversedCents: 5_499 });
+    await expect(asManager(below.svc)).resolves.toMatchObject({ refundedCents: 4500 });
+    expect(below.totpMock.assertForUser).not.toHaveBeenCalled();
+    const own = makeService({ threshold: 0, reversedCents: 50_000 });
+    await expect(
+      own.svc.reverseConsumption({ tenantId: 'other', walletId: 'w-1', consumptionId: 'c-1', actorUserId: 'u-own', actorRole: 'OWNER', reason: 'x' }),
+    ).resolves.toMatchObject({ refundedCents: 4500 });
+    expect(own.totpMock.isEnabled).not.toHaveBeenCalled();
+  });
+});
+
 describe('estadísticas del panel de saldos', () => {
   function statsService() {
     const calls: Array<{ sql: string; values: unknown[] }> = [];
@@ -254,6 +312,16 @@ describe('estadísticas del panel de saldos', () => {
     }
   });
 
+  it('las recargas de hoy cuadran con el Z: pagadas (también las devueltas luego), por cuándo las autorizó el banco', async () => {
+    const { svc, calls } = statsService();
+    await svc.getAdminStats('t-1');
+    const topUps = calls.find((c) => c.sql.includes('FROM payments'))!;
+    expect(topUps.sql).not.toMatch(/'AUTHORIZED'/);
+    expect(topUps.values).toContain(PAID_STATUSES_SQL);
+    const sqlParts = topUps.values.map((v) => (v as { sql?: string } | null)?.sql);
+    expect(sqlParts).toContain(paymentAt('p').sql);
+  });
+
   it('"hoy" es el día de Madrid (desde sus 00:00), no el del servidor', async () => {
     vi.useFakeTimers();
     try {
@@ -261,7 +329,7 @@ describe('estadísticas del panel de saldos', () => {
       vi.setSystemTime(new Date('2026-10-15T22:30:00Z'));
       const { svc, calls, prisma } = statsService();
       await svc.getAdminStats('t-1');
-      const since = calls.filter((c) => /"createdAt" >= \?/.test(c.sql)).map((c) => (c.values.at(-1) as Date).toISOString());
+      const since = calls.map((c) => c.values.at(-1)).filter((v): v is Date => v instanceof Date).map((d) => d.toISOString());
       expect(since).toHaveLength(3);
       expect(new Set(since)).toEqual(new Set(['2026-10-15T22:00:00.000Z']));
       // Con el local en la sesión (las tablas del saldo tienen RLS forzado) y, además, filtrado a mano.
