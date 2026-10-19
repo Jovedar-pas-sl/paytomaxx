@@ -135,6 +135,8 @@ const REQUEST_ERRORS: Record<'not-pending' | 'expired' | 'wallet-closed' | 'insu
   blocked: 'Este saldo está bloqueado: no se puede pagar con él. Avisa al encargado.',
 };
 
+const MERGE_BLOCKED = 'Uno de los dos saldos está bloqueado: no se pueden juntar. Pregunta en el local.';
+
 /**
  * Saldo NightPay. La chica hace el cobro con un QR: el cliente lo paga desde
  * su móvil con Face ID o, sin sacar el móvil, con su código o su ficha NFC y
@@ -605,14 +607,18 @@ export class WalletChargesService {
           status: string;
           shortCode: string | null;
           mergedIntoId: string | null;
+          blockedAt: Date | null;
         }>
       >`
-        SELECT id, "tenantId", "walletGroup", "balanceCents", status::text AS status, "shortCode", "mergedIntoId"
+        SELECT id, "tenantId", "walletGroup", "balanceCents", status::text AS status, "shortCode", "mergedIntoId", "blockedAt"
           FROM client_wallets WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE
       `;
       const source = rows.find((r) => r.id === sourceWalletId);
       const target = rows.find((r) => r.id === targetWalletId);
       if (!source || !target) throw new NotFoundException('Saldo no encontrado');
+      // Bloqueado por el super-admin (no paga, decideAccept): tampoco se junta.
+      // Si no, fusionar movería su dinero a un saldo sin bloquear (o al revés).
+      if (source.blockedAt || target.blockedAt) throw new ConflictException(MERGE_BLOCKED);
       if (!sameWalletGroup(target, { id: source.tenantId, walletGroup: source.walletGroup })) {
         throw new ConflictException('Ese saldo es de otro local: no se pueden juntar');
       }

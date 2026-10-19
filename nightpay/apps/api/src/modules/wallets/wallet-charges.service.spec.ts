@@ -302,11 +302,13 @@ describe('la página del saldo del cliente', () => {
 const sqlOf = (call: unknown[]): string => (call[0] as TemplateStringsArray).join('?');
 
 describe('sumar una recarga al saldo de su Face ID', () => {
-  function mergeService(o: { open?: Array<{ id: string }>; target?: Record<string, unknown>; codeTaken?: boolean } = {}) {
+  function mergeService(
+    o: { open?: Array<{ id: string }>; source?: Record<string, unknown>; target?: Record<string, unknown>; codeTaken?: boolean } = {},
+  ) {
     const made = makeService();
     const rows = [
-      { id: 'src', tenantId: 'home', walletGroup: 'principal', balanceCents: 8000, status: 'ACTIVE', shortCode: 'AAAAAA', mergedIntoId: null },
-      { id: 'tgt', tenantId: 'home', walletGroup: 'principal', balanceCents: 0, status: 'DEPLETED', shortCode: 'K7Q4M2', mergedIntoId: null, ...o.target },
+      { id: 'src', tenantId: 'home', walletGroup: 'principal', balanceCents: 8000, status: 'ACTIVE', shortCode: 'AAAAAA', mergedIntoId: null, blockedAt: null, ...o.source },
+      { id: 'tgt', tenantId: 'home', walletGroup: 'principal', balanceCents: 0, status: 'DEPLETED', shortCode: 'K7Q4M2', mergedIntoId: null, blockedAt: null, ...o.target },
     ];
     made.tx.$queryRaw.mockImplementation(async (sql: TemplateStringsArray, ...values: unknown[]) => {
       const q = sql.join('?');
@@ -349,6 +351,18 @@ describe('sumar una recarga al saldo de su Face ID', () => {
     const { svc, tx } = mergeService({ target: { mergedIntoId: 'otro' } });
     await expect(svc.mergeInto('src', 'tgt')).rejects.toThrow(/cerrado/);
     expect(tx.clientWallet.update).not.toHaveBeenCalled();
+  });
+
+  it('un saldo bloqueado por el super-admin no se junta (ni el de la recarga ni el del cliente)', async () => {
+    for (const blocked of [{ source: { blockedAt: new Date() } }, { target: { blockedAt: new Date() } }]) {
+      const { svc, tx } = mergeService(blocked);
+      await expect(svc.mergeInto('src', 'tgt')).rejects.toThrow(/bloqueado/);
+      expect(tx.clientWallet.update).not.toHaveBeenCalled();
+    }
+    // Lo lee de la fila bloqueada (FOR UPDATE), no de una lectura anterior.
+    const { svc, tx } = mergeService();
+    await svc.mergeInto('src', 'tgt');
+    expect(sqlOf(tx.$queryRaw.mock.calls[1]!)).toMatch(/"blockedAt"[\s\S]*FROM client_wallets[\s\S]*FOR UPDATE/);
   });
 });
 
