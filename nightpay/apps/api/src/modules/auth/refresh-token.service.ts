@@ -22,6 +22,9 @@ const GRACE_POLL_ATTEMPTS = 4;
 const GRACE_KEY_PURPOSE = 'nightpay:refresh-grace:v1';
 const GRACE_AAD = 'refresh-grace';
 
+/** Los ids de sesión (family) son UUID: nada de comodines en el SCAN. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const MSG_INVALID = 'Sesión caducada: vuelve a iniciar sesión';
 const MSG_REUSED = 'Sesión cerrada por seguridad: vuelve a iniciar sesión';
 
@@ -214,6 +217,7 @@ export class RefreshTokenService {
     if (stored) {
       if (!secretMatches(stored.secretHash, parsed.secret)) return null;
       await this.deleteJti(parsed.jti, stored);
+      await this.forgetFamily(stored.family);
       return { userId: stored.userId, tenantId: stored.tenantId };
     }
 
@@ -243,6 +247,7 @@ export class RefreshTokenService {
       const stored = await this.fetch(jti);
       if (stored) {
         await this.deleteJti(jti, stored);
+        await this.forgetFamily(stored.family);
         count += 1;
       } else {
         await this.redis.del(k);
@@ -263,7 +268,25 @@ export class RefreshTokenService {
       if (stored) await this.deleteJti(jti, stored);
       else await this.redis.del(k);
     }
-    await this.redis.del(this.venueKey(familyId), this.twoFactorKey(familyId));
+    await this.forgetFamily(familyId);
+  }
+
+  /**
+   * ¿Sigue viva la sesión? Le queda un refresh sin usar (no se cerró, no se
+   * revocó) y no ha pasado de los 90 días desde el login. Devuelve de quién
+   * es, o null. Con ella el cambio de local no sobrevive a un logout.
+   */
+  async liveSession(familyId: string): Promise<{ userId: string } | null> {
+    if (!UUID_RE.test(familyId)) return null;
+    const keys = await this.scanKeys(`nightpay:refresh:family:${familyId}:*`);
+    for (const k of keys) {
+      const jti = k.split(':').pop();
+      const stored = jti ? await this.fetch(jti) : null;
+      if (stored && stored.family === familyId && !familyExpired(familyStartOf(stored))) {
+        return { userId: stored.userId };
+      }
+    }
+    return null;
   }
 
   /** La sesión se abrió con la 2FA (login en dos pasos del super-admin). */
@@ -372,6 +395,11 @@ export class RefreshTokenService {
       this.familyKey(stored.family, jti),
       this.userKey(stored.userId, jti),
     );
+  }
+
+  /** Lo que la sesión recordaba (local elegido, entró con 2FA): una sesión cerrada no lo deja atrás. */
+  private async forgetFamily(familyId: string): Promise<void> {
+    await this.redis.del(this.venueKey(familyId), this.twoFactorKey(familyId));
   }
 
   private async scanKeys(pattern: string): Promise<string[]> {

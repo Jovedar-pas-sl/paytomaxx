@@ -168,6 +168,7 @@ export class AuthController {
     return this.auth.switchTenant(ctx.userId, body.tenantId, {
       totpCode: body.totpCode,
       sessionId: user?.sid,
+      tokenExp: user?.exp,
       ip: extractIp(req),
       userAgent: extractUserAgent(req),
     });

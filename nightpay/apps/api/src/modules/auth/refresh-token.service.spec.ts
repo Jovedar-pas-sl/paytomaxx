@@ -304,5 +304,55 @@ describe('RefreshTokenService', () => {
     });
   });
 
+  describe('lo que recuerda la sesión (local elegido, 2FA) no sobrevive a cerrarla', () => {
+    async function remembering(): Promise<{ token: string; family: string }> {
+      const issued = await svc.issue('user-1', 'tenant-1');
+      await svc.setActiveVenue(issued.family, 'venue-9');
+      await svc.markTwoFactor(issued.family);
+      return issued;
+    }
+
+    it('revoke (logout) borra el local elegido y la marca de 2FA', async () => {
+      const issued = await remembering();
+      await svc.revoke(issued.token);
+      expect(await svc.activeVenue(issued.family)).toBeNull();
+      expect(await svc.hasTwoFactor(issued.family)).toBe(false);
+    });
+
+    it('revokeAllForUser (revocar sesiones, reset de contraseña) también', async () => {
+      const a = await remembering();
+      const b = await remembering();
+      await svc.revokeAllForUser('user-1');
+      for (const s of [a, b]) {
+        expect(await svc.activeVenue(s.family)).toBeNull();
+        expect(await svc.hasTwoFactor(s.family)).toBe(false);
+      }
+    });
+  });
+
+  describe('liveSession', () => {
+    it('viva mientras le quede un refresh sin usar; tras rotar, sigue; tras el logout, no', async () => {
+      const issued = await svc.issue('user-1', 'tenant-1');
+      await expect(svc.liveSession(issued.family)).resolves.toEqual({ userId: 'user-1' });
+      const rotated = await svc.rotate(issued.token);
+      await expect(svc.liveSession(issued.family)).resolves.toEqual({ userId: 'user-1' });
+      await svc.revoke(rotated.token);
+      await expect(svc.liveSession(issued.family)).resolves.toBeNull();
+    });
+
+    it('revocada, de más de 90 días, inventada o con comodines → null', async () => {
+      const revoked = await svc.issue('user-1', 'tenant-1');
+      await svc.revokeAllForUser('user-1');
+      await expect(svc.liveSession(revoked.family)).resolves.toBeNull();
+
+      const old = await svc.issue('user-2', 'tenant-1', { familyCreatedAt: Date.now() - REFRESH_FAMILY_MAX_SECONDS * 1000 - 1 });
+      await expect(svc.liveSession(old.family)).resolves.toBeNull();
+
+      await svc.issue('user-3', 'tenant-1');
+      await expect(svc.liveSession('00000000-0000-4000-8000-000000000000')).resolves.toBeNull();
+      await expect(svc.liveSession('*')).resolves.toBeNull();
+    });
+  });
+
   afterEach(() => vi.useRealTimers());
 });

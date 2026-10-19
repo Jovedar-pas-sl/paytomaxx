@@ -24,6 +24,8 @@ interface Overrides {
   sessionTwoFactor?: boolean;
   /** El usuario tiene la 2FA activada. */
   totpEnabled?: boolean;
+  /** Lo que da refreshTokens.liveSession (por defecto, viva y de u1). */
+  liveSession?: { userId: string } | null;
 }
 
 function makeService(overrides: Overrides = {}) {
@@ -72,6 +74,7 @@ function makeService(overrides: Overrides = {}) {
     setActiveVenue: vi.fn().mockResolvedValue(undefined),
     markTwoFactor: vi.fn().mockResolvedValue(undefined),
     hasTwoFactor: vi.fn().mockResolvedValue(overrides.sessionTwoFactor ?? false),
+    liveSession: vi.fn().mockResolvedValue(overrides.liveSession === undefined ? { userId: 'u1' } : overrides.liveSession),
   };
   const totpMock = {
     assertForUser: vi.fn().mockResolvedValue(undefined),
@@ -419,12 +422,15 @@ describe('AuthService.refresh', () => {
 describe('AuthService.switchTenant', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  /** `exp` de un access token recién emitido (s). */
+  const inAnHour = () => Math.floor(Date.now() / 1000) + 3600;
+
   const superAdmin = () => ({ ...makeUser({ isSuperAdmin: true }), tenantId: 't1' });
   const venues = { t1: { id: 't1', slug: 'luna-vlc', deletedAt: null }, t9: { id: 't9', slug: 'mar', deletedAt: null } };
 
   it('sesión de antes del login en dos pasos: a otro local pide el código 2FA y la sesión recuerda el local', async () => {
     const { svc, totpMock, refreshTokensMock, jwtMock, auditMock } = makeService({ findUniqueResult: superAdmin(), venues });
-    const res = await svc.switchTenant('u1', 't9', { totpCode: '123456', sessionId: 'fam-1' });
+    const res = await svc.switchTenant('u1', 't9', { totpCode: '123456', sessionId: 'fam-1', tokenExp: inAnHour() });
     expect(res).toMatchObject({ tenantId: 't9', venueSlug: 'mar' });
     expect(totpMock.assertForUser).toHaveBeenCalledWith('u1', '123456');
     expect(refreshTokensMock.setActiveVenue).toHaveBeenCalledWith('fam-1', 't9');
@@ -441,7 +447,7 @@ describe('AuthService.switchTenant', () => {
       sessionTwoFactor: true,
       totpEnabled: true,
     });
-    await expect(svc.switchTenant('u1', 't9', { sessionId: 'fam-1' })).resolves.toMatchObject({ tenantId: 't9' });
+    await expect(svc.switchTenant('u1', 't9', { sessionId: 'fam-1', tokenExp: inAnHour() })).resolves.toMatchObject({ tenantId: 't9' });
     expect(refreshTokensMock.hasTwoFactor).toHaveBeenCalledWith('fam-1');
     expect(totpMock.assertForUser).not.toHaveBeenCalled();
     expect(auditMock.log).toHaveBeenCalledWith(
@@ -452,23 +458,58 @@ describe('AuthService.switchTenant', () => {
   it('entró con la 2FA pero la ha desactivado después: vuelve a pedir el código (y sin 2FA, no se puede)', async () => {
     const { svc, totpMock } = makeService({ findUniqueResult: superAdmin(), venues, sessionTwoFactor: true, totpEnabled: false });
     totpMock.assertForUser.mockRejectedValue(new ForbiddenException({ code: 'TOTP_NOT_ENROLLED' }));
-    await expect(svc.switchTenant('u1', 't9', { sessionId: 'fam-1' })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.switchTenant('u1', 't9', { sessionId: 'fam-1', tokenExp: inAnHour() })).rejects.toBeInstanceOf(ForbiddenException);
     expect(totpMock.assertForUser).toHaveBeenCalledWith('u1', undefined);
   });
 
   it('sin código (o malo) → el error 2FA y ningún token', async () => {
     const { svc, totpMock, jwtMock, refreshTokensMock } = makeService({ findUniqueResult: superAdmin(), venues });
     totpMock.assertForUser.mockRejectedValue(new ForbiddenException({ code: 'TOTP_REQUIRED' }));
-    await expect(svc.switchTenant('u1', 't9', { sessionId: 'fam-1' })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.switchTenant('u1', 't9', { sessionId: 'fam-1', tokenExp: inAnHour() })).rejects.toBeInstanceOf(ForbiddenException);
     expect(jwtMock.signAsync).not.toHaveBeenCalled();
     expect(refreshTokensMock.setActiveVenue).not.toHaveBeenCalled();
   });
 
   it('volver a su local no pide código y la sesión olvida el elegido', async () => {
     const { svc, totpMock, refreshTokensMock } = makeService({ findUniqueResult: superAdmin(), venues });
-    await expect(svc.switchTenant('u1', 't1', { sessionId: 'fam-1' })).resolves.toMatchObject({ tenantId: 't1' });
+    await expect(svc.switchTenant('u1', 't1', { sessionId: 'fam-1', tokenExp: inAnHour() })).resolves.toMatchObject({ tenantId: 't1' });
     expect(totpMock.assertForUser).not.toHaveBeenCalled();
     expect(refreshTokensMock.setActiveVenue).toHaveBeenCalledWith('fam-1', null);
+  });
+
+  it('sin sid, con la sesión cerrada (logout, revocada, 90 días) o de otro usuario → 401 y ningún token', async () => {
+    for (const setup of [
+      { liveSession: { userId: 'u1' }, opts: { tokenExp: inAnHour() } },
+      { liveSession: null, opts: { sessionId: 'fam-1', tokenExp: inAnHour() } },
+      { liveSession: { userId: 'otro' }, opts: { sessionId: 'fam-1', tokenExp: inAnHour() } },
+    ]) {
+      const { svc, jwtMock, totpMock, refreshTokensMock } = makeService({
+        findUniqueResult: superAdmin(),
+        venues,
+        sessionTwoFactor: true,
+        totpEnabled: true,
+        liveSession: setup.liveSession,
+      });
+      await expect(svc.switchTenant('u1', 't1', setup.opts)).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(jwtMock.signAsync).not.toHaveBeenCalled();
+      expect(totpMock.assertForUser).not.toHaveBeenCalled();
+      expect(refreshTokensMock.setActiveVenue).not.toHaveBeenCalled();
+    }
+  });
+
+  it('el token nuevo no dura más que el de entrada (y uno caducado o sin exp → 401)', async () => {
+    const { svc, jwtMock, refreshTokensMock } = makeService({ findUniqueResult: superAdmin(), venues });
+    const exp = Math.floor(Date.now() / 1000) + 600;
+    const res = await svc.switchTenant('u1', 't1', { sessionId: 'fam-1', tokenExp: exp });
+    expect(refreshTokensMock.liveSession).toHaveBeenCalledWith('fam-1');
+    expect(res.expiresIn).toBeGreaterThan(590);
+    expect(res.expiresIn).toBeLessThanOrEqual(600);
+    expect(jwtMock.signAsync.mock.calls[0]![1]).toEqual({ expiresIn: res.expiresIn });
+    for (const tokenExp of [undefined, Math.floor(Date.now() / 1000) - 1]) {
+      await expect(svc.switchTenant('u1', 't1', { sessionId: 'fam-1', tokenExp })).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    }
   });
 
   it('quien no es super-admin → 403 sin gastar intentos de 2FA', async () => {

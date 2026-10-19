@@ -48,6 +48,14 @@ const MSG_BAD_CREDENTIALS = 'Email o contraseña incorrectos';
 const MSG_TOO_MANY_ATTEMPTS = 'Demasiados intentos. Espera unos minutos y vuelve a probar.';
 const MSG_LOGIN_TOTP = 'Pon el código de tu app de verificación (2FA) para entrar.';
 const MSG_LOGIN_TICKET_EXPIRED = 'Ha pasado demasiado tiempo: vuelve a poner tu contraseña.';
+const MSG_SESSION_CLOSED = 'Sesión caducada: vuelve a iniciar sesión';
+
+/** Lo que le queda al access token (`exp`, en s), como mucho 1 h; sin `exp` o caducado, 401. */
+function remainingSeconds(exp: number | undefined, nowMs: number = Date.now()): number {
+  const left = typeof exp === 'number' ? Math.floor(exp - nowMs / 1000) : 0;
+  if (left <= 0) throw new UnauthorizedException(MSG_SESSION_CLOSED);
+  return Math.min(left, ACCESS_TOKEN_TTL_SECONDS);
+}
 
 type LoginUser = Prisma.UserGetPayload<{ include: { venue: true } }>;
 
@@ -58,8 +66,10 @@ export type IssuedRefresh = RefreshResponse & { refreshToken: string };
 export interface SwitchTenantOptions {
   /** Código 2FA: obligatorio para entrar en un local que no es el suyo. */
   totpCode?: string;
-  /** sid del access token: la sesión que recuerda el local elegido. */
+  /** sid del access token: la sesión que recuerda el local elegido. Sin ella, 401. */
   sessionId?: string;
+  /** `exp` del access token con el que se pide (s): el nuevo no dura más. */
+  tokenExp?: number;
   ip?: string;
   userAgent?: string;
 }
@@ -454,6 +464,8 @@ export class AuthService {
    * pedir nada.
    *
    * Si el user no es super admin → 403.
+   * Sin sesión viva (sid sin refresh vivo, cerrada, revocada o de más de 90
+   * días) → 401. El token nuevo caduca cuando el de entrada (no se alarga).
    * Otro local que el suyo: si la sesión se abrió con la 2FA (login en dos
    * pasos), sin código; si no (sesiones de antes), con el código 2FA como
    * antes (TOTP_REQUIRED / INVALID / LOCKED…). Sin 2FA activada, no se puede.
@@ -486,6 +498,11 @@ export class AuthService {
     if (!user.isSuperAdmin) {
       throw new ForbiddenException('Solo super admins pueden cambiar de local');
     }
+    // Un access token suelto (robado) no se renueva aquí: hace falta su sesión
+    // viva (sin logout ni revocar, dentro de los 90 días) y el nuevo caduca
+    // cuando el de entrada.
+    const sessionId = await this.assertLiveSession(user.id, opts.sessionId);
+    const expiresIn = remainingSeconds(opts.tokenExp);
     // Entrar como dueño en un local ajeno es lo mismo que la consola: con 2FA,
     // pedida una vez al entrar (login en dos pasos) y no en cada cambio.
     // Volver al suyo, no (el refresco ya se lo da).
@@ -502,7 +519,7 @@ export class AuthService {
       throw new NotFoundException('Local destino no encontrado');
     }
 
-    if (opts.sessionId) await this.refreshTokens.setActiveVenue(opts.sessionId, otherVenue ? venue.id : null);
+    await this.refreshTokens.setActiveVenue(sessionId, otherVenue ? venue.id : null);
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -510,11 +527,9 @@ export class AuthService {
       role: user.role,
       tenantId: venue.id,
       venueSlug: venue.slug,
-      ...(opts.sessionId ? { sid: opts.sessionId } : {}),
+      sid: sessionId,
     };
-    const accessToken = await this.jwt.signAsync(payload, {
-      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
-    });
+    const accessToken = await this.jwt.signAsync(payload, { expiresIn });
 
     await this.audit.log({
       action: 'auth.switch_tenant',
@@ -530,10 +545,19 @@ export class AuthService {
 
     return {
       accessToken,
-      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+      expiresIn,
       tenantId: venue.id,
       venueSlug: venue.slug,
     };
+  }
+
+  /** La sesión del access token, viva y del mismo usuario; si no, 401 (el panel refresca o pide entrar). */
+  private async assertLiveSession(userId: string, sessionId: string | undefined): Promise<string> {
+    const session = sessionId ? await this.refreshTokens.liveSession(sessionId) : null;
+    if (!sessionId || !session || session.userId !== userId) {
+      throw new UnauthorizedException(MSG_SESSION_CLOSED);
+    }
+    return sessionId;
   }
 
   /**
