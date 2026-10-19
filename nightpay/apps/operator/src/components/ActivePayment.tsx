@@ -6,7 +6,7 @@ import {
   Card,
   QrCountdown,
   StatusPill,
-  effectiveStatus,
+  awaitingServerExpiry,
   isPreCobro,
   outcomeKindOf,
   qrDeadline,
@@ -94,9 +94,12 @@ export function ActivePayment({
     if (status === 'AUTHORIZING') setAuthorizingSince((since) => since ?? Date.now());
   }, [status]);
 
-  // Mientras se puede pagar, la cuenta atrás; caducado sin aviso del servidor, se ve igual.
+  // Mientras se puede pagar, la cuenta atrás.
   const now = useNow(isPreCobro(status));
-  const shown = effectiveStatus(status, deadline, now);
+  // Nunca se da por caducado sin el servidor: un «pagado» perdido con la wifi
+  // haría cobrar dos veces con «Otro QR». Pasado el plazo, se espera su respuesta.
+  const shown = status;
+  const awaiting = awaitingServerExpiry(status, deadline, now);
   const open = !isFinalStatus(shown);
   useWakeLock(open);
   // En pantalla (esperando o con su resultado): si la sesión caduca, se entra encima sin perderlo.
@@ -183,6 +186,13 @@ export function ActivePayment({
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <StatusPill status={shown} />
       </div>
+      {awaiting ? (
+        <p role="status" style={{ margin: 0, textAlign: 'center', fontSize: '0.9375rem', color: 'var(--np-warning)' }}>
+          {reachable
+            ? 'El QR ha caducado. Confirmando con el servidor que no se pagó…'
+            : 'Sin conexión con el servidor: no sabemos si el cliente pagó. No cobres otra vez hasta que se confirme.'}
+        </p>
+      ) : null}
 
       <QrCountdown deadline={preCobro ? deadline : null} nowMs={now}>
         <div style={qrBoxStyle}>
