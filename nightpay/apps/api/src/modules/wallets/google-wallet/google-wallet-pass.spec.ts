@@ -15,6 +15,7 @@ const TOKEN = 'Qm9vLXRva2VuLTE0NC1iaXRz';
 const SETTINGS = { issuerId: '3388000000012345678', classSuffix: 'oxiopay_saldo' };
 const CLASS_ID = `${SETTINGS.issuerId}.${SETTINGS.classSuffix}`;
 const URL_W = `https://api.paytomaxx.com/w/${TOKEN}`;
+const URL_C = 'https://api.paytomaxx.com/c/1NT1psmMSg2PGisLPV5vcAqx3E9mJ8Ld2Wq4Rt6Yb8E';
 
 function wallet(o: Partial<PassWallet> = {}): PassWallet {
   return { balanceCents: 20_000, status: 'ACTIVE', merged: false, venueName: 'Luna Valencia', ...o };
@@ -22,7 +23,7 @@ function wallet(o: Partial<PassWallet> = {}): PassWallet {
 
 function object(o: Partial<PassWallet> = {}) {
   const objectId = passObjectId(SETTINGS, linkHash(TOKEN));
-  return genericObject({ objectId, classId: CLASS_ID, brand: 'OxioPay', walletUrl: URL_W, wallet: wallet(o) });
+  return genericObject({ objectId, classId: CLASS_ID, brand: 'OxioPay', walletUrl: URL_W, chargeUrl: URL_C, wallet: wallet(o) });
 }
 
 describe('saldo en euros', () => {
@@ -74,7 +75,7 @@ describe('clase y objeto que se mandan a Google', () => {
     });
   });
 
-  it('marca arriba, local debajo, el saldo grande y el QR que abre la página del saldo', () => {
+  it('marca arriba, local debajo, el saldo grande; el QR solo cobra y «Ver mi saldo» abre la página', () => {
     const o = object();
     expect(o.classId).toBe(CLASS_ID);
     expect(o.state).toBe('ACTIVE');
@@ -82,7 +83,9 @@ describe('clase y objeto que se mandan a Google', () => {
     expect(o.subheader.defaultValue.value).toBe('Luna Valencia');
     expect(o.header.defaultValue.value).toMatch(/^200,00\s€$/);
     expect(o.header.translatedValues).toEqual([{ language: 'en', value: '€200.00' }]);
-    expect(o.barcode).toEqual({ type: 'QR_CODE', value: URL_W, alternateText: 'OxioPay' });
+    // El QR no es el enlace del saldo (que da todos los poderes): solo el de cobrar en el datáfono.
+    expect(o.barcode).toEqual({ type: 'QR_CODE', value: URL_C, alternateText: 'OxioPay' });
+    expect(JSON.stringify(o.barcode)).not.toContain(TOKEN);
     expect(o.linksModuleData.uris[0]).toMatchObject({ uri: URL_W, description: 'Ver mi saldo' });
     expect(o.textModulesData.map((m) => m.id)).toEqual(['como']);
   });
@@ -101,12 +104,13 @@ describe('clase y objeto que se mandan a Google', () => {
     expect(merged.textModulesData[0].body).toBe('Esta recarga se sumó a tu otro saldo.');
   });
 
-  it('en el pase no van PIN, llave (Face ID) ni código del saldo: solo el enlace del cliente', () => {
+  it('en el pase no van PIN, llave (Face ID) ni código del saldo: el QR de cobrar y el enlace del cliente', () => {
     const json = JSON.stringify(object());
     expect(json).not.toMatch(/pin"|passkey|credential|shortCode|K7Q/i);
-    // El único enlace es el de la página del saldo (QR y botón).
+    // Dos enlaces: el QR (solo cobrar) y el botón «Ver mi saldo» (la página del saldo).
     const urls = json.match(/https?:\/\/[^"]+/g) ?? [];
-    expect(new Set(urls)).toEqual(new Set([URL_W]));
+    expect(new Set(urls)).toEqual(new Set([URL_C, URL_W]));
+    expect(object().linksModuleData.uris.map((u) => u.uri)).toEqual([URL_W]);
   });
 
   it('pase de un enlace viejo: se apaga y dice por qué', () => {

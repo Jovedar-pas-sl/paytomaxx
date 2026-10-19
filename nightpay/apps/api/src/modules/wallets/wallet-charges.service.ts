@@ -28,6 +28,7 @@ import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor } from './wallet-two-factor';
 import { WalletBlockedException } from './wallet-blocked';
+import { passChargeSecret, passChargeTokenValid, passChargeWalletId } from './google-wallet/pass-charge-token';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
 import {
@@ -925,13 +926,15 @@ export class WalletChargesService {
   }
 
   /**
-   * El QR del pase de Google Wallet (el enlace /w/<token> del saldo): su saldo
-   * si sigue abierto y vale en este local. Una recarga sumada a otro saldo
-   * lleva a ese otro (el pase viejo sigue valiendo).
+   * El QR del pase de Google Wallet: el token solo para cobrar (/c/<token>,
+   * pass-charge-token.ts) o, en pases de antes que aún no se han puesto al
+   * día, el enlace /w/<token> del saldo. Su saldo si sigue abierto y vale en
+   * este local. Una recarga sumada a otro saldo lleva a ese otro (el pase
+   * viejo sigue valiendo).
    */
   private async walletByLinkToken(venueId: string, token: string) {
     const [first, venue] = await Promise.all([
-      this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { qrToken: token } })),
+      this.walletOfPassToken(token),
       this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } }),
     ]);
     let wallet = first;
@@ -947,6 +950,15 @@ export class WalletChargesService {
       throw new NotFoundException('Este pase no tiene saldo en este local');
     }
     return wallet;
+  }
+
+  /** El saldo del QR del pase: el token de cobro (comprobado con su enlace actual) o el enlace /w. */
+  private async walletOfPassToken(token: string) {
+    const chargeWalletId = passChargeWalletId(token);
+    if (!chargeWalletId) return this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { qrToken: token } }));
+    const wallet = await this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: chargeWalletId } }));
+    // Firma mala o enlace cambiado (pase viejo apagado): no es de nadie.
+    return wallet && passChargeTokenValid(passChargeSecret(), token, wallet) ? wallet : null;
   }
 
   // ─── Recepción en el datáfono (Authorization: Device) ───────────────────

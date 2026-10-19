@@ -6,14 +6,16 @@ import { createHash } from 'node:crypto';
  * Por qué Generic y no "Gift card": la tarjeta regalo de Google exige un
  * número de tarjeta visible (cardNumber) y su código de barras es para
  * canjearla en caja (allowBarcodeRedemption). Aquí no hay número que
- * enseñar (el código del saldo + el PIN pagan: no va en el pase) y el QR no
- * paga, abre la página del saldo. Generic deja poner el saldo bien grande
+ * enseñar (el código del saldo + el PIN pagan: no va en el pase) y el QR solo
+ * sirve para cobrar en el datáfono con el PIN. Generic deja poner el saldo bien grande
  * (header), el local (subheader) y la marca (cardTitle) sin campos falsos.
  * Docs: https://developers.google.com/wallet/generic/rest/v1/genericobject
  *
  * En el pase NUNCA van el PIN, la llave (Face ID) ni el código del saldo.
- * El QR y el enlace son los de la página del saldo del cliente (/w/<token>),
- * el mismo enlace que ya tiene; para verlo hay que desbloquear el móvil
+ * El QR es /c/<token> (pass-charge-token.ts): solo para cobrar en el
+ * datáfono, con el PIN; un móvil que lo lea no abre nada. El enlace «Ver mi
+ * saldo» (linksModuleData) sí es el de la página del saldo (/w/<token>), el
+ * mismo que ya tiene; para verlo hay que desbloquear el móvil
  * (viewUnlockRequirement) y solo lo puede guardar una cuenta de Google.
  */
 
@@ -127,8 +129,10 @@ export function genericObject(input: {
   objectId: string;
   classId: string;
   brand: string;
-  /** https://api.dominio/w/<token>: la página del saldo (QR y enlace). */
+  /** https://api.dominio/w/<token>: la página del saldo (solo el enlace «Ver mi saldo»). */
   walletUrl: string;
+  /** https://api.dominio/c/<token>: el QR, solo para cobrar en el datáfono. */
+  chargeUrl: string;
   wallet: PassWallet;
 }): GenericObject {
   const { wallet } = input;
@@ -148,7 +152,7 @@ export function genericObject(input: {
     subheader: wallet.venueName ? localized(wallet.venueName, wallet.venueName) : localized(TEXT.es.balance, TEXT.en.balance),
     header: localized(formatBalance(wallet.balanceCents, 'es'), formatBalance(wallet.balanceCents, 'en')),
     hexBackgroundColor: BACKGROUND,
-    barcode: { type: 'QR_CODE', value: input.walletUrl, alternateText: input.brand },
+    barcode: { type: 'QR_CODE', value: input.chargeUrl, alternateText: input.brand },
     textModulesData: modules,
     linksModuleData: {
       uris: [{ id: 'saldo', uri: input.walletUrl, description: TEXT.es.open, localizedDescription: localized(TEXT.es.open, TEXT.en.open) }],

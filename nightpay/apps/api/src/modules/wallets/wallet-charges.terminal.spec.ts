@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { WalletChargesService } from './wallet-charges.service';
+import { passChargeSecret, passChargeToken } from './google-wallet/pass-charge-token';
 import { hashPin } from './wallet-pin';
 
 /**
@@ -202,6 +203,20 @@ describe('¿le llega? (antes del PIN, sin enseñar su saldo)', () => {
     await expect(svc.checkWalletForTerminal(neon, enNeon, { walletToken: PASE })).rejects.toBeInstanceOf(NotFoundException);
     // Un cobro de Sala Bambú desde el datáfono de la Terraza: no.
     await expect(svc.checkWalletForTerminal(terraza, cobro(db), conFicha)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('el QR del pase de ahora (/c/<token>, solo para cobrar) vale; con el enlace cambiado o tocado, no', async () => {
+    const { svc, db } = setup();
+    const charge = passChargeToken(passChargeSecret(), WALLET, PASE);
+    await expect(svc.checkWalletForTerminal(barra, cobro(db), { walletToken: charge })).resolves.toMatchObject({
+      codeHint: 'K7Q-•••',
+      enough: true,
+    });
+    const flipped = `${charge.slice(0, 30)}${charge[30] === 'A' ? 'B' : 'A'}${charge.slice(31)}`;
+    await expect(svc.checkWalletForTerminal(barra, cobro(db), { walletToken: flipped })).rejects.toBeInstanceOf(NotFoundException);
+    // El dueño le dio un enlace nuevo (móvil perdido): el pase viejo ya no cobra.
+    db.clientWallet.put({ ...db.clientWallet.get(WALLET), qrToken: 'enlace-nuevo-del-saldo-0002' });
+    await expect(svc.checkWalletForTerminal(barra, cobro(db), { walletToken: charge })).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('el pase de una recarga que se sumó a otro saldo lleva a ese otro', async () => {
