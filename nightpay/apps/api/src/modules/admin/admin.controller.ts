@@ -34,6 +34,7 @@ import { OperatorsService } from '../operators/operators.service';
 import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { chargedAttemptTip } from '../payments/tip';
+import { planVenueRulesChange } from '../superadmin/superadmin-rules';
 import { ClsService } from 'nestjs-cls';
 import {
   CreateOperatorSchema,
@@ -62,6 +63,9 @@ type CreateVenueDto = z.infer<typeof CreateVenueSchema>;
 
 const VenueSettingsUpdateSchema = z.object({
   operatorMaxCobroCents: z.number().int().min(0).max(10_000_00).optional(),
+  // La comisión de la plataforma solo la cambia el super-admin (consola, con
+  // 2FA). Aquí se acepta sin cambios (el panel anterior la manda siempre);
+  // otro valor → 403.
   platformCommissionBps: z.number().int().min(0).max(10_000).optional(),
   // Comisiones por categoría — admin puede editar el mapa entero o solo
   // algunas claves. Las omitidas mantienen su valor actual.
@@ -74,6 +78,8 @@ const VenueSettingsUpdateSchema = z.object({
   }).optional(),
 });
 type VenueSettingsUpdate = z.infer<typeof VenueSettingsUpdateSchema>;
+
+const MSG_PLATFORM_COMMISSION_SA_ONLY = 'La comisión de OxioPay solo la cambia OxioPay (super-admin)';
 
 const ListPaymentsQuerySchema = z.object({
   status: z
@@ -607,32 +613,38 @@ export class AdminController {
     if (Object.keys(dto).length === 0) {
       throw new NotFoundException('No hay campos a actualizar');
     }
-    // operatorCommissionDefaults llega como mapa PARCIAL — hacemos merge con
-    // los valores actuales para no machacar las claves que el admin no tocó.
-    let mergedCommissionDefaults: Record<string, number> | undefined;
-    if (dto.operatorCommissionDefaults) {
-      const current = await this.prisma.asSystem((tx) =>
-        tx.venue.findUniqueOrThrow({
-          where: { id: tenantId },
-          select: { operatorCommissionDefaults: true },
-        }),
-      );
-      mergedCommissionDefaults = {
-        ...(current.operatorCommissionDefaults as Record<string, number>),
-        ...Object.fromEntries(
-          Object.entries(dto.operatorCommissionDefaults).filter(([, v]) => v !== undefined),
-        ),
-      };
+    const { platformCommissionBps, ...rules } = dto;
+    const { current, maxOverrideBps } = await this.prisma.asSystem(async (tx) => ({
+      current: await tx.venue.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: {
+          operatorMaxCobroCents: true,
+          platformCommissionBps: true,
+          operatorCommissionDefaults: true,
+          payoutHoldDays: true,
+          refundApprovalThresholdCents: true,
+          payoutRequiresApproval: true,
+        },
+      }),
+      maxOverrideBps: (
+        await tx.user.aggregate({
+          where: { tenantId, role: 'OPERATOR', deletedAt: null, commissionBps: { not: null } },
+          _max: { commissionBps: true },
+        })
+      )._max.commissionBps,
+    }));
+    if (platformCommissionBps !== undefined && platformCommissionBps !== current.platformCommissionBps) {
+      throw new ForbiddenException(MSG_PLATFORM_COMMISSION_SA_ONLY);
     }
-    const updateData: Record<string, unknown> = {};
-    if (dto.operatorMaxCobroCents !== undefined) updateData.operatorMaxCobroCents = dto.operatorMaxCobroCents;
-    if (dto.platformCommissionBps !== undefined) updateData.platformCommissionBps = dto.platformCommissionBps;
-    if (mergedCommissionDefaults) updateData.operatorCommissionDefaults = mergedCommissionDefaults;
+    // Las comisiones llegan PARCIALES (se mezclan con las guardadas) y lo que
+    // queda tiene que cuadrar como en la consola: chica + plataforma ≤ 100 %.
+    const plan = planVenueRulesChange(current, rules, maxOverrideBps ?? null);
+    if (!plan.ok) throw new BadRequestException(plan.problem);
 
     const updated = await this.prisma.asSystem((tx) =>
       tx.venue.update({
         where: { id: tenantId },
-        data: updateData,
+        data: plan.change,
         select: {
           id: true,
           operatorMaxCobroCents: true,
@@ -647,7 +659,7 @@ export class AdminController {
       actorId: user.sub,
       targetType: 'Venue',
       targetId: tenantId,
-      payload: { changes: dto },
+      payload: { changes: rules },
     });
     return updated;
   }

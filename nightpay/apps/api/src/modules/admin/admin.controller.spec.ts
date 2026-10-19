@@ -166,3 +166,71 @@ describe('POST /admin/operators/:id/payouts — 2FA del que paga (Redis, vale co
     expect(b.operators.createPayout).not.toHaveBeenCalled();
   });
 });
+
+describe('PATCH /admin/venue/settings — comisiones del local', () => {
+  const owner = { sub: 'own-1', tenantId: 't-1', role: 'OWNER' } as unknown as JwtPayload;
+  const stored = {
+    operatorMaxCobroCents: 20_000,
+    platformCommissionBps: 1000,
+    operatorCommissionDefaults: { CHICA_SERVICE: 9000, VENUE_BAR: 0 },
+    payoutHoldDays: null,
+    refundApprovalThresholdCents: 10_000,
+    payoutRequiresApproval: false,
+  };
+
+  function controller(maxOverrideBps: number | null = null) {
+    const update = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 't-1', ...stored, ...data }));
+    const tx = {
+      venue: { findUniqueOrThrow: vi.fn().mockResolvedValue(stored), update },
+      user: { aggregate: vi.fn().mockResolvedValue({ _max: { commissionBps: maxOverrideBps } }) },
+    };
+    const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
+    const audit = { log: vi.fn().mockResolvedValue(undefined) };
+    const none = {} as never;
+    const ctrl = new AdminController(prisma as never, none, audit as never, none, none, none, none, none);
+    const save = (dto: Record<string, unknown>) => ctrl.updateVenueSettings('t-1', owner, dto as never);
+    return { save, update, audit };
+  }
+
+  async function statusOf(promise: Promise<unknown>): Promise<number | null> {
+    const err = await promise.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    return err instanceof HttpException ? err.getStatus() : null;
+  }
+
+  it('la comisión de la plataforma no la cambia el dueño (403); la misma de siempre se ignora', async () => {
+    const { save, update } = controller();
+    expect(await statusOf(save({ platformCommissionBps: 0 }))).toBe(403);
+    expect(update).not.toHaveBeenCalled();
+    await save({ platformCommissionBps: 1000, operatorMaxCobroCents: 30_000 });
+    expect(update.mock.calls[0]![0].data).toEqual({ operatorMaxCobroCents: 30_000 });
+  });
+
+  it('chica + plataforma > 100 % en una categoría → 400 y no se guarda', async () => {
+    const { save, update } = controller();
+    expect(await statusOf(save({ operatorCommissionDefaults: { CHICA_SERVICE: 9500 } }))).toBe(400);
+    expect(await statusOf(save({ operatorCommissionDefaults: { VENUE_BAR: 9001 } }))).toBe(400);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('comisiones parciales: se mezclan con las guardadas (y las que faltan, por defecto) y se apuntan', async () => {
+    const { save, update, audit } = controller();
+    await save({ operatorCommissionDefaults: { VENUE_BAR: 500 } });
+    expect(update.mock.calls[0]![0].data).toEqual({
+      operatorCommissionDefaults: expect.objectContaining({ CHICA_SERVICE: 9000, VENUE_BAR: 500 }),
+    });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'venue.settings.updated',
+        payload: { changes: { operatorCommissionDefaults: { VENUE_BAR: 500 } } },
+      }),
+    );
+  });
+
+  it('una chica con un % propio que ya no cuadra con la plataforma → 400 (como en la consola)', async () => {
+    const { save } = controller(9500);
+    expect(await statusOf(save({ operatorMaxCobroCents: 30_000 }))).toBe(400);
+  });
+});

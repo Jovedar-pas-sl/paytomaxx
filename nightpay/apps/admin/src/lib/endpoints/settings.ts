@@ -30,11 +30,11 @@ export async function fetchVenueSettings(): Promise<VenueSettings> {
 
 /**
  * El PATCH solo devuelve lo editable (sin nombre, slug ni zona horaria): quien
- * llama lo mezcla con lo que ya tenía.
+ * llama lo mezcla con lo que ya tenía. La comisión de OxioPay no se manda: la
+ * cambia solo el super-admin (el API da 403 si llega otra).
  */
 export async function updateVenueSettings(input: {
   operatorMaxCobroCents?: number;
-  platformCommissionBps?: number;
   operatorCommissionDefaults?: Partial<OperatorCommissionDefaults>;
 }): Promise<
   Pick<VenueSettings, 'id' | 'operatorMaxCobroCents' | 'platformCommissionBps' | 'operatorCommissionDefaults'>
