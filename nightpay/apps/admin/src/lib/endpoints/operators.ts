@@ -1,6 +1,7 @@
 // Operadoras: alta, edición, ganancias, liquidaciones y tesorería.
 
 import { apiError, authedFetch, totpAwareError } from '../http';
+import type { PayoutRequested } from '../payout-request';
 
 export interface OperatorBalance {
   pendingCents: number;
@@ -257,6 +258,18 @@ export async function fetchOperatorPayouts(id: string): Promise<OperatorPayout[]
   return res.json();
 }
 
+/** El pago quedó hecho (201). */
+export interface PayoutCreated {
+  id: string;
+  totalCents: number;
+  earningCount: number;
+  createdAt: string;
+}
+
+/**
+ * Pagar a la chica (201: pagado) o, si el local pide la aprobación del dueño
+ * para los pagos del encargado, pedirlo (202: «pedido al dueño», ver isPayoutRequested).
+ */
 export async function createOperatorPayout(
   id: string,
   options?: {
@@ -267,7 +280,7 @@ export async function createOperatorPayout(
     /** Código 2FA (obligatorio si el dueño lo tiene activado). */
     totpCode?: string;
   },
-): Promise<{ id: string; totalCents: number; earningCount: number; createdAt: string }> {
+): Promise<PayoutCreated | PayoutRequested> {
   const res = await authedFetch(`/v1/admin/operators/${id}/payouts`, {
     method: 'POST',
     body: JSON.stringify(options ?? {}),
