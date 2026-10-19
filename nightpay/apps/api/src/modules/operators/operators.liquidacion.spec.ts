@@ -43,6 +43,8 @@ function makeService(opts: Opts = {}) {
   const tx = {
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const q = Prisma.sql(strings, ...values);
+      // El candado por chica (payout-selection) no es una lectura: no cuenta.
+      if (q.text.includes('pg_advisory_xact_lock')) return [{ ok: 1 }];
       queries.push(q);
       if (q.text.includes('FROM earning_reversals r')) return opts.debts ?? [];
       return opts.pending ?? DEFAULT_PENDING;
