@@ -1,13 +1,21 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useId, useSyncExternalStore } from 'react';
 import type { TabKey } from './roles';
 
 /**
  * Cobros en pantalla: el QR de Inicio, el del saldo, la ficha NFC. Si la
  * sesión caduca con uno abierto, la app no se desmonta (se pide entrar otra
  * vez encima) para no perder el QR, su cuenta atrás y su «PAGADO».
- * Cada pantalla de cobro se apunta mientras está y se borra al cerrarse.
+ * Cada pantalla de cobro se apunta mientras está y se borra al cerrarse; cada
+ * instancia por separado (el QR de una recarga dentro de Recepción no borra la
+ * de Recepción al cerrarse).
  */
-export type ChargeSpot = 'cobro' | 'saldo' | 'ficha';
+export type ChargeSpot = 'cobro' | 'saldo' | 'ficha' | 'recepcion';
+
+/** Lo que apunta una instancia: en qué pantalla está y si sigue esperando. */
+export interface ChargeEntry {
+  readonly spot: ChargeSpot;
+  readonly pending: boolean;
+}
 
 export interface OpenCharges {
   /** Hay algún cobro en pantalla (esperando, o con su resultado aún a la vista). */
@@ -20,29 +28,31 @@ export interface OpenCharges {
 
 const NONE: OpenCharges = { open: false, pending: false, spots: [] };
 
-/** spot → ¿sigue esperando? */
-export function summarizeCharges(entries: ReadonlyMap<ChargeSpot, boolean>): OpenCharges {
+/** instancia → su pantalla y si espera. Las pantallas, sin repetir y en orden. */
+export function summarizeCharges(entries: ReadonlyMap<string, ChargeEntry>): OpenCharges {
   if (entries.size === 0) return NONE;
-  return { open: true, pending: [...entries.values()].some(Boolean), spots: [...entries.keys()] };
+  const all = [...entries.values()];
+  return { open: true, pending: all.some((e) => e.pending), spots: [...new Set(all.map((e) => e.spot))] };
 }
 
 export interface OpenChargeStore {
-  /** null: esa pantalla ya no tiene cobro abierto. */
-  set(spot: ChargeSpot, state: { pending: boolean } | null): void;
+  /** `instance`: quién se apunta (una por pantalla montada). null: ya no tiene cobro abierto. */
+  set(instance: string, state: ChargeEntry | null): void;
   subscribe(listener: () => void): () => void;
   getSnapshot(): OpenCharges;
 }
 
 export function createOpenChargeStore(): OpenChargeStore {
-  let entries: ReadonlyMap<ChargeSpot, boolean> = new Map();
+  let entries: ReadonlyMap<string, ChargeEntry> = new Map();
   let snapshot = NONE;
   const listeners = new Set<() => void>();
   return {
-    set(spot, state) {
-      if (state === null ? !entries.has(spot) : entries.get(spot) === state.pending) return;
+    set(instance, state) {
+      const prev = entries.get(instance);
+      if (state === null ? prev === undefined : prev?.spot === state.spot && prev.pending === state.pending) return;
       const next = new Map(entries);
-      if (state) next.set(spot, state.pending);
-      else next.delete(spot);
+      if (state) next.set(instance, { spot: state.spot, pending: state.pending });
+      else next.delete(instance);
       entries = next;
       snapshot = summarizeCharges(next);
       for (const l of listeners) l();
@@ -62,16 +72,17 @@ export function useOpenCharges(store: OpenChargeStore = openCharges): OpenCharge
   return useSyncExternalStore(store.subscribe, store.getSnapshot, () => NONE);
 }
 
-/** Se apunta mientras `active`; al desmontarse, se borra. */
+/** Se apunta mientras `active`; al desmontarse, se borra (solo lo suyo). */
 export function useOpenCharge(spot: ChargeSpot, active: boolean, pending: boolean, store: OpenChargeStore = openCharges): void {
+  const instance = useId();
   useEffect(() => {
-    store.set(spot, active ? { pending } : null);
-  }, [store, spot, active, pending]);
-  useEffect(() => () => store.set(spot, null), [store, spot]);
+    store.set(instance, active ? { spot, pending } : null);
+  }, [store, instance, spot, active, pending]);
+  useEffect(() => () => store.set(instance, null), [store, instance]);
 }
 
 /** En qué pestaña vive cada cobro (la ficha sale encima de todas). */
-const SPOT_TAB: Partial<Record<ChargeSpot, TabKey>> = { cobro: 'home', saldo: 'wallet' };
+const SPOT_TAB: Partial<Record<ChargeSpot, TabKey>> = { cobro: 'home', saldo: 'wallet', recepcion: 'reception' };
 
 /**
  * La sesión caducó: si la pestaña que se ve no tiene el cobro abierto, a cuál

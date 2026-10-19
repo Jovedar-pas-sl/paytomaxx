@@ -235,6 +235,20 @@ export function CreatePayment({ role, onCreated }: Props) {
     );
   }
 
+  // Sin QR ni datáfono (el dueño dejó solo el saldo): nada que cobrar aquí.
+  if (modes.length === 0) {
+    return (
+      <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'center' }}>
+        <p style={kicker}>Cobrar</p>
+        <p style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 600 }}>
+          {methods.wallet
+            ? 'Este local solo cobra con saldo: usa la pestaña Saldo.'
+            : 'Este local no tiene ninguna forma de cobro encendida. Habla con el encargado.'}
+        </p>
+      </Card>
+    );
+  }
+
   if (showCarta) {
     return (
       <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>

@@ -57,29 +57,49 @@ describe('cobros abiertos', () => {
     store.subscribe(listener);
     expect(store.getSnapshot()).toEqual({ open: false, pending: false, spots: [] });
 
-    store.set('cobro', { pending: true });
+    store.set('a', { spot: 'cobro', pending: true });
     expect(store.getSnapshot()).toEqual({ open: true, pending: true, spots: ['cobro'] });
-    store.set('cobro', { pending: true });
+    store.set('a', { spot: 'cobro', pending: true });
     expect(listener).toHaveBeenCalledTimes(1);
 
     // Pagado: sigue en pantalla (el PAGADO con su código) pero ya no espera.
-    store.set('cobro', { pending: false });
+    store.set('a', { spot: 'cobro', pending: false });
     expect(store.getSnapshot()).toEqual({ open: true, pending: false, spots: ['cobro'] });
 
-    store.set('cobro', null);
-    store.set('cobro', null);
+    store.set('a', null);
+    store.set('a', null);
     expect(store.getSnapshot().open).toBe(false);
     expect(listener).toHaveBeenCalledTimes(3);
   });
 
+  it('cada instancia por separado: cerrar una no borra la otra de la misma pantalla', () => {
+    const store = createOpenChargeStore();
+    // Recepción y el QR de su recarga, dentro de ella; y el cobro de Inicio.
+    store.set('recepcion', { spot: 'recepcion', pending: true });
+    store.set('qr-recarga', { spot: 'recepcion', pending: true });
+    store.set('inicio', { spot: 'cobro', pending: false });
+    expect(store.getSnapshot().spots).toEqual(['recepcion', 'cobro']);
+
+    store.set('qr-recarga', null);
+    expect(store.getSnapshot()).toEqual({ open: true, pending: true, spots: ['recepcion', 'cobro'] });
+    store.set('inicio', null);
+    expect(store.getSnapshot().spots).toEqual(['recepcion']);
+  });
+
   it('esperando si alguno espera', () => {
-    expect(summarizeCharges(new Map([['cobro', false], ['saldo', true]])).pending).toBe(true);
+    const entries = new Map([
+      ['a', { spot: 'cobro' as const, pending: false }],
+      ['b', { spot: 'saldo' as const, pending: true }],
+    ]);
+    expect(summarizeCharges(entries).pending).toBe(true);
   });
 
   it('caducada: ir a la pestaña del cobro abierto si no se está en ella', () => {
     expect(tabForOpenCharge(['saldo'], 'earnings')).toBe('wallet');
     expect(tabForOpenCharge(['cobro', 'saldo'], 'wallet')).toBeNull();
     expect(tabForOpenCharge(['cobro'], 'payments')).toBe('home');
+    // La recarga de Recepción, en su pestaña (no en Inicio).
+    expect(tabForOpenCharge(['recepcion'], 'home')).toBe('reception');
     // La ficha sale encima de cualquier pestaña.
     expect(tabForOpenCharge(['ficha'], 'payments')).toBeNull();
     expect(tabForOpenCharge([], 'home')).toBeNull();

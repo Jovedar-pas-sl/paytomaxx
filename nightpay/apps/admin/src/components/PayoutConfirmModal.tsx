@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Input, Modal, Select } from '@nightpay/ui';
 import { isApprovalRequested, type ApprovalRequestedResponse } from '@nightpay/contracts';
 import {
@@ -13,6 +13,7 @@ import {
 import { ApiError, needsTotpCode, totpLockedUntil } from '@/lib/api-errors';
 import { requestSummary } from '@/lib/approvals';
 import { payoutSummary } from '@/lib/confirm-summary';
+import { payoutAttempt, payoutFailure, payoutWhat, type PayoutAttempt } from '@/lib/payout-attempt';
 import { formatDecimal, formatEur } from '@/lib/money';
 import { isAutoVerifiable, payoutAddressError } from '@/lib/payout-address';
 import { describeVerifyResult, payoutReferenceError, type VerifyOutcome } from '@/lib/payout-verify';
@@ -85,6 +86,10 @@ export function PayoutConfirmModal({
   const [requested, setRequested] = useState<ApprovalRequestedResponse | null>(null);
   /** 429 TOTP_LOCKED: hasta cuándo no se puede probar otro código. */
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  /** 409 PAYOUT_CHANGED: la cifra de aquí ya no vale; se cierra para ver la nueva. */
+  const [stale, setStale] = useState(false);
+  // Idempotency-Key del intento, atada a la cifra, el método y la referencia.
+  const attempt = useRef<PayoutAttempt | null>(null);
   const locked = useLockActive(lockedUntil);
   const venue = useVenue();
   const confirmId = useId();
@@ -119,7 +124,7 @@ export function PayoutConfirmModal({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     // El código se envía solo al completarlo: un Intro a la vez no apunta el pago dos veces.
-    if (submitting) return;
+    if (submitting || stale) return;
     setError(null);
     if (!chosenRail) return setError('Elige cómo le has pagado.');
     const referenceProblem = payoutReferenceError({ externalTxId, receiptUrl });
@@ -131,6 +136,10 @@ export function PayoutConfirmModal({
     setSubmitting(true);
     const txId = externalTxId.trim();
     const receipt = receiptUrl.trim();
+    attempt.current = payoutAttempt(
+      attempt.current,
+      payoutWhat({ operatorId, totalCents: balanceCents, rail: chosenRail, txId, receipt }),
+    );
     try {
       const payout = await createOperatorPayout(operatorId, {
         notes: notes.trim() || undefined,
@@ -138,6 +147,9 @@ export function PayoutConfirmModal({
         externalRail: chosenRail,
         receiptUrl: receipt || undefined,
         totpCode: asking ? undefined : totpCode || undefined,
+        // Lo que ve el dueño: si lo pagable cambió entre medias, el API no apunta otra cifra.
+        expectedTotalCents: balanceCents,
+        idempotencyKey: attempt.current.key,
       });
       // El encargado (o un local que cambió de regla): pedido al dueño, no pagado.
       if (isApprovalRequested(payout)) {
@@ -147,7 +159,6 @@ export function PayoutConfirmModal({
       const outcome = await settle(payout.id, chosenRail, txId, receipt);
       setCreated({ totalCents: payout.totalCents, earningCount: payout.earningCount, outcome });
     } catch (err) {
-      // No se apuntó nada: se puede corregir y volver a probar.
       const lockEnds = totpLockedUntil(err, Date.now());
       if (lockEnds !== null) {
         setLockedUntil(lockEnds);
@@ -157,7 +168,11 @@ export function PayoutConfirmModal({
       } else if (err instanceof ApiError && err.code === 'TOTP_INVALID') {
         setTotpCode('');
       }
-      setError((err as Error).message);
+      // Cifra cambiada: cerrar y ver la nueva. Sin respuesta: puede que se
+      // apuntara (repetir lleva la misma clave). Si no, se corrige y se repite.
+      const failure = payoutFailure(err);
+      if (failure.kind === 'changed') setStale(true);
+      setError(failure.text);
     } finally {
       setSubmitting(false);
     }
@@ -344,19 +359,25 @@ export function PayoutConfirmModal({
             {error}
           </p>
         ) : null}
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <Button variant="ghost" type="button" onClick={onClose} disabled={submitting} style={{ flex: 1 }}>
-            Cancelar
+        {stale ? (
+          <Button type="button" onClick={onDone}>
+            Cerrar y ver la cifra nueva
           </Button>
-          <Button
-            type="submit"
-            loading={submitting}
-            disabled={!confirmed || !chosenRail || (!asking && askedForCode && locked)}
-            style={{ flex: 1 }}
-          >
-            {asking ? 'Pedir al dueño' : 'Confirmar liquidación'}
-          </Button>
-        </div>
+        ) : (
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <Button variant="ghost" type="button" onClick={onClose} disabled={submitting} style={{ flex: 1 }}>
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              loading={submitting}
+              disabled={!confirmed || !chosenRail || (!asking && askedForCode && locked)}
+              style={{ flex: 1 }}
+            >
+              {asking ? 'Pedir al dueño' : 'Confirmar liquidación'}
+            </Button>
+          </div>
+        )}
       </form>
     </Modal>
   );

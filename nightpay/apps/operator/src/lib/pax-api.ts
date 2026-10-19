@@ -26,6 +26,8 @@ export class PaxApiError extends Error {
 export interface PaxInfo {
   terminal: { label: string; zone: string | null };
   venueName: string;
+  /** «Pago con saldo» encendido en el local (un API antiguo no lo manda: se enseña). */
+  wallet?: boolean;
 }
 
 export interface PaxCharge {
@@ -44,7 +46,12 @@ export type SaleOutcome =
   | { status: 'PAID'; code: string; message: string }
   | { status: 'DECLINED'; message: string }
   | { status: 'DUPLICATE'; message: string; operationNumber: string }
-  | { status: 'MISMATCH'; message: string; operationNumber: string | null };
+  | { status: 'MISMATCH'; message: string; operationNumber: string | null }
+  /** Recarga de recepción cobrada en el lector: falta que el encargado la confirme con Paytef. */
+  | { status: 'PENDING'; message: string; operationNumber: string };
+
+/** Cobrado en el lector y sin confirmar aún: nunca se ofrece cobrarlo otra vez. */
+export const PENDING_CONFIRM_TEXT = 'Cobrado en el datáfono · pendiente de confirmar por el encargado. No cobres otra vez.';
 
 export interface ShiftSummary {
   total: number;

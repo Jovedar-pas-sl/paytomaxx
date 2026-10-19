@@ -4,7 +4,7 @@ import { useEffect, useId, useState, type CSSProperties } from 'react';
 import { Button, Input } from '@nightpay/ui';
 import type { Incident } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
-import { fixTabFor, incidentHeading, incidentKey, kindMeta, type ResolvedIncident } from '@/lib/incident-inbox';
+import { fixTabFor, incidentHeading, incidentHint, incidentKey, kindMeta, type ResolvedIncident } from '@/lib/incident-inbox';
 import { formatEur } from '@/lib/money';
 import type { PanelTab, TabKey } from '@/lib/roles';
 import { useIncidents } from '@/lib/use-incidents';
@@ -119,6 +119,7 @@ function OpenItem({
   const fixLabel = tabs.find((t) => t.key === fixTab)?.label;
   // Devolución sin confirmar: se resuelve en el propio cobro, no aquí.
   const paymentToOpen = kindMeta(i.kind).opensPayment && fixTab === 'payments' ? i.paymentId : null;
+  const hint = incidentHint(i.kind, i.ackable);
 
   async function run(text?: string): Promise<void> {
     setBusy(true);
@@ -185,13 +186,7 @@ function OpenItem({
           {i.ackable && !isOwner ? (
             <span style={hintSmall}>El dueño la marca como resuelta cuando esté hecha.</span>
           ) : null}
-          {!i.ackable ? (
-            <span style={hintSmall}>
-              {kindMeta(i.kind).opensPayment
-                ? 'En el cobro: Devoluciones → Resolver. Se quita sola al resolverla.'
-                : 'Se quita sola cuando se arregla.'}
-            </span>
-          ) : null}
+          {hint ? <span style={hintSmall}>{hint}</span> : null}
         </div>
       )}
 

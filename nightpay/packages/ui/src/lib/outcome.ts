@@ -17,8 +17,21 @@ export const OUTCOME_TITLE: Record<OutcomeKind, string> = {
   expired: 'CADUCADO',
 };
 
-/** Hora de la pantalla «PAGADO» para la franja que se mueve ("23:41:07"). */
+/**
+ * Hora de Madrid (la del local), no la del aparato: un Android o un datáfono
+ * en UTC la daría 1-2 h mal.
+ */
+const MADRID_CLOCK = new Intl.DateTimeFormat('es-ES', {
+  timeZone: 'Europe/Madrid',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** Hora de la pantalla «PAGADO» para la franja que se mueve ("23:41:07"), en hora de Madrid. */
 export function clockTime(ms: number): string {
-  const d = new Date(ms);
-  return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
+  const parts = MADRID_CLOCK.formatToParts(new Date(ms));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '00';
+  return `${part('hour')}:${part('minute')}:${part('second')}`;
 }

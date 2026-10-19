@@ -24,6 +24,41 @@ export interface ChipTap {
 /** La app se rinde a los 90 s; la web espera algo más (pax-bridge, 130 s). */
 export const CHIP_TIMEOUT_MS = 60_000;
 
+/** En el móvil, tras grabar: lo que se espera a que Chrome vuelva a leer la ficha. */
+export const WEB_CHECK_MS = 4_000;
+
+/**
+ * El código para la próxima ficha en blanco. Se pide una vez y se reutiliza
+ * mientras no se haya intentado grabar; tras un intento (bien, o sin saber
+ * cómo acabó: tiempo agotado, cancelado, sin respuesta) no vale para otra
+ * ficha: si se grabó, dos fichas tendrían el mismo código.
+ */
+export interface BlankCode {
+  url(): Promise<string>;
+  /** Se intentó grabar: el siguiente url() pide otro. */
+  spent(): void;
+}
+
+export function blankCodeFrom(newToken: () => Promise<string>, toUrl: (token: string) => string): BlankCode {
+  let pending: Promise<string> | null = null;
+  return {
+    url() {
+      if (!pending) {
+        const request = newToken();
+        // Si la petición falla, el siguiente intento pide otro (y no queda sin atender).
+        request.catch(() => {
+          if (pending === request) pending = null;
+        });
+        pending = request;
+      }
+      return pending.then(toUrl);
+    },
+    spent() {
+      pending = null;
+    },
+  };
+}
+
 const WRITE_TEXT: Record<string, string> = {
   readOnly: 'Esta ficha está protegida y no se puede grabar: apártala.',
   tooSmall: 'En esta ficha no cabe el enlace: usa una NTAG213, 215 o 216.',
@@ -32,6 +67,8 @@ const WRITE_TEXT: Record<string, string> = {
   nfcDisabled: 'El NFC del datáfono está apagado: actívalo en sus ajustes.',
   timeout: 'No se ha acercado ninguna ficha a tiempo: vuelve a intentarlo.',
   unreadable: 'No se ha podido leer: acércala otra vez y déjala quieta un segundo.',
+  unverified: 'No se ha podido comprobar la ficha grabada: retírala y vuelve a acercarla.',
+  writeUnknown: 'No se sabe si la ficha se grabó: acércala otra vez para comprobarla.',
   deviceIsBusy: 'El datáfono está con otra operación: espera a que termine.',
   notSupported: 'Esta versión de la app del datáfono no graba fichas: pide que la actualicen.',
   noReader: 'Esto solo funciona dentro de la app OxioPay del datáfono.',
@@ -88,41 +125,51 @@ export function tapFromBridge(r: BridgeResponse): ChipTap {
 }
 
 /**
- * Espera a que acerquen una ficha. Con `blankUrl`, si está en blanco se le
- * graba ese enlace (el código lo da el servidor). En el datáfono el enlace se
- * pide antes de acercarla (la app graba en el mismo toque); en el móvil, solo
- * si sale en blanco.
+ * Espera a que acerquen una ficha. Con `blank`, si está en blanco se le graba
+ * ese enlace (el código lo da el servidor y se pide antes de acercarla: entre
+ * leer y grabar no hay red). Tras cualquier intento de grabar que no diga
+ * «no se grabó», ese código se da por gastado.
  */
-export async function tapChip(
-  via: ChipVia,
-  signal: AbortSignal,
-  blankUrl?: () => Promise<string>,
-): Promise<ChipTap> {
-  if (via === 'web') return tapWeb(signal, blankUrl);
-  const url = blankUrl ? await blankUrl() : null;
+export async function tapChip(via: ChipVia, signal: AbortSignal, blank?: BlankCode): Promise<ChipTap> {
+  if (via === 'web') return tapWeb(signal, blank);
+  const url = blank ? await blank.url() : null;
   const onAbort = () => void callReader('cancelRead');
   signal.addEventListener('abort', onAbort, { once: true });
+  let notWritten = false;
   try {
     const r = url
       ? await callReader('writeNfc', { url, onlyIfBlank: true, timeoutMs: CHIP_TIMEOUT_MS })
       : await callReader('readNfc', { timeoutMs: CHIP_TIMEOUT_MS });
+    notWritten = r.ok && r.written === false;
     return tapFromBridge(r);
   } finally {
     signal.removeEventListener('abort', onAbort);
+    if (url && !notWritten) blank?.spent();
   }
 }
 
-async function tapWeb(signal: AbortSignal, blankUrl?: () => Promise<string>): Promise<ChipTap> {
+/**
+ * Web NFC: con el código ya pedido, lee la ficha; solo si está en blanco la
+ * graba (sin pisar otra que hayan acercado entre medias) y la vuelve a leer:
+ * el código y el número de serie que valen son los de la ficha que quedó grabada.
+ */
+async function tapWeb(signal: AbortSignal, blank?: BlankCode): Promise<ChipTap> {
+  const url = blank ? await blank.url() : null;
   const read = await readCard(signal);
-  if (read.token || !read.blank || !blankUrl) {
+  if (read.token || !read.blank || !url) {
     return { token: read.token, uid: read.uid, written: false, other: read.token === null && !read.blank };
   }
-  const url = await blankUrl();
+  const token = walletCardTokenFromUrl(url);
   try {
     await read.writeUrl(url);
   } catch (err) {
+    blank?.spent();
     if ((err as Error).name === 'AbortError') throw err;
     throw new ChipError('writeFailed');
   }
-  return { token: walletCardTokenFromUrl(url), uid: read.uid, written: true, other: false };
+  blank?.spent();
+  const check = await read.nextRead(WEB_CHECK_MS);
+  if (signal.aborted) throw new DOMException('Cancelado', 'AbortError');
+  if (!check || !token || check.token !== token) throw new ChipError('unverified');
+  return { token, uid: check.uid, written: true, other: false };
 }

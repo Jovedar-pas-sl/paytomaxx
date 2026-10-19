@@ -3,13 +3,19 @@ import type { ReceptionOptions } from '@nightpay/contracts';
 import { isSameTapAgain, SAME_TAP_MS } from './prepare-fichas';
 import {
   deviceBackend,
+  existingTopUpDetail,
   newReceptionKey,
   nextAfterPay,
   payProblem,
   preparedText,
+  receptionAttempt,
   receptionDetail,
+  receptionWhat,
   stockOutcomeLine,
+  topUpCheck,
+  walletAfterCash,
   walletOfTarget,
+  type ReceptionTopUpView,
   type Target,
 } from './reception';
 
@@ -138,5 +144,71 @@ describe('API de la recepción con la credencial del datáfono', () => {
     expect(sent(2).body).toEqual({ amountCents: 5_000, idempotencyKey: 'rec-12345678', wallet: { create: true } });
     expect(sent(5).body).toEqual({ card: FICHA });
     expect(sent(6).body).toEqual({ pin: '4827' });
+  });
+});
+
+describe('la clave de la recarga va con lo que se recarga', () => {
+  it('lo mismo otra vez (corte, doble toque): la misma clave', () => {
+    const first = receptionAttempt(null, receptionWhat(5_000, 'cash', { kind: 'new' }));
+    expect(receptionAttempt(first, receptionWhat(5_000, 'cash', { kind: 'new' }))).toBe(first);
+  });
+
+  it('otro saldo, otro importe u otra forma de pago: clave nueva', () => {
+    const first = receptionAttempt(null, receptionWhat(5_000, 'cash', { kind: 'new' }));
+    const toCard = receptionAttempt(first, receptionWhat(5_000, 'cash', ficha('04A2')));
+    expect(toCard.key).not.toBe(first.key);
+    expect(receptionAttempt(first, receptionWhat(6_000, 'cash', { kind: 'new' })).key).not.toBe(first.key);
+    expect(receptionAttempt(first, receptionWhat(5_000, 'card', { kind: 'new' })).key).not.toBe(first.key);
+  });
+});
+
+describe('recarga de una ficha que ya tenía saldo', () => {
+  it('en efectivo: el resultado sale de lo que devolvió el cobro', () => {
+    const wallet = walletAfterCash({ walletId: 'w-1', code: 'K7Q-4M2', balanceCents: 8_000 }, view());
+    expect(wallet).toEqual({ walletId: 'w-1', code: 'K7Q-4M2', balanceCents: 8_000, hasPin: true, hasCard: true });
+    expect(receptionDetail(wallet)).toMatch(/^Saldo K7Q-4M2 · tiene 80,00\s€ · con ficha y PIN$/);
+  });
+
+  it('con tarjeta: su ficha, sin pedir el saldo', () => {
+    expect(existingTopUpDetail(view())).toBe('Saldo K7Q-••• · con ficha y PIN');
+    expect(existingTopUpDetail({ ...view(), hasPin: false })).toBe('Saldo K7Q-••• · con ficha');
+  });
+});
+
+describe('cómo quedó la recarga con tarjeta de una ficha que ya tenía saldo', () => {
+  const view = (over: Partial<ReceptionTopUpView> = {}): ReceptionTopUpView => ({
+    paymentId: 'p-1',
+    status: 'CREDITED',
+    amountCents: 5_000,
+    walletId: 'w-1',
+    codeHint: 'K7Q-•••',
+    balanceCents: 8_000,
+    hasPin: true,
+    hasCard: true,
+    ...over,
+  });
+
+  it('sumada: el saldo que tiene ahora', () => {
+    const check = topUpCheck(view());
+    expect(check.kind).toBe('done');
+    expect(check.kind === 'done' && check.detail).toMatch(/^Saldo K7Q-••• · tiene 80,00\s€ · con ficha y PIN$/);
+    expect(topUpCheck(view({ balanceCents: null, hasPin: false }))).toEqual({ kind: 'done', detail: 'Saldo K7Q-••• · con ficha' });
+  });
+
+  it('pendiente de Paytef, no cobrada o aún abierta', () => {
+    expect(topUpCheck(view({ status: 'PENDING' }))).toEqual({ kind: 'pending' });
+    expect(topUpCheck(view({ status: 'NOT_PAID' }))).toEqual({ kind: 'notPaid' });
+    expect(topUpCheck(view({ status: 'OPEN' }))).toEqual({ kind: 'wait' });
+  });
+
+  it('se pregunta en el datáfono por su recarga', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(view()), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(deviceBackend.topUp('p 1')).resolves.toMatchObject({ status: 'CREDITED' });
+      expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toMatch(/\/v1\/pos-device\/reception\/topups\/p%201$/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

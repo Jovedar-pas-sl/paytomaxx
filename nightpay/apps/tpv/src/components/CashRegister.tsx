@@ -57,8 +57,8 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
   // «Otro QR · mismo importe»: una clave por cobro que se repite (dos clics, un cobro).
   const retryRef = useRef<ChargeAttempt | null>(null);
   const inFlight = useRef(false);
-  const { status, live } = usePaymentStatus(active?.payment ?? null);
-  const issue = useConnectionIssue(active !== null, status, live);
+  const { status, reachable, checkNow } = usePaymentStatus(active?.payment ?? null);
+  const issue = useConnectionIssue(active !== null, status, reachable);
 
   useEffect(() => {
     fetchTerminals()
@@ -159,6 +159,8 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
           key={active.payment.id}
           payment={active.payment}
           status={status}
+          reachable={reachable}
+          checkNow={checkNow}
           onDone={newCharge}
           onRetry={() => void retrySame()}
           retrying={retrying}
@@ -217,10 +219,10 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
  * Qué falla, para la franja de arriba: sin internet; el socket caído con un
  * cobro abierto (el TPV no sabría que se ha pagado); o el banco tardando.
  */
-function useConnectionIssue(hasCharge: boolean, status: PaymentStatus | null, live: boolean | null) {
+function useConnectionIssue(hasCharge: boolean, status: PaymentStatus | null, reachable: boolean) {
   const online = useOnline();
   const open = hasCharge && status !== null && !FINISHED_STATUSES.has(status);
-  const serverDown = useDelayedFlag(open && live === false, SERVER_DOWN_GRACE_MS);
+  const serverDown = useDelayedFlag(open && !reachable, SERVER_DOWN_GRACE_MS);
   const [authorizingSince, setAuthorizingSince] = useState<number | null>(null);
   useEffect(() => {
     setAuthorizingSince((since) => (status === 'AUTHORIZING' ? (since ?? Date.now()) : null));

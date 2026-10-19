@@ -64,8 +64,12 @@ export function playAlertBeep(): void {
   ]);
 }
 
-/** Resultado de un cobro: dos notas que suben (pagado) o una grave (rechazado o caducado). */
-export type OutcomeSound = 'paid' | 'failed';
+/**
+ * Resultado de un cobro: dos notas que suben (pagado) o una grave (rechazado o
+ * caducado). «warn»: algo que mirar sin estar mirando la pantalla (una ficha
+ * que hay que apartar).
+ */
+export type OutcomeSound = 'paid' | 'failed' | 'warn';
 
 const OUTCOME_NOTES: Record<OutcomeSound, readonly Note[]> = {
   // Do6 → Sol6: se oye por encima de la música.
@@ -75,12 +79,18 @@ const OUTCOME_NOTES: Record<OutcomeSound, readonly Note[]> = {
   ],
   // La3, más larga y con un timbre más áspero: no se confunde con la de pagado.
   failed: [{ freq: 220, at: 0, duration: 0.55, type: 'triangle', gain: 0.35 }],
+  // Dos notas graves seguidas: distinta del rechazo (una sola) y de pagado.
+  warn: [
+    { freq: 330, at: 0, duration: 0.18, type: 'triangle', gain: 0.35 },
+    { freq: 330, at: 0.26, duration: 0.18, type: 'triangle', gain: 0.35 },
+  ],
 };
 
 /** Vibración (solo Android: iPhone no la tiene en la web). */
 const OUTCOME_VIBRATION: Record<OutcomeSound, number[]> = {
   paid: [60, 50, 120],
   failed: [350],
+  warn: [200, 100, 200],
 };
 
 /** Suena y vibra con el resultado, salvo con el silencio puesto. */

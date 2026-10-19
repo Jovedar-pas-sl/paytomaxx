@@ -17,6 +17,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Lectores del propio datáfono para cobrar del saldo: la cámara (el QR del
@@ -43,20 +44,41 @@ class LocalReaders(private val activity: Activity) {
 
     private val main = Handler(Looper.getMainLooper())
 
+    /**
+     * Una espera de ficha. La cierra quien llega primero: la ficha, cancel()
+     * (o onPause) o el plazo. La ficha se queda con ella justo antes de grabar:
+     * así nunca se graba después de un «cancelado» o un «timeout» que la web
+     * ya ha recibido (dejaría el mismo código en dos fichas).
+     */
+    private class TagWait {
+        val result = ArrayBlockingQueue<JSONObject>(1)
+        private val open = AtomicBoolean(true)
+
+        /** true solo para el primero que la cierra. */
+        fun claim(): Boolean = open.compareAndSet(true, false)
+
+        /** La respuesta, si nadie la cerró antes (si no, null: se descarta). */
+        fun answer(json: JSONObject): JSONObject? = if (claim()) json else null
+    }
+
     @Volatile
-    private var pendingNfc: ArrayBlockingQueue<JSONObject>? = null
+    private var pendingNfc: TagWait? = null
 
     @Volatile
     private var pendingScan: ArrayBlockingQueue<JSONObject>? = null
 
     /** Qué hacer con la ficha que se acerque: leerla o grabarla (lo fija readNfc / writeNfc). */
     @Volatile
-    private var onTag: ((Tag) -> JSONObject)? = null
+    private var onTag: ((Tag, TagWait) -> JSONObject?)? = null
 
     /** En un hilo del sistema: leer o grabar la ficha aquí (es E/S) es lo previsto. */
     private val nfcCallback = NfcAdapter.ReaderCallback { tag ->
+        val wait = pendingNfc
         val handler = onTag
-        if (handler != null) pendingNfc?.offer(handler(tag))
+        if (wait != null && handler != null) {
+            val answer = handler(tag, wait)
+            if (answer != null) wait.result.offer(answer)
+        }
     }
 
     /** Qué hay en este aparato: NFC de Android (listo, apagado o no disponible) y cámara. */
@@ -71,7 +93,7 @@ class LocalReaders(private val activity: Activity) {
     }
 
     /** Espera una ficha (modo lector de Android) hasta `timeoutMs` o hasta cancel(). */
-    fun readNfc(timeoutMs: Long): JSONObject = waitForTag(timeoutMs) { tag -> readTag(tag) }
+    fun readNfc(timeoutMs: Long): JSONObject = waitForTag(timeoutMs) { tag, wait -> wait.answer(readTag(tag)) }
 
     /**
      * Graba `url` (un registro NDEF URI) en la ficha que acerquen. Con
@@ -84,27 +106,32 @@ class LocalReaders(private val activity: Activity) {
         } catch (e: IllegalArgumentException) {
             return fail("badRequest", "Enlace no válido")
         }
-        return waitForTag(timeoutMs) { tag -> writeTag(tag, url, message, onlyIfBlank) }
+        return waitForTag(timeoutMs) { tag, wait -> writeTag(tag, url, message, onlyIfBlank, wait) }
     }
 
     /** Modo lector de Android hasta que se acerque una ficha (y `handler` la lea o la grabe). */
-    private fun waitForTag(timeoutMs: Long, handler: (Tag) -> JSONObject): JSONObject {
+    private fun waitForTag(timeoutMs: Long, handler: (Tag, TagWait) -> JSONObject?): JSONObject {
         val adapter = nfcAdapter() ?: return fail("nfcUnavailable", "Este datáfono no deja leer fichas desde la app")
         if (!adapter.isEnabled) return fail("nfcDisabled", "El NFC del datáfono está apagado")
-        val result = ArrayBlockingQueue<JSONObject>(1)
+        val wait = TagWait()
         onTag = handler
-        pendingNfc = result
+        pendingNfc = wait
         main.post {
             try {
                 val extras = Bundle().apply { putInt(NfcAdapter.EXTRA_READER_PRESENCE_CHECK_DELAY, PRESENCE_CHECK_MS) }
                 adapter.enableReaderMode(activity, nfcCallback, NFC_FLAGS, extras)
             } catch (e: Exception) {
                 // App en segundo plano, o el NFC en manos del lector de tarjetas.
-                result.offer(fail("nfcUnavailable", "No se ha podido encender el lector de fichas"))
+                wait.answer(fail("nfcUnavailable", "No se ha podido encender el lector de fichas"))?.let { wait.result.offer(it) }
             }
         }
         try {
-            return result.poll(timeoutMs, TimeUnit.MILLISECONDS) ?: fail("timeout", "No se ha acercado ninguna ficha")
+            val answer = wait.result.poll(timeoutMs, TimeUnit.MILLISECONDS)
+            if (answer != null) return answer
+            if (wait.claim()) return fail("timeout", "No se ha acercado ninguna ficha")
+            // Se cumplió el plazo con una ficha grabándose: su resultado, no un «timeout».
+            return wait.result.poll(LATE_RESULT_MS, TimeUnit.MILLISECONDS)
+                ?: fail("writeUnknown", "No se sabe si la ficha se grabó: acércala otra vez para comprobarla")
         } finally {
             pendingNfc = null
             onTag = null
@@ -155,9 +182,13 @@ class LocalReaders(private val activity: Activity) {
         queue.offer(answer)
     }
 
-    /** El camarero cancela en la pantalla: la espera de la ficha termina ya. */
+    /**
+     * El camarero cancela en la pantalla: la espera de la ficha termina ya.
+     * Si la ficha ya se está grabando, gana su resultado (no se dice «cancelado»).
+     */
     fun cancel() {
-        pendingNfc?.offer(fail("cancelled", "Cancelado"))
+        val wait = pendingNfc ?: return
+        wait.answer(fail("cancelled", "Cancelado"))?.let { wait.result.offer(it) }
     }
 
     /** La app pasa a segundo plano: Android apaga el modo lector; quien esperaba se entera. */
@@ -192,30 +223,35 @@ class LocalReaders(private val activity: Activity) {
 
     /**
      * Graba el enlace. Una ficha NDEF que ya tiene algo (con onlyIfBlank) no se
-     * toca; una sin formatear (NdefFormatable) se formatea con el enlace.
+     * toca, tampoco una cuyo contenido no se entiende (NDEF corrupto: puede ser
+     * otra cosa); una sin formatear (NdefFormatable) se formatea con el enlace.
+     * Justo antes de grabar se queda con la espera: si ya la cerraron
+     * (cancelado, plazo), no graba y devuelve null.
      */
-    private fun writeTag(tag: Tag, url: String, message: NdefMessage, onlyIfBlank: Boolean): JSONObject {
+    private fun writeTag(tag: Tag, url: String, message: NdefMessage, onlyIfBlank: Boolean, wait: TagWait): JSONObject? {
         val uid: Any = uidOf(tag) ?: JSONObject.NULL
         val ndef = Ndef.get(tag)
-        if (ndef == null) return formatTag(tag, url, message, uid)
+        if (ndef == null) return formatTag(tag, url, message, uid, wait)
         try {
             ndef.connect()
             val current: NdefMessage? = try {
                 ndef.ndefMessage
             } catch (e: FormatException) {
-                null
+                // No se entiende lo grabado: «otra cosa», nunca se graba encima.
+                return wait.answer(ok().put("uid", uid).put("url", JSONObject.NULL).put("written", false))
             }
             if (onlyIfBlank && !isBlank(current)) {
-                return ok().put("uid", uid).put("url", firstUri(current) ?: JSONObject.NULL).put("written", false)
+                return wait.answer(ok().put("uid", uid).put("url", firstUri(current) ?: JSONObject.NULL).put("written", false))
             }
-            if (!ndef.isWritable) return fail("readOnly", "La ficha está protegida contra escritura")
-            if (message.toByteArray().size > ndef.maxSize) return fail("tooSmall", "En esta ficha no cabe el enlace")
+            if (!ndef.isWritable) return wait.answer(fail("readOnly", "La ficha está protegida contra escritura"))
+            if (message.toByteArray().size > ndef.maxSize) return wait.answer(fail("tooSmall", "En esta ficha no cabe el enlace"))
+            if (!wait.claim()) return null
             ndef.writeNdefMessage(message)
             return ok().put("uid", uid).put("url", url).put("written", true)
         } catch (e: IOException) {
-            return fail("writeFailed", "No se ha podido grabar la ficha")
+            return answerAfterClaim(wait, fail("writeFailed", "No se ha podido grabar la ficha"))
         } catch (e: FormatException) {
-            return fail("writeFailed", "No se ha podido grabar la ficha")
+            return answerAfterClaim(wait, fail("writeFailed", "No se ha podido grabar la ficha"))
         } finally {
             try {
                 ndef.close()
@@ -226,16 +262,18 @@ class LocalReaders(private val activity: Activity) {
     }
 
     /** Ficha sin formatear (de fábrica): se formatea NDEF con el enlace. Está en blanco por definición. */
-    private fun formatTag(tag: Tag, url: String, message: NdefMessage, uid: Any): JSONObject {
-        val formatable = NdefFormatable.get(tag) ?: return fail("writeFailed", "Esta ficha no admite el enlace: usa una NTAG213/215/216")
+    private fun formatTag(tag: Tag, url: String, message: NdefMessage, uid: Any, wait: TagWait): JSONObject? {
+        val formatable = NdefFormatable.get(tag)
+            ?: return wait.answer(fail("writeFailed", "Esta ficha no admite el enlace: usa una NTAG213/215/216"))
         try {
             formatable.connect()
+            if (!wait.claim()) return null
             formatable.format(message)
             return ok().put("uid", uid).put("url", url).put("written", true)
         } catch (e: IOException) {
-            return fail("writeFailed", "No se ha podido grabar la ficha")
+            return answerAfterClaim(wait, fail("writeFailed", "No se ha podido grabar la ficha"))
         } catch (e: FormatException) {
-            return fail("writeFailed", "No se ha podido grabar la ficha")
+            return answerAfterClaim(wait, fail("writeFailed", "No se ha podido grabar la ficha"))
         } finally {
             try {
                 formatable.close()
@@ -244,6 +282,12 @@ class LocalReaders(private val activity: Activity) {
             }
         }
     }
+
+    /**
+     * Un fallo de E/S: si fue al conectar (antes de quedarse con la espera) se
+     * responde si nadie la cerró; si fue grabando, ya es suya y se responde.
+     */
+    private fun answerAfterClaim(wait: TagWait, json: JSONObject): JSONObject = wait.answer(json) ?: json
 
     /** Sin mensaje, sin registros o solo registros vacíos: en blanco. */
     private fun isBlank(message: NdefMessage?): Boolean {
@@ -284,6 +328,9 @@ class LocalReaders(private val activity: Activity) {
         const val REQUEST_SCAN = 1501
         private const val NFC_FLAGS = NfcAdapter.FLAG_READER_NFC_A
         private const val PRESENCE_CHECK_MS = 250
+
+        /** Plazo cumplido con una ficha grabándose: lo que se espera aún a su resultado. */
+        private const val LATE_RESULT_MS = 10_000L
 
         private fun ok(): JSONObject = JSONObject().put("ok", true)
 

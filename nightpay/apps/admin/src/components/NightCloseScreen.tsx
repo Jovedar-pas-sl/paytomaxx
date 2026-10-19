@@ -10,14 +10,15 @@ import { sameValue } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import {
   STATUS_LABEL,
+  ackedKeys,
   cashInputOf,
   effectiveSteps,
   freezeState,
-  keepAcks,
   readyCount,
   stepTab,
   toggleAck,
   type CashDraft,
+  type StepAck,
 } from '@/lib/night-close';
 import type { PanelTab, TabKey } from '@/lib/roles';
 import { usePolling } from '@/lib/use-polling';
@@ -56,7 +57,8 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
   const [draft, setDraft] = useState<CashDraft>({ floatText: '', countedText: '' });
   const [cashNote, setCashNote] = useState('');
   const [note, setNote] = useState('');
-  const [acks, setAcks] = useState<NightCloseStepKey[]>([]);
+  // Cada aviso confirmado con su huella: si el paso cambia (otro importe u otro recuento), hay que volver a confirmarlo.
+  const [ackList, setAckList] = useState<StepAck[]>([]);
   const [payFor, setPayFor] = useState<NightChicaPay | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +72,6 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
         setLoadError(null);
         // generatedAt cambia en cada vuelta: si lo demás es igual, no se repinta.
         setCheck((prev) => (prev && sameValue({ ...prev, generatedAt: '' }, { ...next, generatedAt: '' }) ? prev : next));
-        setAcks((prev) => keepAcks(prev, next.steps));
         return true;
       } catch (err) {
         if (!signal.aborted) setLoadError((err as Error).message);
@@ -86,6 +87,11 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
   });
 
   const steps = check ? effectiveSteps(check.steps, check.cash, draft) : [];
+  const acks = ackedKeys(ackList, steps);
+  const ackStep = (key: NightCloseStepKey, on: boolean) => {
+    const step = steps.find((s) => s.key === key);
+    if (step) setAckList((prev) => toggleAck(prev, step, on));
+  };
   const freeze = freezeState(steps, acks, note);
   const ready = readyCount(steps, acks);
 
@@ -106,7 +112,6 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
       // El API recalculó los pasos: se enseñan los suyos (pueden haber cambiado).
       if (err instanceof NightCloseRefused && check) {
         setCheck({ ...check, steps: err.steps });
-        setAcks((prev) => keepAcks(prev, err.steps));
       }
       setError((err as Error).message);
     } finally {
@@ -140,7 +145,7 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
               tab={stepTab(step.link, tabs)}
               onGo={goTo}
               acked={acks.includes(step.key)}
-              onAck={(on) => setAcks((prev) => toggleAck(prev, step.key, on))}
+              onAck={(on) => ackStep(step.key, on)}
               disabled={busy}
             >
               {step.key === 'efectivo' ? (
@@ -151,7 +156,7 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
                   cashNote={cashNote}
                   onCashNote={setCashNote}
                   acked={acks.includes('efectivo')}
-                  onAck={(on) => setAcks((prev) => toggleAck(prev, 'efectivo', on))}
+                  onAck={(on) => ackStep('efectivo', on)}
                   disabled={busy}
                 />
               ) : step.key === 'chicas' ? (

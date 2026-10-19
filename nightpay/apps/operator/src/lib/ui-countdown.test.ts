@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoLabel,
+  awaitingServerExpiry,
+  clockTime,
   countdownPhase,
   effectiveStatus,
   formatClock,
@@ -83,6 +85,15 @@ describe('estado que se enseña', () => {
     expect(effectiveStatus('AWAITING_CAPTURE', d, 999_999)).toBe('EXPIRED');
   });
 
+  it('pasado el plazo sin el «caducado» del servidor, se espera a que conteste', () => {
+    expect(awaitingServerExpiry('CREATED', d, 300_000)).toBe(false);
+    expect(awaitingServerExpiry('CREATED', d, 300_000 + LOCAL_EXPIRY_GRACE_MS)).toBe(true);
+    expect(awaitingServerExpiry('AWAITING_CAPTURE', d, 999_999)).toBe(true);
+    expect(awaitingServerExpiry('EXPIRED', d, 999_999)).toBe(false);
+    expect(awaitingServerExpiry('AUTHORIZED', d, 999_999)).toBe(false);
+    expect(awaitingServerExpiry('CREATED', null, 999_999)).toBe(false);
+  });
+
   it('si el cliente ya está pagando (o ya terminó), manda el servidor', () => {
     expect(effectiveStatus('AUTHORIZING', d, 999_999)).toBe('AUTHORIZING');
     expect(effectiveStatus('AUTHORIZED', d, 999_999)).toBe('AUTHORIZED');
@@ -96,5 +107,14 @@ describe('estado que se enseña', () => {
     for (const s of ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING', 'ORPHAN', 'CANCELED', 'REFUNDED'] as const) {
       expect(outcomeKindOf(s)).toBeNull();
     }
+  });
+});
+
+describe('hora de la pantalla «PAGADO»', () => {
+  it('en hora de Madrid, aunque el aparato esté en UTC (verano +2, invierno +1)', () => {
+    expect(clockTime(Date.parse('2026-07-15T21:41:07Z'))).toBe('23:41:07');
+    expect(clockTime(Date.parse('2026-01-15T22:41:07Z'))).toBe('23:41:07');
+    // Medianoche: «00», nunca «24».
+    expect(clockTime(Date.parse('2026-01-15T23:05:09Z'))).toBe('00:05:09');
   });
 });

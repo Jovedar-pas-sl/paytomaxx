@@ -4,6 +4,7 @@ import {
   INCIDENT_KINDS,
   fixTabFor,
   incidentHeading,
+  incidentHint,
   incidentKey,
   recordResolved,
   resolvedToday,
@@ -131,5 +132,23 @@ describe('resolvedToday / recordResolved', () => {
       resolved({ key: `k${n}`, resolvedAt: new Date(Date.UTC(2026, 9, 15, 0, n)).toISOString() }),
     );
     expect(recordResolved(null, '2026-10-15', many).items).toHaveLength(50);
+  });
+});
+
+describe('incidencias nuevas del datáfono', () => {
+  it('ventas sin comprobar: en Pagos, con el código de autorización', () => {
+    expect(INCIDENT_KINDS.pos_unproven_sales).toMatchObject({ group: 'Datáfono', title: 'Ventas del datáfono sin comprobar', tab: 'payments' });
+    expect(incidentHint('pos_unproven_sales', true)).toBe('Se confirman en Pagos → Resolver con el código de autorización.');
+  });
+
+  it('tope de recepción: en Datáfonos', () => {
+    expect(INCIDENT_KINDS.pos_reception_limit).toMatchObject({ group: 'Datáfono', title: 'Tope de recepción superado', tab: 'terminals' });
+    expect(incidentHint('pos_reception_limit', true)).toMatch(/Datáfonos/);
+  });
+
+  it('sin ayuda propia: las que se quitan solas lo dicen; las que se resuelven, nada', () => {
+    expect(incidentHint('duplicate_charge', true)).toBeNull();
+    expect(incidentHint('stuck_payment', false)).toBe('Se quita sola cuando se arregla.');
+    expect(incidentHint('refund_pending', false)).toMatch(/Devoluciones → Resolver/);
   });
 });

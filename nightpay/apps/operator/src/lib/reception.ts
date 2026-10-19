@@ -42,6 +42,39 @@ export interface ReceptionWallet {
   hasCard: boolean;
 }
 
+/**
+ * Cómo quedó una recarga con tarjeta que cobró este datáfono
+ * (GET /v1/pos-device/reception/topups/:paymentId, la última hora).
+ */
+export interface ReceptionTopUpView {
+  paymentId: string;
+  /** Sumada · cobrada y pendiente de Paytef · aún sin cobrar · no cobrada (caducada, cancelada). */
+  status: 'CREDITED' | 'PENDING' | 'OPEN' | 'NOT_PAID';
+  amountCents: number;
+  walletId: string;
+  codeHint: string;
+  balanceCents: number | null;
+  hasPin: boolean;
+  hasCard: boolean;
+}
+
+/** Lo que enseña la recepción con esa respuesta. */
+export type TopUpCheck =
+  | { kind: 'done'; detail: string }
+  | { kind: 'pending' }
+  | { kind: 'notPaid' }
+  /** Aún sin cobrar en el servidor: se vuelve a preguntar. */
+  | { kind: 'wait' };
+
+export function topUpCheck(view: ReceptionTopUpView): TopUpCheck {
+  if (view.status === 'PENDING') return { kind: 'pending' };
+  if (view.status === 'NOT_PAID') return { kind: 'notPaid' };
+  if (view.status === 'OPEN') return { kind: 'wait' };
+  const extras = [view.hasCard ? 'ficha' : null, view.hasPin ? 'PIN' : null].filter(Boolean).join(' y ');
+  const balance = view.balanceCents === null ? '' : ` · tiene ${formatEur(view.balanceCents)}`;
+  return { kind: 'done', detail: `Saldo ${view.codeHint}${balance}${extras ? ` · con ${extras}` : ''}` };
+}
+
 /** Venta con tarjeta en el lector del datáfono (recarga ya preparada en el servidor). */
 export interface DeviceCardSale {
   paymentId: string;
@@ -76,12 +109,14 @@ const cardBody = (card: string, uid: string | null) => (uid ? { card, uid } : { 
 /** El datáfono de recepción (Authorization: Device). */
 export const deviceBackend: ReceptionBackend & {
   cardSale(body: { amountCents: number; idempotencyKey: string; wallet: { create: true } | { card: string; uid?: string } }): Promise<DeviceCardSale>;
+  topUp(paymentId: string): Promise<ReceptionTopUpView>;
 } = {
   kind: 'device',
   options: () => call('/v1/pos-device/reception/options'),
   lookup: (card, uid) => call('/v1/pos-device/reception/lookup', json(cardBody(card, uid))),
   cash: (body) => call('/v1/pos-device/reception/cash', json(body)),
   cardSale: (body) => call('/v1/pos-device/reception/card', json(body)),
+  topUp: (paymentId) => call(`/v1/pos-device/reception/topups/${encodeURIComponent(paymentId)}`),
   wallet: (walletId) => call(`/v1/pos-device/reception/wallets/${encodeURIComponent(walletId)}`),
   link: (w, card, uid) => call(`/v1/pos-device/reception/wallets/${encodeURIComponent(w.walletId)}/card`, json(cardBody(card, uid))),
   setPin: (w, pin) => call(`/v1/pos-device/reception/wallets/${encodeURIComponent(w.walletId)}/pin`, json({ pin })),
@@ -145,10 +180,44 @@ export function receptionDetail(w: ReceptionWallet): string {
   return `Saldo ${w.code} · tiene ${formatEur(w.balanceCents)}${extras ? ` · con ${extras}` : ''}`;
 }
 
+/**
+ * Recarga de un saldo que ya tenía (su ficha): el resultado sale de lo que
+ * devolvió el cobro, sin pedir el saldo otra vez (el datáfono solo puede
+ * pedir los saldos que creó él).
+ */
+export function walletAfterCash(out: Pick<CashTopUpResult, 'walletId' | 'code' | 'balanceCents'>, card: ReceptionCard): ReceptionWallet {
+  return { walletId: out.walletId, code: out.code, balanceCents: out.balanceCents, hasPin: card.hasPin, hasCard: true };
+}
+
+/** El resultado de una recarga con tarjeta a la ficha que ya tenía (el saldo nuevo no se sabe aquí). */
+export function existingTopUpDetail(card: ReceptionCard): string {
+  return `Saldo ${card.codeHint} · con ficha${card.hasPin ? ' y PIN' : ''}`;
+}
+
 /** Una clave por intento de recarga: si se repite (corte, doble toque) no carga dos veces. */
 export function newReceptionKey(): string {
   const rnd = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
   return `rec-${rnd}`;
+}
+
+/** La clave de la recarga y lo que se recarga con ella. */
+export interface ReceptionAttempt {
+  readonly key: string;
+  readonly what: string;
+}
+
+/** Lo que se recarga: importe, forma de pago y a qué saldo. */
+export function receptionWhat(amountCents: number, method: PayMethod, target: Target): string {
+  return `${amountCents}|${method}|${target.kind === 'new' ? 'nuevo' : `ficha:${target.card}`}`;
+}
+
+/**
+ * La misma clave solo si se repite lo mismo (corte, doble toque). Con otro
+ * importe, otra forma de pago u otro saldo, clave nueva: el servidor no
+ * devuelve la recarga anterior como si fuera esta.
+ */
+export function receptionAttempt(previous: ReceptionAttempt | null, what: string): ReceptionAttempt {
+  return previous?.what === what ? previous : { key: newReceptionKey(), what };
 }
 
 // ─── «Preparar fichas» ────────────────────────────────────────────────────

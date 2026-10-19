@@ -1,24 +1,32 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { MAX_CASH_TOP_UP_CENTS, walletCardUrl, type ReceptionOptions } from '@nightpay/contracts';
 import { AmountKeypad, Button, Card } from '@nightpay/ui';
 import { createPayment, fetchTerminals, type CreatedPayment } from '@/lib/api';
-import { tapChip } from '@/lib/chip-tap';
+import { PENDING_CONFIRM_TEXT } from '@/lib/pax-api';
+import { blankCodeFrom, tapChip } from '@/lib/chip-tap';
 import { formatEur } from '@/lib/money';
+import { useOpenCharge } from '@/lib/open-charges';
 import {
   deviceBackend,
-  newReceptionKey,
+  existingTopUpDetail,
   nextAfterPay,
   payProblem,
+  receptionAttempt,
   receptionDetail,
+  receptionWhat,
   staffBackend,
+  topUpCheck,
+  walletAfterCash,
   walletOfTarget,
   type DeviceCardSale,
   type PayMethod,
+  type ReceptionAttempt,
   type ReceptionBackend,
   type ReceptionWallet,
   type Target,
+  type TopUpCheck,
 } from '@/lib/reception';
 import { ActivePayment } from '../ActivePayment';
 import { PaxChargeFlow } from '../pax/PaxChargeFlow';
@@ -31,11 +39,25 @@ type Step =
   | { kind: 'method' }
   | { kind: 'target'; method: PayMethod }
   | { kind: 'cash'; target: Target }
-  | { kind: 'cardSale'; sale: DeviceCardSale; existing: boolean }
+  /** `existing`: la ficha que ya tenía (null: saldo nuevo). */
+  | { kind: 'cardSale'; sale: DeviceCardSale; existing: (Target & { kind: 'card' }) | null }
   | { kind: 'cardQr'; payment: CreatedPayment }
+  /** Recarga con tarjeta a una ficha que ya tenía: se pregunta cómo quedó (topups/:paymentId). */
+  | { kind: 'topUp'; paymentId: string; target: Target & { kind: 'card' } }
+  | { kind: 'topUpPending' }
+  | { kind: 'topUpNotPaid'; target: Target & { kind: 'card' } }
   | { kind: 'chip'; wallet: ReceptionWallet; method: PayMethod }
   | { kind: 'pin'; wallet: ReceptionWallet; method: PayMethod }
-  | { kind: 'done'; wallet: ReceptionWallet; method: PayMethod };
+  | { kind: 'done'; detail: string; method: PayMethod };
+
+/** Preguntas por cómo quedó una recarga con tarjeta (cada 3 s, hasta 30 s). */
+const TOP_UP_POLL_MS = 3_000;
+const TOP_UP_POLL_TRIES = 10;
+
+/** Pasos antes de cobrar: ahí aún no hay nada que perder si la sesión caduca. */
+const BEFORE_CHARGE = new Set<Step['kind']>(['amount', 'method', 'target']);
+
+const done = (wallet: ReceptionWallet, method: PayMethod): Step => ({ kind: 'done', detail: receptionDetail(wallet), method });
 
 interface Props {
   /** El datáfono (su credencial y su lector) o el móvil del personal (su sesión y Web NFC). */
@@ -58,8 +80,22 @@ export function ReceptionFlow({ on, onDone }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState<AbortController | null>(null);
-  // Una clave por recarga: repetir (corte, doble toque) no carga dos veces.
-  const key = useRef(newReceptionKey());
+  // Una clave por recarga (importe, forma de pago y saldo): repetir lo mismo
+  // (corte, doble toque) no carga dos veces; otra cosa lleva otra clave.
+  const attempt = useRef<ReceptionAttempt | null>(null);
+  // Código para la ficha en blanco: se reutiliza hasta que se intenta grabar.
+  const blankCode = useMemo(
+    () => blankCodeFrom(() => backend.newToken(), (token) => walletCardUrl(window.location.origin, token)),
+    [backend],
+  );
+  // Desde que se cobra hasta el resultado: si la sesión caduca, se entra encima sin perderlo.
+  const charging = !BEFORE_CHARGE.has(step.kind);
+  useOpenCharge('recepcion', charging, charging && step.kind !== 'done');
+
+  function keyFor(method: PayMethod, target: Target): string {
+    attempt.current = receptionAttempt(attempt.current, receptionWhat(amountCents, method, target));
+    return attempt.current.key;
+  }
 
   useEffect(() => {
     backend
@@ -69,8 +105,40 @@ export function ReceptionFlow({ on, onDone }: Props) {
   }, [backend]);
   useEffect(() => () => reading?.abort(), [reading]);
 
+  // Recarga con tarjeta a una ficha que ya tenía: su resultado lo dice el servidor
+  // (sumada con el saldo, pendiente de Paytef o no cobrada). Si no contesta, lo de antes.
+  const topUpId = step.kind === 'topUp' ? step.paymentId : null;
+  useEffect(() => {
+    if (step.kind !== 'topUp') return undefined;
+    const { paymentId, target } = step;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const fallback = () => setStep({ kind: 'done', detail: existingTopUpDetail(target.view), method: 'card' });
+    const ask = async (tries: number): Promise<void> => {
+      let check: TopUpCheck;
+      try {
+        check = topUpCheck(await deviceBackend.topUp(paymentId));
+      } catch {
+        if (alive) fallback();
+        return;
+      }
+      if (!alive) return;
+      if (check.kind === 'done') setStep({ kind: 'done', detail: check.detail, method: 'card' });
+      else if (check.kind === 'pending') setStep({ kind: 'topUpPending' });
+      else if (check.kind === 'notPaid') setStep({ kind: 'topUpNotPaid', target });
+      else if (tries <= 1) fallback();
+      else timer = setTimeout(() => void ask(tries - 1), TOP_UP_POLL_MS);
+    };
+    void ask(TOP_UP_POLL_TRIES);
+    return () => {
+      alive = false;
+      if (timer !== null) clearTimeout(timer);
+    };
+    // Una vez por recarga.
+  }, [topUpId]);
+
   function restart(): void {
-    key.current = newReceptionKey();
+    attempt.current = null;
     setAmountCents(0);
     setError(null);
     setStep({ kind: 'amount' });
@@ -94,11 +162,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
     const controller = new AbortController();
     setReading(controller);
     try {
-      const blankUrl =
-        blank && reader.canWrite
-          ? async () => walletCardUrl(window.location.origin, await backend.newToken())
-          : undefined;
-      const tap = await tapChip(reader.via, controller.signal, blankUrl);
+      const tap = await tapChip(reader.via, controller.signal, blank && reader.canWrite ? blankCode : undefined);
       if (tap.other) throw new Error('Esta ficha tiene otra cosa grabada: usa otra.');
       if (!tap.token) {
         throw new Error(blank ? (reader.note ?? 'Esta ficha está en blanco y aquí no se puede grabar.') : 'Esta ficha no es de ningún saldo.');
@@ -111,28 +175,25 @@ export function ReceptionFlow({ on, onDone }: Props) {
   }
 
   /**
-   * Tras cobrar: el saldo con su código; si es nuevo, su ficha y su PIN. Al
-   * saldo de una ficha que ya tenía no se le cambia nada (su PIN, con el encargado).
+   * Tras cobrar un saldo nuevo: su código, su ficha y su PIN. (Al saldo de una
+   * ficha que ya tenía no se le cambia nada: su PIN, con el encargado; y su
+   * resultado sale del propio cobro, sin pedir el saldo.)
    */
-  async function afterPay(walletId: string, method: PayMethod, existing: boolean): Promise<void> {
+  async function afterPay(walletId: string, method: PayMethod): Promise<void> {
     const wallet = await backend.wallet(walletId);
-    const next = nextAfterPay(wallet, {
-      nfc: Boolean(options?.nfc) && reader.via !== null,
-      skipChip: existing,
-      skipPin: existing,
-    });
-    setStep(next === 'done' ? { kind: 'done', wallet, method } : { kind: next, wallet, method });
+    const next = nextAfterPay(wallet, { nfc: Boolean(options?.nfc) && reader.via !== null });
+    setStep(next === 'done' ? done(wallet, method) : { kind: next, wallet, method });
   }
 
   /**
    * Ya cobrado: si no se puede seguir (sin conexión al pedir el saldo), se
    * dice que la recarga está hecha y se empieza otra con una clave nueva.
    */
-  async function paidThen(walletId: string, method: PayMethod, existing: boolean): Promise<void> {
+  async function paidThen(walletId: string, method: PayMethod): Promise<void> {
     try {
-      await afterPay(walletId, method, existing);
+      await afterPay(walletId, method);
     } catch (err) {
-      key.current = newReceptionKey();
+      attempt.current = null;
       setAmountCents(0);
       setStep({ kind: 'amount' });
       throw new Error(`Recarga cobrada y sumada al saldo. La ficha y el PIN, con el encargado: ${(err as Error).message}`);
@@ -144,10 +205,10 @@ export function ReceptionFlow({ on, onDone }: Props) {
     if (on === 'device') {
       const sale = await deviceBackend.cardSale({
         amountCents,
-        idempotencyKey: key.current,
+        idempotencyKey: keyFor('card', target),
         wallet: target.kind === 'new' ? { create: true } : (walletOfTarget(target) as { card: string; uid?: string }),
       });
-      setStep({ kind: 'cardSale', sale, existing: target.kind === 'card' });
+      setStep({ kind: 'cardSale', sale, existing: target.kind === 'card' ? target : null });
       return;
     }
     const terminal = (await fetchTerminals())[0]?.externalId;
@@ -155,7 +216,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
     const payment = await createPayment({
       amountCents,
       terminalExternalId: terminal,
-      idempotencyKey: key.current,
+      idempotencyKey: keyFor('card', target),
       ...(target.kind === 'card' ? { walletId: target.view.walletId } : { newWallet: true }),
     });
     setStep({ kind: 'cardQr', payment });
@@ -186,7 +247,11 @@ export function ReceptionFlow({ on, onDone }: Props) {
           forThisTerminal: true,
         }}
         start={() => Promise.resolve({ reference: sale.reference, amountCents: sale.amountCents })}
-        onPaid={() => void run(() => paidThen(sale.walletId, 'card', existing))}
+        onPaid={() =>
+          existing
+            ? setStep({ kind: 'topUp', paymentId: sale.paymentId, target: existing })
+            : void run(() => paidThen(sale.walletId, 'card'))
+        }
         onDone={restart}
       />
     );
@@ -194,7 +259,62 @@ export function ReceptionFlow({ on, onDone }: Props) {
 
   if (step.kind === 'cardQr') {
     // El cliente paga en su móvil; al pagarse, su código, la ficha y el PIN (como «Cargar wallet»).
-    return <ActivePayment payment={step.payment} isPos={false} label="Recarga del saldo" onPaid={() => undefined} onClose={restart} />;
+    return (
+      <ActivePayment
+        payment={step.payment}
+        isPos={false}
+        label="Recarga del saldo"
+        onPaid={() => undefined}
+        onClose={restart}
+        spot="recepcion"
+      />
+    );
+  }
+
+  if (step.kind === 'topUp' || step.kind === 'topUpPending' || step.kind === 'topUpNotPaid') {
+    return (
+      <Card style={cardStyle}>
+        <p style={kicker}>Recepción</p>
+        <p className="np-num" style={amountStyle}>
+          {formatEur(amountCents)}
+        </p>
+        {step.kind === 'topUp' ? <p style={big}>Comprobando la recarga…</p> : null}
+        {step.kind === 'topUpPending' ? (
+          <p role="status" style={{ ...big, color: 'var(--np-warning)' }}>
+            {PENDING_CONFIRM_TEXT}
+          </p>
+        ) : null}
+        {step.kind === 'topUpNotPaid' ? (
+          <>
+            <p role="alert" style={{ ...big, color: 'var(--np-danger)' }}>
+              La recarga no consta como cobrada: no se ha sumado nada.
+            </p>
+            <Button
+              size="lg"
+              loading={busy}
+              onClick={() => {
+                const { target } = step;
+                // Otra venta: la anterior no se cobró, así que va con clave nueva.
+                attempt.current = null;
+                void run(() => startCard(target));
+              }}
+            >
+              Volver a cobrar {formatEur(amountCents)}
+            </Button>
+          </>
+        ) : null}
+        {step.kind === 'topUp' ? null : (
+          <Button variant="ghost" disabled={busy} onClick={restart}>
+            Otra recarga
+          </Button>
+        )}
+        {error ? (
+          <p role="alert" style={errorStyle}>
+            {error}
+          </p>
+        ) : null}
+      </Card>
+    );
   }
 
   if (step.kind === 'pin') {
@@ -204,10 +324,10 @@ export function ReceptionFlow({ on, onDone }: Props) {
         mode="choose"
         title={`Saldo ${wallet.code}`}
         hint={on === 'device' ? 'Que el cliente elija su PIN (tápalo con la mano)' : 'Pásale el móvil al cliente para que elija su PIN'}
-        onCancel={() => setStep({ kind: 'done', wallet, method: step.method })}
+        onCancel={() => setStep(done(wallet, step.method))}
         onPin={async (pin) => {
           const next = await backend.setPin(wallet, pin);
-          setStep({ kind: 'done', wallet: next, method: step.method });
+          setStep(done(next, step.method));
           return null;
         }}
       />
@@ -220,7 +340,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
         kind="paid"
         amountCents={amountCents}
         message={step.method === 'cash' ? 'Recargado en efectivo' : 'Recargado con tarjeta'}
-        detail={<p>{receptionDetail(step.wallet)}</p>}
+        detail={<p>{step.detail}</p>}
         primary={{ label: 'Otra recarga', onClick: restart }}
         secondary={{ label: 'Volver', onClick: onDone }}
       />
@@ -320,8 +440,13 @@ export function ReceptionFlow({ on, onDone }: Props) {
             onClick={() =>
               void run(async () => {
                 const target = step.target;
-                const out = await backend.cash({ amountCents, idempotencyKey: key.current, wallet: walletOfTarget(target) });
-                await paidThen(out.walletId, 'cash', target.kind === 'card');
+                const out = await backend.cash({
+                  amountCents,
+                  idempotencyKey: keyFor('cash', target),
+                  wallet: walletOfTarget(target),
+                });
+                if (target.kind === 'card') setStep(done(walletAfterCash(out, target.view), 'cash'));
+                else await paidThen(out.walletId, 'cash');
               })
             }
           >
@@ -350,7 +475,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
                   const { wallet, method } = step;
                   const chip = await readChip(true);
                   const next = await backend.link(wallet, chip.token, chip.uid);
-                  setStep(next.hasPin ? { kind: 'done', wallet: next, method } : { kind: 'pin', wallet: next, method });
+                  setStep(next.hasPin ? done(next, method) : { kind: 'pin', wallet: next, method });
                 })
               }
             >
@@ -361,11 +486,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
             variant="ghost"
             disabled={busy || reading !== null}
             onClick={() =>
-              setStep(
-                step.wallet.hasPin
-                  ? { kind: 'done', wallet: step.wallet, method: step.method }
-                  : { kind: 'pin', wallet: step.wallet, method: step.method },
-              )
+              setStep(step.wallet.hasPin ? done(step.wallet, step.method) : { kind: 'pin', wallet: step.wallet, method: step.method })
             }
           >
             Sin ficha

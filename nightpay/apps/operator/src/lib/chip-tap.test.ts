@@ -1,8 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChipError, isChipTimeout, isFatalChipError, tapChip, tapFromBridge } from './chip-tap';
+import { blankCodeFrom, ChipError, isChipTimeout, isFatalChipError, tapChip, tapFromBridge } from './chip-tap';
 
 const FICHA = 'Kp3vX9qL2mN8rT5wYb7c';
 const URL_FICHA = `https://operator.x/?ficha=${FICHA}`;
+const toUrl = (token: string) => `https://operator.x/?ficha=${token}`;
+
+/** Un código para fichas en blanco que cuenta cuántas veces se pidió al servidor. */
+function code(token = FICHA) {
+  const newToken = vi.fn(async () => token);
+  return { blank: blankCodeFrom(newToken, toUrl), newToken };
+}
+
+describe('el código para la próxima ficha en blanco', () => {
+  it('se pide una vez y se reutiliza hasta que se intenta grabar', async () => {
+    const { blank, newToken } = code();
+    await expect(blank.url()).resolves.toBe(URL_FICHA);
+    await blank.url();
+    expect(newToken).toHaveBeenCalledTimes(1);
+    blank.spent();
+    await blank.url();
+    expect(newToken).toHaveBeenCalledTimes(2);
+  });
+
+  it('si la petición falla, el siguiente intento pide otro', async () => {
+    const newToken = vi.fn().mockRejectedValueOnce(new Error('sin red')).mockResolvedValue(FICHA);
+    const blank = blankCodeFrom(newToken, toUrl);
+    await expect(blank.url()).rejects.toThrow('sin red');
+    await expect(blank.url()).resolves.toBe(URL_FICHA);
+  });
+});
 
 describe('la ficha que devuelve el puente del datáfono', () => {
   it('leída con nuestro enlace: su código y su número de serie', () => {
@@ -68,10 +94,29 @@ describe('acercar la ficha en el datáfono (writeNfc / readNfc)', () => {
 
   it('con código para las fichas en blanco: se pide antes y la app graba solo si está en blanco', async () => {
     answer('writeNfc', (req) => ({ ok: true, uid: '04A23B1C', url: req.url, written: true }));
-    const blankUrl = vi.fn(async () => URL_FICHA);
-    await expect(tapChip('bridge', new AbortController().signal, blankUrl)).resolves.toMatchObject({ token: FICHA, written: true });
-    expect(blankUrl).toHaveBeenCalledTimes(1);
+    const { blank, newToken } = code();
+    await expect(tapChip('bridge', new AbortController().signal, blank)).resolves.toMatchObject({ token: FICHA, written: true });
+    expect(newToken).toHaveBeenCalledTimes(1);
     expect(calls[0]).toEqual(['writeNfc', expect.objectContaining({ url: URL_FICHA, onlyIfBlank: true, timeoutMs: 60_000 })]);
+    // Grabado: la siguiente ficha lleva otro código.
+    await blank.url();
+    expect(newToken).toHaveBeenCalledTimes(2);
+  });
+
+  it('la app dice «no se grabó» (tenía algo): el código sirve para la siguiente', async () => {
+    answer('writeNfc', () => ({ ok: true, uid: '04A23B1C', url: 'https://otra-web.es', written: false }));
+    const { blank, newToken } = code();
+    await expect(tapChip('bridge', new AbortController().signal, blank)).resolves.toMatchObject({ other: true });
+    await blank.url();
+    expect(newToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('sin saber cómo acabó (tiempo agotado, error): el código no se reutiliza', async () => {
+    answer('writeNfc', () => ({ ok: false, error: 'timeout' }));
+    const { blank, newToken } = code();
+    await expect(tapChip('bridge', new AbortController().signal, blank)).rejects.toMatchObject({ code: 'timeout' });
+    await blank.url();
+    expect(newToken).toHaveBeenCalledTimes(2);
   });
 
   it('sin código: solo lee (readNfc)', async () => {
@@ -91,7 +136,7 @@ describe('acercar la ficha en el datáfono (writeNfc / readNfc)', () => {
       return { ok: true };
     });
     const controller = new AbortController();
-    const tapping = tapChip('bridge', controller.signal, async () => URL_FICHA);
+    const tapping = tapChip('bridge', controller.signal, code().blank);
     await new Promise((r) => setTimeout(r, 0));
     controller.abort();
     await expect(tapping).rejects.toMatchObject({ name: 'AbortError' });
@@ -99,51 +144,77 @@ describe('acercar la ficha en el datáfono (writeNfc / readNfc)', () => {
   });
 
   it('una app del datáfono vieja sin writeNfc: se dice que hay que actualizarla', async () => {
-    await expect(tapChip('bridge', new AbortController().signal, async () => URL_FICHA)).rejects.toThrow(/actualicen/);
+    await expect(tapChip('bridge', new AbortController().signal, code().blank)).rejects.toThrow(/actualicen/);
   });
 });
 
 describe('acercar la ficha a un Android (Web NFC)', () => {
   type Reading = { serialNumber: string; message?: { records: Array<{ recordType: string; data?: DataView }> } };
   let next: Reading;
-  const written: string[] = [];
+  /** Lo que Chrome lee tras grabar (null: no vuelve a leerla). */
+  let afterWrite: Reading | null;
+  const written: Array<{ url: string; overwrite: boolean | undefined }> = [];
 
   beforeEach(() => {
     written.length = 0;
+    afterWrite = null;
     class FakeReader {
       onreading: ((e: Reading) => void) | null = null;
       onreadingerror: ((e: Event) => void) | null = null;
       async scan(): Promise<void> {
         setTimeout(() => this.onreading?.(next), 0);
       }
-      async write(message: { records: Array<{ data: string }> }): Promise<void> {
-        written.push(message.records[0]!.data);
+      async write(message: { records: Array<{ data: string }> }, options?: { overwrite?: boolean }): Promise<void> {
+        written.push({ url: message.records[0]!.data, overwrite: options?.overwrite });
+        const again = afterWrite;
+        if (again) setTimeout(() => this.onreading?.(again), 0);
       }
     }
     vi.stubGlobal('window', { NDEFReader: FakeReader });
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   const urlRecord = (url: string) => ({ recordType: 'url', data: new DataView(new TextEncoder().encode(url).buffer) });
 
-  it('en blanco: pide el código y lo graba en la misma ficha', async () => {
+  it('en blanco: el código se pide antes, se graba sin pisar nada y vale la ficha que quedó grabada', async () => {
     next = { serialNumber: '04:a2:3b:1c', message: { records: [] } };
-    const out = await tapChip('web', new AbortController().signal, async () => URL_FICHA);
-    expect(out).toEqual({ token: FICHA, uid: '04A23B1C', written: true, other: false });
-    expect(written).toEqual([URL_FICHA]);
+    // La cambiaron por otra en blanco entre leer y grabar: vale el número de serie de la grabada.
+    afterWrite = { serialNumber: '04:99:88:77', message: { records: [urlRecord(URL_FICHA)] } };
+    const { blank, newToken } = code();
+    const out = await tapChip('web', new AbortController().signal, blank);
+    expect(out).toEqual({ token: FICHA, uid: '04998877', written: true, other: false });
+    expect(written).toEqual([{ url: URL_FICHA, overwrite: false }]);
+    await blank.url();
+    expect(newToken).toHaveBeenCalledTimes(2);
   });
 
-  it('ya grabada con nuestro enlace: no se graba nada (ni se pide código)', async () => {
+  it('grabada pero sin poder comprobarla: error, y el código no se reutiliza', async () => {
+    vi.useFakeTimers();
+    next = { serialNumber: '04:a2:3b:1c', message: { records: [] } };
+    const { blank, newToken } = code();
+    const tapping = tapChip('web', new AbortController().signal, blank);
+    const failed = expect(tapping).rejects.toMatchObject({ code: 'unverified' });
+    await vi.runAllTimersAsync();
+    await failed;
+    await blank.url();
+    expect(newToken).toHaveBeenCalledTimes(2);
+  });
+
+  it('ya grabada con nuestro enlace: no se graba nada (y el código pedido sirve para otra)', async () => {
     next = { serialNumber: '04:a2:3b:1c', message: { records: [urlRecord(URL_FICHA)] } };
-    const blankUrl = vi.fn(async () => URL_FICHA);
-    await expect(tapChip('web', new AbortController().signal, blankUrl)).resolves.toMatchObject({ token: FICHA, written: false });
-    expect(blankUrl).not.toHaveBeenCalled();
+    const { blank, newToken } = code('OtroCodigoParaLaSiguiente');
+    await expect(tapChip('web', new AbortController().signal, blank)).resolves.toMatchObject({ token: FICHA, written: false });
     expect(written).toEqual([]);
+    await blank.url();
+    expect(newToken).toHaveBeenCalledTimes(1);
   });
 
   it('con otra cosa grabada: no se toca', async () => {
     next = { serialNumber: '04:a2:3b:1c', message: { records: [urlRecord('https://otra-web.es')] } };
-    await expect(tapChip('web', new AbortController().signal, async () => URL_FICHA)).resolves.toMatchObject({ token: null, other: true });
+    await expect(tapChip('web', new AbortController().signal, code().blank)).resolves.toMatchObject({ token: null, other: true });
     expect(written).toEqual([]);
   });
 });
