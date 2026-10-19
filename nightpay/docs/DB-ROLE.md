@@ -7,9 +7,10 @@ de otro es el código del API.
 
 Con este cambio el API entra con `oxiopay_app`: un rol normal (sin
 superusuario) que es **dueño** de las tablas. Entonces la base aplica RLS en
-las seis tablas del dinero de las chicas y de los saldos (`client_wallets`,
+las tablas del dinero de las chicas y de los saldos (`client_wallets`,
 `wallet_consumptions`, `operator_earnings`, `operator_payouts`,
-`earning_reversals`, `peanpe_calls`): aunque un fallo del código olvidara
+`earning_reversals`, `peanpe_calls` y, desde «Por aprobar»,
+`approval_requests`): aunque un fallo del código olvidara
 filtrar por local, la base no enseñaría filas de otro local.
 
 - Tiempo: unos 20 minutos.
@@ -345,7 +346,7 @@ Funciona en el acto: `np` es superusuario y puede con todo aunque el dueño sea
 - Lo que cruza locales a propósito (avisos del banco sin local, el saldo
   NightPay del grupo, tareas del sistema) usa `asSystem` / `acrossVenues`
   (bypass de RLS), y el código comprueba el acceso.
-- Una consulta a una de las seis tablas fuera de una transacción no lleva ni
+- Una consulta a una de esas tablas fuera de una transacción no lleva ni
   el local ni el bypass: con `oxiopay_app` no vería filas. El API la avisa en
   el log y en `nightpay_rls_outside_transaction_total`, y con
   `TENANCY_UNSCOPED_QUERIES=throw` la corta. Una prueba
