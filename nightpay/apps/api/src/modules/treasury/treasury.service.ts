@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { madridDay, madridStartOfDay } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from './payout-verifier.factory';
 import { payableSummary, payoutCutoff } from '../operators/payout-math';
@@ -259,9 +260,8 @@ export class TreasuryService {
    * Estadísticas treasury para tab admin.
    */
   async getStats(tenantId: string): Promise<TreasuryStats> {
-    const firstOfMonth = new Date();
-    firstOfMonth.setDate(1);
-    firstOfMonth.setHours(0, 0, 0, 0);
+    // El 1 del mes a las 00:00 de Madrid (no del servidor, que corre en UTC).
+    const firstOfMonth = madridStartOfDay(`${madridDay().slice(0, 8)}01`);
 
     const pending = payableSummary(await this.operatorBalances(tenantId));
 
