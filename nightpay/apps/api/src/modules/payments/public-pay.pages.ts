@@ -71,6 +71,11 @@ export function walletHref(token: string, lang: PayLanguage): string {
   return `/w/${encodeURIComponent(token)}?lang=${lang}`;
 }
 
+/** Vuelta a /w tras pagar una recarga empezada allí: el saldo con su «Pagado». */
+export function walletReturnHref(walletToken: string, payToken: string, lang: PayLanguage): string {
+  return `${walletHref(walletToken, lang)}&pagado=${encodeURIComponent(payToken)}`;
+}
+
 export function receiptHref(token: string, lang: PayLanguage): string {
   return `/pay/${encodeURIComponent(token)}/receipt?lang=${lang}`;
 }

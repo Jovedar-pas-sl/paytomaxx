@@ -74,6 +74,7 @@ import {
 import { expectedChicaReversal } from './refund-share';
 import { operatorCapProblem } from './operator-cap';
 import { formatWalletCode, newWalletCode, newWalletToken } from '../wallets/wallet-rules';
+import { selfTopUpClaimHash } from '../wallets/wallet-topup-rules';
 import { idempotencyHashOf, sameIdempotentRequest } from './idempotency';
 import {
   findCreditTarget,
@@ -175,6 +176,44 @@ async function lockCreditWallet(
          FOR UPDATE
       `;
   return rows[0] ?? null;
+}
+
+/** Saldo de una recarga tal como lo leen las páginas de /pay. */
+interface PayerWalletRow {
+  qrToken: string;
+  shortCode: string | null;
+  pinHash: string | null;
+  _count: { passkeys: number };
+}
+
+/**
+ * Lo del saldo que ve quien paga una recarga:
+ *  - la que creó el saldo: su enlace, su código y su Face ID (solo al
+ *    navegador del intento que aprobó el banco);
+ *  - una empezada por el cliente en /w: solo la vuelta a ese saldo, al
+ *    navegador que la empezó (su cookie de vuelta, en la Idempotency-Key);
+ *  - otra recarga de un saldo que ya existía: nada (no se lleva su código,
+ *    su enlace ni su Face ID).
+ */
+export function payerWalletFields(args: {
+  wallet: PayerWalletRow | null;
+  firstTopUp: boolean;
+  idempotencyKey: string | null | undefined;
+  approvedClaimHash: string | null;
+}): Pick<
+  PayablePayment,
+  'walletToken' | 'walletClaimHash' | 'walletCode' | 'walletHasFaceId' | 'walletHasPin' | 'walletReturnToken'
+> {
+  const returnClaimHash = args.wallet ? selfTopUpClaimHash(args.idempotencyKey) : null;
+  const wallet = args.wallet && args.firstTopUp && !returnClaimHash ? args.wallet : null;
+  return {
+    walletToken: wallet?.qrToken ?? null,
+    walletClaimHash: returnClaimHash ?? (wallet ? args.approvedClaimHash : null),
+    walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
+    walletHasFaceId: (wallet?._count.passkeys ?? 0) > 0,
+    walletHasPin: Boolean(wallet?.pinHash),
+    ...(returnClaimHash && args.wallet ? { walletReturnToken: args.wallet.qrToken } : {}),
+  };
 }
 
 /** Choque con la Idempotency-Key de otro cobro creado a la vez (P2002). */
@@ -938,6 +977,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           updatedAt: true,
           authorizedAt: true,
           walletId: true,
+          idempotencyKey: true,
           // Cabecera de la página de pago: local, concepto y a quién va la propina.
           serviceName: true,
           tipGoesTo: true,
@@ -957,10 +997,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Pasarela que cobrará: la del cobro o, si aún no ha ido al banco, la
     // activa del local. La propina solo se cobra (y se reparte) con Redsys.
     const provider = payment.provider ?? (await this.activeProvider(payment.tenantId));
-    const { walletId, wallet: rawWallet, attempts, venue, createdBy, serviceName, tipGoesTo, ...rest } = payment;
-    // Recarga de un saldo que ya existía: quien la paga no se lleva su código,
-    // su enlace ni su Face ID (solo la recarga que lo creó).
-    const wallet = rawWallet && (await this.isFirstTopUp(walletId, payment.id)) ? rawWallet : null;
+    const { walletId, wallet, attempts, venue, createdBy, serviceName, tipGoesTo, idempotencyKey, ...rest } = payment;
+    const firstTopUp = wallet !== null && !selfTopUpClaimHash(idempotencyKey) && (await this.isFirstTopUp(walletId, payment.id));
     // Propinas del local (Ajustes → Formas de cobro): apagadas, no se ofrecen ni se aceptan.
     const methods = paymentMethodsOf(venue?.paymentMethods);
     return {
@@ -971,11 +1009,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       venueName: venue?.name ?? null,
       concept: serviceName ?? null,
       tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null }),
-      walletToken: wallet?.qrToken ?? null,
-      walletClaimHash: wallet ? (attempts[0]?.claimHash ?? null) : null,
-      walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
-      walletHasFaceId: (wallet?._count.passkeys ?? 0) > 0,
-      walletHasPin: Boolean(wallet?.pinHash),
+      ...payerWalletFields({ wallet, firstTopUp, idempotencyKey, approvedClaimHash: attempts[0]?.claimHash ?? null }),
     };
   }
 
@@ -1010,6 +1044,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           authorizedAt: true,
           qrToken: true,
           walletId: true,
+          idempotencyKey: true,
           wallet: { select: { qrToken: true, shortCode: true, pinHash: true, _count: { select: { passkeys: true } } } },
           attempts: {
             where: { status: 'APPROVED' },
@@ -1031,8 +1066,6 @@ export class PaymentsService implements OnApplicationBootstrap {
             select: { id: true },
           })
         : null;
-      // Recarga de un saldo que ya existía: sin código, enlace ni Face ID para quien paga.
-      const wallet = firstTopUp?.id === payment.id ? payment.wallet : null;
       return {
         paymentId: payment.id,
         status: payment.status as PaymentMachineState,
@@ -1041,11 +1074,12 @@ export class PaymentsService implements OnApplicationBootstrap {
         currency: payment.currency,
         authorizedAt: payment.authorizedAt,
         qrToken: payment.qrToken,
-        walletToken: wallet?.qrToken ?? null,
-        walletClaimHash: wallet ? (payment.attempts[0]?.claimHash ?? null) : null,
-        walletCode: wallet?.shortCode ? formatWalletCode(wallet.shortCode) : null,
-        walletHasFaceId: (wallet?._count.passkeys ?? 0) > 0,
-        walletHasPin: Boolean(wallet?.pinHash),
+        ...payerWalletFields({
+          wallet: payment.wallet,
+          firstTopUp: firstTopUp?.id === payment.id,
+          idempotencyKey: payment.idempotencyKey,
+          approvedClaimHash: payment.attempts[0]?.claimHash ?? null,
+        }),
         attemptStatus: thisAttempt?.status ?? null,
       };
     });

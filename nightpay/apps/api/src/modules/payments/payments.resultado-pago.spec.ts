@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { PaymentsService } from './payments.service';
+import { PaymentsService, payerWalletFields } from './payments.service';
+import { selfTopUpKey } from '../wallets/wallet-topup-rules';
 
 /**
  * Lo que ve quien paga después de pagar (resultado, justificante, «Pagado»)
@@ -163,6 +164,58 @@ describe('«Pagado» de una recarga: el saldo solo se entrega con la recarga que
       payment: { ...TOP_UP, status: 'CREATED', provider: null, providerTxId: null, tipCents: 0, authorizedAt: null },
     });
     await expect(service.getPayPage(QR)).resolves.toMatchObject({ kind: 'choose', tipOptionsCents: [0], tipMaxCents: 0 });
+  });
+});
+
+describe('«Recargar» desde /w: tras pagar, solo la vuelta al saldo (al navegador que la empezó)', () => {
+  const RETURN_KEY = selfTopUpKey('r'.repeat(43));
+  const RETURN_HASH = RETURN_KEY.slice('wtopup:'.length);
+  const SELF: Row = { ...TOP_UP, idempotencyKey: RETURN_KEY, createdByUserId: null, createdBy: null, tipCents: 0 };
+
+  it('/pay pagado → sin enlace, código ni Face ID; vuelta al saldo con la huella de su cookie de vuelta', async () => {
+    // Aunque fuese la primera recarga del saldo: una de /w nunca entrega el código.
+    const { service } = makeService({ payment: SELF, firstTopUpId: PAYMENT_ID });
+    await expect(service.getPayPage(QR)).resolves.toMatchObject({
+      kind: 'paid',
+      walletToken: null,
+      walletClaimHash: RETURN_HASH,
+      walletCode: null,
+      walletHasFaceId: false,
+      walletHasPin: false,
+      walletReturnToken: 'wq-5f4e3d2c',
+    });
+  });
+
+  it('/pay/result → lo mismo (y no la huella del intento)', async () => {
+    const attempts = [{ providerTxId: 'ORD-2', status: 'APPROVED' }];
+    const { service } = makeService({ payment: SELF, attempts, firstTopUpId: EARLIER_TOP_UP });
+    await expect(service.getResultView('ORD-2')).resolves.toMatchObject({
+      walletToken: null,
+      walletClaimHash: RETURN_HASH,
+      walletReturnToken: 'wq-5f4e3d2c',
+      attemptStatus: 'APPROVED',
+    });
+  });
+
+  it('pendiente → página de pago sin propina (la recarga no la lleva)', async () => {
+    const { service } = makeService({
+      payment: { ...SELF, status: 'CREATED', provider: null, providerTxId: null, authorizedAt: null },
+    });
+    await expect(service.getPayPage(QR)).resolves.toMatchObject({ kind: 'choose', tipOptionsCents: [0], tipMaxCents: 0 });
+  });
+
+  it('payerWalletFields: cobro sin saldo o recarga normal → sin vuelta', () => {
+    const wallet = TOP_UP.wallet as Parameters<typeof payerWalletFields>[0]['wallet'];
+    expect(payerWalletFields({ wallet: null, firstTopUp: false, idempotencyKey: RETURN_KEY, approvedClaimHash: 'h' })).toEqual({
+      walletToken: null,
+      walletClaimHash: null,
+      walletCode: null,
+      walletHasFaceId: false,
+      walletHasPin: false,
+    });
+    expect(
+      payerWalletFields({ wallet, firstTopUp: true, idempotencyKey: 'op-1234-abcd', approvedClaimHash: 'h' }),
+    ).not.toHaveProperty('walletReturnToken');
   });
 });
 

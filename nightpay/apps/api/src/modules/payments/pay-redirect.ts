@@ -72,6 +72,8 @@ export type PayRedirect =
       walletCode: string | null;
       walletHasFaceId: boolean;
       walletHasPin: boolean;
+      /** Recarga empezada en /w: a qué saldo vuelve el navegador que la empezó. */
+      walletReturnToken?: string | null;
     }
   | { kind: 'processing' }
   | { kind: 'closed'; reason: PayClosedReason };
@@ -92,6 +94,8 @@ export interface PayResultView {
   walletCode: string | null;
   walletHasFaceId: boolean;
   walletHasPin: boolean;
+  /** Recarga empezada en /w: a qué saldo vuelve (walletClaimHash = su cookie de vuelta). */
+  walletReturnToken?: string | null;
   /** Estado del intento concreto por el que vuelve el cliente (PENDING/APPROVED/DENIED). */
   attemptStatus: string | null;
 }
@@ -190,6 +194,13 @@ export interface PayablePayment {
   walletCode: string | null;
   walletHasFaceId: boolean;
   walletHasPin: boolean;
+  /**
+   * Recarga empezada por el cliente en su página del saldo (/w): a ese saldo
+   * vuelve tras pagar, solo el navegador que la empezó (walletClaimHash es la
+   * huella de su cookie de vuelta). Entonces walletToken va a null: esa recarga
+   * no da el código ni el Face ID a quien la paga.
+   */
+  walletReturnToken?: string | null;
 }
 
 /**
@@ -210,6 +221,7 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       walletCode: p.walletCode,
       walletHasFaceId: p.walletHasFaceId,
       walletHasPin: p.walletHasPin,
+      ...(p.walletReturnToken ? { walletReturnToken: p.walletReturnToken } : {}),
     };
   }
   const closed = CLOSED_REASON[p.status];
