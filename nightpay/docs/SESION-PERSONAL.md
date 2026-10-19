@@ -52,6 +52,8 @@ CORS_ORIGINS=https://admin.paytomaxx.com,https://operator.paytomaxx.com,https://
 ```
 
 Una app que no esté en la lista no puede entrar ni renovar la sesión (403).
+En producción el API **no arranca** sin `CORS_ORIGINS` o con una dirección mal
+escrita (sin `https://`, con barra final o con ruta): el log dice cuál.
 
 ### `AUTH_BODY_REFRESH_UNTIL` (nueva, opcional)
 

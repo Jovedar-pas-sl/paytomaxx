@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { DEV_PLACEHOLDER_SECRETS, InvalidEnvError, parseEnv, validateConfig } from './env';
-import { envWarnings } from './env-warnings';
+import { DEV_PLACEHOLDER_SECRETS, InvalidEnvError, corsOriginsProblem, parseEnv, validateConfig } from './env';
+import { DISABLE_FLAGS, envWarnings } from './env-warnings';
 
 /** Lo mínimo para arrancar (valores de prueba, no los de .env.example). */
 const BASE: Record<string, string> = {
@@ -16,18 +16,63 @@ const PROD: Record<string, string> = {
   ...BASE,
   NODE_ENV: 'production',
   NEXT_PUBLIC_API_URL: 'https://api.paytomaxx.com',
+  CORS_ORIGINS: 'https://admin.paytomaxx.com,https://tpv.paytomaxx.com',
 };
 
 describe('entorno: NODE_ENV', () => {
   it('sin NODE_ENV se asume producción (lo seguro), y entonces exige la URL pública del API', () => {
     expect(() => parseEnv(BASE)).toThrow(InvalidEnvError);
     expect(() => parseEnv(BASE)).toThrow(/NEXT_PUBLIC_API_URL/);
-    const env = parseEnv({ ...BASE, NEXT_PUBLIC_API_URL: 'https://api.paytomaxx.com' });
+    const env = parseEnv({ ...BASE, NEXT_PUBLIC_API_URL: 'https://api.paytomaxx.com', CORS_ORIGINS: PROD.CORS_ORIGINS! });
     expect(env.NODE_ENV).toBe('production');
   });
 
   it('en local hay que decirlo: NODE_ENV=development', () => {
     expect(parseEnv({ ...BASE, NODE_ENV: 'development' }).NODE_ENV).toBe('development');
+  });
+});
+
+describe('entorno: CORS_ORIGINS obligatoria en producción', () => {
+  it('sin ella (o vacía) el API no arranca y el error explica qué poner', () => {
+    for (const value of [undefined, '', ' , ']) {
+      const raw = { ...PROD, CORS_ORIGINS: value } as Record<string, unknown>;
+      if (value === undefined) delete raw.CORS_ORIGINS;
+      expect(() => parseEnv(raw)).toThrow(/CORS_ORIGINS es obligatoria en production/);
+    }
+  });
+
+  it('cada una https://dominio, sin barra final ni ruta; con espacios alrededor, vale', () => {
+    expect(corsOriginsProblem('https://admin.paytomaxx.com, https://tpv.paytomaxx.com')).toBeNull();
+    expect(corsOriginsProblem('https://localhost:3001')).toBeNull();
+    for (const bad of ['https://admin.paytomaxx.com/', 'admin.paytomaxx.com', 'http://admin.paytomaxx.com', 'https://a.es/panel']) {
+      expect(corsOriginsProblem(`https://ok.paytomaxx.com,${bad}`)).toContain(bad);
+    }
+    expect(() => parseEnv({ ...PROD, CORS_ORIGINS: 'https://admin.paytomaxx.com/' })).toThrow(/sin ruta ni barra final/);
+  });
+
+  it('en local no hace falta', () => {
+    const { CORS_ORIGINS: _cors, ...sinCors } = PROD;
+    expect(parseEnv({ ...sinCors, NODE_ENV: 'development' }).CORS_ORIGINS).toBeUndefined();
+  });
+});
+
+describe('entorno: NIGHTPAY_DISABLE_* en producción', () => {
+  it('cada tarea apagada (=1) da su aviso al arrancar; ALERTS dice que también calla «Por aprobar»', () => {
+    const flags = Object.keys(DISABLE_FLAGS);
+    expect(flags).toEqual(
+      expect.arrayContaining(['NIGHTPAY_DISABLE_WEBHOOK_SWEEP', 'NIGHTPAY_DISABLE_REFUND_SWEEP', 'NIGHTPAY_DISABLE_ALERTS']),
+    );
+    const all = Object.fromEntries(flags.map((k) => [k, '1']));
+    const text = envWarnings(validateConfig({ ...PROD, ...all })).join('\n');
+    for (const key of flags) expect(text).toContain(`${key}=1`);
+    expect(text).toMatch(/NIGHTPAY_DISABLE_ALERTS=1.*Por aprobar/);
+  });
+
+  it('sin ellas, a 0, o en local: ningún aviso', () => {
+    expect(envWarnings(validateConfig(PROD)).join('\n')).not.toMatch(/NIGHTPAY_DISABLE_/);
+    expect(envWarnings(validateConfig({ ...PROD, NIGHTPAY_DISABLE_ALERTS: '0' })).join('\n')).not.toMatch(/NIGHTPAY_DISABLE_/);
+    const dev = validateConfig({ ...PROD, NODE_ENV: 'development', NIGHTPAY_DISABLE_ALERTS: '1' });
+    expect(envWarnings(dev).join('\n')).not.toMatch(/NIGHTPAY_DISABLE_/);
   });
 });
 

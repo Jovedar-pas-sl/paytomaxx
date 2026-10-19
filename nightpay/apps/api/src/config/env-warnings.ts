@@ -10,6 +10,24 @@ const MIN_PAYTEF_SECRET_LENGTH = 32;
 
 type Check = (env: Env) => string | null;
 
+/**
+ * Tareas que apaga un NIGHTPAY_DISABLE_*=1 (pensado para desarrollo y
+ * pruebas). En producción, cada una apagada da un aviso al arrancar.
+ */
+export const DISABLE_FLAGS = {
+  NIGHTPAY_DISABLE_ALERTS:
+    'los avisos por Telegram: incidencias, resumen de la mañana, los «Por aprobar» al dueño y la 2FA activada de un super-admin',
+  NIGHTPAY_DISABLE_NIGHT_AUTOCLOSE: 'el cierre automático de las noches',
+  NIGHTPAY_DISABLE_GOOGLE_WALLET_SYNC: 'la puesta al día de los pases de Google Wallet',
+  NIGHTPAY_DISABLE_WEBHOOK_SWEEP: 'el repaso cada hora de los avisos de la pasarela que no se llegaron a procesar',
+  NIGHTPAY_DISABLE_REFUND_SWEEP: 'el reintento del descuento a la chica de las devoluciones hechas',
+} as const satisfies Partial<Record<keyof Env, string>>;
+
+const DISABLE_CHECKS: ReadonlyArray<Check> = (Object.keys(DISABLE_FLAGS) as Array<keyof typeof DISABLE_FLAGS>).map(
+  (key) => (env) =>
+    env[key]?.trim() === '1' ? `${key}=1: está apagado ${DISABLE_FLAGS[key]}. Quítala en producción.` : null,
+);
+
 const PRODUCTION_CHECKS: ReadonlyArray<Check> = [
   (env) =>
     env.REDSYS_MERCHANT_CODE && env.REDSYS_API_URL.includes('sis-t.')
@@ -27,6 +45,7 @@ const PRODUCTION_CHECKS: ReadonlyArray<Check> = [
     env.DEBUG_ENDPOINTS_ENABLED
       ? 'DEBUG_ENDPOINTS_ENABLED=true: los endpoints /v1/debug/* están abiertos para el superadmin. Vuelve a ponerlo a false al terminar.'
       : null,
+  ...DISABLE_CHECKS,
 ];
 
 const ALWAYS_CHECKS: ReadonlyArray<Check> = [

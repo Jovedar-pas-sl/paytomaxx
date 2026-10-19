@@ -240,6 +240,7 @@ jobs:
             -e PEANPE_API_URL=https://peanpe.invalid/api \
             -e PEANPE_WEBHOOK_SECRET=ci-peanpe-secret \
             -e NEXT_PUBLIC_API_URL=https://api.ci.invalid \
+            -e CORS_ORIGINS=https://admin.ci.invalid \
             np-api
           uid=$(docker exec np-api id -u)
           [ "$uid" != "0" ] || { echo "::error::el API corre como root"; exit 1; }

@@ -6,6 +6,7 @@ import { configModuleOptions } from './env';
 const REQUIRED: Record<string, string> = {
   NODE_ENV: 'production',
   NEXT_PUBLIC_API_URL: 'https://api.paytomaxx.com',
+  CORS_ORIGINS: 'https://admin.paytomaxx.com',
   DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
   REDIS_URL: 'redis://localhost:6379',
   JWT_SECRET: 'jwt-de-prueba-0123456789abcdef0123456789',
