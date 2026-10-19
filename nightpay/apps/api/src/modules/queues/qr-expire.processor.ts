@@ -2,7 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { PaymentsService } from '../payments/payments.service';
-import { InvalidTransitionError } from '../payments/payment.machine';
+import { InvalidTransitionError, type PaymentMachineState } from '../payments/payment.machine';
 import { QR_EXPIRE_QUEUE } from './queue-tokens';
 
 interface QrExpireJobData {
@@ -10,13 +10,16 @@ interface QrExpireJobData {
   tenantId: string;
 }
 
+/** Lo único que caduca el QR: cobros que aún no han ido al banco. */
+const EXPIRABLE: ReadonlySet<PaymentMachineState> = new Set<PaymentMachineState>(['CREATED', 'AWAITING_CAPTURE']);
+
 /**
  * Worker que dispara TIMEOUT cuando el QR expira (5 min sin escanear).
- * - Si el pago ya está AUTHORIZED/FAILED/etc → la transición FSM lo rechaza y
- *   el job termina silenciosamente. No hay nada que hacer.
  * - Si está CREATED/AWAITING_CAPTURE → pasa a EXPIRED.
- * - Si está AUTHORIZING (raro) → pasa a ORPHAN, el saga reconcile-orphan
- *   resolverá luego.
+ * - Cualquier otro estado → no se toca. En particular AUTHORIZING: el cliente
+ *   puede estar aún en 3D Secure. Antes pasaba a ORPHAN a los 5 min y salía en
+ *   Incidencias para resolverlo a mano mientras el banco todavía podía cobrar;
+ *   de un AUTHORIZING sin aviso se encarga la conciliación (orphan-reconcile).
  */
 @Processor(QR_EXPIRE_QUEUE)
 export class QrExpireProcessor extends WorkerHost {
@@ -31,12 +34,17 @@ export class QrExpireProcessor extends WorkerHost {
   async process(job: Job<QrExpireJobData>): Promise<void> {
     const { paymentId } = job.data;
     try {
-      await this.payments.transition(paymentId, { type: 'TIMEOUT' });
+      // El estado se mira con la fila bloqueada (prepare), no antes: si el
+      // cliente empieza a pagar justo ahora, no se caduca.
+      await this.payments.transition(paymentId, { type: 'TIMEOUT' }, undefined, {
+        prepare: async (_tx, locked) => {
+          if (!EXPIRABLE.has(locked.status)) throw new InvalidTransitionError(locked.status, 'TIMEOUT');
+        },
+      });
       this.logger.log(`QR expired: ${paymentId}`);
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
-        // Pago ya en estado terminal — nada que hacer
-        this.logger.debug(`qr-expire ignored (terminal state): ${paymentId}`);
+        this.logger.debug(`qr-expire ignored (${err.fromState}): ${paymentId}`);
         return;
       }
       throw err;
