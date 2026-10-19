@@ -82,7 +82,8 @@ export function expiresIn(iso: string, now: Date): string {
 export function decisionLine(v: ApprovalView, now: Date): string {
   switch (v.status) {
     case 'PENDING':
-      return `Esperando al dueño · ${expiresIn(v.expiresAt, now)}`;
+      // El estado ya lo dice la etiqueta: aquí, cuándo se pidió y cuándo caduca.
+      return `Pedida ${timeAgo(v.requestedAt, now)} · ${expiresIn(v.expiresAt, now)}`;
     case 'APPROVED':
       return `Aprobada${v.decidedBy ? ` por ${v.decidedBy.name}` : ''}${v.decidedAt ? ` ${timeAgo(v.decidedAt, now)}` : ''}`;
     case 'REJECTED':

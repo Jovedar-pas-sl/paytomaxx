@@ -102,7 +102,7 @@ describe('tarjeta de «Por aprobar»', () => {
   });
 
   it('estado en una línea para el encargado («Mis solicitudes»)', () => {
-    expect(decisionLine(payout, now)).toBe('Esperando al dueño · caduca en 23 h');
+    expect(decisionLine(payout, now)).toBe('Pedida hace 40 min · caduca en 23 h');
     expect(
       decisionLine({ ...payout, status: 'APPROVED', decidedAt: '2026-10-16T02:30:00Z', decidedBy: { id: 'j', name: 'Jefe', role: 'OWNER' } }, now),
     ).toBe('Aprobada por Jefe hace 10 min');
