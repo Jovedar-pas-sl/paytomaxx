@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LockoutService } from './lockout.service';
 import { RefreshTokenService } from './refresh-token.service';
+import { StaffSessionTransport } from './staff-session.transport';
 import { TotpAttemptsService } from './totp-attempts.service';
 import { TotpEnrollmentService } from './totp-enrollment.service';
 import { TotpController } from './totp.controller';
@@ -31,6 +32,7 @@ import { TotpService } from './totp.service';
     TotpEnrollmentService,
     LockoutService,
     RefreshTokenService,
+    StaffSessionTransport,
   ],
   controllers: [AuthController, TotpController],
   exports: [AuthService, TotpService, RefreshTokenService, JwtModule],

@@ -13,10 +13,15 @@ export const LoginRequestSchema = z.object({
 });
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
+/**
+ * Sesión del personal: el refresh token va en una cookie HttpOnly del API
+ * (apps con la cabecera X-OxioPay-Client). Solo las apps antiguas lo reciben
+ * en el cuerpo, y solo hasta AUTH_BODY_REFRESH_UNTIL.
+ */
 export const LoginResponseSchema = z.object({
   accessToken: z.string(),
   expiresIn: z.number().int().positive(),
-  refreshToken: z.string(),
+  refreshToken: z.string().optional(),
   refreshExpiresIn: z.number().int().positive(),
   user: z.object({
     id: UuidSchema,
@@ -30,21 +35,24 @@ export const LoginResponseSchema = z.object({
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
 
+/** Sin refreshToken: el de la cookie. Con él (apps antiguas), hasta AUTH_BODY_REFRESH_UNTIL. */
 export const RefreshRequestSchema = z.object({
-  refreshToken: z.string().min(20).max(500),
+  refreshToken: z.string().min(20).max(500).optional(),
 });
 export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
 
 export const RefreshResponseSchema = z.object({
   accessToken: z.string(),
   expiresIn: z.number().int().positive(),
-  refreshToken: z.string(),
+  /** Solo a las apps antiguas (las nuevas lo reciben en la cookie). */
+  refreshToken: z.string().optional(),
   refreshExpiresIn: z.number().int().positive(),
 });
 export type RefreshResponse = z.infer<typeof RefreshResponseSchema>;
 
+/** Sin refreshToken: cierra la sesión de la cookie. */
 export const LogoutRequestSchema = z.object({
-  refreshToken: z.string().min(20).max(500),
+  refreshToken: z.string().min(20).max(500).optional(),
 });
 export type LogoutRequest = z.infer<typeof LogoutRequestSchema>;
 

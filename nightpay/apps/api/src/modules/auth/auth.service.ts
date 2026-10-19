@@ -39,6 +39,10 @@ const MSG_TOO_MANY_ATTEMPTS = 'Demasiados intentos. Espera unos minutos y vuelve
 
 type LoginUser = Prisma.UserGetPayload<{ include: { venue: true } }>;
 
+/** Lo que emite el servicio: siempre con el refresh token (el controlador decide si va en cookie o en el cuerpo). */
+export type IssuedLogin = LoginResponse & { refreshToken: string };
+export type IssuedRefresh = RefreshResponse & { refreshToken: string };
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -78,7 +82,7 @@ export class AuthService {
    * - Lockout via Redis (multi-nodo safe); política en LockoutService.
    * - Audit log de exitos y fallos.
    */
-  async login(input: LoginRequest, ip?: string, userAgent?: string): Promise<LoginResponse> {
+  async login(input: LoginRequest, ip?: string, userAgent?: string): Promise<IssuedLogin> {
     const keys = loginLockKeys(input.email, ip);
     await this.assertLoginAllowed(keys, input.email, ip, userAgent);
 
@@ -232,7 +236,7 @@ export class AuthService {
    * Intercambia un refresh token por un nuevo access token (y rota el refresh).
    * Falla con 401 si el token no es valido, esta caducado o se detecta reuso.
    */
-  async refresh(refreshToken: string, ip?: string, userAgent?: string): Promise<RefreshResponse> {
+  async refresh(refreshToken: string, ip?: string, userAgent?: string): Promise<IssuedRefresh> {
     const rotated = await this.rotateRefresh(refreshToken, ip, userAgent);
 
     // Cargar user actualizado para verificar que sigue activo y obtener role/venueSlug actuales
