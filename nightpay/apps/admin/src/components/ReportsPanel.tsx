@@ -26,6 +26,16 @@ const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
     title: 'Pagos a chicas',
     detail: 'Cada pago hecho a una chica: importe, vía y referencia.',
   },
+  {
+    kind: 'recargas-efectivo',
+    title: 'Recargas en efectivo',
+    detail: 'Cada recarga del saldo en efectivo, con quién la cobró; las anulaciones van en negativo.',
+  },
+  {
+    kind: 'saldo-devuelto',
+    title: 'Saldo devuelto',
+    detail: 'El saldo devuelto a los clientes, en efectivo y a la tarjeta, con su referencia.',
+  },
 ];
 
 const PRESETS: Array<{ key: ReportPreset; label: string }> = [
