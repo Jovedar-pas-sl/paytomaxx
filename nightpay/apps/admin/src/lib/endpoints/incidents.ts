@@ -26,7 +26,11 @@ export type IncidentKind =
   /** Devolución PENDIENTE con el banco más de 5 min (no se marca: se quita sola al resolverla). */
   | 'refund_pending'
   /** «Por aprobar» sin decidir desde hace más de 30 min (se quita sola al decidirla o caducar). */
-  | 'approval_pending';
+  | 'approval_pending'
+  /** Cobros dados por pagados con la palabra del datáfono, sin la prueba de Paytef (por noche). */
+  | 'pos_unproven_sales'
+  /** Un datáfono de recepción pasó un tope de recargas (por minuto o de 24 h). */
+  | 'pos_reception_limit';
 
 export interface Incident {
   kind: IncidentKind;

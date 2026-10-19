@@ -15,6 +15,8 @@ interface KindMeta {
   tab: TabKey | null;
   /** Se arregla en el propio cobro (Pagos → Devoluciones → Resolver): «Abrir cobro». */
   opensPayment?: boolean;
+  /** Cómo se arregla, en una línea (debajo de los botones). */
+  hint?: string;
 }
 
 export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
@@ -35,6 +37,18 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
   pos_unmatched_op: { group: 'Datáfono', title: 'Venta del datáfono sin cobro', tab: 'terminals' },
   pos_unreconciled: { group: 'Datáfono', title: 'Cobro del datáfono sin cuadrar', tab: 'terminals' },
   pos_voided_paid: { group: 'Datáfono', title: 'Venta anulada y el cobro sigue pagado', tab: 'payments' },
+  pos_unproven_sales: {
+    group: 'Datáfono',
+    title: 'Ventas del datáfono sin comprobar',
+    tab: 'payments',
+    hint: 'Se confirman en Pagos → Resolver con el código de autorización.',
+  },
+  pos_reception_limit: {
+    group: 'Datáfono',
+    title: 'Tope de recepción superado',
+    tab: 'terminals',
+    hint: 'Si no es el datáfono de la recepción o no lo reconoces, desvincúlalo en Datáfonos.',
+  },
   wallet_credit_skipped: { group: 'Saldo', title: 'Recarga cobrada sin saldo', tab: 'wallets' },
   wallet_close_requested: { group: 'Saldo', title: 'Un cliente pide su saldo', tab: 'wallets' },
   wallet_open_balance: { group: 'Saldo', title: 'Saldo de un cliente sin devolver', tab: 'wallets' },
@@ -50,6 +64,17 @@ const UNKNOWN_KIND: KindMeta = { group: 'Aviso', title: 'Incidencia', tab: null 
 /** Un tipo nuevo del API que esta versión no conoce no rompe la bandeja. */
 export function kindMeta(kind: string): KindMeta {
   return INCIDENT_KINDS[kind as IncidentKind] ?? UNKNOWN_KIND;
+}
+
+/**
+ * La línea de ayuda de la incidencia: la de su tipo; si no tiene, en las que
+ * se quitan solas, cómo se quitan. null: ninguna.
+ */
+export function incidentHint(kind: string, ackable: boolean): string | null {
+  const meta = kindMeta(kind);
+  if (meta.hint) return meta.hint;
+  if (ackable) return null;
+  return meta.opensPayment ? 'En el cobro: Devoluciones → Resolver. Se quita sola al resolverla.' : 'Se quita sola cuando se arregla.';
 }
 
 export function incidentKey(i: { kind: string; refId: string }): string {
