@@ -1,7 +1,7 @@
 # Comprobaciones de OxioPay (nightpay/) en cada push a main, fix/** y feat/**
 # y en cada PR (a cualquier rama):
-#   check       tipos de las 5 apps, tests del API (con cobertura mínima) y del
-#               operador, y vulnerabilidades críticas/altas (scripts/audit-gate.mjs)
+#   check       tipos de las 5 apps, tests del API (con cobertura mínima), del
+#               cliente común, del operador y del panel, y vulnerabilidades críticas/altas (scripts/audit-gate.mjs)
 #   lint        ESLint de la raíz; de momento NO bloquea (hay avisos viejos)
 #   integracion migraciones en un Postgres 16 vacío con un rol SIN superusuario
 #               (FORCE RLS de verdad), esquema = schema.prisma, y las pruebas
@@ -55,16 +55,19 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Cliente de Prisma
         run: pnpm --filter @nightpay/db exec prisma generate
-      - name: Tipos (las 5 apps)
+      - name: Tipos (las 5 apps y el cliente común del API)
         run: |
-          for app in api admin operator tpv web-client; do
+          for app in apps/api apps/admin apps/operator apps/tpv apps/web-client packages/api-client; do
             echo "::group::$app"
-            (cd apps/$app && npx tsc --noEmit -p .) || exit 1
+            (cd $app && npx tsc --noEmit -p .) || exit 1
             echo "::endgroup::"
           done
       - name: Tests del API (con cobertura mínima, ver vitest.config.ts)
         working-directory: nightpay/apps/api
         run: pnpm test:coverage
+      - name: Tests del cliente común del API (sesión con cookie)
+        working-directory: nightpay/packages/api-client
+        run: npx vitest run
       - name: Tests del operador
         working-directory: nightpay/apps/operator
         run: npx vitest run

@@ -31,6 +31,7 @@ COPY apps/mock-wipay/package.json apps/mock-wipay/
 COPY apps/operator/package.json apps/operator/
 COPY apps/tpv/package.json apps/tpv/
 COPY apps/web-client/package.json apps/web-client/
+COPY packages/api-client/package.json packages/api-client/
 COPY packages/config/package.json packages/config/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/
