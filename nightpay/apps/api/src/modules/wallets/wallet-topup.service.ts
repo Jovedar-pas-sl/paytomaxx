@@ -161,7 +161,9 @@ export class WalletTopUpService {
   async challenge(qrToken: string, host: string | undefined): Promise<PublicKeyCredentialRequestOptionsJSON> {
     const wallet = await this.walletOf(qrToken);
     this.assertAllowed(wallet, await this.venueOf(wallet));
-    if (!(await this.passkeys.hasPasskey(wallet.id))) throw new ConflictException('Este saldo no tiene Face ID');
+    if (!(await this.passkeys.hasPasskey(wallet.id))) {
+      throw new ConflictException({ message: 'Este saldo no tiene Face ID', code: 'FACE_ID_NOT_SET' });
+    }
     return this.passkeys.challenge(challengeScope(wallet.id), host);
   }
 

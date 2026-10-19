@@ -1,6 +1,7 @@
 import { escapeHtml, jsConfig } from './club-ui';
 import type { PayText } from './pay-i18n';
 import { PASSKEY_BROWSER_JS } from '../wallets/passkey-browser';
+import { CLIENT_ERROR_JS, clientErrorConfig } from '../wallets/client-errors';
 
 /**
  * Debajo del «Pagado» de la recarga que creó el saldo, en el móvil que pagó:
@@ -38,7 +39,7 @@ function unlockJsText(t: PayText): Record<string, unknown> {
 
 /** La pregunta de activar el desbloqueo (sin el botón del saldo ni el justificante). */
 export function renderWalletAsk(w: WalletBlock, t: PayText): string {
-  const config = jsConfig({ base: w.base, hasFaceId: w.hasFaceId, text: unlockJsText(t) });
+  const config = jsConfig({ base: w.base, hasFaceId: w.hasFaceId, text: unlockJsText(t), errors: clientErrorConfig(t.htmlLang) });
   return `<div class="ask" id="fid" hidden>
 <p class="kick">${escapeHtml(t.walletReadyTitle)}</p>
 <h2 id="fidTitle"></h2>
@@ -51,6 +52,7 @@ export function renderWalletAsk(w: WalletBlock, t: PayText): string {
 <p class="err" id="fidErr" role="alert" hidden></p>
 <script>
 ${PASSKEY_BROWSER_JS}
+${CLIENT_ERROR_JS}
 (function(){
 var C=JSON.parse(${config}),T=C.text;
 function $(id){return document.getElementById(id);}
@@ -65,7 +67,7 @@ $('fidOn').addEventListener('click',function(){var b=$('fidOn');if(b.disabled)re
  b.disabled=true;b.textContent=T.unlockWaiting;show('fidErr','');
  pkCreate(C.base+'/passkey/options').then(function(k){return pkPost(C.base+'/passkey',{response:k});})
   .then(function(){$('fid').hidden=true;merged();show('fidDone','✓ '+U.done+' '+T.unlockAfter);})
-  .catch(function(e){b.disabled=false;b.textContent=U.button;if(!pkCancelled(e))show('fidErr',(e&&e.message)||'Error');});});
+  .catch(function(e){b.disabled=false;b.textContent=U.button;if(!pkCancelled(e))show('fidErr',npErr(e,C.errors));});});
 })();
 </script>`;
 }

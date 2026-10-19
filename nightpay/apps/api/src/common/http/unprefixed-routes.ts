@@ -35,10 +35,12 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // Saldo: página del cliente y sus acciones.
   { path: 'w/:token', method: RequestMethod.GET },
   { path: 'w/:token/state', method: RequestMethod.GET },
+  { path: 'w/:token/close/challenge', method: RequestMethod.POST },
   { path: 'w/:token/close', method: RequestMethod.POST },
   { path: 'w/:token/passkey/options', method: RequestMethod.POST },
   { path: 'w/:token/passkey', method: RequestMethod.POST },
   // PIN y sumar a otro saldo: acciones secundarias de la página del saldo.
+  { path: 'w/:token/pin/challenge', method: RequestMethod.POST },
   { path: 'w/:token/pin', method: RequestMethod.POST },
   { path: 'w/:token/merge/challenge', method: RequestMethod.POST },
   { path: 'w/:token/merge', method: RequestMethod.POST },

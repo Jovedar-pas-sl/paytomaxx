@@ -2,6 +2,7 @@ import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CLUB_BASE_CSS, escapeHtml, jsConfig } from '../payments/club-ui';
 import type { ClientWalletState } from './wallet-charges.service';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
+import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
 import { WALLET_TEXT } from './wallet-text';
 import { GOOGLE_WALLET_BUTTONS } from './google-wallet/google-wallet-button';
 import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
@@ -136,7 +137,17 @@ export function renderWalletPage(
   const gw = options.googleWallet === true;
   const proof = options.paid ?? null;
   const topUp = options.topUp ?? null;
-  const config = jsConfig({ base, lang, locale: t.locale, text: jsText(lang), state, gw, topUp, paid: proof !== null });
+  const config = jsConfig({
+    base,
+    lang,
+    locale: t.locale,
+    text: jsText(lang),
+    errors: clientErrorConfig(lang),
+    state,
+    gw,
+    topUp,
+    paid: proof !== null,
+  });
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -192,6 +203,7 @@ ${gw && !proof ? googleWalletSection(lang) : ''}<section class="card" id="codeCa
 ${topUpSheet(lang, topUp)}<p class="toast" id="toast" role="status" hidden></p>
 <script>
 ${PASSKEY_BROWSER_JS}
+${CLIENT_ERROR_JS}
 (function(){
 var C=JSON.parse(${config}),T=C.text,S=C.state,busy=false,toastT;
 function $(id){return document.getElementById(id);}
@@ -246,7 +258,10 @@ function render(s){S=s;S.cards=s.cards||[];
  topRender(s);}
 function post(path,body){return pkPost(C.base+path,body||{});}
 function refresh(){if(busy)return;fetch(C.base+'/state',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(s){if(s&&!busy)render(s);}).catch(function(){});}
-function msg(e){return (e&&e.message&&e.message!=='Error')?e.message:T.error;}
+function msg(e){return npErr(e,C.errors);}
+// Saldo con Face ID: elegir PIN y «Me voy» piden desbloquear el móvil (reto atado a la acción).
+function withKey(path,body){if(!S.hasFaceId)return post(path,body);
+ return pkGet(C.base+path+'/challenge').then(function(k){body.response=k;return post(path,body);});}
 $('faceOn').addEventListener('click',function(){var b=$('faceOn');if(busy)return;busy=true;busyBtn(b,true,T.unlockWaiting);show('faceErr','');
  pkCreate(C.base+'/passkey/options').then(function(k){return post('/passkey',{response:k});})
   .then(function(s){render(s);toast('✓ '+U.done);}).catch(function(e){if(!pkCancelled(e))show('faceErr',msg(e));})
@@ -255,17 +270,20 @@ $('leaveOpen').addEventListener('click',function(){
  $('leaveTitle').textContent=fill(T.leaveTitle,'amount',eur(S.balanceCents));
  $('leaveHow').textContent=S.cards.length?fill(T.leaveWaysCards,'cards',cards()):T.leaveWays;
  show('leaveErr','');openSheet($('leaveSheet'));});
-$('leaveGo').addEventListener('click',function(){var b=$('leaveGo');if(busy)return;busy=true;busyBtn(b,true,T.sending);show('leaveErr','');
- post('/close').then(function(s){render(s);closeSheet($('leaveSheet'));toast(T.leaveDone);}).catch(function(e){show('leaveErr',msg(e));})
+$('leaveGo').addEventListener('click',function(){var b=$('leaveGo');if(busy)return;show('leaveErr','');
+ if(S.hasFaceId&&!pkSupported()){show('leaveErr',T.faceIdNeeded);return;}
+ busy=true;busyBtn(b,true,S.hasFaceId?T.unlockWaiting:T.sending);
+ withKey('/close',{}).then(function(s){render(s);closeSheet($('leaveSheet'));toast(T.leaveDone);}).catch(function(e){if(!pkCancelled(e))show('leaveErr',msg(e));})
   .then(function(){busy=false;busyBtn(b,false);});});
 $('pinOpen').addEventListener('click',function(){$('pin1').value='';$('pin2').value='';show('pinErr','');openSheet($('pinSheet'));$('pin1').focus();});
 $('pinForm').addEventListener('submit',function(ev){ev.preventDefault();if(busy)return;show('pinErr','');
  var a=$('pin1').value,c=$('pin2').value;
  if(!/^[0-9]{4}$/.test(a)){show('pinErr',T.pinFormat);return;}
  if(a!==c){show('pinErr',T.pinMismatch);return;}
- var b=$('pinGo');busy=true;busyBtn(b,true,T.sending);
- post('/pin',{pin:a,pin2:c}).then(function(s){render(s);closeSheet($('pinSheet'));toast(T.pinDone);})
-  .catch(function(e){$('pin1').value='';$('pin2').value='';show('pinErr',msg(e));})
+ if(S.hasFaceId&&!pkSupported()){show('pinErr',T.faceIdNeeded);return;}
+ var b=$('pinGo');busy=true;busyBtn(b,true,S.hasFaceId?T.unlockWaiting:T.sending);
+ withKey('/pin',{pin:a,pin2:c}).then(function(s){render(s);closeSheet($('pinSheet'));toast(T.pinDone);})
+  .catch(function(e){$('pin1').value='';$('pin2').value='';if(!pkCancelled(e))show('pinErr',msg(e));})
   .then(function(){busy=false;busyBtn(b,false);});});
 $('mergeOpen').addEventListener('click',function(){show('mergeErr','');openSheet($('mergeSheet'));});
 $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)return;busy=true;busyBtn(b,true,T.unlockWaiting);show('mergeErr','');

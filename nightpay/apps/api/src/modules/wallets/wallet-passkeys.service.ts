@@ -49,7 +49,7 @@ export class WalletPasskeysService {
     wallet: { id: string; shortCode: string | null },
     host: string | undefined,
   ): Promise<PublicKeyCredentialCreationOptionsJSON> {
-    if (await this.hasPasskey(wallet.id)) throw new ConflictException('Tu saldo ya tiene Face ID activado');
+    if (await this.hasPasskey(wallet.id)) throw new ConflictException({ message: 'Tu saldo ya tiene Face ID activado', code: 'FACE_ID_EXISTS' });
     const name = `Saldo ${BRAND_NAME}${wallet.shortCode ? ` · ${formatWalletCode(wallet.shortCode)}` : ''}`;
     const options = await generateRegistrationOptions({
       rpName: BRAND_NAME,
@@ -68,12 +68,12 @@ export class WalletPasskeysService {
 
   /** Activar Face ID, paso 2: comprueba la respuesta del móvil y guarda la clave pública. */
   async register(walletId: string, host: string | undefined, response: unknown): Promise<void> {
-    if (await this.hasPasskey(walletId)) throw new ConflictException('Tu saldo ya tiene Face ID activado');
+    if (await this.hasPasskey(walletId)) throw new ConflictException({ message: 'Tu saldo ya tiene Face ID activado', code: 'FACE_ID_EXISTS' });
     const r = response as RegistrationResponseJSON | undefined;
     const challenge = challengeOf(r?.response?.clientDataJSON);
     const slot = challenge ? regKey(walletId, challenge) : null;
     if (!slot || (await this.redis.exists(slot)) === 0) {
-      throw new ConflictException('Ha tardado demasiado: vuelve a intentarlo');
+      throw new ConflictException({ message: 'Ha tardado demasiado: vuelve a intentarlo', code: 'FACE_ID_TIMEOUT' });
     }
     const rp = currentRelyingParty(host);
     let info: Awaited<ReturnType<typeof verifyRegistrationResponse>>['registrationInfo'];
@@ -89,8 +89,8 @@ export class WalletPasskeysService {
     } catch (err) {
       this.logger.warn(`passkey register rejected wallet=${walletId}: ${(err as Error).message}`);
     }
-    if (!info) throw new ForbiddenException('No se ha podido activar Face ID');
-    if ((await this.redis.del(slot)) !== 1) throw new ConflictException('Esta activación ya se usó');
+    if (!info) throw new ForbiddenException({ message: 'No se ha podido activar Face ID', code: 'FACE_ID_FAILED' });
+    if ((await this.redis.del(slot)) !== 1) throw new ConflictException({ message: 'Esta activación ya se usó', code: 'FACE_ID_USED' });
     const c = info.credential;
     try {
       await this.prisma.acrossVenues(async (tx) => {
@@ -100,7 +100,7 @@ export class WalletPasskeysService {
         const existing = await tx.walletPasskey.findFirst({ where: { walletId }, select: { credentialId: true } });
         if (existing) {
           if (existing.credentialId === c.id) return;
-          throw new ConflictException('Tu saldo ya tiene Face ID activado');
+          throw new ConflictException({ message: 'Tu saldo ya tiene Face ID activado', code: 'FACE_ID_EXISTS' });
         }
         await tx.walletPasskey.create({
           data: {
@@ -149,17 +149,19 @@ export class WalletPasskeysService {
   async verify(scope: string, host: string | undefined, response: unknown): Promise<string> {
     const r = response as AuthenticationResponseJSON | undefined;
     if (!r || typeof r !== 'object' || typeof r.id !== 'string') {
-      throw new ForbiddenException('Confirma con Face ID, huella o el PIN de tu móvil');
+      throw new ForbiddenException({ message: 'Confirma con Face ID, huella o el PIN de tu móvil', code: 'FACE_ID_REQUIRED' });
     }
     const key = await this.prisma.walletPasskey.findUnique({
       where: { credentialId: r.id },
       select: { walletId: true, credentialId: true, publicKey: true, counter: true, transports: true },
     });
-    if (!key) throw new ForbiddenException('Esta llave no tiene saldo aquí: actívala en la página de tu recarga');
+    if (!key) {
+      throw new ForbiddenException({ message: 'Esta llave no tiene saldo aquí: actívala en la página de tu recarga', code: 'FACE_ID_UNKNOWN' });
+    }
     const challenge = challengeOf(r.response?.clientDataJSON);
     const slot = challenge ? authKey(scope, challenge) : null;
     if (!slot || (await this.redis.exists(slot)) === 0) {
-      throw new ConflictException('Ha tardado demasiado: vuelve a pulsar');
+      throw new ConflictException({ message: 'Ha tardado demasiado: vuelve a pulsar', code: 'FACE_ID_TIMEOUT' });
     }
     const rp = currentRelyingParty(host);
     let newCounter: number | null = null;
@@ -181,9 +183,9 @@ export class WalletPasskeysService {
     } catch (err) {
       this.logger.warn(`passkey assertion rejected wallet=${key.walletId}: ${(err as Error).message}`);
     }
-    if (newCounter === null) throw new ForbiddenException('No se ha podido comprobar tu Face ID');
+    if (newCounter === null) throw new ForbiddenException({ message: 'No se ha podido comprobar tu Face ID', code: 'FACE_ID_FAILED' });
     // El reto se gasta solo con una firma buena; la misma firma dos veces, no.
-    if ((await this.redis.del(slot)) !== 1) throw new ConflictException('Esta confirmación ya se usó');
+    if ((await this.redis.del(slot)) !== 1) throw new ConflictException({ message: 'Esta confirmación ya se usó', code: 'FACE_ID_USED' });
     await this.prisma.walletPasskey.update({
       where: { credentialId: key.credentialId },
       data: { counter: BigInt(newCounter), lastUsedAt: new Date() },

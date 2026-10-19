@@ -117,7 +117,9 @@ export class GoogleWalletService {
       }),
     );
     if (!wallet) throw new NotFoundException('Saldo no encontrado');
-    if (wallet.status !== 'ACTIVE' || wallet.mergedIntoId) throw new ConflictException('Este saldo ya está cerrado');
+    if (wallet.status !== 'ACTIVE' || wallet.mergedIntoId) {
+      throw new ConflictException({ message: 'Este saldo ya está cerrado', code: 'WALLET_CLOSED' });
+    }
 
     const tokenHash = linkHash(wallet.qrToken);
     await this.throttleSave(tokenHash);
@@ -133,7 +135,7 @@ export class GoogleWalletService {
       await client.saveObject(this.passObject(settings, objectId, wallet.qrToken, passWallet));
     } catch (err) {
       this.logger.warn(`Google Wallet: no se pudo preparar el pase del saldo ${ref.id}: ${(err as Error).message}`);
-      throw new ServiceUnavailableException('Google Wallet no responde ahora. Inténtalo en un rato.');
+      throw new ServiceUnavailableException({ message: 'Google Wallet no responde ahora. Inténtalo en un rato.', code: 'TRY_LATER' });
     }
 
     // El enlace para guardarlo solo sale si el pase quedó apuntado: así un pase
@@ -257,7 +259,10 @@ export class GoogleWalletService {
       return;
     }
     if (count > SAVE_MAX_PER_MINUTE) {
-      throw new HttpException('Demasiados intentos: espera un minuto y vuelve a probar.', HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        { message: 'Demasiados intentos: espera un minuto y vuelve a probar.', code: 'RATE_LIMITED' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
   }
 

@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
@@ -41,6 +40,7 @@ import {
   renderResultView,
 } from './public-pay.pages';
 import { walletClaimCookieName, walletClaimSetCookie } from './wallet-claim';
+import { checkedPin } from '../wallets/client-pin';
 
 /** Formulario de la página de pago. `method` vacío = sin preferencia. */
 const CheckoutFormSchema = z.object({
@@ -349,9 +349,7 @@ export class PublicPayController {
     @Headers('sec-fetch-site') fetchSite: string | undefined,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<{ ok: true }> {
-    const pin = typeof body?.pin === 'string' ? body.pin : '';
-    if (!/^[0-9]{4}$/.test(pin)) throw new BadRequestException('El PIN son 4 cifras');
-    if (body?.pin2 !== pin) throw new BadRequestException('Los dos PIN no son iguales');
+    const pin = checkedPin(body);
     const wallet = await this.payerWallet(token, res, host, origin, fetchSite);
     await this.charges.setPinFromPayer(wallet.id, pin);
     return { ok: true };
@@ -394,7 +392,7 @@ export class PublicPayController {
       !view.walletCode ||
       !this.hasWalletClaim(res, token, view.walletClaimHash)
     ) {
-      throw new ForbiddenException('Esto solo se puede hacer desde el móvil que pagó la recarga');
+      throw new ForbiddenException({ message: 'Esto solo se puede hacer desde el móvil que pagó la recarga', code: 'PAYER_ONLY' });
     }
     return this.charges.walletRefByToken(view.walletToken);
   }
