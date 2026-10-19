@@ -81,9 +81,9 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
         const arrivals = newArrivals(seenIds.current, list.map((p) => p.id));
         seenIds.current = arrivals.seen;
         if (arrivals.hasNew) alertNew();
+        // El seleccionado que ya no está (cancelado, caducado o confirmado por
+        // otro) no se cierra: el camarero puede estar tecleando su código; se avisa.
         setPending(list);
-        // Si el seleccionado ya no está (alguien lo confirmó), se vuelve a la lista.
-        setSelected((sel) => (sel && !list.some((p) => p.id === sel.id) ? null : sel));
         setError(null);
         setLoading(false);
       } catch (err) {
@@ -128,6 +128,7 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
     return (
       <ConfirmForm
         payment={selected}
+        gone={!loading && !pending.some((p) => p.id === selected.id)}
         onBack={() => setSelected(null)}
         onConfirmed={() => {
           setSelected(null);
@@ -239,10 +240,13 @@ const POLL_MS = 5000;
 
 function ConfirmForm({
   payment,
+  gone,
   onBack,
   onConfirmed,
 }: {
   payment: PendingPosPayment;
+  /** Ya no está en la lista de pendientes (cancelado, caducado o confirmado por otro). */
+  gone: boolean;
   onBack: () => void;
   onConfirmed: () => void;
 }) {
@@ -299,6 +303,12 @@ function ConfirmForm({
         </div>
         <button onClick={onBack} type="button" style={backBtnStyle}>← Lista</button>
       </div>
+
+      {gone ? (
+        <p role="alert" style={goneStyle}>
+          Este cobro ya no está pendiente. Si ya lo cobraste en el datáfono, avisa al encargado.
+        </p>
+      ) : null}
 
       <div style={confirmPillStyle}>
         <span style={kickerStyle}>⚠️ Teclea EXACTAMENTE en el datáfono</span>
@@ -505,6 +515,16 @@ const zoneBadgeStyle: CSSProperties = {
   fontFamily: 'var(--np-font-sans)',
   letterSpacing: '0.02em',
   verticalAlign: 'middle',
+};
+
+const goneStyle: CSSProperties = {
+  margin: 0,
+  padding: '0.75rem 0.875rem',
+  border: '1px solid var(--np-warning)',
+  borderRadius: 'var(--np-r-md)',
+  color: 'var(--np-warning)',
+  fontWeight: 600,
+  fontSize: '0.9375rem',
 };
 
 const titleStyle: CSSProperties = {

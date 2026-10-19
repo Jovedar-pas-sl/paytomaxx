@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import type { ReceptionOptions } from '@nightpay/contracts';
 import { Button, Card, Input } from '@nightpay/ui';
 import { callReader, hasReader } from '@/lib/pax-bridge';
 import {
@@ -17,6 +18,7 @@ import {
   type ShiftSummary,
 } from '@/lib/pax-api';
 import { formatEur } from '@/lib/money';
+import { deviceBackend } from '@/lib/reception';
 import { usePolling } from '@/lib/use-polling';
 import { PrepareFichas } from '../reception/PrepareFichas';
 import { ReceptionFlow } from '../reception/ReceptionFlow';
@@ -42,6 +44,8 @@ export function PaxScreen() {
   const [error, setError] = useState<string | null>(null);
   // Ventas aprobadas que aún no han llegado a OxioPay: mientras haya, no se cobra otra.
   const [unsent, setUnsent] = useState(0);
+  // Lo que ofrece la recepción en este local (fichas, recargas). null: aún no se sabe (sale todo).
+  const [desks, setDesks] = useState<ReceptionOptions | null>(null);
 
   useEffect(() => {
     setPaired(Boolean(getDeviceToken()));
@@ -61,6 +65,15 @@ export function PaxScreen() {
   useEffect(() => {
     if (paired) void checkPairing();
   }, [paired, checkPairing]);
+
+  // Formas de cobro apagadas por el dueño: sus botones no salen (el API las rechazaría).
+  useEffect(() => {
+    if (!paired) return;
+    deviceBackend
+      .options()
+      .then(setDesks)
+      .catch(() => setDesks(null));
+  }, [paired, desk]);
 
   // Sin solapes y en pausa con la pantalla apagada o durante un cobro.
   const refresh = usePolling(
@@ -157,18 +170,22 @@ export function PaxScreen() {
       ) : null}
       {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
 
-      {/* TODO(formas de cobro): cuando el local tenga su ajuste «ficha NFC / datáfono»
-          (lo prepara apps/admin), ocultar este botón si está apagado (que lo diga /me). */}
+      {/* TODO(formas de cobro): ocultar «Cobrar con saldo» con el saldo apagado. Hace falta
+          que el API lo diga al datáfono (/pos-device/me o reception/options no traen `wallet`). */}
       <Button size="lg" variant="ghost" onClick={() => setSaldo(true)}>
         Cobrar con saldo (ficha, QR o código + PIN)
       </Button>
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-        <Button size="lg" variant="ghost" disabled={unsent > 0} onClick={() => setDesk('reception')} style={{ flex: 1 }}>
-          Recepción: recargar saldo
-        </Button>
-        <Button size="lg" variant="ghost" onClick={() => setDesk('prepare')} style={{ flex: 1 }}>
-          Preparar fichas
-        </Button>
+        {desks && !desks.card && !desks.cash ? null : (
+          <Button size="lg" variant="ghost" disabled={unsent > 0} onClick={() => setDesk('reception')} style={{ flex: 1 }}>
+            Recepción: recargar saldo
+          </Button>
+        )}
+        {desks && !desks.nfc ? null : (
+          <Button size="lg" variant="ghost" onClick={() => setDesk('prepare')} style={{ flex: 1 }}>
+            Preparar fichas
+          </Button>
+        )}
       </div>
 
       {charges.length === 0 ? (
