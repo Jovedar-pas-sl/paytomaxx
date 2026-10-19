@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { madridDay, madridStartOfDay } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from './payout-verifier.factory';
 import { payableSummary, payoutCutoff } from '../operators/payout-math';
@@ -198,9 +199,12 @@ export class TreasuryService {
     actorUserId: string,
     artifact: { externalTxId?: string; receiptUrl?: string; notes?: string },
   ): Promise<{ ok: true }> {
+    // Sin espacios alrededor: una referencia o un enlace en blanco no son justificante.
+    const externalTxId = artifact.externalTxId?.trim() || undefined;
+    const receiptUrl = artifact.receiptUrl?.trim() || undefined;
     const hasArtifact =
-      (artifact.externalTxId && artifact.externalTxId.length >= 4) ||
-      (artifact.receiptUrl && artifact.receiptUrl.length > 0) ||
+      (externalTxId && externalTxId.length >= 4) ||
+      receiptUrl ||
       (artifact.notes && artifact.notes.trim().length > 0);
     if (!hasArtifact) {
       throw new BadRequestException(
@@ -230,8 +234,8 @@ export class TreasuryService {
           reconciliationStatus: 'MANUAL_OK',
           reconciledAt: new Date(),
           reconciledByUserId: actorUserId,
-          ...(artifact.externalTxId ? { externalTxId: artifact.externalTxId } : {}),
-          ...(artifact.receiptUrl ? { receiptUrl: artifact.receiptUrl } : {}),
+          ...(externalTxId ? { externalTxId } : {}),
+          ...(receiptUrl ? { receiptUrl } : {}),
           ...(artifact.notes ? { notes: artifact.notes } : {}),
         },
       }),
@@ -247,8 +251,8 @@ export class TreasuryService {
       targetType: 'OperatorPayout',
       targetId: payoutId,
       payload: {
-        hasExternalTxId: Boolean(artifact.externalTxId),
-        hasReceiptUrl: Boolean(artifact.receiptUrl),
+        hasExternalTxId: Boolean(externalTxId),
+        hasReceiptUrl: Boolean(receiptUrl),
         hasNotes: Boolean(artifact.notes),
       },
     });
@@ -259,9 +263,8 @@ export class TreasuryService {
    * Estadísticas treasury para tab admin.
    */
   async getStats(tenantId: string): Promise<TreasuryStats> {
-    const firstOfMonth = new Date();
-    firstOfMonth.setDate(1);
-    firstOfMonth.setHours(0, 0, 0, 0);
+    // El 1 del mes a las 00:00 de Madrid (no del servidor, que corre en UTC).
+    const firstOfMonth = madridStartOfDay(`${madridDay().slice(0, 8)}01`);
 
     const pending = payableSummary(await this.operatorBalances(tenantId));
 

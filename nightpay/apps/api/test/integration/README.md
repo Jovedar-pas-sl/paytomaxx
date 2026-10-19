@@ -13,8 +13,10 @@ probarían nada de eso.
 |---|---|
 | `saldo-qr-faceid.int.spec.ts` | Cobro con QR + Face ID, PIN del saldo, ficha NFC, carreras (dos pagos del mismo QR) |
 | `superadmin.int.spec.ts` | Consola del super-admin: vista general de dos locales de dos negocios, búsqueda de clientes en todos los locales (FORCE RLS), saldo bloqueado, pausa (423) con 2FA de verdad, personal, cuentas de cobro y registro |
+| `saldo-pin-concurrencia.int.spec.ts` | PIN del saldo a la vez: diez PIN malos en paralelo cuentan uno a uno y bloquean al quinto; dos cobros distintos del mismo saldo a la vez no lo dejan en negativo |
 | `saldo-rls.int.spec.ts` | Saldo entre locales del grupo con RLS forzado; «Me voy» y devolución |
 | `anulaciones-devoluciones.int.spec.ts` | Anular consumos (deuda de la chica si ya cobró) y devoluciones simultáneas |
+| `devoluciones-concurrencia.int.spec.ts` | Reserva de las devoluciones con el FSM real: varias a la vez (misma persona y personas distintas) no pasan de lo cobrado, la comisión de la chica se descuenta entera sin céntimos sueltos, rechazo del banco libera la reserva y «sin confirmar» la mantiene |
 | `cuadre-banco.int.spec.ts` | Importar el fichero de Redsys, clasificar líneas, Incidencias |
 | `consumos-informes.int.spec.ts` | Consumos del saldo en informes y en «Mi noche» |
 | `cierre-noche.int.spec.ts` | Cierre de la noche en pasos con arqueo: efectivo esperado (fondo − saldo devuelto en efectivo − pagos en efectivo a las chicas), diferencia congelada en el Z, un cobro pagándose bloquea, los avisos se confirman (y la nota de los cobros), lista de las chicas con 0 y 7 días de espera, caja sin contar al cerrarse sola |

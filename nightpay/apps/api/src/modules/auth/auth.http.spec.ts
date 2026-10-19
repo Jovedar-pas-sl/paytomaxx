@@ -174,7 +174,8 @@ describe('2FA: GET/POST /v1/auth/totp…', () => {
   it('POST confirm con código malo → 403 en castellano', async () => {
     const res = await call('POST', '/v1/auth/totp/confirm', { code: '000000' });
     expect(res.statusCode).toBe(403);
-    expect(res.json().detail).toMatch(/Código 2FA incorrecto/);
+    // El panel decide con el código; el texto solo tiene que ser en castellano.
+    expect(res.json()).toMatchObject({ code: 'TOTP_INVALID', detail: expect.stringMatching(/incorrecto/) });
   });
 
   it('POST confirm con el código de la app ("123 456" también vale) → { enabled: true }', async () => {

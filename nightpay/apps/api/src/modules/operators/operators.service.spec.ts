@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BadRequestException } from '@nestjs/common';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { OperatorsService } from './operators.service';
 
 const TRON = 'TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV';
@@ -234,24 +234,36 @@ describe('OperatorsService — días de espera del local (pago al cierre de la n
     return { ...made, queryRaw };
   }
 
-  it('el local con 0 días: se paga todo lo de la noche (corte = ahora), sin mirar PAYOUT_HOLD_DAYS', async () => {
-    const { svc, queryRaw } = withVenueHoldDays(0);
-    const before = Date.now();
-    await svc.createPayout('t-1', 'op-1', 'u-owner');
-    expect(Math.abs(cutoffOf(queryRaw).getTime() - before)).toBeLessThan(5_000);
-  });
+  describe('con el reloj fijo (corte exacto)', () => {
+    const NOW = new Date('2026-10-17T06:00:00Z');
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(NOW);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
 
-  it('sin regla del local (null): PAYOUT_HOLD_DAYS (7 por defecto)', async () => {
-    const { svc, queryRaw } = withVenueHoldDays(null);
-    const before = Date.now();
-    await svc.createPayout('t-1', 'op-1', 'u-owner');
-    expect(Math.abs(cutoffOf(queryRaw).getTime() - (before - 7 * 24 * 3600 * 1000))).toBeLessThan(5_000);
+    it('el local con 0 días: se paga todo lo de la noche (corte = ahora), sin mirar PAYOUT_HOLD_DAYS', async () => {
+      const { svc, queryRaw } = withVenueHoldDays(0);
+      await svc.createPayout('t-1', 'op-1', 'u-owner');
+      expect(cutoffOf(queryRaw)).toEqual(NOW);
+    });
+
+    it('sin regla del local (null): PAYOUT_HOLD_DAYS (7 por defecto)', async () => {
+      const { svc, queryRaw } = withVenueHoldDays(null);
+      await svc.createPayout('t-1', 'op-1', 'u-owner');
+      expect(cutoffOf(queryRaw)).toEqual(new Date('2026-10-10T06:00:00Z'));
+    });
   });
 
   it('0 días y nada pendiente: el aviso no habla de "más de 0 días"', async () => {
     const { svc, queryRaw } = withVenueHoldDays(0);
     queryRaw.mockResolvedValue([]);
-    await expect(svc.createPayout('t-1', 'op-1', 'u-owner')).rejects.toThrow('No hay comisiones pendientes para liquidar.');
+    const err = await svc.createPayout('t-1', 'op-1', 'u-owner').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as Error).message).toMatch(/comisiones pendientes/);
+    expect((err as Error).message).not.toMatch(/0 días/);
   });
 });
 

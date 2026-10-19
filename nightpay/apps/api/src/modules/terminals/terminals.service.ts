@@ -239,6 +239,10 @@ export class TerminalsService {
     if (dto.deviceSerial !== undefined) data.deviceSerial = dto.deviceSerial;
     if (dto.zone !== undefined) {
       data.zone = dto.zone === null ? null : canonicalizeZone(dto.zone, dto.zoneCustom ?? null);
+      // OTRO sin nombre daba null: el datáfono se quedaba sin zona sin que nadie lo pidiera.
+      if (dto.zone !== null && data.zone === null) {
+        throw new BadRequestException('Con la zona OTRO hay que poner su nombre');
+      }
     }
 
     const updated = await this.prisma.terminal.update({

@@ -415,7 +415,9 @@ export class WebhooksController {
       identificador_llamada: idLlamada,
       seguridad,
       status,
-      msg: msg ?? null,
+      // Sin msg, fuera del cuerpo (undefined no sale en el JSON): el esquema del
+      // adaptador lo admite opcional pero no null, y con null el aviso daba 400.
+      msg: msg ?? undefined,
       accion: accion ?? 'pagar',
       debug: debug ?? '0',
       // El controller adjunta el paymentId resuelto para que el adapter

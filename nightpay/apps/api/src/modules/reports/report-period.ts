@@ -30,7 +30,8 @@ export function parseReportPeriod(fromDay: string, toDay: string): PeriodResult 
   if (toDay < fromDay) return { ok: false, error: 'La fecha final es anterior a la inicial' };
   const from = madridStartOfDay(fromDay);
   const to = madridStartOfDay(nextDay(toDay));
-  if (to.getTime() - from.getTime() > (MAX_PERIOD_DAYS + 1) * 86_400_000) {
+  // Una hora de margen: un periodo con un cambio de hora de otoño más que de primavera.
+  if (to.getTime() - from.getTime() > MAX_PERIOD_DAYS * 86_400_000 + 3_600_000) {
     return { ok: false, error: `Como mucho ${MAX_PERIOD_DAYS} días por informe` };
   }
   return { ok: true, period: { from, to, fromDay, toDay } };
