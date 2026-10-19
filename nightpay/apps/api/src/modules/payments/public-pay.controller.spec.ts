@@ -563,3 +563,76 @@ describe('GET /pay/:token/receipt — justificante', () => {
     expect(sent.status).toBe(404);
   });
 });
+
+describe('«Recargar» desde /w: tras pagar, de vuelta al saldo (solo el navegador que la empezó)', () => {
+  const RETURN = 'r'.repeat(43);
+  const returnHash = createHash('sha256').update(RETURN).digest('hex');
+  const name = walletClaimCookieName('', 'qr-token-1');
+
+  it('vuelta del banco pagada → 303 a /w con el «Pagado» de esa recarga', async () => {
+    const paid = view({ status: 'AUTHORIZED', walletReturnToken: 'wal tok', walletClaimHash: returnHash });
+    const { reply, sent } = fakeReply(`${name}=${RETURN}`);
+    await makeController({ view: paid }).controller.paymentResult('ORD-1', 'en', undefined, reply);
+    expect(sent.status).toBe(303);
+    expect(sent.headers.Location).toBe('/w/wal%20tok?lang=en&pagado=qr-token-1');
+    expect(sent.headers['Cache-Control']).toBe('no-store');
+  });
+
+  it('otro navegador (alguien a quien pasaron el enlace de pago) → «Pagado» sin el saldo', async () => {
+    const paid = view({ status: 'AUTHORIZED', walletReturnToken: 'wal-tok', walletClaimHash: returnHash });
+    for (const cookie of [undefined, `${name}=${'x'.repeat(43)}`]) {
+      const { reply, sent } = fakeReply(cookie);
+      await makeController({ view: paid }).controller.paymentResult('ORD-1', 'es', undefined, reply);
+      expect(sent.status).toBe(200);
+      expect(sent.body).toContain('class="paid');
+      expect(sent.body).not.toContain('wal-tok');
+    }
+  });
+
+  it('aún sin aviso del banco → «Comprobando» (no vuelve todavía); denegado → reintentar en /pay', async () => {
+    const pending = view({ status: 'AUTHORIZING', walletReturnToken: 'wal-tok', walletClaimHash: returnHash });
+    const a = fakeReply(`${name}=${RETURN}`);
+    await makeController({ view: pending }).controller.paymentResult('ORD-1', 'es', undefined, a.reply);
+    expect(a.sent.status).toBe(200);
+    expect(a.sent.body).not.toContain('wal-tok');
+    const denied = view({ status: 'AUTHORIZING', attemptStatus: 'DENIED', walletReturnToken: 'wal-tok', walletClaimHash: returnHash });
+    const b = fakeReply(`${name}=${RETURN}`);
+    await makeController({ view: denied }).controller.paymentResult('ORD-1', 'es', undefined, b.reply);
+    expect(b.sent.body).toContain('href="/pay/qr-token-1?lang=es"');
+  });
+
+  it('abrir el enlace de pago ya pagado: el navegador que la empezó vuelve a /w; otro ve solo «Pagado»', async () => {
+    const page: PayRedirect = {
+      kind: 'paid',
+      paymentId: PAYMENT_ID,
+      amountCents: 5_000,
+      tipCents: 0,
+      currency: 'EUR',
+      authorizedAt: new Date(),
+      walletToken: null,
+      walletClaimHash: returnHash,
+      walletCode: null,
+      walletHasFaceId: false,
+      walletHasPin: false,
+      walletReturnToken: 'wal-tok',
+    };
+    const mine = fakeReply(`${name}=${RETURN}`);
+    await makeController({ page }).controller.payPage('qr-token-1', 'es', undefined, IPHONE, mine.reply);
+    expect(mine.sent.status).toBe(303);
+    expect(mine.sent.headers.Location).toBe('/w/wal-tok?lang=es&pagado=qr-token-1');
+    const other = fakeReply();
+    await makeController({ page }).controller.payPage('qr-token-1', 'es', undefined, IPHONE, other.reply);
+    expect(other.sent.status).toBe(200);
+    expect(other.sent.body).toContain('class="paid');
+    expect(other.sent.body).not.toContain('wal-tok');
+    // Ni el aviso de «tu saldo se abre en el móvil con el que pagaste»: no es su saldo.
+    expect(other.sent.body).not.toContain('pide en el local un enlace nuevo');
+  });
+
+  it('pagar el enlace usa la cookie de vuelta que dejó /w (el intento lleva su huella)', async () => {
+    const { controller, payments } = makeController({ checkout: { kind: 'checkout', order: 'ORD-9' } });
+    const { reply } = fakeReply(`${name}=${RETURN}`);
+    await controller.startCheckout('qr-token-1', { tip: '0', method: 'wallet', lang: 'es' }, undefined, reply);
+    expect(payments.startCheckout).toHaveBeenCalledWith('qr-token-1', expect.objectContaining({ claimHash: returnHash }));
+  });
+});

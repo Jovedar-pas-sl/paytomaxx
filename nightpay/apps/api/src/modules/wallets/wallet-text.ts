@@ -61,6 +61,25 @@ export interface WalletText {
   // Google Wallet (solo Android y si está configurado; el botón es el oficial)
   gwHint: string;
   gwPreparing: string;
+  // «Recargar» desde el móvil (`{amount}`, `{min}` y `{max}` los rellena el JS)
+  topUp: string;
+  topUpTitle: string;
+  topUpWhy: string;
+  topUpAmount: string;
+  topUpOther: string;
+  topUpOtherLabel: string;
+  topUpLimits: string;
+  topUpRange: string;
+  topUpGo: string;
+  topUpMethods: string;
+  topUpFaceId: string;
+  topUpNoKey: string;
+  topUpOpening: string;
+  topUpOff: string;
+  topUpBlocked: string;
+  /** «Pagado» de la recarga al volver del banco. */
+  proofWhat: string;
+  proofAdded: string;
   other: { code: PayLanguage; label: string };
 }
 
@@ -118,6 +137,23 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     refundDoneMixed: 'Devuelto: parte a tu tarjeta {cards} y parte en efectivo.',
     gwHint: 'Lleva tu saldo en Google Wallet: se actualiza solo.',
     gwPreparing: 'Preparando tu pase…',
+    topUp: 'Recargar',
+    topUpTitle: 'Recargar saldo',
+    topUpWhy: 'Elige cuánto. Pagas con Apple Pay, Google Pay o tarjeta y se suma a tu saldo al momento.',
+    topUpAmount: 'Importe',
+    topUpOther: 'Otra',
+    topUpOtherLabel: 'Importe en euros',
+    topUpLimits: 'De {min} a {max}.',
+    topUpRange: 'Pon un importe de {min} a {max}, en euros enteros.',
+    topUpGo: 'Recargar {amount}',
+    topUpMethods: 'Sin propina: solo pagas lo que recargas.',
+    topUpFaceId: 'Para confirmarlo, desbloquea tu móvil como al pagar.',
+    topUpNoKey: 'Este saldo tiene Face ID: recarga desde el móvil donde lo activaste.',
+    topUpOpening: 'Abriendo el pago…',
+    topUpOff: 'Ahora no se puede recargar desde el móvil. Pide la recarga en el local.',
+    topUpBlocked: 'Este saldo está bloqueado. Pregunta en el local.',
+    proofWhat: 'Recarga de {amount}',
+    proofAdded: 'Ya está en tu saldo.',
     other: { code: 'en', label: 'English' },
   },
   en: {
@@ -173,6 +209,23 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     refundDoneMixed: 'Refunded: part to your card {cards} and part in cash.',
     gwHint: 'Keep your balance in Google Wallet: it updates itself.',
     gwPreparing: 'Preparing your pass…',
+    topUp: 'Top up',
+    topUpTitle: 'Top up your balance',
+    topUpWhy: 'Choose how much. Pay with Apple Pay, Google Pay or card and it is added to your balance straight away.',
+    topUpAmount: 'Amount',
+    topUpOther: 'Other',
+    topUpOtherLabel: 'Amount in euros',
+    topUpLimits: 'From {min} to {max}.',
+    topUpRange: 'Enter an amount from {min} to {max}, in whole euros.',
+    topUpGo: 'Top up {amount}',
+    topUpMethods: 'No tip: you only pay what you top up.',
+    topUpFaceId: 'To confirm, unlock your phone as when you pay.',
+    topUpNoKey: 'This balance uses Face ID: top up from the phone where you turned it on.',
+    topUpOpening: 'Opening the payment…',
+    topUpOff: 'Topping up from your phone is not available right now. Ask the staff to top up.',
+    topUpBlocked: 'This balance is blocked. Ask at the venue.',
+    proofWhat: 'Top-up of {amount}',
+    proofAdded: 'It is already in your balance.',
     other: { code: 'es', label: 'Español' },
   },
 };

@@ -261,6 +261,24 @@ describe('create — Idempotency-Key ligada a quién y a qué (#32)', () => {
     expect(db.$queryRaw.mock.invocationCallOrder[0]!).toBeLessThan(db.payment.create.mock.invocationCallOrder[0]!);
   });
 
+  it('recarga de un saldo que existe: activo o a cero (DEPLETED) sí; sumado a otro o cerrado, no', async () => {
+    const walletId = '0b6f4a8e-6f1e-4e0b-9a51-0c2f3c4d5e6f';
+    for (const wallet of [{ status: 'ACTIVE', mergedIntoId: null }, { status: 'DEPLETED', mergedIntoId: null }]) {
+      const { service, db, created } = makeService();
+      db.clientWallet.findFirst.mockResolvedValueOnce({ id: walletId, ...wallet });
+      await service.create('tenant-1', 'idem-key-0110', dto({ wallet: { walletId } }), owner);
+      expect(created[0]).toMatchObject({ walletId, captureMethod: 'WALLET_TOPUP', revenueCategory: 'EXTRA', tipCents: 0 });
+    }
+    for (const wallet of [{ status: 'DEPLETED', mergedIntoId: 'w-2' }, { status: 'REFUNDED', mergedIntoId: null }, { status: 'EXPIRED', mergedIntoId: null }]) {
+      const { service, db, created } = makeService();
+      db.clientWallet.findFirst.mockResolvedValueOnce({ id: walletId, ...wallet });
+      await expect(service.create('tenant-1', 'idem-key-0111', dto({ wallet: { walletId } }), owner)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(created).toHaveLength(0);
+    }
+  });
+
   it('código corto ya cogido por otro saldo activo → prueba otro sin romper la transacción', async () => {
     const { service, db, created } = makeService();
     db.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'wallet-2' }]);

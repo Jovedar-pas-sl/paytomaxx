@@ -181,3 +181,112 @@ describe('«Añadir a Google Wallet» en la página del saldo', () => {
     expect(gwJs.includes(String.fromCharCode(92))).toBe(false);
   });
 });
+
+describe('«Recargar» en la página del saldo', () => {
+  const topUp = { allowed: true, block: null, presetsCents: [2000, 5000, 10000], minCents: 1000, maxCents: 30000 };
+
+  it('botón debajo del saldo y hoja con 20 / 50 / 100 €, «Otra» y los límites; 50 € marcada', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { topUp });
+    expect(html.indexOf('id="topupBox"')).toBeGreaterThan(html.indexOf('id="balance"'));
+    expect(html.indexOf('id="topupBox"')).toBeLessThan(html.indexOf('id="faceCard"'));
+    expect(html).toContain('<dialog class="sheet" id="topupSheet"');
+    expect(html).toMatch(/value="2000"><span class="num">20\s€<\/span>/);
+    expect(html).toMatch(/value="5000" checked><span class="num">50\s€<\/span>/);
+    expect(html).toMatch(/value="10000"><span class="num">100\s€<\/span>/);
+    expect(html).toContain('id="amtOther"');
+    expect(html).toMatch(/De 10\s€ a 300\s€\./);
+    expect(html).toContain('Sin propina: solo pagas lo que recargas.');
+    const en = renderWalletPage('tok-1', 'en', state(), { topUp });
+    expect(en).toContain('Top up your balance');
+    expect(en).toContain('From €10 to €300.');
+  });
+
+  it('JS válido, sin barras invertidas, y solo va a nuestra página de pago', () => {
+    for (const lang of ['es', 'en'] as const) {
+      const js = script(renderWalletPage('tok-1', lang, state(), { topUp, googleWallet: true }));
+      expect(() => new Function(js)).not.toThrow();
+      const top = js.slice(js.indexOf('var TU='), js.indexOf('render(S);'));
+      expect(top.length).toBeGreaterThan(500);
+      expect(top.includes(String.fromCharCode(92))).toBe(false);
+      expect(js).toContain("post('/topup',body)");
+      expect(js).toContain("pkGet(C.base+'/topup/challenge')");
+      expect(js).toContain("u.indexOf('/pay/')===0");
+      expect(js).not.toContain('confirm(');
+      expect(js).not.toContain('alert(');
+    }
+  });
+
+  it('se ve si el saldo está activo o a cero, sin «Me voy» y si el local lo permite; principal sin Face ID que activar', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state(), { topUp }));
+    expect(js).toContain("usable=(s.status==='ACTIVE'||(s.status==='DEPLETED'&&!s.merged))&&!s.refund&&!s.closeRequested");
+    expect(js).toContain('can=usable&&TU.allowed');
+    expect(js).toContain("$('faceCard').hidden&&!C.paid?'btn':'btn alt'");
+    expect(js).toContain('topRender(s);}');
+    expect(renderWalletPage('tok-1', 'es', state(), { topUp })).toContain('\\"allowed\\":true');
+  });
+
+  it('el local no deja (pausa, formas de cobro…) → sin botón y con un aviso', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { topUp: { ...topUp, allowed: false, block: 'paused' } });
+    expect(html).toContain('\\"block\\":\\"paused\\"');
+    expect(script(html)).toContain("TU.block==='blocked'?T.topUpBlocked:T.topUpOff");
+    expect(html).toContain('Ahora no se puede recargar desde el móvil');
+  });
+
+  it('sin opciones de recarga (no se pudo saber) → no sale el botón', () => {
+    const html = renderWalletPage('tok-1', 'es', state());
+    expect(html).toContain('\\"topUp\\":null');
+    expect(script(html)).toContain('TU=C.topUp||{allowed:false');
+  });
+
+  it('con Face ID se pide antes de crear la recarga; una clave por intento (doble toque = la misma recarga)', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state({ hasFaceId: true }), { topUp }));
+    expect(js).toContain('S.hasFaceId?pkGet(');
+    expect(js).toContain('body={amountCents:c,key:TK,lang:C.lang}');
+    expect(js).toContain('crypto.getRandomValues(a)');
+    // Nueva clave al abrir, tras un error y al volver atrás desde el pago.
+    expect(js.match(/newKey\(\)/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('«Pagado» de la recarga al volver a /w', () => {
+  const topUp = { allowed: true, block: null, presetsCents: [2000, 5000, 10000], minCents: 1000, maxCents: 30000 };
+  const now = new Date('2026-10-19T23:41:12Z');
+  const paid = { payToken: 'pay-1', amountCents: 5000, authorizedAt: '2026-10-19T23:41:00Z', code: '7F2' };
+
+  it('debajo del saldo: «Pagado», cuánto, hace cuánto, la hora que corre, el código y el justificante', () => {
+    const html = renderWalletPage('tok-1', 'es', state({ balanceCents: 17_000 }), { topUp, paid, now });
+    expect(html.indexOf('id="proof"')).toBeGreaterThan(html.indexOf('id="balance"'));
+    expect(html.indexOf('id="proof"')).toBeLessThan(html.indexOf('id="topupBox"'));
+    expect(html).toContain('<section class="proof" id="proof"');
+    expect(html).toContain('aria-live="polite">Pagado</h2>');
+    expect(html).toMatch(/Recarga de 50,00\s€/);
+    expect(html).toContain('hace 0:12');
+    expect(html).toContain('<b class="num">7F2</b>');
+    expect(html).toContain('href="/pay/pay-1/receipt?lang=es"');
+    expect(html).toMatch(/170,00\s€/);
+    const js = script(html);
+    expect(js).toContain("npPaid(document.getElementById('proof')");
+    expect(js).toContain("history.replaceState(null,'',C.base+'?lang='+C.lang)");
+    expect(() => new Function(js)).not.toThrow();
+  });
+
+  it('hace rato → «Ya pagado» en gris (una captura vieja no cuela)', () => {
+    const later = new Date('2026-10-19T23:59:00Z');
+    const html = renderWalletPage('tok-1', 'es', state(), { topUp, paid, now: later });
+    expect(html).toContain('<section class="proof stale" id="proof"');
+    expect(html).toContain('No es un pago nuevo.');
+  });
+
+  it('con Google Wallet: el botón justo debajo del «Pagado» (y una sola vez)', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { topUp, paid, now, googleWallet: true });
+    expect(html.match(/id="gwCard"/g)).toHaveLength(1);
+    expect(html.indexOf('id="gwCard"')).toBeGreaterThan(html.indexOf('id="proof"'));
+    expect(html.indexOf('id="gwCard"')).toBeLessThan(html.indexOf('id="topupBox"'));
+  });
+
+  it('sin «Pagado» no hay nada de él', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { topUp });
+    expect(html).not.toContain('id="proof"');
+    expect(script(html)).not.toContain('npPaid(');
+  });
+});
