@@ -1,7 +1,7 @@
 // Integración (Postgres real, FORCE RLS, TENANCY_UNSCOPED_QUERIES=throw): cierre de la noche en pasos con
 // el arqueo de caja. Cada prueba entra como el personal del local (local en el contexto, como tras
 // AuthGuard); los datos se siembran aparte. Ver README.md.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, type HttpException } from '@nestjs/common';
@@ -24,6 +24,12 @@ const reports = new ReportsService(prisma);
 const incidents = new IncidentsService(prisma, audit as never);
 const checks = new CloseCheckService(prisma, incidents, config as never);
 const nights = new NightsService(prisma, reports, audit as never, checks);
+// Las pruebas abren noches «hace 2-3 h»: entre las 08:00 y las 11:00 de Madrid el
+// cierre automático las cerraría antes de comprobarlas. Se apaga aquí y la última
+// prueba (la del cierre automático) lo vuelve a encender.
+const autoClose = vi
+  .spyOn(nights as unknown as { safeAutoClose(tenantId: string): Promise<void> }, 'safeAutoClose')
+  .mockResolvedValue(undefined);
 const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, {} as never);
 const charges = new WalletChargesService(prisma, audit as never, { get: () => null } as never);
 
@@ -312,6 +318,7 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
   });
 
   it('la noche que nadie cierra se cierra sola con la caja sin contar', async () => {
+    autoClose.mockRestore();
     const solo = await seedLocal('sola', 0);
     // Abierta hace 36 h con 100 € de fondo: a las 08:00 siguientes se cerró sola.
     const night = await seed((tx) =>
