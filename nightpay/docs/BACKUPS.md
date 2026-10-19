@@ -135,8 +135,14 @@ Sin Docker, contra una base vacía creada a mano: `… --url postgresql://…`
 1. Para `nightpay-api` (para que no escriba nada).
 2. En `nightpay-postgres` → **Backups → Restore** → la última copia buena →
    Database `nightpay`. Reemplaza lo que haya.
-3. Arranca `nightpay-api`. Al arrancar aplica las migraciones que falten.
-4. Lo cobrado entre la copia y el fallo no está en la base: sale en el portal
+3. **Obligatorio antes de arrancar el API** (si `DATABASE_URL` entra con
+   `oxiopay_app`): [`DB-ROLE.md`](DB-ROLE.md) **paso 2** (que `oxiopay_app`
+   vuelva a ser el dueño de todo) **y su comprobación** («nada sigue siendo de
+   `np`» → `(0 rows)`). Lo restaurado queda de `np`: sin esto el API da
+   «permission denied» y la base deja de aislar los locales (RLS). Si el API
+   aún entra con `np`, sáltatelo.
+4. Arranca `nightpay-api`. Al arrancar aplica las migraciones que falten.
+5. Lo cobrado entre la copia y el fallo no está en la base: sale en el portal
    de BBVA/Redsys y de Paytef. Sube esos días en **Banco** (cuadre con el
    banco) y aparecerán como «solo en el banco» para revisarlos uno a uno.
 
@@ -214,9 +220,30 @@ docker exec oxiopay-restic restic dump latest nightpay.dump > nightpay.dump
 nightpay/scripts/restore-check.sh ./nightpay.dump
 ```
 
-Para devolverla a producción, igual que en el apartado 6 pero con
-`pg_restore --clean --if-exists --no-owner -d nightpay < nightpay.dump`
-dentro del contenedor de Postgres (con el API parado).
+`latest` es siempre una copia completa: si `pg_dump` falla, la copia no se
+guarda (el guion usa `--stdin-from-command`). Para otra anterior:
+`restic snapshots` y `restic dump <id> nightpay.dump`.
+
+Para devolverla a producción (en el VPS, como root):
+
+1. Para `nightpay-api` (Dokploy → **Stop**).
+2. Mete la copia en Postgres y restaura **como `np`** (sin `-U np` entra como
+   `root`, que no existe en Postgres):
+
+   ```bash
+   PG=$(docker ps -qf name=nightpay-postgres | head -n1)
+   docker exec -i "$PG" pg_restore -U np --clean --if-exists --no-owner -d nightpay < nightpay.dump
+   ```
+
+   (O, en dos pasos: `docker cp nightpay.dump "$PG":/tmp/nightpay.dump` y
+   `docker exec "$PG" pg_restore -U np --clean --if-exists --no-owner -d nightpay /tmp/nightpay.dump`;
+   después `docker exec "$PG" rm /tmp/nightpay.dump`.)
+3. **Obligatorio antes de arrancar el API:** [`DB-ROLE.md`](DB-ROLE.md)
+   **paso 2 y su comprobación** (`(0 rows)`). Con `--no-owner` todo queda de
+   `np`: con `DATABASE_URL=…oxiopay_app…` el API daría «permission denied» y
+   la base dejaría de aislar los locales (RLS).
+4. Arranca `nightpay-api` y sigue con el punto 5 del apartado 6 (lo cobrado
+   después de la copia).
 
 ## 8. Redis: que no tire trabajos
 

@@ -331,8 +331,12 @@ Funciona en el acto: `np` es superusuario y puede con todo aunque el dueño sea
 - Las copias (Dokploy, restic) siguen con `np`: no cambian.
 - Las copias nuevas dicen que el dueño es `oxiopay_app`.
   `scripts/restore-check.sh` restaura con `--no-owner`, así que no le afecta.
-- Restaurar en un servidor nuevo: crea antes el rol (paso 1), o restaura con
-  `pg_restore --no-owner` y después haz el paso 2.
+- **Cualquier restauración** (Dokploy → Restore, restic, servidor nuevo): antes
+  de arrancar el API, el **paso 2 y su comprobación** (`(0 rows)`). En un
+  servidor nuevo, antes el paso 1 (crear el rol). Lo restaurado queda de `np`
+  (o, con `--no-owner`, de quien restaura): sin el paso 2 el API da
+  «permission denied» y RLS deja de aplicarse. Comandos en
+  [`BACKUPS.md`](BACKUPS.md) apartados 6 y 7.
 
 ---
 
