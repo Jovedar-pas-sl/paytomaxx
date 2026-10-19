@@ -169,6 +169,8 @@ Notas:
   [`DB-ROLE.md`](DB-ROLE.md).
 - `NODE_ENV` sin poner también arranca como producción; ponlo igual.
 - Sin `ORIGIN_AUTH_SECRET` o `METRICS_TOKEN` el API no arranca en producción.
+  Tampoco sin `CORS_ORIGINS` o con una dirección mal escrita (cada una
+  `https://dominio`, sin barra final ni ruta).
 - `REALTIME_LEGACY_SUBSCRIBE_UNTIL` (opcional): hasta cuándo las apps
   antiguas pueden seguir un cobro en tiempo real sin sesión. Sin ponerla, el
   martes 2026-11-17 a las 12:00 (Madrid); después contestan «Inicia sesión otra
