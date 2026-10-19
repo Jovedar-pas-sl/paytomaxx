@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoLabel,
+  awaitingServerExpiry,
   countdownPhase,
   effectiveStatus,
   formatClock,
@@ -81,6 +82,15 @@ describe('estado que se enseña', () => {
     expect(effectiveStatus('CREATED', d, 300_000 + LOCAL_EXPIRY_GRACE_MS - 1)).toBe('CREATED');
     expect(effectiveStatus('CREATED', d, 300_000 + LOCAL_EXPIRY_GRACE_MS)).toBe('EXPIRED');
     expect(effectiveStatus('AWAITING_CAPTURE', d, 999_999)).toBe('EXPIRED');
+  });
+
+  it('pasado el plazo sin el «caducado» del servidor, se espera a que conteste', () => {
+    expect(awaitingServerExpiry('CREATED', d, 300_000)).toBe(false);
+    expect(awaitingServerExpiry('CREATED', d, 300_000 + LOCAL_EXPIRY_GRACE_MS)).toBe(true);
+    expect(awaitingServerExpiry('AWAITING_CAPTURE', d, 999_999)).toBe(true);
+    expect(awaitingServerExpiry('EXPIRED', d, 999_999)).toBe(false);
+    expect(awaitingServerExpiry('AUTHORIZED', d, 999_999)).toBe(false);
+    expect(awaitingServerExpiry('CREATED', null, 999_999)).toBe(false);
   });
 
   it('si el cliente ya está pagando (o ya terminó), manda el servidor', () => {

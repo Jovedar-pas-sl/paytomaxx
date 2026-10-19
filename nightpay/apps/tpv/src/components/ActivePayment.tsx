@@ -8,7 +8,7 @@ import {
   PaymentOutcome,
   QrCountdown,
   StatusPill,
-  effectiveStatus,
+  awaitingServerExpiry,
   isPreCobro,
   outcomeKindOf,
   qrDeadline,
@@ -29,9 +29,16 @@ export const FINISHED_STATUSES: ReadonlySet<PaymentStatus> = new Set<PaymentStat
   'PARTIALLY_REFUNDED',
 ]);
 
+/** Pasado el plazo sin el «caducado» del servidor: se le pregunta cada tanto. */
+const EXPIRY_CHECK_MS = 4_000;
+
 interface Props {
   payment: CreatedPayment;
   status: PaymentStatus | null;
+  /** Se llega al servidor (socket o sondeo). */
+  reachable: boolean;
+  /** Preguntar ya el estado al servidor. */
+  checkNow: () => void;
   /** Vuelve al formulario para un cobro nuevo. */
   onDone: () => void;
   /** «Otro QR · mismo importe» (rechazado o caducado): otro cobro igual, sin teclear. */
@@ -45,9 +52,11 @@ interface Props {
  * el resultado a pantalla completa. Si aún se puede pagar, "Cancelar cobro"
  * lo anula en el API antes de volver al formulario: si no, el QR anterior
  * seguiría pagándose. Si no se puede anular, se dice y la cajera decide.
- * Mientras está abierto, la pantalla no se apaga.
+ * Mientras está abierto, la pantalla no se apaga. Nunca se da por caducado
+ * sin que lo diga el servidor: un «pagado» perdido con la wifi haría cobrar
+ * dos veces al cliente con «Otro QR».
  */
-export function ActivePayment({ payment, status, onDone, onRetry, retrying, retryError }: Props) {
+export function ActivePayment({ payment, status, reachable, checkNow, onDone, onRetry, retrying, retryError }: Props) {
   const [canceling, setCanceling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   // El plazo cuenta desde que llegó la respuesta, con la duración que dio el servidor.
@@ -56,12 +65,19 @@ export function ActivePayment({ payment, status, onDone, onRetry, retrying, retr
     () => qrDeadline(payment.qrExpiresAt, receivedAt, payment.createdAt),
     [payment.qrExpiresAt, payment.createdAt, receivedAt],
   );
-  const current = status ?? 'CREATED';
-  const now = useNow(isPreCobro(current));
-  // Sin socket no llega el «caducado»: pasado su plazo, se ve igual.
-  const shown = effectiveStatus(current, deadline, now);
+  const shown = status ?? 'CREATED';
+  const now = useNow(isPreCobro(shown));
+  // Plazo pasado aquí, pero el servidor aún no ha dicho «caducado»: se le pregunta.
+  const awaiting = awaitingServerExpiry(shown, deadline, now);
   const finished = FINISHED_STATUSES.has(shown);
   useWakeLock(!finished);
+
+  useEffect(() => {
+    if (!awaiting) return undefined;
+    checkNow();
+    const timer = setInterval(checkNow, EXPIRY_CHECK_MS);
+    return () => clearInterval(timer);
+  }, [awaiting, checkNow]);
 
   async function cancel() {
     setCanceling(true);
@@ -107,7 +123,19 @@ export function ActivePayment({ payment, status, onDone, onRetry, retrying, retr
         <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
           <StatusPill status={shown} />
         </div>
+        {awaiting ? (
+          <p role="status" style={awaitStyle}>
+            {reachable
+              ? 'El QR ha caducado. Confirmando con el servidor que no se pagó…'
+              : 'Sin conexión con el servidor: no sabemos si el cliente pagó. No cobres otra vez hasta que se confirme.'}
+          </p>
+        ) : null}
         <div style={actionsStyle}>
+          {awaiting ? (
+            <Button variant="ghost" size="md" onClick={checkNow}>
+              Comprobar ahora
+            </Button>
+          ) : null}
           {finished ? (
             <Button variant="ghost" size="md" onClick={onDone}>
               Nuevo cobro
@@ -125,7 +153,11 @@ export function ActivePayment({ payment, status, onDone, onRetry, retrying, retr
               <Button variant="ghost" size="md" onClick={onDone}>
                 Dejarlo y hacer otro cobro
               </Button>
-              <p style={hintStyle}>Ojo: ese QR se podrá pagar hasta que caduque.</p>
+              <p style={hintStyle}>
+                {awaiting
+                  ? 'Ojo: no sabemos si el cliente pagó ese QR. Mira su móvil antes de cobrar otra vez.'
+                  : 'Ojo: ese QR se podrá pagar hasta que caduque.'}
+              </p>
             </>
           ) : null}
         </div>
@@ -233,6 +265,12 @@ const actionsStyle: CSSProperties = {
   flexDirection: 'column',
   alignItems: 'center',
   gap: '0.75rem',
+};
+
+const awaitStyle: CSSProperties = {
+  margin: '1rem 0 0',
+  fontSize: '0.9375rem',
+  color: 'var(--np-warning)',
 };
 
 const errStyle: CSSProperties = {

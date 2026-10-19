@@ -91,3 +91,17 @@ export function effectiveStatus(
   if (!deadline || !isPreCobro(status)) return status;
   return nowMs >= deadline.endMs + graceMs ? 'EXPIRED' : status;
 }
+
+/**
+ * El plazo pasó aquí pero el servidor aún no ha dicho «caducado»: puede que
+ * el «pagado» se perdiera con la conexión. Hasta que el servidor conteste no
+ * se ofrece repetir el cobro (el cliente pagaría dos veces).
+ */
+export function awaitingServerExpiry(
+  status: PaymentStatus,
+  deadline: QrDeadline | null,
+  nowMs: number,
+  graceMs: number = LOCAL_EXPIRY_GRACE_MS,
+): boolean {
+  return effectiveStatus(status, deadline, nowMs, graceMs) === 'EXPIRED' && status !== 'EXPIRED';
+}

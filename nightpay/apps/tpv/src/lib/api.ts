@@ -9,6 +9,7 @@ import {
   createApiClient,
   type LoginResult,
 } from '@nightpay/api-client';
+import type { PaymentStatus } from '@nightpay/ui';
 import { MESSAGES, commonError, readError } from './http';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
@@ -160,6 +161,22 @@ export async function createPayment(
   throw new Error(
     commonError(res.status) ?? (await readError(res, `No se pudo crear el cobro (error ${res.status}).`)),
   );
+}
+
+/**
+ * Estado del cobro según el servidor (la misma consulta pública que la página
+ * del cliente). Lanza si no hay respuesta válida: entonces no se sabe nada.
+ */
+export async function fetchPaymentStatus(
+  qrToken: string,
+  signal?: AbortSignal,
+): Promise<{ id: string; status: PaymentStatus }> {
+  const res = await client.publicFetch(`/v1/payments/public/${encodeURIComponent(qrToken)}`, {
+    cache: 'no-store',
+    signal,
+  });
+  if (!res.ok) throw new Error(commonError(res.status) ?? `No se pudo consultar el cobro (error ${res.status}).`);
+  return (await res.json()) as { id: string; status: PaymentStatus };
 }
 
 /** Anula un cobro que aún no se ha pagado: su QR deja de valer. */
