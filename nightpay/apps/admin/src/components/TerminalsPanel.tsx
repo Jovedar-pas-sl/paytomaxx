@@ -238,6 +238,7 @@ export function TerminalsPanel({ isOwner }: Props) {
                     >
                       {t.active ? 'Activo' : 'Inactivo'}
                     </span>
+                    {t.reception ? <span style={{ marginLeft: '0.375rem', fontSize: '0.75rem' }}>· Recepción</span> : null}
                   </td>
                   <td data-label="App OxioPay">
                     {t.devicePaired ? (
@@ -294,6 +295,7 @@ export function TerminalsPanel({ isOwner }: Props) {
       {editing ? (
         <EditTerminalModal
           terminal={editing}
+          isOwner={isOwner}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -419,10 +421,12 @@ function BulkCreateModal({
 
 function EditTerminalModal({
   terminal,
+  isOwner,
   onClose,
   onSaved,
 }: {
   terminal: Terminal;
+  isOwner: boolean;
   onClose: () => void;
   onSaved: () => void;
 }): JSX.Element {
@@ -436,6 +440,7 @@ function EditTerminalModal({
     initialZoneIsOther ? terminal.zone!.slice('OTRO/'.length) : '',
   );
   const [active, setActive] = useState(terminal.active);
+  const [reception, setReception] = useState(terminal.reception ?? false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -449,6 +454,8 @@ function EditTerminalModal({
         zone: zone || null,
         zoneCustom: zone === 'OTRO' ? zoneCustom.trim() : null,
         active,
+        // Solo el dueño marca el datáfono de la recepción (cobra efectivo sin persona).
+        ...(isOwner ? { reception } : {}),
       });
       onSaved();
     } catch (err) {
@@ -481,6 +488,12 @@ function EditTerminalModal({
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
           <span>Activo</span>
         </label>
+        {isOwner ? (
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input type="checkbox" checked={reception} onChange={(e) => setReception(e.target.checked)} />
+            <span>Recepción (el único que cobra recargas en efectivo)</span>
+          </label>
+        ) : null}
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.85rem' }}>
             {error}

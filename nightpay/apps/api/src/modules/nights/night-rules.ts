@@ -155,9 +155,11 @@ export function buildAdjustments(args: { before: Date; since: Date; rows: Adjust
 
 /**
  * Cobros de la noche sin resolver (WHERE sobre payments): atascados con el
- * banco, sin confirmar por él o datáfono sin confirmar aún en vigor. Misma
- * fecha que el Z (sin autorizar = la de creación) y la misma hora de corte.
- * Lo usan pendingAtClose del Z y el paso «Cobros sin terminar» del cierre.
+ * banco, sin confirmar por él o datáfono sin confirmar aún en vigor (los de
+ * las chicas y las recargas de la recepción que el datáfono ya mandó al
+ * lector: /start). Misma fecha que el Z (sin autorizar = la de creación) y la
+ * misma hora de corte. Lo usan pendingAtClose del Z y el paso «Cobros sin
+ * terminar» del cierre.
  */
 export function unresolvedPaymentsWhere(tenantId: string, window: TimeWindow): Prisma.Sql {
   return Prisma.sql`"tenantId" = ${tenantId}::uuid
@@ -168,6 +170,11 @@ export function unresolvedPaymentsWhere(tenantId: string, window: TimeWindow): P
            OR ("captureMethod" = 'POS_EXTERNAL'
                AND status IN ('CREATED', 'AWAITING_CAPTURE')
                AND "qrExpiresAt" > ${window.to})
+           OR ("captureMethod" = 'WALLET_TOPUP'
+               AND status IN ('CREATED', 'AWAITING_CAPTURE')
+               AND "qrExpiresAt" > ${window.to}
+               AND EXISTS (SELECT 1 FROM payment_events e
+                            WHERE e."paymentId" = payments.id AND e."eventType" = 'pos.device_started'))
          )`;
 }
 

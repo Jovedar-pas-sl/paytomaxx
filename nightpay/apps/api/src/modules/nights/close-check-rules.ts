@@ -33,6 +33,8 @@ export interface UnresolvedPaymentRow {
   createdAt: Date;
   /** Última vez que cambió (entrada en AUTHORIZING). */
   updatedAt: Date;
+  /** Venta del datáfono apuntada (tiene operación de Paytef). */
+  deviceSale?: boolean;
 }
 
 /** Devolución por la pasarela que sigue sin confirmar. */
@@ -149,21 +151,23 @@ export function cobrosStep(
 }
 
 function paymentItem(p: UnresolvedPaymentRow, now: Date): NightCloseItem {
-  const fresh = p.status === 'AUTHORIZING' && minutesBetween(p.updatedAt, now) < AUTHORIZING_WAIT_MINUTES;
-  const what =
-    p.captureMethod === 'POS_EXTERNAL'
-      ? 'datáfono sin confirmar'
-      : p.status === 'ORPHAN'
-        ? 'el banco no lo confirmó: búscalo en BBVA'
-        : fresh
-          ? 'el cliente está pagando'
-          : 'atascado esperando al banco';
+  // Una recarga del datáfono sin la prueba de Paytef no espera a ningún aviso del banco.
+  const unproven = p.deviceSale === true && p.status === 'AUTHORIZING';
+  const fresh = !unproven && p.status === 'AUTHORIZING' && minutesBetween(p.updatedAt, now) < AUTHORIZING_WAIT_MINUTES;
   return {
     id: p.id,
     status: fresh ? 'block' : 'warn',
-    label: `Cobro de ${eur(p.amountCents)} · ${what} (hace ${minutesAgo(p.status === 'AUTHORIZING' ? p.updatedAt : p.createdAt, now)})`,
+    label: `Cobro de ${eur(p.amountCents)} · ${unresolvedWhat(p, unproven, fresh)} (hace ${minutesAgo(p.status === 'AUTHORIZING' ? p.updatedAt : p.createdAt, now)})`,
     amountCents: p.amountCents,
   };
+}
+
+function unresolvedWhat(p: UnresolvedPaymentRow, unproven: boolean, fresh: boolean): string {
+  if (p.captureMethod === 'POS_EXTERNAL') return 'datáfono sin confirmar';
+  if (unproven) return 'recarga del datáfono sin comprobar con Paytef: resuélvela en Pagos';
+  if (p.captureMethod === 'WALLET_TOPUP' && p.status === 'CREATED') return 'recarga a medio cobrar en el datáfono: mira el lector';
+  if (p.status === 'ORPHAN') return 'el banco no lo confirmó: búscalo en BBVA';
+  return fresh ? 'el cliente está pagando' : 'atascado esperando al banco';
 }
 
 // ─── 2. Datáfonos ───────────────────────────────────────────────────

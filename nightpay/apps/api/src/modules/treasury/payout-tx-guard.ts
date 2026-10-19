@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import { madridDay } from '../../common/time/madrid';
 
 /**
  * Un hash on-chain solo vale para UN pago del local (antes el mismo hash
@@ -25,7 +26,8 @@ export async function otherPayoutWithTx(
 }
 
 export function txAlreadyUsed(other?: { id: string; createdAt: Date } | null): ConflictException {
-  const when = other ? ` (del ${other.createdAt.toISOString().slice(0, 10)})` : '';
+  // El día de Madrid (en UTC, un pago de las 00:30 salía con el día anterior).
+  const when = other ? ` (del ${madridDay(other.createdAt)})` : '';
   return new ConflictException({
     message: `Ese hash ya está apuntado en otro pago${when}: cada transacción solo vale para un pago.`,
     code: 'PAYOUT_TX_ALREADY_USED',

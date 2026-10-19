@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { ForbiddenException, HttpException } from '@nestjs/common';
 import type { JwtPayload } from '@nightpay/contracts';
 import { AdminController, quarterRange } from './admin.controller';
+import { payoutRequestHash } from '../operators/payout-idempotency';
 import { payoutRoute, type VenueApprovalRules } from '../approvals/approval-rules';
 import { sealTotpSecret } from '../auth/totp-crypto';
 import { createFakeRedis, type FakeRedis } from '../auth/testing/fake-redis';
@@ -77,7 +78,10 @@ describe('POST /admin/operators/:id/payouts — 2FA del que paga (Redis, vale co
     rules: VenueApprovalRules = { payoutRequiresApproval: true, refundApprovalThresholdCents: 10_000 },
   ) {
     const { totp } = makeTotpKit({ redis, users: { [who.sub]: totpSecret } });
-    const operators = { createPayout: vi.fn().mockResolvedValue({ id: 'po-1' }) };
+    const operators = {
+      createPayout: vi.fn().mockResolvedValue({ id: 'po-1' }),
+      findPayoutReplay: vi.fn().mockResolvedValue(null),
+    };
     const approvals = {
       payoutRouteFor: vi.fn(async (actor: { role: JwtPayload['role'] }) => payoutRoute(actor.role, rules)),
       requestPayout: vi.fn().mockResolvedValue({ approvalRequestId: 'ap-1', status: 'PENDING' }),
@@ -85,8 +89,15 @@ describe('POST /admin/operators/:id/payouts — 2FA del que paga (Redis, vale co
     const none = {} as never;
     const ctrl = new AdminController(none, none, none, operators as never, none, none, totp, approvals as never);
     const reply = { status: vi.fn() };
-    const pay = (totpCode?: string) =>
-      ctrl.createOperatorPayout('t-1', who, 'op-1', { notes: 'semana', ...(totpCode ? { totpCode } : {}) }, reply as never);
+    const pay = (totpCode?: string, extra: { expectedTotalCents?: number } = {}, idempotencyKey: string | null = null) =>
+      ctrl.createOperatorPayout(
+        't-1',
+        who,
+        'op-1',
+        { notes: 'semana', ...extra, ...(totpCode ? { totpCode } : {}) },
+        reply as never,
+        idempotencyKey,
+      );
     return { pay, operators, approvals, reply };
   }
 
@@ -154,6 +165,26 @@ describe('POST /admin/operators/:id/payouts — 2FA del que paga (Redis, vale co
     await expect(enrolled.pay(totpCodeAt(SECRET))).resolves.toEqual({ id: 'po-1' });
     expect(enrolled.reply.status).not.toHaveBeenCalled();
     expect(enrolled.approvals.requestPayout).not.toHaveBeenCalled();
+  });
+
+  it('la cifra que vio el dueño va a createPayout (409 PAYOUT_CHANGED si ya es otra)', async () => {
+    const { pay, operators } = controller(null);
+    await pay(undefined, { expectedTotalCents: 12_500 });
+    expect(operators.createPayout.mock.calls[0]![4]).toMatchObject({ expectedTotalCents: 12_500, idempotency: undefined });
+  });
+
+  it('Idempotency-Key: la huella no lleva el 2FA; repetida con el pago ya apuntado → ese pago, sin 2FA ni pagar otra vez', async () => {
+    const { pay, operators } = controller(sealTotpSecret(SECRET, KEK));
+    const code = totpCodeAt(SECRET);
+    await pay(code, { expectedTotalCents: 12_500 }, 'pago-0001-abcdef');
+    const first = operators.createPayout.mock.calls[0]![4] as { idempotency: { key: string; hash: string } };
+    expect(first.idempotency.key).toBe('pago-0001-abcdef');
+    expect(first.idempotency.hash).toBe(payoutRequestHash(OWNER, 'op-1', { notes: 'semana', expectedTotalCents: 12_500 }));
+    expect(operators.findPayoutReplay).toHaveBeenCalledWith('t-1', 'op-1', OWNER, first.idempotency);
+    // Se cortó la red: lo repite (con el mismo código, ya usado) y recibe el pago apuntado.
+    operators.findPayoutReplay.mockResolvedValueOnce({ id: 'po-1', totalCents: 12_500, earningCount: 2, createdAt: 'x' });
+    await expect(pay(code, { expectedTotalCents: 12_500 }, 'pago-0001-abcdef')).resolves.toMatchObject({ id: 'po-1' });
+    expect(operators.createPayout).toHaveBeenCalledTimes(1);
   });
 
   it('dos réplicas con el mismo Redis: el código usado en una no paga en la otra', async () => {

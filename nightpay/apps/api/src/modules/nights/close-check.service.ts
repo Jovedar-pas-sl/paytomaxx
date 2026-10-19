@@ -141,7 +141,8 @@ export class CloseCheckService {
   /** Cobros de la noche sin terminar: los mismos que cuentan en pendingAtClose. */
   private unresolvedPayments(tenantId: string, window: TimeWindow): Promise<UnresolvedPaymentRow[]> {
     return this.prisma.$queryRaw<UnresolvedPaymentRow[]>`
-      SELECT id, status::text AS status, "amountCents", "captureMethod", "createdAt", "updatedAt"
+      SELECT id, status::text AS status, "amountCents", "captureMethod", "createdAt", "updatedAt",
+             ("posOperationNumber" IS NOT NULL) AS "deviceSale"
         FROM payments
        WHERE ${unresolvedPaymentsWhere(tenantId, window)}
        ORDER BY "createdAt" ASC

@@ -30,6 +30,8 @@ export const TerminalViewSchema = z.object({
   /** App NightPay del datáfono vinculada (Paytef Device API). */
   devicePaired: z.boolean().optional(),
   deviceLastSeenAt: z.string().nullable().optional(),
+  /** Datáfono de la recepción: el único que cobra recargas en efectivo. */
+  reception: z.boolean().optional(),
 });
 export type TerminalView = z.infer<typeof TerminalViewSchema>;
 
@@ -78,5 +80,7 @@ export const UpdateTerminalSchema = z.object({
   hardwareModel: HardwareModelSchema.nullable().optional(),
   deviceSerial: z.string().min(1).max(120).nullable().optional(),
   active: z.boolean().optional(),
+  /** Marcarlo como el de la recepción (efectivo sin persona): solo el dueño. */
+  reception: z.boolean().optional(),
 });
 export type UpdateTerminalDto = z.infer<typeof UpdateTerminalSchema>;

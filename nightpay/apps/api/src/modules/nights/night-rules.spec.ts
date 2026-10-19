@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { evaluateCash, type NightCash } from '@nightpay/contracts';
 import { summarize } from '../reports/export-csv';
 import type { CobroRow, ConsumoRow, DevolucionRow } from '../reports/export-rows';
-import { autoCloseAt, buildAdjustments, buildNightCaja, buildNightZ, zStart } from './night-rules';
+import { autoCloseAt, buildAdjustments, buildNightCaja, buildNightZ, unresolvedPaymentsWhere, zStart } from './night-rules';
 
 describe('desde dónde cuenta el Z y desde cuándo busca ajustes', () => {
   const opened = new Date('2026-10-14T20:00:00Z');
@@ -124,5 +124,15 @@ describe('cierre automático a las 08:00', () => {
 
   it('a partir de las 08:00 se cierra, con hora de cierre las 08:00', () => {
     expect(autoCloseAt(opened, new Date('2026-10-14T09:30:00Z'))?.toISOString()).toBe('2026-10-14T06:00:00.000Z');
+  });
+});
+
+describe('cobros sin terminar al cerrar (pagos #9)', () => {
+  it('también las recargas de la recepción que el datáfono ya mandó al lector (/start) y siguen en vigor', () => {
+    const sql = unresolvedPaymentsWhere('t-1', { from: new Date(0), to: new Date() }).sql;
+    expect(sql).toContain(`"captureMethod" = 'POS_EXTERNAL'`);
+    expect(sql).toContain(`"captureMethod" = 'WALLET_TOPUP'`);
+    expect(sql).toContain(`e."paymentId" = payments.id AND e."eventType" = 'pos.device_started'`);
+    expect(sql).toContain(`status IN ('AUTHORIZING', 'ORPHAN')`);
   });
 });

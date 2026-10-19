@@ -2,17 +2,25 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { WalletsModule } from '../wallets/wallets.module';
+import { DeviceRateLimitGuard } from './device-rate-limit.guard';
 import { DeviceGuard } from './device.guard';
 import { PosDeviceReceptionController } from './pos-device-reception.controller';
 import { PosDeviceReceptionService } from './pos-device-reception.service';
 import { PosDeviceSaldoController } from './pos-device-saldo.controller';
 import { PosDeviceController } from './pos-device.controller';
 import { PosDeviceService } from './pos-device.service';
+import { POS_SALE_PROVER, PaytefDeviceSaleProver } from './pos-sale-proof';
 
 /** Datáfono PAX con la app NightPay (Paytef Device API), el cobro del saldo con PIN y la recepción. */
 @Module({
   imports: [AuthModule, PaymentsModule, WalletsModule],
   controllers: [PosDeviceController, PosDeviceSaldoController, PosDeviceReceptionController],
-  providers: [PosDeviceService, PosDeviceReceptionService, DeviceGuard],
+  providers: [
+    PosDeviceService,
+    PosDeviceReceptionService,
+    DeviceGuard,
+    DeviceRateLimitGuard,
+    { provide: POS_SALE_PROVER, useClass: PaytefDeviceSaleProver },
+  ],
 })
 export class PosDeviceModule {}

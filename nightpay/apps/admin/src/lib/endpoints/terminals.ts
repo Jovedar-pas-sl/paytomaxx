@@ -16,6 +16,8 @@ export interface Terminal {
   /** App NightPay del datáfono vinculada. */
   devicePaired?: boolean;
   deviceLastSeenAt?: string | null;
+  /** Datáfono de la recepción: el único que cobra recargas en efectivo. */
+  reception?: boolean;
 }
 
 /** Código para vincular la app NightPay de un datáfono (vale 15 minutos). */
@@ -77,6 +79,8 @@ export async function updateTerminal(
     hardwareModel?: string | null;
     deviceSerial?: string | null;
     active?: boolean;
+    /** Solo el dueño. */
+    reception?: boolean;
   },
 ): Promise<Terminal> {
   const res = await authedFetch(`/v1/terminals/${id}`, {

@@ -20,6 +20,7 @@ import {
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { OptionalIdempotencyKey } from '../../common/decorators/idempotent.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Tenant } from '../../common/decorators/tenant.decorator';
@@ -31,6 +32,7 @@ import { RefreshTokenService } from '../auth/refresh-token.service';
 import { TotpService } from '../auth/totp.service';
 import { AuditService } from '../audit/audit.service';
 import { OperatorsService } from '../operators/operators.service';
+import { payoutRequestHash } from '../operators/payout-idempotency';
 import { touchesPayoutAccount } from '../operators/payout-routing';
 import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
@@ -455,6 +457,7 @@ export class AdminController {
         providerTxId: true,
         tenantId: true,
         updatedAt: true,
+        posOperationNumber: true,
       },
     });
     if (!payment) {
@@ -465,9 +468,11 @@ export class AdminController {
     }
     // ORPHAN (el banco no confirmó a tiempo) o AUTHORIZING atascado: más de
     // 15 min sin aviso del banco. Antes de eso el aviso aún puede llegar.
+    // Una venta del datáfono sin la prueba de Paytef (recarga en la recepción)
+    // no espera a ningún aviso: se resuelve al momento, mirando el panel de Paytef.
     const stuckAuthorizing =
       payment.status === 'AUTHORIZING' &&
-      Date.now() - payment.updatedAt.getTime() >= STUCK_AUTHORIZING_MS;
+      (Boolean(payment.posOperationNumber) || Date.now() - payment.updatedAt.getTime() >= STUCK_AUTHORIZING_MS);
     if (payment.status !== 'ORPHAN' && !stuckAuthorizing) {
       throw new ConflictException(
         payment.status === 'AUTHORIZING'
@@ -810,6 +815,7 @@ export class AdminController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(CreatePayoutSchema)) dto: CreatePayoutDto,
     @Res({ passthrough: true }) reply?: FastifyReply,
+    @OptionalIdempotencyKey() idempotencyKey?: string | null,
   ) {
     const actor = { userId: user.sub, role: user.role, tenantId };
     const route = await this.approvals.payoutRouteFor(actor);
@@ -817,6 +823,13 @@ export class AdminController {
     if (route.kind === 'request') {
       reply?.status(202);
       return this.approvals.requestPayout(actor, id, dto);
+    }
+    // La misma Idempotency-Key con la misma petición: el pago ya apuntado (se
+    // cortó la red, doble clic), sin pedir otra vez el 2FA ni pagar dos veces.
+    const idempotency = idempotencyKey ? { key: idempotencyKey, hash: payoutRequestHash(user.sub, id, dto) } : undefined;
+    if (idempotency) {
+      const replay = await this.operators.findPayoutReplay(tenantId, id, user.sub, idempotency);
+      if (replay) return replay;
     }
     // Pagar a una chica mueve dinero: con 2FA activada, hace falta el código
     // (una sesión robada no basta para mandar su dinero a otra cuenta); el
@@ -828,6 +841,8 @@ export class AdminController {
       externalTxId: dto.externalTxId,
       externalRail: dto.externalRail,
       receiptUrl: dto.receiptUrl,
+      expectedTotalCents: dto.expectedTotalCents,
+      idempotency,
       inTransaction: (tx) => assertNoPendingPayout(tx, tenantId, id),
     });
   }

@@ -28,6 +28,7 @@ function makeIncidents(rows: {
   pendingRefunds?: unknown[];
   pendingApprovals?: unknown[];
   posVoidedPaid?: unknown[];
+  unprovenSales?: unknown[];
 }) {
   const prisma = {
     $queryRaw: vi
@@ -46,7 +47,8 @@ function makeIncidents(rows: {
       .mockResolvedValueOnce(rows.anomalies ?? [])
       .mockResolvedValueOnce(rows.pendingRefunds ?? [])
       .mockResolvedValueOnce(rows.pendingApprovals ?? [])
-      .mockResolvedValueOnce(rows.posVoidedPaid ?? []),
+      .mockResolvedValueOnce(rows.posVoidedPaid ?? [])
+      .mockResolvedValueOnce(rows.unprovenSales ?? []),
     incidentAck: { upsert: vi.fn().mockResolvedValue({}) },
     asSystem: vi.fn(),
   };
@@ -54,6 +56,50 @@ function makeIncidents(rows: {
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   return { svc: new IncidentsService(prisma as never, audit as never), prisma, audit };
 }
+
+describe('bandeja de incidencias — datáfono sin la prueba de Paytef y topes de la recepción', () => {
+  it('cobros de chicas sin comprobar: uno por noche, marcable; tope de la recepción: marcable con su porqué', async () => {
+    const { svc } = makeIncidents({
+      unprovenSales: [{ night: '2026-10-13', count: 3, amountCents: 45_000, lastAt: at('2026-10-14T02:00:00Z') }],
+      audit: [
+        {
+          id: '31',
+          action: 'pos.reception_limit_exceeded',
+          paymentId: 'term-1',
+          amountCents: 99_999,
+          occurredAt: at('2026-10-14T01:00:00Z'),
+          payload: { limit: 'terminal_daily', terminalLabel: 'Recepción' },
+        },
+      ],
+    });
+    const items = await svc.list('t-1');
+    const unproven = items.find((i) => i.kind === 'pos_unproven_sales')!;
+    expect(unproven).toMatchObject({ refId: '2026-10-13', amountCents: 45_000, ackable: true, paymentId: null });
+    expect(unproven.detail).toContain('3 cobros (450,00 €)');
+    const limit = items.find((i) => i.kind === 'pos_reception_limit')!;
+    expect(limit).toMatchObject({ refId: '31', ackable: true, paymentId: null });
+    expect(limit.detail).toContain('«Recepción» ha pasado el tope de recargas del datáfono en 24 h (pedía 999,99 €)');
+  });
+
+  it('recarga del datáfono sin comprobar: dice que NO se sumó y cómo resolverla', async () => {
+    const { svc } = makeIncidents({
+      anomalies: [
+        {
+          id: '41',
+          eventType: 'payment.approval_unverified',
+          paymentId: 'p-41',
+          amountCents: 6_000,
+          occurredAt: at('2026-10-14T01:00:00Z'),
+          payload: { provider: 'PAYTEF', providerTxId: '99812', operationNumber: '99812', source: 'pos-device' },
+        },
+      ],
+    });
+    const [i] = await svc.list('t-1');
+    expect(i).toMatchObject({ kind: 'approval_unverified', refId: 'p-41', title: 'Recarga del datáfono sin comprobar', ackable: false });
+    expect(i!.detail).toContain('NO se ha sumado al saldo');
+    expect(i!.detail).toContain('operación 99812');
+  });
+});
 
 describe('bandeja de incidencias', () => {
   it('junta atascados, dobles cobros, descuentos fallidos, wallets y noches; sin las revisadas', async () => {
@@ -110,7 +156,8 @@ describe('bandeja de incidencias', () => {
     expect(i!.detail).toContain('Operación 4410');
     expect(i!.detail).toContain('regístralo como devolución');
     // La venta anulada tiene que ser la que pagó el cobro, en ese datáfono, y el cobro seguir pagado.
-    const sql = (prisma.$queryRaw.mock.calls.at(-1)![0] as string[]).join('?');
+    // La del datáfono anulado es la penúltima consulta (la última: cobros sin la prueba de Paytef).
+    const sql = (prisma.$queryRaw.mock.calls.at(-2)![0] as string[]).join('?');
     expect(sql).toContain(`"eventType" = 'pos.voided'`);
     expect(sql).toContain(`p."posOperationNumber" = v.payload ->> 'operationNumber'`);
     expect(sql).toContain(`p."posTerminalId"::text = v.payload ->> 'terminalId'`);

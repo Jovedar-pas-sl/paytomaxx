@@ -34,7 +34,9 @@ const EXPIRED = 'La credencial del datáfono ha caducado: vuelve a vincularlo de
  * Vale la credencial en uso o la nueva de una rotación (POST /rotate); la
  * primera vez que llega la nueva, pasa a ser la única. Con
  * POS_DEVICE_TOKEN_MAX_AGE_DAYS, una credencial más vieja que eso ya no vale
- * (sin la variable no caduca: es lo de por defecto).
+ * (sin la variable no caduca: es lo de por defecto). Cada una tiene su fecha:
+ * rotar no rejuvenece la que está en uso (una credencial robada que pide
+ * /rotate sin usar nunca la nueva caduca igual).
  */
 @Injectable()
 export class DeviceGuard implements CanActivate {
@@ -70,17 +72,21 @@ export class DeviceGuard implements CanActivate {
           deviceLastSeenAt: true,
           deviceTokenHash: true,
           deviceTokenIssuedAt: true,
+          deviceTokenNextIssuedAt: true,
           devicePairedAt: true,
         },
       }),
     );
     if (!terminal) throw new UnauthorizedException(NOT_PAIRED);
 
-    const issuedAt = terminal.deviceTokenIssuedAt ?? terminal.devicePairedAt;
+    const isNext = terminal.deviceTokenHash !== tokenHash;
+    const issuedAt = isNext
+      ? terminal.deviceTokenNextIssuedAt
+      : (terminal.deviceTokenIssuedAt ?? terminal.devicePairedAt);
     if (deviceTokenExpired(issuedAt, new Date(), deviceTokenMaxAgeMs(process.env.POS_DEVICE_TOKEN_MAX_AGE_DAYS))) {
       throw new UnauthorizedException(EXPIRED);
     }
-    if (terminal.deviceTokenHash !== tokenHash) await this.promoteNextToken(terminal.id, tokenHash);
+    if (isNext) await this.promoteNextToken(terminal.id, tokenHash, terminal.deviceTokenNextIssuedAt);
 
     req.posDevice = {
       terminalId: terminal.id,
@@ -100,12 +106,20 @@ export class DeviceGuard implements CanActivate {
     return true;
   }
 
-  /** El datáfono ya usa la credencial nueva: la anterior deja de valer. */
-  private async promoteNextToken(terminalId: string, tokenHash: string): Promise<void> {
+  /**
+   * El datáfono ya usa la credencial nueva: la anterior deja de valer y la
+   * antigüedad pasa a ser la de la nueva (desde que se pidió en /rotate).
+   */
+  private async promoteNextToken(terminalId: string, tokenHash: string, nextIssuedAt: Date | null): Promise<void> {
     const promoted = await this.prisma.asSystem((tx) =>
       tx.terminal.updateMany({
         where: { id: terminalId, deviceTokenNextHash: tokenHash },
-        data: { deviceTokenHash: tokenHash, deviceTokenNextHash: null, deviceTokenIssuedAt: new Date() },
+        data: {
+          deviceTokenHash: tokenHash,
+          deviceTokenNextHash: null,
+          deviceTokenIssuedAt: nextIssuedAt ?? new Date(),
+          deviceTokenNextIssuedAt: null,
+        },
       }),
     );
     // Otra petición con la misma credencial nueva ya la cambió: sigue valiendo.

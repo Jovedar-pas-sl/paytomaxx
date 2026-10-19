@@ -258,3 +258,19 @@ describe('los siete pasos', () => {
     expect(worst([])).toBe('ok');
   });
 });
+
+describe('1 · cobros sin terminar — recargas del datáfono (pagos #9)', () => {
+  it('recarga a medio cobrar en el lector y recarga sin la prueba de Paytef: aviso (no bloquea) con su texto', () => {
+    const s = cobrosStep(
+      [
+        payment({ id: 'm', status: 'CREATED', captureMethod: 'WALLET_TOPUP', updatedAt: ago(1) }),
+        payment({ id: 'u', status: 'AUTHORIZING', captureMethod: 'WALLET_TOPUP', deviceSale: true, updatedAt: ago(2) }),
+      ],
+      [],
+      NOW,
+    );
+    expect(s.items.map((i) => i.status)).toEqual(['warn', 'warn']);
+    expect(s.items[0]!.label).toContain('recarga a medio cobrar en el datáfono');
+    expect(s.items[1]!.label).toContain('sin comprobar con Paytef');
+  });
+});

@@ -108,3 +108,13 @@ describe('receiptUrl — solo https (javascript: y http: no)', () => {
     expect(CreatePayoutSchema.safeParse({ receiptUrl: 'https://example.com/r.pdf' }).success).toBe(true);
   });
 });
+
+describe('CreatePayoutSchema — la cifra que se vio', () => {
+  it('expectedTotalCents opcional: céntimos enteros y positivos', () => {
+    expect(CreatePayoutSchema.safeParse({}).success).toBe(true);
+    expect(CreatePayoutSchema.safeParse({ expectedTotalCents: 12_500 }).success).toBe(true);
+    for (const expectedTotalCents of [0, -100, 12.5, '12500']) {
+      expect(CreatePayoutSchema.safeParse({ expectedTotalCents }).success).toBe(false);
+    }
+  });
+});

@@ -18,12 +18,19 @@ import {
   type ReceptionCardView,
   type ReceptionWalletView,
 } from '../wallets/wallet-charges.service';
+import { DeviceRateLimit, DeviceRateLimitGuard } from './device-rate-limit.guard';
 import { CurrentDevice, DeviceGuard, type PosDevice } from './device.guard';
-import { PosDeviceReceptionService, type ReceptionCardSale } from './pos-device-reception.service';
+import {
+  PosDeviceReceptionService,
+  type ReceptionCardSale,
+  type ReceptionTopUpView,
+} from './pos-device-reception.service';
 
 const CardToken = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra');
 const CardSchema = z.object({ card: CardToken, uid: z.string().trim().max(64).optional() });
 const PinSchema = z.object({ pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras') });
+/** Recargas por datáfono y minuto (tarjeta y efectivo juntas), venga de la IP que venga. */
+const TOP_UP_PER_TERMINAL = { max: 10, windowSec: 60, scope: 'pos-reception-topup' };
 
 /**
  * Recepción en el datáfono (Authorization: Device <credencial>): recargar el
@@ -33,6 +40,9 @@ const PinSchema = z.object({ pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 c
  *   - GET  /v1/pos-device/reception/options           → qué se puede (tarjeta, efectivo, fichas).
  *   - POST /v1/pos-device/reception/cash              → recarga en efectivo (sumada al momento).
  *   - POST /v1/pos-device/reception/card              → recarga con tarjeta: referencia para el lector.
+ *   - GET  /v1/pos-device/reception/topups/:paymentId → cómo quedó una recarga con tarjeta de este
+ *                                                        datáfono (sumada, pendiente de Paytef, sin cobrar),
+ *                                                        también la de una ficha que ya tenía saldo.
  *   - POST /v1/pos-device/reception/lookup            → la ficha acercada: de qué saldo es (sin enseñarlo).
  *   - GET  /v1/pos-device/reception/wallets/:id       → el saldo recién recargado aquí (código, PIN, ficha).
  *   - POST /v1/pos-device/reception/wallets/:id/card  → darle la ficha acercada.
@@ -40,6 +50,8 @@ const PinSchema = z.object({ pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 c
  *   - POST /v1/pos-device/reception/fichas/token      → código nuevo para grabar en una ficha vacía.
  *   - POST /v1/pos-device/reception/fichas/stock      → la ficha acercada, al stock del local.
  * La venta con tarjeta se confirma con POST /v1/pos-device/charges/:id/result (la de siempre).
+ * Recargar (tarjeta y efectivo) tiene además tope por datáfono: 10 por minuto
+ * (sin importar la IP) y los de 24 h de reception-limits.
  */
 @Controller('pos-device/reception')
 export class PosDeviceReceptionController {
@@ -66,10 +78,11 @@ export class PosDeviceReceptionController {
   }
 
   @Public()
-  @UseGuards(DeviceGuard)
+  @UseGuards(DeviceGuard, DeviceRateLimitGuard)
   @Post('cash')
   @HttpCode(201)
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'pos-reception-topup' })
+  @DeviceRateLimit(TOP_UP_PER_TERMINAL)
   async cash(
     @CurrentDevice() device: PosDevice,
     @Body(new ZodValidationPipe(CashTopUpSchema)) body: CashTopUpDto,
@@ -78,15 +91,27 @@ export class PosDeviceReceptionController {
   }
 
   @Public()
-  @UseGuards(DeviceGuard)
+  @UseGuards(DeviceGuard, DeviceRateLimitGuard)
   @Post('card')
   @HttpCode(201)
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'pos-reception-topup' })
+  @DeviceRateLimit(TOP_UP_PER_TERMINAL)
   async card(
     @CurrentDevice() device: PosDevice,
     @Body(new ZodValidationPipe(DeviceCardTopUpSchema)) body: DeviceCardTopUpDto,
   ): Promise<ReceptionCardSale> {
     return this.reception.cardTopUp(device, body);
+  }
+
+  @Public()
+  @UseGuards(DeviceGuard)
+  @Get('topups/:paymentId')
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'pos-reception-read' })
+  async topUp(
+    @CurrentDevice() device: PosDevice,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+  ): Promise<ReceptionTopUpView> {
+    return this.reception.topUpResult(device, paymentId);
   }
 
   @Public()

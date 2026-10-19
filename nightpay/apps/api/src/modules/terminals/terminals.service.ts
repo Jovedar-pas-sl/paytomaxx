@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -53,6 +54,7 @@ function toView(t: {
   active: boolean;
   deviceTokenHash?: string | null;
   deviceLastSeenAt?: Date | null;
+  reception?: boolean;
 }): TerminalView {
   return {
     id: t.id,
@@ -66,8 +68,12 @@ function toView(t: {
     // La credencial nunca sale: solo si hay una.
     devicePaired: Boolean(t.deviceTokenHash),
     deviceLastSeenAt: t.deviceLastSeenAt?.toISOString() ?? null,
+    reception: t.reception ?? false,
   };
 }
+
+/** Marcar el datáfono de la recepción (cobra efectivo sin persona): solo el dueño. */
+const RECEPTION_OWNER_ONLY = 'Solo el dueño marca qué datáfono es el de la recepción';
 
 @Injectable()
 export class TerminalsService {
@@ -226,7 +232,9 @@ export class TerminalsService {
     terminalId: string,
     actorUserId: string,
     dto: UpdateTerminalDto,
+    actorRole?: string,
   ): Promise<TerminalView> {
+    if (dto.reception !== undefined && actorRole !== 'OWNER') throw new ForbiddenException(RECEPTION_OWNER_ONLY);
     const existing = await this.prisma.terminal.findFirst({
       where: { id: terminalId, tenantId },
     });
@@ -237,6 +245,7 @@ export class TerminalsService {
     if (dto.active !== undefined) data.active = dto.active;
     if (dto.hardwareModel !== undefined) data.hardwareModel = dto.hardwareModel;
     if (dto.deviceSerial !== undefined) data.deviceSerial = dto.deviceSerial;
+    if (dto.reception !== undefined) data.reception = dto.reception;
     if (dto.zone !== undefined) {
       data.zone = dto.zone === null ? null : canonicalizeZone(dto.zone, dto.zoneCustom ?? null);
       // OTRO sin nombre daba null: el datáfono se quedaba sin zona sin que nadie lo pidiera.

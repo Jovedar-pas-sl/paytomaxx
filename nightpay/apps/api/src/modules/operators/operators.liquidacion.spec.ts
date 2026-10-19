@@ -300,3 +300,75 @@ describe('OperatorsService.createPayout — un hash on-chain, un solo pago', () 
     await expect(svc.createPayout(TENANT, OPERATOR, OWNER)).rejects.toBe(boom);
   });
 });
+
+describe('OperatorsService.createPayout — la cifra que se vio y la Idempotency-Key', () => {
+  const idem = { key: 'pago-0001-abcdef', hash: 'huella-1' };
+  const withEarningCount = (h: ReturnType<typeof makeService>, n: number) => {
+    (h.tx as unknown as Record<string, unknown>).operatorEarning = { count: vi.fn().mockResolvedValue(n) };
+  };
+
+  it('lo pagable es la cifra que vio quien paga → se paga; otra cifra → 409 PAYOUT_CHANGED sin apuntar nada', async () => {
+    const ok = makeService();
+    await expect(ok.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { expectedTotalCents: 12_500 })).resolves.toMatchObject({
+      totalCents: 12_500,
+    });
+    const changed = makeService();
+    const { err, body } = await errorOf(changed.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { expectedTotalCents: 10_000 }));
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(body).toMatchObject({ code: 'PAYOUT_CHANGED' });
+    expect(String(body.message)).toContain('ahora son 125,00 €, no 100,00 €');
+    expect(changed.tx.operatorPayout.create).not.toHaveBeenCalled();
+    expect(changed.audit.log).not.toHaveBeenCalled();
+  });
+
+  it('con clave: se guarda en el pago con la huella de la petición', async () => {
+    const h = makeService();
+    await h.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { idempotency: idem });
+    expect(h.created()).toMatchObject({ idempotencyKey: 'pago-0001-abcdef', idempotencyHash: 'huella-1' });
+    expect(h.tx.operatorPayout.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: TENANT, idempotencyKey: 'pago-0001-abcdef' } }),
+    );
+  });
+
+  it('la misma clave y petición otra vez → el mismo pago, sin apuntar otro ni registrarlo', async () => {
+    const h = makeService();
+    withEarningCount(h, 2);
+    const at = new Date('2026-10-19T10:00:00Z');
+    h.tx.operatorPayout.findFirst.mockResolvedValueOnce({
+      id: PAYOUT_ID, operatorId: OPERATOR, paidByUserId: OWNER, idempotencyHash: 'huella-1', totalCents: 12_500, createdAt: at,
+    });
+    await expect(h.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { idempotency: idem })).resolves.toEqual({
+      id: PAYOUT_ID, totalCents: 12_500, earningCount: 2, createdAt: at.toISOString(),
+    });
+    expect(h.tx.operatorPayout.create).not.toHaveBeenCalled();
+    expect(h.audit.log).not.toHaveBeenCalled();
+  });
+
+  it('la misma clave con otra petición, otra chica u otra persona → 409 IDEMPOTENCY_KEY_REUSED', async () => {
+    for (const prior of [
+      { operatorId: OPERATOR, paidByUserId: OWNER, idempotencyHash: 'otra' },
+      { operatorId: 'otra-chica', paidByUserId: OWNER, idempotencyHash: 'huella-1' },
+      { operatorId: OPERATOR, paidByUserId: 'otra-persona', idempotencyHash: 'huella-1' },
+    ]) {
+      const h = makeService();
+      h.tx.operatorPayout.findFirst.mockResolvedValueOnce({ id: PAYOUT_ID, totalCents: 1, createdAt: NOW, ...prior });
+      const { body } = await errorOf(h.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { idempotency: idem }));
+      expect(body.code).toBe('IDEMPOTENCY_KEY_REUSED');
+      expect(h.tx.operatorPayout.create).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a la vez otro pago con la misma clave (P2002 de la clave) → 409 IDEMPOTENCY_KEY_REUSED, no «hash repetido»', async () => {
+    const h = makeService({
+      createError: Object.assign(new Error('Unique constraint failed'), { code: 'P2002', meta: { target: ['tenantId', 'idempotencyKey'] } }),
+    });
+    const { body } = await errorOf(h.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { idempotency: idem }));
+    expect(body.code).toBe('IDEMPOTENCY_KEY_REUSED');
+  });
+
+  it('findPayoutReplay: lo mismo fuera del pago (para no pedir otra vez el 2FA)', async () => {
+    const h = makeService();
+    await expect(h.svc.findPayoutReplay(TENANT, OPERATOR, OWNER, idem)).resolves.toBeNull();
+    expect(h.prisma.withTenant).toHaveBeenCalledWith(TENANT, expect.any(Function));
+  });
+});

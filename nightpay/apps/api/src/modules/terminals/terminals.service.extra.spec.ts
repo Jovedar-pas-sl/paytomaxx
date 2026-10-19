@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { TerminalsService } from './terminals.service';
 
@@ -250,5 +250,19 @@ describe('TerminalsService.update — edición y baja', () => {
       where: { id: TPV_ID },
       data: { hardwareModel: null, deviceSerial: null },
     });
+  });
+});
+
+describe('TerminalsService.update — datáfono de la recepción (dinero #5)', () => {
+  it('el dueño lo marca; el encargado no (403, sin escribir)', async () => {
+    const h = montar({ tpv: fila() });
+    await h.svc.update(SALA_BAMBU, TPV_ID, DUENO, { reception: true }, 'OWNER');
+    expect(h.terminal.update).toHaveBeenCalledWith({ where: { id: TPV_ID }, data: { reception: true } });
+    const m = montar({ tpv: fila() });
+    await expect(m.svc.update(SALA_BAMBU, TPV_ID, DUENO, { reception: true }, 'MANAGER')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(m.terminal.update).not.toHaveBeenCalled();
+    // El resto lo sigue editando el encargado.
+    await m.svc.update(SALA_BAMBU, TPV_ID, DUENO, { label: 'Barra 2' }, 'MANAGER');
+    expect(m.terminal.update).toHaveBeenCalled();
   });
 });

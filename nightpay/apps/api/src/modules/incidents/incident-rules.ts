@@ -27,7 +27,9 @@ export type IncidentKind =
   | 'amount_mismatch'
   | 'approval_unbooked'
   | 'refund_pending'
-  | 'approval_pending';
+  | 'approval_pending'
+  | 'pos_unproven_sales'
+  | 'pos_reception_limit';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -57,6 +59,8 @@ export const ACKABLE_KINDS = [
   'backup_unmonitored',
   'amount_mismatch',
   'approval_unbooked',
+  'pos_unproven_sales',
+  'pos_reception_limit',
 ] as const satisfies readonly IncidentKind[];
 
 export interface Incident {
@@ -476,6 +480,18 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
     };
   }
   // payment.approval_unverified: uno por cobro; se quita solo al resolverlo.
+  if (str(r.payload, 'source') === 'pos-device') {
+    const op = str(r.payload, 'operationNumber');
+    return {
+      ...base,
+      kind: 'approval_unverified',
+      refId: r.paymentId ?? r.id,
+      title: 'Recarga del datáfono sin comprobar',
+      detail: `El datáfono dice que cobró${r.amountCents === null ? '' : ` ${eur(r.amountCents)}`} con tarjeta${op ? ` (operación ${op})` : ''}, pero Paytef no lo ha confirmado y NO se ha sumado al saldo. Míralo en el panel de Paytef y, si está cobrado, resuélvelo en Pagos → Resolver con su código de autorización.`,
+      amountCents: r.amountCents,
+      ackable: false,
+    };
+  }
   return {
     ...base,
     kind: 'approval_unverified',
@@ -484,6 +500,51 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
     detail: `${provider.who} avisa de que el cliente pagó${r.amountCents === null ? '' : ` ${eur(r.amountCents)}`}, pero no se ha podido comprobar y NO se ha dado por pagado. Míralo en ${provider.where}${orderText} y, si está cobrado, resuélvelo en Pagos → Resolver.`,
     amountCents: r.amountCents,
     ackable: false,
+  };
+}
+
+/** Cobros de las chicas dados por pagados con la palabra del datáfono, por noche. */
+export interface UnprovenSalesRow {
+  /** Noche (YYYY-MM-DD, la de las 08:00 de Madrid). */
+  night: string;
+  count: number;
+  amountCents: number;
+  lastAt: Date;
+}
+
+export function posUnprovenSalesIncident(r: UnprovenSalesRow): Incident {
+  const many = r.count === 1 ? '1 cobro' : `${r.count} cobros`;
+  return {
+    kind: 'pos_unproven_sales',
+    refId: r.night,
+    title: 'Cobros del datáfono sin comprobar con Paytef',
+    detail: `${many} (${eur(r.amountCents)}) de la noche del ${r.night} dados por pagados con lo que dice el datáfono: Paytef no deja comprobarlos desde aquí. Cuádralos con el fichero de Paytef o del banco (Banco) antes de pagar a las chicas.`,
+    occurredAt: r.lastAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
+    ackable: true,
+  };
+}
+
+const LIMIT_TEXT: Record<string, string> = {
+  rate: 'el tope de recargas por minuto',
+  terminal_daily: 'el tope de recargas del datáfono en 24 h',
+  wallet_daily: 'el tope de recargas de un saldo en 24 h',
+};
+
+/** Un datáfono de recepción pasó un tope (audit_events pos.reception_limit_exceeded). */
+export function posReceptionLimitIncident(r: EventRow): Incident {
+  const limit = LIMIT_TEXT[str(r.payload, 'limit') ?? ''] ?? 'un tope de recargas';
+  const label = str(r.payload, 'terminalLabel');
+  return {
+    kind: 'pos_reception_limit',
+    refId: r.id,
+    title: 'Datáfono de recepción frenado por un tope',
+    detail: `${label ? `«${label}»` : 'Un datáfono'} ha pasado ${limit}${r.amountCents === null ? '' : ` (pedía ${eur(r.amountCents)})`} y no se ha cobrado. Si no es de la recepción o no lo reconoces, desvincúlalo en Datáfonos.`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
+    ackable: true,
   };
 }
 

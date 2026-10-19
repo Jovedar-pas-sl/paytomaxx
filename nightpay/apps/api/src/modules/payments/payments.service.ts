@@ -86,6 +86,7 @@ import {
 } from './topup-credit';
 import { BRAND_NAME } from '../../common/brand';
 import { isOtherOrder, markAttemptApproved, recordSecondApproval } from './second-approval';
+import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
 
 const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
   inactive: 'Ese servicio está desactivado en la carta',
@@ -1323,6 +1324,13 @@ export class PaymentsService implements OnApplicationBootstrap {
         // Comisión de la chica / propina a otra chica: misma transacción.
         if (result.nextState === 'AUTHORIZED') {
           await this.recordEarnings(tx, p, paymentId);
+        }
+
+        // Recarga con «saldo nuevo» que acabó sin pagarse: su saldo vacío se cierra.
+        if ((result.nextState === 'EXPIRED' || result.nextState === 'CANCELED') && p.walletId) {
+          if (await sweepUnpaidTopUpWallet(tx, paymentId, p.walletId)) {
+            this.logger.log(`Payment ${paymentId} ${result.nextState}: saldo vacío ${p.walletId} cerrado`);
+          }
         }
 
         prevState = p.status;

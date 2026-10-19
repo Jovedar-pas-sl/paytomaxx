@@ -106,6 +106,24 @@ describe('DeviceGuard — credencial del datáfono', () => {
     await expect(makeGuard(terminal()).call(CURRENT)).resolves.toBe(true);
   });
 
+  it('rotar no rejuvenece la credencial en uso: caduca con su fecha aunque haya una nueva pendiente', async () => {
+    process.env.POS_DEVICE_TOKEN_MAX_AGE_DAYS = '30';
+    const old = new Date(Date.now() - 31 * 24 * 3600 * 1000);
+    const rotatedNow = terminal({ deviceTokenIssuedAt: old, deviceTokenNextIssuedAt: new Date() });
+    await expect(makeGuard(rotatedNow).call(CURRENT)).rejects.toThrow(/caducado/);
+    // La nueva vale (es reciente) y, al usarla, su fecha pasa a ser la del datáfono.
+    const issuedNext = new Date(Date.now() - 60_000);
+    const { call, tx } = makeGuard(terminal({ deviceTokenIssuedAt: old, deviceTokenNextIssuedAt: issuedNext }));
+    await expect(call(NEXT)).resolves.toBe(true);
+    expect(tx.terminal.updateMany).toHaveBeenCalledWith({
+      where: { id: 'term-1', deviceTokenNextHash: sha256(NEXT) },
+      data: { deviceTokenHash: sha256(NEXT), deviceTokenNextHash: null, deviceTokenIssuedAt: issuedNext, deviceTokenNextIssuedAt: null },
+    });
+    // Una nueva pedida hace más de 30 días y nunca usada tampoco vale.
+    const stale = terminal({ deviceTokenNextIssuedAt: old });
+    await expect(makeGuard(stale).call(NEXT)).rejects.toThrow(/caducado/);
+  });
+
   it('sin la variable no caduca nunca (lo de por defecto)', async () => {
     const ancient = new Date('2020-01-01T00:00:00Z');
     await expect(makeGuard(terminal({ deviceTokenIssuedAt: ancient })).call(CURRENT)).resolves.toBe(true);
