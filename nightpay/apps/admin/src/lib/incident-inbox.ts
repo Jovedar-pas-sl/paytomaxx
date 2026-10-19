@@ -52,6 +52,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
   wallet_credit_skipped: { group: 'Saldo', title: 'Recarga cobrada sin saldo', tab: 'wallets' },
   wallet_close_requested: { group: 'Saldo', title: 'Un cliente pide su saldo', tab: 'wallets' },
   wallet_open_balance: { group: 'Saldo', title: 'Saldo de un cliente sin devolver', tab: 'wallets' },
+  cash_split_suspected: {
+    group: 'Efectivo',
+    title: 'Efectivo troceado en saldos nuevos',
+    tab: 'wallets',
+    hint: 'Revisa las recargas en efectivo en Saldos: juntas pueden ser una sola entrega de más de 1.000 €.',
+  },
   bank_mismatch: { group: 'Banco', title: 'Diferencia con el banco', tab: 'bank' },
   backup_stale: { group: 'Copias', title: 'Sin copia de seguridad reciente', tab: null },
   backup_unmonitored: { group: 'Copias', title: 'Las copias de seguridad no se vigilan', tab: null },

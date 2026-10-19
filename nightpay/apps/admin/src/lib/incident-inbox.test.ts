@@ -146,6 +146,11 @@ describe('incidencias nuevas del datáfono', () => {
     expect(incidentHint('pos_reception_limit', true)).toMatch(/Datáfonos/);
   });
 
+  it('efectivo troceado en saldos nuevos: en Saldos, con su ayuda', () => {
+    expect(INCIDENT_KINDS.cash_split_suspected).toMatchObject({ group: 'Efectivo', title: 'Efectivo troceado en saldos nuevos', tab: 'wallets' });
+    expect(incidentHint('cash_split_suspected', true)).toMatch(/recargas en efectivo/);
+  });
+
   it('sin ayuda propia: las que se quitan solas lo dicen; las que se resuelven, nada', () => {
     expect(incidentHint('duplicate_charge', true)).toBeNull();
     expect(incidentHint('stuck_payment', false)).toBe('Se quita sola cuando se arregla.');

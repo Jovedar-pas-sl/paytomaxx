@@ -30,7 +30,9 @@ export type IncidentKind =
   /** Cobros dados por pagados con la palabra del datáfono, sin la prueba de Paytef (por noche). */
   | 'pos_unproven_sales'
   /** Un datáfono de recepción pasó un tope de recargas (por minuto o de 24 h). */
-  | 'pos_reception_limit';
+  | 'pos_reception_limit'
+  /** Varios saldos nuevos en efectivo seguidos que juntos pasan de 1.000 € (trocear la entrega). */
+  | 'cash_split_suspected';
 
 export interface Incident {
   kind: IncidentKind;
