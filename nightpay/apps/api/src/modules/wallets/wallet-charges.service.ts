@@ -30,6 +30,7 @@ import {
   returnWalletCards,
   type CardBy,
 } from './wallet-card-ops';
+import { cardRefundCapCents, cashPayoutCapCents, cashPayoutRefusal, walletCash } from './wallet-cash-limits';
 import { firstTopUp, isFreshTopUpBy, type TopUpBy } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
@@ -51,6 +52,13 @@ import {
 } from './wallet-rules';
 
 type Actor = { userId: string; role: Role; tenantId: string };
+
+/** Lo devuelto. remainingCents: lo que sigue en el saldo (en efectivo solo sale lo que entró en efectivo). */
+export interface WalletPayoutResult {
+  refundedCents: number;
+  method: WalletPayoutMethod;
+  remainingCents?: number;
+}
 
 export interface WalletLookup {
   walletId: string;
@@ -1423,17 +1431,21 @@ export class WalletChargesService {
   // ─── Devolver el saldo (encargado o dueño) ─────────────────────────────
 
   /**
-   * Devuelve todo el saldo y cierra la wallet.
+   * Devuelve el saldo (y lo cierra si queda a 0).
    *  - CASH: en efectivo en el local (dueño o encargado), en una transacción.
-   *    El encargado, desde el umbral del local, con su código 2FA.
+   *    Solo lo que entró en efectivo y sin llegar a 1.000 € en 24 h
+   *    (wallet-cash-limits): lo que entró con tarjeta sigue en el saldo y lo
+   *    devuelve el dueño «A la tarjeta». El encargado, desde el umbral del
+   *    local, con su código 2FA.
    *  - CARD: ya hecho en el portal de BBVA (solo el dueño): se reparte entre
-   *    las recargas y se apunta como devolución de cada una (payoutCard).
+   *    las recargas y se apunta como devolución de cada una (payoutCard). Como
+   *    mucho el saldo menos el efectivo que sigue en él (ese, en efectivo).
    */
   async payout(
     actor: Actor,
     walletId: string,
     input: { method: WalletPayoutMethod; bankReference?: string; note?: string; totpCode?: string },
-  ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
+  ): Promise<WalletPayoutResult> {
     if (input.method === 'CARD' && actor.role !== 'OWNER') {
       throw new ForbiddenException('La devolución a la tarjeta la registra el dueño (se hace en el portal de BBVA)');
     }
@@ -1462,42 +1474,53 @@ export class WalletChargesService {
   }
 
   /**
-   * En efectivo: en una sola transacción se cierra el saldo y se apunta la
-   * devolución. El 2FA del encargado se mira con el saldo ya bloqueado (lo
-   * que se devuelve es lo que hay ahora, no lo que vio el panel).
+   * En efectivo: en una sola transacción se apunta la devolución y el saldo
+   * baja (se cierra si queda a 0). Con el saldo bloqueado se mira lo que se
+   * puede devolver en efectivo y el 2FA del encargado (lo que se devuelve es
+   * lo que hay ahora, no lo que vio el panel). Con una devolución a la tarjeta
+   * a medias, nada: primero se termina aquella.
    */
   private async payoutCash(
     actor: Actor,
     walletId: string,
     input: { bankReference?: string; note?: string; totpCode?: string },
     thresholdCents: number | undefined,
-  ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
-    const { amount, twoFactor } = await this.prisma.acrossVenues(async (tx) => {
+  ): Promise<WalletPayoutResult> {
+    const { amount, remaining, twoFactor } = await this.prisma.acrossVenues(async (tx) => {
       const w = await lockWallet(tx, walletId);
-      if (!w || w.status !== 'ACTIVE' || w.balanceCents <= 0) {
-        const halfDone = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+      const halfDone = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+      if (halfDone) {
         throw new ConflictException(
-          halfDone
-            ? `Hay una devolución a la tarjeta de ${eur(halfDone.amountCents)} a medias: que el dueño vuelva a pulsar «A la tarjeta» para terminarla`
-            : 'Este saldo no tiene nada que devolver',
+          `Hay una devolución a la tarjeta de ${eur(halfDone.amountCents)} a medias: que el dueño vuelva a pulsar «A la tarjeta» para terminarla`,
         );
       }
+      if (!w || w.status !== 'ACTIVE' || w.balanceCents <= 0) {
+        throw new ConflictException('Este saldo no tiene nada que devolver');
+      }
+      const cash = await walletCash(tx, walletId);
+      const cap = cashPayoutCapCents(w.balanceCents, cash);
+      if (cap <= 0) throw new ConflictException(cashPayoutRefusal(w.balanceCents, cash));
       const asked = await assertManagerTwoFactor(
         this.totp,
         actor,
-        w.balanceCents,
+        cap,
         thresholdCents,
         input.totpCode,
-        `Devolver ${eur(w.balanceCents)} en efectivo`,
+        `Devolver ${eur(cap)} en efectivo`,
       );
-      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: 0, status: 'REFUNDED' } });
+      const left = w.balanceCents - cap;
+      // Lo que entró con tarjeta sigue en el saldo (abierto, con su «Me voy») para el dueño.
+      await tx.clientWallet.update({
+        where: { id: walletId },
+        data: left === 0 ? { balanceCents: 0, status: 'REFUNDED' } : { balanceCents: left },
+      });
       // «Me voy»: el cliente devuelve la ficha y vuelve al stock (si no, el encargado la marca perdida).
-      await returnWalletCards(tx, walletId, actor.tenantId);
+      if (left === 0) await returnWalletCards(tx, walletId, actor.tenantId, { userId: actor.userId });
       await tx.walletPayout.create({
         data: {
           tenantId: actor.tenantId,
           walletId,
-          amountCents: w.balanceCents,
+          amountCents: cap,
           method: 'CASH',
           status: 'DONE',
           bankReference: input.bankReference ?? null,
@@ -1505,7 +1528,7 @@ export class WalletChargesService {
           paidByUserId: actor.userId,
         },
       });
-      return { amount: w.balanceCents, twoFactor: asked };
+      return { amount: cap, remaining: left, twoFactor: asked };
     });
     await this.audit.log({
       action: 'wallet.payout',
@@ -1513,9 +1536,11 @@ export class WalletChargesService {
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: walletId,
-      payload: { method: 'CASH', refundedCents: amount, remainingCents: 0, twoFactor },
+      payload: { method: 'CASH', refundedCents: amount, remainingCents: remaining, twoFactor },
     });
-    return { refundedCents: amount, method: 'CASH' };
+    return remaining > 0
+      ? { refundedCents: amount, method: 'CASH', remainingCents: remaining }
+      : { refundedCents: amount, method: 'CASH' };
   }
 
   /**
@@ -1531,7 +1556,7 @@ export class WalletChargesService {
     actor: Actor,
     walletId: string,
     input: { bankReference?: string; note?: string },
-  ): Promise<{ refundedCents: number; method: WalletPayoutMethod }> {
+  ): Promise<WalletPayoutResult> {
     const pending = await this.claimCardPayout(actor, walletId, input);
     let outcome = { refunded: 0, remaining: pending.amountCents };
     try {
@@ -1587,12 +1612,17 @@ export class WalletChargesService {
         return { id: open.id, amountCents: open.amountCents, createdAt: open.createdAt, bankReference: open.bankReference, resumed: true };
       }
       if (w.status !== 'ACTIVE' || w.balanceCents <= 0) throw new ConflictException('Este saldo no tiene nada que devolver');
-      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: 0 } });
+      // El efectivo que sigue en el saldo no sale por el banco: se devuelve en efectivo.
+      const amount = cardRefundCapCents(w.balanceCents, await walletCash(tx, walletId));
+      if (amount <= 0) {
+        throw new ConflictException('Este saldo entró en efectivo: se devuelve en efectivo, no a la tarjeta');
+      }
+      await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: w.balanceCents - amount } });
       const created = await tx.walletPayout.create({
         data: {
           tenantId: actor.tenantId,
           walletId,
-          amountCents: w.balanceCents,
+          amountCents: amount,
           method: 'CARD',
           status: 'PENDING',
           claimedAt: new Date(),
@@ -1630,7 +1660,7 @@ export class WalletChargesService {
       const status = balance > 0 ? await reopenData(tx, w) : w.status === 'ACTIVE' ? { status: 'REFUNDED' as const } : {};
       await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: { increment: remaining }, ...status } });
       // Devuelto del todo: su ficha vuelve al stock del local que lo devuelve.
-      if (balance === 0) await returnWalletCards(tx, walletId, row.tenantId);
+      if (balance === 0) await returnWalletCards(tx, walletId, row.tenantId, { userId: row.paidByUserId });
       return { refunded, remaining };
     });
   }

@@ -150,6 +150,12 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
         data: { tenantId: caja.id, balanceCents: 4500, qrToken: `cnw-${r}`, shortCode: `W${r}`.slice(0, 6).toUpperCase(), walletGroup: `gcn-caja-${r}`, closeRequestedAt: new Date() },
       }),
     );
+    // Lo cargó en efectivo otro día (en efectivo solo se devuelve lo que entró en efectivo).
+    await seed((tx) =>
+      tx.walletCashTopUp.create({
+        data: { tenantId: caja.id, walletId: wallet.id, amountCents: 4500, takenByUserId: caja.manager, idempotencyKey: `cn-${r}`, createdAt: new Date(Date.now() - 86_400_000) },
+      }),
+    );
     // Antes de devolverlo, el paso del saldo lo avisa.
     const before = await asStaff(caja.id, () => nights.closeCheck(caja.id));
     expect(stepOf(before.steps, 'saldo')).toMatchObject({ status: 'warn', count: 1 });

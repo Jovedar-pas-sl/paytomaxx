@@ -62,6 +62,10 @@ beforeAll(async () => {
           },
         })
       ).id;
+      // Lo cargó en efectivo en la recepción de A (en efectivo solo se devuelve lo que entró en efectivo).
+      await tx.walletCashTopUp.create({
+        data: { tenantId: A, walletId, amountCents: 30_000, takenByUserId: managerB, idempotencyKey: `rls-${r}`, createdAt: new Date(Date.now() - 86_400_000) },
+      });
     }),
   );
 });
