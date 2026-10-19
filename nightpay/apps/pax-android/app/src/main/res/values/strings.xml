@@ -5,4 +5,6 @@
     <string name="settings_message">Clave de la Device API de Paytef (X-Api-Key). Si Paytef no la ha activado, déjala vacía.</string>
     <string name="settings_save">Guardar</string>
     <string name="settings_skip">Ahora no</string>
+    <string name="scan_hint">Apunta al QR del cobro o del cliente</string>
+    <string name="scan_cancel">Cancelar</string>
 </resources>
