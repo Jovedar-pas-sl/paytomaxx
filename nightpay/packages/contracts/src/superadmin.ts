@@ -265,10 +265,10 @@ export const CreateBusinessSchema = z.object({
 });
 export type CreateBusinessDto = z.infer<typeof CreateBusinessSchema>;
 
-export const UpdateBusinessSchema = CreateBusinessSchema.partial().refine(
-  (v) => Object.values(v).some((x) => x !== undefined),
-  'No hay nada que cambiar',
-);
+/** Cambiar `defaultPlatformCommissionBps` (a otro valor) pide `totpCode`. */
+export const UpdateBusinessSchema = CreateBusinessSchema.partial()
+  .extend({ totpCode: SuperAdminTotpCodeSchema.optional() })
+  .refine((v) => Object.entries(v).some(([k, x]) => k !== 'totpCode' && x !== undefined), 'No hay nada que cambiar');
 export type UpdateBusinessDto = z.infer<typeof UpdateBusinessSchema>;
 
 export const PauseSchema = z.object({ reason: SuperAdminReasonSchema, totpCode: SuperAdminTotpCodeSchema });
@@ -278,8 +278,16 @@ export type PauseDto = z.infer<typeof PauseSchema>;
 export const ResumeSchema = z.object({ totpCode: SuperAdminTotpCodeSchema, reason: SuperAdminReasonSchema.optional() });
 export type ResumeDto = z.infer<typeof ResumeSchema>;
 
-export const AssignVenuesSchema = z.object({ venueIds: z.array(UuidSchema).min(1).max(100) });
+/** Meter locales en un negocio (2FA: puede sacarlos de uno en pausa). */
+export const AssignVenuesSchema = z.object({
+  venueIds: z.array(UuidSchema).min(1).max(100),
+  totpCode: SuperAdminTotpCodeSchema.optional(),
+});
 export type AssignVenuesDto = z.infer<typeof AssignVenuesSchema>;
+
+/** Sacar un local de su negocio (2FA: si el negocio está en pausa, el local vuelve a cobrar). */
+export const UnassignVenueSchema = z.object({ totpCode: SuperAdminTotpCodeSchema.optional() });
+export type UnassignVenueDto = z.infer<typeof UnassignVenueSchema>;
 
 export const BusinessListQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
@@ -348,6 +356,8 @@ export const CreateVenueSchema = z.object({
   walletGroup: WalletGroupSchema.nullable().optional(),
   /** Sin ella: la del negocio (defaultPlatformCommissionBps) o la general (10 %). */
   platformCommissionBps: BpsSchema.optional(),
+  /** Con `walletGroup` o `platformCommissionBps` hace falta (como en el perfil y las reglas). */
+  totpCode: SuperAdminTotpCodeSchema.optional(),
 });
 export type CreateVenueDto = z.infer<typeof CreateVenueSchema>;
 

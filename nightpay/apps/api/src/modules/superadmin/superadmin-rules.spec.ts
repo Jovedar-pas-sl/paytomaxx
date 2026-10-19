@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+  businessUpdateNeedsStepUp,
   commissionMapOf,
   generateTemporaryPassword,
   planVenueRulesChange,
   profileNeedsStepUp,
   superAdminRemovalProblem,
+  venueCreateNeedsStepUp,
 } from './superadmin-rules';
 
 const current = {
@@ -68,6 +70,23 @@ describe('profileNeedsStepUp', () => {
     expect(profileNeedsStepUp({ walletGroup: null })).toBe(true);
     expect(profileNeedsStepUp({ vatBps: 1000 })).toBe(true);
     expect(profileNeedsStepUp({ vatRegime: 'EXENTO' })).toBe(true);
+  });
+});
+
+describe('altas y negocios que piden 2FA', () => {
+  it('alta de local: con grupo del saldo o comisión propia → 2FA; sin ellos (o grupo null) → no', () => {
+    expect(venueCreateNeedsStepUp({ name: 'Luna', slug: 'luna' })).toBe(false);
+    expect(venueCreateNeedsStepUp({ name: 'Luna', slug: 'luna', walletGroup: null })).toBe(false);
+    expect(venueCreateNeedsStepUp({ name: 'Luna', slug: 'luna', walletGroup: 'g1' })).toBe(true);
+    expect(venueCreateNeedsStepUp({ name: 'Luna', slug: 'luna', platformCommissionBps: 0 })).toBe(true);
+  });
+
+  it('negocio: cambiar la comisión por defecto → 2FA; reenviar la misma o tocar otros datos → no', () => {
+    const current = { defaultPlatformCommissionBps: 800 };
+    expect(businessUpdateNeedsStepUp({ name: 'Luna Ocio' }, current)).toBe(false);
+    expect(businessUpdateNeedsStepUp({ defaultPlatformCommissionBps: 800 }, current)).toBe(false);
+    expect(businessUpdateNeedsStepUp({ defaultPlatformCommissionBps: 500 }, current)).toBe(true);
+    expect(businessUpdateNeedsStepUp({ defaultPlatformCommissionBps: null }, current)).toBe(true);
   });
 });
 

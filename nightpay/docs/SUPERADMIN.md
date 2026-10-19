@@ -62,11 +62,11 @@ incidencias se cuentan con la bandeja de cada local (4 locales a la vez).
 | `GET /superadmin/businesses?q=&status=` | Lista (busca por nombre, NIF/CIF o email). | — | — |
 | `GET /superadmin/businesses/:id` | Ficha con sus locales. | — | — |
 | `POST /superadmin/businesses` | Alta: razón social, NIF/CIF (único, se guarda sin espacios ni guiones), contacto, notas, comisión por defecto para sus locales nuevos. | — | `business.created` |
-| `PATCH /superadmin/businesses/:id` | Cambiar esos datos. | — | `business.updated` (solo lo que cambia) |
+| `PATCH /superadmin/businesses/:id` | Cambiar esos datos. | Solo si cambia `defaultPlatformCommissionBps` | `business.updated` (solo lo que cambia) |
 | `POST /superadmin/businesses/:id/pause` | Pausa el negocio: **ninguno de sus locales** acepta cobros nuevos. Motivo. | Sí | `business.paused` (con los locales afectados) |
 | `POST /superadmin/businesses/:id/resume` | Quita la pausa (motivo opcional). | Sí | `business.resumed` |
-| `POST /superadmin/businesses/:id/venues` | Mete locales en el negocio (`venueIds`; si estaban en otro, se cambian). | — | `venue.business_assigned` por local |
-| `POST /superadmin/businesses/:id/venues/:venueId/unassign` | Saca un local del negocio. | — | `venue.business_assigned` |
+| `POST /superadmin/businesses/:id/venues` | Mete locales en el negocio (`venueIds`; si estaban en otro, se cambian: también de uno en pausa). | Sí | `venue.business_assigned` por local |
+| `POST /superadmin/businesses/:id/venues/:venueId/unassign` | Saca un local del negocio (si el negocio está en pausa, el local vuelve a cobrar). Cuerpo `{ totpCode }`. | Sí | `venue.business_assigned` |
 
 ## Locales
 
@@ -74,7 +74,7 @@ incidencias se cuentan con la bandeja de cada local (4 locales a la vez).
 |---|---|---|---|
 | `GET /superadmin/venues?q=&businessId=&paused=` | Todos los locales con su negocio, pausa e IBAN tapado. | — | — |
 | `GET /superadmin/venues/:id` | Ficha: perfil, IBAN completo y titular, reglas (con los días de espera que se aplican hoy), número de usuarios, chicas y datáfonos. | — | — |
-| `POST /superadmin/venues` | Alta (nombre, slug único, zona, negocio, grupo del saldo, comisión; sin comisión: la del negocio o la general). `GET/POST /v1/admin/venues` siguen igual para el desplegable del panel. | — | `venue.created` |
+| `POST /superadmin/venues` | Alta (nombre, slug único, zona, negocio, grupo del saldo, comisión; sin comisión: la del negocio o la general). `GET/POST /v1/admin/venues` siguen igual para el desplegable del panel. | Solo con `walletGroup` o `platformCommissionBps` | `venue.created` |
 | `PATCH /superadmin/venues/:id/profile` | Nombre, zona horaria, IVA (`vatBps`, `vatRegime`) y grupo del saldo (`walletGroup`, null = sin grupo). | Solo si toca `walletGroup`, `vatBps` o `vatRegime` | `venue.profile_updated` |
 | `PATCH /superadmin/venues/:id/rules` | Reglas: tope por cobro de la chica, comisión de la plataforma, comisiones por categoría (parciales; se mezclan con las guardadas), días de espera para pagar a las chicas (0–60, null = `PAYOUT_HOLD_DAYS`), umbral de aprobación de devoluciones y si los pagos a chicas necesitan aprobación. La chica + la plataforma no pueden pasar del 100 % en ninguna categoría, tampoco con el % propio más alto de una chica del local (400). | Sí | `venue.rules_updated` |
 | `PUT /superadmin/venues/:id/settlement-account` | IBAN donde el banco liquida los cobros con tarjeta y su titular (mod-97; se guarda sin espacios). Para cuadre e informes. | Sí | `venue.settlement_account_set` (tapado) |

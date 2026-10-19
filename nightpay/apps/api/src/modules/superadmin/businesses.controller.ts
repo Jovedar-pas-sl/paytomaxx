@@ -5,6 +5,7 @@ import {
   CreateBusinessSchema,
   PauseSchema,
   ResumeSchema,
+  UnassignVenueSchema,
   UpdateBusinessSchema,
   type AssignVenuesDto,
   type BusinessDetail,
@@ -13,6 +14,7 @@ import {
   type CreateBusinessDto,
   type PauseDto,
   type ResumeDto,
+  type UnassignVenueDto,
   type UpdateBusinessDto,
 } from '@nightpay/contracts';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
@@ -101,7 +103,8 @@ export class SuperAdminBusinessesController {
     @CurrentSuperAdmin() actor: SuperAdminActor,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('venueId', ParseUUIDPipe) venueId: string,
+    @Body(new ZodValidationPipe(UnassignVenueSchema.optional())) dto: UnassignVenueDto | undefined,
   ): Promise<BusinessDetail> {
-    return this.businesses.unassignVenue(actor, id, venueId);
+    return this.businesses.unassignVenue(actor, id, venueId, dto ?? {});
   }
 }
