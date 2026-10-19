@@ -20,7 +20,16 @@ import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from 
 import { reopenData } from './wallet-activation';
 import { mergedWalletIds } from './wallet-merge-chain';
 import { clientRefundState, refundCards, type ClientRefundState } from './wallet-refund-view';
-import { attachCard, createCardToken, returnWalletCards, type CardBy } from './wallet-card-ops';
+import {
+  ISSUED_CARD_STATUSES,
+  attachCard,
+  createCardToken,
+  isIssuedCard,
+  moveWalletCards,
+  recordCardEvents,
+  returnWalletCards,
+  type CardBy,
+} from './wallet-card-ops';
 import { firstTopUp, isFreshTopUpBy, type TopUpBy } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
@@ -244,7 +253,7 @@ export class WalletChargesService {
   ): Promise<WalletLookup> {
     const [home, cards] = await Promise.all([
       this.prisma.venue.findUnique({ where: { id: wallet.tenantId }, select: { name: true } }),
-      this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId: wallet.id, status: 'ISSUED' } })),
+      this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } } })),
     ]);
     return {
       walletId: wallet.id,
@@ -720,6 +729,8 @@ export class WalletChargesService {
         where: { id: sourceWalletId },
         data: { balanceCents: 0, status: 'DEPLETED', mergedIntoId: targetWalletId },
       });
+      // Su ficha va con el dinero: si no, al pagar diría «no tiene saldo» y el stock la vería libre.
+      await moveWalletCards(tx, { walletId: sourceWalletId, venueId: source.tenantId }, targetWalletId);
       return { moved: source.balanceCents, tenantId: source.tenantId, balanceCents: target.balanceCents + source.balanceCents };
     });
     await this.audit.log({
@@ -766,14 +777,15 @@ export class WalletChargesService {
     return this.getRequest(actor, requestId);
   }
 
-  /** Ficha usada para pagar: cuándo, y su número de serie si aún no lo tenía. */
-  private async touchCard(walletId: string, input: { card: string; uid?: string | null }): Promise<void> {
-    const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
-    await this.prisma.acrossVenues(async (tx) => {
-      await tx.walletCard.updateMany({ where: { token: input.card, walletId }, data: { lastUsedAt: new Date() } });
-      // Ficha dada desde un iPhone: su número de serie, la primera vez que la lee un Android.
-      if (uid) await tx.walletCard.updateMany({ where: { token: input.card, uid: null }, data: { uid } });
-    });
+  /**
+   * Ficha usada para pagar: cuándo. El número de serie NO se fija aquí: solo
+   * al darla o al ponerla en el stock (si una copia llegara antes que la
+   * original, la original pasaría luego por «copia»).
+   */
+  private async touchCard(walletId: string, input: { card: string }): Promise<void> {
+    await this.prisma.acrossVenues((tx) =>
+      tx.walletCard.updateMany({ where: { token: input.card, walletId }, data: { lastUsedAt: new Date() } }),
+    );
   }
 
   // ─── Datáfono del local (Authorization: Device, sin persona) ────────────
@@ -902,8 +914,17 @@ export class WalletChargesService {
     if (status !== 'PENDING' || request.walletId) throw new ConflictException(REQUEST_ERRORS['not-pending']);
   }
 
+  /**
+   * En el datáfono la ficha se lee siempre con su lector NFC: sin número de
+   * serie (p. ej. su enlace pasado a QR y leído con la cámara) no vale, que es
+   * como se colaría una copia.
+   */
   private async walletByTerminalRef(venueId: string, ref: TerminalWalletRef) {
-    return 'walletToken' in ref ? this.walletByLinkToken(venueId, ref.walletToken) : this.walletByRef(venueId, ref);
+    if ('walletToken' in ref) return this.walletByLinkToken(venueId, ref.walletToken);
+    if ('card' in ref && !(ref.uid && normalizeWalletCardUid(ref.uid))) {
+      throw new BadRequestException(TERMINAL_CARD_NEEDS_UID);
+    }
+    return this.walletByRef(venueId, ref);
   }
 
   /**
@@ -958,7 +979,7 @@ export class WalletChargesService {
   /** El saldo recién recargado en este datáfono: su código (el cliente lo apunta), saldo, PIN y ficha. */
   async receptionWallet(terminal: TerminalActor, walletId: string): Promise<ReceptionWalletView> {
     const wallet = await this.terminalFreshWallet(terminal, walletId);
-    const cards = await this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId, status: 'ISSUED' } }));
+    const cards = await this.prisma.acrossVenues((tx) => tx.walletCard.count({ where: { walletId, status: { in: ISSUED_CARD_STATUSES } } }));
     return {
       walletId: wallet.id,
       code: formatWalletCode(wallet.shortCode ?? ''),
@@ -1091,12 +1112,24 @@ export class WalletChargesService {
   /** Encargado o dueño: ficha perdida → bloqueada. El saldo sigue (Face ID, código + PIN). */
   async blockCard(actor: Actor, walletId: string): Promise<{ ok: true }> {
     await this.managerWallet(actor, walletId);
-    const res = await this.prisma.acrossVenues((tx) =>
-      tx.walletCard.updateMany({
-        where: { walletId, status: 'ISSUED' },
-        data: { status: 'BLOCKED', blockedAt: new Date() },
-      }),
-    );
+    const res = await this.prisma.acrossVenues(async (tx) => {
+      const cards = await tx.walletCard.findMany({
+        where: { walletId, status: { in: ISSUED_CARD_STATUSES } },
+        select: { id: true },
+      });
+      if (cards.length === 0) return { count: 0 };
+      const now = new Date();
+      await tx.walletCard.updateMany({
+        where: { id: { in: cards.map((c) => c.id) } },
+        data: { status: 'BLOCKED', blockedAt: now },
+      });
+      await recordCardEvents(tx, cards.map((c) => ({ cardId: c.id, walletId, kind: 'BLOCKED' as const })), {
+        venueId: actor.tenantId,
+        by: { userId: actor.userId },
+        now,
+      });
+      return { count: cards.length };
+    });
     if (res.count === 0) throw new ConflictException('Este saldo no tiene ficha');
     await this.audit.log({
       action: 'wallet.card_blocked',
@@ -1118,7 +1151,7 @@ export class WalletChargesService {
     const card = isWalletCardToken(input.card)
       ? await this.prisma.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: input.card } }))
       : null;
-    if (!card || card.status !== 'ISSUED' || !card.walletId) {
+    if (!card || !isIssuedCard(card) || !card.walletId) {
       throw new NotFoundException('Esta ficha no tiene saldo: dásela al cliente al recargar');
     }
     const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
@@ -1741,6 +1774,9 @@ export class WalletChargesService {
     };
   }
 }
+
+/** En el datáfono, una ficha sin su número de serie (leída por cámara) no vale. */
+const TERMINAL_CARD_NEEDS_UID = 'Acerca la ficha al lector del datáfono (sin leerla por NFC no vale: podría ser una copia)';
 
 /** Saldos sumados uno a otro que se siguen como mucho desde un pase viejo. */
 const MAX_MERGE_HOPS = 5;

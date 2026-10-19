@@ -41,7 +41,20 @@ function setup(o: { nfc?: boolean } = {}) {
     [NEON, { id: NEON, walletGroup: 'otro', paymentMethods: null }],
   ]);
   const byToken = (t: unknown) => [...cards.values()].find((c) => c.token === t);
+  const events: Row[] = [];
   const tx = {
+    // Los códigos sin grabar de hace más de un día se borran al pedir uno nuevo.
+    $executeRaw: vi.fn(async () => 0),
+    walletCardEvent: {
+      createMany: vi.fn(async (a: { data: Row[] }) => {
+        events.push(...a.data);
+        return { count: a.data.length };
+      }),
+      // El último «perdida» de la ficha (¿sustituida o marcada desde el panel?).
+      findFirst: vi.fn(async (a: { where: { cardId: string; kind: string } }) =>
+        [...events].reverse().find((e) => e.cardId === a.where.cardId && e.kind === a.where.kind) ?? null,
+      ),
+    },
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = strings.join('?');
       if (text.includes('WHERE token =')) {
@@ -79,7 +92,7 @@ function setup(o: { nfc?: boolean } = {}) {
   const prisma = { venue: tx.venue, asSystem: vi.fn(run), acrossVenues: vi.fn(run) };
   const audit = { log: vi.fn(async (_e: Record<string, unknown>) => undefined) };
   const svc = new WalletCardsService(prisma as never, audit as never);
-  return { svc, cards, put, tx, audit };
+  return { svc, cards, put, tx, audit, events };
 }
 
 const recepcion = { userId: null, terminalId: 'term-recepcion' };
@@ -126,7 +139,8 @@ describe('«Preparar fichas»: tap, tap, tap', () => {
 
   it('perdida, bloqueada, copiada, de otro dueño o que no es nuestra: se aparta sin tocarla', async () => {
     const { svc, put, cards } = setup();
-    put({ id: 'perdida', token: tok('C'), status: 'LOST' });
+    // Marcada perdida desde el panel: sigue siendo del cliente (su saldo).
+    put({ id: 'perdida', token: tok('C'), status: 'LOST', walletId: W_CON });
     put({ id: 'bloqueada', token: tok('D'), status: 'BLOCKED' });
     put({ id: 'con-uid', token: tok('E'), uid: '04A23B5C1D8000' });
     put({ id: 'de-neon', token: tok('F'), venueId: NEON });
@@ -137,6 +151,30 @@ describe('«Preparar fichas»: tap, tap, tap', () => {
     await expect(svc.stock(SALA, recepcion, { card: tok('G') })).resolves.toEqual({ outcome: 'foreign' });
     await expect(svc.stock(SALA, recepcion, { card: 'no/es/nuestra' })).resolves.toEqual({ outcome: 'foreign' });
     expect(cards.get('de-neon')).toMatchObject({ venueId: NEON });
+  });
+
+  it('la sustituida al dar otra al mismo saldo (perdida, sin saldo) aparece: vuelve al stock con su evento', async () => {
+    const { svc, put, cards, events } = setup();
+    put({ id: 'sustituida', token: tok('H'), status: 'LOST', walletId: null, lostAt: NOW });
+    events.push({ cardId: 'sustituida', kind: 'LOST', walletId: W_CON, byUserId: null, terminalId: null });
+    await expect(svc.stock(SALA, recepcion, { card: tok('H') })).resolves.toEqual({ outcome: 'returned', codeHint: '•••-•••' });
+    expect(cards.get('sustituida')).toMatchObject({ status: 'RETURNED', venueId: SALA, returnedAt: NOW });
+    expect(events.at(-1)).toEqual(expect.objectContaining({ cardId: 'sustituida', kind: 'RETURNED', venueId: SALA, terminalId: 'term-recepcion' }));
+    // Una del stock marcada perdida desde el panel no vuelve sola: la recupera el encargado.
+    put({ id: 'perdida-panel', token: tok('L'), status: 'LOST', walletId: null, lostAt: NOW });
+    events.push({ cardId: 'perdida-panel', kind: 'LOST', walletId: null, byUserId: JAVI, terminalId: null });
+    await expect(svc.stock(SALA, recepcion, { card: tok('L') })).resolves.toEqual({ outcome: 'lost' });
+  });
+
+  it('del API anterior (ACTIVE): con saldo gastado vuelve al stock; sin saldo, queda en el stock como STOCK', async () => {
+    const { svc, put, cards, events } = setup();
+    put({ id: 'vieja-dada', token: tok('J'), status: 'ACTIVE', walletId: W_GASTADO });
+    put({ id: 'vieja-libre', token: tok('K'), status: 'ACTIVE', walletId: null, stockedAt: null });
+    await expect(svc.stock(SALA, recepcion, { card: tok('J') })).resolves.toMatchObject({ outcome: 'returned' });
+    expect(cards.get('vieja-dada')).toMatchObject({ status: 'RETURNED', walletId: null });
+    await expect(svc.stock(SALA, recepcion, { card: tok('K') })).resolves.toEqual({ outcome: 'stocked' });
+    expect(cards.get('vieja-libre')).toMatchObject({ status: 'STOCK', stockedAt: NOW });
+    expect(events.map((e) => [e.cardId, e.kind])).toEqual([['vieja-dada', 'RETURNED']]);
   });
 
   it('una del stock de otro local del grupo pasa al stock de este', async () => {
@@ -158,12 +196,15 @@ describe('panel: Clientes → Fichas', () => {
     const { svc, tx } = setup();
     await svc.list(SALA, { q: '04:a2:3b', status: 'ISSUED' });
     const where = (tx.walletCard.findMany.mock.calls[0] as unknown as [{ where: Row }])[0].where;
-    expect(where).toMatchObject({ venueId: SALA, status: 'ISSUED', NOT: { status: 'STOCK', stockedAt: null } });
-    expect(where.OR).toEqual(expect.arrayContaining([{ uid: { contains: '04A23B' } }, { token: { startsWith: '04:a2:3b' } }]));
+    expect(where).toMatchObject({ venueId: SALA, NOT: { status: 'STOCK', stockedAt: null } });
+    const [byStatus, bySearch] = where.AND as [Row, Row];
+    // Entregadas: ISSUED y, del API anterior, ACTIVE con saldo.
+    expect(byStatus).toEqual({ status: { in: ['ISSUED', 'ACTIVE'] }, walletId: { not: null } });
+    expect(bySearch.OR).toEqual(expect.arrayContaining([{ uid: { contains: '04A23B' } }, { token: { startsWith: '04:a2:3b' } }]));
     await svc.list(SALA, { q: 'k7q-4m2', status: 'raro' });
     const byCode = (tx.walletCard.findMany.mock.calls[1] as unknown as [{ where: Row }])[0].where;
     expect(byCode).not.toHaveProperty('status');
-    expect(byCode.OR).toEqual(expect.arrayContaining([{ walletId: { in: [W_CON] } }]));
+    expect((byCode.AND as Row[])[1]!.OR).toEqual(expect.arrayContaining([{ walletId: { in: [W_CON] } }]));
   });
 
   it('en la lista, el código grabado no sale entero y el del saldo solo si está entregada', () => {
@@ -177,7 +218,7 @@ describe('panel: Clientes → Fichas', () => {
   });
 
   it('bloquear o marcar perdida: el encargado de su local; una ya perdida o bloqueada → 409', async () => {
-    const { svc, put, cards, audit } = setup();
+    const { svc, put, cards, audit, events } = setup();
     put({ id: 'card-1', token: tok('A'), walletId: W_CON, status: 'ISSUED' });
     put({ id: 'card-2', token: tok('B') });
     await expect(svc.mark(javi, 'card-1', 'lost')).resolves.toMatchObject({ id: 'card-1', status: 'LOST', lostAt: NOW.toISOString() });
@@ -186,6 +227,11 @@ describe('panel: Clientes → Fichas', () => {
     await expect(svc.mark(javi, 'card-2', 'block')).resolves.toMatchObject({ status: 'BLOCKED' });
     await expect(svc.mark(javi, 'card-2', 'lost')).rejects.toThrow(/bloqueada/);
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.card_lost', actorId: JAVI, targetId: 'card-1' }));
+    // Cada cambio deja su evento, con el local y quién (los contadores de la noche cuentan eventos).
+    expect(events.map((e) => [e.cardId, e.kind, e.venueId, e.byUserId])).toEqual([
+      ['card-1', 'LOST', SALA, JAVI],
+      ['card-2', 'BLOCKED', SALA, JAVI],
+    ]);
   });
 
   it('la chica no; el encargado de otro grupo no la ve', async () => {

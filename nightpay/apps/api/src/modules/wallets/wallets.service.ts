@@ -10,6 +10,7 @@ import { PAID_STATUSES_SQL, paymentAt } from '../reports/reporting-sql';
 import type { ClientWalletView, Role, WalletsAdminStats } from '@nightpay/contracts';
 import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor, eur } from './wallet-two-factor';
+import { ISSUED_CARD_STATUSES } from './wallet-card-ops';
 
 /** Intentos para dar con un código corto libre (31^6 combinaciones). */
 const MAX_CODE_ATTEMPTS = 5;
@@ -279,7 +280,7 @@ export class WalletsService {
           closeRequestedAt: true,
           pinHash: true,
           pinLockedAt: true,
-          _count: { select: { consumptions: true, passkeys: true, cards: { where: { status: 'ISSUED' } } } },
+          _count: { select: { consumptions: true, passkeys: true, cards: { where: { status: { in: ISSUED_CARD_STATUSES } } } } },
         },
       }),
     );
