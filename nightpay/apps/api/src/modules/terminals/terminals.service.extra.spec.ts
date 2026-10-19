@@ -235,11 +235,9 @@ describe('TerminalsService.update — edición y baja', () => {
     });
   });
 
-  // BUG: terminals.service.ts:241 + UpdateTerminalSchema (contracts/src/terminals.ts:74)
-  // no exige zoneCustom con zone=OTRO (create y bulk sí). Entrada: PATCH
-  // { zone: 'OTRO' } sobre un terminal en BARRA. Esperado: BadRequest (como en
-  // el alta). Real: escribe zone=null y el datáfono desaparece de su zona.
-  it.skip('zona OTRO sin nombre en la edición → BadRequest, no borra la zona', async () => {
+  // Antes la edición no exigía el nombre con zona OTRO (el alta sí): escribía
+  // zone=null y el datáfono desaparecía de su zona.
+  it('zona OTRO sin nombre en la edición → BadRequest, no borra la zona', async () => {
     const h = montar({ tpv: fila() });
     await expect(h.svc.update(SALA_BAMBU, TPV_ID, DUENO, { zone: 'OTRO' })).rejects.toBeInstanceOf(BadRequestException);
     expect(h.terminal.update).not.toHaveBeenCalled();
