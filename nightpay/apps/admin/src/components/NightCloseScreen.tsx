@@ -87,7 +87,7 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
 
   const steps = check ? effectiveSteps(check.steps, check.cash, draft) : [];
   const freeze = freezeState(steps, acks, note);
-  const ready = readyCount(steps);
+  const ready = readyCount(steps, acks);
 
   async function freezeZ() {
     setBusy(true);
@@ -181,7 +181,11 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
       <div className="np-close-panel">
         <header className="np-close-head">
           <div className="np-close-head-row">
-            <p className="np-close-kicker">Noche abierta desde las {formatDateTime(night.openedAt, tz, 'time')}</p>
+            <p className="np-close-kicker">
+              {closed?.closedAt
+                ? `Abierta a las ${formatDateTime(night.openedAt, tz, 'time')} · cerrada a las ${formatDateTime(closed.closedAt, tz, 'time')}`
+                : `Noche abierta desde las ${formatDateTime(night.openedAt, tz, 'time')}`}
+            </p>
             <button
               type="button"
               className="np-modal-close"

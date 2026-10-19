@@ -112,8 +112,10 @@ describe('«Congelar el Z»', () => {
     expect(freezeState(steps, ['cobros'], 'BBVA mañana').canFreeze).toBe(true);
   });
 
-  it('cuántos pasos están listos', () => {
-    expect(readyCount(effectiveSteps(STEPS, CASH, { floatText: '', countedText: '65' }))).toBe(6);
+  it('cuántos pasos están listos: los ok y los avisos confirmados', () => {
+    const steps = effectiveSteps(STEPS, CASH, { floatText: '', countedText: '65' });
+    expect(readyCount(steps)).toBe(6);
+    expect(readyCount(steps, ['saldo'])).toBe(7);
   });
 });
 

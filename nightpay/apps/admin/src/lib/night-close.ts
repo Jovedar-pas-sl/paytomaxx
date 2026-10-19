@@ -119,9 +119,9 @@ export function stepTab(link: NightCloseLink | null, tabs: ReadonlyArray<PanelTa
   return tabs.find((t) => t.key === key) ?? null;
 }
 
-/** Cuántos pasos están listos (para la barra de progreso). */
-export function readyCount(steps: ReadonlyArray<NightCloseStep>): number {
-  return steps.filter((s) => s.status === 'ok').length;
+/** Cuántos pasos están listos (para la barra de progreso): los ok y los avisos ya confirmados. */
+export function readyCount(steps: ReadonlyArray<NightCloseStep>, acks: ReadonlyArray<NightCloseStepKey> = []): number {
+  return steps.filter((s) => s.status === 'ok' || (s.status === 'warn' && acks.includes(s.key))).length;
 }
 
 /**
