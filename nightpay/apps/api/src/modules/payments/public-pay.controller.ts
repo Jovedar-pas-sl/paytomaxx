@@ -12,6 +12,7 @@ import {
   Post,
   Query,
   Res,
+  UseFilters,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
@@ -40,6 +41,14 @@ import {
   renderResultView,
 } from './public-pay.pages';
 import { walletClaimCookieName, walletClaimSetCookie } from './wallet-claim';
+import { PayPageFilter } from './pay-page.filter';
+
+/**
+ * Páginas GET de /pay: fuera del límite global (global-rate-limit.ts) y con
+ * este, holgado: el «Comprobando» se refresca cada 3-5 s y en el local muchos
+ * clientes comparten el wifi. Pasado, una página que espera (PayPageFilter).
+ */
+const PAY_PAGE_LIMIT = { max: 600, windowSec: 60, scope: 'pay-page' } as const;
 import { checkedPin } from '../wallets/client-pin';
 
 /** Formulario de la página de pago. `method` vacío = sin preferencia. */
@@ -95,6 +104,8 @@ export class PublicPayController {
 
   @Public()
   @Get('result')
+  @IpRateLimit(PAY_PAGE_LIMIT)
+  @UseFilters(new PayPageFilter())
   async paymentResult(
     @Query('op') op: string | undefined,
     @Query('lang') langQuery: string | undefined,
@@ -122,6 +133,8 @@ export class PublicPayController {
 
   @Public()
   @Get(':token/receipt')
+  @IpRateLimit(PAY_PAGE_LIMIT)
+  @UseFilters(new PayPageFilter())
   async receipt(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,
@@ -143,6 +156,8 @@ export class PublicPayController {
 
   @Public()
   @Get(':token/checkout')
+  @IpRateLimit(PAY_PAGE_LIMIT)
+  @UseFilters(new PayPageFilter())
   async checkout(
     @Param('token') token: string,
     @Query('op') op: string | undefined,
@@ -161,6 +176,8 @@ export class PublicPayController {
 
   @Public()
   @Get(':token')
+  @IpRateLimit(PAY_PAGE_LIMIT)
+  @UseFilters(new PayPageFilter())
   async payPage(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,

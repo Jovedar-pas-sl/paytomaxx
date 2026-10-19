@@ -341,6 +341,20 @@ ${offerNewCharge ? `<p class="small">${escapeHtml(t.processingNewCharge)}</p>` :
   return page(t, t.processingTitle, body, { head });
 }
 
+/**
+ * Demasiadas peticiones desde esta IP (el wifi del local): espera `seconds` y
+ * vuelve a cargar la misma página. Sin «no se te ha cobrado»: no lo sabemos.
+ */
+export function renderBusyPage(lang: PayLanguage, againHref: string, seconds: number): string {
+  const t = PAY_TEXT[lang];
+  const head = `<meta http-equiv="refresh" content="${Math.max(1, Math.round(seconds))};url=${escapeHtml(againHref)}">${SPIN_CSS}`;
+  const body = `
+<div class="spin" aria-hidden="true"></div>
+<h1 role="status">${escapeHtml(t.busyTitle)}</h1>
+<p>${escapeHtml(t.busyBody)}</p>`;
+  return page(t, t.busyTitle, body, { head });
+}
+
 // ─── Avisos: qué pasó, si no se cobró nada y UNA acción ─────────────────
 
 const NOTICE_CSS = `<style>

@@ -94,6 +94,9 @@ export interface PayText {
   processingTitle: string;
   processingBody: string;
   processingNewCharge: string;
+  // Muchos a la vez en la misma IP (wifi del local): la página espera y se recarga sola
+  busyTitle: string;
+  busyBody: string;
   // Avisos
   notCharged: string;
   notFound: PayNotice;
@@ -191,6 +194,8 @@ const ES: PayText = {
     'Estamos esperando la confirmación del banco. No vuelvas a pagar: esta pantalla se actualiza sola.',
   processingNewCharge:
     'Si cerraste la página del banco sin pagar, en unos minutos podrás volver a intentarlo con el mismo código.',
+  busyTitle: 'Un momento',
+  busyBody: 'Hay mucha gente pagando a la vez. Esta página se vuelve a cargar sola en unos segundos.',
   notCharged: 'No se te ha cobrado nada.',
   notFound: {
     title: 'No encontramos este pago',
@@ -341,6 +346,8 @@ const EN: PayText = {
     'We are waiting for the bank to confirm. Do not pay again: this page updates by itself.',
   processingNewCharge:
     'If you closed the bank page without paying, you can try again with the same code in a few minutes.',
+  busyTitle: 'One moment',
+  busyBody: 'Lots of people are paying at once. This page reloads by itself in a few seconds.',
   notCharged: 'You have not been charged.',
   notFound: {
     title: 'We cannot find this payment',
