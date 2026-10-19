@@ -26,6 +26,7 @@ probarían nada de eso.
 | `google-wallet.int.spec.ts` | Migración de `wallet_passes` (sin RLS, cascada, idempotente), consulta del repaso de Google Wallet con RLS forzado y el repaso entero con un Google de mentira |
 | `aprobaciones.int.spec.ts` | «Por aprobar»: el encargado pide el pago a la chica y el dueño lo aprueba con su 2FA (el pago existe y el saldo baja); quien pide no aprueba (ni la base lo deja); aprobar dos veces o a la vez paga una sola; dos peticiones a la vez no gastan de más; devoluciones desde el umbral a aprobación (202) y por debajo directas; rechazar; caducar a las 24 h; FAILED con la razón; Incidencias; otro local no la ve |
 | `doble-cobro.int.spec.ts` | Doble cobro: dos aprobaciones del banco de dos pedidos del mismo cobro a la vez → una lo paga y la otra queda como doble cobro una sola vez (candado del cobro), intentos APPROVED, una comisión; avisos repetidos no duplican la incidencia (también con el cobro devuelto). Venta anulada en el datáfono con el cobro aún pagado → Incidencias hasta devolverlo |
+| `recarga-movil.int.spec.ts` | «Recargar» desde la página del saldo (/w): cobro de recarga del local del saldo (sin propina, sin chica, sin saldo nuevo), se suma una sola vez, doble toque = el mismo cobro, dos pedidos aprobados = doble cobro (saldo sumado una vez), lo caducado o abandonado en el banco no bloquea, a cero vuelve a activo, vuelta al saldo con su «Pagado», saldo bloqueado / pausa (423) / «Formas de cobro» apagadas (409) y en el Z como recarga, no como venta |
 
 ## Lanzarlas en local
 
