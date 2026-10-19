@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { UnauthorizedException } from '@nestjs/common';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import {
   passwordFingerprint,
+  REFRESH_FAMILY_MAX_SECONDS,
   REFRESH_GRACE_SECONDS,
   REFRESH_TOKEN_TTL_SECONDS,
   RefreshTokenReuseError,
@@ -136,15 +137,31 @@ describe('RefreshTokenService', () => {
       }
     });
 
-    it('rejects + revokes family when secret is tampered', async () => {
+    it('jti vivo con un secreto falso → solo 401: la sesión de su dueño sigue', async () => {
       const issued = await svc.issue('user-1', 'tenant-1');
       const jti = jtiOf(issued.token);
-      expect(familyKeys(redisMock, issued.family)).toHaveLength(1);
 
       await expect(svc.rotate(`${jti}.${'0'.repeat(64)}`)).rejects.toThrow(UnauthorizedException);
 
-      expect(familyKeys(redisMock, issued.family)).toHaveLength(0);
-      expect(redisMock.has(`nightpay:refresh:${jti}`)).toBe(false);
+      expect(familyKeys(redisMock, issued.family)).toHaveLength(1);
+      expect(redisMock.has(`nightpay:refresh:${jti}`)).toBe(true);
+      await expect(svc.rotate(issued.token)).resolves.toMatchObject({ family: issued.family });
+    });
+
+    it('los logs no llevan el jti entero', async () => {
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const issued = await svc.issue('user-1', 'tenant-1');
+      const jti = jtiOf(issued.token);
+      await expect(svc.rotate(`${jti}.${'0'.repeat(64)}`)).rejects.toThrow(UnauthorizedException);
+      const rotated = await svc.rotate(issued.token);
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.now() + (REFRESH_GRACE_SECONDS + 1) * 1000);
+      await expect(svc.rotate(issued.token)).rejects.toThrow(RefreshTokenReuseError);
+      const logged = warn.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(logged).toContain(jti.slice(0, 8));
+      expect(logged).not.toContain(jti);
+      expect(logged).not.toContain(rotated.family);
+      warn.mockRestore();
     });
 
     it('rejects malformed tokens', async () => {
@@ -158,6 +175,51 @@ describe('RefreshTokenService', () => {
       await svc.rotate(issued.token);
       const ttl = await redisMock.ttl(`nightpay:refresh:used:${jtiOf(issued.token)}`);
       expect(ttl).toBe(REFRESH_TOKEN_TTL_SECONDS);
+    });
+  });
+
+  describe('vida máxima de la sesión (90 días desde el login)', () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    it('refrescar no la alarga: cerca de los 90 días el token nuevo caduca con la sesión', async () => {
+      vi.useFakeTimers();
+      const t0 = new Date('2026-10-01T10:00:00Z').getTime();
+      vi.setSystemTime(t0);
+      let token = (await svc.issue('user-1', 'tenant-1')).token;
+      for (let day = 1; day <= 88; day++) {
+        vi.setSystemTime(t0 + day * DAY_MS);
+        token = (await svc.rotate(token)).token;
+      }
+      // Día 88: al token nuevo le quedan 2 días (no 30).
+      expect(await redisMock.ttl(`nightpay:refresh:${jtiOf(token)}`)).toBe(2 * 24 * 60 * 60);
+
+      vi.setSystemTime(t0 + REFRESH_FAMILY_MAX_SECONDS * 1000 - 1000);
+      const last = await svc.rotate(token);
+      expect(last.ttlSeconds).toBe(1);
+      expect(await redisMock.ttl(`nightpay:refresh:${jtiOf(last.token)}`)).toBe(1);
+    });
+
+    it('una sesión de más de 90 días → 401 y la family entera fuera', async () => {
+      const old = Date.now() - REFRESH_FAMILY_MAX_SECONDS * 1000 - 1000;
+      const issued = await svc.issue('user-1', 'tenant-1', { familyCreatedAt: old });
+      const sibling = await svc.issue('user-1', 'tenant-1', { family: issued.family, familyCreatedAt: old });
+      await expect(svc.rotate(issued.token)).rejects.toThrow(UnauthorizedException);
+      expect(familyKeys(redisMock, issued.family)).toHaveLength(0);
+      expect(redisMock.has(`nightpay:refresh:${jtiOf(sibling.token)}`)).toBe(false);
+    });
+
+    it('token de antes de esta versión (sin inicio de sesión): cuenta desde su emisión', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-01T10:00:00Z'));
+      const issued = await svc.issue('user-1', 'tenant-1');
+      const key = `nightpay:refresh:${jtiOf(issued.token)}`;
+      const { familyCreatedAt: _start, ...legacy } = JSON.parse((await redisMock.get(key))!) as Record<string, unknown>;
+      await redisMock.set(key, JSON.stringify(legacy), 'KEEPTTL');
+      const rotated = await svc.rotate(issued.token);
+      const stored = JSON.parse((await redisMock.get(`nightpay:refresh:${jtiOf(rotated.token)}`))!) as {
+        familyCreatedAt?: number;
+      };
+      expect(stored.familyCreatedAt).toBe(new Date('2026-10-01T10:00:00Z').getTime());
     });
   });
 
