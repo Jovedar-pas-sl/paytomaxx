@@ -133,11 +133,10 @@ describe('meses y trimestres en hora de Madrid', () => {
     expect(hours(p)).toBe(366 * 24 + 1);
   });
 
-  // BUG: report-period.ts:33 compara con (MAX_PERIOD_DAYS + 1) días, así que un
-  // periodo de 367 días (1-ene-2026 al 2-ene-2027) se acepta aunque el error dice
-  // «Como mucho 366 días por informe». Esperado: ok=false; real: ok=true.
-  it.skip('un informe de 367 días se rechaza', () => {
+  // Antes el margen era de un día entero y 367 días pasaban («Como mucho 366 días»).
+  it('un informe de 367 días se rechaza', () => {
     expect(parseReportPeriod('2026-01-01', '2027-01-02').ok).toBe(false);
+    expect(parseReportPeriod('2026-01-01', '2027-01-01').ok).toBe(true);
   });
 });
 
