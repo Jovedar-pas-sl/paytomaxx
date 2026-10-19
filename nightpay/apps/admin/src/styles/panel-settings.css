@@ -1,0 +1,299 @@
+/* Panel (admin) · Ajustes: reglas, formas de cobro, permisos, Telegram y
+   seguridad. Encima de @nightpay/ui/styles.css, con sus tokens --np-*.
+   Interruptores grandes (se tocan con el pulgar) que dicen «Sí/No», no solo
+   color. Móvil = hasta 640px. */
+
+.np-set-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 44rem;
+}
+
+.np-avisos {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.np-set-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem 1.375rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-lg);
+  background: var(--np-surface);
+}
+
+.np-set-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.np-set-title {
+  margin: 0;
+  font-size: var(--np-t-h4, 1.0625rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--np-text);
+}
+
+.np-set-hint,
+.np-set-note,
+.np-set-loading {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--np-text-mute);
+}
+
+.np-set-note {
+  padding: 0.75rem 1rem;
+  border: 1px dashed var(--np-border-hi);
+  border-radius: var(--np-r-md);
+}
+
+.np-set-loading {
+  padding: 2rem 0;
+  text-align: center;
+}
+
+.np-set-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+/* Una fila: texto a la izquierda, interruptor a la derecha. */
+.np-set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.625rem 0;
+  border-top: 1px solid var(--np-border);
+}
+
+.np-set-head + .np-set-row {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.np-set-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.np-set-row-label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+.np-set-row-hint {
+  font-size: 0.8125rem;
+  color: var(--np-text-mute);
+  line-height: 1.4;
+}
+
+.np-switch {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  width: 4.25rem;
+  height: 2.25rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: var(--np-r-pill);
+  background: var(--np-surface-2);
+  color: var(--np-text-mute);
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background var(--np-d-fast),
+    border-color var(--np-d-fast);
+}
+
+.np-switch-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0.25rem;
+  width: 1.625rem;
+  height: 1.625rem;
+  border-radius: 50%;
+  background: var(--np-text-mute);
+  transform: translateY(-50%);
+  transition: transform var(--np-d-base) var(--np-ease);
+}
+
+.np-switch-text {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.np-switch[aria-checked='true'] {
+  border-color: var(--np-accent);
+  background: color-mix(in oklch, var(--np-accent) 22%, var(--np-surface-2));
+  color: var(--np-text);
+}
+
+.np-switch[aria-checked='true'] .np-switch-thumb {
+  background: var(--np-accent);
+  transform: translate(2rem, -50%);
+}
+
+.np-switch[aria-checked='true'] .np-switch-text {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.np-switch:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 2px;
+}
+
+.np-switch:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.np-set-save,
+.np-set-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.np-set-actions {
+  justify-content: flex-start;
+}
+
+.np-set-error,
+.np-set-saved {
+  margin: 0;
+  flex: 1 1 14rem;
+  font-size: 0.875rem;
+  min-height: 1.25rem;
+}
+
+.np-set-error {
+  color: var(--np-danger);
+}
+
+.np-set-saved {
+  color: var(--np-success);
+}
+
+/* Permisos por persona. */
+.np-set-people {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-set-person {
+  border-top: 1px solid var(--np-border);
+  padding: 0.5rem 0;
+}
+
+.np-set-person:first-child {
+  border-top: 0;
+}
+
+.np-set-person-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.np-set-person-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.np-set-person-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+  padding: 0.25rem 0 0.5rem 0.75rem;
+  border-left: 2px solid var(--np-accent);
+  margin-top: 0.5rem;
+}
+
+.np-set-tag {
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--np-r-pill);
+  border: 1px solid var(--np-accent);
+  color: var(--np-accent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.np-set-small {
+  height: 2.5rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+}
+
+.np-set-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.np-set-account p {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+  overflow-wrap: anywhere;
+}
+
+.np-set-account strong {
+  display: block;
+  color: var(--np-text);
+  font-size: 0.9375rem;
+}
+
+.np-set-account code {
+  font-family: var(--np-font-mono);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .np-set-card {
+    padding: 1rem;
+  }
+
+  .np-set-save .np-btn {
+    flex: 1 1 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-switch,
+  .np-switch-thumb {
+    transition: none;
+  }
+}
