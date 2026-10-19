@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { OverviewBusiness, OverviewTotals, OverviewVenue, SuperAdminOverview } from '@nightpay/contracts';
-import { switchToVenue } from '@/lib/api';
+import { VenueSwitchDialog } from '../VenueSwitchDialog';
 import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
 import { fetchSaOverview } from '@/lib/endpoints/superadmin';
@@ -132,22 +132,12 @@ function BusinessBlock({ business }: { business: OverviewBusiness }) {
 
 function VenueTile({ venue }: { venue: OverviewVenue }) {
   const { currentSlug } = useSa();
-  const [switching, setSwitching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
   const isCurrent = venue.slug === currentSlug;
   const pause = venuePauseLabel(venue);
 
-  async function goTo(): Promise<void> {
-    if (isCurrent || switching) return;
-    setSwitching(true);
-    setError(null);
-    try {
-      await switchToVenue(venue.venueId);
-      window.location.reload();
-    } catch (err) {
-      setError((err as Error).message);
-      setSwitching(false);
-    }
+  function goTo(): void {
+    if (!isCurrent) setAsking(true);
   }
 
   return (
@@ -158,7 +148,7 @@ function VenueTile({ venue }: { venue: OverviewVenue }) {
         data-current={isCurrent ? 'true' : undefined}
         data-paused={pause ? 'true' : undefined}
         aria-disabled={isCurrent || undefined}
-        onClick={() => void goTo()}
+        onClick={goTo}
       >
         <span className="np-sa-venue-top">
           <span className="np-sa-venue-name">{venue.name}</span>
@@ -177,14 +167,12 @@ function VenueTile({ venue }: { venue: OverviewVenue }) {
             {venue.openIncidents === 1 ? '1 incidencia abierta' : `${venue.openIncidents} incidencias abiertas`}
           </span>
           <span className="np-sa-venue-go">
-            {isCurrent ? 'Local activo' : switching ? 'Cambiando…' : 'Ir a este local →'}
+            {isCurrent ? 'Local activo' : 'Ir a este local →'}
           </span>
         </span>
       </button>
-      {error ? (
-        <p role="alert" className="np-sa-error">
-          No se pudo cambiar de local: {error}
-        </p>
+      {asking ? (
+        <VenueSwitchDialog venueId={venue.venueId} venueName={venue.name} onClose={() => setAsking(false)} />
       ) : null}
     </>
   );

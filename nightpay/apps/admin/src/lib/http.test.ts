@@ -121,6 +121,27 @@ describe('cambio de local', () => {
     expect(getUser()).toMatchObject({ tenantId: 't9', venueSlug: 'mar' });
     expect(storage.getItem('np_admin_user')).not.toContain('token-del-otro-local');
   });
+
+  it('switchToVenue manda el código 2FA; sin él, el API dice TOTP_REQUIRED y no se cambia nada', async () => {
+    storage.setItem('np_admin_user', JSON.stringify(SUPER));
+    const bodies: unknown[] = [];
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path === '/v1/auth/refresh') return json(200, { accessToken: jwt({ sub: 'u1', tenantId: 'elegido' }) });
+      bodies.push(JSON.parse(String(init?.body)));
+      const { totpCode } = JSON.parse(String(init?.body)) as { totpCode?: string };
+      return totpCode
+        ? json(200, { accessToken: 'token-de-mar', tenantId: 't9', venueSlug: 'mar' })
+        : json(403, { detail: 'Pon el código de tu app de verificación (2FA)', code: 'TOTP_REQUIRED' });
+    });
+    const { switchToVenue, getUser } = await http();
+    await expect(switchToVenue('t9')).rejects.toMatchObject({ status: 403, code: 'TOTP_REQUIRED' });
+    expect(getUser()).toMatchObject({ tenantId: 'elegido' });
+
+    await switchToVenue('t9', '123456');
+    expect(bodies).toEqual([{ tenantId: 't9' }, { tenantId: 't9', totpCode: '123456' }]);
+    expect(getUser()).toMatchObject({ tenantId: 't9', venueSlug: 'mar' });
+  });
 });
 
 describe('errores del API', () => {

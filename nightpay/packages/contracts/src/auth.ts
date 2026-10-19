@@ -62,6 +62,12 @@ export const JwtPayloadSchema = z.object({
   role: RoleSchema,
   tenantId: UuidSchema,
   venueSlug: z.string(),
+  /**
+   * Sesión (family del refresh token) que emitió este access token: con ella
+   * el API recuerda el local elegido por el super-admin y ata la activación
+   * de la 2FA a la sesión que la empezó. Falta en los tokens de antes.
+   */
+  sid: z.string().max(64).optional(),
   iat: z.number().optional(),
   exp: z.number().optional(),
 });

@@ -263,6 +263,23 @@ export class RefreshTokenService {
       if (stored) await this.deleteJti(jti, stored);
       else await this.redis.del(k);
     }
+    await this.redis.del(this.venueKey(familyId));
+  }
+
+  /**
+   * Super-admin: el local que eligió (con 2FA) en esta sesión. Al refrescar,
+   * el access token sale ya para ese local. null = vuelve al suyo.
+   */
+  async setActiveVenue(familyId: string, venueId: string | null): Promise<void> {
+    if (venueId === null) {
+      await this.redis.del(this.venueKey(familyId));
+      return;
+    }
+    await this.redis.set(this.venueKey(familyId), venueId, 'EX', REFRESH_FAMILY_MAX_SECONDS);
+  }
+
+  async activeVenue(familyId: string): Promise<string | null> {
+    return this.redis.get(this.venueKey(familyId));
   }
 
   /** Marca atómica de "usado": devuelve false si otra petición lo marcó antes. */
@@ -372,6 +389,9 @@ export class RefreshTokenService {
   }
   private graceKey(jti: string): string {
     return `nightpay:refresh:grace:${jti}`;
+  }
+  private venueKey(family: string): string {
+    return `nightpay:refresh:venue:${family}`;
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LockoutService, PER_IP_POLICY } from './lockout.service';
 import { passwordFingerprint, RefreshTokenReuseError } from './refresh-token.service';
@@ -15,6 +15,10 @@ interface Overrides {
   lockedKeys?: Record<string, number>;
   trustedKeys?: string[];
   refreshTokenResult?: { token: string; family: string; ttlSeconds: number };
+  /** Locales que encuentra venue.findUnique (cambio de local, refresco). */
+  venues?: Record<string, { id: string; slug: string; deletedAt: Date | null }>;
+  /** Local elegido en la sesión (refreshTokens.activeVenue). */
+  activeVenue?: string | null;
 }
 
 function makeService(overrides: Overrides = {}) {
@@ -24,9 +28,13 @@ function makeService(overrides: Overrides = {}) {
       findMany,
       findUnique: vi.fn().mockResolvedValue(overrides.findUniqueResult ?? null),
     },
+    venue: {
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => overrides.venues?.[where.id] ?? null),
+    },
   };
   const prismaMock = {
     asSystem: vi.fn().mockImplementation(async (fn) => fn(tx)),
+    acrossVenues: vi.fn().mockImplementation(async (fn) => fn(tx)),
   };
   const jwtMock = {
     signAsync: vi.fn().mockResolvedValue(overrides.signAsyncResult ?? 'TOKEN'),
@@ -55,7 +63,10 @@ function makeService(overrides: Overrides = {}) {
     revokeAllForUser: vi.fn().mockResolvedValue(0),
     revokeFamily: vi.fn().mockResolvedValue(undefined),
     stampFingerprint: vi.fn().mockResolvedValue(undefined),
+    activeVenue: vi.fn().mockResolvedValue(overrides.activeVenue ?? null),
+    setActiveVenue: vi.fn().mockResolvedValue(undefined),
   };
+  const totpMock = { assertForUser: vi.fn().mockResolvedValue(undefined) };
   const svc = new AuthService(
     prismaMock as never,
     jwtMock as never,
@@ -63,6 +74,7 @@ function makeService(overrides: Overrides = {}) {
     auditMock as never,
     metricsMock as never,
     refreshTokensMock as never,
+    totpMock as never,
   );
   const verifyPassword = vi.spyOn(svc, 'verifyPassword');
   if (overrides.verifyPasswordResult !== undefined) {
@@ -79,6 +91,7 @@ function makeService(overrides: Overrides = {}) {
     auditMock,
     metricsMock,
     refreshTokensMock,
+    totpMock,
     verifyPassword,
   };
 }
@@ -293,6 +306,12 @@ describe('AuthService.login', () => {
       pwdFp: passwordFingerprint('$2a$10$fakehash'),
     });
   });
+
+  it('el access token lleva la sesión (sid = family del refresh)', async () => {
+    const { svc, jwtMock } = makeService({ loginCandidates: [makeUser()], verifyPasswordResult: true });
+    await svc.login({ email: 'a@b.test', password: 'correct12' });
+    expect(jwtMock.signAsync.mock.calls[0]![0]).toMatchObject({ sub: 'u1', tenantId: 't1', sid: 'fam-1' });
+  });
 });
 
 describe('AuthService.refresh', () => {
@@ -309,11 +328,41 @@ describe('AuthService.refresh', () => {
   });
 
   it('misma contraseña → access token nuevo y refresh rotado', async () => {
-    const { svc, refreshTokensMock } = makeService({ findUniqueResult: makeUser(), signAsyncResult: 'JWT.R' });
+    const { svc, refreshTokensMock, jwtMock } = makeService({ findUniqueResult: makeUser(), signAsyncResult: 'JWT.R' });
     refreshTokensMock.rotate.mockResolvedValue(rotated());
     const res = await svc.refresh('rt.old');
     expect(res).toMatchObject({ accessToken: 'JWT.R', refreshToken: 'rt.new' });
     expect(refreshTokensMock.revokeFamily).not.toHaveBeenCalled();
+    expect(jwtMock.signAsync.mock.calls[0]![0]).toMatchObject({ tenantId: 't1', venueSlug: 'luna-vlc', sid: 'fam-1' });
+  });
+
+  it('super-admin con otro local elegido en la sesión → el token sale ya para ese local', async () => {
+    const { svc, refreshTokensMock, jwtMock } = makeService({
+      findUniqueResult: makeUser({ isSuperAdmin: true }),
+      activeVenue: 't9',
+      venues: { t9: { id: 't9', slug: 'mar', deletedAt: null } },
+    });
+    refreshTokensMock.rotate.mockResolvedValue(rotated());
+    await svc.refresh('rt.old');
+    expect(refreshTokensMock.activeVenue).toHaveBeenCalledWith('fam-1');
+    expect(jwtMock.signAsync.mock.calls[0]![0]).toMatchObject({ tenantId: 't9', venueSlug: 'mar', role: 'OWNER' });
+  });
+
+  it('ya no es super-admin (o el local se borró) → su local y se olvida el elegido', async () => {
+    for (const setup of [
+      { user: makeUser({ isSuperAdmin: false }), venues: { t9: { id: 't9', slug: 'mar', deletedAt: null } } },
+      { user: makeUser({ isSuperAdmin: true }), venues: { t9: { id: 't9', slug: 'mar', deletedAt: new Date() } } },
+    ]) {
+      const { svc, refreshTokensMock, jwtMock } = makeService({
+        findUniqueResult: setup.user,
+        activeVenue: 't9',
+        venues: setup.venues,
+      });
+      refreshTokensMock.rotate.mockResolvedValue(rotated());
+      await svc.refresh('rt.old');
+      expect(jwtMock.signAsync.mock.calls[0]![0]).toMatchObject({ tenantId: 't1', venueSlug: 'luna-vlc' });
+      expect(refreshTokensMock.setActiveVenue).toHaveBeenCalledWith('fam-1', null);
+    }
   });
 
   it('la contraseña cambió desde el login → revoca la sesión entera y 401', async () => {
@@ -351,6 +400,46 @@ describe('AuthService.refresh', () => {
     expect(auditMock.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'auth.refresh.reuse_detected', actorId: 'u1', ip: '1.2.3.4' }),
     );
+  });
+});
+
+describe('AuthService.switchTenant', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const superAdmin = () => ({ ...makeUser({ isSuperAdmin: true }), tenantId: 't1' });
+  const venues = { t1: { id: 't1', slug: 'luna-vlc', deletedAt: null }, t9: { id: 't9', slug: 'mar', deletedAt: null } };
+
+  it('a otro local: pide el código 2FA y la sesión recuerda el local', async () => {
+    const { svc, totpMock, refreshTokensMock, jwtMock, auditMock } = makeService({ findUniqueResult: superAdmin(), venues });
+    const res = await svc.switchTenant('u1', 't9', { totpCode: '123456', sessionId: 'fam-1' });
+    expect(res).toMatchObject({ tenantId: 't9', venueSlug: 'mar' });
+    expect(totpMock.assertForUser).toHaveBeenCalledWith('u1', '123456');
+    expect(refreshTokensMock.setActiveVenue).toHaveBeenCalledWith('fam-1', 't9');
+    expect(jwtMock.signAsync.mock.calls[0]![0]).toMatchObject({ tenantId: 't9', sid: 'fam-1' });
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.switch_tenant', payload: expect.objectContaining({ twoFactor: true }) }),
+    );
+  });
+
+  it('sin código (o malo) → el error 2FA y ningún token', async () => {
+    const { svc, totpMock, jwtMock, refreshTokensMock } = makeService({ findUniqueResult: superAdmin(), venues });
+    totpMock.assertForUser.mockRejectedValue(new ForbiddenException({ code: 'TOTP_REQUIRED' }));
+    await expect(svc.switchTenant('u1', 't9', { sessionId: 'fam-1' })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(jwtMock.signAsync).not.toHaveBeenCalled();
+    expect(refreshTokensMock.setActiveVenue).not.toHaveBeenCalled();
+  });
+
+  it('volver a su local no pide código y la sesión olvida el elegido', async () => {
+    const { svc, totpMock, refreshTokensMock } = makeService({ findUniqueResult: superAdmin(), venues });
+    await expect(svc.switchTenant('u1', 't1', { sessionId: 'fam-1' })).resolves.toMatchObject({ tenantId: 't1' });
+    expect(totpMock.assertForUser).not.toHaveBeenCalled();
+    expect(refreshTokensMock.setActiveVenue).toHaveBeenCalledWith('fam-1', null);
+  });
+
+  it('quien no es super-admin → 403 sin gastar intentos de 2FA', async () => {
+    const { svc, totpMock } = makeService({ findUniqueResult: makeUser(), venues });
+    await expect(svc.switchTenant('u1', 't9', { totpCode: '123456' })).rejects.toThrow(/super admins/);
+    expect(totpMock.assertForUser).not.toHaveBeenCalled();
   });
 });
 

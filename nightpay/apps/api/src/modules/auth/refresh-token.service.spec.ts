@@ -223,6 +223,21 @@ describe('RefreshTokenService', () => {
     });
   });
 
+  describe('local elegido por el super-admin en la sesión', () => {
+    it('se guarda por family, se borra con null y al cerrar la sesión', async () => {
+      const issued = await svc.issue('user-1', 'tenant-1');
+      await svc.setActiveVenue(issued.family, 'venue-9');
+      expect(await svc.activeVenue(issued.family)).toBe('venue-9');
+      expect(await redisMock.ttl(`nightpay:refresh:venue:${issued.family}`)).toBe(REFRESH_FAMILY_MAX_SECONDS);
+      await svc.setActiveVenue(issued.family, null);
+      expect(await svc.activeVenue(issued.family)).toBeNull();
+
+      await svc.setActiveVenue(issued.family, 'venue-9');
+      await svc.revokeFamily(issued.family);
+      expect(await svc.activeVenue(issued.family)).toBeNull();
+    });
+  });
+
   describe('stampFingerprint (tokens de antes de esta versión)', () => {
     it('apunta la huella sin tocar la caducidad', async () => {
       const issued = await svc.issue('user-1', 'tenant-1');

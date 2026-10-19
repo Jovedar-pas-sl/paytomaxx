@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { fetchAllVenues, switchToVenue, type VenueListItem } from '@/lib/api';
+import { fetchAllVenues, type VenueListItem } from '@/lib/api';
+import { VenueSwitchDialog } from './VenueSwitchDialog';
 
 interface Props {
   currentSlug: string;
@@ -11,21 +12,21 @@ interface Props {
  * Dropdown en el header. Solo se renderiza si user.isSuperAdmin=true.
  *
  * Al cambiar:
- *   1. Llama POST /v1/auth/switch-tenant → API emite JWT nuevo
+ *   1. Pide el código 2FA (VenueSwitchDialog) y llama POST /v1/auth/switch-tenant
+ *      → API emite JWT nuevo y recuerda el local en la sesión
  *   2. lib/api.ts (switchToVenue) guarda token y local nuevos; las otras
  *      pestañas abiertas lo ven (evento storage) y se recargan también
  *   3. window.location.reload() para que toda la app cargue con contexto nuevo
  *
- * El refresh token sigue ligado al usuario: /refresh devuelve el token de su
- * local de siempre y lib/api.ts (keepSelectedVenue) vuelve a pedir el local
- * elegido, sin recargar. En el API, el super-admin se busca sin el filtro
+ * El refresh token sigue ligado al usuario; /refresh ya devuelve el token del
+ * local elegido (el API lo guarda en la sesión). En el API, el super-admin se busca sin el filtro
  * por local (acrossVenues): con otro local activo no se le encontraba y
  * perdía el desplegable y el cambio de local.
  */
 export function VenueSwitcher({ currentSlug }: Props) {
   const [venues, setVenues] = useState<VenueListItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [switching, setSwitching] = useState(false);
+  const [target, setTarget] = useState<VenueListItem | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,19 +36,12 @@ export function VenueSwitcher({ currentSlug }: Props) {
       .finally(() => setLoading(false));
   }, []);
 
-  async function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const tenantId = e.target.value;
-    if (!tenantId) return;
-    setSwitching(true);
+  function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    // El desplegable sigue en el local actual hasta que se entra en el otro (con el código).
+    const venue = venues.find((v) => v.id === e.target.value);
+    if (!venue) return;
     setError(null);
-    try {
-      await switchToVenue(tenantId);
-      // Reload — carga todos los paneles con el nuevo contexto.
-      window.location.reload();
-    } catch (err) {
-      setError((err as Error).message);
-      setSwitching(false);
-    }
+    setTarget(venue);
   }
 
   if (loading) return null;
@@ -72,7 +66,7 @@ export function VenueSwitcher({ currentSlug }: Props) {
         id="np-venue-switch"
         value={currentVenue?.id ?? ''}
         onChange={onChange}
-        disabled={switching}
+        disabled={target !== null}
         style={selectStyle}
       >
         {venues.map((v) => (
@@ -82,6 +76,7 @@ export function VenueSwitcher({ currentSlug }: Props) {
         ))}
       </select>
       {error ? <p role="alert" style={errStyle}>{error}</p> : null}
+      {target ? <VenueSwitchDialog venueId={target.id} venueName={target.name} onClose={() => setTarget(null)} /> : null}
     </div>
   );
 }
