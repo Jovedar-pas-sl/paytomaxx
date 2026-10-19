@@ -10,7 +10,7 @@ dueño con su 2FA. Reglas por local (las pone el super-admin, ver
 | Quién | Pago a una chica | Devolución por la pasarela |
 |---|---|---|
 | Dueño | Directo, con 2FA si la tiene (como siempre). | Directa, con 2FA por lo devuelto acumulado (como siempre). |
-| Encargado, local con aprobación | **Lo pide** (202). | Desde el umbral (incluido): **la pide** (202). Por debajo, directa. |
+| Encargado, local con aprobación | **Lo pide** (202). | Desde el umbral (incluido), sumando lo que ya devolvió él en ese mismo cobro (partirla no se salta al dueño): **la pide** (202). Por debajo, directa. |
 | Encargado, local sin aprobación | Directo, con **2FA obligatoria**. | Igual que arriba. |
 | Camarero, chica | No. | No. |
 
@@ -65,7 +65,8 @@ pago pedido para esa chica), `APPROVAL_NOT_PENDING`, `APPROVAL_EXPIRED`,
   solicitud deja de reservar en la misma transacción en que se reserva la
   devolución. Si la pasarela la rechaza, la solicitud queda `FAILED`; si no
   contesta, queda aprobada y la devolución pendiente (se resuelve en el cobro,
-  como siempre).
+  como siempre). Lo pedido no impide al dueño apuntar una devolución que ya
+  hizo en el portal del banco: si después lo pedido no cabe, falla al aprobarlo.
 - **Idempotencia.** La solicitud pasa de `PENDING` a `APPROVED` dentro de la
   transacción que paga o reserva; quien llega tarde no hace nada.
 
