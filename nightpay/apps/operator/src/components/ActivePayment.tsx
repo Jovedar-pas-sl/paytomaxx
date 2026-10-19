@@ -22,6 +22,7 @@ import { formatEur, formatEurAmount } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { NewWalletCard } from './NewWalletCard';
+import { useVenueMethods } from '@/lib/venue-methods';
 import { StaffOutcome } from './StaffOutcome';
 import { usePaymentLive } from './use-payment-live';
 
@@ -257,6 +258,8 @@ function OutcomeDetail({ label, tipCents }: { label: string | null; tipCents: nu
 }
 
 function PaidBlock({ payment, tipCents, onNew }: { payment: CreatedPayment; tipCents: number; onNew: () => void }) {
+  // Ficha NFC apagada por el dueño: no se ofrece darla al recargar.
+  const methods = useVenueMethods();
   return (
     <>
       <p style={{ ...kicker, textAlign: 'center' }}>
@@ -266,7 +269,7 @@ function PaidBlock({ payment, tipCents, onNew }: { payment: CreatedPayment; tipC
         </strong>
       </p>
       <p style={{ ...hintStyle, textAlign: 'center' }}>Debe coincidir con el del móvil del cliente.</p>
-      {payment.walletId ? <NewWalletCard walletId={payment.walletId} /> : null}
+      {payment.walletId && methods.nfc ? <NewWalletCard walletId={payment.walletId} /> : null}
       {tipCents > 0 ? (
         <p className="np-num" style={tipStyle}>
           + {formatEur(tipCents, { compact: true })} de propina
