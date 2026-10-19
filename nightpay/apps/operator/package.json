@@ -14,16 +14,16 @@
   "dependencies": {
     "@nightpay/contracts": "workspace:*",
     "@nightpay/ui": "workspace:*",
-    "next": "^14.2.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "next": "^15.5.28",
+    "react": "~19.2.9",
+    "react-dom": "~19.2.9",
     "socket.io-client": "^4.8.0"
   },
   "devDependencies": {
     "@nightpay/config": "workspace:*",
     "@types/node": "^22.20.0",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
+    "@types/react": "~19.2.18",
+    "@types/react-dom": "~19.2.7",
     "typescript": "^5.5.4",
     "vitest": "^2.0.0"
   }

@@ -61,9 +61,7 @@ const nextConfig = {
   output: 'standalone',
   outputFileTracingRoot: process.env.NEXT_BUILD_TRACE_ROOT || undefined,
   transpilePackages: ['@nightpay/contracts', '@nightpay/ui'],
-  experimental: {
-    typedRoutes: true,
-  },
+  typedRoutes: true,
   // /pay/:token y /wallet/:token solo redirigen a las páginas del API.
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type JSX } from 'react';
 import { Button, Card, Input, Modal, Select } from '@nightpay/ui';
 import {
   bulkCreateTerminals,

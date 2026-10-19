@@ -115,7 +115,7 @@ function MoreSheet({
   active: TabKey;
   onPick: (key: TabKey) => void;
   onClose: () => void;
-  returnFocus: RefObject<HTMLButtonElement>;
+  returnFocus: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
