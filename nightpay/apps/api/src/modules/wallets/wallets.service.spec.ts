@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { WalletsService } from './wallets.service';
+import { PAID_STATUSES_SQL, paymentAt } from '../reports/reporting-sql';
 
 /**
  * Tests con mocks de Prisma — no toca DB. Cubrimos lo que la DB no garantiza
@@ -254,6 +255,16 @@ describe('estadísticas del panel de saldos', () => {
     }
   });
 
+  it('las recargas de hoy cuadran con el Z: pagadas (también las devueltas luego), por cuándo las autorizó el banco', async () => {
+    const { svc, calls } = statsService();
+    await svc.getAdminStats('t-1');
+    const topUps = calls.find((c) => c.sql.includes('FROM payments'))!;
+    expect(topUps.sql).not.toMatch(/'AUTHORIZED'/);
+    expect(topUps.values).toContain(PAID_STATUSES_SQL);
+    const sqlParts = topUps.values.map((v) => (v as { sql?: string } | null)?.sql);
+    expect(sqlParts).toContain(paymentAt('p').sql);
+  });
+
   it('"hoy" es el día de Madrid (desde sus 00:00), no el del servidor', async () => {
     vi.useFakeTimers();
     try {
@@ -261,7 +272,7 @@ describe('estadísticas del panel de saldos', () => {
       vi.setSystemTime(new Date('2026-10-15T22:30:00Z'));
       const { svc, calls, prisma } = statsService();
       await svc.getAdminStats('t-1');
-      const since = calls.filter((c) => /"createdAt" >= \?/.test(c.sql)).map((c) => (c.values.at(-1) as Date).toISOString());
+      const since = calls.map((c) => c.values.at(-1)).filter((v): v is Date => v instanceof Date).map((d) => d.toISOString());
       expect(since).toHaveLength(3);
       expect(new Set(since)).toEqual(new Set(['2026-10-15T22:00:00.000Z']));
       // Con el local en la sesión (las tablas del saldo tienen RLS forzado) y, además, filtrado a mano.

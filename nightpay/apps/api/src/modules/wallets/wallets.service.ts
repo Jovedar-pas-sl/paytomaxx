@@ -6,6 +6,7 @@ import { AuditService } from '../audit/audit.service';
 import { formatWalletCode, newWalletCode, newWalletToken, sameWalletGroup } from './wallet-rules';
 import { reopenData } from './wallet-activation';
 import { lockLiveWallet } from './wallet-merge-chain';
+import { PAID_STATUSES_SQL, paymentAt } from '../reports/reporting-sql';
 import type { ClientWalletView, WalletsAdminStats } from '@nightpay/contracts';
 
 /** Intentos para dar con un código corto libre (31^6 combinaciones). */
@@ -341,13 +342,15 @@ export class WalletsService {
           FROM client_wallets
          WHERE "tenantId" = ${tenantId}::uuid AND status = 'ACTIVE'
       `;
+      // Como el Z (reporting-sql): las recargas pagadas, también las devueltas
+      // luego (PARTIALLY_REFUNDED/REFUNDED), por cuándo las autorizó el banco.
       const topUpRows = await tx.$queryRaw<Array<{ total: bigint }>>`
-        SELECT COALESCE(SUM("amountCents"),0)::bigint AS total
-          FROM payments
-         WHERE "tenantId" = ${tenantId}::uuid
-           AND "walletId" IS NOT NULL
-           AND status = 'AUTHORIZED'
-           AND "createdAt" >= ${todayStart}
+        SELECT COALESCE(SUM(p."amountCents"),0)::bigint AS total
+          FROM payments p
+         WHERE p."tenantId" = ${tenantId}::uuid
+           AND p."walletId" IS NOT NULL
+           AND p.status IN ${PAID_STATUSES_SQL}
+           AND ${paymentAt('p')} >= ${todayStart}
       `;
       const consumptionRows = await tx.$queryRaw<Array<{ category: string; total: bigint }>>`
         SELECT category, COALESCE(SUM("amountCents"),0)::bigint AS total
