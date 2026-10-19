@@ -51,7 +51,7 @@ type LegacyResult = 'allowed' | 'denied' | 'closed';
  * antiguas en caché de las apps de la chica y del TPV) se mantiene, con aviso
  * en el log y la métrica nightpay_ws_legacy_subscribes_total, la suscripción a
  * cobros creados en los últimos 30 min, y solo hasta
- * REALTIME_LEGACY_SUBSCRIBE_UNTIL (por defecto 2026-11-15 00:00 de Madrid).
+ * REALTIME_LEGACY_SUBSCRIBE_UNTIL (por defecto el martes 2026-11-17 12:00 de Madrid).
  * Después se responde «Inicia sesión otra vez».
  * El id tiene que ser un UUID y hay un máximo de cobros por conexión.
  * Origen (CORS) restringido a CORS_ORIGINS en producción: ver realtime.adapter.ts.

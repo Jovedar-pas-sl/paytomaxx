@@ -9,11 +9,12 @@ import { CUTOFF_OFF, isValidCutoff, parseCutoff } from './date-cutoff';
  *   - fecha y hora ISO con zona (p. ej. 2026-12-01T00:00:00+01:00) → hasta entonces
  *   - "off" → apagada ya
  */
-export const LEGACY_SUBSCRIBE_DEFAULT_UNTIL = '2026-11-15T00:00:00+01:00';
+/** Martes a mediodía (Madrid): ni en plena noche de cobro ni en fin de semana. */
+export const LEGACY_SUBSCRIBE_DEFAULT_UNTIL = '2026-11-17T12:00:00+01:00';
 export const LEGACY_SUBSCRIBE_OFF = CUTOFF_OFF;
 
 export const LEGACY_SUBSCRIBE_UNTIL_HINT =
-  'Fecha y hora ISO con zona (p. ej. 2026-11-15T00:00:00+01:00) u "off" para apagarla ya';
+  'Fecha y hora ISO con zona (p. ej. 2026-11-17T12:00:00+01:00) u "off" para apagarla ya';
 
 export function isValidLegacySubscribeUntil(raw: string | undefined): boolean {
   return isValidCutoff(raw);

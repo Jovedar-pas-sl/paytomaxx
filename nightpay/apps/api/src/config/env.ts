@@ -240,7 +240,7 @@ const EnvSchema = z.object({
 
   // Tiempo real: payment:subscribe sin sesión (apps antiguas en caché) solo
   // hasta esta fecha; luego se pide iniciar sesión otra vez. Sin definir:
-  // 2026-11-15T00:00:00+01:00. Fecha ISO con zona para cambiarla, u "off"
+  // 2026-11-17T12:00:00+01:00 (martes a mediodía). Fecha ISO con zona para cambiarla, u "off"
   // para apagarla ya. Antes de la fecha, la métrica
   // nightpay_ws_legacy_subscribes_total debería estar en 0. Ver
   // config/realtime-legacy.ts.
@@ -252,7 +252,7 @@ const EnvSchema = z.object({
 
   // Sesión del personal: el refresh token en el cuerpo (apps antiguas en
   // caché) solo hasta esta fecha; las nuevas lo llevan en una cookie HttpOnly.
-  // Sin definir: 2026-11-30T00:00:00+01:00. Fecha ISO con zona para cambiarla,
+  // Sin definir: 2026-12-01T12:00:00+01:00 (martes a mediodía). Fecha ISO con zona para cambiarla,
   // u "off" para cerrarla ya. Antes, nightpay_auth_body_refresh_total
   // {client="legacy"} debería estar quieta. Ver config/auth-body-refresh.ts.
   AUTH_BODY_REFRESH_UNTIL: z

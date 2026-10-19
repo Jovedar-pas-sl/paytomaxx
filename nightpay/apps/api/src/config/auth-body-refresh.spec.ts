@@ -3,10 +3,11 @@ import { AUTH_BODY_REFRESH_DEFAULT_UNTIL, authBodyRefreshUntil } from './auth-bo
 import { cutoffOpen } from './date-cutoff';
 
 describe('authBodyRefreshUntil (AUTH_BODY_REFRESH_UNTIL)', () => {
-  it('sin definir o vacía → 2026-11-30 00:00 de Madrid', () => {
-    expect(AUTH_BODY_REFRESH_DEFAULT_UNTIL).toBe('2026-11-30T00:00:00+01:00');
-    expect(authBodyRefreshUntil(undefined)?.toISOString()).toBe('2026-11-29T23:00:00.000Z');
-    expect(authBodyRefreshUntil('  ')?.toISOString()).toBe('2026-11-29T23:00:00.000Z');
+  it('sin definir o vacía → martes 2026-12-01 12:00 de Madrid (fuera de la noche y del fin de semana)', () => {
+    expect(AUTH_BODY_REFRESH_DEFAULT_UNTIL).toBe('2026-12-01T12:00:00+01:00');
+    expect(authBodyRefreshUntil(undefined)?.toISOString()).toBe('2026-12-01T11:00:00.000Z');
+    expect(authBodyRefreshUntil('  ')?.toISOString()).toBe('2026-12-01T11:00:00.000Z');
+    expect(new Date(AUTH_BODY_REFRESH_DEFAULT_UNTIL).getUTCDay()).toBe(2);
   });
 
   it('"off" (como sea escrito) → cerrada ya', () => {

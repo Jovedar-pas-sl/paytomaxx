@@ -142,15 +142,17 @@ Notas:
 - Sin `ORIGIN_AUTH_SECRET` o `METRICS_TOKEN` el API no arranca en producción.
 - `REALTIME_LEGACY_SUBSCRIBE_UNTIL` (opcional): hasta cuándo las apps
   antiguas pueden seguir un cobro en tiempo real sin sesión. Sin ponerla, el
-  2026-11-15 00:00 (Madrid); después contestan «Inicia sesión otra vez». Fecha
-  ISO con zona (`2026-12-01T00:00:00+01:00`) para alargarla, `off` para
-  cerrarla ya. Antes de la fecha, `nightpay_ws_legacy_subscribes_total` en
-  `/v1/metrics` debería haber dejado de subir.
+  martes 2026-11-17 a las 12:00 (Madrid); después contestan «Inicia sesión otra
+  vez». Fecha ISO con zona (`2026-11-24T12:00:00+01:00`) para alargarla (un
+  martes o miércoles a mediodía, nunca en plena noche), `off` para cerrarla
+  ya: ponla a `off` a mano en cuanto `nightpay_ws_legacy_subscribes_total` en
+  `/v1/metrics` lleve días sin subir.
 - `AUTH_BODY_REFRESH_UNTIL` (opcional): hasta cuándo las apps antiguas del
   personal pueden renovar la sesión con la llave a la antigua (en la
-  petición); las nuevas usan la cookie. Sin ponerla, 2026-11-30 00:00
-  (Madrid); fecha ISO con zona para alargarla, `off` para cerrarla ya. Antes,
-  `nightpay_auth_body_refresh_total{client="legacy"}` debería estar quieta.
+  petición); las nuevas usan la cookie. Sin ponerla, el martes 2026-12-01 a
+  las 12:00 (Madrid); fecha ISO con zona para alargarla, `off` para cerrarla
+  ya (a mano, en cuanto `nightpay_auth_body_refresh_total{client="legacy"}`
+  lleve días quieta).
   `CORS_ORIGINS` tiene que llevar exactas las direcciones de las apps: sin
   ellas no se puede entrar. Ver [`SESION-PERSONAL.md`](SESION-PERSONAL.md).
 
