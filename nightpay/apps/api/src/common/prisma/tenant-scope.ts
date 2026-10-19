@@ -27,6 +27,7 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'PosTerminalOp',
   'WalletChargeRequest',
   'WalletPayout',
+  'WalletCashTopUp',
   'BankStatement',
   'BankStatementItem',
   'ApprovalRequest',

@@ -82,6 +82,8 @@ model Venue {
   incidentAcks       IncidentAck[]
   posTerminalOps     PosTerminalOp[]
   approvalRequests   ApprovalRequest[]
+  walletCashTopUps   WalletCashTopUp[]
+  walletCards        WalletCard[]
 
   @@index([businessId])
   @@map("venues")
@@ -496,6 +498,32 @@ model WalletPayout {
   @@map("wallet_payouts")
 }
 
+// Recarga del saldo en efectivo (recepción, 20261021100000). El efectivo no
+// pasa por el banco: no es un Payment (ni FSM, ni devolución a la tarjeta, ni
+// cuadre con el banco). Es la entrada simétrica a WalletPayout CASH: suma al
+// saldo al momento y entra en la caja de la noche. tenantId = local que cobró
+// (el de la caja; el saldo puede ser de otro local del grupo). Quién la cobró:
+// la persona (takenByUserId) o el datáfono de recepción (terminalId), al menos
+// uno (CHECK en SQL). La misma Idempotency-Key no carga dos veces.
+model WalletCashTopUp {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @db.Uuid
+  walletId       String   @db.Uuid
+  amountCents    Int
+  takenByUserId  String?  @db.Uuid
+  terminalId     String?  @db.Uuid
+  idempotencyKey String
+  createdAt      DateTime @default(now()) @db.Timestamptz
+
+  venue  Venue        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([walletId])
+  @@map("wallet_cash_topups")
+}
+
 // Datáfono PAX — operaciones del cierre de jornada del datáfono, para cuadrar.
 model PosTerminalOp {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -906,6 +934,7 @@ model ClientWallet {
   consumptions   WalletConsumption[]
   chargeRequests WalletChargeRequest[]
   payouts        WalletPayout[]
+  cashTopUps     WalletCashTopUp[]
   passkeys       WalletPasskey[]
   cards          WalletCard[]
   passes         WalletPass[]
@@ -922,23 +951,35 @@ model ClientWallet {
 /// Sin tenantId ni RLS a propósito: se graba en blanco y se da a un saldo de
 /// cualquier local del grupo. El acceso va siempre por el saldo (la API
 /// comprueba sameWalletGroup con el local de quien la usa; WalletChargesService).
+/// `venueId` dice dónde está la ficha (su stock o el local que la dio), sin RLS:
+/// el panel lista las fichas de su local con él (20261021100000).
 model WalletCard {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   token      String    @unique
   /// Número de serie (si se leyó con un Android): una copia no vale.
   uid        String?
   walletId   String?   @db.Uuid
-  /// ACTIVE | BLOCKED (perdida).
-  status     String    @default("ACTIVE")
+  /// STOCK (grabada, sin dar) → ISSUED (dada a un saldo) → RETURNED (devuelta,
+  /// otra vez en el stock) | LOST (perdida) | BLOCKED (bloqueada). Solo ISSUED paga.
+  status     String    @default("STOCK")
+  /// Local donde está: el de su stock o el que la dio.
+  venueId    String?   @db.Uuid
   linkedById String?   @db.Uuid
   createdAt  DateTime  @default(now()) @db.Timestamptz
+  /// Grabada y apuntada en el stock (null: código pedido y aún sin grabar).
+  stockedAt  DateTime? @db.Timestamptz
+  /// Cuándo se dio a su saldo (ISSUED).
   linkedAt   DateTime? @db.Timestamptz
+  returnedAt DateTime? @db.Timestamptz
+  lostAt     DateTime? @db.Timestamptz
   blockedAt  DateTime? @db.Timestamptz
   lastUsedAt DateTime? @db.Timestamptz
 
   wallet ClientWallet? @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  venue  Venue?        @relation(fields: [venueId], references: [id], onDelete: SetNull)
 
   @@index([walletId])
+  @@index([venueId, status])
   @@map("wallet_cards")
 }
 
