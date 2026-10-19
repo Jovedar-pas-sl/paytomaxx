@@ -19,6 +19,7 @@ export type TabKey =
   | 'operators'
   | 'treasury'
   | 'wallets'
+  | 'fichas'
   | 'nights'
   | 'reports'
   | 'bank'
@@ -70,6 +71,8 @@ export const PANEL_TABS: readonly PanelTab[] = [
   { key: 'operators', label: 'Chicas', section: 'chicas', access: 'staff' },
   { key: 'treasury', label: 'Pagos a chicas', section: 'chicas', access: 'staff' },
   { key: 'wallets', label: 'Saldos', section: 'clientes', access: 'staff' },
+  // Fichas NFC: stock, entregadas y perdidas por noche (/v1/wallet-cards).
+  { key: 'fichas', label: 'Fichas', section: 'clientes', access: 'staff' },
   { key: 'nights', label: 'Noches', section: 'informes', access: 'staff' },
   // /v1/admin/export/*: el dueño (y el encargado con permiso).
   { key: 'reports', label: 'Informes', section: 'informes', access: 'reports' },

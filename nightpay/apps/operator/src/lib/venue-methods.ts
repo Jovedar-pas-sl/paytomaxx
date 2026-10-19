@@ -18,9 +18,9 @@ export function cobroModeAllowed(mode: CobroMode, m: VenuePaymentMethods): boole
   return m.pos;
 }
 
-/** Pestañas de abajo sin las de formas de cobro apagadas (Saldo y Datáfono). */
+/** Pestañas de abajo sin las de formas de cobro apagadas (Saldo, Recepción y Datáfono). */
 export function visibleTabsFor(tabs: readonly TabKey[], m: VenuePaymentMethods): TabKey[] {
-  return tabs.filter((t) => (t === 'wallet' ? m.wallet : t === 'pos' ? m.pos : true));
+  return tabs.filter((t) => (t === 'wallet' || t === 'reception' ? m.wallet : t === 'pos' ? m.pos : true));
 }
 
 export const VenueMethodsContext = createContext<VenuePaymentMethods>(DEFAULT_PAYMENT_METHODS);

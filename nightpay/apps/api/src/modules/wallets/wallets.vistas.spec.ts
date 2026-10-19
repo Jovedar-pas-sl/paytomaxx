@@ -75,7 +75,7 @@ describe('lista de saldos del panel', () => {
       expect.objectContaining({ where: { tenantId: SALA }, orderBy: { createdAt: 'desc' }, take: 50 }),
     );
     expect(clientWallet.findMany.mock.calls[0]![0]).toMatchObject({
-      select: { _count: { select: { cards: { where: { status: 'ACTIVE' } } } } },
+      select: { _count: { select: { cards: { where: { status: 'ISSUED' } } } } },
     });
   });
 

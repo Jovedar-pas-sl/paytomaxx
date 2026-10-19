@@ -470,7 +470,7 @@ describe('ficha NFC (Postgres real)', () => {
       inVenue(B, () => charges.linkCard(manager(), { code, card: tok('x') })),
       inVenue(B, () => charges.linkCard(manager(), { code, card: tok('y') })),
     ]);
-    expect(await sys((tx) => tx.walletCard.count({ where: { walletId: w, status: 'ACTIVE' } }))).toBe(1);
+    expect(await sys((tx) => tx.walletCard.count({ where: { walletId: w, status: 'ISSUED' } }))).toBe(1);
   });
 
   it('se da al recargar; la chica cobra acercándola + PIN; sin PIN no paga', async () => {
@@ -503,7 +503,7 @@ describe('ficha NFC (Postgres real)', () => {
 
   it('ficha de un saldo ya gastado: se reutiliza para otro cliente', async () => {
     const old = await wallet(A, 0, `fg-${r}`, 'N3');
-    await sys((tx) => tx.walletCard.create({ data: { token: tok('b'), walletId: old } }));
+    await sys((tx) => tx.walletCard.create({ data: { token: tok('b'), walletId: old, status: 'ISSUED' } }));
     await sys((tx) => tx.clientWallet.update({ where: { id: old }, data: { status: 'DEPLETED' } }));
     const fresh = await wallet(A, 4_000, `fg-${r}`, 'N4');
     await topUpBy(fresh, 'n4');
@@ -527,7 +527,7 @@ describe('ficha NFC (Postgres real)', () => {
   });
 
   it('una ficha de otro grupo de locales no paga aquí', async () => {
-    await sys((tx) => tx.walletCard.create({ data: { token: tok('e'), walletId: foreign } }));
+    await sys((tx) => tx.walletCard.create({ data: { token: tok('e'), walletId: foreign, status: 'ISSUED' } }));
     await expect(inVenue(B, () => charges.lookupCard(B, { card: tok('e') }))).rejects.toThrow(/no tiene saldo en este local/);
   });
 });

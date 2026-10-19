@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { NightCash, NightCloseStep } from '@nightpay/contracts';
 import {
+  cajaInText,
   cashInputOf,
   cashOutcome,
   diffLabel,
@@ -18,6 +19,8 @@ import { PANEL_TABS, visibleTabs } from './roles';
 const CASH: NightCash = {
   openingFloatCents: 20_000,
   cashInCents: 0,
+  walletCashTopUpsCount: 0,
+  walletCashTopUpsCents: 0,
   walletCashPayoutsCount: 1,
   walletCashPayoutsCents: 4500,
   chicaCashPayoutsCount: 1,
@@ -68,6 +71,21 @@ describe('efectivo tecleado', () => {
     });
     // El fondo tecleado corrige el guardado.
     expect(cashOutcome(CASH, { floatText: '205', countedText: '70' })).toMatchObject({ expectedCents: 7000, diffCents: 0 });
+  });
+
+  it('las recargas en efectivo entran: esperado = fondo + recargas − salidas', () => {
+    const conRecargas: NightCash = { ...CASH, cashInCents: 8000, walletCashTopUpsCount: 2, walletCashTopUpsCents: 8000 };
+    expect(cashOutcome(conRecargas, { floatText: '', countedText: '145' })).toMatchObject({ expectedCents: 14_500, diffCents: 0 });
+    const steps = effectiveSteps([step('efectivo', 'block')], conRecargas, { floatText: '', countedText: '145' });
+    expect(steps[0]).toMatchObject({ status: 'ok', count: 4 });
+  });
+
+  it('el bloque «Caja» dice las recargas en efectivo (los Z de antes, sin el número)', () => {
+    // Intl pone un espacio duro antes del €.
+    expect(cajaInText({ cashInCents: 8000, walletCashTopUpsCount: 2, walletCashTopUpsCents: 8000 })).toMatch(
+      /^Recargas del saldo en efectivo: 80,00\s€ \(2\)\.$/,
+    );
+    expect(cajaInText({ cashInCents: 500 })).toMatch(/^Recargas del saldo en efectivo: 5,00\s€\.$/);
   });
 
   it('la diferencia en palabras', () => {

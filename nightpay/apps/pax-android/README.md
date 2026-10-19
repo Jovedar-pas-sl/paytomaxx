@@ -25,7 +25,17 @@ el datáfono (ver `docs/DATAFONO-SALDO.md`). Para eso la app expone:
 - `capabilities` → si hay NFC de Android (`ready`, `disabled`, `unavailable`) y cámara.
 - `scanQr` → abre la cámara trasera (`ScanActivity`, ZXing) y devuelve el texto del QR.
 - `readNfc` → modo lector de Android (NFC-A, fichas NTAG213/215/216): `{ uid, url }`.
-- `cancelRead` → corta la espera de la ficha.
+- `cancelRead` → corta la espera de la ficha (también la de `writeNfc`).
+
+## Recepción y «Preparar fichas» (app 0.3+)
+
+- `writeNfc { url, onlyIfBlank, timeoutMs }` → graba el enlace de la ficha
+  (un registro NDEF URI; una ficha de fábrica sin formatear se formatea con
+  él) y devuelve `{ uid, url, written }`. Con `onlyIfBlank` (por defecto), una
+  ficha que ya tiene algo no se toca: `written: false` y `url` lo que tenía.
+  Solo graba enlaces `…/?ficha=<código>` del dominio de la pantalla
+  (`PAX_URL`). Errores: `readOnly`, `tooSmall`, `writeFailed`, `timeout`,
+  `cancelled`, `nfcUnavailable`, `nfcDisabled`.
 
 Única dependencia: `com.google.zxing:core:3.3.3` (Java puro, sin AndroidX ni
 Google Play, que los PAX no traen; la 3.4+ pide Android 7). Permisos:

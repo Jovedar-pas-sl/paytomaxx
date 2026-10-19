@@ -18,6 +18,8 @@ import {
 } from '@/lib/pax-api';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
+import { PrepareFichas } from '../reception/PrepareFichas';
+import { ReceptionFlow } from '../reception/ReceptionFlow';
 import { PaxChargeFlow } from './PaxChargeFlow';
 import { PaxSaldoFlow } from './PaxSaldoFlow';
 
@@ -35,6 +37,8 @@ export function PaxScreen() {
   const [selected, setSelected] = useState<PaxCharge | null>(null);
   // «Cobrar con saldo»: ficha NFC, QR del cliente o código + su PIN en el datáfono.
   const [saldo, setSaldo] = useState(false);
+  // Recepción (recargar saldo, ficha y PIN) y «Preparar fichas».
+  const [desk, setDesk] = useState<'reception' | 'prepare' | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Ventas aprobadas que aún no han llegado a OxioPay: mientras haya, no se cobra otra.
   const [unsent, setUnsent] = useState(0);
@@ -75,12 +79,13 @@ export function PaxScreen() {
         return 'slow';
       }
     },
-    { intervalMs: POLL_MS, enabled: paired === true && selected === null && !saldo },
+    { intervalMs: POLL_MS, enabled: paired === true && selected === null && !saldo && desk === null },
   );
 
   // Al cerrar el cobro vuelve el sondeo (y con él, la lista al momento).
   const closeCharge = useCallback(() => setSelected(null), []);
   const closeSaldo = useCallback(() => setSaldo(false), []);
+  const closeDesk = useCallback(() => setDesk(null), []);
 
   if (paired === null) return <main className="np-screen" style={mainStyle} />;
   if (!paired) {
@@ -108,6 +113,14 @@ export function PaxScreen() {
     return (
       <main className="np-screen" style={mainStyle}>
         <PaxSaldoFlow onDone={closeSaldo} />
+      </main>
+    );
+  }
+
+  if (desk) {
+    return (
+      <main className="np-screen" style={mainStyle}>
+        {desk === 'reception' ? <ReceptionFlow on="device" onDone={closeDesk} /> : <PrepareFichas on="device" onDone={closeDesk} />}
       </main>
     );
   }
@@ -149,6 +162,14 @@ export function PaxScreen() {
       <Button size="lg" variant="ghost" onClick={() => setSaldo(true)}>
         Cobrar con saldo (ficha, QR o código + PIN)
       </Button>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <Button size="lg" variant="ghost" disabled={unsent > 0} onClick={() => setDesk('reception')} style={{ flex: 1 }}>
+          Recepción: recargar saldo
+        </Button>
+        <Button size="lg" variant="ghost" onClick={() => setDesk('prepare')} style={{ flex: 1 }}>
+          Preparar fichas
+        </Button>
+      </div>
 
       {charges.length === 0 ? (
         <Card style={{ padding: '2rem 1.25rem', textAlign: 'center' }}>

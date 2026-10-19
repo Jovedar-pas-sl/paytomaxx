@@ -197,7 +197,7 @@ beforeAll(async () => {
     await tx.clientWallet.create({ data: { tenantId: V2, qrToken: `sa-w3-${r}`, balanceCents: 0, status: 'REFUNDED' } });
     // Recarga aún sin pagar (no cuenta como cobrado): basta para buscar por id de cobro.
     topUpId = (await pay(V1, t1, { amountCents: 12_000, walletId: w1, captureMethod: 'WALLET_TOPUP', status: 'CREATED' })).id;
-    await tx.walletCard.create({ data: { token: CARD, uid: `04A1B2C3${r.toUpperCase().replace(/[^0-9A-F]/g, '0')}`, walletId: w1 } });
+    await tx.walletCard.create({ data: { token: CARD, uid: `04A1B2C3${r.toUpperCase().replace(/[^0-9A-F]/g, '0')}`, walletId: w1, status: 'ISSUED' } });
     await tx.walletPasskey.create({ data: { walletId: w1, credentialId: `cred-${r}`, publicKey: Buffer.from([1, 2, 3]) } });
   });
   await inVenue(V2, () => audit.log({ action: 'auth.login.ok', actorId: chica2, tenantId: V2 }));

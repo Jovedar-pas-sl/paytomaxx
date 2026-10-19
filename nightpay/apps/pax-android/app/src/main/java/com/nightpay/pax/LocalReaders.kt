@@ -3,9 +3,13 @@ package com.nightpay.pax
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.nfc.FormatException
+import android.nfc.NdefMessage
+import android.nfc.NdefRecord
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.Ndef
+import android.nfc.tech.NdefFormatable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -17,7 +21,9 @@ import java.util.concurrent.TimeUnit
 /**
  * Lectores del propio datáfono para cobrar del saldo: la cámara (el QR del
  * cobro de la chica o el del cliente, en ScanActivity) y el NFC de Android
- * (fichas NTAG213/215/216 con el enlace …/?ficha=<código> grabado).
+ * (fichas NTAG213/215/216 con el enlace …/?ficha=<código> grabado). En la
+ * recepción y en «Preparar fichas», además, graba ese enlace en una ficha en
+ * blanco (writeNfc): nunca encima de una que ya tiene algo.
  *
  * Llamadas bloqueantes: se usan desde un hilo de fondo (PaxBridge). Mismo
  * contrato de respuesta que el resto del puente:
@@ -43,8 +49,15 @@ class LocalReaders(private val activity: Activity) {
     @Volatile
     private var pendingScan: ArrayBlockingQueue<JSONObject>? = null
 
-    /** En un hilo del sistema: leer la ficha aquí (es E/S) es lo previsto. */
-    private val nfcCallback = NfcAdapter.ReaderCallback { tag -> pendingNfc?.offer(readTag(tag)) }
+    /** Qué hacer con la ficha que se acerque: leerla o grabarla (lo fija readNfc / writeNfc). */
+    @Volatile
+    private var onTag: ((Tag) -> JSONObject)? = null
+
+    /** En un hilo del sistema: leer o grabar la ficha aquí (es E/S) es lo previsto. */
+    private val nfcCallback = NfcAdapter.ReaderCallback { tag ->
+        val handler = onTag
+        if (handler != null) pendingNfc?.offer(handler(tag))
+    }
 
     /** Qué hay en este aparato: NFC de Android (listo, apagado o no disponible) y cámara. */
     fun capabilities(): JSONObject {
@@ -58,10 +71,28 @@ class LocalReaders(private val activity: Activity) {
     }
 
     /** Espera una ficha (modo lector de Android) hasta `timeoutMs` o hasta cancel(). */
-    fun readNfc(timeoutMs: Long): JSONObject {
+    fun readNfc(timeoutMs: Long): JSONObject = waitForTag(timeoutMs) { tag -> readTag(tag) }
+
+    /**
+     * Graba `url` (un registro NDEF URI) en la ficha que acerquen. Con
+     * `onlyIfBlank`, una ficha que ya tiene algo grabado no se toca:
+     * { written: false, url: el enlace que tenía (o null) }.
+     */
+    fun writeNfc(url: String, onlyIfBlank: Boolean, timeoutMs: Long): JSONObject {
+        val message = try {
+            NdefMessage(arrayOf(NdefRecord.createUri(url)))
+        } catch (e: IllegalArgumentException) {
+            return fail("badRequest", "Enlace no válido")
+        }
+        return waitForTag(timeoutMs) { tag -> writeTag(tag, url, message, onlyIfBlank) }
+    }
+
+    /** Modo lector de Android hasta que se acerque una ficha (y `handler` la lea o la grabe). */
+    private fun waitForTag(timeoutMs: Long, handler: (Tag) -> JSONObject): JSONObject {
         val adapter = nfcAdapter() ?: return fail("nfcUnavailable", "Este datáfono no deja leer fichas desde la app")
         if (!adapter.isEnabled) return fail("nfcDisabled", "El NFC del datáfono está apagado")
         val result = ArrayBlockingQueue<JSONObject>(1)
+        onTag = handler
         pendingNfc = result
         main.post {
             try {
@@ -76,6 +107,7 @@ class LocalReaders(private val activity: Activity) {
             return result.poll(timeoutMs, TimeUnit.MILLISECONDS) ?: fail("timeout", "No se ha acercado ninguna ficha")
         } finally {
             pendingNfc = null
+            onTag = null
             main.post {
                 try {
                     adapter.disableReaderMode(activity)
@@ -148,13 +180,84 @@ class LocalReaders(private val activity: Activity) {
 
     /** Número de serie (hex, como lo normaliza el API) y el enlace NDEF grabado. */
     private fun readTag(tag: Tag): JSONObject {
-        val uid = tag.id?.joinToString("") { String.format("%02X", it) }
         val url = try {
             ndefUrl(tag)
         } catch (e: Exception) {
             null
         }
-        return ok().put("uid", uid ?: JSONObject.NULL).put("url", url ?: JSONObject.NULL)
+        return ok().put("uid", uidOf(tag) ?: JSONObject.NULL).put("url", url ?: JSONObject.NULL)
+    }
+
+    private fun uidOf(tag: Tag): String? = tag.id?.joinToString("") { String.format("%02X", it) }
+
+    /**
+     * Graba el enlace. Una ficha NDEF que ya tiene algo (con onlyIfBlank) no se
+     * toca; una sin formatear (NdefFormatable) se formatea con el enlace.
+     */
+    private fun writeTag(tag: Tag, url: String, message: NdefMessage, onlyIfBlank: Boolean): JSONObject {
+        val uid: Any = uidOf(tag) ?: JSONObject.NULL
+        val ndef = Ndef.get(tag)
+        if (ndef == null) return formatTag(tag, url, message, uid)
+        try {
+            ndef.connect()
+            val current: NdefMessage? = try {
+                ndef.ndefMessage
+            } catch (e: FormatException) {
+                null
+            }
+            if (onlyIfBlank && !isBlank(current)) {
+                return ok().put("uid", uid).put("url", firstUri(current) ?: JSONObject.NULL).put("written", false)
+            }
+            if (!ndef.isWritable) return fail("readOnly", "La ficha está protegida contra escritura")
+            if (message.toByteArray().size > ndef.maxSize) return fail("tooSmall", "En esta ficha no cabe el enlace")
+            ndef.writeNdefMessage(message)
+            return ok().put("uid", uid).put("url", url).put("written", true)
+        } catch (e: IOException) {
+            return fail("writeFailed", "No se ha podido grabar la ficha")
+        } catch (e: FormatException) {
+            return fail("writeFailed", "No se ha podido grabar la ficha")
+        } finally {
+            try {
+                ndef.close()
+            } catch (e: IOException) {
+                // ficha ya retirada
+            }
+        }
+    }
+
+    /** Ficha sin formatear (de fábrica): se formatea NDEF con el enlace. Está en blanco por definición. */
+    private fun formatTag(tag: Tag, url: String, message: NdefMessage, uid: Any): JSONObject {
+        val formatable = NdefFormatable.get(tag) ?: return fail("writeFailed", "Esta ficha no admite el enlace: usa una NTAG213/215/216")
+        try {
+            formatable.connect()
+            formatable.format(message)
+            return ok().put("uid", uid).put("url", url).put("written", true)
+        } catch (e: IOException) {
+            return fail("writeFailed", "No se ha podido grabar la ficha")
+        } catch (e: FormatException) {
+            return fail("writeFailed", "No se ha podido grabar la ficha")
+        } finally {
+            try {
+                formatable.close()
+            } catch (e: IOException) {
+                // ficha ya retirada
+            }
+        }
+    }
+
+    /** Sin mensaje, sin registros o solo registros vacíos: en blanco. */
+    private fun isBlank(message: NdefMessage?): Boolean {
+        val records = message?.records ?: return true
+        return records.all { it.tnf == NdefRecord.TNF_EMPTY }
+    }
+
+    private fun firstUri(message: NdefMessage?): String? {
+        val records = message?.records ?: return null
+        for (record in records) {
+            val uri = record.toUri() ?: continue
+            return uri.toString()
+        }
+        return null
     }
 
     private fun ndefUrl(tag: Tag): String? {

@@ -38,9 +38,9 @@ export function NightCashStep({ cash, draft, onDraft, cashNote, onCashNote, acke
   return (
     <div className="np-cash">
       <p className="np-cash-why">
-        OxioPay no cobra en efectivo: por el sistema la caja solo baja (saldo devuelto en efectivo y pagos en efectivo a
-        las chicas). Lo que se cobre en efectivo fuera de OxioPay (barra, entradas) no está aquí: si lo guardas en
-        esta caja, sale como «sobran».
+        Por OxioPay la caja sube con las recargas del saldo en efectivo (recepción) y baja con el saldo devuelto en
+        efectivo y los pagos en efectivo a las chicas. Lo que se cobre en efectivo fuera de OxioPay (barra, entradas)
+        no está aquí: si lo guardas en esta caja, sale como «sobran».
       </p>
 
       <ul className="np-cash-moves">
@@ -55,6 +55,12 @@ export function NightCashStep({ cash, draft, onDraft, cashNote, onCashNote, acke
             ) : null}
           </span>
         </li>
+        {(cash.walletCashTopUpsCount ?? 0) > 0 ? (
+          <li>
+            <span>Recargas del saldo en efectivo ({cash.walletCashTopUpsCount})</span>
+            <span className="np-num">+{formatEur(cash.walletCashTopUpsCents)}</span>
+          </li>
+        ) : null}
         <li>
           <span>Saldo devuelto en efectivo ({cash.walletCashPayoutsCount})</span>
           <span className="np-num">{formatEur(-cash.walletCashPayoutsCents)}</span>

@@ -95,8 +95,14 @@ export class PeriodReportsService {
          WHERE wp."tenantId" = ${tenantId}::uuid
            AND wp."status" = 'DONE'
            AND wp."createdAt" >= ${w.from} AND wp."createdAt" < ${w.to}
+      ), efectivo AS (
+        SELECT COUNT(*)::int AS "walletCashTopUpCount",
+               COALESCE(SUM(ct."amountCents"), 0)::bigint AS "walletCashTopUpCents"
+          FROM wallet_cash_topups ct
+         WHERE ct."tenantId" = ${tenantId}::uuid
+           AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to}
       )
-      SELECT * FROM cobros, devoluciones, saldo
+      SELECT * FROM cobros, devoluciones, saldo, efectivo
     `;
     return totalsFromRow(rows[0]);
   }
@@ -127,7 +133,7 @@ export class PeriodReportsService {
     `;
   }
 
-  /** Cobros (aparte las recargas) y consumos del saldo, por tipo. */
+  /** Cobros (aparte las recargas, con tarjeta y en efectivo) y consumos del saldo, por tipo. */
   private async categories(tenantId: string, w: TimeWindow): Promise<ZCategoryRow[]> {
     return this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<ZCategoryRow[]>`
       SELECT CASE WHEN p."walletId" IS NULL THEN 'CARD' ELSE 'TOPUP' END AS source,
@@ -140,6 +146,15 @@ export class PeriodReportsService {
          AND p.status IN ${PAID_STATUSES_SQL}
          AND ${paymentAt('p')} >= ${w.from} AND ${paymentAt('p')} < ${w.to}
        GROUP BY 1, 2
+      UNION ALL
+      SELECT 'TOPUP' AS source, 'EXTRA' AS category,
+             COUNT(*)::int AS count,
+             COALESCE(SUM(ct."amountCents"), 0)::bigint AS "grossCents",
+             0::bigint AS "tipCents"
+        FROM wallet_cash_topups ct
+       WHERE ct."tenantId" = ${tenantId}::uuid
+         AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to}
+      HAVING COUNT(*) > 0
       UNION ALL
       SELECT 'WALLET' AS source, c.category,
              COUNT(*)::int AS count,

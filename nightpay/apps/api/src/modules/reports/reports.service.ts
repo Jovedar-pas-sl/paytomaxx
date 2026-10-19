@@ -1,7 +1,15 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import type { AdjustmentRows, CobroRow, ConsumoRow, DevolucionRow, LiquidacionRow, PagoSaldoRow } from './export-rows';
+import type {
+  AdjustmentRows,
+  CobroRow,
+  ConsumoRow,
+  DevolucionRow,
+  LiquidacionRow,
+  PagoSaldoRow,
+  RecargaEfectivoRow,
+} from './export-rows';
 import type { TimeWindow } from './report-period';
 import {
   PAID_EVENTS_SQL,
@@ -132,6 +140,31 @@ export class ReportsService {
          AND wp."createdAt" >= ${p.from}
          AND wp."createdAt" < ${p.to}
        ORDER BY wp."createdAt" ASC
+       LIMIT ${MAX_EXPORT_ROWS + 1}
+    `);
+  }
+
+  /**
+   * Recargas del saldo en efectivo cobradas en este local en el periodo (por
+   * cuándo se cobraron). Para un Z: las apuntadas antes de generarlo.
+   */
+  async recargasEfectivo(tenantId: string, p: TimeWindow, asOf: AsOf = {}): Promise<RecargaEfectivoRow[]> {
+    const recorded = asOf.recordedBefore ? Prisma.sql`AND ct."createdAt" < ${asOf.recordedBefore}` : Prisma.empty;
+    return capped(await this.prisma.$queryRaw<RecargaEfectivoRow[]>`
+      SELECT ct.id,
+             ct."createdAt" AS "at",
+             ct."amountCents",
+             u."displayName" AS "takenByName",
+             u.email AS "takenByEmail",
+             t.label AS "terminalLabel"
+        FROM wallet_cash_topups ct
+        LEFT JOIN users u ON u.id = ct."takenByUserId"
+        LEFT JOIN terminals t ON t.id = ct."terminalId"
+       WHERE ct."tenantId" = ${tenantId}::uuid
+         AND ct."createdAt" >= ${p.from}
+         AND ct."createdAt" < ${p.to}
+         ${recorded}
+       ORDER BY ct."createdAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
     `);
   }

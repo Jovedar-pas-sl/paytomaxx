@@ -8,7 +8,11 @@ import {
   type DevolucionRow,
   type LiquidacionRow,
   type PagoSaldoRow,
+  type RecargaEfectivoRow,
 } from './export-rows';
+
+/** Las recargas en efectivo, por tipo de cobro (junto a la «Recarga de wallet» con tarjeta). */
+export const CASH_TOP_UP_LABEL = 'Recarga en efectivo';
 
 /**
  * Resumen de un periodo: el CSV «resumen» de la gestoría, el Z de la noche y
@@ -37,11 +41,19 @@ export interface ExportSummary {
   count: number;
   grossCents: number;
   tipsCents: number;
+  /** Lo que pagaron los clientes: cobros + propinas + recargas en efectivo. */
   chargedCents: number;
   refundsCount: number;
   refundsCents: number;
   /** Cobrado − devoluciones − saldo devuelto en efectivo. */
   netCents: number;
+  /**
+   * Recargas del saldo en efectivo (recepción): cobradas al cargarlas, como
+   * las de tarjeta (no son cobros del banco: van aparte de `count`). Los Z
+   * congelados antes del 21-oct-2026 no lo traen.
+   */
+  walletCashTopUpsCount?: number;
+  walletCashTopUpsCents?: number;
   byType: TypeLine[];
   chicaCommissionCents: number;
   chicaTipsCents: number;
@@ -81,22 +93,32 @@ export function summarize(
   liquidaciones: ReadonlyArray<LiquidacionRow>,
   consumos: ReadonlyArray<ConsumoRow> = [],
   pagosSaldo: ReadonlyArray<PagoSaldoRow> = [],
+  recargasEfectivo: ReadonlyArray<RecargaEfectivoRow> = [],
 ): ExportSummary {
   const grossCents = sum(cobros, (r) => r.amountCents);
   const tipsCents = sum(cobros, (r) => r.tipCents);
   const refundsCents = sum(devoluciones, (r) => r.amountCents);
+  const cashTopUpsCents = sum(recargasEfectivo, (r) => r.amountCents);
   const saldo = saldoTotals(consumos, pagosSaldo);
   const { cardTipsCents, ...chica } = chicaTotals(cobros, devoluciones, consumos);
-  const netCents = grossCents + tipsCents - refundsCents - saldo.walletCashPayoutsCents;
+  const chargedCents = grossCents + tipsCents + cashTopUpsCents;
+  const netCents = chargedCents - refundsCents - saldo.walletCashPayoutsCents;
   return {
     count: cobros.length,
     grossCents,
     tipsCents,
-    chargedCents: grossCents + tipsCents,
+    chargedCents,
     refundsCount: devoluciones.length,
     refundsCents,
     netCents,
-    byType: typeLines(cobros, TYPE_ORDER, cobroType, (r) => r.amountCents + r.tipCents),
+    walletCashTopUpsCount: recargasEfectivo.length,
+    walletCashTopUpsCents: cashTopUpsCents,
+    byType: [
+      ...typeLines(cobros, TYPE_ORDER, cobroType, (r) => r.amountCents + r.tipCents),
+      ...(recargasEfectivo.length > 0
+        ? [{ label: CASH_TOP_UP_LABEL, count: recargasEfectivo.length, chargedCents: cashTopUpsCents }]
+        : []),
+    ],
     ...chica,
     // Propinas con tarjeta que se queda el local (las del saldo no entran aquí).
     venueTipsCents: tipsCents - cardTipsCents,

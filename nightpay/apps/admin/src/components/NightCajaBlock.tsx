@@ -3,13 +3,13 @@
 import type { NightCaja } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
-import { diffLabel } from '@/lib/night-close';
+import { cajaInText, diffLabel } from '@/lib/night-close';
 import { useVenueTimezone } from '@/lib/venue-context';
 
 /**
- * Bloque «Caja» de un Z congelado: fondo, lo que salió en efectivo, lo que
- * debería haber, lo contado y la diferencia, con el candado y la hora a la
- * que se congeló. Ya no cambia.
+ * Bloque «Caja» de un Z congelado: fondo, lo que entró (recargas del saldo en
+ * efectivo) y salió en efectivo, lo que debería haber, lo contado y la
+ * diferencia, con el candado y la hora a la que se congeló. Ya no cambia.
  */
 export function NightCajaBlock({ caja }: { caja: NightCaja }) {
   const tz = useVenueTimezone();
@@ -28,6 +28,12 @@ export function NightCajaBlock({ caja }: { caja: NightCaja }) {
           <dt>Fondo</dt>
           <dd>{caja.openingFloatCents === null ? '—' : formatEur(caja.openingFloatCents)}</dd>
         </div>
+        {caja.cashInCents > 0 ? (
+          <div>
+            <dt>Entró en efectivo</dt>
+            <dd>+{formatEur(caja.cashInCents)}</dd>
+          </div>
+        ) : null}
         <div>
           <dt>Salió en efectivo</dt>
           <dd>{caja.cashOutCents > 0 ? formatEur(-caja.cashOutCents) : formatEur(0)}</dd>
@@ -46,9 +52,12 @@ export function NightCajaBlock({ caja }: { caja: NightCaja }) {
         </div>
       </dl>
       <p className="np-caja-note">
+        {caja.cashInCents > 0 ? `${cajaInText(caja)} ` : ''}
         {caja.cashOutCents > 0
           ? `Saldo devuelto en efectivo: ${formatEur(caja.walletCashPayoutsCents)} (${caja.walletCashPayoutsCount}) · pagos a las chicas en efectivo: ${formatEur(caja.chicaCashPayoutsCents)} (${caja.chicaCashPayoutsCount}).`
-          : 'No salió efectivo por OxioPay.'}
+          : caja.cashInCents > 0
+            ? 'No salió efectivo por OxioPay.'
+            : 'No entró ni salió efectivo por OxioPay.'}
         {counted && diff !== 0 ? ` ${diffLabel(diff)}.` : ''}
         {counted ? '' : ' Nadie contó la caja (cierre automático o sin efectivo).'}
       </p>

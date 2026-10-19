@@ -62,6 +62,14 @@ export function diffLabel(diffCents: number): string {
   return `${diffCents < 0 ? 'Faltan' : 'Sobran'} ${formatEur(Math.abs(diffCents))}`;
 }
 
+/** «Recargas del saldo en efectivo: 80,00 € (2).» (los Z de antes no traen el número). */
+export function cajaInText(caja: { cashInCents: number; walletCashTopUpsCount?: number; walletCashTopUpsCents?: number }): string {
+  const count = caja.walletCashTopUpsCount;
+  return `Recargas del saldo en efectivo: ${formatEur(caja.walletCashTopUpsCents ?? caja.cashInCents)}${
+    typeof count === 'number' ? ` (${count})` : ''
+  }.`;
+}
+
 /** Marca un aviso como visto (o lo desmarca), sin cambiar la lista de entrada. */
 export function toggleAck(
   acks: ReadonlyArray<NightCloseStepKey>,

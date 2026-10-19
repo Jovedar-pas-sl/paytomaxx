@@ -151,6 +151,7 @@ function totalRows(s: ExportSummary): CsvCell[][] {
     ['Concepto', 'Importe (€)', 'Número'],
     ['Cobros (sin propinas)', money(s.grossCents), s.count],
     ['Propinas cobradas', money(s.tipsCents)],
+    ['Recargas del saldo en efectivo', money(s.walletCashTopUpsCents ?? 0), s.walletCashTopUpsCount ?? 0],
     ['Total cobrado', money(s.chargedCents)],
     ['Devoluciones del periodo', money(-s.refundsCents), s.refundsCount],
     ['Saldo devuelto en efectivo', money(-s.walletCashPayoutsCents), s.walletCashPayoutsCount],
@@ -187,7 +188,7 @@ const NOTES: CsvCell[][] = [
   ['Notas'],
   ['El IVA depende de si el local actúa como intermediario (IVA solo sobre su parte) o como principal (sobre todo lo cobrado). Decídelo con tu asesor.'],
   ['Las propinas van aparte porque normalmente no forman parte de la base del IVA.'],
-  ['Las recargas de saldo cuentan como cobradas al cargarlas; lo que se devuelve del saldo resta (en efectivo, arriba; a la tarjeta, en las devoluciones). Los consumos del saldo no son dinero nuevo.'],
+  ['Las recargas de saldo (con tarjeta o en efectivo) cuentan como cobradas al cargarlas; lo que se devuelve del saldo resta (en efectivo, arriba; a la tarjeta, en las devoluciones). Los consumos del saldo no son dinero nuevo.'],
   ['La comisión del banco no está incluida: sale en el extracto de BBVA.'],
 ];
 

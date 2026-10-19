@@ -367,3 +367,34 @@ describe('cuadre con el cierre del datáfono', () => {
     expect(tx.payment.findMany.mock.calls[0]![0]).toMatchObject({ where: { posTerminalId: 'term-1' } });
   });
 });
+
+describe('recarga del saldo cobrada en la recepción del datáfono', () => {
+  const topUp = payment({ captureMethod: 'WALLET_TOPUP', createdBy: null });
+
+  it('la recarga que creó este datáfono se cobra en su lector y queda pagada (la suma al saldo va en la transición)', async () => {
+    const { svc, payments, prepared } = makeService({ payment: topUp, locked: { walletId: 'w-1', createdByUserId: null } });
+    await expect(svc.reportResult(device, PAYMENT_ID, approved)).resolves.toMatchObject({ status: 'PAID' });
+    expect(payments.transition).toHaveBeenCalledWith(
+      PAYMENT_ID,
+      { type: 'POS_CONFIRMED', posReceiptRef: '047215' },
+      't-1',
+      expect.objectContaining({ prepare: expect.any(Function) }),
+    );
+    expect(prepared[0]).toMatchObject({ provider: 'PAYTEF', providerTxId: '99812', tipCents: 0 });
+  });
+
+  it('con propina en el lector: no se apunta y se pide anularla (una recarga no lleva propina)', async () => {
+    const { svc, payments, tx } = makeService({ payment: topUp });
+    const out = await svc.reportResult(device, PAYMENT_ID, { ...approved, tipAmount: 200 });
+    expect(out).toMatchObject({ status: 'MISMATCH', operationNumber: '99812' });
+    expect(out.message).toMatch(/no lleva propina/);
+    expect(payments.transition).not.toHaveBeenCalled();
+    expect(events(tx)).toContain('pos.charge_mismatch');
+  });
+
+  it('una recarga que no empezó este datáfono (p. ej. la del QR de una chica): no se cobra aquí', async () => {
+    const { svc, payments } = makeService({ payment: topUp, started: false });
+    await expect(svc.reportResult(device, PAYMENT_ID, approved)).resolves.toMatchObject({ status: 'MISMATCH' });
+    expect(payments.transition).not.toHaveBeenCalled();
+  });
+});

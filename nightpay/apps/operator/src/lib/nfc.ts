@@ -44,6 +44,10 @@ export function nfcSupported(): boolean {
 export interface CardRead {
   /** El código grabado en la ficha (null: ficha vacía o de otra cosa). */
   token: string | null;
+  /** El enlace grabado (null: no tiene ninguno). */
+  url: string | null;
+  /** No tiene nada grabado (se puede grabar sin borrar nada). */
+  blank: boolean;
   /** Número de serie (para que una copia no valga). */
   uid: string | null;
   /** Graba el enlace en esta misma ficha (mientras sigue acercada). */
@@ -60,9 +64,12 @@ export async function readCard(signal: AbortSignal): Promise<CardRead> {
     signal.addEventListener('abort', () => reject(new DOMException('Cancelado', 'AbortError')), { once: true });
     reader.onreadingerror = () => reject(new Error(UNREADABLE));
     reader.onreading = (event) => {
-      const url = urlOf(event.message?.records ?? []);
+      const records = event.message?.records ?? [];
+      const url = urlOf(records);
       resolve({
         token: url ? walletCardTokenFromUrl(url) : null,
+        url,
+        blank: records.every((r) => r.recordType === 'empty'),
         uid: event.serialNumber ? normalizeWalletCardUid(event.serialNumber) : null,
         writeUrl: (link) => reader.write({ records: [{ recordType: 'url', data: link }] }, { signal }),
       });

@@ -20,7 +20,9 @@ export interface MetricsPeriod {
   chargedCents: number;
   refundedCents: number;
   walletCashPayoutCents: number;
-  /** Cobrado (con propinas) − devoluciones − saldo devuelto en efectivo. */
+  /** Recargas en efectivo (ya en chargedCents). */
+  walletCashTopUpCents: number;
+  /** Cobrado (con propinas y recargas en efectivo) − devoluciones − saldo devuelto en efectivo. */
   netCents: number;
 }
 
@@ -32,6 +34,7 @@ export function metricsPeriod(t: PeriodTotals): MetricsPeriod {
     chargedCents: chargedCents(t),
     refundedCents: t.refundedCents,
     walletCashPayoutCents: t.walletCashPayoutCents,
+    walletCashTopUpCents: t.walletCashTopUpCents,
     netCents: netCents(t),
   };
 }
@@ -122,6 +125,8 @@ export function buildPeriodZ(args: {
       refundedCents: t.refundedCents,
       walletCashPayoutCount: t.walletCashPayoutCount,
       walletCashPayoutCents: t.walletCashPayoutCents,
+      walletCashTopUpCount: t.walletCashTopUpCount,
+      walletCashTopUpCents: t.walletCashTopUpCents,
       netCents: netCents(t),
     },
     byCaptureMethod: groupBy(args.groups, (g) => g.captureMethod ?? 'QR').map(({ key, ...b }) => ({ method: key, ...b })),
@@ -202,6 +207,8 @@ function walletSection(rows: ReadonlyArray<ZCategoryRow>, t: PeriodTotals) {
     consumptionCount: sum('WALLET', 'count'),
     consumptionCents: sum('WALLET', 'grossCents'),
     consumptionTipCents: sum('WALLET', 'tipCents'),
+    cashTopUpCount: t.walletCashTopUpCount,
+    cashTopUpCents: t.walletCashTopUpCents,
     cashPayoutCount: t.walletCashPayoutCount,
     cashPayoutCents: t.walletCashPayoutCents,
     cardPayoutCount: t.walletCardPayoutCount,

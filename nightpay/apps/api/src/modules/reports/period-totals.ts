@@ -15,6 +15,13 @@ export interface PeriodTotals {
   refundedTipCents: number;
   walletCashPayoutCount: number;
   walletCashPayoutCents: number;
+  /**
+   * Recargas del saldo en efectivo (recepción): dinero cobrado al cargarlo,
+   * como la recarga con tarjeta (que ya está en grossCents). No es un cobro del
+   * banco: va aparte de paymentCount.
+   */
+  walletCashTopUpCount: number;
+  walletCashTopUpCents: number;
   /** Informativo: ya está en las devoluciones (son devoluciones de las recargas). */
   walletCardPayoutCount: number;
   walletCardPayoutCents: number;
@@ -32,6 +39,8 @@ export const EMPTY_TOTALS: PeriodTotals = {
   refundedTipCents: 0,
   walletCashPayoutCount: 0,
   walletCashPayoutCents: 0,
+  walletCashTopUpCount: 0,
+  walletCashTopUpCents: 0,
   walletCardPayoutCount: 0,
   walletCardPayoutCents: 0,
 };
@@ -42,9 +51,9 @@ export function totalsFromRow(row: PeriodTotalsRow | undefined): PeriodTotals {
   return Object.fromEntries(keys.map((k) => [k, Number(row[k] ?? 0)])) as unknown as PeriodTotals;
 }
 
-/** Lo que pagaron los clientes: importe + propinas. */
+/** Lo que pagaron los clientes: importe + propinas + recargas en efectivo. */
 export function chargedCents(t: PeriodTotals): number {
-  return t.grossCents + t.tipCents;
+  return t.grossCents + t.tipCents + t.walletCashTopUpCents;
 }
 
 /** Neto: cobrado − devoluciones − saldo devuelto en efectivo. */
@@ -54,8 +63,10 @@ export function netCents(t: PeriodTotals): number {
 
 /**
  * Lo facturado (base del IVA + IVA): sin propinas, ni lo devuelto de importe,
- * ni el saldo devuelto en efectivo (la recarga ya se contó al cobrarla).
+ * ni el saldo devuelto en efectivo (la recarga ya se contó al cobrarla). La
+ * recarga en efectivo cuenta igual que la de tarjeta: el IVA va con la
+ * recarga y los consumos del saldo no se facturan otra vez.
  */
 export function invoicedCents(t: PeriodTotals): number {
-  return t.grossCents - (t.refundedCents - t.refundedTipCents) - t.walletCashPayoutCents;
+  return t.grossCents + t.walletCashTopUpCents - (t.refundedCents - t.refundedTipCents) - t.walletCashPayoutCents;
 }

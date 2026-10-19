@@ -28,6 +28,8 @@ export interface VatMonthRow {
   refundedTipCents: number;
   walletCashPayoutCents: number;
   walletCardPayoutCents: number;
+  /** Recargas en efectivo del mes (facturadas al cargarlas, como las de tarjeta). */
+  walletCashTopUpCents: number;
   /** Lo facturado del mes = base + cuota (sin propinas). */
   facturadoCents: number;
 }
@@ -55,6 +57,7 @@ export interface Vat303Report extends VatHead {
     refundedTipCents: number;
     walletCashPayoutCents: number;
     walletCardPayoutCents: number;
+    walletCashTopUpCents: number;
     facturadoCents: number;
   };
   walletInfo: { consumptionCount: number; consumptionCents: number; note: string };
@@ -64,8 +67,8 @@ export interface Vat303Report extends VatHead {
 }
 
 const WALLET_NOTE =
-  'Los consumos del saldo son operaciones internas: no se facturan otra vez. El IVA va con la recarga, ' +
-  'y el saldo que se devuelve al cliente (en efectivo o a la tarjeta) lo resta.';
+  'Los consumos del saldo son operaciones internas: no se facturan otra vez. El IVA va con la recarga ' +
+  '(con tarjeta o en efectivo), y el saldo que se devuelve al cliente (en efectivo o a la tarjeta) lo resta.';
 
 const DISCLAIMER =
   'Reporte automático sin auditoría fiscal. Verifica con tu asesor antes de presentar Modelo 303. ' +
@@ -115,6 +118,7 @@ export function buildVat303(args: {
       refundedTipCents: total('refundedTipCents'),
       walletCashPayoutCents: total('walletCashPayoutCents'),
       walletCardPayoutCents: total('walletCardPayoutCents'),
+      walletCashTopUpCents: total('walletCashTopUpCents'),
       facturadoCents: total('facturadoCents'),
     },
     walletInfo: { consumptionCount: args.consumptions.count, consumptionCents: args.consumptions.cents, note: WALLET_NOTE },
@@ -138,6 +142,7 @@ function vatMonth(month: string, t: PeriodTotals, vatBps: number): VatMonthRow {
     refundedTipCents: t.refundedTipCents,
     walletCashPayoutCents: t.walletCashPayoutCents,
     walletCardPayoutCents: t.walletCardPayoutCents,
+    walletCashTopUpCents: t.walletCashTopUpCents,
     facturadoCents: facturado,
   };
 }

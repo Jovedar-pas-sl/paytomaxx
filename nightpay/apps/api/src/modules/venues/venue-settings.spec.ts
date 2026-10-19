@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException, ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import {
+  CASH_TOP_UP_METHODS,
   DEFAULT_PAYMENT_METHODS,
   UpdateAlertSettingsSchema,
   UpdatePaymentMethodsSchema,
   UpdateStaffPermissionsSchema,
   alertKindForIncident,
   alertSettingsOf,
+  deviceCan,
   disabledMethod,
   mergeAlertSettings,
   mergePaymentMethods,
@@ -39,6 +41,16 @@ describe('formas de cobro: lo guardado con lo de siempre donde falte', () => {
     expect(merged).toMatchObject({ card: true, nfc: false, pos: false, tipPercents: [5, 15] });
   });
 
+  it('recarga en efectivo: encendida por defecto; el dueño la apaga y el API la rechaza (409)', () => {
+    expect(paymentMethodsOf(null).cashTopUp).toBe(true);
+    expect(mergePaymentMethods(null, { cashTopUp: false })).toMatchObject({ cashTopUp: false, wallet: true });
+    expect(UpdatePaymentMethodsSchema.safeParse({ cashTopUp: false }).success).toBe(true);
+    expect(() => assertMethodsEnabled({ paymentMethods: { cashTopUp: false } }, CASH_TOP_UP_METHODS)).toThrow(
+      /no acepta ahora recargas en efectivo/,
+    );
+    expect(() => assertMethodsEnabled({ paymentMethods: { wallet: false } }, CASH_TOP_UP_METHODS)).toThrow(/saldo/);
+  });
+
   it('validación: nada que cambiar, más de 3 propinas, % fuera de rango o un campo desconocido → no vale', () => {
     expect(UpdatePaymentMethodsSchema.safeParse({}).success).toBe(false);
     expect(UpdatePaymentMethodsSchema.safeParse({ tipPercents: [5, 10, 15, 20] }).success).toBe(false);
@@ -52,6 +64,9 @@ describe('formas de cobro: lo guardado con lo de siempre donde falte', () => {
     expect(methodsNeededForPayment({ isWalletTopUp: false, isPosExternal: false })).toEqual(['card']);
     expect(methodsNeededForPayment({ isWalletTopUp: true, isPosExternal: false })).toEqual(['card', 'wallet']);
     expect(methodsNeededForPayment({ isWalletTopUp: false, isPosExternal: true })).toEqual(['pos']);
+    // Recarga en la recepción del datáfono: el datáfono y el saldo (no el QR con tarjeta).
+    expect(methodsNeededForPayment({ isWalletTopUp: true, isPosExternal: true })).toEqual(['pos', 'wallet']);
+    expect(CASH_TOP_UP_METHODS).toEqual(['wallet', 'cashTopUp']);
     const methods = paymentMethodsOf({ wallet: false });
     expect(disabledMethod(methods, ['card', 'wallet'])).toBe('wallet');
     expect(disabledMethod(methods, ['card'])).toBeNull();
@@ -107,6 +122,24 @@ describe('permisos del personal: por defecto, lo de hoy', () => {
     expect(UpdateStaffPermissionsSchema.safeParse({ roles: { MANAGER: { borrar: true } } }).success).toBe(false);
     expect(UpdateStaffPermissionsSchema.safeParse({ roles: { OWNER: { refund: false } } }).success).toBe(false);
     expect(UpdateStaffPermissionsSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('cobrar recargas en efectivo: el encargado sí, el camarero y el datáfono no (el dueño se lo puede dar)', () => {
+    const perms = staffPermissionsOf(null);
+    expect(staffCan(perms, manager, 'cashTopUp')).toBe(true);
+    expect(staffCan(perms, { role: 'WAITER', userId: WAITER_ID }, 'cashTopUp')).toBe(false);
+    expect(deviceCan(perms, 'cashTopUp')).toBe(false);
+    const given = mergeStaffPermissions(null, { roles: { WAITER: { cashTopUp: true }, DEVICE: { cashTopUp: true } } });
+    expect(staffCan(given, { role: 'WAITER', userId: WAITER_ID }, 'cashTopUp')).toBe(true);
+    expect(deviceCan(given, 'cashTopUp')).toBe(true);
+    // Al camarero y al datáfono, solo eso: nada por encima de su techo.
+    const tooMuch = staffPermissionsOf({ roles: { WAITER: { refund: true }, DEVICE: { refund: true, cash: true } } });
+    expect(staffCan(tooMuch, { role: 'WAITER', userId: WAITER_ID }, 'refund')).toBe(false);
+    expect(deviceCan(tooMuch, 'refund')).toBe(false);
+    expect(deviceCan(tooMuch, 'cash')).toBe(false);
+    // El datáfono no es una persona: ni con su rol en el token valdría por staffCan.
+    expect(staffCan(given, { role: 'DEVICE', userId: 'terminal' }, 'cashTopUp')).toBe(false);
+    expect(UpdateStaffPermissionsSchema.safeParse({ roles: { DEVICE: { cashTopUp: true } } }).success).toBe(true);
   });
 
   it('devolver saldo: en efectivo pide «dar efectivo»; a la tarjeta, «devolver»', () => {
@@ -239,6 +272,7 @@ describe('VenueSettingsController', () => {
       closeNight: true,
       payouts: true,
       reports: true,
+      cashTopUp: true,
     });
   });
 

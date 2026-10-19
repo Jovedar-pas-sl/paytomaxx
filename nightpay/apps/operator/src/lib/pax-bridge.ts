@@ -14,7 +14,13 @@
  *          capabilities {}          → { nfc: 'ready'|'disabled'|'unavailable', camera }
  *          scanQr { timeoutMs }     → { text }   (cámara; error cancelled si el camarero vuelve)
  *          readNfc { timeoutMs }    → { uid, url } (ficha NTAG por NFC de Android)
- *          cancelRead {}            → corta el readNfc en curso
+ *          cancelRead {}            → corta el readNfc / writeNfc en curso
+ * Recepción (app 0.3+):
+ *          writeNfc { url, onlyIfBlank, timeoutMs } → { uid, url, written }
+ *            graba el enlace en la ficha que acerquen (NDEF, un registro URI).
+ *            Con onlyIfBlank, si ya tiene algo grabado no la toca: written
+ *            false y `url` lo que tenía (null si no es un enlace).
+ *            Errores: readOnly, tooSmall, writeFailed, timeout, cancelled.
  * Respuesta: { ok: true, result? , transactions?, … } | { ok: false, error, message? }
  * (`result` es el resultado de Paytef tal cual: approved, authorisationCode,
  * paytefOperationNumber, cardInformation…)
@@ -29,6 +35,7 @@ export type BridgeMethod =
   | 'capabilities'
   | 'scanQr'
   | 'readNfc'
+  | 'writeNfc'
   | 'cancelRead';
 
 /** NFC de Android en el datáfono: el del A920 Pro puede estar reservado para el lector de tarjetas. */
@@ -51,9 +58,11 @@ export type BridgeResponse =
       transactions?: unknown[];
       /** scanQr: el texto del QR. */
       text?: string;
-      /** readNfc: número de serie de la ficha (hex) y el enlace NDEF grabado. */
+      /** readNfc / writeNfc: número de serie de la ficha (hex) y el enlace NDEF grabado. */
       uid?: string | null;
       url?: string | null;
+      /** writeNfc: se ha grabado ahora (false: ya tenía algo y no se tocó). */
+      written?: boolean;
       /** capabilities. */
       nfc?: NfcState;
       camera?: boolean;
@@ -73,6 +82,8 @@ interface NativeBridge {
   scanQr?: NativeMethod;
   readNfc?: NativeMethod;
   cancelRead?: NativeMethod;
+  // Solo en la app 0.3+.
+  writeNfc?: NativeMethod;
 }
 
 declare global {
@@ -93,7 +104,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 
 function timeoutFor(method: BridgeMethod): number {
   if (method === 'startSale') return SALE_TIMEOUT_MS;
-  if (method === 'scanQr' || method === 'readNfc') return READ_TIMEOUT_MS;
+  if (method === 'scanQr' || method === 'readNfc' || method === 'writeNfc') return READ_TIMEOUT_MS;
   return DEFAULT_TIMEOUT_MS;
 }
 
@@ -178,7 +189,9 @@ function simulate(method: BridgeMethod, data: Record<string, unknown>): Promise<
     if (method === 'shiftList') return { ok: true, transactions: [] };
     // Sin cámara ni NFC en el simulador: el saldo se prueba con el código del cliente.
     if (method === 'capabilities') return { ok: true, nfc: 'unavailable', camera: false };
-    if (method === 'scanQr' || method === 'readNfc') return { ok: false, error: 'notSupported', message: 'Simulador sin lector' };
+    if (method === 'scanQr' || method === 'readNfc' || method === 'writeNfc') {
+      return { ok: false, error: 'notSupported', message: 'Simulador sin lector' };
+    }
     return { ok: true };
   });
 }

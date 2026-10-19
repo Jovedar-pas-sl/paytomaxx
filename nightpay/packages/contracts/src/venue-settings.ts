@@ -11,7 +11,7 @@ import { UuidSchema } from './common';
 // ─── Formas de cobro ──────────────────────────────────────────────────
 
 /** Cada forma de cobro que se puede apagar en un local. */
-export const PAYMENT_METHOD_KEYS = ['card', 'wallet', 'nfc', 'pos'] as const;
+export const PAYMENT_METHOD_KEYS = ['card', 'wallet', 'nfc', 'pos', 'cashTopUp'] as const;
 export type PaymentMethodKey = (typeof PAYMENT_METHOD_KEYS)[number];
 
 export interface VenuePaymentMethods {
@@ -23,6 +23,11 @@ export interface VenuePaymentMethods {
   nfc: boolean;
   /** Cobro con datáfono (PAX o el del bar). */
   pos: boolean;
+  /**
+   * Recargas del saldo en efectivo (recepción). Encendida por defecto: el
+   * permiso «cobrar recargas en efectivo» decide quién (de entrada, el encargado).
+   */
+  cashTopUp: boolean;
   /** El cliente puede dejar propina en la página de pago. */
   tips: boolean;
   /** Propinas sugeridas en cobros pequeños (hasta 40 €), en céntimos: +2 €, +5 €. */
@@ -44,6 +49,7 @@ export const DEFAULT_PAYMENT_METHODS: Readonly<VenuePaymentMethods> = Object.fre
   wallet: true,
   nfc: true,
   pos: true,
+  cashTopUp: true,
   tips: true,
   tipFlatCents: [...DEFAULT_TIP_FLAT_CENTS],
   tipPercents: [...DEFAULT_TIP_PERCENTS],
@@ -61,6 +67,7 @@ export const UpdatePaymentMethodsSchema = z
     wallet: z.boolean().optional(),
     nfc: z.boolean().optional(),
     pos: z.boolean().optional(),
+    cashTopUp: z.boolean().optional(),
     tips: z.boolean().optional(),
     tipFlatCents: tipList(MIN_TIP_FLAT_CENTS, MAX_TIP_FLAT_CENTS).optional(),
     tipPercents: tipList(1, MAX_TIP_PERCENT).optional(),
@@ -86,6 +93,7 @@ export function paymentMethodsOf(raw: unknown): VenuePaymentMethods {
     wallet: flag('wallet', DEFAULT_PAYMENT_METHODS.wallet),
     nfc: flag('nfc', DEFAULT_PAYMENT_METHODS.nfc),
     pos: flag('pos', DEFAULT_PAYMENT_METHODS.pos),
+    cashTopUp: flag('cashTopUp', DEFAULT_PAYMENT_METHODS.cashTopUp),
     tips: flag('tips', DEFAULT_PAYMENT_METHODS.tips),
     tipFlatCents:
       sortedUnique(stored.tipFlatCents, MIN_TIP_FLAT_CENTS, MAX_TIP_FLAT_CENTS) ?? [...DEFAULT_TIP_FLAT_CENTS],
@@ -109,14 +117,22 @@ export const PAYMENT_METHOD_DISABLED_MESSAGES: Readonly<Record<PaymentMethodKey,
   wallet: 'Este local no acepta ahora pagos ni recargas de saldo. Lo cambia el dueño en Ajustes.',
   nfc: 'Este local no acepta ahora fichas NFC. Lo cambia el dueño en Ajustes.',
   pos: 'Este local no cobra ahora con datáfono. Lo cambia el dueño en Ajustes.',
+  cashTopUp: 'Este local no acepta ahora recargas en efectivo. Lo cambia el dueño en Ajustes.',
 };
 export const TIPS_DISABLED_MESSAGE = 'Este local no acepta propinas. Lo cambia el dueño en Ajustes.';
 
-/** Formas de cobro de un cobro con tarjeta: una recarga de saldo también necesita el saldo. */
+/**
+ * Formas de cobro de un cobro con tarjeta: una recarga de saldo también
+ * necesita el saldo. Con datáfono (también la recarga en la recepción del
+ * PAX), el datáfono en vez del QR con tarjeta.
+ */
 export function methodsNeededForPayment(p: { isWalletTopUp: boolean; isPosExternal: boolean }): PaymentMethodKey[] {
-  if (p.isPosExternal) return ['pos'];
+  if (p.isPosExternal) return p.isWalletTopUp ? ['pos', 'wallet'] : ['pos'];
   return p.isWalletTopUp ? ['card', 'wallet'] : ['card'];
 }
+
+/** Una recarga en efectivo necesita el saldo y la recarga en efectivo encendidos. */
+export const CASH_TOP_UP_METHODS: readonly PaymentMethodKey[] = ['wallet', 'cashTopUp'];
 
 /** La primera forma de cobro apagada de las que hacen falta (null = todas encendidas). */
 export function disabledMethod(
@@ -128,11 +144,14 @@ export function disabledMethod(
 
 // ─── Permisos del personal ────────────────────────────────────────────
 
-export const STAFF_PERMISSION_KEYS = ['refund', 'cash', 'closeNight', 'payouts', 'reports'] as const;
+export const STAFF_PERMISSION_KEYS = ['refund', 'cash', 'closeNight', 'payouts', 'reports', 'cashTopUp'] as const;
 export type StaffPermissionKey = (typeof STAFF_PERMISSION_KEYS)[number];
 
-/** Roles a los que el dueño da o quita permisos (él lo puede todo). */
-export const PERMISSION_ROLES = ['MANAGER', 'WAITER'] as const;
+/**
+ * Roles a los que el dueño da o quita permisos (él lo puede todo). DEVICE: los
+ * datáfonos de recepción (no hay persona: el aparato actúa como el local).
+ */
+export const PERMISSION_ROLES = ['MANAGER', 'WAITER', 'DEVICE'] as const;
 export type PermissionRole = (typeof PERMISSION_ROLES)[number];
 
 export type PermissionSet = Record<StaffPermissionKey, boolean>;
@@ -140,17 +159,24 @@ export type PermissionSet = Record<StaffPermissionKey, boolean>;
 /**
  * Lo más que puede hacer cada rol: un permiso quita lo que el rol ya podía
  * hacer (devolver, cerrar la noche…), y los informes los puede dar el dueño
- * al encargado. Los camareros cobran desde su app: nada de esto les llega.
+ * al encargado. Los camareros cobran desde su app: de esto, solo las recargas
+ * en efectivo (si el dueño se lo da). El datáfono de recepción, lo mismo.
  */
 export const PERMISSION_CEILING: Readonly<Record<PermissionRole, readonly StaffPermissionKey[]>> = {
   MANAGER: STAFF_PERMISSION_KEYS,
-  WAITER: [],
+  WAITER: ['cashTopUp'],
+  DEVICE: ['cashTopUp'],
 };
 
-/** Hoy: el encargado devuelve, da efectivo, cierra la noche y paga a las chicas; los informes, solo el dueño. */
+/**
+ * Hoy: el encargado devuelve, da efectivo, cierra la noche, paga a las chicas y
+ * cobra recargas en efectivo; los informes, solo el dueño. Camareros y
+ * datáfonos, nada (el dueño les puede dar las recargas en efectivo).
+ */
 export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<PermissionRole, Readonly<PermissionSet>>> = {
-  MANAGER: { refund: true, cash: true, closeNight: true, payouts: true, reports: false },
-  WAITER: { refund: false, cash: false, closeNight: false, payouts: false, reports: false },
+  MANAGER: { refund: true, cash: true, closeNight: true, payouts: true, reports: false, cashTopUp: true },
+  WAITER: { refund: false, cash: false, closeNight: false, payouts: false, reports: false, cashTopUp: false },
+  DEVICE: { refund: false, cash: false, closeNight: false, payouts: false, reports: false, cashTopUp: false },
 };
 
 export interface StaffPermissions {
@@ -169,7 +195,11 @@ const PermissionPatchSchema = z
 export const UpdateStaffPermissionsSchema = z
   .object({
     roles: z
-      .object({ MANAGER: PermissionPatchSchema.optional(), WAITER: PermissionPatchSchema.optional() })
+      .object({
+        MANAGER: PermissionPatchSchema.optional(),
+        WAITER: PermissionPatchSchema.optional(),
+        DEVICE: PermissionPatchSchema.optional(),
+      })
       .strict()
       .optional(),
     /** null = quitar la excepción de esa persona (vuelve a lo de su rol). */
@@ -218,6 +248,7 @@ export function staffPermissionsOf(raw: unknown): StaffPermissions {
     roles: {
       MANAGER: permissionSetOf(roles.MANAGER, DEFAULT_ROLE_PERMISSIONS.MANAGER, 'MANAGER'),
       WAITER: permissionSetOf(roles.WAITER, DEFAULT_ROLE_PERMISSIONS.WAITER, 'WAITER'),
+      DEVICE: permissionSetOf(roles.DEVICE, DEFAULT_ROLE_PERMISSIONS.DEVICE, 'DEVICE'),
     },
     people,
   };
@@ -229,6 +260,7 @@ export function mergeStaffPermissions(current: unknown, patch: UpdateStaffPermis
   const roles = {
     MANAGER: { ...base.roles.MANAGER, ...definedOnly(patch.roles?.MANAGER) },
     WAITER: { ...base.roles.WAITER, ...definedOnly(patch.roles?.WAITER) },
+    DEVICE: { ...base.roles.DEVICE, ...definedOnly(patch.roles?.DEVICE) },
   };
   const people = { ...base.people };
   for (const [userId, change] of Object.entries(patch.people ?? {})) {
@@ -263,6 +295,14 @@ export function staffCan(
   return typeof own === 'boolean' ? own : perms.roles[role][key];
 }
 
+/**
+ * ¿Puede el datáfono de recepción hacer esto? Sin persona (ni excepciones):
+ * lo que el dueño dejó a los datáfonos, nunca por encima de su techo.
+ */
+export function deviceCan(perms: StaffPermissions, key: StaffPermissionKey): boolean {
+  return PERMISSION_CEILING.DEVICE.includes(key) && perms.roles.DEVICE[key];
+}
+
 export const STAFF_PERMISSION_DENIED_CODE = 'STAFF_PERMISSION_DENIED';
 
 export const STAFF_PERMISSION_DENIED_MESSAGES: Readonly<Record<StaffPermissionKey, string>> = {
@@ -271,7 +311,12 @@ export const STAFF_PERMISSION_DENIED_MESSAGES: Readonly<Record<StaffPermissionKe
   closeNight: 'El dueño del local no te deja cerrar la noche.',
   payouts: 'El dueño del local no te deja pedir ni hacer pagos a las chicas.',
   reports: 'El dueño del local no te deja ver los informes.',
+  cashTopUp: 'El dueño del local no te deja cobrar recargas en efectivo.',
 };
+
+/** El datáfono de recepción sin permiso para el efectivo (Ajustes → Permisos → Datáfonos). */
+export const DEVICE_CASH_TOP_UP_DENIED_MESSAGE =
+  'El dueño no deja cobrar recargas en efectivo en el datáfono (Ajustes → Permisos → Datáfonos).';
 
 // ─── Avisos de Telegram ───────────────────────────────────────────────
 

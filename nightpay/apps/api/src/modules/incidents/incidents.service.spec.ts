@@ -361,6 +361,7 @@ describe('alertas por Telegram', () => {
       liquidaciones: vi.fn().mockResolvedValue([]),
       consumos: vi.fn().mockResolvedValue([]),
       pagosSaldo: vi.fn().mockResolvedValue([]),
+      recargasEfectivo: vi.fn().mockResolvedValue([]),
     };
     const telegram = {
       send: vi.fn().mockResolvedValue(true),

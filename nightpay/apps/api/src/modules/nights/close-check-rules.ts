@@ -1,4 +1,5 @@
 import {
+  cashMovesCount,
   evaluateCash,
   type NightCash,
   type NightChicaPay,
@@ -251,6 +252,14 @@ export function saldoStep(
 export function efectivoStep(cash: NightCash): NightCloseStep {
   const outcome = evaluateCash(cash);
   const items: NightCloseItem[] = [];
+  if ((cash.walletCashTopUpsCount ?? 0) > 0) {
+    items.push({
+      id: 'wallet-cash-topups',
+      status: 'ok',
+      label: `Recargas del saldo en efectivo: ${count(cash.walletCashTopUpsCount, 'recarga', 'recargas')}`,
+      amountCents: cash.walletCashTopUpsCents,
+    });
+  }
   if (cash.walletCashPayoutsCount > 0) {
     items.push({
       id: 'wallet-cash',
@@ -272,7 +281,7 @@ export function efectivoStep(cash: NightCash): NightCloseStep {
     status: outcome.status,
     title: 'Efectivo',
     detail: outcome.detail,
-    count: cash.walletCashPayoutsCount + cash.chicaCashPayoutsCount,
+    count: cashMovesCount(cash),
     link: null,
     items,
   };

@@ -37,6 +37,7 @@ import { TerminalsPanel } from './TerminalsPanel';
 import { TreasuryPanel } from './TreasuryPanel';
 import { VenueSwitcher } from './VenueSwitcher';
 import { WalletsPanel } from './WalletsPanel';
+import { FichasPanel } from './FichasPanel';
 
 interface Props {
   user: User;
@@ -260,6 +261,8 @@ function ActivePanel(props: ActivePanelProps) {
       return <TreasuryPanel isOwner={isOwner} />;
     case 'wallets':
       return <WalletsPanel isOwner={isOwner} />;
+    case 'fichas':
+      return <FichasPanel />;
     case 'nights':
       return <NightsPanel tabs={tabs} onNavigate={onNavigate} />;
     case 'reports':

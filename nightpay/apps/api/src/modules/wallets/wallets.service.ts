@@ -279,7 +279,7 @@ export class WalletsService {
           closeRequestedAt: true,
           pinHash: true,
           pinLockedAt: true,
-          _count: { select: { consumptions: true, passkeys: true, cards: { where: { status: 'ACTIVE' } } } },
+          _count: { select: { consumptions: true, passkeys: true, cards: { where: { status: 'ISSUED' } } } },
         },
       }),
     );
@@ -412,6 +412,13 @@ export class WalletsService {
            AND p.status IN ${PAID_STATUSES_SQL}
            AND ${paymentAt('p')} >= ${todayStart}
       `;
+      // Y las de efectivo en la recepción (no pasan por el banco).
+      const cashTopUpRows = await tx.$queryRaw<Array<{ total: bigint }>>`
+        SELECT COALESCE(SUM("amountCents"),0)::bigint AS total
+          FROM wallet_cash_topups
+         WHERE "tenantId" = ${tenantId}::uuid
+           AND "createdAt" >= ${todayStart}
+      `;
       const consumptionRows = await tx.$queryRaw<Array<{ category: string; total: bigint }>>`
         SELECT category, COALESCE(SUM("amountCents"),0)::bigint AS total
           FROM wallet_consumptions
@@ -433,7 +440,7 @@ export class WalletsService {
       return {
         activeCount: Number(activeRows[0]?.count ?? 0),
         totalBalanceCents: Number(activeRows[0]?.totalBalance ?? 0),
-        todayTopUpsCents: Number(topUpRows[0]?.total ?? 0),
+        todayTopUpsCents: Number(topUpRows[0]?.total ?? 0) + Number(cashTopUpRows[0]?.total ?? 0),
         todayConsumptionsCents: consumptionRows.reduce((sum, r) => sum + Number(r.total), 0),
         todayRefundsCents: Number(refundRows[0]?.total ?? 0),
         byCategory: Object.fromEntries(consumptionRows.map((r) => [r.category, Number(r.total)])),

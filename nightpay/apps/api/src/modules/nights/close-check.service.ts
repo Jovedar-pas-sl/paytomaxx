@@ -93,15 +93,21 @@ export class CloseCheckService {
   }
 
   /**
-   * Efectivo de la noche: lo que sale (saldo devuelto en efectivo, pagos en
-   * efectivo a las chicas) en la misma ventana que el Z. OxioPay no cobra en
-   * efectivo (ni cobros ni recargas): no entra nada por el sistema.
+   * Efectivo de la noche en la misma ventana que el Z: lo que entra (recargas
+   * del saldo en efectivo cobradas en este local) y lo que sale (saldo
+   * devuelto en efectivo, pagos en efectivo a las chicas).
    */
   async cash(tenantId: string, window: TimeWindow, openingFloatCents: number | null): Promise<NightCash> {
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
-      Array<{ walletCount: number; walletCents: number; chicaCount: number; chicaCents: number }>
+      Array<{ topUpCount: number; topUpCents: number; walletCount: number; walletCents: number; chicaCount: number; chicaCents: number }>
     >`
       SELECT
+        (SELECT COUNT(*)::int FROM wallet_cash_topups ct
+          WHERE ct."tenantId" = ${tenantId}::uuid
+            AND ct."createdAt" >= ${window.from} AND ct."createdAt" < ${window.to}) AS "topUpCount",
+        (SELECT COALESCE(SUM(ct."amountCents"), 0)::int FROM wallet_cash_topups ct
+          WHERE ct."tenantId" = ${tenantId}::uuid
+            AND ct."createdAt" >= ${window.from} AND ct."createdAt" < ${window.to}) AS "topUpCents",
         (SELECT COUNT(*)::int FROM wallet_payouts wp
           WHERE wp."tenantId" = ${tenantId}::uuid AND wp.method = 'CASH' AND wp.status = 'DONE'
             AND wp."createdAt" >= ${window.from} AND wp."createdAt" < ${window.to}) AS "walletCount",
@@ -115,12 +121,14 @@ export class CloseCheckService {
           WHERE po."tenantId" = ${tenantId}::uuid AND po."externalRail" = 'MANUAL_CASH'
             AND po."createdAt" >= ${window.from} AND po."createdAt" < ${window.to}) AS "chicaCents"
     `);
-    const r = rows[0] ?? { walletCount: 0, walletCents: 0, chicaCount: 0, chicaCents: 0 };
-    const cashInCents = 0;
+    const r = rows[0] ?? { topUpCount: 0, topUpCents: 0, walletCount: 0, walletCents: 0, chicaCount: 0, chicaCents: 0 };
+    const cashInCents = r.topUpCents;
     const cashOutCents = r.walletCents + r.chicaCents;
     return {
       openingFloatCents,
       cashInCents,
+      walletCashTopUpsCount: r.topUpCount,
+      walletCashTopUpsCents: r.topUpCents,
       walletCashPayoutsCount: r.walletCount,
       walletCashPayoutsCents: r.walletCents,
       chicaCashPayoutsCount: r.chicaCount,
@@ -169,7 +177,8 @@ export class CloseCheckService {
         ) s ON true
         LEFT JOIN terminals t ON t.id::text = s."terminalId" AND t."tenantId" = p."tenantId"
        WHERE p."tenantId" = ${tenantId}::uuid
-         AND p."captureMethod" = 'POS_EXTERNAL'
+         -- Los de las chicas y las recargas de la recepción del datáfono.
+         AND p."captureMethod" IN ('POS_EXTERNAL', 'WALLET_TOPUP')
          AND p.status::text NOT IN ${PAID_STATUSES_SQL}
          AND p."createdAt" >= ${window.from}
          AND p."createdAt" < ${window.to}

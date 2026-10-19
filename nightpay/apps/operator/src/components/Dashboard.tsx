@@ -17,6 +17,7 @@ import { HomeTab } from './HomeTab';
 import { TAB_BAR_HEIGHT } from './layout';
 import { MyPayments } from './MyPayments';
 import { PendingPos } from './PendingPos';
+import { ReceptionTab } from './reception/ReceptionTab';
 import { useSessionExpired } from './session-context';
 import { TabBar } from './TabBar';
 
@@ -117,6 +118,12 @@ export function Dashboard({ user, onLogout }: Props) {
       <TabPanel visible={showing('wallet')}>
         <ChargeFromBalance onCharged={refreshMoney} />
       </TabPanel>
+      {/* Recepción montada al cambiar de pestaña: una recarga a medias (su QR) no se pierde. */}
+      {tabs.includes('reception') ? (
+        <TabPanel visible={showing('reception')}>
+          <ReceptionTab />
+        </TabPanel>
+      ) : null}
       {access.posQueue && showing('pos') ? (
         <PendingPos onConfirmed={refreshMoney} focusPaymentId={links.focusedPosId} onFocusConsumed={links.clearFocus} />
       ) : null}

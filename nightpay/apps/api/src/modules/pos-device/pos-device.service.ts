@@ -78,6 +78,14 @@ type PosPayment = {
 const START_VALID_MS = 15 * 60 * 1000;
 
 /**
+ * Cobros que cobra la app del datáfono: los de las chicas (POS_EXTERNAL) y
+ * las recargas de su recepción (WALLET_TOPUP creada por él, con su /start).
+ */
+export function isDeviceSale(captureMethod: string | null): boolean {
+  return captureMethod === 'POS_EXTERNAL' || captureMethod === 'WALLET_TOPUP';
+}
+
+/**
  * Datáfono PAX con la app NightPay. El datáfono pide el cobro, manda el
  * importe al lector (Device API de Paytef) y nos devuelve el resultado: el
  * cobro queda pagado y asignado a la chica sin teclear nada.
@@ -310,14 +318,20 @@ export class PosDeviceService {
       return this.mismatch(p, op, `Se cobraron ${eur(r.requestedAmount)} y el cobro era de ${eur(p.amountCents)}: anula esta operación.`);
     }
     if (PAID_STATES.has(p.status as PaymentMachineState)) return this.duplicate(p, op, device);
-    if (p.captureMethod !== 'POS_EXTERNAL' || p.status !== 'CREATED') {
+    if (!isDeviceSale(p.captureMethod) || p.status !== 'CREATED') {
       return this.mismatch(p, op, 'El cobro ya no estaba abierto (caducado o cancelado): anula esta operación.');
     }
+    // Una recarga de la recepción solo la cobra el datáfono que la creó (y un
+    // cobro de una chica, el que lo empezó): en los dos, su /start reciente.
     if (!(await this.startedHere(p.id, device.terminalId))) {
       return this.mismatch(p, op, 'Este cobro no se inició en este datáfono: anula esta operación.');
     }
     // Propina pedida en el datáfono: como mucho el importe y nunca más de 500 €.
+    // Una recarga del saldo no lleva propina (el saldo es lo que se carga).
     const tip = r.tipAmount ?? 0;
+    if (tip > 0 && p.captureMethod === 'WALLET_TOPUP') {
+      return this.mismatch(p, op, 'Una recarga del saldo no lleva propina: anula esta operación y cóbrala sin propina.');
+    }
     if (tip > maxTipCents(p.amountCents)) {
       return this.mismatch(p, op, `Propina de ${eur(tip)} fuera de lo normal: anula esta operación.`);
     }

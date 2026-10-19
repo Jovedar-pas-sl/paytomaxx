@@ -7,6 +7,7 @@ import { TAB_BAR_HEIGHT } from './layout';
 const TAB_LABEL: Record<TabKey, string> = {
   home: 'Inicio',
   wallet: 'Saldo',
+  reception: 'Recepción',
   pos: 'POS',
   payments: 'Cobros',
   earnings: 'Ganancias',
@@ -82,6 +83,12 @@ const ICON_PATHS: Record<TabKey, ReactNode> = {
     <>
       <path d="M20 12V8a2 2 0 00-2-2H5a1 1 0 01-1-1m0 0a1 1 0 011-1h14v4M4 5v14a2 2 0 002 2h12a2 2 0 002-2v-4" />
       <circle cx="17" cy="13" r="1.5" />
+    </>
+  ),
+  reception: (
+    <>
+      <rect x="3" y="7" width="18" height="12" rx="2" />
+      <path d="M7 7V5a2 2 0 012-2h6a2 2 0 012 2v2M12 11v4M10 13h4" />
     </>
   ),
   pos: (

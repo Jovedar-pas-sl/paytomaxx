@@ -71,6 +71,20 @@ export interface PagoSaldoRow {
   paidByEmail: string | null;
 }
 
+/**
+ * Recarga del saldo en efectivo cobrada en este local (recepción). No pasa
+ * por el banco: es dinero cobrado al cargarlo (como la recarga con tarjeta) y
+ * entra en la caja; quien la cobró es la persona o el datáfono de recepción.
+ */
+export interface RecargaEfectivoRow {
+  id: string;
+  at: Date;
+  amountCents: number;
+  takenByName: string | null;
+  takenByEmail: string | null;
+  terminalLabel: string | null;
+}
+
 /** Una devolución hecha en el periodo. */
 export interface DevolucionRow {
   id: string;

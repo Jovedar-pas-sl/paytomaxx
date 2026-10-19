@@ -31,6 +31,7 @@ function makeController() {
     pagosSaldo: vi.fn().mockResolvedValue([
       { id: 'wp-1', at: new Date('2026-08-01T03:00:00Z'), amountCents: 8000, method: 'CASH', paidByName: null, paidByEmail: 'jefe@local.es' },
     ]),
+    recargasEfectivo: vi.fn().mockResolvedValue([]),
     venueName: vi.fn().mockResolvedValue('Local Centro'),
   };
   return { controller: new ReportsController(reports as never), reports };

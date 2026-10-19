@@ -12,12 +12,24 @@ import { WalletTopUpService } from './wallet-topup.service';
 import { WalletsService } from './wallets.service';
 import { GoogleWalletController } from './google-wallet/google-wallet.controller';
 import { GoogleWalletService } from './google-wallet/google-wallet.service';
+import { ReceptionController } from './reception.controller';
+import { CashTopUpService } from './wallet-cash-topup.service';
+import { WalletCardsController } from './wallet-cards.controller';
+import { WalletCardsService } from './wallet-cards.service';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
   imports: [PrismaModule, AuditModule, AuthModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
-  providers: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService, WalletTopUpService],
+  providers: [
+    WalletsService,
+    WalletChargesService,
+    WalletPasskeysService,
+    GoogleWalletService,
+    WalletTopUpService,
+    CashTopUpService,
+    WalletCardsService,
+  ],
   controllers: [
     WalletsController,
     AdminWalletsController,
@@ -25,8 +37,12 @@ import { GoogleWalletService } from './google-wallet/google-wallet.service';
     PublicWalletController,
     PublicSaldoController,
     GoogleWalletController,
+    // Recepción (recarga en efectivo, «Preparar fichas») y Clientes → Fichas.
+    ReceptionController,
+    WalletCardsController,
   ],
   // GoogleWalletService: lo usa el repaso de la cola google-wallet-sync (QueuesModule).
-  exports: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService],
+  // CashTopUpService y WalletCardsService: la recepción del datáfono (PosDeviceModule).
+  exports: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService, CashTopUpService, WalletCardsService],
 })
 export class WalletsModule {}

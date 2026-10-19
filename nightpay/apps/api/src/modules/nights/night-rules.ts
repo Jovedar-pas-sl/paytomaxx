@@ -4,6 +4,7 @@ import { nextNightCutoff } from '../../common/time/madrid';
 import { summarize, type ExportSummary } from '../reports/export-csv';
 import type { AdjustmentRows, ConsumoRow } from '../reports/export-rows';
 import type { TimeWindow } from '../reports/report-period';
+import type { FichasCounts } from '../wallets/fichas-counts';
 
 /**
  * Reglas de la noche del local (Fase 1D). Funciones puras: el servicio lee la
@@ -33,12 +34,15 @@ export interface NightAdjustments {
 
 /**
  * Caja de la noche, congelada en el Z: lo que debería haber (fondo + entradas
- * − salidas en efectivo), lo contado y la diferencia. OxioPay no cobra en
- * efectivo: hoy las entradas son 0 y solo cuentan las salidas.
+ * − salidas en efectivo), lo contado y la diferencia. Entran las recargas del
+ * saldo en efectivo; salen el saldo devuelto en efectivo y los pagos a las chicas.
  */
 export interface NightCaja {
   openingFloatCents: number | null;
   cashInCents: number;
+  /** Recargas en efectivo (los Z congelados antes del 21-oct-2026 no lo traen). */
+  walletCashTopUpsCount?: number;
+  walletCashTopUpsCents?: number;
   walletCashPayoutsCount: number;
   walletCashPayoutsCents: number;
   chicaCashPayoutsCount: number;
@@ -66,6 +70,8 @@ export interface NightZ {
   adjustments?: NightAdjustments;
   /** Caja (los Z congelados antes del 16-oct-2026 y los de una noche abierta no la traen). */
   caja?: NightCaja;
+  /** Fichas NFC de la noche y en el stock (los Z congelados antes del 21-oct-2026 no lo traen). */
+  fichas?: FichasCounts;
 }
 
 export function buildNightZ(
@@ -92,6 +98,8 @@ export function buildNightCaja(cash: NightCash, outcome: CashOutcome, note: stri
   return {
     openingFloatCents: outcome.floatCents,
     cashInCents: cash.cashInCents,
+    walletCashTopUpsCount: cash.walletCashTopUpsCount,
+    walletCashTopUpsCents: cash.walletCashTopUpsCents,
     walletCashPayoutsCount: cash.walletCashPayoutsCount,
     walletCashPayoutsCents: cash.walletCashPayoutsCents,
     chicaCashPayoutsCount: cash.chicaCashPayoutsCount,
