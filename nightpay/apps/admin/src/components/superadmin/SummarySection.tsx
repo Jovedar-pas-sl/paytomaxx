@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { OverviewBusiness, OverviewTotals, OverviewVenue, SuperAdminOverview } from '@nightpay/contracts';
-import { VenueSwitchDialog } from '../VenueSwitchDialog';
+import { useVenueSwitch } from '../VenueSwitchDialog';
 import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
 import { fetchSaOverview } from '@/lib/endpoints/superadmin';
@@ -132,12 +132,12 @@ function BusinessBlock({ business }: { business: OverviewBusiness }) {
 
 function VenueTile({ venue }: { venue: OverviewVenue }) {
   const { currentSlug } = useSa();
-  const [asking, setAsking] = useState(false);
+  const switcher = useVenueSwitch();
   const isCurrent = venue.slug === currentSlug;
   const pause = venuePauseLabel(venue);
 
   function goTo(): void {
-    if (!isCurrent) setAsking(true);
+    if (!isCurrent) switcher.start(venue.venueId, venue.name);
   }
 
   return (
@@ -171,9 +171,12 @@ function VenueTile({ venue }: { venue: OverviewVenue }) {
           </span>
         </span>
       </button>
-      {asking ? (
-        <VenueSwitchDialog venueId={venue.venueId} venueName={venue.name} onClose={() => setAsking(false)} />
+      {switcher.error ? (
+        <p role="alert" className="np-sa-venue-error">
+          {switcher.error}
+        </p>
       ) : null}
+      {switcher.dialog}
     </>
   );
 }

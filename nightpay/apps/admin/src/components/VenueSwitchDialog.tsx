@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, type CSSProperties, type FormEvent } from 'react';
+import { useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Button, Modal } from '@nightpay/ui';
 import { switchToVenue } from '@/lib/api';
-import { totpLockedUntil } from '@/lib/api-errors';
+import { needsTotpCode, totpLockedUntil } from '@/lib/api-errors';
 import { OTP_LENGTH } from '@/lib/otp';
 import { useLockActive } from '@/lib/use-lock';
 import { ConfirmLine } from './ConfirmLine';
@@ -15,11 +15,51 @@ interface Props {
   onClose: () => void;
 }
 
+export interface VenueSwitch {
+  /** Entrar en ese local (recarga el panel si va bien). */
+  start: (venueId: string, venueName: string) => void;
+  busy: boolean;
+  error: string | null;
+  /** El diálogo del código, si hace falta (sesión de antes del login en dos pasos). */
+  dialog: ReactNode;
+}
+
 /**
- * Super-admin: entrar en otro local (como su dueño) pide el código de la app
- * de verificación, igual que la consola. Se envía al poner la sexta cifra; si
- * va bien, se recarga el panel con el local nuevo (el API lo recuerda en la
- * sesión: no vuelve a pedirlo al refrescar).
+ * Super-admin: entrar en otro local. La 2FA se pidió al entrar (login en dos
+ * pasos): se cambia directamente. Solo una sesión abierta antes pide el
+ * código (403 TOTP_REQUIRED → el diálogo). Lo usan el desplegable de arriba y
+ * los «Ir a este local» de la consola.
+ */
+export function useVenueSwitch(): VenueSwitch {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState<{ id: string; name: string } | null>(null);
+
+  function start(venueId: string, venueName: string): void {
+    if (busy) return;
+    setError(null);
+    setBusy(true);
+    switchToVenue(venueId)
+      .then(() => window.location.reload())
+      .catch((err: unknown) => {
+        setBusy(false);
+        if (needsTotpCode(err)) setAsking({ id: venueId, name: venueName });
+        else setError((err as Error).message);
+      });
+  }
+
+  const dialog = asking ? (
+    <VenueSwitchDialog venueId={asking.id} venueName={asking.name} onClose={() => setAsking(null)} />
+  ) : null;
+  return { start, busy: busy || asking !== null, error, dialog };
+}
+
+/**
+ * Super-admin con una sesión abierta antes del login en dos pasos: entrar en
+ * otro local pide el código de la app de verificación. Se envía al poner la
+ * sexta cifra; si va bien, se recarga el panel con el local nuevo (el API lo
+ * recuerda en la sesión: no vuelve a pedirlo al refrescar). Las sesiones que
+ * entraron con el código no pasan por aquí.
  */
 export function VenueSwitchDialog({ venueId, venueName, onClose }: Props) {
   const [code, setCode] = useState('');
