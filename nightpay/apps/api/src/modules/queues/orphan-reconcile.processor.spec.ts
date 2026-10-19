@@ -17,6 +17,8 @@ interface Options {
   attemptsMade?: number;
   maxAttempts?: number;
   duplicateAlreadyRecorded?: boolean;
+  /** Pedidos cuyo aviso se rechazó por importe distinto (payment.amount_mismatch). */
+  amountMismatch?: string[];
 }
 
 function makeProcessor(o: Options = {}) {
@@ -28,6 +30,12 @@ function makeProcessor(o: Options = {}) {
     paymentEvent: {
       count: vi.fn().mockResolvedValue(o.duplicateAlreadyRecorded ? 1 : 0),
       create: vi.fn().mockResolvedValue({}),
+      findMany: vi
+        .fn()
+        .mockResolvedValue([
+          ...(o.amountMismatch ?? []).map((order) => ({ payload: { provider: 'REDSYS', providerTxId: order, chargedCents: 1 } })),
+          { payload: null },
+        ]),
     },
   };
   const prisma = { asSystem: vi.fn().mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
@@ -212,5 +220,48 @@ describe('OrphanReconcileProcessor — cada intento cuenta (#6)', () => {
     const m = makeProcessor({ gateway: { '2222NEWORDER': 'AUTHORIZED' } });
     m.payments.transition.mockRejectedValueOnce(new InvalidTransitionError('AUTHORIZED', 'AUTHORIZED'));
     await expect(m.processor.process(m.job)).resolves.toBeUndefined();
+  });
+});
+
+describe('OrphanReconcileProcessor — importe (P3)', () => {
+  it('pedido aprobado cuyo aviso se rechazó por importe → no se da por pagado (sigue a ORPHAN)', async () => {
+    const m = makeProcessor({
+      attempts: [{ providerTxId: '1111OLDORDER', status: 'APPROVED' }],
+      gateway: { '1111OLDORDER': 'AUTHORIZED' },
+      amountMismatch: ['1111OLDORDER'],
+      attemptsMade: 4,
+      maxAttempts: 5,
+    });
+    await m.processor.process(m.job);
+    expect(m.tx.paymentEvent.findMany).toHaveBeenCalledWith({
+      where: { paymentId: PAYMENT_ID, eventType: 'payment.amount_mismatch' },
+      select: { payload: true },
+    });
+    expect(m.payments.transition).toHaveBeenCalledTimes(1);
+    expect(m.payments.transition).toHaveBeenCalledWith(PAYMENT_ID, { type: 'TIMEOUT' });
+    expect(m.tx.paymentAttempt.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('con otro pedido aprobado sin problema de importe → se apunta ese, sin doble cobro por el del importe', async () => {
+    const m = makeProcessor({
+      attempts: [
+        { providerTxId: '2222NEWORDER', status: 'PENDING' },
+        { providerTxId: '1111OLDORDER', status: 'PENDING' },
+      ],
+      gateway: { '1111OLDORDER': 'AUTHORIZED', '2222NEWORDER': 'AUTHORIZED' },
+      amountMismatch: ['2222NEWORDER'],
+    });
+    await m.processor.process(m.job);
+    expect(m.payments.transition).toHaveBeenCalledWith(
+      PAYMENT_ID,
+      expect.objectContaining({ type: 'AUTHORIZED', providerTxId: '1111OLDORDER' }),
+    );
+    expect(m.tx.paymentEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('sin aprobados no mira las incidencias de importe', async () => {
+    const m = makeProcessor({ attempts: [{ providerTxId: '1111OLDORDER', status: 'PENDING' }], gateway: {} });
+    await expect(m.processor.process(m.job)).rejects.toThrow('still-pending');
+    expect(m.tx.paymentEvent.findMany).not.toHaveBeenCalled();
   });
 });

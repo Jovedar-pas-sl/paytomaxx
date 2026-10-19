@@ -25,6 +25,7 @@ probarían nada de eso.
 | `aislamiento-rls.int.spec.ts` | RLS de la base aísla sola las tablas con FORCE RLS (también `approval_requests`): con el local A en la sesión no se ve ni se escribe nada de B aunque la consulta no filtre; el local no se queda en la conexión |
 | `google-wallet.int.spec.ts` | Migración de `wallet_passes` (sin RLS, cascada, idempotente), consulta del repaso de Google Wallet con RLS forzado y el repaso entero con un Google de mentira |
 | `aprobaciones.int.spec.ts` | «Por aprobar»: el encargado pide el pago a la chica y el dueño lo aprueba con su 2FA (el pago existe y el saldo baja); quien pide no aprueba (ni la base lo deja); aprobar dos veces o a la vez paga una sola; dos peticiones a la vez no gastan de más; devoluciones desde el umbral a aprobación (202) y por debajo directas; rechazar; caducar a las 24 h; FAILED con la razón; Incidencias; otro local no la ve |
+| `doble-cobro.int.spec.ts` | Doble cobro: dos aprobaciones del banco de dos pedidos del mismo cobro a la vez → una lo paga y la otra queda como doble cobro una sola vez (candado del cobro), intentos APPROVED, una comisión; avisos repetidos no duplican la incidencia (también con el cobro devuelto). Venta anulada en el datáfono con el cobro aún pagado → Incidencias hasta devolverlo |
 
 ## Lanzarlas en local
 

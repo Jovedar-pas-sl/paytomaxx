@@ -34,6 +34,7 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
   pos_charge_mismatch: { group: 'Datáfono', title: 'Venta del datáfono que no cuadra', tab: 'terminals' },
   pos_unmatched_op: { group: 'Datáfono', title: 'Venta del datáfono sin cobro', tab: 'terminals' },
   pos_unreconciled: { group: 'Datáfono', title: 'Cobro del datáfono sin cuadrar', tab: 'terminals' },
+  pos_voided_paid: { group: 'Datáfono', title: 'Venta anulada y el cobro sigue pagado', tab: 'payments' },
   wallet_credit_skipped: { group: 'Saldo', title: 'Recarga cobrada sin saldo', tab: 'wallets' },
   wallet_close_requested: { group: 'Saldo', title: 'Un cliente pide su saldo', tab: 'wallets' },
   wallet_open_balance: { group: 'Saldo', title: 'Saldo de un cliente sin devolver', tab: 'wallets' },

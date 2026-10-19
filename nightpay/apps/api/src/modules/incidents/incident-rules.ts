@@ -17,6 +17,7 @@ export type IncidentKind =
   | 'pos_charge_mismatch'
   | 'pos_unmatched_op'
   | 'pos_unreconciled'
+  | 'pos_voided_paid'
   | 'wallet_close_requested'
   | 'wallet_open_balance'
   | 'bank_mismatch'
@@ -51,6 +52,7 @@ export const ACKABLE_KINDS = [
   'night_closed_pending',
   'pos_charge_mismatch',
   'pos_unmatched_op',
+  'pos_voided_paid',
   'bank_mismatch',
   'backup_unmonitored',
   'amount_mismatch',
@@ -214,6 +216,24 @@ export function posUnreconciledIncident(r: EventRow): Incident {
     amountCents: r.amountCents,
     paymentId: r.paymentId,
     ackable: false,
+  };
+}
+
+/**
+ * Se anuló en el datáfono la venta que pagó el cobro, pero aquí sigue pagado:
+ * el cliente no ha pagado y la comisión de la chica sigue contando.
+ */
+export function posVoidedPaidIncident(r: EventRow): Incident {
+  const op = str(r.payload, 'operationNumber');
+  return {
+    kind: 'pos_voided_paid',
+    refId: r.id,
+    title: 'Venta anulada en el datáfono y el cobro sigue pagado',
+    detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}El cliente no ha pagado: regístralo como devolución en Pagos para descontar la comisión de la chica, o vuelve a cobrarlo.`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: r.paymentId,
+    ackable: true,
   };
 }
 

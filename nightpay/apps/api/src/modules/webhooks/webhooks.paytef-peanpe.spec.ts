@@ -59,7 +59,7 @@ function makeHarness(o: Options = {}) {
       throw new Error(`No gateway adapter for provider=${p}`);
     }),
   };
-  const queue = { add: vi.fn().mockResolvedValue(undefined) };
+  const queue = { add: vi.fn().mockResolvedValue(undefined), getJob: vi.fn().mockResolvedValue(undefined) };
   const redis = { eval: vi.fn().mockResolvedValue(o.attempts ?? 1) };
   // Wipay y Redsys no intervienen en estas rutas.
   const controller = new WebhooksController(

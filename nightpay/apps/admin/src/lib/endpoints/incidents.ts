@@ -13,6 +13,8 @@ export type IncidentKind =
   | 'pos_charge_mismatch'
   | 'pos_unmatched_op'
   | 'pos_unreconciled'
+  /** Venta anulada en el datáfono con el cobro aún pagado (se marca como revisada). */
+  | 'pos_voided_paid'
   | 'wallet_close_requested'
   | 'wallet_open_balance'
   | 'bank_mismatch'

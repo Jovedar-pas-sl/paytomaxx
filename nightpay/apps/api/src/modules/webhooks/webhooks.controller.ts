@@ -20,8 +20,9 @@ import type { Queue } from 'bullmq';
 import type { FastifyRequest } from 'fastify';
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Provider } from '@nightpay/contracts';
+import { Prisma } from '@nightpay/db';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
@@ -32,6 +33,7 @@ import { sealTokenizationData } from '../payments/tokenization-seal';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
 import { parseWebhookBody } from '../gateways/header-utils';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
+import { enqueueWebhookDelivery } from '../queues/webhook-enqueue';
 import { MetricsService } from '../metrics/metrics.service';
 
 // M1: Fastify guarda el rawBody en `req.rawBody` cuando se configura el
@@ -213,27 +215,17 @@ export class WebhooksController {
       return { received: true, duplicate: true };
     }
 
-    const delivery = existing
-      ? existing
-      : await this.prisma.webhookDelivery.create({
-          data: {
-            provider,
-            externalEventId: verify.externalEventId!,
-            rawBody,
-            signature:
-              ((req.headers['x-signature'] ?? '') as string | string[])?.toString() || '',
-          },
-        });
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        externalEventId: verify.externalEventId!,
+        rawBody,
+        signature:
+          ((req.headers['x-signature'] ?? '') as string | string[])?.toString() || '',
+      }));
 
-    await this.queue.add(
-      'process-webhook',
-      { deliveryId: delivery.id.toString() },
-      {
-        jobId: `webhook-${provider}-${verify.externalEventId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
-    );
+    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
@@ -294,26 +286,16 @@ export class WebhooksController {
       return { received: true, duplicate: true };
     }
 
-    const delivery = existing
-      ? existing
-      : await this.prisma.webhookDelivery.create({
-          data: {
-            provider,
-            externalEventId: verify.externalEventId,
-            rawBody,
-            signature: 'paytef-url-secret',
-          },
-        });
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        externalEventId: verify.externalEventId,
+        rawBody,
+        signature: 'paytef-url-secret',
+      }));
 
-    await this.queue.add(
-      'process-webhook',
-      { deliveryId: delivery.id.toString() },
-      {
-        jobId: `webhook-${provider}-${verify.externalEventId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
-    );
+    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
@@ -447,30 +429,20 @@ export class WebhooksController {
       return { received: true, duplicate: true };
     }
 
-    const delivery = existing
-      ? existing
-      : await this.prisma.webhookDelivery.create({
-          data: {
-            provider,
-            tenantId: resolved.tenantId,
-            externalEventId: verify.externalEventId,
-            rawBody,
-            signature: 'peanpe-challenge-response',
-          },
-        });
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        tenantId: resolved.tenantId,
+        externalEventId: verify.externalEventId,
+        rawBody,
+        signature: 'peanpe-challenge-response',
+      }));
 
     // Persistir el resultado en peanpe_calls (audit + reintentos)
     await this.peanpe.persistCallbackResult(idLlamada, status, msg ?? null);
 
-    await this.queue.add(
-      'process-webhook',
-      { deliveryId: delivery.id.toString() },
-      {
-        jobId: `webhook-${provider}-${verify.externalEventId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
-    );
+    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
@@ -533,26 +505,16 @@ export class WebhooksController {
       return '$*$OKY$*$';
     }
 
-    const delivery = existing
-      ? existing
-      : await this.prisma.webhookDelivery.create({
-          data: {
-            provider,
-            externalEventId: verify.externalEventId,
-            rawBody,
-            signature: typeof body.Firma === 'string' ? (body.Firma as string) : '',
-          },
-        });
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        externalEventId: verify.externalEventId,
+        rawBody,
+        signature: typeof body.Firma === 'string' ? (body.Firma as string) : '',
+      }));
 
-    await this.queue.add(
-      'process-webhook',
-      { deliveryId: delivery.id.toString() },
-      {
-        jobId: `webhook-${provider}-${verify.externalEventId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
-    );
+    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return '$*$OKY$*$';
@@ -627,20 +589,18 @@ export class WebhooksController {
       ? Buffer.concat([rawBody, Buffer.from(`&_paymentId=${encodeURIComponent(payment.id)}`)])
       : rawBody;
 
-    const delivery = existing
-      ? existing
-      : await this.prisma.webhookDelivery.create({
-          data: {
-            provider,
-            ...(payment ? { tenantId: payment.tenantId } : {}),
-            externalEventId: verify.externalEventId,
-            rawBody: storedBody,
-            signature: typeof body.Ds_Signature === 'string' ? (body.Ds_Signature as string) : '',
-          },
-        });
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        ...(payment ? { tenantId: payment.tenantId } : {}),
+        externalEventId: verify.externalEventId,
+        rawBody: storedBody,
+        signature: typeof body.Ds_Signature === 'string' ? (body.Ds_Signature as string) : '',
+      }));
 
     if (payment) {
-      await this.recordRedsysOutcome(payment.id, payment.tenantId, rawBody);
+      await this.recordRedsysOutcome(payment.id, rawBody);
     }
 
     // Tokenización probe — si Redsys devolvió Ds_Merchant_Identifier en el
@@ -672,18 +632,32 @@ export class WebhooksController {
       );
     }
 
-    await this.queue.add(
-      'process-webhook',
-      { deliveryId: delivery.id.toString() },
-      {
-        jobId: `webhook-${provider}-${verify.externalEventId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
-    );
+    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
+  }
+
+  /**
+   * Guarda el aviso. Si la pasarela lo manda dos veces a la vez, el segundo
+   * choca con la clave única (P2002): se usa el registro del primero en vez de
+   * contestar 500 (Wipay espera $*$OKY$*$ y anularía un cobro bueno).
+   */
+  private async saveDelivery(data: Prisma.WebhookDeliveryUncheckedCreateInput): Promise<{ id: bigint }> {
+    try {
+      return await this.prisma.webhookDelivery.create({ data });
+    } catch (err) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') throw err;
+      return this.prisma.webhookDelivery.findUniqueOrThrow({
+        where: { provider_externalEventId: { provider: data.provider, externalEventId: data.externalEventId } },
+        select: { id: true },
+      });
+    }
+  }
+
+  /** Encola el procesado (aunque un intento anterior agotara los reintentos). */
+  private async enqueueDelivery(provider: Provider, externalEventId: string, deliveryId: bigint): Promise<void> {
+    await enqueueWebhookDelivery(this.queue, this.logger, { id: deliveryId, provider, externalEventId });
   }
 
   private async findRedsysPayment(
@@ -706,42 +680,22 @@ export class WebhooksController {
    * Anota el resultado del intento (APPROVED/DENIED) y, si es un cobro
    * aprobado, los datos que manda el banco (método, tarjeta, autorización).
    * No bloquea el aviso: si falla, se loguea y el pago sigue su curso.
+   *
+   * El doble cobro (otro pedido aprobado del mismo cobro) NO se mira aquí:
+   * sin el candado del cobro, dos avisos a la vez no se veían el uno al otro.
+   * Lo apunta transition(), con la fila bloqueada, al procesar el aviso.
    */
-  private async recordRedsysOutcome(
-    paymentId: string,
-    tenantId: string,
-    rawBody: Buffer,
-  ): Promise<void> {
+  private async recordRedsysOutcome(paymentId: string, rawBody: Buffer): Promise<void> {
     try {
       const n = this.redsys.parseNotification(parseWebhookBody(rawBody));
       if (!n || n.transactionType !== '0') return;
       await this.prisma.asSystem(async (tx) => {
-        if (n.approved) {
-          // Otro intento del mismo cobro ya aprobado = el cliente pagó dos
-          // veces (p. ej. reintentó mientras el primer pago seguía en 3D
-          // Secure). El FSM lo trata como duplicado idempotente, así que hay
-          // que dejar constancia aquí para devolver uno.
-          const otherApproved = await tx.paymentAttempt.count({
-            where: { paymentId, status: 'APPROVED', providerTxId: { not: n.order } },
-          });
-          if (otherApproved > 0) {
-            this.metrics.duplicateCharges.inc({ venue: tenantId, provider: 'REDSYS' });
-            this.logger.error(
-              `DOBLE COBRO payment=${paymentId}: el pedido ${n.order} (aut ${n.authCode ?? '-'}) también se aprobó. Devolver uno.`,
-            );
-            await tx.paymentEvent.create({
-              data: {
-                paymentId,
-                tenantId,
-                eventType: 'payment.duplicate_charge',
-                payload: { order: n.order, authCode: n.authCode, cardLast4: n.cardLast4 },
-                traceId: randomUUID(),
-              },
-            });
-          }
-        }
+        // Un KO tardío (aviso viejo o reintento) no deshace un intento que el
+        // banco ya aprobó: la aprobación manda.
         await tx.paymentAttempt.updateMany({
-          where: { provider: 'REDSYS', providerTxId: n.order },
+          where: n.approved
+            ? { provider: 'REDSYS', providerTxId: n.order }
+            : { provider: 'REDSYS', providerTxId: n.order, status: { not: 'APPROVED' } },
           data: { status: n.approved ? 'APPROVED' : 'DENIED', responseCode: n.response },
         });
         if (n.approved) {

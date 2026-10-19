@@ -76,6 +76,7 @@ import {
   type CreditWalletRow,
 } from './topup-credit';
 import { BRAND_NAME } from '../../common/brand';
+import { isOtherOrder, markAttemptApproved, recordSecondApproval } from './second-approval';
 
 const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
   inactive: 'Ese servicio está desactivado en la carta',
@@ -1157,6 +1158,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     let prevState: PaymentMachineState | undefined;
     let amountCents = 0;
     let tipCents = 0;
+    /** Segunda aprobación de un cobro ya pagado: apuntada y se rechaza tras el commit. */
+    let secondApproval: { status: PaymentMachineState; tenantId: string; recorded: boolean } | undefined;
 
     await this.prisma.$transaction(
       async (tx) => {
@@ -1195,6 +1198,16 @@ export class PaymentsService implements OnApplicationBootstrap {
         // FSM rechaza el evento, el rollback los deshace.
         const prepared = opts?.prepare ? await opts.prepare(tx, locked) : undefined;
         const base: LockedPaymentRow = prepared ? { ...locked, ...prepared } : locked;
+        // P1: otro pedido de este cobro aprobado cuando ya estaba pagado = el
+        // cliente pagó dos veces. Con la fila bloqueada (dos avisos a la vez se
+        // ponen en fila) y antes de tocar la propina del cobro.
+        if (event.type === 'AUTHORIZED' && isOtherOrder(base, event)) {
+          const recorded = await recordSecondApproval(tx, base, event, this.cls.get('ctx')?.traceId ?? randomUUID());
+          if (recorded !== null) {
+            secondApproval = { status: base.status, tenantId: base.tenantId, recorded };
+            return;
+          }
+        }
         const p = event.type === 'AUTHORIZED' ? await this.withChargedTip(tx, base, event) : base;
 
         const result = applyEvent(
@@ -1241,6 +1254,13 @@ export class PaymentsService implements OnApplicationBootstrap {
           )
         `;
 
+        // El intento que cobró queda APPROVED venga de donde venga la
+        // aprobación (aviso, conciliación o a mano): así se ve el doble cobro
+        // si luego se aprueba otro pedido del mismo cobro.
+        if (event.type === 'AUTHORIZED' && result.nextState === 'AUTHORIZED') {
+          await markAttemptApproved(tx, paymentId, event);
+        }
+
         // Phase 1B — recarga de saldo cobrada: se suma al saldo ATÓMICAMENTE en
         // la misma transacción de la FSM (saldo bloqueado FOR UPDATE). El tip va
         // SEPARADO del balance: propinas no son saldo gastable por el cliente.
@@ -1260,6 +1280,17 @@ export class PaymentsService implements OnApplicationBootstrap {
       },
       { isolationLevel: 'ReadCommitted' },
     );
+
+    if (secondApproval) {
+      if (secondApproval.recorded && event.type === 'AUTHORIZED') {
+        this.metrics.duplicateCharges.inc({ venue: secondApproval.tenantId, provider: event.provider });
+        this.logger.error(
+          `DOBLE COBRO payment=${paymentId}: el pedido ${event.providerTxId} también se aprobó. Devolver uno.`,
+        );
+      }
+      // Para quien llama, como antes: el cobro ya estaba pagado (idempotente).
+      throw new InvalidTransitionError(secondApproval.status, event.type);
+    }
 
     if (prevState && nextState) {
       this.metrics.paymentsTransitioned.inc({ from: prevState, to: nextState });

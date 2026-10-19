@@ -14,6 +14,7 @@ import {
   posChargeMismatchIncident,
   posUnmatchedOpIncident,
   posUnreconciledIncident,
+  posVoidedPaidIncident,
   walletCloseRequestedIncident,
   walletOpenBalanceIncident,
   bankMismatchIncident,
@@ -88,6 +89,7 @@ export class IncidentsService {
       anomalies,
       pendingRefunds,
       pendingApprovals,
+      posVoidedPaid,
     ] = await Promise.all([
       this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt"
@@ -294,6 +296,25 @@ export class IncidentsService {
          ORDER BY a."requestedAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `),
+      // Venta anulada en el datáfono que era la que pagó el cobro, y el cobro
+      // sigue pagado (sin devolver del todo): aquí nada lo deshizo.
+      this.prisma.$queryRaw<EventRow[]>`
+        SELECT v.id::text AS id, v."paymentId", (p."amountCents" + p."tipCents")::int AS "amountCents",
+               v."occurredAt", v.payload
+          FROM payment_events v
+          JOIN payments p ON p.id = v."paymentId"
+         WHERE v."tenantId" = ${tenantId}::uuid
+           AND v."eventType" = 'pos.voided'
+           AND v."occurredAt" >= ${since}
+           AND p.status::text IN ('AUTHORIZED', 'PARTIALLY_REFUNDED')
+           AND p."posOperationNumber" = v.payload ->> 'operationNumber'
+           AND p."posTerminalId"::text = v.payload ->> 'terminalId'
+           AND NOT EXISTS (SELECT 1 FROM incident_acks k
+                            WHERE k."tenantId" = v."tenantId" AND k.kind = 'pos_voided_paid'
+                              AND k."refId" = v.id::text)
+         ORDER BY v."occurredAt" DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `,
     ]);
 
     const all: Incident[] = [
@@ -306,6 +327,7 @@ export class IncidentsService {
       ...posMismatches.map(posChargeMismatchIncident),
       ...posUnmatched.map(posUnmatchedOpIncident),
       ...posUnreconciled.map(posUnreconciledIncident),
+      ...posVoidedPaid.map(posVoidedPaidIncident),
       ...walletsToClose.map(walletCloseRequestedIncident),
       ...walletsLeftOpen.map(walletOpenBalanceIncident),
       // La misma diferencia repetida (dos subidas a la vez) sale una vez.

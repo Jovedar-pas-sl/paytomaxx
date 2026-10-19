@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, HttpException, UnauthorizedException } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
+import { Prisma } from '@nightpay/db';
 import { WebhooksController, sameSecret } from './webhooks.controller';
 
 interface MakeOptions {
@@ -17,8 +18,10 @@ interface MakeOptions {
   redsysAttempt?: { paymentId: string; tenantId: string } | null;
   // Redsys: lo que devuelve parseNotification del aviso.
   redsysNotification?: Record<string, unknown> | null;
-  // Redsys: otros intentos del mismo cobro ya aprobados (doble cobro).
-  otherApprovedAttempts?: number;
+  // Trabajo que ya hay en la cola con el id del aviso (P5).
+  existingJob?: { failed: boolean; removeError?: Error } | null;
+  // Error al guardar el aviso (P10: P2002 si otra entrega lo guardó a la vez).
+  createError?: unknown;
 }
 
 function makeController(opts: MakeOptions = {}) {
@@ -81,7 +84,7 @@ function makeController(opts: MakeOptions = {}) {
     paymentAttempt: {
       findUnique: vi.fn().mockResolvedValue(opts.redsysAttempt ?? null),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-      count: vi.fn().mockResolvedValue(opts.otherApprovedAttempts ?? 0),
+      count: vi.fn().mockResolvedValue(0),
     },
     paymentEvent: { create: vi.fn().mockResolvedValue({}) },
     payment: {
@@ -100,15 +103,23 @@ function makeController(opts: MakeOptions = {}) {
     $executeRaw: vi.fn().mockResolvedValue(0),
     webhookDelivery: {
       findUnique: vi.fn().mockResolvedValue(opts.existingDelivery ?? null),
-      create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
-        id: BigInt(42),
-        processedAt: null,
-        ...data,
-      })),
+      create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+        if (opts.createError) throw opts.createError;
+        return { id: BigInt(42), processedAt: null, ...data };
+      }),
+      findUniqueOrThrow: vi.fn().mockResolvedValue({ id: BigInt(77) }),
     },
   };
 
-  const queue = { add: vi.fn().mockResolvedValue(undefined) };
+  const job = opts.existingJob
+    ? {
+        isFailed: vi.fn().mockResolvedValue(opts.existingJob.failed),
+        remove: opts.existingJob.removeError
+          ? vi.fn().mockRejectedValue(opts.existingJob.removeError)
+          : vi.fn().mockResolvedValue(undefined),
+      }
+    : null;
+  const queue = { add: vi.fn().mockResolvedValue(undefined), getJob: vi.fn().mockResolvedValue(job ?? undefined) };
 
   const metrics = {
     webhooksReceived: { inc: vi.fn() },
@@ -137,7 +148,7 @@ function makeController(opts: MakeOptions = {}) {
     redsys as any,
   );
 
-  return { controller, genericAdapter, wipay, redsys, gateways, prisma, paymentTx, queue, metrics, peanpe, redis, config };
+  return { controller, genericAdapter, wipay, redsys, gateways, prisma, paymentTx, queue, job, metrics, peanpe, redis, config };
 }
 
 function fakeWipayRequest(body: Record<string, string> = { Num_operacion: 'op-test-1', Firma: 'abc' }): FastifyRequest {
@@ -426,34 +437,77 @@ describe('WebhooksController.receiveRedsys — resolución Ds_Order → payment'
 
     await controller.receiveRedsys(fakeRedsysRequest());
 
+    // P7: un KO tardío no pisa un intento que el banco ya aprobó.
     expect(paymentTx.paymentAttempt.updateMany).toHaveBeenCalledWith({
-      where: { provider: 'REDSYS', providerTxId: 'a1b2c3d4e5f6' },
+      where: { provider: 'REDSYS', providerTxId: 'a1b2c3d4e5f6', status: { not: 'APPROVED' } },
       data: { status: 'DENIED', responseCode: '0190' },
     });
     expect(paymentTx.payment.updateMany).not.toHaveBeenCalled();
   });
 
-  it('segundo intento aprobado del mismo cobro → alerta de doble cobro', async () => {
-    const { controller, paymentTx, metrics } = makeController({ otherApprovedAttempts: 1 });
-
-    await controller.receiveRedsys(fakeRedsysRequest());
-
-    expect(metrics.duplicateCharges.inc).toHaveBeenCalledWith({ venue: 'tenant-uuid-1', provider: 'REDSYS' });
-    const event = paymentTx.paymentEvent.create.mock.calls[0]![0] as { data: Record<string, unknown> };
-    expect(event.data).toMatchObject({
-      paymentId: 'pay-uuid-1',
-      tenantId: 'tenant-uuid-1',
-      eventType: 'payment.duplicate_charge',
-    });
-  });
-
-  it('primer intento aprobado → sin alerta', async () => {
+  it('P1: el doble cobro no se cuenta aquí sin candado (lo apunta transition al procesar el aviso)', async () => {
     const { controller, paymentTx, metrics } = makeController();
 
     await controller.receiveRedsys(fakeRedsysRequest());
 
+    expect(paymentTx.paymentAttempt.count).not.toHaveBeenCalled();
     expect(metrics.duplicateCharges.inc).not.toHaveBeenCalled();
     expect(paymentTx.paymentEvent.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('WebhooksController — aviso que agotó los reintentos (P5) y entregas a la vez (P10)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('reenvío de un aviso cuyo trabajo falló: se quita el fallido y se vuelve a encolar', async () => {
+    const { controller, queue, job } = makeController({
+      existingDelivery: { id: BigInt(5), processedAt: null },
+      existingJob: { failed: true },
+    });
+
+    await expect(controller.receiveWipay(fakeWipayRequest())).resolves.toBe('$*$OKY$*$');
+
+    expect(queue.getJob).toHaveBeenCalledWith('webhook-WIPAY-op-test-1');
+    expect(job!.remove).toHaveBeenCalledTimes(1);
+    expect(job!.remove.mock.invocationCallOrder[0]!).toBeLessThan(queue.add.mock.invocationCallOrder[0]!);
+    expect(queue.add).toHaveBeenCalledWith('process-webhook', { deliveryId: '5' }, expect.objectContaining({ jobId: 'webhook-WIPAY-op-test-1' }));
+  });
+
+  it('trabajo aún en cola o en curso: no se toca (add con el mismo id no lo duplica)', async () => {
+    const { controller, queue, job } = makeController({ existingJob: { failed: false } });
+
+    await controller.receiveWipay(fakeWipayRequest());
+
+    expect(job!.remove).not.toHaveBeenCalled();
+    expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+
+  it('si otra entrega ya quitó el fallido, se encola igual', async () => {
+    const { controller, queue } = makeController({ existingJob: { failed: true, removeError: new Error('Missing key') } });
+
+    await expect(controller.receiveWipay(fakeWipayRequest())).resolves.toBe('$*$OKY$*$');
+
+    expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+
+  it('el mismo aviso guardado a la vez por otra entrega (P2002): usa ese registro, sin 500', async () => {
+    const clash = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'test' });
+    const { controller, prisma, queue } = makeController({ createError: clash });
+
+    await expect(controller.receiveWipay(fakeWipayRequest())).resolves.toBe('$*$OKY$*$');
+
+    expect(prisma.webhookDelivery.findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { provider_externalEventId: { provider: 'WIPAY', externalEventId: 'op-test-1' } },
+      select: { id: true },
+    });
+    expect(queue.add).toHaveBeenCalledWith('process-webhook', { deliveryId: '77' }, expect.anything());
+  });
+
+  it('otro error al guardar el aviso no se esconde', async () => {
+    const { controller, prisma } = makeController({ createError: new Error('db caída') });
+
+    await expect(controller.receiveWipay(fakeWipayRequest())).rejects.toThrow('db caída');
+    expect(prisma.webhookDelivery.findUniqueOrThrow).not.toHaveBeenCalled();
   });
 });
 

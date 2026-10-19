@@ -62,7 +62,7 @@ function makeHarness() {
   const redsys = new RedsysAdapter(config as never, metrics as never);
   const wipay = new WipayAdapter(config as never, metrics as never);
   const gateways = { get: vi.fn() };
-  const queue = { add: vi.fn().mockResolvedValue(undefined) };
+  const queue = { add: vi.fn().mockResolvedValue(undefined), getJob: vi.fn().mockResolvedValue(undefined) };
   const controller = new WebhooksController(
     prisma as never, gateways as never, queue as never, metrics as never,
     config as never, { eval: vi.fn() } as never, {} as never, wipay, redsys,
