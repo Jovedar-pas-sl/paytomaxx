@@ -4,15 +4,20 @@ import type { ClientWalletState } from './wallet-charges.service';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { WALLET_TEXT } from './wallet-text';
 import { GOOGLE_WALLET_BUTTONS } from './google-wallet/google-wallet-button';
+import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
+import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpBox, topUpSheet } from './wallet-topup-view';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, look "Club".
  * El saldo es el protagonista y hay UNA acción principal (activar el pago
  * desbloqueando el móvil, o el seguimiento del «Me voy»); elegir PIN, sumar a
  * otro saldo y «Me voy» son secundarias y se hacen en hojas dentro de la
- * página (nada de confirm()/alert()). «Añadir a Google Wallet» también es
- * secundaria: solo en Android y si está configurado. El estado se refresca
- * cada pocos segundos. Aquí no se paga (se paga con el QR del personal o con el PIN).
+ * página (nada de confirm()/alert()). «Recargar» va debajo del saldo: principal
+ * si no hay Face ID que activar, si no secundaria (wallet-topup-view.ts); al
+ * volver del banco, su «Pagado» debajo del saldo y Google Wallet a mano.
+ * «Añadir a Google Wallet» también es secundaria: solo en Android y si está
+ * configurado. El estado se refresca cada pocos segundos. Aquí no se paga
+ * (se paga con el QR del personal o con el PIN).
  * Todo texto dinámico va con textContent (nada de HTML inyectado).
  */
 
@@ -83,6 +88,12 @@ function jsText(lang: PayLanguage): Record<string, unknown> {
 export interface WalletPageOptions {
   /** Google Wallet configurado: el botón oficial sale (solo en Android). */
   googleWallet?: boolean;
+  /** «Recargar»: si se puede ahora y con qué importes (sin esto, no sale). */
+  topUp?: TopUpOptions | null;
+  /** Vuelta del banco tras pagar una recarga de este saldo: su «Pagado». */
+  paid?: TopUpProof | null;
+  /** Hora del servidor (para el «Pagado»). */
+  now?: Date;
 }
 
 /**
@@ -123,19 +134,21 @@ export function renderWalletPage(
   const t = WALLET_TEXT[lang];
   const base = `/w/${encodeURIComponent(token)}`;
   const gw = options.googleWallet === true;
-  const config = jsConfig({ base, lang, locale: t.locale, text: jsText(lang), state, gw });
+  const proof = options.paid ?? null;
+  const topUp = options.topUp ?? null;
+  const config = jsConfig({ base, lang, locale: t.locale, text: jsText(lang), state, gw, topUp, paid: proof !== null });
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0b0b0b"><title>${h(t.title)}</title>
-<style>${CLUB_BASE_CSS}${WALLET_CSS}</style></head><body><main class="w">
+<style>${CLUB_BASE_CSS}${WALLET_CSS}${TOPUP_CSS}</style></head><body><main class="w">
 <div class="top"><p class="kick">${h(t.title)}</p><a class="link" id="lang" href="${h(`${base}?lang=${t.other.code}`)}" lang="${t.other.code}" hreflang="${t.other.code}">${h(t.other.label)}</a></div>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(t.balance)}</p>
 <p class="balance num" id="balance" aria-live="polite">${h(eur(state.balanceCents, t.locale))}</p>
 <p class="status" id="notice" role="status" hidden></p>
 </section>
-<section class="card main" id="faceCard" hidden aria-labelledby="faceTitle">
+${proof ? paidProofSection(lang, proof, options.now ?? new Date()) : ''}${proof && gw ? googleWalletSection(lang) : ''}${topUpBox(lang)}<section class="card main" id="faceCard" hidden aria-labelledby="faceTitle">
 <h2 id="faceTitle"></h2><p id="faceWhy"></p>
 <button class="btn" type="button" id="faceOn"></button>
 <p class="err" id="faceErr" role="alert" hidden></p>
@@ -151,7 +164,7 @@ export function renderWalletPage(
 <button class="row" type="button" id="mergeOpen" hidden>${h(t.mergeRow)}<small>${h(t.mergeRowHint)}</small></button>
 <button class="row" type="button" id="leaveOpen" hidden>${h(t.leaveRow)}<small>${h(t.leaveRowHint)}</small></button>
 </nav>
-${gw ? googleWalletSection(lang) : ''}<section class="card" id="codeCard"><p class="kick">${h(t.codeTitle)}</p><p class="code num" id="code">${h(state.code)}</p><p class="small">${h(t.codeHint)}</p></section>
+${gw && !proof ? googleWalletSection(lang) : ''}<section class="card" id="codeCard"><p class="kick">${h(t.codeTitle)}</p><p class="code num" id="code">${h(state.code)}</p><p class="small">${h(t.codeHint)}</p></section>
 <section class="card"><h2 class="kick">${h(t.movements)}</h2><ul id="movements"></ul></section>
 <p class="small">${h(t.saveHint)}</p>
 </main>
@@ -176,7 +189,7 @@ ${gw ? googleWalletSection(lang) : ''}<section class="card" id="codeCard"><p cla
 <button class="btn" type="button" id="mergeGo">${h(t.mergeButton)}</button>
 <button class="link" type="button" data-close>${h(t.cancel)}</button>
 </dialog>
-<p class="toast" id="toast" role="status" hidden></p>
+${topUpSheet(lang, topUp)}<p class="toast" id="toast" role="status" hidden></p>
 <script>
 ${PASSKEY_BROWSER_JS}
 (function(){
@@ -229,7 +242,8 @@ function render(s){S=s;S.cards=s.cards||[];
  s.movements.forEach(function(m){var li=document.createElement('li'),a=document.createElement('span'),b=document.createElement('span');li.className='mv';
   a.textContent=[m.label,m.venueName,when(m.at)].filter(Boolean).join(' · ');
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.amountCents>0?'plus':'minus')+' num';
-  li.appendChild(a);li.appendChild(b);ul.appendChild(li);});}
+  li.appendChild(a);li.appendChild(b);ul.appendChild(li);});
+ topRender(s);}
 function post(path,body){return pkPost(C.base+path,body||{});}
 function refresh(){if(busy)return;fetch(C.base+'/state',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(s){if(s&&!busy)render(s);}).catch(function(){});}
 function msg(e){return (e&&e.message&&e.message!=='Error')?e.message:T.error;}
@@ -259,10 +273,13 @@ $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)retu
   .then(function(r){closeSheet($('mergeSheet'));toast(fill(T.mergeDone,'amount',eur(r.balanceCents)));busy=false;refresh();})
   .catch(function(e){if(!pkCancelled(e))show('mergeErr',msg(e));})
   .then(function(){busy=false;busyBtn(b,false);});});${gw ? GOOGLE_WALLET_JS : ''}
+${TOPUP_JS}
 render(S);
+if(C.paid){try{history.replaceState(null,'',C.base+'?lang='+C.lang);}catch(e){}}
 if(location.hash==='#sumar'&&!$('mergeOpen').hidden)openSheet($('mergeSheet'));
 setInterval(function(){if(document.visibilityState==='visible')refresh();},3000);
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')refresh();});
 })();
+${proof ? paidProofScript(lang) : ''}
 </script></body></html>`;
 }

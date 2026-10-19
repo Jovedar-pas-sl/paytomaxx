@@ -14,10 +14,24 @@ function makeController(googleWalletEnabled = false) {
     verify: vi.fn().mockResolvedValue('w-target'),
   };
   const gwallet = { enabled: googleWalletEnabled };
+  const topUps = {
+    options: vi.fn().mockResolvedValue({ allowed: true, block: null, presetsCents: [2000, 5000, 10000], minCents: 1000, maxCents: 30000 }),
+    paidProof: vi.fn().mockResolvedValue(null),
+    challenge: vi.fn().mockResolvedValue({ challenge: 'topup-reto' }),
+    start: vi.fn().mockResolvedValue({ payToken: 'pay-tok-1', payUrl: '/pay/pay-tok-1?lang=es', claim: 'c'.repeat(43) }),
+  };
+  const config = { get: vi.fn(() => 'secreto-de-cookies-de-las-pruebas-0123456789') };
   return {
-    controller: new PublicWalletController(charges as never, passkeys as never, gwallet as never),
+    controller: new PublicWalletController(
+      charges as never,
+      passkeys as never,
+      gwallet as never,
+      topUps as never,
+      config as never,
+    ),
     charges,
     passkeys,
+    topUps,
   };
 }
 
@@ -92,5 +106,70 @@ describe('/w/:token — PIN y sumar a otro saldo (acciones secundarias de la pá
     passkeys.verify.mockRejectedValueOnce(new BadRequestException('Llave no válida'));
     await expect(controller.merge('tok', { response: {} }, 'pay.example')).rejects.toThrow('Llave no válida');
     expect(charges.mergeInto).not.toHaveBeenCalled();
+  });
+});
+
+describe('/w/:token/topup — «Recargar» desde el móvil', () => {
+  function cookieReply() {
+    const headers: Record<string, string> = {};
+    const reply = {
+      header(k: string, v: string) {
+        headers[k] = v;
+        return reply;
+      },
+    };
+    return { reply, headers };
+  }
+
+  it('crea la recarga y deja la cookie de vuelta en /pay (HttpOnly) para el cobro creado', async () => {
+    const { controller, topUps } = makeController();
+    const { reply, headers } = cookieReply();
+    const out = await controller.topUp('tok', { amountCents: 5000, key: 'k'.repeat(22), lang: 'en' }, 'api.x', 'es', reply as never);
+    expect(out).toEqual({ payUrl: '/pay/pay-tok-1?lang=es' });
+    expect(topUps.start).toHaveBeenCalledWith(
+      'tok',
+      { amountCents: 5000, key: 'k'.repeat(22), response: undefined, lang: 'en' },
+      'api.x',
+    );
+    expect(headers['Set-Cookie']).toMatch(/^npw_[A-Za-z0-9_-]{22}=c{43}; Path=\/pay; Max-Age=\d+; HttpOnly; /);
+  });
+
+  it('sin idioma en el cuerpo, el del móvil; el reto del Face ID es del servicio', async () => {
+    const { controller, topUps } = makeController();
+    await controller.topUp('tok', undefined, undefined, 'en-GB,en;q=0.9', cookieReply().reply as never);
+    expect(topUps.start).toHaveBeenCalledWith('tok', expect.objectContaining({ lang: 'en', amountCents: undefined }), undefined);
+    await expect(controller.topUpChallenge('tok', 'api.x')).resolves.toEqual({ challenge: 'topup-reto' });
+    expect(topUps.challenge).toHaveBeenCalledWith('tok', 'api.x');
+  });
+
+  it('si falla, no deja cookie', async () => {
+    const { controller, topUps } = makeController();
+    topUps.start.mockRejectedValueOnce(new BadRequestException('importe'));
+    const { reply, headers } = cookieReply();
+    await expect(controller.topUp('tok', { amountCents: 1 }, 'h', 'es', reply as never)).rejects.toThrow(BadRequestException);
+    expect(headers['Set-Cookie']).toBeUndefined();
+  });
+
+  it('la página lleva si se puede recargar y el «Pagado» de ?pagado= (solo de este saldo, lo decide el servicio)', async () => {
+    const { controller, topUps, charges } = makeController();
+    charges.clientState.mockResolvedValueOnce({
+      code: 'K7Q-4M2',
+      balanceCents: 17_000,
+      status: 'ACTIVE',
+      closeRequested: false,
+      hasFaceId: true,
+      hasPin: true,
+      merged: false,
+      refund: null,
+      cards: [],
+      movements: [],
+    });
+    topUps.paidProof.mockResolvedValueOnce({ payToken: 'pay-1', amountCents: 5000, authorizedAt: new Date().toISOString(), code: '7F2' });
+    const reply = fakeReply();
+    await controller.page('tok', 'es', undefined, reply as never, 'pay-1');
+    expect(topUps.paidProof).toHaveBeenCalledWith('tok', 'pay-1');
+    expect(topUps.options).toHaveBeenCalledWith('tok');
+    expect(reply.body).toContain('id="proof"');
+    expect(reply.body).toContain('id="topupSheet"');
   });
 });
