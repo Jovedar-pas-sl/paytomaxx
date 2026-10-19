@@ -9,6 +9,7 @@ import { GatewayRegistry } from '../gateways/gateway.registry';
 import type { GatewayAdapter } from '../gateways/gateway.adapter';
 import { ORPHAN_RECONCILE_QUEUE } from './queue-tokens';
 import { InvalidTransitionError } from '../payments/payment.machine';
+import { AMOUNT_MISMATCH_EVENT } from './approval-check';
 
 interface OrphanReconcileJobData {
   paymentId: string;
@@ -25,6 +26,13 @@ interface ReconcilablePayment {
 
 /** Cobros en los que aún puede faltar apuntar una aprobación del banco. */
 const RECONCILABLE = new Set(['AUTHORIZING', 'ORPHAN', 'FAILED']);
+
+/** Pedido de una incidencia de importe (webhook-ingest lo guarda como providerTxId). */
+function orderOf(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const v = (payload as Record<string, unknown>).providerTxId;
+  return typeof v === 'string' ? v : null;
+}
 
 /**
  * Pedidos a consultar en la pasarela, uno por intento (payment_attempts):
@@ -95,7 +103,10 @@ export class OrphanReconcileProcessor extends WorkerHost {
     }
 
     const adapter = this.gateways.get(payment.provider);
-    const approved = await this.approvedOrders(adapter, tenantId, orders);
+    const approved = await this.withoutAmountMismatch(
+      payment.id,
+      await this.approvedOrders(adapter, tenantId, orders),
+    );
     if (approved.length > 0) {
       await this.book(payment, payment.provider, approved);
       return;
@@ -136,6 +147,30 @@ export class OrphanReconcileProcessor extends WorkerHost {
       if ((await this.safeStatus(adapter, tenantId, order)) === 'AUTHORIZED') approved.push(order);
     }
     return approved;
+  }
+
+  /**
+   * La consulta a la pasarela solo dice "aprobado", no el importe. Un pedido
+   * cuyo aviso ya se rechazó porque el banco cobró otro importe no se da por
+   * pagado así: sigue en su incidencia (y el cobro, si no hay otro pedido, en
+   * ORPHAN para resolverlo a mano con el portal del banco).
+   */
+  private async withoutAmountMismatch(paymentId: string, approved: string[]): Promise<string[]> {
+    if (approved.length === 0) return approved;
+    const flagged = await this.prisma.asSystem((tx) =>
+      tx.paymentEvent.findMany({
+        where: { paymentId, eventType: AMOUNT_MISMATCH_EVENT },
+        select: { payload: true },
+      }),
+    );
+    const blocked = new Set(flagged.map((e) => orderOf(e.payload)).filter((o): o is string => o !== null));
+    const bookable = approved.filter((o) => !blocked.has(o));
+    if (bookable.length < approved.length) {
+      this.logger.warn(
+        `Orphan ${paymentId}: pedidos aprobados con importe distinto (${approved.filter((o) => blocked.has(o)).join(', ')}) — no se dan por pagados`,
+      );
+    }
+    return bookable;
   }
 
   private async safeStatus(adapter: GatewayAdapter, tenantId: string, order: string): Promise<GatewayStatus> {
