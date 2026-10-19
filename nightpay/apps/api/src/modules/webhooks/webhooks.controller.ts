@@ -22,6 +22,7 @@ import type { Redis } from 'ioredis';
 import { z } from 'zod';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Provider } from '@nightpay/contracts';
+import { Prisma } from '@nightpay/db';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
@@ -32,6 +33,7 @@ import { sealTokenizationData } from '../payments/tokenization-seal';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
 import { parseWebhookBody } from '../gateways/header-utils';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
+import { enqueueWebhookDelivery } from '../queues/webhook-enqueue';
 import { MetricsService } from '../metrics/metrics.service';
 
 // M1: Fastify guarda el rawBody en `req.rawBody` cuando se configura el
@@ -213,27 +215,17 @@ export class WebhooksController {
       return { received: true, duplicate: true };
     }
 
-    const delivery = existing
-      ? existing
-      : await this.prisma.webhookDelivery.create({
-          data: {
-            provider,
-            externalEventId: verify.externalEventId!,
-            rawBody,
-            signature:
-              ((req.headers['x-signature'] ?? '') as string | string[])?.toString() || '',
-          },
-        });
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        externalEventId: verify.externalEventId!,
+        rawBody,
+        signature:
+          ((req.headers['x-signature'] ?? '') as string | string[])?.toString() || '',
+      }));
 
-    await this.queue.add(
-      'process-webhook',
-      { deliveryId: delivery.id.toString() },
-      {
-        jobId: `webhook-${provider}-${verify.externalEventId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
-    );
+    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
@@ -294,26 +286,16 @@ export class WebhooksController {
       return { received: true, duplicate: true };
     }
 
-    const delivery = existing
-      ? existing
-      : await this.prisma.webhookDelivery.create({
-          data: {
-            provider,
-            externalEventId: verify.externalEventId,
-            rawBody,
-            signature: 'paytef-url-secret',
-          },
-        });
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        externalEventId: verify.externalEventId,
+        rawBody,
+        signature: 'paytef-url-secret',
+      }));
 
-    await this.queue.add(
-      'process-webhook',
-      { deliveryId: delivery.id.toString() },
-      {
-        jobId: `webhook-${provider}-${verify.externalEventId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
-    );
+    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
@@ -447,30 +429,20 @@ export class WebhooksController {
       return { received: true, duplicate: true };
     }
 
-    const delivery = existing
-      ? existing
-      : await this.prisma.webhookDelivery.create({
-          data: {
-            provider,
-            tenantId: resolved.tenantId,
-            externalEventId: verify.externalEventId,
-            rawBody,
-            signature: 'peanpe-challenge-response',
-          },
-        });
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        tenantId: resolved.tenantId,
+        externalEventId: verify.externalEventId,
+        rawBody,
+        signature: 'peanpe-challenge-response',
+      }));
 
     // Persistir el resultado en peanpe_calls (audit + reintentos)
     await this.peanpe.persistCallbackResult(idLlamada, status, msg ?? null);
 
-    await this.queue.add(
-      'process-webhook',
-      { deliveryId: delivery.id.toString() },
-      {
-        jobId: `webhook-${provider}-${verify.externalEventId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
-    );
+    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
@@ -533,26 +505,16 @@ export class WebhooksController {
       return '$*$OKY$*$';
     }
 
-    const delivery = existing
-      ? existing
-      : await this.prisma.webhookDelivery.create({
-          data: {
-            provider,
-            externalEventId: verify.externalEventId,
-            rawBody,
-            signature: typeof body.Firma === 'string' ? (body.Firma as string) : '',
-          },
-        });
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        externalEventId: verify.externalEventId,
+        rawBody,
+        signature: typeof body.Firma === 'string' ? (body.Firma as string) : '',
+      }));
 
-    await this.queue.add(
-      'process-webhook',
-      { deliveryId: delivery.id.toString() },
-      {
-        jobId: `webhook-${provider}-${verify.externalEventId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
-    );
+    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return '$*$OKY$*$';
@@ -627,17 +589,15 @@ export class WebhooksController {
       ? Buffer.concat([rawBody, Buffer.from(`&_paymentId=${encodeURIComponent(payment.id)}`)])
       : rawBody;
 
-    const delivery = existing
-      ? existing
-      : await this.prisma.webhookDelivery.create({
-          data: {
-            provider,
-            ...(payment ? { tenantId: payment.tenantId } : {}),
-            externalEventId: verify.externalEventId,
-            rawBody: storedBody,
-            signature: typeof body.Ds_Signature === 'string' ? (body.Ds_Signature as string) : '',
-          },
-        });
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        ...(payment ? { tenantId: payment.tenantId } : {}),
+        externalEventId: verify.externalEventId,
+        rawBody: storedBody,
+        signature: typeof body.Ds_Signature === 'string' ? (body.Ds_Signature as string) : '',
+      }));
 
     if (payment) {
       await this.recordRedsysOutcome(payment.id, rawBody);
@@ -672,18 +632,32 @@ export class WebhooksController {
       );
     }
 
-    await this.queue.add(
-      'process-webhook',
-      { deliveryId: delivery.id.toString() },
-      {
-        jobId: `webhook-${provider}-${verify.externalEventId}`,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
-    );
+    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
+  }
+
+  /**
+   * Guarda el aviso. Si la pasarela lo manda dos veces a la vez, el segundo
+   * choca con la clave única (P2002): se usa el registro del primero en vez de
+   * contestar 500 (Wipay espera $*$OKY$*$ y anularía un cobro bueno).
+   */
+  private async saveDelivery(data: Prisma.WebhookDeliveryUncheckedCreateInput): Promise<{ id: bigint }> {
+    try {
+      return await this.prisma.webhookDelivery.create({ data });
+    } catch (err) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') throw err;
+      return this.prisma.webhookDelivery.findUniqueOrThrow({
+        where: { provider_externalEventId: { provider: data.provider, externalEventId: data.externalEventId } },
+        select: { id: true },
+      });
+    }
+  }
+
+  /** Encola el procesado (aunque un intento anterior agotara los reintentos). */
+  private async enqueueDelivery(provider: Provider, externalEventId: string, deliveryId: bigint): Promise<void> {
+    await enqueueWebhookDelivery(this.queue, this.logger, { id: deliveryId, provider, externalEventId });
   }
 
   private async findRedsysPayment(

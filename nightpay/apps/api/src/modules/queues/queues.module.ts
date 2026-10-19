@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { QrExpireProcessor } from './qr-expire.processor';
 import { OrphanReconcileProcessor } from './orphan-reconcile.processor';
 import { WebhookIngestProcessor } from './webhook-ingest.processor';
+import { WebhookRedriveSweepService } from './webhook-redrive-sweep.service';
 import { RetireReconcileDailyService } from './retire-reconcile-daily.service';
 import { GoogleWalletSyncProcessor, GoogleWalletSyncScheduler } from './google-wallet-sync.processor';
 import {
@@ -61,6 +62,7 @@ import { WalletsModule } from '../wallets/wallets.module';
     QrExpireProcessor,
     OrphanReconcileProcessor,
     WebhookIngestProcessor,
+    WebhookRedriveSweepService,
     RetireReconcileDailyService,
     GoogleWalletSyncProcessor,
     GoogleWalletSyncScheduler,
