@@ -6,12 +6,15 @@ import { ApiError, totpLockedUntil } from '../api-errors';
 
 export type SaAction =
   | 'business.create'
+  | 'business.createMoney'
   | 'business.update'
+  | 'business.updateMoney'
   | 'business.pause'
   | 'business.resume'
   | 'business.assignVenues'
   | 'business.unassignVenue'
   | 'venue.create'
+  | 'venue.createMoney'
   | 'venue.profile'
   | 'venue.profileMoney'
   | 'venue.rules'
@@ -46,12 +49,18 @@ const rule = (totp: boolean, reason: ReasonRule): StepUpRule => ({ totp, reason 
 /** Lo que pide el API en cada acción (tabla de docs/SUPERADMIN.md). */
 export const SA_ACTION_RULES: Readonly<Record<SaAction, StepUpRule>> = {
   'business.create': rule(false, 'none'),
+  // Alta o cambio con comisión por defecto propia (sus locales nuevos la heredan).
+  'business.createMoney': rule(true, 'none'),
   'business.update': rule(false, 'none'),
+  'business.updateMoney': rule(true, 'none'),
   'business.pause': rule(true, 'required'),
   'business.resume': rule(true, 'optional'),
-  'business.assignVenues': rule(false, 'none'),
-  'business.unassignVenue': rule(false, 'none'),
+  // Meter o sacar un local de un negocio en pausa le deja volver a cobrar.
+  'business.assignVenues': rule(true, 'none'),
+  'business.unassignVenue': rule(true, 'none'),
   'venue.create': rule(false, 'none'),
+  // Alta con grupo del saldo o comisión propia.
+  'venue.createMoney': rule(true, 'none'),
   'venue.profile': rule(false, 'none'),
   // Perfil tocando el grupo del saldo o el IVA.
   'venue.profileMoney': rule(true, 'none'),

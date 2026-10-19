@@ -2,15 +2,17 @@
 
 import { useState, type FormEvent } from 'react';
 import { Button, Card, Input, Modal, Select } from '@nightpay/ui';
-import type { BusinessStatusValue } from '@nightpay/contracts';
+import { businessCreateNeedsStepUp, type BusinessStatusValue, type CreateBusinessDto } from '@nightpay/contracts';
 import { formatPercent } from '@/lib/commission';
 import { createSaBusiness, fetchSaBusinesses } from '@/lib/endpoints/superadmin';
 import { EMPTY_BUSINESS_FORM, businessPayload, type BusinessForm } from '@/lib/superadmin/forms';
+import { commissionText } from '@/lib/superadmin/labels';
 import { businessesQuery } from '@/lib/superadmin/query';
 import { Pill } from '../Pill';
 import { BusinessDetailView } from './BusinessDetail';
 import { BusinessFields } from './BusinessFields';
 import { useSa } from './context';
+import { StepUpDialog } from './StepUpDialog';
 import { LoadGate, SectionHead, SmallButton, ErrorLine, StickyActions } from './ui';
 import { useDebounced, useLoad } from './use-load';
 
@@ -126,6 +128,8 @@ export function BusinessesSection() {
 
 function CreateBusinessDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [form, setForm] = useState<BusinessForm>(EMPTY_BUSINESS_FORM);
+  /** Alta con comisión por defecto propia: espera al código 2FA (el formulario sigue detrás). */
+  const [pending, setPending] = useState<CreateBusinessDto | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -135,6 +139,7 @@ function CreateBusinessDialog({ onClose, onCreated }: { onClose: () => void; onC
     const payload = businessPayload(form);
     if (!payload.ok) return setError(payload.error);
     setError(null);
+    if (businessCreateNeedsStepUp(payload.value)) return setPending(payload.value);
     setSubmitting(true);
     try {
       const created = await createSaBusiness(payload.value);
@@ -143,6 +148,21 @@ function CreateBusinessDialog({ onClose, onCreated }: { onClose: () => void; onC
       setError((err as Error).message);
       setSubmitting(false);
     }
+  }
+
+  if (pending) {
+    return (
+      <StepUpDialog
+        title="Nuevo negocio"
+        action="business.createMoney"
+        summary={`Vas a dar de alta ${pending.name} con una comisión por defecto del ${commissionText(
+          pending.defaultPlatformCommissionBps ?? null,
+        )}: la heredan sus locales nuevos.`}
+        submitLabel="Dar de alta"
+        onSubmit={async ({ totpCode }) => onCreated((await createSaBusiness(pending, totpCode)).id)}
+        onClose={() => setPending(null)}
+      />
+    );
   }
 
   return (

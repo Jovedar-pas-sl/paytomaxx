@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  commissionText,
   absoluteApiUrl,
   formatSignedEur,
   holdDaysText,
@@ -67,5 +68,13 @@ describe('movementStatusLabel', () => {
     expect(movementStatusLabel('REVERSED')).toBe('Devuelto');
     expect(movementStatusLabel('DONE')).toBe('Hecha');
     expect(movementStatusLabel('NUEVO')).toBe('NUEVO');
+  });
+});
+
+describe('commissionText', () => {
+  it('null es la general; si no, el porcentaje (también 0 %)', () => {
+    expect(commissionText(null)).toBe('la general');
+    expect(commissionText(800)).toMatch(/^8\s%$/);
+    expect(commissionText(0)).toMatch(/^0\s%$/);
   });
 });

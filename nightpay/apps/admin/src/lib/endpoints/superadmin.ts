@@ -74,6 +74,10 @@ export function stepUpBody(input: StepUpInput): StepUpInput {
   const reason = input.reason?.trim();
   return reason ? { totpCode: input.totpCode, reason } : { totpCode: input.totpCode };
 }
+/** El cuerpo con el código 2FA, si lo hay (sin él, tal cual). */
+function withCode<T extends object>(dto: T, totpCode: string | undefined): T & { totpCode?: string } {
+  return totpCode ? { ...dto, totpCode } : dto;
+}
 const patch = <T>(path: string, body: unknown): Promise<T> =>
   call<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
 const put = <T>(path: string, body: unknown): Promise<T> => call<T>(path, { method: 'PUT', body: JSON.stringify(body) });
@@ -100,12 +104,14 @@ export function fetchSaBusiness(businessId: string, signal?: AbortSignal): Promi
   return call(`/businesses/${id(businessId)}`, { signal });
 }
 
-export function createSaBusiness(dto: CreateBusinessDto): Promise<BusinessView> {
-  return post('/businesses', dto);
+/** Con una comisión por defecto propia hace falta `totpCode` (businessCreateNeedsStepUp). */
+export function createSaBusiness(dto: CreateBusinessDto, totpCode?: string): Promise<BusinessView> {
+  return post('/businesses', withCode(dto, totpCode));
 }
 
-export function updateSaBusiness(businessId: string, dto: UpdateBusinessDto): Promise<BusinessView> {
-  return patch(`/businesses/${id(businessId)}`, dto);
+/** Si cambia la comisión por defecto hace falta `totpCode` (businessUpdateNeedsStepUp). */
+export function updateSaBusiness(businessId: string, dto: UpdateBusinessDto, totpCode?: string): Promise<BusinessView> {
+  return patch(`/businesses/${id(businessId)}`, withCode(dto, totpCode));
 }
 
 export function pauseSaBusiness(businessId: string, input: StepUpInput): Promise<BusinessView> {
@@ -116,12 +122,14 @@ export function resumeSaBusiness(businessId: string, input: StepUpInput): Promis
   return post(`/businesses/${id(businessId)}/resume`, stepUpBody(input));
 }
 
-export function assignSaVenues(businessId: string, venueIds: string[]): Promise<BusinessDetail> {
-  return post(`/businesses/${id(businessId)}/venues`, { venueIds });
+/** 2FA: un local que estaba en un negocio en pausa vuelve a cobrar. */
+export function assignSaVenues(businessId: string, venueIds: string[], totpCode: string): Promise<BusinessDetail> {
+  return post(`/businesses/${id(businessId)}/venues`, { venueIds, totpCode });
 }
 
-export function unassignSaVenue(businessId: string, venueId: string): Promise<BusinessDetail> {
-  return post(`/businesses/${id(businessId)}/venues/${id(venueId)}/unassign`);
+/** 2FA: si el negocio está en pausa, el local vuelve a cobrar. */
+export function unassignSaVenue(businessId: string, venueId: string, totpCode: string): Promise<BusinessDetail> {
+  return post(`/businesses/${id(businessId)}/venues/${id(venueId)}/unassign`, { totpCode });
 }
 
 // ─── Locales ────────────────────────────────────────────────────────
@@ -134,8 +142,9 @@ export function fetchSaVenue(venueId: string, signal?: AbortSignal): Promise<Ven
   return call(`/venues/${id(venueId)}`, { signal });
 }
 
-export function createSaVenue(dto: CreateVenueDto): Promise<VenueDetail> {
-  return post('/venues', dto);
+/** Con el grupo del saldo o una comisión propia hace falta `totpCode` (venueCreateNeedsStepUp). */
+export function createSaVenue(dto: CreateVenueDto, totpCode?: string): Promise<VenueDetail> {
+  return post('/venues', withCode(dto, totpCode));
 }
 
 /** Con el grupo del saldo o el IVA hace falta `totpCode`. */

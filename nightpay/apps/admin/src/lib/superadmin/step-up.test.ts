@@ -14,8 +14,13 @@ import {
 describe('qué acciones piden 2FA (como el API)', () => {
   it('lo que mueve dinero o identidades, sí', () => {
     const withTotp: SaAction[] = [
+      'business.createMoney',
+      'business.updateMoney',
       'business.pause',
       'business.resume',
+      'business.assignVenues',
+      'business.unassignVenue',
+      'venue.createMoney',
       'venue.rules',
       'venue.setIban',
       'venue.clearIban',
@@ -41,8 +46,6 @@ describe('qué acciones piden 2FA (como el API)', () => {
     const withoutTotp: SaAction[] = [
       'business.create',
       'business.update',
-      'business.assignVenues',
-      'business.unassignVenue',
       'venue.create',
       'venue.profile',
       'user.revokeSessions',
