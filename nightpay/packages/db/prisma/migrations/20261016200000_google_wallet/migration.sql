@@ -11,6 +11,11 @@
 -- client_wallets (FORCE RLS) con el bypass de asSystem. Aquí no hay dinero ni
 -- el enlace: solo su hash y el id del pase en Google (que sale de ese hash).
 
+-- Corre con el API anterior sirviendo (start-first): si una transacción suya
+-- tiene la tabla, mejor fallar a los 5 s (el deploy se repite) que dejar
+-- todas las escrituras en cola detrás de este ALTER.
+SET lock_timeout = '5s';
+
 DO $$ BEGIN
   CREATE TYPE "WalletPassProvider" AS ENUM ('GOOGLE');
 EXCEPTION WHEN duplicate_object THEN NULL;

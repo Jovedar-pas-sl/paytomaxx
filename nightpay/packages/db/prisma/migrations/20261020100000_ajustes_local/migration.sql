@@ -13,6 +13,12 @@
 -- rellena lo que falte (packages/contracts/src/venue-settings.ts).
 --
 -- Idempotente, columnas nullable: no toca filas existentes.
+
+-- Corre con el API anterior sirviendo (start-first): si una transacción suya
+-- tiene la tabla, mejor fallar a los 5 s (el deploy se repite) que dejar
+-- todas las escrituras en cola detrás de este ALTER.
+SET lock_timeout = '5s';
+
 ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "paymentMethods" JSONB;
 ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "staffPermissions" JSONB;
 ALTER TABLE "venues" ADD COLUMN IF NOT EXISTS "alertSettings" JSONB;

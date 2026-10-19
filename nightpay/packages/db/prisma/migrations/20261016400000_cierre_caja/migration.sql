@@ -13,6 +13,12 @@
 --
 -- Idempotente, columnas nullable: no toca filas existentes. Los CHECK solo
 -- miran columnas nuevas (null en las noches de antes).
+
+-- Corre con el API anterior sirviendo (start-first): si una transacción suya
+-- tiene la tabla, mejor fallar a los 5 s (el deploy se repite) que dejar
+-- todas las escrituras en cola detrás de este ALTER.
+SET lock_timeout = '5s';
+
 ALTER TABLE "venue_nights" ADD COLUMN IF NOT EXISTS "openingFloatCents" INTEGER;
 ALTER TABLE "venue_nights" ADD COLUMN IF NOT EXISTS "cashCountedCents" INTEGER;
 ALTER TABLE "venue_nights" ADD COLUMN IF NOT EXISTS "cashExpectedCents" INTEGER;

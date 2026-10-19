@@ -82,6 +82,35 @@ Comprobación: en Git Providers sale «GitHub: Connected».
 | Dockerfile | `apps/api/Dockerfile` |
 | Port | `4100` |
 | Build Args (opcional) | `GIT_SHA=<commit>` y `BUILD_MARKER=<etiqueta>`: salen en `/v1/health` |
+| Autodeploy | **Apagado** (ver abajo) |
+
+**Desplegar solo con CI en verde.** Con el autodeploy encendido, Dokploy
+despliega cada push a `main` aunque `nightpay-ci` falle (o aún no haya
+terminado). Apágalo en `nightpay-api` (y en las webs de la Fase E) →
+**General → Autodeploy: off**, y despliega así:
+
+1. En GitHub → **Actions → nightpay-ci**, espera a que el run del commit de
+   `main` salga en verde (`check`, `integracion`, `migraciones-orden` y
+   `docker`). En `main` un push nuevo ya no cancela el CI del anterior.
+2. Dokploy → `nightpay-api` → **Deploy** (manual) — fuera de la noche de
+   cobro, ver D.5.
+
+Opcional, para no hacerlo a mano: Dokploy → `nightpay-api` → **Deployments →
+Webhook URL**, guárdala en GitHub como secreto `DOKPLOY_DEPLOY_WEBHOOK_API` y
+añade al workflow un job que solo corre en `main` tras los demás:
+
+```yaml
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [check, integracion, migraciones-orden, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS -X POST "${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_API }}"
+```
+
+(Así también se despliega de noche si se hace push a esas horas: el manual
+deja elegir el momento.) Otra opción es proteger `main` en GitHub con esos
+checks obligatorios, pero no impide que Dokploy despliegue un push directo.
 
 ### D.2 Variables de entorno
 
@@ -189,6 +218,16 @@ contenedor:
    migración a mano**, tampoco la primera vez.
 3. `db-heal` otra vez (avisos de solo lectura).
 4. Arranca el API.
+
+**Despliega fuera del horario de apertura** (de día, entre semana), sobre todo
+si el commit trae migraciones: corren con el API anterior todavía sirviendo
+(`start-first`). Las que hacen `ALTER` empiezan con `SET lock_timeout = '5s'`:
+si una transacción en curso tiene la tabla (un cobro, una recarga), la
+migración falla a los 5 s en vez de dejar en cola detrás de ella todas las
+escrituras de los saldos. Si pasa (`canceling statement due to lock
+timeout` en el log): sigue sirviendo el contenedor viejo; haz los pasos 3 y 4
+de D.8 (`migrate resolve --rolled-back <nombre>` y **Redeploy**) en un rato
+más tranquilo. Las migraciones son idempotentes: volver a aplicarlas es seguro.
 
 ### D.6 Comprobar
 

@@ -5,5 +5,11 @@
 -- y wallet_cards.status bloquea solo una ficha.
 --
 -- Idempotente, columnas nullable: no toca filas existentes.
+
+-- Corre con el API anterior sirviendo (start-first): si una transacción suya
+-- tiene la tabla, mejor fallar a los 5 s (el deploy se repite) que dejar
+-- todas las escrituras en cola detrás de este ALTER.
+SET lock_timeout = '5s';
+
 ALTER TABLE "client_wallets" ADD COLUMN IF NOT EXISTS "blockedAt" TIMESTAMPTZ;
 ALTER TABLE "client_wallets" ADD COLUMN IF NOT EXISTS "blockedReason" TEXT;
