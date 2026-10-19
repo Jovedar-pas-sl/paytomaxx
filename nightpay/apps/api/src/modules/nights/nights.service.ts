@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   evaluateCash,
@@ -18,17 +20,29 @@ import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
+import { totpForbidden } from '../auth/totp-code';
+import { TotpService } from '../auth/totp.service';
 import { summarize } from '../reports/export-csv';
+import type {
+  AdjustmentRows,
+  CobroRow,
+  ConsumoRow,
+  DevolucionRow,
+  LiquidacionRow,
+  PagoSaldoRow,
+  RecargaEfectivoRow,
+} from '../reports/export-rows';
 import type { TimeWindow } from '../reports/report-period';
 import { afterPayoutDebt, paymentAt } from '../reports/reporting-sql';
 import { ReportsService } from '../reports/reports.service';
-import { fichasCounts } from '../wallets/fichas-counts';
+import { fichasCounts, type FichasCounts } from '../wallets/fichas-counts';
 import { CloseCheckService } from './close-check.service';
 import {
   autoCloseAt,
   buildAdjustments,
   buildNightCaja,
   buildNightZ,
+  cashFromRows,
   unresolvedPaymentsWhere,
   zStart,
   type NightCaja,
@@ -109,6 +123,20 @@ export interface CloseNightOptions {
   cashCountedCents?: number;
   openingFloatCents?: number;
   cashNote?: string;
+  /** 2FA del dueño, para cambiar el fondo que se apuntó al abrir. */
+  totpCode?: string;
+}
+
+/** Las filas del Z de una noche, leídas una vez: el Z, su caja y los pasos salen de ellas. */
+interface ZRows {
+  cobros: CobroRow[];
+  devoluciones: DevolucionRow[];
+  liquidaciones: LiquidacionRow[];
+  consumos: ConsumoRow[];
+  pagosSaldo: PagoSaldoRow[];
+  recargasEfectivo: RecargaEfectivoRow[];
+  late: AdjustmentRows;
+  fichas: FichasCounts;
 }
 
 /** Caja que se guarda en venue_nights al cerrar (además de en el Z). */
@@ -155,17 +183,20 @@ export class NightsService {
   private readonly reports: ReportsService;
   private readonly audit: AuditService;
   private readonly checks: CloseCheckService;
+  private readonly totp: Pick<TotpService, 'assertForUser' | 'isEnabled'> | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(ReportsService) reports: ReportsService,
     @Inject(AuditService) audit: AuditService,
     @Inject(CloseCheckService) checks: CloseCheckService,
+    @Optional() @Inject(TotpService) totp?: TotpService,
   ) {
     this.prisma = prisma;
     this.reports = reports;
     this.audit = audit;
     this.checks = checks;
+    this.totp = totp ?? null;
   }
 
   async current(tenantId: string): Promise<NightView | null> {
@@ -234,13 +265,20 @@ export class NightsService {
     const now = new Date();
     const start = await this.zBounds(tenantId, night.openedAt);
     const window = { from: start.from, to: now };
-    const check = await this.checks.check(tenantId, night, window, now);
-    const input = { openingFloatCents: opts.openingFloatCents, countedCents: opts.cashCountedCents };
+    // Las filas del Z, una vez: la caja (y su paso) sale de ellas, así el Z
+    // congelado y su caja cuentan lo mismo aunque algo se apunte mientras.
+    const rows = await this.zRows(tenantId, window, now, start.since);
+    const check = await this.checks.check(tenantId, night, window, now, cashFromRows(night.openingFloatCents, rows));
+    const input = {
+      openingFloatCents: opts.openingFloatCents,
+      countedCents: opts.cashCountedCents,
+      floatChangeApproved: await this.floatChangeApproved(actor, night.openingFloatCents, opts),
+    };
     assertCanClose(withCashInput(check.steps, check.cash, input), opts.acknowledged ?? [], opts.note);
 
     const caja = buildNightCaja(check.cash, evaluateCash(check.cash, input), opts.cashNote, now);
     const pending = await this.pending(tenantId, window);
-    const z = await this.buildZ(tenantId, window, pending.count, now, start.since, caja);
+    const z = this.zFrom(window, rows, pending.count, now, start.since, caja);
     const closed = await this.markClosed(night.id, tenantId, {
       closedAt: now,
       closedBy: actor.userId,
@@ -264,6 +302,7 @@ export class NightsService {
         acknowledged: [...(opts.acknowledged ?? [])],
         cash: {
           openingFloatCents: caja.openingFloatCents,
+          recordedFloatCents: caja.recordedFloatCents ?? null,
           expectedCents: caja.expectedCents,
           countedCents: caja.countedCents,
           diffCents: caja.diffCents,
@@ -414,10 +453,12 @@ export class NightsService {
         const start = await this.zBounds(night.tenantId, night.openedAt);
         const window = { from: start.from, to: cutoff };
         const pending = await this.pending(night.tenantId, window);
-        // Nadie contó la caja: el Z lleva lo que debería haber, sin contado.
-        const cash = await this.checks.cash(night.tenantId, window, night.openingFloatCents);
+        // Nadie contó la caja: el Z lleva lo que debería haber, sin contado
+        // (de las mismas filas que el Z).
+        const rows = await this.zRows(night.tenantId, window, now, start.since);
+        const cash = cashFromRows(night.openingFloatCents, rows);
         const caja = buildNightCaja(cash, evaluateCash(cash), null, now);
-        const z = await this.buildZ(night.tenantId, window, pending.count, now, start.since, caja);
+        const z = this.zFrom(window, rows, pending.count, now, start.since, caja);
         const closed = await this.markClosed(night.id, night.tenantId, {
           closedAt: cutoff,
           closedBy: null,
@@ -492,6 +533,26 @@ export class NightsService {
   }
 
   /**
+   * Cambiar al cerrar el fondo que se apuntó al abrir: solo el dueño, con su
+   * 2FA (si no, el paso «Efectivo» bloquea: evaluateCash). Sin cambio, nada.
+   */
+  private async floatChangeApproved(
+    actor: { userId: string; role: string },
+    recordedFloatCents: number | null,
+    opts: CloseNightOptions,
+  ): Promise<boolean> {
+    const typed = opts.openingFloatCents;
+    if (typed === undefined || recordedFloatCents === null || typed === recordedFloatCents) return false;
+    if (actor.role !== 'OWNER' || !opts.totpCode) return false;
+    if (!this.totp) throw new ForbiddenException('No se puede comprobar el 2FA: cambia el fondo más tarde');
+    if (!(await this.totp.isEnabled(actor.userId))) {
+      throw totpForbidden('notEnrolled', 'Cambiar el fondo apuntado al abrir: activa antes la app de verificación (2FA).');
+    }
+    await this.totp.assertForUser(actor.userId, opts.totpCode);
+    return true;
+  }
+
+  /**
    * Z de la noche tal como está en `now` (lo apuntado después irá como ajuste
    * del Z siguiente), los ajustes de noches anteriores apuntados desde
    * `since` y, al cerrar, la caja.
@@ -504,6 +565,32 @@ export class NightsService {
     since: Date,
     caja?: NightCaja,
   ): Promise<NightZ> {
+    return this.zFrom(window, await this.zRows(tenantId, window, now, since), pendingCount, now, since, caja);
+  }
+
+  /** El Z (puro) a partir de sus filas. */
+  private zFrom(
+    window: TimeWindow,
+    rows: ZRows,
+    pendingCount: number,
+    now: Date,
+    since: Date,
+    caja?: NightCaja,
+  ): NightZ {
+    const summary = summarize(
+      rows.cobros,
+      rows.devoluciones,
+      rows.liquidaciones,
+      rows.consumos,
+      rows.pagosSaldo,
+      rows.recargasEfectivo,
+    );
+    const adjustments = buildAdjustments({ before: window.from, since, rows: rows.late });
+    return { ...buildNightZ(window, summary, pendingCount, now, adjustments, caja), fichas: rows.fichas };
+  }
+
+  /** Las filas del Z de la noche en `now`. */
+  private async zRows(tenantId: string, window: TimeWindow, now: Date, since: Date): Promise<ZRows> {
     const asOf = { recordedBefore: now };
     const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas] = await Promise.all([
       this.reports.cobros(tenantId, window, asOf),
@@ -516,9 +603,7 @@ export class NightsService {
       // Fichas de la noche: al cerrar se congelan en el Z (sus fechas cambian si se vuelven a dar).
       this.prisma.acrossVenues((tx) => fichasCounts(tx, tenantId, window)),
     ]);
-    const summary = summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo);
-    const adjustments = buildAdjustments({ before: window.from, since, rows: late });
-    return { ...buildNightZ(window, summary, pendingCount, now, adjustments, caja), fichas };
+    return { cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas };
   }
 
   /**

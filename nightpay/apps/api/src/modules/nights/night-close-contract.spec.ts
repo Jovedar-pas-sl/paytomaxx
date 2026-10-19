@@ -81,12 +81,40 @@ describe('el paso «Efectivo» con lo tecleado', () => {
     expect(evaluateCash(CASH, { countedCents: 8500 })).toMatchObject({ reason: 'over', diffCents: 500 });
   });
 
-  it('el fondo tecleado corrige el guardado', () => {
-    expect(evaluateCash(CASH, { openingFloatCents: 25_000, countedCents: 13_000 })).toMatchObject({
-      floatCents: 25_000,
-      expectedCents: 13_000,
+  it('cambiar el fondo apuntado al abrir bloquea (aunque así cuadre); con el visto bueno del dueño, vale', () => {
+    // Faltan 50 €: teclear un fondo 50 € más bajo haría que «cuadrase».
+    const typed = { openingFloatCents: 15_000, countedCents: 3000 };
+    expect(evaluateCash(CASH, typed)).toMatchObject({ status: 'block', reason: 'float-changed', floatChanged: true });
+    expect(evaluateCash(CASH, typed).detail).toMatch(/200,00 €.*2FA.*los dos/);
+    expect(evaluateCash(CASH, { ...typed, floatChangeApproved: true })).toMatchObject({
+      status: 'ok',
+      floatCents: 15_000,
+      expectedCents: 3000,
       diffCents: 0,
     });
+    // El mismo fondo tecleado no es un cambio; sin fondo guardado, se apunta al cerrar.
+    expect(evaluateCash(CASH, { openingFloatCents: 20_000, countedCents: 8000 })).toMatchObject({ status: 'ok', floatChanged: false });
+    expect(evaluateCash({ ...CASH, openingFloatCents: null }, { openingFloatCents: 25_000, countedCents: 13_000 })).toMatchObject({
+      status: 'ok',
+      floatCents: 25_000,
+      diffCents: 0,
+    });
+  });
+
+  it('lo esperado negativo bloquea (salió más efectivo del que entró más el fondo), aunque se cuente', () => {
+    const out = evaluateCash({ ...CASH, openingFloatCents: 5000 }, { countedCents: 0 });
+    expect(out).toMatchObject({ status: 'block', reason: 'negative', expectedCents: -7000 });
+    expect(out.detail).toMatch(/negativo \(−70,00 €\)/);
+    // Con el fondo tecleado a 0 (sin fondo guardado), también.
+    expect(evaluateCash({ ...CASH, openingFloatCents: null }, { openingFloatCents: 0, countedCents: 0 })).toMatchObject({
+      status: 'block',
+      reason: 'negative',
+    });
+  });
+
+  it('cerrar: el 2FA del dueño son 6 cifras', () => {
+    expect(CloseNightSchema.safeParse({ totpCode: '123456' }).success).toBe(true);
+    expect(CloseNightSchema.safeParse({ totpCode: '12345' }).success).toBe(false);
   });
 
   it('withCashInput solo cambia el paso «Efectivo» y no toca la lista original', () => {

@@ -5,7 +5,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { IncidentsService } from '../incidents/incidents.service';
 import { payoutCutoff } from '../operators/payout-math';
 import { venueHoldDays } from '../operators/venue-hold-days';
-import { PAID_STATUSES_SQL, paymentAt } from '../reports/reporting-sql';
+import { PAID_STATUSES_SQL, cashTopUpCount, paymentAt } from '../reports/reporting-sql';
 import type { TimeWindow } from '../reports/report-period';
 import {
   buildCloseSteps,
@@ -52,8 +52,18 @@ export class CloseCheckService {
     this.config = config;
   }
 
-  /** Los pasos del cierre de la noche en `now` (window = desde el cierre anterior hasta now). */
-  async check(tenantId: string, night: NightToCheck, window: TimeWindow, now: Date): Promise<NightCloseCheck> {
+  /**
+   * Los pasos del cierre de la noche en `now` (window = desde el cierre
+   * anterior hasta now). Al cerrar, `knownCash` es el efectivo sacado de las
+   * mismas filas que el Z (night-rules.cashFromRows): la caja y el Z cuadran.
+   */
+  async check(
+    tenantId: string,
+    night: NightToCheck,
+    window: TimeWindow,
+    now: Date,
+    knownCash?: NightCash,
+  ): Promise<NightCloseCheck> {
     const holdDays = await venueHoldDays(this.prisma, this.config.get('PAYOUT_HOLD_DAYS'), tenantId);
     const [payments, refunds, posStarted, posUnreconciled, pairedDevices, saldo, cash, chicas, incidents] =
       await Promise.all([
@@ -63,7 +73,7 @@ export class CloseCheckService {
         this.posUnreconciled(tenantId, window),
         this.pairedDevices(tenantId),
         this.saldoPending(tenantId),
-        this.cash(tenantId, window, night.openingFloatCents),
+        knownCash ?? this.cash(tenantId, window, night.openingFloatCents),
         this.chicas(tenantId, window, payoutCutoff(now, holdDays)),
         this.incidents.list(tenantId, now),
       ]);
@@ -102,7 +112,7 @@ export class CloseCheckService {
       Array<{ topUpCount: number; topUpCents: number; walletCount: number; walletCents: number; chicaCount: number; chicaCents: number }>
     >`
       SELECT
-        (SELECT COUNT(*)::int FROM wallet_cash_topups ct
+        (SELECT ${cashTopUpCount('ct')}::int FROM wallet_cash_topups ct
           WHERE ct."tenantId" = ${tenantId}::uuid
             AND ct."createdAt" >= ${window.from} AND ct."createdAt" < ${window.to}) AS "topUpCount",
         (SELECT COALESCE(SUM(ct."amountCents"), 0)::int FROM wallet_cash_topups ct

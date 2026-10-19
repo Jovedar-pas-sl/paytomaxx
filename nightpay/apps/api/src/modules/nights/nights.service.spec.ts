@@ -22,6 +22,25 @@ function night(o: Record<string, unknown> = {}) {
   };
 }
 
+/** Un pago a una chica (operator_payouts) de la noche. */
+function liquidacion(o: Record<string, unknown> = {}) {
+  return {
+    id: 'po-1',
+    paidAt: OPENED,
+    totalCents: 1000,
+    externalRail: 'BIZUM',
+    externalTxId: null,
+    reconciliationStatus: 'PENDING',
+    notes: null,
+    operatorName: 'Lola',
+    operatorEmail: 'lola@local.es',
+    paidByName: null,
+    paidByEmail: 'jefe@local.es',
+    earningCount: 1,
+    ...o,
+  };
+}
+
 const NO_CASH: NightCash = {
   openingFloatCents: null,
   cashInCents: 0,
@@ -77,6 +96,7 @@ function check(o: { cash?: NightCash; steps?: Partial<Record<NightCloseStep['key
 function makeService(
   opts: { open?: ReturnType<typeof night> | null; pending?: unknown[]; closedCount?: number; check?: NightCloseCheck } = {},
 ) {
+  const totp = { isEnabled: vi.fn().mockResolvedValue(true), assertForUser: vi.fn().mockResolvedValue(undefined) };
   const prisma = {
     venueNight: {
       create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => night(data)),
@@ -105,8 +125,8 @@ function makeService(
     check: vi.fn().mockResolvedValue(opts.check ?? check()),
     cash: vi.fn().mockResolvedValue((opts.check ?? check()).cash),
   };
-  const svc = new NightsService(prisma as never, reports as never, audit as never, checks as never);
-  return { svc, prisma, reports, audit, checks };
+  const svc = new NightsService(prisma as never, reports as never, audit as never, checks as never, totp as never);
+  return { svc, prisma, reports, audit, checks, totp };
 }
 
 /** Datos con los que se cerró (updateMany de venue_nights). */
@@ -177,11 +197,41 @@ describe('cerrar la noche', () => {
     });
     expect(closedData(prisma).zReport.caja).toMatchObject({ expectedCents: 0, countedCents: null });
     // Los pasos se recalculan al cerrar, con la misma ventana que el Z.
+    // …y la caja sale de las mismas filas que el Z (no de otra lectura).
     expect(checks.check).toHaveBeenCalledWith('t-1', expect.objectContaining({ id: 'night-1' }), {
       from: OPENED,
       to: new Date('2026-10-13T23:00:00Z'),
-    }, new Date('2026-10-13T23:00:00Z'));
+    }, new Date('2026-10-13T23:00:00Z'), expect.objectContaining({ cashInCents: 0, cashOutCents: 0 }));
+    expect(checks.cash).not.toHaveBeenCalled();
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'night.closed' }));
+  });
+
+  it('el fondo apuntado al abrir no se cambia al cerrar para cuadrar la caja: bloquea sin el 2FA del dueño', async () => {
+    const recorded = { ...NO_CASH, openingFloatCents: 20_000, expectedCents: 20_000 };
+    const { svc, prisma, totp } = makeService({ open: night({ openingFloatCents: 20_000 }), check: check({ cash: recorded }) });
+    const typed = { openingFloatCents: 5000, cashCountedCents: 5000 };
+    // El encargado teclea un fondo más bajo: bloquea (aunque así «cuadraría»).
+    const err = await svc.close('t-1', manager, 'night-1', typed).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'NIGHT_CLOSE_BLOCKED', missing: ['efectivo'] });
+    // Su código 2FA no vale: lo aprueba el dueño.
+    await expect(svc.close('t-1', manager, 'night-1', { ...typed, totpCode: '123456' })).rejects.toThrow(ConflictException);
+    expect(totp.assertForUser).not.toHaveBeenCalled();
+    // El dueño sin código, tampoco.
+    await expect(svc.close('t-1', { userId: 'own-1', role: 'OWNER' }, 'night-1', typed)).rejects.toThrow(ConflictException);
+    expect(prisma.venueNight.updateMany).not.toHaveBeenCalled();
+    // El dueño con su 2FA: se cierra con el fondo nuevo y el Z guarda los dos.
+    await svc.close('t-1', { userId: 'own-1', role: 'OWNER' }, 'night-1', { ...typed, totpCode: '123456' });
+    expect(totp.assertForUser).toHaveBeenCalledWith('own-1', '123456');
+    expect(closedData(prisma).zReport.caja).toMatchObject({ openingFloatCents: 5000, recordedFloatCents: 20_000, diffCents: 0 });
+    expect(closedData(prisma)).toMatchObject({ openingFloatCents: 5000 });
+  });
+
+  it('teclear el mismo fondo que se apuntó al abrir no es cambiarlo', async () => {
+    const recorded = { ...NO_CASH, openingFloatCents: 20_000, expectedCents: 20_000 };
+    const { svc, prisma } = makeService({ open: night({ openingFloatCents: 20_000 }), check: check({ cash: recorded }) });
+    await svc.close('t-1', manager, 'night-1', { openingFloatCents: 20_000, cashCountedCents: 20_000 });
+    expect(closedData(prisma).zReport.caja).toMatchObject({ openingFloatCents: 20_000, recordedFloatCents: 20_000 });
   });
 
   it('un paso que bloquea → 409 con los pasos, y no se cierra', async () => {
@@ -369,6 +419,11 @@ describe('lo apuntado después de cerrar una noche: ajuste en el Z siguiente', (
 describe('cierre automático y noche de la chica', () => {
   it('a las 08:00 cierra sola la noche, con el Z hasta las 08:00 y la caja sin contar', async () => {
     const { svc, prisma, reports, checks } = makeService({ open: night({ openingFloatCents: 20_000 }), check: check({ cash: CASH }) });
+    // El efectivo sale de las mismas filas que el Z: 50 € de saldo y 90 € a una chica en efectivo.
+    reports.pagosSaldo.mockResolvedValueOnce([
+      { id: 'wp-1', at: OPENED, amountCents: 5000, method: 'CASH', paidByName: null, paidByEmail: 'jefe@local.es' },
+    ]);
+    reports.liquidaciones.mockResolvedValueOnce([liquidacion({ totalCents: 9000, externalRail: 'MANUAL_CASH' })]);
     const closed = await svc.autoCloseDue(undefined, new Date('2026-10-14T09:00:00Z'));
     expect(closed).toBe(1);
     expect(closedData(prisma)).toMatchObject({
@@ -379,7 +434,8 @@ describe('cierre automático y noche de la chica', () => {
       cashDiffCents: null,
     });
     expect(closedData(prisma).zReport.caja).toMatchObject({ expectedCents: 6000, countedCents: null });
-    expect(checks.cash).toHaveBeenCalledWith('t-1', { from: OPENED, to: new Date('2026-10-14T06:00:00Z') }, 20_000);
+    expect(closedData(prisma).zReport.summary).toMatchObject({ walletCashPayoutsCents: 5000, payoutsCents: 9000 });
+    expect(checks.cash).not.toHaveBeenCalled();
     // Hasta las 08:00 por fecha; y solo lo apuntado antes de generar el Z (09:00).
     expect(reports.cobros).toHaveBeenCalledWith(
       't-1',

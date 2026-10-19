@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { evaluateCash, type NightCash } from '@nightpay/contracts';
 import { summarize } from '../reports/export-csv';
 import type { CobroRow, ConsumoRow, DevolucionRow } from '../reports/export-rows';
-import { autoCloseAt, buildAdjustments, buildNightCaja, buildNightZ, zStart } from './night-rules';
+import { autoCloseAt, buildAdjustments, buildNightCaja, buildNightZ, cashFromRows, zStart } from './night-rules';
 
 describe('desde dónde cuenta el Z y desde cuándo busca ajustes', () => {
   const opened = new Date('2026-10-14T20:00:00Z');
@@ -88,6 +88,8 @@ describe('la caja en el Z', () => {
     const caja = buildNightCaja(cash, evaluateCash(cash, { countedCents: 6750 }), '  faltan monedas ', now);
     expect(caja).toEqual({
       openingFloatCents: 20_000,
+      // El fondo apuntado al abrir (aquí, el mismo).
+      recordedFloatCents: 20_000,
       cashInCents: 0,
       walletCashPayoutsCount: 1,
       walletCashPayoutsCents: 3000,
@@ -124,5 +126,40 @@ describe('cierre automático a las 08:00', () => {
 
   it('a partir de las 08:00 se cierra, con hora de cierre las 08:00', () => {
     expect(autoCloseAt(opened, new Date('2026-10-14T09:30:00Z'))?.toISOString()).toBe('2026-10-14T06:00:00.000Z');
+  });
+});
+
+describe('el efectivo de la noche sale de las filas del Z', () => {
+  const at = new Date('2026-10-13T21:00:00Z');
+  const liquidacion = (totalCents: number, externalRail: string) => ({
+    id: `po-${totalCents}`, paidAt: at, totalCents, externalRail, externalTxId: null, reconciliationStatus: 'PENDING',
+    notes: null, operatorName: null, operatorEmail: 'lola@local.es', paidByName: null, paidByEmail: null, earningCount: 1,
+  });
+
+  it('recargas (con su anulación restando), saldo devuelto en efectivo y pagos en efectivo a las chicas', () => {
+    const cash = cashFromRows(10_000, {
+      recargasEfectivo: [
+        { id: 'r1', at, amountCents: 5000, takenByName: null, takenByEmail: null, terminalLabel: null },
+        { id: 'r2', at, amountCents: 99_999, takenByName: null, takenByEmail: null, terminalLabel: null },
+        { id: 'v2', at, amountCents: -99_999, voidOfId: 'r2', takenByName: null, takenByEmail: null, terminalLabel: null },
+      ],
+      pagosSaldo: [
+        { id: 'p1', at, amountCents: 2000, method: 'CASH', paidByName: null, paidByEmail: null },
+        { id: 'p2', at, amountCents: 7000, method: 'CARD', paidByName: null, paidByEmail: null },
+      ],
+      liquidaciones: [liquidacion(1500, 'MANUAL_CASH'), liquidacion(4000, 'BIZUM')],
+    });
+    expect(cash).toEqual({
+      openingFloatCents: 10_000,
+      cashInCents: 5000,
+      walletCashTopUpsCount: 1,
+      walletCashTopUpsCents: 5000,
+      walletCashPayoutsCount: 1,
+      walletCashPayoutsCents: 2000,
+      chicaCashPayoutsCount: 1,
+      chicaCashPayoutsCents: 1500,
+      cashOutCents: 3500,
+      expectedCents: 11_500,
+    });
   });
 });

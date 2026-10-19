@@ -1,8 +1,15 @@
-import type { CashOutcome, NightCash } from '@nightpay/contracts';
+import { expectedCashCents, type CashOutcome, type NightCash } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { nextNightCutoff } from '../../common/time/madrid';
 import { summarize, type ExportSummary } from '../reports/export-csv';
-import type { AdjustmentRows, ConsumoRow } from '../reports/export-rows';
+import type {
+  AdjustmentRows,
+  ConsumoRow,
+  LiquidacionRow,
+  PagoSaldoRow,
+  RecargaEfectivoRow,
+} from '../reports/export-rows';
+import { cashTopUpsCount } from '../reports/export-summary';
 import type { TimeWindow } from '../reports/report-period';
 import type { FichasCounts } from '../wallets/fichas-counts';
 
@@ -38,7 +45,14 @@ export interface NightAdjustments {
  * saldo en efectivo; salen el saldo devuelto en efectivo y los pagos a las chicas.
  */
 export interface NightCaja {
+  /** El fondo con el que se ha hecho la cuenta. */
   openingFloatCents: number | null;
+  /**
+   * El fondo que se apuntó al abrir (null = no se apuntó). Si quien cierra lo
+   * cambió (con el 2FA del dueño), es distinto del de arriba: el Z guarda los
+   * dos. Los Z congelados antes del 21-oct-2026 no lo traen.
+   */
+  recordedFloatCents?: number | null;
   cashInCents: number;
   /** Recargas en efectivo (los Z congelados antes del 21-oct-2026 no lo traen). */
   walletCashTopUpsCount?: number;
@@ -97,6 +111,7 @@ export function buildNightZ(
 export function buildNightCaja(cash: NightCash, outcome: CashOutcome, note: string | null | undefined, now: Date): NightCaja {
   return {
     openingFloatCents: outcome.floatCents,
+    recordedFloatCents: cash.openingFloatCents,
     cashInCents: cash.cashInCents,
     walletCashTopUpsCount: cash.walletCashTopUpsCount,
     walletCashTopUpsCents: cash.walletCashTopUpsCents,
@@ -110,6 +125,41 @@ export function buildNightCaja(cash: NightCash, outcome: CashOutcome, note: stri
     diffCents: outcome.diffCents,
     note: note?.trim() || null,
     frozenAt: now.toISOString(),
+  };
+}
+
+/**
+ * El efectivo de la noche a partir de las MISMAS filas que el Z (recargas en
+ * efectivo con sus anulaciones, saldo devuelto en efectivo y pagos en
+ * efectivo a las chicas): la caja y el resumen del Z congelado no pueden
+ * salir distintos aunque algo se apunte mientras se cierra.
+ */
+export function cashFromRows(
+  openingFloatCents: number | null,
+  rows: {
+    recargasEfectivo: ReadonlyArray<RecargaEfectivoRow>;
+    pagosSaldo: ReadonlyArray<PagoSaldoRow>;
+    liquidaciones: ReadonlyArray<LiquidacionRow>;
+  },
+): NightCash {
+  const sum = <T>(xs: ReadonlyArray<T>, f: (x: T) => number): number => xs.reduce((a, x) => a + f(x), 0);
+  const walletCash = rows.pagosSaldo.filter((p) => p.method === 'CASH');
+  const chicaCash = rows.liquidaciones.filter((l) => l.externalRail === 'MANUAL_CASH');
+  const cashInCents = sum(rows.recargasEfectivo, (r) => r.amountCents);
+  const walletCashPayoutsCents = sum(walletCash, (p) => p.amountCents);
+  const chicaCashPayoutsCents = sum(chicaCash, (l) => l.totalCents);
+  const cashOutCents = walletCashPayoutsCents + chicaCashPayoutsCents;
+  return {
+    openingFloatCents,
+    cashInCents,
+    walletCashTopUpsCount: cashTopUpsCount(rows.recargasEfectivo),
+    walletCashTopUpsCents: cashInCents,
+    walletCashPayoutsCount: walletCash.length,
+    walletCashPayoutsCents,
+    chicaCashPayoutsCount: chicaCash.length,
+    chicaCashPayoutsCents,
+    cashOutCents,
+    expectedCents: expectedCashCents(openingFloatCents, { cashInCents, cashOutCents }),
   };
 }
 
