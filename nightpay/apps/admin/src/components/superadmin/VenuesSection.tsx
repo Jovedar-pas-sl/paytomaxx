@@ -2,12 +2,14 @@
 
 import { useState, type FormEvent } from 'react';
 import { Button, Card, Input, Modal, Select } from '@nightpay/ui';
+import { venueCreateNeedsStepUp, type CreateVenueDto } from '@nightpay/contracts';
 import { createSaVenue, fetchSaVenues } from '@/lib/endpoints/superadmin';
 import { EMPTY_VENUE_FORM, newVenuePayload, slugFromName, type NewVenueForm } from '@/lib/superadmin/forms';
-import { venuePauseLabel } from '@/lib/superadmin/labels';
+import { commissionText, venuePauseLabel } from '@/lib/superadmin/labels';
 import { venuesQuery, type VenueFilters } from '@/lib/superadmin/query';
 import { Pill } from '../Pill';
 import { useSa } from './context';
+import { StepUpDialog } from './StepUpDialog';
 import { VenueDetailView } from './VenueDetail';
 import { ErrorLine, LoadGate, SectionHead, SmallButton, StickyActions } from './ui';
 import { useDebounced, useLoad } from './use-load';
@@ -144,6 +146,8 @@ export function VenuesSection() {
 function CreateVenueDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const { businesses } = useSa();
   const [form, setForm] = useState<NewVenueForm>(EMPTY_VENUE_FORM);
+  /** Alta con grupo del saldo o comisión propia: espera al código 2FA (el formulario sigue detrás). */
+  const [pending, setPending] = useState<CreateVenueDto | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = (key: keyof NewVenueForm) => (e: { target: { value: string } }) =>
@@ -155,6 +159,7 @@ function CreateVenueDialog({ onClose, onCreated }: { onClose: () => void; onCrea
     const payload = newVenuePayload(form);
     if (!payload.ok) return setError(payload.error);
     setError(null);
+    if (venueCreateNeedsStepUp(payload.value)) return setPending(payload.value);
     setSubmitting(true);
     try {
       const created = await createSaVenue(payload.value);
@@ -163,6 +168,19 @@ function CreateVenueDialog({ onClose, onCreated }: { onClose: () => void; onCrea
       setError((err as Error).message);
       setSubmitting(false);
     }
+  }
+
+  if (pending) {
+    return (
+      <StepUpDialog
+        title="Nuevo local"
+        action="venue.createMoney"
+        summary={`Vas a dar de alta ${pending.name}${venueMoneyText(pending)}.`}
+        submitLabel="Dar de alta"
+        onSubmit={async ({ totpCode }) => onCreated((await createSaVenue(pending, totpCode)).id)}
+        onClose={() => setPending(null)}
+      />
+    );
   }
 
   return (
@@ -217,4 +235,13 @@ function CreateVenueDialog({ onClose, onCreated }: { onClose: () => void; onCrea
       </form>
     </Modal>
   );
+}
+
+/** « con el grupo del saldo grupo-luna y una comisión del 8 %» (lo que pide la 2FA). */
+function venueMoneyText(dto: CreateVenueDto): string {
+  const parts = [
+    dto.walletGroup ? `el grupo del saldo ${dto.walletGroup}` : null,
+    dto.platformCommissionBps !== undefined ? `una comisión del ${commissionText(dto.platformCommissionBps)}` : null,
+  ].filter((p): p is string => p !== null);
+  return parts.length > 0 ? ` con ${parts.join(' y ')}` : '';
 }

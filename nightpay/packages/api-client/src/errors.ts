@@ -84,6 +84,25 @@ export class LoginCodeRequiredError extends TotpError {
   }
 }
 
+/**
+ * Login de un super-admin SIN 2FA (es obligatoria): la contraseña es buena
+ * pero antes hay que activarla. Con `loginTicket` (10 min) se pide el QR
+ * (ApiClient.loginTotpSetup) y con su código se activa y se entra
+ * (ApiClient.loginWithNewCode).
+ */
+export class LoginSetupRequiredError extends ApiError {
+  override name = 'LoginSetupRequiredError';
+  readonly loginTicket: string;
+  /** Segundos que vale el ticket. */
+  readonly expiresIn: number;
+
+  constructor(message: string, status: number, loginTicket: string, expiresIn: number) {
+    super(message, status, 'TOTP_SETUP_REQUIRED');
+    this.loginTicket = loginTicket;
+    this.expiresIn = expiresIn;
+  }
+}
+
 /** 429 o 5xx: pasajero, se reintenta (no es culpa de la sesión). */
 export function isTransientStatus(status: number): boolean {
   return status === 429 || status >= 500;

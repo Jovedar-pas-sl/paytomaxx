@@ -6,6 +6,8 @@ import { ClsService } from 'nestjs-cls';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { AuthService } from '../../src/modules/auth/auth.service';
+import { RefreshTokenService } from '../../src/modules/auth/refresh-token.service';
+import { createFakeRedis } from '../../src/modules/auth/testing/fake-redis';
 import { AdminController } from '../../src/modules/admin/admin.controller';
 
 const cls = new ClsService(new AsyncLocalStorage());
@@ -21,7 +23,14 @@ const totp = {
     if (code !== '123456') throw new Error('TOTP_REQUIRED');
   },
 };
-const auth = new AuthService(prisma as never, jwt, {} as never, audit as never, {} as never, {} as never, totp as never);
+// Sesiones de verdad sobre un Redis de mentira: el cambio de local exige la sesión viva.
+const refreshTokens = new RefreshTokenService(createFakeRedis() as never);
+const auth = new AuthService(prisma as never, jwt, {} as never, audit as never, {} as never, refreshTokens, totp as never);
+/** sid de una sesión abierta y el `exp` de su access token. */
+async function session(userId: string, tenantId: string): Promise<{ sessionId: string; tokenExp: number }> {
+  const issued = await refreshTokens.issue(userId, tenantId);
+  return { sessionId: issued.family, tokenExp: Math.floor(Date.now() / 1000) + 3600 };
+}
 const admin = new AdminController(prisma as never, {} as never, audit as never, {} as never, {} as never, cls as never);
 
 function inVenue<T>(tenantId: string | undefined, fn: () => Promise<T>): Promise<T> {
@@ -68,16 +77,23 @@ describe('super-admin con OTRO local activo (Postgres real)', () => {
   });
 
   it('puede cambiar de un local ajeno a otro (con 2FA), sin perder su rol', async () => {
-    await expect(inVenue(B, () => auth.switchTenant(superAdmin, C))).rejects.toThrow(/TOTP_REQUIRED/);
-    const res = await inVenue(B, () => auth.switchTenant(superAdmin, C, { totpCode: '123456' }));
+    const s = await session(superAdmin, A);
+    await expect(inVenue(B, () => auth.switchTenant(superAdmin, C, s))).rejects.toThrow(/TOTP_REQUIRED/);
+    const res = await inVenue(B, () => auth.switchTenant(superAdmin, C, { ...s, totpCode: '123456' }));
     expect(res.tenantId).toBe(C);
     const claims = jwt.decode(res.accessToken) as { tenantId: string; role: string; sub: string };
     expect(claims).toMatchObject({ tenantId: C, role: 'OWNER', sub: superAdmin });
     // Y volver a su local (sin código: es el suyo).
     totpChecks.length = 0;
-    const back = await inVenue(C, () => auth.switchTenant(superAdmin, A));
+    const back = await inVenue(C, () => auth.switchTenant(superAdmin, A, s));
     expect(back.tenantId).toBe(A);
     expect(totpChecks).toEqual([]);
+  });
+
+  it('con la sesión revocada (logout, revocar sesiones) ya no renueva el token', async () => {
+    const s = await session(superAdmin, A);
+    await refreshTokens.revokeAllForUser(superAdmin);
+    await expect(inVenue(A, () => auth.switchTenant(superAdmin, A, s))).rejects.toThrow(/Sesión caducada/);
   });
 
   it('un usuario normal sigue sin poder (403)', async () => {
@@ -86,7 +102,8 @@ describe('super-admin con OTRO local activo (Postgres real)', () => {
         tx.user.create({ data: { tenantId: B, email: `normal-${r}@x.es`, passwordHash: 'x', role: 'OWNER' } }),
       ),
     );
-    await expect(inVenue(B, () => auth.switchTenant(normal.id, C, { totpCode: '123456' }))).rejects.toThrow(
+    const s = await session(normal.id, B);
+    await expect(inVenue(B, () => auth.switchTenant(normal.id, C, { ...s, totpCode: '123456' }))).rejects.toThrow(
       /super admins/,
     );
     await expect(

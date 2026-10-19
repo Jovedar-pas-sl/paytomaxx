@@ -6,6 +6,7 @@ export { createApiClient } from './client';
 export {
   ApiError,
   LoginCodeRequiredError,
+  LoginSetupRequiredError,
   ServerUnavailableError,
   SessionExpiredError,
   TOTP_ERROR_CODES,
@@ -32,6 +33,7 @@ export {
   type LockManagerLike,
   type LoginInput,
   type LoginResult,
+  type LoginTotpSetup,
   type SessionEvent,
   type SessionUser,
 } from './types';

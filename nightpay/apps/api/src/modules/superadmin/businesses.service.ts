@@ -1,13 +1,17 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import {
+  businessCreateNeedsStepUp,
+  businessUpdateNeedsStepUp,
   normalizeTaxId,
   type AssignVenuesDto,
   type BusinessListQuery,
   type BusinessView,
   type CreateBusinessDto,
+  type CreateBusinessRequest,
   type PauseDto,
   type ResumeDto,
+  type UnassignVenueDto,
   type UpdateBusinessDto,
   type BusinessDetail,
 } from '@nightpay/contracts';
@@ -25,7 +29,10 @@ type BusinessRow = Prisma.BusinessGetPayload<{ include: { _count: { select: { ve
 /**
  * Negocios clientes de OxioPay (razón social con sus locales). Tabla global:
  * todo con acrossVenues (RLS de businesses solo con bypass). Pausar un negocio
- * para los cobros de todos sus locales (423 VENUE_PAUSED).
+ * para los cobros de todos sus locales (423 VENUE_PAUSED). Piden 2FA: pausa,
+ * reanudar, meter o sacar locales (sacarlo de un negocio en pausa le deja
+ * volver a cobrar) y poner o cambiar la comisión por defecto (alta y edición):
+ * los locales nuevos del negocio la heredan.
  */
 @Injectable()
 export class SuperAdminBusinessesService {
@@ -71,9 +78,13 @@ export class SuperAdminBusinessesService {
     return { ...toBusinessView(business), venues: await this.venues.list({ businessId: id }) };
   }
 
-  async create(actor: SuperAdminActor, dto: CreateBusinessDto): Promise<BusinessView> {
+  async create(actor: SuperAdminActor, dto: CreateBusinessRequest): Promise<BusinessView> {
+    if (businessCreateNeedsStepUp(dto)) await this.stepUp.verify(actor, dto.totpCode, 'business.create_commission');
+    const { totpCode: _code, ...fields } = dto;
     const created = await this.prisma
-      .acrossVenues((tx) => tx.business.create({ data: { ...businessData(dto), name: dto.name } as Prisma.BusinessCreateInput, include: countVenues }))
+      .acrossVenues((tx) =>
+        tx.business.create({ data: { ...businessData(fields), name: fields.name } as Prisma.BusinessCreateInput, include: countVenues }),
+      )
       .catch(taxIdClash);
     await this.audit.write(actor, {
       action: 'business.created',
@@ -86,8 +97,10 @@ export class SuperAdminBusinessesService {
 
   async update(actor: SuperAdminActor, id: string, dto: UpdateBusinessDto): Promise<BusinessView> {
     const before = await this.load(id);
+    if (businessUpdateNeedsStepUp(dto, before)) await this.stepUp.verify(actor, dto.totpCode, 'business.commission');
+    const { totpCode: _code, ...fields } = dto;
     const updated = await this.prisma
-      .acrossVenues((tx) => tx.business.update({ where: { id }, data: businessData(dto), include: countVenues }))
+      .acrossVenues((tx) => tx.business.update({ where: { id }, data: businessData(fields), include: countVenues }))
       .catch(taxIdClash);
     const diff = changedFields(snapshot(before), snapshot(updated));
     await this.audit.write(actor, { action: 'business.updated', targetType: 'Business', targetId: id, ...diff });
@@ -142,6 +155,7 @@ export class SuperAdminBusinessesService {
 
   /** Mete locales en el negocio (si estaban en otro, se cambian). */
   async assignVenues(actor: SuperAdminActor, id: string, dto: AssignVenuesDto): Promise<BusinessDetail> {
+    await this.stepUp.verify(actor, dto.totpCode, 'business.assign_venues');
     await this.load(id);
     const ids = [...new Set(dto.venueIds)];
     const moved = await this.prisma.acrossVenues(async (tx) => {
@@ -166,7 +180,8 @@ export class SuperAdminBusinessesService {
     return this.get(id);
   }
 
-  async unassignVenue(actor: SuperAdminActor, id: string, venueId: string): Promise<BusinessDetail> {
+  async unassignVenue(actor: SuperAdminActor, id: string, venueId: string, dto: UnassignVenueDto = {}): Promise<BusinessDetail> {
+    await this.stepUp.verify(actor, dto.totpCode, 'business.unassign_venue');
     const res = await this.prisma.acrossVenues((tx) =>
       tx.venue.updateMany({ where: { id: venueId, businessId: id }, data: { businessId: null } }),
     );

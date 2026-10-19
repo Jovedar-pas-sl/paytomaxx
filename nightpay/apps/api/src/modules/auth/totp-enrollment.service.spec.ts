@@ -34,6 +34,7 @@ interface UserRow {
   totpSecret: string | null;
   passwordHash: string;
   deletedAt: Date | null;
+  isSuperAdmin?: boolean;
 }
 
 function makeUsersTable(rows: UserRow[]) {
@@ -61,8 +62,9 @@ function makeService(rows: UserRow[]) {
   const attempts = new TotpAttemptsService(lockout, redis as never);
   const totp = new TotpService(prisma as never, attempts);
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
-  const svc = new TotpEnrollmentService(prisma as never, redis as never, totp, audit as never, lockout);
-  return { svc, totp, users, redis, audit };
+  const telegram = { send: vi.fn().mockResolvedValue(true) };
+  const svc = new TotpEnrollmentService(prisma as never, redis as never, totp, audit as never, lockout, telegram as never);
+  return { svc, totp, users, redis, audit, telegram };
 }
 
 function owner(overrides: Partial<UserRow> = {}): UserRow {
@@ -278,5 +280,62 @@ describe('POST /v1/auth/totp/disable', () => {
     await svc.disable('u1', codeFor(secret));
     const again = await svc.setup('u1', PASSWORD, SID);
     expect(await svc.confirm('u1', codeFor(again.secret), PASSWORD)).toEqual({ enabled: true });
+  });
+});
+
+describe('super-admin sin 2FA: activarla en el login (con el ticket de la contraseña)', () => {
+  const SCOPE = 'login:0123456789abcdef0123456789abcdef';
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('setupAtLogin da el QR sin pedir la contraseña; confirmAtLogin lo guarda, lo apunta y avisa por Telegram', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const { svc, users, audit, telegram } = makeService([owner({ isSuperAdmin: true })]);
+    const { secret } = await svc.setupAtLogin('u1', SCOPE);
+    expect((await svc.setupAtLogin('u1', SCOPE)).secret).toBe(secret);
+
+    await svc.confirmAtLogin('u1', codeFor(secret), SCOPE, { ip: '1.2.3.4' });
+    expect(openTotpSecret(users.get('u1')!.totpSecret!, KEK).secret).toBe(secret);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.totp.enabled', actorId: 'u1', payload: { superAdmin: true, via: 'login' } }),
+    );
+    expect(telegram.send).toHaveBeenCalledTimes(1);
+    expect(telegram.send.mock.calls[0]![0]).toMatch(/super-admin dueno@local\.es desde la IP 1\.2\.3\.4/);
+  });
+
+  it('el QR de otro ticket (o de Ajustes) no vale aquí → 409', async () => {
+    const { svc, users } = makeService([owner({ isSuperAdmin: true })]);
+    const { secret } = await svc.setupAtLogin('u1', 'login:otro');
+    expect(await statusOf(svc.confirmAtLogin('u1', codeFor(secret), SCOPE))).toBe(409);
+    expect(users.get('u1')!.totpSecret).toBeNull();
+  });
+
+  it('ya activada → 409 (no se puede cambiar por otra desde el login)', async () => {
+    const { svc } = makeService([owner({ isSuperAdmin: true, totpSecret: 'JBSWY3DPEHPK3PXP' })]);
+    expect(await statusOf(svc.setupAtLogin('u1', SCOPE))).toBe(409);
+  });
+
+  it('activarla desde Ajustes en un super-admin también avisa; en quien no lo es, no', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    for (const [isSuperAdmin, sends] of [
+      [true, 1],
+      [false, 0],
+    ] as const) {
+      const { svc, telegram, audit } = makeService([owner({ isSuperAdmin })]);
+      const { secret } = await svc.setup('u1', PASSWORD, SID);
+      await svc.confirm('u1', codeFor(secret), PASSWORD);
+      expect(telegram.send).toHaveBeenCalledTimes(sends);
+      const logged = audit.log.mock.calls.find((c) => (c[0] as { action: string }).action === 'auth.totp.enabled')![0];
+      expect('payload' in (logged as object)).toBe(isSuperAdmin);
+    }
+  });
+
+  it('con NIGHTPAY_DISABLE_ALERTS=1 (o en pruebas) no manda nada', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('NIGHTPAY_DISABLE_ALERTS', '1');
+    const { svc, telegram } = makeService([owner({ isSuperAdmin: true })]);
+    const { secret } = await svc.setupAtLogin('u1', SCOPE);
+    await svc.confirmAtLogin('u1', codeFor(secret), SCOPE);
+    expect(telegram.send).not.toHaveBeenCalled();
   });
 });

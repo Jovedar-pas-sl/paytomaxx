@@ -82,6 +82,35 @@ Comprobación: en Git Providers sale «GitHub: Connected».
 | Dockerfile | `apps/api/Dockerfile` |
 | Port | `4100` |
 | Build Args (opcional) | `GIT_SHA=<commit>` y `BUILD_MARKER=<etiqueta>`: salen en `/v1/health` |
+| Autodeploy | **Apagado** (ver abajo) |
+
+**Desplegar solo con CI en verde.** Con el autodeploy encendido, Dokploy
+despliega cada push a `main` aunque `nightpay-ci` falle (o aún no haya
+terminado). Apágalo en `nightpay-api` (y en las webs de la Fase E) →
+**General → Autodeploy: off**, y despliega así:
+
+1. En GitHub → **Actions → nightpay-ci**, espera a que el run del commit de
+   `main` salga en verde (`check`, `integracion`, `migraciones-orden` y
+   `docker`). En `main` un push nuevo ya no cancela el CI del anterior.
+2. Dokploy → `nightpay-api` → **Deploy** (manual) — fuera de la noche de
+   cobro, ver D.5.
+
+Opcional, para no hacerlo a mano: Dokploy → `nightpay-api` → **Deployments →
+Webhook URL**, guárdala en GitHub como secreto `DOKPLOY_DEPLOY_WEBHOOK_API` y
+añade al workflow un job que solo corre en `main` tras los demás:
+
+```yaml
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [check, integracion, migraciones-orden, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS -X POST "${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_API }}"
+```
+
+(Así también se despliega de noche si se hace push a esas horas: el manual
+deja elegir el momento.) Otra opción es proteger `main` en GitHub con esos
+checks obligatorios, pero no impide que Dokploy despliegue un push directo.
 
 ### D.2 Variables de entorno
 
@@ -140,17 +169,21 @@ Notas:
   [`DB-ROLE.md`](DB-ROLE.md).
 - `NODE_ENV` sin poner también arranca como producción; ponlo igual.
 - Sin `ORIGIN_AUTH_SECRET` o `METRICS_TOKEN` el API no arranca en producción.
+  Tampoco sin `CORS_ORIGINS` o con una dirección mal escrita (cada una
+  `https://dominio`, sin barra final ni ruta).
 - `REALTIME_LEGACY_SUBSCRIBE_UNTIL` (opcional): hasta cuándo las apps
   antiguas pueden seguir un cobro en tiempo real sin sesión. Sin ponerla, el
-  2026-11-15 00:00 (Madrid); después contestan «Inicia sesión otra vez». Fecha
-  ISO con zona (`2026-12-01T00:00:00+01:00`) para alargarla, `off` para
-  cerrarla ya. Antes de la fecha, `nightpay_ws_legacy_subscribes_total` en
-  `/v1/metrics` debería haber dejado de subir.
+  martes 2026-11-17 a las 12:00 (Madrid); después contestan «Inicia sesión otra
+  vez». Fecha ISO con zona (`2026-11-24T12:00:00+01:00`) para alargarla (un
+  martes o miércoles a mediodía, nunca en plena noche), `off` para cerrarla
+  ya: ponla a `off` a mano en cuanto `nightpay_ws_legacy_subscribes_total` en
+  `/v1/metrics` lleve días sin subir.
 - `AUTH_BODY_REFRESH_UNTIL` (opcional): hasta cuándo las apps antiguas del
   personal pueden renovar la sesión con la llave a la antigua (en la
-  petición); las nuevas usan la cookie. Sin ponerla, 2026-11-30 00:00
-  (Madrid); fecha ISO con zona para alargarla, `off` para cerrarla ya. Antes,
-  `nightpay_auth_body_refresh_total{client="legacy"}` debería estar quieta.
+  petición); las nuevas usan la cookie. Sin ponerla, el martes 2026-12-01 a
+  las 12:00 (Madrid); fecha ISO con zona para alargarla, `off` para cerrarla
+  ya (a mano, en cuanto `nightpay_auth_body_refresh_total{client="legacy"}`
+  lleve días quieta).
   `CORS_ORIGINS` tiene que llevar exactas las direcciones de las apps: sin
   ellas no se puede entrar. Ver [`SESION-PERSONAL.md`](SESION-PERSONAL.md).
 
@@ -187,6 +220,16 @@ contenedor:
    migración a mano**, tampoco la primera vez.
 3. `db-heal` otra vez (avisos de solo lectura).
 4. Arranca el API.
+
+**Despliega fuera del horario de apertura** (de día, entre semana), sobre todo
+si el commit trae migraciones: corren con el API anterior todavía sirviendo
+(`start-first`). Las que hacen `ALTER` empiezan con `SET lock_timeout = '5s'`:
+si una transacción en curso tiene la tabla (un cobro, una recarga), la
+migración falla a los 5 s en vez de dejar en cola detrás de ella todas las
+escrituras de los saldos. Si pasa (`canceling statement due to lock
+timeout` en el log): sigue sirviendo el contenedor viejo; haz los pasos 3 y 4
+de D.8 (`migrate resolve --rolled-back <nombre>` y **Redeploy**) en un rato
+más tranquilo. Las migraciones son idempotentes: volver a aplicarlas es seguro.
 
 ### D.6 Comprobar
 

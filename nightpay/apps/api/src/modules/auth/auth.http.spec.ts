@@ -533,11 +533,16 @@ describe('super-admin con 2FA: login en dos pasos y cambiar de local sin volver 
     expect(claimsOf(again.accessToken)).toMatchObject({ tenantId: TENANT_ID, venueSlug: 'luna' });
   });
 
-  it('una sesión que no entró con la 2FA (de antes): a otro local, sin código 403 TOTP_REQUIRED; con él, sí', async () => {
-    setTotp(null);
+  /** Sesión abierta antes de ser super-admin (sin la marca de la 2FA del login). */
+  async function sessionBeforeSuperAdmin(): Promise<string> {
+    users.set(USER_ID, { ...users.get(USER_ID)!, isSuperAdmin: false, totpSecret: null });
     const login = (await post('/v1/auth/login', { email: EMAIL, password: PASSWORD })).json() as { accessToken: string };
     setTotp(SECRET);
-    const auth = `Bearer ${login.accessToken}`;
+    return `Bearer ${login.accessToken}`;
+  }
+
+  it('una sesión que no entró con la 2FA (de antes): a otro local, sin código 403 TOTP_REQUIRED; con él, sí', async () => {
+    const auth = await sessionBeforeSuperAdmin();
     const noCode = await post('/v1/auth/switch-tenant', { tenantId: OTHER_TENANT_ID }, auth);
     expect(noCode.statusCode).toBe(403);
     expect(noCode.json()).toMatchObject({ code: 'TOTP_REQUIRED' });
@@ -546,13 +551,82 @@ describe('super-admin con 2FA: login en dos pasos y cambiar de local sin volver 
   });
 
   it('tope por IP: a la 11.ª en un minuto, 429', async () => {
-    setTotp(null);
-    const login = (await post('/v1/auth/login', { email: EMAIL, password: PASSWORD })).json() as { accessToken: string };
-    const auth = `Bearer ${login.accessToken}`;
+    const auth = await sessionBeforeSuperAdmin();
     for (let i = 0; i < 10; i++) {
       expect((await post('/v1/auth/switch-tenant', { tenantId: TENANT_ID }, auth)).statusCode).toBe(200);
     }
     expect((await post('/v1/auth/switch-tenant', { tenantId: TENANT_ID }, auth)).statusCode).toBe(429);
+  });
+
+  it('tras cerrar la sesión, su access token ya no cambia de local (401)', async () => {
+    await fakeRedis.del(`nightpay:totp:last:${USER_ID}`); // los códigos de las pruebas de antes
+    const challenge = (await post('/v1/auth/login', { email: EMAIL, password: PASSWORD })).json() as { loginTicket: string };
+    const opened = await post('/v1/auth/login/totp', { loginTicket: challenge.loginTicket, totpCode: codeAt(SECRET) });
+    expect(opened.statusCode).toBe(200);
+    const login = opened.json() as { accessToken: string; refreshToken: string };
+    expect((await post('/v1/auth/switch-tenant', { tenantId: TENANT_ID }, `Bearer ${login.accessToken}`)).statusCode).toBe(200);
+    await post('/v1/auth/logout', { refreshToken: login.refreshToken });
+    const res = await post('/v1/auth/switch-tenant', { tenantId: TENANT_ID }, `Bearer ${login.accessToken}`);
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('super-admin SIN 2FA: es obligatoria, se activa en el login', () => {
+  function post(url: string, body: unknown) {
+    return app.inject({
+      method: 'POST',
+      url,
+      headers: { 'cf-connecting-ip': '203.0.113.14', origin: ADMIN_ORIGIN },
+      payload: body as object,
+    });
+  }
+
+  beforeEach(async () => {
+    await resetIpRateLimits();
+    await fakeRedis.del(`nightpay:totp:last:${USER_ID}`); // los códigos de las pruebas de antes
+    users.set(USER_ID, { ...users.get(USER_ID)!, isSuperAdmin: true, totpSecret: null });
+  });
+  afterEach(() => {
+    users.set(USER_ID, { ...users.get(USER_ID)!, isSuperAdmin: false, totpSecret: null });
+  });
+
+  it('la contraseña da 401 TOTP_SETUP_REQUIRED; con el ticket, el QR y, con su código, la sesión (y la 2FA guardada)', async () => {
+    const first = await post('/v1/auth/login', { email: EMAIL, password: PASSWORD });
+    expect(first.statusCode).toBe(401);
+    const challenge = first.json() as { code: string; loginTicket: string; expiresIn: number; accessToken?: string };
+    expect(challenge).toMatchObject({ code: 'TOTP_SETUP_REQUIRED', expiresIn: 600 });
+    expect(challenge.accessToken).toBeUndefined();
+
+    // Ese ticket no vale para el login con código.
+    const asCode = await post('/v1/auth/login/totp', { loginTicket: challenge.loginTicket, totpCode: '123456' });
+    expect(asCode.statusCode).toBe(401);
+
+    const setup = await post('/v1/auth/login/totp/setup', { loginTicket: challenge.loginTicket });
+    expect(setup.statusCode).toBe(200);
+    expect(setup.headers['cache-control']).toBe('no-store');
+    const { secret, qrPngDataUrl } = setup.json() as { secret: string; qrPngDataUrl: string };
+    expect(qrPngDataUrl).toMatch(/^data:image\/png;base64,/);
+    // Recargar con el mismo ticket: el mismo secreto (el QR ya escaneado sigue valiendo).
+    expect((await post('/v1/auth/login/totp/setup', { loginTicket: challenge.loginTicket })).json()).toMatchObject({ secret });
+
+    const wrong = await post('/v1/auth/login/totp/enroll', { loginTicket: challenge.loginTicket, totpCode: '000000' });
+    expect(wrong.statusCode).toBe(403);
+    expect(users.get(USER_ID)!.totpSecret).toBeNull();
+
+    const opened = await post('/v1/auth/login/totp/enroll', { loginTicket: challenge.loginTicket, totpCode: codeAt(secret) });
+    expect(opened.statusCode).toBe(200);
+    expect((opened.json() as { user: { isSuperAdmin: boolean } }).user.isSuperAdmin).toBe(true);
+    expect(users.get(USER_ID)!.totpSecret).toEqual(expect.any(String));
+
+    // A partir de ahora, la contraseña pide el código.
+    const next = await post('/v1/auth/login', { email: EMAIL, password: PASSWORD });
+    expect(next.json()).toMatchObject({ code: 'TOTP_REQUIRED' });
+  });
+
+  it('el QR sin un ticket válido → 401', async () => {
+    const res = await post('/v1/auth/login/totp/setup', { loginTicket: 'x'.repeat(43) });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ code: 'LOGIN_TICKET_EXPIRED' });
   });
 });
 

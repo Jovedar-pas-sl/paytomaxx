@@ -2,17 +2,19 @@ import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, P
 import {
   AssignVenuesSchema,
   BusinessListQuerySchema,
-  CreateBusinessSchema,
+  CreateBusinessRequestSchema,
   PauseSchema,
   ResumeSchema,
+  UnassignVenueSchema,
   UpdateBusinessSchema,
   type AssignVenuesDto,
   type BusinessDetail,
   type BusinessListQuery,
   type BusinessView,
-  type CreateBusinessDto,
+  type CreateBusinessRequest,
   type PauseDto,
   type ResumeDto,
+  type UnassignVenueDto,
   type UpdateBusinessDto,
 } from '@nightpay/contracts';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
@@ -46,7 +48,7 @@ export class SuperAdminBusinessesController {
   @IpRateLimit(SUPERADMIN_WRITE_LIMIT)
   async create(
     @CurrentSuperAdmin() actor: SuperAdminActor,
-    @Body(new ZodValidationPipe(CreateBusinessSchema)) dto: CreateBusinessDto,
+    @Body(new ZodValidationPipe(CreateBusinessRequestSchema)) dto: CreateBusinessRequest,
   ): Promise<BusinessView> {
     return this.businesses.create(actor, dto);
   }
@@ -101,7 +103,8 @@ export class SuperAdminBusinessesController {
     @CurrentSuperAdmin() actor: SuperAdminActor,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('venueId', ParseUUIDPipe) venueId: string,
+    @Body(new ZodValidationPipe(UnassignVenueSchema.optional())) dto: UnassignVenueDto | undefined,
   ): Promise<BusinessDetail> {
-    return this.businesses.unassignVenue(actor, id, venueId);
+    return this.businesses.unassignVenue(actor, id, venueId, dto ?? {});
   }
 }

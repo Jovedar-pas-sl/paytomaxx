@@ -229,12 +229,12 @@ export type SuperAdminOverview = z.infer<typeof SuperAdminOverviewSchema>;
 // ─── Negocios (clientes de OxioPay) ─────────────────────────────────────
 //   GET   /v1/superadmin/businesses?q=&status=        → BusinessView[]
 //   GET   /v1/superadmin/businesses/:id               → BusinessDetail
-//   POST  /v1/superadmin/businesses                   CreateBusinessDto → BusinessView
-//   PATCH /v1/superadmin/businesses/:id               UpdateBusinessDto → BusinessView
+//   POST  /v1/superadmin/businesses                   CreateBusinessRequest (2FA con comisión) → BusinessView
+//   PATCH /v1/superadmin/businesses/:id               UpdateBusinessDto (2FA si cambia la comisión) → BusinessView
 //   POST  /v1/superadmin/businesses/:id/pause         PauseDto (2FA) → BusinessView
 //   POST  /v1/superadmin/businesses/:id/resume        ResumeDto (2FA) → BusinessView
-//   POST  /v1/superadmin/businesses/:id/venues        AssignVenuesDto → BusinessDetail
-//   POST  /v1/superadmin/businesses/:id/venues/:venueId/unassign → BusinessDetail
+//   POST  /v1/superadmin/businesses/:id/venues        AssignVenuesDto (2FA) → BusinessDetail
+//   POST  /v1/superadmin/businesses/:id/venues/:venueId/unassign  UnassignVenueDto (2FA) → BusinessDetail
 
 export const BusinessStatusSchema = z.enum(['ACTIVE', 'PAUSED']);
 export type BusinessStatusValue = z.infer<typeof BusinessStatusSchema>;
@@ -265,10 +265,14 @@ export const CreateBusinessSchema = z.object({
 });
 export type CreateBusinessDto = z.infer<typeof CreateBusinessSchema>;
 
-export const UpdateBusinessSchema = CreateBusinessSchema.partial().refine(
-  (v) => Object.values(v).some((x) => x !== undefined),
-  'No hay nada que cambiar',
-);
+/** Cuerpo del alta: con una comisión por defecto propia hace falta `totpCode`. */
+export const CreateBusinessRequestSchema = CreateBusinessSchema.extend({ totpCode: SuperAdminTotpCodeSchema.optional() });
+export type CreateBusinessRequest = z.infer<typeof CreateBusinessRequestSchema>;
+
+/** Cambiar `defaultPlatformCommissionBps` (a otro valor) pide `totpCode`. */
+export const UpdateBusinessSchema = CreateBusinessSchema.partial()
+  .extend({ totpCode: SuperAdminTotpCodeSchema.optional() })
+  .refine((v) => Object.entries(v).some(([k, x]) => k !== 'totpCode' && x !== undefined), 'No hay nada que cambiar');
 export type UpdateBusinessDto = z.infer<typeof UpdateBusinessSchema>;
 
 export const PauseSchema = z.object({ reason: SuperAdminReasonSchema, totpCode: SuperAdminTotpCodeSchema });
@@ -278,8 +282,16 @@ export type PauseDto = z.infer<typeof PauseSchema>;
 export const ResumeSchema = z.object({ totpCode: SuperAdminTotpCodeSchema, reason: SuperAdminReasonSchema.optional() });
 export type ResumeDto = z.infer<typeof ResumeSchema>;
 
-export const AssignVenuesSchema = z.object({ venueIds: z.array(UuidSchema).min(1).max(100) });
+/** Meter locales en un negocio (2FA: puede sacarlos de uno en pausa). */
+export const AssignVenuesSchema = z.object({
+  venueIds: z.array(UuidSchema).min(1).max(100),
+  totpCode: SuperAdminTotpCodeSchema.optional(),
+});
 export type AssignVenuesDto = z.infer<typeof AssignVenuesSchema>;
+
+/** Sacar un local de su negocio (2FA: si el negocio está en pausa, el local vuelve a cobrar). */
+export const UnassignVenueSchema = z.object({ totpCode: SuperAdminTotpCodeSchema.optional() });
+export type UnassignVenueDto = z.infer<typeof UnassignVenueSchema>;
 
 export const BusinessListQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
@@ -348,6 +360,8 @@ export const CreateVenueSchema = z.object({
   walletGroup: WalletGroupSchema.nullable().optional(),
   /** Sin ella: la del negocio (defaultPlatformCommissionBps) o la general (10 %). */
   platformCommissionBps: BpsSchema.optional(),
+  /** Con `walletGroup` o `platformCommissionBps` hace falta (como en el perfil y las reglas). */
+  totpCode: SuperAdminTotpCodeSchema.optional(),
 });
 export type CreateVenueDto = z.infer<typeof CreateVenueSchema>;
 
@@ -369,6 +383,26 @@ export type UpdateVenueProfileDto = z.infer<typeof UpdateVenueProfileSchema>;
 
 /** Campos del perfil que piden 2FA. */
 export const VENUE_PROFILE_STEP_UP_FIELDS = ['walletGroup', 'vatBps', 'vatRegime'] as const;
+
+// Altas y negocios que piden 2FA (los mismos en el API y en el panel).
+
+/** Alta de local con grupo del saldo o comisión propia (como cambiarlos después). */
+export function venueCreateNeedsStepUp(dto: Pick<CreateVenueDto, 'walletGroup' | 'platformCommissionBps'>): boolean {
+  return Boolean(dto.walletGroup) || dto.platformCommissionBps !== undefined;
+}
+
+/** Alta de negocio con comisión por defecto propia (sin ella, sus locales llevan la general). */
+export function businessCreateNeedsStepUp(dto: Pick<CreateBusinessDto, 'defaultPlatformCommissionBps'>): boolean {
+  return dto.defaultPlatformCommissionBps !== undefined && dto.defaultPlatformCommissionBps !== null;
+}
+
+/** Cambiar la comisión por defecto del negocio (a otro valor); reenviar la misma, no. */
+export function businessUpdateNeedsStepUp(
+  dto: Pick<UpdateBusinessDto, 'defaultPlatformCommissionBps'>,
+  current: { defaultPlatformCommissionBps: number | null },
+): boolean {
+  return dto.defaultPlatformCommissionBps !== undefined && dto.defaultPlatformCommissionBps !== current.defaultPlatformCommissionBps;
+}
 
 /**
  * Reglas del local (siempre con 2FA). Las comisiones por categoría llegan

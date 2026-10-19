@@ -11,6 +11,11 @@
 -- Idempotente y segura con datos: columnas nuevas nullable o con DEFAULT,
 -- nada se borra ni se reescribe. Los CHECK solo miran columnas nuevas.
 
+-- Corre con el API anterior sirviendo (start-first): si una transacción suya
+-- tiene la tabla, mejor fallar a los 5 s (el deploy se repite) que dejar
+-- todas las escrituras en cola detrás de este ALTER.
+SET lock_timeout = '5s';
+
 -- ─── Estado del negocio ──────────────────────────────────────────────────
 DO $$
 BEGIN

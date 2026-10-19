@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { SuperAdminVenuesService } from './venues.service';
 import { SuperAdminStaffService } from './staff.service';
+import { SuperAdminBusinessesService } from './businesses.service';
 
 const actor = { id: 'sa-1', email: 'jefe@x.es' };
 const VENUE = {
@@ -93,10 +94,117 @@ describe('SuperAdminVenuesService — 2FA antes de tocar nada', () => {
     expect(group.tx.venue.update).not.toHaveBeenCalled();
   });
 
+  it('alta con grupo del saldo o comisión: 2FA mala → 403 sin crear nada; sin ellos, sin 2FA', async () => {
+    const { svc, stepUp } = venuesSetup({ stepUpFails: true });
+    await expect(
+      svc.create(actor, { name: 'Luna', slug: 'luna', walletGroup: 'g1', totpCode: '000000' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(stepUp.verify).toHaveBeenCalledWith(actor, '000000', 'venue.create');
+    await expect(svc.create(actor, { name: 'Luna', slug: 'luna', platformCommissionBps: 0 })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
   it('pausar dos veces → 409', async () => {
     const { svc, tx } = venuesSetup();
     tx.venue.findFirst.mockResolvedValue({ ...VENUE, pausedAt: new Date() });
     await expect(svc.pause(actor, 'v-1', { reason: 'impagos', totpCode: '123456' })).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+function businessesSetup(opts: { stepUpFails?: boolean } = {}) {
+  const BUSINESS = {
+    id: 'b-1',
+    name: 'Luna Ocio',
+    taxId: null,
+    contactName: null,
+    contactEmail: null,
+    contactPhone: null,
+    notes: null,
+    status: 'PAUSED',
+    pausedAt: new Date('2026-10-10T00:00:00Z'),
+    pausedReason: 'impagos',
+    defaultPlatformCommissionBps: 800,
+    createdAt: new Date('2026-10-01T00:00:00Z'),
+    updatedAt: new Date('2026-10-01T00:00:00Z'),
+    _count: { venues: 1 },
+  };
+  const tx = {
+    business: {
+      findUnique: vi.fn().mockResolvedValue(BUSINESS),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...BUSINESS, ...data })),
+      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...BUSINESS, ...data })),
+    },
+    venue: {
+      findMany: vi.fn().mockResolvedValue([{ id: 'v-1', businessId: 'b-2' }]),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+  };
+  const prisma = { acrossVenues: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
+  const stepUp = {
+    verify: opts.stepUpFails
+      ? vi.fn().mockRejectedValue(new ForbiddenException({ message: 'Pon el código', code: 'TOTP_REQUIRED' }))
+      : vi.fn().mockResolvedValue(undefined),
+  };
+  const audit = { write: vi.fn().mockResolvedValue(undefined) };
+  const venues = { list: vi.fn().mockResolvedValue([]) };
+  const svc = new SuperAdminBusinessesService(prisma as never, stepUp as never, audit as never, venues as never);
+  return { svc, tx, stepUp, audit };
+}
+
+describe('SuperAdminBusinessesService — 2FA en lo que saca locales de una pausa o cambia la comisión', () => {
+  it('sacar un local o meter locales sin 2FA: 403 y no se mueve nada', async () => {
+    const { svc, tx, audit, stepUp } = businessesSetup({ stepUpFails: true });
+    await expect(svc.unassignVenue(actor, 'b-1', 'v-1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(stepUp.verify).toHaveBeenCalledWith(actor, undefined, 'business.unassign_venue');
+    await expect(svc.assignVenues(actor, 'b-1', { venueIds: ['v-1'] })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(stepUp.verify).toHaveBeenCalledWith(actor, undefined, 'business.assign_venues');
+    expect(tx.venue.updateMany).not.toHaveBeenCalled();
+    expect(audit.write).not.toHaveBeenCalled();
+  });
+
+  it('con 2FA buena: se mueven y queda en el registro', async () => {
+    const { svc, tx, stepUp } = businessesSetup();
+    await svc.unassignVenue(actor, 'b-1', 'v-1', { totpCode: '123456' });
+    expect(stepUp.verify).toHaveBeenCalledWith(actor, '123456', 'business.unassign_venue');
+    expect(tx.venue.updateMany).toHaveBeenCalledWith({ where: { id: 'v-1', businessId: 'b-1' }, data: { businessId: null } });
+  });
+
+  it('cambiar la comisión por defecto pide 2FA (y el código no llega a la base); los demás datos, no', async () => {
+    const failing = businessesSetup({ stepUpFails: true });
+    await expect(failing.svc.update(actor, 'b-1', { defaultPlatformCommissionBps: 0 })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(failing.tx.business.update).not.toHaveBeenCalled();
+
+    const ok = businessesSetup();
+    await ok.svc.update(actor, 'b-1', { defaultPlatformCommissionBps: 500, totpCode: '123456' });
+    expect(ok.stepUp.verify).toHaveBeenCalledWith(actor, '123456', 'business.commission');
+    expect(ok.tx.business.update).toHaveBeenCalledWith(expect.objectContaining({ data: { defaultPlatformCommissionBps: 500 } }));
+
+    const plain = businessesSetup({ stepUpFails: true });
+    await plain.svc.update(actor, 'b-1', { name: 'Luna Ocio SL', defaultPlatformCommissionBps: 800 });
+    expect(plain.stepUp.verify).not.toHaveBeenCalled();
+  });
+
+  it('alta con comisión por defecto propia: 2FA (mala → 403 sin crear); sin comisión, sin 2FA', async () => {
+    const failing = businessesSetup({ stepUpFails: true });
+    await expect(failing.svc.create(actor, { name: 'Sol Noche', defaultPlatformCommissionBps: 0 })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(failing.stepUp.verify).toHaveBeenCalledWith(actor, undefined, 'business.create_commission');
+    expect(failing.tx.business.create).not.toHaveBeenCalled();
+
+    const ok = businessesSetup();
+    await ok.svc.create(actor, { name: 'Sol Noche', defaultPlatformCommissionBps: 500, totpCode: '123456' });
+    expect(ok.stepUp.verify).toHaveBeenCalledWith(actor, '123456', 'business.create_commission');
+    const data = ok.tx.business.create.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data).toMatchObject({ name: 'Sol Noche', defaultPlatformCommissionBps: 500 });
+    expect(data).not.toHaveProperty('totpCode');
+
+    const plain = businessesSetup({ stepUpFails: true });
+    await plain.svc.create(actor, { name: 'Sol Noche', defaultPlatformCommissionBps: null });
+    expect(plain.stepUp.verify).not.toHaveBeenCalled();
   });
 });
 

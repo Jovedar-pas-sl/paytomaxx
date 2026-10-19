@@ -1,18 +1,33 @@
-import { Body, Controller, HttpCode, HttpException, HttpStatus, Inject, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Header,
+  HttpCode,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   LoginRequestSchema,
   LoginTotpRequestSchema,
+  LoginTotpSetupRequestSchema,
   LogoutRequestSchema,
   RefreshRequestSchema,
   type JwtPayload,
   type LoginRequest,
   type LoginResponse,
   type LoginTotpRequest,
+  type LoginTotpSetupRequest,
   type LogoutRequest,
   type RefreshRequest,
   type RefreshResponse,
+  type TotpSetupResponse,
 } from '@nightpay/contracts';
 
 const SwitchTenantRequestSchema = z.object({
@@ -100,6 +115,39 @@ export class AuthController {
   }
 
   /**
+   * Super-admin sin 2FA (obligatoria): con el ticket de la contraseña (401
+   * TOTP_SETUP_REQUIRED), el QR para activarla. No abre ninguna sesión.
+   */
+  @Public()
+  @Post('login/totp/setup')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'auth-login-totp-setup' })
+  async loginTotpSetup(
+    @Body(new ZodValidationPipe(LoginTotpSetupRequestSchema)) body: LoginTotpSetupRequest,
+    @Req() req: FastifyRequest,
+  ): Promise<TotpSetupResponse> {
+    // Como el login: un Origin que no vale se rechaza antes de nada.
+    this.sessions.loginClient(req);
+    return this.auth.loginTotpSetup(body.loginTicket);
+  }
+
+  /** Super-admin sin 2FA: el ticket y un código del QR la activan y abren la sesión (como /login/totp). */
+  @Public()
+  @Post('login/totp/enroll')
+  @HttpCode(200)
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'auth-login-totp' })
+  async loginTotpEnroll(
+    @Body(new ZodValidationPipe(LoginTotpRequestSchema)) body: LoginTotpRequest,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<LoginResponse> {
+    const client = this.sessions.loginClient(req);
+    const result = await this.auth.loginWithNewTotp(body.loginTicket, body.totpCode, extractIp(req), extractUserAgent(req));
+    return this.sessions.deliver(client, 'login', result, reply);
+  }
+
+  /**
    * Access token nuevo con la cookie (y la cookie rotada). Las apps lo piden
    * al abrirse: el access token solo vive en la memoria de cada pestaña. Con
    * cada carga de pestaña hay un refresco: más margen por IP que antes (varios
@@ -168,6 +216,7 @@ export class AuthController {
     return this.auth.switchTenant(ctx.userId, body.tenantId, {
       totpCode: body.totpCode,
       sessionId: user?.sid,
+      tokenExp: user?.exp,
       ip: extractIp(req),
       userAgent: extractUserAgent(req),
     });

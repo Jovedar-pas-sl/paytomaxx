@@ -19,8 +19,10 @@ aviso() {
 
 ahora() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-# pg_dump en formato propio (-Fc), directo a restic: no toca el disco.
-if pg_dump -Fc | restic backup --quiet --stdin --stdin-filename nightpay.dump --tag nightpay; then
+# pg_dump en formato propio (-Fc), directo a restic: no toca el disco. Con
+# --stdin-from-command (restic >= 0.17), si pg_dump falla a medias restic NO
+# guarda la instantánea: una copia truncada nunca queda como «latest».
+if restic backup --quiet --stdin-from-command --stdin-filename nightpay.dump --tag nightpay -- pg_dump -Fc; then
   # 7 días de copias de cada 6 h, 8 semanas y 12 meses.
   restic forget --quiet --tag nightpay --keep-within-hourly 7d --keep-weekly 8 --keep-monthly 12 --prune \
     || aviso "⚠️ OxioPay: la copia restic se hizo, pero falló la limpieza de copias antiguas"

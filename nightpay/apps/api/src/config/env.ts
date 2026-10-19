@@ -127,7 +127,10 @@ const EnvSchema = z.object({
   PEANPE_ACCOUNT_ID: z.string().optional(),
   PEANPE_WEBHOOK_URL: z.string().url().optional(),
   PEANPE_THANKYOU_URL: z.string().url().optional(),
-  // CORS_ORIGINS — CSV de origins permitidos en produccion. Vacio en dev.
+  // CORS_ORIGINS — CSV de las direcciones exactas de las apps del personal
+  // (https://admin.paytomaxx.com,…). Obligatoria en producción: sin ella (o con
+  // una errata) el API arranca sano pero nadie del personal puede entrar (CORS
+  // y la cookie de sesión la usan). Vacía en dev. Ver corsOriginsProblem.
   CORS_ORIGINS: z.string().optional(),
   // Timeout (ms) para llamadas a pasarelas — abort signal.
   GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
@@ -240,7 +243,7 @@ const EnvSchema = z.object({
 
   // Tiempo real: payment:subscribe sin sesión (apps antiguas en caché) solo
   // hasta esta fecha; luego se pide iniciar sesión otra vez. Sin definir:
-  // 2026-11-15T00:00:00+01:00. Fecha ISO con zona para cambiarla, u "off"
+  // 2026-11-17T12:00:00+01:00 (martes a mediodía). Fecha ISO con zona para cambiarla, u "off"
   // para apagarla ya. Antes de la fecha, la métrica
   // nightpay_ws_legacy_subscribes_total debería estar en 0. Ver
   // config/realtime-legacy.ts.
@@ -252,7 +255,7 @@ const EnvSchema = z.object({
 
   // Sesión del personal: el refresh token en el cuerpo (apps antiguas en
   // caché) solo hasta esta fecha; las nuevas lo llevan en una cookie HttpOnly.
-  // Sin definir: 2026-11-30T00:00:00+01:00. Fecha ISO con zona para cambiarla,
+  // Sin definir: 2026-12-01T12:00:00+01:00 (martes a mediodía). Fecha ISO con zona para cambiarla,
   // u "off" para cerrarla ya. Antes, nightpay_auth_body_refresh_total
   // {client="legacy"} debería estar quieta. Ver config/auth-body-refresh.ts.
   AUTH_BODY_REFRESH_UNTIL: z
@@ -264,6 +267,15 @@ const EnvSchema = z.object({
   // Días que una comisión de la chica queda "en espera" antes de poder
   // pagársela (cubre devoluciones tempranas y que el banco aún no abonó).
   PAYOUT_HOLD_DAYS: z.coerce.number().int().min(0).max(60).default(7),
+
+  // Apagar tareas programadas (solo desarrollo/pruebas): "1" = apagada. Los
+  // servicios las leen de process.env; aquí quedan documentadas y, en
+  // producción, el arranque avisa de cada una (env-warnings.ts, DISABLE_FLAGS).
+  NIGHTPAY_DISABLE_ALERTS: z.string().optional(),
+  NIGHTPAY_DISABLE_NIGHT_AUTOCLOSE: z.string().optional(),
+  NIGHTPAY_DISABLE_GOOGLE_WALLET_SYNC: z.string().optional(),
+  NIGHTPAY_DISABLE_WEBHOOK_SWEEP: z.string().optional(),
+  NIGHTPAY_DISABLE_REFUND_SWEEP: z.string().optional(),
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV !== 'production') return;
   // NEXT_PUBLIC_API_URL no puede ser localhost (los webhooks de la pasarela
@@ -275,6 +287,10 @@ const EnvSchema = z.object({
       message:
         'NEXT_PUBLIC_API_URL es obligatorio en production y no puede apuntar a localhost. Configúralo a https://api.paytomaxx.com (o tu dominio) para que Redsys/Wipay puedan entregar webhooks. En local arranca con `pnpm dev` (NODE_ENV=development).',
     });
+  }
+  const cors = corsOriginsProblem(env.CORS_ORIGINS);
+  if (cors) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CORS_ORIGINS'], message: cors });
   }
   // Los secretos de ejemplo de .env.example no valen en producción.
   for (const key of Object.keys(DEV_PLACEHOLDER_SECRETS) as Array<keyof typeof DEV_PLACEHOLDER_SECRETS>) {
@@ -289,6 +305,36 @@ const EnvSchema = z.object({
 });
 
 export type Env = z.infer<typeof EnvSchema>;
+
+const CORS_ORIGINS_EXAMPLE = 'https://admin.paytomaxx.com,https://operator.paytomaxx.com,https://tpv.paytomaxx.com';
+
+/**
+ * Producción: CORS_ORIGINS tiene que traer al menos un origen y cada uno ser
+ * exactamente `https://dominio` (sin ruta ni barra final: el navegador manda
+ * el Origin así y se compara tal cual). null = vale.
+ */
+export function corsOriginsProblem(raw: string | undefined): string | null {
+  const origins = (raw ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (origins.length === 0) {
+    return `CORS_ORIGINS es obligatoria en production: las direcciones de las apps del personal separadas por comas (p. ej. ${CORS_ORIGINS_EXAMPLE}). Sin ella nadie puede entrar.`;
+  }
+  const bad = origins.filter((o) => !isExactOrigin(o));
+  return bad.length === 0
+    ? null
+    : `CORS_ORIGINS no vale (${bad.join(', ')}): cada una https://dominio, sin ruta ni barra final, separadas por comas (p. ej. ${CORS_ORIGINS_EXAMPLE}).`;
+}
+
+function isExactOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.origin === value;
+  } catch {
+    return false;
+  }
+}
 
 function isPublicUrl(url: string | undefined): boolean {
   return Boolean(url) && !url!.includes('localhost') && !url!.includes('127.0.0.1');

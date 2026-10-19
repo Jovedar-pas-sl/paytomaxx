@@ -52,6 +52,8 @@ CORS_ORIGINS=https://admin.paytomaxx.com,https://operator.paytomaxx.com,https://
 ```
 
 Una app que no esté en la lista no puede entrar ni renovar la sesión (403).
+En producción el API **no arranca** sin `CORS_ORIGINS` o con una dirección mal
+escrita (sin `https://`, con barra final o con ruta): el log dice cuál.
 
 ### `AUTH_BODY_REFRESH_UNTIL` (nueva, opcional)
 
@@ -60,9 +62,11 @@ guardada, el API sigue aceptando la llave larga a la antigua (en la petición)
 hasta esta fecha. Después, la app antigua pide entrar otra vez y, al
 recargar, ya es la nueva.
 
-- Sin poner: **hasta el 30 de noviembre de 2026 a las 00:00 (Madrid)**.
-- Otra fecha: ISO con zona, p. ej. `AUTH_BODY_REFRESH_UNTIL=2026-12-15T00:00:00+01:00`.
-- `off`: cerrarla ya.
+- Sin poner: **hasta el martes 1 de diciembre de 2026 a las 12:00 (Madrid)**
+  (de día y entre semana: ninguna app pide entrar a mitad de un cobro).
+- Otra fecha: ISO con zona, mejor un martes o miércoles a mediodía, p. ej.
+  `AUTH_BODY_REFRESH_UNTIL=2026-12-15T12:00:00+01:00`.
+- `off`: cerrarla ya (a mano, en cuanto la métrica de abajo lleve días quieta).
 
 Antes de la fecha, en `/v1/metrics` (con `METRICS_TOKEN`) la cuenta
 `nightpay_auth_body_refresh_total{client="legacy"}` debería haber dejado de

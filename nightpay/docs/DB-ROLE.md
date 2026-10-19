@@ -7,11 +7,33 @@ de otro es el código del API.
 
 Con este cambio el API entra con `oxiopay_app`: un rol normal (sin
 superusuario) que es **dueño** de las tablas. Entonces la base aplica RLS en
-las tablas del dinero de las chicas y de los saldos (`client_wallets`,
+las tablas con `FORCE ROW LEVEL SECURITY` (`client_wallets`,
 `wallet_consumptions`, `operator_earnings`, `operator_payouts`,
 `earning_reversals`, `peanpe_calls` y, desde «Por aprobar»,
-`approval_requests`): aunque un fallo del código olvidara
-filtrar por local, la base no enseñaría filas de otro local.
+`approval_requests`): aunque un fallo del código olvidara filtrar por local,
+la base no enseñaría filas de otro local. **No todas las tablas del dinero
+aíslan**: ver «Qué tablas aísla la base» justo debajo.
+
+### Qué tablas aísla la base
+
+A un dueño de la tabla (`oxiopay_app`) solo le aplica la política si la tabla
+tiene `FORCE`. Sin `FORCE`, lo que separa los locales es solo el código del API
+(`tenantId` en cada consulta).
+
+| Tabla | ¿Aísla la base por local? | Por qué |
+|---|---|---|
+| `client_wallets`, `wallet_consumptions`, `operator_earnings`, `operator_payouts`, `earning_reversals`, `peanpe_calls` | **Sí** | RLS con `FORCE`. |
+| `approval_requests` («Por aprobar») | **Sí** | RLS con `FORCE` (`20261016300000_aprobaciones`). |
+| `wallet_cash_topups` (efectivo que entra en los saldos: recepción y datáfono) | **No** | RLS sin `FORCE` (`20261021100000_recepcion_fichas`, como `wallet_payouts`): `oxiopay_app` se salta la política. |
+| `wallet_payouts` (lo que se devuelve de un saldo) | **No** | RLS sin `FORCE`. |
+| `wallet_passes` (Google Wallet) | **No** | Sin RLS: cuelga del saldo por `walletId`, no lleva `tenantId`. |
+| `businesses` (negocios de la consola) | **No es de ningún local** | Global: RLS sin `FORCE` que solo deja pasar el bypass del super-admin; `oxiopay_app` (dueño) la ve entera. |
+| `payments`, `payment_events`, `refunds`, `reconciliations`, `users`, `terminals`, `gateway_credentials` | **No** | RLS sin `FORCE` desde `20260502000000_soften_rls_force`. |
+
+Añadir `FORCE` a una tabla (p. ej. `wallet_cash_topups`) es una migración
+aparte que hay que probar antes con la suite de integración
+(`aislamiento-rls`): todo lo que la toque tiene que llevar el local en la
+sesión o el bypass.
 
 - Tiempo: unos 20 minutos.
 - Corte: lo que tarda un redeploy normal del API (como cualquier deploy).
@@ -331,8 +353,12 @@ Funciona en el acto: `np` es superusuario y puede con todo aunque el dueño sea
 - Las copias (Dokploy, restic) siguen con `np`: no cambian.
 - Las copias nuevas dicen que el dueño es `oxiopay_app`.
   `scripts/restore-check.sh` restaura con `--no-owner`, así que no le afecta.
-- Restaurar en un servidor nuevo: crea antes el rol (paso 1), o restaura con
-  `pg_restore --no-owner` y después haz el paso 2.
+- **Cualquier restauración** (Dokploy → Restore, restic, servidor nuevo): antes
+  de arrancar el API, el **paso 2 y su comprobación** (`(0 rows)`). En un
+  servidor nuevo, antes el paso 1 (crear el rol). Lo restaurado queda de `np`
+  (o, con `--no-owner`, de quien restaura): sin el paso 2 el API da
+  «permission denied» y RLS deja de aplicarse. Comandos en
+  [`BACKUPS.md`](BACKUPS.md) apartados 6 y 7.
 
 ---
 

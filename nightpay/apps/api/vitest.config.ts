@@ -12,13 +12,14 @@ export default defineConfig({
       reporter: ['text-summary', 'html', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.spec.ts', 'src/main.ts'],
-      // Suelo, no objetivo: un punto por debajo de lo medido el 2026-10-19
-      // (líneas y sentencias 84,3 %, funciones 82,4 %, ramas 88,7 %). Que no
-      // baje; al añadir pruebas, súbelo.
+      // Suelo, no objetivo: unos dos puntos por debajo de lo medido el
+      // 2026-10-20 (líneas y sentencias 85,3 %, funciones 84,2 %, ramas
+      // 89,5 %; margen por la diferencia entre máquinas). Que no baje; al
+      // añadir pruebas, súbelo.
       thresholds: {
-        lines: 81,
-        statements: 81,
-        functions: 79,
+        lines: 83,
+        statements: 83,
+        functions: 81,
         branches: 87,
       },
     },

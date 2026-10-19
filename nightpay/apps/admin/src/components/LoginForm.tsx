@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 import { Button, Input } from '@nightpay/ui';
 import {
   LoginCodeRequiredError,
+  LoginSetupRequiredError,
   discardLogin,
   login,
   loginWithCode,
@@ -15,6 +16,7 @@ import { ApiError, totpLockedUntil } from '@/lib/api-errors';
 import { OTP_LENGTH } from '@/lib/otp';
 import { useLockActive } from '@/lib/use-lock';
 import { canUsePanel } from '@/lib/roles';
+import { LoginTotpEnroll } from './LoginTotpEnroll';
 import { OtpInput } from './OtpInput';
 
 interface Props {
@@ -23,7 +25,8 @@ interface Props {
 
 /**
  * Entrar en el panel. Un super-admin con 2FA pone después el código de su app
- * (segundo paso): con él ya no se le vuelve a pedir al cambiar de local.
+ * (segundo paso): con él ya no se le vuelve a pedir al cambiar de local. Sin
+ * 2FA (es obligatoria para él), la activa ahí mismo (LoginTotpEnroll).
  */
 export function LoginForm({ onSuccess }: Props) {
   const [email, setEmail] = useState('');
@@ -32,6 +35,8 @@ export function LoginForm({ onSuccess }: Props) {
   const [busy, setBusy] = useState(false);
   /** Ticket del primer paso (contraseña buena): ahora falta el código. */
   const [ticket, setTicket] = useState<string | null>(null);
+  /** Super-admin sin 2FA: ticket para activarla. */
+  const [enrollTicket, setEnrollTicket] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const locked = useLockActive(lockedUntil);
@@ -58,6 +63,9 @@ export function LoginForm({ onSuccess }: Props) {
         setTicket(err.loginTicket);
         setCode('');
         setPassword('');
+      } else if (err instanceof LoginSetupRequiredError) {
+        setEnrollTicket(err.loginTicket);
+        setPassword('');
       } else {
         setError((err as Error).message);
       }
@@ -83,6 +91,17 @@ export function LoginForm({ onSuccess }: Props) {
     } finally {
       setBusy(false);
     }
+  }
+
+  const leaveEnroll = useCallback((message: string | null) => {
+    setEnrollTicket(null);
+    setError(message);
+  }, []);
+
+  if (enrollTicket) {
+    return (
+      <LoginTotpEnroll ticket={enrollTicket} onDone={finish} onExpired={leaveEnroll} onBack={() => leaveEnroll(null)} />
+    );
   }
 
   if (ticket) {

@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { Button, Card, Modal } from '@nightpay/ui';
-import type { BusinessDetail } from '@nightpay/contracts';
+import { Button, Card } from '@nightpay/ui';
+import { businessUpdateNeedsStepUp, type BusinessDetail, type UpdateBusinessDto } from '@nightpay/contracts';
 import {
   assignSaVenues,
   fetchSaBusiness,
@@ -12,11 +12,12 @@ import {
   updateSaBusiness,
 } from '@/lib/endpoints/superadmin';
 import { businessChanges, businessFormFrom, businessPayload, type BusinessForm } from '@/lib/superadmin/forms';
-import { venuePauseLabel } from '@/lib/superadmin/labels';
+import { commissionText, venuePauseLabel } from '@/lib/superadmin/labels';
 import { Pill } from '../Pill';
 import { BusinessFields } from './BusinessFields';
 import { useSa } from './context';
 import { PauseCard } from './PauseCard';
+import { StepUpDialog } from './StepUpDialog';
 import { BackButton, CheckRow, ErrorLine, LoadGate, SectionHead, SmallButton, StickyActions } from './ui';
 import { useLoad } from './use-load';
 
@@ -74,6 +75,8 @@ function BusinessDataCard({
   onSaved: (next: Partial<BusinessDetail>) => void;
 }) {
   const [form, setForm] = useState<BusinessForm>(() => businessFormFrom(business));
+  /** Cambios que tocan la comisión por defecto: esperan al código 2FA. */
+  const [pending, setPending] = useState<UpdateBusinessDto | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -92,6 +95,7 @@ function BusinessDataCard({
     const changes = businessChanges(business, payload.value);
     if (Object.keys(changes).length === 0) return setError('No has cambiado nada.');
     setError(null);
+    if (businessUpdateNeedsStepUp(changes, business)) return setPending(changes);
     setSubmitting(true);
     try {
       onSaved(await updateSaBusiness(business.id, changes));
@@ -123,6 +127,22 @@ function BusinessDataCard({
           </Button>
         </StickyActions>
       </form>
+      {pending ? (
+        <StepUpDialog
+          title="Cambiar la comisión del negocio"
+          action="business.updateMoney"
+          summary={`Vas a cambiar la comisión por defecto de ${business.name}: ${commissionText(
+            business.defaultPlatformCommissionBps,
+          )} → ${commissionText(pending.defaultPlatformCommissionBps ?? null)}. La heredan sus locales nuevos.`}
+          submitLabel="Guardar cambios"
+          onSubmit={async ({ totpCode }) => {
+            onSaved(await updateSaBusiness(business.id, pending, totpCode));
+            setPending(null);
+            setSaved(true);
+          }}
+          onClose={() => setPending(null)}
+        />
+      ) : null}
     </Card>
   );
 }
@@ -200,9 +220,8 @@ function AssignVenuesDialog({
 }) {
   const { venues } = useSa();
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const candidates = (venues ?? []).filter((v) => v.business?.id !== business.id);
+  const moving = candidates.filter((v) => picked.has(v.id) && v.business).length;
 
   function toggle(id: string, on: boolean): void {
     setPicked((prev) => {
@@ -213,51 +232,36 @@ function AssignVenuesDialog({
     });
   }
 
-  async function handleSubmit(e: FormEvent): Promise<void> {
-    e.preventDefault();
-    if (picked.size === 0) return setError('Marca al menos un local.');
-    setSubmitting(true);
-    setError(null);
-    try {
-      onDone(await assignSaVenues(business.id, [...picked]));
-    } catch (err) {
-      setError((err as Error).message);
-      setSubmitting(false);
-    }
-  }
-
   return (
-    <Modal open onClose={submitting ? () => undefined : onClose} title={`Añadir locales a ${business.name}`} width="32rem">
-      <form className="np-sa-form" onSubmit={(e) => void handleSubmit(e)}>
-        {venues === null ? (
-          <p className="np-sa-loading">Cargando los locales…</p>
-        ) : candidates.length === 0 ? (
-          <p className="np-sa-empty">Todos los locales ya son de este negocio.</p>
-        ) : (
-          <div className="np-sa-stack-sm">
-            {candidates.map((v) => (
-              <CheckRow
-                key={v.id}
-                checked={picked.has(v.id)}
-                onChange={(on) => toggle(v.id, on)}
-                label={v.name}
-                help={v.business ? `Ahora es de ${v.business.name}: se cambia a este.` : 'Sin negocio.'}
-                disabled={submitting}
-              />
-            ))}
-          </div>
-        )}
-        {error ? <ErrorLine>{error}</ErrorLine> : null}
-        <StickyActions>
-          <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>
-            Cancelar
-          </Button>
-          <Button type="submit" loading={submitting} disabled={picked.size === 0}>
-            Añadir {picked.size > 0 ? picked.size : ''}
-          </Button>
-        </StickyActions>
-      </form>
-    </Modal>
+    <StepUpDialog
+      title={`Añadir locales a ${business.name}`}
+      action="business.assignVenues"
+      summary={`Vas a meter ${picked.size === 1 ? '1 local' : `${picked.size} locales`} en ${business.name}${
+        moving > 0 ? ` (${moving === 1 ? '1 sale' : `${moving} salen`} de su negocio de ahora)` : ''
+      }.`}
+      validate={() => (picked.size === 0 ? 'Marca al menos un local.' : null)}
+      submitLabel={`Añadir ${picked.size > 0 ? picked.size : ''}`.trim()}
+      onSubmit={async ({ totpCode }) => onDone(await assignSaVenues(business.id, [...picked], totpCode))}
+      onClose={onClose}
+    >
+      {venues === null ? (
+        <p className="np-sa-loading">Cargando los locales…</p>
+      ) : candidates.length === 0 ? (
+        <p className="np-sa-empty">Todos los locales ya son de este negocio.</p>
+      ) : (
+        <div className="np-sa-stack-sm">
+          {candidates.map((v) => (
+            <CheckRow
+              key={v.id}
+              checked={picked.has(v.id)}
+              onChange={(on) => toggle(v.id, on)}
+              label={v.name}
+              help={v.business ? `Ahora es de ${v.business.name}: se cambia a este.` : 'Sin negocio.'}
+            />
+          ))}
+        </div>
+      )}
+    </StepUpDialog>
   );
 }
 
@@ -272,37 +276,21 @@ function UnassignDialog({
   onClose: () => void;
   onDone: (next: BusinessDetail) => void;
 }) {
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function confirm(): Promise<void> {
-    setSubmitting(true);
-    setError(null);
-    try {
-      onDone(await unassignSaVenue(business.id, venue.id));
-    } catch (err) {
-      setError((err as Error).message);
-      setSubmitting(false);
-    }
-  }
-
   return (
-    <Modal open onClose={submitting ? () => undefined : onClose} title="Sacar el local del negocio" width="28rem">
-      <div className="np-sa-form">
+    <StepUpDialog
+      title="Sacar el local del negocio"
+      action="business.unassignVenue"
+      intro={
         <p className="np-sa-text">
           {venue.name} deja de ser de {business.name}. El local sigue funcionando igual; si el negocio está en pausa,
           esa pausa ya no le afecta.
         </p>
-        {error ? <ErrorLine>{error}</ErrorLine> : null}
-        <StickyActions>
-          <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>
-            Cancelar
-          </Button>
-          <Button type="button" onClick={() => void confirm()} loading={submitting}>
-            Sacar del negocio
-          </Button>
-        </StickyActions>
-      </div>
-    </Modal>
+      }
+      summary={`Vas a sacar ${venue.name} de ${business.name}.`}
+      submitLabel="Sacar del negocio"
+      width="28rem"
+      onSubmit={async ({ totpCode }) => onDone(await unassignSaVenue(business.id, venue.id, totpCode))}
+      onClose={onClose}
+    />
   );
 }

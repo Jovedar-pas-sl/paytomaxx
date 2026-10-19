@@ -8,7 +8,7 @@ import {
   SESSION_EXPIRED_ERROR,
 } from './realtime.gateway';
 
-/** Antes de la fecha de corte por defecto (2026-11-15 00:00 de Madrid). */
+/** Antes de la fecha de corte por defecto (martes 2026-11-17 12:00 de Madrid). */
 const BEFORE_CUTOFF = new Date('2026-10-20T12:00:00+02:00');
 
 const TENANT_A = '7d0f4f9e-0000-4000-8000-0000000000aa';
@@ -190,8 +190,8 @@ describe('RealtimeGateway: la vía sin sesión se apaga sola (REALTIME_LEGACY_SU
 
   const closedLogs = () => warn.mock.calls.filter(([msg]) => String(msg).includes('rechazado'));
 
-  it('antes del corte (por defecto 2026-11-15 00:00 de Madrid): sigue valiendo y se cuenta', async () => {
-    const g = at('2026-11-14T23:59:59+01:00');
+  it('antes del corte (por defecto 2026-11-17 12:00 de Madrid): sigue valiendo y se cuenta', async () => {
+    const g = at('2026-11-17T11:59:59+01:00');
     expect(await subscribeWithoutSession(g)).toEqual({ ok: true, room: `payment:${PAY_A}` });
     expect(g.metrics.wsLegacySubscribes.inc).toHaveBeenCalledWith({ result: 'allowed' });
 
@@ -202,7 +202,7 @@ describe('RealtimeGateway: la vía sin sesión se apaga sola (REALTIME_LEGACY_SU
   });
 
   it('desde el corte: «Inicia sesión otra vez», sin mirar el cobro, y un solo aviso en el log por conexión', async () => {
-    const g = at('2026-11-15T00:00:00+01:00');
+    const g = at('2026-11-17T12:00:00+01:00');
     const client = makeClient();
     expect(await subscribeWithoutSession(g, client)).toEqual({ ok: false, error: LEGACY_SUBSCRIBE_CLOSED_ERROR });
     expect(LEGACY_SUBSCRIBE_CLOSED_ERROR).toBe('Inicia sesión otra vez');

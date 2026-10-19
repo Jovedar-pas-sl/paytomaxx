@@ -13,6 +13,7 @@ import {
   type VenueDetail,
   type VenueListItem,
   type VenueListQuery,
+  venueCreateNeedsStepUp,
 } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { resolveHoldDays } from '../operators/payout-math';
@@ -32,7 +33,8 @@ type VenueRow = Prisma.VenueGetPayload<{ include: typeof venueInclude }>;
  * Locales vistos desde la consola: todos, con su negocio y su pausa. Perfil,
  * reglas (comisiones, tope de la chica, días de espera, reglas de
  * aprobación), IBAN de liquidación y pausa. Las reglas, el IBAN y la pausa
- * piden 2FA; el perfil, solo si toca el grupo del saldo o el IVA.
+ * piden 2FA; el perfil, solo si toca el grupo del saldo o el IVA; el alta,
+ * solo con grupo del saldo o comisión propia.
  */
 @Injectable()
 export class SuperAdminVenuesService {
@@ -85,8 +87,9 @@ export class SuperAdminVenuesService {
     return this.toDetail(venue, counts);
   }
 
-  /** Alta de un local (como POST /admin/venues, con negocio, grupo del saldo y comisión). */
+  /** Alta de un local (como POST /admin/venues, con negocio, grupo del saldo y comisión; con estos dos, 2FA). */
   async create(actor: SuperAdminActor, dto: CreateVenueDto): Promise<VenueDetail> {
+    if (venueCreateNeedsStepUp(dto)) await this.stepUp.verify(actor, dto.totpCode, 'venue.create');
     const venue = await this.prisma.acrossVenues(async (tx) => {
       const clash = await tx.venue.findUnique({ where: { slug: dto.slug }, select: { id: true } });
       if (clash) throw new ConflictException(`El slug "${dto.slug}" ya está en uso`);

@@ -17,10 +17,11 @@ import { isValidCutoff, parseCutoff } from './date-cutoff';
  * Antes de la fecha, nightpay_auth_body_refresh_total{client="legacy"} debería
  * haber dejado de subir.
  */
-export const AUTH_BODY_REFRESH_DEFAULT_UNTIL = '2026-11-30T00:00:00+01:00';
+/** Martes a mediodía (Madrid): ni en plena noche de cobro ni en fin de semana. */
+export const AUTH_BODY_REFRESH_DEFAULT_UNTIL = '2026-12-01T12:00:00+01:00';
 
 export const AUTH_BODY_REFRESH_UNTIL_HINT =
-  'Fecha y hora ISO con zona (p. ej. 2026-11-30T00:00:00+01:00) u "off" para cerrarla ya';
+  'Fecha y hora ISO con zona (p. ej. 2026-12-01T12:00:00+01:00) u "off" para cerrarla ya';
 
 export function isValidAuthBodyRefreshUntil(raw: string | undefined): boolean {
   return isValidCutoff(raw);
