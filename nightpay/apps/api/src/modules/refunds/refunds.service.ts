@@ -29,12 +29,14 @@ import {
 } from './gateway-refund-outcome';
 import {
   REFUNDABLE_STATUSES,
+  apiRefundedOnPaymentCents,
   assertNotDuplicateBankRefund,
   assertRefundFits,
   lockPaymentForRefund,
   settlePendingRefund,
 } from './refund-ledger';
 import { lockRefundsOf, refundTotalsOf, twoFactorReason } from './refund-two-factor';
+import { refundNeedsApproval, refundRoute } from '../approvals/approval-rules';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 
 /**
@@ -280,9 +282,10 @@ export class RefundsService {
       }
       // Aprobada: deja de reservar como solicitud antes de contar lo reservado.
       if (approved) await approved.claim(tx);
-      // Primero si cabe (no se pide un código para algo imposible), luego el 2FA
-      // (en una aprobada ya lo puso el dueño al aprobarla).
+      // Primero si cabe (no se pide un código para algo imposible), luego si le
+      // toca pedirla al dueño y el 2FA (en una aprobada ya lo puso el dueño).
       await assertRefundFits(tx, payment.id, locked, request.amountCents);
+      if (!approved) await assertBelowApprovalThreshold(tx, payment, request.amountCents, actor);
       const twoFactorRequired = approved ? false : await this.checkTwoFactor(tx, request, actor);
       const refund = await tx.refund.create({
         data: {
@@ -681,6 +684,31 @@ export class RefundsService {
       where: { paymentId },
       orderBy: { createdAt: 'desc' },
     });
+  }
+}
+
+/**
+ * «Por aprobar», otra vez con la fila del cobro bloqueada: el encargado no
+ * devuelve directo si con esta lo devuelto por la pasarela en el cobro (por
+ * todas las personas) llega al umbral del local. El controlador ya lo miró
+ * sin candado; así dos encargados a la vez (o dos pestañas) no pasan los dos
+ * por debajo. 409 REFUND_NEEDS_APPROVAL: el controlador la pide al dueño (202).
+ */
+async function assertBelowApprovalThreshold(
+  tx: TransactionalClient,
+  payment: { id: string; tenantId: string },
+  amountCents: number,
+  actor: Actor,
+): Promise<void> {
+  if (actor.role !== 'MANAGER') return;
+  const venue = await tx.venue.findUnique({
+    where: { id: payment.tenantId },
+    select: { payoutRequiresApproval: true, refundApprovalThresholdCents: true },
+  });
+  if (!venue) throw new NotFoundException('Local no encontrado');
+  const already = await apiRefundedOnPaymentCents(tx, payment.tenantId, payment.id);
+  if (refundRoute(actor.role, amountCents, venue, already) === 'request') {
+    throw refundNeedsApproval(already + amountCents, venue.refundApprovalThresholdCents);
   }
 }
 

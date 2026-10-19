@@ -20,6 +20,7 @@ import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import type { JwtPayload } from '@nightpay/contracts';
 import { madridDay } from '../../common/time/madrid';
 import { ApprovalRequestsService } from '../approvals/approval-requests.service';
+import { isRefundNeedsApproval } from '../approvals/approval-rules';
 import { RefundsService } from './refunds.service';
 
 const RefundBodySchema = z.object({
@@ -70,8 +71,9 @@ export class RefundsController {
 
   /**
    * Devolución por la pasarela. El encargado, desde el umbral del local
-   * (refundApprovalThresholdCents), no la hace: se la pide al dueño y
-   * responde 202 `{ approvalRequestId, status: 'PENDING', … }` (ver «Por aprobar»).
+   * (refundApprovalThresholdCents, contando lo ya devuelto en el cobro por
+   * cualquiera), no la hace: se la pide al dueño y responde 202
+   * `{ approvalRequestId, status: 'PENDING', … }` (ver «Por aprobar»).
    */
   @Post(':id/refunds')
   @HttpCode(201)
@@ -83,19 +85,22 @@ export class RefundsController {
     @Res({ passthrough: true }) reply?: FastifyReply,
   ) {
     const actor = { userId: user.sub, role: user.role, tenantId: user.tenantId };
-    if ((await this.approvals.refundRouteFor(actor, body.amountCents, paymentId)) === 'request') {
+    const askOwner = () => {
       reply?.status(202);
       return this.approvals.requestRefund(actor, { paymentId, amountCents: body.amountCents, reason: body.reason });
+    };
+    if ((await this.approvals.refundRouteFor(actor, body.amountCents, paymentId)) === 'request') return askOwner();
+    try {
+      return await this.refunds.refund(
+        { paymentId, amountCents: body.amountCents, reason: body.reason, totpCode: body.totpCode },
+        actor,
+      );
+    } catch (err) {
+      // A la vez, otra devolución del cobro lo llevó al umbral (lo mira la
+      // reserva con el cobro bloqueado): no se devolvió nada, se pide al dueño.
+      if (isRefundNeedsApproval(err)) return askOwner();
+      throw err;
     }
-    return this.refunds.refund(
-      {
-        paymentId,
-        amountCents: body.amountCents,
-        reason: body.reason,
-        totpCode: body.totpCode,
-      },
-      { userId: user.sub, role: user.role, tenantId: user.tenantId },
-    );
   }
 
   /**

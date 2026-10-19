@@ -25,8 +25,12 @@ import { AuditService } from '../audit/audit.service';
 import { payoutTotalCents } from '../operators/payout-math';
 import { lockOperatorPayouts, payableSelection } from '../operators/payout-selection';
 import { venueHoldDays } from '../operators/venue-hold-days';
-import { REFUNDABLE_STATUSES, assertRefundFits, lockPaymentForRefund } from '../refunds/refund-ledger';
-import { refundTotalsOf } from '../refunds/refund-two-factor';
+import {
+  REFUNDABLE_STATUSES,
+  apiRefundedOnPaymentCents,
+  assertRefundFits,
+  lockPaymentForRefund,
+} from '../refunds/refund-ledger';
 import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury/payout-tx-guard';
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { ApprovalNotifier } from './approval-notifier';
@@ -119,12 +123,18 @@ export class ApprovalRequestsService {
     return payoutRoute(actor.role, await this.venueRules(actor.tenantId));
   }
 
-  /** Contando lo que esta persona ya devolvió por la pasarela en ese cobro (pendiente o hecho). */
+  /**
+   * Contando lo ya devuelto por la pasarela en ese cobro (pendiente o hecho)
+   * por cualquiera. Sin candado: es para contestar 202 de entrada; la reserva
+   * lo vuelve a mirar con el cobro bloqueado (RefundsService.reserveApiRefund).
+   */
   async refundRouteFor(actor: ApprovalActor, amountCents: number, paymentId: string): Promise<RefundRoute> {
     const venue = await this.venueRules(actor.tenantId);
     if (actor.role !== 'MANAGER') return refundRoute(actor.role, amountCents, venue);
-    const totals = await this.prisma.withTenant(actor.tenantId, (tx) => refundTotalsOf(tx, actor, paymentId));
-    return refundRoute(actor.role, amountCents, venue, totals.samePaymentCents);
+    const already = await this.prisma.withTenant(actor.tenantId, (tx) =>
+      apiRefundedOnPaymentCents(tx, actor.tenantId, paymentId),
+    );
+    return refundRoute(actor.role, amountCents, venue, already);
   }
 
   // ─── Pedir ──────────────────────────────────────────────────────────

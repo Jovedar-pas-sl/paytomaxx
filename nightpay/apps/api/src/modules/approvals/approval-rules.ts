@@ -1,4 +1,4 @@
-import { HttpException } from '@nestjs/common';
+import { ConflictException, HttpException } from '@nestjs/common';
 import { isApprovalExpired, type ApprovalKind, type ApprovalRules, type ApprovalStatus, type Role } from '@nightpay/contracts';
 
 /**
@@ -37,8 +37,9 @@ export function payoutRoute(role: Role, venue: VenueApprovalRules): PayoutRoute 
 
 /**
  * Devolver por la pasarela: el encargado pide desde el umbral del local
- * (incluido), contando lo que ya devolvió él en ese mismo cobro: partirla en
- * trozos de 99 € no se salta al dueño (como el 2FA por lo acumulado).
+ * (incluido), contando lo ya devuelto por la pasarela en ese mismo cobro por
+ * cualquiera: partirla en trozos de 99 € (o repartirla entre dos encargados)
+ * no se salta al dueño.
  */
 export function refundRoute(
   role: Role,
@@ -51,6 +52,22 @@ export function refundRoute(
     return amountCents + alreadyOnPaymentCents >= venue.refundApprovalThresholdCents ? 'request' : 'direct';
   }
   return 'forbidden';
+}
+
+/** La devolución que el encargado iba a hacer directa llega ya al umbral (con el cobro bloqueado). */
+export const REFUND_NEEDS_APPROVAL_CODE = 'REFUND_NEEDS_APPROVAL';
+
+export function refundNeedsApproval(totalCents: number, thresholdCents: number): ConflictException {
+  return new ConflictException({
+    message: `En este cobro ya se devolverían ${eurShort(totalCents)} entre todos: desde ${eurShort(thresholdCents)} lo aprueba el dueño.`,
+    code: REFUND_NEEDS_APPROVAL_CODE,
+  });
+}
+
+export function isRefundNeedsApproval(err: unknown): boolean {
+  if (!(err instanceof ConflictException)) return false;
+  const body = err.getResponse();
+  return typeof body === 'object' && body !== null && (body as { code?: unknown }).code === REFUND_NEEDS_APPROVAL_CODE;
 }
 
 /** Lo que el panel necesita saber para pintar «Marcar pagado» / «Pedir al dueño». */

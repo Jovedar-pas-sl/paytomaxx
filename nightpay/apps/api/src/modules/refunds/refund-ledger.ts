@@ -67,6 +67,24 @@ export async function reservedRefundCents(
   return (agg._sum.amountCents ?? 0) + pendingApprovals;
 }
 
+/**
+ * Lo devuelto por la pasarela en este cobro (pendiente o hecho) por TODAS las
+ * personas: el umbral de «Por aprobar» va por cobro, no por quién lo pide
+ * (dos encargados con 60 € cada uno en el mismo cobro no se saltan al dueño).
+ * Las del banco no cuentan: las apunta el dueño, que no pide permiso.
+ */
+export async function apiRefundedOnPaymentCents(
+  tx: TransactionalClient,
+  tenantId: string,
+  paymentId: string,
+): Promise<number> {
+  const agg = await tx.refund.aggregate({
+    where: { tenantId, paymentId, registeredManually: false, status: { in: ['PENDING', 'SUCCEEDED'] } },
+    _sum: { amountCents: true },
+  });
+  return agg._sum.amountCents ?? 0;
+}
+
 /** Lo que aún se puede devolver: lo devolvible menos lo reservado. Si no cabe, 409. */
 export async function assertRefundFits(
   tx: TransactionalClient,
