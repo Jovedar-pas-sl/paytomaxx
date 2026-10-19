@@ -48,7 +48,15 @@ export const NFC_TIMEOUT_MS = 60_000;
 
 // ─── Lo que lee la cámara ────────────────────────────────────────────────
 
-export type ScanTarget = { kind: 'charge'; payToken: string } | { kind: 'wallet'; ref: SaldoRef } | { kind: 'unknown' };
+export type ScanTarget =
+  | { kind: 'charge'; payToken: string }
+  | { kind: 'wallet'; ref: SaldoRef }
+  /** El enlace de una ficha leído con la cámara: la ficha se acerca al lector NFC. */
+  | { kind: 'chip' }
+  | { kind: 'unknown' };
+
+/** Lo que se dice si enseñan la ficha (o su enlace) a la cámara. */
+export const CHIP_BY_CAMERA_TEXT = 'Eso es una ficha: acércala al lector de fichas (NFC). Con la cámara no vale.';
 
 /** Los enlaces del cobro (/s/…), del pase (/c/…, o /w/… en los de antes) y de la ficha. */
 const LINK_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
@@ -66,7 +74,9 @@ function walletCode(raw: string): string | null {
  *  - …/c/<token>: el pase de Google Wallet del cliente (solo para cobrarle);
  *  - …/w/<token>: el de los pases de antes (el enlace de su saldo), hasta que se pongan al día;
  *  - …/?saldo=K7Q4M2: el QR de la página del saldo del cliente (solo su código);
- *  - …/?ficha=<token>: el enlace de una ficha (si alguien lo pasó a QR);
+ *  - …/?ficha=<token>: el enlace de una ficha pasado a QR: no vale (sin número
+ *    de serie el API lo rechaza y sería la forma de usar una copia): se pide
+ *    acercar la ficha al lector;
  *  - K7Q-4M2 suelto: su código.
  * Solo se mira la ruta y el formato: el texto nunca se abre ni se navega.
  */
@@ -87,8 +97,7 @@ export function parseScan(raw: string): ScanTarget {
     // El API distingue los dos: el de /c lo comprueba con su firma (solo cobra).
     if (segment === 'c' || segment === 'w') return { kind: 'wallet', ref: { walletToken: token } };
   }
-  const card = walletCardTokenFromUrl(text);
-  if (card) return { kind: 'wallet', ref: { card, uid: null } };
+  if (walletCardTokenFromUrl(text)) return { kind: 'chip' };
   const code = walletCode(url.searchParams.get('saldo') ?? '');
   if (code) return { kind: 'wallet', ref: { code } };
   return { kind: 'unknown' };

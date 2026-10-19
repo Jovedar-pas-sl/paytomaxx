@@ -45,11 +45,8 @@ describe('parseScan: qué QR ha leído el datáfono', () => {
     expect(parseScan('k7q-4m2')).toEqual({ kind: 'wallet', ref: { code: 'K7Q4M2' } });
   });
 
-  it('el enlace de una ficha pasado a QR: su código, sin número de serie (el PIN sigue haciendo falta)', () => {
-    expect(parseScan(`https://operator.paytomaxx.com/?ficha=${FICHA}`)).toEqual({
-      kind: 'wallet',
-      ref: { card: FICHA, uid: null },
-    });
+  it('el enlace de una ficha pasado a QR no vale: la ficha se acerca al lector (sin número de serie el API la rechaza)', () => {
+    expect(parseScan(`https://operator.paytomaxx.com/?ficha=${FICHA}`)).toEqual({ kind: 'chip' });
   });
 
   it('lo demás no vale: otra ruta, tokens raros, otros esquemas, textos largos', () => {

@@ -9,6 +9,7 @@ import {
   checkProblem,
   checkSaldoWallet,
   fetchSaldoCharges,
+  CHIP_BY_CAMERA_TEXT,
   parseScan,
   readerErrorText,
   readFicha,
@@ -210,7 +211,9 @@ function PickCharge({
       if (text === null) return;
       const target = parseScan(text);
       if (target.kind === 'charge') onPicked(await scanSaldoCharge(target.payToken));
-      else if (target.kind === 'wallet') setError('Ese es el QR del cliente: primero elige el cobro (o escanea el QR del cobro de la chica).');
+      else if (target.kind === 'wallet' || target.kind === 'chip') {
+        setError('Ese es el QR del cliente: primero elige el cobro (o escanea el QR del cobro de la chica).');
+      }
       else setError('Ese QR no es de un cobro de OxioPay.');
     } catch (err) {
       setError((err as Error).message);
@@ -308,6 +311,7 @@ function IdentifyWallet({
       if (text === null) return;
       const target = parseScan(text);
       if (target.kind === 'wallet') await check(target.ref);
+      else if (target.kind === 'chip') throw new Error(CHIP_BY_CAMERA_TEXT);
       else if (target.kind === 'charge') throw new Error('Ese es el QR de un cobro: escanea el del cliente (su pase o su página del saldo).');
       else throw new Error('Ese QR no es de un saldo de OxioPay.');
     });
