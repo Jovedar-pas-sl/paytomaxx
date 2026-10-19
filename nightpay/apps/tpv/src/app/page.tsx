@@ -4,7 +4,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { CashRegister } from '@/components/CashRegister';
-import { SESSION_EXPIRED_EVENT, getToken, getVenueSlug } from '@/lib/api';
+import { SESSION_EXPIRED_EVENT, getVenueSlug, hasSession } from '@/lib/api';
 import { MESSAGES } from '@/lib/http';
 
 const LOGOUT_NOT_CONFIRMED = 'Has salido. El servidor no respondió: la sesión caducará sola.';
@@ -16,8 +16,7 @@ export default function Page() {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = getToken();
-    setAuthed(!!token);
+    setAuthed(hasSession());
     setVenueSlug(getVenueSlug());
   }, []);
 

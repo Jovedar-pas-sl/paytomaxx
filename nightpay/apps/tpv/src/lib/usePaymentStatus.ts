@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { PaymentStatus } from '@nightpay/ui';
-import { getToken, wsBase, type CreatedPayment } from './api';
+import { freshAccessToken, wsBase, type CreatedPayment } from './api';
 import { playBeep } from './beep';
 
 export interface LivePaymentStatus {
@@ -22,9 +22,11 @@ export function usePaymentStatus(payment: CreatedPayment | null): LivePaymentSta
 
     const socket: Socket = io(`${wsBase}/rt`, {
       transports: ['websocket', 'polling'],
-      // El API pide el JWT del personal. Función: en cada reconexión lee el
-      // token del momento (ya refrescado), no el del primer intento.
-      auth: (cb) => cb({ token: getToken() }),
+      // El API pide el JWT del personal. Función: en cada reconexión el token
+      // del momento (renovado si está a punto de caducar), no el del primer intento.
+      auth: (cb) => {
+        void freshAccessToken().then((token) => cb(token ? { token } : {}));
+      },
     });
     socket.on('connect', () => {
       setLive(true);
