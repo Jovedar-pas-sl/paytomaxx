@@ -27,7 +27,15 @@ import { Notice } from './Notice';
  * chicas e incidencias; al final se congela el informe Z con su caja. Si
  * nadie la cierra, se cierra sola a las 08:00 (con la caja sin contar).
  */
-export function NightsPanel({ tabs, onNavigate }: { tabs: readonly PanelTab[]; onNavigate: (key: TabKey) => void }) {
+export function NightsPanel({
+  tabs,
+  onNavigate,
+  isOwner,
+}: {
+  tabs: readonly PanelTab[];
+  onNavigate: (key: TabKey) => void;
+  isOwner: boolean;
+}) {
   const tz = useVenueTimezone();
   /** undefined = cargando; null = no hay noche abierta. */
   const [current, setCurrent] = useState<NightView | null | undefined>(undefined);
@@ -250,6 +258,7 @@ export function NightsPanel({ tabs, onNavigate }: { tabs: readonly PanelTab[]; o
       {closing && current ? (
         <NightCloseScreen
           night={current}
+          isOwner={isOwner}
           tabs={tabs}
           onNavigate={onNavigate}
           onClose={() => {

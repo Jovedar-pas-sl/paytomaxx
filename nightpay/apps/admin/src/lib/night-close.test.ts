@@ -6,6 +6,7 @@ import {
   cashOutcome,
   diffLabel,
   effectiveSteps,
+  floatChangeCode,
   ackedKeys,
   freezeState,
   parseCashInput,
@@ -192,5 +193,32 @@ describe('pasos en un 409 del API', () => {
     expect(stepsFromBody('<html>')).toBeNull();
     expect(stepsFromBody(JSON.stringify({ detail: 'x' }))).toBeNull();
     expect(stepsFromBody(JSON.stringify({ steps: [{ key: 'otro', status: 'ok', title: '', detail: '', items: [] }] }))).toBeNull();
+  });
+});
+
+describe('cambiar al cerrar el fondo apuntado al abrir', () => {
+  // CASH: fondo 200 € apuntado al abrir; salieron 135 € (lo esperado, 65 €).
+  const changed = { floatText: '150', countedText: '15' };
+  const same = { floatText: '200', countedText: '65' };
+
+  it('sin cambiar el fondo no hace falta código', () => {
+    expect(floatChangeCode(CASH, same, { isOwner: true, code: '' })).toEqual({ needed: false });
+    expect(floatChangeCode(CASH, { floatText: '', countedText: '65' }, { isOwner: false, code: '' })).toEqual({ needed: false });
+  });
+
+  it('cambiado: bloquea el paso hasta que el dueño pone su código; el encargado no puede', () => {
+    expect(cashOutcome(CASH, changed)).toMatchObject({ reason: 'float-changed', status: 'block' });
+    expect(floatChangeCode(CASH, changed, { isOwner: false, code: '123456' })).toEqual({ needed: true, code: undefined });
+    expect(floatChangeCode(CASH, changed, { isOwner: true, code: '123' })).toEqual({ needed: true, code: undefined });
+    expect(floatChangeCode(CASH, changed, { isOwner: true, code: '123456' })).toEqual({ needed: true, code: '123456' });
+    const efectivo = (approved: boolean) => effectiveSteps(STEPS, CASH, changed, approved).find((s) => s.key === 'efectivo');
+    expect(efectivo(false)?.status).toBe('block');
+    expect(efectivo(true)?.status).toBe('ok');
+  });
+
+  it('lo esperado negativo bloquea con el texto de las reglas', () => {
+    expect(cashOutcome(CASH, { floatText: '', countedText: '0' }, false).reason).not.toBe('negative');
+    const noFloat = { ...CASH, openingFloatCents: 0 };
+    expect(cashOutcome(noFloat, { floatText: '', countedText: '0' })).toMatchObject({ reason: 'negative', status: 'block' });
   });
 });

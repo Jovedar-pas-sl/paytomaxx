@@ -37,24 +37,53 @@ export interface CashDraft {
   countedText: string;
 }
 
-/** Lo tecleado → la entrada de las reglas (lo que no es un importe cuenta como vacío). */
-export function cashInputOf(draft: CashDraft): CashInput {
+/**
+ * Lo tecleado → la entrada de las reglas (lo que no es un importe cuenta como
+ * vacío). `floatApproved`: el dueño puso su código 2FA para cambiar el fondo
+ * apuntado al abrir (el API lo comprueba al cerrar).
+ */
+export function cashInputOf(draft: CashDraft, floatApproved = false): CashInput {
   const float = parseCashInput(draft.floatText);
   const counted = parseCashInput(draft.countedText);
   return {
     openingFloatCents: typeof float === 'number' ? float : undefined,
     countedCents: typeof counted === 'number' ? counted : undefined,
+    ...(floatApproved ? { floatChangeApproved: true } : {}),
   };
 }
 
 /** Los pasos con el efectivo tecleado (como los recalcula el API al cerrar). */
-export function effectiveSteps(steps: ReadonlyArray<NightCloseStep>, cash: NightCash, draft: CashDraft): NightCloseStep[] {
-  return withCashInput(steps, cash, cashInputOf(draft));
+export function effectiveSteps(
+  steps: ReadonlyArray<NightCloseStep>,
+  cash: NightCash,
+  draft: CashDraft,
+  floatApproved = false,
+): NightCloseStep[] {
+  return withCashInput(steps, cash, cashInputOf(draft, floatApproved));
 }
 
-export function cashOutcome(cash: NightCash, draft: CashDraft): CashOutcome {
-  return evaluateCash(cash, cashInputOf(draft));
+export function cashOutcome(cash: NightCash, draft: CashDraft, floatApproved = false): CashOutcome {
+  return evaluateCash(cash, cashInputOf(draft, floatApproved));
 }
+
+/**
+ * Cambiar al cerrar el fondo apuntado al abrir: solo el dueño, con su código
+ * 2FA (6 cifras; el API lo comprueba). null: no hace falta código (el fondo no
+ * cambió). Si no, el código que se manda (o undefined si aún no vale).
+ */
+export function floatChangeCode(
+  cash: NightCash,
+  draft: CashDraft,
+  who: { isOwner: boolean; code: string },
+): { needed: false } | { needed: true; code: string | undefined } {
+  if (!cashOutcome(cash, draft).floatChanged) return { needed: false };
+  const code = who.isOwner && /^\d{6}$/.test(who.code) ? who.code : undefined;
+  return { needed: true, code };
+}
+
+/** Lo que se dice al encargado que cambia el fondo apuntado al abrir. */
+export const FLOAT_OWNER_ONLY_TEXT =
+  'Solo el dueño puede cambiar al cerrar el fondo apuntado al abrir (con su 2FA). Deja el que se apuntó o pídeselo.';
 
 /** Diferencia de caja en palabras: «Faltan 12,50 €», «Sobran 5,00 €», «Cuadra». */
 export function diffLabel(diffCents: number): string {

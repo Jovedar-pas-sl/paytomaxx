@@ -3,7 +3,8 @@
 import { useId, useState } from 'react';
 import type { NightCash } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
-import { cashOutcome, diffLabel, parseCashInput, type CashDraft } from '@/lib/night-close';
+import { FLOAT_OWNER_ONLY_TEXT, cashOutcome, diffLabel, parseCashInput, type CashDraft } from '@/lib/night-close';
+import { OtpInput } from './OtpInput';
 
 interface Props {
   cash: NightCash;
@@ -15,6 +16,11 @@ interface Props {
   acked: boolean;
   onAck: (on: boolean) => void;
   disabled?: boolean;
+  /** Cambiar el fondo apuntado al abrir: el dueño pone aquí su código 2FA. */
+  isOwner: boolean;
+  floatCode: string;
+  onFloatCode: (code: string) => void;
+  floatCodeLockedUntil: number | null;
 }
 
 /**
@@ -22,7 +28,20 @@ interface Props {
  * efectivo por OxioPay), lo contado en grande y la diferencia resaltada si
  * no cuadra. OxioPay no cobra en efectivo: la caja, por el sistema, solo baja.
  */
-export function NightCashStep({ cash, draft, onDraft, cashNote, onCashNote, acked, onAck, disabled }: Props) {
+export function NightCashStep({
+  cash,
+  draft,
+  onDraft,
+  cashNote,
+  onCashNote,
+  acked,
+  onAck,
+  disabled,
+  isOwner,
+  floatCode,
+  onFloatCode,
+  floatCodeLockedUntil,
+}: Props) {
   const countedId = useId();
   const floatId = useId();
   const noteId = useId();
@@ -89,6 +108,23 @@ export function NightCashStep({ cash, draft, onDraft, cashNote, onCashNote, acke
           />
           {float === null ? <span className="np-cash-error">Escribe un importe, p. ej. 150 o 150,50.</span> : null}
         </div>
+      ) : null}
+
+      {outcome.floatChanged ? (
+        isOwner ? (
+          <OtpInput
+            label="Tu código 2FA para cambiar el fondo apuntado al abrir"
+            value={floatCode}
+            onChange={onFloatCode}
+            lockedUntil={floatCodeLockedUntil}
+            hint="El Z guarda los dos fondos. Cada código vale una sola vez."
+            disabled={disabled}
+          />
+        ) : (
+          <p role="alert" className="np-cash-error">
+            {FLOAT_OWNER_ONLY_TEXT}
+          </p>
+        )
       ) : null}
 
       <div className="np-cash-field">

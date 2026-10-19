@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { Button } from '@nightpay/ui';
 import type { NightChicaPay, NightCloseCheck, NightCloseStep, NightCloseStepKey } from '@nightpay/contracts';
 import { NightCloseRefused, closeNight, fetchCloseCheck, type NightView, type PayoutMethod } from '@/lib/api';
+import { ApiError, totpRetryState } from '@/lib/api-errors';
 import { formatDateTime } from '@/lib/dates';
 import { sameValue } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
@@ -13,6 +14,7 @@ import {
   ackedKeys,
   cashInputOf,
   effectiveSteps,
+  floatChangeCode,
   freezeState,
   readyCount,
   stepTab,
@@ -34,6 +36,8 @@ const ITEMS_SHOWN = 6;
 
 interface Props {
   night: NightView;
+  /** El dueño: puede aprobar con su 2FA cambiar el fondo apuntado al abrir. */
+  isOwner: boolean;
   tabs: ReadonlyArray<PanelTab>;
   onNavigate: (key: TabKey) => void;
   /** Volver sin cerrar. */
@@ -48,7 +52,7 @@ interface Props {
  * chicas, incidencias y congelar el Z. «Congelar el Z» se habilita cuando
  * nada bloquea y los avisos están confirmados (mismas reglas que el API).
  */
-export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }: Props) {
+export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, onClosed }: Props) {
   const tz = useVenueTimezone();
   const titleId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -56,6 +60,9 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<CashDraft>({ floatText: '', countedText: '' });
   const [cashNote, setCashNote] = useState('');
+  // Fondo cambiado al cerrar: el código 2FA del dueño (y hasta cuándo no deja probar otro).
+  const [floatCode, setFloatCode] = useState('');
+  const [floatLockedUntil, setFloatLockedUntil] = useState<number | null>(null);
   const [note, setNote] = useState('');
   // Cada aviso confirmado con su huella: si el paso cambia (otro importe u otro recuento), hay que volver a confirmarlo.
   const [ackList, setAckList] = useState<StepAck[]>([]);
@@ -86,7 +93,9 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
     if (!busy && payFor === null) (closed ? onClosed : onClose)();
   });
 
-  const steps = check ? effectiveSteps(check.steps, check.cash, draft) : [];
+  const floatChange = check ? floatChangeCode(check.cash, draft, { isOwner, code: floatCode }) : { needed: false as const };
+  const floatApproved = floatChange.needed && floatChange.code !== undefined;
+  const steps = check ? effectiveSteps(check.steps, check.cash, draft, floatApproved) : [];
   const acks = ackedKeys(ackList, steps);
   const ackStep = (key: NightCloseStepKey, on: boolean) => {
     const step = steps.find((s) => s.key === key);
@@ -106,9 +115,16 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
         cashCountedCents: cash.countedCents ?? undefined,
         openingFloatCents: cash.openingFloatCents ?? undefined,
         cashNote: cashNote.trim() || undefined,
+        totpCode: floatChange.needed ? floatChange.code : undefined,
       });
       setClosed(view);
     } catch (err) {
+      // El código del dueño no valía (o hay que esperar): se pide otro.
+      if (floatChange.needed) {
+        const retry = totpRetryState(err, Date.now());
+        if (retry.lockedUntil !== null) setFloatLockedUntil(retry.lockedUntil);
+        if (retry.askCode || (err instanceof ApiError && err.code === 'TOTP_INVALID')) setFloatCode('');
+      }
       // El API recalculó los pasos: se enseñan los suyos (pueden haber cambiado).
       if (err instanceof NightCloseRefused && check) {
         setCheck({ ...check, steps: err.steps });
@@ -158,6 +174,10 @@ export function NightCloseScreen({ night, tabs, onNavigate, onClose, onClosed }:
                   acked={acks.includes('efectivo')}
                   onAck={(on) => ackStep('efectivo', on)}
                   disabled={busy}
+                  isOwner={isOwner}
+                  floatCode={floatCode}
+                  onFloatCode={setFloatCode}
+                  floatCodeLockedUntil={floatLockedUntil}
                 />
               ) : step.key === 'chicas' ? (
                 <NightChicasStep chicas={check.chicas} holdDays={check.holdDays} onPay={setPayFor} disabled={busy} />

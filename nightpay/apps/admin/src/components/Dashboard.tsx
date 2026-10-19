@@ -264,7 +264,7 @@ function ActivePanel(props: ActivePanelProps) {
     case 'fichas':
       return <FichasPanel />;
     case 'nights':
-      return <NightsPanel tabs={tabs} onNavigate={onNavigate} />;
+      return <NightsPanel tabs={tabs} onNavigate={onNavigate} isOwner={isOwner} />;
     case 'reports':
       return <ReportsPanel isOwner={isOwner} />;
     case 'bank':
