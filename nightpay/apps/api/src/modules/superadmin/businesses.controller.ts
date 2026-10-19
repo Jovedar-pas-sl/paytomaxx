@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, P
 import {
   AssignVenuesSchema,
   BusinessListQuerySchema,
-  CreateBusinessSchema,
+  CreateBusinessRequestSchema,
   PauseSchema,
   ResumeSchema,
   UnassignVenueSchema,
@@ -11,7 +11,7 @@ import {
   type BusinessDetail,
   type BusinessListQuery,
   type BusinessView,
-  type CreateBusinessDto,
+  type CreateBusinessRequest,
   type PauseDto,
   type ResumeDto,
   type UnassignVenueDto,
@@ -48,7 +48,7 @@ export class SuperAdminBusinessesController {
   @IpRateLimit(SUPERADMIN_WRITE_LIMIT)
   async create(
     @CurrentSuperAdmin() actor: SuperAdminActor,
-    @Body(new ZodValidationPipe(CreateBusinessSchema)) dto: CreateBusinessDto,
+    @Body(new ZodValidationPipe(CreateBusinessRequestSchema)) dto: CreateBusinessRequest,
   ): Promise<BusinessView> {
     return this.businesses.create(actor, dto);
   }

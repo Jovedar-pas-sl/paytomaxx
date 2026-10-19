@@ -2,9 +2,7 @@ import { randomBytes } from 'node:crypto';
 import {
   VENUE_PROFILE_STEP_UP_FIELDS,
   commissionTotalsProblem,
-  type CreateVenueDto,
   type OperatorCommissionDefaults,
-  type UpdateBusinessDto,
   type UpdateVenueProfileDto,
   type UpdateVenueRulesDto,
 } from '@nightpay/contracts';
@@ -73,19 +71,6 @@ export function planVenueRulesChange(
     maxOperatorOverrideBps,
   });
   return problem ? { ok: false, problem } : { ok: true, change };
-}
-
-/** Dar de alta un local con grupo del saldo o comisión propia pide 2FA (como cambiarlos después). */
-export function venueCreateNeedsStepUp(dto: CreateVenueDto): boolean {
-  return Boolean(dto.walletGroup) || dto.platformCommissionBps !== undefined;
-}
-
-/** Cambiar la comisión por defecto del negocio (a otro valor) pide 2FA; reenviarla igual, no. */
-export function businessUpdateNeedsStepUp(
-  dto: UpdateBusinessDto,
-  current: { defaultPlatformCommissionBps: number | null },
-): boolean {
-  return dto.defaultPlatformCommissionBps !== undefined && dto.defaultPlatformCommissionBps !== current.defaultPlatformCommissionBps;
 }
 
 /** Cambiar el grupo del saldo o el IVA del local pide 2FA; el nombre o la zona, no. */

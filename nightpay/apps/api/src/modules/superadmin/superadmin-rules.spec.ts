@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { businessCreateNeedsStepUp, businessUpdateNeedsStepUp, venueCreateNeedsStepUp } from '@nightpay/contracts';
 import {
-  businessUpdateNeedsStepUp,
   commissionMapOf,
   generateTemporaryPassword,
   planVenueRulesChange,
   profileNeedsStepUp,
   superAdminRemovalProblem,
-  venueCreateNeedsStepUp,
 } from './superadmin-rules';
 
 const current = {
@@ -79,6 +78,13 @@ describe('altas y negocios que piden 2FA', () => {
     expect(venueCreateNeedsStepUp({ name: 'Luna', slug: 'luna', walletGroup: null })).toBe(false);
     expect(venueCreateNeedsStepUp({ name: 'Luna', slug: 'luna', walletGroup: 'g1' })).toBe(true);
     expect(venueCreateNeedsStepUp({ name: 'Luna', slug: 'luna', platformCommissionBps: 0 })).toBe(true);
+  });
+
+  it('alta de negocio: con comisión por defecto propia (también 0 %) → 2FA; sin ella (null) → no', () => {
+    expect(businessCreateNeedsStepUp({})).toBe(false);
+    expect(businessCreateNeedsStepUp({ defaultPlatformCommissionBps: null })).toBe(false);
+    expect(businessCreateNeedsStepUp({ defaultPlatformCommissionBps: 0 })).toBe(true);
+    expect(businessCreateNeedsStepUp({ defaultPlatformCommissionBps: 800 })).toBe(true);
   });
 
   it('negocio: cambiar la comisión por defecto → 2FA; reenviar la misma o tocar otros datos → no', () => {

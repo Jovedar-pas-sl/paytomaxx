@@ -13,6 +13,7 @@ import {
   type VenueDetail,
   type VenueListItem,
   type VenueListQuery,
+  venueCreateNeedsStepUp,
 } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { resolveHoldDays } from '../operators/payout-math';
@@ -20,7 +21,7 @@ import { venuePauseScope } from '../venues/venue-pause';
 import { changedFields } from './masking';
 import { SuperAdminStepUpService } from './step-up.service';
 import { SuperAdminAuditService } from './superadmin-audit.service';
-import { commissionMapOf, planVenueRulesChange, profileNeedsStepUp, venueCreateNeedsStepUp } from './superadmin-rules';
+import { commissionMapOf, planVenueRulesChange, profileNeedsStepUp } from './superadmin-rules';
 import type { SuperAdminActor } from './superadmin.guard';
 
 const VENUE_NOT_FOUND = 'Local no encontrado';

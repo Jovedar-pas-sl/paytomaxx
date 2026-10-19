@@ -1,11 +1,14 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import {
+  businessCreateNeedsStepUp,
+  businessUpdateNeedsStepUp,
   normalizeTaxId,
   type AssignVenuesDto,
   type BusinessListQuery,
   type BusinessView,
   type CreateBusinessDto,
+  type CreateBusinessRequest,
   type PauseDto,
   type ResumeDto,
   type UnassignVenueDto,
@@ -16,7 +19,6 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { changedFields } from './masking';
 import { SuperAdminStepUpService } from './step-up.service';
 import { SuperAdminAuditService } from './superadmin-audit.service';
-import { businessUpdateNeedsStepUp } from './superadmin-rules';
 import type { SuperAdminActor } from './superadmin.guard';
 import { SuperAdminVenuesService } from './venues.service';
 
@@ -29,7 +31,8 @@ type BusinessRow = Prisma.BusinessGetPayload<{ include: { _count: { select: { ve
  * todo con acrossVenues (RLS de businesses solo con bypass). Pausar un negocio
  * para los cobros de todos sus locales (423 VENUE_PAUSED). Piden 2FA: pausa,
  * reanudar, meter o sacar locales (sacarlo de un negocio en pausa le deja
- * volver a cobrar) y cambiar la comisión por defecto.
+ * volver a cobrar) y poner o cambiar la comisión por defecto (alta y edición):
+ * los locales nuevos del negocio la heredan.
  */
 @Injectable()
 export class SuperAdminBusinessesService {
@@ -75,9 +78,13 @@ export class SuperAdminBusinessesService {
     return { ...toBusinessView(business), venues: await this.venues.list({ businessId: id }) };
   }
 
-  async create(actor: SuperAdminActor, dto: CreateBusinessDto): Promise<BusinessView> {
+  async create(actor: SuperAdminActor, dto: CreateBusinessRequest): Promise<BusinessView> {
+    if (businessCreateNeedsStepUp(dto)) await this.stepUp.verify(actor, dto.totpCode, 'business.create_commission');
+    const { totpCode: _code, ...fields } = dto;
     const created = await this.prisma
-      .acrossVenues((tx) => tx.business.create({ data: { ...businessData(dto), name: dto.name } as Prisma.BusinessCreateInput, include: countVenues }))
+      .acrossVenues((tx) =>
+        tx.business.create({ data: { ...businessData(fields), name: fields.name } as Prisma.BusinessCreateInput, include: countVenues }),
+      )
       .catch(taxIdClash);
     await this.audit.write(actor, {
       action: 'business.created',

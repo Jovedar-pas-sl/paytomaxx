@@ -132,6 +132,7 @@ function businessesSetup(opts: { stepUpFails?: boolean } = {}) {
   const tx = {
     business: {
       findUnique: vi.fn().mockResolvedValue(BUSINESS),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...BUSINESS, ...data })),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...BUSINESS, ...data })),
     },
     venue: {
@@ -183,6 +184,26 @@ describe('SuperAdminBusinessesService — 2FA en lo que saca locales de una paus
 
     const plain = businessesSetup({ stepUpFails: true });
     await plain.svc.update(actor, 'b-1', { name: 'Luna Ocio SL', defaultPlatformCommissionBps: 800 });
+    expect(plain.stepUp.verify).not.toHaveBeenCalled();
+  });
+
+  it('alta con comisión por defecto propia: 2FA (mala → 403 sin crear); sin comisión, sin 2FA', async () => {
+    const failing = businessesSetup({ stepUpFails: true });
+    await expect(failing.svc.create(actor, { name: 'Sol Noche', defaultPlatformCommissionBps: 0 })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(failing.stepUp.verify).toHaveBeenCalledWith(actor, undefined, 'business.create_commission');
+    expect(failing.tx.business.create).not.toHaveBeenCalled();
+
+    const ok = businessesSetup();
+    await ok.svc.create(actor, { name: 'Sol Noche', defaultPlatformCommissionBps: 500, totpCode: '123456' });
+    expect(ok.stepUp.verify).toHaveBeenCalledWith(actor, '123456', 'business.create_commission');
+    const data = ok.tx.business.create.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data).toMatchObject({ name: 'Sol Noche', defaultPlatformCommissionBps: 500 });
+    expect(data).not.toHaveProperty('totpCode');
+
+    const plain = businessesSetup({ stepUpFails: true });
+    await plain.svc.create(actor, { name: 'Sol Noche', defaultPlatformCommissionBps: null });
     expect(plain.stepUp.verify).not.toHaveBeenCalled();
   });
 });

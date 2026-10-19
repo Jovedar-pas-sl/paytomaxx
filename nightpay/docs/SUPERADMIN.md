@@ -61,7 +61,7 @@ incidencias se cuentan con la bandeja de cada local (4 locales a la vez).
 |---|---|---|---|
 | `GET /superadmin/businesses?q=&status=` | Lista (busca por nombre, NIF/CIF o email). | — | — |
 | `GET /superadmin/businesses/:id` | Ficha con sus locales. | — | — |
-| `POST /superadmin/businesses` | Alta: razón social, NIF/CIF (único, se guarda sin espacios ni guiones), contacto, notas, comisión por defecto para sus locales nuevos. | — | `business.created` |
+| `POST /superadmin/businesses` | Alta: razón social, NIF/CIF (único, se guarda sin espacios ni guiones), contacto, notas, comisión por defecto para sus locales nuevos. | Solo con `defaultPlatformCommissionBps` (no null) | `business.created` |
 | `PATCH /superadmin/businesses/:id` | Cambiar esos datos. | Solo si cambia `defaultPlatformCommissionBps` | `business.updated` (solo lo que cambia) |
 | `POST /superadmin/businesses/:id/pause` | Pausa el negocio: **ninguno de sus locales** acepta cobros nuevos. Motivo. | Sí | `business.paused` (con los locales afectados) |
 | `POST /superadmin/businesses/:id/resume` | Quita la pausa (motivo opcional). | Sí | `business.resumed` |
