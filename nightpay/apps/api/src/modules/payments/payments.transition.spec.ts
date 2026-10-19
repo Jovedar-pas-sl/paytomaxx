@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { PaymentsService, type LockedPaymentRow } from './payments.service';
+import { InvalidTransitionError } from './payment.machine';
+import { isOtherOrder } from './second-approval';
 
 /**
  * transition() con la base simulada: cada consulta cruda se responde según su
@@ -42,6 +44,8 @@ export interface FakeDb {
   payment?: Row | null;
   /** Otro cobro de este datáfono ya confirmado con el mismo código. */
   reusedAuthCode?: boolean;
+  /** Segunda aprobación: ¿el pedido es un intento de este cobro? ¿ya apuntada? */
+  secondApproval?: { isAttempt: boolean; recorded: boolean };
 }
 
 function sqlOf(strings: unknown): string {
@@ -53,6 +57,7 @@ function makeTransitionService(db: FakeDb) {
   const queryRaw = vi.fn(async (strings: unknown, ...values: unknown[]) => {
     const sql = sqlOf(strings);
     if (sql.includes('FROM payments') && sql.includes('FOR UPDATE')) return [db.locked];
+    if (sql.includes('AS "isAttempt"')) return [db.secondApproval ?? { isAttempt: false, recorded: false }];
     if (sql.includes('FROM payment_attempts')) {
       return db.attemptTip === undefined ? [] : [{ tipCents: db.attemptTip, creatorRole: db.creatorRole ?? 'OPERATOR' }];
     }
@@ -89,6 +94,7 @@ function makeTransitionService(db: FakeDb) {
   const metrics = {
     paymentsTransitioned: { inc: vi.fn() },
     walletCreditSkipped: { inc: vi.fn() },
+    duplicateCharges: { inc: vi.fn() },
   };
   const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
   const service = Object.create(PaymentsService.prototype) as PaymentsService;
@@ -372,5 +378,84 @@ describe('cancel — quién puede cancelar', () => {
     await expect(
       service.cancel(PAYMENT_ID, { userId: 'manager-1', role: 'MANAGER', tenantId: 'tenant-1' }),
     ).resolves.toEqual({ status: 'CANCELED' });
+  });
+});
+
+describe('transition — doble cobro: otro pedido aprobado con el cobro ya pagado (P1)', () => {
+  const paid: LockedPaymentRow = { ...baseRow, status: 'AUTHORIZED', providerTxId: 'ORDER1' };
+  const second = { type: 'AUTHORIZED' as const, provider: 'REDSYS' as const, providerTxId: 'ORDER2' };
+
+  it('se apunta en la misma transacción (intento APPROVED + incidencia) y para quien llama sigue siendo idempotente', async () => {
+    const { service, executed, metrics, tx } = makeTransitionService({
+      locked: { ...paid },
+      attemptTip: 900,
+      secondApproval: { isAttempt: true, recorded: false },
+    });
+
+    const err = await service.transition(PAYMENT_ID, second).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(InvalidTransitionError);
+    expect(err).toMatchObject({ fromState: 'AUTHORIZED', eventType: 'AUTHORIZED' });
+    const attempt = executed.find((e) => e.sql.includes('UPDATE payment_attempts'))!;
+    expect(attempt.values).toEqual([PAYMENT_ID, 'REDSYS', 'ORDER2']);
+    const incident = executed.find((e) => e.sql.includes('INSERT INTO payment_events'))!;
+    expect(incident.values.slice(0, 3)).toEqual([PAYMENT_ID, 'tenant-1', 'payment.duplicate_charge']);
+    expect(JSON.parse(incident.values[3] as string)).toEqual({ order: 'ORDER2', provider: 'REDSYS', chargedOrder: 'ORDER1' });
+    expect(metrics.duplicateCharges.inc).toHaveBeenCalledWith({ venue: 'tenant-1', provider: 'REDSYS' });
+    // Ni la propina del segundo pedido, ni otro estado, ni otra comisión.
+    expect(executed.some((e) => e.sql.includes('SET "tipCents"'))).toBe(false);
+    expect(executed.some((e) => e.sql.includes('UPDATE payments'))).toBe(false);
+    expect(executed.some((e) => e.sql.includes('operator_earnings'))).toBe(false);
+    expect(tx.$queryRaw.mock.calls.some((c) => String(c[0]).includes('FROM users'))).toBe(false);
+  });
+
+  it('el mismo aviso otra vez: no repite la incidencia', async () => {
+    const { service, executed, metrics } = makeTransitionService({
+      locked: { ...paid },
+      secondApproval: { isAttempt: true, recorded: true },
+    });
+
+    await expect(service.transition(PAYMENT_ID, second)).rejects.toBeInstanceOf(InvalidTransitionError);
+
+    expect(executed.some((e) => e.sql.includes('INSERT INTO payment_events'))).toBe(false);
+    expect(metrics.duplicateCharges.inc).not.toHaveBeenCalled();
+  });
+
+  it('un pedido que no es intento de este cobro: no se da por doble cobro (camino de siempre)', async () => {
+    const { service, executed } = makeTransitionService({ locked: { ...paid }, secondApproval: { isAttempt: false, recorded: false } });
+
+    await expect(service.transition(PAYMENT_ID, second)).rejects.toBeInstanceOf(InvalidTransitionError);
+
+    expect(executed.some((e) => e.sql.includes('INSERT INTO payment_events'))).toBe(false);
+    expect(executed.some((e) => e.sql.includes('UPDATE payment_attempts'))).toBe(false);
+  });
+
+  it('el mismo pedido que pagó el cobro: idempotente, sin mirar intentos', async () => {
+    const { service, tx } = makeTransitionService({ locked: { ...paid } });
+
+    await expect(service.transition(PAYMENT_ID, authorized)).rejects.toBeInstanceOf(InvalidTransitionError);
+
+    expect(tx.$queryRaw.mock.calls.some((c) => String(c[0]).includes('"isAttempt"'))).toBe(false);
+  });
+
+  it('al pagarse, el intento que cobró queda APPROVED (aviso, conciliación o a mano)', async () => {
+    const { service, executed } = makeTransitionService({ locked: { ...baseRow } });
+
+    await service.transition(PAYMENT_ID, authorized);
+
+    const attempt = executed.find((e) => e.sql.includes('UPDATE payment_attempts'))!;
+    expect(attempt.sql).toContain(`status <> 'APPROVED'`);
+    expect(attempt.values).toEqual([PAYMENT_ID, 'REDSYS', 'ORDER1']);
+  });
+
+  it('isOtherOrder: solo con el cobro pagado, misma pasarela y otro pedido', () => {
+    const ev = { provider: 'REDSYS', providerTxId: 'B' };
+    expect(isOtherOrder({ status: 'AUTHORIZED', provider: 'REDSYS', providerTxId: 'A' }, ev)).toBe(true);
+    expect(isOtherOrder({ status: 'PARTIALLY_REFUNDED', provider: 'REDSYS', providerTxId: 'A' }, ev)).toBe(true);
+    expect(isOtherOrder({ status: 'REFUNDED', provider: 'REDSYS', providerTxId: 'A' }, ev)).toBe(true);
+    expect(isOtherOrder({ status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: 'A' }, ev)).toBe(false);
+    expect(isOtherOrder({ status: 'AUTHORIZED', provider: 'REDSYS', providerTxId: 'B' }, ev)).toBe(false);
+    expect(isOtherOrder({ status: 'AUTHORIZED', provider: 'PAYTEF', providerTxId: 'A' }, ev)).toBe(false);
+    expect(isOtherOrder({ status: 'AUTHORIZED', provider: null, providerTxId: null }, ev)).toBe(false);
   });
 });

@@ -17,8 +17,6 @@ interface MakeOptions {
   redsysAttempt?: { paymentId: string; tenantId: string } | null;
   // Redsys: lo que devuelve parseNotification del aviso.
   redsysNotification?: Record<string, unknown> | null;
-  // Redsys: otros intentos del mismo cobro ya aprobados (doble cobro).
-  otherApprovedAttempts?: number;
 }
 
 function makeController(opts: MakeOptions = {}) {
@@ -81,7 +79,7 @@ function makeController(opts: MakeOptions = {}) {
     paymentAttempt: {
       findUnique: vi.fn().mockResolvedValue(opts.redsysAttempt ?? null),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-      count: vi.fn().mockResolvedValue(opts.otherApprovedAttempts ?? 0),
+      count: vi.fn().mockResolvedValue(0),
     },
     paymentEvent: { create: vi.fn().mockResolvedValue({}) },
     payment: {
@@ -426,32 +424,20 @@ describe('WebhooksController.receiveRedsys — resolución Ds_Order → payment'
 
     await controller.receiveRedsys(fakeRedsysRequest());
 
+    // P7: un KO tardío no pisa un intento que el banco ya aprobó.
     expect(paymentTx.paymentAttempt.updateMany).toHaveBeenCalledWith({
-      where: { provider: 'REDSYS', providerTxId: 'a1b2c3d4e5f6' },
+      where: { provider: 'REDSYS', providerTxId: 'a1b2c3d4e5f6', status: { not: 'APPROVED' } },
       data: { status: 'DENIED', responseCode: '0190' },
     });
     expect(paymentTx.payment.updateMany).not.toHaveBeenCalled();
   });
 
-  it('segundo intento aprobado del mismo cobro → alerta de doble cobro', async () => {
-    const { controller, paymentTx, metrics } = makeController({ otherApprovedAttempts: 1 });
-
-    await controller.receiveRedsys(fakeRedsysRequest());
-
-    expect(metrics.duplicateCharges.inc).toHaveBeenCalledWith({ venue: 'tenant-uuid-1', provider: 'REDSYS' });
-    const event = paymentTx.paymentEvent.create.mock.calls[0]![0] as { data: Record<string, unknown> };
-    expect(event.data).toMatchObject({
-      paymentId: 'pay-uuid-1',
-      tenantId: 'tenant-uuid-1',
-      eventType: 'payment.duplicate_charge',
-    });
-  });
-
-  it('primer intento aprobado → sin alerta', async () => {
+  it('P1: el doble cobro no se cuenta aquí sin candado (lo apunta transition al procesar el aviso)', async () => {
     const { controller, paymentTx, metrics } = makeController();
 
     await controller.receiveRedsys(fakeRedsysRequest());
 
+    expect(paymentTx.paymentAttempt.count).not.toHaveBeenCalled();
     expect(metrics.duplicateCharges.inc).not.toHaveBeenCalled();
     expect(paymentTx.paymentEvent.create).not.toHaveBeenCalled();
   });
