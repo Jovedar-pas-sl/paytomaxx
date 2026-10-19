@@ -1,16 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
-  posVoidedPaidIncident,
   ACKABLE_KINDS,
   SELF_RESOLVING,
   ackKey,
   approvalPendingIncident,
   backupIncidents,
   bankMismatchIncident,
+  cashSplitIncident,
   duplicateChargeIncident,
   nightClosedPendingIncident,
   openIncidents,
   paymentAnomalyIncident,
+  posVoidedPaidIncident,
   stuckIncident,
 } from './incident-rules';
 import { incidentMessage, morningSummaryMessage } from './alert-messages';
@@ -201,5 +202,16 @@ describe('«Por aprobar» sin decidir', () => {
     const i = approvalPendingIncident({ ...row, kind: 'REFUND', operatorName: null, requester: null }, now);
     expect(i.title).toBe('Devolución por aprobar');
     expect(i.detail).toMatch(/^El encargado pidió devolver 140,00 € hace 40 min/);
+  });
+});
+
+describe('efectivo troceado en saldos nuevos', () => {
+  it('sale en la bandeja, se marca como revisada y dice cuántos saldos', () => {
+    const i = cashSplitIncident({
+      id: 'audit-1', paymentId: null, amountCents: 120_000, occurredAt: new Date('2026-10-21T01:00:00Z'), payload: { count: 2 },
+    });
+    expect(i).toMatchObject({ kind: 'cash_split_suspected', refId: 'audit-1', amountCents: 120_000, ackable: true, paymentId: null });
+    expect(i.detail).toMatch(/^2 saldos nuevos en efectivo/);
+    expect(ACKABLE_KINDS as readonly string[]).toContain('cash_split_suspected');
   });
 });

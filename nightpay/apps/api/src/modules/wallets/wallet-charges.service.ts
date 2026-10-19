@@ -408,7 +408,8 @@ export class WalletChargesService {
       ...cashTopUps.map((t) => ({
         kind: 'topup' as const,
         amountCents: t.amountCents,
-        label: 'Recarga en efectivo',
+        // Una recarga mal tecleada que el encargado anuló: fila negativa.
+        label: t.amountCents < 0 ? 'Recarga en efectivo anulada' : 'Recarga en efectivo',
         venueName: venueName(t.tenantId),
         at: t.createdAt.toISOString(),
       })),

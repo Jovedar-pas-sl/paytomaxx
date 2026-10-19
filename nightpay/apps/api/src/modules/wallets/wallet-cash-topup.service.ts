@@ -1,6 +1,8 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
+  CASH_LIMIT_CENTS,
   CASH_TOP_UP_METHODS,
+  CASH_TOP_UP_VOID_WINDOW_MINUTES,
   DEVICE_CASH_TOP_UP_DENIED_MESSAGE,
   MAX_CASH_TOP_UP_CENTS,
   STAFF_PERMISSION_DENIED_CODE,
@@ -8,16 +10,22 @@ import {
   staffCan,
   staffPermissionsOf,
   type CashTopUpResult,
+  type CashTopUpVoidResult,
+  type Role,
   type TopUpWalletDto,
 } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { totpForbidden } from '../auth/totp-code';
+import { TotpService } from '../auth/totp.service';
 import { permissionDenied } from '../venues/staff-permission.guard';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { insertEmptyWallet } from './empty-wallet';
 import { reopenData } from './wallet-activation';
+import { cashTopUpOverLimit, walletCash } from './wallet-cash-limits';
+import { lockLiveWallet } from './wallet-merge-chain';
 import { formatWalletCode, sameWalletGroup } from './wallet-rules';
 import { topUpTarget } from './wallet-topup-target';
 
@@ -34,18 +42,32 @@ export interface CashTopUpInput {
   wallet: TopUpWalletDto;
 }
 
-type LockedWallet = {
-  id: string;
-  tenantId: string;
-  walletGroup: string | null;
-  balanceCents: number;
-  status: string;
-  shortCode: string | null;
-  mergedIntoId: string | null;
-  blockedAt: Date | null;
-};
-
 const KEY_REUSED = 'Esa recarga ya se apuntó con otros datos: vuelve a empezar la recarga';
+
+/**
+ * Saldos nuevos en efectivo seguidos de la misma persona o datáfono: en este
+ * tiempo, si juntos llegan a 1.000 € (cada vez que pasan otros 1.000 €), sale
+ * en Incidencias. Trocear una entrega de efectivo en saldos nuevos es la
+ * forma de saltarse el tope de cada saldo.
+ */
+export const CASH_SPLIT_WINDOW_MINUTES = 60;
+
+/** Una recarga en efectivo de este local que aún se puede anular (sin enseñar el saldo). */
+export interface RecentCashTopUp {
+  id: string;
+  at: string;
+  amountCents: number;
+  /** K7Q-•••: para reconocer al cliente. */
+  codeHint: string;
+  voided: boolean;
+}
+
+/** Quien anula una recarga: encargado o dueño, con su 2FA. */
+export interface CashVoidActor {
+  userId: string;
+  role: Role;
+  tenantId: string;
+}
 
 /**
  * Recarga del saldo en efectivo (recepción). El efectivo no pasa por el banco,
@@ -67,9 +89,16 @@ export class CashTopUpService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
 
-  constructor(@Inject(PrismaService) prisma: PrismaService, @Inject(AuditService) audit: AuditService) {
+  private readonly totp: Pick<TotpService, 'assertForUser' | 'isEnabled'>;
+
+  constructor(
+    @Inject(PrismaService) prisma: PrismaService,
+    @Inject(AuditService) audit: AuditService,
+    @Inject(TotpService) totp: TotpService,
+  ) {
     this.prisma = prisma;
     this.audit = audit;
+    this.totp = totp;
   }
 
   async topUp(venueId: string, by: CashTopUpBy, input: CashTopUpInput): Promise<CashTopUpResult> {
@@ -80,7 +109,8 @@ export class CashTopUpService {
     if (replay) return replay;
     await this.assertAllowed(venueId, by);
 
-    // El saldo que ya existe se busca antes (código o ficha); el nuevo se crea dentro.
+    // El saldo que ya existe se busca antes (código o ficha) y se vuelve a
+    // seguir (sumado a otro) con él bloqueado; el nuevo se crea dentro.
     const target = 'create' in input.wallet ? null : await topUpTarget(this.prisma, venueId, input.wallet);
     const venue = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } });
     const walletGroup = venue?.walletGroup ?? null;
@@ -104,6 +134,7 @@ export class CashTopUpService {
       throw err;
     }
     const createdWallet = target === null;
+    if (createdWallet) await this.watchSplit(venueId, by, input.amountCents);
     await this.audit.log({
       action: 'wallet.cash_topup',
       tenantId: venueId,
@@ -162,26 +193,30 @@ export class CashTopUpService {
   }
 
   /**
-   * Con el saldo bloqueado: comprueba que sigue valiendo, lo reabre si estaba
-   * a 0, suma el efectivo y apunta la recarga. Todo o nada.
+   * Con el saldo bloqueado (el bueno, si se sumó a otro mientras tanto):
+   * comprueba que sigue valiendo y que el efectivo de 24 h del saldo y de su
+   * cadena no llega a 1.000 €, lo reabre si estaba a 0, suma el efectivo y
+   * apunta la recarga. Todo o nada.
    */
   private async credit(
     tx: TransactionalClient,
     a: { venueId: string; walletGroup: string | null; walletId: string; by: CashTopUpBy; input: CashTopUpInput },
   ): Promise<{ topUpId: string; walletId: string; balanceCents: number; shortCode: string | null }> {
-    const rows = await tx.$queryRaw<LockedWallet[]>`
-      SELECT id::text AS id, "tenantId"::text AS "tenantId", "walletGroup", "balanceCents",
-             status::text AS status, "shortCode", "mergedIntoId"::text AS "mergedIntoId", "blockedAt"
-        FROM client_wallets WHERE id = ${a.walletId}::uuid FOR UPDATE
-    `;
-    const w = rows[0];
+    const w = await lockLiveWallet(tx, a.walletId);
     if (!w || !sameWalletGroup(w, { id: a.venueId, walletGroup: a.walletGroup })) {
       throw new NotFoundException('Saldo no encontrado');
     }
-    if (w.blockedAt) throw new ConflictException('Este saldo está bloqueado: no se puede recargar. Avisa al encargado.');
-    if (w.mergedIntoId || (w.status !== 'ACTIVE' && w.status !== 'DEPLETED')) {
+    const flags = await tx.$queryRaw<Array<{ blockedAt: Date | null }>>`
+      SELECT "blockedAt" FROM client_wallets WHERE id = ${w.id}::uuid
+    `;
+    if (flags[0]?.blockedAt) {
+      throw new ConflictException('Este saldo está bloqueado: no se puede recargar. Avisa al encargado.');
+    }
+    if (w.status !== 'ACTIVE' && w.status !== 'DEPLETED') {
       throw new ConflictException('Este saldo ya está cerrado (devuelto): haz un saldo nuevo');
     }
+    const over = cashTopUpOverLimit(a.input.amountCents, await walletCash(tx, w.id));
+    if (over) throw new ConflictException({ message: over, code: 'CASH_LIMIT' });
     const reopen = await reopenData(tx, w);
     await tx.clientWallet.update({
       where: { id: w.id },
@@ -196,6 +231,7 @@ export class CashTopUpService {
         takenByUserId: 'userId' in a.by ? a.by.userId : null,
         terminalId: 'terminalId' in a.by ? a.by.terminalId : null,
         idempotencyKey: a.input.idempotencyKey,
+        createdWallet: 'create' in a.input.wallet,
       },
       select: { id: true },
     });
@@ -205,6 +241,156 @@ export class CashTopUpService {
       balanceCents: w.balanceCents + a.input.amountCents,
       shortCode: reopen.shortCode ?? w.shortCode,
     };
+  }
+
+  /**
+   * Saldos nuevos en efectivo seguidos de la misma persona o datáfono: si en
+   * CASH_SPLIT_WINDOW_MINUTES juntos pasan otros 1.000 €, sale en Incidencias
+   * («Efectivo troceado en saldos nuevos») y en el registro. Solo avisa: cada
+   * saldo ya tiene su tope. Un fallo aquí no deshace la recarga.
+   */
+  private async watchSplit(venueId: string, by: CashTopUpBy, amountCents: number): Promise<void> {
+    try {
+      const since = new Date(Date.now() - CASH_SPLIT_WINDOW_MINUTES * 60 * 1000);
+      const who =
+        'userId' in by ? Prisma.sql`t."takenByUserId" = ${by.userId}::uuid` : Prisma.sql`t."terminalId" = ${by.terminalId}::uuid`;
+      const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<Array<{ count: number; totalCents: bigint | number }>>`
+        SELECT COUNT(*)::int AS count, COALESCE(SUM(t."amountCents" + COALESCE(v."amountCents", 0)), 0)::bigint AS "totalCents"
+          FROM wallet_cash_topups t
+          LEFT JOIN wallet_cash_topups v ON v."voidOfId" = t.id
+         WHERE t."tenantId" = ${venueId}::uuid AND t."createdWallet" AND t."voidOfId" IS NULL
+           AND t."createdAt" >= ${since} AND ${who}
+      `);
+      const count = rows[0]?.count ?? 0;
+      const total = Number(rows[0]?.totalCents ?? 0);
+      if (count < 2 || Math.floor((total - amountCents) / CASH_LIMIT_CENTS) >= Math.floor(total / CASH_LIMIT_CENTS)) return;
+      this.logger.warn(`Local ${venueId}: ${count} saldos nuevos en efectivo seguidos (${total}c) de ${JSON.stringify(by)}`);
+      await this.audit.log({
+        action: 'wallet.cash_split_suspected',
+        tenantId: venueId,
+        actorId: 'userId' in by ? by.userId : null,
+        targetType: 'WalletCashTopUp',
+        targetId: 'userId' in by ? by.userId : by.terminalId,
+        payload: {
+          amountCents: total,
+          count,
+          windowMinutes: CASH_SPLIT_WINDOW_MINUTES,
+          ...('terminalId' in by ? { terminalId: by.terminalId } : { userId: by.userId }),
+        },
+      });
+    } catch (err) {
+      this.logger.error(`Aviso de efectivo troceado en ${venueId}: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Anular una recarga en efectivo reciente (mal tecleada): encargado o dueño,
+   * con su 2FA, si el saldo aún la cubre. Es otra fila, negativa (voidOfId),
+   * que resta en la caja, el Z y los informes; el saldo baja lo mismo. Una
+   * anulación por recarga (índice único).
+   */
+  async voidTopUp(actor: CashVoidActor, topUpId: string, input: { reason: string; totpCode?: string }): Promise<CashTopUpVoidResult> {
+    if (actor.role !== 'MANAGER' && actor.role !== 'OWNER') throw new ForbiddenException('Solo el encargado o el dueño');
+    const what = 'Anular una recarga en efectivo';
+    if (!input.totpCode) {
+      if (!(await this.totp.isEnabled(actor.userId))) {
+        throw totpForbidden('notEnrolled', `${what}: hace falta la app de verificación (2FA) y no la tienes activada.`);
+      }
+      throw totpForbidden('required', `${what}: pon el código de tu app de verificación (2FA).`);
+    }
+    await this.totp.assertForUser(actor.userId, input.totpCode);
+    let out: CashTopUpVoidResult;
+    try {
+      out = await this.prisma.acrossVenues((tx) => this.applyVoid(tx, actor, topUpId, input.reason.trim()));
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('Esta recarga ya está anulada');
+      }
+      throw err;
+    }
+    await this.audit.log({
+      action: 'wallet.cash_topup_voided',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: out.walletId,
+      payload: { topUpId, voidId: out.voidId, amountCents: out.amountCents, reason: input.reason.trim() },
+    });
+    this.logger.log(`Recarga en efectivo ${topUpId} anulada (−${out.amountCents}c) por ${actor.userId}`);
+    return out;
+  }
+
+  /** Las recargas en efectivo de este local en el plazo para anularlas, la más reciente primero. */
+  async recent(venueId: string): Promise<RecentCashTopUp[]> {
+    const since = new Date(Date.now() - CASH_TOP_UP_VOID_WINDOW_MINUTES * 60 * 1000);
+    const rows = await this.prisma.withTenant(venueId, (tx) =>
+      tx.walletCashTopUp.findMany({
+        where: { tenantId: venueId, voidOfId: null, createdAt: { gte: since } },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: { id: true, createdAt: true, amountCents: true, walletId: true, voidedBy: { select: { id: true } } },
+      }),
+    );
+    const codes = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.findMany({ where: { id: { in: rows.map((r) => r.walletId) } }, select: { id: true, shortCode: true } }),
+    );
+    const codeOf = new Map(codes.map((c) => [c.id, c.shortCode]));
+    return rows.map((r) => ({
+      id: r.id,
+      at: r.createdAt.toISOString(),
+      amountCents: r.amountCents,
+      codeHint: `${(codeOf.get(r.walletId) ?? '').slice(0, 3)}-•••`,
+      voided: r.voidedBy !== null,
+    }));
+  }
+
+  /** Con la recarga y el saldo bueno bloqueados: comprueba y apunta la fila negativa. */
+  private async applyVoid(
+    tx: TransactionalClient,
+    actor: CashVoidActor,
+    topUpId: string,
+    reason: string,
+  ): Promise<CashTopUpVoidResult> {
+    const rows = await tx.$queryRaw<Array<{ id: string; walletId: string; amountCents: number; createdAt: Date }>>`
+      SELECT id::text AS id, "walletId"::text AS "walletId", "amountCents", "createdAt"
+        FROM wallet_cash_topups
+       WHERE id = ${topUpId}::uuid AND "tenantId" = ${actor.tenantId}::uuid AND "voidOfId" IS NULL
+       FOR UPDATE
+    `;
+    const topUp = rows[0];
+    if (!topUp) throw new NotFoundException('Recarga en efectivo no encontrada');
+    if (await tx.walletCashTopUp.findUnique({ where: { voidOfId: topUp.id }, select: { id: true } })) {
+      throw new ConflictException('Esta recarga ya está anulada');
+    }
+    if (Date.now() - topUp.createdAt.getTime() > CASH_TOP_UP_VOID_WINDOW_MINUTES * 60 * 1000) {
+      throw new ConflictException(
+        `Solo se anulan las recargas de las últimas ${CASH_TOP_UP_VOID_WINDOW_MINUTES / 60} h: devuelve el saldo con «Me voy»`,
+      );
+    }
+    const w = await lockLiveWallet(tx, topUp.walletId);
+    if (!w || w.status !== 'ACTIVE' || w.balanceCents < topUp.amountCents) {
+      throw new ConflictException(
+        `El saldo ya no cubre la recarga (le quedan ${eur(w?.status === 'ACTIVE' ? w.balanceCents : 0)}): ya se ha gastado o devuelto. Devuelve lo que quede con «Me voy».`,
+      );
+    }
+    const left = w.balanceCents - topUp.amountCents;
+    await tx.clientWallet.update({
+      where: { id: w.id },
+      data: { balanceCents: left, ...(left === 0 ? { status: 'DEPLETED' as const } : {}) },
+    });
+    const row = await tx.walletCashTopUp.create({
+      data: {
+        tenantId: actor.tenantId,
+        walletId: topUp.walletId,
+        amountCents: -topUp.amountCents,
+        takenByUserId: actor.userId,
+        idempotencyKey: `void:${topUp.id}`,
+        voidOfId: topUp.id,
+        reason,
+      },
+      select: { id: true },
+    });
+    return { voidId: row.id, topUpId: topUp.id, walletId: w.id, amountCents: topUp.amountCents, balanceCents: left };
   }
 
   /** La misma recarga pedida otra vez: la ya apuntada (o 409 si la clave es de otra). */
@@ -231,6 +417,10 @@ export class CashTopUpService {
       replayed: true,
     };
   }
+}
+
+function eur(cents: number): string {
+  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
 function isKeyClash(err: unknown): boolean {

@@ -8,6 +8,7 @@ import {
   SELF_RESOLVING,
   ackKey,
   duplicateChargeIncident,
+  cashSplitIncident,
   earningReverseFailedIncident,
   nightClosedPendingIncident,
   openIncidents,
@@ -126,10 +127,10 @@ export class IncidentsService {
                a."occurredAt", a.payload
           FROM audit_events a
          WHERE a."tenantId" = ${tenantId}::uuid
-           AND a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical')
+           AND a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical', 'wallet.cash_split_suspected')
            AND NOT EXISTS (SELECT 1 FROM incident_acks k
                             WHERE k."tenantId" = a."tenantId"
-                              AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped')
+                              AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped', 'cash_split_suspected')
                               AND k."refId" = a.id::text)
            AND a."occurredAt" >= ${since}
          ORDER BY a."occurredAt" DESC
@@ -321,7 +322,11 @@ export class IncidentsService {
       ...stuck.map(stuckIncident),
       ...duplicates.map(duplicateChargeIncident),
       ...auditRows.map((r) =>
-        r.action === 'refund.earning_reverse_failed' ? earningReverseFailedIncident(r) : walletCreditSkippedIncident(r),
+        r.action === 'refund.earning_reverse_failed'
+          ? earningReverseFailedIncident(r)
+          : r.action === 'wallet.cash_split_suspected'
+            ? cashSplitIncident(r)
+            : walletCreditSkippedIncident(r),
       ),
       ...nights.map(nightClosedPendingIncident),
       ...posMismatches.map(posChargeMismatchIncident),

@@ -27,7 +27,8 @@ export type IncidentKind =
   | 'amount_mismatch'
   | 'approval_unbooked'
   | 'refund_pending'
-  | 'approval_pending';
+  | 'approval_pending'
+  | 'cash_split_suspected';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -57,6 +58,7 @@ export const ACKABLE_KINDS = [
   'backup_unmonitored',
   'amount_mismatch',
   'approval_unbooked',
+  'cash_split_suspected',
 ] as const satisfies readonly IncidentKind[];
 
 export interface Incident {
@@ -158,6 +160,22 @@ export function walletCreditSkippedIncident(r: EventRow): Incident {
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.paymentId,
+    ackable: true,
+  };
+}
+
+/** Saldos nuevos en efectivo seguidos de la misma persona o datáfono que pasan de 1.000 € (CashTopUpService). */
+export function cashSplitIncident(r: EventRow): Incident {
+  const raw = r.payload && typeof r.payload === 'object' ? (r.payload as { count?: unknown }).count : null;
+  const count = typeof raw === 'number' ? raw : null;
+  return {
+    kind: 'cash_split_suspected',
+    refId: r.id,
+    title: 'Efectivo troceado en saldos nuevos',
+    detail: `${count ? `${count} saldos nuevos` : 'Varios saldos nuevos'} en efectivo seguidos de la misma persona o datáfono pasan de 1.000 € (cada saldo tiene su tope; juntos podrían ser una sola entrega). Revisa las recargas en efectivo.`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
     ackable: true,
   };
 }
