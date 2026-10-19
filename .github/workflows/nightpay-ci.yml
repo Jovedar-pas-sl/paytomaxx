@@ -7,6 +7,8 @@
 #               (FORCE RLS de verdad), esquema = schema.prisma, y las pruebas
 #               de integración del API contra esa base
 #   docker      las 5 imágenes que despliega Dokploy, construidas y arrancadas
+#   migraciones-orden  cada migración nueva se ordena después de la última de
+#               main (si no, una base nueva y producción las aplicarían en otro orden)
 #
 # Las acciones de terceros van fijadas por commit (el comentario dice la versión).
 name: nightpay-ci
@@ -30,9 +32,12 @@ on:
 permissions:
   contents: read
 
+# En las ramas, un push nuevo cancela el CI del anterior. En main no: cada
+# commit de main tiene que tener su CI completo (se despliega tras el verde,
+# docs/DOKPLOY-STEPS.md D.1).
 concurrency:
   group: nightpay-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 defaults:
   run:
@@ -84,6 +89,20 @@ jobs:
           path: nightpay/apps/api/coverage/
           retention-days: 14
           if-no-files-found: ignore
+
+  # Prisma aplica las migraciones por orden de nombre: una nueva con fecha
+  # anterior a la última de main se aplicaría en producción después de las que
+  # ya tiene y en una base nueva antes. Historial completo para el merge-base
+  # con origin/main.
+  migraciones-orden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Migraciones nuevas después de la última de main
+        run: node scripts/check-migration-order.mjs
 
   # ESLint de la raíz sobre apps/** y packages/**. Hay ~100 avisos antiguos
   # (se limpian en la fase 2): el job puede salir en rojo pero no bloquea.
