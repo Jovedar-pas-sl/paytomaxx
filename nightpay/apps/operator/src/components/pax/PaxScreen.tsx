@@ -19,6 +19,7 @@ import {
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
 import { PaxChargeFlow } from './PaxChargeFlow';
+import { PaxSaldoFlow } from './PaxSaldoFlow';
 
 const POLL_MS = 3000;
 
@@ -32,6 +33,8 @@ export function PaxScreen() {
   const [info, setInfo] = useState<PaxInfo | null>(null);
   const [charges, setCharges] = useState<PaxCharge[]>([]);
   const [selected, setSelected] = useState<PaxCharge | null>(null);
+  // «Cobrar con saldo»: ficha NFC, QR del cliente o código + su PIN en el datáfono.
+  const [saldo, setSaldo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Ventas aprobadas que aún no han llegado a OxioPay: mientras haya, no se cobra otra.
   const [unsent, setUnsent] = useState(0);
@@ -72,11 +75,12 @@ export function PaxScreen() {
         return 'slow';
       }
     },
-    { intervalMs: POLL_MS, enabled: paired === true && selected === null },
+    { intervalMs: POLL_MS, enabled: paired === true && selected === null && !saldo },
   );
 
   // Al cerrar el cobro vuelve el sondeo (y con él, la lista al momento).
   const closeCharge = useCallback(() => setSelected(null), []);
+  const closeSaldo = useCallback(() => setSaldo(false), []);
 
   if (paired === null) return <main className="np-screen" style={mainStyle} />;
   if (!paired) {
@@ -96,6 +100,14 @@ export function PaxScreen() {
     return (
       <main className="np-screen" style={mainStyle}>
         <PaxChargeFlow charge={selected} onDone={closeCharge} />
+      </main>
+    );
+  }
+
+  if (saldo) {
+    return (
+      <main className="np-screen" style={mainStyle}>
+        <PaxSaldoFlow onDone={closeSaldo} />
       </main>
     );
   }
@@ -131,6 +143,12 @@ export function PaxScreen() {
         </div>
       ) : null}
       {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
+
+      {/* TODO(formas de cobro): cuando el local tenga su ajuste «ficha NFC / datáfono»
+          (lo prepara apps/admin), ocultar este botón si está apagado (que lo diga /me). */}
+      <Button size="lg" variant="ghost" onClick={() => setSaldo(true)}>
+        Cobrar con saldo (ficha, QR o código + PIN)
+      </Button>
 
       {charges.length === 0 ? (
         <Card style={{ padding: '2rem 1.25rem', textAlign: 'center' }}>

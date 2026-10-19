@@ -10,12 +10,29 @@
  *
  * Métodos: startSale { amountCents, reference } · cancel {} · lastResult {}
  *          voidSale { operationNumber, amountCents, reference } · shiftList {}
- * Respuesta: { ok: true, result? , transactions? } | { ok: false, error, message? }
+ * Saldo (app 0.2+; las versiones viejas no los tienen → error notSupported):
+ *          capabilities {}          → { nfc: 'ready'|'disabled'|'unavailable', camera }
+ *          scanQr { timeoutMs }     → { text }   (cámara; error cancelled si el camarero vuelve)
+ *          readNfc { timeoutMs }    → { uid, url } (ficha NTAG por NFC de Android)
+ *          cancelRead {}            → corta el readNfc en curso
+ * Respuesta: { ok: true, result? , transactions?, … } | { ok: false, error, message? }
  * (`result` es el resultado de Paytef tal cual: approved, authorisationCode,
  * paytefOperationNumber, cardInformation…)
  */
 
-export type BridgeMethod = 'startSale' | 'cancel' | 'lastResult' | 'voidSale' | 'shiftList';
+export type BridgeMethod =
+  | 'startSale'
+  | 'cancel'
+  | 'lastResult'
+  | 'voidSale'
+  | 'shiftList'
+  | 'capabilities'
+  | 'scanQr'
+  | 'readNfc'
+  | 'cancelRead';
+
+/** NFC de Android en el datáfono: el del A920 Pro puede estar reservado para el lector de tarjetas. */
+export type NfcState = 'ready' | 'disabled' | 'unavailable';
 
 export interface PaytefResult {
   approved: boolean;
@@ -28,15 +45,34 @@ export interface PaytefResult {
 }
 
 export type BridgeResponse =
-  | { ok: true; result?: PaytefResult; transactions?: unknown[] }
+  | {
+      ok: true;
+      result?: PaytefResult;
+      transactions?: unknown[];
+      /** scanQr: el texto del QR. */
+      text?: string;
+      /** readNfc: número de serie de la ficha (hex) y el enlace NDEF grabado. */
+      uid?: string | null;
+      url?: string | null;
+      /** capabilities. */
+      nfc?: NfcState;
+      camera?: boolean;
+    }
   | { ok: false; error: string; message?: string };
 
+type NativeMethod = (json: string) => void;
+
 interface NativeBridge {
-  startSale(json: string): void;
-  cancel(json: string): void;
-  lastResult(json: string): void;
-  voidSale(json: string): void;
-  shiftList(json: string): void;
+  startSale: NativeMethod;
+  cancel: NativeMethod;
+  lastResult: NativeMethod;
+  voidSale: NativeMethod;
+  shiftList: NativeMethod;
+  // Solo en la app 0.2+.
+  capabilities?: NativeMethod;
+  scanQr?: NativeMethod;
+  readNfc?: NativeMethod;
+  cancelRead?: NativeMethod;
 }
 
 declare global {
@@ -51,7 +87,15 @@ declare global {
  * cancela en el lector): la web espera un poco más para recibir su respuesta.
  */
 const SALE_TIMEOUT_MS = 200_000;
+/** La cámara y el NFC se rinden solos antes (la app, a 90 s como mucho): la web espera algo más. */
+const READ_TIMEOUT_MS = 130_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+function timeoutFor(method: BridgeMethod): number {
+  if (method === 'startSale') return SALE_TIMEOUT_MS;
+  if (method === 'scanQr' || method === 'readNfc') return READ_TIMEOUT_MS;
+  return DEFAULT_TIMEOUT_MS;
+}
 
 const pending = new Map<string, (r: BridgeResponse) => void>();
 
@@ -78,6 +122,13 @@ function simulatorOn(): boolean {
   return process.env.NEXT_PUBLIC_PAX_SIMULATOR === '1';
 }
 
+/** ¿La app del datáfono instalada tiene este método? (las versiones viejas no leen fichas ni QR). */
+export function hasBridgeMethod(method: BridgeMethod): boolean {
+  if (typeof window === 'undefined') return false;
+  const native = window.NightPayPax;
+  return native ? typeof native[method] === 'function' : simulatorOn();
+}
+
 export function callReader(method: BridgeMethod, data: Record<string, unknown> = {}): Promise<BridgeResponse> {
   if (typeof window === 'undefined') return Promise.resolve({ ok: false, error: 'noReader' });
   if (!window.NightPayPax) {
@@ -85,9 +136,12 @@ export function callReader(method: BridgeMethod, data: Record<string, unknown> =
       ? simulate(method, data)
       : Promise.resolve({ ok: false, error: 'noReader', message: 'Esta pantalla cobra desde la app del datáfono.' });
   }
+  if (typeof window.NightPayPax[method] !== 'function') {
+    return Promise.resolve({ ok: false, error: 'notSupported', message: 'Actualiza la app OxioPay del datáfono.' });
+  }
   ensureCallback();
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  const timeoutMs = method === 'startSale' ? SALE_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+  const timeoutMs = timeoutFor(method);
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pending.delete(requestId);
@@ -97,7 +151,8 @@ export function callReader(method: BridgeMethod, data: Record<string, unknown> =
       clearTimeout(timer);
       resolve(r);
     });
-    window.NightPayPax![method](JSON.stringify({ requestId, ...data }));
+    // Llamado como método del objeto de la app (fuera de él, Android no lo ejecuta).
+    window.NightPayPax![method]!(JSON.stringify({ requestId, ...data }));
   });
 }
 
@@ -121,6 +176,9 @@ function simulate(method: BridgeMethod, data: Record<string, unknown>): Promise<
     }
     if (method === 'voidSale') return { ok: true, result: { approved: true } };
     if (method === 'shiftList') return { ok: true, transactions: [] };
+    // Sin cámara ni NFC en el simulador: el saldo se prueba con el código del cliente.
+    if (method === 'capabilities') return { ok: true, nfc: 'unavailable', camera: false };
+    if (method === 'scanQr' || method === 'readNfc') return { ok: false, error: 'notSupported', message: 'Simulador sin lector' };
     return { ok: true };
   });
 }
