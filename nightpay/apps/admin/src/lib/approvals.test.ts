@@ -146,6 +146,14 @@ describe('tarjeta de «Por aprobar»', () => {
       text: 'No se ha podido hacer: x',
     });
     expect(approveFailure({ status: 502, code: 'REFUND_OUTCOME_UNKNOWN', message: 'No sabemos' })).toMatchObject({ tone: 'warning' });
+    // Un 5xx del proxy después de ejecutarse: puede que sí se aprobara (mirar la lista).
+    for (const status of [500, 502, 504]) {
+      expect(approveFailure({ status, code: null, message: 'Bad gateway' })).toMatchObject({
+        kind: 'done',
+        tone: 'warning',
+        text: expect.stringMatching(/puede que sí se aprobara/),
+      });
+    }
     expect(approveFailure({ status: 403, code: 'TOTP_NOT_ENROLLED', message: 'x' })).toMatchObject({
       kind: 'enrol',
       text: expect.stringMatching(/Ajustes → Verificación en dos pasos/),

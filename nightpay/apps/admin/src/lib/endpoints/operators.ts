@@ -281,12 +281,21 @@ export async function createOperatorPayout(
     receiptUrl?: string;
     /** Código 2FA (obligatorio si el dueño lo tiene activado). */
     totpCode?: string;
+    /**
+     * La cifra que vio el dueño: si lo pagable ya es otra, el API responde
+     * 409 PAYOUT_CHANGED en vez de apuntar más (o menos) de lo que se dio.
+     */
+    expectedTotalCents?: number;
+    /** La del intento: repetirlo (sin respuesta) no apunta el pago dos veces. Va en la cabecera. */
+    idempotencyKey?: string;
   },
 ): Promise<PayoutCreated | ApprovalRequestedResponse> {
+  const { idempotencyKey, ...body } = options ?? {};
   // El encargado con aprobación del local: 202 «pedido al dueño» (isApprovalRequested).
   const res = await authedFetch(`/v1/admin/operators/${id}/payouts`, {
     method: 'POST',
-    body: JSON.stringify(options ?? {}),
+    ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw await totpAwareError(res);
   return res.json();

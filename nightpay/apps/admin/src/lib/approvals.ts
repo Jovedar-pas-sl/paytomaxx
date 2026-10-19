@@ -154,13 +154,15 @@ export type ApproveFailure =
 /**
  * Qué hacer cuando falla «Aprobar». `err` = el error del API (estado, código
  * y mensaje) o null si ni contestó (sin red): entonces no se sabe si se
- * aprobó y se manda mirar la lista.
+ * aprobó y se manda mirar la lista. Igual con un 5xx (p. ej. el 502/504 de un
+ * proxy): el pago pudo hacerse antes de que la respuesta se perdiera.
  */
 export function approveFailure(err: { status: number; code: string | null; message: string } | null): ApproveFailure {
   if (!err || err.status === 0) return { kind: 'done', tone: 'warning', text: LOST_TEXT };
   if (err.code && FINAL_CODES.has(err.code)) {
     return { kind: 'done', tone: err.code === 'REFUND_OUTCOME_UNKNOWN' ? 'warning' : 'danger', text: err.message };
   }
+  if (err.status >= 500) return { kind: 'done', tone: 'warning', text: LOST_TEXT };
   if (err.code === 'TOTP_NOT_ENROLLED' || err.code === 'TOTP_UNREADABLE') return { kind: 'enrol', text: ENROL_TEXT };
   return { kind: 'retry', text: err.message, clearCode: err.code === 'TOTP_INVALID' };
 }

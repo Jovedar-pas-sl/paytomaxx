@@ -6,8 +6,8 @@ import {
   cashOutcome,
   diffLabel,
   effectiveSteps,
+  ackedKeys,
   freezeState,
-  keepAcks,
   parseCashInput,
   readyCount,
   stepTab,
@@ -138,16 +138,37 @@ describe('«Congelar el Z»', () => {
 });
 
 describe('avisos confirmados', () => {
+  const saldo = step('saldo', 'warn');
+  const incidencias = step('incidencias', 'warn');
+
   it('marcar y desmarcar sin tocar la lista de entrada', () => {
-    const acks = ['saldo'] as const;
-    expect(toggleAck(acks, 'incidencias', true)).toEqual(['saldo', 'incidencias']);
-    expect(toggleAck(acks, 'saldo', false)).toEqual([]);
-    expect(toggleAck(acks, 'saldo', true)).toEqual(['saldo']);
-    expect(acks).toEqual(['saldo']);
+    const acks = toggleAck([], saldo, true);
+    expect(ackedKeys(toggleAck(acks, incidencias, true), [saldo, incidencias])).toEqual(['saldo', 'incidencias']);
+    expect(toggleAck(acks, saldo, false)).toEqual([]);
+    expect(ackedKeys(toggleAck(acks, saldo, true), [saldo])).toEqual(['saldo']);
+    expect(ackedKeys(acks, [saldo])).toEqual(['saldo']);
   });
 
   it('al recargar, solo siguen los que siguen en aviso', () => {
-    expect(keepAcks(['saldo', 'incidencias'], [step('saldo', 'ok'), step('incidencias', 'warn')])).toEqual(['incidencias']);
+    const acks = toggleAck(toggleAck([], saldo, true), incidencias, true);
+    expect(ackedKeys(acks, [step('saldo', 'ok'), incidencias])).toEqual(['incidencias']);
+  });
+
+  it('si el aviso cambia (otro importe u otro recuento), hay que volver a confirmarlo', () => {
+    const efectivo = { ...step('efectivo', 'warn'), detail: 'Faltan 12,50 €', count: 3 };
+    const acks = toggleAck([], efectivo, true);
+    expect(ackedKeys(acks, [efectivo])).toEqual(['efectivo']);
+    expect(ackedKeys(acks, [{ ...efectivo, detail: 'Faltan 32,50 €' }])).toEqual([]);
+    expect(ackedKeys(acks, [{ ...efectivo, count: 4 }])).toEqual([]);
+    const chicas = {
+      ...step('chicas', 'warn'),
+      detail: 'Quedan 2 chicas: 300,00 €',
+      items: [{ id: 'c1', status: 'warn' as const, label: 'Ana (hace 3 min)', amountCents: 15_000 }],
+    };
+    const chicaAck = toggleAck([], chicas, true);
+    // La etiqueta lleva «hace N min»: cambiarla no cuenta como otro aviso; otro importe, sí.
+    expect(ackedKeys(chicaAck, [{ ...chicas, items: [{ ...chicas.items[0]!, label: 'Ana (hace 4 min)' }] }])).toEqual(['chicas']);
+    expect(ackedKeys(chicaAck, [{ ...chicas, items: [{ ...chicas.items[0]!, amountCents: 20_000 }] }])).toEqual([]);
   });
 });
 

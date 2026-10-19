@@ -70,20 +70,41 @@ export function cajaInText(caja: { cashInCents: number; walletCashTopUpsCount?: 
   }.`;
 }
 
-/** Marca un aviso como visto (o lo desmarca), sin cambiar la lista de entrada. */
-export function toggleAck(
-  acks: ReadonlyArray<NightCloseStepKey>,
-  key: NightCloseStepKey,
-  on: boolean,
-): NightCloseStepKey[] {
-  const rest = acks.filter((k) => k !== key);
-  return on ? [...rest, key] : rest;
+/** Un aviso confirmado: el paso y cómo estaba al confirmarlo (su huella). */
+export interface StepAck {
+  readonly key: NightCloseStepKey;
+  readonly print: string;
 }
 
-/** Tras recargar los pasos: solo siguen confirmados los que siguen en aviso. */
-export function keepAcks(acks: ReadonlyArray<NightCloseStepKey>, steps: ReadonlyArray<NightCloseStep>): NightCloseStepKey[] {
-  const warned = new Set(steps.filter((s) => s.status === 'warn').map((s) => s.key));
-  return acks.filter((k) => warned.has(k));
+/**
+ * La huella de un paso: lo que se confirmó (el texto con sus importes, el
+ * recuento y cada cosa con su importe; sin las etiquetas, que llevan «hace N
+ * min»). Si cambia, el aviso es otro y hay que volver a confirmarlo.
+ */
+export function stepPrint(step: NightCloseStep): string {
+  const items = step.items.map((i) => `${i.id}:${i.status}:${i.amountCents ?? ''}`).join(',');
+  return `${step.count}|${step.detail}|${items}`;
+}
+
+/** Marca un aviso como visto tal como está ahora (o lo desmarca), sin cambiar la lista de entrada. */
+export function toggleAck(acks: ReadonlyArray<StepAck>, step: NightCloseStep, on: boolean): StepAck[] {
+  const rest = acks.filter((a) => a.key !== step.key);
+  return on ? [...rest, { key: step.key, print: stepPrint(step) }] : rest;
+}
+
+/**
+ * Los avisos que siguen confirmados con los pasos de ahora: el paso sigue en
+ * aviso y no ha cambiado desde que se confirmó (p. ej. «Faltan 12,50 €» que
+ * pasa a «Faltan 32,50 €» tras otra recarga ya no cuenta como visto).
+ */
+export function ackedKeys(acks: ReadonlyArray<StepAck>, steps: ReadonlyArray<NightCloseStep>): NightCloseStepKey[] {
+  const byKey = new Map(steps.map((s) => [s.key, s] as const));
+  return acks
+    .filter((a) => {
+      const s = byKey.get(a.key);
+      return s?.status === 'warn' && stepPrint(s) === a.print;
+    })
+    .map((a) => a.key);
 }
 
 export interface FreezeState {
