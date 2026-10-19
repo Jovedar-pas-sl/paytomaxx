@@ -60,7 +60,73 @@ pagado con su móvil: el cobro es el mismo.
   consultas de saldo y 20 intentos de PIN por minuto.
 - Cada cobro y cada PIN fallido quedan en la auditoría con el datáfono que lo hizo.
 
-## Cómo se dan las fichas en recepción
+## Recepción: recargar el saldo, darle la ficha y el PIN
+
+En el datáfono (app **0.3 o posterior**), en la pantalla de cobros:
+**Recepción: recargar saldo**. En un Android del personal (camarero,
+encargado o dueño), la pestaña **Recepción** de la app. Es el mismo proceso:
+
+1. **Importe** a cargar, con el teclado.
+2. **Cómo paga**:
+   - **Tarjeta**: en el datáfono, el cliente la acerca a su lector (la venta
+     de Paytef de siempre, con el reenvío y la anulación de siempre). En el
+     móvil, el cliente paga con el QR de la recarga en su propio móvil.
+   - **Efectivo**: se guarda el dinero en la caja y se pulsa **Cobrado**. Se
+     suma al saldo en el momento. Como mucho **999,99 € por recarga** (en
+     España no se puede pagar en efectivo 1.000 € o más a un negocio).
+3. **A qué saldo**: **saldo nuevo**, o **recargar su ficha** (el cliente
+   acerca la que ya tiene; vale aunque el saldo esté a 0).
+4. **La ficha** (saldo nuevo): se acerca una ficha. Si está en blanco se le
+   graba su enlace ahí mismo (no la retires hasta que lo diga); si es una del
+   stock, se le da. Nunca se graba encima de una ficha que ya tiene algo.
+5. **El PIN**: el cliente lo elige en el teclado (las cifras cambian de sitio).
+   En el datáfono ese PIN es suyo: le vale para pagar en el datáfono.
+6. **Recargado**: pantalla completa con el importe, el código del saldo
+   (K7Q-4M2: que le haga una foto), lo que tiene y si tiene ficha y PIN.
+
+A un saldo que ya existía (recargar su ficha) no se le cambia la ficha ni el
+PIN: si lo ha olvidado, el encargado lo borra en el panel y lo elige de nuevo.
+
+### Quién cobra efectivo
+
+- **Ajustes → Formas de cobro → Recarga en efectivo** (encendida por
+  defecto) y **Pago con saldo** tienen que estar encendidos.
+- **Ajustes → Permisos → Cobrar recargas en efectivo**: de entrada, los
+  encargados sí y los camareros no (se les puede dar a todos o a uno).
+- **Datáfonos de recepción**: el datáfono no sabe quién lo tiene en la mano,
+  actúa como el local. Por eso tiene su propio permiso (de entrada, **no**):
+  si se enciende, cualquiera con el datáfono cobra recargas en efectivo.
+  Cada recarga queda con el datáfono que la cobró y cuadra en la caja.
+
+### Lo que hace el efectivo en la noche y en los informes
+
+- **Caja**: lo que debería haber = fondo + recargas en efectivo − saldo
+  devuelto en efectivo − pagos en efectivo a las chicas. Sale en el paso
+  «Efectivo» del cierre y en el bloque «Caja» del Z.
+- **Informes**: la recarga en efectivo cuenta como cobrada al cargarla, igual
+  que la de tarjeta (el IVA va con la recarga; los consumos del saldo no se
+  facturan otra vez). No es un cobro del banco: no sale en el cuadre con BBVA
+  ni se puede devolver «a la tarjeta». Va en su línea en el Z, en el resumen
+  de la gestoría y en el aviso de las 9:00 («Recargas en efectivo»).
+- **«Me voy»**: el saldo recargado en efectivo se devuelve en efectivo (la
+  devolución a la tarjeta solo cubre lo que se recargó con tarjeta). Al
+  devolverlo, su ficha vuelve al stock.
+
+## «Preparar fichas» (para el stock)
+
+En el datáfono (**Preparar fichas**) o en un Android (Recepción → Preparar
+fichas): **Empezar** y acercar las fichas una detrás de otra. El contador dice
+cuántas se han preparado.
+
+- **Ficha en blanco**: se graba con un código del servidor y queda **en el
+  stock** de este local.
+- **Ya grabada**: no se vuelve a grabar. Si es de un saldo gastado o cerrado,
+  **vuelve al stock**; si es de un cliente con saldo, dice de quién es
+  (K7Q-•••) para apartarla; perdida, bloqueada o de otro local: se aparta.
+- **Con otra cosa grabada** (no es nuestra): no se toca.
+- **No se pudo grabar**: déjala quieta y vuelve a acercarla.
+
+## Cómo se dan las fichas en recepción (desde una recarga ya pagada)
 
 Las fichas son NTAG213/215/216 (pulsera o tarjeta). Llevan grabado un enlace
 a la app con un código al azar (`…/?ficha=<código>`) y su número de serie.
@@ -77,6 +143,17 @@ a la app con un código al azar (`…/?ficha=<código>`) y su número de serie.
 
 Una ficha perdida la bloquea el encargado; el saldo sigue valiendo con el
 código + PIN o con Face ID. Una ficha de un saldo ya gastado se puede volver a dar.
+
+### El stock de fichas (panel → Clientes → Fichas)
+
+Cada ficha pasa por **En stock** (grabada, sin dar) → **Entregada** (dada a un
+saldo) → **Devuelta** (otra vez en el stock: tras «Me voy» o al prepararla con
+su saldo gastado) | **Perdida** | **Bloqueada**. Solo una entregada paga. En el
+panel: cuántas hay en el stock y entregadas, lo de cada noche (entregadas,
+devueltas, perdidas y el stock al cerrar, congelado en el Z) y la lista para
+buscar una por su número de serie o el código del saldo, **bloquearla** o
+**marcarla perdida**. Las fichas que ya existían siguen valiendo (las dadas
+quedan «Entregada»; las sin dar, «En stock»).
 
 ## Qué preguntar a PAX / Paytef si el NFC no aparece
 
@@ -106,7 +183,27 @@ la pantalla web no cambia, porque el puente ya devuelve `{ uid, url }`.
 
 ## Qué hay que comprobar en el datáfono de verdad
 
-Nada de esto se ha podido probar en un A920 Pro (solo compila en GitHub Actions):
+Nada de esto se ha podido probar en un A920 Pro (solo compila en GitHub Actions).
+
+Recepción y fichas (app 0.3):
+
+- [ ] **Grabar**: una ficha NTAG213 nueva (de fábrica, sin formatear) y una ya
+      formateada en blanco se graban con `writeNfc`; el móvil de un cliente
+      abre luego ese enlace.
+- [ ] Una ficha ya grabada (nuestra o de otra cosa) **no** se sobrescribe.
+- [ ] Retirar la ficha a medio grabar da «No se ha podido grabar» y al
+      acercarla otra vez se graba bien (no queda a medias).
+- [ ] «Preparar fichas»: 10 fichas seguidas, el contador sube de una en una y
+      dejar una apoyada no la cuenta dos veces.
+- [ ] Recepción con tarjeta: la venta sale en el lector por el importe exacto,
+      sin pedir propina (si la pide, la pantalla pide anularla), y el saldo
+      queda sumado; después, la ficha y el PIN en el mismo datáfono.
+- [ ] Recepción en efectivo con el permiso de los datáfonos encendido; sin él,
+      el botón «Efectivo» sale apagado con el motivo.
+- [ ] Una venta con tarjeta de una chica justo después de grabar fichas sigue
+      funcionando (el NFC queda libre para Paytef).
+
+Cobrar con saldo (app 0.2):
 
 - [ ] La app 0.2 se instala por PAXSTORE con los permisos de cámara y NFC.
 - [ ] **Escanear QR**: pide el permiso la primera vez, la vista previa sale
@@ -128,6 +225,27 @@ Nada de esto se ha podido probar en un A920 Pro (solo compila en GitHub Actions)
   llamadas: `apps/operator/src/lib/pax-saldo.ts`; puente:
   `apps/operator/src/lib/pax-bridge.ts`.
 - App: `apps/pax-android` (`LocalReaders.kt`, `ScanActivity.kt`, `PaxBridge.kt`).
+- Recepción y fichas: `apps/operator/src/components/reception/*`
+  (`ReceptionFlow`, `PrepareFichas`), lógica en `lib/reception.ts` y
+  `lib/chip-tap.ts` (leer y grabar la ficha por el puente o con Web NFC); en el
+  API, `wallets/wallet-cash-topup.service.ts`, `wallets/wallet-cards.service.ts`
+  y `pos-device/pos-device-reception.*`. Migración `20261021100000_recepcion_fichas`
+  (`wallet_cash_topups` y el ciclo de vida de `wallet_cards`).
+- API de la recepción en el datáfono (`Authorization: Device …`, topes por IP,
+  todo con el `terminalId` en la auditoría):
+  - `GET  /v1/pos-device/reception/options`: tarjeta, efectivo (y por qué no) y fichas.
+  - `POST /v1/pos-device/reception/cash` `{ amountCents, idempotencyKey, wallet }`: recarga en efectivo.
+  - `POST /v1/pos-device/reception/card` `{ amountCents, idempotencyKey, wallet }`:
+    prepara la recarga con tarjeta (cobro del datáfono, sin persona) y da la
+    referencia para el lector; se confirma con `/charges/:id/result`.
+  - `POST /v1/pos-device/reception/lookup` `{ card, uid? }`: de qué saldo es la ficha (sin enseñarlo).
+  - `GET  /v1/pos-device/reception/wallets/:id`, `POST …/wallets/:id/card`,
+    `POST …/wallets/:id/pin`: el saldo recién recargado en ESTE datáfono (15 min).
+  - `POST /v1/pos-device/reception/fichas/token` y `…/fichas/stock`: «Preparar fichas».
+- App del personal: `GET /v1/reception/options`, `POST /v1/reception/cash`
+  (permiso `cashTopUp`), `POST /v1/reception/lookup`, `POST /v1/reception/fichas/token|stock`.
+  Panel: `GET /v1/wallet-cards?q=&status=`, `GET /v1/wallet-cards/summary`,
+  `POST /v1/wallet-cards/:id/block|lost`.
 - API (credencial del datáfono, `Authorization: Device …`):
   - `GET  /v1/pos-device/saldo/charges`: cobros con QR sin pagar del local.
   - `POST /v1/pos-device/saldo/charges/scan` `{ payToken }`: el cobro del QR escaneado.
@@ -140,4 +258,6 @@ Nada de esto se ha podido probar en un A920 Pro (solo compila en GitHub Actions)
     exista en el panel, ocultar «Cobrar con saldo» si está apagado.
   - Cobros del saldo que crea el propio datáfono (barra, sin chica): hoy cada
     cobro lo hace una persona (`requestedByUserId`); un cobro «del datáfono»
-    pide decidir en la base de datos quién figura como quien lo hizo.
+    pide decidir en la base de datos quién figura como quien lo hizo. (Las
+    recargas de la recepción ya lo resuelven: figuran sin persona, con el
+    `terminalId` del datáfono.)
