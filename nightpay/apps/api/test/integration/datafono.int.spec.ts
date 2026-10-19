@@ -59,6 +59,37 @@ describe('credencial del datáfono (Postgres real)', () => {
     await expect(auth(third)).resolves.toMatchObject({ terminalId: term });
   });
 
+  it('rotar no rejuvenece la credencial en uso; la nueva, al usarla, lleva su propia fecha (seguridad #7)', async () => {
+    const { code } = await run(() => pos.createPairingCode(A, term, 'owner'));
+    const { token } = await run(() => pos.pair(code));
+    const old = new Date(Date.now() - 29 * 86400_000);
+    await run(() => prisma.asSystem((tx) => tx.terminal.update({ where: { id: term }, data: { deviceTokenIssuedAt: old } })));
+    const { token: next } = await run(async () => pos.rotateToken(await auth(token)));
+    const rotated = await run(() =>
+      prisma.asSystem((tx) =>
+        tx.terminal.findUnique({ where: { id: term }, select: { deviceTokenIssuedAt: true, deviceTokenNextIssuedAt: true } }),
+      ),
+    );
+    expect(rotated!.deviceTokenIssuedAt).toEqual(old);
+    expect(Date.now() - rotated!.deviceTokenNextIssuedAt!.getTime()).toBeLessThan(60_000);
+    // Dos días después la que está en uso ya ha caducado aunque se rotara; la nueva vale.
+    await run(() =>
+      prisma.asSystem((tx) =>
+        tx.terminal.update({ where: { id: term }, data: { deviceTokenIssuedAt: new Date(Date.now() - 31 * 86400_000) } }),
+      ),
+    );
+    process.env.POS_DEVICE_TOKEN_MAX_AGE_DAYS = '30';
+    await expect(auth(token)).rejects.toThrow(/caducado/);
+    await expect(auth(next)).resolves.toMatchObject({ terminalId: term });
+    const promoted = await run(() =>
+      prisma.asSystem((tx) =>
+        tx.terminal.findUnique({ where: { id: term }, select: { deviceTokenIssuedAt: true, deviceTokenNextIssuedAt: true } }),
+      ),
+    );
+    expect(promoted).toEqual({ deviceTokenIssuedAt: rotated!.deviceTokenNextIssuedAt, deviceTokenNextIssuedAt: null });
+    delete process.env.POS_DEVICE_TOKEN_MAX_AGE_DAYS;
+  });
+
   it('con caducidad configurada, una credencial vieja no vale; sin ella, sí', async () => {
     const { code } = await run(() => pos.createPairingCode(A, term, 'owner'));
     const { token } = await run(() => pos.pair(code));

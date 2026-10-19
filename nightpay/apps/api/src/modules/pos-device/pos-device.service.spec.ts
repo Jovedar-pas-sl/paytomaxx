@@ -305,7 +305,8 @@ describe('vinculación', () => {
     expect(out.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(tx.terminal.updateMany).toHaveBeenCalledWith({
       where: { id: 'term-1', deviceTokenHash: device.tokenHash, active: true },
-      data: { deviceTokenNextHash: sha256(out.token), deviceTokenIssuedAt: expect.any(Date) },
+      // La fecha va con la nueva: la credencial en uso no se rejuvenece (seguridad #7).
+      data: { deviceTokenNextHash: sha256(out.token), deviceTokenNextIssuedAt: expect.any(Date) },
     });
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'terminal.device.token_rotated' }));
   });

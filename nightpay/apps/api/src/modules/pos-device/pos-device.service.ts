@@ -146,6 +146,7 @@ export class PosDeviceService {
           deviceTokenHash: null,
           deviceTokenNextHash: null,
           deviceTokenIssuedAt: null,
+          deviceTokenNextIssuedAt: null,
           devicePairedAt: null,
           pairingCodeHash: null,
           pairingCodeExpiresAt: null,
@@ -181,6 +182,7 @@ export class PosDeviceService {
           deviceTokenHash: sha256(token),
           deviceTokenNextHash: null,
           deviceTokenIssuedAt: new Date(),
+          deviceTokenNextIssuedAt: null,
           devicePairedAt: new Date(),
           deviceLastSeenAt: new Date(),
           pairingCodeHash: null,
@@ -203,14 +205,16 @@ export class PosDeviceService {
    * El datáfono pide una credencial nueva (conviene hacerlo de vez en cuando;
    * obligatorio si se configura POS_DEVICE_TOKEN_MAX_AGE_DAYS). La anterior
    * sigue valiendo hasta que el datáfono use la nueva: si se corta la red y no
-   * le llega la respuesta, no se queda sin servicio (la vuelve a pedir).
+   * le llega la respuesta, no se queda sin servicio (la vuelve a pedir). La
+   * anterior conserva su antigüedad: rotar no la rejuvenece (la fecha de la
+   * nueva va aparte y pasa a ser la del datáfono cuando la usa).
    */
   async rotateToken(device: PosDevice): Promise<{ token: string }> {
     const token = newDeviceToken();
     const rotated = await this.prisma.asSystem((tx) =>
       tx.terminal.updateMany({
         where: { id: device.terminalId, deviceTokenHash: device.tokenHash, active: true },
-        data: { deviceTokenNextHash: sha256(token), deviceTokenIssuedAt: new Date() },
+        data: { deviceTokenNextHash: sha256(token), deviceTokenNextIssuedAt: new Date() },
       }),
     );
     if (rotated.count === 0) throw new UnauthorizedException('Datáfono sin vincular');
