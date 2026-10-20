@@ -4,11 +4,15 @@ import {
   STAFF_PERMISSION_KEYS,
   UpdateAlertSettingsSchema,
   UpdatePaymentMethodsSchema,
+  UpdateNightSettingsSchema,
   UpdateStaffPermissionsSchema,
   alertSettingsOf,
   mergeAlertSettings,
+  mergeNightSettings,
   mergePaymentMethods,
   mergeStaffPermissions,
+  nightSettingsOf,
+  nightSettingsProblem,
   paymentMethodsOf,
   staffCan,
   staffPermissionsOf,
@@ -16,9 +20,11 @@ import {
   type PermissionSet,
   type StaffPermissions,
   type UpdateAlertSettingsDto,
+  type UpdateNightSettingsDto,
   type UpdatePaymentMethodsDto,
   type UpdateStaffPermissionsDto,
   type VenueAlertSettings,
+  type VenueNightSettings,
   type VenuePaymentMethods,
 } from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -49,6 +55,7 @@ export interface AlertSettingsView extends VenueAlertSettings {
  *  - GET/PATCH /v1/admin/venue/permissions     → permisos del personal.
  *  - GET       /v1/admin/venue/permissions/me  → lo que puede hacer quien mira.
  *  - GET/PATCH /v1/admin/venue/alerts          → avisos de Telegram («Probar»: POST /v1/incidents/telegram-test).
+ *  - GET/PATCH /v1/admin/venue/night           → la noche: NFC sin PIN, teclado del PIN, recepción, avisos al cobrar.
  * Cada cambio queda en el registro (antes y después). Las reglas de dinero
  * (tope, comisiones, espera, aprobaciones) van en PATCH /v1/admin/venue/settings, con 2FA.
  */
@@ -156,6 +163,31 @@ export class VenueSettingsController {
     return this.alertsView(after);
   }
 
+  // ─── La noche (NFC sin PIN, teclado del PIN, recepción) ─────────────
+
+  /** Todo el personal: las apps los usan (el teclado del PIN, la recepción). También en /v1/venues/me. */
+  @Get('night')
+  @Roles('OWNER', 'MANAGER', 'WAITER', 'OPERATOR')
+  async night(@CurrentUser() user: JwtPayload): Promise<VenueNightSettings> {
+    return nightSettingsOf((await this.venueSettings(user.tenantId)).nightSettings);
+  }
+
+  @Patch('night')
+  @Roles('OWNER')
+  async updateNight(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(UpdateNightSettingsSchema)) dto: UpdateNightSettingsDto,
+  ): Promise<VenueNightSettings> {
+    const current = (await this.venueSettings(user.tenantId)).nightSettings;
+    const before = nightSettingsOf(current);
+    const after = mergeNightSettings(current, dto);
+    const problem = nightSettingsProblem(after);
+    if (problem) throw new BadRequestException(problem);
+    await this.save(user.tenantId, { nightSettings: after });
+    await this.logChange(user, 'venue.night_settings.updated', before, after);
+    return after;
+  }
+
   // ─── internos ──────────────────────────────────────────────────────
 
   private alertsView(settings: VenueAlertSettings): AlertSettingsView {
@@ -171,7 +203,7 @@ export class VenueSettingsController {
     return this.prisma.asSystem((tx) =>
       tx.venue.findUniqueOrThrow({
         where: { id: tenantId },
-        select: { paymentMethods: true, staffPermissions: true, alertSettings: true },
+        select: { paymentMethods: true, staffPermissions: true, alertSettings: true, nightSettings: true },
       }),
     );
   }
@@ -189,7 +221,12 @@ export class VenueSettingsController {
 
   private async save(
     tenantId: string,
-    data: { paymentMethods?: VenuePaymentMethods; staffPermissions?: StaffPermissions; alertSettings?: VenueAlertSettings },
+    data: {
+      paymentMethods?: VenuePaymentMethods;
+      staffPermissions?: StaffPermissions;
+      alertSettings?: VenueAlertSettings;
+      nightSettings?: VenueNightSettings;
+    },
   ): Promise<void> {
     await this.prisma.asSystem((tx) =>
       tx.venue.update({ where: { id: tenantId }, data: data as never, select: { id: true } }),
