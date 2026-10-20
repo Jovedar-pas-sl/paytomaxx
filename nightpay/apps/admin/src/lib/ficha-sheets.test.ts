@@ -22,7 +22,7 @@ function consumo(o: Partial<CobroRow>): CobroRow {
     isTopUp: false,
     method: 'SALDO',
     methodLabel: 'Saldo K7Q-•••',
-    via: 'NFC',
+    via: 'NFC sin PIN',
     wallet: { id: 'w1', codeHint: 'K7Q-•••' },
     service: '2 copas',
     invited: null,
@@ -100,8 +100,8 @@ describe('9.1 · ficha del saldo', () => {
   it('la línea del tiempo: lo último arriba; gastos con referencia, sección, quién y por dónde; recargas a trazos', () => {
     const rows = walletSheet(ficha(), SECTIONS, TZ, NOW).rows;
     expect(rows.map((r) => [r.time, r.title, r.sub, sp(r.amount), r.color === null, r.undone])).toEqual([
-      ['01:10', 'C-4821 · 2 copas', 'Copas · Carlos · NFC', '−20 €', false, false],
-      ['01:00', 'C-4819 · 2 copas', 'Copas · Carlos · NFC', '−50 €', false, true],
+      ['01:10', 'C-4821 · 2 copas', 'Copas · Carlos · NFC sin PIN', '−20 €', false, false],
+      ['01:00', 'C-4819 · 2 copas', 'Copas · Carlos · NFC sin PIN', '−50 €', false, true],
       ['00:58', 'C-4818 · 30 min', 'Servicios · Nerea · PIN', '−250 €', false, false],
       ['00:45', 'Recarga · tarjeta', 'sin personal', '+100 €', true, false],
       ['00:25', 'Recarga · tarjeta', 'Recepción · sin personal', '+100 €', true, false],
@@ -149,7 +149,7 @@ function staff(o: Partial<StaffFicha> = {}): StaffFicha {
     ],
     rows: [
       { id: 'e1', at: '2026-10-25T00:20:00.000Z', ref: 'C-4833', kind: 'PAYMENT', section: 'TIPS', sections: [], title: 'Propina', method: 'CARD', via: 'QR', walletCode: null, chargedBy: null, invitation: false, amountCents: 500, shareCents: 500, undone: false },
-      { id: 'e2', at: '2026-10-24T23:28:00.000Z', ref: 'C-4829', kind: 'SALDO', section: 'VENUE_BAR', sections: [], title: 'Invitación', method: 'SALDO', via: 'NFC', walletCode: 'K7Q-4M2', chargedBy: { id: 'c', name: 'Carlos', role: 'WAITER' }, invitation: true, amountCents: 2_000, shareCents: 1_000, undone: false },
+      { id: 'e2', at: '2026-10-24T23:28:00.000Z', ref: 'C-4829', kind: 'SALDO', section: 'VENUE_BAR', sections: [], title: 'Invitación', method: 'SALDO', via: 'NFC sin PIN', walletCode: 'K7Q-4M2', chargedBy: { id: 'c', name: 'Carlos', role: 'WAITER' }, invitation: true, amountCents: 2_000, shareCents: 1_000, undone: false },
       { id: 'e3', at: '2026-10-24T22:31:00.000Z', ref: 'C-4815', kind: 'SALDO', section: 'CHICA_SERVICE', sections: [], title: '1 h', method: 'SALDO', via: 'PIN', walletCode: 'K7Q-4M2', chargedBy: null, invitation: false, amountCents: 12_000, shareCents: 9_600, undone: false },
       { id: 'e4', at: '2026-10-24T21:58:00.000Z', ref: 'C-4809', kind: 'PAYMENT', section: 'CHICA_SERVICE', sections: [], title: '30 min', method: 'POS', via: 'Datáfono', walletCode: null, chargedBy: null, invitation: false, amountCents: 8_000, shareCents: 6_400, undone: false },
     ],
@@ -179,7 +179,7 @@ describe('9.2 · ficha de la chica y del camarero', () => {
     const rows = staffSheet(staff(), SECTIONS, TZ).rows;
     expect(rows.map((r) => [r.time, r.title, r.sub, sp(r.amount), r.share])).toEqual([
       ['02:20', 'C-4833 · Propina', 'Propinas · tarjeta · QR', '5 €', '+5'],
-      ['01:28', 'C-4829 · Invitación', 'Copas · cobró Carlos · NFC', '20 €', '+10'],
+      ['01:28', 'C-4829 · Invitación', 'Copas · cobró Carlos · NFC sin PIN', '20 €', '+10'],
       ['00:31', 'C-4815 · 1 h', 'Saldo K7Q-4M2 · PIN', '120 €', '+96'],
       ['23:58', 'C-4809 · 30 min', 'Servicios · datáfono', '80 €', '+64'],
     ]);

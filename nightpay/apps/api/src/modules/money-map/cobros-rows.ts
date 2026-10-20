@@ -88,8 +88,12 @@ export interface SaldoFeedRow {
   lines: StoredLineLike[];
 }
 
+/**
+ * Cómo se autorizó un cobro del saldo. Con PIN no se guarda si se leyó la
+ * ficha o se tecleó el código (solo va al registro): sale «PIN».
+ */
 const AUTH_VIA: Readonly<Record<string, string>> = {
-  nfc_nopin: 'NFC',
+  nfc_nopin: 'NFC sin PIN',
   pin: 'PIN',
   passkey: 'Face ID',
   staff: 'Personal',
