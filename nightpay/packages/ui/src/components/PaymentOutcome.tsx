@@ -5,6 +5,7 @@ import { amountParts } from '../format';
 import { useNow } from '../hooks';
 import { agoLabel } from '../lib/countdown';
 import { clockTime, OUTCOME_TITLE, type OutcomeKind } from '../lib/outcome';
+import { sectionOf, sectionVar } from '../lib/sections';
 import { SectionChip } from './SectionChip';
 
 export interface OutcomeAction {
@@ -14,6 +15,8 @@ export interface OutcomeAction {
   loading?: boolean;
   /** No se puede pulsar ahora (p. ej. mientras el otro botón espera al servidor). */
   disabled?: boolean;
+  /** Un icono delante del texto (p. ej. el QR de «Cobrar 50 € con QR»). */
+  icon?: ReactNode;
 }
 
 export interface PaymentOutcomeProps {
@@ -31,8 +34,17 @@ export interface PaymentOutcomeProps {
   codeHint?: string;
   /** Sección del cobro (VENUE_BAR, CHICA_SERVICE… o copas, servicios…): su chip arriba. */
   section?: string | null;
+  /** Varias secciones («Copas + Comida»): un chip partido con sus colores (gana a `section`). */
+  sections?: readonly string[] | null;
+  /** «20 €» en vez de «20,00 €» cuando no hay céntimos (como en la pantalla de cobrar). */
+  compactAmount?: boolean;
   /** Referencia del cobro («C-4821»): una pill arriba, junto a la sección. */
   reference?: string | null;
+  /**
+   * La franja de arriba con los colores de las secciones del cobro (CSS, p.
+   * ej. var(--np-sec-copas)), partida por lo cobrado de cada una.
+   */
+  stripe?: ReadonlyArray<{ color: string; weight?: number }> | null;
   /** El botón grande: «Nuevo cobro», «Otro QR · mismo importe»… */
   primary: OutcomeAction;
   secondary?: OutcomeAction;
@@ -72,7 +84,10 @@ export function PaymentOutcome({
   code,
   codeHint,
   section,
+  sections,
+  compactAmount = false,
   reference,
+  stripe,
   primary,
   secondary,
   error,
@@ -83,7 +98,9 @@ export function PaymentOutcome({
   const since = sinceMs ?? shownAt;
   const now = useNow(true);
   const title = OUTCOME_TITLE[kind];
-  const amount = amountParts(amountCents, currency).text;
+  const full = amountParts(amountCents, currency).text;
+  const amount = compactAmount && amountCents % 100 === 0 ? full.replace(/[.,]00(?=\D*$)/, '') : full;
+  const many = sections && sections.length > 1 ? sections.slice(0, 2) : null;
 
   // El anuncio va a una región que ya existe: si nace con el texto, muchos
   // lectores de pantalla no lo leen.
@@ -105,6 +122,13 @@ export function PaymentOutcome({
 
   return (
     <section className="np-outcome" data-kind={kind} aria-labelledby={titleId}>
+      {stripe && stripe.length > 0 ? (
+        <div className="np-outcome-stripe" aria-hidden="true">
+          {stripe.map((s, i) => (
+            <i key={i} style={{ background: s.color, flex: Math.max(s.weight ?? 1, 1) }} />
+          ))}
+        </div>
+      ) : null}
       <div className="np-outcome-band" aria-hidden="true">
         <div className="np-outcome-band-track">
           {Array.from({ length: BAND_ITEMS * 2 }, (_, i) => (
@@ -114,9 +138,18 @@ export function PaymentOutcome({
       </div>
 
       <div className="np-outcome-body">
-        {section || reference ? (
+        {section || many || reference ? (
           <div className="np-outcome-top">
-            {section ? <SectionChip section={section} /> : null}
+            {many ? (
+              <span
+                className="np-chip"
+                style={{ background: `linear-gradient(90deg, ${sectionVar(many[0])} 0 50%, ${sectionVar(many[1])} 50%)` }}
+              >
+                {many.map((s) => sectionOf(s)?.label ?? s).join(' + ')}
+              </span>
+            ) : section ? (
+              <SectionChip section={section} />
+            ) : null}
             {reference ? <span className="np-outcome-ref">{reference}</span> : null}
           </div>
         ) : null}
@@ -179,7 +212,16 @@ const OutcomeButton = forwardRef<HTMLButtonElement, OutcomeButtonProps>(function
       disabled={action.loading || action.disabled}
       aria-busy={action.loading || undefined}
     >
-      {action.loading ? 'Un momento…' : action.label}
+      {action.loading ? (
+        'Un momento…'
+      ) : action.icon ? (
+        <span className="np-outcome-btn-in">
+          {action.icon}
+          {action.label}
+        </span>
+      ) : (
+        action.label
+      )}
     </button>
   );
 });

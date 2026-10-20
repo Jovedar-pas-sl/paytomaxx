@@ -57,6 +57,14 @@
   to   { opacity: 1; transform: scale(1);    }
 }
 
+/* La franja de las secciones del cobro, arriba del todo (como en las maquetas). */
+.np-outcome-stripe {
+  flex-shrink: 0;
+  display: flex;
+  gap: 2px;
+  height: 0.625rem;
+}
+
 /* Franja con la palabra y la hora, moviéndose despacio (~60 px/s): una
    captura vieja se queda quieta. */
 .np-outcome-band {
@@ -337,6 +345,19 @@
   .np-outcome-btn[data-variant='secondary']:hover:not(:disabled) {
     background: color-mix(in srgb, currentColor 10%, transparent);
   }
+}
+
+.np-outcome-btn-in {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+}
+
+.np-outcome-btn-in svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
 }
 
 .np-outcome-btn:active:not(:disabled) {
