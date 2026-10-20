@@ -9,6 +9,7 @@ import type {
   PaymentStatus,
   ReceptionOptions,
   SectionCode,
+  StaffQrView,
   StockOutcome,
   VenueSection,
 } from '@nightpay/contracts';
@@ -409,6 +410,8 @@ export async function createPayment(input: {
   revenueCategory?: SectionCode;
   /** Fase 1A — servicio de la carta: el servidor usa su precio y su categoría. */
   serviceItemId?: string;
+  /** «Invitar a una copa»: el QR de la chica invitada (lo que se leyó). */
+  invitedStaffToken?: string;
   /** Una por intento de cobro (la pantalla la reutiliza si se repite). */
   idempotencyKey?: string;
 }): Promise<CreatedPayment> {
@@ -443,6 +446,9 @@ export async function createPayment(input: {
   }
   if (input.serviceItemId) {
     body.serviceItemId = input.serviceItemId;
+  }
+  if (input.invitedStaffToken) {
+    body.invitedStaffToken = input.invitedStaffToken;
   }
   const res = await authedFetch('/v1/payments', {
     method: 'POST',
@@ -507,6 +513,13 @@ export async function cancelPayment(id: string): Promise<{ status: string }> {
   return res.json();
 }
 
+/** «Mi QR» de la chica: firmado y de vida corta (la app lo renueva). */
+export async function fetchMyStaffQr(signal?: AbortSignal): Promise<StaffQrView> {
+  const res = await authedFetch('/v1/operators/me/staff-qr', { signal });
+  if (!res.ok) throw loadError(res, 'No se pudo sacar tu QR');
+  return res.json();
+}
+
 /** Secciones del local y la de quien cobra (su puesto): «Otro importe» la marca. */
 export interface MySections {
   sections: VenueSection[];
@@ -561,6 +574,8 @@ export interface ServiceItem {
   category: SectionCode | 'EXTRA';
   /** Pack: sus partes (cada una a su sección). */
   components?: Array<{ category: SectionCode; amountCents: number }> | null;
+  /** «Invitar a una copa»: hace falta el QR de la chica invitada. */
+  isInvitation?: boolean;
 }
 
 /** Lo que quien llama puede cobrar (la chica solo ve sus servicios). */
@@ -679,6 +694,8 @@ export async function createQrWalletCharge(input: {
   amountCents?: number;
   /** Sección del importe tecleado; sin ella, la del puesto. */
   category?: SectionCode;
+  /** «Invitar a una copa»: el QR de la chica invitada. */
+  invitedStaffToken?: string;
 }): Promise<QrWalletCharge> {
   const res = await authedFetch('/v1/wallet-charges/qr', { method: 'POST', body: JSON.stringify(input) });
   if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));

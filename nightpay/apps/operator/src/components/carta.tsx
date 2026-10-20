@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { fetchServices, type ServiceItem } from '@/lib/api';
+import { formatEur } from '@/lib/money';
 
 export interface Carta {
   services: ServiceItem[];
@@ -61,6 +62,70 @@ export function serviceLabel(svc: ServiceItem): string {
     ? `${svc.name} · ${svc.durationMin} min`
     : svc.name;
 }
+
+/**
+ * Un servicio de la carta (el borde, del color de su sección). La invitación
+ * («Invitar a una copa») sale grande y destacada: ocupa toda la fila y va
+ * antes que la copa sola.
+ */
+export function CartaTile({
+  svc,
+  color,
+  disabled,
+  onPick,
+}: {
+  svc: ServiceItem;
+  color: string;
+  disabled?: boolean;
+  onPick: () => void;
+}) {
+  const invite = svc.isInvitation === true;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onPick}
+      style={{ ...tileStyle, ...(invite ? inviteTileStyle : null), borderLeft: `0.5rem solid ${color}` }}
+    >
+      {invite ? <span style={inviteKicker}>Invitar a una copa · mejor plan</span> : null}
+      <span style={{ fontSize: invite ? '1.375rem' : '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
+      <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
+        {formatEur(svc.priceCents, { compact: true })}
+      </span>
+    </button>
+  );
+}
+
+export const tileStyle: CSSProperties = {
+  minHeight: '6rem',
+  padding: '0.875rem',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: '0.5rem',
+  textAlign: 'left',
+  background: 'var(--np-surface-2)',
+  border: '2px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-lg)',
+  color: 'var(--np-text)',
+  cursor: 'pointer',
+};
+
+const inviteTileStyle: CSSProperties = {
+  gridColumn: '1 / -1',
+  minHeight: '7.5rem',
+  borderColor: 'var(--np-accent)',
+  background: 'var(--np-pill-cyan-bg)',
+};
+
+const inviteKicker: CSSProperties = {
+  fontSize: 'var(--np-t-label)',
+  fontWeight: 800,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--np-accent)',
+};
 
 const noteStyle: CSSProperties = {
   margin: 0,

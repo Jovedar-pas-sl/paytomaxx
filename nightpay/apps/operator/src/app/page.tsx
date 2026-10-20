@@ -9,6 +9,7 @@ import { SessionExpiredContext } from '@/components/session-context';
 import { WALLET_CARD_PARAM } from '@nightpay/contracts';
 import { getUser, hasSession, logout, onSessionEnded, type OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
+import { captureInviteFromUrl } from '@/lib/invite-link';
 import { useOpenCharges } from '@/lib/open-charges';
 import { afterRelogin, shellView } from '@/lib/session-resume';
 import { clearTabFromUrl } from '@/lib/use-url-tab';
@@ -34,6 +35,8 @@ export default function Page() {
   }, [user]);
 
   useEffect(() => {
+    // QR de una chica leído con la cámara del móvil: lo recoge el cobro abierto.
+    captureInviteFromUrl();
     if (hasSession()) setUser(getUser());
     else setUser(null);
     setFromCard(new URLSearchParams(window.location.search).has(WALLET_CARD_PARAM));

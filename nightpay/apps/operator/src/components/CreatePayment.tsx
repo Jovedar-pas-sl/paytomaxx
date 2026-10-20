@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { MAX_TYPED_AMOUNT_CENTS, type SectionCode } from '@nightpay/contracts';
 import { AmountKeypad, Button, Card, Input } from '@nightpay/ui';
 import {
@@ -15,7 +15,9 @@ import {
 } from '@/lib/api';
 import { formatEur } from '@/lib/money';
 import { ActivePayment } from './ActivePayment';
-import { CartaRetry, serviceLabel, useCarta } from './carta';
+import { CartaRetry, CartaTile, serviceLabel, tileStyle, useCarta } from './carta';
+import { InviteStep } from './InviteStep';
+import { invitationsFirst } from '@/lib/invite-link';
 import { STICKY_ACTION_BOTTOM } from './layout';
 import { cobroModeAllowed, useVenueMethods, type CobroMode } from '@/lib/venue-methods';
 import { initialSection, offeredSections, sectionColor, useMySections } from '@/lib/sections';
@@ -66,6 +68,9 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
   // el importe; "Otro importe" sigue disponible (con el tope del local).
   const { services, failed: cartaFailed, retry: retryCarta } = useCarta();
   const [picked, setPicked] = useState<ServiceItem | 'custom' | null>(null);
+  // «Invitar a una copa»: el QR de la chica invitada (leído antes de cobrar).
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const takeInvite = useCallback((token: string) => setInviteToken(token), []);
   const [active, setActive] = useState<Active | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -122,6 +127,13 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
   // La carta aplica a cobros por QR o datáfono; la recarga de wallet es libre.
   const usingService = mode !== 'wallet' && picked !== null && picked !== 'custom';
   const showCarta = mode !== 'wallet' && services.length > 0 && picked === null;
+  const inviting = usingService && (picked as ServiceItem).isInvitation === true;
+
+  function pickService(next: ServiceItem | 'custom' | null) {
+    setPicked(next);
+    setInviteToken(null);
+    setError(null);
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -139,6 +151,7 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
       const service = usingService ? (picked as ServiceItem) : null;
       const cents = service ? service.priceCents : amountCents;
       if (cents <= 0) throw new Error('Pon el importe');
+      if (inviting && !inviteToken) throw new Error('Escanea el QR de la chica a la que invita');
       if (mode === 'wallet' && !walletIdentifier.trim()) {
         throw new Error('Pon una etiqueta al wallet (Mesa 3, Pulsera azul...) para no confundirlo');
       }
@@ -158,12 +171,22 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
         // De la carta, la sección la pone el servicio; tecleado, la elegida.
         revenueCategory: service || mode === 'wallet' ? undefined : revCategory,
         serviceItemId: service?.id,
+        invitedStaffToken: inviting ? (inviteToken ?? undefined) : undefined,
       };
-      const what = JSON.stringify([cents, mode, usingZone ? selectedZone : null, walletIdentifier.trim(), revCategory, service?.id ?? null]);
+      const what = JSON.stringify([
+        cents,
+        mode,
+        usingZone ? selectedZone : null,
+        walletIdentifier.trim(),
+        revCategory,
+        service?.id ?? null,
+        inviting ? inviteToken : null,
+      ]);
       if (attempt.current?.what !== what) attempt.current = { key: newIdempotencyKey(), what };
       const created = await createPayment({ ...request, idempotencyKey: attempt.current.key });
       attempt.current = null;
-      setActive({ payment: created, isPos: mode === 'pos', label: service ? serviceLabel(service) : null, request });
+      const label = service ? `${inviting ? 'Invitación · ' : ''}${serviceLabel(service)}` : null;
+      setActive({ payment: created, isPos: mode === 'pos', label, request });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -195,6 +218,7 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
     setActive(null);
     setAmountCents(0);
     setPicked(null);
+    setInviteToken(null);
     setError(null);
     setRetryError(null);
     setWalletIdentifier('');
@@ -231,36 +255,32 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
     );
   }
 
+  // Invitación elegida: antes de cobrar, el QR de la chica.
+  if (inviting && !inviteToken) {
+    const svc = picked as ServiceItem;
+    return <InviteStep name={serviceLabel(svc)} priceCents={svc.priceCents} onToken={takeInvite} onCancel={() => pickService(null)} />;
+  }
+
   if (showCarta) {
     return (
       <Card style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)' }}>
         <p style={{ ...kicker, textAlign: 'center' }}>¿Qué cobras?</p>
         <div style={cartaGridStyle}>
-          {services.map((svc) => (
-            <button
+          {invitationsFirst(services).map((svc) => (
+            <CartaTile
               key={svc.id}
-              type="button"
-              onClick={() => {
-                setPicked(svc);
-                setError(null);
-              }}
-              // El borde, del color de su sección.
-              style={{ ...cartaTileStyle, borderLeft: `0.5rem solid ${sectionColor(mySections.sections, svc.category)}` }}
-            >
-              <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
-              <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
-                {formatEur(svc.priceCents, { compact: true })}
-              </span>
-            </button>
+              svc={svc}
+              color={sectionColor(mySections.sections, svc.category)}
+              onPick={() => pickService(svc)}
+            />
           ))}
           <button
             type="button"
             onClick={() => {
-              setPicked('custom');
+              pickService('custom');
               setAmountCents(0);
-              setError(null);
             }}
-            style={{ ...cartaTileStyle, borderStyle: 'dashed' }}
+            style={{ ...tileStyle, borderStyle: 'dashed' }}
           >
             <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>Otro importe</span>
             <span style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>Teclearlo</span>
@@ -293,7 +313,10 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
           {usingService ? (
             <div style={pickedStyle}>
               <div style={{ minWidth: 0 }}>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: '1.125rem' }}>{serviceLabel(picked as ServiceItem)}</p>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: '1.125rem' }}>
+                  {inviting ? 'Invitación · ' : ''}
+                  {serviceLabel(picked as ServiceItem)}
+                </p>
                 <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700 }}>
                   {formatEur((picked as ServiceItem).priceCents, { compact: true })}
                 </p>
@@ -301,7 +324,7 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => setPicked(null)}
+                onClick={() => pickService(null)}
                 style={{ height: '2.75rem', padding: '0 1rem' }}
               >
                 Cambiar
@@ -465,22 +488,6 @@ const cartaGridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
   gap: '0.625rem',
-};
-
-const cartaTileStyle: CSSProperties = {
-  minHeight: '6rem',
-  padding: '0.875rem',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'flex-start',
-  justifyContent: 'space-between',
-  gap: '0.5rem',
-  textAlign: 'left',
-  background: 'var(--np-surface-2)',
-  border: '2px solid var(--np-border-hi)',
-  borderRadius: 'var(--np-r-lg)',
-  color: 'var(--np-text)',
-  cursor: 'pointer',
 };
 
 const pickedStyle: CSSProperties = {

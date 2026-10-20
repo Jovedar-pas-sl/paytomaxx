@@ -11,6 +11,7 @@ import {
   lookupWalletCode,
   payWalletChargeWithPin,
   type QrWalletCharge,
+  type ServiceItem,
   type WalletChargeRequest,
   getUser,
   pollErrorText,
@@ -26,7 +27,9 @@ import { nfcSupported, readCard } from '@/lib/nfc';
 import { useOpenCharge } from '@/lib/open-charges';
 import { useVenueMethods } from '@/lib/venue-methods';
 import { usePolling } from '@/lib/use-polling';
-import { CartaRetry, serviceLabel, useCarta, type Carta } from './carta';
+import { CartaRetry, CartaTile, serviceLabel, tileStyle, useCarta, type Carta } from './carta';
+import { InviteStep } from './InviteStep';
+import { invitationsFirst } from '@/lib/invite-link';
 import { STICKY_ACTION_BOTTOM } from './layout';
 import { PinPad } from './PinPad';
 import { SectionPicker } from './SectionPicker';
@@ -39,7 +42,7 @@ interface Props {
 }
 
 /** Lo que se pidió (servicio, o importe y su sección): «Otro QR · mismo importe» lo repite sin teclear. */
-type ChargeInput = { serviceItemId?: string; amountCents?: number; category?: SectionCode };
+type ChargeInput = { serviceItemId?: string; amountCents?: number; category?: SectionCode; invitedStaffToken?: string };
 
 type Stage =
   | { kind: 'pick' }
@@ -101,6 +104,8 @@ function PickStep({
   onCreated: (charge: QrWalletCharge, input: ChargeInput) => void;
 }) {
   const [custom, setCustom] = useState(false);
+  // «Invitar a una copa» elegida: antes del QR del cliente, el de la chica.
+  const [inviting, setInviting] = useState<ServiceItem | null>(null);
   const [amountCents, setAmountCents] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +135,20 @@ function PickStep({
       return;
     }
     void send({ amountCents, category });
+  }
+
+  if (inviting) {
+    return (
+      <InviteStep
+        name={serviceLabel(inviting)}
+        priceCents={inviting.priceCents}
+        onToken={(token) => {
+          setInviting(null);
+          void send({ serviceItemId: inviting.id, invitedStaffToken: token });
+        }}
+        onCancel={() => setInviting(null)}
+      />
+    );
   }
 
   // Sin servicios en la carta (o sin carta): el teclado directamente, sin pasar por «Otro importe».
@@ -166,19 +185,18 @@ function PickStep({
         </form>
       ) : (
         <div style={gridStyle}>
-          {carta.services.map((svc) => (
-            <button
+          {invitationsFirst(carta.services).map((svc) => (
+            <CartaTile
               key={svc.id}
-              type="button"
+              svc={svc}
+              color={sectionColor(mySections.sections, svc.category)}
               disabled={busy}
-              onClick={() => void send({ serviceItemId: svc.id })}
-              style={{ ...tileStyle, borderLeft: `0.5rem solid ${sectionColor(mySections.sections, svc.category)}` }}
-            >
-              <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
-              <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
-                {formatEur(svc.priceCents, { compact: true })}
-              </span>
-            </button>
+              onPick={() => {
+                setError(null);
+                if (svc.isInvitation) setInviting(svc);
+                else void send({ serviceItemId: svc.id });
+              }}
+            />
           ))}
           <button
             type="button"
@@ -645,22 +663,6 @@ const gridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
   gap: '0.625rem',
-};
-
-const tileStyle: CSSProperties = {
-  minHeight: '6rem',
-  padding: '0.875rem',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'flex-start',
-  justifyContent: 'space-between',
-  gap: '0.5rem',
-  textAlign: 'left',
-  background: 'var(--np-surface-2)',
-  border: '2px solid var(--np-border-hi)',
-  borderRadius: 'var(--np-r-lg)',
-  color: 'var(--np-text)',
-  cursor: 'pointer',
 };
 
 // 260 px como mucho; en el móvil, según el alto (--np-qr): el QR y sus botones en una pantalla.
