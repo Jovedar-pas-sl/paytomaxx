@@ -84,7 +84,7 @@ describe('maqueta 8 · A, barras apiladas', () => {
       ['Del saldo', 185_000],
     ]);
     expect(v.topUps?.cents).toBe(307_000);
-    expect(sp(v.topUps?.detail)).toBe('tarjeta 2.000 € · efectivo 1.070 €');
+    expect(sp(v.topUps?.detail)).toBe('efectivo 1.070 € · tarjeta 2.000 €');
     expect(v.sections.map((s) => [s.label, s.pct])).toEqual([
       ['Servicios', 100],
       ['Copas', 58],
@@ -93,6 +93,19 @@ describe('maqueta 8 · A, barras apiladas', () => {
       ['Entradas', 17],
       ['Propinas', 5],
     ]);
+  });
+
+  it('cómo entra: un canal a 0 € no sale (aquí el efectivo entra como recarga); sin ventas, ninguno', () => {
+    const noCash = moneyMapView(map({ inflow: { ...map().inflow, cashCents: 0 } }), SECTIONS);
+    expect(noCash.inflow.map((s) => s.key)).toEqual(['card', 'saldo']);
+    const onlyCash = moneyMapView(
+      map({ inflow: { ...map().inflow, cardRailCents: 0, saldoCents: 0, topUps: { totalCents: 5_000, cardCents: 0, cashCents: 5_000, count: 1 } } }),
+      SECTIONS,
+    );
+    expect(onlyCash.inflow.map((s) => s.key)).toEqual(['cash']);
+    expect(sp(onlyCash.topUps?.detail)).toBe('efectivo 50 €');
+    const none = moneyMapView(map({ inflow: { ...map().inflow, cardRailCents: 0, cashCents: 0, saldoCents: 0 } }), SECTIONS);
+    expect(none.inflow).toEqual([]);
   });
 
   it('dónde está (por sitio y por dueño) y qué sale', () => {
