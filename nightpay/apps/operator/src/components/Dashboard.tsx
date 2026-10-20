@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { Button, Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
 import type { OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { tabForOpenCharge, useOpenCharges } from '@/lib/open-charges';
 import { roleAccess, type TabKey } from '@/lib/roles';
+import { useUrlTab } from '@/lib/use-url-tab';
 import { VenueMethodsContext, useVenueMethodsFeed, visibleTabsFor } from '@/lib/venue-methods';
 import { ChargeFromBalance } from './ChargeFromBalance';
 import { ConnectionStatus } from './ConnectionStatus';
@@ -33,8 +34,8 @@ export function Dashboard({ user, onLogout }: Props) {
   // Formas de cobro apagadas por el dueño: sus pestañas no salen.
   const methods = useVenueMethodsFeed(user.id);
   const tabs = visibleTabsFor(access.tabs, methods);
-  const [selectedTab, setTab] = useState<TabKey>('home');
-  const tab: TabKey = tabs.includes(selectedTab) ? selectedTab : 'home';
+  // La pestaña va en la URL (?t=saldo): recargar o volver a entrar deja donde se estaba.
+  const [tab, setTab] = useUrlTab(tabs);
   const links = useDeepLinks(access.posQueue);
   // Sesión caducada con un cobro abierto: el saldo y la noche dejan de
   // preguntar y vuelven solos al entrar otra vez.
@@ -51,14 +52,14 @@ export function Dashboard({ user, onLogout }: Props) {
 
   // ?pos=<id>: el camarero llegó escaneando el QR de un cobro con datáfono.
   useEffect(() => {
-    if (links.focusedPosId) setTab('pos');
+    if (links.focusedPosId) setTab('pos', 'replace');
   }, [links.focusedPosId]);
 
   // Al caducar la sesión, delante el cobro abierto (su QR sigue vivo en su pestaña).
   useEffect(() => {
     if (!expired) return;
     const target = tabForOpenCharge(charges.spots, tab);
-    if (target) setTab(target);
+    if (target) setTab(target, 'replace');
     // Solo al caducar: luego la chica mira lo que quiera.
   }, [expired]);
 
@@ -132,7 +133,7 @@ export function Dashboard({ user, onLogout }: Props) {
         <Earnings night={night.night} balance={own.balance} nightError={night.error} />
       ) : null}
 
-      <TabBar tabs={tabs} active={tab} onSelect={setTab} />
+      <TabBar tabs={tabs} active={tab} onSelect={(next) => setTab(next)} />
     </main>
     </VenueMethodsContext.Provider>
   );

@@ -11,6 +11,7 @@ import { getUser, hasSession, logout, onSessionEnded, type OperatorUser } from '
 import { clearFichaContext } from '@/lib/ficha-context';
 import { useOpenCharges } from '@/lib/open-charges';
 import { afterRelogin, shellView } from '@/lib/session-resume';
+import { clearTabFromUrl } from '@/lib/use-url-tab';
 
 const EXPIRED_NOTICE = 'Tu sesión ha caducado. Vuelve a entrar.';
 const LOGGED_OUT_ELSEWHERE_NOTICE = 'Has salido desde otra pestaña.';
@@ -54,6 +55,7 @@ export default function Page() {
   function enter(next: OperatorUser) {
     if (afterRelogin(user, next) === 'reset') {
       clearFichaContext();
+      clearTabFromUrl();
       setGeneration((g) => g + 1);
     }
     setNotice(null);
@@ -67,6 +69,8 @@ export default function Page() {
     // Ya fuera: un sondeo que caduque ahora mismo no dice «Tu sesión ha caducado».
     loggedIn.current = false;
     const closed = logout();
+    // Quien entre después empieza en Inicio (la pestaña iba en la URL).
+    clearTabFromUrl();
     setNotice(null);
     setExpired(false);
     setUser(null);
