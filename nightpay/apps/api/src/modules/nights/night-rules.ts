@@ -76,6 +76,11 @@ export interface NightCaja {
 export interface NightZ {
   from: string;
   to: string;
+  /**
+   * El corte: cuenta lo apuntado antes de este instante (y el Z siguiente
+   * busca ajustes desde aquí, zStart). Al cerrar a mano es el cierre; al
+   * cerrarse sola, cuando se generó. Ver night-cutoff.ts.
+   */
   generatedAt: string;
   summary: ExportSummary;
   /** Cobros sin resolver en el momento del Z (atascados o datáfono sin confirmar). */

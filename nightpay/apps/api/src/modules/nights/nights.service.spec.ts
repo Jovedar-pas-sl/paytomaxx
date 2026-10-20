@@ -3,7 +3,16 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import type { NightCash, NightCloseCheck, NightCloseStep } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { buildCloseSteps } from './close-check-rules';
+import { settleWritesBefore } from './night-cutoff';
 import { NightsService } from './nights.service';
+
+// Esperar a lo abierto antes del corte va contra pg_stat_activity (night-cutoff.spec.ts y la
+// prueba de integración cierre-carrera): aquí, «ya está todo a la vista».
+vi.mock('./night-cutoff', async (original) => ({
+  ...(await original<typeof import('./night-cutoff')>()),
+  settleWritesBefore: vi.fn(async () => ({ settled: true, open: 0, waitedMs: 0 })),
+}));
+const settle = vi.mocked(settleWritesBefore);
 
 const OPENED = new Date('2026-10-13T20:00:00Z'); // 22:00 de Madrid
 
@@ -327,6 +336,36 @@ describe('cerrar la noche', () => {
     const race = makeService({ closedCount: 0 });
     await expect(race.svc.close('t-1', manager, 'night-1')).rejects.toThrow(ConflictException);
   });
+
+  it('el corte: antes de leer las filas del Z se espera a lo empezado antes; el Z cuenta hasta ese corte y lo guarda', async () => {
+    const { svc, prisma, reports } = makeService();
+    const order: string[] = [];
+    settle.mockImplementationOnce(async () => {
+      order.push('settle');
+      return { settled: true, open: 0, waitedMs: 0 };
+    });
+    reports.cobros.mockImplementationOnce(async () => {
+      order.push('cobros');
+      return [];
+    });
+    await svc.close('t-1', manager, 'night-1');
+    const NOW = new Date('2026-10-13T23:00:00Z');
+    expect(settle).toHaveBeenLastCalledWith(prisma, NOW);
+    expect(order).toEqual(['settle', 'cobros']);
+    expect(reports.cobros).toHaveBeenCalledWith('t-1', { from: OPENED, to: NOW }, { recordedBefore: NOW });
+    // El cierre y el corte son el mismo instante: el Z siguiente empieza (y busca ajustes) justo ahí.
+    expect(closedData(prisma)).toMatchObject({ closedAt: NOW });
+    expect(closedData(prisma).zReport).toMatchObject({ to: NOW.toISOString(), generatedAt: NOW.toISOString() });
+  });
+
+  it('si algo sigue abierto pasado el plazo, se cierra igual y queda en el registro', async () => {
+    const { svc, prisma } = makeService();
+    settle.mockResolvedValueOnce({ settled: false, open: 1, waitedMs: 6000 });
+    const warn = vi.spyOn((svc as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn').mockImplementation(() => undefined);
+    await svc.close('t-1', manager, 'night-1');
+    expect(prisma.venueNight.updateMany).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/1 transacción\(es\) de antes del corte .* siguen abiertas tras 6000 ms/));
+  });
 });
 
 describe('los pasos del cierre y el fondo de caja', () => {
@@ -449,6 +488,15 @@ describe('cierre automático y noche de la chica', () => {
     prisma.venueNight.findMany.mockResolvedValueOnce([night({ id: 'n-a', tenantId: 't-a' }), night({ id: 'n-b', tenantId: 't-b' })]);
     reports.cobros.mockRejectedValueOnce(new Error('db blip'));
     expect(await svc.autoCloseDue(undefined, new Date('2026-10-14T09:00:00Z'))).toBe(1);
+  });
+
+  it('cerrándose sola, el corte de lo apuntado es cuando se genera: antes de leer, se espera a lo empezado antes', async () => {
+    const { svc, prisma } = makeService({ open: night() });
+    settle.mockClear();
+    const at = new Date('2026-10-14T09:00:00Z');
+    expect(await svc.autoCloseDue(undefined, at)).toBe(1);
+    expect(settle).toHaveBeenCalledWith(prisma, at);
+    expect(closedData(prisma).zReport).toMatchObject({ to: '2026-10-14T06:00:00.000Z', generatedAt: at.toISOString() });
   });
 
   it('antes de las 08:00 no toca nada', async () => {

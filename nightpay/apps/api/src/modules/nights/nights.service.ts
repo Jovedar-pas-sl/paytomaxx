@@ -37,6 +37,7 @@ import { afterPayoutDebt, paymentAt } from '../reports/reporting-sql';
 import { ReportsService } from '../reports/reports.service';
 import { fichasCounts, type FichasCounts } from '../wallets/fichas-counts';
 import { CloseCheckService } from './close-check.service';
+import { settleWritesBefore } from './night-cutoff';
 import {
   autoCloseAt,
   buildAdjustments,
@@ -262,7 +263,11 @@ export class NightsService {
       );
     }
 
+    // El corte: el Z cuenta lo apuntado antes de este instante y el siguiente
+    // empieza aquí. Antes de leer, que termine lo que empezó antes del corte
+    // (un cobro confirmándose ahora mismo no se queda fuera de los dos Z).
     const now = new Date();
+    await this.settleBeforeCutoff(night.id, now);
     const start = await this.zBounds(tenantId, night.openedAt);
     const window = { from: start.from, to: now };
     // Las filas del Z, una vez: la caja (y su paso) sale de ellas, así el Z
@@ -453,6 +458,9 @@ export class NightsService {
         const start = await this.zBounds(night.tenantId, night.openedAt);
         const window = { from: start.from, to: cutoff };
         const pending = await this.pending(night.tenantId, window);
+        // Por fecha, hasta las 08:00; por cuándo se apuntó, hasta ahora (el
+        // corte de este Z: el siguiente busca ajustes desde aquí).
+        await this.settleBeforeCutoff(night.id, now);
         // Nadie contó la caja: el Z lleva lo que debería haber, sin contado
         // (de las mismas filas que el Z).
         const rows = await this.zRows(night.tenantId, window, now, start.since);
@@ -479,6 +487,19 @@ export class NightsService {
       }
     }
     return closedCount;
+  }
+
+  /**
+   * Antes de congelar un Z con corte `cutoff`: que se vea todo lo apuntado
+   * antes del corte (night-cutoff.ts). Si algo sigue abierto pasados 6 s, se
+   * congela igual y se avisa en el registro.
+   */
+  private async settleBeforeCutoff(nightId: string, cutoff: Date): Promise<void> {
+    const result = await settleWritesBefore(this.prisma, cutoff);
+    if (result.settled) return;
+    this.logger.warn(
+      `Noche ${nightId}: ${result.open} transacción(es) de antes del corte ${cutoff.toISOString()} siguen abiertas tras ${result.waitedMs} ms; el Z se congela igual`,
+    );
   }
 
   /** En las consultas del panel: si el cierre automático falla, la página sigue funcionando. */
