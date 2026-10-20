@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AmountKeypad, outcomeKindOf, useWakeLock, type PaymentStatus } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
-import type { CreatedPayment } from '@/lib/api';
+import { cancelPayment, type CreatedPayment } from '@/lib/api';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge, type ChargeSpot } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
@@ -12,13 +12,29 @@ import { usePaymentLive } from '../../use-payment-live';
 import { DeskBtn, Icon } from './desk-parts';
 import s from './desk.module.css';
 
+/**
+ * Retirar el QR de la recarga (otro importe, «Mejor en efectivo», volver): una
+ * vez por cobro. Si después algo falla y se repite, no se retira dos veces.
+ * Si el cliente ya lo pagó, el servidor no deja retirarlo (y sale su CARGADO).
+ */
+export function useRetirePayment(): (payment: CreatedPayment | null) => Promise<void> {
+  const retired = useRef(new Set<string>());
+  return useCallback(async (payment) => {
+    if (!payment || retired.current.has(payment.id)) return;
+    await cancelPayment(payment.id);
+    retired.current.add(payment.id);
+  }, []);
+}
+
 interface Props {
   /** La cabecera de la pantalla (recepción o «Recargar saldo»). */
   head: ReactNode;
   /** Dónde está abierto (si la sesión caduca, se vuelve a esa pestaña). Por defecto, Recepción. */
   spot?: ChargeSpot;
-  /** El cobro de la recarga (null: aún sin importe). */
+  /** El cobro de la recarga (null: aún sin importe, o retirado). */
   payment: CreatedPayment | null;
+  /** El importe elegido (null: aún ninguno). */
+  amountCents: number | null;
   /** Los importes rápidos del local (encima del QR). */
   amounts: readonly number[];
   /** Otro importe: quien lo usa crea el cobro nuevo (y retira el anterior). */
@@ -29,8 +45,11 @@ interface Props {
   forWhom: string;
   /** Pagado (una vez). */
   onPaid: (payment: CreatedPayment) => void;
-  /** «Mejor en efectivo» (solo si quien cobra puede: recepción). */
-  onCash?: () => void;
+  /**
+   * «Mejor en efectivo» (solo si quien cobra puede: recepción). `qrSettled`: el
+   * QR ya no se puede pagar (no pagado o caducado): no hay que retirarlo.
+   */
+  onCash?: (qrSettled: boolean) => void;
   cashBusy?: boolean;
   /** No pagado o caducado: otro QR con el mismo importe. */
   onRetry: () => void;
@@ -75,13 +94,17 @@ export function TopUpQr(props: Props) {
         amountCents={payment.amountCents}
         message={outcome === 'failed' ? 'Que pruebe con otra tarjeta, o en efectivo.' : undefined}
         primary={{ label: 'Otro QR · mismo importe', onClick: props.onRetry, loading: props.changing }}
-        secondary={props.onCash ? { label: 'Mejor en efectivo', onClick: props.onCash, disabled: props.changing } : { label: 'Volver', onClick: props.onBack }}
+        secondary={
+          props.onCash
+            ? { label: 'Mejor en efectivo', onClick: () => props.onCash?.(true), disabled: props.changing }
+            : { label: 'Volver', onClick: props.onBack }
+        }
         error={props.error}
       />
     );
   }
 
-  const selected = payment?.amountCents ?? null;
+  const selected = props.amountCents;
   const other = selected !== null && !amounts.includes(selected);
   return (
     <div className={s.screen}>
@@ -96,7 +119,8 @@ export function TopUpQr(props: Props) {
             disabled={props.changing}
             onClick={() => {
               setTyping(false);
-              if (selected !== c) props.onAmount(c);
+              // El mismo importe sin QR (se retiró o falló): otro QR.
+              if (selected !== c || payment === null) props.onAmount(c);
             }}
           >
             {formatEur(c, { compact: true })}
@@ -136,7 +160,7 @@ export function TopUpQr(props: Props) {
             {payment && !props.changing ? (
               <img src={payment.qrPngDataUrl} alt="QR de la recarga" />
             ) : (
-              <p className={s.qrEmpty}>{props.changing ? 'Un momento…' : 'Elige cuánto carga'}</p>
+              <p className={s.qrEmpty}>{props.changing ? 'Un momento…' : selected === null ? 'Elige cuánto carga' : 'Toca el importe para sacar el QR'}</p>
             )}
           </div>
           <p className={s.waitT}>Que lo pague en su móvil</p>
@@ -160,9 +184,9 @@ export function TopUpQr(props: Props) {
             kind="gho"
             icon="cash"
             label="Mejor en efectivo"
-            disabled={payment === null || props.changing}
+            disabled={selected === null || props.changing}
             busy={props.cashBusy}
-            onClick={props.onCash}
+            onClick={() => props.onCash?.(false)}
           />
         </div>
       ) : null}

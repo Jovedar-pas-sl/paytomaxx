@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { ReceptionOptions } from '@nightpay/contracts';
-import { cancelPayment, createPayment, fetchTerminals, getUser, type CreatedPayment } from '@/lib/api';
+import { createPayment, fetchTerminals, getUser, type CreatedPayment } from '@/lib/api';
 import { fetchPendingTopUps, startPendingTopUp } from '@/lib/api-noche';
 import type { ChipTap } from '@/lib/chip-tap';
 import { formatEur } from '@/lib/money';
@@ -27,7 +27,7 @@ import { useVenueNight } from '@/lib/venue-methods';
 import { AssignTopUp } from './AssignTopUp';
 import { CodeBoxes, DeskBtn, DeskHead, Icon, NfcCard } from './desk/desk-parts';
 import { DeskLoaded } from './desk/DeskLoaded';
-import { TopUpQr } from './desk/TopUpQr';
+import { TopUpQr, useRetirePayment } from './desk/TopUpQr';
 import { useDeskNfc } from './desk/use-desk-nfc';
 import { useShown } from './desk/use-shown';
 import s from './desk/desk.module.css';
@@ -41,9 +41,9 @@ interface Found {
 
 type Step =
   | { kind: 'saldo' }
-  | { kind: 'qr'; found: Found; payment: CreatedPayment | null }
+  | { kind: 'qr'; found: Found; amountCents: number | null; payment: CreatedPayment | null }
   /** Plan B: cobrar primero (sin su NFC) y asignarla después. */
-  | { kind: 'planB'; payment: CreatedPayment | null }
+  | { kind: 'planB'; amountCents: number | null; payment: CreatedPayment | null }
   | { kind: 'assign'; walletId: string; amountCents: number }
   | { kind: 'pending' }
   | { kind: 'done'; amountCents: number; method: PayMethod; code: string; detail: string };
@@ -77,6 +77,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
   const [pending, setPending] = useState(0);
   // Una clave por recarga: repetir lo mismo (corte, doble toque) no carga dos veces.
   const attempt = useRef<ReceptionAttempt | null>(null);
+  const retire = useRetirePayment();
 
   useEffect(() => {
     staffBackend
@@ -155,31 +156,33 @@ export function TopUpExisting({ onExit, onDone }: Props) {
 
   /** 4.7: otro importe encima del QR (o el primero): se retira el QR anterior y sale otro. */
   async function cardFor(f: Found, amountCents: number, old: CreatedPayment | null): Promise<void> {
-    if (old) await cancelPayment(old.id);
-    go({ kind: 'qr', found: f, payment: null });
+    await retire(old);
+    go({ kind: 'qr', found: f, amountCents, payment: null });
     const terminal = (await fetchTerminals())[0]?.externalId;
     if (!terminal) throw new Error('No hay terminales configurados en el local');
     const payment = await createPayment({ amountCents, terminalExternalId: terminal, idempotencyKey: keyFor(amountCents, 'card', f), walletId: f.view.walletId });
-    setStep({ kind: 'qr', found: f, payment });
+    setStep({ kind: 'qr', found: f, amountCents, payment });
   }
 
   /** «Mejor en efectivo»: se retira el QR y se cobra en efectivo (es recepción). */
-  async function cash(f: Found, payment: CreatedPayment): Promise<void> {
-    await cancelPayment(payment.id);
+  async function cash(f: Found, amountCents: number, payment: CreatedPayment | null, qrSettled: boolean): Promise<void> {
+    // Si ya lo pagó, el servidor no deja retirarlo (y sale su CARGADO).
+    if (!qrSettled) await retire(payment);
+    setStep({ kind: 'qr', found: f, amountCents, payment: null });
     const target = deskTarget(f.view, f.nfc);
-    const out = await staffBackend.cash({ amountCents: payment.amountCents, idempotencyKey: keyFor(payment.amountCents, 'cash', f), wallet: walletOfTarget(target) });
+    const out = await staffBackend.cash({ amountCents, idempotencyKey: keyFor(amountCents, 'cash', f), wallet: walletOfTarget(target) });
     onDone();
     attempt.current = null;
-    go({ kind: 'done', amountCents: payment.amountCents, method: 'cash', code: out.code, detail: `Saldo ${out.code} · tiene ${formatEur(out.balanceCents, { compact: true })}` });
+    go({ kind: 'done', amountCents, method: 'cash', code: out.code, detail: `Saldo ${out.code} · tiene ${formatEur(out.balanceCents, { compact: true })}` });
   }
 
   /** Plan B: cobrar primero (tarjeta) una recarga pendiente de asignar. */
   async function payFirst(amountCents: number, old: CreatedPayment | null): Promise<void> {
-    if (old) await cancelPayment(old.id);
-    go({ kind: 'planB', payment: null });
+    await retire(old);
+    go({ kind: 'planB', amountCents, payment: null });
     const what = receptionWhat(amountCents, 'card', { kind: 'new' });
     attempt.current = receptionAttempt(attempt.current, `pendiente|${what}`);
-    setStep({ kind: 'planB', payment: await startPendingTopUp(amountCents, attempt.current.key) });
+    setStep({ kind: 'planB', amountCents, payment: await startPendingTopUp(amountCents, attempt.current.key) });
   }
 
   const sub = `${name} · recepción`;
@@ -215,7 +218,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
   if (step.kind === 'pending') return <PendingTopUps onDone={restart} />;
 
   if (step.kind === 'qr') {
-    const { found: f, payment } = step;
+    const { found: f, payment, amountCents } = step;
     const has = formatEur(f.view.balanceCents, { compact: true });
     return (
       <div className={s.screen} data-charge-open="">
@@ -228,7 +231,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
               stripe="hold"
               onBack={() =>
                 void run(async () => {
-                  if (payment) await cancelPayment(payment.id);
+                  await retire(payment);
                   go({ kind: 'saldo' });
                 })
               }
@@ -236,6 +239,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
           }
           spot="cobro"
           payment={payment}
+          amountCents={amountCents}
           amounts={amounts}
           changing={busy}
           forWhom={`Se carga en ${f.view.code}.`}
@@ -253,9 +257,9 @@ export function TopUpExisting({ onExit, onDone }: Props) {
           }}
           onRetry={() => {
             attempt.current = null;
-            void run(() => cardFor(f, payment?.amountCents ?? 0, null));
+            void run(() => cardFor(f, amountCents ?? 0, null));
           }}
-          onCash={options?.cash && payment ? () => void run(() => cash(f, payment)) : undefined}
+          onCash={options?.cash && amountCents !== null ? (qrSettled) => void run(() => cash(f, amountCents, payment, qrSettled)) : undefined}
           cashBusy={busy}
           onBack={() => go({ kind: 'saldo' })}
           error={error}
@@ -265,7 +269,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
   }
 
   if (step.kind === 'planB') {
-    const { payment } = step;
+    const { payment, amountCents } = step;
     return (
       <div className={s.screen} data-charge-open="">
         <TopUpQr
@@ -277,7 +281,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
               stripe="hold"
               onBack={() =>
                 void run(async () => {
-                  if (payment) await cancelPayment(payment.id);
+                  await retire(payment);
                   go({ kind: 'saldo' });
                 })
               }
@@ -285,6 +289,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
           }
           spot="cobro"
           payment={payment}
+          amountCents={amountCents}
           amounts={amounts}
           changing={busy}
           forWhom="Después, su NFC o su código: se suma a su saldo."
@@ -295,7 +300,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
           }}
           onRetry={() => {
             attempt.current = null;
-            void run(() => payFirst(payment?.amountCents ?? 0, null));
+            void run(() => payFirst(amountCents ?? 0, null));
           }}
           onBack={() => go({ kind: 'saldo' })}
           error={error}
@@ -345,7 +350,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
       ) : null}
       <div className={s.links}>
         {options?.card ? (
-          <button type="button" className={s.txtlink} disabled={busy} onClick={() => go({ kind: 'planB', payment: null })}>
+          <button type="button" className={s.txtlink} disabled={busy} onClick={() => go({ kind: 'planB', amountCents: null, payment: null })}>
             ¿No se lee su NFC? Cobrar primero y asignarlo después
           </button>
         ) : null}
@@ -354,7 +359,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
         </button>
       </div>
       <div className={`${s.foot} ${s.footSolid}`}>
-        <DeskBtn kind="pri" label="Seguir" disabled={!found} onClick={() => found && go({ kind: 'qr', found, payment: null })} />
+        <DeskBtn kind="pri" label="Seguir" disabled={!found} onClick={() => found && go({ kind: 'qr', found, amountCents: null, payment: null })} />
       </div>
     </div>
   );

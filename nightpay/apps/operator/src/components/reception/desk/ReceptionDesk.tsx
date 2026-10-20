@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ReceptionDeskNew, ReceptionOptions } from '@nightpay/contracts';
-import { cancelPayment, createPayment, fetchTerminals, type CreatedPayment, type OperatorUser } from '@/lib/api';
+import { createPayment, fetchTerminals, type CreatedPayment, type OperatorUser } from '@/lib/api';
 import type { ChipTap } from '@/lib/chip-tap';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
@@ -38,7 +38,7 @@ import { PinPad } from '../../PinPad';
 import { DeskHead, DeskBtn, DeskRowView } from './desk-parts';
 import { AmountStep, CodeStep, ExitStep, KeypadStep, MethodStep, TapStage } from './DeskSteps';
 import { DeskLoaded } from './DeskLoaded';
-import { TopUpQr } from './TopUpQr';
+import { TopUpQr, useRetirePayment } from './TopUpQr';
 import { useDeskNfc } from './use-desk-nfc';
 import s from './desk.module.css';
 
@@ -109,6 +109,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   const [totp, setTotp] = useState<string | null>(null);
   // Una clave por recarga (importe, forma de pago y saldo): repetirla no carga dos veces.
   const attempt = useRef<ReceptionAttempt | null>(null);
+  const retire = useRetirePayment();
 
   useEffect(() => {
     staffBackend
@@ -224,7 +225,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
 
   /** Otro importe encima del QR (o el primero): se retira el QR anterior y sale otro. */
   async function changeCard(read: Read, amountCents: number, old: CreatedPayment | null): Promise<void> {
-    if (old) await cancelPayment(old.id);
+    await retire(old);
     go({ kind: 'card', read, amountCents, payment: null });
     const payment = await newCardPayment(read, amountCents);
     setStep({ kind: 'card', read, amountCents, payment });
@@ -311,10 +312,11 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     return (
       <TopUpQr
         head={head(() => void run(async () => {
-          if (payment) await cancelPayment(payment.id);
+          await retire(payment);
           go({ kind: 'method', read, amountCents });
         }))}
         payment={payment}
+        amountCents={amountCents}
         amounts={amounts}
         changing={busy}
         forWhom={forWhom}
@@ -326,10 +328,12 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         }}
         onCash={
           options?.cash
-            ? () =>
+            ? (qrSettled) =>
                 void run(async () => {
-                  if (payment) await cancelPayment(payment.id);
-                  await payCash(read, payment?.amountCents ?? amountCents);
+                  // Primero se retira el QR (si ya lo pagó, el servidor no deja: sale su CARGADO).
+                  if (!qrSettled) await retire(payment);
+                  setStep({ kind: 'card', read, amountCents, payment: null });
+                  await payCash(read, amountCents);
                 })
             : undefined
         }
