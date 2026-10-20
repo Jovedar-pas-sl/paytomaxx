@@ -13,6 +13,7 @@ import { CartaService } from '../../src/modules/carta/carta.service';
 import { CobrosService } from '../../src/modules/money-map/cobros.service';
 import { WalletFichaService } from '../../src/modules/money-map/wallet-ficha.service';
 import { CobrosQuerySchema } from '@nightpay/contracts';
+import { Prisma } from '@nightpay/db';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as any);
@@ -44,7 +45,7 @@ const sys = <T>(fn: (tx: Parameters<Parameters<PrismaService['asSystem']>[0]>[0]
   inVenue(undefined, () => prisma.asSystem(fn));
 
 const r = randomUUID().slice(0, 6);
-let A: string, B: string, owner: string, chica: string, camarero: string, cocina: string;
+let A: string, B: string, owner: string, chica: string, camarero: string, cocina: string, recepcion: string;
 let copa: string, pack: string;
 let walletId: string;
 let n = 0;
@@ -70,6 +71,9 @@ beforeAll(async () => {
     ).id;
     cocina = (
       await tx.user.create({ data: { tenantId: A, email: `coc-md-${r}@x.es`, passwordHash: 'x', role: 'WAITER', post: 'COCINA' } })
+    ).id;
+    recepcion = (
+      await tx.user.create({ data: { tenantId: A, email: `rec-md-${r}@x.es`, passwordHash: 'x', role: 'WAITER', post: 'RECEPCION' } })
     ).id;
     await tx.terminal.create({ data: { tenantId: A, externalId: `MD-${r}`, label: 'Barra' } });
     walletId = (
@@ -182,13 +186,13 @@ describe('cobro con tarjeta: líneas, referencia y comisión por línea', () => 
     expect(p?.revenueCategory).toBe('VENUE_FOOD');
   });
 
-  it('varias cosas en un cobro: 2 copas y una habitación, total del servidor', async () => {
+  it('varias cosas en un cobro: 2 copas y una habitación, total del servidor (recepción cobra todo)', async () => {
     const created = await inVenue(A, () =>
       payments.create(
         A,
         key(),
         body({ lines: [{ serviceItemId: copa, qty: 2 }, { category: 'VENUE_ROOM', amountCents: 3_000, label: 'Hab. 4' }] }),
-        asCamarero,
+        { userId: recepcion, role: 'WAITER' },
       ),
     );
     expect(created.amountCents).toBe(5_000);
@@ -212,8 +216,16 @@ describe('cobro con tarjeta: líneas, referencia y comisión por línea', () => 
     expect(other.ref).toBe('C-0001');
   });
 
-  it('una recarga de saldo no es venta: sin líneas (y con su referencia)', async () => {
-    const topUp = await inVenue(A, () => payments.create(A, key(), body({ amountCents: 5_000, wallet: { walletId } }), asCamarero));
+  it('una recarga de saldo no es venta: sin líneas (y con su referencia); solo en recepción', async () => {
+    await expect(inVenue(A, () => payments.create(A, key(), body({ amountCents: 5_000, wallet: { walletId } }), asCamarero))).rejects.toThrow(
+      /Las recargas se hacen en recepción/,
+    );
+    await expect(inVenue(A, () => payments.create(A, key(), body({ amountCents: 5_000, wallet: { walletId } }), asChica))).rejects.toThrow(
+      /Las recargas se hacen en recepción/,
+    );
+    const topUp = await inVenue(A, () =>
+      payments.create(A, key(), body({ amountCents: 5_000, wallet: { walletId } }), { userId: recepcion, role: 'WAITER' }),
+    );
     expect(topUp.lines).toEqual([]);
     expect(topUp.ref).toMatch(/^C-/);
   });
@@ -226,6 +238,29 @@ describe('cobro con tarjeta: líneas, referencia y comisión por línea', () => 
     );
     await inVenue(undefined, () => payments.applyRefundToEarning(created.id, refund.id, 7_500));
     expect(await earningOf(created.id)).toMatchObject({ commissionCents: 10_800, reversedCents: 5_400 });
+  });
+});
+
+describe('el puesto decide lo que se cobra (servidor)', () => {
+  it('la chica solo Servicios: la barra → 403 (también del saldo); el camarero de barra no cobra habitaciones', async () => {
+    await expect(
+      inVenue(A, () => payments.create(A, key(), body({ amountCents: 1_000, revenueCategory: 'VENUE_BAR' }), asChica)),
+    ).rejects.toMatchObject({ status: 403, response: expect.objectContaining({ code: 'SECTION_NOT_ALLOWED' }) });
+    await expect(
+      inVenue(A, () => charges.createQrCharge({ userId: chica, role: 'OPERATOR', tenantId: A }, { serviceItemId: copa })),
+    ).rejects.toThrow(/Desde tu app solo puedes cobrar Servicios/);
+    await expect(
+      inVenue(A, () => payments.create(A, key(), body({ amountCents: 1_000, revenueCategory: 'VENUE_ROOM' }), asCamarero)),
+    ).rejects.toThrow(/Desde tu puesto \(Barra\) no se cobra Habitaciones/);
+  });
+
+  it('la tabla de Ajustes manda: si la barra también cobra habitaciones, se puede', async () => {
+    await sys((tx) =>
+      tx.venue.update({ where: { id: A }, data: { postRules: { BARRA: { sections: ['VENUE_BAR', 'VENUE_ROOM'] } } } }),
+    );
+    const ok = await inVenue(A, () => payments.create(A, key(), body({ amountCents: 1_000, revenueCategory: 'VENUE_ROOM' }), asCamarero));
+    expect(ok.lines?.[0]?.category).toBe('VENUE_ROOM');
+    await sys((tx) => tx.venue.update({ where: { id: A }, data: { postRules: Prisma.DbNull } }));
   });
 });
 

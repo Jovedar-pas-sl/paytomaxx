@@ -243,3 +243,20 @@ export function lineViews(
     serviceItemId: l.serviceItemId,
   }));
 }
+
+/**
+ * Las secciones que pide cobrar la petición, para ver si su puesto las puede
+ * cobrar: la de cada servicio de la carta (un pack, la suya: sus partes se
+ * reparten solas) y la de cada importe tecleado. Un servicio que no está o
+ * no se puede cobrar no cuenta (lo para resolveChargeLines).
+ */
+export function chargedSections(req: ChargeLinesRequest): SectionCode[] {
+  const fallback = fallbackSection(req);
+  const out = requestedLines(req).flatMap((line): SectionCode[] => {
+    if (!('serviceItemId' in line)) return [line.category];
+    const item = req.items.get(line.serviceItemId);
+    if (!item) return [];
+    return [isSectionCode(item.category) ? item.category : fallback];
+  });
+  return [...new Set(out)];
+}

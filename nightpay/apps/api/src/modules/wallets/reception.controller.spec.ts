@@ -52,10 +52,11 @@ describe('recepción desde la app del personal', () => {
     await expect(ctrlOff.options(user)).resolves.toMatchObject({ card: false, cash: false, nfc: false });
   });
 
-  it('cobrar en efectivo pide el permiso «cobrar recargas en efectivo» (además del rol)', async () => {
+  it('cobrar en efectivo: el puesto y el permiso los mira el servicio (recepción, encargado o dueño)', async () => {
     const s = services();
     const ctrl = new ReceptionController(s.cash as never, s.cards as never, s.charges as never, s.prisma as never);
-    expect(new Reflector().get(STAFF_PERMISSION_KEY, ReceptionController.prototype.cashTopUp)).toBe('cashTopUp');
+    // Sin el guard de permisos: el camarero de recepción cobra sin que el dueño se lo dé.
+    expect(new Reflector().get(STAFF_PERMISSION_KEY, ReceptionController.prototype.cashTopUp)).toBeUndefined();
     const body = { amountCents: 1_000, idempotencyKey: 'clave-0001', wallet: { create: true as const } };
     await ctrl.cashTopUp(user, body);
     expect(s.cash.topUp).toHaveBeenCalledWith(SALA, { userId: 'u-1', role: 'WAITER' }, body);

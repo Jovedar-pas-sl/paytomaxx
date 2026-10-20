@@ -31,7 +31,7 @@ export class CartaController {
 
   @Get()
   async list(@CurrentUser() user: JwtPayload): Promise<ServiceItem[]> {
-    return this.carta.listForStaff(user.tenantId, user.role);
+    return this.carta.listForStaff(user.tenantId, user.role, user.sub);
   }
 
   @Get('all')

@@ -57,6 +57,11 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const cashTopUp = await tx.walletCashTopUp.create({
         data: { tenantId, walletId: wallet.id, amountCents: 500, takenByUserId: owner, idempotencyKey: `rls-${tag}-${r}` },
       });
+      // El mapa del dinero: la línea del cobro y el contador de su referencia.
+      const line = await tx.paymentLine.create({
+        data: { tenantId, paymentId: payment.id, category: 'CHICA_SERVICE', label: 'Servicio', unitCents: 1000, amountCents: 1000 },
+      });
+      await tx.chargeRefCounter.create({ data: { tenantId, lastRef: 1 } });
       return {
         tenantId,
         rows: {
@@ -68,6 +73,8 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           peanpe_calls: call.identificadorLlamada,
           approval_requests: approval.id,
           wallet_cash_topups: cashTopUp.id,
+          payment_lines: line.id,
+          charge_ref_counters: tenantId,
         },
       };
     }),
@@ -77,7 +84,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
 /** Locales de las filas de A y B que se ven, SIN filtrar por local en la consulta. */
 async function visibleTenants(tx: { $queryRawUnsafe: PrismaService['$queryRawUnsafe'] }, table: Table): Promise<string[]> {
   // peanpe_calls tiene de clave el identificador de la llamada; las demás, id.
-  const key = table === 'peanpe_calls' ? 'identificador_llamada' : 'id::text';
+  const key = table === 'peanpe_calls' ? 'identificador_llamada' : table === 'charge_ref_counters' ? '"tenantId"::text' : 'id::text';
   const rows = await tx.$queryRawUnsafe<Array<{ t: string }>>(
     `SELECT "tenantId"::text AS t FROM ${table} WHERE ${key} = ANY($1::text[]) ORDER BY 1`,
     [rowsA[table], rowsB[table]],

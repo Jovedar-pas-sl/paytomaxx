@@ -1,8 +1,10 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import type { ChargeLineInput } from '@nightpay/contracts';
+import type { ChargeLineInput, ChargeRights } from '@nightpay/contracts';
 import type { PrismaService } from '../../common/prisma/prisma.service';
+import { assertSectionsAllowed, chargeRightsFor } from '../venues/charge-rights';
 import {
   CHARGE_LINES_ERRORS,
+  chargedSections,
   lineCommission,
   requestedItemIds,
   resolveChargeLines,
@@ -14,8 +16,9 @@ import { resolveBpsForOperator, type OperatorCommissionDefaults } from './commis
 
 /**
  * Lo que pide quien cobra (cobro con tarjeta o del saldo) → sus líneas, con
- * la carta y el puesto leídos de la base. Errores como respuestas del API
- * (404 servicio que no es de la carta del local; 400 el resto).
+ * la carta y el puesto leídos de la base. El puesto decide también qué
+ * secciones puede cobrar (403 si no). Errores como respuestas del API (404
+ * servicio que no es de la carta del local; 400 el resto).
  */
 export async function resolveChargeOrThrow(
   prisma: PrismaService,
@@ -28,10 +31,10 @@ export async function resolveChargeOrThrow(
     amountCents?: number | null;
     requestedCategory?: string | null;
   },
-): Promise<ResolvedCharge> {
+): Promise<ResolvedCharge & { rights: ChargeRights | null }> {
   const ids = requestedItemIds(input);
   const userId = input.userId;
-  const [rows, user] = await prisma.asSystem(async (tx) =>
+  const [rows, rights] = await prisma.asSystem(async (tx) =>
     Promise.all([
       ids.length > 0
         ? tx.serviceItem.findMany({
@@ -39,22 +42,27 @@ export async function resolveChargeOrThrow(
             select: { id: true, name: true, priceCents: true, durationMin: true, category: true, active: true, components: true },
           })
         : Promise.resolve([]),
-      userId ? tx.user.findFirst({ where: { id: userId }, select: { post: true } }) : Promise.resolve(null),
+      userId ? chargeRightsFor(tx, input.tenantId, { userId, role: input.role }) : Promise.resolve(null),
     ]),
   );
   const items = new Map<string, CartaItemLike>(rows.map((r) => [r.id, r]));
-  const result = resolveChargeLines({
+  const request = {
     lines: input.lines,
     serviceItemId: input.serviceItemId,
     amountCents: input.amountCents,
     requestedCategory: input.requestedCategory,
-    puesto: user?.post ?? null,
+    puesto: rights?.post ?? null,
     role: input.role,
     items,
-  });
-  if (result.ok) return result.charge;
-  const message = CHARGE_LINES_ERRORS[result.reason];
-  throw result.reason === 'item-missing' ? new NotFoundException(message) : new BadRequestException(message);
+  };
+  const result = resolveChargeLines(request);
+  if (!result.ok) {
+    const message = CHARGE_LINES_ERRORS[result.reason];
+    throw result.reason === 'item-missing' ? new NotFoundException(message) : new BadRequestException(message);
+  }
+  // El puesto: solo las secciones que puede cobrar (un pack, por su sección).
+  if (rights) assertSectionsAllowed(rights, chargedSections(request));
+  return { ...result.charge, rights };
 }
 
 export type LineWithBps = DraftLine & { operatorCommissionBps: number | null };

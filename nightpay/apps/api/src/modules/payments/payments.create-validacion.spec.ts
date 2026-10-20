@@ -49,6 +49,8 @@ function makeService(opts: Opts = {}) {
       findFirst: vi.fn(async () => (opts.zoneTerminal === undefined ? { id: ZONE_TERMINAL } : opts.zoneTerminal)),
     },
     venue: {
+      // Qué cobra cada puesto y las secciones del local: los de fábrica.
+      findUnique: vi.fn(async () => ({ postRules: null, sections: null })),
       findUniqueOrThrow: vi.fn(async () => ({
         operatorMaxCobroCents: 20_000,
         platformCommissionBps: 1_000,
@@ -188,10 +190,66 @@ describe('create — cobro desde la carta (Fase 1A)', () => {
   });
 });
 
+describe('create — el puesto decide lo que se cobra', () => {
+  const bottle = { id: SERVICE_ITEM, name: 'Botella', priceCents: 18_000, durationMin: null, category: 'VENUE_BAR', active: true };
+
+  it('la chica solo cobra Servicios: la barra, ni de la carta ni tecleada (403 SECTION_NOT_ALLOWED) y no se guarda nada', async () => {
+    const carta = makeService({ serviceItem: bottle });
+    await expect(carta.service.create(TENANT, 'idem-val-0030', dto({ serviceItemId: SERVICE_ITEM }), operator)).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'SECTION_NOT_ALLOWED', section: 'VENUE_BAR' }),
+    });
+    const typed = makeService();
+    await expect(typed.service.create(TENANT, 'idem-val-0031', dto({ revenueCategory: 'VENUE_ROOM' }), operator)).rejects.toThrow(
+      /Desde tu app solo puedes cobrar Servicios/,
+    );
+    expect([...carta.created, ...typed.created]).toHaveLength(0);
+  });
+
+  it('el camarero de barra: Copas, Comida y Entradas sí; Habitaciones no; el dueño, todo', async () => {
+    const ok = makeService();
+    await ok.service.create(TENANT, 'idem-val-0032', dto({ revenueCategory: 'VENUE_ENTRY' }), waiter);
+    expect(ok.created[0]).toMatchObject({ revenueCategory: 'VENUE_ENTRY' });
+    const room = makeService();
+    await expect(room.service.create(TENANT, 'idem-val-0033', dto({ revenueCategory: 'VENUE_ROOM' }), waiter)).rejects.toThrow(
+      /Desde tu puesto \(Barra\) no se cobra Habitaciones: solo Copas, Comida y Entradas/,
+    );
+    const boss = makeService();
+    await boss.service.create(TENANT, 'idem-val-0034', dto({ revenueCategory: 'VENUE_ROOM' }), owner);
+    expect(boss.created[0]).toMatchObject({ revenueCategory: 'VENUE_ROOM' });
+  });
+
+  it('recepción: todas las secciones, pero sin propinas', async () => {
+    const recepcion = makeService();
+    recepcion.db.user.findFirst.mockImplementation(async () => ({ id: BENEFICIARY, commissionBps: null, post: 'RECEPCION' }) as never);
+    await recepcion.service.create(TENANT, 'idem-val-0035', dto({ revenueCategory: 'VENUE_ROOM' }), waiter);
+    expect(recepcion.created[0]).toMatchObject({ revenueCategory: 'VENUE_ROOM' });
+    await expect(recepcion.service.create(TENANT, 'idem-val-0036', dto({ tipCents: 200 }), waiter)).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'TIPS_NOT_ALLOWED' }),
+    });
+  });
+
+  it('las recargas, solo en recepción (o el encargado y el dueño): la chica y el camarero de barra → 403', async () => {
+    for (const actor of [operator, waiter]) {
+      const { service, created } = makeService();
+      await expect(service.create(TENANT, 'idem-val-0037', dto({ wallet: { walletId: WALLET } }), actor)).rejects.toMatchObject({
+        status: 403,
+        response: expect.objectContaining({ code: 'TOP_UP_RECEPTION_ONLY', message: 'Las recargas se hacen en recepción.' }),
+      });
+      expect(created).toHaveLength(0);
+    }
+    const recepcion = makeService();
+    recepcion.db.user.findFirst.mockImplementation(async () => ({ id: BENEFICIARY, commissionBps: null, post: 'RECEPCION' }) as never);
+    await recepcion.service.create(TENANT, 'idem-val-0038', dto({ wallet: { walletId: WALLET } }), waiter);
+    expect(recepcion.created[0]).toMatchObject({ captureMethod: 'WALLET_TOPUP' });
+  });
+});
+
 describe('create — recarga de saldo', () => {
   it('saldo activo de este local → el cobro queda ligado a él, como recarga (EXTRA)', async () => {
     const { service, db, created } = makeService();
-    await service.create(TENANT, 'idem-val-0020', dto({ wallet: { walletId: WALLET } }), operator);
+    await service.create(TENANT, 'idem-val-0020', dto({ wallet: { walletId: WALLET } }), owner);
     expect(db.clientWallet.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: WALLET, tenantId: TENANT } }),
     );

@@ -226,6 +226,17 @@ describe('la chica hace un cobro con QR', () => {
     expect(tx.walletChargeRequest.create.mock.calls[1]![0]).toMatchObject({ data: { category: 'VENUE_FOOD' } });
   });
 
+  it('el puesto manda: la chica no cobra la barra del saldo (403); el camarero de barra no cobra habitaciones', async () => {
+    const { svc, tx } = makeService();
+    await expect(svc.createQrCharge(chica, { amountCents: 1000, category: 'VENUE_BAR' })).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'SECTION_NOT_ALLOWED' }),
+    });
+    const waiter = { userId: 'wt-1', role: 'WAITER' as const, tenantId: 'other' };
+    await expect(svc.createQrCharge(waiter, { amountCents: 1000, category: 'VENUE_ROOM' })).rejects.toThrow(/Barra/);
+    expect(tx.walletChargeRequest.create).not.toHaveBeenCalled();
+  });
+
   it('varias cosas en un cobro del saldo: cada línea a su sección y el total del servidor', async () => {
     const { svc, tx } = makeService();
     const out = await svc.createQrCharge(manager, {

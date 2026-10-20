@@ -12,14 +12,19 @@ import {
 } from '@nestjs/common';
 import {
   NO_SECTION_ENABLED_MESSAGE,
+  UpdatePostRulesSchema,
   UpdatePuestoSchema,
   UpdateSectionsSchema,
   effectivePost,
   isPostCode,
+  mergePostRules,
   mergeSections,
+  postRulesOf,
   postSection,
   sectionsOf,
   type JwtPayload,
+  type PostRules,
+  type UpdatePostRulesDto,
   type PuestoPerson,
   type UpdatePuestoDto,
   type UpdateSectionsDto,
@@ -32,13 +37,16 @@ import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 
-const PUESTO_ROLES = ['MANAGER', 'WAITER', 'OPERATOR'] as const;
+/** Las chicas no tienen puesto: siempre Sala (Servicios). */
+const PUESTO_ROLES = ['MANAGER', 'WAITER'] as const;
 
 /**
  * El mapa del dinero en Ajustes (20261023100000):
  *  - GET/PATCH /v1/admin/venue/sections        → secciones del local (nombre, color, encendida).
  *  - GET       /v1/admin/venue/puestos         → el personal con su puesto.
  *  - PATCH     /v1/admin/venue/puestos/:userId → cambiar el puesto de una persona.
+ *  - GET/PATCH /v1/admin/venue/post-rules      → qué cobra cada puesto (secciones,
+ *    propinas, efectivo y recargas).
  * Cada cambio queda en el registro (antes y después).
  */
 @Controller('admin/venue')
@@ -111,6 +119,34 @@ export class VenueSectionsController {
     );
     await this.log(user, 'user.post.updated', 'User', userId, { before: person.post, after: dto.post });
     return puestoView(updated);
+  }
+
+  @Get('post-rules')
+  @Roles('OWNER')
+  async postRules(@CurrentUser() user: JwtPayload): Promise<PostRules> {
+    return postRulesOf(await this.storedPostRules(user.tenantId));
+  }
+
+  @Patch('post-rules')
+  @Roles('OWNER')
+  async updatePostRules(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(UpdatePostRulesSchema)) dto: UpdatePostRulesDto,
+  ): Promise<PostRules> {
+    const current = await this.storedPostRules(user.tenantId);
+    const after = mergePostRules(current, dto);
+    await this.prisma.asSystem((tx) =>
+      tx.venue.update({ where: { id: user.tenantId }, data: { postRules: after as never }, select: { id: true } }),
+    );
+    await this.log(user, 'venue.post_rules.updated', 'Venue', user.tenantId, { before: postRulesOf(current), after });
+    return after;
+  }
+
+  private async storedPostRules(tenantId: string): Promise<unknown> {
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({ where: { id: tenantId }, select: { postRules: true } }),
+    );
+    return venue.postRules;
   }
 
   private async storedSections(tenantId: string): Promise<unknown> {

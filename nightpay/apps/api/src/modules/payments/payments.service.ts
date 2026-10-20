@@ -24,9 +24,12 @@ import {
   type PaymentMachineState,
 } from './payment.machine';
 import {
+  chargeRightsOf,
   formatChargeRef,
   methodsNeededForPayment,
+  postRulesOf,
   paymentMethodsOf,
+  type ChargeRights,
   type CreatePaymentDto,
   type CreatedPaymentResponse,
   type PublicPaymentView,
@@ -43,6 +46,7 @@ import { resolveBpsForOperator, type OperatorCommissionDefaults, type RevenueCat
 import { lineCommission, lineViews, type DraftLine } from './charge-lines';
 import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './charge-request';
 import { insertChargeLines, linesOf, nextChargeRef } from './charge-store';
+import { chargeRightsFor, tipsForbidden, topUpForbidden } from '../venues/charge-rights';
 import type { Provider } from '@nightpay/contracts';
 import {
   PAID_STATES,
@@ -515,13 +519,18 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Forma de cobro apagada en Ajustes (QR con tarjeta, datáfono; la recarga
     // también necesita el saldo): 409 PAYMENT_METHOD_DISABLED.
     const methods = assertMethodsEnabled(venue, methodsNeededForPayment({ isWalletTopUp, isPosExternal: byDatafono }));
-    const { amountCents, service, revenueCategory, lines, fromCarta } = await this.resolveCharge(tenantId, dto, creator);
+    // Las recargas del saldo, solo en recepción (el puesto), el encargado, el
+    // dueño o el datáfono de recepción. El cliente desde /w no tiene persona.
+    if (isWalletTopUp && !viaDevice && creator.userId) await this.assertCanTopUp(tenantId, creator.userId, creatorRole);
+    const { amountCents, service, revenueCategory, lines, fromCarta, rights } = await this.resolveCharge(tenantId, dto, creator);
 
     // Propina que pone quien crea el cobro: solo si el banco la va a cobrar y
     // confirmar (Redsys); por datáfono cuenta la del datáfono. Y el tope del
     // local para la chica es sobre importe + propina. Con las propinas
     // apagadas en el local, 409 TIPS_DISABLED.
     if ((dto.tipCents ?? 0) > 0 && !methods.tips) throw new TipsDisabledException();
+    // Y su puesto tiene que llevar propinas (recepción, no).
+    if ((dto.tipCents ?? 0) > 0 && rights && !rights.tips) throw tipsForbidden();
     const tip = await this.resolveCreatorTip({ tenantId, dto, amountCents, creatorRole, isPosExternal, isWalletTopUp });
     const capProblem = operatorCapProblem({
       creatorRole,
@@ -637,10 +646,11 @@ export class PaymentsService implements OnApplicationBootstrap {
     revenueCategory: RevenueCategory;
     lines: DraftLine[];
     fromCarta: boolean;
+    rights: ChargeRights | null;
   }> {
     if (dto.wallet) {
       if (!dto.amountCents) throw new BadRequestException('Pon el importe');
-      return { amountCents: dto.amountCents, service: null, revenueCategory: 'EXTRA', lines: [], fromCarta: false };
+      return { amountCents: dto.amountCents, service: null, revenueCategory: 'EXTRA', lines: [], fromCarta: false, rights: null };
     }
     const charge = await resolveChargeOrThrow(this.prisma, {
       tenantId,
@@ -659,7 +669,14 @@ export class PaymentsService implements OnApplicationBootstrap {
       revenueCategory: charge.primaryCategory,
       lines: charge.lines,
       fromCarta: charge.fromCarta,
+      rights: charge.rights,
     };
+  }
+
+  /** 403 «Las recargas se hacen en recepción» si su puesto no carga saldos. */
+  private async assertCanTopUp(tenantId: string, userId: string, role: string | undefined): Promise<void> {
+    const rights = await this.prisma.asSystem((tx) => chargeRightsFor(tx, tenantId, { userId, role }));
+    if (!rights.topUps) throw topUpForbidden();
   }
 
   /**
@@ -1002,8 +1019,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           // Cabecera de la página de pago: local, concepto y a quién va la propina.
           serviceName: true,
           tipGoesTo: true,
-          venue: { select: { name: true, paymentMethods: true } },
-          createdBy: { select: { role: true } },
+          venue: { select: { name: true, paymentMethods: true, postRules: true } },
+          createdBy: { select: { role: true, post: true } },
           wallet: { select: { qrToken: true, shortCode: true, pinHash: true, _count: { select: { passkeys: true } } } },
           attempts: {
             where: { status: 'APPROVED' },
@@ -1022,11 +1039,13 @@ export class PaymentsService implements OnApplicationBootstrap {
     const firstTopUp = wallet !== null && !selfTopUpClaimHash(idempotencyKey) && (await this.isFirstTopUp(walletId, payment.id));
     // Propinas del local (Ajustes → Formas de cobro): apagadas, no se ofrecen ni se aceptan.
     const methods = paymentMethodsOf(venue?.paymentMethods);
+    // Y el puesto de quien cobra (recepción no lleva propinas).
+    const creatorTips = createdBy ? chargeRightsOf(createdBy, postRulesOf(venue?.postRules)).tips : true;
     return {
       ...rest,
       walletId,
       status: payment.status as PaymentMachineState,
-      allowTip: provider === 'REDSYS' && walletId === null && methods.tips,
+      allowTip: provider === 'REDSYS' && walletId === null && methods.tips && creatorTips,
       tipPresets: { flatCents: methods.tipFlatCents, percents: methods.tipPercents },
       venueName: venue?.name ?? null,
       concept: serviceName ?? null,

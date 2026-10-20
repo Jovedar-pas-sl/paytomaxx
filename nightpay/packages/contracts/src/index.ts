@@ -17,3 +17,4 @@ export * from './venue-settings';
 export * from './reception';
 export * from './sections';
 export * from './charge-lines';
+export * from './post-rules';

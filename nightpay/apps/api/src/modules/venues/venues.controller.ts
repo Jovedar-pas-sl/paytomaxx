@@ -3,7 +3,14 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { effectivePost, paymentMethodsOf, postSection, sectionsOf, type JwtPayload } from '@nightpay/contracts';
+import {
+  chargeRightsOf,
+  initialOfferedSection,
+  paymentMethodsOf,
+  postRulesOf,
+  sectionsOf,
+  type JwtPayload,
+} from '@nightpay/contracts';
 
 @Controller('venues')
 @UseGuards(RolesGuard)
@@ -24,7 +31,7 @@ export class VenuesController {
   async getMyVenue(@CurrentUser() user: JwtPayload) {
     // Query directa sin filtro: Venue NO está en TENANT_SCOPED_MODELS (no tiene tenantId;
     // ES el tenant). Filtramos por id explícito desde el JWT.
-    const [{ paymentMethods, sections, ...venue }, me] = await Promise.all([
+    const [{ paymentMethods, sections, postRules, ...venue }, me] = await Promise.all([
       this.prisma.venue.findUniqueOrThrow({
         where: { id: user.tenantId },
         select: {
@@ -35,18 +42,22 @@ export class VenuesController {
           createdAt: true,
           paymentMethods: true,
           sections: true,
+          postRules: true,
         },
       }),
       this.prisma.user.findFirst({ where: { id: user.sub }, select: { post: true } }),
     ]);
-    const myPost = effectivePost({ role: user.role, post: me?.post ?? null });
+    const rights = chargeRightsOf({ role: user.role, post: me?.post ?? null }, postRulesOf(postRules));
+    const venueSections = sectionsOf(sections);
     return {
       ...venue,
       paymentMethods: paymentMethodsOf(paymentMethods),
-      sections: sectionsOf(sections),
-      myPost,
-      /** La sección que la app marca por defecto (la de su puesto). */
-      myDefaultCategory: postSection(myPost),
+      sections: venueSections,
+      myPost: rights.post,
+      /** Lo que puede cobrar quien llama (su puesto): la app solo enseña eso. */
+      myRights: { sections: rights.sections, tips: rights.tips, cash: rights.cash, topUps: rights.topUps },
+      /** La sección que la app marca por defecto (la de su puesto, si la puede cobrar). */
+      myDefaultCategory: initialOfferedSection(venueSections, rights),
     };
   }
 

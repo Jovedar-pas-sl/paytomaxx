@@ -55,6 +55,8 @@ function makeService(opts: Opts = {}) {
       findFirst: vi.fn().mockResolvedValue(TERMINAL),
     },
     venue: {
+      // Qué cobra cada puesto y las secciones del local: los de fábrica.
+      findUnique: vi.fn().mockResolvedValue({ postRules: null, sections: null }),
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         operatorMaxCobroCents: opts.capCents ?? 20_000,
         platformCommissionBps: 1000,
@@ -320,7 +322,7 @@ describe('create — el % de la chica se fija al crear el cobro (#54)', () => {
     expect(byOwner.created[0]).toMatchObject({ operatorCommissionBps: null });
 
     const topUp = makeService();
-    await topUp.service.create('tenant-1', 'idem-key-0203', dto({ wallet: { create: true } }), operator);
+    await topUp.service.create('tenant-1', 'idem-key-0203', dto({ wallet: { create: true } }), owner);
     expect(topUp.created[0]).toMatchObject({ operatorCommissionBps: null });
   });
 });

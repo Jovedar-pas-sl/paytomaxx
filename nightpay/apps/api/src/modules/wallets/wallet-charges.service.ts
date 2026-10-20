@@ -1512,6 +1512,8 @@ export class WalletChargesService {
     if (input.method === 'CASH' && !isManager(actor)) {
       throw new ForbiddenException('Devolver en efectivo lo hace el encargado');
     }
+    // El efectivo sale solo con el encargado o el dueño (ni la chica ni el
+    // camarero, tampoco el de recepción): ver assertCanHandleCash para las recargas.
     const venue = await this.prisma.venue.findUnique({
       where: { id: actor.tenantId },
       select: { walletGroup: true, refundApprovalThresholdCents: true },

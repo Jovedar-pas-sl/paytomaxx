@@ -1,6 +1,9 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import {
+  canChargeSection,
+  initialOfferedSection,
+  isSectionCode,
   packComponentsOf,
   packProblem,
   sectionsOf,
@@ -12,6 +15,7 @@ import {
 } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { chargeRightsFor } from '../venues/charge-rights';
 
 const SELECT = {
   id: true,
@@ -48,14 +52,23 @@ export class CartaService {
     this.audit = audit;
   }
 
-  /** Lo que se puede cobrar ahora: lo activo de las secciones encendidas. */
-  async listForStaff(tenantId: string, _role: string): Promise<ServiceItem[]> {
-    const [rows, sections] = await Promise.all([
+  /**
+   * Lo que puede cobrar ahora quien llama: lo activo de las secciones
+   * encendidas que su puesto puede cobrar (un pack, por su sección).
+   */
+  async listForStaff(tenantId: string, role: string, userId?: string): Promise<ServiceItem[]> {
+    const [rows, sections, rights] = await Promise.all([
       this.prisma.serviceItem.findMany({ where: { tenantId, active: true }, orderBy: ORDER, select: SELECT }),
       this.venueSections(tenantId),
+      userId ? this.prisma.asSystem((tx) => chargeRightsFor(tx, tenantId, { userId, role })) : Promise.resolve(null),
     ]);
     const off = new Set<string>(sections.filter((s) => !s.enabled).map((s) => s.code));
-    return rows.filter((r) => !off.has(r.category)).map(view);
+    // Un servicio antiguo en «Otros» se cobra en la sección del puesto.
+    const fallback = rights ? initialOfferedSection(sections, rights) : null;
+    return rows
+      .filter((r) => !off.has(r.category))
+      .filter((r) => !rights || canChargeSection(rights, isSectionCode(r.category) ? r.category : (fallback ?? r.category)))
+      .map(view);
   }
 
   /** Carta completa (también desactivados) para el panel. */

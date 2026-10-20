@@ -66,6 +66,9 @@ model Venue {
   // Secciones del local (20261023100000): { enabled, label, color } por
   // sección (packages/contracts/src/sections.ts). Null = las de fábrica.
   sections              Json?
+  // Qué cobra cada puesto (20261023100100): secciones, propinas, efectivo y
+  // recargas (packages/contracts/src/post-rules.ts). Null = lo de fábrica.
+  postRules             Json?
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz

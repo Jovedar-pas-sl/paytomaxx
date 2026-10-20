@@ -47,6 +47,26 @@ describe('CartaService', () => {
     expect(list[1]!.components).toHaveLength(2);
   });
 
+  it('cada persona ve solo lo que su puesto puede cobrar (la chica, Servicios; el pack, por su sección)', async () => {
+    const { service, prisma } = makeService();
+    const user = { findFirst: vi.fn().mockResolvedValue({ post: null }) };
+    Object.assign(prisma, {
+      user,
+      asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ user, venue: prisma.venue })),
+    });
+    const rows = [
+      { id: 'copa', name: 'Copa', category: 'VENUE_BAR', priceCents: 1000, components: null },
+      { id: 'pack', name: '1 h con habitación', category: 'CHICA_SERVICE', priceCents: 15000, components: null },
+      { id: 'viejo', name: 'Viejo', category: 'EXTRA', priceCents: 500, components: null },
+    ];
+    prisma.serviceItem.findMany.mockResolvedValue(rows);
+    // Lo antiguo («Otros») se cobra en la sección de quien lo cobra: también sale.
+    expect((await service.listForStaff('tenant-1', 'OPERATOR', 'chica-1')).map((i) => i.id)).toEqual(['pack', 'viejo']);
+    // El camarero (Barra): la copa y lo antiguo.
+    expect((await service.listForStaff('tenant-1', 'WAITER', 'cam-1')).map((i) => i.id)).toEqual(['copa', 'viejo']);
+    expect((await service.listForStaff('tenant-1', 'OWNER', 'own-1')).map((i) => i.id)).toEqual(['copa', 'pack', 'viejo']);
+  });
+
   it('pack: las partes tienen que sumar el precio y la sección del pack ser una de ellas (comprobado aquí)', async () => {
     const { service, prisma } = makeService();
     await expect(
