@@ -190,7 +190,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
       <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
           <h2 style={sectionTitle}>Pagos recientes</h2>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <div className="np-payments-tools" style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
             <div style={{ minWidth: '12rem' }}>
               <Select aria-label="Filtrar por estado" value={filter} onChange={(e) => changeFilter(e.target.value)}>
                 {STATUS_FILTERS.map((f) => (

@@ -286,6 +286,13 @@
     padding: 1rem;
   }
 
+  /* El interruptor se ve igual, pero se toca en 44 px de alto. */
+  .np-switch::before {
+    content: '';
+    position: absolute;
+    inset: -0.25rem 0;
+  }
+
   .np-set-save .np-btn {
     flex: 1 1 100%;
   }

@@ -252,6 +252,20 @@
 }
 
 @media (max-width: 640px) {
+  /* La barra de abajo, según el alto de la pantalla (44 px de toque como poco). */
+  :root {
+    --np-panel-nav-h: clamp(3.5rem, 8vh, 4.25rem);
+  }
+
+  .np-bottomnav-item {
+    font-size: 0.75rem;
+  }
+
+  /* Pestañas de dentro de una sección: 44 px de alto, se tocan bien con el dedo. */
+  .np-tab {
+    min-height: 2.75rem;
+  }
+
   .np-app-root,
   .np-panel-body {
     gap: 1.25rem !important;
@@ -271,6 +285,20 @@
   .np-brand > div {
     border-left: 0 !important;
     padding-left: 0 !important;
+  }
+
+  /* El logo y el botón del tema en la misma fila; el nombre del local debajo
+     del logo (antes el botón bajaba a una fila suya). */
+  .np-panel-header {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    column-gap: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+  }
+
+  .np-panel-header > :last-child {
+    justify-content: flex-end;
   }
 
   /* Cabecera ligera: la cuenta y «Salir» pasan a Ajustes → Seguridad; las secciones, abajo. */

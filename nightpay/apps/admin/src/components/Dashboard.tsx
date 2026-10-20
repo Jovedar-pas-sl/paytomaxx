@@ -130,9 +130,10 @@ export function Dashboard({ user, onLogout }: Props) {
       <IncidentsContext.Provider value={incidents}>
         <ApprovalsContext.Provider value={approvals}>
           <main className="np-app-root" style={mainStyle}>
-            <header style={headerStyle}>
+            <header className="np-panel-header" style={headerStyle}>
               <div className="np-brand" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', minWidth: 0 }}>
-                <Logo height="2.25rem" />
+                {/* Más pequeño en el móvil (en el escritorio, como siempre). */}
+                <Logo height="clamp(1.75rem, 6vw, 2.25rem)" />
                 <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1.25rem', minWidth: 0 }}>
                   <p style={brandKicker}>Panel · local activo</p>
                   {/* El local en grande: con varios locales, que nadie opere en el que no es. */}
