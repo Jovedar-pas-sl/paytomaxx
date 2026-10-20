@@ -48,6 +48,13 @@ function seed<T>(fn: (tx: Parameters<Parameters<PrismaService['asSystem']>[0]>[0
   });
 }
 
+/**
+ * La hora de la base (now() de Postgres: la de un pago recién apuntado) puede
+ * ir unos ms por delante de la de Node (el «hasta ahora» de los pasos del
+ * cierre): antes de mirarlos, se espera un poco.
+ */
+const dbClockAhead = () => new Promise((resolve) => setTimeout(resolve, 50));
+
 const r = randomUUID().slice(0, 6);
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -171,6 +178,7 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
     );
     expect(paid.totalCents).toBe(9000);
 
+    await dbClockAhead();
     const check = await asStaff(caja.id, () => nights.closeCheck(caja.id));
     expect(check.cash).toEqual({
       openingFloatCents: 20_000,
@@ -317,6 +325,7 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
       operators.createPayout(siete.id, siete.chica, siete.owner, undefined, { externalRail: 'MANUAL_CASH' }),
     );
     expect(paid.totalCents).toBe(1800);
+    await dbClockAhead();
     const after = await asStaff(siete.id, () => nights.closeCheck(siete.id));
     expect(after.chicas[0]).toMatchObject({ toPayCents: 0, heldCents: 9000, paidTonightCents: 1800 });
     expect(stepOf(after.steps, 'chicas').status).toBe('ok');
