@@ -13,6 +13,7 @@ import {
   rulesChange,
   rulesFormFrom,
   tipEurosText,
+  waiterHint,
 } from './settings-forms';
 
 const settings: VenueSettings = {
@@ -120,5 +121,13 @@ describe('permisos del personal', () => {
     expect(hasOverride(perms, manager)).toBe(true);
     // Una «excepción» igual a lo del rol no cuenta como excepción.
     expect(hasOverride(staffPermissionsOf({ people: { 'm-1': { refund: true } } }), manager)).toBe(false);
+  });
+});
+
+describe('camareros con y sin datáfono', () => {
+  it('sin datáfono en el local no se les habla de confirmarlo', () => {
+    expect(waiterHint(true)).toMatch(/^Cobran y confirman datáfonos desde su app;/);
+    expect(waiterHint(false)).toBe('Cobran desde su app; de esto, solo pueden cobrar recargas en efectivo si se lo das.');
+    expect(waiterHint(false)).not.toMatch(/datáfono/i);
   });
 });

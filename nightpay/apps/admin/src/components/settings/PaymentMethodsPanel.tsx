@@ -26,9 +26,10 @@ const CHARGE_METHODS: readonly MethodKey[] = ['card', 'wallet', 'nfc', 'pos'];
 
 /**
  * Ajustes → Formas de cobro (dueño): qué acepta el local. Lo apagado no sale
- * en las apps del personal y el API lo rechaza (409). También las propinas.
+ * en las apps del personal (ni, sin datáfono, su pestaña en el panel) y el
+ * API lo rechaza (409). También las propinas.
  */
-export function PaymentMethodsPanel() {
+export function PaymentMethodsPanel({ onSaved }: { onSaved?: (methods: VenuePaymentMethods) => void } = {}) {
   const { data, setData, error: loadError, retry } = useSettingsLoad(fetchPaymentMethods);
   const [tipEuros, setTipEuros] = useState<string | null>(null);
   const [tipPercents, setTipPercents] = useState<string | null>(null);
@@ -45,6 +46,7 @@ export function PaymentMethodsPanel() {
     try {
       const next: VenuePaymentMethods = await updatePaymentMethods(change);
       setData(next);
+      onSaved?.(next);
       if ('tipFlatCents' in change || 'tipPercents' in change) {
         setTipEuros(null);
         setTipPercents(null);

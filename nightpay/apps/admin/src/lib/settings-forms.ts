@@ -166,6 +166,11 @@ export const ROLE_LABELS: Readonly<Record<PermissionRole, string>> = {
   DEVICE: 'Datáfonos de recepción',
 };
 
+/** Lo que hacen los camareros (confirmar el datáfono, solo si el local cobra con él). */
+export function waiterHint(posOn: boolean): string {
+  return `${posOn ? 'Cobran y confirman datáfonos desde su app' : 'Cobran desde su app'}; de esto, solo pueden cobrar recargas en efectivo si se lo das.`;
+}
+
 /** Permisos que se pueden tocar para ese rol (camareros y datáfonos: solo las recargas en efectivo). */
 export function editablePermissions(role: PermissionRole): readonly StaffPermissionKey[] {
   return STAFF_PERMISSION_KEYS.filter((k) => PERMISSION_CEILING[role].includes(k));

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from '@nightpay/ui';
 import type { PermissionRole, StaffPermissionKey, StaffPermissions, UpdateStaffPermissionsDto } from '@nightpay/contracts';
 import { fetchStaffPermissions, updateStaffPermissions, type PermissionPerson } from '@/lib/api';
-import { PERMISSION_LABELS, ROLE_LABELS, editablePermissions, hasOverride, personCan } from '@/lib/settings-forms';
+import { PERMISSION_LABELS, ROLE_LABELS, editablePermissions, hasOverride, personCan, waiterHint } from '@/lib/settings-forms';
 import { LoadState, SettingsCard, StatusLine, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 /**
@@ -12,9 +12,11 @@ import { LoadState, SettingsCard, StatusLine, Switch, useSavedFlash, useSettings
  * (devolver, dar efectivo, cerrar la noche, pagos a las chicas, informes,
  * recargas en efectivo) y, si hace falta, a una persona en concreto. A los
  * camareros y a los datáfonos de recepción, solo las recargas en efectivo.
+ * Con el datáfono apagado en Formas de cobro, lo de los datáfonos no sale
+ * (lo guardado se queda para cuando vuelva).
  * Por defecto, lo de siempre. El API lo aplica en cada petición.
  */
-export function PermissionsPanel() {
+export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
   const { data, setData, error: loadError, retry } = useSettingsLoad(fetchStaffPermissions);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,9 +79,7 @@ export function PermissionsPanel() {
 
       <SettingsCard
         title="Camareros"
-        hint={`Cobran y confirman datáfonos desde su app; de esto, solo pueden cobrar recargas en efectivo si se lo das.${
-          waiters.length > 0 ? ` (${waiters.length} en el local)` : ''
-        }`}
+        hint={`${waiterHint(posOn)}${waiters.length > 0 ? ` (${waiters.length} en el local)` : ''}`}
       >
         {editablePermissions('WAITER').map((key) => (
           <Switch
@@ -92,20 +92,22 @@ export function PermissionsPanel() {
         ))}
       </SettingsCard>
 
-      <SettingsCard
-        title={ROLE_LABELS.DEVICE}
-        hint="El datáfono no sabe quién lo usa: actúa como el local. Si lo enciendes, cualquiera con el datáfono de recepción cobra recargas en efectivo (cuadran en la caja de la noche)."
-      >
-        {editablePermissions('DEVICE').map((key) => (
-          <Switch
-            key={key}
-            label={PERMISSION_LABELS[key]}
-            checked={permissions.roles.DEVICE[key]}
-            disabled={busy}
-            onChange={(v) => void save({ roles: { DEVICE: { [key]: v } } })}
-          />
-        ))}
-      </SettingsCard>
+      {posOn ? (
+        <SettingsCard
+          title={ROLE_LABELS.DEVICE}
+          hint="El datáfono no sabe quién lo usa: actúa como el local. Si lo enciendes, cualquiera con el datáfono de recepción cobra recargas en efectivo (cuadran en la caja de la noche)."
+        >
+          {editablePermissions('DEVICE').map((key) => (
+            <Switch
+              key={key}
+              label={PERMISSION_LABELS[key]}
+              checked={permissions.roles.DEVICE[key]}
+              disabled={busy}
+              onChange={(v) => void save({ roles: { DEVICE: { [key]: v } } })}
+            />
+          ))}
+        </SettingsCard>
+      ) : null}
 
       <StatusLine saved={saved} error={error} />
     </div>

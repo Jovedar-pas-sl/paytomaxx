@@ -45,6 +45,8 @@ export interface PanelTab {
   label: string;
   section: SectionKey;
   access: TabAccess;
+  /** Solo si el local cobra con datáfono (Ajustes → Formas de cobro → Datáfono). */
+  needsPos?: true;
 }
 
 export interface PanelSection {
@@ -79,7 +81,8 @@ export const PANEL_TABS: readonly PanelTab[] = [
   // /v1/bank-recon/*: solo OWNER.
   { key: 'bank', label: 'Banco', section: 'informes', access: 'owner' },
   { key: 'carta', label: 'Carta', section: 'ajustes', access: 'staff' },
-  { key: 'terminals', label: 'Datáfonos', section: 'ajustes', access: 'staff' },
+  // Datáfonos PAX: con el datáfono apagado no sale (su código sigue, por si vuelve).
+  { key: 'terminals', label: 'Datáfonos', section: 'ajustes', access: 'staff', needsPos: true },
   { key: 'rules', label: 'Reglas del local', section: 'ajustes', access: 'owner' },
   { key: 'methods', label: 'Formas de cobro', section: 'ajustes', access: 'owner' },
   { key: 'permissions', label: 'Permisos', section: 'ajustes', access: 'owner' },
@@ -94,12 +97,15 @@ export interface PanelViewer {
   isSuperAdmin?: boolean;
   /** El encargado puede ver los informes (Ajustes → Permisos del dueño). */
   canSeeReports?: boolean;
+  /** El local cobra con datáfono (Formas de cobro). Sin saberlo, sí: como antes. */
+  posOn?: boolean;
 }
 
 export function visibleTabs(user: PanelViewer): PanelTab[] {
   if (!canUsePanel(user.role)) return [];
   const isOwner = user.role === 'OWNER';
   return PANEL_TABS.filter((t) => {
+    if (t.needsPos && user.posOn === false) return false;
     if (t.access === 'owner') return isOwner;
     if (t.access === 'reports') return isOwner || Boolean(user.canSeeReports);
     if (t.access === 'superadmin') return Boolean(user.isSuperAdmin);

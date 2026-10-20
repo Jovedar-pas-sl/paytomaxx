@@ -2,7 +2,14 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Logo, ThemeToggle } from '@nightpay/ui';
-import { fetchMyPermissions, fetchTotpStatus, fetchVenueSettings, logout as apiLogout, type User } from '@/lib/api';
+import {
+  fetchMyPermissions,
+  fetchPaymentMethods,
+  fetchTotpStatus,
+  fetchVenueSettings,
+  logout as apiLogout,
+  type User,
+} from '@/lib/api';
 import { DEFAULT_TIMEZONE } from '@/lib/dates';
 import { decidableCount } from '@/lib/approvals';
 import { avisosCount, navBadge } from '@/lib/bottom-nav';
@@ -63,7 +70,9 @@ const ROLE_LABELS: Record<User['role'], string> = {
 export function Dashboard({ user, onLogout }: Props) {
   const venue = useVenueInfo(user);
   const canSeeReports = useCanSeeReports(user);
-  const sections = visibleSections({ role: user.role, isSuperAdmin: user.isSuperAdmin, canSeeReports });
+  // Datáfono apagado en Formas de cobro: fuera la pestaña Datáfonos (y su permiso).
+  const [posOn, setPosOn] = useVenuePosOn(user);
+  const sections = visibleSections({ role: user.role, isSuperAdmin: user.isSuperAdmin, canSeeReports, posOn });
   const tabs = sections.flatMap((s) => s.tabs);
   const [selected, setSelected] = useState<TabKey>('payments');
   /** La pestaña que se miró la última vez en cada sección (volver a la sección la abre). */
@@ -175,6 +184,8 @@ export function Dashboard({ user, onLogout }: Props) {
                     onFocusPaymentDone={() => setFocusPayment(null)}
                     onLogout={() => void logout()}
                     loggingOut={loggingOut}
+                    posOn={posOn}
+                    onPosChange={setPosOn}
                   />
                 </div>
               </div>
@@ -238,6 +249,10 @@ interface ActivePanelProps {
   onFocusPaymentDone: () => void;
   onLogout: () => void;
   loggingOut: boolean;
+  /** El local cobra con datáfono (Formas de cobro). */
+  posOn: boolean;
+  /** Formas de cobro guardadas: las pestañas se ponen al día sin recargar. */
+  onPosChange: (posOn: boolean) => void;
 }
 
 function ActivePanel(props: ActivePanelProps) {
@@ -276,9 +291,9 @@ function ActivePanel(props: ActivePanelProps) {
     case 'rules':
       return isOwner ? <RulesPanel /> : null;
     case 'methods':
-      return isOwner ? <PaymentMethodsPanel /> : null;
+      return isOwner ? <PaymentMethodsPanel onSaved={(m) => props.onPosChange(m.pos)} /> : null;
     case 'permissions':
-      return isOwner ? <PermissionsPanel /> : null;
+      return isOwner ? <PermissionsPanel posOn={props.posOn} /> : null;
     case 'alerts':
       return isOwner ? <AlertsPanel /> : null;
     case 'security':
@@ -331,6 +346,29 @@ function useCanSeeReports(user: User): boolean {
     };
   }, [user.role, user.tenantId]);
   return can;
+}
+
+/**
+ * ¿Cobra el local con datáfono? (Ajustes → Formas de cobro). Mientras no se
+ * sabe, o si falla, sí: como antes (el API sigue mandando).
+ */
+function useVenuePosOn(user: User): [boolean, (posOn: boolean) => void] {
+  const [posOn, setPosOn] = useState(true);
+  useEffect(() => {
+    setPosOn(true);
+    let cancelled = false;
+    fetchPaymentMethods()
+      .then((m) => {
+        if (!cancelled) setPosOn(m.pos);
+      })
+      .catch(() => {
+        // Sin respuesta: todo a la vista, como antes.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.tenantId]);
+  return [posOn, setPosOn];
 }
 
 /** Super-admin sin la 2FA activada (para el aviso de arriba). Ante la duda, no se avisa. */

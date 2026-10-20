@@ -78,3 +78,14 @@ describe('sectionOf / resolveTab', () => {
     expect(resolveTab('nada')).toBeNull();
   });
 });
+
+describe('datáfono apagado en Formas de cobro', () => {
+  it('sin la pestaña Datáfonos (ni para el dueño ni para el encargado); sin saberlo, como antes', () => {
+    expect(sectionTabs({ role: 'OWNER', posOn: false }, 'ajustes')).toEqual(['carta', 'rules', 'methods', 'permissions', 'alerts', 'security']);
+    expect(sectionTabs({ role: 'MANAGER', posOn: false }, 'ajustes')).toEqual(['carta', 'security']);
+    expect(keys({ role: 'OWNER', posOn: true })).toContain('terminals');
+    expect(keys({ role: 'OWNER' })).toContain('terminals');
+    // Un enlace guardado a Datáfonos sigue resolviendo (el panel vuelve a Cobros si no se ve).
+    expect(resolveTab('terminals')).toBe('terminals');
+  });
+});
