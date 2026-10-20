@@ -48,9 +48,10 @@ const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
-  // Sin cámara: ya no se escanea el QR del saldo. Web NFC no pasa por
-  // Permissions-Policy (la ficha NFC sigue funcionando).
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+  // Cámara solo para esta web: el camarero escanea el «Mi QR» de la chica
+  // («Invitar a una copa»); ninguna otra página (ni iframes) la pide. Web NFC
+  // no pasa por Permissions-Policy (el NFC sigue funcionando).
+  { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=(), payment=()' },
 ];
 // Next aplica la última cabecera que coincide: en /pax va la política entera
 // más frame-src 'none' (antes una regla corta dejaba /pax sin el resto).
