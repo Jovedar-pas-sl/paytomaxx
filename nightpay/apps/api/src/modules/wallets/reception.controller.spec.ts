@@ -30,6 +30,7 @@ function services(venue: Record<string, unknown> = {}) {
   };
   const charges = {
     lookupCardForReception: vi.fn().mockResolvedValue({ walletId: 'w' }),
+    lookupForReception: vi.fn().mockResolvedValue({ walletId: 'w' }),
     receptionWallet: vi.fn().mockResolvedValue({ walletId: 'w' }),
     linkCardFromTerminal: vi.fn().mockResolvedValue({ walletId: 'w' }),
     setPinFromTerminal: vi.fn().mockResolvedValue({ walletId: 'w' }),
@@ -65,7 +66,10 @@ describe('recepción desde la app del personal', () => {
     const s = services();
     const ctrl = new ReceptionController(s.cash as never, s.cards as never, s.charges as never, s.prisma as never);
     await ctrl.lookup(user, { card: FICHA });
-    expect(s.charges.lookupCardForReception).toHaveBeenCalledWith(SALA, { card: FICHA, uid: null });
+    expect(s.charges.lookupForReception).toHaveBeenCalledWith(SALA, { card: FICHA, uid: null });
+    // «Recargar saldo» en Inicio: también por su código.
+    await ctrl.lookup(user, { code: 'K7Q-4M2' });
+    expect(s.charges.lookupForReception).toHaveBeenCalledWith(SALA, { code: 'K7Q-4M2' });
     await ctrl.fichaToken(user);
     expect(s.cards.newStockToken).toHaveBeenCalledWith(SALA, { userId: 'u-1' });
     await ctrl.fichaStock(user, { card: FICHA, uid: '04A2' });

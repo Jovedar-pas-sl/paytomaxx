@@ -16,6 +16,8 @@ import { ReceptionController } from './reception.controller';
 import { CashTopUpService } from './wallet-cash-topup.service';
 import { WalletCardsController } from './wallet-cards.controller';
 import { WalletCardsService } from './wallet-cards.service';
+import { PendingTopUpsController } from './pending-topups.controller';
+import { PendingTopUpService } from './wallet-pending-topup.service';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
@@ -29,6 +31,8 @@ import { WalletCardsService } from './wallet-cards.service';
     WalletTopUpService,
     CashTopUpService,
     WalletCardsService,
+    // Recargas cobradas sin el NFC del cliente, pendientes de asignar (usa PaymentsService con ModuleRef).
+    PendingTopUpService,
   ],
   controllers: [
     WalletsController,
@@ -39,6 +43,7 @@ import { WalletCardsService } from './wallet-cards.service';
     GoogleWalletController,
     // Recepción (recarga en efectivo, «Preparar fichas») y Clientes → Fichas.
     ReceptionController,
+    PendingTopUpsController,
     WalletCardsController,
   ],
   // GoogleWalletService: lo usa el repaso de la cola google-wallet-sync (QueuesModule).

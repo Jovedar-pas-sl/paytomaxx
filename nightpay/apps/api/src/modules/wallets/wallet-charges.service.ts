@@ -821,9 +821,10 @@ export class WalletChargesService {
         where: { id: targetWalletId },
         data: { balanceCents: { increment: source.balanceCents }, ...(await reopenData(tx, target)) },
       });
+      // Una recarga pendiente de asignar (cobrada sin el NFC del cliente) deja de estarlo.
       await tx.clientWallet.update({
         where: { id: sourceWalletId },
-        data: { balanceCents: 0, status: 'DEPLETED', mergedIntoId: targetWalletId },
+        data: { balanceCents: 0, status: 'DEPLETED', mergedIntoId: targetWalletId, pendingAssignAt: null },
       });
       // Su ficha va con el dinero: si no, al pagar diría «no tiene saldo» y el stock la vería libre.
       await moveWalletCards(tx, { walletId: sourceWalletId, venueId: source.tenantId }, targetWalletId);
@@ -1182,7 +1183,15 @@ export class WalletChargesService {
    * ya gastado (la recarga lo reabre).
    */
   async lookupCardForReception(venueId: string, input: { card: string; uid?: string | null }): Promise<ReceptionCardView> {
-    await this.assertMethods(venueId, ['nfc']);
+    return this.lookupForReception(venueId, input);
+  }
+
+  /** Lo mismo con el NFC o con el código del saldo («Recargar saldo» en Inicio). */
+  async lookupForReception(
+    venueId: string,
+    input: { card: string; uid?: string | null } | { code: string },
+  ): Promise<ReceptionCardView> {
+    if ('card' in input) await this.assertMethods(venueId, ['nfc']);
     const wallet = await topUpTarget(this.prisma, venueId, input);
     return {
       walletId: wallet.id,

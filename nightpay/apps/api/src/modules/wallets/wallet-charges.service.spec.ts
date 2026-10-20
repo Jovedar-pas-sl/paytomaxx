@@ -369,10 +369,12 @@ describe('sumar una recarga al saldo de su Face ID', () => {
     expect(targetUpdate.data).toMatchObject({ balanceCents: { increment: 8000 }, status: 'ACTIVE' });
     expect(targetUpdate.data.shortCode).toMatch(/^[A-HJKMNP-Z2-9]{6}$/);
     expect(targetUpdate.data.shortCode).not.toBe('K7Q4M2');
+    // Si era una recarga pendiente de asignar, deja de estarlo.
     expect(tx.clientWallet.update.mock.calls.find((c) => c[0].where.id === 'src')![0].data).toEqual({
       balanceCents: 0,
       status: 'DEPLETED',
       mergedIntoId: 'tgt',
+      pendingAssignAt: null,
     });
   });
 

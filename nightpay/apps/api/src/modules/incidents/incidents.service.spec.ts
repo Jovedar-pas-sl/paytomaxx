@@ -10,7 +10,8 @@ const at = (iso: string) => new Date(iso);
 /**
  * $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches,
  * revisadas, datáfono (3), saldos (2), banco, avisos de cobro no dados por buenos
- * devoluciones sin confirmar y solicitudes de «Por aprobar» sin decidir.
+ * devoluciones sin confirmar y solicitudes de «Por aprobar» sin decidir (y,
+ * al final, las recargas pendientes de asignar).
  */
 function makeIncidents(rows: {
   stuck?: unknown[];
@@ -29,6 +30,7 @@ function makeIncidents(rows: {
   pendingApprovals?: unknown[];
   posVoidedPaid?: unknown[];
   unprovenSales?: unknown[];
+  unassignedTopUps?: unknown[];
 }) {
   const prisma = {
     $queryRaw: vi
@@ -48,7 +50,8 @@ function makeIncidents(rows: {
       .mockResolvedValueOnce(rows.pendingRefunds ?? [])
       .mockResolvedValueOnce(rows.pendingApprovals ?? [])
       .mockResolvedValueOnce(rows.posVoidedPaid ?? [])
-      .mockResolvedValueOnce(rows.unprovenSales ?? []),
+      .mockResolvedValueOnce(rows.unprovenSales ?? [])
+      .mockResolvedValueOnce(rows.unassignedTopUps ?? []),
     incidentAck: { upsert: vi.fn().mockResolvedValue({}) },
     asSystem: vi.fn(),
   };
@@ -56,6 +59,25 @@ function makeIncidents(rows: {
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   return { svc: new IncidentsService(prisma as never, audit as never), prisma, audit };
 }
+
+describe('bandeja de incidencias — recarga pendiente de asignar', () => {
+  it('cobrada sin el NFC del cliente: sale con el importe y dónde asignarla; se quita sola (no se marca)', async () => {
+    const { svc, prisma } = makeIncidents({
+      unassignedTopUps: [{ id: 'w-prov', balanceCents: 5_000, occurredAt: at('2026-10-17T00:30:00Z') }],
+    });
+    const items = await svc.list('t-1', at('2026-10-17T01:00:00Z'));
+    const item = items.find((i) => i.kind === 'wallet_topup_unassigned')!;
+    expect(item).toMatchObject({ refId: 'w-prov', amountCents: 5_000, ackable: false, paymentId: null });
+    expect(item.detail).toContain('50,00 €');
+    expect(item.detail).toMatch(/Recepción/);
+    // Solo las que llevan más de 10 min sin asignar (la chica suele hacerlo al momento).
+    const query = prisma.$queryRaw.mock.calls.find(([s]) => String((s as string[]).join('?')).includes('"pendingAssignAt" <'))!;
+    expect(query).toContainEqual(at('2026-10-17T00:50:00Z'));
+    await expect(svc.ack('t-1', 'u-1', { kind: 'wallet_topup_unassigned', refId: 'w-prov' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+});
 
 describe('bandeja de incidencias — datáfono sin la prueba de Paytef y topes de la recepción', () => {
   it('cobros de chicas sin comprobar: uno por noche, marcable; tope de la recepción: marcable con su porqué', async () => {
@@ -156,8 +178,10 @@ describe('bandeja de incidencias', () => {
     expect(i!.detail).toContain('Operación 4410');
     expect(i!.detail).toContain('regístralo como devolución');
     // La venta anulada tiene que ser la que pagó el cobro, en ese datáfono, y el cobro seguir pagado.
-    // La del datáfono anulado es la penúltima consulta (la última: cobros sin la prueba de Paytef).
-    const sql = (prisma.$queryRaw.mock.calls.at(-2)![0] as string[]).join('?');
+    // La consulta de las ventas anuladas en el datáfono.
+    const sql = prisma.$queryRaw.mock.calls
+      .map((c) => (c[0] as string[]).join('?'))
+      .find((s) => s.includes('JOIN payments p ON p.id = v."paymentId"'))!;
     expect(sql).toContain(`"eventType" = 'pos.voided'`);
     expect(sql).toContain(`p."posOperationNumber" = v.payload ->> 'operationNumber'`);
     expect(sql).toContain(`p."posTerminalId"::text = v.payload ->> 'terminalId'`);

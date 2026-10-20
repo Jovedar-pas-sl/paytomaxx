@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { APPROVAL_INCIDENT_MINUTES, APPROVAL_TTL_MS } from '@nightpay/contracts';
+import { APPROVAL_INCIDENT_MINUTES, APPROVAL_TTL_MS, PENDING_TOPUP_INCIDENT_MINUTES } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
@@ -31,6 +31,8 @@ import {
   type WalletBalanceRow,
   stuckIncident,
   walletCreditSkippedIncident,
+  walletTopUpUnassignedIncident,
+  type PendingTopUpRow,
   posReceptionLimitIncident,
   posUnprovenSalesIncident,
   type UnprovenSalesRow,
@@ -78,6 +80,7 @@ export class IncidentsService {
     const nightStart = lastNightCutoff(now);
     const approvalPendingBefore = new Date(now.getTime() - APPROVAL_INCIDENT_MINUTES * 60 * 1000);
     const approvalExpiredBefore = new Date(now.getTime() - APPROVAL_TTL_MS);
+    const unassignedBefore = new Date(now.getTime() - PENDING_TOPUP_INCIDENT_MINUTES * 60 * 1000);
     const [
       stuck,
       duplicates,
@@ -95,6 +98,7 @@ export class IncidentsService {
       pendingApprovals,
       posVoidedPaid,
       unprovenSales,
+      unassignedTopUps,
     ] = await Promise.all([
       this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt"
@@ -225,6 +229,7 @@ export class IncidentsService {
            AND status = 'ACTIVE'
            AND "balanceCents" > 0
            AND "closeRequestedAt" IS NULL
+           AND "pendingAssignAt" IS NULL
            AND "updatedAt" < ${nightStart}
            AND "updatedAt" >= ${since}
          ORDER BY "updatedAt" DESC
@@ -340,6 +345,20 @@ export class IncidentsService {
          ORDER BY 1 DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
+      // Recargas cobradas sin el NFC del cliente que siguen sin su saldo (tras
+      // unos minutos: lo normal es asignarla al momento). FORCE RLS: con bypass.
+      this.prisma.asSystem((tx) => tx.$queryRaw<PendingTopUpRow[]>`
+        SELECT id, "balanceCents", "pendingAssignAt" AS "occurredAt"
+          FROM client_wallets
+         WHERE "tenantId" = ${tenantId}::uuid
+           AND "pendingAssignAt" IS NOT NULL
+           AND "pendingAssignAt" < ${unassignedBefore}
+           AND "mergedIntoId" IS NULL
+           AND status = 'ACTIVE'
+           AND "balanceCents" > 0
+         ORDER BY "pendingAssignAt" DESC
+         LIMIT ${PER_KIND_LIMIT}
+      `),
     ]);
 
     const all: Incident[] = [
@@ -362,6 +381,7 @@ export class IncidentsService {
       ...posVoidedPaid.map(posVoidedPaidIncident),
       ...walletsToClose.map(walletCloseRequestedIncident),
       ...walletsLeftOpen.map(walletOpenBalanceIncident),
+      ...unassignedTopUps.map(walletTopUpUnassignedIncident),
       // La misma diferencia repetida (dos subidas a la vez) sale una vez.
       ...uniqueBy(bankItems.map(bankMismatchIncident), (i) => i.refId),
       // "Sin comprobar" va por cobro: varios avisos del mismo cobro, uno solo.
