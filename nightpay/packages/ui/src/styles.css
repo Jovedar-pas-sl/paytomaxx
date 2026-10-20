@@ -501,6 +501,12 @@ input::placeholder {
     --np-qr: clamp(10rem, 34vh, 20rem);
   }
 
+  /* Campos sin tamaño propio (fechas, buscadores…): 16 px, o el iPhone amplía
+     al tocarlos. :where() no pesa: el tamaño que ponga cada campo manda. */
+  :where(.np-staff) :where(input, select, textarea) {
+    font-size: 1rem;
+  }
+
   .np-staff .np-btn {
     max-width: 100%;
     white-space: normal;
