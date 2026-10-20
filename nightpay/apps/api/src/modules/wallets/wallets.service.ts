@@ -65,10 +65,18 @@ async function reverseEarningOf(tx: RawTx, consumptionId: string): Promise<void>
   >`
     SELECT id, "tenantId", "commissionCents", "tipCents", "reversedCents", "payoutId"
       FROM operator_earnings WHERE "consumptionId" = ${consumptionId}::uuid
+     ORDER BY id
      FOR UPDATE
   `;
-  const earning = rows[0];
-  if (!earning) return;
+  // Cada persona con ganancia en el consumo (la chica que cobró, la invitada, el camarero).
+  for (const earning of rows) await reverseOne(tx, consumptionId, earning);
+}
+
+async function reverseOne(
+  tx: RawTx,
+  consumptionId: string,
+  earning: { id: string; tenantId: string; commissionCents: number; tipCents: number; reversedCents: number; payoutId: string | null },
+): Promise<void> {
   const debts = await tx.$queryRaw<Array<{ total: bigint }>>`
     SELECT COALESCE(SUM("reversedDeltaCents"), 0)::bigint AS total
       FROM earning_reversals WHERE "earningId" = ${earning.id}::uuid AND "afterPayout"
@@ -79,7 +87,7 @@ async function reverseEarningOf(tx: RawTx, consumptionId: string): Promise<void>
     await tx.$executeRaw`
       INSERT INTO earning_reversals ("tenantId", "earningId", "consumptionId", "reversedDeltaCents", "afterPayout")
       VALUES (${earning.tenantId}::uuid, ${earning.id}::uuid, ${consumptionId}::uuid, ${owed}::int, true)
-      ON CONFLICT ("consumptionId") DO NOTHING
+      ON CONFLICT ("consumptionId", "earningId") DO NOTHING
     `;
     return;
   }

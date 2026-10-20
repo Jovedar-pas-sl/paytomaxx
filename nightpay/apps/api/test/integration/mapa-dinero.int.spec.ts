@@ -115,7 +115,7 @@ async function authorize(paymentId: string, order: string): Promise<void> {
 }
 
 async function earningOf(paymentId: string) {
-  return sys((tx) => tx.operatorEarning.findUnique({ where: { paymentId } }));
+  return sys((tx) => tx.operatorEarning.findFirst({ where: { paymentId } }));
 }
 
 describe('carta de todas las secciones y packs', () => {
@@ -276,7 +276,7 @@ describe('cobro del saldo: líneas, referencia y comisión por línea', () => {
     await inVenue(undefined, () => charges.payQrCharge(qr.payToken, walletId));
     const earning = await sys(async (tx) => {
       const c = await tx.walletConsumption.findFirst({ where: { idempotencyKey: `charge-request:${qr.id}` } });
-      return tx.operatorEarning.findUnique({ where: { consumptionId: c!.id } });
+      return tx.operatorEarning.findFirst({ where: { consumptionId: c!.id } });
     });
     expect(earning).toMatchObject({ commissionCents: 10_800, commissionBps: 7_200 });
     // El cliente ve la referencia en sus movimientos.

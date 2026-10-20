@@ -12,18 +12,23 @@ import {
 } from '@nestjs/common';
 import {
   NO_SECTION_ENABLED_MESSAGE,
+  UpdateInvitationRulesSchema,
   UpdatePostRulesSchema,
   UpdatePuestoSchema,
   UpdateSectionsSchema,
   effectivePost,
   isPostCode,
+  invitationRulesOf,
+  mergeInvitationRules,
   mergePostRules,
   mergeSections,
   postRulesOf,
   postSection,
   sectionsOf,
+  type InvitationRules,
   type JwtPayload,
   type PostRules,
+  type UpdateInvitationRulesDto,
   type UpdatePostRulesDto,
   type PuestoPerson,
   type UpdatePuestoDto,
@@ -47,6 +52,8 @@ const PUESTO_ROLES = ['MANAGER', 'WAITER'] as const;
  *  - PATCH     /v1/admin/venue/puestos/:userId → cambiar el puesto de una persona.
  *  - GET/PATCH /v1/admin/venue/post-rules      → qué cobra cada puesto (secciones,
  *    propinas, efectivo y recargas).
+ *  - GET/PATCH /v1/admin/venue/invitation-rules → «Invitar a una copa»: parte de la
+ *    chica y del camarero (% o fijo); el resto, del local.
  * Cada cambio queda en el registro (antes y después).
  */
 @Controller('admin/venue')
@@ -139,6 +146,36 @@ export class VenueSectionsController {
       tx.venue.update({ where: { id: user.tenantId }, data: { postRules: after as never }, select: { id: true } }),
     );
     await this.log(user, 'venue.post_rules.updated', 'Venue', user.tenantId, { before: postRulesOf(current), after });
+    return after;
+  }
+
+  /** El personal también: la app enseña «Invitar a una copa» con lo que le toca a la chica. */
+  @Get('invitation-rules')
+  @Roles('OWNER', 'MANAGER', 'WAITER', 'OPERATOR')
+  async invitationRules(@CurrentUser() user: JwtPayload): Promise<InvitationRules> {
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({ where: { id: user.tenantId }, select: { invitationRules: true } }),
+    );
+    return invitationRulesOf(venue.invitationRules);
+  }
+
+  @Patch('invitation-rules')
+  @Roles('OWNER')
+  async updateInvitationRules(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(UpdateInvitationRulesSchema)) dto: UpdateInvitationRulesDto,
+  ): Promise<InvitationRules> {
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({ where: { id: user.tenantId }, select: { invitationRules: true } }),
+    );
+    const after = mergeInvitationRules(venue.invitationRules, dto);
+    await this.prisma.asSystem((tx) =>
+      tx.venue.update({ where: { id: user.tenantId }, data: { invitationRules: after as never }, select: { id: true } }),
+    );
+    await this.log(user, 'venue.invitation_rules.updated', 'Venue', user.tenantId, {
+      before: invitationRulesOf(venue.invitationRules),
+      after,
+    });
     return after;
   }
 

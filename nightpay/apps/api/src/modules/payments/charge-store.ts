@@ -1,5 +1,6 @@
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import type { DraftLine } from './charge-lines';
+import type { InvitationEarning } from './invitation-lines';
 
 /**
  * Lo que el mapa del dinero guarda en la base, siempre dentro de una
@@ -46,11 +47,15 @@ export async function insertChargeLines(
       unitCents: l.unitCents,
       amountCents: l.amountCents,
       operatorCommissionBps: l.operatorCommissionBps ?? null,
+      beneficiaryOperatorId: l.beneficiaryOperatorId ?? null,
+      beneficiaryCents: l.beneficiaryCents ?? null,
+      chargerCents: l.chargerCents ?? null,
     })),
   });
 }
 
 export interface StoredLine {
+  id: string;
   paymentId: string | null;
   walletChargeId: string | null;
   category: string;
@@ -60,9 +65,13 @@ export interface StoredLine {
   unitCents: number;
   amountCents: number;
   operatorCommissionBps: number | null;
+  beneficiaryOperatorId: string | null;
+  beneficiaryCents: number | null;
+  chargerCents: number | null;
 }
 
 const LINE_SELECT = {
+  id: true,
   paymentId: true,
   walletChargeId: true,
   category: true,
@@ -72,6 +81,9 @@ const LINE_SELECT = {
   unitCents: true,
   amountCents: true,
   operatorCommissionBps: true,
+  beneficiaryOperatorId: true,
+  beneficiaryCents: true,
+  chargerCents: true,
 } as const;
 
 /** Las líneas de esos cobros (en el orden en que se guardaron). */
@@ -85,4 +97,51 @@ export async function linesOf(
   ];
   if (or.length === 0) return [];
   return tx.paymentLine.findMany({ where: { OR: or }, orderBy: [{ createdAt: 'asc' }, { amountCents: 'desc' }, { id: 'asc' }], select: LINE_SELECT });
+}
+
+/**
+ * Las ganancias de las invitaciones de un cobro con tarjeta (paymentId) o de
+ * un consumo del saldo (consumptionId), en la misma transacción que lo cobra:
+ * una por persona y cobro. Si esa persona ya tiene ganancia en este cobro
+ * (p. ej. la propina que le dejaron), se le suma su parte.
+ */
+export async function insertInvitationEarnings(
+  tx: TransactionalClient,
+  tenantId: string,
+  source: { paymentId: string } | { consumptionId: string },
+  earnings: ReadonlyArray<InvitationEarning>,
+): Promise<void> {
+  for (const e of earnings) {
+    if ('paymentId' in source) {
+      await tx.$executeRaw`
+        INSERT INTO operator_earnings (
+          "tenantId", "operatorId", "paymentId", "paymentLineId",
+          "paymentAmountCents", "commissionBps", "commissionCents"
+        ) VALUES (
+          ${tenantId}::uuid, ${e.operatorId}::uuid, ${source.paymentId}::uuid, ${e.paymentLineId}::uuid,
+          ${e.paymentAmountCents}::int, ${e.commissionBps}::int, ${e.commissionCents}::int
+        )
+        ON CONFLICT ("paymentId", "operatorId") DO UPDATE
+          SET "commissionCents" = operator_earnings."commissionCents" + EXCLUDED."commissionCents",
+              "commissionBps" = EXCLUDED."commissionBps",
+              "paymentAmountCents" = EXCLUDED."paymentAmountCents",
+              "paymentLineId" = EXCLUDED."paymentLineId"
+      `;
+    } else {
+      await tx.$executeRaw`
+        INSERT INTO operator_earnings (
+          "tenantId", "operatorId", "consumptionId", "paymentLineId",
+          "paymentAmountCents", "commissionBps", "commissionCents"
+        ) VALUES (
+          ${tenantId}::uuid, ${e.operatorId}::uuid, ${source.consumptionId}::uuid, ${e.paymentLineId}::uuid,
+          ${e.paymentAmountCents}::int, ${e.commissionBps}::int, ${e.commissionCents}::int
+        )
+        ON CONFLICT ("consumptionId", "operatorId") DO UPDATE
+          SET "commissionCents" = operator_earnings."commissionCents" + EXCLUDED."commissionCents",
+              "commissionBps" = EXCLUDED."commissionBps",
+              "paymentAmountCents" = EXCLUDED."paymentAmountCents",
+              "paymentLineId" = EXCLUDED."paymentLineId"
+      `;
+    }
+  }
 }

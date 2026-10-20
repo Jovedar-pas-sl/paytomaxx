@@ -212,6 +212,9 @@ describe('la chica hace un cobro con QR', () => {
           unitCents: 10_000,
           amountCents: 10_000,
           operatorCommissionBps: null,
+          beneficiaryOperatorId: null,
+          beneficiaryCents: null,
+          chargerCents: null,
         },
       ],
     });

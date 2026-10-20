@@ -17,7 +17,8 @@ import { AuditService } from '../audit/audit.service';
 import { resolveBpsForOperator, type RevenueCategory } from '../payments/commission';
 import { lineCommission, type DraftLine } from '../payments/charge-lines';
 import { resolveChargeOrThrow } from '../payments/charge-request';
-import { insertChargeLines, linesOf, nextChargeRef } from '../payments/charge-store';
+import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from '../payments/charge-store';
+import { invitationEarnings } from '../payments/invitation-lines';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 import { reopenData } from './wallet-activation';
 import { mergedWalletIds } from './wallet-merge-chain';
@@ -323,6 +324,7 @@ export class WalletChargesService {
       serviceItemId: input.serviceItemId,
       amountCents: input.amountCents,
       requestedCategory: input.category,
+      invitedStaffToken: input.invitedStaffToken,
     });
     const amountCents = charge.amountCents;
     // El mismo tope por cobro que tiene la chica con el QR (Ajustes del local).
@@ -564,6 +566,16 @@ export class WalletChargesService {
             },
           });
         }
+      }
+      // «Invitar a una copa»: la parte de la chica invitada (y la del camarero).
+      const invited = lines.filter((l) => l.beneficiaryOperatorId);
+      if (invited.length > 0) {
+        await insertInvitationEarnings(
+          tx,
+          request.tenantId,
+          { consumptionId: consumption.id },
+          invitationEarnings(invited, request.requestedByUserId),
+        );
       }
       const newBalance = w.balanceCents - request.amountCents;
       await tx.clientWallet.update({
@@ -1954,4 +1966,6 @@ export interface QrChargeInput {
   serviceItemId?: string;
   amountCents?: number;
   category?: string;
+  /** «Invitar a una copa»: el QR personal de la chica invitada. */
+  invitedStaffToken?: string;
 }

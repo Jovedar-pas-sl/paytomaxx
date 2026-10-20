@@ -3,6 +3,7 @@ import { Prisma } from '@nightpay/db';
 import {
   canChargeSection,
   initialOfferedSection,
+  invitationItemProblem,
   isSectionCode,
   packComponentsOf,
   packProblem,
@@ -26,6 +27,7 @@ const SELECT = {
   active: true,
   sortOrder: true,
   components: true,
+  isInvitation: true,
 } as const;
 
 const ORDER = [{ sortOrder: 'asc' as const }, { priceCents: 'asc' as const }];
@@ -83,7 +85,9 @@ export class CartaService {
 
   async create(tenantId: string, actorId: string, dto: CreateServiceItemDto): Promise<ServiceItem> {
     // El pack se comprueba siempre aquí (también si llega sin pasar por el esquema).
-    const problem = packProblem(dto.priceCents, dto.category, dto.components);
+    const problem =
+      packProblem(dto.priceCents, dto.category, dto.components) ??
+      invitationItemProblem(dto.isInvitation, dto.category, dto.components);
     if (problem) throw new BadRequestException(problem);
     await this.assertSections(tenantId, dto.category, dto.components ?? null);
     const row = await this.prisma.serviceItem.create({
@@ -95,6 +99,7 @@ export class CartaService {
         category: dto.category,
         sortOrder: dto.sortOrder ?? 0,
         ...(dto.components ? { components: dto.components } : {}),
+        ...(dto.isInvitation ? { isInvitation: true } : {}),
       },
       select: SELECT,
     });
@@ -124,7 +129,8 @@ export class CartaService {
     const price = dto.priceCents ?? existing.priceCents;
     const category = dto.category ?? existing.category;
     const components = dto.components === undefined ? packComponentsOf(existing.components) : dto.components;
-    const problem = packProblem(price, category, components);
+    const isInvitation = dto.isInvitation ?? existing.isInvitation;
+    const problem = packProblem(price, category, components) ?? invitationItemProblem(isInvitation, category, components);
     if (problem) throw new BadRequestException(problem);
     if (dto.category !== undefined || dto.components) await this.assertSections(tenantId, category, components);
     const row = await this.prisma.serviceItem.update({
@@ -136,6 +142,7 @@ export class CartaService {
         ...(dto.category !== undefined ? { category: dto.category } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
         ...(dto.active !== undefined ? { active: dto.active } : {}),
+        ...(dto.isInvitation !== undefined ? { isInvitation: dto.isInvitation } : {}),
         // null = quitar el pack (la columna a NULL).
         ...(dto.components !== undefined ? { components: dto.components ?? Prisma.DbNull } : {}),
       },

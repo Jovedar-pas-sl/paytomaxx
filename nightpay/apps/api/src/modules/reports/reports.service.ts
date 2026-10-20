@@ -231,7 +231,14 @@ export class ReportsService {
              ${afterPayoutDebt('e')}::int AS "reversedAfterPayoutCents"
         FROM payments p
         LEFT JOIN users u ON u.id = p."createdByUserId"
-        LEFT JOIN operator_earnings e ON e."paymentId" = p.id
+        -- Una fila por cobro: la ganancia de la chica (la que cobró o la
+        -- invitada); la parte del camarero en una invitación va en sus pagos.
+        LEFT JOIN LATERAL (
+          SELECT e0.* FROM operator_earnings e0
+           WHERE e0."paymentId" = p.id
+           ORDER BY (e0."operatorId" = p."createdByUserId" AND e0."paymentLineId" IS NOT NULL), e0."createdAt", e0.id
+           LIMIT 1
+        ) e ON true
         LEFT JOIN users eu ON eu.id = e."operatorId"
         LEFT JOIN LATERAL (
           SELECT SUM(rf."amountCents") AS refunded
@@ -266,7 +273,13 @@ export class ReportsService {
              e."commissionCents",
              e."tipCents" AS "earningTipCents"
         FROM wallet_consumptions c
-        LEFT JOIN operator_earnings e ON e."consumptionId" = c.id
+        -- Una fila por consumo (ver arriba: la chica, no la parte del camarero).
+        LEFT JOIN LATERAL (
+          SELECT e0.* FROM operator_earnings e0
+           WHERE e0."consumptionId" = c.id
+           ORDER BY (e0."operatorId" = c."providedByUserId" AND e0."paymentLineId" IS NOT NULL), e0."createdAt", e0.id
+           LIMIT 1
+        ) e ON true
         LEFT JOIN users u ON u.id = e."operatorId"
        WHERE c."tenantId" = ${tenantId}::uuid
          AND ${where}
@@ -300,7 +313,16 @@ export class ReportsService {
         JOIN payments p ON p.id = r."paymentId"
         LEFT JOIN users ru ON ru.id = r."requestedBy"
         LEFT JOIN users cu ON cu.id = p."createdByUserId"
-        LEFT JOIN earning_reversals er ON er."refundId" = r.id
+        -- Una fila por devolución: lo descontado a la chica (la que cobró o la
+        -- invitada; lo del camarero de una invitación, en sus pagos).
+        LEFT JOIN LATERAL (
+          SELECT er0.*, ee0."operatorId" AS "operatorId"
+            FROM earning_reversals er0
+            JOIN operator_earnings ee0 ON ee0.id = er0."earningId"
+           WHERE er0."refundId" = r.id
+           ORDER BY (ee0."operatorId" = p."createdByUserId" AND ee0."paymentLineId" IS NOT NULL), er0."createdAt", er0.id
+           LIMIT 1
+        ) er ON true
         LEFT JOIN operator_earnings ee ON ee.id = er."earningId"
         LEFT JOIN users eu ON eu.id = ee."operatorId"
        WHERE r."tenantId" = ${tenantId}::uuid

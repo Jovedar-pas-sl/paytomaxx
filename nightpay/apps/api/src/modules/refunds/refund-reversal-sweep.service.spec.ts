@@ -47,7 +47,8 @@ describe('RefundReversalSweepService.sweep — reintenta el descuento a la chica
     await svc.sweep(now);
     const sql = sqls[0]!;
     expect(sql).toMatch(/status = 'SUCCEEDED'/);
-    expect(sql).toMatch(/JOIN operator_earnings/);
+    // Con ganancia en el cobro (puede haber varias: invitación): una vez por devolución.
+    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM operator_earnings/);
     expect(sql).toMatch(/NOT EXISTS[\s\S]*earning_reversals/);
     expect(sql).toMatch(/LIMIT/);
     const cutoff = params[0]![0] as Date;

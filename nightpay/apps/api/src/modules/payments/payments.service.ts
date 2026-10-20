@@ -45,7 +45,8 @@ import { TipsDisabledException, VENUE_METHODS_SELECT, assertMethodsEnabled } fro
 import { resolveBpsForOperator, type OperatorCommissionDefaults, type RevenueCategory } from './commission';
 import { lineCommission, lineViews, type DraftLine } from './charge-lines';
 import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './charge-request';
-import { insertChargeLines, linesOf, nextChargeRef } from './charge-store';
+import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from './charge-store';
+import { invitationEarnings } from './invitation-lines';
 import { chargeRightsFor, tipsForbidden, topUpForbidden } from '../venues/charge-rights';
 import type { Provider } from '@nightpay/contracts';
 import {
@@ -660,6 +661,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       serviceItemId: dto.serviceItemId,
       amountCents: dto.amountCents,
       requestedCategory: dto.revenueCategory,
+      invitedStaffToken: dto.invitedStaffToken,
     });
     const service: ServiceSnapshot | null =
       charge.service ?? (charge.serviceName ? { serviceItemId: null, serviceName: charge.serviceName, durationMin: null } : null);
@@ -1532,7 +1534,7 @@ export class PaymentsService implements OnApplicationBootstrap {
               ${commissionCents}::int,
               ${earningTipCents}::int
             )
-            ON CONFLICT ("paymentId") DO NOTHING
+            ON CONFLICT ("paymentId", "operatorId") DO NOTHING
           `;
         }
       }
@@ -1587,11 +1589,26 @@ export class PaymentsService implements OnApplicationBootstrap {
             0::int,
             ${p.tipCents}::int
           )
-          ON CONFLICT ("paymentId") DO NOTHING
+          ON CONFLICT ("paymentId", "operatorId") DO NOTHING
         `;
         this.logger.log(
           `Payment ${paymentId} AUTHORIZED → tip-only earning created for beneficiary=${benef.id} amount=${p.tipCents}c`,
         );
+      }
+    }
+
+    // «Invitar a una copa»: la parte de la chica invitada y, si le toca, la
+    // del camarero que la cobró (fijadas en la línea al cobrar).
+    if (!p.walletId) {
+      const invited = await tx.$queryRaw<
+        Array<{ id: string; amountCents: number; beneficiaryOperatorId: string | null; beneficiaryCents: number | null; chargerCents: number | null }>
+      >`
+        SELECT id, "amountCents", "beneficiaryOperatorId", "beneficiaryCents", "chargerCents"
+          FROM payment_lines
+         WHERE "paymentId" = ${paymentId}::uuid AND "beneficiaryOperatorId" IS NOT NULL
+      `;
+      if (invited.length > 0) {
+        await insertInvitationEarnings(tx, p.tenantId, { paymentId }, invitationEarnings(invited, p.createdByUserId));
       }
     }
   }
@@ -2157,6 +2174,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           FROM operator_earnings e
           JOIN payments p ON p.id = e."paymentId"
          WHERE e."paymentId" = ${paymentId}::uuid
+         ORDER BY e.id
          FOR UPDATE OF e
       `;
       if (earning.length === 0) {
@@ -2165,7 +2183,6 @@ export class PaymentsService implements OnApplicationBootstrap {
         );
         return;
       }
-      const e = earning[0]!;
 
       // 2. Total cumulativo refundeado: suma de refunds SUCCEEDED para este payment
       //    (incluye el actual aunque su status todavía no esté commiteado).
@@ -2177,63 +2194,69 @@ export class PaymentsService implements OnApplicationBootstrap {
            AND id != ${refundId}::uuid
       `;
       const priorCumulative = Number(sumRows[0]?.total ?? 0);
-      const totalCumulative = Math.min(priorCumulative + refundAmountCents, e.chargedCents);
 
-      // 3. Reversed total esperado tras este refund (comisión + propina). Las
-      //    reversiones que llegan con el earning ya pagado no tocan
-      //    reversedCents (eso refleja lo que se le pagó); se suman aparte como deuda.
-      const expectedTotalReversed = expectedChicaReversal({
-        commissionCents: e.commissionCents,
-        tipCents: e.tipCents,
-        chargedCents: e.chargedCents,
-        refundedCents: totalCumulative,
-      });
-      const debtRows = await tx.$queryRaw<Array<{ total: bigint }>>`
-        SELECT COALESCE(SUM("reversedDeltaCents"),0)::bigint AS total
-          FROM earning_reversals
-         WHERE "earningId" = ${e.id}::uuid
-           AND "afterPayout"
-      `;
-      const alreadyReversed = e.reversedCents + Number(debtRows[0]?.total ?? 0);
-      const reverseDelta = expectedTotalReversed - alreadyReversed;
-      const afterPayout = e.payoutId !== null;
+      // Una devolución descuenta a cada persona con ganancia en el cobro (la
+      // chica que cobró o la invitada y, si le tocó algo, el camarero), cada
+      // una en la misma proporción. Un cobro de una sola ganancia, como siempre.
+      for (const e of earning) {
+        const totalCumulative = Math.min(priorCumulative + refundAmountCents, e.chargedCents);
 
-      if (reverseDelta <= 0) {
-        this.logger.warn(
-          `Earning reversal delta non-positive payment=${paymentId} refundId=${refundId} expected=${expectedTotalReversed} current=${alreadyReversed} — skip update`,
-        );
-      } else if (afterPayout) {
-        // Ya pagado a la chica: queda como deuda (earning_reversals.afterPayout)
-        // y createPayout la descuenta del siguiente pago.
-        this.logger.warn(
-          `Refund after payout payment=${paymentId} refundId=${refundId}: deuda de ${reverseDelta}c para el siguiente pago`,
-        );
-      } else {
-        await tx.$executeRaw`
-          UPDATE operator_earnings
-             SET "reversedCents" = "reversedCents" + ${reverseDelta}::int
-           WHERE id = ${e.id}::uuid
+        // 3. Reversed total esperado tras este refund (comisión + propina). Las
+        //    reversiones que llegan con el earning ya pagado no tocan
+        //    reversedCents (eso refleja lo que se le pagó); se suman aparte como deuda.
+        const expectedTotalReversed = expectedChicaReversal({
+          commissionCents: e.commissionCents,
+          tipCents: e.tipCents,
+          chargedCents: e.chargedCents,
+          refundedCents: totalCumulative,
+        });
+        const debtRows = await tx.$queryRaw<Array<{ total: bigint }>>`
+          SELECT COALESCE(SUM("reversedDeltaCents"),0)::bigint AS total
+            FROM earning_reversals
+           WHERE "earningId" = ${e.id}::uuid
+             AND "afterPayout"
         `;
+        const alreadyReversed = e.reversedCents + Number(debtRows[0]?.total ?? 0);
+        const reverseDelta = expectedTotalReversed - alreadyReversed;
+        const afterPayout = e.payoutId !== null;
+
+        if (reverseDelta <= 0) {
+          this.logger.warn(
+            `Earning reversal delta non-positive payment=${paymentId} refundId=${refundId} expected=${expectedTotalReversed} current=${alreadyReversed} — skip update`,
+          );
+        } else if (afterPayout) {
+          // Ya pagado a la chica: queda como deuda (earning_reversals.afterPayout)
+          // y createPayout la descuenta del siguiente pago.
+          this.logger.warn(
+            `Refund after payout payment=${paymentId} refundId=${refundId}: deuda de ${reverseDelta}c para el siguiente pago`,
+          );
+        } else {
+          await tx.$executeRaw`
+            UPDATE operator_earnings
+               SET "reversedCents" = "reversedCents" + ${reverseDelta}::int
+             WHERE id = ${e.id}::uuid
+          `;
+        }
+
+        // 4. Registrar reversal para idempotencia (siempre, incluso si delta=0).
+        await tx.$executeRaw`
+          INSERT INTO earning_reversals (
+            "tenantId", "earningId", "refundId", "reversedDeltaCents", "afterPayout"
+          )
+          VALUES (
+            ${e.tenantId}::uuid,
+            ${e.id}::uuid,
+            ${refundId}::uuid,
+            ${Math.max(0, reverseDelta)}::int,
+            ${afterPayout && reverseDelta > 0}
+          )
+          ON CONFLICT ("refundId", "earningId") DO NOTHING
+        `;
+
+        this.logger.log(
+          `Earning reversal payment=${paymentId} refundId=${refundId} earning=${e.id} delta=${reverseDelta} expected=${expectedTotalReversed} bps=${e.commissionBps} tip=${e.tipCents} cumulative=${totalCumulative}/${e.chargedCents}`,
+        );
       }
-
-      // 4. Registrar reversal para idempotencia (siempre, incluso si delta=0).
-      await tx.$executeRaw`
-        INSERT INTO earning_reversals (
-          "tenantId", "earningId", "refundId", "reversedDeltaCents", "afterPayout"
-        )
-        VALUES (
-          ${e.tenantId}::uuid,
-          ${e.id}::uuid,
-          ${refundId}::uuid,
-          ${Math.max(0, reverseDelta)}::int,
-          ${afterPayout && reverseDelta > 0}
-        )
-        ON CONFLICT ("refundId") DO NOTHING
-      `;
-
-      this.logger.log(
-        `Earning reversal payment=${paymentId} refundId=${refundId} delta=${reverseDelta} expected=${expectedTotalReversed} bps=${e.commissionBps} tip=${e.tipCents} cumulative=${totalCumulative}/${e.chargedCents}`,
-      );
     });
   }
 

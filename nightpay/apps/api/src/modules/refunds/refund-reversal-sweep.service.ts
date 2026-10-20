@@ -89,8 +89,8 @@ export class RefundReversalSweepService implements OnModuleInit, OnModuleDestroy
       tx.$queryRaw<MissingReversal[]>`
         SELECT r.id AS "refundId", r."paymentId", r."tenantId", r."amountCents"
           FROM refunds r
-          JOIN operator_earnings e ON e."paymentId" = r."paymentId"
-         WHERE r.status = 'SUCCEEDED'
+         WHERE EXISTS (SELECT 1 FROM operator_earnings e WHERE e."paymentId" = r."paymentId")
+           AND r.status = 'SUCCEEDED'
            AND r."createdAt" < ${before}
            AND NOT EXISTS (SELECT 1 FROM earning_reversals er WHERE er."refundId" = r.id)
          ORDER BY r."createdAt" ASC

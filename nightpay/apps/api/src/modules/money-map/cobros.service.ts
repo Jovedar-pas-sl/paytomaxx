@@ -1,6 +1,13 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@nightpay/db';
-import { PaymentStatusSchema, type CobroRow, type CobrosPage, type CobrosQuery, type PaymentStatus } from '@nightpay/contracts';
+import {
+  PaymentStatusSchema,
+  type CobroRow,
+  type CobrosPage,
+  type CobrosQuery,
+  type InvitationSummary,
+  type PaymentStatus,
+} from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { normalizeWalletCode } from '../wallets/wallet-rules';
 import {
@@ -12,7 +19,16 @@ import {
   type PersonLike,
 } from './cobros-rows';
 
-const LINE_SELECT = { category: true, label: true, qty: true, unitCents: true, amountCents: true, serviceItemId: true } as const;
+const PERSON_SELECT_FOR_LINES = { id: true, displayName: true, email: true, role: true } as const;
+const LINE_SELECT = {
+  category: true,
+  label: true,
+  qty: true,
+  unitCents: true,
+  amountCents: true,
+  serviceItemId: true,
+  beneficiary: { select: PERSON_SELECT_FOR_LINES },
+} as const;
 const LINE_ORDER = [{ createdAt: 'asc' as const }, { amountCents: 'desc' as const }, { id: 'asc' as const }];
 const PERSON_SELECT = { id: true, displayName: true, email: true, role: true } as const;
 
@@ -45,6 +61,32 @@ export class CobrosService {
 
   constructor(@Inject(PrismaService) prisma: PrismaService) {
     this.prisma = prisma;
+  }
+
+  /**
+   * Las invitaciones a una chica (su ficha): copas cobradas (sin las
+   * devueltas del todo ni los consumos anulados), lo vendido y su parte.
+   */
+  async invitationSummary(tenantId: string, operatorId: string): Promise<InvitationSummary> {
+    const rows = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.$queryRaw<Array<{ count: bigint | null; amount: bigint | null; share: bigint | null }>>`
+        SELECT COALESCE(SUM(l.qty), 0)::bigint AS count,
+               COALESCE(SUM(l."amountCents"), 0)::bigint AS amount,
+               COALESCE(SUM(l."beneficiaryCents"), 0)::bigint AS share
+          FROM payment_lines l
+          LEFT JOIN payments p ON p.id = l."paymentId"
+          LEFT JOIN wallet_charge_requests w ON w.id = l."walletChargeId"
+          LEFT JOIN wallet_consumptions c ON c.id = w."consumptionId"
+         WHERE l."tenantId" = ${tenantId}::uuid
+           AND l."beneficiaryOperatorId" = ${operatorId}::uuid
+           AND (
+             p.status IN ('AUTHORIZED', 'PARTIALLY_REFUNDED')
+             OR (w.status = 'ACCEPTED' AND c.id IS NOT NULL AND c."reversedAt" IS NULL)
+           )
+      `,
+    );
+    const r = rows[0];
+    return { count: Number(r?.count ?? 0), amountCents: Number(r?.amount ?? 0), shareCents: Number(r?.share ?? 0) };
   }
 
   async list(tenantId: string, q: CobrosQuery): Promise<CobrosPage> {
@@ -98,6 +140,7 @@ export class CobrosService {
     if (dates) and.push(dates);
     if (q.category) and.push(paymentCategoryWhere(q.category));
     if (q.method) and.push(paymentMethodWhere(q.method));
+    if (q.invitedOperatorId) and.push({ lines: { some: { beneficiaryOperatorId: q.invitedOperatorId } } });
     const rows = await tx.payment.findMany({
       where: { AND: and },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -151,6 +194,7 @@ export class CobrosService {
     const dates = dateWhere(scope, cursor);
     if (dates) and.push(dates);
     if (q.category) and.push(saldoCategoryWhere(q.category));
+    if (q.invitedOperatorId) and.push({ lines: { some: { beneficiaryOperatorId: q.invitedOperatorId } } });
     const rows = await saldoCharges(tx, { AND: and }, q.limit + 1);
     return rows.filter((r) => (r.status === 'REVERSED' ? wanted.reversed : wanted.accepted));
   }

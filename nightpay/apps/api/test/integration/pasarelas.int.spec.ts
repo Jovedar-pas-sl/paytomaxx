@@ -149,7 +149,7 @@ describe('FAILED → AUTHORIZED con efectos reales (Postgres)', () => {
     expect(p?.authorizedAt).not.toBeNull();
     expect(p?.tipCents).toBe(500);
     expect(p?.availableAmountCents).toBe(4500);
-    const earning = await sys((tx) => tx.operatorEarning.findUnique({ where: { paymentId: id } }));
+    const earning = await sys((tx) => tx.operatorEarning.findFirst({ where: { paymentId: id } }));
     expect(earning).toMatchObject({ operatorId: chica, commissionCents: 2000, tipCents: 500 });
   });
 

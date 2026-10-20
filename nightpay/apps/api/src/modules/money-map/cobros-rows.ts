@@ -23,6 +23,8 @@ export interface StoredLineLike {
   unitCents: number;
   amountCents: number;
   serviceItemId: string | null;
+  /** «Invitar a una copa»: la chica invitada. */
+  beneficiary?: PersonLike | null;
 }
 
 export interface PersonLike {
@@ -88,6 +90,16 @@ export function personOf(u: PersonLike | null | undefined): CobroPerson | null {
   return u ? { id: u.id, name: u.displayName?.trim() || u.email, role: u.role } : null;
 }
 
+/** La chica invitada de un cobro (la de su primera línea de invitación). */
+export function invitedOf(lines: readonly StoredLineLike[]): CobroPerson | null {
+  return personOf(lines.find((l) => l.beneficiary)?.beneficiary ?? null);
+}
+
+/** Las líneas para las apps, con la chica invitada si la hay. */
+function rowLines(lines: readonly StoredLineLike[]): ChargeLineView[] {
+  return lineViews(lines).map((v, i) => ({ ...v, beneficiaryOperatorId: lines[i]?.beneficiary?.id ?? null }));
+}
+
 /** «K7Q-•••»: el saldo se reconoce sin enseñar su código entero. */
 export function walletHint(shortCode: string | null | undefined): string {
   return `${(shortCode ?? '').slice(0, 3)}-•••`;
@@ -124,7 +136,7 @@ export function paymentMethodLabel(method: ChargeMethod | null, p: Pick<PaymentF
 export function paymentCobroRow(p: PaymentFeedRow): CobroRow {
   const isTopUp = p.walletId !== null;
   const method = paymentMethodOf(p);
-  const lines: ChargeLineView[] = lineViews(p.lines);
+  const lines = rowLines(p.lines);
   return {
     kind: 'PAYMENT',
     id: p.id,
@@ -141,6 +153,7 @@ export function paymentCobroRow(p: PaymentFeedRow): CobroRow {
     methodLabel: paymentMethodLabel(method, p),
     wallet: p.wallet ? { id: p.wallet.id, codeHint: walletHint(p.wallet.shortCode) } : null,
     service: p.serviceName,
+    invited: invitedOf(p.lines),
     lines,
     payment: {
       availableAmountCents: p.availableAmountCents,
@@ -183,7 +196,8 @@ export function saldoCobroRow(s: SaldoFeedRow): CobroRow {
     methodLabel: `${CHARGE_METHOD_LABELS.SALDO} ${hint}`,
     wallet: s.wallet ? { id: s.wallet.id, codeHint: hint } : null,
     service: s.serviceName,
-    lines: lineViews(s.lines),
+    invited: invitedOf(s.lines),
+    lines: rowLines(s.lines),
     payment: null,
   };
 }
