@@ -99,6 +99,28 @@ export interface TerminalActor {
 export type TerminalWalletRef = WalletRef | { walletToken: string };
 
 /**
+ * En el móvil del personal, además: el QR del pase de Google Wallet del
+ * cliente, pero solo el de cobrar (/c/<token>, pass-charge-token.ts). El
+ * enlace del saldo (/w/<token>) no se acepta aquí: da todos los poderes.
+ */
+export type StaffWalletRef = WalletRef | { walletToken: string };
+
+/**
+ * Lo que ve el móvil del personal del pase antes del PIN, como el datáfono:
+ * ni lo que tiene, ni su código entero, ni el enlace del saldo.
+ */
+export interface StaffPassCheck {
+  /** "K7Q-•••": que el cliente reconozca su saldo sin enseñarlo entero. */
+  codeHint: string;
+  hasPin: boolean;
+  pinLocked: boolean;
+  /** El PIN lo puso quien cobra o quien hizo el cobro: lo tiene que cobrar otra persona. */
+  ownPin: boolean;
+  /** Le llega para este cobro. */
+  enough: boolean;
+}
+
+/**
  * Lo que ve el datáfono del saldo antes del PIN: ni lo que tiene ni su
  * nombre, solo si le llega para este cobro.
  */
@@ -211,6 +233,19 @@ const REQUEST_ERROR_CODES: Record<keyof typeof REQUEST_ERRORS, string> = {
   insufficient: 'WALLET_INSUFFICIENT',
   blocked: 'WALLET_BLOCKED',
 };
+
+/**
+ * Un PIN que puso el personal sin el cliente: ni quien lo puso cobra con él
+ * ni se paga con él un cobro suyo (hacen falta dos personas, como sin Face ID).
+ * La misma regla que payQrChargeWithPin, para decirlo antes del PIN.
+ */
+function pinSetByStaffHere(
+  wallet: { pinSetById: string | null },
+  actor: { userId: string },
+  request: { requestedByUserId: string | null },
+): boolean {
+  return Boolean(wallet.pinSetById) && (wallet.pinSetById === actor.userId || wallet.pinSetById === request.requestedByUserId);
+}
 
 /** 409 del cobro con QR, con su `code` (la página del cliente lo traduce; las apps leen el texto). */
 function requestError(reason: keyof typeof REQUEST_ERRORS): ConflictException {
@@ -784,7 +819,7 @@ export class WalletChargesService {
    * El cliente no saca el móvil: la chica pone su código y él teclea su PIN
    * en el móvil de ella. Se paga el mismo cobro del QR (no queda otro colgado).
    */
-  async payQrChargeWithPin(actor: Actor, requestId: string, input: WalletRef & { pin: string }): Promise<ChargeRequestView> {
+  async payQrChargeWithPin(actor: Actor, requestId: string, input: StaffWalletRef & { pin: string }): Promise<ChargeRequestView> {
     const request = await this.prisma.asSystem((tx) =>
       tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId, payToken: { not: null } } }),
     );
@@ -799,7 +834,7 @@ export class WalletChargesService {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw requestError('not-pending');
     }
-    const wallet = await this.walletByRef(actor.tenantId, input);
+    const wallet = await this.walletByStaffRef(actor.tenantId, input);
     // Un PIN que puso el encargado sin el cliente: ni él cobra con ese PIN ni
     // aprueba un cobro suyo (hacen falta dos personas, como sin Face ID).
     if (wallet.pinSetById && (wallet.pinSetById === actor.userId || wallet.pinSetById === request.requestedByUserId)) {
@@ -808,8 +843,40 @@ export class WalletChargesService {
     await this.checkPin(wallet.id, input.pin, actor);
     await this.bindAndSettle(request, wallet.id);
     if ('card' in input) await this.touchCard(wallet.id, input);
-    this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${'card' in input ? 'ficha' : 'código'}, ${actor.userId})`);
+    const via = 'card' in input ? 'ficha' : 'walletToken' in input ? 'pase' : 'código';
+    this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${via}, ${actor.userId})`);
     return this.getRequest(actor, requestId);
+  }
+
+  /**
+   * La chica escaneó el pase de Google Wallet del cliente para este cobro
+   * (/c/<token>, comprobado con su firma como en el datáfono): de quién es y
+   * si le llega, sin enseñar lo que tiene ni su código. No gasta intentos de PIN.
+   */
+  async checkPassForCharge(actor: Actor, requestId: string, walletToken: string): Promise<StaffPassCheck> {
+    const request = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId, payToken: { not: null } } }),
+    );
+    if (!request) throw new NotFoundException('Cobro no encontrado');
+    if (request.requestedByUserId !== actor.userId && !isManager(actor)) {
+      throw new ForbiddenException('Este cobro lo ha hecho otra persona');
+    }
+    this.assertPayable(request);
+    const wallet = await this.walletByLinkToken(actor.tenantId, walletToken, { chargeOnly: true });
+    if (wallet.blockedAt) throw requestError('blocked');
+    return {
+      codeHint: codeHintOf(wallet.shortCode),
+      hasPin: wallet.pinHash !== null,
+      pinLocked: wallet.pinLockedAt !== null,
+      ownPin: pinSetByStaffHere(wallet, actor, request),
+      enough: wallet.balanceCents >= request.amountCents,
+    };
+  }
+
+  /** Código, ficha o (solo el de cobrar) el QR del pase. */
+  private async walletByStaffRef(venueId: string, ref: StaffWalletRef) {
+    if ('walletToken' in ref) return this.walletByLinkToken(venueId, ref.walletToken, { chargeOnly: true });
+    return this.walletByRef(venueId, ref);
   }
 
   /**
@@ -969,9 +1036,9 @@ export class WalletChargesService {
    * este local. Una recarga sumada a otro saldo lleva a ese otro (el pase
    * viejo sigue valiendo).
    */
-  private async walletByLinkToken(venueId: string, token: string) {
+  private async walletByLinkToken(venueId: string, token: string, opts: { chargeOnly?: boolean } = {}) {
     const [first, venue] = await Promise.all([
-      this.walletOfPassToken(token),
+      this.walletOfPassToken(token, opts.chargeOnly === true),
       this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } }),
     ]);
     let wallet = first;
@@ -989,10 +1056,16 @@ export class WalletChargesService {
     return wallet;
   }
 
-  /** El saldo del QR del pase: el token de cobro (comprobado con su enlace actual) o el enlace /w. */
-  private async walletOfPassToken(token: string) {
+  /**
+   * El saldo del QR del pase: el token de cobro (comprobado con su enlace
+   * actual) o, salvo `chargeOnly` (el móvil del personal), el enlace /w.
+   */
+  private async walletOfPassToken(token: string, chargeOnly = false) {
     const chargeWalletId = passChargeWalletId(token);
-    if (!chargeWalletId) return this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { qrToken: token } }));
+    if (!chargeWalletId) {
+      if (chargeOnly) return null;
+      return this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { qrToken: token } }));
+    }
     const wallet = await this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: chargeWalletId } }));
     // Firma mala o enlace cambiado (pase viejo apagado): no es de nadie.
     return wallet && passChargeTokenValid(passChargeSecret(), token, wallet) ? wallet : null;

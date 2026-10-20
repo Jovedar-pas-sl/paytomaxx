@@ -12,6 +12,7 @@ import { WalletTopUpService } from './wallet-topup.service';
 import { WalletsService } from './wallets.service';
 import { GoogleWalletController } from './google-wallet/google-wallet.controller';
 import { GoogleWalletService } from './google-wallet/google-wallet.service';
+import { PassChargeLinkController } from './google-wallet/pass-charge-link.controller';
 import { ReceptionController } from './reception.controller';
 import { CashTopUpService } from './wallet-cash-topup.service';
 import { WalletCardsController } from './wallet-cards.controller';
@@ -37,6 +38,8 @@ import { WalletCardsService } from './wallet-cards.service';
     PublicWalletController,
     PublicSaldoController,
     GoogleWalletController,
+    // El QR del pase leído con la cámara del móvil (/c/<token>) → la app del personal.
+    PassChargeLinkController,
     // Recepción (recarga en efectivo, «Preparar fichas») y Clientes → Fichas.
     ReceptionController,
     WalletCardsController,

@@ -10,6 +10,7 @@ export * from './services';
 export * from './money';
 export * from './wallet-pin';
 export * from './wallet-card';
+export * from './wallet-pass';
 export * from './superadmin';
 export * from './night-close';
 export * from './approvals';

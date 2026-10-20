@@ -7,8 +7,8 @@ export interface UnprefixedRoute {
 
 /**
  * Páginas y acciones del cliente FUERA del prefijo /v1 (main.ts): el QR y los
- * enlaces apuntan a https://api.dominio.com/pay/{token}, /w/{token} y
- * /s/{token}, limpios. Nest 11 compara cada ruta con estas de forma exacta
+ * enlaces apuntan a https://api.dominio.com/pay/{token}, /w/{token},
+ * /s/{token} y /c/{token}, limpios. Nest 11 compara cada ruta con estas de forma exacta
  * (`w/:token` no cubre `w/:token/topup`): una acción nueva que no esté aquí
  * queda en /v1/... y la página, que la llama sin /v1, recibe un 404.
  * unprefixed-routes.http.spec.ts arranca los controladores de pay, w y s y
@@ -50,4 +50,6 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // Google Wallet: guardar el saldo (Android) y el botón oficial.
   { path: 'w/:token/google-wallet', method: RequestMethod.POST },
   { path: 'w/assets/google-wallet/:lang', method: RequestMethod.GET },
+  // El QR del pase de Google Wallet (solo para cobrar): a la app del personal.
+  { path: 'c/:token', method: RequestMethod.GET },
 ]);

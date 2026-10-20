@@ -13,6 +13,7 @@ import {
   type ChargeRequestView,
   type PendingQrCharge,
   type QrChargeView,
+  type StaffPassCheck,
   type WalletLookup,
 } from './wallet-charges.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
@@ -44,15 +45,26 @@ const CardToken = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es n
  */
 const CardUid = z.string().trim().max(64).optional();
 
-/** Pagar con PIN: el saldo por su código o por su ficha NFC. */
+/**
+ * El QR del pase de Google Wallet que lee el móvil del personal: solo el de
+ * cobrar (/c/<token>, 43 caracteres). El enlace del saldo (/w/…) no vale aquí.
+ */
+const PassToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Este QR no es el de un pase de saldo');
+
+/** Pagar con PIN: el saldo por su código, por su ficha NFC o por el QR de su pase. Uno solo. */
 const PayPinSchema = z
   .object({
     code: z.string().trim().min(6).max(10).optional(),
     card: CardToken.optional(),
     uid: CardUid,
+    walletToken: PassToken.optional(),
     pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras'),
   })
-  .refine((b) => Boolean(b.code) !== Boolean(b.card), { message: 'Falta el código o la ficha del cliente' });
+  .refine((b) => [b.code, b.card, b.walletToken].filter(Boolean).length === 1, {
+    message: 'Falta el código, la ficha o el pase del cliente',
+  });
+
+const PassCheckSchema = z.object({ walletToken: PassToken });
 
 const CardLookupSchema = z.object({ card: CardToken, uid: CardUid });
 
@@ -83,6 +95,7 @@ export function payoutPermission(req: { body?: unknown }): 'cash' | 'refund' {
  *  - GET  /v1/wallet-charges/pending-qr         → (encargado) cobros con QR sin pagar.
  *  - POST /v1/wallet-charges/:id/approve        → (encargado) cobrarlo de un saldo sin Face ID.
  *  - POST /v1/wallet-charges/:id/pin            → el cliente lo paga con su PIN (sin sacar el móvil).
+ *  - POST /v1/wallet-charges/:id/pass           → el pase de Google Wallet escaneado: de quién es, antes del PIN.
  *  - POST /v1/wallet-charges/pin                → el cliente elige su PIN (tras recargar, o con el encargado).
  *  - POST /v1/wallet-charges/wallets/:id/pin/unlock|reset → (encargado) desbloquear o borrar el PIN.
  *  - POST /v1/wallet-charges/cards/lookup       → el saldo de la ficha NFC que acercan.
@@ -160,11 +173,32 @@ export class WalletChargesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(PayPinSchema)) body: z.infer<typeof PayPinSchema>,
   ): Promise<ChargeRequestView> {
-    const ref = body.card ? { card: body.card, uid: body.uid ?? null } : { code: body.code ?? '' };
+    const ref = body.card
+      ? { card: body.card, uid: body.uid ?? null }
+      : body.walletToken
+        ? { walletToken: body.walletToken }
+        : { code: body.code ?? '' };
     return this.charges.payQrChargeWithPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, {
       ...ref,
       pin: body.pin,
     });
+  }
+
+  /**
+   * La chica escanea el pase de Google Wallet del cliente (su QR es solo
+   * para cobrar): de quién es y si le llega, antes de que teclee el PIN. Sin
+   * el saldo, sin el código entero y nunca el enlace del saldo.
+   */
+  @Post(':id/pass')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  @HttpCode(200)
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-lookup' })
+  async checkPass(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(PassCheckSchema)) body: z.infer<typeof PassCheckSchema>,
+  ): Promise<StaffPassCheck> {
+    return this.charges.checkPassForCharge({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body.walletToken);
   }
 
   /** La chica acerca la ficha NFC del cliente: su saldo (y si tiene PIN). En el cuerpo, no en la URL (registros). */
