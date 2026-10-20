@@ -17,6 +17,7 @@ import {
 } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { resolveHoldDays } from '../operators/payout-math';
+import { newVenuePaymentMethods } from '../venues/venue-methods';
 import { venuePauseScope } from '../venues/venue-pause';
 import { changedFields } from './masking';
 import { SuperAdminStepUpService } from './step-up.service';
@@ -105,6 +106,8 @@ export class SuperAdminVenuesService {
           timezone: dto.timezone ?? 'Europe/Madrid',
           businessId: dto.businessId ?? null,
           walletGroup: dto.walletGroup ?? null,
+          // Local nuevo: datáfono apagado de fábrica (los de antes no cambian).
+          paymentMethods: { ...newVenuePaymentMethods() },
           ...(commission !== undefined ? { platformCommissionBps: commission } : {}),
         },
         include: venueInclude,
