@@ -59,7 +59,7 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
   // El mapa del dinero: «Otro importe» pide la sección (botones de su color),
   // con la del puesto de quien cobra ya marcada. Nunca «Otros».
   const mySections = useMySections();
-  const sectionChoices = offeredSections(mySections.sections);
+  const sectionChoices = offeredSections(mySections.sections, mySections.allowed);
   const [pickedSection, setPickedSection] = useState<SectionCode | null>(null);
   const revCategory = pickedSection ?? initialSection(sectionChoices, mySections.defaultCategory);
   // Fase 1A — carta del local. La chica toca un servicio en vez de teclear

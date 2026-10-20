@@ -106,7 +106,7 @@ function PickStep({
   const [error, setError] = useState<string | null>(null);
   // «Otro importe»: la sección, con la del puesto ya marcada (nunca «Otros»).
   const mySections = useMySections();
-  const sectionChoices = offeredSections(mySections.sections);
+  const sectionChoices = offeredSections(mySections.sections, mySections.allowed);
   const [pickedSection, setPickedSection] = useState<SectionCode | null>(null);
   const category = pickedSection ?? initialSection(sectionChoices, mySections.defaultCategory);
 

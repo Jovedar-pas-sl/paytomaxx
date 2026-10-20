@@ -5,7 +5,9 @@ import type {
   ChargeMethod,
   CobrosPage,
   PostCode,
+  PostRules,
   PuestoPerson,
+  UpdatePostRulesDto,
   UpdateSectionsDto,
   VenueSection,
   WalletFicha,
@@ -69,6 +71,18 @@ export async function updatePuesto(userId: string, post: PostCode | null): Promi
     method: 'PATCH',
     body: JSON.stringify({ post }),
   });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+export async function fetchPostRules(): Promise<PostRules> {
+  const res = await authedFetch('/v1/admin/venue/post-rules');
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+export async function updatePostRules(patch: UpdatePostRulesDto): Promise<PostRules> {
+  const res = await authedFetch('/v1/admin/venue/post-rules', { method: 'PATCH', body: JSON.stringify(patch) });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }

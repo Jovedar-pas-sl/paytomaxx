@@ -511,13 +511,23 @@ export async function cancelPayment(id: string): Promise<{ status: string }> {
 export interface MySections {
   sections: VenueSection[];
   defaultCategory: SectionCode | null;
+  /** Lo que su puesto puede cobrar (null: el API anterior, que no lo dice). */
+  allowed: SectionCode[] | null;
 }
 
 export async function fetchMySections(): Promise<MySections> {
   const res = await authedFetch('/v1/venues/me');
   if (!res.ok) throw loadError(res, 'Error cargando el local');
-  const body = (await res.json()) as { sections?: VenueSection[]; myDefaultCategory?: SectionCode };
-  return { sections: body.sections ?? [], defaultCategory: body.myDefaultCategory ?? null };
+  const body = (await res.json()) as {
+    sections?: VenueSection[];
+    myDefaultCategory?: SectionCode;
+    myRights?: { sections?: SectionCode[] };
+  };
+  return {
+    sections: body.sections ?? [],
+    defaultCategory: body.myDefaultCategory ?? null,
+    allowed: body.myRights?.sections ?? null,
+  };
 }
 
 /** Formas de cobro del local (Ajustes del dueño): las apps esconden lo apagado. */

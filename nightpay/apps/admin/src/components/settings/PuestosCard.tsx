@@ -48,7 +48,7 @@ export function PuestosCard() {
   return (
     <SettingsCard
       title="Puestos"
-      hint="La sección que marca la app de cada persona al teclear un importe. Sin puesto, el de su rol: la chica, Sala; el resto, Barra."
+      hint="El puesto decide lo que cobra cada persona (Ajustes → Secciones) y la sección que su app marca de entrada. Sin puesto, Barra. Las chicas son siempre Sala."
     >
       {data.length === 0 ? (
         <p className="np-set-loading">Aún no hay personal en el local.</p>

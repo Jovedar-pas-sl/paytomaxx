@@ -8,6 +8,15 @@ describe('secciones en «Otro importe»', () => {
     expect(offeredSections(FALLBACK_SECTIONS.map((s) => ({ ...s, enabled: false })))).toEqual(FALLBACK_SECTIONS);
   });
 
+  it('solo las que su puesto puede cobrar (la chica, Servicios)', () => {
+    expect(offeredSections(FALLBACK_SECTIONS, ['CHICA_SERVICE']).map((s) => s.code)).toEqual(['CHICA_SERVICE']);
+    expect(offeredSections(FALLBACK_SECTIONS, ['VENUE_BAR', 'VENUE_FOOD', 'VENUE_ENTRY']).map((s) => s.code)).toEqual([
+      'VENUE_BAR',
+      'VENUE_FOOD',
+      'VENUE_ENTRY',
+    ]);
+  });
+
   it('marcada de entrada: la del puesto si se ofrece; si no, la primera', () => {
     expect(initialSection(FALLBACK_SECTIONS, 'VENUE_ENTRY')).toBe('VENUE_ENTRY');
     expect(initialSection(FALLBACK_SECTIONS.filter((s) => s.code !== 'VENUE_ENTRY'), 'VENUE_ENTRY')).toBe('CHICA_SERVICE');

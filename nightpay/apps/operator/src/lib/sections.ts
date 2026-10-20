@@ -11,10 +11,13 @@ import { fetchMySections, getUser, type MySections } from './api';
 
 export const FALLBACK_SECTIONS: VenueSection[] = SECTION_CODES.map((code) => ({ code, ...DEFAULT_SECTIONS[code] }));
 
-/** Las que se ofrecen: encendidas (y nunca ninguna: entonces, las de fábrica). */
-export function offeredSections(all: readonly VenueSection[]): VenueSection[] {
-  const on = all.filter((s) => s.enabled);
-  return on.length > 0 ? on : FALLBACK_SECTIONS;
+/**
+ * Las que se ofrecen: encendidas y que su puesto puede cobrar (el servidor
+ * rechaza el resto). Sin ninguna (datos raros), las de fábrica: el servidor decide.
+ */
+export function offeredSections(all: readonly VenueSection[], allowed: readonly SectionCode[] | null = null): VenueSection[] {
+  const on = all.filter((s) => s.enabled && (!allowed || allowed.includes(s.code)));
+  return on.length > 0 ? on : FALLBACK_SECTIONS.filter((s) => !allowed || allowed.includes(s.code));
 }
 
 /** La sección marcada al empezar: la del puesto si se ofrece; si no, la primera. */
@@ -51,15 +54,18 @@ function load(): Promise<MySections> {
 export interface MySectionsState {
   sections: VenueSection[];
   defaultCategory: SectionCode | null;
+  allowed: SectionCode[] | null;
 }
 
 export function useMySections(): MySectionsState {
-  const [state, setState] = useState<MySectionsState>({ sections: FALLBACK_SECTIONS, defaultCategory: null });
+  const [state, setState] = useState<MySectionsState>({ sections: FALLBACK_SECTIONS, defaultCategory: null, allowed: null });
   useEffect(() => {
     let cancelled = false;
     load()
       .then((s) => {
-        if (!cancelled) setState({ sections: s.sections.length > 0 ? s.sections : FALLBACK_SECTIONS, defaultCategory: s.defaultCategory });
+        if (!cancelled) {
+          setState({ sections: s.sections.length > 0 ? s.sections : FALLBACK_SECTIONS, defaultCategory: s.defaultCategory, allowed: s.allowed });
+        }
       })
       .catch(() => {
         // Sin respuesta: las de fábrica; el servidor pone la del puesto si hace falta.

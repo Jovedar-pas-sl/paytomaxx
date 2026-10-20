@@ -6,6 +6,7 @@ import { LEGACY_SECTION_META, TIPS_SECTION_META, type SectionCode, type VenueSec
 import { fetchSections, updateSections } from '@/lib/api';
 import { useSections } from '@/lib/use-sections';
 import { SectionChip } from '../fichas/SectionChip';
+import { PostRulesCard } from './PostRulesCard';
 import { LoadState, SaveRow, SettingsCard, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 /**
@@ -83,6 +84,7 @@ export function SectionsPanel() {
         </ul>
         <SaveRow onSave={() => void save()} busy={busy} saved={saved} error={error} disabled={!dirty} />
       </SettingsCard>
+      <PostRulesCard />
       <SettingsCard title="Además" hint="No se eligen al cobrar: salen solas en los informes.">
         <p style={{ margin: 0, display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <SectionChip view={{ label: TIPS_SECTION_META.label, color: TIPS_SECTION_META.color, title: 'Las propinas de los clientes' }} />
