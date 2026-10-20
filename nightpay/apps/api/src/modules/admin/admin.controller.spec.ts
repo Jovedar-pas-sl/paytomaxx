@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { ForbiddenException, HttpException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException } from '@nestjs/common';
 import type { JwtPayload } from '@nightpay/contracts';
 import { AdminController, quarterRange } from './admin.controller';
 import { payoutRequestHash } from '../operators/payout-idempotency';
@@ -265,6 +265,30 @@ describe('PATCH /admin/operators/:id — cambiar la cuenta de cobro pide 2FA', (
     const { update, operators } = controller(null);
     await update({ payoutMethod: 'CASH' });
     expect(operators.updateOperator).toHaveBeenCalledOnce();
+  });
+});
+
+describe('GET /admin/operators — las chicas, o los camareros con ?role=WAITER', () => {
+  function controller() {
+    const operators = { listVenueOperators: vi.fn().mockResolvedValue([]) };
+    const none = {} as never;
+    return { ctrl: new AdminController(none, none, none, operators as never, none, none, none, none), operators };
+  }
+
+  it('sin rol, las chicas; con ?role=WAITER, los camareros (su parte de las invitaciones se les paga igual)', async () => {
+    const { ctrl, operators } = controller();
+    await ctrl.listOperators('t-1');
+    await ctrl.listOperators('t-1', 'WAITER');
+    expect(operators.listVenueOperators.mock.calls).toEqual([
+      ['t-1', 'OPERATOR'],
+      ['t-1', 'WAITER'],
+    ]);
+  });
+
+  it('otro rol (el dueño, el encargado…): 400', async () => {
+    const { ctrl, operators } = controller();
+    await expect(ctrl.listOperators('t-1', 'OWNER')).rejects.toBeInstanceOf(BadRequestException);
+    expect(operators.listVenueOperators).not.toHaveBeenCalled();
   });
 });
 

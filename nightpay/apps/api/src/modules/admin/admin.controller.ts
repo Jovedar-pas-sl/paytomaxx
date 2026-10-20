@@ -32,6 +32,7 @@ import { RefreshTokenService } from '../auth/refresh-token.service';
 import { TotpService } from '../auth/totp.service';
 import { AuditService } from '../audit/audit.service';
 import { OperatorsService } from '../operators/operators.service';
+import { isPayeeRole } from '../operators/payee-roles';
 import { payoutRequestHash } from '../operators/payout-idempotency';
 import { touchesPayoutAccount } from '../operators/payout-routing';
 import { PaymentsService } from '../payments/payments.service';
@@ -693,10 +694,12 @@ export class AdminController {
 
   // ─── Operadoras (chicas) ──────────────────────────────────────────
 
+  /** Las chicas con su saldo; `?role=WAITER`, los camareros (su parte de las invitaciones, que también se les paga). */
   @Get('operators')
   @Roles('OWNER', 'MANAGER')
-  async listOperators(@Tenant() tenantId: string) {
-    return this.operators.listVenueOperators(tenantId);
+  async listOperators(@Tenant() tenantId: string, @Query('role') role?: string) {
+    if (role !== undefined && !isPayeeRole(role)) throw new BadRequestException('role: OPERATOR o WAITER');
+    return this.operators.listVenueOperators(tenantId, role ?? 'OPERATOR');
   }
 
   @Post('operators')

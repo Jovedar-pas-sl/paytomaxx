@@ -256,7 +256,7 @@ describe('Panel del local — comisiones y pagos de una chica (anti-IDOR)', () =
     await expect(svc.listOperatorPayouts(TENANT, OPERATOR)).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
-      where: { id: OPERATOR, tenantId: TENANT, role: 'OPERATOR' },
+      where: { id: OPERATOR, tenantId: TENANT, role: { in: ['OPERATOR', 'WAITER'] } },
       select: { id: true },
     });
   });
@@ -314,6 +314,29 @@ describe('OperatorsService.listVenueOperators — chicas activas con su saldo', 
   });
 });
 
+describe('los camareros: su parte de las invitaciones se ve y se paga como la de las chicas', () => {
+  it('?role=WAITER: los camareros activos del local con su saldo', async () => {
+    const { svc, prisma } = makeService({ balances: { [OPERATOR]: { ...EMPTY_BALANCE, pendingCents: 500n, count: 2n } } });
+    prisma.user.findMany.mockResolvedValue([
+      { id: OPERATOR, email: 'pepe@salabambu.es', displayName: 'Pepe', commissionBps: null, deletedAt: null, invitedAt: null, createdAt: new Date('2026-09-01T20:00:00+02:00') },
+    ]);
+    const list = await svc.listVenueOperators(TENANT, 'WAITER');
+    expect(prisma.user.findMany).toHaveBeenCalledWith({
+      where: { tenantId: TENANT, role: 'WAITER', deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(list.map((o) => [o.displayName, o.balance.pendingCents, o.balance.count])).toEqual([['Pepe', 500, 2]]);
+  });
+
+  it('sus comisiones y sus pagos se leen igual (el anti-IDOR admite chica o camarero del local)', async () => {
+    const { svc, queries } = makeService();
+    await svc.listOperatorEarnings(TENANT, OPERATOR);
+    await svc.listOperatorPayouts(TENANT, OPERATOR);
+    expectScoped(queries[0]!, 'e."tenantId"');
+    expectScoped(queries[1]!, 'po."tenantId"');
+  });
+});
+
 describe('OperatorsService.ensureBelongsToVenue', () => {
   it('chica de otro local → 403', async () => {
     const { svc } = makeService({ operatorInVenue: false });
@@ -324,7 +347,7 @@ describe('OperatorsService.ensureBelongsToVenue', () => {
     const { svc, prisma } = makeService();
     await expect(svc.ensureBelongsToVenue(OPERATOR, TENANT)).resolves.toBeUndefined();
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
-      where: { id: OPERATOR, tenantId: TENANT, role: 'OPERATOR' },
+      where: { id: OPERATOR, tenantId: TENANT, role: { in: ['OPERATOR', 'WAITER'] } },
       select: { id: true },
     });
   });

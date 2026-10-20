@@ -305,7 +305,8 @@ export class CloseCheckService {
            GROUP BY oe."operatorId"
         ) d ON d."operatorId" = u.id
        WHERE u."tenantId" = ${tenantId}::uuid
-         AND u.role = 'OPERATOR'
+         -- Las chicas y los camareros con parte de las invitaciones (se les paga igual).
+         AND u.role IN ('OPERATOR', 'WAITER')
          AND u."deletedAt" IS NULL
          AND (COALESCE(e.unpaid, 0) <> 0 OR COALESCE(e.tonight, 0) <> 0 OR p.n > 0 OR COALESCE(d.debt, 0) > 0)
        ORDER BY name ASC
