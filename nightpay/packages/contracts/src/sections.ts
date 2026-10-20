@@ -35,19 +35,19 @@ export const SECTION_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const MAX_LABEL = 24;
 
 export const DEFAULT_SECTIONS: Readonly<Record<SectionCode, Readonly<Omit<VenueSection, 'code'>>>> = {
-  CHICA_SERVICE: { enabled: true, label: 'Servicios', color: '#ff6fae' },
-  VENUE_BAR: { enabled: true, label: 'Copas', color: '#ffd23f' },
-  VENUE_ROOM: { enabled: true, label: 'Habitaciones', color: '#b98cff' },
-  VENUE_FOOD: { enabled: true, label: 'Comida', color: '#ff9147' },
-  VENUE_ENTRY: { enabled: true, label: 'Entradas', color: '#4fc3f7' },
+  CHICA_SERVICE: { enabled: true, label: 'Servicios', color: '#d24fd8' },
+  VENUE_BAR: { enabled: true, label: 'Copas', color: '#3fe0c0' },
+  VENUE_ROOM: { enabled: true, label: 'Habitaciones', color: '#c4b0f5' },
+  VENUE_FOOD: { enabled: true, label: 'Comida', color: '#f2b49b' },
+  VENUE_ENTRY: { enabled: true, label: 'Entradas', color: '#8fc3f2' },
 };
 
 /** «Otros»: solo para enseñar los cobros antiguos. */
-export const LEGACY_SECTION_META = { label: 'Otros', color: '#a3a39b' } as const;
+export const LEGACY_SECTION_META = { label: 'Otros', color: '#7c8893' } as const;
 /** Propinas: no son una línea; en los informes y el panel salen como su propia sección. */
-export const TIPS_SECTION_META = { label: 'Propinas', color: '#5be38f' } as const;
+export const TIPS_SECTION_META = { label: 'Propinas', color: '#3fa9f5' } as const;
 /** Recarga de saldo: no es venta (va al saldo vivo); se enseña así en la lista de cobros. */
-export const TOP_UP_SECTION_META = { label: 'Recarga de saldo', color: '#8a8f98' } as const;
+export const TOP_UP_SECTION_META = { label: 'Recarga de saldo', color: '#9aa4ad' } as const;
 
 /** Lo guardado (JSON o null) con lo que falte a lo de fábrica, en orden. Un valor raro no rompe nada. */
 export function sectionsOf(raw: unknown): VenueSection[] {

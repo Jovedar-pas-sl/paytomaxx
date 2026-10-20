@@ -34,7 +34,7 @@ describe('sección de un cobro en la lista', () => {
   it('una sección: su nombre y su color; varias: «Varias» con el reparto', () => {
     expect(sectionChip(row({ sections: [{ category: 'VENUE_BAR', amountCents: 2000 }] }), FALLBACK_SECTIONS, eur)).toEqual({
       label: 'Copas',
-      color: '#ffd23f',
+      color: '#3fe0c0',
       title: 'Copas 20 €',
     });
     const pack = sectionChip(

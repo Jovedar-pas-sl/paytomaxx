@@ -31,7 +31,7 @@ describe('secciones en «Otro importe»', () => {
   });
 
   it('cada servicio de la carta con el color de su sección (los antiguos, el de «Otros»)', () => {
-    expect(sectionColor(FALLBACK_SECTIONS, 'VENUE_ROOM')).toBe('#b98cff');
-    expect(sectionColor(FALLBACK_SECTIONS, 'EXTRA')).toBe('#a3a39b');
+    expect(sectionColor(FALLBACK_SECTIONS, 'VENUE_ROOM')).toBe('#c4b0f5');
+    expect(sectionColor(FALLBACK_SECTIONS, 'EXTRA')).toBe('#7c8893');
   });
 });
