@@ -1099,6 +1099,9 @@ model WalletCard {
   token      String    @unique
   /// Número de serie (si se leyó con un Android): una copia no vale.
   uid        String?
+  /// «Ficha nº 0522»: el número de la ficha para siempre, uno para todos los
+  /// locales (secuencia; las antiguas, por orden de alta). 20261024200000.
+  number     Int       @unique @default(autoincrement())
   walletId   String?   @db.Uuid
   /// STOCK (grabada, sin dar) → ISSUED (dada a un saldo) → RETURNED (devuelta,
   /// otra vez en el stock) | LOST (perdida o sustituida) | BLOCKED (bloqueada).

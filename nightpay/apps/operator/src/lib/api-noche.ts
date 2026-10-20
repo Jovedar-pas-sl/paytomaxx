@@ -1,7 +1,6 @@
-// «Noche fácil» en la app del personal: pagar con el NFC sin PIN, buscar el
-// saldo por su código para recargarlo y las recargas pendientes de asignar
-// (cobradas sin el NFC del cliente). La lógica de las respuestas es pura y se
-// prueba sola (api-noche.test.ts).
+// «Noche fácil» en la app del personal: pagar con el NFC sin PIN y las
+// recargas pendientes de asignar (cobradas sin el NFC del cliente). La lógica
+// de las respuestas es pura y se prueba sola (api-noche.test.ts).
 
 import { PIN_REQUIRED_CODE, type AssignedTopUp, type PendingTopUpView, type SaldoRefDto } from '@nightpay/contracts';
 import { parseProblemDetails } from '@nightpay/api-client';
@@ -12,7 +11,6 @@ import {
   type CreatedPayment,
   type WalletChargeRequest,
 } from './api';
-import type { ReceptionCard } from './reception';
 
 /** Pagar con el NFC solo: pagado, o hace falta su PIN (el mismo cobro sigue libre para pagarlo con él). */
 export type NfcPayResult = { kind: 'paid'; charge: WalletChargeRequest } | { kind: 'pin'; message: string };
@@ -32,13 +30,6 @@ export async function payWalletChargeWithCard(id: string, card: string, uid: str
     body: JSON.stringify({ card, ...(uid ? { uid } : {}) }),
   });
   return nfcPayResultOf(res.status, await res.text().catch(() => ''));
-}
-
-/** «Recargar saldo»: el saldo por su código (K7Q-4M2), sin enseñar lo que tiene. */
-export async function receptionLookupCode(code: string): Promise<ReceptionCard> {
-  const res = await authedFetch('/v1/reception/lookup', { method: 'POST', body: JSON.stringify({ code: code.trim() }) });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Saldo'));
-  return res.json();
 }
 
 /** Cobrar primero, sin su NFC: recarga con tarjeta (el QR en su móvil) que queda pendiente de asignar. */

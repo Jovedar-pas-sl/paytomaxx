@@ -1,0 +1,764 @@
+/* Recepción exprés (maquetas 4.1–4.7, 2026-10-20): Entrada / Salida con un
+   interruptor grande, el NFC plata con su halo lima, importes enormes y los
+   botones XL. Con las fichas de @nightpay/ui (--np-*): los dos temas. Medidas
+   de las maquetas (marco de 360×740): 1rem = 16 px en el móvil. Movimiento
+   solo con transform/opacity/box-shadow; con «reducir movimiento», quieto. */
+
+.screen {
+  /* Plata de la tarjeta NFC (OxioCard): igual en los dos temas. */
+  --desk-silver-1: #ecebe7;
+  --desk-silver-2: #cfcdc9;
+  --desk-silver-3: #b4b2ae;
+  --desk-gloss: rgb(255 255 255 / 0.55);
+  --desk-veil: rgb(0 0 0 / 0.24);
+
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+/* ─── Cabecera de la pantalla (4.x .ah) y su franja de color ─── */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 3.5rem;
+}
+
+.headText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.headText b {
+  font: 800 1.1875rem/1.1 var(--np-font-display);
+  letter-spacing: -0.01em;
+}
+
+.headText span {
+  font-size: 0.875rem;
+  color: var(--np-text-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.back {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--np-border);
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  touch-action: manipulation;
+}
+
+.back svg {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.stripe {
+  flex: none;
+  height: 6px;
+  /* De lado a lado, como en las maquetas (la pantalla tiene 1rem a cada lado). */
+  margin: -0.375rem -1rem 0;
+  background: var(--desk-c, var(--np-sec-entradas));
+}
+
+/* Recarga / saldo: gris y a trazos. */
+.stripeHold {
+  background: repeating-linear-gradient(90deg, var(--np-sec-saldo) 0 12px, transparent 12px 18px);
+}
+
+/* ─── Entrada / Salida ─── */
+
+.seg {
+  flex: none;
+  display: flex;
+  padding: 4px;
+  border-radius: var(--np-r-pill);
+  background: var(--np-surface-2);
+  border: 1px solid var(--np-border);
+}
+
+.segBtn {
+  flex: 1;
+  height: 3.125rem;
+  border: none;
+  border-radius: var(--np-r-pill);
+  background: transparent;
+  color: var(--np-text-label);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  touch-action: manipulation;
+  transition: background var(--np-d-fast), color var(--np-d-fast);
+}
+
+.segBtn[aria-pressed='true'] {
+  background: var(--np-text);
+  color: var(--np-bg);
+}
+
+/* ─── 4.1: el escenario con el NFC ─── */
+
+.stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.875rem;
+  text-align: center;
+  border-radius: var(--np-r-card);
+  border: 1px solid var(--np-border);
+  background: var(--np-bits), var(--np-surface);
+  color: var(--np-text);
+}
+
+button.stage {
+  width: 100%;
+  font: inherit;
+}
+
+.stageTitle {
+  margin: 0;
+  font: 800 1.875rem/1.1 var(--np-font-display);
+  letter-spacing: -0.02em;
+}
+
+.stageText {
+  margin: 0;
+  max-width: 27ch;
+  font-size: 1.03rem;
+  line-height: 1.3;
+  color: var(--np-text-label);
+}
+
+.stageError {
+  margin: 0;
+  max-width: 30ch;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--np-r-md);
+  background: var(--np-pill-danger-bg);
+  color: var(--np-danger);
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.stageNotice {
+  margin: 0;
+  max-width: 30ch;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--np-r-md);
+  border: 1px solid var(--np-lime-edge);
+  background: var(--np-lime-soft);
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.rings {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: clamp(9rem, 25svh, 14.75rem);
+  aspect-ratio: 1;
+}
+
+.rings::before,
+.rings::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid var(--np-border-hi);
+}
+
+.rings::before {
+  inset: 0;
+}
+
+.rings::after {
+  inset: 13%;
+  border-color: var(--np-lime-ring);
+  animation: desk-ping 2.4s ease-out infinite;
+}
+
+/* La tarjeta NFC: plata con el halo lima, como la OxioCard. */
+.ncard {
+  position: relative;
+  flex: none;
+  width: 5.5rem;
+  aspect-ratio: 88 / 138;
+  border-radius: 14px;
+  color: var(--np-ink);
+  background: linear-gradient(150deg, var(--desk-silver-1) 0%, var(--desk-silver-2) 46%, var(--desk-silver-1) 60%, var(--desk-silver-3) 100%);
+  box-shadow:
+    0 0 0 1.5px var(--np-lime),
+    0 0 22px 4px var(--np-lime-glow);
+  animation: desk-halo 2.4s ease-in-out infinite;
+}
+
+.ncard::before {
+  content: '';
+  position: absolute;
+  left: 11%;
+  top: 9%;
+  width: 26%;
+  aspect-ratio: 1;
+  background: url('/brand/oxiocard-simbolo.png') center / contain no-repeat;
+}
+
+.ncard::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(118deg, transparent 34%, var(--desk-gloss) 50%, transparent 66%);
+}
+
+.tri {
+  position: absolute;
+  right: 12%;
+  top: 11%;
+  width: 10%;
+  aspect-ratio: 5 / 4;
+  background: var(--np-lime-deep);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.ncard svg {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  width: 34%;
+  height: auto;
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+}
+
+.ncardL {
+  width: 50%;
+  border-radius: 18px;
+}
+
+.ncardS {
+  width: 2.5rem;
+  border-radius: 8px;
+  animation: none;
+  box-shadow:
+    0 0 0 1.5px var(--np-lime),
+    0 0 12px 2px var(--np-lime-glow);
+}
+
+/* ─── La fila del NFC leído (4.2, 4.5, 4.6) ─── */
+
+.det {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border-radius: var(--np-r-card);
+  border: 1px solid var(--np-border);
+  background: var(--np-surface);
+  color: var(--np-text);
+  text-align: left;
+}
+
+button.det {
+  width: 100%;
+  font: inherit;
+  touch-action: manipulation;
+}
+
+.detLime {
+  border-color: var(--np-lime-edge);
+}
+
+.det b,
+.found b {
+  display: block;
+  font-size: 1.0625rem;
+}
+
+.det span,
+.found span {
+  font-size: 0.9375rem;
+  color: var(--np-text-label);
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.okc {
+  flex: none;
+  margin-left: auto;
+  width: 2.375rem;
+  height: 2.375rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--np-surface-3);
+}
+
+.okc svg {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+/* ─── 4.2: importe rápido ─── */
+
+.q {
+  margin: 0;
+  font: 800 1.5rem/1.15 var(--np-font-display);
+  letter-spacing: -0.01em;
+}
+
+.quick {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.qb {
+  height: 5.5rem;
+  border-radius: 28px;
+  border: 1px solid var(--np-border-hi);
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  font: 800 2.625rem var(--np-font-num);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  touch-action: manipulation;
+  transition: transform var(--np-d-fast) var(--np-ease), background var(--np-d-fast);
+}
+
+.qb:active:not(:disabled) {
+  transform: scale(0.97);
+  background: var(--np-surface-3);
+}
+
+/* Cuatro importes: más bajos para que quepan. */
+.quickFour .qb {
+  height: 4.5rem;
+  font-size: 2.25rem;
+}
+
+/* ─── Botones (pill lima / con borde), XL y L ─── */
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  min-height: 3.875rem;
+  padding: 0 1.5rem;
+  border: none;
+  border-radius: var(--np-r-pill);
+  font: 700 1.1875rem/1.15 var(--np-font-sans);
+  text-align: center;
+  touch-action: manipulation;
+  transition: transform var(--np-d-fast) var(--np-ease), background var(--np-d-fast), opacity var(--np-d-fast);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn small {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.btn svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+}
+
+.pri {
+  background: var(--np-primary-bg);
+  color: var(--np-primary-ink);
+  box-shadow: var(--np-primary-shadow);
+}
+
+.gho {
+  background: transparent;
+  color: var(--np-text);
+  box-shadow: inset 0 0 0 2px var(--np-border-hi);
+}
+
+.xl {
+  min-height: 7rem;
+  border-radius: 32px;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 1.375rem;
+}
+
+.l {
+  min-height: 5rem;
+  border-radius: 28px;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+/* ─── 4.3: el importe grande y la nota del PIN ─── */
+
+.bigamt {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-block: 0.375rem;
+}
+
+.bignum {
+  margin: 0;
+  font: 800 4.25rem/1 var(--np-font-num);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.kick {
+  margin: 0;
+  font: 700 0.84rem/1.2 var(--np-font-sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--np-text-label);
+}
+
+.note {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0.625rem 0.875rem;
+  border-radius: 18px;
+  border: 1px solid var(--np-border);
+  background: var(--np-surface);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.note svg {
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  color: var(--np-warning);
+}
+
+.error {
+  margin: 0;
+  color: var(--np-danger);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ─── Pie (4.x .pf): plano o sobre su tarjeta ─── */
+
+.foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
+.footSolid {
+  margin-inline: -1rem;
+  padding: 0.875rem 1rem 0.5rem;
+  background: var(--np-surface);
+  border-top: 1px solid var(--np-border);
+  border-radius: 28px 28px 0 0;
+}
+
+/* Lo de siempre, en pequeño debajo: «Preparar fichas», «Pendientes de asignar (2)». */
+.links {
+  display: flex;
+  justify-content: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.txtlink {
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--np-text-label);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  touch-action: manipulation;
+}
+
+.txtlinkOn {
+  color: var(--np-text);
+}
+
+/* ─── 4.6: el código y el saldo encontrado ─── */
+
+.orline {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--np-text-label);
+}
+
+.orline::before,
+.orline::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--np-border-hi);
+}
+
+.code {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.code i {
+  width: 2.5rem;
+  height: 3.375rem;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  border: 1px solid var(--np-border-hi);
+  background: var(--np-surface-2);
+  font: 800 1.5rem var(--np-font-num);
+  font-style: normal;
+}
+
+.code em {
+  font: 800 1.375rem var(--np-font-num);
+  font-style: normal;
+  color: var(--np-text-label);
+}
+
+/* La casilla que se escribe ahora. */
+.code i[data-next='true'] {
+  border-color: var(--np-lime-edge);
+  box-shadow: 0 0 0 2px var(--np-lime-ring);
+}
+
+/* El campo de verdad, encima de las casillas y transparente (16 px: el iPhone no amplía). */
+.codeInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  font-size: 1rem;
+  border: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+}
+
+.code:focus-within i[data-next='true'] {
+  border-color: var(--np-lime);
+}
+
+.found {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border-radius: var(--np-r-card);
+  border: 1.5px solid var(--np-lime-edge);
+  background: var(--np-surface);
+}
+
+/* ─── 4.7: importes encima del QR ─── */
+
+.amts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.amt {
+  height: 3.25rem;
+  border-radius: var(--np-r-pill);
+  border: 1px solid var(--np-border-hi);
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  font: 800 1.125rem var(--np-font-num);
+  touch-action: manipulation;
+}
+
+.amt[aria-pressed='true'] {
+  background: var(--np-text);
+  color: var(--np-bg);
+  border-color: transparent;
+}
+
+.amtTxt {
+  font: 700 0.9375rem var(--np-font-sans);
+}
+
+.qr {
+  align-self: center;
+  width: min(13.375rem, 29svh);
+  aspect-ratio: 1;
+  padding: 0.625rem;
+  border-radius: var(--np-r-tile);
+  background: #fff;
+}
+
+.qr img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.qrWait {
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 2px dashed var(--np-border-hi);
+}
+
+.qrEmpty {
+  margin: 0;
+  padding: 1rem;
+  text-align: center;
+  color: var(--np-text-label);
+  font-weight: 700;
+}
+
+.waitT {
+  margin: 0;
+  text-align: center;
+  font: 800 1.5625rem/1.15 var(--np-font-display);
+  letter-spacing: -0.01em;
+}
+
+.lbl {
+  margin: 0;
+  text-align: center;
+  color: var(--np-text-label);
+  font-size: 1rem;
+}
+
+/* ─── 4.4: CARGADO (el verde de PAGADO, de .np-outcome) ─── */
+
+.holdBand {
+  flex: none;
+  height: 10px;
+  background: repeating-linear-gradient(90deg, var(--np-sec-saldo) 0 12px, transparent 12px 18px);
+}
+
+.resLeft {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  padding: 0.25rem 1.375rem;
+  border-radius: var(--np-r-pill);
+  background: var(--desk-veil, rgb(0 0 0 / 0.24));
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.resLeft b {
+  font: 800 1.375rem var(--np-font-num);
+  color: var(--np-lime);
+}
+
+.resLeft svg {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.resMeta {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.resFoot {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 0 1.25rem max(1.375rem, env(safe-area-inset-bottom, 0px));
+}
+
+.resWarn {
+  margin: 0;
+  max-width: 26rem;
+  padding: 0.625rem 1rem;
+  border-radius: var(--np-r-md);
+  background: var(--np-ink-0);
+  color: var(--np-cream);
+  font-weight: 600;
+}
+
+@keyframes desk-halo {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1.5px var(--np-lime),
+      0 0 14px 2px var(--np-lime-glow);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1.5px var(--np-lime),
+      0 0 32px 9px var(--np-lime-glow);
+  }
+}
+
+@keyframes desk-ping {
+  0% {
+    transform: scale(0.82);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.12);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ncard,
+  .rings::after {
+    animation: none;
+  }
+}

@@ -8,7 +8,14 @@ import { clearFichaContext } from '@/lib/ficha-context';
 import { tabForOpenCharge, useOpenCharges } from '@/lib/open-charges';
 import { roleAccess, type TabKey } from '@/lib/roles';
 import { useUrlTab } from '@/lib/use-url-tab';
-import { VenueMethodsContext, VenueNightContext, useVenueMethodsFeed, visibleTabsFor } from '@/lib/venue-methods';
+import {
+  MyRightsContext,
+  VenueMethodsContext,
+  VenueNightContext,
+  canTopUp,
+  useVenueMethodsFeed,
+  visibleTabsFor,
+} from '@/lib/venue-methods';
 import { ChargeFromBalance } from './ChargeFromBalance';
 import { ConnectionStatus } from './ConnectionStatus';
 import { useDeepLinks, useMyNight, useOwnBalance, type PollError } from './dashboard-hooks';
@@ -33,8 +40,9 @@ export function Dashboard({ user, onLogout }: Props) {
   // Cada rol ve sus pestañas y pide solo lo suyo (sin 403 de fondo).
   const access = roleAccess(user.role);
   // Formas de cobro apagadas por el dueño: sus pestañas no salen.
-  const { methods, night: nightSettings } = useVenueMethodsFeed(user.id);
-  const tabs = visibleTabsFor(access.tabs, methods);
+  const { methods, night: nightSettings, rights } = useVenueMethodsFeed(user.id);
+  // Recepción (cargar saldos y el efectivo), solo a quien la hace por su puesto.
+  const tabs = visibleTabsFor(access.tabs, methods, canTopUp(rights, user.role));
   // La pestaña va en la URL (?t=saldo): recargar o volver a entrar deja donde se estaba.
   const [tab, setTab] = useUrlTab(tabs);
   const links = useDeepLinks(access.posQueue);
@@ -79,6 +87,7 @@ export function Dashboard({ user, onLogout }: Props) {
   return (
     <VenueMethodsContext.Provider value={methods}>
     <VenueNightContext.Provider value={nightSettings}>
+    <MyRightsContext.Provider value={rights}>
     <main className="np-app-root np-screen" style={mainStyle}>
       {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
       <ConnectionStatus serverDown={own.error?.transient === true} />
@@ -133,7 +142,7 @@ export function Dashboard({ user, onLogout }: Props) {
       {/* Recepción montada al cambiar de pestaña: una recarga a medias (su QR) no se pierde. */}
       {tabs.includes('reception') ? (
         <TabPanel visible={showing('reception')}>
-          <ReceptionTab />
+          <ReceptionTab user={user} active={showing('reception')} />
         </TabPanel>
       ) : null}
       {access.posQueue && showing('pos') ? (
@@ -146,6 +155,7 @@ export function Dashboard({ user, onLogout }: Props) {
 
       <TabBar tabs={tabs} active={tab} onSelect={(next) => setTab(next)} />
     </main>
+    </MyRightsContext.Provider>
     </VenueNightContext.Provider>
     </VenueMethodsContext.Provider>
   );

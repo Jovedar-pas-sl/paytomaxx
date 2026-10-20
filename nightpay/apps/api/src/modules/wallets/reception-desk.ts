@@ -1,0 +1,137 @@
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  isWalletCardToken,
+  normalizeWalletCardUid,
+  type ReceptionDeskSaldo,
+  type ReceptionDeskView,
+} from '@nightpay/contracts';
+import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import { ISSUED_CARD_STATUSES, cardInGroup, cardUnusableText, isIssuedCard } from './wallet-card-ops';
+import { cashPayoutCapCents, cashPayoutNote, walletCash, type WalletCash } from './wallet-cash-limits';
+import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
+
+/**
+ * Recepción exprés: se acerca el NFC (o se teclea el código) y la app sabe
+ * sola si es nuevo o si ya tiene saldo, y cuánto. Solo lee.
+ *  - NFC del stock, recién grabado o de un saldo ya cerrado → nuevo (se da
+ *    a un saldo nuevo al cobrar: attachCard lo deja salir otra vez).
+ *  - NFC de un saldo vivo (activo o a cero) → ese saldo (si se sumó a otro,
+ *    aquel), con lo que tiene y lo que se le puede devolver en efectivo.
+ *  - Perdido, bloqueado, copiado o de otro grupo de locales → error.
+ * El código, igual que al recargar (topUpTarget): solo saldos activos.
+ */
+
+export type DeskRef = { card: string; uid?: string | null } | { code: string };
+
+type DeskTx = Pick<TransactionalClient, 'walletCard' | 'clientWallet' | 'venue' | '$queryRaw'>;
+
+/** Un saldo a cero (DEPLETED) se recarga y vuelve a estar activo: también vale. */
+const LIVE = new Set(['ACTIVE', 'DEPLETED']);
+/** Saldos sumados uno a otro que se siguen como mucho (como topUpTarget). */
+const MAX_MERGE_HOPS = 5;
+
+const NOT_OURS = 'Este NFC no es de este local';
+
+interface DeskWallet {
+  id: string;
+  tenantId: string;
+  walletGroup: string | null;
+  shortCode: string | null;
+  balanceCents: number;
+  status: string;
+  pinHash: string | null;
+  blockedAt: Date | null;
+  closeRequestedAt: Date | null;
+  mergedIntoId: string | null;
+}
+
+const WALLET_SELECT = {
+  id: true,
+  tenantId: true,
+  walletGroup: true,
+  shortCode: true,
+  balanceCents: true,
+  status: true,
+  pinHash: true,
+  blockedAt: true,
+  closeRequestedAt: true,
+  mergedIntoId: true,
+} as const;
+
+/** Lo que ve la recepción de un saldo vivo (función pura). */
+export function deskSaldoView(
+  wallet: Omit<DeskWallet, 'mergedIntoId' | 'walletGroup' | 'status'>,
+  venueId: string,
+  cash: WalletCash,
+  fichaNumber: number | null,
+): ReceptionDeskSaldo {
+  return {
+    kind: 'saldo',
+    walletId: wallet.id,
+    code: formatWalletCode(wallet.shortCode ?? ''),
+    balanceCents: wallet.balanceCents,
+    hasPin: wallet.pinHash !== null,
+    isHomeVenue: wallet.tenantId === venueId,
+    blocked: wallet.blockedAt !== null,
+    closeRequested: wallet.closeRequestedAt !== null,
+    cashOutCents: cashPayoutCapCents(wallet.balanceCents, cash),
+    cashOutNote: cashPayoutNote(wallet.balanceCents, cash),
+    fichaNumber,
+  };
+}
+
+/** El saldo donde está hoy el dinero (él mismo o aquel al que se sumó). */
+async function liveWallet(tx: DeskTx, walletId: string): Promise<DeskWallet | null> {
+  let wallet = await tx.clientWallet.findUnique({ where: { id: walletId }, select: WALLET_SELECT });
+  for (let hops = 0; wallet?.mergedIntoId && hops < MAX_MERGE_HOPS; hops += 1) {
+    wallet = await tx.clientWallet.findUnique({ where: { id: wallet.mergedIntoId }, select: WALLET_SELECT });
+  }
+  return wallet;
+}
+
+/** El NFC acercado o el código tecleado → nuevo o el saldo (dentro de acrossVenues). */
+export async function readReceptionDesk(
+  tx: DeskTx,
+  venue: { id: string; walletGroup: string | null },
+  ref: DeskRef,
+): Promise<ReceptionDeskView> {
+  if ('code' in ref) return deskByCode(tx, venue, ref.code);
+  if (!isWalletCardToken(ref.card)) throw new NotFoundException(NOT_OURS);
+  const card = await tx.walletCard.findUnique({
+    where: { token: ref.card },
+    select: { id: true, uid: true, walletId: true, status: true, venueId: true, number: true },
+  });
+  if (!card || !(await cardInGroup(tx, card, venue.id))) throw new NotFoundException(NOT_OURS);
+  const uid = ref.uid ? normalizeWalletCardUid(ref.uid) : null;
+  if (card.uid && uid && card.uid !== uid) {
+    throw new ConflictException('Este NFC no es el original (¿copiado?): avisa al encargado');
+  }
+  const unusable = cardUnusableText(card.status);
+  if (unusable) throw new ConflictException(unusable);
+  const wallet = isIssuedCard(card) && card.walletId ? await liveWallet(tx, card.walletId) : null;
+  // Sin saldo, o el de un saldo ya cerrado (o de otro grupo): sale otra vez con uno nuevo.
+  if (!wallet || !LIVE.has(wallet.status) || !sameWalletGroup(wallet, venue)) {
+    return { kind: 'new', fichaNumber: card.number };
+  }
+  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card.number);
+}
+
+async function deskByCode(
+  tx: DeskTx,
+  venue: { id: string; walletGroup: string | null },
+  raw: string,
+): Promise<ReceptionDeskSaldo> {
+  const code = normalizeWalletCode(raw);
+  if (code.length !== 6) throw new NotFoundException('El código del cliente tiene 6 letras o números');
+  const found = await tx.clientWallet.findFirst({ where: { shortCode: code, status: 'ACTIVE' }, select: { id: true } });
+  const wallet = found ? await liveWallet(tx, found.id) : null;
+  if (!wallet || !LIVE.has(wallet.status) || !sameWalletGroup(wallet, venue)) {
+    throw new NotFoundException('No hay ningún saldo con ese código en este local');
+  }
+  const card = await tx.walletCard.findFirst({
+    where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } },
+    orderBy: { linkedAt: { sort: 'desc', nulls: 'last' } },
+    select: { number: true },
+  });
+  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card?.number ?? null);
+}

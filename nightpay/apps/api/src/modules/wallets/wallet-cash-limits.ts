@@ -93,6 +93,21 @@ export function cashPayoutRefusal(balanceCents: number, cash: WalletCash): strin
   return `A este saldo ya se le devolvieron ${eur(cash.outWindowCents)} en efectivo en 24 h y no puede llegar a 1.000 €: el resto, «A la tarjeta» (el dueño) o mañana.`;
 }
 
+/**
+ * Por qué no se devuelve todo el saldo en efectivo (la salida de recepción lo
+ * dice antes de tocar el botón). null: se devuelve todo, o no tiene nada.
+ */
+export function cashPayoutNote(balanceCents: number, cash: WalletCash): string | null {
+  if (balanceCents <= 0) return null;
+  const cap = cashPayoutCapCents(balanceCents, cash);
+  if (cap >= balanceCents) return null;
+  if (cap === 0) return cashPayoutRefusal(balanceCents, cash);
+  if (cap < unspentCashCents(balanceCents, cash)) {
+    return `En efectivo, como mucho ${eur(cap)}: a este saldo ya se le devolvieron ${eur(cash.outWindowCents)} en efectivo en 24 h. El resto, «A la tarjeta» (el dueño) o mañana.`;
+  }
+  return `Los otros ${eur(balanceCents - cap)} entraron con tarjeta: los devuelve el dueño «A la tarjeta».`;
+}
+
 function eur(cents: number): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }

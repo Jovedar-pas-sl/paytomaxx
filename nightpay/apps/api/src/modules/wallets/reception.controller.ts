@@ -9,6 +9,7 @@ import {
   type CashTopUpVoidDto,
   type CashTopUpVoidResult,
   type JwtPayload,
+  type ReceptionDeskView,
   type ReceptionOptions,
   type SaldoRefDto,
   type StockOutcome,
@@ -39,6 +40,7 @@ const CardSchema = z.object({
  *  - GET  /v1/reception/cash/recent   → las recargas en efectivo que aún se pueden anular (encargado).
  *  - POST /v1/reception/cash/:id/void → anular una (encargado o dueño, con 2FA, si el saldo la cubre).
  *  - POST /v1/reception/lookup        → el NFC acercado o el código: de qué saldo es (sin enseñarlo).
+ *  - POST /v1/reception/desk          → recepción exprés: el NFC o el código → nuevo o su saldo y lo que tiene.
  *  - POST /v1/reception/fichas/token  → código nuevo para grabar en una ficha vacía («Preparar fichas»).
  *  - POST /v1/reception/fichas/stock  → la ficha acercada, al stock del local.
  * Lo demás (ficha y PIN del saldo recién recargado) va por /v1/wallet-charges
@@ -125,6 +127,23 @@ export class ReceptionController {
   ): Promise<ReceptionCardView> {
     const ref = 'card' in body ? { card: body.card, uid: body.uid ?? null } : { code: body.code };
     return this.charges.lookupForReception(user.tenantId, ref);
+  }
+
+  /**
+   * Recepción exprés: el NFC acercado o el código → nuevo o su saldo (lo que
+   * tiene, su número y lo que se le puede devolver en efectivo). Solo quien
+   * carga saldos (lo mira el servicio).
+   */
+  @Post('desk')
+  @HttpCode(200)
+  @Roles('WAITER', 'MANAGER', 'OWNER')
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-lookup' })
+  async desk(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(SaldoRefSchema)) body: SaldoRefDto,
+  ): Promise<ReceptionDeskView> {
+    const ref = 'card' in body ? { card: body.card, uid: body.uid ?? null } : { code: body.code };
+    return this.cards.desk(user.tenantId, { userId: user.sub, role: user.role }, ref);
   }
 
   @Post('fichas/token')

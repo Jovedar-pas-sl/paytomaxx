@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paymentMethodsOf } from '@nightpay/contracts';
-import { cobroModeAllowed, staffHomeHint, visibleTabsFor } from './venue-methods';
+import { canTopUp, cobroModeAllowed, myRightsOf, staffHomeHint, visibleTabsFor } from './venue-methods';
 
 describe('formas de cobro del local en la app del personal', () => {
   it('sin ajustes: todo a la vista, como antes', () => {
@@ -33,5 +33,36 @@ describe('formas de cobro del local en la app del personal', () => {
     const off = staffHomeHint(paymentMethodsOf({ pos: false }));
     expect(off).toBe('Cobra aquí la barra, las habitaciones o la comida.');
     expect(off).not.toMatch(/datáfono|POS/);
+  });
+});
+
+describe('solo recepción carga saldos (y cobra el efectivo)', () => {
+  const recepcion = myRightsOf('RECEPCION', { sections: [], tips: false, cash: true, topUps: true });
+  const barra = myRightsOf('BARRA', { sections: ['VENUE_BAR'], tips: true, cash: false, topUps: false });
+
+  it('lo que puede, de /v1/venues/me (un API anterior no lo dice: null)', () => {
+    expect(recepcion).toEqual({ post: 'RECEPCION', topUps: true, cash: true });
+    expect(barra).toEqual({ post: 'BARRA', topUps: false, cash: false });
+    expect(myRightsOf(null, null)).toBeNull();
+    expect(myRightsOf('BARRA', { sections: [] })).toBeNull();
+  });
+
+  it('recepción, encargado y dueño ven «Recargar» y la pestaña Recepción; barra y la chica, no', () => {
+    const all = paymentMethodsOf(null);
+    const staffTabs = ['home', 'wallet', 'reception', 'pos'] as const;
+    expect(canTopUp(recepcion, 'WAITER')).toBe(true);
+    expect(canTopUp(barra, 'WAITER')).toBe(false);
+    expect(visibleTabsFor(staffTabs, all, canTopUp(barra, 'WAITER'))).toEqual(['home', 'wallet', 'pos']);
+    expect(visibleTabsFor(staffTabs, all, canTopUp(recepcion, 'WAITER'))).toEqual(['home', 'wallet', 'reception', 'pos']);
+    expect(cobroModeAllowed('wallet', all, canTopUp(barra, 'WAITER'))).toBe(false);
+    expect(cobroModeAllowed('wallet', all, canTopUp(recepcion, 'WAITER'))).toBe(true);
+    // El QR y el datáfono no dependen de cargar saldos.
+    expect(cobroModeAllowed('qr', all, false)).toBe(true);
+  });
+
+  it('sin saberlo aún: el personal sí (el servidor decide igual) y la chica no', () => {
+    expect(canTopUp(null, 'WAITER')).toBe(true);
+    expect(canTopUp(null, 'MANAGER')).toBe(true);
+    expect(canTopUp(null, 'OPERATOR')).toBe(false);
   });
 });
