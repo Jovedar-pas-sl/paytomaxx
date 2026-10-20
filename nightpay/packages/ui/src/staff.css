@@ -314,8 +314,8 @@
   align-items: center;
   gap: 0.125rem;
   padding: 0.625rem 0.75rem 0.75rem;
-  border: 2px solid var(--np-border-hi);
-  border-radius: var(--np-r-lg);
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-card);
   background: var(--np-surface-2);
 }
 
@@ -328,8 +328,9 @@
 }
 
 .np-keypad-amount {
-  font-family: var(--np-font-mono);
-  font-weight: 700;
+  font-family: var(--np-font-num);
+  font-weight: 800;
+  letter-spacing: -0.02em;
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
   color: var(--np-text);
@@ -354,13 +355,13 @@
   justify-content: center;
   height: var(--np-key-h);
   padding: 0;
-  border: 2px solid var(--np-border-hi);
-  border-radius: var(--np-r-lg);
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-tile);
   background: var(--np-surface-2);
   color: var(--np-text);
-  font-family: var(--np-font-mono);
+  font-family: var(--np-font-num);
   font-size: 1.625rem;
-  font-weight: 700;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -378,7 +379,7 @@
 }
 
 .np-keypad-key:hover:not(:disabled) {
-  border-color: var(--np-text-dim);
+  border-color: var(--np-border-hi);
 }
 
 .np-keypad-key:active:not(:disabled) {
@@ -459,12 +460,14 @@
 
 /* ─── Selector de modo y botón fijo abajo ────────────────────────────── */
 
+/* Como las maquetas: una pill con la opción elegida en crema (tinta en
+   claro); el lima queda para el botón de cobrar. */
 .np-seg {
   display: flex;
   gap: 0.25rem;
   padding: 0.25rem;
   border: 1px solid var(--np-border);
-  border-radius: var(--np-r-md);
+  border-radius: var(--np-r-pill);
   background: var(--np-surface-2);
 }
 
@@ -473,13 +476,12 @@
   min-height: 2.75rem;
   padding: 0.375rem 0.5rem;
   border: none;
-  border-radius: var(--np-r-sm);
+  border-radius: var(--np-r-pill);
   background: transparent;
   color: var(--np-text-mute);
-  font-size: 0.9375rem;
+  font-size: 1rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -490,8 +492,8 @@
 }
 
 .np-seg-btn[aria-pressed='true'] {
-  background: var(--np-accent);
-  color: var(--np-on-accent);
+  background: var(--np-text);
+  color: var(--np-bg);
 }
 
 .np-seg-btn:hover:not([aria-pressed='true']) {
