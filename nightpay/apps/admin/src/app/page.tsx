@@ -13,6 +13,7 @@ import {
   type User,
 } from '@/lib/api';
 import { canUsePanel } from '@/lib/roles';
+import { clearNavFromUrl } from '@/lib/use-url-nav';
 
 /** Sesión guardada utilizable en el panel; una de camarero o chica (de antes) se descarta. */
 function storedPanelUser(): User | null {
@@ -122,6 +123,8 @@ export default function Page() {
     <Dashboard
       user={user}
       onLogout={(serverConfirmed) => {
+        // Quien entre después empieza en Hoy (la pestaña iba en la URL).
+        clearNavFromUrl();
         setNotice(
           serverConfirmed
             ? null

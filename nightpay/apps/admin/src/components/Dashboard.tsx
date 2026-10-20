@@ -24,6 +24,7 @@ import {
 } from '@/lib/roles';
 import { ApprovalsContext, useApprovalsFeed } from '@/lib/use-approvals';
 import { IncidentsContext, useIncidentsFeed } from '@/lib/use-incidents';
+import { useUrlNav } from '@/lib/use-url-nav';
 import { VenueContext, type VenueInfo } from '@/lib/venue-context';
 import { AvisosPanel } from './AvisosPanel';
 import { BankReconPanel } from './BankReconPanel';
@@ -69,16 +70,23 @@ const ROLE_LABELS: Record<User['role'], string> = {
  */
 export function Dashboard({ user, onLogout }: Props) {
   const venue = useVenueInfo(user);
-  const canSeeReports = useCanSeeReports(user);
+  const reports = useCanSeeReports(user);
   // Datáfono apagado en Formas de cobro: fuera la pestaña Datáfonos (y su permiso).
-  const [posOn, setPosOn] = useVenuePosOn(user);
-  const sections = visibleSections({ role: user.role, isSuperAdmin: user.isSuperAdmin, canSeeReports, posOn });
+  const [posOn, setPosOn, posKnown] = useVenuePosOn(user);
+  const viewer = { role: user.role, isSuperAdmin: user.isSuperAdmin, canSeeReports: reports.can, posOn };
+  const sections = visibleSections(viewer);
   const tabs = sections.flatMap((s) => s.tabs);
-  const [selected, setSelected] = useState<TabKey>('payments');
+  // La sección y la pestaña van en la URL (?s=ajustes&t=formas): recargar deja donde se estaba.
+  // Una que este rol no ve nunca se pinta (se vuelve a Cobros).
+  const [tab, navigate] = useUrlNav(sections, {
+    permissive: visibleSections({ ...viewer, canSeeReports: true, posOn: true }),
+    settled: reports.known && posKnown,
+  });
   /** La pestaña que se miró la última vez en cada sección (volver a la sección la abre). */
   const [lastInSection, setLastInSection] = useState<Partial<Record<SectionKey, TabKey>>>({});
-  // Una pestaña que este rol no ve nunca se pinta (se vuelve a Cobros).
-  const tab: TabKey = tabs.some((t) => t.key === selected) ? selected : 'payments';
+  useEffect(() => {
+    setLastInSection((prev) => (prev[sectionOf(tab)] === tab ? prev : { ...prev, [sectionOf(tab)]: tab }));
+  }, [tab]);
   const section = sections.find((s) => s.key === sectionOf(tab)) ?? sections[0];
   const isOwner = user.role === 'OWNER';
   const incidents = useIncidentsFeed(user.tenantId, venue.timezone);
@@ -98,8 +106,7 @@ export function Dashboard({ user, onLogout }: Props) {
   function goTo(key: TabKey | string): void {
     const target = resolveTab(key);
     if (!target) return;
-    setSelected(target);
-    setLastInSection((prev) => ({ ...prev, [sectionOf(target)]: target }));
+    navigate(target);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
   }
 
@@ -327,35 +334,51 @@ function useVenueInfo(user: User): VenueInfo {
   return info;
 }
 
+interface ReportsAccess {
+  can: boolean;
+  /** Ya se sabe (o falló la pregunta). */
+  known: boolean;
+}
+
+const REPORTS_NO: ReportsAccess = { can: false, known: true };
+const REPORTS_ASKING: ReportsAccess = { can: false, known: false };
+
 /** El encargado ve los informes si el dueño le deja (Ajustes → Permisos). El dueño, siempre. */
-function useCanSeeReports(user: User): boolean {
-  const [can, setCan] = useState(false);
+function useCanSeeReports(user: User): ReportsAccess {
+  const [state, setState] = useState<ReportsAccess>(user.role === 'MANAGER' ? REPORTS_ASKING : REPORTS_NO);
   useEffect(() => {
-    setCan(false);
-    if (user.role !== 'MANAGER') return undefined;
+    if (user.role !== 'MANAGER') {
+      setState(REPORTS_NO);
+      return undefined;
+    }
+    setState(REPORTS_ASKING);
     let cancelled = false;
     fetchMyPermissions()
       .then((p) => {
-        if (!cancelled) setCan(p.reports);
+        if (!cancelled) setState({ can: p.reports, known: true });
       })
       .catch(() => {
         // Sin respuesta, como siempre: el encargado no ve los informes.
+        if (!cancelled) setState(REPORTS_NO);
       });
     return () => {
       cancelled = true;
     };
   }, [user.role, user.tenantId]);
-  return can;
+  return state;
 }
 
 /**
  * ¿Cobra el local con datáfono? (Ajustes → Formas de cobro). Mientras no se
- * sabe, o si falla, sí: como antes (el API sigue mandando).
+ * sabe, o si falla, sí: como antes (el API sigue mandando). El tercero: ya
+ * se sabe (o falló la pregunta).
  */
-function useVenuePosOn(user: User): [boolean, (posOn: boolean) => void] {
+function useVenuePosOn(user: User): [boolean, (posOn: boolean) => void, boolean] {
   const [posOn, setPosOn] = useState(true);
+  const [known, setKnown] = useState(false);
   useEffect(() => {
     setPosOn(true);
+    setKnown(false);
     let cancelled = false;
     fetchPaymentMethods()
       .then((m) => {
@@ -363,12 +386,15 @@ function useVenuePosOn(user: User): [boolean, (posOn: boolean) => void] {
       })
       .catch(() => {
         // Sin respuesta: todo a la vista, como antes.
+      })
+      .finally(() => {
+        if (!cancelled) setKnown(true);
       });
     return () => {
       cancelled = true;
     };
   }, [user.tenantId]);
-  return [posOn, setPosOn];
+  return [posOn, setPosOn, known];
 }
 
 /** Super-admin sin la 2FA activada (para el aviso de arriba). Ante la duda, no se avisa. */
