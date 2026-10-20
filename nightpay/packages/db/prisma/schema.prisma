@@ -72,6 +72,9 @@ model Venue {
   // «Invitar a una copa» (20261023100200): parte de la chica y del camarero
   // (% o fijo). Null = lo de fábrica (packages/contracts/src/invitations.ts).
   invitationRules       Json?
+  // Ajustes de la noche (20261023200000, packages/contracts/src/night-settings.ts):
+  // NFC sin PIN, teclado del PIN, recepción y avisos al cobrar. Null = de fábrica.
+  nightSettings         Json?
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz
@@ -1052,6 +1055,13 @@ model ClientWallet {
   // Bloqueado por el super-admin: no paga (sí se le puede devolver). 20261016100100.
   blockedAt        DateTime? @db.Timestamptz
   blockedReason    String?
+  // Último PIN bueno: lo gastado con el NFC sin PIN se cuenta desde aquí
+  // (o desde las 08:00 de Madrid, lo más tarde). 20261023200000.
+  noPinResetAt     DateTime? @db.Timestamptz
+  // Recarga cobrada sin leer antes el NFC del cliente: espera a sumarse a su
+  // saldo (al acercar su NFC o teclear su código). Quién la cobró.
+  pendingAssignAt   DateTime? @db.Timestamptz
+  pendingAssignById String?   @db.Uuid
   createdAt    DateTime     @default(now()) @db.Timestamptz
   updatedAt    DateTime     @updatedAt @db.Timestamptz
 
@@ -1214,6 +1224,8 @@ model WalletConsumption {
   tipGoesTo        String?
   reversedAt       DateTime? @db.Timestamptz
   reversedByUserId String?   @db.Uuid
+  // Cómo se autorizó: nfc_nopin | pin | passkey | staff (null: de antes). 20261023200000.
+  authMethod       String?
   createdAt        DateTime  @default(now()) @db.Timestamptz
 
   venue       Venue            @relation(fields: [tenantId], references: [id])
@@ -1226,6 +1238,7 @@ model WalletConsumption {
   @@index([tenantId, walletId, createdAt(sort: Desc)])
   @@index([tenantId, providedByUserId, createdAt(sort: Desc)])
   @@index([tenantId, category])
+  @@index([walletId, createdAt])
   @@map("wallet_consumptions")
 }
 

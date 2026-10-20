@@ -18,6 +18,7 @@ import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { useFichas } from './fichas/fichas-context';
 import { Notice } from './Notice';
+import { PendingTopUps } from './PendingTopUps';
 import { Pill, type Tone } from './Pill';
 import { RecentCashTopUps } from './RecentCashTopUps';
 import { ChargeWithoutFaceIdModal, CodeSearch, PayoutModal, RelinkModal, type PayoutTarget } from './WalletModals';
@@ -160,6 +161,8 @@ export function WalletsPanel({ isOwner }: Props) {
       )}
 
       <CodeSearch onFound={setPayoutFor} />
+
+      <PendingTopUps />
 
       <RecentCashTopUps />
 

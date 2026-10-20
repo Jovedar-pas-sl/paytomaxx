@@ -1,7 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import type { ReceptionOptions } from '@nightpay/contracts';
+import {
+  DEFAULT_NIGHT_SETTINGS,
+  nightSettingsOf,
+  type ReceptionOptions,
+  type VenueNightSettings,
+} from '@nightpay/contracts';
 import { Button, Card, Input } from '@nightpay/ui';
 import { callReader, hasReader } from '@/lib/pax-bridge';
 import {
@@ -17,8 +22,10 @@ import {
   type PaxInfo,
   type ShiftSummary,
 } from '@/lib/pax-api';
+import { setVenueFeedback } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
 import { deviceBackend } from '@/lib/reception';
+import { VenueNightContext } from '@/lib/venue-methods';
 import { usePolling } from '@/lib/use-polling';
 import { PrepareFichas } from '../reception/PrepareFichas';
 import { ReceptionFlow } from '../reception/ReceptionFlow';
@@ -30,9 +37,19 @@ const POLL_MS = 3000;
 /**
  * Pantalla del datáfono PAX (se abre dentro de la app OxioPay del aparato).
  * El camarero ve los cobros que han creado las chicas, toca uno y el cliente
- * acerca la tarjeta: el cobro queda pagado y asignado sin teclear nada.
+ * acerca la tarjeta: el cobro queda pagado y asignado sin teclear nada. Con
+ * los ajustes de la noche del local (el teclado del PIN), que dice /me.
  */
 export function PaxScreen() {
+  const [night, setNight] = useState<VenueNightSettings>(DEFAULT_NIGHT_SETTINGS);
+  return (
+    <VenueNightContext.Provider value={night}>
+      <PaxScreenView onNight={setNight} />
+    </VenueNightContext.Provider>
+  );
+}
+
+function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => void }) {
   const [paired, setPaired] = useState<boolean | null>(null);
   const [info, setInfo] = useState<PaxInfo | null>(null);
   const [charges, setCharges] = useState<PaxCharge[]>([]);
@@ -55,12 +72,16 @@ export function PaxScreen() {
   /** /me decide si sigue vinculado: si responde 401, el aparato se olvida y se vuelve a vincular. */
   const checkPairing = useCallback(async () => {
     try {
-      setInfo(await fetchPaxInfo());
+      const me = await fetchPaxInfo();
+      setInfo(me);
+      const night = nightSettingsOf(me.night);
+      setVenueFeedback({ sound: night.feedbackSound, vibration: night.feedbackVibration });
+      onNight(night);
     } catch (err) {
       setError((err as Error).message);
     }
     if (!getDeviceToken()) setPaired(false);
-  }, []);
+  }, [onNight]);
 
   useEffect(() => {
     if (paired) void checkPairing();

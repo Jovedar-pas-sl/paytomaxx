@@ -146,12 +146,22 @@ function receptionWalletOf(w: { walletId: string; code: string; balanceCents: nu
 /** Cómo paga la recarga. */
 export type PayMethod = 'card' | 'cash';
 
-/** A qué saldo: uno nuevo o el de la ficha que acerca. */
-export type Target = { kind: 'new' } | { kind: 'card'; card: string; uid: string | null; view: ReceptionCard };
+/**
+ * A qué saldo: uno nuevo, el del NFC que acerca o el de su código (K7Q-4M2,
+ * en «Recargar saldo» de Inicio).
+ */
+export type Target =
+  | { kind: 'new' }
+  | { kind: 'card'; card: string; uid: string | null; view: ReceptionCard }
+  | { kind: 'code'; code: string; view: ReceptionCard };
+
+/** Un saldo que ya existe (no uno nuevo). */
+export type ExistingTarget = Exclude<Target, { kind: 'new' }>;
 
 /** El saldo de la recarga en el cuerpo de la petición. */
 export function walletOfTarget(target: Target): TopUpWalletDto {
   if (target.kind === 'new') return { create: true };
+  if (target.kind === 'code') return { code: target.code };
   return target.uid ? { card: target.card, uid: target.uid } : { card: target.card };
 }
 
@@ -168,7 +178,7 @@ export function cardMethodLabel(on: 'device' | 'staff'): string {
 export function payProblem(method: PayMethod, target: Target, options: ReceptionOptions): string | null {
   if (method === 'cash' && !options.cash) return options.cashBlockedReason ?? 'Aquí no se cobran recargas en efectivo.';
   if (method === 'card' && !options.card) return 'Ahora no se pueden hacer recargas con tarjeta en este local.';
-  if (method === 'card' && target.kind === 'card' && !target.view.isHomeVenue) {
+  if (method === 'card' && target.kind !== 'new' && !target.view.isHomeVenue) {
     return 'Este saldo es de otro local del grupo: aquí, recárgalo en efectivo.';
   }
   return null;
@@ -217,7 +227,39 @@ export interface ReceptionAttempt {
 
 /** Lo que se recarga: importe, forma de pago y a qué saldo. */
 export function receptionWhat(amountCents: number, method: PayMethod, target: Target): string {
-  return `${amountCents}|${method}|${target.kind === 'new' ? 'nuevo' : `ficha:${target.card}`}`;
+  const to = target.kind === 'new' ? 'nuevo' : target.kind === 'code' ? `codigo:${target.code}` : `ficha:${target.card}`;
+  return `${amountCents}|${method}|${to}`;
+}
+
+// ─── «Recargar saldo» (Inicio): un saldo que ya existe ───────────────────
+
+/** Una forma de pago de la recarga y por qué no vale (null: vale). */
+export interface MethodChoice {
+  method: PayMethod;
+  problem: string | null;
+}
+
+/**
+ * Las formas de pago que se ofrecen, la de por defecto del local primero
+ * (Ajustes → Noche). La tarjeta, a todos (si está encendida); el efectivo,
+ * solo a quien puede cobrarlo (el permiso «cobrar recargas en efectivo»).
+ */
+export function methodChoices(options: ReceptionOptions, target: Target, preferred: PayMethod): MethodChoice[] {
+  const offered: PayMethod[] = [];
+  if (options.card) offered.push('card');
+  if (options.cash) offered.push('cash');
+  offered.sort((a, b) => (a === preferred ? -1 : b === preferred ? 1 : 0));
+  return offered.map((method) => ({ method, problem: payProblem(method, target, options) }));
+}
+
+/** El resultado de una recarga en efectivo de un saldo que ya existía (lo dice el propio cobro). */
+export function existingCashDetail(out: Pick<CashTopUpResult, 'code' | 'balanceCents'>): string {
+  return `Saldo ${out.code} · tiene ${formatEur(out.balanceCents)}`;
+}
+
+/** El saldo leído, como se le dice a quien cobra («Saldo K7Q-••• · NFC», «Saldo K7Q-4M2»). */
+export function targetLabel(target: ExistingTarget): string {
+  return target.kind === 'card' ? `Saldo ${target.view.codeHint} · NFC` : `Saldo ${target.code.toUpperCase()}`;
 }
 
 /**

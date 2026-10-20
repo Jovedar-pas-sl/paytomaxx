@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Card } from '@nightpay/ui';
 import { WALLET_PIN_PROBLEM_TEXT, walletPinProblem } from '@nightpay/contracts';
-import { shuffledDigits } from '@/lib/pin-pad';
+import { keypadDigits } from '@/lib/pin-pad';
+import { useVenueNight } from '@/lib/venue-methods';
 
 const PIN_LENGTH = 4;
 
@@ -22,12 +23,18 @@ interface Props {
 }
 
 /**
- * Teclado del PIN para el cliente, en el móvil de la chica. Las cifras cambian
- * de sitio en cada intento (quien mira dónde pulsa no saca el PIN), solo se
- * ven puntos y no es un campo de texto (el móvil no lo recuerda ni lo sugiere).
+ * Teclado del PIN para el cliente, en el móvil de la chica. Como diga el local
+ * (Ajustes → Noche): fijo y con las teclas grandes (de fábrica: a oscuras se
+ * acierta mejor y el cliente lo tapa con la mano) o con las cifras cambiando
+ * de sitio en cada intento. Solo se ven puntos y no es un campo de texto (el
+ * móvil no lo recuerda ni lo sugiere).
  */
 export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
-  const [keys, setKeys] = useState<string[]>(() => shuffledDigits());
+  const layout = useVenueNight().pinKeypad;
+  const shuffled = layout === 'shuffled';
+  const [keys, setKeys] = useState<string[]>(() => keypadDigits(layout));
+  // Los ajustes del local llegan después de pintar: el teclado se pone al día.
+  useEffect(() => setKeys(keypadDigits(layout)), [layout]);
   const [pin, setPin] = useState('');
   const [first, setFirst] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +44,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
     setPin('');
     if (!keepFirst) setFirst(null);
     setError(message);
-    setKeys(shuffledDigits());
+    setKeys(keypadDigits(layout));
   }
 
   async function complete(value: string): Promise<void> {
@@ -71,6 +78,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
 
   const step =
     mode === 'enter' ? 'Pon tu PIN' : first === null ? 'Elige un PIN de 4 cifras' : 'Repite el PIN';
+  const key = shuffled ? keyStyle : { ...keyStyle, ...bigKey };
 
   return (
     <Card style={cardStyle}>
@@ -91,20 +99,20 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
       ) : null}
       <div style={gridStyle}>
         {keys.slice(0, 9).map((d) => (
-          <button key={d} type="button" style={keyStyle} onClick={() => press(d)} disabled={busy}>
+          <button key={d} type="button" style={key} onClick={() => press(d)} disabled={busy}>
             {d}
           </button>
         ))}
-        <button type="button" style={{ ...keyStyle, ...sideKey }} onClick={onCancel} disabled={busy}>
+        <button type="button" style={{ ...key, ...sideKey }} onClick={onCancel} disabled={busy}>
           Cancelar
         </button>
-        <button type="button" style={keyStyle} onClick={() => press(keys[9]!)} disabled={busy}>
+        <button type="button" style={key} onClick={() => press(keys[9]!)} disabled={busy}>
           {keys[9]}
         </button>
         <button
           type="button"
           aria-label="Borrar"
-          style={{ ...keyStyle, ...sideKey }}
+          style={{ ...key, ...sideKey }}
           onClick={() => setPin((p) => p.slice(0, -1))}
           disabled={busy || pin.length === 0}
         >
@@ -114,7 +122,9 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
       <p style={hintStyle}>
         {mode === 'choose'
           ? 'Tápalo con la mano y no lo digas en voz alta. No se guarda en ningún sitio.'
-          : 'Tápalo con la mano. Las cifras cambian de sitio cada vez.'}
+          : shuffled
+            ? 'Tápalo con la mano. Las cifras cambian de sitio cada vez.'
+            : 'Tápalo con la mano.'}
       </p>
     </Card>
   );
@@ -185,3 +195,6 @@ const keyStyle: CSSProperties = {
 };
 
 const sideKey: CSSProperties = { fontSize: '1rem', fontWeight: 700, color: 'var(--np-text-mute)' };
+
+/** Teclado fijo: las teclas, más grandes (se aciertan a oscuras y con prisa). */
+const bigKey: CSSProperties = { minHeight: 'calc(var(--np-key-h, 4.25rem) + 0.5rem)', fontSize: '2.25rem' };

@@ -6,6 +6,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import {
   chargeRightsOf,
   initialOfferedSection,
+  nightSettingsOf,
   paymentMethodsOf,
   postRulesOf,
   sectionsOf,
@@ -21,9 +22,10 @@ export class VenuesController {
   }
 
   /**
-   * El local de quien llama y sus formas de cobro (Ajustes): las apps del
-   * personal esconden lo apagado. También la chica (OPERATOR). El mapa del
-   * dinero: las secciones del local y el puesto de quien llama (la app
+   * El local de quien llama, sus formas de cobro y los ajustes de la noche
+   * (Ajustes): las apps del personal esconden lo apagado y usan el teclado
+   * del PIN y la recepción que tocan. También la chica (OPERATOR). El mapa
+   * del dinero: las secciones del local y el puesto de quien llama (la app
    * marca su sección en «Otro importe»).
    */
   @Get('me')
@@ -31,7 +33,7 @@ export class VenuesController {
   async getMyVenue(@CurrentUser() user: JwtPayload) {
     // Query directa sin filtro: Venue NO está en TENANT_SCOPED_MODELS (no tiene tenantId;
     // ES el tenant). Filtramos por id explícito desde el JWT.
-    const [{ paymentMethods, sections, postRules, ...venue }, me] = await Promise.all([
+    const [{ paymentMethods, nightSettings, sections, postRules, ...venue }, me] = await Promise.all([
       this.prisma.venue.findUniqueOrThrow({
         where: { id: user.tenantId },
         select: {
@@ -41,6 +43,7 @@ export class VenuesController {
           timezone: true,
           createdAt: true,
           paymentMethods: true,
+          nightSettings: true,
           sections: true,
           postRules: true,
         },
@@ -52,6 +55,7 @@ export class VenuesController {
     return {
       ...venue,
       paymentMethods: paymentMethodsOf(paymentMethods),
+      nightSettings: nightSettingsOf(nightSettings),
       sections: venueSections,
       myPost: rights.post,
       /** Lo que puede cobrar quien llama (su puesto): la app solo enseña eso. */

@@ -70,6 +70,7 @@ describe('el panel en la URL: qué se enseña', () => {
 describe('el panel en la URL: escribirla', () => {
   it('sección y pestaña en castellano', () => {
     expect(navSearch('', 'methods')).toBe('?s=ajustes&t=formas');
+    expect(navSearch('', 'night')).toBe('?s=ajustes&t=noche');
     expect(navSearch('?s=ajustes&t=formas', 'operators')).toBe('?s=chicas&t=chicas');
   });
 

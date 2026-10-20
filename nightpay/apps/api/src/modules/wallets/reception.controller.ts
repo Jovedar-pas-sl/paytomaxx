@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, Us
 import {
   CashTopUpSchema,
   CashTopUpVoidSchema,
+  SaldoRefSchema,
   paymentMethodsOf,
   type CashTopUpDto,
   type CashTopUpResult,
@@ -9,6 +10,7 @@ import {
   type CashTopUpVoidResult,
   type JwtPayload,
   type ReceptionOptions,
+  type SaldoRefDto,
   type StockOutcome,
 } from '@nightpay/contracts';
 import { z } from 'zod';
@@ -36,7 +38,7 @@ const CardSchema = z.object({
  *    encargado (con su permiso «cobrar recargas en efectivo») o el dueño; lo comprueba el servicio.
  *  - GET  /v1/reception/cash/recent   → las recargas en efectivo que aún se pueden anular (encargado).
  *  - POST /v1/reception/cash/:id/void → anular una (encargado o dueño, con 2FA, si el saldo la cubre).
- *  - POST /v1/reception/lookup        → la ficha acercada: de qué saldo es (sin enseñarlo).
+ *  - POST /v1/reception/lookup        → el NFC acercado o el código: de qué saldo es (sin enseñarlo).
  *  - POST /v1/reception/fichas/token  → código nuevo para grabar en una ficha vacía («Preparar fichas»).
  *  - POST /v1/reception/fichas/stock  → la ficha acercada, al stock del local.
  * Lo demás (ficha y PIN del saldo recién recargado) va por /v1/wallet-charges
@@ -62,8 +64,9 @@ export class ReceptionController {
     this.prisma = prisma;
   }
 
+  /** También la chica: «Recargar saldo» en Inicio (con tarjeta; el efectivo, con su permiso). */
   @Get('options')
-  @Roles('WAITER', 'MANAGER', 'OWNER')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
   async options(@CurrentUser() user: JwtPayload): Promise<ReceptionOptions> {
     const venue = await this.prisma.asSystem((tx) =>
       tx.venue.findUnique({ where: { id: user.tenantId }, select: { paymentMethods: true, ...VENUE_PAUSE_SELECT } }),
@@ -114,13 +117,14 @@ export class ReceptionController {
 
   @Post('lookup')
   @HttpCode(200)
-  @Roles('WAITER', 'MANAGER', 'OWNER')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
   @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-lookup' })
   async lookup(
     @CurrentUser() user: JwtPayload,
-    @Body(new ZodValidationPipe(CardSchema)) body: z.infer<typeof CardSchema>,
+    @Body(new ZodValidationPipe(SaldoRefSchema)) body: SaldoRefDto,
   ): Promise<ReceptionCardView> {
-    return this.charges.lookupCardForReception(user.tenantId, { card: body.card, uid: body.uid ?? null });
+    const ref = 'card' in body ? { card: body.card, uid: body.uid ?? null } : { code: body.code };
+    return this.charges.lookupForReception(user.tenantId, ref);
   }
 
   @Post('fichas/token')

@@ -127,6 +127,19 @@ function setup(o: { card?: Row | null; topUpAt?: Date } = {}) {
     const q = Prisma.sql(strings, ...values);
     queries.push(q);
     if (q.text.includes('FROM wallet_cards')) return tables.walletCard.list({ where: { token: values[0] } });
+    // NFC sin PIN: la cadena de saldos sumados (un salto) y lo gastado sin PIN desde `since`.
+    if (q.text.includes('WITH RECURSIVE')) {
+      return tables.clientWallet.list().filter((w) => w.id === values[0] || w.mergedIntoId === values[0]).map((w) => ({ id: w.id }));
+    }
+    if (q.text.includes('FROM wallet_consumptions')) {
+      const [ids, since] = values as [string[], Date];
+      const total = tables.walletConsumption
+        .list()
+        .filter((c) => ids.includes(String(c.walletId)) && c.authMethod === 'nfc_nopin' && !c.reversedAt)
+        .filter((c) => (c.createdAt as Date) >= since)
+        .reduce((sum, c) => sum + Number(c.amountCents), 0);
+      return [{ total }];
+    }
     return tables.clientWallet.list({ where: { id: values[0] } });
   });
   const tx = { ...tables, $queryRaw, $executeRaw: vi.fn(async () => 0) };
@@ -154,13 +167,21 @@ function setup(o: { card?: Row | null; topUpAt?: Date } = {}) {
   return { svc, db: tables, audit, queries };
 }
 
-/** Un cobro con QR de Lola (40 €) en Sala Bambú, sin pagar. */
-function cobro(db: ReturnType<typeof setup>['db']): string {
+/** Un cobro con QR de Lola (40 €, o lo que se diga) en Sala Bambú, sin pagar. */
+function cobro(db: ReturnType<typeof setup>['db'], amountCents = 4_000, id = 'req-1'): string {
   db.walletChargeRequest.put({
-    id: 'req-1', tenantId: SALA, requestedByUserId: LOLA, amountCents: 4_000, category: 'CHICA_SERVICE',
-    serviceName: 'Reservado 30 min', payToken: 'qr-1', status: 'PENDING', expiresAt: new Date(NOW.getTime() + 5 * 60_000),
+    id, tenantId: SALA, requestedByUserId: LOLA, amountCents, category: 'CHICA_SERVICE',
+    serviceName: 'Reservado 30 min', payToken: `qr-${id}`, status: 'PENDING', expiresAt: new Date(NOW.getTime() + 5 * 60_000),
   });
-  return 'req-1';
+  return id;
+}
+
+/** Un consumo ya cobrado sin PIN (o como se diga) de ese saldo, a esa hora. */
+function gastado(db: ReturnType<typeof setup>['db'], o: { walletId?: string; amountCents: number; at: Date; authMethod?: string; reversedAt?: Date }): void {
+  db.walletConsumption.put({
+    id: `cons-previo-${db.walletConsumption.rows.size + 1}`, tenantId: SALA, walletId: o.walletId ?? WALLET, amountCents: o.amountCents,
+    authMethod: o.authMethod ?? 'nfc_nopin', reversedAt: o.reversedAt ?? null, createdAt: o.at,
+  });
 }
 
 beforeAll(async () => {
@@ -325,5 +346,140 @@ describe('cobrar con la ficha y el PIN', () => {
     const { svc, db } = setup({ card: { walletId: OTRO } });
     db.clientWallet.put({ ...db.clientWallet.get(OTRO), balanceCents: 0, status: 'DEPLETED', mergedIntoId: WALLET });
     await expect(svc.lookupCard(SALA, { card: FICHA })).resolves.toMatchObject({ walletId: WALLET, balanceCents: 12_000 });
+  });
+});
+
+describe('NFC sin PIN (hasta 20 € por cobro y 100 € por noche, de fábrica)', () => {
+  const ORIGINAL = { uid: '04A23B5C1D8000' };
+  const ANTES = new Date(NOW.getTime() - 60 * 60_000); // hace una hora, esta noche
+
+  it('15 € con su NFC original: cobrado sin PIN, como nfc_nopin, en el registro y la chica cobra su parte', async () => {
+    const { svc, db, audit } = setup({ card: ORIGINAL });
+    const out = await svc.payQrChargeWithCard(lola, cobro(db, 1_500), { card: FICHA, uid: UID });
+    expect(out).toMatchObject({ status: 'ACCEPTED', amountCents: 1_500, newBalanceCents: 10_500 });
+    expect(db.walletConsumption.list()).toEqual([
+      expect.objectContaining({ walletId: WALLET, amountCents: 1_500, authMethod: 'nfc_nopin', providedByUserId: LOLA }),
+    ]);
+    expect(db.walletCard.get('card-1')).toMatchObject({ lastUsedAt: NOW });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'wallet.charge_nfc_nopin',
+        actorId: LOLA,
+        targetId: WALLET,
+        payload: expect.objectContaining({ amountCents: 1_500, spentBeforeCents: 0, nightCapCents: 10_000 }),
+      }),
+    );
+  });
+
+  it('más de 20 €: 409 PIN_REQUIRED y el mismo cobro se paga con el PIN (queda como pin)', async () => {
+    const { svc, db } = setup({ card: ORIGINAL });
+    const req = cobro(db, 2_001);
+    await expect(svc.payQrChargeWithCard(lola, req, { card: FICHA, uid: UID })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PIN_REQUIRED', reason: 'over_max' }),
+    });
+    expect(db.walletChargeRequest.get(req)).toMatchObject({ status: 'PENDING', walletId: null });
+    expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 12_000 });
+    await expect(svc.payQrChargeWithPin(lola, req, { card: FICHA, uid: UID, pin: PIN })).resolves.toMatchObject({ status: 'ACCEPTED' });
+    expect(db.walletConsumption.list()).toEqual([expect.objectContaining({ amountCents: 2_001, authMethod: 'pin' })]);
+  });
+
+  it('el tope de la noche: con 90 € sin PIN esta noche, 15 € piden el PIN; tras el PIN vuelve a contar desde cero', async () => {
+    const { svc, db } = setup({ card: ORIGINAL });
+    gastado(db, { amountCents: 9_000, at: ANTES });
+    const req = cobro(db, 1_500, 'req-1');
+    await expect(svc.payQrChargeWithCard(lola, req, { card: FICHA, uid: UID })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PIN_REQUIRED', reason: 'night_cap' }),
+    });
+    // 10 € caben justo (90 + 10 = 100).
+    await expect(svc.payQrChargeWithCard(lola, cobro(db, 1_000, 'req-2'), { card: FICHA, uid: UID })).resolves.toMatchObject({
+      status: 'ACCEPTED',
+    });
+    await expect(svc.payQrChargeWithCard(lola, cobro(db, 100, 'req-3'), { card: FICHA, uid: UID })).rejects.toMatchObject({
+      response: expect.objectContaining({ reason: 'night_cap' }),
+    });
+    // Pone su PIN una vez (el cobro de 15 €)…
+    vi.setSystemTime(new Date(NOW.getTime() + 60_000));
+    await svc.payQrChargeWithPin(lola, req, { card: FICHA, uid: UID, pin: PIN });
+    expect(db.clientWallet.get(WALLET).noPinResetAt).toEqual(new Date(NOW.getTime() + 60_000));
+    // …y vuelve a contar: otros 20 € sin PIN.
+    vi.setSystemTime(new Date(NOW.getTime() + 2 * 60_000));
+    await expect(svc.payQrChargeWithCard(lola, cobro(db, 2_000, 'req-4'), { card: FICHA, uid: UID })).resolves.toMatchObject({
+      status: 'ACCEPTED',
+    });
+  });
+
+  it('la noche de Madrid: lo de antes de las 08:00 de ayer no cuenta; lo anulado tampoco; lo pagado con PIN tampoco', async () => {
+    const { svc, db } = setup({ card: ORIGINAL });
+    // NOW = sábado 02:10 en Madrid: la noche empezó el viernes a las 08:00.
+    gastado(db, { amountCents: 9_000, at: new Date('2026-10-16T07:59:59+02:00') });
+    gastado(db, { amountCents: 9_000, at: ANTES, reversedAt: ANTES });
+    gastado(db, { amountCents: 9_000, at: ANTES, authMethod: 'pin' });
+    gastado(db, { amountCents: 8_000, at: new Date('2026-10-16T08:00:00+02:00') });
+    await expect(svc.payQrChargeWithCard(lola, cobro(db, 2_000, 'req-1'), { card: FICHA, uid: UID })).resolves.toMatchObject({
+      status: 'ACCEPTED',
+    });
+    await expect(svc.payQrChargeWithCard(lola, cobro(db, 100, 'req-2'), { card: FICHA, uid: UID })).rejects.toMatchObject({
+      response: expect.objectContaining({ reason: 'night_cap' }),
+    });
+  });
+
+  it('saldos sumados: lo gastado sin PIN en una recarga que se sumó a este cuenta para el tope', async () => {
+    const { svc, db } = setup({ card: ORIGINAL });
+    db.clientWallet.put({ id: 'w-sumada', tenantId: SALA, shortCode: 'Z9Z9Z9', balanceCents: 0, status: 'DEPLETED', mergedIntoId: WALLET });
+    gastado(db, { walletId: 'w-sumada', amountCents: 9_500, at: ANTES });
+    await expect(svc.payQrChargeWithCard(lola, cobro(db, 1_000), { card: FICHA, uid: UID })).rejects.toMatchObject({
+      response: expect.objectContaining({ reason: 'night_cap' }),
+    });
+  });
+
+  it('los topes del local mandan (Ajustes → Noche): con el máximo a 0, siempre PIN', async () => {
+    const { svc, db } = setup({ card: ORIGINAL });
+    db.venue.put({ ...db.venue.get(SALA), nightSettings: { nfcNoPinMaxCents: 0 } });
+    await expect(svc.payQrChargeWithCard(lola, cobro(db, 500), { card: FICHA, uid: UID })).rejects.toMatchObject({
+      response: expect.objectContaining({ reason: 'off' }),
+    });
+  });
+
+  it('sin el número de serie (un iPhone) o con un NFC sin número guardado: PIN; una copia, ni eso', async () => {
+    const iphone = setup({ card: ORIGINAL });
+    await expect(iphone.svc.payQrChargeWithCard(lola, cobro(iphone.db, 500), { card: FICHA })).rejects.toMatchObject({
+      response: expect.objectContaining({ reason: 'no_uid' }),
+    });
+    const sinGuardar = setup();
+    await expect(sinGuardar.svc.payQrChargeWithCard(lola, cobro(sinGuardar.db, 500), { card: FICHA, uid: UID })).rejects.toMatchObject({
+      response: expect.objectContaining({ reason: 'no_uid' }),
+    });
+    const copia = setup({ card: ORIGINAL });
+    await expect(
+      copia.svc.payQrChargeWithCard(lola, cobro(copia.db, 500), { card: FICHA, uid: '04:11:22:33:44:55:66' }),
+    ).rejects.toThrow(/no es la original/);
+    expect(copia.db.walletConsumption.rows.size).toBe(0);
+  });
+
+  it('con el PIN bloqueado por fallos tampoco va sin PIN (puede que no lo lleve su dueño)', async () => {
+    const { svc, db } = setup({ card: ORIGINAL });
+    db.clientWallet.put({ ...db.clientWallet.get(WALLET), pinLockedAt: ANTES });
+    await expect(svc.payQrChargeWithCard(lola, cobro(db, 500), { card: FICHA, uid: UID })).rejects.toMatchObject({
+      response: expect.objectContaining({ reason: 'pin_locked' }),
+    });
+  });
+
+  it('un cobro de otra persona no (sí el encargado); con el NFC apagado en el local, 409', async () => {
+    const { svc, db } = setup({ card: ORIGINAL });
+    const otra = { userId: 'b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d09', role: 'OPERATOR' as const, tenantId: SALA };
+    await expect(svc.payQrChargeWithCard(otra, cobro(db, 500), { card: FICHA, uid: UID })).rejects.toBeInstanceOf(ForbiddenException);
+    db.venue.put({ ...db.venue.get(SALA), paymentMethods: { nfc: false } });
+    await expect(svc.payQrChargeWithCard(javi, 'req-1', { card: FICHA, uid: UID })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PAYMENT_METHOD_DISABLED' }),
+    });
+    await expect(svc.payQrChargeWithCard(lola, 'no-existe', { card: FICHA, uid: UID })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('un cobro ya pagado no se vuelve a cobrar', async () => {
+    const { svc, db } = setup({ card: ORIGINAL });
+    const req = cobro(db, 500);
+    await svc.payQrChargeWithCard(lola, req, { card: FICHA, uid: UID });
+    await expect(svc.payQrChargeWithCard(lola, req, { card: FICHA, uid: UID })).rejects.toBeInstanceOf(ConflictException);
+    expect(db.walletConsumption.rows.size).toBe(1);
   });
 });

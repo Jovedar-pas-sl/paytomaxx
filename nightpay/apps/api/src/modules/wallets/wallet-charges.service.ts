@@ -10,7 +10,15 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { formatChargeRef, isWalletCardToken, normalizeWalletCardUid, type ChargeLineInput, type Role } from '@nightpay/contracts';
+import {
+  formatChargeRef,
+  isWalletCardToken,
+  nightSettingsOf,
+  normalizeWalletCardUid,
+  type ChargeAuthMethod,
+  type ChargeLineInput,
+  type Role,
+} from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -36,6 +44,13 @@ import {
 import { cardRefundCapCents, cashPayoutCapCents, cashPayoutRefusal, walletCash } from './wallet-cash-limits';
 import { firstTopUp, isFreshTopUpBy, type TopUpBy } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
+import {
+  PinRequiredException,
+  noPinCardProblem,
+  noPinProblem,
+  noPinSpentSince,
+  noPinWindowStart,
+} from './wallet-nopin';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { TotpService } from '../auth/totp.service';
@@ -114,6 +129,18 @@ export interface TerminalWalletCheck {
   pinByStaff: boolean;
   /** Le llega para este cobro. */
   enough: boolean;
+  /**
+   * Con su NFC (leído con su número de serie) se paga sin PIN: hasta el
+   * máximo y el tope de la noche del local. Es un aviso: el cobro lo vuelve
+   * a mirar con el saldo bloqueado (si no, 409 PIN_REQUIRED).
+   */
+  noPin: boolean;
+}
+
+/** Lo que se cuenta del NFC sin PIN al cobrar (para el registro). */
+interface NoPinSettled {
+  spentBeforeCents: number;
+  nightCapCents: number;
 }
 
 /** La ficha acercada en la recepción del datáfono: de qué saldo es, sin enseñarlo. */
@@ -505,14 +532,21 @@ export class WalletChargesService {
    * pueden ser de locales distintos del grupo. Todo o nada: si algo falla, el
    * rollback deja el cobro libre otra vez.
    */
-  private async settleRequest(walletId: string, requestId: string): Promise<void> {
+  private async settleRequest(walletId: string, requestId: string, auth: ChargeAuthMethod): Promise<NoPinSettled | null> {
     const wallet = { id: walletId };
-    await this.prisma.acrossVenues(async (tx) => {
+    return this.prisma.acrossVenues(async (tx) => {
       // blockedAt: saldo bloqueado por el super-admin → no paga (decideAccept).
       const locked = await tx.$queryRaw<
-        Array<{ id: string; balanceCents: number; status: string; blockedAt: Date | null }>
+        Array<{
+          id: string;
+          balanceCents: number;
+          status: string;
+          blockedAt: Date | null;
+          pinLockedAt: Date | null;
+          noPinResetAt: Date | null;
+        }>
       >`
-        SELECT id, "balanceCents", status::text AS status, "blockedAt"
+        SELECT id, "balanceCents", status::text AS status, "blockedAt", "pinLockedAt", "noPinResetAt"
           FROM client_wallets WHERE id = ${wallet.id}::uuid FOR UPDATE
       `;
       const w = locked[0];
@@ -529,9 +563,16 @@ export class WalletChargesService {
 
       const [provider, venue, lines] = await Promise.all([
         tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true, commissionBps: true } }),
-        tx.venue.findUnique({ where: { id: request.tenantId }, select: { operatorCommissionDefaults: true } }),
+        tx.venue.findUnique({
+          where: { id: request.tenantId },
+          select: { operatorCommissionDefaults: true, nightSettings: true },
+        }),
         linesOf(tx, { walletChargeIds: [request.id] }),
       ]);
+      // NFC sin PIN: con el saldo ya bloqueado, lo gastado sin PIN esta noche
+      // (también en los saldos sumados a este) + este cobro, contra el tope.
+      const noPin =
+        auth === 'nfc_nopin' ? await this.noPinAllowance(tx, w, request.amountCents, venue?.nightSettings) : null;
       const consumption = await tx.walletConsumption.create({
         data: {
           tenantId: request.tenantId,
@@ -541,6 +582,7 @@ export class WalletChargesService {
           category: request.category,
           notes: request.serviceName,
           idempotencyKey: `charge-request:${request.id}`,
+          authMethod: auth,
         },
       });
       if (provider?.role === 'OPERATOR') {
@@ -593,7 +635,28 @@ export class WalletChargesService {
         data: { status: 'ACCEPTED', decidedAt: new Date(), consumptionId: consumption.id },
       });
       if (accepted.count === 0) throw requestError('not-pending');
+      return noPin;
     });
+  }
+
+  /**
+   * ¿Va sin PIN? 409 PIN_REQUIRED si no (la transacción se deshace y el cobro
+   * sigue libre). Un PIN bloqueado por fallos también lo pide: puede que el
+   * NFC no lo lleve su dueño.
+   */
+  private async noPinAllowance(
+    tx: RawTx,
+    w: { id: string; pinLockedAt: Date | null; noPinResetAt: Date | null },
+    amountCents: number,
+    rawSettings: unknown,
+  ): Promise<NoPinSettled> {
+    if (w.pinLockedAt) throw new PinRequiredException('pin_locked');
+    const limits = nightSettingsOf(rawSettings);
+    const since = noPinWindowStart(new Date(), w.noPinResetAt);
+    const spentBeforeCents = await noPinSpentSince(tx, await mergedWalletIds(tx, w.id), since);
+    const problem = noPinProblem({ amountCents, spentCents: spentBeforeCents, limits });
+    if (problem) throw new PinRequiredException(problem);
+    return { spentBeforeCents, nightCapCents: limits.nfcNoPinNightCapCents };
   }
 
   // ─── Cobro con QR y Face ID (el cliente paga desde su móvil) ─────────────
@@ -661,7 +724,7 @@ export class WalletChargesService {
    */
   async payQrCharge(payToken: string, walletId: string): Promise<{ amountCents: number; balanceCents: number }> {
     const request = await this.qrRequest(payToken);
-    await this.bindAndSettle(request, walletId);
+    await this.bindAndSettle(request, walletId, 'passkey');
     const wallet = await this.prisma.acrossVenues((tx) =>
       tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
     );
@@ -722,7 +785,7 @@ export class WalletChargesService {
     if (request.requestedByUserId === actor.userId) {
       throw new ForbiddenException('Este cobro lo has hecho tú: lo tiene que aprobar otro encargado o el dueño');
     }
-    await this.bindAndSettle(request, walletId);
+    await this.bindAndSettle(request, walletId, 'staff');
     await this.audit.log({
       action: 'wallet.charge_without_faceid',
       tenantId: actor.tenantId,
@@ -794,9 +857,10 @@ export class WalletChargesService {
         where: { id: targetWalletId },
         data: { balanceCents: { increment: source.balanceCents }, ...(await reopenData(tx, target)) },
       });
+      // Una recarga pendiente de asignar (cobrada sin el NFC del cliente) deja de estarlo.
       await tx.clientWallet.update({
         where: { id: sourceWalletId },
-        data: { balanceCents: 0, status: 'DEPLETED', mergedIntoId: targetWalletId },
+        data: { balanceCents: 0, status: 'DEPLETED', mergedIntoId: targetWalletId, pendingAssignAt: null },
       });
       // Su ficha va con el dinero: si no, al pagar diría «no tiene saldo» y el stock la vería libre.
       await moveWalletCards(tx, { walletId: sourceWalletId, venueId: source.tenantId }, targetWalletId);
@@ -840,10 +904,69 @@ export class WalletChargesService {
       throw new ForbiddenException('Este PIN lo pusiste tú: el cobro lo tiene que hacer otra persona');
     }
     await this.checkPin(wallet.id, input.pin, actor);
-    await this.bindAndSettle(request, wallet.id);
+    await this.bindAndSettle(request, wallet.id, 'pin');
     if ('card' in input) await this.touchCard(wallet.id, input);
     this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${'card' in input ? 'ficha' : 'código'}, ${actor.userId})`);
     return this.getRequest(actor, requestId);
+  }
+
+  /**
+   * NFC sin PIN: la chica (o el camarero) acerca el NFC del cliente y, si no
+   * pasa del máximo ni del tope de la noche del local, se cobra ya. Si no,
+   * 409 PIN_REQUIRED y el mismo cobro se paga con su PIN. Solo con el NFC
+   * comprobado (su número de serie, como el guardado): una copia no paga.
+   */
+  async payQrChargeWithCard(
+    actor: Actor,
+    requestId: string,
+    input: { card: string; uid?: string | null },
+  ): Promise<ChargeRequestView> {
+    const request = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId, payToken: { not: null } } }),
+    );
+    if (!request) throw new NotFoundException('Cobro no encontrado');
+    if (request.requestedByUserId !== actor.userId && !isManager(actor)) {
+      throw new ForbiddenException('Este cobro lo ha hecho otra persona');
+    }
+    await this.assertMethods(actor.tenantId, ['nfc']);
+    if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) throw requestError('not-pending');
+    const wallet = await this.noPinCardWallet(actor.tenantId, input);
+    const noPin = await this.bindAndSettle(request, wallet.id, 'nfc_nopin');
+    await this.touchCard(wallet.id, input);
+    await this.logNoPinCharge(request, wallet.id, noPin, { tenantId: actor.tenantId, actorId: actor.userId });
+    this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con el NFC sin PIN (${actor.userId})`);
+    return this.getRequest(actor, requestId);
+  }
+
+  /** El saldo del NFC acercado, si se puede pagar sin PIN con él (si no, 409 PIN_REQUIRED). */
+  private async noPinCardWallet(venueId: string, input: { card: string; uid?: string | null }) {
+    const { card, wallet } = await this.cardWithWallet(venueId, input);
+    const problem = noPinCardProblem(card, input.uid ? normalizeWalletCardUid(input.uid) : null);
+    if (problem) throw new PinRequiredException(problem);
+    return wallet;
+  }
+
+  /** Cada cobro sin PIN, en el registro: cuánto, cuánto llevaba esa noche y el tope. */
+  private async logNoPinCharge(
+    request: { id: string; amountCents: number },
+    walletId: string,
+    noPin: NoPinSettled | null,
+    who: { tenantId: string; actorId?: string; terminalId?: string },
+  ): Promise<void> {
+    await this.audit.log({
+      action: 'wallet.charge_nfc_nopin',
+      tenantId: who.tenantId,
+      ...(who.actorId ? { actorId: who.actorId } : {}),
+      targetType: 'ClientWallet',
+      targetId: walletId,
+      payload: {
+        requestId: request.id,
+        amountCents: request.amountCents,
+        spentBeforeCents: noPin?.spentBeforeCents ?? null,
+        nightCapCents: noPin?.nightCapCents ?? null,
+        ...(who.terminalId ? { terminalId: who.terminalId } : {}),
+      },
+    });
   }
 
   /**
@@ -921,13 +1044,34 @@ export class WalletChargesService {
     if ('card' in ref) await this.assertMethods(terminal.tenantId, ['nfc']);
     const wallet = await this.walletByTerminalRef(terminal.tenantId, ref);
     if (wallet.blockedAt) throw requestError('blocked');
+    const enough = wallet.balanceCents >= request.amountCents;
     return {
       codeHint: codeHintOf(wallet.shortCode),
       hasPin: wallet.pinHash !== null,
       pinLocked: wallet.pinLockedAt !== null,
       pinByStaff: wallet.pinSetById !== null,
-      enough: wallet.balanceCents >= request.amountCents,
+      enough,
+      noPin: 'card' in ref && enough && (await this.noPinLikely(terminal.tenantId, ref, wallet, request.amountCents)),
     };
+  }
+
+  /** ¿Iría sin PIN? Lo mismo que mira el cobro, sin bloquear nada (el cobro lo vuelve a mirar). */
+  private async noPinLikely(
+    venueId: string,
+    ref: { card: string; uid?: string | null },
+    wallet: { id: string; pinLockedAt: Date | null; noPinResetAt: Date | null },
+    amountCents: number,
+  ): Promise<boolean> {
+    if (wallet.pinLockedAt) return false;
+    const { card } = await this.cardWithWallet(venueId, ref);
+    if (noPinCardProblem(card, ref.uid ? normalizeWalletCardUid(ref.uid) : null)) return false;
+    const [venue, spentCents] = await Promise.all([
+      this.prisma.venue.findUnique({ where: { id: venueId }, select: { nightSettings: true } }),
+      this.prisma.acrossVenues(async (tx) =>
+        noPinSpentSince(tx, await mergedWalletIds(tx, wallet.id), noPinWindowStart(new Date(), wallet.noPinResetAt)),
+      ),
+    ]);
+    return noPinProblem({ amountCents, spentCents, limits: nightSettingsOf(venue?.nightSettings) }) === null;
   }
 
   /** El cliente tecleó su PIN en el datáfono: se cobra el cobro de su saldo. */
@@ -944,7 +1088,7 @@ export class WalletChargesService {
     }
     const who = { tenantId: terminal.tenantId, userId: null, terminalId: terminal.terminalId };
     await this.checkPin(wallet.id, input.pin, who);
-    await this.bindAndSettle(request, wallet.id);
+    await this.bindAndSettle(request, wallet.id, 'pin');
     if ('card' in input) await this.touchCard(wallet.id, input);
     const via = 'card' in input ? 'ficha' : 'walletToken' in input ? 'pase' : 'código';
     await this.audit.log({
@@ -955,10 +1099,39 @@ export class WalletChargesService {
       payload: { requestId, amountCents: request.amountCents, terminalId: terminal.terminalId, via },
     });
     this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN en el datáfono ${terminal.terminalId} (${via})`);
+    return this.terminalChargeView(request, wallet.id);
+  }
+
+  /**
+   * NFC sin PIN en el datáfono: el cliente acerca su NFC al lector y, hasta el
+   * máximo y el tope de la noche del local, se cobra sin PIN (si no, 409
+   * PIN_REQUIRED y se sigue con su PIN). Siempre con su número de serie.
+   */
+  async payQrChargeFromTerminalWithCard(
+    terminal: TerminalActor,
+    requestId: string,
+    input: { card: string; uid?: string | null },
+  ): Promise<ChargeRequestView> {
+    const request = await this.terminalRequest(terminal, requestId);
+    await this.assertMethods(terminal.tenantId, ['nfc']);
+    if (!(input.uid && normalizeWalletCardUid(input.uid))) throw new BadRequestException(TERMINAL_CARD_NEEDS_UID);
+    const wallet = await this.noPinCardWallet(terminal.tenantId, input);
+    const noPin = await this.bindAndSettle(request, wallet.id, 'nfc_nopin');
+    await this.touchCard(wallet.id, input);
+    await this.logNoPinCharge(request, wallet.id, noPin, { tenantId: terminal.tenantId, terminalId: terminal.terminalId });
+    this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con el NFC sin PIN en el datáfono ${terminal.terminalId}`);
+    return this.terminalChargeView(request, wallet.id);
+  }
+
+  /** El cobro tras pagarlo en el datáfono, con lo que le queda (solo si se pagó). */
+  private async terminalChargeView(
+    request: { id: string; status: string; amountCents: number; serviceName: string | null; expiresAt: Date },
+    walletId: string,
+  ): Promise<ChargeRequestView> {
     const [fresh, after] = await Promise.all([
       this.prisma.asSystem((tx) => tx.walletChargeRequest.findFirst({ where: { id: request.id } })),
       this.prisma.acrossVenues((tx) =>
-        tx.clientWallet.findUnique({ where: { id: wallet.id }, select: { balanceCents: true } }),
+        tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
       ),
     ]);
     const settled = fresh ?? request;
@@ -1046,7 +1219,15 @@ export class WalletChargesService {
    * ya gastado (la recarga lo reabre).
    */
   async lookupCardForReception(venueId: string, input: { card: string; uid?: string | null }): Promise<ReceptionCardView> {
-    await this.assertMethods(venueId, ['nfc']);
+    return this.lookupForReception(venueId, input);
+  }
+
+  /** Lo mismo con el NFC o con el código del saldo («Recargar saldo» en Inicio). */
+  async lookupForReception(
+    venueId: string,
+    input: { card: string; uid?: string | null } | { code: string },
+  ): Promise<ReceptionCardView> {
+    if ('card' in input) await this.assertMethods(venueId, ['nfc']);
     const wallet = await topUpTarget(this.prisma, venueId, input);
     return {
       walletId: wallet.id,
@@ -1228,6 +1409,11 @@ export class WalletChargesService {
 
   /** La ficha → su saldo: activa, con saldo abierto y del grupo de este local. */
   private async walletByCard(venueId: string, input: { card: string; uid?: string | null }) {
+    return (await this.cardWithWallet(venueId, input)).wallet;
+  }
+
+  /** La ficha (dada, y no una copia) y su saldo abierto del grupo de este local. */
+  private async cardWithWallet(venueId: string, input: { card: string; uid?: string | null }) {
     const card = isWalletCardToken(input.card)
       ? await this.prisma.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: input.card } }))
       : null;
@@ -1253,7 +1439,7 @@ export class WalletChargesService {
     ) {
       throw new NotFoundException('Esta ficha no tiene saldo en este local');
     }
-    return wallet;
+    return { card, wallet };
   }
 
   /**
@@ -1354,9 +1540,11 @@ export class WalletChargesService {
       if (!w.pinHash) return { kind: 'no-pin' as const };
       if (w.pinLockedAt) return { kind: 'locked' as const };
       if (await verifyPin(pin, w.pinHash, pepper)) {
-        if (w.pinFails > 0) {
-          await tx.clientWallet.update({ where: { id: walletId }, data: { pinFails: 0, pinFailedAt: null } });
-        }
+        // PIN bueno: lo gastado con el NFC sin PIN esta noche vuelve a contar desde aquí.
+        await tx.clientWallet.update({
+          where: { id: walletId },
+          data: { pinFails: 0, pinFailedAt: null, noPinResetAt: new Date() },
+        });
         return { kind: 'ok' as const };
       }
       // Fallos de hace más de 12 h no cuentan (un despiste otra noche no bloquea).
@@ -1433,11 +1621,15 @@ export class WalletChargesService {
     return isFreshTopUpBy(await firstTopUp(this.prisma, walletId), by);
   }
 
-  /** Ata un cobro con QR a un saldo y lo cobra (todo o nada: si falla, el cobro sigue libre). */
+  /**
+   * Ata un cobro con QR a un saldo y lo cobra (todo o nada: si falla, el cobro
+   * sigue libre). `auth`: cómo lo autorizó el cliente (queda en el consumo).
+   */
   private async bindAndSettle(
     request: { id: string; tenantId: string; status: string; expiresAt: Date; walletId: string | null },
     walletId: string,
-  ): Promise<void> {
+    auth: ChargeAuthMethod,
+  ): Promise<NoPinSettled | null> {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw requestError('not-pending');
     }
@@ -1456,7 +1648,7 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: request.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new ConflictException({ message: 'Tu saldo no vale en este local', code: 'CHARGE_OTHER_VENUE' });
     }
-    await this.settleRequest(walletId, request.id);
+    return this.settleRequest(walletId, request.id, auth);
   }
 
   private async qrRequest(payToken: string) {
