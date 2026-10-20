@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import type { ChargeMethod, CobroPerson, SectionAmount } from './charge-lines';
 import { UuidSchema } from './common';
+import type { InvitationShare } from './invitations';
 
 /**
  * El mapa del dinero del panel (maqueta 8 · A, barras apiladas): una noche
@@ -137,4 +139,55 @@ export interface MoneyMap {
 export function venueSharePercent(m: Pick<MoneyMap, 'salesCents' | 'split'>): number {
   if (m.salesCents <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((m.split.venueCents * 100) / m.salesCents)));
+}
+
+// ─── Ficha de la chica (y del camarero) · maqueta 9.2 ──────────────────
+
+/** Lo que le toca de cada cosa (los chips de la ficha). */
+export type StaffRate =
+  /** Su % de una sección (el suyo o el del local). */
+  | { kind: 'section'; code: string; bps: number }
+  /** Su parte de una invitación («Invitar a una copa»). */
+  | { kind: 'invitation'; share: InvitationShare }
+  /** Las propinas que le dejan a ella. */
+  | { kind: 'tips'; bps: number };
+
+/** Un cobro de esta noche en el que le toca algo (una ganancia). */
+export interface StaffFichaRow {
+  /** La ganancia (operator_earnings). */
+  id: string;
+  at: string;
+  /** Referencia corta del cobro (C-0001). */
+  ref: string | null;
+  kind: 'PAYMENT' | 'SALDO';
+  /** Sección para el color: la de la invitación o la principal del cobro. */
+  section: string;
+  sections: SectionAmount[];
+  /** «1 h», «Invitación», «Propina»… */
+  title: string;
+  method: ChargeMethod | null;
+  /** Por dónde se autorizó: «QR», «Datáfono», «NFC», «PIN», «Face ID»… */
+  via: string | null;
+  /** Código del saldo con el que pagó (los cobros del saldo). */
+  walletCode: string | null;
+  /** Quién lo cobró, si no fue ella (las invitaciones: el camarero). */
+  chargedBy: CobroPerson | null;
+  invitation: boolean;
+  /** Lo vendido (en una invitación, la copa). */
+  amountCents: number;
+  /** Lo suyo: comisión + propina − lo devuelto. */
+  shareCents: number;
+  /** Devuelto o anulado del todo. */
+  undone: boolean;
+}
+
+export interface StaffFicha {
+  person: { id: string; name: string; role: 'OPERATOR' | 'WAITER' };
+  /** La noche (en directo) o, sin noche abierta, desde el último cierre. */
+  window: { from: string; to: string; nightId: string | null; open: boolean };
+  stats: { soldCents: number; shareCents: number; paidCents: number; count: number };
+  rates: StaffRate[];
+  rows: StaffFichaRow[];
+  /** Sus últimos pagos (de cualquier noche). */
+  payouts: Array<{ id: string; at: string; cents: number; rail: string | null }>;
 }

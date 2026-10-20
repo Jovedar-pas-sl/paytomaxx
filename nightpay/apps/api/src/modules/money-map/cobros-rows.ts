@@ -83,7 +83,27 @@ export interface SaldoFeedRow {
   /** El consumo se anuló (devuelto al saldo). */
   reversed: boolean;
   tipCents: number;
+  /** Cómo se autorizó el consumo (wallet_consumptions.authMethod). */
+  authMethod?: string | null;
   lines: StoredLineLike[];
+}
+
+const AUTH_VIA: Readonly<Record<string, string>> = {
+  nfc_nopin: 'NFC',
+  pin: 'PIN',
+  passkey: 'Face ID',
+  staff: 'Personal',
+};
+
+/** Por dónde se autorizó un cobro del saldo («NFC», «PIN», «Face ID»…); null si es de antes. */
+export function saldoVia(authMethod: string | null | undefined): string | null {
+  return authMethod ? (AUTH_VIA[authMethod] ?? null) : null;
+}
+
+/** Por dónde se cobró uno con tarjeta: el datáfono o el QR en el móvil del cliente (las recargas: null). */
+export function paymentVia(method: ChargeMethod | null, isTopUp: boolean): string | null {
+  if (isTopUp || !method) return null;
+  return method === 'POS' ? 'Datáfono' : 'QR';
 }
 
 export function personOf(u: PersonLike | null | undefined): CobroPerson | null {
@@ -151,6 +171,7 @@ export function paymentCobroRow(p: PaymentFeedRow): CobroRow {
     isTopUp,
     method,
     methodLabel: paymentMethodLabel(method, p),
+    via: paymentVia(method, isTopUp),
     wallet: p.wallet ? { id: p.wallet.id, codeHint: walletHint(p.wallet.shortCode) } : null,
     service: p.serviceName,
     invited: invitedOf(p.lines),
@@ -194,6 +215,7 @@ export function saldoCobroRow(s: SaldoFeedRow): CobroRow {
     isTopUp: false,
     method: 'SALDO',
     methodLabel: `${CHARGE_METHOD_LABELS.SALDO} ${hint}`,
+    via: saldoVia(s.authMethod),
     wallet: s.wallet ? { id: s.wallet.id, codeHint: hint } : null,
     service: s.serviceName,
     invited: invitedOf(s.lines),

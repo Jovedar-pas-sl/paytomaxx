@@ -4,6 +4,7 @@ import { CobrosController } from './cobros.controller';
 import { CobrosService } from './cobros.service';
 import { MoneyMapController } from './money-map.controller';
 import { MoneyMapService } from './money-map.service';
+import { StaffFichaService } from './staff-ficha.service';
 import { WalletFichaService } from './wallet-ficha.service';
 
 /**
@@ -13,7 +14,7 @@ import { WalletFichaService } from './wallet-ficha.service';
 @Module({
   imports: [ReportsModule],
   controllers: [CobrosController, MoneyMapController],
-  providers: [CobrosService, WalletFichaService, MoneyMapService],
+  providers: [CobrosService, WalletFichaService, MoneyMapService, StaffFichaService],
   exports: [MoneyMapService],
 })
 export class MoneyMapModule {}

@@ -14,6 +14,8 @@ import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 import { CartaService } from '../../src/modules/carta/carta.service';
 import { MoneyMapService } from '../../src/modules/money-map/money-map.service';
+import { StaffFichaService } from '../../src/modules/money-map/staff-ficha.service';
+import { WalletFichaService } from '../../src/modules/money-map/wallet-ficha.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
 import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
@@ -48,6 +50,8 @@ const carta = new CartaService(prisma as never, audit as never);
 const reports = new ReportsService(prisma);
 const period = new PeriodReportsService(prisma);
 const moneyMap = new MoneyMapService(prisma, reports, config as never);
+const staffFichas = new StaffFichaService(prisma, moneyMap);
+const walletFichas = new WalletFichaService(prisma);
 const checks = new CloseCheckService(prisma, new IncidentsService(prisma, audit as never), config as never);
 const nights = new NightsService(prisma, reports, audit as never, checks, undefined, moneyMap);
 // La noche se abre «hace 2 h»: que el cierre automático de las 08:00 no se cruce con la prueba.
@@ -266,6 +270,49 @@ describe('el Z y el Z del periodo, por línea, cuadran con el mapa', () => {
       VENUE_ROOM: [3_000, 0, 1],
     });
     expect(z.wallet).toMatchObject({ topUpCents: 15_000, consumptionCents: 3_000 });
+  });
+});
+
+describe('las fichas de la noche cuadran con el mapa', () => {
+  it('la de Lola: su pack y su invitación (que cobró Dani), con su parte', async () => {
+    const f = await inVenue(A, () => staffFichas.ficha(A, lola, soon()));
+    expect(f.person).toEqual({ id: lola, name: 'Lola', role: 'OPERATOR' });
+    expect(f.window).toMatchObject({ nightId, open: true });
+    expect(f.rows.map((r) => [r.title, r.section, r.amountCents, r.shareCents, r.chargedBy?.name ?? null, r.via])).toEqual([
+      ['Invitación', 'VENUE_BAR', 5_000, 2_000, 'Dani', 'QR'],
+      ['1 h con habitación', 'CHICA_SERVICE', 15_000, 10_800, null, 'QR'],
+    ]);
+    expect(f.rows[1]!.sections).toEqual([
+      { category: 'CHICA_SERVICE', amountCents: 12_000 },
+      { category: 'VENUE_ROOM', amountCents: 3_000 },
+    ]);
+    // Lo suyo de la noche = lo de las chicas en el mapa.
+    expect(f.stats).toEqual({ soldCents: 20_000, shareCents: live.split.chicasCents, paidCents: 0, count: 2 });
+    expect(f.rates).toEqual([
+      { kind: 'section', code: 'CHICA_SERVICE', bps: 9000 },
+      { kind: 'invitation', share: { kind: 'PERCENT', bps: 4000 } },
+      { kind: 'tips', bps: 10_000 },
+    ]);
+  });
+
+  it('la de Dani (camarero): su parte de la invitación, ya pagada', async () => {
+    const f = await inVenue(A, () => staffFichas.ficha(A, dani, soon()));
+    expect(f.person.role).toBe('WAITER');
+    expect(f.rows).toEqual([expect.objectContaining({ title: 'Invitación', amountCents: 5_000, shareCents: 600, chargedBy: null })]);
+    expect(f.stats).toMatchObject({ shareCents: live.split.camarerosCents, paidCents: 600 });
+    expect(f.rates).toEqual([{ kind: 'invitation', share: { kind: 'FIXED', cents: 300 } }]);
+    expect(f.payouts).toEqual([expect.objectContaining({ cents: 600, rail: 'MANUAL_CASH' })]);
+  });
+
+  it('la del saldo: recargado − gastado − devuelto = lo que le queda; el consumo, por NFC/QR y con su sección', async () => {
+    const f = await inVenue(A, () => walletFichas.ficha(A, W));
+    const recargado = f.topUps.reduce((a, t) => a + t.amountCents, 0);
+    const gastado = f.consumptions.filter((c) => c.status !== 'REVERSED').reduce((a, c) => a + c.amountCents + c.tipCents, 0);
+    const devuelto = f.refunds.filter((x) => x.status === 'DONE').reduce((a, x) => a + x.amountCents, 0);
+    expect([recargado, gastado, devuelto]).toEqual([15_000, 3_000, 2_000]);
+    expect(recargado - gastado - devuelto).toBe(f.wallet.balanceCents);
+    expect(f.consumptions[0]).toMatchObject({ via: 'Face ID', sections: [{ category: 'VENUE_BAR', amountCents: 3_000 }] });
+    expect(f.cards).toEqual([]);
   });
 });
 

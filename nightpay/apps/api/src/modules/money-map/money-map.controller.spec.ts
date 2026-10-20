@@ -14,9 +14,19 @@ describe('GET /v1/admin/money-map', () => {
 
   it('pasa la consulta al servicio con el local del token', async () => {
     const svc = { forQuery: vi.fn().mockResolvedValue({ salesCents: 1 }) };
-    const controller = new MoneyMapController(svc as never);
+    const controller = new MoneyMapController(svc as never, {} as never);
     await expect(controller.get('t-1', { night: 'current' })).resolves.toEqual({ salesCents: 1 });
     expect(svc.forQuery).toHaveBeenCalledWith('t-1', { night: 'current' });
+  });
+
+  it('la ficha de la chica o del camarero: dueño y encargado (sin permiso de informes)', async () => {
+    const handler = MoneyMapController.prototype.staffFicha;
+    expect(Reflect.getMetadata(ROLES_KEY, handler)).toEqual(['OWNER', 'MANAGER']);
+    expect(Reflect.getMetadata(STAFF_PERMISSION_KEY, handler)).toBeUndefined();
+    const fichas = { ficha: vi.fn().mockResolvedValue({ person: { id: 'p-1' } }) };
+    const controller = new MoneyMapController({} as never, fichas as never);
+    await expect(controller.staffFicha('t-1', 'p-1')).resolves.toEqual({ person: { id: 'p-1' } });
+    expect(fichas.ficha).toHaveBeenCalledWith('t-1', 'p-1');
   });
 
   it('la consulta: una noche o unas fechas, no las dos; las dos fechas o ninguna', () => {

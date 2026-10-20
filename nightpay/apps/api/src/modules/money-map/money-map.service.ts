@@ -33,6 +33,13 @@ export interface MoneyMapOptions {
   frozen?: boolean;
 }
 
+/** «Esta noche» en directo (currentWindow). */
+export interface CurrentWindow extends TimeWindow {
+  nightId: string | null;
+  open: boolean;
+  openingFloatCents: number | null;
+}
+
 /** Lo que el mapa lee de la caja de la noche (NightCash o el bloque «Caja» del Z). */
 export type CashBoxLike = Pick<NightCash, 'openingFloatCents' | 'cashInCents' | 'cashOutCents' | 'expectedCents'>;
 
@@ -101,28 +108,30 @@ export class MoneyMapService {
     return this.ofNight(tenantId, q.night, now);
   }
 
-  /** La noche abierta, en directo (sin noche abierta: desde el último cierre o las 08:00). */
-  private async current(tenantId: string, now: Date): Promise<MoneyMap> {
+  /**
+   * «Esta noche» en directo: la abierta, desde donde cuenta su Z (el cierre de
+   * la anterior); sin noche abierta, desde el último cierre (o las 08:00). La
+   * usan el mapa en directo y las fichas de la chica y del camarero.
+   */
+  async currentWindow(tenantId: string, now: Date = new Date()): Promise<CurrentWindow> {
     const open = await this.prisma.asSystem((tx) =>
       tx.venueNight.findFirst({ where: { tenantId, closedAt: null }, orderBy: { openedAt: 'desc' } }),
     );
-    if (open) return this.openNight(tenantId, open, now);
+    if (open) return this.openWindow(tenantId, open, now);
     const last = await this.prisma.asSystem((tx) =>
       tx.venueNight.findFirst({ where: { tenantId, closedAt: { not: null } }, orderBy: { closedAt: 'desc' }, select: { closedAt: true } }),
     );
-    const from = last?.closedAt ?? lastNightCutoff(now);
-    return this.compute(tenantId, { from, to: now }, {
-      scope: { kind: 'night', nightId: null, open: false },
-      now,
-      openingFloatCents: null,
-      withLiveBalances: true,
-    });
+    return { from: last?.closedAt ?? lastNightCutoff(now), to: now, nightId: null, open: false, openingFloatCents: null };
+  }
+
+  private async current(tenantId: string, now: Date): Promise<MoneyMap> {
+    return this.ofWindow(tenantId, await this.currentWindow(tenantId, now), now);
   }
 
   private async ofNight(tenantId: string, nightId: string, now: Date): Promise<MoneyMap> {
     const night = await this.prisma.asSystem((tx) => tx.venueNight.findFirst({ where: { id: nightId, tenantId } }));
     if (!night) throw new NotFoundException('Noche no encontrada');
-    if (!night.closedAt) return this.openNight(tenantId, night, now);
+    if (!night.closedAt) return this.ofWindow(tenantId, await this.openWindow(tenantId, night, now), now);
     const frozen = frozenMoneyMapOf(night.zReport);
     if (frozen) return frozen;
     // Un Z de antes del mapa: se calcula con la ventana y el corte de su Z.
@@ -139,11 +148,12 @@ export class MoneyMapService {
     });
   }
 
-  private async openNight(
+  /** La noche abierta: desde donde cuenta su Z (el cierre de la anterior), como el Z en vivo. */
+  private async openWindow(
     tenantId: string,
     night: { id: string; openedAt: Date; openingFloatCents: number | null },
     now: Date,
-  ): Promise<MoneyMap> {
+  ): Promise<CurrentWindow> {
     const previous = await this.prisma.asSystem((tx) =>
       tx.venueNight.findFirst({
         where: { tenantId, closedAt: { not: null, lte: night.openedAt } },
@@ -151,13 +161,17 @@ export class MoneyMapService {
         select: { closedAt: true, zReport: true },
       }),
     );
-    // Desde donde cuenta su Z (el cierre de la anterior), como el Z en vivo.
     const { from } = zStart(previous, night.openedAt);
-    return this.compute(tenantId, { from, to: now }, {
-      scope: { kind: 'night', nightId: night.id, open: true },
+    return { from, to: now, nightId: night.id, open: true, openingFloatCents: night.openingFloatCents };
+  }
+
+  /** En directo: con el corte de ahora (como el Z en vivo) y el saldo vivo. */
+  private ofWindow(tenantId: string, w: CurrentWindow, now: Date): Promise<MoneyMap> {
+    return this.compute(tenantId, { from: w.from, to: w.to }, {
+      scope: { kind: 'night', nightId: w.nightId, open: w.open },
       now,
-      recordedBefore: now,
-      openingFloatCents: night.openingFloatCents,
+      ...(w.open ? { recordedBefore: now } : {}),
+      openingFloatCents: w.openingFloatCents,
       withLiveBalances: true,
     });
   }
