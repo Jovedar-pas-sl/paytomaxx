@@ -355,7 +355,14 @@ describe('getByToken — consulta pública por el QR', () => {
       venueName: 'Sala Bambú (Madrid)',
       terminalLabel: 'Barra principal',
       qrExpiresAt: '2026-10-16T23:34:00.000Z',
+      // Cobro de antes de las referencias: sin referencia.
+      ref: null,
     });
+  });
+
+  it('con su referencia corta (C-0042): la misma que ve la chica en el PAGADO', async () => {
+    const { service } = makeService({ payment: { status: 'AUTHORIZED', ref: 42 } as never });
+    await expect(service.getByToken(QR)).resolves.toMatchObject({ ref: 'C-0042' });
   });
 });
 

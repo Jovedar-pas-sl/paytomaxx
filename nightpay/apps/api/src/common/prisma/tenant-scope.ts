@@ -31,6 +31,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'BankStatement',
   'BankStatementItem',
   'ApprovalRequest',
+  'PaymentLine',
+  'ChargeRefCounter',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

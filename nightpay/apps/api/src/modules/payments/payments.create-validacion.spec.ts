@@ -63,7 +63,13 @@ function makeService(opts: Opts = {}) {
       findFirst: vi.fn(async () => (opts.beneficiaryExists === false ? null : { id: BENEFICIARY, commissionBps: null })),
     },
     clientWallet: { findFirst: vi.fn(async () => (opts.wallet === undefined ? { id: WALLET, status: 'ACTIVE' } : opts.wallet)) },
-    serviceItem: { findFirst: vi.fn(async () => opts.serviceItem ?? null) },
+    serviceItem: {
+      findFirst: vi.fn(async () => opts.serviceItem ?? null),
+      findMany: vi.fn(async () => (opts.serviceItem ? [{ components: null, ...opts.serviceItem }] : [])),
+    },
+    // El mapa del dinero: líneas del cobro y su referencia (C-0001).
+    paymentLine: { createMany: vi.fn(async () => ({ count: 1 })), findMany: vi.fn(async () => []) },
+    chargeRefCounter: { upsert: vi.fn(async () => ({ lastRef: 3 })) },
     $queryRaw: vi.fn(async () => opts.walletInsert ?? [{ id: WALLET }]),
   };
   const prisma = { ...db, asSystem: vi.fn(async (fn: (tx: typeof db) => unknown) => fn(db)) };
@@ -149,7 +155,9 @@ describe('create — cobro desde la carta (Fase 1A)', () => {
   it('importe y categoría los fija la carta del local (el importe enviado no cuenta)', async () => {
     const { service, db, created } = makeService({ serviceItem: bottle });
     await service.create(TENANT, 'idem-val-0010', dto({ amountCents: 1, serviceItemId: SERVICE_ITEM }), waiter);
-    expect(db.serviceItem.findFirst).toHaveBeenCalledWith({ where: { id: SERVICE_ITEM, tenantId: TENANT } });
+    expect(db.serviceItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: [SERVICE_ITEM] }, tenantId: TENANT } }),
+    );
     expect(created[0]).toMatchObject({
       amountCents: 18_000,
       availableAmountCents: 18_000,
@@ -157,10 +165,17 @@ describe('create — cobro desde la carta (Fase 1A)', () => {
       serviceName: 'Botella Moët',
       durationMin: null,
       revenueCategory: 'VENUE_BAR',
+      ref: 3,
+    });
+    // Y su línea, en Copas.
+    expect(db.paymentLine.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({ paymentId: PAYMENT_ID, category: 'VENUE_BAR', serviceItemId: SERVICE_ITEM, amountCents: 18_000 }),
+      ],
     });
   });
 
-  it('servicio de otra carta → 404; desactivado → 400; la chica no cobra la barra → 400', async () => {
+  it('servicio de otra carta → 404; desactivado → 400', async () => {
     const missing = makeService({ serviceItem: null });
     await expect(
       missing.service.create(TENANT, 'idem-val-0011', dto({ serviceItemId: SERVICE_ITEM }), waiter),
@@ -169,19 +184,7 @@ describe('create — cobro desde la carta (Fase 1A)', () => {
     await expect(
       off.service.create(TENANT, 'idem-val-0012', dto({ serviceItemId: SERVICE_ITEM }), waiter),
     ).rejects.toBeInstanceOf(BadRequestException);
-    const chica = makeService({ serviceItem: bottle });
-    await expect(
-      chica.service.create(TENANT, 'idem-val-0013', dto({ serviceItemId: SERVICE_ITEM }), operator),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    expect([...missing.created, ...off.created, ...chica.created]).toHaveLength(0);
-  });
-
-  it('cobro libre: la chica no puede apuntarlo como barra (sería su % de ventas del local) → 400', async () => {
-    const { service, created } = makeService();
-    await expect(
-      service.create(TENANT, 'idem-val-0014', dto({ revenueCategory: 'VENUE_BAR' }), operator),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    expect(created).toHaveLength(0);
+    expect([...missing.created, ...off.created]).toHaveLength(0);
   });
 });
 

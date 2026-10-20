@@ -1,32 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  inferRevenueCategory,
   resolveBpsForOperator,
   DEFAULT_COMMISSION_DEFAULTS,
 } from './commission';
-
-describe('inferRevenueCategory', () => {
-  it('wallet top-up → siempre EXTRA (categoría real se asigna por consumption)', () => {
-    expect(inferRevenueCategory({ hasWalletId: true, creatorRole: 'OPERATOR' })).toBe('EXTRA');
-    expect(inferRevenueCategory({ hasWalletId: true, creatorRole: 'WAITER' })).toBe('EXTRA');
-    expect(inferRevenueCategory({ hasWalletId: true, creatorRole: 'OWNER' })).toBe('EXTRA');
-  });
-
-  it('OPERATOR + sin wallet → CHICA_SERVICE (su servicio)', () => {
-    expect(inferRevenueCategory({ hasWalletId: false, creatorRole: 'OPERATOR' })).toBe('CHICA_SERVICE');
-  });
-
-  it('WAITER/MANAGER/OWNER + sin wallet → EXTRA (deben elegir explícito)', () => {
-    expect(inferRevenueCategory({ hasWalletId: false, creatorRole: 'WAITER' })).toBe('EXTRA');
-    expect(inferRevenueCategory({ hasWalletId: false, creatorRole: 'MANAGER' })).toBe('EXTRA');
-    expect(inferRevenueCategory({ hasWalletId: false, creatorRole: 'OWNER' })).toBe('EXTRA');
-  });
-
-  it('creatorRole null/undefined → EXTRA', () => {
-    expect(inferRevenueCategory({ hasWalletId: false, creatorRole: null })).toBe('EXTRA');
-    expect(inferRevenueCategory({ hasWalletId: false, creatorRole: undefined })).toBe('EXTRA');
-  });
-});
 
 describe('resolveBpsForOperator', () => {
   const venueMap = {

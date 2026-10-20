@@ -104,6 +104,9 @@ function setup(wallet: Row = {}, topUp: Row | null = null) {
     clientWallet: table('w'),
     walletCard: table('card'),
     walletChargeRequest: table('req', { walletId: null, decidedAt: null }),
+    // El mapa del dinero: líneas de cada cobro y su referencia (C-0001).
+    paymentLine: Object.assign(table('line'), { createMany: vi.fn(async () => ({ count: 0 })), findMany: vi.fn(async () => []) }),
+    chargeRefCounter: { upsert: vi.fn(async () => ({ lastRef: 1 })) },
     walletConsumption: table('cons'),
     operatorEarning: table('earn'),
     payment: table('pay'),

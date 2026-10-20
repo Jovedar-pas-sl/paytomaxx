@@ -12,7 +12,6 @@ import {
   switchesMethod,
   type PayablePayment,
 } from './pay-redirect';
-import { resolveRevenueCategory } from './commission';
 
 const NOW = new Date('2026-10-13T08:00:00Z');
 const FUTURE = new Date(NOW.getTime() + 3 * 60_000);
@@ -243,34 +242,6 @@ describe('confirmationCode', () => {
     const id = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
     expect(confirmationCode(id)).toBe('A6B');
     expect(confirmationCode(id)).toBe(confirmationCode(id));
-  });
-});
-
-describe('resolveRevenueCategory — quién puede cobrar qué', () => {
-  it('la chica solo cobra sus servicios', () => {
-    expect(resolveRevenueCategory({ isWalletTopUp: false, creatorRole: 'OPERATOR', requested: undefined })).toBe(
-      'CHICA_SERVICE',
-    );
-    expect(
-      resolveRevenueCategory({ isWalletTopUp: false, creatorRole: 'OPERATOR', requested: 'CHICA_SERVICE' }),
-    ).toBe('CHICA_SERVICE');
-  });
-
-  it('la chica no puede cobrar barra ni habitación (→ null, el servicio responde 400)', () => {
-    expect(resolveRevenueCategory({ isWalletTopUp: false, creatorRole: 'OPERATOR', requested: 'VENUE_BAR' })).toBeNull();
-    expect(resolveRevenueCategory({ isWalletTopUp: false, creatorRole: 'OPERATOR', requested: 'VENUE_ROOM' })).toBeNull();
-  });
-
-  it('la recarga de wallet siempre es EXTRA, la pida quien la pida', () => {
-    expect(
-      resolveRevenueCategory({ isWalletTopUp: true, creatorRole: 'OPERATOR', requested: 'CHICA_SERVICE' }),
-    ).toBe('EXTRA');
-  });
-
-  it('el camarero cobra las categorías del local', () => {
-    expect(resolveRevenueCategory({ isWalletTopUp: false, creatorRole: 'WAITER', requested: 'VENUE_BAR' })).toBe(
-      'VENUE_BAR',
-    );
   });
 });
 

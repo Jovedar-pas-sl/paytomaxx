@@ -72,7 +72,10 @@ function makeService(opts: Opts = {}) {
       findFirst: vi.fn().mockResolvedValue(opts.beneficiaryExists === false ? null : { id: 'user-2', commissionBps: null }),
     },
     clientWallet: { findFirst: vi.fn().mockResolvedValue({ id: 'wallet-1', status: 'ACTIVE' }) },
-    serviceItem: { findFirst: vi.fn().mockResolvedValue(null) },
+    serviceItem: { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
+    // El mapa del dinero: líneas del cobro y su referencia (C-0001).
+    paymentLine: { createMany: vi.fn().mockResolvedValue({ count: 1 }), findMany: vi.fn().mockResolvedValue([]) },
+    chargeRefCounter: { upsert: vi.fn().mockResolvedValue({ lastRef: 12 }) },
     $queryRaw: vi.fn(async () => [{ id: 'wallet-new' }]),
   };
   const prisma = {
@@ -300,7 +303,8 @@ describe('create — Idempotency-Key ligada a quién y a qué (#32)', () => {
 describe('create — el % de la chica se fija al crear el cobro (#54)', () => {
   it('cobro de la chica: su % de ahora (o el del local) queda guardado', async () => {
     const own = makeService();
-    own.db.user.findFirst.mockResolvedValueOnce({ id: 'op-1', commissionBps: 7_000 });
+    // La misma persona se lee dos veces: su puesto (sección por defecto) y su %.
+    own.db.user.findFirst.mockResolvedValue({ id: 'op-1', commissionBps: 7_000, post: null });
     await own.service.create('tenant-1', 'idem-key-0200', dto(), operator);
     expect(own.created[0]).toMatchObject({ operatorCommissionBps: 7_000, revenueCategory: 'CHICA_SERVICE' });
 
