@@ -1,29 +1,36 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
-import { Button, Card } from '@nightpay/ui';
+import { useEffect, useState } from 'react';
+import type { OperatorUser } from '@/lib/api';
 import { fetchPendingTopUps } from '@/lib/api-noche';
 import { useVenueMethods } from '@/lib/venue-methods';
+import s from './desk/desk.module.css';
+import { ReceptionDesk } from './desk/ReceptionDesk';
 import { PendingTopUps } from './PendingTopUps';
 import { PrepareFichas } from './PrepareFichas';
-import { ReceptionFlow } from './ReceptionFlow';
 import { useChipReader } from './use-chip-via';
 
+interface Props {
+  user: OperatorUser;
+  /** La pestaña se ve (el NFC solo se escucha entonces). */
+  active: boolean;
+}
+
 /**
- * Recepción desde el móvil del personal: recargar el saldo (tarjeta con el QR
- * en su móvil, o efectivo), darle la ficha (Android: Web NFC) y que elija su
- * PIN; «Preparar fichas» para el stock (solo Android con Chrome); y las
+ * Recepción desde el móvil del personal (solo quien carga saldos: recepción,
+ * el encargado o el dueño). La recepción exprés (Entrada / Salida) y, debajo,
+ * lo de siempre: «Preparar fichas» para el stock (Android con Chrome) y las
  * recargas cobradas sin el NFC del cliente, pendientes de asignar.
  */
-export function ReceptionTab() {
+export function ReceptionTab({ user, active }: Props) {
   const methods = useVenueMethods();
   const reader = useChipReader();
-  const [view, setView] = useState<'menu' | 'reception' | 'prepare' | 'pending'>('menu');
+  const [view, setView] = useState<'desk' | 'prepare' | 'pending'>('desk');
   const [pending, setPending] = useState(0);
 
-  // Al volver al menú, cuántas recargas esperan su saldo (si falla, el botón sale igual).
+  // Al volver a la recepción, cuántas recargas esperan su saldo (si falla, el enlace sale igual).
   useEffect(() => {
-    if (view !== 'menu') return undefined;
+    if (view !== 'desk' || !active) return undefined;
     let alive = true;
     fetchPendingTopUps()
       .then((rows) => alive && setPending(rows.length))
@@ -31,51 +38,23 @@ export function ReceptionTab() {
     return () => {
       alive = false;
     };
-  }, [view]);
+  }, [view, active]);
 
-  if (view === 'reception') return <ReceptionFlow on="staff" onDone={() => setView('menu')} />;
-  if (view === 'prepare') return <PrepareFichas on="staff" onDone={() => setView('menu')} />;
-  if (view === 'pending') return <PendingTopUps onDone={() => setView('menu')} />;
+  if (view === 'prepare') return <PrepareFichas on="staff" onDone={() => setView('desk')} />;
+  if (view === 'pending') return <PendingTopUps onDone={() => setView('desk')} />;
 
-  return (
-    <Card style={cardStyle}>
-      <p style={kicker}>Recepción</p>
-      <p style={big}>Recargar el saldo del cliente</p>
-      <p style={muted}>Con tarjeta (paga en su móvil) o en efectivo; le das la ficha y elige su PIN.</p>
-      <Button size="lg" onClick={() => setView('reception')}>
-        Nueva recarga
-      </Button>
-      <Button size="lg" variant={pending > 0 ? 'primary' : 'ghost'} onClick={() => setView('pending')}>
-        {pending > 0 ? `Pendientes de asignar (${pending})` : 'Pendientes de asignar'}
-      </Button>
-      {methods.nfc ? (
-        <>
-          <Button size="lg" variant="ghost" disabled={!reader.via || !reader.canWrite} onClick={() => setView('prepare')}>
-            Preparar fichas
-          </Button>
-          {!reader.loading && (!reader.via || !reader.canWrite) ? <p style={note}>{reader.note}</p> : null}
-        </>
+  const canPrepare = methods.nfc && reader.via !== null && reader.canWrite;
+  const footer = (
+    <div className={s.links}>
+      {canPrepare ? (
+        <button type="button" className={s.txtlink} onClick={() => setView('prepare')}>
+          Preparar fichas
+        </button>
       ) : null}
-    </Card>
+      <button type="button" className={`${s.txtlink} ${pending > 0 ? s.txtlinkOn : ''}`} onClick={() => setView('pending')}>
+        {pending > 0 ? `Pendientes de asignar (${pending})` : 'Pendientes de asignar'}
+      </button>
+    </div>
   );
+  return <ReceptionDesk user={user} active={active} footer={footer} />;
 }
-
-const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)', textAlign: 'center' };
-const kicker: CSSProperties = {
-  margin: 0,
-  fontSize: '0.8125rem',
-  fontWeight: 700,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: 'var(--np-text-mute)',
-};
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };
-const big: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 700 };
-const note: CSSProperties = {
-  margin: 0,
-  padding: '0.6rem 0.9rem',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
-  fontSize: '0.9rem',
-  color: 'var(--np-text-mute)',
-};

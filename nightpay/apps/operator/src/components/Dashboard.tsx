@@ -142,7 +142,7 @@ export function Dashboard({ user, onLogout }: Props) {
       {/* Recepción montada al cambiar de pestaña: una recarga a medias (su QR) no se pierde. */}
       {tabs.includes('reception') ? (
         <TabPanel visible={showing('reception')}>
-          <ReceptionTab />
+          <ReceptionTab user={user} active={showing('reception')} />
         </TabPanel>
       ) : null}
       {access.posQueue && showing('pos') ? (
