@@ -176,6 +176,8 @@ export interface ClientWalletState {
   hasFaceId: boolean;
   /** Ya tiene PIN (para pagar sin sacar el móvil). */
   hasPin: boolean;
+  /** Lleva una ficha NFC dada a este saldo (paga acercándola, con su PIN). */
+  hasCard: boolean;
   /** Esta recarga se sumó a otro saldo del mismo cliente. */
   merged: boolean;
   /** «Me voy»: cuánto se devuelve, cómo y en qué paso va (null = no hay devolución). */
@@ -385,7 +387,7 @@ export class WalletChargesService {
 
   async clientState(qrToken: string): Promise<ClientWalletState> {
     const wallet = await this.walletByToken(qrToken);
-    const [consumptions, topUps, allPayouts, cashTopUps] = await Promise.all([
+    const [consumptions, topUps, allPayouts, cashTopUps, issuedCards] = await Promise.all([
       this.prisma.asSystem((tx) =>
         tx.walletConsumption.findMany({
           where: { walletId: wallet.id, reversedAt: null },
@@ -418,6 +420,10 @@ export class WalletChargesService {
           take: 10,
           select: { amountCents: true, tenantId: true, createdAt: true },
         }),
+      ),
+      // Su ficha NFC (dada a este saldo): en «Pagar» se le dice que también paga con ella.
+      this.prisma.acrossVenues((tx) =>
+        tx.walletCard.count({ where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } } }),
       ),
     ]);
     // En movimientos, solo las hechas (una a la tarjeta a medias aún no es una devolución).
@@ -467,6 +473,7 @@ export class WalletChargesService {
       closeRequested,
       hasFaceId,
       hasPin: Boolean(wallet.pinHash),
+      hasCard: issuedCards > 0,
       merged: Boolean(wallet.mergedIntoId),
       refund: clientRefundState({ status: wallet.status, balanceCents: wallet.balanceCents, closeRequested }, allPayouts),
       cards: refundCards(topUps.map((t) => t.cardLast4)),

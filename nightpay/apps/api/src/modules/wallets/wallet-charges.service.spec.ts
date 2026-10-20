@@ -273,8 +273,15 @@ describe('la página del saldo del cliente', () => {
     const { svc } = makeService();
     const state = await svc.clientState('tok');
     expect(state).toMatchObject({ code: 'K7Q-4M2', balanceCents: 30_000, status: 'ACTIVE', hasFaceId: false });
-    expect(state).toMatchObject({ hasPin: false, merged: false, refund: null, cards: [] });
+    expect(state).toMatchObject({ hasPin: false, hasCard: false, merged: false, refund: null, cards: [] });
     expect(state).not.toHaveProperty('pending');
+  });
+
+  it('con su ficha dada (ISSUED, o ACTIVE de antes) → «Pagar» le dice que también paga con ella', async () => {
+    const { svc, tx } = makeService();
+    tx.walletCard.count.mockResolvedValueOnce(1);
+    await expect(svc.clientState('tok')).resolves.toMatchObject({ hasCard: true });
+    expect(tx.walletCard.count).toHaveBeenCalledWith({ where: { walletId: 'w-1', status: { in: ['ISSUED', 'ACTIVE'] } } });
   });
 
   it('«Me voy» pedido: devolución de lo que queda, a las tarjetas de sus recargas', async () => {
