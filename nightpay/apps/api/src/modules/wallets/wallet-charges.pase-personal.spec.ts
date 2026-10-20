@@ -82,6 +82,7 @@ function setup(wallet: Row = {}) {
     walletChargeRequest: table('req', { walletId: null, decidedAt: null }),
     walletConsumption: table('cons'),
     operatorEarning: table('earn'),
+    paymentLine: Object.assign(table('line'), { createMany: vi.fn(async () => ({ count: 0 })), findMany: vi.fn(async () => []) }),
     user: table('user'),
     venue: table('venue', { pausedAt: null, business: null, operatorCommissionDefaults: { CHICA_SERVICE: 6000 } }),
   };
