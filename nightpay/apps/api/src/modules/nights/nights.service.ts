@@ -103,6 +103,11 @@ export interface MyNight {
   unpaidCents: number;
   /** Lo ganado fuera de esta noche (otras noches) y aún sin pagar. Sin restar deudas. */
   otherUnpaidCents: number;
+  /**
+   * «Invitar a una copa»: las copas a las que la invitaron esta noche (pagadas,
+   * sin las anuladas) y su parte («Mi QR»: «6 invitaciones esta noche»).
+   */
+  invitations: { count: number; shareCents: number };
 }
 
 type NightRow = {
@@ -375,7 +380,12 @@ export class NightsService {
         FROM (
           -- Cobros con tarjeta / datáfono. Lo descontado incluye la deuda de
           -- devoluciones llegadas con ella ya pagada (como «Parte chica» del CSV).
-          SELECT p."amountCents" + p."tipCents" AS charged, e."commissionCents" AS commission,
+          -- Lo cobrado: el cobro entero si lo cobró ella; si no (una invitación
+          -- a una copa, una propina para ella), solo su parte.
+          SELECT CASE WHEN p."createdByUserId" = ${operatorId}::uuid
+                      THEN p."amountCents" + p."tipCents"
+                      ELSE e."commissionCents" + e."tipCents" END AS charged,
+                 e."commissionCents" AS commission,
                  e."tipCents" AS tips, e."reversedCents" + ${afterPayoutDebt('e')} AS reversed
             FROM operator_earnings e
             JOIN payments p ON p.id = e."paymentId"
@@ -386,7 +396,11 @@ export class NightsService {
           UNION ALL
           -- Lo que cobró del saldo del cliente. Los anulados no cuentan (como
           -- en el informe de la gestoría): ni cobro, ni comisión, ni descuento.
-          SELECT c."amountCents" + c."tipCents", e."commissionCents", e."tipCents", e."reversedCents"
+          -- Una invitación cobrada por otra persona: solo su parte.
+          SELECT CASE WHEN c."providedByUserId" = ${operatorId}::uuid
+                      THEN c."amountCents" + c."tipCents"
+                      ELSE e."commissionCents" + e."tipCents" END,
+                 e."commissionCents", e."tipCents", e."reversedCents"
             FROM operator_earnings e
             JOIN wallet_consumptions c ON c.id = e."consumptionId"
            WHERE e."tenantId" = ${tenantId}::uuid
@@ -397,7 +411,10 @@ export class NightsService {
         ) x
     `);
     const r = rows[0] ?? { count: 0, chargedCents: 0, commissionCents: 0, tipsCents: 0, reversedCents: 0 };
-    const unpaid = await this.unpaidSplit(tenantId, operatorId, from, to);
+    const [unpaid, invitations] = await Promise.all([
+      this.unpaidSplit(tenantId, operatorId, from, to),
+      this.invitationsOf(tenantId, operatorId, from, to),
+    ]);
     return {
       from: from.toISOString(),
       to: last?.closedAt?.toISOString() ?? null,
@@ -405,7 +422,33 @@ export class NightsService {
       ...r,
       netCents: r.commissionCents + r.tipsCents - r.reversedCents,
       ...unpaid,
+      invitations,
     };
+  }
+
+  /**
+   * Las copas a las que invitaron a la chica en la ventana: líneas de
+   * invitación suyas en cobros con tarjeta pagados (aunque luego se devolviera
+   * una parte) o en cobros del saldo pagados y sin anular. Su parte, la fijada
+   * al cobrar.
+   */
+  private async invitationsOf(tenantId: string, operatorId: string, from: Date, to: Date): Promise<{ count: number; shareCents: number }> {
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<Array<{ count: number; shareCents: number }>>`
+      SELECT COALESCE(SUM(l.qty), 0)::int AS count, COALESCE(SUM(l."beneficiaryCents"), 0)::int AS "shareCents"
+        FROM payment_lines l
+        LEFT JOIN payments p ON p.id = l."paymentId"
+        LEFT JOIN wallet_charge_requests w ON w.id = l."walletChargeId"
+        LEFT JOIN wallet_consumptions c ON c.id = w."consumptionId"
+       WHERE l."tenantId" = ${tenantId}::uuid
+         AND l."beneficiaryOperatorId" = ${operatorId}::uuid
+         AND (
+           (p.status::text IN ('AUTHORIZED', 'PARTIALLY_REFUNDED')
+             AND ${paymentAt('p')} >= ${from} AND ${paymentAt('p')} < ${to})
+           OR (w.status = 'ACCEPTED' AND c."reversedAt" IS NULL
+             AND c."createdAt" >= ${from} AND c."createdAt" < ${to})
+         )
+    `);
+    return rows[0] ?? { count: 0, shareCents: 0 };
   }
 
   /**
