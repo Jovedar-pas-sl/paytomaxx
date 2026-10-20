@@ -93,9 +93,18 @@ function setup(wallet: Row = {}) {
     user: table('user'),
     venue: table('venue', { pausedAt: null, business: null, operatorCommissionDefaults: { CHICA_SERVICE: 6000 } }),
   };
-  const $queryRaw = vi.fn(async (_s: TemplateStringsArray, ...values: unknown[]) =>
-    tables.clientWallet.list({ where: { id: values[0] } }),
-  );
+  const $queryRaw = vi.fn(async (s: TemplateStringsArray, ...values: unknown[]) => {
+    // Lo gastado sin PIN desde `since` en esos saldos (NFC sin PIN).
+    if (s.join('?').includes('FROM wallet_consumptions')) {
+      const [ids, since] = values as [string[], Date];
+      const total = [...tables.walletConsumption.rows.values()]
+        .filter((c) => ids.includes(String(c.walletId)) && c.authMethod === 'nfc_nopin' && !c.reversedAt)
+        .filter((c) => (c.createdAt as Date) >= since)
+        .reduce((sum, c) => sum + Number(c.amountCents), 0);
+      return [{ total }];
+    }
+    return tables.clientWallet.list({ where: { id: values[0] } });
+  });
   const tx = { ...tables, $queryRaw, $executeRaw: vi.fn(async () => 0) };
   const all = Object.values(tables);
   const run = async (fn: (t: typeof tx) => unknown) => {
@@ -186,7 +195,8 @@ describe('¿le llega? (antes del PIN, sin enseñar su saldo)', () => {
   it('por su ficha, su pase o su código: solo si le llega, el código a medias y nada de su nombre', async () => {
     const { svc, db } = setup();
     const req = cobro(db);
-    const expected = { codeHint: 'K7Q-•••', hasPin: true, pinLocked: false, pinByStaff: false, enough: true };
+    // 40 € pasa del máximo sin PIN (20 €): con su ficha también va con PIN.
+    const expected = { codeHint: 'K7Q-•••', hasPin: true, pinLocked: false, pinByStaff: false, enough: true, noPin: false };
     await expect(svc.checkWalletForTerminal(barra, req, conFicha)).resolves.toEqual(expected);
     await expect(svc.checkWalletForTerminal(barra, req, { walletToken: PASE })).resolves.toEqual(expected);
     await expect(svc.checkWalletForTerminal(barra, req, { code: 'k7q-4m2' })).resolves.toEqual(expected);
@@ -357,5 +367,53 @@ describe('pagar con el PIN en el datáfono', () => {
     await expect(svc.payQrChargeFromTerminal(barra, req, { ...conFicha, pin: PIN })).rejects.toThrow(/saldo suficiente/);
     expect(db.walletChargeRequest.get(req)).toMatchObject({ status: 'PENDING', walletId: null });
     expect(db.walletConsumption.rows.size).toBe(0);
+  });
+});
+
+describe('NFC sin PIN en el datáfono', () => {
+  it('15 € con su ficha (y su número de serie): se cobra sin PIN y queda como nfc_nopin en el consumo y en el registro', async () => {
+    const { svc, db, audit } = setup();
+    const req = cobro(db, { amountCents: 1_500 });
+    await expect(svc.checkWalletForTerminal(barra, req, conFicha)).resolves.toMatchObject({ enough: true, noPin: true });
+    const out = await svc.payQrChargeFromTerminalWithCard(barra, req, conFicha);
+    expect(out).toMatchObject({ id: req, status: 'ACCEPTED', newBalanceCents: 10_500 });
+    expect(db.walletConsumption.list()).toEqual([
+      expect.objectContaining({ walletId: WALLET, amountCents: 1_500, authMethod: 'nfc_nopin' }),
+    ]);
+    expect(db.walletCard.get('card-1')).toMatchObject({ lastUsedAt: NOW });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'wallet.charge_nfc_nopin',
+        targetId: WALLET,
+        payload: expect.objectContaining({ requestId: req, amountCents: 1_500, spentBeforeCents: 0, nightCapCents: 10_000, terminalId: 'term-barra' }),
+      }),
+    );
+  });
+
+  it('40 €: 409 PIN_REQUIRED (pasa del máximo) y el cobro sigue libre para pagarlo con el PIN', async () => {
+    const { svc, db } = setup();
+    const req = cobro(db);
+    await expect(svc.payQrChargeFromTerminalWithCard(barra, req, conFicha)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PIN_REQUIRED', reason: 'over_max' }),
+    });
+    expect(db.walletChargeRequest.get(req)).toMatchObject({ status: 'PENDING', walletId: null });
+    expect(db.walletConsumption.rows.size).toBe(0);
+    await expect(svc.payQrChargeFromTerminal(barra, req, { ...conFicha, pin: PIN })).resolves.toMatchObject({ status: 'ACCEPTED' });
+    expect(db.walletConsumption.list()).toEqual([expect.objectContaining({ amountCents: 4_000, authMethod: 'pin' })]);
+  });
+
+  it('sin el número de serie no vale (podría ser una copia leída por la cámara)', async () => {
+    const { svc, db } = setup();
+    await expect(svc.payQrChargeFromTerminalWithCard(barra, cobro(db, { amountCents: 1_000 }), { card: FICHA })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(db.walletConsumption.rows.size).toBe(0);
+  });
+
+  it('el pase o el código nunca van sin PIN', async () => {
+    const { svc, db } = setup();
+    const req = cobro(db, { amountCents: 1_000 });
+    await expect(svc.checkWalletForTerminal(barra, req, { walletToken: PASE })).resolves.toMatchObject({ noPin: false });
+    await expect(svc.checkWalletForTerminal(barra, req, { code: 'K7Q4M2' })).resolves.toMatchObject({ noPin: false });
   });
 });
