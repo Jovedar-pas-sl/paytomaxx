@@ -40,6 +40,7 @@ import { chargedAttemptTip } from '../payments/tip';
 import { planVenueRulesChange } from '../superadmin/superadmin-rules';
 import { resolveHoldDays } from '../operators/payout-math';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
+import { newVenuePaymentMethods } from '../venues/venue-methods';
 import { ClsService } from 'nestjs-cls';
 import {
   MAX_OPERATOR_COBRO_CENTS,
@@ -341,6 +342,8 @@ export class AdminController {
           name: dto.name,
           slug: dto.slug,
           timezone: dto.timezone ?? 'Europe/Madrid',
+          // Local nuevo: datáfono apagado de fábrica (los de antes no cambian).
+          paymentMethods: { ...newVenuePaymentMethods() },
         },
         select: { id: true, name: true, slug: true, timezone: true, createdAt: true },
       }),

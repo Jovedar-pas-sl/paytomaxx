@@ -1,20 +1,32 @@
 'use client';
 
-// Formas de cobro del local (las pone el dueño en el panel → Ajustes). Lo
-// apagado no se enseña aquí; el API además lo rechaza (409). Si no se pueden
-// leer, se enseña todo, como antes (el API sigue mandando).
+// Formas de cobro y ajustes de la noche del local (los pone el dueño en el
+// panel → Ajustes). Lo apagado no se enseña aquí; el API además lo rechaza
+// (409). Si no se pueden leer, se enseña todo y los ajustes de fábrica, como
+// antes (el API sigue mandando).
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { DEFAULT_PAYMENT_METHODS, paymentMethodsOf, type VenuePaymentMethods } from '@nightpay/contracts';
-import { fetchVenueMethods } from './api';
+import {
+  DEFAULT_NIGHT_SETTINGS,
+  DEFAULT_PAYMENT_METHODS,
+  nightSettingsOf,
+  paymentMethodsOf,
+  type VenueNightSettings,
+  type VenuePaymentMethods,
+} from '@nightpay/contracts';
+import { setVenueFeedback } from './alert-sound';
+import { fetchVenueFeed } from './api';
 import type { TabKey } from './roles';
 
 export type CobroMode = 'qr' | 'wallet' | 'pos';
 
-/** Qué hace falta para cada forma de cobrar en «Crear cobro» (la recarga es con tarjeta). */
+/**
+ * Qué hace falta para cada forma de cobrar en Inicio. «wallet» es «Recargar
+ * saldo» (un saldo que ya existe): con tarjeta, o en efectivo (con permiso).
+ */
 export function cobroModeAllowed(mode: CobroMode, m: VenuePaymentMethods): boolean {
   if (mode === 'qr') return m.card;
-  if (mode === 'wallet') return m.card && m.wallet;
+  if (mode === 'wallet') return m.wallet && (m.card || m.cashTopUp);
   return m.pos;
 }
 
@@ -35,14 +47,29 @@ export function useVenueMethods(): VenuePaymentMethods {
   return useContext(VenueMethodsContext);
 }
 
-/** Las formas de cobro del local, pedidas una vez al entrar (y si cambia el usuario). */
-export function useVenueMethodsFeed(userId: string): VenuePaymentMethods {
-  const [methods, setMethods] = useState<VenuePaymentMethods>(DEFAULT_PAYMENT_METHODS);
+/** Ajustes de la noche (teclado del PIN, recepción…). De fábrica mientras no llegan. */
+export const VenueNightContext = createContext<VenueNightSettings>(DEFAULT_NIGHT_SETTINGS);
+
+export function useVenueNight(): VenueNightSettings {
+  return useContext(VenueNightContext);
+}
+
+export interface VenueFeed {
+  methods: VenuePaymentMethods;
+  night: VenueNightSettings;
+}
+
+/** Las formas de cobro y los ajustes de la noche del local, pedidos una vez al entrar (y si cambia el usuario). */
+export function useVenueMethodsFeed(userId: string): VenueFeed {
+  const [feed, setFeed] = useState<VenueFeed>({ methods: DEFAULT_PAYMENT_METHODS, night: DEFAULT_NIGHT_SETTINGS });
   useEffect(() => {
     let cancelled = false;
-    fetchVenueMethods()
-      .then((m) => {
-        if (!cancelled) setMethods(paymentMethodsOf(m));
+    fetchVenueFeed()
+      .then((venue) => {
+        if (cancelled) return;
+        const night = nightSettingsOf(venue.nightSettings);
+        setVenueFeedback({ sound: night.feedbackSound, vibration: night.feedbackVibration });
+        setFeed({ methods: paymentMethodsOf(venue.paymentMethods), night });
       })
       .catch(() => {
         // Sin respuesta: todo a la vista, como antes; el API rechaza lo apagado.
@@ -51,5 +78,5 @@ export function useVenueMethodsFeed(userId: string): VenuePaymentMethods {
       cancelled = true;
     };
   }, [userId]);
-  return methods;
+  return feed;
 }

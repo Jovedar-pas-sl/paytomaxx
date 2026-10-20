@@ -1,3 +1,4 @@
+import { DEFAULT_NIGHT_SETTINGS } from '@nightpay/contracts';
 import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
@@ -533,6 +534,8 @@ describe('GET /pos-device/me — «Pago con saldo» del local', () => {
       terminal: { label: 'Barra 1', zone: 'BARRA' },
       venueName: 'Local Centro',
       wallet: true,
+      // Ajustes de la noche (el teclado del PIN): sin nada guardado, los de fábrica.
+      night: DEFAULT_NIGHT_SETTINGS,
     });
     const off = makeService();
     (off.svc as unknown as { prisma: { venue: { findUnique: ReturnType<typeof vi.fn> } } }).prisma.venue.findUnique.mockResolvedValueOnce({

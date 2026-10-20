@@ -68,6 +68,9 @@ const PassCheckSchema = z.object({ walletToken: PassToken });
 
 const CardLookupSchema = z.object({ card: CardToken, uid: CardUid });
 
+/** Pagar con el NFC solo (sin PIN): su código grabado y su número de serie. */
+export const PayCardSchema = z.object({ card: CardToken, uid: CardUid });
+
 const LinkCardSchema = z.object({
   code: z.string().trim().min(6).max(10),
   card: CardToken,
@@ -96,6 +99,7 @@ export function payoutPermission(req: { body?: unknown }): 'cash' | 'refund' {
  *  - POST /v1/wallet-charges/:id/approve        → (encargado) cobrarlo de un saldo sin Face ID.
  *  - POST /v1/wallet-charges/:id/pin            → el cliente lo paga con su PIN (sin sacar el móvil).
  *  - POST /v1/wallet-charges/:id/pass           → el pase de Google Wallet escaneado: de quién es, antes del PIN.
+ *  - POST /v1/wallet-charges/:id/nfc            → lo paga con su NFC solo, hasta el tope sin PIN (si no, 409 PIN_REQUIRED).
  *  - POST /v1/wallet-charges/pin                → el cliente elige su PIN (tras recargar, o con el encargado).
  *  - POST /v1/wallet-charges/wallets/:id/pin/unlock|reset → (encargado) desbloquear o borrar el PIN.
  *  - POST /v1/wallet-charges/cards/lookup       → el saldo de la ficha NFC que acercan.
@@ -199,6 +203,26 @@ export class WalletChargesController {
     @Body(new ZodValidationPipe(PassCheckSchema)) body: z.infer<typeof PassCheckSchema>,
   ): Promise<StaffPassCheck> {
     return this.charges.checkPassForCharge({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body.walletToken);
+  }
+
+  /**
+   * El cliente acerca su NFC al móvil de la chica: hasta el máximo y el tope
+   * de la noche del local se cobra sin PIN. Si no, 409 PIN_REQUIRED (con
+   * `reason`) y el mismo cobro sigue libre para pagarlo con su PIN.
+   */
+  @Post(':id/nfc')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  @HttpCode(200)
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-pin' })
+  async payWithCard(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(PayCardSchema)) body: z.infer<typeof PayCardSchema>,
+  ): Promise<ChargeRequestView> {
+    return this.charges.payQrChargeWithCard({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, {
+      card: body.card,
+      uid: body.uid ?? null,
+    });
   }
 
   /** La chica acerca la ficha NFC del cliente: su saldo (y si tiene PIN). En el cuerpo, no en la URL (registros). */

@@ -218,7 +218,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
       amountCents,
       terminalExternalId: terminal,
       idempotencyKey: keyFor('card', target),
-      ...(target.kind === 'card' ? { walletId: target.view.walletId } : { newWallet: true }),
+      ...(target.kind === 'new' ? { newWallet: true } : { walletId: target.view.walletId }),
     });
     setStep({ kind: 'cardQr', payment });
   }

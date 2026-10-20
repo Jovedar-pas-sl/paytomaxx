@@ -19,6 +19,7 @@ import {
   type WalletLookup,
   type WalletRef,
 } from '@/lib/api';
+import { payWalletChargeWithCard } from '@/lib/api-noche';
 import { useHealthReport } from '@/lib/connection-health';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
@@ -53,7 +54,8 @@ const POLL_SLOW_MS = 3000;
  *   1. La chica elige el servicio de la carta (u otro importe).
  *   2. Le sale un QR: el cliente lo escanea con su móvil y paga desbloqueándolo
  *      (Face ID, huella o el PIN de su teléfono).
- *      O, sin sacar su móvil: la chica pone su código y él teclea su PIN aquí.
+ *      O, sin sacar su móvil: acerca su NFC (hasta el tope del local, sin PIN:
+ *      PAGADO al momento) o la chica pone su código, y él teclea su PIN aquí.
  *   3. Aquí se ve al momento que está pagado y lo que le queda.
  * Sin batería y sin PIN: el encargado lo cobra desde el panel.
  */
@@ -211,6 +213,8 @@ function QrStep({
   const [withPin, setWithPin] = useState(false);
   const [wallet, setWallet] = useState<WalletLookup | null>(null);
   const [ref, setRef] = useState<WalletRef | null>(null);
+  // Por qué pide el PIN tras acercar el NFC (pasa del máximo sin PIN, del tope de la noche…).
+  const [pinReason, setPinReason] = useState<string | null>(null);
   // El sondeo, el PIN y "Cancelar" pueden ver la respuesta a la vez: se
   // termina una vez (y nada llega a la pantalla después de "Elegir otro").
   const finished = useRef(false);
@@ -308,10 +312,11 @@ function QrStep({
       <PinPad
         mode="enter"
         title={what}
-        hint={`Saldo ${wallet.code}${'card' in ref ? ' · ficha' : ''}`}
+        hint={`${pinReason ? `${pinReason} ` : ''}Saldo ${wallet.code}${'card' in ref ? ' · NFC' : ''}`}
         onCancel={() => {
           setWallet(null);
           setRef(null);
+          setPinReason(null);
         }}
         onPin={async (pin) => {
           const result = await payWalletChargeWithPin(charge.id, ref, pin);
@@ -326,16 +331,20 @@ function QrStep({
   if (withPin) {
     return (
       <PinCodeStep
+        chargeId={charge.id}
         what={what}
         wallet={wallet}
-        onFound={(w, r) => {
+        onPaid={(result) => finish(result)}
+        onFound={(w, r, reason) => {
           setWallet(w);
           setRef(r);
+          setPinReason(reason);
         }}
         onBack={() => {
           setWithPin(false);
           setWallet(null);
           setRef(null);
+          setPinReason(null);
         }}
       />
     );
@@ -355,7 +364,7 @@ function QrStep({
         Que el cliente lo escanee con su móvil y lo desbloquee (Face ID, huella o su PIN).
       </p>
       <Button variant="ghost" onClick={() => setWithPin(true)} disabled={canceling}>
-        Sin móvil: ficha, pase o código + PIN
+        Sin móvil: NFC, pase o código + PIN
       </Button>
       {error ? <p style={errorStyle}>{error}</p> : null}
       <Button variant="ghost" onClick={() => void cancel(false)} loading={canceling}>
@@ -370,16 +379,24 @@ function QrStep({
   );
 }
 
-/** Su ficha NFC (o su código, K7Q-4M2) antes de que teclee su PIN. */
+/**
+ * Su NFC (o su código, K7Q-4M2) antes de que teclee su PIN. Con el NFC, hasta
+ * el tope sin PIN del local se cobra ya (PAGADO); si el API pide el PIN, a
+ * teclearlo (con el porqué).
+ */
 function PinCodeStep({
+  chargeId,
   what,
   wallet,
+  onPaid,
   onFound,
   onBack,
 }: {
+  chargeId: string;
   what: string;
   wallet: WalletLookup | null;
-  onFound: (wallet: WalletLookup, ref: WalletRef) => void;
+  onPaid: (result: WalletChargeRequest) => void;
+  onFound: (wallet: WalletLookup, ref: WalletRef, pinReason: string | null) => void;
   onBack: () => void;
 }) {
   const [code, setCode] = useState(wallet?.code ?? '');
@@ -399,7 +416,7 @@ function PinCodeStep({
     setError(null);
     try {
       const w = await lookupWalletCode(code);
-      onFound(w, { code: w.code });
+      onFound(w, { code: w.code }, null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -413,9 +430,15 @@ function PinCodeStep({
     setError(null);
     try {
       const read = await readCard(controller.signal);
-      if (!read.token) throw new Error('Esta ficha está vacía: se le da al cliente al recargar');
+      if (!read.token) throw new Error('Este NFC está vacío: se le da al cliente al recargar');
+      // Hasta el tope sin PIN del local: pagado sin teclear nada.
+      const out = await payWalletChargeWithCard(chargeId, read.token, read.uid);
+      if (out.kind === 'paid') {
+        onPaid(out.charge);
+        return;
+      }
       const w = await lookupWalletCard(read.token, read.uid);
-      onFound(w, { card: read.token, uid: read.uid });
+      onFound(w, { card: read.token, uid: read.uid }, out.message || null);
     } catch (err) {
       if ((err as Error).name !== 'AbortError') setError((err as Error).message);
     } finally {
@@ -434,23 +457,23 @@ function PinCodeStep({
 
   return (
     <Card style={cardStyle}>
-      <p style={{ ...kicker, textAlign: 'center' }}>Sin móvil: ficha, pase o código + PIN</p>
+      <p style={{ ...kicker, textAlign: 'center' }}>Sin móvil: NFC, pase o código + PIN</p>
       <p className="np-num" style={{ ...balanceStyle, textAlign: 'center' }}>
         {what}
       </p>
       {nfc ? (
         reading ? (
           <Button size="lg" variant="ghost" onClick={() => reading.abort()}>
-            Acerca la ficha a la parte de atrás del móvil… (cancelar)
+            Acerca su NFC a la parte de atrás del móvil… (cancelar)
           </Button>
         ) : (
           <Button size="lg" onClick={() => void tapCard()} disabled={busy}>
-            Acercar su ficha
+            Acercar su NFC
           </Button>
         )
       ) : (
         <p style={noteStyle}>
-          ¿Tiene ficha? En iPhone: acércala a la parte de arriba del móvil y toca el aviso que sale.
+          ¿Tiene NFC? En iPhone: acércalo a la parte de arriba del móvil y toca el aviso que sale (con su PIN).
         </p>
       )}
       <p style={noteStyle}>

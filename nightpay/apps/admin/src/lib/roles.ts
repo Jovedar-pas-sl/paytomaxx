@@ -27,6 +27,7 @@ export type TabKey =
   | 'terminals'
   | 'rules'
   | 'methods'
+  | 'night'
   | 'permissions'
   | 'alerts'
   | 'security'
@@ -85,6 +86,8 @@ export const PANEL_TABS: readonly PanelTab[] = [
   { key: 'terminals', label: 'Datáfonos', section: 'ajustes', access: 'staff', needsPos: true },
   { key: 'rules', label: 'Reglas del local', section: 'ajustes', access: 'owner' },
   { key: 'methods', label: 'Formas de cobro', section: 'ajustes', access: 'owner' },
+  // NFC sin PIN, teclado del PIN, recepción y avisos al cobrar (/v1/admin/venue/night).
+  { key: 'night', label: 'Noche', section: 'ajustes', access: 'owner' },
   { key: 'permissions', label: 'Permisos', section: 'ajustes', access: 'owner' },
   { key: 'alerts', label: 'Telegram', section: 'ajustes', access: 'owner' },
   { key: 'security', label: 'Seguridad', section: 'ajustes', access: 'staff' },

@@ -9,10 +9,11 @@ describe('formas de cobro del local en la app del personal', () => {
     expect(visibleTabsFor(['home', 'wallet', 'pos'], all)).toEqual(['home', 'wallet', 'pos']);
   });
 
-  it('tarjeta apagada: ni QR ni recarga (se paga con tarjeta); el datáfono sigue', () => {
+  it('tarjeta apagada: sin QR; «Recargar saldo» solo en efectivo (si está encendido); el datáfono sigue', () => {
     const m = paymentMethodsOf({ card: false });
     expect(cobroModeAllowed('qr', m)).toBe(false);
-    expect(cobroModeAllowed('wallet', m)).toBe(false);
+    expect(cobroModeAllowed('wallet', m)).toBe(true);
+    expect(cobroModeAllowed('wallet', paymentMethodsOf({ card: false, cashTopUp: false }))).toBe(false);
     expect(cobroModeAllowed('pos', m)).toBe(true);
   });
 

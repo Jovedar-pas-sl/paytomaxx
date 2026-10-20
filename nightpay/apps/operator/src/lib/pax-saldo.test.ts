@@ -6,6 +6,7 @@ import {
   classifyPinError,
   fetchSaldoCharge,
   fichaFromBridge,
+  noPinFor,
   outcomeOf,
   parseScan,
   paySaldoWithPin,
@@ -15,6 +16,7 @@ import {
   refLabel,
   scanSaldoCharge,
   scanWithCamera,
+  submitNoPin,
   submitPin,
   type SaldoCheck,
 } from './pax-saldo';
@@ -301,5 +303,33 @@ describe('API del saldo con la credencial del datáfono', () => {
     expect(err).toBeInstanceOf(PaxApiError);
     expect(err).toMatchObject({ status: 422, message: 'PIN incorrecto. Quedan 4 intentos' });
     expect(classifyPinError(err)).toBe('retry');
+  });
+  it('NFC sin PIN: solo con su NFC (con número de serie), si le llega y el API dice que va sin PIN', () => {
+    const ok: SaldoCheck = { codeHint: 'K7Q-•••', hasPin: true, pinLocked: false, pinByStaff: false, enough: true, noPin: true };
+    expect(noPinFor({ card: FICHA, uid: '04A2' }, ok)).toBe(true);
+    expect(noPinFor({ card: FICHA, uid: null }, ok)).toBe(false);
+    expect(noPinFor({ code: 'K7Q4M2' }, ok)).toBe(false);
+    expect(noPinFor({ card: FICHA, uid: '04A2' }, { ...ok, enough: false })).toBe(false);
+    // Un API de antes no lo manda: con PIN.
+    expect(noPinFor({ card: FICHA, uid: '04A2' }, { ...ok, noPin: undefined })).toBe(false);
+  });
+
+  it('submitNoPin: pagado → PAGADO; si pide el PIN (y sigue pendiente), a su PIN con el porqué', async () => {
+    const byNfc = { card: FICHA, uid: '04A2' };
+    fetchMock.mockResolvedValueOnce(reply(200, view('ACCEPTED', 2_500)));
+    await expect(submitNoPin('c-1', byNfc)).resolves.toEqual({ kind: 'done', outcome: 'paid', newBalanceCents: 2_500 });
+    expect(sent(0)).toMatchObject({ method: 'POST', body: { card: FICHA, uid: '04A2' } });
+    expect(sent(0).url).toMatch(/\/saldo\/charges\/c-1\/nfc$/);
+
+    fetchMock
+      .mockResolvedValueOnce(reply(409, { message: 'Ya lleva el tope sin PIN de esta noche: que ponga su PIN una vez.', code: 'PIN_REQUIRED' }))
+      .mockResolvedValueOnce(reply(200, view('PENDING')));
+    await expect(submitNoPin('c-1', byNfc)).resolves.toEqual({
+      kind: 'pin',
+      message: 'Ya lleva el tope sin PIN de esta noche: que ponga su PIN una vez.',
+    });
+
+    fetchMock.mockResolvedValueOnce(reply(409, { message: 'Este cobro ya no está pendiente' })).mockResolvedValueOnce(reply(200, view('CANCELED')));
+    await expect(submitNoPin('c-1', byNfc)).resolves.toMatchObject({ kind: 'done', outcome: 'failed' });
   });
 });

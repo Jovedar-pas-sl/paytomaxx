@@ -52,6 +52,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
   wallet_credit_skipped: { group: 'Saldo', title: 'Recarga cobrada sin saldo', tab: 'wallets' },
   wallet_close_requested: { group: 'Saldo', title: 'Un cliente pide su saldo', tab: 'wallets' },
   wallet_open_balance: { group: 'Saldo', title: 'Saldo de un cliente sin devolver', tab: 'wallets' },
+  wallet_topup_unassigned: {
+    group: 'Saldo',
+    title: 'Recarga pendiente de asignar',
+    tab: 'wallets',
+    hint: 'Asígnala con el código del cliente en Saldos, o con su NFC en Recepción.',
+  },
   cash_split_suspected: {
     group: 'Efectivo',
     title: 'Efectivo troceado en saldos nuevos',

@@ -30,7 +30,8 @@ export type IncidentKind =
   | 'approval_pending'
   | 'pos_unproven_sales'
   | 'pos_reception_limit'
-  | 'cash_split_suspected';
+  | 'cash_split_suspected'
+  | 'wallet_topup_unassigned';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -42,6 +43,7 @@ export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'approval_unverified',
   'refund_pending',
   'approval_pending',
+  'wallet_topup_unassigned',
 ]);
 
 /**
@@ -279,6 +281,26 @@ export function walletCloseRequestedIncident(r: WalletBalanceRow): Incident {
     refId: r.id,
     title: 'Un cliente pide que le devuelvan su saldo',
     detail: `${eur(r.balanceCents)}${r.shortCode ? ` · código ${r.shortCode}` : ''}. Devuélveselo en Wallets → Devolver saldo (tarjeta o efectivo).`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.balanceCents,
+    paymentId: null,
+    ackable: false,
+  };
+}
+
+/** Recarga cobrada sin el NFC del cliente que nadie ha sumado aún a su saldo (se quita sola al asignarla). */
+export interface PendingTopUpRow {
+  id: string;
+  balanceCents: number;
+  occurredAt: Date;
+}
+
+export function walletTopUpUnassignedIncident(r: PendingTopUpRow): Incident {
+  return {
+    kind: 'wallet_topup_unassigned',
+    refId: r.id,
+    title: 'Recarga pendiente de asignar',
+    detail: `${eur(r.balanceCents)} cobrados sin el NFC del cliente. Asígnala a su saldo: en Recepción → Pendientes de asignar (acercando su NFC) o en Clientes → Saldos (con su código). El dinero no se pierde: sigue en esa recarga.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.balanceCents,
     paymentId: null,

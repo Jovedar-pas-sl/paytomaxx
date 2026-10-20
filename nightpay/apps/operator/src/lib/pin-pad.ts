@@ -1,3 +1,13 @@
+import type { PinKeypadLayout } from '@nightpay/contracts';
+
+/** El teclado de siempre (1-9 y el 0 abajo): de fábrica, más fácil a oscuras. */
+export const FIXED_DIGITS: readonly string[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+
+/** Las cifras del teclado según el local (Ajustes → Noche): fijas o desordenadas. */
+export function keypadDigits(layout: PinKeypadLayout, randomInt?: (max: number) => number): string[] {
+  return layout === 'shuffled' ? shuffledDigits(randomInt) : [...FIXED_DIGITS];
+}
+
 /**
  * Las cifras del teclado del PIN, en otro orden cada vez: quien mira dónde
  * pulsa el cliente (la chica que le sostiene el móvil) no saca el PIN.

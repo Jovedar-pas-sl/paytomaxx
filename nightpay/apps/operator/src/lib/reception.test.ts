@@ -4,7 +4,9 @@ import { isSameTapAgain, SAME_TAP_MS } from './prepare-fichas';
 import {
   cardMethodLabel,
   deviceBackend,
+  existingCashDetail,
   existingTopUpDetail,
+  methodChoices,
   newReceptionKey,
   nextAfterPay,
   payProblem,
@@ -13,6 +15,7 @@ import {
   receptionDetail,
   receptionWhat,
   stockOutcomeLine,
+  targetLabel,
   topUpCheck,
   walletAfterCash,
   walletOfTarget,
@@ -63,6 +66,29 @@ describe('pasos de la recepción', () => {
     const w = { walletId: 'w', code: 'K7Q-4M2', balanceCents: 5_000, hasPin: true, hasCard: true };
     expect(receptionDetail(w)).toMatch(/^Saldo K7Q-4M2 · tiene 50,00\s€ · con ficha y PIN$/);
     expect(receptionDetail({ ...w, hasPin: false, hasCard: false })).toMatch(/^Saldo K7Q-4M2 · tiene 50,00\s€$/);
+  });
+
+  it('«Recargar saldo» por su código: el código en la petición, en la clave y en la pantalla', () => {
+    const porCodigo: Target = { kind: 'code', code: 'K7Q-4M2', view: view(false) };
+    expect(walletOfTarget(porCodigo)).toEqual({ code: 'K7Q-4M2' });
+    expect(receptionWhat(5_000, 'cash', porCodigo)).toBe('5000|cash|codigo:K7Q-4M2');
+    expect(receptionWhat(5_000, 'cash', ficha('04A2'))).toBe(`5000|cash|ficha:${FICHA}`);
+    // Con tarjeta solo se recarga en su local (también por código).
+    expect(payProblem('card', porCodigo, OPTIONS)).toMatch(/otro local del grupo/);
+    expect(targetLabel(porCodigo)).toBe('Saldo K7Q-4M2');
+    expect(targetLabel({ kind: 'card', card: FICHA, uid: null, view: view() })).toBe('Saldo K7Q-••• · NFC');
+  });
+
+  it('formas de pago de «Recargar saldo»: la tarjeta a todos; el efectivo solo con permiso; la de por defecto primero', () => {
+    const t = ficha('04A2');
+    expect(methodChoices(OPTIONS, t, 'cash').map((c) => c.method)).toEqual(['cash', 'card']);
+    expect(methodChoices(OPTIONS, t, 'card').map((c) => c.method)).toEqual(['card', 'cash']);
+    // Sin permiso para el efectivo (la chica, un camarero sin él): solo la tarjeta, sin botón de efectivo.
+    expect(methodChoices({ ...OPTIONS, cash: false, cashBlockedReason: 'Sin permiso' }, t, 'cash')).toEqual([{ method: 'card', problem: null }]);
+    // Saldo de otro local del grupo: la tarjeta sale, con su porqué.
+    expect(methodChoices(OPTIONS, ficha('04A2', false), 'card')[0]).toMatchObject({ method: 'card', problem: expect.stringMatching(/otro local/) });
+    expect(methodChoices({ ...OPTIONS, card: false, cash: false }, t, 'cash')).toEqual([]);
+    expect(existingCashDetail({ code: 'K7Q-4M2', balanceCents: 7_000 })).toMatch(/^Saldo K7Q-4M2 · tiene 70,00\s€$/);
   });
 
   it('una clave nueva por recarga', () => {

@@ -40,6 +40,9 @@ export const PinSchema = RefFields.extend({ pin: z.string().regex(/^[0-9]{4}$/, 
   { message: ONE_REF.message },
 );
 
+/** Pagar con el NFC solo: en el datáfono siempre con su número de serie (lo lee su lector). */
+export const NfcSchema = z.object({ card: LinkToken, uid: z.string().trim().min(1).max(64) });
+
 export function refOf(body: RefBody): TerminalWalletRef {
   if (body.card) return { card: body.card, uid: body.uid ?? null };
   if (body.walletToken) return { walletToken: body.walletToken };
@@ -55,6 +58,7 @@ export function refOf(body: RefBody): TerminalWalletRef {
  *   - GET  /v1/pos-device/saldo/charges/:id      → ¿se pagó? (tras un corte, antes de repetir).
  *   - POST /v1/pos-device/saldo/charges/:id/check → ¿le llega? (sin enseñar su saldo).
  *   - POST /v1/pos-device/saldo/charges/:id/pin  → pagarlo con su PIN.
+ *   - POST /v1/pos-device/saldo/charges/:id/nfc  → pagarlo con su NFC solo (hasta el tope sin PIN; si no, 409 PIN_REQUIRED).
  * Topes por IP más estrictos que los de la app del personal: un datáfono
  * robado o en manos ajenas no sirve para probar códigos ni PIN.
  */
@@ -121,5 +125,18 @@ export class PosDeviceSaldoController {
     @Body(new ZodValidationPipe(PinSchema)) body: z.infer<typeof PinSchema>,
   ): Promise<ChargeRequestView> {
     return this.charges.payQrChargeFromTerminal(device, id, { ...refOf(body), pin: body.pin });
+  }
+
+  @Public()
+  @UseGuards(DeviceGuard)
+  @Post('charges/:id/nfc')
+  @HttpCode(200)
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'pos-saldo-pin' })
+  async nfc(
+    @CurrentDevice() device: PosDevice,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(NfcSchema)) body: z.infer<typeof NfcSchema>,
+  ): Promise<ChargeRequestView> {
+    return this.charges.payQrChargeFromTerminalWithCard(device, id, { card: body.card, uid: body.uid });
   }
 }

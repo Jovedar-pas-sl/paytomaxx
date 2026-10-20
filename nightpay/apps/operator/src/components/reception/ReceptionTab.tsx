@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@nightpay/ui';
+import { fetchPendingTopUps } from '@/lib/api-noche';
 import { useVenueMethods } from '@/lib/venue-methods';
+import { PendingTopUps } from './PendingTopUps';
 import { PrepareFichas } from './PrepareFichas';
 import { ReceptionFlow } from './ReceptionFlow';
 import { useChipReader } from './use-chip-via';
@@ -10,15 +12,30 @@ import { useChipReader } from './use-chip-via';
 /**
  * Recepción desde el móvil del personal: recargar el saldo (tarjeta con el QR
  * en su móvil, o efectivo), darle la ficha (Android: Web NFC) y que elija su
- * PIN; y «Preparar fichas» para el stock (solo Android con Chrome).
+ * PIN; «Preparar fichas» para el stock (solo Android con Chrome); y las
+ * recargas cobradas sin el NFC del cliente, pendientes de asignar.
  */
 export function ReceptionTab() {
   const methods = useVenueMethods();
   const reader = useChipReader();
-  const [view, setView] = useState<'menu' | 'reception' | 'prepare'>('menu');
+  const [view, setView] = useState<'menu' | 'reception' | 'prepare' | 'pending'>('menu');
+  const [pending, setPending] = useState(0);
+
+  // Al volver al menú, cuántas recargas esperan su saldo (si falla, el botón sale igual).
+  useEffect(() => {
+    if (view !== 'menu') return undefined;
+    let alive = true;
+    fetchPendingTopUps()
+      .then((rows) => alive && setPending(rows.length))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [view]);
 
   if (view === 'reception') return <ReceptionFlow on="staff" onDone={() => setView('menu')} />;
   if (view === 'prepare') return <PrepareFichas on="staff" onDone={() => setView('menu')} />;
+  if (view === 'pending') return <PendingTopUps onDone={() => setView('menu')} />;
 
   return (
     <Card style={cardStyle}>
@@ -27,6 +44,9 @@ export function ReceptionTab() {
       <p style={muted}>Con tarjeta (paga en su móvil) o en efectivo; le das la ficha y elige su PIN.</p>
       <Button size="lg" onClick={() => setView('reception')}>
         Nueva recarga
+      </Button>
+      <Button size="lg" variant={pending > 0 ? 'primary' : 'ghost'} onClick={() => setView('pending')}>
+        {pending > 0 ? `Pendientes de asignar (${pending})` : 'Pendientes de asignar'}
       </Button>
       {methods.nfc ? (
         <>
