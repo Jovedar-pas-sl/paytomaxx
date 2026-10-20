@@ -36,6 +36,7 @@ import type { TimeWindow } from '../reports/report-period';
 import { afterPayoutDebt, paymentAt } from '../reports/reporting-sql';
 import { ReportsService } from '../reports/reports.service';
 import { fichasCounts, type FichasCounts } from '../wallets/fichas-counts';
+import { MoneyMapService } from '../money-map/money-map.service';
 import { CloseCheckService } from './close-check.service';
 import { settleWritesBefore } from './night-cutoff';
 import {
@@ -185,6 +186,7 @@ export class NightsService {
   private readonly audit: AuditService;
   private readonly checks: CloseCheckService;
   private readonly totp: Pick<TotpService, 'assertForUser' | 'isEnabled'> | null;
+  private readonly moneyMap: Pick<MoneyMapService, 'compute'> | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -192,12 +194,14 @@ export class NightsService {
     @Inject(AuditService) audit: AuditService,
     @Inject(CloseCheckService) checks: CloseCheckService,
     @Optional() @Inject(TotpService) totp?: TotpService,
+    @Optional() @Inject(MoneyMapService) moneyMap?: MoneyMapService,
   ) {
     this.prisma = prisma;
     this.reports = reports;
     this.audit = audit;
     this.checks = checks;
     this.totp = totp ?? null;
+    this.moneyMap = moneyMap ?? null;
   }
 
   async current(tenantId: string): Promise<NightView | null> {
@@ -283,7 +287,7 @@ export class NightsService {
 
     const caja = buildNightCaja(check.cash, evaluateCash(check.cash, input), opts.cashNote, now);
     const pending = await this.pending(tenantId, window);
-    const z = this.zFrom(window, rows, pending.count, now, start.since, caja);
+    const z = await this.withMoneyMap(tenantId, night.id, window, now, this.zFrom(window, rows, pending.count, now, start.since, caja));
     const closed = await this.markClosed(night.id, tenantId, {
       closedAt: now,
       closedBy: actor.userId,
@@ -466,7 +470,13 @@ export class NightsService {
         const rows = await this.zRows(night.tenantId, window, now, start.since);
         const cash = cashFromRows(night.openingFloatCents, rows);
         const caja = buildNightCaja(cash, evaluateCash(cash), null, now);
-        const z = this.zFrom(window, rows, pending.count, now, start.since, caja);
+        const z = await this.withMoneyMap(
+          night.tenantId,
+          night.id,
+          window,
+          now,
+          this.zFrom(window, rows, pending.count, now, start.since, caja),
+        );
         const closed = await this.markClosed(night.id, night.tenantId, {
           closedAt: cutoff,
           closedBy: null,
@@ -608,6 +618,30 @@ export class NightsService {
     );
     const adjustments = buildAdjustments({ before: window.from, since, rows: rows.late });
     return { ...buildNightZ(window, summary, pendingCount, now, adjustments, caja), fichas: rows.fichas };
+  }
+
+  /**
+   * El Z con el mapa del dinero congelado (con su misma ventana, su corte y
+   * su caja). Si el mapa falla, la noche se cierra igual (sin él): el panel lo
+   * calcula luego con la ventana del Z.
+   */
+  private async withMoneyMap(tenantId: string, nightId: string, window: TimeWindow, now: Date, z: NightZ): Promise<NightZ> {
+    if (!this.moneyMap) return z;
+    try {
+      const moneyMap = await this.moneyMap.compute(tenantId, window, {
+        scope: { kind: 'night', nightId, open: false },
+        now,
+        recordedBefore: now,
+        openingFloatCents: z.caja?.openingFloatCents ?? null,
+        ...(z.caja ? { cash: z.caja } : {}),
+        withLiveBalances: true,
+        frozen: true,
+      });
+      return { ...z, moneyMap };
+    } catch (err) {
+      this.logger.error(`Noche ${nightId}: no se pudo congelar el mapa del dinero en el Z: ${(err as Error).message}`);
+      return z;
+    }
   }
 
   /** Las filas del Z de la noche en `now`. */
