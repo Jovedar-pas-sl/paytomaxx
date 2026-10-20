@@ -26,6 +26,8 @@ interface Props {
   warn?: string | null;
   primary: Action;
   secondary?: Action | null;
+  /** Sin sonido ni vibración (se vuelve a esta pantalla, p. ej. tras el PIN). */
+  quiet?: boolean;
 }
 
 /**
@@ -34,14 +36,14 @@ interface Props {
  * cobro pagado (dos vibraciones cortas). Usa la pantalla del resultado de
  * @nightpay/ui (.np-outcome) sin su franja de la hora: la ve solo quien cobra.
  */
-export function DeskLoaded({ word, amountCents, reference, money, meta, warn, primary, secondary }: Props) {
+export function DeskLoaded({ word, amountCents, reference, money, meta, warn, primary, secondary, quiet = false }: Props) {
   const titleId = useId();
   const primaryRef = useRef<HTMLButtonElement>(null);
   const amount = formatEur(amountCents, { compact: true });
   // El anuncio va a una región que ya existe (si nace con el texto, muchos lectores no lo leen).
   const [announce, setAnnounce] = useState('');
   useEffect(() => {
-    playOutcomeSound('paid');
+    if (!quiet) playOutcomeSound('paid');
     primaryRef.current?.focus({ preventScroll: true });
     const timer = setTimeout(() => setAnnounce(`${word}. ${amount}. ${meta}`), 150);
     return () => clearTimeout(timer);

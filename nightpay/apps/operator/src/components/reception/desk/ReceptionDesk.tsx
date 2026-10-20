@@ -58,6 +58,8 @@ interface Loaded {
   wallet: ReceptionWallet | null;
   linked: boolean;
   warn: string | null;
+  /** Ya se vio (se vuelve del PIN): sin sonar otra vez. */
+  seen?: boolean;
 }
 
 type Step =
@@ -265,6 +267,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         money={{ icon: done.method, ...money }}
         meta={handOverLine(done.read.view, done.linked)}
         warn={done.warn}
+        quiet={done.seen}
         primary={{ label: 'Siguiente cliente', onClick: () => restart('entrada') }}
         secondary={canPin ? { label: 'Que ponga su PIN', onClick: () => go({ kind: 'pin', done }) } : null}
       />
@@ -279,10 +282,10 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         mode="choose"
         title={`Saldo ${wallet.code}`}
         hint="Pásale el móvil al cliente para que elija su PIN"
-        onCancel={() => go({ kind: 'loaded', done })}
+        onCancel={() => go({ kind: 'loaded', done: { ...done, seen: true } })}
         onPin={async (pin) => {
           const next = await staffBackend.setPin(wallet, pin);
-          go({ kind: 'loaded', done: { ...done, wallet: next } });
+          go({ kind: 'loaded', done: { ...done, wallet: next, seen: true } });
           return null;
         }}
       />
