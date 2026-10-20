@@ -7,6 +7,8 @@ export interface Carta {
   services: ServiceItem[];
   /** No se pudo cargar: se cobra tecleando el importe y se ofrece reintentar. */
   failed: boolean;
+  /** Ya contestó (con servicios, sin ninguno o con error): hasta entonces no se pinta ni carta ni teclado. */
+  loaded: boolean;
   retry: () => void;
 }
 
@@ -14,6 +16,7 @@ export interface Carta {
 export function useCarta(): Carta {
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -23,9 +26,12 @@ export function useCarta(): Carta {
         if (cancelled) return;
         setServices(list);
         setFailed(false);
+        setLoaded(true);
       })
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        if (cancelled) return;
+        setFailed(true);
+        setLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -33,7 +39,7 @@ export function useCarta(): Carta {
   }, [attempt]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
-  return { services, failed, retry };
+  return { services, failed, loaded, retry };
 }
 
 /** Aviso pequeño cuando la carta no llegó (antes se tragaba el error en silencio). */

@@ -125,13 +125,19 @@ function PickStep({
     void send({ amountCents });
   }
 
+  // Sin servicios en la carta (o sin carta): el teclado directamente, sin pasar por «Otro importe».
+  const hasCarta = carta.services.length > 0;
+  const keypad = custom || (carta.loaded && !hasCarta);
+
   return (
     <Card style={cardStyle}>
       <p style={{ ...kicker, textAlign: 'center' }}>Cobrar del saldo</p>
       <p style={{ ...hintStyle, textAlign: 'center' }}>
-        Elige el servicio: te sale un QR, el cliente lo escanea y paga desbloqueando su móvil.
+        {keypad
+          ? 'Teclea el importe: te sale un QR, el cliente lo escanea y paga desbloqueando su móvil.'
+          : 'Elige el servicio: te sale un QR, el cliente lo escanea y paga desbloqueando su móvil.'}
       </p>
-      {custom ? (
+      {!carta.loaded && !custom ? null : keypad ? (
         <form onSubmit={sendCustom} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <AmountKeypad
             valueCents={amountCents}
@@ -139,9 +145,11 @@ function PickStep({
             maxCents={MAX_TYPED_AMOUNT_CENTS}
             disabled={busy}
           />
-          <Button type="button" variant="ghost" onClick={() => setCustom(false)} disabled={busy}>
-            Volver a la carta
-          </Button>
+          {hasCarta ? (
+            <Button type="button" variant="ghost" onClick={() => setCustom(false)} disabled={busy}>
+              Volver a la carta
+            </Button>
+          ) : null}
           <div className="np-sticky-action" style={{ bottom: STICKY_ACTION_BOTTOM }}>
             <Button type="submit" size="lg" loading={busy} disabled={amountCents <= 0}>
               {amountCents > 0 ? `Cobrar ${formatEur(amountCents, { compact: true })}` : 'Cobrar'}
@@ -178,7 +186,7 @@ function PickStep({
           </button>
         </div>
       )}
-      {carta.failed && !custom ? <CartaRetry onRetry={carta.retry} /> : null}
+      {carta.failed ? <CartaRetry onRetry={carta.retry} /> : null}
       {error ? (
         <p role="alert" style={errorStyle}>
           {error}
