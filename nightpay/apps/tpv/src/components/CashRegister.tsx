@@ -137,9 +137,9 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
       {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
       <ConnectionBanner issue={issue} style={{ margin: '-1.5rem -1.5rem 0' }} />
       <header style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: 0 }}>
           <Logo height="2rem" />
-          <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1rem' }}>
+          <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1rem', minWidth: 0 }}>
             <p style={brandLabel}>TPV</p>
             <p style={brandSub}>
               venue <code style={code}>{venueSlug}</code>
@@ -255,6 +255,9 @@ const headerStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
+  // En un móvil estrecho, «Salir» baja de línea antes que sacar la página por el lado.
+  flexWrap: 'wrap',
+  gap: '0.75rem',
   paddingBottom: '1rem',
   borderBottom: '1px solid var(--np-border)',
 };
@@ -278,6 +281,7 @@ const code: CSSProperties = {
   padding: '0.1rem 0.4rem',
   borderRadius: '4px',
   fontSize: 'var(--np-t-label)',
+  overflowWrap: 'anywhere',
 };
 
 const errStyle: CSSProperties = {
