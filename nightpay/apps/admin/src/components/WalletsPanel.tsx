@@ -16,6 +16,7 @@ import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { useFichas } from './fichas/fichas-context';
 import { Notice } from './Notice';
 import { Pill, type Tone } from './Pill';
 import { RecentCashTopUps } from './RecentCashTopUps';
@@ -51,6 +52,7 @@ interface Props {
  */
 export function WalletsPanel({ isOwner }: Props) {
   const tz = useVenueTimezone();
+  const fichas = useFichas();
   const [stats, setStats] = useState<WalletsAdminStats | null>(null);
   /** null = cargando la lista de este filtro. */
   const [rows, setRows] = useState<WalletAdminRow[] | null>(null);
@@ -200,9 +202,16 @@ export function WalletsPanel({ isOwner }: Props) {
                 {closeRequestsFirst(rows).map((w) => (
                   <tr key={w.id}>
                     <td data-label="Código" data-card="title">
-                      <span className="np-num" style={{ fontWeight: 700, letterSpacing: '0.08em' }}>
-                        {w.code ?? '—'}
-                      </span>
+                      {/* Su ficha: recargas, consumos y devoluciones. */}
+                      {fichas ? (
+                        <button type="button" onClick={() => fichas.openWallet(w.id)} style={codeLink} title="Ver la ficha del saldo">
+                          {w.code ?? '—'}
+                        </button>
+                      ) : (
+                        <span className="np-num" style={{ fontWeight: 700, letterSpacing: '0.08em' }}>
+                          {w.code ?? '—'}
+                        </span>
+                      )}
                     </td>
                     <td data-label="Cliente">
                       {w.identifier ?? <em style={{ color: 'var(--np-text-dim)' }}>anónimo</em>}
@@ -419,4 +428,18 @@ const loadingStyle: CSSProperties = {
   textAlign: 'center',
   fontSize: '0.85rem',
   color: 'var(--np-text-mute)',
+};
+
+const codeLink: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  font: 'inherit',
+  fontFamily: 'var(--np-font-mono)',
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  color: 'var(--np-accent)',
+  textDecoration: 'underline',
+  textUnderlineOffset: '0.15em',
+  cursor: 'pointer',
 };

@@ -16,6 +16,7 @@ import { safeHttpUrl } from '@/lib/urls';
 import { useApprovals } from '@/lib/use-approvals';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { EditOperatorForm } from './EditOperatorForm';
+import { OperatorCobros } from './fichas/OperatorCobros';
 import { Notice } from './Notice';
 import { OnboardingForm } from './OnboardingForm';
 import { PayoutConfirmModal } from './PayoutConfirmModal';
@@ -27,7 +28,7 @@ import { TabBar, tabId, tabPanelId } from './TabBar';
 /** El API devuelve como mucho estas filas de ganancias y de liquidaciones (sin paginar). */
 const HISTORY_LIMIT = 100;
 
-type DetailTab = 'earnings' | 'payouts' | 'edit' | 'onboarding';
+type DetailTab = 'cobros' | 'earnings' | 'payouts' | 'edit' | 'onboarding';
 
 interface History {
   earnings: OperatorEarning[];
@@ -47,7 +48,7 @@ export function OperatorDetailModal({
 }) {
   const [history, setHistory] = useState<History | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [tab, setTab] = useState<DetailTab>('earnings');
+  const [tab, setTab] = useState<DetailTab>('cobros');
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [verifyFor, setVerifyFor] = useState<OperatorPayout | null>(null);
   const generation = useRef(0);
@@ -81,6 +82,7 @@ export function OperatorDetailModal({
   const payable = operator.balance.availableCents ?? balance;
   const needsHelp = operator.needsHelpWallet || operator.needsHelpDocs;
   const tabs: Array<{ key: DetailTab; label: string }> = [
+    { key: 'cobros', label: 'Cobros' },
     { key: 'earnings', label: 'Ganancias' },
     { key: 'payouts', label: 'Liquidaciones' },
     { key: 'edit', label: 'Editar' },
@@ -135,7 +137,9 @@ export function OperatorDetailModal({
         <TabBar tabs={tabs} active={tab} onChange={setTab} ariaLabel="Datos de la operadora" idPrefix={tabsId} size="sm" />
 
         <div role="tabpanel" id={tabPanelId(tabsId, tab)} aria-labelledby={tabId(tabsId, tab)}>
-          {tab === 'earnings' || tab === 'payouts' ? (
+          {tab === 'cobros' ? (
+            <OperatorCobros operatorId={operator.id} />
+          ) : tab === 'earnings' || tab === 'payouts' ? (
             historyError ? (
               <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => void loadHistory() }}>
                 {historyError}

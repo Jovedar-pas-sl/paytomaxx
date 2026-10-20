@@ -24,6 +24,7 @@ const TAB_SLUG: Readonly<Record<TabKey, string>> = {
   reports: 'informes',
   bank: 'banco',
   carta: 'carta',
+  sections: 'secciones',
   terminals: 'datafonos',
   rules: 'reglas',
   methods: 'formas',

@@ -264,7 +264,8 @@ export interface RulesForm {
 
 export function rulesFormFrom(r: VenueRules): RulesForm {
   const categories = CATEGORY_KEYS.reduce<Categories>(
-    (acc, key) => ({ ...acc, [key]: bpsToPercentInput(r.operatorCommissionDefaults[key]) }),
+    // Entradas (sección nueva) no está guardada en los locales de antes: 0 %.
+    (acc, key) => ({ ...acc, [key]: bpsToPercentInput(r.operatorCommissionDefaults[key] ?? 0) }),
     {} as Categories,
   );
   return {
@@ -333,7 +334,7 @@ export function rulesPayload(
   const parsed = parseRules(form);
   if (!parsed.ok) return parsed;
   const p = parsed.value;
-  const changedCategories = CATEGORY_KEYS.filter((k) => p.categories[k] !== saved.operatorCommissionDefaults[k]);
+  const changedCategories = CATEGORY_KEYS.filter((k) => p.categories[k] !== (saved.operatorCommissionDefaults[k] ?? 0));
   const holdText = (d: number | null): string =>
     d !== null
       ? holdDaysText(d).toLowerCase()
@@ -365,7 +366,7 @@ export function rulesPayload(
       : null,
     ...changedCategories.map(
       (k) =>
-        `${CATEGORY_LABELS[k].toLowerCase()}: ${formatPercent(saved.operatorCommissionDefaults[k])} → ${formatPercent(p.categories[k])}`,
+        `${CATEGORY_LABELS[k].toLowerCase()}: ${formatPercent(saved.operatorCommissionDefaults[k] ?? 0)} → ${formatPercent(p.categories[k] ?? 0)}`,
     ),
     dto.payoutHoldDays !== undefined
       ? `días de espera: ${holdText(saved.payoutHoldDays)} → ${holdText(p.holdDays)}`
