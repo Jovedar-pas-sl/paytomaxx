@@ -8,6 +8,7 @@ import {
   HttpStatus,
   Inject,
   Logger,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -35,6 +36,7 @@ import { parseWebhookBody } from '../gateways/header-utils';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
 import { enqueueWebhookDelivery } from '../queues/webhook-enqueue';
 import { MetricsService } from '../metrics/metrics.service';
+import { WebhookProviderGate, type GatedWebhookProvider } from './webhook-provider-gate';
 
 // M1: Fastify guarda el rawBody en `req.rawBody` cuando se configura el
 // `rawBody` plugin (ver main.ts). El tipo oficial de FastifyRequest no lo
@@ -116,6 +118,8 @@ export class WebhooksController {
   private readonly peanpe: PeanpeAdapter;
   private readonly wipay: WipayAdapter;
   private readonly redsys: RedsysAdapter;
+  /** null solo si se construye a mano (pruebas de antes): entonces no se cierra nada. */
+  private readonly gate: WebhookProviderGate | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -127,6 +131,7 @@ export class WebhooksController {
     @Inject(PeanpeAdapter) peanpe: PeanpeAdapter,
     @Inject(WipayAdapter) wipay: WipayAdapter,
     @Inject(RedsysAdapter) redsys: RedsysAdapter,
+    @Inject(WebhookProviderGate) gate?: WebhookProviderGate,
   ) {
     this.prisma = prisma;
     this.gateways = gateways;
@@ -137,6 +142,16 @@ export class WebhooksController {
     this.peanpe = peanpe;
     this.wipay = wipay;
     this.redsys = redsys;
+    this.gate = gate ?? null;
+  }
+
+  /**
+   * Paytef y Peanpe: si ningún local tiene una credencial activa de esa
+   * pasarela, su ruta de avisos no existe (404) y no se procesa nada: ni el
+   * secreto, ni el cuerpo, ni el límite en Redis, ni la base.
+   */
+  private async assertProviderInUse(provider: GatedWebhookProvider): Promise<void> {
+    if (this.gate && !(await this.gate.enabled(provider))) throw new NotFoundException();
   }
 
   /**
@@ -245,6 +260,7 @@ export class WebhooksController {
     @Param('secret') secret: string,
     @Req() req: FastifyRequest,
   ): Promise<{ received: true; duplicate?: boolean }> {
+    await this.assertProviderInUse('PAYTEF');
     const expectedSecret = this.config.get<string>('PAYTEF_WEBHOOK_SECRET');
     if (!expectedSecret) {
       this.logger.warn('PAYTEF_WEBHOOK_SECRET not configured — refusing webhook');
@@ -312,6 +328,7 @@ export class WebhooksController {
   @HttpCode(200)
   @Header('Content-Type', 'text/plain; charset=utf-8')
   async peanpeChallenge(@Req() req: FastifyRequest): Promise<string> {
+    await this.assertProviderInUse('PEANPE');
     // Peanpe envía form-urlencoded en POST. Fastify ya parsea a req.body.
     // M1: schema Zod en vez de `as any`.
     const parsed = PeanpePostBodySchema.safeParse(req.body ?? {});
@@ -366,6 +383,7 @@ export class WebhooksController {
     @Query('accion') accion: string | undefined,
     @Query('debug') debug: string | undefined,
   ): Promise<{ received: true; duplicate?: boolean }> {
+    await this.assertProviderInUse('PEANPE');
     if (!idLlamada || !seguridad || !status) {
       throw new BadRequestException('missing required query params');
     }
