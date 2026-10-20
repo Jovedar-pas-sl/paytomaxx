@@ -15,6 +15,7 @@ import {
   isWalletCardToken,
   nightSettingsOf,
   normalizeWalletCardUid,
+  paymentMethodsOf,
   type ChargeAuthMethod,
   type ChargeLineInput,
   type Role,
@@ -60,7 +61,9 @@ import {
   noPinWindowStart,
 } from './wallet-nopin';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
-import { assertVenueAcceptsMethods } from '../venues/venue-methods';
+import { TipsDisabledException, assertVenueAcceptsMethods } from '../venues/venue-methods';
+import { tipsForbidden } from '../venues/charge-rights';
+import { maxTipCents } from '../payments/tip';
 import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor } from './wallet-two-factor';
 import { WalletBlockedException } from './wallet-blocked';
@@ -197,6 +200,8 @@ export interface ChargeRequestView {
   ref: string | null;
   status: ChargeRequestStatus;
   amountCents: number;
+  /** La propina que pidió el cliente (aparte del importe; el saldo paga las dos). */
+  tipCents: number;
   serviceName: string | null;
   expiresAt: string;
   newBalanceCents: number | null;
@@ -391,7 +396,7 @@ export class WalletChargesService {
   private async resolveCharge(
     actor: Actor,
     input: QrChargeInput,
-  ): Promise<{ amountCents: number; category: RevenueCategory; serviceName: string | null; lines: DraftLine[] }> {
+  ): Promise<{ amountCents: number; category: RevenueCategory; serviceName: string | null; lines: DraftLine[]; tipCents: number }> {
     const charge = await resolveChargeOrThrow(this.prisma, {
       tenantId: actor.tenantId,
       userId: actor.userId,
@@ -403,6 +408,18 @@ export class WalletChargesService {
       invitedStaffToken: input.invitedStaffToken,
     });
     const amountCents = charge.amountCents;
+    // La propina: con las propinas encendidas en el local y en su puesto, hasta el importe (y 500 €).
+    const tipCents = input.tipCents ?? 0;
+    if (tipCents > 0) {
+      const venue = await this.prisma.asSystem((tx) =>
+        tx.venue.findUnique({ where: { id: actor.tenantId }, select: { paymentMethods: true } }),
+      );
+      if (!paymentMethodsOf(venue?.paymentMethods).tips) throw new TipsDisabledException();
+      if (charge.rights && !charge.rights.tips) throw tipsForbidden();
+      if (tipCents > maxTipCents(amountCents)) {
+        throw new BadRequestException('La propina no puede pasar del importe del cobro ni de 500,00 €');
+      }
+    }
     // El mismo tope por cobro que tiene la chica con el QR (Ajustes del local).
     if (actor.role === 'OPERATOR') {
       const venue = await this.prisma.venue.findUnique({
@@ -414,7 +431,7 @@ export class WalletChargesService {
         throw new ForbiddenException(`El máximo que puedes cobrar de una vez es ${eur(max)}`);
       }
     }
-    return { amountCents, category: charge.primaryCategory, serviceName: charge.serviceName, lines: charge.lines };
+    return { amountCents, category: charge.primaryCategory, serviceName: charge.serviceName, lines: charge.lines, tipCents };
   }
 
   /** La chica espera a que el cliente pague (solo la que lo hizo, o el encargado). */
@@ -645,7 +662,10 @@ export class WalletChargesService {
       if (bound.count === 0) throw requestError('not-pending');
       const request = await tx.walletChargeRequest.findFirst({ where: { id: requestId, walletId: wallet.id } });
       if (!request) throw new NotFoundException('Cobro no encontrado');
-      const decision = decideAccept(request, w, new Date());
+      // Lo que sale del saldo: el importe y la propina que pidió el cliente.
+      const tipCents = request.tipCents ?? 0;
+      const totalCents = request.amountCents + tipCents;
+      const decision = decideAccept({ ...request, amountCents: totalCents }, w, new Date());
       if (!decision.ok) throw requestError(decision.reason);
       // Cobro único: un solo juego de líneas, del que se paga.
       if (card) await moveLinesToSaldo(tx, card.id, request.id);
@@ -661,7 +681,9 @@ export class WalletChargesService {
       // NFC sin PIN: con el saldo ya bloqueado, lo gastado sin PIN esta noche
       // (también en los saldos sumados a este) + este cobro, contra el tope.
       const noPin =
-        auth === 'nfc_nopin' ? await this.noPinAllowance(tx, w, request.amountCents, venue?.nightSettings) : null;
+        auth === 'nfc_nopin' ? await this.noPinAllowance(tx, w, totalCents, venue?.nightSettings) : null;
+      // La propina: entera para la chica que cobra; del local si cobra otra persona.
+      const tipToChica = provider?.role === 'OPERATOR';
       const consumption = await tx.walletConsumption.create({
         data: {
           tenantId: request.tenantId,
@@ -672,6 +694,7 @@ export class WalletChargesService {
           notes: request.serviceName,
           idempotencyKey: `charge-request:${request.id}`,
           authMethod: auth,
+          ...(tipCents > 0 ? { tipCents, tipGoesTo: tipToChica ? 'operator' : 'venue' } : {}),
         },
       });
       if (provider?.role === 'OPERATOR') {
@@ -685,7 +708,8 @@ export class WalletChargesService {
           });
         const parts = lines.length > 0 ? lines : [{ category: request.category, amountCents: request.amountCents }];
         const commission = lineCommission(parts.map((l) => ({ amountCents: l.amountCents, bps: bpsOf(l.category) })));
-        if (commission.anyBps) {
+        // Sin comisión pero con propina para ella: la propina también le llega.
+        if (commission.anyBps || tipCents > 0) {
           await tx.operatorEarning.create({
             data: {
               tenantId: request.tenantId,
@@ -694,6 +718,7 @@ export class WalletChargesService {
               paymentAmountCents: request.amountCents,
               commissionBps: commission.commissionBps,
               commissionCents: commission.commissionCents,
+              ...(tipCents > 0 ? { tipCents } : {}),
             },
           });
         }
@@ -708,7 +733,7 @@ export class WalletChargesService {
           invitationEarnings(invited, request.requestedByUserId),
         );
       }
-      const newBalance = w.balanceCents - request.amountCents;
+      const newBalance = w.balanceCents - totalCents;
       await tx.clientWallet.update({
         where: { id: wallet.id },
         data: {
@@ -763,7 +788,7 @@ export class WalletChargesService {
       await assertVenueAcceptsCharges(tx, actor.tenantId);
       await assertVenueAcceptsMethods(tx, actor.tenantId, ['wallet']);
     });
-    const { amountCents, category, serviceName, lines } = await this.resolveCharge(actor, input);
+    const { amountCents, category, serviceName, lines, tipCents } = await this.resolveCharge(actor, input);
     const payToken = randomBytes(24).toString('base64url');
     // Cobro, su referencia (C-0001) y sus líneas: todo o nada.
     const request = await this.prisma.asSystem(async (tx) => {
@@ -779,6 +804,7 @@ export class WalletChargesService {
           payToken,
           ref,
           expiresAt: new Date(Date.now() + QR_CHARGE_TTL_MS),
+          ...(tipCents > 0 ? { tipCents } : {}),
         },
       });
       await insertChargeLines(tx, actor.tenantId, { walletChargeId: created.id }, lines);
@@ -800,7 +826,8 @@ export class WalletChargesService {
     const elsewhere = status !== 'ACCEPTED' && (await this.paidByCard(request));
     return {
       status,
-      amountCents: request.amountCents,
+      // Lo que paga: el importe y la propina que pidió.
+      amountCents: request.amountCents + (request.tipCents ?? 0),
       serviceName: request.serviceName,
       venueName: venue?.name ?? '',
       requestedByName: requester?.displayName ?? null,
@@ -822,7 +849,7 @@ export class WalletChargesService {
       tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
     );
     this.logger.log(`Saldo ${walletId}: cobro ${request.id} pagado con su llave (QR)`);
-    return { amountCents: request.amountCents, balanceCents: wallet?.balanceCents ?? 0 };
+    return { amountCents: request.amountCents + (request.tipCents ?? 0), balanceCents: wallet?.balanceCents ?? 0 };
   }
 
   /** Encargado o dueño: cobros con QR que nadie ha pagado aún (cliente sin batería…). */
@@ -841,7 +868,15 @@ export class WalletChargesService {
 
   /** Para el panel (con el email si no tiene nombre) o para el datáfono (solo el nombre). */
   private async pendingViews(
-    rows: Array<{ id: string; amountCents: number; serviceName: string | null; requestedByUserId: string; createdAt: Date; expiresAt: Date }>,
+    rows: Array<{
+      id: string;
+      amountCents: number;
+      tipCents?: number | null;
+      serviceName: string | null;
+      requestedByUserId: string;
+      createdAt: Date;
+      expiresAt: Date;
+    }>,
     withEmail: boolean,
   ): Promise<PendingQrCharge[]> {
     const users = await this.prisma.asSystem((tx) =>
@@ -854,7 +889,8 @@ export class WalletChargesService {
       const u = users.find((x) => x.id === r.requestedByUserId);
       return {
         id: r.id,
-        amountCents: r.amountCents,
+        // Lo que se cobra del saldo: el importe y la propina.
+        amountCents: r.amountCents + (r.tipCents ?? 0),
         serviceName: r.serviceName,
         requestedByName: u?.displayName ?? (withEmail ? u?.email : null) ?? '',
         createdAt: r.createdAt.toISOString(),
@@ -2204,7 +2240,15 @@ export class WalletChargesService {
   }
 
   private requestView(
-    r: { id: string; status: string; amountCents: number; serviceName: string | null; expiresAt: Date; ref?: number | null },
+    r: {
+      id: string;
+      status: string;
+      amountCents: number;
+      tipCents?: number | null;
+      serviceName: string | null;
+      expiresAt: Date;
+      ref?: number | null;
+    },
     newBalanceCents: number | null,
   ): ChargeRequestView {
     return {
@@ -2212,6 +2256,7 @@ export class WalletChargesService {
       ref: formatChargeRef(r.ref),
       status: effectiveRequestStatus(r, new Date()),
       amountCents: r.amountCents,
+      tipCents: r.tipCents ?? 0,
       serviceName: r.serviceName,
       expiresAt: r.expiresAt.toISOString(),
       newBalanceCents,
@@ -2305,4 +2350,6 @@ export interface QrChargeInput {
   category?: string;
   /** «Invitar a una copa»: el QR personal de la chica invitada. */
   invitedStaffToken?: string;
+  /** La propina que pidió el cliente (aparte del importe). */
+  tipCents?: number;
 }

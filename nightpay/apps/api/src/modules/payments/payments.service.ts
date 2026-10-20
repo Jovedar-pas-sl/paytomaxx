@@ -165,6 +165,8 @@ interface PaymentDraft {
   operatorCommissionBps: number | null;
   /** Cobro único: también se puede pagar con el saldo (cobro del saldo enlazado). */
   withSaldo: boolean;
+  /** Cobro único: la propina que pidió el cliente, la que paga si paga con el saldo. */
+  saldoTipCents: number;
 }
 
 /**
@@ -575,7 +577,20 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Cobro único: con el saldo encendido en el local y quien cobra con
       // nombre (el cobro del saldo es suyo). Ni recargas ni datáfono.
       withSaldo: Boolean(dto.withSaldo) && !isWalletTopUp && !byDatafono && methods.wallet && creator.userId !== null,
+      saldoTipCents: this.saldoTip(dto, amountCents),
     };
+  }
+
+  /**
+   * Cobro único con propina (la loseta «Propina»): con el saldo se paga entera
+   * (con tarjeta, la de la página de pago, que ya sale marcada). Hasta el
+   * importe y 500 €; las propinas apagadas o el puesto sin propinas ya dieron
+   * 409/403 antes.
+   */
+  private saldoTip(dto: CreatePaymentDto, amountCents: number): number {
+    const tip = dto.withSaldo ? (dto.tipCents ?? 0) : 0;
+    if (tip > maxTipCents(amountCents)) throw new BadRequestException(TIP_TOO_HIGH);
+    return tip;
   }
 
   /**
@@ -780,6 +795,7 @@ export class PaymentsService implements OnApplicationBootstrap {
                 ref,
                 expiresAt: qrExpiresAt,
                 linkedPaymentId: p.id,
+                tipCents: draft.saldoTipCents,
               },
               select: { id: true },
             })

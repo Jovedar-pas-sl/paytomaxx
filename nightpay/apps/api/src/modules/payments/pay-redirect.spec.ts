@@ -239,6 +239,14 @@ describe('qué ve el cliente al escanear (Fase 1B)', () => {
       }
     });
 
+    it('la propina que pidió al personal sale ya marcada (solo en el cobro único)', () => {
+      expect(choosePayPage(payable({ saldo: saldo(), tipCents: 500 }), NOW)).toMatchObject({ presetTipCents: 500, tipCents: 500 });
+      expect((choosePayPage(payable({ tipCents: 500 }), NOW) as { presetTipCents?: number }).presetTipCents).toBeUndefined();
+      expect(
+        (choosePayPage(payable({ saldo: saldo(), tipCents: 500, allowTip: false }), NOW) as { presetTipCents?: number }).presetTipCents,
+      ).toBeUndefined();
+    });
+
     it('pagado con el saldo: «Ya está pagado con tu saldo» (no «cancelado»)', () => {
       expect(settledPayView(payable({ status: 'CANCELED', saldo: saldo({ status: 'ACCEPTED' }) }), NOW)).toEqual({
         kind: 'closed',

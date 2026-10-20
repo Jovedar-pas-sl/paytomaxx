@@ -506,6 +506,9 @@ model WalletChargeRequest {
   // saldo). Gana el primero que se paga, con la fila del cobro bloqueada: el
   // otro se cancela. Null = cobro del saldo suelto.
   linkedPaymentId   String?   @unique @db.Uuid
+  // Propina que pidió el cliente (20261024100100), aparte del importe: el
+  // saldo paga importe + propina y el consumo la guarda en su "tipCents".
+  tipCents          Int       @default(0)
 
   wallet        ClientWallet? @relation(fields: [walletId], references: [id], onDelete: Cascade)
   linkedPayment Payment?      @relation("CobroUnico", fields: [linkedPaymentId], references: [id], onDelete: Cascade)

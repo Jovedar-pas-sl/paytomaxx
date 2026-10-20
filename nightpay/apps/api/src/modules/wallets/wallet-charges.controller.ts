@@ -32,6 +32,8 @@ const QrChargeSchema = z
     lines: ChargeLinesSchema.optional(),
     /** «Invitar a una copa»: el QR personal de la chica invitada (URL o token). */
     invitedStaffToken: z.string().trim().min(20).max(600).optional(),
+    /** La propina que pidió el cliente (aparte del importe): el saldo paga las dos. */
+    tipCents: z.number().int().nonnegative().max(500_00).optional(),
   })
   .refine((b) => Boolean(b.serviceItemId) || Boolean(b.amountCents) || Boolean(b.lines), {
     message: 'Elige un servicio de la carta o pon un importe',

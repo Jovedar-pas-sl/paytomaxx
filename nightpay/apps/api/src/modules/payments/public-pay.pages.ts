@@ -145,6 +145,8 @@ legend{color:var(--mute);margin:0 auto .6rem;padding:0;font-weight:600}
 
 function tipChoices(view: ChooseView, t: PayText): string {
   const presets = tipPresetsFor(view.amountCents, view.tipPresets);
+  // La propina que pidió el cliente al personal (cobro único), ya marcada.
+  const preset = view.presetTipCents && view.tipOptionsCents.includes(view.presetTipCents) ? view.presetTipCents : 0;
   const short = (c: number): string => formatShort(c, view.currency, t);
   const pct = (p: number): string => (p / 100).toLocaleString(t.locale, { style: 'percent' });
   const options = view.tipOptionsCents
@@ -154,13 +156,13 @@ function tipChoices(view: ChooseView, t: PayText): string {
       const label = percent
         ? `<b>${escapeHtml(pct(percent))}</b><small class="num">+${escapeHtml(short(c))}</small>`
         : `<b class="num">+${escapeHtml(short(c))}</b>`;
-      return `<label><input type="radio" name="tip" value="${c}"><span>${label}</span></label>`;
+      return `<label><input type="radio" name="tip" value="${c}"${c === preset ? ' checked' : ''}><span>${label}</span></label>`;
     })
     .join('');
   // «Otra» necesita JS: empieza oculta y el JS la enseña.
   const canOther = view.tipMaxCents >= 100;
   return `<fieldset><legend>${escapeHtml(t.tipLegend)}</legend><div class="tipgrid">
-<label><input type="radio" name="tip" value="0" checked><span>${escapeHtml(t.noTip)}</span></label>${options}${
+<label><input type="radio" name="tip" value="0"${preset === 0 ? ' checked' : ''}><span>${escapeHtml(t.noTip)}</span></label>${options}${
     canOther
       ? `<label id="otherOpt" hidden><input type="radio" name="tip" value="0" id="otherRadio"><span>${escapeHtml(t.tipOther)}</span></label>`
       : ''

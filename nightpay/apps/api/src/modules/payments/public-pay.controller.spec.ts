@@ -291,6 +291,16 @@ describe('GET /pay/:token — página de pago', () => {
     expect(en.sent.body).toContain('Pay with my OxioCard balance');
   });
 
+  it('cobro único con la propina que pidió al personal: sale ya marcada', async () => {
+    const { controller } = makeController({
+      page: { ...CHOOSE, tipOptionsCents: [0, 500, 1_000, 1_500], tipCents: 500, presetTipCents: 500 } as PayRedirect,
+    });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    const checked = sent.body!.match(/<input type="radio" name="tip" value="(\d+)" checked>/g) ?? [];
+    expect(checked).toEqual(['<input type="radio" name="tip" value="500" checked>']);
+  });
+
   it('cobro único ya pagado con el saldo: «Ya está pagado con tu saldo», sin «No se te ha cobrado nada»', async () => {
     const { controller } = makeController({ page: { kind: 'closed', reason: 'paid-with-saldo' } });
     const { reply, sent } = fakeReply();

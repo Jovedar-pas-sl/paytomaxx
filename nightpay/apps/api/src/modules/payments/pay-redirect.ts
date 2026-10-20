@@ -64,6 +64,12 @@ export type PayRedirect =
        * OxioCard desbloqueando el móvil (/s/<token>). Null: solo tarjeta.
        */
       saldoPayToken?: string | null;
+      /**
+       * Cobro único con la propina que pidió el cliente al personal (la
+       * loseta «Propina»): sale ya marcada (la puede quitar). Sin ella, «Sin
+       * propina» marcada, como siempre.
+       */
+      presetTipCents?: number;
     }
   | {
       kind: 'paid';
@@ -303,6 +309,7 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
     tipToStaff: p.tipToStaff ?? false,
     ...(p.tipPresets ? { tipPresets: p.tipPresets } : {}),
     ...(saldoPayToken ? { saldoPayToken } : {}),
+    ...(p.saldo && p.allowTip && p.tipCents > 0 ? { presetTipCents: p.tipCents } : {}),
   };
 }
 

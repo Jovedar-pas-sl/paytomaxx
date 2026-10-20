@@ -201,6 +201,10 @@ beforeAll(async () => {
   await sys(async (tx) => {
     V = (await tx.venue.create({ data: { name: 'Sala Medianoche', slug: `cu-${r}`, walletGroup: `gcu-${r}` } })).id;
     await tx.terminal.create({ data: { tenantId: V, externalId: `CU-${r}`, label: 'Barra', zone: 'BARRA' } });
+    // Redsys: la propina que pide el cliente al personal también va en la tarjeta.
+    await tx.gatewayCredential.create({
+      data: { tenantId: V, provider: 'REDSYS', encKey: Buffer.from('k'), encNonce: Buffer.from('n'), encTag: Buffer.from('t'), kekVersion: 1 },
+    });
     carlos = (
       await tx.user.create({ data: { tenantId: V, email: `carlos-cu-${r}@x.es`, passwordHash: 'x', role: 'WAITER', displayName: 'Carlos' } })
     ).id;
@@ -407,6 +411,41 @@ describe('las carreras: nunca se cobra dos veces (Postgres real)', () => {
       expect(s.cardLines + s.saldoLines).toBe(1);
       expect(s.balance).toBe(s.charge.status === 'ACCEPTED' ? 4000 : 5000);
     }
+  });
+});
+
+describe('la propina que pide el cliente (loseta «Propina»)', () => {
+  it('con el saldo la paga entera (del local si cobra el camarero); en la tarjeta sale ya marcada', async () => {
+    const w = await wallet(5000);
+    const c = await cobro([{ serviceItemId: copa }], { tipCents: 500 });
+    expect(c.amountCents).toBe(1000);
+    const page = await inVenue(undefined, () => payments.getPayPage(c.qrToken));
+    expect(page).toMatchObject({ kind: 'choose', amountCents: 1000, presetTipCents: 500 });
+    const paid = await payNfc(c.saldo!.chargeId, w);
+    expect(paid).toMatchObject({ status: 'ACCEPTED', amountCents: 1000, tipCents: 500, newBalanceCents: 3500 });
+    const consumption = await sys((tx) =>
+      tx.walletConsumption.findFirst({ where: { idempotencyKey: `charge-request:${c.saldo!.chargeId}` } }),
+    );
+    expect(consumption).toMatchObject({ amountCents: 1000, tipCents: 500, tipGoesTo: 'venue' });
+  });
+
+  it('cobro del saldo de la chica con propina: la propina es entera para ella', async () => {
+    const w = await wallet(20_000);
+    const servicio = await sys((tx) =>
+      tx.serviceItem.create({ data: { tenantId: V, name: '1 h', priceCents: 12_000, category: 'CHICA_SERVICE' } }),
+    );
+    const qr = await inVenue(V, () =>
+      charges.createQrCharge({ userId: nerea, role: 'OPERATOR', tenantId: V }, { serviceItemId: servicio.id, tipCents: 1000 }),
+    );
+    await inVenue(undefined, () => charges.payQrCharge(qr.payToken, w.id));
+    const consumption = await sys((tx) => tx.walletConsumption.findFirst({ where: { idempotencyKey: `charge-request:${qr.id}` } }));
+    const earning = await sys((tx) => tx.operatorEarning.findFirst({ where: { consumptionId: consumption!.id } }));
+    expect(earning).toMatchObject({ operatorId: nerea, commissionCents: 10_800, tipCents: 1000 });
+    expect((await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: w.id } }))).balanceCents).toBe(7000);
+    // Más propina que el importe: no.
+    await expect(
+      inVenue(V, () => charges.createQrCharge({ userId: nerea, role: 'OPERATOR', tenantId: V }, { amountCents: 1000, tipCents: 2000 })),
+    ).rejects.toThrow(/propina/);
   });
 });
 
