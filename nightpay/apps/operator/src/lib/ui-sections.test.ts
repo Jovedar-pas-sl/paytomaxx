@@ -39,7 +39,7 @@ describe('colores de las secciones (marca OxioCard)', () => {
     expect(sectionColor('VENUE_FOOD')).toBe('#f2b49b');
     expect(sectionColor('CHICA_SERVICE')).toBe('#d24fd8');
     expect(sectionColor('VENUE_ENTRY')).toBe('#8fc3f2');
-    expect(sectionColor('EXTRA')).toBe('#3fa9f5');
+    expect(sectionColor('EXTRA')).toBe('#7c8893');
     expect(sectionOf('VENUE_BAR')?.label).toBe('Copas');
     expect(sectionVar('CHICA_SERVICE')).toBe('var(--np-sec-servicios)');
   });

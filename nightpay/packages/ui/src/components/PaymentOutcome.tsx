@@ -56,7 +56,7 @@ const BAND_ITEMS = 8;
 
 /**
  * El resultado de un cobro a pantalla completa, para verlo desde un metro en
- * una sala oscura: PAGADO en el verde de la marca con el aro lima, RECHAZADO
+ * una sala oscura: PAGADO en el verde de la marca con el aro lima, NO PAGADO
  * en rojo con una cruz, CADUCADO en ámbar, con la palabra y el importe
  * enormes (nunca solo el color). El «hace 0:12» y la franja con la hora que
  * se mueve delatan una captura de pantalla vieja; con «reducir movimiento»,

@@ -12,7 +12,8 @@ export type SectionKey =
   | 'servicios'
   | 'entradas'
   | 'propinas'
-  | 'saldo';
+  | 'saldo'
+  | 'otros';
 
 /** Categoría de un cobro (revenueCategory / category del servicio de la carta). */
 export type SectionCode = 'CHICA_SERVICE' | 'VENUE_BAR' | 'VENUE_ROOM' | 'VENUE_FOOD' | 'VENUE_ENTRY' | 'EXTRA';
@@ -37,20 +38,21 @@ const SECTION_LIST: readonly Section[] = [
   { key: 'entradas', label: 'Entradas', color: '#8fc3f2', cssVar: 'var(--np-sec-entradas)', dashed: false },
   { key: 'propinas', label: 'Propinas', color: '#3fa9f5', cssVar: 'var(--np-sec-propinas)', dashed: false },
   { key: 'saldo', label: 'Saldo', color: '#9aa4ad', cssVar: 'var(--np-sec-saldo)', dashed: true },
+  { key: 'otros', label: 'Otros', color: '#7c8893', cssVar: 'var(--np-sec-otros)', dashed: false },
 ];
 
 export const SECTIONS: Readonly<Record<SectionKey, Section>> = Object.freeze(
   Object.fromEntries(SECTION_LIST.map((s) => [s.key, s])) as Record<SectionKey, Section>,
 );
 
-/** De la categoría del cobro a su sección. EXTRA (lo que no es de la carta) va con las propinas. */
+/** De la categoría del cobro a su sección. EXTRA (cobros antiguos sin sección) va en gris, como «Otros». */
 export const SECTION_BY_CODE: Readonly<Record<SectionCode, SectionKey>> = Object.freeze({
   CHICA_SERVICE: 'servicios',
   VENUE_BAR: 'copas',
   VENUE_ROOM: 'habitaciones',
   VENUE_FOOD: 'comida',
   VENUE_ENTRY: 'entradas',
-  EXTRA: 'propinas',
+  EXTRA: 'otros',
 });
 
 /** Tinta sobre cualquier color de sección (≥ 5:1 en todas). */
