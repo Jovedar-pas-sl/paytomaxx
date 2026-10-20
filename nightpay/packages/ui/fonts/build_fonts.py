@@ -1,24 +1,26 @@
-"""Genera las fuentes de las apps (woff2 variables) desde los originales de Google Fonts.
+"""Genera las fuentes de las apps (woff2) desde los originales de Google Fonts.
 
 Las apps las cargan con next/font/local: el build no descarga nada de
 fonts.googleapis.com (antes fallaba cuando Google no respondía).
 
 Origen (licencia OFL, copiada al lado):
   https://github.com/google/fonts/raw/main/ofl/instrumentsans/InstrumentSans%5Bwdth,wght%5D.ttf
-  https://github.com/google/fonts/raw/main/ofl/unbounded/Unbounded%5Bwght%5D.ttf
+  https://github.com/google/fonts/raw/main/ofl/manrope/Manrope%5Bwght%5D.ttf
 
 Uso (Python 3.10+, `pip install fonttools brotli`):
   python build_fonts.py "InstrumentSans[wdth,wght].ttf" instrument-sans.woff2 "wght=400:700;wdth=100" latin-ext
-  python build_fonts.py "Unbounded[wght].ttf" unbounded.woff2 "wght=500:700" ext-a
+  python build_fonts.py "Manrope[wght].ttf" manrope.woff2 "wght=800" latin-ext
 
-Pesos: los que pedían los layouts (texto 400-700, cifras 500-700). Rasgos:
-los de fontTools por defecto + tnum/pnum (cifras tabulares), igual que Google.
+Pesos: texto 400-700 (variable); cifras y títulos solo Manrope 800 (un peso
+fijo: marca OxioCard, 17 KB). Rasgos: los de fontTools por defecto + tnum/pnum
+(cifras tabulares), igual que Google.
 
 Cobertura:
   latin-ext: latin + latin-ext de Google (todas las lenguas europeas con
-             alfabeto latino). Para el texto: nombres de clientes y chicas.
-  ext-a:     latin + Latin Extended-A + ș/ț rumanas. Para Unbounded (cifras,
-             códigos, emails): su latin-ext completo pesa 128 KB frente a 48 KB.
+             alfabeto latino). Para el texto y los títulos: nombres de
+             clientes y chicas.
+  ext-a:     latin + Latin Extended-A + ș/ț rumanas (para fuentes cuyo
+             latin-ext completo pesa demasiado).
 """
 
 import io

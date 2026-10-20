@@ -1,6 +1,6 @@
 /* Panel (admin) · «Super admin»: la consola de toda la plataforma.
-   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Look «Club»:
-   negro + lima, letra grande; Unbounded (--np-font-mono) para importes y
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Marca OxioCard:
+   noche + lima, letra grande; Manrope 800 (--np-font-mono) para importes y
    códigos. Solo se anima transform/opacity, y nada con prefers-reduced-motion.
    Móvil = hasta 640px: una columna y los botones a mano del pulgar. */
 

@@ -12,10 +12,11 @@ const sans = localFont({
   display: 'swap',
 });
 
-// Cifras e importes (look "Club"). La variable sigue llamándose --font-mono.
+// Cifras, importes y títulos: Manrope 800 (marca OxioCard). La variable
+// sigue llamándose --font-mono.
 const mono = localFont({
-  src: '../../../../packages/ui/fonts/unbounded.woff2',
-  weight: '500 700',
+  src: '../../../../packages/ui/fonts/manrope.woff2',
+  weight: '800',
   variable: '--font-mono',
   display: 'swap',
 });
@@ -33,8 +34,8 @@ export const viewport: Viewport = {
   // Hasta los bordes en iPhone: env(safe-area-inset-*) solo funciona con 'cover'.
   viewportFit: 'cover',
   themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#0b0b0b' },
-    { media: '(prefers-color-scheme: light)', color: '#f4f4ef' },
+    { media: '(prefers-color-scheme: dark)', color: '#0f1112' },
+    { media: '(prefers-color-scheme: light)', color: '#efe9df' },
   ],
 };
 
