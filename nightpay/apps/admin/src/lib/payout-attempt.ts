@@ -34,6 +34,11 @@ export function payoutAttempt(previous: PayoutAttempt | null, what: string): Pay
 const LOST_TEXT =
   'No sabemos si se apuntó el pago: el servidor no contestó. Mira sus liquidaciones antes de volver a probar.';
 
+/** La clave de este intento ya se usó con otra petición (otras notas, otra chica…). */
+export const KEY_REUSED_CODE = 'IDEMPOTENCY_KEY_REUSED';
+const KEY_REUSED_TEXT =
+  'Este intento ya se usó con otros datos y no se ha apuntado ni pedido nada nuevo. Cierra y vuelve a abrirlo.';
+
 export type PayoutFailure =
   /** Lo pagable cambió (un cobro o una devolución entre medias): cerrar y mirar la cifra nueva. */
   | { kind: 'changed'; text: string }
@@ -42,11 +47,14 @@ export type PayoutFailure =
   /** No se apuntó: corregir y volver a probar. */
   | { kind: 'retry'; text: string };
 
+/** También al pedirlo al dueño («Por aprobar»): mismos códigos, mismo trato. */
 export function payoutFailure(err: unknown): PayoutFailure {
   if (!(err instanceof ApiError)) return { kind: 'unknown', text: LOST_TEXT };
   if (err.code === PAYOUT_CHANGED_CODE) {
     return { kind: 'changed', text: `${err.message.replace(/\.?$/, '.')} Cierra y vuelve a abrirlo con la cifra nueva.` };
   }
+  // Repetir con la misma clave no sirve (daría el mismo 409): se cierra y se abre otro intento.
+  if (err.code === KEY_REUSED_CODE) return { kind: 'changed', text: KEY_REUSED_TEXT };
   if (err.status === 0 || err.status >= 500) return { kind: 'unknown', text: LOST_TEXT };
   return { kind: 'retry', text: err.message };
 }

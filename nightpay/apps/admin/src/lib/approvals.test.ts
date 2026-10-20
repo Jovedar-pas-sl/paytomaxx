@@ -145,6 +145,24 @@ describe('tarjeta de «Por aprobar»', () => {
       tone: 'danger',
       text: 'No se ha podido hacer: x',
     });
+    // La cifra (o la cuenta) cambió entre pedirlo y aprobarlo: no se pagó nada; arriba y en rojo, con qué hacer.
+    expect(
+      approveFailure({
+        status: 409,
+        code: 'PAYOUT_CHANGED',
+        message: 'No se ha pagado nada: El saldo de la chica ha cambiado desde que se pidió (ahora 310,00 €)',
+      }),
+    ).toEqual({
+      kind: 'done',
+      tone: 'danger',
+      text:
+        'No se ha pagado nada: El saldo de la chica ha cambiado desde que se pidió (ahora 310,00 €). ' +
+        'La solicitud queda como «No se pudo hacer»: que el encargado la pida otra vez con lo de ahora.',
+    });
+    expect(approveFailure({ status: 409, code: 'PAYOUT_CHANGED', message: '' })).toMatchObject({
+      kind: 'done',
+      text: expect.stringMatching(/^No se ha pagado nada/),
+    });
     expect(approveFailure({ status: 502, code: 'REFUND_OUTCOME_UNKNOWN', message: 'No sabemos' })).toMatchObject({ tone: 'warning' });
     // Un 5xx del proxy después de ejecutarse: puede que sí se aprobara (mirar la lista).
     for (const status of [500, 502, 504]) {

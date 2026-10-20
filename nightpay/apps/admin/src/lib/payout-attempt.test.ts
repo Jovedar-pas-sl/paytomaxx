@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from './api-errors';
-import { PAYOUT_CHANGED_CODE, payoutAttempt, payoutFailure, payoutWhat } from './payout-attempt';
+import { KEY_REUSED_CODE, PAYOUT_CHANGED_CODE, payoutAttempt, payoutFailure, payoutWhat } from './payout-attempt';
 
 const base = { operatorId: 'op-1', totalCents: 30_000, rail: 'CASH', txId: '', receipt: '' };
 
@@ -25,6 +25,13 @@ describe('cuando falla «Marcar pagado»', () => {
       kind: 'changed',
       text: 'El saldo de la chica ha cambiado desde que se pidió (ahora 310,00 €). Cierra y vuelve a abrirlo con la cifra nueva.',
     });
+  });
+
+  it('la clave del intento ya se usó con otros datos: cerrar y abrir otro intento (sin hablar de cabeceras)', () => {
+    const err = new ApiError('Esa Idempotency-Key ya se usó para otro pago', 409, KEY_REUSED_CODE);
+    const failure = payoutFailure(err);
+    expect(failure).toMatchObject({ kind: 'changed', text: expect.stringMatching(/Cierra y vuelve a abrirlo/) });
+    expect(failure.text).not.toMatch(/Idempotency/);
   });
 
   it('sin respuesta o con un 5xx: no se sabe si se apuntó', () => {

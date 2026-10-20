@@ -143,6 +143,16 @@ const ENROL_TEXT =
 const LOST_TEXT =
   'No se pudo confirmar con el servidor. Mira la lista antes de volver a probar: puede que sí se aprobara.';
 
+/** El pago pedido ya no es lo que hay (otra cifra, otra cuenta, ya pagado): no se pagó nada. */
+const PAYOUT_CHANGED_CODE = 'PAYOUT_CHANGED';
+const ASK_AGAIN_TEXT = 'La solicitud queda como «No se pudo hacer»: que el encargado la pida otra vez con lo de ahora.';
+
+/** El texto del 409 PAYOUT_CHANGED al aprobar: lo del servidor y qué hacer ahora. */
+function payoutChangedText(message: string): string {
+  const said = message.trim() || 'No se ha pagado nada: el pago ha cambiado desde que se pidió.';
+  return `${said.replace(/\.?$/, '.')} ${ASK_AGAIN_TEXT}`;
+}
+
 export type ApproveFailure =
   /** Ya no se decide aquí (hecha, fallida, caducada, sin respuesta): aviso arriba y refrescar. */
   | { kind: 'done'; tone: 'danger' | 'warning'; text: string }
@@ -159,6 +169,8 @@ export type ApproveFailure =
  */
 export function approveFailure(err: { status: number; code: string | null; message: string } | null): ApproveFailure {
   if (!err || err.status === 0) return { kind: 'done', tone: 'warning', text: LOST_TEXT };
+  // Lo pedido cambió entre pedirlo y aprobarlo: el API no pagó otra cifra.
+  if (err.code === PAYOUT_CHANGED_CODE) return { kind: 'done', tone: 'danger', text: payoutChangedText(err.message) };
   if (err.code && FINAL_CODES.has(err.code)) {
     return { kind: 'done', tone: err.code === 'REFUND_OUTCOME_UNKNOWN' ? 'warning' : 'danger', text: err.message };
   }
