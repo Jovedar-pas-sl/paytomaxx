@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ChargeLinesSchema } from './charge-lines';
 import { UuidSchema } from './common';
 
 export const PaymentStatusSchema = z.enum([
@@ -62,7 +63,9 @@ export type TipGoesTo = z.infer<typeof TipGoesToSchema>;
  *  VENUE_BAR     → bebidas vendidas por el local. Default venue: 0% (es ingreso local).
  *  VENUE_ROOM    → alquiler de habitación. Default venue: 0%.
  *  VENUE_FOOD    → comida vendida por el local. Default venue: 0%.
- *  EXTRA         → otros / mixto. Default venue: 0%.
+ *  VENUE_ENTRY   → entradas del local. Default venue: 0%.
+ *  EXTRA         → «Otros»: solo cobros antiguos (los nuevos siempre llevan
+ *                  sección; ver sections.ts). Default venue: 0%.
  *
  * Cada venue puede ajustar los % en cada categoría desde admin → Settings.
  */
@@ -71,6 +74,7 @@ export const RevenueCategorySchema = z.enum([
   'VENUE_BAR',
   'VENUE_ROOM',
   'VENUE_FOOD',
+  'VENUE_ENTRY',
   'EXTRA',
 ]);
 export type RevenueCategory = z.infer<typeof RevenueCategorySchema>;
@@ -84,12 +88,19 @@ export const OperatorCommissionDefaultsSchema = z.object({
   VENUE_BAR: z.number().int().min(0).max(10000),
   VENUE_ROOM: z.number().int().min(0).max(10000),
   VENUE_FOOD: z.number().int().min(0).max(10000),
+  /** Entradas (sección nueva, 20261023100000): sin ella, 0. */
+  VENUE_ENTRY: z.number().int().min(0).max(10000).optional(),
   EXTRA: z.number().int().min(0).max(10000),
 });
 export type OperatorCommissionDefaults = z.infer<typeof OperatorCommissionDefaultsSchema>;
 
 export const CreatePaymentSchema = z.object({
-  amountCents: z.number().int().positive().max(10_000_00, 'Max 10.000,00 EUR'),
+  /**
+   * Importe. Con `lines` no hace falta: el total lo calcula el servidor (si
+   * viene, se ignora). Sin `lines`, obligatorio (con un servicio de la carta,
+   * el servidor usa el precio de la carta).
+   */
+  amountCents: z.number().int().positive().max(10_000_00, 'Max 10.000,00 EUR').optional(),
   /**
    * externalId del terminal específico (ej. "BARRA-1"). Opcional cuando se
    * pasa `zone` — el backend resuelve un terminal de esa zona automáticamente.
@@ -141,10 +152,9 @@ export const CreatePaymentSchema = z.object({
   tipGoesTo: TipGoesToSchema.optional(),
   tipBeneficiaryUserId: UuidSchema.optional(),
   /**
-   * Categoría de ingreso. Determina si va a comisión chica y a qué %.
-   * Si se omite, el backend infiere por defecto:
-   *   - creator OPERATOR + sin wallet → CHICA_SERVICE
-   *   - creator WAITER/MANAGER/OWNER → EXTRA (admin/camarero debe elegir)
+   * Sección del cobro (petición antigua de una sola línea). Si se omite (o
+   * llega EXTRA), el servidor la saca, en orden, de la carta, del puesto de
+   * quien cobra y de su rol (chica → Servicios, resto → Copas). Nunca EXTRA.
    */
   revenueCategory: RevenueCategorySchema.optional(),
   /**
@@ -152,12 +162,24 @@ export const CreatePaymentSchema = z.object({
    * precio y SU categoría (amountCents y revenueCategory del cliente se ignoran).
    */
   serviceItemId: UuidSchema.optional(),
+  /**
+   * El mapa del dinero: varias líneas, cada una a su sección (de la carta o
+   * importe tecleado en una sección). El total lo calcula el servidor. No en
+   * una recarga de saldo (no es una venta).
+   */
+  lines: ChargeLinesSchema.optional(),
 }).refine(
   (d) => d.terminalExternalId !== undefined || d.zone !== undefined,
   { message: 'Debes pasar terminalExternalId o zone' },
 ).refine(
   (d) => d.zone !== 'OTRO' || (d.zoneCustom !== undefined && d.zoneCustom.length > 0),
   { message: 'zoneCustom obligatorio cuando zone=OTRO' },
+).refine(
+  (d) => d.amountCents !== undefined || d.lines !== undefined,
+  { message: 'Pon el importe o lo que se cobra', path: ['amountCents'] },
+).refine(
+  (d) => !(d.wallet && d.lines),
+  { message: 'Una recarga de saldo no lleva líneas: no es una venta', path: ['lines'] },
 );
 export type CreatePaymentDto = z.infer<typeof CreatePaymentSchema>;
 
@@ -205,6 +227,21 @@ export const CreatedPaymentResponseSchema = z.object({
     .describe('PNG del QR ya renderizado, embebido como data URL'),
   qrExpiresAt: z.string().datetime(),
   createdAt: z.string().datetime(),
+  /** Referencia corta del cobro en el local (C-0001). Null en los antiguos. */
+  ref: z.string().nullable().optional(),
+  /** Las líneas del cobro, cada una en su sección (vacío en una recarga). */
+  lines: z
+    .array(
+      z.object({
+        category: z.string(),
+        label: z.string(),
+        qty: z.number().int(),
+        unitCents: z.number().int(),
+        amountCents: z.number().int(),
+        serviceItemId: z.string().nullable(),
+      }),
+    )
+    .optional(),
   /**
    * Solo cuando el pago es una recarga de saldo. El enlace del saldo (la
    * credencial del cliente) no se devuelve nunca al personal: el cliente lo
@@ -223,6 +260,8 @@ export const PublicPaymentViewSchema = z.object({
   venueName: z.string(),
   terminalLabel: z.string(),
   qrExpiresAt: z.string().datetime(),
+  /** Referencia corta (C-0001): la que ven la chica en el PAGADO y el cliente en sus movimientos. */
+  ref: z.string().nullable().optional(),
 });
 export type PublicPaymentView = z.infer<typeof PublicPaymentViewSchema>;
 

@@ -1,0 +1,250 @@
+import { z } from 'zod';
+import { UuidSchema } from './common';
+import { SectionCodeSchema, type SectionCode } from './sections';
+
+/**
+ * Líneas de un cobro (el mapa del dinero). Un cobro con tarjeta o del saldo
+ * puede llevar varias cosas («2 copas y una habitación»): cada línea va a su
+ * sección y el cliente paga una sola vez. El total lo calcula el servidor.
+ *
+ *  - { serviceItemId, qty }               → de la carta: precio y sección del
+ *    local (un pack da una línea por parte).
+ *  - { category, amountCents, label? }    → importe tecleado en una sección.
+ */
+export const MAX_CHARGE_LINES = 20;
+export const MAX_LINE_QTY = 50;
+/** Tope de un cobro (el mismo que el de un importe suelto). */
+export const MAX_CHARGE_CENTS = 10_000_00;
+
+export const CartaLineInputSchema = z
+  .object({
+    serviceItemId: UuidSchema,
+    qty: z.number().int().min(1).max(MAX_LINE_QTY).default(1),
+  })
+  .strict();
+
+export const AmountLineInputSchema = z
+  .object({
+    category: SectionCodeSchema,
+    amountCents: z.number().int().positive().max(MAX_CHARGE_CENTS),
+    label: z.string().trim().min(1).max(60).optional(),
+  })
+  .strict();
+
+export const ChargeLineInputSchema = z.union([CartaLineInputSchema, AmountLineInputSchema]);
+export type ChargeLineInput = z.infer<typeof ChargeLineInputSchema>;
+
+export const ChargeLinesSchema = z
+  .array(ChargeLineInputSchema)
+  .min(1, 'Añade algo que cobrar')
+  .max(MAX_CHARGE_LINES, `Como mucho ${MAX_CHARGE_LINES} líneas por cobro`);
+
+/** Una línea ya guardada (en la respuesta del cobro y en las fichas). */
+export interface ChargeLineView {
+  category: SectionCode;
+  label: string;
+  qty: number;
+  unitCents: number;
+  amountCents: number;
+  serviceItemId: string | null;
+}
+
+/** Lo cobrado de cada sección en un cobro. */
+export interface SectionAmount {
+  category: string;
+  amountCents: number;
+}
+
+// ─── Packs de la carta ────────────────────────────────────────────────
+
+export const MAX_PACK_COMPONENTS = 4;
+
+export const PackComponentSchema = z
+  .object({
+    category: SectionCodeSchema,
+    amountCents: z.number().int().positive().max(MAX_CHARGE_CENTS),
+  })
+  .strict();
+export type PackComponent = z.infer<typeof PackComponentSchema>;
+
+export const PackComponentsSchema = z
+  .array(PackComponentSchema)
+  .min(2, 'Un pack tiene al menos dos partes')
+  .max(MAX_PACK_COMPONENTS, `Como mucho ${MAX_PACK_COMPONENTS} partes`)
+  .refine((parts) => new Set(parts.map((p) => p.category)).size === parts.length, {
+    message: 'Cada parte del pack va a una sección distinta',
+  });
+
+/** Por qué un pack no vale (null = vale). El servidor lo comprueba siempre. */
+export function packProblem(
+  priceCents: number,
+  category: string,
+  components: readonly PackComponent[] | null | undefined,
+): string | null {
+  if (!components || components.length === 0) return null;
+  const sum = components.reduce((acc, c) => acc + c.amountCents, 0);
+  if (sum !== priceCents) {
+    return `Las partes del pack suman ${(sum / 100).toFixed(2).replace('.', ',')} € y el precio es ${(priceCents / 100)
+      .toFixed(2)
+      .replace('.', ',')} €: tienen que ser iguales.`;
+  }
+  if (!components.some((c) => c.category === category)) {
+    return 'La sección del pack tiene que ser una de sus partes.';
+  }
+  return null;
+}
+
+/** Lo guardado (JSON o null) como lista de partes; algo raro → null (sin pack). */
+export function packComponentsOf(raw: unknown): PackComponent[] | null {
+  const parsed = PackComponentsSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+// ─── Cómo pagó ────────────────────────────────────────────────────────
+
+/**
+ * Cómo pagó el cliente. Apple Pay y Google Pay llegan del banco como «pago
+ * con el móvil» (sin distinguir cuál hasta confirmar los códigos con BBVA).
+ */
+export const CHARGE_METHODS = ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO', 'CASH'] as const;
+export type ChargeMethod = (typeof CHARGE_METHODS)[number];
+
+export const CHARGE_METHOD_LABELS: Readonly<Record<ChargeMethod, string>> = {
+  CARD: 'Tarjeta',
+  MOBILE_WALLET: 'Apple Pay / Google Pay',
+  POS: 'Datáfono',
+  SALDO: 'Saldo',
+  CASH: 'Efectivo',
+};
+
+// ─── Lista de cobros del panel (Cobros, ficha de la chica y del saldo) ──
+
+export const CobrosQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  /** Lo que devolvió `nextCursor` (fecha e id del último). */
+  cursor: z.string().max(200).optional(),
+  operatorId: UuidSchema.optional(),
+  /** Sección (o EXTRA para los antiguos sin sección). */
+  category: z.enum(['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'VENUE_ENTRY', 'EXTRA']).optional(),
+  method: z.enum(CHARGE_METHODS).optional(),
+  /** Código del saldo (K7Q-4M2, con o sin guion): sus cobros del saldo. */
+  walletCode: z.string().trim().min(3).max(12).optional(),
+  walletId: UuidSchema.optional(),
+  /** Noche del local (Noches): sus cobros. */
+  nightId: UuidSchema.optional(),
+  status: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined)),
+});
+export type CobrosQuery = z.infer<typeof CobrosQuerySchema>;
+
+export interface CobroPerson {
+  id: string;
+  name: string;
+  role: string;
+}
+
+export interface CobroRow {
+  /** PAYMENT: cobro con tarjeta, móvil o datáfono (o recarga). SALDO: cobro del saldo del cliente. */
+  kind: 'PAYMENT' | 'SALDO';
+  id: string;
+  ref: string | null;
+  createdAt: string;
+  amountCents: number;
+  tipCents: number;
+  currency: string;
+  /** Estado del cobro (los del saldo: ACCEPTED, o REVERSED si se anuló el consumo). */
+  status: string;
+  /** Quién cobró (la chica, el camarero…). */
+  person: CobroPerson | null;
+  /** Una sección (o varias: «Varias»). Recargas: vacía. */
+  sections: SectionAmount[];
+  isTopUp: boolean;
+  method: ChargeMethod | null;
+  /** «Tarjeta ••4242», «Saldo K7Q-•••»… */
+  methodLabel: string;
+  /** Saldo con el que pagó (cobros del saldo) o que recargó (recargas). */
+  wallet: { id: string; codeHint: string } | null;
+  /** Lo que se vendió («2× Copa · Habitación»). */
+  service: string | null;
+  lines: ChargeLineView[];
+  /** Solo los cobros con tarjeta: lo que hace falta para devolver o resolver. */
+  payment: CobroPaymentDetail | null;
+}
+
+export interface CobroPaymentDetail {
+  availableAmountCents: number;
+  provider: string | null;
+  providerTxId: string | null;
+  captureMethod: string | null;
+  updatedAt: string;
+  authCode: string | null;
+  cardLast4: string | null;
+  cardBrand: string | null;
+  payMethodCode: string | null;
+  authorizedAt: string | null;
+  attempts: Array<{
+    providerTxId: string;
+    status: string;
+    createdAt: string;
+    amountCents: number | null;
+    tipCents: number | null;
+  }>;
+  terminal: { externalId: string; label: string };
+}
+
+export interface CobrosPage {
+  items: CobroRow[];
+  nextCursor: string | null;
+}
+
+// ─── Ficha del saldo (panel) ──────────────────────────────────────────
+
+export interface WalletFichaTopUp {
+  /** Recarga con tarjeta (PAYMENT) o en efectivo (CASH). */
+  kind: 'PAYMENT' | 'CASH';
+  id: string;
+  ref: string | null;
+  at: string;
+  /** Negativo: una recarga en efectivo anulada. */
+  amountCents: number;
+  method: ChargeMethod;
+  methodLabel: string;
+  /** Quién la cobró (o el datáfono de recepción). */
+  by: CobroPerson | null;
+  terminalLabel: string | null;
+  venueName: string;
+  status: string;
+  note: string | null;
+}
+
+export interface WalletFichaRefund {
+  id: string;
+  at: string;
+  amountCents: number;
+  method: 'CARD' | 'CASH';
+  status: string;
+  by: CobroPerson | null;
+  bankReference: string | null;
+  venueName: string;
+}
+
+export interface WalletFicha {
+  wallet: {
+    id: string;
+    code: string | null;
+    label: string | null;
+    balanceCents: number;
+    status: string;
+    createdAt: string;
+    homeVenueName: string;
+    hasPin: boolean;
+    hasCard: boolean;
+    hasFaceId: boolean;
+  };
+  topUps: WalletFichaTopUp[];
+  /** Lo que se gastó del saldo (cobros del saldo, también los anulados: status REVERSED). */
+  consumptions: Array<CobroRow & { venueName: string }>;
+  refunds: WalletFichaRefund[];
+}
