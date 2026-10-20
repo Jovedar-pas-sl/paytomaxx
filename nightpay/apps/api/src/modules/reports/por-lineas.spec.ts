@@ -132,7 +132,7 @@ describe('Z y resumen por línea', () => {
 
   it('el CSV: el tipo con todas sus secciones, el reparto por sección al final y el resumen por línea', () => {
     const rows = [cobro({ amountCents: 15_000, tipCents: 500, lines: PACK }), cobro({ walletId: 'w-1', amountCents: 5_000, revenueCategory: 'EXTRA' })];
-    const csv = cobrosCsv(rows, 'Local').replace(/^﻿/, '').trimEnd().split('\r\n');
+    const csv = cobrosCsv(rows, 'Local').replace(/^\uFEFF/, '').trimEnd().split('\r\n');
     expect(csv[0]!.endsWith(';Por sección')).toBe(true);
     expect(csv[1]).toContain(';Servicio de chica + Habitación;Servicio de chica + Habitación;Lola;');
     expect(csv[1]!.endsWith(';Servicio de chica 120,00 · Habitación 30,00')).toBe(true);
