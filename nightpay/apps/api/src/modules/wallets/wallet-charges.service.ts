@@ -406,6 +406,7 @@ export class WalletChargesService {
       amountCents: input.amountCents,
       requestedCategory: input.category,
       invitedStaffToken: input.invitedStaffToken,
+      invitedOperatorId: input.invitedOperatorId,
     });
     const amountCents = charge.amountCents;
     // La propina: con las propinas encendidas en el local y en su puesto, hasta el importe (y 500 €).
@@ -2352,4 +2353,6 @@ export interface QrChargeInput {
   invitedStaffToken?: string;
   /** La propina que pidió el cliente (aparte del importe). */
   tipCents?: number;
+  /** «Invitar a una copa» con la chica elegida de la lista (si el local no pide su QR). */
+  invitedOperatorId?: string;
 }

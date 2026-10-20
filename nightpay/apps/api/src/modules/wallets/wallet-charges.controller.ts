@@ -34,9 +34,14 @@ const QrChargeSchema = z
     invitedStaffToken: z.string().trim().min(20).max(600).optional(),
     /** La propina que pidió el cliente (aparte del importe): el saldo paga las dos. */
     tipCents: z.number().int().nonnegative().max(500_00).optional(),
+    /** «Invitar a una copa» con la chica de la lista (si el local no pide su QR). */
+    invitedOperatorId: z.string().uuid().optional(),
   })
   .refine((b) => Boolean(b.serviceItemId) || Boolean(b.amountCents) || Boolean(b.lines), {
     message: 'Elige un servicio de la carta o pon un importe',
+  })
+  .refine((b) => !(b.invitedStaffToken && b.invitedOperatorId), {
+    message: 'O el QR de la chica o la chica de la lista, no los dos',
   });
 
 const ApproveSchema = z.object({ walletId: z.string().uuid() });

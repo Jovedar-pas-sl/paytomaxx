@@ -493,3 +493,19 @@ describe('invitar a una copa: el reparto y «Mi noche» de la chica', () => {
     expect(after.invitations.shareCents - before.invitations.shareCents).toBe(2000);
   });
 });
+
+describe('invitar eligiendo a la chica de la lista (Ajustes → Invitaciones)', () => {
+  it('con el QR obligatorio (de fábrica) no se puede; si el local no lo pide, sí, con su reparto', async () => {
+    await expect(cobro([{ serviceItemId: invita }], { invitedOperatorId: nerea })).rejects.toThrow(/pide el QR/);
+    await sys((tx) => tx.venue.update({ where: { id: V }, data: { invitationRules: { requireQr: false } } }));
+    try {
+      const c = await cobro([{ serviceItemId: invita }], { invitedOperatorId: nerea });
+      const line = await sys((tx) => tx.paymentLine.findFirst({ where: { paymentId: c.id } }));
+      expect(line).toMatchObject({ beneficiaryOperatorId: nerea, beneficiaryCents: 1000 });
+      // A quien no es chica del local, no.
+      await expect(cobro([{ serviceItemId: invita }], { invitedOperatorId: carlos })).rejects.toThrow(/no vale/);
+    } finally {
+      await sys((tx) => tx.venue.update({ where: { id: V }, data: { invitationRules: {} } }));
+    }
+  });
+});

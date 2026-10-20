@@ -683,6 +683,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       amountCents: dto.amountCents,
       requestedCategory: dto.revenueCategory,
       invitedStaffToken: dto.invitedStaffToken,
+      invitedOperatorId: dto.invitedOperatorId,
     });
     const service: ServiceSnapshot | null =
       charge.service ?? (charge.serviceName ? { serviceItemId: null, serviceName: charge.serviceName, durationMin: null } : null);

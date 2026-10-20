@@ -18,12 +18,24 @@ export interface InvitationRules {
   chica: InvitationShare;
   /** Para el camarero que cobra la invitación (si es camarero). */
   camarero: InvitationShare;
+  /**
+   * «Invitar» primero: al tocar una copa, la app ofrece antes, en grande,
+   * «Invitar a una copa». Sin el campo (guardado antes): sí.
+   */
+  inviteFirst?: boolean;
+  /**
+   * Pedir el QR de la chica: la invitación se cobra escaneando su «Mi QR». Si
+   * no, también se puede elegir de la lista de chicas. Sin el campo: sí.
+   */
+  requireQr?: boolean;
 }
 
 /** Provisionales hasta que el dueño ponga las suyas. */
 export const DEFAULT_INVITATION_RULES: Readonly<InvitationRules> = {
   chica: { kind: 'PERCENT', bps: 5000 },
   camarero: { kind: 'PERCENT', bps: 0 },
+  inviteFirst: true,
+  requireQr: true,
 };
 
 const MAX_FIXED_CENTS = 1_000_00;
@@ -34,9 +46,14 @@ export const InvitationShareSchema = z.union([
 ]);
 
 export const UpdateInvitationRulesSchema = z
-  .object({ chica: InvitationShareSchema.optional(), camarero: InvitationShareSchema.optional() })
+  .object({
+    chica: InvitationShareSchema.optional(),
+    camarero: InvitationShareSchema.optional(),
+    inviteFirst: z.boolean().optional(),
+    requireQr: z.boolean().optional(),
+  })
   .strict()
-  .refine((d) => d.chica !== undefined || d.camarero !== undefined, { message: 'No hay nada que cambiar' });
+  .refine((d) => Object.values(d).some((v) => v !== undefined), { message: 'No hay nada que cambiar' });
 export type UpdateInvitationRulesDto = z.infer<typeof UpdateInvitationRulesSchema>;
 
 function shareOf(raw: unknown, fallback: InvitationShare): InvitationShare {
@@ -45,14 +62,25 @@ function shareOf(raw: unknown, fallback: InvitationShare): InvitationShare {
 }
 
 /** Lo guardado (JSON o null) con lo que falte a lo de fábrica. */
-export function invitationRulesOf(raw: unknown): InvitationRules {
+export function invitationRulesOf(raw: unknown): Required<InvitationRules> {
   const stored = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-  return { chica: shareOf(stored.chica, DEFAULT_INVITATION_RULES.chica), camarero: shareOf(stored.camarero, DEFAULT_INVITATION_RULES.camarero) };
+  const flag = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+  return {
+    chica: shareOf(stored.chica, DEFAULT_INVITATION_RULES.chica),
+    camarero: shareOf(stored.camarero, DEFAULT_INVITATION_RULES.camarero),
+    inviteFirst: flag(stored.inviteFirst, true),
+    requireQr: flag(stored.requireQr, true),
+  };
 }
 
-export function mergeInvitationRules(current: unknown, patch: UpdateInvitationRulesDto): InvitationRules {
+export function mergeInvitationRules(current: unknown, patch: UpdateInvitationRulesDto): Required<InvitationRules> {
   const base = invitationRulesOf(current);
-  return { chica: patch.chica ?? base.chica, camarero: patch.camarero ?? base.camarero };
+  return {
+    chica: patch.chica ?? base.chica,
+    camarero: patch.camarero ?? base.camarero,
+    inviteFirst: patch.inviteFirst ?? base.inviteFirst,
+    requireQr: patch.requireQr ?? base.requireQr,
+  };
 }
 
 /**
@@ -100,7 +128,14 @@ export function staffTokenFrom(scanned: string): string | null {
   return /^[A-Za-z0-9._-]{20,400}$/.test(text) ? text : null;
 }
 
+/** Una chica a la que se puede invitar (la lista, si el local no pide su QR). */
+export interface InvitableStaff {
+  id: string;
+  name: string;
+}
+
 export const INVITATION_TOKEN_MISSING = 'Escanea el QR de la chica a la que invita (en su app, «Mi QR»).';
+export const INVITATION_QR_REQUIRED = 'Este local pide el QR de la chica: escanéalo en su app («Mi QR»).';
 export const INVITATION_TOKEN_INVALID = 'Ese QR no vale o ha caducado: que la chica lo vuelva a abrir en su app y escanéalo otra vez.';
 export const INVITATION_NOT_IN_CHARGE = 'Ese cobro no lleva ninguna invitación de la carta.';
 

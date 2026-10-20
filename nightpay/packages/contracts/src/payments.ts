@@ -174,6 +174,11 @@ export const CreatePaymentSchema = z.object({
    */
   invitedStaffToken: z.string().trim().min(20).max(600).optional(),
   /**
+   * «Invitar a una copa» eligiendo a la chica de la lista (sin su QR): solo si
+   * el local no pide su QR (Ajustes → Invitaciones). Uno u otro, no los dos.
+   */
+  invitedOperatorId: UuidSchema.optional(),
+  /**
    * Cobro único: el mismo cobro se puede pagar también con el saldo del
    * cliente (su NFC en el móvil de quien cobra, su PIN o su Face ID desde la
    * página de pago). Lleva enlazado un cobro del saldo con el mismo importe,
@@ -197,6 +202,9 @@ export const CreatePaymentSchema = z.object({
 ).refine(
   (d) => !(d.withSaldo && (d.wallet || d.captureMethod === 'POS_EXTERNAL')),
   { message: 'Una recarga o un cobro con datáfono no se pagan con el saldo', path: ['withSaldo'] },
+).refine(
+  (d) => !(d.invitedStaffToken && d.invitedOperatorId),
+  { message: 'O el QR de la chica o la chica de la lista, no los dos', path: ['invitedOperatorId'] },
 );
 export type CreatePaymentDto = z.infer<typeof CreatePaymentSchema>;
 
