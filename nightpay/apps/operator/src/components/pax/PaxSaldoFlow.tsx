@@ -10,12 +10,14 @@ import {
   checkSaldoWallet,
   fetchSaldoCharges,
   CHIP_BY_CAMERA_TEXT,
+  noPinFor,
   parseScan,
   readerErrorText,
   readFicha,
   refLabel,
   scanSaldoCharge,
   scanWithCamera,
+  submitNoPin,
   submitPin,
   type OutcomeKind,
   type SaldoCharge,
@@ -38,7 +40,8 @@ type Step =
   | { kind: 'pick' }
   | { kind: 'identify'; charge: SaldoCharge }
   | { kind: 'problem'; charge: SaldoCharge; ref: SaldoRef; check: SaldoCheck; text: string }
-  | { kind: 'pin'; charge: SaldoCharge; ref: SaldoRef; check: SaldoCheck }
+  /** `reason`: por qué pide el PIN tras acercar el NFC (pasa del tope sin PIN…). */
+  | { kind: 'pin'; charge: SaldoCharge; ref: SaldoRef; check: SaldoCheck; reason?: string }
   | { kind: 'outcome'; charge: SaldoCharge; outcome: OutcomeKind; message?: string; newBalanceCents: number | null };
 
 const POLL_MS = 3000;
@@ -49,7 +52,8 @@ const BACK_AFTER_PAID_MS = 6000;
  * Cobrar con saldo en el datáfono:
  *   1. El cobro con QR que hizo la chica: de la lista o escaneando su QR.
  *   2. De qué saldo es: su ficha NFC, el QR de su pase / página del saldo o su código.
- *   3. Si le llega (sin enseñar cuánto tiene), el cliente teclea su PIN aquí.
+ *   3. Si le llega (sin enseñar cuánto tiene): con su NFC y hasta el tope sin
+ *      PIN del local, pagado sin más; si no, el cliente teclea su PIN aquí.
  *   4. PAGADO a pantalla completa (o por qué no).
  */
 export function PaxSaldoFlow({ onDone }: { onDone: () => void }) {
@@ -85,7 +89,17 @@ export function PaxSaldoFlow({ onDone }: { onDone: () => void }) {
         <IdentifyWallet
           charge={step.charge}
           readers={readers}
-          onChecked={(ref, check) => {
+          onChecked={async (ref, check) => {
+            if (noPinFor(ref, check)) {
+              const r = await submitNoPin(step.charge.id, ref);
+              if (r.kind === 'done') return finish(step.charge, r.outcome, r.newBalanceCents, r.message);
+              const problem = checkProblem(check);
+              return setStep(
+                problem
+                  ? { kind: 'problem', charge: step.charge, ref, check, text: problem }
+                  : { kind: 'pin', charge: step.charge, ref, check, reason: r.message },
+              );
+            }
             const text = checkProblem(check);
             setStep(
               text
@@ -113,12 +127,12 @@ export function PaxSaldoFlow({ onDone }: { onDone: () => void }) {
         </Card>
       );
     case 'pin': {
-      const { charge, ref, check } = step;
+      const { charge, ref, check, reason } = step;
       return (
         <PinPad
           mode="enter"
           title={`${formatEur(charge.amountCents)}${charge.serviceName ? ` · ${charge.serviceName}` : ''}`}
-          hint={`${refLabel(ref, check.codeHint)} · saldo suficiente ✓`}
+          hint={`${reason ? `${reason} ` : ''}${refLabel(ref, check.codeHint)} · saldo suficiente ✓`}
           onCancel={() => setStep({ kind: 'identify', charge })}
           onPin={async (pin) => {
             const r = await submitPin(charge.id, ref, pin);
@@ -265,7 +279,7 @@ function IdentifyWallet({
 }: {
   charge: SaldoCharge;
   readers: Readers;
-  onChecked: (ref: SaldoRef, check: SaldoCheck) => void;
+  onChecked: (ref: SaldoRef, check: SaldoCheck) => void | Promise<void>;
   onBack: () => void;
 }) {
   const [code, setCode] = useState('');

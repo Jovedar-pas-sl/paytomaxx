@@ -29,6 +29,8 @@ export interface SaldoCheck {
   pinLocked: boolean;
   pinByStaff: boolean;
   enough: boolean;
+  /** Con su NFC va sin PIN (hasta el tope del local). Un API antiguo no lo manda: con PIN. */
+  noPin?: boolean;
 }
 
 export type SaldoChargeStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CANCELED';
@@ -114,6 +116,11 @@ export function checkProblem(check: SaldoCheck): string | null {
   return null;
 }
 
+/** Con su NFC (leído con su número de serie) y sin PIN: lo dice el API, y solo si le llega. */
+export function noPinFor(ref: SaldoRef, check: SaldoCheck): boolean {
+  return 'card' in ref && Boolean(ref.uid) && check.enough && check.noPin === true;
+}
+
 /** Cómo se dice al cliente qué saldo se ha leído («Ficha · K7Q-•••»). */
 export function refLabel(ref: SaldoRef, codeHint: string): string {
   if ('card' in ref) return `Ficha · ${codeHint}`;
@@ -152,6 +159,32 @@ export function outcomeOf(status: SaldoChargeStatus): OutcomeKind | null {
 export type PinResult =
   | { kind: 'retry'; message: string }
   | { kind: 'done'; outcome: OutcomeKind; newBalanceCents: number | null; message?: string };
+
+/** Cobrar con el NFC solo: el resultado, o a su PIN (con el porqué). */
+export type NoPinResult =
+  | { kind: 'pin'; message: string }
+  | { kind: 'done'; outcome: OutcomeKind; newBalanceCents: number | null; message?: string };
+
+/**
+ * Su NFC sin PIN → el cobro. Si no se cobró y el cobro sigue pendiente (otro
+ * cobro sin PIN a la vez pasó del tope, o sin respuesta), a su PIN: un cobro
+ * solo se ata a un saldo una vez, así que nunca se cobra dos veces.
+ */
+export async function submitNoPin(chargeId: string, ref: SaldoRef): Promise<NoPinResult> {
+  try {
+    const result = await paySaldoWithNfc(chargeId, ref);
+    const outcome = outcomeOf(result.status);
+    if (!outcome) return { kind: 'pin', message: '' };
+    return { kind: 'done', outcome, newBalanceCents: result.newBalanceCents };
+  } catch (err) {
+    const message = (err as Error).message;
+    const fresh = await fetchSaldoCharge(chargeId).catch(() => null);
+    const outcome = fresh ? outcomeOf(fresh.status) : null;
+    if (outcome === 'paid') return { kind: 'done', outcome, newBalanceCents: null };
+    if (outcome) return { kind: 'done', outcome, newBalanceCents: null, message };
+    return { kind: 'pin', message };
+  }
+}
 
 const UNCERTAIN_TEXT =
   'Sin respuesta de OxioPay: vuelve a poner el PIN (si ya se cobró, saldrá Pagado; nunca se cobra dos veces).';
@@ -259,6 +292,10 @@ export const checkSaldoWallet = (id: string, ref: SaldoRef): Promise<SaldoCheck>
 
 export const paySaldoWithPin = (id: string, ref: SaldoRef, pin: string): Promise<SaldoChargeView> =>
   call(`/v1/pos-device/saldo/charges/${encodeURIComponent(id)}/pin`, json({ ...refBody(ref), pin }));
+
+/** Con su NFC solo, sin PIN (hasta el tope del local; si no, 409 PIN_REQUIRED). */
+export const paySaldoWithNfc = (id: string, ref: SaldoRef): Promise<SaldoChargeView> =>
+  call(`/v1/pos-device/saldo/charges/${encodeURIComponent(id)}/nfc`, json(refBody(ref)));
 
 /** Sin número de serie (ficha leída desde un QR), no se manda el campo. */
 export function refBody(ref: SaldoRef): Record<string, string> {
