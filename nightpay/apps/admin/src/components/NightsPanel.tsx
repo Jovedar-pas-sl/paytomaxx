@@ -17,6 +17,7 @@ import { formatEur } from '@/lib/money';
 import { diffLabel, parseCashInput } from '@/lib/night-close';
 import type { PanelTab, TabKey } from '@/lib/roles';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { NightMoneyMap } from './money-map/NightMoneyMap';
 import { NightCajaBlock } from './NightCajaBlock';
 import { NightCloseScreen } from './NightCloseScreen';
 import { Notice } from './Notice';
@@ -250,6 +251,7 @@ export function NightsPanel({
               {detail.pendingAtClose > 0 ? ` · ${detail.pendingAtClose} cobros sin resolver al cerrar` : ''}
               {detail.closeNote ? ` · «${detail.closeNote}»` : ''}
             </p>
+            {detail.closedAt ? <NightMoneyMap nightId={detail.id} /> : null}
             {detail.z.caja ? <NightCajaBlock caja={detail.z.caja} /> : null}
             <ZSummary summary={detail.z.summary} />
             <AdjustmentsBox adjustments={detail.z.adjustments} />

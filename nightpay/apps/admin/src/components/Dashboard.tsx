@@ -49,6 +49,7 @@ import { VenueSwitcher } from './VenueSwitcher';
 import { WalletsPanel } from './WalletsPanel';
 import { FichasPanel } from './FichasPanel';
 import { FichasProvider } from './fichas/FichasProvider';
+import { MoneyMapPanel } from './money-map/MoneyMapPanel';
 import { SectionsPanel } from './settings/SectionsPanel';
 
 interface Props {
@@ -285,6 +286,8 @@ function ActivePanel(props: ActivePanelProps) {
           onFocusDone={props.onFocusPaymentDone}
         />
       );
+    case 'money':
+      return <MoneyMapPanel onNavigate={onNavigate} />;
     case 'incidents':
       return <AvisosPanel isOwner={isOwner} tabs={tabs} onNavigate={onNavigate} onOpenPayment={props.onOpenPayment} />;
     case 'operators':
