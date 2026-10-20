@@ -34,12 +34,13 @@ describe('cinco secciones', () => {
     expect(sectionTabs({ role: 'OWNER' }, 'informes')).toEqual(['nights', 'reports', 'bank']);
   });
 
-  it('Ajustes del dueño: carta, datáfonos, reglas, formas de cobro, permisos, Telegram y seguridad; Super admin solo si lo es', () => {
+  it('Ajustes del dueño: carta, datáfonos, reglas, formas de cobro, la noche, permisos, Telegram y seguridad; Super admin solo si lo es', () => {
     expect(sectionTabs({ role: 'OWNER' }, 'ajustes')).toEqual([
       'carta',
       'terminals',
       'rules',
       'methods',
+      'night',
       'permissions',
       'alerts',
       'security',
@@ -49,7 +50,7 @@ describe('cinco secciones', () => {
 
   it('el encargado no ve lo que no puede usar: ni Banco, ni las reglas, permisos o Telegram; los informes, solo con permiso', () => {
     const tabs = keys({ role: 'MANAGER' });
-    for (const k of ['bank', 'reports', 'rules', 'methods', 'permissions', 'alerts', 'superadmin'] as const) {
+    for (const k of ['bank', 'reports', 'rules', 'methods', 'night', 'permissions', 'alerts', 'superadmin'] as const) {
       expect(tabs).not.toContain(k);
     }
     expect(sectionTabs({ role: 'MANAGER' }, 'ajustes')).toEqual(['carta', 'terminals', 'security']);
@@ -81,7 +82,15 @@ describe('sectionOf / resolveTab', () => {
 
 describe('datáfono apagado en Formas de cobro', () => {
   it('sin la pestaña Datáfonos (ni para el dueño ni para el encargado); sin saberlo, como antes', () => {
-    expect(sectionTabs({ role: 'OWNER', posOn: false }, 'ajustes')).toEqual(['carta', 'rules', 'methods', 'permissions', 'alerts', 'security']);
+    expect(sectionTabs({ role: 'OWNER', posOn: false }, 'ajustes')).toEqual([
+      'carta',
+      'rules',
+      'methods',
+      'night',
+      'permissions',
+      'alerts',
+      'security',
+    ]);
     expect(sectionTabs({ role: 'MANAGER', posOn: false }, 'ajustes')).toEqual(['carta', 'security']);
     expect(keys({ role: 'OWNER', posOn: true })).toContain('terminals');
     expect(keys({ role: 'OWNER' })).toContain('terminals');

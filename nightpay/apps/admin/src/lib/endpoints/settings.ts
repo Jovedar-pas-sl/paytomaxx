@@ -1,12 +1,14 @@
-// Ajustes del local: reglas (con 2FA), formas de cobro, permisos del personal y avisos de Telegram.
+// Ajustes del local: reglas (con 2FA), formas de cobro, la noche, permisos del personal y avisos de Telegram.
 
 import type {
   PermissionSet,
   StaffPermissions,
   UpdateAlertSettingsDto,
+  UpdateNightSettingsDto,
   UpdatePaymentMethodsDto,
   UpdateStaffPermissionsDto,
   VenueAlertSettings,
+  VenueNightSettings,
   VenuePaymentMethods,
 } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
@@ -124,6 +126,20 @@ export async function fetchAlertSettings(): Promise<AlertSettingsView> {
 
 export async function updateAlertSettings(input: UpdateAlertSettingsDto): Promise<AlertSettingsView> {
   const res = await authedFetch('/v1/admin/venue/alerts', { method: 'PATCH', body: JSON.stringify(input) });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+// ─── La noche (NFC sin PIN, teclado del PIN, recepción) ────────────
+
+export async function fetchNightSettings(): Promise<VenueNightSettings> {
+  const res = await authedFetch('/v1/admin/venue/night');
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+export async function updateNightSettings(input: UpdateNightSettingsDto): Promise<VenueNightSettings> {
+  const res = await authedFetch('/v1/admin/venue/night', { method: 'PATCH', body: JSON.stringify(input) });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }

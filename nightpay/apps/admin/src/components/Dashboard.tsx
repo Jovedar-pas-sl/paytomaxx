@@ -35,6 +35,7 @@ import { OperatorsPanel } from './OperatorsPanel';
 import { PaymentsPanel } from './PaymentsPanel';
 import { ReportsPanel } from './ReportsPanel';
 import { AlertsPanel } from './settings/AlertsPanel';
+import { NightPanel } from './settings/NightPanel';
 import { PaymentMethodsPanel } from './settings/PaymentMethodsPanel';
 import { PermissionsPanel } from './settings/PermissionsPanel';
 import { RulesPanel } from './settings/RulesPanel';
@@ -300,6 +301,8 @@ function ActivePanel(props: ActivePanelProps) {
       return isOwner ? <RulesPanel /> : null;
     case 'methods':
       return isOwner ? <PaymentMethodsPanel onSaved={(m) => props.onPosChange(m.pos)} /> : null;
+    case 'night':
+      return isOwner ? <NightPanel /> : null;
     case 'permissions':
       return isOwner ? <PermissionsPanel posOn={props.posOn} /> : null;
     case 'alerts':
