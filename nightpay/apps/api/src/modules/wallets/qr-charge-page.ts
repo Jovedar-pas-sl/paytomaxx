@@ -1,5 +1,5 @@
 import { BRAND_NAME } from '../../common/brand';
-import { CLUB_BASE_CSS, escapeHtml, jsConfig } from '../payments/club-ui';
+import { CLUB_BASE_CSS, brandBar, escapeHtml, jsConfig } from '../payments/club-ui';
 import { PAID_SCREEN_CSS, PAID_SCREEN_JS, paidScreenJsText, renderPaidScreen } from '../payments/paid-screen';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
@@ -67,12 +67,12 @@ const TEXT: Record<
 };
 
 const QR_CSS = `
-.c{max-width:26rem;margin:0 auto;min-height:100vh;min-height:100svh;padding:1.5rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.9rem;text-align:center}
+.c{max-width:26rem;margin:0 auto;min-height:100vh;min-height:100svh;padding:4.25rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.9rem;text-align:center}
 .amount{font-size:clamp(3rem,16vw,4.25rem);font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--fg)}
 .who{color:var(--fg)}
 .small{font-size:.9rem}
-.safe{display:flex;align-items:center;gap:.5rem;padding:.55rem .9rem;border-radius:999px;background:#1b2208;color:var(--lime);font-weight:800}
-.hint{width:100%;padding:.9rem 1rem;border-left:4px solid var(--lime);border-radius:4px;background:var(--surface);color:var(--fg);font-weight:700;text-align:left}
+.safe{display:flex;align-items:center;gap:.5rem;padding:.55rem .9rem;border-radius:999px;background:var(--lime-soft);border:1.5px solid var(--lime-edge);color:var(--fg);font-weight:800}
+.hint{width:100%;padding:.9rem 1rem;border:1px solid var(--line);border-radius:var(--r-tile);background:var(--surface);color:var(--fg);font-weight:700;text-align:left}
 .after{max-width:26rem;margin:0 auto;padding:1rem;display:flex;flex-direction:column;align-items:center}
 `;
 
@@ -112,10 +112,11 @@ export function renderQrChargePage(
   const closed = view.status !== 'PENDING' && !isPaid;
   return `<!DOCTYPE html>
 <html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0b0b"><title>${h(t.title)}</title>
+<meta name="robots" content="noindex"><meta name="theme-color" content="#0f1112"><title>${h(t.title)}</title>
 <style>${CLUB_BASE_CSS}${QR_CSS}${PAID_SCREEN_CSS}</style></head><body>
 ${screen}
 <main class="${isPaid ? 'after' : 'c'}" id="ask">
+${isPaid ? '' : brandBar()}
 ${
   isPaid
     ? ''

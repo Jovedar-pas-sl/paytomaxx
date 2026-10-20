@@ -8,7 +8,20 @@ export { Input, Select } from './components/Input';
 export { Modal } from './components/Modal';
 export { ThemeToggle } from './components/ThemeToggle';
 export { Logo } from './components/Logo';
+export { SectionChip } from './components/SectionChip';
 export { formatEur } from './format';
+
+// Colores de las secciones (Copas, Servicios…): los mismos que --np-sec-* de styles.css.
+export {
+  SECTION_BY_CODE,
+  SECTION_FALLBACK_COLOR,
+  SECTION_ON_COLOR,
+  SECTIONS,
+  sectionColor,
+  sectionOf,
+  sectionVar,
+} from './lib/sections';
+export type { Section, SectionCode, SectionKey } from './lib/sections';
 
 // Apps del personal (operadora y TPV): resultado a pantalla completa, aviso de
 // conexión, teclado de importe y cuenta atrás del QR, con su lógica pura.

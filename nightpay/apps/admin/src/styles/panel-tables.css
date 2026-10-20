@@ -135,7 +135,7 @@
     content: none;
   }
 
-  /* Importe: grande, en Unbounded, con su etiqueta pequeña encima. */
+  /* Importe: grande, en Manrope 800, con su etiqueta pequeña encima. */
   .np-table tbody td[data-card='amount'] {
     order: 3;
     flex: 1 1 auto;

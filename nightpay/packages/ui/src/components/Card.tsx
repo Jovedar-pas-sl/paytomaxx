@@ -40,9 +40,10 @@ const variantStyles: Record<CardVariant, CSSProperties> = {
     background: 'var(--np-surface-2)',
     borderColor: 'var(--np-border-hi)',
   },
-  // "glow" = tarjeta destacada: borde lima sólido, sin degradados.
+  // "glow" = tarjeta destacada: borde lima (tinta en claro), como las
+  // tarjetas destacadas de las maquetas.
   glow: {
     background: 'var(--np-surface)',
-    border: '2px solid var(--np-accent)',
+    border: '1.5px solid var(--np-accent-edge)',
   },
 };

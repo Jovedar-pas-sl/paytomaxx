@@ -79,13 +79,13 @@ export function Chevron() {
 }
 
 /**
- * Unbounded es muy ancha: la cifra cabe en una línea a 320 px (≈0,85 em por
- * carácter) sin pasar del tamaño máximo.
+ * La cifra cabe en una línea a 320 px (Manrope 800: ≈0,55 em por carácter,
+ * 0,62 con margen) sin pasar del tamaño máximo.
  */
 export function fitAmount(text: string, compact: boolean): string {
   // Compacta: en el móvil, según el alto de la pantalla (--np-hero-amount-max, money.module.css).
   const max = compact ? 'var(--np-hero-amount-max, 2.75rem)' : '4.5rem';
-  const perChar = Math.max(4, text.length) * 0.85;
+  const perChar = Math.max(4, text.length) * 0.62;
   return `min(${max}, calc((min(100vw, 32rem) - 7rem) / ${perChar.toFixed(2)}))`;
 }
 

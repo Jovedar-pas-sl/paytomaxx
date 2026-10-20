@@ -21,24 +21,24 @@ export const TOPUP_CSS = `
 .amts{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
 .amts label{display:block;position:relative}
 .amts input{position:absolute;opacity:0;width:1px;height:1px}
-.amts span{position:relative;display:flex;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.4rem;border:2px solid var(--line);border-radius:12px;font-size:1.2rem;font-weight:800;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
-.amts input:checked+span{border-color:var(--lime);background:#1b2208;color:var(--lime);box-shadow:inset 0 0 0 1px var(--lime)}
-.amts input:checked+span::before{content:'✓';position:absolute;top:.35rem;right:.55rem;font-size:.9rem;font-weight:900}
+.amts span{position:relative;display:flex;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.4rem;border:1px solid var(--line-hi);border-radius:999px;background:var(--surface-2);font-size:1.2rem;font-weight:800;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
+.amts input:checked+span{border-color:var(--fg);background:var(--fg);color:var(--ink-0)}
+.amts input:checked+span::before{content:'✓';position:absolute;top:50%;left:1rem;transform:translateY(-50%);font-size:.9rem;font-weight:900}
 .amts input:focus-visible+span{outline:3px solid var(--fg);outline-offset:2px}
 .amts span:active{transform:scale(.97)}
 .tother{display:flex;flex-direction:column;align-items:center;gap:.35rem}
 .tother label{font-weight:600;color:var(--mute)}
 .teur{display:flex;align-items:center;gap:.4rem}
-.teur input{width:7rem;min-height:3.25rem;font:inherit;font-size:1.6rem;font-weight:800;text-align:center;border-radius:12px;border:2px solid var(--lime);background:var(--bg);color:var(--fg)}
+.teur input{width:7rem;min-height:3.25rem;font:inherit;font-size:1.6rem;font-weight:800;text-align:center;border-radius:14px;border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
 .teur input:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
 .teur span{font-size:1.4rem;font-weight:800}
-.proof{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:.2rem .85rem;padding:1rem 1.1rem;border-radius:var(--r);background:var(--lime);color:var(--ink)}
+.proof{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:.2rem .85rem;padding:1rem 1.1rem;border-radius:var(--r);background:radial-gradient(120% 120% at 20% 20%,var(--green-3) 0%,var(--green-2) 55%,var(--green-1) 100%);background-color:var(--green-2);color:var(--cream);box-shadow:0 0 0 1px var(--lime-edge)}
 .proof p,.proof a{color:inherit}
-.proof .band{position:absolute;top:-50%;left:-50%;width:200%;height:200%;z-index:-1;background:repeating-linear-gradient(-45deg,rgba(11,11,11,.09) 0 30px,rgba(11,11,11,0) 30px 60px);animation:np-band 8s linear infinite;will-change:transform}
+.proof .band{position:absolute;top:-50%;left:-50%;width:200%;height:200%;z-index:-1;background:repeating-linear-gradient(-45deg,rgb(239 233 223/.05) 0 30px,rgb(239 233 223/0) 30px 60px);animation:np-band 8s linear infinite;will-change:transform}
 @keyframes np-band{from{transform:translate3d(0,0,0)}to{transform:translate3d(84.85px,0,0)}}
 @media (prefers-reduced-motion:reduce){.proof .band{animation:none}}
-.proof .tick{grid-row:span 2;width:2.6rem;height:2.6rem;stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.proof h2{font-size:1.7rem;font-weight:900;text-transform:uppercase;line-height:1}
+.proof .tick{grid-row:span 2;width:3rem;height:3rem;padding:.65rem;border-radius:50%;background:var(--lime);color:var(--ink);box-shadow:0 0 0 5px var(--lime-ring),0 0 24px 4px var(--lime-glow);stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.proof h2{font-size:1.7rem;font-weight:800;text-transform:uppercase;line-height:1}
 .proof .pwhat{font-weight:800;font-size:1.05rem}
 .proof .pmeta{grid-column:1/-1;display:flex;flex-wrap:wrap;justify-content:space-between;gap:.15rem .75rem;margin-top:.35rem;font-weight:700}
 .proof .pcode b{letter-spacing:.2em}
@@ -47,6 +47,8 @@ export const TOPUP_CSS = `
 .proof .link{grid-column:1/-1;justify-content:flex-start;min-height:2.75rem;padding:0;color:inherit}
 .proof.stale{background:var(--stale);color:var(--fg)}
 .proof.stale .band{display:none}
+.proof.stale{box-shadow:none}
+.proof.stale .tick{background:transparent;color:var(--fg);box-shadow:inset 0 0 0 2px currentColor}
 .proof.stale .pstale{display:block}
 `;
 

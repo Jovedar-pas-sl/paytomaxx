@@ -1,5 +1,6 @@
-/* NightPay design tokens — look "Club": negro + lima, letra grande.
-   Dark es el tema principal (salas con poca luz); light a juego.
+/* Fichas de diseño de OxioPay — marca OxioCard (maquetas aprobadas, 2026-10-20):
+   noche azulada + lima, pills redondas, Manrope 800 en cifras y títulos.
+   Oscuro es el tema principal (salas con poca luz); claro a juego, en crema.
    Imported once from each app's root layout. */
 
 /* Componentes de las apps del personal (resultado, aviso de conexión, teclado
@@ -18,10 +19,12 @@
   --np-s-8: 4rem;
   --np-s-9: 6rem;
 
-  /* Radius */
-  --np-r-sm: 6px;
-  --np-r-md: 8px;
-  --np-r-lg: 12px;
+  /* Radios: tarjetas 22 px, losetas y teclas 20 px, botones en pill. */
+  --np-r-sm: 10px;
+  --np-r-md: 14px;
+  --np-r-lg: 22px;
+  --np-r-card: 22px;
+  --np-r-tile: 20px;
   --np-r-pill: 999px;
 
   /* Type */
@@ -47,44 +50,96 @@
   --np-d-base: 250ms;
   --np-d-slow: 600ms;
 
-  /* Fonts — set on <html> by next/font, here as fallback */
+  /* Fonts — set on <html> by next/font, here as fallback. --font-mono es
+     Manrope 800 (cifras, importes y títulos); el nombre se queda por las
+     pantallas que ya lo usan. */
   --np-font-sans:
     var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --np-font-mono:
-    var(--font-mono), 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+    var(--font-mono), var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --np-font-num: var(--np-font-mono);
+  --np-font-display: var(--np-font-mono);
+
+  /* Marca OxioCard: iguales en los dos temas. Lima solo para la acción
+     principal, el foco y el «pagado»; nunca como color de sección. */
+  --np-lime: #c7d301;
+  --np-lime-deep: #9aa300;
+  --np-lime-glow: rgb(199 211 1 / 0.45);
+  --np-lime-edge: rgb(199 211 1 / 0.55);
+  --np-lime-soft: rgb(199 211 1 / 0.14);
+  --np-lime-ring: rgb(199 211 1 / 0.22);
+  --np-ink: #1f2c36;
+  --np-ink-0: #0f1112;
+  --np-cream: #efe9df;
+  --np-night: #081018;
+  --np-green-1: #003818;
+  --np-green-2: #004820;
+  --np-green-3: #0a6b34;
+  /* Tarjeta OxioCard: verde profundo, brillo en diagonal y borde lima. */
+  --np-card-oxio: linear-gradient(135deg, var(--np-green-1) 0%, var(--np-green-2) 55%, var(--np-green-3) 100%);
+  --np-card-gloss: linear-gradient(118deg, transparent 38%, var(--np-lime-soft) 50%, transparent 62%);
+  /* Motivo 0101 de la «o» del logo, muy tenue (textura de tarjetas). */
+  --np-bits: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='132' height='64'%3E%3Cg font-family='monospace' font-size='11' fill='%23EFE9DF' fill-opacity='.045'%3E%3Ctext x='2' y='12'%3E0101 1001 0110%3C/text%3E%3Ctext x='-12' y='28'%3E1100 1010 0101 1%3C/text%3E%3Ctext x='6' y='44'%3E0110 0101 1001%3C/text%3E%3Ctext x='-6' y='60'%3E1001 0011 0101 0%3C/text%3E%3C/g%3E%3C/svg%3E");
+
+  /* Secciones (de qué es el cobro): familia pastel, siempre con tinta
+     --np-on-section encima (≥ 5:1). Las mismas en TS: sectionColor() de
+     @nightpay/ui. El saldo / la recarga va en gris y con borde a trazos. */
+  --np-sec-copas: #3fe0c0;
+  --np-sec-habitaciones: #c4b0f5;
+  --np-sec-comida: #f2b49b;
+  --np-sec-servicios: #d24fd8;
+  --np-sec-entradas: #8fc3f2;
+  --np-sec-propinas: #3fa9f5;
+  --np-sec-saldo: #9aa4ad;
+  --np-sec-otros: #7c8893;
+  --np-on-section: #0f1112;
 
   /* Resultado a pantalla completa y aviso de conexión: iguales en los dos
-     temas (son señales, no decoración). Tinta negra encima: lima 17:1,
-     rojo 6,4:1, ámbar 10,8:1. */
-  --np-outcome-ink: #0b0b0b;
-  --np-outcome-paid: #d4ff3a;
+     temas (son señales, no decoración). PAGADO: verde de marca con texto
+     crema (5,5:1 en el verde más claro) y el aro lima; NO PAGADO: rojo con
+     tinta (6,2:1); CADUCADO: ámbar con tinta (10,3:1). */
+  --np-outcome-ink: #0f1112;
+  --np-outcome-paid: radial-gradient(120% 80% at 50% 32%, var(--np-green-3) 0%, var(--np-green-2) 55%, var(--np-green-1) 100%);
+  --np-outcome-paid-ink: var(--np-cream);
   --np-outcome-failed: #ff5a5f;
   --np-outcome-expired: #ffb020;
   --np-banner-bg: #ffb020;
-  --np-banner-ink: #0b0b0b;
+  --np-banner-ink: #0f1112;
 }
 
 :root,
 [data-theme='dark'] {
-  /* Surfaces */
-  --np-bg: #0b0b0b;
-  --np-surface: #141414;
-  --np-surface-2: #1c1c1c;
-  --np-border: #2a2a2a;
-  --np-border-hi: #3d3d3d;
+  color-scheme: dark;
 
-  /* Text — AA o mejor sobre --np-bg */
-  --np-text: #f5f5f0;
-  --np-text-mute: #b4b4ac;
-  --np-text-dim: #8a8a83;
-  /* Etiquetas pequeñas: 11,7:1 sobre --np-bg, 10:1 sobre --np-surface-2. */
-  --np-text-label: #c8c8c0;
+  /* Surfaces: noche con un punto de azul, no negro puro. */
+  --np-bg: #0f1112;
+  --np-surface: #15181b;
+  --np-surface-2: #1c2024;
+  --np-surface-3: #262b31;
+  --np-border: #2a3036;
+  --np-border-hi: #3c454e;
 
-  /* Accent — lima. Siempre con texto negro encima (--np-on-accent). */
-  --np-accent: #d4ff3a;
-  --np-accent-2: #e6ff85;
-  --np-on-accent: #0b0b0b;
-  --np-glow: rgb(212 255 58 / 0.28);
+  /* Text — AA o mejor sobre --np-bg y las superficies (--np-text-dim:
+     4,9:1 aún sobre --np-surface-3). */
+  --np-text: #f2efe9;
+  --np-text-mute: #b6bec6;
+  --np-text-dim: #8e98a1;
+  /* Etiquetas pequeñas: 11:1 sobre --np-bg, 9,5:1 sobre --np-surface-2. */
+  --np-text-label: #bfc6cc;
+
+  /* Accent — lima. Siempre con tinta encima (--np-on-accent, 8,7:1). */
+  --np-accent: #c7d301;
+  --np-accent-2: #d6e12a;
+  --np-on-accent: #1f2c36;
+  /* Borde de lo destacado (tarjeta «glow»): lima al 55 %. */
+  --np-accent-edge: var(--np-lime-edge);
+  --np-glow: rgb(199 211 1 / 0.28);
+
+  /* Botón principal: pill lima con tinta, con un halo suave. */
+  --np-primary-bg: var(--np-lime);
+  --np-primary-bg-hover: #d6e12a;
+  --np-primary-ink: var(--np-ink);
+  --np-primary-shadow: 0 10px 28px -12px var(--np-lime-glow);
 
   /* Semantic */
   --np-success: #5be38f;
@@ -93,15 +148,15 @@
   --np-purple: #c9a3ff;
 
   /* Pill backgrounds (theme-aware) */
-  --np-pill-mute-bg: #1e1e1e;
-  --np-pill-cyan-bg: #1f2608;
-  --np-pill-success-bg: #0f2a1b;
-  --np-pill-danger-bg: #2e1213;
-  --np-pill-warning-bg: #2e2108;
-  --np-pill-purple-bg: #231a33;
+  --np-pill-mute-bg: #1c2024;
+  --np-pill-cyan-bg: #292c10;
+  --np-pill-success-bg: #10291c;
+  --np-pill-danger-bg: #2e1416;
+  --np-pill-warning-bg: #2e2209;
+  --np-pill-purple-bg: #231c33;
 
   /* Backdrop for modals (matches surrounding tone) */
-  --np-backdrop: rgb(0 0 0 / 0.72);
+  --np-backdrop: rgb(8 16 24 / 0.74);
 
   /* Grain visibility */
   --np-grain-opacity: 0;
@@ -109,37 +164,48 @@
 }
 
 [data-theme='light'] {
-  --np-bg: #f4f4ef;
-  --np-surface: #ffffff;
-  --np-surface-2: #edede6;
-  --np-border: #d6d6ce;
-  --np-border-hi: #b9b9b0;
+  color-scheme: light;
 
-  --np-text: #0b0b0b;
-  --np-text-mute: #4a4a45;
-  --np-text-dim: #66665f;
-  /* 9,9:1 sobre --np-bg. */
-  --np-text-label: #3d3d38;
+  /* Crema de la marca (el icono de la app) con tinta azulada. */
+  --np-bg: #efe9df;
+  --np-surface: #fbf8f3;
+  --np-surface-2: #e6e0d5;
+  --np-surface-3: #dbd4c8;
+  --np-border: #d3cbbe;
+  --np-border-hi: #b5ac9e;
 
-  /* En claro la lima no se lee como texto: acento = negro, con lima encima. */
-  --np-accent: #0b0b0b;
-  --np-accent-2: #2a2a2a;
-  --np-on-accent: #d4ff3a;
-  --np-glow: rgb(11 11 11 / 0.18);
+  --np-text: #1f2c36;
+  --np-text-mute: #46525c;
+  --np-text-dim: #56626c;
+  /* 8:1 sobre --np-bg. */
+  --np-text-label: #3a4650;
 
-  --np-success: #1a7f45;
-  --np-danger: #c8262c;
-  --np-warning: #9a5b00;
-  --np-purple: #6b3fb3;
+  /* En claro la lima no se lee como texto: acento = tinta, con lima encima
+     (8,7:1). El botón principal sigue siendo la pill lima. */
+  --np-accent: #1f2c36;
+  --np-accent-2: #33424e;
+  --np-on-accent: #c7d301;
+  --np-accent-edge: #1f2c36;
+  --np-glow: rgb(31 44 54 / 0.18);
 
-  --np-pill-mute-bg: #ecece5;
-  --np-pill-cyan-bg: #eef8c8;
-  --np-pill-success-bg: #dcf3e5;
-  --np-pill-danger-bg: #fbe3e3;
-  --np-pill-warning-bg: #fbeed6;
-  --np-pill-purple-bg: #eee6fa;
+  --np-primary-bg: var(--np-lime);
+  --np-primary-bg-hover: #d1dc1a;
+  --np-primary-ink: var(--np-ink);
+  --np-primary-shadow: inset 0 0 0 1px rgb(31 44 54 / 0.18), 0 8px 22px -14px rgb(31 44 54 / 0.55);
 
-  --np-backdrop: rgb(11 11 11 / 0.45);
+  --np-success: #17703d;
+  --np-danger: #b8232a;
+  --np-warning: #7f4c00;
+  --np-purple: #5e36a3;
+
+  --np-pill-mute-bg: #e6e0d5;
+  --np-pill-cyan-bg: #e9edb8;
+  --np-pill-success-bg: #d9eedd;
+  --np-pill-danger-bg: #f8dcd9;
+  --np-pill-warning-bg: #f6e6c8;
+  --np-pill-purple-bg: #e9e1f5;
+
+  --np-backdrop: rgb(31 44 54 / 0.45);
 
   --np-grain-opacity: 0;
   --np-grain-blend: normal;
@@ -222,11 +288,19 @@ button {
   border-radius: 4px;
 }
 
-/* Tabular numbers for any element marked .np-num */
+/* Tabular numbers for any element marked .np-num (Manrope 800). */
 .np-num {
   font-family: var(--np-font-mono);
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
+}
+
+/* Títulos en Manrope 800, como en las maquetas. :where() no pesa: la letra,
+   el tamaño o el peso que ponga cada pantalla mandan. */
+:where(h1, h2, h3) {
+  font-family: var(--np-font-display);
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 /* Button states — scoped via data-variant. Lives here so :hover / :active
@@ -238,7 +312,7 @@ button {
   justify-content: center;
   gap: 0.5rem;
   border: none;
-  border-radius: var(--np-r-md);
+  border-radius: var(--np-r-pill);
   font-family: var(--np-font-sans);
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -264,14 +338,15 @@ button {
   font-size: 1.25rem;
 }
 
-/* Botones planos: color sólido, sin brillos. */
+/* Botón principal: pill lima con tinta (en los dos temas), halo suave. */
 .np-btn[data-variant='primary'] {
-  background: var(--np-accent);
-  color: var(--np-on-accent);
+  background: var(--np-primary-bg);
+  color: var(--np-primary-ink);
+  box-shadow: var(--np-primary-shadow);
 }
 
 .np-btn[data-variant='primary']:hover:not(:disabled) {
-  background: var(--np-accent-2);
+  background: var(--np-primary-bg-hover);
 }
 
 .np-btn[data-variant='ghost'] {
@@ -285,9 +360,10 @@ button {
   box-shadow: inset 0 0 0 2px var(--np-text-dim);
 }
 
+/* Rojo de NO PAGADO con tinta encima (6,2:1), igual en los dos temas. */
 .np-btn[data-variant='danger'] {
-  background: var(--np-danger);
-  color: #0b0b0b;
+  background: var(--np-outcome-failed);
+  color: var(--np-ink-0);
 }
 
 .np-btn[data-variant='danger']:hover:not(:disabled) {
@@ -303,9 +379,49 @@ button {
   cursor: not-allowed;
 }
 
-/* Logo backdrop — only in dark theme, so the logo's dark text stays legible */
+/* Chip de sección (SectionChip): pill del color de la sección con tinta; el
+   saldo / la recarga, sin relleno y con borde a trazos. */
+.np-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.125rem;
+  padding: 0 0.875rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-c, var(--np-sec-otros));
+  color: var(--np-on-section);
+  font-family: var(--np-font-sans);
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.np-chip[data-dashed='true'] {
+  background: transparent;
+  color: inherit;
+  border: 1.5px dashed var(--np-sec-saldo);
+}
+
+/* Logo OxioCard (Logo de @nightpay/ui): la versión clara sobre oscuro y la
+   oscura sobre claro; sin data-theme, la del tema oscuro. */
+.np-logo-img {
+  display: block;
+  width: auto;
+}
+
+.np-logo-img[data-on='light'],
+[data-theme='light'] .np-logo-img[data-on='dark'] {
+  display: none;
+}
+
+[data-theme='light'] .np-logo-img[data-on='light'] {
+  display: block;
+}
+
+/* Logo propio (src): en oscuro, sobre una placa clara para que se lea. */
 [data-theme='dark'] .np-logo-bg {
-  background: oklch(98% 0.005 270);
+  background: var(--np-cream);
   padding: 0 0.75rem;
 }
 
@@ -334,17 +450,17 @@ input::placeholder {
 }
 
 /* Flecha del <select>. En un data: URI no entran variables CSS: el trazo es el
-   --np-text-dim de cada tema (#8a8a83 oscuro, #66665f claro). */
+   --np-text-dim de cada tema (#8e98a1 oscuro, #56626c claro). */
 .np-select {
   appearance: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%238a8a83' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%238e98a1' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
   background-repeat: no-repeat;
   background-position: right 1rem center;
   background-size: 0.75rem;
 }
 
 [data-theme='light'] .np-select {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%2366665f' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%2356626c' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
 }
 
 /* Solo para lectores de pantalla (p. ej. el importe entero de AmountDisplay). */

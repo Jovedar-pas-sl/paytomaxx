@@ -154,7 +154,7 @@
     padding: 0.875rem 1rem !important;
   }
 
-  /* Unbounded es muy ancha: «1315,00 €» en una línea en la mitad de 360 px. */
+  /* «1315,00 €» en una línea en la mitad de 360 px. */
   .np-metric-value {
     font-size: clamp(1rem, 4.6vw, 1.25rem) !important;
     overflow-wrap: anywhere;
