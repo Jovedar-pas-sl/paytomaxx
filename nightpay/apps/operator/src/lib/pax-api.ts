@@ -29,6 +29,8 @@ export interface PaxInfo {
   venueName: string;
   /** «Pago con saldo» encendido en el local (un API antiguo no lo manda: se enseña). */
   wallet?: boolean;
+  /** Ajustes de la noche del local (el teclado del PIN). Un API antiguo no los manda: los de fábrica. */
+  night?: unknown;
 }
 
 export interface PaxCharge {

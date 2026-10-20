@@ -93,11 +93,20 @@ const OUTCOME_VIBRATION: Record<OutcomeSound, number[]> = {
   warn: [200, 100, 200],
 };
 
-/** Suena y vibra con el resultado, salvo con el silencio puesto. */
+/** Sonido y vibración al cobrar del local (Ajustes → Noche). De fábrica, los dos. */
+let venueFeedback = { sound: true, vibration: true };
+
+export function setVenueFeedback(next: { sound: boolean; vibration: boolean }): void {
+  venueFeedback = { ...next };
+}
+
+/** Suena y vibra con el resultado, salvo con el silencio puesto (o lo que apagó el local). */
 export function playOutcomeSound(kind: OutcomeSound): void {
   if (isAlertSoundMuted()) return;
-  play(OUTCOME_NOTES[kind]);
-  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(OUTCOME_VIBRATION[kind]);
+  if (venueFeedback.sound) play(OUTCOME_NOTES[kind]);
+  if (venueFeedback.vibration && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    navigator.vibrate(OUTCOME_VIBRATION[kind]);
+  }
 }
 
 const MUTED_KEY = 'np-pending-pos-muted';

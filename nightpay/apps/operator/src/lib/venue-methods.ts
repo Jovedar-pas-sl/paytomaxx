@@ -35,14 +35,29 @@ export function useVenueMethods(): VenuePaymentMethods {
   return useContext(VenueMethodsContext);
 }
 
-/** Las formas de cobro del local, pedidas una vez al entrar (y si cambia el usuario). */
-export function useVenueMethodsFeed(userId: string): VenuePaymentMethods {
-  const [methods, setMethods] = useState<VenuePaymentMethods>(DEFAULT_PAYMENT_METHODS);
+/** Ajustes de la noche (teclado del PIN, recepción…). De fábrica mientras no llegan. */
+export const VenueNightContext = createContext<VenueNightSettings>(DEFAULT_NIGHT_SETTINGS);
+
+export function useVenueNight(): VenueNightSettings {
+  return useContext(VenueNightContext);
+}
+
+export interface VenueFeed {
+  methods: VenuePaymentMethods;
+  night: VenueNightSettings;
+}
+
+/** Las formas de cobro y los ajustes de la noche del local, pedidos una vez al entrar (y si cambia el usuario). */
+export function useVenueMethodsFeed(userId: string): VenueFeed {
+  const [feed, setFeed] = useState<VenueFeed>({ methods: DEFAULT_PAYMENT_METHODS, night: DEFAULT_NIGHT_SETTINGS });
   useEffect(() => {
     let cancelled = false;
-    fetchVenueMethods()
-      .then((m) => {
-        if (!cancelled) setMethods(paymentMethodsOf(m));
+    fetchVenueFeed()
+      .then((venue) => {
+        if (cancelled) return;
+        const night = nightSettingsOf(venue.nightSettings);
+        setVenueFeedback({ sound: night.feedbackSound, vibration: night.feedbackVibration });
+        setFeed({ methods: paymentMethodsOf(venue.paymentMethods), night });
       })
       .catch(() => {
         // Sin respuesta: todo a la vista, como antes; el API rechaza lo apagado.
@@ -51,5 +66,5 @@ export function useVenueMethodsFeed(userId: string): VenuePaymentMethods {
       cancelled = true;
     };
   }, [userId]);
-  return methods;
+  return feed;
 }

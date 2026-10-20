@@ -308,7 +308,7 @@ export function freshAccessToken(): Promise<string | null> {
   return client.freshAccessToken();
 }
 
-function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+export function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   return client.authedFetch(path, init);
 }
 
@@ -495,11 +495,15 @@ export async function cancelPayment(id: string): Promise<{ status: string }> {
   return res.json();
 }
 
-/** Formas de cobro del local (Ajustes del dueño): las apps esconden lo apagado. */
-export async function fetchVenueMethods(): Promise<unknown> {
+/**
+ * Formas de cobro y ajustes de la noche del local (Ajustes del dueño): las
+ * apps esconden lo apagado y usan el teclado del PIN y la recepción que tocan.
+ */
+export async function fetchVenueFeed(): Promise<{ paymentMethods: unknown; nightSettings: unknown }> {
   const res = await authedFetch('/v1/venues/me');
   if (!res.ok) throw loadError(res, 'Error cargando el local');
-  return ((await res.json()) as { paymentMethods?: unknown }).paymentMethods ?? null;
+  const venue = (await res.json()) as { paymentMethods?: unknown; nightSettings?: unknown };
+  return { paymentMethods: venue.paymentMethods ?? null, nightSettings: venue.nightSettings ?? null };
 }
 
 export async function fetchTerminals(): Promise<Array<{ externalId: string; label: string }>> {
