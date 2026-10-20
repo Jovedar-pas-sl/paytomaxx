@@ -504,7 +504,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
   );
 }
 
-const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'center' };
+const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)', textAlign: 'center' };
 const kicker: CSSProperties = {
   margin: 0,
   fontSize: '0.8125rem',

@@ -251,7 +251,7 @@ export function CreatePayment({ role, onCreated }: Props) {
 
   if (showCarta) {
     return (
-      <Card style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <Card style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)' }}>
         <p style={{ ...kicker, textAlign: 'center' }}>¿Qué cobras?</p>
         <div style={cartaGridStyle}>
           {services.map((svc) => (
@@ -301,7 +301,7 @@ export function CreatePayment({ role, onCreated }: Props) {
 
   return (
     <>
-      <Card style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <Card style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)' }}>
         <p style={{ ...kicker, textAlign: 'center' }}>{headline}</p>
 
         {cartaFailed && mode !== 'wallet' ? <CartaRetry onRetry={retryCarta} /> : null}

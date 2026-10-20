@@ -7,6 +7,12 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
 }
 
+/**
+ * Tarjeta. Los hijos van directamente dentro: el `display`, `gap`,
+ * `alignItems`… que se le pasen en `style` les llegan (antes iban dentro de
+ * un <div> de bloque, resto del borde de brillo que ya no existe, y una
+ * tarjeta en columna salía sin huecos y con botones de anchos distintos).
+ */
 export function Card({ variant = 'default', children, style, ...rest }: CardProps) {
   return (
     <div
@@ -14,7 +20,7 @@ export function Card({ variant = 'default', children, style, ...rest }: CardProp
       data-variant={variant}
       style={{ ...base, ...variantStyles[variant], ...style }}
     >
-      <div style={{ position: 'relative', zIndex: 1 }}>{children}</div>
+      {children}
     </div>
   );
 }

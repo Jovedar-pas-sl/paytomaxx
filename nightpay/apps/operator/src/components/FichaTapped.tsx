@@ -167,7 +167,7 @@ const cardStyle: CSSProperties = {
   padding: 'var(--np-pad-card)',
   display: 'flex',
   flexDirection: 'column',
-  gap: '1rem',
+  gap: 'var(--np-gap)',
   textAlign: 'center',
 };
 

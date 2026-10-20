@@ -497,7 +497,7 @@ input::placeholder {
     /* 14 px: las etiquetas pequeñas no bajan de lo que eran. */
     --np-t-label: 0.875rem;
     --np-pad-card: 1rem;
-    --np-gap: 0.625rem;
+    --np-gap: 0.5rem;
     --np-qr: clamp(10rem, 34vh, 20rem);
   }
 

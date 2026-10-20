@@ -170,7 +170,7 @@ export function ActivePayment({
 
   return (
     // data-charge-open: en Inicio del móvil, lo de arriba se aparta mientras está el QR (home.module.css).
-    <Card variant="glow" data-charge-open="" style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+    <Card variant="glow" data-charge-open="" style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)' }}>
       <div style={{ textAlign: 'center' }}>
         <p style={kicker}>{isPos ? 'Cobro POS' : 'Importe'}</p>
         <p className="np-num" style={amountBig}>

@@ -140,6 +140,8 @@ export function NightsPanel({
             loading={busy}
             disabled={float === null}
             onClick={() => void run(() => openNight(typeof float === 'number' ? { openingFloatCents: float } : {}))}
+            // Del ancho del texto, como siempre (la tarjeta en columna estiraría el botón).
+            style={{ alignSelf: 'flex-start' }}
           >
             Abrir noche
           </Button>
