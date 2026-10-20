@@ -1,41 +1,52 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { MAX_CASH_TOP_UP_CENTS, type ReceptionOptions } from '@nightpay/contracts';
-import { AmountKeypad, Button, Card, Input } from '@nightpay/ui';
-import { createPayment, fetchTerminals, type CreatedPayment } from '@/lib/api';
-import { receptionLookupCode, startPendingTopUp } from '@/lib/api-noche';
+import { useEffect, useRef, useState } from 'react';
+import type { ReceptionOptions } from '@nightpay/contracts';
+import { cancelPayment, createPayment, fetchTerminals, getUser, type CreatedPayment } from '@/lib/api';
+import { fetchPendingTopUps, startPendingTopUp } from '@/lib/api-noche';
+import type { ChipTap } from '@/lib/chip-tap';
 import { formatEur } from '@/lib/money';
 import {
-  cardMethodLabel,
-  existingCashDetail,
-  methodChoices,
-  newReceptionKey,
   receptionAttempt,
   receptionWhat,
   staffBackend,
-  targetLabel,
   walletOfTarget,
-  type ExistingTarget,
   type PayMethod,
   type ReceptionAttempt,
 } from '@/lib/reception';
-import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
-import { ActivePayment } from '../ActivePayment';
-import { StaffOutcome } from '../StaffOutcome';
+import {
+  deskTarget,
+  fetchReceptionDesk,
+  fichaText,
+  loadedMoneyLine,
+  quickAmounts,
+  rechargeProblem,
+  type ReceptionDeskSaldo,
+} from '@/lib/reception-desk';
+import { useVenueNight } from '@/lib/venue-methods';
 import { AssignTopUp } from './AssignTopUp';
-import { useReadNfc } from './use-read-nfc';
+import { CodeBoxes, DeskBtn, DeskHead, Icon, NfcCard } from './desk/desk-parts';
+import { DeskLoaded } from './desk/DeskLoaded';
+import { TopUpQr } from './desk/TopUpQr';
+import { useDeskNfc } from './desk/use-desk-nfc';
+import { useShown } from './desk/use-shown';
+import s from './desk/desk.module.css';
+import { PendingTopUps } from './PendingTopUps';
+
+/** El saldo encontrado: por su NFC (antes de cobrar) o por su código. */
+interface Found {
+  view: ReceptionDeskSaldo;
+  nfc: { card: string; uid: string | null } | null;
+}
 
 type Step =
   | { kind: 'saldo' }
-  /** `target` null: plan B, cobrar primero sin su NFC (se asigna después). */
-  | { kind: 'amount'; target: ExistingTarget | null }
-  | { kind: 'method'; target: ExistingTarget }
-  | { kind: 'cash'; target: ExistingTarget }
-  | { kind: 'cardQr'; payment: CreatedPayment }
-  | { kind: 'pendingQr'; payment: CreatedPayment }
+  | { kind: 'qr'; found: Found; payment: CreatedPayment | null }
+  /** Plan B: cobrar primero (sin su NFC) y asignarla después. */
+  | { kind: 'planB'; payment: CreatedPayment | null }
   | { kind: 'assign'; walletId: string; amountCents: number }
-  | { kind: 'done'; message: string; detail: string };
+  | { kind: 'pending' }
+  | { kind: 'done'; amountCents: number; method: PayMethod; code: string; detail: string };
 
 interface Props {
   /** Volver a cobrar (sin él, no hay otra cosa que hacer en Inicio). */
@@ -45,29 +56,27 @@ interface Props {
 }
 
 /**
- * Inicio → «Recargar saldo»: un saldo que ya existe (los nuevos se dan de
- * alta en Recepción).
- *   1. El saldo: su NFC (lo recomendado, antes de cobrar) o su código.
- *   2. El importe (con los importes rápidos del local).
- *   3. Tarjeta: el cliente paga el QR en su móvil y se suma a ese saldo.
- *      Efectivo: solo con el permiso «cobrar recargas en efectivo».
- * Plan B, si su NFC no se pudo leer: se cobra primero (tarjeta) y la recarga
- * queda pendiente de asignar hasta que se acerca su NFC o se teclea su código.
- * La maquinaria de la recepción de siempre (/v1/reception, lib/reception).
+ * Inicio → «Recargar saldo» (maquetas 4.6 y 4.7), solo recepción: un saldo
+ * que ya existe (los nuevos, en la pestaña Recepción).
+ *   4.6 ¿De quién es el saldo? Su NFC (antes de cobrar: así la recarga va a
+ *       su saldo y no se pierde) o su código; sale lo que tiene.
+ *   4.7 El importe encima del QR (se cambia sin volver atrás) y que lo pague
+ *       en su móvil; «Mejor en efectivo», un toque abajo.
+ * Plan B, si su NFC no se lee: se cobra primero y la recarga queda pendiente
+ * de asignar hasta que se acerca su NFC o se teclea su código (Pendientes de
+ * asignar).
  */
 export function TopUpExisting({ onExit, onDone }: Props) {
   const night = useVenueNight();
-  const nfcOn = useVenueMethods().nfc;
-  const { reader, reading, read } = useReadNfc();
   const [options, setOptions] = useState<ReceptionOptions | null>(null);
   const [step, setStep] = useState<Step>({ kind: 'saldo' });
-  const [amountCents, setAmountCents] = useState(0);
+  const [found, setFound] = useState<Found | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(0);
   // Una clave por recarga: repetir lo mismo (corte, doble toque) no carga dos veces.
   const attempt = useRef<ReceptionAttempt | null>(null);
-  const pendingKey = useRef<{ amountCents: number; key: string } | null>(null);
 
   useEffect(() => {
     staffBackend
@@ -76,13 +85,35 @@ export function TopUpExisting({ onExit, onDone }: Props) {
       .catch((err: Error) => setError(err.message));
   }, []);
 
+  useEffect(() => {
+    if (step.kind !== 'saldo') return undefined;
+    let alive = true;
+    fetchPendingTopUps()
+      .then((rows) => alive && setPending(rows.length))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [step.kind]);
+
+  // 4.6: su NFC se lee solo, sin tocar nada (y sin grabar: solo saldos que ya
+  // existen); solo con Inicio a la vista (en otra pestaña lo usaría a la vez).
+  const [shownRef, shown] = useShown();
+  const nfc = useDeskNfc(shown && step.kind === 'saldo' && !busy && options?.nfc !== false, false, onTap, setError);
+  const amounts = quickAmounts(night.receptionQuickAmountsCents);
+  const user = getUser();
+  const name = user?.displayName ?? 'Recepción';
+
+  function go(next: Step): void {
+    setError(null);
+    setStep(next);
+  }
+
   function restart(): void {
     attempt.current = null;
-    pendingKey.current = null;
-    setAmountCents(0);
+    setFound(null);
     setCode('');
-    setError(null);
-    setStep({ kind: 'saldo' });
+    go({ kind: 'saldo' });
   }
 
   async function run(task: () => Promise<void>): Promise<void> {
@@ -97,44 +128,73 @@ export function TopUpExisting({ onExit, onDone }: Props) {
     }
   }
 
-  function keyFor(method: PayMethod, target: ExistingTarget): string {
-    attempt.current = receptionAttempt(attempt.current, receptionWhat(amountCents, method, target));
+  function take(view: Awaited<ReturnType<typeof fetchReceptionDesk>>, card: Found['nfc']): void {
+    if (view.kind === 'new') throw new Error('Este NFC es nuevo, sin saldo: dale de alta en Recepción.');
+    const problem = rechargeProblem(view);
+    if (problem) throw new Error(problem);
+    setFound({ view, nfc: card });
+  }
+
+  async function onTap(tap: ChipTap): Promise<void> {
+    if (!tap.token) return setError(tap.other ? 'Este NFC tiene otra cosa grabada: no es de un saldo.' : 'Este NFC está en blanco: los saldos nuevos, en Recepción.');
+    const card = { card: tap.token, uid: tap.uid };
+    await run(async () => take(await fetchReceptionDesk(card.uid ? { card: card.card, uid: card.uid } : { card: card.card }), card));
+  }
+
+  function onCode(next: string): void {
+    setCode(next);
+    setFound(null);
+    setError(null);
+    if (next.length === 6) void run(async () => take(await fetchReceptionDesk({ code: next }), null));
+  }
+
+  function keyFor(amountCents: number, method: PayMethod, f: Found): string {
+    attempt.current = receptionAttempt(attempt.current, receptionWhat(amountCents, method, deskTarget(f.view, f.nfc)));
     return attempt.current.key;
   }
 
-  async function payByCard(target: ExistingTarget): Promise<void> {
+  /** 4.7: otro importe encima del QR (o el primero): se retira el QR anterior y sale otro. */
+  async function cardFor(f: Found, amountCents: number, old: CreatedPayment | null): Promise<void> {
+    if (old) await cancelPayment(old.id);
+    go({ kind: 'qr', found: f, payment: null });
     const terminal = (await fetchTerminals())[0]?.externalId;
     if (!terminal) throw new Error('No hay terminales configurados en el local');
-    const payment = await createPayment({
-      amountCents,
-      terminalExternalId: terminal,
-      idempotencyKey: keyFor('card', target),
-      walletId: target.view.walletId,
-    });
-    setStep({ kind: 'cardQr', payment });
+    const payment = await createPayment({ amountCents, terminalExternalId: terminal, idempotencyKey: keyFor(amountCents, 'card', f), walletId: f.view.walletId });
+    setStep({ kind: 'qr', found: f, payment });
   }
 
-  /** Plan B: cobrar primero (tarjeta) a una recarga pendiente de asignar. */
-  async function payFirst(): Promise<void> {
-    if (pendingKey.current?.amountCents !== amountCents) pendingKey.current = { amountCents, key: newReceptionKey() };
-    setStep({ kind: 'pendingQr', payment: await startPendingTopUp(amountCents, pendingKey.current.key) });
+  /** «Mejor en efectivo»: se retira el QR y se cobra en efectivo (es recepción). */
+  async function cash(f: Found, payment: CreatedPayment): Promise<void> {
+    await cancelPayment(payment.id);
+    const target = deskTarget(f.view, f.nfc);
+    const out = await staffBackend.cash({ amountCents: payment.amountCents, idempotencyKey: keyFor(payment.amountCents, 'cash', f), wallet: walletOfTarget(target) });
+    onDone();
+    attempt.current = null;
+    go({ kind: 'done', amountCents: payment.amountCents, method: 'cash', code: out.code, detail: `Saldo ${out.code} · tiene ${formatEur(out.balanceCents, { compact: true })}` });
   }
 
-  if (step.kind === 'cardQr' || step.kind === 'pendingQr') {
-    const { payment } = step;
-    // Sin el saldo nuevo del cobro: es el de siempre del cliente (o, en el plan B, el provisional).
+  /** Plan B: cobrar primero (tarjeta) una recarga pendiente de asignar. */
+  async function payFirst(amountCents: number, old: CreatedPayment | null): Promise<void> {
+    if (old) await cancelPayment(old.id);
+    go({ kind: 'planB', payment: null });
+    const what = receptionWhat(amountCents, 'card', { kind: 'new' });
+    attempt.current = receptionAttempt(attempt.current, `pendiente|${what}`);
+    setStep({ kind: 'planB', payment: await startPendingTopUp(amountCents, attempt.current.key) });
+  }
+
+  const sub = `${name} · recepción`;
+  const chip = { section: 'saldo', label: 'Recarga' };
+
+  if (step.kind === 'done') {
     return (
-      <ActivePayment
-        payment={{ ...payment, walletId: null }}
-        isPos={false}
-        label={step.kind === 'cardQr' ? 'Recarga del saldo' : 'Recarga (se asigna después)'}
-        onPaid={() => {
-          onDone();
-          if (step.kind === 'pendingQr' && payment.walletId) {
-            setStep({ kind: 'assign', walletId: payment.walletId, amountCents: payment.amountCents });
-          }
-        }}
-        onClose={restart}
+      <DeskLoaded
+        word="CARGADO"
+        amountCents={step.amountCents}
+        reference={step.code}
+        money={{ icon: step.method, ...loadedMoneyLine(step.method, step.amountCents) }}
+        meta={step.detail}
+        primary={{ label: 'Otra recarga', onClick: restart }}
+        secondary={onExit ? { label: 'Volver a cobrar', onClick: onExit } : null}
       />
     );
   }
@@ -145,252 +205,157 @@ export function TopUpExisting({ onExit, onDone }: Props) {
         walletId={step.walletId}
         amountCents={step.amountCents}
         onAssigned={(out) =>
-          setStep({
-            kind: 'done',
-            message: 'Recarga asignada',
-            detail: `Saldo ${out.codeHint} · tiene ${formatEur(out.balanceCents)}`,
-          })
+          go({ kind: 'done', amountCents: out.amountCents, method: 'card', code: out.codeHint, detail: `Saldo ${out.codeHint} · tiene ${formatEur(out.balanceCents, { compact: true })}` })
         }
         onLater={restart}
       />
     );
   }
 
-  if (step.kind === 'done') {
+  if (step.kind === 'pending') return <PendingTopUps onDone={restart} />;
+
+  if (step.kind === 'qr') {
+    const { found: f, payment } = step;
+    const has = formatEur(f.view.balanceCents, { compact: true });
     return (
-      <StaffOutcome
-        kind="paid"
-        amountCents={amountCents}
-        message={step.message}
-        detail={<p>{step.detail}</p>}
-        primary={{ label: 'Otra recarga', onClick: restart }}
-        secondary={onExit ? { label: 'Volver a cobrar', onClick: onExit } : undefined}
-      />
+      <div className={s.screen} data-charge-open="">
+        <TopUpQr
+          head={
+            <DeskHead
+              title="Recargar saldo"
+              sub={`Para ${f.view.code} · tiene ${has}`}
+              chip={chip}
+              stripe="hold"
+              onBack={() =>
+                void run(async () => {
+                  if (payment) await cancelPayment(payment.id);
+                  go({ kind: 'saldo' });
+                })
+              }
+            />
+          }
+          spot="cobro"
+          payment={payment}
+          amounts={amounts}
+          changing={busy}
+          forWhom={`Se carga en ${f.view.code}.`}
+          onAmount={(cents) => void run(() => cardFor(f, cents, payment))}
+          onPaid={(paid) => {
+            onDone();
+            attempt.current = null;
+            go({
+              kind: 'done',
+              amountCents: paid.amountCents,
+              method: 'card',
+              code: f.view.code,
+              detail: `Saldo ${f.view.code} · tiene ${formatEur(f.view.balanceCents + paid.amountCents, { compact: true })}`,
+            });
+          }}
+          onRetry={() => {
+            attempt.current = null;
+            void run(() => cardFor(f, payment?.amountCents ?? 0, null));
+          }}
+          onCash={options?.cash && payment ? () => void run(() => cash(f, payment)) : undefined}
+          cashBusy={busy}
+          onBack={() => go({ kind: 'saldo' })}
+          error={error}
+        />
+      </div>
     );
   }
 
-  const quick = night.receptionQuickAmountsCents;
-  return (
-    <Card style={cardStyle}>
-      <p style={kicker}>Recargar saldo</p>
-
-      {step.kind === 'saldo' ? (
-        <>
-          <p style={big}>¿Qué saldo?</p>
-          {nfcOn && options?.nfc !== false ? (
-            reading ? (
-              <Button size="lg" variant="ghost" onClick={() => reading.abort()}>
-                Acerca su NFC… (cancelar)
-              </Button>
-            ) : (
-              <Button
-                size="lg"
-                disabled={busy || !reader.via}
-                onClick={() =>
-                  void run(async () => {
-                    const nfc = await read();
-                    const view = await staffBackend.lookup(nfc.token, nfc.uid);
-                    setStep({ kind: 'amount', target: { kind: 'card', card: nfc.token, uid: nfc.uid, view } });
-                  })
-                }
-              >
-                Acercar su NFC
-              </Button>
-            )
-          ) : null}
-          {nfcOn && !reader.loading && !reader.via && reader.note ? <p style={note}>{reader.note}</p> : null}
-          <form
-            onSubmit={(e: FormEvent) => {
-              e.preventDefault();
-              void run(async () => {
-                const view = await receptionLookupCode(code);
-                setStep({ kind: 'amount', target: { kind: 'code', code, view } });
-              });
-            }}
-            style={formStyle}
-          >
-            <Input
-              label="O su código"
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''))}
-              placeholder="K7Q-4M2"
-              autoCapitalize="characters"
-              autoComplete="off"
-              disabled={busy}
+  if (step.kind === 'planB') {
+    const { payment } = step;
+    return (
+      <div className={s.screen} data-charge-open="">
+        <TopUpQr
+          head={
+            <DeskHead
+              title="Cobrar primero"
+              sub="Se asigna después"
+              chip={chip}
+              stripe="hold"
+              onBack={() =>
+                void run(async () => {
+                  if (payment) await cancelPayment(payment.id);
+                  go({ kind: 'saldo' });
+                })
+              }
             />
-            <Button type="submit" variant="ghost" size="lg" loading={busy} disabled={code.replace(/-/g, '').length < 6}>
-              Buscar su saldo
-            </Button>
-          </form>
-          {options?.card ? (
-            <button type="button" style={linkBtnStyle} disabled={busy || reading !== null} onClick={() => setStep({ kind: 'amount', target: null })}>
-              ¿No se lee su NFC? Cobrar primero y asignarla después
-            </button>
-          ) : null}
-          <p style={note}>Los saldos nuevos se dan de alta en Recepción.</p>
-          {onExit ? (
-            <Button variant="ghost" onClick={onExit} disabled={busy}>
-              Volver a cobrar
-            </Button>
-          ) : null}
-        </>
-      ) : null}
-
-      {step.kind === 'amount' ? (
-        <>
-          <p style={muted}>{step.target ? targetLabel(step.target) : 'Sin su NFC: se asigna a su saldo al pagar'}</p>
-          {quick.length > 0 ? (
-            <div style={quickRow}>
-              {quick.map((c) => (
-                <Button key={c} variant={amountCents === c ? 'primary' : 'ghost'} aria-pressed={amountCents === c} onClick={() => setAmountCents(c)}>
-                  {formatEur(c, { compact: true })}
-                </Button>
-              ))}
-            </div>
-          ) : null}
-          <AmountKeypad valueCents={amountCents} onChange={setAmountCents} label="Importe a cargar" disabled={busy} />
-          <Button
-            size="lg"
-            loading={busy}
-            disabled={amountCents <= 0}
-            onClick={() => {
-              const target = step.target;
-              if (target) setStep({ kind: 'method', target });
-              else void run(payFirst);
-            }}
-          >
-            {step.target ? 'Siguiente' : amountCents > 0 ? `Cobrar ${formatEur(amountCents, { compact: true })} con tarjeta` : 'Cobrar con tarjeta'}
-          </Button>
-          <Button variant="ghost" disabled={busy} onClick={restart}>
-            Otro saldo
-          </Button>
-        </>
-      ) : null}
-
-      {step.kind === 'method' ? (
-        <MethodStep
-          amountCents={amountCents}
-          options={options}
-          target={step.target}
-          preferred={night.receptionDefaultMethod}
-          busy={busy}
-          onCard={() => void run(() => payByCard(step.target))}
-          onCash={() => setStep({ kind: 'cash', target: step.target })}
-          onBack={() => setStep({ kind: 'amount', target: step.target })}
+          }
+          spot="cobro"
+          payment={payment}
+          amounts={amounts}
+          changing={busy}
+          forWhom="Después, su NFC o su código: se suma a su saldo."
+          onAmount={(cents) => void run(() => payFirst(cents, payment))}
+          onPaid={(paid) => {
+            onDone();
+            if (paid.walletId) go({ kind: 'assign', walletId: paid.walletId, amountCents: paid.amountCents });
+          }}
+          onRetry={() => {
+            attempt.current = null;
+            void run(() => payFirst(payment?.amountCents ?? 0, null));
+          }}
+          onBack={() => go({ kind: 'saldo' })}
+          error={error}
         />
-      ) : null}
+      </div>
+    );
+  }
 
-      {step.kind === 'cash' ? (
-        <>
-          <p className="np-num" style={amountStyle}>
-            {formatEur(amountCents)}
-          </p>
-          <p style={big}>Cobra {formatEur(amountCents)} en efectivo</p>
-          <p style={muted}>{targetLabel(step.target)}. Guarda el dinero en la caja y pulsa «Cobrado».</p>
-          <Button
-            size="lg"
-            loading={busy}
-            onClick={() =>
-              void run(async () => {
-                const target = step.target;
-                const out = await staffBackend.cash({ amountCents, idempotencyKey: keyFor('cash', target), wallet: walletOfTarget(target) });
-                onDone();
-                setStep({ kind: 'done', message: 'Recargado en efectivo', detail: existingCashDetail(out) });
-              })
-            }
-          >
-            Cobrado
-          </Button>
-          <Button variant="ghost" disabled={busy} onClick={() => setStep({ kind: 'method', target: step.target })}>
-            Atrás
-          </Button>
-        </>
+  // 4.6 ¿De quién es el saldo?
+  const nfcOn = options?.nfc !== false;
+  const noReader = !nfc.reader.loading && !nfc.reader.via ? nfc.reader.note : null;
+  return (
+    // data-charge-open: en el móvil, el saludo de Inicio se aparta (esta pantalla trae su cabecera).
+    <div className={s.screen} data-charge-open="" ref={shownRef}>
+      <DeskHead title="Recargar saldo" sub={sub} chip={chip} stripe="hold" onBack={onExit} />
+      <span className={s.kick}>¿De quién es el saldo?</span>
+      {nfcOn ? (
+        <button type="button" className={`${s.det} ${s.detLime}`} onClick={nfc.stopped ? nfc.restart : undefined} aria-live="polite">
+          <NfcCard size="s" />
+          <span className={s.grow}>
+            <b>{nfc.stopped ? 'Toca para leer su NFC' : 'Acerca su NFC'}</b>
+            <span>{noReader ?? nfc.stopped ?? 'Antes de cobrar, para que la recarga vaya a su NFC'}</span>
+          </span>
+        </button>
       ) : null}
-
+      {nfcOn ? <p className={s.orline}>o con el código</p> : <span className={s.kick}>Su código</span>}
+      <CodeBoxes value={code} onChange={onCode} disabled={busy} />
+      {busy ? <p className={s.lbl}>Buscando…</p> : null}
+      {found ? (
+        <div className={s.found}>
+          <span className={s.okc}>
+            <Icon name="check" />
+          </span>
+          <div className={s.grow}>
+            <b>Saldo {found.view.code}</b>
+            <span>
+              Tiene {formatEur(found.view.balanceCents, { compact: true })}
+              {found.view.fichaNumber !== null ? ` · ${fichaText(found.view.fichaNumber)}` : ''}
+            </span>
+          </div>
+        </div>
+      ) : null}
       {error ? (
-        <p role="alert" style={errorStyle}>
+        <p role="alert" className={s.error}>
           {error}
         </p>
       ) : null}
-    </Card>
+      <div className={s.links}>
+        {options?.card ? (
+          <button type="button" className={s.txtlink} disabled={busy} onClick={() => go({ kind: 'planB', payment: null })}>
+            ¿No se lee su NFC? Cobrar primero y asignarlo después
+          </button>
+        ) : null}
+        <button type="button" className={`${s.txtlink} ${pending > 0 ? s.txtlinkOn : ''}`} onClick={() => go({ kind: 'pending' })}>
+          {pending > 0 ? `Pendientes de asignar (${pending})` : 'Pendientes de asignar'}
+        </button>
+      </div>
+      <div className={`${s.foot} ${s.footSolid}`}>
+        <DeskBtn kind="pri" label="Seguir" disabled={!found} onClick={() => found && go({ kind: 'qr', found, payment: null })} />
+      </div>
+    </div>
   );
 }
-
-/** Tarjeta (a todos) o efectivo (con permiso), la de por defecto del local primero y en grande. */
-function MethodStep(props: {
-  amountCents: number;
-  options: ReceptionOptions | null;
-  target: ExistingTarget;
-  preferred: PayMethod;
-  busy: boolean;
-  onCard: () => void;
-  onCash: () => void;
-  onBack: () => void;
-}) {
-  const { amountCents, options, target } = props;
-  const choices = options ? methodChoices(options, target, props.preferred) : [];
-  const cashTooBig = amountCents > MAX_CASH_TOP_UP_CENTS;
-  return (
-    <>
-      <p className="np-num" style={amountStyle}>
-        {formatEur(amountCents)}
-      </p>
-      <p style={muted}>{targetLabel(target)}</p>
-      <p style={big}>¿Cómo paga?</p>
-      {!options ? <p style={muted}>Cargando…</p> : null}
-      {options && choices.length === 0 ? <p style={note}>{options.cashBlockedReason ?? 'Ahora no se pueden hacer recargas en este local.'}</p> : null}
-      {choices.map(({ method, problem }, i) => (
-        <Button
-          key={method}
-          size="lg"
-          variant={i === 0 ? 'primary' : 'ghost'}
-          loading={props.busy && method === 'card'}
-          disabled={props.busy || problem !== null || (method === 'cash' && cashTooBig)}
-          onClick={method === 'card' ? props.onCard : props.onCash}
-        >
-          {method === 'card' ? cardMethodLabel('staff') : 'Efectivo'}
-        </Button>
-      ))}
-      {choices.map(({ method, problem }) => (problem ? <p key={`p-${method}`} style={note}>{problem}</p> : null))}
-      {cashTooBig && choices.some((c) => c.method === 'cash') ? <p style={note}>En efectivo, como mucho 999,99 € por recarga.</p> : null}
-      <Button variant="ghost" disabled={props.busy} onClick={props.onBack}>
-        Cambiar el importe
-      </Button>
-    </>
-  );
-}
-
-const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)', textAlign: 'center' };
-const kicker: CSSProperties = {
-  margin: 0,
-  fontSize: '0.8125rem',
-  fontWeight: 700,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: 'var(--np-text-mute)',
-};
-const amountStyle: CSSProperties = { margin: 0, fontSize: '2.5rem', lineHeight: 1.15, fontWeight: 700 };
-const big: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 700 };
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };
-const errorStyle: CSSProperties = { margin: 0, color: 'var(--np-danger)', fontWeight: 600 };
-const formStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left' };
-const quickRow: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(5rem, 1fr))', gap: '0.5rem' };
-const note: CSSProperties = {
-  margin: 0,
-  padding: '0.6rem 0.9rem',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
-  fontSize: '0.9rem',
-  color: 'var(--np-text-mute)',
-};
-// 44 px de alto: se toca bien aunque parezca un enlace.
-const linkBtnStyle: CSSProperties = {
-  minHeight: '2.75rem',
-  background: 'transparent',
-  border: 'none',
-  color: 'var(--np-text-mute)',
-  fontSize: '0.9375rem',
-  textDecoration: 'underline',
-  cursor: 'pointer',
-  padding: '0 0.5rem',
-};
