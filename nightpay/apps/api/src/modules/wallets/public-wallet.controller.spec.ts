@@ -211,6 +211,7 @@ describe('/w/:token/topup — «Recargar» desde el móvil', () => {
       closeRequested: false,
       hasFaceId: true,
       hasPin: true,
+      hasCard: false,
       merged: false,
       refund: null,
       cards: [],
@@ -222,6 +223,6 @@ describe('/w/:token/topup — «Recargar» desde el móvil', () => {
     expect(topUps.paidProof).toHaveBeenCalledWith('tok', 'pay-1');
     expect(topUps.options).toHaveBeenCalledWith('tok');
     expect(reply.body).toContain('id="proof"');
-    expect(reply.body).toContain('id="topupSheet"');
+    expect(reply.body).toContain('id="topupForm"');
   });
 });

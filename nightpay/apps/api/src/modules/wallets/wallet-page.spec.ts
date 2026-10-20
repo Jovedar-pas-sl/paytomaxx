@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderWalletPage } from './wallet-page';
+import { SCAN_JS } from './wallet-scan';
+import { WALLET_TEXT } from './wallet-text';
 import type { ClientWalletState } from './wallet-charges.service';
 
 function state(o: Partial<ClientWalletState> = {}): ClientWalletState {
@@ -10,6 +12,7 @@ function state(o: Partial<ClientWalletState> = {}): ClientWalletState {
     closeRequested: false,
     hasFaceId: false,
     hasPin: false,
+    hasCard: false,
     merged: false,
     refund: null,
     cards: ['4242'],
@@ -19,6 +22,13 @@ function state(o: Partial<ClientWalletState> = {}): ClientWalletState {
 }
 
 const script = (html: string): string => html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>'));
+/** El HTML de una vista (de su etiqueta a la de la siguiente). */
+const between = (html: string, from: string, to: string): string => html.slice(html.indexOf(from), html.indexOf(to));
+const payView = (html: string): string => between(html, 'id="viewPay"', 'id="viewTop"');
+const topView = (html: string): string => between(html, 'id="viewTop"', 'id="more"');
+const BACKSLASH = String.fromCharCode(92);
+
+const topUp = { allowed: true, block: null, presetsCents: [2000, 5000, 10000], minCents: 1000, maxCents: 30000 };
 
 describe('página del saldo del cliente', () => {
   it('lleva el estado inicial, el idioma y las rutas del saldo', () => {
@@ -34,6 +44,8 @@ describe('página del saldo del cliente', () => {
     const html = renderWalletPage('tok-1', 'en', state());
     expect(html).toContain('<html lang="en">');
     expect(html).toContain('Your OxioPay balance');
+    expect(html).toContain('>Pay</button>');
+    expect(html).toContain('Scan the QR the staff show you');
   });
 
   it('un nombre con HTML no puede cerrar el <script>', () => {
@@ -56,12 +68,19 @@ describe('página del saldo del cliente', () => {
     expect(html.match(/<\/script>/g)).toHaveLength(1);
   });
 
-  it('sin QR del código (ya no se paga enseñándolo); con "Activar Face ID" y JS válido', () => {
+  it('sin QR del código (ya no se paga enseñándolo); con "Activar Face ID" y JS válido sin barras invertidas', () => {
     for (const lang of ['es', 'en'] as const) {
-      const html = renderWalletPage('tok-1', lang, state());
-      expect(html).not.toContain('class="qr"');
-      expect(html).toContain('id="faceCard"');
-      expect(() => new Function(script(html))).not.toThrow();
+      for (const options of [{}, { topUp, googleWallet: true }]) {
+        const html = renderWalletPage('tok-1', lang, state(), options);
+        expect(html).not.toContain('class="qr"');
+        expect(html).toContain('id="faceCard"');
+        expect(() => new Function(script(html))).not.toThrow();
+        // El JS escrito a mano (la configuración va aparte, en JSON).
+        const js = script(html);
+        const page = js.slice(js.indexOf('function $(id)'), js.indexOf('})();'));
+        expect(page.length).toBeGreaterThan(2000);
+        expect(page.includes(BACKSLASH)).toBe(false);
+      }
     }
     const es = renderWalletPage('tok-1', 'es', state());
     expect(es).toContain('Activar Face ID');
@@ -96,22 +115,6 @@ describe('página del saldo del cliente', () => {
     }
   });
 
-  it('PIN y sumar a otro saldo como acciones secundarias, con sus rutas en /w', () => {
-    const html = renderWalletPage('tok-1', 'es', state());
-    expect(html).toContain('id="pinOpen"');
-    expect(html).toContain('id="mergeOpen"');
-    expect(html).toContain('id="leaveOpen"');
-    const js = script(html);
-    expect(js).toContain("withKey('/pin',{pin:a,pin2:c})");
-    // Con Face ID, PIN y «Me voy» piden desbloquear el móvil (reto de /pin/challenge o /close/challenge).
-    expect(js).toContain("pkGet(C.base+path+'/challenge')");
-    expect(js).toContain('if(S.hasFaceId&&!pkSupported()){show(\'pinErr\',T.faceIdNeeded);return;}');
-    expect(js).toContain("pkGet(C.base+'/merge/challenge')");
-    expect(js).toContain("post('/merge',{response:k})");
-    // Abre la hoja de sumar si viene del «Pagado» de la recarga.
-    expect(js).toContain("location.hash==='#sumar'");
-  });
-
   it('«Me voy»: cuánto, cómo (tarjeta ••4242 o efectivo) y en qué paso (Pedido → Aprobado → Devuelto)', () => {
     const html = renderWalletPage(
       'tok-1',
@@ -124,6 +127,8 @@ describe('página del saldo del cliente', () => {
     expect(html).toContain('\\"cards\\":[\\"4242\\"]');
     expect(script(html)).toContain("'••'+c");
     expect(script(html)).toContain("aria-current','step'");
+    // El seguimiento va debajo del saldo, antes de las opciones.
+    expect(html.indexOf('id="refundCard"')).toBeLessThan(html.indexOf('id="seg"'));
   });
 
   it('botones ocupados dicen qué pasa (no solo se apagan)', () => {
@@ -138,7 +143,175 @@ describe('página del saldo del cliente', () => {
   });
 });
 
-describe('«Añadir a Google Wallet» en la página del saldo', () => {
+describe('dos opciones debajo del saldo: «Pagar» y «Recargar»', () => {
+  it('dos pestañas iguales (botones de verdad, role="tab", cada una con su vista) entre el saldo y las vistas', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { topUp });
+    expect(html).toContain('<div class="seg" role="tablist" id="seg" aria-label="¿Qué quieres hacer?" hidden>');
+    expect(html).toMatch(/<button class="segb" type="button" role="tab" id="tabPay" aria-controls="viewPay" aria-selected="true">.*Pagar<\/button>/);
+    expect(html).toMatch(
+      /<button class="segb" type="button" role="tab" id="tabTop" aria-controls="viewTop" aria-selected="false" tabindex="-1">.*Recargar<\/button>/,
+    );
+    expect(html).toContain('<section class="view" id="viewPay" aria-labelledby="tabPay">');
+    expect(html).toContain('<section class="view" id="viewTop" aria-labelledby="tabTop" hidden>');
+    const order = ['id="balance"', 'id="seg"', 'id="viewPay"', 'id="viewTop"', 'id="more"'].map((id) => html.indexOf(id));
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    // Las dos con el mismo estilo de botón grande; la marcada, en lima.
+    expect(html).toContain('.segb[aria-selected=true]{border-color:var(--lime);background:var(--lime)');
+    expect(html).toContain('.segb:focus-visible{outline:3px solid var(--fg)');
+  });
+
+  it('«Pagar» de entrada; una vista a la vez; flechas, Inicio y Fin cambian de pestaña', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state(), { topUp }));
+    expect(js).toContain("var view=C.paid?'top':'pay';");
+    expect(js).toContain("$('viewPay').hidden=!pay;$('viewTop').hidden=pay;");
+    expect(js).toContain("$('tabPay').setAttribute('aria-selected',String(pay));$('tabTop').setAttribute('aria-selected',String(!pay));");
+    expect(js).toContain("$('tabPay').tabIndex=pay?0:-1;$('tabTop').tabIndex=pay?-1:0;");
+    expect(js).toContain("k==='ArrowLeft'||k==='ArrowRight'");
+    expect(js).toContain("k==='Home'?'pay':k==='End'?'top'");
+    // Al cambiar a «Recargar», la cámara se apaga y la recarga empieza con clave nueva.
+    expect(js).toContain('if(!pay){if(SC.on)scanStop();topOpen();}');
+  });
+
+  it('sin poder recargar en este local: sin las opciones, solo «Pagar»', () => {
+    for (const options of [{}, { topUp: { ...topUp, allowed: false, block: 'method-off' as const } }]) {
+      const js = script(renderWalletPage('tok-1', 'es', state(), options));
+      expect(js).toContain('segShow(can||C.paid);');
+      expect(js).toContain("$('seg').hidden=!on;");
+      // Sin pestañas, las vistas no se anuncian como paneles y se vuelve a «Pagar».
+      expect(js).toContain("if(on)$(id).setAttribute('role','tabpanel');else $(id).removeAttribute('role');");
+      expect(js).toContain("if(!on&&view==='top')setView('pay')");
+    }
+  });
+
+  it('saldo a cero con la recarga a mano: entra en «Recargar» (en «Pagar», que recargue)', () => {
+    const html = renderWalletPage('tok-1', 'es', state({ status: 'DEPLETED', balanceCents: 0 }), { topUp });
+    expect(script(html)).toContain("if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';");
+    expect(payView(html)).toContain('No te queda saldo. Recarga para volver a pagar.');
+    expect(script(html)).toContain("$('payEmpty').hidden=!(can&&s.status==='DEPLETED');");
+  });
+});
+
+describe('«Pagar»: solo lo de pagar', () => {
+  it('el QR del personal, el desbloqueo, «Sin móvil» con el código y Google Wallet; nada de recargar', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { topUp, googleWallet: true });
+    const pay = payView(html);
+    for (const id of ['payCard', 'faceCard', 'scanArea', 'scanGo', 'scanAlt', 'howCard', 'codeCard', 'gwCard']) {
+      expect(pay).toContain(`id="${id}"`);
+    }
+    expect(pay).toContain('<h2 id="payTitle">Escanea el QR que te enseña el personal</h2>');
+    expect(pay).toContain('>Escanear QR</button>');
+    expect(pay).toContain('<h2 class="sub" id="codeTitle">Sin móvil: dile tu código y pon tu PIN</h2>');
+    expect(pay).toContain('<p class="code num" id="code">K7Q-4M2</p>');
+    expect(pay).not.toContain('topup');
+    expect(pay).not.toContain('Recargar');
+    expect(pay).not.toContain('id="pinOpen"');
+  });
+
+  it('con el desbloqueo activado se escanea; sin él, se activa primero; sin poder usarlo aquí, el PIN', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state()));
+    expect(js).toContain('var setup=payable&&!s.hasFaceId&&canKey,scan=payable&&s.hasFaceId&&canKey;');
+    expect(js).toContain("$('faceCard').hidden=!setup;$('scanArea').hidden=!scan;");
+    expect(js).toContain("$('payTitle').textContent=setup?U.title:T.scanTitle;");
+    expect(js).toContain("show('howText',payable&&!canKey?(s.hasFaceId?T.faceIdNeeded:T.unlockUnsupported):'');");
+    expect(js).toContain("$('faceDone').textContent=scan?'✓ '+U.done+' '+T.payFaceDone:'';");
+  });
+
+  it('«Sin móvil»: con PIN, que lo teclee; sin PIN, que lo elija en «Más»; con ficha, que la acerque', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state({ hasCard: true })));
+    expect(js).toContain("$('codeHint').textContent=s.hasPin?T.codeWithPin:T.codeNoPin;$('fichaHint').hidden=!s.hasCard;");
+    const html = renderWalletPage('tok-1', 'es', state({ hasCard: true }));
+    expect(html).toContain('<p class="small" id="fichaHint" hidden>Con tu ficha: acércala al móvil del personal y pon tu PIN.</p>');
+    expect(html).toContain('\\"hasCard\\":true');
+    expect(renderWalletPage('tok-1', 'en', state())).toContain('With your tag: hold it to the staff phone and enter your PIN.');
+  });
+
+  it('el saldo cerrado, a cero o con «Me voy» no enseña cómo pagar', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state()));
+    expect(js).toContain('var canKey=pkSupported(),payable=active&&!r;');
+    expect(js).toContain("$('codeCard').hidden=!active;");
+  });
+});
+
+describe('«Escanear QR» dentro de la página', () => {
+  const chargePath = (origin: string): ((raw: unknown) => string | null) => {
+    const head = SCAN_JS.slice(0, SCAN_JS.indexOf('function scanAvail'));
+    return new Function('location', 'window', 'navigator', `${head}return chargePath;`)({ origin }, {}, {}) as (
+      raw: unknown,
+    ) => string | null;
+  };
+  const TOKEN = 'Ab3_-xY9Ab3_-xY9Ab3_-xY9Ab3_-xY9';
+
+  it('solo va a una página de cobro nuestra: /s/<token> de este mismo dominio', () => {
+    const go = chargePath('https://api.paytomaxx.com');
+    expect(go(`https://api.paytomaxx.com/s/${TOKEN}`)).toBe(`/s/${TOKEN}`);
+    expect(go(`  https://api.paytomaxx.com/s/${TOKEN}/ `)).toBe(`/s/${TOKEN}`);
+    expect(go(`https://api.paytomaxx.com/s/${TOKEN}?lang=en`)).toBe(`/s/${TOKEN}`);
+    // Otro dominio, otra ruta, un token raro o algo que no es un enlace: nada.
+    expect(go(`https://evil.example/s/${TOKEN}`)).toBeNull();
+    expect(go(`http://api.paytomaxx.com/s/${TOKEN}`)).toBeNull();
+    expect(go(`https://api.paytomaxx.com/w/${TOKEN}`)).toBeNull();
+    expect(go(`https://api.paytomaxx.com/c/${TOKEN}`)).toBeNull();
+    expect(go(`https://api.paytomaxx.com/s/${TOKEN}/pay`)).toBeNull();
+    expect(go(`https://api.paytomaxx.com/x/s/${TOKEN}`)).toBeNull();
+    expect(go('https://api.paytomaxx.com/s/corto')).toBeNull();
+    expect(go('https://api.paytomaxx.com/s/<script>alert(1)</script>xxxxxxxx')).toBeNull();
+    expect(go(`javascript:alert(1)//s/${TOKEN}`)).toBeNull();
+    expect(go('K7Q-4M2')).toBeNull();
+    expect(go(null)).toBeNull();
+  });
+
+  it('con BarcodeDetector, la cámara en la página; sin él (iPhone), sin botón: que use la cámara del móvil', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state({ hasFaceId: true })));
+    expect(js).toContain("var scanOk=typeof window.BarcodeDetector==='function'&&!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);");
+    expect(js).toContain("function scanAvail(){$('scanGo').hidden=!scanOk||SC.on;$('scanAlt').hidden=scanOk;}");
+    expect(js).toContain("f.indexOf('qr_code')<0");
+    expect(js).toContain("new window.BarcodeDetector({formats:['qr_code']})");
+    expect(js).toContain("facingMode:{ideal:'environment'}");
+    const html = renderWalletPage('tok-1', 'es', state({ hasFaceId: true }));
+    expect(html).toContain('<button class="btn" type="button" id="scanGo" hidden>Escanear QR</button>');
+    expect(html).toContain('<p class="how" id="scanAlt" hidden>Abre la cámara del móvil y apunta al QR del personal.</p>');
+  });
+
+  it('un QR que no es nuestro se ignora con un aviso; el nuestro abre el cobro en el idioma de la página', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state({ hasFaceId: true })));
+    expect(js).toContain("if(to){scanStop();show('scanMsg',T.scanOpening);location.href=to+'?lang='+C.lang;return;}");
+    expect(js).toContain("show('scanMsg',T.scanWrong)");
+    expect(js).toContain("e&&e.name==='NotAllowedError'?T.scanDenied:T.scanFailed");
+    expect(WALLET_TEXT.es.scanWrong).toBe('Ese QR no es un cobro de OxioPay. Apunta al QR que te enseña el personal.');
+  });
+
+  it('la cámara se apaga al cerrar, al esconder la página o al salir de ella', () => {
+    expect(SCAN_JS).toContain('SC.stream.getTracks().forEach(function(k){k.stop();})');
+    expect(SCAN_JS).toContain("document.addEventListener('visibilitychange',function(){if(document.visibilityState!=='visible'&&SC.on)scanStop();});");
+    expect(SCAN_JS).toContain("window.addEventListener('pagehide'");
+    expect(SCAN_JS.includes(BACKSLASH)).toBe(false);
+  });
+});
+
+describe('«Más»: debajo de las dos vistas', () => {
+  it('elegir PIN, juntar saldos, «Me voy» y los movimientos, con sus rutas en /w', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { topUp });
+    const more = html.slice(html.indexOf('id="more"'), html.indexOf('</main>'));
+    expect(more).toContain('<h2 class="kick" id="moreTitle">Más</h2>');
+    for (const id of ['pinOpen', 'mergeOpen', 'leaveOpen', 'movOpen', 'movements']) expect(more).toContain(`id="${id}"`);
+    expect(more).toContain('Elegir un PIN');
+    expect(more).toContain('Juntar saldos');
+    expect(more).toContain('Me voy: devolver mi saldo');
+    expect(more).toContain('<button class="row" type="button" id="movOpen" aria-expanded="false" aria-controls="movBox">Movimientos');
+    const js = script(html);
+    expect(js).toContain("b.setAttribute('aria-expanded',String(open));$('movBox').hidden=!open;");
+    expect(js).toContain("withKey('/pin',{pin:a,pin2:c})");
+    // Con Face ID, PIN y «Me voy» piden desbloquear el móvil (reto de /pin/challenge o /close/challenge).
+    expect(js).toContain("pkGet(C.base+path+'/challenge')");
+    expect(js).toContain('if(S.hasFaceId&&!pkSupported()){show(\'pinErr\',T.faceIdNeeded);return;}');
+    expect(js).toContain("pkGet(C.base+'/merge/challenge')");
+    expect(js).toContain("post('/merge',{response:k})");
+    // Abre la hoja de sumar si viene del «Pagado» de la recarga.
+    expect(js).toContain("location.hash==='#sumar'");
+  });
+});
+
+describe('«Añadir a Google Wallet» en «Pagar»', () => {
   it('sin Google Wallet configurado no hay botón ni código para él', () => {
     for (const html of [renderWalletPage('tok-1', 'es', state()), renderWalletPage('tok-1', 'es', state(), { googleWallet: false })]) {
       expect(html).not.toContain('id="gwCard"');
@@ -148,11 +321,11 @@ describe('«Añadir a Google Wallet» en la página del saldo', () => {
     }
   });
 
-  it('configurado: el botón OFICIAL desde nuestro dominio, como acción secundaria (tras «Más opciones»)', () => {
+  it('configurado: el botón OFICIAL desde nuestro dominio, en «Pagar» (debajo de «Sin móvil»)', () => {
     const html = renderWalletPage('tok-1', 'es', state(), { googleWallet: true });
     expect(html).toContain('<img src="/w/assets/google-wallet/es" width="298" height="50" alt="Añadir a Google Wallet">');
-    expect(html.indexOf('id="gwCard"')).toBeGreaterThan(html.indexOf('id="more"'));
-    expect(html.indexOf('id="gwCard"')).toBeLessThan(html.indexOf('id="codeCard"'));
+    expect(payView(html)).toContain('id="gwCard"');
+    expect(html.indexOf('id="gwCard"')).toBeGreaterThan(html.indexOf('id="codeCard"'));
     // Sale escondida: el JS la enseña solo en Android.
     expect(html).toContain('<section class="gw" id="gwCard" hidden');
     const en = renderWalletPage('tok-1', 'en', state(), { googleWallet: true });
@@ -164,7 +337,6 @@ describe('«Añadir a Google Wallet» en la página del saldo', () => {
       const js = script(renderWalletPage('tok-1', lang, state(), { googleWallet: true }));
       expect(js).toContain("if(gw)gw.hidden=!(P==='android'&&active&&!r&&!s.merged);");
       expect(js).toContain("var gw=C.gw?$('gwCard'):null;");
-      expect(() => new Function(script(renderWalletPage('tok-1', lang, state(), { googleWallet: true })))).not.toThrow();
     }
   });
 
@@ -178,30 +350,27 @@ describe('«Añadir a Google Wallet» en la página del saldo', () => {
     // Al volver a la página, el texto de siempre (no «Preparando…»).
     expect(js).toContain("busy=false;b.disabled=false;$('gwMsg').textContent=T.gwHint;");
     expect(js).not.toContain('alert(');
-    // Sin barras invertidas: el JS va dentro de una plantilla de TypeScript.
-    const gwJs = js.slice(js.indexOf("$('gwAdd')"), js.indexOf('render(S);'));
-    expect(gwJs.length).toBeGreaterThan(50);
-    expect(gwJs.includes(String.fromCharCode(92))).toBe(false);
   });
 });
 
-describe('«Recargar» en la página del saldo', () => {
-  const topUp = { allowed: true, block: null, presetsCents: [2000, 5000, 10000], minCents: 1000, maxCents: 30000 };
-
-  it('botón debajo del saldo y hoja con 20 / 50 / 100 €, «Otra» y los límites; 50 € marcada', () => {
+describe('«Recargar»: solo lo de recargar', () => {
+  it('20 / 50 / 100 €, «Otra» y los límites en la vista (sin hoja); 50 € marcada; nada de pagar', () => {
     const html = renderWalletPage('tok-1', 'es', state(), { topUp });
-    expect(html.indexOf('id="topupBox"')).toBeGreaterThan(html.indexOf('id="balance"'));
-    expect(html.indexOf('id="topupBox"')).toBeLessThan(html.indexOf('id="faceCard"'));
-    expect(html).toContain('<dialog class="sheet" id="topupSheet"');
-    expect(html).toMatch(/value="2000"><span class="num">20\s€<\/span>/);
-    expect(html).toMatch(/value="5000" checked><span class="num">50\s€<\/span>/);
-    expect(html).toMatch(/value="10000"><span class="num">100\s€<\/span>/);
-    expect(html).toContain('id="amtOther"');
-    expect(html).toMatch(/De 10\s€ a 300\s€\./);
-    expect(html).toContain('Sin propina: solo pagas lo que recargas.');
+    const top = topView(html);
+    expect(top).toContain('<section class="card topup" id="topupBox" hidden aria-labelledby="topupTitle">');
+    expect(top).toContain('<form id="topupForm"');
+    expect(html).not.toContain('id="topupSheet"');
+    expect(top).toMatch(/value="2000"><span class="num">20\s€<\/span>/);
+    expect(top).toMatch(/value="5000" checked><span class="num">50\s€<\/span>/);
+    expect(top).toMatch(/value="10000"><span class="num">100\s€<\/span>/);
+    expect(top).toContain('id="amtOther"');
+    expect(top).toMatch(/De 10\s€ a 300\s€\./);
+    expect(top).toContain('Apple Pay, Google Pay o tarjeta');
+    expect(top).toContain('Sin propina: solo pagas lo que recargas.');
+    for (const id of ['codeCard', 'payCard', 'scanGo', 'gwCard', 'pinOpen']) expect(top).not.toContain(`id="${id}"`);
     const en = renderWalletPage('tok-1', 'en', state(), { topUp });
-    expect(en).toContain('Top up your balance');
-    expect(en).toContain('From €10 to €300.');
+    expect(topView(en)).toContain('Top up your balance');
+    expect(topView(en)).toContain('From €10 to €300.');
   });
 
   it('JS válido, sin barras invertidas, y solo va a nuestra página de pago', () => {
@@ -210,7 +379,7 @@ describe('«Recargar» en la página del saldo', () => {
       expect(() => new Function(js)).not.toThrow();
       const top = js.slice(js.indexOf('var TU='), js.indexOf('render(S);'));
       expect(top.length).toBeGreaterThan(500);
-      expect(top.includes(String.fromCharCode(92))).toBe(false);
+      expect(top.includes(BACKSLASH)).toBe(false);
       expect(js).toContain("post('/topup',body)");
       expect(js).toContain("pkGet(C.base+'/topup/challenge')");
       expect(js).toContain("u.indexOf('/pay/')===0");
@@ -219,23 +388,25 @@ describe('«Recargar» en la página del saldo', () => {
     }
   });
 
-  it('se ve si el saldo está activo o a cero, sin «Me voy» y si el local lo permite; principal sin Face ID que activar', () => {
+  it('se puede si el saldo está activo o a cero, sin «Me voy» y si el local lo permite', () => {
     const js = script(renderWalletPage('tok-1', 'es', state(), { topUp }));
-    expect(js).toContain("usable=(s.status==='ACTIVE'||(s.status==='DEPLETED'&&!s.merged))&&!s.refund&&!s.closeRequested");
-    expect(js).toContain('can=usable&&TU.allowed');
-    expect(js).toContain("$('faceCard').hidden&&!C.paid?'btn':'btn alt'");
-    expect(js).toContain('topRender(s);}');
+    expect(js).toContain("function topUsable(s){return (s.status==='ACTIVE'||(s.status==='DEPLETED'&&!s.merged))&&!s.refund&&!s.closeRequested;}");
+    expect(js).toContain('function topCan(s){return topUsable(s)&&TU.allowed;}');
+    expect(js).toContain("$('topupBox').hidden=!can;");
+    expect(js).toContain('var can=topRender(s);');
     expect(renderWalletPage('tok-1', 'es', state(), { topUp })).toContain('\\"allowed\\":true');
   });
 
-  it('el local no deja (pausa, formas de cobro…) → sin botón y con un aviso', () => {
+  it('el local no deja (pausa, formas de cobro…) → sin «Recargar» y con un aviso debajo del saldo', () => {
     const html = renderWalletPage('tok-1', 'es', state(), { topUp: { ...topUp, allowed: false, block: 'paused' } });
     expect(html).toContain('\\"block\\":\\"paused\\"');
     expect(script(html)).toContain("TU.block==='blocked'?T.topUpBlocked:T.topUpOff");
     expect(html).toContain('Ahora no se puede recargar desde el móvil');
+    expect(html.indexOf('id="topupOff"')).toBeGreaterThan(html.indexOf('id="balance"'));
+    expect(html.indexOf('id="topupOff"')).toBeLessThan(html.indexOf('id="seg"'));
   });
 
-  it('sin opciones de recarga (no se pudo saber) → no sale el botón', () => {
+  it('sin opciones de recarga (no se pudo saber) → no hay «Recargar»', () => {
     const html = renderWalletPage('tok-1', 'es', state());
     expect(html).toContain('\\"topUp\\":null');
     expect(script(html)).toContain('TU=C.topUp||{allowed:false');
@@ -246,28 +417,30 @@ describe('«Recargar» en la página del saldo', () => {
     expect(js).toContain('S.hasFaceId?pkGet(');
     expect(js).toContain('body={amountCents:c,key:TK,lang:C.lang}');
     expect(js).toContain('crypto.getRandomValues(a)');
-    // Nueva clave al abrir, tras un error y al volver atrás desde el pago.
-    expect(js.match(/newKey\(\)/g)?.length).toBeGreaterThanOrEqual(3);
+    // Nueva clave al cargar la página, al entrar en «Recargar», tras un error y al volver atrás desde el pago.
+    expect(js.match(/newKey\(\)/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(js).toContain("function topOpen(){if(busy)return;newKey();show('topupErr','');show('topupKey',S.hasFaceId?T.topUpFaceId:'');topUpd();}");
   });
 });
 
 describe('«Pagado» de la recarga al volver a /w', () => {
-  const topUp = { allowed: true, block: null, presetsCents: [2000, 5000, 10000], minCents: 1000, maxCents: 30000 };
   const now = new Date('2026-10-19T23:41:12Z');
   const paid = { payToken: 'pay-1', amountCents: 5000, authorizedAt: '2026-10-19T23:41:00Z', code: '7F2' };
 
-  it('debajo del saldo: «Pagado», cuánto, hace cuánto, la hora que corre, el código y el justificante', () => {
+  it('se abre en «Recargar»: «Pagado», cuánto, hace cuánto, la hora que corre, el código y el justificante', () => {
     const html = renderWalletPage('tok-1', 'es', state({ balanceCents: 17_000 }), { topUp, paid, now });
-    expect(html.indexOf('id="proof"')).toBeGreaterThan(html.indexOf('id="balance"'));
-    expect(html.indexOf('id="proof"')).toBeLessThan(html.indexOf('id="topupBox"'));
-    expect(html).toContain('<section class="proof" id="proof"');
-    expect(html).toContain('aria-live="polite">Pagado</h2>');
-    expect(html).toMatch(/Recarga de 50,00\s€/);
-    expect(html).toContain('hace 0:12');
-    expect(html).toContain('<b class="num">7F2</b>');
-    expect(html).toContain('href="/pay/pay-1/receipt?lang=es"');
+    const top = topView(html);
+    expect(top).toContain('<section class="proof" id="proof"');
+    expect(top.indexOf('id="proof"')).toBeLessThan(top.indexOf('id="topupBox"'));
+    expect(top).toContain('aria-live="polite">Pagado</h2>');
+    expect(top).toMatch(/Recarga de 50,00\s€/);
+    expect(top).toContain('hace 0:12');
+    expect(top).toContain('<b class="num">7F2</b>');
+    expect(top).toContain('href="/pay/pay-1/receipt?lang=es"');
     expect(html).toMatch(/170,00\s€/);
     const js = script(html);
+    expect(js).toContain('\\"paid\\":true');
+    expect(js).toContain("var view=C.paid?'top':'pay';");
     expect(js).toContain("npPaid(document.getElementById('proof')");
     expect(js).toContain("history.replaceState(null,'',C.base+'?lang='+C.lang)");
     expect(() => new Function(js)).not.toThrow();
@@ -280,16 +453,27 @@ describe('«Pagado» de la recarga al volver a /w', () => {
     expect(html).toContain('No es un pago nuevo.');
   });
 
-  it('con Google Wallet: el botón justo debajo del «Pagado» (y una sola vez)', () => {
+  it('con Google Wallet: el botón sigue en «Pagar» (y una sola vez)', () => {
     const html = renderWalletPage('tok-1', 'es', state(), { topUp, paid, now, googleWallet: true });
     expect(html.match(/id="gwCard"/g)).toHaveLength(1);
-    expect(html.indexOf('id="gwCard"')).toBeGreaterThan(html.indexOf('id="proof"'));
-    expect(html.indexOf('id="gwCard"')).toBeLessThan(html.indexOf('id="topupBox"'));
+    expect(payView(html)).toContain('id="gwCard"');
   });
 
   it('sin «Pagado» no hay nada de él', () => {
     const html = renderWalletPage('tok-1', 'es', state(), { topUp });
     expect(html).not.toContain('id="proof"');
     expect(script(html)).not.toContain('npPaid(');
+  });
+});
+
+describe('textos de la página del saldo', () => {
+  it('los dos idiomas tienen los mismos textos, ninguno vacío', () => {
+    const keys = (o: object): string[] => Object.keys(o).sort();
+    expect(keys(WALLET_TEXT.en)).toEqual(keys(WALLET_TEXT.es));
+    for (const lang of ['es', 'en'] as const) {
+      for (const [k, v] of Object.entries(WALLET_TEXT[lang])) {
+        if (typeof v === 'string') expect(v.trim(), `${lang}.${k}`).not.toBe('');
+      }
+    }
   });
 });

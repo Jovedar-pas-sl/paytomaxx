@@ -11,10 +11,9 @@ export interface WalletText {
   locale: string;
   title: string;
   balance: string;
-  codeTitle: string;
-  codeHint: string;
   saveHint: string;
   movements: string;
+  movementsHint: string;
   noMovements: string;
   closed: string;
   depleted: string;
@@ -23,9 +22,32 @@ export interface WalletText {
   sending: string;
   cancel: string;
   more: string;
-  // Paso principal: activar el desbloqueo
+  // Las dos opciones debajo del saldo
+  views: string;
+  pay: string;
+  // «Pagar»: escanear el QR del personal (con el desbloqueo del móvil)
+  scanTitle: string;
+  scanButton: string;
+  /** Sin lector de QR en la página (iPhone): con la cámara del móvil. */
+  scanCamera: string;
+  scanAim: string;
+  scanStop: string;
+  /** Un QR que no es un cobro nuestro (/s/… de este dominio). */
+  scanWrong: string;
+  scanDenied: string;
+  scanFailed: string;
+  scanOpening: string;
+  payFaceWhy: string;
+  payFaceDone: string;
   unlockUnsupported: string;
-  // Secundarias
+  /** Saldo a cero con la recarga a mano. */
+  payEmpty: string;
+  // «Pagar» sin móvil: el código y el PIN (o la ficha)
+  codeTitle: string;
+  codeWithPin: string;
+  codeNoPin: string;
+  codeFicha: string;
+  // Más
   pinRow: string;
   pinRowHint: string;
   pinTitle: string;
@@ -91,10 +113,9 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     locale: 'es-ES',
     title: `Tu saldo ${BRAND_NAME}`,
     balance: 'Saldo',
-    codeTitle: 'Tu código',
-    codeHint: 'Por si te lo pide el encargado, o para pagar con tu PIN sin sacar el móvil.',
     saveHint: 'Guarda esta página (Compartir → Añadir a pantalla de inicio) para volver a tu saldo.',
     movements: 'Movimientos',
+    movementsHint: 'Recargas, pagos y devoluciones',
     noMovements: 'Aún no hay movimientos.',
     closed: 'Este saldo ya está cerrado.',
     depleted: 'Has gastado todo el saldo.',
@@ -102,9 +123,28 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     error: 'No se ha podido completar. Inténtalo otra vez.',
     sending: 'Enviando…',
     cancel: 'Cancelar',
-    more: 'Más opciones',
+    more: 'Más',
+    views: '¿Qué quieres hacer?',
+    pay: 'Pagar',
+    scanTitle: 'Escanea el QR que te enseña el personal',
+    scanButton: 'Escanear QR',
+    scanCamera: 'Abre la cámara del móvil y apunta al QR del personal.',
+    scanAim: 'Apunta al QR del personal.',
+    scanStop: 'Cerrar la cámara',
+    scanWrong: `Ese QR no es un cobro de ${BRAND_NAME}. Apunta al QR que te enseña el personal.`,
+    scanDenied: 'No podemos usar la cámara. Dale permiso, o abre la cámara del móvil y apunta al QR del personal.',
+    scanFailed: 'No se ha podido abrir la cámara. Abre la cámara del móvil y apunta al QR del personal.',
+    scanOpening: 'Abriendo el cobro…',
+    payFaceWhy:
+      'Actívalo una vez y paga escaneando el QR del personal y desbloqueando el móvil. Solo quien desbloquee este móvil puede gastar tu saldo.',
+    payFaceDone: 'Al pagar, desbloquea el móvil para confirmarlo.',
     unlockUnsupported:
-      'Este navegador no permite pagar desbloqueando el móvil. Elige un PIN y paga sin sacarlo: dices tu código y tecleas tu PIN.',
+      'Este navegador no permite pagar desbloqueando el móvil. Paga sin él: elige un PIN en «Más» y di tu código al personal.',
+    payEmpty: 'No te queda saldo. Recarga para volver a pagar.',
+    codeTitle: 'Sin móvil: dile tu código y pon tu PIN',
+    codeWithPin: 'Tecleas tu PIN en el móvil del personal.',
+    codeNoPin: 'Antes, elige tu PIN en «Más», aquí abajo.',
+    codeFicha: 'Con tu ficha: acércala al móvil del personal y pon tu PIN.',
     pinRow: 'Elegir un PIN',
     pinRowHint: 'Para pagar sin sacar el móvil',
     pinTitle: 'Elige un PIN de 4 cifras',
@@ -115,7 +155,7 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     pinFormat: 'El PIN son 4 cifras.',
     pinMismatch: 'Los dos PIN no son iguales.',
     pinDone: '✓ PIN guardado.',
-    mergeRow: 'Sumar a mi otro saldo',
+    mergeRow: 'Juntar saldos',
     mergeRowHint: 'Si ya tenías saldo en este móvil',
     mergeTitle: 'Sumar a tu otro saldo',
     mergeWhy:
@@ -164,10 +204,9 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     locale: 'en-GB',
     title: `Your ${BRAND_NAME} balance`,
     balance: 'Balance',
-    codeTitle: 'Your code',
-    codeHint: 'In case the manager asks for it, or to pay with your PIN without your phone.',
     saveHint: 'Save this page (Share → Add to Home Screen) to come back to your balance.',
     movements: 'Activity',
+    movementsHint: 'Top-ups, payments and refunds',
     noMovements: 'No activity yet.',
     closed: 'This balance is closed.',
     depleted: 'You have spent all your balance.',
@@ -175,9 +214,28 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     error: 'That did not work. Please try again.',
     sending: 'Sending…',
     cancel: 'Cancel',
-    more: 'More options',
+    more: 'More',
+    views: 'What do you want to do?',
+    pay: 'Pay',
+    scanTitle: 'Scan the QR the staff show you',
+    scanButton: 'Scan QR',
+    scanCamera: 'Open your phone camera and point it at the staff QR.',
+    scanAim: 'Point at the staff QR.',
+    scanStop: 'Close the camera',
+    scanWrong: `That QR is not a charge from ${BRAND_NAME}. Point at the QR the staff show you.`,
+    scanDenied: 'We cannot use the camera. Allow it, or open your phone camera and point it at the staff QR.',
+    scanFailed: 'The camera did not open. Open your phone camera and point it at the staff QR.',
+    scanOpening: 'Opening the charge…',
+    payFaceWhy:
+      'Turn it on once, then pay by scanning the staff QR and unlocking your phone. Only someone who can unlock this phone can spend your balance.',
+    payFaceDone: 'When you pay, unlock your phone to confirm.',
     unlockUnsupported:
-      'This browser cannot pay by unlocking your phone. Choose a PIN and pay without your phone: say your code and type your PIN.',
+      'This browser cannot pay by unlocking your phone. Pay without it: choose a PIN under "More" and tell the staff your code.',
+    payEmpty: 'You have no balance left. Top up to pay again.',
+    codeTitle: 'No phone? Tell the staff your code and enter your PIN',
+    codeWithPin: 'You type your PIN on the staff phone.',
+    codeNoPin: 'First, choose your PIN under "More" below.',
+    codeFicha: 'With your tag: hold it to the staff phone and enter your PIN.',
     pinRow: 'Choose a PIN',
     pinRowHint: 'To pay without your phone',
     pinTitle: 'Choose a 4-digit PIN',
@@ -188,7 +246,7 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     pinFormat: 'The PIN is 4 digits.',
     pinMismatch: 'The two PINs do not match.',
     pinDone: '✓ PIN saved.',
-    mergeRow: 'Add to my other balance',
+    mergeRow: 'Combine balances',
     mergeRowHint: 'If you already had a balance on this phone',
     mergeTitle: 'Add to your other balance',
     mergeWhy:

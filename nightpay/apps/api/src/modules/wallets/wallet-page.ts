@@ -6,19 +6,24 @@ import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
 import { WALLET_TEXT } from './wallet-text';
 import { GOOGLE_WALLET_BUTTONS } from './google-wallet/google-wallet-button';
 import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
-import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpBox, topUpSheet } from './wallet-topup-view';
+import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topUpOffNote } from './wallet-topup-view';
+import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, look "Club".
- * El saldo es el protagonista y hay UNA acción principal (activar el pago
- * desbloqueando el móvil, o el seguimiento del «Me voy»); elegir PIN, sumar a
- * otro saldo y «Me voy» son secundarias y se hacen en hojas dentro de la
- * página (nada de confirm()/alert()). «Recargar» va debajo del saldo: principal
- * si no hay Face ID que activar, si no secundaria (wallet-topup-view.ts); al
- * volver del banco, su «Pagado» debajo del saldo y Google Wallet a mano.
- * «Añadir a Google Wallet» también es secundaria: solo en Android y si está
- * configurado. El estado se refresca cada pocos segundos. Aquí no se paga
- * (se paga con el QR del personal o con el PIN).
+ * El saldo es el protagonista y, debajo, dos opciones iguales: «Pagar» y
+ * «Recargar» (pestañas: solo se ve una vista a la vez).
+ *  - «Pagar» (la de entrada): escanear el QR del personal (con la cámara en
+ *    la página si hay BarcodeDetector; si no, con la del móvil), activar el
+ *    desbloqueo del móvil si falta, «Sin móvil»: el código y el PIN (o la
+ *    ficha), y Google Wallet (solo Android y si está configurado).
+ *  - «Recargar»: cuánto, los límites y Apple Pay / Google Pay o tarjeta
+ *    (wallet-topup-view.ts). Al volver del banco se abre aquí con su «Pagado».
+ *    Si el local no deja recargar, no hay opciones: solo «Pagar».
+ * Debajo de las dos, «Más»: elegir PIN, juntar saldos, «Me voy» (en hojas
+ * dentro de la página: nada de confirm()/alert()) y los movimientos. El
+ * estado se refresca cada pocos segundos. Aquí no se cobra: se paga en la
+ * página del cobro (/s/…) o con el PIN en el móvil del personal.
  * Todo texto dinámico va con textContent (nada de HTML inyectado).
  */
 
@@ -28,9 +33,17 @@ const WALLET_CSS = `
 .hero{padding:1.25rem 0 .5rem;text-align:center}
 .balance{font-size:clamp(3.25rem,18vw,4.75rem);font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--fg);margin-top:.25rem}
 .status{margin-top:.75rem;color:var(--fg);font-weight:600}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.segb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.35rem;min-height:5.5rem;padding:.75rem .5rem;border:2px solid #45453f;border-radius:var(--r);background:var(--surface);color:var(--fg);font:inherit;font-size:1.3rem;font-weight:800;line-height:1.1;cursor:pointer;transition:transform .15s var(--ease)}
+.segb svg{width:1.9rem;height:1.9rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.segb[aria-selected=true]{border-color:var(--lime);background:var(--lime);color:var(--ink)}
+.segb:active{transform:scale(.98)}
+.segb:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
+.view{display:flex;flex-direction:column;gap:1rem}
 .card{border:2px solid var(--line);border-radius:var(--r);padding:1.1rem;display:flex;flex-direction:column;gap:.7rem;background:var(--surface)}
 .card h2{font-size:1.3rem;line-height:1.2}
 .card h2.kick{font-size:.8rem}
+.card h2.sub{font-size:1.1rem}
 .card.main{border-color:var(--lime)}
 .how{color:var(--fg)}
 .code{font-size:2.2rem;font-weight:800;letter-spacing:.2em;color:var(--lime);text-align:center}
@@ -42,10 +55,14 @@ const WALLET_CSS = `
 .steps li.ok::before{content:'✓';border-color:var(--lime);background:var(--lime);color:var(--ink)}
 .steps li.now{color:var(--lime)}
 .steps li.now::before{content:'●';border-color:var(--lime)}
-.more{display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.more{display:flex;flex-direction:column;gap:.25rem;margin-top:.5rem}
+.rows{display:flex;flex-direction:column;border-top:1px solid var(--line)}
 .row{display:flex;flex-direction:column;align-items:flex-start;gap:.1rem;width:100%;min-height:3.5rem;padding:.7rem .25rem;border:0;border-bottom:1px solid var(--line);background:none;color:var(--fg);font:inherit;font-weight:700;text-align:left;cursor:pointer}
 .row small{font-weight:500;color:var(--mute);font-size:.85rem}
 .row:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
+.row[aria-expanded]{position:relative;padding-right:2rem}
+.row[aria-expanded]::after{content:'+';position:absolute;right:.5rem;top:50%;transform:translateY(-50%);font-size:1.4rem;color:var(--mute)}
+.row[aria-expanded=true]::after{content:'−'}
 ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
 li.mv{display:flex;justify-content:space-between;gap:1rem;padding:.6rem 0;border-bottom:1px solid var(--line);font-size:.95rem}
 li.mv span:first-child{color:var(--mute)}
@@ -70,6 +87,11 @@ dialog.sheet h2{font-size:1.4rem}
 .toast{position:fixed;left:1rem;right:1rem;bottom:calc(1rem + env(safe-area-inset-bottom));max-width:26rem;margin:0 auto;padding:.9rem 1rem;border-radius:12px;background:var(--fg);color:var(--ink);font-weight:700;text-align:center;z-index:10;animation:np-in .2s ease}
 `;
 
+/** Iconos de las dos opciones (decorativos: el texto dice lo que es). */
+const PAY_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM18 14h2M14 18h2"/></svg>';
+const TOPUP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>';
+
 function eur(cents: number, locale: string): string {
   return (cents / 100).toLocaleString(locale, { style: 'currency', currency: 'EUR' });
 }
@@ -80,9 +102,7 @@ function jsText(lang: PayLanguage): Record<string, unknown> {
   return {
     ...WALLET_TEXT[lang],
     unlock: p.unlock,
-    unlockWhy: p.unlockWhy,
     unlockWaiting: p.unlockWaiting,
-    unlockAfter: p.unlockAfter,
   };
 }
 
@@ -98,9 +118,9 @@ export interface WalletPageOptions {
 }
 
 /**
- * «Añadir a Google Wallet»: acción secundaria, solo en Android, con el botón
- * oficial servido desde nuestro dominio (sin dibujarlo ni retocarlo: alto
- * mínimo 48 dp y 8 dp libres alrededor, normas de marca de Google).
+ * «Añadir a Google Wallet» en «Pagar»: solo en Android, con el botón oficial
+ * servido desde nuestro dominio (sin dibujarlo ni retocarlo: alto mínimo
+ * 48 dp y 8 dp libres alrededor, normas de marca de Google).
  */
 function googleWalletSection(lang: PayLanguage): string {
   const t = WALLET_TEXT[lang];
@@ -125,6 +145,84 @@ $('gwAdd').addEventListener('click',function(){var b=$('gwAdd');if(busy)return;b
    if(typeof u==='string'&&u.indexOf('https://pay.google.com/gp/v/save/')===0)location.href=u;else show('gwErr',T.error);})
   .catch(function(e){show('gwErr',msg(e));})
   .then(function(){busy=false;b.disabled=false;$('gwMsg').textContent=T.gwHint;});});`;
+
+/** «Pagar» / «Recargar»: pestañas (las enseña el JS solo si se puede recargar). */
+function viewTabs(lang: PayLanguage): string {
+  const t = WALLET_TEXT[lang];
+  const h = escapeHtml;
+  return `<div class="seg" role="tablist" id="seg" aria-label="${h(t.views)}" hidden>
+<button class="segb" type="button" role="tab" id="tabPay" aria-controls="viewPay" aria-selected="true">${PAY_ICON}${h(t.pay)}</button>
+<button class="segb" type="button" role="tab" id="tabTop" aria-controls="viewTop" aria-selected="false" tabindex="-1">${TOPUP_ICON}${h(t.topUp)}</button>
+</div>
+`;
+}
+
+/** Vista «Pagar»: el QR del personal (o activar el desbloqueo), sin móvil y Google Wallet. */
+function payView(lang: PayLanguage, state: ClientWalletState, gw: boolean): string {
+  const t = WALLET_TEXT[lang];
+  const h = escapeHtml;
+  return `<section class="view" id="viewPay" aria-labelledby="tabPay">
+<section class="card main" id="payCard" hidden aria-labelledby="payTitle">
+<h2 id="payTitle">${h(t.scanTitle)}</h2>
+<div class="stack" id="faceCard" hidden><p id="faceWhy">${h(t.payFaceWhy)}</p>
+<button class="btn" type="button" id="faceOn"></button>
+<p class="err" id="faceErr" role="alert" hidden></p></div>
+${scanArea(lang)}</section>
+<section class="card how" id="howCard" hidden><p class="how" id="howText"></p></section>
+<p class="how" id="payEmpty" hidden>${h(t.payEmpty)}</p>
+<section class="card" id="codeCard" aria-labelledby="codeTitle"><h2 class="sub" id="codeTitle">${h(t.codeTitle)}</h2><p class="code num" id="code">${h(state.code)}</p>
+<p class="small" id="codeHint"></p><p class="small" id="fichaHint" hidden>${h(t.codeFicha)}</p></section>
+${gw ? googleWalletSection(lang) : ''}</section>
+`;
+}
+
+/** Vista «Recargar»: el «Pagado» si vuelve del banco y cuánto recargar. */
+function topUpView(lang: PayLanguage, options: WalletPageOptions): string {
+  const proof = options.paid ?? null;
+  return `<section class="view" id="viewTop" aria-labelledby="tabTop" hidden>
+${proof ? paidProofSection(lang, proof, options.now ?? new Date()) : ''}${topUpCard(lang, options.topUp ?? null)}</section>
+`;
+}
+
+/** «Más»: lo que no es pagar ni recargar (las hojas y los movimientos). */
+function moreList(lang: PayLanguage): string {
+  const t = WALLET_TEXT[lang];
+  const h = escapeHtml;
+  return `<section class="more" id="more" aria-labelledby="moreTitle">
+<h2 class="kick" id="moreTitle">${h(t.more)}</h2>
+<div class="rows">
+<button class="row" type="button" id="pinOpen" hidden>${h(t.pinRow)}<small>${h(t.pinRowHint)}</small></button>
+<button class="row" type="button" id="mergeOpen" hidden>${h(t.mergeRow)}<small>${h(t.mergeRowHint)}</small></button>
+<button class="row" type="button" id="leaveOpen" hidden>${h(t.leaveRow)}<small>${h(t.leaveRowHint)}</small></button>
+<button class="row" type="button" id="movOpen" aria-expanded="false" aria-controls="movBox">${h(t.movements)}<small>${h(t.movementsHint)}</small></button>
+<div id="movBox" hidden><ul id="movements"></ul></div>
+</div>
+</section>
+`;
+}
+
+/**
+ * Las dos vistas: setView('pay'|'top') enseña una (y su pestaña marcada);
+ * segShow(on) enseña o quita las pestañas (sin ellas, solo «Pagar»). Flechas,
+ * Inicio y Fin cambian de pestaña (patrón de pestañas de WAI-ARIA).
+ */
+const VIEWS_JS = `
+var view=C.paid?'top':'pay';
+function setView(v,focus){var pay=v!=='top';view=pay?'pay':'top';
+ $('tabPay').setAttribute('aria-selected',String(pay));$('tabTop').setAttribute('aria-selected',String(!pay));
+ $('tabPay').tabIndex=pay?0:-1;$('tabTop').tabIndex=pay?-1:0;
+ $('viewPay').hidden=!pay;$('viewTop').hidden=pay;
+ if(!pay){if(SC.on)scanStop();topOpen();}
+ if(focus)$(pay?'tabPay':'tabTop').focus();}
+function segShow(on){var was=!$('seg').hidden;$('seg').hidden=!on;
+ ['viewPay','viewTop'].forEach(function(id){if(on)$(id).setAttribute('role','tabpanel');else $(id).removeAttribute('role');});
+ if(!on&&view==='top')setView('pay');else if(on&&!was)setView(view);}
+$('tabPay').addEventListener('click',function(){setView('pay');});
+$('tabTop').addEventListener('click',function(){setView('top');});
+$('seg').addEventListener('keydown',function(e){var k=e.key,to=k==='Home'?'pay':k==='End'?'top':k==='ArrowLeft'||k==='ArrowRight'?(view==='pay'?'top':'pay'):'';
+ if(!to)return;e.preventDefault();setView(to,true);});
+$('movOpen').addEventListener('click',function(){var b=$('movOpen'),open=b.getAttribute('aria-expanded')!=='true';
+ b.setAttribute('aria-expanded',String(open));$('movBox').hidden=!open;});`;
 
 export function renderWalletPage(
   token: string,
@@ -152,32 +250,19 @@ export function renderWalletPage(
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0b0b0b"><title>${h(t.title)}</title>
-<style>${CLUB_BASE_CSS}${WALLET_CSS}${TOPUP_CSS}</style></head><body><main class="w">
+<style>${CLUB_BASE_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}</style></head><body><main class="w">
 <div class="top"><p class="kick">${h(t.title)}</p><a class="link" id="lang" href="${h(`${base}?lang=${t.other.code}`)}" lang="${t.other.code}" hreflang="${t.other.code}">${h(t.other.label)}</a></div>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(t.balance)}</p>
 <p class="balance num" id="balance" aria-live="polite">${h(eur(state.balanceCents, t.locale))}</p>
 <p class="status" id="notice" role="status" hidden></p>
 </section>
-${proof ? paidProofSection(lang, proof, options.now ?? new Date()) : ''}${proof && gw ? googleWalletSection(lang) : ''}${topUpBox(lang)}<section class="card main" id="faceCard" hidden aria-labelledby="faceTitle">
-<h2 id="faceTitle"></h2><p id="faceWhy"></p>
-<button class="btn" type="button" id="faceOn"></button>
-<p class="err" id="faceErr" role="alert" hidden></p>
-</section>
-<section class="card how" id="howCard" hidden><p class="how" id="howText"></p></section>
-<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
+${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
 <h2 id="refundTitle"></h2>
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
 <p id="refundHow"></p>
 </section>
-<nav class="more" id="more" aria-label="${h(t.more)}" hidden>
-<button class="row" type="button" id="pinOpen" hidden>${h(t.pinRow)}<small>${h(t.pinRowHint)}</small></button>
-<button class="row" type="button" id="mergeOpen" hidden>${h(t.mergeRow)}<small>${h(t.mergeRowHint)}</small></button>
-<button class="row" type="button" id="leaveOpen" hidden>${h(t.leaveRow)}<small>${h(t.leaveRowHint)}</small></button>
-</nav>
-${gw && !proof ? googleWalletSection(lang) : ''}<section class="card" id="codeCard"><p class="kick">${h(t.codeTitle)}</p><p class="code num" id="code">${h(state.code)}</p><p class="small">${h(t.codeHint)}</p></section>
-<section class="card"><h2 class="kick">${h(t.movements)}</h2><ul id="movements"></ul></section>
-<p class="small">${h(t.saveHint)}</p>
+${viewTabs(lang)}${payView(lang, state, gw)}${topUpView(lang, options)}${moreList(lang)}<p class="small">${h(t.saveHint)}</p>
 </main>
 <dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTitle">
 <h2 id="leaveTitle"></h2><p id="leaveHow"></p>
@@ -200,7 +285,7 @@ ${gw && !proof ? googleWalletSection(lang) : ''}<section class="card" id="codeCa
 <button class="btn" type="button" id="mergeGo">${h(t.mergeButton)}</button>
 <button class="link" type="button" data-close>${h(t.cancel)}</button>
 </dialog>
-${topUpSheet(lang, topUp)}<p class="toast" id="toast" role="status" hidden></p>
+<p class="toast" id="toast" role="status" hidden></p>
 <script>
 ${PASSKEY_BROWSER_JS}
 ${CLIENT_ERROR_JS}
@@ -220,8 +305,8 @@ function closeSheet(d){if(d.close&&d.open)d.close();else d.removeAttribute('open
 Array.prototype.forEach.call(document.querySelectorAll('dialog.sheet'),function(d){
  d.addEventListener('click',function(e){if(e.target===d||e.target.hasAttribute('data-close'))closeSheet(d);});});
 function busyBtn(b,on,label){b.disabled=on;b.textContent=on?label:b.getAttribute('data-label');}
-['faceOn','leaveGo','pinGo','mergeGo'].forEach(function(id){$(id).setAttribute('data-label',$(id).textContent);});
-$('faceTitle').textContent=U.title;$('faceWhy').textContent=T.unlockWhy;$('faceOn').textContent=U.button;$('faceOn').setAttribute('data-label',U.button);
+['leaveGo','pinGo','mergeGo'].forEach(function(id){$(id).setAttribute('data-label',$(id).textContent);});
+$('faceOn').textContent=U.button;$('faceOn').setAttribute('data-label',U.button);
 $('pinWhy').textContent=fill(T.pinWhy,'code',S.code);
 function refundView(r){
  $('refundTitle').textContent=fill(T.refundTitle,'amount',eur(r.amountCents));
@@ -233,29 +318,34 @@ function refundView(r){
  else if(r.stage==='approved')how=fill(T.refundApproved,'cards',cards());
  else how=m.length===1&&m[0]==='CASH'?T.refundDoneCash:m.length>1?fill(T.refundDoneMixed,'cards',cards()):fill(T.refundDoneCard,'cards',cards());
  $('refundHow').textContent=how;}
+// «Pagar»: con el desbloqueo activado, escanear; sin él, activarlo; sin poder usarlo aquí, el PIN.
+function payRender(s,active,r){var canKey=pkSupported(),payable=active&&!r;
+ var setup=payable&&!s.hasFaceId&&canKey,scan=payable&&s.hasFaceId&&canKey;
+ $('payCard').hidden=!(setup||scan);$('payTitle').textContent=setup?U.title:T.scanTitle;
+ $('faceCard').hidden=!setup;$('scanArea').hidden=!scan;if(!scan&&SC.on)scanStop();
+ $('faceDone').textContent=scan?'✓ '+U.done+' '+T.payFaceDone:'';
+ show('howText',payable&&!canKey?(s.hasFaceId?T.faceIdNeeded:T.unlockUnsupported):'');$('howCard').hidden=$('howText').hidden;
+ $('codeCard').hidden=!active;$('codeHint').textContent=s.hasPin?T.codeWithPin:T.codeNoPin;$('fichaHint').hidden=!s.hasCard;
+ if(gw)gw.hidden=!(P==='android'&&active&&!r&&!s.merged);}
 function render(s){S=s;S.cards=s.cards||[];
  $('balance').textContent=eur(s.balanceCents);$('code').textContent=s.code;
  var active=s.status==='ACTIVE',r=s.refund;
  var notice=active?'':s.status==='DEPLETED'?(s.merged?T.merged:T.depleted):r?'':T.closed;
  show('notice',notice);
- $('codeCard').hidden=!active;
  $('refundCard').hidden=!r;if(r)refundView(r);
- var canKey=pkSupported();
- $('faceCard').hidden=!(active&&!r&&!s.hasFaceId&&canKey);
- var how=s.hasFaceId?'✓ '+U.done+' '+T.unlockAfter:(active&&!r&&!canKey?T.unlockUnsupported:'');
- show('howText',how);$('howCard').hidden=!how||!!r;
+ payRender(s,active,r);
  $('pinOpen').hidden=!(active&&!r&&!s.hasPin);
  $('mergeOpen').hidden=!(active&&!r&&!s.hasFaceId&&!s.merged&&s.balanceCents>0);
  $('leaveOpen').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
- $('more').hidden=$('pinOpen').hidden&&$('mergeOpen').hidden&&$('leaveOpen').hidden;
- if(gw)gw.hidden=!(P==='android'&&active&&!r&&!s.merged);
  var ul=$('movements');ul.textContent='';
  if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}
  s.movements.forEach(function(m){var li=document.createElement('li'),a=document.createElement('span'),b=document.createElement('span');li.className='mv';
   a.textContent=[m.label,m.venueName,when(m.at)].filter(Boolean).join(' · ');
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.amountCents>0?'plus':'minus')+' num';
   li.appendChild(a);li.appendChild(b);ul.appendChild(li);});
- topRender(s);}
+ var can=topRender(s);
+ $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
+ segShow(can||C.paid);}
 function post(path,body){return pkPost(C.base+path,body||{});}
 function refresh(){if(busy)return;fetch(C.base+'/state',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(s){if(s&&!busy)render(s);}).catch(function(){});}
 function msg(e){return npErr(e,C.errors);}
@@ -291,7 +381,10 @@ $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)retu
   .then(function(r){closeSheet($('mergeSheet'));toast(fill(T.mergeDone,'amount',eur(r.balanceCents)));busy=false;refresh();})
   .catch(function(e){if(!pkCancelled(e))show('mergeErr',msg(e));})
   .then(function(){busy=false;busyBtn(b,false);});});${gw ? GOOGLE_WALLET_JS : ''}
+${SCAN_JS}
 ${TOPUP_JS}
+${VIEWS_JS}
+if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';
 render(S);
 if(C.paid){try{history.replaceState(null,'',C.base+'?lang='+C.lang);}catch(e){}}
 if(location.hash==='#sumar'&&!$('mergeOpen').hidden)openSheet($('mergeSheet'));

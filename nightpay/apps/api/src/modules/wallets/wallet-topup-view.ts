@@ -6,15 +6,16 @@ import { WALLET_TEXT } from './wallet-text';
 import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
 
 /**
- * «Recargar» en la página del saldo (/w/:token): el botón (debajo del saldo,
- * principal si no hay otra acción principal), la hoja para elegir cuánto y el
- * «Pagado» al volver del banco. Lo usa wallet-page.ts.
+ * La vista «Recargar» de la página del saldo (/w/:token): cuánto (las
+ * sugeridas, «Otra» y los límites) y a pagar con Apple Pay / Google Pay o
+ * tarjeta; el aviso si ahora no se puede, y el «Pagado» al volver del banco.
+ * Lo usa wallet-page.ts.
  *
  * El JS va dentro de plantillas de TypeScript: sin barras invertidas.
  */
 
 export const TOPUP_CSS = `
-.topup{display:flex;flex-direction:column;gap:.5rem;text-align:center}
+.topup{text-align:center}
 .tform{display:flex;flex-direction:column;gap:.8rem}
 .tform fieldset{border:0;margin:0;padding:0;min-width:0}
 .amts{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
@@ -57,18 +58,14 @@ function short(cents: number, locale: string): string {
   });
 }
 
-/** Botón «Recargar» (lo enseña el JS si se puede) y el aviso si ahora no se puede. */
-export function topUpBox(lang: PayLanguage): string {
-  const t = WALLET_TEXT[lang];
-  return `<div class="topup" id="topupBox" hidden>
-<button class="btn" type="button" id="topupOpen" hidden>${escapeHtml(t.topUp)}</button>
-<p class="small" id="topupOff" role="status" hidden></p>
-</div>
+/** Aviso debajo del saldo si el saldo o el local no dejan recargar ahora (lo rellena el JS). */
+export function topUpOffNote(): string {
+  return `<p class="small" id="topupOff" role="status" hidden></p>
 `;
 }
 
-/** Hoja para elegir cuánto: las sugeridas, «Otra» y los límites. Por defecto, la del medio. */
-export function topUpSheet(lang: PayLanguage, options: TopUpOptions | null): string {
+/** Elegir cuánto: las sugeridas, «Otra» y los límites. Por defecto, la del medio. */
+export function topUpCard(lang: PayLanguage, options: TopUpOptions | null): string {
   const t = WALLET_TEXT[lang];
   const h = escapeHtml;
   const presets = options?.presetsCents ?? [];
@@ -82,7 +79,7 @@ export function topUpSheet(lang: PayLanguage, options: TopUpOptions | null): str
   const limits = options
     ? t.topUpLimits.replace('{min}', short(options.minCents, t.locale)).replace('{max}', short(options.maxCents, t.locale))
     : '';
-  return `<dialog class="sheet" id="topupSheet" aria-labelledby="topupTitle">
+  return `<section class="card topup" id="topupBox" hidden aria-labelledby="topupTitle">
 <h2 id="topupTitle">${h(t.topUpTitle)}</h2><p>${h(t.topUpWhy)}</p>
 <form id="topupForm" class="tform" autocomplete="off">
 <fieldset><legend class="sr">${h(t.topUpAmount)}</legend><div class="amts">${radios}<label><input type="radio" name="amt" value="other" id="amtOther"><span>${h(t.topUpOther)}</span></label></div></fieldset>
@@ -94,14 +91,13 @@ export function topUpSheet(lang: PayLanguage, options: TopUpOptions | null): str
 <button class="btn" type="submit" id="topupGo">${h(t.topUp)}</button>
 <p class="small">${h(t.topUpMethods)}</p>
 </form>
-<button class="link" type="button" data-close>${h(t.cancel)}</button>
-</dialog>
+</section>
 `;
 }
 
 /**
- * «Pagado» de la recarga al volver del banco, debajo del saldo (que ya la
- * lleva). Como el «Pagado» de /pay: la hora que corre, «hace 0:12» y, pasados
+ * «Pagado» de la recarga al volver del banco, arriba de «Recargar» (el saldo
+ * ya la lleva). Como el «Pagado» de /pay: la hora que corre, «hace 0:12» y, pasados
  * unos minutos, «Ya pagado» en gris (npPaid): una captura vieja no cuela.
  */
 export function paidProofSection(lang: PayLanguage, proof: TopUpProof, now: Date): string {
@@ -138,10 +134,11 @@ npPaid(document.getElementById('proof'),JSON.parse(${jsConfig(paidScreenJsText(P
 
 /**
  * JS de «Recargar» (dentro del JS de la página: usa $, show, fill, post,
- * busy, busyBtn, openSheet, closeSheet, msg, refresh, S, C, T).
- *  - topRender(s): enseña el botón si se puede (saldo activo o a cero, sin
- *    devolución pedida y el local lo permite); principal si no hay Face ID que
- *    activar ni «Pagado» a la vista, si no secundario.
+ * busy, busyBtn, msg, refresh, S, C, T).
+ *  - topCan(s): se puede recargar (saldo activo o a cero, sin devolución
+ *    pedida y el local lo permite). Si no, la página no enseña «Recargar».
+ *  - topRender(s): la tarjeta si se puede; si no, el aviso de por qué.
+ *  - topOpen(): al entrar en «Recargar», una clave nueva y sin errores viejos.
  *  - Con Face ID: reto + desbloqueo antes de crear la recarga (como sumar).
  *  - Una clave por intento (un doble toque es la misma recarga); nueva tras
  *    un error o al volver atrás desde el pago.
@@ -156,11 +153,13 @@ function topCents(){var r=$('topupForm').querySelector('input[name=amt]:checked'
 function topOk(c){return c>=TU.minCents&&c<=TU.maxCents&&c%100===0;}
 function topUpd(){var c=topCents(),b=$('topupGo'),label=topOk(c)?fill(T.topUpGo,'amount',eurShort(c)):T.topUp;
  $('otherBox').hidden=!$('amtOther').checked;b.setAttribute('data-label',label);if(!busy)b.textContent=label;}
-function topRender(s){var usable=(s.status==='ACTIVE'||(s.status==='DEPLETED'&&!s.merged))&&!s.refund&&!s.closeRequested,can=usable&&TU.allowed;
- $('topupOpen').hidden=!can;$('topupOpen').className=$('faceCard').hidden&&!C.paid?'btn':'btn alt';
+function topUsable(s){return (s.status==='ACTIVE'||(s.status==='DEPLETED'&&!s.merged))&&!s.refund&&!s.closeRequested;}
+function topCan(s){return topUsable(s)&&TU.allowed;}
+function topRender(s){var usable=topUsable(s),can=usable&&TU.allowed;
+ $('topupBox').hidden=!can;
  show('topupOff',usable&&!TU.allowed&&TU.block?(TU.block==='blocked'?T.topUpBlocked:T.topUpOff):'');
- $('topupBox').hidden=!can&&$('topupOff').hidden;}
-$('topupOpen').addEventListener('click',function(){newKey();show('topupErr','');show('topupKey',S.hasFaceId?T.topUpFaceId:'');topUpd();openSheet($('topupSheet'));});
+ return can;}
+function topOpen(){if(busy)return;newKey();show('topupErr','');show('topupKey',S.hasFaceId?T.topUpFaceId:'');topUpd();}
 $('topupForm').addEventListener('change',function(e){topUpd();if(e.target===$('amtOther')&&e.target.checked)$('otherIn').focus();});
 $('otherIn').addEventListener('input',topUpd);
 $('topupForm').addEventListener('submit',function(ev){ev.preventDefault();if(busy)return;show('topupErr','');
@@ -171,5 +170,5 @@ $('topupForm').addEventListener('submit',function(ev){ev.preventDefault();if(bus
  (S.hasFaceId?pkGet(C.base+'/topup/challenge').then(function(k){body.response=k;busyBtn(b,true,T.topUpOpening);return post('/topup',body);}):post('/topup',body))
   .then(function(r){var u=r&&r.payUrl;if(typeof u==='string'&&u.indexOf('/pay/')===0){location.href=u;return;}throw new Error(T.error);})
   .catch(function(e){newKey();busy=false;busyBtn(b,false);if(!pkCancelled(e))show('topupErr',msg(e));});});
-window.addEventListener('pageshow',function(e){if(e.persisted){busy=false;newKey();busyBtn($('topupGo'),false);closeSheet($('topupSheet'));refresh();}});
-topUpd();`;
+window.addEventListener('pageshow',function(e){if(e.persisted){busy=false;newKey();busyBtn($('topupGo'),false);refresh();}});
+newKey();topUpd();`;
