@@ -17,6 +17,7 @@ import { FichaTapped } from './FichaTapped';
 import { HomeTab } from './HomeTab';
 import { TAB_BAR_HEIGHT } from './layout';
 import { MyPayments } from './MyPayments';
+import { PassScanned } from './PassScanned';
 import { PendingPos } from './PendingPos';
 import { ReceptionTab } from './reception/ReceptionTab';
 import { useSessionExpired } from './session-context';
@@ -73,7 +74,7 @@ export function Dashboard({ user, onLogout }: Props) {
     onLogout();
   }
 
-  const showing = (key: TabKey) => links.ficha === null && tab === key;
+  const showing = (key: TabKey) => links.ficha === null && links.pass === null && tab === key;
 
   return (
     <VenueMethodsContext.Provider value={methods}>
@@ -99,6 +100,15 @@ export function Dashboard({ user, onLogout }: Props) {
           userId={user.id}
           onClose={() => {
             links.clearFicha();
+            refreshMoney();
+          }}
+        />
+      ) : links.pass ? (
+        <PassScanned
+          token={links.pass}
+          userId={user.id}
+          onClose={() => {
+            links.clearPass();
             refreshMoney();
           }}
         />

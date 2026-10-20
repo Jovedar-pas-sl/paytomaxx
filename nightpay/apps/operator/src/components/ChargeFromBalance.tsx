@@ -355,7 +355,7 @@ function QrStep({
         Que el cliente lo escanee con su móvil y lo desbloquee (Face ID, huella o su PIN).
       </p>
       <Button variant="ghost" onClick={() => setWithPin(true)} disabled={canceling}>
-        Sin móvil: ficha o código + PIN
+        Sin móvil: ficha, pase o código + PIN
       </Button>
       {error ? <p style={errorStyle}>{error}</p> : null}
       <Button variant="ghost" onClick={() => void cancel(false)} loading={canceling}>
@@ -434,7 +434,7 @@ function PinCodeStep({
 
   return (
     <Card style={cardStyle}>
-      <p style={{ ...kicker, textAlign: 'center' }}>Sin móvil: ficha o código + PIN</p>
+      <p style={{ ...kicker, textAlign: 'center' }}>Sin móvil: ficha, pase o código + PIN</p>
       <p className="np-num" style={{ ...balanceStyle, textAlign: 'center' }}>
         {what}
       </p>
@@ -453,6 +453,9 @@ function PinCodeStep({
           ¿Tiene ficha? En iPhone: acércala a la parte de arriba del móvil y toca el aviso que sale.
         </p>
       )}
+      <p style={noteStyle}>
+        ¿Lleva el saldo en Google Wallet? Escanea el QR de su pase con la cámara del móvil y teclea él su PIN.
+      </p>
       <form onSubmit={find} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         <Input
           label="Código del cliente"

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { isWalletCardToken, WALLET_CARD_PARAM } from '@nightpay/contracts';
+import { isPassChargeToken, isWalletCardToken, WALLET_CARD_PARAM, WALLET_PASS_PARAM } from '@nightpay/contracts';
 import {
   fetchBalance,
   fetchMyNight,
@@ -83,12 +83,16 @@ export interface DeepLinks {
   /** ?ficha=<código>: ficha NFC acercada a un iPhone. */
   ficha: string | null;
   clearFicha: () => void;
+  /** ?pase=<token>: el QR del pase de Google Wallet del cliente, leído con la cámara del móvil. */
+  pass: string | null;
+  clearPass: () => void;
 }
 
 /** Lee los enlaces con los que se abrió la app y los quita de la URL (un refresh no los repite). */
 export function useDeepLinks(acceptsPos: boolean): DeepLinks {
   const [focusedPosId, setFocusedPosId] = useState<string | null>(null);
   const [ficha, setFicha] = useState<string | null>(null);
+  const [pass, setPass] = useState<string | null>(null);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -96,12 +100,16 @@ export function useDeepLinks(acceptsPos: boolean): DeepLinks {
     if (posId && acceptsPos) setFocusedPosId(posId);
     const card = url.searchParams.get(WALLET_CARD_PARAM) ?? '';
     if (isWalletCardToken(card)) setFicha(card);
+    const passToken = url.searchParams.get(WALLET_PASS_PARAM) ?? '';
+    if (isPassChargeToken(passToken)) setPass(passToken);
     url.searchParams.delete('pos');
     url.searchParams.delete(WALLET_CARD_PARAM);
+    url.searchParams.delete(WALLET_PASS_PARAM);
     if (url.toString() !== window.location.href) window.history.replaceState({}, '', url.toString());
   }, [acceptsPos]);
 
   const clearFocus = useCallback(() => setFocusedPosId(null), []);
   const clearFicha = useCallback(() => setFicha(null), []);
-  return { focusedPosId, clearFocus, ficha, clearFicha };
+  const clearPass = useCallback(() => setPass(null), []);
+  return { focusedPosId, clearFocus, ficha, clearFicha, pass, clearPass };
 }

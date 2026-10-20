@@ -6,12 +6,13 @@ import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
 import { ReloginSheet } from '@/components/ReloginSheet';
 import { SessionExpiredContext } from '@/components/session-context';
-import { WALLET_CARD_PARAM } from '@nightpay/contracts';
+import { WALLET_CARD_PARAM, WALLET_PASS_PARAM } from '@nightpay/contracts';
 import { getUser, hasSession, logout, onSessionEnded, type OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { useOpenCharges } from '@/lib/open-charges';
 import { afterRelogin, shellView } from '@/lib/session-resume';
 import { clearTabFromUrl } from '@/lib/use-url-tab';
+import { PASS_OPENED_LOGGED_OUT_TEXT } from '@/lib/wallet-pass';
 
 const EXPIRED_NOTICE = 'Tu sesión ha caducado. Vuelve a entrar.';
 const LOGGED_OUT_ELSEWHERE_NOTICE = 'Has salido desde otra pestaña.';
@@ -22,8 +23,9 @@ export default function Page() {
   const [expired, setExpired] = useState(false);
   // Sube cuando entra otra persona (u otro local): la app empieza de cero.
   const [generation, setGeneration] = useState(0);
-  // Abierta desde una ficha NFC (?ficha=…) por alguien sin sesión: el cliente.
+  // Abierta desde una ficha NFC (?ficha=…) o el QR de un pase (?pase=…) por alguien sin sesión: el cliente.
   const [fromCard, setFromCard] = useState(false);
+  const [fromPass, setFromPass] = useState(false);
   // La sesión se acabó sola (caducada, o cerrada en otra pestaña): se dice en el login.
   const [notice, setNotice] = useState<string | null>(null);
   const loggedIn = useRef(false);
@@ -36,7 +38,9 @@ export default function Page() {
   useEffect(() => {
     if (hasSession()) setUser(getUser());
     else setUser(null);
-    setFromCard(new URLSearchParams(window.location.search).has(WALLET_CARD_PARAM));
+    const opened = new URLSearchParams(window.location.search);
+    setFromCard(opened.has(WALLET_CARD_PARAM));
+    setFromPass(opened.has(WALLET_PASS_PARAM));
     return onSessionEnded((reason) => {
       if (!loggedIn.current) return;
       if (reason === 'logout') {
@@ -100,7 +104,7 @@ export default function Page() {
   }
 
   if (view === 'login' || !user) {
-    return <LoginScreen fromCard={fromCard} notice={notice} onSuccess={enter} />;
+    return <LoginScreen fromCard={fromCard} fromPass={fromPass} notice={notice} onSuccess={enter} />;
   }
 
   return (
@@ -115,10 +119,12 @@ export default function Page() {
 
 function LoginScreen({
   fromCard,
+  fromPass,
   notice,
   onSuccess,
 }: {
   fromCard: boolean;
+  fromPass: boolean;
   notice: string | null;
   onSuccess: (user: OperatorUser) => void;
 }) {
@@ -144,6 +150,10 @@ function LoginScreen({
       {fromCard ? (
         <p style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-text-mute)' }}>
           Esta es una ficha de saldo. Para pagar, acércala al móvil de quien te cobra.
+        </p>
+      ) : fromPass ? (
+        <p style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-text-mute)' }}>
+          {PASS_OPENED_LOGGED_OUT_TEXT}
         </p>
       ) : null}
       {notice ? (

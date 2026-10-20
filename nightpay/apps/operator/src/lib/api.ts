@@ -556,8 +556,33 @@ export interface WalletLookup {
   hasCard: boolean;
 }
 
-/** Cómo se dice cuál es el saldo sin el móvil del cliente: su código o su ficha. */
-export type WalletRef = { code: string } | { card: string; uid?: string | null };
+/**
+ * Cómo se dice cuál es el saldo sin el móvil del cliente: su código, su ficha
+ * o el QR de su pase de Google Wallet (solo el de cobrar, /c/<token>).
+ */
+export type WalletRef = { code: string } | { card: string; uid?: string | null } | { walletToken: string };
+
+/** El pase escaneado para un cobro, antes del PIN: ni su saldo ni su código entero. */
+export interface WalletPassCheck {
+  /** "K7Q-•••". */
+  codeHint: string;
+  hasPin: boolean;
+  pinLocked: boolean;
+  /** El PIN lo puso quien cobra o quien hizo el cobro: que lo cobre otra persona. */
+  ownPin: boolean;
+  /** Le llega para este cobro. */
+  enough: boolean;
+}
+
+/** El QR del pase de Google Wallet del cliente → de quién es, para este cobro. */
+export async function checkWalletPass(chargeId: string, walletToken: string): Promise<WalletPassCheck> {
+  const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(chargeId)}/pass`, {
+    method: 'POST',
+    body: JSON.stringify({ walletToken }),
+  });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Pase del saldo'));
+  return res.json();
+}
 
 /** La ficha NFC que acercan → su saldo. */
 export async function lookupWalletCard(card: string, uid: string | null): Promise<WalletLookup> {
