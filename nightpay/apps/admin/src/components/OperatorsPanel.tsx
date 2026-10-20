@@ -27,6 +27,8 @@ interface CreateResult {
 export function OperatorsPanel({ isOwner }: Props) {
   /** null = aún no ha llegado la primera lista. */
   const [operators, setOperators] = useState<Operator[] | null>(null);
+  /** Camareros con parte de las invitaciones (se les paga igual que a las chicas). */
+  const [camareros, setCamareros] = useState<Operator[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createResult, setCreateResult] = useState<CreateResult | null>(null);
@@ -40,9 +42,10 @@ export function OperatorsPanel({ isOwner }: Props) {
   const reload = usePolling(
     async (signal) => {
       try {
-        const fresh = await fetchOperators();
+        const [fresh, waiters] = await Promise.all([fetchOperators(), fetchOperators('WAITER').catch(() => null)]);
         if (signal.aborted) return true;
         setOperators((prev) => keepIfSame(prev, fresh));
+        if (waiters) setCamareros((prev) => keepIfSame(prev, waiters.filter(hasEarnings)));
         setError(null);
         return true;
       } catch (err) {
@@ -54,7 +57,7 @@ export function OperatorsPanel({ isOwner }: Props) {
     [],
   );
 
-  const selected = list.find((o) => o.id === selectedId) ?? null;
+  const selected = [...list, ...camareros].find((o) => o.id === selectedId) ?? null;
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -187,6 +190,8 @@ export function OperatorsPanel({ isOwner }: Props) {
         </div>
       </Card>
 
+      {camareros.length > 0 ? <CamarerosCard camareros={camareros} onOpen={setSelectedId} /> : null}
+
       <CreateOperatorModal
         open={createOpen}
         isOwner={isOwner}
@@ -210,6 +215,73 @@ export function OperatorsPanel({ isOwner }: Props) {
           onChanged={reload}
         />
       ) : null}
+    </section>
+  );
+}
+
+/** Un camarero con algo de las invitaciones (ganado alguna vez, o pendiente). */
+function hasEarnings(o: Operator): boolean {
+  return o.balance.count > 0 || o.balance.pendingCents !== 0;
+}
+
+/**
+ * Los camareros con su parte de las invitaciones («Invitar a una copa», si el
+ * dueño se la da en Ajustes): lo que se les debe y lo pagado. Su ficha es la
+ * de las chicas, con el mismo botón para pagarles.
+ */
+function CamarerosCard({ camareros, onOpen }: { camareros: Operator[]; onOpen: (id: string) => void }) {
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }} aria-labelledby="np-camareros">
+      <h3 id="np-camareros" style={{ ...sectionTitle, fontSize: '1.0625rem' }}>
+        Camareros · su parte de las invitaciones
+      </h3>
+      <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="np-table">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th style={numCol}>A pagar</th>
+                <th style={numCol}>Pagado total</th>
+                <th aria-label="Acciones" />
+              </tr>
+            </thead>
+            <tbody>
+              {camareros.map((c) => (
+                <tr key={c.id} className="np-row-link" onClick={() => onOpen(c.id)} style={{ cursor: 'pointer' }}>
+                  <td data-label="Nombre" data-card="title">
+                    {c.displayName ?? c.email}
+                  </td>
+                  <td
+                    data-label="A pagar"
+                    data-card="amount"
+                    className="np-num"
+                    style={{ ...numCell, color: c.balance.pendingCents < 0 ? 'var(--np-danger)' : 'var(--np-text)' }}
+                  >
+                    {formatEur(c.balance.pendingCents)}
+                  </td>
+                  <td data-label="Pagado total" className="np-num" style={numCell}>
+                    {formatEur(c.balance.paidCents)}
+                  </td>
+                  <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
+                    <Button
+                      variant="ghost"
+                      size="md"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpen(c.id);
+                      }}
+                      style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}
+                    >
+                      Ver
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </section>
   );
 }

@@ -24,11 +24,12 @@ export function FichasProvider({ isOwner, children }: { isOwner: boolean; childr
       },
       openOperator: (id) => {
         setError(null);
-        fetchOperators()
-          .then((list) => {
-            const found = list.find((o) => o.id === id);
+        // Las chicas y los camareros (los dos tienen ficha: su parte se les paga igual).
+        Promise.all([fetchOperators(), fetchOperators('WAITER').catch(() => [] as Operator[])])
+          .then(([chicas, camareros]) => {
+            const found = [...chicas, ...camareros].find((o) => o.id === id);
             if (!found) {
-              setError('Esa chica ya no está en el local.');
+              setError('Esa persona ya no está en el local.');
               return;
             }
             setWalletId(null);
