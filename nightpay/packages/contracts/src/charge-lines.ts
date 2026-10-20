@@ -47,6 +47,8 @@ export interface ChargeLineView {
   unitCents: number;
   amountCents: number;
   serviceItemId: string | null;
+  /** «Invitar a una copa»: la chica invitada (null: no es una invitación). */
+  beneficiaryOperatorId?: string | null;
 }
 
 /** Lo cobrado de cada sección en un cobro. */
@@ -130,6 +132,8 @@ export const CobrosQuerySchema = z.object({
   /** Código del saldo (K7Q-4M2, con o sin guion): sus cobros del saldo. */
   walletCode: z.string().trim().min(3).max(12).optional(),
   walletId: UuidSchema.optional(),
+  /** Las invitaciones a esta chica (cobradas por otra persona). */
+  invitedOperatorId: UuidSchema.optional(),
   /** Noche del local (Noches): sus cobros. */
   nightId: UuidSchema.optional(),
   status: z
@@ -168,6 +172,8 @@ export interface CobroRow {
   wallet: { id: string; codeHint: string } | null;
   /** Lo que se vendió («2× Copa · Habitación»). */
   service: string | null;
+  /** «Invitar a una copa»: la chica invitada. */
+  invited: CobroPerson | null;
   lines: ChargeLineView[];
   /** Solo los cobros con tarjeta: lo que hace falta para devolver o resolver. */
   payment: CobroPaymentDetail | null;

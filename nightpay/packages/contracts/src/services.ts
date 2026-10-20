@@ -24,6 +24,8 @@ export const ServiceItemSchema = z.object({
   sortOrder: z.number().int(),
   /** Pack: sus partes, que suman el precio. Null = de una sola sección. */
   components: z.array(PackComponentSchema).nullable(),
+  /** «Invitar a una copa»: en Copas; la venta se reparte con la chica invitada. */
+  isInvitation: z.boolean(),
 });
 export type ServiceItem = z.infer<typeof ServiceItemSchema>;
 
@@ -36,12 +38,28 @@ const ServiceItemFieldsSchema = z.object({
   sortOrder: z.number().int().min(0).max(1000).optional(),
   /** Pack: partes que suman el precio (null = quitar el pack). */
   components: PackComponentsSchema.nullable().optional(),
+  /** «Invitar a una copa» (solo en Copas y sin pack). */
+  isInvitation: z.boolean().optional(),
 });
 
 export const CreateServiceItemSchema = ServiceItemFieldsSchema.superRefine((d, ctx) => {
   const problem = packProblem(d.priceCents, d.category, d.components);
   if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem, path: ['components'] });
+  const invitation = invitationItemProblem(d.isInvitation, d.category, d.components);
+  if (invitation) ctx.addIssue({ code: z.ZodIssueCode.custom, message: invitation, path: ['isInvitation'] });
 });
+
+/** Una invitación va en Copas y no es un pack (null = vale). */
+export function invitationItemProblem(
+  isInvitation: boolean | undefined,
+  category: string,
+  components: readonly unknown[] | null | undefined,
+): string | null {
+  if (!isInvitation) return null;
+  if (category !== 'VENUE_BAR') return 'Una invitación va en la sección Copas.';
+  if (components && components.length > 0) return 'Una invitación no puede ser un pack.';
+  return null;
+}
 export type CreateServiceItemDto = z.infer<typeof CreateServiceItemSchema>;
 
 /** Sin precio o sin sección, el servidor comprueba el pack con lo guardado. */

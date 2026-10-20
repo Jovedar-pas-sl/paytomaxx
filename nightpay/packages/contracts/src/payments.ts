@@ -168,6 +168,11 @@ export const CreatePaymentSchema = z.object({
    * una recarga de saldo (no es una venta).
    */
   lines: ChargeLinesSchema.optional(),
+  /**
+   * «Invitar a una copa»: el QR personal de la chica invitada (la URL entera
+   * o su token). Hace falta si se cobra una invitación de la carta.
+   */
+  invitedStaffToken: z.string().trim().min(20).max(600).optional(),
 }).refine(
   (d) => d.terminalExternalId !== undefined || d.zone !== undefined,
   { message: 'Debes pasar terminalExternalId o zone' },

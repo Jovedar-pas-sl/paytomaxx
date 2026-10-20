@@ -18,3 +18,4 @@ export * from './reception';
 export * from './sections';
 export * from './charge-lines';
 export * from './post-rules';
+export * from './invitations';
