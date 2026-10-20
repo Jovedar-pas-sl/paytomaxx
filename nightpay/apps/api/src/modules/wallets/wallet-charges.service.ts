@@ -27,6 +27,14 @@ import { lineCommission, type DraftLine } from '../payments/charge-lines';
 import { resolveChargeOrThrow } from '../payments/charge-request';
 import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from '../payments/charge-store';
 import { invitationEarnings } from '../payments/invitation-lines';
+import {
+  alreadyPaid,
+  cancelCardForSaldo,
+  isCardPaid,
+  lockLinkedCard,
+  moveLinesToSaldo,
+  saldoMayPay,
+} from '../payments/cobro-link';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 import { reopenData } from './wallet-activation';
 import { mergedWalletIds } from './wallet-merge-chain';
@@ -192,6 +200,10 @@ export interface ChargeRequestView {
   serviceName: string | null;
   expiresAt: string;
   newBalanceCents: number | null;
+  /** Pagado: cómo lo autorizó el cliente (NFC sin PIN, PIN, Face ID o el encargado). Null si no o de antes. */
+  paidWith?: ChargeAuthMethod | null;
+  /** Cobro único: no lo pagó el saldo porque ya lo pagó la tarjeta (el PAGADO es el del cobro con tarjeta). */
+  paidElsewhere?: boolean;
 }
 
 /** Cobro con QR para la chica: lo mismo que un cobro y el token del QR. */
@@ -209,6 +221,8 @@ export interface QrChargeClientView {
   expiresAt: string;
   /** Cuándo se pagó (solo si ya está pagado): el «Ya pagado · hace 23 min». */
   paidAt: string | null;
+  /** Cobro único: ya lo pagó con tarjeta (del saldo no se cobró nada). */
+  paidElsewhere?: boolean;
 }
 
 /** Para el encargado: cobros con QR sin pagar. */
@@ -407,12 +421,40 @@ export class WalletChargesService {
   async getRequest(actor: Actor, requestId: string): Promise<ChargeRequestView> {
     const request = await this.ownRequest(actor, requestId);
     const walletId = request.walletId;
-    const wallet = walletId
-      ? await this.prisma.acrossVenues((tx) =>
-          tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
-        )
-      : null;
-    return this.requestView(request, request.status === 'ACCEPTED' ? (wallet?.balanceCents ?? null) : null);
+    const accepted = request.status === 'ACCEPTED';
+    const [wallet, consumption, elsewhere] = await Promise.all([
+      walletId
+        ? this.prisma.acrossVenues((tx) =>
+            tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
+          )
+        : null,
+      accepted && request.consumptionId ? this.consumptionAuth(request.consumptionId) : null,
+      accepted ? false : this.paidByCard(request),
+    ]);
+    return {
+      ...this.requestView(request, accepted ? (wallet?.balanceCents ?? null) : null),
+      paidWith: consumption,
+      ...(elsewhere ? { paidElsewhere: true } : {}),
+    };
+  }
+
+  /** Cómo se autorizó el consumo de un cobro pagado (null en los de antes). */
+  private async consumptionAuth(consumptionId: string): Promise<ChargeAuthMethod | null> {
+    const c = await this.prisma.asSystem((tx) =>
+      tx.walletConsumption.findFirst({ where: { id: consumptionId }, select: { authMethod: true } }),
+    );
+    const m = c?.authMethod ?? null;
+    return m === 'nfc_nopin' || m === 'pin' || m === 'passkey' || m === 'staff' ? m : null;
+  }
+
+  /** Cobro único: ¿lo pagó ya la tarjeta? */
+  private async paidByCard(request: { linkedPaymentId?: string | null }): Promise<boolean> {
+    const paymentId = request.linkedPaymentId;
+    if (!paymentId) return false;
+    const card = await this.prisma.asSystem((tx) =>
+      tx.payment.findUnique({ where: { id: paymentId }, select: { status: true } }),
+    );
+    return isCardPaid(card?.status);
   }
 
   /** Retirar el cobro: la chica que lo hizo o el encargado. */
@@ -570,6 +612,16 @@ export class WalletChargesService {
   private async settleRequest(walletId: string, requestId: string, auth: ChargeAuthMethod): Promise<NoPinSettled | null> {
     const wallet = { id: walletId };
     return this.prisma.acrossVenues(async (tx) => {
+      // Cobro único: primero la fila del cobro con tarjeta (el mismo orden que
+      // transition()): gana el primero que se paga. Pagado con tarjeta →
+      // «Ya está pagado»; cancelado o caducado → ya no está pendiente.
+      const link = await tx.walletChargeRequest.findUnique({ where: { id: requestId }, select: { linkedPaymentId: true } });
+      const card = link?.linkedPaymentId ? await lockLinkedCard(tx, link.linkedPaymentId) : null;
+      if (card) {
+        const may = saldoMayPay(card);
+        if (may === 'paid') throw alreadyPaid();
+        if (may === 'closed') throw requestError('not-pending');
+      }
       // blockedAt: saldo bloqueado por el super-admin → no paga (decideAccept).
       const locked = await tx.$queryRaw<
         Array<{
@@ -595,6 +647,8 @@ export class WalletChargesService {
       if (!request) throw new NotFoundException('Cobro no encontrado');
       const decision = decideAccept(request, w, new Date());
       if (!decision.ok) throw requestError(decision.reason);
+      // Cobro único: un solo juego de líneas, del que se paga.
+      if (card) await moveLinesToSaldo(tx, card.id, request.id);
 
       const [provider, venue, lines] = await Promise.all([
         tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true, commissionBps: true } }),
@@ -670,6 +724,8 @@ export class WalletChargesService {
         data: { status: 'ACCEPTED', decidedAt: new Date(), consumptionId: consumption.id },
       });
       if (accepted.count === 0) throw requestError('not-pending');
+      // Cobro único: el cobro con tarjeta ya no se puede autorizar.
+      if (card) await cancelCardForSaldo(tx, card, request.id, randomBytes(8).toString('hex'));
       return noPin;
     });
   }
@@ -741,6 +797,7 @@ export class WalletChargesService {
       ),
     ]);
     const status = effectiveRequestStatus(request, new Date());
+    const elsewhere = status !== 'ACCEPTED' && (await this.paidByCard(request));
     return {
       status,
       amountCents: request.amountCents,
@@ -749,6 +806,7 @@ export class WalletChargesService {
       requestedByName: requester?.displayName ?? null,
       expiresAt: request.expiresAt.toISOString(),
       paidAt: status === 'ACCEPTED' && request.decidedAt ? request.decidedAt.toISOString() : null,
+      ...(elsewhere ? { paidElsewhere: true } : {}),
     };
   }
 
@@ -930,7 +988,7 @@ export class WalletChargesService {
     if ('card' in input) await this.assertMethods(actor.tenantId, ['nfc']);
     // Que no se gaste un intento de PIN en un cobro que ya no se puede pagar.
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
-      throw requestError('not-pending');
+      throw await this.notPendingError(request);
     }
     const wallet = await this.walletByStaffRef(actor.tenantId, input);
     // Un PIN que puso el encargado sin el cliente: ni él cobra con ese PIN ni
@@ -959,7 +1017,7 @@ export class WalletChargesService {
     if (request.requestedByUserId !== actor.userId && !isManager(actor)) {
       throw new ForbiddenException('Este cobro lo ha hecho otra persona');
     }
-    this.assertPayable(request);
+    await this.assertPayable(request);
     const wallet = await this.walletByLinkToken(actor.tenantId, walletToken, { chargeOnly: true });
     if (wallet.blockedAt) throw requestError('blocked');
     return {
@@ -996,7 +1054,7 @@ export class WalletChargesService {
       throw new ForbiddenException('Este cobro lo ha hecho otra persona');
     }
     await this.assertMethods(actor.tenantId, ['nfc']);
-    if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) throw requestError('not-pending');
+    if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) throw await this.notPendingError(request);
     const wallet = await this.noPinCardWallet(actor.tenantId, input);
     const noPin = await this.bindAndSettle(request, wallet.id, 'nfc_nopin');
     await this.touchCard(wallet.id, input);
@@ -1080,7 +1138,7 @@ export class WalletChargesService {
       tx.walletChargeRequest.findFirst({ where: { payToken, tenantId: terminal.tenantId } }),
     );
     if (!request) throw new NotFoundException('Este QR no es de un cobro de este local');
-    this.assertPayable(request);
+    await this.assertPayable(request);
     const [view] = await this.pendingViews([request], false);
     if (!view) throw new NotFoundException('Cobro no encontrado');
     return view;
@@ -1213,14 +1271,19 @@ export class WalletChargesService {
       }),
     );
     if (!request) throw new NotFoundException('Cobro no encontrado');
-    this.assertPayable(request);
+    await this.assertPayable(request);
     return request;
   }
 
-  private assertPayable(request: { status: string; expiresAt: Date; walletId: string | null }): void {
+  private async assertPayable(request: {
+    status: string;
+    expiresAt: Date;
+    walletId: string | null;
+    linkedPaymentId?: string | null;
+  }): Promise<void> {
     const status = effectiveRequestStatus(request, new Date());
     if (status === 'EXPIRED') throw requestError('expired');
-    if (status !== 'PENDING' || request.walletId) throw requestError('not-pending');
+    if (status !== 'PENDING' || request.walletId) throw await this.notPendingError(request);
   }
 
   /**
@@ -1699,12 +1762,12 @@ export class WalletChargesService {
    * sigue libre). `auth`: cómo lo autorizó el cliente (queda en el consumo).
    */
   private async bindAndSettle(
-    request: { id: string; tenantId: string; status: string; expiresAt: Date; walletId: string | null },
+    request: { id: string; tenantId: string; status: string; expiresAt: Date; walletId: string | null; linkedPaymentId?: string | null },
     walletId: string,
     auth: ChargeAuthMethod,
   ): Promise<NoPinSettled | null> {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
-      throw requestError('not-pending');
+      throw await this.notPendingError(request);
     }
     // Un cobro hecho antes de la pausa tampoco se cobra mientras dure (423),
     // ni con el pago con saldo apagado en Ajustes (409).
@@ -1722,6 +1785,15 @@ export class WalletChargesService {
       throw new ConflictException({ message: 'Tu saldo no vale en este local', code: 'CHARGE_OTHER_VENUE' });
     }
     return this.settleRequest(walletId, request.id, auth);
+  }
+
+  /**
+   * Por qué no se puede pagar un cobro que ya no está pendiente: si es el
+   * saldo de un cobro único y la tarjeta ya lo pagó, «Ya está pagado»
+   * (ALREADY_PAID); si no, «Este cobro ya no está pendiente».
+   */
+  private async notPendingError(request: { linkedPaymentId?: string | null }): Promise<ConflictException> {
+    return (await this.paidByCard(request)) ? alreadyPaid() : requestError('not-pending');
   }
 
   private async qrRequest(payToken: string) {

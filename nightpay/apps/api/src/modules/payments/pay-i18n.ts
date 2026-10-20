@@ -50,6 +50,8 @@ export interface PayText {
   /** El botón abre directamente la cartera del móvil (Apple Pay / Google Pay). */
   methodsWallet: (wallet: string) => string;
   payByCard: string;
+  /** Cobro único: pagar el mismo cobro con el saldo (Face ID), en otra página. */
+  payWithSaldo: string;
   tipLegend: string;
   noTip: string;
   tipOther: string;
@@ -137,6 +139,7 @@ const ES: PayText = {
   methodsCard: 'Con tarjeta',
   methodsWallet: (wallet) => `Se abre ${wallet}`,
   payByCard: 'Pagar con tarjeta',
+  payWithSaldo: 'Pagar con mi saldo OxioCard',
   tipLegend: '¿Quieres dejar propina?',
   noTip: 'Sin propina',
   tipOther: 'Otra',
@@ -235,6 +238,11 @@ const ES: PayText = {
       notCharged: false,
       hint: 'Pide un cobro nuevo al personal.',
     },
+    'paid-with-saldo': {
+      title: 'Ya está pagado con tu saldo',
+      body: 'Se pagó con el saldo OxioCard: no hace falta pagar con tarjeta.',
+      notCharged: false,
+    },
   },
   errors: {
     expired: { title: 'Este cobro ha caducado', body: '', notCharged: true, hint: ASK_STAFF_ES },
@@ -289,6 +297,7 @@ const EN: PayText = {
   methodsCard: 'By card',
   methodsWallet: (wallet) => `Opens ${wallet}`,
   payByCard: 'Pay by card',
+  payWithSaldo: 'Pay with my OxioCard balance',
   tipLegend: 'Add a tip?',
   noTip: 'No tip',
   tipOther: 'Other',
@@ -386,6 +395,11 @@ const EN: PayText = {
       body: 'This code cannot be used again.',
       notCharged: false,
       hint: 'Ask the staff for a new payment.',
+    },
+    'paid-with-saldo': {
+      title: 'Already paid with your balance',
+      body: 'It was paid with the OxioCard balance: no need to pay by card.',
+      notCharged: false,
     },
   },
   errors: {

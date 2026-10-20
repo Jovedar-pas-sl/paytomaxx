@@ -139,6 +139,8 @@ legend{color:var(--mute);margin:0 auto .6rem;padding:0;font-weight:600}
 .paybar>div{max-width:26rem;margin:0 auto;display:flex;flex-direction:column;gap:.45rem;text-align:center}
 .paybar .btn{min-height:3.75rem;font-size:1.25rem}
 .methods{font-size:.85rem;color:var(--mute)}
+.paybar .saldo{min-height:3.25rem;font-size:1.05rem;margin-top:.15rem}
+.c.top:has(.saldo){padding-bottom:15rem}
 </style>`;
 
 function tipChoices(view: ChooseView, t: PayText): string {
@@ -208,6 +210,7 @@ ${inApp ? `<p class="warn" role="note">${escapeHtml(t.inAppWarning(inApp))}</p>`
 <button class="btn" id="payBtn" type="submit">${escapeHtml(`${t.payPrefix} ${formatShort(view.amountCents, view.currency, t)}`)}</button>
 <p class="methods">${escapeHtml(inApp ? t.methodsCard : wallet ? t.methodsWallet(wallet) : t.methods)}</p>
 ${!inApp && wallet ? `<button class="link" id="cardBtn" type="button">${escapeHtml(t.payByCard)}</button>` : ''}
+${view.saldoPayToken ? `<a class="btn alt saldo" href="${escapeHtml(`/s/${encodeURIComponent(view.saldoPayToken)}?lang=${ctx.lang}`)}">${escapeHtml(t.payWithSaldo)}</a>` : ''}
 </div></div>
 </form>
 <p class="small">${escapeHtml(t.expiresIn)} <b class="num" id="left"></b></p>
@@ -403,7 +406,8 @@ ${action}`;
 }
 
 export function renderClosedPage(reason: PayClosedReason, lang: PayLanguage): string {
-  return renderNoticePage(lang, PAY_TEXT[lang].closed[reason], reason === 'canceled' ? 'neutral' : 'warn');
+  const tone = reason === 'canceled' || reason === 'paid-with-saldo' ? 'neutral' : 'warn';
+  return renderNoticePage(lang, PAY_TEXT[lang].closed[reason], tone);
 }
 
 /** Error al abrir o empezar el cobro. Nunca enseña el detalle técnico ni códigos del banco. */

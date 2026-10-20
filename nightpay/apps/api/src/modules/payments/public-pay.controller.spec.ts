@@ -271,6 +271,34 @@ describe('GET /pay/:token — página de pago', () => {
     for (const s of scripts(sent.body!)) expect(() => new Function(s)).not.toThrow();
   });
 
+  it('cobro único: «Pagar con mi saldo OxioCard» lleva al mismo cobro en /s (Face ID); sin saldo enlazado, no sale', async () => {
+    const { controller } = makeController({ page: { ...CHOOSE, saldoPayToken: 'pay-tok_123' } as PayRedirect });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.body).toContain('href="/s/pay-tok_123?lang=es"');
+    expect(sent.body).toContain('Pagar con mi saldo OxioCard');
+    const plain = fakeReply();
+    await makeController({ page: CHOOSE }).controller.payPage('qr-token-1', 'en', undefined, IPHONE, plain.reply);
+    expect(plain.sent.body).not.toContain('/s/');
+    const en = fakeReply();
+    await makeController({ page: { ...CHOOSE, saldoPayToken: 'pay-tok_123' } as PayRedirect }).controller.payPage(
+      'qr-token-1',
+      'en',
+      undefined,
+      IPHONE,
+      en.reply,
+    );
+    expect(en.sent.body).toContain('Pay with my OxioCard balance');
+  });
+
+  it('cobro único ya pagado con el saldo: «Ya está pagado con tu saldo», sin «No se te ha cobrado nada»', async () => {
+    const { controller } = makeController({ page: { kind: 'closed', reason: 'paid-with-saldo' } });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.body).toContain('Ya está pagado con tu saldo');
+    expect(sent.body).not.toContain('No se te ha cobrado nada');
+  });
+
   it('iPhone: un solo «Pagar 100 €» que abre Apple Pay (Redsys solo cartera), sin botón de Apple hecho a mano, y «Pagar con tarjeta»', async () => {
     const { controller } = makeController({ page: CHOOSE });
     const { reply, sent } = fakeReply();

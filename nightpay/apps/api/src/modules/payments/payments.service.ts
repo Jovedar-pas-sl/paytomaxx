@@ -13,7 +13,7 @@ import { Prisma } from '@nightpay/db';
 import type { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { ClsService } from 'nestjs-cls';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import * as QRCode from 'qrcode';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
@@ -93,6 +93,7 @@ import {
 import { BRAND_NAME } from '../../common/brand';
 import { isOtherOrder, markAttemptApproved, recordSecondApproval } from './second-approval';
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
+import { closeLinkedSaldo } from './cobro-link';
 
 const POS_AUTH_CODE_REUSED =
   'Ese código de autorización ya se usó en otro cobro de este datáfono. Revisa el ticket.';
@@ -162,6 +163,8 @@ interface PaymentDraft {
   platformCommissionBps: number;
   /** % de la chica fijado al crear (#54); null si no lo crea una chica. */
   operatorCommissionBps: number | null;
+  /** Cobro único: también se puede pagar con el saldo (cobro del saldo enlazado). */
+  withSaldo: boolean;
 }
 
 /**
@@ -569,6 +572,9 @@ export class PaymentsService implements OnApplicationBootstrap {
       ttlSeconds: byDatafono ? POS_QR_TTL_SECONDS : QR_TTL_SECONDS,
       platformCommissionBps: venue.platformCommissionBps,
       operatorCommissionBps: commission.paymentBps,
+      // Cobro único: con el saldo encendido en el local y quien cobra con
+      // nombre (el cobro del saldo es suyo). Ni recargas ni datáfono.
+      withSaldo: Boolean(dto.withSaldo) && !isWalletTopUp && !byDatafono && methods.wallet && creator.userId !== null,
     };
   }
 
@@ -757,6 +763,27 @@ export class PaymentsService implements OnApplicationBootstrap {
         select: { id: true, amountCents: true },
       });
       await insertChargeLines(tx, tenantId, { paymentId: p.id }, draft.lines);
+      // Cobro único: la otra forma de pagar este mismo cobro (NFC, PIN o Face
+      // ID), con su importe, su referencia y su plazo. Las líneas se quedan en
+      // el cobro con tarjeta hasta que paga el saldo (cobro-link.ts).
+      const saldo =
+        draft.withSaldo && input.creatorUserId
+          ? await tx.walletChargeRequest.create({
+              data: {
+                tenantId,
+                walletId: null,
+                requestedByUserId: input.creatorUserId,
+                amountCents: draft.amountCents,
+                category: draft.revenueCategory,
+                serviceName: draft.service?.serviceName ?? null,
+                payToken: randomBytes(24).toString('base64url'),
+                ref,
+                expiresAt: qrExpiresAt,
+                linkedPaymentId: p.id,
+              },
+              select: { id: true },
+            })
+          : null;
       await tx.paymentEvent.create({
         data: {
           paymentId: p.id,
@@ -768,6 +795,7 @@ export class PaymentsService implements OnApplicationBootstrap {
             ...(ignoredCents > 0 ? { tipIgnoredCents: ignoredCents } : {}),
             terminal: dto.terminalExternalId,
             walletId,
+            ...(saldo ? { saldoChargeId: saldo.id } : {}),
           },
           traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
         },
@@ -1029,6 +1057,8 @@ export class PaymentsService implements OnApplicationBootstrap {
             take: 1,
             select: { claimHash: true },
           },
+          // Cobro único: «Pagar con mi saldo OxioCard» y el «Ya está pagado con tu saldo».
+          linkedWalletCharge: { select: { payToken: true, status: true, expiresAt: true } },
         },
       }),
     );
@@ -1036,7 +1066,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Pasarela que cobrará: la del cobro o, si aún no ha ido al banco, la
     // activa del local. La propina solo se cobra (y se reparte) con Redsys.
     const provider = payment.provider ?? (await this.activeProvider(payment.tenantId));
-    const { walletId, wallet, attempts, venue, createdBy, serviceName, tipGoesTo, idempotencyKey, ...rest } = payment;
+    const { walletId, wallet, attempts, venue, createdBy, serviceName, tipGoesTo, idempotencyKey, linkedWalletCharge, ...rest } =
+      payment;
     const firstTopUp = wallet !== null && !selfTopUpClaimHash(idempotencyKey) && (await this.isFirstTopUp(walletId, payment.id));
     // Propinas del local (Ajustes → Formas de cobro): apagadas, no se ofrecen ni se aceptan.
     const methods = paymentMethodsOf(venue?.paymentMethods);
@@ -1053,6 +1084,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null }),
       approvedClaimHash: attempts[0]?.claimHash ?? null,
       ...payerWalletFields({ wallet, firstTopUp, idempotencyKey, approvedClaimHash: attempts[0]?.claimHash ?? null }),
+      saldo: linkedWalletCharge ? { ...linkedWalletCharge, enabled: methods.wallet } : null,
     };
   }
 
@@ -1366,6 +1398,13 @@ export class PaymentsService implements OnApplicationBootstrap {
         // Comisión de la chica / propina a otra chica: misma transacción.
         if (result.nextState === 'AUTHORIZED') {
           await this.recordEarnings(tx, p, paymentId);
+        }
+
+        // Cobro único: pagado con la tarjeta, cancelado o caducado → su cobro
+        // del saldo, si sigue pendiente, también (gana el primero: un NFC
+        // acercado después contesta «Ya está pagado»). Con el cobro bloqueado.
+        if (result.nextState !== p.status) {
+          await closeLinkedSaldo(tx, paymentId, result.nextState);
         }
 
         // Recarga con «saldo nuevo» que acabó sin pagarse: su saldo vacío se cierra.
@@ -2267,9 +2306,14 @@ export class PaymentsService implements OnApplicationBootstrap {
     // ese mismo tenant, la query devuelve el registro correcto. asSystem: sin
     // depender de un usuario de base superusuario (FORCE RLS en payments).
     const { p, lines } = await this.prisma.asSystem(async (tx) => ({
-      p: await tx.payment.findUniqueOrThrow({ where: { id: paymentId } }),
+      // Cobro único: con el cobro del saldo enlazado (si se pidió y el local lo tiene).
+      p: await tx.payment.findUniqueOrThrow({
+        where: { id: paymentId },
+        include: { linkedWalletCharge: { select: { id: true, expiresAt: true } } },
+      }),
       lines: await linesOf(tx, { paymentIds: [paymentId] }),
     }));
+    const saldo = p.linkedWalletCharge ?? null;
     // Helper para tratar string vacío y whitespace como "no configurado".
     // process.env.X devuelve undefined si no existe, pero "" si Dokploy
     // tiene la variable definida sin valor → ?? no la captura.
@@ -2321,6 +2365,9 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Recarga de saldo: el id de la wallet. Su enlace (la credencial del
       // cliente para aceptar cobros) no se da nunca al personal.
       walletId: p.walletId ?? null,
+      // Cobro único: el NFC y el PIN pagan este cobro del saldo (su enlace
+      // /s/… no hace falta aquí: lo ofrece la página de pago del QR).
+      saldo: saldo ? { chargeId: saldo.id, expiresAt: saldo.expiresAt.toISOString() } : null,
     };
   }
 }

@@ -7,7 +7,9 @@ export type PayClosedReason =
   | 'failed'
   | 'canceled'
   | 'unconfirmed'
-  | 'too-many-attempts';
+  | 'too-many-attempts'
+  /** Cobro único: ya lo pagó con su saldo (NFC, PIN o Face ID): la tarjeta no. */
+  | 'paid-with-saldo';
 
 /** Botón que pulsa el cliente: Apple Pay / Google Pay o tarjeta. */
 export type PayMethodChoice = 'wallet' | 'card';
@@ -57,6 +59,11 @@ export type PayRedirect =
       tipToStaff?: boolean;
       /** Propinas sugeridas del local (para enseñar el % de cada botón). */
       tipPresets?: TipPresetConfig;
+      /**
+       * Cobro único: el enlace del mismo cobro para pagarlo con el saldo
+       * OxioCard desbloqueando el móvil (/s/<token>). Null: solo tarjeta.
+       */
+      saldoPayToken?: string | null;
     }
   | {
       kind: 'paid';
@@ -233,6 +240,11 @@ export interface PayablePayment {
   walletReturnToken?: string | null;
   /** Huella del navegador del intento aprobado (de cualquier cobro, con o sin saldo). */
   approvedClaimHash?: string | null;
+  /**
+   * Cobro único: el cobro del saldo enlazado (su enlace /s, su estado y su
+   * plazo) y si el local cobra con saldo. Sin él, solo tarjeta.
+   */
+  saldo?: { payToken: string | null; status: string; expiresAt: Date; enabled: boolean } | null;
 }
 
 /**
@@ -257,14 +269,27 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       approvedClaimHash: p.approvedClaimHash ?? null,
     };
   }
+  // Cobro único: lo pagó el saldo (el cobro con tarjeta se canceló entonces).
+  if (p.status === 'CANCELED' && p.saldo?.status === 'ACCEPTED') return { kind: 'closed', reason: 'paid-with-saldo' };
   const closed = CLOSED_REASON[p.status];
   if (closed) return { kind: 'closed', reason: closed };
   if (p.status !== 'AUTHORIZING' && p.qrExpiresAt <= now) return { kind: 'closed', reason: 'expired' };
   return null;
 }
 
+/**
+ * Cobro único: el enlace para pagarlo con el saldo, si se puede (pendiente,
+ * sin caducar y con el saldo encendido en el local).
+ */
+export function saldoPayTokenOf(p: Pick<PayablePayment, 'saldo'>, now: Date = new Date()): string | null {
+  const s = p.saldo;
+  if (!s || !s.enabled || !s.payToken || s.status !== 'PENDING' || s.expiresAt <= now) return null;
+  return s.payToken;
+}
+
 /** Página de pago con las propinas que se pueden elegir. */
-export function choosePayPage(p: PayablePayment): PayRedirect {
+export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRedirect {
+  const saldoPayToken = saldoPayTokenOf(p, now);
   return {
     kind: 'choose',
     amountCents: p.amountCents,
@@ -277,6 +302,7 @@ export function choosePayPage(p: PayablePayment): PayRedirect {
     concept: p.concept ?? null,
     tipToStaff: p.tipToStaff ?? false,
     ...(p.tipPresets ? { tipPresets: p.tipPresets } : {}),
+    ...(saldoPayToken ? { saldoPayToken } : {}),
   };
 }
 

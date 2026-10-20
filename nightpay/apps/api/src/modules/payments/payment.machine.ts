@@ -37,7 +37,15 @@ export type PaymentEvent =
    * total: REFUND_FULL no lo enviaba nadie y se quitó.
    */
   | { type: 'REFUND_PARTIAL'; amountCents: number }
-  | { type: 'CANCELED'; reason?: string };
+  | { type: 'CANCELED'; reason?: string }
+  /**
+   * Cobro único (cobro-link.ts): el cliente lo pagó con su saldo (NFC, PIN o
+   * Face ID) antes que con la tarjeta. El cobro con tarjeta se cancela y ya
+   * no se puede autorizar, también si el cliente estaba en la página del
+   * banco (AUTHORIZING) o sin confirmar (ORPHAN, FAILED): una aprobación que
+   * llegue después se devuelve sola o queda en Incidencias.
+   */
+  | { type: 'PAID_WITH_SALDO'; walletChargeId: string };
 
 export interface PaymentContext {
   paymentId: string;
@@ -66,6 +74,10 @@ export const paymentMachine = setup({
     persistCancel: ({ context, event }) => {
       if (event.type !== 'CANCELED') return;
       context.failureReason = event.reason ?? 'user-canceled';
+    },
+    persistPaidWithSaldo: ({ context, event }) => {
+      if (event.type !== 'PAID_WITH_SALDO') return;
+      context.failureReason = 'paid-with-saldo';
     },
     deductRefund: ({ context, event }) => {
       if (event.type !== 'REFUND_PARTIAL') return;
@@ -96,6 +108,7 @@ export const paymentMachine = setup({
         // directo (sin AUTHORIZING porque no hay roundtrip al PSP).
         POS_CONFIRMED: 'AUTHORIZED',
         CANCELED: { target: 'CANCELED', actions: 'persistCancel' },
+        PAID_WITH_SALDO: { target: 'CANCELED', actions: 'persistPaidWithSaldo' },
       },
     },
     AWAITING_CAPTURE: {
@@ -103,6 +116,7 @@ export const paymentMachine = setup({
         AUTHORIZING: 'AUTHORIZING',
         TIMEOUT: 'EXPIRED',
         CANCELED: { target: 'CANCELED', actions: 'persistCancel' },
+        PAID_WITH_SALDO: { target: 'CANCELED', actions: 'persistPaidWithSaldo' },
       },
     },
     AUTHORIZING: {
@@ -110,6 +124,7 @@ export const paymentMachine = setup({
         AUTHORIZED: { target: 'AUTHORIZED', actions: 'persistAuth' },
         FAILED: { target: 'FAILED', actions: 'persistFailure' },
         TIMEOUT: 'ORPHAN',
+        PAID_WITH_SALDO: { target: 'CANCELED', actions: 'persistPaidWithSaldo' },
       },
     },
     AUTHORIZED: {
@@ -132,6 +147,7 @@ export const paymentMachine = setup({
       on: {
         AUTHORIZED: { target: 'AUTHORIZED', actions: 'persistAuth' },
         FAILED: { target: 'FAILED', actions: 'persistFailure' },
+        PAID_WITH_SALDO: { target: 'CANCELED', actions: 'persistPaidWithSaldo' },
       },
     },
     // Aprobación del banco tras un FAILED (denegación previa, aviso tardío o
@@ -141,6 +157,7 @@ export const paymentMachine = setup({
     FAILED: {
       on: {
         AUTHORIZED: { target: 'AUTHORIZED', actions: 'persistAuth' },
+        PAID_WITH_SALDO: { target: 'CANCELED', actions: 'persistPaidWithSaldo' },
       },
     },
     EXPIRED: { type: 'final' },

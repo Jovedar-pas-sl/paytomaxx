@@ -26,6 +26,9 @@ const TEXT: Record<
     left: string;
     expired: string;
     notPending: string;
+    /** Cobro único: ya lo pagó con tarjeta. */
+    paidByCard: string;
+    notFromBalance: string;
     askStaff: string;
     unsupported: string;
     unknown: string;
@@ -42,6 +45,8 @@ const TEXT: Record<
     left: 'Te quedan',
     expired: 'Este cobro ha caducado',
     notPending: 'Este cobro ya no está pendiente',
+    paidByCard: 'Ya está pagado con tarjeta',
+    notFromBalance: 'De tu saldo no se ha cobrado nada.',
     askStaff: 'Pide al personal que lo repita.',
     unsupported: 'Tu móvil no puede pagar así: di tu código al personal y teclea tu PIN en su móvil.',
     unknown: 'No sabemos si se ha cobrado. Vuelve a cargar la página antes de pagar otra vez.',
@@ -57,6 +62,8 @@ const TEXT: Record<
     left: 'Remaining',
     expired: 'This charge has expired',
     notPending: 'This charge is no longer pending',
+    paidByCard: 'Already paid by card',
+    notFromBalance: 'Nothing was taken from your balance.',
     askStaff: 'Ask the staff to repeat it.',
     unsupported: 'Your phone cannot pay this way: tell the staff your code and type your PIN on their phone.',
     unknown: 'We do not know whether it was charged. Reload the page before paying again.',
@@ -120,6 +127,10 @@ ${isPaid ? '' : brandBar()}
 ${
   isPaid
     ? ''
+    : closed && view.paidElsewhere
+    ? `<p class="kick">${h(t.title)}</p>
+<h1>${h(t.paidByCard)}</h1>
+<p class="safe">${h(t.notFromBalance)}</p>`
     : closed
     ? `<p class="kick">${h(t.title)}</p>
 <h1>${h(view.status === 'EXPIRED' ? t.expired : t.notPending)}</h1>

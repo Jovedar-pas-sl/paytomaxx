@@ -53,6 +53,7 @@ const ES: ClientErrorTexts = {
   CHARGE_NOT_PENDING: 'Este cobro ya no está pendiente.',
   CHARGE_EXPIRED: 'Este cobro ha caducado: pide al personal que lo repita.',
   CHARGE_OTHER_VENUE: 'Tu saldo no vale en este local.',
+  ALREADY_PAID: 'Ya está pagado: no se ha cobrado nada de tu saldo.',
 };
 
 const EN: ClientErrorTexts = {
@@ -97,6 +98,7 @@ const EN: ClientErrorTexts = {
   CHARGE_NOT_PENDING: 'This charge is no longer pending.',
   CHARGE_EXPIRED: 'This charge has expired: ask the staff to repeat it.',
   CHARGE_OTHER_VENUE: 'Your balance is not valid at this venue.',
+  ALREADY_PAID: 'Already paid: nothing was taken from your balance.',
 };
 
 export const CLIENT_ERROR_TEXT: Readonly<Record<PayLanguage, ClientErrorTexts>> = { es: ES, en: EN };
