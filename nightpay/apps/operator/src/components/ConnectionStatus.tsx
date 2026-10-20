@@ -35,5 +35,5 @@ export function ConnectionStatus({ serverDown = false }: Props) {
   return <ConnectionBanner issue={issue} style={bleed} />;
 }
 
-// De borde a borde, saliendo del padding de la página (1rem).
-const bleed: CSSProperties = { margin: '-1rem -1rem 0' };
+// De borde a borde, saliendo del padding de la página (arriba --np-gap, a los lados 1rem).
+const bleed: CSSProperties = { margin: 'calc(-1 * var(--np-gap)) -1rem 0' };

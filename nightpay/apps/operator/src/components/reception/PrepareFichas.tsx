@@ -151,7 +151,7 @@ const TONE: Record<PrepareLine['tone'], string> = {
   warn: 'var(--np-warning)',
 };
 
-const cardStyle: CSSProperties = { padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'center' };
+const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'center' };
 const kicker: CSSProperties = {
   margin: 0,
   fontSize: '0.8125rem',

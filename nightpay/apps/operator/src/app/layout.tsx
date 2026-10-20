@@ -39,7 +39,8 @@ const themeInitScript = `(function(){try{var s=localStorage.getItem('np-theme');
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="es" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+    // np-staff: en el móvil, letra y huecos más justos (@nightpay/ui/styles.css).
+    <html lang="es" className={`np-staff ${sans.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>

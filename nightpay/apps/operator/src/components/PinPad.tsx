@@ -121,7 +121,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
 }
 
 const cardStyle: CSSProperties = {
-  padding: '1.25rem',
+  padding: 'min(1.25rem, var(--np-pad-card))',
   display: 'flex',
   flexDirection: 'column',
   gap: '0.75rem',
@@ -171,8 +171,9 @@ const gridStyle: CSSProperties = {
   gap: '0.6rem',
 };
 
+// Alto de las teclas como el del teclado del importe (--np-key-h: según el alto de la pantalla).
 const keyStyle: CSSProperties = {
-  minHeight: '4.25rem',
+  minHeight: 'var(--np-key-h, 4.25rem)',
   fontSize: '1.75rem',
   fontWeight: 800,
   borderRadius: 'var(--np-r-lg)',

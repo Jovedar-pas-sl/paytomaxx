@@ -504,7 +504,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
   );
 }
 
-const cardStyle: CSSProperties = { padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'center' };
+const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'center' };
 const kicker: CSSProperties = {
   margin: 0,
   fontSize: '0.8125rem',
@@ -513,7 +513,7 @@ const kicker: CSSProperties = {
   textTransform: 'uppercase',
   color: 'var(--np-text-mute)',
 };
-const amountStyle: CSSProperties = { margin: 0, fontSize: '2.5rem', fontWeight: 700 };
+const amountStyle: CSSProperties = { margin: 0, fontSize: '2.5rem', lineHeight: 1.15, fontWeight: 700 };
 const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };
 const big: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 700 };
 const errorStyle: CSSProperties = { margin: 0, color: 'var(--np-danger)', fontWeight: 600 };

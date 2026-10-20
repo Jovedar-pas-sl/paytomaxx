@@ -83,8 +83,8 @@ export function Dashboard({ user, onLogout }: Props) {
       <header style={headerStyle}>
         <Logo height="1.75rem" />
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
-          <ThemeToggle size="sm" />
-          <Button variant="ghost" size="md" onClick={logout} style={{ height: '2.25rem' }}>
+          <ThemeToggle />
+          <Button variant="ghost" size="md" onClick={logout} style={headerBtnStyle}>
             Salir
           </Button>
         </div>
@@ -161,8 +161,9 @@ const mainStyle: CSSProperties = {
   flexDirection: 'column',
   // Padding bottom = altura nav + safe-area home indicator iOS.
   // Sin esto los iPhones modernos solapan la barra home con la tab bar.
-  padding: `1rem 1rem calc(${TAB_BAR_HEIGHT} + 1rem + env(safe-area-inset-bottom))`,
-  gap: '1rem',
+  // Arriba y entre bloques, --np-gap (más justo en el móvil).
+  padding: `var(--np-gap) 1rem calc(${TAB_BAR_HEIGHT} + var(--np-gap) + env(safe-area-inset-bottom))`,
+  gap: 'var(--np-gap)',
   maxWidth: '32rem',
   margin: '0 auto',
 };
@@ -176,6 +177,9 @@ const panelStyle: CSSProperties = {
 const headerStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  paddingBottom: '0.75rem',
+  paddingBottom: 'calc(var(--np-gap) * 0.75)',
   borderBottom: '1px solid var(--np-border)',
 };
+
+// 44 px: se toca bien con el dedo (como el botón del tema, al lado).
+const headerBtnStyle: CSSProperties = { height: '2.75rem', padding: '0 1rem' };

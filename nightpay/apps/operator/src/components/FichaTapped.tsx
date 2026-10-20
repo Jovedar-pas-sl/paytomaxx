@@ -164,7 +164,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
 }
 
 const cardStyle: CSSProperties = {
-  padding: '1.5rem',
+  padding: 'var(--np-pad-card)',
   display: 'flex',
   flexDirection: 'column',
   gap: '1rem',

@@ -83,7 +83,8 @@ export function Chevron() {
  * carácter) sin pasar del tamaño máximo.
  */
 export function fitAmount(text: string, compact: boolean): string {
-  const max = compact ? '2.75rem' : '4.5rem';
+  // Compacta: en el móvil, según el alto de la pantalla (--np-hero-amount-max, money.module.css).
+  const max = compact ? 'var(--np-hero-amount-max, 2.75rem)' : '4.5rem';
   const perChar = Math.max(4, text.length) * 0.85;
   return `min(${max}, calc((min(100vw, 32rem) - 7rem) / ${perChar.toFixed(2)}))`;
 }
@@ -131,7 +132,7 @@ const amountStyle: CSSProperties = {
 };
 
 const whenStyle: CSSProperties = {
-  fontSize: '1.0625rem',
+  fontSize: 'var(--np-hero-when, 1.0625rem)',
   fontWeight: 700,
   color: 'var(--np-text)',
   lineHeight: 1.3,

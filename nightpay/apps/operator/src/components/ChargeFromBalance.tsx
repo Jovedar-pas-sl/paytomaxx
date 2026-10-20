@@ -357,11 +357,12 @@ function QrStep({
       <Button variant="ghost" onClick={() => setWithPin(true)} disabled={canceling}>
         Sin móvil: ficha o código + PIN
       </Button>
-      <p style={noteStyle}>¿Sin batería y sin PIN? Avisa al encargado: lo cobra desde el panel.</p>
       {error ? <p style={errorStyle}>{error}</p> : null}
       <Button variant="ghost" onClick={() => void cancel(false)} loading={canceling}>
         Cancelar cobro
       </Button>
+      {/* Debajo de los botones: en un móvil bajo, lo que no cabe es esto. */}
+      <p style={noteStyle}>¿Sin batería y sin PIN? Avisa al encargado: lo cobra desde el panel.</p>
       <button type="button" onClick={() => void cancel(true)} style={linkBtnStyle} disabled={canceling}>
         ← Elegir otro servicio
       </button>
@@ -569,7 +570,7 @@ function DoneStep({
 }
 
 const cardStyle: CSSProperties = {
-  padding: '1.5rem',
+  padding: 'var(--np-pad-card)',
   display: 'flex',
   flexDirection: 'column',
   gap: '1rem',
@@ -609,18 +610,21 @@ const noteStyle: CSSProperties = {
 const balanceStyle: CSSProperties = {
   margin: 0,
   fontSize: '2.25rem',
+  lineHeight: 1.15,
   fontWeight: 800,
   letterSpacing: '-0.03em',
   fontVariantNumeric: 'tabular-nums',
 };
 
+// 44 px de alto: se toca bien aunque parezca un enlace.
 const linkBtnStyle: CSSProperties = {
+  minHeight: '2.75rem',
   background: 'transparent',
   border: 'none',
   color: 'var(--np-text-mute)',
   fontSize: '0.875rem',
   cursor: 'pointer',
-  padding: 0,
+  padding: '0 0.5rem',
 };
 
 const gridStyle: CSSProperties = {
@@ -645,7 +649,10 @@ const tileStyle: CSSProperties = {
   cursor: 'pointer',
 };
 
+// 260 px como mucho; en el móvil, según el alto (--np-qr): el QR y sus botones en una pantalla.
 const qrStyle: CSSProperties = {
+  width: 'min(260px, var(--np-qr))',
+  height: 'auto',
   background: '#fff',
   padding: '0.5rem',
   borderRadius: 'var(--np-r-md)',

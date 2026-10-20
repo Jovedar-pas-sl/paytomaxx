@@ -238,7 +238,7 @@ export function CreatePayment({ role, onCreated }: Props) {
   // Sin QR ni datáfono (el dueño dejó solo el saldo): nada que cobrar aquí.
   if (modes.length === 0) {
     return (
-      <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'center' }}>
+      <Card style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'center' }}>
         <p style={kicker}>Cobrar</p>
         <p style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 600 }}>
           {methods.wallet
@@ -251,7 +251,7 @@ export function CreatePayment({ role, onCreated }: Props) {
 
   if (showCarta) {
     return (
-      <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <Card style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <p style={{ ...kicker, textAlign: 'center' }}>¿Qué cobras?</p>
         <div style={cartaGridStyle}>
           {services.map((svc) => (
@@ -301,12 +301,12 @@ export function CreatePayment({ role, onCreated }: Props) {
 
   return (
     <>
-      <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <Card style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <p style={{ ...kicker, textAlign: 'center' }}>{headline}</p>
 
         {cartaFailed && mode !== 'wallet' ? <CartaRetry onRetry={retryCarta} /> : null}
 
-        <form id={formId} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <form id={formId} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)' }}>
           {usingService ? (
             <div style={pickedStyle}>
               <div style={{ minWidth: 0 }}>
@@ -345,7 +345,10 @@ export function CreatePayment({ role, onCreated }: Props) {
               Botones de un toque en vez de desplegable. */}
           {categoryOptions.length > 1 ? (
           <fieldset style={{ margin: 0, padding: 0, border: 'none' }}>
-            <legend style={fieldLabel}>¿Qué cobras?</legend>
+            {/* En el móvil, solo para el lector de pantalla: los botones ya lo dicen. */}
+            <legend className="np-short-sr-only" style={fieldLabel}>
+              ¿Qué cobras?
+            </legend>
             <div style={catGridStyle}>
               {categoryOptions.map((c) => (
                 <button
@@ -359,7 +362,7 @@ export function CreatePayment({ role, onCreated }: Props) {
                 </button>
               ))}
             </div>
-            <p style={{ ...hintStyle, marginTop: '0.5rem' }}>
+            <p className="np-short-hide" style={{ ...hintStyle, marginTop: '0.5rem' }}>
               {revCategory === 'CHICA_SERVICE'
                 ? 'Va a tus ganancias.'
                 : revCategory === 'EXTRA'
@@ -471,11 +474,12 @@ const fieldLabel: CSSProperties = {
 const catGridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: '0.5rem',
+  gap: '0.375rem',
 };
 
+// 44 px: se toca bien y deja sitio al teclado en el móvil.
 const catBtnStyle: CSSProperties = {
-  minHeight: '3.25rem',
+  minHeight: '2.75rem',
   padding: '0.5rem 0.75rem',
   background: 'transparent',
   border: '2px solid var(--np-border-hi)',
@@ -510,6 +514,7 @@ const errorStyle: CSSProperties = {
 const kicker: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-label)',
+  lineHeight: 1.3,
   color: 'var(--np-text-label)',
   letterSpacing: '0.1em',
   textTransform: 'uppercase',

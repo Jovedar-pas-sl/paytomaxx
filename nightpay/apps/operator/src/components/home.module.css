@@ -1,0 +1,20 @@
+/* Inicio: arriba quién eres (o «Esta noche»), debajo cobrar. */
+
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--np-gap) * 1.25);
+  flex: 1;
+}
+
+/* Con un cobro en pantalla, en el móvil el QR y sus botones mandan: lo
+   de arriba se aparta hasta cerrarlo (vuelve solo con «Nuevo cobro»). */
+@media (max-width: 480px) and (max-height: 940px) {
+  .home {
+    gap: var(--np-gap);
+  }
+
+  .home:has([data-charge-open]) > .intro {
+    display: none;
+  }
+}

@@ -169,7 +169,8 @@ export function ActivePayment({
   const preCobro = isPreCobro(shown);
 
   return (
-    <Card variant="glow" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+    // data-charge-open: en Inicio del móvil, lo de arriba se aparta mientras está el QR (home.module.css).
+    <Card variant="glow" data-charge-open="" style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ textAlign: 'center' }}>
         <p style={kicker}>{isPos ? 'Cobro POS' : 'Importe'}</p>
         <p className="np-num" style={amountBig}>
@@ -199,7 +200,8 @@ export function ActivePayment({
           <img
             src={payment.qrPngDataUrl}
             alt={isPos ? 'QR del cobro POS' : 'QR del cobro'}
-            style={{ width: '100%', maxWidth: isPos ? '12rem' : '20rem', height: 'auto', display: 'block' }}
+            // --np-qr: 20rem; en el móvil, según el alto (el QR y sus botones en una pantalla).
+            style={{ width: '100%', maxWidth: isPos ? 'min(12rem, var(--np-qr))' : 'var(--np-qr)', height: 'auto', display: 'block' }}
           />
         </div>
       </QrCountdown>
@@ -321,6 +323,7 @@ const kicker: CSSProperties = {
 const amountBig: CSSProperties = {
   margin: '0.25rem 0 0',
   fontSize: '2.5rem',
+  lineHeight: 1.15,
   fontWeight: 600,
   letterSpacing: '-0.03em',
   fontVariantNumeric: 'tabular-nums',
