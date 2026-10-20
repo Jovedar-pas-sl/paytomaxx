@@ -1,5 +1,5 @@
 import { cardBrandLabel } from './card-brand';
-import { CLUB_BASE_CSS, escapeHtml, jsConfig, jsString } from './club-ui';
+import { CLUB_BASE_CSS, brandBar, escapeHtml, jsConfig, jsString } from './club-ui';
 import { PAID_SCREEN_CSS, paidScreenScript, renderPaidScreen } from './paid-screen';
 import { WALLET_ASK_CSS, renderWalletAsk, type WalletBlock } from './paid-wallet-ask';
 import type { PayDevice } from './pay-device';
@@ -18,17 +18,17 @@ import { tipPresetsFor } from './tip';
 export type { WalletBlock } from './paid-wallet-ask';
 
 /**
- * Páginas del cliente en /pay/... (Fase 1B). Look "Club" (club-ui.ts):
- * negro + lima, letra grande, muy simple. HTML autocontenido (sin fuentes
- * externas: la CSP del API no las permite y el cliente puede tener mala red).
- * Todo el texto sale de pay-i18n.
+ * Páginas del cliente en /pay/... (Fase 1B). Marca OxioCard (club-ui.ts):
+ * noche + pill lima, «Pagado» en verde, letra grande, muy simple. HTML
+ * autocontenido (sin fuentes externas: la CSP del API no las permite y el
+ * cliente puede tener mala red). Todo el texto sale de pay-i18n.
  */
 
 type ChooseView = Extract<PayRedirect, { kind: 'choose' }>;
 
 const PAGE_CSS = `
-.c{width:100%;max-width:26rem;margin:0 auto;min-height:100vh;min-height:100svh;padding:1.5rem 1rem 2rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;text-align:center}
-.c.top{justify-content:flex-start;padding-top:2rem}
+.c{width:100%;max-width:26rem;margin:0 auto;min-height:100vh;min-height:100svh;padding:4.25rem 1rem 2rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;text-align:center}
+.c.top{justify-content:flex-start;padding-top:4.25rem}
 .amount{font-size:clamp(3rem,16vw,4.25rem);font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--fg)}
 .small{font-size:.9rem}
 .foot{margin-top:1.25rem}
@@ -95,10 +95,10 @@ function page(
   const main =
     layout === 'full'
       ? `<main>${body}</main>`
-      : `<main class="c${layout === 'top' ? ' top' : ''}">${body}\n${footer}</main>`;
+      : `${brandBar()}\n<main class="c${layout === 'top' ? ' top' : ''}">${body}\n${footer}</main>`;
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0b0b"><title>${escapeHtml(title)}</title>
+<meta name="robots" content="noindex"><meta name="theme-color" content="#0f1112"><title>${escapeHtml(title)}</title>
 <style>${CLUB_BASE_CSS}${PAGE_CSS}</style>${opts.head ?? ''}
 </head><body>
 ${main}
@@ -119,22 +119,23 @@ legend{color:var(--mute);margin:0 auto .6rem;padding:0;font-weight:600}
 .tipgrid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
 .tipgrid label{display:block;position:relative}
 .tipgrid input{position:absolute;opacity:0;width:1px;height:1px}
-.tipgrid span{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.4rem;border:2px solid var(--line);border-radius:12px;font-weight:800;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
+.tipgrid span{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.4rem;border:1px solid var(--line-hi);border-radius:999px;background:var(--surface-2);font-weight:800;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
 .tipgrid small{font-size:.8rem;font-weight:600;color:var(--mute)}
-.tipgrid input:checked+span{border-color:var(--lime);background:#1b2208;color:var(--lime);box-shadow:inset 0 0 0 1px var(--lime)}
-.tipgrid input:checked+span::before{content:'✓';position:absolute;top:.35rem;right:.55rem;font-size:.9rem;font-weight:900}
-.tipgrid input:checked+span small{color:var(--lime)}
+.tipgrid input:checked+span{border-color:var(--fg);background:var(--fg);color:var(--ink-0)}
+.tipgrid input:checked+span::before{content:'✓';position:absolute;top:50%;left:1rem;transform:translateY(-50%);font-size:.9rem;font-weight:900}
+.tipgrid input:checked+span small{color:var(--ink-0)}
 .tipgrid input:focus-visible+span{outline:3px solid var(--fg);outline-offset:2px}
 .tipgrid span:active{transform:scale(.97)}
 .other{display:flex;flex-direction:column;align-items:center;gap:.35rem;margin-top:.7rem}
 .other label{font-weight:600;color:var(--mute)}
 .eur{display:flex;align-items:center;gap:.4rem}
-.eur input{width:7rem;min-height:3.25rem;font:inherit;font-size:1.6rem;font-weight:800;text-align:center;border-radius:12px;border:2px solid var(--lime);background:var(--surface);color:var(--fg)}
+.eur input{width:7rem;min-height:3.25rem;font:inherit;font-size:1.6rem;font-weight:800;text-align:center;border-radius:14px;border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
+.eur input:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
 .eur span{font-size:1.4rem;font-weight:800}
 .tipnote{margin-top:.6rem;font-size:.9rem;color:var(--fg)}
 .total{color:var(--fg);font-size:1.05rem}
-.warn{border:2px solid var(--warn);border-radius:12px;padding:.75rem 1rem;color:var(--warn);text-align:left;font-size:.95rem}
-.paybar{position:fixed;left:0;right:0;bottom:0;z-index:5;padding:1.25rem 1rem calc(.75rem + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 72%,rgba(11,11,11,0))}
+.warn{border:1px solid rgb(255 176 32/.5);border-radius:18px;background:rgb(255 176 32/.12);padding:.75rem 1rem;color:var(--fg);text-align:left;font-size:.95rem}
+.paybar{position:fixed;left:0;right:0;bottom:0;z-index:5;padding:1.25rem 1rem calc(.75rem + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 72%,rgb(15 17 18/0))}
 .paybar>div{max-width:26rem;margin:0 auto;display:flex;flex-direction:column;gap:.45rem;text-align:center}
 .paybar .btn{min-height:3.75rem;font-size:1.25rem}
 .methods{font-size:.85rem;color:var(--mute)}
@@ -239,7 +240,7 @@ iv=setInterval(tick,1000);tick();
 // ─── Hacia el banco ─────────────────────────────────────────────────────
 
 const SPIN_CSS = `<style>
-.spin{width:3rem;height:3rem;border:4px solid var(--line);border-top-color:var(--lime);border-radius:50%;animation:np-spin 1s linear infinite}
+.spin{width:3rem;height:3rem;border:4px solid var(--line-hi);border-top-color:var(--lime);border-radius:50%;animation:np-spin 1s linear infinite}
 @keyframes np-spin{to{transform:rotate(360deg)}}
 @keyframes np-breathe{from{opacity:.35}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.spin{animation:np-breathe 1.5s ease-in-out infinite alternate}}
@@ -358,13 +359,14 @@ export function renderBusyPage(lang: PayLanguage, againHref: string, seconds: nu
 // ─── Avisos: qué pasó, si no se cobró nada y UNA acción ─────────────────
 
 const NOTICE_CSS = `<style>
-.ico{width:4.5rem;height:4.5rem;border-radius:50%;border:3px solid currentColor;display:grid;place-items:center}
-.ico svg{width:2.25rem;height:2.25rem;stroke:currentColor;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.ico.error{color:var(--err)}.ico.warn{color:var(--warn)}.ico.neutral{color:var(--mute)}
+.ico{width:5.5rem;height:5.5rem;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);box-shadow:inset 0 0 0 3px currentColor}
+.ico svg{width:2.6rem;height:2.6rem;stroke:currentColor;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.ico.error{color:var(--bad);background:rgb(255 90 95/.16)}.ico.warn{color:var(--warn);background:rgb(255 176 32/.12)}.ico.neutral{color:var(--mute)}
 h1{font-size:1.75rem}
-.safe{display:flex;align-items:center;gap:.5rem;padding:.55rem .9rem;border-radius:999px;background:#1b2208;color:var(--lime);font-weight:800}
+.safe{display:flex;align-items:center;gap:.5rem;padding:.55rem .9rem;border-radius:999px;background:var(--lime-soft);border:1.5px solid var(--lime-edge);color:var(--fg);font-weight:800}
+.safe svg{color:var(--lime)}
 .safe svg{width:1.2rem;height:1.2rem;stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
-.hint{width:100%;margin-top:.5rem;padding:.9rem 1rem;border-left:4px solid var(--lime);border-radius:4px;background:var(--surface);color:var(--fg);font-weight:700;text-align:left}
+.hint{width:100%;margin-top:.5rem;padding:.9rem 1rem;border:1px solid var(--line);border-radius:var(--r-tile);background:var(--surface);color:var(--fg);font-weight:700;text-align:left}
 </style>`;
 
 /** Icono distinto según el tono (el estado no lo dice solo el color). */
@@ -473,12 +475,13 @@ export function renderReceiptPage(
     [rt.code, confirmationCode(r.paymentId)],
   ];
   const css = `<style>
-dl{width:100%;margin:.5rem 0 0;text-align:left;border-top:2px solid var(--line)}
+dl{width:100%;margin:.5rem 0 0;padding:0 1rem;text-align:left;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
 dl div{display:flex;justify-content:space-between;gap:1rem;padding:.65rem 0;border-bottom:1px solid var(--line)}
+dl div:last-child{border-bottom:0}
 dt{color:var(--mute)}
 dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
 dl div.tot dd{color:var(--lime);font-size:1.25rem}
-@media print{body{background:#fff;color:#000}h1,dd{color:#000}dt,p{color:#333}dl div.tot dd{color:#000}.noprint{display:none!important}}
+@media print{body{background:#fff;color:#000}h1,dd{color:#000}dt,p{color:#333}dl{background:none}dl div.tot dd{color:#000}.noprint,.brand{display:none!important}}
 </style>`;
   const body = `
 <h1>${escapeHtml(rt.title)}</h1>

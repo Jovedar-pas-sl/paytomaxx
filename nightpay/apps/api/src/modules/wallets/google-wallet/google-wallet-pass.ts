@@ -63,7 +63,8 @@ export interface PassWallet {
   venueName: string | null;
 }
 
-const BACKGROUND = '#0b0b0b';
+/** Verde profundo de la tarjeta OxioCard (Google pone el texto en blanco encima). */
+const BACKGROUND = '#004820';
 const LANG = { es: 'es', en: 'en' } as const;
 /** 40 cifras hex = 160 bits del hash: único de sobra y un id corto. */
 const OBJECT_HASH_CHARS = 40;

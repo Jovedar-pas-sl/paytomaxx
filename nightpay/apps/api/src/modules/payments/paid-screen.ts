@@ -4,7 +4,8 @@ import type { PayText } from './pay-i18n';
 /**
  * «Pagado» a pantalla completa: la prueba que el cliente enseña a un metro.
  *
- *  - Recién pagado: lima, «PAGADO» y el importe enormes en negro, «hace 0:12»
+ *  - Recién pagado: el verde de la marca con el aro lima, «PAGADO» y el
+ *    importe enormes en crema, «hace 0:12»
  *    desde que el banco lo autorizó, la hora con segundos y una franja que se
  *    mueve despacio (una captura vieja no se mueve ni tiene la hora buena).
  *    La pantalla no se apaga (Wake Lock) mientras está a la vista. Solo en el
@@ -24,28 +25,33 @@ import type { PayText } from './pay-i18n';
  * (justificante, activar Face ID) y el cliente sabe que hay más.
  */
 
-/** Tiempo durante el que «Pagado» se ve lima (recién pagado). */
+/** Tiempo durante el que «Pagado» se ve en verde con el aro lima (recién pagado). */
 export const PAID_FRESH_MS = 3 * 60_000;
 
 export const PAID_SCREEN_CSS = `
-.paid{position:relative;isolation:isolate;overflow:hidden;width:100%;min-height:calc(100vh - 4.5rem);min-height:calc(100svh - 4.5rem);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;padding:2.5rem 1rem calc(2.5rem + env(safe-area-inset-bottom));background:var(--lime);color:var(--ink);text-align:center}
+.paid{position:relative;isolation:isolate;overflow:hidden;width:100%;min-height:calc(100vh - 4.5rem);min-height:calc(100svh - 4.5rem);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;padding:2.5rem 1rem calc(2.5rem + env(safe-area-inset-bottom));background:radial-gradient(120% 80% at 50% 32%,var(--green-3) 0%,var(--green-2) 55%,var(--green-1) 100%);background-color:var(--green-2);color:var(--cream);text-align:center}
 .paid p{color:inherit}
-.paid .band{position:absolute;top:-50%;left:-50%;width:200%;height:200%;z-index:-1;background:repeating-linear-gradient(-45deg,rgba(11,11,11,.09) 0 30px,rgba(11,11,11,0) 30px 60px);animation:np-band 8s linear infinite;will-change:transform}
+.paid .band{position:absolute;top:-50%;left:-50%;width:200%;height:200%;z-index:-1;background:repeating-linear-gradient(-45deg,rgb(239 233 223/.05) 0 30px,rgb(239 233 223/0) 30px 60px);animation:np-band 8s linear infinite;will-change:transform}
 @keyframes np-band{from{transform:translate3d(0,0,0)}to{transform:translate3d(84.85px,0,0)}}
 @keyframes np-fade{from{opacity:.2}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.paid .band{animation:np-fade 3s ease-in-out infinite alternate}}
-.paid .tick{width:3.25rem;height:3.25rem;stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.paid .ptitle{font-size:clamp(2.6rem,14vw,5rem);font-weight:900;letter-spacing:-.01em;text-transform:uppercase;line-height:.95}
-.paid .pamount{font-size:clamp(2.6rem,14vw,4.75rem);font-weight:800;letter-spacing:-.02em;line-height:1.05}
-.paid .pline{font-size:1.05rem;font-weight:700}
+.paid .tick{width:6.5rem;height:6.5rem;margin-bottom:.6rem;padding:1.6rem;border-radius:50%;background:var(--lime);color:var(--ink);box-shadow:0 0 0 10px var(--lime-ring),0 0 60px 10px var(--lime-glow);stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.paid .ptitle{font-size:clamp(2.6rem,13vw,4.5rem);font-weight:800;letter-spacing:.01em;text-transform:uppercase;line-height:.95}
+.paid .pamount{font-size:clamp(2.6rem,15vw,5rem);font-weight:800;letter-spacing:-.04em;line-height:1.05}
+.paid [data-lines]{display:flex;flex-direction:column;align-items:center;gap:.4rem}
+.paid [data-lines]:empty{display:none}
+.paid .pline{display:inline-flex;align-items:center;min-height:2.75rem;padding:.35rem 1.25rem;border-radius:999px;background:rgb(0 0 0/.24);font-size:1.05rem;font-weight:700}
 .paid .pago{margin-top:.6rem;font-size:1.75rem;font-weight:800;line-height:1.1}
 .paid .pclock{font-size:1.2rem;font-weight:700}
-.paid .pcode{margin-top:.8rem;border:2px solid currentColor;border-radius:12px;padding:.55rem 1.1rem .65rem;display:flex;flex-direction:column;align-items:center}
+.paid .pcode{margin-top:.8rem;border:2px solid var(--lime-edge);border-radius:var(--r-tile);background:rgb(0 0 0/.24);padding:.55rem 1.1rem .65rem;display:flex;flex-direction:column;align-items:center}
 .paid .pcode span,.paid .pcode small,.paid .pnote{font-size:.85rem;font-weight:600}
 .paid .pcode b{font-size:2.2rem;line-height:1.1;letter-spacing:.25em;margin-right:-.25em}
 .paid .pstale{display:none;font-weight:800}
 .paid.stale{background:var(--stale);color:var(--fg)}
 .paid.stale .band{display:none}
+.paid.stale .tick{background:transparent;color:var(--fg);box-shadow:inset 0 0 0 3px currentColor}
+.paid.stale .pcode{border-color:currentColor;background:none}
+.paid.stale .pline{background:rgb(0 0 0/.2)}
 .paid.stale .pstale{display:block}
 `;
 

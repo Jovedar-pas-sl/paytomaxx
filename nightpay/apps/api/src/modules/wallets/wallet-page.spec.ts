@@ -155,8 +155,9 @@ describe('dos opciones debajo del saldo: «Pagar» y «Recargar»', () => {
     expect(html).toContain('<section class="view" id="viewTop" aria-labelledby="tabTop" hidden>');
     const order = ['id="balance"', 'id="seg"', 'id="viewPay"', 'id="viewTop"', 'id="more"'].map((id) => html.indexOf(id));
     expect(order).toEqual([...order].sort((a, b) => a - b));
-    // Las dos con el mismo estilo de botón grande; la marcada, en lima.
-    expect(html).toContain('.segb[aria-selected=true]{border-color:var(--lime);background:var(--lime)');
+    // Las dos con el mismo estilo de botón grande; la marcada, en crema (como
+    // las maquetas: el lima queda para el botón principal).
+    expect(html).toContain('.segb[aria-selected=true]{border-color:var(--fg);background:var(--fg);color:var(--ink-0)}');
     expect(html).toContain('.segb:focus-visible{outline:3px solid var(--fg)');
   });
 

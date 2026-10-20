@@ -17,7 +17,7 @@ import { WALLET_TEXT } from './wallet-text';
 
 export const SCAN_CSS = `
 .stack{display:flex;flex-direction:column;gap:.7rem}
-.scanbox{position:relative;overflow:hidden;border-radius:12px;background:#000;aspect-ratio:1/1;max-height:60vh}
+.scanbox{position:relative;overflow:hidden;border-radius:var(--r-tile);background:var(--ink-0);aspect-ratio:1/1;max-height:60vh}
 .scanbox video{display:block;width:100%;height:100%;object-fit:cover}
 .scanbox::after{content:'';position:absolute;inset:15%;border:3px solid var(--lime);border-radius:18px;box-shadow:0 0 0 100vmax rgba(0,0,0,.35);pointer-events:none}
 `;

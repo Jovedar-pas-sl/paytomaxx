@@ -1,5 +1,5 @@
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
-import { CLUB_BASE_CSS, escapeHtml, jsConfig } from '../payments/club-ui';
+import { CLUB_BASE_CSS, brandWordmark, escapeHtml, jsConfig } from '../payments/club-ui';
 import type { ClientWalletState } from './wallet-charges.service';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
@@ -10,8 +10,9 @@ import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topU
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 
 /**
- * Página del saldo del cliente (/w/:token). HTML autocontenido, look "Club".
- * El saldo es el protagonista y, debajo, dos opciones iguales: «Pagar» y
+ * Página del saldo del cliente (/w/:token). HTML autocontenido, marca
+ * OxioCard: el saldo va en la tarjeta del local al estilo OxioCard (verde
+ * profundo, brillo en diagonal y borde lima) y, debajo, dos opciones iguales: «Pagar» y
  * «Recargar» (pestañas: solo se ve una vista a la vez).
  *  - «Pagar» (la de entrada): escanear el QR del personal (con la cámara en
  *    la página si hay BarcodeDetector; si no, con la del móvil), activar el
@@ -29,24 +30,29 @@ import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 
 const WALLET_CSS = `
 .w{max-width:26rem;margin:0 auto;padding:1rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1rem}
-.top{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
-.hero{padding:1.25rem 0 .5rem;text-align:center}
-.balance{font-size:clamp(3.25rem,18vw,4.75rem);font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--fg);margin-top:.25rem}
-.status{margin-top:.75rem;color:var(--fg);font-weight:600}
+.top{display:flex;align-items:center;justify-content:space-between;gap:.5rem;min-height:3rem}
+.top .wm{height:1.3rem}
+.hero{position:relative;isolation:isolate;overflow:hidden;min-height:10.5rem;padding:1rem 1.15rem;border-radius:24px;display:flex;flex-direction:column;justify-content:space-between;gap:.5rem;text-align:left;color:var(--cream);background:var(--bits),linear-gradient(135deg,var(--green-1) 0%,var(--green-2) 55%,var(--green-3) 100%);box-shadow:0 0 0 1px var(--lime-edge),0 18px 40px -20px var(--lime-glow)}
+.hero::before{content:'';position:absolute;top:1rem;right:1.1rem;width:1.5rem;height:1.5rem;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EFE9DF' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M5.5 10.5a2 2 0 0 1 0 3'/%3E%3Cpath d='M9 8a6 6 0 0 1 0 8'/%3E%3Cpath d='M12.5 5.5a9.5 9.5 0 0 1 0 13'/%3E%3Cpath d='M16 3a13 13 0 0 1 0 18'/%3E%3C/svg%3E") center/contain no-repeat}
+.hero::after{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(118deg,transparent 38%,var(--lime-soft) 50%,transparent 62%);pointer-events:none}
+.hero p{color:var(--cream)}
+#balanceLabel{padding-right:2rem;font-size:.8rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.balance{font-size:clamp(3rem,15vw,3.75rem);font-weight:800;letter-spacing:-.04em;line-height:1;margin-top:.25rem}
+.status{font-weight:700}
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
-.segb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.35rem;min-height:5.5rem;padding:.75rem .5rem;border:2px solid #45453f;border-radius:var(--r);background:var(--surface);color:var(--fg);font:inherit;font-size:1.3rem;font-weight:800;line-height:1.1;cursor:pointer;transition:transform .15s var(--ease)}
+.segb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.35rem;min-height:5.5rem;padding:.75rem .5rem;border:1px solid var(--line-hi);border-radius:var(--r);background:var(--surface-2);color:var(--fg);font:inherit;font-size:1.3rem;font-weight:800;line-height:1.1;cursor:pointer;transition:transform .15s var(--ease)}
 .segb svg{width:1.9rem;height:1.9rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.segb[aria-selected=true]{border-color:var(--lime);background:var(--lime);color:var(--ink)}
+.segb[aria-selected=true]{border-color:var(--fg);background:var(--fg);color:var(--ink-0)}
 .segb:active{transform:scale(.98)}
 .segb:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
 .view{display:flex;flex-direction:column;gap:1rem}
-.card{border:2px solid var(--line);border-radius:var(--r);padding:1.1rem;display:flex;flex-direction:column;gap:.7rem;background:var(--surface)}
+.card{border:1px solid var(--line);border-radius:var(--r);padding:1.1rem;display:flex;flex-direction:column;gap:.7rem;background:var(--surface)}
 .card h2{font-size:1.3rem;line-height:1.2}
 .card h2.kick{font-size:.8rem}
 .card h2.sub{font-size:1.1rem}
-.card.main{border-color:var(--lime)}
+.card.main{border:1.5px solid var(--lime-edge)}
 .how{color:var(--fg)}
-.code{font-size:2.2rem;font-weight:800;letter-spacing:.2em;color:var(--lime);text-align:center}
+.code{font-size:2.2rem;font-weight:800;letter-spacing:.2em;color:var(--fg);text-align:center}
 .small{font-size:.85rem}
 .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem;text-align:center}
 .steps li{display:flex;flex-direction:column;align-items:center;gap:.3rem;font-size:.85rem;font-weight:700;color:var(--dim)}
@@ -68,15 +74,15 @@ li.mv{display:flex;justify-content:space-between;gap:1rem;padding:.6rem 0;border
 li.mv span:first-child{color:var(--mute)}
 li.mv .plus{color:var(--ok);font-weight:700}
 li.mv .minus{color:var(--fg);font-weight:700}
-dialog.sheet{position:fixed;inset:auto 0 0 0;width:100%;max-width:30rem;max-height:92vh;margin:0 auto;overflow:auto;border:0;border-radius:20px 20px 0 0;padding:1.5rem 1rem calc(1.25rem + env(safe-area-inset-bottom));background:var(--surface);color:var(--fg);display:none;flex-direction:column;gap:.8rem;text-align:center}
+dialog.sheet{position:fixed;inset:auto 0 0 0;width:100%;max-width:30rem;max-height:92vh;margin:0 auto;overflow:auto;border:0;border-top:1px solid var(--line-hi);border-radius:30px 30px 0 0;padding:1.5rem 1rem calc(1.25rem + env(safe-area-inset-bottom));background:var(--surface);color:var(--fg);display:none;flex-direction:column;gap:.8rem;text-align:center}
 dialog.sheet[open]{display:flex;animation:np-up .28s var(--ease)}
-dialog.sheet::backdrop{background:rgba(0,0,0,.65)}
+dialog.sheet::backdrop{background:var(--scrim)}
 dialog.sheet h2{font-size:1.4rem}
 @keyframes np-up{from{transform:translateY(100%)}to{transform:none}}
 @keyframes np-in{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){dialog.sheet[open]{animation:np-in .2s ease}}
 .pins{display:flex;gap:.5rem;justify-content:center}
-.pins input{width:7.5rem;min-height:3.25rem;font:inherit;font-size:1.4rem;text-align:center;border-radius:12px;border:2px solid #45453f;background:var(--bg);color:var(--fg);letter-spacing:.3em}
+.pins input{width:7.5rem;min-height:3.25rem;font:inherit;font-size:1.4rem;text-align:center;border-radius:14px;border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg);letter-spacing:.3em}
 .pins input:focus-visible{outline:3px solid var(--lime);outline-offset:2px}
 .pins input::placeholder{letter-spacing:normal;font-size:1rem;color:var(--dim)}
 .gw{display:flex;flex-direction:column;align-items:center;gap:.5rem;padding:.5rem 0;text-align:center}
@@ -84,7 +90,7 @@ dialog.sheet h2{font-size:1.4rem}
 .gwb img{display:block;height:3.5rem;width:auto;max-width:100%;object-fit:contain}
 .gwb:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
 .gwb:disabled{cursor:progress}
-.toast{position:fixed;left:1rem;right:1rem;bottom:calc(1rem + env(safe-area-inset-bottom));max-width:26rem;margin:0 auto;padding:.9rem 1rem;border-radius:12px;background:var(--fg);color:var(--ink);font-weight:700;text-align:center;z-index:10;animation:np-in .2s ease}
+.toast{position:fixed;left:1rem;right:1rem;bottom:calc(1rem + env(safe-area-inset-bottom));max-width:26rem;margin:0 auto;padding:.9rem 1rem;border-radius:999px;background:var(--fg);color:var(--ink);font-weight:700;text-align:center;z-index:10;animation:np-in .2s ease}
 `;
 
 /** Iconos de las dos opciones (decorativos: el texto dice lo que es). */
@@ -249,9 +255,9 @@ export function renderWalletPage(
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0b0b"><title>${h(t.title)}</title>
+<meta name="robots" content="noindex"><meta name="theme-color" content="#0f1112"><title>${h(t.title)}</title>
 <style>${CLUB_BASE_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}</style></head><body><main class="w">
-<div class="top"><p class="kick">${h(t.title)}</p><a class="link" id="lang" href="${h(`${base}?lang=${t.other.code}`)}" lang="${t.other.code}" hreflang="${t.other.code}">${h(t.other.label)}</a></div>
+<div class="top"><p class="kick">${brandWordmark('')}<span class="sr">${h(t.title)}</span></p><a class="link" id="lang" href="${h(`${base}?lang=${t.other.code}`)}" lang="${t.other.code}" hreflang="${t.other.code}">${h(t.other.label)}</a></div>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(t.balance)}</p>
 <p class="balance num" id="balance" aria-live="polite">${h(eur(state.balanceCents, t.locale))}</p>
