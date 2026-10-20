@@ -5,6 +5,7 @@ import { amountParts } from '../format';
 import { useNow } from '../hooks';
 import { agoLabel } from '../lib/countdown';
 import { clockTime, OUTCOME_TITLE, type OutcomeKind } from '../lib/outcome';
+import { SectionChip } from './SectionChip';
 
 export interface OutcomeAction {
   label: string;
@@ -28,6 +29,10 @@ export interface PaymentOutcomeProps {
   /** Código corto que también ve el cliente en su móvil (solo pagado). */
   code?: string | null;
   codeHint?: string;
+  /** Sección del cobro (VENUE_BAR, CHICA_SERVICE… o copas, servicios…): su chip arriba. */
+  section?: string | null;
+  /** Referencia del cobro («C-4821»): una pill arriba, junto a la sección. */
+  reference?: string | null;
   /** El botón grande: «Nuevo cobro», «Otro QR · mismo importe»… */
   primary: OutcomeAction;
   secondary?: OutcomeAction;
@@ -51,10 +56,11 @@ const BAND_ITEMS = 8;
 
 /**
  * El resultado de un cobro a pantalla completa, para verlo desde un metro en
- * una sala oscura: PAGADO en lima, RECHAZADO en rojo, CADUCADO en ámbar, con
- * la palabra y el importe enormes (nunca solo el color). El «hace 0:12» y la
- * franja con la hora que se mueve delatan una captura de pantalla vieja; con
- * «reducir movimiento», la franja solo se funde.
+ * una sala oscura: PAGADO en el verde de la marca con el aro lima, RECHAZADO
+ * en rojo con una cruz, CADUCADO en ámbar, con la palabra y el importe
+ * enormes (nunca solo el color). El «hace 0:12» y la franja con la hora que
+ * se mueve delatan una captura de pantalla vieja; con «reducir movimiento»,
+ * la franja solo se funde.
  */
 export function PaymentOutcome({
   kind,
@@ -65,6 +71,8 @@ export function PaymentOutcome({
   detail,
   code,
   codeHint,
+  section,
+  reference,
   primary,
   secondary,
   error,
@@ -106,11 +114,17 @@ export function PaymentOutcome({
       </div>
 
       <div className="np-outcome-body">
+        {section || reference ? (
+          <div className="np-outcome-top">
+            {section ? <SectionChip section={section} /> : null}
+            {reference ? <span className="np-outcome-ref">{reference}</span> : null}
+          </div>
+        ) : null}
         <OutcomeIcon kind={kind} />
-        <h2 id={titleId} className="np-outcome-title" style={fit(title, 0.9)}>
+        <h2 id={titleId} className="np-outcome-title" style={fit(title, 0.74)}>
           {title}
         </h2>
-        <p className="np-outcome-amount" style={fit(amount, 0.82)}>
+        <p className="np-outcome-amount" style={fit(amount, 0.58)}>
           {amount}
         </p>
         {message ? <p className="np-outcome-message">{message}</p> : null}
@@ -141,7 +155,7 @@ export function PaymentOutcome({
   );
 }
 
-/** Tamaño de letra que cabe en el ancho de la pantalla (Unbounded es muy ancha). */
+/** Tamaño de letra que cabe en el ancho de la pantalla (Manrope 800: ~0,7 em por mayúscula, ~0,55 por cifra). */
 function fit(text: string, emPerChar: number): CSSProperties {
   return { '--np-fit': Math.max(4, text.length * emPerChar).toFixed(2) } as CSSProperties;
 }
@@ -170,22 +184,28 @@ const OutcomeButton = forwardRef<HTMLButtonElement, OutcomeButtonProps>(function
   );
 });
 
+/** El aro con el icono: ✓ en lima (pagado), ✗ (rechazado) o un reloj (caducado). */
 function OutcomeIcon({ kind }: { kind: OutcomeKind }) {
   return (
-    <svg
-      className="np-outcome-icon"
-      viewBox="0 0 48 48"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="4.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="24" cy="24" r="20" />
-      {kind === 'paid' ? <path d="M14 24.5l7 7 13-14" /> : null}
-      {kind === 'failed' ? <path d="M16.5 16.5l15 15M31.5 16.5l-15 15" /> : null}
-      {kind === 'expired' ? <path d="M24 13v11l7 5" /> : null}
-    </svg>
+    <span className="np-outcome-ring" aria-hidden="true">
+      <svg
+        className="np-outcome-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {kind === 'paid' ? <path d="M5 12.5l4.5 4.5L19 7.5" /> : null}
+        {kind === 'failed' ? <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /> : null}
+        {kind === 'expired' ? (
+          <>
+            <circle cx="12" cy="12" r="8.5" strokeWidth="2.5" />
+            <path d="M12 7.5V12l3 2" strokeWidth="2.5" />
+          </>
+        ) : null}
+      </svg>
+    </span>
   );
 }

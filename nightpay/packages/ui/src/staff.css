@@ -16,7 +16,11 @@
   }
 }
 
-/* ─── Resultado a pantalla completa (PaymentOutcome) ─────────────────── */
+/* ─── Resultado a pantalla completa (PaymentOutcome) ─────────────────
+   Como las maquetas: PAGADO en el verde de marca con texto crema y el aro
+   lima con halo; NO PAGADO en rojo entero con tinta y una cruz en un aro
+   oscuro; CADUCADO igual que el rojo, en ámbar. Se entiende desde lejos por
+   el color, el icono y la palabra (nunca solo el color). */
 
 .np-outcome {
   position: fixed;
@@ -27,7 +31,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--np-outcome-bg);
-  color: var(--np-outcome-ink);
+  color: var(--np-outcome-fg, var(--np-outcome-ink));
   padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px)
     env(safe-area-inset-left, 0px);
   animation: np-outcome-in var(--np-d-base) var(--np-ease);
@@ -35,6 +39,9 @@
 
 .np-outcome[data-kind='paid'] {
   --np-outcome-bg: var(--np-outcome-paid);
+  --np-outcome-fg: var(--np-outcome-paid-ink);
+  /* Debajo del degradado, el verde plano. */
+  background-color: var(--np-green-2);
 }
 
 .np-outcome[data-kind='failed'] {
@@ -56,15 +63,15 @@
   flex-shrink: 0;
   overflow: hidden;
   padding: 0.5rem 0;
-  border-bottom: 3px solid var(--np-outcome-ink);
+  border-bottom: 2px solid color-mix(in srgb, currentColor 35%, transparent);
 }
 
 .np-outcome-band-track {
   display: flex;
   width: max-content;
-  font-family: var(--np-font-mono);
+  font-family: var(--np-font-num);
   font-size: 0.9375rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.08em;
   white-space: nowrap;
   animation: np-outcome-band 32s linear infinite;
@@ -89,7 +96,7 @@
   width: 100%;
   max-width: 44rem;
   margin: 0 auto;
-  padding: 1.25rem 1.25rem 1.5rem;
+  padding: 1rem 1.25rem 1.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -98,33 +105,90 @@
   text-align: center;
 }
 
-.np-outcome-icon {
-  width: 3.5rem;
-  height: 3.5rem;
+/* Sección y referencia del cobro, arriba (si las hay). */
+.np-outcome-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.np-outcome-ref {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.125rem;
+  padding: 0 0.875rem;
+  border: 1.5px solid currentColor;
+  border-radius: var(--np-r-pill);
+  font-family: var(--np-font-num);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.np-outcome[data-kind='failed'] .np-chip,
+.np-outcome[data-kind='expired'] .np-chip {
+  box-shadow: 0 0 0 2px var(--np-outcome-ink);
+}
+
+/* El aro: lima con halo en PAGADO; oscuro con el color del fondo dentro en
+   NO PAGADO y CADUCADO. */
+.np-outcome-ring {
+  display: grid;
+  place-items: center;
   flex-shrink: 0;
+  width: clamp(5.5rem, 15vh, 7.375rem);
+  height: clamp(5.5rem, 15vh, 7.375rem);
+  margin-block: 0.5rem;
+  border-radius: 50%;
+  background: var(--np-outcome-ink);
+}
+
+.np-outcome[data-kind='failed'] .np-outcome-ring {
+  color: var(--np-outcome-failed);
+}
+
+.np-outcome[data-kind='expired'] .np-outcome-ring {
+  color: var(--np-outcome-expired);
+}
+
+.np-outcome[data-kind='paid'] .np-outcome-ring {
+  background: var(--np-lime);
+  color: var(--np-ink);
+  box-shadow:
+    0 0 0 10px var(--np-lime-ring),
+    0 0 60px 10px var(--np-lime-glow);
+}
+
+.np-outcome-icon {
+  width: 53%;
+  height: 53%;
 }
 
 /* --np-fit: ancho del texto en em (lo pone el componente): la letra se
-   ajusta para que quepa en una línea. */
+   ajusta para que quepa en una línea. Palabra ~50 px y cifra ~84 px en un
+   móvil de 360×740, como las maquetas. */
 .np-outcome-title {
   margin: 0;
-  font-family: var(--np-font-mono);
-  font-weight: 700;
+  font-family: var(--np-font-display);
+  font-weight: 800;
   line-height: 1;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.01em;
   font-size: 2.75rem;
-  font-size: min(7rem, calc(90vw / var(--np-fit, 6)));
+  font-size: min(clamp(2.75rem, 7vh, 5.5rem), calc(80vw / var(--np-fit, 6)));
 }
 
 .np-outcome-amount {
   margin: 0;
-  font-family: var(--np-font-mono);
-  font-weight: 700;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
+  font-family: var(--np-font-num);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
-  font-size: 2.5rem;
-  font-size: min(6rem, calc(90vw / var(--np-fit, 6)));
+  font-size: 3rem;
+  font-size: min(clamp(3.25rem, 11.5vh, 9rem), calc(88vw / var(--np-fit, 6)));
 }
 
 .np-outcome-message {
@@ -132,6 +196,16 @@
   font-size: 1.25rem;
   font-weight: 700;
   line-height: 1.3;
+}
+
+/* NO PAGADO / CADUCADO: la razón en un recuadro con borde de tinta. */
+.np-outcome[data-kind='failed'] .np-outcome-message,
+.np-outcome[data-kind='expired'] .np-outcome-message {
+  width: 100%;
+  max-width: 26rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--np-outcome-ink);
+  border-radius: var(--np-r-tile);
 }
 
 .np-outcome-detail {
@@ -144,14 +218,31 @@
   margin: 0;
 }
 
+.np-outcome-detail b,
+.np-outcome-detail strong {
+  font-family: var(--np-font-num);
+  font-weight: 800;
+}
+
+/* «Le quedan 30 €»: la cifra en lima sobre el verde (6,5:1). */
+.np-outcome[data-kind='paid'] .np-outcome-detail b,
+.np-outcome[data-kind='paid'] .np-outcome-detail strong {
+  color: var(--np-lime);
+}
+
 .np-outcome-code {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.125rem;
   padding: 0.625rem 1.5rem 0.75rem;
-  border: 3px solid var(--np-outcome-ink);
-  border-radius: var(--np-r-lg);
+  border: 2px solid currentColor;
+  border-radius: var(--np-r-tile);
+}
+
+.np-outcome[data-kind='paid'] .np-outcome-code {
+  border-color: var(--np-lime-edge);
+  background: rgb(0 0 0 / 0.24);
 }
 
 .np-outcome-code-label {
@@ -163,9 +254,9 @@
 
 /* ≥ 3rem: se compara con el del móvil del cliente a un metro. */
 .np-outcome-code-value {
-  font-family: var(--np-font-mono);
-  font-size: 3.5rem;
-  font-weight: 700;
+  font-family: var(--np-font-num);
+  font-size: 3.25rem;
+  font-weight: 800;
   line-height: 1.1;
   letter-spacing: 0.18em;
   margin-right: -0.18em;
@@ -179,9 +270,9 @@
 
 .np-outcome-ago {
   margin: 0;
-  font-family: var(--np-font-mono);
-  font-size: 1.125rem;
-  font-weight: 700;
+  font-family: var(--np-font-num);
+  font-size: 1.0625rem;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
@@ -189,8 +280,8 @@
   margin: 0;
   padding: 0.625rem 1rem;
   border-radius: var(--np-r-md);
-  background: var(--np-outcome-ink);
-  color: #fff;
+  background: var(--np-ink-0);
+  color: var(--np-cream);
   font-weight: 600;
 }
 
@@ -199,17 +290,19 @@
   max-width: 26rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
   margin-top: 0.5rem;
 }
 
+/* Botón principal: pill lima con tinta en PAGADO; pill oscura en NO PAGADO
+   y CADUCADO. El segundo, un enlace subrayado (con alto de dedo). */
 .np-outcome-btn {
-  min-height: 4.25rem;
+  min-height: 4rem;
   padding: 0.5rem 1.5rem;
-  border: 3px solid var(--np-outcome-ink);
-  border-radius: var(--np-r-md);
+  border: none;
+  border-radius: var(--np-r-pill);
   font-family: var(--np-font-sans);
-  font-size: 1.25rem;
+  font-size: 1.1875rem;
   font-weight: 700;
   line-height: 1.2;
   touch-action: manipulation;
@@ -220,17 +313,30 @@
 }
 
 .np-outcome-btn[data-variant='primary'] {
-  background: var(--np-outcome-ink);
-  color: var(--np-outcome-bg);
+  background: var(--np-ink-0);
+  color: var(--np-cream);
+}
+
+.np-outcome[data-kind='paid'] .np-outcome-btn[data-variant='primary'] {
+  background: var(--np-lime);
+  color: var(--np-ink);
+  box-shadow: 0 10px 28px -12px var(--np-lime-glow);
 }
 
 .np-outcome-btn[data-variant='secondary'] {
+  min-height: 3rem;
   background: transparent;
-  color: var(--np-outcome-ink);
+  color: inherit;
+  font-size: 1.0625rem;
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
 }
 
-.np-outcome-btn[data-variant='secondary']:hover:not(:disabled) {
-  background: rgb(11 11 11 / 0.08);
+/* Solo con ratón: en el móvil el :hover se queda pegado tras tocar. */
+@media (hover: hover) {
+  .np-outcome-btn[data-variant='secondary']:hover:not(:disabled) {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
 }
 
 .np-outcome-btn:active:not(:disabled) {
@@ -242,11 +348,16 @@
   cursor: progress;
 }
 
-/* El anillo lima de :focus-visible no se ve sobre lima: aquí, tinta. */
+/* El anillo lima de :focus-visible no se ve sobre lima ni sobre el rojo:
+   aquí, el color del texto de la pantalla. */
 .np-outcome-btn:focus-visible {
-  outline: 4px solid var(--np-outcome-ink);
+  outline: 4px solid currentColor;
   outline-offset: 4px;
-  border-radius: var(--np-r-md);
+  border-radius: var(--np-r-pill);
+}
+
+.np-outcome .np-outcome-btn[data-variant='primary']:focus-visible {
+  outline-color: var(--np-outcome-fg, var(--np-outcome-ink));
 }
 
 /* ─── Aviso de conexión (ConnectionBanner) ───────────────────────────── */
