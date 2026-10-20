@@ -820,13 +820,14 @@ export class AdminController {
     const actor = { userId: user.sub, role: user.role, tenantId };
     const route = await this.approvals.payoutRouteFor(actor);
     if (route.kind === 'forbidden') throw new ForbiddenException('Solo el dueño o el encargado pagan a las chicas');
+    // La misma Idempotency-Key con la misma petición: el pago ya apuntado (o
+    // la misma solicitud «Por aprobar») si se cortó la red o hubo doble clic,
+    // sin pedir otra vez el 2FA ni pagar (o pedir) dos veces.
+    const idempotency = idempotencyKey ? { key: idempotencyKey, hash: payoutRequestHash(user.sub, id, dto) } : undefined;
     if (route.kind === 'request') {
       reply?.status(202);
-      return this.approvals.requestPayout(actor, id, dto);
+      return this.approvals.requestPayout(actor, id, dto, idempotency);
     }
-    // La misma Idempotency-Key con la misma petición: el pago ya apuntado (se
-    // cortó la red, doble clic), sin pedir otra vez el 2FA ni pagar dos veces.
-    const idempotency = idempotencyKey ? { key: idempotencyKey, hash: payoutRequestHash(user.sub, id, dto) } : undefined;
     if (idempotency) {
       const replay = await this.operators.findPayoutReplay(tenantId, id, user.sub, idempotency);
       if (replay) return replay;

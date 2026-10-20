@@ -23,8 +23,9 @@ import {
 } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { isPayoutKeyClash, payoutKeyReused, type PayoutIdempotency } from '../operators/payout-idempotency';
 import { payoutTotalCents } from '../operators/payout-math';
-import { lockOperatorPayouts, payableSelection } from '../operators/payout-selection';
+import { lockOperatorPayouts, payableSelection, payoutTotalChanged } from '../operators/payout-selection';
 import { venueHoldDays } from '../operators/venue-hold-days';
 import {
   REFUNDABLE_STATUSES,
@@ -60,6 +61,7 @@ import {
   expiryCutoff,
   payoutAlreadyRequested,
   pendingPayoutRequest,
+  replayPayoutRequest,
   type ExpiredRow,
 } from './approval-store';
 
@@ -146,17 +148,32 @@ export class ApprovalRequestsService {
    * aprobarlo se paga exactamente eso. Una sola petición pendiente por chica
    * (candado de la chica + índice único parcial) y, mientras está pendiente,
    * nadie le paga esas comisiones por otro lado (assertNoPendingPayout).
+   *
+   * Como el pago directo: `dto.expectedTotalCents` (la cifra que vio) tiene
+   * que ser lo pagable (si no, 409 PAYOUT_CHANGED y no se pide nada) y se
+   * guarda para comprobarla otra vez al aprobar; con `idempotency`, repetir
+   * la misma petición devuelve la misma solicitud (y otra con la clave, 409).
    */
   async requestPayout(
     actor: ApprovalActor,
     operatorId: string,
     dto: CreatePayoutDto,
+    idempotency?: PayoutIdempotency,
   ): Promise<ApprovalRequestedResponse> {
     const holdDays = await venueHoldDays(this.prisma, this.config.get('PAYOUT_HOLD_DAYS'), actor.tenantId);
     const now = new Date();
-    const { row, expired, operatorName } = await this.prisma
+    const result = await this.prisma
       .withTenant(actor.tenantId, async (tx) => {
         await lockOperatorPayouts(tx, operatorId);
+        if (idempotency) {
+          const prior = await replayPayoutRequest(tx, {
+            tenantId: actor.tenantId,
+            operatorId,
+            requestedById: actor.userId,
+            idempotency,
+          });
+          if (prior) return { replayed: true as const, row: prior };
+        }
         const stale = await expirePending(tx, now, { targetId: operatorId });
         const already = await pendingPayoutRequest(tx, actor.tenantId, operatorId, now);
         if (already) throw payoutAlreadyRequested(already.amountCents);
@@ -170,18 +187,26 @@ export class ApprovalRequestsService {
             payload: payload.payload,
             requestedById: actor.userId,
             requestedAt: now,
+            ...(idempotency ? { idempotencyKey: idempotency.key, idempotencyHash: idempotency.hash } : {}),
           },
         });
-        return { row: created, expired: stale, operatorName: payload.payload.operatorName };
+        return { replayed: false as const, row: created as ApprovalRow, expired: stale, operatorName: payload.payload.operatorName };
       })
       .catch((err: unknown) => {
+        // A la vez, la misma clave en una petición para otra chica.
+        if (isPayoutKeyClash(err)) throw payoutKeyReused();
         // A la vez, otro encargado pidió lo mismo (índice único parcial).
         if (isUniqueViolation(err)) throw payoutAlreadyRequested();
         throw err;
       });
+    if (result.replayed) {
+      this.logger.log(`Solicitud ${result.row.id} repetida con la misma Idempotency-Key: no se pide otra vez`);
+      return this.requestedResponse(result.row);
+    }
+    const { row, expired, operatorName } = result;
     await this.auditExpired(expired);
-    await this.requested(actor, row as ApprovalRow, { operatorId, operatorName });
-    return this.requestedResponse(row as ApprovalRow);
+    await this.requested(actor, row, { operatorId, operatorName });
+    return this.requestedResponse(row);
   }
 
   private async payoutPayloadFor(
@@ -212,6 +237,10 @@ export class ApprovalRequestsService {
         `Saldo neto ${totalCents / 100} € — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
       );
     }
+    // Lo que vio el encargado ya no es lo pagable: no se pide otra cifra al dueño.
+    if (dto.expectedTotalCents !== undefined && totalCents !== dto.expectedTotalCents) {
+      throw payoutTotalChanged(totalCents, dto.expectedTotalCents);
+    }
     const payload = buildPayoutPayload({
       operator,
       method,
@@ -221,6 +250,7 @@ export class ApprovalRequestsService {
       earningIds: pending.map((e) => e.id),
       debtIds: debts.map((d) => d.id),
       holdDays,
+      expectedTotalCents: dto.expectedTotalCents,
     });
     return { payload, totalCents };
   }

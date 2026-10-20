@@ -149,7 +149,23 @@ describe('POST /admin/operators/:id/payouts — 2FA del que paga (Redis, vale co
       { userId: 'man-1', role: 'MANAGER', tenantId: 't-1' },
       'op-1',
       expect.objectContaining({ notes: 'semana' }),
+      undefined,
     );
+    expect(operators.createPayout).not.toHaveBeenCalled();
+  });
+
+  it('encargado con aprobación: la cifra que vio y la Idempotency-Key van a la petición «Por aprobar»', async () => {
+    const manager = { sub: 'man-1', tenantId: 't-1', role: 'MANAGER' } as unknown as JwtPayload;
+    const { pay, operators, approvals } = controller(null, createFakeRedis(), manager);
+    await pay(undefined, { expectedTotalCents: 12_500 }, 'pedir-0001-abcdef');
+    const [, , dto, idempotency] = approvals.requestPayout.mock.calls[0]!;
+    expect(dto).toMatchObject({ expectedTotalCents: 12_500 });
+    // La misma huella que el pago directo (sin el 2FA), con quien lo pide.
+    expect(idempotency).toEqual({
+      key: 'pedir-0001-abcdef',
+      hash: payoutRequestHash('man-1', 'op-1', { notes: 'semana', expectedTotalCents: 12_500 }),
+    });
+    expect(operators.findPayoutReplay).not.toHaveBeenCalled();
     expect(operators.createPayout).not.toHaveBeenCalled();
   });
 

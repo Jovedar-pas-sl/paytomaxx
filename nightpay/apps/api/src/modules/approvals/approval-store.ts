@@ -1,6 +1,8 @@
 import { ConflictException } from '@nestjs/common';
 import { APPROVAL_TTL_MS, type ApprovalKind } from '@nightpay/contracts';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import { payoutKeyReused, type PayoutIdempotency } from '../operators/payout-idempotency';
+import type { ApprovalRow } from './approval-payload';
 import { eurShort } from './approval-rules';
 
 /**
@@ -59,6 +61,28 @@ export function payoutAlreadyRequested(amountCents?: number): ConflictException 
     message: `Ya hay un pago${amount} pedido al dueño para esta chica: apruébalo o recházalo en «Por aprobar» antes de pagar otro.`,
     code: 'APPROVAL_ALREADY_PENDING',
   });
+}
+
+/**
+ * La petición de pago ya hecha con esta Idempotency-Key (null si no hay): la
+ * misma persona, la misma chica y la misma petición → esa solicitud, esté como
+ * esté (se cortó la red, doble clic). Con otra cosa, 409 (payoutKeyReused).
+ */
+export async function replayPayoutRequest(
+  tx: TransactionalClient,
+  input: { tenantId: string; operatorId: string; requestedById: string; idempotency: PayoutIdempotency },
+): Promise<ApprovalRow | null> {
+  const prior = await tx.approvalRequest.findFirst({
+    where: { tenantId: input.tenantId, idempotencyKey: input.idempotency.key },
+  });
+  if (!prior) return null;
+  const same =
+    prior.kind === 'PAYOUT' &&
+    prior.targetId === input.operatorId &&
+    prior.requestedById === input.requestedById &&
+    prior.idempotencyHash === input.idempotency.hash;
+  if (!same) throw payoutKeyReused();
+  return prior as ApprovalRow;
 }
 
 /**

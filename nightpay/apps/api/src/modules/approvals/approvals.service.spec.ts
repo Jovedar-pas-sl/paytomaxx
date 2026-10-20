@@ -143,12 +143,33 @@ describe('ApprovalsService.approve', () => {
     expect(await failure(svc.approve(boss, 'ap-1', '123456'))).toMatchObject({ status: 409, body: { code: 'APPROVAL_NOT_PENDING' } });
   });
 
-  it('no se puede hacer (ya pagado, saldo distinto…) → FAILED con la razón y 409 APPROVAL_FAILED', async () => {
+  it('lo pedido cambió (ya pagado, otra cifra, otra cuenta) → FAILED con la razón y 409 PAYOUT_CHANGED: no se paga otra cosa', async () => {
     const { svc, operators, requests } = make({ row: payoutRow(), after: payoutRow() });
     operators.createPayout.mockRejectedValueOnce(new ConflictException({ message: 'El saldo de la chica ha cambiado', code: 'PAYOUT_CHANGED' }));
     const res = await failure(svc.approve(boss, 'ap-1', '123456'));
-    expect(res).toMatchObject({ status: 409, body: { code: 'APPROVAL_FAILED', message: 'No se ha podido hacer: El saldo de la chica ha cambiado' } });
+    expect(res).toMatchObject({ status: 409, body: { code: 'PAYOUT_CHANGED', message: 'No se ha pagado nada: El saldo de la chica ha cambiado' } });
     expect(requests.markFailed).toHaveBeenCalledWith(expect.objectContaining({ id: 'ap-1' }), boss, 'El saldo de la chica ha cambiado', 'PENDING');
+  });
+
+  it('otro motivo por el que no se puede hacer → FAILED con la razón y 409 APPROVAL_FAILED', async () => {
+    const { svc, operators, requests } = make({ row: payoutRow(), after: payoutRow() });
+    operators.createPayout.mockRejectedValueOnce(new ConflictException('Ese hash ya está apuntado en otro pago'));
+    const res = await failure(svc.approve(boss, 'ap-1', '123456'));
+    expect(res).toMatchObject({ status: 409, body: { code: 'APPROVAL_FAILED', message: 'No se ha podido hacer: Ese hash ya está apuntado en otro pago' } });
+    expect(requests.markFailed).toHaveBeenCalled();
+  });
+
+  it('la cifra que vio el encargado va a createPayout (se vuelve a comprobar al pagar); sin ella, como antes', async () => {
+    const withExpected = payoutRow({ payload: { ...(payoutRow().payload as object), expectedTotalCents: 9_000 } });
+    const a = make({ row: withExpected });
+    await a.svc.approve(boss, 'ap-1', '123456');
+    expect(a.operators.createPayout.mock.calls[0]![4]).toMatchObject({
+      expectedTotalCents: 9_000,
+      exact: { totalCents: 9_000 },
+    });
+    const b = make({ row: payoutRow() });
+    await b.svc.approve(boss, 'ap-1', '123456');
+    expect(b.operators.createPayout.mock.calls[0]![4]).not.toHaveProperty('expectedTotalCents');
   });
 
   it('si otra persona la aprobó mientras fallaba la mía: no se marca FAILED, se devuelve cómo quedó', async () => {

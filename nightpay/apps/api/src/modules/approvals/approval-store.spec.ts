@@ -6,6 +6,7 @@ import {
   expirePending,
   expiryCutoff,
   pendingRefundApprovalCents,
+  replayPayoutRequest,
 } from './approval-store';
 
 const now = new Date('2026-10-16T03:00:00Z');
@@ -64,5 +65,34 @@ describe('approval_requests dentro de la transacción', () => {
     updateMany.mockClear();
     expect(await expirePending(txWith({ findMany, updateMany }), now)).toEqual([]);
     expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  describe('petición de pago repetida con la misma Idempotency-Key', () => {
+    const idempotency = { key: 'pedir-0001-abcdef', hash: 'h-1' };
+    const input = { tenantId: 't-1', operatorId: 'chica', requestedById: 'ana', idempotency };
+    const prior = { id: 'ap-1', kind: 'PAYOUT', targetId: 'chica', requestedById: 'ana', idempotencyHash: 'h-1', status: 'REJECTED' };
+
+    it('sin pedir antes con esa clave: null (se pide)', async () => {
+      const findFirst = vi.fn().mockResolvedValue(null);
+      expect(await replayPayoutRequest(txWith({ findFirst }), input)).toBeNull();
+      expect(findFirst).toHaveBeenCalledWith({ where: { tenantId: 't-1', idempotencyKey: 'pedir-0001-abcdef' } });
+    });
+
+    it('la misma petición: la misma solicitud, esté como esté', async () => {
+      const findFirst = vi.fn().mockResolvedValue(prior);
+      expect(await replayPayoutRequest(txWith({ findFirst }), input)).toBe(prior);
+    });
+
+    it.each([
+      ['otra petición (otra cifra, otras notas…)', { idempotencyHash: 'h-2' }],
+      ['otra chica', { targetId: 'otra' }],
+      ['otra persona', { requestedById: 'bea' }],
+      ['una devolución', { kind: 'REFUND' }],
+    ])('%s con la misma clave → 409 IDEMPOTENCY_KEY_REUSED', async (_caso, change) => {
+      const findFirst = vi.fn().mockResolvedValue({ ...prior, ...change });
+      await expect(replayPayoutRequest(txWith({ findFirst }), input)).rejects.toMatchObject({
+        response: { code: 'IDEMPOTENCY_KEY_REUSED' },
+      });
+    });
   });
 });

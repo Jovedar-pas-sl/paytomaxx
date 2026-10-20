@@ -604,9 +604,14 @@ model ApprovalRequest {
   resultRef     String?        @db.Uuid
   failureReason String?
   updatedAt     DateTime       @default(now()) @updatedAt @db.Timestamptz
+  // Idempotency-Key de quien lo pidió (pago a la chica): repetir la petición
+  // sin respuesta devuelve la misma solicitud; otra petición con la misma, 409.
+  idempotencyKey  String?
+  idempotencyHash String?
 
   venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status])
   @@map("approval_requests")
 }

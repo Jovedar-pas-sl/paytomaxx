@@ -6,9 +6,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
-import type { JwtPayload } from '@nightpay/contracts';
+import type { CreatePayoutDto, JwtPayload } from '@nightpay/contracts';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { OperatorsService } from '../../src/modules/operators/operators.service';
+import { payoutRequestHash } from '../../src/modules/operators/payout-idempotency';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { RefundsService } from '../../src/modules/refunds/refunds.service';
 import { RefundsController } from '../../src/modules/refunds/refunds.controller';
@@ -378,9 +379,74 @@ describe('pagos a las chicas', () => {
     const asked = await pay(managerOf(manager), chica);
     await sys((tx) => tx.user.update({ where: { id: chica }, data: { payoutAddress: `TQ${'9'.repeat(32)}` } as never }));
     const res = await failure(approve(await newOwner(), asked.approvalRequestId));
-    expect(res).toMatchObject({ status: 409, body: { code: 'APPROVAL_FAILED' } });
+    expect(res).toMatchObject({ status: 409, body: { code: 'PAYOUT_CHANGED', message: expect.stringMatching(/^No se ha pagado nada/) } });
     expect(await rowOf(asked.approvalRequestId)).toMatchObject({ status: 'FAILED', failureReason: expect.stringMatching(/cuenta de cobro/) });
     expect(await payoutsOf(chica)).toEqual([]);
+  });
+});
+
+describe('pagos a las chicas «Por aprobar»: la cifra que vio el encargado y la Idempotency-Key', () => {
+  const ask = (a: ApprovalActor, chica: string, dto: CreatePayoutDto, key?: string) =>
+    asStaff(V, () =>
+      requests.requestPayout(a, chica, dto, key ? { key, hash: payoutRequestHash(a.userId, chica, dto) } : undefined),
+    );
+  const requestsOf = (chica: string) =>
+    sys<Array<{ id: string; status: string; amountCents: number }>>((tx) =>
+      tx.approvalRequest.findMany({ where: { targetId: chica }, select: { id: true, status: true, amountCents: true } }),
+    );
+
+  it('si lo pagable ya no es lo que vio: 409 PAYOUT_CHANGED y no se pide nada', async () => {
+    const chica = await newChica('Cloe', [10_000]);
+    const res = await failure(ask(managerOf(manager), chica, { externalRail: 'USDT_TRC20', expectedTotalCents: 8_000 }));
+    expect(res).toMatchObject({ status: 409, body: { code: 'PAYOUT_CHANGED', message: expect.stringMatching(/ahora son 90,00 €, no 80,00 €/) } });
+    expect(await requestsOf(chica)).toEqual([]);
+  });
+
+  it('repetir la misma petición (sin respuesta, doble clic, a la vez) da la misma solicitud; otra con la clave → 409', async () => {
+    const chica = await newChica('Dafne', [10_000]);
+    const dto: CreatePayoutDto = { externalRail: 'USDT_TRC20', expectedTotalCents: 9_000, notes: 'cierre' };
+    const key = `pedir-${randomUUID()}`;
+    const [a, b] = await Promise.all([ask(managerOf(manager), chica, dto, key), ask(managerOf(manager), chica, dto, key)]);
+    expect(a.approvalRequestId).toBe(b.approvalRequestId);
+    const again = await ask(managerOf(manager), chica, dto, key);
+    expect(again).toEqual(a);
+    expect(await requestsOf(chica)).toEqual([{ id: a.approvalRequestId, status: 'PENDING', amountCents: 9_000 }]);
+    expect(auditLog.filter((e) => e.action === 'approval.requested' && e.targetId === a.approvalRequestId)).toHaveLength(1);
+
+    // La misma clave con otra petición, otra chica u otra persona: 409 y nada nuevo.
+    expect(await failure(ask(managerOf(manager), chica, { ...dto, notes: 'otra' }, key))).toMatchObject({
+      status: 409,
+      body: { code: 'IDEMPOTENCY_KEY_REUSED' },
+    });
+    const other = await newChica('Elsa', [5_000]);
+    expect(await failure(ask(managerOf(manager), other, { externalRail: 'USDT_TRC20' }, key))).toMatchObject({
+      status: 409,
+      body: { code: 'IDEMPOTENCY_KEY_REUSED' },
+    });
+    expect(await requestsOf(other)).toEqual([]);
+    // Ya aprobada, repetirla devuelve esa misma solicitud: no se pide (ni se paga) otra vez.
+    await approve(await newOwner(), a.approvalRequestId);
+    await expect(ask(managerOf(manager), chica, dto, key)).resolves.toMatchObject({ approvalRequestId: a.approvalRequestId });
+    expect(await payoutsOf(chica)).toEqual([{ id: expect.any(String), totalCents: 9_000 }]);
+  });
+
+  it('si la cifra cambia entre pedirlo y aprobarlo (una devolución): 409 PAYOUT_CHANGED, FAILED y no se paga otra cifra', async () => {
+    const chica = await newChica('Fiona', [10_000, 5_000]);
+    const asked = await ask(managerOf(manager), chica, { externalRail: 'USDT_TRC20', expectedTotalCents: 13_500 });
+    expect(asked.amountCents).toBe(13_500);
+    // Entre medias, una devolución le quita 20 € de comisión a una de las que se pidieron.
+    await sys((tx) =>
+      tx.$executeRaw`UPDATE operator_earnings SET "reversedCents" = 2000
+                      WHERE id = (SELECT id FROM operator_earnings WHERE "operatorId" = ${chica}::uuid ORDER BY id LIMIT 1)`,
+    );
+    const res = await failure(approve(await newOwner(), asked.approvalRequestId));
+    expect(res).toMatchObject({ status: 409, body: { code: 'PAYOUT_CHANGED', message: expect.stringMatching(/^No se ha pagado nada/) } });
+    expect(await rowOf(asked.approvalRequestId)).toMatchObject({ status: 'FAILED', failureReason: expect.stringMatching(/ha cambiado/) });
+    expect(await payoutsOf(chica)).toEqual([]);
+    // Ya no reserva: se pide otra vez con la cifra de ahora.
+    await expect(ask(managerOf(manager), chica, { externalRail: 'USDT_TRC20', expectedTotalCents: 11_500 })).resolves.toMatchObject({
+      amountCents: 11_500,
+    });
   });
 });
 

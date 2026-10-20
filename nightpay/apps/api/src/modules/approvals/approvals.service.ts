@@ -4,7 +4,7 @@ import { PrismaService, type TransactionalClient } from '../../common/prisma/pri
 import { AuditService } from '../audit/audit.service';
 import { TotpService } from '../auth/totp.service';
 import { OperatorsService } from '../operators/operators.service';
-import { payoutChanged } from '../operators/payout-selection';
+import { PAYOUT_CHANGED_CODE, payoutChanged } from '../operators/payout-selection';
 import { RefundsService } from '../refunds/refunds.service';
 import {
   PayoutPayloadSchema,
@@ -17,8 +17,22 @@ import { ApprovalRequestsService, type ApprovalActor } from './approval-requests
 import { failureReasonOf, isLastingFailure, notPendingMessage } from './approval-rules';
 import { ApprovalAlreadyDecidedError, claimApproval, setApprovalResult } from './approval-store';
 
-/** Lo aprobado no se pudo hacer: la solicitud queda fallida con la razón. */
-function approvalFailed(reason: string): ConflictException {
+/** El `code` del cuerpo de un error HTTP de Nest (null si no lleva). */
+function codeOf(err: unknown): string | null {
+  const body = (err as { getResponse?: () => unknown }).getResponse?.();
+  const code = typeof body === 'object' && body !== null ? (body as { code?: unknown }).code : null;
+  return typeof code === 'string' ? code : null;
+}
+
+/**
+ * Lo aprobado no se pudo hacer: la solicitud queda fallida con la razón. Si
+ * lo pedido ya no es lo que hay (otra cifra, otra cuenta, ya pagado), con
+ * PAYOUT_CHANGED: no se ha pagado nada y el panel lo dice así.
+ */
+function approvalFailed(reason: string, cause: unknown): ConflictException {
+  if (codeOf(cause) === PAYOUT_CHANGED_CODE) {
+    return new ConflictException({ message: `No se ha pagado nada: ${reason}`, code: PAYOUT_CHANGED_CODE });
+  }
   return new ConflictException({ message: `No se ha podido hacer: ${reason}`, code: 'APPROVAL_FAILED' });
 }
 
@@ -95,6 +109,8 @@ export class ApprovalsService {
       externalRail: p.method ?? undefined,
       receiptUrl: p.receiptUrl ?? undefined,
       exact: { earningIds: p.earningIds, debtIds: p.debtIds, totalCents: row.amountCents },
+      // La cifra que vio el encargado: si lo que se va a pagar ya es otro, PAYOUT_CHANGED.
+      ...(typeof p.expectedTotalCents === 'number' ? { expectedTotalCents: p.expectedTotalCents } : {}),
       approvalRequestId: row.id,
       inTransaction: async (tx) => {
         await claimApproval(tx, row.id, actor.userId, now);
@@ -150,7 +166,7 @@ export class ApprovalsService {
   /** FAILED con la razón; si otra persona la decidió a la vez, cómo quedó de verdad. */
   private async failWith(actor: ApprovalActor, row: ApprovalRow, err: unknown, from: 'PENDING' | 'APPROVED'): Promise<ApprovalView> {
     const reason = failureReasonOf(err);
-    if (await this.requests.markFailed(row, actor, reason, from)) throw approvalFailed(reason);
+    if (await this.requests.markFailed(row, actor, reason, from)) throw approvalFailed(reason, err);
     const now = await this.requests.findRow(actor.tenantId, row.id);
     if (now?.status === 'APPROVED') return this.requests.view(actor, now);
     throw new ConflictException({ message: notPendingMessage(now?.status ?? 'FAILED'), code: 'APPROVAL_NOT_PENDING' });

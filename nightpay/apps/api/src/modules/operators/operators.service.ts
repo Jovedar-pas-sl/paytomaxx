@@ -34,6 +34,7 @@ import {
   lockOperatorPayouts,
   payableSelection,
   payoutChanged,
+  payoutTotalChanged,
   settleSelection,
   type ExactPayout,
 } from './payout-selection';
@@ -1104,9 +1105,7 @@ export class OperatorsService {
         throw payoutChanged(`El saldo de la chica ha cambiado desde que se pidió (ahora ${eur(totalCents)}).`);
       }
       if (options?.expectedTotalCents !== undefined && totalCents !== options.expectedTotalCents) {
-        throw payoutChanged(
-          `Lo que hay que pagar a la chica ha cambiado desde que lo abriste: ahora son ${eur(totalCents)}, no ${eur(options.expectedTotalCents)}.`,
-        );
+        throw payoutTotalChanged(totalCents, options.expectedTotalCents);
       }
 
       const payoutData = await this.payoutData({ tenantId, operatorId, totalCents, paidByUserId, notes, rail, options });

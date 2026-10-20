@@ -35,6 +35,12 @@ export const PayoutPayloadSchema = z.object({
   earningIds: z.array(Uuid).min(1),
   debtIds: z.array(Uuid),
   holdDays: z.number().int().nonnegative(),
+  /**
+   * La cifra que vio quien lo pidió (si la mandó): al pedirlo era lo pagable,
+   * y al aprobarlo se vuelve a comprobar (PAYOUT_CHANGED si ya es otra). Las
+   * solicitudes de antes del 23-oct-2026 no la traen.
+   */
+  expectedTotalCents: z.number().int().positive().nullable().optional(),
 });
 export type PayoutPayload = z.infer<typeof PayoutPayloadSchema>;
 
@@ -72,6 +78,7 @@ export function buildPayoutPayload(input: {
   earningIds: string[];
   debtIds: string[];
   holdDays: number;
+  expectedTotalCents?: number;
 }): PayoutPayload {
   const { operator } = input;
   // La dirección guardada es la de su método guardado; pagando por otra vía no aplica.
@@ -89,6 +96,7 @@ export function buildPayoutPayload(input: {
     earningIds: input.earningIds,
     debtIds: input.debtIds,
     holdDays: input.holdDays,
+    expectedTotalCents: input.expectedTotalCents ?? null,
   });
 }
 
@@ -108,6 +116,8 @@ export interface ApprovalRow {
   decisionNote: string | null;
   resultRef: string | null;
   failureReason: string | null;
+  idempotencyKey?: string | null;
+  idempotencyHash?: string | null;
 }
 
 export interface PersonRow {
