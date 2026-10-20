@@ -546,12 +546,19 @@ export async function fetchMySections(): Promise<MySections> {
 /**
  * Formas de cobro y ajustes de la noche del local (Ajustes del dueño): las
  * apps esconden lo apagado y usan el teclado del PIN y la recepción que tocan.
+ * Y el puesto de quien entra y lo que puede (cargar saldos, efectivo): la
+ * recepción solo sale a quien la puede hacer.
  */
-export async function fetchVenueFeed(): Promise<{ paymentMethods: unknown; nightSettings: unknown }> {
+export async function fetchVenueFeed(): Promise<{ paymentMethods: unknown; nightSettings: unknown; myPost: unknown; myRights: unknown }> {
   const res = await authedFetch('/v1/venues/me');
   if (!res.ok) throw loadError(res, 'Error cargando el local');
-  const venue = (await res.json()) as { paymentMethods?: unknown; nightSettings?: unknown };
-  return { paymentMethods: venue.paymentMethods ?? null, nightSettings: venue.nightSettings ?? null };
+  const venue = (await res.json()) as { paymentMethods?: unknown; nightSettings?: unknown; myPost?: unknown; myRights?: unknown };
+  return {
+    paymentMethods: venue.paymentMethods ?? null,
+    nightSettings: venue.nightSettings ?? null,
+    myPost: venue.myPost ?? null,
+    myRights: venue.myRights ?? null,
+  };
 }
 
 export async function fetchTerminals(): Promise<Array<{ externalId: string; label: string }>> {

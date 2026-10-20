@@ -20,7 +20,7 @@ import { InviteStep } from './InviteStep';
 import { invitationsFirst } from '@/lib/invite-link';
 import { STICKY_ACTION_BOTTOM } from './layout';
 import { TopUpExisting } from './reception/TopUpExisting';
-import { cobroModeAllowed, useVenueMethods, type CobroMode } from '@/lib/venue-methods';
+import { canTopUp, cobroModeAllowed, useMyRights, useVenueMethods, type CobroMode } from '@/lib/venue-methods';
 import { initialSection, offeredSections, sectionColor, useMySections } from '@/lib/sections';
 import { SectionPicker } from './SectionPicker';
 
@@ -50,7 +50,7 @@ interface Active {
   request: ChargeRequest;
 }
 
-export function CreatePayment({ role: _role, onCreated }: Props) {
+export function CreatePayment({ role, onCreated }: Props) {
   const [terminals, setTerminals] = useState<Array<{ externalId: string; label: string }>>([]);
   const [zones, setZones] = useState<ZoneOption[]>([]);
   const [selectedZone, setSelectedZone] = useState<string>('');
@@ -101,7 +101,9 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
 
   // Formas de cobro del local: lo apagado por el dueño no sale (el API lo rechazaría).
   const methods = useVenueMethods();
-  const modes = MODES.filter((m) => cobroModeAllowed(m.mode, methods));
+  // «Recargar», solo quien carga saldos (recepción, encargado, dueño).
+  const topUps = canTopUp(useMyRights(), role);
+  const modes = MODES.filter((m) => cobroModeAllowed(m.mode, methods, topUps));
   useEffect(() => {
     const first = modes[0];
     if (first && !modes.some((m) => m.mode === mode)) setMode(first.mode);
@@ -287,7 +289,7 @@ export function CreatePayment({ role: _role, onCreated }: Props) {
             <span style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>Teclearlo</span>
           </button>
         </div>
-        {cobroModeAllowed('wallet', methods) ? (
+        {cobroModeAllowed('wallet', methods, topUps) ? (
           <Button type="button" variant="ghost" onClick={() => switchMode('wallet')}>
             Recargar saldo del cliente
           </Button>
