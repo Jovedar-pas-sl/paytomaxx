@@ -77,7 +77,7 @@ describe('libro de cobros', () => {
     const [header, row] = lines(cobrosCsv([cobro({})], 'Local Centro'));
     expect(header).toContain('Fecha;Hora;Local;Código;Concepto;Tipo;Cobrado por');
     expect(row).toBe(
-      '13/10/2026;23:41;Local Centro;"=""A6B""";30 min;Servicio de chica;Lola;Móvil (QR);Apple Pay / Google Pay;Visa;Débito;"=""724""";"=""047215""";"=""1234ABCD5678""";100,00;5,00;105,00;0,00;105,00;95,00;10,00;Pagado;7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b',
+      '13/10/2026;23:41;Local Centro;"=""A6B""";30 min;Servicio de chica;Lola;Móvil (QR);Apple Pay / Google Pay;Visa;Débito;"=""724""";"=""047215""";"=""1234ABCD5678""";100,00;5,00;105,00;0,00;105,00;95,00;10,00;Pagado;7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b;Servicio de chica 100,00',
     );
   });
 

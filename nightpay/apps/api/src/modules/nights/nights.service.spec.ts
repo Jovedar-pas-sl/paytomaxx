@@ -103,7 +103,13 @@ function check(o: { cash?: NightCash; steps?: Partial<Record<NightCloseStep['key
 }
 
 function makeService(
-  opts: { open?: ReturnType<typeof night> | null; pending?: unknown[]; closedCount?: number; check?: NightCloseCheck } = {},
+  opts: {
+    open?: ReturnType<typeof night> | null;
+    pending?: unknown[];
+    closedCount?: number;
+    check?: NightCloseCheck;
+    moneyMap?: { compute: ReturnType<typeof vi.fn> };
+  } = {},
 ) {
   const totp = { isEnabled: vi.fn().mockResolvedValue(true), assertForUser: vi.fn().mockResolvedValue(undefined) };
   const prisma = {
@@ -134,7 +140,7 @@ function makeService(
     check: vi.fn().mockResolvedValue(opts.check ?? check()),
     cash: vi.fn().mockResolvedValue((opts.check ?? check()).cash),
   };
-  const svc = new NightsService(prisma as never, reports as never, audit as never, checks as never, totp as never);
+  const svc = new NightsService(prisma as never, reports as never, audit as never, checks as never, totp as never, opts.moneyMap as never);
   return { svc, prisma, reports, audit, checks, totp };
 }
 
@@ -365,6 +371,48 @@ describe('cerrar la noche', () => {
     await svc.close('t-1', manager, 'night-1');
     expect(prisma.venueNight.updateMany).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/1 transacción\(es\) de antes del corte .* siguen abiertas tras 6000 ms/));
+  });
+});
+
+describe('el mapa del dinero, congelado en el Z', () => {
+  const MAP = { salesCents: 12_345, frozen: true };
+
+  it('al cerrar: con la ventana, el corte y la caja del Z (y el saldo vivo de ese momento)', async () => {
+    const moneyMap = { compute: vi.fn().mockResolvedValue(MAP) };
+    const { svc, prisma } = makeService({ open: night({ openingFloatCents: 20_000 }), check: check({ cash: CASH }), moneyMap });
+    await svc.close('t-1', { userId: 'u-1', role: 'OWNER' }, 'night-1', { cashCountedCents: 6000 });
+    const at = new Date('2026-10-13T23:00:00Z');
+    expect(moneyMap.compute).toHaveBeenCalledWith('t-1', { from: OPENED, to: at }, {
+      scope: { kind: 'night', nightId: 'night-1', open: false },
+      now: at,
+      recordedBefore: at,
+      openingFloatCents: 20_000,
+      cash: expect.objectContaining({ expectedCents: 6000, countedCents: 6000 }),
+      withLiveBalances: true,
+      frozen: true,
+    });
+    expect(closedData(prisma).zReport.moneyMap).toEqual(MAP);
+  });
+
+  it('cerrándose sola: hasta las 08:00, con el corte de cuando se genera', async () => {
+    const moneyMap = { compute: vi.fn().mockResolvedValue(MAP) };
+    const { svc, prisma } = makeService({ open: night(), moneyMap });
+    const at = new Date('2026-10-14T09:00:00Z');
+    expect(await svc.autoCloseDue(undefined, at)).toBe(1);
+    expect(moneyMap.compute).toHaveBeenCalledWith(
+      't-1',
+      { from: OPENED, to: new Date('2026-10-14T06:00:00Z') },
+      expect.objectContaining({ recordedBefore: at, frozen: true, scope: { kind: 'night', nightId: 'night-1', open: false } }),
+    );
+    expect(closedData(prisma).zReport.moneyMap).toEqual(MAP);
+  });
+
+  it('si el mapa falla, la noche se cierra igual (sin él: el panel lo calcula con la ventana del Z)', async () => {
+    const moneyMap = { compute: vi.fn().mockRejectedValue(new Error('db blip')) };
+    const { svc, prisma } = makeService({ moneyMap });
+    await svc.close('t-1', { userId: 'u-1', role: 'MANAGER' }, 'night-1');
+    expect(prisma.venueNight.updateMany).toHaveBeenCalled();
+    expect(closedData(prisma).zReport.moneyMap).toBeUndefined();
   });
 });
 

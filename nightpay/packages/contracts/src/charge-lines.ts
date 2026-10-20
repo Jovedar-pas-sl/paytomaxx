@@ -168,6 +168,8 @@ export interface CobroRow {
   method: ChargeMethod | null;
   /** «Tarjeta ••4242», «Saldo K7Q-•••»… */
   methodLabel: string;
+  /** Por dónde se autorizó: «QR», «Datáfono», «NFC», «PIN», «Face ID», «Personal» (null: no se sabe). */
+  via?: string | null;
   /** Saldo con el que pagó (cobros del saldo) o que recargó (recargas). */
   wallet: { id: string; codeHint: string } | null;
   /** Lo que se vendió («2× Copa · Habitación»). */
@@ -236,6 +238,16 @@ export interface WalletFichaRefund {
   venueName: string;
 }
 
+/** Una ficha NFC dada a este saldo (la que paga, o la bloqueada). */
+export interface WalletFichaCard {
+  id: string;
+  /** Para reconocerla: el final del número de serie o el principio del código grabado. */
+  label: string;
+  /** ISSUED / ACTIVE (paga) o BLOCKED. */
+  status: string;
+  linkedAt: string | null;
+}
+
 export interface WalletFicha {
   wallet: {
     id: string;
@@ -253,4 +265,6 @@ export interface WalletFicha {
   /** Lo que se gastó del saldo (cobros del saldo, también los anulados: status REVERSED). */
   consumptions: Array<CobroRow & { venueName: string }>;
   refunds: WalletFichaRefund[];
+  /** Sus fichas NFC (las que pagan y las bloqueadas). */
+  cards?: WalletFichaCard[];
 }

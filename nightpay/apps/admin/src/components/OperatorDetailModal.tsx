@@ -1,21 +1,28 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Button, Modal } from '@nightpay/ui';
+import { Button } from '@nightpay/ui';
+import type { StaffFicha } from '@nightpay/contracts';
 import {
   fetchOperatorEarnings,
   fetchOperatorPayouts,
+  fetchStaffFicha,
   type Operator,
   type OperatorEarning,
   type OperatorPayout,
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
+import { payButtonLabel, staffSheet } from '@/lib/ficha-sheets';
 import { formatEur } from '@/lib/money';
+import { eurShort, railNote } from '@/lib/money-map-view';
 import { RECONCILIATION_LABELS } from '@/lib/payout-verify';
 import { safeHttpUrl } from '@/lib/urls';
 import { useApprovals } from '@/lib/use-approvals';
+import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { EditOperatorForm } from './EditOperatorForm';
+import { FichaSheet, SheetChip } from './fichas/FichaSheet';
+import { FichaTimeline } from './fichas/FichaTimeline';
 import { OperatorCobros } from './fichas/OperatorCobros';
 import { Notice } from './Notice';
 import { OnboardingForm } from './OnboardingForm';
@@ -23,18 +30,34 @@ import { PayoutConfirmModal } from './PayoutConfirmModal';
 import { PAYOUT_METHOD_SHORT } from './PayoutMethodForm';
 import { PayoutVerifyModal } from './PayoutVerifyModal';
 import { Pill } from './Pill';
-import { TabBar, tabId, tabPanelId } from './TabBar';
 
 /** El API devuelve como mucho estas filas de ganancias y de liquidaciones (sin paginar). */
 const HISTORY_LIMIT = 100;
 
-type DetailTab = 'cobros' | 'earnings' | 'payouts' | 'edit' | 'onboarding';
+/** La ficha (maqueta 9.2) y, desde ella, lo demás de la chica. */
+type View = 'main' | 'cobros' | 'earnings' | 'payouts' | 'edit' | 'onboarding';
+
+const VIEW_LABEL: Readonly<Record<Exclude<View, 'main'>, string>> = {
+  cobros: 'Todos sus cobros',
+  earnings: 'Ganancias',
+  payouts: 'Pagos hechos',
+  edit: 'Editar',
+  onboarding: 'Onboarding',
+};
 
 interface History {
   earnings: OperatorEarning[];
   payouts: OperatorPayout[];
 }
 
+/**
+ * Ficha de la chica (maqueta 9.2), y la del camarero con su parte de las
+ * invitaciones: lo vendido, lo suyo y lo pagado esta noche, lo que le toca de
+ * cada cosa, cada cobro con su referencia, sección, cómo pagó y su parte, y
+ * un solo botón para pagarle lo que se le debe (mismo pago, aprobaciones y
+ * 2FA para los dos). Desde ella: todos sus cobros, ganancias, pagos y, de la
+ * chica, editar y onboarding.
+ */
 export function OperatorDetailModal({
   operator,
   isOwner,
@@ -46,23 +69,39 @@ export function OperatorDetailModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const tz = useVenueTimezone();
+  const { sections } = useSections();
+  const [ficha, setFicha] = useState<StaffFicha | null>(null);
+  const [fichaError, setFichaError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [view, setView] = useState<View>('main');
   const [history, setHistory] = useState<History | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [tab, setTab] = useState<DetailTab>('cobros');
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [verifyFor, setVerifyFor] = useState<OperatorPayout | null>(null);
   const generation = useRef(0);
-  const tabsId = `np-op-${operator.id.slice(0, 8)}`;
   const payoutMode = payoutModeFor(isOwner, useApprovals().rules?.payout);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFichaError(null);
+    fetchStaffFicha(operator.id)
+      .then((f) => {
+        if (!cancelled) setFicha(f);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setFichaError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [operator.id, attempt]);
 
   async function loadHistory(): Promise<void> {
     const gen = ++generation.current;
     setHistoryError(null);
     try {
-      const [earnings, payouts] = await Promise.all([
-        fetchOperatorEarnings(operator.id),
-        fetchOperatorPayouts(operator.id),
-      ]);
+      const [earnings, payouts] = await Promise.all([fetchOperatorEarnings(operator.id), fetchOperatorPayouts(operator.id)]);
       if (gen === generation.current) setHistory({ earnings, payouts });
     } catch (err) {
       if (gen === generation.current) setHistoryError((err as Error).message);
@@ -70,130 +109,171 @@ export function OperatorDetailModal({
   }
 
   useEffect(() => {
-    void loadHistory();
-    return () => {
-      generation.current += 1;
-    };
-  }, [operator.id]);
+    if ((view === 'earnings' || view === 'payouts') && history === null) void loadHistory();
+  }, [view]);
 
-  const balance = operator.balance.pendingCents;
-  // Lo que un pago liquida hoy (comisiones con más de 7 días, menos deuda por
-  // devoluciones). Si el API es antiguo y no lo manda, cae al pendiente total.
-  const payable = operator.balance.availableCents ?? balance;
+  useEffect(
+    () => () => {
+      generation.current += 1;
+    },
+    [],
+  );
+
+  const name = operator.displayName ?? operator.email;
+  const sheet = ficha ? staffSheet(ficha, sections, tz) : null;
+  const camarero = ficha?.person.role === 'WAITER';
+  // Lo que un pago liquida hoy (pasados los días de espera, menos deuda). Si
+  // el API es antiguo y no lo manda, cae al pendiente total.
+  const payable = operator.balance.availableCents ?? operator.balance.pendingCents;
   const needsHelp = operator.needsHelpWallet || operator.needsHelpDocs;
-  const tabs: Array<{ key: DetailTab; label: string }> = [
-    { key: 'cobros', label: 'Cobros' },
-    { key: 'earnings', label: 'Ganancias' },
-    { key: 'payouts', label: 'Liquidaciones' },
-    { key: 'edit', label: 'Editar' },
-    { key: 'onboarding', label: needsHelp ? 'Onboarding · pide ayuda' : 'Onboarding' },
-  ];
-  // Con un modal encima, Escape cierra solo ese (no este con el de dentro).
-  const childOpen = payoutOpen || verifyFor !== null;
+  const covered = payoutOpen || verifyFor !== null;
+  const more: Array<Exclude<View, 'main'>> = camarero
+    ? ['cobros', 'earnings', 'payouts']
+    : ['cobros', 'earnings', 'payouts', 'edit', 'onboarding'];
+
+  const footer =
+    view !== 'main' ? null : (
+      <>
+        <BalanceNote operator={operator} payable={payable} />
+        {payoutMode && payable > 0 ? (
+          <Button size="lg" onClick={() => setPayoutOpen(true)}>
+            {payButtonLabel(payoutMode, payable, name)}
+          </Button>
+        ) : null}
+      </>
+    );
 
   return (
-    <Modal
-      open
-      onClose={childOpen ? () => undefined : onClose}
-      title={operator.displayName ?? operator.email}
-      width="44rem"
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div style={balanceBox}>
-          <span style={balanceLabel}>Saldo pendiente</span>
-          <span
-            className="np-num"
-            style={{
-              fontSize: '1.75rem',
-              fontWeight: 600,
-              marginLeft: 'auto',
-              color: balance < 0 ? 'var(--np-danger)' : 'var(--np-success)',
-            }}
-          >
-            {formatEur(balance)}
-          </span>
-          {payoutMode && payable > 0 ? (
-            <Button onClick={() => setPayoutOpen(true)} size="md">
-              {payoutMode === 'request' ? 'Pedir pago' : 'Marcar pagado'}
-            </Button>
-          ) : null}
-        </div>
-
-        {operator.balance.availableCents !== undefined ? (
-          <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem' }}>
-            A pagar ahora <strong className="np-num">{formatEur(Math.max(0, payable))}</strong>
-            {operator.balance.heldCents ? (
-              <> · en espera (menos de 7 días) {formatEur(operator.balance.heldCents)}</>
-            ) : null}
-            {operator.balance.debtCents ? (
-              <span style={{ color: 'var(--np-danger)' }}>
-                {' '}
-                · deuda por devoluciones {formatEur(operator.balance.debtCents)}
-              </span>
-            ) : null}
-          </p>
-        ) : null}
-
-        <TabBar tabs={tabs} active={tab} onChange={setTab} ariaLabel="Datos de la operadora" idPrefix={tabsId} size="sm" />
-
-        <div role="tabpanel" id={tabPanelId(tabsId, tab)} aria-labelledby={tabId(tabsId, tab)}>
-          {tab === 'cobros' ? (
-            <OperatorCobros operatorId={operator.id} />
-          ) : tab === 'earnings' || tab === 'payouts' ? (
-            historyError ? (
-              <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => void loadHistory() }}>
-                {historyError}
-              </Notice>
-            ) : history === null ? (
-              <p style={emptyText}>Cargando…</p>
-            ) : tab === 'earnings' ? (
-              <EarningsTable earnings={history.earnings} />
-            ) : (
-              <PayoutsTable payouts={history.payouts} canVerify={isOwner} onVerify={setVerifyFor} />
-            )
-          ) : tab === 'edit' ? (
-            <EditOperatorForm
-              operator={operator}
-              isOwner={isOwner}
-              onSaved={() => {
+    <FichaSheet
+      title={sheet?.title ?? name}
+      subtitle={view === 'main' ? (sheet?.subtitle ?? 'Cargando…') : VIEW_LABEL[view]}
+      chip={sheet ? <SheetChip color={sheet.chip.color}>{sheet.chip.label}</SheetChip> : undefined}
+      stripe={sheet ? [{ key: 'chip', label: sheet.chip.label, cents: 1, color: sheet.chip.color }] : undefined}
+      onBack={view === 'main' ? onClose : () => setView('main')}
+      backLabel={view === 'main' ? 'Cerrar la ficha' : 'Volver a la ficha'}
+      covered={covered}
+      footer={footer}
+      overlays={
+        <>
+          {payoutOpen ? (
+            <PayoutConfirmModal
+              operatorId={operator.id}
+              operatorName={name}
+              balanceCents={payable}
+              payoutMethod={operator.payoutMethod ?? null}
+              payoutAddress={operator.payoutAddress ?? null}
+              payoutLabel={operator.payoutLabel ?? null}
+              mode={payoutMode ?? 'pay'}
+              onClose={() => setPayoutOpen(false)}
+              onDone={() => {
+                setPayoutOpen(false);
                 onChanged();
                 onClose();
               }}
             />
+          ) : null}
+          {verifyFor ? (
+            <PayoutVerifyModal
+              payout={verifyFor}
+              operatorMethod={operator.payoutMethod ?? null}
+              onClose={() => setVerifyFor(null)}
+              onChanged={() => void loadHistory()}
+            />
+          ) : null}
+        </>
+      }
+    >
+      {view === 'main' ? (
+        <>
+          {fichaError ? (
+            <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => setAttempt((n) => n + 1) }}>
+              {fichaError}
+            </Notice>
+          ) : null}
+          {!sheet ? (
+            fichaError ? null : <p className="np-ficha-empty">Cargando…</p>
           ) : (
-            <OnboardingForm operator={operator} onSaved={onChanged} />
+            <>
+              <div className="np-ficha-stats">
+                {sheet.stats.map((s) => (
+                  <div key={s.key} className="np-ficha-stat">
+                    <span>{s.label}</span>
+                    <b>{eurShort(s.cents)}</b>
+                  </div>
+                ))}
+              </div>
+              {sheet.rates.length > 0 ? (
+                <ul className="np-ficha-rates" aria-label="Lo que le toca de cada cosa">
+                  {sheet.rates.map((r) => (
+                    <li key={r.key} style={{ '--np-c': r.color } as CSSProperties}>
+                      {r.label} <b>{r.value}</b>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <FichaTimeline
+                rows={sheet.rows}
+                empty={camarero ? 'Esta noche aún no le toca nada de las invitaciones.' : 'Esta noche aún no ha cobrado nada.'}
+                label="Sus cobros de esta noche"
+              />
+              {sheet.payline ? (
+                <p className="np-ficha-payline">
+                  <span>
+                    Pagos <em>· {sheet.payline.text}</em>
+                  </span>
+                  <b>{railNote(sheet.payline.rail)}</b>
+                </p>
+              ) : null}
+            </>
           )}
-        </div>
-      </div>
-
-      {payoutOpen ? (
-        <PayoutConfirmModal
-          operatorId={operator.id}
-          operatorName={operator.displayName ?? operator.email}
-          balanceCents={payable}
-          payoutMethod={operator.payoutMethod ?? null}
-          payoutAddress={operator.payoutAddress ?? null}
-          payoutLabel={operator.payoutLabel ?? null}
-          mode={payoutMode ?? 'pay'}
-          onClose={() => setPayoutOpen(false)}
-          onDone={() => {
-            setPayoutOpen(false);
+          <nav className="np-ficha-more" aria-label={`Más de ${name}`}>
+            {more.map((v) => (
+              <Button key={v} variant="ghost" onClick={() => setView(v)}>
+                {v === 'onboarding' && needsHelp ? 'Onboarding · pide ayuda' : VIEW_LABEL[v]}
+              </Button>
+            ))}
+          </nav>
+        </>
+      ) : view === 'cobros' ? (
+        <OperatorCobros operatorId={operator.id} />
+      ) : view === 'earnings' || view === 'payouts' ? (
+        historyError ? (
+          <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => void loadHistory() }}>
+            {historyError}
+          </Notice>
+        ) : history === null ? (
+          <p className="np-ficha-empty">Cargando…</p>
+        ) : view === 'earnings' ? (
+          <EarningsTable earnings={history.earnings} />
+        ) : (
+          <PayoutsTable payouts={history.payouts} canVerify={isOwner} onVerify={setVerifyFor} />
+        )
+      ) : view === 'edit' ? (
+        <EditOperatorForm
+          operator={operator}
+          isOwner={isOwner}
+          onSaved={() => {
             onChanged();
             onClose();
           }}
         />
-      ) : null}
-
-      {verifyFor ? (
-        <PayoutVerifyModal
-          payout={verifyFor}
-          operatorMethod={operator.payoutMethod ?? null}
-          onClose={() => setVerifyFor(null)}
-          onChanged={() => void loadHistory()}
-        />
-      ) : null}
-    </Modal>
+      ) : (
+        <OnboardingForm operator={operator} onSaved={onChanged} />
+      )}
+    </FichaSheet>
   );
+}
+
+/** Lo que se le debe (y lo que espera o descuenta), encima del botón de pagar. */
+function BalanceNote({ operator, payable }: { operator: Operator; payable: number }) {
+  const b = operator.balance;
+  const parts: string[] = [];
+  if (b.availableCents === undefined) parts.push(`Se le debe ${formatEur(b.pendingCents)}`);
+  else if (payable <= 0) parts.push('Nada que pagarle ahora');
+  if (b.heldCents) parts.push(`en espera (días del local) ${formatEur(b.heldCents)}`);
+  if (b.debtCents) parts.push(`deuda por devoluciones ${formatEur(b.debtCents)}`);
+  if (parts.length === 0) return null;
+  return <p className="np-mm-note">{parts.join(' · ')}</p>;
 }
 
 /**
@@ -350,23 +430,6 @@ function LimitNote({ count, what }: { count: number; what: string }) {
     </p>
   );
 }
-
-const balanceBox: CSSProperties = {
-  display: 'flex',
-  alignItems: 'baseline',
-  gap: '0.75rem',
-  padding: '1rem',
-  background: 'var(--np-surface)',
-  borderRadius: 'var(--np-r-md)',
-  flexWrap: 'wrap',
-};
-
-const balanceLabel: CSSProperties = {
-  fontSize: '0.7rem',
-  color: 'var(--np-text-dim)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-};
 
 const tableWrap: CSSProperties = { maxHeight: '24rem', overflow: 'auto' };
 const numCol: CSSProperties = { textAlign: 'right' };

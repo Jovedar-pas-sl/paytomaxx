@@ -1,4 +1,4 @@
-import { expectedCashCents, type CashOutcome, type NightCash } from '@nightpay/contracts';
+import { expectedCashCents, type CashOutcome, type MoneyMap, type NightCash } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { nextNightCutoff } from '../../common/time/madrid';
 import { summarize, type ExportSummary } from '../reports/export-csv';
@@ -91,6 +91,8 @@ export interface NightZ {
   caja?: NightCaja;
   /** Fichas NFC de la noche y en el stock (los Z congelados antes del 21-oct-2026 no lo traen). */
   fichas?: FichasCounts;
+  /** El mapa del dinero congelado al cerrar (los Z de antes del 24-oct-2026 no lo traen). */
+  moneyMap?: MoneyMap;
 }
 
 export function buildNightZ(

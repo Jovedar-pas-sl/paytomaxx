@@ -13,6 +13,7 @@ describe('el panel en la URL: leerla', () => {
   it('sección y pestaña', () => {
     expect(parseNav('?s=ajustes&t=formas')).toEqual({ section: 'ajustes', tab: 'methods', hasTab: true });
     expect(parseNav('?s=hoy&t=avisos')).toEqual({ section: 'hoy', tab: 'incidents', hasTab: true });
+    expect(parseNav('?s=hoy&t=mapa')).toEqual({ section: 'hoy', tab: 'money', hasTab: true });
   });
 
   it('solo la sección', () => {

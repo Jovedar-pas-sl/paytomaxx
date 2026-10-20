@@ -134,19 +134,72 @@ export class PeriodReportsService {
     `;
   }
 
-  /** Cobros (aparte las recargas, con tarjeta y en efectivo) y consumos del saldo, por tipo. */
+  /**
+   * Cobros (aparte las recargas, con tarjeta y en efectivo) y consumos del
+   * saldo, por tipo y POR LÍNEA (payment_lines, 24-oct-2026): cada sección con
+   * lo suyo; lo que no cubren las líneas (todo, en los cobros de antes) y la
+   * propina, en su sección principal. Un cobro con varias secciones cuenta en
+   * cada una; uno de una sola sección, igual que antes.
+   */
   private async categories(tenantId: string, w: TimeWindow): Promise<ZCategoryRow[]> {
     return this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<ZCategoryRow[]>`
-      SELECT CASE WHEN p."walletId" IS NULL THEN 'CARD' ELSE 'TOPUP' END AS source,
-             p."revenueCategory" AS category,
+      WITH paid AS (
+        SELECT p.id, p."amountCents", p."tipCents", p."revenueCategory", p."walletId"
+          FROM payments p
+         WHERE p."tenantId" = ${tenantId}::uuid
+           AND p.status IN ${PAID_STATUSES_SQL}
+           AND ${paymentAt('p')} >= ${w.from} AND ${paymentAt('p')} < ${w.to}
+      ), consumed AS (
+        SELECT c.id, c."amountCents", c."tipCents", c.category
+          FROM wallet_consumptions c
+         WHERE c."tenantId" = ${tenantId}::uuid
+           AND c."reversedAt" IS NULL
+           AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to}
+      ), sale_lines AS (
+        SELECT 'CARD' AS source, l."paymentId" AS sale, l.category, l."amountCents"
+          FROM payment_lines l JOIN paid ON paid.id = l."paymentId"
+         WHERE paid."walletId" IS NULL
+        UNION ALL
+        SELECT 'WALLET', consumed.id, l.category, l."amountCents"
+          FROM consumed
+          JOIN wallet_charge_requests wr ON wr."consumptionId" = consumed.id
+          JOIN payment_lines l ON l."walletChargeId" = wr.id
+      ), sales AS (
+        SELECT 'CARD' AS source, id AS sale, "revenueCategory" AS category, "amountCents", "tipCents"
+          FROM paid WHERE "walletId" IS NULL
+        UNION ALL
+        SELECT 'WALLET', id, category, "amountCents", "tipCents" FROM consumed
+      ), parts AS (
+        SELECT source, sale, category, SUM("amountCents")::bigint AS gross, 0::bigint AS tip, true AS counts
+          FROM sale_lines GROUP BY 1, 2, 3
+        UNION ALL
+        SELECT s.source, s.sale, s.category,
+               (s."amountCents" - COALESCE(SUM(sl."amountCents"), 0))::bigint,
+               s."tipCents"::bigint,
+               COUNT(sl.sale) = 0
+          FROM sales s
+          LEFT JOIN sale_lines sl ON sl.source = s.source AND sl.sale = s.sale
+         GROUP BY s.source, s.sale, s.category, s."amountCents", s."tipCents"
+      ), per_sale AS (
+        SELECT source, sale, category, SUM(gross) AS gross, SUM(tip) AS tip
+          FROM parts
+         WHERE counts OR gross <> 0 OR tip <> 0
+         GROUP BY 1, 2, 3
+      )
+      SELECT source, category,
              COUNT(*)::int AS count,
-             COALESCE(SUM(p."amountCents"), 0)::bigint AS "grossCents",
-             COALESCE(SUM(p."tipCents"), 0)::bigint AS "tipCents"
-        FROM payments p
-       WHERE p."tenantId" = ${tenantId}::uuid
-         AND p.status IN ${PAID_STATUSES_SQL}
-         AND ${paymentAt('p')} >= ${w.from} AND ${paymentAt('p')} < ${w.to}
+             COALESCE(SUM(gross), 0)::bigint AS "grossCents",
+             COALESCE(SUM(tip), 0)::bigint AS "tipCents"
+        FROM per_sale
        GROUP BY 1, 2
+      UNION ALL
+      SELECT 'TOPUP' AS source, "revenueCategory" AS category,
+             COUNT(*)::int AS count,
+             COALESCE(SUM("amountCents"), 0)::bigint AS "grossCents",
+             COALESCE(SUM("tipCents"), 0)::bigint AS "tipCents"
+        FROM paid
+       WHERE "walletId" IS NOT NULL
+       GROUP BY 2
       UNION ALL
       SELECT 'TOPUP' AS source, 'EXTRA' AS category,
              ${cashTopUpCount('ct')}::int AS count,
@@ -156,16 +209,6 @@ export class PeriodReportsService {
        WHERE ct."tenantId" = ${tenantId}::uuid
          AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to}
       HAVING COUNT(*) > 0
-      UNION ALL
-      SELECT 'WALLET' AS source, c.category,
-             COUNT(*)::int AS count,
-             COALESCE(SUM(c."amountCents"), 0)::bigint AS "grossCents",
-             COALESCE(SUM(c."tipCents"), 0)::bigint AS "tipCents"
-        FROM wallet_consumptions c
-       WHERE c."tenantId" = ${tenantId}::uuid
-         AND c."reversedAt" IS NULL
-         AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to}
-       GROUP BY c.category
     `);
   }
 

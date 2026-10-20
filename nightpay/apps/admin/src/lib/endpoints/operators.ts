@@ -145,9 +145,10 @@ export interface CreateOperatorResponse {
 
 // ─── Operadoras ────────────────────────────────────────────────────
 
-export async function fetchOperators(): Promise<Operator[]> {
-  const res = await authedFetch('/v1/admin/operators');
-  if (!res.ok) throw new Error('Error cargando operadoras');
+/** Las chicas; con 'WAITER', los camareros (su parte de las invitaciones se les paga igual). */
+export async function fetchOperators(role: 'OPERATOR' | 'WAITER' = 'OPERATOR'): Promise<Operator[]> {
+  const res = await authedFetch(role === 'WAITER' ? '/v1/admin/operators?role=WAITER' : '/v1/admin/operators');
+  if (!res.ok) throw new Error(role === 'WAITER' ? 'Error cargando los camareros' : 'Error cargando operadoras');
   return res.json();
 }
 

@@ -176,7 +176,7 @@ describe('OperatorsService.createPayout (dueño) — importe y enlaces', () => {
     const { svc, prisma } = makeService({ operatorInVenue: false });
     await expect(svc.createPayout(TENANT, OPERATOR, OWNER)).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.withTenant).not.toHaveBeenCalled();
-    expect(prisma.user.findFirst).toHaveBeenCalledWith({ where: { id: OPERATOR, tenantId: TENANT, role: 'OPERATOR' } });
+    expect(prisma.user.findFirst).toHaveBeenCalledWith({ where: { id: OPERATOR, tenantId: TENANT, role: { in: ['OPERATOR', 'WAITER'] } } });
   });
 
   it('queda en el registro quién pagó, cuánto y cuántas comisiones', async () => {

@@ -68,6 +68,16 @@ export function refundTipPart(r: string, p: string): Prisma.Sql {
   );
 }
 
+/**
+ * Las líneas de un cobro como JSON [{ category, amountCents }], en su orden
+ * (`l` = alias de payment_lines; para json_agg dentro de un SELECT … FROM payment_lines l).
+ */
+export function linesJson(l: string): Prisma.Sql {
+  return Prisma.raw(
+    `json_agg(json_build_object('category', ${l}.category, 'amountCents', ${l}."amountCents") ORDER BY ${l}."createdAt", ${l}."amountCents" DESC, ${l}.id)`,
+  );
+}
+
 /** Lo que una chica ya debe de un cobro que se le pagó antes de devolverlo. `e` = alias del earning. */
 export function afterPayoutDebt(e: string): Prisma.Sql {
   return Prisma.raw(`COALESCE((

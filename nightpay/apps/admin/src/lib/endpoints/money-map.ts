@@ -6,6 +6,8 @@ import type {
   CobrosPage,
   InvitationRules,
   InvitationSummary,
+  MoneyMap,
+  StaffFicha,
   UpdateInvitationRulesDto,
   PostCode,
   PostRules,
@@ -43,6 +45,27 @@ export function cobrosQuery(filters: CobrosFilters, page: { cursor?: string; lim
 
 export async function fetchCobros(filters: CobrosFilters, page: { cursor?: string; limit?: number } = {}): Promise<CobrosPage> {
   const res = await authedFetch(`/v1/admin/cobros?${cobrosQuery(filters, page)}`);
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** El mapa del dinero: la noche en directo (sin nada), una noche (su Z, congelado al cerrar) o unas fechas. */
+export async function fetchMoneyMap(q: { night?: string; from?: string; to?: string } = {}): Promise<MoneyMap> {
+  const qs = new URLSearchParams();
+  if (q.night) qs.set('night', q.night);
+  if (q.from && q.to) {
+    qs.set('from', q.from);
+    qs.set('to', q.to);
+  }
+  const query = qs.toString();
+  const res = await authedFetch(`/v1/admin/money-map${query ? `?${query}` : ''}`);
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** Ficha de la chica o del camarero: esta noche, sus cobros con su parte, lo vendido, lo suyo y lo pagado. */
+export async function fetchStaffFicha(personId: string): Promise<StaffFicha> {
+  const res = await authedFetch(`/v1/admin/operators/${encodeURIComponent(personId)}/ficha`);
   if (!res.ok) throw await apiError(res);
   return res.json();
 }

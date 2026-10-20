@@ -275,6 +275,10 @@ const EnvSchema = z.object({
   // pagársela (cubre devoluciones tempranas y que el banco aún no abonó).
   PAYOUT_HOLD_DAYS: z.coerce.number().int().min(0).max(60).default(7),
 
+  // Comisión del banco sobre lo cobrado con tarjeta (bps: 45 = 0,45 %), para el
+  // mapa del dinero. Sin definir, el mapa no la calcula (sale en el extracto de BBVA).
+  BANK_CARD_FEE_BPS: z.coerce.number().int().min(0).max(1000).optional(),
+
   // Apagar tareas programadas (solo desarrollo/pruebas): "1" = apagada. Los
   // servicios las leen de process.env; aquí quedan documentadas y, en
   // producción, el arranque avisa de cada una (env-warnings.ts, DISABLE_FLAGS).

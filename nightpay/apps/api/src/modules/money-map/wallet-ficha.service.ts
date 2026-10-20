@@ -45,7 +45,7 @@ export class WalletFichaService {
       ]);
       if (!venue || !wallet || !sameWalletGroup(wallet, venue)) throw new NotFoundException('Saldo no encontrado');
 
-      const [payments, cash, consumptions, payouts] = await Promise.all([
+      const [payments, cash, consumptions, payouts, cards] = await Promise.all([
         tx.payment.findMany({
           where: { walletId, status: { in: [...PAID] } },
           orderBy: { createdAt: 'desc' },
@@ -78,6 +78,11 @@ export class WalletFichaService {
           where: { walletId, status: { in: ['DONE', 'PENDING'] } },
           orderBy: { createdAt: 'desc' },
           select: { id: true, tenantId: true, amountCents: true, method: true, status: true, createdAt: true, paidByUserId: true, bankReference: true },
+        }),
+        tx.walletCard.findMany({
+          where: { walletId, status: { in: [...ISSUED_CARD_STATUSES, 'BLOCKED'] } },
+          orderBy: [{ linkedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, uid: true, token: true, status: true, linkedAt: true },
         }),
       ]);
       const venueIds = [
@@ -150,7 +155,14 @@ export class WalletFichaService {
           bankReference: p.bankReference,
           venueName: venueName(p.tenantId),
         })),
+        cards: cards.map((c) => ({ id: c.id, label: cardLabel(c), status: c.status, linkedAt: c.linkedAt?.toISOString() ?? null })),
       };
     });
   }
+}
+
+/** Para reconocer una ficha: «nº 0417» (final del número de serie) o el principio de su código grabado. */
+export function cardLabel(c: { uid: string | null; token: string }): string {
+  const uid = c.uid?.replace(/[^0-9a-fA-F]/g, '') ?? '';
+  return uid ? `nº ${uid.slice(-4).toUpperCase()}` : `${c.token.slice(0, 6)}…`;
 }

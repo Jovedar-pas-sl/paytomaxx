@@ -1,0 +1,935 @@
+/* Panel (admin) · el mapa del dinero (maqueta 8 · A, barras apiladas) y las
+   fichas del saldo, de la chica y del camarero (maquetas 9.1 y 9.2).
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. El color es solo
+   de las secciones; canales y destinos van en grises (--np-mm-*). Solo se
+   anima opacity/transform, y nada con prefers-reduced-motion. Móvil primero. */
+
+:root,
+[data-theme='dark'] {
+  /* Canales (tarjeta, efectivo, saldo) y destinos (tuyo, del personal): grises. */
+  --np-mm-tarjeta: #efe9df;
+  --np-mm-efectivo: #a9b3bc;
+  --np-mm-saldo: #7c8893;
+  --np-mm-tuyo: #efe9df;
+  --np-mm-personal: #a9b3bc;
+}
+
+[data-theme='light'] {
+  --np-mm-tarjeta: #1f2c36;
+  --np-mm-efectivo: #5d6a75;
+  --np-mm-saldo: #9aa4ad;
+  --np-mm-tuyo: #1f2c36;
+  --np-mm-personal: #5d6a75;
+}
+
+/* ─── Piezas comunes (cabecera, franja, chips, cifras) ───────────────── */
+
+.np-mm-head {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 3.875rem;
+}
+
+.np-mm-logo {
+  flex: none;
+  width: 2.625rem;
+  height: 2.625rem;
+  border-radius: 0.8125rem;
+  background: url('/brand/oxiocard-simbolo.png') center / 1.625rem no-repeat, var(--np-cream);
+}
+
+.np-mm-back {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--np-border);
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  transition: background var(--np-d-fast), transform var(--np-d-fast) var(--np-ease);
+}
+
+.np-mm-back:hover {
+  background: var(--np-surface-3);
+}
+
+.np-mm-back:active {
+  transform: scale(0.94);
+}
+
+.np-mm-back svg {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.np-mm-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.np-mm-title h2,
+.np-mm-title h3 {
+  margin: 0;
+  font: 800 1.1875rem / 1.1 var(--np-font-num);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.np-mm-title span {
+  font-size: 0.875rem;
+  color: var(--np-text-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-mm-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 2.125rem;
+  padding: 0 0.875rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-c, var(--np-sec-otros));
+  color: var(--np-on-section);
+  font-weight: 700;
+  font-size: 0.90625rem;
+  white-space: nowrap;
+}
+
+.np-mm-chip[data-kind='live'] {
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  border: 1px solid var(--np-border-hi);
+  font-family: var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.np-mm-chip[data-kind='live']::before {
+  content: '';
+  width: 0.5625rem;
+  height: 0.5625rem;
+  border-radius: 50%;
+  background: currentColor;
+  animation: np-mm-live 1.6s ease-in-out infinite;
+}
+
+.np-mm-chip[data-kind='frozen'] {
+  background: transparent;
+  color: var(--np-text);
+  border: 1.5px solid var(--np-border-hi);
+}
+
+.np-mm-chip[data-kind='hold'] {
+  background: transparent;
+  color: var(--np-text);
+  border: 1.5px dashed var(--np-sec-saldo);
+}
+
+@keyframes np-mm-live {
+  50% { opacity: 0.3; }
+}
+
+/* Franja de colores de las secciones, debajo de la cabecera. */
+.np-mm-stripe {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  overflow: hidden;
+}
+
+.np-mm-stripe i {
+  display: block;
+  min-width: 2px;
+  background: var(--np-c);
+}
+
+.np-mm-stripe[data-empty='true'] {
+  background: repeating-linear-gradient(90deg, var(--np-border-hi) 0 12px, transparent 12px 18px);
+}
+
+.np-mm-kick {
+  margin: 0;
+  font: 700 0.84375rem / 1.2 var(--np-font-sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--np-text-label);
+}
+
+.np-mm-num {
+  font-family: var(--np-font-num);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Mapa del dinero ─────────────────────────────────────────────────── */
+
+.np-mm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 64rem;
+}
+
+.np-mm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5625rem;
+  padding-top: 0.375rem;
+}
+
+.np-mm-kpis {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5625rem 0.875rem;
+  border-radius: var(--np-r-card);
+  background: var(--np-surface);
+  border: 1px solid var(--np-border);
+}
+
+.np-mm-kpis .np-mm-grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.np-mm-kpis .np-mm-lbl {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--np-text-label);
+}
+
+.np-mm-kpis .np-mm-big {
+  display: block;
+  font-size: 1.9375rem;
+  line-height: 1.05;
+}
+
+.np-mm-kpis .np-mm-side {
+  width: 5.375rem;
+  flex: none;
+}
+
+.np-mm-kpis .np-mm-side b {
+  display: block;
+  font-size: 1.0625rem;
+}
+
+.np-mm-ring {
+  position: relative;
+  flex: none;
+  width: 4rem;
+  height: 4rem;
+}
+
+.np-mm-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.np-mm-ring .np-mm-rb {
+  stroke: var(--np-surface-3);
+}
+
+.np-mm-ring .np-mm-rf {
+  stroke: var(--np-text);
+  transition: stroke-dasharray var(--np-d-slow) var(--np-ease);
+}
+
+.np-mm-ring span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 800 0.875rem / 1 var(--np-font-num);
+}
+
+.np-mm-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+  min-width: 0;
+}
+
+.np-mm-blockhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.np-mm-blockhead b {
+  font: 800 0.9375rem var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Barra apilada (pill, trozos separados 2 px). */
+.np-mm-hbar {
+  display: flex;
+  gap: 2px;
+  height: 1.125rem;
+  border-radius: var(--np-r-pill);
+  overflow: hidden;
+  background: var(--np-surface-2);
+}
+
+.np-mm-hbar i {
+  display: block;
+  min-width: 3px;
+  background: var(--np-c);
+  transform-origin: left center;
+  animation: np-mm-grow var(--np-d-slow) var(--np-ease);
+}
+
+@keyframes np-mm-grow {
+  from { transform: scaleX(0.6); opacity: 0; }
+  to   { transform: scaleX(1);   opacity: 1; }
+}
+
+/* Leyenda bajo «Cómo entra»: en el orden de la barra. */
+.np-mm-hleg {
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-mm-hleg li {
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.2;
+  color: var(--np-text-label);
+}
+
+.np-mm-hleg b {
+  display: block;
+  font: 800 0.90625rem var(--np-font-num);
+  color: var(--np-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Leyenda con cuadradito (Dónde está). */
+.np-mm-dleg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+  color: var(--np-text-label);
+}
+
+.np-mm-dleg li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.np-mm-dleg li::before {
+  content: '';
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 3px;
+  background: var(--np-c);
+}
+
+.np-mm-dleg b {
+  font: 800 0.90625rem var(--np-font-num);
+  color: var(--np-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.np-mm-dleg b[data-neg='true'] {
+  color: var(--np-danger);
+}
+
+/* «+ Recargas 3.070 €: no es venta» */
+.np-mm-hold {
+  margin: 0;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--np-r-md);
+  border: 1.5px dashed var(--np-sec-saldo);
+  font-size: 0.875rem;
+}
+
+.np-mm-hold b {
+  font-family: var(--np-font-num);
+  font-weight: 800;
+}
+
+.np-mm-hold span {
+  color: var(--np-text-label);
+}
+
+/* Por sección: nombre, barra de su color y cifra. */
+.np-mm-srows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-mm-sr {
+  display: grid;
+  grid-template-columns: 5.875rem minmax(0, 1fr) 4.5rem;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.90625rem;
+  font-weight: 600;
+}
+
+.np-mm-sr > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.np-mm-sr .np-mm-track {
+  height: 0.75rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-surface-2);
+  overflow: hidden;
+}
+
+.np-mm-sr .np-mm-track i {
+  display: block;
+  height: 100%;
+  width: var(--p);
+  min-width: 0.75rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-c);
+  transform-origin: left center;
+  animation: np-mm-grow var(--np-d-slow) var(--np-ease);
+}
+
+.np-mm-sr .np-mm-track i[data-zero='true'] {
+  min-width: 0;
+  width: 0;
+}
+
+.np-mm-sr b {
+  text-align: right;
+  font: 800 0.90625rem var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Qué sale: filas con una nota en gris. */
+.np-mm-orows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-mm-orow {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.125rem 0;
+  border-bottom: 1px solid var(--np-border);
+  font-size: 0.90625rem;
+}
+
+.np-mm-orow:last-child {
+  border-bottom: 0;
+}
+
+.np-mm-orow span {
+  font-weight: 600;
+  min-width: 0;
+}
+
+.np-mm-orow span em {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--np-text-label);
+}
+
+.np-mm-orow b {
+  font: 800 0.90625rem var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.np-mm-note {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--np-text-mute);
+}
+
+.np-mm-foot {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--np-text-mute);
+}
+
+/* En el escritorio: cabecera y cifras arriba; los cuatro carriles en dos columnas. */
+@media (min-width: 900px) {
+  .np-mm-body[data-layout='wide'] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem 2rem;
+    align-items: start;
+  }
+
+  .np-mm-body[data-layout='wide'] > .np-mm-kpis {
+    grid-column: 1 / -1;
+  }
+
+  .np-mm-body[data-layout='wide'] > .np-mm-col {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+  }
+
+  .np-mm-body[data-layout='wide'] .np-mm-kpis .np-mm-big {
+    font-size: 2.5rem;
+  }
+}
+
+.np-mm-col {
+  display: contents;
+}
+
+/* El mapa congelado dentro del Z de una noche (más compacto, sin cabecera). */
+.np-mm-inz {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem 1rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-lg);
+  background: var(--np-bg);
+}
+
+.np-mm-inz-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* ─── Fichas (hoja a pantalla completa en el móvil, columna en el escritorio) ─ */
+
+.np-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: var(--np-backdrop);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: np-fade-in var(--np-d-base) var(--np-ease);
+}
+
+.np-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(28rem, 100%);
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  border-radius: 1.75rem;
+  background: var(--np-bg);
+  color: var(--np-text);
+  box-shadow: 0 0 0 1px var(--np-border-hi), 0 40px 80px -30px rgb(0 0 0 / 0.6);
+  animation: np-modal-in var(--np-d-base) var(--np-ease);
+}
+
+.np-sheet:focus {
+  outline: none;
+}
+
+.np-sheet > .np-mm-head {
+  padding: 0 0.875rem;
+}
+
+.np-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.875rem 1rem 1rem;
+}
+
+.np-sheet-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.875rem 1rem calc(1.375rem + env(safe-area-inset-bottom, 0px));
+  background: var(--np-surface);
+  border-top: 1px solid var(--np-border);
+  border-radius: 1.75rem 1.75rem 0 0;
+}
+
+/* Botón principal de la hoja: pill lima, 62 px como en la maqueta. */
+.np-sheet-foot .np-btn {
+  width: 100%;
+  height: auto;
+  min-height: 3.875rem;
+  font-size: 1.1875rem;
+}
+
+@media (max-width: 640px) {
+  .np-sheet-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .np-sheet {
+    width: 100%;
+    max-height: none;
+    height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+/* Cifras de la ficha. */
+.np-ficha-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.np-ficha-stat {
+  min-width: 0;
+  padding: 0.5625rem 0.6875rem;
+  border-radius: 1.125rem;
+  background: var(--np-surface);
+  border: 1px solid var(--np-border);
+}
+
+.np-ficha-stat span {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--np-text-label);
+}
+
+.np-ficha-stat b {
+  display: block;
+  font: 800 1.1875rem var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-ficha-stat[data-big='true'] {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: var(--np-bits), var(--np-surface);
+}
+
+.np-ficha-stat[data-big='true'] b {
+  font-size: 2rem;
+  letter-spacing: -0.03em;
+}
+
+/* Fila de la ficha NFC con «Bloquear». */
+.np-ficha-nfc {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.625rem 0.5rem 0.75rem;
+  border-radius: var(--np-r-tile);
+  background: var(--np-surface);
+  border: 1px solid var(--np-border);
+}
+
+.np-ficha-nfc .np-mm-grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.np-ficha-nfc b {
+  display: block;
+  font-size: 0.96875rem;
+}
+
+.np-ficha-nfc span {
+  font-size: 0.875rem;
+  color: var(--np-text-label);
+}
+
+.np-ficha-card {
+  position: relative;
+  flex: none;
+  width: 2.5rem;
+  height: 3.875rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(150deg, #ecebe7 0%, #cfcdc9 46%, #ecebe7 60%, #b4b2ae 100%);
+  box-shadow: 0 0 0 1.5px var(--np-lime), 0 0 12px 2px var(--np-lime-glow);
+}
+
+.np-ficha-card::before {
+  content: '';
+  position: absolute;
+  left: 11%;
+  top: 9%;
+  width: 26%;
+  aspect-ratio: 1;
+  background: url('/brand/oxiocard-simbolo.png') center / contain no-repeat;
+}
+
+.np-ficha-card::after {
+  content: '';
+  position: absolute;
+  right: 12%;
+  top: 11%;
+  width: 10%;
+  aspect-ratio: 5 / 4;
+  background: var(--np-lime-deep);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.np-ficha-card[data-off='true'] {
+  box-shadow: 0 0 0 1.5px var(--np-danger);
+  filter: grayscale(0.6);
+}
+
+.np-ficha-mini {
+  flex: none;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: var(--np-r-pill);
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--np-danger);
+  color: var(--np-danger);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  transition: background var(--np-d-fast), transform var(--np-d-fast) var(--np-ease);
+}
+
+.np-ficha-mini:hover:not(:disabled) {
+  background: var(--np-pill-danger-bg);
+}
+
+.np-ficha-mini:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.np-ficha-mini:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Lo que le toca de cada cosa. */
+.np-ficha-rates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-ficha-rates li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.875rem;
+  padding: 0 0.6875rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-surface-2);
+  border: 1px solid var(--np-border);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.np-ficha-rates li::before {
+  content: '';
+  width: 0.5625rem;
+  height: 0.5625rem;
+  border-radius: 50%;
+  background: var(--np-c);
+}
+
+.np-ficha-rates b {
+  font-family: var(--np-font-num);
+  font-weight: 800;
+}
+
+/* La línea del tiempo: hora, color de la sección, qué y cuánto. */
+.np-ficha-tl {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-ficha-tr {
+  display: grid;
+  grid-template-columns: 2.625rem 6px minmax(0, 1fr) auto;
+  gap: 0.625rem;
+  align-items: center;
+  padding: 0.3125rem 0;
+  border-bottom: 1px solid var(--np-border);
+}
+
+.np-ficha-tr:last-child {
+  border-bottom: 0;
+}
+
+.np-ficha-tr time {
+  font: 800 0.875rem var(--np-font-num);
+  color: var(--np-text-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.np-ficha-sw {
+  align-self: stretch;
+  width: 6px;
+  min-height: 2rem;
+  border-radius: 3px;
+  background: var(--np-c, var(--np-sec-otros));
+}
+
+.np-ficha-sw[data-hold='true'] {
+  background: repeating-linear-gradient(var(--np-sec-saldo) 0 6px, transparent 6px 10px);
+}
+
+.np-ficha-tr .np-ficha-what {
+  min-width: 0;
+}
+
+.np-ficha-tr .np-ficha-what b {
+  display: block;
+  font-size: 0.96875rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.np-ficha-tr .np-ficha-what span {
+  display: block;
+  font-size: 0.875rem;
+  line-height: 1.25;
+  color: var(--np-text-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.np-ficha-tr button.np-ficha-what {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: inherit;
+}
+
+.np-ficha-tr button.np-ficha-what:hover b {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.np-ficha-amt {
+  text-align: right;
+  font: 800 1.03125rem var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.np-ficha-amt small {
+  display: block;
+  font: 700 0.84375rem var(--np-font-sans);
+  color: var(--np-text-label);
+}
+
+.np-ficha-tr[data-undone='true'] .np-ficha-amt,
+.np-ficha-tr[data-undone='true'] .np-ficha-what b {
+  text-decoration: line-through;
+  color: var(--np-text-mute);
+}
+
+.np-ficha-empty {
+  margin: 0;
+  padding: 1rem 0;
+  text-align: center;
+  color: var(--np-text-mute);
+  font-size: 0.9375rem;
+}
+
+/* «Pagos · sáb 18: 410 € · vie 17: 355 €   efectivo» */
+.np-ficha-payline {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.90625rem;
+}
+
+.np-ficha-payline span {
+  font-weight: 600;
+  min-width: 0;
+}
+
+.np-ficha-payline em {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--np-text-label);
+}
+
+.np-ficha-payline b {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Más cosas de la chica (historial, editar, onboarding) en la hoja. */
+.np-ficha-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
+.np-ficha-more .np-btn {
+  height: 2.75rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-mm-chip[data-kind='live']::before,
+  .np-mm-hbar i,
+  .np-mm-sr .np-mm-track i {
+    animation: none;
+  }
+}

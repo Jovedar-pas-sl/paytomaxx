@@ -233,7 +233,7 @@ export async function saldoCharges(
     peopleById(tx, rows.map((r) => r.requestedByUserId)),
     tx.walletConsumption.findMany({
       where: { id: { in: rows.flatMap((r) => (r.consumptionId ? [r.consumptionId] : [])) } },
-      select: { id: true, reversedAt: true, tipCents: true },
+      select: { id: true, reversedAt: true, tipCents: true, authMethod: true },
     }),
   ]);
   const byId = new Map(consumptions.map((c) => [c.id, c]));
@@ -244,6 +244,7 @@ export async function saldoCharges(
       person: people.get(r.requestedByUserId) ?? null,
       reversed: Boolean(c?.reversedAt),
       tipCents: c?.tipCents ?? 0,
+      authMethod: c?.authMethod ?? null,
     });
     return { ...row, tenantId: r.tenantId };
   });

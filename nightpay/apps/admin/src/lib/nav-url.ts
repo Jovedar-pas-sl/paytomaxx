@@ -15,6 +15,7 @@ export const DEFAULT_TAB: TabKey = 'payments';
 /** Cómo se escribe cada pestaña en la URL (en castellano, como se ve). */
 const TAB_SLUG: Readonly<Record<TabKey, string>> = {
   payments: 'cobros',
+  money: 'mapa',
   incidents: 'avisos',
   operators: 'chicas',
   treasury: 'pagos',

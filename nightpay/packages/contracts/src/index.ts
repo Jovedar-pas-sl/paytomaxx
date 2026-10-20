@@ -22,3 +22,4 @@ export * from './post-rules';
 export * from './invitations';
 export * from './night-settings';
 export * from './pending-topups';
+export * from './money-map';

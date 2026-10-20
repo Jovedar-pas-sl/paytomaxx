@@ -25,8 +25,8 @@ describe('cinco secciones', () => {
     expect(visibleSections({ role: 'OWNER' }).map((s) => s.label)).toEqual(['Hoy', 'Chicas', 'Clientes', 'Informes', 'Ajustes']);
   });
 
-  it('Hoy: cobros y una sola bandeja de avisos; Chicas: las chicas y sus pagos; Clientes: los saldos y las fichas', () => {
-    expect(sectionTabs({ role: 'OWNER' }, 'hoy')).toEqual(['payments', 'incidents']);
+  it('Hoy: cobros, el mapa del dinero y una sola bandeja de avisos; Chicas: las chicas y sus pagos; Clientes: los saldos y las fichas', () => {
+    expect(sectionTabs({ role: 'OWNER' }, 'hoy')).toEqual(['payments', 'money', 'incidents']);
     expect(sectionTabs({ role: 'OWNER' }, 'chicas')).toEqual(['operators', 'treasury']);
     expect(sectionTabs({ role: 'OWNER' }, 'clientes')).toEqual(['wallets', 'fichas']);
     expect(sectionTabs({ role: 'MANAGER' }, 'clientes')).toEqual(['wallets', 'fichas']);
@@ -57,6 +57,12 @@ describe('cinco secciones', () => {
     expect(sectionTabs({ role: 'MANAGER' }, 'ajustes')).toEqual(['carta', 'terminals', 'security']);
     expect(sectionTabs({ role: 'MANAGER' }, 'informes')).toEqual(['nights']);
     expect(sectionTabs({ role: 'MANAGER', canSeeReports: true }, 'informes')).toEqual(['nights', 'reports']);
+  });
+
+  it('el mapa del dinero, como los informes: el encargado solo si el dueño le deja verlos', () => {
+    expect(sectionTabs({ role: 'MANAGER' }, 'hoy')).toEqual(['payments', 'incidents']);
+    expect(sectionTabs({ role: 'MANAGER', canSeeReports: true }, 'hoy')).toEqual(['payments', 'money', 'incidents']);
+    expect(sectionOf('money')).toBe('hoy');
   });
 
   it('camareros y chicas: nada', () => {

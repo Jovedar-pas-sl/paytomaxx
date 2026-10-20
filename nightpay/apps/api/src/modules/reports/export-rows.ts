@@ -1,3 +1,5 @@
+import { chargeSections, type LineAmount } from './charge-sections';
+
 /**
  * Filas que lee el informe para la gestoría (Fase 1C). Las consultas están en
  * reports.service.ts; aquí, los tipos y las etiquetas en castellano.
@@ -11,6 +13,8 @@ export interface CobroRow {
   amountCents: number;
   tipCents: number;
   revenueCategory: string;
+  /** Sus líneas (payment_lines), cada una en su sección. Null/vacío: un cobro de antes (su revenueCategory). */
+  lines?: LineAmount[] | null;
   captureMethod: string | null;
   serviceName: string | null;
   payMethod: string | null;
@@ -49,8 +53,10 @@ export interface ConsumoRow {
   at: Date;
   amountCents: number;
   tipCents: number;
-  /** Tipo de venta (CHICA_SERVICE, VENUE_BAR…). */
+  /** Tipo de venta (CHICA_SERVICE, VENUE_BAR…): su sección principal. */
   category: string;
+  /** Las líneas del cobro del saldo, cada una en su sección. Null/vacío: un consumo de antes (su category). */
+  lines?: LineAmount[] | null;
   operatorName: string | null;
   operatorEmail: string | null;
   commissionCents: number | null;
@@ -152,6 +158,7 @@ export const CATEGORY_LABEL: Record<string, string> = {
   VENUE_BAR: 'Barra',
   VENUE_ROOM: 'Habitación',
   VENUE_FOOD: 'Comida',
+  VENUE_ENTRY: 'Entrada',
   EXTRA: 'Otro',
 };
 export const WALLET_LABEL = 'Recarga de wallet';
@@ -167,10 +174,29 @@ export const RECONCILIATION_LABEL: Record<string, string> = {
   RECONCILED: 'Conciliado',
 };
 
-/** Tipo de cobro para el informe (las recargas de wallet van aparte). */
-export function cobroType(r: Pick<CobroRow, 'walletId' | 'revenueCategory'>): string {
+export function categoryLabel(category: string): string {
+  return CATEGORY_LABEL[category] ?? category;
+}
+
+/** Lo cobrado de cada sección (por líneas; los de antes, en su revenueCategory). Las recargas: ninguna. */
+export function cobroSections(r: Pick<CobroRow, 'walletId' | 'revenueCategory' | 'amountCents' | 'lines'>): Map<string, number> {
+  if (r.walletId) return new Map();
+  return chargeSections({ amountCents: r.amountCents, category: r.revenueCategory, lines: r.lines });
+}
+
+/** Lo consumido del saldo en cada sección (por líneas; los de antes, en su category). */
+export function consumoSections(r: Pick<ConsumoRow, 'category' | 'amountCents' | 'lines'>): Map<string, number> {
+  return chargeSections({ amountCents: r.amountCents, category: r.category, lines: r.lines });
+}
+
+/**
+ * Tipo de cobro para el informe (las recargas de wallet van aparte): el de
+ * su sección o, con varias secciones, todas («Servicio de chica + Habitación»).
+ */
+export function cobroType(r: Pick<CobroRow, 'walletId' | 'revenueCategory'> & Partial<Pick<CobroRow, 'amountCents' | 'lines'>>): string {
   if (r.walletId) return WALLET_LABEL;
-  return CATEGORY_LABEL[r.revenueCategory] ?? r.revenueCategory;
+  const codes = [...cobroSections({ amountCents: r.amountCents ?? 0, lines: r.lines, walletId: null, revenueCategory: r.revenueCategory }).keys()];
+  return codes.length === 0 ? categoryLabel(r.revenueCategory) : codes.map(categoryLabel).join(' + ');
 }
 
 export function captureLabel(captureMethod: string | null): string {

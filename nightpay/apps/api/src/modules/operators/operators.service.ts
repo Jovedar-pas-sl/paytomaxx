@@ -38,6 +38,7 @@ import {
   settleSelection,
   type ExactPayout,
 } from './payout-selection';
+import { PAYEE_ROLES, type PayeeRole } from './payee-roles';
 import { venueHoldDays } from './venue-hold-days';
 import { payoutRoutingChanges, touchesPayoutAccount } from './payout-routing';
 import type {
@@ -381,9 +382,10 @@ export class OperatorsService {
 
   // ─── Admin (OWNER/MANAGER del venue) ──────────────────────────────
 
-  async listVenueOperators(tenantId: string): Promise<OperatorWithBalance[]> {
+  /** Las chicas del local (o los camareros: role WAITER) con su saldo. */
+  async listVenueOperators(tenantId: string, role: PayeeRole = 'OPERATOR'): Promise<OperatorWithBalance[]> {
     const operators = await this.prisma.user.findMany({
-      where: { tenantId, role: 'OPERATOR', deletedAt: null },
+      where: { tenantId, role, deletedAt: null },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -1024,9 +1026,9 @@ export class OperatorsService {
     operatorId: string,
     limit = 100,
   ): Promise<EarningView[]> {
-    // Verificar que la operadora pertenece a este venue (anti-IDOR)
+    // Verificar que la operadora (o el camarero) pertenece a este venue (anti-IDOR)
     const exists = await this.prisma.user.findFirst({
-      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      where: { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } },
       select: { id: true },
     });
     if (!exists) throw new NotFoundException('Operadora no encontrada');
@@ -1039,7 +1041,7 @@ export class OperatorsService {
     limit = 100,
   ): Promise<PayoutView[]> {
     const exists = await this.prisma.user.findFirst({
-      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      where: { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } },
       select: { id: true },
     });
     if (!exists) throw new NotFoundException('Operadora no encontrada');
@@ -1068,9 +1070,9 @@ export class OperatorsService {
     notes?: string,
     options?: PayoutOptions,
   ) {
-    // Verificar pertenencia + leer payoutMethod por defecto
+    // Verificar pertenencia + leer payoutMethod por defecto (chica o camarero)
     const operator = await this.prisma.user.findFirst({
-      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      where: { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } },
     }) as unknown as { id: string; payoutMethod: string | null } | null;
     if (!operator) throw new NotFoundException('Operadora no encontrada');
     const holdDays = await this.holdDays(tenantId);
@@ -1210,7 +1212,7 @@ export class OperatorsService {
 
   async ensureBelongsToVenue(operatorId: string, tenantId: string): Promise<void> {
     const exists = await this.prisma.user.findFirst({
-      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      where: { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } },
       select: { id: true },
     });
     if (!exists) throw new ForbiddenException('Operadora no pertenece a tu venue');

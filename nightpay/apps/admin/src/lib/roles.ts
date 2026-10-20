@@ -15,6 +15,7 @@ export type SectionKey = 'hoy' | 'chicas' | 'clientes' | 'informes' | 'ajustes';
 /** Pestaña dentro de una sección. */
 export type TabKey =
   | 'payments'
+  | 'money'
   | 'incidents'
   | 'operators'
   | 'treasury'
@@ -71,6 +72,8 @@ const SECTION_ORDER: readonly SectionKey[] = ['hoy', 'chicas', 'clientes', 'info
 export const PANEL_TABS: readonly PanelTab[] = [
   // Hoy: los cobros en vivo y una sola bandeja (incidencias + «Por aprobar»).
   { key: 'payments', label: 'Cobros', section: 'hoy', access: 'staff' },
+  // El mapa del dinero en directo (/v1/admin/money-map): como los informes.
+  { key: 'money', label: 'Mapa del dinero', section: 'hoy', access: 'reports' },
   { key: 'incidents', label: 'Avisos', section: 'hoy', access: 'staff' },
   { key: 'operators', label: 'Chicas', section: 'chicas', access: 'staff' },
   { key: 'treasury', label: 'Pagos a chicas', section: 'chicas', access: 'staff' },

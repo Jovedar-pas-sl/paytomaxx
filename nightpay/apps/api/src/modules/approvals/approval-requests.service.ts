@@ -26,6 +26,7 @@ import { AuditService } from '../audit/audit.service';
 import { isPayoutKeyClash, payoutKeyReused, type PayoutIdempotency } from '../operators/payout-idempotency';
 import { payoutTotalCents } from '../operators/payout-math';
 import { lockOperatorPayouts, payableSelection, payoutTotalChanged } from '../operators/payout-selection';
+import { PAYEE_ROLES } from '../operators/payee-roles';
 import { venueHoldDays } from '../operators/venue-hold-days';
 import {
   REFUNDABLE_STATUSES,
@@ -218,7 +219,8 @@ export class ApprovalRequestsService {
     now: Date,
   ) {
     const operator = await tx.user.findFirst({
-      where: { id: operatorId, tenantId: actor.tenantId, role: 'OPERATOR', deletedAt: null },
+      // Las chicas y los camareros (su parte de las invitaciones): mismo pago y mismas reglas.
+      where: { id: operatorId, tenantId: actor.tenantId, role: { in: [...PAYEE_ROLES] }, deletedAt: null },
       select: { id: true, displayName: true, email: true, payoutMethod: true, payoutAddress: true, payoutLabel: true },
     });
     if (!operator) throw new NotFoundException('Operadora no encontrada');
