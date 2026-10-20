@@ -26,7 +26,7 @@ const javi = { userId: JAVI, role: 'MANAGER' };
 const paco = { userId: PACO, role: 'WAITER' };
 const recepcion = { terminalId: 'term-recepcion' };
 
-function setup(o: { venue?: Row; wallet?: Row | null } = {}) {
+function setup(o: { venue?: Row; wallet?: Row | null; pacoPost?: string | null } = {}) {
   const venues = new Map<string, Row>([
     [SALA, { id: SALA, walletGroup: 'grupo-bambu', pausedAt: null, business: null, paymentMethods: null, staffPermissions: null, ...o.venue }],
     [NORTE, { id: NORTE, walletGroup: 'grupo-bambu', pausedAt: null, business: null, paymentMethods: null, staffPermissions: null }],
@@ -90,9 +90,12 @@ function setup(o: { venue?: Row; wallet?: Row | null } = {}) {
     }
     return []; // código libre al reabrir
   });
+  // El puesto de cada persona: Paco, el camarero (Barra si no se dice otro).
+  const posts = new Map<string, string | null>([[PACO, o.pacoPost ?? null]]);
   const tx = {
     $queryRaw,
     venue: { findUnique: vi.fn(async (a: { where: { id: string } }) => venues.get(a.where.id) ?? null) },
+    user: { findFirst: vi.fn(async (a: { where: { id: string } }) => ({ post: posts.get(a.where.id) ?? null })) },
     clientWallet: {
       findUnique: vi.fn(async (a: { where: { id: string } }) => (wallets.get(a.where.id) ? { ...wallets.get(a.where.id) } : null)),
       findFirst: vi.fn(async (a: { where: { shortCode: string } }) => [...wallets.values()].find((w) => w.shortCode === a.where.shortCode && w.status === 'ACTIVE') ?? null),
@@ -224,13 +227,30 @@ describe('recarga en efectivo', () => {
 });
 
 describe('quién puede cobrar efectivo', () => {
-  it('el camarero, solo si el dueño se lo da (por defecto no): 403 STAFF_PERMISSION_DENIED', async () => {
-    const { svc } = setup();
-    const err = await svc.topUp(SALA, paco, nueva(1_000)).catch((e: unknown) => e);
+  it('el camarero de barra no (aunque el dueño se lo diera a los camareros): las recargas, en recepción', async () => {
+    const barra = setup({ venue: { staffPermissions: { roles: { WAITER: { cashTopUp: true } } } } });
+    const err = await barra.svc.topUp(SALA, paco, nueva(1_000)).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ForbiddenException);
-    expect((err as HttpException).getResponse()).toMatchObject({ code: 'STAFF_PERMISSION_DENIED', permission: 'cashTopUp' });
-    const given = setup({ venue: { staffPermissions: { roles: { WAITER: { cashTopUp: true } } } } });
-    await expect(given.svc.topUp(SALA, paco, nueva(1_000))).resolves.toMatchObject({ balanceCents: 1_000 });
+    expect((err as HttpException).getResponse()).toMatchObject({
+      code: 'TOP_UP_RECEPTION_ONLY',
+      message: 'Las recargas se hacen en recepción.',
+    });
+    await expect(barra.svc.cashBlockedReason(SALA, paco)).resolves.toBe('Las recargas se hacen en recepción.');
+    expect(barra.topUps.size).toBe(0);
+  });
+
+  it('el camarero de recepción, sí (sin que el dueño se lo dé); si se lo quita a esa persona, no', async () => {
+    const recepcionista = setup({ pacoPost: 'RECEPCION' });
+    await expect(recepcionista.svc.topUp(SALA, paco, nueva(1_000))).resolves.toMatchObject({ balanceCents: 1_000 });
+    const quitado = setup({ pacoPost: 'RECEPCION', venue: { staffPermissions: { people: { [PACO]: { cashTopUp: false } } } } });
+    await expect(quitado.svc.topUp(SALA, paco, nueva(1_000))).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'STAFF_PERMISSION_DENIED' }),
+    });
+    // Recepción sin efectivo en la tabla de puestos (Ajustes): tampoco.
+    const sinEfectivo = setup({ pacoPost: 'RECEPCION', venue: { postRules: { RECEPCION: { cash: false } } } });
+    await expect(sinEfectivo.svc.topUp(SALA, paco, nueva(1_000))).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CASH_RECEPTION_ONLY' }),
+    });
   });
 
   it('el encargado sin el permiso (se lo quitó el dueño): 403', async () => {

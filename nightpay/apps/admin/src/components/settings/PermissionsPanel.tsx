@@ -5,6 +5,7 @@ import { Button } from '@nightpay/ui';
 import type { PermissionRole, StaffPermissionKey, StaffPermissions, UpdateStaffPermissionsDto } from '@nightpay/contracts';
 import { fetchStaffPermissions, updateStaffPermissions, type PermissionPerson } from '@/lib/api';
 import { PERMISSION_LABELS, ROLE_LABELS, editablePermissions, hasOverride, personCan, waiterHint } from '@/lib/settings-forms';
+import { PuestosCard } from './PuestosCard';
 import { LoadState, SettingsCard, StatusLine, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 /**
@@ -110,6 +111,8 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
       ) : null}
 
       <StatusLine saved={saved} error={error} />
+
+      <PuestosCard />
     </div>
   );
 }

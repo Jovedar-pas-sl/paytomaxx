@@ -56,6 +56,8 @@ interface FakeDb {
   /** Devoluciones: ya aplicada / ganancia de la chica (applyRefundToEarning). */
   reversalApplied?: boolean;
   earning?: Record<string, unknown>;
+  /** Líneas del cobro (el mapa del dinero); sin ellas, un cobro de antes. */
+  lines?: Array<{ category: string; amountCents: number; operatorCommissionBps: number | null }>;
 }
 
 function makeService(db: FakeDb) {
@@ -76,6 +78,7 @@ function makeService(db: FakeDb) {
         return USERS[id] ? [{ id, ...USERS[id] }] : [];
       }
       if (q.text.includes('FROM venues')) return [{ operatorCommissionDefaults: db.venueDefaults ?? null }];
+      if (q.text.includes('FROM payment_lines')) return db.lines ?? [];
       if (q.text.includes('FROM client_wallets') && q.text.includes('FOR UPDATE')) {
         return db.wallet && q.values[0] === db.wallet.id ? [db.wallet] : [];
       }
@@ -175,6 +178,61 @@ describe('transition AUTHORIZED — comisión de la chica que cobró', () => {
     });
     await herself.service.transition(PAYMENT_ID, authorized, TENANT);
     expect(earnings(herself.written)).toEqual([[TENANT, OPERATOR, PAYMENT_ID, 10_000, 9_000, 9_000, 1_500]]);
+  });
+});
+
+describe('transition AUTHORIZED — comisión por línea (el mapa del dinero)', () => {
+  it('pack «1 h con habitación»: su % solo sobre la parte de Servicios', async () => {
+    const { service, written } = makeService({
+      locked: lockedRow({ amountCents: 15_000, availableAmountCents: 15_000, operatorCommissionBps: 7_200 }),
+      lines: [
+        { category: 'CHICA_SERVICE', amountCents: 12_000, operatorCommissionBps: 9_000 },
+        { category: 'VENUE_ROOM', amountCents: 3_000, operatorCommissionBps: 0 },
+      ],
+    });
+    await service.transition(PAYMENT_ID, authorized, TENANT);
+    // 90 % de 120 € = 108 €; el % que se guarda es el efectivo sobre los 150 €.
+    expect(earnings(written)).toEqual([[TENANT, OPERATOR, PAYMENT_ID, 15_000, 7_200, 10_800, 0]]);
+  });
+
+  it('REGRESIÓN: un cobro de una sola sección con su línea da lo mismo que sin líneas', async () => {
+    for (const [amountCents, bps] of [
+      [4_505, 9_000],
+      [3_335, 1_500],
+      [999, 3_333],
+    ] as const) {
+      const before = makeService({ locked: lockedRow({ amountCents, availableAmountCents: amountCents, operatorCommissionBps: bps }) });
+      await before.service.transition(PAYMENT_ID, authorized, TENANT);
+      const withLine = makeService({
+        locked: lockedRow({ amountCents, availableAmountCents: amountCents, operatorCommissionBps: bps }),
+        lines: [{ category: 'CHICA_SERVICE', amountCents, operatorCommissionBps: bps }],
+      });
+      await withLine.service.transition(PAYMENT_ID, authorized, TENANT);
+      expect(earnings(withLine.written)).toEqual(earnings(before.written));
+    }
+  });
+
+  it('línea sin % guardado: el de ahora para su sección (Servicios: el de la chica o el del local)', async () => {
+    const { service, written } = makeService({
+      locked: lockedRow({ amountCents: 12_000, availableAmountCents: 12_000 }),
+      venueDefaults: { CHICA_SERVICE: 8_000, VENUE_BAR: 1_000 },
+      lines: [
+        { category: 'CHICA_SERVICE', amountCents: 10_000, operatorCommissionBps: null },
+        { category: 'VENUE_BAR', amountCents: 2_000, operatorCommissionBps: null },
+      ],
+    });
+    await service.transition(PAYMENT_ID, authorized, TENANT);
+    // 80 % de 100 € + 10 % de 20 € = 82 €.
+    expect(earnings(written)[0]!.slice(3)).toEqual([12_000, 6_833, 8_200, 0]);
+  });
+
+  it('cobro de la chica solo de secciones del local al 0 %: sin ganancia (como hoy en barra)', async () => {
+    const { service, written } = makeService({
+      locked: lockedRow({ revenueCategory: 'VENUE_ROOM' }),
+      lines: [{ category: 'VENUE_ROOM', amountCents: 10_000, operatorCommissionBps: 0 }],
+    });
+    await service.transition(PAYMENT_ID, authorized, TENANT);
+    expect(earnings(written)).toEqual([]);
   });
 });
 

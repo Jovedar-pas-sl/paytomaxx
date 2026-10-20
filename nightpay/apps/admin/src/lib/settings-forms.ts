@@ -26,6 +26,7 @@ export const COMMISSION_FIELDS: ReadonlyArray<{ key: keyof OperatorCommissionDef
   { key: 'VENUE_BAR', label: 'Bar / bebida' },
   { key: 'VENUE_ROOM', label: 'Habitación' },
   { key: 'VENUE_FOOD', label: 'Comida' },
+  { key: 'VENUE_ENTRY', label: 'Entradas' },
   { key: 'EXTRA', label: 'Otros' },
 ];
 
@@ -47,6 +48,7 @@ export function rulesFormFrom(s: VenueSettings): RulesForm {
       VENUE_BAR: bpsToPercentInput(d.VENUE_BAR),
       VENUE_ROOM: bpsToPercentInput(d.VENUE_ROOM),
       VENUE_FOOD: bpsToPercentInput(d.VENUE_FOOD),
+      VENUE_ENTRY: bpsToPercentInput(d.VENUE_ENTRY ?? 0),
       EXTRA: bpsToPercentInput(d.EXTRA),
     },
     holdDays: s.payoutHoldDays === null || s.payoutHoldDays === undefined ? '' : String(s.payoutHoldDays),
@@ -96,7 +98,7 @@ export function rulesChange(
   const change: VenueRulesInput = {};
   if (max !== current.operatorMaxCobroCents) change.operatorMaxCobroCents = max;
   const changedCommissions = Object.fromEntries(
-    COMMISSION_FIELDS.filter(({ key }) => commissions[key] !== current.operatorCommissionDefaults[key]).map(({ key }) => [
+    COMMISSION_FIELDS.filter(({ key }) => commissions[key] !== (current.operatorCommissionDefaults[key] ?? 0)).map(({ key }) => [
       key,
       commissions[key],
     ]),

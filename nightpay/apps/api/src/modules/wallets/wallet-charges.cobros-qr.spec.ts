@@ -104,6 +104,9 @@ function setup() {
     }),
     walletCard: table('card'),
     walletChargeRequest: table('req', { tenantId: SALA, walletId: null, decidedAt: null, status: 'PENDING', category: 'CHICA_SERVICE' }),
+    // El mapa del dinero: líneas de cada cobro y su referencia (C-0001).
+    paymentLine: Object.assign(table('line'), { createMany: vi.fn(async () => ({ count: 0 })) }),
+    chargeRefCounter: { upsert: vi.fn(async () => ({ lastRef: 1 })) },
     walletConsumption: table('cons', { tipCents: 0, notes: null, reversedAt: null }),
     operatorEarning: table('earn'),
     walletPayout: table('po'),
@@ -316,7 +319,7 @@ describe('referencias del saldo y su página', () => {
     );
     const state = await svc.clientState('qrTokenDelClienteK7Q4M2xx');
     expect(state.movements.map((m) => m.label)).toEqual(['Barra', 'Habitación', 'Comida', 'Otro', 'Servicio', 'Consumo', 'Botella Moët']);
-    expect(state.movements[0]).toEqual({ kind: 'consumption', amountCents: -1_200, label: 'Barra', venueName: 'Bambú Norte (Alcobendas)', at: at(1).toISOString() });
+    expect(state.movements[0]).toEqual({ kind: 'consumption', amountCents: -1_200, label: 'Barra', venueName: 'Bambú Norte (Alcobendas)', at: at(1).toISOString(), ref: null });
   });
 });
 

@@ -21,6 +21,7 @@ export const CATEGORY_LABELS: Readonly<Record<keyof OperatorCommissionDefaults, 
   VENUE_BAR: 'Bar / bebida',
   VENUE_ROOM: 'Habitación',
   VENUE_FOOD: 'Comida',
+  VENUE_ENTRY: 'Entradas',
   EXTRA: 'Otros',
 };
 

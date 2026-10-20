@@ -84,7 +84,7 @@ describe('#3 la propina es la que cobró el banco (Postgres real)', () => {
     await inVenue(undefined, () => payments.transition(p.id, { type: 'AUTHORIZED', provider: 'PAYTEF', providerTxId: `PT-${r}` }));
     const after = await sys((tx) => tx.payment.findUnique({ where: { id: p.id } }));
     expect(after).toMatchObject({ status: 'AUTHORIZED', tipCents: 0, availableAmountCents: 10_000, tipGoesTo: null });
-    const e = await sys((tx) => tx.operatorEarning.findUnique({ where: { paymentId: p.id } }));
+    const e = await sys((tx) => tx.operatorEarning.findFirst({ where: { paymentId: p.id } }));
     expect(e).toMatchObject({ commissionBps: 9000, commissionCents: 9000, tipCents: 0 });
   });
 
@@ -98,7 +98,7 @@ describe('#3 la propina es la que cobró el banco (Postgres real)', () => {
     await inVenue(undefined, () => payments.transition(p.id, { type: 'AUTHORIZED', provider: 'REDSYS', providerTxId: `RS-${r}` }));
     const after = await sys((tx) => tx.payment.findUnique({ where: { id: p.id } }));
     expect(after).toMatchObject({ status: 'AUTHORIZED', tipCents: 500, availableAmountCents: 10_500, tipGoesTo: 'operator' });
-    const e = await sys((tx) => tx.operatorEarning.findUnique({ where: { paymentId: p.id } }));
+    const e = await sys((tx) => tx.operatorEarning.findFirst({ where: { paymentId: p.id } }));
     expect(e).toMatchObject({ commissionCents: 9000, tipCents: 500 });
   });
 });
@@ -125,7 +125,7 @@ describe('#13 confirmar un cobro POS a mano (Postgres real)', () => {
     expect(paid.authorizedAt).not.toBeNull();
     const ev = await sys((tx) => tx.paymentEvent.count({ where: { paymentId: paid.id, eventType: 'pos.confirmed' } }));
     expect(ev).toBe(1);
-    const e = await sys((tx) => tx.operatorEarning.findUnique({ where: { paymentId: paid.id } }));
+    const e = await sys((tx) => tx.operatorEarning.findFirst({ where: { paymentId: paid.id } }));
     expect(e).toMatchObject({ commissionCents: 9000, tipCents: 0 });
   });
 
@@ -257,7 +257,7 @@ describe('#54 % de la chica fijado al crear (Postgres real)', () => {
       tx.payment.update({ where: { id: created.id }, data: { status: 'AUTHORIZING', provider: 'PAYTEF', providerTxId: `CM-${r}` } }),
     );
     await inVenue(undefined, () => payments.transition(created.id, { type: 'AUTHORIZED', provider: 'PAYTEF', providerTxId: `CM-${r}` }));
-    const e = await sys((tx) => tx.operatorEarning.findUnique({ where: { paymentId: created.id } }));
+    const e = await sys((tx) => tx.operatorEarning.findFirst({ where: { paymentId: created.id } }));
     expect(e).toMatchObject({ commissionBps: 9000, commissionCents: 9000 });
     await sys((tx) => tx.user.update({ where: { id: chica }, data: { commissionBps: 9000 } }));
   });

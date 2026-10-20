@@ -1,13 +1,14 @@
 'use client';
 
-import type { CSSProperties } from 'react';
-import { Card } from '@nightpay/ui';
+import { useState, type CSSProperties } from 'react';
+import { Button, Card, Modal } from '@nightpay/ui';
 import type { MyNight, OperatorBalance, OperatorUser } from '@/lib/api';
 import { moneySummary } from '@/lib/earnings-view';
 import { ROLE_LABEL } from '@/lib/roles';
 import { staffHomeHint, useVenueMethods } from '@/lib/venue-methods';
 import { CreatePayment } from './CreatePayment';
 import styles from './home.module.css';
+import { StaffQrSheet } from './StaffQrSheet';
 import { TonightCard } from './TonightCard';
 
 interface Props {
@@ -23,6 +24,7 @@ interface Props {
 
 /** Inicio: arriba quién eres (y lo de esta noche, si eres la chica); debajo, cobrar. */
 export function HomeTab({ user, showBalance, balance, night, onCobroDone, onOpenEarnings }: Props) {
+  const [qrOpen, setQrOpen] = useState(false);
   return (
     <div className={styles.home}>
       <div className={styles.intro}>
@@ -38,8 +40,17 @@ export function HomeTab({ user, showBalance, balance, night, onCobroDone, onOpen
         ) : (
           <StaffCard user={user} />
         )}
+        {/* La chica: su QR para que el camarero cobre «Invitar a una copa». */}
+        {user.role === 'OPERATOR' ? (
+          <Button variant="ghost" onClick={() => setQrOpen(true)}>
+            Mi QR · invitaciones
+          </Button>
+        ) : null}
       </div>
       <CreatePayment role={user.role} onCreated={onCobroDone} />
+      <Modal open={qrOpen} onClose={() => setQrOpen(false)} title="Mi QR">
+        {qrOpen ? <StaffQrSheet onClose={() => setQrOpen(false)} /> : null}
+      </Modal>
     </div>
   );
 }

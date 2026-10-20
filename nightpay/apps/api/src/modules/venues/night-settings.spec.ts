@@ -120,10 +120,13 @@ describe('VenuesController /v1/venues/me', () => {
           nightSettings: { pinKeypad: 'shuffled' },
         })),
       },
+      // El mapa del dinero: el puesto de quien llama (la chica, siempre Sala).
+      user: { findFirst: vi.fn(async () => ({ post: null })) },
     };
     const ctrl = new VenuesController(prisma as never);
     const me = await ctrl.getMyVenue({ sub: 'u', role: 'OPERATOR', tenantId: 't-1' } as JwtPayload);
     expect(me.paymentMethods).toMatchObject({ pos: false, card: true });
     expect(me.nightSettings).toEqual({ ...DEFAULT_NIGHT_SETTINGS, pinKeypad: 'shuffled' });
+    expect(me).toMatchObject({ myPost: 'SALA', myRights: { sections: ['CHICA_SERVICE'] }, myDefaultCategory: 'CHICA_SERVICE' });
   });
 });

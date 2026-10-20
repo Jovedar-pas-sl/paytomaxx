@@ -7,7 +7,6 @@ import {
   MAX_CASH_TOP_UP_CENTS,
   STAFF_PERMISSION_DENIED_CODE,
   deviceCan,
-  staffCan,
   staffPermissionsOf,
   type CashTopUpResult,
   type CashTopUpVoidResult,
@@ -19,7 +18,7 @@ import { PrismaService, type TransactionalClient } from '../../common/prisma/pri
 import { AuditService } from '../audit/audit.service';
 import { totpForbidden } from '../auth/totp-code';
 import { TotpService } from '../auth/totp.service';
-import { permissionDenied } from '../venues/staff-permission.guard';
+import { assertCanHandleCash, chargeRightsFor } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { insertEmptyWallet } from './empty-wallet';
@@ -170,13 +169,20 @@ export class CashTopUpService {
     }
   }
 
-  /** En pausa, formas de cobro apagadas o sin el permiso: no se cobra. */
+  /**
+   * En pausa, formas de cobro apagadas o sin el permiso: no se cobra. El
+   * efectivo y las recargas, solo en recepción (su puesto), el encargado o
+   * el dueño, o el datáfono de recepción (si el dueño se lo deja).
+   */
   private async assertAllowed(venueId: string, by: CashTopUpBy): Promise<void> {
-    const staffPermissions = await this.prisma.asSystem(async (tx) => {
+    const { staffPermissions, rights } = await this.prisma.asSystem(async (tx) => {
       await assertVenueAcceptsCharges(tx, venueId);
       await assertVenueAcceptsMethods(tx, venueId, CASH_TOP_UP_METHODS);
       const venue = await tx.venue.findUnique({ where: { id: venueId }, select: { staffPermissions: true } });
-      return venue?.staffPermissions ?? null;
+      return {
+        staffPermissions: venue?.staffPermissions ?? null,
+        rights: 'userId' in by ? await chargeRightsFor(tx, venueId, by) : null,
+      };
     });
     const perms = staffPermissionsOf(staffPermissions);
     if ('terminalId' in by) {
@@ -189,7 +195,7 @@ export class CashTopUpService {
       }
       return;
     }
-    if (!staffCan(perms, { role: by.role, userId: by.userId }, 'cashTopUp')) throw permissionDenied('cashTopUp');
+    if (rights) assertCanHandleCash(rights, by, perms);
   }
 
   /**

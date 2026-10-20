@@ -10,6 +10,7 @@ export type RevenueCategory =
   | 'VENUE_BAR'
   | 'VENUE_ROOM'
   | 'VENUE_FOOD'
+  | 'VENUE_ENTRY'
   | 'EXTRA';
 
 export interface OperatorCommissionDefaults {
@@ -17,14 +18,17 @@ export interface OperatorCommissionDefaults {
   VENUE_BAR: number;
   VENUE_ROOM: number;
   VENUE_FOOD: number;
+  /** Entradas (20261023100000): los locales de antes no la tienen guardada → 0. */
+  VENUE_ENTRY?: number;
   EXTRA: number;
 }
 
-export const DEFAULT_COMMISSION_DEFAULTS: OperatorCommissionDefaults = {
+export const DEFAULT_COMMISSION_DEFAULTS: Required<OperatorCommissionDefaults> = {
   CHICA_SERVICE: 9000,
   VENUE_BAR: 0,
   VENUE_ROOM: 0,
   VENUE_FOOD: 0,
+  VENUE_ENTRY: 0,
   EXTRA: 0,
 };
 
@@ -53,40 +57,4 @@ export function resolveBpsForOperator(args: {
     return map[cat] ?? 0;
   }
   return 0;
-}
-
-/**
- * Infer la categoría default para un nuevo cobro cuando el DTO no la especifica.
- *
- *  - WALLET_TOPUP (hasWalletId=true) → EXTRA (la categoría real se asigna por consumption)
- *  - creator OPERATOR + sin wallet   → CHICA_SERVICE (su servicio)
- *  - cualquier otro                   → EXTRA (el camarero/admin debe elegir explícito)
- */
-export function inferRevenueCategory(args: {
-  hasWalletId: boolean;
-  creatorRole: string | undefined | null;
-}): RevenueCategory {
-  if (args.hasWalletId) return 'EXTRA';
-  if (args.creatorRole === 'OPERATOR') return 'CHICA_SERVICE';
-  return 'EXTRA';
-}
-
-/**
- * Categoría de un cobro nuevo según quién lo crea (Fase 0):
- *  - Recarga de wallet: siempre EXTRA (la recarga no genera comisión; el consumo sí).
- *  - OPERATOR: solo CHICA_SERVICE. Barra, habitación y comida las cobra el
- *    camarero desde la caja; si no, la chica se llevaría su % de ventas del local.
- *  - Resto de roles: la pedida, o la inferida.
- * Devuelve null si la chica pide otra categoría (el servicio responde 400).
- */
-export function resolveRevenueCategory(args: {
-  isWalletTopUp: boolean;
-  creatorRole: string | undefined | null;
-  requested: RevenueCategory | undefined | null;
-}): RevenueCategory | null {
-  if (args.isWalletTopUp) return 'EXTRA';
-  if (args.creatorRole === 'OPERATOR') {
-    return !args.requested || args.requested === 'CHICA_SERVICE' ? 'CHICA_SERVICE' : null;
-  }
-  return args.requested ?? inferRevenueCategory({ hasWalletId: false, creatorRole: args.creatorRole });
 }

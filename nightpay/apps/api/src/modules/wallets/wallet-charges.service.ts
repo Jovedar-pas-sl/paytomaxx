@@ -11,17 +11,22 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import {
+  formatChargeRef,
   isWalletCardToken,
   nightSettingsOf,
   normalizeWalletCardUid,
   type ChargeAuthMethod,
+  type ChargeLineInput,
   type Role,
 } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { resolveBpsForOperator, resolveRevenueCategory, type RevenueCategory } from '../payments/commission';
-import { applyServiceItem } from '../payments/service-item';
+import { resolveBpsForOperator, type RevenueCategory } from '../payments/commission';
+import { lineCommission, type DraftLine } from '../payments/charge-lines';
+import { resolveChargeOrThrow } from '../payments/charge-request';
+import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from '../payments/charge-store';
+import { invitationEarnings } from '../payments/invitation-lines';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 import { reopenData } from './wallet-activation';
 import { mergedWalletIds } from './wallet-merge-chain';
@@ -180,6 +185,8 @@ export interface ReceptionWalletView {
 
 export interface ChargeRequestView {
   id: string;
+  /** Referencia corta (C-0001): la de la chica en el PAGADO y la del cliente en sus movimientos. */
+  ref: string | null;
   status: ChargeRequestStatus;
   amountCents: number;
   serviceName: string | null;
@@ -237,6 +244,8 @@ export interface ClientWalletState {
     label: string;
     venueName: string | null;
     at: string;
+    /** Referencia del cobro (C-0001) en consumos y recargas con tarjeta; null en el resto y en los antiguos. */
+    ref: string | null;
   }>;
 }
 
@@ -360,35 +369,26 @@ export class WalletChargesService {
     };
   }
 
-  /** Importe, categoría y nombre del cobro: de la carta o tecleado (con el tope de la chica). */
+  /**
+   * Importe, sección y nombre del cobro, en líneas (el mapa del dinero): de la
+   * carta (un pack, una línea por parte) o tecleado en una sección (sin
+   * sección: la del puesto de quien cobra o la de su rol). Con el tope de la chica.
+   */
   private async resolveCharge(
     actor: Actor,
-    input: { serviceItemId?: string; amountCents?: number; category?: string },
-  ): Promise<{ amountCents: number; category: RevenueCategory; serviceName: string | null }> {
-    let amountCents: number;
-    let category: RevenueCategory;
-    let serviceName: string | null = null;
-    if (input.serviceItemId) {
-      const item = await this.prisma.serviceItem.findFirst({
-        where: { id: input.serviceItemId, tenantId: actor.tenantId },
-      });
-      if (!item) throw new NotFoundException('Ese servicio no está en la carta de este local');
-      const charge = applyServiceItem(item, actor.role);
-      if (!charge.ok) throw new BadRequestException('Ese servicio no se puede cobrar desde tu app');
-      amountCents = charge.amountCents;
-      category = charge.revenueCategory;
-      serviceName = charge.serviceName;
-    } else {
-      if (!input.amountCents || input.amountCents <= 0) throw new BadRequestException('Pon el importe');
-      const resolved = resolveRevenueCategory({
-        isWalletTopUp: false,
-        creatorRole: actor.role,
-        requested: (input.category as RevenueCategory | undefined) ?? null,
-      });
-      if (!resolved) throw new BadRequestException('Desde tu app solo puedes cobrar tus servicios');
-      amountCents = input.amountCents;
-      category = resolved;
-    }
+    input: QrChargeInput,
+  ): Promise<{ amountCents: number; category: RevenueCategory; serviceName: string | null; lines: DraftLine[] }> {
+    const charge = await resolveChargeOrThrow(this.prisma, {
+      tenantId: actor.tenantId,
+      userId: actor.userId,
+      role: actor.role,
+      lines: input.lines,
+      serviceItemId: input.serviceItemId,
+      amountCents: input.amountCents,
+      requestedCategory: input.category,
+      invitedStaffToken: input.invitedStaffToken,
+    });
+    const amountCents = charge.amountCents;
     // El mismo tope por cobro que tiene la chica con el QR (Ajustes del local).
     if (actor.role === 'OPERATOR') {
       const venue = await this.prisma.venue.findUnique({
@@ -400,7 +400,7 @@ export class WalletChargesService {
         throw new ForbiddenException(`El máximo que puedes cobrar de una vez es ${eur(max)}`);
       }
     }
-    return { amountCents, category, serviceName };
+    return { amountCents, category: charge.primaryCategory, serviceName: charge.serviceName, lines: charge.lines };
   }
 
   /** La chica espera a que el cliente pague (solo la que lo hizo, o el encargado). */
@@ -453,7 +453,7 @@ export class WalletChargesService {
           where: { walletId: wallet.id, reversedAt: null },
           orderBy: { createdAt: 'desc' },
           take: 30,
-          select: { amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true },
+          select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true },
         }),
       ),
       this.prisma.asSystem((tx) =>
@@ -461,7 +461,7 @@ export class WalletChargesService {
           where: { walletId: wallet.id, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
           orderBy: { createdAt: 'desc' },
           take: 10,
-          select: { amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true },
+          select: { amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true, ref: true },
         }),
       ),
       this.prisma.asSystem((tx) =>
@@ -492,6 +492,8 @@ export class WalletChargesService {
     const venueIds = [...new Set([...consumptions, ...topUps, ...cashTopUps, ...payouts].map((m) => m.tenantId))];
     const venues = await this.prisma.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true } });
     const venueName = (id: string): string => venues.find((v) => v.id === id)?.name ?? '';
+    // La referencia de cada consumo es la de su cobro (C-0001).
+    const refs = await this.consumptionRefs(consumptions.map((c) => c.id));
 
     const movements: ClientWalletState['movements'] = [
       ...consumptions.map((c) => ({
@@ -500,6 +502,7 @@ export class WalletChargesService {
         label: c.notes?.split('\n')[0]?.trim() || categoryLabel(c.category),
         venueName: venueName(c.tenantId),
         at: c.createdAt.toISOString(),
+        ref: refs.get(c.id) ?? null,
       })),
       ...topUps.map((t) => ({
         kind: 'topup' as const,
@@ -507,6 +510,7 @@ export class WalletChargesService {
         label: 'Recarga',
         venueName: venueName(t.tenantId),
         at: (t.authorizedAt ?? t.createdAt).toISOString(),
+        ref: formatChargeRef(t.ref),
       })),
       ...cashTopUps.map((t) => ({
         kind: 'topup' as const,
@@ -515,6 +519,7 @@ export class WalletChargesService {
         label: t.amountCents < 0 ? 'Recarga en efectivo anulada' : 'Recarga en efectivo',
         venueName: venueName(t.tenantId),
         at: t.createdAt.toISOString(),
+        ref: null,
       })),
       ...payouts.map((p) => ({
         kind: 'payout' as const,
@@ -522,6 +527,7 @@ export class WalletChargesService {
         label: p.method === 'CASH' ? 'Devuelto en efectivo' : 'Devuelto a la tarjeta',
         venueName: venueName(p.tenantId),
         at: p.createdAt.toISOString(),
+        ref: null,
       })),
     ].sort((a, b) => b.at.localeCompare(a.at));
 
@@ -539,6 +545,18 @@ export class WalletChargesService {
       cards: refundCards(topUps.map((t) => t.cardLast4)),
       movements,
     };
+  }
+
+  /** Consumo → referencia de su cobro (C-0001). Los antiguos, sin referencia. */
+  private async consumptionRefs(consumptionIds: string[]): Promise<Map<string, string>> {
+    if (consumptionIds.length === 0) return new Map();
+    const rows = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findMany({
+        where: { consumptionId: { in: consumptionIds }, ref: { not: null } },
+        select: { consumptionId: true, ref: true },
+      }),
+    );
+    return new Map(rows.flatMap((r) => (r.consumptionId && r.ref ? [[r.consumptionId, formatChargeRef(r.ref)!]] : [])));
   }
 
   /**
@@ -578,12 +596,13 @@ export class WalletChargesService {
       const decision = decideAccept(request, w, new Date());
       if (!decision.ok) throw requestError(decision.reason);
 
-      const [provider, venue] = await Promise.all([
+      const [provider, venue, lines] = await Promise.all([
         tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true, commissionBps: true } }),
         tx.venue.findUnique({
           where: { id: request.tenantId },
           select: { operatorCommissionDefaults: true, nightSettings: true },
         }),
+        linesOf(tx, { walletChargeIds: [request.id] }),
       ]);
       // NFC sin PIN: con el saldo ya bloqueado, lo gastado sin PIN esta noche
       // (también en los saldos sumados a este) + este cobro, contra el tope.
@@ -602,23 +621,38 @@ export class WalletChargesService {
         },
       });
       if (provider?.role === 'OPERATOR') {
-        const bps = resolveBpsForOperator({
-          category: request.category,
-          userCommissionBpsOverride: provider.commissionBps,
-          venueMap: (venue?.operatorCommissionDefaults ?? null) as Record<string, number> | null,
-        });
-        if (bps > 0) {
+        // Por línea (cada sección con su %); un cobro de una sola sección (o
+        // de antes de las líneas) da lo de siempre.
+        const bpsOf = (category: string) =>
+          resolveBpsForOperator({
+            category,
+            userCommissionBpsOverride: provider.commissionBps,
+            venueMap: (venue?.operatorCommissionDefaults ?? null) as Record<string, number> | null,
+          });
+        const parts = lines.length > 0 ? lines : [{ category: request.category, amountCents: request.amountCents }];
+        const commission = lineCommission(parts.map((l) => ({ amountCents: l.amountCents, bps: bpsOf(l.category) })));
+        if (commission.anyBps) {
           await tx.operatorEarning.create({
             data: {
               tenantId: request.tenantId,
               operatorId: request.requestedByUserId,
               consumptionId: consumption.id,
               paymentAmountCents: request.amountCents,
-              commissionBps: bps,
-              commissionCents: Math.round((request.amountCents * bps) / 10_000),
+              commissionBps: commission.commissionBps,
+              commissionCents: commission.commissionCents,
             },
           });
         }
+      }
+      // «Invitar a una copa»: la parte de la chica invitada (y la del camarero).
+      const invited = lines.filter((l) => l.beneficiaryOperatorId);
+      if (invited.length > 0) {
+        await insertInvitationEarnings(
+          tx,
+          request.tenantId,
+          { consumptionId: consumption.id },
+          invitationEarnings(invited, request.requestedByUserId),
+        );
       }
       const newBalance = w.balanceCents - request.amountCents;
       await tx.clientWallet.update({
@@ -666,20 +700,19 @@ export class WalletChargesService {
    * La chica elige el servicio y enseña un QR. Aún no se sabe de quién es el
    * saldo: lo dice la llave (Face ID) con la que el cliente paga.
    */
-  async createQrCharge(
-    actor: Actor,
-    input: { serviceItemId?: string; amountCents?: number; category?: string },
-  ): Promise<QrChargeView> {
+  async createQrCharge(actor: Actor, input: QrChargeInput): Promise<QrChargeView> {
     // Local (o su negocio) en pausa: sin cobros del saldo nuevos (423 VENUE_PAUSED).
     // Pago con saldo apagado en Ajustes: 409 PAYMENT_METHOD_DISABLED.
     await this.prisma.asSystem(async (tx) => {
       await assertVenueAcceptsCharges(tx, actor.tenantId);
       await assertVenueAcceptsMethods(tx, actor.tenantId, ['wallet']);
     });
-    const { amountCents, category, serviceName } = await this.resolveCharge(actor, input);
+    const { amountCents, category, serviceName, lines } = await this.resolveCharge(actor, input);
     const payToken = randomBytes(24).toString('base64url');
-    const request = await this.prisma.asSystem((tx) =>
-      tx.walletChargeRequest.create({
+    // Cobro, su referencia (C-0001) y sus líneas: todo o nada.
+    const request = await this.prisma.asSystem(async (tx) => {
+      const ref = await nextChargeRef(tx, actor.tenantId);
+      const created = await tx.walletChargeRequest.create({
         data: {
           tenantId: actor.tenantId,
           walletId: null,
@@ -688,10 +721,13 @@ export class WalletChargesService {
           category,
           serviceName,
           payToken,
+          ref,
           expiresAt: new Date(Date.now() + QR_CHARGE_TTL_MS),
         },
-      }),
-    );
+      });
+      await insertChargeLines(tx, actor.tenantId, { walletChargeId: created.id }, lines);
+      return created;
+    });
     return { ...this.requestView(request, null), payToken };
   }
 
@@ -1753,6 +1789,8 @@ export class WalletChargesService {
     if (input.method === 'CASH' && !isManager(actor)) {
       throw new ForbiddenException('Devolver en efectivo lo hace el encargado');
     }
+    // El efectivo sale solo con el encargado o el dueño (ni la chica ni el
+    // camarero, tampoco el de recepción): ver assertCanHandleCash para las recargas.
     const venue = await this.prisma.venue.findUnique({
       where: { id: actor.tenantId },
       select: { walletGroup: true, refundApprovalThresholdCents: true },
@@ -2094,11 +2132,12 @@ export class WalletChargesService {
   }
 
   private requestView(
-    r: { id: string; status: string; amountCents: number; serviceName: string | null; expiresAt: Date },
+    r: { id: string; status: string; amountCents: number; serviceName: string | null; expiresAt: Date; ref?: number | null },
     newBalanceCents: number | null,
   ): ChargeRequestView {
     return {
       id: r.id,
+      ref: formatChargeRef(r.ref),
       status: effectiveRequestStatus(r, new Date()),
       amountCents: r.amountCents,
       serviceName: r.serviceName,
@@ -2180,7 +2219,18 @@ function categoryLabel(category: string): string {
     VENUE_BAR: 'Barra',
     VENUE_ROOM: 'Habitación',
     VENUE_FOOD: 'Comida',
+    VENUE_ENTRY: 'Entrada',
     EXTRA: 'Otro',
   };
   return map[category] ?? 'Consumo';
+}
+
+/** Lo que pide quien cobra del saldo: líneas, o (apps antiguas) un servicio o un importe con su sección. */
+export interface QrChargeInput {
+  lines?: ChargeLineInput[];
+  serviceItemId?: string;
+  amountCents?: number;
+  category?: string;
+  /** «Invitar a una copa»: el QR personal de la chica invitada. */
+  invitedStaffToken?: string;
 }

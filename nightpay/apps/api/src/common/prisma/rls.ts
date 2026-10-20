@@ -28,6 +28,9 @@ export const FORCED_RLS_TABLES = [
   'approval_requests',
   // Efectivo que entra en los saldos (20261021200000): es dinero de la caja del local.
   'wallet_cash_topups',
+  // El mapa del dinero (20261023100000): las líneas de cada cobro y el contador de su referencia.
+  'payment_lines',
+  'charge_ref_counters',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -39,6 +42,8 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'PeanpeCall',
   'ApprovalRequest',
   'WalletCashTopUp',
+  'PaymentLine',
+  'ChargeRefCounter',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);

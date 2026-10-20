@@ -23,7 +23,7 @@ describe('planVenueRulesChange — reglas del local', () => {
     expect(plan).toEqual({
       ok: true,
       change: {
-        operatorCommissionDefaults: { CHICA_SERVICE: 9000, VENUE_BAR: 500, VENUE_ROOM: 0, VENUE_FOOD: 0, EXTRA: 0 },
+        operatorCommissionDefaults: { CHICA_SERVICE: 9000, VENUE_BAR: 500, VENUE_ROOM: 0, VENUE_FOOD: 0, VENUE_ENTRY: 0, EXTRA: 0 },
       },
     });
   });
@@ -56,7 +56,8 @@ describe('planVenueRulesChange — reglas del local', () => {
   });
 
   it('commissionMapOf: JSON guardado raro → valores por defecto', () => {
-    expect(commissionMapOf(null)).toEqual({ CHICA_SERVICE: 9000, VENUE_BAR: 0, VENUE_ROOM: 0, VENUE_FOOD: 0, EXTRA: 0 });
+    // Entradas (sección nueva): 0 en los locales que no la tienen guardada.
+    expect(commissionMapOf(null)).toEqual({ CHICA_SERVICE: 9000, VENUE_BAR: 0, VENUE_ROOM: 0, VENUE_FOOD: 0, VENUE_ENTRY: 0, EXTRA: 0 });
     expect(commissionMapOf({ CHICA_SERVICE: '80' as unknown as number, EXTRA: 100 }).EXTRA).toBe(100);
     expect(commissionMapOf({ CHICA_SERVICE: '80' as unknown as number }).CHICA_SERVICE).toBe(9000);
   });

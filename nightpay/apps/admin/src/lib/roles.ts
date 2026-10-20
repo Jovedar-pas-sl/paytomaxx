@@ -24,6 +24,7 @@ export type TabKey =
   | 'reports'
   | 'bank'
   | 'carta'
+  | 'sections'
   | 'terminals'
   | 'rules'
   | 'methods'
@@ -82,6 +83,8 @@ export const PANEL_TABS: readonly PanelTab[] = [
   // /v1/bank-recon/*: solo OWNER.
   { key: 'bank', label: 'Banco', section: 'informes', access: 'owner' },
   { key: 'carta', label: 'Carta', section: 'ajustes', access: 'staff' },
+  // El mapa del dinero: nombre, color y si se usa cada sección (/v1/admin/venue/sections).
+  { key: 'sections', label: 'Secciones', section: 'ajustes', access: 'owner' },
   // Datáfonos PAX: con el datáfono apagado no sale (su código sigue, por si vuelve).
   { key: 'terminals', label: 'Datáfonos', section: 'ajustes', access: 'staff', needsPos: true },
   { key: 'rules', label: 'Reglas del local', section: 'ajustes', access: 'owner' },

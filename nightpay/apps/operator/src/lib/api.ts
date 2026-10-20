@@ -3,7 +3,16 @@
 // va en una cookie HttpOnly del API y el access token solo en la memoria de
 // la pestaña. Aquí, los textos para la chica y los endpoints de la app.
 
-import type { CashTopUpDto, CashTopUpResult, PaymentStatus, ReceptionOptions, StockOutcome } from '@nightpay/contracts';
+import type {
+  CashTopUpDto,
+  CashTopUpResult,
+  PaymentStatus,
+  ReceptionOptions,
+  SectionCode,
+  StaffQrView,
+  StockOutcome,
+  VenueSection,
+} from '@nightpay/contracts';
 import {
   ApiError,
   ServerUnavailableError,
@@ -220,6 +229,10 @@ export interface CreatedPayment {
   createdAt: string;
   // Phase 1B — set cuando el cobro es un top-up de wallet
   walletId?: string | null;
+  /** Referencia corta del cobro (C-0001): la que sale en el PAGADO. */
+  ref?: string | null;
+  /** Lo cobrado, cada línea en su sección (vacío en una recarga). */
+  lines?: Array<{ category: string; label: string; qty: number; unitCents: number; amountCents: number }>;
 }
 
 // ─── Sesión ───────────────────────────────────────────────────────
@@ -393,10 +406,12 @@ export async function createPayment(input: {
   newWallet?: boolean;
   /** POS — el camarero confirma tras procesar tarjeta en datáfono externo. */
   captureMethod?: 'QR' | 'POS_EXTERNAL';
-  /** Categoría contable: CHICA_SERVICE | VENUE_BAR | VENUE_ROOM | VENUE_FOOD | EXTRA */
-  revenueCategory?: 'CHICA_SERVICE' | 'VENUE_BAR' | 'VENUE_ROOM' | 'VENUE_FOOD' | 'EXTRA';
+  /** Sección del importe tecleado (CHICA_SERVICE, VENUE_BAR…); sin ella, la del puesto. */
+  revenueCategory?: SectionCode;
   /** Fase 1A — servicio de la carta: el servidor usa su precio y su categoría. */
   serviceItemId?: string;
+  /** «Invitar a una copa»: el QR de la chica invitada (lo que se leyó). */
+  invitedStaffToken?: string;
   /** Una por intento de cobro (la pantalla la reutiliza si se repite). */
   idempotencyKey?: string;
 }): Promise<CreatedPayment> {
@@ -431,6 +446,9 @@ export async function createPayment(input: {
   }
   if (input.serviceItemId) {
     body.serviceItemId = input.serviceItemId;
+  }
+  if (input.invitedStaffToken) {
+    body.invitedStaffToken = input.invitedStaffToken;
   }
   const res = await authedFetch('/v1/payments', {
     method: 'POST',
@@ -495,6 +513,36 @@ export async function cancelPayment(id: string): Promise<{ status: string }> {
   return res.json();
 }
 
+/** «Mi QR» de la chica: firmado y de vida corta (la app lo renueva). */
+export async function fetchMyStaffQr(signal?: AbortSignal): Promise<StaffQrView> {
+  const res = await authedFetch('/v1/operators/me/staff-qr', { signal });
+  if (!res.ok) throw loadError(res, 'No se pudo sacar tu QR');
+  return res.json();
+}
+
+/** Secciones del local y la de quien cobra (su puesto): «Otro importe» la marca. */
+export interface MySections {
+  sections: VenueSection[];
+  defaultCategory: SectionCode | null;
+  /** Lo que su puesto puede cobrar (null: el API anterior, que no lo dice). */
+  allowed: SectionCode[] | null;
+}
+
+export async function fetchMySections(): Promise<MySections> {
+  const res = await authedFetch('/v1/venues/me');
+  if (!res.ok) throw loadError(res, 'Error cargando el local');
+  const body = (await res.json()) as {
+    sections?: VenueSection[];
+    myDefaultCategory?: SectionCode;
+    myRights?: { sections?: SectionCode[] };
+  };
+  return {
+    sections: body.sections ?? [],
+    defaultCategory: body.myDefaultCategory ?? null,
+    allowed: body.myRights?.sections ?? null,
+  };
+}
+
 /**
  * Formas de cobro y ajustes de la noche del local (Ajustes del dueño): las
  * apps esconden lo apagado y usan el teclado del PIN y la recepción que tocan.
@@ -527,7 +575,11 @@ export interface ServiceItem {
   name: string;
   durationMin: number | null;
   priceCents: number;
-  category: 'CHICA_SERVICE' | 'VENUE_BAR' | 'VENUE_ROOM' | 'VENUE_FOOD' | 'EXTRA';
+  category: SectionCode | 'EXTRA';
+  /** Pack: sus partes (cada una a su sección). */
+  components?: Array<{ category: SectionCode; amountCents: number }> | null;
+  /** «Invitar a una copa»: hace falta el QR de la chica invitada. */
+  isInvitation?: boolean;
 }
 
 /** Lo que quien llama puede cobrar (la chica solo ve sus servicios). */
@@ -644,6 +696,8 @@ export type WalletChargeStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED'
 /** Petición de cobro que el cliente acepta o rechaza en su móvil. */
 export interface WalletChargeRequest {
   id: string;
+  /** Referencia corta (C-0001). */
+  ref?: string | null;
   status: WalletChargeStatus;
   amountCents: number;
   serviceName: string | null;
@@ -667,6 +721,10 @@ export interface QrWalletCharge extends WalletChargeRequest {
 export async function createQrWalletCharge(input: {
   serviceItemId?: string;
   amountCents?: number;
+  /** Sección del importe tecleado; sin ella, la del puesto. */
+  category?: SectionCode;
+  /** «Invitar a una copa»: el QR de la chica invitada. */
+  invitedStaffToken?: string;
 }): Promise<QrWalletCharge> {
   const res = await authedFetch('/v1/wallet-charges/qr', { method: 'POST', body: JSON.stringify(input) });
   if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));

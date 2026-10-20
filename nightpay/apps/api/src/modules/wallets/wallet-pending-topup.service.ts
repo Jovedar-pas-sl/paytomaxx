@@ -10,6 +10,7 @@ import type {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PaymentsService } from '../payments/payments.service';
+import { assertCanTopUp } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { WalletChargesService, codeHintOf } from './wallet-charges.service';
 import { topUpTarget } from './wallet-topup-target';
@@ -62,6 +63,8 @@ export class PendingTopUpService {
    * repetida devuelve el mismo cobro (y lo vuelve a marcar si hiciera falta).
    */
   async start(actor: PendingTopUpActor, input: PendingTopUpStartDto): Promise<CreatedPaymentResponse> {
+    // Cargar saldo, solo en recepción (el puesto), el encargado o el dueño.
+    await this.assertCanTopUp(actor);
     const terminal = await this.prisma.asSystem((tx) =>
       tx.terminal.findFirst({
         where: { tenantId: actor.tenantId, active: true },
@@ -133,6 +136,7 @@ export class PendingTopUpService {
    * él. Solo cuando ya está pagada; una vez (la segunda vez ya no está pendiente).
    */
   async assign(actor: PendingTopUpActor, walletId: string, ref: SaldoRefDto): Promise<AssignedTopUp> {
+    await this.assertCanTopUp(actor);
     if ('card' in ref) await this.prisma.asSystem((tx) => assertVenueAcceptsMethods(tx, actor.tenantId, ['nfc']));
     const pending = await this.prisma.asSystem((tx) =>
       tx.clientWallet.findFirst({
@@ -164,6 +168,11 @@ export class PendingTopUpService {
     });
     this.logger.log(`Recarga pendiente ${walletId} asignada al saldo ${target.id} (${actor.userId})`);
     return { walletId: target.id, codeHint: codeHintOf(target.shortCode), amountCents: pending.balanceCents, balanceCents };
+  }
+
+  /** 403 «Las recargas se hacen en recepción» si su puesto no carga saldos. */
+  private async assertCanTopUp(actor: PendingTopUpActor): Promise<void> {
+    await this.prisma.asSystem((tx) => assertCanTopUp(tx, actor.tenantId, { userId: actor.userId, role: actor.role }));
   }
 
   private payments(): PaymentsService {

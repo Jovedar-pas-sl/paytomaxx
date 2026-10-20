@@ -25,6 +25,7 @@ import {
 import { ApprovalsContext, useApprovalsFeed } from '@/lib/use-approvals';
 import { IncidentsContext, useIncidentsFeed } from '@/lib/use-incidents';
 import { useUrlNav } from '@/lib/use-url-nav';
+import { SectionsContext, useSectionsFeed } from '@/lib/use-sections';
 import { VenueContext, type VenueInfo } from '@/lib/venue-context';
 import { AvisosPanel } from './AvisosPanel';
 import { BankReconPanel } from './BankReconPanel';
@@ -47,6 +48,8 @@ import { TreasuryPanel } from './TreasuryPanel';
 import { VenueSwitcher } from './VenueSwitcher';
 import { WalletsPanel } from './WalletsPanel';
 import { FichasPanel } from './FichasPanel';
+import { FichasProvider } from './fichas/FichasProvider';
+import { SectionsPanel } from './settings/SectionsPanel';
 
 interface Props {
   user: User;
@@ -92,6 +95,7 @@ export function Dashboard({ user, onLogout }: Props) {
   const isOwner = user.role === 'OWNER';
   const incidents = useIncidentsFeed(user.tenantId, venue.timezone);
   const approvals = useApprovalsFeed(user);
+  const venueSections = useSectionsFeed(user.tenantId);
   const avisos = avisosCount({ incidents: incidents.open, approvals: decidableCount(approvals.pending), isOwner });
   const missing2fa = useSuperAdminWithout2fa(user);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -130,6 +134,8 @@ export function Dashboard({ user, onLogout }: Props) {
     <VenueContext.Provider value={venue}>
       <IncidentsContext.Provider value={incidents}>
         <ApprovalsContext.Provider value={approvals}>
+          <SectionsContext.Provider value={venueSections}>
+          <FichasProvider isOwner={isOwner}>
           <main className="np-app-root" style={mainStyle}>
             <header className="np-panel-header" style={headerStyle}>
               <div className="np-brand" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', minWidth: 0 }}>
@@ -202,6 +208,8 @@ export function Dashboard({ user, onLogout }: Props) {
           </main>
 
           <BottomNav sections={sections} active={section?.key ?? 'hoy'} onChange={goToSection} avisos={avisos} />
+          </FichasProvider>
+          </SectionsContext.Provider>
         </ApprovalsContext.Provider>
       </IncidentsContext.Provider>
     </VenueContext.Provider>
@@ -305,6 +313,8 @@ function ActivePanel(props: ActivePanelProps) {
       return isOwner ? <NightPanel /> : null;
     case 'permissions':
       return isOwner ? <PermissionsPanel posOn={props.posOn} /> : null;
+    case 'sections':
+      return isOwner ? <SectionsPanel /> : null;
     case 'alerts':
       return isOwner ? <AlertsPanel /> : null;
     case 'security':

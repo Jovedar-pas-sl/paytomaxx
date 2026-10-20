@@ -16,3 +16,4 @@ export * from './endpoints/carta';
 export * from './endpoints/bank';
 export * from './endpoints/approvals';
 export * from './endpoints/fichas';
+export * from './endpoints/money-map';

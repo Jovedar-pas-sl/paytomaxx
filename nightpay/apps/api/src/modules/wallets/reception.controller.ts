@@ -20,7 +20,6 @@ import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { venuePauseScope, VENUE_PAUSE_SELECT } from '../venues/venue-pause';
 import { CashTopUpService, type RecentCashTopUp } from './wallet-cash-topup.service';
@@ -35,7 +34,8 @@ const CardSchema = z.object({
 /**
  * Recepción desde la app del personal (camarero, encargado o dueño):
  *  - GET  /v1/reception/options       → qué se puede aquí (tarjeta, efectivo, fichas).
- *  - POST /v1/reception/cash          → recarga en efectivo (permiso «cobrar recargas en efectivo»).
+ *  - POST /v1/reception/cash          → recarga en efectivo: solo recepción (su puesto), el
+ *    encargado (con su permiso «cobrar recargas en efectivo») o el dueño; lo comprueba el servicio.
  *  - GET  /v1/reception/cash/recent   → las recargas en efectivo que aún se pueden anular (encargado).
  *  - POST /v1/reception/cash/:id/void → anular una (encargado o dueño, con 2FA, si el saldo la cubre).
  *  - POST /v1/reception/lookup        → el NFC acercado o el código: de qué saldo es (sin enseñarlo).
@@ -85,8 +85,6 @@ export class ReceptionController {
   @Post('cash')
   @HttpCode(201)
   @Roles('WAITER', 'MANAGER', 'OWNER')
-  @UseGuards(StaffPermissionGuard)
-  @RequiresPermission('cashTopUp')
   @IpRateLimit({ max: 30, windowSec: 60, scope: 'reception-cash' })
   async cashTopUp(
     @CurrentUser() user: JwtPayload,

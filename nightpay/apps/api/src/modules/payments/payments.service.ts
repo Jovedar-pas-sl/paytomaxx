@@ -24,8 +24,12 @@ import {
   type PaymentMachineState,
 } from './payment.machine';
 import {
+  chargeRightsOf,
+  formatChargeRef,
   methodsNeededForPayment,
+  postRulesOf,
   paymentMethodsOf,
+  type ChargeRights,
   type CreatePaymentDto,
   type CreatedPaymentResponse,
   type PublicPaymentView,
@@ -38,13 +42,12 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
 import { VENUE_PAUSE_SELECT, assertVenueNotPaused } from '../venues/venue-pause';
 import { TipsDisabledException, VENUE_METHODS_SELECT, assertMethodsEnabled } from '../venues/venue-methods';
-import {
-  resolveBpsForOperator,
-  resolveRevenueCategory,
-  type OperatorCommissionDefaults,
-  type RevenueCategory,
-} from './commission';
-import { applyServiceItem } from './service-item';
+import { resolveBpsForOperator, type OperatorCommissionDefaults, type RevenueCategory } from './commission';
+import { lineCommission, lineViews, type DraftLine } from './charge-lines';
+import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './charge-request';
+import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from './charge-store';
+import { invitationEarnings } from './invitation-lines';
+import { assertCanTopUp, tipsForbidden } from '../venues/charge-rights';
 import type { Provider } from '@nightpay/contracts';
 import {
   PAID_STATES,
@@ -91,13 +94,6 @@ import { BRAND_NAME } from '../../common/brand';
 import { isOtherOrder, markAttemptApproved, recordSecondApproval } from './second-approval';
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
 
-const SERVICE_ITEM_ERRORS: Record<'inactive' | 'role-not-allowed' | 'invalid-category', string> = {
-  inactive: 'Ese servicio está desactivado en la carta',
-  'role-not-allowed':
-    'Desde tu app solo puedes cobrar tus servicios. La barra, la habitación y la comida las cobra el camarero desde la caja.',
-  'invalid-category': 'Ese servicio tiene una categoría no válida. Revísalo en la carta del panel.',
-};
-
 const POS_AUTH_CODE_REUSED =
   'Ese código de autorización ya se usó en otro cobro de este datáfono. Revisa el ticket.';
 /** Un código de autorización no confirma dos cobros del mismo datáfono en este tiempo. */
@@ -126,10 +122,13 @@ const NO_TIP: CreatorTip = { tipCents: 0, tipGoesTo: null, tipBeneficiaryUserId:
 const IDEMPOTENCY_KEY_REUSED =
   'Esa Idempotency-Key ya se usó para otro cobro (de otra persona o con otros datos). Usa una clave nueva.';
 
-/** Servicio de la carta del que sale el cobro (Fase 1A). */
+/**
+ * Servicio de la carta del que sale el cobro (Fase 1A): uno solo, como antes;
+ * con varias cosas, solo el resumen («2× Copa · Habitación»).
+ */
 interface ServiceSnapshot {
-  serviceItemId: string;
-  serviceName: string;
+  serviceItemId: string | null;
+  serviceName: string | null;
   durationMin: number | null;
 }
 
@@ -153,7 +152,10 @@ interface PaymentDraft {
   amountCents: number;
   service: ServiceSnapshot | null;
   tip: CreatorTip;
+  /** La sección con más importe (las líneas dicen el resto). */
   revenueCategory: RevenueCategory;
+  /** Las líneas del cobro, cada una en su sección y con el % de la chica (vacío en una recarga). */
+  lines: LineWithBps[];
   captureMethod: string | null;
   topUp: TopUpWallet | null;
   ttlSeconds: number;
@@ -518,18 +520,23 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Forma de cobro apagada en Ajustes (QR con tarjeta, datáfono; la recarga
     // también necesita el saldo): 409 PAYMENT_METHOD_DISABLED.
     const methods = assertMethodsEnabled(venue, methodsNeededForPayment({ isWalletTopUp, isPosExternal: byDatafono }));
-    const { amountCents, service, serviceCategory } = await this.resolveCharge(tenantId, dto, creatorRole);
+    // Las recargas del saldo, solo en recepción (el puesto), el encargado, el
+    // dueño o el datáfono de recepción. El cliente desde /w no tiene persona.
+    if (isWalletTopUp && !viaDevice && creator.userId) await this.assertCanTopUp(tenantId, creator.userId, creatorRole);
+    const { amountCents, service, revenueCategory, lines, fromCarta, rights } = await this.resolveCharge(tenantId, dto, creator);
 
     // Propina que pone quien crea el cobro: solo si el banco la va a cobrar y
     // confirmar (Redsys); por datáfono cuenta la del datáfono. Y el tope del
     // local para la chica es sobre importe + propina. Con las propinas
     // apagadas en el local, 409 TIPS_DISABLED.
     if ((dto.tipCents ?? 0) > 0 && !methods.tips) throw new TipsDisabledException();
+    // Y su puesto tiene que llevar propinas (recepción, no).
+    if ((dto.tipCents ?? 0) > 0 && rights && !rights.tips) throw tipsForbidden();
     const tip = await this.resolveCreatorTip({ tenantId, dto, amountCents, creatorRole, isPosExternal, isWalletTopUp });
     const capProblem = operatorCapProblem({
       creatorRole,
       isWalletTopUp,
-      fromMenu: service !== null,
+      fromMenu: fromCarta,
       amountCents,
       tipCents: tip.tipCents,
       capCents: venue.operatorMaxCobroCents,
@@ -542,60 +549,47 @@ export class PaymentsService implements OnApplicationBootstrap {
       throw new BadRequestException('No se puede cargar wallet vía POS externo — usa modo QR normal.');
     }
     const topUp = await this.resolveTopUp(tenantId, dto, venue.walletGroup);
-
-    const revenueCategory = resolveRevenueCategory({
+    const commission = await this.operatorCommissionSnapshot({
+      creator,
       isWalletTopUp,
-      creatorRole,
-      requested: serviceCategory ?? (dto.revenueCategory as RevenueCategory | undefined),
+      lines,
+      venueMap: venue.operatorCommissionDefaults as Partial<OperatorCommissionDefaults> | null,
     });
-    if (!revenueCategory) {
-      throw new BadRequestException(
-        'Desde tu app solo puedes cobrar tus servicios. La barra, la habitación y la comida las cobra el camarero desde la caja.',
-      );
-    }
     return {
       terminalId,
       amountCents,
       service,
       tip,
       revenueCategory,
+      lines: commission.lines,
       captureMethod: isWalletTopUp ? 'WALLET_TOPUP' : (dto.captureMethod ?? null),
       topUp,
       // POS_EXTERNAL puede tardar más en confirmarse (camarero camina con el
       // datáfono) — TTL más generoso. Wallet topup y QR normal: 5 min default.
       ttlSeconds: byDatafono ? POS_QR_TTL_SECONDS : QR_TTL_SECONDS,
       platformCommissionBps: venue.platformCommissionBps,
-      operatorCommissionBps: await this.operatorCommissionSnapshot({
-        creator,
-        isWalletTopUp,
-        revenueCategory,
-        venueMap: venue.operatorCommissionDefaults as Partial<OperatorCommissionDefaults> | null,
-      }),
+      operatorCommissionBps: commission.paymentBps,
     };
   }
 
   /**
-   * #54: el % de la chica se fija al crear el cobro (su commissionBps o el del
-   * local para la categoría). Antes se leía al pagarse: un cambio de % mientras
-   * el cliente pagaba se aplicaba a un cobro ya creado. Recargas de saldo: la
-   * comisión va por consumo, no aquí.
+   * #54: el % de la chica se fija al crear el cobro, por línea (Servicios: su
+   * commissionBps o el del local; el resto de secciones: el del local). Antes
+   * se leía al pagarse: un cambio de % mientras el cliente pagaba se aplicaba
+   * a un cobro ya creado. Recargas de saldo: la comisión va por consumo.
    */
   private async operatorCommissionSnapshot(args: {
     creator: { userId: string | null; role: string | undefined };
     isWalletTopUp: boolean;
-    revenueCategory: RevenueCategory;
+    lines: readonly DraftLine[];
     venueMap: Partial<OperatorCommissionDefaults> | null;
-  }): Promise<number | null> {
+  }): Promise<{ lines: LineWithBps[]; paymentBps: number | null }> {
     const { userId, role } = args.creator;
-    if (role !== 'OPERATOR' || !userId || args.isWalletTopUp) return null;
+    if (role !== 'OPERATOR' || !userId || args.isWalletTopUp) return linesWithOperatorBps(args.lines, null);
     const user = await this.prisma.asSystem((tx) =>
       tx.user.findFirst({ where: { id: userId }, select: { commissionBps: true } }),
     );
-    return resolveBpsForOperator({
-      category: args.revenueCategory,
-      userCommissionBpsOverride: user?.commissionBps ?? null,
-      venueMap: args.venueMap,
-    });
+    return linesWithOperatorBps(args.lines, { commissionBps: user?.commissionBps ?? null, venueMap: args.venueMap });
   }
 
   /**
@@ -638,24 +632,52 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Fase 1A — cobro desde la carta: importe y categoría los fija el local (los
-   * del cliente se ignoran). El tope de importe libre no aplica.
+   * Lo que se cobra, en líneas (el mapa del dinero): de la carta (importe y
+   * sección los fija el local; un pack, una línea por parte) o tecleado en
+   * una sección. Sin sección pedida, la del puesto de quien cobra o la de su
+   * rol: nunca «Otros». Una recarga de saldo no es una venta: sin líneas.
    */
   private async resolveCharge(
     tenantId: string,
     dto: CreatePaymentDto,
-    creatorRole: string | undefined,
-  ): Promise<{ amountCents: number; service: ServiceSnapshot | null; serviceCategory?: RevenueCategory }> {
-    if (!dto.serviceItemId || dto.wallet) return { amountCents: dto.amountCents, service: null };
-    const item = await this.prisma.serviceItem.findFirst({ where: { id: dto.serviceItemId, tenantId } });
-    if (!item) throw new NotFoundException('Ese servicio no está en la carta de este local');
-    const charge = applyServiceItem(item, creatorRole);
-    if (!charge.ok) throw new BadRequestException(SERVICE_ITEM_ERRORS[charge.reason]);
+    creator: { userId: string | null; role: string | undefined },
+  ): Promise<{
+    amountCents: number;
+    service: ServiceSnapshot | null;
+    revenueCategory: RevenueCategory;
+    lines: DraftLine[];
+    fromCarta: boolean;
+    rights: ChargeRights | null;
+  }> {
+    if (dto.wallet) {
+      if (!dto.amountCents) throw new BadRequestException('Pon el importe');
+      return { amountCents: dto.amountCents, service: null, revenueCategory: 'EXTRA', lines: [], fromCarta: false, rights: null };
+    }
+    const charge = await resolveChargeOrThrow(this.prisma, {
+      tenantId,
+      userId: creator.userId,
+      role: creator.role,
+      lines: dto.lines,
+      serviceItemId: dto.serviceItemId,
+      amountCents: dto.amountCents,
+      requestedCategory: dto.revenueCategory,
+      invitedStaffToken: dto.invitedStaffToken,
+    });
+    const service: ServiceSnapshot | null =
+      charge.service ?? (charge.serviceName ? { serviceItemId: null, serviceName: charge.serviceName, durationMin: null } : null);
     return {
       amountCents: charge.amountCents,
-      service: { serviceItemId: item.id, serviceName: charge.serviceName, durationMin: charge.durationMin },
-      serviceCategory: charge.revenueCategory,
+      service,
+      revenueCategory: charge.primaryCategory,
+      lines: charge.lines,
+      fromCarta: charge.fromCarta,
+      rights: charge.rights,
     };
+  }
+
+  /** 403 «Las recargas se hacen en recepción» si su puesto no carga saldos. */
+  private async assertCanTopUp(tenantId: string, userId: string, role: string | undefined): Promise<void> {
+    await this.prisma.asSystem((tx) => assertCanTopUp(tx, tenantId, { userId, role }));
   }
 
   /**
@@ -703,9 +725,12 @@ export class PaymentsService implements OnApplicationBootstrap {
     const qrExpiresAt = new Date(Date.now() + draft.ttlSeconds * 1000);
     return this.prisma.asSystem(async (tx) => {
       const walletId = await this.topUpWalletId(tx, tenantId, draft.topUp);
+      // Referencia corta (C-0001): el contador del local queda bloqueado hasta el commit.
+      const ref = await nextChargeRef(tx, tenantId);
       const p = await tx.payment.create({
         data: {
           tenantId,
+          ref,
           terminalId: draft.terminalId,
           createdByUserId: input.creatorUserId,
           idempotencyKey: input.idempotencyKey,
@@ -731,6 +756,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         },
         select: { id: true, amountCents: true },
       });
+      await insertChargeLines(tx, tenantId, { paymentId: p.id }, draft.lines);
       await tx.paymentEvent.create({
         data: {
           paymentId: p.id,
@@ -994,8 +1020,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           // Cabecera de la página de pago: local, concepto y a quién va la propina.
           serviceName: true,
           tipGoesTo: true,
-          venue: { select: { name: true, paymentMethods: true } },
-          createdBy: { select: { role: true } },
+          venue: { select: { name: true, paymentMethods: true, postRules: true } },
+          createdBy: { select: { role: true, post: true } },
           wallet: { select: { qrToken: true, shortCode: true, pinHash: true, _count: { select: { passkeys: true } } } },
           attempts: {
             where: { status: 'APPROVED' },
@@ -1014,11 +1040,13 @@ export class PaymentsService implements OnApplicationBootstrap {
     const firstTopUp = wallet !== null && !selfTopUpClaimHash(idempotencyKey) && (await this.isFirstTopUp(walletId, payment.id));
     // Propinas del local (Ajustes → Formas de cobro): apagadas, no se ofrecen ni se aceptan.
     const methods = paymentMethodsOf(venue?.paymentMethods);
+    // Y el puesto de quien cobra (recepción no lleva propinas).
+    const creatorTips = createdBy ? chargeRightsOf(createdBy, postRulesOf(venue?.postRules)).tips : true;
     return {
       ...rest,
       walletId,
       status: payment.status as PaymentMachineState,
-      allowTip: provider === 'REDSYS' && walletId === null && methods.tips,
+      allowTip: provider === 'REDSYS' && walletId === null && methods.tips && creatorTips,
       tipPresets: { flatCents: methods.tipFlatCents, percents: methods.tipPercents },
       venueName: venue?.name ?? null,
       concept: serviceName ?? null,
@@ -1183,6 +1211,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       venueName: payment.venue.name,
       terminalLabel: payment.terminal.label,
       qrExpiresAt: payment.qrExpiresAt.toISOString(),
+      ref: formatChargeRef(payment.ref),
     };
   }
 
@@ -1452,8 +1481,28 @@ export class PaymentsService implements OnApplicationBootstrap {
       //   - bps resolvidos > 0 (en VENUE_* con default 0 no hay earning)
       if (creatorRole === 'OPERATOR') {
         const creator = { id: p.createdByUserId };
-        const bps = bpsForOperator;
-        const commissionCents = Math.round((p.amountCents * bps) / 10_000);
+        // El mapa del dinero: con líneas, la comisión va por línea (cada
+        // sección con su %); un cobro de una sola sección da lo de siempre.
+        const lines = await tx.$queryRaw<Array<{ category: string; amountCents: number; operatorCommissionBps: number | null }>>`
+          SELECT category, "amountCents", "operatorCommissionBps" FROM payment_lines WHERE "paymentId" = ${paymentId}::uuid
+        `;
+        const commission =
+          lines.length > 0
+            ? lineCommission(
+                lines.map((l) => ({
+                  amountCents: l.amountCents,
+                  bps:
+                    l.operatorCommissionBps ??
+                    resolveBpsForOperator({
+                      category: l.category,
+                      userCommissionBpsOverride: creatorCommissionBps,
+                      venueMap: venueCommissionMap as Partial<OperatorCommissionDefaults>,
+                    }),
+                })),
+              )
+            : lineCommission([{ amountCents: p.amountCents, bps: bpsForOperator }]);
+        const bps = commission.commissionBps;
+        const commissionCents = commission.commissionCents;
 
         // Tip: si la propina va a la chica creator (o a beneficiary explícito
         // que coincide con ella), 100% se suma al earning. Si va a venue/shared
@@ -1469,7 +1518,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         }
 
         // Sin comisión pero con propina para ella: la propina también le llega.
-        if (bps > 0 || earningTipCents > 0) {
+        if (commission.anyBps || earningTipCents > 0) {
           await tx.$executeRaw`
             INSERT INTO operator_earnings (
               "tenantId", "operatorId", "paymentId",
@@ -1484,7 +1533,7 @@ export class PaymentsService implements OnApplicationBootstrap {
               ${commissionCents}::int,
               ${earningTipCents}::int
             )
-            ON CONFLICT ("paymentId") DO NOTHING
+            ON CONFLICT ("paymentId", "operatorId") DO NOTHING
           `;
         }
       }
@@ -1539,11 +1588,26 @@ export class PaymentsService implements OnApplicationBootstrap {
             0::int,
             ${p.tipCents}::int
           )
-          ON CONFLICT ("paymentId") DO NOTHING
+          ON CONFLICT ("paymentId", "operatorId") DO NOTHING
         `;
         this.logger.log(
           `Payment ${paymentId} AUTHORIZED → tip-only earning created for beneficiary=${benef.id} amount=${p.tipCents}c`,
         );
+      }
+    }
+
+    // «Invitar a una copa»: la parte de la chica invitada y, si le toca, la
+    // del camarero que la cobró (fijadas en la línea al cobrar).
+    if (!p.walletId) {
+      const invited = await tx.$queryRaw<
+        Array<{ id: string; amountCents: number; beneficiaryOperatorId: string | null; beneficiaryCents: number | null; chargerCents: number | null }>
+      >`
+        SELECT id, "amountCents", "beneficiaryOperatorId", "beneficiaryCents", "chargerCents"
+          FROM payment_lines
+         WHERE "paymentId" = ${paymentId}::uuid AND "beneficiaryOperatorId" IS NOT NULL
+      `;
+      if (invited.length > 0) {
+        await insertInvitationEarnings(tx, p.tenantId, { paymentId }, invitationEarnings(invited, p.createdByUserId));
       }
     }
   }
@@ -2109,6 +2173,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           FROM operator_earnings e
           JOIN payments p ON p.id = e."paymentId"
          WHERE e."paymentId" = ${paymentId}::uuid
+         ORDER BY e.id
          FOR UPDATE OF e
       `;
       if (earning.length === 0) {
@@ -2117,7 +2182,6 @@ export class PaymentsService implements OnApplicationBootstrap {
         );
         return;
       }
-      const e = earning[0]!;
 
       // 2. Total cumulativo refundeado: suma de refunds SUCCEEDED para este payment
       //    (incluye el actual aunque su status todavía no esté commiteado).
@@ -2129,63 +2193,69 @@ export class PaymentsService implements OnApplicationBootstrap {
            AND id != ${refundId}::uuid
       `;
       const priorCumulative = Number(sumRows[0]?.total ?? 0);
-      const totalCumulative = Math.min(priorCumulative + refundAmountCents, e.chargedCents);
 
-      // 3. Reversed total esperado tras este refund (comisión + propina). Las
-      //    reversiones que llegan con el earning ya pagado no tocan
-      //    reversedCents (eso refleja lo que se le pagó); se suman aparte como deuda.
-      const expectedTotalReversed = expectedChicaReversal({
-        commissionCents: e.commissionCents,
-        tipCents: e.tipCents,
-        chargedCents: e.chargedCents,
-        refundedCents: totalCumulative,
-      });
-      const debtRows = await tx.$queryRaw<Array<{ total: bigint }>>`
-        SELECT COALESCE(SUM("reversedDeltaCents"),0)::bigint AS total
-          FROM earning_reversals
-         WHERE "earningId" = ${e.id}::uuid
-           AND "afterPayout"
-      `;
-      const alreadyReversed = e.reversedCents + Number(debtRows[0]?.total ?? 0);
-      const reverseDelta = expectedTotalReversed - alreadyReversed;
-      const afterPayout = e.payoutId !== null;
+      // Una devolución descuenta a cada persona con ganancia en el cobro (la
+      // chica que cobró o la invitada y, si le tocó algo, el camarero), cada
+      // una en la misma proporción. Un cobro de una sola ganancia, como siempre.
+      for (const e of earning) {
+        const totalCumulative = Math.min(priorCumulative + refundAmountCents, e.chargedCents);
 
-      if (reverseDelta <= 0) {
-        this.logger.warn(
-          `Earning reversal delta non-positive payment=${paymentId} refundId=${refundId} expected=${expectedTotalReversed} current=${alreadyReversed} — skip update`,
-        );
-      } else if (afterPayout) {
-        // Ya pagado a la chica: queda como deuda (earning_reversals.afterPayout)
-        // y createPayout la descuenta del siguiente pago.
-        this.logger.warn(
-          `Refund after payout payment=${paymentId} refundId=${refundId}: deuda de ${reverseDelta}c para el siguiente pago`,
-        );
-      } else {
-        await tx.$executeRaw`
-          UPDATE operator_earnings
-             SET "reversedCents" = "reversedCents" + ${reverseDelta}::int
-           WHERE id = ${e.id}::uuid
+        // 3. Reversed total esperado tras este refund (comisión + propina). Las
+        //    reversiones que llegan con el earning ya pagado no tocan
+        //    reversedCents (eso refleja lo que se le pagó); se suman aparte como deuda.
+        const expectedTotalReversed = expectedChicaReversal({
+          commissionCents: e.commissionCents,
+          tipCents: e.tipCents,
+          chargedCents: e.chargedCents,
+          refundedCents: totalCumulative,
+        });
+        const debtRows = await tx.$queryRaw<Array<{ total: bigint }>>`
+          SELECT COALESCE(SUM("reversedDeltaCents"),0)::bigint AS total
+            FROM earning_reversals
+           WHERE "earningId" = ${e.id}::uuid
+             AND "afterPayout"
         `;
+        const alreadyReversed = e.reversedCents + Number(debtRows[0]?.total ?? 0);
+        const reverseDelta = expectedTotalReversed - alreadyReversed;
+        const afterPayout = e.payoutId !== null;
+
+        if (reverseDelta <= 0) {
+          this.logger.warn(
+            `Earning reversal delta non-positive payment=${paymentId} refundId=${refundId} expected=${expectedTotalReversed} current=${alreadyReversed} — skip update`,
+          );
+        } else if (afterPayout) {
+          // Ya pagado a la chica: queda como deuda (earning_reversals.afterPayout)
+          // y createPayout la descuenta del siguiente pago.
+          this.logger.warn(
+            `Refund after payout payment=${paymentId} refundId=${refundId}: deuda de ${reverseDelta}c para el siguiente pago`,
+          );
+        } else {
+          await tx.$executeRaw`
+            UPDATE operator_earnings
+               SET "reversedCents" = "reversedCents" + ${reverseDelta}::int
+             WHERE id = ${e.id}::uuid
+          `;
+        }
+
+        // 4. Registrar reversal para idempotencia (siempre, incluso si delta=0).
+        await tx.$executeRaw`
+          INSERT INTO earning_reversals (
+            "tenantId", "earningId", "refundId", "reversedDeltaCents", "afterPayout"
+          )
+          VALUES (
+            ${e.tenantId}::uuid,
+            ${e.id}::uuid,
+            ${refundId}::uuid,
+            ${Math.max(0, reverseDelta)}::int,
+            ${afterPayout && reverseDelta > 0}
+          )
+          ON CONFLICT ("refundId", "earningId") DO NOTHING
+        `;
+
+        this.logger.log(
+          `Earning reversal payment=${paymentId} refundId=${refundId} earning=${e.id} delta=${reverseDelta} expected=${expectedTotalReversed} bps=${e.commissionBps} tip=${e.tipCents} cumulative=${totalCumulative}/${e.chargedCents}`,
+        );
       }
-
-      // 4. Registrar reversal para idempotencia (siempre, incluso si delta=0).
-      await tx.$executeRaw`
-        INSERT INTO earning_reversals (
-          "tenantId", "earningId", "refundId", "reversedDeltaCents", "afterPayout"
-        )
-        VALUES (
-          ${e.tenantId}::uuid,
-          ${e.id}::uuid,
-          ${refundId}::uuid,
-          ${Math.max(0, reverseDelta)}::int,
-          ${afterPayout && reverseDelta > 0}
-        )
-        ON CONFLICT ("refundId") DO NOTHING
-      `;
-
-      this.logger.log(
-        `Earning reversal payment=${paymentId} refundId=${refundId} delta=${reverseDelta} expected=${expectedTotalReversed} bps=${e.commissionBps} tip=${e.tipCents} cumulative=${totalCumulative}/${e.chargedCents}`,
-      );
     });
   }
 
@@ -2196,7 +2266,10 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Prisma inyecta WHERE tenantId — y como el pago lo acabamos de crear con
     // ese mismo tenant, la query devuelve el registro correcto. asSystem: sin
     // depender de un usuario de base superusuario (FORCE RLS en payments).
-    const p = await this.prisma.asSystem((tx) => tx.payment.findUniqueOrThrow({ where: { id: paymentId } }));
+    const { p, lines } = await this.prisma.asSystem(async (tx) => ({
+      p: await tx.payment.findUniqueOrThrow({ where: { id: paymentId } }),
+      lines: await linesOf(tx, { paymentIds: [paymentId] }),
+    }));
     // Helper para tratar string vacío y whitespace como "no configurado".
     // process.env.X devuelve undefined si no existe, pero "" si Dokploy
     // tiene la variable definida sin valor → ?? no la captura.
@@ -2243,6 +2316,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       qrPngDataUrl,
       qrExpiresAt: p.qrExpiresAt.toISOString(),
       createdAt: p.createdAt.toISOString(),
+      ref: formatChargeRef(p.ref),
+      lines: lineViews(lines),
       // Recarga de saldo: el id de la wallet. Su enlace (la credencial del
       // cliente para aceptar cobros) no se da nunca al personal.
       walletId: p.walletId ?? null,

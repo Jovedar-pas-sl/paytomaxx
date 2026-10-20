@@ -55,11 +55,13 @@ const r = randomUUID().slice(0, 6);
 let V: string;
 let lola: string;
 let pablo: string;
+let rocio: string; // recepción: carga los saldos
 let javi: string;
 let n = 0;
 
 const chica = () => ({ userId: lola, role: 'OPERATOR' as const, tenantId: V });
 const camarero = () => ({ userId: pablo, role: 'WAITER' as const, tenantId: V });
+const recepcion = () => ({ userId: rocio, role: 'WAITER' as const, tenantId: V });
 
 function code6(): string {
   const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -108,6 +110,11 @@ beforeAll(async () => {
       })
     ).id;
     pablo = (await tx.user.create({ data: { tenantId: V, email: `pablo-${r}@x.es`, passwordHash: 'x', role: 'WAITER' } })).id;
+    rocio = (
+      await tx.user.create({
+        data: { tenantId: V, email: `rocio-${r}@x.es`, passwordHash: 'x', role: 'WAITER', post: 'RECEPCION', displayName: 'Rocío' },
+      })
+    ).id;
     javi = (await tx.user.create({ data: { tenantId: V, email: `javi-${r}@x.es`, passwordHash: 'x', role: 'MANAGER' } })).id;
   });
 });
@@ -208,15 +215,21 @@ describe('NFC sin PIN (Postgres real)', () => {
 describe('recargas pendientes de asignar (Postgres real)', () => {
   it('cobrar primero, pagarse, salir en Incidencias, asignarla con el código y desaparecer', async () => {
     const client = await walletWithNfc(1_000);
-    const created = await inVenue(V, () => pending.start(chica(), { amountCents: 5_000, idempotencyKey: `rec-pend-${r}` }), lola, 'OPERATOR');
+    // Las recargas se hacen en recepción: la chica y el camarero de barra, 403.
+    for (const who of [chica(), camarero()]) {
+      await expect(
+        inVenue(V, () => pending.start(who, { amountCents: 5_000, idempotencyKey: `rec-no-${r}` }), who.userId, who.role),
+      ).rejects.toMatchObject({ response: { code: 'TOP_UP_RECEPTION_ONLY', message: 'Las recargas se hacen en recepción.' } });
+    }
+    const created = await inVenue(V, () => pending.start(recepcion(), { amountCents: 5_000, idempotencyKey: `rec-pend-${r}` }), rocio, 'WAITER');
     const prov = created.walletId!;
-    expect(await walletRow(prov)).toMatchObject({ pendingAssignById: lola, balanceCents: 0, status: 'ACTIVE' });
+    expect(await walletRow(prov)).toMatchObject({ pendingAssignById: rocio, balanceCents: 0, status: 'ACTIVE' });
     // La misma clave (doble toque): el mismo cobro.
-    const again = await inVenue(V, () => pending.start(chica(), { amountCents: 5_000, idempotencyKey: `rec-pend-${r}` }), lola, 'OPERATOR');
+    const again = await inVenue(V, () => pending.start(recepcion(), { amountCents: 5_000, idempotencyKey: `rec-pend-${r}` }), rocio, 'WAITER');
     expect(again.id).toBe(created.id);
 
     // Sin pagar aún: no se asigna ni sale en la lista.
-    await expect(inVenue(V, () => pending.assign(camarero(), prov, { code: client.code }))).rejects.toThrow(/pagada/);
+    await expect(inVenue(V, () => pending.assign(recepcion(), prov, { code: client.code }))).rejects.toThrow(/pagada/);
     await expect(inVenue(V, () => pending.list(camarero()))).resolves.toEqual([]);
 
     // El cliente paga en su móvil.
@@ -230,7 +243,7 @@ describe('recargas pendientes de asignar (Postgres real)', () => {
     await inVenue(undefined, () => payments.transition(created.id, { type: 'AUTHORIZED', provider: 'REDSYS', providerTxId: `o-${r}` }));
     expect(await walletRow(prov)).toMatchObject({ balanceCents: 5_000 });
     await expect(inVenue(V, () => pending.list(camarero()))).resolves.toEqual([
-      expect.objectContaining({ walletId: prov, amountCents: 5_000, byName: 'Lola' }),
+      expect.objectContaining({ walletId: prov, amountCents: 5_000, byName: 'Rocío' }),
     ]);
 
     // A los 10 min sin asignar, en Incidencias (y no como «saldo sin devolver»).
@@ -238,8 +251,11 @@ describe('recargas pendientes de asignar (Postgres real)', () => {
     const inbox = await inVenue(V, () => incidents.list(V, later));
     expect(inbox.filter((i) => i.refId === prov).map((i) => i.kind)).toEqual(['wallet_topup_unassigned']);
 
-    // Recepción la asigna con el código del cliente.
-    await expect(inVenue(V, () => pending.assign(camarero(), prov, { code: client.code }))).resolves.toMatchObject({
+    // El camarero de barra no la asigna (403); recepción, con el código del cliente.
+    await expect(inVenue(V, () => pending.assign(camarero(), prov, { code: client.code }))).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TOP_UP_RECEPTION_ONLY' }),
+    });
+    await expect(inVenue(V, () => pending.assign(recepcion(), prov, { code: client.code }))).resolves.toMatchObject({
       walletId: client.id,
       amountCents: 5_000,
       balanceCents: 6_000,
@@ -248,7 +264,7 @@ describe('recargas pendientes de asignar (Postgres real)', () => {
     expect(await walletRow(prov)).toMatchObject({ balanceCents: 0, status: 'DEPLETED', mergedIntoId: client.id, pendingAssignAt: null });
     const after = await inVenue(V, () => incidents.list(V, later));
     expect(after.some((i) => i.refId === prov)).toBe(false);
-    await expect(inVenue(V, () => pending.assign(camarero(), prov, { code: client.code }))).rejects.toThrow(/pendiente/);
+    await expect(inVenue(V, () => pending.assign(recepcion(), prov, { code: client.code }))).rejects.toThrow(/pendiente/);
   });
 });
 

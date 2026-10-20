@@ -1,39 +1,29 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card, Select, StatusPill, type PaymentStatus } from '@nightpay/ui';
-import { fetchMetrics, fetchPayments, type Metrics, type PaymentRow, type User } from '@/lib/api';
-import { formatDateTime } from '@/lib/dates';
+import { Button, Card } from '@nightpay/ui';
+import type { CobroRow } from '@nightpay/contracts';
+import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type PaymentRow, type User } from '@/lib/api';
 import { keepIfSame } from '@/lib/diff';
-import { formatEur, formatMoney } from '@/lib/money';
+import { formatEur } from '@/lib/money';
+import { paymentRowOf } from '@/lib/money-map';
 import { appendPage, mergeLatestPage } from '@/lib/pagination';
 import type { TabKey } from '@/lib/roles';
 import { useApprovals } from '@/lib/use-approvals';
 import { usePolling } from '@/lib/use-polling';
-import { useVenueTimezone } from '@/lib/venue-context';
 import { BankRefundModal } from './BankRefundModal';
+import { CobrosFiltersBar } from './fichas/CobrosFiltersBar';
+import { CobrosTable } from './fichas/CobrosTable';
 import { Notice } from './Notice';
 import { RefundModal, ResolveModal } from './PaymentModals';
 import { RefundsModal } from './RefundsModal';
 import { TonightStrip } from './TonightStrip';
 
 const PAGE_SIZE = 50;
-/** Tope de `limit` en GET /v1/admin/payments. */
+/** Tope de `limit` en GET /v1/admin/cobros. */
 const MAX_PAGE_SIZE = 200;
 const POLL_MS = 5000;
 const MAX_POLL_MS = 60_000;
-
-const STATUS_FILTERS: Array<{ value: string; label: string }> = [
-  { value: '', label: 'Todos los estados' },
-  { value: 'CREATED', label: 'Creado' },
-  { value: 'AUTHORIZING', label: 'Esperando pago' },
-  { value: 'AUTHORIZED', label: 'Pagado' },
-  { value: 'FAILED', label: 'Rechazado' },
-  { value: 'EXPIRED', label: 'Caducado' },
-  { value: 'REFUNDED', label: 'Devuelto' },
-  { value: 'PARTIALLY_REFUNDED', label: 'Devuelto en parte' },
-  { value: 'ORPHAN', label: 'Sin confirmar' },
-];
 
 const STUCK_AUTHORIZING_MS = 15 * 60 * 1000;
 
@@ -46,20 +36,20 @@ interface Props {
 }
 
 /**
- * Pestaña Pagos: «Esta noche», métricas y últimos cobros. Solo pide datos
- * mientras está a la vista (pestaña del panel y del navegador), espera más si
- * el API falla y una respuesta vieja no pisa la de un filtro nuevo. Si llega
- * lo mismo, no se repinta nada (nada parpadea en cada refresco).
+ * Pestaña Cobros: «Esta noche», métricas y los cobros (con tarjeta y del
+ * saldo) con su referencia, chica, sección, cómo pagó y servicio, y filtros.
+ * Solo pide datos mientras está a la vista (pestaña del panel y del
+ * navegador), espera más si el API falla y una respuesta vieja no pisa la de
+ * un filtro nuevo. Si llega lo mismo, no se repinta nada.
  */
 export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocusDone }: Props) {
-  const tz = useVenueTimezone();
   // «Por aprobar»: desde cuánto pide el encargado las devoluciones al dueño.
   const refundRequestFromCents = useApprovals().rules?.refundRequestFromCents ?? null;
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   /** null = aún no ha llegado la primera página. */
-  const [payments, setPayments] = useState<PaymentRow[] | null>(null);
+  const [payments, setPayments] = useState<CobroRow[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [filter, setFilter] = useState<string>('');
+  const [filter, setFilter] = useState<CobrosFilters>({});
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refundFor, setRefundFor] = useState<PaymentRow | null>(null);
@@ -80,7 +70,8 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   // se abren las devoluciones de ese cobro, donde está «Resolver».
   useEffect(() => {
     if (!focusPaymentId || payments === null) return;
-    const row = payments.find((p) => p.id === focusPaymentId);
+    const found = payments.find((p) => p.kind === 'PAYMENT' && p.id === focusPaymentId);
+    const row = found ? paymentRowOf(found) : null;
     if (row) setRefundsFor(row);
     setFocusMissing(!row);
     onFocusDone?.();
@@ -91,10 +82,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
       const loaded = loadedRef.current;
       const limit = Math.min(MAX_PAGE_SIZE, Math.max(PAGE_SIZE, loaded));
       try {
-        const [m, page] = await Promise.all([
-          fetchMetrics(),
-          fetchPayments({ status: filter ? [filter] : undefined, limit }),
-        ]);
+        const [m, page] = await Promise.all([fetchMetrics(), fetchCobros(filter, { limit })]);
         if (signal.aborted) return true;
         setMetrics((prev) => keepIfSame(prev, m));
         setPayments((prev) => (prev ? keepIfSame(prev, mergeLatestPage(page.items, prev)) : page.items));
@@ -111,7 +99,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
     [filter],
   );
 
-  function changeFilter(value: string): void {
+  function changeFilter(value: CobrosFilters): void {
     filterRef.current = value;
     loadedRef.current = 0;
     setPayments(null);
@@ -124,11 +112,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
     const forFilter = filter;
     setLoadingMore(true);
     try {
-      const page = await fetchPayments({
-        status: forFilter ? [forFilter] : undefined,
-        cursor: nextCursor,
-        limit: PAGE_SIZE,
-      });
+      const page = await fetchCobros(forFilter, { cursor: nextCursor, limit: PAGE_SIZE });
       if (filterRef.current !== forFilter) return;
       setPayments((prev) => appendPage(prev ?? [], page.items));
       setNextCursor(page.nextCursor);
@@ -189,103 +173,55 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
-          <h2 style={sectionTitle}>Pagos recientes</h2>
-          <div className="np-payments-tools" style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-            <div style={{ minWidth: '12rem' }}>
-              <Select aria-label="Filtrar por estado" value={filter} onChange={(e) => changeFilter(e.target.value)}>
-                {STATUS_FILTERS.map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <Button variant="ghost" onClick={refresh}>
-              Refrescar
-            </Button>
-          </div>
+          <h2 style={sectionTitle}>Cobros</h2>
+          <Button variant="ghost" onClick={refresh} style={{ marginLeft: 'auto' }}>
+            Refrescar
+          </Button>
         </div>
+        <CobrosFiltersBar value={filter} onChange={changeFilter} />
 
         <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="np-table">
-              <thead>
-                <tr>
-                  <th>Hora</th>
-                  <th style={numCol}>Importe</th>
-                  <th style={numCol}>Disponible</th>
-                  <th>Estado</th>
-                  <th>Terminal</th>
-                  <th>Banco</th>
-                  <th style={{ textAlign: 'right' }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(payments ?? []).map((p) => {
-                  // Redsys: se devuelve en el portal de BBVA y se apunta aquí (solo el dueño).
-                  const bankRefund = p.provider === 'REDSYS';
-                  const canRefund =
-                    (p.status === 'AUTHORIZED' || p.status === 'PARTIALLY_REFUNDED') &&
-                    p.availableAmountCents > 0 &&
-                    (user.role === 'OWNER' || (!bankRefund && user.role === 'MANAGER'));
-                  const canResolve = user.role === 'OWNER' && isStuck(p);
-                  return (
-                    <tr key={p.id}>
-                      <td data-label="Hora" data-card="top" style={cellMeta}>
-                        {formatDateTime(p.createdAt, tz, 'short')}
-                      </td>
-                      <td data-label="Importe" data-card="amount" className="np-num" style={numCell}>
-                        {formatMoney(p.amountCents, p.currency)}
-                      </td>
-                      <td data-label="Disponible" className="np-num" style={numCell}>
-                        {formatMoney(p.availableAmountCents, p.currency)}
-                      </td>
-                      <td data-label="Estado" data-card="status">
-                        <StatusPill status={p.status as PaymentStatus} size="sm" />
-                      </td>
-                      <td data-label="Terminal" data-card="top" style={cellMeta}>
-                        {p.terminal.label}
-                      </td>
-                      <td data-label="Banco" style={cellMeta}>
-                        {bankSummary(p)}
-                      </td>
-                      <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
-                        {canResolve ? (
-                          <Button onClick={() => setResolveFor(p)} size="md" style={smallBtn}>
-                            Resolver
-                          </Button>
-                        ) : null}
-                        {canRefund ? (
-                          <Button variant="ghost" onClick={() => setRefundFor(p)} size="md" style={smallBtn}>
-                            {bankRefund ? 'Devolución BBVA' : 'Reembolsar'}
-                          </Button>
-                        ) : null}
-                        {/* Ya hay algo devuelto o reservado (p. ej. una devolución sin confirmar). */}
-                        {p.availableAmountCents < p.amountCents ? (
-                          <Button variant="ghost" onClick={() => setRefundsFor(p)} size="md" style={smallBtn}>
-                            Devoluciones
-                          </Button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {payments === null || payments.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} style={emptyCell}>
-                      {payments === null ? (error ? 'No se pudieron cargar los pagos.' : 'Cargando pagos…') : 'Sin pagos'}
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <CobrosTable
+            rows={payments}
+            empty={payments === null ? (error ? 'No se pudieron cargar los cobros.' : 'Cargando cobros…') : 'Sin cobros'}
+            actions={(row) => {
+              const p = paymentRowOf(row);
+              if (!p) return null;
+              // Redsys: se devuelve en el portal de BBVA y se apunta aquí (solo el dueño).
+              const bankRefund = p.provider === 'REDSYS';
+              const canRefund =
+                (p.status === 'AUTHORIZED' || p.status === 'PARTIALLY_REFUNDED') &&
+                p.availableAmountCents > 0 &&
+                (user.role === 'OWNER' || (!bankRefund && user.role === 'MANAGER'));
+              const canResolve = user.role === 'OWNER' && isStuck(p);
+              return (
+                <>
+                  {canResolve ? (
+                    <Button onClick={() => setResolveFor(p)} size="md" style={smallBtn}>
+                      Resolver
+                    </Button>
+                  ) : null}
+                  {canRefund ? (
+                    <Button variant="ghost" onClick={() => setRefundFor(p)} size="md" style={smallBtn}>
+                      {bankRefund ? 'Devolución BBVA' : 'Reembolsar'}
+                    </Button>
+                  ) : null}
+                  {/* Ya hay algo devuelto o reservado (p. ej. una devolución sin confirmar). */}
+                  {p.availableAmountCents < p.amountCents ? (
+                    <Button variant="ghost" onClick={() => setRefundsFor(p)} size="md" style={smallBtn}>
+                      Devoluciones
+                    </Button>
+                  ) : null}
+                </>
+              );
+            }}
+          />
         </Card>
 
         {payments && payments.length > 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             <span style={{ ...cellMeta, fontSize: '0.8125rem' }}>
-              {payments.length === 1 ? '1 pago' : `${payments.length} pagos`}
+              {payments.length === 1 ? '1 cobro' : `${payments.length} cobros`}
             </span>
             {nextCursor ? (
               <Button variant="ghost" onClick={() => void loadMore()} loading={loadingMore}>
@@ -336,15 +272,6 @@ function eurOrDash(cents: number | undefined): string {
 function isStuck(p: PaymentRow): boolean {
   if (p.status === 'ORPHAN') return true;
   return p.status === 'AUTHORIZING' && Date.now() - Date.parse(p.updatedAt) >= STUCK_AUTHORIZING_MS;
-}
-
-/** Lo que identifica el cobro en el banco: código de autorización y tarjeta. */
-function bankSummary(p: PaymentRow): string {
-  const parts: string[] = [];
-  if (p.provider) parts.push(p.provider);
-  if (p.authCode) parts.push(`AUT ${p.authCode}`);
-  if (p.cardLast4) parts.push(`••${p.cardLast4}`);
-  return parts.length > 0 ? parts.join(' · ') : '—';
 }
 
 function MetricTile({
@@ -419,16 +346,8 @@ const sectionTitle: CSSProperties = {
   letterSpacing: '-0.02em',
 };
 
-const numCol: CSSProperties = { textAlign: 'right' };
-const numCell: CSSProperties = { textAlign: 'right', fontWeight: 500 };
 
 const cellMeta: CSSProperties = {
   color: 'var(--np-text-mute)',
 };
 
-const emptyCell: CSSProperties = {
-  textAlign: 'center',
-  color: 'var(--np-text-dim)',
-  padding: '3rem 1rem',
-  fontSize: '0.875rem',
-};

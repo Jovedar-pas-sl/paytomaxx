@@ -82,6 +82,7 @@ const VenueSettingsUpdateSchema = z.object({
     VENUE_BAR: z.number().int().min(0).max(10_000).optional(),
     VENUE_ROOM: z.number().int().min(0).max(10_000).optional(),
     VENUE_FOOD: z.number().int().min(0).max(10_000).optional(),
+    VENUE_ENTRY: z.number().int().min(0).max(10_000).optional(),
     EXTRA: z.number().int().min(0).max(10_000).optional(),
   }).optional(),
   // Reglas del local que pone el dueño (Ajustes → Reglas del local).

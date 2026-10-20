@@ -146,10 +146,11 @@ describe('recarga en efectivo y caja de la noche (Postgres real)', () => {
     expect(await balanceOf(out.walletId)).toMatchObject({ balanceCents: 6_000 });
   });
 
-  it('camarero sin permiso, efectivo apagado o datáfono sin permiso: no se cobra nada', async () => {
+  it('camarero que no es de recepción, efectivo apagado o datáfono sin permiso: no se cobra nada', async () => {
     const body = () => ({ amountCents: 1_000, idempotencyKey: key(), wallet: { create: true as const } });
+    // Las recargas (y el efectivo), solo en recepción: el camarero de barra, no.
     await expect(inVenue(sala.id, () => cash.topUp(sala.id, { userId: sala.waiter, role: 'WAITER' }, body()))).rejects.toThrow(
-      /no te deja cobrar recargas en efectivo/,
+      /Las recargas se hacen en recepción/,
     );
     await expect(inVenue(sala.id, () => cash.topUp(sala.id, { terminalId: sala.term }, body()))).rejects.toThrow(/Datáfonos/);
     await seed((tx) => tx.venue.update({ where: { id: norte.id }, data: { paymentMethods: { cashTopUp: false } } }));

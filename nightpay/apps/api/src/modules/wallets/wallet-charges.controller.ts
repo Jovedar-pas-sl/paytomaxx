@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, Us
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
 import { z } from 'zod';
-import type { JwtPayload } from '@nightpay/contracts';
+import { ChargeLinesSchema, RevenueCategorySchema, type JwtPayload } from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
@@ -18,14 +18,22 @@ import {
 } from './wallet-charges.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
-/** Cobro con QR: la chica elige el servicio (o un importe); el cliente paga con Face ID. */
+/**
+ * Cobro con QR: la chica elige el servicio (o un importe); el cliente paga
+ * con Face ID, su código o su ficha y su PIN. Con `lines`, varias cosas en un
+ * cobro, cada una en su sección (el total lo calcula el servidor). Sin
+ * sección (o EXTRA, apps antiguas): la del puesto de quien cobra o su rol.
+ */
 const QrChargeSchema = z
   .object({
     serviceItemId: z.string().uuid().optional(),
     amountCents: z.number().int().positive().max(10_000_00).optional(),
-    category: z.enum(['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'EXTRA']).optional(),
+    category: RevenueCategorySchema.optional(),
+    lines: ChargeLinesSchema.optional(),
+    /** «Invitar a una copa»: el QR personal de la chica invitada (URL o token). */
+    invitedStaffToken: z.string().trim().min(20).max(600).optional(),
   })
-  .refine((b) => Boolean(b.serviceItemId) || Boolean(b.amountCents), {
+  .refine((b) => Boolean(b.serviceItemId) || Boolean(b.amountCents) || Boolean(b.lines), {
     message: 'Elige un servicio de la carta o pon un importe',
   });
 

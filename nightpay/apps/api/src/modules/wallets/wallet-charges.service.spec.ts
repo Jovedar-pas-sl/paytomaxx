@@ -57,6 +57,14 @@ function makeService(
       findMany: vi.fn().mockResolvedValue([]),
     },
     operatorEarning: { create: vi.fn().mockResolvedValue({}) },
+    // El mapa del dinero: carta, puesto, líneas y referencia del cobro.
+    serviceItem: {
+      findMany: vi.fn().mockResolvedValue([
+        { id: 'svc-1', name: '30 min', durationMin: 30, priceCents: 10_000, category: 'CHICA_SERVICE', active: true, components: null },
+      ]),
+    },
+    paymentLine: { createMany: vi.fn().mockResolvedValue({ count: 1 }), findMany: vi.fn().mockResolvedValue([]) },
+    chargeRefCounter: { upsert: vi.fn().mockResolvedValue({ lastRef: 41 }) },
     walletPayout: { create: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]) },
     walletPasskey: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), count: vi.fn().mockResolvedValue(0) },
     walletCard: {
@@ -70,6 +78,7 @@ function makeService(
     payment: { findMany: vi.fn().mockResolvedValue([]) },
     user: {
       findUnique: vi.fn().mockResolvedValue({ role: 'OPERATOR', commissionBps: null, displayName: 'Lola' }),
+      findFirst: vi.fn().mockResolvedValue({ post: null }),
     },
     venue: { findUnique: vi.fn().mockResolvedValue({ operatorCommissionDefaults: { CHICA_SERVICE: 9000 } }) },
     // La fila bloqueada (FOR UPDATE) refleja la wallet de la prueba.
@@ -185,16 +194,66 @@ describe('la chica hace un cobro con QR', () => {
   it('con un servicio de la carta: precio y categoría del local; aún sin saldo (lo dice el cliente al pagar)', async () => {
     const { svc, tx } = makeService();
     const out = await svc.createQrCharge(chica, { serviceItemId: 'svc-1' });
-    expect(out).toMatchObject({ status: 'PENDING', amountCents: 10_000, serviceName: '30 min' });
+    expect(out).toMatchObject({ status: 'PENDING', amountCents: 10_000, serviceName: '30 min', ref: 'C-0041' });
     expect(out.payToken.length).toBeGreaterThanOrEqual(32);
     expect(tx.walletChargeRequest.create.mock.calls[0]![0]).toMatchObject({
-      data: { tenantId: 'other', walletId: null, requestedByUserId: 'op-1', category: 'CHICA_SERVICE' },
+      data: { tenantId: 'other', walletId: null, requestedByUserId: 'op-1', category: 'CHICA_SERVICE', ref: 41 },
+    });
+    // Su línea, en Servicios, con el cobro del saldo.
+    expect(tx.paymentLine.createMany.mock.calls[0]![0]).toEqual({
+      data: [
+        {
+          tenantId: 'other',
+          walletChargeId: 'req-new',
+          category: 'CHICA_SERVICE',
+          serviceItemId: 'svc-1',
+          label: '30 min',
+          qty: 1,
+          unitCents: 10_000,
+          amountCents: 10_000,
+          operatorCommissionBps: null,
+          beneficiaryOperatorId: null,
+          beneficiaryCents: null,
+          chargerCents: null,
+        },
+      ],
     });
   });
 
-  it('la chica no puede cobrar barra con importe libre', async () => {
-    const { svc } = makeService();
-    await expect(svc.createQrCharge(chica, { amountCents: 1000, category: 'VENUE_BAR' })).rejects.toThrow(/tus servicios/);
+  it('importe libre sin sección (o «Otros» de una app antigua): la de su rol, nunca EXTRA', async () => {
+    const { svc, tx } = makeService();
+    await svc.createQrCharge(chica, { amountCents: 1000, category: 'EXTRA' });
+    expect(tx.walletChargeRequest.create.mock.calls[0]![0]).toMatchObject({ data: { category: 'CHICA_SERVICE' } });
+    tx.user.findFirst.mockResolvedValueOnce({ post: 'COCINA' });
+    await svc.createQrCharge({ userId: 'wt-1', role: 'WAITER', tenantId: 'other' }, { amountCents: 1500 });
+    expect(tx.walletChargeRequest.create.mock.calls[1]![0]).toMatchObject({ data: { category: 'VENUE_FOOD' } });
+  });
+
+  it('el puesto manda: la chica no cobra la barra del saldo (403); el camarero de barra no cobra habitaciones', async () => {
+    const { svc, tx } = makeService();
+    await expect(svc.createQrCharge(chica, { amountCents: 1000, category: 'VENUE_BAR' })).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'SECTION_NOT_ALLOWED' }),
+    });
+    const waiter = { userId: 'wt-1', role: 'WAITER' as const, tenantId: 'other' };
+    await expect(svc.createQrCharge(waiter, { amountCents: 1000, category: 'VENUE_ROOM' })).rejects.toThrow(/Barra/);
+    expect(tx.walletChargeRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('varias cosas en un cobro del saldo: cada línea a su sección y el total del servidor', async () => {
+    const { svc, tx } = makeService();
+    const out = await svc.createQrCharge(manager, {
+      lines: [
+        { serviceItemId: 'svc-1', qty: 1 },
+        { category: 'VENUE_BAR', amountCents: 2000, label: 'Copas' },
+      ],
+    });
+    expect(out.amountCents).toBe(12_000);
+    const data = tx.paymentLine.createMany.mock.calls[0]![0].data as Array<{ category: string; amountCents: number }>;
+    expect(data.map((l) => [l.category, l.amountCents])).toEqual([
+      ['CHICA_SERVICE', 10_000],
+      ['VENUE_BAR', 2000],
+    ]);
   });
 });
 

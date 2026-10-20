@@ -20,6 +20,8 @@ export interface OperatorCommissionDefaults {
   VENUE_BAR: number;
   VENUE_ROOM: number;
   VENUE_FOOD: number;
+  /** Entradas (sección nueva): los locales de antes no la tienen guardada (0 %). */
+  VENUE_ENTRY?: number;
   EXTRA: number;
 }
 
