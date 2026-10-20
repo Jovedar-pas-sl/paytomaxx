@@ -74,7 +74,7 @@ export class HealthController {
   }
 }
 
-const DEFAULT_BUILD_MARKER = 'revision-2026-10-15';
+const DEFAULT_BUILD_MARKER = 'revision3-2026-10-20';
 
 function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
