@@ -6,6 +6,7 @@ import {
   normalizeWalletCardUid,
   type FichasNight,
   type FichasSummary,
+  type ReceptionDeskView,
   type Role,
   type StockOutcome,
   type WalletCardPanelAction,
@@ -15,8 +16,10 @@ import {
 import type { Prisma } from '@nightpay/db';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { assertCanTopUp } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { fichasCounts, frozenFichas } from './fichas-counts';
+import { readReceptionDesk, type DeskRef } from './reception-desk';
 import {
   ISSUED_CARD_STATUSES,
   createCardToken,
@@ -269,6 +272,21 @@ export class WalletCardsService {
     if (!card.wallet) return false;
     const venue = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } });
     return sameWalletGroup(card.wallet, { id: venueId, walletGroup: venue?.walletGroup ?? null });
+  }
+
+  // ─── Recepción exprés (app del personal) ───────────────────────────────
+
+  /**
+   * El NFC acercado (o el código tecleado) en la recepción: nuevo o el saldo
+   * que tiene, con su número y lo que se le puede devolver en efectivo. Solo
+   * quien carga saldos (recepción, el encargado o el dueño): 403 «Las
+   * recargas se hacen en recepción» para el resto. Solo lee.
+   */
+  async desk(venueId: string, actor: { userId: string; role: Role }, ref: DeskRef): Promise<ReceptionDeskView> {
+    await this.prisma.asSystem((tx) => assertCanTopUp(tx, venueId, actor));
+    if ('card' in ref) await this.assertNfc(venueId);
+    const venue = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } });
+    return this.prisma.acrossVenues((tx) => readReceptionDesk(tx, { id: venueId, walletGroup: venue?.walletGroup ?? null }, ref));
   }
 
   private async assertNfc(venueId: string): Promise<void> {

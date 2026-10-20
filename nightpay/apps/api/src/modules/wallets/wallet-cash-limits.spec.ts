@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   cardRefundCapCents,
   cashPayoutCapCents,
+  cashPayoutNote,
   cashPayoutRefusal,
   cashTopUpOverLimit,
   unspentCashCents,
@@ -42,6 +43,20 @@ describe('devolver en efectivo y a la tarjeta', () => {
     expect(cashPayoutRefusal(30_000, cash())).toMatch(/entró con tarjeta/);
     expect(cashPayoutRefusal(30_000, cash({ inCents: 200_000, outCents: 99_999, outWindowCents: 99_999 }))).toMatch(
       /ya se le devolvieron 999,99 €/,
+    );
+  });
+
+  it('la salida de recepción dice antes por qué no sale todo en efectivo', () => {
+    // Todo en efectivo, o nada que devolver: sin aviso.
+    expect(cashPayoutNote(3_500, cash({ inCents: 5_000 }))).toBeNull();
+    expect(cashPayoutNote(0, cash({ inCents: 5_000 }))).toBeNull();
+    // 20 € en efectivo y 15 € con tarjeta: los 15 €, el dueño a la tarjeta.
+    expect(cashPayoutNote(3_500, cash({ inCents: 2_000 }))).toMatch(/otros 15,00 € entraron con tarjeta/);
+    // Todo con tarjeta: el mismo porqué que el botón del encargado.
+    expect(cashPayoutNote(3_500, cash())).toBe(cashPayoutRefusal(3_500, cash()));
+    // Lo que manda es el tope de 24 h.
+    expect(cashPayoutNote(150_000, cash({ inCents: 200_000, outCents: 50_000, outWindowCents: 50_000 }))).toMatch(
+      /como mucho 499,99 €.*devolvieron 500,00 €/,
     );
   });
 });

@@ -99,3 +99,53 @@ export interface ReceptionOptions {
   /** Fichas NFC encendidas. */
   nfc: boolean;
 }
+
+// ─── Recepción exprés (2026-10-24) ───────────────────────────────────────
+
+/** «0522»: el número de la ficha NFC con cuatro cifras como mínimo. */
+export function fichaNumberText(n: number): string {
+  return String(Math.max(0, Math.trunc(n))).padStart(4, '0');
+}
+
+/**
+ * El NFC acercado en la recepción (POST /v1/reception/desk) sin saldo vivo:
+ * del stock, recién grabado o de un saldo ya cerrado. Se le da a un saldo
+ * nuevo al cobrar.
+ */
+export interface ReceptionDeskNew {
+  kind: 'new';
+  /** «Ficha nº 0522». */
+  fichaNumber: number;
+}
+
+/**
+ * Un saldo vivo, por su NFC o por su código: lo que tiene (recepción lo ve
+ * para recargarlo o, a la salida, devolverlo), su NFC y lo que se le puede
+ * devolver ahora en efectivo.
+ */
+export interface ReceptionDeskSaldo {
+  kind: 'saldo';
+  walletId: string;
+  /** K7Q-4M2. */
+  code: string;
+  balanceCents: number;
+  hasPin: boolean;
+  /** Es de este local (con tarjeta solo se recarga aquí). */
+  isHomeVenue: boolean;
+  /** Bloqueado: no se recarga ni paga (sí se le puede devolver). */
+  blocked: boolean;
+  /** El cliente pulsó «Me voy» en su móvil. */
+  closeRequested: boolean;
+  /**
+   * Lo que se le puede devolver ahora en efectivo: solo lo que entró en
+   * efectivo y sin llegar a 1.000 € en 24 h (lo mismo que el «Devolver en
+   * efectivo» del encargado).
+   */
+  cashOutCents: number;
+  /** Por qué no se devuelve todo en efectivo (null: se devuelve todo, o no tiene nada). */
+  cashOutNote: string | null;
+  /** El número de su NFC (null: no tiene). */
+  fichaNumber: number | null;
+}
+
+export type ReceptionDeskView = ReceptionDeskNew | ReceptionDeskSaldo;

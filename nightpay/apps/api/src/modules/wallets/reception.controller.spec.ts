@@ -27,6 +27,7 @@ function services(venue: Record<string, unknown> = {}) {
     list: vi.fn().mockResolvedValue([]),
     summary: vi.fn().mockResolvedValue({ enStock: 0, entregadas: 0, nights: [] }),
     mark: vi.fn().mockResolvedValue({ id: 'c' }),
+    desk: vi.fn().mockResolvedValue({ kind: 'new', fichaNumber: 522 }),
   };
   const charges = {
     lookupCardForReception: vi.fn().mockResolvedValue({ walletId: 'w' }),
@@ -75,6 +76,16 @@ describe('recepción desde la app del personal', () => {
     expect(s.cards.newStockToken).toHaveBeenCalledWith(SALA, { userId: 'u-1' });
     await ctrl.fichaStock(user, { card: FICHA, uid: '04A2' });
     expect(s.cards.stock).toHaveBeenCalledWith(SALA, { userId: 'u-1' }, { card: FICHA, uid: '04A2' });
+  });
+
+  it('recepción exprés: el NFC o el código, con quién llama (el servicio mira que cargue saldos)', async () => {
+    const s = services();
+    const ctrl = new ReceptionController(s.cash as never, s.cards as never, s.charges as never, s.prisma as never);
+    expect(new Reflector().get('roles', ReceptionController.prototype.desk)).toEqual(['WAITER', 'MANAGER', 'OWNER']);
+    await expect(ctrl.desk(user, { card: FICHA })).resolves.toEqual({ kind: 'new', fichaNumber: 522 });
+    expect(s.cards.desk).toHaveBeenCalledWith(SALA, { userId: 'u-1', role: 'WAITER' }, { card: FICHA, uid: null });
+    await ctrl.desk(user, { code: 'K7Q-4M2' });
+    expect(s.cards.desk).toHaveBeenCalledWith(SALA, { userId: 'u-1', role: 'WAITER' }, { code: 'K7Q-4M2' });
   });
 });
 
