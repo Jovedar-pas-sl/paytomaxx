@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
-import { AmountKeypad, Button, Card, Input } from '@nightpay/ui';
+import { AmountKeypad, Button, Card } from '@nightpay/ui';
 import {
   createPayment,
   newIdempotencyKey,
@@ -17,6 +17,7 @@ import { formatEur } from '@/lib/money';
 import { ActivePayment } from './ActivePayment';
 import { CartaRetry, serviceLabel, useCarta } from './carta';
 import { STICKY_ACTION_BOTTOM } from './layout';
+import { TopUpExisting } from './reception/TopUpExisting';
 import { cobroModeAllowed, useVenueMethods, type CobroMode } from '@/lib/venue-methods';
 
 /**
@@ -44,9 +45,10 @@ interface Props {
 }
 
 // Cortos: los tres caben en una línea a 320 px (el título de arriba ya dice el modo entero).
+// «Recargar»: recargar un saldo que ya existe (los nuevos se dan de alta en Recepción).
 const MODES: ReadonlyArray<{ mode: CobroMode; label: string }> = [
   { mode: 'qr', label: 'QR' },
-  { mode: 'wallet', label: 'Wallet' },
+  { mode: 'wallet', label: 'Recargar' },
   { mode: 'pos', label: 'Datáfono' },
 ];
 
@@ -67,10 +69,9 @@ export function CreatePayment({ role, onCreated }: Props) {
   const [selectedZone, setSelectedZone] = useState<string>('');
   // Importe tecleado en el teclado propio, en céntimos (0: aún nada).
   const [amountCents, setAmountCents] = useState(0);
-  // Modo de cobro: QR directo (cliente paga con su móvil), wallet (carga
-  // saldo prepago) o POS (camarero cobra con datáfono externo).
+  // Modo de cobro: QR directo (cliente paga con su móvil), «Recargar saldo»
+  // (un saldo que ya existe) o POS (camarero cobra con datáfono externo).
   const [mode, setMode] = useState<CobroMode>('qr');
-  const [walletIdentifier, setWalletIdentifier] = useState('');
   // Categorías permitidas: la chica solo cobra sus servicios (el servidor lo
   // exige); barra, habitación y comida las cobra el camarero.
   const categoryOptions: RevCat[] =
@@ -120,8 +121,8 @@ export function CreatePayment({ role, onCreated }: Props) {
     if (first && !modes.some((m) => m.mode === mode)) setMode(first.mode);
   }, [modes, mode]);
 
-  // La recarga de wallet no sale de la carta: al cambiar a wallet se suelta
-  // el servicio elegido para no arrastrar su precio.
+  // «Recargar saldo» no sale de la carta: al cambiar a él se suelta el
+  // servicio elegido para no arrastrar su precio.
   function switchMode(next: CobroMode) {
     if (next === 'wallet') {
       setPicked(null);
@@ -158,9 +159,6 @@ export function CreatePayment({ role, onCreated }: Props) {
       const service = usingService ? (picked as ServiceItem) : null;
       const cents = service ? service.priceCents : amountCents;
       if (cents <= 0) throw new Error('Pon el importe');
-      if (mode === 'wallet' && !walletIdentifier.trim()) {
-        throw new Error('Pon una etiqueta al wallet (Mesa 3, Pulsera azul...) para no confundirlo');
-      }
       // Modo POS con zona: el backend resolverá el terminal libre de esa zona.
       // Si no hay zona seleccionada y hay zonas configuradas, exigimos elegir.
       const usingZone = mode === 'pos' && zones.length > 0;
@@ -172,12 +170,11 @@ export function CreatePayment({ role, onCreated }: Props) {
         // Si pasamos zone, el backend resuelve PAX; si no, fallback al primero.
         zone: usingZone ? selectedZone : undefined,
         terminalExternalId: usingZone ? undefined : terminals[0]?.externalId,
-        walletIdentifier: mode === 'wallet' ? walletIdentifier.trim() : undefined,
         captureMethod: mode === 'pos' ? 'POS_EXTERNAL' : undefined,
         revenueCategory: revCategory,
         serviceItemId: service?.id,
       };
-      const what = JSON.stringify([cents, mode, usingZone ? selectedZone : null, walletIdentifier.trim(), revCategory, service?.id ?? null]);
+      const what = JSON.stringify([cents, mode, usingZone ? selectedZone : null, revCategory, service?.id ?? null]);
       if (attempt.current?.what !== what) attempt.current = { key: newIdempotencyKey(), what };
       const created = await createPayment({ ...request, idempotencyKey: attempt.current.key });
       attempt.current = null;
@@ -215,7 +212,6 @@ export function CreatePayment({ role, onCreated }: Props) {
     setPicked(null);
     setError(null);
     setRetryError(null);
-    setWalletIdentifier('');
     onCreated();
   }
 
@@ -233,6 +229,12 @@ export function CreatePayment({ role, onCreated }: Props) {
         retryError={retryError}
       />
     );
+  }
+
+  // «Recargar saldo»: un saldo que ya existe, por su NFC o su código (Recepción reutilizada).
+  if (mode === 'wallet' && modes.some((m) => m.mode === 'wallet')) {
+    const other = modes.find((m) => m.mode !== 'wallet');
+    return <TopUpExisting onExit={other ? () => switchMode(other.mode) : undefined} onDone={onCreated} />;
   }
 
   // Sin QR ni datáfono (el dueño dejó solo el saldo): nada que cobrar aquí.
@@ -285,17 +287,14 @@ export function CreatePayment({ role, onCreated }: Props) {
         </div>
         {cobroModeAllowed('wallet', methods) ? (
           <Button type="button" variant="ghost" onClick={() => switchMode('wallet')}>
-            Cargar wallet del cliente
+            Recargar saldo del cliente
           </Button>
         ) : null}
       </Card>
     );
   }
 
-  const headline =
-    mode === 'wallet' ? 'Cargar wallet del cliente'
-    : mode === 'pos' ? 'Cobro con datáfono'
-    : 'Crear nuevo cobro';
+  const headline = mode === 'pos' ? 'Cobro con datáfono' : 'Crear nuevo cobro';
   const cents = usingService ? (picked as ServiceItem).priceCents : amountCents;
   const amountLabel = cents > 0 ? formatEur(cents, { compact: true }) : null;
 
@@ -372,21 +371,7 @@ export function CreatePayment({ role, onCreated }: Props) {
           </fieldset>
           ) : null}
 
-          {mode === 'wallet' ? (
-            <>
-              <Input
-                label="Etiqueta del wallet"
-                type="text"
-                placeholder="Ej: Mesa 3, Pulsera azul, Camisa roja"
-                value={walletIdentifier}
-                onChange={(e) => setWalletIdentifier(e.target.value)}
-                required
-              />
-              <p style={hintStyle}>
-                El cliente paga una vez. Luego le cobras desde la pestaña Saldo.
-              </p>
-            </>
-          ) : mode === 'pos' ? (
+          {mode === 'pos' ? (
             <>
               {zones.length > 1 ? (
                 <div>
@@ -454,9 +439,8 @@ export function CreatePayment({ role, onCreated }: Props) {
 // Sobre el fondo de la página (no el de la tarjeta).
 const stickyStyle = { bottom: STICKY_ACTION_BOTTOM, '--np-sticky-bg': 'var(--np-bg)' } as CSSProperties;
 
-/** «Cobrar 50 €», «Cargar 20 €», «Generar cobro POS (30 €)». */
+/** «Cobrar 50 €», «Generar cobro POS (30 €)». */
 function submitLabel(mode: CobroMode, amount: string | null): string {
-  if (mode === 'wallet') return `Cargar ${amount ?? 'wallet'}`;
   if (mode === 'pos') return `Generar cobro POS${amount ? ` (${amount})` : ''}`;
   return amount ? `Cobrar ${amount}` : 'Cobrar';
 }

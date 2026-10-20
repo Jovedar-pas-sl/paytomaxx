@@ -1,20 +1,32 @@
 'use client';
 
-// Formas de cobro del local (las pone el dueño en el panel → Ajustes). Lo
-// apagado no se enseña aquí; el API además lo rechaza (409). Si no se pueden
-// leer, se enseña todo, como antes (el API sigue mandando).
+// Formas de cobro y ajustes de la noche del local (los pone el dueño en el
+// panel → Ajustes). Lo apagado no se enseña aquí; el API además lo rechaza
+// (409). Si no se pueden leer, se enseña todo y los ajustes de fábrica, como
+// antes (el API sigue mandando).
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { DEFAULT_PAYMENT_METHODS, paymentMethodsOf, type VenuePaymentMethods } from '@nightpay/contracts';
-import { fetchVenueMethods } from './api';
+import {
+  DEFAULT_NIGHT_SETTINGS,
+  DEFAULT_PAYMENT_METHODS,
+  nightSettingsOf,
+  paymentMethodsOf,
+  type VenueNightSettings,
+  type VenuePaymentMethods,
+} from '@nightpay/contracts';
+import { setVenueFeedback } from './alert-sound';
+import { fetchVenueFeed } from './api';
 import type { TabKey } from './roles';
 
 export type CobroMode = 'qr' | 'wallet' | 'pos';
 
-/** Qué hace falta para cada forma de cobrar en «Crear cobro» (la recarga es con tarjeta). */
+/**
+ * Qué hace falta para cada forma de cobrar en Inicio. «wallet» es «Recargar
+ * saldo» (un saldo que ya existe): con tarjeta, o en efectivo (con permiso).
+ */
 export function cobroModeAllowed(mode: CobroMode, m: VenuePaymentMethods): boolean {
   if (mode === 'qr') return m.card;
-  if (mode === 'wallet') return m.card && m.wallet;
+  if (mode === 'wallet') return m.wallet && (m.card || m.cashTopUp);
   return m.pos;
 }
 
