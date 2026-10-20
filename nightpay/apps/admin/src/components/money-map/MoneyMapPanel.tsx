@@ -48,9 +48,7 @@ export function MoneyMapPanel({ onNavigate }: { onNavigate?: (key: TabKey) => vo
 
   const scope = map?.scope.kind === 'night' ? map.scope : null;
   const since = map ? formatDateTime(map.from, venue.timezone, 'time') : null;
-  const subtitle = [venue.name ?? venue.slug, map ? (scope?.open ? `noche desde las ${since}` : `desde el último cierre (${since})`) : null]
-    .filter(Boolean)
-    .join(' · ');
+  const nightText = map ? (scope?.open ? `Esta noche, desde las ${since}` : `Sin noche abierta: desde el último cierre (${since})`) : null;
   const stripe = map ? moneyMapView(map, sections).stripe : [];
 
   return (
@@ -59,7 +57,7 @@ export function MoneyMapPanel({ onNavigate }: { onNavigate?: (key: TabKey) => vo
         <span className="np-mm-logo" aria-hidden="true" />
         <div className="np-mm-title">
           <h2 id="np-mm-title">Mapa del dinero</h2>
-          <span>{subtitle}</span>
+          <span>{venue.name ?? venue.slug}</span>
         </div>
         <span className="np-mm-chip" data-kind="live" title="En directo: se pone al día solo">
           <span className="np-sr-only">En directo, </span>
@@ -79,7 +77,7 @@ export function MoneyMapPanel({ onNavigate }: { onNavigate?: (key: TabKey) => vo
 
       {map ? (
         <p className="np-mm-foot">
-          En directo; al cerrar la noche se congela en el Z. Sin IVA: eso lo lleva la gestoría.
+          {nightText}, en directo; al cerrar la noche se congela en el Z. Sin IVA: eso lo lleva la gestoría.
           {onNavigate ? (
             <>
               {' '}

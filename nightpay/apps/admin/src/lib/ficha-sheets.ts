@@ -63,14 +63,18 @@ export function signed(cents: number): string {
   return `${cents < 0 ? '−' : '+'}${bareEur(Math.abs(cents))}`;
 }
 
-/** «hoy 23:40», «ayer 01:10» o «sáb 18, 23:40». */
+/** La noche va de 08:00 a 08:00: a las 04:10, las 23:40 de antes son «hoy». */
+const NIGHT_SHIFT_MS = 8 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** «hoy 23:40», «ayer 01:10» o «sáb 18, 23:40» (por noches: de 08:00 a 08:00). */
 export function sinceLabel(at: string, tz: string, now: Date = new Date()): string {
   const date = new Date(at);
   if (Number.isNaN(date.getTime())) return '—';
   const time = formatDateTime(date, tz, 'time');
-  const day = dayInZone(date, tz);
-  if (day === dayInZone(now, tz)) return `hoy ${time}`;
-  if (day === dayInZone(new Date(now.getTime() - 86_400_000), tz)) return `ayer ${time}`;
+  const night = (d: Date) => dayInZone(new Date(d.getTime() - NIGHT_SHIFT_MS), tz);
+  if (night(date) === night(now)) return `hoy ${time}`;
+  if (night(date) === night(new Date(now.getTime() - DAY_MS))) return `ayer ${time}`;
   return `${dayShort(at, tz)}, ${time}`;
 }
 
@@ -109,7 +113,7 @@ function topUpRow(t: WalletFichaTopUp, first: boolean, tz: string): TimelineRow 
     time: formatDateTime(t.at, tz, 'time'),
     color: null,
     title: voided ? `Recarga anulada · ${topUpWord(t)}` : `${first ? 'Alta' : 'Recarga'} · ${topUpWord(t)}`,
-    sub: joinParts([t.terminalLabel, t.by?.name ?? (t.terminalLabel || voided ? null : 'sin personal'), t.note ? `«${t.note}»` : null]),
+    sub: joinParts([t.terminalLabel, t.by?.name ?? (voided ? null : 'sin personal'), t.note ? `«${t.note}»` : null]),
     amount: `${voided ? '−' : '+'}${eurShort(Math.abs(t.amountCents))}`,
     share: null,
     undone: false,

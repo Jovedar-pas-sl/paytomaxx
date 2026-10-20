@@ -72,8 +72,11 @@ describe('importes de las fichas', () => {
   });
 
   it('desde cuándo: hoy, ayer o el día', () => {
+    // Por noches (de 08:00 a 08:00): a las 03:10, las 23:40 de antes son de esta noche.
     expect(sinceLabel('2026-10-24T21:40:00.000Z', TZ, new Date('2026-10-24T21:50:00Z'))).toBe('hoy 23:40');
-    expect(sinceLabel('2026-10-24T21:40:00.000Z', TZ, NOW)).toBe('ayer 23:40');
+    expect(sinceLabel('2026-10-24T21:40:00.000Z', TZ, NOW)).toBe('hoy 23:40');
+    expect(sinceLabel('2026-10-24T10:00:00.000Z', TZ, NOW)).toBe('hoy 12:00');
+    expect(sinceLabel('2026-10-23T21:40:00.000Z', TZ, NOW)).toBe('ayer 23:40');
     expect(sinceLabel('2026-10-18T21:40:00.000Z', TZ, NOW)).toBe('dom 18, 23:40');
     expect(sinceLabel('no', TZ, NOW)).toBe('—');
     expect(dayShort('2026-10-17T21:00:00.000Z', TZ)).toBe('sáb 17');
@@ -84,7 +87,7 @@ describe('9.1 · ficha del saldo', () => {
   it('cifras que cuadran (recargado − gastado − devuelto = le quedan), franja y la ficha NFC', () => {
     const s = walletSheet(ficha(), SECTIONS, TZ, NOW);
     expect(s.title).toBe('Saldo K7Q-4M2');
-    expect(s.subtitle).toBe('Desde ayer 23:40');
+    expect(s.subtitle).toBe('Desde hoy 23:40');
     expect(s.stats).toEqual({ left: 3_000, topped: 30_000, spent: 27_000, refunded: 0 });
     expect(s.stats.topped - s.stats.spent - s.stats.refunded).toBe(s.stats.left);
     expect(s.stripe.map((x) => [x.key, x.cents])).toEqual([
@@ -101,7 +104,7 @@ describe('9.1 · ficha del saldo', () => {
       ['01:00', 'C-4819 · 2 copas', 'Copas · Carlos · NFC', '−50 €', false, true],
       ['00:58', 'C-4818 · 30 min', 'Servicios · Nerea · PIN', '−250 €', false, false],
       ['00:45', 'Recarga · tarjeta', 'sin personal', '+100 €', true, false],
-      ['00:25', 'Recarga · tarjeta', 'Recepción', '+100 €', true, false],
+      ['00:25', 'Recarga · tarjeta', 'Recepción · sin personal', '+100 €', true, false],
       ['23:40', 'Alta · efectivo', 'Recepción · Sergio', '+100 €', true, false],
     ]);
   });

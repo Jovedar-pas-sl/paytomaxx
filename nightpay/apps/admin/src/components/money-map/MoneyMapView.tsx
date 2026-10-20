@@ -43,9 +43,9 @@ export function MoneyMapView({ map, wide = false }: { map: MoneyMap; wide?: bool
             ))}
           </ul>
           {v.topUps ? (
-            <p className="np-mm-hold">
+            <p className="np-mm-hold" title={v.topUps.detail || undefined}>
               + Recargas <b>{eurShort(v.topUps.cents)}</b>: no es venta
-              {v.topUps.detail ? <span> ({v.topUps.detail})</span> : null}
+              {v.topUps.detail ? <span className="np-sr-only"> ({v.topUps.detail})</span> : null}
             </p>
           ) : null}
         </section>
