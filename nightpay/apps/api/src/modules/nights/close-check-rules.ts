@@ -291,7 +291,7 @@ export function efectivoStep(cash: NightCash): NightCloseStep {
   };
 }
 
-// ─── 5. Pagar a las chicas ──────────────────────────────────────────
+// ─── 5. Pagar al personal (chicas y camareros) ──────────────────────
 
 /** Lo que se le paga ya a una chica (como createPayout): lo liberado menos la deuda. */
 export function chicaPay(r: ChicaBalanceRow): NightChicaPay {
@@ -325,14 +325,15 @@ export function chicasStep(chicas: ReadonlyArray<NightChicaPay>, holdDays: numbe
     holdDays > 0 && heldCents > 0 ? ` ${eur(heldCents)} siguen en espera: se pagan pasados ${days(holdDays)}.` : '';
   const detail =
     toPay.length > 0
-      ? `${toPay.length === 1 ? 'Queda 1 chica' : `Quedan ${toPay.length} chicas`} por pagar: ${eur(toPayCents)}.${later}`
+      ? `${toPay.length === 1 ? 'Queda 1 persona' : `Quedan ${toPay.length} personas`} por pagar: ${eur(toPayCents)}.${later}`
       : chicas.length === 0
-        ? 'Ninguna chica tiene nada que cobrar.'
-        : `Nada que pagar ya.${later || ' Todas cobradas.'}`;
+        ? 'Nadie del personal tiene nada que cobrar.'
+        : `Nada que pagar ya.${later || ' Todo pagado.'}`;
   return {
     key: 'chicas',
     status: toPay.length > 0 ? 'warn' : 'ok',
-    title: 'Pagar a las chicas',
+    // Las chicas y los camareros con parte de las invitaciones.
+    title: 'Pagar al personal',
     detail,
     count: toPay.length,
     link: 'operators',

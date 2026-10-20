@@ -12,7 +12,7 @@ interface Props {
 }
 
 /**
- * Paso «Pagar a las chicas»: a cada una, lo que se le paga ahora (con los
+ * Paso «Pagar al personal» (chicas y camareros): a cada uno, lo que se le paga ahora (con los
  * días de espera del local), lo ya pagado esta noche y su deuda. «Pagar»
  * abre el mismo modal de siempre (con 2FA): paga o lo pide al dueño.
  */
@@ -37,7 +37,7 @@ export function NightChicasStep({ chicas, holdDays, onPay, disabled }: Props) {
                 </Button>
               </>
             ) : (
-              <span className="np-chica-done">{c.paidTonightCents > 0 ? 'Pagada' : 'Nada que pagar ya'}</span>
+              <span className="np-chica-done">{c.paidTonightCents > 0 ? 'Pagado' : 'Nada que pagar ya'}</span>
             )}
           </div>
         </li>

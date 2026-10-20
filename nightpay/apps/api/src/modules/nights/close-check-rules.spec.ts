@@ -186,7 +186,8 @@ describe('5 · pagar a las chicas', () => {
     ];
     const s = chicasStep(chicas, 0);
     expect(s).toMatchObject({ status: 'warn', count: 1, link: 'operators' });
-    expect(s.detail).toBe('Queda 1 chica por pagar: 90,00 €.');
+    expect(s.detail).toBe('Queda 1 persona por pagar: 90,00 €.');
+    expect(s.title).toBe('Pagar al personal');
     expect(s.items[0]!.label).toBe('Lola: Págale 90,00 €');
     expect(s.items[1]!.label).toBe('Ana: Nada que pagar ya · pagado esta noche 40,00 €');
   });
@@ -200,7 +201,7 @@ describe('5 · pagar a las chicas', () => {
   });
 
   it('sin chicas con nada → listo', () => {
-    expect(chicasStep([], 0)).toMatchObject({ status: 'ok', detail: 'Ninguna chica tiene nada que cobrar.' });
+    expect(chicasStep([], 0)).toMatchObject({ status: 'ok', detail: 'Nadie del personal tiene nada que cobrar.' });
   });
 });
 

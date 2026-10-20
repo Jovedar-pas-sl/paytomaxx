@@ -40,7 +40,7 @@ const STEPS: NightCloseStep[] = [
   step('datafonos', 'ok', 'Datáfonos'),
   step('saldo', 'warn', 'Saldo devuelto pendiente'),
   step('efectivo', 'block', 'Efectivo'),
-  step('chicas', 'ok', 'Pagar a las chicas'),
+  step('chicas', 'ok', 'Pagar al personal'),
   step('incidencias', 'ok', 'Incidencias abiertas'),
   step('z', 'ok', 'Congelar el Z'),
 ];
