@@ -9,6 +9,7 @@ import { blankCodeFrom, tapChip } from '@/lib/chip-tap';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
 import {
+  cardMethodLabel,
   deviceBackend,
   existingTopUpDetail,
   nextAfterPay,
@@ -370,7 +371,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
           <p style={big}>¿Cómo paga?</p>
           {!options ? <p style={muted}>Cargando…</p> : null}
           <Button size="lg" disabled={!options?.card} onClick={() => setStep({ kind: 'target', method: 'card' })}>
-            {on === 'device' ? 'Tarjeta (en este datáfono)' : 'Tarjeta (QR en su móvil)'}
+            {cardMethodLabel(on)}
           </Button>
           <Button
             size="lg"

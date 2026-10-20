@@ -155,6 +155,15 @@ export function walletOfTarget(target: Target): TopUpWalletDto {
   return target.uid ? { card: target.card, uid: target.uid } : { card: target.card };
 }
 
+/**
+ * El botón de la tarjeta: en el datáfono pasa por su lector; en el móvil del
+ * personal, el cliente paga en su propio móvil con el QR (tarjeta, Apple Pay
+ * o Google Pay).
+ */
+export function cardMethodLabel(on: 'device' | 'staff'): string {
+  return on === 'device' ? 'Tarjeta (en este datáfono)' : 'Tarjeta / Apple Pay / Google Pay (en su móvil)';
+}
+
 /** Por qué esta forma de pago no vale para este saldo (null: vale). */
 export function payProblem(method: PayMethod, target: Target, options: ReceptionOptions): string | null {
   if (method === 'cash' && !options.cash) return options.cashBlockedReason ?? 'Aquí no se cobran recargas en efectivo.';

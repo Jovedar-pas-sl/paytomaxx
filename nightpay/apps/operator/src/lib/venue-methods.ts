@@ -23,6 +23,12 @@ export function visibleTabsFor(tabs: readonly TabKey[], m: VenuePaymentMethods):
   return tabs.filter((t) => (t === 'wallet' || t === 'reception' ? m.wallet : t === 'pos' ? m.pos : true));
 }
 
+/** Inicio del camarero, encargado o dueño: la cola «POS» solo si el local cobra con datáfono. */
+export function staffHomeHint(m: Pick<VenuePaymentMethods, 'pos'>): string {
+  const what = 'Cobra aquí la barra, las habitaciones o la comida.';
+  return m.pos ? `${what} Los cobros con datáfono que crean las chicas te esperan en «POS».` : what;
+}
+
 export const VenueMethodsContext = createContext<VenuePaymentMethods>(DEFAULT_PAYMENT_METHODS);
 
 export function useVenueMethods(): VenuePaymentMethods {

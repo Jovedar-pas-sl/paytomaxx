@@ -78,6 +78,11 @@ export function chipErrorText(error: string, message?: string): string {
   return WRITE_TEXT[error] ?? message ?? 'Error del lector de fichas.';
 }
 
+/** Un móvil sin Web NFC (iPhone…): el datáfono como alternativa, solo si el local cobra con él. */
+export function noPhoneNfcNote(posOn: boolean): string {
+  return `Este móvil no lee fichas desde la app: hace falta un Android con Chrome${posOn ? ' (o el datáfono)' : ''}.`;
+}
+
 /** Fallo del lector con su código (el texto ya en castellano). */
 export class ChipError extends Error {
   readonly code: string;

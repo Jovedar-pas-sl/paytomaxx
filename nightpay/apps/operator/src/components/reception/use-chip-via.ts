@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { ChipVia } from '@/lib/chip-tap';
+import { noPhoneNfcNote, type ChipVia } from '@/lib/chip-tap';
 import { callReader, hasBridgeMethod } from '@/lib/pax-bridge';
 import { readerErrorText } from '@/lib/pax-saldo';
 import { nfcSupported } from '@/lib/nfc';
+import { useVenueMethods } from '@/lib/venue-methods';
 
 export interface ChipReader {
   /** Por dónde se leen las fichas (null: aquí no se puede). */
@@ -17,22 +18,21 @@ export interface ChipReader {
   loading: boolean;
 }
 
+/** Lo que se mira al montar; el aviso del móvil sin NFC se escribe al pintar (según el datáfono del local). */
+type ReaderState = ChipReader & { phoneWithoutNfc?: boolean };
+
 /**
  * ¿Cómo se leen y graban fichas aquí? En el datáfono, por el NFC de su app
  * (si el lector de tarjetas no lo tiene reservado); en un Android, con Web NFC.
  */
 export function useChipReader(): ChipReader {
-  const [reader, setReader] = useState<ChipReader>({ via: null, canWrite: false, note: null, loading: true });
+  const posOn = useVenueMethods().pos;
+  const [reader, setReader] = useState<ReaderState>({ via: null, canWrite: false, note: null, loading: true });
   useEffect(() => {
     let alive = true;
     const web = nfcSupported();
     if (!hasBridgeMethod('capabilities')) {
-      setReader({
-        via: web ? 'web' : null,
-        canWrite: web,
-        note: web ? null : 'Este móvil no lee fichas desde la app: hace falta un Android con Chrome (o el datáfono).',
-        loading: false,
-      });
+      setReader({ via: web ? 'web' : null, canWrite: web, note: null, phoneWithoutNfc: !web, loading: false });
       return undefined;
     }
     void callReader('capabilities').then((r) => {
@@ -59,5 +59,6 @@ export function useChipReader(): ChipReader {
       alive = false;
     };
   }, []);
-  return reader;
+  const { phoneWithoutNfc, ...shown } = reader;
+  return phoneWithoutNfc ? { ...shown, note: noPhoneNfcNote(posOn) } : shown;
 }

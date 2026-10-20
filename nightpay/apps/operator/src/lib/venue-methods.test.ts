@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paymentMethodsOf } from '@nightpay/contracts';
-import { cobroModeAllowed, visibleTabsFor } from './venue-methods';
+import { cobroModeAllowed, staffHomeHint, visibleTabsFor } from './venue-methods';
 
 describe('formas de cobro del local en la app del personal', () => {
   it('sin ajustes: todo a la vista, como antes', () => {
@@ -25,5 +25,12 @@ describe('formas de cobro del local en la app del personal', () => {
     expect(visibleTabsFor(['home', 'wallet', 'reception', 'pos'], m)).toEqual(['home']);
     expect(visibleTabsFor(['home', 'wallet', 'reception', 'pos'], paymentMethodsOf({ pos: false }))).toEqual(['home', 'wallet', 'reception']);
     expect(visibleTabsFor(['home', 'wallet', 'payments', 'earnings'], m)).toEqual(['home', 'payments', 'earnings']);
+  });
+
+  it('datáfono apagado: Inicio no habla de la cola «POS»', () => {
+    expect(staffHomeHint(paymentMethodsOf(null))).toContain('«POS»');
+    const off = staffHomeHint(paymentMethodsOf({ pos: false }));
+    expect(off).toBe('Cobra aquí la barra, las habitaciones o la comida.');
+    expect(off).not.toMatch(/datáfono|POS/);
   });
 });

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReceptionOptions } from '@nightpay/contracts';
 import { isSameTapAgain, SAME_TAP_MS } from './prepare-fichas';
 import {
+  cardMethodLabel,
   deviceBackend,
   existingTopUpDetail,
   newReceptionKey,
@@ -38,6 +39,12 @@ describe('pasos de la recepción', () => {
     expect(payProblem('cash', { kind: 'new' }, { ...OPTIONS, cash: false })).toMatch(/efectivo/);
     expect(payProblem('card', { kind: 'new' }, { ...OPTIONS, card: false })).toMatch(/tarjeta/);
     expect(payProblem('card', ficha('04A2', false), OPTIONS)).toMatch(/otro local del grupo/);
+  });
+
+  it('la tarjeta en el móvil del personal: el cliente paga en su móvil (sin datáfono); en el datáfono, su lector', () => {
+    expect(cardMethodLabel('staff')).toBe('Tarjeta / Apple Pay / Google Pay (en su móvil)');
+    expect(cardMethodLabel('staff')).not.toMatch(/datáfono/i);
+    expect(cardMethodLabel('device')).toBe('Tarjeta (en este datáfono)');
     // En efectivo sí vale un saldo de otro local del grupo.
     expect(payProblem('cash', ficha('04A2', false), OPTIONS)).toBeNull();
   });

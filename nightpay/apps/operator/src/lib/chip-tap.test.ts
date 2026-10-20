@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { blankCodeFrom, ChipError, isChipTimeout, isFatalChipError, tapChip, tapFromBridge } from './chip-tap';
+import { blankCodeFrom, ChipError, isChipTimeout, isFatalChipError, noPhoneNfcNote, tapChip, tapFromBridge } from './chip-tap';
 
 const FICHA = 'Kp3vX9qL2mN8rT5wYb7c';
 const URL_FICHA = `https://operator.x/?ficha=${FICHA}`;
@@ -216,5 +216,12 @@ describe('acercar la ficha a un Android (Web NFC)', () => {
     next = { serialNumber: '04:a2:3b:1c', message: { records: [urlRecord('https://otra-web.es')] } };
     await expect(tapChip('web', new AbortController().signal, code().blank)).resolves.toMatchObject({ token: null, other: true });
     expect(written).toEqual([]);
+  });
+});
+
+describe('móvil sin NFC (iPhone…)', () => {
+  it('pide un Android con Chrome; el datáfono, solo si el local cobra con él', () => {
+    expect(noPhoneNfcNote(true)).toBe('Este móvil no lee fichas desde la app: hace falta un Android con Chrome (o el datáfono).');
+    expect(noPhoneNfcNote(false)).toBe('Este móvil no lee fichas desde la app: hace falta un Android con Chrome.');
   });
 });

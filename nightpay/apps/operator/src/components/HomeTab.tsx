@@ -5,6 +5,7 @@ import { Card } from '@nightpay/ui';
 import type { MyNight, OperatorBalance, OperatorUser } from '@/lib/api';
 import { moneySummary } from '@/lib/earnings-view';
 import { ROLE_LABEL } from '@/lib/roles';
+import { staffHomeHint, useVenueMethods } from '@/lib/venue-methods';
 import { CreatePayment } from './CreatePayment';
 import { TonightCard } from './TonightCard';
 
@@ -44,16 +45,14 @@ function hello(user: OperatorUser): string {
   return `Hola${user.displayName ? `, ${user.displayName}` : ''}`;
 }
 
-/** Camarero, encargado o dueño: sin saldo propio; cobran y confirman el datáfono. */
+/** Camarero, encargado o dueño: sin saldo propio; cobran (y, con datáfono, lo confirman). */
 function StaffCard({ user }: { user: OperatorUser }) {
+  const methods = useVenueMethods();
   return (
     <Card style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
       <p style={kicker}>{ROLE_LABEL[user.role]}</p>
       <p style={{ margin: 0, fontSize: '1.375rem', fontWeight: 700 }}>{hello(user)}</p>
-      <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--np-text-mute)' }}>
-        Cobra aquí la barra, las habitaciones o la comida. Los cobros con datáfono que crean las chicas te esperan en
-        «POS».
-      </p>
+      <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--np-text-mute)' }}>{staffHomeHint(methods)}</p>
     </Card>
   );
 }
