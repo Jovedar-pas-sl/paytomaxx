@@ -18,6 +18,8 @@ export interface ServiceItem {
   sortOrder: number;
   /** Pack: sus partes (suman el precio). null = de una sola sección. */
   components?: PackComponent[] | null;
+  /** «Invitar a una copa» (Copas): el camarero escanea el QR de la chica invitada. */
+  isInvitation?: boolean;
 }
 
 export interface ServiceItemInput {
@@ -28,6 +30,8 @@ export interface ServiceItemInput {
   sortOrder?: number;
   /** null = quitar el pack. */
   components?: PackComponent[] | null;
+  /** Solo en Copas y sin pack. */
+  isInvitation?: boolean;
 }
 
 export async function fetchCarta(): Promise<ServiceItem[]> {

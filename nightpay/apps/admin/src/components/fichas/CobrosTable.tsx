@@ -100,6 +100,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra }: Props) 
               </td>
               <td data-label="Servicio" style={meta}>
                 {row.service ?? '—'}
+                {row.invited ? <span style={{ display: 'block' }}>Invitación a {row.invited.name}</span> : null}
               </td>
               {extra ? (
                 <td data-label={extra.label} style={meta}>

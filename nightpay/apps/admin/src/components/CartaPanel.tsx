@@ -128,6 +128,7 @@ export function CartaPanel() {
                         {item.components && item.components.length > 0
                           ? `Pack: ${item.components.map((c) => `${sectionLabelOf(sections, c.category)} ${formatEur(c.amountCents)}`).join(' + ')}`
                           : sectionLabelOf(sections, item.category)}
+                        {item.isInvitation ? ' · Invitación (se reparte con la chica)' : ''}
                         {item.active ? '' : ' · desactivado'}
                       </p>
                     </div>
@@ -174,6 +175,9 @@ function ServiceForm({
   const [price, setPrice] = useState(initial ? centsToInput(initial.priceCents) : '');
   const [category, setCategory] = useState<SectionCode>(initialCategory);
   const [isPack, setIsPack] = useState(Boolean(initial?.components && initial.components.length > 0));
+  // «Invitar a una copa»: solo en Copas y sin pack (el servidor también lo exige).
+  const [isInvite, setIsInvite] = useState(initial?.isInvitation === true);
+  const canInvite = category === 'VENUE_BAR' && !isPack;
   const [parts, setParts] = useState<PartDraft[]>(
     initial?.components?.map((c) => ({ category: c.category, amount: centsToInput(c.amountCents) })) ?? [
       { category: initialCategory, amount: '' },
@@ -203,12 +207,20 @@ function ServiceForm({
     }
     setSubmitting(true);
     try {
-      await onSubmit({ name: name.trim(), durationMin, priceCents, category, ...(components !== undefined ? { components } : {}) });
+      await onSubmit({
+        name: name.trim(),
+        durationMin,
+        priceCents,
+        category,
+        isInvitation: canInvite && isInvite,
+        ...(components !== undefined ? { components } : {}),
+      });
       if (!initial) {
         setName('');
         setDuration('');
         setPrice('');
         setIsPack(false);
+        setIsInvite(false);
       }
     } catch (err) {
       setError((err as Error).message);
@@ -242,6 +254,18 @@ function ServiceForm({
         <input type="checkbox" checked={isPack} onChange={(e) => setIsPack(e.target.checked)} style={{ width: '1.25rem', height: '1.25rem' }} />
         Es un pack (se reparte entre secciones)
       </label>
+
+      {canInvite ? (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
+          <input
+            type="checkbox"
+            checked={isInvite}
+            onChange={(e) => setIsInvite(e.target.checked)}
+            style={{ width: '1.25rem', height: '1.25rem' }}
+          />
+          Es «Invitar a una copa» (el cliente invita a una chica: se reparte según Ajustes → Invitaciones)
+        </label>
+      ) : null}
 
       {isPack ? (
         <fieldset style={packBox}>

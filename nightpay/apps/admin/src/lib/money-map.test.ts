@@ -23,6 +23,7 @@ function row(o: Partial<CobroRow> = {}): CobroRow {
     methodLabel: 'Tarjeta',
     wallet: null,
     service: null,
+    invited: null,
     lines: [],
     payment: null,
     ...o,

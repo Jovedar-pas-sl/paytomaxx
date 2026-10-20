@@ -4,6 +4,9 @@
 import type {
   ChargeMethod,
   CobrosPage,
+  InvitationRules,
+  InvitationSummary,
+  UpdateInvitationRulesDto,
   PostCode,
   PostRules,
   PuestoPerson,
@@ -21,6 +24,8 @@ export interface CobrosFilters {
   method?: ChargeMethod;
   walletCode?: string;
   walletId?: string;
+  /** Las invitaciones a esta chica («Invitar a una copa»). */
+  invitedOperatorId?: string;
   nightId?: string;
   status?: string[];
 }
@@ -83,6 +88,25 @@ export async function fetchPostRules(): Promise<PostRules> {
 
 export async function updatePostRules(patch: UpdatePostRulesDto): Promise<PostRules> {
   const res = await authedFetch('/v1/admin/venue/post-rules', { method: 'PATCH', body: JSON.stringify(patch) });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+export async function fetchInvitationRules(): Promise<InvitationRules> {
+  const res = await authedFetch('/v1/admin/venue/invitation-rules');
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+export async function updateInvitationRules(patch: UpdateInvitationRulesDto): Promise<InvitationRules> {
+  const res = await authedFetch('/v1/admin/venue/invitation-rules', { method: 'PATCH', body: JSON.stringify(patch) });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** Las invitaciones a una chica: cuántas, cuánto y su parte. */
+export async function fetchInvitationSummary(operatorId: string): Promise<InvitationSummary> {
+  const res = await authedFetch(`/v1/admin/operators/${encodeURIComponent(operatorId)}/invitaciones`);
   if (!res.ok) throw await apiError(res);
   return res.json();
 }
