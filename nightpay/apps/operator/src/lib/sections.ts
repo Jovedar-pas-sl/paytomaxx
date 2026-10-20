@@ -6,7 +6,14 @@
 // fábrica (el servidor decide igual por el puesto).
 
 import { useEffect, useState } from 'react';
-import { DEFAULT_SECTIONS, SECTION_CODES, sectionMeta, type SectionCode, type VenueSection } from '@nightpay/contracts';
+import {
+  DEFAULT_SECTIONS,
+  SECTION_CODES,
+  sectionMeta,
+  type PostCode,
+  type SectionCode,
+  type VenueSection,
+} from '@nightpay/contracts';
 import { fetchMySections, getUser, type MySections } from './api';
 
 export const FALLBACK_SECTIONS: VenueSection[] = SECTION_CODES.map((code) => ({ code, ...DEFAULT_SECTIONS[code] }));
@@ -55,6 +62,12 @@ export interface MySectionsState {
   sections: VenueSection[];
   defaultCategory: SectionCode | null;
   allowed: SectionCode[] | null;
+  /** Su puesto (null: sin puesto o el API anterior). */
+  post?: PostCode | null;
+  /** Su puesto lleva propinas (null: no se sabe; el API decide). */
+  tips?: boolean | null;
+  /** Ya contestó el API (con lo suyo o sin respuesta). */
+  loaded?: boolean;
 }
 
 export function useMySections(): MySectionsState {
@@ -64,11 +77,19 @@ export function useMySections(): MySectionsState {
     load()
       .then((s) => {
         if (!cancelled) {
-          setState({ sections: s.sections.length > 0 ? s.sections : FALLBACK_SECTIONS, defaultCategory: s.defaultCategory, allowed: s.allowed });
+          setState({
+            sections: s.sections.length > 0 ? s.sections : FALLBACK_SECTIONS,
+            defaultCategory: s.defaultCategory,
+            allowed: s.allowed,
+            post: s.post ?? null,
+            tips: s.tips ?? null,
+            loaded: true,
+          });
         }
       })
       .catch(() => {
         // Sin respuesta: las de fábrica; el servidor pone la del puesto si hace falta.
+        if (!cancelled) setState((s) => ({ ...s, loaded: true }));
       });
     return () => {
       cancelled = true;
