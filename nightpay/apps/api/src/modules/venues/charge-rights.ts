@@ -61,6 +61,21 @@ export function topUpForbidden(): ForbiddenException {
   return new ForbiddenException({ message: TOP_UP_RECEPTION_ONLY_MESSAGE, code: TOP_UP_RECEPTION_ONLY_CODE });
 }
 
+/**
+ * Cargar saldo (con tarjeta, en efectivo o una recarga pendiente de
+ * asignar): solo recepción, el encargado y el dueño (o el datáfono de
+ * recepción, que no pasa por aquí). Si no, 403 «Las recargas se hacen en
+ * recepción». Con bypass: asSystem.
+ */
+export async function assertCanTopUp(
+  db: Pick<TransactionalClient, 'user' | 'venue'>,
+  tenantId: string,
+  person: { userId: string; role: string | null | undefined },
+): Promise<void> {
+  const rights = await chargeRightsFor(db, tenantId, person);
+  if (!rights.topUps) throw topUpForbidden();
+}
+
 /** «El efectivo se cobra en recepción». */
 export function cashForbidden(): ForbiddenException {
   return new ForbiddenException({ message: CASH_RECEPTION_ONLY_MESSAGE, code: CASH_RECEPTION_ONLY_CODE });

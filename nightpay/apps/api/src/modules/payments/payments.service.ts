@@ -47,7 +47,7 @@ import { lineCommission, lineViews, type DraftLine } from './charge-lines';
 import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './charge-request';
 import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from './charge-store';
 import { invitationEarnings } from './invitation-lines';
-import { chargeRightsFor, tipsForbidden, topUpForbidden } from '../venues/charge-rights';
+import { assertCanTopUp, tipsForbidden } from '../venues/charge-rights';
 import type { Provider } from '@nightpay/contracts';
 import {
   PAID_STATES,
@@ -677,8 +677,7 @@ export class PaymentsService implements OnApplicationBootstrap {
 
   /** 403 «Las recargas se hacen en recepción» si su puesto no carga saldos. */
   private async assertCanTopUp(tenantId: string, userId: string, role: string | undefined): Promise<void> {
-    const rights = await this.prisma.asSystem((tx) => chargeRightsFor(tx, tenantId, { userId, role }));
-    if (!rights.topUps) throw topUpForbidden();
+    await this.prisma.asSystem((tx) => assertCanTopUp(tx, tenantId, { userId, role }));
   }
 
   /**
