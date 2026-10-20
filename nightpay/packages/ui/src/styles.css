@@ -34,6 +34,13 @@
   /* Mínimo para etiquetas pequeñas (kickers, pestañas): 0.8125rem ≈ 13,8 px. */
   --np-t-label: 0.8125rem;
 
+  /* Relleno de las tarjetas y separación entre bloques de una pantalla
+     (más justos en el móvil, abajo). */
+  --np-pad-card: 1.5rem;
+  --np-gap: 1rem;
+  /* Lado máximo del QR de un cobro (en el móvil, según el alto de la pantalla). */
+  --np-qr: 20rem;
+
   /* Motion */
   --np-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --np-d-fast: 150ms;
@@ -473,6 +480,62 @@ input::placeholder {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ─── Móvil de las apps del personal (hasta 480 px de ancho) ─────────
+   <html class="np-staff">: la app de la operadora y el panel. En el
+   teléfono todo salía grande: había que alejar o bajar para verlo. Aquí 1rem
+   vuelve a 16 px (los campos siguen a 16 px o más: el iPhone no amplía al
+   tocarlos), tarjetas y huecos más justos, y los botones se ajustan al alto
+   de la pantalla (nunca por debajo de 44 px) y parten la etiqueta en dos
+   líneas antes que salirse por el lado. El escritorio no cambia. */
+@media (max-width: 480px) {
+  html.np-staff {
+    font-size: 100%;
+    --np-t-h1: clamp(1.75rem, 7vw, 2.25rem);
+    --np-t-h2: clamp(1.375rem, 5.5vw, 1.75rem);
+    /* 14 px: las etiquetas pequeñas no bajan de lo que eran. */
+    --np-t-label: 0.875rem;
+    --np-pad-card: 1rem;
+    --np-gap: 0.625rem;
+    --np-qr: clamp(10rem, 34vh, 20rem);
+  }
+
+  .np-staff .np-btn {
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.15;
+  }
+
+  .np-staff .np-btn[data-size='md'] {
+    height: clamp(2.75rem, 6.5vh, 3.5rem);
+    padding: 0 1.25rem;
+    font-size: 1rem;
+  }
+
+  .np-staff .np-btn[data-size='lg'] {
+    height: clamp(3.25rem, 7.5vh, 4.25rem);
+    padding: 0 1.5rem;
+    font-size: 1.125rem;
+  }
+}
+
+/* Con la barra del navegador a la vista (svh): lo que cabe de verdad. */
+@supports (height: 1svh) {
+  @media (max-width: 480px) {
+    html.np-staff {
+      --np-qr: clamp(10rem, 34svh, 20rem);
+    }
+
+    .np-staff .np-btn[data-size='md'] {
+      height: clamp(2.75rem, 6.5svh, 3.5rem);
+    }
+
+    .np-staff .np-btn[data-size='lg'] {
+      height: clamp(3.25rem, 7.5svh, 4.25rem);
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
