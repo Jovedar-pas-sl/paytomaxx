@@ -146,6 +146,21 @@ describe('avisos de cobro aprobado que no se dieron por buenos', () => {
     expect(i.detail).toContain('el portal del banco');
   });
 
+  it('cobro único: pagado con el saldo y la tarjeta aprobada después → «cobrado dos veces», devolver la tarjeta', () => {
+    const i = paymentAnomalyIncident(
+      row('payment.approval_unbooked', {
+        provider: 'REDSYS',
+        providerTxId: '9876WXYZ',
+        fromStatus: 'CANCELED',
+        reason: 'paid_with_saldo',
+        amountCents: 2_000,
+      }),
+    );
+    expect(i).toMatchObject({ kind: 'approval_unbooked', ackable: true, amountCents: 2_000, title: 'Cobrado dos veces: con el saldo y con la tarjeta' });
+    expect(i.detail).toContain('(pedido 9876WXYZ)');
+    expect(i.detail).toContain('Devuélvele 20,00 € a la tarjeta desde el portal del banco');
+  });
+
   it('aprobación de un cobro caducado: devolverlo', () => {
     const i = paymentAnomalyIncident(
       row('payment.approval_unbooked', { provider: 'REDSYS', providerTxId: '1234ABCD', fromStatus: 'EXPIRED' }),

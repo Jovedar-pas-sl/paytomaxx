@@ -507,6 +507,19 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       ackable: true,
     };
   }
+  if (r.eventType === 'payment.approval_unbooked' && str(r.payload, 'reason') === 'paid_with_saldo') {
+    // Cobro único: lo pagó el saldo y el banco aprobó también la tarjeta.
+    const charged = num(r.payload, 'amountCents') ?? r.amountCents;
+    return {
+      ...base,
+      kind: 'approval_unbooked',
+      refId: r.id,
+      title: 'Cobrado dos veces: con el saldo y con la tarjeta',
+      detail: `El cliente pagó este cobro con su saldo y después el banco aprobó también la tarjeta${orderText}. Devuélvele ${charged === null ? 'el cargo' : eur(charged)} a la tarjeta desde ${provider.where}; el saldo ya está bien.`,
+      amountCents: charged,
+      ackable: true,
+    };
+  }
   if (r.eventType === 'payment.approval_unbooked') {
     const status = STATUS_TEXT[str(r.payload, 'fromStatus') ?? ''] ?? 'cerrado';
     return {
