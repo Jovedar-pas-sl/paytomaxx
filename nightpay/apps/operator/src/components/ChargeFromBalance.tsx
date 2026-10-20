@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { AmountKeypad, Button, Card, Input, QrCountdown, qrDeadline, useNow, useWakeLock } from '@nightpay/ui';
-import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
+import { MAX_TYPED_AMOUNT_CENTS, type SectionCode } from '@nightpay/contracts';
 import {
   cancelWalletCharge,
   createQrWalletCharge,
@@ -29,6 +29,8 @@ import { usePolling } from '@/lib/use-polling';
 import { CartaRetry, serviceLabel, useCarta, type Carta } from './carta';
 import { STICKY_ACTION_BOTTOM } from './layout';
 import { PinPad } from './PinPad';
+import { SectionPicker } from './SectionPicker';
+import { initialSection, offeredSections, sectionColor, useMySections } from '@/lib/sections';
 import { useSessionExpired } from './session-context';
 import { StaffOutcome } from './StaffOutcome';
 
@@ -36,8 +38,8 @@ interface Props {
   onCharged: () => void;
 }
 
-/** Lo que se pidió (servicio o importe): «Otro QR · mismo importe» lo repite sin teclear. */
-type ChargeInput = { serviceItemId?: string; amountCents?: number };
+/** Lo que se pidió (servicio, o importe y su sección): «Otro QR · mismo importe» lo repite sin teclear. */
+type ChargeInput = { serviceItemId?: string; amountCents?: number; category?: SectionCode };
 
 type Stage =
   | { kind: 'pick' }
@@ -102,6 +104,11 @@ function PickStep({
   const [amountCents, setAmountCents] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // «Otro importe»: la sección, con la del puesto ya marcada (nunca «Otros»).
+  const mySections = useMySections();
+  const sectionChoices = offeredSections(mySections.sections);
+  const [pickedSection, setPickedSection] = useState<SectionCode | null>(null);
+  const category = pickedSection ?? initialSection(sectionChoices, mySections.defaultCategory);
 
   async function send(input: ChargeInput) {
     setBusy(true);
@@ -122,7 +129,7 @@ function PickStep({
       setError('Pon el importe');
       return;
     }
-    void send({ amountCents });
+    void send({ amountCents, category });
   }
 
   // Sin servicios en la carta (o sin carta): el teclado directamente, sin pasar por «Otro importe».
@@ -145,6 +152,7 @@ function PickStep({
             maxCents={MAX_TYPED_AMOUNT_CENTS}
             disabled={busy}
           />
+          <SectionPicker sections={sectionChoices} value={category} onChange={setPickedSection} disabled={busy} />
           {hasCarta ? (
             <Button type="button" variant="ghost" onClick={() => setCustom(false)} disabled={busy}>
               Volver a la carta
@@ -164,7 +172,7 @@ function PickStep({
               type="button"
               disabled={busy}
               onClick={() => void send({ serviceItemId: svc.id })}
-              style={tileStyle}
+              style={{ ...tileStyle, borderLeft: `0.5rem solid ${sectionColor(mySections.sections, svc.category)}` }}
             >
               <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
               <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
@@ -527,6 +535,12 @@ function DoneStep({
         message="Cobrado del saldo."
         detail={
           <>
+            {/* La referencia que ve el cliente en sus movimientos. */}
+            {charge.ref ? (
+              <p className="np-num" style={{ fontWeight: 800, letterSpacing: '0.04em' }}>
+                {charge.ref}
+              </p>
+            ) : null}
             {charge.serviceName ? <p>{charge.serviceName}</p> : null}
             {result.newBalanceCents !== null ? (
               <p>Le quedan {formatEur(result.newBalanceCents, { compact: true })}</p>

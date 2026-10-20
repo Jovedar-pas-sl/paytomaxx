@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
+import { MAX_TYPED_AMOUNT_CENTS, type SectionCode } from '@nightpay/contracts';
 import { AmountKeypad, Button, Card, Input } from '@nightpay/ui';
 import {
   createPayment,
@@ -18,23 +18,8 @@ import { ActivePayment } from './ActivePayment';
 import { CartaRetry, serviceLabel, useCarta } from './carta';
 import { STICKY_ACTION_BOTTOM } from './layout';
 import { cobroModeAllowed, useVenueMethods, type CobroMode } from '@/lib/venue-methods';
-
-/**
- * Categorías de ingreso visibles al crear cobro.
- *   CHICA_SERVICE → "Mi servicio" (solo OPERATOR; le da su comisión configurada)
- *   VENUE_BAR     → "Bar / Bebida" (ingreso del local)
- *   VENUE_ROOM    → "Habitación"   (ingreso del local)
- *   VENUE_FOOD    → "Comida"        (ingreso del local)
- *   EXTRA         → "Otro"          (mixto / sin categorizar)
- */
-type RevCat = 'CHICA_SERVICE' | 'VENUE_BAR' | 'VENUE_ROOM' | 'VENUE_FOOD' | 'EXTRA';
-const REV_CAT_LABEL: Record<RevCat, string> = {
-  CHICA_SERVICE: 'Mi servicio',
-  VENUE_BAR: 'Bar / Bebida',
-  VENUE_ROOM: 'Habitación',
-  VENUE_FOOD: 'Comida',
-  EXTRA: 'Otro',
-};
+import { initialSection, offeredSections, sectionColor, useMySections } from '@/lib/sections';
+import { SectionPicker } from './SectionPicker';
 
 interface Props {
   /** Quién cobra: la chica solo sus servicios; el resto, barra, habitación, comida. */
@@ -61,7 +46,7 @@ interface Active {
   request: ChargeRequest;
 }
 
-export function CreatePayment({ role, onCreated }: Props) {
+export function CreatePayment({ role: _role, onCreated }: Props) {
   const [terminals, setTerminals] = useState<Array<{ externalId: string; label: string }>>([]);
   const [zones, setZones] = useState<ZoneOption[]>([]);
   const [selectedZone, setSelectedZone] = useState<string>('');
@@ -71,16 +56,12 @@ export function CreatePayment({ role, onCreated }: Props) {
   // saldo prepago) o POS (camarero cobra con datáfono externo).
   const [mode, setMode] = useState<CobroMode>('qr');
   const [walletIdentifier, setWalletIdentifier] = useState('');
-  // Categorías permitidas: la chica solo cobra sus servicios (el servidor lo
-  // exige); barra, habitación y comida las cobra el camarero.
-  const categoryOptions: RevCat[] =
-    role === 'OPERATOR'
-      ? ['CHICA_SERVICE']
-      : ['VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'EXTRA'];
-  // Default sensato por rol.
-  const [revCategory, setRevCategory] = useState<RevCat>(
-    role === 'OPERATOR' ? 'CHICA_SERVICE' : 'VENUE_BAR',
-  );
+  // El mapa del dinero: «Otro importe» pide la sección (botones de su color),
+  // con la del puesto de quien cobra ya marcada. Nunca «Otros».
+  const mySections = useMySections();
+  const sectionChoices = offeredSections(mySections.sections);
+  const [pickedSection, setPickedSection] = useState<SectionCode | null>(null);
+  const revCategory = pickedSection ?? initialSection(sectionChoices, mySections.defaultCategory);
   // Fase 1A — carta del local. La chica toca un servicio en vez de teclear
   // el importe; "Otro importe" sigue disponible (con el tope del local).
   const { services, failed: cartaFailed, retry: retryCarta } = useCarta();
@@ -174,7 +155,8 @@ export function CreatePayment({ role, onCreated }: Props) {
         terminalExternalId: usingZone ? undefined : terminals[0]?.externalId,
         walletIdentifier: mode === 'wallet' ? walletIdentifier.trim() : undefined,
         captureMethod: mode === 'pos' ? 'POS_EXTERNAL' : undefined,
-        revenueCategory: revCategory,
+        // De la carta, la sección la pone el servicio; tecleado, la elegida.
+        revenueCategory: service || mode === 'wallet' ? undefined : revCategory,
         serviceItemId: service?.id,
       };
       const what = JSON.stringify([cents, mode, usingZone ? selectedZone : null, walletIdentifier.trim(), revCategory, service?.id ?? null]);
@@ -262,7 +244,8 @@ export function CreatePayment({ role, onCreated }: Props) {
                 setPicked(svc);
                 setError(null);
               }}
-              style={cartaTileStyle}
+              // El borde, del color de su sección.
+              style={{ ...cartaTileStyle, borderLeft: `0.5rem solid ${sectionColor(mySections.sections, svc.category)}` }}
             >
               <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
               <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
@@ -340,36 +323,9 @@ export function CreatePayment({ role, onCreated }: Props) {
             </Button>
           ) : null}
 
-          {/* Categoría — separa cobros de chica vs cobros del local. La chica
-              ve "Mi servicio" + opciones del local; camarero solo ve las del local.
-              Botones de un toque en vez de desplegable. */}
-          {categoryOptions.length > 1 ? (
-          <fieldset style={{ margin: 0, padding: 0, border: 'none' }}>
-            {/* En el móvil, solo para el lector de pantalla: los botones ya lo dicen. */}
-            <legend className="np-short-sr-only" style={fieldLabel}>
-              ¿Qué cobras?
-            </legend>
-            <div style={catGridStyle}>
-              {categoryOptions.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-pressed={revCategory === c}
-                  onClick={() => setRevCategory(c)}
-                  style={{ ...catBtnStyle, ...(revCategory === c ? catBtnActiveStyle : {}) }}
-                >
-                  {REV_CAT_LABEL[c]}
-                </button>
-              ))}
-            </div>
-            <p className="np-short-hide" style={{ ...hintStyle, marginTop: '0.5rem' }}>
-              {revCategory === 'CHICA_SERVICE'
-                ? 'Va a tus ganancias.'
-                : revCategory === 'EXTRA'
-                  ? 'Cobro sin categoría.'
-                  : 'Va al local.'}
-            </p>
-          </fieldset>
+          {/* Importe tecleado: ¿de qué es? (de la carta ya lo dice el servicio). */}
+          {!usingService && mode !== 'wallet' ? (
+            <SectionPicker sections={sectionChoices} value={revCategory} onChange={setPickedSection} disabled={submitting} />
           ) : null}
 
           {mode === 'wallet' ? (
@@ -460,41 +416,6 @@ function submitLabel(mode: CobroMode, amount: string | null): string {
   if (mode === 'pos') return `Generar cobro POS${amount ? ` (${amount})` : ''}`;
   return amount ? `Cobrar ${amount}` : 'Cobrar';
 }
-
-const fieldLabel: CSSProperties = {
-  padding: 0,
-  marginBottom: '0.5rem',
-  fontSize: 'var(--np-t-label)',
-  fontWeight: 700,
-  color: 'var(--np-text-label)',
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
-};
-
-const catGridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: '0.375rem',
-};
-
-// 44 px: se toca bien y deja sitio al teclado en el móvil.
-const catBtnStyle: CSSProperties = {
-  minHeight: '2.75rem',
-  padding: '0.5rem 0.75rem',
-  background: 'transparent',
-  border: '2px solid var(--np-border-hi)',
-  borderRadius: 'var(--np-r-md)',
-  color: 'var(--np-text)',
-  fontSize: '1rem',
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
-const catBtnActiveStyle: CSSProperties = {
-  background: 'var(--np-pill-cyan-bg)',
-  borderColor: 'var(--np-accent)',
-  fontWeight: 700,
-};
 
 const hintStyle: CSSProperties = {
   margin: 0,

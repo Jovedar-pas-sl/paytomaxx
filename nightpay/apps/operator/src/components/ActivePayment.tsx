@@ -23,6 +23,7 @@ import { useOpenCharge, type ChargeSpot } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { NewWalletCard } from './NewWalletCard';
 import { useVenueMethods } from '@/lib/venue-methods';
+import { chargeSectionLabel, useMySections } from '@/lib/sections';
 import { StaffOutcome } from './StaffOutcome';
 import { usePaymentLive } from './use-payment-live';
 
@@ -102,6 +103,7 @@ export function ActivePayment({
   const awaiting = awaitingServerExpiry(status, deadline, now);
   const open = !isFinalStatus(shown);
   useWakeLock(open);
+  const { sections } = useMySections();
   // En pantalla (esperando o con su resultado): si la sesión caduca, se entra encima sin perderlo.
   useOpenCharge(spot, true, open);
   useHealthReport(
@@ -138,6 +140,7 @@ export function ActivePayment({
   }
 
   const outcome = outcomeKindOf(shown);
+  const refLine = [payment.ref, chargeSectionLabel(payment.lines, sections)].filter(Boolean).join(' · ') || null;
   if (outcome && !(outcome === 'paid' && outcomeDismissed)) {
     return (
       <StaffOutcome
@@ -146,7 +149,13 @@ export function ActivePayment({
         amountCents={payment.amountCents}
         currency={payment.currency}
         message={outcome === 'failed' && !isPos ? 'Que el cliente pruebe con otra tarjeta.' : undefined}
-        detail={<OutcomeDetail label={label} tipCents={outcome === 'paid' ? tipCents : 0} />}
+        detail={
+          <OutcomeDetail
+            label={label}
+            tipCents={outcome === 'paid' ? tipCents : 0}
+            refLine={outcome === 'paid' ? refLine : null}
+          />
+        }
         // El cliente ve el mismo código en su móvil; con datáfono no hay móvil que comparar.
         code={outcome === 'paid' && !isPos ? confirmationCode(payment.id) : null}
         codeHint="Debe coincidir con el del móvil del cliente."
@@ -271,10 +280,16 @@ function outcomeActions(
   };
 }
 
-function OutcomeDetail({ label, tipCents }: { label: string | null; tipCents: number }) {
-  if (!label && tipCents <= 0) return null;
+function OutcomeDetail({ label, tipCents, refLine }: { label: string | null; tipCents: number; refLine: string | null }) {
+  if (!label && tipCents <= 0 && !refLine) return null;
   return (
     <>
+      {/* «C-0042 · Copas»: la referencia que ve el cliente en sus movimientos. */}
+      {refLine ? (
+        <p className="np-num" style={{ fontWeight: 800, letterSpacing: '0.04em' }}>
+          {refLine}
+        </p>
+      ) : null}
       {label ? <p>{label}</p> : null}
       {tipCents > 0 ? <p className="np-num">+ {formatEur(tipCents, { compact: true })} de propina</p> : null}
     </>
