@@ -69,6 +69,9 @@ model Venue {
   // Qué cobra cada puesto (20261023100100): secciones, propinas, efectivo y
   // recargas (packages/contracts/src/post-rules.ts). Null = lo de fábrica.
   postRules             Json?
+  // «Invitar a una copa» (20261023100200): parte de la chica y del camarero
+  // (% o fijo). Null = lo de fábrica (packages/contracts/src/invitations.ts).
+  invitationRules       Json?
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz
@@ -200,6 +203,8 @@ model User {
   // Phase 1B — wallet consumptions cobrados por este usuario
   providedConsumptions  WalletConsumption[] @relation("ConsumptionProvider")
   reversedConsumptions  WalletConsumption[] @relation("ConsumptionReversedBy")
+  // «Invitar a una copa»: las líneas en las que la invitaron.
+  invitedLines          PaymentLine[]       @relation("PaymentLineBeneficiary")
 
   @@index([tenantId])
   @@map("users")
@@ -422,7 +427,7 @@ model Payment {
   tipBeneficiary     User?            @relation("PaymentTipBeneficiary", fields: [tipBeneficiaryUserId], references: [id])
   events             PaymentEvent[]
   refunds            Refund[]
-  operatorEarning    OperatorEarning?
+  operatorEarnings   OperatorEarning[]
   peanpeCall         PeanpeCall?
   attempts           PaymentAttempt[]
   lines              PaymentLine[]
@@ -691,6 +696,9 @@ model ServiceItem {
   // («1 h con habitación» = Servicios 120 € + Habitaciones 30 €). Null = de
   // una sola sección (category).
   components  Json?
+  // «Invitar a una copa» (20261023100200): en Copas, con su precio; la venta
+  // se reparte con la chica invitada (venues.invitationRules).
+  isInvitation Boolean @default(false)
   createdAt   DateTime @default(now()) @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
 
@@ -720,13 +728,21 @@ model PaymentLine {
   // % de la chica fijado al crear el cobro con tarjeta (#54). Null: no es de
   // una chica o es un cobro del saldo (se calcula al pagarse, como siempre).
   operatorCommissionBps Int?
+  // «Invitar a una copa»: la chica invitada y las partes fijadas al cobrar
+  // (para ella y para quien cobró). El resto, del local.
+  beneficiaryOperatorId String?  @db.Uuid
+  beneficiaryCents      Int?
+  chargerCents          Int?
   createdAt             DateTime @default(now()) @db.Timestamptz
 
   venue        Venue                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   payment      Payment?             @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   walletCharge WalletChargeRequest? @relation(fields: [walletChargeId], references: [id], onDelete: Cascade)
   serviceItem  ServiceItem?         @relation(fields: [serviceItemId], references: [id], onDelete: SetNull)
+  beneficiary  User?                @relation("PaymentLineBeneficiary", fields: [beneficiaryOperatorId], references: [id], onDelete: SetNull)
+  earnings     OperatorEarning[]
 
+  @@index([beneficiaryOperatorId])
   @@index([paymentId])
   @@index([walletChargeId])
   @@index([tenantId, createdAt(sort: Desc)])
@@ -802,12 +818,16 @@ model OperatorEarning {
   id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId           String   @db.Uuid
   operatorId         String   @db.Uuid
-  // Source: exactly ONE of paymentId or consumptionId must be set.
-  // (DB CHECK constraint en migración + ambos @unique para evitar doble-pago).
-  paymentId          String?  @unique @db.Uuid
+  // Source: exactly ONE of paymentId or consumptionId must be set (CHECK en
+  // SQL). Una por cobro (o consumo) y persona (20261023100200): una
+  // invitación da ganancia a la chica invitada y, si el local lo pone, al
+  // camarero que la cobró.
+  paymentId          String?  @db.Uuid
   // Phase 1B — earnings generadas por consumo de wallet ("tiempo" con chica
   // en operator app). Mismo ledger que paymentId, distinto origen.
-  consumptionId      String?  @unique @db.Uuid
+  consumptionId      String?  @db.Uuid
+  // La línea de la invitación de la que sale (null: la comisión de siempre).
+  paymentLineId      String?  @db.Uuid
   paymentAmountCents Int
   commissionBps      Int
   // Calculado: round(paymentAmountCents * commissionBps / 10000) — banker-like
@@ -827,24 +847,29 @@ model OperatorEarning {
   operator    User               @relation("OperatorEarnings", fields: [operatorId], references: [id])
   payment     Payment?           @relation(fields: [paymentId], references: [id])
   consumption WalletConsumption? @relation(fields: [consumptionId], references: [id])
+  paymentLine PaymentLine?       @relation(fields: [paymentLineId], references: [id], onDelete: SetNull)
   payout      OperatorPayout?    @relation("EarningPayout", fields: [payoutId], references: [id])
   reversals   EarningReversal[]
 
+  @@unique([paymentId, operatorId])
+  @@unique([consumptionId, operatorId])
+  @@index([paymentId])
+  @@index([consumptionId])
   @@index([tenantId, operatorId, payoutId])
   @@index([tenantId, operatorId, createdAt(sort: Desc)])
   @@map("operator_earnings")
 }
 
 // Idempotency log para refund → earning reversal.
-// Cada refund SUCCEEDED dispara una sola fila aquí (refundId UNIQUE).
-// Reintento del processor no duplica el descuento.
+// Cada refund SUCCEEDED dispara una fila por ganancia del cobro (única por
+// devolución y ganancia). Reintento del processor no duplica el descuento.
 model EarningReversal {
   id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId           String   @db.Uuid
   earningId          String   @db.Uuid
   // Origen de la deuda: una devolución del banco o un consumo del saldo anulado.
-  refundId           String?  @unique @db.Uuid
-  consumptionId      String?  @unique @db.Uuid
+  refundId           String?  @db.Uuid
+  consumptionId      String?  @db.Uuid
   reversedDeltaCents Int
   // true = el earning ya estaba pagado: el descuento es deuda de la chica y
   // se resta del siguiente payout (settledPayoutId = ese payout).
@@ -855,6 +880,10 @@ model EarningReversal {
   earning OperatorEarning @relation(fields: [earningId], references: [id], onDelete: Cascade)
   refund  Refund?         @relation(fields: [refundId], references: [id], onDelete: Cascade)
 
+  @@unique([refundId, earningId])
+  @@unique([consumptionId, earningId])
+  @@index([refundId])
+  @@index([consumptionId])
   @@index([earningId])
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("earning_reversals")
@@ -1191,7 +1220,7 @@ model WalletConsumption {
   wallet      ClientWallet     @relation(fields: [walletId], references: [id])
   providedBy  User             @relation("ConsumptionProvider", fields: [providedByUserId], references: [id])
   reversedBy  User?            @relation("ConsumptionReversedBy", fields: [reversedByUserId], references: [id])
-  earning     OperatorEarning?
+  earnings    OperatorEarning[]
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, walletId, createdAt(sort: Desc)])
