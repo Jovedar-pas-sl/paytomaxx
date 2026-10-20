@@ -7,7 +7,7 @@ import { lastNightCutoff } from '../../common/time/madrid';
 import { cashFromRows, zStart } from '../nights/night-rules';
 import { parseReportPeriod, type TimeWindow } from '../reports/report-period';
 import { MAX_EXPORT_ROWS, ReportsService } from '../reports/reports.service';
-import { PAID_STATUSES_SQL, cashTopUpCount, paymentAt, paymentRecordedAt, refundAt } from '../reports/reporting-sql';
+import { PAID_STATUSES_SQL, cashTopUpCount, linesJson, paymentAt, paymentRecordedAt, refundAt } from '../reports/reporting-sql';
 import {
   buildMoneyMap,
   frozenMoneyMapOf,
@@ -247,8 +247,7 @@ export class MoneyMapService {
            ORDER BY pa."createdAt" ASC LIMIT 1
         ) a ON true
         LEFT JOIN LATERAL (
-          SELECT json_agg(json_build_object('category', pl.category, 'amountCents', pl."amountCents")) AS lines
-            FROM payment_lines pl WHERE pl."paymentId" = p.id
+          SELECT ${linesJson('pl')} AS lines FROM payment_lines pl WHERE pl."paymentId" = p.id
         ) l ON true
        WHERE ${paid} AND p."walletId" IS NULL
        LIMIT ${MAX_EXPORT_ROWS + 1}
@@ -257,7 +256,7 @@ export class MoneyMapService {
       SELECT c."amountCents", c."tipCents", c.category, l.lines
         FROM wallet_consumptions c
         LEFT JOIN LATERAL (
-          SELECT json_agg(json_build_object('category', pl.category, 'amountCents', pl."amountCents")) AS lines
+          SELECT ${linesJson('pl')} AS lines
             FROM wallet_charge_requests w
             JOIN payment_lines pl ON pl."walletChargeId" = w.id
            WHERE w."consumptionId" = c.id

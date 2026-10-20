@@ -6,7 +6,9 @@ import {
   STATUS_LABEL,
   captureLabel,
   cardTypeLabel,
+  categoryLabel,
   chicaShareCents,
+  cobroSections,
   cobroType,
   methodLabel,
   person,
@@ -32,6 +34,7 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string): str
     'Fecha', 'Hora', 'Local', 'Código', 'Concepto', 'Tipo', 'Cobrado por', 'Medio', 'Método',
     'Marca', 'Tipo tarjeta', 'País tarjeta', 'Autorización', 'Pedido banco', 'Importe', 'Propina',
     'Total cobrado', 'Devuelto', 'Neto', 'Parte chica', 'Parte local', 'Estado', `Referencia ${BRAND_NAME}`,
+    'Por sección',
   ];
   const body = rows.map((r): CsvCell[] => {
     const charged = r.amountCents + r.tipCents;
@@ -61,9 +64,15 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string): str
       money(net - chica),
       STATUS_LABEL[r.status] ?? r.status,
       r.id,
+      bySection(r),
     ];
   });
   return toCsv([header, ...body]);
+}
+
+/** «Servicio de chica 120,00 · Habitación 30,00» (por líneas; sin propina). Recargas: vacío. */
+function bySection(r: CobroRow): string {
+  return [...cobroSections(r)].map(([code, cents]) => `${categoryLabel(code)} ${money(cents)}`).join(' · ');
 }
 
 // ─── Devoluciones ───────────────────────────────────────────────────────

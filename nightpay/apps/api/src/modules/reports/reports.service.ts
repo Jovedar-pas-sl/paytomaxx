@@ -15,6 +15,7 @@ import {
   PAID_EVENTS_SQL,
   PAID_STATUSES_SQL,
   afterPayoutDebt,
+  linesJson,
   paymentAt,
   paymentRecordedAt,
   refundAt,
@@ -210,6 +211,7 @@ export class ReportsService {
              p."amountCents",
              p."tipCents",
              p."revenueCategory",
+             pl.lines,
              p."captureMethod",
              p."serviceName",
              a."payMethod",
@@ -252,6 +254,10 @@ export class ReportsService {
            ORDER BY pa."createdAt" ASC
            LIMIT 1
         ) a ON true
+        -- Sus líneas, cada una en su sección (el Z y los informes suman por línea).
+        LEFT JOIN LATERAL (
+          SELECT ${linesJson('l')} AS lines FROM payment_lines l WHERE l."paymentId" = p.id
+        ) pl ON true
        WHERE p."tenantId" = ${tenantId}::uuid
          AND p.status IN ${PAID_STATUSES_SQL}
          AND ${where}
@@ -268,6 +274,7 @@ export class ReportsService {
              c."amountCents",
              c."tipCents",
              c.category,
+             cl.lines,
              u."displayName" AS "operatorName",
              u.email AS "operatorEmail",
              e."commissionCents",
@@ -281,6 +288,13 @@ export class ReportsService {
            LIMIT 1
         ) e ON true
         LEFT JOIN users u ON u.id = e."operatorId"
+        -- Las líneas del cobro del saldo que dejó este consumo.
+        LEFT JOIN LATERAL (
+          SELECT ${linesJson('l')} AS lines
+            FROM wallet_charge_requests w
+            JOIN payment_lines l ON l."walletChargeId" = w.id
+           WHERE w."consumptionId" = c.id
+        ) cl ON true
        WHERE c."tenantId" = ${tenantId}::uuid
          AND ${where}
        ORDER BY c."createdAt" ASC

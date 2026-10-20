@@ -8,6 +8,7 @@ import {
   type MoneyMapScope,
   type MoneyMapSection,
 } from '@nightpay/contracts';
+import { chargeSections } from '../reports/charge-sections';
 import type { TimeWindow } from '../reports/report-period';
 
 /**
@@ -74,21 +75,12 @@ export function sectionCodeOf(category: string | null | undefined): string {
   return isSectionCode(category) ? category : LEGACY_SECTION;
 }
 
-/**
- * Lo de un cobro en cada sección: sus líneas y, si no suman su importe (los
- * cobros antiguos no tienen), lo que falta en su sección principal. Así el
- * cobro reparte exactamente su importe.
- */
+/** Lo de un cobro en cada sección (reports/charge-sections), con «Otros» para lo de antes sin sección. */
 export function saleSections(sale: Pick<SaleRow, 'amountCents' | 'category' | 'lines'>): Map<string, number> {
   const out = new Map<string, number>();
-  for (const l of sale.lines) {
-    const code = sectionCodeOf(l.category);
-    out.set(code, (out.get(code) ?? 0) + l.amountCents);
-  }
-  const rest = sale.amountCents - sum(sale.lines, (l) => l.amountCents);
-  if (rest !== 0 || sale.lines.length === 0) {
-    const code = sectionCodeOf(sale.category);
-    out.set(code, (out.get(code) ?? 0) + rest);
+  for (const [category, cents] of chargeSections(sale)) {
+    const code = sectionCodeOf(category);
+    out.set(code, (out.get(code) ?? 0) + cents);
   }
   return out;
 }
