@@ -4,7 +4,7 @@ import type { CSSProperties } from 'react';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
 import { pinExpected, pinWarning } from '@/lib/cobro-view';
-import { chargeable, cuentaTotals, lineCents, lineSection, type Cuenta, type CuentaLine } from '@/lib/cuenta';
+import { chargeable, itemLabel, cuentaTotals, lineCents, lineSection, type Cuenta, type CuentaLine } from '@/lib/cuenta';
 import { colorOf, labelOf, type CobrarContext } from './cobrar-context';
 import { IconLock, IconMinus, IconPlus } from './icons';
 import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
@@ -121,7 +121,7 @@ function Line({
 }) {
   const section = lineSection(line);
   const color = { '--c': colorOf(section) } as CSSProperties;
-  const name = line.kind === 'carta' ? line.item.name : line.kind === 'propina' ? 'Propina' : 'Otro importe';
+  const name = line.kind === 'carta' ? itemLabel(line.item) : line.kind === 'propina' ? 'Propina' : 'Otro importe';
   const sub = line.kind === 'carta' && line.qty > 1 ? `${label(section)} · ${formatEur(line.item.priceCents, { compact: true })}` : label(section);
   const qty = line.kind === 'carta' ? line.qty : 1;
   const minus = () => (line.kind === 'carta' ? onQty(line.key, line.qty - 1) : onRemove(line.key));

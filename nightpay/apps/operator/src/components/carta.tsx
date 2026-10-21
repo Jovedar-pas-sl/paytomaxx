@@ -40,6 +40,17 @@ export function useCarta(): Carta {
   }, [attempt]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  // Al volver desde el panel, volver a pedir la carta del puesto: puede haberse
+  // configurado mientras esta pestaña seguía abierta con la lista vacía.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') retry(); };
+    window.addEventListener('focus', retry);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', retry);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [retry]);
   return { services, failed, loaded, retry };
 }
 

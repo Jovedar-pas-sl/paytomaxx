@@ -3,6 +3,7 @@
 import type { CSSProperties } from 'react';
 import type { MoneyMap } from '@nightpay/contracts';
 import { barSegments, eurShort, legendFlex, moneyMapView, type Segment } from '@/lib/money-map-view';
+import { moneyMapDetails, type MoneyDetail } from '@/lib/money-map-details';
 import { useSections } from '@/lib/use-sections';
 
 /**
@@ -13,6 +14,7 @@ import { useSections } from '@/lib/use-sections';
 export function MoneyMapView({ map, wide = false }: { map: MoneyMap; wide?: boolean }) {
   const { sections } = useSections();
   const v = moneyMapView(map, sections);
+  const details = moneyMapDetails(map);
   const inflowTotal = v.inflow.reduce((a, s) => a + Math.max(0, s.cents), 0);
   return (
     <div className="np-mm-body" data-layout={wide ? 'wide' : undefined}>
@@ -43,11 +45,13 @@ export function MoneyMapView({ map, wide = false }: { map: MoneyMap; wide?: bool
               </li>
             ))}
           </ul>
+          <Detail detail={details.inflow} />
           {v.topUps ? (
             <p className="np-mm-hold">
               + Recargas <b>{eurShort(v.topUps.cents)}</b>: {v.topUps.detail ? <span>{v.topUps.detail} · </span> : null}no es venta
             </p>
           ) : null}
+          <Detail detail={details.topUps} />
         </section>
 
         <section className="np-mm-block" aria-label="Por sección">
@@ -65,6 +69,22 @@ export function MoneyMapView({ map, wide = false }: { map: MoneyMap; wide?: bool
               </li>
             ))}
           </ul>
+          <details className="np-mm-detail">
+            <summary>Cobros por sección</summary>
+            <ul className="np-mm-orows">
+              {v.sections.map((s) => <li key={s.key} className="np-mm-orow"><span>{s.label}</span><b>{map.sections.find((r) => r.code === s.key)?.count ?? 0} cobros</b></li>)}
+            </ul>
+            <p className="np-mm-note">Un cobro con varias secciones cuenta en cada una; no sumes estos recuentos como cobros únicos.</p>
+          </details>
+        </section>
+        <section className="np-mm-block" aria-label="Cómo se reparte">
+          <h3 className="np-mm-kick">Cómo se reparte</h3>
+          <Bar segments={[
+            { key: 'venue', label: 'Local', cents: map.split.venueCents, color: 'var(--np-mm-tuyo)' },
+            { key: 'staff', label: 'Personal', cents: map.split.chicasCents + map.split.camarerosCents, color: 'var(--np-mm-personal)' },
+            { key: 'fees', label: 'Comisiones', cents: map.split.commissions.totalCents, color: 'var(--np-mm-saldo)' },
+          ]} label="Reparto de las ventas" />
+          <Detail detail={details.split} />
         </section>
       </div>
 
@@ -79,6 +99,8 @@ export function MoneyMapView({ map, wide = false }: { map: MoneyMap; wide?: bool
           <Bar segments={v.where.owners} label="De quién es" style={{ marginTop: '0.25rem' }} />
           <Legend segments={v.where.owners} />
           {v.where.note ? <p className="np-mm-note">{v.where.note}</p> : null}
+          <Detail detail={details.cash} />
+          <Detail detail={details.owed} />
         </section>
 
         <section className="np-mm-block" aria-label="Qué sale">
@@ -95,6 +117,7 @@ export function MoneyMapView({ map, wide = false }: { map: MoneyMap; wide?: bool
               </li>
             ))}
           </ul>
+          <Detail detail={details.outflow} />
         </section>
       </div>
     </div>
@@ -146,5 +169,23 @@ function Ring({ pct }: { pct: number }) {
       </svg>
       <span aria-hidden="true">{pct}%</span>
     </span>
+  );
+}
+
+/** Disclosure nativo: teclado, lector de pantalla y estado conservado al refrescar los datos. */
+function Detail({ detail }: { detail: MoneyDetail }) {
+  return (
+    <details className="np-mm-detail">
+      <summary>{detail.title}</summary>
+      <ul className="np-mm-orows">
+        {detail.rows.map((r, index) => (
+          <li key={`${r.label}-${index}`} className="np-mm-orow">
+            <span>{r.label}{r.count !== undefined ? <em> · {r.count} operaciones</em> : null}</span>
+            <b data-neg={r.cents !== null && r.cents < 0 || undefined}>{r.cents === null ? 'No disponible' : eurShort(r.cents)}</b>
+          </li>
+        ))}
+      </ul>
+      <p className="np-mm-note">{detail.note}</p>
+    </details>
   );
 }

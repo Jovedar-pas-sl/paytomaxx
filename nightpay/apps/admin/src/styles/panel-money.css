@@ -933,3 +933,31 @@
     animation: none;
   }
 }
+
+/* Detalles ampliados del mapa: conservan las barras y distinguen datos desconocidos. */
+.np-mm-detail {
+  padding: 0.25rem 0.625rem 0.5rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  min-width: 0;
+}
+.np-mm-detail summary {
+  cursor: pointer;
+  padding: 0.625rem 0;
+  min-height: 2.75rem;
+  box-sizing: border-box;
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--np-text-label);
+}
+.np-mm-detail summary:focus-visible {
+  outline: 2px solid var(--np-text);
+  outline-offset: 2px;
+}
+.np-mm-detail .np-mm-orow {
+  padding: 0.375rem 0;
+  flex-wrap: wrap;
+}
+.np-mm-detail .np-mm-orow b { margin-left: auto; }
+.np-mm-detail [data-neg='true'] { color: var(--np-danger); }
+.np-mm-detail .np-mm-note { margin-top: 0.5rem; }

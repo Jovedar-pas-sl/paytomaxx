@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Input } from '@nightpay/ui';
+import { Button, Input } from '@nightpay/ui';
 import type { UpdatePaymentMethodsDto, VenuePaymentMethods } from '@nightpay/contracts';
 import { fetchPaymentMethods, updatePaymentMethods } from '@/lib/api';
 import { parseTipEuros, parseTipPercents, tipEurosText, tipPercentsText } from '@/lib/settings-forms';
@@ -90,7 +90,7 @@ export function PaymentMethodsPanel({ onSaved }: { onSaved?: (methods: VenuePaym
         ))}
       </SettingsCard>
 
-      <SettingsCard title="Propinas" hint="Las elige el cliente en la página de pago (con tarjeta).">
+      <SettingsCard title="Propinas" hint="Los importes en euros aparecen también en las losetas de Cobrar. El cliente puede añadir propina en la página de pago.">
         <Switch
           label="Aceptar propinas"
           checked={methods.tips}
@@ -113,6 +113,7 @@ export function PaymentMethodsPanel({ onSaved }: { onSaved?: (methods: VenuePaym
             />
           </div>
         ) : null}
+        {methods.tips ? <Button variant="ghost" disabled={busy !== null} onClick={() => setTipEuros('5, 10')}>Usar propinas de 5 € y 10 €</Button> : null}
         {methods.tips && (tipEuros !== null || tipPercents !== null) ? (
           <SaveRow onSave={saveTips} busy={busy === 'tipPresets'} saved={false} error={null} label="Guardar propinas" />
         ) : null}

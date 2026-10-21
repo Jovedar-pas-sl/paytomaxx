@@ -182,8 +182,8 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
     where: {
       totalCents: m.where.totalCents,
       places: [
-        { key: 'bbva', label: 'BBVA, mañana', cents: m.where.bbvaCents, color: 'var(--np-mm-tarjeta)' },
-        { key: 'cash', label: 'Caja', cents: m.where.cashBoxCents, color: 'var(--np-mm-efectivo)' },
+        { key: 'bbva', label: 'Banco', cents: m.where.bbvaCents, color: 'var(--np-mm-tarjeta)' },
+        { key: 'cash', label: 'Caja esperada', cents: m.where.cashBoxCents, color: 'var(--np-mm-efectivo)' },
       ],
       owners: [
         { key: 'venue', label: 'Tuyo', cents: m.where.owners.venueCents, color: 'var(--np-mm-tuyo)' },

@@ -3,7 +3,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
-import { chargeable, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
+import { chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
 import {
   colorOf,
   itemAllowed,
@@ -127,7 +127,9 @@ export function Carta({
             .
           </p>
         ) : ctx.cartaLoaded && items.length === 0 ? (
-          <p className={styles.empty}>Aún no hay nada en la carta para tu puesto: usa «Otro importe».</p>
+          <p className={styles.empty}>No hay productos disponibles para tu puesto. El dueño o encargado debe configurar la carta en Administración → Carta y comprobar las secciones del puesto.{' '}
+            <button type="button" className={styles.link} onClick={onRetryCarta}>Actualizar carta</button>
+          </p>
         ) : null}
       </div>
       <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
@@ -197,10 +199,10 @@ function ItemTile({
     .filter(Boolean)
     .join(' ');
   return (
-    <button type="button" className={cls} style={style} onClick={onPick} aria-label={`${item.name}, ${formatEur(item.priceCents)}${qty > 0 ? `, llevas ${qty}` : ''}`}>
+    <button type="button" className={cls} style={style} onClick={onPick} aria-label={`${itemLabel(item)}, ${formatEur(item.priceCents)}${qty > 0 ? `, llevas ${qty}` : ''}`}>
       {qty > 0 ? <span className={styles.count}>×{qty}</span> : null}
       <span className={styles.kicker}>{labelOf(ctx, item.category)}</span>
-      <span className={styles.tileName}>{item.name}</span>
+      <span className={styles.tileName}>{itemLabel(item)}</span>
       <span className={styles.price}>{formatEur(item.priceCents, { compact: true })}</span>
     </button>
   );

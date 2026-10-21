@@ -5,6 +5,7 @@ import { Button, Card, Input, Select } from '@nightpay/ui';
 import { MAX_PACK_COMPONENTS, parseEuroCents, type SectionCode } from '@nightpay/contracts';
 import { createServiceItem, fetchCarta, updateServiceItem, type ServiceItem, type ServiceItemInput } from '@/lib/api';
 import { groupBySection, packFromDraft, packRemainder, type PartDraft } from '@/lib/carta-form';
+import { CartaTemplate } from './CartaTemplate';
 import { centsToInput, formatEur } from '@/lib/money';
 import { enabledSections, sectionLabelOf } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
@@ -55,6 +56,8 @@ export function CartaPanel() {
           los teclea a mano. Los nombres y colores de las secciones, en Ajustes → Secciones.
         </p>
       </div>
+
+      {items !== null ? <CartaTemplate items={items} sections={sections} onApplied={reload} /> : null}
 
       <Card style={{ padding: '1.25rem' }}>
         <h3 style={subtitleStyle}>Añadir a la carta</h3>

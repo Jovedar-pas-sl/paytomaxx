@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SECTIONS, SECTION_CODES, type MoneyMap, type VenueSection } from '@nightpay/contracts';
+import { moneyMapDetails } from './money-map-details';
 import { barSegments, eurShort, legendFlex, moneyMapView, railNote, sectionPaint } from './money-map-view';
 
 const SECTIONS: VenueSection[] = SECTION_CODES.map((code) => ({ code, ...DEFAULT_SECTIONS[code] }));
@@ -111,8 +112,8 @@ describe('maqueta 8 · A, barras apiladas', () => {
   it('dónde está (por sitio y por dueño) y qué sale', () => {
     const v = moneyMapView(map(), SECTIONS);
     expect(v.where.places.map((s) => [s.label, s.cents])).toEqual([
-      ['BBVA, mañana', 351_600],
-      ['Caja', 288_000],
+      ['Banco', 351_600],
+      ['Caja esperada', 288_000],
     ]);
     expect(v.where.owners.map((s) => [s.label, s.cents])).toEqual([
       ['Tuyo', 308_600],
@@ -185,5 +186,33 @@ describe('maqueta 8 · A, barras apiladas', () => {
       'cuenta',
       'sin decir cómo',
     ]);
+  });
+});
+
+
+describe('desgloses ampliados', () => {
+  it('separa ventas, recargas, reparto y pagos realizados de los pendientes', () => {
+    const d = moneyMapDetails(map());
+    expect(d.inflow.rows.map((r) => r.cents)).toEqual([120000, 40000, 20000, 165000, 185000]);
+    expect(d.topUps.rows[0]).toMatchObject({ cents: 307000, count: 30 });
+    expect(d.split.rows.map((r) => r.cents)).toEqual([308600, 216000, 0, 5400, null]);
+    expect(d.owed.rows[0]!.cents).toBe(216000);
+    expect(d.outflow.rows.find((r) => r.label === 'Devuelto en efectivo')).toMatchObject({ cents: 7000, count: 1 });
+    expect(d.outflow.rows.some((r) => r.label.includes('Pagado'))).toBe(false);
+  });
+  it('no inventa saldos históricos ni el fondo inicial; conserva negativos', () => {
+    const m = map({ scope: { kind: 'period' }, where: { ...map().where, liveSaldoCents: null, owed: null, cashBox: { openingFloatCents: null, inCents: 500, outCents: 900 }, cashBoxCents: -400 } });
+    const d = moneyMapDetails(m);
+    expect(d.cash.rows[0]!.cents).toBeNull();
+    expect(d.cash.rows[3]!.cents).toBe(-400);
+    expect(d.owed.rows.slice(2, 4).map((r) => r.cents)).toEqual([null, null]);
+    expect(d.owed.rows.at(-1)!.cents).toBeNull();
+  });
+  it('indica que una noche cerrada es histórica y cuenta los pagos por vía', () => {
+    const m = map({ frozen: true, outflow: { ...map().outflow, payouts: [{ who: 'chicas', rail: 'MANUAL_CASH', count: 2, cents: 45000 }] } });
+    const d = moneyMapDetails(m);
+    expect(d.owed.note).toContain('al cerrar');
+    expect(d.owed.rows[2]!.label).toContain('al cierre');
+    expect(d.outflow.rows[0]).toEqual({ label: 'Pagado a chicas · efectivo', cents: 45000, count: 2 });
   });
 });

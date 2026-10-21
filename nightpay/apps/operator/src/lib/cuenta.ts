@@ -128,7 +128,9 @@ export function chargeLinesOf(cuenta: Cuenta): ChargeLineInput[] {
 
 /** Nombre de una cosa de la carta y, si no lo dice ya, su duración. */
 export function itemLabel(item: Pick<CartaItem, 'name' | 'durationMin'>): string {
-  return item.durationMin && !item.name.includes(String(item.durationMin)) ? `${item.name} · ${item.durationMin} min` : item.name;
+  if (!item.durationMin || /\d+\s*(?:min|h(?:oras?)?)(?:\b|$)/i.test(item.name) || item.name.includes(String(item.durationMin))) return item.name;
+  const duration = item.durationMin % 60 === 0 ? `${item.durationMin / 60} h` : `${item.durationMin} min`;
+  return `${item.name} · ${duration}`;
 }
 
 /** «copa» → «copas», «tabla» → «tablas», «ración» → «raciones». */
@@ -156,7 +158,7 @@ export function cuentaSummary(cuenta: Cuenta, sectionLabel: (section: string) =>
   };
   if (cuenta.length === 1) {
     const only = cuenta[0]!;
-    if (only.kind === 'carta') return `${only.qty > 1 ? `${only.qty}× ` : ''}${only.item.name} · ${sectionLabel(only.item.category)}`;
+    if (only.kind === 'carta') return `${only.qty > 1 ? `${only.qty}× ` : ''}${itemLabel(only.item)} · ${sectionLabel(only.item.category)}`;
     return only.kind === 'propina' ? 'Propina' : `Otro importe · ${sectionLabel(only.category)}`;
   }
   const parts = cuenta.map(label);
@@ -173,7 +175,7 @@ export function cuentaWhat(cuenta: Cuenta): string {
     if (l.kind === 'propina') return 'propina';
     if (l.kind === 'importe') return 'otro importe';
     if (l.qty > 1) return `${l.qty} ${plural(shortName(l.item.name))}`;
-    return alone ? l.item.name : shortName(l.item.name);
+    return alone ? itemLabel(l.item) : shortName(l.item.name);
   };
   const sold = cuenta.filter((l) => l.kind !== 'propina');
   const parts = (sold.length > 0 ? sold : cuenta).map((l, _, all) => label(l, all.length === 1));
