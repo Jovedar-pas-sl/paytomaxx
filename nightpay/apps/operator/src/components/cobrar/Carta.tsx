@@ -57,9 +57,9 @@ export function Carta({
   onRetryCarta,
 }: Props) {
   const codes = offeredCodes(ctx);
-  const inviteFirst = ctx.rules?.inviteFirst !== false;
+  const invitation = ctx.carta.find((i) => i.isInvitation && itemAllowed(i, codes)) ?? null;
   const items = ctx.carta
-    .filter((i) => itemAllowed(i, codes) && !(i.isInvitation && inviteFirst))
+    .filter((i) => itemAllowed(i, codes) && i.id !== invitation?.id)
     .map((item, index) => ({ item, index }))
     .sort((a, b) => sectionOrder(codes, a.item.category) - sectionOrder(codes, b.item.category) || a.index - b.index)
     .map(({ item }) => item);
@@ -87,6 +87,11 @@ export function Carta({
       />
       <Stripe parts={[{ color: colorOf(puestoSection(ctx)), weight: 1 }]} />
       <div className={styles.body}>
+        {invitation ? <button type="button" className={`${styles.tile} ${styles.inviteEntry}`} onClick={() => onItem(invitation)}>
+          <span className={styles.kicker}>Copas · La mejor opción</span>
+          <span className={styles.tileName}>Invitar a una copa</span>
+          <span className={styles.price}>{formatEur(invitation.priceCents, { compact: true })}</span>
+        </button> : null}
         <div className={styles.tiles}>
           {items.map((item) => (
             <ItemTile key={item.id} item={item} ctx={ctx} qty={qtyOf(cuenta, item.id)} big={big} onPick={() => onItem(item)} />
@@ -126,7 +131,7 @@ export function Carta({
             </button>
             .
           </p>
-        ) : ctx.cartaLoaded && items.length === 0 ? (
+        ) : ctx.cartaLoaded && items.length === 0 && !invitation ? (
           <p className={styles.empty}>No hay productos disponibles para tu puesto. El dueño o encargado debe configurar la carta en Administración → Carta y comprobar las secciones del puesto.{' '}
             <button type="button" className={styles.link} onClick={onRetryCarta}>Actualizar carta</button>
           </p>

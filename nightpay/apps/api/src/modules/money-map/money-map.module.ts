@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ReportsModule } from '../reports/reports.module';
+import { OwnCobrosController } from './own-cobros.controller';
 import { CobrosController } from './cobros.controller';
 import { CobrosService } from './cobros.service';
 import { MoneyMapController } from './money-map.controller';
@@ -13,7 +14,7 @@ import { WalletFichaService } from './wallet-ficha.service';
  */
 @Module({
   imports: [ReportsModule],
-  controllers: [CobrosController, MoneyMapController],
+  controllers: [OwnCobrosController, CobrosController, MoneyMapController],
   providers: [CobrosService, WalletFichaService, MoneyMapService, StaffFichaService],
   exports: [MoneyMapService],
 })

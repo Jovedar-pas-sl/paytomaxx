@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Input, Select } from '@nightpay/ui';
+import { Button, Input, Select } from '@nightpay/ui';
 import type { InvitationRules, InvitationShare } from '@nightpay/contracts';
 import { fetchInvitationRules, updateInvitationRules } from '@/lib/api';
 import { invitationExample, shareFromDraft, shareToDraft, type ShareDraft } from '@/lib/invitation-form';
@@ -60,6 +60,9 @@ export function InvitationRulesCard() {
         <ShareRow label="Para la chica invitada" draft={chica} onChange={setChica} disabled={busy} />
         <ShareRow label="Para el camarero que la cobra" draft={camarero} onChange={setCamarero} disabled={busy} />
         <p style={hint}>{preview ? invitationExample(preview, EXAMPLE_PRICE_CENTS) : '—'}</p>
+        <Button type="button" variant="ghost" disabled={busy} onClick={() => {
+          setChica({ kind: 'PERCENT', value: '50' }); setCamarero({ kind: 'PERCENT', value: '50' });
+        }}>Usar reparto de referencia: 10 € chica y 10 € camarero en una copa de 20 €</Button>
         <SaveRow busy={busy} saved={saved} error={error} />
       </form>
     </SettingsCard>

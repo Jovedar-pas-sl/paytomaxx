@@ -42,7 +42,7 @@ type Stage =
   | { kind: 'carta' }
   | { kind: 'otro' }
   | { kind: 'cuenta' }
-  | { kind: 'invitar'; invite: CartaItem; solo: CartaItem }
+  | { kind: 'invitar'; invite: CartaItem; solo: CartaItem | null }
   | { kind: 'escanear'; invite: CartaItem }
   | { kind: 'lista'; invite: CartaItem }
   | { kind: 'esperando'; cobro: CobroAbierto; request: Pending }
@@ -251,7 +251,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   /** Tocar una copa: antes, «Invitar a una copa» en grande (Ajustes: «Invitar» primero). */
   function pickItem(item: CartaItem) {
     if (item.isInvitation) {
-      setStage({ kind: 'escanear', invite: item });
+      const solo = carta.services.find((s) => !s.isInvitation && s.category === item.category) ?? null;
+      setStage({ kind: 'invitar', invite: item, solo });
       return;
     }
     const offerInvite =
@@ -401,7 +402,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           solo={stage.solo}
           onInvite={() => setStage({ kind: 'escanear', invite: stage.invite })}
           onSolo={() => {
-            setCuenta((c) => addItem(c, stage.solo));
+            const solo = stage.solo;
+            if (solo) setCuenta((c) => addItem(c, solo));
             backToCarta();
           }}
           onBack={backToCarta}

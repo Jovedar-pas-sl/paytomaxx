@@ -1495,3 +1495,14 @@
   width: min(21rem, 100%);
   margin: 0.5rem auto 0;
 }
+
+
+/* Acceso visible a la invitación, incluso sin tocar antes una copa sola. */
+.inviteEntry {
+  min-height: 6rem;
+  color: var(--np-cream);
+  background: linear-gradient(125deg, #003818, #0a6b34);
+  border: 1px solid var(--np-lime);
+  box-shadow: 0 8px 28px -14px var(--np-lime);
+}
+.inviteEntry .price { color: var(--np-lime); }

@@ -11,19 +11,19 @@ describe('qué ve cada rol', () => {
   });
 
   it.each(['WAITER', 'MANAGER', 'OWNER'] as const)(
-    '%s: cobra y confirma el datáfono; nada de /operators/me ni /nights/mine (el API da 403)',
+    '%s: cobra y confirma el datáfono; historial propio; sin ganancias de chica ni /nights/mine',
     (role) => {
       const access = roleAccess(role);
-      expect(access.tabs).toEqual(['home', 'wallet', 'reception', 'pos']);
+      expect(access.tabs).toEqual(['home', 'wallet', 'payments', 'reception', 'pos']);
       expect(access.ownEarnings).toBe(false);
-      expect(access.ownPayments).toBe(false);
+      expect(access.ownPayments).toBe(true);
       expect(access.posQueue).toBe(true);
     },
   );
 
   it('una pestaña que el rol no tiene no se abre', () => {
     expect(canOpenTab('WAITER', 'earnings')).toBe(false);
-    expect(canOpenTab('WAITER', 'payments')).toBe(false);
+    expect(canOpenTab('WAITER', 'payments')).toBe(true);
     expect(canOpenTab('OPERATOR', 'pos')).toBe(false);
     // La recepción es del personal: la chica no recarga saldos ni prepara fichas.
     expect(canOpenTab('OPERATOR', 'reception')).toBe(false);

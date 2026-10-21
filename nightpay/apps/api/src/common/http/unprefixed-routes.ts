@@ -35,6 +35,12 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // Saldo: página del cliente y sus acciones.
   { path: 'w/:token', method: RequestMethod.GET },
   { path: 'w/:token/state', method: RequestMethod.GET },
+  // Consulta desde la ficha NFC y desbloqueo del enlace privado de saldo.
+  { path: 'w/card/:token', method: RequestMethod.GET },
+  { path: 'w/card/:token/view/challenge', method: RequestMethod.POST },
+  { path: 'w/card/:token/view', method: RequestMethod.POST },
+  { path: 'w/:token/view/challenge', method: RequestMethod.POST },
+  { path: 'w/:token/view', method: RequestMethod.POST },
   { path: 'w/:token/close/challenge', method: RequestMethod.POST },
   { path: 'w/:token/close', method: RequestMethod.POST },
   { path: 'w/:token/passkey/options', method: RequestMethod.POST },

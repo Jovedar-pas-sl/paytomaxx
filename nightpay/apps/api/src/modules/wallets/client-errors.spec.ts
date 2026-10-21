@@ -56,6 +56,8 @@ describe('textos de los errores', () => {
       'wallet-topup.service.ts',
       'wallet-charges.service.ts',
       'public-wallet.controller.ts',
+      'public-wallet-card.controller.ts',
+      'wallet-card-view.service.ts',
       'public-saldo.controller.ts',
       'client-pin.ts',
       'wallet-blocked.ts',

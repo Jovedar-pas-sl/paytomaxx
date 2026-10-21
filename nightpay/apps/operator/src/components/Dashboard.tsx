@@ -24,6 +24,7 @@ import { FichaTapped } from './FichaTapped';
 import { HomeTab } from './HomeTab';
 import { InvitationToast } from './InvitationToast';
 import { TAB_BAR_HEIGHT } from './layout';
+import { MyCobros } from './MyCobros';
 import { MyPayments } from './MyPayments';
 import { PassScanned } from './PassScanned';
 import { PendingPos } from './PendingPos';
@@ -148,7 +149,7 @@ export function Dashboard({ user, onLogout }: Props) {
       {access.posQueue && showing('pos') ? (
         <PendingPos onConfirmed={refreshMoney} focusPaymentId={links.focusedPosId} onFocusConsumed={links.clearFocus} />
       ) : null}
-      {access.ownPayments && showing('payments') ? <MyPayments /> : null}
+      {access.ownPayments && showing('payments') ? user.role === 'OPERATOR' ? <MyPayments /> : <MyCobros /> : null}
       {access.ownEarnings && showing('earnings') ? (
         <Earnings night={night.night} balance={own.balance} nightError={night.error} />
       ) : null}

@@ -14,7 +14,7 @@ interface Props {
   who: string;
   invite: CartaItem;
   /** La copa que tocó (la «copa sola»). */
-  solo: CartaItem;
+  solo: CartaItem | null;
   onInvite: () => void;
   onSolo: () => void;
   onBack: () => void;
@@ -68,10 +68,10 @@ export function Invitar({ ctx, who, invite, solo, onInvite, onSolo, onBack }: Pr
             Invitar a una copa
           </button>
         </div>
-        <button type="button" className={styles.solo} onClick={onSolo} style={{ '--c': colorOf(solo.category) } as CSSProperties}>
+        {solo ? <button type="button" className={styles.solo} onClick={onSolo} style={{ '--c': colorOf(solo.category) } as CSSProperties}>
           <span>{soloLabel(solo.name)}</span>
           <b>{formatEur(solo.priceCents, { compact: true })}</b>
-        </button>
+        </button> : null}
       </div>
     </div>
   );

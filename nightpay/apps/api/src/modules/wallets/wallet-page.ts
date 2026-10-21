@@ -353,7 +353,7 @@ function render(s){S=s;S.cards=s.cards||[];
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
  segShow(can||C.paid);}
 function post(path,body){return pkPost(C.base+path,body||{});}
-function refresh(){if(busy)return;fetch(C.base+'/state',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(s){if(s&&!busy)render(s);}).catch(function(){});}
+function refresh(){if(busy)return;fetch(C.base+'/state',{cache:'no-store'}).then(function(r){if(r.status===401){busy=true;document.body.textContent=T.unlockWaiting;window.location.replace(C.base+'?lang='+C.lang);return null;}return r.ok?r.json():null;}).then(function(s){if(s&&!busy)render(s);}).catch(function(){});}
 function msg(e){return npErr(e,C.errors);}
 // Saldo con Face ID: elegir PIN y «Me voy» piden desbloquear el móvil (reto atado a la acción).
 function withKey(path,body){if(!S.hasFaceId)return post(path,body);

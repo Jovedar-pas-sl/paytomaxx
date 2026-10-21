@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PublicWalletController } from './public-wallet.controller';
+import { walletViewSetCookie } from './wallet-view-session';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 
 function makeController(googleWalletEnabled = false) {
@@ -161,7 +162,6 @@ describe('/w/:token — PIN y sumar a otro saldo (acciones secundarias de la pá
   });
 });
 
-describe('/w/:token/topup — «Recargar» desde el móvil', () => {
   function cookieReply() {
     const headers: Record<string, string> = {};
     const reply = {
@@ -172,6 +172,9 @@ describe('/w/:token/topup — «Recargar» desde el móvil', () => {
     };
     return { reply, headers };
   }
+
+describe('/w/:token/topup — «Recargar» desde el móvil', () => {
+
 
   it('crea la recarga y deja la cookie de vuelta en /pay (HttpOnly) para el cobro creado', async () => {
     const { controller, topUps } = makeController();
@@ -224,5 +227,52 @@ describe('/w/:token/topup — «Recargar» desde el móvil', () => {
     expect(topUps.options).toHaveBeenCalledWith('tok');
     expect(reply.body).toContain('id="proof"');
     expect(reply.body).toContain('id="topupForm"');
+  });
+});
+
+
+describe('saldo con passkey: consultar también exige el desbloqueo', () => {
+  it('el enlace y /state no muestran datos sin una sesión de consulta', async () => {
+    const { controller, charges, passkeys } = makeController();
+    passkeys.hasPasskey.mockResolvedValue(true);
+    const reply = fakeReply();
+    await controller.page('private-token', 'es', undefined, reply as never);
+    expect(reply.body).toContain('Consulta tu saldo');
+    expect(reply.body).not.toContain('K7Q-4M2');
+    expect(charges.clientState).not.toHaveBeenCalled();
+    await expect(controller.state('private-token')).rejects.toMatchObject({ status: 401 });
+    expect(charges.clientState).not.toHaveBeenCalled();
+  });
+  it('desbloquea solo la llave de este saldo y emite una cookie de consulta', async () => {
+    const { controller, passkeys, charges } = makeController();
+    passkeys.hasPasskey.mockResolvedValue(true);
+    passkeys.verify.mockResolvedValue('w-1');
+    const { reply, headers } = cookieReply();
+    await expect(controller.viewUnlock('private-token', 'api.example', { response: { id: 'key' } }, reply as never)).resolves.toEqual({ url: '/w/private-token' });
+    expect(passkeys.verify).toHaveBeenCalledWith('view:w-1', 'api.example', { id: 'key' });
+    const cookie = headers['Set-Cookie'].split(';')[0];
+    await expect(controller.state('private-token', cookie)).resolves.toMatchObject({ code: 'K7Q-4M2' });
+    expect(charges.clientState).toHaveBeenCalledTimes(1);
+    passkeys.verify.mockResolvedValue('w-other');
+    const wrong = cookieReply();
+    await expect(controller.viewUnlock('private-token', 'api.example', { response: {} }, wrong.reply as never)).rejects.toMatchObject({ status: 403 });
+    expect(wrong.headers['Set-Cookie']).toBeUndefined();
+  });
+  it('no acepta una cookie de otro saldo y un reto no muestra datos', async () => {
+    const { controller, charges, passkeys } = makeController();
+    passkeys.hasPasskey.mockResolvedValue(true);
+    const cookie = walletViewSetCookie('secreto-de-cookies-de-las-pruebas-0123456789', { id: 'otro', qrToken: 'token' }).split(';')[0];
+    await expect(controller.state('private-token', cookie)).rejects.toMatchObject({ status: 401 });
+    await expect(controller.viewChallenge('private-token', 'api.example')).resolves.toEqual({ challenge: 'abc' });
+    expect(passkeys.challenge).toHaveBeenCalledWith('view:w-1', 'api.example');
+    expect(charges.clientState).not.toHaveBeenCalled();
+  });
+  it('la primera activación desde el enlace privado deja la consulta autorizada', async () => {
+    const { controller, passkeys } = makeController();
+    Object.assign(passkeys, { register: vi.fn().mockResolvedValue(undefined) });
+    const { reply, headers } = cookieReply();
+    await controller.passkeyRegister('private-token', { response: {} }, 'api.example', reply as never);
+    expect(headers['Set-Cookie']).toContain('HttpOnly');
+    expect(headers['Set-Cookie']).toContain('Path=/w/private-token');
   });
 });

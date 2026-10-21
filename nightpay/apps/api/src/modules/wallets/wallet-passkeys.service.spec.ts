@@ -233,3 +233,17 @@ describe('Face ID del saldo (passkey)', () => {
     expect(await svc.verify('charge:qr-1', HOST, phone.assert(challenge))).toBe(WALLET.id);
   });
 });
+
+
+it('consulta NFC: firma real de un solo uso, atada a ficha/saldo y con verificación del teléfono', async () => {
+  const { svc } = makeService();
+  const phone = new SoftAuthenticator();
+  await activate(svc, phone);
+  const scope = `card-view:ficha-a:${WALLET.id}`;
+  const options = await svc.challenge(scope, HOST);
+  expect(options.userVerification).toBe('required');
+  const assertion = phone.assert(options.challenge);
+  await expect(svc.verify(`card-view:ficha-b:${WALLET.id}`, HOST, assertion)).rejects.toThrow(ConflictException);
+  await expect(svc.verify(scope, HOST, assertion)).resolves.toBe(WALLET.id);
+  await expect(svc.verify(scope, HOST, assertion)).rejects.toThrow(ConflictException);
+});

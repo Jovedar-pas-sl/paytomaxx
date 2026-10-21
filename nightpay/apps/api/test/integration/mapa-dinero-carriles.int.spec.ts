@@ -13,6 +13,9 @@ import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 import { CartaService } from '../../src/modules/carta/carta.service';
+import { CobrosService } from '../../src/modules/money-map/cobros.service';
+import { OwnCobrosController } from '../../src/modules/money-map/own-cobros.controller';
+import type { JwtPayload } from '@nightpay/contracts';
 import { MoneyMapService } from '../../src/modules/money-map/money-map.service';
 import { StaffFichaService } from '../../src/modules/money-map/staff-ficha.service';
 import { WalletFichaService } from '../../src/modules/money-map/wallet-ficha.service';
@@ -185,6 +188,21 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.$disconnect();
+});
+
+it('historial del camarero: solo sus cobros con tarjeta y saldo, incluida la chica invitada', async () => {
+  const controller = new OwnCobrosController(new CobrosService(prisma));
+  const page = await inVenue(A, () => controller.list({ sub: dani, tenantId: A, role: 'WAITER' } as JwtPayload, { limit: 50 }));
+  expect(page.items).toHaveLength(4);
+  expect(page.items.filter((p) => p.kind === 'PAYMENT')).toHaveLength(3);
+  expect(page.items.filter((p) => p.kind === 'SALDO')).toHaveLength(1);
+  expect(page.items.find((p) => p.invitedName === 'Lola')?.amountCents).toBe(5000);
+  for (const row of page.items) {
+    expect(row).not.toHaveProperty('payment');
+    expect(row).not.toHaveProperty('wallet');
+  }
+  const other = await inVenue(A, () => controller.list({ sub: owner, tenantId: A, role: 'OWNER' } as JwtPayload, { limit: 50 }));
+  expect(other.items.some((p) => page.items.some((mine) => mine.id === p.id && mine.kind === p.kind))).toBe(false);
 });
 
 describe('el mapa del dinero de la noche, en directo: los carriles cuadran', () => {

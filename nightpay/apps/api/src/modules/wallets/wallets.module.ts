@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../common/prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
+import { PublicWalletCardController } from './public-wallet-card.controller';
+import { WalletCardViewService } from './wallet-card-view.service';
 import { PublicWalletController } from './public-wallet.controller';
 import { WalletChargesController } from './wallet-charges.controller';
 import { WalletChargesService } from './wallet-charges.service';
@@ -27,6 +29,7 @@ import { PendingTopUpService } from './wallet-pending-topup.service';
   imports: [PrismaModule, AuditModule, AuthModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
+    WalletCardViewService,
     WalletsService,
     WalletChargesService,
     WalletPasskeysService,
@@ -41,6 +44,7 @@ import { PendingTopUpService } from './wallet-pending-topup.service';
     WalletsController,
     AdminWalletsController,
     WalletChargesController,
+    PublicWalletCardController,
     PublicWalletController,
     PublicSaldoController,
     GoogleWalletController,

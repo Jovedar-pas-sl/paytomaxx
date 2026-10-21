@@ -49,7 +49,7 @@ export function CartaTemplate({ items, sections, onApplied }: {
     <Card style={{ padding: '1.25rem' }}>
       <details open={items.length === 0 ? true : undefined}>
         <summary style={{ cursor: 'pointer', fontWeight: 700, minHeight: '2.75rem' }}>Carta de referencia · productos y precios</summary>
-        <p>Se añaden los productos que faltan y se actualizan precio, duración y orden de las coincidencias. Se reactivan si estaban desactivadas. Los demás productos se conservan.</p>
+        <p>Se añaden los productos que faltan y se actualizan precio, duración y orden de las coincidencias. Se reactivan si estaban desactivadas. Los demás productos se conservan. Incluye «Invitar a una copa» por 20 €. Su reparto se configura en Ajustes → Secciones → Invitaciones.</p>
         <ul style={{ paddingLeft: '1.25rem', display: 'grid', gap: '0.5rem' }}>
           {plan.map((p) => (
             <li key={`${p.input.category}-${p.input.name}`}>

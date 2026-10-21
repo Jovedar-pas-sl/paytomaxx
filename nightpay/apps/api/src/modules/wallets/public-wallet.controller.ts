@@ -11,6 +11,8 @@ import {
   Post,
   Query,
   Res,
+  UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
@@ -23,6 +25,8 @@ import { WalletPasskeysService } from './wallet-passkeys.service';
 import { WalletTopUpService } from './wallet-topup.service';
 import { renderWalletPage } from './wallet-page';
 import { checkedPin } from './client-pin';
+import { hasWalletViewSession, walletViewSetCookie } from './wallet-view-session';
+import { renderWalletUnlockPage } from './wallet-unlock-page';
 import { GoogleWalletService } from './google-wallet/google-wallet.service';
 
 /**
@@ -91,9 +95,11 @@ export class PublicWalletController {
     @Param('token') token: string,
     @Body() body: { response?: unknown } | undefined,
     @Headers('host') host: string | undefined,
+    @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<ClientWalletState> {
     const wallet = await this.charges.walletRefByToken(token);
     await this.passkeys.register(wallet.id, host, body?.response);
+    res.header('Set-Cookie', walletViewSetCookie(this.config.get<string>('COOKIE_SECRET') ?? '', { id: wallet.id, qrToken: token }));
     return this.charges.clientState(token);
   }
 
@@ -205,7 +211,14 @@ export class PublicWalletController {
     @Headers('accept-language') acceptLanguage: string | undefined,
     @Res() res: FastifyReply,
     @Query('pagado') paidToken?: string,
+    @Headers('cookie') cookies?: string,
   ): Promise<void> {
+    const lang = resolveLanguage(langQuery, acceptLanguage);
+    if (!(await this.mayRead(token, cookies))) {
+      res.status(200).header('Content-Type', 'text/html; charset=utf-8').header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer')
+        .send(renderWalletUnlockPage(`/w/${encodeURIComponent(token)}`, lang, paidToken));
+      return;
+    }
     // Ya no hay QR del código: para pagar, el cliente escanea el QR de la
     // chica y desbloquea su móvil (Face ID).
     const state = await this.charges.clientState(token);
@@ -214,6 +227,7 @@ export class PublicWalletController {
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
       .header('Cache-Control', 'no-store')
+      .header('Referrer-Policy', 'no-referrer')
       .send(
         renderWalletPage(token, resolveLanguage(langQuery, acceptLanguage), state, {
           googleWallet: this.gwallet.enabled,
@@ -227,8 +241,39 @@ export class PublicWalletController {
   @Get(':token/state')
   @Header('Cache-Control', 'no-store')
   @IpRateLimit({ max: 1500, windowSec: 60, scope: 'wallet-state' })
-  async state(@Param('token') token: string): Promise<ClientWalletState> {
+  async state(@Param('token') token: string, @Headers('cookie') cookies?: string): Promise<ClientWalletState> {
+    if (!(await this.mayRead(token, cookies))) throw new UnauthorizedException({ message: 'Desbloquea tu saldo con tu teléfono.', code: 'WALLET_VIEW_REQUIRED' });
     return this.charges.clientState(token);
+  }
+
+  @Public()
+  @Post(':token/view/challenge')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-view' })
+  async viewChallenge(@Param('token') token: string, @Headers('host') host: string | undefined): Promise<unknown> {
+    const wallet = await this.charges.walletRefByToken(token);
+    if (!(await this.passkeys.hasPasskey(wallet.id))) throw new ConflictException({ message: 'Activa el desbloqueo desde tu enlace privado.', code: 'FACE_ID_NOT_SET' });
+    return this.passkeys.challenge(`view:${wallet.id}`, host);
+  }
+
+  @Public()
+  @Post(':token/view')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Header('Referrer-Policy', 'no-referrer')
+  @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-view' })
+  async viewUnlock(@Param('token') token: string, @Headers('host') host: string | undefined, @Body() body: { response?: unknown } | undefined, @Res({ passthrough: true }) res: FastifyReply): Promise<{ url: string }> {
+    const wallet = await this.charges.walletRefByToken(token);
+    const owner = await this.passkeys.verify(`view:${wallet.id}`, host, body?.response);
+    if (owner !== wallet.id) throw new ForbiddenException({ message: 'Usa la passkey de este saldo.', code: 'FACE_ID_WRONG' });
+    res.header('Set-Cookie', walletViewSetCookie(this.config.get<string>('COOKIE_SECRET') ?? '', { id: wallet.id, qrToken: token }));
+    return { url: `/w/${encodeURIComponent(token)}` };
+  }
+
+  private async mayRead(token: string, cookies: string | undefined): Promise<boolean> {
+    const wallet = await this.charges.walletRefByToken(token);
+    return !(await this.passkeys.hasPasskey(wallet.id)) || hasWalletViewSession(this.config.get<string>('COOKIE_SECRET') ?? '', { id: wallet.id, qrToken: token }, cookies);
   }
 
   @Public()

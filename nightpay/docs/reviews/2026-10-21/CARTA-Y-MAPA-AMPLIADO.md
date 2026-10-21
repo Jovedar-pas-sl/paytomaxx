@@ -1,13 +1,15 @@
 # Carta de referencia y mapa ampliado
 
+Actualizado con la invitación de 20 € y el historial del camarero.
+
 Se conservan las losetas por sección y las barras apiladas de las referencias aprobadas.
 
 ## Carta
 
 En el panel → Carta → «Carta de referencia · productos y precios» se revisan y aplican
-los 12 productos: Copa 10 €, Copa premium 14 €, Botella 120 €, Chupito 5 €,
+los 13 productos: Copa 10 €, Copa premium 14 €, Botella 120 €, Chupito 5 €,
 Tabla ibérica 30 €, Ración del día 12 €, Entrada 15 €, Entrada VIP 30 €,
-30 min 80 €, 45 min 100 €, 1 h 120 € y 2 h 220 €.
+30 min 80 €, 45 min 100 €, 1 h 120 €, 2 h 220 € e Invitar a una copa 20 €.
 
 Aplicar usa las rutas existentes de carta, sujetas a permisos del local. Añade lo
 que falta y actualiza precio, duración y orden de las coincidencias únicas,

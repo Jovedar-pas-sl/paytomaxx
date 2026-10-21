@@ -14,6 +14,7 @@ const TEMPLATE_ROWS: readonly ServiceItemInput[] = [
   { name: '45 min', category: 'CHICA_SERVICE', priceCents: 10000, durationMin: 45 },
   { name: '1 h', category: 'CHICA_SERVICE', priceCents: 12000, durationMin: 60 },
   { name: '2 h', category: 'CHICA_SERVICE', priceCents: 22000, durationMin: 120 },
+  { name: 'Invitar a una copa', category: 'VENUE_BAR', priceCents: 2000, durationMin: null, isInvitation: true },
 ];
 export const CARTA_TEMPLATE: readonly ServiceItemInput[] = TEMPLATE_ROWS.map((item, sortOrder) => ({ ...item, sortOrder }));
 
@@ -30,7 +31,7 @@ export function cartaTemplatePlan(items: readonly ServiceItem[]): TemplateChange
     const matches = items.filter((i) => i.category === input.category && key(i.name) === key(input.name));
     if (matches.length === 0) return { input, action: 'create' };
     const existing = matches[0]!;
-    if (matches.length > 1 || existing.isInvitation || existing.components?.length) {
+    if (matches.length > 1 || Boolean(existing.isInvitation) !== Boolean(input.isInvitation) || existing.components?.length) {
       return { input, existing, action: 'conflict' };
     }
     const same = existing.priceCents === input.priceCents && existing.durationMin === input.durationMin &&

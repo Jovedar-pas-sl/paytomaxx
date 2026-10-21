@@ -143,6 +143,10 @@ export const CobrosQuerySchema = z.object({
 });
 export type CobrosQuery = z.infer<typeof CobrosQuerySchema>;
 
+/** Historial propio: la identidad y el local los fija la sesión, nunca la query. */
+export const OwnCobrosQuerySchema = CobrosQuerySchema.pick({ limit: true, cursor: true }).strict();
+export type OwnCobrosQuery = z.infer<typeof OwnCobrosQuerySchema>;
+
 export interface CobroPerson {
   id: string;
   name: string;
@@ -268,3 +272,11 @@ export interface WalletFicha {
   /** Sus fichas NFC (las que pagan y las bloqueadas). */
   cards?: WalletFichaCard[];
 }
+
+
+/** Vista del historial del personal, sin datos de tarjeta ni referencias bancarias internas. */
+export type OwnCobro = Pick<CobroRow, 'kind' | 'id' | 'ref' | 'createdAt' | 'amountCents' | 'tipCents' | 'status' | 'methodLabel' | 'service' | 'isTopUp'> & {
+  via: string | null;
+  invitedName: string | null;
+};
+export interface OwnCobrosPage { items: OwnCobro[]; nextCursor: string | null }

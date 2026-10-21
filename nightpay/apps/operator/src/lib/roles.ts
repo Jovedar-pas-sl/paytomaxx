@@ -8,7 +8,7 @@ export interface RoleAccess {
   tabs: readonly TabKey[];
   /** Su saldo, su noche, sus comisiones y liquidaciones (/operators/me/balance|earnings|payouts, /nights/mine). */
   ownEarnings: boolean;
-  /** Los cobros que ha creado (/operators/me/payments). */
+  /** Historial propio de los cobros que ha creado. */
   ownPayments: boolean;
   /** Cobros con datáfono que esperan que alguien los confirme (/payments/pending-pos). */
   posQueue: boolean;
@@ -17,7 +17,7 @@ export interface RoleAccess {
 /**
  * Lo que ve cada rol. /operators/me/* y /nights/mine son solo de la chica
  * (OPERATOR): al camarero, al encargado o al dueño el API les da 403, así que
- * ni se piden. Ellos confirman los cobros con datáfono que crean las chicas.
+ * ni se piden. Su historial usa /staff/me/cobros. Ellos confirman los cobros con datáfono que crean las chicas.
  */
 const OPERATOR_ACCESS: RoleAccess = {
   tabs: ['home', 'wallet', 'payments', 'earnings'],
@@ -28,9 +28,9 @@ const OPERATOR_ACCESS: RoleAccess = {
 
 /** Camarero, encargado y dueño: además, la recepción (recargar saldo, ficha y PIN; preparar fichas). */
 const STAFF_ACCESS: RoleAccess = {
-  tabs: ['home', 'wallet', 'reception', 'pos'],
+  tabs: ['home', 'wallet', 'payments', 'reception', 'pos'],
   ownEarnings: false,
-  ownPayments: false,
+  ownPayments: true,
   posQueue: true,
 };
 

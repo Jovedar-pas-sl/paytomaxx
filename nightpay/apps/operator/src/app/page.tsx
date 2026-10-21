@@ -7,7 +7,8 @@ import { Dashboard } from '@/components/Dashboard';
 import { ReloginSheet } from '@/components/ReloginSheet';
 import { SessionExpiredContext } from '@/components/session-context';
 import { WALLET_CARD_PARAM, WALLET_PASS_PARAM } from '@nightpay/contracts';
-import { getUser, hasSession, logout, onSessionEnded, type OperatorUser } from '@/lib/api';
+import { getUser, hasSession, apiBase, logout, onSessionEnded, type OperatorUser } from '@/lib/api';
+import { customerCardDestination } from '@/lib/customer-card';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { captureInviteFromUrl } from '@/lib/invite-link';
 import { useOpenCharges } from '@/lib/open-charges';
@@ -39,9 +40,11 @@ export default function Page() {
   useEffect(() => {
     // QR de una chica leído con la cámara del móvil: lo recoge el cobro abierto.
     captureInviteFromUrl();
+    const opened = new URLSearchParams(window.location.search);
+    const customerUrl = customerCardDestination(opened.get(WALLET_CARD_PARAM), hasSession(), apiBase);
+    if (customerUrl) { window.location.replace(customerUrl); return; }
     if (hasSession()) setUser(getUser());
     else setUser(null);
-    const opened = new URLSearchParams(window.location.search);
     setFromCard(opened.has(WALLET_CARD_PARAM));
     setFromPass(opened.has(WALLET_PASS_PARAM));
     return onSessionEnded((reason) => {
