@@ -34,6 +34,7 @@ export function MoneyMapView({ map, wide = false }: { map: MoneyMap; wide?: bool
             <h3 className="np-mm-kick">Cómo entra</h3>
           </div>
           <Bar segments={v.inflow} label="Cómo entra el dinero" />
+          {v.inflow.length === 0 ? <p className="np-mm-note">Aún no hay ventas.</p> : null}
           <ul className="np-mm-hleg">
             {v.inflow.map((s) => (
               <li key={s.key} style={{ flex: legendFlex(Math.max(0, s.cents), inflowTotal) }}>
@@ -43,9 +44,8 @@ export function MoneyMapView({ map, wide = false }: { map: MoneyMap; wide?: bool
             ))}
           </ul>
           {v.topUps ? (
-            <p className="np-mm-hold" title={v.topUps.detail || undefined}>
-              + Recargas <b>{eurShort(v.topUps.cents)}</b>: no es venta
-              {v.topUps.detail ? <span className="np-sr-only"> ({v.topUps.detail})</span> : null}
+            <p className="np-mm-hold">
+              + Recargas <b>{eurShort(v.topUps.cents)}</b>: {v.topUps.detail ? <span>{v.topUps.detail} · </span> : null}no es venta
             </p>
           ) : null}
         </section>

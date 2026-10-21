@@ -78,7 +78,7 @@ describe('ficha de la chica: cada cobro con su parte', () => {
       section: 'VENUE_BAR',
       title: 'Invitación',
       method: 'SALDO',
-      via: 'NFC',
+      via: 'NFC sin PIN',
       walletCode: 'K7Q-4M2',
       chargedBy: { id: CARLOS.id, name: 'Carlos', role: 'WAITER' },
       invitation: true,
@@ -140,7 +140,7 @@ describe('lo que le toca de cada cosa', () => {
 describe('por dónde y qué ficha', () => {
   it('por dónde se autorizó un cobro', () => {
     expect([saldoVia('nfc_nopin'), saldoVia('pin'), saldoVia('passkey'), saldoVia('staff'), saldoVia(null), saldoVia('raro')]).toEqual([
-      'NFC',
+      'NFC sin PIN',
       'PIN',
       'Face ID',
       'Personal',

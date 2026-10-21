@@ -61,8 +61,9 @@ export interface MoneyMapView {
   venueCents: number;
   venuePct: number;
   stripe: Segment[];
+  /** Solo los canales con algo: aquí el efectivo entra como recarga (si un día hay cobros en efectivo, saldrán). */
   inflow: Segment[];
-  /** «+ Recargas 3.070 €: no es venta» (null si no hubo). */
+  /** «+ Recargas 3.070 €: efectivo 1.070 € · tarjeta 2.000 € · no es venta» (null si no hubo). */
   topUps: { cents: number; detail: string } | null;
   sections: SectionRow[];
   where: { totalCents: number; places: Segment[]; owners: Segment[]; note: string | null };
@@ -158,18 +159,20 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
     venueCents: m.split.venueCents,
     venuePct: venueSharePercent(m),
     stripe: barSegments(rows),
-    inflow: [
-      { key: 'card', label: 'Tarjeta', cents: i.cardRailCents, color: 'var(--np-mm-tarjeta)' },
-      { key: 'cash', label: 'Efectivo', cents: i.cashCents, color: 'var(--np-mm-efectivo)' },
-      { key: 'saldo', label: 'Del saldo', cents: i.saldoCents, color: 'var(--np-mm-saldo)' },
-    ],
+    inflow: (
+      [
+        { key: 'card', label: 'Tarjeta', cents: i.cardRailCents, color: 'var(--np-mm-tarjeta)' },
+        { key: 'cash', label: 'Efectivo', cents: i.cashCents, color: 'var(--np-mm-efectivo)' },
+        { key: 'saldo', label: 'Del saldo', cents: i.saldoCents, color: 'var(--np-mm-saldo)' },
+      ] satisfies Segment[]
+    ).filter((s) => s.cents !== 0),
     topUps:
       i.topUps.totalCents !== 0
         ? {
             cents: i.topUps.totalCents,
             detail: [
-              i.topUps.cardCents ? `tarjeta ${eurShort(i.topUps.cardCents)}` : null,
               i.topUps.cashCents ? `efectivo ${eurShort(i.topUps.cashCents)}` : null,
+              i.topUps.cardCents ? `tarjeta ${eurShort(i.topUps.cardCents)}` : null,
             ]
               .filter(Boolean)
               .join(' · '),
