@@ -22,6 +22,7 @@ import { useDeepLinks, useMyNight, useOwnBalance, type PollError } from './dashb
 import { Earnings } from './Earnings';
 import { FichaTapped } from './FichaTapped';
 import { HomeTab } from './HomeTab';
+import { InvitationToast } from './InvitationToast';
 import { TAB_BAR_HEIGHT } from './layout';
 import { MyPayments } from './MyPayments';
 import { PassScanned } from './PassScanned';
@@ -83,6 +84,8 @@ export function Dashboard({ user, onLogout }: Props) {
   }
 
   const showing = (key: TabKey) => links.ficha === null && links.pass === null && tab === key;
+  // En Inicio manda la cabecera de «Cobrar» (el logo abre el tema y «Salir»).
+  const ownHeader = showing('home');
 
   return (
     <VenueMethodsContext.Provider value={methods}>
@@ -91,15 +94,19 @@ export function Dashboard({ user, onLogout }: Props) {
     <main className="np-app-root np-screen" style={mainStyle}>
       {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
       <ConnectionStatus serverDown={own.error?.transient === true} />
-      <header style={headerStyle}>
-        <Logo height="1.75rem" />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
-          <ThemeToggle />
-          <Button variant="ghost" size="md" onClick={logout} style={headerBtnStyle}>
-            Salir
-          </Button>
-        </div>
-      </header>
+      {ownHeader ? null : (
+        <header style={headerStyle}>
+          <Logo height="1.75rem" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
+            <ThemeToggle />
+            <Button variant="ghost" size="md" onClick={logout} style={headerBtnStyle}>
+              Salir
+            </Button>
+          </div>
+        </header>
+      )}
+      {/* La chica: «Te han invitado · +10 €» en cuanto se cobra su invitación. */}
+      {access.ownEarnings ? <InvitationToast night={night.night} /> : null}
 
       {/* Con la sesión caducada lo dice la hoja de entrar: aquí empujaría el QR hacia abajo. */}
       {own.error && !own.error.transient && !expired ? <PollErrorBanner error={own.error} /> : null}
@@ -127,14 +134,7 @@ export function Dashboard({ user, onLogout }: Props) {
       {/* Inicio y Saldo siguen montados al cambiar de pestaña: un cobro a medias
           (su QR, el tiempo real, el sondeo) no se pierde ni queda huérfano. */}
       <TabPanel visible={showing('home')}>
-        <HomeTab
-          user={user}
-          showBalance={access.ownEarnings}
-          balance={own.balance}
-          night={night.night}
-          onCobroDone={refreshMoney}
-          onOpenEarnings={() => setTab('earnings')}
-        />
+        <HomeTab user={user} night={night.night} onCobroDone={refreshMoney} onLogout={logout} />
       </TabPanel>
       <TabPanel visible={showing('wallet')}>
         <ChargeFromBalance onCharged={refreshMoney} />

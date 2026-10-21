@@ -15,6 +15,7 @@ import {
   isWalletCardToken,
   nightSettingsOf,
   normalizeWalletCardUid,
+  paymentMethodsOf,
   type ChargeAuthMethod,
   type ChargeLineInput,
   type Role,
@@ -27,6 +28,14 @@ import { lineCommission, type DraftLine } from '../payments/charge-lines';
 import { resolveChargeOrThrow } from '../payments/charge-request';
 import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from '../payments/charge-store';
 import { invitationEarnings } from '../payments/invitation-lines';
+import {
+  alreadyPaid,
+  cancelCardForSaldo,
+  isCardPaid,
+  lockLinkedCard,
+  moveLinesToSaldo,
+  saldoMayPay,
+} from '../payments/cobro-link';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 import { reopenData } from './wallet-activation';
 import { mergedWalletIds } from './wallet-merge-chain';
@@ -52,7 +61,9 @@ import {
   noPinWindowStart,
 } from './wallet-nopin';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
-import { assertVenueAcceptsMethods } from '../venues/venue-methods';
+import { TipsDisabledException, assertVenueAcceptsMethods } from '../venues/venue-methods';
+import { tipsForbidden } from '../venues/charge-rights';
+import { maxTipCents } from '../payments/tip';
 import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor } from './wallet-two-factor';
 import { WalletBlockedException } from './wallet-blocked';
@@ -189,9 +200,15 @@ export interface ChargeRequestView {
   ref: string | null;
   status: ChargeRequestStatus;
   amountCents: number;
+  /** La propina que pidió el cliente (aparte del importe; el saldo paga las dos). */
+  tipCents: number;
   serviceName: string | null;
   expiresAt: string;
   newBalanceCents: number | null;
+  /** Pagado: cómo lo autorizó el cliente (NFC sin PIN, PIN, Face ID o el encargado). Null si no o de antes. */
+  paidWith?: ChargeAuthMethod | null;
+  /** Cobro único: no lo pagó el saldo porque ya lo pagó la tarjeta (el PAGADO es el del cobro con tarjeta). */
+  paidElsewhere?: boolean;
 }
 
 /** Cobro con QR para la chica: lo mismo que un cobro y el token del QR. */
@@ -209,6 +226,8 @@ export interface QrChargeClientView {
   expiresAt: string;
   /** Cuándo se pagó (solo si ya está pagado): el «Ya pagado · hace 23 min». */
   paidAt: string | null;
+  /** Cobro único: ya lo pagó con tarjeta (del saldo no se cobró nada). */
+  paidElsewhere?: boolean;
 }
 
 /** Para el encargado: cobros con QR sin pagar. */
@@ -377,7 +396,7 @@ export class WalletChargesService {
   private async resolveCharge(
     actor: Actor,
     input: QrChargeInput,
-  ): Promise<{ amountCents: number; category: RevenueCategory; serviceName: string | null; lines: DraftLine[] }> {
+  ): Promise<{ amountCents: number; category: RevenueCategory; serviceName: string | null; lines: DraftLine[]; tipCents: number }> {
     const charge = await resolveChargeOrThrow(this.prisma, {
       tenantId: actor.tenantId,
       userId: actor.userId,
@@ -387,8 +406,21 @@ export class WalletChargesService {
       amountCents: input.amountCents,
       requestedCategory: input.category,
       invitedStaffToken: input.invitedStaffToken,
+      invitedOperatorId: input.invitedOperatorId,
     });
     const amountCents = charge.amountCents;
+    // La propina: con las propinas encendidas en el local y en su puesto, hasta el importe (y 500 €).
+    const tipCents = input.tipCents ?? 0;
+    if (tipCents > 0) {
+      const venue = await this.prisma.asSystem((tx) =>
+        tx.venue.findUnique({ where: { id: actor.tenantId }, select: { paymentMethods: true } }),
+      );
+      if (!paymentMethodsOf(venue?.paymentMethods).tips) throw new TipsDisabledException();
+      if (charge.rights && !charge.rights.tips) throw tipsForbidden();
+      if (tipCents > maxTipCents(amountCents)) {
+        throw new BadRequestException('La propina no puede pasar del importe del cobro ni de 500,00 €');
+      }
+    }
     // El mismo tope por cobro que tiene la chica con el QR (Ajustes del local).
     if (actor.role === 'OPERATOR') {
       const venue = await this.prisma.venue.findUnique({
@@ -400,19 +432,47 @@ export class WalletChargesService {
         throw new ForbiddenException(`El máximo que puedes cobrar de una vez es ${eur(max)}`);
       }
     }
-    return { amountCents, category: charge.primaryCategory, serviceName: charge.serviceName, lines: charge.lines };
+    return { amountCents, category: charge.primaryCategory, serviceName: charge.serviceName, lines: charge.lines, tipCents };
   }
 
   /** La chica espera a que el cliente pague (solo la que lo hizo, o el encargado). */
   async getRequest(actor: Actor, requestId: string): Promise<ChargeRequestView> {
     const request = await this.ownRequest(actor, requestId);
     const walletId = request.walletId;
-    const wallet = walletId
-      ? await this.prisma.acrossVenues((tx) =>
-          tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
-        )
-      : null;
-    return this.requestView(request, request.status === 'ACCEPTED' ? (wallet?.balanceCents ?? null) : null);
+    const accepted = request.status === 'ACCEPTED';
+    const [wallet, consumption, elsewhere] = await Promise.all([
+      walletId
+        ? this.prisma.acrossVenues((tx) =>
+            tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
+          )
+        : null,
+      accepted && request.consumptionId ? this.consumptionAuth(request.consumptionId) : null,
+      accepted ? false : this.paidByCard(request),
+    ]);
+    return {
+      ...this.requestView(request, accepted ? (wallet?.balanceCents ?? null) : null),
+      paidWith: consumption,
+      ...(elsewhere ? { paidElsewhere: true } : {}),
+    };
+  }
+
+  /** Cómo se autorizó el consumo de un cobro pagado (null en los de antes). */
+  private async consumptionAuth(consumptionId: string): Promise<ChargeAuthMethod | null> {
+    const c = await this.prisma.asSystem((tx) =>
+      tx.walletConsumption.findFirst({ where: { id: consumptionId }, select: { authMethod: true } }),
+    );
+    const m = c?.authMethod ?? null;
+    return m === 'nfc_nopin' || m === 'pin' || m === 'passkey' || m === 'staff' ? m : null;
+  }
+
+  /** Cobro único: ¿lo pagó ya la tarjeta? */
+  private async paidByCard(request: { linkedPaymentId?: string | null }): Promise<boolean> {
+    const paymentId = request.linkedPaymentId;
+    if (!paymentId) return false;
+    const card = await this.prisma.asSystem((tx) =>
+      tx.payment.findUnique({ where: { id: paymentId }, select: { status: true } }),
+    );
+    return isCardPaid(card?.status);
   }
 
   /** Retirar el cobro: la chica que lo hizo o el encargado. */
@@ -570,6 +630,16 @@ export class WalletChargesService {
   private async settleRequest(walletId: string, requestId: string, auth: ChargeAuthMethod): Promise<NoPinSettled | null> {
     const wallet = { id: walletId };
     return this.prisma.acrossVenues(async (tx) => {
+      // Cobro único: primero la fila del cobro con tarjeta (el mismo orden que
+      // transition()): gana el primero que se paga. Pagado con tarjeta →
+      // «Ya está pagado»; cancelado o caducado → ya no está pendiente.
+      const link = await tx.walletChargeRequest.findUnique({ where: { id: requestId }, select: { linkedPaymentId: true } });
+      const card = link?.linkedPaymentId ? await lockLinkedCard(tx, link.linkedPaymentId) : null;
+      if (card) {
+        const may = saldoMayPay(card);
+        if (may === 'paid') throw alreadyPaid();
+        if (may === 'closed') throw requestError('not-pending');
+      }
       // blockedAt: saldo bloqueado por el super-admin → no paga (decideAccept).
       const locked = await tx.$queryRaw<
         Array<{
@@ -593,8 +663,13 @@ export class WalletChargesService {
       if (bound.count === 0) throw requestError('not-pending');
       const request = await tx.walletChargeRequest.findFirst({ where: { id: requestId, walletId: wallet.id } });
       if (!request) throw new NotFoundException('Cobro no encontrado');
-      const decision = decideAccept(request, w, new Date());
+      // Lo que sale del saldo: el importe y la propina que pidió el cliente.
+      const tipCents = request.tipCents ?? 0;
+      const totalCents = request.amountCents + tipCents;
+      const decision = decideAccept({ ...request, amountCents: totalCents }, w, new Date());
       if (!decision.ok) throw requestError(decision.reason);
+      // Cobro único: un solo juego de líneas, del que se paga.
+      if (card) await moveLinesToSaldo(tx, card.id, request.id);
 
       const [provider, venue, lines] = await Promise.all([
         tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true, commissionBps: true } }),
@@ -607,7 +682,9 @@ export class WalletChargesService {
       // NFC sin PIN: con el saldo ya bloqueado, lo gastado sin PIN esta noche
       // (también en los saldos sumados a este) + este cobro, contra el tope.
       const noPin =
-        auth === 'nfc_nopin' ? await this.noPinAllowance(tx, w, request.amountCents, venue?.nightSettings) : null;
+        auth === 'nfc_nopin' ? await this.noPinAllowance(tx, w, totalCents, venue?.nightSettings) : null;
+      // La propina: entera para la chica que cobra; del local si cobra otra persona.
+      const tipToChica = provider?.role === 'OPERATOR';
       const consumption = await tx.walletConsumption.create({
         data: {
           tenantId: request.tenantId,
@@ -618,6 +695,7 @@ export class WalletChargesService {
           notes: request.serviceName,
           idempotencyKey: `charge-request:${request.id}`,
           authMethod: auth,
+          ...(tipCents > 0 ? { tipCents, tipGoesTo: tipToChica ? 'operator' : 'venue' } : {}),
         },
       });
       if (provider?.role === 'OPERATOR') {
@@ -631,7 +709,8 @@ export class WalletChargesService {
           });
         const parts = lines.length > 0 ? lines : [{ category: request.category, amountCents: request.amountCents }];
         const commission = lineCommission(parts.map((l) => ({ amountCents: l.amountCents, bps: bpsOf(l.category) })));
-        if (commission.anyBps) {
+        // Sin comisión pero con propina para ella: la propina también le llega.
+        if (commission.anyBps || tipCents > 0) {
           await tx.operatorEarning.create({
             data: {
               tenantId: request.tenantId,
@@ -640,6 +719,7 @@ export class WalletChargesService {
               paymentAmountCents: request.amountCents,
               commissionBps: commission.commissionBps,
               commissionCents: commission.commissionCents,
+              ...(tipCents > 0 ? { tipCents } : {}),
             },
           });
         }
@@ -654,7 +734,7 @@ export class WalletChargesService {
           invitationEarnings(invited, request.requestedByUserId),
         );
       }
-      const newBalance = w.balanceCents - request.amountCents;
+      const newBalance = w.balanceCents - totalCents;
       await tx.clientWallet.update({
         where: { id: wallet.id },
         data: {
@@ -670,6 +750,8 @@ export class WalletChargesService {
         data: { status: 'ACCEPTED', decidedAt: new Date(), consumptionId: consumption.id },
       });
       if (accepted.count === 0) throw requestError('not-pending');
+      // Cobro único: el cobro con tarjeta ya no se puede autorizar.
+      if (card) await cancelCardForSaldo(tx, card, request.id, randomBytes(8).toString('hex'));
       return noPin;
     });
   }
@@ -707,7 +789,7 @@ export class WalletChargesService {
       await assertVenueAcceptsCharges(tx, actor.tenantId);
       await assertVenueAcceptsMethods(tx, actor.tenantId, ['wallet']);
     });
-    const { amountCents, category, serviceName, lines } = await this.resolveCharge(actor, input);
+    const { amountCents, category, serviceName, lines, tipCents } = await this.resolveCharge(actor, input);
     const payToken = randomBytes(24).toString('base64url');
     // Cobro, su referencia (C-0001) y sus líneas: todo o nada.
     const request = await this.prisma.asSystem(async (tx) => {
@@ -723,6 +805,7 @@ export class WalletChargesService {
           payToken,
           ref,
           expiresAt: new Date(Date.now() + QR_CHARGE_TTL_MS),
+          ...(tipCents > 0 ? { tipCents } : {}),
         },
       });
       await insertChargeLines(tx, actor.tenantId, { walletChargeId: created.id }, lines);
@@ -741,14 +824,17 @@ export class WalletChargesService {
       ),
     ]);
     const status = effectiveRequestStatus(request, new Date());
+    const elsewhere = status !== 'ACCEPTED' && (await this.paidByCard(request));
     return {
       status,
-      amountCents: request.amountCents,
+      // Lo que paga: el importe y la propina que pidió.
+      amountCents: request.amountCents + (request.tipCents ?? 0),
       serviceName: request.serviceName,
       venueName: venue?.name ?? '',
       requestedByName: requester?.displayName ?? null,
       expiresAt: request.expiresAt.toISOString(),
       paidAt: status === 'ACCEPTED' && request.decidedAt ? request.decidedAt.toISOString() : null,
+      ...(elsewhere ? { paidElsewhere: true } : {}),
     };
   }
 
@@ -764,7 +850,7 @@ export class WalletChargesService {
       tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
     );
     this.logger.log(`Saldo ${walletId}: cobro ${request.id} pagado con su llave (QR)`);
-    return { amountCents: request.amountCents, balanceCents: wallet?.balanceCents ?? 0 };
+    return { amountCents: request.amountCents + (request.tipCents ?? 0), balanceCents: wallet?.balanceCents ?? 0 };
   }
 
   /** Encargado o dueño: cobros con QR que nadie ha pagado aún (cliente sin batería…). */
@@ -783,7 +869,15 @@ export class WalletChargesService {
 
   /** Para el panel (con el email si no tiene nombre) o para el datáfono (solo el nombre). */
   private async pendingViews(
-    rows: Array<{ id: string; amountCents: number; serviceName: string | null; requestedByUserId: string; createdAt: Date; expiresAt: Date }>,
+    rows: Array<{
+      id: string;
+      amountCents: number;
+      tipCents?: number | null;
+      serviceName: string | null;
+      requestedByUserId: string;
+      createdAt: Date;
+      expiresAt: Date;
+    }>,
     withEmail: boolean,
   ): Promise<PendingQrCharge[]> {
     const users = await this.prisma.asSystem((tx) =>
@@ -796,7 +890,8 @@ export class WalletChargesService {
       const u = users.find((x) => x.id === r.requestedByUserId);
       return {
         id: r.id,
-        amountCents: r.amountCents,
+        // Lo que se cobra del saldo: el importe y la propina.
+        amountCents: r.amountCents + (r.tipCents ?? 0),
         serviceName: r.serviceName,
         requestedByName: u?.displayName ?? (withEmail ? u?.email : null) ?? '',
         createdAt: r.createdAt.toISOString(),
@@ -930,7 +1025,7 @@ export class WalletChargesService {
     if ('card' in input) await this.assertMethods(actor.tenantId, ['nfc']);
     // Que no se gaste un intento de PIN en un cobro que ya no se puede pagar.
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
-      throw requestError('not-pending');
+      throw await this.notPendingError(request);
     }
     const wallet = await this.walletByStaffRef(actor.tenantId, input);
     // Un PIN que puso el encargado sin el cliente: ni él cobra con ese PIN ni
@@ -959,7 +1054,7 @@ export class WalletChargesService {
     if (request.requestedByUserId !== actor.userId && !isManager(actor)) {
       throw new ForbiddenException('Este cobro lo ha hecho otra persona');
     }
-    this.assertPayable(request);
+    await this.assertPayable(request);
     const wallet = await this.walletByLinkToken(actor.tenantId, walletToken, { chargeOnly: true });
     if (wallet.blockedAt) throw requestError('blocked');
     return {
@@ -996,7 +1091,7 @@ export class WalletChargesService {
       throw new ForbiddenException('Este cobro lo ha hecho otra persona');
     }
     await this.assertMethods(actor.tenantId, ['nfc']);
-    if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) throw requestError('not-pending');
+    if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) throw await this.notPendingError(request);
     const wallet = await this.noPinCardWallet(actor.tenantId, input);
     const noPin = await this.bindAndSettle(request, wallet.id, 'nfc_nopin');
     await this.touchCard(wallet.id, input);
@@ -1080,7 +1175,7 @@ export class WalletChargesService {
       tx.walletChargeRequest.findFirst({ where: { payToken, tenantId: terminal.tenantId } }),
     );
     if (!request) throw new NotFoundException('Este QR no es de un cobro de este local');
-    this.assertPayable(request);
+    await this.assertPayable(request);
     const [view] = await this.pendingViews([request], false);
     if (!view) throw new NotFoundException('Cobro no encontrado');
     return view;
@@ -1213,14 +1308,19 @@ export class WalletChargesService {
       }),
     );
     if (!request) throw new NotFoundException('Cobro no encontrado');
-    this.assertPayable(request);
+    await this.assertPayable(request);
     return request;
   }
 
-  private assertPayable(request: { status: string; expiresAt: Date; walletId: string | null }): void {
+  private async assertPayable(request: {
+    status: string;
+    expiresAt: Date;
+    walletId: string | null;
+    linkedPaymentId?: string | null;
+  }): Promise<void> {
     const status = effectiveRequestStatus(request, new Date());
     if (status === 'EXPIRED') throw requestError('expired');
-    if (status !== 'PENDING' || request.walletId) throw requestError('not-pending');
+    if (status !== 'PENDING' || request.walletId) throw await this.notPendingError(request);
   }
 
   /**
@@ -1699,12 +1799,12 @@ export class WalletChargesService {
    * sigue libre). `auth`: cómo lo autorizó el cliente (queda en el consumo).
    */
   private async bindAndSettle(
-    request: { id: string; tenantId: string; status: string; expiresAt: Date; walletId: string | null },
+    request: { id: string; tenantId: string; status: string; expiresAt: Date; walletId: string | null; linkedPaymentId?: string | null },
     walletId: string,
     auth: ChargeAuthMethod,
   ): Promise<NoPinSettled | null> {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
-      throw requestError('not-pending');
+      throw await this.notPendingError(request);
     }
     // Un cobro hecho antes de la pausa tampoco se cobra mientras dure (423),
     // ni con el pago con saldo apagado en Ajustes (409).
@@ -1722,6 +1822,15 @@ export class WalletChargesService {
       throw new ConflictException({ message: 'Tu saldo no vale en este local', code: 'CHARGE_OTHER_VENUE' });
     }
     return this.settleRequest(walletId, request.id, auth);
+  }
+
+  /**
+   * Por qué no se puede pagar un cobro que ya no está pendiente: si es el
+   * saldo de un cobro único y la tarjeta ya lo pagó, «Ya está pagado»
+   * (ALREADY_PAID); si no, «Este cobro ya no está pendiente».
+   */
+  private async notPendingError(request: { linkedPaymentId?: string | null }): Promise<ConflictException> {
+    return (await this.paidByCard(request)) ? alreadyPaid() : requestError('not-pending');
   }
 
   private async qrRequest(payToken: string) {
@@ -2132,7 +2241,15 @@ export class WalletChargesService {
   }
 
   private requestView(
-    r: { id: string; status: string; amountCents: number; serviceName: string | null; expiresAt: Date; ref?: number | null },
+    r: {
+      id: string;
+      status: string;
+      amountCents: number;
+      tipCents?: number | null;
+      serviceName: string | null;
+      expiresAt: Date;
+      ref?: number | null;
+    },
     newBalanceCents: number | null,
   ): ChargeRequestView {
     return {
@@ -2140,6 +2257,7 @@ export class WalletChargesService {
       ref: formatChargeRef(r.ref),
       status: effectiveRequestStatus(r, new Date()),
       amountCents: r.amountCents,
+      tipCents: r.tipCents ?? 0,
       serviceName: r.serviceName,
       expiresAt: r.expiresAt.toISOString(),
       newBalanceCents,
@@ -2233,4 +2351,8 @@ export interface QrChargeInput {
   category?: string;
   /** «Invitar a una copa»: el QR personal de la chica invitada. */
   invitedStaffToken?: string;
+  /** La propina que pidió el cliente (aparte del importe). */
+  tipCents?: number;
+  /** «Invitar a una copa» con la chica elegida de la lista (si el local no pide su QR). */
+  invitedOperatorId?: string;
 }

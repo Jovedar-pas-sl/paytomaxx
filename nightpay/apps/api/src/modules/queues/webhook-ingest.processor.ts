@@ -11,6 +11,12 @@ import { parseWebhookBody } from '../gateways/header-utils';
 import { InvalidTransitionError, isIdempotentTransition } from '../payments/payment.machine';
 import { WEBHOOKS_INGEST_QUEUE } from './queue-tokens';
 import {
+  CARD_REFUNDED_AFTER_SALDO_EVENT,
+  lateApprovalHandled,
+  settleLateCardApproval,
+  wasPaidWithSaldo,
+} from '../payments/late-card-approval';
+import {
   APPROVAL_UNBOOKED_EVENT,
   expectedCharge,
   judgeApproval,
@@ -130,6 +136,22 @@ export class WebhookIngestProcessor extends WorkerHost {
         await this.markProcessed(deliveryId);
         return;
       }
+      if (event.type === 'AUTHORIZED' && err.fromState === 'CANCELED' && (await wasPaidWithSaldo(this.prisma, target.id))) {
+        // Cobro único: el cliente ya lo pagó con su saldo y el banco aprobó
+        // también la tarjeta. Se devuelve solo si la pasarela puede; si no,
+        // incidencia «cobrado dos veces». Un aviso repetido no lo hace dos veces.
+        if (await lateApprovalHandled(this.prisma, target.id, event.providerTxId)) {
+          await this.markProcessed(deliveryId);
+          return;
+        }
+        const outcome = await settleLateCardApproval(
+          { prisma: this.prisma, adapter, logger: this.logger },
+          target,
+          event.providerTxId,
+        );
+        await this.recordAndClose(deliveryId, target, outcome.eventType, outcome.payload);
+        return;
+      }
       if (event.type === 'AUTHORIZED') {
         // El banco cobró y el cobro ya no se puede dar por pagado (caducado,
         // cancelado, nunca fue al banco…). Reintentar no lo arregla: se
@@ -198,9 +220,13 @@ export class WebhookIngestProcessor extends WorkerHost {
     eventType: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    this.logger.error(
-      `webhook ${deliveryId}: ${eventType} en el cobro ${target.id} — no se da por pagado, queda en Incidencias (${JSON.stringify(payload)})`,
-    );
+    if (eventType === CARD_REFUNDED_AFTER_SALDO_EVENT) {
+      this.logger.warn(`webhook ${deliveryId}: tarjeta aprobada tras pagar con saldo en el cobro ${target.id} — devuelta sola`);
+    } else {
+      this.logger.error(
+        `webhook ${deliveryId}: ${eventType} en el cobro ${target.id} — no se da por pagado, queda en Incidencias (${JSON.stringify(payload)})`,
+      );
+    }
     await this.prisma.asSystem(async (tx) => {
       await tx.paymentEvent.create({
         data: {

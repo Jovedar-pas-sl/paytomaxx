@@ -7,6 +7,7 @@ import type {
   CashTopUpDto,
   CashTopUpResult,
   PaymentStatus,
+  PostCode,
   ReceptionOptions,
   SectionCode,
   StaffQrView,
@@ -349,6 +350,8 @@ export interface MyNight {
   unpaidCents?: number;
   /** Ganado en otras noches y aún sin pagar, sin restar deudas (un API antiguo no lo manda). */
   otherUnpaidCents?: number;
+  /** «Invitar a una copa»: las copas a las que la invitaron esta noche y su parte (un API antiguo no lo manda). */
+  invitations?: { count: number; shareCents: number };
 }
 
 export async function fetchMyNight(signal?: AbortSignal): Promise<MyNight> {
@@ -526,6 +529,10 @@ export interface MySections {
   defaultCategory: SectionCode | null;
   /** Lo que su puesto puede cobrar (null: el API anterior, que no lo dice). */
   allowed: SectionCode[] | null;
+  /** Su puesto (Barra, Sala…; null: dueño o encargado sin puesto). */
+  post?: PostCode | null;
+  /** Su puesto lleva propinas (null: el API anterior). */
+  tips?: boolean | null;
 }
 
 export async function fetchMySections(): Promise<MySections> {
@@ -534,12 +541,15 @@ export async function fetchMySections(): Promise<MySections> {
   const body = (await res.json()) as {
     sections?: VenueSection[];
     myDefaultCategory?: SectionCode;
-    myRights?: { sections?: SectionCode[] };
+    myPost?: PostCode | null;
+    myRights?: { sections?: SectionCode[]; tips?: boolean };
   };
   return {
     sections: body.sections ?? [],
     defaultCategory: body.myDefaultCategory ?? null,
     allowed: body.myRights?.sections ?? null,
+    post: body.myPost ?? null,
+    tips: typeof body.myRights?.tips === 'boolean' ? body.myRights.tips : null,
   };
 }
 

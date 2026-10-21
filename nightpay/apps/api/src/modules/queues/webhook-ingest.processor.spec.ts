@@ -235,3 +235,51 @@ describe('WebhookIngestProcessor — aprobación del banco que no se puede apunt
     expect(closed(m)).toBe(false);
   });
 });
+
+describe('WebhookIngestProcessor — cobro único: la tarjeta aprobada después de pagar con el saldo', () => {
+  /** El cobro con tarjeta se canceló porque lo pagó el saldo; `handled`: pedidos ya tratados. */
+  function paidWithSaldo(refund: () => Promise<unknown>, handled: string[] = []) {
+    const m = makeProcessor({ provider: 'PAYTEF' });
+    Object.assign(m.tx.paymentEvent, {
+      count: vi.fn().mockResolvedValue(1),
+      findMany: vi.fn().mockResolvedValue(handled.map((providerTxId) => ({ payload: { providerTxId } }))),
+    });
+    Object.assign(m.adapter, { refund: vi.fn(refund) });
+    m.payments.transition.mockRejectedValueOnce(new InvalidTransitionError('CANCELED', 'AUTHORIZED'));
+    return m;
+  }
+
+  it('la pasarela devuelve por API → se devuelve sola, evento informativo y aviso cerrado', async () => {
+    const m = paidWithSaldo(async () => ({ providerRefundId: 'RF-9', status: 'SUCCEEDED' }));
+    await m.processor.process(m.job);
+    expect((m.adapter as unknown as { refund: ReturnType<typeof vi.fn> }).refund).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentId: PAYMENT_ID, providerTxId: 'abc123def456', amountCents: 4850 }),
+    );
+    expect(m.tx.paymentEvent.create.mock.calls[0]![0].data).toMatchObject({
+      eventType: 'payment.card_refunded_after_saldo',
+      payload: { providerTxId: 'abc123def456', providerRefundId: 'RF-9' },
+    });
+    expect(m.tx.webhookDelivery.update).toHaveBeenCalled();
+  });
+
+  it('sin devolución por API → incidencia «cobrado dos veces» (paid_with_saldo), aviso cerrado', async () => {
+    const m = paidWithSaldo(async () => {
+      throw new Error('no implementado');
+    });
+    await m.processor.process(m.job);
+    expect(m.tx.paymentEvent.create.mock.calls[0]![0].data).toMatchObject({
+      eventType: 'payment.approval_unbooked',
+      payload: { reason: 'paid_with_saldo', fromStatus: 'CANCELED', providerTxId: 'abc123def456' },
+    });
+    expect(closed(m)).toBe(true);
+  });
+
+  it('el mismo aviso otra vez → solo se cierra (ni otra devolución ni otra incidencia)', async () => {
+    const refund = vi.fn(async () => ({ providerRefundId: 'x', status: 'SUCCEEDED' }));
+    const m = paidWithSaldo(refund, ['abc123def456']);
+    await m.processor.process(m.job);
+    expect(refund).not.toHaveBeenCalled();
+    expect(m.tx.paymentEvent.create).not.toHaveBeenCalled();
+    expect(m.prisma.webhookDelivery.update).toHaveBeenCalled();
+  });
+});

@@ -8,6 +8,7 @@ import {
   confirmationCode,
   decideRedsysRetry,
   retryOutcome,
+  saldoPayTokenOf,
   settledPayView,
   switchesMethod,
   type PayablePayment,
@@ -209,6 +210,53 @@ describe('qué ve el cliente al escanear (Fase 1B)', () => {
   it('cancelado o sin confirmar → cerrado', () => {
     expect(settledPayView(payable({ status: 'CANCELED' }), NOW)).toEqual({ kind: 'closed', reason: 'canceled' });
     expect(settledPayView(payable({ status: 'ORPHAN' }), NOW)).toEqual({ kind: 'closed', reason: 'unconfirmed' });
+  });
+
+  describe('cobro único: el mismo cobro con el saldo', () => {
+    const saldo = (o: Partial<NonNullable<PayablePayment['saldo']>> = {}) => ({
+      payToken: 'pay-tok-123',
+      status: 'PENDING',
+      expiresAt: FUTURE,
+      enabled: true,
+      ...o,
+    });
+
+    it('pendiente y con el saldo encendido: «Pagar con mi saldo OxioCard» con su enlace', () => {
+      expect(choosePayPage(payable({ saldo: saldo() }), NOW)).toMatchObject({ kind: 'choose', saldoPayToken: 'pay-tok-123' });
+      expect(saldoPayTokenOf(payable({ saldo: saldo() }), NOW)).toBe('pay-tok-123');
+    });
+
+    it('sin saldo enlazado, apagado, caducado o ya resuelto: solo tarjeta', () => {
+      for (const p of [
+        payable({}),
+        payable({ saldo: saldo({ enabled: false }) }),
+        payable({ saldo: saldo({ expiresAt: PAST }) }),
+        payable({ saldo: saldo({ status: 'CANCELED' }) }),
+        payable({ saldo: saldo({ payToken: null }) }),
+      ]) {
+        expect(saldoPayTokenOf(p, NOW)).toBeNull();
+        expect((choosePayPage(p, NOW) as { saldoPayToken?: string }).saldoPayToken).toBeUndefined();
+      }
+    });
+
+    it('la propina que pidió al personal sale ya marcada (solo en el cobro único)', () => {
+      expect(choosePayPage(payable({ saldo: saldo(), tipCents: 500 }), NOW)).toMatchObject({ presetTipCents: 500, tipCents: 500 });
+      expect((choosePayPage(payable({ tipCents: 500 }), NOW) as { presetTipCents?: number }).presetTipCents).toBeUndefined();
+      expect(
+        (choosePayPage(payable({ saldo: saldo(), tipCents: 500, allowTip: false }), NOW) as { presetTipCents?: number }).presetTipCents,
+      ).toBeUndefined();
+    });
+
+    it('pagado con el saldo: «Ya está pagado con tu saldo» (no «cancelado»)', () => {
+      expect(settledPayView(payable({ status: 'CANCELED', saldo: saldo({ status: 'ACCEPTED' }) }), NOW)).toEqual({
+        kind: 'closed',
+        reason: 'paid-with-saldo',
+      });
+      expect(settledPayView(payable({ status: 'CANCELED', saldo: saldo({ status: 'CANCELED' }) }), NOW)).toEqual({
+        kind: 'closed',
+        reason: 'canceled',
+      });
+    });
   });
 
   it('sin intento nuevo: esperar, caducado o demasiados intentos', () => {

@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import {
   INVITATION_NOT_IN_CHARGE,
+  INVITATION_QR_REQUIRED,
   INVITATION_TOKEN_INVALID,
   INVITATION_TOKEN_MISSING,
   invitationRulesOf,
@@ -42,6 +43,8 @@ export async function resolveChargeOrThrow(
     requestedCategory?: string | null;
     /** «Invitar a una copa»: el QR personal de la chica invitada. */
     invitedStaffToken?: string | null;
+    /** O la chica elegida de la lista (si el local no pide su QR). */
+    invitedOperatorId?: string | null;
   },
 ): Promise<ResolvedCharge & { rights: ChargeRights | null }> {
   const ids = requestedItemIds(input);
@@ -95,34 +98,57 @@ export async function resolveChargeOrThrow(
  */
 async function invitationOf(
   prisma: PrismaService,
-  input: { tenantId: string; userId: string | null; role: string | null | undefined; invitedStaffToken?: string | null },
+  input: {
+    tenantId: string;
+    userId: string | null;
+    role: string | null | undefined;
+    invitedStaffToken?: string | null;
+    invitedOperatorId?: string | null;
+  },
   items: ReadonlyMap<string, CartaItemLike>,
   lines: DraftLine[],
 ): Promise<DraftLine[]> {
   const invited = lines.some((l) => isInvitationLine(l, items));
-  if (!invited && !input.invitedStaffToken) return lines;
+  if (!invited && !input.invitedStaffToken && !input.invitedOperatorId) return lines;
   if (!invited) throw new BadRequestException(INVITATION_NOT_IN_CHARGE);
-  const token = input.invitedStaffToken ? staffTokenFrom(input.invitedStaffToken) : null;
-  if (!token) throw new BadRequestException(INVITATION_TOKEN_MISSING);
-  const who = verifyStaffToken(token, Date.now(), staffQrSecret());
-  if (!who || who.tenantId !== input.tenantId) throw new BadRequestException(INVITATION_TOKEN_INVALID);
-  const [chica, venue] = await prisma.asSystem((tx) =>
-    Promise.all([
-      tx.user.findFirst({
-        where: { id: who.userId, tenantId: input.tenantId, role: 'OPERATOR', deletedAt: null },
-        select: { id: true },
-      }),
-      tx.venue.findUnique({ where: { id: input.tenantId }, select: { invitationRules: true } }),
-    ]),
+  const venue = await prisma.asSystem((tx) =>
+    tx.venue.findUnique({ where: { id: input.tenantId }, select: { invitationRules: true } }),
+  );
+  const rules = invitationRulesOf(venue?.invitationRules);
+  const chicaId = await invitedChicaId(input, rules.requireQr);
+  const chica = await prisma.asSystem((tx) =>
+    tx.user.findFirst({
+      where: { id: chicaId, tenantId: input.tenantId, role: 'OPERATOR', deletedAt: null },
+      select: { id: true },
+    }),
   );
   if (!chica) throw new BadRequestException(INVITATION_TOKEN_INVALID);
   if (chica.id === input.userId) throw new BadRequestException('Una invitación es para otra chica, no para quien la cobra.');
   return withInvitation(lines, items, {
     beneficiaryOperatorId: chica.id,
-    rules: invitationRulesOf(venue?.invitationRules),
+    rules,
     // La parte de quien cobra, solo si es camarero (el dueño y el encargado: del local).
     chargerGetsShare: input.role === 'WAITER',
   });
+}
+
+/**
+ * Quién es la chica invitada: su QR (firmado, de este local, sin caducar) o,
+ * si el local no pide el QR (Ajustes → Invitaciones), la elegida de la lista.
+ */
+async function invitedChicaId(
+  input: { tenantId: string; invitedStaffToken?: string | null; invitedOperatorId?: string | null },
+  requireQr: boolean,
+): Promise<string> {
+  if (input.invitedOperatorId && !input.invitedStaffToken) {
+    if (requireQr) throw new BadRequestException(INVITATION_QR_REQUIRED);
+    return input.invitedOperatorId;
+  }
+  const token = input.invitedStaffToken ? staffTokenFrom(input.invitedStaffToken) : null;
+  if (!token) throw new BadRequestException(INVITATION_TOKEN_MISSING);
+  const who = verifyStaffToken(token, Date.now(), staffQrSecret());
+  if (!who || who.tenantId !== input.tenantId) throw new BadRequestException(INVITATION_TOKEN_INVALID);
+  return who.userId;
 }
 
 export type LineWithBps = DraftLine & { operatorCommissionBps: number | null };

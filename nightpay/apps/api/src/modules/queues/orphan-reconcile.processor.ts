@@ -10,6 +10,7 @@ import type { GatewayAdapter } from '../gateways/gateway.adapter';
 import { ORPHAN_RECONCILE_QUEUE } from './queue-tokens';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { AMOUNT_MISMATCH_EVENT } from './approval-check';
+import { lateApprovalHandled, settleLateCardApproval, wasPaidWithSaldo } from '../payments/late-card-approval';
 
 interface OrphanReconcileJobData {
   paymentId: string;
@@ -22,6 +23,7 @@ interface ReconcilablePayment {
   status: string;
   provider: Provider | null;
   providerTxId: string | null;
+  amountCents: number;
 }
 
 /** Cobros en los que aún puede faltar apuntar una aprobación del banco. */
@@ -90,6 +92,12 @@ export class OrphanReconcileProcessor extends WorkerHost {
     // Sin petición no hay local en el contexto: lectura de sistema (si no, cuenta
     // como consulta sin local y con TENANCY_UNSCOPED_QUERIES=throw se cortaría).
     const payment: ReconcilablePayment = await this.prisma.asSystem(() => this.payments.findById(paymentId));
+    // Cobro único: lo pagó el saldo con la tarjeta en el banco. Si el banco la
+    // aprobó sin avisar (aviso perdido), se trata como el aviso tardío.
+    if (payment.status === 'CANCELED' && payment.provider && (await wasPaidWithSaldo(this.prisma, payment.id))) {
+      await this.reconcileAfterSaldo(payment, payment.provider, attempt < maxAttempts);
+      return;
+    }
     if (!RECONCILABLE.has(payment.status)) {
       this.logger.debug(`Orphan ${paymentId} ya resuelto (${payment.status}) — nada que conciliar`);
       return;
@@ -123,6 +131,34 @@ export class OrphanReconcileProcessor extends WorkerHost {
       throw new Error('still-pending');
     }
     await this.park(payment);
+  }
+
+  /**
+   * Cobro único pagado con el saldo mientras la tarjeta estaba en el banco:
+   * cada pedido aprobado (y aún no tratado) se devuelve solo o queda en
+   * Incidencias. Sin aprobación, se vuelve a mirar mientras queden reintentos.
+   */
+  private async reconcileAfterSaldo(payment: ReconcilablePayment, provider: Provider, retry: boolean): Promise<void> {
+    const orders = await this.ordersOf(payment);
+    if (orders.length === 0) return;
+    const adapter = this.gateways.get(provider);
+    const approved = await this.approvedOrders(adapter, payment.tenantId, orders);
+    for (const order of approved) {
+      if (await lateApprovalHandled(this.prisma, payment.id, order)) continue;
+      const outcome = await settleLateCardApproval({ prisma: this.prisma, adapter, logger: this.logger }, payment, order);
+      await this.prisma.asSystem((tx) =>
+        tx.paymentEvent.create({
+          data: {
+            paymentId: payment.id,
+            tenantId: payment.tenantId,
+            eventType: outcome.eventType,
+            payload: { ...outcome.payload, source: 'conciliacion' } as never,
+            traceId: randomUUID(),
+          },
+        }),
+      );
+    }
+    if (approved.length === 0 && retry) throw new Error('still-pending');
   }
 
   private async ordersOf(payment: ReconcilablePayment): Promise<string[]> {

@@ -173,6 +173,20 @@ export const CreatePaymentSchema = z.object({
    * o su token). Hace falta si se cobra una invitación de la carta.
    */
   invitedStaffToken: z.string().trim().min(20).max(600).optional(),
+  /**
+   * «Invitar a una copa» eligiendo a la chica de la lista (sin su QR): solo si
+   * el local no pide su QR (Ajustes → Invitaciones). Uno u otro, no los dos.
+   */
+  invitedOperatorId: UuidSchema.optional(),
+  /**
+   * Cobro único: el mismo cobro se puede pagar también con el saldo del
+   * cliente (su NFC en el móvil de quien cobra, su PIN o su Face ID desde la
+   * página de pago). Lleva enlazado un cobro del saldo con el mismo importe,
+   * la misma referencia y las mismas líneas. Gana el primero que se paga: el
+   * otro se cancela. Se ignora si el local no cobra con saldo. Las apps
+   * antiguas no lo mandan: solo tarjeta, como siempre.
+   */
+  withSaldo: z.boolean().optional(),
 }).refine(
   (d) => d.terminalExternalId !== undefined || d.zone !== undefined,
   { message: 'Debes pasar terminalExternalId o zone' },
@@ -185,8 +199,21 @@ export const CreatePaymentSchema = z.object({
 ).refine(
   (d) => !(d.wallet && d.lines),
   { message: 'Una recarga de saldo no lleva líneas: no es una venta', path: ['lines'] },
+).refine(
+  (d) => !(d.withSaldo && (d.wallet || d.captureMethod === 'POS_EXTERNAL')),
+  { message: 'Una recarga o un cobro con datáfono no se pagan con el saldo', path: ['withSaldo'] },
+).refine(
+  (d) => !(d.invitedStaffToken && d.invitedOperatorId),
+  { message: 'O el QR de la chica o la chica de la lista, no los dos', path: ['invitedOperatorId'] },
 );
 export type CreatePaymentDto = z.infer<typeof CreatePaymentSchema>;
+
+/**
+ * 409 cuando se intenta pagar con el saldo un cobro que ya se pagó con la
+ * tarjeta (o al revés): «Ya está pagado». Nunca se cobra dos veces.
+ */
+export const ALREADY_PAID_CODE = 'ALREADY_PAID';
+export const ALREADY_PAID_MESSAGE = 'Ya está pagado';
 
 /**
  * Confirmación POS — camarero/manager marca cobrado tras procesar la tarjeta
@@ -253,6 +280,18 @@ export const CreatedPaymentResponseSchema = z.object({
    * recibe en su página de "Pagado".
    */
   walletId: UuidSchema.nullable().optional(),
+  /**
+   * Cobro único (`withSaldo`): el cobro del saldo enlazado, para pagarlo con
+   * el NFC o el PIN en el móvil de quien cobra (POST /v1/wallet-charges/:id/nfc
+   * o /pin) y para saber si ya lo pagó. Null: solo tarjeta.
+   */
+  saldo: z
+    .object({
+      chargeId: UuidSchema,
+      expiresAt: z.string().datetime(),
+    })
+    .nullable()
+    .optional(),
 });
 export type CreatedPaymentResponse = z.infer<typeof CreatedPaymentResponseSchema>;
 

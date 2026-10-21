@@ -265,3 +265,35 @@ describe('OrphanReconcileProcessor — importe (P3)', () => {
     expect(m.tx.paymentEvent.findMany).not.toHaveBeenCalled();
   });
 });
+
+describe('OrphanReconcileProcessor — cobro único pagado con el saldo', () => {
+  function paidWithSaldo(o: Options & { handled?: string[] } = {}) {
+    const m = makeProcessor({ status: 'CANCELED', attempts: [{ providerTxId: '3333SALDO', status: 'PENDING' }], ...o });
+    m.tx.paymentEvent.count.mockResolvedValue(1);
+    m.tx.paymentEvent.findMany.mockResolvedValue((o.handled ?? []).map((providerTxId) => ({ payload: { providerTxId } })));
+    Object.assign(m.tx.paymentAttempt, { findFirst: vi.fn().mockResolvedValue({ amountCents: 2000 }) });
+    Object.assign(m.adapter, { refund: vi.fn(async () => { throw new Error('no implementado'); }) });
+    return m;
+  }
+
+  it('el banco aprobó la tarjeta sin avisar → incidencia «cobrado dos veces» (nunca se da por pagado)', async () => {
+    const m = paidWithSaldo({ gateway: { '3333SALDO': 'AUTHORIZED' } });
+    await m.processor.process(m.job);
+    expect(m.payments.transition).not.toHaveBeenCalled();
+    expect(m.tx.paymentEvent.create.mock.calls[0]![0].data).toMatchObject({
+      eventType: 'payment.approval_unbooked',
+      payload: { reason: 'paid_with_saldo', providerTxId: '3333SALDO', amountCents: 2000, source: 'conciliacion' },
+    });
+  });
+
+  it('ya tratado por el aviso → nada más; sin aprobación → se vuelve a mirar mientras queden reintentos', async () => {
+    const done = paidWithSaldo({ gateway: { '3333SALDO': 'AUTHORIZED' }, handled: ['3333SALDO'] });
+    await done.processor.process(done.job);
+    expect(done.tx.paymentEvent.create).not.toHaveBeenCalled();
+    const waiting = paidWithSaldo({ gateway: {} });
+    await expect(waiting.processor.process(waiting.job)).rejects.toThrow('still-pending');
+    const last = paidWithSaldo({ gateway: {}, attemptsMade: 4, maxAttempts: 5 });
+    await expect(last.processor.process(last.job)).resolves.toBeUndefined();
+    expect(last.payments.transition).not.toHaveBeenCalled();
+  });
+});

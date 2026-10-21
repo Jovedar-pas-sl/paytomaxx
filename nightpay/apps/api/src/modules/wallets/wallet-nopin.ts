@@ -63,7 +63,7 @@ type RawTx = Pick<Prisma.TransactionClient, '$queryRaw'>;
  */
 export async function noPinSpentSince(tx: RawTx, walletIds: readonly string[], since: Date): Promise<number> {
   const rows = await tx.$queryRaw<Array<{ total: number }>>`
-    SELECT COALESCE(SUM("amountCents"), 0)::int AS total
+    SELECT COALESCE(SUM("amountCents" + "tipCents"), 0)::int AS total
       FROM wallet_consumptions
      WHERE "walletId" = ANY(${[...walletIds]}::uuid[])
        AND "authMethod" = 'nfc_nopin'

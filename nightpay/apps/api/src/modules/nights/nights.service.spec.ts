@@ -607,6 +607,28 @@ describe('cierre automático y noche de la chica', () => {
     );
   });
 
+  it('invitada a una copa: lo cobrado cuenta solo su parte (el cobro entero, solo si lo cobró ella), y sus invitaciones', async () => {
+    const { svc, prisma } = makeService();
+    const queries: Array<{ text: string; values: unknown[] }> = [];
+    prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = Prisma.sql(strings, ...values);
+      queries.push({ text: sql.text, values: sql.values });
+      if (sql.text.includes('"beneficiaryOperatorId"')) return [{ count: 6, shareCents: 6_000 }];
+      if (sql.text.includes('"otherUnpaidCents"')) return [{ unpaidCents: 0, otherUnpaidCents: 0 }];
+      return [{ count: 6, chargedCents: 6_000, commissionCents: 6_000, tipsCents: 0, reversedCents: 0 }];
+    });
+    const mine = await svc.mine('t-1', 'op-1');
+    expect(mine.invitations).toEqual({ count: 6, shareCents: 6_000 });
+    const main = queries.find((q) => q.text.includes('AS "chargedCents"'))!;
+    // Tarjeta y saldo: el importe entero solo si el cobro es suyo; si no, su parte.
+    expect(main.text).toContain('CASE WHEN p."createdByUserId" = $');
+    expect(main.text).toContain('CASE WHEN c."providedByUserId" = $');
+    expect(main.text).toContain('ELSE e."commissionCents" + e."tipCents" END');
+    const inv = queries.find((q) => q.text.includes('"beneficiaryOperatorId"'))!;
+    expect(inv.text).toContain('c."reversedAt" IS NULL');
+    expect(inv.values).toEqual(expect.arrayContaining(['t-1', 'op-1', OPENED]));
+  });
+
   it('sin nada pendiente de pago: ceros, no undefined', async () => {
     const { svc, prisma } = makeService();
     prisma.$queryRaw

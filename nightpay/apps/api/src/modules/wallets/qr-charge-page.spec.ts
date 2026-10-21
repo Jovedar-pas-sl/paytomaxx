@@ -31,6 +31,14 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(es).toContain('/s/tok-1');
   });
 
+  it('cobro único ya pagado con tarjeta: «Ya está pagado con tarjeta» y que del saldo no se cobró nada', () => {
+    const html = renderQrChargePage('tok-1', 'es', { ...view, status: 'CANCELED', paidElsewhere: true }, NOW);
+    expect(html).toContain('Ya está pagado con tarjeta');
+    expect(html).toContain('De tu saldo no se ha cobrado nada.');
+    expect(html).not.toContain('id="pay"');
+    expect(renderQrChargePage('tok-1', 'en', { ...view, status: 'CANCELED', paidElsewhere: true }, NOW)).toContain('Already paid by card');
+  });
+
   it('al pagar: el mismo «Pagado» a pantalla completa, con «Te quedan X €» y la pantalla encendida', () => {
     const html = renderQrChargePage('tok-1', 'es', view, NOW);
     // El «Pagado» ya está en la página (oculto) y el JS lo enseña al pagar.

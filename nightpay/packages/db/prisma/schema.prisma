@@ -434,6 +434,8 @@ model Payment {
   peanpeCall         PeanpeCall?
   attempts           PaymentAttempt[]
   lines              PaymentLine[]
+  // Cobro único: la otra forma de pagar este mismo cobro (el saldo).
+  linkedWalletCharge WalletChargeRequest? @relation("CobroUnico")
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, ref])
@@ -498,9 +500,19 @@ model WalletChargeRequest {
   // Referencia corta por local (C-0001), del mismo contador que los cobros.
   ref               Int?
   createdAt         DateTime  @default(now()) @db.Timestamptz
+  // Cobro único (20261024100000): el cobro con tarjeta del que este es la
+  // otra forma de pagar (NFC, PIN o Face ID). Mismo importe, misma referencia
+  // y un solo juego de líneas (en el cobro con tarjeta hasta que paga el
+  // saldo). Gana el primero que se paga, con la fila del cobro bloqueada: el
+  // otro se cancela. Null = cobro del saldo suelto.
+  linkedPaymentId   String?   @unique @db.Uuid
+  // Propina que pidió el cliente (20261024100100), aparte del importe: el
+  // saldo paga importe + propina y el consumo la guarda en su "tipCents".
+  tipCents          Int       @default(0)
 
-  wallet ClientWallet? @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  lines  PaymentLine[]
+  wallet        ClientWallet? @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  linkedPayment Payment?      @relation("CobroUnico", fields: [linkedPaymentId], references: [id], onDelete: Cascade)
+  lines         PaymentLine[]
 
   @@unique([tenantId, ref])
   @@index([walletId, status])

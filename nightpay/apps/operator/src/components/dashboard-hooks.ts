@@ -12,8 +12,11 @@ import {
 import { usePolling } from '@/lib/use-polling';
 
 const BALANCE_POLL_MS = 8000;
-/** La noche cuesta más al API (suma la noche entera): menos a menudo, y ya tras cada cobro. */
-const NIGHT_POLL_MS = 30_000;
+/**
+ * La noche cuesta más al API (suma la noche entera): menos a menudo, y ya
+ * tras cada cobro. Cada 15 s: «Te han invitado · +10 €» llega enseguida.
+ */
+const NIGHT_POLL_MS = 15_000;
 
 export interface PollError {
   text: string;
