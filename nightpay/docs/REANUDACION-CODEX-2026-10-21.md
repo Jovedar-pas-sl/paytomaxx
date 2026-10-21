@@ -74,10 +74,9 @@ ejecutan cobros ni migraciones contra producción.
 - Regla de comisión de OxioPay: pendiente por indicación del usuario. Se conserva
   el cálculo existente, sin darlo por aprobado.
 - Comisión bancaria de BBVA: desconocida; no se estima.
-- Validación en Android con lector y fichas reales: preparación, búsqueda de
-  `0522`, PIN, devolución, saldo mixto y confirmación del encargado.
-- Comprobación visual en navegador: el navegador integrado no estaba disponible
-  en esta sesión.
+- El usuario confirma pruebas reales realizadas. La revisión visual posterior
+  verifica once pantallas móviles con datos simulados, sin errores JavaScript ni
+  desbordamientos; ver [revisión de maqueta y despliegue](reviews/2026-10-21/REVISION-MAQUETA-Y-DESPLIEGUE.md).
 - Revisión y despliegue del resultado; la rama local no equivale a producción.
 
 El documento histórico `ESTADO-DEL-PROYECTO.md` es de mayo de 2026. Sus porcentajes,

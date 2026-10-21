@@ -1,3 +1,6 @@
+-- Con el API anterior sirviendo, fallar pronto si la tabla está ocupada.
+SET lock_timeout = '5s';
+
 ALTER TABLE wallet_cards ADD COLUMN IF NOT EXISTS "printedNumber" VARCHAR(12);
 CREATE UNIQUE INDEX IF NOT EXISTS "wallet_cards_printedNumber_key" ON wallet_cards("printedNumber");
 DO $$ BEGIN
