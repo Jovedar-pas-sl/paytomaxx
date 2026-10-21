@@ -21,7 +21,7 @@ import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet
  * El código, igual que al recargar (topUpTarget): solo saldos activos.
  */
 
-export type DeskRef = { card: string; uid?: string | null } | { code: string };
+export type DeskRef = { card: string; uid?: string | null } | { code: string } | { printedNumber: string };
 
 type DeskTx = Pick<TransactionalClient, 'walletCard' | 'clientWallet' | 'venue' | '$queryRaw'>;
 
@@ -64,6 +64,7 @@ export function deskSaldoView(
   venueId: string,
   cash: WalletCash,
   fichaNumber: number | null,
+  printedNumber?: string | null,
 ): ReceptionDeskSaldo {
   return {
     kind: 'saldo',
@@ -77,6 +78,7 @@ export function deskSaldoView(
     cashOutCents: cashPayoutCapCents(wallet.balanceCents, cash),
     cashOutNote: cashPayoutNote(wallet.balanceCents, cash),
     fichaNumber,
+    ...(printedNumber ? { printedNumber } : {}),
   };
 }
 
@@ -96,13 +98,13 @@ export async function readReceptionDesk(
   ref: DeskRef,
 ): Promise<ReceptionDeskView> {
   if ('code' in ref) return deskByCode(tx, venue, ref.code);
-  if (!isWalletCardToken(ref.card)) throw new NotFoundException(NOT_OURS);
+  if ('card' in ref && !isWalletCardToken(ref.card)) throw new NotFoundException(NOT_OURS);
   const card = await tx.walletCard.findUnique({
-    where: { token: ref.card },
-    select: { id: true, uid: true, walletId: true, status: true, venueId: true, number: true },
+    where: 'printedNumber' in ref ? { printedNumber: ref.printedNumber } : { token: ref.card },
+    select: { id: true, uid: true, walletId: true, status: true, venueId: true, number: true, printedNumber: true },
   });
   if (!card || !(await cardInGroup(tx, card, venue.id))) throw new NotFoundException(NOT_OURS);
-  const uid = ref.uid ? normalizeWalletCardUid(ref.uid) : null;
+  const uid = 'card' in ref && ref.uid ? normalizeWalletCardUid(ref.uid) : null;
   if (card.uid && uid && card.uid !== uid) {
     throw new ConflictException('Este NFC no es el original (¿copiado?): avisa al encargado');
   }
@@ -111,9 +113,9 @@ export async function readReceptionDesk(
   const wallet = isIssuedCard(card) && card.walletId ? await liveWallet(tx, card.walletId) : null;
   // Sin saldo, o el de un saldo ya cerrado (o de otro grupo): sale otra vez con uno nuevo.
   if (!wallet || !LIVE.has(wallet.status) || !sameWalletGroup(wallet, venue)) {
-    return { kind: 'new', fichaNumber: card.number };
+    return { kind: 'new', fichaNumber: card.number, ...(card.printedNumber ? { printedNumber: card.printedNumber } : {}) };
   }
-  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card.number);
+  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card.number, card.printedNumber);
 }
 
 async function deskByCode(
@@ -131,7 +133,7 @@ async function deskByCode(
   const card = await tx.walletCard.findFirst({
     where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } },
     orderBy: { linkedAt: { sort: 'desc', nulls: 'last' } },
-    select: { number: true },
+    select: { number: true, printedNumber: true },
   });
-  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card?.number ?? null);
+  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card?.number ?? null, card?.printedNumber);
 }

@@ -63,6 +63,7 @@ function setup(o: { nfc?: boolean } = {}) {
       }
       return [];
     }),
+    user: { findFirst: vi.fn(async () => ({ post: 'recepcion' })) },
     venue: { findUnique: vi.fn(async (a: { where: { id: string } }) => venues.get(a.where.id) ?? null) },
     clientWallet: {
       findUnique: vi.fn(async (a: { where: { id: string } }) => wallets.get(a.where.id) ?? null),
@@ -70,8 +71,8 @@ function setup(o: { nfc?: boolean } = {}) {
     },
     walletCard: {
       create: vi.fn(async (a: { data: Row }) => put({ id: `card-${cards.size + 1}`, stockedAt: null, ...a.data })),
-      findUnique: vi.fn(async (a: { where: { id: string }; include?: unknown; select?: Row }) => {
-        const c = cards.get(a.where.id);
+      findUnique: vi.fn(async (a: { where: { id?: string; token?: string; printedNumber?: string }; include?: unknown; select?: Row }) => {
+        const c = a.where.id ? cards.get(a.where.id) : a.where.printedNumber ? [...cards.values()].find((c) => c.printedNumber === a.where.printedNumber) : byToken(a.where.token);
         if (!c) return null;
         const w = c.walletId ? wallets.get(String(c.walletId)) : null;
         return { ...c, wallet: w ? { shortCode: w.shortCode, tenantId: w.tenantId, walletGroup: w.walletGroup } : null };
@@ -273,4 +274,59 @@ describe('fichas congeladas en el Z', () => {
     expect(frozenFichas(null)).toBeNull();
     expect(frozenFichas({})).toBeNull();
   });
+});
+
+
+describe('n?mero impreso de f?brica', () => {
+  it('guarda ceros iniciales con UID normalizado y deja auditor?a', async () => {
+    const { svc, put, cards, audit } = setup();
+    put({ id: 'factory', token: tok('P'), uid: '04A23B5C1D8011' });
+    await expect(svc.labelStock(javi, { card: tok('P'), uid: '04:a2:3b:5c:1d:80:11', printedNumber: '000522' })).resolves.toEqual({ printedNumber: '000522' });
+    expect(cards.get('factory')?.printedNumber).toBe('000522');
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.card_numbered', targetId: 'factory' }));
+  });
+  it.each(['', '12a', '1234567890123', ' 0522'])('rechaza el n?mero inv?lido %s', async (printedNumber) => {
+    const { svc } = setup();
+    await expect(svc.labelStock(javi, { card: tok('P'), uid: '04A23B5C1D8011', printedNumber })).rejects.toMatchObject({ status: 400 });
+  });
+  it.each([{ status: 'BLOCKED' }, { status: 'ISSUED' }, { status: 'LOST' }, { venueId: NORTE }, { uid: '04FFFFFFFFFF01' }])('no etiqueta una ficha no apta %j', async (change) => {
+    const { svc, put, cards } = setup();
+    put({ id: 'factory', token: tok('P'), uid: '04A23B5C1D8011', ...change });
+    await expect(svc.labelStock(javi, { card: tok('P'), uid: '04A23B5C1D8011', printedNumber: '0522' })).rejects.toThrow();
+    expect(cards.get('factory')?.printedNumber).toBeUndefined();
+  });
+  it('rechaza puestos sin recargas y NFC apagado', async () => {
+    const { svc } = setup();
+    await expect(svc.labelStock({ ...javi, role: 'OPERATOR' }, { card: tok('P'), uid: '04A23B5C1D8011', printedNumber: '0522' })).rejects.toMatchObject({ status: 403 });
+    await expect(setup({ nfc: false }).svc.labelStock(javi, { card: tok('P'), uid: '04A23B5C1D8011', printedNumber: '0522' })).rejects.toMatchObject({ status: 409 });
+  });
+  it('traduce duplicados a un conflicto claro y busca el alias conservando los ceros', async () => {
+    const { svc, put, tx } = setup();
+    put({ id: 'factory', token: tok('P'), uid: '04A23B5C1D8011' });
+    tx.walletCard.update.mockRejectedValueOnce({ code: 'P2002' });
+    await expect(svc.labelStock(javi, { card: tok('P'), uid: '04A23B5C1D8011', printedNumber: '000522' })).rejects.toMatchObject({ status: 409 });
+    await svc.list(SALA, { q: '000522' });
+    expect(tx.walletCard.findMany.mock.calls[0]?.[0]).toMatchObject({ where: { AND: [{}, { OR: expect.arrayContaining([{ printedNumber: { contains: '000522' } }]) }] } });
+  });
+});
+
+
+it('numbers physically verified returned legacy cards without stockedAt', async () => {
+  const { svc, put } = setup();
+  put({ id: 'legacy-return', token: tok('R'), uid: '04A23B5C1D8011', status: 'ACTIVE', walletId: W_GASTADO, stockedAt: null });
+  await expect(svc.stock(SALA, recepcion, { card: tok('R'), uid: '04A23B5C1D8011' })).resolves.toMatchObject({ outcome: 'returned' });
+  await expect(svc.labelStock(javi, { card: tok('R'), uid: '04A23B5C1D8011', printedNumber: '00017' })).resolves.toEqual({ printedNumber: '00017' });
+});
+
+it('reception finds a printed alias with zeroes without returning the card token or UID', async () => {
+  const { svc, put } = setup();
+  put({ id: 'number-search', token: tok('S'), uid: '04A23B5C1D8011', printedNumber: '00017', number: 17 });
+  const result = await svc.deskByPrintedNumber(javi, '00017');
+  expect(result).toEqual({ kind: 'new', fichaNumber: 17, printedNumber: '00017' });
+  expect(result).not.toHaveProperty('token');
+  expect(result).not.toHaveProperty('uid');
+  await expect(svc.deskByPrintedNumber(javi, '17')).rejects.toMatchObject({ status: 404 });
+  await expect(svc.deskByPrintedNumber(javi, '00017x')).rejects.toMatchObject({ status: 400 });
+  await expect(svc.deskByPrintedNumber({ ...javi, role: 'OPERATOR' }, '00017')).rejects.toMatchObject({ status: 403 });
+  await expect(setup({ nfc: false }).svc.deskByPrintedNumber(javi, '00017')).rejects.toMatchObject({ status: 409 });
 });

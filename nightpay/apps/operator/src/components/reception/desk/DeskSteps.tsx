@@ -172,6 +172,7 @@ export function ExitStep(props: {
   /** El encargado tiene que poner su código 2FA. */
   totp: string | null;
   onTotp: (code: string) => void;
+  onReadNfc?: () => void;
 }) {
   const [code, setCode] = useState('');
   const { plan } = props;
@@ -195,6 +196,7 @@ export function ExitStep(props: {
         />
       ) : null}
       {plan.note && !plan.refundBlocked?.includes(plan.note) ? <p className={s.lbl}>{plan.note}</p> : null}
+      {props.onReadNfc ? <DeskBtn kind="gho" label="Acercar NFC original" onClick={props.onReadNfc} disabled={props.busy} /> : null}
       {props.totp ? (
         <form
           className={s.foot}
@@ -213,11 +215,22 @@ export function ExitStep(props: {
             onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             style={{ textAlign: 'center', letterSpacing: '0.3em' }}
           />
-          <DeskBtn kind="pri" label="Devolver con el código" disabled={code.length !== 6} busy={props.busy} onClick={() => props.onTotp(code)} />
+          <DeskBtn kind="pri" label="Seguir con el PIN del cliente" disabled={code.length !== 6} busy={props.busy} onClick={() => props.onTotp(code)} />
         </form>
       ) : null}
     </>
   );
+}
+
+/** Printed aliases retain leading zeroes; a lookup never proves possession of the NFC. */
+export function NumberStep({ busy, onFind }: { busy: boolean; onFind: (number: string) => void }) {
+  const [number, setNumber] = useState('');
+  return <form onSubmit={(event) => { event.preventDefault(); if (/^\d{1,12}$/.test(number) && !busy) onFind(number); }}>
+    <Input label="Número impreso en la ficha" inputMode="numeric" autoComplete="off" maxLength={12}
+      value={number} onChange={(event) => setNumber(event.target.value.replace(/\D/g, '').slice(0, 12))} size="lg" />
+    <p className={s.lbl}>Escríbelo tal como aparece, incluidos los ceros del principio. Para devolver efectivo hace falta acercar el NFC original.</p>
+    <DeskBtn kind="pri" label="Buscar ficha" disabled={!/^\d{1,12}$/.test(number)} busy={busy} onClick={() => onFind(number)} />
+  </form>;
 }
 
 /** «Escribir el código»: las seis casillas; al poner la sexta, se busca solo. */

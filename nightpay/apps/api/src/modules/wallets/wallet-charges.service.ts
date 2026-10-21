@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { receptionCashPayout, type ReceptionCashInput, type ReceptionCashResult } from './reception-cash-payout';
 import {
   BadRequestException,
   ConflictException,
@@ -65,7 +66,7 @@ import { TipsDisabledException, assertVenueAcceptsMethods } from '../venues/venu
 import { tipsForbidden } from '../venues/charge-rights';
 import { maxTipCents } from '../payments/tip';
 import { TotpService } from '../auth/totp.service';
-import { assertManagerTwoFactor } from './wallet-two-factor';
+import { assertManagerTwoFactor, cashApprovalThreshold } from './wallet-two-factor';
 import { WalletBlockedException } from './wallet-blocked';
 import { passChargeSecret, passChargeTokenValid, passChargeWalletId } from './google-wallet/pass-charge-token';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
@@ -1887,6 +1888,11 @@ export class WalletChargesService {
    *    las recargas y se apunta como devolución de cada una (payoutCard). Como
    *    mucho el saldo menos el efectivo que sigue en él (ese, en efectivo).
    */
+  async payoutAtReception(actor: Actor, walletId: string, input: ReceptionCashInput): Promise<ReceptionCashResult> {
+    return receptionCashPayout({ prisma: this.prisma, audit: this.audit, totp: this.totp,
+      checkPin: (id, pin) => this.checkPin(id, pin, actor) }, actor, walletId, input);
+  }
+
   async payout(
     actor: Actor,
     walletId: string,
@@ -1952,7 +1958,7 @@ export class WalletChargesService {
         this.totp,
         actor,
         cap,
-        thresholdCents,
+        cashApprovalThreshold(thresholdCents),
         input.totpCode,
         `Devolver ${eur(cap)} en efectivo`,
       );

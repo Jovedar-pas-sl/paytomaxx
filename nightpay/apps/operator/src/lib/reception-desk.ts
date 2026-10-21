@@ -59,8 +59,8 @@ export async function payoutCash(walletId: string, totpCode?: string): Promise<C
 // ─── Lo que se enseña ─────────────────────────────────────────────────────
 
 /** «ficha nº 0522» (en minúscula, para el medio de una frase). */
-export function fichaText(n: number): string {
-  return `ficha nº ${fichaNumberText(n)}`;
+export function fichaText(n: number, printedNumber?: string | null): string {
+  return `ficha nº ${printedNumber ?? fichaNumberText(n)}`;
 }
 
 /** La fila del NFC leído (4.2 y 4.5): el título y la línea de debajo. */
@@ -74,8 +74,8 @@ export interface DeskRow {
  * queda. 4.5 (Salida): «Ficha nº 0388 · Saldo R3D-8LP · leída».
  */
 export function deskRow(view: ReceptionDeskView, mode: 'entrada' | 'salida'): DeskRow {
-  if (view.kind === 'new') return { title: 'NFC nuevo', detail: `Ficha nº ${fichaNumberText(view.fichaNumber)} · sin saldo` };
-  const title = view.fichaNumber === null ? `Saldo ${view.code}` : `Ficha nº ${fichaNumberText(view.fichaNumber)}`;
+  if (view.kind === 'new') return { title: 'NFC nuevo', detail: `Ficha nº ${view.printedNumber ?? fichaNumberText(view.fichaNumber)} · sin saldo` };
+  const title = view.fichaNumber === null ? `Saldo ${view.code}` : `Ficha nº ${view.printedNumber ?? fichaNumberText(view.fichaNumber)}`;
   const saldo = view.fichaNumber === null ? null : view.code;
   if (mode === 'salida') return { title, detail: [saldo ? `Saldo ${saldo}` : null, 'leída'].filter(Boolean).join(' · ') };
   const left = view.balanceCents > 0 ? `Le quedan ${formatEur(view.balanceCents, { compact: true })}` : 'Sin saldo';
@@ -85,7 +85,7 @@ export function deskRow(view: ReceptionDeskView, mode: 'entrada' | 'salida'): De
 /** El chip de 4.3: «Recarga · ficha nº 0522» (o «Recarga · K7Q-4M2» sin NFC, «Recarga · saldo nuevo»). */
 export function rechargeChip(view: ReceptionDeskView | null): string {
   if (!view) return 'Recarga · saldo nuevo';
-  if (view.fichaNumber !== null) return `Recarga · ${fichaText(view.fichaNumber)}`;
+  if (view.fichaNumber !== null) return `Recarga · ${fichaText(view.fichaNumber, view.printedNumber)}`;
   return view.kind === 'saldo' ? `Recarga · ${view.code}` : 'Recarga · saldo nuevo';
 }
 
@@ -153,8 +153,8 @@ export function loadedMoneyLine(method: PayMethod, amountCents: number): { label
 
 /** 4.4: qué hace con el NFC («Dale el NFC · ficha nº 0522»). */
 export function handOverLine(view: ReceptionDeskView | null, linked: boolean): string {
-  if (view?.kind === 'saldo') return view.fichaNumber === null ? `Saldo ${view.code}` : `Devuélvele su NFC · ${fichaText(view.fichaNumber)}`;
-  if (view && linked) return `Dale el NFC · ${fichaText(view.fichaNumber)}`;
+  if (view?.kind === 'saldo') return view.fichaNumber === null ? `Saldo ${view.code}` : `Devuélvele su NFC · ${fichaText(view.fichaNumber, view.printedNumber)}`;
+  if (view && linked) return `Dale el NFC · ${fichaText(view.fichaNumber, view.printedNumber)}`;
   return 'Sin NFC: que apunte su código';
 }
 

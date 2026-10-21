@@ -1,5 +1,9 @@
 # NightPay — Estado del proyecto
 
+> Documento histórico de mayo de 2026. Para Wallet, recepción NFC y las
+> decisiones recuperadas de Claude, consultar la
+> [continuidad del 21 de octubre de 2026](REANUDACION-CODEX-2026-10-21.md).
+
 **Documento para reunión con colegas · v2 · Mayo 2026**
 
 Resumen ejecutivo con **ejemplos concretos** de lo que hay construido, cómo

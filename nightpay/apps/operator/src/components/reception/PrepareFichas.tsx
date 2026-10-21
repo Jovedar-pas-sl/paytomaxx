@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { walletCardUrl } from '@nightpay/contracts';
+import { isPrintedFichaNumber, walletCardUrl } from '@nightpay/contracts';
 import { Button, Card } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import { blankCodeFrom, isChipTimeout, isFatalChipError, tapChip } from '@/lib/chip-tap';
 import { deviceBackend, preparedText, staffBackend, stockOutcomeLine, type PrepareLine } from '@/lib/reception';
-import { isSameTapAgain } from '@/lib/prepare-fichas';
+import { isSameTapAgain, needsPrintedNumber } from '@/lib/prepare-fichas';
 import { useChipReader } from './use-chip-via';
 
 /** Líneas que se ven (la más nueva arriba). */
@@ -29,6 +29,10 @@ export function PrepareFichas({ on, onDone }: Props) {
   const reader = useChipReader();
   const [running, setRunning] = useState<AbortController | null>(null);
   const [count, setCount] = useState(0);
+  const [pending, setPending] = useState<{ card: string; uid: string; line: PrepareLine } | null>(null);
+  const [printedNumber, setPrintedNumber] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [numberError, setNumberError] = useState<string | null>(null);
   const [lines, setLines] = useState<Array<PrepareLine & { id: number }>>([]);
   /** Código pedido para la próxima ficha en blanco (se reutiliza si no se intentó grabar). */
   const blank = useMemo(
@@ -55,7 +59,7 @@ export function PrepareFichas({ on, onDone }: Props) {
     addLine(line);
   }
 
-  async function oneTap(signal: AbortSignal): Promise<void> {
+  async function oneTap(signal: AbortSignal): Promise<'number-needed' | void> {
     if (!reader.via) return;
     const tap = await tapChip(reader.via, signal, reader.canWrite ? blank : undefined);
     // La misma ficha sigue apoyada: no se cuenta dos veces.
@@ -70,6 +74,14 @@ export function PrepareFichas({ on, onDone }: Props) {
     }
     // Solo cuando el servidor contesta: si falla, acercarla otra vez la vuelve a mirar.
     const outcome = await backend.stock(tap.token, tap.uid);
+    if (needsPrintedNumber(on, outcome)) {
+      if (!tap.uid) throw new Error('No se pudo leer la serie NFC: acerca la ficha otra vez');
+      setPending({ card: tap.token, uid: tap.uid, line: stockOutcomeLine(outcome) });
+      setPrintedNumber('');
+      setNumberError(null);
+      // Stop the reader while the physical number is entered; count only after saving.
+      return 'number-needed';
+    }
     answered(tap.uid, stockOutcomeLine(outcome));
   }
 
@@ -80,7 +92,7 @@ export function PrepareFichas({ on, onDone }: Props) {
       const stop = () => one.abort();
       controller.signal.addEventListener('abort', stop, { once: true });
       try {
-        await oneTap(one.signal);
+        if ((await oneTap(one.signal)) === 'number-needed') controller.abort();
       } catch (err) {
         if ((err as Error).name === 'AbortError' || controller.signal.aborted) break;
         if (isChipTimeout(err)) continue;
@@ -90,6 +102,22 @@ export function PrepareFichas({ on, onDone }: Props) {
         one.abort();
         controller.signal.removeEventListener('abort', stop);
       }
+    }
+  }
+
+  async function saveNumber(): Promise<void> {
+    if (!pending || !backend.labelStock || !isPrintedFichaNumber(printedNumber) || saving) return;
+    setSaving(true);
+    setNumberError(null);
+    try {
+      await backend.labelStock(pending.card, pending.uid, printedNumber);
+      answered(pending.uid, { ...pending.line, text: `Ficha ${printedNumber} \u00b7 ${pending.line.text}` });
+      setPending(null);
+      start();
+    } catch (err) {
+      setNumberError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -115,7 +143,15 @@ export function PrepareFichas({ on, onDone }: Props) {
       {reader.loading ? <p style={muted}>Mirando el lector de fichas…</p> : null}
       {!reader.loading && (!reader.via || !reader.canWrite) ? <p style={note}>{reader.note}</p> : null}
 
-      {running ? (
+      {pending ? (
+        <form onSubmit={(event) => { event.preventDefault(); void saveNumber(); }} style={{ display: 'grid', gap: '0.75rem' }}>
+          <label htmlFor="ficha-printed-number" style={big}>Número impreso en esta ficha</label>
+          <input id="ficha-printed-number" autoFocus inputMode="numeric" autoComplete="off" pattern="[0-9]{1,12}" maxLength={12} value={printedNumber} onChange={(event) => setPrintedNumber(event.target.value)} style={{ fontSize: '2rem', padding: '0.75rem', textAlign: 'center' }} />
+          <p style={muted}>Copia las cifras tal como aparecen, incluidos los ceros iniciales.</p>
+          {numberError ? <p role="alert" style={note}>{numberError}</p> : null}
+          <Button size="lg" type="submit" disabled={saving || !isPrintedFichaNumber(printedNumber)}>{saving ? 'Guardando...' : 'Guardar y seguir'}</Button>
+        </form>
+      ) : running ? (
         <>
           <p style={big}>Acerca una ficha, retírala y acerca la siguiente</p>
           <Button variant="ghost" onClick={stop}>
@@ -138,7 +174,7 @@ export function PrepareFichas({ on, onDone }: Props) {
         </ul>
       ) : null}
 
-      <Button variant="ghost" disabled={running !== null} onClick={onDone}>
+      <Button variant="ghost" disabled={running !== null || saving} onClick={onDone}>
         Volver
       </Button>
     </Card>

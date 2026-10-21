@@ -10,3 +10,9 @@ export function isSameTapAgain(last: { uid: string | null; at: number } | null, 
   if (!last || !uid || last.uid !== uid) return false;
   return now - last.at < SAME_TAP_MS;
 }
+
+
+/** Staff records the physical alias before scanning the next available card. */
+export function needsPrintedNumber(on: 'staff' | 'device', outcome: import('@nightpay/contracts').StockOutcome): boolean {
+  return on === 'staff' && (outcome.outcome === 'stocked' || outcome.outcome === 'already' || outcome.outcome === 'returned') && !outcome.printedNumber;
+}

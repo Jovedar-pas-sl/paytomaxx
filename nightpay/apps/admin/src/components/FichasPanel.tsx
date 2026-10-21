@@ -159,7 +159,7 @@ export function FichasPanel() {
           <form onSubmit={search} style={searchRow}>
             <Input
               aria-label="Buscar ficha"
-              placeholder="Número de serie o código (K7Q-4M2)"
+              placeholder="Número impreso, serie o código"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               style={{ width: '16rem' }}
@@ -196,7 +196,7 @@ export function FichasPanel() {
             <table className="np-table">
               <thead>
                 <tr>
-                  <th>Número de serie</th>
+                  <th>Número de ficha</th>
                   <th>Estado</th>
                   <th>Saldo</th>
                   <th>Desde</th>
@@ -210,9 +210,9 @@ export function FichasPanel() {
                   const since = fichaSince(r);
                   return (
                     <tr key={r.id}>
-                      <td data-label="Número de serie" data-card="title">
+                      <td data-label="Número de ficha" data-card="title">
                         <span className="np-num" style={{ fontWeight: 600 }}>
-                          {formatUid(r.uid)}
+                          {r.printedNumber ?? formatUid(r.uid)}
                         </span>
                         <span style={hintText}> · {r.tokenHint}…</span>
                       </td>

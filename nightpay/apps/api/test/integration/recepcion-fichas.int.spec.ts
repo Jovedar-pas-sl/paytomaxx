@@ -374,3 +374,24 @@ describe('stock de fichas: preparar → dar → «Me voy» → perdida (Postgres
     expect((await seed((tx) => tx.walletCard.create({ data: { token: `fichaTresDeLaPrueba${r}` } }))).status).toBe('ACTIVE');
   });
 });
+
+
+it('factory aliases retain zeroes and the real unique constraint prevents concurrent duplicates', async () => {
+  const printedNumber = `000${String(parseInt(r, 16)).padStart(9, '0')}`;
+  const by = { userId: sala.manager };
+  const first = await inVenue(sala.id, () => cards.newStockToken(sala.id, by));
+  const second = await inVenue(sala.id, () => cards.newStockToken(sala.id, by));
+  await inVenue(sala.id, () => cards.stock(sala.id, by, { card: first.card, uid: '04A23B110001' }));
+  await inVenue(sala.id, () => cards.stock(sala.id, by, { card: second.card, uid: '04A23B110002' }));
+  const actor = { userId: sala.manager, role: 'MANAGER' as const, tenantId: sala.id };
+  const results = await Promise.allSettled([
+    inVenue(sala.id, () => cards.labelStock(actor, { card: first.card, uid: '04A23B110001', printedNumber })),
+    inVenue(sala.id, () => cards.labelStock(actor, { card: second.card, uid: '04A23B110002', printedNumber })),
+  ]);
+  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+  expect(results.find((result) => result.status === 'rejected')).toMatchObject({ reason: { status: 409 } });
+  const listed = await inVenue(sala.id, () => cards.list(sala.id, { q: printedNumber }));
+  expect(listed).toHaveLength(1);
+  expect(listed[0]?.printedNumber).toBe(printedNumber);
+  await expect(seed((tx) => tx.walletCard.create({ data: { token: `invalidDigits${r}Factory`, printedNumber: '12x', venueId: sala.id, status: 'STOCK' } }))).rejects.toThrow();
+});

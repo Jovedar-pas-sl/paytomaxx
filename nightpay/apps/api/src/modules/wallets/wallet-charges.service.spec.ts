@@ -589,7 +589,7 @@ describe('devolver el saldo al cliente que se va', () => {
     const err = await svc.payout(manager, 'w-1', { method: 'CASH' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ForbiddenException);
     expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
-    expect((err as Error).message).toMatch(/Devolver 300,00 € en efectivo: desde 300,00 €/);
+    expect((err as Error).message).toMatch(/Devolver 300,00 € en efectivo: desde 100,00 €/);
     expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
     expect(payoutMock.create).not.toHaveBeenCalled();
     // Sin la app activada, se le dice (no un código que no puede poner).
@@ -599,8 +599,8 @@ describe('devolver el saldo al cliente que se va', () => {
   });
 
   it('por debajo del umbral el encargado no pone código; el dueño nunca', async () => {
-    const below = payoutService({ threshold: 30_001, cashIn: 30_000 });
-    await expect(below.svc.payout(manager, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
+    const below = payoutService({ threshold: 30_001, cashIn: 5_000, wallet: { balanceCents: 5_000 } });
+    await expect(below.svc.payout(manager, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 5_000, method: 'CASH' });
     expect(below.totp.assertForUser).not.toHaveBeenCalled();
     const own = payoutService({ threshold: 0, cashIn: 30_000 });
     await expect(own.svc.payout(owner, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });

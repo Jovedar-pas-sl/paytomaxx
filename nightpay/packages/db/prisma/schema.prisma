@@ -539,9 +539,14 @@ model WalletPayout {
   status        String    @default("DONE")
   // Cuándo se empezó a apuntar (un segundo clic no la apunta dos veces).
   claimedAt     DateTime? @db.Timestamptz
+  /// Reintento de una salida de recepción: nunca vuelve a sacar dinero.
+  requestKey    String?
+  /// Saldo tras esa salida (recibo estable aunque luego se recargue).
+  remainingBalanceCents Int?
 
   wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, requestKey])
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("wallet_payouts")
 }
@@ -1114,6 +1119,8 @@ model WalletCard {
   /// «Ficha nº 0522»: el número de la ficha para siempre, uno para todos los
   /// locales (secuencia; las antiguas, por orden de alta). 20261024200000.
   number     Int       @unique @default(autoincrement())
+  /// Factory-printed alias; leading zeroes are significant.
+  printedNumber String? @unique @db.VarChar(12)
   walletId   String?   @db.Uuid
   /// STOCK (grabada, sin dar) → ISSUED (dada a un saldo) → RETURNED (devuelta,
   /// otra vez en el stock) | LOST (perdida o sustituida) | BLOCKED (bloqueada).

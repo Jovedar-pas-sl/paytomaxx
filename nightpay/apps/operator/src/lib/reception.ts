@@ -18,6 +18,7 @@ import {
   linkWalletCard,
   receptionCashTopUp,
   receptionFichaStock,
+  receptionFichaNumber,
   receptionFichaToken,
   receptionLookupCard,
   setWalletPin,
@@ -101,6 +102,7 @@ export interface ReceptionBackend {
   newToken(): Promise<string>;
   /** La ficha acercada en «Preparar fichas», al stock. */
   stock(card: string, uid: string | null): Promise<StockOutcome>;
+  labelStock?(card: string, uid: string, printedNumber: string): Promise<{ printedNumber: string }>;
 }
 
 const json = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
@@ -135,6 +137,7 @@ export const staffBackend: ReceptionBackend = {
   setPin: async (w, pin) => receptionWalletOf(await setWalletPin(w.code, pin)),
   newToken: receptionFichaToken,
   stock: receptionFichaStock,
+  labelStock: receptionFichaNumber,
 };
 
 function receptionWalletOf(w: { walletId: string; code: string; balanceCents: number; hasPin: boolean; hasCard: boolean }): ReceptionWallet {

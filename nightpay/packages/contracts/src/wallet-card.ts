@@ -80,6 +80,7 @@ export interface WalletCardRow {
   uid: string | null;
   /** Primeras letras del código grabado (para reconocerla, no para usarla). */
   tokenHint: string;
+  printedNumber?: string | null;
   status: WalletCardStatus;
   /** Código del saldo al que está dada (K7Q-4M2), si está entregada. */
   walletCode: string | null;
@@ -118,10 +119,15 @@ export interface FichasSummary {
  * gastado o cerrado) o apartada (con saldo, perdida, bloqueada o de otro local).
  */
 export type StockOutcome =
-  | { outcome: 'stocked' }
-  | { outcome: 'returned'; codeHint: string }
-  | { outcome: 'already' }
+  | { outcome: 'stocked'; printedNumber?: string | null }
+  | { outcome: 'returned'; codeHint: string; printedNumber?: string | null }
+  | { outcome: 'already'; printedNumber?: string | null }
   | { outcome: 'in-use'; codeHint: string }
   | { outcome: 'blocked' }
   | { outcome: 'lost' }
   | { outcome: 'foreign' };
+
+/** Factory-printed digits, kept as text to preserve leading zeroes. */
+export function isPrintedFichaNumber(value: string): boolean {
+  return /^[0-9]{1,12}$/.test(value);
+}

@@ -12,7 +12,7 @@ const OTRO = '9a1c7e55-2b3d-4e6f-8a90-1b2c3d4e5f60';
 const FICHA = 'q3VbX9kLmN2pR7sT4wYz1A';
 const venue = { id: SALA, walletGroup: null };
 
-type Card = { id: string; uid: string | null; walletId: string | null; status: string; venueId: string | null; number: number };
+type Card = { printedNumber?: string | null; id: string; uid: string | null; walletId: string | null; status: string; venueId: string | null; number: number };
 type Wallet = {
   id: string;
   tenantId: string;
@@ -46,7 +46,7 @@ function db(opts: { cards?: Card[]; wallets?: Wallet[]; cashIn?: number }) {
   const wallets = opts.wallets ?? [];
   return {
     walletCard: {
-      findUnique: async ({ where }: { where: { token: string } }) => (where.token === FICHA ? (cards[0] ?? null) : null),
+      findUnique: async ({ where }: { where: { token?: string; printedNumber?: string } }) => (where.printedNumber ? cards.find((c) => c.printedNumber === where.printedNumber) ?? null : where.token === FICHA ? (cards[0] ?? null) : null),
       findFirst: async ({ where }: { where: { walletId: string } }) => cards.find((c) => c.walletId === where.walletId) ?? null,
     },
     clientWallet: {
@@ -134,4 +134,23 @@ describe('el código tecleado', () => {
       readReceptionDesk(db({ wallets: [wallet({ shortCode: 'K7Q4M2', tenantId: OTRO, walletGroup: 'g' })] }) as never, venue, { code: 'K7Q4M2' }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+});
+
+
+it('returns the printed alias unchanged for stock, NFC wallet and code lookup', async () => {
+  const tx = db({ cards: [card({ printedNumber: '000522' })] });
+  await expect(readReceptionDesk(tx as never, venue, { card: FICHA })).resolves.toMatchObject({ printedNumber: '000522', fichaNumber: 522 });
+  const issued = db({ cards: [card({ printedNumber: '000522', status: 'ISSUED', walletId: 'w-1' })], wallets: [wallet()] });
+  await expect(readReceptionDesk(issued as never, venue, { card: FICHA })).resolves.toMatchObject({ printedNumber: '000522' });
+  await expect(readReceptionDesk(issued as never, venue, { code: 'R3D8LP' })).resolves.toMatchObject({ printedNumber: '000522' });
+});
+
+
+it('printed-number reception lookup accepts a group card and rejects foreign or blocked cards', async () => {
+  const local = db({ cards: [card({ printedNumber: '00017' })] });
+  await expect(readReceptionDesk(local as never, venue, { printedNumber: '00017' })).resolves.toMatchObject({ kind: 'new', printedNumber: '00017' });
+  const foreign = db({ cards: [card({ venueId: OTRO, printedNumber: '00017' })] });
+  await expect(readReceptionDesk(foreign as never, venue, { printedNumber: '00017' })).rejects.toBeInstanceOf(NotFoundException);
+  const blocked = db({ cards: [card({ status: 'BLOCKED', printedNumber: '00017' })] });
+  await expect(readReceptionDesk(blocked as never, venue, { printedNumber: '00017' })).rejects.toBeInstanceOf(ConflictException);
 });

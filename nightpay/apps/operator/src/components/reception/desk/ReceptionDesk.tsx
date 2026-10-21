@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ReceptionDeskNew, ReceptionOptions } from '@nightpay/contracts';
-import { createPayment, fetchTerminals, type CreatedPayment, type OperatorUser } from '@/lib/api';
+import { createPayment, fetchTerminals, receptionFichaLookupNumber, type CreatedPayment, type OperatorUser } from '@/lib/api';
 import type { ChipTap } from '@/lib/chip-tap';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
@@ -19,12 +19,10 @@ import {
 import {
   deskRow,
   deskTarget,
-  exitPlan,
   fetchReceptionDesk,
   handOverLine,
   loadedMoneyLine,
   methodButtons,
-  payoutCash,
   pinNote,
   quickAmounts,
   rechargeChip,
@@ -34,9 +32,10 @@ import {
   type ReceptionDeskView,
 } from '@/lib/reception-desk';
 import { useVenueNight } from '@/lib/venue-methods';
+import { cashExitPlan, receptionCashPayout, type CashExitNfc } from '@/lib/reception-cash-payout';
 import { PinPad } from '../../PinPad';
 import { DeskHead, DeskBtn, DeskRowView } from './desk-parts';
-import { AmountStep, CodeStep, ExitStep, KeypadStep, MethodStep, TapStage } from './DeskSteps';
+import { AmountStep, CodeStep, ExitStep, KeypadStep, MethodStep, NumberStep, TapStage } from './DeskSteps';
 import { DeskLoaded } from './DeskLoaded';
 import { TopUpQr, useRetirePayment } from './TopUpQr';
 import { useDeskNfc } from './use-desk-nfc';
@@ -65,18 +64,21 @@ interface Loaded {
 type Step =
   | { kind: 'tap' }
   | { kind: 'code' }
+  | { kind: 'number' }
   | { kind: 'amount'; read: Read }
   | { kind: 'keypad'; read: Read }
   | { kind: 'method'; read: Read; amountCents: number }
   | { kind: 'card'; read: Read; amountCents: number; payment: CreatedPayment | null }
   | { kind: 'loaded'; done: Loaded }
   | { kind: 'pin'; done: Loaded }
-  | { kind: 'exit'; view: ReceptionDeskSaldo }
+  | { kind: 'exit'; view: ReceptionDeskSaldo; nfc: CashExitNfc; requestKey: string }
+  | { kind: 'exitPin'; exit: Extract<Step, { kind: 'exit' }>; totpCode?: string }
+  | { kind: 'managerPending'; exit: Extract<Step, { kind: 'exit' }> }
   | { kind: 'exitNew'; view: ReceptionDeskNew; nfc: { card: string; uid: string | null } }
   | { kind: 'refunded'; code: string; refundedCents: number; remainingCents: number };
 
 /** Desde que se cobra hasta el resultado: si la sesión caduca, se entra encima sin perderlo. */
-const CHARGING = new Set<Step['kind']>(['card', 'loaded', 'pin', 'refunded']);
+const CHARGING = new Set<Step['kind']>(['card', 'loaded', 'pin', 'exitPin', 'managerPending', 'refunded']);
 
 const errText = (err: unknown) => (err as Error).message;
 
@@ -152,8 +154,9 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   function open(view: ReceptionDeskView, card: Read['nfc']): void {
     setNotice(null);
     if (mode === 'salida') {
-      if (view.kind === 'saldo') go({ kind: 'exit', view });
+      if (view.kind === 'saldo') go({ kind: 'exit', view, nfc: card, requestKey: crypto.randomUUID() });
       else if (card) go({ kind: 'exitNew', view, nfc: card });
+      else restart('salida', 'Esta ficha no tiene saldo. Acerca su NFC original para devolverla al stock.');
       return;
     }
     const problem = rechargeProblem(view);
@@ -243,10 +246,21 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   }
 
   /** Salida: devolver en efectivo (el encargado, con su código 2FA si lo pide). */
-  async function refund(view: ReceptionDeskSaldo, totpCode?: string): Promise<void> {
-    const out = await payoutCash(view.walletId, totpCode);
+  async function refund(exit: Extract<Step, { kind: 'exit' }>, pin: string, totpCode?: string): Promise<void> {
+    const { view, nfc: card, requestKey } = exit;
+    const problem = cashExitPlan(view, card).refundBlocked;
+    if (problem || !card?.uid) throw new Error(problem ?? 'Acerca el NFC original.');
+    const out = await receptionCashPayout(view.walletId, {
+      card: card.card, uid: card.uid, pin, expectedAmountCents: view.cashOutCents, requestKey,
+      ...(totpCode ? { totpCode } : {}),
+    });
     if (out.kind === 'totp') {
-      setTotp(out.message);
+      go(exit);
+      setTotp(`${out.message} Después, el cliente confirma su PIN otra vez.`);
+      return;
+    }
+    if (out.kind === 'manager') {
+      go({ kind: 'managerPending', exit });
       return;
     }
     go({ kind: 'refunded', code: view.code, refundedCents: out.refundedCents, remainingCents: out.remainingCents });
@@ -255,6 +269,25 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   const name = user.displayName ?? 'Recepción';
   const chip = { section: 'VENUE_ENTRY', label: 'Entradas' };
   const head = (onBack?: () => void) => <DeskHead title="Recepción" sub={name} chip={chip} stripe="section" onBack={onBack} />;
+
+  if (step.kind === 'exitPin') {
+    return <PinPad mode="enter"
+      title={`Devolver ${formatEur(step.exit.view.cashOutCents, { compact: true })} en efectivo`}
+      hint="Pásale el móvil al cliente para que confirme con su PIN"
+      onCancel={() => go(step.exit)}
+      onPin={async (pin) => { await refund(step.exit, pin, step.totpCode); return null; }} />;
+  }
+
+  if (step.kind === 'managerPending') {
+    return <div className={s.screen}>
+      {head(() => go(step.exit))}
+      <DeskRowView {...deskRow(step.exit.view, 'salida')} />
+      <p className={s.q} role="status">Pendiente del encargado; no se ha devuelto dinero</p>
+      <p className={s.lbl}>El encargado confirma la devolución con su propio 2FA desde su panel.</p>
+      <DeskBtn kind="pri" size="l" label="Siguiente cliente" onClick={() => restart('salida')} />
+      <DeskBtn kind="gho" label="Volver" onClick={() => go(step.exit)} />
+    </div>;
+  }
 
   if (step.kind === 'loaded') {
     const { done } = step;
@@ -348,7 +381,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     <div className={s.screen}>
       {step.kind === 'tap' || step.kind === 'exit' || step.kind === 'exitNew' ? (
         <>
-          {head()}
+          {head(step.kind === 'exit' || step.kind === 'exitNew' ? () => restart('salida') : undefined)}
           <div className={s.seg} role="group" aria-label="Entrada o salida">
             {(['entrada', 'salida'] as const).map((m) => (
               <button key={m} type="button" className={s.segBtn} aria-pressed={mode === m} onClick={() => restart(m)}>
@@ -374,6 +407,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
           />
           <div className={s.foot}>
             <DeskBtn kind="gho" label="Escribir el código" onClick={() => go({ kind: 'code' })} />
+            <DeskBtn kind="gho" label="Buscar número de ficha" onClick={() => go({ kind: 'number' })} />
             {footer}
           </div>
         </>
@@ -388,6 +422,10 @@ export function ReceptionDesk({ user, active, footer }: Props) {
           onNewWithout={mode === 'entrada' ? () => go({ kind: 'amount', read: { view: null, nfc: null } }) : undefined}
         />
       ) : null}
+
+      {step.kind === 'number' ? <NumberStep busy={busy} onFind={(printedNumber) =>
+        void run(async () => open(await receptionFichaLookupNumber(printedNumber), null))
+      } /> : null}
 
       {step.kind === 'amount' ? (
         <AmountStep
@@ -420,12 +458,13 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       {step.kind === 'exit' ? (
         <ExitStep
           row={deskRow(step.view, 'salida')}
-          plan={exitPlan(step.view, user.role)}
+          plan={cashExitPlan(step.view, step.nfc)}
           busy={busy}
           totp={totp}
           onKeep={() => restart('salida', `Guardado: ${step.view.code} sigue con ${formatEur(step.view.balanceCents, { compact: true })}.`)}
-          onRefund={() => void run(() => refund(step.view))}
-          onTotp={(totpCode) => void run(() => refund(step.view, totpCode))}
+          onRefund={() => go({ kind: 'exitPin', exit: step })}
+          onTotp={(totpCode) => go({ kind: 'exitPin', exit: step, totpCode })}
+          onReadNfc={!step.nfc?.uid ? () => restart('salida') : undefined}
         />
       ) : null}
 

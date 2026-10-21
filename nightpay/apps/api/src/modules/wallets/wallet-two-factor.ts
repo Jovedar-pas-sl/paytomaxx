@@ -5,6 +5,11 @@ import type { TotpService } from '../auth/totp.service';
 /** El de la base (venues.refundApprovalThresholdCents, @default(10000)), si no llega. */
 const DEFAULT_THRESHOLD_CENTS = 100_00;
 
+/** El local puede pedir aprobación antes; el efectivo nunca supera 100 € sin ella. */
+export function cashApprovalThreshold(thresholdCents: number | null | undefined): number {
+  return Math.max(0, Math.min(DEFAULT_THRESHOLD_CENTS, thresholdCents ?? DEFAULT_THRESHOLD_CENTS));
+}
+
 /**
  * El encargado saca dinero del saldo sin el dueño: anular un consumo (vuelve
  * al saldo del cliente) o devolver el saldo en efectivo. Desde el umbral de

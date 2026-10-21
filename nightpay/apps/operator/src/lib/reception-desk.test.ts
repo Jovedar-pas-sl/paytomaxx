@@ -188,3 +188,16 @@ describe('el código tecleado (4.6)', () => {
     expect(codeBoxes('K7Q4')).toEqual(['K', '7', 'Q', '4', '', '']);
   });
 });
+
+
+it('all reception labels prefer the literal printed alias with legacy number fallback', () => {
+  const stock = { ...NUEVO, printedNumber: '00000017' };
+  const issued = saldo({ printedNumber: '00000017' });
+  expect(deskRow(stock, 'entrada').detail).toContain('00000017');
+  expect(deskRow(issued, 'salida').title).toContain('00000017');
+  expect(rechargeChip(stock)).toContain('00000017');
+  expect(rechargeChip(issued)).toContain('00000017');
+  expect(handOverLine(stock, true)).toContain('00000017');
+  expect(handOverLine(issued, true)).toContain('00000017');
+  expect(deskRow(NUEVO, 'entrada').detail).toContain('0522');
+});

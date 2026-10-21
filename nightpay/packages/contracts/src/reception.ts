@@ -114,6 +114,7 @@ export function fichaNumberText(n: number): string {
  */
 export interface ReceptionDeskNew {
   kind: 'new';
+  printedNumber?: string | null;
   /** «Ficha nº 0522». */
   fichaNumber: number;
 }
@@ -125,6 +126,7 @@ export interface ReceptionDeskNew {
  */
 export interface ReceptionDeskSaldo {
   kind: 'saldo';
+  printedNumber?: string | null;
   walletId: string;
   /** K7Q-4M2. */
   code: string;

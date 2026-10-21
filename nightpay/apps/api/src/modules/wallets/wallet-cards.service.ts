@@ -1,6 +1,7 @@
-import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   cardPanelActionProblem,
+  isPrintedFichaNumber,
   isWalletCardStatus,
   isWalletCardToken,
   normalizeWalletCardUid,
@@ -137,7 +138,38 @@ export class WalletCardsService {
         payload: { withUid: uid !== null, ...(by.terminalId ? { terminalId: by.terminalId } : {}) },
       });
     }
+    if (['stocked', 'returned', 'already'].includes(outcome.outcome)) {
+      const labelled = await this.prisma.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: input.card }, select: { printedNumber: true } }));
+      if (labelled?.printedNumber) return { ...outcome, printedNumber: labelled.printedNumber } as StockOutcome;
+    }
     return outcome;
+  }
+
+  /** Labels only a physically verified card already prepared in this venue. */
+  async labelStock(actor: Actor, input: { card: string; uid: string; printedNumber: string }): Promise<{ printedNumber: string }> {
+    if (!isPrintedFichaNumber(input.printedNumber)) throw new BadRequestException('El n\u00famero impreso debe tener entre 1 y 12 cifras');
+    const uid = normalizeWalletCardUid(input.uid);
+    if (!uid || !isWalletCardToken(input.card)) throw new BadRequestException('Acerca la ficha original para guardar su n\u00famero');
+    await this.prisma.asSystem((tx) => assertCanTopUp(tx, actor.tenantId, actor));
+    await this.assertNfc(actor.tenantId);
+    let cardId: string;
+    try {
+      cardId = await this.prisma.acrossVenues(async (tx) => {
+        const card = await lockCard(tx, input.card);
+        if (!card || card.venueId !== actor.tenantId) throw new NotFoundException('Ficha no encontrada en el stock de este local');
+        if (card.uid !== uid) throw new ConflictException('Este NFC no es el original');
+        if (card.walletId || !['STOCK', 'RETURNED'].includes(card.status)) throw new ConflictException('Solo se numeran fichas disponibles en el stock');
+        const row = await tx.walletCard.findUnique({ where: { id: card.id }, select: { stockedAt: true } });
+        if (!row?.stockedAt && card.status !== 'RETURNED') throw new ConflictException('Primero prepara esta ficha');
+        await tx.walletCard.update({ where: { id: card.id }, data: { printedNumber: input.printedNumber } });
+        return card.id;
+      });
+    } catch (err) {
+      if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'P2002') throw new ConflictException('Ese n\u00famero impreso ya pertenece a otra ficha');
+      throw err;
+    }
+    await this.audit.log({ action: 'wallet.card_numbered', tenantId: actor.tenantId, actorId: actor.userId, targetType: 'WalletCard', targetId: cardId, payload: { printedNumber: input.printedNumber } });
+    return { printedNumber: input.printedNumber };
   }
 
   // ─── Panel (Clientes → Fichas) ─────────────────────────────────────────
@@ -169,6 +201,7 @@ export class WalletCardsService {
     const hex = q.replace(/[^0-9a-f]/gi, '').toUpperCase();
     const code = normalizeWalletCode(q);
     const or: Prisma.WalletCardWhereInput[] = [{ token: { startsWith: q.slice(0, 64) } }];
+    if (/^[0-9]{1,12}$/.test(q)) or.push({ printedNumber: { contains: q } });
     if (hex.length >= 4) or.push({ uid: { contains: hex } });
     if (code.length === 6) {
       const wallets = await this.prisma.acrossVenues((tx) =>
@@ -284,9 +317,15 @@ export class WalletCardsService {
    */
   async desk(venueId: string, actor: { userId: string; role: Role }, ref: DeskRef): Promise<ReceptionDeskView> {
     await this.prisma.asSystem((tx) => assertCanTopUp(tx, venueId, actor));
-    if ('card' in ref) await this.assertNfc(venueId);
+    if ('card' in ref || 'printedNumber' in ref) await this.assertNfc(venueId);
     const venue = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } });
     return this.prisma.acrossVenues((tx) => readReceptionDesk(tx, { id: venueId, walletGroup: venue?.walletGroup ?? null }, ref));
+  }
+
+  /** A reception read only: printed aliases never act as payment credentials. */
+  async deskByPrintedNumber(actor: Actor, printedNumber: string): Promise<ReceptionDeskView> {
+    if (!isPrintedFichaNumber(printedNumber)) throw new BadRequestException('Escribe entre 1 y 12 cifras del n\u00famero impreso');
+    return this.desk(actor.tenantId, actor, { printedNumber });
   }
 
   private async assertNfc(venueId: string): Promise<void> {
@@ -329,6 +368,7 @@ type CardWithWallet = {
   id: string;
   uid: string | null;
   token: string;
+  printedNumber?: string | null;
   status: string;
   walletId?: string | null;
   stockedAt: Date | null;
@@ -347,6 +387,7 @@ export function cardRow(c: CardWithWallet): WalletCardRow {
     id: c.id,
     uid: c.uid,
     tokenHint: c.token.slice(0, 6),
+    printedNumber: c.printedNumber ?? null,
     status,
     walletCode: status === 'ISSUED' && c.wallet?.shortCode ? formatWalletCode(c.wallet.shortCode) : null,
     stockedAt: iso(c.stockedAt),

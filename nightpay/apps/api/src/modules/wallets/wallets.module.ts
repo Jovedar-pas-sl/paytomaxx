@@ -14,6 +14,8 @@ import { GoogleWalletController } from './google-wallet/google-wallet.controller
 import { GoogleWalletService } from './google-wallet/google-wallet.service';
 import { PassChargeLinkController } from './google-wallet/pass-charge-link.controller';
 import { ReceptionController } from './reception.controller';
+import { ReceptionCashPayoutController } from './reception-cash-payout.controller';
+import { ReceptionFichaNumberController } from './reception-ficha-number.controller';
 import { CashTopUpService } from './wallet-cash-topup.service';
 import { WalletCardsController } from './wallet-cards.controller';
 import { WalletCardsService } from './wallet-cards.service';
@@ -46,6 +48,8 @@ import { PendingTopUpService } from './wallet-pending-topup.service';
     PassChargeLinkController,
     // Recepción (recarga en efectivo, «Preparar fichas») y Clientes → Fichas.
     ReceptionController,
+    ReceptionCashPayoutController,
+    ReceptionFichaNumberController,
     PendingTopUpsController,
     WalletCardsController,
   ],
