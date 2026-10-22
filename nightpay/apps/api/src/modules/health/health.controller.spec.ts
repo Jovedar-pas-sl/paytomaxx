@@ -1,4 +1,7 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { HealthController } from './health.controller';
 
 describe('HealthController', () => {
@@ -54,32 +57,56 @@ describe('HealthController', () => {
   });
 });
 
-describe('HealthController: versión y marca del despliegue', () => {
-  const ok = () =>
-    new HealthController(
-      { $queryRaw: vi.fn().mockResolvedValue([{ ok: 1 }]) } as never,
-      { ping: vi.fn().mockResolvedValue('PONG') } as never,
-    );
+describe('HealthController: qué código corre (leído al arrancar)', () => {
+  const deps = [
+    { $queryRaw: vi.fn().mockResolvedValue([{ ok: 1 }]) } as never,
+    { ping: vi.fn().mockResolvedValue('PONG') } as never,
+  ] as const;
+  /** Un proceso nuevo: build-info se vuelve a leer (en el API, una vez al arrancar). */
+  const boot = async () => {
+    vi.resetModules();
+    const { HealthController: Fresh } = await import('./health.controller');
+    return new Fresh(...deps);
+  };
+  let dir: string;
 
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nightpay-health-'));
+  });
   afterEach(() => {
     vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
   });
 
-  it('version = GIT_SHA (lo pone el Dockerfile) y build = BUILD_MARKER', async () => {
-    vi.stubEnv('GIT_SHA', '3ea5019');
+  it('con build-info.json: su commit o su huella, y BUILD_MARKER si se puso', async () => {
+    const path = join(dir, 'build-info.json');
+    writeFileSync(path, JSON.stringify({ gitSha: '3ea5019', sourceDigest: 'f'.repeat(64), builtAt: '2026-10-22T08:00:00.000Z' }));
+    vi.stubEnv('BUILD_INFO_PATH', path);
     vi.stubEnv('BUILD_MARKER', 'plataforma-2026-10-15');
-    const result = (await ok().get()) as Awaited<ReturnType<HealthController['get']>> & { build: string };
-    expect(result.version).toBe('3ea5019');
-    expect(result.build).toBe('plataforma-2026-10-15');
+    const result = await (await boot()).get();
+    expect(result).toMatchObject({ version: '3ea5019', build: 'plataforma-2026-10-15', sourceDigest: 'f'.repeat(64), builtAt: '2026-10-22T08:00:00.000Z' });
   });
 
-  it('sin metadatos no anuncia una versión ni una marca antigua', async () => {
+  it('el fichero se lee al arrancar: cambiarlo después no cambia lo que dice /v1/health', async () => {
+    const path = join(dir, 'build-info.json');
+    writeFileSync(path, JSON.stringify({ gitSha: null, sourceDigest: 'a'.repeat(64) }));
+    vi.stubEnv('BUILD_INFO_PATH', path);
+    vi.stubEnv('BUILD_MARKER', '');
+    const controller = await boot();
+    writeFileSync(path, JSON.stringify({ gitSha: 'b'.repeat(40), sourceDigest: 'b'.repeat(64) }));
+    for (const result of [await controller.get(), await controller.get()]) {
+      expect(result).toMatchObject({ version: `source:${'a'.repeat(64)}`, build: `source:${'a'.repeat(12)}` });
+    }
+  });
+
+  it('sin metadatos no anuncia una versión ni la marca antigua (revision3-…)', async () => {
     vi.stubEnv('GIT_SHA', '');
     vi.stubEnv('BUILD_MARKER', '');
     vi.stubEnv('npm_package_version', '1.2.3');
-    vi.stubEnv('BUILD_INFO_PATH', '/missing/nightpay-build-info.json');
-    const result = (await ok().get()) as Awaited<ReturnType<HealthController['get']>> & { build: string };
+    vi.stubEnv('BUILD_INFO_PATH', join(dir, 'no-existe.json'));
+    const result = await (await boot()).get();
     expect(result.version).toBe('unknown');
     expect(result.build).toBe('unknown');
+    expect(JSON.stringify(result)).not.toContain('revision3');
   });
 });

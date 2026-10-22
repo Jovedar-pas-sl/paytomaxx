@@ -81,7 +81,7 @@ Comprobación: en Git Providers sale «GitHub: Connected».
 | Build Context | `nightpay` |
 | Dockerfile | `apps/api/Dockerfile` |
 | Port | `4100` |
-| Build Args (opcional) | `GIT_SHA=<commit>` y `BUILD_MARKER=<etiqueta>`: salen en `/v1/health` |
+| Build Args | Ninguno obligatorio. Para ver el commit en `/v1/health`, ver «Qué versión corre» abajo |
 | Autodeploy | **Apagado** (ver abajo) |
 
 **Desplegar solo con CI en verde.** Con el autodeploy encendido, Dokploy
@@ -111,6 +111,28 @@ añade al workflow un job que solo corre en `main` tras los demás:
 (Así también se despliega de noche si se hace push a esas horas: el manual
 deja elegir el momento.) Otra opción es proteger `main` en GitHub con esos
 checks obligatorios, pero no impide que Dokploy despliegue un push directo.
+
+**Qué versión corre (sin pasos a mano por despliegue).** Al construir, el
+Dockerfile graba `apps/api/build-info.json` con la identidad del código y
+`/v1/health` la enseña en `version` (el API la lee una vez al arrancar):
+
+- **Con el commit.** El Dockerfile recoge el commit si llega como Build Arg
+  `GIT_SHA` o `DOKPLOY_COMMIT_HASH`. Si tu versión de Dokploy pasa el commit
+  del despliegue al build (o deja referenciarlo en **Build Args**, p. ej.
+  `GIT_SHA=<la variable del commit que ofrezca>`), cada Deploy sale con su
+  commit: `"version":"3ea5019…"`. Compruébalo tras el primer Deploy con el
+  curl de D.6. **No pongas un commit fijo escrito a mano**: el siguiente
+  Deploy lo arrastraría y diría una versión que no es.
+- **Sin el commit** (lo normal si Dokploy no lo expone): no hace falta nada.
+  `"version":"source:<huella>"` es la huella del código construido. Para saber
+  de qué commit es, en una copia limpia de ese commit:
+  `cd nightpay && node scripts/build-info.mjs --print` da la misma
+  `sourceDigest`. `builtAt` dice cuándo se construyó la imagen.
+- `BUILD_MARKER=<etiqueta>` (Build Arg) sigue siendo opcional: sale en
+  `build`; sin él, `build` es la huella corta.
+
+La marca fija `revision3-2026-10-20` ya no existe: si `/v1/health` la enseña,
+corre una imagen antigua. Sin `build-info.json` (desarrollo) dice `unknown`.
 
 ### D.2 Variables de entorno
 
@@ -235,8 +257,13 @@ más tranquilo. Las migraciones son idempotentes: volver a aplicarlas es seguro.
 
 ```bash
 curl https://api.paytomaxx.com/v1/health
-# {"status":"ok",…,"checks":{"api":"ok","db":"ok","redis":"ok"}}
+# {"status":"ok","version":"source:ae4a…","build":"source:ae4a11fd07da",
+#  "builtAt":"2026-10-22T10:38:33.596Z",…,"checks":{"api":"ok","db":"ok","redis":"ok"}}
 ```
+
+`version`/`builtAt` tienen que ser los de este Deploy (ver «Qué versión
+corre» en D.1): si siguen los de antes, el contenedor nuevo no llegó a
+arrancar y sigue sirviendo el anterior (mira el log del Deploy).
 
 ### D.7 Primer local y primer usuario (solo en una instalación nueva)
 
