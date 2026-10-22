@@ -133,7 +133,11 @@ describe('lo que le toca de cada cosa', () => {
     expect(staffRates({ role: 'WAITER', commissionBps: null, defaults, invitationRules: { camarero: { kind: 'FIXED', cents: 300 } } })).toEqual([
       { kind: 'invitation', share: { kind: 'FIXED', cents: 300 } },
     ]);
-    expect(staffRates({ role: 'WAITER', commissionBps: null, defaults, invitationRules: null })).toEqual([]);
+    // De fábrica (sin partes guardadas): la mitad de cada invitación, como la maqueta 2.6.
+    expect(staffRates({ role: 'WAITER', commissionBps: null, defaults, invitationRules: null })).toEqual([
+      { kind: 'invitation', share: { kind: 'PERCENT', bps: 5000 } },
+    ]);
+    expect(staffRates({ role: 'WAITER', commissionBps: null, defaults, invitationRules: { chica: { kind: 'PERCENT', bps: 5000 }, camarero: { kind: 'PERCENT', bps: 0 } } })).toEqual([]);
   });
 });
 
@@ -212,7 +216,7 @@ describe('GET /v1/admin/operators/:id/ficha', () => {
     const { svc } = makeService({ id: CARLOS.id, displayName: null, email: 'carlos@x.es', role: 'WAITER', commissionBps: null });
     const f = await svc.ficha(TENANT, CARLOS.id);
     expect(f.person).toEqual({ id: CARLOS.id, name: 'carlos@x.es', role: 'WAITER' });
-    expect(f.rates).toEqual([]);
+    expect(f.rates).toEqual([{ kind: 'invitation', share: { kind: 'PERCENT', bps: 5000 } }]);
   });
 
   it('de otro local (o el dueño): 404', async () => {

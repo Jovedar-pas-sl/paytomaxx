@@ -33,6 +33,9 @@ interface Props {
   /** Cobro a abrir al llegar (desde una incidencia): se abren sus devoluciones. */
   focusPaymentId?: string | null;
   onFocusDone?: () => void;
+  /** Filtros con los que abrir la lista (desde una cifra del mapa del dinero). */
+  initialFilter?: CobrosFilters | null;
+  onInitialFilterDone?: () => void;
 }
 
 /**
@@ -42,14 +45,14 @@ interface Props {
  * navegador), espera más si el API falla y una respuesta vieja no pisa la de
  * un filtro nuevo. Si llega lo mismo, no se repinta nada.
  */
-export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocusDone }: Props) {
+export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocusDone, initialFilter = null, onInitialFilterDone }: Props) {
   // «Por aprobar»: desde cuánto pide el encargado las devoluciones al dueño.
   const refundRequestFromCents = useApprovals().rules?.refundRequestFromCents ?? null;
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   /** null = aún no ha llegado la primera página. */
   const [payments, setPayments] = useState<CobroRow[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [filter, setFilter] = useState<CobrosFilters>({});
+  const [filter, setFilter] = useState<CobrosFilters>(() => initialFilter ?? {});
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refundFor, setRefundFor] = useState<PaymentRow | null>(null);
@@ -61,6 +64,8 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   // descartar un "Cargar más" que vuelve después de cambiar el filtro).
   const loadedRef = useRef(0);
   const filterRef = useRef(filter);
+  /** La lista (al llegar desde el mapa del dinero, se baja hasta ella). */
+  const listRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     loadedRef.current = payments?.length ?? 0;
@@ -76,6 +81,14 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
     setFocusMissing(!row);
     onFocusDone?.();
   }, [focusPaymentId, payments, onFocusDone]);
+
+  // Desde el mapa del dinero: la lista con los filtros de esa cifra (una vez).
+  useEffect(() => {
+    if (!initialFilter) return;
+    if (filterRef.current !== initialFilter) changeFilter(initialFilter);
+    listRef.current?.scrollIntoView({ block: 'start' });
+    onInitialFilterDone?.();
+  }, [initialFilter, onInitialFilterDone]);
 
   const refresh = usePolling(
     async (signal) => {
@@ -171,7 +184,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         <MetricTile title="Semana · neto" value={eurOrDash(metrics?.week.netCents)} />
       </section>
 
-      <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <section ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', scrollMarginTop: '0.75rem' }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
           <h2 style={sectionTitle}>Cobros</h2>
           <Button variant="ghost" onClick={refresh} style={{ marginLeft: 'auto' }}>

@@ -33,12 +33,23 @@ const line = (item: CartaItemLike, qty = 1): DraftLine => ({
 });
 
 describe('partes de una invitación (Ajustes)', () => {
-  it('de fábrica (provisionales): la chica 50 %, el camarero 0 %', () => {
+  it('de fábrica (maqueta 2.6): la chica 50 % y el camarero 50 %; 20 € = 10 € + 10 €', () => {
     expect(invitationRulesOf(null)).toEqual(DEFAULT_INVITATION_RULES);
-    expect(invitationShares(invitationRulesOf(null), { unitCents: 2500, qty: 1 }, { getsShare: true })).toEqual({
-      beneficiaryCents: 1250,
+    expect(invitationShares(invitationRulesOf(null), { unitCents: 2000, qty: 1 }, { getsShare: true })).toEqual({
+      beneficiaryCents: 1000,
+      chargerCents: 1000,
+    });
+    // Quien cobra no es camarero (dueño, encargado): su mitad, del local.
+    expect(invitationShares(invitationRulesOf(null), { unitCents: 2000, qty: 1 }, { getsShare: false })).toEqual({
+      beneficiaryCents: 1000,
       chargerCents: 0,
     });
+  });
+
+  it('unas partes guardadas no cambian con las de fábrica', () => {
+    const saved = { chica: { kind: 'FIXED', cents: 800 }, camarero: { kind: 'PERCENT', bps: 0 }, inviteFirst: true, requireQr: true };
+    expect(invitationRulesOf(saved)).toEqual(saved);
+    expect(invitationShares(invitationRulesOf(saved), { unitCents: 2000, qty: 1 }, { getsShare: true })).toEqual({ beneficiaryCents: 800, chargerCents: 0 });
   });
 
   it('% o fijo por copa; nunca más que la venta (primero la chica, luego el camarero)', () => {

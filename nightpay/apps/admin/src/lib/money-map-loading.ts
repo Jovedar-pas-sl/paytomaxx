@@ -1,4 +1,5 @@
 import type { MoneyMap, MoneyMapQuery } from '@nightpay/contracts';
+import { formatDateTime } from './dates';
 import { moneyMapIsCurrent } from './money-map-view';
 
 export interface MoneyMapLoadState {
@@ -65,4 +66,30 @@ export function moneyMapStamp(map: MoneyMap): { kind: 'live' | 'frozen' | 'hold'
     label: map.frozen ? 'Congelado en el Z' : moneyMapIsCurrent(map) ? 'En directo' : map.scope.kind === 'night' ? 'Al corte del Z' : 'Periodo',
     generatedAt: map.generatedAt,
   };
+}
+
+/**
+ * La hora de los datos (generatedAt, no el reloj del móvil) y su estado, en
+ * palabras: el chip de arriba y la línea de debajo.
+ *  - En directo: «En directo · 03:40».
+ *  - Congelado en el Z: no cambia; con la fecha del corte.
+ *  - Un Z de antes del mapa: calculado con su corte.
+ *  - Unas fechas: «Periodo · 03:40».
+ */
+export function moneyMapFreshness(map: MoneyMap, timeZone: string): { chip: string; short: string; line: string } {
+  const at = formatDateTime(map.generatedAt, timeZone, 'time');
+  const when = formatDateTime(map.generatedAt, timeZone, 'compact');
+  const cut = formatDateTime(map.to, timeZone, 'compact');
+  const since = formatDateTime(map.from, timeZone, 'compact');
+  if (moneyMapIsCurrent(map)) {
+    const scope = map.scope.kind === 'night' && map.scope.open ? 'Noche abierta' : 'Sin noche abierta: desde el último cierre';
+    return { chip: `En directo · ${at}`, short: at, line: `${scope}, desde el ${since}. Datos de las ${at}; se ponen al día solos.` };
+  }
+  if (map.frozen) {
+    return { chip: 'Congelado en el Z', short: 'Congelado', line: `Z del ${since} al corte del ${cut}. Congelado al cerrar la noche: ya no cambia.` };
+  }
+  if (map.scope.kind === 'night') {
+    return { chip: 'Al corte del Z', short: 'Al corte del Z', line: `Z del ${since} al corte del ${cut}, calculado con ese corte (datos del ${when}).` };
+  }
+  return { chip: `Periodo · ${at}`, short: at, line: `Datos de las ${at} (${when}).` };
 }

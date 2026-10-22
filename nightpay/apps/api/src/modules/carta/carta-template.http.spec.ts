@@ -7,7 +7,7 @@ import { AuthGuard } from '../../common/guards/auth.guard';
 import { CartaController } from './carta.controller';
 import { CartaService } from './carta.service';
 
-const service = { applyTemplate: vi.fn().mockResolvedValue({ created: 13, updated: 0, kept: 0 }) };
+const service = { applyTemplate: vi.fn().mockResolvedValue({ created: 13, updated: 0, kept: 0, skipped: 0 }) };
 let app: NestFastifyApplication;
 beforeAll(async () => {
   const ref = await Test.createTestingModule({
@@ -40,7 +40,20 @@ describe('POST /v1/services/template', () => {
     expect(res.statusCode).toBe(403);
     expect(service.applyTemplate).not.toHaveBeenCalled();
   });
-  it.each([{}, { confirm: false }, { confirm: true, items: [] }])('rejects absent confirmation and custom products', async (payload) => {
+  it('passes the products the owner ticked, with what they saw', async () => {
+    const update = [{ id: '00000000-0000-4000-8000-000000000001', seen: { priceCents: 900, durationMin: null, sortOrder: 0, active: false } }];
+    const res = await app.inject({ method: 'POST', url: '/v1/services/template', headers: { 'x-test-role': 'OWNER' }, payload: { confirm: true, update } });
+    expect(res.statusCode).toBe(201);
+    expect(service.applyTemplate).toHaveBeenCalledWith('tenant-1', 'actor-1', { confirm: true, update });
+  });
+  it.each([
+    {},
+    { confirm: false },
+    { confirm: true, items: [] },
+    { confirm: true, update: [{ id: 'not-a-uuid', seen: { priceCents: 900, durationMin: null, sortOrder: 0, active: true } }] },
+    { confirm: true, update: [{ id: '00000000-0000-4000-8000-000000000001', seen: { priceCents: 900 } }] },
+    { confirm: true, update: [{ id: '00000000-0000-4000-8000-000000000001', seen: { priceCents: 900, durationMin: null, sortOrder: 0, active: true }, priceCents: 1 }] },
+  ])('rejects absent confirmation, custom products and malformed ticks', async (payload) => {
     const res = await app.inject({ method: 'POST', url: '/v1/services/template', headers: { 'x-test-role': 'OWNER' }, payload });
     expect(res.statusCode).toBe(400);
     expect(service.applyTemplate).not.toHaveBeenCalled();

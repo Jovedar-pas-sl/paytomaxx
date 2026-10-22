@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Input } from '@nightpay/ui';
 import type { MoneyMapQuery } from '@nightpay/contracts';
-import { fetchMoneyMap } from '@/lib/api';
+import { fetchMoneyMap, type CobrosFilters } from '@/lib/api';
 import { formatDateTime, madridToday } from '@/lib/dates';
 import { moneyMapView } from '@/lib/money-map-view';
-import { createMoneyMapLoader, moneyMapPeriod, moneyMapStamp, type MoneyMapLoadState } from '@/lib/money-map-loading';
+import { moneyMapCobrosFilter } from '@/lib/money-map-cobros';
+import { createMoneyMapLoader, moneyMapFreshness, moneyMapPeriod, moneyMapStamp, type MoneyMapLoadState } from '@/lib/money-map-loading';
 import type { TabKey } from '@/lib/roles';
 import { usePolling } from '@/lib/use-polling';
 import { useSections } from '@/lib/use-sections';
@@ -19,11 +20,12 @@ const POLL_MS = 30_000;
 const MAX_POLL_MS = 240_000;
 
 /**
- * Hoy → Mapa del dinero (maqueta 8 · A): esta noche, en directo. Cómo entra
- * el dinero, a qué sección va, dónde está y qué sale. Al cerrar la noche se
- * congela en su Z (Informes → Noches).
+ * Hoy → Mapa del dinero (maqueta 8 · A): esta noche, en directo, o unas
+ * fechas. Cómo entra el dinero, a qué sección va, cómo se reparte, dónde está
+ * y qué sale; la hora es la de los datos (generatedAt). Al cerrar la noche se
+ * congela en su Z (Informes → Noches). Tocar una cifra abre sus cobros.
  */
-export function MoneyMapPanel({ onNavigate }: { onNavigate?: (key: TabKey) => void }) {
+export function MoneyMapPanel({ onNavigate, onOpenCobros }: { onNavigate?: (key: TabKey) => void; onOpenCobros?: (filter: CobrosFilters) => void }) {
   const venue = useVenue();
   const { sections } = useSections();
   const [{ map, shown, requested, loading, error }, setState] = useState<MoneyMapLoadState>({ map: null, shown: null, requested: {}, loading: false, error: null });
@@ -57,10 +59,9 @@ export function MoneyMapPanel({ onNavigate }: { onNavigate?: (key: TabKey) => vo
     } catch (err) { setRangeError((err as Error).message); }
   }
 
-  const scope = map?.scope.kind === 'night' ? map.scope : null;
-  const since = map ? formatDateTime(map.from, venue.timezone, 'time') : null;
-  const nightText = map ? (map.scope.kind === 'period' ? `Periodo mostrado: ${shown?.from} — ${shown?.to} (ambos días incluidos, hora de Madrid)` : scope?.open ? `Esta noche, desde las ${since}` : `Sin noche abierta: desde el último cierre (${since})`) : null;
   const stamp = map ? moneyMapStamp(map) : null;
+  const fresh = map ? moneyMapFreshness(map, venue.timezone) : null;
+  const periodText = map?.scope.kind === 'period' ? `Del ${dayLabel(shown?.from)} al ${dayLabel(shown?.to)}, ambos incluidos (hora de Madrid). ` : '';
   const stripe = map ? moneyMapView(map, sections).stripe : [];
 
   return (
@@ -71,21 +72,37 @@ export function MoneyMapPanel({ onNavigate }: { onNavigate?: (key: TabKey) => vo
           <h2 id="np-mm-title">Mapa del dinero</h2>
           <span>{venue.name ?? venue.slug}</span>
         </div>
-        <span className="np-mm-chip" data-kind={error || loading ? 'hold' : stamp?.kind ?? 'hold'}>
-          {error ? 'Sin actualizar' : loading ? 'Actualizando…' : stamp?.label ?? 'Sin datos'}
+        {/* La hora de los datos (generatedAt), como la maqueta: el estado entero, para el lector de pantalla. */}
+        <span className="np-mm-chip" data-kind={error ? 'hold' : stamp?.kind ?? 'hold'} title={fresh?.chip}>
+          {error ? 'Sin actualizar' : fresh ? (
+            <>
+              <span aria-hidden="true">{fresh.short}</span>
+              <span className="np-sr-only">{fresh.chip}</span>
+            </>
+          ) : loading ? 'Cargando…' : 'Sin datos'}
         </span>
       </header>
       <Stripe segments={stripe} />
 
-      <form className="np-mm-period" aria-label="Periodo del mapa del dinero" onSubmit={applyPeriod}>
-        <Input label="Desde" type="date" value={from} onChange={(event) => setFrom(event.target.value)} required />
-        <Input label="Hasta" type="date" value={to} onChange={(event) => setTo(event.target.value)} min={from || undefined} required />
-        <Button type="submit" variant="ghost">Ver periodo</Button>
-        <Button type="button" variant="ghost" onClick={() => { setRangeError(null); if (!query.from) reload(); else setQuery({}); }}>Esta noche</Button>
-        <p className="np-mm-note">Fechas de Madrid, ambos días incluidos.</p>
-      </form>
+      <details className="np-mm-period-box">
+        <summary>
+          <span>Fechas: <b>{query.from ? `${dayLabel(query.from)} – ${dayLabel(query.to)}` : 'esta noche'}</b></span>
+          <span className="np-mm-period-change">Cambiar</span>
+        </summary>
+        <form className="np-mm-period" aria-label="Periodo del mapa del dinero" onSubmit={applyPeriod}>
+          <Input label="Desde" type="date" value={from} onChange={(event) => setFrom(event.target.value)} required />
+          <Input label="Hasta" type="date" value={to} onChange={(event) => setTo(event.target.value)} min={from || undefined} required />
+          <Button type="submit" variant="ghost">Ver periodo</Button>
+          <Button type="button" variant="ghost" onClick={() => { setRangeError(null); if (!query.from) reload(); else setQuery({}); }}>Esta noche</Button>
+          <p className="np-mm-note">Fechas de Madrid, ambos días incluidos.</p>
+        </form>
+      </details>
       {rangeError ? <Notice tone="danger">{rangeError}</Notice> : null}
-      {map && stamp ? <p className="np-mm-note">{nightText}. Datos generados el <time dateTime={stamp.generatedAt}>{formatDateTime(stamp.generatedAt, venue.timezone)}</time>.</p> : null}
+      {map && stamp && fresh ? (
+        <p className="np-mm-note np-mm-fresh">
+          {periodText}{fresh.line} <time dateTime={stamp.generatedAt} className="np-sr-only">{formatDateTime(stamp.generatedAt, venue.timezone)}</time>
+        </p>
+      ) : null}
       {loading ? <p className="np-mm-note" role="status">Cargando {requested.from ? `el periodo ${requested.from} — ${requested.to}` : 'esta noche'}…{map ? ' Se conserva el contexto de los datos mostrados.' : ''}</p> : null}
 
       {error ? (
@@ -95,7 +112,9 @@ export function MoneyMapPanel({ onNavigate }: { onNavigate?: (key: TabKey) => vo
         </Notice>
       ) : null}
 
-      {map ? <MoneyMapView map={map} wide /> : error ? null : <p className="np-mm-note">Cargando…</p>}
+      {map ? (
+        <MoneyMapView map={map} wide onOpen={onOpenCobros ? (target) => onOpenCobros(moneyMapCobrosFilter(map, target)) : undefined} />
+      ) : error ? null : <p className="np-mm-note">Cargando…</p>}
 
       {map ? (
         <p className="np-mm-foot">
@@ -112,4 +131,10 @@ export function MoneyMapPanel({ onNavigate }: { onNavigate?: (key: TabKey) => vo
       ) : null}
     </section>
   );
+}
+
+/** «2026-10-21» → «21/10/2026». */
+function dayLabel(day: string | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day ?? '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (day ?? '');
 }

@@ -3,6 +3,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
+import { invitationSplit, splitCells } from '@/lib/cobro-view';
 import { chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
 import {
   colorOf,
@@ -14,6 +15,7 @@ import {
   tipTiles,
   type CobrarContext,
 } from './cobrar-context';
+import { IconQr } from './icons';
 import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
@@ -23,6 +25,8 @@ interface Props {
   /** «Carlos · camarero». */
   who: string;
   onItem: (item: CartaItem) => void;
+  /** La tarjeta destacada «Invitar a una copa»: directa a escanear el QR de la chica (maqueta 2.2). */
+  onInvite: (invite: CartaItem) => void;
   onTip: (cents: number) => void;
   onOtro: () => void;
   onVerCuenta: () => void;
@@ -46,6 +50,7 @@ export function Carta({
   cuenta,
   who,
   onItem,
+  onInvite,
   onTip,
   onOtro,
   onVerCuenta,
@@ -87,32 +92,32 @@ export function Carta({
       />
       <Stripe parts={[{ color: colorOf(puestoSection(ctx)), weight: 1 }]} />
       <div className={styles.body}>
-        {invitation ? <button type="button" className={`${styles.tile} ${styles.inviteEntry}`} onClick={() => onItem(invitation)}>
-          <span className={styles.kicker}>Copas · La mejor opción</span>
-          <span className={styles.tileName}>Invitar a una copa</span>
-          <span className={styles.price}>{formatEur(invitation.priceCents, { compact: true })}</span>
-        </button> : null}
+        {invitation ? <InviteCard ctx={ctx} invite={invitation} onInvite={() => onInvite(invitation)} /> : null}
         <div className={styles.tiles}>
           {items.map((item) => (
             <ItemTile key={item.id} item={item} ctx={ctx} qty={qtyOf(cuenta, item.id)} big={big} onPick={() => onItem(item)} />
           ))}
-          {tips.map((cents) => (
-            <button
-              key={`tip-${cents}`}
-              type="button"
-              className={`${styles.tile}${big ? ` ${styles.tileBig}` : ''}`}
-              style={{ '--c': colorOf('propinas') } as CSSProperties}
-              onClick={() => onTip(cents)}
-            >
-              <span className={styles.kicker}>Propinas</span>
-              <span className={styles.tileName}>Propina</span>
-              <span className={styles.price}>{formatEur(cents, { compact: true })}</span>
+          {/* Propinas y «Otro importe» en una fila: caben encima de «Cobrar» también con la carta entera. */}
+          <div className={styles.lastRow} style={{ '--n': Math.max(2, tips.length + 1) } as CSSProperties} data-n={tips.length + 1} data-big={big || undefined}>
+            {tips.map((cents) => (
+              <button
+                key={`tip-${cents}`}
+                type="button"
+                className={`${styles.tile}${big ? ` ${styles.tileBig}` : ''}`}
+                style={{ '--c': colorOf('propinas') } as CSSProperties}
+                onClick={() => onTip(cents)}
+                aria-label={`Propina de ${formatEur(cents)}`}
+              >
+                <span className={styles.kicker}>Propinas</span>
+                <span className={styles.tileName}>Propina</span>
+                <span className={styles.price}>{formatEur(cents, { compact: true })}</span>
+              </button>
+            ))}
+            <button type="button" className={`${styles.tile} ${styles.tileOther}${big ? ` ${styles.tileBig}` : ''}`} onClick={onOtro}>
+              <span className={styles.tileName}>Otro importe</span>
+              <span>{codes.length > 1 && (big || tips.length < 2) ? 'Teclearlo y elegir sección' : 'Teclearlo'}</span>
             </button>
-          ))}
-          <button type="button" className={`${styles.tile} ${styles.tileOther}${big ? ` ${styles.tileBig}` : ''}`} onClick={onOtro}>
-            <span className={styles.tileName}>Otro importe</span>
-            <span>{codes.length > 1 ? 'Teclearlo y elegir sección' : 'Teclearlo'}</span>
-          </button>
+          </div>
           {roomsElsewhere ? (
             <div
               className={`${styles.tile} ${styles.tileAsk}${big ? ` ${styles.tileBig}` : ''}`}
@@ -170,6 +175,40 @@ export function Carta({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * «Invitar a una copa», destacada y compacta: el reparto en la tarjeta y, al
+ * tocarla, directa a escanear el QR de la chica. La copa sola sigue en su loseta.
+ */
+function InviteCard({ ctx, invite, onInvite }: { ctx: CobrarContext; invite: CartaItem; onInvite: () => void }) {
+  const split = ctx.rules ? invitationSplit(ctx.rules, invite.priceCents, ctx.user.role === 'WAITER') : null;
+  const cells = split ? splitCells(split, { chica: 'La chica', barra: 'La barra' }) : [];
+  const price = formatEur(invite.priceCents, { compact: true });
+  const said = cells.map((c) => `${c.label} ${formatEur(c.cents)}`).join(', ');
+  return (
+    <button
+      type="button"
+      className={styles.inviteCard}
+      onClick={onInvite}
+      aria-label={`Invitar a una copa, ${price}${said ? `: ${said}` : ''}. Escanea el QR de la chica.`}
+    >
+      <span className={styles.inviteQr} aria-hidden="true">
+        <IconQr />
+      </span>
+      <span className={styles.inviteText}>
+        <span className={styles.inviteName}>Invitar a una copa</span>
+        <span className={styles.inviteSplit}>
+          {cells.length > 0 ? cells.map((c) => (
+            <span key={c.label}>
+              {c.label} <b>{formatEur(c.cents, { compact: true })}</b>
+            </span>
+          )) : 'Escanea el QR de la chica'}
+        </span>
+      </span>
+      <span className={styles.inviteCardPrice}>{price}</span>
+    </button>
   );
 }
 

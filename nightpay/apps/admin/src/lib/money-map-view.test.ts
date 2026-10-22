@@ -118,7 +118,7 @@ describe('maqueta 8 · A, barras apiladas', () => {
     expect(v.where.owners.map((s) => [s.label, s.cents])).toEqual([
       ['Tuyo', 308_600],
       ['De chicas', 216_000],
-      ['Variación de saldo', 115_000],
+      ['Variación del saldo del periodo', 115_000],
     ]);
     expect(v.where.note).toBeNull();
     expect(v.outflow.map((r) => [r.label, r.note, r.cents])).toEqual([
@@ -153,6 +153,10 @@ describe('maqueta 8 · A, barras apiladas', () => {
       'Comisiones · banco y OxioPay',
     ]);
     expect(v.where.owners[1]!.label).toBe('De camareros');
+    // Cómo se reparte: cada uno con su importe; las comisiones, con su propio gris (no el del saldo).
+    expect(v.split.map((x) => [x.label, x.cents])).toEqual([['Local', 1], ['Personal', 601], ['Comisiones', 150]]);
+    expect(v.split.find((x) => x.key === 'fees')?.color).toBe('var(--np-mm-comision)');
+    expect(v.split.map((x) => x.color)).not.toContain('var(--np-mm-saldo)');
     expect(sp(v.where.note)).toBe('Deuda total al personal ahora: 7 €');
   });
 
@@ -194,21 +198,21 @@ describe('desgloses ampliados', () => {
   it('distingue la variación negativa del periodo del saldo real de los clientes', () => {
     const m = map({ where: { ...map().where, owners: { ...map().where.owners, saldoCents: -5000 }, liveSaldoCents: 235000 } });
     const v = moneyMapView(m, SECTIONS);
-    expect(v.where.owners.find((r) => r.key === 'saldo')).toMatchObject({ label: 'Variación de saldo', cents: -5000 });
-    expect(v.where.balance).toEqual({ label: 'Saldo total de clientes ahora', cents: 235000 });
+    expect(v.where.owners.find((r) => r.key === 'saldo')).toMatchObject({ label: 'Variación del saldo del periodo', cents: -5000 });
+    expect(v.where.balance).toEqual({ label: 'Saldo real de clientes ahora', cents: 235000 });
   });
   it('un Z antiguo etiqueta el saldo y la deuda al corte y no los presenta como actuales', () => {
     const m = map({ scope: { kind: 'night', nightId: 'old', open: false }, frozen: true,
       where: { ...map().where, liveSaldoCents: 999000, owed: { chicasCents: 300000, camarerosCents: 0 } } });
     const v = moneyMapView(m, SECTIONS);
-    expect(v.where.balance.label).toBe('Saldo total de clientes al corte');
+    expect(v.where.balance.label).toBe('Saldo real de clientes al corte');
     expect(v.where.note).not.toContain('ahora');
     expect(v.where.note).toContain('al corte');
     expect(moneyMapDetails(m).owed.rows.at(-1)?.label).toContain('al corte');
   });
   it('un periodo sin saldo histórico disponible conserva el desconocido', () => {
     const v = moneyMapView(map({ scope: { kind: 'period' }, where: { ...map().where, liveSaldoCents: null } }), SECTIONS);
-    expect(v.where.balance).toEqual({ label: 'Saldo total de clientes al corte', cents: null });
+    expect(v.where.balance).toEqual({ label: 'Saldo real de clientes al corte', cents: null });
   });
   it('los pendientes de un periodo o un Z recalculado se etiquetan al corte', () => {
     for (const scope of [{ kind: 'period' } as const, { kind: 'night', nightId: 'old', open: false } as const]) {

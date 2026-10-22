@@ -23,7 +23,7 @@ const STATUS_FILTERS: Array<{ value: string; label: string }> = [
 
 const METHODS: ChargeMethod[] = ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO'];
 
-/** Filtros de Cobros: estado, chica, sección, cómo pagó, saldo y noche (van al API). */
+/** Filtros de Cobros: estado, chica, sección, cómo pagó, saldo, noche y las fechas de una cifra del mapa (van al API). */
 export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; onChange: (next: CobrosFilters) => void }) {
   const tz = useVenueTimezone();
   const { sections } = useSections();
@@ -56,6 +56,18 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
   }
 
   return (
+    <>
+    {value.from || value.to ? (
+      <p className="np-cobros-window" role="status">
+        <span>
+          Fechas del mapa del dinero: {value.from ? formatDateTime(value.from, tz, 'compact') : 'el principio'} →{' '}
+          {value.to ? formatDateTime(value.to, tz, 'compact') : 'ahora'} (hora del cobro)
+        </span>
+        <button type="button" onClick={() => set({ from: undefined, to: undefined })}>
+          Quitar fechas
+        </button>
+      </p>
+    ) : null}
     <form className="np-cobros-filters" style={grid} onSubmit={applyCode} role="search" aria-label="Filtrar cobros">
       <Select aria-label="Estado" value={value.status?.[0] ?? ''} onChange={(e) => set({ status: e.target.value ? [e.target.value] : undefined })}>
         {STATUS_FILTERS.map((f) => (
@@ -112,6 +124,7 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
         autoCapitalize="characters"
       />
     </form>
+    </>
   );
 }
 

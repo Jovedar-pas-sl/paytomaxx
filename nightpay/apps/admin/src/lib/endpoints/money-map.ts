@@ -30,6 +30,9 @@ export interface CobrosFilters {
   invitedOperatorId?: string;
   nightId?: string;
   status?: string[];
+  /** Ventana de una cifra del mapa del dinero: instantes ISO, [from, to). */
+  from?: string;
+  to?: string;
 }
 
 export function cobrosQuery(filters: CobrosFilters, page: { cursor?: string; limit?: number } = {}): string {
