@@ -45,42 +45,6 @@ function refund(o: Partial<OurRefund>): OurRefund {
 const statuses = (r: ReturnType<typeof reconcile>) => r.items.map((i) => i.status);
 
 describe('cuadre con el banco', () => {
-  it.each([[false, 2000], [true, 2000], [false, 5000], [true, 5000]] as const)('distingue operación 77 de dos terminales con CSV invertido=%s e importe=%i', (reverse, amountCents) => {
-    const rows = [row({ reference: '77', terminal: 'A' }), row({ reference: '77', terminal: 'B', amountCents })];
-    const result = reconcile({ rows: reverse ? rows.reverse() : rows,
-      sales: [sale({ references: ['77'], terminal: 'A' }), sale({ paymentId: 'p-2', references: ['77'], terminal: 'B', amountCents })], refunds: [], strays: [] });
-    expect(result.items).toHaveLength(2);
-    expect(result.items.every((i) => i.status === 'MATCHED')).toBe(true);
-    expect(result.items.find((i) => i.terminal === 'B')?.paymentId).toBe('p-2');
-  });
-
-  it('referencia ambigua sin terminal no se resuelve por orden ni por importe', () => {
-    const result = reconcile({ rows: [row({ reference: '77' })], sales: [sale({ references: ['77'], terminal: 'A' }), sale({ paymentId: 'p-2', references: ['77'], terminal: 'B' })], refunds: [], strays: [] });
-    expect(statuses(result)).toEqual(['NOT_IN_OXIOPAY', 'NOT_IN_BANK', 'NOT_IN_BANK']);
-  });
-
-  it('una referencia ambigua entre cobro pagado y cobro perdido no favorece al pagado', () => {
-    const result = reconcile({ rows: [row({ reference: '77' })], sales: [sale({ references: ['77'], terminal: 'A' })], refunds: [], strays: [{ paymentId: 'stray-b', tenantId: 'v-1', references: ['77'], terminal: 'B', amountCents: 5000 }] });
-    expect(statuses(result)).toEqual(['NOT_IN_OXIOPAY', 'NOT_IN_BANK']);
-  });
-
-  it('una anulación sin terminal no elige entre operaciones 77 usando solo el importe', () => {
-    const result = reconcile({ rows: [row({ reference: '77', terminal: 'A' }), row({ reference: '77', terminal: 'B', amountCents: 2000 }), row({ reference: '77', kind: 'VOID' })], sales: [], refunds: [], strays: [] });
-    expect(result.bankTotalCents).toBe(7000);
-  });
-
-  it('una anulación respeta el terminal cuando dos ventas comparten operación e importe', () => {
-    const result = reconcile({ rows: [row({ reference: '77', terminal: 'A' }), row({ reference: '77', terminal: 'B' }), row({ reference: '77', terminal: 'A', kind: 'VOID' })], sales: [sale({ references: ['77'], terminal: 'B' })], refunds: [], strays: [] });
-    expect(result.items).toEqual([expect.objectContaining({ status: 'MATCHED', terminal: 'B' })]);
-  });
-
-  it('una devolución respeta terminal+operación y deja ambigüedades sin casar', () => {
-    const refunds = [refund({ refundId: 'r-a', paymentReferences: ['77'], terminal: 'A' }), refund({ refundId: 'r-b', paymentId: 'p-2', paymentReferences: ['77'], terminal: 'B' })];
-    const result = reconcile({ rows: [row({ kind: 'REFUND', reference: '77', terminal: 'B', amountCents: 2000 })], sales: [], refunds, strays: [] });
-    expect(result.items[0]).toMatchObject({ status: 'REFUND_MATCHED', refundId: 'r-b' });
-    const ambiguous = reconcile({ rows: [row({ kind: 'REFUND', reference: '77', amountCents: 2000 })], sales: [], refunds, strays: [] });
-    expect(ambiguous.items[0]?.status).toBe('REFUND_NOT_IN_OXIOPAY');
-  });
   it('casa por el pedido de Redsys aunque Excel se haya comido los ceros', () => {
     expect(referenceKey('000412abcd')).toBe('412ABCD');
     const r = reconcile({
@@ -192,6 +156,173 @@ describe('cuadre con el banco', () => {
     });
     expect(statuses(missing)).toEqual(['NOT_IN_BANK', 'REFUND_NOT_IN_OXIOPAY', 'REFUND_NOT_IN_BANK']);
     expect(missing.items[1]).toMatchObject({ paymentId: 'p-1', tenantId: 'v-1' });
+  });
+});
+
+describe('Paytef: el número de operación solo es único dentro de su datáfono', () => {
+  const twoTerminals = (amountB: number) => ({
+    rows: [row({ line: 1, reference: '77', terminal: 'A' }), row({ line: 2, reference: '77', terminal: 'B', amountCents: amountB })],
+    sales: [
+      sale({ paymentId: 'p-a', tenantId: 'sala', references: ['77'], terminal: 'A' }),
+      sale({ paymentId: 'p-b', tenantId: 'terraza', references: ['77'], terminal: 'B', amountCents: amountB }),
+    ],
+  });
+
+  it.each([
+    ['mismo importe, CSV en orden', 5000, false],
+    ['mismo importe, CSV al revés', 5000, true],
+    ['20 € y 50 €, CSV en orden', 2000, false],
+    ['20 € y 50 €, CSV al revés', 2000, true],
+  ] as const)('dos datáfonos con la operación 77 (%s): cada una con el cobro de su local', (_name, amountB, reversed) => {
+    const { rows, sales } = twoTerminals(amountB);
+    const r = reconcile({ rows: reversed ? [...rows].reverse() : rows, sales, refunds: [], strays: [], knownTerminals: new Set(['A', 'B']) });
+    expect(r.items).toHaveLength(2);
+    expect(r.items.every((i) => i.status === 'MATCHED')).toBe(true);
+    expect(r.items.find((i) => i.terminal === 'A')).toMatchObject({ paymentId: 'p-a', tenantId: 'sala' });
+    expect(r.items.find((i) => i.terminal === 'B')).toMatchObject({ paymentId: 'p-b', tenantId: 'terraza' });
+    expect(r).toMatchObject({ bankTotalCents: 5000 + amountB, oursTotalCents: 5000 + amountB });
+  });
+
+  it('la línea sin datáfono con una operación que tienen dos: no se elige por orden ni por importe', () => {
+    const { sales } = twoTerminals(2000);
+    const r = reconcile({ rows: [row({ reference: '77', amountCents: 2000 })], sales, refunds: [], strays: [] });
+    expect(statuses(r)).toEqual(['NOT_IN_OXIOPAY', 'NOT_IN_BANK', 'NOT_IN_BANK']);
+  });
+
+  it('un cobro pagado y otro sin pagar con la misma operación: sin datáfono, ninguno; con él, el suyo', () => {
+    const paid = sale({ references: ['77'], terminal: 'A' });
+    const lost = { paymentId: 'stray-b', tenantId: 'terraza', references: ['77'], terminal: 'B', amountCents: 5000 };
+    expect(statuses(reconcile({ rows: [row({ reference: '77' })], sales: [paid], refunds: [], strays: [lost] }))).toEqual([
+      'NOT_IN_OXIOPAY',
+      'NOT_IN_BANK',
+    ]);
+    const onB = reconcile({ rows: [row({ reference: '77', terminal: 'B' })], sales: [paid], refunds: [], strays: [lost], knownTerminals: new Set(['A', 'B']) });
+    expect(onB.items[0]).toMatchObject({ status: 'NOT_PAID_HERE', paymentId: 'stray-b', tenantId: 'terraza' });
+  });
+
+  it('un datáfono que no conocemos solo casa con lo nuestro cuyo datáfono no sale en el fichero', () => {
+    // El de la terraza no sale con su nombre (no se configuró su número de serie).
+    const sales = [
+      sale({ paymentId: 'p-a', references: ['77'], terminal: 'A' }),
+      sale({ paymentId: 'p-terraza', tenantId: 'terraza', references: ['77'], terminal: null }),
+    ];
+    const rows = [row({ line: 1, reference: '77', terminal: 'PAYTEF-XYZ' }), row({ line: 2, reference: '77', terminal: 'A' })];
+    const r = reconcile({ rows, sales, refunds: [], strays: [], knownTerminals: new Set(['A']) });
+    expect(r.items.map((i) => [i.terminal, i.status, i.paymentId])).toEqual([
+      ['PAYTEF-XYZ', 'MATCHED', 'p-terraza'],
+      ['A', 'MATCHED', 'p-a'],
+    ]);
+  });
+
+  it('una línea repetida no se lleva por importe otro cobro de su datáfono', () => {
+    const r = reconcile({
+      rows: [row({ line: 1, reference: '77', terminal: 'A' }), row({ line: 2, reference: '77', terminal: 'A' })],
+      sales: [sale({ paymentId: 'p-a', references: ['77'], terminal: 'A' }), sale({ paymentId: 'p-otro', references: [], terminal: 'A' })],
+      refunds: [],
+      strays: [],
+      knownTerminals: new Set(['A']),
+    });
+    expect(r.items.map((i) => [i.status, i.paymentId])).toEqual([
+      ['MATCHED', 'p-a'],
+      ['NOT_IN_OXIOPAY', null],
+      ['NOT_IN_BANK', 'p-otro'],
+    ]);
+  });
+
+  it('sin referencia, dos cobros iguales a la misma distancia: ninguno (ambiguo)', () => {
+    const r = reconcile({
+      rows: [row({ authCode: null, at: at('2026-10-13T22:10:00Z') })],
+      sales: [sale({ paymentId: 'antes', at: at('2026-10-13T22:05:00Z') }), sale({ paymentId: 'despues', at: at('2026-10-13T22:15:00Z') })],
+      refunds: [],
+      strays: [],
+    });
+    expect(statuses(r)).toEqual(['NOT_IN_OXIOPAY', 'NOT_IN_BANK', 'NOT_IN_BANK']);
+  });
+
+  describe('anulaciones', () => {
+    it('la anulación con datáfono quita la venta de ese datáfono aunque otro tenga la misma operación e importe', () => {
+      const r = reconcile({
+        rows: [row({ line: 1, reference: '77', terminal: 'A' }), row({ line: 2, reference: '77', terminal: 'B' }), row({ line: 3, reference: '77', terminal: 'A', kind: 'VOID' })],
+        sales: [sale({ paymentId: 'p-b', references: ['77'], terminal: 'B' })],
+        refunds: [],
+        strays: [],
+        knownTerminals: new Set(['A', 'B']),
+      });
+      expect(r.items).toEqual([expect.objectContaining({ status: 'MATCHED', terminal: 'B', paymentId: 'p-b' })]);
+      expect(r.bankTotalCents).toBe(5000);
+    });
+
+    it('sin datáfono y con la operación en dos datáfonos: no anula ninguna (ni por importe)', () => {
+      const r = reconcile({
+        rows: [row({ reference: '77', terminal: 'A' }), row({ reference: '77', terminal: 'B', amountCents: 2000 }), row({ reference: '77', kind: 'VOID' })],
+        sales: [],
+        refunds: [],
+        strays: [],
+      });
+      expect(r.bankTotalCents).toBe(7000);
+    });
+
+    it('si puede ser la venta o su devolución (mismo importe), no anula ninguna', () => {
+      const r = reconcile({
+        rows: [row({ reference: '77', terminal: 'A' }), row({ reference: '77', terminal: 'A', kind: 'REFUND' }), row({ reference: '77', terminal: 'A', kind: 'VOID' })],
+        sales: [],
+        refunds: [],
+        strays: [],
+      });
+      expect(r.bankTotalCents).toBe(0);
+      expect(statuses(r)).toEqual(['NOT_IN_OXIOPAY', 'REFUND_NOT_IN_OXIOPAY']);
+    });
+
+    it('una línea repetida (misma operación, tipo, importe y datáfono): se anula una', () => {
+      const r = reconcile({
+        rows: [row({ reference: '77', terminal: 'A' }), row({ reference: '77', terminal: 'A' }), row({ reference: '77', terminal: 'A', kind: 'VOID' })],
+        sales: [],
+        refunds: [],
+        strays: [],
+      });
+      expect(r.bankTotalCents).toBe(5000);
+    });
+  });
+
+  describe('devoluciones', () => {
+    const refunds = [
+      refund({ refundId: 'r-a', paymentId: 'p-a', tenantId: 'sala', paymentReferences: ['77'], terminal: 'A' }),
+      refund({ refundId: 'r-b', paymentId: 'p-b', tenantId: 'terraza', paymentReferences: ['77'], terminal: 'B' }),
+    ];
+
+    it('casa por datáfono + operación; sin datáfono y de dos cobros, ninguna', () => {
+      const onB = reconcile({ rows: [row({ kind: 'REFUND', reference: '77', terminal: 'B', amountCents: 2000 })], sales: [], refunds, strays: [], knownTerminals: new Set(['A', 'B']) });
+      expect(onB.items[0]).toMatchObject({ status: 'REFUND_MATCHED', refundId: 'r-b', tenantId: 'terraza' });
+      const ambiguous = reconcile({ rows: [row({ kind: 'REFUND', reference: '77', amountCents: 2000 })], sales: [], refunds, strays: [] });
+      expect(ambiguous.items[0]).toMatchObject({ status: 'REFUND_NOT_IN_OXIOPAY', paymentId: null, tenantId: null });
+    });
+
+    it('dos devoluciones parciales del mismo cobro (5 € + 5 €, y 10 € + 5 €): casan las dos', () => {
+      const partial = (id: string, amountCents: number, hour: string) =>
+        refund({ refundId: id, paymentId: 'p-a', paymentReferences: ['77'], terminal: 'A', amountCents, at: at(`2026-10-13T${hour}:00Z`) });
+      for (const [first, second] of [[500, 500], [1000, 500]] as const) {
+        const r = reconcile({
+          rows: [
+            row({ line: 1, kind: 'REFUND', reference: '77', terminal: 'A', amountCents: first, at: at('2026-10-13T22:00:00Z') }),
+            row({ line: 2, kind: 'REFUND', reference: '77', terminal: 'A', amountCents: second, at: at('2026-10-13T23:00:00Z') }),
+          ],
+          sales: [],
+          refunds: [partial('r-1', first, '22:00'), partial('r-2', second, '23:00')],
+          strays: [],
+          knownTerminals: new Set(['A']),
+        });
+        expect(r.items.map((i) => [i.status, i.refundId])).toEqual([
+          ['REFUND_MATCHED', 'r-1'],
+          ['REFUND_MATCHED', 'r-2'],
+        ]);
+        expect(r).toMatchObject({ bankTotalCents: -(first + second), oursTotalCents: -(first + second) });
+      }
+    });
+
+    it('la devolución que el banco no tiene sale con el datáfono de su cobro', () => {
+      const r = reconcile({ rows: [], sales: [], refunds: [refunds[1]!], strays: [] });
+      expect(r.items[0]).toMatchObject({ status: 'REFUND_NOT_IN_BANK', terminal: 'B', refundId: 'r-b' });
+    });
   });
 });
 

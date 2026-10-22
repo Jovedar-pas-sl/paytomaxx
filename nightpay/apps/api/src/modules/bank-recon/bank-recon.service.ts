@@ -9,6 +9,7 @@ import {
   PROBLEM_STATUSES,
   reconcile,
   referenceKey,
+  sameTerminal,
   type BankRow,
   type BankSource,
   type ItemStatus,
@@ -293,7 +294,12 @@ interface OurSide {
   sales: OurSale[];
   refunds: OurRefund[];
   strays: StrayPayment[];
+  /** Nombres de datáfono del fichero que son de los nuestros (solo Paytef). */
+  knownTerminals?: ReadonlySet<string>;
 }
+
+/** Referencias por consulta al buscar cobros sin pagar (cada una va con sus variantes). */
+const STRAY_REFS_PER_QUERY = 2_000;
 
 async function loadRedsys(
   tx: TransactionalClient,
@@ -398,14 +404,11 @@ async function loadPaytef(
   to: Date,
   rows: BankRow[],
 ): Promise<OurSide> {
-  const terminals = await tx.terminal.findMany({
-    where: { tenantId: { in: venueIds } },
-    select: { id: true, externalId: true, deviceSerial: true },
-  });
-  const terminalOf = (id: string | null) => {
-    const t = id ? terminals.find((t) => t.id === id) : undefined;
-    return { terminal: t?.externalId ?? id ?? null, terminalAliases: t?.deviceSerial ? [t.deviceSerial] : [] };
-  };
+  // Un número de operación solo es único dentro de su datáfono: lo nuestro se
+  // nombra como lo nombra el fichero (identificador o número de serie).
+  const terminalName = await fileTerminalNames(tx, venueIds, rows);
+  const knownTerminals = new Set(terminalName.values());
+  const terminalOf = (id: string | null) => (id ? (terminalName.get(id) ?? null) : null);
   const datafono = {
     OR: [
       { posOperationNumber: { not: null } },
@@ -435,7 +438,7 @@ async function loadPaytef(
     paymentId: p.id,
     tenantId: p.tenantId,
     references: p.posOperationNumber ? [p.posOperationNumber] : [],
-    ...terminalOf(p.posTerminalId),
+    terminal: terminalOf(p.posTerminalId),
     authCode: p.authCode,
     amountCents: p.amountCents + p.tipCents,
     at: p.authorizedAt!,
@@ -462,32 +465,20 @@ async function loadPaytef(
     },
   });
 
-  const paidRefs = new Set(sales.flatMap((s) => s.references.map(referenceKey)));
-  const unmatchedRefs = uniq(
-    rows
-      .filter((r) => r.approved && r.kind === 'SALE' && r.reference && (!paidRefs.has(referenceKey(r.reference)) || (r.terminal && !sales.some((s) => s.references.some((ref) => referenceKey(ref) === referenceKey(r.reference!)) && (!s.terminal || s.terminal === r.terminal || s.terminalAliases?.includes(r.terminal!))))))
-      .map((r) => r.reference!.trim()),
-  );
-  const strayPayments =
-    unmatchedRefs.length === 0
-      ? []
-      : await tx.payment.findMany({
-          where: {
-            tenantId: { in: venueIds },
-            posOperationNumber: { in: referenceVariants(unmatchedRefs) },
-            status: { notIn: [...PAID_STATUSES] },
-          },
-          select: { id: true, tenantId: true, amountCents: true, tipCents: true, posOperationNumber: true, posTerminalId: true },
-        });
+  // Operaciones que el banco cobró y aquí no casan con un cobro pagado de su
+  // datáfono: se buscan entre los no pagados (también las de un datáfono que
+  // no sabemos cuál es, para no elegir el pagado si hay otro igual sin pagar).
+  const strayPayments = await findStrayPayments(tx, venueIds, unmatchedReferences(rows, sales, knownTerminals));
 
   return {
     sales,
+    knownTerminals,
     refunds: refunds.map<OurRefund>((r) => ({
       refundId: r.id,
       paymentId: r.paymentId,
       tenantId: r.tenantId,
       paymentReferences: r.payment.posOperationNumber ? [r.payment.posOperationNumber] : [],
-      ...terminalOf(r.payment.posTerminalId),
+      terminal: terminalOf(r.payment.posTerminalId),
       amountCents: r.amountCents,
       at: r.bankRefundedAt ?? r.createdAt,
     })),
@@ -495,10 +486,65 @@ async function loadPaytef(
       paymentId: p.id,
       tenantId: p.tenantId,
       references: p.posOperationNumber ? [p.posOperationNumber] : [],
-      ...terminalOf(p.posTerminalId),
+      terminal: terminalOf(p.posTerminalId),
       amountCents: p.amountCents + p.tipCents,
     })),
   };
+}
+
+/**
+ * Nuestros datáfonos del grupo → el nombre con el que salen en el fichero (su
+ * identificador o, si no, su número de serie). Los que no salen no están.
+ */
+async function fileTerminalNames(tx: TransactionalClient, venueIds: string[], rows: BankRow[]): Promise<Map<string, string>> {
+  const inFile = new Set(rows.map((r) => r.terminal?.trim()).filter((t): t is string => Boolean(t)));
+  const names = new Map<string, string>();
+  if (inFile.size === 0) return names;
+  const terminals = await tx.terminal.findMany({
+    where: { tenantId: { in: venueIds } },
+    select: { id: true, externalId: true, deviceSerial: true },
+  });
+  for (const t of terminals) {
+    const name = [t.externalId, t.deviceSerial].map((n) => n?.trim()).find((n): n is string => Boolean(n && inFile.has(n)));
+    if (name) names.set(t.id, name);
+  }
+  return names;
+}
+
+/** Referencias de ventas del banco sin un cobro pagado de su datáfono que las case. */
+function unmatchedReferences(rows: BankRow[], sales: OurSale[], known: ReadonlySet<string>): string[] {
+  const salesByRef = new Map<string, OurSale[]>();
+  for (const sale of sales) {
+    for (const ref of sale.references) salesByRef.set(referenceKey(ref), [...(salesByRef.get(referenceKey(ref)) ?? []), sale]);
+  }
+  return uniq(
+    rows
+      .filter((r) => r.approved && r.kind === 'SALE' && r.reference)
+      .filter((r) => {
+        const bankTerminal = r.terminal?.trim();
+        // Sin datáfono conocido en la línea, puede ser de otro con el mismo número.
+        if (!bankTerminal || !known.has(bankTerminal)) return true;
+        return !(salesByRef.get(referenceKey(r.reference!)) ?? []).some((s) => sameTerminal(r, s, known));
+      })
+      .map((r) => r.reference!.trim()),
+  );
+}
+
+async function findStrayPayments(tx: TransactionalClient, venueIds: string[], refs: string[]) {
+  const found = [];
+  for (let i = 0; i < refs.length; i += STRAY_REFS_PER_QUERY) {
+    found.push(
+      ...(await tx.payment.findMany({
+        where: {
+          tenantId: { in: venueIds },
+          posOperationNumber: { in: referenceVariants(refs.slice(i, i + STRAY_REFS_PER_QUERY)) },
+          status: { notIn: [...PAID_STATUSES] },
+        },
+        select: { id: true, tenantId: true, amountCents: true, tipCents: true, posOperationNumber: true, posTerminalId: true },
+      })),
+    );
+  }
+  return found;
 }
 
 // ─── Auxiliares ─────────────────────────────────────────────────────────
