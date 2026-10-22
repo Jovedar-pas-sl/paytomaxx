@@ -49,6 +49,7 @@ import {
   type ReceptionPayoutPlan,
 } from '@/lib/reception-cash-payout';
 import { PinPad } from '../../PinPad';
+import { ActivationQr } from './ActivationQr';
 import { DeskHead, DeskBtn, DeskRowView } from './desk-parts';
 import { AmountStep, CodeStep, ExitStep, KeypadStep, MethodStep, NumberStep, TapStage } from './DeskSteps';
 import { DeskLoaded } from './DeskLoaded';
@@ -124,8 +125,9 @@ interface Props {
  * Recepción exprés (maquetas 4.1–4.5). Entrada: se acerca el NFC y la app
  * sabe sola si es nuevo o si ya tiene saldo; el importe (tocar uno ya sigue)
  * y cómo paga (la forma por defecto del local en grande): tres toques.
- * CARGADO en verde, con el efectivo a la caja y el NFC al cliente; el PIN,
- * después y si quiere. Salida: lo que le queda; «Guardar para la próxima» (de fábrica) o
+ * CARGADO en verde, con el efectivo a la caja, el NFC al cliente y, si pagó
+ * en efectivo, el QR para activar Face ID en su móvil; el PIN, después y si
+ * quiere. Salida: lo que le queda; «Guardar para la próxima» (de fábrica) o
  * devolverlo en efectivo: antes del PIN se sabe si hace falta el encargado o
  * su Face ID, así el cliente teclea el PIN una sola vez.
  * Solo recepción carga saldos y cobra efectivo (el servidor lo exige igual).
@@ -552,6 +554,8 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     const money = loadedMoneyLine(done.method, done.amountCents);
     const canPin = done.wallet !== null && !done.wallet.hasPin;
     const meta = done.read.number ? `Devuélvele su ficha · ${fichaText(done.read.number.printedNumber)}` : handOverLine(done.read.view, done.linked);
+    // Pagó en efectivo aquí: su enlace privado no le llega; con este QR activa Face ID en su móvil.
+    const activation = done.method === 'cash' && done.wallet && !done.read.number ? <ActivationQr walletId={done.wallet.walletId} /> : null;
     return (
       <DeskLoaded
         word="CARGADO"
@@ -561,6 +565,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         meta={meta}
         warn={done.warn}
         quiet={done.seen}
+        extra={activation}
         primary={{ label: 'Siguiente cliente', onClick: () => restart('entrada') }}
         secondary={canPin ? { label: 'Que ponga su PIN', onClick: () => go({ kind: 'pin', done }) } : null}
       />
