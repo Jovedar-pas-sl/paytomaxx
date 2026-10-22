@@ -54,6 +54,23 @@ export async function lockLiveWallet(tx: ChainTx, walletId: string): Promise<Loc
   throw new ConflictException('Este saldo se ha sumado a otros demasiadas veces: avisa al encargado');
 }
 
+/**
+ * El saldo donde está hoy el dinero de `walletId`, sin bloquear nada (solo
+ * para comparar). null si no existe o la cadena está rota.
+ */
+export async function liveWalletId(tx: ChainTx, walletId: string): Promise<string | null> {
+  let id = walletId;
+  for (let hop = 0; hop <= MAX_MERGE_HOPS; hop += 1) {
+    const rows = await tx.$queryRaw<Array<{ mergedIntoId: string | null }>>`
+      SELECT "mergedIntoId" FROM client_wallets WHERE id = ${id}::uuid
+    `;
+    if (!rows[0]) return null;
+    if (!rows[0].mergedIntoId) return id;
+    id = rows[0].mergedIntoId;
+  }
+  return null;
+}
+
 /** El saldo y todos los que se sumaron a él (a cualquier profundidad). */
 export async function mergedWalletIds(tx: ChainTx, targetWalletId: string): Promise<string[]> {
   const rows = await tx.$queryRaw<Array<{ id: string }>>`

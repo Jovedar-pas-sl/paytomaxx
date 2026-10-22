@@ -11,6 +11,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
+import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
@@ -113,19 +114,65 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe('tope legal del efectivo y anulación (Postgres real)', () => {
-  it('la clave preserva destino y replay después de fusionar, con filas legacy compatibles', async () => {
-    const existing = await newWallet(sala, 100);
+describe('la Idempotency-Key de la recarga en efectivo guarda lo pedido (Postgres real)', () => {
+  const again = (input: Parameters<CashTopUpService['topUp']>[2]) =>
+    inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), input));
+  const cashRows = (idempotencyKey: string) =>
+    seed((tx) => tx.walletCashTopUp.count({ where: { tenantId: sala.id, idempotencyKey } }));
+
+  it('otro destino, saldo nuevo u otro importe con la misma clave: 409 y no entra dinero', async () => {
+    const mine = await newWallet(sala, 100);
     const other = await newWallet(sala, 100);
-    const input = { amountCents: 100, idempotencyKey: key(), wallet: { code: existing.code } };
-    const first = await inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), input));
-    await expect(inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), { ...input, wallet: { code: other.code } }))).rejects.toBeInstanceOf(ConflictException);
-    await expect(inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), { ...input, wallet: { create: true } }))).rejects.toBeInstanceOf(ConflictException);
-    await inVenue(sala.id, () => charges.mergeInto(existing.walletId, other.walletId));
-    await expect(inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), input))).resolves.toMatchObject({ topUpId: first.topUpId, replayed: true, createdWallet: false });
-    await seed((tx) => tx.walletCashTopUp.update({ where: { id: first.topUpId }, data: { intentFingerprint: null } }));
-    await expect(inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), input))).resolves.toMatchObject({ topUpId: first.topUpId, replayed: true });
+    const input = { amountCents: 100, idempotencyKey: key(), wallet: { code: mine.code } };
+    await again(input);
+    for (const changed of [{ ...input, wallet: { code: other.code } }, { ...input, wallet: { create: true as const } }, { ...input, amountCents: 101 }]) {
+      await expect(again(changed)).rejects.toBeInstanceOf(ConflictException);
+    }
+    expect(await cashRows(input.idempotencyKey)).toBe(1);
+    expect((await walletOf(mine.walletId)).balanceCents).toBe(200);
+    expect((await walletOf(other.walletId)).balanceCents).toBe(100);
   });
+
+  it('el mismo botón dos veces a la vez: una sola recarga y las dos respuestas son la misma', async () => {
+    const mine = await newWallet(sala, 100);
+    const input = { amountCents: 250, idempotencyKey: key(), wallet: { code: mine.code } };
+    const [a, b] = await Promise.all([again(input), again(input)]);
+    expect([a.replayed, b.replayed].sort()).toEqual([false, true]);
+    expect({ ...a, replayed: true }).toEqual({ ...b, replayed: true });
+    expect(await cashRows(input.idempotencyKey)).toBe(1);
+    expect((await walletOf(mine.walletId)).balanceCents).toBe(350);
+  });
+
+  it('el saldo se sumó a otro después: el reintento devuelve el recibo de entonces, no lo carga otra vez', async () => {
+    const mine = await newWallet(sala, 100);
+    const face = await newWallet(sala, 300);
+    const input = { amountCents: 100, idempotencyKey: key(), wallet: { code: mine.code } };
+    const first = await again(input);
+    expect(first).toMatchObject({ balanceCents: 200, replayed: false });
+    await inVenue(sala.id, () => charges.mergeInto(mine.walletId, face.walletId));
+    await expect(again(input)).resolves.toEqual({ ...first, replayed: true });
+    expect((await walletOf(face.walletId)).balanceCents).toBe(500);
+    expect(await cashRows(input.idempotencyKey)).toBe(1);
+  });
+
+  it('filas de antes de la huella: vale el mismo saldo (o su cadena); otro saldo o uno nuevo, 409', async () => {
+    const mine = await newWallet(sala, 100);
+    const face = await newWallet(sala, 300);
+    const other = await newWallet(sala, 100);
+    const input = { amountCents: 100, idempotencyKey: key(), wallet: { code: mine.code } };
+    const first = await again(input);
+    await inVenue(sala.id, () => charges.mergeInto(mine.walletId, face.walletId));
+    await seed((tx) => tx.walletCashTopUp.update({ where: { id: first.topUpId }, data: { intentFingerprint: null, receipt: Prisma.DbNull } }));
+    for (const wallet of [{ code: mine.code }, { code: face.code }]) {
+      await expect(again({ ...input, wallet })).resolves.toMatchObject({ topUpId: first.topUpId, replayed: true, createdWallet: false });
+    }
+    await expect(again({ ...input, wallet: { code: other.code } })).rejects.toBeInstanceOf(ConflictException);
+    await expect(again({ ...input, wallet: { create: true } })).rejects.toBeInstanceOf(ConflictException);
+    expect(await cashRows(input.idempotencyKey)).toBe(1);
+  });
+});
+
+describe('tope legal del efectivo y anulación (Postgres real)', () => {
   it('999,99 € y luego 0,01 € al mismo saldo: no; la cadena de saldos sumados también cuenta', async () => {
     const a = await newWallet(sala, 99_999);
     await expect(topUpCode(sala, a.code, 1)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'CASH_LIMIT' }) });
