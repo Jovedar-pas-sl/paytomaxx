@@ -32,7 +32,7 @@ export interface CartaItemLike {
   category: string;
   active: boolean;
   components: unknown;
-  /** «Invitar a una copa» (en Copas): la venta se reparte con la chica invitada. */
+  /** «Copa con invitación» (en Copas): la venta se reparte con la chica invitada. */
   isInvitation?: boolean;
 }
 
@@ -44,7 +44,7 @@ export interface DraftLine {
   qty: number;
   unitCents: number;
   amountCents: number;
-  /** «Invitar a una copa»: la chica invitada y las partes fijadas al cobrar. */
+  /** «Copa con invitación»: la chica invitada y las partes fijadas al cobrar. */
   beneficiaryOperatorId?: string | null;
   beneficiaryCents?: number | null;
   chargerCents?: number | null;

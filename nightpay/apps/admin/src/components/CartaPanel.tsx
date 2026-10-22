@@ -178,7 +178,7 @@ function ServiceForm({
   const [price, setPrice] = useState(initial ? centsToInput(initial.priceCents) : '');
   const [category, setCategory] = useState<SectionCode>(initialCategory);
   const [isPack, setIsPack] = useState(Boolean(initial?.components && initial.components.length > 0));
-  // «Invitar a una copa»: solo en Copas y sin pack (el servidor también lo exige).
+  // «Copa con invitación»: solo en Copas y sin pack (el servidor también lo exige).
   const [isInvite, setIsInvite] = useState(initial?.isInvitation === true);
   const canInvite = category === 'VENUE_BAR' && !isPack;
   const [parts, setParts] = useState<PartDraft[]>(
@@ -266,7 +266,7 @@ function ServiceForm({
             onChange={(e) => setIsInvite(e.target.checked)}
             style={{ width: '1.25rem', height: '1.25rem' }}
           />
-          Es «Invitar a una copa» (el cliente invita a una chica: se reparte según Ajustes → Invitaciones)
+          Es una copa con invitación (el cliente invita a una chica: se escanea su QR y se reparte con el local según Ajustes → Invitaciones)
         </label>
       ) : null}
 

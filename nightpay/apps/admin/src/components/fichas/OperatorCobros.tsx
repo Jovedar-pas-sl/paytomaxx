@@ -13,7 +13,7 @@ const PAGE = 50;
 
 /**
  * Ficha de la chica → Cobros: cada cobro con su referencia, cómo pagó,
- * sección, saldo y servicio. Arriba, sus invitaciones («Invitar a una copa»):
+ * sección, saldo y servicio. Arriba, sus invitaciones («Copa con invitación»):
  * cuántas, cuánto y su parte; y la lista de esas copas (las cobra el camarero).
  */
 export function OperatorCobros({ operatorId }: { operatorId: string }) {

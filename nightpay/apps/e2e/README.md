@@ -82,8 +82,9 @@ simulados:
 3. Playwright levanta el API (:4300), el panel (:4303) y la app del personal
    (:4301) y prueba: login de verdad con cookie HttpOnly, la carta de
    referencia aplicada dos veces a la vez (una sola vez) y repetible, la cuenta
-   de 50 € en la app (con la invitación ofrecida antes de la copa) y que las
-   rutas privadas del saldo no se leen sin desbloquear.
+   de 50 € en la app («Copa» va directa a la cuenta; «Copa con invitación»,
+   justo detrás, abre el escáner del QR de la chica) y que las rutas privadas
+   del saldo no se leen sin desbloquear.
 
 Sin reintentos: cada job empieza de cero y las pruebas cambian datos, así que
 un fallo no se tapa repitiendo. Traza y capturas quedan en el artefacto

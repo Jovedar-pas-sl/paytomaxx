@@ -24,7 +24,7 @@ export const ServiceItemSchema = z.object({
   sortOrder: z.number().int(),
   /** Pack: sus partes, que suman el precio. Null = de una sola sección. */
   components: z.array(PackComponentSchema).nullable(),
-  /** «Invitar a una copa»: en Copas; la venta se reparte con la chica invitada. */
+  /** «Copa con invitación»: en Copas; la venta se reparte con la chica invitada. */
   isInvitation: z.boolean(),
 });
 export type ServiceItem = z.infer<typeof ServiceItemSchema>;
@@ -38,7 +38,7 @@ const ServiceItemFieldsSchema = z.object({
   sortOrder: z.number().int().min(0).max(1000).optional(),
   /** Pack: partes que suman el precio (null = quitar el pack). */
   components: PackComponentsSchema.nullable().optional(),
-  /** «Invitar a una copa» (solo en Copas y sin pack). */
+  /** «Copa con invitación» (solo en Copas y sin pack). */
   isInvitation: z.boolean().optional(),
 });
 

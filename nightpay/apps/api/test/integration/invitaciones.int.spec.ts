@@ -1,7 +1,8 @@
-// Integración (Postgres real): «Invitar a una copa» — el QR personal de la
-// chica, el reparto de la venta (chica, camarero y local) con tarjeta y con
-// el saldo, devoluciones y consumos anulados que descuentan a los dos, y la
-// ficha de la chica. Con np_app y FORCE RLS. Ver README.md.
+// Integración (Postgres real): «Copa con invitación» — el QR personal de la
+// chica, el reparto de la venta (de fábrica, la chica y el local; con parte
+// para el camarero si el local se la da) con tarjeta y con el saldo,
+// devoluciones y consumos anulados que descuentan a cada uno, y la ficha de la
+// chica. Con np_app y FORCE RLS. Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
@@ -129,18 +130,17 @@ describe('invitar con tarjeta: el QR de la chica y el reparto', () => {
     expect(made).toBe(0);
   });
 
-  it('de fábrica, Dani invita a Lola: la línea lleva a Lola y su 50 % y a Dani su 50 % (maqueta 2.6); al pagarse, las dos ganancias', async () => {
+  it('de fábrica, Dani invita a Lola: la línea lleva a Lola y su 50 %; el resto, del local (Dani, nada); al pagarse, la ganancia de Lola', async () => {
     const created = await inVenue(A, () =>
       payments.create(A, key(), body({ amountCents: 1, serviceItemId: invita, invitedStaffToken: qrOf(lola, A) }), asDani()),
     );
     expect(created.amountCents).toBe(2500);
     const line = await sys((tx) => tx.paymentLine.findFirst({ where: { paymentId: created.id } }));
-    expect(line).toMatchObject({ category: 'VENUE_BAR', beneficiaryOperatorId: lola, beneficiaryCents: 1250, chargerCents: 1250 });
+    expect(line).toMatchObject({ category: 'VENUE_BAR', beneficiaryOperatorId: lola, beneficiaryCents: 1250, chargerCents: 0 });
     await authorize(created.id, `IV${r}1`);
     const earnings = await earningsOf({ paymentId: created.id });
-    expect(earnings).toHaveLength(2);
-    expect(earnings.find((e) => e.operatorId === lola)).toMatchObject({ commissionCents: 1250, commissionBps: 5000, paymentAmountCents: 2500, paymentLineId: line!.id });
-    expect(earnings.find((e) => e.operatorId === dani)).toMatchObject({ commissionCents: 1250, commissionBps: 5000, paymentAmountCents: 2500 });
+    expect(earnings).toHaveLength(1);
+    expect(earnings[0]).toMatchObject({ operatorId: lola, commissionCents: 1250, commissionBps: 5000, paymentAmountCents: 2500, paymentLineId: line!.id });
   });
 
   it('con parte para el camarero (Ajustes): dos ganancias, y una devolución de la mitad descuenta a los dos', async () => {

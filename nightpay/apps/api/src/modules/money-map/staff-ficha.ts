@@ -2,6 +2,7 @@ import {
   formatChargeRef,
   invitationRulesOf,
   isSectionCode,
+  isZeroShare,
   type InvitationRules,
   type SectionAmount,
   type StaffFichaRow,
@@ -26,7 +27,7 @@ export interface EarningFeedRow {
   reversedCents: number;
   /** Base de la comisión: en una invitación, lo de sus copas. */
   paymentAmountCents: number;
-  /** De una invitación («Invitar a una copa»). */
+  /** De una invitación («Copa con invitación»). */
   paymentLineId: string | null;
   paymentId: string | null;
   ref: number | null;
@@ -108,8 +109,9 @@ export function staffStats(rows: readonly StaffFichaRow[], paidCents: number): {
 
 /**
  * Lo que le toca de cada cosa: a la chica, su % de cada sección (el suyo en
- * Servicios, o el del local), su parte de las invitaciones y las propinas; al
- * camarero, su parte de las invitaciones (si el dueño le da algo).
+ * Servicios, o el del local), su parte de las copas con invitación y las
+ * propinas; al camarero, su parte de las invitaciones solo si el dueño le da
+ * algo (de fábrica, nada).
  */
 export function staffRates(input: {
   role: 'OPERATOR' | 'WAITER';
@@ -118,7 +120,7 @@ export function staffRates(input: {
   invitationRules: unknown;
 }): StaffRate[] {
   const rules: InvitationRules = invitationRulesOf(input.invitationRules);
-  const hasShare = (s: InvitationRules['chica']) => (s.kind === 'PERCENT' ? s.bps > 0 : s.cents > 0);
+  const hasShare = (s: InvitationRules['chica']) => !isZeroShare(s);
   if (input.role === 'WAITER') return hasShare(rules.camarero) ? [{ kind: 'invitation', share: rules.camarero }] : [];
   const defaults = input.defaults ?? {};
   const sections: StaffRate[] = Object.entries(defaults).flatMap(([code, bps]): StaffRate[] => {

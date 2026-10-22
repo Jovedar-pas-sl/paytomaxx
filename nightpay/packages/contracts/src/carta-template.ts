@@ -1,13 +1,21 @@
 import { z } from 'zod';
 import { UuidSchema } from './common';
+import { INVITATION_ITEM_NAME } from './invitations';
 import type { CreateServiceItemDto } from './services';
 
 export type CartaTemplateInput = CreateServiceItemDto & { durationMin: number | null; sortOrder: number };
 
-/** Productos y precios aprobados. Las propinas se configuran por separado. */
+/**
+ * Productos y precios aprobados. Las propinas se configuran por separado.
+ * «Copa» es la copa normal (la que pedimos todos) y justo detrás, «Copa con
+ * invitación»: la invitación de la chica (se escanea su QR y se reparte con
+ * el local, Ajustes → Invitaciones). Hasta el 2026-10-28 traía «Copa
+ * premium» y la invitación al final, como «Invitar a una copa» (la migración
+ * 20261028100000 pone igual los locales que no la tocaron).
+ */
 const ROWS: readonly Omit<CartaTemplateInput, 'sortOrder'>[] = [
   { name: 'Copa', category: 'VENUE_BAR', priceCents: 1000, durationMin: null },
-  { name: 'Copa premium', category: 'VENUE_BAR', priceCents: 1400, durationMin: null },
+  { name: INVITATION_ITEM_NAME, category: 'VENUE_BAR', priceCents: 2000, durationMin: null, isInvitation: true },
   { name: 'Botella', category: 'VENUE_BAR', priceCents: 12000, durationMin: null },
   { name: 'Chupito', category: 'VENUE_BAR', priceCents: 500, durationMin: null },
   { name: 'Tabla ibérica', category: 'VENUE_FOOD', priceCents: 3000, durationMin: null },
@@ -18,7 +26,6 @@ const ROWS: readonly Omit<CartaTemplateInput, 'sortOrder'>[] = [
   { name: '45 min', category: 'CHICA_SERVICE', priceCents: 10000, durationMin: 45 },
   { name: '1 h', category: 'CHICA_SERVICE', priceCents: 12000, durationMin: 60 },
   { name: '2 h', category: 'CHICA_SERVICE', priceCents: 22000, durationMin: 120 },
-  { name: 'Invitar a una copa', category: 'VENUE_BAR', priceCents: 2000, durationMin: null, isInvitation: true },
 ];
 export const CARTA_TEMPLATE: readonly CartaTemplateInput[] = ROWS.map((item, sortOrder) => ({ ...item, sortOrder }));
 

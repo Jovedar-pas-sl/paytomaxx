@@ -5,6 +5,7 @@ import { Button, Modal, ThemeToggle } from '@nightpay/ui';
 import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
 import { createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
+import { tapOf } from '@/lib/carta-tiles';
 import { invitationSplit, splitCells, whoLine } from '@/lib/cobro-view';
 import {
   EMPTY_CUENTA,
@@ -14,7 +15,6 @@ import {
   chargeLinesOf,
   cuentaTotals,
   cuentaWhat,
-  qtyOf,
   removeLine,
   setQty,
   type CartaItem,
@@ -32,7 +32,6 @@ import { ElegirChica } from './ElegirChica';
 import { EscanearChica, type Invitada } from './EscanearChica';
 import { Esperando, type CobroAbierto } from './Esperando';
 import { IconPlus, IconQr } from './icons';
-import { Invitar } from './Invitar';
 import { LaCuenta } from './LaCuenta';
 import { MiQr } from './MiQr';
 import { OtroImporte } from './OtroImporte';
@@ -42,7 +41,6 @@ type Stage =
   | { kind: 'carta' }
   | { kind: 'otro' }
   | { kind: 'cuenta' }
-  | { kind: 'invitar'; invite: CartaItem; solo: CartaItem | null }
   | { kind: 'escanear'; invite: CartaItem }
   | { kind: 'lista'; invite: CartaItem }
   | { kind: 'esperando'; cobro: CobroAbierto; request: Pending }
@@ -70,10 +68,12 @@ interface Props {
 }
 
 /**
- * «Cobrar» (maquetas 1.1–1.4, 2.1–2.5, 3.1–3.4): la carta en losetas, la
- * cuenta, «Otro importe», invitar a una copa con el QR de la chica y, al
- * cobrar, un solo cobro que se paga con la tarjeta (QR) o con el saldo (NFC,
- * su PIN o su Face ID): gana el primero. Con datáfono solo si el local lo tiene.
+ * «Cobrar» (maquetas 1.1–1.4, 2.2–2.5, 3.1–3.4): la carta en losetas, la
+ * cuenta, «Otro importe» y, al cobrar, un solo cobro que se paga con la
+ * tarjeta (QR) o con el saldo (NFC, su PIN o su Face ID): gana el primero.
+ * «Copa» es la copa normal: se suma a la cuenta sin preguntar nada. «Copa con
+ * invitación» (una loseta más) escanea el QR de la chica y se cobra aparte,
+ * repartida entre ella y el local. Con datáfono solo si el local lo tiene.
  */
 export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = false, onMiQr, onRecargar }: Props) {
   const mine = useMySections();
@@ -123,7 +123,6 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   );
   const who = whoLine(user.displayName, user.role);
   const name = user.displayName?.trim() || who;
-  const inviteItem = carta.services.find((s) => s.isInvitation === true) ?? null;
   const nfc = methods.wallet && methods.nfc && nfcSupported();
 
   /** Crea el cobro (único: tarjeta + saldo; o solo saldo si el local no cobra con tarjeta). */
@@ -195,7 +194,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     });
   }
 
-  /** «Invitar a una copa» con la chica leída (o elegida). */
+  /** «Copa con invitación» con la chica leída (o elegida): un cobro aparte (la cuenta no se toca). */
   function invitar(invite: CartaItem, chica: Invitada) {
     const split = rules ? invitationSplit(rules, invite.priceCents, user.role === 'WAITER') : null;
     const cells = split ? splitCells(split, { chica: chica.name, barra: `Barra (${name})` }) : [];
@@ -248,21 +247,11 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     setRetryError(null);
   }, []);
 
-  /** Tocar una copa: antes, «Invitar a una copa» en grande (Ajustes: «Invitar» primero). */
+  /** Tocar una loseta: «Copa» (y el resto) se suma a la cuenta; «Copa con invitación», a escanear el QR de la chica. */
   function pickItem(item: CartaItem) {
-    if (item.isInvitation) {
-      const solo = carta.services.find((s) => !s.isInvitation && s.category === item.category) ?? null;
-      setStage({ kind: 'invitar', invite: item, solo });
-      return;
-    }
-    const offerInvite =
-      inviteItem !== null &&
-      rules?.inviteFirst !== false &&
-      item.category === inviteItem.category &&
-      qtyOf(cuenta, item.id) === 0 &&
-      !cuenta.some((l) => l.kind === 'carta' && l.item.category === inviteItem.category);
-    if (offerInvite) {
-      setStage({ kind: 'invitar', invite: inviteItem, solo: item });
+    if (tapOf(item) === 'invitar') {
+      setError(null);
+      setStage({ kind: 'escanear', invite: item });
       return;
     }
     setCuenta((c) => addItem(c, item));
@@ -393,28 +382,13 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           nfc={nfc}
         />
       );
-    case 'invitar':
-      return (
-        <Invitar
-          ctx={ctx}
-          who={who}
-          invite={stage.invite}
-          solo={stage.solo}
-          onInvite={() => setStage({ kind: 'escanear', invite: stage.invite })}
-          onSolo={() => {
-            const solo = stage.solo;
-            if (solo) setCuenta((c) => addItem(c, solo));
-            backToCarta();
-          }}
-          onBack={backToCarta}
-        />
-      );
     case 'escanear':
       return (
         <div className={styles.overlay}>
           <EscanearChica
             ctx={ctx}
             who={who}
+            title={stage.invite.name}
             priceCents={stage.invite.priceCents}
             onChica={(chica) => invitar(stage.invite, chica)}
             onList={rules?.requireQr === false ? () => setStage({ kind: 'lista', invite: stage.invite }) : undefined}
@@ -447,10 +421,6 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             cuenta={cuenta}
             who={who}
             onItem={pickItem}
-            onInvite={(invite) => {
-              setError(null);
-              setStage({ kind: 'escanear', invite });
-            }}
             onTip={(cents) => setCuenta((c) => addAmount(c, PROPINAS, cents))}
             onOtro={() => {
               setError(null);

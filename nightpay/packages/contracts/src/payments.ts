@@ -169,12 +169,12 @@ export const CreatePaymentSchema = z.object({
    */
   lines: ChargeLinesSchema.optional(),
   /**
-   * «Invitar a una copa»: el QR personal de la chica invitada (la URL entera
+   * «Copa con invitación»: el QR personal de la chica invitada (la URL entera
    * o su token). Hace falta si se cobra una invitación de la carta.
    */
   invitedStaffToken: z.string().trim().min(20).max(600).optional(),
   /**
-   * «Invitar a una copa» eligiendo a la chica de la lista (sin su QR): solo si
+   * «Copa con invitación» eligiendo a la chica de la lista (sin su QR): solo si
    * el local no pide su QR (Ajustes → Invitaciones). Uno u otro, no los dos.
    */
   invitedOperatorId: UuidSchema.optional(),

@@ -1,16 +1,18 @@
 import { z } from 'zod';
 
 /**
- * «Invitar a una copa»: el cliente invita a una chica a una copa en la barra.
- * El camarero escanea el QR personal de la chica («Mi QR» en su app) y la
- * venta se reparte: una parte para la chica, otra (si el local quiere) para
- * el camarero que la cobra y el resto para el local. Las invitaciones son
- * servicios de la carta en Copas (`isInvitation`), con su propio precio.
+ * «Copa con invitación»: el cliente invita a una chica a una copa en la
+ * barra. Es un producto más de la carta (en Copas, `isInvitation`), con su
+ * propio precio; la «Copa» de siempre es la copa normal, sin invitación. Al
+ * tocar «Copa con invitación», quien cobra escanea el QR personal de la chica
+ * («Mi QR» en su app) y la venta se reparte entre la chica y el local.
  *
- * Partes en `venues.invitationRules` (migración 20261023100200). Las de
- * fábrica (maqueta 2.6 aprobada: 20 € = 10 € la chica y 10 € la barra):
- * chica 50 %, camarero 50 %. Solo valen para un local sin partes guardadas
- * (NULL); guardar en Ajustes las escribe todas. Lo ya cobrado no cambia: las
+ * Partes en `venues.invitationRules` (migración 20261023100200). De fábrica:
+ * la chica 50 % y el resto, del local (20 € = 10 € la chica y 10 € el local).
+ * El camarero que la cobra consta como quien la cobró (sus cobros, sus
+ * estadísticas), sin parte propia. Un local que guardó en Ajustes una parte
+ * para el camarero (antes del 2026-10-28) la sigue teniendo hasta que la
+ * quite: lo guardado no se reescribe solo. Lo ya cobrado no cambia: las
  * partes se fijan en la línea al cobrar.
  */
 
@@ -19,13 +21,11 @@ export type InvitationShare = { kind: 'PERCENT'; bps: number } | { kind: 'FIXED'
 export interface InvitationRules {
   /** Para la chica invitada. */
   chica: InvitationShare;
-  /** Para el camarero que cobra la invitación (si es camarero). */
-  camarero: InvitationShare;
   /**
-   * «Invitar» primero: al tocar una copa, la app ofrece antes, en grande,
-   * «Invitar a una copa». Sin el campo (guardado antes): sí.
+   * Para el camarero que la cobra (si es camarero). De fábrica, nada: el
+   * local se queda lo que no es de la chica.
    */
-  inviteFirst?: boolean;
+  camarero: InvitationShare;
   /**
    * Pedir el QR de la chica: la invitación se cobra escaneando su «Mi QR». Si
    * no, también se puede elegir de la lista de chicas. Sin el campo: sí.
@@ -33,13 +33,15 @@ export interface InvitationRules {
   requireQr?: boolean;
 }
 
-/** Las de fábrica, hasta que el dueño ponga las suyas (maqueta 2.6: la chica 10 €, la barra 10 € de 20 €). */
+/** Las de fábrica, hasta que el dueño ponga las suyas: 20 € = 10 € la chica y 10 € el local. */
 export const DEFAULT_INVITATION_RULES: Readonly<InvitationRules> = {
   chica: { kind: 'PERCENT', bps: 5000 },
-  camarero: { kind: 'PERCENT', bps: 5000 },
-  inviteFirst: true,
+  camarero: { kind: 'PERCENT', bps: 0 },
   requireQr: true,
 };
+
+/** El nombre de la invitación en la carta de referencia. */
+export const INVITATION_ITEM_NAME = 'Copa con invitación';
 
 const MAX_FIXED_CENTS = 1_000_00;
 
@@ -52,7 +54,6 @@ export const UpdateInvitationRulesSchema = z
   .object({
     chica: InvitationShareSchema.optional(),
     camarero: InvitationShareSchema.optional(),
-    inviteFirst: z.boolean().optional(),
     requireQr: z.boolean().optional(),
   })
   .strict()
@@ -64,15 +65,17 @@ function shareOf(raw: unknown, fallback: InvitationShare): InvitationShare {
   return parsed.success ? parsed.data : { ...fallback };
 }
 
-/** Lo guardado (JSON o null) con lo que falte a lo de fábrica. */
+/**
+ * Lo guardado (JSON o null) con lo que falte a lo de fábrica. Lo que ya no
+ * existe (p. ej. `inviteFirst`, «Invitar» primero, hasta el 2026-10-28) se
+ * lee sin error y no sale: se olvida la próxima vez que se guardan.
+ */
 export function invitationRulesOf(raw: unknown): Required<InvitationRules> {
   const stored = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-  const flag = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
   return {
     chica: shareOf(stored.chica, DEFAULT_INVITATION_RULES.chica),
     camarero: shareOf(stored.camarero, DEFAULT_INVITATION_RULES.camarero),
-    inviteFirst: flag(stored.inviteFirst, true),
-    requireQr: flag(stored.requireQr, true),
+    requireQr: typeof stored.requireQr === 'boolean' ? stored.requireQr : true,
   };
 }
 
@@ -81,15 +84,20 @@ export function mergeInvitationRules(current: unknown, patch: UpdateInvitationRu
   return {
     chica: patch.chica ?? base.chica,
     camarero: patch.camarero ?? base.camarero,
-    inviteFirst: patch.inviteFirst ?? base.inviteFirst,
     requireQr: patch.requireQr ?? base.requireQr,
   };
+}
+
+/** ¿No le toca nada? (0 % o 0 € por copa). */
+export function isZeroShare(s: InvitationShare): boolean {
+  return s.kind === 'PERCENT' ? s.bps === 0 : s.cents === 0;
 }
 
 /**
  * Cuánto va a cada uno de una invitación de `unitCents` × `qty`: el % sobre
  * el importe o el fijo por copa. Nunca más que la venta: primero la chica y
- * después el camarero, con lo que quede; el resto, del local.
+ * después (solo si el local se lo da) el camarero, con lo que quede; el
+ * resto, del local.
  */
 export function invitationShares(
   rules: InvitationRules,

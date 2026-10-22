@@ -10,7 +10,7 @@ import {
   ownNightTotals,
 } from './my-cobros';
 
-const row = (id: string, kind: OwnCobro['kind'], createdAt: string, status = 'AUTHORIZED'): OwnCobro => ({ id, kind, createdAt, status, ref: null, amountCents: 2000, tipCents: 0, methodLabel: kind === 'SALDO' ? 'Saldo' : 'Tarjeta', service: 'Invitar a una copa', via: null, isTopUp: false, invitedName: 'Lola', refundedCents: 0 });
+const row = (id: string, kind: OwnCobro['kind'], createdAt: string, status = 'AUTHORIZED'): OwnCobro => ({ id, kind, createdAt, status, ref: null, amountCents: 2000, tipCents: 0, methodLabel: kind === 'SALDO' ? 'Saldo' : 'Tarjeta', service: 'Copa con invitación', via: null, isTopUp: false, invitedName: 'Lola', refundedCents: 0 });
 it('actualiza estados sin duplicar páginas y conserva cobros de ambos canales', () => {
   const previous = [row('a', 'PAYMENT', '2026-10-21T20:00:00Z', 'CREATED'), row('older', 'SALDO', '2026-10-20T20:00:00Z')];
   const merged = mergeOwnCobros(previous, [row('a', 'PAYMENT', '2026-10-21T20:00:00Z'), row('a', 'SALDO', '2026-10-21T21:00:00Z', 'ACCEPTED')]);

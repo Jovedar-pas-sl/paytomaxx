@@ -28,7 +28,7 @@ function staffName(u: { displayName: string | null; email: string }): string {
 }
 
 /**
- * «Mi QR» (Invitar a una copa):
+ * «Mi QR» (Copa con invitación):
  *  - GET  /v1/operators/me/staff-qr      → el QR personal de la chica, firmado y
  *    de vida corta (la app lo renueva). Lleva la app del personal con
  *    ?invita=<token>: el camarero lo escanea con su app o con la cámara.

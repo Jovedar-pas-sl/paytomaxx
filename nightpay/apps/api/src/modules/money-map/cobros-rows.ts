@@ -23,7 +23,7 @@ export interface StoredLineLike {
   unitCents: number;
   amountCents: number;
   serviceItemId: string | null;
-  /** «Invitar a una copa»: la chica invitada. */
+  /** «Copa con invitación»: la chica invitada. */
   beneficiary?: PersonLike | null;
 }
 

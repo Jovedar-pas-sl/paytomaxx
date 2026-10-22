@@ -52,8 +52,8 @@ const PUESTO_ROLES = ['MANAGER', 'WAITER'] as const;
  *  - PATCH     /v1/admin/venue/puestos/:userId → cambiar el puesto de una persona.
  *  - GET/PATCH /v1/admin/venue/post-rules      → qué cobra cada puesto (secciones,
  *    propinas, efectivo y recargas).
- *  - GET/PATCH /v1/admin/venue/invitation-rules → «Invitar a una copa»: parte de la
- *    chica y del camarero (% o fijo); el resto, del local.
+ *  - GET/PATCH /v1/admin/venue/invitation-rules → «Copa con invitación»: parte de la
+ *    chica (% o fijo) y, solo si el local se la da, del camarero; el resto, del local.
  * Cada cambio queda en el registro (antes y después).
  */
 @Controller('admin/venue')
@@ -149,7 +149,7 @@ export class VenueSectionsController {
     return after;
   }
 
-  /** El personal también: la app enseña «Invitar a una copa» con lo que le toca a la chica. */
+  /** El personal también: la app enseña «Copa con invitación» con lo que le toca a la chica. */
   @Get('invitation-rules')
   @Roles('OWNER', 'MANAGER', 'WAITER', 'OPERATOR')
   async invitationRules(@CurrentUser() user: JwtPayload): Promise<InvitationRules> {

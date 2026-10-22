@@ -49,7 +49,7 @@ const securityHeaders = [
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
   // Cámara solo para esta web: el camarero escanea el «Mi QR» de la chica
-  // («Invitar a una copa»); ninguna otra página (ni iframes) la pide. Web NFC
+  // («Copa con invitación»); ninguna otra página (ni iframes) la pide. Web NFC
   // no pasa por Permissions-Policy (el NFC sigue funcionando).
   { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=(), payment=()' },
 ];

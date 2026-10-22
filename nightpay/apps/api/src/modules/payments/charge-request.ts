@@ -41,7 +41,7 @@ export async function resolveChargeOrThrow(
     serviceItemId?: string | null;
     amountCents?: number | null;
     requestedCategory?: string | null;
-    /** «Invitar a una copa»: el QR personal de la chica invitada. */
+    /** «Copa con invitación»: el QR personal de la chica invitada. */
     invitedStaffToken?: string | null;
     /** O la chica elegida de la lista (si el local no pide su QR). */
     invitedOperatorId?: string | null;
@@ -91,7 +91,7 @@ export async function resolveChargeOrThrow(
 }
 
 /**
- * «Invitar a una copa»: si el cobro lleva una invitación de la carta, hace
+ * «Copa con invitación»: si el cobro lleva una invitación de la carta, hace
  * falta el QR de la chica invitada (firmado, de su local, sin caducar); sus
  * líneas se quedan con ella y con las partes del local. Sin invitación, las
  * líneas tal cual (y un QR suelto sin invitación es un error: 400).
@@ -127,7 +127,8 @@ async function invitationOf(
   return withInvitation(lines, items, {
     beneficiaryOperatorId: chica.id,
     rules,
-    // La parte de quien cobra, solo si es camarero (el dueño y el encargado: del local).
+    // La parte de quien cobra, solo si es camarero y el local se la da (de
+    // fábrica, nada; el dueño y el encargado, nunca: del local).
     chargerGetsShare: input.role === 'WAITER',
   });
 }

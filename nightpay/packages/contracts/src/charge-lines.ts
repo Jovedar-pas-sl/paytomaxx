@@ -47,7 +47,7 @@ export interface ChargeLineView {
   unitCents: number;
   amountCents: number;
   serviceItemId: string | null;
-  /** «Invitar a una copa»: la chica invitada (null: no es una invitación). */
+  /** «Copa con invitación»: la chica invitada (null: no es una invitación). */
   beneficiaryOperatorId?: string | null;
 }
 
@@ -184,7 +184,7 @@ export interface CobroRow {
   wallet: { id: string; codeHint: string } | null;
   /** Lo que se vendió («2× Copa · Habitación»). */
   service: string | null;
-  /** «Invitar a una copa»: la chica invitada. */
+  /** «Copa con invitación»: la chica invitada. */
   invited: CobroPerson | null;
   lines: ChargeLineView[];
   /** Solo los cobros con tarjeta: lo que hace falta para devolver o resolver. */

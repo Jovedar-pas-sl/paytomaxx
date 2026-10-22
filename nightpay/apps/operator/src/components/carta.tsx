@@ -75,9 +75,8 @@ export function serviceLabel(svc: ServiceItem): string {
 }
 
 /**
- * Un servicio de la carta (el borde, del color de su sección). La invitación
- * («Invitar a una copa») sale grande y destacada: ocupa toda la fila y va
- * antes que la copa sola.
+ * Un servicio de la carta (el borde, del color de su sección). «Copa con
+ * invitación» es uno más: al tocarlo se escanea el QR de la chica.
  */
 export function CartaTile({
   svc,
@@ -90,16 +89,9 @@ export function CartaTile({
   disabled?: boolean;
   onPick: () => void;
 }) {
-  const invite = svc.isInvitation === true;
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onPick}
-      style={{ ...tileStyle, ...(invite ? inviteTileStyle : null), borderLeft: `0.5rem solid ${color}` }}
-    >
-      {invite ? <span style={inviteKicker}>Invitar a una copa · mejor plan</span> : null}
-      <span style={{ fontSize: invite ? '1.375rem' : '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
+    <button type="button" disabled={disabled} onClick={onPick} style={{ ...tileStyle, borderLeft: `0.5rem solid ${color}` }}>
+      <span style={{ fontSize: '1.125rem', fontWeight: 700 }}>{serviceLabel(svc)}</span>
       <span className="np-num" style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--np-accent)' }}>
         {formatEur(svc.priceCents, { compact: true })}
       </span>
@@ -121,21 +113,6 @@ export const tileStyle: CSSProperties = {
   borderRadius: 'var(--np-r-lg)',
   color: 'var(--np-text)',
   cursor: 'pointer',
-};
-
-const inviteTileStyle: CSSProperties = {
-  gridColumn: '1 / -1',
-  minHeight: '7.5rem',
-  borderColor: 'var(--np-accent)',
-  background: 'var(--np-pill-cyan-bg)',
-};
-
-const inviteKicker: CSSProperties = {
-  fontSize: 'var(--np-t-label)',
-  fontWeight: 800,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: 'var(--np-accent)',
 };
 
 const noteStyle: CSSProperties = {

@@ -26,7 +26,7 @@ export interface CobrosFilters {
   method?: ChargeMethod;
   walletCode?: string;
   walletId?: string;
-  /** Las invitaciones a esta chica («Invitar a una copa»). */
+  /** Las invitaciones a esta chica («Copa con invitación»). */
   invitedOperatorId?: string;
   nightId?: string;
   status?: string[];

@@ -745,7 +745,7 @@ export class WalletChargesService {
           });
         }
       }
-      // «Invitar a una copa»: la parte de la chica invitada (y la del camarero).
+      // «Copa con invitación»: la parte de la chica invitada (y la del camarero).
       const invited = lines.filter((l) => l.beneficiaryOperatorId);
       if (invited.length > 0) {
         await insertInvitationEarnings(
@@ -2384,10 +2384,10 @@ export interface QrChargeInput {
   serviceItemId?: string;
   amountCents?: number;
   category?: string;
-  /** «Invitar a una copa»: el QR personal de la chica invitada. */
+  /** «Copa con invitación»: el QR personal de la chica invitada. */
   invitedStaffToken?: string;
   /** La propina que pidió el cliente (aparte del importe). */
   tipCents?: number;
-  /** «Invitar a una copa» con la chica elegida de la lista (si el local no pide su QR). */
+  /** «Copa con invitación» con la chica elegida de la lista (si el local no pide su QR). */
   invitedOperatorId?: string;
 }

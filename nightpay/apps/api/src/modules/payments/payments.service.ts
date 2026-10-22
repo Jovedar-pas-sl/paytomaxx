@@ -1652,7 +1652,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       }
     }
 
-    // «Invitar a una copa»: la parte de la chica invitada y, si le toca, la
+    // «Copa con invitación»: la parte de la chica invitada y, si le toca, la
     // del camarero que la cobró (fijadas en la línea al cobrar).
     if (!p.walletId) {
       const invited = await tx.$queryRaw<

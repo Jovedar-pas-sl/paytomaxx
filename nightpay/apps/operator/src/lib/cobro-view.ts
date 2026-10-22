@@ -90,10 +90,14 @@ export function failReasonOf(
   }
 }
 
-/** El reparto de una invitación (2.1 y 2.5): la chica, la barra (quien cobra) y el local. */
+/**
+ * El reparto de una copa con invitación (2.5): la chica y el local. La barra
+ * (el camarero que la cobra) solo tiene parte si el local se la da (Ajustes:
+ * de fábrica, nada).
+ */
 export interface InvitationSplit {
   chicaCents: number;
-  /** La parte de quien la cobra (solo si es camarero). */
+  /** La parte de quien la cobra (solo si es camarero y el local le da algo). */
   barraCents: number;
   localCents: number;
 }
@@ -108,8 +112,8 @@ export function invitationSplit(
 }
 
 /**
- * Las casillas del reparto: la chica y la barra; el local solo si le queda
- * algo y la barra no se lleva nada (o las tres si las tres tienen parte).
+ * Las casillas del reparto: la chica y el local; la barra, solo si se lleva
+ * algo (y entonces el local, solo si le queda algo).
  */
 export function splitCells(
   split: InvitationSplit,
@@ -132,9 +136,4 @@ const ROLE_WORD: Readonly<Record<string, string>> = {
 export function whoLine(name: string | null | undefined, role: string): string {
   const word = ROLE_WORD[role] ?? '';
   return [name?.trim() || null, word || null].filter(Boolean).join(' · ');
-}
-
-/** «Copa sola» para la copa; el resto, con su nombre. */
-export function soloLabel(name: string): string {
-  return /^copa$/i.test(name.trim()) ? 'Copa sola' : name;
 }

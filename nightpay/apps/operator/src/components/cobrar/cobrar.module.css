@@ -201,6 +201,25 @@
   place-items: center;
 }
 
+/* «Copa con invitación»: una loseta más; el QR dice que se escanea el de la chica. */
+.tileQr {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.625rem;
+  display: grid;
+  place-items: center;
+  background: var(--np-ink-0);
+  color: var(--np-cream);
+}
+
+.tileQr svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
 .tileOther {
   background: var(--np-surface-2);
   color: var(--np-text);
@@ -674,82 +693,7 @@
   letter-spacing: -0.03em;
 }
 
-/* ─── 2.1 Invitar a una copa ─────────────────────────────────────────── */
-
-.invite {
-  flex: 1;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 1.125rem 1.25rem;
-  border-radius: 1.625rem;
-  color: var(--np-cream);
-  background:
-    var(--np-bits),
-    radial-gradient(120% 90% at 85% 10%, var(--np-green-3) 0%, var(--np-green-2) 45%, var(--np-green-1) 100%);
-  box-shadow:
-    0 0 0 1.5px var(--np-lime),
-    0 0 36px 2px var(--np-lime-glow);
-  overflow: hidden;
-}
-
-.invite::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(118deg, transparent 40%, var(--np-lime-soft) 52%, transparent 64%);
-  pointer-events: none;
-}
-
-.best {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  height: 2rem;
-  padding: 0 0.75rem;
-  border-radius: var(--np-r-pill);
-  background: var(--np-lime-soft);
-  border: 1.5px solid var(--np-lime);
-  font-weight: 700;
-  font-size: 0.875rem;
-}
-
-.best svg {
-  width: 1rem;
-  height: 1rem;
-  color: var(--np-lime);
-}
-
-.glass {
-  width: 3.75rem;
-  height: 3.75rem;
-  color: var(--np-lime);
-  margin-top: 0.375rem;
-}
-
-.inviteTitle {
-  font: 800 1.875rem/1.05 var(--np-font-num);
-  letter-spacing: -0.02em;
-  margin: 0;
-}
-
-.invitePrice {
-  font: 800 3.625rem/1 var(--np-font-num);
-  letter-spacing: -0.04em;
-}
-
-.invite p {
-  margin: 0;
-  font-size: 1.03125rem;
-}
-
-.invite .btn {
-  position: relative;
-  z-index: 1;
-  margin-top: auto;
-}
+/* ─── El reparto de una copa con invitación (PAGADO, 2.5) ──────────────── */
 
 .psplit {
   display: grid;
@@ -782,41 +726,6 @@
 .psplit b {
   font: 800 1.75rem var(--np-font-num);
   color: var(--np-lime);
-}
-
-.next {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9375rem;
-  font-weight: 600;
-}
-
-.next svg {
-  width: 1.375rem;
-  height: 1.375rem;
-}
-
-.solo {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  min-height: 3.5rem;
-  padding: 0 1.375rem;
-  border: none;
-  border-radius: var(--np-r-pill);
-  background: transparent;
-  color: var(--np-text);
-  box-shadow: inset 0 0 0 2px var(--np-border-hi);
-  font-weight: 700;
-  font-size: 1.0625rem;
-  cursor: pointer;
-}
-
-.solo b {
-  font: 800 1.125rem var(--np-font-num);
 }
 
 /* ─── 2.2 Escanea el QR de la chica ──────────────────────────────────── */
@@ -1496,69 +1405,6 @@
   margin: 0.5rem auto 0;
 }
 
-
-/*
- * «Invitar a una copa», destacada y compacta (una fila): el reparto en la
- * tarjeta y, al tocarla, directa a escanear el QR de la chica. Compacta para
- * que las propinas y «Otro importe» quepan encima de «Cobrar» a 360×740.
- */
-.inviteCard {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  min-height: 3.75rem;
-  padding: 0.5rem 0.875rem 0.5rem 0.5rem;
-  border: none;
-  border-radius: var(--np-r-tile);
-  color: var(--np-cream);
-  background:
-    var(--np-bits),
-    linear-gradient(125deg, var(--np-green-1), var(--np-green-2));
-  box-shadow:
-    0 0 0 1.5px var(--np-lime),
-    0 8px 28px -14px var(--np-lime);
-  text-align: left;
-  cursor: pointer;
-  transition: transform var(--np-d-fast) var(--np-ease);
-}
-.inviteCard:active { transform: scale(0.98); }
-.inviteCard:focus-visible { outline: 3px solid var(--np-lime); outline-offset: 3px; }
-.inviteQr {
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: 0.875rem;
-  display: grid;
-  place-items: center;
-  background: var(--np-lime);
-  color: var(--np-ink-0);
-}
-.inviteQr svg { width: 1.5rem; height: 1.5rem; }
-.inviteText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.inviteName { font: 800 1.0625rem/1.15 var(--np-font-sans); }
-.inviteSplit {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 0.625rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-.inviteSplit b {
-  color: var(--np-lime);
-  font-family: var(--np-font-num);
-  font-weight: 800;
-}
-.inviteCardPrice {
-  font: 800 1.625rem/1 var(--np-font-num);
-  letter-spacing: -0.02em;
-  color: var(--np-lime);
-}
 
 /* Propinas y «Otro importe»: una sola fila (en las losetas grandes de la chica, como siempre). */
 .lastRow {

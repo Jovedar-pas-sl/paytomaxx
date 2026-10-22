@@ -10,7 +10,7 @@ const api = 'http://127.0.0.1:4300';
 const operator = 'http://127.0.0.1:4301';
 const password = 'Isolated-test-password-2026!';
 /** Productos de la carta de referencia (packages/contracts/src/carta-template.ts). */
-const TEMPLATE_PRODUCTS = 13;
+const TEMPLATE_PRODUCTS = 12;
 
 async function applyTemplate(request: APIRequestContext, accessToken: string) {
   const res = await request.post(`${api}/v1/services/template`, {
@@ -46,19 +46,30 @@ test('login real con cookie, carta de referencia atómica y repetible, y el tota
   expect((await refreshed).status()).toBe(200);
   await expect(page.getByRole('button', { name: 'Entrar', exact: true })).toHaveCount(0);
 
-  // App del personal: la carta aplicada, con «Invitar a una copa» destacada aparte.
+  // App del personal: la carta aplicada; «Copa con invitación» es una loseta más, justo después de «Copa».
   await page.goto(`${operator}/`);
   await page.getByLabel('Email').fill('waiter@isolated.test');
   await page.getByLabel('Contraseña').fill(password);
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
-  await expect(page.getByRole('button', { name: /^Invitar a una copa, 20\s€/ })).toBeVisible();
   const copa = page.getByRole('button', { name: /^Copa, 10,00\s€/ });
+  const invitacion = page.getByRole('button', { name: /^Copa con invitación, 20,00\s€/ });
   await expect(copa).toBeVisible();
-  // La primera copa ofrece invitar (2.1); «Copa sola» la suma a la cuenta. La segunda ya no pregunta.
+  await expect(invitacion).toBeVisible();
+  const tiles = await page.getByRole('button', { name: /^(Copa|Copa con invitación|Botella), / }).allTextContents();
+  expect(tiles.map((t) => t.replace(/\s+/g, ' ').trim())).toEqual([
+    expect.stringContaining('Copa10'),
+    expect.stringContaining('Copa con invitación20'),
+    expect.stringContaining('Botella120'),
+  ]);
+  // «Copa» es la copa normal: cada toque la suma a la cuenta, sin preguntar nada.
   await copa.click();
-  await page.getByRole('button', { name: /Copa sola/ }).click();
   await copa.click();
   await page.getByRole('button', { name: /^Tabla ibérica, 30,00\s€/ }).click();
+  await expect(page.getByRole('button', { name: /Cobrar\s*50\s*€/ })).toBeVisible();
+  // «Copa con invitación» abre el escáner del QR de la chica (y volver deja la cuenta como estaba).
+  await invitacion.click();
+  await expect(page.getByRole('heading', { name: 'Escanea el QR de la chica' })).toBeVisible();
+  await page.getByRole('button', { name: 'Atrás' }).click();
   await expect(page.getByRole('button', { name: /Cobrar\s*50\s*€/ })).toBeVisible();
 });
 

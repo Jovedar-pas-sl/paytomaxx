@@ -70,12 +70,6 @@ export function puestoSection(ctx: Pick<CobrarContext, 'post' | 'user' | 'defaul
   return post ? postSection(post) : (ctx.defaultCategory ?? 'VENUE_BAR');
 }
 
-/** ¿Puede cobrar esta cosa de la carta? (un pack, todas sus partes). */
-export function itemAllowed(item: CartaItem, codes: readonly string[]): boolean {
-  const parts = item.components && item.components.length > 0 ? item.components.map((p) => p.category) : [item.category];
-  return parts.every((p) => codes.includes(p));
-}
-
 /** Las propinas que se ofrecen como losetas (las sugeridas del local), si su puesto las lleva. */
 export function tipTiles(ctx: Pick<CobrarContext, 'tips' | 'methods'>): number[] {
   if (!ctx.tips || !ctx.methods.tips) return [];

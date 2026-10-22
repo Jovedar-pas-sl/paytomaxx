@@ -84,11 +84,11 @@ describe('carta de referencia: atómica, con PostgreSQL y un rol sin superusuari
       service.applyTemplate(id, randomUUID(), { confirm: true }),
       service.applyTemplate(id, randomUUID(), { confirm: true }),
     ]);
-    // Copa y Botella existen; la invitación ya existe con otro nombre: 10 nuevos.
-    expect(results.map((r) => r.created).sort((a, b) => a - b)).toEqual([0, 10]);
+    // Copa y Botella existen; la invitación ya existe con otro nombre: 9 nuevos.
+    expect(results.map((r) => r.created).sort((a, b) => a - b)).toEqual([0, 9]);
     expect(results.every((r) => r.updated === 0 && r.skipped === 1)).toBe(true);
     const rows = await products(id);
-    expect(rows).toHaveLength(14);
+    expect(rows).toHaveLength(13);
     expect(rows.find((r) => r.id === mine.copa.id)).toEqual(mine.copa);
     expect(rows.find((r) => r.id === mine.botella.id)).toEqual(mine.botella);
     expect(rows.find((r) => r.id === mine.extra.id)).toEqual(mine.extra);
@@ -125,12 +125,12 @@ describe('carta de referencia: atómica, con PostgreSQL y un rol sin superusuari
 
   it('omite una sección apagada y un producto con el nombre de la invitación que no lo es, y añade el resto', async () => {
     const id = await venue({ VENUE_FOOD: { enabled: false } });
-    const fake = await item(id, { name: 'Invitar a una copa', priceCents: 1000 });
+    const fake = await item(id, { name: 'Copa con invitación', priceCents: 1000 });
     const result = await service.applyTemplate(id, randomUUID(), { confirm: true });
-    expect(result).toEqual({ created: 10, updated: 0, kept: 0, skipped: 3 });
+    expect(result).toEqual({ created: 9, updated: 0, kept: 0, skipped: 3 });
     const rows = await products(id);
     expect(rows.filter((r) => r.category === 'VENUE_FOOD')).toEqual([]);
-    expect(rows.filter((r) => r.name === 'Invitar a una copa')).toEqual([fake]);
+    expect(rows.filter((r) => r.name === 'Copa con invitación')).toEqual([fake]);
     expect(rows.some((r) => r.isInvitation)).toBe(false);
   });
 
@@ -179,7 +179,7 @@ describe('carta de referencia: atómica, con PostgreSQL y un rol sin superusuari
       });
       expect(payment.tenantId).toBe(id);
     } finally { paused.release(); }
-    await expect(applying).resolves.toMatchObject({ created: 13 });
+    await expect(applying).resolves.toMatchObject({ created: 12 });
   });
 
   it('conserva el id del producto y lo copiado en un cobro anterior', async () => {

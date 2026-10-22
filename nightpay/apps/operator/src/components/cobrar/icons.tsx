@@ -89,21 +89,6 @@ export const IconSun = () => (
   </Icon>
 );
 
-export const IconStar = () => (
-  <Icon fill>
-    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5z" />
-  </Icon>
-);
-
-export const IconGlass = () => (
-  <Icon width={1.8}>
-    <path d="M4 4.5h16L12 13z" />
-    <path d="M12 13v7M8 20.5h8" />
-    <path d="M14.5 4.5l3-3" />
-    <circle cx="16.5" cy="8" r="1.4" />
-  </Icon>
-);
-
 export const IconHand = () => (
   <Icon>
     <path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4a1.5 1.5 0 0 1 3 0v7M14 10.5V5.5a1.5 1.5 0 0 1 3 0V14c0 4-2.5 7-6.5 7-2.6 0-4-1.3-5.4-3.4L3.4 15a1.5 1.5 0 0 1 2.4-1.8L8 15.5" />

@@ -1,6 +1,6 @@
 /**
  * Quién cobra comisión y se le paga desde el panel: las chicas y los
- * camareros (su parte de las invitaciones, «Invitar a una copa»). Mismo pago,
+ * camareros (su parte de las invitaciones, «Copa con invitación»). Mismo pago,
  * mismas aprobaciones y la misma 2FA. Lo demás (alta, contraseña, enlace,
  * datos) sigue siendo solo de las chicas.
  */

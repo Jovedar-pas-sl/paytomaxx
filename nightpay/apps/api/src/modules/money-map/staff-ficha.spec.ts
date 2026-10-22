@@ -133,10 +133,8 @@ describe('lo que le toca de cada cosa', () => {
     expect(staffRates({ role: 'WAITER', commissionBps: null, defaults, invitationRules: { camarero: { kind: 'FIXED', cents: 300 } } })).toEqual([
       { kind: 'invitation', share: { kind: 'FIXED', cents: 300 } },
     ]);
-    // De fábrica (sin partes guardadas): la mitad de cada invitación, como la maqueta 2.6.
-    expect(staffRates({ role: 'WAITER', commissionBps: null, defaults, invitationRules: null })).toEqual([
-      { kind: 'invitation', share: { kind: 'PERCENT', bps: 5000 } },
-    ]);
+    // De fábrica (sin partes guardadas): nada; consta como quien la cobró y el local se queda lo que no es de la chica.
+    expect(staffRates({ role: 'WAITER', commissionBps: null, defaults, invitationRules: null })).toEqual([]);
     expect(staffRates({ role: 'WAITER', commissionBps: null, defaults, invitationRules: { chica: { kind: 'PERCENT', bps: 5000 }, camarero: { kind: 'PERCENT', bps: 0 } } })).toEqual([]);
   });
 });
@@ -212,11 +210,11 @@ describe('GET /v1/admin/operators/:id/ficha', () => {
     expect(q.values).toEqual(expect.arrayContaining([TENANT, LOLA]));
   });
 
-  it('el camarero: «Camarero» y solo la invitación', async () => {
+  it('el camarero: «Camarero» y, de fábrica, sin parte de las invitaciones', async () => {
     const { svc } = makeService({ id: CARLOS.id, displayName: null, email: 'carlos@x.es', role: 'WAITER', commissionBps: null });
     const f = await svc.ficha(TENANT, CARLOS.id);
     expect(f.person).toEqual({ id: CARLOS.id, name: 'carlos@x.es', role: 'WAITER' });
-    expect(f.rates).toEqual([{ kind: 'invitation', share: { kind: 'PERCENT', bps: 5000 } }]);
+    expect(f.rates).toEqual([]);
   });
 
   it('de otro local (o el dueño): 404', async () => {

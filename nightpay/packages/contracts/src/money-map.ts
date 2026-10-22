@@ -147,7 +147,7 @@ export function venueSharePercent(m: Pick<MoneyMap, 'salesCents' | 'split'>): nu
 export type StaffRate =
   /** Su % de una sección (el suyo o el del local). */
   | { kind: 'section'; code: string; bps: number }
-  /** Su parte de una invitación («Invitar a una copa»). */
+  /** Su parte de una invitación («Copa con invitación»). */
   | { kind: 'invitation'; share: InvitationShare }
   /** Las propinas que le dejan a ella. */
   | { kind: 'tips'; bps: number };

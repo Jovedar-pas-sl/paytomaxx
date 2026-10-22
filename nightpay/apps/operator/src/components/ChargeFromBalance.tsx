@@ -30,7 +30,6 @@ import { useVenueMethods } from '@/lib/venue-methods';
 import { usePolling } from '@/lib/use-polling';
 import { CartaRetry, CartaTile, serviceLabel, tileStyle, useCarta, type Carta } from './carta';
 import { InviteStep } from './InviteStep';
-import { invitationsFirst } from '@/lib/invite-link';
 import { STICKY_ACTION_BOTTOM } from './layout';
 import { PinPad } from './PinPad';
 import { SectionPicker } from './SectionPicker';
@@ -106,7 +105,7 @@ function PickStep({
   onCreated: (charge: QrWalletCharge, input: ChargeInput) => void;
 }) {
   const [custom, setCustom] = useState(false);
-  // «Invitar a una copa» elegida: antes del QR del cliente, el de la chica.
+  // «Copa con invitación» elegida: antes del QR del cliente, el de la chica.
   const [inviting, setInviting] = useState<ServiceItem | null>(null);
   const [amountCents, setAmountCents] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -187,7 +186,8 @@ function PickStep({
         </form>
       ) : (
         <div style={gridStyle}>
-          {invitationsFirst(carta.services).map((svc) => (
+          {/* En el orden de la carta: «Copa con invitación», una más (en la de referencia, tras «Copa»). */}
+          {carta.services.map((svc) => (
             <CartaTile
               key={svc.id}
               svc={svc}

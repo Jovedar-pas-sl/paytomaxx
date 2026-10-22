@@ -60,7 +60,7 @@ export interface CobroAbierto {
   who: string;
   /** «Servicios · Lola» (el chip del PIN). */
   pinChip: string;
-  /** «Invitar a una copa»: a quién y cómo se reparte. */
+  /** «Copa con invitación»: a quién y cómo se reparte. */
   invitation?: { chica: string; cells: ReadonlyArray<{ label: string; cents: number }> } | null;
 }
 

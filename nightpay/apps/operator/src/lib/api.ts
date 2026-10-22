@@ -350,7 +350,7 @@ export interface MyNight {
   unpaidCents?: number;
   /** Ganado en otras noches y aún sin pagar, sin restar deudas (un API antiguo no lo manda). */
   otherUnpaidCents?: number;
-  /** «Invitar a una copa»: las copas a las que la invitaron esta noche y su parte (un API antiguo no lo manda). */
+  /** «Copa con invitación»: las copas a las que la invitaron esta noche y su parte (un API antiguo no lo manda). */
   invitations?: { count: number; shareCents: number };
 }
 
@@ -413,7 +413,7 @@ export async function createPayment(input: {
   revenueCategory?: SectionCode;
   /** Fase 1A — servicio de la carta: el servidor usa su precio y su categoría. */
   serviceItemId?: string;
-  /** «Invitar a una copa»: el QR de la chica invitada (lo que se leyó). */
+  /** «Copa con invitación»: el QR de la chica invitada (lo que se leyó). */
   invitedStaffToken?: string;
   /** Una por intento de cobro (la pantalla la reutiliza si se repite). */
   idempotencyKey?: string;
@@ -595,7 +595,7 @@ export interface ServiceItem {
   category: SectionCode | 'EXTRA';
   /** Pack: sus partes (cada una a su sección). */
   components?: Array<{ category: SectionCode; amountCents: number }> | null;
-  /** «Invitar a una copa»: hace falta el QR de la chica invitada. */
+  /** «Copa con invitación»: hace falta el QR de la chica invitada. */
   isInvitation?: boolean;
 }
 
@@ -740,7 +740,7 @@ export async function createQrWalletCharge(input: {
   amountCents?: number;
   /** Sección del importe tecleado; sin ella, la del puesto. */
   category?: SectionCode;
-  /** «Invitar a una copa»: el QR de la chica invitada. */
+  /** «Copa con invitación»: el QR de la chica invitada. */
   invitedStaffToken?: string;
 }): Promise<QrWalletCharge> {
   const res = await authedFetch('/v1/wallet-charges/qr', { method: 'POST', body: JSON.stringify(input) });

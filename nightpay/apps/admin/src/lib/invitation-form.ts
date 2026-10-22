@@ -1,7 +1,9 @@
-// Ajustes → Invitaciones (lógica pura): la parte de la chica y la del camarero
-// tal como se teclean (% o € por copa) y el ejemplo que ve el dueño.
+// Ajustes → Invitaciones (lógica pura): la parte de la chica de cada «Copa con
+// invitación» tal como se teclea (% o € por copa), el ejemplo que ve el dueño
+// y, fuera del camino, la parte del camarero (de fábrica, nada: el local se
+// queda lo que no es de la chica).
 
-import { invitationShares, parseEuroCents, type InvitationRules, type InvitationShare } from '@nightpay/contracts';
+import { invitationShares, isZeroShare, parseEuroCents, type InvitationRules, type InvitationShare } from '@nightpay/contracts';
 import { centsToInput, formatEur } from './money';
 
 export interface ShareDraft {
@@ -29,12 +31,30 @@ export function shareFromDraft(d: ShareDraft, who: string): { ok: true; share: I
   return { ok: true, share: { kind: 'FIXED', cents } };
 }
 
-/** «De una invitación de 20 €: 10 € para la chica, 0 € para el camarero y 10 € para el local.» */
+/** El reparto de referencia: la mitad para la chica y el resto, del local (el camarero, nada). */
+export const REFERENCE_SPLIT: Readonly<{ chica: ShareDraft; camarero: ShareDraft }> = {
+  chica: { kind: 'PERCENT', value: '50' },
+  camarero: { kind: 'PERCENT', value: '0' },
+};
+
+/**
+ * ¿Enseñar abierta la parte del camarero? Solo si el local le da algo (una
+ * parte guardada antes): de fábrica va cerrada, fuera del camino. Mientras se
+ * teclea (vacío o a medias) no se cierra.
+ */
+export function showCamareroShare(d: ShareDraft): boolean {
+  const parsed = shareFromDraft(d, 'el camarero');
+  return !parsed.ok || !isZeroShare(parsed.share);
+}
+
+/**
+ * «De una copa con invitación de 20 €: 10 € para la chica y 10 € para el
+ * local.» Con parte para el camarero (si el local se la da), también la suya.
+ */
 export function invitationExample(rules: InvitationRules, priceCents: number): string {
   const { beneficiaryCents, chargerCents } = invitationShares(rules, { unitCents: priceCents, qty: 1 }, { getsShare: true });
   const local = priceCents - beneficiaryCents - chargerCents;
-  return (
-    `De una invitación de ${formatEur(priceCents)}: ${formatEur(beneficiaryCents)} para la chica, ` +
-    `${formatEur(chargerCents)} para el camarero y ${formatEur(local)} para el local.`
-  );
+  const head = `De una copa con invitación de ${formatEur(priceCents)}: ${formatEur(beneficiaryCents)} para la chica`;
+  if (chargerCents === 0) return `${head} y ${formatEur(local)} para el local.`;
+  return `${head}, ${formatEur(chargerCents)} para el camarero que la cobra y ${formatEur(local)} para el local.`;
 }

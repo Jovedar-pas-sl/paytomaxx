@@ -2,23 +2,32 @@
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Input, Select } from '@nightpay/ui';
-import type { InvitationRules, InvitationShare } from '@nightpay/contracts';
+import { invitationShareLabel, isZeroShare, type InvitationRules, type InvitationShare } from '@nightpay/contracts';
 import { fetchInvitationRules, updateInvitationRules } from '@/lib/api';
-import { invitationExample, shareFromDraft, shareToDraft, type ShareDraft } from '@/lib/invitation-form';
+import {
+  REFERENCE_SPLIT,
+  invitationExample,
+  shareFromDraft,
+  shareToDraft,
+  showCamareroShare,
+  type ShareDraft,
+} from '@/lib/invitation-form';
 import { LoadState, SaveRow, SettingsCard, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 const EXAMPLE_PRICE_CENTS = 20_00;
 
 /**
- * Ajustes → Secciones → Invitaciones (dueño): de cada «Invitar a una copa»,
- * qué parte es de la chica invitada y cuál del camarero que la cobra (% o €
- * por copa); el resto, del local. De fábrica, chica 50 % y camarero 0 %
- * (provisional: lo decide el dueño).
+ * Ajustes → Secciones → Invitaciones (dueño): de cada «Copa con invitación»,
+ * qué parte es de la chica invitada (% o € por copa); el resto, del local.
+ * De fábrica, la mitad para ella. El camarero que la cobra consta como quien
+ * la cobró, sin parte propia: su parte va aparte y cerrada (abierta solo si
+ * el local le daba algo, guardado antes: no se le quita a escondidas).
  */
 export function InvitationRulesCard() {
   const { data, setData, error: loadError, retry } = useSettingsLoad(fetchInvitationRules);
   const [chica, setChica] = useState<ShareDraft>({ kind: 'PERCENT', value: '' });
   const [camarero, setCamarero] = useState<ShareDraft>({ kind: 'PERCENT', value: '' });
+  const [camareroOpen, setCamareroOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, flashSaved] = useSavedFlash();
@@ -27,6 +36,7 @@ export function InvitationRulesCard() {
     if (!data) return;
     setChica(shareToDraft(data.chica));
     setCamarero(shareToDraft(data.camarero));
+    setCamareroOpen(showCamareroShare(shareToDraft(data.camarero)));
   }, [data]);
 
   if (!data) return <LoadState error={loadError} retry={retry} what="las invitaciones" />;
@@ -38,7 +48,10 @@ export function InvitationRulesCard() {
   async function save(e: FormEvent): Promise<void> {
     e.preventDefault();
     if (!a.ok) return setError(a.problem);
-    if (!b.ok) return setError(b.problem);
+    if (!b.ok) {
+      setCamareroOpen(true);
+      return setError(b.problem);
+    }
     setBusy(true);
     setError(null);
     try {
@@ -54,19 +67,41 @@ export function InvitationRulesCard() {
   return (
     <SettingsCard
       title="Invitaciones"
-      hint="«Invitar a una copa»: el cliente invita a una chica y el camarero escanea su QR. Así se reparte cada invitación; lo que quede es del local."
+      hint="«Copa con invitación»: el cliente invita a una chica a una copa y quien la cobra escanea su QR («Mi QR» en su app). La chica se lleva su parte y el local, el resto."
     >
       <form onSubmit={(e) => void save(e)} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         <ShareRow label="Para la chica invitada" draft={chica} onChange={setChica} disabled={busy} />
-        <ShareRow label="Para el camarero que la cobra" draft={camarero} onChange={setCamarero} disabled={busy} />
         <p style={hint}>{preview ? invitationExample(preview, EXAMPLE_PRICE_CENTS) : '—'}</p>
-        <Button type="button" variant="ghost" disabled={busy} onClick={() => {
-          setChica({ kind: 'PERCENT', value: '50' }); setCamarero({ kind: 'PERCENT', value: '50' });
-        }}>Usar reparto de referencia: 10 € chica y 10 € camarero en una copa de 20 €</Button>
+        <details className="np-set-more" open={camareroOpen} onToggle={(e) => setCamareroOpen(e.currentTarget.open)}>
+          <summary>Parte del camarero que la cobra: {b.ok ? camareroText(b.share) : '—'}</summary>
+          <div className="np-set-more-body">
+            <p style={hint}>
+              Lo normal es nada: el camarero consta como quien la cobró (sus cobros y su historial) y el local se queda lo que
+              no es de la chica.
+            </p>
+            <ShareRow label="Para el camarero que la cobra" draft={camarero} onChange={setCamarero} disabled={busy} />
+          </div>
+        </details>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => {
+            setChica(REFERENCE_SPLIT.chica);
+            setCamarero(REFERENCE_SPLIT.camarero);
+          }}
+        >
+          Reparto de referencia: la mitad para la chica
+        </Button>
         <SaveRow busy={busy} saved={saved} error={error} />
       </form>
     </SettingsCard>
   );
+}
+
+/** «nada (lo normal)», «50 %» o «3,00 € por copa». */
+function camareroText(s: InvitationShare): string {
+  return isZeroShare(s) ? 'nada (lo normal)' : invitationShareLabel(s);
 }
 
 function ShareRow({

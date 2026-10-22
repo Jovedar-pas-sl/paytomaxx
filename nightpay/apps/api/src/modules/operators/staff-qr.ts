@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
- * «Mi QR» de la chica («Invitar a una copa»): un token firmado y de vida
+ * «Mi QR» de la chica («Copa con invitación»): un token firmado y de vida
  * corta que solo dice qué persona del personal es (y de qué local). No es una
  * credencial: no abre su sesión ni cobra nada; el camarero lo escanea para
  * apuntar a quién invita el cliente. Se firma con una clave derivada de

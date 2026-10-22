@@ -20,6 +20,8 @@ export interface Invitada {
 interface Props {
   ctx: CobrarContext;
   who: string;
+  /** La invitación de la carta que se cobra («Copa con invitación»). */
+  title: string;
   priceCents: number;
   onChica: (chica: Invitada) => void;
   /** «Elegir de la lista» (solo si el local no pide el QR). */
@@ -43,11 +45,12 @@ function detectorCtor(): DetectorCtor | null {
 }
 
 /**
- * «Escanea el QR de la chica» (maqueta 2.2): la cámara del camarero lee el
- * «Mi QR» del móvil de la chica y la reconoce sola; pasa al cobro sin tocar
- * nada. Linterna para la sala oscura y, si el local lo deja, la lista.
+ * «Escanea el QR de la chica» (maqueta 2.2), al tocar «Copa con invitación»:
+ * la cámara del camarero lee el «Mi QR» del móvil de la chica y la reconoce
+ * sola; pasa al cobro sin tocar nada. Linterna para la sala oscura y, si el
+ * local lo deja, la lista.
  */
-export function EscanearChica({ ctx, who, priceCents, onChica, onList, onBack }: Props) {
+export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, onBack }: Props) {
   const video = useRef<HTMLVideoElement | null>(null);
   const track = useRef<MediaStreamTrack | null>(null);
   const done = useRef(false);
@@ -149,7 +152,7 @@ export function EscanearChica({ ctx, who, priceCents, onChica, onList, onBack }:
   return (
     <div className={styles.screen}>
       <ScreenHeader
-        title="Invitar a una copa"
+        title={title}
         subtitle={`${who.split(' · ')[0]} · ${formatEur(priceCents, { compact: true })}`}
         onBack={onBack}
         chip={chip ? <Chip colors={[chip.color]}>{chip.label}</Chip> : null}

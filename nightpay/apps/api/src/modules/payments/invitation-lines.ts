@@ -2,7 +2,7 @@ import { invitationShares, type InvitationRules } from '@nightpay/contracts';
 import type { CartaItemLike, DraftLine } from './charge-lines';
 
 /**
- * «Invitar a una copa» (lógica pura): las líneas de una invitación de la
+ * «Copa con invitación» (lógica pura): las líneas de una invitación de la
  * carta llevan a la chica invitada y lo que les toca a ella y a quien cobra,
  * fijado al cobrar (si el dueño cambia las partes luego, no cambia lo ya
  * cobrado). El resto de la línea es del local.

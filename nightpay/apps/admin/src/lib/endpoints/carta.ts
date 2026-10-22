@@ -18,7 +18,7 @@ export interface ServiceItem {
   sortOrder: number;
   /** Pack: sus partes (suman el precio). null = de una sola sección. */
   components?: PackComponent[] | null;
-  /** «Invitar a una copa» (Copas): el camarero escanea el QR de la chica invitada. */
+  /** «Copa con invitación» (Copas): quien la cobra escanea el QR de la chica invitada. */
   isInvitation?: boolean;
 }
 

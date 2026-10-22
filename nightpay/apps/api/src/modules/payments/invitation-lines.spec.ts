@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_INVITATION_RULES,
+  UpdateInvitationRulesSchema,
   invitationRulesOf,
   invitationShareLabel,
   invitationShares,
+  isZeroShare,
   mergeInvitationRules,
   staffTokenFrom,
 } from '@nightpay/contracts';
@@ -13,7 +15,7 @@ import { invitationEarnings, isInvitationLine, withInvitation } from './invitati
 
 const INVITA: CartaItemLike = {
   id: 'inv-1',
-  name: 'Invitar a una copa',
+  name: 'Copa con invitación',
   priceCents: 2500,
   durationMin: null,
   category: 'VENUE_BAR',
@@ -33,23 +35,49 @@ const line = (item: CartaItemLike, qty = 1): DraftLine => ({
 });
 
 describe('partes de una invitación (Ajustes)', () => {
-  it('de fábrica (maqueta 2.6): la chica 50 % y el camarero 50 %; 20 € = 10 € + 10 €', () => {
+  it('de fábrica: la chica 50 % y el resto, del local; el camarero que la cobra, nada (20 € = 10 € + 10 €)', () => {
     expect(invitationRulesOf(null)).toEqual(DEFAULT_INVITATION_RULES);
-    expect(invitationShares(invitationRulesOf(null), { unitCents: 2000, qty: 1 }, { getsShare: true })).toEqual({
-      beneficiaryCents: 1000,
-      chargerCents: 1000,
+    expect(DEFAULT_INVITATION_RULES).toEqual({
+      chica: { kind: 'PERCENT', bps: 5000 },
+      camarero: { kind: 'PERCENT', bps: 0 },
+      requireQr: true,
     });
-    // Quien cobra no es camarero (dueño, encargado): su mitad, del local.
-    expect(invitationShares(invitationRulesOf(null), { unitCents: 2000, qty: 1 }, { getsShare: false })).toEqual({
-      beneficiaryCents: 1000,
-      chargerCents: 0,
-    });
+    // La cobre un camarero, el encargado o el dueño: lo que no es de la chica, del local.
+    for (const getsShare of [true, false]) {
+      expect(invitationShares(invitationRulesOf(null), { unitCents: 2000, qty: 1 }, { getsShare })).toEqual({
+        beneficiaryCents: 1000,
+        chargerCents: 0,
+      });
+    }
   });
 
-  it('unas partes guardadas no cambian con las de fábrica', () => {
-    const saved = { chica: { kind: 'FIXED', cents: 800 }, camarero: { kind: 'PERCENT', bps: 0 }, inviteFirst: true, requireQr: true };
+  it('unas partes guardadas no cambian con las de fábrica (una parte del camarero guardada antes se respeta)', () => {
+    const saved = { chica: { kind: 'FIXED', cents: 800 }, camarero: { kind: 'PERCENT', bps: 0 }, requireQr: true };
     expect(invitationRulesOf(saved)).toEqual(saved);
     expect(invitationShares(invitationRulesOf(saved), { unitCents: 2000, qty: 1 }, { getsShare: true })).toEqual({ beneficiaryCents: 800, chargerCents: 0 });
+    // Un local que guardó la mitad para el camarero (Ajustes de antes): no se reescribe a escondidas.
+    const old = { chica: { kind: 'PERCENT', bps: 5000 }, camarero: { kind: 'PERCENT', bps: 5000 }, requireQr: true };
+    expect(invitationShares(invitationRulesOf(old), { unitCents: 2000, qty: 1 }, { getsShare: true })).toEqual({ beneficiaryCents: 1000, chargerCents: 1000 });
+  });
+
+  it('«Invitar» primero ya no existe: lo guardado con esa clave se sigue leyendo (y se olvida al guardar)', () => {
+    const stored = { chica: { kind: 'PERCENT', bps: 6000 }, camarero: { kind: 'PERCENT', bps: 0 }, inviteFirst: false, requireQr: false };
+    const rules = invitationRulesOf(stored);
+    expect(rules).toEqual({ chica: { kind: 'PERCENT', bps: 6000 }, camarero: { kind: 'PERCENT', bps: 0 }, requireQr: false });
+    expect(rules).not.toHaveProperty('inviteFirst');
+    expect(mergeInvitationRules(stored, { chica: { kind: 'PERCENT', bps: 5000 } })).toEqual({
+      chica: { kind: 'PERCENT', bps: 5000 },
+      camarero: { kind: 'PERCENT', bps: 0 },
+      requireQr: false,
+    });
+    expect(UpdateInvitationRulesSchema.safeParse({ inviteFirst: true }).success).toBe(false);
+  });
+
+  it('parte a cero: 0 % o 0 € por copa', () => {
+    expect(isZeroShare({ kind: 'PERCENT', bps: 0 })).toBe(true);
+    expect(isZeroShare({ kind: 'FIXED', cents: 0 })).toBe(true);
+    expect(isZeroShare({ kind: 'PERCENT', bps: 1 })).toBe(false);
+    expect(isZeroShare({ kind: 'FIXED', cents: 300 })).toBe(false);
   });
 
   it('% o fijo por copa; nunca más que la venta (primero la chica, luego el camarero)', () => {

@@ -1,10 +1,9 @@
-// «Invitar a una copa»: el QR de la chica lleva la app con ?invita=<token>.
+// «Copa con invitación»: el QR de la chica lleva la app con ?invita=<token>.
 // Si el camarero lo lee con la cámara del móvil, se abre otra pestaña: esa
 // pestaña lo apunta aquí (localStorage) y la del cobro lo recibe al momento
 // (evento «storage»). Con la app ya abierta, se lee con su propia cámara.
 
 import { staffTokenFrom } from '@nightpay/contracts';
-import type { ServiceItem } from './api';
 
 const KEY = 'np_invita';
 /** Un QR leído vale para el cobro que se está haciendo ahora, no para otro de dentro de un rato. */
@@ -53,9 +52,4 @@ export function onInviteArrived(handler: (token: string) => void): () => void {
   };
   window.addEventListener('storage', listener);
   return () => window.removeEventListener('storage', listener);
-}
-
-/** La carta con las invitaciones delante: «Invitar a una copa» antes que la copa sola. */
-export function invitationsFirst(services: readonly ServiceItem[]): ServiceItem[] {
-  return [...services.filter((s) => s.isInvitation === true), ...services.filter((s) => s.isInvitation !== true)];
 }

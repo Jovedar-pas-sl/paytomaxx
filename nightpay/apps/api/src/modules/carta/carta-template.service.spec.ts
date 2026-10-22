@@ -35,19 +35,19 @@ describe('carta de referencia atómica', () => {
 
   it('bloquea el local antes de leer y, por defecto, solo añade lo que falta: no toca el precio ni la desactivación del dueño', async () => {
     const { service, tx, prisma } = setup([copa]);
-    await expect(service.applyTemplate('tenant-1', 'owner', { confirm: true })).resolves.toEqual({ created: 12, updated: 0, kept: 1, skipped: 0 });
+    await expect(service.applyTemplate('tenant-1', 'owner', { confirm: true })).resolves.toEqual({ created: 11, updated: 0, kept: 1, skipped: 0 });
     expect(prisma.withTenant).toHaveBeenCalledWith('tenant-1', expect.any(Function));
     expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.serviceItem.findMany.mock.invocationCallOrder[0]!);
     expect(tx.serviceItem.update).not.toHaveBeenCalled();
     expect(created(tx)).not.toContain('Copa');
-    expect(tx.serviceItem.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ name: 'Invitar a una copa', priceCents: 2000, isInvitation: true }) }));
+    expect(tx.serviceItem.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ name: 'Copa con invitación', priceCents: 2000, isInvitation: true, sortOrder: 1 }) }));
   });
 
   it('actualiza un producto solo si se marcó y sigue como lo vio el dueño, sin cambiarle el nombre', async () => {
     const { service, tx, audit } = setup([copa]);
     await expect(service.applyTemplate('tenant-1', 'owner', { confirm: true, update: [{ id: COPA_ID, seen: seenCopa }] }))
-      .resolves.toEqual({ created: 12, updated: 1, kept: 0, skipped: 0 });
+      .resolves.toEqual({ created: 11, updated: 1, kept: 0, skipped: 0 });
     expect(tx.serviceItem.update).toHaveBeenCalledWith({ where: { id: COPA_ID }, data: { durationMin: null, priceCents: 1000, sortOrder: 0, active: true } });
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ updatedIds: [COPA_ID] }) }));
   });
@@ -66,24 +66,24 @@ describe('carta de referencia atómica', () => {
   it('un producto marcado que otro administrador ya dejó como la referencia no es un conflicto', async () => {
     const { service, tx } = setup([{ ...copa, priceCents: 1000, active: true }]);
     await expect(service.applyTemplate('tenant-1', 'owner', { confirm: true, update: [{ id: COPA_ID, seen: seenCopa }] }))
-      .resolves.toEqual({ created: 12, updated: 0, kept: 1, skipped: 0 });
+      .resolves.toEqual({ created: 11, updated: 0, kept: 1, skipped: 0 });
     expect(tx.serviceItem.update).not.toHaveBeenCalled();
   });
 
   it('omite las secciones apagadas y los duplicados sin bloquear el resto', async () => {
     const { service, tx } = setup([copa, { ...copa, id: 'dup' }], { CHICA_SERVICE: { enabled: false } });
-    await expect(service.applyTemplate('tenant-1', 'owner', { confirm: true })).resolves.toEqual({ created: 8, updated: 0, kept: 0, skipped: 5 });
+    await expect(service.applyTemplate('tenant-1', 'owner', { confirm: true })).resolves.toEqual({ created: 7, updated: 0, kept: 0, skipped: 5 });
     const names = created(tx);
     expect(names).not.toContain('30 min');
     expect(names).not.toContain('Copa');
-    expect(names).toHaveLength(8);
+    expect(names).toHaveLength(7);
   });
 
   it('no crea una segunda invitación si ya hay una con otro nombre', async () => {
     const invitation: Row = { ...copa, id: 'inv', name: 'Invita a Nerea', priceCents: 2500, active: true, isInvitation: true };
     const { service, tx } = setup([invitation]);
     await expect(service.applyTemplate('tenant-1', 'owner', { confirm: true })).resolves.toEqual({ created: CARTA_TEMPLATE.length - 1, updated: 0, kept: 0, skipped: 1 });
-    expect(created(tx)).not.toContain('Invitar a una copa');
+    expect(created(tx)).not.toContain('Copa con invitación');
     expect(tx.serviceItem.create.mock.calls.every(([arg]) => !(arg as { data: { isInvitation: boolean } }).data.isInvitation)).toBe(true);
   });
 });

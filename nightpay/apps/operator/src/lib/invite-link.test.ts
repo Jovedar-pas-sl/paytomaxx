@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { ServiceItem } from './api';
-import { captureInviteFromUrl, INVITE_FRESH_MS, invitationsFirst, takePendingInvite } from './invite-link';
+import { captureInviteFromUrl, INVITE_FRESH_MS, takePendingInvite } from './invite-link';
 
 const store = new Map<string, string>();
 beforeEach(() => {
@@ -23,7 +22,7 @@ function fakeWindow(href: string) {
   };
 }
 
-describe('«Invitar a una copa»: el QR de la chica leído con la cámara del móvil', () => {
+describe('«Copa con invitación»: el QR de la chica leído con la cámara del móvil', () => {
   it('se apunta, se quita de la URL y lo recoge el cobro una sola vez', () => {
     const { win, replaced } = fakeWindow('https://op.example/?invita=abcdefghij.KLMNOPQRST-uv&tab=inicio');
     expect(captureInviteFromUrl(win, 1000)).toBe(true);
@@ -52,14 +51,5 @@ describe('«Invitar a una copa»: el QR de la chica leído con la cámara del m�
   it('lo apuntado roto no rompe nada', () => {
     store.set('np_invita', '{no es json');
     expect(takePendingInvite()).toBeNull();
-  });
-});
-
-describe('la carta del camarero', () => {
-  it('la invitación va antes que la copa sola (sin cambiar el resto del orden)', () => {
-    const item = (id: string, isInvitation?: boolean) =>
-      ({ id, name: id, priceCents: 1000, category: 'VENUE_BAR', isInvitation }) as unknown as ServiceItem;
-    const out = invitationsFirst([item('copa'), item('cerveza'), item('invita', true)]);
-    expect(out.map((s) => s.id)).toEqual(['invita', 'copa', 'cerveza']);
   });
 });

@@ -3,18 +3,9 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
-import { invitationSplit, splitCells } from '@/lib/cobro-view';
+import { cartaTiles, tapOf } from '@/lib/carta-tiles';
 import { chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
-import {
-  colorOf,
-  itemAllowed,
-  labelOf,
-  offeredCodes,
-  puestoChip,
-  puestoSection,
-  tipTiles,
-  type CobrarContext,
-} from './cobrar-context';
+import { colorOf, labelOf, offeredCodes, puestoChip, puestoSection, tipTiles, type CobrarContext } from './cobrar-context';
 import { IconQr } from './icons';
 import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
 import styles from './cobrar.module.css';
@@ -24,9 +15,8 @@ interface Props {
   cuenta: Cuenta;
   /** «Carlos · camarero». */
   who: string;
+  /** Una loseta de la carta: «Copa» (y el resto) se suma a la cuenta; «Copa con invitación» va a escanear el QR de la chica. */
   onItem: (item: CartaItem) => void;
-  /** La tarjeta destacada «Invitar a una copa»: directa a escanear el QR de la chica (maqueta 2.2). */
-  onInvite: (invite: CartaItem) => void;
   onTip: (cents: number) => void;
   onOtro: () => void;
   onVerCuenta: () => void;
@@ -42,15 +32,16 @@ interface Props {
 /**
  * «Cobrar», variante A (maqueta 1.1): losetas de color por sección, solo las
  * que su puesto cobra. Tocar suma a la cuenta (×N); abajo, el resumen y
- * «Cobrar N €». La chica ve Servicios y Propinas, más grandes; la habitación
- * no es suya («La cobra recepción»).
+ * «Cobrar N €». «Copa con invitación» es una loseta más (en la carta de
+ * referencia, justo después de «Copa»): tocarla abre el escáner del QR de la
+ * chica. La chica ve Servicios y Propinas, más grandes; la habitación no es
+ * suya («La cobra recepción»).
  */
 export function Carta({
   ctx,
   cuenta,
   who,
   onItem,
-  onInvite,
   onTip,
   onOtro,
   onVerCuenta,
@@ -62,12 +53,7 @@ export function Carta({
   onRetryCarta,
 }: Props) {
   const codes = offeredCodes(ctx);
-  const invitation = ctx.carta.find((i) => i.isInvitation && itemAllowed(i, codes)) ?? null;
-  const items = ctx.carta
-    .filter((i) => itemAllowed(i, codes) && i.id !== invitation?.id)
-    .map((item, index) => ({ item, index }))
-    .sort((a, b) => sectionOrder(codes, a.item.category) - sectionOrder(codes, b.item.category) || a.index - b.index)
-    .map(({ item }) => item);
+  const items = cartaTiles(ctx.carta, codes);
   const tips = tipTiles(ctx);
   const sectionsShown = new Set([...items.map((i) => i.category), ...(tips.length > 0 ? ['propinas'] : [])]);
   const big = sectionsShown.size <= 2;
@@ -92,7 +78,6 @@ export function Carta({
       />
       <Stripe parts={[{ color: colorOf(puestoSection(ctx)), weight: 1 }]} />
       <div className={styles.body}>
-        {invitation ? <InviteCard ctx={ctx} invite={invitation} onInvite={() => onInvite(invitation)} /> : null}
         <div className={styles.tiles}>
           {items.map((item) => (
             <ItemTile key={item.id} item={item} ctx={ctx} qty={qtyOf(cuenta, item.id)} big={big} onPick={() => onItem(item)} />
@@ -136,7 +121,7 @@ export function Carta({
             </button>
             .
           </p>
-        ) : ctx.cartaLoaded && items.length === 0 && !invitation ? (
+        ) : ctx.cartaLoaded && items.length === 0 ? (
           <p className={styles.empty}>No hay productos disponibles para tu puesto. El dueño o encargado debe configurar la carta en Administración → Carta y comprobar las secciones del puesto.{' '}
             <button type="button" className={styles.link} onClick={onRetryCarta}>Actualizar carta</button>
           </p>
@@ -178,45 +163,6 @@ export function Carta({
   );
 }
 
-/**
- * «Invitar a una copa», destacada y compacta: el reparto en la tarjeta y, al
- * tocarla, directa a escanear el QR de la chica. La copa sola sigue en su loseta.
- */
-function InviteCard({ ctx, invite, onInvite }: { ctx: CobrarContext; invite: CartaItem; onInvite: () => void }) {
-  const split = ctx.rules ? invitationSplit(ctx.rules, invite.priceCents, ctx.user.role === 'WAITER') : null;
-  const cells = split ? splitCells(split, { chica: 'La chica', barra: 'La barra' }) : [];
-  const price = formatEur(invite.priceCents, { compact: true });
-  const said = cells.map((c) => `${c.label} ${formatEur(c.cents)}`).join(', ');
-  return (
-    <button
-      type="button"
-      className={styles.inviteCard}
-      onClick={onInvite}
-      aria-label={`Invitar a una copa, ${price}${said ? `: ${said}` : ''}. Escanea el QR de la chica.`}
-    >
-      <span className={styles.inviteQr} aria-hidden="true">
-        <IconQr />
-      </span>
-      <span className={styles.inviteText}>
-        <span className={styles.inviteName}>Invitar a una copa</span>
-        <span className={styles.inviteSplit}>
-          {cells.length > 0 ? cells.map((c) => (
-            <span key={c.label}>
-              {c.label} <b>{formatEur(c.cents, { compact: true })}</b>
-            </span>
-          )) : 'Escanea el QR de la chica'}
-        </span>
-      </span>
-      <span className={styles.inviteCardPrice}>{price}</span>
-    </button>
-  );
-}
-
-function sectionOrder(codes: readonly string[], code: string): number {
-  const i = codes.indexOf(code);
-  return i < 0 ? codes.length : i;
-}
-
 /** «Habitaciones» → «Habitación» (la loseta habla de una). */
 function singular(label: string): string {
   if (/ones$/i.test(label)) return `${label.slice(0, -4)}ón`;
@@ -242,9 +188,17 @@ function ItemTile({
   const cls = [styles.tile, big ? styles.tileBig : '', second ? styles.tileWide : '', qty > 0 ? styles.tileOn : '']
     .filter(Boolean)
     .join(' ');
+  // La copa con invitación no va a la cuenta: se cobra aparte, con el QR de la chica.
+  const invite = tapOf(item) === 'invitar';
+  const label = `${itemLabel(item)}, ${formatEur(item.priceCents)}${invite ? '. Escanea el QR de la chica' : qty > 0 ? `, llevas ${qty}` : ''}`;
   return (
-    <button type="button" className={cls} style={style} onClick={onPick} aria-label={`${itemLabel(item)}, ${formatEur(item.priceCents)}${qty > 0 ? `, llevas ${qty}` : ''}`}>
+    <button type="button" className={cls} style={style} onClick={onPick} aria-label={label}>
       {qty > 0 ? <span className={styles.count}>×{qty}</span> : null}
+      {invite ? (
+        <span className={styles.tileQr} aria-hidden="true">
+          <IconQr />
+        </span>
+      ) : null}
       <span className={styles.kicker}>{labelOf(ctx, item.category)}</span>
       <span className={styles.tileName}>{itemLabel(item)}</span>
       <span className={styles.price}>{formatEur(item.priceCents, { compact: true })}</span>

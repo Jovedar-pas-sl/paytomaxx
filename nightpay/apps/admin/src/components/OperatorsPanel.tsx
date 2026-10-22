@@ -225,9 +225,10 @@ function hasEarnings(o: Operator): boolean {
 }
 
 /**
- * Los camareros con su parte de las invitaciones («Invitar a una copa», si el
- * dueño se la da en Ajustes): lo que se les debe y lo pagado. Su ficha es la
- * de las chicas, con el mismo botón para pagarles.
+ * Los camareros con parte de las invitaciones («Copa con invitación»): de
+ * fábrica no tienen (el local se queda lo que no es de la chica); salen si el
+ * dueño les dio algo en Ajustes, o si les queda algo de antes. Lo que se les
+ * debe y lo pagado; su ficha es la de las chicas, con el mismo botón para pagarles.
  */
 function CamarerosCard({ camareros, onOpen }: { camareros: Operator[]; onOpen: (id: string) => void }) {
   return (

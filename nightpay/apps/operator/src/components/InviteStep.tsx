@@ -8,9 +8,9 @@ import { onInviteArrived, takePendingInvite } from '@/lib/invite-link';
 import { QrScanner, qrScanSupported } from './QrScanner';
 
 /**
- * «Invitar a una copa»: antes de cobrar, el QR de la chica invitada («Mi QR»
- * en su app). Con la cámara de la app (Android), con la del móvil (abre la
- * app en otra pestaña y llega aquí solo) o pegando su enlace.
+ * «Copa con invitación» (cobro del saldo): antes de cobrar, el QR de la chica
+ * invitada («Mi QR» en su app). Con la cámara de la app (Android), con la del
+ * móvil (abre la app en otra pestaña y llega aquí solo) o pegando su enlace.
  */
 export function InviteStep({
   name,
@@ -56,7 +56,7 @@ export function InviteStep({
 
   return (
     <Card style={cardStyle}>
-      <p style={kicker}>Invitar a una copa</p>
+      <p style={kicker}>Invitación</p>
       <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>
         {name} · <span className="np-num">{formatEur(priceCents, { compact: true })}</span>
       </p>

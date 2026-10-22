@@ -8,7 +8,6 @@ import {
   pinExpected,
   pinFootnote,
   pinWarning,
-  soloLabel,
   splitCells,
   whoLine,
 } from './cobro-view';
@@ -68,19 +67,20 @@ describe('esperando y resultado', () => {
     expect(splitCells(three, { chica: 'Nerea', barra: 'Barra' }).map((c) => c.cents)).toEqual([1000, 300, 700]);
   });
 
-  it('la tarjeta destacada en un local sin partes guardadas: 20 € = la chica 10 € y la barra 10 € (maqueta 2.6)', () => {
-    const split = invitationSplit(invitationRulesOf(null), 2000, true);
-    expect(splitCells(split, { chica: 'La chica', barra: 'La barra' })).toEqual([
-      { label: 'La chica', cents: 1000 },
-      { label: 'La barra', cents: 1000 },
-    ]);
+  it('una copa con invitación en un local sin partes guardadas: 20 € = la chica 10 € y el local 10 € (la cobre quien la cobre)', () => {
+    for (const waiter of [true, false]) {
+      const split = invitationSplit(invitationRulesOf(null), 2000, waiter);
+      expect(split).toEqual({ chicaCents: 1000, barraCents: 0, localCents: 1000 });
+      expect(splitCells(split, { chica: 'Nerea', barra: 'Barra (Carlos)' })).toEqual([
+        { label: 'Nerea', cents: 1000 },
+        { label: 'Local', cents: 1000 },
+      ]);
+    }
   });
 
-  it('cabecera y copa sola', () => {
+  it('cabecera', () => {
     expect(whoLine('Carlos', 'WAITER')).toBe('Carlos · camarero');
     expect(whoLine('Lola', 'OPERATOR')).toBe('Lola · chica');
     expect(whoLine(null, 'OWNER')).toBe('dueño');
-    expect(soloLabel('Copa')).toBe('Copa sola');
-    expect(soloLabel('Botella')).toBe('Botella');
   });
 });

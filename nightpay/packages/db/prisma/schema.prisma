@@ -69,7 +69,7 @@ model Venue {
   // Qué cobra cada puesto (20261023100100): secciones, propinas, efectivo y
   // recargas (packages/contracts/src/post-rules.ts). Null = lo de fábrica.
   postRules             Json?
-  // «Invitar a una copa» (20261023100200): parte de la chica y del camarero
+  // «Copa con invitación» (20261023100200): parte de la chica y del camarero
   // (% o fijo). Null = lo de fábrica (packages/contracts/src/invitations.ts).
   invitationRules       Json?
   // Ajustes de la noche (20261023200000, packages/contracts/src/night-settings.ts):
@@ -206,7 +206,7 @@ model User {
   // Phase 1B — wallet consumptions cobrados por este usuario
   providedConsumptions  WalletConsumption[] @relation("ConsumptionProvider")
   reversedConsumptions  WalletConsumption[] @relation("ConsumptionReversedBy")
-  // «Invitar a una copa»: las líneas en las que la invitaron.
+  // «Copa con invitación»: las líneas en las que la invitaron.
   invitedLines          PaymentLine[]       @relation("PaymentLineBeneficiary")
 
   @@index([tenantId])
@@ -727,7 +727,7 @@ model ServiceItem {
   // («1 h con habitación» = Servicios 120 € + Habitaciones 30 €). Null = de
   // una sola sección (category).
   components  Json?
-  // «Invitar a una copa» (20261023100200): en Copas, con su precio; la venta
+  // «Copa con invitación» (20261023100200): en Copas, con su precio; la venta
   // se reparte con la chica invitada (venues.invitationRules).
   isInvitation Boolean @default(false)
   createdAt   DateTime @default(now()) @db.Timestamptz
@@ -759,7 +759,7 @@ model PaymentLine {
   // % de la chica fijado al crear el cobro con tarjeta (#54). Null: no es de
   // una chica o es un cobro del saldo (se calcula al pagarse, como siempre).
   operatorCommissionBps Int?
-  // «Invitar a una copa»: la chica invitada y las partes fijadas al cobrar
+  // «Copa con invitación»: la chica invitada y las partes fijadas al cobrar
   // (para ella y para quien cobró). El resto, del local.
   beneficiaryOperatorId String?  @db.Uuid
   beneficiaryCents      Int?

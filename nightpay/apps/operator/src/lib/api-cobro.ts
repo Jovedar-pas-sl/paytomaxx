@@ -65,7 +65,7 @@ export interface CobroCreado extends CreatedPayment {
 export interface CobroInput {
   lines: ChargeLineInput[];
   tipCents?: number;
-  /** «Invitar a una copa»: el QR de la chica o la elegida de la lista. */
+  /** «Copa con invitación»: el QR de la chica o la elegida de la lista. */
   invitedStaffToken?: string;
   invitedOperatorId?: string;
   terminalExternalId?: string;
