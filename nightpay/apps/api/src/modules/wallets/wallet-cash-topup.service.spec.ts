@@ -144,7 +144,7 @@ function setup(o: { venue?: Row; wallet?: Row | null; pacoPost?: string | null }
   const audit = { log: vi.fn(async (_e: Record<string, unknown>) => undefined) };
   const totp = { isEnabled: vi.fn(async () => true), assertForUser: vi.fn(async () => undefined) };
   const svc = new CashTopUpService(prisma as never, audit as never, totp as never);
-  return { svc, wallets, topUps, audit, venues, totp, prisma };
+  return { svc, wallets, topUps, audit, venues, totp, prisma, tx };
 }
 
 const nueva = (amountCents: number, key = 'clave-nueva-0001') => ({ amountCents, idempotencyKey: key, wallet: { create: true as const } });
@@ -201,6 +201,29 @@ describe('recarga en efectivo', () => {
       const first = await svc.topUp(SALA, javi, ficha);
       await expect(svc.topUp(SALA, javi, { ...ficha, wallet: { card: FICHA } })).resolves.toEqual({ ...first, replayed: true });
       expect(topUps.size).toBe(1);
+    });
+
+    it('la otra petición ganó la carrera (choque de único aunque Prisma no diga qué índice): devuelve su recibo', async () => {
+      const { svc, tx, topUps, wallets } = setup();
+      const first = await svc.topUp(SALA, javi, pedida);
+      tx.walletCashTopUp.findUnique.mockResolvedValueOnce(null);
+      tx.walletCashTopUp.create.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed on the (not available)', {
+          code: 'P2002',
+          clientVersion: 'x',
+          meta: { target: '(not available)' },
+        }),
+      );
+      await expect(svc.topUp(SALA, javi, pedida)).resolves.toEqual({ ...first, replayed: true });
+      expect(topUps.size).toBe(1);
+      expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_500 });
+    });
+
+    it('un choque de único que no es de esta clave sigue siendo un error', async () => {
+      const { svc, tx } = setup();
+      const clash = new Prisma.PrismaClientKnownRequestError('otro único', { code: 'P2002', clientVersion: 'x', meta: { target: ['voidOfId'] } });
+      tx.walletCashTopUp.create.mockRejectedValueOnce(clash);
+      await expect(svc.topUp(SALA, javi, pedida)).rejects.toBe(clash);
     });
 
     it('el saldo se sumó a otro después: el reintento sigue valiendo y da el recibo de entonces', async () => {

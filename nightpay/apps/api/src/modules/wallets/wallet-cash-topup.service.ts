@@ -127,7 +127,10 @@ export class CashTopUpService {
       });
     } catch (err) {
       // Dos peticiones a la vez con la misma clave: gana una y la otra la repite.
-      if (isKeyClash(err)) {
+      // Cualquier choque de único vale: si no era el de la clave, replay no
+      // encuentra nada y sigue el error (Prisma no siempre sabe qué índice fue:
+      // con Postgres en otro idioma da «(not available)»).
+      if (isUniqueClash(err)) {
         const raced = await this.replay(venueId, by, input);
         if (raced) return raced;
       }
@@ -470,7 +473,6 @@ function eur(cents: number): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
-function isKeyClash(err: unknown): boolean {
-  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
-  return JSON.stringify(err.meta?.target ?? '').includes('idempotencyKey');
+function isUniqueClash(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }
