@@ -7,6 +7,7 @@ import {
   fetchNight,
   fetchNights,
   openNight,
+  type CobrosFilters,
   type NightAdjustments,
   type NightListItem,
   type NightSummary,
@@ -32,10 +33,13 @@ export function NightsPanel({
   tabs,
   onNavigate,
   isOwner,
+  onOpenCobros,
 }: {
   tabs: readonly PanelTab[];
   onNavigate: (key: TabKey) => void;
   isOwner: boolean;
+  /** Desde el mapa del dinero de un Z: los cobros que explican una cifra. */
+  onOpenCobros?: (filter: CobrosFilters) => void;
 }) {
   const tz = useVenueTimezone();
   /** undefined = cargando; null = no hay noche abierta. */
@@ -251,7 +255,7 @@ export function NightsPanel({
               {detail.pendingAtClose > 0 ? ` · ${detail.pendingAtClose} cobros sin resolver al cerrar` : ''}
               {detail.closeNote ? ` · «${detail.closeNote}»` : ''}
             </p>
-            {detail.closedAt ? <NightMoneyMap nightId={detail.id} /> : null}
+            {detail.closedAt ? <NightMoneyMap nightId={detail.id} onOpenCobros={onOpenCobros} /> : null}
             {detail.z.caja ? <NightCajaBlock caja={detail.z.caja} /> : null}
             <ZSummary summary={detail.z.summary} />
             <AdjustmentsBox adjustments={detail.z.adjustments} />

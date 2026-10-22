@@ -12,6 +12,8 @@
   --np-mm-saldo: #7c8893;
   --np-mm-tuyo: #efe9df;
   --np-mm-personal: #a9b3bc;
+  /* Comisiones: su propio gris, rayado (no se confunde con el saldo). */
+  --np-mm-comision: repeating-linear-gradient(135deg, #a9b3bc 0 2px, #3a434b 2px 5px);
 }
 
 [data-theme='light'] {
@@ -20,6 +22,7 @@
   --np-mm-saldo: #9aa4ad;
   --np-mm-tuyo: #1f2c36;
   --np-mm-personal: #5d6a75;
+  --np-mm-comision: repeating-linear-gradient(135deg, #5d6a75 0 2px, #dfe3e6 2px 5px);
 }
 
 /* ─── Piezas comunes (cabecera, franja, chips, cifras) ───────────────── */
@@ -991,3 +994,111 @@
 .np-mm-detail .np-mm-orow b { margin-left: auto; }
 .np-mm-detail [data-neg='true'] { color: var(--np-danger); }
 .np-mm-detail .np-mm-note { margin-top: 0.5rem; }
+
+/* Del mapa a los cobros: las ventas, cada sección y «Del saldo» se tocan. */
+.np-mm-open {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  border-radius: var(--np-r-md);
+}
+.np-mm-open:focus-visible,
+button.np-mm-sr:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 2px;
+}
+.np-mm-hleg .np-mm-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: 100%;
+  line-height: 1.2;
+  min-height: 2.75rem;
+  color: var(--np-text-label);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.np-mm-hleg .np-mm-open b { text-decoration: none; }
+.np-mm-kpis .np-mm-open { min-height: 2.75rem; }
+.np-mm-kpis .np-mm-open .np-mm-big { text-decoration: underline dotted 2px; text-underline-offset: 5px; }
+.np-mm-hint { margin: 0.25rem 0 0; }
+.np-mm-srows > li { list-style: none; }
+.np-mm-sr[data-open] {
+  width: 100%;
+  min-height: 2.75rem;
+  grid-template-columns: 5.875rem minmax(0, 1fr) 4.25rem 0.875rem;
+}
+button.np-mm-sr {
+  font: inherit;
+  font-size: 0.90625rem;
+  font-weight: 600;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+button.np-mm-sr:active { opacity: 0.7; }
+.np-mm-chev { width: 1rem; height: 1rem; color: var(--np-text-label); }
+
+/* Cobros abiertos desde una cifra del mapa: sus fechas, quitables. */
+.np-cobros-window {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--np-r-md);
+  border: 1px dashed var(--np-border-hi);
+  background: var(--np-surface-2);
+  font-size: 0.875rem;
+}
+.np-cobros-window button {
+  min-height: 2.75rem;
+  padding: 0 0.875rem;
+  border-radius: var(--np-r-pill);
+  border: 1px solid var(--np-border-hi);
+  background: var(--np-surface);
+  color: var(--np-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Fechas del mapa: plegadas; la de ahora, a la vista. */
+.np-mm-period-box {
+  margin: 0.5rem 0;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+.np-mm-period-box > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+  padding: 0 0.875rem;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.9375rem;
+}
+.np-mm-period-box > summary::-webkit-details-marker { display: none; }
+.np-mm-period-box > summary b { font-weight: 700; }
+.np-mm-period-change {
+  font-weight: 700;
+  color: var(--np-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.np-mm-period-box[open] .np-mm-period-change { visibility: hidden; }
+.np-mm-period-box > summary:focus-visible { outline: 2px solid var(--np-accent); outline-offset: 2px; }
+.np-mm-period-box .np-mm-period { margin: 0; padding: 0 0.875rem 0.875rem; }
