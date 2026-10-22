@@ -589,7 +589,7 @@ describe('devolver el saldo al cliente que se va', () => {
     const err = await svc.payout(manager, 'w-1', { method: 'CASH' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ForbiddenException);
     expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
-    expect((err as Error).message).toMatch(/Devolver 300,00 € en efectivo: desde 100,00 €/);
+    expect((err as Error).message).toMatch(/Devolver 300,00 € en efectivo: con más de 100,00 €/);
     expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
     expect(payoutMock.create).not.toHaveBeenCalled();
     // Sin la app activada, se le dice (no un código que no puede poner).
