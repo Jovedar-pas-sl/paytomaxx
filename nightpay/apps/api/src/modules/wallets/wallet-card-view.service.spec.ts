@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ForbiddenException } from '@nestjs/common';
 import { WalletCardViewService } from './wallet-card-view.service';
 const token = 'cardToken0123456789';
-const wallet = { id: 'w1', qrToken: 'private-wallet-token', status: 'ACTIVE', blockedAt: null };
+const wallet = { id: 'w1', qrToken: 'private-wallet-token', status: 'ACTIVE', blockedAt: null, shortCode: 'K7Q4M2' };
 const card = { id: 'c1', status: 'ISSUED', walletId: wallet.id, wallet };
 function make() {
   const findUnique = vi.fn().mockResolvedValue(card);
@@ -64,5 +64,25 @@ describe('consulta de ficha con llave del cliente', () => {
     const { service, findUnique } = make();
     findUnique.mockResolvedValueOnce(card).mockResolvedValueOnce({ ...card, wallet: { ...wallet, qrToken: 'regenerated-private-token' } });
     await expect(service.unlock(token, 'api.example', {})).rejects.toThrow(ForbiddenException);
+  });
+  it('pantalla de la ficha: con passkey, desbloquear; sin ella, cómo activarla; con el código tapado y sin el enlace', async () => {
+    const { service, keys } = make();
+    await expect(service.pageView(token)).resolves.toEqual({ kind: 'locked', codeHint: 'K7Q-•••' });
+    keys.hasPasskey.mockResolvedValue(false);
+    await expect(service.pageView(token)).resolves.toEqual({ kind: 'setup', codeHint: 'K7Q-•••' });
+    expect(JSON.stringify(await service.pageView(token))).not.toContain(wallet.qrToken);
+  });
+  it('pantalla de la ficha: bloqueada lo dice; devuelta, en stock, sin saldo vivo o con un token raro, no activa', async () => {
+    const { service, findUnique, keys } = make();
+    findUnique.mockResolvedValue({ ...card, status: 'BLOCKED' });
+    await expect(service.pageView(token)).resolves.toEqual({ kind: 'blocked' });
+    for (const value of [null, { ...card, status: 'RETURNED', walletId: null, wallet: null }, { ...card, status: 'LOST' }, { ...card, wallet: { ...wallet, blockedAt: new Date() } }, { ...card, wallet: { ...wallet, status: 'REFUNDED' } }]) {
+      findUnique.mockResolvedValue(value);
+      await expect(service.pageView(token)).resolves.toEqual({ kind: 'unavailable' });
+    }
+    findUnique.mockClear();
+    await expect(service.pageView('../x')).resolves.toEqual({ kind: 'unavailable' });
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(keys.hasPasskey).not.toHaveBeenCalled();
   });
 });

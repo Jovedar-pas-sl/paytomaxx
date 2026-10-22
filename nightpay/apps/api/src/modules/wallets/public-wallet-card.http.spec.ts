@@ -90,7 +90,7 @@ describe('consulta NFC HTTP: ninguna información antes de verificar la llave', 
     expect((await api.inject({ method: 'POST', url: `/w/${PRIVATE}/google-wallet`, payload: {} })).statusCode).toBe(200);
   });
 
-  it('el HTML público no expone el enlace privado ni el saldo', async () => {
+  it('el HTML público no expone el enlace privado ni el saldo: como mucho el código tapado', async () => {
     const api = app.getHttpAdapter().getInstance();
     for (const url of [`/w/card/${CARD}`, `/w/${PRIVATE}`]) {
       const r = await api.inject({ method: 'GET', url });
@@ -98,6 +98,7 @@ describe('consulta NFC HTTP: ninguna información antes de verificar la llave', 
       expect(r.headers['cache-control']).toBe('no-store');
       expect(r.headers['referrer-policy']).toBe('no-referrer');
       expect(r.body).toContain('Consulta tu saldo');
+      expect(r.body).toContain('ABC-•••');
       expect(r.body).not.toContain('ABC-123');
       expect(r.body).not.toContain('Recarga privada');
       expect(r.body).not.toContain('123,45');
@@ -105,6 +106,42 @@ describe('consulta NFC HTTP: ninguna información antes de verificar la llave', 
     const r = await api.inject({ method: 'GET', url: `/w/card/${CARD}` });
     expect(r.body).not.toContain(PRIVATE);
     expect((await api.inject({ method: 'GET', url: `/w/${PRIVATE}/state` })).statusCode).toBe(401);
+  });
+
+  it('sin passkey, /w/card dice desde el principio cómo activarla, sin botón muerto ni reto', async () => {
+    keys.hasPasskey.mockResolvedValue(false);
+    const api = app.getHttpAdapter().getInstance();
+    for (const [lang, text] of [['es', 'pide en recepción el QR de activación'], ['en', 'ask reception for the activation QR']] as const) {
+      const r = await api.inject({ method: 'GET', url: `/w/card/${CARD}?lang=${lang}` });
+      expect(r.statusCode).toBe(200);
+      expect(r.body).toContain(text);
+      expect(r.body).toContain('ABC-•••');
+      expect(r.body).not.toContain('<button');
+      expect(r.body).not.toContain('<script');
+      expect(r.body).not.toContain(PRIVATE);
+    }
+    expect(keys.challenge).not.toHaveBeenCalled();
+    // Y el reto, si alguien lo pide igualmente, dice lo mismo (409 FACE_ID_NOT_SET).
+    const challenge = await api.inject({ method: 'POST', url: `/w/card/${CARD}/view/challenge` });
+    expect(challenge.statusCode).toBe(409);
+    expect(challenge.json()).toMatchObject({ code: 'FACE_ID_NOT_SET', message: 'Para ver tu saldo en tu móvil, pide en recepción el QR de activación.' });
+  });
+
+  it('un NFC bloqueado o que no es de ningún saldo lo dice, sin código ni enlace', async () => {
+    const api = app.getHttpAdapter().getInstance();
+    findUnique.mockResolvedValue({ ...issued, status: 'BLOCKED' });
+    const blocked = await api.inject({ method: 'GET', url: `/w/card/${CARD}` });
+    expect(blocked.statusCode).toBe(200);
+    expect(blocked.body).toContain('Este NFC está bloqueado');
+    for (const card of [null, { ...issued, status: 'STOCK', walletId: null, wallet: null }, { ...issued, wallet: { ...wallet, status: 'REFUNDED' } }]) {
+      findUnique.mockResolvedValue(card);
+      const r = await api.inject({ method: 'GET', url: `/w/card/${CARD}?lang=en` });
+      expect(r.statusCode).toBe(200);
+      expect(r.body).toContain('This NFC is not active');
+      expect(r.body).not.toContain('ABC-');
+      expect(r.body).not.toContain('<button');
+    }
+    expect((await api.inject({ method: 'GET', url: '/w/card/no' })).statusCode).toBe(404);
   });
 
   it('solo la firma válida entrega la sesión, en las rutas de ese saldo, y habilita HTML y estado', async () => {

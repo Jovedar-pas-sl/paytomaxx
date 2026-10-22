@@ -20,7 +20,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { resolveLanguage } from '../payments/pay-i18n';
 import { walletClaimSetCookie } from '../payments/wallet-claim';
-import { WalletChargesService, type ClientWalletState } from './wallet-charges.service';
+import { WalletChargesService, codeHintOf, type ClientWalletState } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { WalletTopUpService } from './wallet-topup.service';
 import { renderWalletPage } from './wallet-page';
@@ -217,8 +217,9 @@ export class PublicWalletController {
     const lang = resolveLanguage(langQuery, acceptLanguage);
     const access = await this.viewAccess(token, cookies);
     if (!access.allowed) {
+      const { shortCode } = await this.charges.walletRefByToken(token);
       res.status(200).header('Content-Type', 'text/html; charset=utf-8').header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer')
-        .send(renderWalletUnlockPage(`/w/${encodeURIComponent(token)}`, lang, paidToken));
+        .send(renderWalletUnlockPage(`/w/${encodeURIComponent(token)}`, lang, { kind: 'locked', codeHint: codeHintOf(shortCode), paidToken }));
       return;
     }
     if (access.renew) res.header('Set-Cookie', access.renew);

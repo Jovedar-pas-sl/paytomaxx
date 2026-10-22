@@ -240,6 +240,7 @@ describe('saldo con passkey: consultar también exige el desbloqueo', () => {
     expect(reply.body).toContain('Consulta tu saldo');
     expect(reply.body).not.toContain('K7Q-4M2');
     expect(charges.clientState).not.toHaveBeenCalled();
+    expect(reply.body).toContain('K7Q-•••');
     await expect(controller.state('private-token', cookieReply().reply as never)).rejects.toMatchObject({ status: 401 });
     expect(charges.clientState).not.toHaveBeenCalled();
   });
