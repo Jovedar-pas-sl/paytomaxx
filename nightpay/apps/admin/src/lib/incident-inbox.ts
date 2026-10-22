@@ -64,6 +64,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     tab: 'wallets',
     hint: 'Revisa las recargas en efectivo en Saldos: juntas pueden ser una sola entrega de más de 1.000 €.',
   },
+  reception_payout_cap: {
+    group: 'Efectivo',
+    title: 'Recepción pasa su tope de la noche',
+    tab: 'wallets',
+    hint: 'Desde ahí, cada salida en efectivo de esa persona la confirma el encargado con su 2FA. Revisa sus salidas en Saldos.',
+  },
   bank_mismatch: { group: 'Banco', title: 'Diferencia con el banco', tab: 'bank' },
   backup_stale: { group: 'Copias', title: 'Sin copia de seguridad reciente', tab: null },
   backup_unmonitored: { group: 'Copias', title: 'Las copias de seguridad no se vigilan', tab: null },

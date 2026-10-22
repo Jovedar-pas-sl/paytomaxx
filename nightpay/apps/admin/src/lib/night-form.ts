@@ -5,6 +5,7 @@
 import {
   MAX_NFC_NO_PIN_CENTS,
   MAX_NFC_NO_PIN_NIGHT_CAP_CENTS,
+  MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS,
   MAX_RECEPTION_QUICK_AMOUNTS,
   nightSettingsProblem,
   parseEuroCents,
@@ -22,6 +23,8 @@ export interface NightForm {
   receptionDefaultMethod: ReceptionDefaultMethod;
   feedbackVibration: boolean;
   feedbackSound: boolean;
+  /** Tope de efectivo devuelto por persona de recepción y noche (€). */
+  payoutNightCapEur: string;
 }
 
 /** «20», «12,50»: los euros como se teclean (sin decimales si son enteros). */
@@ -40,6 +43,7 @@ export function nightFormFrom(s: VenueNightSettings): NightForm {
     receptionDefaultMethod: s.receptionDefaultMethod,
     feedbackVibration: s.feedbackVibration,
     feedbackSound: s.feedbackSound,
+    payoutNightCapEur: eurosText(s.receptionPayoutNightCapCents),
   };
 }
 
@@ -72,6 +76,10 @@ export function nightChange(
   if (max === null) return { ok: false, problem: `Sin PIN hasta: de 0 € (siempre con PIN) a ${MAX_NFC_NO_PIN_CENTS / 100} €.` };
   const cap = parseEurosUpTo(form.noPinNightCapEur, MAX_NFC_NO_PIN_NIGHT_CAP_CENTS);
   if (cap === null) return { ok: false, problem: `Tope sin PIN por noche: de 0 € a ${MAX_NFC_NO_PIN_NIGHT_CAP_CENTS / 100} €.` };
+  const payoutCap = parseEurosUpTo(form.payoutNightCapEur, MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS);
+  if (payoutCap === null) {
+    return { ok: false, problem: `Tope de salidas en efectivo por noche: de 0 € (siempre el encargado) a ${MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS / 100} €.` };
+  }
   const quick = parseQuickAmounts(form.quickAmountsEur);
   if (!quick) {
     return { ok: false, problem: `Importes rápidos: de 1 a ${MAX_RECEPTION_QUICK_AMOUNTS} importes en euros enteros (p. ej. 20, 50, 100).` };
@@ -84,6 +92,7 @@ export function nightChange(
     receptionDefaultMethod: form.receptionDefaultMethod,
     feedbackVibration: form.feedbackVibration,
     feedbackSound: form.feedbackSound,
+    receptionPayoutNightCapCents: payoutCap,
   };
   const problem = nightSettingsProblem(next);
   if (problem) return { ok: false, problem };
@@ -95,6 +104,7 @@ export function nightChange(
   if (next.receptionDefaultMethod !== current.receptionDefaultMethod) change.receptionDefaultMethod = next.receptionDefaultMethod;
   if (next.feedbackVibration !== current.feedbackVibration) change.feedbackVibration = next.feedbackVibration;
   if (next.feedbackSound !== current.feedbackSound) change.feedbackSound = next.feedbackSound;
+  if (payoutCap !== current.receptionPayoutNightCapCents) change.receptionPayoutNightCapCents = payoutCap;
   return { ok: true, change };
 }
 

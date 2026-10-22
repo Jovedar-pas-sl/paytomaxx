@@ -12,6 +12,7 @@ import {
   openIncidents,
   paymentAnomalyIncident,
   posVoidedPaidIncident,
+  receptionPayoutCapIncident,
   stuckIncident,
 } from './incident-rules';
 import { incidentMessage, morningSummaryMessage } from './alert-messages';
@@ -228,5 +229,17 @@ describe('efectivo troceado en saldos nuevos', () => {
     expect(i).toMatchObject({ kind: 'cash_split_suspected', refId: 'audit-1', amountCents: 120_000, ackable: true, paymentId: null });
     expect(i.detail).toMatch(/^2 saldos nuevos en efectivo/);
     expect(ACKABLE_KINDS as readonly string[]).toContain('cash_split_suspected');
+  });
+
+  it('recepción pasa su tope de la noche: con su nombre en el panel y sin él en Telegram; se marca como revisada', () => {
+    const i = receptionPayoutCapIncident({
+      id: '91', paymentId: 'u-1', amountCents: 5_000, occurredAt: at('2026-10-23T03:00:00Z'), actorName: 'Sergio',
+      payload: { nightPaidCents: 26_000, nightCapCents: 30_000 },
+    });
+    expect(i).toMatchObject({ kind: 'reception_payout_cap', refId: '91', ackable: true, amountCents: 5_000 });
+    expect(i.detail).toBe('Sergio quería devolver 50,00 € (ya llevaba 260,00 € devueltos y su tope es 300,00 €). Desde ahí, cada salida la confirma el encargado con su 2FA. Revisa sus salidas de esta noche (Clientes → Saldos).');
+    expect(i.alertDetail).not.toContain('Sergio');
+    expect(ACKABLE_KINDS).toContain('reception_payout_cap');
+    expect(incidentMessage('Luna', i)).not.toContain('Sergio');
   });
 });

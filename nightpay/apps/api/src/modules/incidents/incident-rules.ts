@@ -31,6 +31,7 @@ export type IncidentKind =
   | 'pos_unproven_sales'
   | 'pos_reception_limit'
   | 'cash_split_suspected'
+  | 'reception_payout_cap'
   | 'wallet_topup_unassigned';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
@@ -65,6 +66,7 @@ export const ACKABLE_KINDS = [
   'pos_unproven_sales',
   'pos_reception_limit',
   'cash_split_suspected',
+  'reception_payout_cap',
 ] as const satisfies readonly IncidentKind[];
 
 export interface Incident {
@@ -179,6 +181,31 @@ export function cashSplitIncident(r: EventRow): Incident {
     refId: r.id,
     title: 'Efectivo troceado en saldos nuevos',
     detail: `${count ? `${count} saldos nuevos` : 'Varios saldos nuevos'} en efectivo seguidos de la misma persona o datáfono pasan de 1.000 € (cada saldo tiene su tope; juntos podrían ser una sola entrega). Revisa las recargas en efectivo.`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
+    ackable: true,
+  };
+}
+
+/**
+ * Una persona de recepción pasó su tope de salidas en efectivo de la noche
+ * (audit_events wallet.reception_payout_cap, una vez por persona y noche):
+ * desde ahí, cada salida la confirma el encargado con su 2FA.
+ */
+export function receptionPayoutCapIncident(r: EventRow & { actorName?: string | null }): Incident {
+  const p = r.payload && typeof r.payload === 'object' ? (r.payload as Record<string, unknown>) : {};
+  const paid = typeof p.nightPaidCents === 'number' ? p.nightPaidCents : null;
+  const cap = typeof p.nightCapCents === 'number' ? p.nightCapCents : null;
+  const who = r.actorName?.trim() || 'Una persona de recepción';
+  const tail = 'Desde ahí, cada salida la confirma el encargado con su 2FA. Revisa sus salidas de esta noche (Clientes → Saldos).';
+  const amounts = `${paid === null ? '' : `ya llevaba ${eur(paid)} devueltos`}${cap === null ? '' : `${paid === null ? '' : ' y '}su tope es ${eur(cap)}`}`;
+  return {
+    kind: 'reception_payout_cap',
+    refId: r.id,
+    title: 'Recepción pasa su tope de efectivo devuelto esta noche',
+    detail: `${who} ${r.amountCents === null ? 'quería devolver más' : `quería devolver ${eur(r.amountCents)}`}${amounts ? ` (${amounts})` : ''}. ${tail}`,
+    alertDetail: `${r.amountCents === null ? 'Una salida' : `Una salida de ${eur(r.amountCents)}`}${amounts ? ` (${amounts})` : ''}. ${tail}`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,

@@ -14,7 +14,7 @@ import { VenuesController } from './venues.controller';
 /** Ajustes de la noche (Ajustes → Noche): lo de fábrica funciona sin tocar nada. */
 
 describe('ajustes de la noche: lo guardado con lo de fábrica donde falte', () => {
-  it('de fábrica: 20 € sin PIN, 100 € por noche, teclado fijo, 20 · 50 · 100 en efectivo, vibración y sonido', () => {
+  it('de fábrica: 20 € sin PIN, 100 € por noche, teclado fijo, 20 · 50 · 100 en efectivo, vibración y sonido, 300 € de salidas por recepcionista', () => {
     expect(nightSettingsOf(null)).toEqual({
       nfcNoPinMaxCents: 2_000,
       nfcNoPinNightCapCents: 10_000,
@@ -23,6 +23,7 @@ describe('ajustes de la noche: lo guardado con lo de fábrica donde falte', () =
       receptionDefaultMethod: 'cash',
       feedbackVibration: true,
       feedbackSound: true,
+      receptionPayoutNightCapCents: 30_000,
     });
     expect(nightSettingsOf('basura')).toEqual(DEFAULT_NIGHT_SETTINGS);
   });

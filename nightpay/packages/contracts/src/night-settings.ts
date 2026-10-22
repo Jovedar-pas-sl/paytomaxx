@@ -31,12 +31,20 @@ export interface VenueNightSettings {
   feedbackVibration: boolean;
   /** Sonar al cobrar (pagado o no). */
   feedbackSound: boolean;
+  /**
+   * Lo que cada persona de recepción devuelve en efectivo en una noche (de
+   * 08:00 a 08:00 de Madrid) con el NFC del cliente. Al pasarlo, cada salida
+   * la confirma el encargado con su 2FA, sale en Incidencias y avisa por
+   * Telegram. 0 = siempre el encargado.
+   */
+  receptionPayoutNightCapCents: number;
 }
 
 /** Topes de lo que se puede guardar (el API y el panel usan los mismos). */
 export const MAX_NFC_NO_PIN_CENTS = 50_00;
 export const MAX_NFC_NO_PIN_NIGHT_CAP_CENTS = 500_00;
 export const MAX_RECEPTION_QUICK_AMOUNTS = 4;
+export const MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS = 5_000_00;
 const MIN_QUICK_AMOUNT_CENTS = 100;
 
 export const DEFAULT_RECEPTION_QUICK_AMOUNTS_CENTS: readonly number[] = [20_00, 50_00, 100_00];
@@ -49,6 +57,7 @@ export const DEFAULT_NIGHT_SETTINGS: Readonly<VenueNightSettings> = Object.freez
   receptionDefaultMethod: 'cash',
   feedbackVibration: true,
   feedbackSound: true,
+  receptionPayoutNightCapCents: 300_00,
 });
 
 const cents = (max: number) => z.number().int().min(0).max(max);
@@ -66,6 +75,7 @@ export const UpdateNightSettingsSchema = z
     receptionDefaultMethod: z.enum(RECEPTION_METHODS).optional(),
     feedbackVibration: z.boolean().optional(),
     feedbackSound: z.boolean().optional(),
+    receptionPayoutNightCapCents: cents(MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS).optional(),
   })
   .strict()
   .refine((d) => Object.values(d).some((v) => v !== undefined), { message: 'No hay nada que cambiar' });
@@ -100,6 +110,8 @@ export function nightSettingsOf(raw: unknown): VenueNightSettings {
     receptionDefaultMethod: oneOf(s.receptionDefaultMethod, RECEPTION_METHODS, d.receptionDefaultMethod),
     feedbackVibration: flag('feedbackVibration'),
     feedbackSound: flag('feedbackSound'),
+    receptionPayoutNightCapCents:
+      intIn(s.receptionPayoutNightCapCents, 0, MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS) ?? d.receptionPayoutNightCapCents,
   };
 }
 
