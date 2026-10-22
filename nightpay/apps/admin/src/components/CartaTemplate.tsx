@@ -111,7 +111,7 @@ function TemplateRow({ change, sections, ticked, disabled, onTick }: {
     <li className="np-tpl-row" data-tone={state.tone}>
       <div className="np-tpl-head">
         <b>{name}</b>
-        <span className="np-num">{formatEur(change.input.priceCents)}</span>
+        <span className="np-num" title="Precio de referencia">ref. {formatEur(change.input.priceCents)}</span>
         <span className="np-tpl-state">{state.label}</span>
       </div>
       {change.action === 'skip' ? <p className="np-tpl-why">{templateSkipText(change, sections)}</p> : null}
