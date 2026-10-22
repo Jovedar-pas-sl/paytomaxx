@@ -154,10 +154,18 @@
   text-decoration-thickness: 2px;
 }
 
+/* La propina, en su línea: una pastilla del color de Propinas (se lee en los dos temas). */
 .tip {
-  font-size: 1rem;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-sec-propinas);
+  color: var(--np-on-section);
+  font-size: 0.9375rem;
   font-weight: 800;
-  color: var(--np-sec-propinas);
 }
 
 .refund {
