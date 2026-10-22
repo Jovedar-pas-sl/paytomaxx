@@ -25,17 +25,22 @@ describe('MetricsService', () => {
     expect(text).toContain('nightpay_queue_depth{queue="retry"} 2');
     expect(text).toMatch(/nightpay_queue_oldest_age_seconds\{queue="retry"\} 30(?:\.\d+)?/);
   });
-  it('exports full earning reversal backlog and oldest age, and marks query failures unavailable', async () => {
+  it('descuentos por devolución: todo lo pendiente, su antigüedad y lo que necesita a una persona; sin consulta, sin muestras', async () => {
     const metrics = new MetricsService();
-    const query = vi.fn().mockResolvedValue({ pending: 101, oldestAgeSeconds: 10800 });
+    const query = vi.fn().mockResolvedValue({ pending: 101, oldestAgeSeconds: 10800, needsHuman: 2 });
     metrics.observeEarningReversals(query);
     const text = await metrics.render();
     expect(text).toContain('nightpay_earning_reversal_pending 101');
     expect(text).toContain('nightpay_earning_reversal_oldest_age_seconds 10800');
+    expect(text).toContain('nightpay_earning_reversal_needs_human 2');
+    expect(text).toContain('nightpay_earning_reversal_metrics_up 1');
     query.mockRejectedValueOnce(new Error('db unavailable'));
     const failed = await metrics.render();
     expect(failed).toContain('nightpay_earning_reversal_metrics_up 0');
-    expect(failed).not.toMatch(/^nightpay_earning_reversal_pending /m);
+    // Ni 0 ni el valor de antes: un 0 diría «nada pendiente».
+    for (const name of ['pending', 'oldest_age_seconds', 'needs_human']) {
+      expect(failed).not.toMatch(new RegExp(`^nightpay_earning_reversal_${name} `, 'm'));
+    }
   });
   it('exports real BullMQ states, unfinished depth and age, excluding completed/failed from depth', async () => {
     const metrics = new MetricsService();

@@ -330,21 +330,35 @@ describe('sweep persistente (Postgres real)', () => {
       if (id !== last.id) throw new Error('persistent failure');
       await payments.applyRefundToEarning(p, id, amount);
     }) };
-    const sweep = new RefundReversalSweepService(prisma, retryPayments as never, observations);
+    const sweepAudit = { log: vi.fn(async () => undefined) };
+    const sweep = new RefundReversalSweepService(prisma, retryPayments as never, observations, sweepAudit as never);
     try {
       expect(await sweep.sweep(now)).toEqual({ checked: 100, applied: 0, failed: 100 });
-      const restarted = new RefundReversalSweepService(prisma, retryPayments as never, observations);
-      expect(await restarted.sweep(new Date(now.getTime() + 10 * 60_000))).toEqual({ checked: 1, applied: 1, failed: 0 });
+      // Tras reiniciar, antes del siguiente intento de las que fallaron: solo la 101.
+      const restarted = new RefundReversalSweepService(prisma, retryPayments as never, observations, sweepAudit as never);
+      expect(await restarted.sweep(new Date(now.getTime() + 5 * 60_000))).toEqual({ checked: 1, applied: 1, failed: 0 });
       expect(retryPayments.applyRefundToEarning).toHaveBeenLastCalledWith(pay, last.id, 1);
       const deferred = await sys((tx) => tx.refund.findMany({ where: { id: { in: ids }, earningReversalRetryAt: { not: null } } }));
       expect(deferred).toHaveLength(100);
-      expect(deferred.every((r) => r.createdAt < now && r.earningReversalRetryAt! > now)).toBe(true);
+      for (const r of deferred) {
+        expect(r).toMatchObject({ earningReversalAttempts: 1, earningReversalLastError: 'persistent failure' });
+        expect(r.earningReversalRetryAt!.getTime()).toBe(now.getTime() + 10 * 60_000);
+      }
+      // Una que ya lleva 4 fallos: el quinto la manda a Incidencias con su motivo.
+      const stuck = ids[0]!;
+      await sys((tx) => tx.refund.update({ where: { id: stuck }, data: { earningReversalAttempts: 4, earningReversalRetryAt: new Date(now.getTime() - 60_000) } }));
+      await restarted.sweep(new Date(now.getTime() + 6 * 60_000));
+      expect(sweepAudit.log).toHaveBeenCalledTimes(1);
+      expect(sweepAudit.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'refund.earning_reverse_failed', tenantId: A, payload: expect.objectContaining({ refundId: stuck, attempts: 5, error: 'persistent failure' }) }),
+      );
+      const after = await sys((tx) => tx.refund.findUniqueOrThrow({ where: { id: stuck } }));
+      expect(after.earningReversalRetryAt!.getTime()).toBe(now.getTime() + 6 * 60_000 + 160 * 60_000);
       sweep.onModuleInit();
       await observations.render();
-      const backlog = await observations.earningReversalPending.get();
-      const age = await observations.earningReversalOldestAge.get();
-      expect(backlog.values[0]!.value).toBeGreaterThanOrEqual(100);
-      expect(age.values[0]!.value).toBeGreaterThan(100_000_000);
+      expect((await observations.earningReversalPending.get()).values[0]!.value).toBeGreaterThanOrEqual(100);
+      expect((await observations.earningReversalOldestAge.get()).values[0]!.value).toBeGreaterThan(100_000_000);
+      expect((await observations.earningReversalNeedsHuman.get()).values[0]!.value).toBeGreaterThanOrEqual(1);
     } finally {
       sweep.onModuleDestroy();
       await sys(async (tx) => {

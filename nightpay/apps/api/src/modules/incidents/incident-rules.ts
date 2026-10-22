@@ -145,11 +145,15 @@ export function duplicateChargeIncident(r: EventRow): Incident {
 }
 
 export function earningReverseFailedIncident(r: EventRow): Incident {
+  const p = (r.payload ?? {}) as { error?: unknown; attempts?: unknown };
+  // El repaso lo avisa cuando ya no lo arregla solo: tras cuántos intentos y por qué.
+  const tries = typeof p.attempts === 'number' ? ` El repaso automático lo ha intentado ${p.attempts} veces.` : '';
+  const why = typeof p.error === 'string' && p.error.trim() ? ` Motivo: ${p.error.trim().slice(0, 200)}` : '';
   return {
     kind: 'earning_reverse_failed',
     refId: r.id,
     title: 'No se pudo descontar una devolución a la chica',
-    detail: 'Revisa su saldo en Operadoras: la devolución está hecha pero su comisión no se ha descontado.',
+    detail: `Revisa su saldo en Operadoras: la devolución está hecha pero su comisión no se ha descontado.${tries}${why}`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.paymentId,

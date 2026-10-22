@@ -8,6 +8,7 @@ import {
   bankMismatchIncident,
   cashSplitIncident,
   duplicateChargeIncident,
+  earningReverseFailedIncident,
   nightClosedPendingIncident,
   openIncidents,
   paymentAnomalyIncident,
@@ -228,5 +229,22 @@ describe('efectivo troceado en saldos nuevos', () => {
     expect(i).toMatchObject({ kind: 'cash_split_suspected', refId: 'audit-1', amountCents: 120_000, ackable: true, paymentId: null });
     expect(i.detail).toMatch(/^2 saldos nuevos en efectivo/);
     expect(ACKABLE_KINDS as readonly string[]).toContain('cash_split_suspected');
+  });
+});
+
+describe('descuento a la chica que el repaso no consigue hacer', () => {
+  const row = (payload: unknown) => ({ id: 'ae-1', paymentId: 'p-1', amountCents: 1500, occurredAt: at('2026-10-15T10:00:00Z'), payload });
+
+  it('dice cuántas veces lo intentó el repaso y por qué falla (para que lo arregle una persona)', () => {
+    const inc = earningReverseFailedIncident(row({ attempts: 5, error: 'earning no encontrado para el cobro', source: 'sweep' }));
+    expect(inc).toMatchObject({ kind: 'earning_reverse_failed', paymentId: 'p-1', amountCents: 1500, ackable: true });
+    expect(inc.detail).toContain('5 veces');
+    expect(inc.detail).toContain('Motivo: earning no encontrado para el cobro');
+  });
+
+  it('el aviso de la devolución en el momento (sin intentos) sigue como antes', () => {
+    expect(earningReverseFailedIncident(row({ error: '' })).detail).toBe(
+      'Revisa su saldo en Operadoras: la devolución está hecha pero su comisión no se ha descontado.',
+    );
   });
 });

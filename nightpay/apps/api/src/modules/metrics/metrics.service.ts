@@ -11,6 +11,24 @@ type QueueSource = Pick<Queue, 'name' | 'getJobCounts'> & {
   getJobs: (...args: Parameters<Queue['getJobs']>) => Promise<Array<{ timestamp: number; delay?: number } | undefined>>;
 };
 
+/** Lo que da el repaso de devoluciones sin descontar a la chica. */
+export interface ReversalBacklog {
+  pending: number;
+  oldestAgeSeconds: number;
+  needsHuman: number;
+}
+
+/** Lo que espera un scrape a Redis o a la base antes de dar la medida por no disponible. */
+const SCRAPE_TIMEOUT_MS = 2000;
+
+function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
 /**
  * MetricsService — Prometheus exporter (text format /metrics).
  * Counters/Gauges/Histograms expuestos para que los modulos los actualicen.
@@ -68,33 +86,58 @@ export class MetricsService implements OnModuleInit {
       this.earningReversalFailedCounter.inc({ venue: labels.venue }, value);
     },
   };
-  readonly earningReversalPending = new Gauge({ name: 'nightpay_earning_reversal_pending', help: 'Devoluciones hechas pendientes de descontar la ganancia, incluidos reintentos diferidos', registers: [this.registry] });
-  readonly earningReversalOldestAge = new Gauge({ name: 'nightpay_earning_reversal_oldest_age_seconds', help: 'Antigüedad desde la devolución original de la reversión pendiente más antigua', registers: [this.registry] });
-  readonly earningReversalMetricsUp = new Gauge({ name: 'nightpay_earning_reversal_metrics_up', help: '1 si se pudo consultar el backlog de reversiones en este scrape', registers: [this.registry] });
-  private reversalSource?: () => Promise<{ pending: number; oldestAgeSeconds: number }>;
+  // Lo que falta por descontar a las chicas por devoluciones ya hechas (lo
+  // lee el repaso, refund-reversal-sweep): cuántas, la más antigua desde la
+  // devolución (un reintento diferido no la rejuvenece) y las que ya necesitan
+  // a una persona. Sin consulta en este scrape, sin muestras y _up a 0.
+  readonly earningReversalPending = new Gauge({
+    name: 'nightpay_earning_reversal_pending',
+    help: 'Devoluciones hechas pendientes de descontar la ganancia, incluidos reintentos diferidos',
+    registers: [this.registry],
+  });
+  readonly earningReversalOldestAge = new Gauge({
+    name: 'nightpay_earning_reversal_oldest_age_seconds',
+    help: 'Segundos desde la devolución de la más antigua sin descontar (0 si no hay)',
+    registers: [this.registry],
+  });
+  readonly earningReversalNeedsHuman = new Gauge({
+    name: 'nightpay_earning_reversal_needs_human',
+    help: 'Devoluciones sin descontar que el repaso no consigue arreglar (salen en Incidencias con su motivo)',
+    registers: [this.registry],
+  });
+  readonly earningReversalMetricsUp = new Gauge({
+    name: 'nightpay_earning_reversal_metrics_up',
+    help: '1 si se pudo consultar el backlog de reversiones en este scrape',
+    registers: [this.registry],
+  });
+  private reversalSource?: () => Promise<ReversalBacklog>;
 
-  observeEarningReversals(source: () => Promise<{ pending: number; oldestAgeSeconds: number }>): () => void {
+  /** Quién da el backlog (el repaso de devoluciones). Devuelve cómo quitarlo al parar. */
+  observeEarningReversals(source: () => Promise<ReversalBacklog>): () => void {
     this.reversalSource = source;
-    return () => { if (this.reversalSource === source) this.reversalSource = undefined; };
+    return () => {
+      if (this.reversalSource === source) this.reversalSource = undefined;
+    };
   }
 
   private async collectEarningReversals(): Promise<void> {
     const source = this.reversalSource;
     if (!source) return;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      const data = await Promise.race([
-        source(), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('Reversal metrics timeout')), 2000); }),
-      ]);
+      const data = await withTimeout(source(), SCRAPE_TIMEOUT_MS, 'Reversal metrics timeout');
       if (this.reversalSource !== source) return;
       this.earningReversalPending.set(data.pending);
       this.earningReversalOldestAge.set(data.oldestAgeSeconds);
+      this.earningReversalNeedsHuman.set(data.needsHuman);
       this.earningReversalMetricsUp.set(1);
     } catch {
+      // remove(), no reset(): un gauge sin etiquetas vuelve a 0 con reset() y
+      // 0 diría «nada pendiente». Sin muestra, la alerta mira _up.
       this.earningReversalPending.remove();
       this.earningReversalOldestAge.remove();
+      this.earningReversalNeedsHuman.remove();
       this.earningReversalMetricsUp.set(0);
-    } finally { if (timeout) clearTimeout(timeout); }
+    }
   }
 
   // Wallet top-up AUTHORIZED pero credit no aplicado (wallet status != ACTIVE).
