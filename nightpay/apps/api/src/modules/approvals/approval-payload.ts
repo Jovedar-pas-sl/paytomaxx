@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
+  IdempotencyKeySchema,
   PayoutMethodSchema,
   approvalExpiresAt,
   maskPayoutAddress,
@@ -45,7 +46,8 @@ export const PayoutPayloadSchema = z.object({
 export type PayoutPayload = z.infer<typeof PayoutPayloadSchema>;
 
 export const RefundPayloadSchema = z.object({
-  idempotencyKey: z.string().min(8).max(128).optional(),
+  /** Clave de la pantalla: la devolución que sale al aprobarla la lleva (un reintento la encuentra). */
+  idempotencyKey: IdempotencyKeySchema.optional(),
   paymentId: Uuid,
   reason: z.string().nullable(),
   paymentAmountCents: z.number().int().nonnegative(),

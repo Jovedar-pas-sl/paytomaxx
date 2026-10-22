@@ -40,3 +40,26 @@ describe('refund approval intention', () => {
     await expect(svc.requestRefund(what === 'actor' ? { ...actor, userId: 'other' } : actor, { ...request, ...(what === 'amount' ? { amountCents: 2000 } : what === 'payment' ? { paymentId: 'other' } : {}) })).rejects.toBeInstanceOf(ConflictException);
   });
 });
+
+describe('reintento de una devolución pedida al dueño que ya se decidió', () => {
+  it.each([
+    ['REJECTED', 'REFUND_APPROVAL_CLOSED'],
+    ['EXPIRED', 'REFUND_APPROVAL_CLOSED'],
+    ['FAILED', 'REFUND_APPROVAL_CLOSED'],
+    ['APPROVED', 'REFUND_IN_PROGRESS'],
+  ] as const)('%s → 409 %s (no la misma respuesta «pendiente»), y no se pide otra', async (status, code) => {
+    const { svc, tx } = make();
+    await svc.requestRefund(actor, request);
+    const row = (await tx.approvalRequest.findFirst({ where: { idempotencyKey: `refund:${request.idempotencyKey}` } }))!;
+    row.status = status;
+    for (const call of [() => svc.requestRefund(actor, request), () => svc.replayRefund(actor, request)]) {
+      await expect(call()).rejects.toMatchObject({ response: expect.objectContaining({ code }) });
+    }
+    expect(tx.approvalRequest.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('sin clave no hay nada que repetir', async () => {
+    const { svc } = make();
+    await expect(svc.replayRefund(actor, { ...request, idempotencyKey: undefined })).resolves.toBeNull();
+  });
+});

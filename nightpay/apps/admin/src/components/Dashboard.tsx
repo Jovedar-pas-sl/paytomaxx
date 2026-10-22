@@ -8,6 +8,7 @@ import {
   fetchTotpStatus,
   fetchVenueSettings,
   logout as apiLogout,
+  type CobrosFilters,
   type User,
 } from '@/lib/api';
 import { DEFAULT_TIMEZONE } from '@/lib/dates';
@@ -102,6 +103,8 @@ export function Dashboard({ user, onLogout }: Props) {
   const [loggingOut, setLoggingOut] = useState(false);
   /** Cobro a abrir en Cobros (desde una incidencia: «Abrir cobro»). */
   const [focusPayment, setFocusPayment] = useState<string | null>(null);
+  /** Filtros con los que abrir Cobros (desde una cifra del mapa del dinero). */
+  const [cobrosFilter, setCobrosFilter] = useState<CobrosFilters | null>(null);
 
   async function logout() {
     setLoggingOut(true);
@@ -126,6 +129,11 @@ export function Dashboard({ user, onLogout }: Props) {
 
   function openPayment(paymentId: string): void {
     setFocusPayment(paymentId);
+    goTo('payments');
+  }
+
+  function openCobros(filter: CobrosFilters): void {
+    setCobrosFilter(filter);
     goTo('payments');
   }
 
@@ -198,6 +206,9 @@ export function Dashboard({ user, onLogout }: Props) {
                     onOpenPayment={openPayment}
                     focusPayment={focusPayment}
                     onFocusPaymentDone={() => setFocusPayment(null)}
+                    onOpenCobros={openCobros}
+                    cobrosFilter={cobrosFilter}
+                    onCobrosFilterDone={() => setCobrosFilter(null)}
                     onLogout={() => void logout()}
                     loggingOut={loggingOut}
                     posOn={posOn}
@@ -265,6 +276,10 @@ interface ActivePanelProps {
   onOpenPayment: (paymentId: string) => void;
   focusPayment: string | null;
   onFocusPaymentDone: () => void;
+  /** Desde el mapa del dinero: Cobros con los filtros de esa cifra. */
+  onOpenCobros: (filter: CobrosFilters) => void;
+  cobrosFilter: CobrosFilters | null;
+  onCobrosFilterDone: () => void;
   onLogout: () => void;
   loggingOut: boolean;
   /** El local cobra con datáfono (Formas de cobro). */
@@ -284,10 +299,12 @@ function ActivePanel(props: ActivePanelProps) {
           onNavigate={onNavigate}
           focusPaymentId={props.focusPayment}
           onFocusDone={props.onFocusPaymentDone}
+          initialFilter={props.cobrosFilter}
+          onInitialFilterDone={props.onCobrosFilterDone}
         />
       );
     case 'money':
-      return <MoneyMapPanel onNavigate={onNavigate} />;
+      return <MoneyMapPanel onNavigate={onNavigate} onOpenCobros={props.onOpenCobros} />;
     case 'incidents':
       return <AvisosPanel isOwner={isOwner} tabs={tabs} onNavigate={onNavigate} onOpenPayment={props.onOpenPayment} />;
     case 'operators':
@@ -299,7 +316,7 @@ function ActivePanel(props: ActivePanelProps) {
     case 'fichas':
       return <FichasPanel />;
     case 'nights':
-      return <NightsPanel tabs={tabs} onNavigate={onNavigate} isOwner={isOwner} />;
+      return <NightsPanel tabs={tabs} onNavigate={onNavigate} isOwner={isOwner} onOpenCobros={props.onOpenCobros} />;
     case 'reports':
       return <ReportsPanel isOwner={isOwner} />;
     case 'bank':

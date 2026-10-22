@@ -5,7 +5,12 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const omitted = new Set(['node_modules', 'generated', 'dist', 'coverage', 'test', 'tests', '.verification', '.next', '.turbo']);
+// Lo que no entra en la imagen (.dockerignore) o no es código: así la huella de
+// una copia limpia del commit (`--print`) es la misma que la de la imagen.
+const omitted = new Set([
+  'node_modules', 'generated', 'dist', 'coverage', 'test', 'tests', '.verification', '.next', '.turbo',
+  'test-results', 'playwright-report', '.DS_Store',
+]);
 const validSha = (value) => /^[a-f0-9]{7,40}$/i.test(value ?? '') ? value.toLowerCase() : null;
 
 /** Identity of the API's build inputs, even when Docker has no .git directory. */
@@ -18,7 +23,7 @@ export function buildInfo(root, { gitSha, detectGit = true } = {}) {
       if (omitted.has(item.name) || item.name.startsWith('.env') || item.name === 'seed.ts') continue;
       const name = join(path, item.name);
       if (item.isDirectory()) visit(name);
-      else if (item.isFile() && !/\.(?:spec|test)\.[cm]?[jt]sx?$|\.md$|\.log$|\.tsbuildinfo$/.test(item.name)) files.push(name);
+      else if (item.isFile() && !/\.(?:spec|test)\.[cm]?[jt]sx?$|\.md$|\.log$|\.bak$|\.tsbuildinfo$/.test(item.name)) files.push(name);
     }
   }
   visit(join(root, 'apps/api/src'));

@@ -56,7 +56,9 @@ beforeAll(async () => {
       await pay(3000, '2026-10-13T21:00:00Z', '2026-10-13T21:00:00Z'); // noche 2
       await pay(700, '2026-10-13T23:00:00Z', '2026-10-14T06:30:00Z'); // noche 2, apuntado tras las 08:00 pero antes del Z (09:00)
       await pay(900, '2026-10-14T05:00:00Z', '2026-10-14T10:00:00Z'); // noche 2 por fecha, apuntado tras su Z → ajuste del Z 3
-      const old = await pay(2000, '2026-10-09T22:00:00Z', '2026-10-09T22:00:00Z');
+      // 20,01 €: sus dos devoluciones (20 € y 1 céntimo) no pasan de lo cobrado, como
+      // en la app (restore-check comprueba esa coherencia con esta base en CI).
+      const old = await pay(2001, '2026-10-09T22:00:00Z', '2026-10-09T22:00:00Z');
       await tx.refund.create({ data: { tenantId: C, paymentId: old.id, amountCents: 2000, requestedBy: owner, status: 'SUCCEEDED',
         registeredManually: true, bankRefundedAt: T('2026-10-10T12:00:00Z'), createdAt: T('2026-10-13T21:30:00Z') } }); // con fecha atrás → ajuste
       await tx.refund.create({ data: { tenantId: C, paymentId: old.id, amountCents: 1, requestedBy: owner, status: 'SUCCEEDED',

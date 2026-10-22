@@ -36,7 +36,9 @@ export type IncidentKind =
   /** Una persona de recepción pasó su tope de efectivo devuelto en la noche (desde ahí, el encargado con su 2FA). */
   | 'reception_payout_cap'
   /** Recarga cobrada sin el NFC del cliente que aún no se ha sumado a su saldo (se quita sola al asignarla). */
-  | 'wallet_topup_unassigned';
+  | 'wallet_topup_unassigned'
+  /** El cliente bloqueó su NFC en su móvil («He perdido mi NFC»): darle uno nuevo en recepción (se marca como revisada). */
+  | 'wallet_card_lost';
 
 export interface Incident {
   kind: IncidentKind;

@@ -1,9 +1,28 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 
+/**
+ * Recorridos esenciales con servicios de verdad (playwright.ci.config.ts):
+ * base nightpay_e2e recién migrada con los datos de fixtures/ci-seed.mjs, el
+ * API y las webs levantados para la prueba. Sin JWT fabricados ni refrescos
+ * simulados. Cada job de CI empieza de cero, así que las cifras son exactas.
+ */
 const api = 'http://127.0.0.1:4300';
+const operator = 'http://127.0.0.1:4301';
 const password = 'Isolated-test-password-2026!';
+/** Productos de la carta de referencia (packages/contracts/src/carta-template.ts). */
+const TEMPLATE_PRODUCTS = 13;
 
-test('real staff login, atomic catalogue, visible prices and cart total survive a reload', async ({ page }) => {
+async function applyTemplate(request: APIRequestContext, accessToken: string) {
+  const res = await request.post(`${api}/v1/services/template`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    data: { confirm: true },
+  });
+  expect(res.status()).toBe(201);
+  return (await res.json()) as { created: number; updated: number; kept: number; skipped: number };
+}
+
+test('login real con cookie, carta de referencia atómica y repetible, y el total de la cuenta en la app', async ({ page }) => {
+  // Panel: login de verdad; el refresh va en una cookie HttpOnly, no en el cuerpo.
   await page.goto('/');
   await page.getByRole('textbox', { name: 'Email' }).fill('owner@isolated.test');
   await page.getByLabel('Contraseña').fill(password);
@@ -15,31 +34,35 @@ test('real staff login, atomic catalogue, visible prices and cart total survive 
   expect(login.refreshToken).toBeUndefined();
   const cookies = await page.context().cookies(`${api}/v1/auth/refresh`);
   expect(cookies).toEqual(expect.arrayContaining([expect.objectContaining({ httpOnly: true, path: '/v1/auth' })]));
-  const apply = await page.request.post(`${api}/v1/services/template`, { headers: { Authorization: `Bearer ${login.accessToken}` }, data: { confirm: true } });
-  expect(apply.status()).toBe(201);
-  // A Playwright retry may follow an earlier successful application.
-  expect([0, 13]).toContain((await apply.json()).created);
-  const again = await page.request.post(`${api}/v1/services/template`, { headers: { Authorization: `Bearer ${login.accessToken}` }, data: { confirm: true } });
-  expect(again.status()).toBe(201);
-  expect(await again.json()).toMatchObject({ created: 0 });
-  // A genuine refresh cookie restores the staff session, without mocking /auth/refresh.
+
+  // La carta de referencia: dos dueños a la vez la aplican una sola vez; repetirla no añade nada.
+  const both = await Promise.all([applyTemplate(page.request, login.accessToken), applyTemplate(page.request, login.accessToken)]);
+  expect(both.map((r) => r.created).sort((a, b) => a - b)).toEqual([0, TEMPLATE_PRODUCTS]);
+  expect(await applyTemplate(page.request, login.accessToken)).toEqual({ created: 0, updated: 0, kept: TEMPLATE_PRODUCTS, skipped: 0 });
+
+  // La cookie de verdad recupera la sesión al recargar (sin simular /auth/refresh).
   const refreshed = page.waitForResponse(`${api}/v1/auth/refresh`);
   await page.reload();
   expect((await refreshed).status()).toBe(200);
   await expect(page.getByRole('button', { name: 'Entrar', exact: true })).toHaveCount(0);
 
-  await page.goto('http://127.0.0.1:4301/');
+  // App del personal: la carta aplicada, con «Invitar a una copa» destacada aparte.
+  await page.goto(`${operator}/`);
   await page.getByLabel('Email').fill('waiter@isolated.test');
   await page.getByLabel('Contraseña').fill(password);
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
-  const copa = page.getByRole('button').filter({ has: page.getByText('Copa', { exact: true }) });
+  await expect(page.getByRole('button', { name: /^Invitar a una copa, 20\s€/ })).toBeVisible();
+  const copa = page.getByRole('button', { name: /^Copa, 10,00\s€/ });
   await expect(copa).toBeVisible();
-  await copa.click(); await copa.click();
-  await page.getByRole('button').filter({ has: page.getByText('Tabla ibérica', { exact: true }) }).click();
+  // La primera copa ofrece invitar (2.1); «Copa sola» la suma a la cuenta. La segunda ya no pregunta.
+  await copa.click();
+  await page.getByRole('button', { name: /Copa sola/ }).click();
+  await copa.click();
+  await page.getByRole('button', { name: /^Tabla ibérica, 30,00\s€/ }).click();
   await expect(page.getByRole('button', { name: /Cobrar\s*50\s*€/ })).toBeVisible();
 });
 
-test('private wallet routes reject anonymous reads, including legacy JSON and Google pass creation', async ({ request }) => {
+test('las rutas privadas del saldo no se leen sin desbloquear, tampoco la antigua ni el pase de Google', async ({ request }) => {
   const token = 'isolated-private-wallet-token';
   for (const path of [`/w/${token}/state`, `/v1/wallets/public/${token}`]) {
     const response = await request.get(api + path);

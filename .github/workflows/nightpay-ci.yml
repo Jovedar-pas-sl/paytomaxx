@@ -4,9 +4,13 @@
 #               cliente común, del operador y del panel, y vulnerabilidades críticas/altas (scripts/audit-gate.mjs)
 #   lint        ESLint de la raíz; de momento NO bloquea (hay avisos viejos)
 #   integracion migraciones en un Postgres 16 vacío con un rol SIN superusuario
-#               (FORCE RLS de verdad), esquema = schema.prisma, y las pruebas
-#               de integración del API contra esa base
-#   docker      las 5 imágenes que despliega Dokploy, construidas y arrancadas
+#               (FORCE RLS de verdad), esquema = schema.prisma, las pruebas
+#               de integración del API contra esa base y la prueba de
+#               restauración (una copia completa pasa, una incompleta no)
+#   e2e         navegador (Playwright) con login real contra API y webs
+#               levantados en el job, base y Redis aislados
+#   docker      reglas de alertas (promtool) y las 5 imágenes que despliega
+#               Dokploy, construidas y arrancadas
 #   migraciones-orden  cada migración nueva se ordena después de la última de
 #               main (si no, una base nueva y producción las aplicarían en otro orden)
 #
@@ -179,20 +183,40 @@ jobs:
       - name: Pruebas de integración del API (Postgres real, RLS forzado)
         working-directory: nightpay/apps/api
         run: pnpm test:integration
+      # La base que dejaron las pruebas de integración, copiada con pg_dump -Fc y
+      # restaurada en un Postgres de usar y tirar (scripts/restore-check.sh): la
+      # completa tiene que pasar (esquema, migraciones, coherencia del dinero);
+      # una sin post-data (sin índices ni restricciones) tiene que fallar, y por eso.
       - name: Restauración real completa e incompleta, siempre en bases desechables
+        env:
+          MIN_PAYMENTS: '0'
+          MIN_CLIENT_WALLETS: '0'
+          MIN_OPERATOR_EARNINGS: '0'
         run: |
           mkdir -p .verification
-          docker exec "${{ job.services.postgres.id }}" pg_dump -U postgres -d nightpay -Fc > .verification/restore.dump
-          MIN_PAYMENTS=0 MIN_CLIENT_WALLETS=0 MIN_OPERATOR_EARNINGS=0 bash scripts/restore-check.sh .verification/restore.dump
-          docker exec "${{ job.services.postgres.id }}" pg_dump -U postgres -d nightpay -Fc --section=pre-data --section=data > .verification/restore-partial.dump
-          if MIN_PAYMENTS=0 MIN_CLIENT_WALLETS=0 MIN_OPERATOR_EARNINGS=0 bash scripts/restore-check.sh .verification/restore-partial.dump; then
-            echo "::error::una copia sin índices ni constraints post-data fue aceptada"
+          dump() { docker exec "${{ job.services.postgres.id }}" pg_dump -U postgres -d nightpay -Fc "$@"; }
+          dump > .verification/restore.dump
+          bash scripts/restore-check.sh .verification/restore.dump
+          dump --section=pre-data --section=data > .verification/restore-partial.dump
+          if bash scripts/restore-check.sh .verification/restore-partial.dump > .verification/restore-partial.log 2>&1; then
+            cat .verification/restore-partial.log
+            echo "::error::una copia sin índices ni restricciones (post-data) fue aceptada"
             exit 1
           fi
+          cat .verification/restore-partial.log
+          grep -q 'faltan columnas, restricciones' .verification/restore-partial.log || {
+            echo "::error::la copia incompleta falló, pero no por faltarle el post-data"
+            exit 1
+          }
 
+  # Navegador de verdad contra servicios aislados: Postgres y Redis propios
+  # del job, una base nightpay_e2e con rol sin superusuario y migrada como al
+  # arrancar el API, datos de prueba que se niegan a tocar otra base, el API y
+  # las webs levantados por Playwright (playwright.ci.config.ts). Sin JWT
+  # fabricados ni refrescos simulados: login y cookie reales.
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16-alpine
@@ -207,13 +231,18 @@ jobs:
       redis:
         image: redis:7-alpine
         ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       DATABASE_URL: postgresql://np_app:np_app@127.0.0.1:5432/nightpay_e2e
       REDIS_URL: redis://127.0.0.1:6379
       E2E_ISOLATED: '1'
+      # Solo para esta prueba (no son secretos reales).
       JWT_SECRET: isolated-e2e-jwt-secret-at-least-32-characters
       COOKIE_SECRET: isolated-e2e-cookie-secret-at-least-32-characters
       ENCRYPTION_KEK: Y2ktdW5hLWNsYXZlLWRlLTMyLWJ5dGVzLXBhcmEtcHJ1ZWJh
+      NEXT_TELEMETRY_DISABLED: '1'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -229,10 +258,17 @@ jobs:
           pnpm --filter @nightpay/e2e exec playwright install --with-deps chromium
       - name: Base exclusiva de navegador, sin superusuario
         run: |
-          docker exec "${{ job.services.postgres.id }}" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c "CREATE ROLE np_app LOGIN PASSWORD 'np_app' NOSUPERUSER NOCREATEDB NOCREATEROLE"
-          docker exec "${{ job.services.postgres.id }}" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c "CREATE DATABASE nightpay_e2e OWNER np_app"
-          pnpm --filter @nightpay/db exec prisma migrate deploy
-          pnpm --filter @nightpay/api exec node --import tsx ../e2e/fixtures/ci-seed.mjs
+          psql() { docker exec -i "${{ job.services.postgres.id }}" psql -v ON_ERROR_STOP=1 -U postgres -d postgres "$@"; }
+          psql -c "CREATE ROLE np_app LOGIN PASSWORD 'np_app' NOSUPERUSER NOCREATEDB NOCREATEROLE"
+          psql -c "CREATE DATABASE nightpay_e2e OWNER np_app"
+      - name: Migraciones como en el arranque del API (db-heal → migrate deploy → db-heal)
+        working-directory: nightpay/packages/db
+        run: |
+          ./node_modules/.bin/tsx scripts/db-heal.ts
+          ./node_modules/.bin/prisma migrate deploy
+          ./node_modules/.bin/tsx scripts/db-heal.ts
+      - name: Datos de prueba (el guion se niega fuera de una base local nightpay_e2e)
+        run: pnpm --filter @nightpay/api exec node --import tsx ../e2e/fixtures/ci-seed.mjs
       - name: Login real, carta, total y privacidad Wallet
         run: pnpm --filter @nightpay/e2e exec playwright test --config playwright.ci.config.ts
       - name: Trazas y capturas del navegador
@@ -268,6 +304,14 @@ jobs:
         ports: ['6379:6379']
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Antes de construir (un minuto, no cuarenta): las reglas cargan y cada
+      # alerta de colas y descuentos dispara, no se repite por réplica y se
+      # resuelve con las series de docs/observability/alerts.test.yml.
+      - name: Reglas y escenarios de alertas Prometheus (promtool)
+        run: |
+          promtool() { docker run --rm --entrypoint /bin/promtool -v "$PWD/docs/observability:/rules:ro" -w /rules prom/prometheus:v2.55.1 "$@"; }
+          promtool check rules alerts.yml
+          promtool test rules alerts.test.yml
       - name: Construir las 5 imágenes
         run: |
           for app in api admin operator tpv web-client; do
@@ -278,10 +322,6 @@ jobs:
               -t np-$app . || exit 1
             echo "::endgroup::"
           done
-      - name: Reglas y escenarios de alertas Prometheus
-        run: |
-          docker run --rm --entrypoint /bin/promtool -v "$PWD/docs/observability:/rules:ro" -w /rules prom/prometheus:v2.55.1 check rules alerts.yml
-          docker run --rm --entrypoint /bin/promtool -v "$PWD/docs/observability:/rules:ro" -w /rules prom/prometheus:v2.55.1 test rules alerts.test.yml
       - name: Las webs arrancan sin root y responden
         run: |
           port=5100

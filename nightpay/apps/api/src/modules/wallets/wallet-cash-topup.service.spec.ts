@@ -3,6 +3,7 @@ import { ConflictException, ForbiddenException, HttpException, NotFoundException
 import { CashTopUpSchema, MAX_CASH_TOP_UP_CENTS } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { CashTopUpService } from './wallet-cash-topup.service';
+import { cashIntentFingerprint, isPrintedIntent } from './wallet-cash-intent';
 
 /**
  * Recarga del saldo en efectivo (recepción): suma al momento, queda apuntada
@@ -107,7 +108,10 @@ function setup(o: { venue?: Row; wallet?: Row | null; pacoPost?: string | null }
         return next;
       }),
     },
-    walletCard: { findUnique: vi.fn(async (a: { where: { token: string } }) => cards.get(a.where.token) ?? null) },
+    walletCard: {
+      findUnique: vi.fn(async (a: { where: { token?: string; id?: string } }) =>
+        (a.where.id ? [...cards.values()].find((c) => c.id === a.where.id) : cards.get(String(a.where.token))) ?? null),
+    },
     walletCashTopUp: {
       findUnique: vi.fn(async (a: { where: { tenantId_idempotencyKey?: { tenantId: string; idempotencyKey: string }; voidOfId?: string } }) => {
         if (a.where.voidOfId) return [...topUps.values()].find((t) => t.voidOfId === a.where.voidOfId) ?? null;
@@ -144,7 +148,7 @@ function setup(o: { venue?: Row; wallet?: Row | null; pacoPost?: string | null }
   const audit = { log: vi.fn(async (_e: Record<string, unknown>) => undefined) };
   const totp = { isEnabled: vi.fn(async () => true), assertForUser: vi.fn(async () => undefined) };
   const svc = new CashTopUpService(prisma as never, audit as never, totp as never);
-  return { svc, wallets, topUps, audit, venues, totp, prisma };
+  return { svc, wallets, topUps, audit, venues, totp, prisma, tx };
 }
 
 const nueva = (amountCents: number, key = 'clave-nueva-0001') => ({ amountCents, idempotencyKey: key, wallet: { create: true as const } });
@@ -156,29 +160,139 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('recarga en efectivo', () => {
-  it('rechaza cambiar el destino con la misma clave, incluso crear frente a ficha del mismo saldo', async () => {
-    const { svc } = setup();
-    const request = { amountCents: 500, idempotencyKey: 'intent-0000001', wallet: { code: 'K7Q4M2' } };
-    await svc.topUp(SALA, javi, request);
-    for (const wallet of [{ create: true as const }, { code: 'OTR123' }, { card: FICHA }]) {
-      await expect(svc.topUp(SALA, javi, { ...request, wallet })).rejects.toBeInstanceOf(ConflictException);
-    }
+  describe('la misma clave guarda lo que se pidió (destino, saldo nuevo o no, importe)', () => {
+    const pedida = { amountCents: 500, idempotencyKey: 'intent-0000001', wallet: { code: 'K7Q4M2' } as const };
+
+    it('otro destino con la clave → 409, aunque sea la ficha del mismo saldo o un saldo nuevo; nada se carga', async () => {
+      const { svc, wallets, topUps } = setup();
+      await svc.topUp(SALA, javi, pedida);
+      for (const wallet of [{ create: true as const }, { code: 'OTR123' }, { card: FICHA }]) {
+        await expect(svc.topUp(SALA, javi, { ...pedida, wallet })).rejects.toBeInstanceOf(ConflictException);
+      }
+      await expect(svc.topUp(SALA, javi, { ...pedida, amountCents: 501 })).rejects.toBeInstanceOf(ConflictException);
+      expect(topUps.size).toBe(1);
+      expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_500 });
+    });
+
+    it('la huella guarda destino e importe, no el saldo resuelto: el código escrito de otra forma es el mismo', async () => {
+      const { svc, topUps } = setup();
+      await svc.topUp(SALA, javi, pedida);
+      expect([...topUps.values()][0]).toMatchObject({ intentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/) });
+      await expect(svc.topUp(SALA, javi, { ...pedida, wallet: { code: 'k7q-4m2' } })).resolves.toMatchObject({ replayed: true });
+    });
+
+    it('el reintento idéntico devuelve el recibo de entonces, aunque el saldo haya seguido moviéndose', async () => {
+      const { svc, wallets } = setup();
+      const first = await svc.topUp(SALA, javi, pedida);
+      expect(first).toMatchObject({ code: 'K7Q-4M2', balanceCents: 2_500, replayed: false });
+      wallets.set(WALLET, { ...wallets.get(WALLET), balanceCents: 900 });
+      await expect(svc.topUp(SALA, javi, pedida)).resolves.toEqual({ ...first, replayed: true });
+    });
+
+    it('saldo nuevo: repetirlo no crea otro; la etiqueta no cambia el destino, una ficha sí', async () => {
+      const { svc, wallets, topUps } = setup({ wallet: null });
+      const nuevo = { amountCents: 700, idempotencyKey: 'intent-nuevo-01', wallet: { create: true as const, identifier: 'Pulsera azul' } };
+      const first = await svc.topUp(SALA, javi, nuevo);
+      await expect(svc.topUp(SALA, javi, { ...nuevo, wallet: { create: true, identifier: 'Pulsera roja' } })).resolves.toEqual({ ...first, replayed: true });
+      await expect(svc.topUp(SALA, javi, { ...nuevo, wallet: { card: FICHA } })).rejects.toBeInstanceOf(ConflictException);
+      expect(topUps.size).toBe(1);
+      expect(wallets.size).toBe(1);
+    });
+
+    it('la ficha leída otra vez con otro UID repite la misma recarga (el destino es la ficha)', async () => {
+      const { svc, topUps } = setup();
+      const ficha = { amountCents: 400, idempotencyKey: 'intent-ficha-01', wallet: { card: FICHA, uid: '04:a2:3b:5c:1d:80:00' } };
+      const first = await svc.topUp(SALA, javi, ficha);
+      await expect(svc.topUp(SALA, javi, { ...ficha, wallet: { card: FICHA } })).resolves.toEqual({ ...first, replayed: true });
+      expect(topUps.size).toBe(1);
+    });
+
+    it('la otra petición ganó la carrera (choque de único aunque Prisma no diga qué índice): devuelve su recibo', async () => {
+      const { svc, tx, topUps, wallets } = setup();
+      const first = await svc.topUp(SALA, javi, pedida);
+      tx.walletCashTopUp.findUnique.mockResolvedValueOnce(null);
+      tx.walletCashTopUp.create.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed on the (not available)', {
+          code: 'P2002',
+          clientVersion: 'x',
+          meta: { target: '(not available)' },
+        }),
+      );
+      await expect(svc.topUp(SALA, javi, pedida)).resolves.toEqual({ ...first, replayed: true });
+      expect(topUps.size).toBe(1);
+      expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_500 });
+    });
+
+    it('un choque de único que no es de esta clave sigue siendo un error', async () => {
+      const { svc, tx } = setup();
+      const clash = new Prisma.PrismaClientKnownRequestError('otro único', { code: 'P2002', clientVersion: 'x', meta: { target: ['voidOfId'] } });
+      tx.walletCashTopUp.create.mockRejectedValueOnce(clash);
+      await expect(svc.topUp(SALA, javi, pedida)).rejects.toBe(clash);
+    });
+
+    it('el saldo se sumó a otro después: el reintento sigue valiendo y da el recibo de entonces', async () => {
+      const { svc, wallets } = setup();
+      const first = await svc.topUp(SALA, javi, pedida);
+      wallets.set('merged-target', { ...wallets.get(WALLET), id: 'merged-target', shortCode: 'NEW123', balanceCents: 9_000 });
+      wallets.set(WALLET, { ...wallets.get(WALLET), mergedIntoId: 'merged-target', status: 'DEPLETED', balanceCents: 0 });
+      await expect(svc.topUp(SALA, javi, pedida)).resolves.toEqual({ ...first, replayed: true });
+    });
+
+    it('filas anteriores (sin huella ni recibo): solo el mismo saldo o su cadena, y un nuevo solo con otro nuevo', async () => {
+      const { svc, wallets, topUps } = setup();
+      const first = await svc.topUp(SALA, javi, pedida);
+      const stored = [...topUps.values()][0]!;
+      stored.intentFingerprint = null;
+      stored.receipt = null;
+      wallets.set('merged-target', { ...wallets.get(WALLET), id: 'merged-target', shortCode: 'NEW123', balanceCents: 9_000 });
+      wallets.set(WALLET, { ...wallets.get(WALLET), mergedIntoId: 'merged-target', status: 'DEPLETED', balanceCents: 0 });
+      // Por el código de entonces, por el del saldo al que se sumó o por su ficha: es la misma.
+      for (const wallet of [{ code: 'K7Q4M2' }, { code: 'NEW123' }, { card: FICHA }]) {
+        await expect(svc.topUp(SALA, javi, { ...pedida, wallet })).resolves.toMatchObject({
+          topUpId: first.topUpId, replayed: true, createdWallet: false, code: 'K7Q-4M2', balanceCents: 0,
+        });
+      }
+      wallets.set('other-wallet', { ...wallets.get('merged-target'), id: 'other-wallet', shortCode: 'OTR123' });
+      await expect(svc.topUp(SALA, javi, { ...pedida, wallet: { code: 'OTR123' } })).rejects.toBeInstanceOf(ConflictException);
+      await expect(svc.topUp(SALA, javi, { ...pedida, wallet: { create: true } })).rejects.toBeInstanceOf(ConflictException);
+      await expect(svc.topUp(SALA, javi, { ...pedida, wallet: { code: 'ZZZ999' } })).rejects.toBeInstanceOf(ConflictException);
+    });
   });
 
-  it('conserva la intención original tras fusionar y no inventa huellas de filas legacy', async () => {
-    const { svc, wallets, topUps } = setup();
-    const request = { amountCents: 500, idempotencyKey: 'intent-0000002', wallet: { code: 'K7Q4M2' } };
-    const first = await svc.topUp(SALA, javi, request);
-    wallets.set('merged-target', { ...wallets.get(WALLET), id: 'merged-target', shortCode: 'NEW123' });
-    wallets.set(WALLET, { ...wallets.get(WALLET), mergedIntoId: 'merged-target', status: 'MERGED', balanceCents: 0 });
-    await expect(svc.topUp(SALA, javi, request)).resolves.toMatchObject({ topUpId: first.topUpId, replayed: true });
-    const stored = [...topUps.values()][0]!;
-    stored.intentFingerprint = null;
-    await expect(svc.topUp(SALA, javi, request)).resolves.toMatchObject({ topUpId: first.topUpId, replayed: true, createdWallet: false });
-    wallets.set('other-wallet', { ...wallets.get(WALLET), id: 'other-wallet', shortCode: 'OTR123', mergedIntoId: null, status: 'ACTIVE' });
-    await expect(svc.topUp(SALA, javi, { ...request, wallet: { code: 'OTR123' } })).rejects.toBeInstanceOf(ConflictException);
-    await expect(svc.topUp(SALA, javi, { ...request, wallet: { create: true } })).rejects.toBeInstanceOf(ConflictException);
+  describe('por el número impreso de la ficha (FichaNumbersService)', () => {
+    const porNumero = { amountCents: 600, idempotencyKey: 'intent-numero-01', wallet: { printed: { cardId: 'card-1' } } };
+
+    it('va al saldo de esa ficha con su huella marcada «printed»; repetirla da el mismo recibo; otro destino con la clave, 409', async () => {
+      const { svc, topUps, wallets } = setup();
+      const first = await svc.topUp(SALA, javi, porNumero);
+      expect(first).toMatchObject({ walletId: WALLET, balanceCents: 2_600, replayed: false });
+      const row = [...topUps.values()][0]!;
+      expect(row.intentFingerprint).toMatch(/^printed:[a-f0-9]{64}$/);
+      expect(isPrintedIntent(row.intentFingerprint as string)).toBe(true);
+      expect(row.intentFingerprint).toBe(cashIntentFingerprint(porNumero));
+      await expect(svc.topUp(SALA, javi, porNumero)).resolves.toEqual({ ...first, replayed: true });
+      // Con la misma clave por la ficha acercada o el código (que sí enseñan el código entero): 409.
+      for (const wallet of [{ card: FICHA }, { code: 'K7Q4M2' }, { create: true as const }]) {
+        await expect(svc.topUp(SALA, javi, { ...porNumero, wallet })).rejects.toBeInstanceOf(ConflictException);
+      }
+      expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_600 });
+    });
+
+    it('una fila antigua (sin huella) nunca casa con una por número', async () => {
+      const { svc, topUps } = setup();
+      await svc.topUp(SALA, javi, { ...porNumero, wallet: { code: 'K7Q4M2' } });
+      const stored = [...topUps.values()][0]!;
+      stored.intentFingerprint = null;
+      stored.receipt = null;
+      await expect(svc.topUp(SALA, javi, porNumero)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('las de código y ficha no llevan la marca', () => {
+      expect(isPrintedIntent(cashIntentFingerprint({ amountCents: 1, wallet: { card: FICHA } }))).toBe(false);
+      expect(isPrintedIntent(null)).toBe(false);
+    });
   });
+
   it('saldo nuevo: se crea con su código, se suma al momento y queda quién la cobró', async () => {
     const { svc, wallets, topUps, audit } = setup({ wallet: null });
     const out = await svc.topUp(SALA, javi, { ...nueva(5_000), wallet: { create: true, identifier: 'Pulsera azul' } });

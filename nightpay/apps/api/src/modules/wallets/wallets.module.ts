@@ -22,6 +22,10 @@ import { ReceptionPayoutPasskeys } from './reception-payout-passkey';
 import { ReceptionPayoutService } from './reception-payout.service';
 import { FichaNumbersService } from './ficha-numbers.service';
 import { ReceptionFichaNumberController } from './reception-ficha-number.controller';
+import { ReceptionActivationLinkController } from './reception-activation-link.controller';
+import { WalletActivationLinkService } from './wallet-activation-link.service';
+import { PublicWalletLostCardController } from './public-wallet-lost-card.controller';
+import { WalletLostCardService } from './wallet-lost-card.service';
 import { CashTopUpService } from './wallet-cash-topup.service';
 import { WalletCardsController } from './wallet-cards.controller';
 import { WalletCardsService } from './wallet-cards.service';
@@ -50,6 +54,10 @@ import { WalletViewGuard } from './wallet-view.guard';
     ReceptionPayoutService,
     // El número impreso de las fichas: buscar sin acercarla (resumen) y recargar en efectivo.
     FichaNumbersService,
+    // QR de activación de la pantalla «Cargado» de recepción.
+    WalletActivationLinkService,
+    // «He perdido mi NFC» desde la página del saldo.
+    WalletLostCardService,
   ],
   controllers: [
     WalletsController,
@@ -57,6 +65,7 @@ import { WalletViewGuard } from './wallet-view.guard';
     WalletChargesController,
     PublicWalletCardController,
     PublicWalletController,
+    PublicWalletLostCardController,
     PublicSaldoController,
     GoogleWalletController,
     // El QR del pase leído con la cámara del móvil (/c/<token>) → la app del personal.
@@ -67,6 +76,7 @@ import { WalletViewGuard } from './wallet-view.guard';
     // El cliente confirma la salida con su Face ID en su móvil (/w/salida/:token).
     PublicPayoutConfirmController,
     ReceptionFichaNumberController,
+    ReceptionActivationLinkController,
     PendingTopUpsController,
     WalletCardsController,
   ],

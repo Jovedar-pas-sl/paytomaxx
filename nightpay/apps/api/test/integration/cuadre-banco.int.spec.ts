@@ -204,3 +204,109 @@ describe('cuadre con el banco contra Postgres real', () => {
     ).rejects.toThrow(/No encuentro las columnas/);
   });
 });
+
+describe('Paytef: la operación se casa dentro de su datáfono (Postgres real)', () => {
+  // Otro grupo de locales: no se mezcla con el cuadre de Redsys de arriba.
+  let sala: string, terraza: string, boss: string, termSala: string, termTerraza: string;
+  const pay: Record<string, string> = {};
+  const header = 'Fecha;Hora;Terminal;Nº Operación;Tipo;Importe;Resultado';
+  const lines = () => [
+    `13/10/2026;23:00:00;SN-T-${r};000077;Venta;20,00;Aprobada`,
+    `13/10/2026;23:05:00;PTF-S-${r};000077;Venta;50,00;Aprobada`,
+    `13/10/2026;23:10:00;PTF-S-${r};000088;Venta;12,00;Aprobada`,
+    `13/10/2026;23:12:00;PTF-S-${r};000088;Anulación;12,00;Aprobada`,
+    `13/10/2026;23:30:00;SN-T-${r};000077;Devolución;-5,00;Aprobada`,
+    `13/10/2026;23:40:00;SN-T-${r};000077;Devolución;-5,00;Aprobada`,
+  ];
+  const importPaytef = (rows: string[], at: string, withHeader = header) =>
+    asTenant(sala, () =>
+      svc.importStatement(
+        { userId: boss, role: 'OWNER', tenantId: sala },
+        { source: 'PAYTEF', fileName: 'paytef.csv', content: Buffer.from([withHeader, ...rows].join('\n'), 'utf8') },
+        new Date(at),
+      ),
+    );
+  const itemsOf = async (statementId: string) => {
+    const { items } = await asTenant(sala, () => svc.detail({ userId: boss, role: 'OWNER', tenantId: sala }, statementId));
+    return items.map((i) => [i.status, i.kind, i.bankAmountCents, i.paymentId, i.venueName]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  };
+
+  beforeAll(async () => {
+    await asSystemCtx(() =>
+      prisma.asSystem(async (tx) => {
+        sala = (await tx.venue.create({ data: { name: 'Sala Paytef', slug: `ps-${r}`, walletGroup: `gp-${r}` } })).id;
+        terraza = (await tx.venue.create({ data: { name: 'Terraza Paytef', slug: `pt-${r}`, walletGroup: `gp-${r}` } })).id;
+        boss = (await tx.user.create({ data: { tenantId: sala, email: `boss-${r}@x.es`, passwordHash: 'x', role: 'OWNER' } })).id;
+        // El fichero nombra a uno por su identificador y al otro por su número de serie.
+        termSala = (await tx.terminal.create({ data: { tenantId: sala, externalId: `PTF-S-${r}`, deviceSerial: `SN-S-${r}`, label: 'Sala' } })).id;
+        termTerraza = (await tx.terminal.create({ data: { tenantId: terraza, externalId: `PTF-T-${r}`, deviceSerial: `SN-T-${r}`, label: 'Terraza' } })).id;
+        const datafono = async (key: string, tenantId: string, terminalId: string, amount: number, refunded: number) => {
+          const p = await tx.payment.create({
+            data: {
+              tenantId,
+              terminalId,
+              idempotencyKey: `${key}-${r}`,
+              amountCents: amount,
+              availableAmountCents: amount - refunded,
+              qrToken: `qr-${key}-${r}`,
+              qrExpiresAt: new Date('2026-10-13T00:00:00Z'),
+              status: refunded > 0 ? 'PARTIALLY_REFUNDED' : 'AUTHORIZED',
+              provider: 'PAYTEF',
+              providerTxId: `ptf-${key}-${r}`,
+              posOperationNumber: '000077',
+              posTerminalId: terminalId,
+              authorizedAt: new Date(key === 'terraza' ? '2026-10-13T21:00:00Z' : '2026-10-13T21:05:00Z'),
+            },
+          });
+          pay[key] = p.id;
+        };
+        await datafono('terraza', terraza, termTerraza, 2000, 1000);
+        await datafono('sala', sala, termSala, 5000, 0);
+        // Dos devoluciones parciales deliberadas de 5 € del mismo cobro.
+        for (const minute of ['30', '40']) {
+          await tx.refund.create({
+            data: {
+              tenantId: terraza,
+              paymentId: pay.terraza!,
+              amountCents: 500,
+              requestedBy: boss,
+              status: 'SUCCEEDED',
+              registeredManually: true,
+              bankRefundedAt: new Date(`2026-10-13T21:${minute}:00Z`),
+            },
+          });
+        }
+      }),
+    );
+  });
+
+  const expected = () => [
+    ['MATCHED', 'SALE', 2000, pay.terraza, 'Terraza Paytef'],
+    ['MATCHED', 'SALE', 5000, pay.sala, 'Sala Paytef'],
+    ['REFUND_MATCHED', 'REFUND', 500, pay.terraza, 'Terraza Paytef'],
+    ['REFUND_MATCHED', 'REFUND', 500, pay.terraza, 'Terraza Paytef'],
+  ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+
+  it('la 77 de dos datáfonos (20 € y 50 €), dos devoluciones parciales y una anulación: todo cuadra', async () => {
+    const out = await importPaytef(lines(), '2026-10-14T09:00:00Z');
+    expect(out).toMatchObject({ problemCount: 0, bankTotalCents: 6000, oursTotalCents: 6000 });
+    expect(await itemsOf(out.id)).toEqual(expected());
+  });
+
+  it('el mismo fichero en otro orden da lo mismo', async () => {
+    const out = await importPaytef([...lines()].reverse(), '2026-10-14T09:05:00Z');
+    expect(out).toMatchObject({ problemCount: 0, bankTotalCents: 6000, oursTotalCents: 6000 });
+    expect(await itemsOf(out.id)).toEqual(expected());
+  });
+
+  it('un fichero sin la columna del datáfono: la 77 es de dos cobros y no se elige ninguno', async () => {
+    const noTerminal = lines()
+      .slice(0, 2)
+      .map((l) => l.split(';').filter((_, i) => i !== 2).join(';'));
+    const out = await importPaytef(noTerminal, '2026-10-14T09:10:00Z', 'Fecha;Hora;Nº Operación;Tipo;Importe;Resultado');
+    const items = await itemsOf(out.id);
+    expect(items.filter((i) => i[0] === 'MATCHED')).toEqual([]);
+    expect(items.filter((i) => i[0] === 'NOT_IN_OXIOPAY')).toHaveLength(2);
+    expect(items.filter((i) => i[0] === 'NOT_IN_BANK').map((i) => i[3]).sort()).toEqual([pay.sala, pay.terraza].sort());
+  });
+});

@@ -319,7 +319,10 @@ describe('referencias del saldo y su página', () => {
     );
     const state = await svc.clientState('qrTokenDelClienteK7Q4M2xx');
     expect(state.movements.map((m) => m.label)).toEqual(['Barra', 'Habitación', 'Comida', 'Otro', 'Servicio', 'Consumo', 'Botella Moët']);
-    expect(state.movements[0]).toEqual({ kind: 'consumption', amountCents: -1_200, label: 'Barra', venueName: 'Bambú Norte (Alcobendas)', at: at(1).toISOString(), ref: null });
+    // Con el color de su sección (el de fábrica si el local no eligió otro).
+    expect(state.movements[0]).toEqual({ kind: 'consumption', amountCents: -1_200, label: 'Barra', venueName: 'Bambú Norte (Alcobendas)', at: at(1).toISOString(), ref: null, color: '#3fe0c0' });
+    // La tarjeta de arriba: el local del saldo; sin NFC, sin número.
+    expect(state).toMatchObject({ venueName: 'Sala Bambú (Madrid)', hasCard: false, fichaNumber: null });
   });
 });
 

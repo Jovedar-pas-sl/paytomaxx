@@ -114,15 +114,14 @@ export class CobrosService {
       walletIds = [...(walletIds ?? []), ...found.map((w) => w.id)];
       if (walletIds.length === 0) return null;
     }
-    let from: Date | null = null;
-    let to: Date | null = null;
+    let night: { openedAt: Date; closedAt: Date | null } | null = null;
     if (q.nightId) {
-      const night = await tx.venueNight.findFirst({ where: { id: q.nightId, tenantId }, select: { openedAt: true, closedAt: true } });
+      night = await tx.venueNight.findFirst({ where: { id: q.nightId, tenantId }, select: { openedAt: true, closedAt: true } });
       if (!night) throw new NotFoundException('Esa noche no es de este local');
-      from = night.openedAt;
-      to = night.closedAt;
     }
-    return { tenantId, walletIds, from, to };
+    const window = cobrosWindow(night, q);
+    if (!window) return null;
+    return { tenantId, walletIds, ...window };
   }
 
   private async paymentRows(
@@ -258,6 +257,21 @@ export async function peopleById(tx: TransactionalClient, ids: string[]): Promis
 }
 
 /** Noche y página: (fecha, id) más antiguos que el último de la página anterior. */
+/**
+ * Las fechas de la lista: las de la noche y/o las de `from`/`to` (la ventana
+ * de una cifra del mapa del dinero), la parte común. Null = no se solapan.
+ */
+export function cobrosWindow(
+  night: { openedAt: Date; closedAt: Date | null } | null,
+  q: Pick<CobrosQuery, 'from' | 'to'>,
+): { from: Date | null; to: Date | null } | null {
+  const latest = (a: Date | null, b: Date | null) => (a && b ? (a > b ? a : b) : (a ?? b));
+  const earliest = (a: Date | null, b: Date | null) => (a && b ? (a < b ? a : b) : (a ?? b));
+  const from = latest(night?.openedAt ?? null, q.from ? new Date(q.from) : null);
+  const to = earliest(night?.closedAt ?? null, q.to ? new Date(q.to) : null);
+  return from && to && from >= to ? null : { from, to };
+}
+
 function dateWhere(scope: Scope, cursor: FeedCursor | null): { AND: Array<Record<string, unknown>> } | null {
   const and: Array<Record<string, unknown>> = [];
   if (scope.from) and.push({ createdAt: { gte: scope.from } });

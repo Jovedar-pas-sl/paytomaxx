@@ -1,5 +1,4 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import {
   CASH_LIMIT_CENTS,
   CASH_TOP_UP_METHODS,
@@ -9,7 +8,6 @@ import {
   STAFF_PERMISSION_DENIED_CODE,
   deviceCan,
   staffPermissionsOf,
-  normalizeWalletCardUid,
   type CashTopUpResult,
   type CashTopUpVoidResult,
   type Role,
@@ -26,7 +24,8 @@ import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { insertEmptyWallet } from './empty-wallet';
 import { reopenData } from './wallet-activation';
 import { cashTopUpOverLimit, walletCash } from './wallet-cash-limits';
-import { lockLiveWallet } from './wallet-merge-chain';
+import { cashIntentFingerprint, storedReceipt, type PrintedTopUpRef } from './wallet-cash-intent';
+import { liveWalletId, lockLiveWallet } from './wallet-merge-chain';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
 import { topUpTarget } from './wallet-topup-target';
 
@@ -40,12 +39,11 @@ export type CashTopUpBy = { userId: string; role: string } | { terminalId: strin
 export interface CashTopUpInput {
   amountCents: number;
   idempotencyKey: string;
-  /** Lo de la petición, o la ficha buscada por su número (solo FichaNumbersService). */
+  /** Lo de la petición, o la ficha buscada por su número impreso (solo FichaNumbersService). */
   wallet: TopUpWalletDto | PrintedTopUpRef;
 }
 
-/** La ficha buscada por su número impreso en recepción (su id; nunca llega así del cliente). */
-export type PrintedTopUpRef = { printed: { cardId: string } };
+export type { PrintedTopUpRef };
 
 const KEY_REUSED = 'Esa recarga ya se apuntó con otros datos: vuelve a empezar la recarga';
 
@@ -132,7 +130,10 @@ export class CashTopUpService {
       });
     } catch (err) {
       // Dos peticiones a la vez con la misma clave: gana una y la otra la repite.
-      if (isKeyClash(err)) {
+      // Cualquier choque de único vale: si no era el de la clave, replay no
+      // encuentra nada y sigue el error (Prisma no siempre sabe qué índice fue:
+      // con Postgres en otro idioma da «(not available)»).
+      if (isUniqueClash(err)) {
         const raced = await this.replay(venueId, by, input);
         if (raced) return raced;
       }
@@ -235,6 +236,8 @@ export class CashTopUpService {
       // Recarga: el cliente se queda (un «Me voy» pendiente ya no vale).
       data: { balanceCents: { increment: a.input.amountCents }, closeRequestedAt: null, ...reopen },
     });
+    const balanceCents = w.balanceCents + a.input.amountCents;
+    const shortCode = reopen.shortCode ?? w.shortCode;
     const row = await tx.walletCashTopUp.create({
       data: {
         tenantId: a.venueId,
@@ -243,17 +246,15 @@ export class CashTopUpService {
         takenByUserId: 'userId' in a.by ? a.by.userId : null,
         terminalId: 'terminalId' in a.by ? a.by.terminalId : null,
         idempotencyKey: a.input.idempotencyKey,
-        intentFingerprint: cashIntent(a.input.wallet),
+        intentFingerprint: cashIntentFingerprint(a.input),
+        // El recibo de esta recarga: un reintento lo devuelve igual aunque el
+        // saldo se sume luego a otro o siga moviéndose.
+        receipt: { code: formatWalletCode(shortCode ?? ''), balanceCents },
         createdWallet: 'create' in a.input.wallet,
       },
       select: { id: true },
     });
-    return {
-      topUpId: row.id,
-      walletId: w.id,
-      balanceCents: w.balanceCents + a.input.amountCents,
-      shortCode: reopen.shortCode ?? w.shortCode,
-    };
+    return { topUpId: row.id, walletId: w.id, balanceCents, shortCode };
   }
 
   /**
@@ -406,7 +407,10 @@ export class CashTopUpService {
     return { voidId: row.id, topUpId: topUp.id, walletId: w.id, amountCents: topUp.amountCents, balanceCents: left };
   }
 
-  /** La misma recarga pedida otra vez: la ya apuntada (o 409 si la clave es de otra). */
+  /**
+   * La misma recarga pedida otra vez: la ya apuntada, con su recibo (o 409 si
+   * la clave es de otra petición: otra persona, otro importe u otro destino).
+   */
   private async replay(venueId: string, by: CashTopUpBy, input: CashTopUpInput): Promise<CashTopUpResult | null> {
     const existing = await this.prisma.asSystem((tx) =>
       tx.walletCashTopUp.findUnique({
@@ -417,72 +421,63 @@ export class CashTopUpService {
     const sameWho =
       'userId' in by ? existing.takenByUserId === by.userId : existing.terminalId === by.terminalId;
     if (!sameWho || existing.amountCents !== input.amountCents) throw new ConflictException(KEY_REUSED);
-    if (existing.intentFingerprint ? existing.intentFingerprint !== cashIntent(input.wallet) : existing.createdWallet !== ('create' in input.wallet)) {
-      throw new ConflictException(KEY_REUSED);
-    }
-    const wallet = await this.prisma.acrossVenues((tx) =>
-      tx.clientWallet.findUnique({ where: { id: existing.walletId }, select: { id: true, balanceCents: true, shortCode: true } }),
-    );
-    // Legacy rows cannot prove whether code or card was originally used. Accept
-    // aliases only when they still identify the same wallet/merge chain.
-    if (!existing.intentFingerprint && !('create' in input.wallet)) {
-      // Las de número impreso son nuevas: siempre llevan su huella.
-      if ('printed' in input.wallet) throw new ConflictException(KEY_REUSED);
-      const ref = input.wallet;
-      const matches = wallet && await this.prisma.acrossVenues(async (tx) => {
-        if ('code' in ref && normalizeWalletCode(ref.code) === wallet.shortCode) return true;
-        const candidate = 'code' in ref
-          ? await tx.clientWallet.findFirst({ where: { shortCode: normalizeWalletCode(ref.code) }, select: { id: true } })
-          : await tx.walletCard.findUnique({ where: { token: ref.card }, select: { walletId: true, uid: true } });
-        if (!candidate) return false;
-        if ('uid' in candidate && candidate.uid && 'uid' in ref && ref.uid && candidate.uid !== normalizeWalletCardUid(ref.uid)) return false;
-        const id = 'walletId' in candidate ? candidate.walletId : candidate.id;
-        if (!id) return false;
-        if (id === existing.walletId) return true;
-        const liveId = async (start: string): Promise<string | null> => {
-          let current = start;
-          for (let hops = 0; hops <= 5; hops += 1) {
-            const row = await tx.clientWallet.findUnique({ where: { id: current }, select: { mergedIntoId: true } });
-            if (!row) return null;
-            if (!row.mergedIntoId) return current;
-            current = row.mergedIntoId;
-          }
-          return null;
-        };
-        const original = await liveId(existing.walletId);
-        return original !== null && original === await liveId(id);
-      });
-      if (!matches) throw new ConflictException(KEY_REUSED);
-    }
+    const sameIntent = existing.intentFingerprint
+      ? existing.intentFingerprint === cashIntentFingerprint(input)
+      : await this.legacyIntentMatches(existing, input.wallet);
+    if (!sameIntent) throw new ConflictException(KEY_REUSED);
+    const receipt = storedReceipt(existing.receipt) ?? (await this.currentReceipt(existing.walletId));
     return {
       topUpId: existing.id,
       walletId: existing.walletId,
-      code: formatWalletCode(wallet?.shortCode ?? ''),
+      code: receipt.code,
       amountCents: existing.amountCents,
-      balanceCents: wallet?.balanceCents ?? 0,
+      balanceCents: receipt.balanceCents,
       createdWallet: existing.createdWallet,
       replayed: true,
     };
   }
-}
 
-/** Preserve the submitted destination even when the wallet is merged or its code rotates. */
-function cashIntent(wallet: TopUpWalletDto | PrintedTopUpRef): string {
-  const target = 'create' in wallet
-    ? ['create', wallet.identifier?.trim() || null]
-    : 'code' in wallet
-      ? ['code', normalizeWalletCode(wallet.code)]
-      : 'printed' in wallet
-        ? ['printed', wallet.printed.cardId]
-        : ['card', wallet.card, wallet.uid ? normalizeWalletCardUid(wallet.uid) : null];
-  return createHash('sha256').update(JSON.stringify(target)).digest('hex');
+  /**
+   * Recargas de antes de guardar la huella: no se sabe si se pidió por código
+   * o por ficha. Vale si lo pedido ahora es el código que tenía aquel saldo, o
+   * lleva hoy al mismo saldo que aquella (también tras sumarse a otro). Un
+   * saldo nuevo solo repite otro saldo nuevo. Las de número impreso son
+   * posteriores y siempre llevan huella: nunca casan con una antigua.
+   */
+  private async legacyIntentMatches(
+    existing: { walletId: string; createdWallet: boolean },
+    wallet: TopUpWalletDto | PrintedTopUpRef,
+  ): Promise<boolean> {
+    if ('printed' in wallet) return false;
+    if ('create' in wallet) return existing.createdWallet;
+    if (existing.createdWallet) return false;
+    return this.prisma.acrossVenues(async (tx) => {
+      const original = await tx.clientWallet.findUnique({ where: { id: existing.walletId }, select: { shortCode: true } });
+      if (!original) return false;
+      if ('code' in wallet && original.shortCode === normalizeWalletCode(wallet.code)) return true;
+      const namedId =
+        'code' in wallet
+          ? (await tx.clientWallet.findFirst({ where: { shortCode: normalizeWalletCode(wallet.code) }, select: { id: true } }))?.id
+          : (await tx.walletCard.findUnique({ where: { token: wallet.card }, select: { walletId: true } }))?.walletId;
+      if (!namedId) return false;
+      const live = await liveWalletId(tx, existing.walletId);
+      return live !== null && live === (await liveWalletId(tx, namedId));
+    });
+  }
+
+  /** Recibo de una recarga antigua (sin recibo guardado): el saldo como está ahora. */
+  private async currentReceipt(walletId: string): Promise<{ code: string; balanceCents: number }> {
+    const wallet = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true, shortCode: true } }),
+    );
+    return { code: formatWalletCode(wallet?.shortCode ?? ''), balanceCents: wallet?.balanceCents ?? 0 };
+  }
 }
 
 function eur(cents: number): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
-function isKeyClash(err: unknown): boolean {
-  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
-  return JSON.stringify(err.meta?.target ?? '').includes('idempotencyKey');
+function isUniqueClash(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }

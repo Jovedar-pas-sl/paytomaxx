@@ -8,7 +8,9 @@ import {
   isSectionCode,
   packComponentsOf,
   packProblem,
+  sameAsSeen,
   sectionsOf,
+  type TemplateChange,
   type CreateServiceItemDto,
   type ApplyCartaTemplateDto,
   type ApplyCartaTemplateResult,
@@ -34,6 +36,29 @@ const SELECT = {
 } as const;
 
 const ORDER = [{ sortOrder: 'asc' as const }, { priceCents: 'asc' as const }];
+
+type TemplateRow = Prisma.ServiceItemGetPayload<{ select: typeof SELECT }>;
+
+/**
+ * Los productos marcados para ponerlos como la referencia, comprobados antes
+ * de escribir: uno que ya está igual no se toca; uno que cambió desde que el
+ * dueño lo miró, que ya no está o que ya no se puede actualizar → 409.
+ */
+function ticked(plan: TemplateChange<TemplateRow>[], update: NonNullable<ApplyCartaTemplateDto['update']>): TemplateChange<TemplateRow>[] {
+  const out: TemplateChange<TemplateRow>[] = [];
+  for (const { id, seen } of update) {
+    const change = plan.find((c) => c.existing?.id === id);
+    if (change?.action === 'keep') continue;
+    if (change?.action !== 'update' || !change.existing) {
+      throw new ConflictException('Un producto marcado ya no se puede actualizar con la referencia. Vuelve a cargar la carta y revisa los cambios.');
+    }
+    if (!sameAsSeen(change.existing, seen)) {
+      throw new ConflictException(`«${change.existing.name.trim()}» ha cambiado mientras lo revisabas. Vuelve a cargar la carta y revisa los cambios.`);
+    }
+    out.push(change);
+  }
+  return out;
+}
 
 /** La fila tal como la ven las apps (el pack, ya validado; uno raro → sin pack). */
 function view<T extends { components: unknown }>(row: T): ServiceItem {
@@ -86,39 +111,49 @@ export class CartaService {
     return rows.map(view);
   }
 
-  /** One venue, one transaction: re-read and validate the entire plan before writing. */
+  /**
+   * La carta de referencia, en una transacción con el local bloqueado: se
+   * vuelve a leer la carta y se comprueba todo antes de escribir nada. Solo se
+   * añade lo que falta; un producto existente cambia solo si el dueño lo marcó
+   * y sigue como lo vio (si no, 409 y no se escribe nada).
+   */
   async applyTemplate(tenantId: string, actorId: string, dto: ApplyCartaTemplateDto): Promise<ApplyCartaTemplateResult> {
     if (dto?.confirm !== true) throw new BadRequestException('Confirma que quieres aplicar los productos y precios.');
-    const result = await this.withCartaLock(tenantId, async (tx) => {
+    const { summary, updatedIds } = await this.withCartaLock(tenantId, async (tx) => {
       const venue = await tx.venue.findUnique({ where: { id: tenantId }, select: { sections: true } });
       const rows = await tx.serviceItem.findMany({ where: { tenantId }, select: SELECT });
-      const plan = cartaTemplatePlan(rows);
-      const conflicts = plan.filter((change) => change.action === 'conflict');
-      if (conflicts.length) {
-        throw new ConflictException(`Revisa nombres duplicados, packs o invitaciones: ${conflicts.map((change) => change.input.name).join(', ')}.`);
-      }
-      const sections = sectionsOf(venue?.sections);
+      const plan = cartaTemplatePlan(rows, { sections: sectionsOf(venue?.sections) });
+      const toUpdate = ticked(plan, dto.update ?? []);
       for (const change of plan) {
-        const section = sections.find((s) => s.code === change.input.category);
-        if (!section?.enabled) throw new BadRequestException(`La sección «${section?.label ?? change.input.category}» está apagada en este local (Ajustes → Secciones).`);
-      }
-      const summary: ApplyCartaTemplateResult = { created: 0, updated: 0, kept: 0 };
-      for (const change of plan) {
-        if (change.action === 'keep') { summary.kept++; continue; }
+        if (change.action !== 'create') continue;
         const { name, durationMin, priceCents, category, sortOrder, isInvitation } = change.input;
-        const data = { name, durationMin, priceCents, category, sortOrder, active: true, isInvitation: isInvitation ?? false };
-        if (change.existing) {
-          await tx.serviceItem.update({ where: { id: change.existing.id }, data });
-          summary.updated++;
-        } else {
-          await tx.serviceItem.create({ data: { ...data, tenantId } });
-          summary.created++;
-        }
+        await tx.serviceItem.create({ data: { tenantId, name, durationMin, priceCents, category, sortOrder, isInvitation: isInvitation ?? false } });
       }
-      return summary;
+      for (const change of toUpdate) {
+        const { durationMin, priceCents, sortOrder } = change.input;
+        // Nunca el nombre, la sección ni si es invitación: solo lo que se marcó.
+        await tx.serviceItem.update({ where: { id: change.existing!.id }, data: { durationMin, priceCents, sortOrder, active: true } });
+      }
+      const existing = plan.filter((c) => c.action === 'keep' || c.action === 'update').length;
+      return {
+        summary: {
+          created: plan.filter((c) => c.action === 'create').length,
+          updated: toUpdate.length,
+          kept: existing - toUpdate.length,
+          skipped: plan.filter((c) => c.action === 'skip').length,
+        },
+        updatedIds: toUpdate.map((c) => c.existing!.id),
+      };
     });
-    await this.audit.log({ action: 'carta.template.applied', tenantId, actorId, targetType: 'Venue', targetId: tenantId, payload: { ...result } });
-    return result;
+    await this.audit.log({
+      action: 'carta.template.applied',
+      tenantId,
+      actorId,
+      targetType: 'Venue',
+      targetId: tenantId,
+      payload: { ...summary, updatedIds },
+    });
+    return summary;
   }
 
   async create(tenantId: string, actorId: string, dto: CreateServiceItemDto): Promise<ServiceItem> {
@@ -220,7 +255,9 @@ export class CartaService {
   private async withCartaLock<T>(tenantId: string, work: (tx: TransactionalClient) => Promise<T>): Promise<T> {
     return this.prisma.withTenant(tenantId, async (tx) => {
       // Lock even an empty carta, and use one ordering for all its writers.
-      const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM venues WHERE id = ${tenantId}::uuid FOR UPDATE`;
+      // NO KEY UPDATE: serializes the carta writers without blocking the payments
+      // (their foreign keys only take KEY SHARE on the venue row).
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM venues WHERE id = ${tenantId}::uuid FOR NO KEY UPDATE`;
       if (locked.length === 0) throw new NotFoundException('No existe este local');
       return work(tx);
     });

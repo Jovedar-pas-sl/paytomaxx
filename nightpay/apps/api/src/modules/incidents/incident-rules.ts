@@ -32,7 +32,8 @@ export type IncidentKind =
   | 'pos_reception_limit'
   | 'cash_split_suspected'
   | 'reception_payout_cap'
-  | 'wallet_topup_unassigned';
+  | 'wallet_topup_unassigned'
+  | 'wallet_card_lost';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -67,6 +68,7 @@ export const ACKABLE_KINDS = [
   'pos_reception_limit',
   'cash_split_suspected',
   'reception_payout_cap',
+  'wallet_card_lost',
 ] as const satisfies readonly IncidentKind[];
 
 export interface Incident {
@@ -147,11 +149,15 @@ export function duplicateChargeIncident(r: EventRow): Incident {
 }
 
 export function earningReverseFailedIncident(r: EventRow): Incident {
+  const p = (r.payload ?? {}) as { error?: unknown; attempts?: unknown };
+  // El repaso lo avisa cuando ya no lo arregla solo: tras cuántos intentos y por qué.
+  const tries = typeof p.attempts === 'number' ? ` El repaso automático lo ha intentado ${p.attempts} veces.` : '';
+  const why = typeof p.error === 'string' && p.error.trim() ? ` Motivo: ${p.error.trim().slice(0, 200)}` : '';
   return {
     kind: 'earning_reverse_failed',
     refId: r.id,
     title: 'No se pudo descontar una devolución a la chica',
-    detail: 'Revisa su saldo en Operadoras: la devolución está hecha pero su comisión no se ha descontado.',
+    detail: `Revisa su saldo en Operadoras: la devolución está hecha pero su comisión no se ha descontado.${tries}${why}`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.paymentId,
@@ -206,6 +212,25 @@ export function receptionPayoutCapIncident(r: EventRow & { actorName?: string | 
     title: 'Recepción pasa su tope de efectivo devuelto esta noche',
     detail: `${who} ${r.amountCents === null ? 'quería devolver más' : `quería devolver ${eur(r.amountCents)}`}${amounts ? ` (${amounts})` : ''}. ${tail}`,
     alertDetail: `${r.amountCents === null ? 'Una salida' : `Una salida de ${eur(r.amountCents)}`}${amounts ? ` (${amounts})` : ''}. ${tail}`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
+    ackable: true,
+  };
+}
+
+/** «He perdido mi NFC»: el cliente bloqueó su NFC desde su móvil (WalletLostCardService). */
+export function walletCardLostIncident(r: EventRow): Incident {
+  const code = str(r.payload, 'code');
+  const saldo = r.amountCents !== null ? ` (${eur(r.amountCents)})` : '';
+  const keeps = 'sigue valiendo con su código y PIN o su Face ID. Si viene a recepción, dale un NFC nuevo con su código.';
+  return {
+    kind: 'wallet_card_lost',
+    refId: r.id,
+    title: 'Un cliente ha bloqueado su NFC',
+    detail: `Lo marcó como perdido en su móvil, con su Face ID: ya no paga. Su saldo${code ? ` ${code}` : ''}${saldo} ${keeps}`,
+    // Telegram es un tercero: sin el código del cliente.
+    alertDetail: `Lo marcó como perdido en su móvil, con su Face ID: ya no paga. Su saldo${saldo} ${keeps}`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,

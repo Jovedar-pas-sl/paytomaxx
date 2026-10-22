@@ -20,13 +20,13 @@ import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { resolveLanguage } from '../payments/pay-i18n';
 import { walletClaimSetCookie } from '../payments/wallet-claim';
-import { WalletChargesService, type ClientWalletState } from './wallet-charges.service';
+import { WalletChargesService, codeHintOf, type ClientWalletState } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { WalletTopUpService } from './wallet-topup.service';
 import { renderWalletPage } from './wallet-page';
 import { checkedPin } from './client-pin';
-import { walletViewSetCookie } from './wallet-view-session';
-import { mayReadWallet } from './wallet-view-access';
+import { walletViewSetCookies } from './wallet-view-session';
+import { walletViewAccess, type WalletViewAccess } from './wallet-view-access';
 import { renderWalletUnlockPage } from './wallet-unlock-page';
 import { GoogleWalletService } from './google-wallet/google-wallet.service';
 
@@ -100,7 +100,7 @@ export class PublicWalletController {
   ): Promise<ClientWalletState> {
     const wallet = await this.charges.walletRefByToken(token);
     await this.passkeys.register(wallet.id, host, body?.response);
-    res.header('Set-Cookie', walletViewSetCookie(this.config.get<string>('COOKIE_SECRET') ?? '', { id: wallet.id, qrToken: token }));
+    res.header('Set-Cookie', walletViewSetCookies(this.config.get<string>('COOKIE_SECRET') ?? '', { id: wallet.id, qrToken: token }));
     return this.charges.clientState(token);
   }
 
@@ -215,11 +215,14 @@ export class PublicWalletController {
     @Headers('cookie') cookies?: string,
   ): Promise<void> {
     const lang = resolveLanguage(langQuery, acceptLanguage);
-    if (!(await this.mayRead(token, cookies))) {
+    const access = await this.viewAccess(token, cookies);
+    if (!access.allowed) {
+      const { shortCode } = await this.charges.walletRefByToken(token);
       res.status(200).header('Content-Type', 'text/html; charset=utf-8').header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer')
-        .send(renderWalletUnlockPage(`/w/${encodeURIComponent(token)}`, lang, paidToken));
+        .send(renderWalletUnlockPage(`/w/${encodeURIComponent(token)}`, lang, { kind: 'locked', codeHint: shortCode ? codeHintOf(shortCode) : null, paidToken }));
       return;
     }
+    if (access.renew) res.header('Set-Cookie', access.renew);
     // Ya no hay QR del código: para pagar, el cliente escanea el QR de la
     // chica y desbloquea su móvil (Face ID).
     const state = await this.charges.clientState(token);
@@ -242,8 +245,15 @@ export class PublicWalletController {
   @Get(':token/state')
   @Header('Cache-Control', 'no-store')
   @IpRateLimit({ max: 1500, windowSec: 60, scope: 'wallet-state' })
-  async state(@Param('token') token: string, @Headers('cookie') cookies?: string): Promise<ClientWalletState> {
-    if (!(await this.mayRead(token, cookies))) throw new UnauthorizedException({ message: 'Desbloquea tu saldo con tu teléfono.', code: 'WALLET_VIEW_REQUIRED' });
+  async state(
+    @Param('token') token: string,
+    @Res({ passthrough: true }) res: FastifyReply,
+    @Headers('cookie') cookies?: string,
+  ): Promise<ClientWalletState> {
+    const access = await this.viewAccess(token, cookies);
+    if (!access.allowed) throw new UnauthorizedException({ message: 'Desbloquea tu saldo con tu teléfono.', code: 'WALLET_VIEW_REQUIRED' });
+    // La página lo pide cada 3 s mientras se ve: eso es actividad y alarga la sesión.
+    if (access.renew) res.header('Set-Cookie', access.renew);
     return this.charges.clientState(token);
   }
 
@@ -268,12 +278,12 @@ export class PublicWalletController {
     const wallet = await this.charges.walletRefByToken(token);
     const owner = await this.passkeys.verify(`view:${wallet.id}`, host, body?.response);
     if (owner !== wallet.id) throw new ForbiddenException({ message: 'Usa la passkey de este saldo.', code: 'FACE_ID_WRONG' });
-    res.header('Set-Cookie', walletViewSetCookie(this.config.get<string>('COOKIE_SECRET') ?? '', { id: wallet.id, qrToken: token }));
+    res.header('Set-Cookie', walletViewSetCookies(this.config.get<string>('COOKIE_SECRET') ?? '', { id: wallet.id, qrToken: token }));
     return { url: `/w/${encodeURIComponent(token)}` };
   }
 
-  private async mayRead(token: string, cookies: string | undefined): Promise<boolean> {
-    return mayReadWallet({
+  private async viewAccess(token: string, cookies: string | undefined): Promise<WalletViewAccess> {
+    return walletViewAccess({
       walletRefByToken: (value) => this.charges.walletRefByToken(value),
       hasPasskey: (id) => this.passkeys.hasPasskey(id),
       secret: this.config.get<string>('COOKIE_SECRET') ?? '',

@@ -1,16 +1,21 @@
-# Run from this directory: promtool test rules alerts.test.yml
+# Escenarios sintéticos de alerts.yml (CI, job docker, con promtool de prom/prometheus).
+# Desde este directorio: promtool check rules alerts.yml && promtool test rules alerts.test.yml
+# Cada alerta de las colas y del backlog de descuentos se prueba disparando,
+# sin repetirse por réplica del API y resolviéndose cuando la causa se va.
 rule_files:
   - alerts.yml
 evaluation_interval: 30s
 tests:
-  - name: queue age means creation age of ready work while delayed retries remain in depth
+  - name: la edad de la cola es la de creación del trabajo listo; los programados solo cuentan en el backlog; una alerta por cola aunque haya dos réplicas
     interval: 1m
     input_series:
-      - series: 'nightpay_queue_oldest_age_seconds{job="nightpay-api",queue="promoted"}'
+      - series: 'nightpay_queue_oldest_age_seconds{job="nightpay-api",instance="a",queue="promoted"}'
         values: '1200+60x10'
-      - series: 'nightpay_queue_oldest_age_seconds{job="nightpay-api",queue="future-retry"}'
+      - series: 'nightpay_queue_oldest_age_seconds{job="nightpay-api",instance="b",queue="promoted"}'
+        values: '1190+60x10'
+      - series: 'nightpay_queue_oldest_age_seconds{job="nightpay-api",instance="a",queue="future-retry"}'
         values: '0+0x10'
-      - series: 'nightpay_queue_depth{job="nightpay-api",queue="future-retry"}'
+      - series: 'nightpay_queue_depth{job="nightpay-api",instance="a",queue="future-retry"}'
         values: '1+0x10'
     alert_rule_test:
       - eval_time: 6m
@@ -22,15 +27,73 @@ tests:
               severity: warning
             exp_annotations:
               summary: "Cola promoted con trabajo listo o activo creado hace más de 10 min"
-              description: "Edad desde creación en waiting/active/prioritized/paused; excluye delayed y waiting-children. No mide tiempo desde promoción o reintento."
-  - name: deferred earning reversals preserve original age and query failures remain visible
+              description: "Edad desde creación del más antiguo de la cabeza de waiting/active/prioritized/paused; excluye delayed y waiting-children. No mide tiempo desde promoción o reintento."
+      - eval_time: 6m
+        alertname: QueueBacklog
+        exp_alerts: []
+
+  - name: el atasco de una cola dispara una vez (dos réplicas) y se resuelve al vaciarse
     interval: 1m
     input_series:
-      - series: 'nightpay_earning_reversal_oldest_age_seconds{job="nightpay-api",instance="old"}'
+      - series: 'nightpay_queue_depth{job="nightpay-api",instance="a",queue="webhooks-ingest"}'
+        values: '5000x15 10x10'
+      - series: 'nightpay_queue_depth{job="nightpay-api",instance="b",queue="webhooks-ingest"}'
+        values: '5000x15 10x10'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: QueueBacklog
+        exp_alerts:
+          - exp_labels:
+              job: nightpay-api
+              queue: webhooks-ingest
+              severity: warning
+            exp_annotations:
+              summary: "Cola webhooks-ingest > 1000 jobs por 10 min"
+              description: "Workers atascados o lentos."
+      - eval_time: 20m
+        alertname: QueueBacklog
+        exp_alerts: []
+
+  - name: Redis sin contestar y trabajos fallidos retenidos
+    interval: 1m
+    input_series:
+      - series: 'nightpay_queue_metrics_up{job="nightpay-api",instance="a",queue="qr-expire"}'
+        values: '0x5'
+      - series: 'nightpay_queue_jobs{job="nightpay-api",instance="a",queue="qr-expire",state="failed"}'
+        values: '3x15'
+      - series: 'nightpay_queue_jobs{job="nightpay-api",instance="b",queue="qr-expire",state="failed"}'
+        values: '3x15'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: QueueMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: nightpay-api
+              instance: a
+              queue: qr-expire
+              severity: warning
+            exp_annotations:
+              summary: "No se puede consultar la cola qr-expire"
+              description: "Redis falló o excedió 2 s; backlog y antigüedad se omiten para no mostrar datos antiguos."
+      - eval_time: 12m
+        alertname: QueueFailedJobs
+        exp_alerts:
+          - exp_labels:
+              job: nightpay-api
+              queue: qr-expire
+              severity: warning
+            exp_annotations:
+              summary: "Cola qr-expire con trabajos fallidos retenidos"
+              description: "Revisar el error antes de reintentar; los fallidos no se cuentan como trabajo pendiente."
+
+  - name: descuento por devolución diferido conserva su antigüedad; una alerta aunque lo exporten dos réplicas; la consulta caída se ve
+    interval: 1m
+    input_series:
+      - series: 'nightpay_earning_reversal_oldest_age_seconds{job="nightpay-api",instance="a"}'
         values: '1900+60x10'
-      - series: 'nightpay_earning_reversal_oldest_age_seconds{job="nightpay-api",instance="fresh"}'
-        values: '10+0x10'
-      - series: 'nightpay_earning_reversal_metrics_up{job="nightpay-api",instance="old"}'
+      - series: 'nightpay_earning_reversal_oldest_age_seconds{job="nightpay-api",instance="b"}'
+        values: '1900+60x10'
+      - series: 'nightpay_earning_reversal_metrics_up{job="nightpay-api",instance="a"}'
         values: '1+0x10'
       - series: 'nightpay_earning_reversal_metrics_up{job="nightpay-api",instance="unavailable"}'
         values: '0+0x10'
@@ -40,7 +103,6 @@ tests:
         exp_alerts:
           - exp_labels:
               job: nightpay-api
-              instance: old
               severity: critical
             exp_annotations:
               summary: "Devolución hecha sin descontar la ganancia desde hace más de 30 min"
@@ -54,7 +116,32 @@ tests:
               severity: warning
             exp_annotations:
               summary: "No se puede consultar el backlog de descuentos por devolución"
-  - name: FAILED labels aggregate with venue-provider creation labels across replicas
+
+  - name: descuento que necesita a una persona dispara y se resuelve cuando se arregla
+    interval: 1m
+    input_series:
+      - series: 'nightpay_earning_reversal_needs_human{job="nightpay-api",instance="a"}'
+        values: '0x2 2x10 0x10'
+      - series: 'nightpay_earning_reversal_oldest_age_seconds{job="nightpay-api",instance="a"}'
+        values: '0x22'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: EarningReversalNeedsHuman
+        exp_alerts:
+          - exp_labels:
+              job: nightpay-api
+              severity: warning
+            exp_annotations:
+              summary: "2 descuento(s) a chicas que el repaso no consigue hacer"
+              description: "Salen en Incidencias con su motivo (refunds.earningReversalLastError). Tras 5 fallos seguidos hace falta una persona."
+      - eval_time: 20m
+        alertname: EarningReversalNeedsHuman
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: EarningReversalOldest
+        exp_alerts: []
+
+  - name: FAILED con etiquetas from/to frente a creados por local/pasarela, sumando réplicas
     interval: 1m
     input_series:
       - series: 'nightpay_payments_transitioned_total{job="nightpay-api",instance="a",from="PENDING",to="FAILED"}'
@@ -76,7 +163,8 @@ tests:
             exp_annotations:
               summary: "Más de 10% de pagos transitando a FAILED en 5 min"
               description: "Posible problema con pasarela. Revisa circuit breakers + webhooks."
-  - name: low failure rate and zero traffic do not fire
+
+  - name: pocos fallos o ningún cobro no disparan
     interval: 1m
     input_series:
       - series: 'nightpay_payments_transitioned_total{job="low",from="PENDING",to="FAILED"}'

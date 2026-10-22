@@ -1497,12 +1497,91 @@
 }
 
 
-/* Acceso visible a la invitación, incluso sin tocar antes una copa sola. */
-.inviteEntry {
-  min-height: 6rem;
+/*
+ * «Invitar a una copa», destacada y compacta (una fila): el reparto en la
+ * tarjeta y, al tocarla, directa a escanear el QR de la chica. Compacta para
+ * que las propinas y «Otro importe» quepan encima de «Cobrar» a 360×740.
+ */
+.inviteCard {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.75rem;
+  padding: 0.5rem 0.875rem 0.5rem 0.5rem;
+  border: none;
+  border-radius: var(--np-r-tile);
   color: var(--np-cream);
-  background: linear-gradient(125deg, #003818, #0a6b34);
-  border: 1px solid var(--np-lime);
-  box-shadow: 0 8px 28px -14px var(--np-lime);
+  background:
+    var(--np-bits),
+    linear-gradient(125deg, var(--np-green-1), var(--np-green-2));
+  box-shadow:
+    0 0 0 1.5px var(--np-lime),
+    0 8px 28px -14px var(--np-lime);
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--np-d-fast) var(--np-ease);
 }
-.inviteEntry .price { color: var(--np-lime); }
+.inviteCard:active { transform: scale(0.98); }
+.inviteCard:focus-visible { outline: 3px solid var(--np-lime); outline-offset: 3px; }
+.inviteQr {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.875rem;
+  display: grid;
+  place-items: center;
+  background: var(--np-lime);
+  color: var(--np-ink-0);
+}
+.inviteQr svg { width: 1.5rem; height: 1.5rem; }
+.inviteText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.inviteName { font: 800 1.0625rem/1.15 var(--np-font-sans); }
+.inviteSplit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.inviteSplit b {
+  color: var(--np-lime);
+  font-family: var(--np-font-num);
+  font-weight: 800;
+}
+.inviteCardPrice {
+  font: 800 1.625rem/1 var(--np-font-num);
+  letter-spacing: -0.02em;
+  color: var(--np-lime);
+}
+
+/* Propinas y «Otro importe»: una sola fila (en las losetas grandes de la chica, como siempre). */
+.lastRow {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.lastRow[data-big] { display: contents; }
+.lastRow:not([data-big]) .tileName { font-size: 1rem; }
+.lastRow[data-n='4'] .kicker { display: none; }
+
+/*
+ * Móviles bajos (360×740 con la barra de pestañas): las losetas del camarero,
+ * algo más justas, para que la carta entera, las propinas y «Otro importe»
+ * queden encima de «Cobrar» sin bajar. Las grandes de la chica, como siempre.
+ */
+@media (max-height: 800px) {
+  .tile:not(.tileBig) {
+    min-height: 4.5rem;
+    padding: 0.5rem 0.75rem;
+  }
+  .tile:not(.tileBig) .kicker { font-size: 0.6875rem; line-height: 1.1; }
+  .tile:not(.tileBig) .tileName { font-size: 1rem; line-height: 1.1; }
+  .tile:not(.tileBig) .price { font-size: 1.375rem; }
+}

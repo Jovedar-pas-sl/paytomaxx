@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import type { MoneyMap } from '@nightpay/contracts';
-import { createMoneyMapLoader, moneyMapPeriod, moneyMapStamp } from './money-map-loading';
+import { createMoneyMapLoader, moneyMapFreshness, moneyMapPeriod, moneyMapStamp } from './money-map-loading';
 
 const result = (generatedAt: string): MoneyMap => ({ generatedAt, frozen: false, scope: { kind: 'period' } } as MoneyMap);
 function deferred<T>() {
@@ -54,4 +54,20 @@ it('la frescura usa generatedAt del API y el Z recalculado sigue siendo históri
   expect(moneyMapStamp({ ...result(stamp), scope: { kind: 'night', nightId: 'old', open: false } })).toEqual({ kind: 'frozen', label: 'Al corte del Z', generatedAt: stamp });
   expect(moneyMapStamp({ ...result(stamp), frozen: true })).toEqual({ kind: 'frozen', label: 'Congelado en el Z', generatedAt: stamp });
   expect(moneyMapStamp(result(stamp))).toEqual({ kind: 'hold', label: 'Periodo', generatedAt: stamp });
+});
+
+it('la hora del chip es la de los datos (generatedAt) y el Z dice su corte y si está congelado', () => {
+  const base = { generatedAt: '2026-10-22T01:40:00Z', from: '2026-10-21T19:00:00Z', to: '2026-10-22T01:40:00Z' };
+  const tz = 'Europe/Madrid';
+  const live = moneyMapFreshness({ ...base, frozen: false, scope: { kind: 'night', nightId: 'n1', open: true } } as MoneyMap, tz);
+  expect(live.chip).toBe('En directo · 03:40');
+  expect(live.short).toBe('03:40');
+  expect(live.line).toContain('Datos de las 03:40');
+  const frozen = moneyMapFreshness({ ...base, to: '2026-10-22T04:00:00Z', frozen: true, scope: { kind: 'night', nightId: 'n1', open: false } } as MoneyMap, tz);
+  expect(frozen.chip).toBe('Congelado en el Z');
+  expect(frozen.line).toBe('Z del 21/10, 21:00 al corte del 22/10, 06:00. Congelado al cerrar la noche: ya no cambia.');
+  const old = moneyMapFreshness({ ...base, frozen: false, scope: { kind: 'night', nightId: 'old', open: false } } as MoneyMap, tz);
+  expect(old.chip).toBe('Al corte del Z');
+  expect(old.line).toContain('calculado con ese corte');
+  expect(moneyMapFreshness({ ...base, frozen: false, scope: { kind: 'period' } } as MoneyMap, tz).chip).toBe('Periodo · 03:40');
 });

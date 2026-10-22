@@ -63,14 +63,14 @@ export function moneyMapDetails(m: MoneyMap): Record<'inflow' | 'topUps' | 'spli
       title: 'Saldo y deudas pendientes',
       note: m.frozen ? 'Datos conservados al cerrar la noche. El saldo y la deuda total pueden incluir operaciones de noches anteriores.' :
         m.scope.kind === 'period' ? 'La variación del periodo y los totales al corte son conceptos distintos. Si no hay una cifra histórica disponible, se indica.' :
-        'La deuda total y el saldo vivo incluyen también noches anteriores. Se distinguen de lo generado en este periodo.',
+        'La deuda total y el saldo real de clientes incluyen también noches anteriores. Se distinguen de lo generado en este periodo.',
       rows: [
         { label: 'Pendiente a chicas de este periodo', cents: o.pendingStaff.chicasCents },
         { label: 'Pendiente a camareros de este periodo', cents: o.pendingStaff.camarerosCents },
         { label: `Deuda total a chicas ${when}`, cents: w.owed?.chicasCents ?? null },
         { label: `Deuda total a camareros ${when}`, cents: w.owed?.camarerosCents ?? null },
-        { label: 'Variación de saldo de este periodo', cents: w.owners.saldoCents },
-        { label: `Saldo total de clientes ${when}`, cents: w.liveSaldoCents },
+        { label: 'Variación del saldo del periodo', cents: w.owners.saldoCents },
+        { label: `Saldo real de clientes ${when}`, cents: w.liveSaldoCents },
       ],
     },
     outflow: {

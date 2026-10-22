@@ -234,7 +234,7 @@ describe('importar el fichero de Redsys', () => {
 });
 
 describe('importar el fichero de Paytef (datáfonos)', () => {
-  it('carga el terminal original y su alias de serie para operaciones repetidas', async () => {
+  it('dos datáfonos con la operación 77: cada línea casa con el cobro de su datáfono (identificador o número de serie)', async () => {
     const { svc, tx } = makeService();
     tx.payment.findMany.mockResolvedValue([
       { id: P1, tenantId: SALA_BAMBU, amountCents: 5000, tipCents: 0, authCode: null, authorizedAt: new Date('2026-10-13T21:00:00Z'), posOperationNumber: '77', posTerminalId: 'terminal-a' },
@@ -285,7 +285,7 @@ describe('importar el fichero de Paytef (datáfonos)', () => {
     ]);
   });
 
-  it('todo casado: no busca cobros perdidos; la devolución casa por la operación del cobro', async () => {
+  it('todo casado: la devolución casa por la operación del cobro; sin datáfono en el fichero mira si hay otro igual sin pagar', async () => {
     const csv = [
       'Fecha;Hora;Nº Operación;Tipo;Importe;Resultado',
       '13/10/2026;23:59:01;000077;Venta;50,00;Aprobada',
@@ -298,8 +298,13 @@ describe('importar el fichero de Paytef (datáfonos)', () => {
       { id: P2, tenantId: BAMBU_TERRAZA, amountCents: 2000, tipCents: 0, authCode: null, authorizedAt: new Date('2026-10-13T22:30:00Z'), posOperationNumber: null },
     ]);
     tx.refund.findMany.mockResolvedValue([{ id: 'r-77', paymentId: P1, tenantId: SALA_BAMBU, amountCents: 5000, bankRefundedAt: null, createdAt: new Date('2026-10-13T22:21:00Z'), payment: { posOperationNumber: '000077' } }]);
+    tx.payment.findMany.mockResolvedValueOnce(await tx.payment.findMany()).mockResolvedValueOnce([]);
+    tx.payment.findMany.mockClear();
     await svc.importStatement(OWNER, { source: 'PAYTEF', fileName: 'paytef.csv', content: Buffer.from(csv, 'utf8') }, NOW);
-    expect(tx.payment.findMany).toHaveBeenCalledTimes(1);
+    // El fichero no dice el datáfono: un 77 sin pagar de otro datáfono lo haría ambiguo.
+    expect(tx.payment.findMany).toHaveBeenCalledTimes(2);
+    expect(tx.payment.findMany.mock.calls[1]![0].where).toMatchObject({ status: { notIn: PAID } });
+    expect(tx.terminal.findMany).toHaveBeenCalledTimes(0);
     const items = tx.bankStatementItem.createMany.mock.calls[0]![0].data as Array<Record<string, unknown>>;
     expect(items.map((i) => [i.status, i.tenantId, i.paymentId, i.refundId, i.reference])).toEqual([
       ['MATCHED', SALA_BAMBU, P1, null, '000077'],

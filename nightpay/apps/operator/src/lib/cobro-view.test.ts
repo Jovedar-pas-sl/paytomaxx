@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { invitationRulesOf } from '@nightpay/contracts';
 import {
   failReasonOf,
   invitationSplit,
@@ -65,6 +66,14 @@ describe('esperando y resultado', () => {
     // Las tres partes.
     const three = invitationSplit({ chica: { kind: 'PERCENT', bps: 5000 }, camarero: { kind: 'FIXED', cents: 300 } }, 2000, true);
     expect(splitCells(three, { chica: 'Nerea', barra: 'Barra' }).map((c) => c.cents)).toEqual([1000, 300, 700]);
+  });
+
+  it('la tarjeta destacada en un local sin partes guardadas: 20 € = la chica 10 € y la barra 10 € (maqueta 2.6)', () => {
+    const split = invitationSplit(invitationRulesOf(null), 2000, true);
+    expect(splitCells(split, { chica: 'La chica', barra: 'La barra' })).toEqual([
+      { label: 'La chica', cents: 1000 },
+      { label: 'La barra', cents: 1000 },
+    ]);
   });
 
   it('cabecera y copa sola', () => {

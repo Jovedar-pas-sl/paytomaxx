@@ -58,6 +58,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     tab: 'wallets',
     hint: 'Asígnala con el código del cliente en Saldos, o con su NFC en Recepción.',
   },
+  wallet_card_lost: {
+    group: 'Saldo',
+    title: 'Un cliente ha bloqueado su NFC',
+    tab: 'wallets',
+    hint: 'Su saldo sigue valiendo con su código. Si viene a recepción, dale un NFC nuevo.',
+  },
   cash_split_suspected: {
     group: 'Efectivo',
     title: 'Efectivo troceado en saldos nuevos',

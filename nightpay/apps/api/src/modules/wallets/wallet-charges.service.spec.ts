@@ -338,9 +338,15 @@ describe('la página del saldo del cliente', () => {
 
   it('con su ficha dada (ISSUED, o ACTIVE de antes) → «Pagar» le dice que también paga con ella', async () => {
     const { svc, tx } = makeService();
-    tx.walletCard.count.mockResolvedValueOnce(1);
-    await expect(svc.clientState('tok')).resolves.toMatchObject({ hasCard: true });
-    expect(tx.walletCard.count).toHaveBeenCalledWith({ where: { walletId: 'w-1', status: { in: ['ISSUED', 'ACTIVE'] } } });
+    tx.walletCard.findMany.mockResolvedValueOnce([{ number: 417, printedNumber: null }]);
+    await expect(svc.clientState('tok')).resolves.toMatchObject({ hasCard: true, fichaNumber: '0417' });
+    expect(tx.walletCard.findMany).toHaveBeenCalledWith({
+      where: { walletId: 'w-1', status: { in: ['ISSUED', 'ACTIVE'] } },
+      select: { number: true, printedNumber: true },
+    });
+    // El número impreso de fábrica, si lo tiene, es el que se ve en el NFC.
+    tx.walletCard.findMany.mockResolvedValueOnce([{ number: 9, printedNumber: '00731' }]);
+    await expect(svc.clientState('tok')).resolves.toMatchObject({ fichaNumber: '00731' });
   });
 
   it('«Me voy» pedido: devolución de lo que queda, a las tarjetas de sus recargas', async () => {

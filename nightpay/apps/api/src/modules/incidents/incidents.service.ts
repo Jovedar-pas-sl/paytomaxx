@@ -33,6 +33,7 @@ import {
   stuckIncident,
   walletCreditSkippedIncident,
   walletTopUpUnassignedIncident,
+  walletCardLostIncident,
   type PendingTopUpRow,
   posReceptionLimitIncident,
   posUnprovenSalesIncident,
@@ -140,11 +141,11 @@ export class IncidentsService {
          WHERE a."tenantId" = ${tenantId}::uuid
            AND a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical',
                             'pos.reception_limit_exceeded', 'wallet.cash_split_suspected',
-                            'wallet.reception_payout_cap')
+                            'wallet.reception_payout_cap', 'wallet.card_blocked_by_client')
            AND NOT EXISTS (SELECT 1 FROM incident_acks k
                             WHERE k."tenantId" = a."tenantId"
                               AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped', 'pos_reception_limit',
-                                             'cash_split_suspected', 'reception_payout_cap')
+                                             'cash_split_suspected', 'reception_payout_cap', 'wallet_card_lost')
                               AND k."refId" = a.id::text)
            AND a."occurredAt" >= ${since}
          ORDER BY a."occurredAt" DESC
@@ -377,7 +378,9 @@ export class IncidentsService {
               ? cashSplitIncident(r)
               : r.action === 'wallet.reception_payout_cap'
                 ? receptionPayoutCapIncident(r)
-                : walletCreditSkippedIncident(r),
+                : r.action === 'wallet.card_blocked_by_client'
+                  ? walletCardLostIncident(r)
+                  : walletCreditSkippedIncident(r),
       ),
       ...unprovenSales.map(posUnprovenSalesIncident),
       ...nights.map(nightClosedPendingIncident),

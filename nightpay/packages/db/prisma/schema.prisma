@@ -569,8 +569,12 @@ model WalletCashTopUp {
   takenByUserId  String?  @db.Uuid
   terminalId     String?  @db.Uuid
   idempotencyKey String
-  /// Original target, independent of later wallet merges; null for legacy rows.
+  // Huella de lo pedido con la clave (destino tal como se pidió + importe) y
+  // el recibo que se enseñó: un reintento con otra petición da 409 y el mismo
+  // devuelve el mismo recibo, también si el saldo se sumó luego a otro. Null
+  // en las anteriores a 20261026000000.
   intentFingerprint String?
+  receipt           Json?
   createdAt      DateTime @default(now()) @db.Timestamptz
   /// La recarga abrió un saldo nuevo (aviso de saldos nuevos en efectivo seguidos).
   createdWallet  Boolean  @default(false)
@@ -824,11 +828,16 @@ model Refund {
   requestedBy      String       @db.Uuid
   status           RefundStatus @default(PENDING)
   providerRefundId String?
-  /// Null keys retain the legacy server-generated intention behavior.
-  idempotencyKey   String?
+  // Devolución pedida desde el panel (20261026000000): la clave de la
+  // pantalla, la huella de lo pedido (cobro, importe, quién) y la respuesta
+  // que se repite al reintentar. Null = sin clave (las de antes, las del banco).
+  idempotencyKey    String?
   intentFingerprint String?
-  replayResponse  Json?
-  earningReversalRetryAt DateTime? @db.Timestamptz
+  replayResponse    Json?
+  // Repaso del descuento a la chica: siguiente intento, intentos y último fallo.
+  earningReversalRetryAt   DateTime? @db.Timestamptz
+  earningReversalAttempts  Int       @default(0)
+  earningReversalLastError String?
   // Fase 1C: hecha en el portal del banco y apuntada a mano en el panel.
   registeredManually Boolean     @default(false)
   bankRefundedAt     DateTime?   @db.Timestamptz

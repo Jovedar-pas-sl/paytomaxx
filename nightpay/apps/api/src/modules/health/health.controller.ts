@@ -5,13 +5,15 @@ import type { Health } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
-import { deployedBuild } from './build-info';
+import { deployedBuild, type DeployedBuild } from './build-info';
 
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
   private readonly prisma: PrismaService;
   private readonly redis: Redis;
+  /** Qué código corre (build-info.json de la imagen): leído al arrancar, no en cada petición. */
+  private readonly build: DeployedBuild;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -19,6 +21,7 @@ export class HealthController {
   ) {
     this.prisma = prisma;
     this.redis = redis;
+    this.build = deployedBuild();
   }
 
   /**
@@ -66,9 +69,9 @@ export class HealthController {
 
     return {
       status: overall,
-      ...deployedBuild(),
+      ...this.build,
       timestamp: new Date().toISOString(),
       checks,
-    } as Health & { build: string };
+    };
   }
 }

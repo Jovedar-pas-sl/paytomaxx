@@ -156,37 +156,69 @@ afterAll(async () => {
 });
 
 describe('devoluciones a la vez del mismo cobro (Postgres real)', () => {
-  it('misma intención concurrente y respuesta perdida: una sola reserva, una llamada al banco y replay del refund completo', async () => {
+  it('la misma clave dos veces a la vez: una reserva, una llamada al banco; el reintento da la misma', async () => {
     const owner = await newOwner();
     const pay = await paidPayment(5000);
     const key = randomUUID();
     bank.calls = 0;
     bank.answer = 'SUCCEEDED';
     const results = await Promise.allSettled([refundAs(owner, pay, 5000, key), refundAs(owner, pay, 5000, key)]);
-    const first = results.find((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof refundAs>>> => r.status === 'fulfilled')!;
-    expect(first).toBeDefined();
+    const done = results.filter((x): x is PromiseFulfilledResult<Awaited<ReturnType<typeof refundAs>>> => x.status === 'fulfilled');
+    const waiting = results.filter((x): x is PromiseRejectedResult => x.status === 'rejected');
+    expect(done.length).toBeGreaterThanOrEqual(1);
+    // La otra o esperó al candado y vio la reserva en curso, o llegó cuando ya estaba hecha.
+    for (const w of waiting) expect(w.reason).toMatchObject({ response: expect.objectContaining({ code: 'REFUND_IN_PROGRESS' }) });
+    const first = done.find((d) => !('replayed' in d.value))!.value;
     expect(bank.calls).toBe(1);
-    await expect(refundAs(owner, pay, 5000, key)).resolves.toEqual(first.value);
+    // Respuesta perdida: el reintento con la misma clave devuelve la misma, sin ir al banco.
+    await expect(refundAs(owner, pay, 5000, key)).resolves.toEqual({ ...first, replayed: true });
     expect(await sys((tx) => tx.refund.count({ where: { paymentId: pay } }))).toBe(1);
-    const [otherOwner, otherPay] = [await newOwner(), await paidPayment(5000)];
-    await expect(refundAs(owner, pay, 1000, key)).rejects.toBeInstanceOf(ConflictException);
-    await expect(refundAs(otherOwner, pay, 5000, key)).rejects.toBeInstanceOf(ConflictException);
-    await expect(refundAs(owner, otherPay, 5000, key)).rejects.toBeInstanceOf(ConflictException);
+    expect(await stateOf(pay)).toMatchObject({ status: 'REFUNDED', available: 0 });
     expect(bank.calls).toBe(1);
   });
 
-  it('resultado desconocido conserva la misma reserva al reintentar la clave', async () => {
+  it('con la misma clave, otro importe, otra persona u otro cobro: 409 y no va al banco', async () => {
+    const owner = await newOwner();
+    const pay = await paidPayment(5000);
+    const key = randomUUID();
+    bank.calls = 0;
+    bank.answer = 'SUCCEEDED';
+    await refundAs(owner, pay, 1000, key);
+    const [otherOwner, otherPay] = [await newOwner(), await paidPayment(5000)];
+    for (const call of [() => refundAs(owner, pay, 2000, key), () => refundAs(otherOwner, pay, 1000, key), () => refundAs(owner, otherPay, 1000, key)]) {
+      await expect(call()).rejects.toMatchObject({ response: expect.objectContaining({ code: 'REFUND_KEY_REUSED' }) });
+    }
+    expect(bank.calls).toBe(1);
+    expect(await stateOf(pay)).toMatchObject({ available: 4000 });
+    expect(await stateOf(otherPay)).toMatchObject({ available: 5000 });
+  });
+
+  it('dos devoluciones parciales a propósito (claves distintas): salen las dos', async () => {
+    const owner = await newOwner();
+    const pay = await paidPayment(5000);
+    bank.calls = 0;
+    bank.answer = 'SUCCEEDED';
+    await refundAs(owner, pay, 1000, randomUUID());
+    await refundAs(owner, pay, 1000, randomUUID());
+    expect(bank.calls).toBe(2);
+    expect(await stateOf(pay)).toMatchObject({ status: 'PARTIALLY_REFUNDED', available: 3000 });
+  });
+
+  it('sin confirmar en el banco: el reintento da el mismo 502 y la misma reserva, sin otra llamada', async () => {
     const owner = await newOwner();
     const pay = await paidPayment(3000);
     const key = randomUUID();
     bank.calls = 0;
     bank.answer = 'PENDING';
-    const first = await refundAs(owner, pay, 3000, key).catch((e: { getResponse(): unknown }) => e.getResponse());
-    const replay = await refundAs(owner, pay, 3000, key).catch((e: { getResponse(): unknown }) => e.getResponse());
-    expect(replay).toEqual(first);
+    const first = await refundAs(owner, pay, 3000, key).catch((e: { getStatus(): number; getResponse(): unknown }) => e);
+    const replay = await refundAs(owner, pay, 3000, key).catch((e: { getStatus(): number; getResponse(): unknown }) => e);
+    expect(first.getStatus()).toBe(502);
+    expect(replay.getStatus()).toBe(502);
+    expect(replay.getResponse()).toEqual(first.getResponse());
     expect(bank.calls).toBe(1);
     expect(await stateOf(pay)).toMatchObject({ pendingCents: 3000, available: 3000 });
   });
+
   it('cinco de 15 € sobre un cobro de 60 €: salen cuatro, la quinta no llega al banco', async () => {
     const owner = await newOwner();
     const pay = await paidPayment(6000);
@@ -298,21 +330,35 @@ describe('sweep persistente (Postgres real)', () => {
       if (id !== last.id) throw new Error('persistent failure');
       await payments.applyRefundToEarning(p, id, amount);
     }) };
-    const sweep = new RefundReversalSweepService(prisma, retryPayments as never, observations);
+    const sweepAudit = { log: vi.fn(async () => undefined) };
+    const sweep = new RefundReversalSweepService(prisma, retryPayments as never, observations, sweepAudit as never);
     try {
       expect(await sweep.sweep(now)).toEqual({ checked: 100, applied: 0, failed: 100 });
-      const restarted = new RefundReversalSweepService(prisma, retryPayments as never, observations);
-      expect(await restarted.sweep(new Date(now.getTime() + 10 * 60_000))).toEqual({ checked: 1, applied: 1, failed: 0 });
+      // Tras reiniciar, antes del siguiente intento de las que fallaron: solo la 101.
+      const restarted = new RefundReversalSweepService(prisma, retryPayments as never, observations, sweepAudit as never);
+      expect(await restarted.sweep(new Date(now.getTime() + 5 * 60_000))).toEqual({ checked: 1, applied: 1, failed: 0 });
       expect(retryPayments.applyRefundToEarning).toHaveBeenLastCalledWith(pay, last.id, 1);
       const deferred = await sys((tx) => tx.refund.findMany({ where: { id: { in: ids }, earningReversalRetryAt: { not: null } } }));
       expect(deferred).toHaveLength(100);
-      expect(deferred.every((r) => r.createdAt < now && r.earningReversalRetryAt! > now)).toBe(true);
+      for (const r of deferred) {
+        expect(r).toMatchObject({ earningReversalAttempts: 1, earningReversalLastError: 'persistent failure' });
+        expect(r.earningReversalRetryAt!.getTime()).toBe(now.getTime() + 10 * 60_000);
+      }
+      // Una que ya lleva 4 fallos: el quinto la manda a Incidencias con su motivo.
+      const stuck = ids[0]!;
+      await sys((tx) => tx.refund.update({ where: { id: stuck }, data: { earningReversalAttempts: 4, earningReversalRetryAt: new Date(now.getTime() - 60_000) } }));
+      await restarted.sweep(new Date(now.getTime() + 6 * 60_000));
+      expect(sweepAudit.log).toHaveBeenCalledTimes(1);
+      expect(sweepAudit.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'refund.earning_reverse_failed', tenantId: A, payload: expect.objectContaining({ refundId: stuck, attempts: 5, error: 'persistent failure' }) }),
+      );
+      const after = await sys((tx) => tx.refund.findUniqueOrThrow({ where: { id: stuck } }));
+      expect(after.earningReversalRetryAt!.getTime()).toBe(now.getTime() + 6 * 60_000 + 160 * 60_000);
       sweep.onModuleInit();
       await observations.render();
-      const backlog = await observations.earningReversalPending.get();
-      const age = await observations.earningReversalOldestAge.get();
-      expect(backlog.values[0]!.value).toBeGreaterThanOrEqual(100);
-      expect(age.values[0]!.value).toBeGreaterThan(100_000_000);
+      expect((await observations.earningReversalPending.get()).values[0]!.value).toBeGreaterThanOrEqual(100);
+      expect((await observations.earningReversalOldestAge.get()).values[0]!.value).toBeGreaterThan(100_000_000);
+      expect((await observations.earningReversalNeedsHuman.get()).values[0]!.value).toBeGreaterThanOrEqual(1);
     } finally {
       sweep.onModuleDestroy();
       await sys(async (tx) => {

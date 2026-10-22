@@ -56,12 +56,19 @@ Sin `SENTRY_DSN` el SDK no se inicializa (no-op). Apto para dev.
 | `nightpay_ws_connections_active` | Gauge | Conexiones realtime |
 | `nightpay_queue_depth` | Gauge | Trabajos sin terminar por cola: waiting + active + delayed + prioritized + waiting-children + paused |
 | `nightpay_queue_jobs` | Gauge | Cantidad real por cola y estado; completed/failed se exponen aparte del backlog |
-| `nightpay_queue_oldest_age_seconds` | Gauge | Edad máxima desde creación en waiting/active/prioritized/paused; excluye delayed y waiting-children |
+| `nightpay_queue_oldest_age_seconds` | Gauge | Edad desde creación del más antiguo de la cabeza de waiting/active/prioritized/paused; excluye delayed y waiting-children |
 | `nightpay_queue_metrics_up` | Gauge | 1 si se consultó Redis en este scrape, 0 si falló o excedió 2 s |
+| `nightpay_earning_reversal_pending` | Gauge | Devoluciones hechas sin descontar a la chica, también las que esperan su siguiente intento |
+| `nightpay_earning_reversal_oldest_age_seconds` | Gauge | Segundos desde la devolución de la más antigua sin descontar (reintentar no la rejuvenece) |
+| `nightpay_earning_reversal_needs_human` | Gauge | Las que el repaso no consigue arreglar (5 fallos): salen en Incidencias con su motivo |
+| `nightpay_earning_reversal_metrics_up` | Gauge | 1 si se consultó la base en este scrape, 0 si falló o excedió 2 s |
 
 El scrape consulta las cinco colas registradas de BullMQ, incluida la cola de
 conciliación retirada para detectar residuos. No crea conexiones ni temporizadores
-de sondeo; BullMQ conserva su ciclo de vida. Las consultas de antigüedad se paginan.
+de sondeo; BullMQ conserva su ciclo de vida. La antigüedad sale de UNA lectura
+acotada de la cabeza de cada estado (los 50 más antiguos de cada lista): con
+100.000 trabajos en cola cuesta lo mismo que con 10, así que la métrica no
+desaparece justo cuando hay atasco.
 Ante fallo se omiten depth/age/jobs de esa cola, para no presentar un valor antiguo
 como actual; otras métricas y colas siguen disponibles. El muestreo de Redis no
 es una transacción y puede variar mientras los workers procesan trabajos.
@@ -82,15 +89,25 @@ Ver `alerts.yml`:
 3. **GatewayCircuitOpen** — `circuit_state == 2` durante 2 min
 4. **QueueBacklog / QueueOldestJob** — >1000 trabajos durante 10 min / un trabajo listo o activo creado hace >10 min durante 5 min. La edad no mide tiempo desde su disponibilidad.
 5. **QueueMetricsUnavailable / QueueFailedJobs** — consulta Redis fallida durante 2 min / trabajos fallidos retenidos durante 10 min.
-6. **EarningReversalOldest / EarningReversalMetricsUnavailable** — una devolución hecha sin descuento de ganancia desde hace más de 30 min durante 5 min / consulta PostgreSQL fallida durante 2 min. `nightpay_earning_reversal_pending` y `nightpay_earning_reversal_oldest_age_seconds` incluyen los reintentos diferidos; el backoff nunca cambia la fecha original del refund. Si falla la consulta se omiten ambos valores, con `nightpay_earning_reversal_metrics_up = 0`.
+6. **EarningReversalOldest / EarningReversalNeedsHuman / EarningReversalMetricsUnavailable** — una devolución hecha sin descuento de ganancia desde hace más de 30 min durante 5 min / alguna que el repaso no consigue arreglar (5 fallos seguidos; la espera entre intentos crece de 10 min a 12 h) / consulta PostgreSQL fallida durante 2 min. Las cifras incluyen los reintentos diferidos; el backoff nunca cambia la fecha original del refund. Si falla la consulta se omiten los valores, con `nightpay_earning_reversal_metrics_up = 0`.
+
+Las colas viven en Redis y el backlog de descuentos en la base: cada réplica
+del API exporta lo mismo. Esas alertas agregan con `max by (job[, queue])`
+para no repetirse por réplica; las de `_up` siguen por réplica (es esa la que
+no consigue leer).
 
 Se retiró `PayoutsReconcileBacklog`: las transiciones de pagos no medían payouts
 pendientes ni la conciliación diaria, que está retirada.
 
-Las pruebas unitarias verifican contratos de reglas y el productor real con colas
-simuladas. Si `promtool` ya está disponible, desde este directorio ejecutar
-`promtool check rules alerts.yml` y `promtool test rules alerts.test.yml` para
-evaluar las series sintéticas de tasas altas, bajas y tráfico cero.
+Las pruebas unitarias verifican que las reglas usan métricas que el API exporta
+y el productor real con colas simuladas. CI (job `docker`) ejecuta
+`promtool check rules alerts.yml` y `promtool test rules alerts.test.yml`: cada
+alerta de colas y descuentos dispara con series sintéticas, no se repite por
+réplica y se resuelve cuando la causa se va. En local, con Docker:
+
+```bash
+docker run --rm --entrypoint /bin/promtool -v "$PWD:/rules:ro" -w /rules prom/prometheus:v2.55.1 test rules alerts.test.yml
+```
 
 ## Dashboard layout
 

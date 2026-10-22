@@ -8,7 +8,10 @@ import { z } from 'zod';
  * servicios de la carta en Copas (`isInvitation`), con su propio precio.
  *
  * Partes en `venues.invitationRules` (migración 20261023100200). Las de
- * fábrica son PROVISIONALES (chica 50 %, camarero 0 %): las pone el dueño.
+ * fábrica (maqueta 2.6 aprobada: 20 € = 10 € la chica y 10 € la barra):
+ * chica 50 %, camarero 50 %. Solo valen para un local sin partes guardadas
+ * (NULL); guardar en Ajustes las escribe todas. Lo ya cobrado no cambia: las
+ * partes se fijan en la línea al cobrar.
  */
 
 export type InvitationShare = { kind: 'PERCENT'; bps: number } | { kind: 'FIXED'; cents: number };
@@ -30,10 +33,10 @@ export interface InvitationRules {
   requireQr?: boolean;
 }
 
-/** Provisionales hasta que el dueño ponga las suyas. */
+/** Las de fábrica, hasta que el dueño ponga las suyas (maqueta 2.6: la chica 10 €, la barra 10 € de 20 €). */
 export const DEFAULT_INVITATION_RULES: Readonly<InvitationRules> = {
   chica: { kind: 'PERCENT', bps: 5000 },
-  camarero: { kind: 'PERCENT', bps: 0 },
+  camarero: { kind: 'PERCENT', bps: 5000 },
   inviteFirst: true,
   requireQr: true,
 };

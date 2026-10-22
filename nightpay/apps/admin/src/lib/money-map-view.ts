@@ -66,6 +66,8 @@ export interface MoneyMapView {
   /** «+ Recargas 3.070 €: efectivo 1.070 € · tarjeta 2.000 € · no es venta» (null si no hubo). */
   topUps: { cents: number; detail: string } | null;
   sections: SectionRow[];
+  /** Cómo se reparte lo vendido: el local, el personal y las comisiones (cada uno su gris; las comisiones, rayadas). */
+  split: Segment[];
   where: { totalCents: number; places: Segment[]; owners: Segment[]; balance: { label: string; cents: number | null }; note: string | null };
   outflow: OutRow[];
 }
@@ -149,8 +151,28 @@ function whereNote(m: MoneyMap): string | null {
 }
 
 /** Un Z recalculado sigue siendo histórico aunque no tenga snapshot congelado. */
-export function moneyMapIsCurrent(m: MoneyMap): boolean {
+export function moneyMapIsCurrent(m: Pick<MoneyMap, 'frozen' | 'scope'>): boolean {
   return !m.frozen && m.scope.kind === 'night' && (m.scope.open || m.scope.nightId === null);
+}
+
+/** «De chicas», «De camareros» o «Del personal», según a quién le toque. */
+function staffLabel(chicas: number, camareros: number, words: { chicas: string; camareros: string; both: string }): string {
+  if (camareros > 0 && chicas > 0) return words.both;
+  return camareros > 0 ? words.camareros : words.chicas;
+}
+
+function splitSegments(m: MoneyMap): Segment[] {
+  const s = m.split;
+  return [
+    { key: 'venue', label: 'Local', cents: s.venueCents, color: 'var(--np-mm-tuyo)' },
+    {
+      key: 'staff',
+      label: staffLabel(s.chicasCents, s.camarerosCents, { chicas: 'Chicas', camareros: 'Camareros', both: 'Personal' }),
+      cents: s.chicasCents + s.camarerosCents,
+      color: 'var(--np-mm-personal)',
+    },
+    { key: 'fees', label: 'Comisiones', cents: s.commissions.totalCents, color: 'var(--np-mm-comision)' },
+  ];
 }
 
 export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): MoneyMapView {
@@ -184,6 +206,7 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
           }
         : null,
     sections: rows,
+    split: splitSegments(m),
     where: {
       totalCents: m.where.totalCents,
       places: [
@@ -194,13 +217,14 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
         { key: 'venue', label: 'Tuyo', cents: m.where.owners.venueCents, color: 'var(--np-mm-tuyo)' },
         {
           key: 'staff',
-          label: camareros > 0 && staff > camareros ? 'Del personal' : camareros > 0 ? 'De camareros' : 'De chicas',
+          label: staffLabel(staff - camareros, camareros, { chicas: 'De chicas', camareros: 'De camareros', both: 'Del personal' }),
           cents: staff,
           color: 'var(--np-mm-personal)',
         },
-        { key: 'saldo', label: 'Variación de saldo', cents: m.where.owners.saldoCents, color: 'var(--np-mm-saldo)' },
+        // No es el saldo de los clientes: lo que el periodo sumó o restó a ese saldo.
+        { key: 'saldo', label: 'Variación del saldo del periodo', cents: m.where.owners.saldoCents, color: 'var(--np-mm-saldo)' },
       ],
-      balance: { label: `Saldo total de clientes ${moneyMapIsCurrent(m) ? 'ahora' : 'al corte'}`, cents: m.where.liveSaldoCents },
+      balance: { label: `Saldo real de clientes ${moneyMapIsCurrent(m) ? 'ahora' : 'al corte'}`, cents: m.where.liveSaldoCents },
       note: whereNote(m),
     },
     outflow: outflowRows(m),

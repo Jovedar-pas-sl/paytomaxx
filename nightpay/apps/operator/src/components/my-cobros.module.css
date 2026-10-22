@@ -1,0 +1,196 @@
+/* «Cobros» del camarero: de un vistazo, a oscuras y con prisa. */
+
+.list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.title {
+  margin: 0;
+}
+
+.note {
+  margin: 0;
+  color: var(--np-text-mute);
+  font-size: 0.9375rem;
+}
+
+/* El total de la noche, arriba. */
+.night {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.875rem 1rem 1rem;
+  border-radius: var(--np-r-lg);
+  background:
+    var(--np-bits),
+    linear-gradient(125deg, var(--np-green-1), var(--np-green-2));
+  box-shadow: 0 0 0 1.5px var(--np-lime-edge);
+  color: var(--np-cream);
+}
+
+.kicker {
+  font: 700 0.8125rem/1.2 var(--np-font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.nightTotal {
+  font: 800 2.5rem/1.05 var(--np-font-num);
+  letter-spacing: -0.03em;
+  color: var(--np-lime);
+}
+
+.nightLine {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.night .note {
+  color: var(--np-cream);
+  opacity: 0.85;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+}
+
+.tipTag,
+.saleTag,
+.waitTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: var(--np-r-pill);
+  font-size: 0.875rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tipTag {
+  background: var(--np-sec-propinas);
+  color: var(--np-on-section);
+}
+
+.saleTag {
+  background: var(--np-pill-mute-bg);
+  color: var(--np-text-label);
+  border: 1px dashed var(--np-border-hi);
+}
+
+.waitTag {
+  background: var(--np-pill-warning-bg);
+  color: var(--np-warning);
+}
+
+.night .saleTag {
+  background: rgb(0 0 0 / 0.25);
+  color: var(--np-cream);
+  border-color: var(--np-lime-edge);
+}
+
+/* Un cobro: el borde y el chip, del color de su estado. */
+.row {
+  --row-c: var(--np-text-mute);
+  --row-bg: var(--np-pill-mute-bg);
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.875rem 1rem 1rem;
+  border: 1px solid var(--np-border);
+  border-left: 0.375rem solid var(--row-c);
+  border-radius: var(--np-r-lg);
+  background: var(--np-surface);
+  min-width: 0;
+}
+
+.row[data-tone='ok'] { --row-c: var(--np-success); --row-bg: var(--np-pill-success-bg); }
+.row[data-tone='wait'] { --row-c: var(--np-warning); --row-bg: var(--np-pill-warning-bg); }
+.row[data-tone='bad'] { --row-c: var(--np-danger); --row-bg: var(--np-pill-danger-bg); }
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2rem;
+  padding: 0 0.75rem 0 0.5rem;
+  border-radius: var(--np-r-pill);
+  background: var(--row-bg);
+  color: var(--row-c);
+  border: 1.5px solid var(--row-c);
+  font-size: 0.9375rem;
+  font-weight: 800;
+}
+
+.chip svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: none;
+}
+
+.time {
+  font: 700 1rem var(--np-font-num);
+  color: var(--np-text-label);
+}
+
+.amount {
+  font: 800 1.75rem/1.1 var(--np-font-num);
+  letter-spacing: -0.02em;
+}
+
+.amount[data-gone] {
+  color: var(--np-text-mute);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+/* La propina, en su línea: una pastilla del color de Propinas (se lee en los dos temas). */
+.tip {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-sec-propinas);
+  color: var(--np-on-section);
+  font-size: 0.9375rem;
+  font-weight: 800;
+}
+
+.refund {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--np-text-label);
+}
+
+.what {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.invited {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.meta {
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+  overflow-wrap: anywhere;
+}

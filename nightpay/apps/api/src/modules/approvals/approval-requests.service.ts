@@ -270,11 +270,19 @@ export class ApprovalRequestsService {
       if (input.idempotencyKey) {
         await lockRefundIntent(tx, actor.tenantId, input.idempotencyKey);
         const prior = await findRefundApproval(tx, input, actor);
-        if (prior) return { row: prior, expired: [], replayed: true };
-        const refund = await tx.refund.findUnique({ where: { tenantId_idempotencyKey: { tenantId: actor.tenantId, idempotencyKey: input.idempotencyKey } } });
+        if (prior) return { row: stillRequested(prior), expired: [], replayed: true };
+        // Con esta clave ya salió una devolución directa (a la vez que esta):
+        // la pantalla reintenta y recupera su resultado.
+        const refund = await tx.refund.findUnique({
+          where: { tenantId_idempotencyKey: { tenantId: actor.tenantId, idempotencyKey: input.idempotencyKey } },
+        });
         if (refund) {
-          assertRefundIntent(refund.intentFingerprint, input, actor);
-          throw new ConflictException({ message: 'Esta devolución ya está en curso: reintenta la misma solicitud para recuperar su resultado.', code: 'REFUND_IN_PROGRESS', refundId: refund.id });
+          assertRefundIntent(refund.intentFingerprint, input, actor, refund);
+          throw new ConflictException({
+            message: 'Esta devolución ya está en curso: vuelve a confirmar en un momento para ver en qué quedó.',
+            code: 'REFUND_IN_PROGRESS',
+            refundId: refund.id,
+          });
         }
       }
       const payment = await tx.payment.findFirst({
@@ -330,10 +338,14 @@ export class ApprovalRequestsService {
     return this.requestedResponse(row as ApprovalRow);
   }
 
+  /**
+   * La solicitud al dueño hecha antes con esta clave (null si no hay): sigue
+   * pedida (el mismo 202) o ya se decidió (409, para que la pantalla lo diga).
+   */
   async replayRefund(actor: ApprovalActor, input: RefundToRequest): Promise<ApprovalRequestedResponse | null> {
     if (!input.idempotencyKey) return null;
     const row = await this.prisma.withTenant(actor.tenantId, (tx) => findRefundApproval(tx, input, actor));
-    return row ? this.requestedResponse(row as ApprovalRow) : null;
+    return row ? this.requestedResponse(stillRequested(row) as ApprovalRow) : null;
   }
 
   private requestedResponse(row: ApprovalRow): ApprovalRequestedResponse {
@@ -577,4 +589,25 @@ function assertRefundableByApi(payment: { provider: string | null; providerTxId:
       'Redsys no devuelve por API: el dueño la hace en el portal de BBVA y la apunta en «Devolución BBVA».',
     );
   }
+}
+
+/**
+ * Reintento de una devolución pedida al dueño: si sigue pendiente, la misma
+ * respuesta; si el dueño ya la aprobó, que se vuelva a mirar (la devolución
+ * está saliendo o salió); si se rechazó, caducó o falló, 409 para empezar otra.
+ */
+function stillRequested<T extends { id: string; status: ApprovalStatus }>(row: T): T {
+  if (row.status === 'PENDING') return row;
+  if (row.status === 'APPROVED') {
+    throw new ConflictException({
+      message: 'El dueño ya aprobó esta devolución: vuelve a confirmar en un momento para ver en qué quedó.',
+      code: 'REFUND_IN_PROGRESS',
+      approvalRequestId: row.id,
+    });
+  }
+  throw new ConflictException({
+    message: `${notPendingMessage(row.status)} Si aún hay que devolverlo, empieza una devolución nueva.`,
+    code: 'REFUND_APPROVAL_CLOSED',
+    approvalRequestId: row.id,
+  });
 }

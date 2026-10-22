@@ -24,6 +24,7 @@ import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
 import { envWarnings } from './config/env-warnings';
 import { initSentry } from './common/observability/sentry';
+import { deployedBuild } from './modules/health/build-info';
 import { RedisIoAdapter } from './modules/realtime/realtime.adapter';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
 
@@ -38,10 +39,12 @@ async function bootstrap() {
   for (const warning of envWarnings(env)) logger.warn(warning);
 
   // Sentry primero — para capturar fallos de bootstrap
+  // La release de Sentry es la misma versión que enseña /v1/health (build-info.json).
+  const build = deployedBuild();
   initSentry({
     SENTRY_DSN: env.SENTRY_DSN,
     NODE_ENV: env.NODE_ENV,
-    GIT_SHA: env.GIT_SHA,
+    GIT_SHA: build.version === 'unknown' ? env.GIT_SHA : build.version,
   });
 
   const adapter = new FastifyAdapter({

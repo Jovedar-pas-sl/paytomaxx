@@ -32,8 +32,11 @@ export interface OurSale {
   tenantId: string;
   /** Pedidos Redsys de sus intentos aprobados, o su número de operación del datáfono. */
   references: string[];
+  /**
+   * Datáfono que lo cobró, tal como lo nombra el fichero (su identificador o
+   * su número de serie); null si no se sabe o el fichero no lo trae.
+   */
   terminal: string | null;
-  terminalAliases?: string[];
   authCode: string | null;
   /** Lo cobrado al cliente (con propina). */
   amountCents: number;
@@ -47,8 +50,8 @@ export interface OurRefund {
   tenantId: string;
   /** Referencias del cobro devuelto. */
   paymentReferences: string[];
+  /** Datáfono del cobro devuelto, como lo nombra el fichero (ver OurSale). */
   terminal?: string | null;
-  terminalAliases?: string[];
   amountCents: number;
   at: Date;
 }
@@ -58,8 +61,8 @@ export interface StrayPayment {
   paymentId: string;
   tenantId: string;
   references: string[];
+  /** Datáfono, como lo nombra el fichero (ver OurSale). */
   terminal?: string | null;
-  terminalAliases?: string[];
   amountCents: number;
 }
 
@@ -124,6 +127,12 @@ export function reconcile(input: {
   refunds: OurRefund[];
   strays: StrayPayment[];
   /**
+   * Los nombres de datáfono del fichero que son de un datáfono nuestro (Paytef).
+   * Un nombre que no está aquí es de un datáfono que no sabemos cuál es: solo
+   * casa con lo nuestro cuyo datáfono no sale con nombre en el fichero.
+   */
+  knownTerminals?: ReadonlySet<string>;
+  /**
    * Los días que cubre el fichero. Lo de aquí se carga con margen (para casar
    * un cobro de las 23:59 que el banco apunta a las 00:00), pero solo se
    * avisa de "falta en el banco" de lo que cae dentro.
@@ -143,27 +152,32 @@ export function reconcile(input: {
 
   const items: ReconItem[] = [];
   const usedSales = new Set<OurSale>();
+  const known = input.knownTerminals ?? new Set<string>();
   const saleByRef = indexByReference(input.sales, (s) => s.references);
   const strayByRef = indexByReference(input.strays, (s) => s.references);
+  const sameRefAndTerminal = <T extends { terminal?: string | null }>(row: BankRow, byRef: Map<string, T[]>): T[] => {
+    const key = row.reference ? referenceKey(row.reference) : '';
+    return key ? (byRef.get(key) ?? []).filter((x) => sameTerminal(row, x, known)) : [];
+  };
 
-  // 1) Por referencia.
+  // 1) Por referencia (en Paytef, número de operación DENTRO de su datáfono:
+  //    dos datáfonos repiten números). Si la referencia lleva a más de un cobro
+  //    nuestro (pagado o no), no se elige ninguno: ni por orden ni por importe.
   const pending: BankRow[] = [];
   for (const row of saleRows) {
-    const key = row.reference ? referenceKey(row.reference) : '';
-    const candidates = key ? (saleByRef.get(key) ?? []).filter((s) => sameTerminal(row, s)) : [];
-    const strayCandidates = key ? (strayByRef.get(key) ?? []).filter((s) => sameTerminal(row, s)) : [];
-    // All states participate in ambiguity, including a paid sale and an orphan.
+    const candidates = sameRefAndTerminal(row, saleByRef);
+    const strayCandidates = sameRefAndTerminal(row, strayByRef);
     if (candidates.length + strayCandidates.length > 1) {
       items.push({ ...bankSide(row, 'SALE'), status: 'NOT_IN_OXIOPAY' });
       continue;
     }
-    const sale = candidates.length === 1 ? candidates[0] : undefined;
+    const sale = candidates[0];
     if (sale && !usedSales.has(sale)) {
       usedSales.add(sale);
       items.push(saleItem(row, sale));
       continue;
     }
-    const stray = strayCandidates.length === 1 ? strayCandidates[0] : undefined;
+    const stray = strayCandidates[0];
     if (stray) {
       items.push({
         ...bankSide(row, 'SALE'),
@@ -174,15 +188,14 @@ export function reconcile(input: {
       });
       continue;
     }
-    // A duplicate bank line cannot consume an unrelated fallback sale.
-    if (sale) {
-      items.push({ ...bankSide(row, 'SALE'), status: 'NOT_IN_OXIOPAY' });
-    } else pending.push(row);
+    // Su cobro ya lo casó otra línea (línea repetida): no se casa con otro por importe.
+    if (sale) items.push({ ...bankSide(row, 'SALE'), status: 'NOT_IN_OXIOPAY' });
+    else pending.push(row);
   }
 
   // 2) Sin referencia que case: importe + autorización + hora.
   for (const row of pending) {
-    const sale = closestSale(row, input.sales, usedSales);
+    const sale = closestSale(row, input.sales, usedSales, known);
     if (sale) {
       usedSales.add(sale);
       items.push(saleItem(row, sale));
@@ -213,7 +226,7 @@ export function reconcile(input: {
   // 4) Devoluciones.
   const usedRefunds = new Set<OurRefund>();
   for (const row of refundRows) {
-    const refund = matchRefund(row, input.refunds, usedRefunds);
+    const refund = matchRefund(row, input.refunds, usedRefunds, known);
     if (refund) {
       usedRefunds.add(refund);
       items.push({
@@ -226,8 +239,8 @@ export function reconcile(input: {
       });
       continue;
     }
-    const key = row.reference ? referenceKey(row.reference) : '';
-    const ofCandidates = key ? [...(saleByRef.get(key) ?? []), ...(strayByRef.get(key) ?? [])].filter((s) => sameTerminal(row, s)) : [];
+    // De qué cobro es, solo si la referencia lleva a uno solo.
+    const ofCandidates = [...sameRefAndTerminal(row, saleByRef), ...sameRefAndTerminal(row, strayByRef)];
     const of = ofCandidates.length === 1 ? ofCandidates[0] : undefined;
     items.push({
       ...bankSide(row, 'REFUND'),
@@ -246,7 +259,7 @@ export function reconcile(input: {
       bankAmountCents: null,
       oursAmountCents: refund.amountCents,
       reference: refund.paymentReferences[0] ?? null,
-      terminal: null,
+      terminal: refund.terminal ?? null,
       authCode: null,
       paymentId: refund.paymentId,
       refundId: refund.refundId,
@@ -307,79 +320,117 @@ function indexByReference<T>(list: T[], refs: (t: T) => string[]): Map<string, T
   return map;
 }
 
-function sameTerminal(a: { terminal?: string | null; terminalAliases?: string[] }, b: { terminal?: string | null; terminalAliases?: string[] }): boolean {
-  if (!a.terminal || !b.terminal) return true; // Legacy data can only match an unambiguous reference.
-  const aliases = [b.terminal, ...(b.terminalAliases ?? [])].map((t) => t.trim());
-  return [a.terminal, ...(a.terminalAliases ?? [])].some((t) => aliases.includes(t.trim()));
+/**
+ * ¿Puede ser lo nuestro (cobro, devolución) de este datáfono del fichero?
+ * Sin datáfono en la línea, cualquiera (ficheros sin esa columna). Si lo
+ * nuestro tiene nombre en el fichero, el mismo. Si no lo tiene (no se sabe su
+ * datáfono, o el suyo no sale en el fichero), solo una línea de un datáfono
+ * que no es ninguno de los conocidos.
+ */
+export function sameTerminal(row: BankRow, ours: { terminal?: string | null }, known: ReadonlySet<string>): boolean {
+  const bank = row.terminal?.trim();
+  if (!bank) return true;
+  const mine = ours.terminal?.trim();
+  return mine ? bank === mine : !known.has(bank);
 }
 
-function closestSale(row: BankRow, sales: OurSale[], used: Set<OurSale>): OurSale | null {
-  let best: OurSale | null = null;
+/** Dos líneas del fichero del mismo datáfono (o sin él en alguna). */
+function sameBankTerminal(a: BankRow, b: BankRow): boolean {
+  const x = a.terminal?.trim();
+  const y = b.terminal?.trim();
+  return !x || !y || x === y;
+}
+
+/** La más cercana en el tiempo; un empate entre dos distintas, ninguna (ambiguo). */
+function closest<T>(list: T[], gapOf: (t: T) => number, same: (a: T, b: T) => boolean = () => false): T | null {
+  let best: T | null = null;
   let bestGap = Number.POSITIVE_INFINITY;
-  for (const sale of sales) {
-    if (used.has(sale) || sale.amountCents !== row.amountCents) continue;
-    const sameAuth = Boolean(row.authCode && sale.authCode && row.authCode.trim() === sale.authCode.trim());
-    if (row.reference && sale.references.length > 0 && !sameAuth) continue;
-    if (row.authCode && sale.authCode && !sameAuth) continue;
-    if (!sameTerminal(row, sale)) continue;
-    const gap = row.at ? Math.abs(row.at.getTime() - sale.at.getTime()) : 0;
-    if (row.at && gap > FALLBACK_WINDOW_MS) continue;
+  let tied = false;
+  for (const item of list) {
+    const gap = gapOf(item);
     if (gap < bestGap) {
-      best = sale;
+      best = item;
       bestGap = gap;
-    } else if (gap === bestGap) {
-      best = null;
+      tied = false;
+    } else if (gap === bestGap && best !== null && !same(best, item)) {
+      tied = true;
     }
   }
-  return best;
+  return tied ? null : best;
 }
 
-function matchRefund(row: BankRow, refunds: OurRefund[], used: Set<OurRefund>): OurRefund | null {
+function closestSale(row: BankRow, sales: OurSale[], used: Set<OurSale>, known: ReadonlySet<string>): OurSale | null {
+  const fits = sales.filter((sale) => {
+    if (used.has(sale) || sale.amountCents !== row.amountCents) return false;
+    const sameAuth = Boolean(row.authCode && sale.authCode && row.authCode.trim() === sale.authCode.trim());
+    if (row.reference && sale.references.length > 0 && !sameAuth) return false;
+    if (row.authCode && sale.authCode && !sameAuth) return false;
+    if (!sameTerminal(row, sale, known)) return false;
+    return !row.at || Math.abs(row.at.getTime() - sale.at.getTime()) <= FALLBACK_WINDOW_MS;
+  });
+  return closest(fits, (sale) => (row.at ? Math.abs(row.at.getTime() - sale.at.getTime()) : 0));
+}
+
+/**
+ * La devolución nuestra de una línea de devolución del banco: el mismo
+ * importe y datáfono y, con referencia, del cobro de esa referencia. Dos
+ * devoluciones iguales del MISMO cobro son intercambiables (dos parciales de
+ * 5 €): se coge la más cercana. Si la referencia lleva a cobros distintos,
+ * ninguna. Sin referencia, la más cercana en el tiempo (un empate, ninguna).
+ */
+function matchRefund(row: BankRow, refunds: OurRefund[], used: Set<OurRefund>, known: ReadonlySet<string>): OurRefund | null {
   const key = row.reference ? referenceKey(row.reference) : '';
-  const candidates = refunds.filter((r) => !used.has(r) && sameTerminal(row, r));
+  const fits = refunds.filter((r) => !used.has(r) && r.amountCents === row.amountCents && sameTerminal(row, r, known));
+  const gap = (r: OurRefund) => (row.at ? Math.abs(row.at.getTime() - r.at.getTime()) : 0);
+  const samePayment = (a: OurRefund, b: OurRefund) => a.paymentId === b.paymentId;
   if (key) {
-    const byRef = candidates.filter((r) => r.paymentReferences.some((p) => referenceKey(p) === key));
-    if (byRef.length > 0) return byRef.length === 1 && byRef[0]!.amountCents === row.amountCents ? byRef[0]! : null;
+    const byRef = fits.filter((r) => r.paymentReferences.some((p) => referenceKey(p) === key));
+    if (byRef.length > 0) {
+      return byRef.every((r) => r.paymentId === byRef[0]!.paymentId) ? closest(byRef, gap, () => true) : null;
+    }
   }
   // Sin referencia que case: solo con devoluciones de aquí sin referencia (o
   // filas del banco sin ella), la misma cantidad y cerca en el tiempo.
-  const loose = candidates.filter((r) => r.amountCents === row.amountCents && (!key || r.paymentReferences.length === 0));
-  if (!row.at) return loose.length === 1 ? loose[0]! : null;
-  let best: OurRefund | null = null;
-  let bestGap = Number.POSITIVE_INFINITY;
-  for (const r of loose) {
-    const gap = Math.abs(row.at.getTime() - r.at.getTime());
-    if (gap > REFUND_FALLBACK_WINDOW_MS) continue;
-    if (gap < bestGap) {
-      best = r;
-      bestGap = gap;
-    } else if (gap === bestGap) {
-      best = null;
-    }
-  }
-  return best;
+  const loose = fits.filter(
+    (r) => (!key || r.paymentReferences.length === 0) && (!row.at || gap(r) <= REFUND_FALLBACK_WINDOW_MS),
+  );
+  return closest(loose, gap, samePayment);
 }
 
 /**
  * Lo que anula una anulación (una venta o una devolución): misma referencia
- * e importe; sin referencia, mismo importe y datáfono en las horas anteriores.
+ * e importe, del mismo datáfono; sin referencia, mismo importe y datáfono en
+ * las horas anteriores. Si puede ser de más de una operación distinta (otro
+ * datáfono, o una venta y una devolución), no anula ninguna.
  */
 function findVoided(v: BankRow, rows: BankRow[], taken: Set<BankRow>): BankRow | null {
-  const open = rows.filter((r) => (r.kind === 'SALE' || r.kind === 'REFUND') && !taken.has(r) && sameTerminal(v, r));
+  const open = rows.filter((r) => (r.kind === 'SALE' || r.kind === 'REFUND') && !taken.has(r) && sameBankTerminal(v, r));
   if (v.reference) {
     const key = referenceKey(v.reference);
     const byRef = open.filter((r) => r.reference && referenceKey(r.reference) === key);
-    if (!v.terminal && new Set(byRef.map((r) => r.terminal).filter(Boolean)).size > 1) return null;
+    // El mismo número en dos datáfonos y la anulación sin datáfono: no se elige por importe.
+    if (new Set(byRef.map((r) => r.terminal?.trim() ?? '')).size > 1) return null;
     const sameAmount = byRef.filter((r) => r.amountCents === v.amountCents);
-    return sameAmount.length === 1 ? sameAmount[0]! : byRef.length === 1 ? byRef[0]! : null;
+    return sameAmount.length > 0 ? onlyOperation(sameAmount) : onlyOperation(byRef);
   }
   const before = open.filter(
     (r) =>
       r.amountCents === v.amountCents &&
-      (!v.terminal || !r.terminal || r.terminal === v.terminal) &&
       (!v.at ||
         !r.at ||
         (r.at.getTime() <= v.at.getTime() && v.at.getTime() - r.at.getTime() <= VOID_FALLBACK_WINDOW_MS)),
   );
-  return before.length === 1 ? before[0]! : null;
+  return onlyOperation(before);
+}
+
+/**
+ * Si todas son la misma operación repetida (tipo, importe y datáfono), la
+ * última; si son operaciones distintas, ninguna.
+ */
+function onlyOperation(list: BankRow[]): BankRow | null {
+  const last = list[list.length - 1];
+  if (!last) return null;
+  const terminal = (r: BankRow) => r.terminal?.trim() ?? '';
+  const same = list.every((r) => r.kind === last.kind && r.amountCents === last.amountCents && terminal(r) === terminal(last));
+  return same ? last : null;
 }
