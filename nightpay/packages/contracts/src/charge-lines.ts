@@ -278,5 +278,21 @@ export interface WalletFicha {
 export type OwnCobro = Pick<CobroRow, 'kind' | 'id' | 'ref' | 'createdAt' | 'amountCents' | 'tipCents' | 'status' | 'methodLabel' | 'service' | 'isTopUp'> & {
   via: string | null;
   invitedName: string | null;
+  /** Lo devuelto (importe + propina) de un cobro con tarjeta devuelto del todo o en parte; si no, 0. */
+  refundedCents: number;
 };
-export interface OwnCobrosPage { items: OwnCobro[]; nextCursor: string | null }
+export interface OwnCobrosPage {
+  items: OwnCobro[];
+  nextCursor: string | null;
+  /**
+   * La noche del local (la abierta, desde su Z; sin noche abierta, desde el
+   * último cierre), para el total de «Esta noche». Solo en la primera página.
+   */
+  night?: { from: string; open: boolean } | null;
+}
+
+/** Lo devuelto de un cobro (importe + propina − lo que aún se puede devolver). */
+export function ownRefundedCents(row: Pick<CobroRow, 'status' | 'amountCents' | 'tipCents' | 'payment'>): number {
+  if (!row.payment || (row.status !== 'REFUNDED' && row.status !== 'PARTIALLY_REFUNDED')) return 0;
+  return Math.max(0, row.amountCents + row.tipCents - row.payment.availableAmountCents);
+}

@@ -191,12 +191,15 @@ afterAll(async () => {
 });
 
 it('historial del camarero: solo sus cobros con tarjeta y saldo, incluida la chica invitada', async () => {
-  const controller = new OwnCobrosController(new CobrosService(prisma));
+  const controller = new OwnCobrosController(new CobrosService(prisma), moneyMap);
   const page = await inVenue(A, () => controller.list({ sub: dani, tenantId: A, role: 'WAITER' } as JwtPayload, { limit: 50 }));
   expect(page.items).toHaveLength(4);
   expect(page.items.filter((p) => p.kind === 'PAYMENT')).toHaveLength(3);
   expect(page.items.filter((p) => p.kind === 'SALDO')).toHaveLength(1);
   expect(page.items.find((p) => p.invitedName === 'Lola')?.amountCents).toBe(5000);
+  // La noche de «Esta noche» en la app, solo con la primera página; nada devuelto aún.
+  expect(page.night).toEqual({ from: expect.any(String), open: expect.any(Boolean) });
+  expect(page.items.every((p) => p.refundedCents === 0)).toBe(true);
   for (const row of page.items) {
     expect(row).not.toHaveProperty('payment');
     expect(row).not.toHaveProperty('wallet');
