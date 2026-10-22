@@ -49,8 +49,12 @@ describe('QR de activación del saldo (recepción)', () => {
     });
     expect(JSON.stringify(audit.log.mock.calls)).not.toContain('privateWalletToken');
     // Solo recargas de ESTE local, en la ventana, en efectivo sin anular o con tarjeta aprobada.
+    // Las de número impreso no cuentan (no prueban que la ficha estuviera delante).
     expect(tx.walletCashTopUp.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: 'venue-1', walletId: { in: ['w1'] }, amountCents: { gt: 0 }, voidedBy: { is: null }, createdAt: { gte: minutesAgo(15) } },
+      where: {
+        tenantId: 'venue-1', walletId: { in: ['w1'] }, amountCents: { gt: 0 }, voidedBy: { is: null }, createdAt: { gte: minutesAgo(15) },
+        OR: [{ intentFingerprint: null }, { NOT: { intentFingerprint: { startsWith: 'printed:' } } }],
+      },
     }));
     expect(tx.payment.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: { tenantId: 'venue-1', walletId: { in: ['w1'] }, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED'] }, authorizedAt: { gte: minutesAgo(15) } },

@@ -19,6 +19,7 @@ import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.se
 import { WalletCardsService } from '../../src/modules/wallets/wallet-cards.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 import { WalletsService } from '../../src/modules/wallets/wallets.service';
+import { WalletActivationLinkService } from '../../src/modules/wallets/wallet-activation-link.service';
 import { hashPin } from '../../src/modules/wallets/wallet-pin';
 
 type Tx = Parameters<Parameters<PrismaService['asSystem']>[0]>[0];
@@ -51,6 +52,7 @@ const passkeys = {
     return signer;
   },
 };
+const activation = new WalletActivationLinkService(prisma, audit, passkeys as never, { get: () => 'https://api.prueba.local' } as never);
 const payouts = new ReceptionPayoutService(prisma, audit, totp as never, charges, passkeys as never,
   new ReceptionPayoutPasskeys(memoryRedis() as never), { get: () => 'https://api.prueba.local' } as never);
 
@@ -317,5 +319,22 @@ describe('número impreso de la ficha', () => {
     expect(await sys((tx) => tx.auditEvent.count({ where: { action: 'wallet.card_number_lookup', actorId: people.rx!.userId, targetId: card.id } }))).toBe(1);
     const listed = await scope(sala, () => cards.list(sala, { q: n.slice(2) }));
     expect(listed.map((x) => x.id)).toContain(card.id);
+  });
+
+  it('una recarga por número no abre el QR de activación (no prueba que la ficha esté delante); una con el código, sí', async () => {
+    const c = await client({ cashCents: 1_000 });
+    // Su primera recarga, de hace rato (fuera de los 15 min).
+    await sys((tx) => tx.walletCashTopUp.updateMany({ where: { walletId: c.walletId }, data: { createdAt: new Date(Date.now() - 40 * 60_000) } }));
+    const n = String(Date.now() + 13).slice(-8);
+    const card = await sys((tx) => tx.walletCard.findUniqueOrThrow({ where: { token: c.card } }));
+    await scope(sala, () => cards.setPrintedNumber(people.man!, card.id, n));
+    await scope(sala, () => numbers.topUp(people.rx!, { printedNumber: n, amountCents: 500, idempotencyKey: randomUUID() }));
+    const row = await sys((tx) => tx.walletCashTopUp.findFirstOrThrow({ where: { walletId: c.walletId }, orderBy: { createdAt: 'desc' } }));
+    expect(row.intentFingerprint).toMatch(/^printed:/);
+    await expect(scope(sala, () => activation.link(people.rx!, c.walletId))).rejects.toMatchObject({
+      status: 404, response: { code: 'ACTIVATION_LINK_UNAVAILABLE', reason: 'NO_RECENT_TOP_UP' },
+    });
+    await scope(sala, () => cash.topUp(sala, people.rx!, { amountCents: 500, idempotencyKey: randomUUID(), wallet: { code: c.code } }));
+    await expect(scope(sala, () => activation.link(people.rx!, c.walletId))).resolves.toMatchObject({ url: expect.stringContaining('/w/') });
   });
 });
