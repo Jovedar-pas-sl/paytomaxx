@@ -293,6 +293,8 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
     ...(s.walletCashPayoutsCents ? ([['Saldo devuelto en efectivo', -s.walletCashPayoutsCents]] as Array<[string, number]>) : []),
     ['Neto', s.netCents],
     ['Para las chicas', s.chicaNetCents],
+    // Solo si el local da parte a los camareros de las copas con invitación (de fábrica, nada).
+    ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
     ['Para el local', s.venueNetCents],
   ];
   return (
@@ -388,6 +390,7 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
     ['Devoluciones', -s.refundsCents],
     ['Neto', s.netCents],
     ['Para las chicas', s.chicaNetCents],
+    ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
     ['Para el local', s.venueNetCents],
   ];
   return (

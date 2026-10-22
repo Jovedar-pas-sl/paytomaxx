@@ -2,12 +2,14 @@ import { expectedCashCents, type CashOutcome, type MoneyMap, type NightCash } fr
 import { Prisma } from '@nightpay/db';
 import { nextNightCutoff } from '../../common/time/madrid';
 import { summarize, type ExportSummary } from '../reports/export-csv';
-import type {
-  AdjustmentRows,
-  ConsumoRow,
-  LiquidacionRow,
-  PagoSaldoRow,
-  RecargaEfectivoRow,
+import {
+  consumoStaff,
+  isChicaPart,
+  type AdjustmentRows,
+  type ConsumoRow,
+  type LiquidacionRow,
+  type PagoSaldoRow,
+  type RecargaEfectivoRow,
 } from '../reports/export-rows';
 import { cashTopUpsCount } from '../reports/export-summary';
 import type { TimeWindow } from '../reports/report-period';
@@ -206,7 +208,12 @@ export function buildAdjustments(args: { before: Date; since: Date; rows: Adjust
     summary: summarize(cobros, devoluciones, []),
     reversedConsumptionsCount: consumosAnulados.length,
     reversedConsumptionsCents: sum((r) => r.amountCents + r.tipCents),
-    reversedConsumptionsChicaCents: sum((r) => (r.commissionCents ?? 0) + (r.earningTipCents ?? 0)),
+    // Lo de las chicas de esos consumos (la que cobró y la invitada a una copa).
+    reversedConsumptionsChicaCents: sum((r) =>
+      consumoStaff(r)
+        .filter(isChicaPart)
+        .reduce((a, p) => a + p.commissionCents + p.tipCents, 0),
+    ),
   };
 }
 

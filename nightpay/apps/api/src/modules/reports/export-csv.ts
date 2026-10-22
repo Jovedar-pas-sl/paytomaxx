@@ -4,14 +4,17 @@ import { code, date, money, text, time, toCsv, type CsvCell } from './csv';
 import {
   RECONCILIATION_LABEL,
   STATUS_LABEL,
+  camareroShareCents,
   captureLabel,
   cardTypeLabel,
   categoryLabel,
   chicaShareCents,
   cobroSections,
   cobroType,
+  isChicaPart,
   methodLabel,
   person,
+  refundStaff,
   type CobroRow,
   type DevolucionRow,
   type LiquidacionRow,
@@ -24,7 +27,9 @@ import { BRAND_NAME } from '../../common/brand';
 
 /**
  * Los cuatro CSV para la gestoría (Fase 1C): libro de cobros, devoluciones,
- * pagos a chicas y resumen. Funciones puras: reciben filas, devuelven texto.
+ * pagos al personal y resumen. Funciones puras: reciben filas, devuelven
+ * texto. En una «Copa con invitación», la parte de la chica es suya (no del
+ * local) y la del camarero, solo si el local se la da.
  */
 
 // ─── Libro de cobros ────────────────────────────────────────────────────
@@ -33,13 +38,14 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string): str
   const header = [
     'Fecha', 'Hora', 'Local', 'Código', 'Concepto', 'Tipo', 'Cobrado por', 'Medio', 'Método',
     'Marca', 'Tipo tarjeta', 'País tarjeta', 'Autorización', 'Pedido banco', 'Importe', 'Propina',
-    'Total cobrado', 'Devuelto', 'Neto', 'Parte chica', 'Parte local', 'Estado', `Referencia ${BRAND_NAME}`,
+    'Total cobrado', 'Devuelto', 'Neto', 'Parte chica', 'Parte camarero', 'Parte local', 'Estado', `Referencia ${BRAND_NAME}`,
     'Por sección',
   ];
   const body = rows.map((r): CsvCell[] => {
     const charged = r.amountCents + r.tipCents;
     const net = charged - r.refundedCents;
     const chica = chicaShareCents(r);
+    const camarero = camareroShareCents(r);
     return [
       date(r.paidAt),
       time(r.paidAt),
@@ -61,7 +67,8 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string): str
       money(r.refundedCents),
       money(net),
       money(chica),
-      money(net - chica),
+      money(camarero),
+      money(net - chica - camarero),
       STATUS_LABEL[r.status] ?? r.status,
       r.id,
       bySection(r),
@@ -81,37 +88,50 @@ export function devolucionesCsv(rows: ReadonlyArray<DevolucionRow>): string {
   const header = [
     'Fecha devolución', 'Importe devuelto', 'Motivo', 'Referencia banco', 'Registrada a mano',
     'Registrada por', 'Fecha del cobro', 'Código del cobro', 'Pedido banco', 'Total cobrado',
-    'Cobrado por', 'Descontado a la chica', 'Ya se le había pagado', `Referencia ${BRAND_NAME}`,
+    'Cobrado por', 'Descontado a la chica', 'Ya se le había pagado', 'Descontado al camarero', `Referencia ${BRAND_NAME}`,
   ];
-  const body = rows.map((r): CsvCell[] => [
-    date(r.refundedAt),
-    money(r.amountCents),
-    text(r.reason),
-    text(r.providerRefundId),
-    r.registeredManually ? 'Sí' : 'No',
-    text(person(r.byName, r.byEmail)),
-    date(r.paidAt),
-    code(confirmationCode(r.paymentId)),
-    code(r.providerTxId),
-    money(r.chargedCents),
-    text(person(r.creatorName, r.creatorEmail)),
-    r.reversedDeltaCents === null ? '' : money(r.reversedDeltaCents),
-    r.afterPayout === null ? '' : r.afterPayout ? 'Sí' : 'No',
-    r.id,
-  ]);
+  const body = rows.map((r): CsvCell[] => {
+    const parts = refundStaff(r);
+    const chicas = parts.filter(isChicaPart);
+    const camareros = parts.filter((x) => !isChicaPart(x));
+    const sum = (xs: typeof parts) => xs.reduce((a, x) => a + x.reversedDeltaCents, 0);
+    return [
+      date(r.refundedAt),
+      money(r.amountCents),
+      text(r.reason),
+      text(r.providerRefundId),
+      r.registeredManually ? 'Sí' : 'No',
+      text(person(r.byName, r.byEmail)),
+      date(r.paidAt),
+      code(confirmationCode(r.paymentId)),
+      code(r.providerTxId),
+      money(r.chargedCents),
+      text(person(r.creatorName, r.creatorEmail)),
+      chicas.length === 0 ? '' : money(sum(chicas)),
+      chicas.length === 0 ? '' : chicas.some((x) => x.afterPayout) ? 'Sí' : 'No',
+      camareros.length === 0 ? '' : money(sum(camareros)),
+      r.id,
+    ];
+  });
   return toCsv([header, ...body]);
 }
 
-// ─── Pagos a chicas ─────────────────────────────────────────────────────
+// ─── Pagos al personal (chicas y, si tienen parte de las invitaciones, camareros) ──
+
+/** «Chica» o «Camarero» (su parte de las copas con invitación). */
+export function payeeLabel(role: string | null | undefined): string {
+  return role === 'WAITER' ? 'Camarero' : 'Chica';
+}
 
 export function liquidacionesCsv(rows: ReadonlyArray<LiquidacionRow>): string {
   const header = [
-    'Fecha', 'Chica', 'Importe', 'Cobros incluidos', 'Vía', 'Referencia', 'Conciliación',
+    'Fecha', 'Persona', 'Puesto', 'Importe', 'Cobros incluidos', 'Vía', 'Referencia', 'Conciliación',
     'Pagado por', 'Notas', `Referencia ${BRAND_NAME}`,
   ];
   const body = rows.map((r): CsvCell[] => [
     date(r.paidAt),
     text(person(r.operatorName, r.operatorEmail)),
+    payeeLabel(r.role),
     money(r.totalCents),
     r.earningCount,
     text(r.externalRail),
@@ -224,16 +244,21 @@ function saldoRows(s: ExportSummary): CsvCell[][] {
 }
 
 function repartoRows(s: ExportSummary): CsvCell[][] {
+  // Los camareros solo tienen parte si el local se la da (Ajustes → Invitaciones): sin ella, ni se nombran.
+  const camareros = (s.camareroCommissionCents ?? 0) !== 0 || (s.camareroReversalsCents ?? 0) !== 0;
+  const camareroPaid = (s.camareroPayoutsCount ?? 0) > 0;
   return [
     ['Reparto', 'Importe (€)'],
     ['Comisión de las chicas', money(s.chicaCommissionCents)],
     ['Propinas de las chicas', money(s.chicaTipsCents)],
     ['Descontado a las chicas por devoluciones', money(-s.chicaReversalsCents)],
     ['Total para las chicas', money(s.chicaNetCents)],
+    ...(camareros ? [['Total para los camareros (copas con invitación)', money(s.camareroNetCents ?? 0)] as CsvCell[]] : []),
     ['Propinas del local', money(s.venueTipsCents)],
     ['Total para el local', money(s.venueNetCents)],
     [],
     ['Pagado a chicas en el periodo', money(s.payoutsCents), s.payoutsCount],
+    ...(camareroPaid ? [['Pagado a camareros en el periodo', money(s.camareroPayoutsCents ?? 0), s.camareroPayoutsCount ?? 0] as CsvCell[]] : []),
   ];
 }
 

@@ -5,6 +5,36 @@ import { chargeSections, type LineAmount } from './charge-sections';
  * reports.service.ts; aquí, los tipos y las etiquetas en castellano.
  */
 
+/**
+ * La parte de una persona del personal en un cobro (una ganancia,
+ * operator_earnings): la chica que lo cobró, la invitada a una «Copa con
+ * invitación» o, si el local se la da, el camarero que la cobró.
+ */
+export interface StaffPart {
+  name: string | null;
+  email: string | null;
+  /** OPERATOR: una chica. El resto (camarero), su parte de una copa con invitación. */
+  role: string;
+  commissionCents: number;
+  tipCents: number;
+  reversedCents: number;
+  /** Lo descontado por devoluciones llegadas con la persona ya pagada (deuda): no está en reversedCents. */
+  reversedAfterPayoutCents: number;
+  /** Lo vendido que le da la parte: en una copa con invitación, sus copas (no la cuenta entera). */
+  baseCents: number;
+  /** De una copa con invitación. */
+  invitation: boolean;
+}
+
+/** Lo descontado a una persona por una devolución (earning_reversals). */
+export interface RefundStaffPart {
+  name: string | null;
+  email: string | null;
+  role: string;
+  reversedDeltaCents: number;
+  afterPayout: boolean;
+}
+
 /** Un cobro pagado del periodo, con lo devuelto y la parte de la chica. */
 export interface CobroRow {
   id: string;
@@ -41,6 +71,12 @@ export interface CobroRow {
    * deuda suya (earning_reversals.afterPayout) y no está en reversedCents.
    */
   reversedAfterPayoutCents: number;
+  /**
+   * Todas las partes del personal del cobro (una por persona: chicas y, si el
+   * local se la da, el camarero de una copa con invitación). Sin el campo
+   * (filas de antes), la de la chica de las columnas de arriba.
+   */
+  staff?: StaffPart[] | null;
 }
 
 /**
@@ -61,6 +97,8 @@ export interface ConsumoRow {
   operatorEmail: string | null;
   commissionCents: number | null;
   earningTipCents: number | null;
+  /** Todas las partes del personal del consumo (como en CobroRow.staff); sin el campo, la de arriba. */
+  staff?: StaffPart[] | null;
 }
 
 /**
@@ -122,6 +160,8 @@ export interface DevolucionRow {
   reversedDeltaCents: number | null;
   /** La devolución llegó cuando ya se le había pagado: queda como deuda. */
   afterPayout: boolean | null;
+  /** Lo descontado a cada persona por esta devolución (chicas y camarero); sin el campo, lo de la chica de arriba. */
+  staff?: RefundStaffPart[] | null;
 }
 
 /**
@@ -148,6 +188,8 @@ export interface LiquidacionRow {
   notes: string | null;
   operatorName: string | null;
   operatorEmail: string;
+  /** A quién se pagó: OPERATOR (una chica) o WAITER (su parte de las copas con invitación). Sin el campo, una chica. */
+  role?: string | null;
   paidByName: string | null;
   paidByEmail: string | null;
   earningCount: number;
@@ -223,14 +265,80 @@ export function person(name: string | null, email: string | null): string {
   return name?.trim() || email || '';
 }
 
+/** ¿Es de una chica? (el resto: un camarero con parte de una copa con invitación). */
+export function isChicaPart(p: Pick<StaffPart, 'role'>): boolean {
+  return p.role === 'OPERATOR';
+}
+
+/** Las partes del personal de un cobro; sin `staff` (filas de antes), la de la chica de sus columnas. */
+export function cobroStaff(r: CobroRow): StaffPart[] {
+  if (r.staff) return r.staff;
+  if (r.commissionCents === null) return [];
+  return [
+    {
+      name: r.earningOperatorName,
+      email: r.earningOperatorEmail,
+      role: 'OPERATOR',
+      commissionCents: r.commissionCents,
+      tipCents: r.earningTipCents ?? 0,
+      reversedCents: r.reversedCents ?? 0,
+      reversedAfterPayoutCents: r.reversedAfterPayoutCents,
+      baseCents: r.amountCents,
+      invitation: false,
+    },
+  ];
+}
+
+/** Las partes del personal de un consumo del saldo; sin `staff`, la de la chica de sus columnas. */
+export function consumoStaff(r: ConsumoRow): StaffPart[] {
+  if (r.staff) return r.staff;
+  if (r.commissionCents === null) return [];
+  return [
+    {
+      name: r.operatorName,
+      email: r.operatorEmail,
+      role: 'OPERATOR',
+      commissionCents: r.commissionCents,
+      tipCents: r.earningTipCents ?? 0,
+      reversedCents: 0,
+      reversedAfterPayoutCents: 0,
+      baseCents: r.amountCents,
+      invitation: false,
+    },
+  ];
+}
+
+/** Lo descontado a cada persona por una devolución; sin `staff`, lo de la chica de sus columnas. */
+export function refundStaff(r: DevolucionRow): RefundStaffPart[] {
+  if (r.staff) return r.staff;
+  if (r.reversedDeltaCents === null) return [];
+  return [{ name: r.chicaName, email: r.chicaEmail, role: 'OPERATOR', reversedDeltaCents: r.reversedDeltaCents, afterPayout: Boolean(r.afterPayout) }];
+}
+
+/** Lo de una persona en un cobro: comisión + propina − lo descontado (también la deuda). */
+export function partNetCents(p: StaffPart): number {
+  return p.commissionCents + p.tipCents - p.reversedCents - p.reversedAfterPayoutCents;
+}
+
 /**
- * Parte de la chica de un cobro: comisión + su propina − lo descontado por
- * devoluciones, también lo que quedó como deuda por llegar con ella ya pagada
- * (igual que el resumen, que resta todo lo descontado).
+ * Lo vendido a su nombre: lo cobrado (con la propina) si es suyo; en una copa
+ * con invitación que cobró otra persona, sus copas (no la cuenta entera).
  */
-export function chicaShareCents(
-  r: Pick<CobroRow, 'commissionCents' | 'earningTipCents' | 'reversedCents' | 'reversedAfterPayoutCents'>,
-): number {
-  if (r.commissionCents === null) return 0;
-  return r.commissionCents + (r.earningTipCents ?? 0) - (r.reversedCents ?? 0) - r.reversedAfterPayoutCents;
+export function partChargedCents(p: StaffPart, sale: { amountCents: number; tipCents: number }): number {
+  return p.invitation ? p.baseCents : sale.amountCents + sale.tipCents;
+}
+
+/**
+ * Parte de las chicas de un cobro: comisión + su propina − lo descontado por
+ * devoluciones, también lo que quedó como deuda por llegar con ella ya pagada
+ * (igual que el resumen, que resta todo lo descontado). Si hay dos (la que lo
+ * cobró y la invitada a una copa), las dos.
+ */
+export function chicaShareCents(r: CobroRow): number {
+  return cobroStaff(r).filter(isChicaPart).reduce((a, p) => a + partNetCents(p), 0);
+}
+
+/** Parte del camarero de un cobro (una copa con invitación, si el local se la da). */
+export function camareroShareCents(r: CobroRow): number {
+  return cobroStaff(r).filter((p) => !isChicaPart(p)).reduce((a, p) => a + partNetCents(p), 0);
 }

@@ -202,8 +202,8 @@ describe('ficha de la chica: sus invitaciones', () => {
     // La de tarjeta (pagada); la del saldo se anuló.
     expect(summary).toEqual({ count: 1, amountCents: 2500, shareCents: 1250 });
     const carlaSummary = await inVenue(A, () => cobros.invitationSummary(A, carla));
-    // Devuelta solo en parte: sigue contando.
-    expect(carlaSummary).toMatchObject({ count: 2, amountCents: 5000, shareCents: 2000 });
+    // Devuelta la mitad: sigue contando, con su parte menos lo descontado (20 € − 10 €), como su ganancia.
+    expect(carlaSummary).toMatchObject({ count: 2, amountCents: 5000, shareCents: 1000 });
     const page = await inVenue(A, () => cobros.list(A, CobrosQuerySchema.parse({ invitedOperatorId: lola, limit: 50 })));
     expect(page.items.length).toBeGreaterThanOrEqual(2);
     expect(page.items.every((i) => i.invited?.id === lola)).toBe(true);

@@ -25,6 +25,31 @@ import {
 export const MAX_EXPORT_ROWS = 100_000;
 
 /**
+ * Las partes del personal de un cobro o de un consumo (export-rows StaffPart):
+ * una por ganancia, con su puesto, para que cada una cuente donde toca (la
+ * chica que cobró, la invitada a una copa y, si el local se la da, el
+ * camarero). `where` filtra las ganancias (alias se).
+ */
+function staffJson(where: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`(
+    SELECT COALESCE(json_agg(json_build_object(
+             'name', su."displayName",
+             'email', su.email,
+             'role', su.role::text,
+             'commissionCents', se."commissionCents",
+             'tipCents', COALESCE(se."tipCents", 0),
+             'reversedCents', se."reversedCents",
+             'reversedAfterPayoutCents', ${afterPayoutDebt('se')},
+             'baseCents', se."paymentAmountCents",
+             'invitation', se."paymentLineId" IS NOT NULL
+           ) ORDER BY se."createdAt", se.id), '[]'::json)
+      FROM operator_earnings se
+      JOIN users su ON su.id = se."operatorId"
+     WHERE ${where}
+  )`;
+}
+
+/**
  * Para el Z de una noche: el informe tal como estaba al generarlo. Lo que se
  * apunte después con fecha de esa noche sale en el Z siguiente, como ajuste
  * (ajustes()). Sin esto, el informe es «tal como está ahora».
@@ -176,7 +201,7 @@ export class ReportsService {
     `));
   }
 
-  /** Pagos a chicas hechos en el periodo. */
+  /** Pagos al personal hechos en el periodo (a las chicas y, si tienen parte de las invitaciones, a los camareros). */
   async liquidaciones(tenantId: string, p: TimeWindow): Promise<LiquidacionRow[]> {
     return capped(await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<LiquidacionRow[]>`
       SELECT po.id,
@@ -188,6 +213,7 @@ export class ReportsService {
              po.notes,
              u."displayName" AS "operatorName",
              u.email AS "operatorEmail",
+             u.role::text AS role,
              pb."displayName" AS "paidByName",
              pb.email AS "paidByEmail",
              (SELECT COUNT(*) FROM operator_earnings e WHERE e."payoutId" = po.id)::int AS "earningCount"
@@ -230,11 +256,13 @@ export class ReportsService {
              e."commissionCents",
              e."tipCents" AS "earningTipCents",
              e."reversedCents",
-             ${afterPayoutDebt('e')}::int AS "reversedAfterPayoutCents"
+             ${afterPayoutDebt('e')}::int AS "reversedAfterPayoutCents",
+             ${staffJson(Prisma.sql`se."paymentId" = p.id`)} AS staff
         FROM payments p
         LEFT JOIN users u ON u.id = p."createdByUserId"
-        -- Una fila por cobro: la ganancia de la chica (la que cobró o la
-        -- invitada); la parte del camarero en una invitación va en sus pagos.
+        -- Una fila por cobro. Las columnas de siempre, con una ganancia (la
+        -- chica que cobró o la invitada); todas las partes del personal (las
+        -- dos chicas, o el camarero si el local le da parte), en «staff».
         LEFT JOIN LATERAL (
           SELECT e0.* FROM operator_earnings e0
            WHERE e0."paymentId" = p.id
@@ -278,9 +306,10 @@ export class ReportsService {
              u."displayName" AS "operatorName",
              u.email AS "operatorEmail",
              e."commissionCents",
-             e."tipCents" AS "earningTipCents"
+             e."tipCents" AS "earningTipCents",
+             ${staffJson(Prisma.sql`se."consumptionId" = c.id`)} AS staff
         FROM wallet_consumptions c
-        -- Una fila por consumo (ver arriba: la chica, no la parte del camarero).
+        -- Una fila por consumo (como arriba: todas las partes, en «staff»).
         LEFT JOIN LATERAL (
           SELECT e0.* FROM operator_earnings e0
            WHERE e0."consumptionId" = c.id
@@ -322,13 +351,25 @@ export class ReportsService {
              eu."displayName" AS "chicaName",
              eu.email AS "chicaEmail",
              er."reversedDeltaCents",
-             er."afterPayout"
+             er."afterPayout",
+             -- Lo descontado a cada persona (chicas y, si tenía parte, el camarero).
+             (SELECT COALESCE(json_agg(json_build_object(
+                       'name', su."displayName",
+                       'email', su.email,
+                       'role', su.role::text,
+                       'reversedDeltaCents', sr."reversedDeltaCents",
+                       'afterPayout', sr."afterPayout"
+                     ) ORDER BY sr."createdAt", sr.id), '[]'::json)
+                FROM earning_reversals sr
+                JOIN operator_earnings se ON se.id = sr."earningId"
+                JOIN users su ON su.id = se."operatorId"
+               WHERE sr."refundId" = r.id) AS staff
         FROM refunds r
         JOIN payments p ON p.id = r."paymentId"
         LEFT JOIN users ru ON ru.id = r."requestedBy"
         LEFT JOIN users cu ON cu.id = p."createdByUserId"
-        -- Una fila por devolución: lo descontado a la chica (la que cobró o la
-        -- invitada; lo del camarero de una invitación, en sus pagos).
+        -- Una fila por devolución: lo descontado a una chica (la que cobró o
+        -- la invitada) en las columnas de siempre; a cada persona, en «staff».
         LEFT JOIN LATERAL (
           SELECT er0.*, ee0."operatorId" AS "operatorId"
             FROM earning_reversals er0

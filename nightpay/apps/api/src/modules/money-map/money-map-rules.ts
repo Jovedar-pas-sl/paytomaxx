@@ -38,7 +38,11 @@ export interface SaleRow {
   lines: readonly SaleLineLike[];
 }
 
-/** Lo del personal por lo vendido en el periodo: comisión + propinas, y lo que aún no se le ha pagado. */
+/**
+ * Lo del personal en el periodo: su parte de lo vendido (comisión + propinas)
+ * menos lo descontado por las devoluciones del periodo, y lo que aún no se le
+ * ha pagado.
+ */
 export interface StaffShare {
   grossCents: number;
   unpaidCents: number;

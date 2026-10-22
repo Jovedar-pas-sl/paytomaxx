@@ -318,18 +318,37 @@ export class MoneyMapService {
       )
       SELECT * FROM recargas, efectivo, devoluciones, saldo
     `;
+    // Lo del personal: su parte de lo vendido en el periodo (comisión y
+    // propinas) menos lo que se le descontó por las devoluciones del periodo
+    // (de un cobro de este periodo o de antes, como el Z): eso vuelve al
+    // local, que es quien devuelve el dinero (Qué sale). Lo que aún no se le
+    // ha pagado, de lo vendido en el periodo.
     const staffRows = await tx.$queryRaw<Array<{ chica: boolean; gross: Num; unpaid: Num }>>`
-      SELECT (u.role = 'OPERATOR') AS chica,
-             COALESCE(SUM(e."commissionCents" + COALESCE(e."tipCents", 0)), 0)::bigint AS gross,
-             COALESCE(SUM(e."commissionCents" + COALESCE(e."tipCents", 0) - e."reversedCents")
-                      FILTER (WHERE e."payoutId" IS NULL), 0)::bigint AS unpaid
-        FROM operator_earnings e
-        JOIN users u ON u.id = e."operatorId"
-       WHERE e."tenantId" = ${tenantId}::uuid
-         AND (
-           e."paymentId" IN (SELECT p.id FROM payments p WHERE ${paid} AND p."walletId" IS NULL)
-           OR e."consumptionId" IN (SELECT c.id FROM wallet_consumptions c WHERE ${consumed})
-         )
+      SELECT x.chica,
+             COALESCE(SUM(x.gross), 0)::bigint AS gross,
+             COALESCE(SUM(x.unpaid), 0)::bigint AS unpaid
+        FROM (
+          SELECT (u.role = 'OPERATOR') AS chica,
+                 e."commissionCents" + COALESCE(e."tipCents", 0) AS gross,
+                 CASE WHEN e."payoutId" IS NULL
+                      THEN e."commissionCents" + COALESCE(e."tipCents", 0) - e."reversedCents"
+                      ELSE 0 END AS unpaid
+            FROM operator_earnings e
+            JOIN users u ON u.id = e."operatorId"
+           WHERE e."tenantId" = ${tenantId}::uuid
+             AND (
+               e."paymentId" IN (SELECT p.id FROM payments p WHERE ${paid} AND p."walletId" IS NULL)
+               OR e."consumptionId" IN (SELECT c.id FROM wallet_consumptions c WHERE ${consumed})
+             )
+          UNION ALL
+          SELECT (u.role = 'OPERATOR'), -er."reversedDeltaCents", 0
+            FROM earning_reversals er
+            JOIN refunds r ON r.id = er."refundId"
+            JOIN operator_earnings re ON re.id = er."earningId"
+            JOIN users u ON u.id = re."operatorId"
+           WHERE r."tenantId" = ${tenantId}::uuid AND r.status = 'SUCCEEDED'
+             AND ${refundAt('r')} >= ${w.from} AND ${refundAt('r')} < ${w.to} ${recordedRefund}
+        ) x
        GROUP BY 1
     `;
     const payoutRows = await tx.$queryRaw<Array<{ chica: boolean; rail: string | null; count: Num; cents: Num }>>`

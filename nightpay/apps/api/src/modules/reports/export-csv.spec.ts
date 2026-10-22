@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { cobrosCsv, devolucionesCsv, liquidacionesCsv, resumenCsv, summarize } from './export-csv';
-import type { CobroRow, ConsumoRow, DevolucionRow, LiquidacionRow, PagoSaldoRow } from './export-rows';
+import type { CobroRow, ConsumoRow, DevolucionRow, LiquidacionRow, PagoSaldoRow, StaffPart } from './export-rows';
 import { parseReportPeriod } from './report-period';
 
 const cobro = (o: Partial<CobroRow>): CobroRow => ({
@@ -77,7 +77,7 @@ describe('libro de cobros', () => {
     const [header, row] = lines(cobrosCsv([cobro({})], 'Local Centro'));
     expect(header).toContain('Fecha;Hora;Local;Código;Concepto;Tipo;Cobrado por');
     expect(row).toBe(
-      '13/10/2026;23:41;Local Centro;"=""A6B""";30 min;Servicio de chica;Lola;Móvil (QR);Apple Pay / Google Pay;Visa;Débito;"=""724""";"=""047215""";"=""1234ABCD5678""";100,00;5,00;105,00;0,00;105,00;95,00;10,00;Pagado;7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b;Servicio de chica 100,00',
+      '13/10/2026;23:41;Local Centro;"=""A6B""";30 min;Servicio de chica;Lola;Móvil (QR);Apple Pay / Google Pay;Visa;Débito;"=""724""";"=""047215""";"=""1234ABCD5678""";100,00;5,00;105,00;0,00;105,00;95,00;0,00;10,00;Pagado;7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b;Servicio de chica 100,00',
     );
   });
 
@@ -102,7 +102,7 @@ describe('libro de cobros', () => {
       ),
     );
     expect(row).toContain(';Barra;Barra;barra@local.es;');
-    expect(row).toContain(';100,00;0,00;100,00;20,00;80,00;0,00;80,00;Devuelto en parte;');
+    expect(row).toContain(';100,00;0,00;100,00;20,00;80,00;0,00;0,00;80,00;Devuelto en parte;');
   });
 
   it('devolución después de pagar a la chica: su parte descuenta la deuda, como el resumen', () => {
@@ -110,7 +110,7 @@ describe('libro de cobros', () => {
     // queda como deuda de 47,50 € (comisión + propina en proporción).
     const c = cobro({ status: 'PARTIALLY_REFUNDED', refundedCents: 5250, reversedCents: 0, reversedAfterPayoutCents: 4750 });
     const [, row] = lines(cobrosCsv([c], 'Local'));
-    expect(row).toContain(';100,00;5,00;105,00;52,50;52,50;47,50;5,00;Devuelto en parte;');
+    expect(row).toContain(';100,00;5,00;105,00;52,50;52,50;47,50;0,00;5,00;Devuelto en parte;');
     const s = summarize([c], [devolucion({ amountCents: 5250, reversedDeltaCents: 4750, afterPayout: true })], []);
     expect(s.chicaNetCents).toBe(4750);
   });
@@ -119,15 +119,18 @@ describe('libro de cobros', () => {
 describe('devoluciones y pagos a chicas', () => {
   it('devolución con lo descontado a la chica y si ya se le había pagado', () => {
     const [header, row] = lines(devolucionesCsv([devolucion({})]));
-    expect(header.split(';')).toHaveLength(14);
+    expect(header.split(';')).toHaveLength(15);
     expect(row).toBe(
-      '14/10/2026;105,00;No reconoce el cargo;DEV-1;Sí;Dueño;13/10/2026;"=""A6B""";"=""1234ABCD5678""";105,00;Lola;90,00;Sí;refund-1',
+      '14/10/2026;105,00;No reconoce el cargo;DEV-1;Sí;Dueño;13/10/2026;"=""A6B""";"=""1234ABCD5678""";105,00;Lola;90,00;Sí;;refund-1',
     );
   });
 
   it('pago a una chica', () => {
-    const [, row] = lines(liquidacionesCsv([liquidacion({})]));
-    expect(row).toBe('20/10/2026;Lola;500,00;6;SEPA;TRF-9;Conciliado;owner@local.es;;payout-1');
+    const [header, row] = lines(liquidacionesCsv([liquidacion({})]));
+    expect(header).toContain('Fecha;Persona;Puesto;Importe');
+    expect(row).toBe('20/10/2026;Lola;Chica;500,00;6;SEPA;TRF-9;Conciliado;owner@local.es;;payout-1');
+    const [, waiter] = lines(liquidacionesCsv([liquidacion({ operatorName: 'Dani', role: 'WAITER', totalCents: 600 })]));
+    expect(waiter).toContain(';Dani;Camarero;6,00;');
   });
 });
 
@@ -353,5 +356,166 @@ describe('resumen: el saldo del cliente (recarga, consumos y lo que se le devuel
     expect(csv).toContain('Consumos del saldo;120,00;2');
     expect(csv).toContain('Barra;50,00;1');
     expect(csv).toContain('Devuelto a la tarjeta (ya está en devoluciones);-10,00;1');
+  });
+});
+
+// ─── Copa con invitación: la parte de cada uno ─────────────────────────
+
+const chicaPart = (o: Partial<StaffPart> = {}): StaffPart => ({
+  name: 'Nerea',
+  email: 'nerea@local.es',
+  role: 'OPERATOR',
+  commissionCents: 1000,
+  tipCents: 0,
+  reversedCents: 0,
+  reversedAfterPayoutCents: 0,
+  baseCents: 2000,
+  invitation: true,
+  ...o,
+});
+/** Una copa con invitación de 20 € que cobra el camarero (Carlos): la parte de Nerea y la del local. */
+const invitacion = (o: Partial<CobroRow> = {}): CobroRow =>
+  cobro({
+    id: 'inv-1',
+    revenueCategory: 'VENUE_BAR',
+    lines: [{ category: 'VENUE_BAR', amountCents: 2000 }],
+    serviceName: 'Copa con invitación',
+    amountCents: 2000,
+    tipCents: 0,
+    creatorName: 'Carlos',
+    creatorEmail: 'carlos@local.es',
+    earningOperatorName: 'Nerea',
+    earningOperatorEmail: 'nerea@local.es',
+    commissionCents: 1000,
+    earningTipCents: 0,
+    reversedCents: 0,
+    reversedAfterPayoutCents: 0,
+    staff: [chicaPart()],
+    ...o,
+  });
+
+describe('copa con invitación (20 €): lo de la chica no es del local', () => {
+  it('libro de cobros: 10 € para la chica, nada para el camarero y 10 € para el local (Copas)', () => {
+    const [header, row] = lines(cobrosCsv([invitacion()], 'Sala'));
+    expect(header).toContain(';Neto;Parte chica;Parte camarero;Parte local;Estado;');
+    expect(row).toContain(';Copa con invitación;Barra;Carlos;');
+    expect(row).toContain(';20,00;0,00;20,00;0,00;20,00;10,00;0,00;10,00;Pagado;');
+    expect(row).toMatch(/;Barra 20,00$/);
+  });
+
+  it('con parte para el camarero (guardada antes en Ajustes): se resta de lo del local', () => {
+    const r = invitacion({ staff: [chicaPart(), chicaPart({ name: 'Carlos', email: 'carlos@local.es', role: 'WAITER', commissionCents: 600 })] });
+    const [, row] = lines(cobrosCsv([r], 'Sala'));
+    expect(row).toContain(';20,00;10,00;6,00;4,00;Pagado;');
+    const s = summarize([r], [], []);
+    expect(s).toMatchObject({ chicaNetCents: 1000, camareroCommissionCents: 600, camareroNetCents: 600, venueNetCents: 400 });
+    expect(s.perChica.map((c) => c.name)).toEqual(['Nerea']);
+  });
+
+  it('resumen: la parte de la chica, para ella; el local se queda el resto (y por chica, sus copas, no la cuenta entera)', () => {
+    // Una cuenta de 50 €: 3 copas de la barra y una copa con invitación para Nerea.
+    const cuenta = invitacion({ id: 'cuenta', amountCents: 5000, lines: [{ category: 'VENUE_BAR', amountCents: 5000 }] });
+    const s = summarize([invitacion(), cuenta], [], []);
+    expect(s).toMatchObject({ grossCents: 7000, chicaCommissionCents: 2000, chicaNetCents: 2000, camareroNetCents: 0, venueNetCents: 5000 });
+    expect(s.perChica).toEqual([
+      { name: 'Nerea', count: 2, chargedCents: 4000, commissionCents: 2000, tipsCents: 0, reversalsCents: 0, netCents: 2000, paidCents: 0 },
+    ]);
+    expect(s.venueNetCents + s.chicaNetCents + (s.camareroNetCents ?? 0)).toBe(s.netCents);
+  });
+
+  it('dos chicas en el mismo cobro (la que cobra con su propina y la invitada): cuentan las dos', () => {
+    const r = invitacion({
+      creatorName: 'Lola',
+      creatorEmail: 'lola@local.es',
+      tipCents: 200,
+      staff: [
+        chicaPart({ name: 'Lola', email: 'lola@local.es', commissionCents: 0, tipCents: 200, baseCents: 2000, invitation: false }),
+        chicaPart(),
+      ],
+    });
+    const [, row] = lines(cobrosCsv([r], 'Sala'));
+    // Neto 22 €: Lola 2 € + Nerea 10 €; el local, 10 €.
+    expect(row).toContain(';22,00;12,00;0,00;10,00;Pagado;');
+    const s = summarize([r], [], []);
+    expect(s).toMatchObject({ chicaCommissionCents: 1000, chicaTipsCents: 200, chicaNetCents: 1200, venueTipsCents: 0, venueNetCents: 1000 });
+    expect(s.perChica.map((c) => [c.name, c.chargedCents, c.netCents])).toEqual([
+      ['Nerea', 2000, 1000],
+      ['Lola', 2200, 200],
+    ]);
+  });
+
+  it('del saldo (NFC): su parte cuenta para ella y sale de lo del local', () => {
+    const recarga = cobro({ id: 'w', walletId: 'w-1', revenueCategory: 'EXTRA', amountCents: 5000, tipCents: 0, commissionCents: null, earningTipCents: null, staff: [] });
+    const consumo2: ConsumoRow = {
+      id: 'c-inv',
+      at: new Date('2026-10-13T23:30:00Z'),
+      amountCents: 2000,
+      tipCents: 0,
+      category: 'VENUE_BAR',
+      lines: [{ category: 'VENUE_BAR', amountCents: 2000 }],
+      operatorName: 'Nerea',
+      operatorEmail: 'nerea@local.es',
+      commissionCents: 1000,
+      earningTipCents: 0,
+      staff: [chicaPart()],
+    };
+    const s = summarize([recarga], [], [], [consumo2]);
+    expect(s).toMatchObject({ chicaCommissionCents: 1000, chicaNetCents: 1000, venueNetCents: 4000 });
+    expect(s.saldoByType).toEqual([{ label: 'Barra', count: 1, chargedCents: 2000 }]);
+    expect(s.perChica).toEqual([expect.objectContaining({ name: 'Nerea', count: 1, chargedCents: 2000, commissionCents: 1000 })]);
+  });
+
+  it('devolución: lo descontado a la chica y al camarero, cada uno lo suyo', () => {
+    const r = invitacion({
+      status: 'REFUNDED',
+      refundedCents: 2000,
+      staff: [
+        chicaPart({ reversedCents: 1000 }),
+        chicaPart({ name: 'Carlos', email: 'carlos@local.es', role: 'WAITER', commissionCents: 600, reversedCents: 600 }),
+      ],
+    });
+    const refund = devolucion({
+      amountCents: 2000,
+      chargedCents: 2000,
+      creatorName: 'Carlos',
+      creatorEmail: 'carlos@local.es',
+      chicaName: 'Nerea',
+      chicaEmail: 'nerea@local.es',
+      reversedDeltaCents: 1000,
+      afterPayout: false,
+      staff: [
+        { name: 'Nerea', email: 'nerea@local.es', role: 'OPERATOR', reversedDeltaCents: 1000, afterPayout: false },
+        { name: 'Carlos', email: 'carlos@local.es', role: 'WAITER', reversedDeltaCents: 600, afterPayout: false },
+      ],
+    });
+    const [, row] = lines(devolucionesCsv([refund]));
+    expect(row).toContain(';Carlos;10,00;No;6,00;');
+    const [, cobroRow] = lines(cobrosCsv([r], 'Sala'));
+    // Devuelta entera: nada para nadie.
+    expect(cobroRow).toContain(';20,00;0,00;20,00;20,00;0,00;0,00;0,00;0,00;Devuelto;');
+    const s = summarize([r], [refund], []);
+    expect(s).toMatchObject({ chicaReversalsCents: 1000, chicaNetCents: 0, camareroReversalsCents: 600, camareroNetCents: 0, venueNetCents: 0 });
+    expect(s.perChica).toEqual([expect.objectContaining({ name: 'Nerea', reversalsCents: 1000, netCents: 0 })]);
+  });
+
+  it('el resumen dice lo de los camareros solo si tienen algo; lo pagado a cada uno, aparte', () => {
+    const r0 = parseReportPeriod('2026-10-01', '2026-10-31');
+    if (!r0.ok) throw new Error(r0.error);
+    const sin = summarize([invitacion()], [], [liquidacion({ operatorName: 'Nerea', operatorEmail: 'nerea@local.es', totalCents: 1000 })]);
+    const csvSin = resumenCsv({ venueName: 'Sala', period: r0.period, generatedAt: new Date('2026-11-02T09:00:00Z'), summary: sin });
+    expect(csvSin).not.toContain('camareros');
+    expect(csvSin).toContain('Pagado a chicas en el periodo;10,00;1');
+    const con = summarize(
+      [invitacion({ staff: [chicaPart(), chicaPart({ name: 'Carlos', email: 'carlos@local.es', role: 'WAITER', commissionCents: 600 })] })],
+      [],
+      [liquidacion({ operatorName: 'Carlos', operatorEmail: 'carlos@local.es', role: 'WAITER', totalCents: 600 })],
+    );
+    expect(con).toMatchObject({ payoutsCents: 0, payoutsCount: 0, camareroPayoutsCents: 600, camareroPayoutsCount: 1 });
+    // El camarero no sale en la tabla de las chicas.
+    expect(con.perChica.map((c) => c.name)).toEqual(['Nerea']);
+    const csvCon = resumenCsv({ venueName: 'Sala', period: r0.period, generatedAt: new Date('2026-11-02T09:00:00Z'), summary: con });
+    expect(csvCon).toContain('Total para los camareros (copas con invitación);6,00');
+    expect(csvCon).toContain('Pagado a camareros en el periodo;6,00;1');
+    expect(csvCon).toContain('Total para el local;4,00');
   });
 });

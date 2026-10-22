@@ -20,6 +20,12 @@ export interface NightSummary {
   chicaTipsCents: number;
   chicaReversalsCents: number;
   chicaNetCents: number;
+  /**
+   * La parte de los camareros (copas con invitación, si el local se la da; de
+   * fábrica, nada). Los Z congelados antes del 2026-10-28 no lo traen (y su
+   * «para el local» la incluía).
+   */
+  camareroNetCents?: number;
   venueTipsCents: number;
   venueNetCents: number;
   payoutsCount: number;

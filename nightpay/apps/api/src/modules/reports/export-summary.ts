@@ -3,14 +3,20 @@ import {
   WALLET_LABEL,
   categoryLabel,
   cobroSections,
+  cobroStaff,
   consumoSections,
+  consumoStaff,
+  isChicaPart,
+  partChargedCents,
   person,
+  refundStaff,
   type CobroRow,
   type ConsumoRow,
   type DevolucionRow,
   type LiquidacionRow,
   type PagoSaldoRow,
   type RecargaEfectivoRow,
+  type StaffPart,
 } from './export-rows';
 
 /** Las recargas en efectivo, por tipo de cobro (junto a la «Recarga de wallet» con tarjeta). */
@@ -61,10 +67,23 @@ export interface ExportSummary {
   chicaTipsCents: number;
   chicaReversalsCents: number;
   chicaNetCents: number;
+  /**
+   * La parte de los camareros: solo de las copas con invitación, si el local
+   * se la da (de fábrica, nada). Los Z congelados antes del 2026-10-28 no lo
+   * traen (y su «para el local» la incluía).
+   */
+  camareroCommissionCents?: number;
+  camareroReversalsCents?: number;
+  camareroNetCents?: number;
   venueTipsCents: number;
+  /** Neto − lo de las chicas − lo de los camareros. */
   venueNetCents: number;
+  /** Pagado a las chicas en el periodo. */
   payoutsCount: number;
   payoutsCents: number;
+  /** Pagado a los camareros (su parte de las invitaciones). Los Z de antes del 2026-10-28 no lo traen. */
+  camareroPayoutsCount?: number;
+  camareroPayoutsCents?: number;
   perChica: ChicaSummary[];
   /** Saldo devuelto al cliente en efectivo: resta del neto. */
   walletCashPayoutsCount: number;
@@ -108,9 +127,11 @@ export function summarize(
   const cashTopUpsCents = sum(recargasEfectivo, (r) => r.amountCents);
   const cashTopUpsN = cashTopUpsCount(recargasEfectivo);
   const saldo = saldoTotals(consumos, pagosSaldo);
-  const { cardTipsCents, ...chica } = chicaTotals(cobros, devoluciones, consumos);
+  const { cardTipsCents, ...staff } = staffTotals(cobros, devoluciones, consumos);
   const chargedCents = grossCents + tipsCents + cashTopUpsCents;
   const netCents = chargedCents - refundsCents - saldo.walletCashPayoutsCents;
+  const chicaPayouts = liquidaciones.filter((l) => !isWaiterPayout(l));
+  const camareroPayouts = liquidaciones.filter(isWaiterPayout);
   return {
     count: cobros.length,
     grossCents,
@@ -127,36 +148,57 @@ export function summarize(
         ? [{ label: CASH_TOP_UP_LABEL, count: cashTopUpsN, chargedCents: cashTopUpsCents }]
         : []),
     ],
-    ...chica,
+    ...staff,
     // Propinas con tarjeta que se queda el local (las del saldo no entran aquí).
     venueTipsCents: tipsCents - cardTipsCents,
-    venueNetCents: netCents - chica.chicaNetCents,
-    payoutsCount: liquidaciones.length,
-    payoutsCents: sum(liquidaciones, (r) => r.totalCents),
-    perChica: perChica(cobros, devoluciones, liquidaciones, consumos),
+    venueNetCents: netCents - staff.chicaNetCents - staff.camareroNetCents,
+    payoutsCount: chicaPayouts.length,
+    payoutsCents: sum(chicaPayouts, (r) => r.totalCents),
+    camareroPayoutsCount: camareroPayouts.length,
+    camareroPayoutsCents: sum(camareroPayouts, (r) => r.totalCents),
+    perChica: perChica(cobros, devoluciones, chicaPayouts, consumos),
     ...saldo,
   };
 }
 
+/** Un pago a un camarero (su parte de las copas con invitación); el resto, a chicas. */
+function isWaiterPayout(l: Pick<LiquidacionRow, 'role'>): boolean {
+  return l.role === 'WAITER';
+}
+
 /**
- * La parte de las chicas: de los cobros con tarjeta y de lo que cobraron del
- * saldo del cliente (ese dinero entró con la recarga, ya contada).
+ * La parte del personal: de los cobros con tarjeta y de lo que se cobró del
+ * saldo del cliente (ese dinero entró con la recarga, ya contada). Cada
+ * persona con lo suyo: la chica que cobró, la invitada a una copa y, si el
+ * local se la da, el camarero que la cobró. Lo descontado, por la fecha de
+ * cada devolución.
  */
-function chicaTotals(
+function staffTotals(
   cobros: ReadonlyArray<CobroRow>,
   devoluciones: ReadonlyArray<DevolucionRow>,
   consumos: ReadonlyArray<ConsumoRow>,
 ) {
-  const cardTipsCents = sum(cobros, (r) => (r.commissionCents === null ? 0 : (r.earningTipCents ?? 0)));
-  const chicaCommissionCents = sum(cobros, (r) => r.commissionCents ?? 0) + sum(consumos, (r) => r.commissionCents ?? 0);
-  const chicaTipsCents = cardTipsCents + sum(consumos, (r) => r.earningTipCents ?? 0);
-  const chicaReversalsCents = sum(devoluciones, (r) => r.reversedDeltaCents ?? 0);
+  const cardParts = cobros.flatMap(cobroStaff);
+  const saldoParts = consumos.flatMap(consumoStaff);
+  const refundParts = devoluciones.flatMap(refundStaff);
+  const chicas = (xs: ReadonlyArray<StaffPart>) => xs.filter(isChicaPart);
+  const camareros = (xs: ReadonlyArray<StaffPart>) => xs.filter((p) => !isChicaPart(p));
+  const cardTipsCents = sum(cardParts, (p) => p.tipCents);
+  const chicaCommissionCents = sum(chicas([...cardParts, ...saldoParts]), (p) => p.commissionCents);
+  const chicaTipsCents = sum(chicas([...cardParts, ...saldoParts]), (p) => p.tipCents);
+  const chicaReversalsCents = sum(refundParts.filter(isChicaPart), (p) => p.reversedDeltaCents);
+  const camareroCommissionCents = sum(camareros([...cardParts, ...saldoParts]), (p) => p.commissionCents + p.tipCents);
+  const camareroReversalsCents = sum(refundParts.filter((p) => !isChicaPart(p)), (p) => p.reversedDeltaCents);
   return {
+    // Las propinas con tarjeta que no son del local (las de quien tenga parte en el cobro).
     cardTipsCents,
     chicaCommissionCents,
     chicaTipsCents,
     chicaReversalsCents,
     chicaNetCents: chicaCommissionCents + chicaTipsCents - chicaReversalsCents,
+    camareroCommissionCents,
+    camareroReversalsCents,
+    camareroNetCents: camareroCommissionCents - camareroReversalsCents,
   };
 }
 
@@ -234,25 +276,25 @@ function perChica(
     return fresh;
   };
   // Acumuladores locales a esta función: se rellenan y se devuelven copiados.
-  for (const r of cobros) {
-    if (r.commissionCents === null || !r.earningOperatorEmail) continue;
-    const e = entry(r.earningOperatorEmail, person(r.earningOperatorName, r.earningOperatorEmail));
-    e.count += 1;
-    e.chargedCents += r.amountCents + r.tipCents;
-    e.commissionCents += r.commissionCents;
-    e.tipsCents += r.earningTipCents ?? 0;
-  }
-  for (const r of consumos) {
-    if (r.commissionCents === null || !r.operatorEmail) continue;
-    const e = entry(r.operatorEmail, person(r.operatorName, r.operatorEmail));
-    e.count += 1;
-    e.chargedCents += r.amountCents + r.tipCents;
-    e.commissionCents += r.commissionCents;
-    e.tipsCents += r.earningTipCents ?? 0;
-  }
+  // Por cada chica con parte en el cobro (la que lo cobró y la invitada a una
+  // copa); en una copa con invitación, lo vendido a su nombre son sus copas.
+  const add = (sale: { amountCents: number; tipCents: number }, parts: ReadonlyArray<StaffPart>) => {
+    for (const p of parts) {
+      if (!isChicaPart(p) || !p.email) continue;
+      const e = entry(p.email, person(p.name, p.email));
+      e.count += 1;
+      e.chargedCents += partChargedCents(p, sale);
+      e.commissionCents += p.commissionCents;
+      e.tipsCents += p.tipCents;
+    }
+  };
+  for (const r of cobros) add(r, cobroStaff(r));
+  for (const r of consumos) add(r, consumoStaff(r));
   for (const r of devoluciones) {
-    if (!r.reversedDeltaCents || !r.chicaEmail) continue;
-    entry(r.chicaEmail, person(r.chicaName, r.chicaEmail)).reversalsCents += r.reversedDeltaCents;
+    for (const p of refundStaff(r)) {
+      if (!isChicaPart(p) || !p.reversedDeltaCents || !p.email) continue;
+      entry(p.email, person(p.name, p.email)).reversalsCents += p.reversedDeltaCents;
+    }
   }
   for (const r of liquidaciones) {
     entry(r.operatorEmail, person(r.operatorName, r.operatorEmail)).paidCents += r.totalCents;

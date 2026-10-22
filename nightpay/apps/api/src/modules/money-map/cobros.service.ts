@@ -18,6 +18,7 @@ import {
   type FeedCursor,
   type PersonLike,
 } from './cobros-rows';
+import { invitationTotals } from './invitation-totals';
 
 const PERSON_SELECT_FOR_LINES = { id: true, displayName: true, email: true, role: true } as const;
 const LINE_SELECT = {
@@ -64,29 +65,12 @@ export class CobrosService {
   }
 
   /**
-   * Las invitaciones a una chica (su ficha): copas cobradas (sin las
-   * devueltas del todo ni los consumos anulados), lo vendido y su parte.
+   * Las invitaciones a una chica (su ficha): copas con invitación cobradas
+   * (sin las devueltas del todo ni los consumos anulados), lo vendido y su
+   * parte (menos lo descontado por las devueltas en parte).
    */
   async invitationSummary(tenantId: string, operatorId: string): Promise<InvitationSummary> {
-    const rows = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.$queryRaw<Array<{ count: bigint | null; amount: bigint | null; share: bigint | null }>>`
-        SELECT COALESCE(SUM(l.qty), 0)::bigint AS count,
-               COALESCE(SUM(l."amountCents"), 0)::bigint AS amount,
-               COALESCE(SUM(l."beneficiaryCents"), 0)::bigint AS share
-          FROM payment_lines l
-          LEFT JOIN payments p ON p.id = l."paymentId"
-          LEFT JOIN wallet_charge_requests w ON w.id = l."walletChargeId"
-          LEFT JOIN wallet_consumptions c ON c.id = w."consumptionId"
-         WHERE l."tenantId" = ${tenantId}::uuid
-           AND l."beneficiaryOperatorId" = ${operatorId}::uuid
-           AND (
-             p.status IN ('AUTHORIZED', 'PARTIALLY_REFUNDED')
-             OR (w.status = 'ACCEPTED' AND c.id IS NOT NULL AND c."reversedAt" IS NULL)
-           )
-      `,
-    );
-    const r = rows[0];
-    return { count: Number(r?.count ?? 0), amountCents: Number(r?.amount ?? 0), shareCents: Number(r?.share ?? 0) };
+    return this.prisma.withTenant(tenantId, (tx) => invitationTotals(tx, tenantId, operatorId));
   }
 
   async list(tenantId: string, q: CobrosQuery): Promise<CobrosPage> {

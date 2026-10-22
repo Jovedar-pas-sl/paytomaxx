@@ -36,6 +36,7 @@ import type { TimeWindow } from '../reports/report-period';
 import { afterPayoutDebt, paymentAt } from '../reports/reporting-sql';
 import { ReportsService } from '../reports/reports.service';
 import { fichasCounts, type FichasCounts } from '../wallets/fichas-counts';
+import { invitationTotals } from '../money-map/invitation-totals';
 import { MoneyMapService } from '../money-map/money-map.service';
 import { CloseCheckService } from './close-check.service';
 import { settleWritesBefore } from './night-cutoff';
@@ -105,7 +106,7 @@ export interface MyNight {
   /** Lo ganado fuera de esta noche (otras noches) y aún sin pagar. Sin restar deudas. */
   otherUnpaidCents: number;
   /**
-   * «Invitar a una copa»: las copas a las que la invitaron esta noche (pagadas,
+   * «Copa con invitación»: las copas a las que la invitaron esta noche (pagadas,
    * sin las anuladas) y su parte («Mi QR»: «6 invitaciones esta noche»).
    */
   invitations: { count: number; shareCents: number };
@@ -431,28 +432,14 @@ export class NightsService {
   }
 
   /**
-   * Las copas a las que invitaron a la chica en la ventana: líneas de
-   * invitación suyas en cobros con tarjeta pagados (aunque luego se devolviera
-   * una parte) o en cobros del saldo pagados y sin anular. Su parte, la fijada
-   * al cobrar.
+   * Las copas con invitación de la chica en la ventana («Mi QR»: «6
+   * invitaciones esta noche»): con tarjeta, pagadas (una devuelta en parte
+   * sigue contando, con su parte menos lo descontado); del saldo, pagadas y
+   * sin anular. Su parte, la fijada al cobrar.
    */
   private async invitationsOf(tenantId: string, operatorId: string, from: Date, to: Date): Promise<{ count: number; shareCents: number }> {
-    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<Array<{ count: number; shareCents: number }>>`
-      SELECT COALESCE(SUM(l.qty), 0)::int AS count, COALESCE(SUM(l."beneficiaryCents"), 0)::int AS "shareCents"
-        FROM payment_lines l
-        LEFT JOIN payments p ON p.id = l."paymentId"
-        LEFT JOIN wallet_charge_requests w ON w.id = l."walletChargeId"
-        LEFT JOIN wallet_consumptions c ON c.id = w."consumptionId"
-       WHERE l."tenantId" = ${tenantId}::uuid
-         AND l."beneficiaryOperatorId" = ${operatorId}::uuid
-         AND (
-           (p.status::text IN ('AUTHORIZED', 'PARTIALLY_REFUNDED')
-             AND ${paymentAt('p')} >= ${from} AND ${paymentAt('p')} < ${to})
-           OR (w.status = 'ACCEPTED' AND c."reversedAt" IS NULL
-             AND c."createdAt" >= ${from} AND c."createdAt" < ${to})
-         )
-    `);
-    return rows[0] ?? { count: 0, shareCents: 0 };
+    const totals = await this.prisma.withTenant(tenantId, (tx) => invitationTotals(tx, tenantId, operatorId, { from, to }));
+    return { count: totals.count, shareCents: totals.shareCents };
   }
 
   /**
