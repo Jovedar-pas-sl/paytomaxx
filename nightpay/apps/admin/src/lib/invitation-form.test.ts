@@ -21,8 +21,8 @@ describe('Ajustes → Invitaciones', () => {
     expect(shareFromDraft({ kind: 'FIXED', value: 'mucho' }, 'el camarero')).toMatchObject({ ok: false });
   });
 
-  it('el ejemplo que ve el dueño (las de fábrica: chica 50 %, camarero 0 %)', () => {
+  it('el ejemplo que ve el dueño (las de fábrica, maqueta 2.6: chica 50 %, camarero 50 %)', () => {
     const text = invitationExample(DEFAULT_INVITATION_RULES, 2000).replace(/\u00a0/g, ' ');
-    expect(text).toBe('De una invitación de 20,00 €: 10,00 € para la chica, 0,00 € para el camarero y 10,00 € para el local.');
+    expect(text).toBe('De una invitación de 20,00 €: 10,00 € para la chica, 10,00 € para el camarero y 0,00 € para el local.');
   });
 });

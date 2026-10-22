@@ -129,17 +129,18 @@ describe('invitar con tarjeta: el QR de la chica y el reparto', () => {
     expect(made).toBe(0);
   });
 
-  it('Dani invita a Lola: la línea lleva a Lola y su 50 %; al pagarse, su ganancia (Dani, 0 %: nada)', async () => {
+  it('de fábrica, Dani invita a Lola: la línea lleva a Lola y su 50 % y a Dani su 50 % (maqueta 2.6); al pagarse, las dos ganancias', async () => {
     const created = await inVenue(A, () =>
       payments.create(A, key(), body({ amountCents: 1, serviceItemId: invita, invitedStaffToken: qrOf(lola, A) }), asDani()),
     );
     expect(created.amountCents).toBe(2500);
     const line = await sys((tx) => tx.paymentLine.findFirst({ where: { paymentId: created.id } }));
-    expect(line).toMatchObject({ category: 'VENUE_BAR', beneficiaryOperatorId: lola, beneficiaryCents: 1250, chargerCents: 0 });
+    expect(line).toMatchObject({ category: 'VENUE_BAR', beneficiaryOperatorId: lola, beneficiaryCents: 1250, chargerCents: 1250 });
     await authorize(created.id, `IV${r}1`);
     const earnings = await earningsOf({ paymentId: created.id });
-    expect(earnings).toHaveLength(1);
-    expect(earnings[0]).toMatchObject({ operatorId: lola, commissionCents: 1250, commissionBps: 5000, paymentAmountCents: 2500, paymentLineId: line!.id });
+    expect(earnings).toHaveLength(2);
+    expect(earnings.find((e) => e.operatorId === lola)).toMatchObject({ commissionCents: 1250, commissionBps: 5000, paymentAmountCents: 2500, paymentLineId: line!.id });
+    expect(earnings.find((e) => e.operatorId === dani)).toMatchObject({ commissionCents: 1250, commissionBps: 5000, paymentAmountCents: 2500 });
   });
 
   it('con parte para el camarero (Ajustes): dos ganancias, y una devolución de la mitad descuenta a los dos', async () => {
@@ -174,7 +175,8 @@ describe('invitar con tarjeta: el QR de la chica y el reparto', () => {
     expect((await earningsOf({ paymentId: created.id })).map((e) => e.reversedCents)).toEqual([1000, 300]);
     const reversals = await sys((tx) => tx.earningReversal.findMany({ where: { refundId: refund.id } }));
     expect(reversals).toHaveLength(2);
-    await sys((tx) => tx.venue.update({ where: { id: A }, data: { invitationRules: { chica: { kind: 'PERCENT', bps: 5000 } } } }));
+    // Como las guarda Ajustes (todas las partes): la del camarero, a 0.
+    await sys((tx) => tx.venue.update({ where: { id: A }, data: { invitationRules: { chica: { kind: 'PERCENT', bps: 5000 }, camarero: { kind: 'PERCENT', bps: 0 } } } }));
   });
 });
 
