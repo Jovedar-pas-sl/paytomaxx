@@ -13,6 +13,8 @@ function state(o: Partial<ClientWalletState> = {}): ClientWalletState {
     hasFaceId: false,
     hasPin: false,
     hasCard: false,
+    fichaNumber: null,
+    venueName: null,
     merged: false,
     refund: null,
     cards: ['4242'],
@@ -298,7 +300,9 @@ describe('«Más»: debajo de las dos vistas', () => {
     expect(more).toContain('Elegir un PIN');
     expect(more).toContain('Juntar saldos');
     expect(more).toContain('Me voy: devolver mi saldo');
-    expect(more).toContain('<button class="row" type="button" id="movOpen" aria-expanded="false" aria-controls="movBox">Movimientos');
+    // Los movimientos se ven de entrada (maqueta 5.1); se pueden plegar.
+    expect(more).toContain('<button class="row" type="button" id="movOpen" aria-expanded="true" aria-controls="movBox">Movimientos');
+    expect(more).toContain('<div id="movBox"><ul id="movements"></ul></div>');
     const js = script(html);
     expect(js).toContain("b.setAttribute('aria-expanded',String(open));$('movBox').hidden=!open;");
     expect(js).toContain("withKey('/pin',{pin:a,pin2:c})");
@@ -476,5 +480,28 @@ describe('textos de la página del saldo', () => {
         if (typeof v === 'string') expect(v.trim(), `${lang}.${k}`).not.toBe('');
       }
     }
+  });
+});
+
+describe('maqueta 5.1: tarjeta OxioCard y movimientos con su referencia', () => {
+  it('la tarjeta lleva el local, el saldo, el código y el número del NFC', () => {
+    const html = renderWalletPage('tok-1', 'es', state({ venueName: 'Sala Medianoche', hasCard: true, fichaNumber: '0417' }));
+    expect(html).toContain('<p id="balanceLabel">Tu saldo · Sala Medianoche</p>');
+    expect(html).toContain('<span class="num" id="heroCode">K7Q-4M2</span><span id="heroFicha">Ficha nº 0417</span>');
+    const en = renderWalletPage('tok-1', 'en', state({ venueName: 'Sala <b>', hasCard: true, fichaNumber: '0417' }));
+    expect(en).toContain('Your balance · Sala &lt;b&gt;');
+    expect(en).toContain('NFC no. 0417');
+    // Sin NFC no hay número; sin local, «Saldo».
+    const bare = renderWalletPage('tok-1', 'es', state({ fichaNumber: '0417' }));
+    expect(bare).toContain('<span id="heroFicha"></span>');
+    expect(bare).toContain('<p id="balanceLabel">Saldo</p>');
+  });
+
+  it('cada movimiento: color de su sección, concepto y debajo referencia, local y hora (todo con textContent)', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state()));
+    expect(js).toContain("sw.className=m.color?'sw':'sw hold'");
+    expect(js).toContain("sw.style.setProperty('--c',m.color)");
+    expect(js).toContain('sub.textContent=[m.ref,m.venueName,when(m.at)].filter(Boolean).join');
+    expect(js).not.toContain('innerHTML');
   });
 });

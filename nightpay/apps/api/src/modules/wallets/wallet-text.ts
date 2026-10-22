@@ -11,6 +11,10 @@ export interface WalletText {
   locale: string;
   title: string;
   balance: string;
+  /** «Tu saldo · {venue}» en la tarjeta de arriba. */
+  balanceOf: string;
+  /** «Ficha nº {n}» en la tarjeta de arriba. */
+  fichaNo: string;
   saveHint: string;
   movements: string;
   movementsHint: string;
@@ -113,6 +117,8 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     locale: 'es-ES',
     title: `Tu saldo ${BRAND_NAME}`,
     balance: 'Saldo',
+    balanceOf: 'Tu saldo · {venue}',
+    fichaNo: 'Ficha nº {n}',
     saveHint: 'Guarda esta página (Compartir → Añadir a pantalla de inicio) para volver a tu saldo.',
     movements: 'Movimientos',
     movementsHint: 'Recargas, pagos y devoluciones',
@@ -204,6 +210,8 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     locale: 'en-GB',
     title: `Your ${BRAND_NAME} balance`,
     balance: 'Balance',
+    balanceOf: 'Your balance · {venue}',
+    fichaNo: 'NFC no. {n}',
     saveHint: 'Save this page (Share → Add to Home Screen) to come back to your balance.',
     movements: 'Activity',
     movementsHint: 'Top-ups, payments and refunds',
