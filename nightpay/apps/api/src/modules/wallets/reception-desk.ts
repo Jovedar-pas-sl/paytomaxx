@@ -21,18 +21,23 @@ import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet
  * El código, igual que al recargar (topUpTarget): solo saldos activos.
  */
 
-export type DeskRef = { card: string; uid?: string | null } | { code: string } | { printedNumber: string };
+/**
+ * El NFC acercado o el código. El número impreso NO: se lee de la ficha y no
+ * prueba que la tengan delante (FichaNumbersService enseña solo un resumen).
+ */
+export type DeskRef = { card: string; uid?: string | null } | { code: string };
 
-type DeskTx = Pick<TransactionalClient, 'walletCard' | 'clientWallet' | 'venue' | '$queryRaw'>;
+export type DeskTx = Pick<TransactionalClient, 'walletCard' | 'clientWallet' | 'venue' | '$queryRaw' | 'walletPasskey'>;
 
 /** Un saldo a cero (DEPLETED) se recarga y vuelve a estar activo: también vale. */
-const LIVE = new Set(['ACTIVE', 'DEPLETED']);
+export const LIVE_WALLET_STATUSES: ReadonlySet<string> = new Set(['ACTIVE', 'DEPLETED']);
+const LIVE = LIVE_WALLET_STATUSES;
 /** Saldos sumados uno a otro que se siguen como mucho (como topUpTarget). */
 const MAX_MERGE_HOPS = 5;
 
 const NOT_OURS = 'Este NFC no es de este local';
 
-interface DeskWallet {
+export interface DeskWallet {
   id: string;
   tenantId: string;
   walletGroup: string | null;
@@ -65,6 +70,7 @@ export function deskSaldoView(
   cash: WalletCash,
   fichaNumber: number | null,
   printedNumber?: string | null,
+  hasPasskey = false,
 ): ReceptionDeskSaldo {
   return {
     kind: 'saldo',
@@ -79,11 +85,12 @@ export function deskSaldoView(
     cashOutNote: cashPayoutNote(wallet.balanceCents, cash),
     fichaNumber,
     ...(printedNumber ? { printedNumber } : {}),
+    hasPasskey,
   };
 }
 
 /** El saldo donde está hoy el dinero (él mismo o aquel al que se sumó). */
-async function liveWallet(tx: DeskTx, walletId: string): Promise<DeskWallet | null> {
+export async function liveWallet(tx: Pick<DeskTx, 'clientWallet'>, walletId: string): Promise<DeskWallet | null> {
   let wallet = await tx.clientWallet.findUnique({ where: { id: walletId }, select: WALLET_SELECT });
   for (let hops = 0; wallet?.mergedIntoId && hops < MAX_MERGE_HOPS; hops += 1) {
     wallet = await tx.clientWallet.findUnique({ where: { id: wallet.mergedIntoId }, select: WALLET_SELECT });
@@ -98,13 +105,13 @@ export async function readReceptionDesk(
   ref: DeskRef,
 ): Promise<ReceptionDeskView> {
   if ('code' in ref) return deskByCode(tx, venue, ref.code);
-  if ('card' in ref && !isWalletCardToken(ref.card)) throw new NotFoundException(NOT_OURS);
+  if (!isWalletCardToken(ref.card)) throw new NotFoundException(NOT_OURS);
   const card = await tx.walletCard.findUnique({
-    where: 'printedNumber' in ref ? { printedNumber: ref.printedNumber } : { token: ref.card },
+    where: { token: ref.card },
     select: { id: true, uid: true, walletId: true, status: true, venueId: true, number: true, printedNumber: true },
   });
   if (!card || !(await cardInGroup(tx, card, venue.id))) throw new NotFoundException(NOT_OURS);
-  const uid = 'card' in ref && ref.uid ? normalizeWalletCardUid(ref.uid) : null;
+  const uid = ref.uid ? normalizeWalletCardUid(ref.uid) : null;
   if (card.uid && uid && card.uid !== uid) {
     throw new ConflictException('Este NFC no es el original (¿copiado?): avisa al encargado');
   }
@@ -115,7 +122,12 @@ export async function readReceptionDesk(
   if (!wallet || !LIVE.has(wallet.status) || !sameWalletGroup(wallet, venue)) {
     return { kind: 'new', fichaNumber: card.number, ...(card.printedNumber ? { printedNumber: card.printedNumber } : {}) };
   }
-  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card.number, card.printedNumber);
+  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card.number, card.printedNumber, await hasPasskey(tx, wallet.id));
+}
+
+/** Tiene Face ID: a la salida lo confirma en su móvil. */
+async function hasPasskey(tx: Pick<DeskTx, 'walletPasskey'>, walletId: string): Promise<boolean> {
+  return (await tx.walletPasskey.count({ where: { walletId } })) > 0;
 }
 
 async function deskByCode(
@@ -135,5 +147,5 @@ async function deskByCode(
     orderBy: { linkedAt: { sort: 'desc', nulls: 'last' } },
     select: { number: true, printedNumber: true },
   });
-  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card?.number ?? null, card?.printedNumber);
+  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card?.number ?? null, card?.printedNumber, await hasPasskey(tx, wallet.id));
 }

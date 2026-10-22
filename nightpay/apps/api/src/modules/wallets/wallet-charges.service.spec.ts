@@ -595,7 +595,7 @@ describe('devolver el saldo al cliente que se va', () => {
     const err = await svc.payout(manager, 'w-1', { method: 'CASH' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ForbiddenException);
     expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
-    expect((err as Error).message).toMatch(/Devolver 300,00 € en efectivo: desde 100,00 €/);
+    expect((err as Error).message).toMatch(/Devolver 300,00 € en efectivo: con más de 100,00 €/);
     expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
     expect(payoutMock.create).not.toHaveBeenCalled();
     // Sin la app activada, se le dice (no un código que no puede poner).
@@ -612,6 +612,18 @@ describe('devolver el saldo al cliente que se va', () => {
     await expect(own.svc.payout(owner, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
     expect(own.totp.assertForUser).not.toHaveBeenCalled();
     expect(own.totp.isEnabled).not.toHaveBeenCalled();
+  });
+
+  it('lo que recepción dejó para el encargado (su tope de la noche): en el panel, con su 2FA aunque sea poco', async () => {
+    const left = payoutService({ threshold: 30_001, cashIn: 5_000, wallet: { balanceCents: 5_000 } });
+    const raw = left.tx.$queryRaw.getMockImplementation()!;
+    left.tx.$queryRaw.mockImplementation(async (sql: TemplateStringsArray, ...args: unknown[]) =>
+      sql.join('?').includes('FROM audit_events') ? [{ found: 1 }] : raw(sql, ...args));
+    const err = await left.svc.payout(manager, 'w-1', { method: 'CASH' }).catch((e: unknown) => e);
+    expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
+    expect((err as Error).message).toMatch(/recepción lo dejó para el encargado/);
+    await expect(left.svc.payout(manager, 'w-1', { method: 'CASH', totpCode: '123456' })).resolves.toEqual({ refundedCents: 5_000, method: 'CASH' });
+    expect(left.totp.assertForUser).toHaveBeenCalledWith('man-1', '123456');
   });
 
   it('el encargado no devuelve sin el "Me voy" del cliente; el dueño sí', async () => {

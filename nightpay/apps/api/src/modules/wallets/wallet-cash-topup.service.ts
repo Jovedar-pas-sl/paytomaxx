@@ -24,7 +24,7 @@ import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { insertEmptyWallet } from './empty-wallet';
 import { reopenData } from './wallet-activation';
 import { cashTopUpOverLimit, walletCash } from './wallet-cash-limits';
-import { cashIntentFingerprint, storedReceipt } from './wallet-cash-intent';
+import { cashIntentFingerprint, storedReceipt, type PrintedTopUpRef } from './wallet-cash-intent';
 import { liveWalletId, lockLiveWallet } from './wallet-merge-chain';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
 import { topUpTarget } from './wallet-topup-target';
@@ -39,8 +39,11 @@ export type CashTopUpBy = { userId: string; role: string } | { terminalId: strin
 export interface CashTopUpInput {
   amountCents: number;
   idempotencyKey: string;
-  wallet: TopUpWalletDto;
+  /** Lo de la petición, o la ficha buscada por su número impreso (solo FichaNumbersService). */
+  wallet: TopUpWalletDto | PrintedTopUpRef;
 }
+
+export type { PrintedTopUpRef };
 
 const KEY_REUSED = 'Esa recarga ya se apuntó con otros datos: vuelve a empezar la recarga';
 
@@ -438,12 +441,14 @@ export class CashTopUpService {
    * Recargas de antes de guardar la huella: no se sabe si se pidió por código
    * o por ficha. Vale si lo pedido ahora es el código que tenía aquel saldo, o
    * lleva hoy al mismo saldo que aquella (también tras sumarse a otro). Un
-   * saldo nuevo solo repite otro saldo nuevo.
+   * saldo nuevo solo repite otro saldo nuevo. Las de número impreso son
+   * posteriores y siempre llevan huella: nunca casan con una antigua.
    */
   private async legacyIntentMatches(
     existing: { walletId: string; createdWallet: boolean },
-    wallet: TopUpWalletDto,
+    wallet: TopUpWalletDto | PrintedTopUpRef,
   ): Promise<boolean> {
+    if ('printed' in wallet) return false;
     if ('create' in wallet) return existing.createdWallet;
     if (existing.createdWallet) return false;
     return this.prisma.acrossVenues(async (tx) => {

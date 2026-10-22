@@ -15,8 +15,17 @@ describe('Ajustes → Noche', () => {
       receptionDefaultMethod: 'cash',
       feedbackVibration: true,
       feedbackSound: true,
+      payoutNightCapEur: '300',
     });
     expect(nightChange(form, current)).toEqual({ ok: true, change: {} });
+  });
+
+  it('salidas en efectivo por persona y noche: de 0 € (siempre el encargado) a 5.000 €', () => {
+    const base = nightFormFrom(current);
+    expect(nightChange({ ...base, payoutNightCapEur: '150' }, current)).toEqual({ ok: true, change: { receptionPayoutNightCapCents: 15_000 } });
+    expect(nightChange({ ...base, payoutNightCapEur: '0' }, current)).toEqual({ ok: true, change: { receptionPayoutNightCapCents: 0 } });
+    expect(nightChange({ ...base, payoutNightCapEur: '5001' }, current)).toMatchObject({ ok: false, problem: expect.stringMatching(/encargado/) });
+    expect(nightChange({ ...base, payoutNightCapEur: 'mucho' }, current)).toMatchObject({ ok: false });
   });
 
   it('solo se manda lo que cambia (el teclado desordenado, otros importes, la tarjeta por defecto, sin sonido)', () => {

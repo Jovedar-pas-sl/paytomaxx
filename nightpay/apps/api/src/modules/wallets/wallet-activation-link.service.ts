@@ -10,6 +10,7 @@ import {
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { assertCanTopUp } from '../venues/charge-rights';
+import { PRINTED_INTENT_PREFIX } from './wallet-cash-intent';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { sameWalletGroup } from './wallet-rules';
 
@@ -33,11 +34,16 @@ export function activationLinkUnavailable(reason: ActivationLinkUnavailableReaso
  * La última recarga hecha EN ESTE LOCAL a estos saldos (el del cliente y los
  * sumados a él: una recarga pendiente de asignar llega por fusión) desde
  * `since`: en efectivo (sin anular) o con tarjeta (aprobada). null si no hay.
+ * Las recargas por número impreso no cuentan: el número se lee en la ficha y
+ * no prueba que el cliente esté delante (abrirían su enlace privado).
  */
 export async function lastTopUpHere(tx: TopUpTx, venueId: string, walletIds: string[], since: Date): Promise<Date | null> {
   const [cash, card] = await Promise.all([
     tx.walletCashTopUp.findFirst({
-      where: { tenantId: venueId, walletId: { in: walletIds }, amountCents: { gt: 0 }, voidedBy: { is: null }, createdAt: { gte: since } },
+      where: {
+        tenantId: venueId, walletId: { in: walletIds }, amountCents: { gt: 0 }, voidedBy: { is: null }, createdAt: { gte: since },
+        OR: [{ intentFingerprint: null }, { NOT: { intentFingerprint: { startsWith: PRINTED_INTENT_PREFIX } } }],
+      },
       orderBy: { createdAt: 'desc' },
       select: { createdAt: true },
     }),

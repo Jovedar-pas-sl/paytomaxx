@@ -17,6 +17,10 @@ import { GoogleWalletService } from './google-wallet/google-wallet.service';
 import { PassChargeLinkController } from './google-wallet/pass-charge-link.controller';
 import { ReceptionController } from './reception.controller';
 import { ReceptionCashPayoutController } from './reception-cash-payout.controller';
+import { PublicPayoutConfirmController } from './public-payout-confirm.controller';
+import { ReceptionPayoutPasskeys } from './reception-payout-passkey';
+import { ReceptionPayoutService } from './reception-payout.service';
+import { FichaNumbersService } from './ficha-numbers.service';
 import { ReceptionFichaNumberController } from './reception-ficha-number.controller';
 import { ReceptionActivationLinkController } from './reception-activation-link.controller';
 import { WalletActivationLinkService } from './wallet-activation-link.service';
@@ -45,6 +49,11 @@ import { WalletViewGuard } from './wallet-view.guard';
     WalletCardsService,
     // Recargas cobradas sin el NFC del cliente, pendientes de asignar (usa PaymentsService con ModuleRef).
     PendingTopUpService,
+    // Salida de recepción: NFC + PIN o Face ID del cliente, 2FA del encargado y tope de la noche.
+    ReceptionPayoutPasskeys,
+    ReceptionPayoutService,
+    // El número impreso de las fichas: buscar sin acercarla (resumen) y recargar en efectivo.
+    FichaNumbersService,
     // QR de activación de la pantalla «Cargado» de recepción.
     WalletActivationLinkService,
     // «He perdido mi NFC» desde la página del saldo.
@@ -64,6 +73,8 @@ import { WalletViewGuard } from './wallet-view.guard';
     // Recepción (recarga en efectivo, «Preparar fichas») y Clientes → Fichas.
     ReceptionController,
     ReceptionCashPayoutController,
+    // El cliente confirma la salida con su Face ID en su móvil (/w/salida/:token).
+    PublicPayoutConfirmController,
     ReceptionFichaNumberController,
     ReceptionActivationLinkController,
     PendingTopUpsController,

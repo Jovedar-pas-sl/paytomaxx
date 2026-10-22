@@ -5,20 +5,23 @@
 // lógica pura de cada paso (probada en reception-desk.test.ts).
 
 import {
-  fichaNumberText,
+  fichaLabel,
   MAX_CASH_TOP_UP_CENTS,
+  NEW_FICHA_BY_NUMBER_MESSAGE,
   type ReceptionDeskSaldo,
   type ReceptionDeskView,
+  type ReceptionNumberTopUpDto,
+  type ReceptionNumberTopUpResult,
+  type ReceptionNumberView,
   type ReceptionOptions,
   type SaldoRefDto,
 } from '@nightpay/contracts';
-import { parseProblemDetails } from '@nightpay/api-client';
-import { authedFetch, operatorErrorMessage, parseOperatorApiError } from './api';
+import { authedFetch, parseOperatorApiError } from './api';
 import { formatEur } from './money';
 import { payProblem, type PayMethod, type Target } from './reception';
-import type { StaffRole } from './roles';
 
-export type { ReceptionDeskSaldo, ReceptionDeskView };
+export type { ReceptionDeskSaldo, ReceptionDeskView, ReceptionNumberView };
+export type NumberSaldo = Extract<ReceptionNumberView, { kind: 'saldo' }>;
 
 // ─── Llamadas ─────────────────────────────────────────────────────────────
 
@@ -29,38 +32,45 @@ export async function fetchReceptionDesk(ref: SaldoRefDto): Promise<ReceptionDes
   return res.json();
 }
 
-/** Lo que pasó al devolver en efectivo: hecho, o el encargado tiene que poner su código 2FA. */
-export type CashPayoutResult = { kind: 'done'; refundedCents: number; remainingCents: number } | { kind: 'totp'; message: string };
-
-/** La respuesta de «devolver en efectivo» → hecho, «tu código 2FA» o el error de siempre. */
-export function cashPayoutResultOf(status: number, text: string): CashPayoutResult {
-  if (status >= 200 && status < 300) {
-    const body = JSON.parse(text) as { refundedCents: number; remainingCents?: number };
-    return { kind: 'done', refundedCents: body.refundedCents, remainingCents: body.remainingCents ?? 0 };
-  }
-  const { message, code } = parseProblemDetails(text);
-  if (status === 403 && code === 'TOTP_REQUIRED') return { kind: 'totp', message: message ?? 'Pon el código de tu app de verificación (2FA).' };
-  throw new Error(operatorErrorMessage(status, message ?? undefined, 'Saldo', code));
+/**
+ * Buscar la ficha por su número impreso (sin acercarla): solo el estado, el
+ * código tapado (K7Q-•••) y los importes. No sirve para pagar.
+ */
+export async function fetchFichaByNumber(printedNumber: string): Promise<ReceptionNumberView> {
+  const res = await authedFetch('/v1/reception/fichas/lookup-number', { method: 'POST', body: JSON.stringify({ printedNumber }) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Ficha'));
+  return res.json();
 }
 
-/**
- * Devolver en efectivo (la devolución de siempre del encargado o el dueño,
- * POST /v1/wallet-charges/wallets/:id/payout): solo lo que entró en efectivo,
- * sin llegar a 1.000 € en 24 h; si se queda a 0, el NFC vuelve al stock.
- */
-export async function payoutCash(walletId: string, totpCode?: string): Promise<CashPayoutResult> {
-  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/payout`, {
-    method: 'POST',
-    body: JSON.stringify({ method: 'CASH', ...(totpCode ? { totpCode } : {}) }),
-  });
-  return cashPayoutResultOf(res.status, await res.text().catch(() => ''));
+/** Recargar en efectivo el saldo de la ficha buscada por su número (no una nueva). */
+export async function topUpByNumber(body: ReceptionNumberTopUpDto): Promise<ReceptionNumberTopUpResult> {
+  const res = await authedFetch('/v1/reception/fichas/number-topup', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Ficha'));
+  return res.json();
+}
+
+/** Por qué la ficha buscada por número no se carga aquí (null: se puede, en efectivo). */
+export function numberEntryProblem(view: ReceptionNumberView): string | null {
+  if (view.kind === 'new') return NEW_FICHA_BY_NUMBER_MESSAGE;
+  if (view.blocked) return 'Este saldo está bloqueado: no se puede recargar. Avisa al encargado.';
+  return null;
+}
+
+/** «Ficha nº 00736903 · Le quedan 35 € · K7Q-•••» (por número: el código, tapado). */
+export function numberRow(view: NumberSaldo): DeskRow {
+  const left = view.balanceCents > 0 ? `Le quedan ${formatEur(view.balanceCents, { compact: true })}` : 'Sin saldo';
+  return { title: fichaLabel(view.printedNumber), detail: `${left} · ${view.codeHint}` };
 }
 
 // ─── Lo que se enseña ─────────────────────────────────────────────────────
 
-/** «ficha nº 0522» (en minúscula, para el medio de una frase). */
-export function fichaText(n: number, printedNumber?: string | null): string {
-  return `ficha nº ${printedNumber ?? fichaNumberText(n)}`;
+/**
+ * «ficha nº 00736903» (en minúscula, para el medio de una frase): el número
+ * impreso de fábrica. Sin él, «ficha sin número impreso» (el número interno
+ * no se enseña como si fuera el impreso).
+ */
+export function fichaText(printedNumber?: string | null): string {
+  return fichaLabel(printedNumber).replace(/^Ficha/, 'ficha');
 }
 
 /** La fila del NFC leído (4.2 y 4.5): el título y la línea de debajo. */
@@ -71,13 +81,14 @@ export interface DeskRow {
 
 /**
  * 4.2: «NFC nuevo · Ficha nº 0522 · sin saldo», o el suyo con lo que le
- * queda. 4.5 (Salida): «Ficha nº 0388 · Saldo R3D-8LP · leída».
+ * queda. 4.5 (Salida): «Ficha nº 0388 · Saldo R3D-8LP · leída». El número es
+ * el impreso; sin él, «sin número impreso».
  */
 export function deskRow(view: ReceptionDeskView, mode: 'entrada' | 'salida'): DeskRow {
-  if (view.kind === 'new') return { title: 'NFC nuevo', detail: `Ficha nº ${view.printedNumber ?? fichaNumberText(view.fichaNumber)} · sin saldo` };
-  const title = view.fichaNumber === null ? `Saldo ${view.code}` : `Ficha nº ${view.printedNumber ?? fichaNumberText(view.fichaNumber)}`;
+  if (view.kind === 'new') return { title: 'NFC nuevo', detail: `${fichaLabel(view.printedNumber)} · sin saldo` };
+  const title = view.fichaNumber === null ? `Saldo ${view.code}` : fichaLabel(view.printedNumber);
   const saldo = view.fichaNumber === null ? null : view.code;
-  if (mode === 'salida') return { title, detail: [saldo ? `Saldo ${saldo}` : null, 'leída'].filter(Boolean).join(' · ') };
+  if (mode === 'salida') return { title, detail: saldo ? `Saldo ${saldo} · leída` : 'Sin NFC · por su código' };
   const left = view.balanceCents > 0 ? `Le quedan ${formatEur(view.balanceCents, { compact: true })}` : 'Sin saldo';
   return { title, detail: [left, saldo].filter(Boolean).join(' · ') };
 }
@@ -85,7 +96,7 @@ export function deskRow(view: ReceptionDeskView, mode: 'entrada' | 'salida'): De
 /** El chip de 4.3: «Recarga · ficha nº 0522» (o «Recarga · K7Q-4M2» sin NFC, «Recarga · saldo nuevo»). */
 export function rechargeChip(view: ReceptionDeskView | null): string {
   if (!view) return 'Recarga · saldo nuevo';
-  if (view.fichaNumber !== null) return `Recarga · ${fichaText(view.fichaNumber, view.printedNumber)}`;
+  if (view.fichaNumber !== null) return `Recarga · ${fichaText(view.printedNumber)}`;
   return view.kind === 'saldo' ? `Recarga · ${view.code}` : 'Recarga · saldo nuevo';
 }
 
@@ -123,6 +134,18 @@ export function methodButtons(
   });
 }
 
+/**
+ * 4.3 para la ficha buscada por su número: solo en efectivo (la tarjeta va
+ * con su NFC o su código, que se ve entero).
+ */
+export function numberMethodButtons(options: ReceptionOptions | null): MethodButton[] {
+  if (!options) return [];
+  return [
+    { method: 'cash', primary: true, problem: options.cash ? null : (options.cashBlockedReason ?? 'Aquí no se cobran recargas en efectivo.') },
+    { method: 'card', primary: false, problem: 'Con tarjeta, acerca su NFC o escribe su código.' },
+  ];
+}
+
 /** La nota del PIN de 4.3: no frena la cola, se pone después. */
 export function pinNote(noPinMaxCents: number): string {
   if (noPinMaxCents <= 0) return 'El PIN lo pone luego: hace falta para pagar con el NFC.';
@@ -153,8 +176,8 @@ export function loadedMoneyLine(method: PayMethod, amountCents: number): { label
 
 /** 4.4: qué hace con el NFC («Dale el NFC · ficha nº 0522»). */
 export function handOverLine(view: ReceptionDeskView | null, linked: boolean): string {
-  if (view?.kind === 'saldo') return view.fichaNumber === null ? `Saldo ${view.code}` : `Devuélvele su NFC · ${fichaText(view.fichaNumber, view.printedNumber)}`;
-  if (view && linked) return `Dale el NFC · ${fichaText(view.fichaNumber, view.printedNumber)}`;
+  if (view?.kind === 'saldo') return view.fichaNumber === null ? `Saldo ${view.code}` : `Devuélvele su NFC · ${fichaText(view.printedNumber)}`;
+  if (view && linked) return `Dale el NFC · ${fichaText(view.printedNumber)}`;
   return 'Sin NFC: que apunte su código';
 }
 
@@ -172,34 +195,8 @@ export interface ExitPlan {
   refundBlocked: string | null;
   /** Lo que no sale en efectivo (lo entró con tarjeta…), dicho antes. */
   note: string | null;
-}
-
-/**
- * La salida: «Guardar para la próxima» siempre (el saldo no caduca y se lleva
- * su NFC); «Devolver X € en efectivo» con las reglas de la devolución de
- * siempre: solo lo que entró en efectivo (sin llegar a 1.000 € en 24 h), solo
- * el encargado (con el «Me voy» del cliente) o el dueño.
- */
-export function exitPlan(view: ReceptionDeskSaldo, role: StaffRole): ExitPlan {
-  const balance = view.balanceCents;
-  if (balance <= 0) return { balanceCents: 0, refundLabel: null, refundDetail: null, refundBlocked: null, note: null };
-  const cash = view.cashOutCents;
-  const out = formatEur(cash, { compact: true });
-  const all = cash >= balance;
-  return {
-    balanceCents: balance,
-    refundLabel: cash > 0 ? `Devolver ${out} en efectivo` : 'Devolver en efectivo',
-    refundDetail: cash > 0 ? `Sacas ${out} de la caja${all ? ' · el NFC vuelve al stock' : ''}` : null,
-    refundBlocked: refundBlockedFor(view, role),
-    note: view.cashOutNote,
-  };
-}
-
-function refundBlockedFor(view: ReceptionDeskSaldo, role: StaffRole): string | null {
-  if (role !== 'OWNER' && role !== 'MANAGER') return 'Devolver en efectivo lo hace el encargado o el dueño.';
-  if (view.cashOutCents <= 0) return view.cashOutNote ?? 'Este saldo no se devuelve en efectivo.';
-  if (role === 'MANAGER' && !view.closeRequested) return 'Antes, el cliente pulsa «Me voy» en su móvil (o lo devuelve el dueño).';
-  return null;
+  /** Debajo de «Guardar para la próxima»: «No caduca · se lleva su NFC» (sin NFC: «que guarde su código»). */
+  keepDetail: string;
 }
 
 /** Tras devolver: el NFC vuelve al stock, o lo que le queda (entró con tarjeta) y quién lo devuelve. */

@@ -29,3 +29,13 @@ export async function markFicha(id: string, action: 'block' | 'lost'): Promise<W
   if (!res.ok) throw await apiError(res);
   return res.json();
 }
+
+/** Su número impreso de fábrica (encargado o dueño): también las ya dadas o sin numerar. */
+export async function setFichaNumber(id: string, printedNumber: string): Promise<WalletCardRow> {
+  const res = await authedFetch(`/v1/wallet-cards/${encodeURIComponent(id)}/printed-number`, {
+    method: 'POST',
+    body: JSON.stringify({ printedNumber }),
+  });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}

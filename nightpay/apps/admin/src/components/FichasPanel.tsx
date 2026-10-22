@@ -6,6 +6,7 @@ import {
   fetchFichas,
   fetchFichasSummary,
   markFicha,
+  setFichaNumber,
   type FichasSummary,
   type WalletCardRow,
   type WalletCardStatus,
@@ -17,12 +18,14 @@ import {
   FICHA_STATUS_TONE,
   fichaActions,
   fichaConfirmText,
+  fichaNumberCell,
   fichaQuery,
   fichaSince,
   fichaStatusLabel,
   formatUid,
   nightLosesFichas,
   nightStockText,
+  printedNumberInput,
 } from '@/lib/fichas';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
@@ -34,8 +37,9 @@ const POLL_MS = 20_000;
 /**
  * Clientes → Fichas: cuántas hay en el stock y entregadas, lo de cada noche
  * (entregadas, devueltas, perdidas y el stock al cerrar) y la lista para
- * buscar una ficha por su número de serie o el código del saldo, bloquearla
- * o marcarla perdida. Las fichas se preparan en el datáfono o en un Android.
+ * buscar una ficha por su número impreso, su número de serie o el código del
+ * saldo, ponerle (o corregir) su número impreso, bloquearla o marcarla
+ * perdida. Las fichas se preparan en el datáfono o en un Android.
  */
 export function FichasPanel() {
   const tz = useVenueTimezone();
@@ -47,6 +51,8 @@ export function FichasPanel() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** La ficha a la que se le está poniendo el número impreso, y lo tecleado. */
+  const [numbering, setNumbering] = useState<{ id: string; draft: string } | null>(null);
 
   const reload = usePolling(
     async (signal) => {
@@ -80,6 +86,24 @@ export function FichasPanel() {
       const next = await markFicha(row.id, action);
       setRows((prev) => (prev ? prev.map((r) => (r.id === next.id ? next : r)) : prev));
       reload();
+    } catch (err) {
+      setActionError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveNumber(e: FormEvent): Promise<void> {
+    e.preventDefault();
+    if (!numbering) return;
+    const printed = printedNumberInput(numbering.draft);
+    if (!printed) return setActionError('El número impreso son de 1 a 12 cifras, tal como aparecen en la ficha.');
+    setBusy(numbering.id);
+    setActionError(null);
+    try {
+      const next = await setFichaNumber(numbering.id, printed);
+      setRows((prev) => (prev ? prev.map((r) => (r.id === next.id ? next : r)) : prev));
+      setNumbering(null);
     } catch (err) {
       setActionError((err as Error).message);
     } finally {
@@ -197,6 +221,7 @@ export function FichasPanel() {
               <thead>
                 <tr>
                   <th>Número de ficha</th>
+                  <th>Serie (UID)</th>
                   <th>Estado</th>
                   <th>Saldo</th>
                   <th>Desde</th>
@@ -208,12 +233,40 @@ export function FichasPanel() {
                 {rows.map((r) => {
                   const actions = fichaActions(r);
                   const since = fichaSince(r);
+                  const num = fichaNumberCell(r);
+                  const editing = numbering?.id === r.id;
                   return (
                     <tr key={r.id}>
                       <td data-label="Número de ficha" data-card="title">
-                        <span className="np-num" style={{ fontWeight: 600 }}>
-                          {r.printedNumber ?? formatUid(r.uid)}
-                        </span>
+                        {editing ? (
+                          <form onSubmit={(e) => void saveNumber(e)} style={numberForm}>
+                            <Input
+                              aria-label="Número impreso en la ficha"
+                              inputMode="numeric"
+                              autoFocus
+                              maxLength={12}
+                              value={numbering.draft}
+                              onChange={(e) => setNumbering({ id: r.id, draft: e.target.value.replace(/\D/g, '').slice(0, 12) })}
+                              style={{ width: '9rem' }}
+                            />
+                            <Button type="submit" disabled={busy !== null}>Guardar</Button>
+                            <Button type="button" variant="ghost" onClick={() => setNumbering(null)}>Cancelar</Button>
+                          </form>
+                        ) : num.missing ? (
+                          <span style={hintText}>{num.text}</span>
+                        ) : (
+                          <span className="np-num" style={{ fontWeight: 600 }}>
+                            {num.text}
+                          </span>
+                        )}
+                        {num.repeated && !editing ? (
+                          <Pill tone="warning" style={{ marginLeft: '0.4rem' }}>
+                            Repetido: cámbialo
+                          </Pill>
+                        ) : null}
+                      </td>
+                      <td data-label="Serie (UID)">
+                        <span className="np-num">{formatUid(r.uid)}</span>
                         <span style={hintText}> · {r.tokenHint}…</span>
                       </td>
                       <td data-label="Estado">
@@ -228,6 +281,11 @@ export function FichasPanel() {
                       <td data-label="Último uso">{r.lastUsedAt ? formatDateTime(r.lastUsedAt, tz, 'short') : '—'}</td>
                       <td data-label="Acciones" data-card="actions">
                         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          {!editing ? (
+                            <Button variant="ghost" disabled={busy !== null} onClick={() => setNumbering({ id: r.id, draft: r.printedNumber ?? '' })}>
+                              {num.missing ? 'Poner número' : 'Cambiar número'}
+                            </Button>
+                          ) : null}
                           {actions.lost ? (
                             <Button variant="ghost" disabled={busy !== null} onClick={() => void mark(r, 'lost')}>
                               Marcar perdida
@@ -306,3 +364,4 @@ const tileNumber: CSSProperties = {
 const tileSub: CSSProperties = { margin: '0.2rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-mute)' };
 const mutedText: CSSProperties = { margin: 0, fontSize: '0.85rem', color: 'var(--np-text-dim)' };
 const hintText: CSSProperties = { fontSize: '0.75rem', color: 'var(--np-text-dim)' };
+const numberForm: CSSProperties = { display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' };

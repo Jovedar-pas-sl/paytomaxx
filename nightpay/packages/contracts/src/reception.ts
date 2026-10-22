@@ -102,9 +102,18 @@ export interface ReceptionOptions {
 
 // ─── Recepción exprés (2026-10-24) ───────────────────────────────────────
 
-/** «0522»: el número de la ficha NFC con cuatro cifras como mínimo. */
+/**
+ * «0522»: el número interno de la ficha NFC con cuatro cifras como mínimo.
+ * No es el impreso: en pantalla, una ficha sin número impreso sale como
+ * «sin número impreso» (fichaLabel), no como «Ficha nº 0522».
+ */
 export function fichaNumberText(n: number): string {
   return String(Math.max(0, Math.trunc(n))).padStart(4, '0');
+}
+
+/** «Ficha nº 00736903» con el número impreso; si no tiene, «Ficha sin número impreso». */
+export function fichaLabel(printedNumber: string | null | undefined): string {
+  return printedNumber ? `Ficha nº ${printedNumber}` : 'Ficha sin número impreso';
 }
 
 /**
@@ -148,6 +157,8 @@ export interface ReceptionDeskSaldo {
   cashOutNote: string | null;
   /** El número de su NFC (null: no tiene). */
   fichaNumber: number | null;
+  /** Tiene Face ID: a la salida lo confirma en su móvil (el PIN no basta). */
+  hasPasskey?: boolean;
 }
 
 export type ReceptionDeskView = ReceptionDeskNew | ReceptionDeskSaldo;

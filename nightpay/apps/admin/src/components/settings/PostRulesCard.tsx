@@ -7,10 +7,11 @@ import { enabledSections } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { LoadState, SettingsCard, StatusLine, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
-const FLAGS: ReadonlyArray<{ key: 'tips' | 'cash' | 'topUps'; label: string }> = [
+const FLAGS: ReadonlyArray<{ key: 'tips' | 'cash' | 'topUps' | 'cashPayout'; label: string }> = [
   { key: 'tips', label: 'Propinas' },
   { key: 'cash', label: 'Efectivo' },
   { key: 'topUps', label: 'Recargas del saldo' },
+  { key: 'cashPayout', label: 'Devolver saldo en efectivo' },
 ];
 
 /**

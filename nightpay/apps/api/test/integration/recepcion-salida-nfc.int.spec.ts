@@ -9,11 +9,12 @@ import { WalletCardsService } from '../../src/modules/wallets/wallet-cards.servi
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 import { hashPin } from '../../src/modules/wallets/wallet-pin';
 import { attachCard } from '../../src/modules/wallets/wallet-card-ops';
-import { receptionCashPayout } from '../../src/modules/wallets/reception-cash-payout';
+import { receptionCashPayout, type ReceptionPayoutDeps } from '../../src/modules/wallets/reception-cash-payout';
+import { AuditService } from '../../src/modules/audit/audit.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
-const audit = { log: vi.fn(async () => undefined) };
+const audit = new AuditService(prisma, cls as never);
 const totp = { isEnabled: async () => true, assertForUser: vi.fn(async () => undefined) };
 const cash = new CashTopUpService(prisma, audit as never, totp as never);
 const cards = new WalletCardsService(prisma, audit as never);
@@ -25,9 +26,19 @@ const scope = <T>(tenantId: string | undefined, fn: () => Promise<T>): Promise<T
 const sys = <T>(fn: (tx: Parameters<Parameters<PrismaService['asSystem']>[0]>[0]) => Promise<T>) => scope(undefined, () => prisma.asSystem(fn));
 let venue: string;
 let rx: string;
+let rx2: string;
 let manager: string;
 let pinHash: string;
 const PIN = '4827';
+/** La salida como la monta ReceptionPayoutService (sin Face ID en estos saldos). */
+const payoutDeps = (person: { userId: string; tenantId: string }, db: unknown = prisma): ReceptionPayoutDeps => ({
+  prisma: db as never, audit, totp: totp as never,
+  checkPin: (id, pin) => charges.checkPinForPayout({ ...person, role: 'WAITER' }, id, pin),
+  hasPasskey: async () => false,
+  passkeyRequest: async () => null,
+});
+const payoutAtReception = (person: { userId: string; role: 'WAITER'; tenantId: string }, walletId: string, input: Parameters<typeof receptionCashPayout>[3]) =>
+  receptionCashPayout(payoutDeps(person), person, walletId, input);
 beforeAll(async () => {
   await prisma.onModuleInit();
   pinHash = await hashPin(PIN, process.env.ENCRYPTION_KEK!);
@@ -35,13 +46,14 @@ beforeAll(async () => {
     const slug = `salida-${randomUUID().slice(0, 8)}`;
     venue = (await tx.venue.create({ data: { name: 'Recepción pruebas NFC', slug } })).id;
     rx = (await tx.user.create({ data: { tenantId: venue, email: `rx-${slug}@test.local`, passwordHash: 'test', role: 'WAITER', post: 'RECEPCION' } })).id;
+    rx2 = (await tx.user.create({ data: { tenantId: venue, email: `rx2-${slug}@test.local`, passwordHash: 'test', role: 'WAITER', post: 'RECEPCION' } })).id;
     manager = (await tx.user.create({ data: { tenantId: venue, email: `manager-${slug}@test.local`, passwordHash: 'test', role: 'MANAGER' } })).id;
   });
 });
 afterAll(async () => { await prisma.$disconnect(); });
 
-async function client(amountCents = 5_000) {
-  const person = { userId: rx, role: 'WAITER' as const, tenantId: venue };
+async function client(amountCents = 5_000, userId = rx) {
+  const person = { userId, role: 'WAITER' as const, tenantId: venue };
   const { card } = await scope(venue, () => cards.newStockToken(venue, { userId: rx }));
   const uid = randomUUID().replace(/-/g, '').slice(0, 14).toUpperCase();
   await scope(venue, () => cards.stock(venue, { userId: rx }, { card, uid }));
@@ -79,7 +91,7 @@ describe('salida NFC de recepción (Postgres real)', () => {
     });
     const linking = scope(venue, () => attachCard(wrapped('attach') as never, { walletId: c.walletId, venueId: venue, card: c.card, uid: c.uid, by: { userId: rx } }));
     await attached;
-    const paying = scope(venue, () => receptionCashPayout({ prisma: wrapped('payout') as never, audit: audit as never, totp: totp as never, checkPin: async () => undefined }, c.person, c.walletId, c.input));
+    const paying = scope(venue, () => receptionCashPayout({ ...payoutDeps(c.person, wrapped('payout')), checkPin: async () => undefined }, c.person, c.walletId, c.input));
     await payoutWaiting;
     release();
     const [linked, paid] = await Promise.all([linking, paying]);
@@ -88,7 +100,8 @@ describe('salida NFC de recepción (Postgres real)', () => {
     expect(await sys((tx) => tx.walletPayout.count({ where: { walletId: c.walletId } }))).toBe(1);
   });
   it('la misma clave en dos saldos da 409 y revierte saldo y NFC del perdedor', async () => {
-    const clients = await Promise.all([client(), client()]);
+    // Dos personas: las salidas de una misma persona van en fila (el candado de su noche).
+    const clients = await Promise.all([client(), client(5_000, rx2)]);
     const requestKey = randomUUID();
     let inserts = 0;
     let release!: () => void;
@@ -110,7 +123,7 @@ describe('salida NFC de recepción (Postgres real)', () => {
       }) as never)),
     };
     const results = await Promise.allSettled(clients.map((c) => scope(venue, () => receptionCashPayout({
-      prisma: racingDb as never, audit: audit as never, totp: totp as never, checkPin: async () => undefined,
+      ...payoutDeps(c.person, racingDb), checkPin: async () => undefined,
     }, c.person, c.walletId, { ...c.input, requestKey }))));
     expect(inserts).toBe(2);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
@@ -123,7 +136,7 @@ describe('salida NFC de recepción (Postgres real)', () => {
   });
   it('dos peticiones simultáneas: un asiento y un recibo idéntico, sin doble devolución', async () => {
     const c = await client();
-    const [a, b] = await Promise.all([1, 2].map(() => scope(venue, () => charges.payoutAtReception(c.person, c.walletId, c.input))));
+    const [a, b] = await Promise.all([1, 2].map(() => scope(venue, () => payoutAtReception(c.person, c.walletId, c.input))));
     expect(a).toEqual(b);
     expect(a).toEqual({ kind: 'done', refundedCents: 5_000, remainingCents: 0 });
     expect(await sys((tx) => tx.walletPayout.count({ where: { walletId: c.walletId } }))).toBe(1);
@@ -133,7 +146,7 @@ describe('salida NFC de recepción (Postgres real)', () => {
   });
   it('cinco PIN malos bloquean el PIN sin sacar dinero', async () => {
     const c = await client();
-    for (let i = 0; i < 5; i++) await expect(scope(venue, () => charges.payoutAtReception(c.person, c.walletId, { ...c.input, pin: '9999' }))).rejects.toThrow(/PIN/);
+    for (let i = 0; i < 5; i++) await expect(scope(venue, () => payoutAtReception(c.person, c.walletId, { ...c.input, pin: '9999' }))).rejects.toThrow(/PIN/);
     const w = await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: c.walletId } }));
     expect(w.balanceCents).toBe(5_000);
     expect(w.pinLockedAt).toBeInstanceOf(Date);
@@ -142,7 +155,7 @@ describe('salida NFC de recepción (Postgres real)', () => {
   it('150 € esperan al encargado con su 2FA, incluso con umbral local de 200 €', async () => {
     await sys((tx) => tx.venue.update({ where: { id: venue }, data: { refundApprovalThresholdCents: 20_000 } }));
     const c = await client(15_000);
-    await expect(scope(venue, () => charges.payoutAtReception(c.person, c.walletId, c.input))).resolves.toMatchObject({ kind: 'manager' });
+    await expect(scope(venue, () => payoutAtReception(c.person, c.walletId, c.input))).resolves.toMatchObject({ kind: 'manager' });
     expect(await sys((tx) => tx.walletPayout.count({ where: { walletId: c.walletId } }))).toBe(0);
     await expect(scope(venue, () => charges.payout({ userId: manager, role: 'MANAGER', tenantId: venue }, c.walletId, { method: 'CASH' }))).rejects.toThrow(/2FA|verificación/);
     await scope(venue, () => charges.payout({ userId: manager, role: 'MANAGER', tenantId: venue }, c.walletId, { method: 'CASH', totpCode: '123456' }));

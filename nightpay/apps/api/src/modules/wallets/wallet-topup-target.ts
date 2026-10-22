@@ -12,7 +12,12 @@ import { normalizeWalletCode, sameWalletGroup } from './wallet-rules';
  * super-admin ni los de otro grupo de locales.
  */
 
-export type TopUpRef = { code: string } | { card: string; uid?: string | null };
+/**
+ * El código, la ficha acercada o (solo recargas en efectivo de recepción) la
+ * ficha buscada por su número impreso: FichaNumbersService la encuentra y
+ * pasa su id; nunca llega del cliente así.
+ */
+export type TopUpRef = { code: string } | { card: string; uid?: string | null } | { printed: { cardId: string } };
 
 export interface TopUpTarget {
   id: string;
@@ -31,7 +36,7 @@ const NO_CARD = 'Esta ficha no es de ningún saldo: dásela al cliente al recarg
 export async function topUpTarget(db: PrismaService, venueId: string, ref: TopUpRef): Promise<TopUpTarget> {
   const venue = await db.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } });
   const group = { id: venueId, walletGroup: venue?.walletGroup ?? null };
-  const first = 'code' in ref ? await byCode(db, ref.code) : await byCard(db, ref);
+  const first = 'code' in ref ? await byCode(db, ref.code) : 'printed' in ref ? await byCardId(db, ref.printed.cardId) : await byCard(db, ref);
   let wallet = first;
   for (let hops = 0; wallet?.mergedIntoId && hops < MAX_MERGE_HOPS; hops += 1) {
     const nextId: string = wallet.mergedIntoId;
@@ -58,6 +63,13 @@ async function byCode(db: PrismaService, raw: string) {
   const code = normalizeWalletCode(raw);
   if (code.length !== 6) throw new NotFoundException('El código del cliente tiene 6 letras o números');
   return db.acrossVenues((tx) => tx.clientWallet.findFirst({ where: { shortCode: code, status: 'ACTIVE' } }));
+}
+
+async function byCardId(db: PrismaService, cardId: string) {
+  const card = await db.acrossVenues((tx) => tx.walletCard.findUnique({ where: { id: cardId } }));
+  if (!card || !isIssuedCard(card) || !card.walletId) throw new NotFoundException(NO_CARD);
+  const walletId = card.walletId;
+  return db.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: walletId } }));
 }
 
 async function byCard(db: PrismaService, ref: { card: string; uid?: string | null }) {

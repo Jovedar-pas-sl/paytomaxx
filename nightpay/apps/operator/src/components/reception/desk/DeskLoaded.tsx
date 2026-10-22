@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { SectionChip } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
@@ -28,6 +28,8 @@ interface Props {
   secondary?: Action | null;
   /** Sin sonido ni vibración (se vuelve a esta pantalla, p. ej. tras el PIN). */
   quiet?: boolean;
+  /** Debajo: el QR de «Activar Face ID en su móvil». */
+  extra?: ReactNode;
 }
 
 /**
@@ -36,7 +38,7 @@ interface Props {
  * cobro pagado (dos vibraciones cortas). Usa la pantalla del resultado de
  * @nightpay/ui (.np-outcome) sin su franja de la hora: la ve solo quien cobra.
  */
-export function DeskLoaded({ word, amountCents, reference, money, meta, warn, primary, secondary, quiet = false }: Props) {
+export function DeskLoaded({ word, amountCents, reference, money, meta, warn, primary, secondary, quiet = false, extra }: Props) {
   const titleId = useId();
   const primaryRef = useRef<HTMLButtonElement>(null);
   const amount = formatEur(amountCents, { compact: true });
@@ -80,6 +82,7 @@ export function DeskLoaded({ word, amountCents, reference, money, meta, warn, pr
             {warn}
           </p>
         ) : null}
+        {extra}
       </div>
       <div className={s.resFoot}>
         <div className="np-outcome-actions">

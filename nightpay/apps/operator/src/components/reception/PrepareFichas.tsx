@@ -74,7 +74,7 @@ export function PrepareFichas({ on, onDone }: Props) {
     }
     // Solo cuando el servidor contesta: si falla, acercarla otra vez la vuelve a mirar.
     const outcome = await backend.stock(tap.token, tap.uid);
-    if (needsPrintedNumber(on, outcome)) {
+    if (backend.labelStock && needsPrintedNumber(outcome)) {
       if (!tap.uid) throw new Error('No se pudo leer la serie NFC: acerca la ficha otra vez');
       setPending({ card: tap.token, uid: tap.uid, line: stockOutcomeLine(outcome) });
       setPrintedNumber('');

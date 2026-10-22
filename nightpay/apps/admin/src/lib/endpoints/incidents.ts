@@ -33,6 +33,8 @@ export type IncidentKind =
   | 'pos_reception_limit'
   /** Varios saldos nuevos en efectivo seguidos que juntos pasan de 1.000 € (trocear la entrega). */
   | 'cash_split_suspected'
+  /** Una persona de recepción pasó su tope de efectivo devuelto en la noche (desde ahí, el encargado con su 2FA). */
+  | 'reception_payout_cap'
   /** Recarga cobrada sin el NFC del cliente que aún no se ha sumado a su saldo (se quita sola al asignarla). */
   | 'wallet_topup_unassigned'
   /** El cliente bloqueó su NFC en su móvil («He perdido mi NFC»): darle uno nuevo en recepción (se marca como revisada). */

@@ -3,6 +3,7 @@ import { ConflictException, ForbiddenException, HttpException, NotFoundException
 import { CashTopUpSchema, MAX_CASH_TOP_UP_CENTS } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { CashTopUpService } from './wallet-cash-topup.service';
+import { cashIntentFingerprint, isPrintedIntent } from './wallet-cash-intent';
 
 /**
  * Recarga del saldo en efectivo (recepción): suma al momento, queda apuntada
@@ -107,7 +108,10 @@ function setup(o: { venue?: Row; wallet?: Row | null; pacoPost?: string | null }
         return next;
       }),
     },
-    walletCard: { findUnique: vi.fn(async (a: { where: { token: string } }) => cards.get(a.where.token) ?? null) },
+    walletCard: {
+      findUnique: vi.fn(async (a: { where: { token?: string; id?: string } }) =>
+        (a.where.id ? [...cards.values()].find((c) => c.id === a.where.id) : cards.get(String(a.where.token))) ?? null),
+    },
     walletCashTopUp: {
       findUnique: vi.fn(async (a: { where: { tenantId_idempotencyKey?: { tenantId: string; idempotencyKey: string }; voidOfId?: string } }) => {
         if (a.where.voidOfId) return [...topUps.values()].find((t) => t.voidOfId === a.where.voidOfId) ?? null;
@@ -252,6 +256,40 @@ describe('recarga en efectivo', () => {
       await expect(svc.topUp(SALA, javi, { ...pedida, wallet: { code: 'OTR123' } })).rejects.toBeInstanceOf(ConflictException);
       await expect(svc.topUp(SALA, javi, { ...pedida, wallet: { create: true } })).rejects.toBeInstanceOf(ConflictException);
       await expect(svc.topUp(SALA, javi, { ...pedida, wallet: { code: 'ZZZ999' } })).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  describe('por el número impreso de la ficha (FichaNumbersService)', () => {
+    const porNumero = { amountCents: 600, idempotencyKey: 'intent-numero-01', wallet: { printed: { cardId: 'card-1' } } };
+
+    it('va al saldo de esa ficha con su huella marcada «printed»; repetirla da el mismo recibo; otro destino con la clave, 409', async () => {
+      const { svc, topUps, wallets } = setup();
+      const first = await svc.topUp(SALA, javi, porNumero);
+      expect(first).toMatchObject({ walletId: WALLET, balanceCents: 2_600, replayed: false });
+      const row = [...topUps.values()][0]!;
+      expect(row.intentFingerprint).toMatch(/^printed:[a-f0-9]{64}$/);
+      expect(isPrintedIntent(row.intentFingerprint as string)).toBe(true);
+      expect(row.intentFingerprint).toBe(cashIntentFingerprint(porNumero));
+      await expect(svc.topUp(SALA, javi, porNumero)).resolves.toEqual({ ...first, replayed: true });
+      // Con la misma clave por la ficha acercada o el código (que sí enseñan el código entero): 409.
+      for (const wallet of [{ card: FICHA }, { code: 'K7Q4M2' }, { create: true as const }]) {
+        await expect(svc.topUp(SALA, javi, { ...porNumero, wallet })).rejects.toBeInstanceOf(ConflictException);
+      }
+      expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_600 });
+    });
+
+    it('una fila antigua (sin huella) nunca casa con una por número', async () => {
+      const { svc, topUps } = setup();
+      await svc.topUp(SALA, javi, { ...porNumero, wallet: { code: 'K7Q4M2' } });
+      const stored = [...topUps.values()][0]!;
+      stored.intentFingerprint = null;
+      stored.receipt = null;
+      await expect(svc.topUp(SALA, javi, porNumero)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('las de código y ficha no llevan la marca', () => {
+      expect(isPrintedIntent(cashIntentFingerprint({ amountCents: 1, wallet: { card: FICHA } }))).toBe(false);
+      expect(isPrintedIntent(null)).toBe(false);
     });
   });
 

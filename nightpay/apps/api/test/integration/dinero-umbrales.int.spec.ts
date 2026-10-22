@@ -216,12 +216,17 @@ describe('M2 — el encargado desde el umbral pone su 2FA (Postgres real)', () =
     await expect(reverseAs(manager, w, c, nextCode())).resolves.toEqual({ refundedCents: 12_000, newBalanceCents: 12_000 });
   });
 
-  it('anulaciones pequeñas en el mismo saldo suman (también las de otro encargado): la que llega a 100 € pide el código', async () => {
+  it('anulaciones pequeñas en el mismo saldo suman (también las de otro encargado): la que pasa de 100,00 € pide el código', async () => {
     const w = await newWallet(1_000);
-    const [c1, c2] = [await newConsumption(w, 6_000), await newConsumption(w, 4_000)];
+    const [c1, c2] = [await newConsumption(w, 6_000), await newConsumption(w, 4_001)];
     await expect(reverseAs(manager2, w, c1)).resolves.toMatchObject({ refundedCents: 6_000 });
     await expect(reverseAs(manager, w, c2)).rejects.toMatchObject({ response: { code: 'TOTP_REQUIRED' } });
     expect((await walletRow(w)).balanceCents).toBe(7_000);
+    // 100,00 € justos, sumando: sin código (el mismo límite que la salida de recepción).
+    const exact = await newWallet(1_000);
+    const [e1, e2] = [await newConsumption(exact, 6_000), await newConsumption(exact, 4_000)];
+    await expect(reverseAs(manager2, exact, e1)).resolves.toMatchObject({ refundedCents: 6_000 });
+    await expect(reverseAs(manager, exact, e2)).resolves.toMatchObject({ refundedCents: 4_000 });
   });
 
   it('devolver 150 € en efectivo: sin código 403 y el saldo sigue abierto; sin la app activada, TOTP_NOT_ENROLLED; con su código, hecho', async () => {

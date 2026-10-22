@@ -11,6 +11,8 @@ import {
   formatUid,
   nightLosesFichas,
   nightStockText,
+  fichaNumberCell,
+  printedNumberInput,
 } from './fichas';
 
 const row = (o: Partial<WalletCardRow> = {}): WalletCardRow => ({
@@ -89,5 +91,19 @@ describe('una noche', () => {
   it('avisa si se perdió alguna', () => {
     expect(nightLosesFichas(night)).toBe(true);
     expect(nightLosesFichas({ ...night, perdidas: 0 })).toBe(false);
+  });
+});
+
+describe('el número de la ficha en el panel', () => {
+  it('el impreso de fábrica tal cual; sin él, «Sin número impreso» (ni el interno ni la serie)', () => {
+    expect(fichaNumberCell({ printedNumber: '00736903' })).toEqual({ text: '00736903', missing: false, repeated: false });
+    expect(fichaNumberCell({ printedNumber: null })).toEqual({ text: 'Sin número impreso', missing: true, repeated: false });
+    expect(fichaNumberCell({ printedNumber: '17', printedNumberRepeated: true })).toMatchObject({ repeated: true });
+  });
+  it('lo que se teclea: de 1 a 12 cifras, con sus ceros', () => {
+    expect(printedNumberInput(' 000522 ')).toBe('000522');
+    expect(printedNumberInput('12a')).toBeNull();
+    expect(printedNumberInput('1234567890123')).toBeNull();
+    expect(printedNumberInput('')).toBeNull();
   });
 });

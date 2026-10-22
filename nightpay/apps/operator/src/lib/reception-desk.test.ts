@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ReceptionDeskSaldo, ReceptionOptions } from '@nightpay/contracts';
 import {
-  cashPayoutResultOf,
   codeBoxes,
   codeInput,
   deskRow,
   deskTarget,
-  exitPlan,
   fichaText,
   handOverLine,
   loadedMoneyLine,
@@ -14,6 +12,9 @@ import {
   pinNote,
   quickAmounts,
   rechargeChip,
+  numberEntryProblem,
+  numberMethodButtons,
+  numberRow,
   rechargeProblem,
   refundDoneLine,
 } from './reception-desk';
@@ -23,7 +24,8 @@ import {
 const eur = (text: string) => text.split(String.fromCharCode(160)).join(' ');
 const FICHA = { card: 'q3VbX9kLmN2pR7sT4wYz1A', uid: '04A23B11' };
 const OPTIONS: ReceptionOptions = { card: true, cash: true, cashBlockedReason: null, nfc: true };
-const NUEVO = { kind: 'new' as const, fichaNumber: 522 };
+const NUEVO = { kind: 'new' as const, fichaNumber: 522, printedNumber: '00736903' };
+const NUEVO_SIN = { kind: 'new' as const, fichaNumber: 522 };
 const saldo = (o: Partial<ReceptionDeskSaldo> = {}): ReceptionDeskSaldo => ({
   kind: 'saldo',
   walletId: 'w-388',
@@ -36,14 +38,21 @@ const saldo = (o: Partial<ReceptionDeskSaldo> = {}): ReceptionDeskSaldo => ({
   cashOutCents: 3_500,
   cashOutNote: null,
   fichaNumber: 388,
+  printedNumber: '0388',
   ...o,
 });
 
 describe('el NFC leído (4.2 y 4.5)', () => {
-  it('nuevo: «NFC nuevo · Ficha nº 0522 · sin saldo»', () => {
-    expect(deskRow(NUEVO, 'entrada')).toEqual({ title: 'NFC nuevo', detail: 'Ficha nº 0522 · sin saldo' });
-    expect(fichaText(7)).toBe('ficha nº 0007');
-    expect(fichaText(12_345)).toBe('ficha nº 12345');
+  it('nuevo: «NFC nuevo · Ficha nº 00736903 · sin saldo»: el número impreso, tal cual', () => {
+    expect(deskRow(NUEVO, 'entrada')).toEqual({ title: 'NFC nuevo', detail: 'Ficha nº 00736903 · sin saldo' });
+    expect(fichaText('0007')).toBe('ficha nº 0007');
+  });
+
+  it('el número interno no se enseña como si fuera el impreso: «sin número impreso»', () => {
+    expect(deskRow(NUEVO_SIN, 'entrada')).toEqual({ title: 'NFC nuevo', detail: 'Ficha sin número impreso · sin saldo' });
+    expect(fichaText(null)).toBe('ficha sin número impreso');
+    expect(deskRow(saldo({ printedNumber: undefined }), 'salida').title).toBe('Ficha sin número impreso');
+    expect(handOverLine(NUEVO_SIN, true)).toBe('Dale el NFC · ficha sin número impreso');
   });
 
   it('con saldo: lo que le queda en la entrada; «leída» a la salida', () => {
@@ -51,11 +60,11 @@ describe('el NFC leído (4.2 y 4.5)', () => {
     expect(deskRow(saldo({ balanceCents: 0 }), 'entrada').detail).toBe('Sin saldo · R3D-8LP');
     expect(deskRow(saldo(), 'salida')).toEqual({ title: 'Ficha nº 0388', detail: 'Saldo R3D-8LP · leída' });
     // Por el código (sin NFC): el saldo en el título.
-    expect(deskRow(saldo({ fichaNumber: null }), 'salida')).toEqual({ title: 'Saldo R3D-8LP', detail: 'leída' });
+    expect(deskRow(saldo({ fichaNumber: null }), 'salida')).toEqual({ title: 'Saldo R3D-8LP', detail: 'Sin NFC · por su código' });
   });
 
   it('el chip de 4.3: su ficha, su código o un saldo nuevo sin NFC', () => {
-    expect(rechargeChip(NUEVO)).toBe('Recarga · ficha nº 0522');
+    expect(rechargeChip(NUEVO)).toBe('Recarga · ficha nº 00736903');
     expect(rechargeChip(saldo({ fichaNumber: null }))).toBe('Recarga · R3D-8LP');
     expect(rechargeChip(null)).toBe('Recarga · saldo nuevo');
   });
@@ -119,7 +128,7 @@ describe('CARGADO (4.4)', () => {
   });
 
   it('y con el NFC: dárselo (nuevo), devolvérselo (el suyo) o el código si no tiene', () => {
-    expect(handOverLine(NUEVO, true)).toBe('Dale el NFC · ficha nº 0522');
+    expect(handOverLine(NUEVO, true)).toBe('Dale el NFC · ficha nº 00736903');
     expect(handOverLine(saldo(), true)).toBe('Devuélvele su NFC · ficha nº 0388');
     expect(handOverLine(saldo({ fichaNumber: null }), true)).toBe('Saldo R3D-8LP');
     expect(handOverLine(null, false)).toMatch(/Sin NFC/);
@@ -127,57 +136,31 @@ describe('CARGADO (4.4)', () => {
 });
 
 describe('la salida (4.5)', () => {
-  it('el encargado con el «Me voy» del cliente, o el dueño: devolver lo exacto; el NFC vuelve al stock', () => {
-    const plan = exitPlan(saldo(), 'MANAGER');
-    expect(eur(plan.refundLabel ?? '')).toBe('Devolver 35 € en efectivo');
-    expect(eur(plan.refundDetail ?? '')).toBe('Sacas 35 € de la caja · el NFC vuelve al stock');
-    expect(plan.refundBlocked).toBeNull();
-    expect(exitPlan(saldo({ closeRequested: false }), 'OWNER').refundBlocked).toBeNull();
-  });
-
-  it('recepción no saca efectivo; el encargado, sin el «Me voy», tampoco', () => {
-    expect(exitPlan(saldo(), 'WAITER').refundBlocked).toMatch(/encargado o el dueño/);
-    expect(exitPlan(saldo({ closeRequested: false }), 'MANAGER').refundBlocked).toMatch(/Me voy/);
-  });
-
-  it('solo sale lo que entró en efectivo: el importe exacto y el porqué del resto', () => {
-    const note = 'Los otros 15,00 € entraron con tarjeta: los devuelve el dueño «A la tarjeta».';
-    const part = exitPlan(saldo({ cashOutCents: 2_000, cashOutNote: note }), 'OWNER');
-    expect(eur(part.refundLabel ?? '')).toBe('Devolver 20 € en efectivo');
-    // Sin «el NFC vuelve al stock»: se queda saldo (y su NFC).
-    expect(eur(part.refundDetail ?? '')).toBe('Sacas 20 € de la caja');
-    expect(part.note).toBe(note);
-    const none = exitPlan(saldo({ cashOutCents: 0, cashOutNote: 'Este saldo entró con tarjeta.' }), 'OWNER');
-    expect(none.refundBlocked).toBe('Este saldo entró con tarjeta.');
-  });
-
-  it('sin saldo: solo guardar', () => {
-    expect(exitPlan(saldo({ balanceCents: 0, cashOutCents: 0 }), 'OWNER')).toEqual({
-      balanceCents: 0,
-      refundLabel: null,
-      refundDetail: null,
-      refundBlocked: null,
-      note: null,
-    });
-  });
-
   it('devuelto: el NFC al stock, o lo que le queda (con tarjeta) y quién lo devuelve', () => {
     expect(refundDoneLine(0)).toMatch(/vuelve al stock/);
     expect(eur(refundDoneLine(1_500))).toMatch(/^Le quedan 15 € \(con tarjeta\)/);
   });
+});
 
-  it('la respuesta de devolver: hecho (con lo que queda), el código 2FA o el error de siempre', () => {
-    expect(cashPayoutResultOf(200, JSON.stringify({ refundedCents: 3_500, method: 'CASH' }))).toEqual({
-      kind: 'done',
-      refundedCents: 3_500,
-      remainingCents: 0,
-    });
-    expect(cashPayoutResultOf(200, JSON.stringify({ refundedCents: 2_000, method: 'CASH', remainingCents: 1_500 }))).toMatchObject({ remainingCents: 1_500 });
-    expect(cashPayoutResultOf(403, JSON.stringify({ message: 'Devolver 120,00 € en efectivo: pon el código 2FA.', code: 'TOTP_REQUIRED' }))).toEqual({
-      kind: 'totp',
-      message: 'Devolver 120,00 € en efectivo: pon el código 2FA.',
-    });
-    expect(() => cashPayoutResultOf(403, JSON.stringify({ message: 'El cliente tiene que pulsar «Me voy» en su página de saldo' }))).toThrow(/Me voy/);
+describe('por el número impreso (sin acercar el NFC)', () => {
+  const porNumero = { kind: 'saldo' as const, printedNumber: '00017', codeHint: 'K7Q-•••', balanceCents: 3_500, cashOutCents: 3_500, cashOutNote: null,
+    hasPin: true, blocked: false, closeRequested: false, isHomeVenue: true };
+  it('una ficha nueva no se carga por número: se acerca', () => {
+    expect(numberEntryProblem({ kind: 'new', printedNumber: '00017' })).toBe('Para cargar una ficha nueva, acércala');
+    expect(numberEntryProblem({ ...porNumero, blocked: true })).toMatch(/bloqueado/);
+    expect(numberEntryProblem(porNumero)).toBeNull();
+  });
+  it('por número, solo en efectivo', () => {
+    expect(numberMethodButtons(OPTIONS)).toEqual([
+      { method: 'cash', primary: true, problem: null },
+      { method: 'card', primary: false, problem: 'Con tarjeta, acerca su NFC o escribe su código.' },
+    ]);
+    expect(numberMethodButtons({ ...OPTIONS, cash: false, cashBlockedReason: 'No' })[0]?.problem).toBe('No');
+    expect(numberMethodButtons(null)).toEqual([]);
+  });
+  it('su saldo, con el código tapado', () => {
+    expect(eur(numberRow(porNumero).detail)).toBe('Le quedan 35 € · K7Q-•••');
+    expect(numberRow(porNumero).title).toBe('Ficha nº 00017');
   });
 });
 
@@ -187,17 +170,4 @@ describe('el código tecleado (4.6)', () => {
     expect(codeInput(' r3d 8')).toBe('R3D8');
     expect(codeBoxes('K7Q4')).toEqual(['K', '7', 'Q', '4', '', '']);
   });
-});
-
-
-it('all reception labels prefer the literal printed alias with legacy number fallback', () => {
-  const stock = { ...NUEVO, printedNumber: '00000017' };
-  const issued = saldo({ printedNumber: '00000017' });
-  expect(deskRow(stock, 'entrada').detail).toContain('00000017');
-  expect(deskRow(issued, 'salida').title).toContain('00000017');
-  expect(rechargeChip(stock)).toContain('00000017');
-  expect(rechargeChip(issued)).toContain('00000017');
-  expect(handOverLine(stock, true)).toContain('00000017');
-  expect(handOverLine(issued, true)).toContain('00000017');
-  expect(deskRow(NUEVO, 'entrada').detail).toContain('0522');
 });

@@ -1136,8 +1136,14 @@ model WalletCard {
   /// «Ficha nº 0522»: el número de la ficha para siempre, uno para todos los
   /// locales (secuencia; las antiguas, por orden de alta). 20261024200000.
   number     Int       @unique @default(autoincrement())
-  /// Factory-printed alias; leading zeroes are significant.
-  printedNumber String? @unique @db.VarChar(12)
+  /// Número impreso de fábrica, tal cual se teclea (con sus ceros): «Ficha nº 00736903».
+  printedNumber String? @db.VarChar(12)
+  /// El mismo sin ceros delante («736903»): para buscar y para que no se repita
+  /// (20261027100000). Null sin número, o si chocó con otro al migrar (renumerar en el panel).
+  printedNumberNorm String? @db.VarChar(12)
+  /// Dónde no se repite, fijado al numerarla: «g:<grupo de locales>» o «v:<local>»
+  /// (las fichas pasan de un local a otro del grupo; las de otro grupo o local, aparte).
+  printedScope String?
   walletId   String?   @db.Uuid
   /// STOCK (grabada, sin dar) → ISSUED (dada a un saldo) → RETURNED (devuelta,
   /// otra vez en el stock) | LOST (perdida o sustituida) | BLOCKED (bloqueada).
@@ -1162,6 +1168,7 @@ model WalletCard {
   venue  Venue?             @relation(fields: [venueId], references: [id], onDelete: SetNull)
   events WalletCardEvent[]
 
+  @@unique([printedScope, printedNumberNorm])
   @@index([walletId])
   @@index([venueId, status])
   @@map("wallet_cards")

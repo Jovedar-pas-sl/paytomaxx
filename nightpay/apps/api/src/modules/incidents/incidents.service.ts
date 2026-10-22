@@ -9,6 +9,7 @@ import {
   ackKey,
   duplicateChargeIncident,
   cashSplitIncident,
+  receptionPayoutCapIncident,
   earningReverseFailedIncident,
   nightClosedPendingIncident,
   openIncidents,
@@ -129,20 +130,22 @@ export class IncidentsService {
          ORDER BY e."occurredAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
-      this.prisma.$queryRaw<Array<EventRow & { action: string }>>`
+      this.prisma.$queryRaw<Array<EventRow & { action: string; actorName: string | null }>>`
         SELECT a.id::text AS id, a.action, a."targetId" AS "paymentId",
                CASE WHEN jsonb_typeof(a.payload -> 'amountCents') = 'number'
                     THEN (a.payload ->> 'amountCents')::int END AS "amountCents",
-               a."occurredAt", a.payload
+               a."occurredAt", a.payload,
+               (SELECT COALESCE(NULLIF(btrim(u."displayName"), ''), split_part(u.email, '@', 1))
+                  FROM users u WHERE u.id = a."actorId") AS "actorName"
           FROM audit_events a
          WHERE a."tenantId" = ${tenantId}::uuid
            AND a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical',
                             'pos.reception_limit_exceeded', 'wallet.cash_split_suspected',
-                            'wallet.card_blocked_by_client')
+                            'wallet.reception_payout_cap', 'wallet.card_blocked_by_client')
            AND NOT EXISTS (SELECT 1 FROM incident_acks k
                             WHERE k."tenantId" = a."tenantId"
                               AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped', 'pos_reception_limit',
-                                             'cash_split_suspected', 'wallet_card_lost')
+                                             'cash_split_suspected', 'reception_payout_cap', 'wallet_card_lost')
                               AND k."refId" = a.id::text)
            AND a."occurredAt" >= ${since}
          ORDER BY a."occurredAt" DESC
@@ -373,9 +376,11 @@ export class IncidentsService {
             ? posReceptionLimitIncident(r)
             : r.action === 'wallet.cash_split_suspected'
               ? cashSplitIncident(r)
-              : r.action === 'wallet.card_blocked_by_client'
-                ? walletCardLostIncident(r)
-                : walletCreditSkippedIncident(r),
+              : r.action === 'wallet.reception_payout_cap'
+                ? receptionPayoutCapIncident(r)
+                : r.action === 'wallet.card_blocked_by_client'
+                  ? walletCardLostIncident(r)
+                  : walletCreditSkippedIncident(r),
       ),
       ...unprovenSales.map(posUnprovenSalesIncident),
       ...nights.map(nightClosedPendingIncident),

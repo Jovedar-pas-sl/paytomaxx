@@ -1,5 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import {
+  CASH_PAYOUT_RECEPTION_ONLY_CODE,
+  CASH_PAYOUT_RECEPTION_ONLY_MESSAGE,
   CASH_RECEPTION_ONLY_CODE,
   CASH_RECEPTION_ONLY_MESSAGE,
   SECTION_NOT_ALLOWED_CODE,
@@ -8,6 +10,7 @@ import {
   TOP_UP_RECEPTION_ONLY_CODE,
   TOP_UP_RECEPTION_ONLY_MESSAGE,
   canChargeSection,
+  canPayOutCash,
   chargeRightsOf,
   postRulesOf,
   sectionMeta,
@@ -106,4 +109,21 @@ export function assertCanHandleCash(
   if (!rights.cash) throw cashForbidden();
   // Quitado a esa persona en Permisos.
   if (perms.people[person.userId]?.cashTopUp === false) throw permissionDenied('cashTopUp');
+}
+
+/**
+ * Devolver el saldo en efectivo en la salida de recepción: un permiso aparte
+ * de las recargas (canPayOutCash). El dueño, siempre; el encargado, con «Dar
+ * efectivo»; el camarero, si su puesto lo hace (de fábrica, Recepción) y el
+ * dueño no se lo ha quitado en Permisos. Lanza el 403 que toca.
+ */
+export function assertCanPayOutCash(
+  rights: ChargeRights,
+  person: { role: string; userId: string },
+  perms: StaffPermissions,
+): void {
+  if (canPayOutCash(perms, person, rights)) return;
+  if (person.role === 'MANAGER') throw permissionDenied('cash');
+  if (person.role === 'WAITER' && rights.cashPayout) throw permissionDenied('cashPayout');
+  throw new ForbiddenException({ message: CASH_PAYOUT_RECEPTION_ONLY_MESSAGE, code: CASH_PAYOUT_RECEPTION_ONLY_CODE });
 }

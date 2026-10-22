@@ -160,6 +160,13 @@ export const PERMISSION_LABELS: Readonly<Record<StaffPermissionKey, string>> = {
   payouts: 'Pedir y hacer pagos a las chicas',
   reports: 'Ver informes',
   cashTopUp: 'Cobrar recargas en efectivo',
+  cashPayout: 'Devolver saldo en efectivo a la salida',
+};
+
+/** La línea de ayuda de un permiso (solo los que lo necesitan). */
+export const PERMISSION_HINTS: Readonly<Partial<Record<StaffPermissionKey, string>>> = {
+  cashPayout:
+    'Con el NFC y el PIN del cliente (o su Face ID). Solo si su puesto lo hace: de fábrica, Recepción. Quitarlo no le quita las recargas.',
 };
 
 export const ROLE_LABELS: Readonly<Record<PermissionRole, string>> = {
@@ -170,10 +177,10 @@ export const ROLE_LABELS: Readonly<Record<PermissionRole, string>> = {
 
 /** Lo que hacen los camareros (confirmar el datáfono, solo si el local cobra con él). */
 export function waiterHint(posOn: boolean): string {
-  return `${posOn ? 'Cobran y confirman datáfonos desde su app' : 'Cobran desde su app'}; de esto, solo pueden cobrar recargas en efectivo si se lo das.`;
+  return `${posOn ? 'Cobran y confirman datáfonos desde su app' : 'Cobran desde su app'}; de esto, solo pueden cobrar recargas en efectivo si se lo das y, los de recepción, devolver el saldo en efectivo a la salida.`;
 }
 
-/** Permisos que se pueden tocar para ese rol (camareros y datáfonos: solo las recargas en efectivo). */
+/** Permisos que se pueden tocar para ese rol (camareros: las recargas y la salida en efectivo; datáfonos: las recargas). */
 export function editablePermissions(role: PermissionRole): readonly StaffPermissionKey[] {
   return STAFF_PERMISSION_KEYS.filter((k) => PERMISSION_CEILING[role].includes(k));
 }

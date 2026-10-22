@@ -37,6 +37,22 @@ export function formatUid(uid: string | null): string {
   return (uid.match(/.{1,2}/g) ?? [uid]).join(':');
 }
 
+/**
+ * La columna «Número de ficha»: el número impreso de fábrica (tal cual, con
+ * sus ceros). Sin él, «Sin número impreso»: ni el número interno ni el de
+ * serie (UID) se enseñan como si lo fueran.
+ */
+export function fichaNumberCell(row: Pick<WalletCardRow, 'printedNumber' | 'printedNumberRepeated'>): { text: string; missing: boolean; repeated: boolean } {
+  if (!row.printedNumber) return { text: 'Sin número impreso', missing: true, repeated: false };
+  return { text: row.printedNumber, missing: false, repeated: row.printedNumberRepeated === true };
+}
+
+/** Lo que se teclea como número impreso: solo cifras, hasta 12 (null: no vale). */
+export function printedNumberInput(raw: string): string | null {
+  const digits = raw.trim();
+  return /^[0-9]{1,12}$/.test(digits) ? digits : null;
+}
+
 /** Lo que se escribe en el buscador, tal cual va al API (sin espacios de más; máx. 64). */
 export function fichaQuery(input: string): string {
   return input.trim().slice(0, 64);

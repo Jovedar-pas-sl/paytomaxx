@@ -273,6 +273,7 @@ describe('VenueSettingsController', () => {
       payouts: true,
       reports: true,
       cashTopUp: true,
+      cashPayout: false,
     });
   });
 
