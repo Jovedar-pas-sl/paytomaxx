@@ -56,6 +56,10 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // Google Wallet: guardar el saldo (Android) y el botón oficial.
   { path: 'w/:token/google-wallet', method: RequestMethod.POST },
   { path: 'w/assets/google-wallet/:lang', method: RequestMethod.GET },
+  // Salida de recepción de un saldo con Face ID: el cliente la confirma en su móvil.
+  { path: 'w/salida/:token', method: RequestMethod.GET },
+  { path: 'w/salida/:token/challenge', method: RequestMethod.POST },
+  { path: 'w/salida/:token/confirm', method: RequestMethod.POST },
   // El QR del pase de Google Wallet (solo para cobrar): a la app del personal.
   { path: 'c/:token', method: RequestMethod.GET },
 ]);

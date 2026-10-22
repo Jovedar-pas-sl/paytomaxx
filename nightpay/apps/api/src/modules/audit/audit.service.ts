@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import type { RequestContext } from '../../common/context/request-context';
 
 /**
@@ -41,31 +41,41 @@ export class AuditService {
   }
 
   async log(input: AuditInput): Promise<void> {
-    const traceId = this.cls.get('ctx')?.traceId;
     try {
       // Audit no tiene tenantId-scoped middleware (no esta en TENANT_SCOPED_MODELS).
       // Insertamos directo.
-      await this.prisma.auditEvent.create({
-        data: {
-          action: input.action,
-          tenantId: input.tenantId ?? null,
-          actorId: input.actorId ?? null,
-          actorEmail: input.actorEmail ?? null,
-          targetType: input.targetType,
-          targetId: input.targetId,
-          // Textos largos recortados: la tabla no se puede limpiar (append-only).
-          payload: (input.payload ? truncatePayload(input.payload) : null) as never,
-          ip: input.ip,
-          userAgent: input.userAgent,
-          traceId,
-        },
-      });
+      await this.prisma.auditEvent.create({ data: this.row(input) });
     } catch (err) {
       // Audit no debe bloquear la operacion principal — solo loguear.
       this.logger.error(
         `Failed to write audit event ${input.action}: ${(err as Error).message}`,
       );
     }
+  }
+
+  /**
+   * El registro dentro de la transacción del dinero: queda con ella o no
+   * queda (si falla, la operación tampoco se hace). Para lo que mueve dinero
+   * y tiene que poder reconstruirse (la salida de recepción).
+   */
+  async logInTx(tx: Pick<TransactionalClient, 'auditEvent'>, input: AuditInput): Promise<void> {
+    await tx.auditEvent.create({ data: this.row(input) });
+  }
+
+  private row(input: AuditInput) {
+    return {
+      action: input.action,
+      tenantId: input.tenantId ?? null,
+      actorId: input.actorId ?? null,
+      actorEmail: input.actorEmail ?? null,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      // Textos largos recortados: la tabla no se puede limpiar (append-only).
+      payload: (input.payload ? truncatePayload(input.payload) : null) as never,
+      ip: input.ip,
+      userAgent: input.userAgent,
+      traceId: this.cls.get('ctx')?.traceId,
+    };
   }
 }
 

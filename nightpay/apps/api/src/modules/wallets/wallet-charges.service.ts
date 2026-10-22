@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { receptionCashPayout, type ReceptionCashInput, type ReceptionCashResult } from './reception-cash-payout';
 import {
   BadRequestException,
   ConflictException,
@@ -66,7 +65,8 @@ import { TipsDisabledException, assertVenueAcceptsMethods } from '../venues/venu
 import { tipsForbidden } from '../venues/charge-rights';
 import { maxTipCents } from '../payments/tip';
 import { TotpService } from '../auth/totp.service';
-import { assertManagerTwoFactor, cashApprovalThreshold } from './wallet-two-factor';
+import { assertManagerTwoFactor, assertTwoFactorCode, cashApprovalThreshold } from './wallet-two-factor';
+import { receptionAskedManager } from './reception-payout-rules';
 import { WalletBlockedException } from './wallet-blocked';
 import { passChargeSecret, passChargeTokenValid, passChargeWalletId } from './google-wallet/pass-charge-token';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
@@ -1888,9 +1888,12 @@ export class WalletChargesService {
    *    las recargas y se apunta como devolución de cada una (payoutCard). Como
    *    mucho el saldo menos el efectivo que sigue en él (ese, en efectivo).
    */
-  async payoutAtReception(actor: Actor, walletId: string, input: ReceptionCashInput): Promise<ReceptionCashResult> {
-    return receptionCashPayout({ prisma: this.prisma, audit: this.audit, totp: this.totp,
-      checkPin: (id, pin) => this.checkPin(id, pin, actor) }, actor, walletId, input);
+  /**
+   * El PIN del cliente para la salida de recepción (ReceptionPayoutService):
+   * el de siempre, con su contador de fallos y quién lo tecleó.
+   */
+  async checkPinForPayout(actor: Actor, walletId: string, pin: string): Promise<void> {
+    await this.checkPin(walletId, pin, actor);
   }
 
   async payout(
@@ -1923,7 +1926,7 @@ export class WalletChargesService {
       throw new ForbiddenException('El cliente tiene que pulsar «Me voy» en su página de saldo (o que lo haga el dueño)');
     }
     return input.method === 'CASH'
-      ? this.payoutCash(actor, walletId, input, venue?.refundApprovalThresholdCents)
+      ? this.payoutCash(actor, walletId, input, venue?.refundApprovalThresholdCents, wallet.closeRequestedAt)
       : this.payoutCard(actor, walletId, input);
   }
 
@@ -1932,13 +1935,15 @@ export class WalletChargesService {
    * baja (se cierra si queda a 0). Con el saldo bloqueado se mira lo que se
    * puede devolver en efectivo y el 2FA del encargado (lo que se devuelve es
    * lo que hay ahora, no lo que vio el panel). Con una devolución a la tarjeta
-   * a medias, nada: primero se termina aquella.
+   * a medias, nada: primero se termina aquella. Lo que recepción dejó para el
+   * encargado (más de 100 €, su tope de la noche…), con su 2FA aunque sea poco.
    */
   private async payoutCash(
     actor: Actor,
     walletId: string,
     input: { bankReference?: string; note?: string; totpCode?: string },
     thresholdCents: number | undefined,
+    closeRequestedAt: Date | null = null,
   ): Promise<WalletPayoutResult> {
     const { amount, remaining, twoFactor } = await this.prisma.acrossVenues(async (tx) => {
       const w = await lockWallet(tx, walletId);
@@ -1954,14 +1959,18 @@ export class WalletChargesService {
       const cash = await walletCash(tx, walletId);
       const cap = cashPayoutCapCents(w.balanceCents, cash);
       if (cap <= 0) throw new ConflictException(cashPayoutRefusal(w.balanceCents, cash));
-      const asked = await assertManagerTwoFactor(
+      const fromReception = actor.role === 'MANAGER' && (await receptionAskedManager(tx, walletId, closeRequestedAt));
+      if (fromReception) {
+        await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, `Devolver ${eur(cap)} en efectivo: recepción lo dejó para el encargado,`);
+      }
+      const asked = fromReception || (await assertManagerTwoFactor(
         this.totp,
         actor,
         cap,
         cashApprovalThreshold(thresholdCents),
         input.totpCode,
         `Devolver ${eur(cap)} en efectivo`,
-      );
+      ));
       const left = w.balanceCents - cap;
       // Lo que entró con tarjeta sigue en el saldo (abierto, con su «Me voy») para el dueño.
       await tx.clientWallet.update({
