@@ -266,6 +266,15 @@ describe('saldo con Face ID: lo confirma el cliente en su móvil', () => {
   });
 });
 
+/**
+ * Un número de ficha de `digits` cifras sacado del reloj (no se repite entre
+ * pasadas) que nunca empieza por 0: si empezara, al quitarle los ceros ya no
+ * sería el mismo y las cuentas del test fallarían según la hora.
+ */
+function fichaNumber(digits: number, offset = 0): string {
+  return `9${String(Date.now() + offset).slice(-(digits - 1))}`;
+}
+
 describe('número impreso de la ficha', () => {
   async function stocked(venue: string, by: Person) {
     const { card } = await scope(venue, () => cards.newStockToken(venue, { userId: by.userId }));
@@ -275,7 +284,7 @@ describe('número impreso de la ficha', () => {
   }
 
   it('el mismo número en dos locales sin grupo vale; dentro del mismo local, no (tampoco con otros ceros)', async () => {
-    const n = String(Date.now()).slice(-7);
+    const n = fichaNumber(7);
     const a = await stocked(solo1, people.rxSolo1!);
     const b = await stocked(solo2, people.rxSolo2!);
     const a2 = await stocked(solo1, people.rxSolo1!);
@@ -289,7 +298,7 @@ describe('número impreso de la ficha', () => {
   });
 
   it('en un grupo no se repite entre sus locales; desde el otro local se encuentra, con o sin ceros, tapado', async () => {
-    const n = String(Date.now() + 7).slice(-6);
+    const n = fichaNumber(6, 7);
     const f = await stocked(sala, people.rx!);
     const g = await stocked(norte, people.rxNorte!);
     await scope(sala, () => cards.labelStock(people.rx!, { ...f, printedNumber: `0${n}` }));
@@ -306,7 +315,7 @@ describe('número impreso de la ficha', () => {
 
   it('un saldo que ya existe: por número solo se ve tapado y se recarga en efectivo; cada búsqueda queda registrada', async () => {
     const c = await client({ cashCents: 2_000 });
-    const n = String(Date.now() + 11).slice(-8);
+    const n = fichaNumber(8, 11);
     const card = await sys((tx) => tx.walletCard.findUniqueOrThrow({ where: { token: c.card } }));
     await scope(sala, () => cards.setPrintedNumber(people.man!, card.id, n));
     const view = await scope(sala, () => numbers.lookup(people.rx!, `00${n}`));
@@ -325,7 +334,7 @@ describe('número impreso de la ficha', () => {
     const c = await client({ cashCents: 1_000 });
     // Su primera recarga, de hace rato (fuera de los 15 min).
     await sys((tx) => tx.walletCashTopUp.updateMany({ where: { walletId: c.walletId }, data: { createdAt: new Date(Date.now() - 40 * 60_000) } }));
-    const n = String(Date.now() + 13).slice(-8);
+    const n = fichaNumber(8, 13);
     const card = await sys((tx) => tx.walletCard.findUniqueOrThrow({ where: { token: c.card } }));
     await scope(sala, () => cards.setPrintedNumber(people.man!, card.id, n));
     await scope(sala, () => numbers.topUp(people.rx!, { printedNumber: n, amountCents: 500, idempotencyKey: randomUUID() }));
