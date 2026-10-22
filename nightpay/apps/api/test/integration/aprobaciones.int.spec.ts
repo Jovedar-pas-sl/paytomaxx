@@ -450,6 +450,55 @@ describe('pagos a las chicas «Por aprobar»: la cifra que vio el encargado y la
   });
 });
 
+describe('«Marcar pagado» con la misma Idempotency-Key a la vez (FORCE RLS: Prisma no dice qué índice chocó)', () => {
+  const dto: CreatePayoutDto = { externalRail: 'USDT_TRC20', expectedTotalCents: 9_000, notes: 'cierre' };
+  const markPaid = (ownerId: string, chica: string, key: string, afterCreate?: () => Promise<void>) =>
+    asStaff(V, () =>
+      operators.createPayout(V, chica, ownerId, dto.notes, {
+        externalRail: dto.externalRail,
+        expectedTotalCents: dto.expectedTotalCents,
+        idempotency: { key, hash: payoutRequestHash(ownerId, chica, dto) },
+        inTransaction: (tx) => assertNoPendingPayout(tx, V, chica),
+        ...(afterCreate ? { afterCreate: () => afterCreate() } : {}),
+      }),
+    );
+
+  it('dos a la vez para la misma chica: un solo pago y las dos respuestas son ese', async () => {
+    const boss = await newOwner();
+    const chica = await newChica('Gala', [10_000]);
+    const key = `pagar-${randomUUID()}`;
+    const [a, b] = await Promise.all([markPaid(boss, chica, key), markPaid(boss, chica, key)]);
+    expect(a).toEqual(b);
+    expect(await payoutsOf(chica)).toEqual([{ id: a.id, totalCents: 9_000 }]);
+    expect(auditLog.filter((e) => e.action === 'operator.payout.created' && e.payload?.payoutId === a.id)).toHaveLength(1);
+  });
+
+  it('la misma clave a la vez para dos chicas: una se paga y la otra choca al apuntarlo → 409 IDEMPOTENCY_KEY_REUSED', async () => {
+    const boss = await newOwner();
+    const [hana, ines] = [await newChica('Hana', [10_000]), await newChica('Ines', [10_000])];
+    const key = `pagar-${randomUUID()}`;
+    // El pago de Hana se queda apuntado sin confirmar hasta que el de Inés llega a apuntarse con la misma clave:
+    // Inés no la ve al empezar (aún no está confirmada) y su INSERT espera al índice único y choca.
+    let reached!: () => void;
+    const hanaInserted = new Promise<void>((resolve) => (reached = resolve));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const first = markPaid(boss, hana, key, async () => {
+      reached();
+      await gate;
+    });
+    await hanaInserted;
+    const second = failure(markPaid(boss, ines, key));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    release();
+    await expect(first).resolves.toMatchObject({ totalCents: 9_000 });
+    expect(await second).toMatchObject({ status: 409, body: { code: 'IDEMPOTENCY_KEY_REUSED' } });
+    expect((await payoutsOf(hana)).length).toBe(1);
+    expect(await payoutsOf(ines)).toEqual([]);
+    expect(await balanceOf(ines)).toMatchObject({ availableCents: 9_000 });
+  });
+});
+
 describe('devoluciones', () => {
   it('misma intención concurrente conserva aprobación y resultado al aprobarla sin devolver dos veces', async () => {
     const chica = await newChica('Retry');
