@@ -447,6 +447,10 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             cuenta={cuenta}
             who={who}
             onItem={pickItem}
+            onInvite={(invite) => {
+              setError(null);
+              setStage({ kind: 'escanear', invite });
+            }}
             onTip={(cents) => setCuenta((c) => addAmount(c, PROPINAS, cents))}
             onOtro={() => {
               setError(null);
