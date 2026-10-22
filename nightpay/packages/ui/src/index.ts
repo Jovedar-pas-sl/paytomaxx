@@ -62,3 +62,7 @@ export { advanceStatus, isFinalStatus } from './lib/payment-status';
 export { createPoller } from './lib/poller';
 export type { PollOutcome, Poller, PollerOptions } from './lib/poller';
 export type { WakeLockController, WakeLockEnv, WakeLockLike, WakeLockSentinelLike } from './lib/wake-lock';
+
+// Código QR sin dependencias (la consola y la app del personal): la matriz y su trazado SVG.
+export { encodeQr, qrSvgPath } from './lib/qr';
+export type { QrMatrix } from './lib/qr';
