@@ -136,6 +136,12 @@ export const CobrosQuerySchema = z.object({
   invitedOperatorId: UuidSchema.optional(),
   /** Noche del local (Noches): sus cobros. */
   nightId: UuidSchema.optional(),
+  /**
+   * Desde / hasta (instantes ISO, [from, to)): la ventana de una cifra del
+   * mapa del dinero. Con noche, la parte común de las dos.
+   */
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
   status: z
     .string()
     .optional()
