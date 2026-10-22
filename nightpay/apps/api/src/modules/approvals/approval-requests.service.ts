@@ -23,7 +23,7 @@ import {
 } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { isPayoutKeyClash, payoutKeyReused, type PayoutIdempotency } from '../operators/payout-idempotency';
+import type { PayoutIdempotency } from '../operators/payout-idempotency';
 import { payoutTotalCents } from '../operators/payout-math';
 import { lockOperatorPayouts, payableSelection, payoutTotalChanged } from '../operators/payout-selection';
 import { PAYEE_ROLES } from '../operators/payee-roles';
@@ -195,12 +195,19 @@ export class ApprovalRequestsService {
         });
         return { replayed: false as const, row: created as ApprovalRow, expired: stale, operatorName: payload.payload.operatorName };
       })
-      .catch((err: unknown) => {
-        // A la vez, la misma clave en una petición para otra chica.
-        if (isPayoutKeyClash(err)) throw payoutKeyReused();
-        // A la vez, otro encargado pidió lo mismo (índice único parcial).
-        if (isUniqueViolation(err)) throw payoutAlreadyRequested();
-        throw err;
+      .catch(async (err: unknown) => {
+        if (!isUniqueViolation(err)) throw err;
+        // Choque de único sin saber de qué índice (FORCE RLS esconde el
+        // detalle): se vuelve a buscar la clave. La misma petición → esa
+        // solicitud; la clave en otra petición → 409 (replayPayoutRequest).
+        const prior = idempotency
+          ? await this.prisma.withTenant(actor.tenantId, (tx) =>
+              replayPayoutRequest(tx, { tenantId: actor.tenantId, operatorId, requestedById: actor.userId, idempotency }),
+            )
+          : null;
+        if (prior) return { replayed: true as const, row: prior };
+        // Si no era la clave: otro encargado pidió lo mismo (índice único parcial).
+        throw payoutAlreadyRequested();
       });
     if (result.replayed) {
       this.logger.log(`Solicitud ${result.row.id} repetida con la misma Idempotency-Key: no se pide otra vez`);

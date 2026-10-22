@@ -21,8 +21,6 @@ import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { operatorAppBaseUrl } from './operator-app-url';
 import {
-  isPayoutKeyClash,
-  payoutKeyReused,
   replayPayout,
   type PayoutCreatedView,
   type PayoutIdempotency,
@@ -1115,12 +1113,18 @@ export class OperatorsService {
       await settleSelection(tx, payout.id, pending, debts);
       await options?.afterCreate?.(tx, payout.id);
       return { payout, count: pending.length };
-    }).catch((err: unknown) => {
-      // A la vez, otro pago (de otra chica) con la misma Idempotency-Key.
-      if (isPayoutKeyClash(err)) throw payoutKeyReused();
-      // A la vez, otro pago se quedó el mismo hash (índice único parcial).
-      if (isUniqueViolation(err)) throw txAlreadyUsed();
-      throw err;
+    }).catch(async (err: unknown) => {
+      if (!isUniqueViolation(err)) throw err;
+      // Choque de único: Prisma no siempre dice qué índice fue (con FORCE RLS
+      // Postgres esconde el detalle y llega «(not available)»). Se vuelve a
+      // buscar la clave: el mismo pago → se devuelve; de otra chica, persona o
+      // petición → 409 IDEMPOTENCY_KEY_REUSED (lo lanza replayPayout).
+      const raced = options?.idempotency
+        ? await this.findPayoutReplay(tenantId, operatorId, paidByUserId, options.idempotency)
+        : null;
+      if (raced) return { replay: raced };
+      // Si no era la clave: otro pago se quedó el mismo hash (índice único parcial).
+      throw txAlreadyUsed();
     });
     if ('replay' in result && result.replay) {
       this.logger.log(`Payout ${result.replay.id} repetido con la misma Idempotency-Key: no se apunta otra vez`);

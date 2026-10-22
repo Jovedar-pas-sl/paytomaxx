@@ -358,12 +358,39 @@ describe('OperatorsService.createPayout — la cifra que se vio y la Idempotency
     }
   });
 
-  it('a la vez otro pago con la misma clave (P2002 de la clave) → 409 IDEMPOTENCY_KEY_REUSED, no «hash repetido»', async () => {
-    const h = makeService({
-      createError: Object.assign(new Error('Unique constraint failed'), { code: 'P2002', meta: { target: ['tenantId', 'idempotencyKey'] } }),
+  describe('a la vez otro pago con la misma clave (choque de único al apuntarlo)', () => {
+    // Con FORCE RLS, Postgres esconde el detalle del índice y Prisma da «(not available)».
+    const clash = () => Object.assign(new Error('Unique constraint failed on the (not available)'), { code: 'P2002', meta: { target: '(not available)' } });
+
+    it('era la misma petición (ganó la otra): devuelve ese pago, sin apuntar otro ni registrarlo', async () => {
+      const h = makeService({ createError: clash() });
+      withEarningCount(h, 2);
+      const at = new Date('2026-10-19T10:00:00Z');
+      const winner = { id: PAYOUT_ID, operatorId: OPERATOR, paidByUserId: OWNER, idempotencyHash: 'huella-1', totalCents: 12_500, createdAt: at };
+      // Al empezar no estaba; al volver a buscarla tras el choque, sí.
+      h.tx.operatorPayout.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(winner);
+      await expect(h.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { idempotency: idem })).resolves.toEqual({
+        id: PAYOUT_ID, totalCents: 12_500, earningCount: 2, createdAt: at.toISOString(),
+      });
+      expect(h.audit.log).not.toHaveBeenCalled();
     });
-    const { body } = await errorOf(h.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { idempotency: idem }));
-    expect(body.code).toBe('IDEMPOTENCY_KEY_REUSED');
+
+    it('la clave es de un pago de otra chica: 409 IDEMPOTENCY_KEY_REUSED, no «hash repetido»', async () => {
+      const h = makeService({ createError: clash() });
+      h.tx.operatorPayout.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: PAYOUT_ID, operatorId: 'otra-chica', paidByUserId: OWNER, idempotencyHash: 'huella-1', totalCents: 1, createdAt: NOW });
+      const { body } = await errorOf(h.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { idempotency: idem }));
+      expect(body.code).toBe('IDEMPOTENCY_KEY_REUSED');
+      expect(h.audit.log).not.toHaveBeenCalled();
+    });
+
+    it('no había pago con la clave: el choque era otro índice (hash on-chain) → 409 PAYOUT_TX_ALREADY_USED', async () => {
+      const h = makeService({ createError: clash() });
+      const { body } = await errorOf(h.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { idempotency: idem }));
+      expect(body.code).toBe('PAYOUT_TX_ALREADY_USED');
+      expect(h.tx.operatorPayout.findFirst).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('findPayoutReplay: lo mismo fuera del pago (para no pedir otra vez el 2FA)', async () => {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { madridDay } from '../../common/time/madrid';
 import { idempotencyKeyOf } from '../../common/decorators/idempotent.decorator';
 import { txAlreadyUsed } from '../treasury/payout-tx-guard';
-import { isPayoutKeyClash, payoutKeyReused, payoutRequestHash } from './payout-idempotency';
+import { payoutKeyReused, payoutRequestHash } from './payout-idempotency';
 
 describe('Idempotency-Key de «Marcar pagado»', () => {
   it('la huella: quién paga, a qué chica y qué pide; el 2FA no cuenta (cambia cada 30 s)', () => {
@@ -14,12 +14,7 @@ describe('Idempotency-Key de «Marcar pagado»', () => {
     expect(payoutRequestHash('own-1', 'op-1', { notes: 'semana', expectedTotalCents: 12_400 })).not.toBe(base);
   });
 
-  it('el choque del índice de la clave se distingue del del hash on-chain', () => {
-    expect(isPayoutKeyClash({ code: 'P2002', meta: { target: ['tenantId', 'idempotencyKey'] } })).toBe(true);
-    expect(isPayoutKeyClash({ code: 'P2002', meta: { target: 'operator_payouts_tenantId_idempotencyKey_key' } })).toBe(true);
-    expect(isPayoutKeyClash({ code: 'P2002', meta: { target: 'operator_payouts_tenant_onchain_tx_key' } })).toBe(false);
-    expect(isPayoutKeyClash({ code: 'P2002' })).toBe(false);
-    expect(isPayoutKeyClash(new Error('x'))).toBe(false);
+  it('la clave reutilizada con otra petición: 409 IDEMPOTENCY_KEY_REUSED', () => {
     expect(payoutKeyReused().getResponse()).toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
   });
 

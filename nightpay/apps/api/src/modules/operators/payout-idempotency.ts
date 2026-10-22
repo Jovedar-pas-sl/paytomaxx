@@ -57,11 +57,3 @@ export async function replayPayout(
   const earningCount = await tx.operatorEarning.count({ where: { payoutId: prior.id } });
   return { id: prior.id, totalCents: prior.totalCents, earningCount, createdAt: prior.createdAt.toISOString() };
 }
-
-/** P2002 del índice único de la clave (no el del hash on-chain). */
-export function isPayoutKeyClash(err: unknown): boolean {
-  if (typeof err !== 'object' || err === null || (err as { code?: unknown }).code !== 'P2002') return false;
-  const target = (err as { meta?: { target?: unknown } }).meta?.target;
-  const fields = Array.isArray(target) ? target.map(String) : [String(target ?? '')];
-  return fields.some((f) => f.includes('idempotencyKey'));
-}
