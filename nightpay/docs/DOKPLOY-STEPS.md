@@ -90,8 +90,8 @@ terminado). Apágalo en `nightpay-api` (y en las webs de la Fase E) →
 **General → Autodeploy: off**, y despliega así:
 
 1. En GitHub → **Actions → nightpay-ci**, espera a que el run del commit de
-   `main` salga en verde (`check`, `integracion`, `migraciones-orden` y
-   `docker`). En `main` un push nuevo ya no cancela el CI del anterior.
+   `main` salga en verde (`check`, `integracion`, `migraciones-orden`, `e2e`
+   y `docker`). En `main` un push nuevo ya no cancela el CI del anterior.
 2. Dokploy → `nightpay-api` → **Deploy** (manual) — fuera de la noche de
    cobro, ver D.5.
 
@@ -102,7 +102,7 @@ añade al workflow un job que solo corre en `main` tras los demás:
 ```yaml
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [check, integracion, migraciones-orden, docker]
+    needs: [check, integracion, migraciones-orden, e2e, docker]
     runs-on: ubuntu-latest
     steps:
       - run: curl -fsS -X POST "${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_API }}"
