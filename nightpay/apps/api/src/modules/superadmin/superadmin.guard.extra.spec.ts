@@ -15,16 +15,17 @@ function setup(dbUser: Record<string, unknown> | null | Error, req: Record<strin
   const tx = { user: { findUnique } };
   const prisma = { acrossVenues: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
   const request: Record<string, unknown> = {
-    user: { sub: SUB, tenantId: '3f6c2a1e-8b4d-4c7e-9a10-5d2e7f8a9b01', role: 'OWNER', email: 'jefe@grupo-luna.es' },
+    user: { sub: SUB, tenantId: '3f6c2a1e-8b4d-4c7e-9a10-5d2e7f8a9b01', role: 'OWNER', email: 'jefe@grupo-luna.es', sid: 'family' },
     headers: {},
     raw: { socket: { remoteAddress: TRAEFIK } },
     ...req,
   };
   const ctx = { switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext;
-  return { guard: new SuperAdminGuard(prisma as never), ctx, request, findUnique };
+  const sessions = { liveSession: vi.fn().mockResolvedValue({ userId: SUB }), hasTwoFactor: vi.fn().mockResolvedValue(true) };
+  return { guard: new SuperAdminGuard(prisma as never, sessions as never), ctx, request, findUnique };
 }
 
-const ACTIVO = { id: SUB, email: 'jefe@grupo-luna.es', isSuperAdmin: true, deletedAt: null };
+const ACTIVO = { id: SUB, email: 'jefe@grupo-luna.es', isSuperAdmin: true, deletedAt: null, totpSecret: 'sealed-secret' };
 
 describe('SuperAdminGuard — la decisión es de la base, no del JWT', () => {
   it('claims inventados en la sesión (isSuperAdmin: true) no bastan si la base dice que no', async () => {
@@ -52,7 +53,7 @@ describe('SuperAdminGuard — la decisión es de la base, no del JWT', () => {
   });
 
   it('el rol del local activo no importa: un WAITER super-admin en la base pasa', async () => {
-    const { guard, ctx } = setup(ACTIVO, { user: { sub: SUB, role: 'WAITER' } });
+    const { guard, ctx } = setup(ACTIVO, { user: { sub: SUB, role: 'WAITER', sid: 'family' } });
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
   });
 

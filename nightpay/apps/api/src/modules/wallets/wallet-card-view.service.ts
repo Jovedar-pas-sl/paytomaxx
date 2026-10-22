@@ -38,7 +38,9 @@ export class WalletCardViewService {
     if (owner !== t.wallet.id) throw new ForbiddenException({ message: 'Usa la passkey de este saldo.', code: 'FACE_ID_WRONG' });
     // Una ficha puede devolverse, bloquearse o reasignarse mientras el cliente confirma.
     const current = await this.target(token);
-    if (current.cardId !== t.cardId || current.wallet.id !== owner) throw new ForbiddenException({ message: 'La ficha ha cambiado. Vuelve a acercarla.', code: 'FACE_ID_WRONG' });
+    if (current.cardId !== t.cardId || current.wallet.id !== owner || current.wallet.qrToken !== t.wallet.qrToken) {
+      throw new ForbiddenException({ message: 'La ficha o el enlace del saldo han cambiado. Vuelve a acercarla.', code: 'FACE_ID_WRONG' });
+    }
     return { id: current.wallet.id, qrToken: current.wallet.qrToken };
   }
 }

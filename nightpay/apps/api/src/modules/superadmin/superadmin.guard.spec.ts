@@ -5,12 +5,13 @@ import { SuperAdminGuard } from './superadmin.guard';
 const SUB = '0b6f4a8e-6f1e-4e0b-9a51-0c2f3c4d5e6f';
 
 function setup(user: Record<string, unknown> | null) {
-  const findUnique = vi.fn().mockResolvedValue(user);
+  const findUnique = vi.fn().mockResolvedValue(user ? { totpSecret: 'sealed-secret', ...user } : null);
   const tx = { user: { findUnique } };
   const prisma = { acrossVenues: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
-  const guard = new SuperAdminGuard(prisma as never);
+  const sessions = { liveSession: vi.fn().mockResolvedValue({ userId: SUB }), hasTwoFactor: vi.fn().mockResolvedValue(true) };
+  const guard = new SuperAdminGuard(prisma as never, sessions as never);
   const req: Record<string, unknown> = {
-    user: { sub: SUB, tenantId: 'otro-local', role: 'OWNER' },
+    user: { sub: SUB, tenantId: 'otro-local', role: 'OWNER', sid: 'family' },
     headers: { 'user-agent': 'Mozilla/5.0' },
     ip: '10.0.0.1',
     socket: { remoteAddress: '203.0.113.7' },

@@ -273,6 +273,6 @@ describe('saldo con passkey: consultar también exige el desbloqueo', () => {
     const { reply, headers } = cookieReply();
     await controller.passkeyRegister('private-token', { response: {} }, 'api.example', reply as never);
     expect(headers['Set-Cookie']).toContain('HttpOnly');
-    expect(headers['Set-Cookie']).toContain('Path=/w/private-token');
+    expect(headers['Set-Cookie']).toContain('Path=/;');
   });
 });

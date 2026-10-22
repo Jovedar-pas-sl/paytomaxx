@@ -11,7 +11,9 @@ export function walletViewSetCookie(secret: string, wallet: { id: string; qrToke
   if (secret.length < 32) throw new Error('COOKIE_SECRET required for wallet view sessions');
   const value = `${Math.floor(now / 1000) + WALLET_VIEW_TTL_S}.${randomBytes(18).toString('base64url')}`;
   const secure = ['development', 'test'].includes(process.env.NODE_ENV ?? '') ? '' : '; Secure';
-  return `${cookieName(secret, wallet.id)}=${value}.${mac(secret, wallet, value)}; Path=/w/${encodeURIComponent(wallet.qrToken)}; Max-Age=${WALLET_VIEW_TTL_S}; HttpOnly; SameSite=Strict${secure}`;
+  // Both /w/:token and the compatible /v1/wallets/public/:token endpoint need it.
+  // Host-only; the signature still binds it to one wallet and its current token.
+  return `${cookieName(secret, wallet.id)}=${value}.${mac(secret, wallet, value)}; Path=/; Max-Age=${WALLET_VIEW_TTL_S}; HttpOnly; SameSite=Strict${secure}`;
 }
 
 export function hasWalletViewSession(secret: string, wallet: { id: string; qrToken: string }, cookies: string | undefined, now = Date.now()): boolean {

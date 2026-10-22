@@ -23,12 +23,14 @@ import { WalletCardsController } from './wallet-cards.controller';
 import { WalletCardsService } from './wallet-cards.service';
 import { PendingTopUpsController } from './pending-topups.controller';
 import { PendingTopUpService } from './wallet-pending-topup.service';
+import { WalletViewGuard } from './wallet-view.guard';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
   imports: [PrismaModule, AuditModule, AuthModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
+    WalletViewGuard,
     WalletCardViewService,
     WalletsService,
     WalletChargesService,

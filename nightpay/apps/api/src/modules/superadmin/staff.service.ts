@@ -281,7 +281,7 @@ export class SuperAdminStaffService {
     return this.get(id);
   }
 
-  /** Cierra sus sesiones (protege: sin 2FA). El access token vivo caduca solo (≤ 1 h). */
+  /** Cierra sus sesiones (protege: sin 2FA). Superadmin exige la sesión viva; el acceso local caduca en ≤ 1 h. */
   async revokeSessions(actor: SuperAdminActor, id: string, dto: ReasonOnlyDto): Promise<RevokeSessionsResponse> {
     const user = await this.load(id);
     const revoked = await this.refreshTokens.revokeAllForUser(id);

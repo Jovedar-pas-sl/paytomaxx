@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import { ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -13,6 +13,10 @@ import { GoogleWalletService } from './google-wallet/google-wallet.service';
 import { WalletCardViewService } from './wallet-card-view.service';
 import { PublicWalletController } from './public-wallet.controller';
 import { PublicWalletCardController } from './public-wallet-card.controller';
+import { WalletsController } from './wallets.controller';
+import { WalletsService } from './wallets.service';
+import { GoogleWalletController } from './google-wallet/google-wallet.controller';
+import { walletViewSetCookie } from './wallet-view-session';
 
 const CARD = 'validCardToken0123456';
 const PRIVATE = 'privateWalletToken0123456';
@@ -28,16 +32,19 @@ const keys = {
   }),
 };
 let app: NestFastifyApplication;
+const saveLink = vi.fn(async () => ({ saveUrl: 'https://pay.google.com/gp/v/save/test-only' }));
+const publicView = vi.fn(async () => state);
 beforeAll(async () => {
   const mod = await Test.createTestingModule({
-    controllers: [PublicWalletController, PublicWalletCardController],
+    controllers: [PublicWalletController, PublicWalletCardController, WalletsController, GoogleWalletController],
     providers: [WalletCardViewService,
       { provide: ConfigService, useValue: { get: () => 'test-only-cookie-secret-with-32-characters' } },
       { provide: PrismaService, useValue: { acrossVenues: (fn: (tx: unknown) => unknown) => fn({ walletCard: { findUnique } }) } },
       { provide: WalletPasskeysService, useValue: keys },
       { provide: WalletChargesService, useValue: { walletRefByToken: async () => ({ id: wallet.id, shortCode: 'ABC123' }), clientState: async () => state } },
       { provide: WalletTopUpService, useValue: { options: async () => ({ allowed: false, block: null }), paidProof: async () => null } },
-      { provide: GoogleWalletService, useValue: { enabled: false } },
+      { provide: GoogleWalletService, useValue: { enabled: false, saveLink } },
+      { provide: WalletsService, useValue: { getPublicByToken: publicView } },
     ],
   }).compile();
   app = mod.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
@@ -45,8 +52,40 @@ beforeAll(async () => {
   await app.init(); await app.getHttpAdapter().getInstance().ready();
 });
 afterAll(async () => { await app?.close(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  keys.hasPasskey.mockReset().mockResolvedValue(true);
+});
 
 describe('consulta NFC HTTP: ninguna información antes de verificar la llave', () => {
+  it('las rutas alternativas tampoco revelan saldo ni permiten crear un pase sin desbloquear', async () => {
+    const api = app.getHttpAdapter().getInstance();
+    for (const headers of [{}, { cookie: 'npwv_invalid=invalid' }]) {
+      const legacy = await api.inject({ method: 'GET', url: `/v1/wallets/public/${PRIVATE}`, headers });
+      expect(legacy.statusCode).toBe(401);
+      expect(legacy.body).not.toContain('Recarga privada');
+      expect((await api.inject({ method: 'POST', url: `/w/${PRIVATE}/google-wallet`, payload: {}, headers })).statusCode).toBe(401);
+    }
+    expect(saveLink).not.toHaveBeenCalled();
+    expect(publicView).not.toHaveBeenCalled();
+  });
+
+  it('la misma sesión de consulta habilita todas las vías y su caducidad las cierra', async () => {
+    const api = app.getHttpAdapter().getInstance();
+    const cookie = walletViewSetCookie('test-only-cookie-secret-with-32-characters', wallet).split(';')[0]!;
+    for (const request of [{ method: 'GET' as const, url: `/v1/wallets/public/${PRIVATE}` }, { method: 'POST' as const, url: `/w/${PRIVATE}/google-wallet`, payload: {} }]) {
+      expect((await api.inject({ ...request, headers: { cookie } })).statusCode).toBe(200);
+      const expired = walletViewSetCookie('test-only-cookie-secret-with-32-characters', wallet, Date.now() - 301000).split(';')[0]!;
+      expect((await api.inject({ ...request, headers: { cookie: expired } })).statusCode).toBe(401);
+    }
+  });
+
+  it('el enlace privado sin passkey conserva la primera activación existente', async () => {
+    keys.hasPasskey.mockResolvedValueOnce(false).mockResolvedValueOnce(false);
+    const api = app.getHttpAdapter().getInstance();
+    expect((await api.inject({ method: 'GET', url: `/v1/wallets/public/${PRIVATE}` })).statusCode).toBe(200);
+    expect((await api.inject({ method: 'POST', url: `/w/${PRIVATE}/google-wallet`, payload: {} })).statusCode).toBe(200);
+  });
   it('el HTML público no expone el enlace privado ni el saldo; los GET alternativos tampoco', async () => {
     const api = app.getHttpAdapter().getInstance();
     for (const url of [`/w/card/${CARD}`, `/w/${PRIVATE}`]) {

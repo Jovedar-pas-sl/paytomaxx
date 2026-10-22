@@ -1,9 +1,10 @@
-import { Controller, Get, Header, HttpCode, Inject, NotFoundException, Param, Post, Res } from '@nestjs/common';
+import { Controller, Get, Header, HttpCode, Inject, NotFoundException, Param, Post, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../../common/guards/ip-rate-limit.guard';
 import { GOOGLE_WALLET_BUTTONS } from './google-wallet-button';
 import { GoogleWalletService } from './google-wallet.service';
+import { WalletViewGuard } from '../wallet-view.guard';
 
 /** El botón oficial cambia poco: un día en caché. */
 const BUTTON_CACHE = 'public, max-age=86400';
@@ -30,6 +31,7 @@ export class GoogleWalletController {
    */
   @Public()
   @Post(':token/google-wallet')
+  @UseGuards(WalletViewGuard)
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-gwallet' })

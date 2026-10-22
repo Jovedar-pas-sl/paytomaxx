@@ -25,7 +25,8 @@ import { WalletPasskeysService } from './wallet-passkeys.service';
 import { WalletTopUpService } from './wallet-topup.service';
 import { renderWalletPage } from './wallet-page';
 import { checkedPin } from './client-pin';
-import { hasWalletViewSession, walletViewSetCookie } from './wallet-view-session';
+import { walletViewSetCookie } from './wallet-view-session';
+import { mayReadWallet } from './wallet-view-access';
 import { renderWalletUnlockPage } from './wallet-unlock-page';
 import { GoogleWalletService } from './google-wallet/google-wallet.service';
 
@@ -272,8 +273,11 @@ export class PublicWalletController {
   }
 
   private async mayRead(token: string, cookies: string | undefined): Promise<boolean> {
-    const wallet = await this.charges.walletRefByToken(token);
-    return !(await this.passkeys.hasPasskey(wallet.id)) || hasWalletViewSession(this.config.get<string>('COOKIE_SECRET') ?? '', { id: wallet.id, qrToken: token }, cookies);
+    return mayReadWallet({
+      walletRefByToken: (value) => this.charges.walletRefByToken(value),
+      hasPasskey: (id) => this.passkeys.hasPasskey(id),
+      secret: this.config.get<string>('COOKIE_SECRET') ?? '',
+    }, token, cookies);
   }
 
   @Public()

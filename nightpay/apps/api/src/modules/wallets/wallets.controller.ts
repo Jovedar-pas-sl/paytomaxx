@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Inject,
   Param,
@@ -20,6 +21,7 @@ import { Tenant } from '../../common/decorators/tenant.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { WalletsService } from './wallets.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
+import { WalletViewGuard } from './wallet-view.guard';
 
 /**
  * Phase 1B — Wallets.
@@ -51,6 +53,9 @@ export class WalletsController {
    */
   @Public()
   @Get('public/:qrToken')
+  @UseGuards(WalletViewGuard)
+  @Header('Cache-Control', 'no-store')
+  @Header('Referrer-Policy', 'no-referrer')
   async publicView(@Param('qrToken') qrToken: string) {
     if (qrToken.length < 8 || qrToken.length > 100) {
       throw new BadRequestException('qrToken inválido');

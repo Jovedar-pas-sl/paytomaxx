@@ -16,12 +16,12 @@ describe('sesión breve de consulta', () => {
     expect(hasWalletViewSession(secret, wallet, valueOf(cookie).slice(0, -1) + '!', now)).toBe(false);
     expect(hasWalletViewSession('another-secret-with-more-than-32-characters', wallet, valueOf(cookie), now)).toBe(false);
   });
-  it('HttpOnly, sin dominio compartido y limitada a la ruta del saldo; Secure en producción', () => {
+  it('HttpOnly, disponible en ambas rutas del mismo host y Secure en producción', () => {
     vi.stubEnv('NODE_ENV', 'production');
     try {
       const cookie = walletViewSetCookie(secret, wallet, now);
       expect(cookie).toContain('HttpOnly; SameSite=Strict; Secure');
-      expect(cookie).toContain(`Path=/w/${wallet.qrToken}; Max-Age=300`);
+      expect(cookie).toContain('Path=/; Max-Age=300');
       expect(cookie).not.toContain('Domain=');
       expect(cookie).not.toContain(wallet.id);
     } finally { vi.unstubAllEnvs(); }

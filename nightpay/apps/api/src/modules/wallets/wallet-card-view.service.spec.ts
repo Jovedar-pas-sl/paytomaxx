@@ -60,4 +60,9 @@ describe('consulta de ficha con llave del cliente', () => {
     findUnique.mockResolvedValue({ ...card, wallet: { ...wallet, status: 'DEPLETED' } });
     await expect(service.unlock(token, undefined, {})).resolves.toMatchObject({ id: 'w1' });
   });
+  it('no entrega el enlace nuevo a una verificación iniciada con la llave anterior', async () => {
+    const { service, findUnique } = make();
+    findUnique.mockResolvedValueOnce(card).mockResolvedValueOnce({ ...card, wallet: { ...wallet, qrToken: 'regenerated-private-token' } });
+    await expect(service.unlock(token, 'api.example', {})).rejects.toThrow(ForbiddenException);
+  });
 });
