@@ -41,12 +41,13 @@ const wallet = (o: Partial<Wallet> = {}): Wallet => ({
 });
 
 /** Una base de mentira con sus fichas, sus saldos y el efectivo que entró (wallet-cash-limits). */
-function db(opts: { cards?: Card[]; wallets?: Wallet[]; cashIn?: number }) {
+function db(opts: { cards?: Card[]; wallets?: Wallet[]; cashIn?: number; passkeys?: string[] }) {
   const cards = opts.cards ?? [];
   const wallets = opts.wallets ?? [];
   return {
+    walletPasskey: { count: async ({ where }: { where: { walletId: string } }) => (opts.passkeys ?? []).filter((id) => id === where.walletId).length },
     walletCard: {
-      findUnique: async ({ where }: { where: { token?: string; printedNumber?: string } }) => (where.printedNumber ? cards.find((c) => c.printedNumber === where.printedNumber) ?? null : where.token === FICHA ? (cards[0] ?? null) : null),
+      findUnique: async ({ where }: { where: { token?: string } }) => (where.token === FICHA ? (cards[0] ?? null) : null),
       findFirst: async ({ where }: { where: { walletId: string } }) => cards.find((c) => c.walletId === where.walletId) ?? null,
     },
     clientWallet: {
@@ -84,8 +85,11 @@ describe('el NFC acercado en la recepción', () => {
       closeRequested: false,
       cashOutCents: 2_000,
       fichaNumber: 388,
+      hasPasskey: false,
     });
     expect(view.kind === 'saldo' ? view.cashOutNote : null).toMatch(/15,00 € entraron con tarjeta/);
+    const withFaceId = db({ cards: [card({ status: 'ISSUED', walletId: 'w-1' })], wallets: [wallet()], passkeys: ['w-1'] });
+    await expect(readReceptionDesk(withFaceId as never, venue, { card: FICHA })).resolves.toMatchObject({ hasPasskey: true });
   });
 
   it('un saldo a cero sigue siendo suyo (se recarga el mismo); uno ya devuelto deja el NFC libre', async () => {
@@ -146,11 +150,7 @@ it('returns the printed alias unchanged for stock, NFC wallet and code lookup', 
 });
 
 
-it('printed-number reception lookup accepts a group card and rejects foreign or blocked cards', async () => {
-  const local = db({ cards: [card({ printedNumber: '00017' })] });
-  await expect(readReceptionDesk(local as never, venue, { printedNumber: '00017' })).resolves.toMatchObject({ kind: 'new', printedNumber: '00017' });
-  const foreign = db({ cards: [card({ venueId: OTRO, printedNumber: '00017' })] });
-  await expect(readReceptionDesk(foreign as never, venue, { printedNumber: '00017' })).rejects.toBeInstanceOf(NotFoundException);
-  const blocked = db({ cards: [card({ status: 'BLOCKED', printedNumber: '00017' })] });
-  await expect(readReceptionDesk(blocked as never, venue, { printedNumber: '00017' })).rejects.toBeInstanceOf(ConflictException);
+it('the printed number never opens the full desk view (only FichaNumbersService, masked)', async () => {
+  const tx = db({ cards: [card({ printedNumber: '00017' })] });
+  await expect(readReceptionDesk(tx as never, venue, { printedNumber: '00017' } as never)).rejects.toBeInstanceOf(NotFoundException);
 });

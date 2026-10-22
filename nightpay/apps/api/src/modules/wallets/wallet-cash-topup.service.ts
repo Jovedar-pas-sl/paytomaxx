@@ -40,8 +40,12 @@ export type CashTopUpBy = { userId: string; role: string } | { terminalId: strin
 export interface CashTopUpInput {
   amountCents: number;
   idempotencyKey: string;
-  wallet: TopUpWalletDto;
+  /** Lo de la petición, o la ficha buscada por su número (solo FichaNumbersService). */
+  wallet: TopUpWalletDto | PrintedTopUpRef;
 }
+
+/** La ficha buscada por su número impreso en recepción (su id; nunca llega así del cliente). */
+export type PrintedTopUpRef = { printed: { cardId: string } };
 
 const KEY_REUSED = 'Esa recarga ya se apuntó con otros datos: vuelve a empezar la recarga';
 
@@ -422,6 +426,8 @@ export class CashTopUpService {
     // Legacy rows cannot prove whether code or card was originally used. Accept
     // aliases only when they still identify the same wallet/merge chain.
     if (!existing.intentFingerprint && !('create' in input.wallet)) {
+      // Las de número impreso son nuevas: siempre llevan su huella.
+      if ('printed' in input.wallet) throw new ConflictException(KEY_REUSED);
       const ref = input.wallet;
       const matches = wallet && await this.prisma.acrossVenues(async (tx) => {
         if ('code' in ref && normalizeWalletCode(ref.code) === wallet.shortCode) return true;
@@ -461,12 +467,14 @@ export class CashTopUpService {
 }
 
 /** Preserve the submitted destination even when the wallet is merged or its code rotates. */
-function cashIntent(wallet: TopUpWalletDto): string {
+function cashIntent(wallet: TopUpWalletDto | PrintedTopUpRef): string {
   const target = 'create' in wallet
     ? ['create', wallet.identifier?.trim() || null]
     : 'code' in wallet
       ? ['code', normalizeWalletCode(wallet.code)]
-      : ['card', wallet.card, wallet.uid ? normalizeWalletCardUid(wallet.uid) : null];
+      : 'printed' in wallet
+        ? ['printed', wallet.printed.cardId]
+        : ['card', wallet.card, wallet.uid ? normalizeWalletCardUid(wallet.uid) : null];
   return createHash('sha256').update(JSON.stringify(target)).digest('hex');
 }
 

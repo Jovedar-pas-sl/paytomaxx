@@ -29,6 +29,11 @@ import {
 const CardToken = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra');
 const CardSchema = z.object({ card: CardToken, uid: z.string().trim().max(64).optional() });
 const PinSchema = z.object({ pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras') });
+const NumberSchema = z.object({
+  card: CardToken,
+  uid: z.string().min(8).max(64),
+  printedNumber: z.string().regex(/^[0-9]{1,12}$/, 'Escribe entre 1 y 12 cifras del número impreso'),
+}).strict();
 /** Recargas por datáfono y minuto (tarjeta y efectivo juntas), venga de la IP que venga. */
 const TOP_UP_PER_TERMINAL = { max: 10, windowSec: 60, scope: 'pos-reception-topup' };
 
@@ -49,6 +54,7 @@ const TOP_UP_PER_TERMINAL = { max: 10, windowSec: 60, scope: 'pos-reception-topu
  *   - POST /v1/pos-device/reception/wallets/:id/pin   → el cliente elige su PIN.
  *   - POST /v1/pos-device/reception/fichas/token      → código nuevo para grabar en una ficha vacía.
  *   - POST /v1/pos-device/reception/fichas/stock      → la ficha acercada, al stock del local.
+ *   - POST /v1/pos-device/reception/fichas/number     → su número impreso (con la ficha delante).
  * La venta con tarjeta se confirma con POST /v1/pos-device/charges/:id/result (la de siempre).
  * Recargar (tarjeta y efectivo) tiene además tope por datáfono: 10 por minuto
  * (sin importar la IP) y los de 24 h de reception-limits.
@@ -179,5 +185,17 @@ export class PosDeviceReceptionController {
     @Body(new ZodValidationPipe(CardSchema)) body: z.infer<typeof CardSchema>,
   ): Promise<StockOutcome> {
     return this.cards.stock(device.tenantId, { userId: null, terminalId: device.terminalId }, { card: body.card, uid: body.uid ?? null });
+  }
+
+  @Public()
+  @UseGuards(DeviceGuard)
+  @Post('fichas/number')
+  @HttpCode(200)
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'pos-reception-fichas' })
+  async fichaNumber(
+    @CurrentDevice() device: PosDevice,
+    @Body(new ZodValidationPipe(NumberSchema)) body: z.infer<typeof NumberSchema>,
+  ): Promise<{ printedNumber: string }> {
+    return this.cards.labelStockFromDevice(device.tenantId, device.terminalId, body);
   }
 }

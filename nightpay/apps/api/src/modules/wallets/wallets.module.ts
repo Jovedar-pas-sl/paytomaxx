@@ -20,6 +20,7 @@ import { ReceptionCashPayoutController } from './reception-cash-payout.controlle
 import { PublicPayoutConfirmController } from './public-payout-confirm.controller';
 import { ReceptionPayoutPasskeys } from './reception-payout-passkey';
 import { ReceptionPayoutService } from './reception-payout.service';
+import { FichaNumbersService } from './ficha-numbers.service';
 import { ReceptionFichaNumberController } from './reception-ficha-number.controller';
 import { CashTopUpService } from './wallet-cash-topup.service';
 import { WalletCardsController } from './wallet-cards.controller';
@@ -47,6 +48,8 @@ import { WalletViewGuard } from './wallet-view.guard';
     // Salida de recepción: NFC + PIN o Face ID del cliente, 2FA del encargado y tope de la noche.
     ReceptionPayoutPasskeys,
     ReceptionPayoutService,
+    // El número impreso de las fichas: buscar sin acercarla (resumen) y recargar en efectivo.
+    FichaNumbersService,
   ],
   controllers: [
     WalletsController,

@@ -80,7 +80,10 @@ export interface WalletCardRow {
   uid: string | null;
   /** Primeras letras del código grabado (para reconocerla, no para usarla). */
   tokenHint: string;
+  /** El número impreso de fábrica, tal cual (null: «sin número impreso»). */
   printedNumber?: string | null;
+  /** Ese número ya lo tenía otra ficha de su sitio al migrar: no se busca por él (renumerarla). */
+  printedNumberRepeated?: boolean;
   status: WalletCardStatus;
   /** Código del saldo al que está dada (K7Q-4M2), si está entregada. */
   walletCode: string | null;
@@ -127,7 +130,20 @@ export type StockOutcome =
   | { outcome: 'lost' }
   | { outcome: 'foreign' };
 
-/** Factory-printed digits, kept as text to preserve leading zeroes. */
+/**
+ * El número impreso de fábrica en el NFC: se guarda tal cual se teclea (con
+ * sus ceros delante, para enseñarlo igual que en la ficha).
+ */
 export function isPrintedFichaNumber(value: string): boolean {
   return /^[0-9]{1,12}$/.test(value);
+}
+
+/**
+ * El mismo número sin los ceros de delante, para buscar y para que no se
+ * repita: «00736903» y «736903» son la misma ficha («000» es «0»). null si
+ * no son de 1 a 12 cifras.
+ */
+export function normalizePrintedFichaNumber(value: string): string | null {
+  if (!isPrintedFichaNumber(value)) return null;
+  return value.replace(/^0+(?=\d)/, '');
 }
