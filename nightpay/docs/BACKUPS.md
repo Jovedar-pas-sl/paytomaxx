@@ -113,7 +113,13 @@ nightpay/scripts/restore-check.sh ./nightpay-xxxx.sql.gz
 Levanta un Postgres 16 de usar y tirar (sin volumen: desaparece al acabar),
 restaura la copia y comprueba que hay cobros (`payments`), saldos
 (`client_wallets`) y comisiones (`operator_earnings`). Sale con error si la
-copia no se restaura o alguna tabla está vacía. Para exigir además que la copia
+copia no se restaura entera (cualquier error de `pg_restore`/`psql` corta: solo
+se omiten a propósito dueños y permisos), si le faltan columnas, restricciones
+o índices únicos (una copia sin post-data), si falta alguna migración del
+repositorio anterior a la última restaurada, si el dinero no cuadra en lo
+mínimo (saldos negativos, más por devolver que lo cobrado, devoluciones que
+superan su cobro o sin él) o si alguna tabla está vacía. CI la prueba con una
+copia completa (pasa) y otra sin post-data (falla). Para exigir además que la copia
 sea reciente: `MAX_LAST_PAYMENT_AGE_DAYS=2 nightpay/scripts/restore-check.sh …`.
 Sin Docker, contra una base vacía creada a mano: `… --url postgresql://…`
 (se niega si la base tiene tablas).
