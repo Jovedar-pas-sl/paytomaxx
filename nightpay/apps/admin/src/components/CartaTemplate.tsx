@@ -60,6 +60,8 @@ export function CartaTemplate({ items, sections, onApplied }: {
       setMessage(resultText(result));
     } catch (err) {
       const stale = err instanceof ApiError && err.status === 409;
+      // Lo marcado se vio antes del cambio: se vuelve a mirar y a marcar.
+      if (stale) setTicked(new Set());
       setError(`${(err as Error).message}${stale ? '' : ' No se ha cambiado nada: puedes reintentar.'}`);
     } finally {
       setBusy(false);
