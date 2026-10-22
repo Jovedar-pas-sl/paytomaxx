@@ -60,6 +60,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Cliente de Prisma
         run: pnpm --filter @nightpay/db exec prisma generate
+      - name: Identidad automática del código construido
+        run: node --test scripts/build-info.test.mjs
       - name: Tipos (las 5 apps y el cliente común del API)
         run: |
           for app in apps/api apps/admin apps/operator apps/tpv apps/web-client packages/api-client; do
@@ -177,6 +179,72 @@ jobs:
       - name: Pruebas de integración del API (Postgres real, RLS forzado)
         working-directory: nightpay/apps/api
         run: pnpm test:integration
+      - name: Restauración real completa e incompleta, siempre en bases desechables
+        run: |
+          mkdir -p .verification
+          docker exec "${{ job.services.postgres.id }}" pg_dump -U postgres -d nightpay -Fc > .verification/restore.dump
+          MIN_PAYMENTS=0 MIN_CLIENT_WALLETS=0 MIN_OPERATOR_EARNINGS=0 bash scripts/restore-check.sh .verification/restore.dump
+          docker exec "${{ job.services.postgres.id }}" pg_dump -U postgres -d nightpay -Fc --section=pre-data --section=data > .verification/restore-partial.dump
+          if MIN_PAYMENTS=0 MIN_CLIENT_WALLETS=0 MIN_OPERATOR_EARNINGS=0 bash scripts/restore-check.sh .verification/restore-partial.dump; then
+            echo "::error::una copia sin índices ni constraints post-data fue aceptada"
+            exit 1
+          fi
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      DATABASE_URL: postgresql://np_app:np_app@127.0.0.1:5432/nightpay_e2e
+      REDIS_URL: redis://127.0.0.1:6379
+      E2E_ISOLATED: '1'
+      JWT_SECRET: isolated-e2e-jwt-secret-at-least-32-characters
+      COOKIE_SECRET: isolated-e2e-cookie-secret-at-least-32-characters
+      ENCRYPTION_KEK: Y2ktdW5hLWNsYXZlLWRlLTMyLWJ5dGVzLXBhcmEtcHJ1ZWJh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: nightpay/.nvmrc
+          cache: pnpm
+          cache-dependency-path: nightpay/pnpm-lock.yaml
+      - name: Dependencias y navegador
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @nightpay/db exec prisma generate
+          pnpm --filter @nightpay/e2e exec playwright install --with-deps chromium
+      - name: Base exclusiva de navegador, sin superusuario
+        run: |
+          docker exec "${{ job.services.postgres.id }}" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c "CREATE ROLE np_app LOGIN PASSWORD 'np_app' NOSUPERUSER NOCREATEDB NOCREATEROLE"
+          docker exec "${{ job.services.postgres.id }}" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c "CREATE DATABASE nightpay_e2e OWNER np_app"
+          pnpm --filter @nightpay/db exec prisma migrate deploy
+          pnpm --filter @nightpay/api exec node --import tsx ../e2e/fixtures/ci-seed.mjs
+      - name: Login real, carta, total y privacidad Wallet
+        run: pnpm --filter @nightpay/e2e exec playwright test --config playwright.ci.config.ts
+      - name: Trazas y capturas del navegador
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: navegador-e2e
+          path: |
+            nightpay/apps/e2e/playwright-report/
+            nightpay/apps/e2e/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
 
   # Las imágenes que despliega Dokploy: se construyen y se arrancan de verdad
   # (sin root), el API contra un Postgres y un Redis reales. Si una no arranca,
@@ -210,6 +278,10 @@ jobs:
               -t np-$app . || exit 1
             echo "::endgroup::"
           done
+      - name: Reglas y escenarios de alertas Prometheus
+        run: |
+          docker run --rm --entrypoint /bin/promtool -v "$PWD/docs/observability:/rules:ro" -w /rules prom/prometheus:v2.55.1 check rules alerts.yml
+          docker run --rm --entrypoint /bin/promtool -v "$PWD/docs/observability:/rules:ro" -w /rules prom/prometheus:v2.55.1 test rules alerts.test.yml
       - name: Las webs arrancan sin root y responden
         run: |
           port=5100

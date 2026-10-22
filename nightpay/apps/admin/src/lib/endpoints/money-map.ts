@@ -50,7 +50,7 @@ export async function fetchCobros(filters: CobrosFilters, page: { cursor?: strin
 }
 
 /** El mapa del dinero: la noche en directo (sin nada), una noche (su Z, congelado al cerrar) o unas fechas. */
-export async function fetchMoneyMap(q: { night?: string; from?: string; to?: string } = {}): Promise<MoneyMap> {
+export async function fetchMoneyMap(q: { night?: string; from?: string; to?: string } = {}, signal?: AbortSignal): Promise<MoneyMap> {
   const qs = new URLSearchParams();
   if (q.night) qs.set('night', q.night);
   if (q.from && q.to) {
@@ -58,7 +58,7 @@ export async function fetchMoneyMap(q: { night?: string; from?: string; to?: str
     qs.set('to', q.to);
   }
   const query = qs.toString();
-  const res = await authedFetch(`/v1/admin/money-map${query ? `?${query}` : ''}`);
+  const res = await authedFetch(`/v1/admin/money-map${query ? `?${query}` : ''}`, { signal });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }

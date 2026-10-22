@@ -33,6 +33,7 @@ export interface OurSale {
   /** Pedidos Redsys de sus intentos aprobados, o su número de operación del datáfono. */
   references: string[];
   terminal: string | null;
+  terminalAliases?: string[];
   authCode: string | null;
   /** Lo cobrado al cliente (con propina). */
   amountCents: number;
@@ -46,6 +47,8 @@ export interface OurRefund {
   tenantId: string;
   /** Referencias del cobro devuelto. */
   paymentReferences: string[];
+  terminal?: string | null;
+  terminalAliases?: string[];
   amountCents: number;
   at: Date;
 }
@@ -55,6 +58,8 @@ export interface StrayPayment {
   paymentId: string;
   tenantId: string;
   references: string[];
+  terminal?: string | null;
+  terminalAliases?: string[];
   amountCents: number;
 }
 
@@ -145,13 +150,20 @@ export function reconcile(input: {
   const pending: BankRow[] = [];
   for (const row of saleRows) {
     const key = row.reference ? referenceKey(row.reference) : '';
-    const sale = key ? saleByRef.get(key) : undefined;
+    const candidates = key ? (saleByRef.get(key) ?? []).filter((s) => sameTerminal(row, s)) : [];
+    const strayCandidates = key ? (strayByRef.get(key) ?? []).filter((s) => sameTerminal(row, s)) : [];
+    // All states participate in ambiguity, including a paid sale and an orphan.
+    if (candidates.length + strayCandidates.length > 1) {
+      items.push({ ...bankSide(row, 'SALE'), status: 'NOT_IN_OXIOPAY' });
+      continue;
+    }
+    const sale = candidates.length === 1 ? candidates[0] : undefined;
     if (sale && !usedSales.has(sale)) {
       usedSales.add(sale);
       items.push(saleItem(row, sale));
       continue;
     }
-    const stray = key ? strayByRef.get(key) : undefined;
+    const stray = strayCandidates.length === 1 ? strayCandidates[0] : undefined;
     if (stray) {
       items.push({
         ...bankSide(row, 'SALE'),
@@ -162,7 +174,10 @@ export function reconcile(input: {
       });
       continue;
     }
-    pending.push(row);
+    // A duplicate bank line cannot consume an unrelated fallback sale.
+    if (sale) {
+      items.push({ ...bankSide(row, 'SALE'), status: 'NOT_IN_OXIOPAY' });
+    } else pending.push(row);
   }
 
   // 2) Sin referencia que case: importe + autorización + hora.
@@ -212,7 +227,8 @@ export function reconcile(input: {
       continue;
     }
     const key = row.reference ? referenceKey(row.reference) : '';
-    const of = key ? (saleByRef.get(key) ?? strayByRef.get(key)) : undefined;
+    const ofCandidates = key ? [...(saleByRef.get(key) ?? []), ...(strayByRef.get(key) ?? [])].filter((s) => sameTerminal(row, s)) : [];
+    const of = ofCandidates.length === 1 ? ofCandidates[0] : undefined;
     items.push({
       ...bankSide(row, 'REFUND'),
       status: 'REFUND_NOT_IN_OXIOPAY',
@@ -276,15 +292,25 @@ function bankSide(row: BankRow, kind: 'SALE' | 'REFUND'): Omit<ReconItem, 'statu
   };
 }
 
-function indexByReference<T>(list: T[], refs: (t: T) => string[]): Map<string, T> {
-  const map = new Map<string, T>();
+function indexByReference<T>(list: T[], refs: (t: T) => string[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
   for (const item of list) {
     for (const ref of refs(item)) {
       const key = referenceKey(ref);
-      if (key && !map.has(key)) map.set(key, item);
+      if (key) {
+        const items = map.get(key) ?? [];
+        if (!items.includes(item)) items.push(item);
+        map.set(key, items);
+      }
     }
   }
   return map;
+}
+
+function sameTerminal(a: { terminal?: string | null; terminalAliases?: string[] }, b: { terminal?: string | null; terminalAliases?: string[] }): boolean {
+  if (!a.terminal || !b.terminal) return true; // Legacy data can only match an unambiguous reference.
+  const aliases = [b.terminal, ...(b.terminalAliases ?? [])].map((t) => t.trim());
+  return [a.terminal, ...(a.terminalAliases ?? [])].some((t) => aliases.includes(t.trim()));
 }
 
 function closestSale(row: BankRow, sales: OurSale[], used: Set<OurSale>): OurSale | null {
@@ -295,12 +321,14 @@ function closestSale(row: BankRow, sales: OurSale[], used: Set<OurSale>): OurSal
     const sameAuth = Boolean(row.authCode && sale.authCode && row.authCode.trim() === sale.authCode.trim());
     if (row.reference && sale.references.length > 0 && !sameAuth) continue;
     if (row.authCode && sale.authCode && !sameAuth) continue;
-    if (row.terminal && sale.terminal && row.terminal.trim() !== sale.terminal.trim()) continue;
+    if (!sameTerminal(row, sale)) continue;
     const gap = row.at ? Math.abs(row.at.getTime() - sale.at.getTime()) : 0;
     if (row.at && gap > FALLBACK_WINDOW_MS) continue;
     if (gap < bestGap) {
       best = sale;
       bestGap = gap;
+    } else if (gap === bestGap) {
+      best = null;
     }
   }
   return best;
@@ -308,15 +336,15 @@ function closestSale(row: BankRow, sales: OurSale[], used: Set<OurSale>): OurSal
 
 function matchRefund(row: BankRow, refunds: OurRefund[], used: Set<OurRefund>): OurRefund | null {
   const key = row.reference ? referenceKey(row.reference) : '';
-  const candidates = refunds.filter((r) => !used.has(r) && r.amountCents === row.amountCents);
+  const candidates = refunds.filter((r) => !used.has(r) && sameTerminal(row, r));
   if (key) {
-    const byRef = candidates.find((r) => r.paymentReferences.some((p) => referenceKey(p) === key));
-    if (byRef) return byRef;
+    const byRef = candidates.filter((r) => r.paymentReferences.some((p) => referenceKey(p) === key));
+    if (byRef.length > 0) return byRef.length === 1 && byRef[0]!.amountCents === row.amountCents ? byRef[0]! : null;
   }
   // Sin referencia que case: solo con devoluciones de aquí sin referencia (o
   // filas del banco sin ella), la misma cantidad y cerca en el tiempo.
-  const loose = candidates.filter((r) => !key || r.paymentReferences.length === 0);
-  if (!row.at) return loose[0] ?? null;
+  const loose = candidates.filter((r) => r.amountCents === row.amountCents && (!key || r.paymentReferences.length === 0));
+  if (!row.at) return loose.length === 1 ? loose[0]! : null;
   let best: OurRefund | null = null;
   let bestGap = Number.POSITIVE_INFINITY;
   for (const r of loose) {
@@ -325,6 +353,8 @@ function matchRefund(row: BankRow, refunds: OurRefund[], used: Set<OurRefund>): 
     if (gap < bestGap) {
       best = r;
       bestGap = gap;
+    } else if (gap === bestGap) {
+      best = null;
     }
   }
   return best;
@@ -335,12 +365,13 @@ function matchRefund(row: BankRow, refunds: OurRefund[], used: Set<OurRefund>): 
  * e importe; sin referencia, mismo importe y datáfono en las horas anteriores.
  */
 function findVoided(v: BankRow, rows: BankRow[], taken: Set<BankRow>): BankRow | null {
-  const open = rows.filter((r) => (r.kind === 'SALE' || r.kind === 'REFUND') && !taken.has(r));
+  const open = rows.filter((r) => (r.kind === 'SALE' || r.kind === 'REFUND') && !taken.has(r) && sameTerminal(v, r));
   if (v.reference) {
     const key = referenceKey(v.reference);
     const byRef = open.filter((r) => r.reference && referenceKey(r.reference) === key);
+    if (!v.terminal && new Set(byRef.map((r) => r.terminal).filter(Boolean)).size > 1) return null;
     const sameAmount = byRef.filter((r) => r.amountCents === v.amountCents);
-    return sameAmount[sameAmount.length - 1] ?? byRef[byRef.length - 1] ?? null;
+    return sameAmount.length === 1 ? sameAmount[0]! : byRef.length === 1 ? byRef[0]! : null;
   }
   const before = open.filter(
     (r) =>
@@ -350,5 +381,5 @@ function findVoided(v: BankRow, rows: BankRow[], taken: Set<BankRow>): BankRow |
         !r.at ||
         (r.at.getTime() <= v.at.getTime() && v.at.getTime() - r.at.getTime() <= VOID_FALLBACK_WINDOW_MS)),
   );
-  return before.length > 0 ? before[before.length - 1]! : null;
+  return before.length === 1 ? before[0]! : null;
 }

@@ -1,4 +1,5 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import {
   CASH_LIMIT_CENTS,
   CASH_TOP_UP_METHODS,
@@ -8,6 +9,7 @@ import {
   STAFF_PERMISSION_DENIED_CODE,
   deviceCan,
   staffPermissionsOf,
+  normalizeWalletCardUid,
   type CashTopUpResult,
   type CashTopUpVoidResult,
   type Role,
@@ -25,7 +27,7 @@ import { insertEmptyWallet } from './empty-wallet';
 import { reopenData } from './wallet-activation';
 import { cashTopUpOverLimit, walletCash } from './wallet-cash-limits';
 import { lockLiveWallet } from './wallet-merge-chain';
-import { formatWalletCode, sameWalletGroup } from './wallet-rules';
+import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
 import { topUpTarget } from './wallet-topup-target';
 
 /**
@@ -237,6 +239,7 @@ export class CashTopUpService {
         takenByUserId: 'userId' in a.by ? a.by.userId : null,
         terminalId: 'terminalId' in a.by ? a.by.terminalId : null,
         idempotencyKey: a.input.idempotencyKey,
+        intentFingerprint: cashIntent(a.input.wallet),
         createdWallet: 'create' in a.input.wallet,
       },
       select: { id: true },
@@ -410,19 +413,61 @@ export class CashTopUpService {
     const sameWho =
       'userId' in by ? existing.takenByUserId === by.userId : existing.terminalId === by.terminalId;
     if (!sameWho || existing.amountCents !== input.amountCents) throw new ConflictException(KEY_REUSED);
+    if (existing.intentFingerprint ? existing.intentFingerprint !== cashIntent(input.wallet) : existing.createdWallet !== ('create' in input.wallet)) {
+      throw new ConflictException(KEY_REUSED);
+    }
     const wallet = await this.prisma.acrossVenues((tx) =>
-      tx.clientWallet.findUnique({ where: { id: existing.walletId }, select: { balanceCents: true, shortCode: true } }),
+      tx.clientWallet.findUnique({ where: { id: existing.walletId }, select: { id: true, balanceCents: true, shortCode: true } }),
     );
+    // Legacy rows cannot prove whether code or card was originally used. Accept
+    // aliases only when they still identify the same wallet/merge chain.
+    if (!existing.intentFingerprint && !('create' in input.wallet)) {
+      const ref = input.wallet;
+      const matches = wallet && await this.prisma.acrossVenues(async (tx) => {
+        if ('code' in ref && normalizeWalletCode(ref.code) === wallet.shortCode) return true;
+        const candidate = 'code' in ref
+          ? await tx.clientWallet.findFirst({ where: { shortCode: normalizeWalletCode(ref.code) }, select: { id: true } })
+          : await tx.walletCard.findUnique({ where: { token: ref.card }, select: { walletId: true, uid: true } });
+        if (!candidate) return false;
+        if ('uid' in candidate && candidate.uid && 'uid' in ref && ref.uid && candidate.uid !== normalizeWalletCardUid(ref.uid)) return false;
+        const id = 'walletId' in candidate ? candidate.walletId : candidate.id;
+        if (!id) return false;
+        if (id === existing.walletId) return true;
+        const liveId = async (start: string): Promise<string | null> => {
+          let current = start;
+          for (let hops = 0; hops <= 5; hops += 1) {
+            const row = await tx.clientWallet.findUnique({ where: { id: current }, select: { mergedIntoId: true } });
+            if (!row) return null;
+            if (!row.mergedIntoId) return current;
+            current = row.mergedIntoId;
+          }
+          return null;
+        };
+        const original = await liveId(existing.walletId);
+        return original !== null && original === await liveId(id);
+      });
+      if (!matches) throw new ConflictException(KEY_REUSED);
+    }
     return {
       topUpId: existing.id,
       walletId: existing.walletId,
       code: formatWalletCode(wallet?.shortCode ?? ''),
       amountCents: existing.amountCents,
       balanceCents: wallet?.balanceCents ?? 0,
-      createdWallet: 'create' in input.wallet,
+      createdWallet: existing.createdWallet,
       replayed: true,
     };
   }
+}
+
+/** Preserve the submitted destination even when the wallet is merged or its code rotates. */
+function cashIntent(wallet: TopUpWalletDto): string {
+  const target = 'create' in wallet
+    ? ['create', wallet.identifier?.trim() || null]
+    : 'code' in wallet
+      ? ['code', normalizeWalletCode(wallet.code)]
+      : ['card', wallet.card, wallet.uid ? normalizeWalletCardUid(wallet.uid) : null];
+  return createHash('sha256').update(JSON.stringify(target)).digest('hex');
 }
 
 function eur(cents: number): string {

@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Inject,
   Injectable,
   Logger,
@@ -39,6 +40,8 @@ import { lockRefundsOf, refundTotalsOf, twoFactorReason } from './refund-two-fac
 import { adjustedReason, bankRefundDate } from './bank-refund-date';
 import { refundNeedsApproval, refundRoute } from '../approvals/approval-rules';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import type { Refund } from '@nightpay/db';
+import { assertRefundIntent, findRefundApproval, lockRefundIntent, refundIntent } from './refund-intent';
 
 /**
  * Una devolución pendiente no se resuelve a mano hasta pasado este rato: la
@@ -54,6 +57,8 @@ export interface RefundRequest {
   amountCents: number;
   reason?: string;
   totpCode?: string;
+  /** Optional for legacy callers; new clients retain one key per intention. */
+  idempotencyKey?: string;
 }
 
 /**
@@ -107,6 +112,7 @@ interface RefundTarget {
 
 type RejectedOutcome = Extract<GatewayRefundOutcome, { kind: 'rejected' }>;
 type UnknownOutcome = Extract<GatewayRefundOutcome, { kind: 'unknown' }>;
+type RefundResult = { id: string; paymentId: string; amountCents: number; status: 'SUCCEEDED'; providerRefundId: string | null };
 
 const REJECTED_MESSAGES: Record<RejectedWhy, string> = {
   declined: 'La pasarela rechazó la devolución: no se ha devuelto nada.',
@@ -154,8 +160,21 @@ export class RefundsService {
     if (actor.role === 'WAITER') {
       throw new ForbiddenException('WAITER cannot refund');
     }
-    const { payment, adapter } = await this.refundTarget(request);
-    const { refund, twoFactorRequired } = await this.reserveApiRefund(payment, request, actor, approved);
+    const replay = await this.replay(request, actor);
+    if (replay) return replay;
+    let target: { payment: RefundTarget; adapter: GatewayAdapter };
+    try {
+      target = await this.refundTarget(request);
+    } catch (err) {
+      // Another request can finish the whole refund after our initial lookup.
+      const completed = await this.replay(request, actor);
+      if (completed) return completed;
+      throw err;
+    }
+    const { payment, adapter } = target;
+    const reservation = await this.reserveApiRefund(payment, request, actor, approved);
+    if ('replay' in reservation) return reservation.replay;
+    const { refund, twoFactorRequired } = reservation;
     const outcome = await this.askGateway(adapter, payment, refund.id, request);
     if (outcome.kind === 'rejected') return this.rejectRefund(payment, refund.id, outcome);
     if (outcome.kind === 'unknown') return this.keepRefundPending(payment, refund.id, request.amountCents, outcome, actor);
@@ -187,6 +206,26 @@ export class RefundsService {
       status: 'SUCCEEDED' as const,
       providerRefundId: outcome.providerRefundId,
     };
+  }
+
+  /** Before routing/amount/state/2FA checks: the original attempt already passed them. */
+  async replay(request: RefundRequest, actor: Actor): Promise<RefundResult | null> {
+    if (!request.idempotencyKey) return null; // Explicit legacy compatibility: absent keys create separate intentions.
+    const row = await this.prisma.refund.findUnique({ where: { tenantId_idempotencyKey: { tenantId: actor.tenantId, idempotencyKey: request.idempotencyKey } } });
+    return row ? this.replayOf(row, request, actor) : null;
+  }
+
+  private replayOf(row: Refund, request: RefundRequest, actor: Actor): RefundResult {
+    assertRefundIntent(row.intentFingerprint, request, actor);
+    if (row.status === 'SUCCEEDED') {
+      const saved = row.replayResponse as { statusCode?: number; body?: RefundResult } | null;
+      return saved?.statusCode === 201 && saved.body ? saved.body : { id: row.id, paymentId: row.paymentId, amountCents: row.amountCents, status: 'SUCCEEDED', providerRefundId: row.providerRefundId };
+    }
+    const saved = row.replayResponse as { statusCode?: number; body?: Record<string, unknown> | string } | null;
+    if (saved?.statusCode && saved.body && !(row.status === 'FAILED' && saved.statusCode === 502)) {
+      throw new HttpException(saved.body, saved.statusCode);
+    }
+    throw new ConflictException({ message: row.status === 'FAILED' ? 'Esta devolución no se hizo. Para intentarla de nuevo, empieza una devolución nueva.' : 'La devolución sigue pendiente. Reintenta esta misma solicitud para recuperar su resultado.', code: row.status === 'FAILED' ? 'REFUND_FAILED' : 'REFUND_IN_PROGRESS', refundId: row.id });
   }
 
   /**
@@ -276,6 +315,12 @@ export class RefundsService {
     approved: ApprovedRefund | undefined,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      if (request.idempotencyKey) {
+        await lockRefundIntent(tx, actor.tenantId, request.idempotencyKey);
+        const existing = await tx.refund.findUnique({ where: { tenantId_idempotencyKey: { tenantId: actor.tenantId, idempotencyKey: request.idempotencyKey } } });
+        if (existing) return { replay: this.replayOf(existing, request, actor) };
+        if (!approved && await findRefundApproval(tx, request, actor)) throw refundNeedsApproval(request.amountCents, 0);
+      }
       await lockRefundsOf(tx, actor.userId);
       const locked = await lockPaymentForRefund(tx, payment.id);
       if (!locked || !REFUNDABLE_STATUSES.has(locked.status)) {
@@ -296,6 +341,7 @@ export class RefundsService {
           reason: request.reason,
           requestedBy: actor.userId,
           status: 'PENDING',
+          ...(request.idempotencyKey ? { idempotencyKey: request.idempotencyKey, intentFingerprint: refundIntent(request, actor) } : {}),
         },
       });
       if (approved) await approved.onReserved(tx, refund.id);
@@ -327,16 +373,18 @@ export class RefundsService {
 
   /** Seguro que no se hizo: la reserva se libera (FAILED). */
   private async rejectRefund(payment: RefundTarget, refundId: string, outcome: RejectedOutcome): Promise<never> {
+    const response = { message: REJECTED_MESSAGES[outcome.why], code: 'REFUND_REJECTED', refundId };
     this.logger.error(`Refund ${refundId} no hecha por la pasarela (${outcome.why}): ${outcome.reason}`);
     await this.prisma.refund.update({
       where: { id: refundId },
       data: {
         status: 'FAILED',
+        replayResponse: { statusCode: 409, body: response },
         ...(outcome.providerRefundId ? { providerRefundId: outcome.providerRefundId } : {}),
       },
     });
     this.metrics.refundsCreated.inc({ venue: payment.tenantId, provider: payment.provider, status: 'failed' });
-    throw new ConflictException(REJECTED_MESSAGES[outcome.why]);
+    throw new ConflictException(response);
   }
 
   /**
@@ -351,9 +399,15 @@ export class RefundsService {
     outcome: UnknownOutcome,
     actor: Actor,
   ): Promise<never> {
-    if (outcome.providerRefundId) {
-      await this.prisma.refund.update({ where: { id: refundId }, data: { providerRefundId: outcome.providerRefundId } });
-    }
+    const response = {
+      message: 'No sabemos si la pasarela ha hecho la devolución. Queda pendiente (y reservada) para que no se repita: ' +
+        'mírala en el portal de la pasarela y márcala como hecha o no hecha en el cobro.',
+      code: 'REFUND_OUTCOME_UNKNOWN', refundId,
+    };
+    await this.prisma.refund.update({ where: { id: refundId }, data: {
+      ...(outcome.providerRefundId ? { providerRefundId: outcome.providerRefundId } : {}),
+      replayResponse: { statusCode: 502, body: response },
+    } });
     this.metrics.refundsCreated.inc({ venue: payment.tenantId, provider: payment.provider, status: 'unknown' });
     this.logger.error(
       `Devolución ${refundId} SIN CONFIRMAR en la pasarela (cobro ${payment.id}, ${amountCents}c): ${outcome.reason}`,
@@ -366,13 +420,7 @@ export class RefundsService {
       targetId: payment.id,
       payload: { refundId, amountCents, provider: payment.provider, reason: outcome.reason },
     });
-    throw new BadGatewayException({
-      message:
-        'No sabemos si la pasarela ha hecho la devolución. Queda pendiente (y reservada) para que no se repita: ' +
-        'mírala en el portal de la pasarela y márcala como hecha o no hecha en el cobro.',
-      code: 'REFUND_OUTCOME_UNKNOWN',
-      refundId,
-    });
+    throw new BadGatewayException(response);
   }
 
   /**
@@ -389,7 +437,10 @@ export class RefundsService {
   ): Promise<void> {
     try {
       await this.payments.transition(payment.id, { type: 'REFUND_PARTIAL', amountCents }, actor.tenantId, {
-        prepare: (tx) => settlePendingRefund(tx, refundId, { status: 'SUCCEEDED', providerRefundId }),
+        prepare: (tx) => settlePendingRefund(tx, refundId, {
+          status: 'SUCCEEDED', providerRefundId,
+          replayResponse: { statusCode: 201, body: { id: refundId, paymentId: payment.id, amountCents, status: 'SUCCEEDED', providerRefundId } },
+        }),
       });
     } catch (err) {
       await this.flagSettleFailed(payment, refundId, amountCents, actor, err);

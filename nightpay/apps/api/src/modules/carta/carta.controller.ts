@@ -1,8 +1,11 @@
 import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   CreateServiceItemSchema,
+  ApplyCartaTemplateSchema,
   UpdateServiceItemSchema,
   type CreateServiceItemDto,
+  type ApplyCartaTemplateDto,
+  type ApplyCartaTemplateResult,
   type JwtPayload,
   type ServiceItem,
   type UpdateServiceItemDto,
@@ -60,5 +63,15 @@ export class CartaController {
     @Body(new ZodValidationPipe(UpdateServiceItemSchema)) dto: UpdateServiceItemDto,
   ): Promise<ServiceItem> {
     return this.carta.update(user.tenantId, user.sub, id, dto);
+  }
+
+  @Post('template')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER')
+  async applyTemplate(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(ApplyCartaTemplateSchema)) dto: ApplyCartaTemplateDto,
+  ): Promise<ApplyCartaTemplateResult> {
+    return this.carta.applyTemplate(user.tenantId, user.sub, dto);
   }
 }

@@ -5,6 +5,7 @@ import type { Health } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
+import { deployedBuild } from './build-info';
 
 @Controller('health')
 export class HealthController {
@@ -65,23 +66,9 @@ export class HealthController {
 
     return {
       status: overall,
-      version: deployedVersion(),
+      ...deployedBuild(),
       timestamp: new Date().toISOString(),
       checks,
-      // Marca del despliegue: con ella el dueño comprueba que el deploy se aplicó.
-      build: nonEmpty(process.env.BUILD_MARKER) ?? DEFAULT_BUILD_MARKER,
     } as Health & { build: string };
   }
-}
-
-const DEFAULT_BUILD_MARKER = 'revision3-2026-10-20';
-
-function nonEmpty(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-/** El commit desplegado (GIT_SHA, lo pone el Dockerfile); si no, la versión del paquete. */
-function deployedVersion(): string {
-  return nonEmpty(process.env.GIT_SHA) ?? nonEmpty(process.env.npm_package_version) ?? '0.0.0';
 }

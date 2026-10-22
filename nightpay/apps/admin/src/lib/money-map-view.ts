@@ -66,7 +66,7 @@ export interface MoneyMapView {
   /** «+ Recargas 3.070 €: efectivo 1.070 € · tarjeta 2.000 € · no es venta» (null si no hubo). */
   topUps: { cents: number; detail: string } | null;
   sections: SectionRow[];
-  where: { totalCents: number; places: Segment[]; owners: Segment[]; note: string | null };
+  where: { totalCents: number; places: Segment[]; owners: Segment[]; balance: { label: string; cents: number | null }; note: string | null };
   outflow: OutRow[];
 }
 
@@ -110,6 +110,7 @@ function sectionRows(m: MoneyMap, sections: readonly VenueSection[]): SectionRow
 
 function outflowRows(m: MoneyMap): OutRow[] {
   const o = m.outflow;
+  const pendingNote = moneyMapIsCurrent(m) ? 'al cerrar' : 'pendiente al corte';
   const who = (w: 'chicas' | 'camareros') => (w === 'chicas' ? 'Pago a chicas' : 'Pago a camareros');
   const rows: OutRow[] = o.payouts.map((p) => ({
     key: `payout-${p.who}-${p.rail ?? 'none'}`,
@@ -117,9 +118,9 @@ function outflowRows(m: MoneyMap): OutRow[] {
     note: railNote(p.rail),
     cents: p.cents,
   }));
-  if (o.pendingStaff.chicasCents > 0) rows.push({ key: 'pending-chicas', label: 'Pago a chicas', note: 'al cerrar', cents: o.pendingStaff.chicasCents });
+  if (o.pendingStaff.chicasCents > 0) rows.push({ key: 'pending-chicas', label: 'Pago a chicas', note: pendingNote, cents: o.pendingStaff.chicasCents });
   if (o.pendingStaff.camarerosCents > 0) {
-    rows.push({ key: 'pending-camareros', label: 'Pago a camareros', note: 'al cerrar', cents: o.pendingStaff.camarerosCents });
+    rows.push({ key: 'pending-camareros', label: 'Pago a camareros', note: pendingNote, cents: o.pendingStaff.camarerosCents });
   }
   if (o.refunds.cardCents > 0) rows.push({ key: 'refund-card', label: 'Devoluciones', note: 'tarjeta', cents: o.refunds.cardCents });
   if (o.refunds.cashCents > 0) rows.push({ key: 'refund-cash', label: 'Devoluciones', note: 'efectivo', cents: o.refunds.cashCents });
@@ -133,19 +134,23 @@ function outflowRows(m: MoneyMap): OutRow[] {
   return rows;
 }
 
-/** Lo que se ve debajo de «Dónde está» si el saldo vivo o lo debido de ahora no son los de esta noche. */
+/** La deuda total puede incluir noches anteriores al periodo de las barras. */
 function whereNote(m: MoneyMap): string | null {
   const parts: string[] = [];
-  const live = m.where.liveSaldoCents;
-  if (live !== null && live !== m.where.owners.saldoCents) parts.push(`saldo vivo de los clientes ahora: ${eurShort(live)}`);
+  const when = moneyMapIsCurrent(m) ? 'ahora' : 'al corte';
   const owed = m.where.owed;
   if (owed) {
     const total = owed.chicasCents + owed.camarerosCents;
-    if (total !== m.where.owners.staffCents) parts.push(`se debe al personal en total: ${eurShort(total)}`);
+    if (total !== m.where.owners.staffCents) parts.push(`deuda total al personal ${when}: ${eurShort(total)}`);
   }
   if (parts.length === 0) return null;
   const text = parts.join(' · ');
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Un Z recalculado sigue siendo histórico aunque no tenga snapshot congelado. */
+export function moneyMapIsCurrent(m: MoneyMap): boolean {
+  return !m.frozen && m.scope.kind === 'night' && (m.scope.open || m.scope.nightId === null);
 }
 
 export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): MoneyMapView {
@@ -193,8 +198,9 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
           cents: staff,
           color: 'var(--np-mm-personal)',
         },
-        { key: 'saldo', label: 'Saldo vivo', cents: m.where.owners.saldoCents, color: 'var(--np-mm-saldo)' },
+        { key: 'saldo', label: 'Variación de saldo', cents: m.where.owners.saldoCents, color: 'var(--np-mm-saldo)' },
       ],
+      balance: { label: `Saldo total de clientes ${moneyMapIsCurrent(m) ? 'ahora' : 'al corte'}`, cents: m.where.liveSaldoCents },
       note: whereNote(m),
     },
     outflow: outflowRows(m),

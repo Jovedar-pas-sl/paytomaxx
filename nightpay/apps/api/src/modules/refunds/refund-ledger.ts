@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import type { Prisma } from '@nightpay/db';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import { pendingRefundApprovalCents } from '../approvals/approval-store';
 
@@ -124,13 +125,14 @@ export async function assertNotDuplicateBankRefund(
 export async function settlePendingRefund(
   tx: TransactionalClient,
   refundId: string,
-  data: { status: 'SUCCEEDED' | 'FAILED'; providerRefundId?: string | null },
+  data: { status: 'SUCCEEDED' | 'FAILED'; providerRefundId?: string | null; replayResponse?: Prisma.InputJsonValue },
 ): Promise<void> {
   const done = await tx.refund.updateMany({
     where: { id: refundId, status: 'PENDING' },
     data: {
       status: data.status,
       ...(data.providerRefundId ? { providerRefundId: data.providerRefundId } : {}),
+      ...(data.replayResponse ? { replayResponse: data.replayResponse } : {}),
     },
   });
   if (done.count !== 1) {

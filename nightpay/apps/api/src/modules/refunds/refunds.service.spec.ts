@@ -68,12 +68,13 @@ interface MakeOptions {
 }
 
 function makeService(opts: MakeOptions = {}) {
-  const refundCreated: Array<{ id: string; status: string }> = [];
+  const refundCreated: Array<{ id: string; status: string; [key: string]: unknown }> = [];
   const payment = opts.payment ?? null;
 
   const prismaMock = {
     // «Por aprobar»: lo pedido al dueño y sin decidir también reserva (aquí, nada).
     approvalRequest: {
+      findFirst: vi.fn().mockResolvedValue(null),
       aggregate: vi.fn().mockResolvedValue({ _sum: { amountCents: opts.approvalReservedCents ?? 0 } }),
     },
     payment: {
@@ -91,6 +92,8 @@ function makeService(opts: MakeOptions = {}) {
       findUnique: vi.fn().mockResolvedValue(null),
     },
     refund: {
+      findUnique: vi.fn(async ({ where }: { where: { tenantId_idempotencyKey: { tenantId: string; idempotencyKey: string } } }) =>
+        refundCreated.find((r) => r.tenantId === where.tenantId_idempotencyKey.tenantId && r.idempotencyKey === where.tenantId_idempotencyKey.idempotencyKey) ?? null),
       // Con requestedBy: lo devuelto por la persona (2FA); si no, lo reservado del cobro.
       aggregate: vi.fn().mockImplementation(
         async ({ where }: { where: { requestedBy?: string; paymentId?: string; registeredManually?: boolean } }) => {
@@ -107,11 +110,16 @@ function makeService(opts: MakeOptions = {}) {
         refundCreated.push(refund);
         return refund;
       }),
-      update: vi.fn().mockImplementation(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({
-        id: where.id,
-        ...data,
-      })),
-      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      update: vi.fn().mockImplementation(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const row = refundCreated.find((r) => r.id === where.id);
+        if (row) Object.assign(row, data);
+        return { id: where.id, ...data };
+      }),
+      updateMany: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const row = refundCreated.find((r) => r.id === where.id);
+        if (row) Object.assign(row, data);
+        return { count: 1 };
+      }),
       count: vi.fn().mockResolvedValue(opts.similarRefunds ?? 0),
       findFirst: vi.fn().mockResolvedValue(opts.existingRefund ?? null),
       findMany: vi.fn().mockResolvedValue([]),
@@ -222,6 +230,71 @@ const owner: { userId: string; role: Role; tenantId: string } = {
   role: 'OWNER',
   tenantId: 't-1',
 };
+
+describe('refund intention retries', () => {
+  const request = { paymentId: 'pay-1', amountCents: 5000, idempotencyKey: 'refund-intention-1', reason: 'Cliente se va' };
+
+  it('recupera respuesta perdida después del refund completo sin repetir pasarela, 2FA ni auditoría', async () => {
+    const payment = { ...okPayment };
+    const { svc, adapterMock, prismaMock, auditMock } = makeService({ payment });
+    const result = await svc.refund(request, owner);
+    payment.status = 'REFUNDED';
+    payment.availableAmountCents = 0;
+    await expect(svc.refund(request, owner)).resolves.toEqual(result);
+    expect(adapterMock.refund).toHaveBeenCalledTimes(1);
+    expect(prismaMock.refund.create).toHaveBeenCalledTimes(1);
+    expect(auditMock.log).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['amount', 'payment', 'actor', 'reason'])('409 si la clave cambia %s', async (change) => {
+    const { svc, adapterMock } = makeService({ payment: okPayment });
+    await svc.refund(request, owner);
+    const changed = { ...request, ...(change === 'amount' ? { amountCents: 1000 } : change === 'payment' ? { paymentId: 'other' } : change === 'reason' ? { reason: 'Otro motivo' } : {}) };
+    await expect(svc.refund(changed, change === 'actor' ? manager : owner)).rejects.toBeInstanceOf(ConflictException);
+    expect(adapterMock.refund).toHaveBeenCalledTimes(1);
+  });
+
+  it('persiste el resultado antes de una auditoría fallida y lo recupera', async () => {
+    const { svc, auditMock, adapterMock } = makeService({ payment: okPayment });
+    auditMock.log.mockRejectedValueOnce(new Error('audit unavailable'));
+    await expect(svc.refund(request, owner)).rejects.toThrow('audit unavailable');
+    await expect(svc.refund(request, owner)).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    expect(adapterMock.refund).toHaveBeenCalledTimes(1);
+  });
+
+  it('recupera una intención que terminó entre el primer lookup y la validación del cobro', async () => {
+    const payment = { ...okPayment };
+    const { svc, prismaMock, adapterMock } = makeService({ payment });
+    const first = await svc.refund(request, owner);
+    payment.status = 'REFUNDED';
+    payment.availableAmountCents = 0;
+    prismaMock.refund.findUnique.mockResolvedValueOnce(null);
+    await expect(svc.refund(request, owner)).resolves.toEqual(first);
+    expect(adapterMock.refund).toHaveBeenCalledTimes(1);
+  });
+
+  it('un resultado desconocido se repite sin enviar otra devolución al banco', async () => {
+    const { svc, adapterMock } = makeService({ payment: okPayment, gatewayThrows: new Error('connection reset') });
+    const first = await svc.refund(request, owner).catch((err: HttpException) => err.getResponse());
+    const replay = await svc.refund(request, owner).catch((err: HttpException) => err.getResponse());
+    expect(replay).toEqual(first);
+    expect(adapterMock.refund).toHaveBeenCalledTimes(1);
+  });
+
+  it('una reserva concurrente devuelve pendiente y no llama de nuevo a la pasarela', async () => {
+    const { svc, adapterMock } = makeService({ payment: okPayment });
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => { started = resolve; });
+    let finish!: (value: { status: 'SUCCEEDED'; providerRefundId: string }) => void;
+    adapterMock.refund.mockImplementationOnce(() => { started(); return new Promise((resolve) => { finish = resolve; }); });
+    const first = svc.refund(request, owner);
+    await running;
+    await expect(svc.refund(request, owner)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'REFUND_IN_PROGRESS' }) });
+    finish({ status: 'SUCCEEDED', providerRefundId: 'gw-r-1' });
+    await first;
+    expect(adapterMock.refund).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('RefundsService.refund — authorization gates', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -556,7 +629,7 @@ describe('RefundsService.refund — gateway interaction', () => {
     );
     expect(prismaMock.refund.update).toHaveBeenCalledWith({
       where: { id: 'refund-1' },
-      data: { status: 'FAILED', providerRefundId: 'gw-r-fail' },
+      data: expect.objectContaining({ status: 'FAILED', providerRefundId: 'gw-r-fail' }),
     });
     expect(metricsMock.refundsCreated.inc).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'failed' }),
@@ -620,7 +693,7 @@ describe('RefundsService.refund — gateway interaction', () => {
       gatewayResult: { providerRefundId: 'gw-r-p', status: 'PENDING' },
     });
     await expect(svc.refund({ paymentId: 'pay-1', amountCents: 500 }, manager)).rejects.toThrow(BadGatewayException);
-    expect(prismaMock.refund.update).toHaveBeenCalledWith({ where: { id: 'refund-1' }, data: { providerRefundId: 'gw-r-p' } });
+    expect(prismaMock.refund.update).toHaveBeenCalledWith({ where: { id: 'refund-1' }, data: expect.objectContaining({ providerRefundId: 'gw-r-p' }) });
     expect(paymentsMock.transition).not.toHaveBeenCalled();
   });
 
@@ -675,7 +748,7 @@ describe('RefundsService.refund — happy path', () => {
     await svc.refund({ paymentId: 'pay-1', amountCents: 1500 }, manager);
     expect(prismaMock.refund.updateMany).toHaveBeenCalledWith({
       where: { id: 'refund-1', status: 'PENDING' },
-      data: { status: 'SUCCEEDED', providerRefundId: 'gw-r-1' },
+      data: expect.objectContaining({ status: 'SUCCEEDED', providerRefundId: 'gw-r-1' }),
     });
     // Nunca un update suelto a SUCCEEDED fuera de esa transacción.
     expect(prismaMock.refund.update).not.toHaveBeenCalledWith(

@@ -57,6 +57,7 @@ function refundRow(over: Partial<ApprovalRow> = {}): ApprovalRow {
       cardLast4: '4242',
       cardBrand: 'VISA',
       provider: 'PAYTEF',
+      idempotencyKey: 'original-refund-key',
     },
     ...over,
   });
@@ -202,7 +203,8 @@ describe('ApprovalsService.approve — devoluciones', () => {
     const { svc, refunds } = make({ row: refundRow(), after: refundRow({ status: 'APPROVED', resultRef: 'rf-1' }) });
     await expect(svc.approve(boss, 'ap-1', '123456')).resolves.toMatchObject({ status: 'APPROVED', resultRef: 'rf-1' });
     const [request, actor, approved] = refunds.refund.mock.calls[0]!;
-    expect(request).toEqual({ paymentId: PAYMENT, amountCents: 15_000, reason: 'queja' });
+    expect(request).toMatchObject({ idempotencyKey: 'original-refund-key' });
+    expect(request).toEqual({ paymentId: PAYMENT, amountCents: 15_000, reason: 'queja', idempotencyKey: 'original-refund-key' });
     expect(actor).toEqual({ userId: 'ana', role: 'MANAGER', tenantId: T });
     expect(approved).toMatchObject({ approvalRequestId: 'ap-1', approvedBy: 'jefe' });
   });

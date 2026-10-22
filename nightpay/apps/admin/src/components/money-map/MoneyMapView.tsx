@@ -98,6 +98,11 @@ export function MoneyMapView({ map, wide = false }: { map: MoneyMap; wide?: bool
           <Legend segments={v.where.places} />
           <Bar segments={v.where.owners} label="De quién es" style={{ marginTop: '0.25rem' }} />
           <Legend segments={v.where.owners} />
+          <p className="np-mm-note">La variación de saldo son las recargas menos los consumos y las devoluciones de este periodo; puede ser negativa.</p>
+          <div className="np-mm-balance">
+            <span>{v.where.balance.label}</span>
+            <b className="np-mm-num">{v.where.balance.cents === null ? 'No disponible' : eurShort(v.where.balance.cents)}</b>
+          </div>
           {v.where.note ? <p className="np-mm-note">{v.where.note}</p> : null}
           <Detail detail={details.cash} />
           <Detail detail={details.owed} />

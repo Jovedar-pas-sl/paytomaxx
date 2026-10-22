@@ -12,14 +12,16 @@ const rowA: Missing = { refundId: 'r-a', paymentId: 'p-a', tenantId: 't-1', amou
 const rowB: Missing = { refundId: 'r-b', paymentId: 'p-b', tenantId: 't-2', amountCents: 900 };
 
 function make(missing: Missing[], stillMissingAfter: string[] = []) {
+  const retryAt = new Map<string, Date>();
   const sqls: string[] = [];
   const params: unknown[][] = [];
   const tx = {
+    refund: { updateMany: vi.fn(async ({ where, data }: { where: { id: string }; data: { earningReversalRetryAt: Date } }) => { retryAt.set(where.id, data.earningReversalRetryAt); return { count: 1 }; }) },
     $queryRaw: vi.fn().mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const sql = strings.join('?');
       sqls.push(sql);
       params.push(values);
-      if (sql.includes('LIMIT')) return missing;
+      if (sql.includes('LIMIT')) return missing.filter((m) => !sql.includes('earningReversalRetryAt') || !retryAt.has(m.refundId) || retryAt.get(m.refundId)! <= (values[1] as Date)).slice(0, 100);
       // Comprobación posterior: ¿ya hay fila en earning_reversals?
       const refundId = values[0] as string;
       return stillMissingAfter.includes(refundId) ? [] : [{ ok: 1 }];
@@ -27,12 +29,22 @@ function make(missing: Missing[], stillMissingAfter: string[] = []) {
   };
   const prisma = { asSystem: vi.fn().mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx)) };
   const payments = { applyRefundToEarning: vi.fn().mockResolvedValue(undefined) };
-  const metrics = { earningReversalFailed: { inc: vi.fn() } };
+  const metrics = { earningReversalFailed: { inc: vi.fn() }, observeEarningReversals: vi.fn(() => vi.fn()) };
   const svc = new RefundReversalSweepService(prisma as never, payments as never, metrics as never);
   return { svc, prisma, payments, metrics, sqls, params };
 }
 
 describe('RefundReversalSweepService.sweep — reintenta el descuento a la chica', () => {
+  it('100 fallos persistentes no dejan sin procesar la devolución 101, incluso tras reiniciar servicio', async () => {
+    const rows = Array.from({ length: 101 }, (_, i) => ({ ...rowA, refundId: `r-${i}`, paymentId: `p-${i}` }));
+    const { svc, payments, prisma, metrics } = make(rows);
+    payments.applyRefundToEarning.mockImplementation(async (_p, r) => { if (r !== 'r-100') throw new Error('persistent failure'); });
+    const now = new Date('2026-10-15T10:00:00Z');
+    expect(await svc.sweep(now)).toMatchObject({ checked: 100, failed: 100 });
+    const restarted = new RefundReversalSweepService(prisma as never, payments as never, metrics as never);
+    expect(await restarted.sweep(new Date(now.getTime() + 10 * 60_000))).toEqual({ checked: 1, applied: 1, failed: 0 });
+    expect(payments.applyRefundToEarning).toHaveBeenLastCalledWith('p-100', 'r-100', 1500);
+  });
   it('cada devolución hecha sin descuento → applyRefundToEarning (idempotente por refundId)', async () => {
     const { svc, payments } = make([rowA, rowB]);
     const res = await svc.sweep(new Date('2026-10-15T10:00:00Z'));

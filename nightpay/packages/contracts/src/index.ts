@@ -7,6 +7,7 @@ export * from './terminals';
 export * from './wallets';
 export * from './webhooks';
 export * from './services';
+export * from './carta-template';
 export * from './money';
 export * from './wallet-pin';
 export * from './wallet-card';

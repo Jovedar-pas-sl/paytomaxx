@@ -451,6 +451,24 @@ describe('pagos a las chicas «Por aprobar»: la cifra que vio el encargado y la
 });
 
 describe('devoluciones', () => {
+  it('misma intención concurrente conserva aprobación y resultado al aprobarla sin devolver dos veces', async () => {
+    const chica = await newChica('Retry');
+    const payment = await newPayment(chica, 15_000);
+    const manager = await newManager('Retry Manager');
+    const body = { amountCents: 15_000, reason: 'Cliente se va', idempotencyKey: randomUUID() };
+    const call = () => asStaff(V, () => refundsController.create(payment, body, jwtOf(managerOf(manager)), { status: vi.fn() } as never));
+    const before = gatewayCalls;
+    const [a, b] = await Promise.all([call(), call()]);
+    expect(a).toEqual(b);
+    expect(a).toMatchObject({ status: 'PENDING' });
+    const approvalId = (a as { approvalRequestId: string }).approvalRequestId;
+    await approve(await newOwner(), approvalId);
+    const result = await call();
+    expect(result).toMatchObject({ status: 'SUCCEEDED', amountCents: 15_000 });
+    await expect(call()).resolves.toEqual(result);
+    expect(gatewayCalls).toBe(before + 1);
+    expect(await availableOf(payment)).toBe(0);
+  });
   it('desde el umbral (100 €) el encargado la pide (202); por debajo la hace él; el dueño, directa', async () => {
     const chica = await newChica('Paz');
     const payment = await newPayment(chica, 30_000);

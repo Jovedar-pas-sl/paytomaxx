@@ -1,6 +1,6 @@
 // Carta del local (Fase 1A; el mapa del dinero): servicios de todas las secciones y packs.
 
-import type { PackComponent, SectionCode } from '@nightpay/contracts';
+import type { ApplyCartaTemplateResult, PackComponent, SectionCode } from '@nightpay/contracts';
 import { apiError, authedFetch } from '../http';
 
 // ─── Carta de servicios ────────────────────────────────────────────
@@ -36,6 +36,13 @@ export interface ServiceItemInput {
 
 export async function fetchCarta(): Promise<ServiceItem[]> {
   const res = await authedFetch('/v1/services/all');
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** Apply the server's approved preset in one transaction. */
+export async function applyCartaTemplate(): Promise<ApplyCartaTemplateResult> {
+  const res = await authedFetch('/v1/services/template', { method: 'POST', body: JSON.stringify({ confirm: true }) });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }

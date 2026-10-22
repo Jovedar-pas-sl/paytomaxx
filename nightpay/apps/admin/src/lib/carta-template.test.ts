@@ -29,6 +29,12 @@ describe('carta aprobada', () => {
     expect(cartaTemplatePlan([...items, { ...items[0]!, id: 'dup' }])[0]!.action).toBe('conflict');
     expect(cartaTemplatePlan([{ ...items[0]!, isInvitation: true }])[0]!.action).toBe('conflict');
     expect(cartaTemplatePlan([{ ...items[0]!, components: [{ category: 'VENUE_BAR', amountCents: 1000 }] }])[0]!.action).toBe('conflict');
+    expect(cartaTemplatePlan([{ ...items[0]!, components: { invalid: true } as never }])[0]!.action).toBe('conflict');
+  });
+  it('normaliza nombres Unicode NFC antes de comparar sin crear otra ración', () => {
+    const items = stored();
+    items[5] = { ...items[5]!, name: '  RACIO\u0301N DEL DI\u0301A  ' };
+    expect(cartaTemplatePlan(items)[5]).toMatchObject({ action: 'keep', existing: { id: '5' } });
   });
 });
 

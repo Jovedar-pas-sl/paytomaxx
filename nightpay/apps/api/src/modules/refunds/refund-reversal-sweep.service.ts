@@ -11,6 +11,8 @@ const BOOT_DELAY_MS = 30 * 1000;
 const GRACE_MS = 2 * 60 * 1000;
 /** Como mucho tantas por repaso (el resto, en el siguiente). */
 const BATCH_SIZE = 100;
+/** Persistent failures leave room for later batches, including after a restart. */
+const RETRY_DELAY_MS = 30 * 60 * 1000;
 
 interface MissingReversal {
   refundId: string;
@@ -34,6 +36,7 @@ export class RefundReversalSweepService implements OnModuleInit, OnModuleDestroy
   private readonly metrics: MetricsService;
   private bootTimer: NodeJS.Timeout | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private removeMetrics?: () => void;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -46,6 +49,7 @@ export class RefundReversalSweepService implements OnModuleInit, OnModuleDestroy
   }
 
   onModuleInit(): void {
+    this.removeMetrics = this.metrics.observeEarningReversals(() => this.backlog());
     if (process.env.NIGHTPAY_DISABLE_REFUND_SWEEP === '1' || process.env.NODE_ENV === 'test') return;
     this.bootTimer = setTimeout(() => void this.tick(), BOOT_DELAY_MS);
     this.bootTimer.unref();
@@ -54,8 +58,22 @@ export class RefundReversalSweepService implements OnModuleInit, OnModuleDestroy
   }
 
   onModuleDestroy(): void {
+    this.removeMetrics?.();
     if (this.bootTimer) clearTimeout(this.bootTimer);
     if (this.timer) clearInterval(this.timer);
+  }
+
+  /** Includes deferred failures: retry scheduling must never reset their age. */
+  private async backlog(): Promise<{ pending: number; oldestAgeSeconds: number }> {
+    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<Array<{ pending: bigint; oldestAgeSeconds: number }>>`
+      SELECT COUNT(*)::bigint AS pending,
+             COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(r."createdAt")))::float8, 0) AS "oldestAgeSeconds"
+        FROM refunds r
+       WHERE r.status = 'SUCCEEDED'
+         AND EXISTS (SELECT 1 FROM operator_earnings e WHERE e."paymentId" = r."paymentId")
+         AND NOT EXISTS (SELECT 1 FROM earning_reversals er WHERE er."refundId" = r.id)
+    `);
+    return { pending: Number(rows[0]?.pending ?? 0), oldestAgeSeconds: Math.max(0, rows[0]?.oldestAgeSeconds ?? 0) };
   }
 
   async sweep(now: Date = new Date()): Promise<{ checked: number; applied: number; failed: number }> {
@@ -63,6 +81,10 @@ export class RefundReversalSweepService implements OnModuleInit, OnModuleDestroy
     let applied = 0;
     for (const m of missing) {
       if (await this.redrive(m)) applied += 1;
+      else await this.prisma.asSystem((tx) => tx.refund.updateMany({
+        where: { id: m.refundId, status: 'SUCCEEDED' },
+        data: { earningReversalRetryAt: new Date(now.getTime() + RETRY_DELAY_MS) },
+      }));
     }
     const failed = missing.length - applied;
     if (missing.length > 0) {
@@ -92,8 +114,9 @@ export class RefundReversalSweepService implements OnModuleInit, OnModuleDestroy
          WHERE EXISTS (SELECT 1 FROM operator_earnings e WHERE e."paymentId" = r."paymentId")
            AND r.status = 'SUCCEEDED'
            AND r."createdAt" < ${before}
+           AND (r."earningReversalRetryAt" IS NULL OR r."earningReversalRetryAt" <= ${now})
            AND NOT EXISTS (SELECT 1 FROM earning_reversals er WHERE er."refundId" = r.id)
-         ORDER BY r."createdAt" ASC
+         ORDER BY COALESCE(r."earningReversalRetryAt", r."createdAt") ASC, r.id ASC
          LIMIT ${BATCH_SIZE}
       `,
     );

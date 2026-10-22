@@ -10,6 +10,10 @@
 | **Tracing** | Sentry traces (10% sampling) | Phase 2: OpenTelemetry full traces. |
 | **Alerts** | Prometheus Alertmanager | Reglas en `alerts.yml`. |
 
+Las incidencias dentro de NightPay y sus avisos por Telegram conservan su
+funcionamiento. Estas reglas son para quien ya use Prometheus; no requieren
+instalar otra plataforma para operar la aplicación.
+
 ## Setup local
 
 ```bash
@@ -50,16 +54,43 @@ Sin `SENTRY_DSN` el SDK no se inicializa (no-op). Apto para dev.
 | `nightpay_gateway_call_duration_seconds` | Histogram | Latencia pasarela — p99 para SLO |
 | `nightpay_circuit_state` | Gauge | Circuit breaker estado por gateway |
 | `nightpay_ws_connections_active` | Gauge | Conexiones realtime |
-| `nightpay_queue_depth` | Gauge | Backlog BullMQ — alerta si crece |
+| `nightpay_queue_depth` | Gauge | Trabajos sin terminar por cola: waiting + active + delayed + prioritized + waiting-children + paused |
+| `nightpay_queue_jobs` | Gauge | Cantidad real por cola y estado; completed/failed se exponen aparte del backlog |
+| `nightpay_queue_oldest_age_seconds` | Gauge | Edad máxima desde creación en waiting/active/prioritized/paused; excluye delayed y waiting-children |
+| `nightpay_queue_metrics_up` | Gauge | 1 si se consultó Redis en este scrape, 0 si falló o excedió 2 s |
+
+El scrape consulta las cinco colas registradas de BullMQ, incluida la cola de
+conciliación retirada para detectar residuos. No crea conexiones ni temporizadores
+de sondeo; BullMQ conserva su ciclo de vida. Las consultas de antigüedad se paginan.
+Ante fallo se omiten depth/age/jobs de esa cola, para no presentar un valor antiguo
+como actual; otras métricas y colas siguen disponibles. El muestreo de Redis no
+es una transacción y puede variar mientras los workers procesan trabajos.
+
+La edad usa la fecha original de creación de BullMQ. Un trabajo recién promovido
+desde delayed puede ser antiguo por creación: esta métrica no indica cuánto lleva
+disponible ni cuánto lleva en su último reintento. Los trabajos delayed y los que
+esperan hijos siguen contando en backlog, pero no en la edad. BullMQ conserva el
+timestamp de creación al reintentar y cambia delay a un intervalo relativo al
+reintento; sumarlos no permite reconstruir una fecha de disponibilidad fiable.
 
 ## Alertas críticas
 
-Ver `alerts.yml`. Las 4 más importantes:
+Ver `alerts.yml`:
 
 1. **APIDown** — `/v1/metrics` no responde 1 min
-2. **HighErrorRate** — 5xx > 5% del total 5 min
+2. **HighErrorRate** — transiciones FAILED / pagos creados > 10% durante 5 min, sumando por job antes de dividir y exigiendo creaciones > 0. Es un indicador de actividad en una ventana, no errores HTTP ni una cohorte de los mismos pagos.
 3. **GatewayCircuitOpen** — `circuit_state == 2` durante 2 min
-4. **PayoutsReconcileBacklog** — pendiente >100€ sin verificar 24h
+4. **QueueBacklog / QueueOldestJob** — >1000 trabajos durante 10 min / un trabajo listo o activo creado hace >10 min durante 5 min. La edad no mide tiempo desde su disponibilidad.
+5. **QueueMetricsUnavailable / QueueFailedJobs** — consulta Redis fallida durante 2 min / trabajos fallidos retenidos durante 10 min.
+6. **EarningReversalOldest / EarningReversalMetricsUnavailable** — una devolución hecha sin descuento de ganancia desde hace más de 30 min durante 5 min / consulta PostgreSQL fallida durante 2 min. `nightpay_earning_reversal_pending` y `nightpay_earning_reversal_oldest_age_seconds` incluyen los reintentos diferidos; el backoff nunca cambia la fecha original del refund. Si falla la consulta se omiten ambos valores, con `nightpay_earning_reversal_metrics_up = 0`.
+
+Se retiró `PayoutsReconcileBacklog`: las transiciones de pagos no medían payouts
+pendientes ni la conciliación diaria, que está retirada.
+
+Las pruebas unitarias verifican contratos de reglas y el productor real con colas
+simuladas. Si `promtool` ya está disponible, desde este directorio ejecutar
+`promtool check rules alerts.yml` y `promtool test rules alerts.test.yml` para
+evaluar las series sintéticas de tasas altas, bajas y tráfico cero.
 
 ## Dashboard layout
 

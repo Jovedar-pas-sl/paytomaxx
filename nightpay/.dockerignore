@@ -4,6 +4,10 @@
 **/dist
 **/.git
 **/coverage
+**/.verification
+**/test-results
+**/playwright-report
+apps/api/build-info.json
 **/.vscode
 **/.idea
 **/*.log

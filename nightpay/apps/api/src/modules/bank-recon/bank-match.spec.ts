@@ -45,6 +45,42 @@ function refund(o: Partial<OurRefund>): OurRefund {
 const statuses = (r: ReturnType<typeof reconcile>) => r.items.map((i) => i.status);
 
 describe('cuadre con el banco', () => {
+  it.each([[false, 2000], [true, 2000], [false, 5000], [true, 5000]] as const)('distingue operación 77 de dos terminales con CSV invertido=%s e importe=%i', (reverse, amountCents) => {
+    const rows = [row({ reference: '77', terminal: 'A' }), row({ reference: '77', terminal: 'B', amountCents })];
+    const result = reconcile({ rows: reverse ? rows.reverse() : rows,
+      sales: [sale({ references: ['77'], terminal: 'A' }), sale({ paymentId: 'p-2', references: ['77'], terminal: 'B', amountCents })], refunds: [], strays: [] });
+    expect(result.items).toHaveLength(2);
+    expect(result.items.every((i) => i.status === 'MATCHED')).toBe(true);
+    expect(result.items.find((i) => i.terminal === 'B')?.paymentId).toBe('p-2');
+  });
+
+  it('referencia ambigua sin terminal no se resuelve por orden ni por importe', () => {
+    const result = reconcile({ rows: [row({ reference: '77' })], sales: [sale({ references: ['77'], terminal: 'A' }), sale({ paymentId: 'p-2', references: ['77'], terminal: 'B' })], refunds: [], strays: [] });
+    expect(statuses(result)).toEqual(['NOT_IN_OXIOPAY', 'NOT_IN_BANK', 'NOT_IN_BANK']);
+  });
+
+  it('una referencia ambigua entre cobro pagado y cobro perdido no favorece al pagado', () => {
+    const result = reconcile({ rows: [row({ reference: '77' })], sales: [sale({ references: ['77'], terminal: 'A' })], refunds: [], strays: [{ paymentId: 'stray-b', tenantId: 'v-1', references: ['77'], terminal: 'B', amountCents: 5000 }] });
+    expect(statuses(result)).toEqual(['NOT_IN_OXIOPAY', 'NOT_IN_BANK']);
+  });
+
+  it('una anulación sin terminal no elige entre operaciones 77 usando solo el importe', () => {
+    const result = reconcile({ rows: [row({ reference: '77', terminal: 'A' }), row({ reference: '77', terminal: 'B', amountCents: 2000 }), row({ reference: '77', kind: 'VOID' })], sales: [], refunds: [], strays: [] });
+    expect(result.bankTotalCents).toBe(7000);
+  });
+
+  it('una anulación respeta el terminal cuando dos ventas comparten operación e importe', () => {
+    const result = reconcile({ rows: [row({ reference: '77', terminal: 'A' }), row({ reference: '77', terminal: 'B' }), row({ reference: '77', terminal: 'A', kind: 'VOID' })], sales: [sale({ references: ['77'], terminal: 'B' })], refunds: [], strays: [] });
+    expect(result.items).toEqual([expect.objectContaining({ status: 'MATCHED', terminal: 'B' })]);
+  });
+
+  it('una devolución respeta terminal+operación y deja ambigüedades sin casar', () => {
+    const refunds = [refund({ refundId: 'r-a', paymentReferences: ['77'], terminal: 'A' }), refund({ refundId: 'r-b', paymentId: 'p-2', paymentReferences: ['77'], terminal: 'B' })];
+    const result = reconcile({ rows: [row({ kind: 'REFUND', reference: '77', terminal: 'B', amountCents: 2000 })], sales: [], refunds, strays: [] });
+    expect(result.items[0]).toMatchObject({ status: 'REFUND_MATCHED', refundId: 'r-b' });
+    const ambiguous = reconcile({ rows: [row({ kind: 'REFUND', reference: '77', amountCents: 2000 })], sales: [], refunds, strays: [] });
+    expect(ambiguous.items[0]?.status).toBe('REFUND_NOT_IN_OXIOPAY');
+  });
   it('casa por el pedido de Redsys aunque Excel se haya comido los ceros', () => {
     expect(referenceKey('000412abcd')).toBe('412ABCD');
     const r = reconcile({

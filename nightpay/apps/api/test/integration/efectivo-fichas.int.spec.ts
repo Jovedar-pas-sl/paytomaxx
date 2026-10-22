@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { ConflictException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
@@ -113,6 +114,18 @@ afterAll(async () => {
 });
 
 describe('tope legal del efectivo y anulación (Postgres real)', () => {
+  it('la clave preserva destino y replay después de fusionar, con filas legacy compatibles', async () => {
+    const existing = await newWallet(sala, 100);
+    const other = await newWallet(sala, 100);
+    const input = { amountCents: 100, idempotencyKey: key(), wallet: { code: existing.code } };
+    const first = await inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), input));
+    await expect(inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), { ...input, wallet: { code: other.code } }))).rejects.toBeInstanceOf(ConflictException);
+    await expect(inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), { ...input, wallet: { create: true } }))).rejects.toBeInstanceOf(ConflictException);
+    await inVenue(sala.id, () => charges.mergeInto(existing.walletId, other.walletId));
+    await expect(inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), input))).resolves.toMatchObject({ topUpId: first.topUpId, replayed: true, createdWallet: false });
+    await seed((tx) => tx.walletCashTopUp.update({ where: { id: first.topUpId }, data: { intentFingerprint: null } }));
+    await expect(inVenue(sala.id, () => cash.topUp(sala.id, managerOf(sala), input))).resolves.toMatchObject({ topUpId: first.topUpId, replayed: true });
+  });
   it('999,99 € y luego 0,01 € al mismo saldo: no; la cadena de saldos sumados también cuenta', async () => {
     const a = await newWallet(sala, 99_999);
     await expect(topUpCode(sala, a.code, 1)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'CASH_LIMIT' }) });

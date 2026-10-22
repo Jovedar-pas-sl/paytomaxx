@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Button, Card } from '@nightpay/ui';
 import type { VenueSection } from '@nightpay/contracts';
-import { createServiceItem, fetchCarta, updateServiceItem, type ServiceItem } from '@/lib/api';
+import { applyCartaTemplate, type ServiceItem } from '@/lib/api';
 import { cartaTemplatePlan } from '@/lib/carta-template';
 import { formatEur } from '@/lib/money';
 
@@ -16,6 +16,7 @@ export function CartaTemplate({ items, sections, onApplied }: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
   const plan = cartaTemplatePlan(items);
   const off = [...new Set(plan.map((p) => p.input.category))]
     .filter((code) => !sections.some((s) => s.code === code && s.enabled));
@@ -23,22 +24,16 @@ export function CartaTemplate({ items, sections, onApplied }: {
   const changes = plan.filter((p) => p.action !== 'keep');
 
   async function apply() {
+    if (!confirmed || busy) return;
     setBusy(true);
     setError(null);
     setMessage(null);
-    let done = 0;
     try {
-      const fresh = cartaTemplatePlan(await fetchCarta());
-      if (fresh.some((p) => p.action === 'conflict')) throw new Error('Revisa los productos duplicados, packs o invitaciones antes de aplicar.');
-      for (const p of fresh) {
-        if (p.action === 'keep') continue;
-        if (p.existing) await updateServiceItem(p.existing.id, { ...p.input, active: true });
-        else await createServiceItem(p.input);
-        done++;
-      }
+      await applyCartaTemplate();
+      setConfirmed(false);
       setMessage('Carta aplicada. Puedes ajustar cada producto abajo. Las propinas se configuran en Ajustes → Formas de cobro.');
     } catch (err) {
-      setError(`${done > 0 ? `${done} productos guardados. ` : ''}${(err as Error).message} Puedes reintentar para completar los que falten.`);
+      setError(`${(err as Error).message} Actualiza la carta y revisa el resultado antes de reintentar.`);
     } finally {
       setBusy(false);
       onApplied();
@@ -61,7 +56,11 @@ export function CartaTemplate({ items, sections, onApplied }: {
         </ul>
         {off.length > 0 ? <p role="status">Activa primero estas secciones en Ajustes: {off.map((c) => sections.find((s) => s.code === c)?.label ?? c).join(', ')}.</p> : null}
         {conflicts ? <p role="status">Revisa las coincidencias indicadas antes de aplicar: hay nombres duplicados, packs o invitaciones.</p> : null}
-        <Button disabled={busy || conflicts || off.length > 0 || changes.length === 0} loading={busy} onClick={() => void apply()}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '2.75rem', marginBottom: '0.5rem' }}>
+          <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={busy} />
+          Confirmo que quiero aplicar estos productos y precios a este local.
+        </label>
+        <Button disabled={!confirmed || busy || conflicts || off.length > 0 || changes.length === 0} loading={busy} onClick={() => void apply()}>
           {changes.length === 0 ? 'Carta ya configurada' : 'Aplicar productos y precios'}
         </Button>
       </details>

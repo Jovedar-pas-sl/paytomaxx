@@ -1,0 +1,93 @@
+# Run from this directory: promtool test rules alerts.test.yml
+rule_files:
+  - alerts.yml
+evaluation_interval: 30s
+tests:
+  - name: queue age means creation age of ready work while delayed retries remain in depth
+    interval: 1m
+    input_series:
+      - series: 'nightpay_queue_oldest_age_seconds{job="nightpay-api",queue="promoted"}'
+        values: '1200+60x10'
+      - series: 'nightpay_queue_oldest_age_seconds{job="nightpay-api",queue="future-retry"}'
+        values: '0+0x10'
+      - series: 'nightpay_queue_depth{job="nightpay-api",queue="future-retry"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: QueueOldestJob
+        exp_alerts:
+          - exp_labels:
+              job: nightpay-api
+              queue: promoted
+              severity: warning
+            exp_annotations:
+              summary: "Cola promoted con trabajo listo o activo creado hace más de 10 min"
+              description: "Edad desde creación en waiting/active/prioritized/paused; excluye delayed y waiting-children. No mide tiempo desde promoción o reintento."
+  - name: deferred earning reversals preserve original age and query failures remain visible
+    interval: 1m
+    input_series:
+      - series: 'nightpay_earning_reversal_oldest_age_seconds{job="nightpay-api",instance="old"}'
+        values: '1900+60x10'
+      - series: 'nightpay_earning_reversal_oldest_age_seconds{job="nightpay-api",instance="fresh"}'
+        values: '10+0x10'
+      - series: 'nightpay_earning_reversal_metrics_up{job="nightpay-api",instance="old"}'
+        values: '1+0x10'
+      - series: 'nightpay_earning_reversal_metrics_up{job="nightpay-api",instance="unavailable"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: EarningReversalOldest
+        exp_alerts:
+          - exp_labels:
+              job: nightpay-api
+              instance: old
+              severity: critical
+            exp_annotations:
+              summary: "Devolución hecha sin descontar la ganancia desde hace más de 30 min"
+              description: "Revisar earning_reversals; la antigüedad incluye los fallos con reintento diferido."
+      - eval_time: 3m
+        alertname: EarningReversalMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: nightpay-api
+              instance: unavailable
+              severity: warning
+            exp_annotations:
+              summary: "No se puede consultar el backlog de descuentos por devolución"
+  - name: FAILED labels aggregate with venue-provider creation labels across replicas
+    interval: 1m
+    input_series:
+      - series: 'nightpay_payments_transitioned_total{job="nightpay-api",instance="a",from="PENDING",to="FAILED"}'
+        values: '0+20x15'
+      - series: 'nightpay_payments_transitioned_total{job="nightpay-api",instance="b",from="AUTHORIZED",to="FAILED"}'
+        values: '0+10x15'
+      - series: 'nightpay_payments_created_total{job="nightpay-api",instance="a",venue="v1",provider="redsys"}'
+        values: '0+100x15'
+      - series: 'nightpay_payments_created_total{job="nightpay-api",instance="b",venue="v2",provider="paytef"}'
+        values: '0+100x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels:
+              job: nightpay-api
+              severity: critical
+              runbook: docs/runbooks/P0-pasarela-caida.md
+            exp_annotations:
+              summary: "Más de 10% de pagos transitando a FAILED en 5 min"
+              description: "Posible problema con pasarela. Revisa circuit breakers + webhooks."
+  - name: low failure rate and zero traffic do not fire
+    interval: 1m
+    input_series:
+      - series: 'nightpay_payments_transitioned_total{job="low",from="PENDING",to="FAILED"}'
+        values: '0+2x15'
+      - series: 'nightpay_payments_created_total{job="low",venue="v1",provider="redsys"}'
+        values: '0+100x15'
+      - series: 'nightpay_payments_transitioned_total{job="idle",from="PENDING",to="FAILED"}'
+        values: '0+1x15'
+      - series: 'nightpay_payments_created_total{job="idle",venue="v1",provider="redsys"}'
+        values: '0+0x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HighErrorRate
+        exp_alerts: []

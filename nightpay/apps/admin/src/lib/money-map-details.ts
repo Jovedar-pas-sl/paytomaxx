@@ -1,5 +1,5 @@
 import type { MoneyMap } from '@nightpay/contracts';
-import { railNote } from './money-map-view';
+import { moneyMapIsCurrent, railNote } from './money-map-view';
 
 export interface MoneyDetailRow {
   label: string;
@@ -15,6 +15,7 @@ export interface MoneyDetail {
 /** Desgloses del mismo periodo que las barras. null significa desconocido, nunca cero. */
 export function moneyMapDetails(m: MoneyMap): Record<'inflow' | 'topUps' | 'split' | 'cash' | 'owed' | 'outflow', MoneyDetail> {
   const { inflow: i, split: s, where: w, outflow: o } = m;
+  const when = moneyMapIsCurrent(m) ? 'ahora' : 'al corte';
   return {
     inflow: {
       title: 'Detalle de entradas',
@@ -61,15 +62,15 @@ export function moneyMapDetails(m: MoneyMap): Record<'inflow' | 'topUps' | 'spli
     owed: {
       title: 'Saldo y deudas pendientes',
       note: m.frozen ? 'Datos conservados al cerrar la noche. El saldo y la deuda total pueden incluir operaciones de noches anteriores.' :
-        m.scope.kind === 'period' ? 'La parte del periodo y los totales actuales son conceptos distintos. Si no hay una cifra histórica disponible, se indica.' :
+        m.scope.kind === 'period' ? 'La variación del periodo y los totales al corte son conceptos distintos. Si no hay una cifra histórica disponible, se indica.' :
         'La deuda total y el saldo vivo incluyen también noches anteriores. Se distinguen de lo generado en este periodo.',
       rows: [
         { label: 'Pendiente a chicas de este periodo', cents: o.pendingStaff.chicasCents },
         { label: 'Pendiente a camareros de este periodo', cents: o.pendingStaff.camarerosCents },
-        { label: m.frozen ? 'Deuda total a chicas al cierre' : 'Deuda total a chicas ahora', cents: w.owed?.chicasCents ?? null },
-        { label: m.frozen ? 'Deuda total a camareros al cierre' : 'Deuda total a camareros ahora', cents: w.owed?.camarerosCents ?? null },
-        { label: 'Saldo dejado por este periodo', cents: w.owners.saldoCents },
-        { label: m.frozen ? 'Saldo vivo al cierre' : 'Saldo vivo de clientes ahora', cents: w.liveSaldoCents },
+        { label: `Deuda total a chicas ${when}`, cents: w.owed?.chicasCents ?? null },
+        { label: `Deuda total a camareros ${when}`, cents: w.owed?.camarerosCents ?? null },
+        { label: 'Variación de saldo de este periodo', cents: w.owners.saldoCents },
+        { label: `Saldo total de clientes ${when}`, cents: w.liveSaldoCents },
       ],
     },
     outflow: {

@@ -45,12 +45,16 @@ COPY apps/api ./apps/api
 # 3. Cliente de Prisma en packages/db/src/generated (donde lo importa db/src/index.ts)
 RUN pnpm --filter @nightpay/db generate
 
-# Qué versión corre: /v1/health lo enseña (y Sentry lo usa de release).
-# Dokploy: Build Args GIT_SHA=<commit> y, si quieres, BUILD_MARKER=<etiqueta>.
+# Identidad automática: no requiere cambiar variables para cada Deploy.
+# CI puede aportar el SHA; sin Git disponible se identifica el código por su hash.
 ARG GIT_SHA=""
+ARG DOKPLOY_COMMIT_HASH=""
 ARG BUILD_MARKER=""
 ENV GIT_SHA=${GIT_SHA}
 ENV BUILD_MARKER=${BUILD_MARKER}
+COPY scripts/build-info.mjs ./scripts/build-info.mjs
+RUN DOKPLOY_COMMIT_HASH=${DOKPLOY_COMMIT_HASH} node scripts/build-info.mjs
+ENV BUILD_INFO_PATH=/repo/apps/api/build-info.json
 
 WORKDIR /repo/apps/api
 ENV NODE_ENV=production

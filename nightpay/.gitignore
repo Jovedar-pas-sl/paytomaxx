@@ -5,6 +5,7 @@ node_modules/
 # build
 dist/
 build/
+apps/api/build-info.json
 .next/
 out/
 *.tsbuildinfo

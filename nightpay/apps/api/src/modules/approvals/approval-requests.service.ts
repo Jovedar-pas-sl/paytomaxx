@@ -37,6 +37,7 @@ import {
 import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury/payout-tx-guard';
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { ApprovalNotifier } from './approval-notifier';
+import { assertRefundIntent, findRefundApproval, lockRefundIntent, refundApprovalKey, refundIntent } from '../refunds/refund-intent';
 import {
   buildPayoutPayload,
   toApprovalView,
@@ -77,6 +78,7 @@ export interface RefundToRequest {
   paymentId: string;
   amountCents: number;
   reason?: string;
+  idempotencyKey?: string;
 }
 
 /**
@@ -264,7 +266,17 @@ export class ApprovalRequestsService {
    */
   async requestRefund(actor: ApprovalActor, input: RefundToRequest): Promise<ApprovalRequestedResponse> {
     const now = new Date();
-    const { row, expired } = await this.prisma.withTenant(actor.tenantId, async (tx) => {
+    const { row, expired, replayed } = await this.prisma.withTenant(actor.tenantId, async (tx) => {
+      if (input.idempotencyKey) {
+        await lockRefundIntent(tx, actor.tenantId, input.idempotencyKey);
+        const prior = await findRefundApproval(tx, input, actor);
+        if (prior) return { row: prior, expired: [], replayed: true };
+        const refund = await tx.refund.findUnique({ where: { tenantId_idempotencyKey: { tenantId: actor.tenantId, idempotencyKey: input.idempotencyKey } } });
+        if (refund) {
+          assertRefundIntent(refund.intentFingerprint, input, actor);
+          throw new ConflictException({ message: 'Esta devolución ya está en curso: reintenta la misma solicitud para recuperar su resultado.', code: 'REFUND_IN_PROGRESS', refundId: refund.id });
+        }
+      }
       const payment = await tx.payment.findFirst({
         where: { id: input.paymentId, tenantId: actor.tenantId },
         select: {
@@ -295,6 +307,7 @@ export class ApprovalRequestsService {
         cardLast4: payment.cardLast4,
         cardBrand: payment.cardBrand,
         provider: payment.provider,
+        ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       };
       const created = await tx.approvalRequest.create({
         data: {
@@ -305,14 +318,22 @@ export class ApprovalRequestsService {
           payload,
           requestedById: actor.userId,
           requestedAt: now,
+          ...(input.idempotencyKey ? { idempotencyKey: refundApprovalKey(input.idempotencyKey), idempotencyHash: refundIntent(input, actor) } : {}),
         },
       });
-      return { row: created, expired: stale };
+      return { row: created, expired: stale, replayed: false };
     });
+    if (replayed) return this.requestedResponse(row as ApprovalRow);
     await this.auditExpired(expired);
     const paymentAmountCents = (row.payload as { paymentAmountCents?: number }).paymentAmountCents ?? null;
     await this.requested(actor, row as ApprovalRow, { paymentId: input.paymentId, paymentAmountCents });
     return this.requestedResponse(row as ApprovalRow);
+  }
+
+  async replayRefund(actor: ApprovalActor, input: RefundToRequest): Promise<ApprovalRequestedResponse | null> {
+    if (!input.idempotencyKey) return null;
+    const row = await this.prisma.withTenant(actor.tenantId, (tx) => findRefundApproval(tx, input, actor));
+    return row ? this.requestedResponse(row as ApprovalRow) : null;
   }
 
   private requestedResponse(row: ApprovalRow): ApprovalRequestedResponse {

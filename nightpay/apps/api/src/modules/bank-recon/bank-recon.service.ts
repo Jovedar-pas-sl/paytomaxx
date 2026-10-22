@@ -398,6 +398,14 @@ async function loadPaytef(
   to: Date,
   rows: BankRow[],
 ): Promise<OurSide> {
+  const terminals = await tx.terminal.findMany({
+    where: { tenantId: { in: venueIds } },
+    select: { id: true, externalId: true, deviceSerial: true },
+  });
+  const terminalOf = (id: string | null) => {
+    const t = id ? terminals.find((t) => t.id === id) : undefined;
+    return { terminal: t?.externalId ?? id ?? null, terminalAliases: t?.deviceSerial ? [t.deviceSerial] : [] };
+  };
   const datafono = {
     OR: [
       { posOperationNumber: { not: null } },
@@ -420,13 +428,14 @@ async function loadPaytef(
       authCode: true,
       authorizedAt: true,
       posOperationNumber: true,
+      posTerminalId: true,
     },
   });
   const sales = payments.map<OurSale>((p) => ({
     paymentId: p.id,
     tenantId: p.tenantId,
     references: p.posOperationNumber ? [p.posOperationNumber] : [],
-    terminal: null,
+    ...terminalOf(p.posTerminalId),
     authCode: p.authCode,
     amountCents: p.amountCents + p.tipCents,
     at: p.authorizedAt!,
@@ -449,14 +458,14 @@ async function loadPaytef(
       amountCents: true,
       bankRefundedAt: true,
       createdAt: true,
-      payment: { select: { posOperationNumber: true } },
+      payment: { select: { posOperationNumber: true, posTerminalId: true } },
     },
   });
 
   const paidRefs = new Set(sales.flatMap((s) => s.references.map(referenceKey)));
   const unmatchedRefs = uniq(
     rows
-      .filter((r) => r.approved && r.kind === 'SALE' && r.reference && !paidRefs.has(referenceKey(r.reference)))
+      .filter((r) => r.approved && r.kind === 'SALE' && r.reference && (!paidRefs.has(referenceKey(r.reference)) || (r.terminal && !sales.some((s) => s.references.some((ref) => referenceKey(ref) === referenceKey(r.reference!)) && (!s.terminal || s.terminal === r.terminal || s.terminalAliases?.includes(r.terminal!))))))
       .map((r) => r.reference!.trim()),
   );
   const strayPayments =
@@ -468,7 +477,7 @@ async function loadPaytef(
             posOperationNumber: { in: referenceVariants(unmatchedRefs) },
             status: { notIn: [...PAID_STATUSES] },
           },
-          select: { id: true, tenantId: true, amountCents: true, tipCents: true, posOperationNumber: true },
+          select: { id: true, tenantId: true, amountCents: true, tipCents: true, posOperationNumber: true, posTerminalId: true },
         });
 
   return {
@@ -478,6 +487,7 @@ async function loadPaytef(
       paymentId: r.paymentId,
       tenantId: r.tenantId,
       paymentReferences: r.payment.posOperationNumber ? [r.payment.posOperationNumber] : [],
+      ...terminalOf(r.payment.posTerminalId),
       amountCents: r.amountCents,
       at: r.bankRefundedAt ?? r.createdAt,
     })),
@@ -485,6 +495,7 @@ async function loadPaytef(
       paymentId: p.id,
       tenantId: p.tenantId,
       references: p.posOperationNumber ? [p.posOperationNumber] : [],
+      ...terminalOf(p.posTerminalId),
       amountCents: p.amountCents + p.tipCents,
     })),
   };

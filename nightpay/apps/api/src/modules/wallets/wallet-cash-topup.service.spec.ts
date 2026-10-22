@@ -156,6 +156,29 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('recarga en efectivo', () => {
+  it('rechaza cambiar el destino con la misma clave, incluso crear frente a ficha del mismo saldo', async () => {
+    const { svc } = setup();
+    const request = { amountCents: 500, idempotencyKey: 'intent-0000001', wallet: { code: 'K7Q4M2' } };
+    await svc.topUp(SALA, javi, request);
+    for (const wallet of [{ create: true as const }, { code: 'OTR123' }, { card: FICHA }]) {
+      await expect(svc.topUp(SALA, javi, { ...request, wallet })).rejects.toBeInstanceOf(ConflictException);
+    }
+  });
+
+  it('conserva la intención original tras fusionar y no inventa huellas de filas legacy', async () => {
+    const { svc, wallets, topUps } = setup();
+    const request = { amountCents: 500, idempotencyKey: 'intent-0000002', wallet: { code: 'K7Q4M2' } };
+    const first = await svc.topUp(SALA, javi, request);
+    wallets.set('merged-target', { ...wallets.get(WALLET), id: 'merged-target', shortCode: 'NEW123' });
+    wallets.set(WALLET, { ...wallets.get(WALLET), mergedIntoId: 'merged-target', status: 'MERGED', balanceCents: 0 });
+    await expect(svc.topUp(SALA, javi, request)).resolves.toMatchObject({ topUpId: first.topUpId, replayed: true });
+    const stored = [...topUps.values()][0]!;
+    stored.intentFingerprint = null;
+    await expect(svc.topUp(SALA, javi, request)).resolves.toMatchObject({ topUpId: first.topUpId, replayed: true, createdWallet: false });
+    wallets.set('other-wallet', { ...wallets.get(WALLET), id: 'other-wallet', shortCode: 'OTR123', mergedIntoId: null, status: 'ACTIVE' });
+    await expect(svc.topUp(SALA, javi, { ...request, wallet: { code: 'OTR123' } })).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.topUp(SALA, javi, { ...request, wallet: { create: true } })).rejects.toBeInstanceOf(ConflictException);
+  });
   it('saldo nuevo: se crea con su código, se suma al momento y queda quién la cobró', async () => {
     const { svc, wallets, topUps, audit } = setup({ wallet: null });
     const out = await svc.topUp(SALA, javi, { ...nueva(5_000), wallet: { create: true, identifier: 'Pulsera azul' } });

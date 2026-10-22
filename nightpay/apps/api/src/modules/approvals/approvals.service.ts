@@ -129,7 +129,7 @@ export class ApprovalsService {
     if (!parsed.success) throw new ConflictException('La solicitud está incompleta: que la pidan otra vez.');
     const r = parsed.data;
     await this.refunds.refund(
-      { paymentId: r.paymentId, amountCents: row.amountCents, reason: r.reason ?? undefined },
+      { paymentId: r.paymentId, amountCents: row.amountCents, reason: r.reason ?? undefined, ...(r.idempotencyKey ? { idempotencyKey: r.idempotencyKey } : {}) },
       { userId: row.requestedById, role: 'MANAGER', tenantId: row.tenantId },
       {
         approvalRequestId: row.id,

@@ -569,6 +569,8 @@ model WalletCashTopUp {
   takenByUserId  String?  @db.Uuid
   terminalId     String?  @db.Uuid
   idempotencyKey String
+  /// Original target, independent of later wallet merges; null for legacy rows.
+  intentFingerprint String?
   createdAt      DateTime @default(now()) @db.Timestamptz
   /// La recarga abrió un saldo nuevo (aviso de saldos nuevos en efectivo seguidos).
   createdWallet  Boolean  @default(false)
@@ -822,6 +824,11 @@ model Refund {
   requestedBy      String       @db.Uuid
   status           RefundStatus @default(PENDING)
   providerRefundId String?
+  /// Null keys retain the legacy server-generated intention behavior.
+  idempotencyKey   String?
+  intentFingerprint String?
+  replayResponse  Json?
+  earningReversalRetryAt DateTime? @db.Timestamptz
   // Fase 1C: hecha en el portal del banco y apuntada a mano en el panel.
   registeredManually Boolean     @default(false)
   bankRefundedAt     DateTime?   @db.Timestamptz
@@ -831,6 +838,7 @@ model Refund {
   reversals EarningReversal[]
 
   @@index([tenantId, paymentId])
+  @@unique([tenantId, idempotencyKey])
   @@map("refunds")
 }
 

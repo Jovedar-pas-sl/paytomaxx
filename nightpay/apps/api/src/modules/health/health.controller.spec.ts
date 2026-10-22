@@ -73,12 +73,13 @@ describe('HealthController: versión y marca del despliegue', () => {
     expect(result.build).toBe('plataforma-2026-10-15');
   });
 
-  it('sin ellas: la versión del paquete y la marca de siempre', async () => {
+  it('sin metadatos no anuncia una versión ni una marca antigua', async () => {
     vi.stubEnv('GIT_SHA', '');
     vi.stubEnv('BUILD_MARKER', '');
     vi.stubEnv('npm_package_version', '1.2.3');
+    vi.stubEnv('BUILD_INFO_PATH', '/missing/nightpay-build-info.json');
     const result = (await ok().get()) as Awaited<ReturnType<HealthController['get']>> & { build: string };
-    expect(result.version).toBe('1.2.3');
-    expect(result.build).toBe('revision3-2026-10-20');
+    expect(result.version).toBe('unknown');
+    expect(result.build).toBe('unknown');
   });
 });

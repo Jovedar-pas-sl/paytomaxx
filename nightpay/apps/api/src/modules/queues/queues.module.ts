@@ -6,6 +6,7 @@ import { OrphanReconcileProcessor } from './orphan-reconcile.processor';
 import { WebhookIngestProcessor } from './webhook-ingest.processor';
 import { WebhookRedriveSweepService } from './webhook-redrive-sweep.service';
 import { RetireReconcileDailyService } from './retire-reconcile-daily.service';
+import { QueueMetricsService } from './queue-metrics.service';
 import { GoogleWalletSyncProcessor, GoogleWalletSyncScheduler } from './google-wallet-sync.processor';
 import {
   QR_EXPIRE_QUEUE,
@@ -66,6 +67,7 @@ import { WalletsModule } from '../wallets/wallets.module';
     RetireReconcileDailyService,
     GoogleWalletSyncProcessor,
     GoogleWalletSyncScheduler,
+    QueueMetricsService,
   ],
   exports: [BullModule],
 })

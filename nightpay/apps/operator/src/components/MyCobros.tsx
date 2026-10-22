@@ -2,45 +2,20 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Button, Card } from '@nightpay/ui';
-import type { OwnCobro } from '@nightpay/contracts';
-import { fetchOwnCobros, mergeOwnCobros, ownCobroStatus } from '@/lib/my-cobros';
+import { createOwnCobrosFeed, fetchOwnCobros, ownCobroStatus, type OwnCobrosSnapshot } from '@/lib/my-cobros';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
 
 /** Historial propio del camarero: tarjeta y saldo, incluidas invitaciones; no autoriza devoluciones. */
 export function MyCobros() {
-  const [items, setItems] = useState<OwnCobro[] | null>(null);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [moreBusy, setMoreBusy] = useState(false);
-  const expanded = useRef(false);
-  const more = useRef<AbortController | null>(null);
-  useEffect(() => () => more.current?.abort(), []);
-  const refresh = usePolling(async (signal) => {
-    try {
-      const page = await fetchOwnCobros(undefined, signal);
-      if (signal.aborted) return 'slow';
-      if (!expanded.current) setCursor(page.nextCursor);
-      setItems((old) => mergeOwnCobros(old ?? [], page.items));
-      setError(null);
-    } catch (e) {
-      if (!signal.aborted) setError((e as Error).message);
-      return 'slow';
-    }
-  }, { intervalMs: 15000 });
-
-  async function loadMore() {
-    if (!cursor || moreBusy) return;
-    const controller = new AbortController(); more.current = controller;
-    setMoreBusy(true);
-    try {
-      const page = await fetchOwnCobros(cursor, controller.signal);
-      if (controller.signal.aborted) return;
-      expanded.current = true;
-      setItems((old) => mergeOwnCobros(old ?? [], page.items)); setCursor(page.nextCursor); setError(null);
-    } catch (e) { if (!controller.signal.aborted) setError((e as Error).message); }
-    finally { if (!controller.signal.aborted) setMoreBusy(false); }
-  }
+  const [{ items, cursor, error, moreBusy }, setState] = useState<OwnCobrosSnapshot>({ items: null, cursor: null, error: null, moreBusy: false });
+  const feed = useRef<ReturnType<typeof createOwnCobrosFeed> | null>(null);
+  useEffect(() => {
+    const current = createOwnCobrosFeed(fetchOwnCobros, setState);
+    feed.current = current;
+    return () => { current.dispose(); if (feed.current === current) feed.current = null; };
+  }, []);
+  const refresh = usePolling(async (signal) => (await feed.current?.refresh(signal)) ? undefined : 'slow', { intervalMs: 15000 });
   return <section style={{ display: 'grid', gap: '0.75rem' }} aria-label="Mis cobros">
     <h2 style={{ margin: 0 }}>Mis cobros</h2>
     <p style={{ margin: 0, color: 'var(--np-text-mute)' }}>Tu historial de cobros con tarjeta y saldo, incluidas las invitaciones.</p>
@@ -57,6 +32,6 @@ export function MyCobros() {
       <span style={{ color: 'var(--np-text-mute)' }}>{[r.ref, r.methodLabel, r.via].filter(Boolean).join(' · ')}</span>
       <time dateTime={r.createdAt} style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>{new Date(r.createdAt).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' })}</time>
     </Card>)}
-    {cursor ? <Button variant="ghost" onClick={() => void loadMore()} loading={moreBusy} disabled={moreBusy}>Ver anteriores</Button> : null}
+    {cursor ? <Button variant="ghost" onClick={() => void feed.current?.loadMore()} loading={moreBusy} disabled={moreBusy}>Ver anteriores</Button> : null}
   </section>;
 }

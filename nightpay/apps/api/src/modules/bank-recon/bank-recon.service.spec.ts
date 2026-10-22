@@ -234,6 +234,18 @@ describe('importar el fichero de Redsys', () => {
 });
 
 describe('importar el fichero de Paytef (datáfonos)', () => {
+  it('carga el terminal original y su alias de serie para operaciones repetidas', async () => {
+    const { svc, tx } = makeService();
+    tx.payment.findMany.mockResolvedValue([
+      { id: P1, tenantId: SALA_BAMBU, amountCents: 5000, tipCents: 0, authCode: null, authorizedAt: new Date('2026-10-13T21:00:00Z'), posOperationNumber: '77', posTerminalId: 'terminal-a' },
+      { id: P2, tenantId: BAMBU_TERRAZA, amountCents: 2000, tipCents: 0, authCode: null, authorizedAt: new Date('2026-10-13T21:00:00Z'), posOperationNumber: '77', posTerminalId: 'terminal-b' },
+    ]);
+    tx.terminal.findMany.mockResolvedValue([{ id: 'terminal-a', tenantId: SALA_BAMBU, externalId: 'A', deviceSerial: 'SERIAL-A' }, { id: 'terminal-b', tenantId: BAMBU_TERRAZA, externalId: 'B', deviceSerial: 'SERIAL-B' }]);
+    const csv = 'Fecha;Hora;Terminal;Nº Operación;Tipo;Importe;Resultado\n13/10/2026;23:00:00;SERIAL-B;77;Venta;20,00;Aprobada\n13/10/2026;23:00:00;A;77;Venta;50,00;Aprobada';
+    await svc.importStatement(OWNER, { source: 'PAYTEF', fileName: 'paytef.csv', content: Buffer.from(csv) }, NOW);
+    const items = tx.bankStatementItem.createMany.mock.calls[0]![0].data;
+    expect(items).toEqual([expect.objectContaining({ status: 'MATCHED', paymentId: P2 }), expect.objectContaining({ status: 'MATCHED', paymentId: P1 })]);
+  });
   it('casa por número de operación y atribuye lo desconocido al local del datáfono', async () => {
     const csv = [
       'Fecha;Hora;Terminal;Nº Operación;Tipo;Importe;Autorización;Resultado',
@@ -257,7 +269,7 @@ describe('importar el fichero de Paytef (datáfonos)', () => {
     expect(salesWhere.OR).toEqual([{ posOperationNumber: { not: null } }, { provider: 'PAYTEF' }, { captureMethod: 'POS_EXTERNAL' }]);
     expect(strayWhere).toMatchObject({ tenantId: { in: GROUP }, status: { notIn: PAID } });
     expect(strayWhere.posOperationNumber.in).toEqual(expect.arrayContaining(['000099', '99', '000123', '123', '000555', '555']));
-    expect(tx.terminal.findMany.mock.calls[0]![0].where).toEqual({
+    expect(tx.terminal.findMany.mock.calls[1]![0].where).toEqual({
       tenantId: { in: GROUP },
       OR: [
         { externalId: { in: ['PTF-0041', 'TPV-TERRAZA-01', 'PTF-9999'] } },

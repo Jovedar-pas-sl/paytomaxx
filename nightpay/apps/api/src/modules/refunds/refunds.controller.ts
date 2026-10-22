@@ -25,6 +25,7 @@ import { RefundsService } from './refunds.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
 const RefundBodySchema = z.object({
+  idempotencyKey: z.string().min(8).max(128).optional(),
   amountCents: z.number().int().positive(),
   reason: z.string().max(500).optional(),
   totpCode: z.string().regex(/^\d{6}$/).optional(),
@@ -88,14 +89,21 @@ export class RefundsController {
     @Res({ passthrough: true }) reply?: FastifyReply,
   ) {
     const actor = { userId: user.sub, role: user.role, tenantId: user.tenantId };
+    const request = { paymentId, amountCents: body.amountCents, reason: body.reason, ...(body.idempotencyKey ? { idempotencyKey: body.idempotencyKey } : {}) };
+    if (body.idempotencyKey) {
+      const refund = await this.refunds.replay(request, actor);
+      if (refund) return refund;
+      const approval = await this.approvals.replayRefund(actor, request);
+      if (approval) { reply?.status(202); return approval; }
+    }
     const askOwner = () => {
       reply?.status(202);
-      return this.approvals.requestRefund(actor, { paymentId, amountCents: body.amountCents, reason: body.reason });
+      return this.approvals.requestRefund(actor, request);
     };
     if ((await this.approvals.refundRouteFor(actor, body.amountCents, paymentId)) === 'request') return askOwner();
     try {
       return await this.refunds.refund(
-        { paymentId, amountCents: body.amountCents, reason: body.reason, totpCode: body.totpCode },
+        { ...request, totpCode: body.totpCode },
         actor,
       );
     } catch (err) {

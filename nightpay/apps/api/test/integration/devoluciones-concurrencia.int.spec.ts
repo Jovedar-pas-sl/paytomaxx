@@ -9,6 +9,8 @@ import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { RefundsService } from '../../src/modules/refunds/refunds.service';
+import { RefundReversalSweepService } from '../../src/modules/refunds/refund-reversal-sweep.service';
+import { MetricsService } from '../../src/modules/metrics/metrics.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
 
@@ -118,9 +120,9 @@ async function paidPayment(amountCents: number, commissionCents?: number): Promi
   });
 }
 
-function refundAs(owner: string, paymentId: string, amountCents: number) {
+function refundAs(owner: string, paymentId: string, amountCents: number, idempotencyKey?: string) {
   const actor = { userId: owner, role: 'OWNER' as const, tenantId: A };
-  return inVenue(A, () => refunds.refund({ paymentId, amountCents, reason: 'cliente insatisfecho' } as never, actor));
+  return inVenue(A, () => refunds.refund({ paymentId, amountCents, reason: 'cliente insatisfecho', idempotencyKey }, actor));
 }
 
 async function stateOf(paymentId: string) {
@@ -154,6 +156,37 @@ afterAll(async () => {
 });
 
 describe('devoluciones a la vez del mismo cobro (Postgres real)', () => {
+  it('misma intención concurrente y respuesta perdida: una sola reserva, una llamada al banco y replay del refund completo', async () => {
+    const owner = await newOwner();
+    const pay = await paidPayment(5000);
+    const key = randomUUID();
+    bank.calls = 0;
+    bank.answer = 'SUCCEEDED';
+    const results = await Promise.allSettled([refundAs(owner, pay, 5000, key), refundAs(owner, pay, 5000, key)]);
+    const first = results.find((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof refundAs>>> => r.status === 'fulfilled')!;
+    expect(first).toBeDefined();
+    expect(bank.calls).toBe(1);
+    await expect(refundAs(owner, pay, 5000, key)).resolves.toEqual(first.value);
+    expect(await sys((tx) => tx.refund.count({ where: { paymentId: pay } }))).toBe(1);
+    const [otherOwner, otherPay] = [await newOwner(), await paidPayment(5000)];
+    await expect(refundAs(owner, pay, 1000, key)).rejects.toBeInstanceOf(ConflictException);
+    await expect(refundAs(otherOwner, pay, 5000, key)).rejects.toBeInstanceOf(ConflictException);
+    await expect(refundAs(owner, otherPay, 5000, key)).rejects.toBeInstanceOf(ConflictException);
+    expect(bank.calls).toBe(1);
+  });
+
+  it('resultado desconocido conserva la misma reserva al reintentar la clave', async () => {
+    const owner = await newOwner();
+    const pay = await paidPayment(3000);
+    const key = randomUUID();
+    bank.calls = 0;
+    bank.answer = 'PENDING';
+    const first = await refundAs(owner, pay, 3000, key).catch((e: { getResponse(): unknown }) => e.getResponse());
+    const replay = await refundAs(owner, pay, 3000, key).catch((e: { getResponse(): unknown }) => e.getResponse());
+    expect(replay).toEqual(first);
+    expect(bank.calls).toBe(1);
+    expect(await stateOf(pay)).toMatchObject({ pendingCents: 3000, available: 3000 });
+  });
   it('cinco de 15 € sobre un cobro de 60 €: salen cuatro, la quinta no llega al banco', async () => {
     const owner = await newOwner();
     const pay = await paidPayment(6000);
@@ -248,5 +281,46 @@ describe('la reserva cuando el banco no dice que sí (Postgres real)', () => {
       pendingCents: 3000,
       failedCount: 0,
     });
+  });
+});
+
+describe('sweep persistente (Postgres real)', () => {
+  it('100 fallos antiguos dejan avanzar la fila 101 tras reinicio y siguen visibles en backlog/antigüedad', async () => {
+    const owner = await newOwner();
+    const pay = await paidPayment(1000, 900);
+    const now = new Date('2001-01-02T00:00:00Z');
+    const rows = Array.from({ length: 101 }, (_, i) => ({ id: randomUUID(), tenantId: A, paymentId: pay, amountCents: 1, status: 'SUCCEEDED' as const, requestedBy: owner, createdAt: new Date(new Date('2001-01-01T00:00:00Z').getTime() + i * 1000) }));
+    await sys((tx) => tx.refund.createMany({ data: rows }));
+    const ids = rows.map((r) => r.id);
+    const last = rows[100]!;
+    const observations = new MetricsService();
+    const retryPayments = { applyRefundToEarning: vi.fn(async (p: string, id: string, amount: number) => {
+      if (id !== last.id) throw new Error('persistent failure');
+      await payments.applyRefundToEarning(p, id, amount);
+    }) };
+    const sweep = new RefundReversalSweepService(prisma, retryPayments as never, observations);
+    try {
+      expect(await sweep.sweep(now)).toEqual({ checked: 100, applied: 0, failed: 100 });
+      const restarted = new RefundReversalSweepService(prisma, retryPayments as never, observations);
+      expect(await restarted.sweep(new Date(now.getTime() + 10 * 60_000))).toEqual({ checked: 1, applied: 1, failed: 0 });
+      expect(retryPayments.applyRefundToEarning).toHaveBeenLastCalledWith(pay, last.id, 1);
+      const deferred = await sys((tx) => tx.refund.findMany({ where: { id: { in: ids }, earningReversalRetryAt: { not: null } } }));
+      expect(deferred).toHaveLength(100);
+      expect(deferred.every((r) => r.createdAt < now && r.earningReversalRetryAt! > now)).toBe(true);
+      sweep.onModuleInit();
+      await observations.render();
+      const backlog = await observations.earningReversalPending.get();
+      const age = await observations.earningReversalOldestAge.get();
+      expect(backlog.values[0]!.value).toBeGreaterThanOrEqual(100);
+      expect(age.values[0]!.value).toBeGreaterThan(100_000_000);
+    } finally {
+      sweep.onModuleDestroy();
+      await sys(async (tx) => {
+        await tx.earningReversal.deleteMany({ where: { refundId: { in: ids } } });
+        await tx.refund.deleteMany({ where: { id: { in: ids } } });
+        await tx.operatorEarning.deleteMany({ where: { paymentId: pay } });
+        await tx.payment.delete({ where: { id: pay } });
+      });
+    }
   });
 });

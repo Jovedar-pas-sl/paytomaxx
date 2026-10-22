@@ -4,6 +4,8 @@ import { CartaService } from './carta.service';
 
 function makeService(existing: Record<string, unknown> | null = null, sections: Record<string, unknown> | null = null) {
   const prisma = {
+    $queryRaw: vi.fn().mockResolvedValue([{ id: 'tenant-1' }]),
+    withTenant: vi.fn(),
     venue: { findUnique: vi.fn().mockResolvedValue({ sections }) },
     serviceItem: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -19,12 +21,24 @@ function makeService(existing: Record<string, unknown> | null = null, sections: 
       })),
     },
   };
+  prisma.withTenant.mockImplementation(async (_tenant: string, fn: (tx: typeof prisma) => unknown) => fn(prisma));
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const service = new CartaService(prisma as any, audit as any);
   return { service, prisma, audit };
 }
 
 describe('CartaService', () => {
+  it.each(['create', 'update'] as const)('%s serializa con la plantilla: bloquea el local antes de leer, validar y escribir', async (method) => {
+    const { service, prisma } = makeService({ id: 'item-1', name: 'Copa', priceCents: 1000, category: 'VENUE_BAR', components: null });
+    if (method === 'create') await service.create('tenant-1', 'owner', { name: 'Copa', priceCents: 1000, category: 'VENUE_BAR' });
+    else await service.update('tenant-1', 'owner', 'item-1', { priceCents: 1200 });
+    expect(prisma.withTenant).toHaveBeenCalledWith('tenant-1', expect.any(Function));
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    const lockOrder = prisma.$queryRaw.mock.invocationCallOrder[0]!;
+    expect(lockOrder).toBeLessThan(prisma.serviceItem[method].mock.invocationCallOrder[0]!);
+    if (method === 'update') expect(lockOrder).toBeLessThan(prisma.serviceItem.findFirst.mock.invocationCallOrder[0]!);
+    else expect(lockOrder).toBeLessThan(prisma.venue.findUnique.mock.invocationCallOrder[0]!);
+  });
   it('las apps ven lo activo de las secciones encendidas (con las partes de cada pack)', async () => {
     const { service, prisma } = makeService(null, { VENUE_FOOD: { enabled: false } });
     prisma.serviceItem.findMany.mockResolvedValueOnce([

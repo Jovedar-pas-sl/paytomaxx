@@ -65,11 +65,11 @@ if [ -z "$URL" ]; then
   # La imagen marca "listo" un momento antes de su reinicio final: margen.
   sleep 2
   run_psql() { docker exec -i "$CONTAINER" psql -X -v ON_ERROR_STOP=1 -U postgres -d nightpay "$@"; }
-  run_restore() { docker exec -i "$CONTAINER" pg_restore --no-owner --no-acl -U postgres -d nightpay; }
+  run_restore() { docker exec -i "$CONTAINER" pg_restore --exit-on-error --no-owner --no-acl -U postgres -d nightpay; }
 else
   command -v psql >/dev/null && command -v pg_restore >/dev/null || fail "con --url hacen falta psql y pg_restore"
   run_psql() { psql -X -v ON_ERROR_STOP=1 "$URL" "$@"; }
-  run_restore() { pg_restore --no-owner --no-acl -d "$URL"; }
+  run_restore() { pg_restore --exit-on-error --no-owner --no-acl -d "$URL"; }
   # Nunca encima de una base con datos (p. ej. la de producción por error).
   existing="$(run_psql -tAc "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")"
   [ "$existing" = "0" ] || fail "la base de --url no está vacía ($existing tablas): usa una base nueva de usar y tirar"
@@ -78,13 +78,55 @@ fi
 echo "[restore-check] restaurando…"
 start=$(date +%s)
 if [ "$FORMAT" = "custom" ]; then
-  # pg_restore se queja de cosas sin importancia (dueños, extensiones ya
-  # creadas); lo que cuenta es lo que hay al final.
-  "${reader[@]}" | run_restore || echo "[restore-check] pg_restore terminó con avisos (se comprueba lo restaurado)"
+  # Dueños y ACL ya se omiten explícitamente. Cualquier otro error invalida
+  # la prueba, aunque las tablas principales hayan recibido filas.
+  "${reader[@]}" | run_restore || fail "pg_restore falló: la restauración está incompleta"
 else
   "${reader[@]}" | run_psql -q >/dev/null
 fi
 echo "[restore-check] restaurada en $(( $(date +%s) - start )) s"
+
+# Un dump solo de datos o sin post-data puede tener filas pero carecer de las
+# garantías de integridad. Este es un mínimo estable, no una migración al HEAD.
+schema_ok="$(run_psql -tA <<'SQL'
+-- restore-schema
+SELECT
+  NOT EXISTS (
+    SELECT 1 FROM (VALUES
+      ('payments', 'id'), ('payments', 'tenantId'), ('payments', 'status'),
+      ('payments', 'amountCents'), ('payments', 'createdAt'),
+      ('client_wallets', 'id'), ('client_wallets', 'tenantId'), ('client_wallets', 'balanceCents'),
+      ('operator_earnings', 'id'), ('operator_earnings', 'tenantId'), ('operator_earnings', 'commissionCents')
+    ) AS required(tbl, col)
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns c
+      WHERE c.table_schema = 'public' AND c.table_name = required.tbl AND c.column_name = required.col)
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM (VALUES
+      ('payments', 'payments_pkey'), ('payments', 'payments_tenantId_fkey'),
+      ('client_wallets', 'client_wallets_pkey'), ('client_wallets', 'client_wallets_tenantId_fkey'),
+      ('client_wallets', 'client_wallets_balance_nonneg'),
+      ('operator_earnings', 'operator_earnings_pkey'),
+      ('operator_earnings', 'operator_earnings_tenantId_fkey'),
+      ('operator_earnings', 'operator_earnings_source_xor'),
+      ('operator_earnings', 'operator_earnings_reversed_bounded')
+    ) AS required(tbl, constraint_name)
+    WHERE NOT EXISTS (SELECT 1 FROM pg_constraint c
+      JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace
+      WHERE n.nspname = 'public' AND t.relname = required.tbl
+        AND c.conname = required.constraint_name AND c.convalidated)
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM (VALUES ('payments_tenantId_idempotencyKey_key'), ('client_wallets_qrToken_key')) AS required(idx)
+    WHERE NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class x ON x.oid = i.indexrelid
+      JOIN pg_namespace n ON n.oid = x.relnamespace
+      WHERE n.nspname = 'public' AND x.relname = required.idx AND i.indisunique AND i.indisvalid)
+  )
+  AND EXISTS (SELECT 1 FROM public._prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL)
+  AND NOT EXISTS (SELECT 1 FROM public._prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL);
+SQL
+)" || fail "no se pudo validar el esquema o las migraciones"
+[ "$schema_ok" = t ] || fail "faltan columnas, constraints, índices únicos o migraciones completas"
 
 # Como superusuario/dueño y con el bypass de RLS puesto: que no esconda filas.
 counts="$(run_psql -tA -F ' ' <<'SQL'

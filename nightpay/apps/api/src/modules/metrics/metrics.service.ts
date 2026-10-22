@@ -1,5 +1,15 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client';
+import type { Queue } from 'bullmq';
+
+const PENDING_STATES = ['waiting', 'active', 'delayed', 'prioritized', 'waiting-children', 'paused'] as const;
+// BullMQ keeps creation timestamp across retries/promotions. Availability cannot
+// be reconstructed from timestamp + delay: delay is relative to the retry time.
+const AGE_STATES = ['waiting', 'active', 'prioritized', 'paused'] as const;
+const QUEUE_STATES = [...PENDING_STATES, 'failed', 'completed'] as const;
+type QueueSource = Pick<Queue, 'name' | 'getJobCounts'> & {
+  getJobs: (...args: Parameters<Queue['getJobs']>) => Promise<Array<{ timestamp: number; delay?: number } | undefined>>;
+};
 
 /**
  * MetricsService — Prometheus exporter (text format /metrics).
@@ -58,6 +68,34 @@ export class MetricsService implements OnModuleInit {
       this.earningReversalFailedCounter.inc({ venue: labels.venue }, value);
     },
   };
+  readonly earningReversalPending = new Gauge({ name: 'nightpay_earning_reversal_pending', help: 'Devoluciones hechas pendientes de descontar la ganancia, incluidos reintentos diferidos', registers: [this.registry] });
+  readonly earningReversalOldestAge = new Gauge({ name: 'nightpay_earning_reversal_oldest_age_seconds', help: 'Antigüedad desde la devolución original de la reversión pendiente más antigua', registers: [this.registry] });
+  readonly earningReversalMetricsUp = new Gauge({ name: 'nightpay_earning_reversal_metrics_up', help: '1 si se pudo consultar el backlog de reversiones en este scrape', registers: [this.registry] });
+  private reversalSource?: () => Promise<{ pending: number; oldestAgeSeconds: number }>;
+
+  observeEarningReversals(source: () => Promise<{ pending: number; oldestAgeSeconds: number }>): () => void {
+    this.reversalSource = source;
+    return () => { if (this.reversalSource === source) this.reversalSource = undefined; };
+  }
+
+  private async collectEarningReversals(): Promise<void> {
+    const source = this.reversalSource;
+    if (!source) return;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const data = await Promise.race([
+        source(), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('Reversal metrics timeout')), 2000); }),
+      ]);
+      if (this.reversalSource !== source) return;
+      this.earningReversalPending.set(data.pending);
+      this.earningReversalOldestAge.set(data.oldestAgeSeconds);
+      this.earningReversalMetricsUp.set(1);
+    } catch {
+      this.earningReversalPending.remove();
+      this.earningReversalOldestAge.remove();
+      this.earningReversalMetricsUp.set(0);
+    } finally { if (timeout) clearTimeout(timeout); }
+  }
 
   // Wallet top-up AUTHORIZED pero credit no aplicado (wallet status != ACTIVE).
   // También crítico — el cliente fue cargado y el wallet no recibió el saldo.
@@ -146,10 +184,79 @@ export class MetricsService implements OnModuleInit {
   });
   readonly queueDepth = new Gauge({
     name: 'nightpay_queue_depth',
-    help: 'Tamaño actual de cada cola BullMQ',
+    help: 'Trabajos sin terminar en BullMQ (waiting, active, delayed, prioritized, waiting-children, paused)',
     labelNames: ['queue'],
     registers: [this.registry],
   });
+  readonly queueJobs = new Gauge({
+    name: 'nightpay_queue_jobs', help: 'Trabajos BullMQ por estado',
+    labelNames: ['queue', 'state'], registers: [this.registry],
+  });
+  readonly queueOldestAge = new Gauge({
+    name: 'nightpay_queue_oldest_age_seconds', help: 'Edad desde creación del trabajo más antiguo en waiting/active/prioritized/paused; excluye delayed y waiting-children',
+    labelNames: ['queue'], registers: [this.registry],
+  });
+  readonly queueMetricsUp = new Gauge({
+    name: 'nightpay_queue_metrics_up', help: '1 si se pudo consultar BullMQ en este scrape, 0 si falló',
+    labelNames: ['queue'], registers: [this.registry],
+  });
+  private readonly queueSources = new Set<QueueSource>();
+  private queueCollection?: Promise<void>;
+
+  /** BullMQ owns connections; the registering module removes sources before shutdown. */
+  observeQueues(queues: readonly QueueSource[]): () => void {
+    queues.forEach((queue) => this.queueSources.add(queue));
+    return () => queues.forEach((queue) => {
+      this.queueSources.delete(queue);
+      this.clearQueue(queue.name);
+      this.queueMetricsUp.remove({ queue: queue.name });
+    });
+  }
+
+  private clearQueue(queue: string): void {
+    this.queueDepth.remove({ queue });
+    this.queueOldestAge.remove({ queue });
+    QUEUE_STATES.forEach((state) => this.queueJobs.remove({ queue, state }));
+  }
+
+  private async oldestQueueAge(queue: QueueSource, deadline: number): Promise<number> {
+    let oldest = 0;
+    // getJobs applies pagination to each state. Read every page rather than
+    // assuming priority order or retry order implies oldest creation time.
+    for (let start = 0; ; start += 500) {
+      if (!this.queueSources.has(queue)) return 0;
+      if (Date.now() >= deadline) throw new Error('BullMQ metrics timeout');
+      const jobs = await queue.getJobs([...AGE_STATES], start, start + 499);
+      const now = Date.now();
+      oldest = jobs.reduce((age, job) => job ? Math.max(age, (now - job.timestamp) / 1000) : age, oldest);
+      if (jobs.length < 500) return oldest;
+    }
+  }
+
+  private async collectQueue(queue: QueueSource): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const [counts, age] = await Promise.race([
+        Promise.all([
+          queue.getJobCounts(...QUEUE_STATES),
+          this.oldestQueueAge(queue, Date.now() + 2000),
+        ]),
+        new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('BullMQ metrics timeout')), 2000); }),
+      ]);
+      if (!this.queueSources.has(queue)) return;
+      const labels = { queue: queue.name };
+      QUEUE_STATES.forEach((state) => this.queueJobs.set({ ...labels, state }, counts[state] ?? 0));
+      this.queueDepth.set(labels, PENDING_STATES.reduce((sum, state) => sum + (counts[state] ?? 0), 0));
+      this.queueOldestAge.set(labels, age);
+      this.queueMetricsUp.set(labels, 1);
+    } catch {
+      if (!this.queueSources.has(queue)) return;
+      this.clearQueue(queue.name);
+      this.queueMetricsUp.set({ queue: queue.name }, 0);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
 
   onModuleInit(): void {
     // Default metrics: process_cpu_seconds, process_memory_bytes, nodejs_eventloop_lag, etc.
@@ -158,6 +265,12 @@ export class MetricsService implements OnModuleInit {
 
   /** Devuelve el dump en formato Prometheus text. */
   async render(): Promise<string> {
+    this.queueCollection ??= Promise.all([...this.queueSources].map((queue) => this.collectQueue(queue)).concat(this.collectEarningReversals())).then(() => undefined);
+    try {
+      await this.queueCollection;
+    } finally {
+      this.queueCollection = undefined;
+    }
     return this.registry.metrics();
   }
 }

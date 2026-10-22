@@ -36,7 +36,7 @@ const APPROVAL = '00000000-0000-4000-8000-0000000000dd';
 const USER = '00000000-0000-4000-8000-000000000001';
 const venue = { name: 'Luna', payoutRequiresApproval: true, refundApprovalThresholdCents: 10_000 };
 
-const refunds = { refund: vi.fn() };
+const refunds = { refund: vi.fn(), replay: vi.fn(async () => null) };
 /** Permisos del local (Ajustes → Permisos) que lee el guard: null = los de siempre. */
 let staffPermissions: unknown = null;
 const prisma = {
@@ -45,6 +45,7 @@ const prisma = {
   ),
 };
 const requests = {
+  replayRefund: vi.fn(async () => null),
   refundRouteFor: vi.fn(async (actor: { role: 'OWNER' | 'MANAGER' }, cents: number, _payment: string) =>
     refundRoute(actor.role, cents, venue),
   ),
@@ -106,6 +107,8 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  refunds.replay.mockReset().mockResolvedValue(null);
+  requests.replayRefund.mockReset().mockResolvedValue(null);
   staffPermissions = null;
   refunds.refund.mockReset().mockResolvedValue({ id: 'rf-1', status: 'SUCCEEDED', amountCents: 5_000 });
   requests.requestRefund.mockReset().mockResolvedValue({
@@ -131,6 +134,17 @@ function call(method: 'GET' | 'POST', url: string, role: 'OWNER' | 'MANAGER' | '
 }
 
 describe('POST /v1/payments/:id/refunds — el encargado desde el umbral pide (202)', () => {
+  it('pasa la clave original a la devolución y al replay antes de consultar la ruta', async () => {
+    const body = { amountCents: 5000, reason: 'queja', idempotencyKey: 'refund-http-intention' };
+    const res = await call('POST', `/v1/payments/${PAYMENT}/refunds`, 'OWNER', body);
+    expect(res.statusCode).toBe(201);
+    expect(refunds.refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: body.idempotencyKey }), expect.anything());
+    refunds.replay.mockResolvedValueOnce({ id: 'rf-1', status: 'SUCCEEDED', amountCents: 5000 } as never);
+    refunds.refund.mockClear();
+    const replay = await call('POST', `/v1/payments/${PAYMENT}/refunds`, 'OWNER', body);
+    expect(replay.statusCode).toBe(201);
+    expect(refunds.refund).not.toHaveBeenCalled();
+  });
   it('encargado, 150 € (≥ 100 €): 202 con { approvalRequestId, status: PENDING, mensaje } y no se devuelve nada', async () => {
     const res = await call('POST', `/v1/payments/${PAYMENT}/refunds`, 'MANAGER', { amountCents: 15_000, reason: 'queja' });
     expect(res.statusCode).toBe(202);

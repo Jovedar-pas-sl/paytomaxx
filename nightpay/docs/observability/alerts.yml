@@ -13,12 +13,17 @@ groups:
           description: "Sin scrape exitoso durante 1 min. Posible crash, DB caída, o port-block."
 
       - alert: HighErrorRate
-        # 5xx representado por http_requests_total{status=~"5.."} si tienes ese
-        # counter. Aquí usamos transiciones FSM a FAILED como proxy.
+        # Proxy global por job: FAILED / creados en la ventana; no es HTTP 5xx
+        # ni una cohorte de pagos. Las etiquetas FSM (from/to) no coinciden con
+        # venue/provider: sumar primero también combina réplicas del mismo job.
         expr: |
-          rate(nightpay_payments_transitioned_total{to="FAILED"}[5m])
-            /
-          rate(nightpay_payments_created_total[5m]) > 0.10
+          (
+            sum by (job) (rate(nightpay_payments_transitioned_total{to="FAILED"}[5m]))
+              /
+            sum by (job) (rate(nightpay_payments_created_total[5m])) > 0.10
+          )
+          and on (job)
+          (sum by (job) (rate(nightpay_payments_created_total[5m])) > 0)
         for: 5m
         labels:
           severity: critical
@@ -36,19 +41,6 @@ groups:
         annotations:
           summary: "Circuit breaker abierto para {{ $labels.provider }}/{{ $labels.op }}"
           description: "La pasarela ha fallado repetidamente. Pagos pueden estar afectados."
-
-      - alert: PayoutsReconcileBacklog
-        # No tenemos métrica directa de pendientes — alerta heurística: si
-        # llevamos >24h sin marcar payouts MATCHED, algo está mal.
-        expr: |
-          (time() - last_over_time(timestamp(rate(nightpay_payments_transitioned_total[5m]))[24h:5m]))
-            > 86400
-        for: 1h
-        labels:
-          severity: warning
-        annotations:
-          summary: "Sin reconciliación payouts en 24h"
-          description: "Phase 1A — recon cron puede estar caída."
 
   - name: nightpay-warning
     interval: 1m
@@ -79,6 +71,50 @@ groups:
         annotations:
           summary: "Cola {{ $labels.queue }} > 1000 jobs por 10 min"
           description: "Workers atascados o lentos."
+
+      - alert: EarningReversalOldest
+        expr: nightpay_earning_reversal_oldest_age_seconds > 1800
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Devolución hecha sin descontar la ganancia desde hace más de 30 min"
+          description: "Revisar earning_reversals; la antigüedad incluye los fallos con reintento diferido."
+
+      - alert: EarningReversalMetricsUnavailable
+        expr: nightpay_earning_reversal_metrics_up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No se puede consultar el backlog de descuentos por devolución"
+
+      - alert: QueueOldestJob
+        expr: nightpay_queue_oldest_age_seconds > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cola {{ $labels.queue }} con trabajo listo o activo creado hace más de 10 min"
+          description: "Edad desde creación en waiting/active/prioritized/paused; excluye delayed y waiting-children. No mide tiempo desde promoción o reintento."
+
+      - alert: QueueMetricsUnavailable
+        expr: nightpay_queue_metrics_up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No se puede consultar la cola {{ $labels.queue }}"
+          description: "Redis falló o excedió 2 s; backlog y antigüedad se omiten para no mostrar datos antiguos."
+
+      - alert: QueueFailedJobs
+        expr: nightpay_queue_jobs{state="failed"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cola {{ $labels.queue }} con trabajos fallidos retenidos"
+          description: "Revisar el error antes de reintentar; los fallidos no se cuentan como trabajo pendiente."
 
       - alert: WSConnectionsAbnormal
         expr: nightpay_ws_connections_active > 500
