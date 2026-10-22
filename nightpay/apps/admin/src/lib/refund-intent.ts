@@ -65,10 +65,17 @@ export function refundIntentKey(paymentId: string, now: number = Date.now()): st
     memory.set(paymentId, saved);
     return saved.key;
   }
-  const fresh = { key: crypto.randomUUID(), createdAt: now };
+  const fresh = { key: newKey(), createdAt: now };
   memory.set(paymentId, fresh);
   store(paymentId, fresh);
   return fresh.key;
+}
+
+/** UUID v4; fuera de HTTPS (sin randomUUID, p. ej. el panel por la IP del local) 32 hex aleatorios. */
+function newKey(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /** La devolución de esta clave ya tiene respuesta: la siguiente del cobro es otra. */

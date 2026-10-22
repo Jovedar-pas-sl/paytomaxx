@@ -128,3 +128,21 @@ describe('devolución desde el panel: una clave por intención', () => {
     expect(b).toBe(a);
   });
 });
+
+describe('fuera de HTTPS (sin crypto.randomUUID)', () => {
+  it('la clave sale igual de aleatoria y vale para el reintento', async () => {
+    const original = crypto.randomUUID;
+    Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true });
+    try {
+      const id = nextPayment();
+      vi.mocked(authedFetch).mockRejectedValueOnce(new Error('Failed to fetch')).mockImplementation(async () => ok());
+      await expect(refundPayment(id, 1000)).rejects.toThrow();
+      await refundPayment(id, 1000);
+      const [a, b] = sentKeys();
+      expect(a).toMatch(/^[0-9a-f]{32}$/);
+      expect(b).toBe(a);
+    } finally {
+      Object.defineProperty(crypto, 'randomUUID', { value: original, configurable: true });
+    }
+  });
+});
