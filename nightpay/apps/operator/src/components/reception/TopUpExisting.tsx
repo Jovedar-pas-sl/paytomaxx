@@ -338,7 +338,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
             <b>Saldo {found.view.code}</b>
             <span>
               Tiene {formatEur(found.view.balanceCents, { compact: true })}
-              {found.view.fichaNumber !== null ? ` · ${fichaText(found.view.fichaNumber)}` : ''}
+              {found.view.fichaNumber !== null ? ` · ${fichaText(found.view.printedNumber)}` : ''}
             </span>
           </div>
         </div>

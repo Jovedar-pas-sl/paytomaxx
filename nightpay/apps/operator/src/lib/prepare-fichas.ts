@@ -12,7 +12,10 @@ export function isSameTapAgain(last: { uid: string | null; at: number } | null, 
 }
 
 
-/** Staff records the physical alias before scanning the next available card. */
-export function needsPrintedNumber(on: 'staff' | 'device', outcome: import('@nightpay/contracts').StockOutcome): boolean {
-  return on === 'staff' && (outcome.outcome === 'stocked' || outcome.outcome === 'already' || outcome.outcome === 'returned') && !outcome.printedNumber;
+/**
+ * Antes de acercar la siguiente, el número impreso de la que se acaba de
+ * preparar (en el móvil del personal y en el datáfono), si aún no lo tiene.
+ */
+export function needsPrintedNumber(outcome: import('@nightpay/contracts').StockOutcome): boolean {
+  return (outcome.outcome === 'stocked' || outcome.outcome === 'already' || outcome.outcome === 'returned') && !outcome.printedNumber;
 }

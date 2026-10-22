@@ -124,6 +124,8 @@ export const deviceBackend: ReceptionBackend & {
   setPin: (w, pin) => call(`/v1/pos-device/reception/wallets/${encodeURIComponent(w.walletId)}/pin`, json({ pin })),
   newToken: async () => (await call<{ card: string }>('/v1/pos-device/reception/fichas/token', json({}))).card,
   stock: (card, uid) => call('/v1/pos-device/reception/fichas/stock', json(cardBody(card, uid))),
+  // «Preparar fichas» del datáfono: también su número impreso (con la ficha delante).
+  labelStock: (card, uid, printedNumber) => call('/v1/pos-device/reception/fichas/number', json({ card, uid, printedNumber })),
 };
 
 /** El móvil del personal (su sesión). */

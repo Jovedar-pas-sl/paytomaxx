@@ -928,10 +928,3 @@ export async function receptionFichaNumber(card: string, uid: string, printedNum
   return res.json();
 }
 
-
-/** Read the reception view by a physical factory number; never a payment credential. */
-export async function receptionFichaLookupNumber(printedNumber: string): Promise<import('@nightpay/contracts').ReceptionDeskView> {
-  const res = await authedFetch('/v1/reception/fichas/lookup-number', { method: 'POST', body: JSON.stringify({ printedNumber }) });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Ficha'));
-  return res.json();
-}

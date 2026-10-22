@@ -169,12 +169,8 @@ export function ExitStep(props: {
   busy: boolean;
   onKeep: () => void;
   onRefund: () => void;
-  /** El encargado tiene que poner su código 2FA. */
-  totp: string | null;
-  onTotp: (code: string) => void;
   onReadNfc?: () => void;
 }) {
-  const [code, setCode] = useState('');
   const { plan } = props;
   return (
     <>
@@ -183,7 +179,7 @@ export function ExitStep(props: {
         <span className={s.kick}>{plan.balanceCents > 0 ? 'Le quedan' : 'No le queda saldo'}</span>
         <p className={s.bignum}>{formatEur(plan.balanceCents, { compact: true })}</p>
       </div>
-      <DeskBtn kind="pri" size="xl" label="Guardar para la próxima" small="No caduca · se lleva su NFC" onClick={props.onKeep} disabled={props.busy} />
+      <DeskBtn kind="pri" size="xl" label="Guardar para la próxima" small={plan.keepDetail} onClick={props.onKeep} disabled={props.busy} />
       {plan.refundLabel ? (
         <DeskBtn
           kind="gho"
@@ -197,40 +193,26 @@ export function ExitStep(props: {
       ) : null}
       {plan.note && !plan.refundBlocked?.includes(plan.note) ? <p className={s.lbl}>{plan.note}</p> : null}
       {props.onReadNfc ? <DeskBtn kind="gho" label="Acercar NFC original" onClick={props.onReadNfc} disabled={props.busy} /> : null}
-      {props.totp ? (
-        <form
-          className={s.foot}
-          onSubmit={(e) => {
-            e.preventDefault();
-            props.onTotp(code);
-          }}
-        >
-          <Input
-            label={props.totp}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
-            size="lg"
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            style={{ textAlign: 'center', letterSpacing: '0.3em' }}
-          />
-          <DeskBtn kind="pri" label="Seguir con el PIN del cliente" disabled={code.length !== 6} busy={props.busy} onClick={() => props.onTotp(code)} />
-        </form>
-      ) : null}
     </>
   );
 }
 
-/** Printed aliases retain leading zeroes; a lookup never proves possession of the NFC. */
-export function NumberStep({ busy, onFind }: { busy: boolean; onFind: (number: string) => void }) {
+/**
+ * Buscar por el número impreso en la ficha (tal cual, con sus ceros): solo
+ * para un saldo que ya existe. Una ficha nueva se carga acercándola.
+ */
+export function NumberStep({ busy, error, onFind }: { busy: boolean; error: string | null; onFind: (number: string) => void }) {
   const [number, setNumber] = useState('');
-  return <form onSubmit={(event) => { event.preventDefault(); if (/^\d{1,12}$/.test(number) && !busy) onFind(number); }}>
-    <Input label="Número impreso en la ficha" inputMode="numeric" autoComplete="off" maxLength={12}
-      value={number} onChange={(event) => setNumber(event.target.value.replace(/\D/g, '').slice(0, 12))} size="lg" />
-    <p className={s.lbl}>Escríbelo tal como aparece, incluidos los ceros del principio. Para devolver efectivo hace falta acercar el NFC original.</p>
-    <DeskBtn kind="pri" label="Buscar ficha" disabled={!/^\d{1,12}$/.test(number)} busy={busy} onClick={() => onFind(number)} />
-  </form>;
+  const ok = /^\d{1,12}$/.test(number);
+  return (
+    <form onSubmit={(event) => { event.preventDefault(); if (ok && !busy) onFind(number); }}>
+      <Input label="Número impreso en la ficha" inputMode="numeric" autoComplete="off" maxLength={12}
+        value={number} onChange={(event) => setNumber(event.target.value.replace(/\D/g, '').slice(0, 12))} size="lg" />
+      <p className={s.lbl}>Como aparece en la ficha. Solo para saldos que ya existen: una ficha nueva se carga acercándola, y para devolver efectivo hace falta el NFC original.</p>
+      {error ? <p role="alert" className={s.error}>{error}</p> : null}
+      <DeskBtn kind="pri" label="Buscar ficha" disabled={!ok} busy={busy} onClick={() => onFind(number)} />
+    </form>
+  );
 }
 
 /** «Escribir el código»: las seis casillas; al poner la sexta, se busca solo. */
