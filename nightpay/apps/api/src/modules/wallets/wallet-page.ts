@@ -8,6 +8,7 @@ import { GOOGLE_WALLET_BUTTONS } from './google-wallet/google-wallet-button';
 import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
 import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topUpOffNote } from './wallet-topup-view';
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
+import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, marca
@@ -209,7 +210,7 @@ function moreList(lang: PayLanguage): string {
 <div id="movBox"><ul id="movements"></ul></div>
 </div>
 </section>
-`;
+${lostButton(lang)}`;
 }
 
 /**
@@ -261,7 +262,7 @@ export function renderWalletPage(
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0f1112"><title>${h(t.title)}</title>
-<style>${CLUB_BASE_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}</style></head><body><main class="w">
+<style>${CLUB_BASE_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}</style></head><body><main class="w">
 <div class="top"><p class="kick">${brandWordmark('')}<span class="sr">${h(t.title)}</span></p><a class="link" id="lang" href="${h(`${base}?lang=${t.other.code}`)}" lang="${t.other.code}" hreflang="${t.other.code}">${h(t.other.label)}</a></div>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
@@ -276,7 +277,7 @@ ${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelled
 </section>
 ${viewTabs(lang)}${payView(lang, state, gw)}${topUpView(lang, options)}${moreList(lang)}<p class="small">${h(t.saveHint)}</p>
 </main>
-<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTitle">
+${lostSheet(lang)}<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTitle">
 <h2 id="leaveTitle"></h2><p id="leaveHow"></p>
 <p class="err" id="leaveErr" role="alert" hidden></p>
 <button class="btn" type="button" id="leaveGo">${h(t.leaveGo)}</button>
@@ -357,6 +358,7 @@ function render(s){S=s;S.cards=s.cards||[];
   mt.className='mt';a.textContent=m.label;sub.textContent=[m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');mt.appendChild(a);mt.appendChild(sub);
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.amountCents>0?'plus':'minus')+' num';
   li.appendChild(sw);li.appendChild(mt);li.appendChild(b);ul.appendChild(li);});
+ lostRender(s);
  var can=topRender(s);
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
  segShow(can||C.paid);}
@@ -397,6 +399,7 @@ $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)retu
   .then(function(){busy=false;busyBtn(b,false);});});${gw ? GOOGLE_WALLET_JS : ''}
 ${SCAN_JS}
 ${TOPUP_JS}
+${LOST_JS}
 ${VIEWS_JS}
 if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';
 render(S);

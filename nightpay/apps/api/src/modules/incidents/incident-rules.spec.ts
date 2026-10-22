@@ -13,6 +13,7 @@ import {
   paymentAnomalyIncident,
   posVoidedPaidIncident,
   stuckIncident,
+  walletCardLostIncident,
 } from './incident-rules';
 import { incidentMessage, morningSummaryMessage } from './alert-messages';
 import type { ExportSummary } from '../reports/export-csv';
@@ -228,5 +229,22 @@ describe('efectivo troceado en saldos nuevos', () => {
     expect(i).toMatchObject({ kind: 'cash_split_suspected', refId: 'audit-1', amountCents: 120_000, ackable: true, paymentId: null });
     expect(i.detail).toMatch(/^2 saldos nuevos en efectivo/);
     expect(ACKABLE_KINDS as readonly string[]).toContain('cash_split_suspected');
+  });
+});
+
+describe('«He perdido mi NFC»', () => {
+  it('sale en la bandeja del local que dio el NFC, se marca como revisada y a Telegram va sin el código', () => {
+    const i = walletCardLostIncident({
+      id: 'audit-9', paymentId: null, amountCents: 3_000, occurredAt: new Date('2026-10-27T01:06:00Z'), payload: { code: 'K7Q-4M2', cards: 1, via: 'client_passkey' },
+    });
+    expect(i).toMatchObject({ kind: 'wallet_card_lost', refId: 'audit-9', amountCents: 3_000, ackable: true, paymentId: null, title: 'Un cliente ha bloqueado su NFC' });
+    expect(i.detail).toContain('Su saldo K7Q-4M2 (30,00 €) sigue valiendo con su código y PIN o su Face ID');
+    expect(i.detail).toContain('dale un NFC nuevo');
+    expect(i.alertDetail).not.toContain('K7Q');
+    expect(incidentMessage('Sala', i)).not.toContain('K7Q');
+    expect(ACKABLE_KINDS as readonly string[]).toContain('wallet_card_lost');
+    expect(SELF_RESOLVING.has('wallet_card_lost')).toBe(false);
+    const bare = walletCardLostIncident({ id: 'a', paymentId: null, amountCents: null, occurredAt: new Date(), payload: null });
+    expect(bare.detail).toContain('Su saldo sigue valiendo');
   });
 });

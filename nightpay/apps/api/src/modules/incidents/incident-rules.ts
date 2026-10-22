@@ -31,7 +31,8 @@ export type IncidentKind =
   | 'pos_unproven_sales'
   | 'pos_reception_limit'
   | 'cash_split_suspected'
-  | 'wallet_topup_unassigned';
+  | 'wallet_topup_unassigned'
+  | 'wallet_card_lost';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -65,6 +66,7 @@ export const ACKABLE_KINDS = [
   'pos_unproven_sales',
   'pos_reception_limit',
   'cash_split_suspected',
+  'wallet_card_lost',
 ] as const satisfies readonly IncidentKind[];
 
 export interface Incident {
@@ -179,6 +181,25 @@ export function cashSplitIncident(r: EventRow): Incident {
     refId: r.id,
     title: 'Efectivo troceado en saldos nuevos',
     detail: `${count ? `${count} saldos nuevos` : 'Varios saldos nuevos'} en efectivo seguidos de la misma persona o datáfono pasan de 1.000 € (cada saldo tiene su tope; juntos podrían ser una sola entrega). Revisa las recargas en efectivo.`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
+    ackable: true,
+  };
+}
+
+/** «He perdido mi NFC»: el cliente bloqueó su NFC desde su móvil (WalletLostCardService). */
+export function walletCardLostIncident(r: EventRow): Incident {
+  const code = str(r.payload, 'code');
+  const saldo = r.amountCents !== null ? ` (${eur(r.amountCents)})` : '';
+  const keeps = 'sigue valiendo con su código y PIN o su Face ID. Si viene a recepción, dale un NFC nuevo con su código.';
+  return {
+    kind: 'wallet_card_lost',
+    refId: r.id,
+    title: 'Un cliente ha bloqueado su NFC',
+    detail: `Lo marcó como perdido en su móvil, con su Face ID: ya no paga. Su saldo${code ? ` ${code}` : ''}${saldo} ${keeps}`,
+    // Telegram es un tercero: sin el código del cliente.
+    alertDetail: `Lo marcó como perdido en su móvil, con su Face ID: ya no paga. Su saldo${saldo} ${keeps}`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,

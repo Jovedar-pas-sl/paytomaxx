@@ -108,6 +108,14 @@ export interface WalletText {
   /** «Pagado» de la recarga al volver del banco. */
   proofWhat: string;
   proofAdded: string;
+  // «He perdido mi NFC» (`{amount}` y `{code}` los rellena el JS)
+  lostButton: string;
+  lostTitle: string;
+  lostWhy: string;
+  lostSafe: string;
+  lostGo: string;
+  lostKeep: string;
+  lostDone: string;
   other: { code: PayLanguage; label: string };
 }
 
@@ -203,6 +211,13 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     topUpBlocked: 'Este saldo está bloqueado. Pregunta en el local.',
     proofWhat: 'Recarga de {amount}',
     proofAdded: 'Ya está en tu saldo.',
+    lostButton: 'He perdido mi NFC',
+    lostTitle: '¿Bloquear tu NFC?',
+    lostWhy: 'Desde ahora nadie podrá pagar con él, tampoco los importes pequeños que no piden PIN.',
+    lostSafe: 'Tus {amount} no se pierden. En recepción te dan un NFC nuevo con tu código {code}.',
+    lostGo: 'Bloquear con Face ID',
+    lostKeep: 'No, lo tengo',
+    lostDone: '✓ NFC bloqueado. Tu saldo sigue aquí.',
     other: { code: 'en', label: 'English' },
   },
   en: {
@@ -296,6 +311,13 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     topUpBlocked: 'This balance is blocked. Ask at the venue.',
     proofWhat: 'Top-up of {amount}',
     proofAdded: 'It is already in your balance.',
+    lostButton: 'I lost my NFC',
+    lostTitle: 'Block your NFC?',
+    lostWhy: 'From now on nobody can pay with it, not even the small amounts that need no PIN.',
+    lostSafe: 'Your {amount} is not lost. At reception they give you a new NFC with your code {code}.',
+    lostGo: 'Block with Face ID',
+    lostKeep: 'No, I have it',
+    lostDone: '✓ NFC blocked. Your balance is still here.',
     other: { code: 'es', label: 'Español' },
   },
 };

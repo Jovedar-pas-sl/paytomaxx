@@ -20,6 +20,8 @@ import { ReceptionCashPayoutController } from './reception-cash-payout.controlle
 import { ReceptionFichaNumberController } from './reception-ficha-number.controller';
 import { ReceptionActivationLinkController } from './reception-activation-link.controller';
 import { WalletActivationLinkService } from './wallet-activation-link.service';
+import { PublicWalletLostCardController } from './public-wallet-lost-card.controller';
+import { WalletLostCardService } from './wallet-lost-card.service';
 import { CashTopUpService } from './wallet-cash-topup.service';
 import { WalletCardsController } from './wallet-cards.controller';
 import { WalletCardsService } from './wallet-cards.service';
@@ -45,6 +47,8 @@ import { WalletViewGuard } from './wallet-view.guard';
     PendingTopUpService,
     // QR de activación de la pantalla «Cargado» de recepción.
     WalletActivationLinkService,
+    // «He perdido mi NFC» desde la página del saldo.
+    WalletLostCardService,
   ],
   controllers: [
     WalletsController,
@@ -52,6 +56,7 @@ import { WalletViewGuard } from './wallet-view.guard';
     WalletChargesController,
     PublicWalletCardController,
     PublicWalletController,
+    PublicWalletLostCardController,
     PublicSaldoController,
     GoogleWalletController,
     // El QR del pase leído con la cámara del móvil (/c/<token>) → la app del personal.

@@ -505,3 +505,34 @@ describe('maqueta 5.1: tarjeta OxioCard y movimientos con su referencia', () => 
     expect(js).not.toContain('innerHTML');
   });
 });
+
+describe('5.2 «He perdido mi NFC»', () => {
+  it('botón rojo y hoja con Face ID, ES/EN; el JS sin barras invertidas', () => {
+    for (const lang of ['es', 'en'] as const) {
+      const t = WALLET_TEXT[lang];
+      const html = renderWalletPage('tok-1', lang, state({ hasCard: true, hasFaceId: true }));
+      expect(html).toContain(`<button class="btn redo" type="button" id="lostOpen" hidden>`);
+      expect(html).toContain(t.lostButton);
+      expect(html).toContain('<dialog class="sheet" id="lostSheet" aria-labelledby="lostTitle">');
+      expect(html).toContain(t.lostTitle);
+      expect(html).toContain(t.lostGo);
+      expect(html).toContain(t.lostKeep);
+      const js = script(html);
+      expect(js.slice(js.indexOf('function $(id)')).includes(BACKSLASH)).toBe(false);
+      expect(() => new Function(js)).not.toThrow();
+    }
+    expect(WALLET_TEXT.es.lostTitle).toBe('¿Bloquear tu NFC?');
+    expect(WALLET_TEXT.en.lostButton).toBe('I lost my NFC');
+  });
+
+  it('solo con NFC y Face ID en un saldo vivo; confirma con la passkey en /lost-nfc y pinta el saldo sin NFC', () => {
+    const js = script(renderWalletPage('tok-1', 'es', state()));
+    expect(js).toContain("function lostRender(s){$('lostOpen').hidden=!(s.hasCard&&s.hasFaceId&&!s.merged&&!s.refund&&(s.status==='ACTIVE'||s.status==='DEPLETED'));}");
+    expect(js).toContain(' lostRender(s);');
+    expect(js).toContain("pkGet(C.base+'/lost-nfc/challenge').then(function(k){return post('/lost-nfc',{response:k});})");
+    expect(js).toContain("render(s);closeSheet($('lostSheet'));toast(T.lostDone);");
+    // El saldo no se pierde: importe y código en la hoja.
+    expect(js).toContain("fill(fill(T.lostSafe,'amount',eur(S.balanceCents)),'code',S.code)");
+    expect(WALLET_TEXT.es.lostSafe).toBe('Tus {amount} no se pierden. En recepción te dan un NFC nuevo con tu código {code}.');
+  });
+});
