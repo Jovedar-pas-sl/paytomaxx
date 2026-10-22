@@ -144,7 +144,7 @@ export function disabledMethod(
 
 // ─── Permisos del personal ────────────────────────────────────────────
 
-export const STAFF_PERMISSION_KEYS = ['refund', 'cash', 'closeNight', 'payouts', 'reports', 'cashTopUp'] as const;
+export const STAFF_PERMISSION_KEYS = ['refund', 'cash', 'closeNight', 'payouts', 'reports', 'cashTopUp', 'cashPayout'] as const;
 export type StaffPermissionKey = (typeof STAFF_PERMISSION_KEYS)[number];
 
 /**
@@ -159,24 +159,29 @@ export type PermissionSet = Record<StaffPermissionKey, boolean>;
 /**
  * Lo más que puede hacer cada rol: un permiso quita lo que el rol ya podía
  * hacer (devolver, cerrar la noche…), y los informes los puede dar el dueño
- * al encargado. Los camareros cobran desde su app: de esto, solo las recargas
- * en efectivo (si el dueño se lo da). El datáfono de recepción, lo mismo.
+ * al encargado. Los camareros cobran desde su app: de esto, las recargas en
+ * efectivo (si el dueño se lo da) y devolver el saldo en efectivo a la salida
+ * (solo con un puesto que lo haga: de fábrica, Recepción). El encargado
+ * devuelve en efectivo con «Dar efectivo» (cash): «cashPayout» no es suyo. El
+ * datáfono de recepción, solo las recargas en efectivo.
  */
 export const PERMISSION_CEILING: Readonly<Record<PermissionRole, readonly StaffPermissionKey[]>> = {
-  MANAGER: STAFF_PERMISSION_KEYS,
-  WAITER: ['cashTopUp'],
+  MANAGER: STAFF_PERMISSION_KEYS.filter((k) => k !== 'cashPayout'),
+  WAITER: ['cashTopUp', 'cashPayout'],
   DEVICE: ['cashTopUp'],
 };
 
 /**
  * Hoy: el encargado devuelve, da efectivo, cierra la noche, paga a las chicas y
- * cobra recargas en efectivo; los informes, solo el dueño. Camareros y
- * datáfonos, nada (el dueño les puede dar las recargas en efectivo).
+ * cobra recargas en efectivo; los informes, solo el dueño. Camareros: devolver
+ * el saldo en efectivo a la salida, si su puesto lo hace (de fábrica, solo
+ * Recepción; se le quita a una persona en Permisos sin quitarle las recargas).
+ * Datáfonos, nada (el dueño les puede dar las recargas en efectivo).
  */
 export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<PermissionRole, Readonly<PermissionSet>>> = {
-  MANAGER: { refund: true, cash: true, closeNight: true, payouts: true, reports: false, cashTopUp: true },
-  WAITER: { refund: false, cash: false, closeNight: false, payouts: false, reports: false, cashTopUp: false },
-  DEVICE: { refund: false, cash: false, closeNight: false, payouts: false, reports: false, cashTopUp: false },
+  MANAGER: { refund: true, cash: true, closeNight: true, payouts: true, reports: false, cashTopUp: true, cashPayout: false },
+  WAITER: { refund: false, cash: false, closeNight: false, payouts: false, reports: false, cashTopUp: false, cashPayout: true },
+  DEVICE: { refund: false, cash: false, closeNight: false, payouts: false, reports: false, cashTopUp: false, cashPayout: false },
 };
 
 export interface StaffPermissions {
@@ -312,6 +317,7 @@ export const STAFF_PERMISSION_DENIED_MESSAGES: Readonly<Record<StaffPermissionKe
   payouts: 'El dueño del local no te deja pedir ni hacer pagos a las chicas.',
   reports: 'El dueño del local no te deja ver los informes.',
   cashTopUp: 'El dueño del local no te deja cobrar recargas en efectivo.',
+  cashPayout: 'El dueño del local no te deja devolver saldo en efectivo.',
 };
 
 /** El datáfono de recepción sin permiso para el efectivo (Ajustes → Permisos → Datáfonos). */
@@ -355,6 +361,7 @@ const INCIDENT_ALERT_KIND: Readonly<Record<string, AlertKindKey>> = {
   wallet_close_requested: 'wallets',
   wallet_open_balance: 'wallets',
   wallet_topup_unassigned: 'wallets',
+  reception_payout_cap: 'wallets',
   bank_mismatch: 'bank',
   backup_stale: 'backups',
   backup_unmonitored: 'backups',

@@ -28,16 +28,22 @@ export interface PostRule {
   cash: boolean;
   /** Cargar saldos (recargas con tarjeta o en efectivo). */
   topUps: boolean;
+  /**
+   * Devolver el saldo en efectivo a la salida (con el NFC del cliente). Aparte
+   * de las recargas: de fábrica solo Recepción; a una persona se le quita en
+   * Permisos sin quitarle las recargas.
+   */
+  cashPayout: boolean;
 }
 
 export type PostRules = Record<PostCode, PostRule>;
 
 export const DEFAULT_POST_RULES: Readonly<PostRules> = {
-  SALA: { sections: ['CHICA_SERVICE'], tips: true, cash: false, topUps: false },
-  BARRA: { sections: ['VENUE_BAR', 'VENUE_ENTRY', 'VENUE_FOOD'], tips: true, cash: false, topUps: false },
-  HABITACIONES: { sections: ['VENUE_ROOM'], tips: true, cash: false, topUps: false },
-  COCINA: { sections: ['VENUE_FOOD'], tips: true, cash: false, topUps: false },
-  RECEPCION: { sections: [...SECTION_CODES], tips: false, cash: true, topUps: true },
+  SALA: { sections: ['CHICA_SERVICE'], tips: true, cash: false, topUps: false, cashPayout: false },
+  BARRA: { sections: ['VENUE_BAR', 'VENUE_ENTRY', 'VENUE_FOOD'], tips: true, cash: false, topUps: false, cashPayout: false },
+  HABITACIONES: { sections: ['VENUE_ROOM'], tips: true, cash: false, topUps: false, cashPayout: false },
+  COCINA: { sections: ['VENUE_FOOD'], tips: true, cash: false, topUps: false, cashPayout: false },
+  RECEPCION: { sections: [...SECTION_CODES], tips: false, cash: true, topUps: true, cashPayout: true },
 };
 
 function ruleOf(raw: unknown, fallback: Readonly<PostRule>): PostRule {
@@ -45,8 +51,8 @@ function ruleOf(raw: unknown, fallback: Readonly<PostRule>): PostRule {
   // Siempre en el orden de las secciones (Servicios, Copas, Habitaciones, Comida, Entradas).
   const source: readonly unknown[] = Array.isArray(stored.sections) ? (stored.sections as unknown[]) : fallback.sections;
   const sections = SECTION_CODES.filter((c) => source.includes(c));
-  const flag = (key: 'tips' | 'cash' | 'topUps') => (typeof stored[key] === 'boolean' ? (stored[key] as boolean) : fallback[key]);
-  return { sections, tips: flag('tips'), cash: flag('cash'), topUps: flag('topUps') };
+  const flag = (key: 'tips' | 'cash' | 'topUps' | 'cashPayout') => (typeof stored[key] === 'boolean' ? (stored[key] as boolean) : fallback[key]);
+  return { sections, tips: flag('tips'), cash: flag('cash'), topUps: flag('topUps'), cashPayout: flag('cashPayout') };
 }
 
 /** Lo guardado (JSON o null) con lo que falte a lo de fábrica. Un valor raro no rompe nada. */
@@ -61,6 +67,7 @@ const PostRulePatchSchema = z
     tips: z.boolean().optional(),
     cash: z.boolean().optional(),
     topUps: z.boolean().optional(),
+    cashPayout: z.boolean().optional(),
   })
   .strict();
 
@@ -88,6 +95,7 @@ export function mergePostRules(current: unknown, patch: UpdatePostRulesDto): Pos
       tips: change.tips ?? base[p].tips,
       cash: change.cash ?? base[p].cash,
       topUps: change.topUps ?? base[p].topUps,
+      cashPayout: change.cashPayout ?? base[p].cashPayout,
     };
   }
   return next;
@@ -104,18 +112,20 @@ export interface ChargeRights {
   tips: boolean;
   cash: boolean;
   topUps: boolean;
+  /** Devolver el saldo en efectivo a la salida (lo de su puesto; el permiso de la persona, aparte). */
+  cashPayout: boolean;
 }
 
 export function chargeRightsOf(person: { role: string | null | undefined; post: string | null | undefined }, rules: PostRules): ChargeRights {
   if (person.role === 'OWNER' || person.role === 'MANAGER') {
     // Lo pueden todo; su puesto (si tienen) solo marca la sección por defecto.
     const own = isPostCode(person.post) ? person.post : null;
-    return { post: own, all: true, sections: [...SECTION_CODES], tips: true, cash: true, topUps: true };
+    return { post: own, all: true, sections: [...SECTION_CODES], tips: true, cash: true, topUps: true, cashPayout: true };
   }
   // Las chicas: siempre la fila de Sala.
   const post: PostCode = person.role === 'OPERATOR' ? 'SALA' : effectivePost(person);
   const rule = rules[post];
-  return { post, all: false, sections: [...rule.sections], tips: rule.tips, cash: rule.cash, topUps: rule.topUps };
+  return { post, all: false, sections: [...rule.sections], tips: rule.tips, cash: rule.cash, topUps: rule.topUps, cashPayout: rule.cashPayout };
 }
 
 export function canChargeSection(rights: ChargeRights, section: string): boolean {

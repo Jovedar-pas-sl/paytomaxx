@@ -17,6 +17,7 @@ export * from './night-close';
 export * from './approvals';
 export * from './venue-settings';
 export * from './reception';
+export * from './reception-payout';
 export * from './sections';
 export * from './charge-lines';
 export * from './post-rules';

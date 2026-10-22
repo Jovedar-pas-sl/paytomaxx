@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { staffPermissionsOf } from '@nightpay/contracts';
 import type { VenueSettings } from './endpoints/settings';
 import {
+  PERMISSION_HINTS,
   PERMISSION_LABELS,
   ROLE_LABELS,
   editablePermissions,
@@ -97,12 +98,22 @@ describe('propinas sugeridas', () => {
 describe('permisos del personal', () => {
   const manager = { id: 'm-1', role: 'MANAGER' as const };
 
-  it('el encargado: los seis; el camarero y el datáfono de recepción: solo las recargas en efectivo', () => {
+  it('el encargado: los seis; el camarero: recargas y salida en efectivo; el datáfono de recepción: solo las recargas', () => {
     expect(editablePermissions('MANAGER')).toHaveLength(6);
-    expect(editablePermissions('WAITER')).toEqual(['cashTopUp']);
+    expect(editablePermissions('MANAGER')).not.toContain('cashPayout');
+    expect(editablePermissions('WAITER')).toEqual(['cashTopUp', 'cashPayout']);
     expect(editablePermissions('DEVICE')).toEqual(['cashTopUp']);
     expect(PERMISSION_LABELS.cashTopUp).toBe('Cobrar recargas en efectivo');
     expect(ROLE_LABELS.DEVICE).toBe('Datáfonos de recepción');
+  });
+
+  it('devolver en efectivo a la salida: el camarero sí de fábrica (su puesto decide); se le quita a uno sin tocar sus recargas', () => {
+    const perms = staffPermissionsOf({ people: { 'w-1': { cashPayout: false } } });
+    expect(personCan(perms, { id: 'w-2', role: 'WAITER' }, 'cashPayout')).toBe(true);
+    expect(personCan(perms, { id: 'w-1', role: 'WAITER' }, 'cashPayout')).toBe(false);
+    expect(personCan(perms, { id: 'w-1', role: 'WAITER' }, 'cashTopUp')).toBe(false);
+    expect(personCan(perms, manager, 'cashPayout')).toBe(false);
+    expect(PERMISSION_HINTS.cashPayout).toMatch(/Recepción/);
   });
 
   it('recargas en efectivo: por defecto el encargado sí, el camarero no; el dueño se lo da a uno', () => {
@@ -127,7 +138,9 @@ describe('permisos del personal', () => {
 describe('camareros con y sin datáfono', () => {
   it('sin datáfono en el local no se les habla de confirmarlo', () => {
     expect(waiterHint(true)).toMatch(/^Cobran y confirman datáfonos desde su app;/);
-    expect(waiterHint(false)).toBe('Cobran desde su app; de esto, solo pueden cobrar recargas en efectivo si se lo das.');
+    expect(waiterHint(false)).toBe(
+      'Cobran desde su app; de esto, solo pueden cobrar recargas en efectivo si se lo das y, los de recepción, devolver el saldo en efectivo a la salida.',
+    );
     expect(waiterHint(false)).not.toMatch(/datáfono/i);
   });
 });

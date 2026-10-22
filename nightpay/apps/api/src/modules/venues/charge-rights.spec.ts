@@ -30,6 +30,7 @@ describe('qué cobra cada puesto (de fábrica)', () => {
       tips: true,
       cash: false,
       topUps: false,
+      cashPayout: false,
     });
   });
 
@@ -46,6 +47,7 @@ describe('qué cobra cada puesto (de fábrica)', () => {
       tips: false,
       cash: true,
       topUps: true,
+      cashPayout: true,
     });
   });
 
@@ -56,7 +58,7 @@ describe('qué cobra cada puesto (de fábrica)', () => {
 
   it('la tabla de Ajustes manda; lo raro vuelve a lo de fábrica', () => {
     const own = postRulesOf({ BARRA: { sections: ['VENUE_BAR', 'INVENTADA'], tips: false }, COCINA: 'raro' });
-    expect(own.BARRA).toEqual({ sections: ['VENUE_BAR'], tips: false, cash: false, topUps: false });
+    expect(own.BARRA).toEqual({ sections: ['VENUE_BAR'], tips: false, cash: false, topUps: false, cashPayout: false });
     expect(own.COCINA).toEqual(DEFAULT_POST_RULES.COCINA);
     const merged = mergePostRules(own, { posts: { BARRA: { sections: ['VENUE_ENTRY', 'VENUE_BAR'] }, RECEPCION: { tips: true } } });
     expect(merged.BARRA.sections).toEqual(['VENUE_BAR', 'VENUE_ENTRY']);
