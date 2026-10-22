@@ -12,11 +12,14 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import {
+  fichaNumberText,
   formatChargeRef,
   isWalletCardToken,
   nightSettingsOf,
   normalizeWalletCardUid,
   paymentMethodsOf,
+  sectionMeta,
+  sectionsOf,
   type ChargeAuthMethod,
   type ChargeLineInput,
   type Role,
@@ -252,6 +255,10 @@ export interface ClientWalletState {
   hasPin: boolean;
   /** Lleva una ficha NFC dada a este saldo (paga acercándola, con su PIN). */
   hasCard: boolean;
+  /** «0417»: el número de su NFC (el impreso si lo tiene), para la tarjeta de su página; null sin NFC. */
+  fichaNumber: string | null;
+  /** El local del saldo («Tu saldo · Sala Medianoche»). */
+  venueName: string | null;
   /** Esta recarga se sumó a otro saldo del mismo cliente. */
   merged: boolean;
   /** «Me voy»: cuánto se devuelve, cómo y en qué paso va (null = no hay devolución). */
@@ -266,6 +273,8 @@ export interface ClientWalletState {
     at: string;
     /** Referencia del cobro (C-0001) en consumos y recargas con tarjeta; null en el resto y en los antiguos. */
     ref: string | null;
+    /** Color de la sección del consumo (el del local); null en recargas y devoluciones. */
+    color: string | null;
   }>;
 }
 
@@ -544,15 +553,20 @@ export class WalletChargesService {
       ),
       // Su ficha NFC (dada a este saldo): en «Pagar» se le dice que también paga con ella.
       this.prisma.acrossVenues((tx) =>
-        tx.walletCard.count({ where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } } }),
+        tx.walletCard.findMany({
+          where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } },
+          select: { number: true, printedNumber: true },
+        }),
       ),
     ]);
     // En movimientos, solo las hechas (una a la tarjeta a medias aún no es una devolución).
     const payouts = allPayouts.filter((p) => p.status === 'DONE');
     const hasFaceId = (await this.prisma.walletPasskey.count({ where: { walletId: wallet.id } })) > 0;
-    const venueIds = [...new Set([...consumptions, ...topUps, ...cashTopUps, ...payouts].map((m) => m.tenantId))];
-    const venues = await this.prisma.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true } });
+    const venueIds = [...new Set([wallet.tenantId, ...[...consumptions, ...topUps, ...cashTopUps, ...payouts].map((m) => m.tenantId)])];
+    const venues = await this.prisma.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true, sections: true } });
     const venueName = (id: string): string => venues.find((v) => v.id === id)?.name ?? '';
+    // El color de cada sección, el que eligió el local del consumo (Ajustes → Secciones).
+    const sectionColor = (id: string, category: string): string => sectionMeta(sectionsOf(venues.find((v) => v.id === id)?.sections), category).color;
     // La referencia de cada consumo es la de su cobro (C-0001).
     const refs = await this.consumptionRefs(consumptions.map((c) => c.id));
 
@@ -564,6 +578,7 @@ export class WalletChargesService {
         venueName: venueName(c.tenantId),
         at: c.createdAt.toISOString(),
         ref: refs.get(c.id) ?? null,
+        color: sectionColor(c.tenantId, c.category),
       })),
       ...topUps.map((t) => ({
         kind: 'topup' as const,
@@ -572,6 +587,7 @@ export class WalletChargesService {
         venueName: venueName(t.tenantId),
         at: (t.authorizedAt ?? t.createdAt).toISOString(),
         ref: formatChargeRef(t.ref),
+        color: null,
       })),
       ...cashTopUps.map((t) => ({
         kind: 'topup' as const,
@@ -581,6 +597,7 @@ export class WalletChargesService {
         venueName: venueName(t.tenantId),
         at: t.createdAt.toISOString(),
         ref: null,
+        color: null,
       })),
       ...payouts.map((p) => ({
         kind: 'payout' as const,
@@ -589,6 +606,7 @@ export class WalletChargesService {
         venueName: venueName(p.tenantId),
         at: p.createdAt.toISOString(),
         ref: null,
+        color: null,
       })),
     ].sort((a, b) => b.at.localeCompare(a.at));
 
@@ -600,7 +618,9 @@ export class WalletChargesService {
       closeRequested,
       hasFaceId,
       hasPin: Boolean(wallet.pinHash),
-      hasCard: issuedCards > 0,
+      hasCard: issuedCards.length > 0,
+      fichaNumber: issuedCards[0] ? (issuedCards[0].printedNumber ?? fichaNumberText(issuedCards[0].number)) : null,
+      venueName: venueName(wallet.tenantId) || null,
       merged: Boolean(wallet.mergedIntoId),
       refund: clientRefundState({ status: wallet.status, balanceCents: wallet.balanceCents, closeRequested }, allPayouts),
       cards: refundCards(topUps.map((t) => t.cardLast4)),

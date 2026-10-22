@@ -7,7 +7,7 @@ import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { resolveLanguage } from '../payments/pay-i18n';
 import { WalletCardViewService } from './wallet-card-view.service';
 import { renderWalletUnlockPage } from './wallet-unlock-page';
-import { walletViewSetCookie } from './wallet-view-session';
+import { walletViewSetCookies } from './wallet-view-session';
 
 @Controller('w')
 export class PublicWalletCardController {
@@ -21,10 +21,12 @@ export class PublicWalletCardController {
   @Header('Cache-Control', 'no-store')
   @Header('Referrer-Policy', 'no-referrer')
   @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-card-view-page' })
-  page(@Param('token') token: string, @Query('lang') lang: string | undefined, @Headers('accept-language') accept: string | undefined, @Res() res: FastifyReply): void {
+  async page(@Param('token') token: string, @Query('lang') lang: string | undefined, @Headers('accept-language') accept: string | undefined, @Res() res: FastifyReply): Promise<void> {
     if (!isWalletCardToken(token)) throw new NotFoundException();
-    // Mismo HTML exista o no la ficha: no expone el saldo antes de autenticarse.
-    res.type('text/html; charset=utf-8').send(renderWalletUnlockPage(`/w/card/${encodeURIComponent(token)}`, resolveLanguage(lang, accept)));
+    // Antes de autenticarse, como mucho el código tapado (K7Q-•••): ni saldo, ni movimientos, ni el enlace.
+    // Sin passkey, la pantalla dice cómo activarla (sin un botón que luego falle).
+    const view = await this.cards.pageView(token);
+    res.type('text/html; charset=utf-8').send(renderWalletUnlockPage(`/w/card/${encodeURIComponent(token)}`, resolveLanguage(lang, accept), view));
   }
 
   @Public()
@@ -44,7 +46,7 @@ export class PublicWalletCardController {
   @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-card-view' })
   async unlock(@Param('token') token: string, @Headers('host') host: string | undefined, @Body() body: { response?: unknown } | undefined, @Res({ passthrough: true }) res: FastifyReply): Promise<{ url: string }> {
     const wallet = await this.cards.unlock(token, host, body?.response);
-    res.header('Set-Cookie', walletViewSetCookie(this.config.get<string>('COOKIE_SECRET') ?? '', wallet));
+    res.header('Set-Cookie', walletViewSetCookies(this.config.get<string>('COOKIE_SECRET') ?? '', wallet));
     return { url: `/w/${encodeURIComponent(wallet.qrToken)}` };
   }
 }

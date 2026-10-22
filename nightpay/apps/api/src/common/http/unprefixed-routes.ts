@@ -50,6 +50,9 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 'w/:token/pin', method: RequestMethod.POST },
   { path: 'w/:token/merge/challenge', method: RequestMethod.POST },
   { path: 'w/:token/merge', method: RequestMethod.POST },
+  // «He perdido mi NFC»: el cliente lo bloquea con su Face ID.
+  { path: 'w/:token/lost-nfc/challenge', method: RequestMethod.POST },
+  { path: 'w/:token/lost-nfc', method: RequestMethod.POST },
   // «Recargar» desde la página del saldo (con su Face ID si lo tiene).
   { path: 'w/:token/topup/challenge', method: RequestMethod.POST },
   { path: 'w/:token/topup', method: RequestMethod.POST },

@@ -8,6 +8,7 @@ import { GOOGLE_WALLET_BUTTONS } from './google-wallet/google-wallet-button';
 import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
 import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topUpOffNote } from './wallet-topup-view';
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
+import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, marca
@@ -37,6 +38,7 @@ const WALLET_CSS = `
 .hero::after{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(118deg,transparent 38%,var(--lime-soft) 50%,transparent 62%);pointer-events:none}
 .hero p{color:var(--cream)}
 #balanceLabel{padding-right:2rem;font-size:.8rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.hero .obot{display:flex;justify-content:space-between;gap:.5rem;font-size:.95rem;font-weight:700;letter-spacing:.03em}
 .balance{font-size:clamp(3rem,15vw,3.75rem);font-weight:800;letter-spacing:-.04em;line-height:1;margin-top:.25rem}
 .status{font-weight:700}
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
@@ -70,10 +72,14 @@ const WALLET_CSS = `
 .row[aria-expanded]::after{content:'+';position:absolute;right:.5rem;top:50%;transform:translateY(-50%);font-size:1.4rem;color:var(--mute)}
 .row[aria-expanded=true]::after{content:'−'}
 ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-li.mv{display:flex;justify-content:space-between;gap:1rem;padding:.6rem 0;border-bottom:1px solid var(--line);font-size:.95rem}
-li.mv span:first-child{color:var(--mute)}
-li.mv .plus{color:var(--ok);font-weight:700}
-li.mv .minus{color:var(--fg);font-weight:700}
+li.mv{display:flex;align-items:center;gap:.75rem;padding:.55rem 0;border-bottom:1px solid var(--line);font-size:.95rem}
+li.mv .sw{align-self:stretch;flex:none;width:6px;min-height:2.4rem;border-radius:4px;background:var(--c,var(--dim))}
+li.mv .sw.hold{background:repeating-linear-gradient(var(--dim) 0 6px,transparent 6px 10px)}
+li.mv .mt{flex:1;min-width:0}
+li.mv .mt b{display:block;color:var(--fg);font-size:1rem}
+li.mv .mt span{display:block;color:var(--mute);font-size:.85rem}
+li.mv .plus{color:var(--ok);font-weight:800;white-space:nowrap}
+li.mv .minus{color:var(--fg);font-weight:800;white-space:nowrap}
 dialog.sheet{position:fixed;inset:auto 0 0 0;width:100%;max-width:30rem;max-height:92vh;margin:0 auto;overflow:auto;border:0;border-top:1px solid var(--line-hi);border-radius:30px 30px 0 0;padding:1.5rem 1rem calc(1.25rem + env(safe-area-inset-bottom));background:var(--surface);color:var(--fg);display:none;flex-direction:column;gap:.8rem;text-align:center}
 dialog.sheet[open]{display:flex;animation:np-up .28s var(--ease)}
 dialog.sheet::backdrop{background:var(--scrim)}
@@ -200,11 +206,11 @@ function moreList(lang: PayLanguage): string {
 <button class="row" type="button" id="pinOpen" hidden>${h(t.pinRow)}<small>${h(t.pinRowHint)}</small></button>
 <button class="row" type="button" id="mergeOpen" hidden>${h(t.mergeRow)}<small>${h(t.mergeRowHint)}</small></button>
 <button class="row" type="button" id="leaveOpen" hidden>${h(t.leaveRow)}<small>${h(t.leaveRowHint)}</small></button>
-<button class="row" type="button" id="movOpen" aria-expanded="false" aria-controls="movBox">${h(t.movements)}<small>${h(t.movementsHint)}</small></button>
-<div id="movBox" hidden><ul id="movements"></ul></div>
+<button class="row" type="button" id="movOpen" aria-expanded="true" aria-controls="movBox">${h(t.movements)}<small>${h(t.movementsHint)}</small></button>
+<div id="movBox"><ul id="movements"></ul></div>
 </div>
 </section>
-`;
+${lostButton(lang)}`;
 }
 
 /**
@@ -256,12 +262,13 @@ export function renderWalletPage(
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0f1112"><title>${h(t.title)}</title>
-<style>${CLUB_BASE_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}</style></head><body><main class="w">
+<style>${CLUB_BASE_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}</style></head><body><main class="w">
 <div class="top"><p class="kick">${brandWordmark('')}<span class="sr">${h(t.title)}</span></p><a class="link" id="lang" href="${h(`${base}?lang=${t.other.code}`)}" lang="${t.other.code}" hreflang="${t.other.code}">${h(t.other.label)}</a></div>
 <section class="hero" aria-labelledby="balanceLabel">
-<p id="balanceLabel">${h(t.balance)}</p>
+<p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
 <p class="balance num" id="balance" aria-live="polite">${h(eur(state.balanceCents, t.locale))}</p>
 <p class="status" id="notice" role="status" hidden></p>
+<div class="obot"><span class="num" id="heroCode">${h(state.code)}</span><span id="heroFicha">${state.hasCard && state.fichaNumber ? h(t.fichaNo.split('{n}').join(state.fichaNumber)) : ''}</span></div>
 </section>
 ${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
 <h2 id="refundTitle"></h2>
@@ -270,7 +277,7 @@ ${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelled
 </section>
 ${viewTabs(lang)}${payView(lang, state, gw)}${topUpView(lang, options)}${moreList(lang)}<p class="small">${h(t.saveHint)}</p>
 </main>
-<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTitle">
+${lostSheet(lang)}<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTitle">
 <h2 id="leaveTitle"></h2><p id="leaveHow"></p>
 <p class="err" id="leaveErr" role="alert" hidden></p>
 <button class="btn" type="button" id="leaveGo">${h(t.leaveGo)}</button>
@@ -334,7 +341,8 @@ function payRender(s,active,r){var canKey=pkSupported(),payable=active&&!r;
  $('codeCard').hidden=!active;$('codeHint').textContent=s.hasPin?T.codeWithPin:T.codeNoPin;$('fichaHint').hidden=!s.hasCard;
  if(gw)gw.hidden=!(P==='android'&&active&&!r&&!s.merged);}
 function render(s){S=s;S.cards=s.cards||[];
- $('balance').textContent=eur(s.balanceCents);$('code').textContent=s.code;
+ $('balance').textContent=eur(s.balanceCents);$('code').textContent=s.code;$('heroCode').textContent=s.code;
+ $('heroFicha').textContent=s.hasCard&&s.fichaNumber?fill(T.fichaNo,'n',s.fichaNumber):'';
  var active=s.status==='ACTIVE',r=s.refund;
  var notice=active?'':s.status==='DEPLETED'?(s.merged?T.merged:T.depleted):r?'':T.closed;
  show('notice',notice);
@@ -345,10 +353,12 @@ function render(s){S=s;S.cards=s.cards||[];
  $('leaveOpen').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
  var ul=$('movements');ul.textContent='';
  if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}
- s.movements.forEach(function(m){var li=document.createElement('li'),a=document.createElement('span'),b=document.createElement('span');li.className='mv';
-  a.textContent=[m.label,m.venueName,when(m.at)].filter(Boolean).join(' · ');
+ s.movements.forEach(function(m){var li=document.createElement('li'),sw=document.createElement('i'),mt=document.createElement('div'),a=document.createElement('b'),sub=document.createElement('span'),b=document.createElement('span');li.className='mv';
+  sw.className=m.color?'sw':'sw hold';sw.setAttribute('aria-hidden','true');if(m.color)sw.style.setProperty('--c',m.color);
+  mt.className='mt';a.textContent=m.label;sub.textContent=[m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');mt.appendChild(a);mt.appendChild(sub);
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.amountCents>0?'plus':'minus')+' num';
-  li.appendChild(a);li.appendChild(b);ul.appendChild(li);});
+  li.appendChild(sw);li.appendChild(mt);li.appendChild(b);ul.appendChild(li);});
+ lostRender(s);
  var can=topRender(s);
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
  segShow(can||C.paid);}
@@ -389,6 +399,7 @@ $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)retu
   .then(function(){busy=false;busyBtn(b,false);});});${gw ? GOOGLE_WALLET_JS : ''}
 ${SCAN_JS}
 ${TOPUP_JS}
+${LOST_JS}
 ${VIEWS_JS}
 if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';
 render(S);

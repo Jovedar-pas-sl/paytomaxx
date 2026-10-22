@@ -16,13 +16,15 @@ import { PublicWalletCardController } from './public-wallet-card.controller';
 import { WalletsController } from './wallets.controller';
 import { WalletsService } from './wallets.service';
 import { GoogleWalletController } from './google-wallet/google-wallet.controller';
-import { walletViewSetCookie } from './wallet-view-session';
+import { WALLET_VIEW_IDLE_S, walletViewSetCookies } from './wallet-view-session';
 
+const SECRET = 'test-only-cookie-secret-with-32-characters';
 const CARD = 'validCardToken0123456';
 const PRIVATE = 'privateWalletToken0123456';
-const wallet = { id: 'wallet-owner', qrToken: PRIVATE, status: 'ACTIVE', blockedAt: null };
+const wallet = { id: 'wallet-owner', qrToken: PRIVATE, status: 'ACTIVE', blockedAt: null, shortCode: 'ABC123' };
 const state = { code: 'ABC-123', balanceCents: 12345, status: 'ACTIVE', hasFaceId: true, hasPin: true, hasCard: true, closeRequested: false, merged: false, refund: null, cards: [], movements: [{ kind: 'topup', amountCents: 12345, label: 'Recarga privada', venueName: 'Local', at: new Date().toISOString(), ref: null }] };
-const findUnique = vi.fn().mockResolvedValue({ id: 'card-id', status: 'ISSUED', walletId: wallet.id, wallet });
+const issued = { id: 'card-id', status: 'ISSUED', walletId: wallet.id, wallet };
+const findUnique = vi.fn();
 const keys = {
   hasPasskey: vi.fn().mockResolvedValue(true),
   challenge: vi.fn().mockResolvedValue({ challenge: 'random-challenge' }),
@@ -31,6 +33,7 @@ const keys = {
     return wallet.id;
   }),
 };
+const cookieAt = (ms: number) => walletViewSetCookies(SECRET, wallet, ms)[0]!.split(';')[0]!;
 let app: NestFastifyApplication;
 const saveLink = vi.fn(async () => ({ saveUrl: 'https://pay.google.com/gp/v/save/test-only' }));
 const publicView = vi.fn(async () => state);
@@ -38,7 +41,7 @@ beforeAll(async () => {
   const mod = await Test.createTestingModule({
     controllers: [PublicWalletController, PublicWalletCardController, WalletsController, GoogleWalletController],
     providers: [WalletCardViewService,
-      { provide: ConfigService, useValue: { get: () => 'test-only-cookie-secret-with-32-characters' } },
+      { provide: ConfigService, useValue: { get: () => SECRET } },
       { provide: PrismaService, useValue: { acrossVenues: (fn: (tx: unknown) => unknown) => fn({ walletCard: { findUnique } }) } },
       { provide: WalletPasskeysService, useValue: keys },
       { provide: WalletChargesService, useValue: { walletRefByToken: async () => ({ id: wallet.id, shortCode: 'ABC123' }), clientState: async () => state } },
@@ -55,6 +58,7 @@ afterAll(async () => { await app?.close(); });
 beforeEach(() => {
   vi.clearAllMocks();
   keys.hasPasskey.mockReset().mockResolvedValue(true);
+  findUnique.mockReset().mockResolvedValue(issued);
 });
 
 describe('consulta NFC HTTP: ninguna información antes de verificar la llave', () => {
@@ -70,13 +74,12 @@ describe('consulta NFC HTTP: ninguna información antes de verificar la llave', 
     expect(publicView).not.toHaveBeenCalled();
   });
 
-  it('la misma sesión de consulta habilita todas las vías y su caducidad las cierra', async () => {
+  it('la misma sesión de consulta habilita todas las vías y 15 minutos sin actividad las cierran', async () => {
     const api = app.getHttpAdapter().getInstance();
-    const cookie = walletViewSetCookie('test-only-cookie-secret-with-32-characters', wallet).split(';')[0]!;
     for (const request of [{ method: 'GET' as const, url: `/v1/wallets/public/${PRIVATE}` }, { method: 'POST' as const, url: `/w/${PRIVATE}/google-wallet`, payload: {} }]) {
-      expect((await api.inject({ ...request, headers: { cookie } })).statusCode).toBe(200);
-      const expired = walletViewSetCookie('test-only-cookie-secret-with-32-characters', wallet, Date.now() - 301000).split(';')[0]!;
-      expect((await api.inject({ ...request, headers: { cookie: expired } })).statusCode).toBe(401);
+      expect((await api.inject({ ...request, headers: { cookie: cookieAt(Date.now()) } })).statusCode).toBe(200);
+      const idle = cookieAt(Date.now() - (WALLET_VIEW_IDLE_S + 1) * 1000);
+      expect((await api.inject({ ...request, headers: { cookie: idle } })).statusCode).toBe(401);
     }
   });
 
@@ -86,7 +89,8 @@ describe('consulta NFC HTTP: ninguna información antes de verificar la llave', 
     expect((await api.inject({ method: 'GET', url: `/v1/wallets/public/${PRIVATE}` })).statusCode).toBe(200);
     expect((await api.inject({ method: 'POST', url: `/w/${PRIVATE}/google-wallet`, payload: {} })).statusCode).toBe(200);
   });
-  it('el HTML público no expone el enlace privado ni el saldo; los GET alternativos tampoco', async () => {
+
+  it('el HTML público no expone el enlace privado ni el saldo: como mucho el código tapado', async () => {
     const api = app.getHttpAdapter().getInstance();
     for (const url of [`/w/card/${CARD}`, `/w/${PRIVATE}`]) {
       const r = await api.inject({ method: 'GET', url });
@@ -94,27 +98,86 @@ describe('consulta NFC HTTP: ninguna información antes de verificar la llave', 
       expect(r.headers['cache-control']).toBe('no-store');
       expect(r.headers['referrer-policy']).toBe('no-referrer');
       expect(r.body).toContain('Consulta tu saldo');
+      expect(r.body).toContain('ABC-•••');
       expect(r.body).not.toContain('ABC-123');
       expect(r.body).not.toContain('Recarga privada');
+      expect(r.body).not.toContain('123,45');
     }
     const r = await api.inject({ method: 'GET', url: `/w/card/${CARD}` });
     expect(r.body).not.toContain(PRIVATE);
     expect((await api.inject({ method: 'GET', url: `/w/${PRIVATE}/state` })).statusCode).toBe(401);
   });
-  it('solo la firma válida entrega una cookie, que habilita HTML y estado de ese saldo', async () => {
+
+  it('sin passkey, /w/card dice desde el principio cómo activarla, sin botón muerto ni reto', async () => {
+    keys.hasPasskey.mockResolvedValue(false);
+    const api = app.getHttpAdapter().getInstance();
+    for (const [lang, text] of [['es', 'pide en recepción el QR de activación'], ['en', 'ask reception for the activation QR']] as const) {
+      const r = await api.inject({ method: 'GET', url: `/w/card/${CARD}?lang=${lang}` });
+      expect(r.statusCode).toBe(200);
+      expect(r.body).toContain(text);
+      expect(r.body).toContain('ABC-•••');
+      expect(r.body).not.toContain('<button');
+      expect(r.body).not.toContain('<script');
+      expect(r.body).not.toContain(PRIVATE);
+    }
+    expect(keys.challenge).not.toHaveBeenCalled();
+    // Y el reto, si alguien lo pide igualmente, dice lo mismo (409 FACE_ID_NOT_SET).
+    const challenge = await api.inject({ method: 'POST', url: `/w/card/${CARD}/view/challenge` });
+    expect(challenge.statusCode).toBe(409);
+    expect(challenge.json()).toMatchObject({ code: 'FACE_ID_NOT_SET', message: 'Para ver tu saldo en tu móvil, pide en recepción el QR de activación.' });
+  });
+
+  it('un NFC bloqueado o que no es de ningún saldo lo dice, sin código ni enlace', async () => {
+    const api = app.getHttpAdapter().getInstance();
+    findUnique.mockResolvedValue({ ...issued, status: 'BLOCKED' });
+    const blocked = await api.inject({ method: 'GET', url: `/w/card/${CARD}` });
+    expect(blocked.statusCode).toBe(200);
+    expect(blocked.body).toContain('Este NFC está bloqueado');
+    for (const card of [null, { ...issued, status: 'STOCK', walletId: null, wallet: null }, { ...issued, wallet: { ...wallet, status: 'REFUNDED' } }]) {
+      findUnique.mockResolvedValue(card);
+      const r = await api.inject({ method: 'GET', url: `/w/card/${CARD}?lang=en` });
+      expect(r.statusCode).toBe(200);
+      expect(r.body).toContain('This NFC is not active');
+      expect(r.body).not.toContain('ABC-');
+      expect(r.body).not.toContain('<button');
+    }
+    expect((await api.inject({ method: 'GET', url: '/w/card/no' })).statusCode).toBe(404);
+  });
+
+  it('solo la firma válida entrega la sesión, en las rutas de ese saldo, y habilita HTML y estado', async () => {
     const api = app.getHttpAdapter().getInstance();
     const bad = await api.inject({ method: 'POST', url: `/w/card/${CARD}/view`, payload: { response: { id: 'wrong-key' } } });
     expect(bad.statusCode).toBe(403); expect(bad.headers['set-cookie']).toBeUndefined();
     const good = await api.inject({ method: 'POST', url: `/w/card/${CARD}/view`, payload: { response: { id: 'valid-key' } } });
     expect(good.statusCode).toBe(200);
     expect(good.json()).toEqual({ url: `/w/${PRIVATE}` });
-    const cookie = String(good.headers['set-cookie']).split(';')[0]!;
-    expect(good.headers['set-cookie']).toContain('HttpOnly');
+    const set = good.headers['set-cookie'] as string[];
+    expect(set).toHaveLength(2);
+    expect(set[0]).toContain(`Path=/w/${PRIVATE}; Max-Age=${WALLET_VIEW_IDLE_S}; HttpOnly; SameSite=Strict`);
+    expect(set[1]).toContain(`Path=/v1/wallets/public/${PRIVATE};`);
+    const cookie = set[0]!.split(';')[0]!;
     const unlocked = await api.inject({ method: 'GET', url: `/w/${PRIVATE}/state`, headers: { cookie } });
     expect(unlocked.statusCode).toBe(200);
     expect(unlocked.json()).toMatchObject({ balanceCents: 12345, movements: [{ label: 'Recarga privada' }] });
     const html = await api.inject({ method: 'GET', url: `/w/${PRIVATE}`, headers: { cookie } });
     expect(html.statusCode).toBe(200); expect(html.body).toContain('ABC-123');
     expect((await api.inject({ method: 'GET', url: `/v1/w/card/${CARD}` })).statusCode).toBe(404);
+  });
+
+  it('la página mirando su estado alarga la sesión: tras 6 minutos sigue abierta y se renueva', async () => {
+    const api = app.getHttpAdapter().getInstance();
+    const old = cookieAt(Date.now() - 6 * 60 * 1000);
+    for (const url of [`/w/${PRIVATE}/state`, `/w/${PRIVATE}`]) {
+      const r = await api.inject({ method: 'GET', url, headers: { cookie: old } });
+      expect(r.statusCode).toBe(200);
+      const renewed = r.headers['set-cookie'] as string[];
+      expect(renewed).toHaveLength(2);
+      expect(renewed[0]).toContain(`Path=/w/${PRIVATE};`);
+      // La renovada vale sola (otros 15 minutos desde ahora).
+      expect((await api.inject({ method: 'GET', url: `/w/${PRIVATE}/state`, headers: { cookie: renewed[0]!.split(';')[0]! } })).statusCode).toBe(200);
+    }
+    // Recién emitida: no se reescribe en cada consulta.
+    const fresh = await api.inject({ method: 'GET', url: `/w/${PRIVATE}/state`, headers: { cookie: cookieAt(Date.now()) } });
+    expect(fresh.headers['set-cookie']).toBeUndefined();
   });
 });
