@@ -44,7 +44,7 @@ export class WalletCardViewService {
     if (!card || !isIssuedCard(card) || !card.wallet || card.wallet.blockedAt || !['ACTIVE', 'DEPLETED'].includes(card.wallet.status)) {
       return { kind: 'unavailable' };
     }
-    const codeHint = codeHintOf(card.wallet.shortCode);
+    const codeHint = card.wallet.shortCode ? codeHintOf(card.wallet.shortCode) : null;
     return (await this.passkeys.hasPasskey(card.wallet.id)) ? { kind: 'locked', codeHint } : { kind: 'setup', codeHint };
   }
 

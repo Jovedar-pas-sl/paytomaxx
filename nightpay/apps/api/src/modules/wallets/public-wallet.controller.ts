@@ -219,7 +219,7 @@ export class PublicWalletController {
     if (!access.allowed) {
       const { shortCode } = await this.charges.walletRefByToken(token);
       res.status(200).header('Content-Type', 'text/html; charset=utf-8').header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer')
-        .send(renderWalletUnlockPage(`/w/${encodeURIComponent(token)}`, lang, { kind: 'locked', codeHint: codeHintOf(shortCode), paidToken }));
+        .send(renderWalletUnlockPage(`/w/${encodeURIComponent(token)}`, lang, { kind: 'locked', codeHint: shortCode ? codeHintOf(shortCode) : null, paidToken }));
       return;
     }
     if (access.renew) res.header('Set-Cookie', access.renew);

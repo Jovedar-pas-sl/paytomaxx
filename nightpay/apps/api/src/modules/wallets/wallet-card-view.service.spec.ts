@@ -66,11 +66,14 @@ describe('consulta de ficha con llave del cliente', () => {
     await expect(service.unlock(token, 'api.example', {})).rejects.toThrow(ForbiddenException);
   });
   it('pantalla de la ficha: con passkey, desbloquear; sin ella, cómo activarla; con el código tapado y sin el enlace', async () => {
-    const { service, keys } = make();
+    const { service, keys, findUnique } = make();
     await expect(service.pageView(token)).resolves.toEqual({ kind: 'locked', codeHint: 'K7Q-•••' });
     keys.hasPasskey.mockResolvedValue(false);
     await expect(service.pageView(token)).resolves.toEqual({ kind: 'setup', codeHint: 'K7Q-•••' });
     expect(JSON.stringify(await service.pageView(token))).not.toContain(wallet.qrToken);
+    // Un saldo antiguo sin código: sin código tapado (nada de «-•••»).
+    findUnique.mockResolvedValue({ ...card, wallet: { ...wallet, shortCode: null } });
+    await expect(service.pageView(token)).resolves.toEqual({ kind: 'setup', codeHint: null });
   });
   it('pantalla de la ficha: bloqueada lo dice; devuelta, en stock, sin saldo vivo o con un token raro, no activa', async () => {
     const { service, findUnique, keys } = make();
