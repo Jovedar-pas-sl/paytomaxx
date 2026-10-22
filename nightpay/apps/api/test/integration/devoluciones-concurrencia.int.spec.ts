@@ -156,37 +156,69 @@ afterAll(async () => {
 });
 
 describe('devoluciones a la vez del mismo cobro (Postgres real)', () => {
-  it('misma intención concurrente y respuesta perdida: una sola reserva, una llamada al banco y replay del refund completo', async () => {
+  it('la misma clave dos veces a la vez: una reserva, una llamada al banco; el reintento da la misma', async () => {
     const owner = await newOwner();
     const pay = await paidPayment(5000);
     const key = randomUUID();
     bank.calls = 0;
     bank.answer = 'SUCCEEDED';
     const results = await Promise.allSettled([refundAs(owner, pay, 5000, key), refundAs(owner, pay, 5000, key)]);
-    const first = results.find((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof refundAs>>> => r.status === 'fulfilled')!;
-    expect(first).toBeDefined();
+    const done = results.filter((x): x is PromiseFulfilledResult<Awaited<ReturnType<typeof refundAs>>> => x.status === 'fulfilled');
+    const waiting = results.filter((x): x is PromiseRejectedResult => x.status === 'rejected');
+    expect(done.length).toBeGreaterThanOrEqual(1);
+    // La otra o esperó al candado y vio la reserva en curso, o llegó cuando ya estaba hecha.
+    for (const w of waiting) expect(w.reason).toMatchObject({ response: expect.objectContaining({ code: 'REFUND_IN_PROGRESS' }) });
+    const first = done.find((d) => !('replayed' in d.value))!.value;
     expect(bank.calls).toBe(1);
-    await expect(refundAs(owner, pay, 5000, key)).resolves.toEqual(first.value);
+    // Respuesta perdida: el reintento con la misma clave devuelve la misma, sin ir al banco.
+    await expect(refundAs(owner, pay, 5000, key)).resolves.toEqual({ ...first, replayed: true });
     expect(await sys((tx) => tx.refund.count({ where: { paymentId: pay } }))).toBe(1);
-    const [otherOwner, otherPay] = [await newOwner(), await paidPayment(5000)];
-    await expect(refundAs(owner, pay, 1000, key)).rejects.toBeInstanceOf(ConflictException);
-    await expect(refundAs(otherOwner, pay, 5000, key)).rejects.toBeInstanceOf(ConflictException);
-    await expect(refundAs(owner, otherPay, 5000, key)).rejects.toBeInstanceOf(ConflictException);
+    expect(await stateOf(pay)).toMatchObject({ status: 'REFUNDED', available: 0 });
     expect(bank.calls).toBe(1);
   });
 
-  it('resultado desconocido conserva la misma reserva al reintentar la clave', async () => {
+  it('con la misma clave, otro importe, otra persona u otro cobro: 409 y no va al banco', async () => {
+    const owner = await newOwner();
+    const pay = await paidPayment(5000);
+    const key = randomUUID();
+    bank.calls = 0;
+    bank.answer = 'SUCCEEDED';
+    await refundAs(owner, pay, 1000, key);
+    const [otherOwner, otherPay] = [await newOwner(), await paidPayment(5000)];
+    for (const call of [() => refundAs(owner, pay, 2000, key), () => refundAs(otherOwner, pay, 1000, key), () => refundAs(owner, otherPay, 1000, key)]) {
+      await expect(call()).rejects.toMatchObject({ response: expect.objectContaining({ code: 'REFUND_KEY_REUSED' }) });
+    }
+    expect(bank.calls).toBe(1);
+    expect(await stateOf(pay)).toMatchObject({ available: 4000 });
+    expect(await stateOf(otherPay)).toMatchObject({ available: 5000 });
+  });
+
+  it('dos devoluciones parciales a propósito (claves distintas): salen las dos', async () => {
+    const owner = await newOwner();
+    const pay = await paidPayment(5000);
+    bank.calls = 0;
+    bank.answer = 'SUCCEEDED';
+    await refundAs(owner, pay, 1000, randomUUID());
+    await refundAs(owner, pay, 1000, randomUUID());
+    expect(bank.calls).toBe(2);
+    expect(await stateOf(pay)).toMatchObject({ status: 'PARTIALLY_REFUNDED', available: 3000 });
+  });
+
+  it('sin confirmar en el banco: el reintento da el mismo 502 y la misma reserva, sin otra llamada', async () => {
     const owner = await newOwner();
     const pay = await paidPayment(3000);
     const key = randomUUID();
     bank.calls = 0;
     bank.answer = 'PENDING';
-    const first = await refundAs(owner, pay, 3000, key).catch((e: { getResponse(): unknown }) => e.getResponse());
-    const replay = await refundAs(owner, pay, 3000, key).catch((e: { getResponse(): unknown }) => e.getResponse());
-    expect(replay).toEqual(first);
+    const first = await refundAs(owner, pay, 3000, key).catch((e: { getStatus(): number; getResponse(): unknown }) => e);
+    const replay = await refundAs(owner, pay, 3000, key).catch((e: { getStatus(): number; getResponse(): unknown }) => e);
+    expect(first.getStatus()).toBe(502);
+    expect(replay.getStatus()).toBe(502);
+    expect(replay.getResponse()).toEqual(first.getResponse());
     expect(bank.calls).toBe(1);
     expect(await stateOf(pay)).toMatchObject({ pendingCents: 3000, available: 3000 });
   });
+
   it('cinco de 15 € sobre un cobro de 60 €: salen cuatro, la quinta no llega al banco', async () => {
     const owner = await newOwner();
     const pay = await paidPayment(6000);

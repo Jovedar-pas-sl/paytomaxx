@@ -3,7 +3,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  HttpException,
   Inject,
   Injectable,
   Logger,
@@ -41,7 +40,8 @@ import { adjustedReason, bankRefundDate } from './bank-refund-date';
 import { refundNeedsApproval, refundRoute } from '../approvals/approval-rules';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import type { Refund } from '@nightpay/db';
-import { assertRefundIntent, findRefundApproval, lockRefundIntent, refundIntent } from './refund-intent';
+import { findRefundApproval, lockRefundIntent, refundIntent } from './refund-intent';
+import { replayOfRefund, savedResponse, type RefundReplay, type RefundResult } from './refund-replay';
 
 /**
  * Una devolución pendiente no se resuelve a mano hasta pasado este rato: la
@@ -57,7 +57,10 @@ export interface RefundRequest {
   amountCents: number;
   reason?: string;
   totpCode?: string;
-  /** Optional for legacy callers; new clients retain one key per intention. */
+  /**
+   * Clave de la intención (la pone la pantalla). Sin ella, cada petición es
+   * una devolución distinta (otros caminos y clientes antiguos).
+   */
   idempotencyKey?: string;
 }
 
@@ -112,7 +115,6 @@ interface RefundTarget {
 
 type RejectedOutcome = Extract<GatewayRefundOutcome, { kind: 'rejected' }>;
 type UnknownOutcome = Extract<GatewayRefundOutcome, { kind: 'unknown' }>;
-type RefundResult = { id: string; paymentId: string; amountCents: number; status: 'SUCCEEDED'; providerRefundId: string | null };
 
 const REJECTED_MESSAGES: Record<RejectedWhy, string> = {
   declined: 'La pasarela rechazó la devolución: no se ha devuelto nada.',
@@ -156,19 +158,23 @@ export class RefundsService {
    * descuento del cobro van en la MISMA transacción: en ningún momento deja
    * de contar, así que dos devoluciones a la vez no pasan de lo cobrado.
    */
-  async refund(request: RefundRequest, actor: Actor, approved?: ApprovedRefund) {
+  async refund(request: RefundRequest, actor: Actor, approved?: ApprovedRefund): Promise<RefundResult | RefundReplay> {
     if (actor.role === 'WAITER') {
       throw new ForbiddenException('WAITER cannot refund');
     }
-    const replay = await this.replay(request, actor);
-    if (replay) return replay;
+    // Reintento con su clave: lo que pasó la primera vez, antes de volver a
+    // mirar el cobro (ya lo pasó) y sin ir otra vez al banco. Lo aprobado por
+    // el dueño no: su candado es la propia aprobación (aprobar dos veces da
+    // «ya decidida»).
+    const earlier = approved ? null : await this.replay(request, actor);
+    if (earlier) return earlier;
     let target: { payment: RefundTarget; adapter: GatewayAdapter };
     try {
       target = await this.refundTarget(request);
     } catch (err) {
-      // Another request can finish the whole refund after our initial lookup.
-      const completed = await this.replay(request, actor);
-      if (completed) return completed;
+      // La primera pudo terminar entre medias y el cobro ya no admite otra.
+      const finished = approved ? null : await this.replay(request, actor);
+      if (finished) return finished;
       throw err;
     }
     const { payment, adapter } = target;
@@ -208,24 +214,17 @@ export class RefundsService {
     };
   }
 
-  /** Before routing/amount/state/2FA checks: the original attempt already passed them. */
-  async replay(request: RefundRequest, actor: Actor): Promise<RefundResult | null> {
-    if (!request.idempotencyKey) return null; // Explicit legacy compatibility: absent keys create separate intentions.
-    const row = await this.prisma.refund.findUnique({ where: { tenantId_idempotencyKey: { tenantId: actor.tenantId, idempotencyKey: request.idempotencyKey } } });
-    return row ? this.replayOf(row, request, actor) : null;
-  }
-
-  private replayOf(row: Refund, request: RefundRequest, actor: Actor): RefundResult {
-    assertRefundIntent(row.intentFingerprint, request, actor);
-    if (row.status === 'SUCCEEDED') {
-      const saved = row.replayResponse as { statusCode?: number; body?: RefundResult } | null;
-      return saved?.statusCode === 201 && saved.body ? saved.body : { id: row.id, paymentId: row.paymentId, amountCents: row.amountCents, status: 'SUCCEEDED', providerRefundId: row.providerRefundId };
-    }
-    const saved = row.replayResponse as { statusCode?: number; body?: Record<string, unknown> | string } | null;
-    if (saved?.statusCode && saved.body && !(row.status === 'FAILED' && saved.statusCode === 502)) {
-      throw new HttpException(saved.body, saved.statusCode);
-    }
-    throw new ConflictException({ message: row.status === 'FAILED' ? 'Esta devolución no se hizo. Para intentarla de nuevo, empieza una devolución nueva.' : 'La devolución sigue pendiente. Reintenta esta misma solicitud para recuperar su resultado.', code: row.status === 'FAILED' ? 'REFUND_FAILED' : 'REFUND_IN_PROGRESS', refundId: row.id });
+  /**
+   * La devolución pedida antes con esta clave, como quedó (null si no hay o
+   * no lleva clave). Antes del umbral, el importe, el estado del cobro y la
+   * 2FA: la petición original ya los pasó.
+   */
+  async replay(request: RefundRequest, actor: Actor): Promise<RefundReplay | null> {
+    if (!request.idempotencyKey) return null;
+    const row = await this.prisma.refund.findUnique({
+      where: { tenantId_idempotencyKey: { tenantId: actor.tenantId, idempotencyKey: request.idempotencyKey } },
+    });
+    return row ? replayOfRefund(row, request, actor) : null;
   }
 
   /**
@@ -313,13 +312,20 @@ export class RefundsService {
     request: RefundRequest,
     actor: Actor,
     approved: ApprovedRefund | undefined,
-  ) {
+  ): Promise<{ replay: RefundReplay } | { refund: Refund; twoFactorRequired: boolean }> {
     return this.prisma.$transaction(async (tx) => {
+      // Una intención, una reserva: dos peticiones con la misma clave a la vez
+      // esperan aquí y la segunda ve la de la primera.
       if (request.idempotencyKey) {
         await lockRefundIntent(tx, actor.tenantId, request.idempotencyKey);
-        const existing = await tx.refund.findUnique({ where: { tenantId_idempotencyKey: { tenantId: actor.tenantId, idempotencyKey: request.idempotencyKey } } });
-        if (existing) return { replay: this.replayOf(existing, request, actor) };
-        if (!approved && await findRefundApproval(tx, request, actor)) throw refundNeedsApproval(request.amountCents, 0);
+        if (!approved) {
+          const existing = await tx.refund.findUnique({
+            where: { tenantId_idempotencyKey: { tenantId: actor.tenantId, idempotencyKey: request.idempotencyKey } },
+          });
+          if (existing) return { replay: replayOfRefund(existing, request, actor) };
+          // Ya se pidió al dueño con esta clave: lo pendiente es esa solicitud.
+          if (await findRefundApproval(tx, request, actor)) throw refundNeedsApproval(request.amountCents, 0);
+        }
       }
       await lockRefundsOf(tx, actor.userId);
       const locked = await lockPaymentForRefund(tx, payment.id);
@@ -379,7 +385,7 @@ export class RefundsService {
       where: { id: refundId },
       data: {
         status: 'FAILED',
-        replayResponse: { statusCode: 409, body: response },
+        replayResponse: savedResponse(409, response),
         ...(outcome.providerRefundId ? { providerRefundId: outcome.providerRefundId } : {}),
       },
     });
@@ -406,7 +412,7 @@ export class RefundsService {
     };
     await this.prisma.refund.update({ where: { id: refundId }, data: {
       ...(outcome.providerRefundId ? { providerRefundId: outcome.providerRefundId } : {}),
-      replayResponse: { statusCode: 502, body: response },
+      replayResponse: savedResponse(502, response),
     } });
     this.metrics.refundsCreated.inc({ venue: payment.tenantId, provider: payment.provider, status: 'unknown' });
     this.logger.error(
@@ -437,21 +443,26 @@ export class RefundsService {
   ): Promise<void> {
     try {
       await this.payments.transition(payment.id, { type: 'REFUND_PARTIAL', amountCents }, actor.tenantId, {
-        prepare: (tx) => settlePendingRefund(tx, refundId, {
-          status: 'SUCCEEDED', providerRefundId,
-          replayResponse: { statusCode: 201, body: { id: refundId, paymentId: payment.id, amountCents, status: 'SUCCEEDED', providerRefundId } },
-        }),
+        // La respuesta va con el paso a SUCCEEDED: si se pierde, el reintento la recupera.
+        prepare: (tx) =>
+          settlePendingRefund(tx, refundId, {
+            status: 'SUCCEEDED',
+            providerRefundId,
+            replayResponse: savedResponse(201, { id: refundId, paymentId: payment.id, amountCents, status: 'SUCCEEDED', providerRefundId }),
+          }),
       });
     } catch (err) {
       await this.flagSettleFailed(payment, refundId, amountCents, actor, err);
       if (err instanceof InvalidTransitionError || err instanceof ConflictException) {
-        throw new ConflictException({
+        const response = {
           message:
             'La pasarela ha hecho la devolución, pero el cobro no admite apuntarla. ' +
             'Queda pendiente de revisar en Incidencias: no la repitas.',
           code: 'REFUND_SETTLE_REJECTED',
           refundId,
-        });
+        };
+        await this.prisma.refund.updateMany({ where: { id: refundId, status: 'PENDING' }, data: { replayResponse: savedResponse(409, response) } });
+        throw new ConflictException(response);
       }
       throw err;
     }

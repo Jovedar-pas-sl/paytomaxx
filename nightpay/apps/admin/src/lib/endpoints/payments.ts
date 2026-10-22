@@ -2,31 +2,7 @@
 
 import type { ApprovalRequestedResponse } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
-import { ApiError } from '../api-errors';
-
-type RefundIntention = { fingerprint: string; key: string };
-const refundIntentions = new Map<string, RefundIntention>();
-
-/** Keep unresolved intentions across retries, modal closes and tab reloads. */
-function refundIntention(paymentId: string, amountCents: number, reason?: string): RefundIntention {
-  const fingerprint = JSON.stringify([amountCents, reason?.trim() || null]);
-  let saved = refundIntentions.get(paymentId);
-  try {
-    const raw = globalThis.sessionStorage?.getItem(`nightpay:refund:${paymentId}`);
-    if (raw) saved = JSON.parse(raw) as RefundIntention;
-  } catch { /* Storage unavailable: the in-memory intention still survives retries. */ }
-  const intention = saved?.fingerprint === fingerprint && typeof saved.key === 'string'
-    ? saved : { fingerprint, key: crypto.randomUUID() };
-  refundIntentions.set(paymentId, intention);
-  try { globalThis.sessionStorage?.setItem(`nightpay:refund:${paymentId}`, JSON.stringify(intention)); } catch { /* Private browser mode. */ }
-  return intention;
-}
-
-function completeRefundIntention(paymentId: string, key: string): void {
-  if (refundIntentions.get(paymentId)?.key !== key) return;
-  refundIntentions.delete(paymentId);
-  try { globalThis.sessionStorage?.removeItem(`nightpay:refund:${paymentId}`); } catch { /* Private browser mode. */ }
-}
+import { refundIntentKey, settleRefundIntent, settlesRefundIntent } from '../refund-intent';
 
 export interface PaymentRow {
   id: string;
@@ -130,29 +106,30 @@ export async function resolvePendingRefund(
 /**
  * Devolución por la pasarela. Si el encargado pide desde el umbral del local,
  * el API no la hace: responde 202 «pedido al dueño» (isApprovalRequested).
+ * Lleva la clave de la devolución de este cobro aún sin respuesta
+ * (refund-intent): un reintento recupera la primera, nunca devuelve dos veces.
+ * `replayed`: era esa misma, ya hecha antes.
  */
 export async function refundPayment(
   paymentId: string,
   amountCents: number,
   reason?: string,
   totpCode?: string,
-): Promise<{ id: string; status: string; providerRefundId: string | null } | ApprovalRequestedResponse> {
-  const intention = refundIntention(paymentId, amountCents, reason);
+): Promise<{ id: string; status: string; providerRefundId: string | null; replayed?: boolean } | ApprovalRequestedResponse> {
+  const idempotencyKey = refundIntentKey(paymentId);
   try {
     const res = await authedFetch(`/v1/payments/${paymentId}/refunds`, {
       method: 'POST',
-      body: JSON.stringify({ amountCents, reason, totpCode, idempotencyKey: intention.key }),
+      body: JSON.stringify({ amountCents, reason, totpCode, idempotencyKey }),
     });
     if (!res.ok) throw await totpAwareError(res);
     const result = await res.json();
-    completeRefundIntention(paymentId, intention.key);
+    settleRefundIntent(paymentId, idempotencyKey);
     return result;
   } catch (err) {
-    // A definitive rejection can start a fresh attempt after another confirmation.
-    // Network errors and unknown outcomes always retain the original key.
-    if (err instanceof ApiError && ['REFUND_REJECTED', 'REFUND_FAILED', 'REFUND_KEY_REUSED'].includes(err.code ?? '')) {
-      completeRefundIntention(paymentId, intention.key);
-    }
+    // Sin respuesta (red), sin confirmar en la pasarela o aún en curso: la
+    // clave se queda para el siguiente intento. Rechazada o ya decidida: no.
+    if (settlesRefundIntent(err)) settleRefundIntent(paymentId, idempotencyKey);
     throw err;
   }
 }

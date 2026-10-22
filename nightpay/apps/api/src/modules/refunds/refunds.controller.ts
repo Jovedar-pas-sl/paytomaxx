@@ -17,7 +17,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
-import type { JwtPayload } from '@nightpay/contracts';
+import { IdempotencyKeySchema, type JwtPayload } from '@nightpay/contracts';
 import { madridDay } from '../../common/time/madrid';
 import { ApprovalRequestsService } from '../approvals/approval-requests.service';
 import { isRefundNeedsApproval } from '../approvals/approval-rules';
@@ -25,7 +25,8 @@ import { RefundsService } from './refunds.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
 const RefundBodySchema = z.object({
-  idempotencyKey: z.string().min(8).max(128).optional(),
+  /** Clave de la intención (la pantalla la repite al reintentar): ver refund-intent.ts. */
+  idempotencyKey: IdempotencyKeySchema.optional(),
   amountCents: z.number().int().positive(),
   reason: z.string().max(500).optional(),
   totpCode: z.string().regex(/^\d{6}$/).optional(),
@@ -89,12 +90,22 @@ export class RefundsController {
     @Res({ passthrough: true }) reply?: FastifyReply,
   ) {
     const actor = { userId: user.sub, role: user.role, tenantId: user.tenantId };
-    const request = { paymentId, amountCents: body.amountCents, reason: body.reason, ...(body.idempotencyKey ? { idempotencyKey: body.idempotencyKey } : {}) };
+    const request = {
+      paymentId,
+      amountCents: body.amountCents,
+      reason: body.reason,
+      ...(body.idempotencyKey ? { idempotencyKey: body.idempotencyKey } : {}),
+    };
+    // Reintento de la pantalla (misma clave): lo que pasó la primera vez, sea
+    // la devolución o la solicitud al dueño, antes de mirar umbral ni importe.
     if (body.idempotencyKey) {
       const refund = await this.refunds.replay(request, actor);
       if (refund) return refund;
       const approval = await this.approvals.replayRefund(actor, request);
-      if (approval) { reply?.status(202); return approval; }
+      if (approval) {
+        reply?.status(202);
+        return approval;
+      }
     }
     const askOwner = () => {
       reply?.status(202);
@@ -102,10 +113,7 @@ export class RefundsController {
     };
     if ((await this.approvals.refundRouteFor(actor, body.amountCents, paymentId)) === 'request') return askOwner();
     try {
-      return await this.refunds.refund(
-        { ...request, totpCode: body.totpCode },
-        actor,
-      );
+      return await this.refunds.refund({ ...request, totpCode: body.totpCode }, actor);
     } catch (err) {
       // A la vez, otra devolución del cobro lo llevó al umbral (lo mira la
       // reserva con el cobro bloqueado): no se devolvió nada, se pide al dueño.
