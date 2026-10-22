@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PublicWalletController } from './public-wallet.controller';
-import { walletViewSetCookie } from './wallet-view-session';
+import { walletViewSetCookies } from './wallet-view-session';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 
 function makeController(googleWalletEnabled = false) {
@@ -163,9 +163,9 @@ describe('/w/:token — PIN y sumar a otro saldo (acciones secundarias de la pá
 });
 
   function cookieReply() {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string | string[]> = {};
     const reply = {
-      header(k: string, v: string) {
+      header(k: string, v: string | string[]) {
         headers[k] = v;
         return reply;
       },
@@ -240,7 +240,7 @@ describe('saldo con passkey: consultar también exige el desbloqueo', () => {
     expect(reply.body).toContain('Consulta tu saldo');
     expect(reply.body).not.toContain('K7Q-4M2');
     expect(charges.clientState).not.toHaveBeenCalled();
-    await expect(controller.state('private-token')).rejects.toMatchObject({ status: 401 });
+    await expect(controller.state('private-token', cookieReply().reply as never)).rejects.toMatchObject({ status: 401 });
     expect(charges.clientState).not.toHaveBeenCalled();
   });
   it('desbloquea solo la llave de este saldo y emite una cookie de consulta', async () => {
@@ -250,8 +250,13 @@ describe('saldo con passkey: consultar también exige el desbloqueo', () => {
     const { reply, headers } = cookieReply();
     await expect(controller.viewUnlock('private-token', 'api.example', { response: { id: 'key' } }, reply as never)).resolves.toEqual({ url: '/w/private-token' });
     expect(passkeys.verify).toHaveBeenCalledWith('view:w-1', 'api.example', { id: 'key' });
-    const cookie = headers['Set-Cookie'].split(';')[0];
-    await expect(controller.state('private-token', cookie)).resolves.toMatchObject({ code: 'K7Q-4M2' });
+    const set = headers['Set-Cookie'] as string[];
+    expect(set.map((c) => c.split('; ')[1])).toEqual(['Path=/w/private-token', 'Path=/v1/wallets/public/private-token']);
+    const cookie = set[0]!.split(';')[0];
+    const polled = cookieReply();
+    await expect(controller.state('private-token', polled.reply as never, cookie)).resolves.toMatchObject({ code: 'K7Q-4M2' });
+    // Recién desbloqueada: no hace falta reescribirla en cada consulta.
+    expect(polled.headers['Set-Cookie']).toBeUndefined();
     expect(charges.clientState).toHaveBeenCalledTimes(1);
     passkeys.verify.mockResolvedValue('w-other');
     const wrong = cookieReply();
@@ -261,8 +266,8 @@ describe('saldo con passkey: consultar también exige el desbloqueo', () => {
   it('no acepta una cookie de otro saldo y un reto no muestra datos', async () => {
     const { controller, charges, passkeys } = makeController();
     passkeys.hasPasskey.mockResolvedValue(true);
-    const cookie = walletViewSetCookie('secreto-de-cookies-de-las-pruebas-0123456789', { id: 'otro', qrToken: 'token' }).split(';')[0];
-    await expect(controller.state('private-token', cookie)).rejects.toMatchObject({ status: 401 });
+    const cookie = walletViewSetCookies('secreto-de-cookies-de-las-pruebas-0123456789', { id: 'otro', qrToken: 'token' })[0]!.split(';')[0];
+    await expect(controller.state('private-token', cookieReply().reply as never, cookie)).rejects.toMatchObject({ status: 401 });
     await expect(controller.viewChallenge('private-token', 'api.example')).resolves.toEqual({ challenge: 'abc' });
     expect(passkeys.challenge).toHaveBeenCalledWith('view:w-1', 'api.example');
     expect(charges.clientState).not.toHaveBeenCalled();
@@ -272,7 +277,9 @@ describe('saldo con passkey: consultar también exige el desbloqueo', () => {
     Object.assign(passkeys, { register: vi.fn().mockResolvedValue(undefined) });
     const { reply, headers } = cookieReply();
     await controller.passkeyRegister('private-token', { response: {} }, 'api.example', reply as never);
-    expect(headers['Set-Cookie']).toContain('HttpOnly');
-    expect(headers['Set-Cookie']).toContain('Path=/;');
+    const set = headers['Set-Cookie'] as string[];
+    expect(set).toHaveLength(2);
+    for (const c of set) expect(c).toContain('HttpOnly; SameSite=Strict');
+    expect(set[0]).toContain('Path=/w/private-token;');
   });
 });

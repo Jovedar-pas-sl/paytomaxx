@@ -7,7 +7,7 @@ import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { resolveLanguage } from '../payments/pay-i18n';
 import { WalletCardViewService } from './wallet-card-view.service';
 import { renderWalletUnlockPage } from './wallet-unlock-page';
-import { walletViewSetCookie } from './wallet-view-session';
+import { walletViewSetCookies } from './wallet-view-session';
 
 @Controller('w')
 export class PublicWalletCardController {
@@ -44,7 +44,7 @@ export class PublicWalletCardController {
   @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-card-view' })
   async unlock(@Param('token') token: string, @Headers('host') host: string | undefined, @Body() body: { response?: unknown } | undefined, @Res({ passthrough: true }) res: FastifyReply): Promise<{ url: string }> {
     const wallet = await this.cards.unlock(token, host, body?.response);
-    res.header('Set-Cookie', walletViewSetCookie(this.config.get<string>('COOKIE_SECRET') ?? '', wallet));
+    res.header('Set-Cookie', walletViewSetCookies(this.config.get<string>('COOKIE_SECRET') ?? '', wallet));
     return { url: `/w/${encodeURIComponent(wallet.qrToken)}` };
   }
 }
