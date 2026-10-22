@@ -63,8 +63,11 @@ groups:
           summary: "Webhooks inválidos > 0.5/s en 5 min"
           description: "Posible attacker probando firmas HMAC, o rotación de secret sin redeploy."
 
+      # Las colas viven en Redis: cada réplica del API lee las mismas. max por
+      # cola para no repetir la alerta por réplica (y por si una réplica no
+      # consigue leer: las demás cuentan).
       - alert: QueueBacklog
-        expr: nightpay_queue_depth > 1000
+        expr: max by (job, queue) (nightpay_queue_depth) > 1000
         for: 10m
         labels:
           severity: warning
@@ -72,14 +75,24 @@ groups:
           summary: "Cola {{ $labels.queue }} > 1000 jobs por 10 min"
           description: "Workers atascados o lentos."
 
+      # El backlog es de la base (el mismo en cada réplica): max por job.
       - alert: EarningReversalOldest
-        expr: nightpay_earning_reversal_oldest_age_seconds > 1800
+        expr: max by (job) (nightpay_earning_reversal_oldest_age_seconds) > 1800
         for: 5m
         labels:
           severity: critical
         annotations:
           summary: "Devolución hecha sin descontar la ganancia desde hace más de 30 min"
           description: "Revisar earning_reversals; la antigüedad incluye los fallos con reintento diferido."
+
+      - alert: EarningReversalNeedsHuman
+        expr: max by (job) (nightpay_earning_reversal_needs_human) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} descuento(s) a chicas que el repaso no consigue hacer"
+          description: "Salen en Incidencias con su motivo (refunds.earningReversalLastError). Tras 5 fallos seguidos hace falta una persona."
 
       - alert: EarningReversalMetricsUnavailable
         expr: nightpay_earning_reversal_metrics_up == 0
@@ -90,13 +103,13 @@ groups:
           summary: "No se puede consultar el backlog de descuentos por devolución"
 
       - alert: QueueOldestJob
-        expr: nightpay_queue_oldest_age_seconds > 600
+        expr: max by (job, queue) (nightpay_queue_oldest_age_seconds) > 600
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "Cola {{ $labels.queue }} con trabajo listo o activo creado hace más de 10 min"
-          description: "Edad desde creación en waiting/active/prioritized/paused; excluye delayed y waiting-children. No mide tiempo desde promoción o reintento."
+          description: "Edad desde creación del más antiguo de la cabeza de waiting/active/prioritized/paused; excluye delayed y waiting-children. No mide tiempo desde promoción o reintento."
 
       - alert: QueueMetricsUnavailable
         expr: nightpay_queue_metrics_up == 0
@@ -108,7 +121,7 @@ groups:
           description: "Redis falló o excedió 2 s; backlog y antigüedad se omiten para no mostrar datos antiguos."
 
       - alert: QueueFailedJobs
-        expr: nightpay_queue_jobs{state="failed"} > 0
+        expr: max by (job, queue) (nightpay_queue_jobs{state="failed"}) > 0
         for: 10m
         labels:
           severity: warning

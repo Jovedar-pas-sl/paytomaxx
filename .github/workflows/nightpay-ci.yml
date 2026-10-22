@@ -268,6 +268,14 @@ jobs:
         ports: ['6379:6379']
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Antes de construir (un minuto, no cuarenta): las reglas cargan y cada
+      # alerta de colas y descuentos dispara, no se repite por réplica y se
+      # resuelve con las series de docs/observability/alerts.test.yml.
+      - name: Reglas y escenarios de alertas Prometheus (promtool)
+        run: |
+          promtool() { docker run --rm --entrypoint /bin/promtool -v "$PWD/docs/observability:/rules:ro" -w /rules prom/prometheus:v2.55.1 "$@"; }
+          promtool check rules alerts.yml
+          promtool test rules alerts.test.yml
       - name: Construir las 5 imágenes
         run: |
           for app in api admin operator tpv web-client; do
@@ -278,10 +286,6 @@ jobs:
               -t np-$app . || exit 1
             echo "::endgroup::"
           done
-      - name: Reglas y escenarios de alertas Prometheus
-        run: |
-          docker run --rm --entrypoint /bin/promtool -v "$PWD/docs/observability:/rules:ro" -w /rules prom/prometheus:v2.55.1 check rules alerts.yml
-          docker run --rm --entrypoint /bin/promtool -v "$PWD/docs/observability:/rules:ro" -w /rules prom/prometheus:v2.55.1 test rules alerts.test.yml
       - name: Las webs arrancan sin root y responden
         run: |
           port=5100

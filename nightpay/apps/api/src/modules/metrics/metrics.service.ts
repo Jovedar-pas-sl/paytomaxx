@@ -1,32 +1,13 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client';
-import type { Queue } from 'bullmq';
-
-const PENDING_STATES = ['waiting', 'active', 'delayed', 'prioritized', 'waiting-children', 'paused'] as const;
-// BullMQ keeps creation timestamp across retries/promotions. Availability cannot
-// be reconstructed from timestamp + delay: delay is relative to the retry time.
-const AGE_STATES = ['waiting', 'active', 'prioritized', 'paused'] as const;
-const QUEUE_STATES = [...PENDING_STATES, 'failed', 'completed'] as const;
-type QueueSource = Pick<Queue, 'name' | 'getJobCounts'> & {
-  getJobs: (...args: Parameters<Queue['getJobs']>) => Promise<Array<{ timestamp: number; delay?: number } | undefined>>;
-};
+import { QueueGauges, type QueueSource } from './queue-gauges';
+import { SCRAPE_TIMEOUT_MS, withTimeout } from './scrape-timeout';
 
 /** Lo que da el repaso de devoluciones sin descontar a la chica. */
 export interface ReversalBacklog {
   pending: number;
   oldestAgeSeconds: number;
   needsHuman: number;
-}
-
-/** Lo que espera un scrape a Redis o a la base antes de dar la medida por no disponible. */
-const SCRAPE_TIMEOUT_MS = 2000;
-
-function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
-  });
-  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -225,80 +206,17 @@ export class MetricsService implements OnModuleInit {
     labelNames: ['route', 'client', 'result'], // login|refresh|logout · legacy|migration · allowed|closed
     registers: [this.registry],
   });
-  readonly queueDepth = new Gauge({
-    name: 'nightpay_queue_depth',
-    help: 'Trabajos sin terminar en BullMQ (waiting, active, delayed, prioritized, waiting-children, paused)',
-    labelNames: ['queue'],
-    registers: [this.registry],
-  });
-  readonly queueJobs = new Gauge({
-    name: 'nightpay_queue_jobs', help: 'Trabajos BullMQ por estado',
-    labelNames: ['queue', 'state'], registers: [this.registry],
-  });
-  readonly queueOldestAge = new Gauge({
-    name: 'nightpay_queue_oldest_age_seconds', help: 'Edad desde creación del trabajo más antiguo en waiting/active/prioritized/paused; excluye delayed y waiting-children',
-    labelNames: ['queue'], registers: [this.registry],
-  });
-  readonly queueMetricsUp = new Gauge({
-    name: 'nightpay_queue_metrics_up', help: '1 si se pudo consultar BullMQ en este scrape, 0 si falló',
-    labelNames: ['queue'], registers: [this.registry],
-  });
-  private readonly queueSources = new Set<QueueSource>();
-  private queueCollection?: Promise<void>;
+  // Colas de BullMQ, leídas en cada scrape (queue-gauges.ts; las registra QueueMetricsService).
+  private readonly queues = new QueueGauges(this.registry);
+  readonly queueDepth = this.queues.depth;
+  readonly queueJobs = this.queues.jobs;
+  readonly queueOldestAge = this.queues.oldestAge;
+  readonly queueMetricsUp = this.queues.up;
+  private collection?: Promise<void>;
 
-  /** BullMQ owns connections; the registering module removes sources before shutdown. */
+  /** BullMQ es dueño de las conexiones; quien registra las colas las quita antes de cerrarlas. */
   observeQueues(queues: readonly QueueSource[]): () => void {
-    queues.forEach((queue) => this.queueSources.add(queue));
-    return () => queues.forEach((queue) => {
-      this.queueSources.delete(queue);
-      this.clearQueue(queue.name);
-      this.queueMetricsUp.remove({ queue: queue.name });
-    });
-  }
-
-  private clearQueue(queue: string): void {
-    this.queueDepth.remove({ queue });
-    this.queueOldestAge.remove({ queue });
-    QUEUE_STATES.forEach((state) => this.queueJobs.remove({ queue, state }));
-  }
-
-  private async oldestQueueAge(queue: QueueSource, deadline: number): Promise<number> {
-    let oldest = 0;
-    // getJobs applies pagination to each state. Read every page rather than
-    // assuming priority order or retry order implies oldest creation time.
-    for (let start = 0; ; start += 500) {
-      if (!this.queueSources.has(queue)) return 0;
-      if (Date.now() >= deadline) throw new Error('BullMQ metrics timeout');
-      const jobs = await queue.getJobs([...AGE_STATES], start, start + 499);
-      const now = Date.now();
-      oldest = jobs.reduce((age, job) => job ? Math.max(age, (now - job.timestamp) / 1000) : age, oldest);
-      if (jobs.length < 500) return oldest;
-    }
-  }
-
-  private async collectQueue(queue: QueueSource): Promise<void> {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const [counts, age] = await Promise.race([
-        Promise.all([
-          queue.getJobCounts(...QUEUE_STATES),
-          this.oldestQueueAge(queue, Date.now() + 2000),
-        ]),
-        new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('BullMQ metrics timeout')), 2000); }),
-      ]);
-      if (!this.queueSources.has(queue)) return;
-      const labels = { queue: queue.name };
-      QUEUE_STATES.forEach((state) => this.queueJobs.set({ ...labels, state }, counts[state] ?? 0));
-      this.queueDepth.set(labels, PENDING_STATES.reduce((sum, state) => sum + (counts[state] ?? 0), 0));
-      this.queueOldestAge.set(labels, age);
-      this.queueMetricsUp.set(labels, 1);
-    } catch {
-      if (!this.queueSources.has(queue)) return;
-      this.clearQueue(queue.name);
-      this.queueMetricsUp.set({ queue: queue.name }, 0);
-    } finally {
-      if (timeout) clearTimeout(timeout);
-    }
+    return this.queues.observe(queues);
   }
 
   onModuleInit(): void {
@@ -306,13 +224,16 @@ export class MetricsService implements OnModuleInit {
     collectDefaultMetrics({ register: this.registry, prefix: 'nightpay_' });
   }
 
-  /** Devuelve el dump en formato Prometheus text. */
+  /**
+   * Devuelve el dump en formato Prometheus text, con las colas y el backlog de
+   * descuentos leídos ahora (dos scrapes a la vez comparten la misma lectura).
+   */
   async render(): Promise<string> {
-    this.queueCollection ??= Promise.all([...this.queueSources].map((queue) => this.collectQueue(queue)).concat(this.collectEarningReversals())).then(() => undefined);
+    this.collection ??= Promise.all([this.queues.collect(), this.collectEarningReversals()]).then(() => undefined);
     try {
-      await this.queueCollection;
+      await this.collection;
     } finally {
-      this.queueCollection = undefined;
+      this.collection = undefined;
     }
     return this.registry.metrics();
   }
