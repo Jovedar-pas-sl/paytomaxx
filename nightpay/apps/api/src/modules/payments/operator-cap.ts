@@ -20,7 +20,7 @@ export function operatorCapProblem(args: {
   const withTip = args.tipCents > 0 ? ' (con propina)' : '';
   return (
     `Importe ${eur(totalCents)}${withTip} supera el límite del local (${eur(args.capCents)}). ` +
-    `Para wallet top-up no aplica el cap; para cobros puntuales pídele al OWNER que suba el cap en Ajustes.`
+    'Las recargas de saldo no tienen límite; para cobros puntuales pídele al dueño que lo suba en Ajustes.'
   );
 }
 

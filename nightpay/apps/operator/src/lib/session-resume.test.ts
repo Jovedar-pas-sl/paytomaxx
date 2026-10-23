@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { OperatorUser } from './api';
 import { createOpenChargeStore, summarizeCharges, tabForOpenCharge } from './open-charges';
-import { afterRelogin, isSamePerson, shellView, shouldCollapseSheet } from './session-resume';
+import { afterRelogin, isSamePerson, shellView, shouldCollapseSheet, withProfile } from './session-resume';
 
 const ANA: OperatorUser = { id: 'u-ana', email: 'ana@local.es', role: 'OPERATOR', tenantId: 't-1', venueSlug: 'club' };
 
@@ -25,6 +25,20 @@ describe('¿es la misma persona al volver a entrar?', () => {
   it('sin nadie antes: de cero', () => {
     expect(isSamePerson(null, ANA)).toBe(false);
     expect(afterRelogin(undefined, ANA)).toBe('reset');
+  });
+});
+
+describe('el refresco trae el nombre de ahora', () => {
+  it('misma persona y local: se pinta su nombre (todo lo demás sigue)', () => {
+    const named: OperatorUser = { ...ANA, displayName: 'Ana' };
+    expect(withProfile(ANA, named)).toBe(named);
+  });
+
+  it('sin sesión en pantalla u otra persona/local: no se toca', () => {
+    expect(withProfile(null, ANA)).toBeNull();
+    expect(withProfile(undefined, ANA)).toBeUndefined();
+    expect(withProfile(ANA, { ...ANA, id: 'u-eva', displayName: 'Eva' })).toBe(ANA);
+    expect(withProfile(ANA, { ...ANA, tenantId: 't-2', displayName: 'Ana' })).toBe(ANA);
   });
 });
 

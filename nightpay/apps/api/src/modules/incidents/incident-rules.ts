@@ -7,6 +7,8 @@
 import { BRAND_NAME } from '../../common/brand';
 import { madridDay } from '../../common/time/madrid';
 import type { BackupVerdict } from '../db-backups/backup-check';
+import { SALDOS_TAB_PATH } from '../wallets/saldo-texts';
+import { formatWalletCode } from '../wallets/wallet-rules';
 
 export type IncidentKind =
   | 'stuck_payment'
@@ -169,8 +171,8 @@ export function walletCreditSkippedIncident(r: EventRow): Incident {
   return {
     kind: 'wallet_credit_skipped',
     refId: r.id,
-    title: 'Recarga cobrada sin saldo en la wallet',
-    detail: 'El cliente pagó pero la wallet no estaba activa. Devuélvelo en BBVA o reactiva la wallet.',
+    title: 'Recarga cobrada que no llegó al saldo',
+    detail: 'El cliente pagó pero su saldo no estaba activo. Devuélvelo en BBVA o reactiva el saldo.',
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.paymentId,
@@ -326,13 +328,18 @@ export interface WalletBalanceRow {
   occurredAt: Date;
 }
 
+/** « · código K7Q-4M2»: como lo ve el cliente en su móvil (con guion); sin código, nada. */
+function codeText(shortCode: string | null): string {
+  return shortCode ? ` · código ${formatWalletCode(shortCode)}` : '';
+}
+
 /** El cliente pulsó "Me voy": hay que devolverle el saldo. */
 export function walletCloseRequestedIncident(r: WalletBalanceRow): Incident {
   return {
     kind: 'wallet_close_requested',
     refId: r.id,
     title: 'Un cliente pide que le devuelvan su saldo',
-    detail: `${eur(r.balanceCents)}${r.shortCode ? ` · código ${r.shortCode}` : ''}. Devuélveselo en Wallets → Devolver saldo (tarjeta o efectivo).`,
+    detail: `${eur(r.balanceCents)}${codeText(r.shortCode)}. Devuélveselo en ${SALDOS_TAB_PATH} → Devolver saldo (tarjeta o efectivo).`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.balanceCents,
     paymentId: null,
@@ -366,7 +373,7 @@ export function walletOpenBalanceIncident(r: WalletBalanceRow): Incident {
     kind: 'wallet_open_balance',
     refId: r.id,
     title: 'Saldo de un cliente sin devolver',
-    detail: `${eur(r.balanceCents)}${r.shortCode ? ` · código ${r.shortCode}` : ''}. Si el cliente ya se fue, devuélveselo a la tarjeta en Wallets → Devolver saldo.`,
+    detail: `${eur(r.balanceCents)}${codeText(r.shortCode)}. Si el cliente ya se fue, devuélveselo a la tarjeta en ${SALDOS_TAB_PATH} → Devolver saldo.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.balanceCents,
     paymentId: null,

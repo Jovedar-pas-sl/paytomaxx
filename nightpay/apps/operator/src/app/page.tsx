@@ -7,12 +7,12 @@ import { Dashboard } from '@/components/Dashboard';
 import { ReloginSheet } from '@/components/ReloginSheet';
 import { SessionExpiredContext } from '@/components/session-context';
 import { WALLET_CARD_PARAM, WALLET_PASS_PARAM } from '@nightpay/contracts';
-import { getUser, hasSession, apiBase, logout, onSessionEnded, type OperatorUser } from '@/lib/api';
+import { getUser, hasSession, apiBase, logout, onProfileUpdated, onSessionEnded, type OperatorUser } from '@/lib/api';
 import { customerCardDestination } from '@/lib/customer-card';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { captureInviteFromUrl } from '@/lib/invite-link';
 import { useOpenCharges } from '@/lib/open-charges';
-import { afterRelogin, shellView } from '@/lib/session-resume';
+import { afterRelogin, shellView, withProfile } from '@/lib/session-resume';
 import { clearTabFromUrl } from '@/lib/use-url-tab';
 import { PASS_OPENED_LOGGED_OUT_TEXT } from '@/lib/wallet-pass';
 
@@ -47,7 +47,9 @@ export default function Page() {
     else setUser(null);
     setFromCard(opened.has(WALLET_CARD_PARAM));
     setFromPass(opened.has(WALLET_PASS_PARAM));
-    return onSessionEnded((reason) => {
+    // El refresco trae el nombre de Personal (sesiones de antes, o cambiado): se pinta sin volver a entrar.
+    const stopProfile = onProfileUpdated((next) => setUser((current) => withProfile(current, next)));
+    const stopEnded = onSessionEnded((reason) => {
       if (!loggedIn.current) return;
       if (reason === 'logout') {
         // «Salir» en otra pestaña: fuera aquí también, con cobro abierto o sin él.
@@ -59,6 +61,10 @@ export default function Page() {
       setNotice(EXPIRED_NOTICE);
       setExpired(true);
     });
+    return () => {
+      stopProfile();
+      stopEnded();
+    };
   }, []);
 
   /** Entrar (o volver a entrar). Otra persona u otro local: nada de lo de antes. */

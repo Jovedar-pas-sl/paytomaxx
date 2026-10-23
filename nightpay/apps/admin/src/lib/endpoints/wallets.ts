@@ -81,7 +81,7 @@ export interface WalletsAdminStats {
 
 export async function fetchWalletsStats(): Promise<WalletsAdminStats> {
   const res = await authedFetch('/v1/admin/wallets/stats');
-  if (!res.ok) throw new Error('Error cargando stats de wallets');
+  if (!res.ok) throw new Error('Error cargando las cifras de los saldos');
   return res.json();
 }
 
@@ -93,7 +93,7 @@ export async function fetchWalletsList(params?: {
   if (params?.status) qs.set('status', params.status);
   if (params?.limit) qs.set('limit', String(params.limit));
   const res = await authedFetch(`/v1/admin/wallets?${qs.toString()}`);
-  if (!res.ok) throw new Error('Error cargando wallets');
+  if (!res.ok) throw new Error('Error cargando los saldos');
   return res.json();
 }
 

@@ -80,6 +80,11 @@ function remainingSeconds(exp: number | undefined, nowMs: number = Date.now()): 
 
 type LoginUser = Prisma.UserGetPayload<{ include: { venue: true } }>;
 
+/** El nombre de Personal que pinta la app; sin nombre (o solo espacios), null: la app pinta el puesto. */
+function visibleName(displayName: string | null | undefined): string | null {
+  return displayName?.trim() || null;
+}
+
 /** Lo que emite el servicio: siempre con el refresh token (el controlador decide si va en cookie o en el cuerpo). */
 export type IssuedLogin = LoginResponse & { refreshToken: string };
 export type IssuedRefresh = RefreshResponse & { refreshToken: string };
@@ -318,6 +323,7 @@ export class AuthService {
         tenantId: user.tenantId,
         venueSlug: user.venue.slug,
         isSuperAdmin: user.isSuperAdmin,
+        displayName: visibleName(user.displayName),
       },
     };
   }
@@ -448,6 +454,7 @@ export class AuthService {
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
       refreshToken: rotated.token,
       refreshExpiresIn: rotated.ttlSeconds,
+      displayName: visibleName(user.displayName),
     };
   }
 

@@ -24,6 +24,12 @@ describe('operatorCapProblem — tope del local para la chica', () => {
     expect(operatorCapProblem({ ...base, amountCents: 25_000 })).toMatch(/^Importe 250\.00 € supera el límite del local \(200\.00 €\)\./);
   });
 
+  it('dice qué hacer con las palabras de la app (saldo, dueño, límite), sin «wallet top-up» ni «cap»', () => {
+    expect(operatorCapProblem({ ...base, amountCents: 25_000 })).toBe(
+      'Importe 250.00 € supera el límite del local (200.00 €). Las recargas de saldo no tienen límite; para cobros puntuales pídele al dueño que lo suba en Ajustes.',
+    );
+  });
+
   it('servicio de la carta: el importe lo pone el local, cuenta solo la propina', () => {
     expect(operatorCapProblem({ ...base, fromMenu: true, amountCents: 30_000, tipCents: 5_000 })).toBeNull();
     expect(operatorCapProblem({ ...base, fromMenu: true, amountCents: 30_000, tipCents: 25_000 })).not.toBeNull();

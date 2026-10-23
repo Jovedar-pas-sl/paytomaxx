@@ -38,6 +38,7 @@ import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
 import { ApprovalNotifier } from './approval-notifier';
 import { assertRefundIntent, findRefundApproval, lockRefundIntent, refundApprovalKey, refundIntent } from '../refunds/refund-intent';
+import { TOPUP_REFUND_TEXT } from '../wallets/saldo-texts';
 import {
   buildPayoutPayload,
   toApprovalView,
@@ -586,7 +587,7 @@ export class ApprovalRequestsService {
 /** Solo se piden las devoluciones que se hacen por la pasarela (como POST /payments/:id/refunds). */
 function assertRefundableByApi(payment: { provider: string | null; providerTxId: string | null; walletId: string | null }): void {
   if (payment.walletId) {
-    throw new ConflictException('Es una recarga de saldo: se devuelve desde Wallets → Devolver saldo');
+    throw new ConflictException(TOPUP_REFUND_TEXT);
   }
   if (!payment.providerTxId || !payment.provider) {
     throw new ConflictException('Payment has no provider transaction id');

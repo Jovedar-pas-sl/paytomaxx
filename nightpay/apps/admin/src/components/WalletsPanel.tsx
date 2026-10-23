@@ -131,11 +131,11 @@ export function WalletsPanel({ isOwner }: Props) {
         <>
           <section style={tilesGrid}>
             <Tile
-              title="Wallets activas"
+              title="Saldos activos"
               value={String(stats.activeCount)}
               subtitle={`${formatEur(stats.totalBalanceCents)} en total`}
             />
-            <Tile title="Top-ups hoy" value={formatEur(stats.todayTopUpsCents)} />
+            <Tile title="Recargas hoy" value={formatEur(stats.todayTopUpsCents)} />
             <Tile title="Consumido hoy" value={formatEur(stats.todayConsumptionsCents)} />
             <Tile title="Reembolsos hoy" value={formatEur(stats.todayRefundsCents)} />
           </section>
@@ -157,7 +157,7 @@ export function WalletsPanel({ isOwner }: Props) {
           ) : null}
         </>
       ) : error ? null : (
-        <p style={loadingStyle}>Cargando wallets…</p>
+        <p style={loadingStyle}>Cargando saldos…</p>
       )}
 
       <CodeSearch onFound={setPayoutFor} />
@@ -168,7 +168,7 @@ export function WalletsPanel({ isOwner }: Props) {
 
       <Card className="np-table-host" style={{ padding: '1rem' }}>
         <div style={listHeader}>
-          <h3 style={sectionTitle}>Lista de wallets</h3>
+          <h3 style={sectionTitle}>Lista de saldos</h3>
           <Select
             aria-label="Filtrar por estado"
             value={statusFilter}
@@ -186,7 +186,7 @@ export function WalletsPanel({ isOwner }: Props) {
         {rows === null ? (
           <p style={mutedText}>{error ? 'No se pudo cargar la lista.' : 'Cargando…'}</p>
         ) : rows.length === 0 ? (
-          <p style={mutedText}>Sin wallets para este filtro.</p>
+          <p style={mutedText}>Sin saldos para este filtro.</p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table className="np-table">

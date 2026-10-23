@@ -956,11 +956,11 @@ describe('RefundsService.registerBankRefund — devolución hecha en el portal d
     ).rejects.toThrow(ConflictException);
   });
 
-  it('recarga de wallet → se devuelve desde Wallets (si no, el saldo seguiría gastable)', async () => {
+  it('recarga de saldo → se devuelve desde Clientes → Saldos (si no, el saldo seguiría gastable)', async () => {
     const { svc } = makeService({ payment: { ...redsysPayment, walletId: 'w-1' } });
     await expect(
       svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 100, reason: 'motivo' }, owner),
-    ).rejects.toThrow(/Wallets/);
+    ).rejects.toThrow('Es una recarga de saldo: se devuelve desde Clientes → Saldos → Devolver saldo');
   });
 
   it('misma devolución ya registrada esta semana → pide confirmar; confirmada, se apunta', async () => {

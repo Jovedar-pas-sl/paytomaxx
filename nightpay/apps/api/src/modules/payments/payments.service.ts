@@ -551,7 +551,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Mutex: no se puede top-upear wallet via POS_EXTERNAL (PSP externo no nos
     // notifica AUTHORIZED por webhook → no podríamos creditar el wallet).
     if (isPosExternal && isWalletTopUp) {
-      throw new BadRequestException('No se puede cargar wallet vía POS externo — usa modo QR normal.');
+      throw new BadRequestException('No se puede recargar el saldo con un datáfono externo: usa el QR.');
     }
     const topUp = await this.resolveTopUp(tenantId, dto, venue.walletGroup);
     const commission = await this.operatorCommissionSnapshot({
@@ -723,13 +723,13 @@ export class PaymentsService implements OnApplicationBootstrap {
         select: { id: true, status: true, mergedIntoId: true, blockedAt: true },
       }),
     );
-    if (!existing) throw new NotFoundException('Wallet no encontrada en este venue');
+    if (!existing) throw new NotFoundException('Saldo no encontrado en este local');
     // Bloqueado por el super-admin: ni con tarjeta (como en efectivo, en recepción o desde /w).
     if (existing.blockedAt) throw new WalletBlockedException();
     // A 0 (DEPLETED) se recarga y se reabre al cobrarse; sumado a otro o cerrado, no.
     const rechargeable = existing.status === 'ACTIVE' || (existing.status === 'DEPLETED' && !existing.mergedIntoId);
     if (!rechargeable) {
-      throw new BadRequestException(`Wallet en status ${existing.status} — no se puede recargar`);
+      throw new BadRequestException('Este saldo ya está cerrado: no se puede recargar. Haz un saldo nuevo.');
     }
     return { walletId: existing.id };
   }

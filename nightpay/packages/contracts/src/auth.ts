@@ -60,6 +60,8 @@ export const LoginResponseSchema = z.object({
     venueSlug: z.string(),
     /** Solo OWNER + flag: usuario que gestiona múltiples locales. */
     isSuperAdmin: z.boolean().optional(),
+    /** Nombre visible de Personal; null si no tiene → la app pinta el puesto. */
+    displayName: z.string().nullable(),
   }),
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
@@ -76,6 +78,12 @@ export const RefreshResponseSchema = z.object({
   /** Solo a las apps antiguas (las nuevas lo reciben en la cookie). */
   refreshToken: z.string().optional(),
   refreshExpiresIn: z.number().int().positive(),
+  /**
+   * El nombre visible de ahora (como en el login): si el dueño lo cambió en
+   * Personal, o la sesión es de antes de que el login lo mandara, la app lo
+   * pone sin volver a entrar. null si no tiene.
+   */
+  displayName: z.string().nullable(),
 });
 export type RefreshResponse = z.infer<typeof RefreshResponseSchema>;
 

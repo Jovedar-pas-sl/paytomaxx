@@ -16,6 +16,9 @@ import {
   receptionPayoutCapIncident,
   stuckIncident,
   walletCardLostIncident,
+  walletCloseRequestedIncident,
+  walletCreditSkippedIncident,
+  walletOpenBalanceIncident,
 } from './incident-rules';
 import { incidentMessage, morningSummaryMessage } from './alert-messages';
 import type { ExportSummary } from '../reports/export-csv';
@@ -288,5 +291,36 @@ describe('«He perdido mi NFC»', () => {
     expect(SELF_RESOLVING.has('wallet_card_lost')).toBe(false);
     const bare = walletCardLostIncident({ id: 'a', paymentId: null, amountCents: null, occurredAt: new Date(), payload: null });
     expect(bare.detail).toContain('Su saldo sigue valiendo');
+  });
+});
+
+describe('avisos del saldo: «Saldos» (nunca «Wallets») y el código con guion', () => {
+  const row = { id: 'w-1', shortCode: 'UYSJ5G', balanceCents: 2_900, occurredAt: new Date('2026-10-22T16:29:00Z') };
+
+  it('un cliente pide su saldo: dónde se devuelve y su código como lo ve él (UYS-J5G)', () => {
+    const i = walletCloseRequestedIncident(row);
+    expect(i.title).toBe('Un cliente pide que le devuelvan su saldo');
+    expect(i.detail).toBe('29,00 € · código UYS-J5G. Devuélveselo en Clientes → Saldos → Devolver saldo (tarjeta o efectivo).');
+    // Telegram lleva el mismo texto.
+    expect(incidentMessage('Sala Aurora', i)).toContain('código UYS-J5G. Devuélveselo en Clientes → Saldos');
+    expect(walletCloseRequestedIncident({ ...row, shortCode: null }).detail).toBe(
+      '29,00 €. Devuélveselo en Clientes → Saldos → Devolver saldo (tarjeta o efectivo).',
+    );
+  });
+
+  it('saldo sin devolver tras cerrar: también con el código con guion y «Saldos»', () => {
+    expect(walletOpenBalanceIncident(row).detail).toBe(
+      '29,00 € · código UYS-J5G. Si el cliente ya se fue, devuélveselo a la tarjeta en Clientes → Saldos → Devolver saldo.',
+    );
+  });
+
+  it('recarga cobrada que no llegó al saldo: sin «wallet»', () => {
+    const i = walletCreditSkippedIncident({ id: 'e-1', paymentId: 'p-1', amountCents: 1_000, occurredAt: row.occurredAt, payload: null });
+    expect(i.title).toBe('Recarga cobrada que no llegó al saldo');
+    expect(i.detail).toBe('El cliente pagó pero su saldo no estaba activo. Devuélvelo en BBVA o reactiva el saldo.');
+    for (const text of [i.title, i.detail, walletCloseRequestedIncident(row).detail, walletOpenBalanceIncident(row).detail]) {
+      expect(text).not.toMatch(/wallet/i);
+      expect(text).not.toMatch(/código [A-Z0-9]{6}\b/);
+    }
   });
 });

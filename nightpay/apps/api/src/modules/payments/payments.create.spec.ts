@@ -296,7 +296,7 @@ describe('create — Idempotency-Key ligada a quién y a qué (#32)', () => {
     const { service, db, created } = makeService();
     await expect(
       service.create('tenant-1', 'idem-key-0106', dto({ wallet: { create: true }, captureMethod: 'POS_EXTERNAL' }), owner),
-    ).rejects.toThrow(/POS externo/);
+    ).rejects.toThrow('No se puede recargar el saldo con un datáfono externo: usa el QR.');
     expect(db.$queryRaw).not.toHaveBeenCalled();
     expect(created).toHaveLength(0);
   });
