@@ -108,6 +108,9 @@ describe('informes del periodo contra Postgres', () => {
       walletCashTopUpCents: 0,
       walletCardPayoutCount: 1,
       walletCardPayoutCents: 5000,
+      // Las dos recargas con tarjeta (200 € y la de 50 € devuelta luego): ya en paymentCount y grossCents.
+      walletCardTopUpCount: 2,
+      walletCardTopUpCents: 25_000,
     });
   });
 
