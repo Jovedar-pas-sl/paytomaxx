@@ -103,7 +103,8 @@ describe('cobro con QR y Face ID (Postgres real)', () => {
     const view = await inVenue(undefined, () => charges.qrChargeForClient(c.payToken));
     expect(view).toMatchObject({ status: 'PENDING', amountCents: 6000, serviceName: 'Masaje', venueName: 'Luna', requestedByName: 'Lola' });
 
-    expect(await pay(c.payToken, rich)).toEqual({ amountCents: 6000, balanceCents: 4000 });
+    // Sin cobro con tarjeta enlazado, ningún código (nada inventado).
+    expect(await pay(c.payToken, rich)).toEqual({ amountCents: 6000, balanceCents: 4000, code: null });
     const rows = await sys((tx) =>
       tx.$queryRaw<Array<{ amountCents: number; tenantId: string; commissionCents: number }>>`
         SELECT c."amountCents", c."tenantId"::text AS "tenantId", e."commissionCents"

@@ -13,7 +13,7 @@ import { ClsService } from 'nestjs-cls';
 import type { Job } from 'bullmq';
 import { ConflictException } from '@nestjs/common';
 import { serializeAndSignJSONRequest } from 'redsys-easy';
-import { ALREADY_PAID_CODE, CobrosQuerySchema } from '@nightpay/contracts';
+import { ALREADY_PAID_CODE, CobrosQuerySchema, confirmationCode } from '@nightpay/contracts';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { InvalidTransitionError } from '../../src/modules/payments/payment.machine';
@@ -303,6 +303,13 @@ describe('gana el saldo: el cobro con tarjeta se cancela', () => {
     // La conciliación no lo apunta otra vez.
     await reconcile.process({ data: { paymentId: c.id, tenantId: V }, attemptsMade: 0, opts: { attempts: 1 } } as never);
     expect(await sys((tx) => tx.paymentEvent.count({ where: { paymentId: c.id, eventType: 'payment.approval_unbooked' } }))).toBe(1);
+  });
+
+  it('pagado con Face ID desde /s: la respuesta trae el código del cobro con tarjeta (el mismo que ve el personal)', async () => {
+    const w = await wallet(5000);
+    const c = await cobro([{ serviceItemId: copa }]);
+    const paid = await payFaceId(c.saldo!.chargeId, w.id);
+    expect(paid.code).toBe(confirmationCode(c.id));
   });
 
   it('si la pasarela devuelve por API, la tarjeta tardía se devuelve sola (sin incidencia, una sola vez)', async () => {
