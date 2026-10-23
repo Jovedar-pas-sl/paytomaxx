@@ -13,6 +13,7 @@ import {
   type NightSummary,
   type NightView,
 } from '@/lib/api';
+import { cobradoNote, zCobradoParts } from '@/lib/cobrado';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import { diffLabel, parseCashInput } from '@/lib/night-close';
@@ -192,7 +193,7 @@ export function NightsPanel({
               <tr>
                 <th>Noche</th>
                 <th>Horario</th>
-                <th style={numHead}>Cobros</th>
+                <th style={numHead}>Pagos con tarjeta</th>
                 <th style={numHead}>Cobrado</th>
                 <th style={numHead}>Neto</th>
                 <th>Cierre</th>
@@ -208,7 +209,7 @@ export function NightsPanel({
                   <td data-label="Horario" data-card="top" className="np-num">
                     {time(n.openedAt)}–{n.closedAt ? time(n.closedAt) : '…'}
                   </td>
-                  <td data-label="Cobros" style={numTd}>
+                  <td data-label="Pagos con tarjeta" style={numTd}>
                     {n.count ?? '—'}
                   </td>
                   <td data-label="Cobrado" data-card="amount" style={numTd}>
@@ -283,6 +284,13 @@ export function NightsPanel({
   );
 }
 
+/**
+ * Lo que queda del neto quitando lo del personal. Es el Z (la caja): lleva las
+ * recargas (saldo de los clientes, no ventas) y no resta las comisiones. No es
+ * «Para el local» del mapa del dinero, que reparte lo vendido.
+ */
+const NET_AFTER_STAFF = 'Neto sin el personal';
+
 /** Totales de la noche, por tipo y por chica. */
 function ZSummary({ summary: s }: { summary: NightSummary }) {
   const totals: Array<[string, number]> = [
@@ -295,8 +303,10 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
     ['Para las chicas', s.chicaNetCents],
     // Solo si el local da parte a los camareros de las copas con invitación (de fábrica, nada).
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
-    ['Para el local', s.venueNetCents],
+    // No es «Para el local» del mapa (el reparto de lo vendido): lleva las recargas y no resta comisiones.
+    [NET_AFTER_STAFF, s.venueNetCents],
   ];
+  const charged = cobradoNote(zCobradoParts(s), formatEur);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={totalsGrid}>
@@ -309,8 +319,14 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
           </div>
         ))}
       </div>
+      {charged ? (
+        <p style={hintSmall}>
+          Cobrado = {charged}. Las recargas son saldo de los clientes, no ventas, y aquí no se restan comisiones: lo
+          que le toca al local de lo vendido es «Para el local» del mapa del dinero.
+        </p>
+      ) : null}
       <p style={hintSmall}>
-        {s.count} cobros
+        {s.count} pagos con tarjeta
         {s.byType.length > 0 ? ' · ' : ''}
         {s.byType.map((t) => `${t.label}: ${t.count} (${formatEur(t.chargedCents)})`).join(' · ')}
       </p>
@@ -391,7 +407,7 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
     ['Neto', s.netCents],
     ['Para las chicas', s.chicaNetCents],
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
-    ['Para el local', s.venueNetCents],
+    [NET_AFTER_STAFF, s.venueNetCents],
   ];
   return (
     <div style={adjustBox}>

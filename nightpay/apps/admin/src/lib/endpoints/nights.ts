@@ -46,6 +46,9 @@ export interface NightSummary {
   /** Recargas del saldo en efectivo (ya en «cobrado»; no son cobros del banco). */
   walletCashTopUpsCount?: number;
   walletCashTopUpsCents?: number;
+  /** Recargas del saldo con tarjeta (ya en count y grossCents). Los Z de antes del 23-oct-2026 no lo traen. */
+  walletCardTopUpsCount?: number;
+  walletCardTopUpsCents?: number;
   /** Saldo devuelto a la tarjeta: ya está en las devoluciones (solo se informa). */
   walletCardPayoutsCents?: number;
   /** Consumos del saldo (ventas, no dinero nuevo). */

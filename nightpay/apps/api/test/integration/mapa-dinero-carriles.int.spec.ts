@@ -22,6 +22,8 @@ import { StaffFichaService } from '../../src/modules/money-map/staff-ficha.servi
 import { WalletFichaService } from '../../src/modules/money-map/wallet-ficha.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
 import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
+import { metricsPeriod } from '../../src/modules/reports/period-reports';
+import { chargedCents, chargedParts } from '../../src/modules/reports/period-totals';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
 import { NightsService } from '../../src/modules/nights/nights.service';
@@ -303,6 +305,29 @@ describe('el Z y el Z del periodo, por línea, cuadran con el mapa', () => {
     } finally {
       await sys((tx) => tx.venue.update({ where: { id: A }, data: { sections: Prisma.DbNull } }));
     }
+  });
+
+  it('lo cobrado, por partes («Hoy · cobrado» y el Z): ventas con tarjeta + propinas + recargas; y los pagos con tarjeta', async () => {
+    // 5 pagos con tarjeta: la recarga de 50 €, el datáfono (30 € + 5 de propina), el pack (150), 2 copas (20)
+    // y la invitación (2 × 25). Más la recarga de 100 € en efectivo. A mano: 300 + 5 + 100 = 405 € cobrados =
+    // 250 de ventas + 5 de propinas + 150 de recargas (50 con tarjeta + 100 en efectivo).
+    const s = (await inVenue(A, () => nights.current(A)))!.z.summary;
+    expect(s).toMatchObject({
+      count: 5,
+      grossCents: 30_000,
+      tipsCents: 500,
+      walletCardTopUpsCount: 1,
+      walletCardTopUpsCents: 5_000,
+      walletCashTopUpsCount: 1,
+      walletCashTopUpsCents: 10_000,
+      chargedCents: 40_500,
+    });
+    const t = await inVenue(A, () => period.totals(A, { from: ago(3 * HOUR), to: soon() }));
+    expect(chargedParts(t)).toEqual({ salesCents: 25_000, tipCents: 500, topUpCents: 15_000 });
+    expect(chargedCents(t)).toBe(40_500);
+    expect(metricsPeriod(t)).toMatchObject({ count: 5, grossCents: 30_000, walletCardTopUpCents: 5_000, walletCashTopUpCents: 10_000 });
+    // Las ventas con tarjeta del mapa son esas mismas 250 € + 5 de propina.
+    expect(live.inflow.cardRailCents).toBe(25_500);
   });
 
   it('el Z del periodo: por sección y por línea, con las del saldo', async () => {

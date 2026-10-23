@@ -2,6 +2,7 @@
 
 import { useId, useState } from 'react';
 import { fetchCurrentNight, fetchTreasuryStats } from '@/lib/api';
+import { cobradoNote, zCobradoParts } from '@/lib/cobrado';
 import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
@@ -17,6 +18,9 @@ const MAX_POLL_MS = 120_000;
 interface NightFigures {
   openedAt: string;
   chargedCents: number;
+  /** Lo que suma «Cobrado» (ventas + propinas + recargas); null si el API no lo dice. */
+  chargedNote: string | null;
+  /** Pagos con tarjeta (también las recargas con tarjeta). */
   count: number;
 }
 
@@ -26,10 +30,10 @@ interface PendingFigures {
 }
 
 /**
- * Franja «Esta noche» encima de Pagos: cobrado y pagos de la noche abierta,
- * lo pendiente de pagar a las chicas y las incidencias abiertas. Solo con lo
- * que el API ya da (noche actual, tesorería e incidencias); si una cifra no
- * llega, sale "—".
+ * Franja «Esta noche» encima de Pagos: cobrado (con lo que lo suma) y pagos
+ * con tarjeta de la noche abierta, lo pendiente de pagar a las chicas y las
+ * incidencias abiertas. Solo con lo que el API ya da (noche actual, tesorería
+ * e incidencias); si una cifra no llega, sale "—".
  */
 export function TonightStrip({ onNavigate }: { onNavigate?: (key: TabKey) => void }) {
   const tz = useVenueTimezone();
@@ -45,7 +49,16 @@ export function TonightStrip({ onNavigate }: { onNavigate?: (key: TabKey) => voi
       if (signal.aborted) return true;
       if (n.status === 'fulfilled') {
         const v = n.value;
-        const next = v ? { openedAt: v.openedAt, chargedCents: v.z.summary.chargedCents, count: v.z.summary.count } : null;
+        const s = v?.z.summary;
+        const next =
+          v && s
+            ? {
+                openedAt: v.openedAt,
+                chargedCents: s.chargedCents,
+                chargedNote: cobradoNote(zCobradoParts(s), formatEur),
+                count: s.count,
+              }
+            : null;
         setNight((prev) => keepIfSame(prev, next));
       }
       if (t.status === 'fulfilled') {
@@ -82,9 +95,10 @@ export function TonightStrip({ onNavigate }: { onNavigate?: (key: TabKey) => voi
         <div className="np-tonight-fig" data-hero="">
           <dt>Cobrado</dt>
           <dd>{night ? formatEur(night.chargedCents) : '—'}</dd>
+          {night?.chargedNote ? <span className="np-tonight-note">{night.chargedNote}</span> : null}
         </div>
         <div className="np-tonight-fig">
-          <dt>Pagos</dt>
+          <dt>Pagos con tarjeta</dt>
           <dd>{night ? night.count : '—'}</dd>
         </div>
         <div className="np-tonight-fig">

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@nightpay/ui';
 import type { CobroRow } from '@nightpay/contracts';
 import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type PaymentRow, type User } from '@/lib/api';
+import { cobradoNote, metricsCobradoParts } from '@/lib/cobrado';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { paymentRowOf } from '@/lib/money-map';
@@ -169,15 +170,13 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
       ) : null}
 
       <section className="np-metrics" style={metricsGrid}>
-        <MetricTile title="Hoy · pagos" value={metrics ? String(metrics.today.count) : '—'} />
+        {/* Los pagos con tarjeta (también las recargas con tarjeta): lo pagado con el saldo no cuenta aquí. */}
+        <MetricTile title="Hoy · pagos con tarjeta" value={metrics ? String(metrics.today.count) : '—'} />
         <MetricTile
           title="Hoy · cobrado"
           value={eurOrDash(metrics ? (metrics.today.chargedCents ?? metrics.today.grossCents) : undefined)}
-          note={
-            metrics?.today.tipCents
-              ? `${formatEur(metrics.today.grossCents)} + ${formatEur(metrics.today.tipCents)} de propinas`
-              : undefined
-          }
+          // Lo que suma el total: ventas con tarjeta + propinas + recargas (no son venta).
+          note={metrics ? (cobradoNote(metricsCobradoParts(metrics.today), formatEur) ?? undefined) : undefined}
         />
         <MetricTile title="Hoy · reembolsos" value={eurOrDash(metrics?.today.refundedCents)} />
         <MetricTile title="Hoy · neto" value={eurOrDash(metrics?.today.netCents)} highlight />
