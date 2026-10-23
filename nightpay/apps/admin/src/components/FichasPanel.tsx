@@ -356,7 +356,8 @@ const kicker: CSSProperties = {
 const tileNumber: CSSProperties = {
   margin: '0.3rem 0 0',
   fontSize: '1.4rem',
-  fontWeight: 600,
+  // Cifra grande del panel: Manrope 800, como los importes (las de las tablas, 700).
+  fontWeight: 800,
   letterSpacing: '-0.02em',
   fontVariantNumeric: 'tabular-nums',
 };

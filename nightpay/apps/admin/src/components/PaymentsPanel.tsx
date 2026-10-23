@@ -335,7 +335,8 @@ const metricLabel: CSSProperties = {
 const metricValue: CSSProperties = {
   margin: '0.5rem 0 0',
   fontSize: '1.875rem',
-  fontWeight: 600,
+  // Cifra grande del panel: Manrope 800, como los importes (las de las tablas, 700).
+  fontWeight: 800,
   letterSpacing: '-0.02em',
   display: 'flex',
   alignItems: 'baseline',
