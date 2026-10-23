@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useState, type FormEvent } from 'react';
-import { Button, Input } from '@nightpay/ui';
+import { useCallback, useId, useState, type FormEvent } from 'react';
+import { Button, FormError, Input } from '@nightpay/ui';
 import {
   LoginCodeRequiredError,
   LoginSetupRequiredError,
@@ -32,6 +32,9 @@ export function LoginForm({ onSuccess }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Email o contraseña mal escritos: los dos campos se marcan (no se sabe cuál).
+  const [badCredentials, setBadCredentials] = useState(false);
+  const errorId = useId();
   const [busy, setBusy] = useState(false);
   /** Ticket del primer paso (contraseña buena): ahora falta el código. */
   const [ticket, setTicket] = useState<string | null>(null);
@@ -55,6 +58,7 @@ export function LoginForm({ onSuccess }: Props) {
   async function handlePassword(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setBadCredentials(false);
     setBusy(true);
     try {
       await finish(await login(email.trim().toLowerCase(), password));
@@ -68,6 +72,7 @@ export function LoginForm({ onSuccess }: Props) {
         setPassword('');
       } else {
         setError((err as Error).message);
+        setBadCredentials(isBadCredentials(err));
       }
     } finally {
       setBusy(false);
@@ -121,6 +126,7 @@ export function LoginForm({ onSuccess }: Props) {
           disabled={busy}
           hint="Al poner el sexto número se entra. Cambia cada 30 s."
         />
+        {error ? <FormError id={errorId}>{error}</FormError> : null}
         <Button type="submit" loading={busy} size="lg" disabled={locked || code.length !== OTP_LENGTH}>
           Entrar
         </Button>
@@ -135,15 +141,11 @@ export function LoginForm({ onSuccess }: Props) {
         >
           Volver
         </Button>
-        {error ? (
-          <p role="alert" style={errorStyle}>
-            {error}
-          </p>
-        ) : null}
       </form>
     );
   }
 
+  const marked = badCredentials ? { 'aria-invalid': true as const, 'aria-describedby': errorId } : {};
   return (
     <form onSubmit={(e) => void handlePassword(e)} style={formStyle}>
       <Input
@@ -154,6 +156,7 @@ export function LoginForm({ onSuccess }: Props) {
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
+        {...marked}
       />
       <Input
         type="password"
@@ -163,15 +166,13 @@ export function LoginForm({ onSuccess }: Props) {
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
+        {...marked}
       />
+      {/* El error, encima del botón y a la vista (con icono), no una línea roja debajo. */}
+      {error ? <FormError id={errorId}>{error}</FormError> : null}
       <Button type="submit" loading={busy} size="lg">
         Entrar
       </Button>
-      {error ? (
-        <p role="alert" style={errorStyle}>
-          {error}
-        </p>
-      ) : null}
     </form>
   );
 }
@@ -185,9 +186,7 @@ const formStyle = {
 
 const stepText = { margin: 0, fontSize: '0.9375rem', color: 'var(--np-text-mute)', lineHeight: 1.5 } as const;
 
-const errorStyle = {
-  color: 'var(--np-danger)',
-  margin: 0,
-  textAlign: 'center',
-  fontSize: '0.875rem',
-} as const;
+/** Email o contraseña mal escritos (no un fallo de red ni el bloqueo por intentos). */
+function isBadCredentials(err: unknown): boolean {
+  return err instanceof ApiError && [400, 401, 422].includes(err.status) && !/demasiad/i.test(err.message);
+}

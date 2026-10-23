@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
-import { Button, Input } from '@nightpay/ui';
-import { login, setSession, type OperatorUser } from '@/lib/api';
+import { useId, useState, type FormEvent } from 'react';
+import { Button, FormError, Input } from '@nightpay/ui';
+import { BAD_CREDENTIALS_MESSAGE, login, setSession, type OperatorUser } from '@/lib/api';
 
 interface Props {
   onSuccess: (user: OperatorUser) => void;
@@ -16,6 +16,10 @@ export function LoginForm({ onSuccess, initialEmail = '', submitLabel = 'Entrar'
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const errorId = useId();
+  // Email o contraseña mal escritos: se marcan los dos campos (no se sabe cuál de los dos).
+  const fieldsWrong = error === BAD_CREDENTIALS_MESSAGE;
+  const marked = fieldsWrong ? { 'aria-invalid': true as const, 'aria-describedby': errorId } : {};
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -47,6 +51,7 @@ export function LoginForm({ onSuccess, initialEmail = '', submitLabel = 'Entrar'
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
+        {...marked}
       />
       <Input
         label="Contraseña"
@@ -55,23 +60,13 @@ export function LoginForm({ onSuccess, initialEmail = '', submitLabel = 'Entrar'
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
+        {...marked}
       />
+      {/* El error, encima del botón y a la vista (con icono), no una línea roja debajo. */}
+      {error ? <FormError id={errorId}>{error}</FormError> : null}
       <Button type="submit" loading={busy} size="lg">
         {submitLabel}
       </Button>
-      {error ? (
-        <p
-          role="alert"
-          style={{
-            color: 'var(--np-danger)',
-            margin: 0,
-            textAlign: 'center',
-            fontSize: '0.875rem',
-          }}
-        >
-          {error}
-        </p>
-      ) : null}
     </form>
   );
 }

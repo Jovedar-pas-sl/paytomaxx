@@ -5,6 +5,7 @@ export { StatusPill } from './components/StatusPill';
 export type { PaymentStatus } from './components/StatusPill';
 export { Stage, StageMeta } from './components/Stage';
 export { Input, Select } from './components/Input';
+export { FormError } from './components/FormError';
 export { Modal } from './components/Modal';
 export { ThemeToggle } from './components/ThemeToggle';
 export { Logo } from './components/Logo';

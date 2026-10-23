@@ -17,6 +17,8 @@ export function Input({
   style,
   ...rest
 }: InputProps) {
+  // Marcado en rojo con su error o si quien lo usa lo marca (aria-invalid: p. ej. un FormError aparte).
+  const invalid = Boolean(error) || rest['aria-invalid'] === true || rest['aria-invalid'] === 'true';
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%' }}>
       {label ? <span style={labelStyle}>{label}</span> : null}
@@ -26,7 +28,7 @@ export function Input({
           style={{
             ...inputBase,
             ...(size === 'lg' ? sizeLg : sizeMd),
-            borderColor: error ? 'var(--np-danger)' : 'var(--np-border)',
+            borderColor: invalid ? 'var(--np-danger)' : 'var(--np-border)',
             paddingRight: rightSlot ? '4.5rem' : undefined,
             ...style,
           }}
@@ -34,7 +36,7 @@ export function Input({
         {rightSlot ? <span style={slotStyle}>{rightSlot}</span> : null}
       </span>
       {error ? (
-        <span style={{ ...hintStyle, color: 'var(--np-danger)' }}>{error}</span>
+        <span style={{ ...hintStyle, color: 'var(--np-danger-text)' }}>{error}</span>
       ) : hint ? (
         <span style={hintStyle}>{hint}</span>
       ) : null}

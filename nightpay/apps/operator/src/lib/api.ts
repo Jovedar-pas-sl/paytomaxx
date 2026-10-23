@@ -106,13 +106,16 @@ function shownDetail(detail: string | undefined): string | undefined {
 }
 
 /** Por qué no se pudo entrar (null = sin respuesta: sin red). */
+/** El error de acceso que es culpa de lo escrito (email o contraseña): los dos campos se marcan. */
+export const BAD_CREDENTIALS_MESSAGE = 'Email o contraseña incorrectos.';
+
 export function loginErrorMessage(status: number | null, detail?: string): string {
   if (status === null || status >= 500) return 'No se pudo conectar con el servidor. Inténtalo de nuevo.';
   // El bloqueo por fallos llega como 401 "Too many attempts" o como 429.
   if (status === 429 || /too many/i.test(detail ?? '')) {
     return 'Demasiados intentos. Espera unos minutos y vuelve a probar.';
   }
-  if (status === 400 || status === 401 || status === 422) return 'Email o contraseña incorrectos.';
+  if (status === 400 || status === 401 || status === 422) return BAD_CREDENTIALS_MESSAGE;
   return 'No se pudo entrar. Inténtalo de nuevo.';
 }
 
