@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { paymentVia, saldoVia } from './cobros-rows';
-import { staffFichaRow, staffRates, staffStats, type EarningFeedRow } from './staff-ficha';
+import { staffFichaRow, staffRates, staffReversalRow, staffStats, type EarningFeedRow, type ReversalFeedRow } from './staff-ficha';
 import { StaffFichaService } from './staff-ficha.service';
 import { cardLabel } from './wallet-ficha.service';
 
@@ -34,6 +34,28 @@ const earning = (o: Partial<EarningFeedRow>): EarningFeedRow => ({
   lines: [{ category: 'CHICA_SERVICE', amountCents: 12_000 }],
   invitationCategory: null,
   chargedBy: null,
+  debtCents: 0,
+  ...o,
+});
+
+/** Una devolución de esta noche de un cobro de otra noche (la invitación de anoche). */
+const reversal = (o: Partial<ReversalFeedRow>): ReversalFeedRow => ({
+  id: 'er-1',
+  at: new Date('2026-10-25T00:10:00Z'),
+  chargedAt: new Date('2026-10-23T23:30:00Z'),
+  reversedDeltaCents: 1_000,
+  refundAmountCents: 2_000,
+  paymentLineId: 'l-9',
+  ref: 4790,
+  chargeAmountCents: 2_000,
+  category: 'VENUE_BAR',
+  captureMethod: 'QR',
+  posOperationNumber: null,
+  approvedPayMethod: 'card',
+  authorizedAt: new Date('2026-10-23T23:30:00Z'),
+  lines: [{ category: 'VENUE_BAR', amountCents: 2_000 }],
+  invitationCategory: 'VENUE_BAR',
+  chargedBy: CARLOS,
   ...o,
 });
 
@@ -105,6 +127,47 @@ describe('ficha de la chica: cada cobro con su parte', () => {
     const rows = [staffFichaRow(earning({}), LOLA), staffFichaRow(earning({ id: 'e-2', paymentStatus: 'REFUNDED', reversedCents: 9_600 }), LOLA)];
     expect(staffStats(rows, 41_000)).toEqual({ soldCents: 12_000, shareCents: 9_600, paidCents: 41_000, count: 1 });
   });
+
+  it('ya pagada y devuelta después: su parte resta lo que ya debe (como el mapa, el Z y «Mi noche»)', () => {
+    // Invitación de 20 € (su parte, 10 €), ya pagada; luego se devuelven 10 €: debe 5 €.
+    const row = staffFichaRow(
+      earning({ paymentLineId: 'l-1', commissionCents: 1_000, paymentAmountCents: 2_000, chargeAmountCents: 2_000, debtCents: 500, paymentStatus: 'PARTIALLY_REFUNDED' }),
+      LOLA,
+    );
+    expect(row).toMatchObject({ shareCents: 500, undone: false });
+    expect(staffStats([row], 1_000)).toEqual({ soldCents: 2_000, shareCents: 500, paidCents: 1_000, count: 1 });
+  });
+
+  it('una devolución de esta noche de un cobro de otra noche: resta su parte, no es venta', () => {
+    const row = staffReversalRow(reversal({}), LOLA);
+    expect(row).toEqual({
+      id: 'er-1',
+      at: '2026-10-25T00:10:00.000Z',
+      ref: 'C-4790',
+      kind: 'PAYMENT',
+      section: 'VENUE_BAR',
+      sections: [{ category: 'VENUE_BAR', amountCents: 2_000 }],
+      title: 'Devolución',
+      method: 'CARD',
+      via: 'QR',
+      walletCode: null,
+      chargedBy: { id: CARLOS.id, name: 'Carlos', role: 'WAITER' },
+      invitation: true,
+      amountCents: 2_000,
+      shareCents: -1_000,
+      undone: false,
+      refundOf: { chargedAt: '2026-10-23T23:30:00.000Z' },
+    });
+    // Esta noche: una invitación nueva (su parte, 10 €) y la devolución entera de la de anoche → 0 €, como el mapa.
+    const tonight = staffFichaRow(earning({ paymentLineId: 'l-2', commissionCents: 1_000, paymentAmountCents: 2_000, chargeAmountCents: 2_000 }), LOLA);
+    expect(staffStats([row, tonight], 0)).toEqual({ soldCents: 2_000, shareCents: 0, paidCents: 0, count: 1 });
+    // Si la cobró ella misma, no se dice quién; un cobro de su servicio, no es invitación.
+    expect(staffReversalRow(reversal({ chargedBy: { ...CARLOS, id: LOLA }, paymentLineId: null, invitationCategory: null }), LOLA)).toMatchObject({
+      chargedBy: null,
+      invitation: false,
+      section: 'VENUE_BAR',
+    });
+  });
 });
 
 describe('lo que le toca de cada cosa', () => {
@@ -161,7 +224,7 @@ describe('por dónde y qué ficha', () => {
 describe('GET /v1/admin/operators/:id/ficha', () => {
   const TENANT = '11111111-1111-4111-8111-111111111111';
 
-  function makeService(person: unknown) {
+  function makeService(person: unknown, reversals: unknown[] = []) {
     const queries: Prisma.Sql[] = [];
     const tx = {
       user: {
@@ -175,6 +238,7 @@ describe('GET /v1/admin/operators/:id/ficha', () => {
       $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const q = Prisma.sql(strings, ...values);
         queries.push(q);
+        if (q.text.includes('JOIN refunds r ON r.id = er."refundId"')) return reversals;
         if (q.text.includes('FROM operator_earnings e')) {
           return [{ ...earning({}), chargedBy: undefined, chargedById: CARLOS.id }];
         }
@@ -208,6 +272,27 @@ describe('GET /v1/admin/operators/:id/ficha', () => {
     expect(q.text).toContain('e."tenantId" = $');
     expect(q.text).toContain('e."operatorId" = $');
     expect(q.values).toEqual(expect.arrayContaining([TENANT, LOLA]));
+  });
+
+  it('cuadra con el mapa: lo que ya debe de cada cobro y las devoluciones de esta noche de cobros de otras noches', async () => {
+    const earlier = { ...reversal({ at: new Date('2026-10-25T00:30:00Z') }), chargedBy: undefined, chargedById: CARLOS.id };
+    const { svc, queries } = makeService({ id: LOLA, displayName: 'Lola', email: 'lola@x.es', role: 'OPERATOR', commissionBps: null }, [earlier]);
+    const f = await svc.ficha(TENANT, LOLA);
+    // La devolución (00:30) va antes que el cobro de las 23:42: lo más nuevo, arriba.
+    expect(f.rows.map((r) => [r.title, r.shareCents])).toEqual([
+      ['Devolución', -1_000],
+      ['1 h', 9_600],
+    ]);
+    expect(f.rows[0]!.chargedBy).toEqual({ id: CARLOS.id, name: 'Carlos', role: 'WAITER' });
+    expect(f.stats).toEqual({ soldCents: 12_000, shareCents: 8_600, paidCents: 0, count: 1 });
+    const earnings = queries.find((x) => x.text.includes('LEFT JOIN wallet_consumptions c'))!;
+    expect(earnings.text).toContain('"debtCents"');
+    expect(earnings.text).toContain('er."afterPayout"');
+    // Las devoluciones de la ventana (como el mapa), de cobros que no son de la ventana, de esta persona y local.
+    const q = queries.find((x) => x.text.includes('JOIN refunds r ON r.id = er."refundId"'))!;
+    expect(q.text).toContain("r.status = 'SUCCEEDED'");
+    expect(q.text).toContain('NOT (');
+    expect(q.values).toEqual(expect.arrayContaining([TENANT, LOLA, new Date('2026-10-24T06:00:00Z'), new Date('2026-10-25T01:00:00Z')]));
   });
 
   it('el camarero: «Camarero» y, de fábrica, sin parte de las invitaciones', async () => {

@@ -216,7 +216,27 @@ export function rateChips(rates: readonly StaffRate[], sections: readonly VenueS
   });
 }
 
+/** Devolución de esta noche de un cobro de otra noche: a trazos, lo devuelto («−20 €») y lo que se le resta («−10»). */
+function refundRow(r: StaffFichaRow, chargedAt: string, sections: readonly VenueSection[], tz: string): TimelineRow {
+  return {
+    key: r.id,
+    at: r.at,
+    time: formatDateTime(r.at, tz, 'time'),
+    color: null,
+    title: joinParts([r.ref, r.title]),
+    sub: joinParts([
+      sectionPaint(sections, r.section).label,
+      `cobro del ${dayShort(chargedAt, tz)}`,
+      r.chargedBy ? `cobró ${r.chargedBy.name}` : r.method ? METHOD_WORD[r.method] : null,
+    ]),
+    amount: `−${eurShort(r.amountCents)}`,
+    share: signed(r.shareCents),
+    undone: false,
+  };
+}
+
 function staffRow(r: StaffFichaRow, sections: readonly VenueSection[], tz: string): TimelineRow {
+  if (r.refundOf) return refundRow(r, r.refundOf.chargedAt, sections, tz);
   const paint = sectionPaint(sections, r.section);
   const via = r.method === 'POS' ? null : r.via;
   const sub =

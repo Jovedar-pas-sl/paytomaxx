@@ -185,6 +185,21 @@ describe('9.2 · ficha de la chica y del camarero', () => {
     ]);
   });
 
+  it('una devolución de esta noche de un cobro de otra noche: a trazos, lo devuelto y lo que se le resta', () => {
+    const refund = {
+      id: 'er1', at: '2026-10-25T00:40:00.000Z', ref: 'C-4790', kind: 'PAYMENT' as const, section: 'VENUE_BAR', sections: [{ category: 'VENUE_BAR', amountCents: 2_000 }],
+      title: 'Devolución', method: 'CARD' as const, via: 'QR', walletCode: null, chargedBy: { id: 'c', name: 'Carlos', role: 'WAITER' }, invitation: true,
+      amountCents: 2_000, shareCents: -1_000, undone: false, refundOf: { chargedAt: '2026-10-23T23:30:00.000Z' },
+    };
+    const rows = staffSheet(staff({ rows: [refund] }), SECTIONS, TZ).rows;
+    expect(rows.map((r) => [r.time, r.title, r.sub, sp(r.amount), r.share, r.color, r.undone])).toEqual([
+      ['02:40', 'C-4790 · Devolución', 'Copas · cobro del sáb 24 · cobró Carlos', '−20 €', '−10', null, false],
+    ]);
+    // Sin quien la cobró (la cobró ella): cómo se pagó.
+    const own = staffSheet(staff({ rows: [{ ...refund, chargedBy: null, invitation: false, section: 'CHICA_SERVICE' }] }), SECTIONS, TZ).rows[0]!;
+    expect(own.sub).toBe('Servicios · cobro del sáb 24 · tarjeta');
+  });
+
   it('el camarero: «Camarero», chip de Copas, «Lo suyo»; sin noche abierta, desde el último cierre', () => {
     const s = staffSheet(
       staff({ person: { id: 'dani', name: 'Dani', role: 'WAITER' }, window: { from: 'x', to: 'y', nightId: null, open: false }, rates: [{ kind: 'invitation', share: { kind: 'PERCENT', bps: 1250 } }], payouts: [] }),

@@ -152,9 +152,13 @@ export type StaffRate =
   /** Las propinas que le dejan a ella. */
   | { kind: 'tips'; bps: number };
 
-/** Un cobro de esta noche en el que le toca algo (una ganancia). */
+/**
+ * Un cobro de esta noche en el que le toca algo (una ganancia) o, con
+ * `refundOf`, una devolución de esta noche de un cobro de otra noche, que
+ * solo le resta su parte (como en el mapa del dinero y el Z).
+ */
 export interface StaffFichaRow {
-  /** La ganancia (operator_earnings). */
+  /** La ganancia (operator_earnings); en una devolución de otra noche, su descuento (earning_reversals). */
   id: string;
   at: string;
   /** Referencia corta del cobro (C-0001). */
@@ -173,12 +177,18 @@ export interface StaffFichaRow {
   /** Quién lo cobró, si no fue ella (las invitaciones: el camarero). */
   chargedBy: CobroPerson | null;
   invitation: boolean;
-  /** Lo vendido (en una invitación, la copa). */
+  /** Lo vendido (en una invitación, la copa); en una devolución de otra noche, lo devuelto. */
   amountCents: number;
-  /** Lo suyo: comisión + propina − lo devuelto. */
+  /**
+   * Lo suyo: comisión + propina − lo devuelto o anulado (también lo que ya
+   * debe si se le había pagado). En una devolución de otra noche, lo que se le
+   * descuenta (negativo).
+   */
   shareCents: number;
   /** Devuelto o anulado del todo. */
   undone: boolean;
+  /** Devolución de esta noche de un cobro de otra noche (cuándo se cobró): no es venta. */
+  refundOf?: { chargedAt: string };
 }
 
 export interface StaffFicha {

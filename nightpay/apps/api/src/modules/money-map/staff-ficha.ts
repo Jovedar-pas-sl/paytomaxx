@@ -47,9 +47,43 @@ export interface EarningFeedRow {
   /** La sección de las copas de la invitación. */
   invitationCategory: string | null;
   chargedBy: PersonLike | null;
+  /**
+   * Lo que ya debe de este cobro: devoluciones o anulaciones que llegaron
+   * con su parte ya pagada (earning_reversals.afterPayout). No están en
+   * reversedCents (eso es lo que se le pagó).
+   */
+  debtCents: number;
 }
 
-function sectionsOf(row: Pick<EarningFeedRow, 'chargeAmountCents' | 'category' | 'lines'>): SectionAmount[] {
+/**
+ * Una devolución de la ventana de un cobro con tarjeta de otra noche
+ * (earning_reversals): el mapa del dinero y el Z la restan de lo del personal
+ * la noche de la devolución, así que la ficha también.
+ */
+export interface ReversalFeedRow {
+  /** El descuento (earning_reversals). */
+  id: string;
+  /** La devolución (la fecha del banco o la de apuntarla, como el mapa). */
+  at: Date;
+  /** El cobro (la noche en que se cobró). */
+  chargedAt: Date;
+  reversedDeltaCents: number;
+  refundAmountCents: number;
+  /** De una invitación («Copa con invitación»). */
+  paymentLineId: string | null;
+  ref: number | null;
+  chargeAmountCents: number;
+  category: string;
+  captureMethod: string | null;
+  posOperationNumber: string | null;
+  approvedPayMethod: string | null;
+  authorizedAt: Date | null;
+  lines: LineAmount[] | null;
+  invitationCategory: string | null;
+  chargedBy: PersonLike | null;
+}
+
+function sectionsOf(row: { chargeAmountCents: number; category: string; lines: LineAmount[] | null }): SectionAmount[] {
   return [...chargeSections({ amountCents: row.chargeAmountCents, category: row.category, lines: row.lines })].map(
     ([category, amountCents]) => ({ category, amountCents }),
   );
@@ -62,27 +96,34 @@ function titleOf(row: EarningFeedRow): string {
   return row.serviceName?.trim() || 'Cobro';
 }
 
+/** Cómo pagó un cobro con tarjeta (o datáfono). */
+function cardMethodOf(row: Pick<EarningFeedRow, 'captureMethod' | 'posOperationNumber' | 'authorizedAt' | 'approvedPayMethod'>) {
+  return paymentMethodOf({
+    captureMethod: row.captureMethod,
+    posOperationNumber: row.posOperationNumber,
+    authorizedAt: row.authorizedAt,
+    attempts: row.approvedPayMethod ? [{ status: 'APPROVED', payMethod: row.approvedPayMethod }] : [],
+  });
+}
+
+/** La sección para el color: la de las copas de la invitación o la principal del cobro. */
+function sectionFor(invitation: boolean, invitationCategory: string | null, sections: readonly SectionAmount[], category: string): string {
+  const section = invitation ? (invitationCategory ?? 'VENUE_BAR') : (sections[0]?.category ?? category);
+  return isSectionCode(section) ? section : 'EXTRA';
+}
+
 export function staffFichaRow(row: EarningFeedRow, personId: string): StaffFichaRow {
   const invitation = row.paymentLineId !== null;
   const kind = row.paymentId ? 'PAYMENT' : 'SALDO';
-  const method =
-    kind === 'SALDO'
-      ? 'SALDO'
-      : paymentMethodOf({
-          captureMethod: row.captureMethod,
-          posOperationNumber: row.posOperationNumber,
-          authorizedAt: row.authorizedAt,
-          attempts: row.approvedPayMethod ? [{ status: 'APPROVED', payMethod: row.approvedPayMethod }] : [],
-        });
+  const method = kind === 'SALDO' ? 'SALDO' : cardMethodOf(row);
   const sections = sectionsOf(row);
-  const section = invitation ? (row.invitationCategory ?? 'VENUE_BAR') : (sections[0]?.category ?? row.category);
   const undone = kind === 'SALDO' ? row.reversedAt !== null : row.paymentStatus === 'REFUNDED';
   return {
     id: row.id,
     at: row.at.toISOString(),
     ref: formatChargeRef(row.ref),
     kind,
-    section: isSectionCode(section) ? section : 'EXTRA',
+    section: sectionFor(invitation, row.invitationCategory, sections, row.category),
     sections,
     title: titleOf(row),
     method,
@@ -91,14 +132,43 @@ export function staffFichaRow(row: EarningFeedRow, personId: string): StaffFicha
     chargedBy: row.chargedBy && row.chargedBy.id !== personId ? personOf(row.chargedBy) : null,
     invitation,
     amountCents: invitation ? row.paymentAmountCents : row.chargeAmountCents + row.chargeTipCents,
-    shareCents: row.commissionCents + row.tipCents - row.reversedCents,
+    shareCents: row.commissionCents + row.tipCents - row.reversedCents - row.debtCents,
     undone,
   };
 }
 
-/** Lo vendido y lo suyo (sin lo devuelto o anulado del todo: ya no cuenta). */
+/** Una devolución de esta noche de un cobro de otra noche: «C-4790 · Devolución», lo devuelto y lo que se le resta. */
+export function staffReversalRow(row: ReversalFeedRow, personId: string): StaffFichaRow {
+  const invitation = row.paymentLineId !== null;
+  const method = cardMethodOf(row);
+  const sections = sectionsOf(row);
+  return {
+    id: row.id,
+    at: row.at.toISOString(),
+    ref: formatChargeRef(row.ref),
+    kind: 'PAYMENT',
+    section: sectionFor(invitation, row.invitationCategory, sections, row.category),
+    sections,
+    title: 'Devolución',
+    method,
+    via: paymentVia(method, false),
+    walletCode: null,
+    chargedBy: row.chargedBy && row.chargedBy.id !== personId ? personOf(row.chargedBy) : null,
+    invitation,
+    amountCents: row.refundAmountCents,
+    shareCents: -row.reversedDeltaCents,
+    undone: false,
+    refundOf: { chargedAt: row.chargedAt.toISOString() },
+  };
+}
+
+/**
+ * Lo vendido y lo suyo (sin lo devuelto o anulado del todo: ya no cuenta).
+ * Las devoluciones de cobros de otras noches no son venta: solo restan de lo
+ * suyo, como en el mapa del dinero.
+ */
 export function staffStats(rows: readonly StaffFichaRow[], paidCents: number): { soldCents: number; shareCents: number; paidCents: number; count: number } {
-  const live = rows.filter((r) => !r.undone);
+  const live = rows.filter((r) => !r.undone && !r.refundOf);
   return {
     soldCents: live.reduce((a, r) => a + r.amountCents, 0),
     shareCents: rows.reduce((a, r) => a + r.shareCents, 0),
