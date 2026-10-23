@@ -34,7 +34,8 @@ export function paidMeta(parts: { who?: string | null; what?: string | null; met
 /** Lo que dice el PAGADO: lo vendido, la propina y lo que pagó el cliente. */
 export interface PaidAmounts {
   baseCents: number;
-  tipCents: number;
+  /** null: con tarjeta, la propina del cliente aún no se sabe (solo llegó el estado). */
+  tipCents: number | null;
   totalCents: number;
 }
 
@@ -42,21 +43,24 @@ export interface PaidAmounts {
  * Las cifras del PAGADO. `cobro.totalCents` ya lleva la propina que se puso en
  * la cuenta (`cobro.tipCents`). Con tarjeta manda la que eligió el cliente en
  * su página (la de la cuenta va marcada y puede cambiarla): no se suma dos
- * veces. Con el saldo, la de la cuenta (no se puede cambiar).
+ * veces; mientras no se sepa (`null`), el total de la cuenta, sin línea de
+ * propina. Con el saldo, la de la cuenta (no se puede cambiar).
  */
 export function paidAmounts(
   cobro: { totalCents: number; tipCents?: number | null },
-  outcome: { method: PaidMethod; tipCents: number },
+  outcome: { method: PaidMethod; tipCents: number | null },
 ): PaidAmounts {
   const accountTip = Math.max(0, cobro.tipCents ?? 0);
   const baseCents = cobro.totalCents - accountTip;
-  const tipCents = outcome.method === 'card' ? Math.max(0, outcome.tipCents) : accountTip;
+  if (outcome.method !== 'card') return { baseCents, tipCents: accountTip, totalCents: cobro.totalCents };
+  if (outcome.tipCents === null) return { baseCents, tipCents: null, totalCents: cobro.totalCents };
+  const tipCents = Math.max(0, outcome.tipCents);
   return { baseCents, tipCents, totalCents: baseCents + tipCents };
 }
 
-/** «33 € + 2 € de propina» (la propina, aparte para resaltarla); sin propina, null. */
+/** «33 € + 2 € de propina» (la propina, aparte para resaltarla); sin propina (o sin saberla), null. */
 export function tipLine(amounts: PaidAmounts): { base: string; tip: string } | null {
-  if (amounts.tipCents <= 0) return null;
+  if (amounts.tipCents === null || amounts.tipCents <= 0) return null;
   return { base: formatEur(amounts.baseCents, { compact: true }), tip: formatEur(amounts.tipCents, { compact: true }) };
 }
 

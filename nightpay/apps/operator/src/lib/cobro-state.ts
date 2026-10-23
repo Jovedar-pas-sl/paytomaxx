@@ -9,7 +9,8 @@ import type { FailReason, PaidMethod } from './cobro-view';
 
 export type CobroOutcome =
   | { kind: 'waiting' }
-  | { kind: 'paid'; method: PaidMethod; newBalanceCents: number | null; tipCents: number }
+  /** `tipCents` null: pagado con tarjeta y su propina aún no se sabe (solo llegó el estado). */
+  | { kind: 'paid'; method: PaidMethod; newBalanceCents: number | null; tipCents: number | null }
   /** `qrStillOpen`: el mismo cobro sigue vivo («Cobrar N € con QR» vuelve a él). */
   | { kind: 'failed'; reason: FailReason; qrStillOpen: boolean }
   | { kind: 'expired' }
@@ -32,7 +33,7 @@ export function cobroOutcome({ card, saldo, localFail, canceledByMe }: CobroSign
   if (saldo?.status === 'ACCEPTED') {
     return { kind: 'paid', method: saldo.paidWith ?? 'nfc_nopin', newBalanceCents: saldo.newBalanceCents ?? null, tipCents: saldo.tipCents ?? 0 };
   }
-  if (card && PAID.has(card.status)) return { kind: 'paid', method: 'card', newBalanceCents: null, tipCents: card.tipCents ?? 0 };
+  if (card && PAID.has(card.status)) return { kind: 'paid', method: 'card', newBalanceCents: null, tipCents: card.tipCents ?? null };
   if (canceledByMe) return { kind: 'canceled' };
   const cardOpen = card !== null && !['FAILED', 'EXPIRED', 'CANCELED'].includes(card.status);
   const saldoOpen = saldo?.status === 'PENDING';

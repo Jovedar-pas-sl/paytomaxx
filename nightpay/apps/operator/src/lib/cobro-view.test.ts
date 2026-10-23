@@ -114,6 +114,14 @@ describe('el PAGADO con propina (D7)', () => {
     });
   });
 
+  it('con tarjeta y la propina aún sin saber (solo llegó el estado): el total de la cuenta, sin línea de propina', () => {
+    const a = paidAmounts({ totalCents: 3500, tipCents: 200 }, { method: 'card', tipCents: null });
+    expect(a).toEqual({ baseCents: 3300, tipCents: null, totalCents: 3500 });
+    expect(tipLine(a)).toBeNull();
+    // Sin propina en la cuenta, igual: lo que se cobró.
+    expect(paidAmounts({ totalCents: 3300 }, { method: 'card', tipCents: null }).totalCents).toBe(3300);
+  });
+
   it('sin propina no hay línea; con céntimos, con ellos', () => {
     expect(tipLine(paidAmounts({ totalCents: 1200 }, { method: 'card', tipCents: 0 }))).toBeNull();
     expect(sp(tipLine({ baseCents: 1250, tipCents: 150, totalCents: 1400 })!.tip)).toBe('1,50 €');

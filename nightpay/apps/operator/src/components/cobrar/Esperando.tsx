@@ -101,7 +101,8 @@ type PinStep = { card: string; uid: string | null; code: string; reason: string 
 export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError = null, onPaid, sectionLabel }: Props) {
   const methods = useVenueMethods();
   const [cardStatus, setCardStatus] = useState<PaymentStatus>((cobro.card?.status as PaymentStatus) ?? 'CREATED');
-  const [cardTip, setCardTip] = useState(0);
+  // La propina del cliente con tarjeta: undefined hasta que la diga el API (no es 0).
+  const [cardTip, setCardTip] = useState<number | undefined>(undefined);
   const [saldo, setSaldo] = useState<SaldoState | null>(null);
   const [localFail, setLocalFail] = useState<FailReason | null>(null);
   const [canceledByMe, setCanceledByMe] = useState(false);

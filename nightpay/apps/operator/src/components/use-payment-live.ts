@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import type { PaymentStatus } from '@nightpay/contracts';
 import { fetchPaymentStatus, freshAccessToken, ServerUnavailableError, wsBase } from '@/lib/api';
-import { isFinalStatus } from '@/lib/payment-status';
+import { isFinalStatus, pollUpdate } from '@/lib/payment-status';
 import { createPoller } from '@/lib/poller';
 
 /** Con el tiempo real conectado, el sondeo es solo una red de seguridad. */
@@ -16,7 +16,10 @@ const RECONNECT_MS = 10_000;
 
 export interface PaymentUpdate {
   status: PaymentStatus;
-  /** Propina que dejó el cliente: solo la trae el evento de pagado. */
+  /**
+   * Propina que dejó el cliente: la traen el evento de pagado y el sondeo
+   * (API nuevo, ya pagado). Sin ella (undefined), aún no se sabe: no es 0.
+   */
   tipCents?: number;
 }
 
@@ -75,7 +78,8 @@ export function usePaymentLive(
         try {
           const current = await fetchPaymentStatus(qrToken, signal);
           if (!closed) setPollOk(true);
-          if (current.id === id) emit({ status: current.status });
+          const update = pollUpdate(current, id);
+          if (update) emit(update);
         } catch (err) {
           // Sin respuesta, 5xx o 429: el API no contesta (otro error no dice eso).
           if (!closed && err instanceof ServerUnavailableError) setPollOk(false);

@@ -26,6 +26,15 @@ describe('el cobro único mientras espera: gana el primero', () => {
     });
   });
 
+  it('pagado con la tarjeta antes de saber su propina (llegó solo el estado): propina desconocida, no 0', () => {
+    expect(cobroOutcome(at({ card: { status: 'AUTHORIZED' }, saldo: null }))).toEqual({
+      kind: 'paid',
+      method: 'card',
+      newBalanceCents: null,
+      tipCents: null,
+    });
+  });
+
   it('la tarjeta cancelada con el saldo aún pendiente aquí: se espera a la próxima consulta (lo pagó el saldo)', () => {
     expect(cobroOutcome(at({ card: { status: 'CANCELED' } }))).toEqual({ kind: 'waiting' });
     expect(cobroOutcome(at({ card: { status: 'CANCELED' }, saldo: { status: 'CANCELED', newBalanceCents: null } }))).toEqual({ kind: 'canceled' });

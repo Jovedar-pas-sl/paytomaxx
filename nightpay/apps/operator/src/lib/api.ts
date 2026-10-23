@@ -6,7 +6,6 @@
 import type {
   CashTopUpDto,
   CashTopUpResult,
-  PaymentStatus,
   PostCode,
   ReceptionOptions,
   SectionCode,
@@ -27,6 +26,7 @@ import {
   type SessionEvent,
 } from '@nightpay/api-client';
 import { codeErrorText } from './api-codes';
+import type { PolledPayment } from './payment-status';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
 
@@ -520,7 +520,7 @@ export async function confirmPosPayment(
 export async function fetchPaymentStatus(
   qrToken: string,
   signal?: AbortSignal,
-): Promise<{ id: string; status: PaymentStatus }> {
+): Promise<PolledPayment> {
   const res = await publicFetch(`/v1/payments/public/${encodeURIComponent(qrToken)}`, { cache: 'no-store', signal });
   if (!res.ok) throw loadError(res, 'No se pudo consultar el cobro');
   return res.json();

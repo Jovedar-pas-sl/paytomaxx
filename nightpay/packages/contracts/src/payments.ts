@@ -306,6 +306,12 @@ export const PublicPaymentViewSchema = z.object({
   qrExpiresAt: z.string().datetime(),
   /** Referencia corta (C-0001): la que ven la chica en el PAGADO y el cliente en sus movimientos. */
   ref: z.string().nullable().optional(),
+  /**
+   * Propina que dejó el cliente: solo cuando ya está pagado (antes puede
+   * cambiar). La usa el sondeo del personal sin tiempo real; opcional, las
+   * apps viejas no la leen.
+   */
+  tipCents: z.number().int().nonnegative().optional(),
 });
 export type PublicPaymentView = z.infer<typeof PublicPaymentViewSchema>;
 

@@ -364,6 +364,14 @@ describe('getByToken — consulta pública por el QR', () => {
     const { service } = makeService({ payment: { status: 'AUTHORIZED', ref: 42 } as never });
     await expect(service.getByToken(QR)).resolves.toMatchObject({ ref: 'C-0042' });
   });
+
+  it('pagado: con la propina que dejó el cliente (el PAGADO del personal sin tiempo real la necesita)', async () => {
+    const paid = makeService({ payment: { status: 'AUTHORIZED' } });
+    await expect(paid.service.getByToken(QR)).resolves.toMatchObject({ status: 'AUTHORIZED', tipCents: 500 });
+    // Sin pagar aún, la propina no se dice (puede cambiar hasta pagar).
+    const pending = makeService({ payment: { status: 'AUTHORIZING' } });
+    await expect(pending.service.getByToken(QR)).resolves.not.toHaveProperty('tipCents');
+  });
 });
 
 describe('getPeanpeRedirectUrl — formulario de Peanpe', () => {

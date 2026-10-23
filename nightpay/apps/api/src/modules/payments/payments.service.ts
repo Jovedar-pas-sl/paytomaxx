@@ -1261,6 +1261,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       terminalLabel: payment.terminal.label,
       qrExpiresAt: payment.qrExpiresAt.toISOString(),
       ref: formatChargeRef(payment.ref),
+      // Ya pagado: la propina que dejó (el PAGADO del personal sin tiempo real la necesita).
+      ...(PAID_STATES.has(payment.status as PaymentMachineState) ? { tipCents: payment.tipCents } : {}),
     };
   }
 
