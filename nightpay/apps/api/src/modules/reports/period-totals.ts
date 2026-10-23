@@ -25,6 +25,13 @@ export interface PeriodTotals {
   /** Informativo: ya está en las devoluciones (son devoluciones de las recargas). */
   walletCardPayoutCount: number;
   walletCardPayoutCents: number;
+  /**
+   * Recargas del saldo cobradas con tarjeta (cobros con walletId): ya están en
+   * paymentCount y grossCents. Aparte, para decir qué parte de lo cobrado no
+   * es venta (chargedParts).
+   */
+  walletCardTopUpCount: number;
+  walletCardTopUpCents: number;
 }
 
 /** Fila del SQL de totales: las sumas llegan como bigint. */
@@ -43,6 +50,8 @@ export const EMPTY_TOTALS: PeriodTotals = {
   walletCashTopUpCents: 0,
   walletCardPayoutCount: 0,
   walletCardPayoutCents: 0,
+  walletCardTopUpCount: 0,
+  walletCardTopUpCents: 0,
 };
 
 export function totalsFromRow(row: PeriodTotalsRow | undefined): PeriodTotals {
@@ -54,6 +63,19 @@ export function totalsFromRow(row: PeriodTotalsRow | undefined): PeriodTotals {
 /** Lo que pagaron los clientes: importe + propinas + recargas en efectivo. */
 export function chargedCents(t: PeriodTotals): number {
   return t.grossCents + t.tipCents + t.walletCashTopUpCents;
+}
+
+/**
+ * Lo cobrado por partes, para que cada una diga lo que suma: ventas con
+ * tarjeta (sin propinas ni recargas), propinas y recargas del saldo (con
+ * tarjeta y en efectivo: no son venta). Suman chargedCents.
+ */
+export function chargedParts(t: PeriodTotals): { salesCents: number; tipCents: number; topUpCents: number } {
+  return {
+    salesCents: t.grossCents - t.walletCardTopUpCents,
+    tipCents: t.tipCents,
+    topUpCents: t.walletCardTopUpCents + t.walletCashTopUpCents,
+  };
 }
 
 /** Neto: cobrado − devoluciones − saldo devuelto en efectivo. */

@@ -17,6 +17,8 @@ const TOTALS_ROW = {
   walletCashTopUpCents: 0n,
   walletCardPayoutCount: 0,
   walletCardPayoutCents: 0n,
+  walletCardTopUpCount: 0,
+  walletCardTopUpCents: 0n,
 };
 
 /** Prisma con $queryRaw de mentira: guarda cada consulta (texto + parámetros). */

@@ -63,6 +63,13 @@ export interface ExportSummary {
    */
   walletCashTopUpsCount?: number;
   walletCashTopUpsCents?: number;
+  /**
+   * Recargas del saldo con tarjeta: ya están en `count` y `grossCents`; aparte,
+   * para decir qué parte de lo cobrado no es venta. Los Z congelados antes del
+   * 23-oct-2026 no lo traen.
+   */
+  walletCardTopUpsCount?: number;
+  walletCardTopUpsCents?: number;
   byType: TypeLine[];
   chicaCommissionCents: number;
   chicaTipsCents: number;
@@ -147,6 +154,7 @@ export function summarize(
   const refundsCents = sum(devoluciones, (r) => r.amountCents);
   const cashTopUpsCents = sum(recargasEfectivo, (r) => r.amountCents);
   const cashTopUpsN = cashTopUpsCount(recargasEfectivo);
+  const cardTopUps = cobros.filter((r) => r.walletId);
   const saldo = saldoTotals(consumos, pagosSaldo);
   const { cardTipsCents, ...staff } = staffTotals(cobros, devoluciones, consumos);
   const chargedCents = grossCents + tipsCents + cashTopUpsCents;
@@ -163,6 +171,8 @@ export function summarize(
     netCents,
     walletCashTopUpsCount: cashTopUpsN,
     walletCashTopUpsCents: cashTopUpsCents,
+    walletCardTopUpsCount: cardTopUps.length,
+    walletCardTopUpsCents: sum(cardTopUps, (r) => r.amountCents),
     byType: [
       ...typeLines(cobros, cobroParts, labelOfKey),
       ...(recargasEfectivo.length > 0

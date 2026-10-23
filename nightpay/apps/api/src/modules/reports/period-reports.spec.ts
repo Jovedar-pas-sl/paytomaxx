@@ -15,6 +15,8 @@ const TOTALS: PeriodTotals = {
   walletCashTopUpCents: 3000,
   walletCardPayoutCount: 1,
   walletCardPayoutCents: 4000,
+  walletCardTopUpCount: 1,
+  walletCardTopUpCents: 20_000,
 };
 
 describe('métricas del panel (hoy y semana)', () => {
@@ -37,6 +39,7 @@ describe('métricas del panel (hoy y semana)', () => {
       refundedCents: 2100,
       walletCashPayoutCents: 8000,
       walletCashTopUpCents: 3000,
+      walletCardTopUpCents: 20_000,
       netCents: 38_500 + 3000 - 2100 - 8000,
     });
     expect(m.week).toMatchObject({ count: 10, netCents: 100_500 + 3000 - 2100 - 8000 });
