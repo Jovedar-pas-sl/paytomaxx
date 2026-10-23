@@ -39,6 +39,17 @@ describe('formatMoney (contracts)', () => {
   it('una moneda que Intl no conoce sale como cifra y código, sin romper', () => {
     expect(plain(formatMoney(1200, { currency: 'X1' }))).toBe('12,00 X1');
   });
+
+  it('solo la cifra (la moneda va aparte), con los mismos miles y signo', () => {
+    expect(formatMoney(123_456, { bare: true })).toBe('1.234,56');
+    expect(formatMoney(-50, { bare: true })).toBe('−0,50');
+    expect(formatMoney(150, { bare: true, currency: 'X1' })).toBe('1,50');
+  });
+
+  it('nunca redondea: compacto solo quita los «,00»', () => {
+    expect(plain(formatMoney(1250, { compact: true }))).toBe('12,50 €');
+    expect(plain(formatMoney(1299, { compact: true }))).toBe('12,99 €');
+  });
 });
 
 describe('clientMoney y npMoney (las páginas del cliente) dicen lo mismo', () => {
