@@ -10,10 +10,11 @@ import { z } from 'zod';
  * Partes en `venues.invitationRules` (migración 20261023100200). De fábrica:
  * la chica 50 % y el resto, del local (20 € = 10 € la chica y 10 € el local).
  * El camarero que la cobra consta como quien la cobró (sus cobros, sus
- * estadísticas), sin parte propia. Un local que guardó en Ajustes una parte
- * para el camarero (antes del 2026-10-28) la sigue teniendo hasta que la
- * quite: lo guardado no se reescribe solo. Lo ya cobrado no cambia: las
- * partes se fijan en la línea al cobrar.
+ * estadísticas), sin parte propia. La del camarero que el formulario de antes
+ * guardaba de fábrica (50 %, hasta el 2026-10-28) la pone a 0 % la migración
+ * 20261028100000; la que eligió el dueño (otro %, € por copa) se queda hasta
+ * que la quite. Lo ya cobrado no cambia: las partes se fijan en la línea al
+ * cobrar.
  */
 
 export type InvitationShare = { kind: 'PERCENT'; bps: number } | { kind: 'FIXED'; cents: number };

@@ -55,7 +55,7 @@ describe('partes de una invitación (Ajustes)', () => {
     const saved = { chica: { kind: 'FIXED', cents: 800 }, camarero: { kind: 'PERCENT', bps: 0 }, requireQr: true };
     expect(invitationRulesOf(saved)).toEqual(saved);
     expect(invitationShares(invitationRulesOf(saved), { unitCents: 2000, qty: 1 }, { getsShare: true })).toEqual({ beneficiaryCents: 800, chargerCents: 0 });
-    // Un local que guardó la mitad para el camarero (Ajustes de antes): no se reescribe a escondidas.
+    // Un local que da la mitad al camarero (la eligió en Ajustes): se respeta.
     const old = { chica: { kind: 'PERCENT', bps: 5000 }, camarero: { kind: 'PERCENT', bps: 5000 }, requireQr: true };
     expect(invitationShares(invitationRulesOf(old), { unitCents: 2000, qty: 1 }, { getsShare: true })).toEqual({ beneficiaryCents: 1000, chargerCents: 1000 });
   });

@@ -5,9 +5,9 @@
 // (10 €) es suyo (se le debe) y se ve en su ficha, en «Mi noche» y en sus
 // invitaciones; el camarero consta como quien cobró, sin parte propia; local +
 // chicas + propinas = lo cobrado. Las devoluciones (en parte y del todo) y el
-// consumo anulado le quitan su parte en proporción. Y un local que guardó en
-// Ajustes una parte para el camarero la conserva y los informes la restan de
-// lo del local. Ver README.md.
+// consumo anulado le quitan su parte en proporción. Y un local que da una
+// parte al camarero (la eligió en Ajustes) la mantiene y los informes la restan
+// de lo del local. Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -399,7 +399,7 @@ describe('al cerrar la noche, el Z congela las mismas cifras', () => {
   });
 });
 
-describe('un local que guardó en Ajustes una parte para el camarero (antes del cambio)', () => {
+describe('un local que da una parte al camarero (la eligió en Ajustes)', () => {
   let V2: string, dani: string, lola: string, inv2: string, pay: string;
   beforeAll(async () => {
     await sys(async (tx) => {
@@ -409,7 +409,7 @@ describe('un local que guardó en Ajustes una parte para el camarero (antes del 
             name: 'Sala Antigua',
             slug: `cci2-${r}`,
             platformCommissionBps: 0,
-            // Lo que guardó: la mitad para la chica y la mitad para el camarero (y la clave «Invitar» primero, de antes).
+            // Lo que eligió: la mitad para la chica y la mitad para el camarero (con la clave «Invitar» primero, de antes).
             invitationRules: { chica: { kind: 'PERCENT', bps: 5000 }, camarero: { kind: 'PERCENT', bps: 5000 }, inviteFirst: true, requireQr: true },
           },
         })
@@ -427,7 +427,7 @@ describe('un local que guardó en Ajustes una parte para el camarero (antes del 
     pay = c.id;
   });
 
-  it('no se le reescribe: la chica 10 € y el camarero 10 €; el local, nada de esa copa', async () => {
+  it('se respeta: la chica 10 € y el camarero 10 €; el local, nada de esa copa', async () => {
     const earnings = await sys((tx) => tx.operatorEarning.findMany({ where: { paymentId: pay }, orderBy: { createdAt: 'asc' } }));
     expect(earnings.map((e) => [e.operatorId, e.commissionCents]).sort()).toEqual([[dani, 1000], [lola, 1000]].sort());
     const m = await inVenue(V2, () => moneyMap.forQuery(V2, {}, soon()));

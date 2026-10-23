@@ -21,7 +21,7 @@ const EXAMPLE_PRICE_CENTS = 20_00;
  * qué parte es de la chica invitada (% o € por copa); el resto, del local.
  * De fábrica, la mitad para ella. El camarero que la cobra consta como quien
  * la cobró, sin parte propia: su parte va aparte y cerrada (abierta solo si
- * el local le daba algo, guardado antes: no se le quita a escondidas).
+ * el local le da algo, porque lo eligió el dueño).
  */
 export function InvitationRulesCard() {
   const { data, setData, error: loadError, retry } = useSettingsLoad(fetchInvitationRules);
