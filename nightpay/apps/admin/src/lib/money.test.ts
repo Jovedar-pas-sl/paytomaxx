@@ -11,12 +11,18 @@ describe('formatEur', () => {
     expect(plain(formatEur(0))).toBe('0,00 €');
   });
 
-  it('separa los miles con punto a partir de 5 cifras (norma española)', () => {
+  it('separa los miles con punto siempre, también con 4 cifras (como el mapa del dinero)', () => {
     expect(plain(formatEur(1_234_567))).toBe('12.345,67 €');
+    expect(plain(formatEur(132_900))).toBe('1.329,00 €');
   });
 
-  it('los negativos llevan signo', () => {
-    expect(plain(formatEur(-300))).toBe('-3,00 €');
+  it('nunca se pierde un céntimo: 12,50 € es 12,50 € y 0,01 € es 0,01 €', () => {
+    expect(plain(formatEur(1250))).toBe('12,50 €');
+    expect(plain(formatEur(1))).toBe('0,01 €');
+  });
+
+  it('los negativos llevan el signo menos de verdad (U+2212), que se alinea con las cifras', () => {
+    expect(plain(formatEur(-300))).toBe('\u22123,00 €');
   });
 });
 

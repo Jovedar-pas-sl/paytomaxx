@@ -34,6 +34,8 @@ export interface MoneyFormatOptions {
   /** es-ES de fábrica; las páginas del cliente en inglés, en-GB. */
   locale?: string;
   currency?: string;
+  /** Solo la cifra («1.109,50»), para cuando la moneda va aparte con otro estilo. */
+  bare?: boolean;
 }
 
 /** Signo menos de verdad (U+2212): se alinea con las cifras; el guion no. */
@@ -41,15 +43,14 @@ export const MINUS_SIGN = '−';
 
 const MONEY_FORMATS = new Map<string, Intl.NumberFormat | null>();
 
-function moneyFormat(locale: string, currency: string, digits: number): Intl.NumberFormat | null {
-  const key = `${locale}|${currency}|${digits}`;
+function moneyFormat(locale: string, currency: string, digits: number, bare: boolean): Intl.NumberFormat | null {
+  const key = `${locale}|${currency}|${digits}|${bare ? 'n' : 'c'}`;
   if (!MONEY_FORMATS.has(key)) {
     try {
       MONEY_FORMATS.set(
         key,
         new Intl.NumberFormat(locale, {
-          style: 'currency',
-          currency,
+          ...(bare ? { style: 'decimal' as const } : { style: 'currency' as const, currency }),
           minimumFractionDigits: digits,
           maximumFractionDigits: digits,
           // Miles siempre con punto: es-ES no agrupa 4 cifras por defecto («1109 €»).
@@ -70,11 +71,14 @@ function moneyFormat(locale: string, currency: string, digits: number): Intl.Num
  * menos de verdad. Los importes viajan en céntimos. Una moneda que Intl no
  * conoce sale como cifra y código («12,00 XYZ»).
  */
-export function formatMoney(cents: number, { compact = false, locale = 'es-ES', currency = 'EUR' }: MoneyFormatOptions = {}): string {
+export function formatMoney(
+  cents: number,
+  { compact = false, locale = 'es-ES', currency = 'EUR', bare = false }: MoneyFormatOptions = {},
+): string {
+  // Solo se quitan los «,00»: un importe con céntimos (12,50 €) nunca se redondea.
   const digits = compact && cents % 100 === 0 ? 0 : 2;
-  const fmt = moneyFormat(locale, currency, digits);
-  const text = fmt
-    ? fmt.format(cents / 100)
-    : `${(cents / 100).toLocaleString(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${currency}`;
+  const fmt = moneyFormat(locale, currency, digits, bare);
+  const plain = (cents / 100).toLocaleString(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const text = fmt ? fmt.format(cents / 100) : bare ? plain : `${plain} ${currency}`;
   return text.replace('-', MINUS_SIGN);
 }

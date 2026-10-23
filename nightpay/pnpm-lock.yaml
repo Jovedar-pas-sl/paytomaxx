@@ -481,6 +481,10 @@ importers:
         version: 5.9.3
 
   packages/ui:
+    dependencies:
+      '@nightpay/contracts':
+        specifier: workspace:*
+        version: link:../contracts
     devDependencies:
       '@nightpay/config':
         specifier: workspace:*

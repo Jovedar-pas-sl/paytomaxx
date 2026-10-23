@@ -1,7 +1,7 @@
 'use client';
 
 import { forwardRef, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { amountParts } from '../format';
+import { formatMoney } from '@nightpay/contracts';
 import { useNow } from '../hooks';
 import { agoLabel } from '../lib/countdown';
 import { clockTime, OUTCOME_TITLE, type OutcomeKind } from '../lib/outcome';
@@ -104,8 +104,8 @@ export function PaymentOutcome({
   const since = sinceMs ?? shownAt;
   const now = useNow(true);
   const title = OUTCOME_TITLE[kind];
-  const full = amountParts(amountCents, currency).text;
-  const amount = compactAmount && amountCents % 100 === 0 ? full.replace(/[.,]00(?=\D*$)/, '') : full;
+  // El formato de toda la app: «35 €» (compacto) o «35,00 €»; miles con punto.
+  const amount = formatMoney(amountCents, { compact: compactAmount, currency });
   const many = sections && sections.length > 1 ? sections.slice(0, 2) : null;
 
   // El anuncio va a una región que ya existe: si nace con el texto, muchos

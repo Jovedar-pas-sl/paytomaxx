@@ -15,7 +15,9 @@ describe('importes en euros', () => {
   it('compacto: sin ",00" cuando no hay céntimos (carta, saldo)', () => {
     expect(formatEur(6000, { compact: true })).toBe(nb('60 €'));
     expect(formatEur(6050, { compact: true })).toBe(nb('60,50 €'));
-    expect(formatEur(-6000, { compact: true })).toBe(nb('-60 €'));
+    expect(formatEur(-6000, { compact: true })).toBe(nb('\u221260 €'));
+    // El punto de los miles siempre (como el panel y el cliente).
+    expect(formatEur(110_900, { compact: true })).toBe(nb('1.109 €'));
   });
 
   it('con signo: nunca "+-1,20"', () => {
@@ -26,7 +28,8 @@ describe('importes en euros', () => {
 
   it('solo la cifra, para cuando "EUR" va aparte', () => {
     expect(formatEurAmount(12345)).toBe('123,45');
-    expect(formatEurAmount(-50)).toBe('-0,50');
+    expect(formatEurAmount(-50)).toBe('\u22120,50');
+    expect(formatEurAmount(123_456)).toBe('1.234,56');
   });
 
   it('comisión en puntos básicos, sin redondear', () => {

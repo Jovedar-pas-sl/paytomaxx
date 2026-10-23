@@ -6,6 +6,7 @@
 import {
   DEFAULT_SECTIONS,
   MONEY_MAP_TIPS,
+  formatMoney,
   isSectionCode,
   sectionMeta,
   venueSharePercent,
@@ -14,14 +15,9 @@ import {
 } from '@nightpay/contracts';
 import { SECTIONS, sectionColor } from '@nightpay/ui';
 
-/** Euros sin céntimos si son redondos y con el punto de los miles siempre: «5.300 €», «12,50 €». */
-// useGrouping «always» (ES2023): en español, 1.800 y no 1800. Los tipos de TS aún no lo traen.
-const ALWAYS = { useGrouping: 'always' } as unknown as Intl.NumberFormatOptions;
-const EUR_WHOLE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, ...ALWAYS });
-const EUR_CENTS = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, ...ALWAYS });
-
+/** Euros sin céntimos si son redondos y con el punto de los miles siempre: «5.300 €», «12,50 €», «−70 €». */
 export function eurShort(cents: number): string {
-  return cents % 100 === 0 ? EUR_WHOLE.format(cents / 100) : EUR_CENTS.format(cents / 100);
+  return formatMoney(cents, { compact: true });
 }
 
 /** Nombre y color de una sección: el nombre del local; el color de la marca, salvo que el dueño lo cambiara. */

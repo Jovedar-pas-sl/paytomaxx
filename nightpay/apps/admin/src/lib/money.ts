@@ -1,10 +1,12 @@
-// Importes del panel: un solo formato (español, con €) en todas las pestañas.
+// Importes del panel: el formato de toda la app (formatMoney de
+// @nightpay/contracts): con céntimos, el punto de los miles siempre
+// («1.329,00 €») y el signo menos de verdad («−3,00 €»). Las tablas siguen
+// alineadas (cifras tabulares) y ningún céntimo se pierde.
+import { formatMoney as moneyText } from '@nightpay/contracts';
 
-const EUR = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
-
-/** Céntimos → "12,50 €" / "12.345,67 €" / "-3,00 €". */
+/** Céntimos → "12,50 €" / "1.234,56 €" / "−3,00 €". */
 export function formatEur(cents: number): string {
-  return EUR.format(cents / 100);
+  return moneyText(cents);
 }
 
 /**
@@ -12,12 +14,7 @@ export function formatEur(cents: number): string {
  * que Intl no conoce se enseña tal cual, sin romper la tabla.
  */
 export function formatMoney(cents: number, currency: string): string {
-  if (currency === 'EUR') return formatEur(cents);
-  try {
-    return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(cents / 100);
-  } catch {
-    return `${formatDecimal(cents / 100, 2)} ${currency}`;
-  }
+  return moneyText(cents, { currency });
 }
 
 /** Número con decimales fijos en formato español: 1.07 → "1,07". */

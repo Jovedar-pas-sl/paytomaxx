@@ -60,7 +60,7 @@ describe('importes del mapa', () => {
     expect(eur(530_000)).toBe('5.300 €');
     expect(eur(1_250)).toBe('12,50 €');
     expect(eur(0)).toBe('0 €');
-    expect(eur(-7_000)).toBe('-70 €');
+    expect(eur(-7_000)).toBe('\u221270 €');
   });
 });
 
