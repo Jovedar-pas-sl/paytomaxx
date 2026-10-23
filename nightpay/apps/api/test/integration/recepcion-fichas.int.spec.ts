@@ -191,6 +191,8 @@ describe('recarga en efectivo y caja de la noche (Postgres real)', () => {
       walletCashPayoutsCents: 2_000,
       chicaCashPayoutsCount: 0,
       chicaCashPayoutsCents: 0,
+      camareroCashPayoutsCount: 0,
+      camareroCashPayoutsCents: 0,
       cashOutCents: 2_000,
       expectedCents: 16_000,
     });

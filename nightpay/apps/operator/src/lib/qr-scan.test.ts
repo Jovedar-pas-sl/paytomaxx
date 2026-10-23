@@ -35,7 +35,7 @@ describe('«Escanea el QR de la chica»: cuándo se pregunta al API', () => {
     expect(shouldResolveQr(QR, rejected, NOW + QR_RETRY_AFTER_LIMIT_MS)).toBe(true);
   });
 
-  it('en un minuto delante de un QR rechazado, una sola pregunta (antes, unas 240)', () => {
+  it('en un minuto delante de un QR rechazado, una sola pregunta (antes, una tras cada respuesta: 2-4 por segundo)', () => {
     let rejected = null as ReturnType<typeof rejectedQr> | null;
     let asked = 0;
     for (let t = NOW; t < NOW + 60_000; t += 250) {

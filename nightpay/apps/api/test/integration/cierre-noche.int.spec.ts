@@ -189,6 +189,9 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
       walletCashPayoutsCents: 4500,
       chicaCashPayoutsCount: 1,
       chicaCashPayoutsCents: 9000,
+      // Los pagos en efectivo a los camareros, aparte (aquí, ninguno).
+      camareroCashPayoutsCount: 0,
+      camareroCashPayoutsCents: 0,
       cashOutCents: 13_500,
       expectedCents: 6500,
     });
