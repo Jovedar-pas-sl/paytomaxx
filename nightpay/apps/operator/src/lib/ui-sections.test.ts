@@ -4,9 +4,12 @@ import {
   SECTION_BY_CODE,
   SECTION_FALLBACK_COLOR,
   SECTION_ON_COLOR,
+  SECTION_TILE_COLORS,
   SECTIONS,
   sectionColor,
   sectionOf,
+  sectionTileColor,
+  sectionTileVar,
   sectionVar,
 } from '@nightpay/ui';
 
@@ -69,5 +72,30 @@ describe('colores de las secciones (marca OxioCard)', () => {
 
   it('la tinta se lee sobre cualquier sección (≥ 4,5:1)', () => {
     for (const s of Object.values(SECTIONS)) expect(contrast(SECTION_ON_COLOR, s.color)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('tonos de loseta (Servicios y Propinas, decisión D5)', () => {
+  it('las losetas de Servicios y Propinas van un punto más claras; las demás, con su color', () => {
+    expect(sectionTileColor('CHICA_SERVICE')).toBe('#df73e4');
+    expect(sectionTileColor('propinas')).toBe('#55b4f7');
+    expect(sectionTileVar('CHICA_SERVICE')).toBe('var(--np-sec-servicios-tile)');
+    expect(sectionTileVar('propinas')).toBe('var(--np-sec-propinas-tile)');
+    expect(sectionTileVar('VENUE_BAR')).toBe('var(--np-sec-copas)');
+    expect(sectionTileColor('VENUE_FOOD')).toBe(sectionColor('VENUE_FOOD'));
+    expect(sectionTileVar('NO_EXISTE')).toBe('var(--np-sec-otros)');
+    expect(sectionTileColor(null)).toBe(SECTION_FALLBACK_COLOR);
+  });
+
+  it('los tonos de TS y --np-sec-*-tile de styles.css dicen lo mismo', () => {
+    for (const [key, color] of Object.entries(SECTION_TILE_COLORS)) expect(cssVar(`--np-sec-${key}-tile`), key).toBe(color);
+  });
+
+  it('la etiqueta pequeña se lee mejor que sobre el color de marca (tinta ≥ 6,5:1)', () => {
+    for (const [key, color] of Object.entries(SECTION_TILE_COLORS)) {
+      const tile = contrast(SECTION_ON_COLOR, color!);
+      expect(tile, key).toBeGreaterThanOrEqual(6.5);
+      expect(tile, key).toBeGreaterThan(contrast(SECTION_ON_COLOR, SECTIONS[key as keyof typeof SECTIONS].color));
+    }
   });
 });

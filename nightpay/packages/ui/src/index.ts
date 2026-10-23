@@ -16,10 +16,13 @@ export {
   SECTION_BY_CODE,
   SECTION_FALLBACK_COLOR,
   SECTION_ON_COLOR,
+  SECTION_TILE_COLORS,
   SECTIONS,
   sectionColor,
   sectionOf,
   sectionsChipText,
+  sectionTileColor,
+  sectionTileVar,
   sectionVar,
 } from './lib/sections';
 export type { Section, SectionCode, SectionKey } from './lib/sections';

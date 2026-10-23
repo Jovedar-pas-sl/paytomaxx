@@ -80,6 +80,29 @@ export function sectionVar(code: string | null | undefined): string {
 }
 
 /**
+ * Tono de LOSETA (relleno grande con la etiqueta pequeña encima): Servicios
+ * y Propinas, un punto más claros para que la tinta se lea (≥ 6,5:1). Los
+ * mismos que --np-sec-*-tile de styles.css. Chips, barras y franjas siguen
+ * con el color exacto de la sección (sectionColor / sectionVar).
+ */
+export const SECTION_TILE_COLORS: Readonly<Partial<Record<SectionKey, string>>> = Object.freeze({
+  servicios: '#df73e4',
+  propinas: '#55b4f7',
+});
+
+/** El color de una loseta (hex): el de la sección o, en Servicios y Propinas, su tono de loseta. */
+export function sectionTileColor(code: string | null | undefined): string {
+  const s = sectionOf(code);
+  return (s && SECTION_TILE_COLORS[s.key]) ?? sectionColor(code);
+}
+
+/** Igual que sectionTileColor, como variable CSS (var(--np-sec-…-tile) o la de la sección). */
+export function sectionTileVar(code: string | null | undefined): string {
+  const s = sectionOf(code);
+  return s && SECTION_TILE_COLORS[s.key] ? `var(--np-sec-${s.key}-tile)` : sectionVar(code);
+}
+
+/**
  * El texto del chip de las secciones de un cobro («Copas + Cocina», como
  * mucho dos): con el nombre que les puso el local (`labelOf`, el de Ajustes →
  * Secciones) o, sin él, el de fábrica.

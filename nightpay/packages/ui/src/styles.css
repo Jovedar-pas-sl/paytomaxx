@@ -64,7 +64,8 @@
      principal, el foco y el «pagado»; nunca como color de sección. */
   --np-lime: #c7d301;
   --np-lime-deep: #9aa300;
-  --np-lime-glow: rgb(199 211 1 / 0.45);
+  /* Halo contenido (antes 0,45): con alcohol y poca luz deslumbra menos. */
+  --np-lime-glow: rgb(199 211 1 / 0.32);
   --np-lime-edge: rgb(199 211 1 / 0.55);
   --np-lime-soft: rgb(199 211 1 / 0.14);
   --np-lime-ring: rgb(199 211 1 / 0.22);
@@ -93,6 +94,11 @@
   --np-sec-saldo: #9aa4ad;
   --np-sec-otros: #7c8893;
   --np-on-section: #0f1112;
+  /* Tonos de LOSETA (rellenos grandes con la etiqueta pequeña encima): un
+     punto más claros para que la tinta se lea (Servicios 6,95:1, Propinas
+     8,35:1). Chips, barras y franjas siguen con el color exacto de arriba. */
+  --np-sec-servicios-tile: #df73e4;
+  --np-sec-propinas-tile: #55b4f7;
 
   /* Resultado a pantalla completa y aviso de conexión: iguales en los dos
      temas (son señales, no decoración). PAGADO: verde de marca con texto
@@ -117,15 +123,19 @@
   --np-surface-2: #1c2024;
   --np-surface-3: #262b31;
   --np-border: #2a3036;
-  --np-border-hi: #3c454e;
+  /* Borde de lo que se toca (botones secundarios, «Otro importe»): 3,5:1
+     sobre --np-bg y 3:1 aún sobre --np-surface-2 (WCAG 1.4.11). */
+  --np-border-hi: #616c77;
 
-  /* Text — AA o mejor sobre --np-bg y las superficies (--np-text-dim:
-     4,9:1 aún sobre --np-surface-3). */
+  /* Text — medido en WCAG y APCA (Lc). Con poca luz y prisa, las ayudas de
+     14-15 px necesitan más que AA: --np-text-dim 8,6:1 · Lc 58 sobre
+     --np-bg (6,5:1 aún sobre --np-surface-3). */
   --np-text: #f2efe9;
-  --np-text-mute: #b6bec6;
-  --np-text-dim: #8e98a1;
-  /* Etiquetas pequeñas: 11:1 sobre --np-bg, 9,5:1 sobre --np-surface-2. */
-  --np-text-label: #bfc6cc;
+  /* 11,6:1 · Lc 74. */
+  --np-text-mute: #c4cbd1;
+  --np-text-dim: #a7b0b8;
+  /* Etiquetas pequeñas en MAYÚSCULAS: 10,9:1 · Lc 77 sobre --np-surface-2. */
+  --np-text-label: #cdd3d8;
 
   /* Accent — lima. Siempre con tinta encima (--np-on-accent, 8,7:1). */
   --np-accent: #c7d301;
@@ -144,8 +154,16 @@
   /* Semantic */
   --np-success: #5be38f;
   --np-danger: #ff5a5f;
+  /* Rojo para TEXTO pequeño (errores de 14-15 px): 7,6:1 · Lc 53. */
+  --np-danger-text: #ff7b7b;
   --np-warning: #ffb020;
   --np-purple: #c9a3ff;
+
+  /* Botón sin nada que hacer: neutro y a trazos, nunca lima apagada (el lima
+     dice «listo»). Texto 7,5:1 sobre --np-surface-2. */
+  --np-disabled-bg: var(--np-surface-2);
+  --np-disabled-ink: var(--np-text-dim);
+  --np-disabled-edge: var(--np-border-hi);
 
   /* Pill backgrounds (theme-aware) */
   --np-pill-mute-bg: #1c2024;
@@ -172,11 +190,13 @@
   --np-surface-2: #e6e0d5;
   --np-surface-3: #dbd4c8;
   --np-border: #d3cbbe;
-  --np-border-hi: #b5ac9e;
+  /* 3,4:1 sobre la crema y 3,1:1 sobre --np-surface-2 (antes 1,9:1). */
+  --np-border-hi: #857c6d;
 
   --np-text: #1f2c36;
   --np-text-mute: #46525c;
-  --np-text-dim: #56626c;
+  /* 5,3:1 · Lc 66 sobre --np-surface-2. */
+  --np-text-dim: #4f5b65;
   /* 8:1 sobre --np-bg. */
   --np-text-label: #3a4650;
 
@@ -191,10 +211,13 @@
   --np-primary-bg: var(--np-lime);
   --np-primary-bg-hover: #d1dc1a;
   --np-primary-ink: var(--np-ink);
-  --np-primary-shadow: inset 0 0 0 1px rgb(31 44 54 / 0.18), 0 8px 22px -14px rgb(31 44 54 / 0.55);
+  /* Borde de tinta: la pill lima se separa de la crema (5,8:1; antes 1,4:1). */
+  --np-primary-shadow: inset 0 0 0 1.5px rgb(31 44 54 / 0.7), 0 8px 22px -14px rgb(31 44 54 / 0.55);
 
-  --np-success: #17703d;
+  /* 6,2:1 · Lc 73. */
+  --np-success: #146234;
   --np-danger: #b8232a;
+  --np-danger-text: #b8232a;
   --np-warning: #7f4c00;
   --np-purple: #5e36a3;
 
@@ -379,6 +402,18 @@ button {
   cursor: not-allowed;
 }
 
+/* Botón principal sin nada que hacer («Congelar el Z», «Buscar»…): gris y a
+   trazos, nunca lima apagada. Cargando (data-loading) sigue en lima: está
+   trabajando, no vacío. */
+.np-btn[data-variant='primary']:disabled:not([data-loading]) {
+  opacity: 1;
+  background: var(--np-disabled-bg);
+  color: var(--np-disabled-ink);
+  box-shadow: none;
+  outline: 1.5px dashed var(--np-disabled-edge);
+  outline-offset: -1.5px;
+}
+
 /* Chip de sección (SectionChip): pill del color de la sección con tinta; el
    saldo / la recarga, sin relleno y con borde a trazos. */
 .np-chip {
@@ -450,17 +485,17 @@ input::placeholder {
 }
 
 /* Flecha del <select>. En un data: URI no entran variables CSS: el trazo es el
-   --np-text-dim de cada tema (#8e98a1 oscuro, #56626c claro). */
+   --np-text-dim de cada tema (#a7b0b8 oscuro, #4f5b65 claro). */
 .np-select {
   appearance: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%238e98a1' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23a7b0b8' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
   background-repeat: no-repeat;
   background-position: right 1rem center;
   background-size: 0.75rem;
 }
 
 [data-theme='light'] .np-select {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%2356626c' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%234f5b65' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
 }
 
 /* Solo para lectores de pantalla (p. ej. el importe entero de AmountDisplay). */

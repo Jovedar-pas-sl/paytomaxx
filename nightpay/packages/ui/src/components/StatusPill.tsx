@@ -43,10 +43,11 @@ const operatorConfig: Record<PaymentStatus, StatusConfig> = {
     bg: 'var(--np-pill-mute-bg)',
   },
   AUTHORIZING: {
-    // Vale para QR (cliente en la página del banco) y para datáfono.
+    // Vale para QR (cliente en la página del banco) y para datáfono. En
+    // neutro con el punto que late: el lima es para la acción y el «pagado».
     label: 'Esperando pago',
-    color: 'var(--np-accent)',
-    bg: 'var(--np-pill-cyan-bg)',
+    color: 'var(--np-text)',
+    bg: 'var(--np-pill-mute-bg)',
     spin: true,
   },
   AUTHORIZED: {
@@ -99,14 +100,14 @@ const clientConfig: Record<PaymentStatus, StatusConfig> = {
   },
   AWAITING_CAPTURE: {
     label: 'Pagando en datáfono',
-    color: 'var(--np-accent)',
-    bg: 'var(--np-pill-cyan-bg)',
+    color: 'var(--np-text)',
+    bg: 'var(--np-pill-mute-bg)',
     spin: true,
   },
   AUTHORIZING: {
     label: 'Procesando tu pago…',
-    color: 'var(--np-accent)',
-    bg: 'var(--np-pill-cyan-bg)',
+    color: 'var(--np-text)',
+    bg: 'var(--np-pill-mute-bg)',
     spin: true,
   },
   AUTHORIZED: {
