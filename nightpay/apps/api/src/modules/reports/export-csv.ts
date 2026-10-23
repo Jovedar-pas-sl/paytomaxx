@@ -54,7 +54,7 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string, labe
       text(venueName),
       code(confirmationCode(r.id)),
       text(r.serviceName ?? cobroType(r, labelOf)),
-      cobroType(r, labelOf),
+      text(cobroType(r, labelOf)),
       text(person(r.creatorName, r.creatorEmail)),
       captureLabel(r.captureMethod),
       methodLabel(r),
@@ -73,7 +73,7 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string, labe
       money(net - chica - camarero),
       STATUS_LABEL[r.status] ?? r.status,
       r.id,
-      bySection(r, labelOf),
+      text(bySection(r, labelOf)),
     ];
   });
   return toCsv([header, ...body]);
@@ -209,7 +209,7 @@ export function resumenCsv(args: {
     ...totalRows(s),
     [],
     ['Por tipo de cobro', 'Total cobrado (€)', 'Número'],
-    ...s.byType.map((t): CsvCell[] => [t.label, money(t.chargedCents), t.count]),
+    ...s.byType.map((t): CsvCell[] => [text(t.label), money(t.chargedCents), t.count]),
     [],
     ...saldoRows(s),
     [],
@@ -239,7 +239,7 @@ function saldoRows(s: ExportSummary): CsvCell[][] {
   return [
     ['Saldo de los clientes', 'Importe (€)', 'Número'],
     ['Consumos del saldo', money(s.consumptionsCents), s.consumptionsCount],
-    ...s.saldoByType.map((t): CsvCell[] => [t.label, money(t.chargedCents), t.count]),
+    ...s.saldoByType.map((t): CsvCell[] => [text(t.label), money(t.chargedCents), t.count]),
     ['Devuelto en efectivo (restado arriba)', money(-s.walletCashPayoutsCents), s.walletCashPayoutsCount],
     ['Devuelto a la tarjeta (ya está en devoluciones)', money(-s.walletCardPayoutsCents), s.walletCardPayoutsCount],
   ];
