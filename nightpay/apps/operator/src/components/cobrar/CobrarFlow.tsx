@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Modal, ThemeToggle } from '@nightpay/ui';
 import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
-import { createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
+import { cancelCard, cancelSaldo, createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
 import { tapOf } from '@/lib/carta-tiles';
+import { arrivedTooLate, cancelTargetOf } from '@/lib/cobro-attempt';
 import { invitationSplit, splitCells, whoLine } from '@/lib/cobro-view';
 import {
   EMPTY_CUENTA,
@@ -73,7 +74,9 @@ interface Props {
  * tarjeta (QR) o con el saldo (NFC, su PIN o su Face ID): gana el primero.
  * «Copa» es la copa normal: se suma a la cuenta sin preguntar nada. «Copa con
  * invitación» (una loseta más) escanea el QR de la chica y se cobra aparte,
- * repartida entre ella y el local. Con datáfono solo si el local lo tiene.
+ * repartida entre ella y el local. Con datáfono solo si el local lo tiene. Si
+ * se sale de la invitación («Atrás») mientras se crea su cobro, no se abre
+ * «Esperando» y se cancela (lib/cobro-attempt).
  */
 export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = false, onMiQr, onRecargar }: Props) {
   const mine = useMySections();
@@ -85,6 +88,10 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const [stage, setStage] = useState<Stage>({ kind: 'carta' });
   const [cuenta, setCuenta] = useState<Cuenta>(EMPTY_CUENTA);
   const [busy, setBusy] = useState(false);
+  /** Lo mismo que `busy`, al momento: el escáner llama con un render de antes (su `busy` puede ser viejo). */
+  const busyNow = useRef(false);
+  /** Cada cambio de pantalla, uno más: así se sabe si se salió de la invitación mientras se cobraba. */
+  const screen = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -148,20 +155,45 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     [methods.card, methods.wallet, terminals],
   );
 
+  /** Cambiar de pantalla (siempre por aquí: cuenta las vueltas de `screen`). */
+  const go = useCallback((next: Stage) => {
+    screen.current += 1;
+    setStage(next);
+  }, []);
+
+  /** Una invitación que llegó cuando ya se había salido de su pantalla: se cancela sin enseñarla. */
+  async function dropCobro(cobro: CobroAbierto): Promise<void> {
+    const target = cancelTargetOf(cobro);
+    if (!target) return;
+    try {
+      if (target.kind === 'card') await cancelCard(target.id);
+      else await cancelSaldo(target.id);
+    } catch {
+      setError('La invitación que dejaste a medias no se ha podido cancelar: caduca sola en unos minutos (nadie ve su QR).');
+    }
+  }
+
   async function start(pending: Pending) {
-    if (busy) return;
+    if (busyNow.current) return;
+    busyNow.current = true;
     const what = JSON.stringify(pending.input);
     if (attempt.current?.what !== what) attempt.current = { key: newIdempotencyKey(), what };
+    const asked = { invitation: pending.view.invitation !== null, screen: screen.current };
     setBusy(true);
     setError(null);
     try {
       if ('vibrate' in navigator) navigator.vibrate(10);
       const cobro = await open(pending, attempt.current.key);
       attempt.current = null;
-      setStage({ kind: 'esperando', cobro, request: pending });
+      if (arrivedTooLate(asked, screen.current)) {
+        await dropCobro(cobro);
+        return;
+      }
+      go({ kind: 'esperando', cobro, request: pending });
     } catch (err) {
-      setError((err as Error).message);
+      if (!arrivedTooLate(asked, screen.current)) setError((err as Error).message);
     } finally {
+      busyNow.current = false;
       setBusy(false);
     }
   }
@@ -222,7 +254,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     setRetryError(null);
     try {
       const cobro = await open(stage.request, newIdempotencyKey());
-      setStage({ kind: 'esperando', cobro, request: stage.request });
+      go({ kind: 'esperando', cobro, request: stage.request });
     } catch (err) {
       setRetryError((err as Error).message);
     } finally {
@@ -242,16 +274,16 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   }, [stage, onCobroDone]);
 
   const backToCarta = useCallback(() => {
-    setStage({ kind: 'carta' });
+    go({ kind: 'carta' });
     setError(null);
     setRetryError(null);
-  }, []);
+  }, [go]);
 
   /** Tocar una loseta: «Copa» (y el resto) se suma a la cuenta; «Copa con invitación», a escanear el QR de la chica. */
   function pickItem(item: CartaItem) {
     if (tapOf(item) === 'invitar') {
       setError(null);
-      setStage({ kind: 'escanear', invite: item });
+      go({ kind: 'escanear', invite: item });
       return;
     }
     setCuenta((c) => addItem(c, item));
@@ -265,7 +297,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       return;
     }
     setCuenta(next);
-    setStage({ kind: 'carta' });
+    go({ kind: 'carta' });
   }
 
   async function cobrarPos() {
@@ -280,7 +312,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
         terminalExternalId: terminals[0]?.externalId,
         tipCents: totals.tipCents,
       });
-      setStage({ kind: 'pos', payment: created, label: cuentaWhat(cuenta) });
+      go({ kind: 'pos', payment: created, label: cuentaWhat(cuenta) });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -391,7 +423,14 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             title={stage.invite.name}
             priceCents={stage.invite.priceCents}
             onChica={(chica) => invitar(stage.invite, chica)}
-            onList={rules?.requireQr === false ? () => setStage({ kind: 'lista', invite: stage.invite }) : undefined}
+            onList={
+              rules?.requireQr === false
+                ? () => {
+                    setError(null);
+                    go({ kind: 'lista', invite: stage.invite });
+                  }
+                : undefined
+            }
             onBack={backToCarta}
           />
           {busy ? <p className={styles.toast}>Un momento…</p> : null}
@@ -409,7 +448,12 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           who={who}
           priceCents={stage.invite.priceCents}
           onPick={(c) => invitar(stage.invite, { name: c.name, id: c.id })}
-          onBack={() => setStage({ kind: 'escanear', invite: stage.invite })}
+          onBack={() => {
+            setError(null);
+            go({ kind: 'escanear', invite: stage.invite });
+          }}
+          busy={busy}
+          error={error}
         />
       );
     case 'carta':
@@ -424,9 +468,9 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             onTip={(cents) => setCuenta((c) => addAmount(c, PROPINAS, cents))}
             onOtro={() => {
               setError(null);
-              setStage({ kind: 'otro' });
+              go({ kind: 'otro' });
             }}
-            onVerCuenta={() => setStage({ kind: 'cuenta' })}
+            onVerCuenta={() => go({ kind: 'cuenta' })}
             onCobrar={() => cobrarCuenta()}
             busy={busy}
             error={error}

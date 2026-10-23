@@ -10,7 +10,8 @@ import styles from './cobrar.module.css';
 
 /**
  * «Elegir de la lista» (si la cámara falla y el local no pide el QR de la
- * chica, Ajustes → Invitaciones): las chicas del local, una por botón.
+ * chica, Ajustes → Invitaciones): las chicas del local, una por botón. Al
+ * elegirla se cobra: «Un momento…» mientras tanto y, si falla, por qué.
  */
 export function ElegirChica({
   ctx,
@@ -18,12 +19,18 @@ export function ElegirChica({
   priceCents,
   onPick,
   onBack,
+  busy,
+  error: chargeError,
 }: {
   ctx: CobrarContext;
   who: string;
   priceCents: number;
   onPick: (chica: InvitableStaff) => void;
   onBack: () => void;
+  /** Creando el cobro de la invitación. */
+  busy: boolean;
+  /** Por qué no se pudo cobrar la invitación. */
+  error: string | null;
 }) {
   const [list, setList] = useState<InvitableStaff[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,12 +71,22 @@ export function ElegirChica({
         ) : (
           <div className={styles.pickList}>
             {list.map((c) => (
-              <button key={c.id} type="button" className={styles.pickItem} onClick={() => onPick(c)}>
+              <button key={c.id} type="button" className={styles.pickItem} onClick={() => onPick(c)} disabled={busy}>
                 {c.name}
               </button>
             ))}
           </div>
         )}
+        {busy ? (
+          <p className={styles.muted} role="status">
+            Un momento…
+          </p>
+        ) : null}
+        {chargeError ? (
+          <p role="alert" className={styles.error}>
+            {chargeError}
+          </p>
+        ) : null}
       </div>
     </div>
   );

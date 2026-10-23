@@ -5,6 +5,7 @@ import { staffTokenFrom } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
 import { onInviteArrived, takePendingInvite } from '@/lib/invite-link';
 import { resolveStaffQr } from '@/lib/api-cobro';
+import { rejectedQr, shouldResolveQr, statusOf, type RejectedQr } from '@/lib/qr-scan';
 import { colorOf, puestoChip, type CobrarContext } from './cobrar-context';
 import { IconCheck, IconFlash } from './icons';
 import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
@@ -48,12 +49,19 @@ function detectorCtor(): DetectorCtor | null {
  * «Escanea el QR de la chica» (maqueta 2.2), al tocar «Copa con invitación»:
  * la cámara del camarero lee el «Mi QR» del móvil de la chica y la reconoce
  * sola; pasa al cobro sin tocar nada. Linterna para la sala oscura y, si el
- * local lo deja, la lista.
+ * local lo deja, la lista. Un QR rechazado no se vuelve a mandar mientras
+ * siga delante de la cámara (lib/qr-scan) y, si se sale antes de pasar al
+ * cobro («Atrás»), no se cobra nada.
  */
 export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, onBack }: Props) {
   const video = useRef<HTMLVideoElement | null>(null);
   const track = useRef<MediaStreamTrack | null>(null);
   const done = useRef(false);
+  /** El último QR que no valió: no se vuelve a preguntar por él mientras siga delante. */
+  const rejected = useRef<RejectedQr | null>(null);
+  /** «Nerea reconocida» → al cobro: se cancela si se sale antes. */
+  const leaving = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alive = useRef(true);
   const [ready, setReady] = useState(false);
   const [seen, setSeen] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -61,21 +69,40 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
   const [torchOk, setTorchOk] = useState(false);
   const supported = detectorCtor() !== null;
 
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      if (leaving.current) clearTimeout(leaving.current);
+      leaving.current = null;
+    };
+  }, []);
+
   const take = useCallback(
     async (raw: string) => {
+      // Uno a la vez (la cámara y el enlace del móvil pueden llegar juntos); reconocida, ya no se lee más.
+      if (done.current) return;
+      done.current = true;
       const token = staffTokenFrom(raw);
       if (!token) {
+        rejected.current = rejectedQr(raw, 400, Date.now());
         setProblem('Ese QR no es el de una chica. Que abra «Mi QR» en su app.');
         done.current = false;
         return;
       }
       try {
         const chica = await resolveStaffQr(token);
+        if (!alive.current) return;
         setSeen(chica.name);
         setProblem(null);
         if ('vibrate' in navigator) navigator.vibrate(30);
-        setTimeout(() => onChica({ name: chica.name, token, id: chica.id }), SEEN_MS);
+        leaving.current = setTimeout(() => {
+          leaving.current = null;
+          if (alive.current) onChica({ name: chica.name, token, id: chica.id });
+        }, SEEN_MS);
       } catch (err) {
+        if (!alive.current) return;
+        rejected.current = rejectedQr(raw, statusOf(err), Date.now());
         setProblem((err as Error).message);
         done.current = false;
       }
@@ -119,10 +146,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
             .detect(video.current)
             .then((codes) => {
               const first = codes[0]?.rawValue;
-              if (first && !done.current) {
-                done.current = true;
-                void take(first);
-              }
+              if (first && !done.current && shouldResolveQr(first, rejected.current, Date.now())) void take(first);
             })
             .catch(() => undefined);
         }, SCAN_EVERY_MS);
