@@ -23,10 +23,11 @@ const sans = localFont({
   display: 'swap',
 });
 
-// Cifras, importes y títulos: Manrope 600-800 (variable; marca OxioCard: 800). La variable
+// Cifras, importes y títulos: Manrope 600-800 (variable): 800 en importes y
+// títulos (marca OxioCard) y 700 en las cifras de las tablas (decisión D11). La variable
 // sigue llamándose --font-mono.
 const mono = localFont({
-  src: '../../../../packages/ui/fonts/manrope.woff2',
+  src: '../../../../packages/ui/fonts/manrope-var.woff2',
   weight: '600 800',
   variable: '--font-mono',
   display: 'swap',

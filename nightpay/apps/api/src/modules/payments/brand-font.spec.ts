@@ -14,9 +14,9 @@ describe('la letra de la marca en las páginas del cliente (decisión D6)', () =
   it('es el mismo woff2 que usan las apps (no se separan)', () => {
     const file = readFileSync(APPS_FONT);
     expect(MANROPE_WOFF2.equals(file)).toBe(true);
-    // Un woff2 de verdad (firma «wOF2») y pequeño (≈30 KB: Manrope variable 600-800).
+    // Un woff2 de verdad (firma «wOF2») y pequeño (≈17 KB).
     expect(MANROPE_WOFF2.subarray(0, 4).toString('latin1')).toBe('wOF2');
-    expect(MANROPE_WOFF2.length).toBeLessThan(35_000);
+    expect(MANROPE_WOFF2.length).toBeLessThan(25_000);
   });
 
   it('la URL lleva la versión del fichero: si cambia la fuente, cambia la URL', () => {
@@ -24,7 +24,7 @@ describe('la letra de la marca en las páginas del cliente (decisión D6)', () =
     expect(MANROPE_URL).toBe(`${MANROPE_PATH}?v=${v}`);
     expect(BRAND_FONT_FACE).toContain(`url('${MANROPE_URL}') format('woff2')`);
     expect(BRAND_FONT_FACE).toContain('font-display:swap');
-    expect(BRAND_FONT_FACE).toContain('font-weight:600 800');
+    expect(BRAND_FONT_FACE).toContain('font-weight:800');
   });
 
   it('importes y títulos en Manrope; el texto, con la letra del móvil', () => {
