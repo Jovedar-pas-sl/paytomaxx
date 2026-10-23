@@ -78,7 +78,7 @@ describe('lo de un cobro en cada sección', () => {
     expect(cobroType(cobro({ amountCents: 15_000, lines: PACK }))).toBe('Servicio de chica + Habitación');
     expect(cobroType(cobro({ lines: [{ category: 'CHICA_SERVICE', amountCents: 10_000 }] }))).toBe('Servicio de chica');
     expect(cobroType(cobro({ revenueCategory: 'VENUE_ENTRY' }))).toBe('Entrada');
-    expect(cobroType({ walletId: 'w-1', revenueCategory: 'EXTRA' })).toBe('Recarga de wallet');
+    expect(cobroType({ walletId: 'w-1', revenueCategory: 'EXTRA' })).toBe('Recarga con tarjeta');
     expect(cobroType({ walletId: null, revenueCategory: 'VENUE_BAR' })).toBe('Barra');
   });
 });
@@ -106,7 +106,7 @@ describe('Z y resumen por línea', () => {
     expect(s.byType).toEqual([
       { label: 'Servicio de chica', count: 1, chargedCents: 12_500 },
       { label: 'Habitación', count: 1, chargedCents: 3_000 },
-      { label: 'Recarga de wallet', count: 1, chargedCents: 5_000 },
+      { label: 'Recarga con tarjeta', count: 1, chargedCents: 5_000 },
     ]);
     expect(s.byType.reduce((a, t) => a + t.chargedCents, 0)).toBe(s.chargedCents);
     expect(s.count).toBe(2);

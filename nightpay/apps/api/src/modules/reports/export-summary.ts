@@ -1,5 +1,5 @@
+import { LEGACY_SECTION, SECTION_CODES } from '@nightpay/contracts';
 import {
-  CATEGORY_LABEL,
   WALLET_LABEL,
   categoryLabel,
   cobroSections,
@@ -16,10 +16,11 @@ import {
   type LiquidacionRow,
   type PagoSaldoRow,
   type RecargaEfectivoRow,
+  type SectionLabeler,
   type StaffPart,
 } from './export-rows';
 
-/** Las recargas en efectivo, por tipo de cobro (junto a la «Recarga de wallet» con tarjeta). */
+/** Las recargas en efectivo, por tipo de cobro (junto a la «Recarga con tarjeta»). */
 export const CASH_TOP_UP_LABEL = 'Recarga en efectivo';
 
 /**
@@ -97,7 +98,24 @@ export interface ExportSummary {
   saldoByType: TypeLine[];
 }
 
-const TYPE_ORDER = [...Object.values(CATEGORY_LABEL), WALLET_LABEL];
+/**
+ * Las líneas «por tipo» se suman por código de sección, no por su nombre: dos
+ * secciones con el mismo nombre no se juntan, ni una sección llamada como una
+ * recarga con las recargas. Esta es la clave de las recargas con tarjeta (no
+ * es ningún código de sección).
+ */
+const CARD_TOP_UP_KEY = '#recarga-con-tarjeta';
+
+/** El orden: el de las secciones, «Otros» de los de antes y las recargas con tarjeta. */
+const KEY_ORDER: readonly string[] = [...SECTION_CODES, LEGACY_SECTION, CARD_TOP_UP_KEY];
+
+export interface SummarizeOptions {
+  /**
+   * El nombre de cada sección: el del local (venueSectionLabeler), como en el
+   * resto del panel. Sin él, los nombres de contabilidad de antes (categoryLabel).
+   */
+  labelOf?: SectionLabeler;
+}
 
 function sum<T>(xs: ReadonlyArray<T>, f: (x: T) => number): number {
   return xs.reduce((a, x) => a + f(x), 0);
@@ -120,7 +138,10 @@ export function summarize(
   consumos: ReadonlyArray<ConsumoRow> = [],
   pagosSaldo: ReadonlyArray<PagoSaldoRow> = [],
   recargasEfectivo: ReadonlyArray<RecargaEfectivoRow> = [],
+  opts: SummarizeOptions = {},
 ): ExportSummary {
+  const sectionLabel = opts.labelOf ?? categoryLabel;
+  const labelOfKey = (key: string) => (key === CARD_TOP_UP_KEY ? WALLET_LABEL : sectionLabel(key));
   const grossCents = sum(cobros, (r) => r.amountCents);
   const tipsCents = sum(cobros, (r) => r.tipCents);
   const refundsCents = sum(devoluciones, (r) => r.amountCents);
@@ -143,7 +164,7 @@ export function summarize(
     walletCashTopUpsCount: cashTopUpsN,
     walletCashTopUpsCents: cashTopUpsCents,
     byType: [
-      ...typeLines(cobros, TYPE_ORDER, cobroParts),
+      ...typeLines(cobros, cobroParts, labelOfKey),
       ...(recargasEfectivo.length > 0
         ? [{ label: CASH_TOP_UP_LABEL, count: cashTopUpsN, chargedCents: cashTopUpsCents }]
         : []),
@@ -158,6 +179,7 @@ export function summarize(
     camareroPayoutsCents: sum(camareroPayouts, (r) => r.totalCents),
     perChica: perChica(cobros, devoluciones, chicaPayouts, consumos),
     ...saldo,
+    saldoByType: typeLines(consumos, consumoParts, labelOfKey),
   };
 }
 
@@ -213,17 +235,16 @@ function saldoTotals(consumos: ReadonlyArray<ConsumoRow>, pagosSaldo: ReadonlyAr
     walletCardPayoutsCents: sum(card, (p) => p.amountCents),
     consumptionsCount: consumos.length,
     consumptionsCents: sum(consumos, (r) => r.amountCents + r.tipCents),
-    saldoByType: typeLines(consumos, Object.values(CATEGORY_LABEL), consumoParts),
   };
 }
 
 /**
- * Lo de un cobro por tipo: cada sección con lo suyo (por líneas, desde el
- * 24-oct-2026) y la propina en su sección principal; las recargas, aparte.
- * Un cobro de una sola sección cuenta igual que antes (importe + propina).
+ * Lo de un cobro por tipo (por código de sección): cada sección con lo suyo
+ * (por líneas, desde el 24-oct-2026) y la propina en su sección principal; las
+ * recargas, aparte. Un cobro de una sola sección cuenta igual que antes.
  */
 function cobroParts(r: CobroRow): Map<string, number> {
-  if (r.walletId) return new Map([[WALLET_LABEL, r.amountCents + r.tipCents]]);
+  if (r.walletId) return new Map([[CARD_TOP_UP_KEY, r.amountCents + r.tipCents]]);
   return withTip(cobroSections(r), r.revenueCategory, r.tipCents);
 }
 
@@ -232,30 +253,30 @@ function consumoParts(r: ConsumoRow): Map<string, number> {
   return withTip(consumoSections(r), r.category, r.tipCents);
 }
 
-/** Sección → etiqueta (juntando las que comparten nombre), con la propina en la principal. */
+/** Lo de cada sección (por código), con la propina en la principal. */
 function withTip(sections: Map<string, number>, main: string, tipCents: number): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const [code, cents] of sections) out.set(categoryLabel(code), (out.get(categoryLabel(code)) ?? 0) + cents);
-  if (tipCents !== 0) out.set(categoryLabel(main), (out.get(categoryLabel(main)) ?? 0) + tipCents);
+  const out = new Map(sections);
+  if (tipCents !== 0) out.set(main, (out.get(main) ?? 0) + tipCents);
   return out;
 }
 
 /**
- * Número e importe por tipo: en el orden dado (los que no estén, detrás) y
- * sin los tipos vacíos. Un cobro con varias secciones cuenta en cada una.
+ * Número e importe por tipo, sumados por clave (código de sección o recarga)
+ * y nombrados con `labelOf`: en el orden de KEY_ORDER (los que no estén,
+ * detrás) y sin los tipos vacíos. Un cobro con varias secciones cuenta en cada una.
  */
-function typeLines<T>(rows: ReadonlyArray<T>, order: ReadonlyArray<string>, partsOf: (r: T) => Map<string, number>): TypeLine[] {
-  const totals = new Map<string, TypeLine>();
+function typeLines<T>(rows: ReadonlyArray<T>, partsOf: (r: T) => Map<string, number>, labelOf: (key: string) => string): TypeLine[] {
+  const totals = new Map<string, { count: number; chargedCents: number }>();
   for (const r of rows) {
-    for (const [label, cents] of partsOf(r)) {
-      const cur = totals.get(label) ?? { label, count: 0, chargedCents: 0 };
-      totals.set(label, { label, count: cur.count + 1, chargedCents: cur.chargedCents + cents });
+    for (const [key, cents] of partsOf(r)) {
+      const cur = totals.get(key) ?? { count: 0, chargedCents: 0 };
+      totals.set(key, { count: cur.count + 1, chargedCents: cur.chargedCents + cents });
     }
   }
-  const labels = [...order.filter((l) => totals.has(l)), ...[...totals.keys()].filter((l) => !order.includes(l))];
-  return labels.flatMap((l) => {
-    const t = totals.get(l);
-    return t && t.count > 0 ? [t] : [];
+  const keys = [...KEY_ORDER.filter((k) => totals.has(k)), ...[...totals.keys()].filter((k) => !KEY_ORDER.includes(k))];
+  return keys.flatMap((key) => {
+    const t = totals.get(key);
+    return t && t.count > 0 ? [{ label: labelOf(key), ...t }] : [];
   });
 }
 

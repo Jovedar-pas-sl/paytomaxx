@@ -9,7 +9,9 @@ import type {
   LiquidacionRow,
   PagoSaldoRow,
   RecargaEfectivoRow,
+  SectionLabeler,
 } from './export-rows';
+import { venueSectionLabeler } from './export-rows';
 import type { TimeWindow } from './report-period';
 import {
   PAID_EVENTS_SQL,
@@ -85,6 +87,16 @@ export class ReportsService {
   async venueName(tenantId: string): Promise<string> {
     const venue = await this.prisma.venue.findUnique({ where: { id: tenantId }, select: { name: true } });
     return venue?.name ?? '';
+  }
+
+  /**
+   * Los nombres de sección del local (Ajustes → Secciones; los de fábrica de la
+   * app si no los cambió) para el Z y los CSV, como en el resto del panel.
+   * venues no tiene RLS: vale también en el cierre automático de las 08:00.
+   */
+  async sectionLabeler(tenantId: string): Promise<SectionLabeler> {
+    const venue = await this.prisma.venue.findUnique({ where: { id: tenantId }, select: { sections: true } });
+    return venueSectionLabeler(venue?.sections ?? null);
   }
 
   /** Cobros pagados en el periodo (fecha = autorización del banco). */

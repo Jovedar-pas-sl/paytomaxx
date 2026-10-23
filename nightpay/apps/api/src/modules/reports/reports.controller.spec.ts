@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { venueSectionLabeler } from './export-rows';
 import { ReportsController } from './reports.controller';
 
 function fakeReply() {
@@ -33,6 +34,7 @@ function makeController() {
     ]),
     recargasEfectivo: vi.fn().mockResolvedValue([]),
     venueName: vi.fn().mockResolvedValue('Local Centro'),
+    sectionLabeler: vi.fn().mockResolvedValue(venueSectionLabeler(null)),
   };
   return { controller: new ReportsController(reports as never), reports };
 }
@@ -83,5 +85,46 @@ describe('GET /v1/admin/export/:kind', () => {
       BadRequestException,
     );
     expect(reports.cobros).not.toHaveBeenCalled();
+  });
+});
+
+describe('los CSV de la gestoría con los nombres de sección del local', () => {
+  /** Nachos 9 € (VENUE_FOOD, que el local llama «Cocina»), cobrado con tarjeta. */
+  const NACHOS = {
+    id: '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b',
+    paidAt: new Date('2026-10-22T21:00:00Z'),
+    status: 'AUTHORIZED',
+    amountCents: 900,
+    tipCents: 0,
+    revenueCategory: 'VENUE_FOOD',
+    lines: [{ category: 'VENUE_FOOD', amountCents: 900 }],
+    captureMethod: 'QR',
+    serviceName: null,
+    payMethod: 'card',
+    walletId: null,
+    creatorName: 'Paula',
+    creatorEmail: 'paula@local.es',
+    earningOperatorName: null,
+    earningOperatorEmail: null,
+    refundedCents: 0,
+    commissionCents: null,
+    earningTipCents: null,
+    reversedCents: null,
+    reversedAfterPayoutCents: 0,
+  };
+
+  it('libro de cobros y resumen: «Cocina», no «Comida»', async () => {
+    const { controller, reports } = makeController();
+    reports.sectionLabeler.mockResolvedValue(venueSectionLabeler({ VENUE_FOOD: { label: 'Cocina' } }));
+    reports.cobros.mockResolvedValue([NACHOS]);
+    const libro = fakeReply();
+    await controller.export('t-1', 'cobros', '2026-10-01', '2026-10-31', libro.reply);
+    expect(libro.sent.body).toContain(';Cocina;Cocina;Paula;');
+    expect(libro.sent.body).toContain(';Cocina 9,00');
+    const resumen = fakeReply();
+    await controller.export('t-1', 'resumen', '2026-10-01', '2026-10-31', resumen.reply);
+    expect(resumen.sent.body).toContain('Cocina;9,00;1');
+    for (const body of [libro.sent.body, resumen.sent.body]) expect(body).not.toContain('Comida');
+    expect(reports.sectionLabeler).toHaveBeenCalledWith('t-1');
   });
 });

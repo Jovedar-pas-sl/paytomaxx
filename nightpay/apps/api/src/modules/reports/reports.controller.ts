@@ -60,11 +60,12 @@ export class ReportsController {
   private async build(kind: ExportKind, tenantId: string, period: ReportPeriod): Promise<string> {
     switch (kind) {
       case 'cobros': {
-        const [rows, venueName] = await Promise.all([
+        const [rows, venueName, labelOf] = await Promise.all([
           this.reports.cobros(tenantId, period),
           this.reports.venueName(tenantId),
+          this.reports.sectionLabeler(tenantId),
         ]);
-        return cobrosCsv(rows, venueName);
+        return cobrosCsv(rows, venueName, labelOf);
       }
       case 'devoluciones':
         return devolucionesCsv(await this.reports.devoluciones(tenantId, period));
@@ -75,7 +76,7 @@ export class ReportsController {
       case 'saldo-devuelto':
         return saldoDevueltoCsv(await this.reports.pagosSaldo(tenantId, period));
       case 'resumen': {
-        const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, venueName] = await Promise.all([
+        const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, venueName, labelOf] = await Promise.all([
           this.reports.cobros(tenantId, period),
           this.reports.devoluciones(tenantId, period),
           this.reports.liquidaciones(tenantId, period),
@@ -83,12 +84,13 @@ export class ReportsController {
           this.reports.pagosSaldo(tenantId, period),
           this.reports.recargasEfectivo(tenantId, period),
           this.reports.venueName(tenantId),
+          this.reports.sectionLabeler(tenantId),
         ]);
         return resumenCsv({
           venueName,
           period,
           generatedAt: new Date(),
-          summary: summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo),
+          summary: summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, { labelOf }),
         });
       }
     }

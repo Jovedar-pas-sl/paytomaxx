@@ -31,6 +31,7 @@ import type {
   LiquidacionRow,
   PagoSaldoRow,
   RecargaEfectivoRow,
+  SectionLabeler,
 } from '../reports/export-rows';
 import type { TimeWindow } from '../reports/report-period';
 import { afterPayoutDebt, paymentAt } from '../reports/reporting-sql';
@@ -145,6 +146,8 @@ interface ZRows {
   recargasEfectivo: RecargaEfectivoRow[];
   late: AdjustmentRows;
   fichas: FichasCounts;
+  /** Los nombres de sección del local (Ajustes → Secciones): el Z se congela con ellos. */
+  labelOf: SectionLabeler;
 }
 
 /** Caja que se guarda en venue_nights al cerrar (además de en el Z). */
@@ -645,8 +648,9 @@ export class NightsService {
       rows.consumos,
       rows.pagosSaldo,
       rows.recargasEfectivo,
+      { labelOf: rows.labelOf },
     );
-    const adjustments = buildAdjustments({ before: window.from, since, rows: rows.late });
+    const adjustments = buildAdjustments({ before: window.from, since, rows: rows.late, labelOf: rows.labelOf });
     return { ...buildNightZ(window, summary, pendingCount, now, adjustments, caja), fichas: rows.fichas };
   }
 
@@ -677,7 +681,7 @@ export class NightsService {
   /** Las filas del Z de la noche en `now`. */
   private async zRows(tenantId: string, window: TimeWindow, now: Date, since: Date): Promise<ZRows> {
     const asOf = { recordedBefore: now };
-    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas] = await Promise.all([
+    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas, labelOf] = await Promise.all([
       this.reports.cobros(tenantId, window, asOf),
       this.reports.devoluciones(tenantId, window, asOf),
       this.reports.liquidaciones(tenantId, window),
@@ -687,8 +691,9 @@ export class NightsService {
       this.reports.ajustes(tenantId, { before: window.from, since, until: now }),
       // Fichas de la noche: al cerrar se congelan en el Z (sus fechas cambian si se vuelven a dar).
       this.prisma.acrossVenues((tx) => fichasCounts(tx, tenantId, window)),
+      this.reports.sectionLabeler(tenantId),
     ]);
-    return { cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas };
+    return { cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas, labelOf };
   }
 
   /**

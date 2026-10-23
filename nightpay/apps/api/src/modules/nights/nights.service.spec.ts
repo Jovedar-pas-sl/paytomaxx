@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { NightCash, NightCloseCheck, NightCloseStep } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
+import { venueSectionLabeler } from '../reports/export-rows';
 import { buildCloseSteps } from './close-check-rules';
 import { settleWritesBefore } from './night-cutoff';
 import { NightsService } from './nights.service';
@@ -134,6 +135,8 @@ function makeService(
     pagosSaldo: vi.fn().mockResolvedValue([]),
     recargasEfectivo: vi.fn().mockResolvedValue([]),
     ajustes: vi.fn().mockResolvedValue({ cobros: [], devoluciones: [], consumosAnulados: [] }),
+    // Las secciones del local (de fábrica si no las cambió).
+    sectionLabeler: vi.fn().mockResolvedValue(venueSectionLabeler(null)),
   };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const checks = {
@@ -640,5 +643,58 @@ describe('cierre automático y noche de la chica', () => {
     const mine = await svc.mine('t-1', 'op-1');
     expect(mine.unpaidCents).toBe(0);
     expect(mine.otherUnpaidCents).toBe(0);
+  });
+});
+
+describe('el Z con los nombres de sección del local (Ajustes → Secciones)', () => {
+  /** Nachos 9 € de una noche, cobrado con tarjeta (la sección VENUE_FOOD, que el local llama «Cocina»). */
+  const NACHOS = {
+    id: '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b',
+    paidAt: OPENED,
+    status: 'AUTHORIZED',
+    amountCents: 900,
+    tipCents: 0,
+    revenueCategory: 'VENUE_FOOD',
+    lines: [{ category: 'VENUE_FOOD', amountCents: 900 }],
+    captureMethod: 'QR',
+    walletId: null,
+    creatorName: 'Paula',
+    creatorEmail: 'paula@local.es',
+    earningOperatorName: null,
+    earningOperatorEmail: null,
+    refundedCents: 0,
+    commissionCents: null,
+    earningTipCents: null,
+    reversedCents: null,
+    reversedAfterPayoutCents: 0,
+  };
+  const COCINA = venueSectionLabeler({ VENUE_FOOD: { label: 'Cocina' } });
+
+  it('en vivo (Noches) y en el Z que se congela al cerrar', async () => {
+    const { svc, prisma, reports } = makeService();
+    reports.sectionLabeler.mockResolvedValue(COCINA);
+    reports.cobros.mockResolvedValue([NACHOS]);
+    const view = await svc.current('t-1');
+    expect(view!.z.summary.byType).toEqual([{ label: 'Cocina', count: 1, chargedCents: 900 }]);
+    await svc.close('t-1', { userId: 'u-1', role: 'MANAGER' }, 'night-1');
+    expect(closedData(prisma).zReport.summary.byType).toEqual([{ label: 'Cocina', count: 1, chargedCents: 900 }]);
+    expect(reports.sectionLabeler).toHaveBeenCalledWith('t-1');
+  });
+
+  it('al cerrarse sola a las 08:00, también', async () => {
+    const { svc, prisma, reports } = makeService({ open: night() });
+    reports.sectionLabeler.mockResolvedValue(COCINA);
+    reports.cobros.mockResolvedValue([NACHOS]);
+    expect(await svc.autoCloseDue(undefined, new Date('2026-10-14T09:00:00Z'))).toBe(1);
+    expect(closedData(prisma).zReport.summary.byType).toEqual([{ label: 'Cocina', count: 1, chargedCents: 900 }]);
+  });
+
+  it('los ajustes de noches anteriores, también', async () => {
+    const { svc, prisma, reports } = makeService();
+    reports.sectionLabeler.mockResolvedValue(COCINA);
+    reports.ajustes.mockResolvedValueOnce({ cobros: [NACHOS], devoluciones: [], consumosAnulados: [] });
+    await svc.close('t-1', { userId: 'u-1', role: 'MANAGER' }, 'night-1');
+    const z = closedData(prisma).zReport as unknown as { adjustments: { summary: { byType: unknown } } };
+    expect(z.adjustments.summary.byType).toEqual([{ label: 'Cocina', count: 1, chargedCents: 900 }]);
   });
 });

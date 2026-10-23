@@ -9,6 +9,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { MONEY_MAP_TIPS, type MoneyMap } from '@nightpay/contracts';
+import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
@@ -270,16 +271,38 @@ describe('el Z y el Z del periodo, por línea, cuadran con el mapa', () => {
     const view = await inVenue(A, () => nights.current(A));
     const s = view!.z.summary;
     expect(s.byType).toEqual([
-      { label: 'Servicio de chica', count: 1, chargedCents: 12_000 },
-      { label: 'Barra', count: 3, chargedCents: 10_500 },
-      { label: 'Habitación', count: 1, chargedCents: 3_000 },
-      { label: 'Recarga de wallet', count: 1, chargedCents: 5_000 },
+      { label: 'Servicios', count: 1, chargedCents: 12_000 },
+      { label: 'Copas', count: 3, chargedCents: 10_500 },
+      { label: 'Habitaciones', count: 1, chargedCents: 3_000 },
+      { label: 'Recarga con tarjeta', count: 1, chargedCents: 5_000 },
       { label: 'Recarga en efectivo', count: 1, chargedCents: 10_000 },
     ]);
-    expect(s.saldoByType).toEqual([{ label: 'Barra', count: 1, chargedCents: 3_000 }]);
+    expect(s.saldoByType).toEqual([{ label: 'Copas', count: 1, chargedCents: 3_000 }]);
     const sales = s.byType.filter((t) => !t.label.startsWith('Recarga')).reduce((a, t) => a + t.chargedCents, 0);
     expect(sales).toBe(live.inflow.cardRailCents);
     expect(s.consumptionsCents).toBe(live.inflow.saldoCents);
+  });
+
+  it('con las secciones renombradas en Ajustes → Secciones, el Z dice sus nombres (mismos importes)', async () => {
+    await sys((tx) =>
+      tx.venue.update({
+        where: { id: A },
+        data: { sections: { CHICA_SERVICE: { label: 'Reservados VIP' }, VENUE_BAR: { label: 'Barra de arriba' } } },
+      }),
+    );
+    try {
+      const s = (await inVenue(A, () => nights.current(A)))!.z.summary;
+      expect(s.byType).toEqual([
+        { label: 'Reservados VIP', count: 1, chargedCents: 12_000 },
+        { label: 'Barra de arriba', count: 3, chargedCents: 10_500 },
+        { label: 'Habitaciones', count: 1, chargedCents: 3_000 },
+        { label: 'Recarga con tarjeta', count: 1, chargedCents: 5_000 },
+        { label: 'Recarga en efectivo', count: 1, chargedCents: 10_000 },
+      ]);
+      expect(s.saldoByType).toEqual([{ label: 'Barra de arriba', count: 1, chargedCents: 3_000 }]);
+    } finally {
+      await sys((tx) => tx.venue.update({ where: { id: A }, data: { sections: Prisma.DbNull } }));
+    }
   });
 
   it('el Z del periodo: por sección y por línea, con las del saldo', async () => {

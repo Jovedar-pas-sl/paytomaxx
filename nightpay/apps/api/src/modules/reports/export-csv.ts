@@ -20,6 +20,7 @@ import {
   type LiquidacionRow,
   type PagoSaldoRow,
   type RecargaEfectivoRow,
+  type SectionLabeler,
 } from './export-rows';
 import type { ExportSummary } from './export-summary';
 import type { ReportPeriod } from './report-period';
@@ -34,7 +35,8 @@ import { BRAND_NAME } from '../../common/brand';
 
 // ─── Libro de cobros ────────────────────────────────────────────────────
 
-export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string): string {
+/** `labelOf`: los nombres de sección del local (venueSectionLabeler), como en el panel. */
+export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string, labelOf: SectionLabeler = categoryLabel): string {
   const header = [
     'Fecha', 'Hora', 'Local', 'Código', 'Concepto', 'Tipo', 'Cobrado por', 'Medio', 'Método',
     'Marca', 'Tipo tarjeta', 'País tarjeta', 'Autorización', 'Pedido banco', 'Importe', 'Propina',
@@ -51,8 +53,8 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string): str
       time(r.paidAt),
       text(venueName),
       code(confirmationCode(r.id)),
-      text(r.serviceName ?? cobroType(r)),
-      cobroType(r),
+      text(r.serviceName ?? cobroType(r, labelOf)),
+      cobroType(r, labelOf),
       text(person(r.creatorName, r.creatorEmail)),
       captureLabel(r.captureMethod),
       methodLabel(r),
@@ -71,15 +73,15 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string): str
       money(net - chica - camarero),
       STATUS_LABEL[r.status] ?? r.status,
       r.id,
-      bySection(r),
+      bySection(r, labelOf),
     ];
   });
   return toCsv([header, ...body]);
 }
 
-/** «Servicio de chica 120,00 · Habitación 30,00» (por líneas; sin propina). Recargas: vacío. */
-function bySection(r: CobroRow): string {
-  return [...cobroSections(r)].map(([code, cents]) => `${categoryLabel(code)} ${money(cents)}`).join(' · ');
+/** «Servicios 120,00 · Habitaciones 30,00» (por líneas; sin propina). Recargas: vacío. */
+function bySection(r: CobroRow, labelOf: SectionLabeler): string {
+  return [...cobroSections(r)].map(([code, cents]) => `${labelOf(code)} ${money(cents)}`).join(' · ');
 }
 
 // ─── Devoluciones ───────────────────────────────────────────────────────

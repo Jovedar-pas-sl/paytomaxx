@@ -1,3 +1,4 @@
+import { sectionMeta, sectionsOf } from '@nightpay/contracts';
 import { chargeSections, type LineAmount } from './charge-sections';
 
 /**
@@ -203,7 +204,11 @@ export const CATEGORY_LABEL: Record<string, string> = {
   VENUE_ENTRY: 'Entrada',
   EXTRA: 'Otro',
 };
-export const WALLET_LABEL = 'Recarga de wallet';
+/**
+ * Recarga de saldo cobrada con tarjeta (QR, Apple/Google Pay o el datáfono de
+ * recepción): hace pareja con «Recarga en efectivo». Al usuario, nunca «wallet».
+ */
+export const WALLET_LABEL = 'Recarga con tarjeta';
 
 export const STATUS_LABEL: Record<string, string> = {
   AUTHORIZED: 'Pagado',
@@ -220,6 +225,19 @@ export function categoryLabel(category: string): string {
   return CATEGORY_LABEL[category] ?? category;
 }
 
+/** El nombre de una sección (por su código) en un informe. */
+export type SectionLabeler = (code: string) => string;
+
+/**
+ * Los nombres de sección del local: los de Ajustes → Secciones (venues.sections)
+ * y, los que no cambió, los de fábrica de la app; los cobros de antes sin
+ * sección, «Otros». Los mismos que el panel y la app (sectionMeta).
+ */
+export function venueSectionLabeler(rawSections: unknown): SectionLabeler {
+  const sections = sectionsOf(rawSections);
+  return (code) => sectionMeta(sections, code).label;
+}
+
 /** Lo cobrado de cada sección (por líneas; los de antes, en su revenueCategory). Las recargas: ninguna. */
 export function cobroSections(r: Pick<CobroRow, 'walletId' | 'revenueCategory' | 'amountCents' | 'lines'>): Map<string, number> {
   if (r.walletId) return new Map();
@@ -232,13 +250,17 @@ export function consumoSections(r: Pick<ConsumoRow, 'category' | 'amountCents' |
 }
 
 /**
- * Tipo de cobro para el informe (las recargas de wallet van aparte): el de
- * su sección o, con varias secciones, todas («Servicio de chica + Habitación»).
+ * Tipo de cobro para el informe (las recargas con tarjeta van aparte): el de
+ * su sección o, con varias secciones, todas («Copas + Cocina»), con el nombre
+ * que les dé `labelOf` (el del local: venueSectionLabeler).
  */
-export function cobroType(r: Pick<CobroRow, 'walletId' | 'revenueCategory'> & Partial<Pick<CobroRow, 'amountCents' | 'lines'>>): string {
+export function cobroType(
+  r: Pick<CobroRow, 'walletId' | 'revenueCategory'> & Partial<Pick<CobroRow, 'amountCents' | 'lines'>>,
+  labelOf: SectionLabeler = categoryLabel,
+): string {
   if (r.walletId) return WALLET_LABEL;
   const codes = [...cobroSections({ amountCents: r.amountCents ?? 0, lines: r.lines, walletId: null, revenueCategory: r.revenueCategory }).keys()];
-  return codes.length === 0 ? categoryLabel(r.revenueCategory) : codes.map(categoryLabel).join(' + ');
+  return codes.length === 0 ? labelOf(r.revenueCategory) : codes.map(labelOf).join(' + ');
 }
 
 export function captureLabel(captureMethod: string | null): string {

@@ -10,6 +10,7 @@ import {
   type LiquidacionRow,
   type PagoSaldoRow,
   type RecargaEfectivoRow,
+  type SectionLabeler,
 } from '../reports/export-rows';
 import { cashTopUpsCount } from '../reports/export-summary';
 import type { TimeWindow } from '../reports/report-period';
@@ -211,14 +212,14 @@ function generatedAtOf(z: unknown): Date | null {
   return Number.isNaN(at.getTime()) ? null : at;
 }
 
-export function buildAdjustments(args: { before: Date; since: Date; rows: AdjustmentRows }): NightAdjustments {
+export function buildAdjustments(args: { before: Date; since: Date; rows: AdjustmentRows; labelOf?: SectionLabeler }): NightAdjustments {
   const { cobros, devoluciones, consumosAnulados } = args.rows;
   const sum = (f: (r: ConsumoRow) => number): number => consumosAnulados.reduce((a, r) => a + f(r), 0);
   return {
     since: args.since.toISOString(),
     before: args.before.toISOString(),
     count: cobros.length + devoluciones.length + consumosAnulados.length,
-    summary: summarize(cobros, devoluciones, []),
+    summary: summarize(cobros, devoluciones, [], [], [], [], { labelOf: args.labelOf }),
     reversedConsumptionsCount: consumosAnulados.length,
     reversedConsumptionsCents: sum((r) => r.amountCents + r.tipCents),
     // Lo de las chicas de esos consumos (la que cobró y la invitada a una copa).
