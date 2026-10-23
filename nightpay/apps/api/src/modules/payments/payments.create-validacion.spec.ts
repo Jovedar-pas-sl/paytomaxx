@@ -256,15 +256,15 @@ describe('create — recarga de saldo', () => {
     expect(created[0]).toMatchObject({ walletId: WALLET, captureMethod: 'WALLET_TOPUP', revenueCategory: 'EXTRA' });
   });
 
-  it('saldo de otro local → 404; saldo bloqueado → 400; sin crear nada', async () => {
+  it('saldo de otro local → 404; saldo cerrado → 400; sin crear nada', async () => {
     const other = makeService({ wallet: null });
     await expect(
       other.service.create(TENANT, 'idem-val-0021', dto({ wallet: { walletId: WALLET } }), owner),
-    ).rejects.toBeInstanceOf(NotFoundException);
-    const blocked = makeService({ wallet: { id: WALLET, status: 'BLOCKED' } });
+    ).rejects.toThrow(new NotFoundException('Saldo no encontrado en este local'));
+    const blocked = makeService({ wallet: { id: WALLET, status: 'REFUNDED' } });
     await expect(
       blocked.service.create(TENANT, 'idem-val-0022', dto({ wallet: { walletId: WALLET } }), owner),
-    ).rejects.toThrow(/BLOCKED/);
+    ).rejects.toThrow('Este saldo ya está cerrado: no se puede recargar. Haz un saldo nuevo.');
     // Bloqueado por el super-admin (aunque siga ACTIVE): 409 WALLET_BLOCKED, ni con tarjeta.
     const byAdmin = makeService({ wallet: { id: WALLET, status: 'ACTIVE', blockedAt: NOW } });
     await expect(

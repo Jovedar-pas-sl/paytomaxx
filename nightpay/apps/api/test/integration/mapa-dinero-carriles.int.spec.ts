@@ -273,7 +273,7 @@ describe('el Z y el Z del periodo, por línea, cuadran con el mapa', () => {
       { label: 'Servicio de chica', count: 1, chargedCents: 12_000 },
       { label: 'Barra', count: 3, chargedCents: 10_500 },
       { label: 'Habitación', count: 1, chargedCents: 3_000 },
-      { label: 'Recarga de wallet', count: 1, chargedCents: 5_000 },
+      { label: 'Recarga con tarjeta', count: 1, chargedCents: 5_000 },
       { label: 'Recarga en efectivo', count: 1, chargedCents: 10_000 },
     ]);
     expect(s.saldoByType).toEqual([{ label: 'Barra', count: 1, chargedCents: 3_000 }]);

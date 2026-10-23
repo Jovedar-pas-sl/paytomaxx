@@ -275,7 +275,7 @@ describe('esta noche, antes de devolver nada: todas las vistas cuadran', () => {
     const s = view!.z.summary;
     expect(s.byType).toEqual([
       { label: 'Barra', count: 1, chargedCents: 2000 },
-      { label: 'Recarga de wallet', count: 1, chargedCents: 5000 },
+      { label: 'Recarga con tarjeta', count: 1, chargedCents: 5000 },
     ]);
     expect(s.saldoByType).toEqual([{ label: 'Barra', count: 2, chargedCents: 4200 }]);
     expect(s).toMatchObject({ netCents: 7000, chicaCommissionCents: 2000, chicaNetCents: 2000, camareroNetCents: 0, venueNetCents: 5000 });

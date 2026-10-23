@@ -19,7 +19,7 @@ import {
   type StaffPart,
 } from './export-rows';
 
-/** Las recargas en efectivo, por tipo de cobro (junto a la «Recarga de wallet» con tarjeta). */
+/** Las recargas en efectivo, por tipo de cobro (junto a la «Recarga con tarjeta»). */
 export const CASH_TOP_UP_LABEL = 'Recarga en efectivo';
 
 /**

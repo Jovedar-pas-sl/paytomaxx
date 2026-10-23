@@ -203,7 +203,11 @@ export const CATEGORY_LABEL: Record<string, string> = {
   VENUE_ENTRY: 'Entrada',
   EXTRA: 'Otro',
 };
-export const WALLET_LABEL = 'Recarga de wallet';
+/**
+ * Recarga de saldo cobrada con tarjeta (QR, Apple/Google Pay o el datáfono de
+ * recepción): hace pareja con «Recarga en efectivo». Al usuario, nunca «wallet».
+ */
+export const WALLET_LABEL = 'Recarga con tarjeta';
 
 export const STATUS_LABEL: Record<string, string> = {
   AUTHORIZED: 'Pagado',

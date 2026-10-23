@@ -178,7 +178,7 @@ describe('resumen', () => {
     expect(s.byType).toEqual([
       { label: 'Servicio de chica', count: 1, chargedCents: 10_500 },
       { label: 'Barra', count: 1, chargedCents: 3200 },
-      { label: 'Recarga de wallet', count: 1, chargedCents: 10_000 },
+      { label: 'Recarga con tarjeta', count: 1, chargedCents: 10_000 },
     ]);
   });
 
