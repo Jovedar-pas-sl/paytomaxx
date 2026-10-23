@@ -143,6 +143,31 @@ describe('onSessionEnded', () => {
     expect(reasons).toEqual(['logout']);
   });
 
+  it('el refresco trae su nombre (sesión de antes): onProfileUpdated lo da para pintarlo, sin volver a entrar', async () => {
+    const claims = { sub: 'u1', email: USER.email, role: 'WAITER', tenantId: 't1', venueSlug: 'luna' };
+    const token = `h.${btoa(JSON.stringify(claims)).replace(/=+$/, '')}.f`;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.endsWith('/v1/auth/refresh')
+          ? json(200, { accessToken: token, expiresIn: 900, refreshExpiresIn: 2_592_000, displayName: 'Carlos' })
+          : json(200, { pendingCents: 0, paidCents: 0, lifetimeGrossCents: 0, count: 0 }),
+      ),
+    );
+    const a = await tab();
+    a.setSession({ accessToken: 'ta', expiresIn: 3600, user: { ...USER, role: 'WAITER' } });
+    const b = await tab(); // la app recién abierta: sin token, lo pide con la cookie
+    const names: Array<string | null | undefined> = [];
+    const ended: string[] = [];
+    b.onSessionEnded((r) => ended.push(r));
+    const stop = b.onProfileUpdated((u) => names.push(u.displayName));
+    await b.fetchBalance();
+    expect(names).toEqual(['Carlos']);
+    expect(b.getUser()).toMatchObject({ id: 'u1', role: 'WAITER', displayName: 'Carlos' });
+    expect(ended).toEqual([]); // no es el final de la sesión
+    stop();
+  });
+
   it('dejar de escuchar', async () => {
     const a = await tab();
     a.setSession({ accessToken: 'ta', expiresIn: 3600, user: USER });

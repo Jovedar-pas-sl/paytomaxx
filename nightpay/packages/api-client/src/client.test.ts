@@ -263,6 +263,66 @@ describe('entre pestañas (BroadcastChannel)', () => {
   });
 });
 
+describe('el nombre de la sesión, al día con cada refresco', () => {
+  it('sesión de antes (sin nombre guardado): el refresco trae el nombre, se guarda y se avisa («profile»)', async () => {
+    const tab = d.tab();
+    await signIn(tab);
+    expect(tab.client.getUser()?.displayName).toBeUndefined();
+    d.api.refreshDisplayName = 'Carlos';
+    await tab.client.refreshAccessToken(tab.client.getAccessToken());
+    expect(tab.client.getUser()).toMatchObject({ ...USER, displayName: 'Carlos' });
+    expect(tab.events).toEqual([{ type: 'profile', source: 'this-tab' }]);
+  });
+
+  it('una pestaña recargada (sin token) lo pone en el primer uso', async () => {
+    await signIn(d.tab());
+    d.api.refreshDisplayName = 'Carlos';
+    const reloaded = d.tab();
+    await reloaded.client.authedFetch('/v1/operators/me/balance');
+    expect(reloaded.client.getUser()?.displayName).toBe('Carlos');
+  });
+
+  it('el mismo nombre: no se escribe nada ni se avisa', async () => {
+    const tab = d.tab();
+    await signIn(tab);
+    d.api.refreshDisplayName = 'Carlos';
+    await tab.client.refreshAccessToken(tab.client.getAccessToken());
+    const writes = d.storage.writes.length;
+    await tab.client.refreshAccessToken(tab.client.getAccessToken());
+    expect(d.storage.writes.length).toBe(writes);
+    expect(tab.events).toEqual([{ type: 'profile', source: 'this-tab' }]);
+  });
+
+  it('el dueño le quitó el nombre (null): se quita también aquí (la app vuelve al puesto)', async () => {
+    const tab = d.tab();
+    await signIn(tab);
+    d.api.refreshDisplayName = 'Carlos';
+    await tab.client.refreshAccessToken(tab.client.getAccessToken());
+    d.api.refreshDisplayName = null;
+    await tab.client.refreshAccessToken(tab.client.getAccessToken());
+    expect(tab.client.getUser()?.displayName).toBeNull();
+  });
+
+  it('un API de antes (sin el campo) no toca el nombre guardado', async () => {
+    const tab = d.tab();
+    await signIn(tab);
+    tab.client.updateUser({ ...USER, displayName: 'Carlos' });
+    await tab.client.refreshAccessToken(tab.client.getAccessToken());
+    expect(tab.client.getUser()?.displayName).toBe('Carlos');
+    expect(tab.events).toEqual([]);
+  });
+
+  it('el refresco es de otra persona: su nombre no se mezcla con la sesión guardada', async () => {
+    const tab = d.tab({ env: { channel: () => null } });
+    await signIn(tab);
+    d.api.person = 'u2';
+    d.api.refreshDisplayName = 'Otra';
+    await tab.client.refreshAccessToken(tab.client.getAccessToken());
+    expect(tab.client.getUser()?.displayName).toBeUndefined();
+    expect(tab.events).toEqual([{ type: 'changed', source: 'this-tab' }]);
+  });
+});
+
 describe('logout', () => {
   it('borra todo aquí antes de esperar a la red y cierra en el API con la cookie', async () => {
     const tab = d.tab();

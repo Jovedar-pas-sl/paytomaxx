@@ -63,13 +63,15 @@ export interface LoginTotpSetup {
  *   - expired: el API dijo que no (aquí o en otra pestaña);
  *   - logout: se salió en otra pestaña;
  *   - signed-in: otra pestaña entró y esta no tenía sesión;
- *   - changed: otra persona u otro local (entró otra persona en otra pestaña, o el super-admin cambió de local).
+ *   - changed: otra persona u otro local (entró otra persona en otra pestaña, o el super-admin cambió de local);
+ *   - profile: misma persona y mismo local, pero el refresco trajo otro nombre (ya guardado en getUser()).
  */
 export type SessionEvent =
   | { readonly type: 'expired'; readonly source: 'this-tab' | 'other-tab' }
   | { readonly type: 'logout'; readonly source: 'other-tab' }
   | { readonly type: 'signed-in'; readonly source: 'other-tab' }
-  | { readonly type: 'changed'; readonly source: 'this-tab' | 'other-tab' };
+  | { readonly type: 'changed'; readonly source: 'this-tab' | 'other-tab' }
+  | { readonly type: 'profile'; readonly source: 'this-tab' };
 
 /** Lo mínimo de navigator.locks que se usa. */
 export interface LockManagerLike {

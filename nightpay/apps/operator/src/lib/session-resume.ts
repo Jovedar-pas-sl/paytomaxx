@@ -19,6 +19,15 @@ export function afterRelogin(before: SessionPerson | null | undefined, after: Se
 }
 
 /**
+ * El refresco trajo el nombre de ahora: se pinta solo si es la misma persona
+ * del mismo local (todo sigue igual, cobro abierto incluido). Sin sesión en
+ * pantalla, u otra persona, no se toca: eso lo decide el aviso de la sesión.
+ */
+export function withProfile<U extends SessionPerson>(current: U | null | undefined, next: U): U | null | undefined {
+  return current && isSamePerson(current, next) ? next : current;
+}
+
+/**
  * Qué se ve:
  *   loading  → aún no se sabe si hay sesión;
  *   login    → la pantalla de entrar (sin sesión, o caducada sin cobro abierto);

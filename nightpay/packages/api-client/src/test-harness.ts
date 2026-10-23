@@ -109,6 +109,8 @@ export class FakeApi {
   /** Token que da 401 en los endpoints (el "caducado"). */
   expiredToken: string | null = null;
   person = 'u1';
+  /** El nombre que manda el refresco (API de ahora); undefined: no lo manda (API de antes). */
+  refreshDisplayName: string | null | undefined = undefined;
 
   readonly fetch = async (input: string, init: RequestInit = {}): Promise<Response> => {
     const path = new URL(input).pathname;
@@ -142,7 +144,8 @@ export class FakeApi {
     const body = JSON.parse(String(init.body ?? '{}')) as { refreshToken?: string };
     if (!this.cookie && !body.refreshToken) return json(401, { detail: 'sin sesión' });
     this.cookie = `rt-${this.serial + 1}`;
-    return json(200, { accessToken: this.token(), expiresIn: 3600, refreshExpiresIn: 2_592_000 });
+    const name = this.refreshDisplayName === undefined ? {} : { displayName: this.refreshDisplayName };
+    return json(200, { accessToken: this.token(), expiresIn: 3600, refreshExpiresIn: 2_592_000, ...name });
   }
 }
 

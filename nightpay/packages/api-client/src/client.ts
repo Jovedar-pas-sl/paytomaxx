@@ -32,6 +32,12 @@ interface Identity {
   readonly tenantId: string;
 }
 
+/** Lo que trae un refresco bueno: el token y el nombre de ahora (undefined: un API de antes no lo manda). */
+interface Refreshed {
+  readonly accessToken: string;
+  readonly displayName: string | null | undefined;
+}
+
 const defaultEnv: ApiClientEnv = {
   fetch: (input, init) => fetch(input, init),
   storage: browserStorage,
@@ -169,7 +175,8 @@ export function createApiClient<U extends SessionUser = SessionUser>(config: Api
   }
 
   /** Token nuevo de esta pestaña. Si es de otra persona (entró otra en otra pestaña), se avisa. */
-  function adoptRefreshed(token: string): void {
+  function adoptRefreshed(refreshed: Refreshed): void {
+    const token = refreshed.accessToken;
     accessToken = token;
     lastSessionAt = env.now();
     const claims = tokenClaims(token);
@@ -183,6 +190,19 @@ export function createApiClient<U extends SessionUser = SessionUser>(config: Api
       identity = { id: claims.sub, tenantId: claims.tenantId ?? '' };
       emit({ type: 'changed', source: 'this-tab' });
     }
+    if (refreshed.displayName !== undefined) adoptDisplayName(claims.sub, refreshed.displayName);
+  }
+
+  /**
+   * El nombre de ahora (lo trae el refresco): se guarda si es la misma persona
+   * y ha cambiado (sesión de antes de que el login lo mandara, o el dueño lo
+   * cambió en Personal), y se avisa a la página para que lo pinte.
+   */
+  function adoptDisplayName(userId: string, displayName: string | null): void {
+    const stored = getUser();
+    if (!stored || stored.id !== userId || (stored.displayName ?? null) === displayName) return;
+    store.set(USER_KEY, JSON.stringify({ ...stored, displayName }));
+    emit({ type: 'profile', source: 'this-tab' });
   }
 
   async function postRefresh(legacy: string | null): Promise<Response> {
@@ -194,10 +214,13 @@ export function createApiClient<U extends SessionUser = SessionUser>(config: Api
     }
   }
 
-  async function readAccessToken(res: Response): Promise<string> {
+  async function readRefreshed(res: Response): Promise<Refreshed> {
     try {
-      const body = (await res.json()) as { accessToken?: unknown };
-      if (typeof body.accessToken === 'string' && body.accessToken) return body.accessToken;
+      const body = (await res.json()) as { accessToken?: unknown; displayName?: unknown };
+      if (typeof body.accessToken === 'string' && body.accessToken) {
+        const name = body.displayName;
+        return { accessToken: body.accessToken, displayName: typeof name === 'string' || name === null ? name : undefined };
+      }
     } catch {
       // Abajo.
     }
@@ -222,9 +245,10 @@ export function createApiClient<U extends SessionUser = SessionUser>(config: Api
     // Solo un "no" del API cierra la sesión; un 429 o un 5xx (p. ej. mientras se despliega) no echa a nadie.
     if (res.status === 401 || res.status === 403) throw expire('shared', at);
     if (!res.ok) throw renewFailed(res.status, unavailableReason(res.status));
-    const token = await readAccessToken(res);
+    const refreshed = await readRefreshed(res);
+    const token = refreshed.accessToken;
     if (legacy) store.remove(...LEGACY_KEYS); // ya está en la cookie
-    adoptRefreshed(token);
+    adoptRefreshed(refreshed);
     return token;
   }
 

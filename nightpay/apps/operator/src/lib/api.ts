@@ -292,6 +292,19 @@ export function onSessionEnded(handler: (reason: SessionEndReason) => void): () 
   });
 }
 
+/**
+ * El refresco trajo otro nombre para la misma persona (sesión abierta antes
+ * de que el login lo mandara, o el dueño lo cambió en Personal): la página lo
+ * pinta sin volver a entrar. Devuelve cómo dejar de escuchar.
+ */
+export function onProfileUpdated(handler: (user: OperatorUser) => void): () => void {
+  return client.onSessionEvent((event) => {
+    if (event.type !== 'profile') return;
+    const user = client.getUser();
+    if (user) handler(user);
+  });
+}
+
 // ─── Auth ─────────────────────────────────────────────────────────
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
