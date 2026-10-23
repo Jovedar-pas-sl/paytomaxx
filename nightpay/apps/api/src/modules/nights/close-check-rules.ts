@@ -280,6 +280,15 @@ export function efectivoStep(cash: NightCash): NightCloseStep {
       amountCents: -cash.chicaCashPayoutsCents,
     });
   }
+  const camareros = cash.camareroCashPayoutsCount ?? 0;
+  if (camareros > 0) {
+    items.push({
+      id: 'camarero-cash',
+      status: 'ok',
+      label: `Pagos a los camareros en efectivo: ${count(camareros, 'pago', 'pagos')}`,
+      amountCents: -(cash.camareroCashPayoutsCents ?? 0),
+    });
+  }
   return {
     key: 'efectivo',
     status: outcome.status,

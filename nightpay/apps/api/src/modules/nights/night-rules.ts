@@ -44,7 +44,8 @@ export interface NightAdjustments {
 /**
  * Caja de la noche, congelada en el Z: lo que debería haber (fondo + entradas
  * − salidas en efectivo), lo contado y la diferencia. Entran las recargas del
- * saldo en efectivo; salen el saldo devuelto en efectivo y los pagos a las chicas.
+ * saldo en efectivo; salen el saldo devuelto en efectivo y los pagos al
+ * personal (a las chicas y, aparte, a los camareros).
  */
 export interface NightCaja {
   /** El fondo con el que se ha hecho la cuenta. */
@@ -63,6 +64,9 @@ export interface NightCaja {
   walletCashPayoutsCents: number;
   chicaCashPayoutsCount: number;
   chicaCashPayoutsCents: number;
+  /** Los Z congelados antes del 28-oct-2026 no lo traen: sus pagos a las chicas son todos los del personal. */
+  camareroCashPayoutsCount?: number;
+  camareroCashPayoutsCents?: number;
   cashOutCents: number;
   expectedCents: number;
   /** null = nadie la contó (cierre automático, o sin efectivo). */
@@ -128,6 +132,8 @@ export function buildNightCaja(cash: NightCash, outcome: CashOutcome, note: stri
     walletCashPayoutsCents: cash.walletCashPayoutsCents,
     chicaCashPayoutsCount: cash.chicaCashPayoutsCount,
     chicaCashPayoutsCents: cash.chicaCashPayoutsCents,
+    camareroCashPayoutsCount: cash.camareroCashPayoutsCount ?? 0,
+    camareroCashPayoutsCents: cash.camareroCashPayoutsCents ?? 0,
     cashOutCents: cash.cashOutCents,
     expectedCents: outcome.expectedCents,
     countedCents: outcome.countedCents,
@@ -140,8 +146,9 @@ export function buildNightCaja(cash: NightCash, outcome: CashOutcome, note: stri
 /**
  * El efectivo de la noche a partir de las MISMAS filas que el Z (recargas en
  * efectivo con sus anulaciones, saldo devuelto en efectivo y pagos en
- * efectivo a las chicas): la caja y el resumen del Z congelado no pueden
- * salir distintos aunque algo se apunte mientras se cierra.
+ * efectivo al personal, las chicas y los camareros por separado): la caja y
+ * el resumen del Z congelado no pueden salir distintos aunque algo se apunte
+ * mientras se cierra.
  */
 export function cashFromRows(
   openingFloatCents: number | null,
@@ -153,11 +160,15 @@ export function cashFromRows(
 ): NightCash {
   const sum = <T>(xs: ReadonlyArray<T>, f: (x: T) => number): number => xs.reduce((a, x) => a + f(x), 0);
   const walletCash = rows.pagosSaldo.filter((p) => p.method === 'CASH');
-  const chicaCash = rows.liquidaciones.filter((l) => l.externalRail === 'MANUAL_CASH');
+  const staffCash = rows.liquidaciones.filter((l) => l.externalRail === 'MANUAL_CASH');
+  // Sin el puesto (filas de antes): una chica, como en el resumen del Z.
+  const camareroCash = staffCash.filter((l) => l.role === 'WAITER');
+  const chicaCash = staffCash.filter((l) => l.role !== 'WAITER');
   const cashInCents = sum(rows.recargasEfectivo, (r) => r.amountCents);
   const walletCashPayoutsCents = sum(walletCash, (p) => p.amountCents);
   const chicaCashPayoutsCents = sum(chicaCash, (l) => l.totalCents);
-  const cashOutCents = walletCashPayoutsCents + chicaCashPayoutsCents;
+  const camareroCashPayoutsCents = sum(camareroCash, (l) => l.totalCents);
+  const cashOutCents = walletCashPayoutsCents + chicaCashPayoutsCents + camareroCashPayoutsCents;
   return {
     openingFloatCents,
     cashInCents,
@@ -167,6 +178,8 @@ export function cashFromRows(
     walletCashPayoutsCents,
     chicaCashPayoutsCount: chicaCash.length,
     chicaCashPayoutsCents,
+    camareroCashPayoutsCount: camareroCash.length,
+    camareroCashPayoutsCents,
     cashOutCents,
     expectedCents: expectedCashCents(openingFloatCents, { cashInCents, cashOutCents }),
   };

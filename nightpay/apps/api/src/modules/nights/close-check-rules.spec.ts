@@ -169,6 +169,24 @@ describe('4 · efectivo (sin contar aún)', () => {
     expect(s.count).toBe(3);
     expect(s.items.map((i) => i.amountCents)).toEqual([-3000, -9000]);
   });
+
+  it('los pagos a los camareros, en su línea (no como pagos a las chicas)', () => {
+    const s = efectivoStep({
+      ...NO_CASH,
+      openingFloatCents: 20_000,
+      chicaCashPayoutsCount: 1,
+      chicaCashPayoutsCents: 751,
+      camareroCashPayoutsCount: 1,
+      camareroCashPayoutsCents: 750,
+      cashOutCents: 1501,
+      expectedCents: 18_499,
+    });
+    expect(s.count).toBe(2);
+    expect(s.items.map((i) => [i.id, i.label, i.amountCents])).toEqual([
+      ['chica-cash', 'Pagos a las chicas en efectivo: 1 pago', -751],
+      ['camarero-cash', 'Pagos a los camareros en efectivo: 1 pago', -750],
+    ]);
+  });
 });
 
 describe('5 · pagar a las chicas', () => {

@@ -3,7 +3,7 @@
 import type { NightCaja } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
-import { cajaInText, diffLabel } from '@/lib/night-close';
+import { cajaInText, cajaOutText, diffLabel } from '@/lib/night-close';
 import { useVenueTimezone } from '@/lib/venue-context';
 
 /**
@@ -54,7 +54,7 @@ export function NightCajaBlock({ caja }: { caja: NightCaja }) {
       <p className="np-caja-note">
         {caja.cashInCents > 0 ? `${cajaInText(caja)} ` : ''}
         {caja.cashOutCents > 0
-          ? `Saldo devuelto en efectivo: ${formatEur(caja.walletCashPayoutsCents)} (${caja.walletCashPayoutsCount}) · pagos a las chicas en efectivo: ${formatEur(caja.chicaCashPayoutsCents)} (${caja.chicaCashPayoutsCount}).`
+          ? cajaOutText(caja)
           : caja.cashInCents > 0
             ? 'No salió efectivo por OxioPay.'
             : 'No entró ni salió efectivo por OxioPay.'}

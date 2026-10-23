@@ -95,6 +95,9 @@ describe('la caja en el Z', () => {
       walletCashPayoutsCents: 3000,
       chicaCashPayoutsCount: 1,
       chicaCashPayoutsCents: 9000,
+      // Los camareros, aparte (aquí, ninguno): así se sabe que lo de arriba es solo de las chicas.
+      camareroCashPayoutsCount: 0,
+      camareroCashPayoutsCents: 0,
       cashOutCents: 12_000,
       expectedCents: 8000,
       countedCents: 6750,
@@ -168,8 +171,34 @@ describe('el efectivo de la noche sale de las filas del Z', () => {
       walletCashPayoutsCents: 2000,
       chicaCashPayoutsCount: 1,
       chicaCashPayoutsCents: 1500,
+      camareroCashPayoutsCount: 0,
+      camareroCashPayoutsCents: 0,
       cashOutCents: 3500,
       expectedCents: 11_500,
     });
+  });
+
+  it('los pagos en efectivo a los camareros van aparte de los de las chicas (lo que sale, lo mismo)', () => {
+    const cash = cashFromRows(10_000, {
+      recargasEfectivo: [],
+      pagosSaldo: [],
+      liquidaciones: [
+        { ...liquidacion(751, 'MANUAL_CASH'), id: 'po-lola', role: 'OPERATOR' },
+        { ...liquidacion(750, 'MANUAL_CASH'), id: 'po-dani', role: 'WAITER', operatorEmail: 'dani@local.es' },
+        // Sin el puesto (filas de antes): una chica.
+        { ...liquidacion(100, 'MANUAL_CASH'), id: 'po-old' },
+        { ...liquidacion(900, 'BIZUM'), id: 'po-bizum', role: 'WAITER' },
+      ],
+    });
+    expect(cash).toMatchObject({
+      chicaCashPayoutsCount: 2,
+      chicaCashPayoutsCents: 851,
+      camareroCashPayoutsCount: 1,
+      camareroCashPayoutsCents: 750,
+      cashOutCents: 1601,
+      expectedCents: 10_000 - 1601,
+    });
+    const caja = buildNightCaja(cash, evaluateCash(cash), null, at);
+    expect(caja).toMatchObject({ chicaCashPayoutsCount: 2, chicaCashPayoutsCents: 851, camareroCashPayoutsCount: 1, camareroCashPayoutsCents: 750 });
   });
 });

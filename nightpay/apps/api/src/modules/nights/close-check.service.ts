@@ -105,12 +105,29 @@ export class CloseCheckService {
   /**
    * Efectivo de la noche en la misma ventana que el Z: lo que entra (recargas
    * del saldo en efectivo cobradas en este local) y lo que sale (saldo
-   * devuelto en efectivo, pagos en efectivo a las chicas).
+   * devuelto en efectivo, pagos en efectivo a las chicas y, aparte, a los
+   * camareros).
    */
   async cash(tenantId: string, window: TimeWindow, openingFloatCents: number | null): Promise<NightCash> {
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
-      Array<{ topUpCount: number; topUpCents: number; walletCount: number; walletCents: number; chicaCount: number; chicaCents: number }>
+      Array<{
+        topUpCount: number;
+        topUpCents: number;
+        walletCount: number;
+        walletCents: number;
+        chicaCount: number;
+        chicaCents: number;
+        camareroCount: number;
+        camareroCents: number;
+      }>
     >`
+      WITH staff AS (
+        SELECT (u.role = 'WAITER') AS camarero, po."totalCents"
+          FROM operator_payouts po
+          JOIN users u ON u.id = po."operatorId"
+         WHERE po."tenantId" = ${tenantId}::uuid AND po."externalRail" = 'MANUAL_CASH'
+           AND po."createdAt" >= ${window.from} AND po."createdAt" < ${window.to}
+      )
       SELECT
         (SELECT ${cashTopUpCount('ct')}::int FROM wallet_cash_topups ct
           WHERE ct."tenantId" = ${tenantId}::uuid
@@ -124,16 +141,23 @@ export class CloseCheckService {
         (SELECT COALESCE(SUM(wp."amountCents"), 0)::int FROM wallet_payouts wp
           WHERE wp."tenantId" = ${tenantId}::uuid AND wp.method = 'CASH' AND wp.status = 'DONE'
             AND wp."createdAt" >= ${window.from} AND wp."createdAt" < ${window.to}) AS "walletCents",
-        (SELECT COUNT(*)::int FROM operator_payouts po
-          WHERE po."tenantId" = ${tenantId}::uuid AND po."externalRail" = 'MANUAL_CASH'
-            AND po."createdAt" >= ${window.from} AND po."createdAt" < ${window.to}) AS "chicaCount",
-        (SELECT COALESCE(SUM(po."totalCents"), 0)::int FROM operator_payouts po
-          WHERE po."tenantId" = ${tenantId}::uuid AND po."externalRail" = 'MANUAL_CASH'
-            AND po."createdAt" >= ${window.from} AND po."createdAt" < ${window.to}) AS "chicaCents"
+        (SELECT COUNT(*)::int FROM staff WHERE NOT camarero) AS "chicaCount",
+        (SELECT COALESCE(SUM("totalCents"), 0)::int FROM staff WHERE NOT camarero) AS "chicaCents",
+        (SELECT COUNT(*)::int FROM staff WHERE camarero) AS "camareroCount",
+        (SELECT COALESCE(SUM("totalCents"), 0)::int FROM staff WHERE camarero) AS "camareroCents"
     `);
-    const r = rows[0] ?? { topUpCount: 0, topUpCents: 0, walletCount: 0, walletCents: 0, chicaCount: 0, chicaCents: 0 };
+    const r = rows[0] ?? {
+      topUpCount: 0,
+      topUpCents: 0,
+      walletCount: 0,
+      walletCents: 0,
+      chicaCount: 0,
+      chicaCents: 0,
+      camareroCount: 0,
+      camareroCents: 0,
+    };
     const cashInCents = r.topUpCents;
-    const cashOutCents = r.walletCents + r.chicaCents;
+    const cashOutCents = r.walletCents + r.chicaCents + r.camareroCents;
     return {
       openingFloatCents,
       cashInCents,
@@ -143,6 +167,8 @@ export class CloseCheckService {
       walletCashPayoutsCents: r.walletCents,
       chicaCashPayoutsCount: r.chicaCount,
       chicaCashPayoutsCents: r.chicaCents,
+      camareroCashPayoutsCount: r.camareroCount,
+      camareroCashPayoutsCents: r.camareroCents,
       cashOutCents,
       expectedCents: expectedCashCents(openingFloatCents, { cashInCents, cashOutCents }),
     };

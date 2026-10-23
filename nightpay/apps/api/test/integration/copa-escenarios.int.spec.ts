@@ -2,8 +2,9 @@
 // con invitación» que faltaban, cada uno en su local: dos chicas (dos
 // invitaciones de la misma noche y un cobro con una línea para cada una),
 // invitación con propina, devolución en parte otra noche (y después de pagar a
-// la chica) y la invitación del saldo con el NFC del cliente. En todos, el mapa
-// del dinero, la ficha de cada chica y el Z cuadran. Ver README.md.
+// la chica), la invitación del saldo con el NFC del cliente y un local que da
+// parte al camarero (la caja y el aviso de la mañana). En todos, el mapa del
+// dinero, la ficha de cada chica y el Z cuadran. Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -17,7 +18,8 @@ import { CartaService } from '../../src/modules/carta/carta.service';
 import { MoneyMapService } from '../../src/modules/money-map/money-map.service';
 import { StaffFichaService } from '../../src/modules/money-map/staff-ficha.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
-import { cobrosCsv } from '../../src/modules/reports/export-csv';
+import { cobrosCsv, type ExportSummary } from '../../src/modules/reports/export-csv';
+import { morningSummaryMessage } from '../../src/modules/incidents/alert-messages';
 import { RefundsService } from '../../src/modules/refunds/refunds.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
@@ -374,5 +376,58 @@ describe('invitación del saldo con el NFC del cliente (sin tarjeta)', () => {
     await fichasCuadran(s, m);
     const wallet = await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: s.w.id } }));
     expect(wallet.balanceCents).toBe(10_000);
+  });
+});
+
+describe('un local que da parte al camarero: la caja y el aviso de la mañana', () => {
+  let s: Sala;
+  beforeAll(async () => {
+    s = await sala('caja');
+    // El dueño eligió en Ajustes una parte para el camarero: el 25 % (5 € de 20 €).
+    await sys((tx) =>
+      tx.venue.update({
+        where: { id: s.V },
+        data: { invitationRules: { chica: { kind: 'PERCENT', bps: 5000 }, camarero: { kind: 'PERCENT', bps: 2500 }, requireQr: true } },
+      }),
+    );
+    const a = await cobro(s, [{ serviceItemId: s.invita }], { invitedStaffToken: qrOf(s, s.nerea) });
+    await paidByCard(s, a.id, 2_000);
+    // Se les paga en efectivo a los dos.
+    await inVenue(s.V, () => operators.createPayout(s.V, s.nerea, s.owner, undefined, { externalRail: 'MANUAL_CASH' }));
+    await inVenue(s.V, () => operators.createPayout(s.V, s.carlos, s.owner, undefined, { externalRail: 'MANUAL_CASH' }));
+  });
+
+  it('la caja separa los pagos en efectivo a la chica y al camarero (lo que sale, lo mismo); el aviso dice lo de cada uno', async () => {
+    const check = await inVenue(s.V, () => nights.closeCheck(s.V));
+    expect(check.cash).toMatchObject({
+      chicaCashPayoutsCount: 1,
+      chicaCashPayoutsCents: 1_000,
+      camareroCashPayoutsCount: 1,
+      camareroCashPayoutsCents: 500,
+      cashOutCents: 1_500,
+      expectedCents: 10_000 - 1_500,
+    });
+    const efectivo = check.steps.find((x) => x.key === 'efectivo')!;
+    expect(efectivo.items.map((i) => [i.id, i.amountCents])).toEqual([
+      ['chica-cash', -1_000],
+      ['camarero-cash', -500],
+    ]);
+    const acknowledged = check.steps.filter((x) => x.status !== 'ok').map((x) => x.key);
+    await inVenue(s.V, () =>
+      nights.close(s.V, { userId: s.owner, role: 'OWNER' }, s.nightId, { cashCountedCents: check.cash.expectedCents, acknowledged, note: 'caja' }),
+    );
+    const night = await sys((tx) => tx.venueNight.findUniqueOrThrow({ where: { id: s.nightId } }));
+    const z = night.zReport as unknown as { caja: Record<string, unknown>; summary: ExportSummary };
+    expect(z.caja).toMatchObject({
+      chicaCashPayoutsCount: 1,
+      chicaCashPayoutsCents: 1_000,
+      camareroCashPayoutsCount: 1,
+      camareroCashPayoutsCents: 500,
+      cashOutCents: 1_500,
+      diffCents: 0,
+    });
+    expect(z.summary).toMatchObject({ payoutsCents: 1_000, camareroPayoutsCents: 500, chicaNetCents: 1_000, camareroNetCents: 500, venueNetCents: 500 });
+    // Chicas + camareros + local = lo cobrado.
+    expect(morningSummaryMessage('Sala caja', z.summary, 0)).toContain('Para las chicas: 10,00 € · para los camareros: 5,00 € · para el local: 5,00 €');
   });
 });

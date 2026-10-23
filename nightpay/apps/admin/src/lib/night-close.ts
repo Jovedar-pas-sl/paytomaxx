@@ -99,6 +99,29 @@ export function cajaInText(caja: { cashInCents: number; walletCashTopUpsCount?: 
   }.`;
 }
 
+/**
+ * «Saldo devuelto en efectivo: 45,00 € (1) · pagos a las chicas en efectivo:
+ * 7,51 € (1) · a los camareros: 7,50 € (1).» Los Z congelados antes del
+ * 28-oct-2026 no separan a los camareros: sus pagos son «al personal».
+ */
+export function cajaOutText(caja: {
+  walletCashPayoutsCount: number;
+  walletCashPayoutsCents: number;
+  chicaCashPayoutsCount: number;
+  chicaCashPayoutsCents: number;
+  camareroCashPayoutsCount?: number;
+  camareroCashPayoutsCents?: number;
+}): string {
+  const wallet = `Saldo devuelto en efectivo: ${formatEur(caja.walletCashPayoutsCents)} (${caja.walletCashPayoutsCount})`;
+  const staff = `${formatEur(caja.chicaCashPayoutsCents)} (${caja.chicaCashPayoutsCount})`;
+  if (caja.camareroCashPayoutsCount === undefined) return `${wallet} · pagos al personal en efectivo: ${staff}.`;
+  const camareros =
+    caja.camareroCashPayoutsCount > 0
+      ? ` · a los camareros: ${formatEur(caja.camareroCashPayoutsCents ?? 0)} (${caja.camareroCashPayoutsCount})`
+      : '';
+  return `${wallet} · pagos a las chicas en efectivo: ${staff}${camareros}.`;
+}
+
 /** Un aviso confirmado: el paso y cómo estaba al confirmarlo (su huella). */
 export interface StepAck {
   readonly key: NightCloseStepKey;

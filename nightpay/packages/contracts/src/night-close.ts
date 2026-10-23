@@ -47,7 +47,8 @@ export interface NightCloseStep {
 /**
  * Efectivo de la noche (desde el cierre anterior, como el Z). Entra por las
  * recargas del saldo en efectivo (recepción) y sale por el saldo devuelto en
- * efectivo y los pagos en efectivo a las chicas.
+ * efectivo y los pagos en efectivo al personal (las chicas y, si el local les
+ * da parte de las copas con invitación, los camareros).
  */
 export interface NightCash {
   /** Fondo de caja con el que empezó la noche (null = nadie lo apuntó). */
@@ -58,8 +59,16 @@ export interface NightCash {
   walletCashTopUpsCents: number;
   walletCashPayoutsCount: number;
   walletCashPayoutsCents: number;
+  /** Pagos en efectivo a las chicas. */
   chicaCashPayoutsCount: number;
   chicaCashPayoutsCents: number;
+  /**
+   * Pagos en efectivo a los camareros (su parte de las copas con invitación).
+   * Sin el campo (API anterior al 2026-10-28): todos los pagos al personal van
+   * en los de las chicas.
+   */
+  camareroCashPayoutsCount?: number;
+  camareroCashPayoutsCents?: number;
   cashOutCents: number;
   /** Fondo + entradas − salidas (con el fondo guardado; sin él, como si fuera 0). */
   expectedCents: number;
@@ -254,7 +263,7 @@ function cashMovesText(moves: { cashInCents: number; cashOutCents: number }): st
 
 /** Movimientos de efectivo de la noche (recargas, saldo devuelto y pagos a chicas). */
 export function cashMovesCount(cash: NightCash): number {
-  return (cash.walletCashTopUpsCount ?? 0) + cash.walletCashPayoutsCount + cash.chicaCashPayoutsCount;
+  return (cash.walletCashTopUpsCount ?? 0) + cash.walletCashPayoutsCount + cash.chicaCashPayoutsCount + (cash.camareroCashPayoutsCount ?? 0);
 }
 
 /** Los pasos con el de «Efectivo» recalculado con lo tecleado (no cambia el array de entrada). */

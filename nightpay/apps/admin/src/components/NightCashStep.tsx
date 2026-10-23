@@ -88,6 +88,12 @@ export function NightCashStep({
           <span>Pagos a las chicas en efectivo ({cash.chicaCashPayoutsCount})</span>
           <span className="np-num">{formatEur(-cash.chicaCashPayoutsCents)}</span>
         </li>
+        {(cash.camareroCashPayoutsCount ?? 0) > 0 ? (
+          <li>
+            <span>Pagos a los camareros en efectivo ({cash.camareroCashPayoutsCount})</span>
+            <span className="np-num">{formatEur(-(cash.camareroCashPayoutsCents ?? 0))}</span>
+          </li>
+        ) : null}
       </ul>
 
       {askFloat ? (
