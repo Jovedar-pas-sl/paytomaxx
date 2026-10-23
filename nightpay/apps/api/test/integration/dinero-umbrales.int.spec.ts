@@ -32,8 +32,11 @@ const redis = createFakeRedis();
 redis.defineScript(CLAIM_STEP_LUA, claimStepScript);
 const totp = new TotpService(prisma as never, new TotpAttemptsService(new LockoutService(redis as never), redis as never));
 const SECRET = 'JBSWY3DPEHPK3PXP';
-/** Un código distinto cada vez (pasos −1, 0 y +1 de la ventana): cada código vale una sola vez. */
-let codeOffset = -1;
+/**
+ * Un código distinto cada vez (pasos 0 y +1 de la ventana): cada código vale una sola vez.
+ * No el −1: si el paso de 30 s cambia entre generarlo y comprobarlo, ya no vale.
+ */
+let codeOffset = 0;
 const nextCode = () => totpCodeAt(SECRET, totpStepAt(Date.now()) + codeOffset++);
 
 const wallets = new WalletsService(prisma as never, audit as never, totp);

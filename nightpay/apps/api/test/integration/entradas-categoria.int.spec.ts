@@ -269,10 +269,10 @@ describe('las entradas suman en todos los informes', () => {
     expect(s.count).toBe(4);
     expect(s.grossCents).toBe(9_000);
     expect(s.byType).toEqual([
-      { label: 'Barra', count: 1, chargedCents: 1_000 },
-      { label: 'Entrada', count: 4, chargedCents: 8_000 },
+      { label: 'Copas', count: 1, chargedCents: 1_000 },
+      { label: 'Entradas', count: 4, chargedCents: 8_000 },
     ]);
-    expect(s.saldoByType).toEqual([{ label: 'Entrada', count: 2, chargedCents: 3_000 }]);
+    expect(s.saldoByType).toEqual([{ label: 'Entradas', count: 2, chargedCents: 3_000 }]);
     expect(s.consumptionsCents).toBe(3_000);
     // Por tipo suma lo mismo que lo cobrado: ninguna entrada se queda fuera.
     expect(s.byType.reduce((a, t) => a + t.chargedCents, 0)).toBe(s.chargedCents);
