@@ -9,6 +9,7 @@ import {
   type PaymentStatus,
 } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
+import { LATE_CARD_APPROVAL_EVENTS } from '../payments/late-card-approval';
 import { normalizeWalletCode } from '../wallets/wallet-rules';
 import {
   decodeCursor,
@@ -32,6 +33,20 @@ const LINE_SELECT = {
 } as const;
 const LINE_ORDER = [{ createdAt: 'asc' as const }, { amountCents: 'desc' as const }, { id: 'asc' as const }];
 const PERSON_SELECT = { id: true, displayName: true, email: true, role: true } as const;
+
+/**
+ * Cobro único pagado con el saldo: el cobro con tarjeta se canceló solo
+ * (cobro-link.cancelCardForSaldo) y no es otro cobro: su fila es la del saldo,
+ * con la misma referencia. Sale solo si el banco aprobó la tarjeta después
+ * (cobrado dos veces: marcado, y en Incidencias si hay que devolverlo).
+ */
+export const NOT_SALDO_TWIN: Prisma.PaymentWhereInput = {
+  NOT: {
+    status: 'CANCELED',
+    linkedWalletCharge: { is: { status: 'ACCEPTED' } },
+    events: { none: { eventType: { in: LATE_CARD_APPROVAL_EVENTS } } },
+  },
+};
 
 /** Los cobros con tarjeta ya cobrados (o devueltos) que cuentan como «pagado» en el filtro de estado. */
 const SALDO_STATUSES_FOR = (status: readonly string[] | undefined): { accepted: boolean; reversed: boolean } => {
@@ -114,7 +129,7 @@ export class CobrosService {
     q: CobrosQuery,
     cursor: FeedCursor | null,
   ): Promise<CobroRow[]> {
-    const and: Prisma.PaymentWhereInput[] = [{ tenantId: scope.tenantId }];
+    const and: Prisma.PaymentWhereInput[] = [{ tenantId: scope.tenantId }, NOT_SALDO_TWIN];
     const statuses = paymentStatuses(q.status);
     if (statuses) and.push({ status: { in: statuses } });
     if (q.operatorId) and.push({ createdByUserId: q.operatorId });
@@ -158,6 +173,10 @@ export class CobrosService {
         createdBy: { select: PERSON_SELECT },
         wallet: { select: { id: true, shortCode: true } },
         lines: { select: LINE_SELECT, orderBy: LINE_ORDER },
+        events: {
+          where: { eventType: { in: LATE_CARD_APPROVAL_EVENTS } },
+          select: { eventType: true, payload: true },
+        },
       },
     });
     return rows.map((p) => paymentCobroRow(p));

@@ -189,6 +189,19 @@ export interface CobroRow {
   lines: ChargeLineView[];
   /** Solo los cobros con tarjeta: lo que hace falta para devolver o resolver. */
   payment: CobroPaymentDetail | null;
+  /**
+   * Cobro único cobrado dos veces: lo pagó el saldo y DESPUÉS el banco aprobó
+   * también la tarjeta (esta fila, CANCELED). `refunded`: la pasarela lo
+   * devolvió sola; si no, hay que devolverlo (también sale en Incidencias).
+   * Null u omitido: no pasó.
+   */
+  paidTwice?: CobroPaidTwice | null;
+}
+
+export interface CobroPaidTwice {
+  /** Lo que cobró el banco en la tarjeta (importe + propina del pedido). */
+  amountCents: number;
+  refunded: boolean;
 }
 
 export interface CobroPaymentDetail {

@@ -3,6 +3,7 @@ import {
   APPROVAL_UNBOOKED_EVENT,
   CARD_REFUNDED_AFTER_SALDO_EVENT,
   lateApprovalHandled,
+  paidTwiceOf,
   settleLateCardApproval,
   wasPaidWithSaldo,
 } from './late-card-approval';
@@ -84,5 +85,35 @@ describe('tarjeta aprobada después de pagar con el saldo', () => {
     const handled = fakePrisma({ events: [{ payload: { providerTxId: 'A1' } }, { payload: null }] }).prisma;
     expect(await lateApprovalHandled(handled as never, PAYMENT, 'A1')).toBe(true);
     expect(await lateApprovalHandled(handled as never, PAYMENT, 'B2')).toBe(false);
+  });
+});
+
+describe('¿cobrado dos veces? (la marca de la fila en Cobros)', () => {
+  it('sin aprobación tardía, no', () => {
+    expect(paidTwiceOf([])).toBeNull();
+    expect(paidTwiceOf([{ eventType: 'payment.paid_with_saldo', payload: {} }])).toBeNull();
+  });
+
+  it('Redsys (no devuelve por API): a devolver, por lo que cobró el banco', () => {
+    const e = { eventType: APPROVAL_UNBOOKED_EVENT, payload: { reason: 'paid_with_saldo', amountCents: 1200 } };
+    expect(paidTwiceOf([e])).toEqual({ amountCents: 1200, refunded: false });
+  });
+
+  it('la pasarela lo devolvió sola: devuelto', () => {
+    const e = { eventType: CARD_REFUNDED_AFTER_SALDO_EVENT, payload: { amountCents: 1400 } };
+    expect(paidTwiceOf([e])).toEqual({ amountCents: 1400, refunded: true });
+  });
+
+  it('dos pedidos aprobados tarde, uno devuelto y otro no: se suman y queda a devolver', () => {
+    expect(
+      paidTwiceOf([
+        { eventType: CARD_REFUNDED_AFTER_SALDO_EVENT, payload: { amountCents: 1000 } },
+        { eventType: APPROVAL_UNBOOKED_EVENT, payload: { reason: 'paid_with_saldo', amountCents: 1000 } },
+      ]),
+    ).toEqual({ amountCents: 2000, refunded: false });
+  });
+
+  it('una aprobación sin apuntar por otro motivo (cobro caducado) no es de este caso', () => {
+    expect(paidTwiceOf([{ eventType: APPROVAL_UNBOOKED_EVENT, payload: { fromStatus: 'EXPIRED' } }])).toBeNull();
   });
 });

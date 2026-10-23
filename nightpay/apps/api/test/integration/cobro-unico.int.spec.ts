@@ -13,7 +13,7 @@ import { ClsService } from 'nestjs-cls';
 import type { Job } from 'bullmq';
 import { ConflictException } from '@nestjs/common';
 import { serializeAndSignJSONRequest } from 'redsys-easy';
-import { ALREADY_PAID_CODE } from '@nightpay/contracts';
+import { ALREADY_PAID_CODE, CobrosQuerySchema } from '@nightpay/contracts';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { InvalidTransitionError } from '../../src/modules/payments/payment.machine';
@@ -26,6 +26,8 @@ import { ReportsService } from '../../src/modules/reports/reports.service';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
 import { NightsService } from '../../src/modules/nights/nights.service';
 import { signStaffToken } from '../../src/modules/operators/staff-qr';
+import { CobrosService } from '../../src/modules/money-map/cobros.service';
+import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
 
 process.env.JWT_SECRET ??= 'clave-de-las-pruebas-de-integracion-0123456789';
 
@@ -507,5 +509,91 @@ describe('invitar eligiendo a la chica de la lista (Ajustes → Invitaciones)', 
     } finally {
       await sys((tx) => tx.venue.update({ where: { id: V }, data: { invitationRules: {} } }));
     }
+  });
+});
+
+describe('la lista de Cobros: una fila por cobro (Hoy → Cobros, la ficha y «Mis cobros»)', () => {
+  const cobros = new CobrosService(prisma as never);
+  const periods = new PeriodReportsService(prisma as never);
+  const since = new Date(Date.now() - 60_000).toISOString();
+  const rowsOf = async (ref: string | null, q: Record<string, unknown> = {}) => {
+    const page = await inVenue(V, () => cobros.list(V, CobrosQuerySchema.parse({ limit: 200, from: since, ...q })));
+    return page.items.filter((x) => x.ref === ref);
+  };
+  const kinds = (rows: Array<{ kind: string; status: string }>) => rows.map((x) => `${x.kind} ${x.status}`).sort();
+
+  it('pagado con la ficha: una sola fila, la del saldo «Pagado»; también por chica, sección, tarjeta y estado', async () => {
+    const w = await wallet(5000);
+    const c = await cobro([{ serviceItemId: copa }]);
+    await payNfc(c.saldo!.chargeId, w);
+    const rows = await rowsOf(c.ref);
+    expect(kinds(rows)).toEqual(['SALDO ACCEPTED']);
+    expect(rows[0]!.paidTwice ?? null).toBeNull();
+    expect(kinds(await rowsOf(c.ref, { operatorId: carlos }))).toEqual(['SALDO ACCEPTED']);
+    expect(kinds(await rowsOf(c.ref, { category: 'VENUE_BAR' }))).toEqual(['SALDO ACCEPTED']);
+    expect(await rowsOf(c.ref, { method: 'CARD' })).toEqual([]);
+    expect(await rowsOf(c.ref, { status: 'CANCELED' })).toEqual([]);
+  });
+
+  it('un cobro de dos secciones pagado con el saldo (Face ID) no deja otra fila con todo el importe en su sección principal', async () => {
+    const nachos = await sys((tx) =>
+      tx.serviceItem.create({ data: { tenantId: V, name: 'Nachos', priceCents: 900, category: 'VENUE_FOOD' } }),
+    );
+    const w = await wallet(5000);
+    // Cocina pesa más (18 €): es la sección principal del cobro.
+    const c = await cobro([{ serviceItemId: copa }, { serviceItemId: nachos.id, qty: 2 }]);
+    await payFaceId(c.saldo!.chargeId, w.id);
+    expect(kinds(await rowsOf(c.ref))).toEqual(['SALDO ACCEPTED']);
+    const food = await rowsOf(c.ref, { category: 'VENUE_FOOD' });
+    expect(kinds(food)).toEqual(['SALDO ACCEPTED']);
+    expect(food[0]!.sections).toEqual([
+      { category: 'VENUE_FOOD', amountCents: 1800 },
+      { category: 'VENUE_BAR', amountCents: 1000 },
+    ]);
+  });
+
+  it('cancelado de verdad o pagado con tarjeta: una sola fila, la del cobro con tarjeta', async () => {
+    const canceled = await cobro([{ serviceItemId: copa }]);
+    await inVenue(V, () => payments.cancel(canceled.id, { userId: carlos, role: 'WAITER', tenantId: V }));
+    expect(kinds(await rowsOf(canceled.ref))).toEqual(['PAYMENT CANCELED']);
+    const byCard = await cobro([{ serviceItemId: copa }]);
+    await atTheBank(byCard.id, `LC${r}`, 1000);
+    await approveCard(byCard.id, `LC${r}`);
+    expect(kinds(await rowsOf(byCard.ref))).toEqual(['PAYMENT AUTHORIZED']);
+  });
+
+  it('cobrado dos veces (el banco aprueba la tarjeta después de la ficha): se ven las dos, la de tarjeta marcada «a devolver»', async () => {
+    const w = await wallet(5000);
+    const c = await cobro([{ serviceItemId: copa }]);
+    const order = `RL2${r}`;
+    await atTheBank(c.id, order, 1000);
+    await payNfc(c.saldo!.chargeId, w);
+    await deliver('REDSYS', signedRedsys(order, '1000', c.id));
+    const rows = await rowsOf(c.ref);
+    expect(kinds(rows)).toEqual(['PAYMENT CANCELED', 'SALDO ACCEPTED']);
+    expect(rows.find((x) => x.kind === 'PAYMENT')!.paidTwice).toEqual({ amountCents: 1000, refunded: false });
+    expect(rows.find((x) => x.kind === 'SALDO')!.paidTwice ?? null).toBeNull();
+  });
+
+  it('cobrado dos veces y la pasarela lo devolvió sola: se ve, marcada «devuelto solo»', async () => {
+    const w = await wallet(5000);
+    const c = await cobro([{ serviceItemId: copa }]);
+    const order = `PT2${r}`;
+    await atTheBank(c.id, order, 1000, 'PAYTEF');
+    await payFaceId(c.saldo!.chargeId, w.id);
+    await deliver('PAYTEF', `order=${order}&_paymentId=${c.id}`);
+    const rows = await rowsOf(c.ref);
+    expect(kinds(rows)).toEqual(['PAYMENT CANCELED', 'SALDO ACCEPTED']);
+    expect(rows.find((x) => x.kind === 'PAYMENT')!.paidTwice).toEqual({ amountCents: 1000, refunded: true });
+  });
+
+  it('los cobros por estado (métricas) no cuentan el cobro con tarjeta que anuló la ficha', async () => {
+    const before = (await inVenue(V, () => periods.metrics(V))).statusBreakdown;
+    const w = await wallet(5000);
+    const c = await cobro([{ serviceItemId: copa }]);
+    await payNfc(c.saldo!.chargeId, w);
+    const after = (await inVenue(V, () => periods.metrics(V))).statusBreakdown;
+    expect(after.CANCELED ?? 0).toBe(before.CANCELED ?? 0);
+    expect(after.CREATED ?? 0).toBe(before.CREATED ?? 0);
   });
 });

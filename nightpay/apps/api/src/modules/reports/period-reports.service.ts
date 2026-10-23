@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { LATE_CARD_APPROVAL_EVENTS } from '../payments/late-card-approval';
 import { buildMetrics, buildPeriodZ, type ZCategoryRow, type ZGroupRow, type ZOperatorRow } from './period-reports';
 import { totalsFromRow, type PeriodTotals, type PeriodTotalsRow } from './period-totals';
 import type { TimeWindow } from './report-period';
@@ -108,13 +110,23 @@ export class PeriodReportsService {
     return totalsFromRow(rows[0]);
   }
 
-  /** Cobros por estado (también los no pagados: fallidos, caducados…). */
+  /**
+   * Cobros por estado (también los no pagados: fallidos, caducados…). Sin el
+   * cobro con tarjeta que canceló el saldo al pagarlo (cobro único): ese cobro
+   * es el del saldo (como en la lista de Cobros, cobros.service NOT_SALDO_TWIN).
+   */
   private async statusCounts(tenantId: string, w: TimeWindow): Promise<Array<{ status: string; count: number }>> {
     return this.prisma.$queryRaw<Array<{ status: string; count: number }>>`
       SELECT p.status::text AS status, COUNT(*)::int AS count
         FROM payments p
        WHERE p."tenantId" = ${tenantId}::uuid
          AND ${paymentAt('p')} >= ${w.from} AND ${paymentAt('p')} < ${w.to}
+         AND NOT (p.status = 'CANCELED'
+                  AND EXISTS (SELECT 1 FROM wallet_charge_requests w
+                               WHERE w."linkedPaymentId" = p.id AND w.status = 'ACCEPTED')
+                  AND NOT EXISTS (SELECT 1 FROM payment_events e
+                                   WHERE e."paymentId" = p.id
+                                     AND e."eventType" IN (${Prisma.join(LATE_CARD_APPROVAL_EVENTS)})))
        GROUP BY p.status
     `;
   }

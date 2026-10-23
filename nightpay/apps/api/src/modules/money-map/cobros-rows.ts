@@ -9,6 +9,7 @@ import {
 } from '@nightpay/contracts';
 import { cardBrandLabel } from '../payments/card-brand';
 import { lineViews } from '../payments/charge-lines';
+import { paidTwiceOf } from '../payments/late-card-approval';
 
 /**
  * El mapa del dinero en el panel (lógica pura): una fila de la lista de
@@ -68,6 +69,8 @@ export interface PaymentFeedRow {
   createdBy: PersonLike | null;
   wallet: { id: string; shortCode: string | null } | null;
   lines: StoredLineLike[];
+  /** Tarjeta aprobada después de pagar con el saldo (late-card-approval): «cobrado dos veces». */
+  events?: ReadonlyArray<{ eventType: string; payload: unknown }>;
 }
 
 export interface SaldoFeedRow {
@@ -200,6 +203,7 @@ export function paymentCobroRow(p: PaymentFeedRow): CobroRow {
       })),
       terminal: p.terminal,
     },
+    paidTwice: paidTwiceOf(p.events ?? []),
   };
 }
 

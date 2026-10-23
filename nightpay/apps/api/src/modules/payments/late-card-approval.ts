@@ -23,6 +23,34 @@ export const CARD_REFUNDED_AFTER_SALDO_EVENT = 'payment.card_refunded_after_sald
 export const APPROVAL_UNBOOKED_EVENT = 'payment.approval_unbooked';
 export const PAID_WITH_SALDO_REASON = 'paid_with_saldo';
 
+/**
+ * Los payment_events de una tarjeta aprobada tarde: con alguno, el cobro con
+ * tarjeta que canceló el saldo sí se cobró (dos veces) y se enseña.
+ */
+export const LATE_CARD_APPROVAL_EVENTS = [CARD_REFUNDED_AFTER_SALDO_EVENT, APPROVAL_UNBOOKED_EVENT];
+
+/**
+ * ¿Cobrado dos veces? De los eventos de tarjeta aprobada tarde de un cobro:
+ * lo cobrado de más y si la pasarela ya lo devolvió sola. Una aprobación sin
+ * apuntar por otro motivo (cobro caducado…) no es de este caso.
+ */
+export function paidTwiceOf(
+  events: ReadonlyArray<{ eventType: string; payload: unknown }>,
+): { amountCents: number; refunded: boolean } | null {
+  const late = events.flatMap((e) => {
+    const p = (e.payload ?? {}) as Record<string, unknown>;
+    const refunded = e.eventType === CARD_REFUNDED_AFTER_SALDO_EVENT;
+    const unbooked = e.eventType === APPROVAL_UNBOOKED_EVENT && p.reason === PAID_WITH_SALDO_REASON;
+    if (!refunded && !unbooked) return [];
+    return [{ amountCents: typeof p.amountCents === 'number' ? p.amountCents : 0, refunded }];
+  });
+  if (late.length === 0) return null;
+  return {
+    amountCents: late.reduce((a, x) => a + x.amountCents, 0),
+    refunded: late.every((x) => x.refunded),
+  };
+}
+
 export interface LateApprovalTarget {
   id: string;
   tenantId: string;
