@@ -23,13 +23,21 @@ const sans = localFont({
   display: 'swap',
 });
 
-// Cifras, importes y títulos: Manrope 600-800 (variable): 800 en importes y
-// títulos (marca OxioCard) y 700 en las cifras de las tablas (decisión D11). La variable
+// Cifras, importes y títulos: Manrope 800 (marca OxioCard). La variable
 // sigue llamándose --font-mono.
 const mono = localFont({
+  src: '../../../../packages/ui/fonts/manrope.woff2',
+  weight: '800',
+  variable: '--font-mono',
+  display: 'swap',
+});
+
+// Solo las cifras de las tablas del panel (decisión D11): Manrope variable
+// 600-800, que panel-tables.css pide en 700. El resto sigue en la de 800.
+const monoVar = localFont({
   src: '../../../../packages/ui/fonts/manrope-var.woff2',
   weight: '600 800',
-  variable: '--font-mono',
+  variable: '--font-mono-var',
   display: 'swap',
 });
 
@@ -53,7 +61,7 @@ const themeInitScript = `(function(){try{var s=localStorage.getItem('np-theme');
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     // np-staff: en el móvil, letra y huecos más justos (@nightpay/ui/styles.css).
-    <html lang="es" className={`np-staff ${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+    <html lang="es" className={`np-staff ${sans.variable} ${mono.variable} ${monoVar.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>

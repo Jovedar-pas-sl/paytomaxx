@@ -12,11 +12,11 @@ Uso (Python 3.10+, `pip install fonttools brotli`):
   python build_fonts.py "Manrope[wght].ttf" manrope.woff2 "wght=800" latin-ext
   python build_fonts.py "Manrope[wght].ttf" manrope-var.woff2 "wght=600:800" latin-ext
 
-Pesos: texto 400-700 (variable); cifras y títulos Manrope 800 (un peso fijo:
-marca OxioCard, 17 KB) en las apps del personal y las páginas del cliente.
-El panel usa manrope-var.woff2 (variable 600-800, 30 KB): 800 en importes y
-títulos y 700 en las cifras de las tablas, para que haya jerarquía entre
-cifras (decisión D11 de la revisión visual). Rasgos: los de fontTools por defecto + tnum/pnum
+Pesos: texto 400-700 (variable); cifras, importes y títulos Manrope 800 (un
+peso fijo: marca OxioCard, 17 KB) en todas las apps y las páginas del cliente.
+manrope-var.woff2 (variable 600-800, 30 KB) solo la carga el panel, para las
+cifras de las tablas en 700 (--font-mono-var; decisión D11 de la revisión
+visual): jerarquía entre cifras. Rasgos: los de fontTools por defecto + tnum/pnum
 (cifras tabulares), igual que Google.
 
 Cobertura:
