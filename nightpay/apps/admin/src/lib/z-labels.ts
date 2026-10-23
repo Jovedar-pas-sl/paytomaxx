@@ -13,3 +13,14 @@ const RENAMED: Readonly<Record<string, string>> = {
 export function zTypeLabel(label: string): string {
   return RENAMED[label] ?? label;
 }
+
+/**
+ * Lo que queda del neto quitando lo del personal. Es el Z (la caja): lleva las
+ * recargas (saldo de los clientes, no ventas) y no resta las comisiones. No es
+ * «Para el local» del mapa del dinero, que reparte lo vendido. Los Z congelados
+ * antes de separar a los camareros no traen `camareroNetCents`: su cifra solo
+ * restaba lo de las chicas, y así se dice.
+ */
+export function zNetLabel(summary: { camareroNetCents?: number }): string {
+  return summary.camareroNetCents === undefined ? 'Neto sin las chicas' : 'Neto sin el personal';
+}

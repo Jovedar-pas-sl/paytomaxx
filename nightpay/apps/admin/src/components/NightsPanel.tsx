@@ -19,7 +19,7 @@ import { formatEur } from '@/lib/money';
 import { diffLabel, parseCashInput } from '@/lib/night-close';
 import type { PanelTab, TabKey } from '@/lib/roles';
 import { useVenueTimezone } from '@/lib/venue-context';
-import { zTypeLabel } from '@/lib/z-labels';
+import { zNetLabel, zTypeLabel } from '@/lib/z-labels';
 import { NightMoneyMap } from './money-map/NightMoneyMap';
 import { NightCajaBlock } from './NightCajaBlock';
 import { NightCloseScreen } from './NightCloseScreen';
@@ -285,13 +285,6 @@ export function NightsPanel({
   );
 }
 
-/**
- * Lo que queda del neto quitando lo del personal. Es el Z (la caja): lleva las
- * recargas (saldo de los clientes, no ventas) y no resta las comisiones. No es
- * «Para el local» del mapa del dinero, que reparte lo vendido.
- */
-const NET_AFTER_STAFF = 'Neto sin el personal';
-
 /** Totales de la noche, por tipo y por chica. */
 function ZSummary({ summary: s }: { summary: NightSummary }) {
   const totals: Array<[string, number]> = [
@@ -305,7 +298,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
     // Solo si el local da parte a los camareros de las copas con invitación (de fábrica, nada).
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
     // No es «Para el local» del mapa (el reparto de lo vendido): lleva las recargas y no resta comisiones.
-    [NET_AFTER_STAFF, s.venueNetCents],
+    [zNetLabel(s), s.venueNetCents],
   ];
   const charged = cobradoNote(zCobradoParts(s), formatEur);
   return (
@@ -408,7 +401,7 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
     ['Neto', s.netCents],
     ['Para las chicas', s.chicaNetCents],
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
-    [NET_AFTER_STAFF, s.venueNetCents],
+    [zNetLabel(s), s.venueNetCents],
   ];
   return (
     <div style={adjustBox}>
