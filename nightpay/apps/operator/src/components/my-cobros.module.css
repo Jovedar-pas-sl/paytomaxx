@@ -24,7 +24,8 @@
   background:
     var(--np-bits),
     linear-gradient(125deg, var(--np-green-1), var(--np-green-2));
-  box-shadow: 0 0 0 1.5px var(--np-lime-edge);
+  /* Sin borde lima: el lima es para la acción y el «pagado», no para un total. */
+  box-shadow: 0 0 0 1px rgb(239 233 223 / 0.18);
   color: var(--np-cream);
 }
 
@@ -38,7 +39,8 @@
 .nightTotal {
   font: 800 2.5rem/1.05 var(--np-font-num);
   letter-spacing: -0.03em;
-  color: var(--np-lime);
+  font-variant-numeric: tabular-nums;
+  color: var(--np-cream);
 }
 
 .nightLine {
@@ -90,7 +92,7 @@
 .night .saleTag {
   background: rgb(0 0 0 / 0.25);
   color: var(--np-cream);
-  border-color: var(--np-lime-edge);
+  border-color: rgb(239 233 223 / 0.45);
 }
 
 /* Un cobro: el borde y el chip, del color de su estado. */

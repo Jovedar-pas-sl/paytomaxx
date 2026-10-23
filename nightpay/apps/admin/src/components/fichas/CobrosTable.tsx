@@ -1,8 +1,8 @@
 'use client';
 
 import type { CSSProperties, ReactNode } from 'react';
-import { StatusPill, type PaymentStatus } from '@nightpay/ui';
 import type { CobroRow } from '@nightpay/contracts';
+import { cobroStatus } from '@/lib/cobro-status';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur, formatMoney } from '@/lib/money';
 import { paidTwiceNote, sectionChip } from '@/lib/money-map';
@@ -54,10 +54,11 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra }: Props) 
         <tbody>
           {(rows ?? []).map((row) => (
             <tr key={`${row.kind}-${row.id}`}>
-              <td data-label="Hora" data-card="top" style={meta}>
+              {/* Hora y referencia en una línea (antes «22 oct, / 18:31», «C- / 0025»). */}
+              <td data-label="Hora" data-card="top" className="np-num" style={{ ...meta, ...oneLine }}>
                 {formatDateTime(row.createdAt, tz, 'short')}
               </td>
-              <td data-label="Ref" data-card="top" className="np-num" style={{ ...meta, fontWeight: 700 }}>
+              <td data-label="Ref" data-card="top" className="np-num" style={{ ...meta, ...oneLine, fontWeight: 700 }}>
                 {row.ref ?? '—'}
               </td>
               <td data-label="Importe" data-card="amount" className="np-num" style={amountCell}>
@@ -65,11 +66,8 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra }: Props) 
                 {row.tipCents > 0 ? <span style={tipStyle}>+ {formatEur(row.tipCents)} propina</span> : null}
               </td>
               <td data-label="Estado" data-card="status">
-                {row.kind === 'SALDO' ? (
-                  row.status === 'REVERSED' ? <Pill tone="neutral">Anulado</Pill> : <Pill tone="success">Pagado</Pill>
-                ) : (
-                  <StatusPill status={row.status as PaymentStatus} size="sm" />
-                )}
+                {/* Una sola forma y una palabra por estado, con tarjeta o con el saldo. */}
+                <Pill tone={cobroStatus(row).tone}>{cobroStatus(row).label}</Pill>
                 <PaidTwice row={row} />
               </td>
               {hidePerson ? null : (
@@ -150,7 +148,8 @@ const paidTwiceStyle = (refunded: boolean): CSSProperties => ({
 });
 
 const meta: CSSProperties = { color: 'var(--np-text-mute)' };
-const amountCell: CSSProperties = { textAlign: 'right', fontWeight: 500 };
+const oneLine: CSSProperties = { whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+const amountCell: CSSProperties = { textAlign: 'right', fontWeight: 500, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
 const tipStyle: CSSProperties = {
   display: 'block',
   fontSize: '0.75rem',
