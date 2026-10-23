@@ -38,6 +38,7 @@ import {
   type ReceptionDeskSaldo,
   type ReceptionDeskView,
 } from '@/lib/reception-desk';
+import { receptionChip, useMySections } from '@/lib/sections';
 import { useVenueNight } from '@/lib/venue-methods';
 import {
   canSkipPasskey,
@@ -134,6 +135,7 @@ interface Props {
  */
 export function ReceptionDesk({ user, active, footer }: Props) {
   const night = useVenueNight();
+  const { sections } = useMySections();
   const [mode, setMode] = useState<Mode>('entrada');
   const [step, setStep] = useState<Step>({ kind: 'tap' });
   const [options, setOptions] = useState<ReceptionOptions | null>(null);
@@ -331,7 +333,8 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   }
 
   const name = user.displayName ?? 'Recepción';
-  const chip = { section: 'VENUE_ENTRY', label: 'Entradas' };
+  // La sección de las entradas con el nombre del local (Ajustes → Secciones), no el de fábrica.
+  const chip = receptionChip(sections);
   const head = (onBack?: () => void) => <DeskHead title="Recepción" sub={name} chip={chip} stripe="section" onBack={onBack} />;
 
   if (step.kind === 'exitPin') {

@@ -307,7 +307,7 @@ describe('referencias del saldo y su página', () => {
     await expect(svc.walletRefById('d4e5f6a7-0000-4d0e-8f1a-000000000000')).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('cada consumo se ve con su nota o, sin nota, con el nombre de su categoría (y la propina incluida)', async () => {
+  it('cada consumo se ve con su nota o, sin nota, con el nombre de su sección en ese local (y la propina incluida)', async () => {
     const { svc, db } = setup();
     const at = (min: number) => new Date(NOW.getTime() - min * MIN);
     const consumos: Array<[string, string | null, number]> = [
@@ -318,9 +318,18 @@ describe('referencias del saldo y su página', () => {
       db.walletConsumption.put({ id: `c-${i}`, walletId: WALLET, tenantId: NORTE, category, notes, amountCents: 1_000, tipCents: 200, createdAt: at(min) }),
     );
     const state = await svc.clientState('qrTokenDelClienteK7Q4M2xx');
-    expect(state.movements.map((m) => m.label)).toEqual(['Barra', 'Habitación', 'Comida', 'Otro', 'Servicio', 'Consumo', 'Botella Moët']);
+    // Los nombres de Ajustes → Secciones (los de fábrica si el local no los cambió); lo que no es una sección, «Otros».
+    expect(state.movements.map((m) => m.label)).toEqual(['Copas', 'Habitaciones', 'Comida', 'Otros', 'Servicios', 'Otros', 'Botella Moët']);
     // Con el color de su sección (el de fábrica si el local no eligió otro).
-    expect(state.movements[0]).toEqual({ kind: 'consumption', amountCents: -1_200, label: 'Barra', venueName: 'Bambú Norte (Alcobendas)', at: at(1).toISOString(), ref: null, color: '#3fe0c0' });
+    expect(state.movements[0]).toEqual({ kind: 'consumption', amountCents: -1_200, label: 'Copas', venueName: 'Bambú Norte (Alcobendas)', at: at(1).toISOString(), ref: null, color: '#3fe0c0' });
+  });
+
+  it('con las secciones renombradas en ese local, el consumo dice su nombre (el de cada local)', async () => {
+    const { svc, db } = setup();
+    db.venue.put({ id: NORTE, name: 'Bambú Norte (Alcobendas)', walletGroup: 'grupo-bambu', sections: { VENUE_BAR: { label: 'Barra de arriba' } } });
+    db.walletConsumption.put({ id: 'c-r', walletId: WALLET, tenantId: NORTE, category: 'VENUE_BAR', notes: null, amountCents: 1_000, tipCents: 0, createdAt: new Date(NOW.getTime() - MIN) });
+    const state = await svc.clientState('qrTokenDelClienteK7Q4M2xx');
+    expect(state.movements[0]).toMatchObject({ label: 'Barra de arriba', color: '#3fe0c0' });
     // La tarjeta de arriba: el local del saldo; sin NFC, sin número.
     expect(state).toMatchObject({ venueName: 'Sala Bambú (Madrid)', hasCard: false, fichaNumber: null });
   });

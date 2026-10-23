@@ -7,7 +7,8 @@ import { totpRetryState } from '@/lib/api-errors';
 import { formatPercent } from '@/lib/commission';
 import { formatEur } from '@/lib/money';
 import { OTP_LENGTH } from '@/lib/otp';
-import { COMMISSION_FIELDS, holdDaysText, rulesChange, rulesFormFrom, type RulesForm } from '@/lib/settings-forms';
+import { commissionFields, holdDaysText, rulesChange, rulesFormFrom, type RulesForm } from '@/lib/settings-forms';
+import { useSections } from '@/lib/use-sections';
 import { OtpInput } from '../OtpInput';
 import { LoadState, SaveRow, SettingsCard, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
@@ -20,6 +21,9 @@ import { LoadState, SaveRow, SettingsCard, Switch, useSavedFlash, useSettingsLoa
  */
 export function RulesPanel() {
   const { data: settings, setData, error: loadError, retry } = useSettingsLoad(fetchVenueSettings);
+  // Cada comisión con el nombre de su sección en este local (Ajustes → Secciones).
+  const { sections } = useSections();
+  const fields = commissionFields(sections);
   const [form, setForm] = useState<RulesForm | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -69,7 +73,7 @@ export function RulesPanel() {
       void send(pending, code);
       return;
     }
-    const plan = rulesChange(current, settings);
+    const plan = rulesChange(current, settings, fields);
     if (!plan.ok) return setError(plan.problem);
     if (Object.keys(plan.change).length === 0) return setError('No has cambiado nada.');
     void send(plan.change);
@@ -90,7 +94,7 @@ export function RulesPanel() {
           hint={`Hoy: ${formatEur(settings.operatorMaxCobroCents)}. Los cobros de la carta no cuentan.`}
         />
         <div className="np-set-grid">
-          {COMMISSION_FIELDS.map(({ key, label }) => (
+          {fields.map(({ key, label }) => (
             <Input
               key={key}
               label={`${label} (%)`}

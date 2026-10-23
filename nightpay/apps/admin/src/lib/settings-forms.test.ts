@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { staffPermissionsOf } from '@nightpay/contracts';
+import { DEFAULT_SECTIONS, sectionsOf, staffPermissionsOf } from '@nightpay/contracts';
 import type { VenueSettings } from './endpoints/settings';
 import {
   PERMISSION_HINTS,
   PERMISSION_LABELS,
   ROLE_LABELS,
+  commissionFields,
   editablePermissions,
   hasOverride,
   holdDaysText,
@@ -30,6 +31,24 @@ const settings: VenueSettings = {
   refundApprovalThresholdCents: 10_000,
   payoutRequiresApproval: true,
 };
+
+describe('reglas del local: los nombres de sección del local', () => {
+  it('cada comisión con el nombre de Ajustes → Secciones; los de fábrica si no se cambiaron; «Otros» sin sección', () => {
+    const own = sectionsOf({ CHICA_SERVICE: { label: 'Reservados VIP' }, VENUE_ENTRY: { label: 'Puerta' } });
+    const fields = commissionFields(own);
+    expect(fields.map((f) => f.key)).toEqual(['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'VENUE_ENTRY', 'EXTRA']);
+    expect(fields.find((f) => f.key === 'CHICA_SERVICE')?.label).toBe('Reservados VIP');
+    expect(fields.find((f) => f.key === 'VENUE_ENTRY')?.label).toBe('Puerta');
+    expect(fields.find((f) => f.key === 'VENUE_BAR')?.label).toBe(DEFAULT_SECTIONS.VENUE_BAR.label);
+    expect(fields.find((f) => f.key === 'EXTRA')?.label).toBe('Otros');
+  });
+
+  it('el aviso de un porcentaje malo dice el nombre del local', () => {
+    const own = sectionsOf({ CHICA_SERVICE: { label: 'Reservados VIP' } });
+    const form = { ...rulesFormFrom(settings), commissions: { ...rulesFormFrom(settings).commissions, CHICA_SERVICE: 'mucho' } };
+    expect(rulesChange(form, settings, commissionFields(own))).toMatchObject({ ok: false, problem: expect.stringMatching(/^Reservados VIP:/) });
+  });
+});
 
 describe('reglas del local', () => {
   it('sin tocar nada: no hay cambios que mandar', () => {

@@ -572,8 +572,9 @@ export class WalletChargesService {
     const venueIds = [...new Set([wallet.tenantId, ...[...consumptions, ...topUps, ...cashTopUps, ...payouts].map((m) => m.tenantId)])];
     const venues = await this.prisma.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true, sections: true } });
     const venueName = (id: string): string => venues.find((v) => v.id === id)?.name ?? '';
-    // El color de cada sección, el que eligió el local del consumo (Ajustes → Secciones).
-    const sectionColor = (id: string, category: string): string => sectionMeta(sectionsOf(venues.find((v) => v.id === id)?.sections), category).color;
+    // Cada sección con el nombre y el color que le dio el local del consumo (Ajustes → Secciones); los de fábrica si no los cambió.
+    const sectionOfVenue = (id: string, category: string): { label: string; color: string } =>
+      sectionMeta(sectionsOf(venues.find((v) => v.id === id)?.sections), category);
     // La referencia de cada consumo es la de su cobro (C-0001).
     const refs = await this.consumptionRefs(consumptions.map((c) => c.id));
 
@@ -581,11 +582,11 @@ export class WalletChargesService {
       ...consumptions.map((c) => ({
         kind: 'consumption' as const,
         amountCents: -(c.amountCents + c.tipCents),
-        label: c.notes?.split('\n')[0]?.trim() || categoryLabel(c.category),
+        label: c.notes?.split('\n')[0]?.trim() || sectionOfVenue(c.tenantId, c.category).label,
         venueName: venueName(c.tenantId),
         at: c.createdAt.toISOString(),
         ref: refs.get(c.id) ?? null,
-        color: sectionColor(c.tenantId, c.category),
+        color: sectionOfVenue(c.tenantId, c.category).color,
       })),
       ...topUps.map((t) => ({
         kind: 'topup' as const,
@@ -2372,18 +2373,6 @@ function eur(cents: number): string {
 /** "K7Q-•••": que el cliente reconozca su saldo sin enseñarlo entero. */
 export function codeHintOf(shortCode: string | null): string {
   return `${(shortCode ?? '').slice(0, 3)}-•••`;
-}
-
-function categoryLabel(category: string): string {
-  const map: Record<string, string> = {
-    CHICA_SERVICE: 'Servicio',
-    VENUE_BAR: 'Barra',
-    VENUE_ROOM: 'Habitación',
-    VENUE_FOOD: 'Comida',
-    VENUE_ENTRY: 'Entrada',
-    EXTRA: 'Otro',
-  };
-  return map[category] ?? 'Consumo';
 }
 
 /** Lo que pide quien cobra del saldo: líneas, o (apps antiguas) un servicio o un importe con su sección. */

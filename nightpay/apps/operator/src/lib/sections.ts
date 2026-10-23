@@ -33,6 +33,11 @@ export function initialSection(offered: readonly VenueSection[], preferred: Sect
   return offered[0]?.code ?? 'VENUE_BAR';
 }
 
+/** El chip de Recepción: la sección de las entradas, con el nombre que le dio el local (Ajustes → Secciones). */
+export function receptionChip(sections: readonly VenueSection[]): { section: SectionCode; label: string } {
+  return { section: 'VENUE_ENTRY', label: sectionMeta(sections, 'VENUE_ENTRY').label };
+}
+
 /** «Copas», «Varias» o nada: de qué sección es lo que se cobró (el PAGADO lo enseña con su referencia). */
 export function chargeSectionLabel(
   lines: ReadonlyArray<{ category: string }> | undefined,

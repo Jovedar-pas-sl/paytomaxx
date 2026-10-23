@@ -10,10 +10,12 @@ import {
   STAFF_PERMISSION_KEYS,
   commissionTotalsProblem,
   parseEuroCents,
+  sectionMeta,
   type AlertKindKey,
   type PermissionRole,
   type StaffPermissionKey,
   type StaffPermissions,
+  type VenueSection,
 } from '@nightpay/contracts';
 import type { OperatorCommissionDefaults, VenueRulesInput, VenueSettings } from './endpoints/settings';
 import { bpsToPercentInput, parsePercentToBps } from './commission';
@@ -57,6 +59,17 @@ export function rulesFormFrom(s: VenueSettings): RulesForm {
   };
 }
 
+/**
+ * Las comisiones por sección con el nombre que les dio el local (Ajustes →
+ * Secciones) o, si no lo cambió, el de fábrica; «Otros» para los cobros sin
+ * sección. Las claves (y lo que se guarda) no cambian.
+ */
+export function commissionFields(
+  sections: readonly VenueSection[],
+): Array<{ key: keyof OperatorCommissionDefaults; label: string }> {
+  return COMMISSION_FIELDS.map(({ key }) => ({ key, label: sectionMeta(sections, key).label }));
+}
+
 /** Euros que pueden ser 0 ("0", "0,00"): el umbral de devolución. */
 function parseEurosAllowZero(input: string): number | null {
   if (/^\s*0+(?:[.,]0{1,2})?\s*€?\s*$/.test(input)) return 0;
@@ -71,12 +84,13 @@ function parseEurosAllowZero(input: string): number | null {
 export function rulesChange(
   form: RulesForm,
   current: VenueSettings,
+  fields: ReadonlyArray<{ key: keyof OperatorCommissionDefaults; label: string }> = COMMISSION_FIELDS,
 ): { ok: true; change: VenueRulesInput } | { ok: false; problem: string } {
   const max = parseEuroCents(form.maxCobroEur, MAX_OPERATOR_COBRO_CENTS);
   if (max === null) return { ok: false, problem: 'Tope por cobro: un importe entre 0,01 € y 10.000 €.' };
 
   const commissions = {} as OperatorCommissionDefaults;
-  for (const { key, label } of COMMISSION_FIELDS) {
+  for (const { key, label } of fields) {
     const bps = parsePercentToBps(form.commissions[key]);
     if (bps === null) return { ok: false, problem: `${label}: un porcentaje de 0 a 100 (por ejemplo 10 o 10,5).` };
     commissions[key] = bps;

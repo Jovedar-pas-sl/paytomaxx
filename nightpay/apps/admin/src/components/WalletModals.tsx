@@ -72,7 +72,9 @@ export function CodeSearch({ onFound }: { onFound: (target: PayoutTarget) => voi
           aria-label="Código del cliente"
           value={code}
           onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
-          placeholder="K7Q4M2"
+          // Un ejemplo que no parezca un valor ya escrito (np-code-input: el ejemplo, sin el espaciado del código).
+          placeholder="p. ej. K7Q4M2"
+          className="np-code-input"
           autoComplete="off"
           spellCheck={false}
           style={{ letterSpacing: '0.2em', fontWeight: 700 }}

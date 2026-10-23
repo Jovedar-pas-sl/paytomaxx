@@ -521,6 +521,13 @@ input::placeholder {
   color: var(--np-text-dim);
 }
 
+/* Campos de código (letras espaciadas y en negrita): el ejemplo, en letra normal,
+   para que no parezca un valor ya escrito. */
+.np-code-input::placeholder {
+  letter-spacing: normal;
+  font-weight: 500;
+}
+
 /* Error de formulario (FormError): caja con borde rojo e icono, el texto en el
    color normal (se lee mejor que el rojo sobre oscuro), encima del botón. */
 .np-form-error {

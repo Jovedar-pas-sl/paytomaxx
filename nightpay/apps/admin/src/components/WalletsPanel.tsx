@@ -14,9 +14,12 @@ import {
 import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
+import { sectionPaint } from '@/lib/money-map-view';
 import { usePolling } from '@/lib/use-polling';
+import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { useFichas } from './fichas/fichas-context';
+import { SectionChip } from './fichas/SectionChip';
 import { Notice } from './Notice';
 import { PendingTopUps } from './PendingTopUps';
 import { Pill, type Tone } from './Pill';
@@ -54,6 +57,7 @@ interface Props {
 export function WalletsPanel({ isOwner }: Props) {
   const tz = useVenueTimezone();
   const fichas = useFichas();
+  const { sections } = useSections();
   const [stats, setStats] = useState<WalletsAdminStats | null>(null);
   /** null = cargando la lista de este filtro. */
   const [rows, setRows] = useState<WalletAdminRow[] | null>(null);
@@ -142,16 +146,20 @@ export function WalletsPanel({ isOwner }: Props) {
 
           {Object.keys(stats.byCategory).length > 0 ? (
             <Card style={{ padding: '1rem' }}>
-              <h3 style={sectionTitle}>Consumos por categoría (hoy)</h3>
+              <h3 style={sectionTitle}>Consumos por sección (hoy)</h3>
               <ul style={categoryList}>
-                {Object.entries(stats.byCategory).map(([cat, cents]) => (
-                  <li key={cat} style={categoryItem}>
-                    <span style={{ textTransform: 'capitalize' }}>{cat}</span>
-                    <span className="np-num" style={{ fontWeight: 600 }}>
-                      {formatEur(cents)}
-                    </span>
-                  </li>
-                ))}
+                {/* Con el nombre y el color de cada sección en este local (nunca «CHICA_SERVICE»); la suma, por código. */}
+                {Object.entries(stats.byCategory).map(([cat, cents]) => {
+                  const paint = sectionPaint(sections, cat);
+                  return (
+                    <li key={cat} style={categoryItem}>
+                      <SectionChip view={{ label: paint.label, color: paint.color, title: null }} />
+                      <span className="np-num" style={{ fontWeight: 600 }}>
+                        {formatEur(cents)}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             </Card>
           ) : null}
@@ -387,7 +395,9 @@ const categoryList: CSSProperties = {
 
 const categoryItem: CSSProperties = {
   display: 'flex',
+  alignItems: 'center',
   justifyContent: 'space-between',
+  gap: '0.5rem',
   padding: '0.45rem 0.7rem',
   background: 'var(--np-surface-2)',
   borderRadius: 'var(--np-r-md)',
