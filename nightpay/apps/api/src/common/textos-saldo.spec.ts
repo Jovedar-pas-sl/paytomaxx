@@ -58,8 +58,13 @@ function isCodeName(text: string): boolean {
   return !/\s/.test(text) && (!/^[A-Z]/.test(text) || /^[A-Z0-9_]+$/.test(text));
 }
 
-/** ¿Lo envuelve algo que no ve el usuario? (un import, un log, la ayuda de una métrica, un Error del API). */
+/**
+ * ¿No lo ve el usuario? La clave de un objeto (un nombre de búsqueda, como el
+ * texto viejo de un Z congelado que se traduce al nuevo), o lo envuelve un
+ * import, un log, la ayuda de una métrica o un Error del API.
+ */
 function hidden(node: ts.Node, sf: ts.SourceFile, isApi: boolean): boolean {
+  if (node.parent && ts.isPropertyAssignment(node.parent) && node.parent.name === node) return true;
   for (let p: ts.Node | undefined = node.parent; p; p = p.parent) {
     if (ts.isImportDeclaration(p) || ts.isExportDeclaration(p) || ts.isImportTypeNode(p)) return true;
     if (ts.isCallExpression(p) && LOG_CALL.test(p.expression.getText(sf))) return true;
@@ -114,5 +119,8 @@ describe('al usuario se le dice «Saldo/Saldos», nunca «Wallet(s)»', () => {
     expect(shown(`this.logger.log(\`Wallet \${id} creada\`);`, 'apps/api/src/x.ts')).toEqual([]);
     expect(shown(`throw new Error('falta COOKIE_SECRET para la wallet');`, 'apps/api/src/x.ts')).toEqual([]);
     expect(shown(`const q = \`SELECT id FROM client_wallets WHERE "walletId" = \${id}\`;`, 'apps/api/src/x.ts')).toEqual([]);
+    // La clave de un objeto es un nombre de búsqueda (el texto viejo que se traduce); su valor sí se enseña.
+    expect(shown(`const m = { 'Recarga de wallet': 'Recarga con tarjeta' };`)).toEqual([]);
+    expect(shown(`const t = { label: 'Recarga de wallet' };`)).toEqual(['Recarga de wallet']);
   });
 });
