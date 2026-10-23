@@ -9,8 +9,9 @@ import { LoadState, SaveRow, SettingsCard, Switch, useSavedFlash, useSettingsLoa
 
 /**
  * Ajustes → Noche (dueño): el NFC sin PIN (hasta cuánto por cobro y el tope
- * de la noche), el teclado del PIN, la recepción y la vibración y el sonido
- * al cobrar. Todo con un valor de fábrica que funciona sin tocar nada.
+ * de la noche), el teclado del PIN, la recepción, la vibración y el sonido
+ * al cobrar y el modo «sala» (contraste alto en los móviles del personal).
+ * Todo con un valor de fábrica que funciona sin tocar nada.
  */
 export function NightPanel() {
   const { data, setData, error: loadError, retry } = useSettingsLoad(fetchNightSettings);
@@ -136,6 +137,18 @@ export function NightPanel() {
           onChange={(v) => update({ feedbackVibration: v })}
         />
         <Switch label="Sonido" checked={current.feedbackSound} onChange={(v) => update({ feedbackSound: v })} />
+      </SettingsCard>
+
+      <SettingsCard
+        title="Pantallas del personal"
+        hint="Cómo se ven los móviles del personal en este local. Se aplica en cuanto vuelven a abrir la app."
+      >
+        <Switch
+          label="Modo sala (contraste alto)"
+          hint="Para salas con muy poca luz: textos más claros, bordes más marcados, sin brillos alrededor y la letra un poco más grande. Los colores de la marca y de las secciones no cambian."
+          checked={current.highContrast}
+          onChange={(v) => update({ highContrast: v })}
+        />
       </SettingsCard>
 
       <SaveRow busy={busy} saved={saved} error={error} />

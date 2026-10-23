@@ -24,8 +24,19 @@ describe('ajustes de la noche: lo guardado con lo de fábrica donde falte', () =
       feedbackVibration: true,
       feedbackSound: true,
       receptionPayoutNightCapCents: 30_000,
+      highContrast: false,
     });
     expect(nightSettingsOf('basura')).toEqual(DEFAULT_NIGHT_SETTINGS);
+  });
+
+  it('modo «sala» (contraste alto, decisión D9): apagado de fábrica, se enciende y un valor raro no lo enciende', () => {
+    expect(DEFAULT_NIGHT_SETTINGS.highContrast).toBe(false);
+    expect(nightSettingsOf({ highContrast: true }).highContrast).toBe(true);
+    expect(nightSettingsOf({ highContrast: 'sí' }).highContrast).toBe(false);
+    expect(mergeNightSettings({ highContrast: true }, { feedbackSound: false })).toMatchObject({ highContrast: true, feedbackSound: false });
+    expect(mergeNightSettings({ highContrast: true }, { highContrast: false }).highContrast).toBe(false);
+    expect(UpdateNightSettingsSchema.safeParse({ highContrast: true }).success).toBe(true);
+    expect(UpdateNightSettingsSchema.safeParse({ highContrast: 'sí' }).success).toBe(false);
   });
 
   it('un valor raro no rompe nada: vuelve a lo de fábrica (y los importes se ordenan sin repetir)', () => {

@@ -38,6 +38,12 @@ export interface VenueNightSettings {
    * Telegram. 0 = siempre el encargado.
    */
   receptionPayoutNightCapCents: number;
+  /**
+   * Modo «sala»: las apps del personal en contraste alto (textos más claros,
+   * bordes más marcados, sin halos y la letra un paso más grande). Para
+   * locales con muy poca luz o personal que lo pida. Apagado de fábrica.
+   */
+  highContrast: boolean;
 }
 
 /** Topes de lo que se puede guardar (el API y el panel usan los mismos). */
@@ -58,6 +64,7 @@ export const DEFAULT_NIGHT_SETTINGS: Readonly<VenueNightSettings> = Object.freez
   feedbackVibration: true,
   feedbackSound: true,
   receptionPayoutNightCapCents: 300_00,
+  highContrast: false,
 });
 
 const cents = (max: number) => z.number().int().min(0).max(max);
@@ -76,6 +83,7 @@ export const UpdateNightSettingsSchema = z
     feedbackVibration: z.boolean().optional(),
     feedbackSound: z.boolean().optional(),
     receptionPayoutNightCapCents: cents(MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS).optional(),
+    highContrast: z.boolean().optional(),
   })
   .strict()
   .refine((d) => Object.values(d).some((v) => v !== undefined), { message: 'No hay nada que cambiar' });
@@ -100,7 +108,7 @@ function oneOf<T extends string>(v: unknown, options: readonly T[], fallback: T)
 export function nightSettingsOf(raw: unknown): VenueNightSettings {
   const s = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const d = DEFAULT_NIGHT_SETTINGS;
-  const flag = (key: 'feedbackVibration' | 'feedbackSound'): boolean =>
+  const flag = (key: 'feedbackVibration' | 'feedbackSound' | 'highContrast'): boolean =>
     typeof s[key] === 'boolean' ? (s[key] as boolean) : d[key];
   return {
     nfcNoPinMaxCents: intIn(s.nfcNoPinMaxCents, 0, MAX_NFC_NO_PIN_CENTS) ?? d.nfcNoPinMaxCents,
@@ -112,6 +120,7 @@ export function nightSettingsOf(raw: unknown): VenueNightSettings {
     feedbackSound: flag('feedbackSound'),
     receptionPayoutNightCapCents:
       intIn(s.receptionPayoutNightCapCents, 0, MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS) ?? d.receptionPayoutNightCapCents,
+    highContrast: flag('highContrast'),
   };
 }
 

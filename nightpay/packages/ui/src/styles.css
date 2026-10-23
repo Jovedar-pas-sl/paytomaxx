@@ -234,6 +234,35 @@
   --np-grain-blend: normal;
 }
 
+/* ─── Modo «sala»: contraste alto (Ajustes → Noche, decisión D9) ─────────
+   <html data-contrast="sala">: lo pone la app del personal si el local lo
+   tiene encendido. Textos más claros, bordes más marcados, sin halos y la
+   letra un paso más grande. La marca, las secciones y los resultados
+   (PAGADO, NO PAGADO) no cambian. */
+html[data-contrast='sala'] {
+  font-size: 112.5%;
+  /* 13,2:1 · Lc 90 sobre --np-surface-2. */
+  --np-text-mute: #e3e7ea;
+  /* 8,7:1 · Lc 70 aún sobre --np-surface-3. */
+  --np-text-dim: #c4cbd1;
+  --np-text-label: #e3e7ea;
+  --np-border: #4a535c;
+  /* 6,1:1 sobre el fondo: los botones secundarios se ven sin buscar. */
+  --np-border-hi: #8994a0;
+  /* Sin halos (deslumbran con poca luz). */
+  --np-lime-glow: rgb(199 211 1 / 0);
+}
+
+html[data-theme='light'][data-contrast='sala'] {
+  --np-text-mute: #26333d;
+  /* 7,8:1 · Lc 76 sobre --np-surface-2. */
+  --np-text-dim: #36424c;
+  --np-text-label: #1f2c36;
+  --np-border: #a39a8c;
+  /* 4,6:1 sobre la crema. */
+  --np-border-hi: #6f675c;
+}
+
 *,
 *::before,
 *::after {
@@ -650,6 +679,11 @@ input::placeholder {
     --np-pad-card: 1rem;
     --np-gap: 0.5rem;
     --np-qr: clamp(10rem, 34vh, 20rem);
+  }
+
+  /* Modo «sala»: un paso más de letra también en el móvil (17 px). */
+  html.np-staff[data-contrast='sala'] {
+    font-size: 106.25%;
   }
 
   /* Campos sin tamaño propio (fechas, buscadores…): 16 px, o el iPhone amplía

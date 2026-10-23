@@ -16,8 +16,17 @@ describe('Ajustes → Noche', () => {
       feedbackVibration: true,
       feedbackSound: true,
       payoutNightCapEur: '300',
+      highContrast: false,
     });
     expect(nightChange(form, current)).toEqual({ ok: true, change: {} });
+  });
+
+  it('modo «sala» (contraste alto): encenderlo y apagarlo manda solo eso', () => {
+    const base = nightFormFrom(current);
+    expect(nightChange({ ...base, highContrast: true }, current)).toEqual({ ok: true, change: { highContrast: true } });
+    const on = { ...current, highContrast: true };
+    expect(nightFormFrom(on).highContrast).toBe(true);
+    expect(nightChange({ ...nightFormFrom(on), highContrast: false }, on)).toEqual({ ok: true, change: { highContrast: false } });
   });
 
   it('salidas en efectivo por persona y noche: de 0 € (siempre el encargado) a 5.000 €', () => {

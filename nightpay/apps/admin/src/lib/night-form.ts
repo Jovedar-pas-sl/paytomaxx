@@ -25,6 +25,8 @@ export interface NightForm {
   feedbackSound: boolean;
   /** Tope de efectivo devuelto por persona de recepción y noche (€). */
   payoutNightCapEur: string;
+  /** Modo «sala»: las apps del personal en contraste alto. */
+  highContrast: boolean;
 }
 
 /** «20», «12,50»: los euros como se teclean (sin decimales si son enteros). */
@@ -44,6 +46,7 @@ export function nightFormFrom(s: VenueNightSettings): NightForm {
     feedbackVibration: s.feedbackVibration,
     feedbackSound: s.feedbackSound,
     payoutNightCapEur: eurosText(s.receptionPayoutNightCapCents),
+    highContrast: s.highContrast,
   };
 }
 
@@ -93,6 +96,7 @@ export function nightChange(
     feedbackVibration: form.feedbackVibration,
     feedbackSound: form.feedbackSound,
     receptionPayoutNightCapCents: payoutCap,
+    highContrast: form.highContrast,
   };
   const problem = nightSettingsProblem(next);
   if (problem) return { ok: false, problem };
@@ -105,6 +109,7 @@ export function nightChange(
   if (next.feedbackVibration !== current.feedbackVibration) change.feedbackVibration = next.feedbackVibration;
   if (next.feedbackSound !== current.feedbackSound) change.feedbackSound = next.feedbackSound;
   if (payoutCap !== current.receptionPayoutNightCapCents) change.receptionPayoutNightCapCents = payoutCap;
+  if (next.highContrast !== current.highContrast) change.highContrast = next.highContrast;
   return { ok: true, change };
 }
 

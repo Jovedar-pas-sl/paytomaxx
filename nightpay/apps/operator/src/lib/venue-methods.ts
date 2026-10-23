@@ -15,6 +15,7 @@ import {
   type VenuePaymentMethods,
 } from '@nightpay/contracts';
 import { setVenueFeedback } from './alert-sound';
+import { applySalaContrast } from './sala-contrast';
 import { fetchVenueFeed } from './api';
 import type { TabKey } from './roles';
 
@@ -103,6 +104,15 @@ export interface VenueFeed {
   rights: MyRights | null;
 }
 
+/** El almacenamiento del navegador, o null si no se deja (navegación privada estricta). */
+function localStorageOrNull(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 /** Las formas de cobro, los ajustes de la noche y lo que puede quien entra, pedidos una vez al entrar (y si cambia el usuario). */
 export function useVenueMethodsFeed(userId: string): VenueFeed {
   const [feed, setFeed] = useState<VenueFeed>({ methods: DEFAULT_PAYMENT_METHODS, night: DEFAULT_NIGHT_SETTINGS, rights: null });
@@ -113,6 +123,8 @@ export function useVenueMethodsFeed(userId: string): VenueFeed {
         if (cancelled) return;
         const night = nightSettingsOf(venue.nightSettings);
         setVenueFeedback({ sound: night.feedbackSound, vibration: night.feedbackVibration });
+        // Modo «sala» (contraste alto) si el local lo tiene; si no responde, se queda como estaba.
+        applySalaContrast(document.documentElement, localStorageOrNull(), night.highContrast);
         setFeed({ methods: paymentMethodsOf(venue.paymentMethods), night, rights: myRightsOf(venue.myPost, venue.myRights) });
       })
       .catch(() => {
