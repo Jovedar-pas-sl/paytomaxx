@@ -111,7 +111,8 @@ export function renderQrChargePage(
     amount: isPaid ? eur(view.amountCents) : '',
     authorizedAt: paidAt,
     now,
-    code: null,
+    // El mismo código que ve el personal en su PAGADO (el del cobro único); sin él, ninguno.
+    code: view.code ?? null,
     hidden: !isPaid,
     fromBalance: true,
   });

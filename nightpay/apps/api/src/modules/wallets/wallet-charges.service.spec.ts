@@ -306,6 +306,16 @@ describe('el cliente paga el QR con su Face ID', () => {
     });
   });
 
+  it('el código del «Pagado» es el del cobro único (el mismo que ve el personal); sin cobro con tarjeta, ninguno', async () => {
+    const linked = makeService();
+    linked.tx.walletChargeRequest.findUnique.mockResolvedValue(
+      request({ walletId: 'w-1', payToken: 'pay-tok', status: 'ACCEPTED', decidedAt: new Date(), linkedPaymentId: '0b8c2f1e-0000-4000-8000-0000000000c1' }),
+    );
+    await expect(linked.svc.qrChargeForClient('pay-tok')).resolves.toMatchObject({ code: '0C1' });
+    const alone = qrService();
+    await expect(alone.svc.qrChargeForClient('pay-tok')).resolves.toMatchObject({ code: null });
+  });
+
   it('si la chica lo canceló mientras el cliente pagaba, no se cobra', async () => {
     const { svc, tx } = qrService();
     tx.walletChargeRequest.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });

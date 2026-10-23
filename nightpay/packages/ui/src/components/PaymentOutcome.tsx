@@ -27,9 +27,14 @@ export interface PaymentOutcomeProps {
   sinceMs?: number;
   /** Una frase bajo el importe. Por defecto la de cada resultado (pagado: ninguna). */
   message?: string;
-  /** Debajo: el servicio, la propina, «le quedan 40 €»… */
+  /** Justo bajo el importe, antes del código: «33 € + 2 € de propina». */
+  summary?: ReactNode;
+  /** Debajo del código: «le quedan 40 €», quién / qué / cómo… */
   detail?: ReactNode;
-  /** Código corto que también ve el cliente en su móvil (solo pagado). */
+  /**
+   * Código corto que también ve el cliente en su móvil (solo pagado): grande,
+   * para compararlo a un metro. La referencia («C-0023») va pequeña arriba.
+   */
   code?: string | null;
   codeHint?: string;
   /** Sección del cobro (VENUE_BAR, CHICA_SERVICE… o copas, servicios…): su chip arriba. */
@@ -85,6 +90,7 @@ export function PaymentOutcome({
   currency = 'EUR',
   sinceMs,
   message = DEFAULT_MESSAGE[kind],
+  summary,
   detail,
   code,
   codeHint,
@@ -167,7 +173,7 @@ export function PaymentOutcome({
           {amount}
         </p>
         {message ? <p className="np-outcome-message">{message}</p> : null}
-        {detail ? <div className="np-outcome-detail">{detail}</div> : null}
+        {summary ? <div className="np-outcome-detail">{summary}</div> : null}
         {code ? (
           <div className="np-outcome-code">
             <span className="np-outcome-code-label">Código</span>
@@ -175,6 +181,7 @@ export function PaymentOutcome({
             {codeHint ? <span className="np-outcome-code-hint">{codeHint}</span> : null}
           </div>
         ) : null}
+        {detail ? <div className="np-outcome-detail">{detail}</div> : null}
         <p className="np-outcome-ago">{agoLabel(since, now)}</p>
         {error ? (
           <p role="alert" className="np-outcome-error">
@@ -245,7 +252,8 @@ function OutcomeIcon({ kind }: { kind: OutcomeKind }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       >
-        {kind === 'paid' ? <path d="M5 12.5l4.5 4.5L19 7.5" /> : null}
+        {/* pathLength=1: la marca se dibuja de 0 a 1 (staff.css, el momento PAGADO). */}
+        {kind === 'paid' ? <path d="M5 12.5l4.5 4.5L19 7.5" pathLength={1} /> : null}
         {kind === 'failed' ? <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /> : null}
         {kind === 'expired' ? (
           <>

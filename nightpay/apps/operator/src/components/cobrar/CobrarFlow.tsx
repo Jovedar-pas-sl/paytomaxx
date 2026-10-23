@@ -236,6 +236,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       fromCuenta: true,
       view: {
         totalCents: totals.totalCents,
+        tipCents: totals.tipCents,
         sections,
         band: {
           title: sections

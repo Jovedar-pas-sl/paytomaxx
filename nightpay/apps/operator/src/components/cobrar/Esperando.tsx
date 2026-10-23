@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
-import type { PaymentStatus } from '@nightpay/contracts';
+import { confirmationCode, type PaymentStatus } from '@nightpay/contracts';
 import {
   countdownPhase,
   formatClock,
@@ -30,7 +30,7 @@ import {
   type CobroCreado,
   type SaldoState,
 } from '@/lib/api-cobro';
-import { failReasonOf, paidMeta, type FailReason } from '@/lib/cobro-view';
+import { failReasonOf, paidAmounts, paidMeta, tipLine, type FailReason } from '@/lib/cobro-view';
 import { cobroOutcome } from '@/lib/cobro-state';
 import { StaffOutcome } from '../StaffOutcome';
 import { usePaymentLive } from '../use-payment-live';
@@ -48,7 +48,10 @@ export interface CobroAbierto {
   saldo: { chargeId: string; expiresAt: string } | null;
   /** El QR del cobro del saldo suelto (sin tarjeta). */
   saldoQr?: string | null;
+  /** Lo que paga el cliente (con la propina que se puso en la cuenta, si la hay). */
   totalCents: number;
+  /** La propina que se puso en la cuenta (va dentro de totalCents). */
+  tipCents?: number;
   ref: string | null;
   /** Secciones del cobro con su importe: la banda, la franja y el chip. */
   sections: ReadonlyArray<{ section: string; cents: number }>;
@@ -258,17 +261,29 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const allSections = cobro.sections.map((s) => s.section);
 
   if (outcome.kind === 'paid') {
-    const total = cobro.totalCents + (outcome.method === 'card' ? outcome.tipCents : 0);
+    const amounts = paidAmounts(cobro, outcome);
+    const tip = tipLine(amounts);
+    // El mismo código que ve el cliente (el del cobro único, también si pagó con el saldo); sin cobro con tarjeta, ninguno.
+    const code = cobro.card ? confirmationCode(cobro.card.id) : null;
     return (
       <StaffOutcome
         kind="paid"
-        amountCents={total}
+        amountCents={amounts.totalCents}
         compactAmount
         section={primarySection}
         sections={allSections}
         sectionLabel={sectionLabel}
         reference={cobro.ref}
         stripe={stripe}
+        code={code}
+        codeHint="El mismo que ve el cliente"
+        summary={
+          tip ? (
+            <p className={styles.left}>
+              {tip.base} + <b>{tip.tip}</b> de propina
+            </p>
+          ) : null
+        }
         detail={
           <PaidDetail
             cobro={cobro}

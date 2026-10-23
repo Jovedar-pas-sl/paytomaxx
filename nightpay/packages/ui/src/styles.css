@@ -46,9 +46,15 @@
 
   /* Motion */
   --np-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Solo el aro de PAGADO, una vez: salta un poco y se asienta. */
+  --np-ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
   --np-d-fast: 150ms;
   --np-d-base: 250ms;
+  /* El momento PAGADO (destello, aro y marca). */
+  --np-d-moment: 420ms;
   --np-d-slow: 600ms;
+  /* Esperar: un pulso lento (< 1 Hz), nunca destellos. */
+  --np-pulse: 1.6s;
 
   /* Fonts — set on <html> by next/font, here as fallback. --font-mono es
      Manrope 800 (cifras, importes y títulos); el nombre se queda por las
@@ -109,6 +115,8 @@
   --np-outcome-paid-ink: var(--np-cream);
   --np-outcome-failed: #ff5a5f;
   --np-outcome-expired: #ffb020;
+  /* El destello verde del PAGADO (una vez, al llegar; decisión D10). */
+  --np-flash-paid: #5be38f;
   --np-banner-bg: #ffb020;
   --np-banner-ink: #0f1112;
 }

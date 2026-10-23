@@ -122,15 +122,17 @@
   gap: 0.5rem;
 }
 
+/* La referencia del cobro («C-0023»), pequeña: lo que se compara a un metro
+   es el código corto, más abajo (decisión D7). */
 .np-outcome-ref {
   display: inline-flex;
   align-items: center;
-  min-height: 2.125rem;
-  padding: 0 0.875rem;
-  border: 1.5px solid currentColor;
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  border: 1px solid color-mix(in srgb, currentColor 60%, transparent);
   border-radius: var(--np-r-pill);
   font-family: var(--np-font-num);
-  font-size: 1rem;
+  font-size: 0.875rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
@@ -173,6 +175,48 @@
 .np-outcome-icon {
   width: 53%;
   height: 53%;
+}
+
+/* ─── El momento PAGADO (decisión D10) ───────────────────────────────
+   Una vez, al llegar: un destello verde de toda la pantalla (sube y baja en
+   0,42 s; nunca más de uno), el aro que salta y la marca que se dibuja.
+   Con «reducir movimiento», nada de eso: el estado final, quieto (abajo). */
+.np-outcome[data-kind='paid']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: var(--np-flash-paid);
+  opacity: 0;
+  pointer-events: none;
+  animation: np-outcome-flash var(--np-d-moment) ease-out 1 both;
+}
+
+@keyframes np-outcome-flash {
+  0%   { opacity: 0;    }
+  30%  { opacity: 0.55; }
+  100% { opacity: 0;    }
+}
+
+.np-outcome[data-kind='paid'] .np-outcome-ring {
+  animation: np-outcome-pop var(--np-d-moment) var(--np-ease-pop) 1 both;
+}
+
+@keyframes np-outcome-pop {
+  from { transform: scale(0.6); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* La marca ✓ se dibuja (pathLength="1" en el SVG): queda dibujada al final. */
+.np-outcome[data-kind='paid'] .np-outcome-icon path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: np-outcome-draw var(--np-d-moment) var(--np-ease) 120ms 1 both;
+}
+
+@keyframes np-outcome-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
 }
 
 /* --np-fit: ancho del texto en em (lo pone el componente): la letra se
@@ -734,6 +778,17 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* El momento PAGADO, sin destello ni animación: el aro y la marca, ya en su
+     sitio (el estado final). */
+  .np-outcome[data-kind='paid']::after {
+    display: none;
+  }
+
+  .np-outcome[data-kind='paid'] .np-outcome-ring,
+  .np-outcome[data-kind='paid'] .np-outcome-icon path {
+    animation: none !important;
+  }
+
   /* La franja no se desplaza: se funde despacio (un ciclo cada 5 s). Gana a
      la regla general de styles.css, que mata todas las animaciones. */
   .np-outcome-band-track {

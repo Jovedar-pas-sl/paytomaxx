@@ -51,6 +51,14 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(js).not.toContain('alert(');
   });
 
+  it('el «Pagado» trae el código del cobro único (el mismo que ve el personal); sin él, ningún código', () => {
+    const withCode = renderQrChargePage('tok-1', 'es', { ...view, code: '0C1' }, NOW);
+    expect(withCode).toContain('<b class="num">0C1</b>');
+    expect(withCode).toContain('El mismo que ve el personal');
+    const without = renderQrChargePage('tok-1', 'es', { ...view, code: null }, NOW);
+    expect(without).not.toContain('class="pcode"');
+  });
+
   it('cobro ya pagado hace rato → «Ya pagado · hace 23 min» en gris, sin botón de pagar', () => {
     const html = renderQrChargePage(
       'tok-1',

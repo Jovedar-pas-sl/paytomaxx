@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import {
+  confirmationCode,
   fichaNumberText,
   formatChargeRef,
   isWalletCardToken,
@@ -232,6 +233,12 @@ export interface QrChargeClientView {
   paidAt: string | null;
   /** Cobro único: ya lo pagó con tarjeta (del saldo no se cobró nada). */
   paidElsewhere?: boolean;
+  /**
+   * El código corto del cobro único (el de su cobro con tarjeta): el mismo que
+   * ve el personal en su PAGADO. Sin cobro con tarjeta enlazado, null: no se
+   * enseña ninguno (nada inventado).
+   */
+  code?: string | null;
 }
 
 /** Para el encargado: cobros con QR sin pagar. */
@@ -856,6 +863,7 @@ export class WalletChargesService {
       expiresAt: request.expiresAt.toISOString(),
       paidAt: status === 'ACCEPTED' && request.decidedAt ? request.decidedAt.toISOString() : null,
       ...(elsewhere ? { paidElsewhere: true } : {}),
+      code: request.linkedPaymentId ? confirmationCode(request.linkedPaymentId) : null,
     };
   }
 

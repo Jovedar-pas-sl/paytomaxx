@@ -31,6 +31,35 @@ export function paidMeta(parts: { who?: string | null; what?: string | null; met
   return [parts.who, parts.what, methodLabel(parts.method), time].filter(Boolean).join(' · ');
 }
 
+/** Lo que dice el PAGADO: lo vendido, la propina y lo que pagó el cliente. */
+export interface PaidAmounts {
+  baseCents: number;
+  tipCents: number;
+  totalCents: number;
+}
+
+/**
+ * Las cifras del PAGADO. `cobro.totalCents` ya lleva la propina que se puso en
+ * la cuenta (`cobro.tipCents`). Con tarjeta manda la que eligió el cliente en
+ * su página (la de la cuenta va marcada y puede cambiarla): no se suma dos
+ * veces. Con el saldo, la de la cuenta (no se puede cambiar).
+ */
+export function paidAmounts(
+  cobro: { totalCents: number; tipCents?: number | null },
+  outcome: { method: PaidMethod; tipCents: number },
+): PaidAmounts {
+  const accountTip = Math.max(0, cobro.tipCents ?? 0);
+  const baseCents = cobro.totalCents - accountTip;
+  const tipCents = outcome.method === 'card' ? Math.max(0, outcome.tipCents) : accountTip;
+  return { baseCents, tipCents, totalCents: baseCents + tipCents };
+}
+
+/** «33 € + 2 € de propina» (la propina, aparte para resaltarla); sin propina, null. */
+export function tipLine(amounts: PaidAmounts): { base: string; tip: string } | null {
+  if (amounts.tipCents <= 0) return null;
+  return { base: formatEur(amounts.baseCents, { compact: true }), tip: formatEur(amounts.tipCents, { compact: true }) };
+}
+
 /** ¿Pedirá el PIN si paga con el NFC? (más que el tope sin PIN del local). */
 export function pinExpected(totalCents: number, night: Pick<VenueNightSettings, 'nfcNoPinMaxCents'>): boolean {
   return totalCents > night.nfcNoPinMaxCents;

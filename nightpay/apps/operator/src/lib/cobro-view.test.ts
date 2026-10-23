@@ -4,11 +4,13 @@ import {
   failReasonOf,
   invitationSplit,
   methodLabel,
+  paidAmounts,
   paidMeta,
   pinExpected,
   pinFootnote,
   pinWarning,
   splitCells,
+  tipLine,
   whoLine,
 } from './cobro-view';
 
@@ -82,5 +84,37 @@ describe('esperando y resultado', () => {
     expect(whoLine('Carlos', 'WAITER')).toBe('Carlos · camarero');
     expect(whoLine('Lola', 'OPERATOR')).toBe('Lola · chica');
     expect(whoLine(null, 'OWNER')).toBe('dueño');
+  });
+});
+
+describe('el PAGADO con propina (D7)', () => {
+  it('con tarjeta: lo vendido + la propina que eligió el cliente', () => {
+    const a = paidAmounts({ totalCents: 3300 }, { method: 'card', tipCents: 200 });
+    expect(a).toEqual({ baseCents: 3300, tipCents: 200, totalCents: 3500 });
+    expect(sp(JSON.stringify(tipLine(a)))).toBe(JSON.stringify({ base: '33 €', tip: '2 €' }));
+  });
+
+  it('con tarjeta y una propina ya puesta en la cuenta: no se suma dos veces', () => {
+    // La cuenta: 33 € + 2 € de propina (total 35 €); el cliente deja los 2 € marcados.
+    expect(paidAmounts({ totalCents: 3500, tipCents: 200 }, { method: 'card', tipCents: 200 })).toEqual({
+      baseCents: 3300,
+      tipCents: 200,
+      totalCents: 3500,
+    });
+    // O la cambia a 5 €.
+    expect(paidAmounts({ totalCents: 3500, tipCents: 200 }, { method: 'card', tipCents: 500 }).totalCents).toBe(3800);
+  });
+
+  it('con el saldo: la propina de la cuenta (no se puede cambiar)', () => {
+    expect(paidAmounts({ totalCents: 3500, tipCents: 200 }, { method: 'nfc_nopin', tipCents: 0 })).toEqual({
+      baseCents: 3300,
+      tipCents: 200,
+      totalCents: 3500,
+    });
+  });
+
+  it('sin propina no hay línea; con céntimos, con ellos', () => {
+    expect(tipLine(paidAmounts({ totalCents: 1200 }, { method: 'card', tipCents: 0 }))).toBeNull();
+    expect(sp(tipLine({ baseCents: 1250, tipCents: 150, totalCents: 1400 })!.tip)).toBe('1,50 €');
   });
 });
