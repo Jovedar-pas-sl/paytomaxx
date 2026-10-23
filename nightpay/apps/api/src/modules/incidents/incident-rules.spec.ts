@@ -124,6 +124,50 @@ describe('resumen de las 9:00', () => {
   });
 });
 
+describe('resumen de las 9:00: las cifras dicen lo que cuentan', () => {
+  // La noche de la demo: 9 ventas con tarjeta (533 €) y 2 recargas con tarjeta (100 €) = 11 pagos con
+  // tarjeta; 26 € de propinas y 6 recargas en efectivo (450 €) → cobrado 1109 €.
+  const demo: ExportSummary = {
+    count: 11,
+    grossCents: 63_300,
+    tipsCents: 2_600,
+    chargedCents: 110_900,
+    refundsCount: 1,
+    refundsCents: 1_200,
+    netCents: 110_900 - 1_200 - 2_000,
+    walletCashTopUpsCount: 6,
+    walletCashTopUpsCents: 45_000,
+    walletCardTopUpsCount: 2,
+    walletCardTopUpsCents: 10_000,
+    byType: [],
+    chicaCommissionCents: 7_800,
+    chicaTipsCents: 1_500,
+    chicaReversalsCents: 0,
+    chicaNetCents: 9_300,
+    venueTipsCents: 1_100,
+    venueNetCents: 107_700 - 9_300,
+    payoutsCount: 0,
+    payoutsCents: 0,
+    perChica: [],
+    walletCashPayoutsCount: 1,
+    walletCashPayoutsCents: 2_000,
+    walletCardPayoutsCount: 0,
+    walletCardPayoutsCents: 0,
+    consumptionsCount: 11,
+    consumptionsCents: 34_300,
+    saldoByType: [],
+  };
+
+  it('«11 pagos con tarjeta» (no «cobros»: los del saldo no van ahí), las dos recargas y el neto sin el personal (no «para el local»)', () => {
+    const text = morningSummaryMessage('Sala Aurora', demo, 0);
+    expect(text).toContain('11 pagos con tarjeta · cobrado 1109,00 €');
+    expect(text).toContain('Recargas con tarjeta: 2 · 100,00 €');
+    expect(text).toContain('Recargas en efectivo: 6 · 450,00 € (en la caja)');
+    expect(text).toContain('Para las chicas: 93,00 € · neto sin el personal: 984,00 €');
+    expect(text).not.toContain('para el local');
+  });
+});
+
 describe('avisos de cobro aprobado que no se dieron por buenos', () => {
   const row = (eventType: string, payload: Record<string, unknown>) => ({
     id: '501',
@@ -288,49 +332,5 @@ describe('«He perdido mi NFC»', () => {
     expect(SELF_RESOLVING.has('wallet_card_lost')).toBe(false);
     const bare = walletCardLostIncident({ id: 'a', paymentId: null, amountCents: null, occurredAt: new Date(), payload: null });
     expect(bare.detail).toContain('Su saldo sigue valiendo');
-  });
-});
-
-describe('resumen de las 9:00: las cifras dicen lo que cuentan', () => {
-  // La noche de la demo: 9 ventas con tarjeta (533 €) y 2 recargas con tarjeta (100 €) = 11 pagos con
-  // tarjeta; 26 € de propinas y 6 recargas en efectivo (450 €) → cobrado 1109 €.
-  const demo: ExportSummary = {
-    count: 11,
-    grossCents: 63_300,
-    tipsCents: 2_600,
-    chargedCents: 110_900,
-    refundsCount: 1,
-    refundsCents: 1_200,
-    netCents: 110_900 - 1_200 - 2_000,
-    walletCashTopUpsCount: 6,
-    walletCashTopUpsCents: 45_000,
-    walletCardTopUpsCount: 2,
-    walletCardTopUpsCents: 10_000,
-    byType: [],
-    chicaCommissionCents: 7_800,
-    chicaTipsCents: 1_500,
-    chicaReversalsCents: 0,
-    chicaNetCents: 9_300,
-    venueTipsCents: 1_100,
-    venueNetCents: 107_700 - 9_300,
-    payoutsCount: 0,
-    payoutsCents: 0,
-    perChica: [],
-    walletCashPayoutsCount: 1,
-    walletCashPayoutsCents: 2_000,
-    walletCardPayoutsCount: 0,
-    walletCardPayoutsCents: 0,
-    consumptionsCount: 11,
-    consumptionsCents: 34_300,
-    saldoByType: [],
-  };
-
-  it('«11 pagos con tarjeta» (no «cobros»: los del saldo no van ahí), las dos recargas y el neto sin el personal (no «para el local»)', () => {
-    const text = morningSummaryMessage('Sala Aurora', demo, 0);
-    expect(text).toContain('11 pagos con tarjeta · cobrado 1109,00 €');
-    expect(text).toContain('Recargas con tarjeta: 2 · 100,00 €');
-    expect(text).toContain('Recargas en efectivo: 6 · 450,00 € (en la caja)');
-    expect(text).toContain('Para las chicas: 93,00 € · neto sin el personal: 984,00 €');
-    expect(text).not.toContain('para el local');
   });
 });
