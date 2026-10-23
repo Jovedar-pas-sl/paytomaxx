@@ -32,19 +32,26 @@ export function morningSummaryMessage(
 ): string {
   const lines = [
     `☀️ ${venueName} — anoche`,
-    `${s.count} ${s.count === 1 ? 'cobro' : 'cobros'} · cobrado ${eur(s.chargedCents)}`,
+    // Los pagos con tarjeta (también las recargas con tarjeta): lo pagado con
+    // el saldo no es dinero nuevo y no cuenta aquí.
+    `${s.count} ${s.count === 1 ? 'pago' : 'pagos'} con tarjeta · cobrado ${eur(s.chargedCents)}`,
   ];
   if (s.tipsCents > 0) lines.push(`Propinas: ${eur(s.tipsCents)}`);
+  if (s.walletCardTopUpsCount) {
+    lines.push(`Recargas con tarjeta: ${s.walletCardTopUpsCount} · ${eur(s.walletCardTopUpsCents ?? 0)}`);
+  }
   if (s.walletCashTopUpsCount) {
     const n = s.walletCashTopUpsCount;
     lines.push(`Recargas en efectivo: ${n} · ${eur(s.walletCashTopUpsCents ?? 0)} (en la caja)`);
   }
   if (s.refundsCents > 0) lines.push(`Devoluciones: −${eur(s.refundsCents)}`);
   // Lo de los camareros (su parte de las copas con invitación, si el local se
-  // la da) va aparte: chicas + camareros + local = lo cobrado neto.
+  // la da) va aparte: chicas + camareros + el resto = lo cobrado neto. Ese
+  // resto no es «Para el local» del mapa del dinero (el reparto de lo
+  // vendido): lleva las recargas (saldo de los clientes) y no resta comisiones.
   const camareros = s.camareroNetCents ?? 0;
   lines.push(
-    `Para las chicas: ${eur(s.chicaNetCents)}${camareros !== 0 ? ` · para los camareros: ${eur(camareros)}` : ''} · para el local: ${eur(s.venueNetCents)}`,
+    `Para las chicas: ${eur(s.chicaNetCents)}${camareros !== 0 ? ` · para los camareros: ${eur(camareros)}` : ''} · neto sin el personal: ${eur(s.venueNetCents)}`,
   );
   if (s.perChica.length > 0) lines.push(`Chicas que cobraron: ${s.perChica.length} (detalle en el panel → Noches)`);
   if (cashDiffCents) lines.push(cashDiffLine(cashDiffCents));

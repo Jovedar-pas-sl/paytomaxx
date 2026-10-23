@@ -197,8 +197,9 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     }
   }
 
-  async function start(pending: Pending) {
-    if (busyNow.current) return;
+  /** true si se abrió el cobro (pasa a «Esperando»); false si no (sin red, o aún va otro). */
+  async function start(pending: Pending): Promise<boolean> {
+    if (busyNow.current) return false;
     busyNow.current = true;
     const what = JSON.stringify(pending.input);
     if (attempt.current?.what !== what) attempt.current = { key: newIdempotencyKey(), what };
@@ -211,11 +212,13 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       attempt.current = null;
       if (arrivedTooLate(asked, screen.current)) {
         await dropCobro(cobro);
-        return;
+        return false;
       }
       go({ kind: 'esperando', cobro, request: pending });
+      return true;
     } catch (err) {
       if (!arrivedTooLate(asked, screen.current)) setError((err as Error).message);
+      return false;
     } finally {
       busyNow.current = false;
       setBusy(false);
@@ -251,10 +254,10 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   }
 
   /** «Copa con invitación» con la chica leída (o elegida): un cobro aparte (la cuenta no se toca). */
-  function invitar(invite: CartaItem, chica: Invitada) {
+  function invitar(invite: CartaItem, chica: Invitada): Promise<boolean> {
     const split = rules ? invitationSplit(rules, invite.priceCents, user.role === 'WAITER') : null;
     const cells = split ? splitCells(split, { chica: chica.name, barra: `Barra (${name})` }) : [];
-    void start({
+    return start({
       input: {
         lines: [{ serviceItemId: invite.id, qty: 1 }],
         ...(chica.token ? { invitedStaffToken: chica.token } : { invitedOperatorId: chica.id }),

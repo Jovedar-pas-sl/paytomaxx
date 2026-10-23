@@ -22,6 +22,8 @@ export interface MetricsPeriod {
   walletCashPayoutCents: number;
   /** Recargas en efectivo (ya en chargedCents). */
   walletCashTopUpCents: number;
+  /** Recargas con tarjeta (ya en grossCents y count): grossCents − esto = ventas con tarjeta. */
+  walletCardTopUpCents: number;
   /** Cobrado (con propinas y recargas en efectivo) − devoluciones − saldo devuelto en efectivo. */
   netCents: number;
 }
@@ -35,6 +37,7 @@ export function metricsPeriod(t: PeriodTotals): MetricsPeriod {
     refundedCents: t.refundedCents,
     walletCashPayoutCents: t.walletCashPayoutCents,
     walletCashTopUpCents: t.walletCashTopUpCents,
+    walletCardTopUpCents: t.walletCardTopUpCents,
     netCents: netCents(t),
   };
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chargedCents, invoicedCents, netCents, totalsFromRow, type PeriodTotals } from './period-totals';
+import { chargedCents, chargedParts, invoicedCents, netCents, totalsFromRow, type PeriodTotals } from './period-totals';
 
 /**
  * Noche de ejemplo: un servicio de 100 € con 5 € de propina, una barra de
@@ -20,6 +20,8 @@ const NIGHT: PeriodTotals = {
   walletCashTopUpCents: 0,
   walletCardPayoutCount: 0,
   walletCardPayoutCents: 0,
+  walletCardTopUpCount: 1,
+  walletCardTopUpCents: 20_000,
 };
 
 describe('totales de un periodo (mismas reglas en métricas, Z e IVA)', () => {
@@ -65,6 +67,8 @@ describe('totales de un periodo (mismas reglas en métricas, Z e IVA)', () => {
         walletCashTopUpCents: 0n,
         walletCardPayoutCount: 0,
         walletCardPayoutCents: 0n,
+        walletCardTopUpCount: 1,
+        walletCardTopUpCents: 20_000n,
       }),
     ).toEqual(NIGHT);
     expect(netCents(totalsFromRow(undefined))).toBe(0);
@@ -92,5 +96,25 @@ describe('totales de un periodo (mismas reglas en métricas, Z e IVA)', () => {
     };
     expect(netCents(t)).toBe(0);
     expect(invoicedCents(t)).toBe(0);
+  });
+});
+
+describe('«Hoy · cobrado», por partes (cada parte dice lo que suma)', () => {
+  it('ventas con tarjeta + propinas + recargas (con tarjeta y en efectivo) = cobrado', () => {
+    // La noche de la demo: 533 € de ventas con tarjeta, 26 € de propinas, 100 € de recargas con
+    // tarjeta (ya en grossCents: 633 €) y 450 € en efectivo → 1109 €.
+    const demo: PeriodTotals = {
+      ...NIGHT,
+      grossCents: 63_300,
+      tipCents: 2_600,
+      walletCardTopUpCount: 2,
+      walletCardTopUpCents: 10_000,
+      walletCashTopUpCount: 6,
+      walletCashTopUpCents: 45_000,
+    };
+    expect(chargedParts(demo)).toEqual({ salesCents: 53_300, tipCents: 2_600, topUpCents: 55_000 });
+    expect(chargedCents(demo)).toBe(110_900);
+    const p = chargedParts(demo);
+    expect(p.salesCents + p.tipCents + p.topUpCents).toBe(chargedCents(demo));
   });
 });

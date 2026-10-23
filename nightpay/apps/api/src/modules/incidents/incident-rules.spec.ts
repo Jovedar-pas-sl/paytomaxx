@@ -96,10 +96,10 @@ describe('resumen de las 9:00', () => {
     expect(morningSummaryMessage('Local Centro', summary, 1)).toBe(
       [
         '☀️ Local Centro — anoche',
-        '12 cobros · cobrado 1220,00 €',
+        '12 pagos con tarjeta · cobrado 1220,00 €',
         'Propinas: 20,00 €',
         'Devoluciones: −100,00 €',
-        'Para las chicas: 920,00 € · para el local: 200,00 €',
+        'Para las chicas: 920,00 € · neto sin el personal: 200,00 €',
         'Chicas que cobraron: 2 (detalle en el panel → Noches)',
         'Incidencias por mirar: 1 (panel → Incidencias)',
       ].join('\n'),
@@ -109,12 +109,12 @@ describe('resumen de las 9:00', () => {
   it('lo de los camareros (su parte de las copas con invitación) va en el reparto si no es 0: chicas + camareros + local = neto', () => {
     // Noche con 15,01 € cobrados: Lola 7,51 €, Dani (camarero) 7,50 €, el local 0 €.
     const night = { ...summary, count: 1, grossCents: 1501, tipsCents: 0, chargedCents: 1501, refundsCount: 0, refundsCents: 0, netCents: 1501, chicaNetCents: 751, camareroNetCents: 750, venueNetCents: 0 };
-    expect(morningSummaryMessage('Local Centro', night, 0)).toContain('Para las chicas: 7,51 € · para los camareros: 7,50 € · para el local: 0,00 €');
+    expect(morningSummaryMessage('Local Centro', night, 0)).toContain('Para las chicas: 7,51 € · para los camareros: 7,50 € · neto sin el personal: 0,00 €');
     // La noche siguiente se devuelven 7,50 €: a cada uno lo suyo, en negativo.
     const next = { ...night, chargedCents: 0, grossCents: 0, refundsCount: 1, refundsCents: 750, netCents: -750, chicaNetCents: -375, camareroNetCents: -375, venueNetCents: 0 };
-    expect(morningSummaryMessage('Local Centro', next, 0)).toContain('Para las chicas: -3,75 € · para los camareros: -3,75 € · para el local: 0,00 €');
+    expect(morningSummaryMessage('Local Centro', next, 0)).toContain('Para las chicas: -3,75 € · para los camareros: -3,75 € · neto sin el personal: 0,00 €');
     // Sin nada para los camareros (lo normal), como siempre.
-    expect(morningSummaryMessage('Local Centro', { ...summary, camareroNetCents: 0 }, 0)).toContain('Para las chicas: 920,00 € · para el local: 200,00 €');
+    expect(morningSummaryMessage('Local Centro', { ...summary, camareroNetCents: 0 }, 0)).toContain('Para las chicas: 920,00 € · neto sin el personal: 200,00 €');
   });
 
   it('la diferencia de caja al cerrar, solo si la hay', () => {
@@ -124,6 +124,50 @@ describe('resumen de las 9:00', () => {
     expect(morningSummaryMessage('Local Centro', summary, 0, false, 500)).toContain('Caja: sobran 5,00 €');
     expect(morningSummaryMessage('Local Centro', summary, 0, false, 0)).not.toContain('Caja');
     expect(morningSummaryMessage('Local Centro', summary, 0, false, null)).not.toContain('Caja');
+  });
+});
+
+describe('resumen de las 9:00: las cifras dicen lo que cuentan', () => {
+  // La noche de la demo: 9 ventas con tarjeta (533 €) y 2 recargas con tarjeta (100 €) = 11 pagos con
+  // tarjeta; 26 € de propinas y 6 recargas en efectivo (450 €) → cobrado 1109 €.
+  const demo: ExportSummary = {
+    count: 11,
+    grossCents: 63_300,
+    tipsCents: 2_600,
+    chargedCents: 110_900,
+    refundsCount: 1,
+    refundsCents: 1_200,
+    netCents: 110_900 - 1_200 - 2_000,
+    walletCashTopUpsCount: 6,
+    walletCashTopUpsCents: 45_000,
+    walletCardTopUpsCount: 2,
+    walletCardTopUpsCents: 10_000,
+    byType: [],
+    chicaCommissionCents: 7_800,
+    chicaTipsCents: 1_500,
+    chicaReversalsCents: 0,
+    chicaNetCents: 9_300,
+    venueTipsCents: 1_100,
+    venueNetCents: 107_700 - 9_300,
+    payoutsCount: 0,
+    payoutsCents: 0,
+    perChica: [],
+    walletCashPayoutsCount: 1,
+    walletCashPayoutsCents: 2_000,
+    walletCardPayoutsCount: 0,
+    walletCardPayoutsCents: 0,
+    consumptionsCount: 11,
+    consumptionsCents: 34_300,
+    saldoByType: [],
+  };
+
+  it('«11 pagos con tarjeta» (no «cobros»: los del saldo no van ahí), las dos recargas y el neto sin el personal (no «para el local»)', () => {
+    const text = morningSummaryMessage('Sala Aurora', demo, 0);
+    expect(text).toContain('11 pagos con tarjeta · cobrado 1109,00 €');
+    expect(text).toContain('Recargas con tarjeta: 2 · 100,00 €');
+    expect(text).toContain('Recargas en efectivo: 6 · 450,00 € (en la caja)');
+    expect(text).toContain('Para las chicas: 93,00 € · neto sin el personal: 984,00 €');
+    expect(text).not.toContain('para el local');
   });
 });
 

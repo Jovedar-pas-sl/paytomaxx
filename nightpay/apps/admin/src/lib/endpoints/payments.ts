@@ -42,6 +42,9 @@ export interface MetricsPeriod {
   tipCents?: number;
   chargedCents?: number;
   walletCashPayoutCents?: number;
+  /** API nuevo: recargas del saldo en efectivo (en chargedCents) y con tarjeta (en grossCents y count). */
+  walletCashTopUpCents?: number;
+  walletCardTopUpCents?: number;
 }
 
 export interface Metrics {

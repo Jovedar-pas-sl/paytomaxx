@@ -352,7 +352,7 @@ function ClosedResult({ night, onDone }: { night: NightView; onDone: () => void 
   return (
     <div className="np-close-done">
       <p className="np-close-done-lead">
-        Z congelado a las {night.closedAt ? formatDateTime(night.closedAt, tz, 'time') : '—'}: {s.count} cobros ·
+        Z congelado a las {night.closedAt ? formatDateTime(night.closedAt, tz, 'time') : '—'}: {s.count} {s.count === 1 ? 'pago' : 'pagos'} con tarjeta ·
         cobrado <strong className="np-num">{formatEur(s.chargedCents)}</strong> · neto{' '}
         <strong className="np-num">{formatEur(s.netCents)}</strong>.
       </p>

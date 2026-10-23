@@ -427,7 +427,7 @@ describe('un local que da parte al camarero: la caja y el aviso de la mañana', 
       diffCents: 0,
     });
     expect(z.summary).toMatchObject({ payoutsCents: 1_000, camareroPayoutsCents: 500, chicaNetCents: 1_000, camareroNetCents: 500, venueNetCents: 500 });
-    // Chicas + camareros + local = lo cobrado.
-    expect(morningSummaryMessage('Sala caja', z.summary, 0)).toContain('Para las chicas: 10,00 € · para los camareros: 5,00 € · para el local: 5,00 €');
+    // Chicas + camareros + el resto = lo cobrado neto (el resto, «neto sin el personal»: no es «Para el local» del mapa).
+    expect(morningSummaryMessage('Sala caja', z.summary, 0)).toContain('Para las chicas: 10,00 € · para los camareros: 5,00 € · neto sin el personal: 5,00 €');
   });
 });

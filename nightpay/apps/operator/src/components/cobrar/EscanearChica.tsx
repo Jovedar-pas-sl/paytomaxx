@@ -24,7 +24,8 @@ interface Props {
   /** La invitación de la carta que se cobra («Copa con invitación»). */
   title: string;
   priceCents: number;
-  onChica: (chica: Invitada) => void;
+  /** Abre el cobro de la invitación: false si no se abrió (sin red, o aún se cancela una de antes). */
+  onChica: (chica: Invitada) => Promise<boolean>;
   /** «Elegir de la lista» (solo si el local no pide el QR). */
   onList?: () => void;
   onBack: () => void;
@@ -51,7 +52,8 @@ function detectorCtor(): DetectorCtor | null {
  * sola; pasa al cobro sin tocar nada. Linterna para la sala oscura y, si el
  * local lo deja, la lista. Un QR rechazado no se vuelve a mandar mientras
  * siga delante de la cámara (lib/qr-scan) y, si se sale antes de pasar al
- * cobro («Atrás»), no se cobra nada.
+ * cobro («Atrás»), no se cobra nada. Si el cobro no se abre (sin red), se
+ * vuelve a leer.
  */
 export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, onBack }: Props) {
   const video = useRef<HTMLVideoElement | null>(null);
@@ -98,7 +100,14 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         if ('vibrate' in navigator) navigator.vibrate(30);
         leaving.current = setTimeout(() => {
           leaving.current = null;
-          if (alive.current) onChica({ name: chica.name, token, id: chica.id });
+          if (!alive.current) return;
+          void onChica({ name: chica.name, token, id: chica.id }).then((opened) => {
+            if (opened || !alive.current) return;
+            // Sin cobro: se vuelve a leer (el error lo enseña el cobro), sin repetir este QR enseguida.
+            rejected.current = rejectedQr(raw, 0, Date.now());
+            setSeen(null);
+            done.current = false;
+          });
         }, SEEN_MS);
       } catch (err) {
         if (!alive.current) return;

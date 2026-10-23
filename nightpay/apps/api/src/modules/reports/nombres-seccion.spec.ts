@@ -177,3 +177,25 @@ describe('los nombres de sección del local', () => {
     }
   });
 });
+
+describe('un nombre de sección que empieza como una fórmula de Excel', () => {
+  // El nombre lo escribe el dueño en Ajustes → Secciones: en el CSV va siempre como
+  // texto (con el apóstrofo delante), nunca como una fórmula que Excel ejecute.
+  const formula = venueSectionLabeler({ VENUE_BAR: { label: '=1+1' } });
+
+  it('el libro de cobros (tipo, concepto y por sección) y el resumen', () => {
+    const libro = cobrosCsv([cobro({})], 'Sala Aurora', formula);
+    expect(libro).toContain(";'=1+1;'=1+1;Carlos;");
+    expect(libro).toContain(";'=1+1 100,00");
+    const period = parseReportPeriod('2026-10-22', '2026-10-22');
+    if (!period.ok) throw new Error(period.error);
+    const resumen = resumenCsv({
+      venueName: 'Sala Aurora',
+      period: period.period,
+      generatedAt: new Date('2026-10-23T08:00:00Z'),
+      summary: summarize([cobro({})], [], [], [consumo({ category: 'VENUE_BAR' })], [], [], { labelOf: formula }),
+    });
+    expect(resumen).toContain("'=1+1;100,00;1");
+    for (const csv of [libro, resumen]) expect(csv).not.toMatch(/(^|;)=1\+1/m);
+  });
+});

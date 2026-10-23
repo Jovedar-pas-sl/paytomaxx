@@ -75,7 +75,9 @@ export class PeriodReportsService {
       WITH cobros AS (
         SELECT COUNT(*)::int AS "paymentCount",
                COALESCE(SUM(p."amountCents"), 0)::bigint AS "grossCents",
-               COALESCE(SUM(p."tipCents"), 0)::bigint AS "tipCents"
+               COALESCE(SUM(p."tipCents"), 0)::bigint AS "tipCents",
+               COUNT(*) FILTER (WHERE p."walletId" IS NOT NULL)::int AS "walletCardTopUpCount",
+               COALESCE(SUM(p."amountCents") FILTER (WHERE p."walletId" IS NOT NULL), 0)::bigint AS "walletCardTopUpCents"
           FROM payments p
          WHERE p."tenantId" = ${tenantId}::uuid
            AND p.status IN ${PAID_STATUSES_SQL}
