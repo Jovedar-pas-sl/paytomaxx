@@ -236,9 +236,17 @@ export interface QrChargeClientView {
   /**
    * El código corto del cobro único (el de su cobro con tarjeta): el mismo que
    * ve el personal en su PAGADO. Sin cobro con tarjeta enlazado, null: no se
-   * enseña ninguno (nada inventado).
+   * enseña ninguno (nada inventado). La página solo lo pinta si ya está
+   * pagado (si no, llega en la respuesta del pago).
    */
   code?: string | null;
+}
+
+/** Respuesta de POST /s/:token/pay: lo cobrado, lo que le queda y el código del cobro único. */
+export interface QrChargePaid {
+  amountCents: number;
+  balanceCents: number;
+  code: string | null;
 }
 
 /** Para el encargado: cobros con QR sin pagar. */
@@ -872,15 +880,21 @@ export class WalletChargesService {
    * El cliente pagó con su llave: `walletId` es el saldo de esa llave (ya
    * comprobada). Se ata el cobro a ese saldo y se cobra; si no se puede (no
    * llega, otro grupo…), el cobro vuelve a quedar libre para otro saldo.
+   * Ya pagado, la respuesta trae el código del cobro único (el que ve el
+   * personal): la página de /s no lo lleva antes de pagar.
    */
-  async payQrCharge(payToken: string, walletId: string): Promise<{ amountCents: number; balanceCents: number }> {
+  async payQrCharge(payToken: string, walletId: string): Promise<QrChargePaid> {
     const request = await this.qrRequest(payToken);
     await this.bindAndSettle(request, walletId, 'passkey');
     const wallet = await this.prisma.acrossVenues((tx) =>
       tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
     );
     this.logger.log(`Saldo ${walletId}: cobro ${request.id} pagado con su llave (QR)`);
-    return { amountCents: request.amountCents + (request.tipCents ?? 0), balanceCents: wallet?.balanceCents ?? 0 };
+    return {
+      amountCents: request.amountCents + (request.tipCents ?? 0),
+      balanceCents: wallet?.balanceCents ?? 0,
+      code: request.linkedPaymentId ? confirmationCode(request.linkedPaymentId) : null,
+    };
   }
 
   /** Encargado o dueño: cobros con QR que nadie ha pagado aún (cliente sin batería…). */

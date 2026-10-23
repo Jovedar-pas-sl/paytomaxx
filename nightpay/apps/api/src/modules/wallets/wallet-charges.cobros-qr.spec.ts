@@ -266,7 +266,7 @@ describe('pagar con Face ID un saldo de otro dueño', () => {
     await expect(svc.payQrCharge('qr-1', WALLET_NEON)).rejects.toBeInstanceOf(ConflictException);
     expect(db.clientWallet.get(WALLET_NEON)).toMatchObject({ balanceCents: 20_000 });
     expect(db.walletChargeRequest.get(req)).toMatchObject({ status: 'PENDING', walletId: null });
-    await expect(svc.payQrCharge('qr-1', WALLET)).resolves.toEqual({ amountCents: 4_000, balanceCents: 8_000 });
+    await expect(svc.payQrCharge('qr-1', WALLET)).resolves.toEqual({ amountCents: 4_000, balanceCents: 8_000, code: null });
   });
 });
 

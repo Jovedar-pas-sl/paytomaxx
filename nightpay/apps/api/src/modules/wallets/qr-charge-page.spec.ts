@@ -51,12 +51,27 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(js).not.toContain('alert(');
   });
 
-  it('el «Pagado» trae el código del cobro único (el mismo que ve el personal); sin él, ningún código', () => {
-    const withCode = renderQrChargePage('tok-1', 'es', { ...view, code: '0C1' }, NOW);
-    expect(withCode).toContain('<b class="num">0C1</b>');
+  it('sin pagar, el código NO va en la página (ni en el HTML ni en su configuración): un «Pagado» falso no lo tiene', () => {
+    const html = renderQrChargePage('tok-1', 'es', { ...view, code: 'Z9Q' }, NOW);
+    expect(html).not.toContain('Z9Q');
+    expect(html).not.toContain('class="pcode"');
+  });
+
+  it('ya pagado al abrirla: el «Pagado» trae el código del cobro único (el mismo que ve el personal); sin él, ninguno', () => {
+    const paid = { ...view, status: 'ACCEPTED' as const, paidAt: new Date(NOW.getTime() - 60_000).toISOString() };
+    const withCode = renderQrChargePage('tok-1', 'es', { ...paid, code: 'Z9Q' }, NOW);
+    expect(withCode).toContain('<b class="num">Z9Q</b>');
     expect(withCode).toContain('El mismo que ve el personal');
-    const without = renderQrChargePage('tok-1', 'es', { ...view, code: null }, NOW);
+    const without = renderQrChargePage('tok-1', 'es', { ...paid, code: null }, NOW);
     expect(without).not.toContain('class="pcode"');
+  });
+
+  it('pagado aquí mismo: el código llega en la respuesta del pago y el JS lo pinta (con su rótulo)', () => {
+    const html = renderQrChargePage('tok-1', 'es', view, NOW);
+    const js = scripts(html).join('\n');
+    expect(js).toContain('if(r.code)');
+    expect(js).toContain("className='pcode'");
+    expect(html).toContain('El mismo que ve el personal');
   });
 
   it('cobro ya pagado hace rato → «Ya pagado · hace 23 min» en gris, sin botón de pagar', () => {

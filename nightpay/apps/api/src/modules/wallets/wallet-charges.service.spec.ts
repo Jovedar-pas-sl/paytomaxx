@@ -316,6 +316,18 @@ describe('el cliente paga el QR con su Face ID', () => {
     await expect(alone.svc.qrChargeForClient('pay-tok')).resolves.toMatchObject({ code: null });
   });
 
+  it('pagado desde /s: la respuesta trae el código del cobro único (la página no lo tenía antes de pagar)', async () => {
+    const linked = qrService();
+    // La consulta del cobro por su QR (la de antes de pagar) trae el cobro con tarjeta enlazado;
+    // el cierre del enlace dentro de la transacción se prueba en la integración (cobro-unico.int.spec).
+    linked.tx.walletChargeRequest.findUnique.mockResolvedValueOnce(
+      request({ walletId: null, payToken: 'pay-tok', linkedPaymentId: '0b8c2f1e-0000-4000-8000-0000000000c1' }),
+    );
+    await expect(linked.svc.payQrCharge('pay-tok', 'w-1')).resolves.toMatchObject({ code: '0C1' });
+    const alone = qrService();
+    await expect(alone.svc.payQrCharge('pay-tok', 'w-1')).resolves.toMatchObject({ code: null });
+  });
+
   it('si la chica lo canceló mientras el cliente pagaba, no se cobra', async () => {
     const { svc, tx } = qrService();
     tx.walletChargeRequest.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });

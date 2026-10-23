@@ -17,7 +17,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { resolveLanguage } from '../payments/pay-i18n';
 import { renderQrChargePage } from './qr-charge-page';
-import { WalletChargesService } from './wallet-charges.service';
+import { WalletChargesService, type QrChargePaid } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 
 /**
@@ -80,7 +80,7 @@ export class PublicSaldoController {
     @Param('token') token: string,
     @Body() body: { response?: unknown } | undefined,
     @Headers('host') host: string | undefined,
-  ): Promise<{ amountCents: number; balanceCents: number }> {
+  ): Promise<QrChargePaid> {
     const walletId = await this.passkeys.verify(scopeOf(token), host, body?.response);
     return this.charges.payQrCharge(token, walletId);
   }

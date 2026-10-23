@@ -97,12 +97,16 @@ export function renderQrChargePage(
   const eur = (c: number): string => clientMoney(c, locale);
   const isPaid = view.status === 'ACCEPTED';
   const paidAt = isPaid && view.paidAt ? new Date(view.paidAt) : null;
+  // El código del cobro único nunca va en la página antes de pagar (ni en el
+  // HTML ni aquí): un «Pagado» falso no lo tendría. Al pagar aquí, llega en la
+  // respuesta del pago.
+  const { code, ...publicView } = view;
   const config = jsConfig({
     base,
     locale,
-    text: { ...t, paid: paidScreenJsText(p), paidTitle: p.paidTitle },
+    text: { ...t, paid: paidScreenJsText(p), paidTitle: p.paidTitle, codeLabel: p.codeLabel, codeHint: p.codeHint },
     errors: clientErrorConfig(lang),
-    view,
+    view: publicView,
   });
   const who = [view.serviceName, view.requestedByName, view.venueName].filter(Boolean).join(' · ');
   // Ya pagado (alguien vuelve a abrir el QR): el «Pagado» en gris, sin formulario.
@@ -111,8 +115,8 @@ export function renderQrChargePage(
     amount: isPaid ? eur(view.amountCents) : '',
     authorizedAt: paidAt,
     now,
-    // El mismo código que ve el personal en su PAGADO (el del cobro único); sin él, ninguno.
-    code: view.code ?? null,
+    // Ya pagado: el mismo código que ve el personal en su PAGADO (el del cobro único); sin él, ninguno.
+    code: isPaid ? (code ?? null) : null,
     hidden: !isPaid,
     fromBalance: true,
   });
@@ -174,6 +178,10 @@ function paid(r){stop('');$('ask').hidden=true;
  var t=Date.now();el.setAttribute('data-at',String(t));el.setAttribute('data-now',String(t));el.classList.remove('stale');
  el.querySelector('[data-title]').textContent=T.paidTitle;el.querySelector('[data-amount]').textContent=eur(r.amountCents);
  var line=document.createElement('p');line.className='pline';line.textContent=T.left+': '+eur(r.balanceCents);el.querySelector('[data-lines]').appendChild(line);
+ if(r.code){var box=document.createElement('div');box.className='pcode';
+  var lab=document.createElement('span');lab.textContent=T.codeLabel;var val=document.createElement('b');val.className='num';val.textContent=r.code;
+  var hint=document.createElement('small');hint.textContent=T.codeHint;box.appendChild(lab);box.appendChild(val);box.appendChild(hint);
+  el.insertBefore(box,el.querySelector('.pstale'));}
  el.hidden=false;window.scrollTo(0,0);npPaid(el,T.paid);}
 $('pay').addEventListener('click',function(){
  var b=$('pay');if(b.disabled)return;b.disabled=true;b.textContent=T.paying;show('error','');$('notCharged').hidden=true;$('reload').hidden=true;
