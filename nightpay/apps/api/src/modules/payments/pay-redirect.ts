@@ -347,9 +347,7 @@ export function retryOutcome(decision: Exclude<RetryDecision, 'retry'>): PayRedi
 }
 
 /**
- * Código corto que ven a la vez el cliente (pantalla "Pagado") y la chica
- * (su app). Una captura vieja o una página falsa no lo tienen.
+ * Código corto que ven a la vez el cliente (pantalla "Pagado") y el personal
+ * (su app, el TPV). Una sola función para el API y las apps (contracts).
  */
-export function confirmationCode(paymentId: string): string {
-  return paymentId.replace(/-/g, '').slice(-3).toUpperCase();
-}
+export { confirmationCode } from '@nightpay/contracts';

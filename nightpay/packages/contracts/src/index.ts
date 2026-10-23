@@ -9,6 +9,7 @@ export * from './webhooks';
 export * from './services';
 export * from './carta-template';
 export * from './money';
+export * from './confirmation-code';
 export * from './wallet-pin';
 export * from './wallet-card';
 export * from './wallet-pass';

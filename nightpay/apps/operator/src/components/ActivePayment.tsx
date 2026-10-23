@@ -16,6 +16,7 @@ import {
   type OutcomeKind,
   type PaymentStatus,
 } from '@nightpay/ui';
+import { confirmationCode } from '@nightpay/contracts';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
 import { useHealthReport } from '@/lib/connection-health';
 import { formatEur, formatEurAmount } from '@/lib/money';
@@ -319,11 +320,6 @@ function PaidBlock({ payment, tipCents, onNew }: { payment: CreatedPayment; tipC
       </Button>
     </>
   );
-}
-
-/** Mismo código que ve el cliente en su pantalla "Pagado" (últimos 3 del id). */
-function confirmationCode(paymentId: string): string {
-  return paymentId.replace(/-/g, '').slice(-3).toUpperCase();
 }
 
 const kicker: CSSProperties = {

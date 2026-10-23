@@ -17,6 +17,7 @@ import {
   type PaymentStatus,
   type QrDeadline,
 } from '@nightpay/ui';
+import { confirmationCode } from '@nightpay/contracts';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
 
 /** Estados en los que el QR ya no se puede pagar: basta con "Nuevo cobro". */
@@ -164,11 +165,6 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
       </Card>
     </div>
   );
-}
-
-/** Mismo código que ve el cliente en su pantalla "Pagado" (últimos 3 del id). */
-function confirmationCode(paymentId: string): string {
-  return paymentId.replace(/-/g, '').slice(-3).toUpperCase();
 }
 
 type CopyState = 'idle' | 'copied' | 'failed';
