@@ -6,6 +6,7 @@ import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
 import { cancelCard, cancelSaldo, createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
 import { tapOf } from '@/lib/carta-tiles';
+import { addedItemLabel, addedTipLabel, undoTap, UNDO_MS, type UndoTap } from '@/lib/carta-view';
 import { arrivedTooLate, cancelTargetOf } from '@/lib/cobro-attempt';
 import { invitationSplit, splitCells, whoLine } from '@/lib/cobro-view';
 import {
@@ -97,6 +98,15 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const [retryError, setRetryError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const attempt = useRef<{ key: string; what: string } | null>(null);
+  /** Lo último que se tocó en la carta: el pie ofrece «Deshacer» durante 4 s (decisión D3). */
+  const [undo, setUndo] = useState<UndoTap | null>(null);
+  const undoSeq = useRef(0);
+
+  useEffect(() => {
+    if (!undo) return undefined;
+    const timer = setTimeout(() => setUndo((u) => (u?.id === undo.id ? null : u)), UNDO_MS);
+    return () => clearTimeout(timer);
+  }, [undo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,8 +168,22 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   /** Cambiar de pantalla (siempre por aquí: cuenta las vueltas de `screen`). */
   const go = useCallback((next: Stage) => {
     screen.current += 1;
+    // Fuera de la carta ya no hay «Deshacer» (la cuenta se corrige en «La cuenta»).
+    setUndo(null);
     setStage(next);
   }, []);
+
+  /** Un toque en la carta: la cuenta nueva y, durante 4 s, cómo estaba antes. */
+  function tapped(next: Cuenta, label: string) {
+    undoSeq.current += 1;
+    setUndo({ id: undoSeq.current, label, before: cuenta });
+    setCuenta(next);
+  }
+
+  function undoLast() {
+    setCuenta((c) => undoTap(undo, c));
+    setUndo(null);
+  }
 
   /** Una invitación que llegó cuando ya se había salido de su pantalla: se cancela sin enseñarla. */
   async function dropCobro(cobro: CobroAbierto): Promise<void> {
@@ -286,7 +310,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       go({ kind: 'escanear', invite: item });
       return;
     }
-    setCuenta((c) => addItem(c, item));
+    tapped(addItem(cuenta, item), addedItemLabel(item.name));
   }
 
   function otroDone(section: CuentaSection, cents: number) {
@@ -466,13 +490,15 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             cuenta={cuenta}
             who={who}
             onItem={pickItem}
-            onTip={(cents) => setCuenta((c) => addAmount(c, PROPINAS, cents))}
+            onTip={(cents) => tapped(addAmount(cuenta, PROPINAS, cents), addedTipLabel(cents))}
             onOtro={() => {
               setError(null);
               go({ kind: 'otro' });
             }}
             onVerCuenta={() => go({ kind: 'cuenta' })}
             onCobrar={() => cobrarCuenta()}
+            undo={undo}
+            onUndo={undoLast}
             busy={busy}
             error={error}
             onLogo={() => setMenu(true)}

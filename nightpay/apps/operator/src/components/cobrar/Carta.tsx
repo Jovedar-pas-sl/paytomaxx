@@ -4,9 +4,10 @@ import type { CSSProperties, ReactNode } from 'react';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
 import { cartaTiles, tapOf } from '@/lib/carta-tiles';
+import { cobrarLabel, tileLabel } from '@/lib/carta-view';
 import { chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
-import { colorOf, labelOf, offeredCodes, puestoChip, puestoSection, tipTiles, type CobrarContext } from './cobrar-context';
-import { IconQr } from './icons';
+import { colorOf, labelOf, offeredCodes, puestoChip, puestoSection, tileColorOf, tipTiles, type CobrarContext } from './cobrar-context';
+import { IconQr, IconUndo } from './icons';
 import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
@@ -21,6 +22,9 @@ interface Props {
   onOtro: () => void;
   onVerCuenta: () => void;
   onCobrar: () => void;
+  /** Lo último que se tocó («+1 Nachos»), durante 4 s: el pie ofrece «Deshacer». */
+  undo?: { label: string } | null;
+  onUndo?: () => void;
   busy: boolean;
   error: string | null;
   onLogo: () => void;
@@ -46,6 +50,8 @@ export function Carta({
   onOtro,
   onVerCuenta,
   onCobrar,
+  undo = null,
+  onUndo,
   busy,
   error,
   onLogo,
@@ -89,7 +95,7 @@ export function Carta({
                 key={`tip-${cents}`}
                 type="button"
                 className={`${styles.tile}${big ? ` ${styles.tileBig}` : ''}`}
-                style={{ '--c': colorOf('propinas') } as CSSProperties}
+                style={{ '--c': tileColorOf('propinas') } as CSSProperties}
                 onClick={() => onTip(cents)}
                 aria-label={`Propina de ${formatEur(cents)}`}
               >
@@ -128,27 +134,44 @@ export function Carta({
         ) : null}
       </div>
       <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
-        <div className={styles.sum}>
-          {cuenta.length > 0 ? (
-            <>
-              <span className={styles.mbar} aria-hidden="true">
-                {totals.bySection.map((s) => (
-                  <i key={s.section} style={{ '--c': colorOf(s.section), flex: s.cents } as CSSProperties} />
-                ))}
-              </span>
-              <span className={styles.grow}>{summary}</span>
-              <button type="button" className={styles.link} onClick={onVerCuenta}>
-                Ver cuenta
-              </button>
-            </>
-          ) : (
-            <span className={styles.grow} style={{ color: 'var(--np-text-label)' }}>
-              Toca lo que te pide el cliente
-            </span>
-          )}
-        </div>
-        <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={!canCharge} onClick={onCobrar}>
-          {busy ? 'Un momento…' : totals.totalCents > 0 ? `Cobrar ${formatEur(totals.totalCents, { compact: true })}` : 'Cobrar'}
+        {/* Lo que se acaba de añadir, para el lector de pantalla (la región existe siempre: así se anuncia). */}
+        <span className="np-sr-only" aria-live="polite">
+          {undo ? undo.label : ''}
+        </span>
+        {cuenta.length > 0 ? (
+          <div className={styles.sum}>
+            {undo && onUndo ? (
+              <>
+                <span className={`${styles.grow} ${styles.added}`}>{undo.label}</span>
+                <button type="button" className={styles.undoBtn} onClick={onUndo} aria-label={`Deshacer: ${undo.label}`}>
+                  <IconUndo />
+                  Deshacer
+                </button>
+              </>
+            ) : (
+              <>
+                <span className={styles.mbar} aria-hidden="true">
+                  {totals.bySection.map((s) => (
+                    <i key={s.section} style={{ '--c': colorOf(s.section), flex: s.cents } as CSSProperties} />
+                  ))}
+                </span>
+                <span className={styles.grow}>{summary}</span>
+              </>
+            )}
+            <button type="button" className={styles.link} onClick={onVerCuenta}>
+              Ver cuenta
+            </button>
+          </div>
+        ) : null}
+        {/* Vacío: gris, a trazos y con la instrucción dentro (decisión D1); el lima, solo con algo que cobrar. */}
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.primary}`}
+          disabled={!canCharge}
+          aria-busy={busy || undefined}
+          onClick={onCobrar}
+        >
+          {cobrarLabel({ busy, empty: cuenta.length === 0, totalCents: totals.totalCents })}
         </button>
         {cuenta.length > 0 && !chargeable(cuenta) ? (
           <p className={styles.error}>Una propina sola no se cobra: añade lo que se lleva.</p>
@@ -184,16 +207,20 @@ function ItemTile({
 }) {
   const parts = item.components && item.components.length > 1 ? item.components : null;
   const second = parts?.find((p) => p.category !== item.category)?.category;
-  const style = { '--c': colorOf(item.category), ...(second ? { '--c2': colorOf(second) } : {}) } as CSSProperties;
+  const style = { '--c': tileColorOf(item.category), ...(second ? { '--c2': tileColorOf(second) } : {}) } as CSSProperties;
   const cls = [styles.tile, big ? styles.tileBig : '', second ? styles.tileWide : '', qty > 0 ? styles.tileOn : '']
     .filter(Boolean)
     .join(' ');
   // La copa con invitación no va a la cuenta: se cobra aparte, con el QR de la chica.
   const invite = tapOf(item) === 'invitar';
-  const label = `${itemLabel(item)}, ${formatEur(item.priceCents)}${invite ? '. Escanea el QR de la chica' : qty > 0 ? `, llevas ${qty}` : ''}`;
+  const label = tileLabel(itemLabel(item), item.priceCents, { qty, invite });
   return (
     <button type="button" className={cls} style={style} onClick={onPick} aria-label={label}>
-      {qty > 0 ? <span className={styles.count}>×{qty}</span> : null}
+      {qty > 0 ? (
+        <span className={styles.count} aria-hidden="true">
+          {qty}
+        </span>
+      ) : null}
       {invite ? (
         <span className={styles.tileQr} aria-hidden="true">
           <IconQr />

@@ -15,7 +15,7 @@ import {
   type VenuePaymentMethods,
   type VenueSection,
 } from '@nightpay/contracts';
-import { sectionVar } from '@nightpay/ui';
+import { sectionTileVar, sectionVar } from '@nightpay/ui';
 import type { OperatorUser } from '@/lib/api';
 import { PROPINAS, type CartaItem } from '@/lib/cuenta';
 
@@ -42,6 +42,14 @@ export interface CobrarContext {
 /** Color de una sección (o de las propinas). */
 export function colorOf(section: string): string {
   return section === PROPINAS ? 'var(--np-sec-propinas)' : sectionVar(section);
+}
+
+/**
+ * Relleno de una LOSETA: Servicios y Propinas, un tono más claro para que la
+ * etiqueta pequeña se lea (decisión D5). Chips y barras siguen con colorOf.
+ */
+export function tileColorOf(section: string): string {
+  return sectionTileVar(section);
 }
 
 /** Nombre de una sección (el del local) o «Propinas». */

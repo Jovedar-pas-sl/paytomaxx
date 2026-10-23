@@ -3,6 +3,7 @@
 import type { CSSProperties } from 'react';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
+import { cobrarLabel } from '@/lib/carta-view';
 import { pinExpected, pinWarning } from '@/lib/cobro-view';
 import { chargeable, itemLabel, cuentaTotals, lineCents, lineSection, type Cuenta, type CuentaLine } from '@/lib/cuenta';
 import { colorOf, labelOf, type CobrarContext } from './cobrar-context';
@@ -87,8 +88,14 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
         </div>
       </div>
       <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
-        <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={!canCharge} onClick={onCobrar}>
-          {busy ? 'Un momento…' : `Cobrar ${formatEur(totals.totalCents, { compact: true })}`}
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.primary}`}
+          disabled={!canCharge}
+          aria-busy={busy || undefined}
+          onClick={onCobrar}
+        >
+          {cobrarLabel({ busy, empty: false, totalCents: totals.totalCents })}
         </button>
         {onPos ? (
           <button type="button" className={`${styles.btn} ${styles.ghost}`} disabled={!canCharge} onClick={onPos}>

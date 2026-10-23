@@ -100,3 +100,11 @@ export const IconMenu = () => (
     <path d="M4 7h16M4 12h16M4 17h10" />
   </Icon>
 );
+
+/** «Deshacer»: la flecha que vuelve. */
+export const IconUndo = () => (
+  <Icon width={2.2}>
+    <path d="M9 14L4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+  </Icon>
+);

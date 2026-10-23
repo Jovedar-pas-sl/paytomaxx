@@ -98,6 +98,7 @@ export function OtroImporte({ ctx, who, adding, onDone, onBack, busy, error }: P
           type="button"
           className={`${styles.btn} ${styles.primary}`}
           disabled={cents <= 0 || busy || tipOnly}
+          aria-busy={busy || undefined}
           onClick={() => onDone(section, cents)}
         >
           {busy ? 'Un momento…' : action}
