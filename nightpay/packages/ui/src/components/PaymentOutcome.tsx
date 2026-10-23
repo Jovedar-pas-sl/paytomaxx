@@ -5,7 +5,7 @@ import { amountParts } from '../format';
 import { useNow } from '../hooks';
 import { agoLabel } from '../lib/countdown';
 import { clockTime, OUTCOME_TITLE, type OutcomeKind } from '../lib/outcome';
-import { sectionOf, sectionVar } from '../lib/sections';
+import { sectionsChipText, sectionVar } from '../lib/sections';
 import { SectionChip } from './SectionChip';
 
 export interface OutcomeAction {
@@ -36,6 +36,11 @@ export interface PaymentOutcomeProps {
   section?: string | null;
   /** Varias secciones («Copas + Comida»): un chip partido con sus colores (gana a `section`). */
   sections?: readonly string[] | null;
+  /**
+   * El nombre de cada sección en el chip: el que le puso el local (Ajustes →
+   * Secciones). Sin él, el de fábrica.
+   */
+  sectionLabel?: (code: string) => string;
   /** «20 €» en vez de «20,00 €» cuando no hay céntimos (como en la pantalla de cobrar). */
   compactAmount?: boolean;
   /** Referencia del cobro («C-4821»): una pill arriba, junto a la sección. */
@@ -85,6 +90,7 @@ export function PaymentOutcome({
   codeHint,
   section,
   sections,
+  sectionLabel,
   compactAmount = false,
   reference,
   stripe,
@@ -145,10 +151,10 @@ export function PaymentOutcome({
                 className="np-chip"
                 style={{ background: `linear-gradient(90deg, ${sectionVar(many[0])} 0 50%, ${sectionVar(many[1])} 50%)` }}
               >
-                {many.map((s) => sectionOf(s)?.label ?? s).join(' + ')}
+                {sectionsChipText(many, sectionLabel)}
               </span>
             ) : section ? (
-              <SectionChip section={section} />
+              <SectionChip section={section}>{sectionLabel?.(section)}</SectionChip>
             ) : null}
             {reference ? <span className="np-outcome-ref">{reference}</span> : null}
           </div>

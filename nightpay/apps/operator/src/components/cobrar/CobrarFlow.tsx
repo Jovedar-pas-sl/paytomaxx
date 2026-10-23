@@ -369,6 +369,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           retrying={retrying}
           retryError={retryError}
           onPaid={onPaid}
+          sectionLabel={(s) => labelOf(ctx, s)}
         />
       );
     case 'pos':

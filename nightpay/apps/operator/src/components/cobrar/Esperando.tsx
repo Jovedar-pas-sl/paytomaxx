@@ -74,6 +74,11 @@ interface Props {
   retryError?: string | null;
   /** Ya pagado: refrescar lo de la chica. */
   onPaid: () => void;
+  /**
+   * El nombre de cada sección (el del local, Ajustes → Secciones) en el chip
+   * de PAGADO / NO PAGADO / CADUCADO: el mismo que la banda.
+   */
+  sectionLabel: (code: string) => string;
 }
 
 const SALDO_POLL_MS = 1500;
@@ -90,7 +95,7 @@ type PinStep = { card: string; uid: string | null; code: string; reason: string 
  * PAGADO (3.3) o NO PAGADO con la razón y una salida (3.4). Pantalla siempre
  * encendida. En iPhone (sin NFC en la web), solo QR.
  */
-export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError = null, onPaid }: Props) {
+export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError = null, onPaid, sectionLabel }: Props) {
   const methods = useVenueMethods();
   const [cardStatus, setCardStatus] = useState<PaymentStatus>((cobro.card?.status as PaymentStatus) ?? 'CREATED');
   const [cardTip, setCardTip] = useState(0);
@@ -261,6 +266,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         compactAmount
         section={primarySection}
         sections={allSections}
+        sectionLabel={sectionLabel}
         reference={cobro.ref}
         stripe={stripe}
         detail={
@@ -284,6 +290,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         compactAmount
         section={primarySection}
         sections={allSections}
+        sectionLabel={sectionLabel}
         reference={null}
         stripe={stripe}
         message=""
@@ -316,6 +323,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         compactAmount
         section={primarySection}
         sections={allSections}
+        sectionLabel={sectionLabel}
         stripe={stripe}
         message={outcome.kind === 'expired' ? 'El cliente no pagó a tiempo.' : 'El cobro se ha cancelado.'}
         primary={{ label: 'Otro QR · mismo importe', onClick: onRetry, loading: retrying }}

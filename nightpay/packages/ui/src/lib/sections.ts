@@ -78,3 +78,15 @@ export function sectionColor(code: string | null | undefined): string {
 export function sectionVar(code: string | null | undefined): string {
   return sectionOf(code)?.cssVar ?? SECTION_FALLBACK_VAR;
 }
+
+/**
+ * El texto del chip de las secciones de un cobro («Copas + Cocina», como
+ * mucho dos): con el nombre que les puso el local (`labelOf`, el de Ajustes →
+ * Secciones) o, sin él, el de fábrica.
+ */
+export function sectionsChipText(codes: readonly string[], labelOf?: (code: string) => string): string {
+  return codes
+    .slice(0, 2)
+    .map((c) => labelOf?.(c) ?? sectionOf(c)?.label ?? c)
+    .join(' + ');
+}

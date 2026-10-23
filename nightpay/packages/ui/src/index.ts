@@ -19,6 +19,7 @@ export {
   SECTIONS,
   sectionColor,
   sectionOf,
+  sectionsChipText,
   sectionVar,
 } from './lib/sections';
 export type { Section, SectionCode, SectionKey } from './lib/sections';
