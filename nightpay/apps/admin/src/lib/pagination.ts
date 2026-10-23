@@ -11,11 +11,13 @@ interface Row {
  * lo que se enseñaba. Queda `fresh` y, detrás, lo anterior que es más antiguo
  * que lo último de `fresh` (las páginas cargadas con "Cargar más"). Lo que
  * estaba en la parte nueva y ya no viene (cambió de estado y no pasa el
- * filtro) desaparece.
+ * filtro) desaparece. Con `complete` (la página no tiene siguiente: es toda
+ * la lista), lo de antes que no viene se quita aunque sea más antiguo (el
+ * cobro con tarjeta que canceló el saldo, justo antes de su fila del saldo).
  */
-export function mergeLatestPage<T extends Row>(fresh: readonly T[], previous: readonly T[]): T[] {
+export function mergeLatestPage<T extends Row>(fresh: readonly T[], previous: readonly T[], complete = false): T[] {
   const oldest = fresh[fresh.length - 1];
-  if (!oldest) return [];
+  if (!oldest || complete) return [...fresh];
   const freshIds = new Set(fresh.map((r) => r.id));
   const oldestTime = Date.parse(oldest.createdAt);
   const older = previous.filter((r) => !freshIds.has(r.id) && Date.parse(r.createdAt) < oldestTime);

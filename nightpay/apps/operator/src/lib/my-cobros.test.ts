@@ -4,6 +4,7 @@ import {
   createOwnCobrosFeed,
   MAX_REFRESH_PAGES,
   mergeOwnCobros,
+  mergeRefreshed,
   ownChargedCents,
   ownCobroState,
   ownCobroStatus,
@@ -162,4 +163,45 @@ describe('de un vistazo, a oscuras', () => {
     expect(ownNightTotals(items.slice(0, 3), night, 'más').complete).toBe(false);
     expect(ownNightTotals(items.slice(0, 3), night, null).complete).toBe(true);
   });
+});
+
+describe('una fila que deja de venir se quita al refrescar', () => {
+  it('cobro único pagado con la ficha: la fila «Pendiente» del cobro con tarjeta da paso a la del saldo', async () => {
+    const night = { from: '2026-10-21T19:00:00Z', open: true };
+    const card = { ...row('card-1', 'PAYMENT', '2026-10-21T20:00:00.000Z', 'CREATED'), ref: 'C-0007' };
+    const saldo = { ...row('saldo-1', 'SALDO', '2026-10-21T20:00:00.100Z', 'ACCEPTED'), ref: 'C-0007' };
+    let rows: OwnCobro[] = [card];
+    const feed = createOwnCobrosFeed(pagedApi(() => rows, night), () => undefined);
+    await feed.refresh();
+    expect(ownNightTotals(feed.snapshot().items!, night, null).pending).toBe(1);
+    // El API ya no enseña el cobro con tarjeta que canceló el saldo: solo el del saldo.
+    rows = [saldo];
+    await feed.refresh();
+    expect(feed.snapshot().items!.map((r) => `${r.kind} ${r.status}`)).toEqual(['SALDO ACCEPTED']);
+    const totals = ownNightTotals(feed.snapshot().items!, night, feed.snapshot().cursor);
+    expect(totals).toMatchObject({ pending: 0, count: 1, salesCents: 2000 });
+  });
+
+  it('con «Ver anteriores» cargado, una fila que deja de venir en medio se quita y el resto sigue', async () => {
+    let rows = Array.from({ length: 80 }, (_, n) => historyRow(80 - n));
+    const feed = createOwnCobrosFeed(pagedApi(() => rows), () => undefined);
+    await feed.refresh();
+    await feed.loadMore();
+    expect(feed.snapshot().items).toHaveLength(80);
+    // Desaparece una fila de la parte nueva (la 0070): se quita; las demás siguen.
+    rows = rows.filter((r) => r.id !== '0070');
+    await feed.refresh();
+    const ids = feed.snapshot().items!.map((r) => r.id);
+    expect(ids).toHaveLength(79);
+    expect(ids).not.toContain('0070');
+    expect(ids.at(-1)).toBe('0001');
+  });
+});
+
+it('refresco sin llegar al final (tope de páginas): lo más antiguo que lo refrescado se queda; lo del tramo que no vuelve, no', () => {
+  const previous = [historyRow(5), historyRow(4), historyRow(3), historyRow(2), historyRow(1)];
+  const fresh = [historyRow(6), historyRow(5), historyRow(3)];
+  expect(mergeRefreshed(previous, fresh, false).map((r) => r.id)).toEqual(['0006', '0005', '0003', '0002', '0001']);
+  expect(mergeRefreshed(previous, fresh, true).map((r) => r.id)).toEqual(['0006', '0005', '0003']);
+  expect(mergeRefreshed(previous, [], true)).toEqual([]);
 });

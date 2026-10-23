@@ -5,7 +5,7 @@ import { StatusPill, type PaymentStatus } from '@nightpay/ui';
 import type { CobroRow } from '@nightpay/contracts';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur, formatMoney } from '@/lib/money';
-import { sectionChip } from '@/lib/money-map';
+import { paidTwiceNote, sectionChip } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Pill } from '../Pill';
@@ -70,6 +70,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra }: Props) 
                 ) : (
                   <StatusPill status={row.status as PaymentStatus} size="sm" />
                 )}
+                <PaidTwice row={row} />
               </td>
               {hidePerson ? null : (
                 <td data-label="Chica">
@@ -126,6 +127,27 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra }: Props) 
     </div>
   );
 }
+
+/** Cobrado dos veces (el saldo y, después, la tarjeta): la fila con tarjeta lo dice debajo del estado. */
+function PaidTwice({ row }: { row: CobroRow }) {
+  const note = paidTwiceNote(row, formatEur);
+  if (!note) return null;
+  return (
+    <span style={paidTwiceStyle(row.paidTwice?.refunded === true)} role="note">
+      {note}
+    </span>
+  );
+}
+
+const paidTwiceStyle = (refunded: boolean): CSSProperties => ({
+  display: 'block',
+  marginTop: '0.35rem',
+  maxWidth: '14rem',
+  fontSize: '0.75rem',
+  fontWeight: 600,
+  lineHeight: 1.3,
+  color: refunded ? 'var(--np-text-mute)' : 'var(--np-danger)',
+});
 
 const meta: CSSProperties = { color: 'var(--np-text-mute)' };
 const amountCell: CSSProperties = { textAlign: 'right', fontWeight: 500 };

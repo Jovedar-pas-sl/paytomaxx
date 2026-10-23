@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CobroRow } from '@nightpay/contracts';
 import { groupBySection, packFromDraft, packRemainder } from './carta-form';
 import { cobrosQuery } from './endpoints/money-map';
-import { FALLBACK_SECTIONS, chipTextColor, enabledSections, paymentRowOf, sectionChip } from './money-map';
+import { FALLBACK_SECTIONS, chipTextColor, enabledSections, paidTwiceNote, paymentRowOf, sectionChip } from './money-map';
 
 const eur = (c: number) => `${c / 100} €`;
 
@@ -126,5 +126,24 @@ describe('carta: por secciones y packs', () => {
       problem: 'Cada parte del pack va a una sección distinta.',
     });
     expect(packFromDraft(15000, 'CHICA_SERVICE', [{ ...parts[0]!, amount: '' }, parts[1]!])).toMatchObject({ ok: false });
+  });
+});
+
+describe('cobrado dos veces: la marca de la fila', () => {
+  it('sin nada que decir, nada', () => {
+    expect(paidTwiceNote(row(), eur)).toBeNull();
+    expect(paidTwiceNote(row({ paidTwice: null }), eur)).toBeNull();
+  });
+
+  it('a devolver (Redsys): cuánto y dónde', () => {
+    expect(paidTwiceNote(row({ status: 'CANCELED', paidTwice: { amountCents: 1200, refunded: false } }), eur)).toBe(
+      'Cobrado dos veces: devuelve 12 € a la tarjeta (Incidencias)',
+    );
+  });
+
+  it('la pasarela lo devolvió sola', () => {
+    expect(paidTwiceNote(row({ status: 'CANCELED', paidTwice: { amountCents: 1200, refunded: true } }), eur)).toBe(
+      'Cobrado dos veces: la tarjeta se devolvió sola (12 €)',
+    );
   });
 });

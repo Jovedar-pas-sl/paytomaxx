@@ -17,6 +17,15 @@ describe('mergeLatestPage', () => {
     expect(mergeLatestPage(fresh, shown).map((r) => r.id)).toEqual(['e', 'c']);
   });
 
+  it('la primera página trae ya toda la lista: lo de antes que no viene se quita (aunque sea más antiguo)', () => {
+    // Cobro único pagado con la ficha: el cobro con tarjeta (C-0001, 20:10) deja de venir;
+    // su fila es la del saldo, creada justo después.
+    const shown = [row('card', 10)];
+    const fresh = [row('saldo', 11)];
+    expect(mergeLatestPage(fresh, shown, true).map((r) => r.id)).toEqual(['saldo']);
+    expect(mergeLatestPage(fresh, shown, false).map((r) => r.id)).toEqual(['saldo', 'card']);
+  });
+
   it('sin resultados, lista vacía', () => {
     expect(mergeLatestPage([], [row('a', 1)])).toEqual([]);
   });

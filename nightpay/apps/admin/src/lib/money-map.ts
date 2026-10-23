@@ -77,3 +77,15 @@ export function paymentRowOf(row: CobroRow): PaymentRow | null {
     terminal: p.terminal,
   };
 }
+
+/**
+ * Cobro único cobrado dos veces (lo pagó el saldo y después el banco aprobó
+ * también la tarjeta): lo que dice su fila. Null si no pasó.
+ */
+export function paidTwiceNote(row: Pick<CobroRow, 'paidTwice'>, eur: (cents: number) => string): string | null {
+  const p = row.paidTwice;
+  if (!p) return null;
+  return p.refunded
+    ? `Cobrado dos veces: la tarjeta se devolvió sola (${eur(p.amountCents)})`
+    : `Cobrado dos veces: devuelve ${eur(p.amountCents)} a la tarjeta (Incidencias)`;
+}

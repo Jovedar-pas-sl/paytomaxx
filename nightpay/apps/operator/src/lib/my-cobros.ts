@@ -16,6 +16,22 @@ export function mergeOwnCobros(previous: readonly OwnCobro[], fresh: readonly Ow
   return [...items.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
 }
 
+/**
+ * Un refresco: lo que ha vuelto a llegar manda, y una fila de ese tramo que ya
+ * no viene se quita (p. ej. el cobro con tarjeta que canceló el saldo al
+ * pagarlo con la ficha: su fila es la del saldo, creada justo después). De
+ * lo cargado antes solo se queda lo más antiguo que lo refrescado, y nada si
+ * el refresco llegó al final del historial (), como mergeLatestPage
+ * del panel.
+ */
+export function mergeRefreshed(previous: readonly OwnCobro[], fresh: readonly OwnCobro[], complete: boolean): OwnCobro[] {
+  const sorted = mergeOwnCobros([], fresh);
+  const edge = sorted.at(-1);
+  if (!edge || complete) return sorted;
+  const older = previous.filter((r) => r.createdAt < edge.createdAt || (r.createdAt === edge.createdAt && r.id < edge.id));
+  return mergeOwnCobros(older, sorted);
+}
+
 export type OwnNight = NonNullable<OwnCobrosPage['night']>;
 
 export interface OwnCobrosSnapshot {
@@ -84,7 +100,8 @@ export function createOwnCobrosFeed(load: LoadPage, publish: (state: OwnCobrosSn
           visited.add(nextCursor);
           cursor = nextCursor;
         } while (cursor);
-        update({ items: mergeOwnCobros(state.items ?? [], fresh), cursor: nextCursor, error: null, night });
+        const items = more ? mergeOwnCobros(state.items ?? [], fresh) : mergeRefreshed(state.items ?? [], fresh, nextCursor === null);
+        update({ items, cursor: nextCursor, error: null, night });
         return true;
       } catch (err) {
         if (!controller.signal.aborted && !disposed) update({ error: (err as Error).message });

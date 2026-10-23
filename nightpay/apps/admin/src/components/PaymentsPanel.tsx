@@ -98,7 +98,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         const [m, page] = await Promise.all([fetchMetrics(), fetchCobros(filter, { limit })]);
         if (signal.aborted) return true;
         setMetrics((prev) => keepIfSame(prev, m));
-        setPayments((prev) => (prev ? keepIfSame(prev, mergeLatestPage(page.items, prev)) : page.items));
+        setPayments((prev) => (prev ? keepIfSame(prev, mergeLatestPage(page.items, prev, page.nextCursor === null)) : page.items));
         // Si entretanto se cargó otra página, su cursor es el bueno.
         if (loaded <= MAX_PAGE_SIZE && loaded === loadedRef.current) setNextCursor(page.nextCursor);
         setError(null);
