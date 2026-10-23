@@ -133,8 +133,9 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     const html = sent.body!;
     expect(html).toContain(PAID_FRESH);
     expect(html).toContain('aria-live="polite">Pagado</h1>');
-    expect(html).toContain('6,00');
-    expect(html).toContain('Incluye 5,00');
+    // Sin «,00» (como en el móvil del personal: decisión D4).
+    expect(html).toMatch(/data-amount>6\s€</);
+    expect(html).toMatch(/Incluye 5\s€ de propina/);
     expect(html).toContain('A6B');
     expect(html).toContain('hace 0:12');
     // Hora del banco y reloj con segundos (hora de Madrid).
@@ -263,7 +264,8 @@ describe('GET /pay/:token — página de pago', () => {
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     expect(sent.status).toBe(200);
-    expect(sent.body).toContain('100,00');
+    expect(sent.body).toMatch(/100\s€/);
+    expect(sent.body).not.toContain('100,00');
     expect(sent.body).toContain('Sin propina');
     expect(sent.body).toContain('value="1000"');
     expect(sent.body).toContain('method="POST" action="/pay/qr-token-1"');

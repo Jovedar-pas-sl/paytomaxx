@@ -103,7 +103,7 @@ describe('página del saldo del cliente', () => {
 
   it('el saldo es el protagonista: grande, en el HTML desde el principio y anunciado al cambiar', () => {
     const html = renderWalletPage('tok-1', 'es', state());
-    expect(html).toMatch(/<p class="balance num" id="balance" aria-live="polite">200,00\s€<\/p>/);
+    expect(html).toMatch(/<p class="balance num" id="balance" aria-live="polite">200\s€<\/p>/);
   });
 
   it('sin confirm() ni alert(): «Me voy», PIN y sumar se hacen en hojas dentro de la página', () => {
@@ -438,11 +438,11 @@ describe('«Pagado» de la recarga al volver a /w', () => {
     expect(top).toContain('<section class="proof" id="proof"');
     expect(top.indexOf('id="proof"')).toBeLessThan(top.indexOf('id="topupBox"'));
     expect(top).toContain('aria-live="polite">Pagado</h2>');
-    expect(top).toMatch(/Recarga de 50,00\s€/);
+    expect(top).toMatch(/Recarga de 50\s€/);
     expect(top).toContain('hace 0:12');
     expect(top).toContain('<b class="num">7F2</b>');
     expect(top).toContain('href="/pay/pay-1/receipt?lang=es"');
-    expect(html).toMatch(/170,00\s€/);
+    expect(html).toMatch(/170\s€/);
     const js = script(html);
     expect(js).toContain('\\"paid\\":true');
     expect(js).toContain("var view=C.paid?'top':'pay';");

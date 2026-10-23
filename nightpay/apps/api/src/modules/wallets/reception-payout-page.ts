@@ -1,5 +1,5 @@
-import { CLUB_BASE_CSS, brandWordmark, escapeHtml, jsConfig } from '../payments/club-ui';
-import type { PayLanguage } from '../payments/pay-i18n';
+import { CLUB_BASE_CSS, brandWordmark, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
+import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 
 /**
@@ -53,9 +53,9 @@ const TEXT = {
   },
 } as const;
 
+/** «35 €», «35,50 €» (en inglés, «€35»): como en las demás páginas del cliente. */
 function money(cents: number, lang: PayLanguage): string {
-  const n = (cents / 100).toFixed(2);
-  return lang === 'es' ? `${n.replace('.', ',')} €` : `€${n}`;
+  return clientMoney(cents, PAY_TEXT[lang].locale);
 }
 
 export function renderPayoutConfirmPage(base: string, lang: PayLanguage, view: PayoutConfirmView | null): string {

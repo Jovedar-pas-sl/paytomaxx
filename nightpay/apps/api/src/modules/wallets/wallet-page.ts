@@ -1,5 +1,5 @@
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
-import { CLUB_BASE_CSS, brandWordmark, escapeHtml, jsConfig } from '../payments/club-ui';
+import { CLUB_BASE_CSS, MONEY_JS, brandWordmark, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import type { ClientWalletState } from './wallet-charges.service';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
@@ -104,8 +104,9 @@ const PAY_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM18 14h2M14 18h2"/></svg>';
 const TOPUP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>';
 
+/** «26 €», «26,50 €» (sin «,00», como en el móvil del personal). */
 function eur(cents: number, locale: string): string {
-  return (cents / 100).toLocaleString(locale, { style: 'currency', currency: 'EUR' });
+  return clientMoney(cents, locale);
 }
 
 /** Textos que necesita el JS de la página (los del desbloqueo, de pay-i18n). */
@@ -305,7 +306,8 @@ ${CLIENT_ERROR_JS}
 (function(){
 var C=JSON.parse(${config}),T=C.text,S=C.state,busy=false,toastT;
 function $(id){return document.getElementById(id);}
-function eur(c){return (c/100).toLocaleString(C.locale,{style:'currency',currency:'EUR'});}
+${MONEY_JS}
+function eur(c){return npMoney(c,C.locale,'EUR');}
 function fill(s,k,v){return s.split('{'+k+'}').join(v);}
 function when(iso){return new Date(iso).toLocaleString(C.locale,{timeZone:'Europe/Madrid',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}
 function show(id,text){$(id).textContent=text||'';$(id).hidden=!text;}

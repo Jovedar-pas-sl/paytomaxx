@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { OXIOCARD_WORDMARK } from './brand-logo';
-import { CLUB_BASE_CSS, brandBar, brandWordmark } from './club-ui';
+import { CLUB_BASE_CSS, CLUB_TOKENS, brandBar, brandWordmark } from './club-ui';
 import { PAID_SCREEN_CSS } from './paid-screen';
 import { renderNoticePage } from './public-pay.pages';
 import { PAY_TEXT } from './pay-i18n';
@@ -61,5 +63,52 @@ describe('marca OxioCard en las páginas del cliente', () => {
       expect(html).toContain('<meta name="theme-color" content="#0f1112">');
       expect(html).not.toMatch(/src="https?:/);
     }
+  });
+});
+
+describe('las fichas del cliente son las del tema oscuro de @nightpay/ui (no se separan)', () => {
+  // Sin \r: en Windows git deja los ficheros con CRLF.
+  const styles = readFileSync(join(__dirname, '..', '..', '..', '..', '..', 'packages', 'ui', 'src', 'styles.css'), 'utf8').replace(
+    /\r\n/g,
+    '\n',
+  );
+  const darkStart = styles.indexOf(":root,\n[data-theme='dark'] {");
+  const dark = styles.slice(darkStart, styles.indexOf('\n}', darkStart));
+  const base = styles.slice(styles.indexOf(':root {'), styles.indexOf('\n}', styles.indexOf(':root {')));
+  const np = (block: string, name: string): string | undefined =>
+    new RegExp(`--np-${name}:\\s*(#[0-9a-f]{6});`, 'i').exec(block)?.[1]?.toLowerCase();
+  const club = (name: string): string | undefined => new RegExp(`--${name}:(#[0-9a-f]{6})`, 'i').exec(CLUB_TOKENS)?.[1]?.toLowerCase();
+
+  it.each([
+    ['bg', 'bg'],
+    ['surface', 'surface'],
+    ['surface-2', 'surface-2'],
+    ['line', 'border'],
+    ['line-hi', 'border-hi'],
+    ['fg', 'text'],
+    ['mute', 'text-mute'],
+    ['dim', 'text-dim'],
+    ['label', 'text-label'],
+    ['err', 'danger-text'],
+  ])('--%s del cliente = --np-%s', (clubName, npName) => {
+    expect(darkStart).toBeGreaterThan(0);
+    expect(club(clubName)).toBeDefined();
+    expect(club(clubName)).toBe(np(dark, npName));
+  });
+
+  it.each([
+    ['lime', 'lime'],
+    ['ink', 'ink'],
+    ['cream', 'cream'],
+    ['green-1', 'green-1'],
+    ['green-2', 'green-2'],
+    ['green-3', 'green-3'],
+  ])('marca: --%s del cliente = --np-%s', (clubName, npName) => {
+    expect(club(clubName)).toBe(np(base, npName));
+  });
+
+  it('el halo del lima, igual de contenido que en las apps', () => {
+    expect(CLUB_TOKENS).toContain('--lime-glow:rgb(199 211 1/.32)');
+    expect(styles).toContain('--np-lime-glow: rgb(199 211 1 / 0.32)');
   });
 });

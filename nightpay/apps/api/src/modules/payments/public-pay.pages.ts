@@ -1,5 +1,5 @@
 import { cardBrandLabel } from './card-brand';
-import { CLUB_BASE_CSS, brandBar, escapeHtml, jsConfig, jsString } from './club-ui';
+import { CLUB_BASE_CSS, MONEY_JS, brandBar, clientMoney, escapeHtml, jsConfig, jsString } from './club-ui';
 import { PAID_SCREEN_CSS, paidScreenScript, renderPaidScreen } from './paid-screen';
 import { WALLET_ASK_CSS, renderWalletAsk, type WalletBlock } from './paid-wallet-ask';
 import type { PayDevice } from './pay-device';
@@ -20,8 +20,9 @@ export type { WalletBlock } from './paid-wallet-ask';
 /**
  * Páginas del cliente en /pay/... (Fase 1B). Marca OxioCard (club-ui.ts):
  * noche + pill lima, «Pagado» en verde, letra grande, muy simple. HTML
- * autocontenido (sin fuentes externas: la CSP del API no las permite y el
- * cliente puede tener mala red). Todo el texto sale de pay-i18n.
+ * autocontenido (sin fuentes de fuera: la CSP del API no las permite y el
+ * cliente puede tener mala red; la de la marca la sirve el propio API). Todo
+ * el texto sale de pay-i18n.
  */
 
 type ChooseView = Extract<PayRedirect, { kind: 'choose' }>;
@@ -34,17 +35,17 @@ const PAGE_CSS = `
 .foot{margin-top:1.25rem}
 `;
 
+/**
+ * Un importe en la pantalla del cliente: «65 €» (sin «,00», como en el móvil
+ * del personal: decisión D4), «65,50 €», «1.109 €».
+ */
 function formatAmount(cents: number, currency: string, t: PayText): string {
-  return (cents / 100).toLocaleString(t.locale, { style: 'currency', currency });
+  return clientMoney(cents, t.locale, currency);
 }
 
-/** "65 €" en vez de "65,00 €" (botón «Pagar 65 €» y propinas). */
-function formatShort(cents: number, currency: string, t: PayText): string {
-  return (cents / 100).toLocaleString(t.locale, {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-  });
+/** El justificante es un documento: siempre con céntimos («65,00 €»). */
+function formatFull(cents: number, currency: string, t: PayText): string {
+  return clientMoney(cents, t.locale, currency, true);
 }
 
 function formatDateTime(d: Date, t: PayText): string {
@@ -147,7 +148,7 @@ function tipChoices(view: ChooseView, t: PayText): string {
   const presets = tipPresetsFor(view.amountCents, view.tipPresets);
   // La propina que pidió el cliente al personal (cobro único), ya marcada.
   const preset = view.presetTipCents && view.tipOptionsCents.includes(view.presetTipCents) ? view.presetTipCents : 0;
-  const short = (c: number): string => formatShort(c, view.currency, t);
+  const short = (c: number): string => formatAmount(c, view.currency, t);
   const pct = (p: number): string => (p / 100).toLocaleString(t.locale, { style: 'percent' });
   const options = view.tipOptionsCents
     .filter((c) => c > 0)
@@ -209,7 +210,7 @@ ${withTips ? tipChoices(view, t) : '<input type="hidden" name="tip" value="0">'}
 ${inApp ? `<p class="warn" role="note">${escapeHtml(t.inAppWarning(inApp))}</p>` : ''}
 <div class="paybar"><div>
 <input type="hidden" name="method" value="${inApp ? 'card' : wallet ? 'wallet' : ''}">
-<button class="btn" id="payBtn" type="submit">${escapeHtml(`${t.payPrefix} ${formatShort(view.amountCents, view.currency, t)}`)}</button>
+<button class="btn" id="payBtn" type="submit">${escapeHtml(`${t.payPrefix} ${formatAmount(view.amountCents, view.currency, t)}`)}</button>
 <p class="methods">${escapeHtml(inApp ? t.methodsCard : wallet ? t.methodsWallet(wallet) : t.methods)}</p>
 ${!inApp && wallet ? `<button class="link" id="cardBtn" type="button">${escapeHtml(t.payByCard)}</button>` : ''}
 ${view.saldoPayToken ? `<a class="btn alt saldo" href="${escapeHtml(`/s/${encodeURIComponent(view.saldoPayToken)}?lang=${ctx.lang}`)}">${escapeHtml(t.payWithSaldo)}</a>` : ''}
@@ -221,11 +222,12 @@ ${view.saldoPayToken ? `<a class="btn alt saldo" href="${escapeHtml(`/s/${encode
 (function(){
 var C=JSON.parse(${config}),T=C.text,f=document.getElementById('pay'),btn=document.getElementById('payBtn'),tot=document.getElementById('total'),
  other=document.getElementById('otherRadio'),box=document.getElementById('otherBox'),inp=document.getElementById('otherIn'),sent=false;
-function money(c,short){return (c/100).toLocaleString(C.locale,{style:'currency',currency:C.currency,minimumFractionDigits:short&&c%100===0?0:2});}
+${MONEY_JS}
+function money(c){return npMoney(c,C.locale,C.currency);}
 function otherCents(){var e=parseInt(inp.value.replace(/[^0-9]/g,'')||'0',10),max=Math.floor(C.max/100);if(e>max){e=max;inp.value=String(e);}return e*100;}
 function tip(){var r=f.querySelector('input[name=tip]:checked');return r?(+r.value||0):0;}
 function upd(){if(other){box.hidden=!other.checked;other.value=String(other.checked?otherCents():0);}
- var sum=C.amount+tip();if(!sent)btn.textContent=T.pay+' '+money(sum,true);if(tot)tot.textContent=money(sum,false);}
+ var sum=C.amount+tip();if(!sent)btn.textContent=T.pay+' '+money(sum);if(tot)tot.textContent=money(sum);}
 if(other){document.getElementById('otherOpt').hidden=false;inp.addEventListener('input',upd);}
 f.addEventListener('change',function(e){upd();if(other&&e.target===other&&other.checked)inp.focus();});
 f.addEventListener('submit',function(e){if(sent){e.preventDefault();return;}upd();sent=true;
@@ -465,7 +467,7 @@ export function renderReceiptPage(
 ): string {
   const t = PAY_TEXT[ctx.lang];
   const rt = t.receipt;
-  const fmt = (c: number): string => formatAmount(c, r.currency, t);
+  const fmt = (c: number): string => formatFull(c, r.currency, t);
   const brand = cardBrandLabel(r.cardBrand);
   const method = [r.payMethod === 'wallet' ? rt.wallet : r.payMethod === 'card' ? rt.card : null, brand]
     .filter(Boolean)

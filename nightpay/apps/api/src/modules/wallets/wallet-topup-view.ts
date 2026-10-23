@@ -1,4 +1,4 @@
-import { escapeHtml, jsConfig } from '../payments/club-ui';
+import { clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PAID_FRESH_MS, PAID_SCREEN_JS, formatAgo, paidScreenJsText } from '../payments/paid-screen';
 import { receiptHref } from '../payments/public-pay.pages';
@@ -53,11 +53,7 @@ export const TOPUP_CSS = `
 `;
 
 function short(cents: number, locale: string): string {
-  return (cents / 100).toLocaleString(locale, {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-  });
+  return clientMoney(cents, locale);
 }
 
 /** Aviso debajo del saldo si el saldo o el local no dejan recargar ahora (lo rellena el JS). */
@@ -114,7 +110,7 @@ export function paidProofSection(lang: PayLanguage, proof: TopUpProof, now: Date
     minute: '2-digit',
     second: '2-digit',
   });
-  const what = t.proofWhat.replace('{amount}', (proof.amountCents / 100).toLocaleString(t.locale, { style: 'currency', currency: 'EUR' }));
+  const what = t.proofWhat.replace('{amount}', clientMoney(proof.amountCents, t.locale));
   return `<section class="proof${fresh ? '' : ' stale'}" id="proof" data-at="${at ?? ''}" data-now="${now.getTime()}" data-fresh="${PAID_FRESH_MS}" aria-labelledby="proofTitle">
 <div class="band" aria-hidden="true"></div>
 <svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
@@ -149,7 +145,7 @@ npPaid(document.getElementById('proof'),JSON.parse(${jsConfig(paidScreenJsText(P
 export const TOPUP_JS = `
 var TU=C.topUp||{allowed:false,block:null,presetsCents:[],minCents:0,maxCents:0},TK='';
 function newKey(){var a=new Uint8Array(16);crypto.getRandomValues(a);TK=pkB64u(a.buffer);}
-function eurShort(c){return (c/100).toLocaleString(C.locale,{style:'currency',currency:'EUR',minimumFractionDigits:c%100===0?0:2});}
+function eurShort(c){return npMoney(c,C.locale,'EUR');}
 function topCents(){var r=$('topupForm').querySelector('input[name=amt]:checked');if(!r)return 0;
  if(r.value!=='other')return +r.value||0;return (parseInt($('otherIn').value.replace(/[^0-9]/g,'')||'0',10)||0)*100;}
 function topOk(c){return c>=TU.minCents&&c<=TU.maxCents&&c%100===0;}

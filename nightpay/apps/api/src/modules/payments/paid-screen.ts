@@ -43,9 +43,10 @@ export const PAID_SCREEN_CSS = `
 .paid .pline{display:inline-flex;align-items:center;min-height:2.75rem;padding:.35rem 1.25rem;border-radius:999px;background:rgb(0 0 0/.24);font-size:1.05rem;font-weight:700}
 .paid .pago{margin-top:.6rem;font-size:1.75rem;font-weight:800;line-height:1.1}
 .paid .pclock{font-size:1.2rem;font-weight:700}
-.paid .pcode{margin-top:.8rem;border:2px solid var(--lime-edge);border-radius:var(--r-tile);background:rgb(0 0 0/.24);padding:.55rem 1.1rem .65rem;display:flex;flex-direction:column;align-items:center}
-.paid .pcode span,.paid .pcode small,.paid .pnote{font-size:.85rem;font-weight:600}
-.paid .pcode b{font-size:2.2rem;line-height:1.1;letter-spacing:.25em;margin-right:-.25em}
+.paid .pcode{margin-top:.8rem;border:2px solid var(--lime-edge);border-radius:var(--r-tile);background:rgb(0 0 0/.24);padding:.6rem 1.5rem .75rem;display:flex;flex-direction:column;align-items:center;gap:.1rem}
+.paid .pcode span{font-size:.8rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.paid .pcode small,.paid .pnote{font-size:.85rem;font-weight:600}
+.paid .pcode b{font-size:clamp(2.6rem,12vw,3.25rem);font-weight:800;line-height:1.05;letter-spacing:.18em;margin-right:-.18em}
 .paid .pstale{display:none;font-weight:800}
 .paid.stale{background:var(--stale);color:var(--fg)}
 .paid.stale .band{display:none}

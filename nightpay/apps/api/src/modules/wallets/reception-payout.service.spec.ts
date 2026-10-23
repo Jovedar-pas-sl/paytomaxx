@@ -91,7 +91,7 @@ describe('salida con Face ID: el QR para el móvil del cliente', () => {
 describe('la página del cliente', () => {
   it('dice el importe y el local, sin el código ni el id del saldo; en inglés también', () => {
     const html = renderPayoutConfirmPage('/w/salida/tok', 'es', { amountCents: 3_500, venueName: 'Luna <b>', confirmed: false });
-    expect(html).toContain('35,00 €');
+    expect(html).toMatch(/35\s€/);
     expect(html).toContain('Luna &lt;b&gt;');
     expect(html).toContain('Confirmar con Face ID');
     expect(html).not.toMatch(/w-1|K7Q/);

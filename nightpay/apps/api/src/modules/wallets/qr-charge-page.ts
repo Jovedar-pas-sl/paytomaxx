@@ -1,5 +1,5 @@
 import { BRAND_NAME } from '../../common/brand';
-import { CLUB_BASE_CSS, brandBar, escapeHtml, jsConfig } from '../payments/club-ui';
+import { CLUB_BASE_CSS, MONEY_JS, brandBar, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { PAID_SCREEN_CSS, PAID_SCREEN_JS, paidScreenJsText, renderPaidScreen } from '../payments/paid-screen';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
@@ -94,7 +94,7 @@ export function renderQrChargePage(
   const h = escapeHtml;
   const base = `/s/${encodeURIComponent(token)}`;
   const locale = p.locale;
-  const eur = (c: number): string => (c / 100).toLocaleString(locale, { style: 'currency', currency: 'EUR' });
+  const eur = (c: number): string => clientMoney(c, locale);
   const isPaid = view.status === 'ACCEPTED';
   const paidAt = isPaid && view.paidAt ? new Date(view.paidAt) : null;
   const config = jsConfig({
@@ -155,7 +155,8 @@ ${PAID_SCREEN_JS}
 (function(){
 var C=JSON.parse(${config}),T=C.text,V=C.view,el=document.getElementById('paid');
 function $(id){return document.getElementById(id);}
-function eur(c){return (c/100).toLocaleString(C.locale,{style:'currency',currency:'EUR'});}
+${MONEY_JS}
+function eur(c){return npMoney(c,C.locale,'EUR');}
 function show(id,text){$(id).textContent=text;$(id).hidden=!text;}
 if(!el.hidden){npPaid(el,T.paid);return;}
 if(V.status!=='PENDING')return;
