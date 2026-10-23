@@ -52,6 +52,7 @@ interface UserRow {
   venue: { slug: string };
   totpSecret: string | null;
   deletedAt: Date | null;
+  displayName: string | null;
 }
 
 function makeUsers() {
@@ -68,6 +69,7 @@ function makeUsers() {
         venue: { slug: 'luna' },
         totpSecret: null,
         deletedAt: null,
+        displayName: 'Dani',
       },
     ],
   ]);
@@ -363,8 +365,20 @@ describe('sesión en cookie HttpOnly (apps nuevas)', () => {
     expect(cookie).not.toMatch(/Domain=/i);
     const body = res.json();
     expect(body.accessToken).toEqual(expect.any(String));
-    expect(body.user).toMatchObject({ id: USER_ID, venueSlug: 'luna' });
+    expect(body.user).toMatchObject({ id: USER_ID, venueSlug: 'luna', displayName: 'Dani' });
     expect(body).not.toHaveProperty('refreshToken');
+  });
+
+  it('login de una app antigua (refresh en el cuerpo): también trae el nombre', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      headers: { 'cf-connecting-ip': '203.0.113.12' },
+      payload: { email: EMAIL, password: PASSWORD },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().refreshToken).toEqual(expect.any(String));
+    expect(res.json().user).toMatchObject({ id: USER_ID, displayName: 'Dani' });
   });
 
   it('una cookie por app: el TPV no pisa la del panel', async () => {
@@ -391,6 +405,8 @@ describe('sesión en cookie HttpOnly (apps nuevas)', () => {
     expect(setCookieOf(res)).toContain('Max-Age=2592000');
     expect(res.json().accessToken).toEqual(expect.any(String));
     expect(res.json()).not.toHaveProperty('refreshToken');
+    // El nombre de Personal de ahora: la app lo pone sin volver a entrar.
+    expect(res.json().displayName).toBe('Dani');
   });
 
   it('refresh sin la cabecera X-OxioPay-Client → 403 (CSRF) y la cookie sigue valiendo', async () => {

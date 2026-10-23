@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { LoginResponseSchema, RefreshResponseSchema } from '@nightpay/contracts';
 import { AuthService } from './auth.service';
 import { LockoutService, PER_IP_POLICY } from './lockout.service';
 import { LoginTicketService } from './login-ticket.service';
@@ -334,6 +335,38 @@ describe('AuthService.login', () => {
     await svc.login({ email: 'a@b.test', password: 'correct12' });
     expect(jwtMock.signAsync.mock.calls[0]![0]).toMatchObject({ sub: 'u1', tenantId: 't1', sid: 'fam-1' });
   });
+
+  it('el login trae el nombre de Personal (sin espacios); sin nombre, null y la app pinta el puesto', async () => {
+    const cases: Array<[unknown, string | null]> = [
+      ['Carlos', 'Carlos'],
+      ['  Marta  ', 'Marta'],
+      [null, null],
+      ['   ', null],
+      [undefined, null],
+    ];
+    for (const [displayName, expected] of cases) {
+      const { svc } = makeService({ loginCandidates: [makeUser({ role: 'WAITER', displayName })], verifyPasswordResult: true });
+      const res = await svc.login({ email: 'a@b.test', password: 'correct12' });
+      expect(res.user.displayName).toBe(expected);
+    }
+  });
+
+  it('el nombre está en el contrato del login: LoginResponseSchema no lo quita', async () => {
+    const { svc } = makeService({
+      loginCandidates: [
+        makeUser({
+          id: '00000000-0000-4000-8000-000000000001',
+          tenantId: '00000000-0000-4000-8000-0000000000aa',
+          role: 'WAITER',
+          displayName: 'Carlos',
+        }),
+      ],
+      verifyPasswordResult: true,
+    });
+    const res = await svc.login({ email: 'a@b.test', password: 'correct12' });
+    expect(LoginResponseSchema.parse(res).user.displayName).toBe('Carlos');
+    expect(LoginResponseSchema.parse({ ...res, user: { ...res.user, displayName: null } }).user.displayName).toBeNull();
+  });
 });
 
 describe('AuthService.refresh', () => {
@@ -356,6 +389,20 @@ describe('AuthService.refresh', () => {
     expect(res).toMatchObject({ accessToken: 'JWT.R', refreshToken: 'rt.new' });
     expect(refreshTokensMock.revokeFamily).not.toHaveBeenCalled();
     expect(jwtMock.signAsync.mock.calls[0]![0]).toMatchObject({ tenantId: 't1', venueSlug: 'luna-vlc', sid: 'fam-1' });
+  });
+
+  it('la renovación trae el nombre de Personal de ahora (la app lo pone sin volver a entrar)', async () => {
+    for (const [displayName, expected] of [
+      [' Carlos ', 'Carlos'],
+      [null, null],
+      ['  ', null],
+    ] as const) {
+      const { svc, refreshTokensMock } = makeService({ findUniqueResult: makeUser({ displayName }) });
+      refreshTokensMock.rotate.mockResolvedValue(rotated());
+      const res = await svc.refresh('rt.old');
+      expect(res.displayName).toBe(expected);
+      expect(RefreshResponseSchema.parse(res).displayName).toBe(expected);
+    }
   });
 
   it('super-admin con otro local elegido en la sesión → el token sale ya para ese local', async () => {
@@ -610,6 +657,15 @@ describe('AuthService.login — super-admin con 2FA en dos pasos', () => {
     await expect(svc.loginWithTotp(ticket, '123456')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'LOGIN_TICKET_EXPIRED' }),
     });
+  });
+
+  it('el segundo paso (con el código) también trae el nombre', async () => {
+    const named = () => makeUser({ isSuperAdmin: true, displayName: 'Daniel' });
+    const { svc, tx } = makeService({ loginCandidates: [named()], verifyPasswordResult: true, totpEnabled: true });
+    const ticket = await ticketFrom(svc.login({ email: 'a@b.test', password: 'pwd12345' }));
+    tx.user.findUnique.mockResolvedValue(named());
+    const res = await svc.loginWithTotp(ticket, '123456');
+    expect(res.user.displayName).toBe('Daniel');
   });
 
   it('código malo: el error 2FA y el ticket sigue valiendo para otro intento', async () => {
