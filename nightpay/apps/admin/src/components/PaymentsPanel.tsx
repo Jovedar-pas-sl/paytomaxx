@@ -10,6 +10,7 @@ import { formatEur } from '@/lib/money';
 import { paymentRowOf } from '@/lib/money-map';
 import { appendPage, mergeLatestPage } from '@/lib/pagination';
 import type { TabKey } from '@/lib/roles';
+import { todayTiles, type NightTotals } from '@/lib/today-tiles';
 import { useApprovals } from '@/lib/use-approvals';
 import { usePolling } from '@/lib/use-polling';
 import { BankRefundModal } from './BankRefundModal';
@@ -61,8 +62,8 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   const [refundsFor, setRefundsFor] = useState<PaymentRow | null>(null);
   /** «Abrir cobro» de una incidencia que no está entre los cobros cargados. */
   const [focusMissing, setFocusMissing] = useState(false);
-  // Con la noche abierta, «Esta noche» ya dice lo cobrado y los pagos: «Hoy» no los repite.
-  const [nightOpen, setNightOpen] = useState(false);
+  // Lo cobrado y los pagos de «Esta noche»: «Hoy» no repite las cifras que coinciden.
+  const [nightTotals, setNightTotals] = useState<NightTotals>(undefined);
   // Filas cargadas (el refresco pide las mismas) y filtro vigente (para
   // descartar un "Cargar más" que vuelve después de cambiar el filtro).
   const loadedRef = useRef(0);
@@ -149,7 +150,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
 
   return (
     <>
-      <TonightStrip onNavigate={onNavigate} onNightOpen={setNightOpen} />
+      <TonightStrip onNavigate={onNavigate} onNightTotals={setNightTotals} />
 
       {focusMissing ? (
         <Notice tone="info" action={{ label: 'Entendido', onClick: () => setFocusMissing(false) }}>
@@ -173,7 +174,8 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
 
       <section className="np-metrics" style={metricsGrid}>
         {/* Los pagos con tarjeta (también las recargas con tarjeta): lo pagado con el saldo no cuenta aquí. */}
-        {nightOpen ? null : (
+        {/* Solo si dicen otra cosa que «Esta noche» (y nada hasta saberlo: no aparecen para desaparecer). */}
+        {todayTiles(nightTotals, metrics?.today) !== 'show' ? null : (
           <>
             <MetricTile title="Hoy · pagos con tarjeta" value={metrics ? String(metrics.today.count) : '—'} />
             <MetricTile

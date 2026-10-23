@@ -7,6 +7,7 @@ import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import type { TabKey } from '@/lib/roles';
+import type { NightTotals } from '@/lib/today-tiles';
 import { useIncidents } from '@/lib/use-incidents';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
@@ -37,11 +38,14 @@ interface PendingFigures {
  */
 export function TonightStrip({
   onNavigate,
-  onNightOpen,
+  onNightTotals,
 }: {
   onNavigate?: (key: TabKey) => void;
-  /** Si hay noche abierta (sus cifras salen aquí: «Hoy» no las repite). */
-  onNightOpen?: (open: boolean) => void;
+  /**
+   * Lo cobrado y los pagos con tarjeta de la noche abierta (undefined mientras
+   * carga; null sin noche abierta): «Hoy» no repite las cifras que coinciden.
+   */
+  onNightTotals?: (totals: NightTotals) => void;
 }) {
   const tz = useVenueTimezone();
   const titleId = useId();
@@ -79,10 +83,13 @@ export function TonightStrip({
   );
 
   const openCount = open ? open.length : null;
-  const nightOpen = Boolean(night);
+  const chargedCents = night ? night.chargedCents : null;
+  const cardCount = night ? night.count : null;
+  const known = night !== undefined;
   useEffect(() => {
-    onNightOpen?.(nightOpen);
-  }, [nightOpen, onNightOpen]);
+    if (!known) onNightTotals?.(undefined);
+    else onNightTotals?.(chargedCents === null || cardCount === null ? null : { chargedCents, count: cardCount });
+  }, [known, chargedCents, cardCount, onNightTotals]);
 
   return (
     <section className="np-tonight" aria-labelledby={titleId}>
