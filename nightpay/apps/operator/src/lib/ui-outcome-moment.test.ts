@@ -58,3 +58,18 @@ describe('D10: el momento PAGADO, una vez', () => {
     expect(reduce).toMatch(/\.np-outcome\[data-kind='paid'\] \.np-outcome-ring,\s*\.np-outcome\[data-kind='paid'\] \.np-outcome-icon path \{\s*animation: none !important;/);
   });
 });
+
+describe('Esperando con «reducir movimiento»: nada en bucle', () => {
+  const COBRAR = read('../components/cobrar/cobrar.module.css');
+  const reduce = (() => {
+    const at = COBRAR.indexOf('@media (prefers-reduced-motion: reduce)');
+    return COBRAR.slice(at, COBRAR.indexOf('\n}\n', at));
+  })();
+
+  it('el punto de «Esperando el pago…» y el halo del NFC, quietos y a la vista', () => {
+    expect(reduce).toMatch(/\.ncardPulse,\s*\.live i \{[^}]*animation: none !important;/);
+    expect(reduce).not.toContain('infinite');
+    // El halo se queda dibujado (no desaparece): se sigue viendo dónde acercar la ficha.
+    expect(reduce).toMatch(/\.ncardPulse \{[^}]*opacity: 0\.6;/);
+  });
+});

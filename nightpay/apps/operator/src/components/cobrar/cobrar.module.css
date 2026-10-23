@@ -1302,26 +1302,17 @@
   }
 }
 
-@keyframes np-cobrar-breathe {
-  from {
-    opacity: 0.15;
-  }
-  to {
-    opacity: 0.6;
-  }
-}
-
-/* Con «reducir movimiento»: el pulso y el punto no se mueven, se funden despacio
-   (gana a la regla general, que pararía la espera del todo). */
+/* Con «reducir movimiento»: nada en bucle. El punto y el halo se quedan
+   quietos y a la vista (el texto «Esperando el pago…» ya dice que se espera). */
 @media (prefers-reduced-motion: reduce) {
   .ncardPulse,
   .live i {
     transform: none !important;
-    animation-name: np-cobrar-breathe !important;
-    animation-duration: 3.2s !important;
-    animation-timing-function: ease-in-out !important;
-    animation-iteration-count: infinite !important;
-    animation-direction: alternate !important;
+    animation: none !important;
+  }
+
+  .ncardPulse {
+    opacity: 0.6;
   }
 }
 
