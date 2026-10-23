@@ -40,7 +40,12 @@ export function morningSummaryMessage(
     lines.push(`Recargas en efectivo: ${n} · ${eur(s.walletCashTopUpsCents ?? 0)} (en la caja)`);
   }
   if (s.refundsCents > 0) lines.push(`Devoluciones: −${eur(s.refundsCents)}`);
-  lines.push(`Para las chicas: ${eur(s.chicaNetCents)} · para el local: ${eur(s.venueNetCents)}`);
+  // Lo de los camareros (su parte de las copas con invitación, si el local se
+  // la da) va aparte: chicas + camareros + local = lo cobrado neto.
+  const camareros = s.camareroNetCents ?? 0;
+  lines.push(
+    `Para las chicas: ${eur(s.chicaNetCents)}${camareros !== 0 ? ` · para los camareros: ${eur(camareros)}` : ''} · para el local: ${eur(s.venueNetCents)}`,
+  );
   if (s.perChica.length > 0) lines.push(`Chicas que cobraron: ${s.perChica.length} (detalle en el panel → Noches)`);
   if (cashDiffCents) lines.push(cashDiffLine(cashDiffCents));
   lines.push(

@@ -103,6 +103,17 @@ describe('resumen de las 9:00', () => {
     );
   });
 
+  it('lo de los camareros (su parte de las copas con invitación) va en el reparto si no es 0: chicas + camareros + local = neto', () => {
+    // Noche con 15,01 € cobrados: Lola 7,51 €, Dani (camarero) 7,50 €, el local 0 €.
+    const night = { ...summary, count: 1, grossCents: 1501, tipsCents: 0, chargedCents: 1501, refundsCount: 0, refundsCents: 0, netCents: 1501, chicaNetCents: 751, camareroNetCents: 750, venueNetCents: 0 };
+    expect(morningSummaryMessage('Local Centro', night, 0)).toContain('Para las chicas: 7,51 € · para los camareros: 7,50 € · para el local: 0,00 €');
+    // La noche siguiente se devuelven 7,50 €: a cada uno lo suyo, en negativo.
+    const next = { ...night, chargedCents: 0, grossCents: 0, refundsCount: 1, refundsCents: 750, netCents: -750, chicaNetCents: -375, camareroNetCents: -375, venueNetCents: 0 };
+    expect(morningSummaryMessage('Local Centro', next, 0)).toContain('Para las chicas: -3,75 € · para los camareros: -3,75 € · para el local: 0,00 €');
+    // Sin nada para los camareros (lo normal), como siempre.
+    expect(morningSummaryMessage('Local Centro', { ...summary, camareroNetCents: 0 }, 0)).toContain('Para las chicas: 920,00 € · para el local: 200,00 €');
+  });
+
   it('la diferencia de caja al cerrar, solo si la hay', () => {
     expect(morningSummaryMessage('Local Centro', summary, 0, false, -1250)).toContain(
       'Caja: faltan 12,50 € al cerrar (panel → Noches)',
