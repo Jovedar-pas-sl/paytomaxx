@@ -207,3 +207,11 @@
     transform: none;
   }
 }
+
+/* Cifras de las tablas en Manrope 700 (decisión D11; la fuente es variable
+   600-800): se distinguen de los importes grandes del panel (800) y las
+   columnas no pesan tanto. Tabulares: las columnas de importes no bailan. */
+.np-table .np-num {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}

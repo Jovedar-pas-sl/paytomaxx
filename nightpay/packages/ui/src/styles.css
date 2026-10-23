@@ -348,9 +348,12 @@ button {
   border-radius: 4px;
 }
 
-/* Tabular numbers for any element marked .np-num (Manrope 800). */
+/* Tabular numbers for any element marked .np-num: Manrope 800 de fábrica
+   (la fuente es variable, 600-800: quien quiera otra jerarquía pone su peso,
+   como las tablas del panel en 700). */
 .np-num {
   font-family: var(--np-font-mono);
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
 }

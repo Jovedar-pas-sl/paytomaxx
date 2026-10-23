@@ -9,10 +9,11 @@ Origen (licencia OFL, copiada al lado):
 
 Uso (Python 3.10+, `pip install fonttools brotli`):
   python build_fonts.py "InstrumentSans[wdth,wght].ttf" instrument-sans.woff2 "wght=400:700;wdth=100" latin-ext
-  python build_fonts.py "Manrope[wght].ttf" manrope.woff2 "wght=800" latin-ext
+  python build_fonts.py "Manrope[wght].ttf" manrope.woff2 "wght=600:800" latin-ext
 
-Pesos: texto 400-700 (variable); cifras y títulos solo Manrope 800 (un peso
-fijo: marca OxioCard, 17 KB). Rasgos: los de fontTools por defecto + tnum/pnum
+Pesos: texto 400-700 (variable); cifras y títulos Manrope 600-800 (variable,
+30 KB: 800 en importes y títulos, 700 en las cifras de las tablas del panel,
+para que haya jerarquía entre cifras; decisión D11 de la revisión visual). Rasgos: los de fontTools por defecto + tnum/pnum
 (cifras tabulares), igual que Google.
 
 Cobertura:

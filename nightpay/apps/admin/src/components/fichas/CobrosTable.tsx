@@ -149,7 +149,7 @@ const paidTwiceStyle = (refunded: boolean): CSSProperties => ({
 
 const meta: CSSProperties = { color: 'var(--np-text-mute)' };
 const oneLine: CSSProperties = { whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
-const amountCell: CSSProperties = { textAlign: 'right', fontWeight: 500, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+const amountCell: CSSProperties = { textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
 const tipStyle: CSSProperties = {
   display: 'block',
   fontSize: '0.75rem',
