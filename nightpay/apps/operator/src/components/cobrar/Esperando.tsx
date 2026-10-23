@@ -16,7 +16,7 @@ import { nfcSupported, readCard } from '@/lib/nfc';
 import { useHealthReport } from '@/lib/connection-health';
 import { useOpenCharge } from '@/lib/open-charges';
 import { advanceStatus } from '@/lib/payment-status';
-import { useVenueMethods } from '@/lib/venue-methods';
+import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { usePolling } from '@/lib/use-polling';
 import {
   CobroApiError,
@@ -30,12 +30,12 @@ import {
   type CobroCreado,
   type SaldoState,
 } from '@/lib/api-cobro';
-import { failReasonOf, paidAmounts, paidMeta, tipLine, type FailReason } from '@/lib/cobro-view';
+import { failReasonOf, paidAmounts, paidMeta, pinExpected, pinWarning, tipLine, waitingLiveText, type FailReason } from '@/lib/cobro-view';
 import { cobroOutcome } from '@/lib/cobro-state';
 import { StaffOutcome } from '../StaffOutcome';
 import { usePaymentLive } from '../use-payment-live';
 import { colorOf } from './cobrar-context';
-import { IconQr } from './icons';
+import { IconLock, IconQr } from './icons';
 import { NfcCard } from './NfcCard';
 import { PinScreen } from './PinScreen';
 import styles from './cobrar.module.css';
@@ -385,7 +385,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     <div className={styles.overlay} data-charge-open="">
       <Waiting cobro={cobro} nfcOn={nfcOn} reading={reading} toast={toast}>
         <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => void cancel()} disabled={canceling}>
-          {canceling ? 'Cancelando…' : 'Cancelar'}
+          {canceling ? 'Cancelando…' : 'Cancelar cobro'}
         </button>
       </Waiting>
     </div>
@@ -412,9 +412,11 @@ function Waiting({
     return expires ? qrDeadline(expires, receivedAt, cobro.card?.createdAt) : null;
   }, [cobro.card?.qrExpiresAt, cobro.card?.createdAt, cobro.saldo?.expiresAt, receivedAt]);
   const now = useNow(true);
+  const night = useVenueNight();
   const left = deadline ? secondsLeft(deadline, now) : 0;
   const fraction = deadline ? remainingFraction(deadline, now) : 0;
-  const ending = countdownPhase(left) !== 'ok';
+  const phase = deadline ? countdownPhase(left) : 'ok';
+  const ending = phase !== 'ok';
   const qr = cobro.card?.qrPngDataUrl ?? cobro.saldoQr ?? null;
   const colors = cobro.sections.slice(0, 2).map((s) => colorOf(s.section));
   const invite = Boolean(cobro.invitation);
@@ -430,6 +432,11 @@ function Waiting({
       </div>
       <div className={styles.waitBody}>
         <p className={styles.amountXl}>{formatEur(cobro.totalCents, { compact: true })}</p>
+        {/* Viva: un punto que late y lo que pasa, también para el lector de pantalla (cambia solo al cambiar de fase). */}
+        <p className={`${styles.live}${ending ? ` ${styles.liveEnding}` : ''}`} role="status" aria-live="polite">
+          <i aria-hidden="true" />
+          {waitingLiveText(phase)}
+        </p>
         <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil'}</h2>
         <div className={styles.dual}>
           {qr ? (
@@ -440,7 +447,11 @@ function Waiting({
               {invite ? 'Tarjeta o QR' : 'Con tu móvil'}
             </div>
           ) : null}
-          {nfcOn && qr ? <span className={styles.orDot}>o</span> : null}
+          {nfcOn && qr ? (
+            <span className={styles.orDot} aria-hidden="true">
+              o
+            </span>
+          ) : null}
           {nfcOn ? (
             <div className={styles.opt}>
               <NfcCard reading={reading} />
@@ -448,6 +459,12 @@ function Waiting({
             </div>
           ) : null}
         </div>
+        {nfcOn && pinExpected(cobro.totalCents, night) ? (
+          <p className={`${styles.warnline} ${styles.waitPin}`}>
+            <IconLock />
+            {pinWarning(night)}
+          </p>
+        ) : null}
         {deadline ? (
           <div className={`${styles.timer}${ending ? ` ${styles.timerEnding}` : ''}`}>
             <span className={styles.tbar}>

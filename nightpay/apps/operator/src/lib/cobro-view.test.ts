@@ -11,6 +11,7 @@ import {
   pinWarning,
   splitCells,
   tipLine,
+  waitingLiveText,
   whoLine,
 } from './cobro-view';
 
@@ -116,5 +117,13 @@ describe('el PAGADO con propina (D7)', () => {
   it('sin propina no hay línea; con céntimos, con ellos', () => {
     expect(tipLine(paidAmounts({ totalCents: 1200 }, { method: 'card', tipCents: 0 }))).toBeNull();
     expect(sp(tipLine({ baseCents: 1250, tipCents: 150, totalCents: 1400 })!.tip)).toBe('1,50 €');
+  });
+});
+
+describe('la espera «viva»', () => {
+  it('dice que sigue esperando y avisa al acabarse el tiempo (solo al cambiar de fase)', () => {
+    expect(waitingLiveText('ok')).toBe('Esperando el pago…');
+    expect(waitingLiveText('ending')).toBe('Queda menos de un minuto');
+    expect(waitingLiveText('over')).toBe('Comprobando…');
   });
 });

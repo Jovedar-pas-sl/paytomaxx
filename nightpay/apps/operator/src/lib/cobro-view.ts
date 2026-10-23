@@ -60,6 +60,16 @@ export function tipLine(amounts: PaidAmounts): { base: string; tip: string } | n
   return { base: formatEur(amounts.baseCents, { compact: true }), tip: formatEur(amounts.tipCents, { compact: true }) };
 }
 
+/**
+ * La pastilla viva de «Esperando» (y lo que oye el lector de pantalla): cambia
+ * solo al cambiar de fase, no cada segundo.
+ */
+export function waitingLiveText(phase: 'ok' | 'ending' | 'over'): string {
+  if (phase === 'over') return 'Comprobando…';
+  if (phase === 'ending') return 'Queda menos de un minuto';
+  return 'Esperando el pago…';
+}
+
 /** ¿Pedirá el PIN si paga con el NFC? (más que el tope sin PIN del local). */
 export function pinExpected(totalCents: number, night: Pick<VenueNightSettings, 'nfcNoPinMaxCents'>): boolean {
   return totalCents > night.nfcNoPinMaxCents;

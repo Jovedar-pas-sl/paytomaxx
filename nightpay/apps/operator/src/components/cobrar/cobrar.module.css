@@ -1124,11 +1124,12 @@
 .band {
   flex: none;
   min-height: 3.125rem;
-  padding: 0 1.25rem;
+  padding: 0.5rem 1.25rem;
+  /* En dos líneas: las secciones y, debajo, qué y quién (sin cortar «camar…»). */
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
   background: var(--c);
   color: var(--np-on-section);
   font-weight: 700;
@@ -1146,10 +1147,61 @@
 }
 
 .band span {
-  text-align: right;
-  white-space: nowrap;
+  font-size: 0.9375rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+/* «Esperando el pago…»: viva, con un punto que late despacio (< 1 Hz). */
+.live {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  min-height: 2.25rem;
+  padding: 0 1rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-surface-2);
+  border: 1px solid var(--np-border);
+  color: var(--np-text);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.live i {
+  flex: none;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background: var(--np-success);
+  animation: np-cobrar-dot var(--np-pulse) ease-in-out infinite;
+}
+
+.liveEnding i {
+  background: var(--np-warning);
+}
+
+@keyframes np-cobrar-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+
+/* Por encima del tope sin PIN: que el camarero lo sepa antes de que el cliente lo vea. */
+.waitPin {
+  margin: 0;
+  justify-content: center;
 }
 
 .waitBody {
@@ -1215,18 +1267,62 @@
   height: 100%;
 }
 
+/* «o» entre el QR y el NFC: solo la palabra (sin círculo que parezca un botón). */
 .orDot {
   flex: none;
-  width: 2.125rem;
-  height: 2.125rem;
-  border-radius: 50%;
-  border: 1.5px solid var(--np-border-hi);
-  display: grid;
-  place-items: center;
   font-weight: 700;
-  font-size: 0.9375rem;
+  font-size: 1rem;
   color: var(--np-text-label);
   margin-bottom: 1.75rem;
+}
+
+/* La tarjeta con su pulso alrededor (dónde acercar el NFC; la app sigue esperando). */
+.ncardWrap {
+  position: relative;
+  display: inline-grid;
+}
+
+.ncardPulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.875rem;
+  box-shadow: 0 0 0 2px var(--np-lime);
+  pointer-events: none;
+  animation: np-cobrar-pulse var(--np-pulse) var(--np-ease) infinite;
+}
+
+@keyframes np-cobrar-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(1.12);
+    opacity: 0;
+  }
+}
+
+@keyframes np-cobrar-breathe {
+  from {
+    opacity: 0.15;
+  }
+  to {
+    opacity: 0.6;
+  }
+}
+
+/* Con «reducir movimiento»: el pulso y el punto no se mueven, se funden despacio
+   (gana a la regla general, que pararía la espera del todo). */
+@media (prefers-reduced-motion: reduce) {
+  .ncardPulse,
+  .live i {
+    transform: none !important;
+    animation-name: np-cobrar-breathe !important;
+    animation-duration: 3.2s !important;
+    animation-timing-function: ease-in-out !important;
+    animation-iteration-count: infinite !important;
+    animation-direction: alternate !important;
+  }
 }
 
 /* La tarjeta NFC: plata con el halo lima, como la OxioCard. */
