@@ -20,4 +20,8 @@ describe('classifySessionEvent', () => {
   it('la caducidad en esta pestaña va por SESSION_EXPIRED_EVENT, no por aquí', () => {
     expect(classifySessionEvent({ type: 'expired', source: 'this-tab' })).toBeNull();
   });
+
+  it('el refresco trajo otro nombre (misma persona): ni se sale ni se cambia de local', () => {
+    expect(classifySessionEvent({ type: 'profile', source: 'this-tab' })).toBeNull();
+  });
 });

@@ -10,7 +10,6 @@ import {
   cuentaTotals,
   cuentaWhat,
   itemLabel,
-  plural,
   qtyOf,
   removeLine,
   setQty,
@@ -53,7 +52,7 @@ describe('la cuenta de «Cobrar»', () => {
       { serviceItemId: COPA.id, qty: 2 },
       { serviceItemId: TABLA.id, qty: 1 },
     ]);
-    expect(cuentaSummary(cuenta, label)).toBe('2 copas + tabla');
+    expect(cuentaSummary(cuenta, label)).toBe('2× Copa + Tabla ibérica');
   });
 
   it('una sola cosa: «1 h · Servicios»; con varias, «2× …»', () => {
@@ -83,7 +82,7 @@ describe('la cuenta de «Cobrar»', () => {
       { category: 'VENUE_BAR', amountCents: 3500, label: 'Otro importe' },
     ]);
     expect(addAmount(EMPTY_CUENTA, 'VENUE_BAR', 0)).toBe(EMPTY_CUENTA);
-    expect(cuentaSummary(cuenta, label)).toBe('copa + otro importe + propina');
+    expect(cuentaSummary(cuenta, label)).toBe('Copa + otro importe + propina');
   });
 
   it('una propina sola no se cobra: hace falta algo que vender', () => {
@@ -102,28 +101,63 @@ describe('la cuenta de «Cobrar»', () => {
   it('muchas cosas: las dos primeras y «+ N más»', () => {
     let cuenta = EMPTY_CUENTA;
     for (const item of [COPA, TABLA, HORA, PACK]) cuenta = addItem(cuenta, item);
-    expect(cuentaSummary(cuenta, label)).toBe('copa + tabla + 2 más');
+    expect(cuentaSummary(cuenta, label)).toBe('Copa + Tabla ibérica + 2 más');
   });
 
-  it('plurales y nombres', () => {
-    expect([plural('copa'), plural('ración'), plural('chupito'), plural('nuez'), plural('pan')]).toEqual([
-      'copas',
-      'raciones',
-      'chupitos',
-      'nueces',
-      'panes',
-    ]);
+  it('nombres con su duración', () => {
     expect(itemLabel({ name: 'Masaje', durationMin: 30 })).toBe('Masaje · 30 min');
     expect(itemLabel({ name: '30 min', durationMin: 30 })).toBe('30 min');
   });
 
   it('lo que se cobra, corto (la banda y el PAGADO): sin la propina', () => {
-    expect(cuentaWhat(addItem(addItem(EMPTY_CUENTA, COPA), COPA))).toBe('2 copas');
+    expect(cuentaWhat(addItem(addItem(EMPTY_CUENTA, COPA), COPA))).toBe('2× Copa');
     expect(cuentaWhat(addItem(EMPTY_CUENTA, HORA))).toBe('1 h');
-    expect(cuentaWhat(addAmount(addItem(addItem(EMPTY_CUENTA, COPA), TABLA), PROPINAS, 500))).toBe('copa + tabla');
+    expect(cuentaWhat(addAmount(addItem(addItem(EMPTY_CUENTA, COPA), TABLA), PROPINAS, 500))).toBe('Copa + Tabla ibérica');
     let many = EMPTY_CUENTA;
     for (const item of [COPA, TABLA, HORA, PACK]) many = addItem(many, item);
-    expect(cuentaWhat(many)).toBe('copa + tabla + 2 más');
+    expect(cuentaWhat(many)).toBe('Copa + Tabla ibérica + 2 más');
     expect(cuentaWhat(addAmount(EMPTY_CUENTA, 'VENUE_BAR', 3500))).toBe('otro importe');
+  });
+});
+
+describe('los resúmenes dicen el nombre de la carta tal cual (nada de plurales inventados)', () => {
+  const GIN: CartaItem = { id: 'c-gin', name: 'Gin tonic', priceCents: 1200, category: 'VENUE_BAR' };
+  const NACHOS: CartaItem = { id: 'c-nachos', name: 'Nachos', priceCents: 900, category: 'VENUE_FOOD' };
+  const ENTRADA: CartaItem = { id: 'c-entrada', name: 'Entrada', priceCents: 1500, category: 'VENUE_ENTRY' };
+  const ENTRADA_VIP: CartaItem = { id: 'c-entrada-vip', name: 'Entrada VIP', priceCents: 3000, category: 'VENUE_ENTRY' };
+  const add = (...items: CartaItem[]) => items.reduce((c, i) => addItem(c, i), EMPTY_CUENTA);
+
+  it('2 gin tonic y unos nachos: «2× Gin tonic + Nachos» (no «2 gines + nachos»)', () => {
+    const cuenta = add(GIN, GIN, NACHOS);
+    expect(cuentaSummary(cuenta, label)).toBe('2× Gin tonic + Nachos');
+    expect(cuentaWhat(cuenta)).toBe('2× Gin tonic + Nachos');
+  });
+
+  it('un nombre que ya acaba en s, de varias palabras o que es un número sale igual', () => {
+    expect(cuentaWhat(add(NACHOS, NACHOS))).toBe('2× Nachos');
+    expect(cuentaSummary(add(HORA, HORA, COPA), label)).toBe('2× 1 h + Copa');
+    expect(cuentaSummary(add(ENTRADA, ENTRADA, ENTRADA_VIP), label)).toBe('2× Entrada + Entrada VIP');
+    for (const name of ['Red Bull', 'Champán', 'Patatas bravas', 'Menú del día', 'Kebab']) {
+      const item: CartaItem = { id: `x-${name}`, name, priceCents: 1000, category: 'VENUE_BAR' };
+      expect(cuentaWhat(add(item, item))).toBe(`2× ${name}`);
+      expect(cuentaSummary(add(item, item, COPA), label)).toBe(`2× ${name} + Copa`);
+    }
+  });
+
+  it('el dinero no cambia: los totales y las líneas que van al API son los mismos', () => {
+    const cuenta = add(GIN, GIN, NACHOS);
+    expect(cuentaTotals(cuenta)).toEqual({
+      amountCents: 3300,
+      tipCents: 0,
+      totalCents: 3300,
+      bySection: [
+        { section: 'VENUE_BAR', cents: 2400 },
+        { section: 'VENUE_FOOD', cents: 900 },
+      ],
+    });
+    expect(chargeLinesOf(cuenta)).toEqual([
+      { serviceItemId: GIN.id, qty: 2 },
+      { serviceItemId: NACHOS.id, qty: 1 },
+    ]);
   });
 });

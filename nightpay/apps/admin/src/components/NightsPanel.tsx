@@ -19,6 +19,7 @@ import { formatEur } from '@/lib/money';
 import { diffLabel, parseCashInput } from '@/lib/night-close';
 import type { PanelTab, TabKey } from '@/lib/roles';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { zTypeLabel } from '@/lib/z-labels';
 import { NightMoneyMap } from './money-map/NightMoneyMap';
 import { NightCajaBlock } from './NightCajaBlock';
 import { NightCloseScreen } from './NightCloseScreen';
@@ -328,7 +329,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
       <p style={hintSmall}>
         {s.count} pagos con tarjeta
         {s.byType.length > 0 ? ' · ' : ''}
-        {s.byType.map((t) => `${t.label}: ${t.count} (${formatEur(t.chargedCents)})`).join(' · ')}
+        {s.byType.map((t) => `${zTypeLabel(t.label)}: ${t.count} (${formatEur(t.chargedCents)})`).join(' · ')}
       </p>
       <SaldoLine summary={s} />
       {s.perChica.length > 0 ? (

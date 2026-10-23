@@ -133,32 +133,28 @@ export function itemLabel(item: Pick<CartaItem, 'name' | 'durationMin'>): string
   return `${item.name} · ${duration}`;
 }
 
-/** «copa» → «copas», «tabla» → «tablas», «ración» → «raciones». */
-export function plural(word: string): string {
-  if (/[aeiouáéó]$/i.test(word)) return `${word}s`;
-  if (/ón$/i.test(word)) return `${word.slice(0, -2)}ones`;
-  if (/z$/i.test(word)) return `${word.slice(0, -1)}ces`;
-  return `${word}es`;
-}
-
-function shortName(name: string): string {
-  return (name.trim().split(/\s+/)[0] ?? name).toLowerCase();
+/**
+ * «2× Gin tonic», «Nachos»: el nombre tal como lo escribió el local. Nunca se
+ * inventa un plural ni se recorta (como el API: «2× Copa · Habitación»).
+ */
+function qtyName(qty: number, name: string): string {
+  return qty > 1 ? `${qty}× ${name}` : name;
 }
 
 /**
- * La cuenta en una línea, abajo: «1 h · Servicios» (una sola cosa), «2 copas
- * + tabla», «2 copas + tabla + 2 más».
+ * La cuenta en una línea, abajo: «1 h · Servicios» (una sola cosa), «2× Gin
+ * tonic + Nachos», «2× Copa + Tabla ibérica + 2 más».
  */
 export function cuentaSummary(cuenta: Cuenta, sectionLabel: (section: string) => string): string {
   if (cuenta.length === 0) return '';
   const label = (l: CuentaLine): string => {
     if (l.kind === 'propina') return 'propina';
     if (l.kind === 'importe') return 'otro importe';
-    return l.qty > 1 ? `${l.qty} ${plural(shortName(l.item.name))}` : shortName(l.item.name);
+    return qtyName(l.qty, l.item.name);
   };
   if (cuenta.length === 1) {
     const only = cuenta[0]!;
-    if (only.kind === 'carta') return `${only.qty > 1 ? `${only.qty}× ` : ''}${itemLabel(only.item)} · ${sectionLabel(only.item.category)}`;
+    if (only.kind === 'carta') return `${qtyName(only.qty, itemLabel(only.item))} · ${sectionLabel(only.item.category)}`;
     return only.kind === 'propina' ? 'Propina' : `Otro importe · ${sectionLabel(only.category)}`;
   }
   const parts = cuenta.map(label);
@@ -167,15 +163,14 @@ export function cuentaSummary(cuenta: Cuenta, sectionLabel: (section: string) =>
 }
 
 /**
- * Lo que se cobra, corto (la banda de «Esperando» y el PAGADO): «2 copas»,
- * «1 h», «2 copas + tabla», «copa + tabla + 2 más».
+ * Lo que se cobra, corto (la banda de «Esperando» y el PAGADO): «2× Copa»,
+ * «1 h», «2× Gin tonic + Nachos», «Copa + Tabla ibérica + 2 más».
  */
 export function cuentaWhat(cuenta: Cuenta): string {
   const label = (l: CuentaLine, alone: boolean): string => {
     if (l.kind === 'propina') return 'propina';
     if (l.kind === 'importe') return 'otro importe';
-    if (l.qty > 1) return `${l.qty} ${plural(shortName(l.item.name))}`;
-    return alone ? itemLabel(l.item) : shortName(l.item.name);
+    return qtyName(l.qty, alone ? itemLabel(l.item) : l.item.name);
   };
   const sold = cuenta.filter((l) => l.kind !== 'propina');
   const parts = (sold.length > 0 ? sold : cuenta).map((l, _, all) => label(l, all.length === 1));

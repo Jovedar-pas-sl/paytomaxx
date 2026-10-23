@@ -400,10 +400,11 @@
   font-weight: 600;
 }
 
+/* El nombre de la sección (hasta 24 letras): si no cabe, pasa a dos líneas; nunca «Reservados …». */
 .np-mm-sr > span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
 }
 
 .np-mm-sr .np-mm-track {
@@ -526,7 +527,8 @@
     align-items: start;
   }
 
-  .np-mm-body[data-layout='wide'] > .np-mm-kpis {
+  /* Las cifras, la pista «Toca las ventas…» y cualquier nota: a lo ancho, encima de las dos columnas. */
+  .np-mm-body[data-layout='wide'] > :not(.np-mm-col) {
     grid-column: 1 / -1;
   }
 
@@ -539,6 +541,15 @@
 
   .np-mm-body[data-layout='wide'] .np-mm-kpis .np-mm-big {
     font-size: 2.5rem;
+  }
+
+  /* Hay sitio: la columna del nombre más ancha («Reservados VIP» en una línea). */
+  .np-mm-body[data-layout='wide'] .np-mm-sr {
+    grid-template-columns: 9rem minmax(0, 1fr) 4.5rem;
+  }
+
+  .np-mm-body[data-layout='wide'] .np-mm-sr[data-open] {
+    grid-template-columns: 9rem minmax(0, 1fr) 4.25rem 0.875rem;
   }
 }
 

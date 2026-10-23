@@ -136,11 +136,24 @@ describe('2 · datáfonos', () => {
 describe('3 · saldo devuelto pendiente', () => {
   it('devolución a la tarjeta a medias y cliente esperando su saldo → aviso', () => {
     const s = saldoStep(
-      [{ id: 'wp', amountCents: 3000, createdAt: ago(10), shortCode: 'K7Q' }],
+      [{ id: 'wp', amountCents: 3000, createdAt: ago(10), shortCode: 'K7Q4M2' }],
       [{ id: 'w', balanceCents: 1500, shortCode: null }],
     );
     expect(s).toMatchObject({ status: 'warn', count: 2, link: 'wallets' });
-    expect(s.items[0]!.label).toContain('código K7Q');
+    expect(s.items[0]!.label).toContain('código K7Q-4M2');
+  });
+
+  it('dice dónde se hace en el panel («Clientes → Saldos») y el código va con guion, como lo ve el cliente', () => {
+    const s = saldoStep(
+      [{ id: 'wp', amountCents: 3000, createdAt: ago(10), shortCode: 'K7Q4M2' }],
+      [{ id: 'w', balanceCents: 2900, shortCode: 'UYSJ5G' }],
+    );
+    expect(s.detail).toBe('Devuélvelo antes de contar la caja: en efectivo cuenta en el arqueo; a la tarjeta, en Clientes → Saldos.');
+    expect(s.items.map((i) => i.label)).toEqual([
+      'Devolución a la tarjeta a medias: 30,00 € · código K7Q-4M2. Termínala en Clientes → Saldos',
+      'Cliente esperando su saldo: 29,00 € · código UYS-J5G',
+    ]);
+    for (const text of [s.detail, ...s.items.map((i) => i.label)]) expect(text).not.toMatch(/wallet/i);
   });
 
   it('nada por devolver → listo', () => {

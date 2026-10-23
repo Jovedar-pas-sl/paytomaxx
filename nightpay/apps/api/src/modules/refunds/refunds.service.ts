@@ -42,6 +42,7 @@ import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import type { Refund } from '@nightpay/db';
 import { findRefundApproval, lockRefundIntent, refundIntent } from './refund-intent';
 import { replayOfRefund, savedResponse, type RefundReplay, type RefundResult } from './refund-replay';
+import { TOPUP_REFUND_TEXT } from '../wallets/saldo-texts';
 
 /**
  * Una devolución pendiente no se resuelve a mano hasta pasado este rato: la
@@ -283,7 +284,7 @@ export class RefundsService {
       throw new ConflictException('Payment has no provider transaction id');
     }
     if (payment.walletId) {
-      throw new ConflictException('Es una recarga de saldo: se devuelve desde Wallets → Devolver saldo');
+      throw new ConflictException(TOPUP_REFUND_TEXT);
     }
     const target: RefundTarget = {
       id: payment.id,
@@ -578,8 +579,8 @@ export class RefundsService {
       throw new ConflictException('Solo se registran devoluciones de cobros pagados');
     }
     if (payment.walletId && !opts.walletPayout) {
-      // El saldo de la wallet seguiría disponible para gastar.
-      throw new ConflictException('Es una recarga de wallet: devuélvela desde la pestaña Wallets');
+      // El saldo seguiría disponible para gastar.
+      throw new ConflictException(TOPUP_REFUND_TEXT);
     }
     if (request.amountCents > payment.availableAmountCents) {
       throw new BadRequestException(

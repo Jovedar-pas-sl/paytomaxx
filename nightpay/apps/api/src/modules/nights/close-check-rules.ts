@@ -9,6 +9,8 @@ import {
 } from '@nightpay/contracts';
 import type { Incident } from '../incidents/incident-rules';
 import { availableCentsOf } from '../operators/payout-math';
+import { SALDOS_TAB_PATH } from '../wallets/saldo-texts';
+import { formatWalletCode } from '../wallets/wallet-rules';
 
 /**
  * Cierre de la noche en pasos: reglas puras. El servicio (close-check.service)
@@ -222,12 +224,13 @@ export function saldoStep(
   payouts: ReadonlyArray<WalletPayoutPendingRow>,
   toClose: ReadonlyArray<WalletCloseRequestedRow>,
 ): NightCloseStep {
-  const code = (c: string | null) => (c ? ` · código ${c}` : '');
+  // El código como lo ve el cliente en su móvil: con guion (K7Q-4M2).
+  const code = (c: string | null) => (c ? ` · código ${formatWalletCode(c)}` : '');
   const items: NightCloseItem[] = [
     ...payouts.map((p) => ({
       id: p.id,
       status: 'warn' as const,
-      label: `Devolución a la tarjeta a medias: ${eur(p.amountCents)}${code(p.shortCode)}. Termínala en Wallets`,
+      label: `Devolución a la tarjeta a medias: ${eur(p.amountCents)}${code(p.shortCode)}. Termínala en ${SALDOS_TAB_PATH}`,
       amountCents: p.amountCents,
     })),
     ...toClose.map((w) => ({
@@ -244,7 +247,7 @@ export function saldoStep(
     status,
     status === 'ok'
       ? 'No queda saldo por devolver.'
-      : 'Devuélvelo antes de contar la caja: en efectivo cuenta en el arqueo; a la tarjeta, en Wallets.',
+      : `Devuélvelo antes de contar la caja: en efectivo cuenta en el arqueo; a la tarjeta, en ${SALDOS_TAB_PATH}.`,
     items,
     'wallets',
   );

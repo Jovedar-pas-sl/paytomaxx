@@ -211,7 +211,8 @@ describe('bandeja de incidencias', () => {
       ['wallet_open_balance', false],
     ]);
     expect(items[0]!.detail).toContain('80,00 €');
-    expect(items[0]!.detail).toContain('K7Q4M2');
+    // El código como lo ve el cliente (con guion).
+    expect(items[0]!.detail).toContain('código K7Q-4M2');
   });
 
   it('cuadre con el banco: cada diferencia con su explicación, y se puede marcar como revisada', async () => {

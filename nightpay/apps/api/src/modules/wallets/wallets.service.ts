@@ -343,7 +343,7 @@ export class WalletsService {
         },
       }),
     );
-    if (!wallet) throw new NotFoundException('Wallet no encontrada');
+    if (!wallet) throw new NotFoundException('Saldo no encontrado');
     return {
       id: wallet.id,
       identifier: wallet.identifier,
@@ -380,7 +380,7 @@ export class WalletsService {
         },
       }),
     );
-    if (!wallet) throw new NotFoundException('Wallet no encontrada');
+    if (!wallet) throw new NotFoundException('Saldo no encontrado');
     return {
       id: wallet.id,
       balanceCents: wallet.balanceCents,

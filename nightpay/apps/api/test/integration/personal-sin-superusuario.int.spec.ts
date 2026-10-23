@@ -254,7 +254,7 @@ describe('el personal con un rol sin superusuario (FORCE RLS, sin asSystem en la
 
     const view = await asStaff(A.id, () => wallets.getWalletView({ tenantId: A.id, walletId: A.wallet }));
     expect(view.consumptions).toEqual([expect.objectContaining({ amountCents: 2000, providedByName: 'Chica A' })]);
-    await expect(asStaff(A.id, () => wallets.getWalletView({ tenantId: A.id, walletId: B.wallet }))).rejects.toThrow(/no encontrada/i);
+    await expect(asStaff(A.id, () => wallets.getWalletView({ tenantId: A.id, walletId: B.wallet }))).rejects.toThrow('Saldo no encontrado');
 
     const stats = await asStaff(A.id, () => wallets.getAdminStats(A.id));
     expect(stats).toMatchObject({ activeCount: 1, totalBalanceCents: 3000 });
