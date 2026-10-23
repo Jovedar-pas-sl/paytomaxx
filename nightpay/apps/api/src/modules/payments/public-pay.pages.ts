@@ -43,9 +43,13 @@ function formatAmount(cents: number, currency: string, t: PayText): string {
   return clientMoney(cents, t.locale, currency);
 }
 
-/** El justificante es un documento: siempre con céntimos («65,00 €»). */
+/**
+ * El justificante es un documento: con céntimos y en su formato de siempre
+ * («65,00 €», «1109,00 €»: el del idioma, sin el punto de los miles en 4
+ * cifras). No usa el formato de las pantallas (decisión del dueño).
+ */
 function formatFull(cents: number, currency: string, t: PayText): string {
-  return clientMoney(cents, t.locale, currency, true);
+  return (cents / 100).toLocaleString(t.locale, { style: 'currency', currency });
 }
 
 function formatDateTime(d: Date, t: PayText): string {

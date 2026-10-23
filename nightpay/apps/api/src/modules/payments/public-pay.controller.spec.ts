@@ -669,6 +669,19 @@ describe('GET /pay/:token/receipt — justificante', () => {
     await controller.receipt('qr-token-1', 'es', undefined, reply);
     expect(sent.status).toBe(404);
   });
+
+  it('el justificante conserva su formato de siempre: con céntimos y sin el punto de los miles en 4 cifras', async () => {
+    const { controller } = makeController({ receipt: { ...RECEIPT, amountCents: 110_900, tipCents: 0 } });
+    const { reply, sent } = fakeReply();
+    await controller.receipt('qr-token-1', 'es', undefined, reply);
+    const body = String(sent.body).split(String.fromCharCode(160)).join(' ');
+    expect(body).toContain('1109,00 €');
+    expect(body).not.toContain('1.109,00');
+    const big = makeController({ receipt: { ...RECEIPT, amountCents: 1_234_560, tipCents: 0 } });
+    const out = fakeReply();
+    await big.controller.receipt('qr-token-1', 'es', undefined, out.reply);
+    expect(String(out.sent.body).split(String.fromCharCode(160)).join(' ')).toContain('12.345,60 €');
+  });
 });
 
 describe('«Recargar» desde /w: tras pagar, de vuelta al saldo (solo el navegador que la empezó)', () => {
