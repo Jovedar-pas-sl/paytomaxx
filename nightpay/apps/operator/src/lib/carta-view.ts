@@ -30,7 +30,12 @@ export function tileLabel(name: string, priceCents: number, { qty = 0, invite = 
 /** Lo último que se tocó: «+1 Nachos» o «+2 € de propina» (y cómo estaba la cuenta antes). */
 export interface UndoTap {
   id: number;
+  /** Lo que se ve en el pie: «+1 Nachos». */
   label: string;
+  /** Lo que oye el lector de pantalla: cambia en cada toque («+1 Nachos, 2 en la cuenta»). */
+  spoken: string;
+  /** La loseta que se tocó (data-tile): ahí vuelve el foco si «Deshacer» se va con él. */
+  tile: string;
   before: Cuenta;
 }
 
@@ -40,6 +45,34 @@ export function addedItemLabel(name: string): string {
 
 export function addedTipLabel(cents: number): string {
   return `+${formatEur(cents, { compact: true })} de propina`;
+}
+
+/** «+1 Nachos, 2 en la cuenta»: el mismo toque dos veces suena distinto (si no, no se repite). */
+export function addedItemSpoken(name: string, qtyInCuenta: number): string {
+  return `${addedItemLabel(name)}, ${qtyInCuenta} en la cuenta`;
+}
+
+/** «+2 € de propina, 4 € de propina en la cuenta». */
+export function addedTipSpoken(cents: number, tipTotalCents: number): string {
+  return `${addedTipLabel(cents)}, ${formatEur(tipTotalCents, { compact: true })} de propina en la cuenta`;
+}
+
+/** El data-tile de la loseta de un producto. */
+export function itemTileKey(itemId: string): string {
+  return itemId;
+}
+
+/** El data-tile de una loseta de propina. */
+export function tipTileKey(cents: number): string {
+  return `tip-${cents}`;
+}
+
+/**
+ * Dónde va el foco si «Deshacer» desaparece teniéndolo (caduca a los 4 s o se
+ * toca): a la loseta que se tocó; si no está, al resumen de la cuenta.
+ */
+export function undoFocusTarget<T>(root: { querySelector(selector: string): T | null }, tile: string): T | null {
+  return root.querySelector(`[data-tile=${JSON.stringify(tile)}]`) ?? root.querySelector('[data-sum]');
 }
 
 /** «Deshacer»: la cuenta como estaba antes del último toque (la misma, sin copiarla: es inmutable). */

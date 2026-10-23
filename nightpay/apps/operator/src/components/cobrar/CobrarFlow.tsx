@@ -6,7 +6,17 @@ import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
 import { cancelCard, cancelSaldo, createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
 import { tapOf } from '@/lib/carta-tiles';
-import { addedItemLabel, addedTipLabel, undoTap, UNDO_MS, type UndoTap } from '@/lib/carta-view';
+import {
+  addedItemLabel,
+  addedItemSpoken,
+  addedTipLabel,
+  addedTipSpoken,
+  itemTileKey,
+  tipTileKey,
+  undoTap,
+  UNDO_MS,
+  type UndoTap,
+} from '@/lib/carta-view';
 import { arrivedTooLate, cancelTargetOf } from '@/lib/cobro-attempt';
 import { invitationSplit, splitCells, whoLine } from '@/lib/cobro-view';
 import {
@@ -17,6 +27,7 @@ import {
   chargeLinesOf,
   cuentaTotals,
   cuentaWhat,
+  qtyOf,
   removeLine,
   setQty,
   type CartaItem,
@@ -174,10 +185,20 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   }, []);
 
   /** Un toque en la carta: la cuenta nueva y, durante 4 s, cómo estaba antes. */
-  function tapped(next: Cuenta, label: string) {
+  function tapped(next: Cuenta, tap: Pick<UndoTap, 'label' | 'spoken' | 'tile'>) {
     undoSeq.current += 1;
-    setUndo({ id: undoSeq.current, label, before: cuenta });
+    setUndo({ id: undoSeq.current, ...tap, before: cuenta });
     setCuenta(next);
+  }
+
+  /** Una propina de la carta: el pie dice «+2 € de propina» y el lector, cuánta lleva ya la cuenta. */
+  function tapTip(cents: number) {
+    const next = addAmount(cuenta, PROPINAS, cents);
+    tapped(next, {
+      label: addedTipLabel(cents),
+      spoken: addedTipSpoken(cents, cuentaTotals(next).tipCents),
+      tile: tipTileKey(cents),
+    });
   }
 
   function undoLast() {
@@ -314,7 +335,12 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       go({ kind: 'escanear', invite: item });
       return;
     }
-    tapped(addItem(cuenta, item), addedItemLabel(item.name));
+    const next = addItem(cuenta, item);
+    tapped(next, {
+      label: addedItemLabel(item.name),
+      spoken: addedItemSpoken(item.name, qtyOf(next, item.id)),
+      tile: itemTileKey(item.id),
+    });
   }
 
   function otroDone(section: CuentaSection, cents: number) {
@@ -494,7 +520,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             cuenta={cuenta}
             who={who}
             onItem={pickItem}
-            onTip={(cents) => tapped(addAmount(cuenta, PROPINAS, cents), addedTipLabel(cents))}
+            onTip={tapTip}
             onOtro={() => {
               setError(null);
               go({ kind: 'otro' });

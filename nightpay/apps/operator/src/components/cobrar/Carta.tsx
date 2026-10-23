@@ -1,10 +1,10 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
+import { useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
 import { cartaTiles, tapOf } from '@/lib/carta-tiles';
-import { cobrarLabel, tileLabel } from '@/lib/carta-view';
+import { cobrarLabel, itemTileKey, tileLabel, tipTileKey, undoFocusTarget, type UndoTap } from '@/lib/carta-view';
 import { chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
 import { colorOf, labelOf, offeredCodes, puestoChip, puestoSection, tileColorOf, tipTiles, type CobrarContext } from './cobrar-context';
 import { IconQr, IconUndo } from './icons';
@@ -23,7 +23,7 @@ interface Props {
   onVerCuenta: () => void;
   onCobrar: () => void;
   /** Lo último que se tocó («+1 Nachos»), durante 4 s: el pie ofrece «Deshacer». */
-  undo?: { label: string } | null;
+  undo?: Pick<UndoTap, 'label' | 'spoken' | 'tile'> | null;
   onUndo?: () => void;
   busy: boolean;
   error: string | null;
@@ -72,9 +72,10 @@ export function Carta({
   const totals = cuentaTotals(cuenta);
   const summary = cuentaSummary(cuenta, (s) => labelOf(ctx, s));
   const canCharge = chargeable(cuenta) && !busy;
+  const undoFocus = useUndoFocus(undo?.tile ?? null);
 
   return (
-    <div className={styles.screen}>
+    <div className={styles.screen} ref={undoFocus.root}>
       <ScreenHeader
         title="Cobrar"
         subtitle={who}
@@ -96,6 +97,7 @@ export function Carta({
                 type="button"
                 className={`${styles.tile}${big ? ` ${styles.tileBig}` : ''}`}
                 style={{ '--c': tileColorOf('propinas') } as CSSProperties}
+                data-tile={tipTileKey(cents)}
                 onClick={() => onTip(cents)}
                 aria-label={`Propina de ${formatEur(cents)}`}
               >
@@ -136,14 +138,21 @@ export function Carta({
       <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
         {/* Lo que se acaba de añadir, para el lector de pantalla (la región existe siempre: así se anuncia). */}
         <span className="np-sr-only" aria-live="polite">
-          {undo ? undo.label : ''}
+          {undo ? undo.spoken : ''}
         </span>
         {cuenta.length > 0 ? (
-          <div className={styles.sum}>
+          // data-sum + tabIndex -1: si «Deshacer» se va con el foco y la loseta no está, el foco viene aquí.
+          <div className={styles.sum} data-sum="" tabIndex={-1}>
             {undo && onUndo ? (
               <>
                 <span className={`${styles.grow} ${styles.added}`}>{undo.label}</span>
-                <button type="button" className={styles.undoBtn} onClick={onUndo} aria-label={`Deshacer: ${undo.label}`}>
+                <button
+                  type="button"
+                  ref={undoFocus.button}
+                  className={styles.undoBtn}
+                  onClick={onUndo}
+                  aria-label={`Deshacer: ${undo.label}`}
+                >
                   <IconUndo />
                   Deshacer
                 </button>
@@ -186,6 +195,32 @@ export function Carta({
   );
 }
 
+/**
+ * Si «Deshacer» desaparece teniendo el foco (caduca a los 4 s o se toca), el
+ * foco va a la loseta que se tocó (o al resumen), no al body. El botón se mira
+ * al soltarse su ref, antes de quitarlo de la página.
+ */
+function useUndoFocus(tile: string | null) {
+  const root = useRef<HTMLDivElement | null>(null);
+  const node = useRef<HTMLButtonElement | null>(null);
+  const lastTile = useRef<string | null>(tile);
+  const pending = useRef<string | null>(null);
+  useEffect(() => {
+    if (tile !== null) lastTile.current = tile;
+  }, [tile]);
+  const button = useCallback((el: HTMLButtonElement | null) => {
+    if (!el && node.current && document.activeElement === node.current) pending.current = lastTile.current;
+    node.current = el;
+  }, []);
+  useEffect(() => {
+    const target = pending.current;
+    if (target === null) return;
+    pending.current = null;
+    if (root.current) undoFocusTarget<HTMLElement>(root.current, target)?.focus();
+  });
+  return { root, button };
+}
+
 /** «Habitaciones» → «Habitación» (la loseta habla de una). */
 function singular(label: string): string {
   if (/ones$/i.test(label)) return `${label.slice(0, -4)}ón`;
@@ -215,7 +250,7 @@ function ItemTile({
   const invite = tapOf(item) === 'invitar';
   const label = tileLabel(itemLabel(item), item.priceCents, { qty, invite });
   return (
-    <button type="button" className={cls} style={style} onClick={onPick} aria-label={label}>
+    <button type="button" className={cls} style={style} data-tile={itemTileKey(item.id)} onClick={onPick} aria-label={label}>
       {qty > 0 ? (
         <span className={styles.count} aria-hidden="true">
           {qty}
