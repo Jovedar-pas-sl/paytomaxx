@@ -79,4 +79,18 @@ describe('mapa del dinero en el escritorio (dos columnas desde 900 px)', () => {
     // Las filas que se abren conservan su cuarta columna (la flecha).
     expect(decl(open, 'grid-template-columns')?.split(/\s+(?![^(]*\))/)).toHaveLength(4);
   });
+
+  it('arriba, las cuatro cifras en fila (ventas, anillo + para el local, propinas, cobros) con su rótulo (D8)', () => {
+    const kpis = rule(".np-mm-body[data-layout='wide'] .np-mm-kpis", WIDE);
+    expect(decl(kpis, 'display')).toBe('grid');
+    expect(decl(kpis, 'grid-template-columns')?.split(/\s+(?![^(]*\))/)).toHaveLength(5);
+    expect(decl(rule(".np-mm-body[data-layout='wide'] .np-mm-cap", WIDE), 'display')).toBe('block');
+    // En el móvil, el rótulo no ocupa sitio.
+    expect(decl(rule('.np-mm-cap'), 'display')).toBe('none');
+  });
+
+  it('en una pantalla grande el mapa usa el ancho (no se queda en 64rem)', () => {
+    const wide = rule('.np-mm', '@media (min-width: 1200px)');
+    expect(Number(decl(wide, 'max-width')?.replace('rem', ''))).toBeGreaterThan(64);
+  });
 });

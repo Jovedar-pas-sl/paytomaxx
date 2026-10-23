@@ -380,7 +380,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--np-accent);
+  color: var(--np-text);
   font: inherit;
   font-size: 0.8125rem;
   font-weight: 700;

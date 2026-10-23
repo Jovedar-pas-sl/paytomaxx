@@ -56,6 +56,10 @@ export interface MoneyMapView {
   salesCents: number;
   venueCents: number;
   venuePct: number;
+  /** Las propinas del periodo (van al personal): la tercera cifra de arriba en el escritorio. */
+  tipsCents: number;
+  /** Cuántos cobros (con tarjeta y del saldo): la cuarta. */
+  salesCount: number;
   stripe: Segment[];
   /** Solo los canales con algo: aquí el efectivo entra como recarga (si un día hay cobros en efectivo, saldrán). */
   inflow: Segment[];
@@ -181,6 +185,8 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
     salesCents: m.salesCents,
     venueCents: m.split.venueCents,
     venuePct: venueSharePercent(m),
+    tipsCents: m.sections.find((s) => s.code === MONEY_MAP_TIPS)?.amountCents ?? 0,
+    salesCount: m.salesCount,
     stripe: barSegments(rows),
     inflow: (
       [

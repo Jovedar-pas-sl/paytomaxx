@@ -170,7 +170,8 @@ const linkStyle: CSSProperties = {
   border: 'none',
   padding: 0,
   font: 'inherit',
-  color: 'var(--np-accent)',
+  // Enlace en el color del texto, subrayado (el lima es para la acción principal).
+  color: 'var(--np-text)',
   fontWeight: 600,
   textDecoration: 'underline',
   textUnderlineOffset: '0.15em',

@@ -61,6 +61,8 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   const [refundsFor, setRefundsFor] = useState<PaymentRow | null>(null);
   /** «Abrir cobro» de una incidencia que no está entre los cobros cargados. */
   const [focusMissing, setFocusMissing] = useState(false);
+  // Con la noche abierta, «Esta noche» ya dice lo cobrado y los pagos: «Hoy» no los repite.
+  const [nightOpen, setNightOpen] = useState(false);
   // Filas cargadas (el refresco pide las mismas) y filtro vigente (para
   // descartar un "Cargar más" que vuelve después de cambiar el filtro).
   const loadedRef = useRef(0);
@@ -147,7 +149,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
 
   return (
     <>
-      <TonightStrip onNavigate={onNavigate} />
+      <TonightStrip onNavigate={onNavigate} onNightOpen={setNightOpen} />
 
       {focusMissing ? (
         <Notice tone="info" action={{ label: 'Entendido', onClick: () => setFocusMissing(false) }}>
@@ -171,15 +173,19 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
 
       <section className="np-metrics" style={metricsGrid}>
         {/* Los pagos con tarjeta (también las recargas con tarjeta): lo pagado con el saldo no cuenta aquí. */}
-        <MetricTile title="Hoy · pagos con tarjeta" value={metrics ? String(metrics.today.count) : '—'} />
-        <MetricTile
-          title="Hoy · cobrado"
-          value={eurOrDash(metrics ? (metrics.today.chargedCents ?? metrics.today.grossCents) : undefined)}
-          // Lo que suma el total: ventas con tarjeta + propinas + recargas (no son venta).
-          note={metrics ? (cobradoNote(metricsCobradoParts(metrics.today), formatEur) ?? undefined) : undefined}
-        />
+        {nightOpen ? null : (
+          <>
+            <MetricTile title="Hoy · pagos con tarjeta" value={metrics ? String(metrics.today.count) : '—'} />
+            <MetricTile
+              title="Hoy · cobrado"
+              value={eurOrDash(metrics ? (metrics.today.chargedCents ?? metrics.today.grossCents) : undefined)}
+              // Lo que suma el total: ventas con tarjeta + propinas + recargas (no son venta).
+              note={metrics ? (cobradoNote(metricsCobradoParts(metrics.today), formatEur) ?? undefined) : undefined}
+            />
+          </>
+        )}
         <MetricTile title="Hoy · reembolsos" value={eurOrDash(metrics?.today.refundedCents)} />
-        <MetricTile title="Hoy · neto" value={eurOrDash(metrics?.today.netCents)} highlight />
+        <MetricTile title="Hoy · neto" value={eurOrDash(metrics?.today.netCents)} />
         <MetricTile title="Semana · neto" value={eurOrDash(metrics?.week.netCents)} />
       </section>
 
@@ -286,27 +292,12 @@ function isStuck(p: PaymentRow): boolean {
   return p.status === 'AUTHORIZING' && Date.now() - Date.parse(p.updatedAt) >= STUCK_AUTHORIZING_MS;
 }
 
-function MetricTile({
-  title,
-  value,
-  note,
-  highlight,
-}: {
-  title: string;
-  value: string;
-  note?: string;
-  highlight?: boolean;
-}) {
+/** Una cifra del día, en el color del texto (el lima es para la acción y el «pagado»). */
+function MetricTile({ title, value, note }: { title: string; value: string; note?: string }) {
   return (
-    <Card variant={highlight ? 'glow' : 'default'} className="np-metric" style={{ padding: '1.25rem 1.5rem' }}>
+    <Card className="np-metric" style={{ padding: '1.25rem 1.5rem' }}>
       <p style={metricLabel}>{title}</p>
-      <p
-        className="np-num np-metric-value"
-        style={{
-          ...metricValue,
-          color: highlight ? 'var(--np-accent)' : 'var(--np-text)',
-        }}
-      >
+      <p className="np-num np-metric-value" style={{ ...metricValue, color: 'var(--np-text)' }}>
         {value}
       </p>
       {note ? <p style={metricNote}>{note}</p> : null}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { fetchCurrentNight, fetchTreasuryStats } from '@/lib/api';
 import { cobradoNote, zCobradoParts } from '@/lib/cobrado';
 import { formatDateTime } from '@/lib/dates';
@@ -35,7 +35,14 @@ interface PendingFigures {
  * incidencias abiertas. Solo con lo que el API ya da (noche actual, tesorería
  * e incidencias); si una cifra no llega, sale "—".
  */
-export function TonightStrip({ onNavigate }: { onNavigate?: (key: TabKey) => void }) {
+export function TonightStrip({
+  onNavigate,
+  onNightOpen,
+}: {
+  onNavigate?: (key: TabKey) => void;
+  /** Si hay noche abierta (sus cifras salen aquí: «Hoy» no las repite). */
+  onNightOpen?: (open: boolean) => void;
+}) {
   const tz = useVenueTimezone();
   const titleId = useId();
   const { open } = useIncidents();
@@ -72,6 +79,10 @@ export function TonightStrip({ onNavigate }: { onNavigate?: (key: TabKey) => voi
   );
 
   const openCount = open ? open.length : null;
+  const nightOpen = Boolean(night);
+  useEffect(() => {
+    onNightOpen?.(nightOpen);
+  }, [nightOpen, onNightOpen]);
 
   return (
     <section className="np-tonight" aria-labelledby={titleId}>

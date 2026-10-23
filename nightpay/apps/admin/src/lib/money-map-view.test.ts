@@ -78,6 +78,9 @@ describe('maqueta 8 · A, barras apiladas', () => {
   it('KPIs, franja, cómo entra (con las recargas aparte) y por sección', () => {
     const v = moneyMapView(map(), SECTIONS);
     expect(v).toMatchObject({ salesLabel: 'Ventas de la noche', salesCents: 530_000, venueCents: 308_600, venuePct: 58 });
+    // Las cuatro cifras de arriba en el escritorio (D8): ventas, para el local, propinas y cobros.
+    expect(v).toMatchObject({ tipsCents: 12_000, salesCount: 80 });
+    expect(moneyMapView(map({ sections: [] }), SECTIONS).tipsCents).toBe(0);
     expect(v.stripe.map((s) => s.key)).toEqual(['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'VENUE_ENTRY', 'TIPS']);
     expect(v.inflow.map((s) => [s.label, s.cents])).toEqual([
       ['Tarjeta', 180_000],

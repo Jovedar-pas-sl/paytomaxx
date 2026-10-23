@@ -441,7 +441,7 @@ const codeLink: CSSProperties = {
   fontFamily: 'var(--np-font-mono)',
   fontWeight: 700,
   letterSpacing: '0.08em',
-  color: 'var(--np-accent)',
+  color: 'var(--np-text)',
   textDecoration: 'underline',
   textUnderlineOffset: '0.15em',
   cursor: 'pointer',

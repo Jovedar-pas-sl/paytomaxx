@@ -6,7 +6,8 @@ export const TONE_COLORS: Record<Tone, { color: string; background: string }> = 
   success: { color: 'var(--np-success)', background: 'var(--np-pill-success-bg)' },
   warning: { color: 'var(--np-warning)', background: 'var(--np-pill-warning-bg)' },
   danger: { color: 'var(--np-danger)', background: 'var(--np-pill-danger-bg)' },
-  info: { color: 'var(--np-accent)', background: 'var(--np-pill-cyan-bg)' },
+  // Informativo: neutro (el lima es para la acción y el «pagado»).
+  info: { color: 'var(--np-text)', background: 'var(--np-pill-mute-bg)' },
   neutral: { color: 'var(--np-text-mute)', background: 'var(--np-pill-mute-bg)' },
 };
 

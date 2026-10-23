@@ -21,16 +21,33 @@ export function MoneyMapView({ map, wide = false, onOpen }: { map: MoneyMap; wid
   const inflowTotal = v.inflow.reduce((a, s) => a + Math.max(0, s.cents), 0);
   return (
     <div className="np-mm-body" data-layout={wide ? 'wide' : undefined}>
+      {/* Arriba, las cifras que importan; en el escritorio, cuatro en fila (decisión D8). */}
       <div className="np-mm-kpis">
         <Opens target={{ kind: 'sales' }} onOpen={onOpen} label={`Ver los cobros de ${v.salesLabel.toLowerCase()}`} className="np-mm-grow">
           <span className="np-mm-lbl">{v.salesLabel}</span>
           <span className="np-mm-num np-mm-big">{eurShort(v.salesCents)}</span>
+          <small className="np-mm-cap">sin recargas</small>
         </Opens>
         <Ring pct={v.venuePct} />
         <div className="np-mm-side">
           <span className="np-mm-lbl">Para el local</span>
           <b className="np-mm-num">{eurShort(v.venueCents)}</b>
+          <small className="np-mm-cap">{v.venuePct} % de las ventas</small>
         </div>
+        {wide ? (
+          <>
+            <div className="np-mm-side np-mm-more">
+              <span className="np-mm-lbl">Propinas</span>
+              <b className="np-mm-num">{eurShort(v.tipsCents)}</b>
+              <small className="np-mm-cap">para el personal</small>
+            </div>
+            <div className="np-mm-side np-mm-more">
+              <span className="np-mm-lbl">Cobros</span>
+              <b className="np-mm-num">{v.salesCount}</b>
+              <small className="np-mm-cap">con tarjeta y del saldo</small>
+            </div>
+          </>
+        ) : null}
       </div>
       {onOpen ? <p className="np-mm-note np-mm-hint">Toca las ventas, una sección o «Del saldo» para ver sus cobros.</p> : null}
 

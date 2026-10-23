@@ -10,7 +10,8 @@
   gap: 0.875rem;
   padding: 1.25rem 1.5rem;
   border: 1px solid var(--np-border);
-  border-top: 3px solid var(--np-accent);
+  /* Arriba, una línea de tinta (el lima es para la acción y el «pagado», no para los datos). */
+  border-top: 3px solid var(--np-border-hi);
   border-radius: var(--np-r-lg);
   background: var(--np-surface);
   animation: np-rise-in var(--np-d-slow) var(--np-ease);
@@ -85,7 +86,7 @@
 }
 
 .np-tonight-fig[data-hero] dd {
-  color: var(--np-accent);
+  color: var(--np-text);
 }
 
 .np-tonight-note {
@@ -103,14 +104,13 @@
   font-size: 0.8125rem;
   font-weight: 600;
   text-decoration: underline;
-  text-decoration-color: var(--np-accent);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
   cursor: pointer;
 }
 
 .np-tonight-link:hover {
-  color: var(--np-accent);
+  text-decoration-thickness: 3px;
 }
 
 .np-tonight-link:focus-visible {

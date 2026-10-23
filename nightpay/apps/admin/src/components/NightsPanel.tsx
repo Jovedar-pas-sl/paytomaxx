@@ -445,7 +445,8 @@ const liveStyle: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: 'var(--np-accent)',
+  // «En vivo» es un estado: en verde (el lima es para la acción y el «pagado»).
+  color: 'var(--np-success)',
 };
 const pendingBox: CSSProperties = {
   border: '2px solid var(--np-warning)',
