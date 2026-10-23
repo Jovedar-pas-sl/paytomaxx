@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, Card, Logo, ThemeToggle } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
 import type { OperatorUser } from '@/lib/api';
@@ -30,6 +30,7 @@ import { PassScanned } from './PassScanned';
 import { PendingPos } from './PendingPos';
 import { ReceptionTab } from './reception/ReceptionTab';
 import { useSessionExpired } from './session-context';
+import { StaffMenu, StaffMenuContext } from './staff-menu';
 import { TabBar } from './TabBar';
 
 interface Props {
@@ -85,8 +86,13 @@ export function Dashboard({ user, onLogout }: Props) {
   }
 
   const showing = (key: TabKey) => links.ficha === null && links.pass === null && tab === key;
-  // En Inicio manda la cabecera de «Cobrar» (el logo abre el tema y «Salir»).
-  const ownHeader = showing('home');
+  // Recepción enseña su propia cabecera (salvo «Preparar fichas» y las pendientes).
+  const [deskHead, setDeskHead] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const openMenu = useCallback(() => setMenuOpen(true), []);
+  // En Inicio manda la cabecera de «Cobrar» y en Recepción la suya: una sola
+  // cabecera; el logo abre el tema y «Salir».
+  const ownHeader = showing('home') || (showing('reception') && deskHead);
 
   return (
     <VenueMethodsContext.Provider value={methods}>
@@ -143,7 +149,9 @@ export function Dashboard({ user, onLogout }: Props) {
       {/* Recepción montada al cambiar de pestaña: una recarga a medias (su QR) no se pierde. */}
       {tabs.includes('reception') ? (
         <TabPanel visible={showing('reception')}>
-          <ReceptionTab user={user} active={showing('reception')} />
+          <StaffMenuContext.Provider value={openMenu}>
+            <ReceptionTab user={user} active={showing('reception')} onOwnHeader={setDeskHead} />
+          </StaffMenuContext.Provider>
         </TabPanel>
       ) : null}
       {access.posQueue && showing('pos') ? (
@@ -155,6 +163,7 @@ export function Dashboard({ user, onLogout }: Props) {
       ) : null}
 
       <TabBar tabs={tabs} active={tab} onSelect={(next) => setTab(next)} />
+      <StaffMenu open={menuOpen} onClose={() => setMenuOpen(false)} onLogout={logout} />
     </main>
     </MyRightsContext.Provider>
     </VenueNightContext.Provider>

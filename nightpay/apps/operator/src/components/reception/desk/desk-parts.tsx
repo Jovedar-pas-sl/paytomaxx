@@ -3,6 +3,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Logo, SectionChip } from '@nightpay/ui';
 import { codeBoxes, codeInput } from '@/lib/reception-desk';
+import { useStaffMenu } from '../../staff-menu';
 import s from './desk.module.css';
 
 /** Los iconos de las maquetas (trazo, currentColor). */
@@ -66,14 +67,23 @@ interface HeadProps {
   stripe: 'section' | 'hold';
 }
 
-/** La cabecera de cada pantalla (4.x): símbolo o volver, título, quién y su chip; debajo, la franja. */
+/**
+ * La cabecera de cada pantalla (4.x): símbolo o volver, título, quién y su
+ * chip; debajo, la franja. Es la única de Recepción: el símbolo abre el menú
+ * (tema y salir), como en «Cobrar».
+ */
 export function DeskHead({ title, sub, onBack, chip, stripe }: HeadProps) {
+  const openMenu = useStaffMenu();
   return (
     <>
       <div className={s.head}>
         {onBack ? (
           <button type="button" className={s.back} onClick={onBack} aria-label="Volver">
             <Icon name="back" />
+          </button>
+        ) : openMenu ? (
+          <button type="button" className={s.logoBtn} onClick={openMenu} aria-label="Menú: tema y salir">
+            <Logo variant="symbol" height="2.625rem" alt="" />
           </button>
         ) : (
           <Logo variant="symbol" height="2.625rem" />

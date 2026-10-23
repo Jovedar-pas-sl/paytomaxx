@@ -14,6 +14,8 @@ interface Props {
   user: OperatorUser;
   /** La pestaña se ve (el NFC solo se escucha entonces). */
   active: boolean;
+  /** Si la recepción pinta su propia cabecera (el mostrador) o no («Preparar fichas», las pendientes). */
+  onOwnHeader?: (own: boolean) => void;
 }
 
 /**
@@ -22,11 +24,16 @@ interface Props {
  * lo de siempre: «Preparar fichas» para el stock (Android con Chrome) y las
  * recargas cobradas sin el NFC del cliente, pendientes de asignar.
  */
-export function ReceptionTab({ user, active }: Props) {
+export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   const methods = useVenueMethods();
   const reader = useChipReader();
   const [view, setView] = useState<'desk' | 'prepare' | 'pending'>('desk');
   const [pending, setPending] = useState(0);
+
+  // El mostrador lleva su cabecera (con el menú del logo); lo de dentro, la de arriba.
+  useEffect(() => {
+    onOwnHeader?.(view === 'desk');
+  }, [view, onOwnHeader]);
 
   // Al volver a la recepción, cuántas recargas esperan su saldo (si falla, el enlace sale igual).
   useEffect(() => {

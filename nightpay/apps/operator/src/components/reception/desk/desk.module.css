@@ -67,6 +67,19 @@
   height: 1.375rem;
 }
 
+/* El símbolo de la marca abre el menú (tema y salir): una sola cabecera. */
+.logoBtn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 0.8125rem;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
 .stripe {
   flex: none;
   height: 6px;
