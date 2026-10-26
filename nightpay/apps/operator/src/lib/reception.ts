@@ -208,11 +208,22 @@ export async function cashWithFreshFee<T>(
     return await send();
   } catch (err) {
     if (!serviceFeeStale(err)) throw err;
-    const fresh = await fee.refresh();
+    let fresh: ReceptionOptions;
+    try {
+      fresh = await fee.refresh();
+    } catch {
+      // El 409 dice que no se cargó nada: aunque no se pueda traer el importe
+      // nuevo, nunca «no se sabe si se cargó».
+      throw new ApiError(SERVICE_FEE_CHANGED_OFFLINE, 409, 'SERVICE_FEE_CHANGED');
+    }
     fee.onOptions(fresh);
     throw new ApiError(serviceFeeChangedText(fresh, fee.amountCents), 409, 'SERVICE_FEE_CHANGED');
   }
 }
+
+/** La comisión cambió y no se pudo traer la nueva (sin red): no se ha cobrado nada. */
+const SERVICE_FEE_CHANGED_OFFLINE =
+  'La comisión del servicio ha cambiado y no se ha cobrado nada. Vuelve a abrir la recarga para ver el importe nuevo.';
 
 /** «La comisión del servicio ha cambiado. Ahora: Cobra 57 € (…). Vuelve a cobrar.» */
 export function serviceFeeChangedText(options: Pick<ReceptionOptions, 'serviceFee'> | null | undefined, amountCents: number): string {

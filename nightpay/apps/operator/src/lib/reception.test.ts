@@ -290,6 +290,16 @@ describe('cobrar en efectivo cuando la comisión cambió: se piden las opciones 
     expect(String((err as Error).message).replace(/\s/g, ' ')).toContain('Cobra 55,50 €');
   });
 
+  it('si al ponerse al día falla la petición, sigue siendo «ha cambiado» (no «no se sabe si se cargó»): no se cobró nada', async () => {
+    const refresh = vi.fn(async () => Promise.reject(Object.assign(new Error('sin red'), { status: 0 })));
+    const stale = Object.assign(new Error('ha cambiado'), { status: 409, code: 'SERVICE_FEE_CHANGED' });
+    const err = await cashWithFreshFee(async () => Promise.reject(stale), { refresh, onOptions: () => undefined, amountCents: 5_000 }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toMatchObject({ status: 409, code: 'SERVICE_FEE_CHANGED' });
+    expect(String((err as Error).message)).toMatch(/comisión del servicio ha cambiado.*no se ha cobrado nada/i);
+  });
+
   it('otro error, tal cual (sin pedir nada); bien, el resultado', async () => {
     const refresh = vi.fn(async () => fresh);
     const other = Object.assign(new Error('tope'), { status: 409, code: 'CASH_LIMIT' });
