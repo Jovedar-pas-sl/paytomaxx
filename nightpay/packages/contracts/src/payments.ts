@@ -242,6 +242,14 @@ export const ConfirmPosPaymentSchema = z.object({
     .max(500_000, 'Foto máx 500KB — comprime antes de subir')
     .optional(),
   notes: z.string().max(500).optional(),
+  /**
+   * Lo que se cobró en el datáfono (sin propina): el importe + la «Comisión
+   * del servicio». Si el cobro la lleva, es obligatorio (una app de antes,
+   * que enseña el importe sin ella, recibe 409 SERVICE_FEE_APP_OUTDATED) y
+   * tiene que ser el total (si no, 409 POS_CHARGE_MISMATCH). Sin comisión,
+   * opcional (si va, el importe).
+   */
+  chargedCents: z.number().int().positive().max(100_000_00).optional(),
 });
 export type ConfirmPosPaymentDto = z.infer<typeof ConfirmPosPaymentSchema>;
 

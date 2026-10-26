@@ -24,8 +24,10 @@ import {
   type PaymentMachineState,
 } from './payment.machine';
 import {
+  chargeBreakdownText,
   chargeRightsOf,
   formatChargeRef,
+  formatMoney,
   methodsNeededForPayment,
   postRulesOf,
   paymentMethodsOf,
@@ -111,6 +113,38 @@ export const POS_PAYMENT_EXPIRED =
   'Este cobro ha caducado y ya no se puede confirmar: hay que crear otro cobro. Si ya pasaste la tarjeta, avisa al encargado.';
 /** `code` de ese 409 (las apps lo distinguen sin leer el texto). */
 export const POS_PAYMENT_EXPIRED_CODE = 'POS_PAYMENT_EXPIRED';
+/** Confirmar un cobro del datáfono por otro importe que su total (con la «Comisión del servicio»). */
+export const POS_CHARGE_MISMATCH_CODE = 'POS_CHARGE_MISMATCH';
+
+/**
+ * Un cobro del datáfono con «Comisión del servicio» se confirma con lo que se
+ * cobró (`chargedCents`): una app de antes, que enseña el importe sin ella, no
+ * lo manda y no puede confirmarlo (si no, se apuntaría una comisión que nadie
+ * cobró). Sin comisión, como siempre (si lo manda, el importe).
+ */
+function posChargeProblem(
+  payment: { amountCents: number; serviceFeeCents?: number | null },
+  chargedCents: number | undefined,
+): ConflictException | null {
+  const fee = Math.max(0, payment.serviceFeeCents ?? 0);
+  const expected = payment.amountCents + fee;
+  const total = formatMoney(expected);
+  const detail = fee > 0 ? ` (${chargeBreakdownText({ baseCents: payment.amountCents, feeCents: fee, tipCents: 0 })})` : '';
+  if (chargedCents === undefined) {
+    if (fee === 0) return null;
+    return new ConflictException({
+      message: `Esta pantalla no enseña la comisión del servicio: el cobro es de ${total}${detail}. Recarga la app, comprueba lo cobrado en el datáfono y vuelve a confirmar.`,
+      code: 'SERVICE_FEE_APP_OUTDATED',
+      chargedCents: expected,
+    });
+  }
+  if (chargedCents === expected) return null;
+  return new ConflictException({
+    message: `El cobro es de ${total}${detail} y se ha confirmado ${formatMoney(chargedCents)}: cobra la diferencia o anula la operación en el datáfono y vuelve a confirmar.`,
+    code: POS_CHARGE_MISMATCH_CODE,
+    chargedCents: expected,
+  });
+}
 /** Un código de autorización no confirma dos cobros del mismo datáfono en este tiempo. */
 const POS_AUTH_CODE_WINDOW_MS = 24 * 3600 * 1000;
 
@@ -1946,7 +1980,7 @@ export class PaymentsService implements OnApplicationBootstrap {
   async confirmPosPayment(
     paymentId: string,
     actor: { userId: string; role: string; tenantId: string },
-    dto: { posReceiptRef: string; posReceiptPhoto?: string; notes?: string },
+    dto: { posReceiptRef: string; posReceiptPhoto?: string; notes?: string; chargedCents?: number },
   ): Promise<{ status: PaymentMachineState }> {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
@@ -1970,6 +2004,9 @@ export class PaymentsService implements OnApplicationBootstrap {
         'No puedes confirmar tu propio cobro POS. Llama al camarero.',
       );
     }
+    // Lo que se cobró en el datáfono: el total, con la «Comisión del servicio» si la lleva.
+    const charged = posChargeProblem(payment, dto.chargedCents);
+    if (charged) throw charged;
 
     const authCode = dto.posReceiptRef.replace(/\s+/g, '').toUpperCase();
     try {

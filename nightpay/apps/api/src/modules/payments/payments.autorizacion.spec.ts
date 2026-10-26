@@ -351,4 +351,49 @@ describe('confirmPosPayment — comprobaciones antes de confirmar', () => {
     transition.mockRejectedValueOnce(boom);
     await expect(service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD' })).rejects.toBe(boom);
   });
+
+  describe('con la «Comisión del servicio» (33 € + 3,30 €): se confirma lo que se cobró en el datáfono', () => {
+    const conFee = { ...pos, amountCents: 3_300, serviceFeeCents: 330, serviceFeeBps: 1000 };
+    const codeOf = async (p: Promise<unknown>) =>
+      p.then(
+        () => null,
+        (err: unknown) => (err instanceof ConflictException ? (err.getResponse() as { code?: string }).code ?? 'sin código' : err),
+      );
+
+    it('una app de antes (sin chargedCents) → 409 SERVICE_FEE_APP_OUTDATED: no se apunta lo que no se cobró', async () => {
+      const { service, transition } = makeService({ payment: conFee });
+      expect(await codeOf(service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD' }))).toBe('SERVICE_FEE_APP_OUTDATED');
+      expect(transition).not.toHaveBeenCalled();
+    });
+
+    it('confirmar 33 € (sin la comisión) → 409 POS_CHARGE_MISMATCH; 36,30 € → se confirma', async () => {
+      const bad = makeService({ payment: conFee });
+      expect(await codeOf(bad.service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD', chargedCents: 3_300 }))).toBe(
+        'POS_CHARGE_MISMATCH',
+      );
+      expect(bad.transition).not.toHaveBeenCalled();
+      const ok = makeService({ payment: conFee });
+      // Lo de dentro de la transición (código, prueba, reparto) tiene sus pruebas.
+      ok.transition.mockResolvedValueOnce(undefined as never);
+      await expect(ok.service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD', chargedCents: 3_630 })).resolves.toEqual({
+        status: 'AUTHORIZED',
+      });
+      expect(ok.transition).toHaveBeenCalledTimes(1);
+    });
+
+    it('sin comisión, como siempre: sin el campo vale; con él, tiene que ser el importe', async () => {
+      const old = makeService({ payment: pos });
+      old.transition.mockResolvedValueOnce(undefined as never);
+      await expect(old.service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD' })).resolves.toEqual({ status: 'AUTHORIZED' });
+      const same = makeService({ payment: pos });
+      same.transition.mockResolvedValueOnce(undefined as never);
+      await expect(same.service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD', chargedCents: 4_500 })).resolves.toEqual({
+        status: 'AUTHORIZED',
+      });
+      const wrong = makeService({ payment: pos });
+      expect(await codeOf(wrong.service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD', chargedCents: 4_000 }))).toBe(
+        'POS_CHARGE_MISMATCH',
+      );
+    });
+  });
 });

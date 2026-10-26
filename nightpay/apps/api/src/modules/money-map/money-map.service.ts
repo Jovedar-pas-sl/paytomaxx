@@ -62,8 +62,10 @@ interface ConsumptionSaleRow {
   amountCents: number;
   tipCents: number;
   category: string;
-  /** El % antiguo de OxioPay fijado en el consumo (0 con la comisión del servicio; null = el del local). */
+  /** El % antiguo de OxioPay fijado en el consumo (null = el del local). */
   platformBps: number | null;
+  /** La parte pagada con saldo cargado con comisión del servicio (sin % antiguo). */
+  serviceFeeSaldoCents: number | null;
   lines: SaleLineLike[] | null;
 }
 
@@ -210,8 +212,11 @@ export class MoneyMapService {
           tipCents: c.tipCents,
           category: c.category,
           method: 'SALDO',
-          // Con la «Comisión del servicio» encendida al gastarlo, 0 (se cobró al recargar).
+          // El % del local, solo sobre lo cargado SIN «Comisión del servicio»
+          // (lo cargado con ella ya la pagó al recargar). Los consumos de la
+          // primera versión de la rama llevaban 0 aquí.
           platformBps: n(c.platformBps ?? venue.platformCommissionBps),
+          serviceFeeSaldoCents: n(c.serviceFeeSaldoCents),
           lines: c.lines ?? [],
         }),
       ),
@@ -272,7 +277,7 @@ export class MoneyMapService {
        LIMIT ${MAX_EXPORT_ROWS + 1}
     `;
     const consumptions = await tx.$queryRaw<ConsumptionSaleRow[]>`
-      SELECT c."amountCents", c."tipCents", c.category, c."platformCommissionBps" AS "platformBps", l.lines
+      SELECT c."amountCents", c."tipCents", c.category, c."platformCommissionBps" AS "platformBps", c."serviceFeeSaldoCents", l.lines
         FROM wallet_consumptions c
         LEFT JOIN LATERAL (
           SELECT ${linesJson('pl')} AS lines

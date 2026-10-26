@@ -79,6 +79,7 @@ import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor, assertTwoFactorCode, cashApprovalThreshold } from './wallet-two-factor';
 import { receptionAskedManager } from './reception-payout-rules';
 import { WalletBlockedException } from './wallet-blocked';
+import { saldoCredits, serviceFeeSaldoCents, serviceFeeSpendCents } from './wallet-fee-saldo';
 import { passChargeSecret, passChargeTokenValid, passChargeWalletId } from './google-wallet/pass-charge-token';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
@@ -738,7 +739,7 @@ export class WalletChargesService {
         tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true, commissionBps: true } }),
         tx.venue.findUnique({
           where: { id: request.tenantId },
-          select: { operatorCommissionDefaults: true, nightSettings: true, serviceFeeEnabled: true },
+          select: { operatorCommissionDefaults: true, nightSettings: true },
         }),
         linesOf(tx, { walletChargeIds: [request.id] }),
       ]);
@@ -748,6 +749,15 @@ export class WalletChargesService {
         auth === 'nfc_nopin' ? await this.noPinAllowance(tx, w, totalCents, venue?.nightSettings) : null;
       // La propina: entera para la chica que cobra; del local si cobra otra persona.
       const tipToChica = provider?.role === 'OPERATOR';
+      // Gastar del saldo no lleva «Comisión del servicio». De lo que se gasta
+      // (lo más antiguo primero), lo cargado con ella ya la pagó: el local no
+      // paga el % antiguo sobre esa parte; lo cargado sin ella, sí (como
+      // siempre). Lo decide cómo se cargó, no el interruptor de ahora.
+      const feeSaldoCents = serviceFeeSaldoCents({
+        amountCents: request.amountCents,
+        tipCents,
+        feeSpendCents: serviceFeeSpendCents(await saldoCredits(tx, wallet.id), w.balanceCents, totalCents),
+      });
       const consumption = await tx.walletConsumption.create({
         data: {
           tenantId: request.tenantId,
@@ -759,10 +769,7 @@ export class WalletChargesService {
           idempotencyKey: `charge-request:${request.id}`,
           authMethod: auth,
           ...(tipCents > 0 ? { tipCents, tipGoesTo: tipToChica ? 'operator' : 'venue' } : {}),
-          // Gastar del saldo no lleva «Comisión del servicio» (se cobró al
-          // recargar); con ella encendida, el local tampoco paga el % antiguo
-          // de OxioPay sobre este consumo. Apagada: null (el % del local, como siempre).
-          ...(venue?.serviceFeeEnabled ? { platformCommissionBps: 0 } : {}),
+          ...(feeSaldoCents > 0 ? { serviceFeeSaldoCents: feeSaldoCents } : {}),
         },
       });
       if (provider?.role === 'OPERATOR') {

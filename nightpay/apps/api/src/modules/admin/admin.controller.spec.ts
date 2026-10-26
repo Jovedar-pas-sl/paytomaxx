@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { BadRequestException, ForbiddenException, HttpException } from '@nestjs/common';
 import type { JwtPayload } from '@nightpay/contracts';
-import { AdminController, quarterRange } from './admin.controller';
+import { AdminController, VenueSettingsUpdateSchema, quarterRange } from './admin.controller';
 import { payoutRequestHash } from '../operators/payout-idempotency';
 import { payoutRoute, type VenueApprovalRules } from '../approvals/approval-rules';
 import { sealTotpSecret } from '../auth/totp-crypto';
@@ -415,5 +415,13 @@ describe('PATCH /admin/venue/settings — comisiones del local', () => {
   it('una chica con un % propio que ya no cuadra con la plataforma → 400 (como en la consola)', async () => {
     const { save } = controller(9500);
     expect(await statusOf(save({ operatorMaxCobroCents: 30_000 }))).toBe(400);
+  });
+});
+
+describe('Ajustes del dueño: los % de la «Comisión del servicio» con el mismo tope que el contrato (0–12 %)', () => {
+  it('hasta 1200 bps vale (y luego 403 si cambia); 1300 ya no pasa la validación', () => {
+    expect(VenueSettingsUpdateSchema.safeParse({ serviceFeeBps: 1200, topUpServiceFeeBps: 0 }).success).toBe(true);
+    expect(VenueSettingsUpdateSchema.safeParse({ serviceFeeBps: 1300 }).success).toBe(false);
+    expect(VenueSettingsUpdateSchema.safeParse({ topUpServiceFeeBps: 10_000 }).success).toBe(false);
   });
 });

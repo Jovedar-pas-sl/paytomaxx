@@ -68,6 +68,13 @@ export type CashTopUpDto = z.infer<typeof CashTopUpSchema>;
 export const CashTopUpVoidSchema = z.object({
   reason: z.string().trim().min(3, 'Explica por qué se anula').max(200),
   totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
+  /**
+   * La «Comisión del servicio» de esa recarga que enseñó la pantalla (de la
+   * caja sale el saldo + ella). Si la recarga la lleva, es obligatoria: una
+   * pantalla de antes, que enseña solo el saldo, recibe 409
+   * SERVICE_FEE_APP_OUTDATED (y otra cifra, SERVICE_FEE_CHANGED).
+   */
+  serviceFeeCents: z.number().int().nonnegative().max(MAX_CASH_TOP_UP_CENTS).optional(),
 });
 export type CashTopUpVoidDto = z.infer<typeof CashTopUpVoidSchema>;
 

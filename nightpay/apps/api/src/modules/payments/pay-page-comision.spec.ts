@@ -43,7 +43,9 @@ describe('página de pago (/pay) con la comisión del servicio', () => {
     expect(html).toContain('<dt>Consumo</dt><dd class="num">33 €</dd>');
     expect(html).toContain('<dt>Comisión del servicio</dt><dd class="num">3,30 €</dd>');
     expect(html).toContain('id="brkTip" hidden><dt>Propina</dt>');
-    expect(html).toContain('id="total">36,30 €</dd>');
+    expect(html).toContain('id="total" aria-live="polite">36,30 €</dd>');
+    // Al elegir la propina, el lector de pantalla lee solo el total (no todo el desglose).
+    expect(html).toContain('<dl class="brk">');
     expect(html).toContain('Pagar 36,30 €</button>');
     // El JS suma la comisión: 33 + 3,30 + la propina elegida.
     expect(html).toContain('C.amount+(C.fee||0)+tp');

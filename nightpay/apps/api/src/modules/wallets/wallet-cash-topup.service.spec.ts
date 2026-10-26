@@ -116,7 +116,8 @@ function setup(o: { venue?: Row; wallet?: Row | null; pacoPost?: string | null }
         (a.where.id ? [...cards.values()].find((c) => c.id === a.where.id) : cards.get(String(a.where.token))) ?? null),
     },
     walletCashTopUp: {
-      findUnique: vi.fn(async (a: { where: { tenantId_idempotencyKey?: { tenantId: string; idempotencyKey: string }; voidOfId?: string } }) => {
+      findUnique: vi.fn(async (a: { where: { id?: string; tenantId_idempotencyKey?: { tenantId: string; idempotencyKey: string }; voidOfId?: string } }) => {
+        if (a.where.id) return topUps.get(a.where.id) ?? null;
         if (a.where.voidOfId) return [...topUps.values()].find((t) => t.voidOfId === a.where.voidOfId) ?? null;
         const k = a.where.tenantId_idempotencyKey!;
         return [...topUps.values()].find((t) => t.tenantId === k.tenantId && t.idempotencyKey === k.idempotencyKey) ?? null;
@@ -591,8 +592,28 @@ describe('recarga en efectivo con la «Comisión del servicio»', () => {
     const { svc, topUps } = setup({ venue: FEE_ON });
     const top = await svc.topUp(SALA, javi, recarga(5_000, 'clave-fee-0008', 600));
     const manager = { userId: JAVI, role: 'MANAGER' as const, tenantId: SALA };
-    const out = await svc.voidTopUp(manager, top.topUpId, { reason: 'mal tecleada', totpCode: '123456' });
+    const out = await svc.voidTopUp(manager, top.topUpId, { reason: 'mal tecleada', totpCode: '123456', serviceFeeCents: 600 });
     expect(out).toMatchObject({ amountCents: 5_000, serviceFeeCents: 600 });
     expect([...topUps.values()].find((t) => t.voidOfId === top.topUpId)).toMatchObject({ amountCents: -5_000, serviceFeeCents: -600, serviceFeeBps: 1200 });
+  });
+
+  it('anular con una pantalla de antes (sin la comisión): 409 SERVICE_FEE_APP_OUTDATED antes del 2FA y sin tocar nada', async () => {
+    const { svc, topUps } = setup({ venue: FEE_ON });
+    const top = await svc.topUp(SALA, javi, recarga(10_000, 'clave-fee-0009', 1_200));
+    const manager = { userId: JAVI, role: 'MANAGER' as const, tenantId: SALA };
+    const old = await svc.voidTopUp(manager, top.topUpId, { reason: 'mal tecleada' }).catch((e: unknown) => e);
+    expect(old).toBeInstanceOf(ConflictException);
+    expect((old as ConflictException).getResponse()).toMatchObject({ code: 'SERVICE_FEE_APP_OUTDATED', serviceFeeCents: 1_200 });
+    expect(String((old as Error).message)).toMatch(/112,00/);
+    const other = await svc.voidTopUp(manager, top.topUpId, { reason: 'mal', totpCode: '123456', serviceFeeCents: 0 }).catch((e: unknown) => e);
+    expect((other as ConflictException).getResponse()).toMatchObject({ code: 'SERVICE_FEE_CHANGED', serviceFeeCents: 1_200 });
+    expect([...topUps.values()].some((t) => t.voidOfId === top.topUpId)).toBe(false);
+  });
+
+  it('una recarga sin comisión se anula como siempre (sin el campo)', async () => {
+    const { svc } = setup();
+    const top = await svc.topUp(SALA, javi, recarga(5_000, 'clave-fee-0010'));
+    const manager = { userId: JAVI, role: 'MANAGER' as const, tenantId: SALA };
+    await expect(svc.voidTopUp(manager, top.topUpId, { reason: 'mal tecleada', totpCode: '123456' })).resolves.toMatchObject({ amountCents: 5_000 });
   });
 });

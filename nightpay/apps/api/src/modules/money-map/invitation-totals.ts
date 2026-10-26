@@ -11,7 +11,8 @@ type Num = number | bigint | null;
  * noche»): cuántas, lo vendido (sus copas) y su parte. Con tarjeta, las
  * pagadas: una devuelta en parte sigue contando, con su parte menos lo
  * descontado (en la misma proporción que lo devuelto sobre lo cobrado, como
- * su ganancia: refund-share.ts); una devuelta del todo, no. Del saldo, las
+ * su ganancia: refund-share.ts, sobre lo cobrado con la «Comisión del servicio»);
+ * una devuelta del todo, no. Del saldo, las
  * pagadas sin anular. Con `window`, las de esas fechas (la del banco o la del
  * consumo). En una transacción: payment_lines y los consumos tienen FORCE RLS.
  */
@@ -32,8 +33,8 @@ export async function invitationTotals(
                SUM(l."amountCents") AS amount,
                SUM(l."beneficiaryCents") - ROUND(
                  SUM(l."beneficiaryCents")::numeric
-                 * LEAST(COALESCE(rf.refunded, 0), p."amountCents" + p."tipCents")
-                 / NULLIF(p."amountCents" + p."tipCents", 0)
+                 * LEAST(COALESCE(rf.refunded, 0), p."amountCents" + p."serviceFeeCents" + p."tipCents")
+                 / NULLIF(p."amountCents" + p."serviceFeeCents" + p."tipCents", 0)
                ) AS share
           FROM payment_lines l
           JOIN payments p ON p.id = l."paymentId"
@@ -46,7 +47,7 @@ export async function invitationTotals(
            AND l."beneficiaryOperatorId" = ${operatorId}::uuid
            AND p.status::text IN ('AUTHORIZED', 'PARTIALLY_REFUNDED')
            ${card}
-         GROUP BY p.id, p."amountCents", p."tipCents", rf.refunded
+         GROUP BY p.id, p."amountCents", p."serviceFeeCents", p."tipCents", rf.refunded
         UNION ALL
         SELECT SUM(l.qty), SUM(l."amountCents"), SUM(l."beneficiaryCents")
           FROM payment_lines l

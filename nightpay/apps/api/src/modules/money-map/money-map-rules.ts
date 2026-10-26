@@ -40,6 +40,12 @@ export interface SaleRow {
   lines: readonly SaleLineLike[];
   /** «Comisión del servicio» que pagó el cliente encima (pagos directos; 0 en el saldo). */
   serviceFeeCents?: number;
+  /**
+   * Consumo del saldo: la parte del importe pagada con saldo cargado CON
+   * comisión del servicio (ya la pagó el cliente): el % antiguo va solo sobre
+   * el resto (wallet-fee-saldo.ts).
+   */
+  serviceFeeSaldoCents?: number;
 }
 
 /**
@@ -110,9 +116,9 @@ export function sectionsOf(sales: readonly SaleRow[]): MoneyMapSection[] {
   return [...SECTION_CODES.map(row), ...legacy, row(MONEY_MAP_TIPS)];
 }
 
-/** La comisión de OxioPay: su % sobre lo vendido, sin las propinas. */
+/** La comisión de OxioPay: su % sobre lo vendido, sin las propinas (ni lo pagado con saldo de la comisión del servicio). */
 export function platformCommissionCents(sales: readonly SaleRow[]): number {
-  return sum(sales, (s) => Math.round((s.amountCents * s.platformBps) / BPS));
+  return sum(sales, (s) => Math.round(((s.amountCents - Math.max(0, s.serviceFeeSaldoCents ?? 0)) * s.platformBps) / BPS));
 }
 
 /**

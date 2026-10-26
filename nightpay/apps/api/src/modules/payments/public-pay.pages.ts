@@ -166,11 +166,11 @@ function feeBreakdown(view: ChooseView, t: PayText): string {
   if (fee <= 0) return '';
   const b = t.breakdown;
   const money = (c: number): string => escapeHtml(formatAmount(c, view.currency, t));
-  return `<dl class="brk" aria-live="polite">
+  return `<dl class="brk">
 <div><dt>${escapeHtml(view.topUp ? b.topUp : b.consumption)}</dt><dd class="num">${money(view.amountCents)}</dd></div>
 <div><dt>${escapeHtml(b.serviceFee)}</dt><dd class="num">${money(fee)}</dd></div>
 <div id="brkTip" hidden><dt>${escapeHtml(b.tip)}</dt><dd class="num" id="brkTipV"></dd></div>
-<div class="tot"><dt>${escapeHtml(t.total)}</dt><dd class="num" id="total">${money(view.amountCents + fee)}</dd></div>
+<div class="tot"><dt>${escapeHtml(t.total)}</dt><dd class="num" id="total" aria-live="polite">${money(view.amountCents + fee)}</dd></div>
 </dl>`;
 }
 

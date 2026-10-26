@@ -49,6 +49,7 @@ import {
   CreateOperatorSchema,
   CreatePayoutSchema,
   ResetOperatorPasswordSchema,
+  ServiceFeeBpsSchema,
   UpdateOperatorSchema,
   type CreateOperatorDto,
   type CreatePayoutDto,
@@ -70,7 +71,7 @@ const CreateVenueSchema = z.object({
 });
 type CreateVenueDto = z.infer<typeof CreateVenueSchema>;
 
-const VenueSettingsUpdateSchema = z.object({
+export const VenueSettingsUpdateSchema = z.object({
   operatorMaxCobroCents: z.number().int().min(0).max(10_000_00).optional(),
   // La comisión de la plataforma solo la cambia el super-admin (consola, con
   // 2FA). Aquí se acepta sin cambios (el panel anterior la manda siempre);
@@ -94,8 +95,8 @@ const VenueSettingsUpdateSchema = z.object({
   // «Comisión del servicio al cliente»: la enciende y fija OxioPay (super-admin,
   // con 2FA). Aquí se acepta sin cambios; otro valor → 403, como la de la plataforma.
   serviceFeeEnabled: z.boolean().optional(),
-  serviceFeeBps: z.number().int().min(0).max(10_000).optional(),
-  topUpServiceFeeBps: z.number().int().min(0).max(10_000).optional(),
+  serviceFeeBps: ServiceFeeBpsSchema.optional(),
+  topUpServiceFeeBps: ServiceFeeBpsSchema.optional(),
   /** Reglas de dinero: con la 2FA activada, el código. */
   totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 });

@@ -28,8 +28,9 @@ const VENUE = {
   createdAt: new Date('2026-10-01T00:00:00Z'),
 };
 
-function venuesSetup(opts: { stepUpFails?: boolean; maxOverride?: number | null } = {}) {
+function venuesSetup(opts: { stepUpFails?: boolean; maxOverride?: number | null; provider?: string; peanpeFormat?: string } = {}) {
   const tx = {
+    gatewayCredential: { findFirst: vi.fn().mockResolvedValue(opts.provider ? { provider: opts.provider } : null) },
     venue: {
       findFirst: vi.fn().mockResolvedValue(VENUE),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...VENUE, ...data })),
@@ -47,7 +48,7 @@ function venuesSetup(opts: { stepUpFails?: boolean; maxOverride?: number | null 
       : vi.fn().mockResolvedValue(undefined),
   };
   const audit = { write: vi.fn().mockResolvedValue(undefined) };
-  const config = { get: vi.fn().mockReturnValue('7') };
+  const config = { get: vi.fn((k: string) => (k === 'PEANPE_AMOUNT_FORMAT_VERIFIED' ? opts.peanpeFormat : '7')) };
   const svc = new SuperAdminVenuesService(prisma as never, stepUp as never, audit as never, config as never);
   return { svc, tx, stepUp, audit };
 }
@@ -83,6 +84,20 @@ describe('SuperAdminVenuesService — 2FA antes de tocar nada', () => {
       BadRequestException,
     );
     expect(tx.venue.update).not.toHaveBeenCalled();
+  });
+
+  it('Peanpe en euros enteros: no se puede encender la comisión del servicio (y la ficha lo dice)', async () => {
+    const { svc, tx } = venuesSetup({ provider: 'PEANPE', peanpeFormat: 'euros' });
+    const err = await svc.updateRules(actor, 'v-1', { serviceFeeEnabled: true, totpCode: '123456' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(String((err as Error).message)).toMatch(/Peanpe/);
+    expect(tx.venue.update).not.toHaveBeenCalled();
+    expect((await svc.get('v-1')).rules.serviceFeeBlockedReason).toMatch(/euros enteros/);
+    // Otra pasarela: se enciende y la ficha no dice nada.
+    const ok = venuesSetup({ provider: 'REDSYS', peanpeFormat: 'euros' });
+    await ok.svc.updateRules(actor, 'v-1', { serviceFeeEnabled: true, totpCode: '123456' });
+    expect(ok.tx.venue.update).toHaveBeenCalled();
+    expect((await ok.svc.get('v-1')).rules.serviceFeeBlockedReason).toBeNull();
   });
 
   it('perfil: el nombre no pide 2FA; el grupo del saldo sí', async () => {

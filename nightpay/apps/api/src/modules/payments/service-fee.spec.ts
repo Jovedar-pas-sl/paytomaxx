@@ -150,3 +150,14 @@ describe('withServiceFee: sin comisión del servicio, los resúmenes salen como 
     expect(withServiceFee({ walletCashTopUpFeesCents: -600 })).toEqual({ walletCashTopUpFeesCents: -600 });
   });
 });
+
+describe('pasarela que no puede cobrar la comisión del servicio', () => {
+  it('Peanpe en euros enteros: no (las comisiones llevan céntimos); en céntimos u otra pasarela, sí', async () => {
+    const { serviceFeeGatewayProblem } = await import('./service-fee');
+    expect(serviceFeeGatewayProblem('PEANPE', 'euros')).toMatch(/Peanpe.*euros enteros/);
+    expect(serviceFeeGatewayProblem('PEANPE', 'cents')).toBeNull();
+    expect(serviceFeeGatewayProblem('PEANPE', undefined)).toBeNull();
+    expect(serviceFeeGatewayProblem('REDSYS', 'euros')).toBeNull();
+    expect(serviceFeeGatewayProblem(null, 'euros')).toBeNull();
+  });
+});

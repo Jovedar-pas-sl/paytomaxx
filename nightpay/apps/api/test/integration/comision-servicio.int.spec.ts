@@ -37,6 +37,7 @@ import { IncidentsService } from '../../src/modules/incidents/incidents.service'
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
 import { NightsService } from '../../src/modules/nights/nights.service';
 import type { NightZ } from '../../src/modules/nights/night-rules';
+import { invitationTotals } from '../../src/modules/money-map/invitation-totals';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -369,7 +370,8 @@ describe('con la comisión del servicio ENCENDIDA (10 % tarjeta y datáfono, 12 
     expect(paid).toMatchObject({ amountCents: 3300, balanceCents: 1700 });
     expect((await paymentOf(c.id)).status).toBe('CANCELED');
     const consumption = await sys((tx) => tx.walletConsumption.findFirstOrThrow({ where: { walletId: cashWallet } }));
-    expect(consumption).toMatchObject({ amountCents: 3300, platformCommissionBps: 0 });
+    // Saldo cargado con la comisión (la recarga en efectivo al 12 %): todo el consumo sin el % antiguo.
+    expect(consumption).toMatchObject({ amountCents: 3300, platformCommissionBps: null, serviceFeeSaldoCents: 3300 });
     // La chica, su 90 % del consumo.
     expect(await sys((tx) => tx.operatorEarning.findMany({ where: { consumptionId: consumption.id } }))).toMatchObject([{ commissionCents: 2970 }]);
   });
@@ -561,5 +563,147 @@ describe('encender la comisión del servicio no cambia los cobros ya creados', (
     await sys((tx) => tx.venue.update({ where: { id: L.V }, data: { serviceFeeBps: 500 } }));
     expect(await paymentOf(nuevo.id)).toMatchObject({ serviceFeeBps: 1200, serviceFeeCents: 396 });
     expect((await checkout(nuevo.qrToken)).amountCents).toBe(3300 + 396);
+  });
+});
+
+// ─── Ronda de revisión ─────────────────────────────────────────────────
+
+/** Gastar del saldo `walletId` el servicio de la carta (33 €), con el QR del cobro del saldo. */
+async function spend(l: Local, walletId: string): Promise<{ id: string; serviceFeeSaldoCents: number; platformCommissionBps: number | null }> {
+  const c = await cobro(l, { withSaldo: true });
+  const payToken = (await sys((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id: c.saldo!.chargeId } }))).payToken!;
+  await inVenue(undefined, () => charges.payQrCharge(payToken, walletId));
+  const request = await sys((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id: c.saldo!.chargeId } }));
+  return sys((tx) =>
+    tx.walletConsumption.findUniqueOrThrow({
+      where: { id: request.consumptionId! },
+      select: { id: true, serviceFeeSaldoCents: true, platformCommissionBps: true },
+    }),
+  );
+}
+
+const setSwitch = (l: Local, on: boolean) => sys((tx) => tx.venue.update({ where: { id: l.V }, data: { serviceFeeEnabled: on } }));
+const cashIn = (l: Local, amountCents: number, wallet: Record<string, unknown>, serviceFeeCents?: number) =>
+  inVenue(l.V, () =>
+    cash.topUp(l.V, { userId: l.owner, role: 'OWNER' }, {
+      amountCents,
+      idempotencyKey: key(),
+      wallet,
+      ...(serviceFeeCents === undefined ? {} : { serviceFeeCents }),
+    } as never),
+  );
+
+describe('la migración 20261030110000_comision_saldo', () => {
+  const SALDO_MIGRATION = join(__dirname, '../../../../packages/db/prisma/migrations/20261030110000_comision_saldo/migration.sql');
+  const cli = join(__dirname, '../../../../packages/db/node_modules/prisma/build/index.js');
+  const constraint = () =>
+    prisma.$queryRawUnsafe<Array<{ valid: boolean; def: string }>>(
+      `SELECT convalidated AS valid, pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'wallet_consumptions_fee_saldo_range'`,
+    );
+
+  it('«serviceFeeSaldoCents» a 0 de fábrica, con su CHECK validado (de 0 al importe); repetirla no cambia nada', async () => {
+    expect(await constraint()).toEqual([{ valid: true, def: expect.stringContaining('"serviceFeeSaldoCents" <= "amountCents"') }]);
+    const res = spawnSync(process.execPath, [cli, 'db', 'execute', '--url', String(process.env.DATABASE_URL), '--file', SALDO_MIGRATION], {
+      encoding: 'utf8',
+      env: { ...process.env, PRISMA_HIDE_UPDATE_MESSAGE: '1' },
+    });
+    expect(res.status).toBe(0);
+    expect(await constraint()).toHaveLength(1);
+  });
+});
+
+describe('saldo cargado con y sin comisión del servicio (decisión del dueño): lo más antiguo primero', () => {
+  it('20 € de antes de encenderla y 50 € con ella: 33 € del saldo = 20 € con el % antiguo + 13 € sin él; apagada, cuadra igual', async () => {
+    const L = await local('saldo', { enabled: false, topUpBps: 1200 });
+    // Con el interruptor apagado: 20 € sin comisión.
+    const first = await cashIn(L, 2000, { create: true });
+    const code = (await walletOf(first.walletId)).shortCode!;
+    // Se enciende: 50 € + 6 € de comisión al mismo saldo.
+    await setSwitch(L, true);
+    await cashIn(L, 5000, { code }, 600);
+    expect(await walletOf(first.walletId)).toMatchObject({ balanceCents: 7000 });
+    const a = await spend(L, first.walletId);
+    expect(a).toMatchObject({ serviceFeeSaldoCents: 1300, platformCommissionBps: null });
+    // El mapa del dinero: el 10 % antiguo solo de los 20 € cargados sin comisión.
+    const m1 = await inVenue(L.V, () => moneyMap.forQuery(L.V, {}, soon()));
+    expect(m1.split.commissions.platformCents).toBe(200);
+    // Se apaga: lo que queda (37 €) se cargó con comisión → sin el % antiguo aunque esté apagada.
+    await setSwitch(L, false);
+    const b = await spend(L, first.walletId);
+    expect(b).toMatchObject({ serviceFeeSaldoCents: 3300, platformCommissionBps: null });
+    const m2 = await inVenue(L.V, () => moneyMap.forQuery(L.V, {}, soon()));
+    expect(m2.split.commissions.platformCents).toBe(200);
+    expect(await walletOf(first.walletId)).toMatchObject({ balanceCents: 400 });
+  });
+
+  it('todo cargado sin comisión: con el interruptor encendido sigue pagando el % antiguo (como hoy)', async () => {
+    const L = await local('viejo', { enabled: false });
+    const t = await cashIn(L, 5000, { create: true });
+    await setSwitch(L, true);
+    expect(await spend(L, t.walletId)).toMatchObject({ serviceFeeSaldoCents: 0, platformCommissionBps: null });
+    const m = await inVenue(L.V, () => moneyMap.forQuery(L.V, {}, soon()));
+    expect(m.split.commissions.platformCents).toBe(330);
+  });
+});
+
+describe('datáfono manual (POS_EXTERNAL) con la comisión: se confirma lo que se cobró', () => {
+  it('sin el total (app de antes) 409 SERVICE_FEE_APP_OUTDATED; 33 € 409 POS_CHARGE_MISMATCH; 36,30 € se confirma', async () => {
+    const L = await local('pos', { enabled: true });
+    const c = await cobro(L, { captureMethod: 'POS_EXTERNAL' });
+    const confirm = (extra: Record<string, unknown>) =>
+      inVenue(L.V, () => payments.confirmPosPayment(c.id, ownerActor(L), { posReceiptRef: 'AB12CD', ...extra }));
+    const codeOf = (err: unknown) => ((err as ConflictException).getResponse() as { code?: string }).code;
+    expect(codeOf(await confirm({}).catch((e: unknown) => e))).toBe('SERVICE_FEE_APP_OUTDATED');
+    expect(codeOf(await confirm({ chargedCents: 3300 }).catch((e: unknown) => e))).toBe('POS_CHARGE_MISMATCH');
+    expect((await paymentOf(c.id)).status).toBe('CREATED');
+    await confirm({ chargedCents: 3630 });
+    expect(await paymentOf(c.id)).toMatchObject({ status: 'AUTHORIZED', serviceFeeCents: 330, availableAmountCents: 3630, authCode: 'AB12CD' });
+  });
+});
+
+describe('anular una recarga en efectivo con la comisión: la pantalla tiene que enseñar lo que sale de la caja', () => {
+  it('sin la comisión (pantalla de antes): 409 y no se anula; con ella, salen saldo + comisión', async () => {
+    const L = await local('anula', { enabled: true, topUpBps: 1200 });
+    const t = await cashIn(L, 10_000, { create: true }, 1200);
+    const manager = { userId: L.owner, role: 'OWNER' as const, tenantId: L.V };
+    const old = await inVenue(L.V, () => cash.voidTopUp(manager, t.topUpId, { reason: 'mal tecleada', totpCode: '123456' })).catch((e: unknown) => e);
+    expect(((old as ConflictException).getResponse() as { code: string }).code).toBe('SERVICE_FEE_APP_OUTDATED');
+    expect(await walletOf(t.walletId)).toMatchObject({ balanceCents: 10_000 });
+    const out = await inVenue(L.V, () => cash.voidTopUp(manager, t.topUpId, { reason: 'mal tecleada', totpCode: '123456', serviceFeeCents: 1200 }));
+    expect(out).toMatchObject({ amountCents: 10_000, serviceFeeCents: 1200, balanceCents: 0 });
+    // La caja: entra 112 € y sale lo mismo (la hora de Postgres puede ir unos ms por delante de la de Node).
+    const voidRow = await sys((tx) => tx.walletCashTopUp.findUniqueOrThrow({ where: { voidOfId: t.topUpId } }));
+    expect(voidRow).toMatchObject({ amountCents: -10_000, serviceFeeCents: -1200 });
+    while (Date.now() <= voidRow.createdAt.getTime()) await new Promise((done) => setTimeout(done, 5));
+    const check = await inVenue(L.V, () => nights.closeCheck(L.V));
+    expect(check.cash.cashInCents).toBe(0);
+  });
+});
+
+describe('copa con invitación devuelta en parte, con la comisión: la ficha descuenta como el pago real', () => {
+  it('33 € + 3,30 € + 2 € de propina, devueltos 11 €: a la invitada se le descuenta 11 / 38,30 de su parte', async () => {
+    const L = await local('invita', { enabled: true });
+    const pay = await sys((tx) =>
+      tx.payment.create({
+        data: {
+          tenantId: L.V, terminalId: L.term, idempotencyKey: key(), amountCents: 3300, serviceFeeCents: 330, serviceFeeBps: 1000, tipCents: 200,
+          availableAmountCents: 3830 - 1100, qrToken: `inv-${randomUUID()}`, qrExpiresAt: ago(-HOUR), status: 'PARTIALLY_REFUNDED',
+          provider: 'REDSYS', providerTxId: `INV${randomBytes(4).toString('hex')}`, revenueCategory: 'VENUE_BAR', authorizedAt: ago(30 * 60_000),
+          platformCommissionBps: 0,
+        },
+      }),
+    );
+    await sys(async (tx) => {
+      await tx.paymentLine.create({
+        data: {
+          tenantId: L.V, paymentId: pay.id, category: 'VENUE_BAR', label: 'Copa con invitación', qty: 1, unitCents: 3300, amountCents: 3300,
+          beneficiaryOperatorId: L.lola, beneficiaryCents: 1650, chargerCents: 0,
+        },
+      });
+      await tx.refund.create({ data: { tenantId: L.V, paymentId: pay.id, amountCents: 1100, requestedBy: L.owner, status: 'SUCCEEDED', serviceFeeCents: 95 } });
+    });
+    const totals = await inVenue(L.V, () => prisma.withTenant(L.V, (tx) => invitationTotals(tx, L.V, L.lola)));
+    // 1650 − round(1650 × 1100 / 3830) = 1650 − 474 (sin la comisión serían 519).
+    expect(totals).toEqual({ count: 1, amountCents: 3300, shareCents: 1176 });
   });
 });

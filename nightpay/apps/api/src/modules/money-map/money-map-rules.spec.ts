@@ -258,3 +258,19 @@ describe('con la «Comisión del servicio» (la paga el cliente, se debe a OxioP
     expect(m.outflow).not.toHaveProperty('serviceFeeCents');
   });
 });
+
+describe('consumos del saldo: el % antiguo solo sobre lo cargado SIN comisión del servicio', () => {
+  it('30 € del saldo, 10 € cargados con comisión: el 10 % de los otros 20 € (2 €)', () => {
+    const m = buildMoneyMap(
+      input({ sales: [sale({ amountCents: 3_000, method: 'SALDO', platformBps: 1000, serviceFeeSaldoCents: 1_000 })] }),
+    );
+    expect(m.split.commissions.platformCents).toBe(200);
+  });
+
+  it('todo cargado con comisión: nada; todo sin ella (o de antes): el 10 % entero', () => {
+    const all = buildMoneyMap(input({ sales: [sale({ amountCents: 3_000, method: 'SALDO', platformBps: 1000, serviceFeeSaldoCents: 3_000 })] }));
+    expect(all.split.commissions.platformCents).toBe(0);
+    const none = buildMoneyMap(input({ sales: [sale({ amountCents: 3_000, method: 'SALDO', platformBps: 1000 })] }));
+    expect(none.split.commissions.platformCents).toBe(300);
+  });
+});

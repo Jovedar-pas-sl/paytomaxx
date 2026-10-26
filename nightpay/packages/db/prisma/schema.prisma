@@ -1325,9 +1325,13 @@ model WalletConsumption {
   // Cómo se autorizó: nfc_nopin | pin | passkey | staff (null: de antes). 20261023200000.
   authMethod       String?
   // El % antiguo de OxioPay sobre este consumo (20261030100000): null = el del
-  // local, como siempre; 0 = con la «Comisión del servicio» encendida (se cobró
-  // al cliente en la recarga y el local no paga el % antiguo).
+  // local, como siempre. (La primera versión de la «Comisión del servicio»
+  // ponía 0 con el interruptor encendido; ya no se escribe.)
   platformCommissionBps Int?
+  // La parte del importe (sin propina) pagada con saldo cargado CON «Comisión
+  // del servicio» (20261030110000; wallet-fee-saldo.ts): el % antiguo va
+  // solo sobre el resto. 0 = todo del saldo sin ella (o de antes).
+  serviceFeeSaldoCents Int   @default(0)
   createdAt        DateTime  @default(now()) @db.Timestamptz
 
   venue       Venue            @relation(fields: [tenantId], references: [id])

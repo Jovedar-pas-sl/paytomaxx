@@ -476,6 +476,8 @@ export const VenueRulesSchema = z.object({
   serviceFeeEnabled: z.boolean().optional(),
   serviceFeeBps: z.number().int().optional(),
   topUpServiceFeeBps: z.number().int().optional(),
+  /** Por qué no se puede encender en este local (su pasarela no podría cobrarla); null: se puede. */
+  serviceFeeBlockedReason: z.string().nullable().optional(),
 });
 export type VenueRules = z.infer<typeof VenueRulesSchema>;
 

@@ -24,6 +24,7 @@ import { SuperAdminStepUpService } from './step-up.service';
 import { SuperAdminAuditService } from './superadmin-audit.service';
 import { commissionMapOf, planVenueRulesChange, profileNeedsStepUp } from './superadmin-rules';
 import type { SuperAdminActor } from './superadmin.guard';
+import { serviceFeeGatewayProblem } from '../payments/service-fee';
 
 const VENUE_NOT_FOUND = 'Local no encontrado';
 
@@ -85,7 +86,15 @@ export class SuperAdminVenuesService {
       operators: await tx.user.count({ where: { tenantId: id, deletedAt: null, role: 'OPERATOR' } }),
       terminals: await tx.terminal.count({ where: { tenantId: id, active: true } }),
     }));
-    return this.toDetail(venue, counts);
+    return this.toDetail(venue, counts, await this.serviceFeeBlock(id));
+  }
+
+  /** Por qué no se puede encender la «Comisión del servicio» en el local (su pasarela); null: se puede. */
+  private async serviceFeeBlock(id: string): Promise<string | null> {
+    const credential = await this.prisma.acrossVenues((tx) =>
+      tx.gatewayCredential.findFirst({ where: { tenantId: id, active: true }, orderBy: { createdAt: 'asc' }, select: { provider: true } }),
+    );
+    return serviceFeeGatewayProblem(credential?.provider ?? null, this.config.get<string>('PEANPE_AMOUNT_FORMAT_VERIFIED'));
   }
 
   /** Alta de un local (como POST /admin/venues, con negocio, grupo del saldo y comisión; con estos dos, 2FA). */
@@ -169,6 +178,11 @@ export class SuperAdminVenuesService {
     await this.stepUp.verify(actor, dto.totpCode, 'venue.rules');
     const before = await this.load(id);
     const { totpCode: _code, ...rules } = dto;
+    // Encenderla en un local cuya pasarela no puede cobrar sus céntimos: no.
+    if (rules.serviceFeeEnabled === true && !before.serviceFeeEnabled) {
+      const blocked = await this.serviceFeeBlock(id);
+      if (blocked) throw new ConflictException({ message: blocked, code: 'SERVICE_FEE_GATEWAY' });
+    }
     const maxOverride = await this.prisma.acrossVenues((tx) =>
       tx.user.aggregate({
         where: { tenantId: id, role: 'OPERATOR', deletedAt: null, commissionBps: { not: null } },
@@ -281,7 +295,7 @@ export class SuperAdminVenuesService {
     return venue;
   }
 
-  private toDetail(v: VenueRow, counts: VenueDetail['counts']): VenueDetail {
+  private toDetail(v: VenueRow, counts: VenueDetail['counts'], serviceFeeBlockedReason: string | null = null): VenueDetail {
     return {
       ...toListItem(v),
       vatBps: v.vatBps,
@@ -299,6 +313,7 @@ export class SuperAdminVenuesService {
         serviceFeeEnabled: v.serviceFeeEnabled,
         serviceFeeBps: v.serviceFeeBps,
         topUpServiceFeeBps: v.topUpServiceFeeBps,
+        serviceFeeBlockedReason,
       },
       counts,
     };

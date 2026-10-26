@@ -377,8 +377,14 @@ export class CashTopUpService {
    * que resta en la caja, el Z y los informes; el saldo baja lo mismo. Una
    * anulación por recarga (índice único).
    */
-  async voidTopUp(actor: CashVoidActor, topUpId: string, input: { reason: string; totpCode?: string }): Promise<CashTopUpVoidResult> {
+  async voidTopUp(
+    actor: CashVoidActor,
+    topUpId: string,
+    input: { reason: string; totpCode?: string; serviceFeeCents?: number },
+  ): Promise<CashTopUpVoidResult> {
     if (actor.role !== 'MANAGER' && actor.role !== 'OWNER') throw new ForbiddenException('Solo el encargado o el dueño');
+    // Antes del 2FA: que la pantalla diga lo que sale de la caja (saldo + comisión del servicio).
+    await this.assertVoidFeeShown(actor.tenantId, topUpId, input.serviceFeeCents);
     const what = 'Anular una recarga en efectivo';
     if (!input.totpCode) {
       if (!(await this.totp.isEnabled(actor.userId))) {
@@ -412,6 +418,38 @@ export class CashTopUpService {
     });
     this.logger.log(`Recarga en efectivo ${topUpId} anulada (−${out.amountCents}c) por ${actor.userId}`);
     return out;
+  }
+
+  /**
+   * Anular una recarga con «Comisión del servicio» devuelve el saldo + ella:
+   * la pantalla tiene que haberla enseñado (si no, el cliente recibiría solo
+   * el saldo y la caja esperaría que salieran los dos). Sin ella, como siempre.
+   */
+  private async assertVoidFeeShown(tenantId: string, topUpId: string, shownFeeCents: number | undefined): Promise<void> {
+    const row = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.walletCashTopUp.findUnique({
+        where: { id: topUpId },
+        select: { tenantId: true, voidOfId: true, amountCents: true, serviceFeeCents: true },
+      }),
+    );
+    // La que no es de aquí o no es una recarga: lo dice applyVoid (404).
+    if (!row || row.tenantId !== tenantId || row.voidOfId) return;
+    const fee = row.serviceFeeCents ?? 0;
+    const out = `de la caja salen ${eur(row.amountCents + fee)} (${eur(row.amountCents)} de saldo + ${eur(fee)} de comisión del servicio)`;
+    if (shownFeeCents === undefined && fee !== 0) {
+      throw new ConflictException({
+        message: `Esta pantalla no enseña la comisión del servicio: ${out}. Recárgala y vuelve a anularla.`,
+        code: 'SERVICE_FEE_APP_OUTDATED',
+        serviceFeeCents: fee,
+      });
+    }
+    if (shownFeeCents !== undefined && shownFeeCents !== fee) {
+      throw new ConflictException({
+        message: `La comisión del servicio de esa recarga es de ${eur(fee)}: ${out}. Recarga la pantalla y vuelve a anularla.`,
+        code: 'SERVICE_FEE_CHANGED',
+        serviceFeeCents: fee,
+      });
+    }
   }
 
   /** Las recargas en efectivo de este local en el plazo para anularlas, la más reciente primero. */
