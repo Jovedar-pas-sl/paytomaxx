@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { Prisma } from '@nightpay/db';
 import {
   ArgumentsHost,
   BadRequestException,
@@ -8,6 +10,7 @@ import {
 import { z } from 'zod';
 import { ProblemDetailsFilter } from './problem-details.filter';
 import { ZodValidationPipe } from '../pipes/zod.pipe';
+import { reportError } from '../observability/sentry';
 
 vi.mock('../observability/sentry', () => ({
   reportError: vi.fn(),
@@ -212,5 +215,54 @@ describe('ProblemDetailsFilter — el código del cuerpo es el de la respuesta',
     expect(capture.body.type).toBe('about:blank');
     expect(capture.body.instance).toBe('/v1/x');
     expect(capture.body.hint).toBe('ok');
+  });
+});
+
+describe('ProblemDetailsFilter — errores de Prisma sin los datos de la consulta (DI-08)', () => {
+  const EMAIL = 'ana@example.com';
+  const prismaErrors = (): Error[] => [
+    new Prisma.PrismaClientKnownRequestError(
+      `
+Invalid \`prisma.user.create()\` invocation:
+
+{
+  data: { email: "${EMAIL}", passwordHash: "$2b$10$abc" }
+}
+
+Unique constraint failed on the fields: (\`email\`)`,
+      { code: 'P2002', clientVersion: '5.22.0', meta: { modelName: 'User', target: ['email'] } },
+    ),
+    new Prisma.PrismaClientValidationError(`Argument \`email\`: Invalid value provided. Expected String, provided "${EMAIL}".`, {
+      clientVersion: '5.22.0',
+    }),
+    new Prisma.PrismaClientUnknownRequestError(`Raw query failed. Key (email)=(${EMAIL}) already exists.`, {
+      clientVersion: '5.22.0',
+    }),
+  ];
+
+  it.each([0, 1, 2])('error %i: ni el log ni Sentry llevan los datos; sí el tipo y el código', (i) => {
+    const err = prismaErrors()[i]!;
+    const logError = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    vi.mocked(reportError).mockClear();
+    const filter = new ProblemDetailsFilter(true);
+    const { host, capture } = makeHost();
+    filter.catch(err, host);
+    expect(capture.status).toBe(500);
+    const logged = JSON.stringify(logError.mock.calls);
+    expect(logged).not.toContain(EMAIL);
+    expect(logged).not.toContain('$2b$10');
+    expect(logged).toContain(err.name);
+    if (err instanceof Prisma.PrismaClientKnownRequestError) expect(logged).toContain('P2002');
+    const sent = vi.mocked(reportError).mock.calls[0]![0] as Error;
+    expect(`${sent.name} ${sent.message} ${sent.stack}`).not.toContain(EMAIL);
+    expect(sent.name).toBe(err.name);
+    logError.mockRestore();
+  });
+
+  it('el resto de errores se loguean como siempre (con su mensaje)', () => {
+    const logError = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    new ProblemDetailsFilter(true).catch(new Error('fallo de verdad 42'), makeHost().host);
+    expect(JSON.stringify(logError.mock.calls)).toContain('fallo de verdad 42');
+    logError.mockRestore();
   });
 });

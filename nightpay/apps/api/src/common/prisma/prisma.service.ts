@@ -6,6 +6,7 @@ import type { RequestContext } from '../context/request-context';
 import { MetricsService } from '../../modules/metrics/metrics.service';
 import { TENANT_SCOPED_MODELS, scopeToTenant } from './tenant-scope';
 import { TENANT_GUC, forcedRlsTarget } from './rls';
+import { attachPrismaLogs, type PrismaLogSource } from './prisma-logs';
 
 export { TENANT_SCOPED_MODELS };
 
@@ -63,6 +64,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     this.cls = cls;
     this.config = config;
     this.metrics = metrics;
+    // Avisos y errores del motor (pool, conexión) al log; el de una consulta
+    // que falla no, que lleva sus datos (prisma-logs.ts).
+    attachPrismaLogs(this as unknown as PrismaLogSource, this.logger);
   }
 
   async onModuleInit(): Promise<void> {
@@ -82,6 +86,34 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     await this.$connect();
     this.logger.log('Prisma connected');
+    // Sin esperar: el arranque no depende de esta comprobación.
+    void this.checkDatabaseRole();
+  }
+
+  /**
+   * ¿El rol con el que entra el API se salta RLS (superusuario o BYPASSRLS)?
+   * Entonces las políticas FORCE RLS no aíslan los locales (solo el filtro
+   * del código): un aviso al arrancar y la métrica nightpay_db_role_bypasses_rls.
+   * NUNCA impide arrancar ni funcionar: producción entra hoy como el
+   * superusuario `np` (pasar a un rol sin él es la fase 2).
+   */
+  async checkDatabaseRole(): Promise<void> {
+    try {
+      const [role] = await this.$queryRaw<Array<{ role: string; rolsuper: boolean; rolbypassrls: boolean }>>`
+        SELECT current_user::text AS role, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+      if (!role) return;
+      const bypasses = role.rolsuper || role.rolbypassrls;
+      this.metrics?.dbRoleBypassesRls.set(bypasses ? 1 : 0);
+      if (!bypasses) return;
+      const why = role.rolsuper ? 'es superusuario' : 'tiene BYPASSRLS';
+      this.logger.warn(
+        `AVISO: el API entra en la base de datos con el rol «${role.role}», que ${why}: las políticas RLS no ` +
+          'aíslan los locales (solo lo hace el filtro del código). El API funciona igual; para que RLS actúe, ' +
+          'un rol sin superusuario ni BYPASSRLS (docs/DB-ROLE.md).',
+      );
+    } catch (err) {
+      this.logger.warn(`No se pudo comprobar el rol de la base de datos (RLS): ${(err as Error)?.name ?? 'error'}`);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {

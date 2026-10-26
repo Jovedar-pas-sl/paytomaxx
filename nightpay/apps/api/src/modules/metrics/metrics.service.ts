@@ -181,6 +181,14 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // 1 si el rol con el que entra el API es superusuario o tiene BYPASSRLS: las
+  // políticas RLS no actúan (PrismaService.checkDatabaseRole, al arrancar).
+  readonly dbRoleBypassesRls = new Gauge({
+    name: 'nightpay_db_role_bypasses_rls',
+    help: '1 si el rol de la base de datos del API se salta RLS (superusuario o BYPASSRLS)',
+    registers: [this.registry],
+  });
+
   // ─── WS / queues ──────────────────────────────────────────────────
   readonly wsConnectionsActive = new Gauge({
     name: 'nightpay_ws_connections_active',
