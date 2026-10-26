@@ -7,7 +7,9 @@ import {
   ACCESS_REVOCATION_TTL_SECONDS,
   ACCESS_TOKEN_TTL_SECONDS,
   AccessRevocationService,
+  SESSION_CHECK_RETRY_AFTER_S,
   SESSION_CHECK_UNAVAILABLE_CODE,
+  SESSION_CHECK_WARN_EVERY_MS,
 } from './access-revocation.service';
 import { createFakeRedis } from './testing/fake-redis';
 
@@ -77,7 +79,7 @@ describe('AccessRevocationService — ¿sigue viva la sesión de este token?', (
   });
 
   it('Redis falla o no contesta a tiempo → 503 (no se deja pasar a ciegas; tampoco se cierra la sesión)', async () => {
-    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const { svc, redis } = make();
     vi.spyOn(redis, 'mget').mockRejectedValueOnce(new Error('Connection is closed.'));
     const down = await svc.isRevoked({ sub: USER, sid: SID_A, iat: sec(T0) }).catch((e: unknown) => e);
@@ -90,6 +92,55 @@ describe('AccessRevocationService — ¿sigue viva la sesión de este token?', (
     const pending = svc.isRevoked({ sub: USER, sid: SID_A, iat: sec(T0) }).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(ACCESS_CHECK_TIMEOUT_MS + 1);
     expect(await pending).toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('con el proceso muy cargado (prueba real: 300 a la vez) se espera a Redis entre 1,5 y 2 s: una respuesta que tarda 1 s deja pasar', async () => {
+    // Antes, 500 ms: Redis estaba vivo, pero su respuesta esperaba a que el proceso la atendiera.
+    expect(ACCESS_CHECK_TIMEOUT_MS).toBeGreaterThanOrEqual(1_500);
+    expect(ACCESS_CHECK_TIMEOUT_MS).toBeLessThanOrEqual(2_000);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { svc, redis } = make();
+    vi.spyOn(redis, 'mget').mockImplementationOnce(
+      () => new Promise<Array<string | null>>((resolve) => setTimeout(() => resolve([null, null]), 1_000)),
+    );
+    const slow = svc.isRevoked({ sub: USER, sid: SID_A, iat: sec(T0) });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(slow).resolves.toBe(false);
+  });
+
+  it('el 503 dice cuándo volver a probar (retryAfter → cabecera Retry-After, como DB_BUSY)', async () => {
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { svc, redis } = make();
+    vi.spyOn(redis, 'mget').mockRejectedValueOnce(new Error('Connection is closed.'));
+    const down = await svc.isRevoked({ sub: USER, sid: SID_A, iat: sec(T0) }).catch((e: unknown) => e);
+    expect(SESSION_CHECK_RETRY_AFTER_S).toBe(2);
+    expect((down as ServiceUnavailableException).getResponse()).toMatchObject({
+      code: SESSION_CHECK_UNAVAILABLE_CODE,
+      retryAfter: SESSION_CHECK_RETRY_AFTER_S,
+    });
+  });
+
+  it('sin inundar el log: un WARN (no ERROR) por tanda, y el siguiente dice cuántos se callaron', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { svc, redis } = make();
+    vi.spyOn(redis, 'mget').mockRejectedValue(new Error('Redis no contestó en 2000 ms'));
+    const check = () => svc.isRevoked({ sub: USER, sid: SID_A, iat: sec(T0) }).catch((e: unknown) => e);
+    for (let i = 0; i < 31; i += 1) expect(await check()).toBeInstanceOf(ServiceUnavailableException);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toContain('Redis no contestó en 2000 ms');
+    expect(error).not.toHaveBeenCalled();
+
+    // Dentro del mismo intervalo, nada más; pasado, uno con lo que se calló.
+    vi.setSystemTime(new Date(T0.getTime() + SESSION_CHECK_WARN_EVERY_MS - 1));
+    await check();
+    expect(warn).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(new Date(T0.getTime() + SESSION_CHECK_WARN_EVERY_MS));
+    await check();
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(String(warn.mock.calls[1]![0])).toContain('31 más');
   });
 
   it('avisa a quien escucha (el tiempo real cierra esas conexiones)', async () => {

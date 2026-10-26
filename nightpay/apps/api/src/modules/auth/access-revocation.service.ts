@@ -13,8 +13,23 @@ export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
  * ese tiempo ningún token afectado sigue vivo y la marca se va sola.
  */
 export const ACCESS_REVOCATION_TTL_SECONDS = ACCESS_TOKEN_TTL_SECONDS + 5 * 60;
-/** Lo más que espera cada petición a Redis para saber si su sesión sigue viva. */
-export const ACCESS_CHECK_TIMEOUT_MS = 500;
+/**
+ * Lo más que espera cada petición a Redis para saber si su sesión sigue viva.
+ * Con el proceso muy cargado (prueba real: 300 peticiones a la vez), la
+ * respuesta de un Redis vivo espera a que el proceso la atienda: con 500 ms
+ * salían 503 sin estar Redis caído. 2 s, lo que espera Prisma una conexión
+ * libre para una transacción (después, DB_BUSY): la sesión no se da por
+ * imposible de comprobar antes de que la base se dé por saturada.
+ */
+export const ACCESS_CHECK_TIMEOUT_MS = 2_000;
+/** El Retry-After del 503 (como DB_BUSY): la app vuelve a probar en unos segundos. */
+export const SESSION_CHECK_RETRY_AFTER_S = 2;
+/**
+ * Como mucho un aviso en el log por intervalo: con mucha carga, o con Redis
+ * caído, falla una petición tras otra. El siguiente aviso dice cuántas se
+ * callaron.
+ */
+export const SESSION_CHECK_WARN_EVERY_MS = 10_000;
 /** Marcas que recuerda cada nodo para el límite global (al pasar, se empieza de cero). */
 const MAX_KNOWN_MARKS = 10_000;
 
@@ -54,7 +69,8 @@ export interface AccessTokenRef {
  * posterior también los corta. Uno sin `sid` (más antiguo) lo corta la marca
  * de la persona.
  *
- * Si Redis no responde: 503 (fail-closed). Sin la comprobación, un token de
+ * Si Redis no responde (en ACCESS_CHECK_TIMEOUT_MS): 503 con Retry-After
+ * (fail-closed). Sin la comprobación, un token de
  * un móvil perdido volvería a entrar justo cuando no se puede mirar; y sin
  * Redis tampoco funcionan el login, el refresco, los topes ni las colas de
  * cobros, así que dejar pasar no salvaría el servicio. El 503 no cierra
@@ -74,6 +90,9 @@ export class AccessRevocationService {
    */
   private readonly knownSids = new Map<string, number>();
   private readonly knownCutoffs = new Map<string, { cutoff: number; until: number }>();
+  /** El último aviso de «no se pudo comprobar la sesión» y los que se callaron desde entonces. */
+  private lastCheckWarnAt = Number.NEGATIVE_INFINITY;
+  private silencedCheckWarns = 0;
 
   constructor(@Inject(REDIS_CLIENT) redis: Redis) {
     this.redis = redis;
@@ -106,8 +125,13 @@ export class AccessRevocationService {
     try {
       values = await withTimeout(this.redis.mget(...keys), ACCESS_CHECK_TIMEOUT_MS);
     } catch (err) {
-      this.logger.error(`No se pudo comprobar la sesión en Redis (se responde 503): ${(err as Error).message}`);
-      throw new ServiceUnavailableException({ message: MSG_CHECK_UNAVAILABLE, code: SESSION_CHECK_UNAVAILABLE_CODE });
+      this.warnCheckFailed((err as Error).message);
+      throw new ServiceUnavailableException({
+        message: MSG_CHECK_UNAVAILABLE,
+        code: SESSION_CHECK_UNAVAILABLE_CODE,
+        // El filtro de errores lo pone también en la cabecera Retry-After.
+        retryAfter: SESSION_CHECK_RETRY_AFTER_S,
+      });
     }
     const [cutoff, sidMark] = values;
     if (sidMark && token.sid) this.rememberSid(token.sid);
@@ -147,6 +171,24 @@ export class AccessRevocationService {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  /**
+   * WARN, no ERROR: el 503 es pasajero y no cierra ninguna sesión (con mucha
+   * carga sale aunque Redis esté vivo). Uno por intervalo, con los que se
+   * callaron: si Redis está caído de verdad, también lo dicen el cliente de
+   * Redis y el health check.
+   */
+  private warnCheckFailed(reason: string, nowMs: number = Date.now()): void {
+    if (nowMs - this.lastCheckWarnAt < SESSION_CHECK_WARN_EVERY_MS) {
+      this.silencedCheckWarns += 1;
+      return;
+    }
+    const silenced = this.silencedCheckWarns;
+    this.lastCheckWarnAt = nowMs;
+    this.silencedCheckWarns = 0;
+    const more = silenced > 0 ? ` (y ${silenced} más desde el aviso anterior)` : '';
+    this.logger.warn(`No se pudo comprobar la sesión en Redis (503 con Retry-After): ${reason}${more}`);
   }
 
   private rememberSid(sid: string): void {

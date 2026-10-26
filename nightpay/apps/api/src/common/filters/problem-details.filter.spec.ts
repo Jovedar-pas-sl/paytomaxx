@@ -5,7 +5,9 @@ import {
   ArgumentsHost,
   BadRequestException,
   GoneException,
+  HttpException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { z } from 'zod';
 import { ProblemDetailsFilter } from './problem-details.filter';
@@ -267,18 +269,18 @@ Unique constraint failed on the fields: (\`email\`)`,
   });
 });
 
-describe('ProblemDetailsFilter — la base sin conexiones libres (P2028/P2024): 503 que se reintenta, no 500', () => {
-  function hostWithHeaders() {
-    const made = makeHost('/v1/staff/me/cobros');
-    const headers: Record<string, string | number> = {};
-    const res = made.host.switchToHttp().getResponse<Record<string, unknown>>();
-    res.header = (k: string, v: string | number) => {
-      headers[k] = v;
-      return res;
-    };
-    return { ...made, headers };
-  }
+function hostWithHeaders() {
+  const made = makeHost('/v1/staff/me/cobros');
+  const headers: Record<string, string | number> = {};
+  const res = made.host.switchToHttp().getResponse<Record<string, unknown>>();
+  res.header = (k: string, v: string | number) => {
+    headers[k] = v;
+    return res;
+  };
+  return { ...made, headers };
+}
 
+describe('ProblemDetailsFilter — la base sin conexiones libres (P2028/P2024): 503 que se reintenta, no 500', () => {
   it.each([
     ['P2028', 'Transaction API error: Unable to start a transaction in the given time.'],
     ['P2024', 'Timed out fetching a new connection from the connection pool.'],
@@ -302,5 +304,42 @@ describe('ProblemDetailsFilter — la base sin conexiones libres (P2028/P2024): 
     new ProblemDetailsFilter(true).catch(new Prisma.PrismaClientKnownRequestError('x', { code: 'P2025', clientVersion: '5.22.0' }), host);
     expect(capture.status).toBe(500);
     logError.mockRestore();
+  });
+});
+
+describe('ProblemDetailsFilter — un 503 o 429 que dice cuándo reintentar (retryAfter) lleva Retry-After', () => {
+  it('503 SESSION_CHECK_UNAVAILABLE (prueba real: salía sin Retry-After): cabecera y cuerpo con la misma cifra; no va a Sentry como fallo', () => {
+    vi.mocked(reportError).mockClear();
+    const { host, capture, headers } = hostWithHeaders();
+    const body = { message: 'No se puede comprobar la sesión ahora mismo', code: 'SESSION_CHECK_UNAVAILABLE', retryAfter: 2 };
+    new ProblemDetailsFilter(true).catch(new ServiceUnavailableException(body), host);
+    expect(capture.status).toBe(503);
+    expect(headers['Retry-After']).toBe(2);
+    expect(capture.body).toMatchObject({ status: 503, code: 'SESSION_CHECK_UNAVAILABLE', retryAfter: 2 });
+    // Pasajero y ya avisado en el log (sin inundar): no es un fallo para Sentry.
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it('un 503 sin retryAfter: sin la cabecera y a Sentry, como antes', () => {
+    vi.mocked(reportError).mockClear();
+    const { host, capture, headers } = hostWithHeaders();
+    new ProblemDetailsFilter(true).catch(new ServiceUnavailableException('Apagando'), host);
+    expect(capture.status).toBe(503);
+    expect(headers['Retry-After']).toBeUndefined();
+    expect(reportError).toHaveBeenCalledTimes(1);
+  });
+
+  it('un 429 de los topes (retryAfter en el cuerpo): la misma cifra en la cabecera', () => {
+    const { host, headers } = hostWithHeaders();
+    new ProblemDetailsFilter(true).catch(new HttpException({ message: 'Demasiadas', code: 'RATE_LIMITED', retryAfter: 37 }, 429), host);
+    expect(headers['Retry-After']).toBe(37);
+  });
+
+  it('un retryAfter raro (no es un entero positivo) o en otro código (400) no pone cabecera', () => {
+    for (const [retryAfter, status] of [['2', 503], [0, 503], [-1, 429], [1.5, 503], [5, 400]] as const) {
+      const { host, headers } = hostWithHeaders();
+      new ProblemDetailsFilter(true).catch(new HttpException({ message: 'x', retryAfter }, status), host);
+      expect(headers['Retry-After']).toBeUndefined();
+    }
   });
 });
