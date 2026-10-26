@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from 'react';
 import { Button, Card, StatusPill, type PaymentStatus } from '@nightpay/ui';
 import { cancelPayment, fetchMyPayments, pollErrorText, SessionExpiredError, type MyPayment } from '@/lib/api';
+import { paymentTimeLabel } from '@/lib/earnings-view';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
 
@@ -64,7 +65,7 @@ export function MyPayments() {
               <span className="np-num" style={amountStyle}>
                 {formatEur(p.amountCents)}
               </span>
-              <span style={timeStyle}>{formatTime(p.createdAt)}</span>
+              <span style={timeStyle}>{paymentTimeLabel(p.createdAt)}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <StatusPill status={p.status as PaymentStatus} size="sm" />
@@ -85,16 +86,6 @@ export function MyPayments() {
       })}
     </div>
   );
-}
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString('es-ES', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 const amountStyle: CSSProperties = {

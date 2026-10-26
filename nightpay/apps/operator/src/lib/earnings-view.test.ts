@@ -9,6 +9,7 @@ import {
   moneySummary,
   nightLabel,
   otherNightsUnpaid,
+  paymentTimeLabel,
   serviceNightKey,
   splitDebts,
   sumNet,
@@ -79,6 +80,12 @@ describe('fechas en hora de Madrid', () => {
   it('día corto y hora', () => {
     expect(dayLabel('2026-10-12T12:00:00Z')).toBe('lun 12 oct');
     expect(timeLabel('2026-10-12T21:40:00Z')).toBe('23:40');
+  });
+
+  it('«Mis cobros» de la chica, también en hora de Madrid (no la del móvil) (APP-07)', () => {
+    // 22:40 UTC del 12 = 00:40 del 13 en Madrid: con el móvil en otra zona salía el día cambiado.
+    expect(paymentTimeLabel('2026-10-12T22:40:00Z')).toBe('13 oct, 00:40');
+    expect(paymentTimeLabel('2026-01-15T20:05:00Z')).toBe('15 ene, 21:05');
   });
 
   it('la noche de un cobro cambia a las 08:00: las 03:00 aún son de la noche anterior', () => {
