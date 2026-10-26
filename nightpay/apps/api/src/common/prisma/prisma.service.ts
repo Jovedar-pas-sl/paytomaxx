@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ClsService } from 'nestjs-cls';
 import { Prisma, PrismaClient } from '@nightpay/db';
@@ -42,7 +42,7 @@ type ItxOptions = BatchOptions & { maxWait?: number; timeout?: number };
 type UnwrapTuple<P extends readonly unknown[]> = { [K in keyof P]: Awaited<P[K]> };
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService extends PrismaClient implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(PrismaService.name);
   private readonly cls: ClsService<{ ctx: RequestContext }>;
   private readonly config?: ConfigService;
@@ -84,7 +84,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     this.logger.log('Prisma connected');
   }
 
-  async onModuleDestroy(): Promise<void> {
+  /**
+   * Al final del apagado (onApplicationShutdown, después de cerrar el HTTP y
+   * los workers: main.ts → shutdown.ts), no en onModuleDestroy, que Nest corre
+   * ANTES de cerrar el servidor: las peticiones en vuelo se quedaban sin base.
+   */
+  async onApplicationShutdown(): Promise<void> {
     await this.$disconnect();
   }
 

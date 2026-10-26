@@ -226,11 +226,11 @@ describe('scopeToTenant — bordes de aislamiento', () => {
 });
 
 describe('PrismaService — ciclo de vida', () => {
-  it('onModuleDestroy desconecta', async () => {
+  it('onApplicationShutdown desconecta (al final del apagado, después del HTTP y los workers)', async () => {
     const { prisma } = await makePrisma();
     const disconnect = vi.fn().mockResolvedValue(undefined);
     (prisma as unknown as Record<string, unknown>).$disconnect = disconnect;
-    await prisma.onModuleDestroy();
+    await prisma.onApplicationShutdown();
     expect(disconnect).toHaveBeenCalledTimes(1);
   });
 });
