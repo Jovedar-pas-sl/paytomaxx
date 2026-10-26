@@ -98,3 +98,43 @@ describe('Sentry: cuerpos con 2FA, tickets y llaves (SEC-06)', () => {
     );
   });
 });
+
+describe('Sentry: datos personales de las altas y los pagos (FSD-08)', () => {
+  const PERSONAL = /600123123|ana@local\.es|Ana Titular|Banco Ejemplo|BBVAESMMXXX|ES9121000418450200051332|GB82WEST12345698765432|Cuenta de Ana/;
+
+  it('alta/edición del personal: teléfono, email, cuenta de cobro y su titular, banco y SWIFT, fuera', () => {
+    const event = scrubSensitive({
+      request: {
+        data: {
+          email: 'ana@local.es',
+          displayName: 'Ana',
+          phone: '600123123',
+          payoutMethod: 'SWIFT_WIRE',
+          payoutLabel: 'Cuenta de Ana',
+          payoutMetadata: { accountHolder: 'Ana Titular', bankName: 'Banco Ejemplo', swiftBic: 'BBVAESMMXXX', country: 'ES' },
+          commissionBps: 1500,
+          active: true,
+        },
+      },
+    });
+    const text = JSON.stringify(event);
+    expect(text).not.toMatch(PERSONAL);
+    expect(text).toContain('"commissionBps":1500');
+    expect(text).toContain('"payoutMethod":"SWIFT_WIRE"');
+  });
+
+  it('un IBAN fuera de payoutAddress (otro campo, una lista, texto de formulario) tampoco sale', () => {
+    const json = scrubSensitive({
+      request: {
+        data: { iban: 'ES9121000418450200051332', destino: { cuenta: 'GB82 WEST 1234 5698 7654 32' }, notes: ['ES9121000418450200051332'], amountCents: 900 },
+      },
+    });
+    expect(JSON.stringify(json)).not.toMatch(/ES9121000418450200051332|GB82 WEST 1234 5698 7654 32/);
+    expect(JSON.stringify(json)).toContain('"amountCents":900');
+    const form = scrubSensitive({ request: { data: 'cuenta=ES9121000418450200051332&importe=900' } });
+    expect(JSON.stringify(form)).not.toMatch(/ES9121000418450200051332/);
+    expect(JSON.stringify(form)).toContain('importe=900');
+    const text = scrubSensitive({ request: { data: JSON.stringify({ userEmail: 'ana@local.es', ownerPhone: '600123123' }) } });
+    expect(JSON.stringify(text)).not.toMatch(PERSONAL);
+  });
+});

@@ -45,9 +45,29 @@ const SECRET_BODY_KEYS: ReadonlySet<string> = new Set([
   'paytoken',
   'card',
   'uid',
+  // Datos personales de las altas y de los pagos (FSD-08): contacto, cuenta
+  // de cobro (también fuera de payoutAddress), titular, banco y SWIFT.
+  'phone',
+  'email',
+  'payoutmetadata',
+  'payoutlabel',
+  'accountholder',
+  'bankname',
+  'swiftbic',
+  'swift',
+  'bic',
+  'iban',
+  'accountnumber',
+  'passportcountry',
 ]);
-/** Y cualquiera que lo parezca: newPassword, accessToken, pinConfirm, clientSecret… */
-const SECRET_KEY_PATTERNS: ReadonlyArray<RegExp> = [/password/i, /secret/i, /token$/i, /^pin/i];
+/**
+ * Y cualquiera que lo parezca: newPassword, accessToken, pinConfirm,
+ * clientSecret, userEmail, ownerPhone, payoutIban…
+ */
+const SECRET_KEY_PATTERNS: ReadonlyArray<RegExp> = [/password/i, /secret/i, /token$/i, /^pin/i, /phone/i, /email/i, /iban/i];
+/** Un IBAN en cualquier valor (junto o en grupos de 4): se tapa aunque el campo no lo diga. */
+const IBAN_IN_TEXT = /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]){11,30}\b/gi;
+const HAS_IBAN = /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]){11,30}\b/i;
 /** Más hondo que esto no se mira: se tapa entero (un JSON de 1 MB puede anidar mucho). */
 const MAX_SCRUB_DEPTH = 32;
 /** Campos de datos (breadcrumbs, spans) con URL o query. */
@@ -90,8 +110,13 @@ function isSecretKey(key: string): boolean {
   return SECRET_BODY_KEYS.has(key.toLowerCase()) || SECRET_KEY_PATTERNS.some((re) => re.test(key));
 }
 
+function maskIbans(text: string): string {
+  return text.replace(IBAN_IN_TEXT, REDACTED);
+}
+
 /** Copia sin los campos secretos, en todos los niveles (objetos y listas). */
 function scrubValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (typeof value === 'string') return maskIbans(value);
   if (typeof value !== 'object' || value === null) return value;
   if (depth > MAX_SCRUB_DEPTH) return REDACTED;
   if (seen.has(value)) return '[Circular]';
@@ -132,7 +157,8 @@ function scrubBodyText(text: string): string {
     .split('&')
     .map((pair) => {
       const key = pair.slice(0, pair.indexOf('='));
-      return isSecretKey(decodeFormKey(key)) ? `${key}=${REDACTED}` : pair;
+      if (isSecretKey(decodeFormKey(key))) return `${key}=${REDACTED}`;
+      return HAS_IBAN.test(decodeFormKey(pair)) ? `${key}=${REDACTED}` : pair;
     })
     .join('&');
 }
