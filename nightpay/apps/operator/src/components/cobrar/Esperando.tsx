@@ -12,7 +12,7 @@ import {
   useWakeLock,
 } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
-import { nfcSupported, readCard } from '@/lib/nfc';
+import { nfcSupported, readCard, waitingListensNfc } from '@/lib/nfc';
 import { useHealthReport } from '@/lib/connection-health';
 import { useOpenCharge } from '@/lib/open-charges';
 import { advanceStatus } from '@/lib/payment-status';
@@ -43,6 +43,7 @@ import {
   type FailReason,
 } from '@/lib/cobro-view';
 import { cobroOutcome } from '@/lib/cobro-state';
+import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
 import { usePaymentLive } from '../use-payment-live';
 import { colorOf } from './cobrar-context';
@@ -129,6 +130,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
 
   const chargeId = cobro.saldo?.chargeId ?? null;
   const nfcOn = Boolean(chargeId) && methods.nfc && methods.wallet && nfcSupported();
+  // ¿Se ve? Inicio sigue montado (oculto) al cambiar de pestaña.
+  const [shownRef, shown] = useShown();
 
   const outcome = cobroOutcome({
     card: cobro.card ? { status: cardStatus, tipCents: cardTip } : null,
@@ -241,9 +244,11 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   }
 
   // El NFC, por detrás, mientras se espera (Android con Chrome). Mientras se
-  // comprueba un pago sin respuesta, no se lee otro.
+  // comprueba un pago sin respuesta, no se lee otro; con la pestaña oculta
+  // (Recepción, Saldo…), tampoco: la ficha que acercan allí no paga este cobro.
+  const listens = waitingListensNfc({ nfcOn, waiting, pinOpen: pin !== null, checking, shown });
   useEffect(() => {
-    if (!nfcOn || !waiting || pin || checking) return undefined;
+    if (!listens) return undefined;
     const ctrl = new AbortController();
     void (async () => {
       try {
@@ -265,7 +270,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       }
     })();
     return () => ctrl.abort();
-  }, [nfcOn, waiting, pin, checking, nfcRound, handleCard]);
+  }, [listens, nfcRound, handleCard]);
 
   async function cancel() {
     setCanceling(true);
@@ -413,7 +418,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   }
 
   return (
-    <div className={styles.overlay} data-charge-open="">
+    <div className={styles.overlay} data-charge-open="" ref={shownRef}>
       <Waiting cobro={cobro} nfcOn={nfcOn} reading={reading} checking={checking} toast={toast}>
         <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => void cancel()} disabled={canceling}>
           {canceling ? 'Cancelando…' : 'Cancelar cobro'}

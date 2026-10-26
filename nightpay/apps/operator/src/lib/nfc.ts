@@ -41,6 +41,22 @@ export function nfcSupported(): boolean {
   return readerCtor() !== null;
 }
 
+/**
+ * ¿«Esperando» escucha el NFC? Solo con el cobro esperando, sin el PIN
+ * delante, sin un pago a medio comprobar y con su pantalla a la vista: las
+ * pestañas de abajo siguen montadas (con `hidden`) y una oculta cobraría la
+ * ficha que se acerca en otra (APP-03).
+ */
+export function waitingListensNfc(s: {
+  nfcOn: boolean;
+  waiting: boolean;
+  pinOpen: boolean;
+  checking: boolean;
+  shown: boolean;
+}): boolean {
+  return s.nfcOn && s.waiting && !s.pinOpen && !s.checking && s.shown;
+}
+
 /** Lo leído de una ficha. */
 export interface TagRead {
   /** El código grabado en la ficha (null: ficha vacía o de otra cosa). */
