@@ -57,7 +57,7 @@ const ACTIONS: Readonly<Record<PersonAction, ActionSpec>> = {
     help: 'La saca de todos sus móviles y ordenadores. No pide 2FA.',
     action: 'user.revokeSessions',
     summary: (n) =>
-      `Vas a cerrar todas las sesiones de ${n}. Tendrá que volver a entrar (lo que tenga abierto caduca en menos de 1 hora).`,
+      `Vas a cerrar todas las sesiones de ${n}. Tendrá que volver a entrar: lo que tenga abierto se corta al momento.`,
   },
   totp: {
     label: 'Quitar su 2FA',
