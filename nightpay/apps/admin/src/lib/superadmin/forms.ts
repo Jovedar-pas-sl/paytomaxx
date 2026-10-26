@@ -360,6 +360,20 @@ function savedServiceFee(r: VenueRules): { enabled: boolean; cardBps: number; to
   };
 }
 
+/**
+ * El aviso al encender la «Comisión del servicio» con un % a 0: en esos
+ * cobros OxioPay no cobra nada (ni la comisión ni la de la plataforma, que el
+ * local deja de pagar). null: nada que avisar.
+ */
+export function serviceFeeWarning(form: RulesForm): string | null {
+  if (!form.serviceFeeEnabled) return null;
+  const card = parseServiceFeePct(form.serviceFeePct) === 0;
+  const topUp = parseServiceFeePct(form.topUpServiceFeePct) === 0;
+  if (!card && !topUp) return null;
+  const which = card && topUp ? 'los pagos con tarjeta y las recargas' : card ? 'los pagos con tarjeta' : 'las recargas';
+  return `Con ${which} al 0 %, OxioPay no cobra nada en ellos: ni la comisión del servicio ni la de la plataforma (el local deja de pagarla).`;
+}
+
 export function rulesFormFrom(r: VenueRules): RulesForm {
   const categories = CATEGORY_KEYS.reduce<Categories>(
     // Entradas (sección nueva) no está guardada en los locales de antes: 0 %.
@@ -443,6 +457,8 @@ export function rulesPayload(
   if (!parsed.ok) return parsed;
   const p = parsed.value;
   const fee = savedServiceFee(saved);
+  // Encenderla donde la pasarela no podría cobrarla (el API lo dice): no.
+  if (form.serviceFeeEnabled && !fee.enabled && saved.serviceFeeBlockedReason) return fail(saved.serviceFeeBlockedReason);
   const changedCategories = CATEGORY_KEYS.filter((k) => p.categories[k] !== (saved.operatorCommissionDefaults[k] ?? 0));
   const holdText = (d: number | null): string =>
     d !== null

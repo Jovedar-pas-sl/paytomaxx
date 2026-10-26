@@ -14,6 +14,7 @@ import {
   rulesFormFrom,
   rulesPayload,
   serviceFeeExample,
+  serviceFeeWarning,
   slugFromName,
 } from './forms';
 
@@ -330,5 +331,26 @@ describe('el ejemplo de la comisión del servicio (lo que ve el super-admin al p
     expect(example('0', 'card')).toBe('Un cobro de 33 € → el cliente paga 33 €, más la propina si la deja.');
     expect(serviceFeeExample('13', 'topUp')).toBeNull();
     expect(serviceFeeExample('', 'card')).toBeNull();
+  });
+});
+
+describe('encender la comisión del servicio: lo que la consola avisa o no deja', () => {
+  const withFee: VenueRules = { ...rules, serviceFeeEnabled: false, serviceFeeBps: 1000, topUpServiceFeeBps: 1000 };
+
+  it('con un % a 0, aviso: OxioPay no cobraría nada en esos cobros (ni el local paga la comisión de la plataforma)', () => {
+    const form = { ...rulesFormFrom(withFee), serviceFeeEnabled: true, topUpServiceFeePct: '0' };
+    expect(serviceFeeWarning(form)).toMatch(/recargas al 0 %.*OxioPay no cobra nada/);
+    expect(serviceFeeWarning({ ...form, serviceFeePct: '0' })).toMatch(/pagos con tarjeta y las recargas al 0 %/);
+    expect(serviceFeeWarning({ ...form, topUpServiceFeePct: '12' })).toBeNull();
+    // Apagada: nada que avisar.
+    expect(serviceFeeWarning({ ...form, serviceFeeEnabled: false })).toBeNull();
+  });
+
+  it('si la pasarela del local no puede cobrarla, no se deja encender (lo dice el API)', () => {
+    const blocked: VenueRules = { ...withFee, serviceFeeBlockedReason: 'Este local cobra con Peanpe en euros enteros…' };
+    const r = rulesPayload(blocked, { ...rulesFormFrom(blocked), serviceFeeEnabled: true }, 7);
+    expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/Peanpe/) });
+    // Cambiar otra cosa sí se puede.
+    expect(rulesPayload(blocked, { ...rulesFormFrom(blocked), serviceFeePct: '8' }, 7)).toMatchObject({ ok: true });
   });
 });

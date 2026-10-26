@@ -4,7 +4,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Card, Input, Modal } from '@nightpay/ui';
 import { fetchRecentCashTopUps, voidCashTopUp, type RecentCashTopUp } from '@/lib/api';
 import { ApiError, totpRetryState } from '@/lib/api-errors';
-import { cashVoidDoneText, cashVoidProblem } from '@/lib/cash-void';
+import { cashVoidBody, cashVoidDoneText, cashVoidOutText, cashVoidProblem } from '@/lib/cash-void';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import { useLockActive } from '@/lib/use-lock';
@@ -65,6 +65,11 @@ export function RecentCashTopUps() {
             <span className="np-num" style={{ fontWeight: 700 }}>
               {formatEur(r.amountCents)}
             </span>
+            {r.serviceFeeCents ? (
+              <span style={mutedStyle} className="np-num">
+                + {formatEur(r.serviceFeeCents)} de comisión del servicio
+              </span>
+            ) : null}
             <span style={mutedStyle}>
               {r.codeHint} · {formatDateTime(r.at, tz)}
             </span>
@@ -116,7 +121,7 @@ function VoidModal({
     setSubmitting(true);
     setError(null);
     try {
-      onDone(cashVoidDoneText(await voidCashTopUp(topUp.id, { reason: reason.trim(), totpCode: code })));
+      onDone(cashVoidDoneText(await voidCashTopUp(topUp.id, cashVoidBody(topUp, reason, code))));
     } catch (err) {
       const retry = totpRetryState(err, Date.now());
       if (retry.lockedUntil !== null) setLockedUntil(retry.lockedUntil);
@@ -138,7 +143,8 @@ function VoidModal({
       >
         <p style={{ margin: 0 }}>
           Recarga de <strong className="np-num">{formatEur(topUp.amountCents)}</strong> al saldo {topUp.codeHint}. Al
-          anularla, ese efectivo sale de la caja y el saldo baja lo mismo (solo si aún lo tiene).
+          anularla, salen de la caja <strong className="np-num">{cashVoidOutText(topUp)}</strong> y el saldo baja{' '}
+          {formatEur(topUp.amountCents)} (solo si aún lo tiene).
         </p>
         <Input
           label="Por qué se anula"
@@ -166,7 +172,7 @@ function VoidModal({
             Cancelar
           </Button>
           <Button type="submit" loading={submitting} disabled={locked}>
-            Anular {formatEur(topUp.amountCents)}
+            Anular {formatEur(topUp.amountCents + (topUp.serviceFeeCents ?? 0))}
           </Button>
         </div>
       </form>

@@ -6,6 +6,7 @@ import { registerBankRefund, type PaymentRow } from '@/lib/api';
 import { isDuplicateRefundError } from '@/lib/api-errors';
 import { madridToday } from '@/lib/dates';
 import { centsToInput, formatEur } from '@/lib/money';
+import { refundFeePartText } from '@/lib/service-fee-text';
 import { parseEuroCents } from '@nightpay/contracts';
 
 /**
@@ -91,6 +92,8 @@ export function BankRefundModal({
       <p style={metaStyle}>
         Queda por devolver <span className="np-num">{formatEur(payment.availableAmountCents)}</span>
       </p>
+      {/* Con la «Comisión del servicio»: qué parte de lo que se devuelve es suya. */}
+      {refundFeePartText(payment, parseEuroCents(amount)) ? <p style={metaStyle}>{refundFeePartText(payment, parseEuroCents(amount))}</p> : null}
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
         <Input
           label="Importe devuelto (€)"

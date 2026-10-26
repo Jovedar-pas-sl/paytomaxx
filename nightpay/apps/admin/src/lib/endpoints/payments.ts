@@ -25,6 +25,8 @@ export interface PaymentRow {
    * un pago directo; en una recarga, no se devuelve). Un API de antes no la manda.
    */
   serviceFeeCents?: number;
+  /** La propina que se cobró (para repartir lo devuelto). Un API de antes no la manda. */
+  tipCents?: number;
   /** El saldo que recargó (una recarga); null en un pago directo. */
   walletId?: string | null;
   // Fase 1B: total y propina que se mandaron al banco en cada intento (null = antes de 1B).

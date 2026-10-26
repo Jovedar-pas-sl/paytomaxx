@@ -176,7 +176,7 @@ describe('Ajustes → Reglas: la «Comisión del servicio al cliente» (solo se 
     expect(t.lines.map(sp)).toEqual([
       'Pagos con tarjeta, Apple Pay, Google Pay o datáfono: 10 % encima (un cobro de 33 € → el cliente paga 36,30 €).',
       'Recargas del saldo (tarjeta o efectivo): 12 % encima (recarga 50 € → paga 56 €; le quedan 50 € de saldo).',
-      'Gastar del saldo y las propinas no la llevan. Es de OxioPay: entra con el resto del cobro y se apunta aparte.',
+      'Gastar del saldo y las propinas no la llevan. El saldo cargado antes de encenderla sigue pagando la comisión de la plataforma al gastarse. Es de OxioPay: entra con el resto del cobro y se apunta aparte.',
     ]);
   });
 
@@ -192,7 +192,7 @@ describe('Ajustes → Reglas: la «Comisión del servicio al cliente» (solo se 
       'OxioPay se lleva el 10 % de cada cobro (lo cambia OxioPay). Lo de cada categoría es para quien crea el cobro; el resto, para el local.',
     );
     expect(sp(platformCommissionHint(on))).toBe(
-      'Con la comisión del servicio encendida, OxioPay no se lleva nada de tus cobros: la paga el cliente encima. Lo de cada categoría es para quien crea el cobro; el resto, para el local.',
+      'Con la comisión del servicio encendida, lo pagado con ella no paga esta comisión (la paga el cliente encima); el saldo cargado antes de encenderla, sí, al gastarse. Lo de cada categoría es para quien crea el cobro; el resto, para el local.',
     );
   });
 });

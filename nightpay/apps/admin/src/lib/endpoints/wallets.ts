@@ -175,6 +175,8 @@ export interface RecentCashTopUp {
   id: string;
   at: string;
   amountCents: number;
+  /** Su «Comisión del servicio» (al anularla, sale de la caja con el saldo). Un API de antes no la manda. */
+  serviceFeeCents?: number;
   /** K7Q-•••: para reconocer al cliente. */
   codeHint: string;
   voided: boolean;
@@ -189,8 +191,8 @@ export async function fetchRecentCashTopUps(): Promise<RecentCashTopUp[]> {
 /** Anular una recarga en efectivo mal tecleada: encargado o dueño, siempre con su 2FA. */
 export async function voidCashTopUp(
   id: string,
-  input: { reason: string; totpCode: string },
-): Promise<{ voidId: string; topUpId: string; walletId: string; amountCents: number; balanceCents: number }> {
+  input: { reason: string; totpCode: string; serviceFeeCents?: number },
+): Promise<{ voidId: string; topUpId: string; walletId: string; amountCents: number; serviceFeeCents?: number; balanceCents: number }> {
   const res = await authedFetch(`/v1/reception/cash/${encodeURIComponent(id)}/void`, {
     method: 'POST',
     body: JSON.stringify(input),

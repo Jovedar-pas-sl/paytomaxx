@@ -11,6 +11,7 @@ import {
   rulesFormFrom,
   rulesPayload,
   serviceFeeExample,
+  serviceFeeWarning,
   type RulesChange,
   type RulesForm,
 } from '@/lib/superadmin/forms';
@@ -96,8 +97,19 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
             checked={form.serviceFeeEnabled}
             onChange={(on) => update({ serviceFeeEnabled: on })}
             label="Encendida"
-            help="La paga el cliente encima del precio y es de OxioPay. Encendida, el local deja de pagar la comisión de la plataforma en esos cobros. Apagada, todo como hasta ahora."
+            help="La paga el cliente encima del precio y es de OxioPay. Encendida, el local deja de pagar la comisión de la plataforma en lo pagado con ella. Apagada, todo como hasta ahora."
+            disabled={!rules.serviceFeeEnabled && Boolean(rules.serviceFeeBlockedReason)}
           />
+          {!rules.serviceFeeEnabled && rules.serviceFeeBlockedReason ? (
+            <p className="np-sa-callout" role="note">
+              {rules.serviceFeeBlockedReason}
+            </p>
+          ) : null}
+          {serviceFeeWarning(form) ? (
+            <p className="np-sa-callout" role="status">
+              {serviceFeeWarning(form)}
+            </p>
+          ) : null}
           <div className="np-sa-grid-2">
             <Input
               label="En los pagos con tarjeta (%)"
@@ -116,7 +128,8 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
           </div>
           <Help>
             Con tarjeta, Apple Pay, Google Pay o el datáfono, y en las recargas (tarjeta o efectivo). Gastar del saldo no
-            la lleva (ya se pagó al recargar) y la propina tampoco. Los cobros ya creados no cambian.
+            la lleva y la propina tampoco. El saldo cargado antes de encenderla sigue pagando la comisión de la
+            plataforma al gastarse; el cargado con ella, no. Los cobros ya creados no cambian.
           </Help>
         </fieldset>
 
