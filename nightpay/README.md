@@ -51,7 +51,7 @@ curl http://localhost:4100/v1/health
 | TPV (Next.js) | 4102 | http://localhost:4102 |
 | Admin (Next.js) | 4103 | http://localhost:4103 |
 | Operator (Next.js) | 4104 | http://localhost:4104 |
-| Simulador Wipay (solo dev) | 4901 | http://localhost:4901 |
+| Simulador Wipay (solo dev; ya no cierra cobros, ver SETUP.md) | 4901 | http://localhost:4901 |
 | Simulador Peanpe (solo dev) | 4902 | http://localhost:4902 |
 | Mailpit (correo de pruebas) | 4825 | http://localhost:4825 |
 
@@ -123,9 +123,9 @@ docker compose down -v         # reset completo de volúmenes DB/Redis
 | GET  | `/health`                                   | publico | API + base + Redis (503 si falla algo) |
 | GET  | `/health/live`                              | publico | Solo «el proceso responde» (healthcheck Docker) |
 | GET  | `/metrics`                                  | red interna o `METRICS_TOKEN` | Prometheus exposition |
-| POST | `/auth/login`                               | publico | Email + password → access + refresh |
+| POST | `/auth/login`                               | publico | Email + password → access (1 h) + refresh (cookie HttpOnly) |
 | POST | `/auth/refresh`                             | publico | Rotar refresh → nuevo access |
-| POST | `/auth/logout`                              | auth    | Revocar refresh server-side |
+| POST | `/auth/logout`                              | publico (cookie) | Cierra la sesión: revoca el refresh y corta su token de acceso al momento |
 | POST | `/payments`                                 | auth    | TPV crea pago (idempotency-key required) |
 | GET  | `/payments/:id`                             | auth    | Detalle pago |
 | GET  | `/payments/public/:token`                   | publico | Cliente escanea QR |
@@ -135,7 +135,7 @@ docker compose down -v         # reset completo de volúmenes DB/Redis
 | POST | `/webhooks/:provider`                       | publico | HMAC signed (Wipay/Peanpe) |
 | GET  | `/venues/me` `/venues/me/terminals` `/venues/me/staff` | auth | Datos del venue |
 | GET  | `/admin/payments` `/admin/metrics`          | OWNER/MANAGER | Panel admin |
-| POST | `/admin/users/:userId/revoke-sessions`      | OWNER   | Kill-switch movil perdido |
+| POST | `/admin/users/:userId/revoke-sessions`      | OWNER   | Kill-switch movil perdido: refresh, token de acceso y tiempo real, al momento |
 
 ## Principios
 

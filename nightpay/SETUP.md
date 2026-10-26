@@ -1,27 +1,24 @@
-# NightPay — Setup (qué tienes que hacer tú)
+# NightPay — Setup local (qué tienes que hacer tú)
 
-El scaffold está listo. Esto es exactamente lo que necesitas hacer antes de `pnpm dev`.
+Lo que hace falta para tener el entorno de desarrollo en tu equipo y probar el
+API a mano. Despliegue en producción: [docs/DOKPLOY-STEPS.md](docs/DOKPLOY-STEPS.md).
+
+Los comandos van desde la carpeta `nightpay/` de tu copia del repositorio.
 
 ---
 
-## 1. Instalar Node 20 LTS
+## 1. Node 22 y pnpm 9
 
-Tu sistema tiene **Node 25** — demasiado nuevo; el proyecto está fijado a Node 20 LTS (ver `.nvmrc`).
+El proyecto pide **Node 22** (`.nvmrc`: `22.23.3`; `package.json`: `"node": ">=22.0.0"`).
+Con nvm-windows, nvm o volta:
 
-**Opción recomendada: nvm-windows**
 ```powershell
-# Descargar instalador desde: https://github.com/coreybutler/nvm-windows/releases
-# Tras instalar, en PowerShell:
-nvm install 20.17.0
-nvm use 20.17.0
-node -v   # v20.17.0
+nvm install 22.23.3
+nvm use 22.23.3
+node -v   # v22.23.3
 ```
 
-**Alternativa**: volta (https://volta.sh) o reinstalar manualmente Node 20 desde https://nodejs.org.
-
-## 2. Habilitar pnpm 9
-
-Node 20 trae `corepack`. Una sola vez:
+pnpm 9.12.0 con `corepack` (viene con Node). Una sola vez:
 
 ```powershell
 corepack enable
@@ -29,437 +26,231 @@ corepack prepare pnpm@9.12.0 --activate
 pnpm -v   # 9.12.0
 ```
 
-Si corepack no funciona:
+Si corepack no funciona: `npm install -g pnpm@9.12.0`.
+
+## 2. Docker
+
+Docker Desktop (o Docker + Compose) arrancado: `docker ps` no debe dar error.
+
+`docker-compose.yml` (solo desarrollo) levanta, en estos puertos del equipo:
+
+| Servicio | Puerto |
+|----------|-------:|
+| Postgres 16 | 4432 |
+| Redis 7 | 4379 |
+| Mailpit (correo de pruebas) | 4825 (web) · 4525 (SMTP) |
+| mock-wipay | 4901 (ver [Simuladores](#simuladores-de-pasarela)) |
+| mock-peanpe | 4902 |
+
+`.env.example` ya apunta a `localhost:4432` (Postgres) y `localhost:4379` (Redis).
+
+## 3. Bootstrap
+
 ```powershell
-npm install -g pnpm@9.12.0
-```
-
-## 3. Arrancar Docker Desktop
-
-Ya lo tienes instalado (Docker 29.3.0 detectado). Solo verifica que el daemon esté corriendo:
-```powershell
-docker ps   # no debe dar error
-```
-
-## 4. Bootstrap
-
-Desde la raíz del proyecto:
-
-```powershell
-cd c:\Users\mehdi\Documents\GitHub\first_tries\nightpay
 .\scripts\bootstrap.ps1          # Windows PowerShell
 # o
-bash scripts/bootstrap.sh        # Git Bash / WSL
+bash scripts/bootstrap.sh        # Git Bash / WSL / macOS / Linux
 ```
 
-> **Nota de puerto**: el Postgres de NightPay se mapea al host en `:5433` (no `:5432`)
-> porque probablemente ya tengas otro Postgres en `:5432` (ej. chatwoot). La `DATABASE_URL`
-> en `.env.example` ya apunta a `localhost:4432`.
+El script:
+- copia `.env.example` → `.env.local` (si no existe);
+- levanta Postgres y Redis con Docker Compose;
+- `pnpm install`;
+- `pnpm --filter @nightpay/db generate` (cliente Prisma);
+- aplica las migraciones (`prisma migrate dev`);
+- `pnpm --filter @nightpay/db seed` (locales demo, usuarios, terminales);
+- intenta levantar `mock-wipay` y `mock-peanpe` (opcionales).
 
-El script hace todo:
-- Copia `.env.example` → `.env.local`
-- Levanta Postgres + Redis vía Docker Compose
-- `pnpm install` (genera `pnpm-lock.yaml` la primera vez)
-- `pnpm --filter @nightpay/db generate` (cliente Prisma)
-- `pnpm --filter @nightpay/db migrate:dev --name init` (crea tablas)
-- `pnpm --filter @nightpay/db seed` (crea venue demo + usuarios)
-- Arranca los mocks Wipay/Peanpe
-
-**Tiempo esperado primera vez**: 3–5 min (descarga imágenes Docker + deps npm).
-
-## 5. Arrancar todo en dev
+## 4. Arrancar en desarrollo
 
 ```powershell
 pnpm dev
 ```
 
-Esto lanza en paralelo (Turborepo):
-- `@nightpay/api` → `http://localhost:4100`
-- `@nightpay/web-client` → `http://localhost:4101`
-- `@nightpay/tpv` → `http://localhost:4102`
-- `@nightpay/admin` → `http://localhost:4103`
+Turborepo lanza en paralelo el `dev` de cada paquete:
+- `@nightpay/api` → http://localhost:4100 (antes repara la base con `db heal`)
+- `@nightpay/web-client` → http://localhost:4101
+- `@nightpay/tpv` → http://localhost:4102
+- `@nightpay/admin` → http://localhost:4103
+- `@nightpay/operator` → http://localhost:4104
+- `@nightpay/mock-wipay` y `@nightpay/mock-peanpe` fuera de Docker (puertos 3000 y 3001 por defecto)
 
-Si prefieres un solo servicio a la vez:
-```powershell
-pnpm --filter @nightpay/api dev
-```
+Un solo servicio: `pnpm --filter @nightpay/api dev`.
 
-## 6. Verificar el hito de Sprint 1
+Comprobar:
 
-```bash
-bash scripts/verify-sprint1.sh
-```
-
-Debe ver 20+ checks en verde. El último bloque (runtime) solo pasa si tienes Docker arriba y `pnpm dev` corriendo.
-
-Verificaciones manuales rápidas:
 ```powershell
 curl http://localhost:4100/v1/health
-# { "status": "ok", "version": "0.0.0", "checks": { "api": "ok", ... } }
-
-# Abrir los 3 frontends en el navegador
-start http://localhost:4101
-start http://localhost:4102
-start http://localhost:4103
+# { "status": "ok", …, "checks": { "api": "ok", "db": "ok", "redis": "ok" } }   (503 si falla la base o Redis)
 ```
 
-## 7. Commit del lockfile
+`bash scripts/verify-sprint1.sh` repasa ficheros del monorepo y, con todo
+arrancado, Postgres en :4432, Redis en :4379 y `/v1/health`.
 
-La primera vez que ejecutes `pnpm install` se crea `pnpm-lock.yaml`. **Committearlo**:
+## 5. Usuarios del seed
+
+- dueño: `owner@nightpay.local` (local `luna-vlc`)
+- encargados: `manager.{vlc,mad,mrb,ibz}@nightpay.local`
+- contraseña: la de `SEED_PASSWORD` en `.env.local` (mín. 12 caracteres) o, si
+  no hay, una al azar que el seed enseña una sola vez al final.
+
+El seed solo crea lo que falta y **nunca cambia la contraseña de un usuario que
+ya existe**. En producción no se usa (ni va en la imagen). Si la pierdes:
+`pnpm cli reset-password --email <correo>` (la pide sin enseñarla).
+
+## 6. Sesión: login y token de acceso
 
 ```powershell
-git add pnpm-lock.yaml
-git commit -m "chore: lockfile inicial NightPay Sprint 1"
+curl -X POST http://localhost:4100/v1/auth/login `
+  -H "Content-Type: application/json" `
+  -d '{"email":"owner@nightpay.local","password":"<la del seed>"}'
 ```
 
-CI usa `--frozen-lockfile` a partir de ese momento.
+Respuesta:
+
+```json
+{
+  "accessToken": "eyJhbGci...",
+  "expiresIn": 3600,
+  "refreshExpiresIn": 2592000,
+  "user": { "id": "...", "email": "owner@nightpay.local", "role": "OWNER", "tenantId": "...", "venueSlug": "luna-vlc", "isSuperAdmin": false, "displayName": null }
+}
+```
+
+- El **token de acceso** (JWT) dura **1 h** (`expiresIn: 3600`). Las apps lo
+  renuevan solas con el refresh.
+- El **refresh** dura 30 días, cambia en cada uso y la sesión vive como mucho
+  90 días desde el login. Las apps (cabecera `X-OxioPay-Client`) lo reciben en
+  una cookie HttpOnly; una petición sin esa cabecera, como este `curl`, lo
+  recibe en el cuerpo (`refreshToken`) solo hasta `AUTH_BODY_REFRESH_UNTIL`
+  (por defecto 2026-12-01 12:00 de Madrid).
+- Cerrar una sesión corta su token de acceso **al momento** (401
+  `SESSION_REVOKED`): salir (`/v1/auth/logout`), revocar las sesiones de alguien
+  (`POST /v1/admin/users/:userId/revoke-sessions`, la consola del super-admin o
+  `pnpm cli revoke-sessions`), darle de baja o resetearle la contraseña. Si el
+  API no puede comprobarlo porque Redis no responde, contesta 503 (no 401): nadie
+  pierde la sesión y se vuelve a probar.
+
+Con el token:
+
+```powershell
+$TOKEN = "eyJhbGci..."   # el accessToken
+
+curl http://localhost:4100/v1/venues/me -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4100/v1/venues/me/terminals -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4100/v1/venues/me/staff -H "Authorization: Bearer $TOKEN"
+```
+
+## 7. Crear un cobro y ver la página de pago
+
+```powershell
+$body = @{ email='owner@nightpay.local'; password='<la del seed>' } | ConvertTo-Json
+$token = (Invoke-RestMethod -Method Post -Uri http://localhost:4100/v1/auth/login -ContentType 'application/json' -Body $body).accessToken
+
+$payment = @{ amountCents=4850; terminalExternalId='BARRA-1' } | ConvertTo-Json
+$created = Invoke-RestMethod -Method Post -Uri http://localhost:4100/v1/payments `
+  -ContentType 'application/json' `
+  -Headers @{ Authorization = "Bearer $token"; 'Idempotency-Key' = [guid]::NewGuid().ToString() } `
+  -Body $payment
+$created | ConvertTo-Json -Depth 5
+```
+
+Devuelve `id`, `qrToken`, `qrUrl`, `qrPngDataUrl` (el QR en PNG) y `qrExpiresAt`
+(el QR caduca a los 5 min: pasa a `EXPIRED` solo, con BullMQ).
+
+`qrUrl` es `NEXT_PUBLIC_WEB_CLIENT_URL/pay/<token>` (en local,
+http://localhost:4101/pay/<token>); la web del cliente redirige a la página de
+pago del API (http://localhost:4100/pay/<token>), que es la de verdad: importe,
+propina y botones. Al pulsar «Pagar» se abre el pago en la pasarela activa del
+local y el cliente va a la página del banco; el cobro pasa a pagado cuando llega
+el aviso firmado del banco al API (`/v1/webhooks/…`; Redsys lo manda a
+`NEXT_PUBLIC_API_URL/v1/webhooks/redsys`, así que desde el banco de verdad solo
+llega con una URL pública).
+
+La pasarela que crea el seed es un Wipay de relleno: sin las variables
+`WIPAY_*` en `.env.local`, «Pagar» no puede abrir el pago y la página lo dice
+(«No se ha podido abrir el pago», sin botón de reintentar; el cobro queda
+`FAILED`). Si el fallo de la pasarela es pasajero (no responde, 5xx), el cobro
+sigue pendiente y «Intentar otra vez» sí lo reintenta. Para otra pasarela:
+`pnpm cli set-redsys-active --venue luna-vlc` (con las variables `REDSYS_*`),
+`set-wipay-active` o `set-peanpe-active`.
+
+Lookup público del cobro (lo que consulta el TPV):
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:4100/v1/payments/public/$($created.qrToken)" | ConvertTo-Json
+```
+
+### Simuladores de pasarela
+
+`apps/mock-wipay` (puerto 4901) y `apps/mock-peanpe` (4902) son solo para
+desarrollo y nunca van a producción. **mock-wipay ya no sirve para cerrar un
+cobro**: manda sus avisos en el formato antiguo (JSON con `X-Signature`) y el
+adaptador de Wipay de hoy habla el de Cecabank (`MerchantID`, `Num_operacion`,
+`Firma`…), así que el API los rechaza (`$*$NOK$*$`) y el cobro no pasa a pagado.
+El paso de un aviso del banco a «pagado» lo cubren las pruebas de integración
+(`apps/api/test/integration/pasarelas.int.spec.ts`, con avisos de Redsys firmados).
+
+## 8. CLI
+
+```powershell
+pnpm cli list-venues
+pnpm cli create-venue    --name "Luna Bilbao" --slug luna-bio
+pnpm cli create-manager  --venue luna-bio --email manager.bio@nightpay.local
+pnpm cli list-users      --venue luna-vlc
+pnpm cli create-terminal --venue luna-bio --external-id BARRA-1 --label "Barra principal"
+pnpm cli reset-password  --email manager.vlc@nightpay.local
+pnpm cli revoke-sessions --email manager.vlc@nightpay.local   # móvil perdido: corta también su token de acceso
+```
+
+Las contraseñas (`create-*`, `reset-password`) se piden sin que se vean, o con
+`NP_PASSWORD=... pnpm cli ...`; `--password` sigue valiendo pero queda en el
+historial de la terminal. `pnpm cli --help` lista todos los comandos.
+
+## 9. Pruebas
+
+```powershell
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm --filter @nightpay/api test:integration   # Postgres de pruebas: apps/api/test/integration/README.md
+```
 
 ---
 
 ## Troubleshooting
 
 ### "Cannot find module '@nightpay/contracts'"
-Ejecuta: `pnpm install` desde la raíz `nightpay/`.
+`pnpm install` desde `nightpay/`.
 
 ### "Prisma Client did not initialize yet"
-Ejecuta: `pnpm --filter @nightpay/db generate`.
+`pnpm db:generate`.
 
-### "Port 3000/5432/6379 already in use"
+### Puerto ocupado (4100–4104, 4432, 4379…)
 ```powershell
-# Ver qué lo ocupa
-netstat -ano | findstr :3000
-# Matar proceso
+netstat -ano | findstr :4100
 taskkill /PID <pid> /F
 ```
 
-### Docker Compose build de mocks tarda mucho
-Los mocks son opcionales. Puedes saltártelos:
-```powershell
-docker compose up -d postgres redis  # solo infra
-pnpm --filter @nightpay/mock-wipay dev  # correr mock sin docker
-```
+### No quiero los simuladores
+Son opcionales: `docker compose up -d postgres redis` levanta solo la infraestructura.
 
 ### Reset total (desarrollo limpio)
 ```powershell
-docker compose down -v   # borra volúmenes (pierdes datos)
+docker compose down -v   # borra los volúmenes (pierdes los datos)
 pnpm clean
 pnpm install
 .\scripts\bootstrap.ps1
 ```
 
-### Node 25 me da `ERR_REQUIRE_ESM`
-Estás en Node 25; vuelve a Node 20 LTS (ver paso 1). Muchas libs (Prisma, NestJS 11) no están probadas con Node 25.
+### Otra versión de Node
+El proyecto pide Node 22 (ver paso 1).
 
 ---
 
-## Qué NO tienes que hacer
-
-- No crees cuentas en Wipay/Peanpe aún — los mocks responden en dev
-- No despliegues a Hetzner todavía — Sprint 6 cubre eso
-- No manejes secretos reales — `.env.local` con placeholders basta
-
----
-
-## Sprint 2 — Auth + Multi-tenancy (ya implementado)
-
-Auth JWT + multi-tenant con RLS ya está cableado. Para probarlo:
-
-### 1. Re-instalar deps (se añadieron libs)
-
-```powershell
-pnpm install
-```
-
-### 2. Re-generar cliente Prisma
-
-```powershell
-pnpm db:generate
-```
-
-### 3. Aplicar nueva migración (RLS policies)
-
-```powershell
-pnpm --filter @nightpay/db exec prisma migrate dev
-```
-
-Debería detectar el migration folder `20260422235959_enable_rls` y aplicarlo.
-
-### 4. Re-sembrar datos (6 venues + owner + 4 managers)
-
-```powershell
-pnpm db:seed
-```
-
-El seed solo crea lo que falta y **nunca cambia la contraseña de un usuario
-que ya existe**. La de los usuarios nuevos: la de `SEED_PASSWORD` (en
-`.env.local`, mín. 12 caracteres) o, si no hay, una al azar que se enseña una
-sola vez al final. En producción no se usa (ni va en la imagen).
-
-### 5. Probar login
-
-```powershell
-# arrancar API en una ventana
-pnpm --filter @nightpay/api dev
-
-# en otra ventana, login como owner
-curl -X POST http://localhost:4100/v1/auth/login `
-  -H "Content-Type: application/json" `
-  -d '{"email":"owner@nightpay.local","password":"<la del seed>"}'
-```
-
-Esperado:
-```json
-{
-  "accessToken": "eyJhbGci...",
-  "expiresIn": 43200,
-  "user": {"id":"...","email":"owner@nightpay.local","role":"OWNER","tenantId":"...","venueSlug":"luna-vlc"}
-}
-```
-
-### 6. Probar endpoint autenticado
-
-```powershell
-$TOKEN = "eyJhbGci..."   # pega el accessToken aquí
-
-# mi venue (OWNER ve luna-vlc porque es su venue por defecto)
-curl http://localhost:4100/v1/venues/me -H "Authorization: Bearer $TOKEN"
-
-# terminales del venue (multi-tenant filtrado automático via Prisma middleware)
-curl http://localhost:4100/v1/venues/me/terminals -H "Authorization: Bearer $TOKEN"
-
-# staff del venue (solo OWNER/MANAGER)
-curl http://localhost:4100/v1/venues/me/staff -H "Authorization: Bearer $TOKEN"
-```
-
-### 7. CLI para gestionar venues (uso diario)
-
-```powershell
-# Ver venues existentes
-pnpm cli list-venues
-
-# Crear nuevo venue
-pnpm cli create-venue --name "Luna Bilbao" --slug luna-bio
-
-# Añadir un manager
-pnpm cli create-manager --venue luna-bio --email manager.bio@nightpay.local --password "tu-password-fuerte"
-
-# Listar usuarios de un venue
-pnpm cli list-users --venue luna-vlc
-
-# Añadir terminal (datafono)
-pnpm cli create-terminal --venue luna-bio --external-id BARRA-1 --label "Barra principal"
-
-# Reset password
-pnpm cli reset-password --email manager.vlc@nightpay.local --password "nuevo-pwd"
-```
-
-### 8. Credenciales dev
-
-- owner: `owner@nightpay.local`
-- managers: `manager.{vlc,mad,mrb,ibz}@nightpay.local`
-- contraseña: la que diste en `SEED_PASSWORD` o la que enseñó el seed.
-
-Si la pierdes: `pnpm cli reset-password --email <correo> --password "<nueva>"`.
-
-## Sprint 3 + Sprint 4 (ya implementado)
-
-Pagos core + integración pasarela ya cableados. Para arrancarlo:
-
-### 1. Reinstalar deps (añadidos: bullmq, ioredis, qrcode, xstate, @nestjs/bullmq)
-
-```powershell
-pnpm install
-```
-
-### 2. (No hace falta migración nueva — el schema sigue igual.)
-
-### 3. Reiniciar API
-
-```powershell
-Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep 2
-.\scripts\dev-api.ps1
-```
-
-Esperado en el log: `Mapped {/v1/payments, POST}`, `Mapped {/v1/webhooks/:provider, POST}`, etc.
-
-### 4. Crear un pago (en ventana 2)
-
-```powershell
-cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
-
-$body = @{ email='owner@nightpay.local'; password='<la del seed>' } | ConvertTo-Json
-$r = Invoke-RestMethod -Method Post -Uri http://localhost:4100/v1/auth/login -ContentType 'application/json' -Body $body
-$token = $r.accessToken
-
-$payment = @{ amountCents=4850; terminalExternalId='BARRA-1' } | ConvertTo-Json
-$idempotencyKey = [guid]::NewGuid().ToString()
-$created = Invoke-RestMethod -Method Post -Uri http://localhost:4100/v1/payments `
-  -ContentType 'application/json' `
-  -Headers @{ Authorization = "Bearer $token"; 'Idempotency-Key' = $idempotencyKey } `
-  -Body $payment
-
-$created | ConvertTo-Json -Depth 5
-```
-
-Esperado: JSON con `id`, `qrToken`, `qrUrl`, `qrPngDataUrl` (data URL del PNG), `qrExpiresAt`.
-
-### 5. Verificar el pago (lookup público por token)
-
-```powershell
-$publicView = Invoke-RestMethod -Uri "http://localhost:4100/v1/payments/public/$($created.qrToken)"
-$publicView | ConvertTo-Json
-```
-
-Esperado: importe + venueName + terminalLabel + status `CREATED`.
-
-### 6. Ver el QR PNG en el navegador
-
-Pega `$created.qrPngDataUrl` en la barra de direcciones del navegador. Verás un QR código.
-
-### 7. Test E2E con mock Wipay (autorización + webhook)
-
-Llama directamente al mock de Wipay con el `qrToken` (el mock-wipay manda webhook al API automáticamente):
-
-```powershell
-$ref = $created.id    # el adapter mapea reference → paymentId
-Invoke-RestMethod -Method Post -Uri http://localhost:4901/v1/authorize `
-  -ContentType 'application/json' `
-  -Body (@{ reference=$ref; amount=4850; currency='EUR' } | ConvertTo-Json)
-
-# Espera 2-3 segundos a que mock-wipay envíe webhook…
-Start-Sleep -Seconds 3
-
-# El pago debería estar en estado AUTHORIZED ahora
-$detail = Invoke-RestMethod -Uri "http://localhost:4100/v1/payments/$($created.id)" `
-  -Headers @{ Authorization = "Bearer $token" }
-$detail | ConvertTo-Json
-```
-
-Esperado: `status: "AUTHORIZED"`, `providerTxId` poblado.
-
-> Nota: el FSM por diseño no permite CREATED → AUTHORIZED directo (esperaría AUTHORIZING primero).
-> En Sprint 5 añadiremos un endpoint `POST /v1/payments/public/:token/start-authorization` que mueve a AUTHORIZING. Por ahora el test E2E del flujo completo viene en Sprint 5.
-
-### 8. Test de expiración de QR
-
-Crea un pago con `qrExpiresAt` cerca y espera 5 min — pasará a `EXPIRED` automáticamente vía BullMQ.
-O en código: cambia `QR_TTL_SECONDS` en `payments.service.ts` a 30 segundos para testing.
-
-## Sprint 5 (ya implementado): UI real + Socket.io + autorización end-to-end
-
-### 1. Reinstalar deps (socket.io + Redis adapter + socket.io-client)
-
-```powershell
-pnpm install
-```
-
-### 2. Reiniciar API
-
-```powershell
-Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep 2
-.\scripts\dev-api.ps1
-```
-
-Esperado en logs: `Socket.io Redis adapter wired` + ruta `POST /v1/payments/public/:token/start-authorization`.
-
-### 3. Arrancar TPV (otra ventana)
-
-```powershell
-cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
-pnpm --filter "@nightpay/tpv" dev
-```
-
-Abre [http://localhost:4102](http://localhost:4102), login con
-`owner@nightpay.local` y la contraseña del seed. Selecciona "Barra 1", importe 48.50, "Cobrar".
-
-### 4. Arrancar web-client (otra ventana)
-
-```powershell
-cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
-pnpm --filter "@nightpay/web-client" dev
-```
-
-### 5. Test flujo completo
-
-1. TPV → crear cobro 48.50€ → ves QR
-2. En otro navegador (o móvil), abre el `qrUrl` (algo como `http://localhost:4101/pay/<token>`)
-3. Verás importe + venue + terminal. Click **"Pagar ahora"**
-4. Estado → `AUTHORIZING` en ambas pantallas (sincronización por WS)
-5. Mock-wipay envía webhook async → FSM `AUTHORIZED`
-6. **TPV** emite beep + "✓ Cobrado"
-7. **Móvil** muestra "✓ Pago completado"
-
-Todo en ~2 segundos. Sin recargar.
-
-### 6. Hardening operativo
-
-Ver [HARDENING.md](HARDENING.md):
-- Rotar passwords del seed (`pnpm cli reset-password`)
-- Backup diario (`scripts/backup-db.ps1`)
-- Monitor pagos atascados (`scripts/check-stuck-payments.ps1`)
-- ACL del `.env.local`
-
-## Sprint 6 (ya implementado): admin + reembolsos + reconciliation + health real
-
-### 1. Reinstalar deps + reiniciar API
-
-```powershell
-pnpm install
-Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep 2
-.\scripts\dev-api.ps1
-```
-
-Rutas nuevas:
-- `POST /v1/payments/:id/refunds`
-- `GET  /v1/payments/:id/refunds`
-- `GET  /v1/admin/payments`
-- `GET  /v1/admin/metrics`
-
-### 2. Health real
-
-```powershell
-curl.exe http://localhost:4100/v1/health
-```
-
-Debe decir `db: ok` y `redis: ok` (no `skip`).
-
-### 3. Admin dashboard (otra ventana)
-
-```powershell
-cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
-pnpm --filter "@nightpay/admin" dev
-```
-
-[http://localhost:4103](http://localhost:4103) → login con `owner@nightpay.local` y la contraseña del seed.
-
-Vista:
-- Tiles métricas (hoy + semana, neto destacado)
-- Tabla pagos con filtro por status, refresh 5s
-- Botón **Reembolsar** en AUTHORIZED/PARTIALLY_REFUNDED
-- Modal con importe + razón + (si ≥ 100 €) código TOTP
-
-### 4. Test refund E2E
-
-1. TPV: crear pago 48.50 € + pagar → AUTHORIZED
-2. Admin: click "Reembolsar" → importe `12.50` → confirmar → PARTIALLY_REFUNDED, available 36.00 €
-3. Reembolsar otros `36.00` → REFUNDED
-
-Verifica en DB:
-```powershell
-docker exec -i nightpay_postgres psql -U np -d nightpay -c 'SELECT "amountCents", status, "providerRefundId" FROM refunds ORDER BY "createdAt" DESC LIMIT 5;'
-```
-
-### 5. Reconciliation diaria
-
-Scheduler programa job repetible 07:00 UTC para cada venue. Estado en tabla `reconciliations`.
-
-## Próximos pasos (Sprint 7+)
-
-- 2FA TOTP real (speakeasy) — ahora es placeholder
-- Audit log global (role changes, credentials, refunds)
-- Despliegue Dokploy + Cloudflare (docs/DOKPLOY-STEPS.md)
-- Integración Wipay/Peanpe real con credenciales descifradas por venue
-- CLI `reconcile --day --venue`
+## Qué NO tienes que hacer en local
+
+- No manejes secretos reales: `.env.local` con los valores de `.env.example` basta.
+- No despliegues desde aquí: ver [docs/DOKPLOY-STEPS.md](docs/DOKPLOY-STEPS.md).
+- Operación (contraseñas, copias, cobros atascados): [HARDENING.md](HARDENING.md) y
+  [docs/runbooks/](docs/runbooks/).

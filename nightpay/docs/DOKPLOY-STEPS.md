@@ -64,6 +64,8 @@ Comprobación: en Git Providers sale «GitHub: Connected».
 (aceptan cualquier pago). No se despliegan en Dokploy. En local van en
 `docker compose up mock-wipay mock-peanpe`. Si existen servicios
 `nightpay-mock-*` en Dokploy de una instalación antigua, bórralos.
+mock-wipay manda los avisos en el formato antiguo y el API de hoy (Cecabank)
+los rechaza: no cierra cobros (ver [SETUP.md](../SETUP.md#simuladores-de-pasarela)).
 
 ---
 

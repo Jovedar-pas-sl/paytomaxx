@@ -26,11 +26,11 @@
 
 ### Autenticacion + autorizacion
 - Login email + password (bcrypt 10 rondas)
-- JWT 12h + **refresh tokens 30 dias con rotacion + reuso-detection** (Redis)
+- JWT 12h (hoy: 1 h, y cerrar una sesión lo corta al momento) + **refresh tokens 30 dias con rotacion + reuso-detection** (Redis)
 - 3 kill-switches para movil perdido:
   - HTTP: `POST /v1/admin/users/:userId/revoke-sessions` (OWNER only)
   - CLI: `pnpm cli revoke-sessions --email <email>`
-  - Redis directo: `redis-cli --scan --pattern 'nightpay:refresh:user:<id>:*' | xargs redis-cli DEL`
+  - Redis directo: `redis-cli --scan --pattern 'nightpay:refresh:user:<id>:*' | xargs redis-cli DEL` (hoy: solo borra el refresh; el HTTP y el CLI cortan además el token de acceso al momento)
 - Login lockout 5 fallos / 15 min (Redis, multi-nodo safe)
 - TOTP real (speakeasy) para refunds ≥100€
 - Roles: OWNER, MANAGER, WAITER (RBAC declarativo)
@@ -319,9 +319,9 @@ Lo que falta para "deploy a prod":
 ## 8. Comando "todo arriba" (referencia rapida)
 
 ```powershell
-cd C:\Users\mehdi\Documents\GitHub\first_tries\nightpay
+# desde la carpeta nightpay/ de tu copia del repo
 
-# 1. Infra
+# 1. Infra (los simuladores son opcionales; mock-wipay ya no cierra cobros: ver SETUP.md)
 docker compose up -d postgres redis mock-wipay mock-peanpe
 
 # 2. API (deja corriendo)

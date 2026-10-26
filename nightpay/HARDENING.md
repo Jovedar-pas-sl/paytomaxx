@@ -25,7 +25,7 @@ Script `scripts/backup-db.ps1` hace `pg_dump` + comprime + retención.
 
 **Configurar Task Scheduler** (Windows):
 - Programa: `powershell.exe`
-- Argumentos: `-NoProfile -ExecutionPolicy Bypass -File "C:\Users\mehdi\Documents\GitHub\first_tries\nightpay\scripts\backup-db.ps1"`
+- Argumentos: `-NoProfile -ExecutionPolicy Bypass -File "<ruta de tu copia del repo>\nightpay\scripts\backup-db.ps1"`
 - Trigger: diario 06:30 (después del cierre de noche)
 - Configurar como "Run whether user is logged on or not"
 

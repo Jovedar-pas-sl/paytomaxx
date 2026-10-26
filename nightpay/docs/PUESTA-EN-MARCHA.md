@@ -8,7 +8,7 @@ fuera del código. Cada bloque dice cuánto tarda; hazlos en este orden.
 ## 1. Publicar (5 min)
 
 ```
-cd C:\Users\mehdi\Documents\GitHub\first_tries
+# desde tu copia del repo
 git push origin feat/cuadre-banco:main
 ```
 
