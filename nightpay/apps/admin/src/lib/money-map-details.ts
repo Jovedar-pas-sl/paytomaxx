@@ -12,11 +12,17 @@ export interface MoneyDetail {
   rows: MoneyDetailRow[];
 }
 
+type MoneyDetails = Record<'inflow' | 'topUps' | 'split' | 'cash' | 'owed' | 'outflow', MoneyDetail> & {
+  /** La «Comisión del servicio» (null sin ella, o en un mapa de antes). */
+  serviceFee: MoneyDetail | null;
+};
+
 /** Desgloses del mismo periodo que las barras. null significa desconocido, nunca cero. */
-export function moneyMapDetails(m: MoneyMap): Record<'inflow' | 'topUps' | 'split' | 'cash' | 'owed' | 'outflow', MoneyDetail> {
+export function moneyMapDetails(m: MoneyMap): MoneyDetails {
   const { inflow: i, split: s, where: w, outflow: o } = m;
   const when = moneyMapIsCurrent(m) ? 'ahora' : 'al corte';
   return {
+    serviceFee: serviceFeeDetail(m),
     inflow: {
       title: 'Detalle de entradas',
       note: `${m.salesCount} cobros. Las ventas incluyen las propinas; las recargas se muestran aparte para no contar dos veces el mismo dinero.`,
@@ -83,5 +89,21 @@ export function moneyMapDetails(m: MoneyMap): Record<'inflow' | 'topUps' | 'spli
         { label: 'Comisiones calculadas', cents: o.commissionsCents },
       ],
     },
+  };
+}
+
+function serviceFeeDetail(m: MoneyMap): MoneyDetail | null {
+  const fee = m.serviceFee;
+  if (!fee) return null;
+  return {
+    title: 'Comisión del servicio',
+    note: 'La paga el cliente encima del precio (no las propinas ni lo que se gasta del saldo). Entra con el resto del cobro, al banco o a la caja, pero se debe a OxioPay: no es del local.',
+    rows: [
+      { label: 'En cobros con tarjeta o datáfono', cents: fee.salesCents },
+      { label: 'En recargas del saldo', cents: fee.topUpsCents },
+      { label: '…de ellas, en efectivo (está en la caja)', cents: fee.cashCents },
+      { label: 'Devuelta con las devoluciones', cents: -fee.refundedCents },
+      { label: 'Se debe a OxioPay', cents: fee.owedCents },
+    ],
   };
 }

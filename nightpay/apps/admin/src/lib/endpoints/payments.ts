@@ -20,6 +20,13 @@ export interface PaymentRow {
   cardBrand?: string | null;
   payMethodCode?: string | null;
   authorizedAt?: string | null;
+  /**
+   * «Comisión del servicio» que pagó el cliente encima (ya en lo devolvible de
+   * un pago directo; en una recarga, no se devuelve). Un API de antes no la manda.
+   */
+  serviceFeeCents?: number;
+  /** El saldo que recargó (una recarga); null en un pago directo. */
+  walletId?: string | null;
   // Fase 1B: total y propina que se mandaron al banco en cada intento (null = antes de 1B).
   attempts?: Array<{
     providerTxId: string;
@@ -45,6 +52,8 @@ export interface MetricsPeriod {
   /** API nuevo: recargas del saldo en efectivo (en chargedCents) y con tarjeta (en grossCents y count). */
   walletCashTopUpCents?: number;
   walletCardTopUpCents?: number;
+  /** «Comisión del servicio» cobrada (ya en chargedCents; se debe a OxioPay). Sin ella, no viene. */
+  serviceFeeCents?: number;
 }
 
 export interface Metrics {

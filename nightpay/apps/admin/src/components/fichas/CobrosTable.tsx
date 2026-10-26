@@ -63,6 +63,10 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra }: Props) 
               </td>
               <td data-label="Importe" data-card="amount" className="np-num" style={amountCell}>
                 {formatMoney(row.amountCents, row.currency)}
+                {/* La «Comisión del servicio» que pagó el cliente encima (se debe a OxioPay). */}
+                {row.serviceFeeCents ? (
+                  <span style={tipStyle}>+ {formatEur(row.serviceFeeCents)} comisión del servicio</span>
+                ) : null}
                 {row.tipCents > 0 ? <span style={tipStyle}>+ {formatEur(row.tipCents)} propina</span> : null}
               </td>
               <td data-label="Estado" data-card="status">

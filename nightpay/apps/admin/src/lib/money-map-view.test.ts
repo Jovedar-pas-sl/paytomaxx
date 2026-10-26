@@ -248,3 +248,46 @@ describe('desgloses ampliados', () => {
     expect(d.outflow.rows[0]).toEqual({ label: 'Pagado a chicas · efectivo', cents: 45000, count: 2 });
   });
 });
+
+describe('con la «Comisión del servicio» (la paga el cliente, se debe a OxioPay)', () => {
+  // 66 € de comisión en ventas con tarjeta, 120 € en recargas (60 € en efectivo), 10 € devueltos.
+  const withFee = () =>
+    map({
+      inflow: { ...map().inflow, serviceFeeCents: 18_600 },
+      where: { ...map().where, owners: { venueCents: 308_600 - 17_600, staffCents: 216_000, saldoCents: 115_000, oxioPayCents: 17_600 } },
+      outflow: { ...map().outflow, serviceFeeCents: 17_600 },
+      serviceFee: { salesCents: 6_600, topUpsCents: 12_000, cashCents: 6_000, refundedCents: 1_000, owedCents: 17_600 },
+    });
+
+  it('cómo entra: la comisión, aparte (no es venta) y de quién es', () => {
+    const v = moneyMapView(withFee(), SECTIONS);
+    expect(v.serviceFee).toEqual({ cents: 18_600, detail: expect.any(String) });
+    expect(sp(v.serviceFee!.detail)).toBe('cobros 66 € · recargas 120 €');
+  });
+
+  it('dónde está: una parte es de OxioPay; y sale lo que se le debe', () => {
+    const v = moneyMapView(withFee(), SECTIONS);
+    expect(v.where.owners.find((s) => s.key === 'oxiopay')).toMatchObject({ label: 'De OxioPay (comisión del servicio)', cents: 17_600 });
+    expect(v.where.owners.reduce((a, s) => a + s.cents, 0)).toBe(v.where.totalCents);
+    expect(v.outflow.find((r) => r.key === 'service-fee')).toEqual({ key: 'service-fee', label: 'Comisión del servicio', note: 'se debe a OxioPay', cents: 17_600 });
+  });
+
+  it('el desglose: cobrada, devuelta y lo que se debe', () => {
+    const d = moneyMapDetails(withFee());
+    expect(d.serviceFee!.rows).toEqual([
+      { label: 'En cobros con tarjeta o datáfono', cents: 6_600 },
+      { label: 'En recargas del saldo', cents: 12_000 },
+      { label: '…de ellas, en efectivo (está en la caja)', cents: 6_000 },
+      { label: 'Devuelta con las devoluciones', cents: -1_000 },
+      { label: 'Se debe a OxioPay', cents: 17_600 },
+    ]);
+  });
+
+  it('sin ella (o un mapa de antes): nada de esto', () => {
+    const v = moneyMapView(map(), SECTIONS);
+    expect(v.serviceFee).toBeNull();
+    expect(v.where.owners.map((s) => s.key)).toEqual(['venue', 'staff', 'saldo']);
+    expect(v.outflow.map((r) => r.key)).not.toContain('service-fee');
+    expect(moneyMapDetails(map()).serviceFee).toBeNull();
+  });
+});

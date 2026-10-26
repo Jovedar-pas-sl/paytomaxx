@@ -10,6 +10,7 @@ import {
   generalHoldDaysOf,
   rulesFormFrom,
   rulesPayload,
+  serviceFeeExample,
   type RulesChange,
   type RulesForm,
 } from '@/lib/superadmin/forms';
@@ -83,8 +84,41 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
             value={form.platformPct}
             onChange={(e) => update({ platformPct: e.target.value })}
           />
-          <Help>Lo que se queda OxioPay de cada cobro.</Help>
+          <Help>
+            Lo que se queda OxioPay de cada cobro.
+            {form.serviceFeeEnabled ? ' Con la comisión del servicio encendida, el local ya no la paga en los cobros nuevos.' : ''}
+          </Help>
         </div>
+
+        <fieldset className="np-sa-rule np-sa-fieldset">
+          <legend className="np-sa-label">Comisión del servicio al cliente</legend>
+          <CheckRow
+            checked={form.serviceFeeEnabled}
+            onChange={(on) => update({ serviceFeeEnabled: on })}
+            label="Encendida"
+            help="La paga el cliente encima del precio y es de OxioPay. Encendida, el local deja de pagar la comisión de la plataforma en esos cobros. Apagada, todo como hasta ahora."
+          />
+          <div className="np-sa-grid-2">
+            <Input
+              label="En los pagos con tarjeta (%)"
+              inputMode="decimal"
+              value={form.serviceFeePct}
+              onChange={(e) => update({ serviceFeePct: e.target.value })}
+              hint={serviceFeeExample(form.serviceFeePct, 'card') ?? 'De 0 a 12 %.'}
+            />
+            <Input
+              label="En las recargas del saldo (%)"
+              inputMode="decimal"
+              value={form.topUpServiceFeePct}
+              onChange={(e) => update({ topUpServiceFeePct: e.target.value })}
+              hint={serviceFeeExample(form.topUpServiceFeePct, 'topUp') ?? 'De 0 a 12 %.'}
+            />
+          </div>
+          <Help>
+            Con tarjeta, Apple Pay, Google Pay o el datáfono, y en las recargas (tarjeta o efectivo). Gastar del saldo no
+            la lleva (ya se pagó al recargar) y la propina tampoco. Los cobros ya creados no cambian.
+          </Help>
+        </fieldset>
 
         <fieldset className="np-sa-rule np-sa-fieldset">
           <legend className="np-sa-label">Comisiones por categoría (%)</legend>

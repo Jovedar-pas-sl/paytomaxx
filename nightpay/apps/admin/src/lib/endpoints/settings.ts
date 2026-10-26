@@ -39,6 +39,14 @@ export interface VenueSettings {
   effectivePayoutHoldDays?: number;
   refundApprovalThresholdCents?: number;
   payoutRequiresApproval?: boolean;
+  /**
+   * «Comisión del servicio al cliente» (la pone OxioPay; aquí solo se ve):
+   * encendida y sus % (pagos con tarjeta / recargas). Un API de antes no los
+   * manda: apagada.
+   */
+  serviceFeeEnabled?: boolean;
+  serviceFeeBps?: number;
+  topUpServiceFeeBps?: number;
 }
 
 export async function fetchVenueSettings(): Promise<VenueSettings> {

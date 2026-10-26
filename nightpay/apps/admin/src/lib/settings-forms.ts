@@ -4,13 +4,16 @@
 
 import {
   ALERT_KIND_KEYS,
+  DEFAULT_SERVICE_FEE_BPS,
   MAX_OPERATOR_COBRO_CENTS,
   MAX_VENUE_PAYOUT_HOLD_DAYS,
   PERMISSION_CEILING,
   STAFF_PERMISSION_KEYS,
   commissionTotalsProblem,
+  formatMoney,
   parseEuroCents,
   sectionMeta,
+  serviceFeeCents,
   type AlertKindKey,
   type PermissionRole,
   type StaffPermissionKey,
@@ -18,7 +21,7 @@ import {
   type VenueSection,
 } from '@nightpay/contracts';
 import type { OperatorCommissionDefaults, VenueRulesInput, VenueSettings } from './endpoints/settings';
-import { bpsToPercentInput, parsePercentToBps } from './commission';
+import { bpsToPercentInput, formatPercent, parsePercentToBps } from './commission';
 import { centsToInput } from './money';
 
 // ─── Reglas del local ──────────────────────────────────────────────
@@ -233,3 +236,35 @@ export const ALERT_KIND_LABELS: Readonly<Record<AlertKindKey, string>> = {
 };
 
 export const ALERT_KINDS: readonly AlertKindKey[] = ALERT_KIND_KEYS;
+
+// ─── «Comisión del servicio al cliente» (Ajustes → Reglas, solo se ve) ──
+
+const SPLIT_HINT = 'Lo de cada categoría es para quien crea el cobro; el resto, para el local.';
+
+/** La ayuda de «Cobros de las chicas»: lo que se lleva OxioPay (con la comisión del servicio, nada del local). */
+export function platformCommissionHint(s: VenueSettings): string {
+  if (s.serviceFeeEnabled) {
+    return `Con la comisión del servicio encendida, OxioPay no se lleva nada de tus cobros: la paga el cliente encima. ${SPLIT_HINT}`;
+  }
+  return `OxioPay se lleva el ${formatPercent(s.platformCommissionBps)} de cada cobro (lo cambia OxioPay). ${SPLIT_HINT}`;
+}
+
+/** Lo que ve el dueño de la comisión del servicio: si está encendida y, entonces, sus % con un ejemplo. */
+export function serviceFeeRulesText(s: VenueSettings): { status: 'Encendida' | 'Apagada'; lines: string[] } {
+  if (!s.serviceFeeEnabled) {
+    return { status: 'Apagada', lines: ['Los clientes pagan el precio, sin nada encima. La enciende OxioPay.'] };
+  }
+  const short = (cents: number) => formatMoney(cents, { compact: true });
+  const cardBps = s.serviceFeeBps ?? DEFAULT_SERVICE_FEE_BPS;
+  const topUpBps = s.topUpServiceFeeBps ?? DEFAULT_SERVICE_FEE_BPS;
+  const charge = 3300;
+  const topUp = 5000;
+  return {
+    status: 'Encendida',
+    lines: [
+      `Pagos con tarjeta, Apple Pay, Google Pay o datáfono: ${formatPercent(cardBps)} encima (un cobro de ${short(charge)} → el cliente paga ${short(charge + serviceFeeCents(charge, cardBps))}).`,
+      `Recargas del saldo (tarjeta o efectivo): ${formatPercent(topUpBps)} encima (recarga ${short(topUp)} → paga ${short(topUp + serviceFeeCents(topUp, topUpBps))}; le quedan ${short(topUp)} de saldo).`,
+      'Gastar del saldo y las propinas no la llevan. Es de OxioPay: entra con el resto del cobro y se apunta aparte.',
+    ],
+  };
+}

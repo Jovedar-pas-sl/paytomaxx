@@ -5,6 +5,7 @@ import {
   EMPTY_VENUE_FORM,
   businessChanges,
   businessFormFrom,
+  businessMoneyChanges,
   businessPayload,
   newVenuePayload,
   parseCentsAllowZero,
@@ -12,6 +13,7 @@ import {
   profilePayload,
   rulesFormFrom,
   rulesPayload,
+  serviceFeeExample,
   slugFromName,
 } from './forms';
 
@@ -76,6 +78,8 @@ describe('negocios', () => {
         contactPhone: null,
         notes: null,
         defaultPlatformCommissionBps: 1250,
+        defaultServiceFeeBps: null,
+        defaultTopUpServiceFeeBps: null,
       },
     });
   });
@@ -254,5 +258,77 @@ describe('parseCentsAllowZero', () => {
     expect(parseCentsAllowZero('0,00 €', 100)).toBe(0);
     expect(parseCentsAllowZero('1', 1000)).toBe(100);
     expect(parseCentsAllowZero('abc', 1000)).toBeNull();
+  });
+});
+
+describe('«Comisión del servicio al cliente» (reglas del local y valores del negocio)', () => {
+  const withFee: VenueRules = { ...rules, serviceFeeEnabled: false, serviceFeeBps: 1000, topUpServiceFeeBps: 1000 };
+
+  it('encenderla y cambiar sus %: solo lo que cambia, con la frase de confirmación', () => {
+    const form = rulesFormFrom(withFee);
+    expect(form).toMatchObject({ serviceFeeEnabled: false, serviceFeePct: '10,00', topUpServiceFeePct: '10,00' });
+    const r = rulesPayload(withFee, { ...form, serviceFeeEnabled: true, topUpServiceFeePct: '12' }, 7);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.value.dto).toEqual({ serviceFeeEnabled: true, topUpServiceFeeBps: 1200 });
+    expect(r.value.changes).toEqual([
+      'comisión del servicio al cliente: apagada → encendida',
+      'comisión del servicio en las recargas: 10 % → 12 %',
+    ]);
+  });
+
+  it('de 0 a 12 %', () => {
+    const form = rulesFormFrom(withFee);
+    expect(rulesPayload(withFee, { ...form, serviceFeePct: '12,5' }, 7)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/de 0 a 12 %/),
+    });
+    expect(rulesPayload(withFee, { ...form, serviceFeePct: '0' }, 7)).toMatchObject({ ok: true, value: { dto: { serviceFeeBps: 0 } } });
+  });
+
+  it('un local del API anterior (sin los campos): apagada y al 10 %', () => {
+    expect(rulesFormFrom(rules)).toMatchObject({ serviceFeeEnabled: false, serviceFeePct: '10,00', topUpServiceFeePct: '10,00' });
+  });
+
+  it('valores del negocio para sus locales nuevos: vacío = la de fábrica (10 %); de 0 a 12 %', () => {
+    const r = businessPayload({ ...EMPTY_BUSINESS_FORM, name: 'Sol SL', serviceFeePct: '8', topUpServiceFeePct: '' });
+    expect(r).toMatchObject({ ok: true, value: { defaultServiceFeeBps: 800, defaultTopUpServiceFeeBps: null } });
+    expect(businessPayload({ ...EMPTY_BUSINESS_FORM, name: 'Sol SL', topUpServiceFeePct: '13' })).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/de 0 a 12 %/),
+    });
+    const saved = { ...business, defaultServiceFeeBps: 800, defaultTopUpServiceFeeBps: null };
+    expect(businessFormFrom(saved)).toMatchObject({ serviceFeePct: '8,00', topUpServiceFeePct: '' });
+  });
+});
+
+describe('lo que se confirma con el 2FA en un negocio (comisiones por defecto)', () => {
+  it('al cambiarlas: cada una, de lo que era a lo nuevo', () => {
+    const saved = { defaultPlatformCommissionBps: null, defaultServiceFeeBps: 800, defaultTopUpServiceFeeBps: null };
+    expect(businessMoneyChanges(saved, { defaultPlatformCommissionBps: 1200, defaultServiceFeeBps: null, defaultTopUpServiceFeeBps: 1200 })).toEqual([
+      'comisión por defecto: la general → 12 %',
+      'comisión del servicio en los pagos con tarjeta: 8 % → la de fábrica (10 %)',
+      'comisión del servicio en las recargas: la de fábrica (10 %) → 12 %',
+    ]);
+  });
+
+  it('al dar de alta: solo las que se ponen', () => {
+    expect(businessMoneyChanges(null, { name: 'Sol SL', defaultPlatformCommissionBps: null, defaultServiceFeeBps: 800 } as never)).toEqual([
+      'comisión del servicio en los pagos con tarjeta: 8 %',
+    ]);
+  });
+});
+
+describe('el ejemplo de la comisión del servicio (lo que ve el super-admin al ponerla)', () => {
+  // Los importes llevan un espacio duro antes del «€».
+  const example = (pct: string, kind: 'card' | 'topUp') => serviceFeeExample(pct, kind)?.replace(/\s/g, ' ') ?? null;
+  it('pagos con tarjeta: 33 € → 36,30 €; recargas: 50 € → 56 €', () => {
+    expect(example('10', 'card')).toBe('Un cobro de 33 € → el cliente paga 36,30 € (33 € + 3,30 € comisión del servicio), más la propina si la deja.');
+    expect(example('12', 'topUp')).toBe('Una recarga de 50 € → el cliente paga 56 € y le quedan 50 € de saldo.');
+  });
+
+  it('0 %: no paga nada encima; si no vale, nada', () => {
+    expect(example('0', 'card')).toBe('Un cobro de 33 € → el cliente paga 33 €, más la propina si la deja.');
+    expect(serviceFeeExample('13', 'topUp')).toBeNull();
+    expect(serviceFeeExample('', 'card')).toBeNull();
   });
 });

@@ -27,7 +27,17 @@ export interface NightSummary {
    */
   camareroNetCents?: number;
   venueTipsCents: number;
+  /** Lo del local: sin lo de las chicas, los camareros ni la comisión del servicio (es de OxioPay). */
   venueNetCents: number;
+  /**
+   * «Comisión del servicio» (la paga el cliente encima; ya en «cobrado»): la
+   * cobrada, la de las recargas en efectivo (en la caja), la devuelta y lo
+   * que se debe a OxioPay. Sin ella (y en los Z de antes), no vienen.
+   */
+  serviceFeeCents?: number;
+  serviceFeeCashCents?: number;
+  serviceFeeRefundedCents?: number;
+  serviceFeeNetCents?: number;
   payoutsCount: number;
   payoutsCents: number;
   perChica: Array<{
@@ -76,6 +86,8 @@ export interface NightCaja {
   /** Los Z congelados antes del 21-oct-2026 no lo traen. */
   walletCashTopUpsCount?: number;
   walletCashTopUpsCents?: number;
+  /** La comisión del servicio de esas recargas: en la caja (ya en cashInCents), se debe a OxioPay. Sin ella, no viene. */
+  walletCashTopUpFeesCents?: number;
   walletCashPayoutsCount: number;
   walletCashPayoutsCents: number;
   chicaCashPayoutsCount: number;

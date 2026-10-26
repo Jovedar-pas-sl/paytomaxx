@@ -70,3 +70,36 @@ describe('la línea del Z congelado (prueba real: «17 pagos con tarjeta · cobr
     expect(zClosedLines(old, formatEur)).toEqual({ cobrado: `Cobrado: ${formatEur(3_000)}`, card: `Con tarjeta: 1 pago · ${formatEur(3_000)}` });
   });
 });
+
+describe('con la «Comisión del servicio» (la paga el cliente encima; se debe a OxioPay)', () => {
+  // 33 € con tarjeta + 3,30 € de comisión + 2 € de propina; recarga con tarjeta
+  // de 50 € + 6 €; recarga en efectivo de 50 € + 6 €.
+  const hoy = { grossCents: 8_300, tipCents: 200, walletCardTopUpCents: 5_000, walletCashTopUpCents: 5_000, serviceFeeCents: 1_530 };
+
+  it('«Hoy · cobrado»: ventas + propinas + recargas + comisión del servicio = cobrado', () => {
+    const p = metricsCobradoParts(hoy);
+    expect(p).toEqual({ salesCents: 3_300, tipCents: 200, topUpCents: 10_000, serviceFeeCents: 1_530 });
+    expect(cobradoNote(p, formatEur)).toBe(
+      `${formatEur(3_300)} de ventas + ${formatEur(200)} de propinas + ${formatEur(10_000)} de recargas + ${formatEur(1_530)} de comisión del servicio`,
+    );
+  });
+
+  it('el Z: lo mismo; «Con tarjeta» lleva la comisión de lo cobrado con tarjeta (no la del efectivo)', () => {
+    const z = {
+      count: 2,
+      grossCents: 8_300,
+      tipsCents: 200,
+      chargedCents: 8_300 + 200 + 5_000 + 1_530,
+      walletCardTopUpsCents: 5_000,
+      walletCashTopUpsCents: 5_000,
+      serviceFeeCents: 1_530,
+      serviceFeeCashCents: 600,
+    };
+    expect(zCobradoParts(z)).toEqual({ salesCents: 3_300, tipCents: 200, topUpCents: 10_000, serviceFeeCents: 1_530 });
+    expect(zClosedLines(z, formatEur).card).toBe(`Con tarjeta: 2 pagos · ${formatEur(8_300 + 200 + 930)}`);
+  });
+
+  it('sin ella, como siempre (ni la parte ni el texto)', () => {
+    expect(metricsCobradoParts({ ...hoy, serviceFeeCents: undefined })).toEqual({ salesCents: 3_300, tipCents: 200, topUpCents: 10_000 });
+  });
+});

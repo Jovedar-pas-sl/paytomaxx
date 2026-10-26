@@ -105,6 +105,14 @@ function topUpWord(t: WalletFichaTopUp): string {
   return t.kind === 'CASH' ? 'efectivo' : METHOD_WORD[t.method] ?? 'tarjeta';
 }
 
+/** Con la «Comisión del servicio»: «pagó 56 € (6 € de comisión del servicio)»; el saldo es la recarga. */
+function topUpFeeNote(t: WalletFichaTopUp): string | null {
+  const fee = t.serviceFeeCents ?? 0;
+  if (fee === 0) return null;
+  const sign = t.amountCents < 0 ? '−' : '';
+  return `pagó ${sign}${eurShort(Math.abs(t.amountCents + fee))} (${eurShort(Math.abs(fee))} de comisión del servicio)`;
+}
+
 function topUpRow(t: WalletFichaTopUp, first: boolean, tz: string): TimelineRow {
   const voided = t.amountCents < 0;
   return {
@@ -113,7 +121,7 @@ function topUpRow(t: WalletFichaTopUp, first: boolean, tz: string): TimelineRow 
     time: formatDateTime(t.at, tz, 'time'),
     color: null,
     title: voided ? `Recarga anulada · ${topUpWord(t)}` : `${first ? 'Alta' : 'Recarga'} · ${topUpWord(t)}`,
-    sub: joinParts([t.terminalLabel, t.by?.name ?? (voided ? null : 'sin personal'), t.note ? `«${t.note}»` : null]),
+    sub: joinParts([t.terminalLabel, t.by?.name ?? (voided ? null : 'sin personal'), t.note ? `«${t.note}»` : null, topUpFeeNote(t)]),
     amount: `${voided ? '−' : '+'}${eurShort(Math.abs(t.amountCents))}`,
     share: null,
     undone: false,

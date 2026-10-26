@@ -4,10 +4,17 @@ import { useState, type FormEvent } from 'react';
 import { Input } from '@nightpay/ui';
 import { fetchVenueSettings, updateVenueSettings, type VenueRulesInput, type VenueSettings } from '@/lib/api';
 import { totpRetryState } from '@/lib/api-errors';
-import { formatPercent } from '@/lib/commission';
 import { formatEur } from '@/lib/money';
 import { OTP_LENGTH } from '@/lib/otp';
-import { commissionFields, holdDaysText, rulesChange, rulesFormFrom, type RulesForm } from '@/lib/settings-forms';
+import {
+  commissionFields,
+  holdDaysText,
+  platformCommissionHint,
+  rulesChange,
+  rulesFormFrom,
+  serviceFeeRulesText,
+  type RulesForm,
+} from '@/lib/settings-forms';
 import { useSections } from '@/lib/use-sections';
 import { OtpInput } from '../OtpInput';
 import { LoadState, SaveRow, SettingsCard, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
@@ -80,12 +87,18 @@ export function RulesPanel() {
   }
 
   const effectiveDays = settings.effectivePayoutHoldDays ?? 0;
+  const serviceFee = serviceFeeRulesText(settings);
   return (
     <form onSubmit={onSubmit} className="np-set-stack" noValidate>
-      <SettingsCard
-        title="Cobros de las chicas"
-        hint={`OxioPay se lleva el ${formatPercent(settings.platformCommissionBps)} de cada cobro (lo cambia OxioPay). Lo de cada categoría es para quien crea el cobro; el resto, para el local.`}
-      >
+      <SettingsCard title="Comisión del servicio al cliente" hint={`${serviceFee.status} (la cambia OxioPay).`}>
+        <ul className="np-set-list">
+          {serviceFee.lines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      </SettingsCard>
+
+      <SettingsCard title="Cobros de las chicas" hint={platformCommissionHint(settings)}>
         <Input
           label="Tope por cobro de una chica (€)"
           inputMode="decimal"

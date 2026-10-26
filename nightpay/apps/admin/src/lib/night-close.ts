@@ -91,12 +91,22 @@ export function diffLabel(diffCents: number): string {
   return `${diffCents < 0 ? 'Faltan' : 'Sobran'} ${formatEur(Math.abs(diffCents))}`;
 }
 
-/** «Recargas del saldo en efectivo: 80,00 € (2).» (los Z de antes no traen el número). */
-export function cajaInText(caja: { cashInCents: number; walletCashTopUpsCount?: number; walletCashTopUpsCents?: number }): string {
+/**
+ * «Recargas del saldo en efectivo: 80,00 € (2).» (los Z de antes no traen el
+ * número). Con la comisión del servicio: «… (1) + 6,00 € de comisión del
+ * servicio (se debe a OxioPay).»
+ */
+export function cajaInText(caja: {
+  cashInCents: number;
+  walletCashTopUpsCount?: number;
+  walletCashTopUpsCents?: number;
+  walletCashTopUpFeesCents?: number;
+}): string {
   const count = caja.walletCashTopUpsCount;
+  const fee = caja.walletCashTopUpFeesCents ?? 0;
   return `Recargas del saldo en efectivo: ${formatEur(caja.walletCashTopUpsCents ?? caja.cashInCents)}${
     typeof count === 'number' ? ` (${count})` : ''
-  }.`;
+  }${fee !== 0 ? ` + ${formatEur(fee)} de comisión del servicio (se debe a OxioPay)` : ''}.`;
 }
 
 /**

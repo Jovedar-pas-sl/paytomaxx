@@ -297,6 +297,8 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
     ['Para las chicas', s.chicaNetCents],
     // Solo si el local da parte a los camareros de las copas con invitación (de fábrica, nada).
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
+    // La «Comisión del servicio» entra con lo cobrado, pero se debe a OxioPay (no es del local).
+    ...(s.serviceFeeNetCents ? ([['Comisión del servicio · se debe a OxioPay', s.serviceFeeNetCents]] as Array<[string, number]>) : []),
     // No es «Para el local» del mapa (el reparto de lo vendido): lleva las recargas y no resta comisiones.
     [zNetLabel(s), s.venueNetCents],
   ];
@@ -401,6 +403,7 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
     ['Neto', s.netCents],
     ['Para las chicas', s.chicaNetCents],
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
+    ...(s.serviceFeeNetCents ? ([['Comisión del servicio · se debe a OxioPay', s.serviceFeeNetCents]] as Array<[string, number]>) : []),
     [zNetLabel(s), s.venueNetCents],
   ];
   return (

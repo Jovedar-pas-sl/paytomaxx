@@ -49,6 +49,18 @@
   color: var(--np-text-mute);
 }
 
+/* Lo que solo se ve (la comisión del servicio al cliente): una línea por regla. */
+.np-set-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--np-text);
+}
+
 .np-set-note {
   padding: 0.75rem 1rem;
   border: 1px dashed var(--np-border-hi);

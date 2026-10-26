@@ -65,6 +65,8 @@ export interface MoneyMapView {
   inflow: Segment[];
   /** «+ Recargas 3.070 €: efectivo 1.070 € · tarjeta 2.000 € · no es venta» (null si no hubo). */
   topUps: { cents: number; detail: string } | null;
+  /** «+ Comisión del servicio 186 €: cobros 66 € · recargas 120 € · se debe a OxioPay» (null sin ella). */
+  serviceFee: { cents: number; detail: string } | null;
   sections: SectionRow[];
   /** Cómo se reparte lo vendido: el local, el personal y las comisiones (cada uno su gris; las comisiones, rayadas). */
   split: Segment[];
@@ -110,6 +112,17 @@ function sectionRows(m: MoneyMap, sections: readonly VenueSection[]): SectionRow
   }));
 }
 
+/** La comisión del servicio que entró (ventas con tarjeta y recargas), aparte: no es venta. */
+function serviceFeeLine(m: MoneyMap): MoneyMapView['serviceFee'] {
+  const fee = m.serviceFee;
+  const cents = m.inflow.serviceFeeCents ?? 0;
+  if (!fee || cents === 0) return null;
+  const detail = [fee.salesCents ? `cobros ${eurShort(fee.salesCents)}` : null, fee.topUpsCents ? `recargas ${eurShort(fee.topUpsCents)}` : null]
+    .filter(Boolean)
+    .join(' · ');
+  return { cents, detail };
+}
+
 function outflowRows(m: MoneyMap): OutRow[] {
   const o = m.outflow;
   const pendingNote = moneyMapIsCurrent(m) ? 'al cerrar' : 'pendiente al corte';
@@ -133,6 +146,7 @@ function outflowRows(m: MoneyMap): OutRow[] {
     note: bank === null ? 'OxioPay (el banco, en su extracto)' : 'banco y OxioPay',
     cents: o.commissionsCents,
   });
+  if (o.serviceFeeCents) rows.push({ key: 'service-fee', label: 'Comisión del servicio', note: 'se debe a OxioPay', cents: o.serviceFeeCents });
   return rows;
 }
 
@@ -207,6 +221,7 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
               .join(' · '),
           }
         : null,
+    serviceFee: serviceFeeLine(m),
     sections: rows,
     split: splitSegments(m),
     where: {
@@ -225,6 +240,10 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
         },
         // No es el saldo de los clientes: lo que el periodo sumó o restó a ese saldo.
         { key: 'saldo', label: 'Variación del saldo del periodo', cents: m.where.owners.saldoCents, color: 'var(--np-mm-saldo)' },
+        // La comisión del servicio entró con el resto, pero se debe a OxioPay.
+        ...(m.where.owners.oxioPayCents
+          ? [{ key: 'oxiopay', label: 'De OxioPay (comisión del servicio)', cents: m.where.owners.oxioPayCents, color: 'var(--np-mm-comision)' }]
+          : []),
       ],
       balance: { label: `Saldo real de clientes ${moneyMapIsCurrent(m) ? 'ahora' : 'al corte'}`, cents: m.where.liveSaldoCents },
       note: whereNote(m),

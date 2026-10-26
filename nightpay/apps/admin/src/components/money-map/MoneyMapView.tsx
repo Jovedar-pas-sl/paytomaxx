@@ -82,6 +82,13 @@ export function MoneyMapView({ map, wide = false, onOpen }: { map: MoneyMap; wid
             </p>
           ) : null}
           <Detail detail={details.topUps} />
+          {v.serviceFee ? (
+            <p className="np-mm-hold">
+              + Comisión del servicio <b>{eurShort(v.serviceFee.cents)}</b>:{' '}
+              {v.serviceFee.detail ? <span>{v.serviceFee.detail} · </span> : null}se debe a OxioPay
+            </p>
+          ) : null}
+          {details.serviceFee ? <Detail detail={details.serviceFee} /> : null}
         </section>
 
         <section className="np-mm-block" aria-label="Por sección">

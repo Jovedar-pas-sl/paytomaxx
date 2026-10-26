@@ -90,6 +90,13 @@ describe('efectivo tecleado', () => {
     expect(cajaInText({ cashInCents: 500 })).toMatch(/^Recargas del saldo en efectivo: 5,00\s€\.$/);
   });
 
+  it('con la comisión del servicio de esas recargas: en la caja, pero se debe a OxioPay', () => {
+    const sp = (t: string) => t.replace(/\u00a0/g, ' ');
+    expect(sp(cajaInText({ cashInCents: 5600, walletCashTopUpsCount: 1, walletCashTopUpsCents: 5000, walletCashTopUpFeesCents: 600 }))).toBe(
+      'Recargas del saldo en efectivo: 50,00 € (1) + 6,00 € de comisión del servicio (se debe a OxioPay).',
+    );
+  });
+
   it('el bloque «Caja» dice lo que salió: a las chicas y, aparte, a los camareros (los Z de antes, «al personal»)', () => {
     const sp = (t: string) => t.replace(/\u00a0/g, ' ');
     const out = { walletCashPayoutsCount: 1, walletCashPayoutsCents: 4500, chicaCashPayoutsCount: 1, chicaCashPayoutsCents: 751 };

@@ -85,6 +85,13 @@ function TotalsBand({ totals }: { totals: OverviewTotals }) {
       <dl className="np-sa-figs">
         <Figure label="Cobrado hoy" value={formatEur(totals.chargedTodayCents)} hero note={`${totals.paymentsToday} cobros`} />
         <Figure label="Esta semana" value={formatEur(totals.chargedWeekCents)} />
+        {totals.serviceFeeWeekCents ? (
+          <Figure
+            label="Comisión del servicio"
+            value={formatEur(totals.serviceFeeWeekCents)}
+            note="esta semana · la pagan los clientes"
+          />
+        ) : null}
         <Figure
           label="Pendiente a chicas"
           value={formatEur(totals.pendingToChicasCents)}
@@ -154,6 +161,7 @@ function VenueTile({ venue }: { venue: OverviewVenue }) {
           <span className="np-sa-venue-name">{venue.name}</span>
           {isCurrent ? <Pill tone="info">Estás aquí</Pill> : null}
           {pause ? <Pill tone="warning">{pause}</Pill> : null}
+          {venue.serviceFeeEnabled ? <Pill tone="info">Comisión del servicio</Pill> : null}
         </span>
         <span className="np-sa-venue-figs">
           <VenueFig label="Hoy" value={formatEur(venue.chargedTodayCents)} hero />
@@ -161,6 +169,9 @@ function VenueTile({ venue }: { venue: OverviewVenue }) {
           <VenueFig label="A chicas" value={formatEur(venue.pendingToChicasCents)} />
           <VenueFig label="Saldo clientes" value={formatEur(venue.liveCustomerBalanceCents)} />
           <VenueFig label="Cobros hoy" value={String(venue.paymentsToday)} />
+          {venue.serviceFeeEnabled || venue.serviceFeeWeekCents ? (
+            <VenueFig label="Comisión servicio (semana)" value={formatEur(venue.serviceFeeWeekCents ?? 0)} />
+          ) : null}
         </span>
         <span className="np-sa-venue-foot">
           <span data-alert={venue.openIncidents > 0 ? 'true' : undefined}>

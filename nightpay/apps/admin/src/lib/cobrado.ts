@@ -1,7 +1,9 @@
 // «Cobrado» (Hoy y el Z de Noches), por partes (lógica pura). Lo cobrado es
-// el dinero que entró: ventas con tarjeta, propinas y recargas del saldo (con
-// tarjeta y en efectivo). Las recargas no son venta (son saldo de los
-// clientes), así que el subtítulo dice exactamente de qué está hecho el total.
+// el dinero que entró: ventas con tarjeta, propinas, recargas del saldo (con
+// tarjeta y en efectivo) y, si el local la tiene, la «Comisión del servicio»
+// (la paga el cliente encima y se debe a OxioPay). Las recargas no son venta
+// (son saldo de los clientes), así que el subtítulo dice exactamente de qué
+// está hecho el total.
 
 export interface CobradoParts {
   /** Ventas con tarjeta, sin propinas ni recargas. */
@@ -9,6 +11,8 @@ export interface CobradoParts {
   tipCents: number;
   /** Recargas del saldo, con tarjeta y en efectivo. */
   topUpCents: number;
+  /** «Comisión del servicio» (solo si la hubo). */
+  serviceFeeCents?: number;
 }
 
 /**
@@ -21,12 +25,14 @@ export function metricsCobradoParts(m: {
   tipCents?: number;
   walletCashTopUpCents?: number;
   walletCardTopUpCents?: number;
+  serviceFeeCents?: number;
 }): CobradoParts | null {
   if (m.walletCardTopUpCents === undefined) return null;
   return {
     salesCents: m.grossCents - m.walletCardTopUpCents,
     tipCents: m.tipCents ?? 0,
     topUpCents: m.walletCardTopUpCents + (m.walletCashTopUpCents ?? 0),
+    ...(m.serviceFeeCents ? { serviceFeeCents: m.serviceFeeCents } : {}),
   };
 }
 
@@ -36,12 +42,14 @@ export function zCobradoParts(s: {
   tipsCents: number;
   walletCashTopUpsCents?: number;
   walletCardTopUpsCents?: number;
+  serviceFeeCents?: number;
 }): CobradoParts | null {
   return metricsCobradoParts({
     grossCents: s.grossCents,
     tipCents: s.tipsCents,
     walletCashTopUpCents: s.walletCashTopUpsCents,
     walletCardTopUpCents: s.walletCardTopUpsCents,
+    serviceFeeCents: s.serviceFeeCents,
   });
 }
 
@@ -52,6 +60,7 @@ export function cobradoNote(p: CobradoParts | null, eur: (cents: number) => stri
     p.salesCents !== 0 ? `${eur(p.salesCents)} de ventas` : null,
     p.tipCents !== 0 ? `${eur(p.tipCents)} de propinas` : null,
     p.topUpCents !== 0 ? `${eur(p.topUpCents)} de recargas` : null,
+    p.serviceFeeCents ? `${eur(p.serviceFeeCents)} de comisión del servicio` : null,
   ].filter((x): x is string => x !== null);
   return parts.length > 0 ? parts.join(' + ') : null;
 }
@@ -64,12 +73,23 @@ export function cobradoNote(p: CobradoParts | null, eur: (cents: number) => stri
  * recargas en efectivo.
  */
 export function zClosedLines(
-  s: { count: number; chargedCents: number; grossCents: number; tipsCents: number; walletCashTopUpsCents?: number; walletCardTopUpsCents?: number },
+  s: {
+    count: number;
+    chargedCents: number;
+    grossCents: number;
+    tipsCents: number;
+    walletCashTopUpsCents?: number;
+    walletCardTopUpsCents?: number;
+    serviceFeeCents?: number;
+    serviceFeeCashCents?: number;
+  },
   eur: (cents: number) => string,
 ): { cobrado: string; card: string } {
   const parts = cobradoNote(zCobradoParts(s), eur);
+  // Con tarjeta va también la comisión del servicio de esos pagos (la de las recargas en efectivo está en la caja).
+  const cardFee = (s.serviceFeeCents ?? 0) - (s.serviceFeeCashCents ?? 0);
   return {
     cobrado: parts ? `Cobrado: ${eur(s.chargedCents)} (${parts})` : `Cobrado: ${eur(s.chargedCents)}`,
-    card: `Con tarjeta: ${s.count} ${s.count === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents)}`,
+    card: `Con tarjeta: ${s.count} ${s.count === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents + cardFee)}`,
   };
 }

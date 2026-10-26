@@ -109,6 +109,15 @@ describe('9.1 · ficha del saldo', () => {
     ]);
   });
 
+  it('una recarga con la comisión del servicio: el saldo es la recarga; lo que pagó, en el detalle', () => {
+    const base = ficha().topUps[0]!;
+    const s = walletSheet(ficha({ topUps: [{ ...base, amountCents: 5_000, serviceFeeCents: 600 }] }), SECTIONS, TZ, NOW);
+    const row = s.rows.find((r) => r.key === 'topup-CASH-t1')!;
+    expect(sp(row.amount)).toBe('+50 €');
+    expect(sp(row.sub)).toBe('Recepción · Sergio · pagó 56 € (6 € de comisión del servicio)');
+    expect(s.stats.topped).toBe(5_000);
+  });
+
   it('sin ficha NFC, con una anulación de recarga y una devolución a la tarjeta pendiente', () => {
     const s = walletSheet(
       ficha({

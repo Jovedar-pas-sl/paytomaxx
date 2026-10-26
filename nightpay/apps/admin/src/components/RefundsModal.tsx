@@ -6,6 +6,7 @@ import { fetchRefunds, resolvePendingRefund, type PaymentRow, type Refund } from
 import { ApiError } from '@/lib/api-errors';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur, formatMoney } from '@/lib/money';
+import { refundServiceFeeHint } from '@/lib/service-fee-text';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
 import { Pill, type Tone } from './Pill';
@@ -64,6 +65,7 @@ export function RefundsModal({
           {formatDateTime(payment.createdAt, tz, 'short')} · queda por devolver{' '}
           {formatMoney(payment.availableAmountCents, payment.currency)}
         </p>
+        {refundServiceFeeHint(payment) ? <p style={metaStyle}>{refundServiceFeeHint(payment)}</p> : null}
         {loadError ? (
           <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => setAttempt((n) => n + 1) }}>
             {loadError}

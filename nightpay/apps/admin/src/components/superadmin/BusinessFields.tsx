@@ -71,6 +71,24 @@ export function BusinessFields({ form, onChange, disabled }: Props) {
         hint="La que se queda la plataforma en los locales nuevos de este negocio."
         disabled={disabled}
       />
+      <Input
+        label="Comisión del servicio en los pagos con tarjeta (%)"
+        inputMode="decimal"
+        value={form.serviceFeePct}
+        onChange={set('serviceFeePct')}
+        placeholder="La de fábrica (10 %)"
+        hint="La que paga el cliente encima en los locales nuevos de este negocio (de 0 a 12 %). Se enciende local a local."
+        disabled={disabled}
+      />
+      <Input
+        label="Comisión del servicio en las recargas (%)"
+        inputMode="decimal"
+        value={form.topUpServiceFeePct}
+        onChange={set('topUpServiceFeePct')}
+        placeholder="La de fábrica (10 %)"
+        hint="La de las recargas del saldo en sus locales nuevos (de 0 a 12 %)."
+        disabled={disabled}
+      />
       <label htmlFor={notesId} className="np-sa-field np-sa-span-2">
         <span className="np-sa-label">Notas</span>
         <textarea

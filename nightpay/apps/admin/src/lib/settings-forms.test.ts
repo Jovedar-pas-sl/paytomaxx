@@ -12,8 +12,10 @@ import {
   parseTipEuros,
   parseTipPercents,
   personCan,
+  platformCommissionHint,
   rulesChange,
   rulesFormFrom,
+  serviceFeeRulesText,
   tipEurosText,
   waiterHint,
 } from './settings-forms';
@@ -161,5 +163,36 @@ describe('camareros con y sin datáfono', () => {
       'Cobran desde su app; de esto, solo pueden cobrar recargas en efectivo si se lo das y, los de recepción, devolver el saldo en efectivo a la salida.',
     );
     expect(waiterHint(false)).not.toMatch(/datáfono/i);
+  });
+});
+
+describe('Ajustes → Reglas: la «Comisión del servicio al cliente» (solo se ve: la pone OxioPay)', () => {
+  const sp = (s: string) => s.replace(/\s/g, ' ');
+  const on: VenueSettings = { ...settings, platformCommissionBps: 1000, serviceFeeEnabled: true, serviceFeeBps: 1000, topUpServiceFeeBps: 1200 };
+
+  it('encendida: los dos % con su ejemplo, y lo que no la lleva', () => {
+    const t = serviceFeeRulesText(on);
+    expect(t.status).toBe('Encendida');
+    expect(t.lines.map(sp)).toEqual([
+      'Pagos con tarjeta, Apple Pay, Google Pay o datáfono: 10 % encima (un cobro de 33 € → el cliente paga 36,30 €).',
+      'Recargas del saldo (tarjeta o efectivo): 12 % encima (recarga 50 € → paga 56 €; le quedan 50 € de saldo).',
+      'Gastar del saldo y las propinas no la llevan. Es de OxioPay: entra con el resto del cobro y se apunta aparte.',
+    ]);
+  });
+
+  it('apagada (o un API de antes, sin los campos): lo dice y no hay más', () => {
+    expect(serviceFeeRulesText(settings)).toEqual({
+      status: 'Apagada',
+      lines: ['Los clientes pagan el precio, sin nada encima. La enciende OxioPay.'],
+    });
+  });
+
+  it('la comisión de la plataforma: con la del servicio encendida, el local ya no la paga', () => {
+    expect(sp(platformCommissionHint({ ...settings, platformCommissionBps: 1000 }))).toBe(
+      'OxioPay se lleva el 10 % de cada cobro (lo cambia OxioPay). Lo de cada categoría es para quien crea el cobro; el resto, para el local.',
+    );
+    expect(sp(platformCommissionHint(on))).toBe(
+      'Con la comisión del servicio encendida, OxioPay no se lleva nada de tus cobros: la paga el cliente encima. Lo de cada categoría es para quien crea el cobro; el resto, para el local.',
+    );
   });
 });

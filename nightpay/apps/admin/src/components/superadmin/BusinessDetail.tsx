@@ -11,8 +11,8 @@ import {
   unassignSaVenue,
   updateSaBusiness,
 } from '@/lib/endpoints/superadmin';
-import { businessChanges, businessFormFrom, businessPayload, type BusinessForm } from '@/lib/superadmin/forms';
-import { commissionText, venuePauseLabel } from '@/lib/superadmin/labels';
+import { businessChanges, businessFormFrom, businessMoneyChanges, businessPayload, type BusinessForm } from '@/lib/superadmin/forms';
+import { venuePauseLabel } from '@/lib/superadmin/labels';
 import { Pill } from '../Pill';
 import { BusinessFields } from './BusinessFields';
 import { useSa } from './context';
@@ -131,9 +131,9 @@ function BusinessDataCard({
         <StepUpDialog
           title="Cambiar la comisión del negocio"
           action="business.updateMoney"
-          summary={`Vas a cambiar la comisión por defecto de ${business.name}: ${commissionText(
-            business.defaultPlatformCommissionBps,
-          )} → ${commissionText(pending.defaultPlatformCommissionBps ?? null)}. La heredan sus locales nuevos.`}
+          summary={`Vas a cambiar las comisiones por defecto de ${business.name}: ${businessMoneyChanges(business, pending).join(
+            '; ',
+          )}. Las heredan sus locales nuevos.`}
           submitLabel="Guardar cambios"
           onSubmit={async ({ totpCode }) => {
             onSaved(await updateSaBusiness(business.id, pending, totpCode));

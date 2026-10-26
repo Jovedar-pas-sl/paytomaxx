@@ -424,6 +424,9 @@ export class AdminController {
         cardBrand: true,
         payMethodCode: true,
         authorizedAt: true,
+        // «Comisión del servicio»: la que pagó el cliente encima y si era una recarga (no se devuelve).
+        serviceFeeCents: true,
+        walletId: true,
         // Todos los pedidos enviados al banco (un cobro puede tener varios
         // intentos): para buscarlos en el portal al resolver a mano.
         attempts: {

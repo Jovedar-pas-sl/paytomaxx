@@ -5,8 +5,7 @@ import { Button, Card, Input, Modal, Select } from '@nightpay/ui';
 import { businessCreateNeedsStepUp, type BusinessStatusValue, type CreateBusinessDto } from '@nightpay/contracts';
 import { formatPercent } from '@/lib/commission';
 import { createSaBusiness, fetchSaBusinesses } from '@/lib/endpoints/superadmin';
-import { EMPTY_BUSINESS_FORM, businessPayload, type BusinessForm } from '@/lib/superadmin/forms';
-import { commissionText } from '@/lib/superadmin/labels';
+import { EMPTY_BUSINESS_FORM, businessMoneyChanges, businessPayload, type BusinessForm } from '@/lib/superadmin/forms';
 import { businessesQuery } from '@/lib/superadmin/query';
 import { Pill } from '../Pill';
 import { BusinessDetailView } from './BusinessDetail';
@@ -155,9 +154,7 @@ function CreateBusinessDialog({ onClose, onCreated }: { onClose: () => void; onC
       <StepUpDialog
         title="Nuevo negocio"
         action="business.createMoney"
-        summary={`Vas a dar de alta ${pending.name} con una comisión por defecto del ${commissionText(
-          pending.defaultPlatformCommissionBps ?? null,
-        )}: la heredan sus locales nuevos.`}
+        summary={`Vas a dar de alta ${pending.name} con: ${businessMoneyChanges(null, pending).join('; ')}. Lo heredan sus locales nuevos.`}
         submitLabel="Dar de alta"
         onSubmit={async ({ totpCode }) => onCreated((await createSaBusiness(pending, totpCode)).id)}
         onClose={() => setPending(null)}

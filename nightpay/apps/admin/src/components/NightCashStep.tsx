@@ -80,6 +80,12 @@ export function NightCashStep({
             <span className="np-num">+{formatEur(cash.walletCashTopUpsCents)}</span>
           </li>
         ) : null}
+        {cash.walletCashTopUpFeesCents ? (
+          <li>
+            <span>Comisión del servicio de esas recargas (se debe a OxioPay)</span>
+            <span className="np-num">+{formatEur(cash.walletCashTopUpFeesCents)}</span>
+          </li>
+        ) : null}
         <li>
           <span>Saldo devuelto en efectivo ({cash.walletCashPayoutsCount})</span>
           <span className="np-num">{formatEur(-cash.walletCashPayoutsCents)}</span>

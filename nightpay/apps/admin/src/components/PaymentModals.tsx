@@ -10,6 +10,7 @@ import { refundSummary } from '@/lib/confirm-summary';
 import { formatDateTime } from '@/lib/dates';
 import { useLockActive } from '@/lib/use-lock';
 import { centsToInput, formatEur, formatMoney } from '@/lib/money';
+import { refundServiceFeeHint } from '@/lib/service-fee-text';
 import { useVenue, useVenueTimezone } from '@/lib/venue-context';
 import { ConfirmLine } from './ConfirmLine';
 import { Notice } from './Notice';
@@ -319,6 +320,7 @@ export function RefundModal({
         ID <code style={codeStyle}>{payment.id.slice(0, 8)}…</code> · disponible{' '}
         <span className="np-num">{formatEur(payment.availableAmountCents)}</span>
       </p>
+      {refundServiceFeeHint(payment) ? <p style={metaStyle}>{refundServiceFeeHint(payment)}</p> : null}
       <form onSubmit={handleSubmit} style={formStyle}>
         <Input
           label="Importe (€)"
