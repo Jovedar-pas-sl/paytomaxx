@@ -359,6 +359,36 @@ describe('PaytefAdapter.verifyWebhook (URL secreta + payload)', () => {
     }
   });
 
+  describe('id del aviso sin lastResult.txnKey (DIN-7)', () => {
+    const idOf = (data: Record<string, unknown>): string => {
+      const body = JSON.stringify({ paymentID: 'pl-1', data: { id: 'pl-1', clientID: 'pay-uuid', ...data } });
+      const res = adapter.verifyWebhook({}, Buffer.from(body, 'utf8'));
+      if (!res.valid) throw new Error(`aviso rechazado: ${res.reason}`);
+      return res.externalEventId;
+    };
+
+    it('avisos distintos del mismo link tienen ids distintos: uno de ciclo de vida no tapa un aprobado posterior', () => {
+      const lifecycle = idOf({});
+      const approved = idOf({ lastResult: { isApproved: true } });
+      const denied = idOf({ lastResult: { isApproved: false, resultCode: '190' } });
+      const canceled = idOf({ isCanceled: true });
+      const expired = idOf({ isExpired: true });
+      expect(new Set([lifecycle, approved, denied, canceled, expired]).size).toBe(5);
+      for (const id of [lifecycle, approved, denied, canceled, expired]) expect(id.startsWith('pl-1_')).toBe(true);
+    });
+
+    it('el mismo aviso repetido (reintento de Paytef) da el mismo id: se descarta como duplicado', () => {
+      expect(idOf({ isCanceled: true })).toBe(idOf({ isCanceled: true }));
+      expect(idOf({ lastResult: { isApproved: true } })).toBe(idOf({ lastResult: { isApproved: true } }));
+      // Campos que no cambian el estado (importe, tarjeta…) no lo cambian.
+      expect(idOf({ isExpired: true, amountCents: 1000 })).toBe(idOf({ isExpired: true }));
+    });
+
+    it('con txnKey, el id de siempre (pl-1_t-1): los avisos ya guardados siguen siendo duplicados', () => {
+      expect(idOf({ lastResult: { txnKey: 't-1', isApproved: true } })).toBe('pl-1_t-1');
+    });
+  });
+
   it('rechaza JSON inválido', () => {
     const res = adapter.verifyWebhook({}, Buffer.from('not json', 'utf8'));
     expect(res.valid).toBe(false);
