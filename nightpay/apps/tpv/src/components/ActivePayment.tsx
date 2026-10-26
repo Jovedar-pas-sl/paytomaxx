@@ -17,7 +17,7 @@ import {
   type PaymentStatus,
   type QrDeadline,
 } from '@nightpay/ui';
-import { confirmationCode } from '@nightpay/contracts';
+import { chargeBreakdownText, confirmationCode, formatMoney } from '@nightpay/contracts';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
 
 /** Estados en los que el QR ya no se puede pagar: basta con "Nuevo cobro". */
@@ -92,14 +92,18 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
     }
   }
 
+  // «Comisión del servicio»: el cliente paga el importe + ella (el banco cobra el total).
+  const feeCents = Math.max(0, payment.serviceFeeCents ?? 0);
+  const breakdown = feeCents > 0 ? chargeBreakdownText({ baseCents: payment.amountCents, feeCents, tipCents: 0 }) : null;
   const outcome = outcomeKindOf(shown);
   if (outcome) {
     return (
       <PaymentOutcome
         key={outcome}
         kind={outcome}
-        amountCents={payment.amountCents}
+        amountCents={payment.amountCents + feeCents}
         currency={payment.currency}
+        detail={breakdown ? <p style={hintStyle}>{breakdown}</p> : undefined}
         message={outcome === 'failed' ? 'Que el cliente pruebe con otra tarjeta.' : undefined}
         code={outcome === 'paid' ? confirmationCode(payment.id) : null}
         codeHint="Debe coincidir con el del móvil del cliente."
@@ -121,6 +125,11 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
       <Card variant="glow" style={{ padding: '2rem', textAlign: 'center' }}>
         <p style={sectionLabel}>Importe</p>
         <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={shown} />
+        {breakdown ? (
+          <p style={hintStyle}>
+            Con tarjeta paga {formatMoney(payment.amountCents + feeCents, { compact: true, currency: payment.currency })} ({breakdown})
+          </p>
+        ) : null}
         <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
           <StatusPill status={shown} />
         </div>

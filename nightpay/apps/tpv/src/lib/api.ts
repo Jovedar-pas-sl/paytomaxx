@@ -50,6 +50,11 @@ export interface CreatedPayment {
   qrPngDataUrl: string;
   qrExpiresAt: string;
   createdAt: string;
+  /**
+   * «Comisión del servicio» que paga el cliente encima con tarjeta (la
+   * cobra el banco con el importe). Un API de antes no la manda: 0.
+   */
+  serviceFeeCents?: number;
 }
 
 const client = createApiClient<TpvUser>({
