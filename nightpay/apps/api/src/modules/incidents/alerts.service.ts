@@ -4,9 +4,10 @@ import { alertKindForIncident, alertSettingsOf, type VenueAlertSettings } from '
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { lastNightCutoff, madridAt, madridDay } from '../../common/time/madrid';
-import { summarize } from '../reports/export-csv';
+import { summarize, type ExportSummary } from '../reports/export-csv';
 import { ReportsService } from '../reports/reports.service';
 import { incidentMessage, morningSummaryMessage } from './alert-messages';
+import { mergeSummaries, type SummaryScope } from './morning-summary';
 import { IncidentsService } from './incidents.service';
 import { TelegramService } from './telegram.service';
 
@@ -118,43 +119,69 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     if (!settings.kinds.summary) return;
     const today = madridDay(now);
     if (now < madridAt(today, SUMMARY_HOUR) || now >= madridAt(today, SUMMARY_LAST_HOUR)) return;
+    const key = `np:summary:${venue.id}:${today}`;
+    // Ya enviado hoy: ni se calcula (antes se calculaban los informes en cada
+    // vuelta de 5 min hasta las 14:00 y se tiraban). La marca se reserva con
+    // SET NX al enviar (sendOnce): dos réplicas no lo mandan dos veces.
+    if ((await this.redis.exists(key)) > 0) return;
     // La noche anterior: de las 08:00 de ayer a las 08:00 de hoy (como el cierre automático).
     const to = lastNightCutoff(now);
     const from = lastNightCutoff(new Date(to.getTime() - 1));
     const window = { from, to };
-    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo] = await Promise.all([
-      this.reports.cobros(venue.id, window),
-      this.reports.devoluciones(venue.id, window),
-      this.reports.liquidaciones(venue.id, window),
-      this.reports.consumos(venue.id, window),
-      this.reports.pagosSaldo(venue.id, window),
-      this.reports.recargasEfectivo(venue.id, window),
-    ]);
-    const summary = summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo);
-    const cashDiff = await this.cashDiffCents(venue.id, window);
+    const nights = await this.closedNights(venue.id, window);
+    // Con la noche cerrada, su Z congelado (lo del panel → Noches); sin ella,
+    // lo apuntado de 08:00 a 08:00 (y el aviso dice que no es un Z).
+    const frozen = nights.flatMap((n) => (n.summary ? [{ ...n, summary: n.summary }] : []));
+    const scope: SummaryScope =
+      frozen.length > 0 ? { kind: 'nights', nights: frozen.map((n) => ({ closedAt: n.closedAt, autoClosed: n.autoClosed })) } : { kind: 'window' };
+    const summary = frozen.length > 0 ? mergeSummaries(frozen.map((n) => n.summary)) : await this.liveSummary(venue.id, window);
+    // Diferencia de caja de las noches cerradas en ese tramo (contado − esperado).
+    const cashDiff = nights.reduce((sum, n) => sum + (n.cashDiffCents ?? 0), 0);
     const quiet = summary.count === 0 && !summary.walletCashTopUpsCount;
     if (quiet && open.length === 0 && !cashDiff) return; // local cerrado y nada pendiente
     const bankFilePending = summary.count > 0 && !(await this.bankFileCovers(venue.id, madridDay(from)));
     await this.sendOnce(
-      `np:summary:${venue.id}:${today}`,
+      key,
       2 * 24 * 60 * 60,
-      () => morningSummaryMessage(venue.name, summary, open.length, bankFilePending, cashDiff),
+      () => morningSummaryMessage(venue.name, summary, open.length, bankFilePending, cashDiff, scope),
       chatId,
     );
   }
 
+  /** Lo apuntado en el tramo, tal como está ahora (sin noche cerrada). */
+  private async liveSummary(venueId: string, window: { from: Date; to: Date }): Promise<ExportSummary> {
+    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo] = await Promise.all([
+      this.reports.cobros(venueId, window),
+      this.reports.devoluciones(venueId, window),
+      this.reports.liquidaciones(venueId, window),
+      this.reports.consumos(venueId, window),
+      this.reports.pagosSaldo(venueId, window),
+      this.reports.recargasEfectivo(venueId, window),
+    ]);
+    return summarize(cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo);
+  }
+
   /**
-   * Diferencia de caja de las noches cerradas en ese tramo (contado −
-   * esperado). Las 08:00 entran: es la hora del cierre automático.
+   * Noches cerradas en ese tramo, por orden de cierre, con su Z congelado y
+   * su diferencia de caja. Las 08:00 entran: es la hora del cierre automático.
    */
-  private async cashDiffCents(venueId: string, window: { from: Date; to: Date }): Promise<number> {
+  private async closedNights(
+    venueId: string,
+    window: { from: Date; to: Date },
+  ): Promise<Array<{ closedAt: Date; autoClosed: boolean; cashDiffCents: number | null; summary: ExportSummary | null }>> {
     const nights = await this.prisma.asSystem((tx) =>
       tx.venueNight.findMany({
-        where: { tenantId: venueId, closedAt: { gt: window.from, lte: window.to }, cashDiffCents: { not: null } },
-        select: { cashDiffCents: true },
+        where: { tenantId: venueId, closedAt: { gt: window.from, lte: window.to } },
+        orderBy: { closedAt: 'asc' },
+        select: { closedAt: true, autoClosed: true, cashDiffCents: true, zReport: true },
       }),
     );
-    return nights.reduce((sum, n) => sum + (n.cashDiffCents ?? 0), 0);
+    return nights.map((n) => ({
+      closedAt: n.closedAt!,
+      autoClosed: n.autoClosed,
+      cashDiffCents: n.cashDiffCents,
+      summary: frozenSummaryOf(n.zReport),
+    }));
   }
 
   /** ¿Algún local del grupo ya subió un fichero del banco que cubre ese día? */
@@ -194,4 +221,13 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     }
     return ok;
   }
+}
+
+/** El resumen congelado de un Z (zReport.summary), si lo tiene. */
+function frozenSummaryOf(zReport: unknown): ExportSummary | null {
+  if (!zReport || typeof zReport !== 'object') return null;
+  const summary = (zReport as { summary?: unknown }).summary;
+  return summary && typeof summary === 'object' && typeof (summary as ExportSummary).count === 'number'
+    ? (summary as ExportSummary)
+    : null;
 }

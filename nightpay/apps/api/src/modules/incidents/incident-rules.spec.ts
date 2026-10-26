@@ -95,8 +95,10 @@ describe('resumen de las 9:00', () => {
     expect(morningSummaryMessage('Local Centro', summary, 0)).not.toContain('Cuadre con el banco');
     expect(morningSummaryMessage('Local Centro', summary, 1)).toBe(
       [
-        '☀️ Local Centro — anoche',
-        '12 pagos con tarjeta · cobrado 1220,00 €',
+        '☀️ Local Centro — anoche: de las 08:00 de ayer a las 08:00 de hoy (sin noche cerrada)',
+        // Un Z de antes del 23-oct no trae las recargas con tarjeta aparte: sin desglose (no cuadraría).
+        'Cobrado: 1220,00 €',
+        'Con tarjeta: 12 pagos · 1220,00 €',
         'Propinas: 20,00 €',
         'Devoluciones: −100,00 €',
         'Para las chicas: 920,00 € · neto sin el personal: 200,00 €',
@@ -161,13 +163,67 @@ describe('resumen de las 9:00: las cifras dicen lo que cuentan', () => {
     saldoByType: [],
   };
 
+  it('«cobrado» como en el panel (ventas + propinas + recargas, con el desglose) y lo de la tarjeta aparte: lo que verá en el banco (DIN-3)', () => {
+    const text = morningSummaryMessage('Sala Aurora', demo, 0);
+    // Antes: «11 pagos con tarjeta · cobrado 1109,00 €», y 450 € eran efectivo.
+    expect(text).not.toContain('11 pagos con tarjeta · cobrado 1109,00 €');
+    expect(text).toContain('Cobrado: 1109,00 € (533,00 € de ventas + 26,00 € de propinas + 550,00 € de recargas)');
+    // 9 ventas y 2 recargas con tarjeta (633 €) + 26 € de propinas.
+    expect(text).toContain('Con tarjeta: 11 pagos · 659,00 €');
+    // Las propinas ya van en el desglose de «Cobrado».
+    expect(text).not.toContain('Propinas:');
+  });
+
   it('«11 pagos con tarjeta» (no «cobros»: los del saldo no van ahí), las dos recargas y el neto sin el personal (no «para el local»)', () => {
     const text = morningSummaryMessage('Sala Aurora', demo, 0);
-    expect(text).toContain('11 pagos con tarjeta · cobrado 1109,00 €');
+    expect(text).toContain('Con tarjeta: 11 pagos');
     expect(text).toContain('Recargas con tarjeta: 2 · 100,00 €');
     expect(text).toContain('Recargas en efectivo: 6 · 450,00 € (en la caja)');
     expect(text).toContain('Para las chicas: 93,00 € · neto sin el personal: 984,00 €');
     expect(text).not.toContain('para el local');
+  });
+});
+
+describe('resumen de las 9:00: qué tramo resume (DIN-4)', () => {
+  const s: ExportSummary = {
+    count: 1, grossCents: 1000, tipsCents: 0, chargedCents: 1000, refundsCount: 0, refundsCents: 0, netCents: 1000,
+    walletCardTopUpsCount: 0, walletCardTopUpsCents: 0, walletCashTopUpsCount: 0, walletCashTopUpsCents: 0,
+    byType: [], chicaCommissionCents: 0, chicaTipsCents: 0, chicaReversalsCents: 0, chicaNetCents: 0,
+    venueTipsCents: 0, venueNetCents: 1000, payoutsCount: 0, payoutsCents: 0, perChica: [],
+    walletCashPayoutsCount: 0, walletCashPayoutsCents: 0, walletCardPayoutsCount: 0, walletCardPayoutsCents: 0,
+    consumptionsCount: 0, consumptionsCents: 0, saldoByType: [],
+  };
+  const first = (scope: Parameters<typeof morningSummaryMessage>[5]) =>
+    morningSummaryMessage('Sala Aurora', s, 0, false, null, scope).split('\n')[0];
+
+  it('la noche cerrada a mano: su Z, con la hora del cierre (Madrid)', () => {
+    expect(first({ kind: 'nights', nights: [{ closedAt: new Date('2026-10-14T03:00:00Z'), autoClosed: false }] })).toBe(
+      '☀️ Sala Aurora — anoche: el Z de la noche cerrada a las 05:00',
+    );
+  });
+
+  it('la que se cerró sola a las 08:00', () => {
+    expect(first({ kind: 'nights', nights: [{ closedAt: new Date('2026-10-14T06:00:00Z'), autoClosed: true }] })).toBe(
+      '☀️ Sala Aurora — anoche: el Z de la noche, cerrada sola a las 08:00',
+    );
+  });
+
+  it('dos cierres en el mismo tramo: los dos Z sumados, y lo dice', () => {
+    expect(
+      first({
+        kind: 'nights',
+        nights: [
+          { closedAt: new Date('2026-10-13T21:40:00Z'), autoClosed: false },
+          { closedAt: new Date('2026-10-14T03:00:00Z'), autoClosed: false },
+        ],
+      }),
+    ).toBe('☀️ Sala Aurora — anoche: los Z de 2 noches cerradas (a las 23:40 y a las 05:00)');
+  });
+
+  it('sin noche cerrada: de 08:00 a 08:00, y que no es un Z', () => {
+    expect(first({ kind: 'window' })).toBe(
+      '☀️ Sala Aurora — anoche: de las 08:00 de ayer a las 08:00 de hoy (sin noche cerrada)',
+    );
   });
 });
 

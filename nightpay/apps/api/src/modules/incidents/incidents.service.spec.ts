@@ -405,11 +405,12 @@ describe('alertas por Telegram', () => {
   function makeAlerts(
     open: Incident[],
     cobros: unknown[] = [],
-    cashNights: Array<{ cashDiffCents: number }> = [],
+    cashNights: Array<Record<string, unknown>> = [],
     alertSettings: unknown = null,
   ) {
     const claimed = new Set<string>();
     const redis = {
+      exists: vi.fn().mockImplementation(async (key: string) => (claimed.has(key) ? 1 : 0)),
       set: vi.fn().mockImplementation(async (key: string) => {
         if (claimed.has(key)) return null;
         claimed.add(key);
@@ -421,11 +422,17 @@ describe('alertas por Telegram', () => {
       }),
     };
     const prisma = {
-      venue: { findMany: vi.fn().mockResolvedValue([{ id: 't-1', name: 'Local Centro', alertSettings }]) },
+      venue: {
+        findMany: vi.fn().mockResolvedValue([{ id: 't-1', name: 'Local Centro', alertSettings }]),
+        findUnique: vi.fn().mockResolvedValue({ walletGroup: null }),
+      },
       venueNight: { findMany: vi.fn().mockResolvedValue(cashNights) },
+      bankStatement: { findFirst: vi.fn().mockResolvedValue(null) },
       asSystem: vi.fn(),
+      acrossVenues: vi.fn(),
     };
     prisma.asSystem.mockImplementation((fn: (tx: typeof prisma) => unknown) => fn(prisma));
+    prisma.acrossVenues.mockImplementation((fn: (tx: typeof prisma) => unknown) => fn(prisma));
     const incidents = { list: vi.fn().mockResolvedValue(open) };
     const reports = {
       cobros: vi.fn().mockResolvedValue(cobros),
@@ -441,7 +448,7 @@ describe('alertas por Telegram', () => {
       hasBot: () => true,
     };
     const svc = new AlertsService(prisma as never, redis as never, incidents as never, reports as never, telegram as never);
-    return { svc, telegram, reports, incidents, prisma };
+    return { svc, telegram, reports, incidents, prisma, redis };
   }
 
   it('Ajustes → Avisos: un grupo apagado no sale; el resto va al chat del local', async () => {
@@ -555,19 +562,49 @@ describe('alertas por Telegram', () => {
   });
 
   it('el resumen dice la diferencia de caja de las noches cerradas en ese tramo (las 08:00 entran)', async () => {
-    const { svc, telegram, prisma } = makeAlerts([], [], [{ cashDiffCents: -1250 }]);
+    const { svc, telegram, prisma } = makeAlerts([], [], [
+      { closedAt: at('2026-10-14T03:00:00Z'), autoClosed: false, cashDiffCents: -1250, zReport: null },
+    ]);
     await svc.tick(at('2026-10-14T07:30:00Z'));
     // Sin cobros ni incidencias, pero la caja no cuadró: el dueño lo sabe.
     expect(telegram.send).toHaveBeenCalledTimes(1);
     expect(telegram.send.mock.calls[0]![0]).toContain('Caja: faltan 12,50 €');
     expect(prisma.venueNight.findMany).toHaveBeenCalledWith({
-      where: {
-        tenantId: 't-1',
-        closedAt: { gt: at('2026-10-13T06:00:00Z'), lte: at('2026-10-14T06:00:00Z') },
-        cashDiffCents: { not: null },
-      },
-      select: { cashDiffCents: true },
+      where: { tenantId: 't-1', closedAt: { gt: at('2026-10-13T06:00:00Z'), lte: at('2026-10-14T06:00:00Z') } },
+      orderBy: { closedAt: 'asc' },
+      select: { closedAt: true, autoClosed: true, cashDiffCents: true, zReport: true },
     });
+  });
+
+  it('ya enviado hoy: las vueltas siguientes ni calculan los informes (antes, cada 5 min hasta las 14:00) (DI-03)', async () => {
+    const { svc, telegram, reports, redis } = makeAlerts([incident('1')]);
+    await svc.tick(at('2026-10-14T07:30:00Z'));
+    expect(reports.cobros).toHaveBeenCalledTimes(1);
+    await svc.tick(at('2026-10-14T07:35:00Z'));
+    await svc.tick(at('2026-10-14T07:40:00Z'));
+    expect(reports.cobros).toHaveBeenCalledTimes(1);
+    expect(redis.exists).toHaveBeenCalledWith('np:summary:t-1:2026-10-14');
+    expect(telegram.send.mock.calls.filter(([text]) => String(text).includes('anoche'))).toHaveLength(1);
+  });
+
+  it('con la noche cerrada, el resumen es su Z congelado (como el panel → Noches) y lo dice; sin recalcular (DIN-4)', async () => {
+    const z = {
+      count: 2, grossCents: 5_000, tipsCents: 500, chargedCents: 5_500, refundsCount: 0, refundsCents: 0, netCents: 5_500,
+      walletCardTopUpsCount: 0, walletCardTopUpsCents: 0, byType: [], chicaCommissionCents: 0, chicaTipsCents: 0,
+      chicaReversalsCents: 0, chicaNetCents: 2_000, venueTipsCents: 0, venueNetCents: 3_500, payoutsCount: 0,
+      payoutsCents: 0, perChica: [], walletCashPayoutsCount: 0, walletCashPayoutsCents: 0, walletCardPayoutsCount: 0,
+      walletCardPayoutsCents: 0, consumptionsCount: 0, consumptionsCents: 0, saldoByType: [],
+    };
+    // Cerrada a mano a las 05:00 de Madrid.
+    const { svc, telegram, reports } = makeAlerts([], [], [
+      { closedAt: at('2026-10-14T03:00:00Z'), autoClosed: false, cashDiffCents: null, zReport: { summary: z } },
+    ]);
+    await svc.tick(at('2026-10-14T07:30:00Z'));
+    expect(reports.cobros).not.toHaveBeenCalled();
+    const text = String(telegram.send.mock.calls[0]![0]);
+    expect(text).toContain('anoche: el Z de la noche cerrada a las 05:00');
+    expect(text).toContain('Cobrado: 55,00 € (50,00 € de ventas + 5,00 € de propinas)');
+    expect(text).toContain('Con tarjeta: 2 pagos · 55,00 €');
   });
 
   it('local sin cobros ni incidencias: no manda resumen', async () => {
