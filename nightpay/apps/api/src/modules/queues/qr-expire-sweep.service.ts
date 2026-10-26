@@ -1,0 +1,104 @@
+import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import type { Redis } from 'ioredis';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { REDIS_CLIENT } from '../../common/redis/redis.module';
+import { PaymentsService } from '../payments/payments.service';
+import { expireIfStillOpen } from './qr-expire.processor';
+
+/** Cada cuánto se repasan los cobros caducados. */
+const SWEEP_EVERY_MS = 10 * 60 * 1000;
+/** Primer repaso tras arrancar (sin estorbar el arranque). */
+const BOOT_DELAY_MS = 90 * 1000;
+/** Margen tras el plazo: antes le toca al trabajo qr-expire (y a sus reintentos). */
+const GRACE_MS = 5 * 60 * 1000;
+/** Como mucho tantos por repaso (el resto, en el siguiente). */
+const BATCH_SIZE = 200;
+/**
+ * Un repaso por intervalo entre todas las réplicas (con start-first conviven
+ * dos un rato): la que toma el candado barre; caduca antes del siguiente.
+ */
+const LOCK_KEY = 'np:qr-expire-sweep:lock';
+const LOCK_TTL_S = 9 * 60;
+
+/**
+ * Cobros que siguen CREATED/AWAITING_CAPTURE pasado su plazo (qrExpiresAt):
+ * su trabajo qr-expire no llegó a encolarse (Redis falló justo después de
+ * guardar el cobro y el reintento con la misma Idempotency-Key lo devuelve
+ * sin volver a encolar) o agotó sus reintentos. Sin esto se quedaban abiertos
+ * para siempre en los listados por estado. Se caducan con la misma transición
+ * que el trabajo (expireIfStillOpen): repetirlo, o que el trabajo llegue a la
+ * vez, no hace nada dos veces (la fila bloqueada decide).
+ */
+@Injectable()
+export class QrExpireSweepService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(QrExpireSweepService.name);
+  private readonly prisma: PrismaService;
+  private readonly payments: PaymentsService;
+  private readonly redis: Redis;
+  private bootTimer: NodeJS.Timeout | null = null;
+  private timer: NodeJS.Timeout | null = null;
+
+  constructor(
+    @Inject(PrismaService) prisma: PrismaService,
+    @Inject(PaymentsService) payments: PaymentsService,
+    @Inject(REDIS_CLIENT) redis: Redis,
+  ) {
+    this.prisma = prisma;
+    this.payments = payments;
+    this.redis = redis;
+  }
+
+  onModuleInit(): void {
+    if (process.env.NIGHTPAY_DISABLE_QR_EXPIRE_SWEEP === '1' || process.env.NODE_ENV === 'test') return;
+    this.bootTimer = setTimeout(() => void this.tick(), BOOT_DELAY_MS);
+    this.bootTimer.unref();
+    this.timer = setInterval(() => void this.tick(), SWEEP_EVERY_MS);
+    this.timer.unref();
+  }
+
+  onModuleDestroy(): void {
+    if (this.bootTimer) clearTimeout(this.bootTimer);
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  /** Una vuelta, si esta réplica toma el candado. Nunca lanza. */
+  async tick(now: Date = new Date()): Promise<void> {
+    try {
+      if ((await this.redis.set(LOCK_KEY, '1', 'EX', LOCK_TTL_S, 'NX')) !== 'OK') return;
+      const { expired, failed } = await this.sweep(now);
+      if (expired > 0 || failed > 0) {
+        this.logger.warn(`Cobros caducados sin su trabajo de caducidad: ${expired} caducados, ${failed} con error`);
+      }
+    } catch (err) {
+      this.logger.error(`Fallo en el repaso de cobros caducados: ${(err as Error).message}`);
+    }
+  }
+
+  async sweep(now: Date = new Date()): Promise<{ expired: number; skipped: number; failed: number }> {
+    // De todos los locales a propósito (sin local en el contexto: asSystem).
+    const due = await this.prisma.asSystem((tx) =>
+      tx.payment.findMany({
+        where: {
+          status: { in: ['CREATED', 'AWAITING_CAPTURE'] },
+          qrExpiresAt: { lt: new Date(now.getTime() - GRACE_MS) },
+        },
+        orderBy: { qrExpiresAt: 'asc' },
+        take: BATCH_SIZE,
+        select: { id: true },
+      }),
+    );
+    let expired = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const p of due) {
+      try {
+        if (await expireIfStillOpen(this.payments, p.id)) expired += 1;
+        else skipped += 1;
+      } catch (err) {
+        failed += 1;
+        this.logger.error(`No se pudo caducar el cobro ${p.id}: ${(err as Error).message}`);
+      }
+    }
+    return { expired, skipped, failed };
+  }
+}

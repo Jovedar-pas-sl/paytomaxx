@@ -317,7 +317,13 @@ describe('create — caducidad y QR', () => {
     expect(qrQueue.add).toHaveBeenCalledWith(
       'qr-expire',
       { paymentId: PAYMENT_ID, tenantId: TENANT },
-      expect.objectContaining({ jobId: `qr-expire-${PAYMENT_ID}`, delay: 300_000 }),
+      expect.objectContaining({
+        jobId: `qr-expire-${PAYMENT_ID}`,
+        delay: 300_000,
+        // Un fallo pasajero (base ocupada) no deja el cobro CREATED: reintenta; y si no, el barrido.
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 10_000 },
+      }),
     );
     expect(metrics.paymentsCreated.inc).toHaveBeenCalledWith({ venue: TENANT, provider: 'pending' });
   });

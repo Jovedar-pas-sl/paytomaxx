@@ -100,6 +100,13 @@ import { closeLinkedSaldo } from './cobro-link';
 
 const POS_AUTH_CODE_REUSED =
   'Ese código de autorización ya se usó en otro cobro de este datáfono. Revisa el ticket.';
+/**
+ * Confirmar un cobro del datáfono pasado su plazo (30 min). Normalmente ya lo
+ * ha caducado su trabajo; si ese trabajo no llegó a correr, tampoco se da por
+ * pagado (antes sí, con el código que se tecleara y la hora de ahora).
+ */
+export const POS_PAYMENT_EXPIRED =
+  'Este cobro ha caducado y ya no se puede confirmar: que la chica cree otro. Si ya pasaste la tarjeta, avisa al encargado.';
 /** Un código de autorización no confirma dos cobros del mismo datáfono en este tiempo. */
 const POS_AUTH_CODE_WINDOW_MS = 24 * 3600 * 1000;
 
@@ -486,7 +493,10 @@ export class PaymentsService implements OnApplicationBootstrap {
       throw err;
     }
 
-    // 4. Encolar job de expiración (id determinista → idempotente al encolar)
+    // 4. Encolar job de expiración (id determinista → idempotente al encolar).
+    //    Con reintentos: un fallo pasajero (base ocupada) no deja el cobro
+    //    CREATED. Si ni así (o Redis falló aquí y el reintento del cliente
+    //    devuelve el cobro sin volver a encolar), lo caduca QrExpireSweepService.
     await this.qrExpireQueue.add(
       'qr-expire',
       { paymentId: payment.id, tenantId },
@@ -496,6 +506,8 @@ export class PaymentsService implements OnApplicationBootstrap {
         // antes era siempre QR_TTL_SECONDS → POS expiraba a los 5min con el
         // camarero todavía en camino al datáfono.
         delay: draft.ttlSeconds * 1000,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 10_000 },
         removeOnComplete: true,
         removeOnFail: 100,
       },
@@ -1903,6 +1915,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         `Payment está en ${payment.status} — solo se puede confirmar CREATED`,
       );
     }
+    if (payment.qrExpiresAt <= new Date()) throw new ConflictException(POS_PAYMENT_EXPIRED);
     // Anti auto-confirm: la chica no se confirma sus propios POS (camarero sí).
     if (actor.role === 'OPERATOR' && payment.createdByUserId === actor.userId) {
       throw new ForbiddenException(

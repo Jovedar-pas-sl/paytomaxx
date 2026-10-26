@@ -33,21 +33,28 @@ export class QrExpireProcessor extends WorkerHost {
 
   async process(job: Job<QrExpireJobData>): Promise<void> {
     const { paymentId } = job.data;
-    try {
-      // El estado se mira con la fila bloqueada (prepare), no antes: si el
-      // cliente empieza a pagar justo ahora, no se caduca.
-      await this.payments.transition(paymentId, { type: 'TIMEOUT' }, undefined, {
-        prepare: async (_tx, locked) => {
-          if (!EXPIRABLE.has(locked.status)) throw new InvalidTransitionError(locked.status, 'TIMEOUT');
-        },
-      });
-      this.logger.log(`QR expired: ${paymentId}`);
-    } catch (err) {
-      if (err instanceof InvalidTransitionError) {
-        this.logger.debug(`qr-expire ignored (${err.fromState}): ${paymentId}`);
-        return;
-      }
-      throw err;
-    }
+    const expired = await expireIfStillOpen(this.payments, paymentId);
+    if (expired) this.logger.log(`QR expired: ${paymentId}`);
+    else this.logger.debug(`qr-expire ignored: ${paymentId}`);
+  }
+}
+
+/**
+ * Caduca el cobro si aún no ha ido al banco (true) o no hace nada (false: ya
+ * pagado, en el banco o caducado). El estado se mira con la fila bloqueada
+ * (prepare), no antes: si el cliente empieza a pagar justo ahora, no se
+ * caduca. Otro error (base caída) se propaga. Lo usan el trabajo y el barrido.
+ */
+export async function expireIfStillOpen(payments: Pick<PaymentsService, 'transition'>, paymentId: string): Promise<boolean> {
+  try {
+    await payments.transition(paymentId, { type: 'TIMEOUT' }, undefined, {
+      prepare: async (_tx, locked) => {
+        if (!EXPIRABLE.has(locked.status)) throw new InvalidTransitionError(locked.status, 'TIMEOUT');
+      },
+    });
+    return true;
+  } catch (err) {
+    if (err instanceof InvalidTransitionError) return false;
+    throw err;
   }
 }
