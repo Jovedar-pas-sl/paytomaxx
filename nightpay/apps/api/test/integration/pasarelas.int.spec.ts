@@ -47,9 +47,21 @@ const peanpeStub = {
   }),
   proveApproval: async () => ({ kind: 'unverifiable', reason: 'peanpe-sin-consulta' }),
 };
+/** Paytef como el de verdad (FSD-02): el aviso nombra el intento (clientID) y la prueba exige que sea el de ese pedido. */
+const paytefStub = {
+  provider: 'PAYTEF',
+  mapWebhookToFsmEvent: (p: Record<string, unknown>) => {
+    const data = p.data as { id: string; clientID: string };
+    return { paymentId: data.clientID, event: { type: 'AUTHORIZED', providerTxId: data.id, provider: 'PAYTEF' } };
+  },
+  proveApproval: async (claim: { attemptId?: string; payload: Record<string, unknown> }) =>
+    claim.attemptId === (claim.payload.data as { clientID: string }).clientID
+      ? { kind: 'confirmed', amountCents: 3200, currency: 'EUR' }
+      : { kind: 'rejected', reason: 'paytef-link-de-otro-cobro' },
+};
 const gatewayStatus: Record<string, string> = {};
 const redsysForReconcile = { provider: 'REDSYS', getStatus: async (_t: string, o: string) => gatewayStatus[o] ?? 'UNKNOWN' };
-const registry = { get: (p: string) => (p === 'PEANPE' ? peanpeStub : redsys) };
+const registry = { get: (p: string) => (p === 'PEANPE' ? peanpeStub : p === 'PAYTEF' ? paytefStub : redsys) };
 const processor = new WebhookIngestProcessor(prisma as never, payments as never, registry as never);
 const reconcile = new OrphanReconcileProcessor(prisma as never, payments as never, { get: () => redsysForReconcile } as never);
 const incidents = new IncidentsService(prisma as never, { log: async () => undefined } as never);
@@ -61,11 +73,11 @@ const sys = <T>(fn: (tx: Parameters<Parameters<PrismaService['asSystem']>[0]>[0]
 
 async function payment(o: {
   status: string;
-  provider: 'REDSYS' | 'PEANPE';
+  provider: 'REDSYS' | 'PEANPE' | 'PAYTEF';
   amount: number;
   order: string;
   walletId?: string;
-  attempts?: Array<{ order: string; amount: number; tip: number; status?: string; ago?: number }>;
+  attempts?: Array<{ id?: string; order: string; amount: number; tip: number; status?: string; ago?: number }>;
 }): Promise<string> {
   return sys(async (tx) => {
     const p = await tx.payment.create({
@@ -88,6 +100,7 @@ async function payment(o: {
     for (const a of o.attempts ?? []) {
       await tx.paymentAttempt.create({
         data: {
+          ...(a.id ? { id: a.id } : {}),
           paymentId: p.id,
           tenantId: A,
           provider: o.provider,
@@ -109,7 +122,7 @@ function signedRedsys(order: string, amount: string, paymentId: string): string 
   return `Ds_SignatureVersion=${s.Ds_SignatureVersion}&Ds_MerchantParameters=${encodeURIComponent(s.Ds_MerchantParameters)}&Ds_Signature=${encodeURIComponent(s.Ds_Signature)}&_paymentId=${paymentId}`;
 }
 
-async function deliver(provider: 'REDSYS' | 'PEANPE', body: string): Promise<string> {
+async function deliver(provider: 'REDSYS' | 'PEANPE' | 'PAYTEF', body: string): Promise<string> {
   const d = await prisma.webhookDelivery.create({
     data: { provider, tenantId: A, externalEventId: `ev-${randomUUID()}`, rawBody: Buffer.from(body), signature: 'x' },
   });
@@ -177,6 +190,21 @@ describe('procesador de avisos contra Postgres real', () => {
     expect(d?.processedAt).not.toBeNull();
     const list = await incidents.list(A);
     expect(list.find((i) => i.kind === 'amount_mismatch' && i.paymentId === id)?.detail).toContain('Aprobado 1,00 €');
+  });
+
+  it('aviso de Paytef que nombra el intento (clientID, FSD-02) → su cobro AUTHORIZED; el de otro intento, no', async () => {
+    const attemptId = randomUUID();
+    const link = `PL-${r}`;
+    const id = await payment({ status: 'AUTHORIZING', provider: 'PAYTEF', amount: 3200, order: link, attempts: [{ id: attemptId, order: link, amount: 3200, tip: 0 }] });
+    const otherLink = `PL2-${r}`;
+    const other = await payment({ status: 'AUTHORIZING', provider: 'PAYTEF', amount: 3200, order: otherLink, attempts: [{ order: otherLink, amount: 3200, tip: 0 }] });
+    // Un aviso con el clientID de este intento pero el enlace del otro cobro no paga nada.
+    await deliver('PAYTEF', JSON.stringify({ paymentID: otherLink, data: { id: otherLink, clientID: attemptId, lastResult: { isApproved: true } } }));
+    expect((await statusOf(id))?.status).toBe('AUTHORIZING');
+    expect((await statusOf(other))?.status).toBe('AUTHORIZING');
+    await deliver('PAYTEF', JSON.stringify({ paymentID: link, data: { id: link, clientID: attemptId, lastResult: { isApproved: true } } }));
+    expect((await statusOf(id))?.status).toBe('AUTHORIZED');
+    expect((await statusOf(other))?.status).toBe('AUTHORIZING');
   });
 
   it('aviso Redsys firmado con el importe del intento (con propina) → AUTHORIZED', async () => {
