@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
+import { RELEASE_LOCK_LUA } from '../../common/redis/release-lock';
 import { PaymentsService } from '../payments/payments.service';
 import { expireIfStillOpen } from './qr-expire.processor';
 
@@ -14,10 +16,16 @@ const GRACE_MS = 5 * 60 * 1000;
 /** Como mucho tantos por repaso (el resto, en el siguiente). */
 const BATCH_SIZE = 200;
 /**
- * Un repaso por intervalo entre todas las réplicas (con start-first conviven
- * dos un rato): la que toma el candado barre; caduca antes del siguiente.
+ * Nunca dos repasos a la vez entre las réplicas (con start-first conviven dos
+ * un rato): la que toma el candado (con un valor suyo) barre y lo suelta al
+ * terminar, solo si sigue siendo suyo. Antes se quedaba puesto 9 min: el
+ * repaso del arranque (a los 90 s) dejaba sin hacer la primera vuelta de los
+ * 10 min y la primera caducidad llegaba a los ~20 min (prueba real). Que las
+ * dos réplicas barran en el mismo intervalo no hace nada dos veces (la fila
+ * bloqueada decide).
  */
 const LOCK_KEY = 'np:qr-expire-sweep:lock';
+/** Solo por si la réplica se cae a mitad de vuelta: caduca sola antes de la siguiente. */
 const LOCK_TTL_S = 9 * 60;
 
 /**
@@ -61,13 +69,18 @@ export class QrExpireSweepService implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** Una vuelta, si esta réplica toma el candado. Nunca lanza. */
+  /** Una vuelta, si esta réplica toma el candado; al terminar (también si falla), lo suelta. Nunca lanza. */
   async tick(now: Date = new Date()): Promise<void> {
+    const lock = randomUUID();
     try {
-      if ((await this.redis.set(LOCK_KEY, '1', 'EX', LOCK_TTL_S, 'NX')) !== 'OK') return;
-      const { expired, failed } = await this.sweep(now);
-      if (expired > 0 || failed > 0) {
-        this.logger.warn(`Cobros caducados sin su trabajo de caducidad: ${expired} caducados, ${failed} con error`);
+      if ((await this.redis.set(LOCK_KEY, lock, 'EX', LOCK_TTL_S, 'NX')) !== 'OK') return;
+      try {
+        const { expired, failed } = await this.sweep(now);
+        if (expired > 0 || failed > 0) {
+          this.logger.warn(`Cobros caducados sin su trabajo de caducidad: ${expired} caducados, ${failed} con error`);
+        }
+      } finally {
+        await this.redis.eval(RELEASE_LOCK_LUA, 1, LOCK_KEY, lock);
       }
     } catch (err) {
       this.logger.error(`Fallo en el repaso de cobros caducados: ${(err as Error).message}`);

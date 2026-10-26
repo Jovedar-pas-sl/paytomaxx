@@ -16,6 +16,7 @@ import type { WalletStatus } from '@nightpay/db';
 import { BRAND_NAME } from '../../../common/brand';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../../common/redis/redis.module';
+import { RELEASE_LOCK_LUA } from '../../../common/redis/release-lock';
 import { readGoogleWalletConfig, type GoogleWalletSettings } from '../../../config/google-wallet';
 import { WalletChargesService } from '../wallet-charges.service';
 import { GoogleWalletClient, type FetchFn } from './google-wallet-client';
@@ -44,8 +45,6 @@ const SYNC_LOCK_KEY = 'np:google-wallet-sync:lock';
 const SYNC_LOCK_MS = 5 * 60 * 1000;
 /** Tantos fallos seguidos = Google no responde: el resto, en la próxima vuelta. */
 const MAX_CONSECUTIVE_FAILURES = 5;
-/** Suelta el candado solo si sigue siendo nuestro. */
-const RELEASE_LOCK_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 
 export interface GoogleWalletSyncSummary {
   checked: number;
