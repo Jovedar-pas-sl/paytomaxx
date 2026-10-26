@@ -48,7 +48,7 @@ import { PayPageFilter } from './pay-page.filter';
  * este, holgado: el «Comprobando» se refresca cada 3-5 s y en el local muchos
  * clientes comparten el wifi. Pasado, una página que espera (PayPageFilter).
  */
-const PAY_PAGE_LIMIT = { max: 600, windowSec: 60, scope: 'pay-page' } as const;
+const PAY_PAGE_LIMIT = { max: 600, windowSec: 60, scope: 'pay-page', failOpen: true } as const;
 import { checkedPin } from '../wallets/client-pin';
 
 /** Formulario de la página de pago. `method` vacío = sin preferencia. */

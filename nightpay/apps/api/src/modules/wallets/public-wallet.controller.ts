@@ -205,7 +205,7 @@ export class PublicWalletController {
 
   @Public()
   @Get(':token')
-  @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-page' })
+  @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-page', failOpen: true })
   async page(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,
@@ -244,7 +244,7 @@ export class PublicWalletController {
   @Public()
   @Get(':token/state')
   @Header('Cache-Control', 'no-store')
-  @IpRateLimit({ max: 1500, windowSec: 60, scope: 'wallet-state' })
+  @IpRateLimit({ max: 1500, windowSec: 60, scope: 'wallet-state', failOpen: true })
   async state(
     @Param('token') token: string,
     @Res({ passthrough: true }) res: FastifyReply,

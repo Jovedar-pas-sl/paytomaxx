@@ -68,7 +68,7 @@ describe('PayPageFilter — el 429 de las páginas de /pay', () => {
   it('las cuatro páginas GET de /pay llevan su límite holgado y este filtro; los POST no', () => {
     const proto = PublicPayController.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
     for (const name of ['payPage', 'checkout', 'receipt', 'paymentResult']) {
-      expect(Reflect.getMetadata('np:ip-rate-limit', proto[name]!)).toEqual({ max: 600, windowSec: 60, scope: 'pay-page' });
+      expect(Reflect.getMetadata('np:ip-rate-limit', proto[name]!)).toEqual({ max: 600, windowSec: 60, scope: 'pay-page', failOpen: true });
       const filters = Reflect.getMetadata(EXCEPTION_FILTERS_METADATA, proto[name]!) as unknown[];
       expect(filters.some((f) => f instanceof PayPageFilter)).toBe(true);
     }

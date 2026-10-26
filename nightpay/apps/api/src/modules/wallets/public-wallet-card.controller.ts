@@ -20,7 +20,7 @@ export class PublicWalletCardController {
   @Get('card/:token')
   @Header('Cache-Control', 'no-store')
   @Header('Referrer-Policy', 'no-referrer')
-  @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-card-view-page' })
+  @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-card-view-page', failOpen: true })
   async page(@Param('token') token: string, @Query('lang') lang: string | undefined, @Headers('accept-language') accept: string | undefined, @Res() res: FastifyReply): Promise<void> {
     if (!isWalletCardToken(token)) throw new NotFoundException();
     // Antes de autenticarse, como mucho el código tapado (K7Q-•••): ni saldo, ni movimientos, ni el enlace.

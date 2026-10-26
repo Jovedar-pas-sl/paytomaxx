@@ -44,7 +44,7 @@ export class PublicSaldoController {
 
   @Public()
   @Get(':token')
-  @IpRateLimit({ max: 120, windowSec: 60, scope: 'saldo-qr-page' })
+  @IpRateLimit({ max: 120, windowSec: 60, scope: 'saldo-qr-page', failOpen: true })
   async page(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,
@@ -67,7 +67,7 @@ export class PublicSaldoController {
   @Public()
   @Get(':token/state')
   @Header('Cache-Control', 'no-store')
-  @IpRateLimit({ max: 60, windowSec: 60, scope: 'saldo-qr-state' })
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'saldo-qr-state', failOpen: true })
   async state(@Param('token') token: string): Promise<{ status: QrChargeClientView['status'] }> {
     const view = await this.charges.qrChargeForClient(token);
     return { status: view.status };

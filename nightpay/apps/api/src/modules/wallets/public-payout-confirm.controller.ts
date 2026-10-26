@@ -19,7 +19,7 @@ export class PublicPayoutConfirmController {
 
   @Public()
   @Get('salida/:token')
-  @IpRateLimit({ max: 60, windowSec: 60, scope: 'payout-confirm-page' })
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'payout-confirm-page', failOpen: true })
   async page(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,

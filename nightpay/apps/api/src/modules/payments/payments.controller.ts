@@ -131,7 +131,7 @@ export class PaymentsController {
    */
   @Public()
   @Get('public/:token')
-  @IpRateLimit({ max: 600, windowSec: 60, scope: 'payment-public' })
+  @IpRateLimit({ max: 600, windowSec: 60, scope: 'payment-public', failOpen: true })
   async getPublic(@Param('token') token: string): Promise<PublicPaymentView> {
     return this.payments.getByToken(token);
   }

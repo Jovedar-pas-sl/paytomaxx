@@ -21,7 +21,13 @@ import { resolveLanguage, type PayLanguage } from '../../modules/payments/pay-i1
  */
 export { clientIp };
 
-const META_KEY = 'np:ip-rate-limit';
+/** Clave del metadato que pone @IpRateLimit (exportada para las pruebas de las rutas). */
+export const IP_RATE_LIMIT_META = 'np:ip-rate-limit';
+const META_KEY = IP_RATE_LIMIT_META;
+/** Con `failOpen`, lo más que se espera a Redis antes de dejar pasar. */
+export const IP_LIMIT_FAIL_OPEN_TIMEOUT_MS = 500;
+/** Un aviso por scope y minuto mientras Redis no conteste. */
+const FAIL_OPEN_LOG_EVERY_MS = 60_000;
 
 export interface IpRateLimitConfig {
   /** Tope de requests permitidos en la ventana. */
@@ -37,6 +43,14 @@ export interface IpRateLimitConfig {
    * alto. Sin el campo en el cuerpo cuenta solo la IP.
    */
   perAccount?: { field: string; max: number };
+  /**
+   * Si Redis no responde, dejar pasar (con aviso en el log) en vez de
+   * fallar. Solo para las páginas y sondeos de LECTURA del cliente (pago,
+   * estado del cobro, saldo): sin Redis daban 500 al cliente en pleno pago.
+   * Lo que adivina un secreto (login, PIN, llaves, códigos) no lo lleva:
+   * sigue cerrado. El AuthGuard del personal tampoco cambia (503).
+   */
+  failOpen?: boolean;
 }
 
 /** Lo que dura el email más largo (RFC 5321): lo que se cuenta de la cuenta. */
@@ -91,6 +105,7 @@ export class IpRateLimitGuard implements CanActivate {
   private readonly logger = new Logger(IpRateLimitGuard.name);
   private readonly reflector: Reflector;
   private readonly redis: Redis;
+  private readonly failOpenLoggedAt = new Map<string, number>();
 
   constructor(
     @Inject(Reflector) reflector: Reflector,
@@ -122,10 +137,32 @@ export class IpRateLimitGuard implements CanActivate {
         : []),
     ];
     for (const check of checks) {
-      const count = await this.hit(check.key, config.windowSec);
+      const count = await this.count(check.key, config);
+      if (count === null) return true;
       if (count > check.max) await this.reject(ctx, req, config, check, ip, count);
     }
     return true;
+  }
+
+  /** La cuenta en Redis; con `failOpen` y Redis sin responder, null (= dejar pasar). */
+  private async count(key: string, config: IpRateLimitConfig): Promise<number | null> {
+    if (!config.failOpen) return this.hit(key, config.windowSec);
+    try {
+      return await withTimeout(this.hit(key, config.windowSec), IP_LIMIT_FAIL_OPEN_TIMEOUT_MS);
+    } catch (err) {
+      this.warnFailOpen(config.scope, err);
+      return null;
+    }
+  }
+
+  private warnFailOpen(scope: string, err: unknown): void {
+    const now = Date.now();
+    const last = this.failOpenLoggedAt.get(scope);
+    if (last !== undefined && now - last < FAIL_OPEN_LOG_EVERY_MS) return;
+    this.failOpenLoggedAt.set(scope, now);
+    this.logger.warn(
+      `IP rate-limit sin Redis (scope=${scope}): se deja pasar (página del cliente): ${(err as Error)?.message ?? String(err)}`,
+    );
   }
 
   /** Cuenta una petición en la ventana (TTL en el primer golpe, para que se limpie sola). */
@@ -176,4 +213,20 @@ function accountOf(body: MinimalReq['body'], field: string): string | null {
   if (typeof raw !== 'string') return null;
   const account = raw.trim().toLowerCase().slice(0, MAX_ACCOUNT_CHARS);
   return account ? createHash('sha256').update(account).digest('hex').slice(0, 32) : null;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Redis no contestó en ${ms} ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
 }
