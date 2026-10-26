@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
-import { PaymentsService, POS_PAYMENT_EXPIRED, type LockedPaymentRow } from './payments.service';
+import { PaymentsService, POS_PAYMENT_EXPIRED, POS_PAYMENT_EXPIRED_CODE, type LockedPaymentRow } from './payments.service';
 import { InvalidTransitionError } from './payment.machine';
 import { isOtherOrder } from './second-approval';
 
@@ -226,7 +226,10 @@ describe('confirmPosPayment — el camarero confirma el cobro del datáfono (#13
     const err = await service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
     expect((err as ConflictException).message).toBe(POS_PAYMENT_EXPIRED);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: POS_PAYMENT_EXPIRED_CODE });
     expect(POS_PAYMENT_EXPIRED).toMatch(/caducado/);
+    // Lo creó un camarero o una chica: el texto no dice quién (antes «que la chica cree otro»).
+    expect(POS_PAYMENT_EXPIRED).not.toMatch(/chica|camarero/);
     expect(tx.payment.update).not.toHaveBeenCalled();
     expect(updates('SET status')).toHaveLength(0);
   });

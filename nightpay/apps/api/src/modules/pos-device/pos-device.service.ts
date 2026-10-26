@@ -317,7 +317,7 @@ export class PosDeviceService {
     if (p.captureMethod !== 'POS_EXTERNAL' || p.status !== 'CREATED') {
       throw new ConflictException('Este cobro ya no está pendiente');
     }
-    if (p.qrExpiresAt <= new Date()) throw new ConflictException('Este cobro ha caducado: que la chica cree otro');
+    if (p.qrExpiresAt <= new Date()) throw new ConflictException('Este cobro ha caducado: hay que crear otro cobro');
     await this.event(p, 'pos.device_started', { terminalId: device.terminalId });
     return { reference: posReference(p.id), amountCents: p.amountCents, currency: p.currency };
   }
@@ -364,7 +364,7 @@ export class PosDeviceService {
       return pendingOutcome(op);
     }
     if (r.requestedAmount !== p.amountCents) {
-      return this.mismatch(p, op, `Se cobraron ${eur(r.requestedAmount)} y el cobro era de ${eur(p.amountCents)}: anula esta operación.`);
+      return this.mismatch(p, op, otherAmountText(r.requestedAmount, r.tipAmount ?? 0, p.amountCents));
     }
     if (PAID_STATES.has(p.status as PaymentMachineState)) return this.duplicate(p, op, device);
     if (!isDeviceSale(p.captureMethod) || p.status !== 'CREATED') {
@@ -729,4 +729,14 @@ function parseDate(v: string | undefined): Date | null {
 
 function eur(cents: number): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
+}
+
+/**
+ * El lector cobró otro importe: lo que cobró de verdad (importe + propina,
+ * lo mismo que se anula), no solo el importe (antes «Se cobraron 15 €» con
+ * la operación de 17 € debajo).
+ */
+function otherAmountText(requested: number, tip: number, expected: number): string {
+  const charged = tip > 0 ? `${eur(requested + tip)} (${eur(requested)} + ${eur(tip)} de propina)` : eur(requested);
+  return `Se cobraron ${charged} y el cobro era de ${eur(expected)}: anula esta operación.`;
 }

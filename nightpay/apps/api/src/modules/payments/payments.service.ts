@@ -106,7 +106,9 @@ const POS_AUTH_CODE_REUSED =
  * pagado (antes sí, con el código que se tecleara y la hora de ahora).
  */
 export const POS_PAYMENT_EXPIRED =
-  'Este cobro ha caducado y ya no se puede confirmar: que la chica cree otro. Si ya pasaste la tarjeta, avisa al encargado.';
+  'Este cobro ha caducado y ya no se puede confirmar: hay que crear otro cobro. Si ya pasaste la tarjeta, avisa al encargado.';
+/** `code` de ese 409 (las apps lo distinguen sin leer el texto). */
+export const POS_PAYMENT_EXPIRED_CODE = 'POS_PAYMENT_EXPIRED';
 /** Un código de autorización no confirma dos cobros del mismo datáfono en este tiempo. */
 const POS_AUTH_CODE_WINDOW_MS = 24 * 3600 * 1000;
 
@@ -1923,7 +1925,9 @@ export class PaymentsService implements OnApplicationBootstrap {
         `Payment está en ${payment.status} — solo se puede confirmar CREATED`,
       );
     }
-    if (payment.qrExpiresAt <= new Date()) throw new ConflictException(POS_PAYMENT_EXPIRED);
+    if (payment.qrExpiresAt <= new Date()) {
+      throw new ConflictException({ message: POS_PAYMENT_EXPIRED, code: POS_PAYMENT_EXPIRED_CODE });
+    }
     // Anti auto-confirm: la chica no se confirma sus propios POS (camarero sí).
     if (actor.role === 'OPERATOR' && payment.createdByUserId === actor.userId) {
       throw new ForbiddenException(

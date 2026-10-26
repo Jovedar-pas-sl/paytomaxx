@@ -228,6 +228,20 @@ describe('venta en el datáfono', () => {
     expect(events(tx)).toContain('payment.duplicate_charge');
   });
 
+  it('otro importe con propina: el aviso dice lo que cobró el lector (importe + propina), lo mismo que se anula', async () => {
+    const { svc } = makeService();
+    // Cobro de 100 €; el lector cobra 150 € + 20 € de propina.
+    const out = await svc.reportResult(device, PAYMENT_ID, { ...approved, requestedAmount: 15_000, tipAmount: 2_000 });
+    expect(out).toMatchObject({ status: 'MISMATCH' });
+    const message = (out as { message: string }).message;
+    expect(message).toContain('Se cobraron 170,00 €');
+    expect(message).toContain('20,00 € de propina');
+    expect(message).toContain('el cobro era de 100,00 €');
+    // Sin propina, como siempre.
+    const plain = await makeService().svc.reportResult(device, PAYMENT_ID, { ...approved, requestedAmount: 9_000 });
+    expect((plain as { message: string }).message).toMatch(/^Se cobraron 90,00 € y el cobro era de 100,00 €/);
+  });
+
   it('importe distinto, cobro caducado u operación ya usada en este datáfono → anular', async () => {
     const amount = makeService();
     expect(await amount.svc.reportResult(device, PAYMENT_ID, { ...approved, requestedAmount: 9000 })).toMatchObject({
