@@ -40,7 +40,6 @@ describe('métricas del panel (hoy y semana)', () => {
       walletCashPayoutCents: 8000,
       walletCashTopUpCents: 3000,
       walletCardTopUpCents: 20_000,
-      serviceFeeCents: 0,
       netCents: 38_500 + 3000 - 2100 - 8000,
     });
     expect(m.week).toMatchObject({ count: 10, netCents: 100_500 + 3000 - 2100 - 8000 });
@@ -92,9 +91,6 @@ describe('Z de un periodo', () => {
       walletCashPayoutCents: 8000,
       walletCashTopUpCount: 1,
       walletCashTopUpCents: 3000,
-      serviceFeeCents: 0,
-      refundedServiceFeeCents: 0,
-      serviceFeeOwedCents: 0,
       netCents: 38_500 + 3000 - 2100 - 8000,
     });
     expect(z.period).toEqual({ from: '2026-10-13T22:00:00.000Z', to: '2026-10-14T05:00:00.000Z' });

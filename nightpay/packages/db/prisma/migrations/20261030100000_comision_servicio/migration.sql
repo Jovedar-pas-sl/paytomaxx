@@ -17,6 +17,8 @@
 --                       siempre; 0 = con la comisión del servicio encendida)
 --   refunds             "serviceFeeCents" (la parte de la devolución que era
 --                       comisión del servicio; 0)
+--   payments_available_in_range: lo devolvible puede llegar a importe +
+--                       comisión del servicio + propina (antes, sin la comisión)
 --
 -- Columnas nuevas que admiten NULL o con un valor por defecto constante: en
 -- Postgres 11+ no reescriben la tabla y el API anterior (start-first) sigue
@@ -87,5 +89,23 @@ SELECT pg_temp.np_fee_check('wallet_cash_topups', 'wallet_cash_topups_service_fe
 SELECT pg_temp.np_fee_check('wallet_consumptions', 'wallet_consumptions_platform_bps_range',
   '"platformCommissionBps" IS NULL OR "platformCommissionBps" BETWEEN 0 AND 10000');
 SELECT pg_temp.np_fee_check('refunds', 'refunds_service_fee_nonneg', '"serviceFeeCents" >= 0');
+
+-- Lo devolvible de un pago directo lleva su comisión del servicio: el CHECK de
+-- 20260513000000 («availableAmountCents» <= «amountCents» + «tipCents») pasa a
+-- contarla. Es más amplio (la comisión no es negativa): las filas de antes lo
+-- cumplen. Solo se cambia si aún es el de antes (repetirla no lo toca).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'payments'::regclass AND conname = 'payments_available_in_range'
+       AND pg_get_constraintdef(oid) NOT LIKE '%serviceFeeCents%'
+  ) THEN
+    ALTER TABLE "payments" DROP CONSTRAINT "payments_available_in_range";
+  END IF;
+END
+$$;
+SELECT pg_temp.np_fee_check('payments', 'payments_available_in_range',
+  '"availableAmountCents" >= 0 AND "availableAmountCents" <= "amountCents" + "serviceFeeCents" + "tipCents"');
 
 DROP FUNCTION pg_temp.np_fee_check(text, text, text);

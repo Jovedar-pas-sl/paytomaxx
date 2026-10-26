@@ -124,6 +124,16 @@ export function chargeBreakdownText(parts: { baseCents: number; feeCents: number
   ].join(' + ');
 }
 
+/**
+ * Los campos de la «Comisión del servicio» de un resumen (caja, Z, mapa del
+ * dinero, totales), solo si hubo alguna (alguno distinto de 0; una anulación
+ * la deja en negativo): con el interruptor apagado, el resumen sale igual que
+ * antes de existir (también los Z congelados).
+ */
+export function withServiceFee<T extends Record<string, number>>(fields: T): Partial<T> {
+  return Object.values(fields).some((v) => v !== 0) ? fields : {};
+}
+
 /** Recepción: «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)»; sin comisión, «Cobra 50 €». */
 export function topUpChargeText(topUpCents: number, feeCents: number): string {
   if (feeCents <= 0) return `Cobra ${short(topUpCents)}`;

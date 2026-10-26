@@ -12,6 +12,7 @@ import {
   serviceFeeOf,
   serviceFeeQuote,
   topUpChargeText,
+  withServiceFee,
 } from '@nightpay/contracts';
 
 // «Comisión del servicio»: lo que paga el cliente encima del precio (ingreso de OxioPay).
@@ -134,5 +135,18 @@ describe('lo devuelto de un cobro en el historial del personal', () => {
     expect(ownRefundedCents({ status: 'PARTIALLY_REFUNDED', amountCents: 5000, tipCents: 0, serviceFeeCents: 600, isTopUp: true, payment: pay(3000) })).toBe(2000);
     // Sin comisión, como siempre.
     expect(ownRefundedCents({ status: 'REFUNDED', amountCents: 3300, tipCents: 200, payment: pay(0) })).toBe(3500);
+  });
+});
+
+describe('withServiceFee: sin comisión del servicio, los resúmenes salen como antes', () => {
+  it('sin ninguna (todo a 0): no añade nada', () => {
+    expect(withServiceFee({ serviceFeeCents: 0, refundedServiceFeeCents: 0 })).toEqual({});
+    expect({ cashInCents: 500, ...withServiceFee({ walletCashTopUpFeesCents: 0 }) }).toEqual({ cashInCents: 500 });
+  });
+
+  it('con alguna: todos los campos del grupo, también los que son 0', () => {
+    expect(withServiceFee({ serviceFeeCents: 330, refundedServiceFeeCents: 0 })).toEqual({ serviceFeeCents: 330, refundedServiceFeeCents: 0 });
+    // Una anulación deja la suma en negativo: también cuenta.
+    expect(withServiceFee({ walletCashTopUpFeesCents: -600 })).toEqual({ walletCashTopUpFeesCents: -600 });
   });
 });

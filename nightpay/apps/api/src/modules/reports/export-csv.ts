@@ -34,19 +34,26 @@ import { SERVICE_FEE_LABEL } from '@nightpay/contracts';
  * pagos al personal y resumen. Funciones puras: reciben filas, devuelven
  * texto. En una «Copa con invitación», la parte de la chica es suya (no del
  * local) y la del camarero, solo si el local se la da.
+ *
+ * «Comisión del servicio» (service-fee.ts): sus columnas van AL FINAL y solo
+ * si alguna fila la lleva. Las columnas de siempre no se mueven (las
+ * plantillas de importación de la gestoría van por posición) y, sin ella, el
+ * CSV es el de antes. Con ella, «Total cobrado» la incluye y «Parte local»
+ * la descuenta (es de OxioPay).
  */
 
 // ─── Libro de cobros ────────────────────────────────────────────────────
 
 /** `labelOf`: los nombres de sección del local (venueSectionLabeler), como en el panel. */
 export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string, labelOf: SectionLabeler = categoryLabel): string {
+  const withFee = rows.some((r) => (r.serviceFeeCents ?? 0) !== 0 || (r.refundedServiceFeeCents ?? 0) !== 0);
   const header = [
     'Fecha', 'Hora', 'Local', 'Código', 'Concepto', 'Tipo', 'Cobrado por', 'Medio', 'Método',
     'Marca', 'Tipo tarjeta', 'País tarjeta', 'Autorización', 'Pedido banco', 'Importe', 'Propina',
-    // La «Comisión del servicio» que pagó el cliente encima (se debe a OxioPay).
-    SERVICE_FEE_LABEL,
-    'Total cobrado', 'Devuelto', 'Neto', 'Parte chica', 'Parte camarero', `Parte ${BRAND_NAME}`, 'Parte local', 'Estado',
-    `Referencia ${BRAND_NAME}`, 'Por sección',
+    'Total cobrado', 'Devuelto', 'Neto', 'Parte chica', 'Parte camarero', 'Parte local', 'Estado', `Referencia ${BRAND_NAME}`,
+    'Por sección',
+    // La «Comisión del servicio» que pagó el cliente encima y lo que queda de ella (se debe a OxioPay).
+    ...(withFee ? [SERVICE_FEE_LABEL, `Parte ${BRAND_NAME}`] : []),
   ];
   const body = rows.map((r): CsvCell[] => {
     const charged = cobroChargedCents(r);
@@ -72,17 +79,16 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string, labe
       code(r.providerTxId),
       money(r.amountCents),
       money(r.tipCents),
-      money(r.serviceFeeCents ?? 0),
       money(charged),
       money(r.refundedCents),
       money(net),
       money(chica),
       money(camarero),
-      money(oxio),
       money(net - chica - camarero - oxio),
       STATUS_LABEL[r.status] ?? r.status,
       r.id,
       text(bySection(r, labelOf)),
+      ...(withFee ? [money(r.serviceFeeCents ?? 0), money(oxio)] : []),
     ];
   });
   return toCsv([header, ...body]);
@@ -96,10 +102,13 @@ function bySection(r: CobroRow, labelOf: SectionLabeler): string {
 // ─── Devoluciones ───────────────────────────────────────────────────────
 
 export function devolucionesCsv(rows: ReadonlyArray<DevolucionRow>): string {
+  const withFee = rows.some((r) => (r.serviceFeeCents ?? 0) !== 0);
   const header = [
-    'Fecha devolución', 'Importe devuelto', `${SERVICE_FEE_LABEL} devuelta`, 'Motivo', 'Referencia banco', 'Registrada a mano',
+    'Fecha devolución', 'Importe devuelto', 'Motivo', 'Referencia banco', 'Registrada a mano',
     'Registrada por', 'Fecha del cobro', 'Código del cobro', 'Pedido banco', 'Total cobrado',
     'Cobrado por', 'Descontado a la chica', 'Ya se le había pagado', 'Descontado al camarero', `Referencia ${BRAND_NAME}`,
+    // La parte del importe devuelto que era comisión del servicio (ya está en «Importe devuelto»).
+    ...(withFee ? [`${SERVICE_FEE_LABEL} devuelta`] : []),
   ];
   const body = rows.map((r): CsvCell[] => {
     const parts = refundStaff(r);
@@ -109,7 +118,6 @@ export function devolucionesCsv(rows: ReadonlyArray<DevolucionRow>): string {
     return [
       date(r.refundedAt),
       money(r.amountCents),
-      money(r.serviceFeeCents ?? 0),
       text(r.reason),
       text(r.providerRefundId),
       r.registeredManually ? 'Sí' : 'No',
@@ -123,6 +131,7 @@ export function devolucionesCsv(rows: ReadonlyArray<DevolucionRow>): string {
       chicas.length === 0 ? '' : chicas.some((x) => x.afterPayout) ? 'Sí' : 'No',
       camareros.length === 0 ? '' : money(sum(camareros)),
       r.id,
+      ...(withFee ? [money(r.serviceFeeCents ?? 0)] : []),
     ];
   });
   return toCsv([header, ...body]);
@@ -164,17 +173,17 @@ export function liquidacionesCsv(rows: ReadonlyArray<LiquidacionRow>): string {
  * que dicen qué recarga anulan. La suma es la del resumen.
  */
 export function recargasEfectivoCsv(rows: ReadonlyArray<RecargaEfectivoRow>): string {
+  const withFee = rows.some((r) => (r.serviceFeeCents ?? 0) !== 0);
   const header = [
-    'Fecha', 'Hora', 'Importe', SERVICE_FEE_LABEL, 'Cobrado', 'Tipo', 'Anula a', 'Motivo', 'Saldo nuevo', 'Cobrada por', 'Datáfono',
+    'Fecha', 'Hora', 'Importe', 'Tipo', 'Anula a', 'Motivo', 'Saldo nuevo', 'Cobrada por', 'Datáfono',
     `Referencia ${BRAND_NAME}`,
+    // «Importe» es el saldo; encima, la comisión del servicio (se debe a OxioPay) y lo que pagó el cliente.
+    ...(withFee ? [SERVICE_FEE_LABEL, 'Cobrado'] : []),
   ];
   const body = rows.map((r): CsvCell[] => [
     date(r.at),
     time(r.at),
-    // El saldo, la comisión del servicio (se debe a OxioPay) y lo que pagó el cliente.
     money(r.amountCents),
-    money(r.serviceFeeCents ?? 0),
-    money(r.amountCents + (r.serviceFeeCents ?? 0)),
     r.voidOfId ? 'Anulación' : 'Recarga',
     text(r.voidOfId ?? null),
     text(r.reason ?? null),
@@ -182,6 +191,7 @@ export function recargasEfectivoCsv(rows: ReadonlyArray<RecargaEfectivoRow>): st
     text(person(r.takenByName, r.takenByEmail)),
     text(r.terminalLabel),
     r.id,
+    ...(withFee ? [money(r.serviceFeeCents ?? 0), money(r.amountCents + (r.serviceFeeCents ?? 0))] : []),
   ]);
   return toCsv([header, ...body]);
 }

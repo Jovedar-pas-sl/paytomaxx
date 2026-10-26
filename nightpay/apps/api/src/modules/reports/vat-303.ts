@@ -1,3 +1,4 @@
+import { withServiceFee } from '@nightpay/contracts';
 import { EMPTY_TOTALS, invoicedCents, netCents, serviceFeeOwedCents, type PeriodTotals } from './period-totals';
 import type { QuarterWindow } from './reporting-window';
 
@@ -30,8 +31,8 @@ export interface VatMonthRow {
   walletCardPayoutCents: number;
   /** Recargas en efectivo del mes (facturadas al cargarlas, como las de tarjeta). */
   walletCashTopUpCents: number;
-  /** «Comisión del servicio» del mes (cobrada − devuelta): es de OxioPay, no entra en la base. */
-  serviceFeeCents: number;
+  /** «Comisión del servicio» del mes (cobrada − devuelta): es de OxioPay, no entra en la base. Sin ella, no viene. */
+  serviceFeeCents?: number;
   /** Lo facturado del mes = base + cuota (sin propinas). */
   facturadoCents: number;
 }
@@ -60,8 +61,8 @@ export interface Vat303Report extends VatHead {
     walletCashPayoutCents: number;
     walletCardPayoutCents: number;
     walletCashTopUpCents: number;
-    /** «Comisión del servicio» (cobrada − devuelta): se debe a OxioPay y no entra en la base del local. */
-    serviceFeeCents: number;
+    /** «Comisión del servicio» (cobrada − devuelta): se debe a OxioPay y no entra en la base del local. Sin ella, no viene. */
+    serviceFeeCents?: number;
     facturadoCents: number;
   };
   walletInfo: { consumptionCount: number; consumptionCents: number; note: string };
@@ -77,8 +78,10 @@ const WALLET_NOTE =
 const DISCLAIMER =
   'Reporte automático sin auditoría fiscal. Verifica con tu asesor antes de presentar Modelo 303. ' +
   'Las propinas no entran en la base (van aparte en el desglose). ' +
-  'La comisión del servicio que paga el cliente se debe a OxioPay y no entra en la base del local (va aparte en el desglose). ' +
   'Recargo de equivalencia + facturas de gasto deducibles requieren tratamiento manual.';
+/** Solo si hubo comisión del servicio en el trimestre. */
+const SERVICE_FEE_DISCLAIMER =
+  ' La comisión del servicio que paga el cliente se debe a OxioPay y no entra en la base del local (va aparte en el desglose).';
 
 /** Importe con IVA incluido → base y cuota (redondeo simétrico al céntimo). */
 export function vatSplit(invoiced: number, vatBps: number): { baseCents: number; cuotaCents: number } {
@@ -108,7 +111,8 @@ export function buildVat303(args: {
   const { quarter, venue } = args;
   if (venue.vatRegime === 'EXENTO') return vatExempt(quarter, venue);
   const byMonth = quarter.months.map((m, i) => vatMonth(m.month, args.months[i] ?? EMPTY_TOTALS, venue.vatBps));
-  const total = (k: keyof VatMonthRow): number => byMonth.reduce((a, m) => a + (m[k] as number), 0);
+  const total = (k: keyof VatMonthRow): number => byMonth.reduce((a, m) => a + ((m[k] as number | undefined) ?? 0), 0);
+  const fee = withServiceFee({ serviceFeeCents: total('serviceFeeCents') });
   const base = total('baseImponibleCents');
   const cuota = total('cuotaIvaCents');
   return {
@@ -124,12 +128,12 @@ export function buildVat303(args: {
       walletCashPayoutCents: total('walletCashPayoutCents'),
       walletCardPayoutCents: total('walletCardPayoutCents'),
       walletCashTopUpCents: total('walletCashTopUpCents'),
-      serviceFeeCents: total('serviceFeeCents'),
+      ...fee,
       facturadoCents: total('facturadoCents'),
     },
     walletInfo: { consumptionCount: args.consumptions.count, consumptionCents: args.consumptions.cents, note: WALLET_NOTE },
     byMonth,
-    disclaimer: DISCLAIMER,
+    disclaimer: 'serviceFeeCents' in fee ? DISCLAIMER + SERVICE_FEE_DISCLAIMER : DISCLAIMER,
     generatedAt: args.now.toISOString(),
   };
 }
@@ -149,7 +153,7 @@ function vatMonth(month: string, t: PeriodTotals, vatBps: number): VatMonthRow {
     walletCashPayoutCents: t.walletCashPayoutCents,
     walletCardPayoutCents: t.walletCardPayoutCents,
     walletCashTopUpCents: t.walletCashTopUpCents,
-    serviceFeeCents: serviceFeeOwedCents(t),
+    ...withServiceFee({ serviceFeeCents: serviceFeeOwedCents(t) }),
     facturadoCents: facturado,
   };
 }

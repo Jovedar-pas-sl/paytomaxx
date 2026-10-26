@@ -1,3 +1,5 @@
+import { withServiceFee } from '@nightpay/contracts';
+
 /**
  * Totales de un periodo: lo mismo para las métricas del panel, el Z del
  * periodo y el IVA 303 (reglas en reporting-sql.ts). Funciones puras.
@@ -35,7 +37,8 @@ export interface PeriodTotals {
   /**
    * «Comisión del servicio» (service-fee.ts) de los cobros pagados con tarjeta
    * o datáfono (pagos directos y recargas): la pagó el cliente encima y se
-   * debe a OxioPay. Aparte de grossCents. Opcional: 0 sin ella.
+   * debe a OxioPay. Aparte de grossCents. Sin ninguna en el periodo, no
+   * vienen (los totales, como antes de existir).
    */
   serviceFeeCents?: number;
   /** La de las recargas en efectivo (con sus anulaciones, en negativo): entra en la caja. */
@@ -62,15 +65,21 @@ export const EMPTY_TOTALS: PeriodTotals = {
   walletCardPayoutCents: 0,
   walletCardTopUpCount: 0,
   walletCardTopUpCents: 0,
-  serviceFeeCents: 0,
-  walletCashTopUpFeeCents: 0,
-  refundedServiceFeeCents: 0,
 };
 
 export function totalsFromRow(row: PeriodTotalsRow | undefined): PeriodTotals {
   if (!row) return EMPTY_TOTALS;
   const keys = Object.keys(EMPTY_TOTALS) as Array<keyof PeriodTotals>;
-  return Object.fromEntries(keys.map((k) => [k, Number(row[k] ?? 0)])) as unknown as PeriodTotals;
+  const n = (k: keyof PeriodTotals): number => Number(row[k] ?? 0);
+  const base = Object.fromEntries(keys.map((k) => [k, n(k)])) as unknown as PeriodTotals;
+  return {
+    ...base,
+    ...withServiceFee({
+      serviceFeeCents: n('serviceFeeCents'),
+      walletCashTopUpFeeCents: n('walletCashTopUpFeeCents'),
+      refundedServiceFeeCents: n('refundedServiceFeeCents'),
+    }),
+  };
 }
 
 /** La «Comisión del servicio» cobrada en el periodo: con tarjeta o datáfono y en efectivo (recargas). */
@@ -93,12 +102,12 @@ export function chargedCents(t: PeriodTotals): number {
  * tarjeta (sin propinas ni recargas), propinas y recargas del saldo (con
  * tarjeta y en efectivo: no son venta). Suman chargedCents.
  */
-export function chargedParts(t: PeriodTotals): { salesCents: number; tipCents: number; topUpCents: number; serviceFeeCents: number } {
+export function chargedParts(t: PeriodTotals): { salesCents: number; tipCents: number; topUpCents: number; serviceFeeCents?: number } {
   return {
     salesCents: t.grossCents - t.walletCardTopUpCents,
     tipCents: t.tipCents,
     topUpCents: t.walletCardTopUpCents + t.walletCashTopUpCents,
-    serviceFeeCents: serviceFeeCollectedCents(t),
+    ...withServiceFee({ serviceFeeCents: serviceFeeCollectedCents(t) }),
   };
 }
 

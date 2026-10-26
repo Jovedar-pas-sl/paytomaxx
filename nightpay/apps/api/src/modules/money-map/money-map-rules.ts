@@ -8,6 +8,7 @@ import {
   type MoneyMapScope,
   type MoneyMapSection,
   type MoneyMapServiceFee,
+  withServiceFee,
 } from '@nightpay/contracts';
 import { chargeSections } from '../reports/charge-sections';
 import type { TimeWindow } from '../reports/report-period';
@@ -186,7 +187,7 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
         cashCents: i.topUps.cashCents,
         count: i.topUps.cardCount + i.topUps.cashCount,
       },
-      serviceFeeCents: serviceFee.salesCents + serviceFee.topUpsCents,
+      ...withServiceFee({ serviceFeeCents: serviceFee.salesCents + serviceFee.topUpsCents }),
     },
     sections: sectionsOf(i.sales),
     split: {
@@ -200,7 +201,12 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
       cashBoxCents,
       cashBox: { openingFloatCents: i.cashBox.openingFloatCents, inCents: i.cashBox.inCents, outCents: i.cashBox.outCents },
       totalCents,
-      owners: { venueCents: totalCents - staffCents - saldoLeftCents - oxioPayCents, staffCents, saldoCents: saldoLeftCents, oxioPayCents },
+      owners: {
+        venueCents: totalCents - staffCents - saldoLeftCents - oxioPayCents,
+        staffCents,
+        saldoCents: saldoLeftCents,
+        ...withServiceFee({ oxioPayCents }),
+      },
       liveSaldoCents: i.liveSaldoCents,
       owed: i.owed,
     },
@@ -214,9 +220,10 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
         cashCount: i.walletPayouts.cashCount,
       },
       commissionsCents,
-      serviceFeeCents: oxioPayCents,
+      ...withServiceFee({ serviceFeeCents: oxioPayCents }),
     },
-    serviceFee,
+    // Sin comisión del servicio, el mapa es el de siempre.
+    ...(Object.keys(withServiceFee(serviceFee)).length > 0 ? { serviceFee } : {}),
   };
 }
 

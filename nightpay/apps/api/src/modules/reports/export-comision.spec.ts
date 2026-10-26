@@ -145,7 +145,10 @@ describe('resumen con la comisión del servicio', () => {
 
   it('sin comisión, todo como siempre (sin la línea ni cifras de más)', () => {
     const plain = summarize([servicio({ serviceFeeCents: 0, refundedServiceFeeCents: 0 })], [], []);
-    expect(plain).toMatchObject({ serviceFeeCents: 0, serviceFeeNetCents: 0, chargedCents: 3500 });
+    expect(plain).toMatchObject({ chargedCents: 3500 });
+    for (const k of ['serviceFeeCents', 'serviceFeeCashCents', 'serviceFeeRefundedCents', 'serviceFeeNetCents']) {
+      expect(plain).not.toHaveProperty(k);
+    }
     expect(plain.byType.map((t) => t.label)).not.toContain('Comisión del servicio');
   });
 });
@@ -155,8 +158,9 @@ describe('CSV de la gestoría con la comisión del servicio', () => {
     const [header, row] = lines(cobrosCsv([servicio()], 'Local'));
     const cols = header.split(';');
     const at = (name: string) => row!.split(';')[cols.indexOf(name)];
-    expect(cols).toContain('Comisión del servicio');
-    expect(cols.indexOf('Comisión del servicio')).toBe(cols.indexOf('Propina') + 1);
+    // Al final: las columnas de siempre no se mueven (plantillas de la gestoría).
+    expect(cols.slice(-2)).toEqual(['Comisión del servicio', 'Parte OxioPay']);
+    expect(cols.indexOf('Total cobrado')).toBe(cols.indexOf('Propina') + 1);
     expect(at('Importe')).toBe('33,00');
     expect(at('Propina')).toBe('2,00');
     expect(at('Comisión del servicio')).toBe('3,30');
@@ -169,9 +173,20 @@ describe('CSV de la gestoría con la comisión del servicio', () => {
     expect(at('Parte local')).toBe('1,65');
   });
 
+  it('sin comisión en ninguna fila: el CSV de siempre (sin sus columnas)', () => {
+    const plain = servicio({ serviceFeeCents: 0, refundedServiceFeeCents: 0 });
+    const [header] = lines(cobrosCsv([plain], 'Local'));
+    expect(header).not.toContain('Comisión del servicio');
+    expect(header).not.toContain('Parte OxioPay');
+    expect(header!.endsWith(';Parte local;Estado;Referencia OxioPay;Por sección')).toBe(true);
+    expect(lines(devolucionesCsv([{ ...devolucion, serviceFeeCents: 0 }]))[0]).not.toContain('Comisión del servicio');
+    expect(lines(recargasEfectivoCsv([{ ...efectivo, serviceFeeCents: 0 }]))[0]).not.toContain('Comisión del servicio');
+  });
+
   it('devoluciones: la comisión del servicio devuelta', () => {
     const [header, row] = lines(devolucionesCsv([devolucion]));
     const cols = header.split(';');
+    expect(cols.at(-1)).toBe('Comisión del servicio devuelta');
     expect(row!.split(';')[cols.indexOf('Comisión del servicio devuelta')]).toBe('1,65');
     expect(row!.split(';')[cols.indexOf('Total cobrado')]).toBe('38,30');
   });
@@ -180,6 +195,7 @@ describe('CSV de la gestoría con la comisión del servicio', () => {
     const [header, row] = lines(recargasEfectivoCsv([efectivo]));
     const cols = header.split(';');
     const at = (name: string) => row!.split(';')[cols.indexOf(name)];
+    expect(cols.slice(-2)).toEqual(['Comisión del servicio', 'Cobrado']);
     expect(at('Importe')).toBe('50,00');
     expect(at('Comisión del servicio')).toBe('6,00');
     expect(at('Cobrado')).toBe('56,00');
@@ -210,6 +226,14 @@ describe('caja de la noche con la comisión del servicio de las recargas en efec
   it('una anulación devuelve también su comisión (las dos, en negativo)', () => {
     const anulada: RecargaEfectivoRow = { ...efectivo, id: 'ct2', amountCents: -5000, serviceFeeCents: -600, voidOfId: 'ct1' };
     const cash = cashFromRows(0, { recargasEfectivo: [efectivo, anulada], pagosSaldo: [], liquidaciones: [] });
-    expect(cash).toMatchObject({ cashInCents: 0, walletCashTopUpsCents: 0, walletCashTopUpFeesCents: 0, expectedCents: 0 });
+    expect(cash).toMatchObject({ cashInCents: 0, walletCashTopUpsCents: 0, expectedCents: 0 });
+    // Quedó en 0: la caja sale como sin comisión.
+    expect(cash).not.toHaveProperty('walletCashTopUpFeesCents');
+  });
+
+  it('sin comisión: la caja de siempre (sin el campo)', () => {
+    const cash = cashFromRows(0, { recargasEfectivo: [{ ...efectivo, serviceFeeCents: 0 }], pagosSaldo: [], liquidaciones: [] });
+    expect(cash).not.toHaveProperty('walletCashTopUpFeesCents');
+    expect(cash.cashInCents).toBe(5000);
   });
 });

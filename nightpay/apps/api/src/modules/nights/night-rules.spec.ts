@@ -98,8 +98,6 @@ describe('la caja en el Z', () => {
       // Los camareros, aparte (aquí, ninguno): así se sabe que lo de arriba es solo de las chicas.
       camareroCashPayoutsCount: 0,
       camareroCashPayoutsCents: 0,
-      // La comisión del servicio de las recargas en efectivo (aquí, ninguna).
-      walletCashTopUpFeesCents: 0,
       cashOutCents: 12_000,
       expectedCents: 8000,
       countedCents: 6750,
@@ -169,7 +167,6 @@ describe('el efectivo de la noche sale de las filas del Z', () => {
       cashInCents: 5000,
       walletCashTopUpsCount: 1,
       walletCashTopUpsCents: 5000,
-      walletCashTopUpFeesCents: 0,
       walletCashPayoutsCount: 1,
       walletCashPayoutsCents: 2000,
       chicaCashPayoutsCount: 1,

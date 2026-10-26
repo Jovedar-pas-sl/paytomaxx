@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { expectedCashCents, type NightCash, type NightChicaPay, type NightCloseCheck } from '@nightpay/contracts';
+import { expectedCashCents, withServiceFee, type NightCash, type NightChicaPay, type NightCloseCheck } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { IncidentsService } from '../incidents/incidents.service';
 import { payoutCutoff } from '../operators/payout-math';
@@ -169,7 +169,7 @@ export class CloseCheckService {
       cashInCents,
       walletCashTopUpsCount: r.topUpCount,
       walletCashTopUpsCents: r.topUpCents,
-      walletCashTopUpFeesCents: feeCents,
+      ...withServiceFee({ walletCashTopUpFeesCents: feeCents }),
       walletCashPayoutsCount: r.walletCount,
       walletCashPayoutsCents: r.walletCents,
       chicaCashPayoutsCount: r.chicaCount,

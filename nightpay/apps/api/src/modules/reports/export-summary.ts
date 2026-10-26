@@ -1,4 +1,4 @@
-import { LEGACY_SECTION, SECTION_CODES, SERVICE_FEE_LABEL } from '@nightpay/contracts';
+import { LEGACY_SECTION, SECTION_CODES, SERVICE_FEE_LABEL, withServiceFee } from '@nightpay/contracts';
 import {
   WALLET_LABEL,
   categoryLabel,
@@ -59,8 +59,8 @@ export interface ExportSummary {
   /**
    * «Comisión del servicio» (service-fee.ts) cobrada en el periodo: con
    * tarjeta o datáfono (pagos directos y recargas) y en efectivo (recargas).
-   * Ya está en chargedCents; se debe a OxioPay. Los Z congelados antes del
-   * 2026-10-26 no lo traen (era 0).
+   * Ya está en chargedCents; se debe a OxioPay. Sin ninguna en el periodo
+   * (y en los Z congelados antes del 2026-10-26), estos cuatro no vienen.
    */
   serviceFeeCents?: number;
   /** …de ella, la de las recargas en efectivo (está en la caja). */
@@ -183,10 +183,12 @@ export function summarize(
     refundsCount: devoluciones.length,
     refundsCents,
     netCents,
-    serviceFeeCents: fee.serviceFeeCents,
-    serviceFeeCashCents: fee.serviceFeeCashCents,
-    serviceFeeRefundedCents: fee.serviceFeeRefundedCents,
-    serviceFeeNetCents: fee.serviceFeeNetCents,
+    ...withServiceFee({
+      serviceFeeCents: fee.serviceFeeCents,
+      serviceFeeCashCents: fee.serviceFeeCashCents,
+      serviceFeeRefundedCents: fee.serviceFeeRefundedCents,
+      serviceFeeNetCents: fee.serviceFeeNetCents,
+    }),
     walletCashTopUpsCount: cashTopUpsN,
     walletCashTopUpsCents: cashTopUpsCents,
     walletCardTopUpsCount: cardTopUps.length,

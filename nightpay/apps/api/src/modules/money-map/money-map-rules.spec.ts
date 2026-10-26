@@ -146,7 +146,7 @@ describe('mapa del dinero: los carriles cuadran', () => {
     expect(m.salesCents).toBe(0);
     expect(m.sections.map((s) => s.code)).toEqual(['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'VENUE_ENTRY', MONEY_MAP_TIPS]);
     expect(venueSharePercent(m)).toBe(0);
-    expect(m.where.owners).toEqual({ venueCents: 0, staffCents: 0, saldoCents: 0, oxioPayCents: 0 });
+    expect(m.where.owners).toEqual({ venueCents: 0, staffCents: 0, saldoCents: 0 });
   });
 });
 
@@ -250,9 +250,11 @@ describe('con la «Comisión del servicio» (la paga el cliente, se debe a OxioP
     expect(m.split.commissions.bankCents).toBe(Math.round((3_500 + 330 + 5_000 + 600) / 100));
   });
 
-  it('sin comisión, como siempre (todo a cero y nada se le resta al local)', () => {
+  it('sin comisión, el mapa de siempre (sin sus campos y nada se le resta al local)', () => {
     const m = buildMoneyMap(input());
-    expect(m.serviceFee).toEqual({ salesCents: 0, topUpsCents: 0, cashCents: 0, refundedCents: 0, owedCents: 0 });
-    expect(m.where.owners.oxioPayCents).toBe(0);
+    expect(m).not.toHaveProperty('serviceFee');
+    expect(m.inflow).not.toHaveProperty('serviceFeeCents');
+    expect(m.where.owners).not.toHaveProperty('oxioPayCents');
+    expect(m.outflow).not.toHaveProperty('serviceFeeCents');
   });
 });

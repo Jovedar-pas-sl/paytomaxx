@@ -70,8 +70,7 @@ describe('totales de un periodo (mismas reglas en métricas, Z e IVA)', () => {
         walletCardTopUpCount: 1,
         walletCardTopUpCents: 20_000n,
       }),
-      // Sin «Comisión del servicio»: sus campos a 0.
-    ).toEqual({ ...NIGHT, serviceFeeCents: 0, walletCashTopUpFeeCents: 0, refundedServiceFeeCents: 0 });
+    ).toEqual(NIGHT);
     expect(netCents(totalsFromRow(undefined))).toBe(0);
   });
 
@@ -113,7 +112,7 @@ describe('«Hoy · cobrado», por partes (cada parte dice lo que suma)', () => {
       walletCashTopUpCount: 6,
       walletCashTopUpCents: 45_000,
     };
-    expect(chargedParts(demo)).toEqual({ salesCents: 53_300, tipCents: 2_600, topUpCents: 55_000, serviceFeeCents: 0 });
+    expect(chargedParts(demo)).toEqual({ salesCents: 53_300, tipCents: 2_600, topUpCents: 55_000 });
     expect(chargedCents(demo)).toBe(110_900);
     const p = chargedParts(demo);
     expect(p.salesCents + p.tipCents + p.topUpCents).toBe(chargedCents(demo));
@@ -151,7 +150,7 @@ describe('con la «Comisión del servicio»', () => {
   it('por partes: ventas, propinas, recargas y la comisión del servicio suman lo cobrado', () => {
     const parts = chargedParts(FEE);
     expect(parts).toEqual({ salesCents: 3300, tipCents: 200, topUpCents: 10_000, serviceFeeCents: 1530 });
-    expect(parts.salesCents + parts.tipCents + parts.topUpCents + parts.serviceFeeCents).toBe(chargedCents(FEE));
+    expect(parts.salesCents + parts.tipCents + parts.topUpCents + (parts.serviceFeeCents ?? 0)).toBe(chargedCents(FEE));
   });
 
   it('lo facturado del local no lleva la comisión (es de OxioPay): ni la cobrada ni la devuelta', () => {
@@ -164,7 +163,17 @@ describe('con la «Comisión del servicio»', () => {
     expect(serviceFeeOwedCents(NIGHT)).toBe(0);
   });
 
-  it('una fila del SQL sin las columnas nuevas (Z de antes): 0', () => {
-    expect(totalsFromRow({ grossCents: 100n } as never)).toMatchObject({ serviceFeeCents: 0, walletCashTopUpFeeCents: 0, refundedServiceFeeCents: 0 });
+  it('una fila del SQL sin comisión (o sin sus columnas): los totales de siempre, sin sus campos', () => {
+    const t = totalsFromRow({ grossCents: 100n, serviceFeeCents: 0n } as never);
+    expect(t.grossCents).toBe(100);
+    for (const k of ['serviceFeeCents', 'walletCashTopUpFeeCents', 'refundedServiceFeeCents']) expect(t).not.toHaveProperty(k);
+  });
+
+  it('una fila del SQL con comisión: los tres campos (también el que es 0)', () => {
+    expect(totalsFromRow({ grossCents: 100n, serviceFeeCents: 330n, walletCashTopUpFeeCents: 0n } as never)).toMatchObject({
+      serviceFeeCents: 330,
+      walletCashTopUpFeeCents: 0,
+      refundedServiceFeeCents: 0,
+    });
   });
 });

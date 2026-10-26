@@ -77,7 +77,7 @@ describe('libro de cobros', () => {
     const [header, row] = lines(cobrosCsv([cobro({})], 'Local Centro'));
     expect(header).toContain('Fecha;Hora;Local;Código;Concepto;Tipo;Cobrado por');
     expect(row).toBe(
-      '13/10/2026;23:41;Local Centro;"=""A6B""";30 min;Servicio de chica;Lola;Móvil (QR);Apple Pay / Google Pay;Visa;Débito;"=""724""";"=""047215""";"=""1234ABCD5678""";100,00;5,00;0,00;105,00;0,00;105,00;95,00;0,00;0,00;10,00;Pagado;7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b;Servicio de chica 100,00',
+      '13/10/2026;23:41;Local Centro;"=""A6B""";30 min;Servicio de chica;Lola;Móvil (QR);Apple Pay / Google Pay;Visa;Débito;"=""724""";"=""047215""";"=""1234ABCD5678""";100,00;5,00;105,00;0,00;105,00;95,00;0,00;10,00;Pagado;7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b;Servicio de chica 100,00',
     );
   });
 
@@ -102,7 +102,7 @@ describe('libro de cobros', () => {
       ),
     );
     expect(row).toContain(';Barra;Barra;barra@local.es;');
-    expect(row).toContain(';100,00;0,00;0,00;100,00;20,00;80,00;0,00;0,00;0,00;80,00;Devuelto en parte;');
+    expect(row).toContain(';100,00;0,00;100,00;20,00;80,00;0,00;0,00;80,00;Devuelto en parte;');
   });
 
   it('devolución después de pagar a la chica: su parte descuenta la deuda, como el resumen', () => {
@@ -110,7 +110,7 @@ describe('libro de cobros', () => {
     // queda como deuda de 47,50 € (comisión + propina en proporción).
     const c = cobro({ status: 'PARTIALLY_REFUNDED', refundedCents: 5250, reversedCents: 0, reversedAfterPayoutCents: 4750 });
     const [, row] = lines(cobrosCsv([c], 'Local'));
-    expect(row).toContain(';100,00;5,00;0,00;105,00;52,50;52,50;47,50;0,00;0,00;5,00;Devuelto en parte;');
+    expect(row).toContain(';100,00;5,00;105,00;52,50;52,50;47,50;0,00;5,00;Devuelto en parte;');
     const s = summarize([c], [devolucion({ amountCents: 5250, reversedDeltaCents: 4750, afterPayout: true })], []);
     expect(s.chicaNetCents).toBe(4750);
   });
@@ -119,9 +119,9 @@ describe('libro de cobros', () => {
 describe('devoluciones y pagos a chicas', () => {
   it('devolución con lo descontado a la chica y si ya se le había pagado', () => {
     const [header, row] = lines(devolucionesCsv([devolucion({})]));
-    expect(header.split(';')).toHaveLength(16);
+    expect(header.split(';')).toHaveLength(15);
     expect(row).toBe(
-      '14/10/2026;105,00;0,00;No reconoce el cargo;DEV-1;Sí;Dueño;13/10/2026;"=""A6B""";"=""1234ABCD5678""";105,00;Lola;90,00;Sí;;refund-1',
+      '14/10/2026;105,00;No reconoce el cargo;DEV-1;Sí;Dueño;13/10/2026;"=""A6B""";"=""1234ABCD5678""";105,00;Lola;90,00;Sí;;refund-1',
     );
   });
 
@@ -397,16 +397,16 @@ const invitacion = (o: Partial<CobroRow> = {}): CobroRow =>
 describe('copa con invitación (20 €): lo de la chica no es del local', () => {
   it('libro de cobros: 10 € para la chica, nada para el camarero y 10 € para el local (Copas)', () => {
     const [header, row] = lines(cobrosCsv([invitacion()], 'Sala'));
-    expect(header).toContain(';Neto;Parte chica;Parte camarero;Parte OxioPay;Parte local;Estado;');
+    expect(header).toContain(';Neto;Parte chica;Parte camarero;Parte local;Estado;');
     expect(row).toContain(';Copa con invitación;Barra;Carlos;');
-    expect(row).toContain(';20,00;0,00;0,00;20,00;0,00;20,00;10,00;0,00;0,00;10,00;Pagado;');
+    expect(row).toContain(';20,00;0,00;20,00;0,00;20,00;10,00;0,00;10,00;Pagado;');
     expect(row).toMatch(/;Barra 20,00$/);
   });
 
   it('con parte para el camarero (guardada antes en Ajustes): se resta de lo del local', () => {
     const r = invitacion({ staff: [chicaPart(), chicaPart({ name: 'Carlos', email: 'carlos@local.es', role: 'WAITER', commissionCents: 600 })] });
     const [, row] = lines(cobrosCsv([r], 'Sala'));
-    expect(row).toContain(';20,00;10,00;6,00;0,00;4,00;Pagado;');
+    expect(row).toContain(';20,00;10,00;6,00;4,00;Pagado;');
     const s = summarize([r], [], []);
     expect(s).toMatchObject({ chicaNetCents: 1000, camareroCommissionCents: 600, camareroNetCents: 600, venueNetCents: 400 });
     expect(s.perChica.map((c) => c.name)).toEqual(['Nerea']);
@@ -435,7 +435,7 @@ describe('copa con invitación (20 €): lo de la chica no es del local', () => 
     });
     const [, row] = lines(cobrosCsv([r], 'Sala'));
     // Neto 22 €: Lola 2 € + Nerea 10 €; el local, 10 €.
-    expect(row).toContain(';22,00;12,00;0,00;0,00;10,00;Pagado;');
+    expect(row).toContain(';22,00;12,00;0,00;10,00;Pagado;');
     const s = summarize([r], [], []);
     expect(s).toMatchObject({ chicaCommissionCents: 1000, chicaTipsCents: 200, chicaNetCents: 1200, venueTipsCents: 0, venueNetCents: 1000 });
     expect(s.perChica.map((c) => [c.name, c.chargedCents, c.netCents])).toEqual([
@@ -492,7 +492,7 @@ describe('copa con invitación (20 €): lo de la chica no es del local', () => 
     expect(row).toContain(';Carlos;10,00;No;6,00;');
     const [, cobroRow] = lines(cobrosCsv([r], 'Sala'));
     // Devuelta entera: nada para nadie.
-    expect(cobroRow).toContain(';20,00;0,00;0,00;20,00;20,00;0,00;0,00;0,00;0,00;0,00;Devuelto;');
+    expect(cobroRow).toContain(';20,00;0,00;20,00;20,00;0,00;0,00;0,00;0,00;Devuelto;');
     const s = summarize([r], [refund], []);
     expect(s).toMatchObject({ chicaReversalsCents: 1000, chicaNetCents: 0, camareroReversalsCents: 600, camareroNetCents: 0, venueNetCents: 0 });
     expect(s.perChica).toEqual([expect.objectContaining({ name: 'Nerea', reversalsCents: 1000, netCents: 0 })]);

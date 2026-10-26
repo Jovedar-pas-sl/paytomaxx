@@ -1,4 +1,4 @@
-import { expectedCashCents, type CashOutcome, type MoneyMap, type NightCash } from '@nightpay/contracts';
+import { expectedCashCents, withServiceFee, type CashOutcome, type MoneyMap, type NightCash } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { nextNightCutoff } from '../../common/time/madrid';
 import { summarize, type ExportSummary } from '../reports/export-csv';
@@ -134,7 +134,7 @@ export function buildNightCaja(cash: NightCash, outcome: CashOutcome, note: stri
     cashInCents: cash.cashInCents,
     walletCashTopUpsCount: cash.walletCashTopUpsCount,
     walletCashTopUpsCents: cash.walletCashTopUpsCents,
-    walletCashTopUpFeesCents: cash.walletCashTopUpFeesCents ?? 0,
+    ...withServiceFee({ walletCashTopUpFeesCents: cash.walletCashTopUpFeesCents ?? 0 }),
     walletCashPayoutsCount: cash.walletCashPayoutsCount,
     walletCashPayoutsCents: cash.walletCashPayoutsCents,
     chicaCashPayoutsCount: cash.chicaCashPayoutsCount,
@@ -184,7 +184,7 @@ export function cashFromRows(
     cashInCents,
     walletCashTopUpsCount: cashTopUpsCount(rows.recargasEfectivo),
     walletCashTopUpsCents,
-    walletCashTopUpFeesCents,
+    ...withServiceFee({ walletCashTopUpFeesCents }),
     walletCashPayoutsCount: walletCash.length,
     walletCashPayoutsCents,
     chicaCashPayoutsCount: chicaCash.length,

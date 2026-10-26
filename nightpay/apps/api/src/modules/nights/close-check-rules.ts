@@ -267,6 +267,15 @@ export function efectivoStep(cash: NightCash): NightCloseStep {
       amountCents: cash.walletCashTopUpsCents,
     });
   }
+  // La «Comisión del servicio» de esas recargas: está en la caja y se debe a OxioPay.
+  if ((cash.walletCashTopUpFeesCents ?? 0) !== 0) {
+    items.push({
+      id: 'wallet-cash-topup-fees',
+      status: 'ok',
+      label: 'Comisión del servicio de esas recargas (se debe a OxioPay)',
+      amountCents: cash.walletCashTopUpFeesCents ?? 0,
+    });
+  }
   if (cash.walletCashPayoutsCount > 0) {
     items.push({
       id: 'wallet-cash',
