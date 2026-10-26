@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { Z_NET_LABEL, Z_NET_WITHOUT_STAFF_LABEL } from '@nightpay/contracts';
 import {
   ACKABLE_KINDS,
   SELF_RESOLVING,
@@ -181,6 +182,14 @@ describe('resumen de las 9:00: las cifras dicen lo que cuentan', () => {
     expect(text).toContain('Recargas en efectivo: 6 · 450,00 € (en la caja)');
     expect(text).toContain('Para las chicas: 93,00 € · neto sin el personal: 984,00 €');
     expect(text).not.toContain('para el local');
+  });
+
+  it('el neto del resumen se llama como en el panel y no como el otro neto del Z (prueba real: «neto 1.733 €» frente a «neto sin el personal 1.626 €»)', () => {
+    const text = morningSummaryMessage('Sala Aurora', demo, 0);
+    expect(text).toContain(`${Z_NET_WITHOUT_STAFF_LABEL.toLowerCase()}: 984,00 €`);
+    // Ningún otro «neto» suelto que se confunda con «Neto (cobrado − devuelto)» del Z.
+    expect(text.split(Z_NET_WITHOUT_STAFF_LABEL.toLowerCase()).join('')).not.toMatch(/neto/i);
+    expect(Z_NET_WITHOUT_STAFF_LABEL).not.toBe(Z_NET_LABEL);
   });
 });
 

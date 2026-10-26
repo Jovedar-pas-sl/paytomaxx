@@ -26,6 +26,7 @@ import {
 import type { PanelTab, TabKey } from '@/lib/roles';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { Z_NET_LABEL } from '@/lib/z-labels';
 import { NightCajaBlock } from './NightCajaBlock';
 import { NightCashStep } from './NightCashStep';
 import { NightChicasStep } from './NightChicasStep';
@@ -350,12 +351,13 @@ function StepCard({
 function ClosedResult({ night, onDone }: { night: NightView; onDone: () => void }) {
   const tz = useVenueTimezone();
   const s = night.z.summary;
-  // Como el resumen de las 9:00: lo cobrado con su desglose y, aparte, lo pagado con tarjeta.
+  // Como el resumen de las 9:00: lo cobrado con su desglose y, aparte, lo pagado con tarjeta. El
+  // neto, con su nombre del Z: no es el «neto sin el personal» del resumen.
   const lines = zClosedLines(s, formatEur);
   return (
     <div className="np-close-done">
       <p className="np-close-done-lead">
-        Z congelado a las {night.closedAt ? formatDateTime(night.closedAt, tz, 'time') : '—'} · {lines.cobrado} · neto{' '}
+        Z congelado a las {night.closedAt ? formatDateTime(night.closedAt, tz, 'time') : '—'} · {lines.cobrado} · {Z_NET_LABEL}:{' '}
         <strong className="np-num">{formatEur(s.netCents)}</strong>.
       </p>
       <p className="np-close-done-lead">{lines.card}</p>

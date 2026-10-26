@@ -16,6 +16,20 @@ import { MAX_TYPED_AMOUNT_CENTS } from './money';
 // cuentan igual en los dos sitios.
 // ═══════════════════════════════════════════════════════════════════════
 
+/**
+ * Los dos «neto» del Z, con el mismo nombre en el panel (Noches, el Z, el
+ * cierre) y en el resumen de las 9:00, y distinto entre ellos (prueba real:
+ * el Z decía «neto 1.733 €» y el resumen «neto sin el personal 1.626 €»; las
+ * dos cifras estaban bien).
+ *  - Z_NET_LABEL (`netCents`): lo cobrado menos lo devuelto (devoluciones y
+ *    saldo devuelto en efectivo).
+ *  - Z_NET_WITHOUT_STAFF_LABEL (`venueNetCents`): eso menos lo de las chicas y
+ *    lo de los camareros. No es «Para el local» del mapa del dinero (el
+ *    reparto de lo vendido): lleva las recargas y no resta comisiones.
+ */
+export const Z_NET_LABEL = 'Neto (cobrado − devuelto)';
+export const Z_NET_WITHOUT_STAFF_LABEL = 'Neto sin el personal';
+
 export const NIGHT_CLOSE_STEP_KEYS = ['cobros', 'datafonos', 'saldo', 'efectivo', 'chicas', 'incidencias', 'z'] as const;
 export type NightCloseStepKey = (typeof NIGHT_CLOSE_STEP_KEYS)[number];
 
