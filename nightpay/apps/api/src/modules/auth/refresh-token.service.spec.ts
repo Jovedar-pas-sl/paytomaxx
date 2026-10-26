@@ -417,3 +417,63 @@ describe('RefreshTokenService — cerrar sesiones corta también los tokens de a
     await expect(revocations.isRevoked({ sub: 'user-1', sid: issued.family, iat: 1 })).resolves.toBe(true);
   });
 });
+
+describe('RefreshTokenService — un refresco a medias cuando se revoca no deja un refresh vivo (FSD-04)', () => {
+  const T0 = Date.UTC(2026, 9, 26, 22, 0, 0);
+
+  function racing() {
+    const redis = createFakeRedis();
+    const revocations = new AccessRevocationService(redis as never);
+    const svc = new RefreshTokenService(redis as never, revocations);
+    /** La revocación entra entre que rotate() lee el token y emite el nuevo. */
+    const revokeDuringIssue = (revoke: () => Promise<unknown>) => {
+      const realIssue = svc.issue.bind(svc);
+      vi.spyOn(svc, 'issue').mockImplementationOnce(async (...args) => {
+        await revoke();
+        return realIssue(...args);
+      });
+    };
+    const userKeys = (userId: string) => redis.keys().filter((k) => k.startsWith(`nightpay:refresh:user:${userId}:`));
+    return { svc, redis, revokeDuringIssue, userKeys };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('revocar todas sus sesiones (móvil perdido) mientras refresca: 401 y ningún refresh suyo queda', async () => {
+    const { svc, revokeDuringIssue, userKeys } = racing();
+    const issued = await svc.issue('user-1', 'tenant-1');
+    vi.setSystemTime(T0 + 60_000);
+    revokeDuringIssue(() => svc.revokeAllForUser('user-1'));
+    await expect(svc.rotate(issued.token)).rejects.toThrow(UnauthorizedException);
+    expect(userKeys('user-1')).toEqual([]);
+  });
+
+  it('cerrar esa sesión (reuso, contraseña nueva) mientras refresca: igual', async () => {
+    const { svc, revokeDuringIssue, userKeys } = racing();
+    const issued = await svc.issue('user-1', 'tenant-1');
+    vi.setSystemTime(T0 + 60_000);
+    revokeDuringIssue(() => svc.revokeFamily(issued.family));
+    await expect(svc.rotate(issued.token)).rejects.toThrow(UnauthorizedException);
+    expect(userKeys('user-1')).toEqual([]);
+  });
+
+  it('quien vuelve a entrar después de revocar sigue refrescando; sus otras sesiones no se tocan', async () => {
+    const { svc } = racing();
+    const other = await svc.issue('user-2', 'tenant-1');
+    await svc.issue('user-1', 'tenant-1');
+    vi.setSystemTime(T0 + 60_000);
+    await svc.revokeAllForUser('user-1');
+    vi.setSystemTime(T0 + 62_000);
+    const again = await svc.issue('user-1', 'tenant-1');
+    vi.setSystemTime(T0 + 3_600_000);
+    await expect(svc.rotate(again.token)).resolves.toMatchObject({ userId: 'user-1', family: again.family });
+    await expect(svc.rotate(other.token)).resolves.toMatchObject({ userId: 'user-2' });
+  });
+});

@@ -206,6 +206,7 @@ export class RefreshTokenService {
       familyCreatedAt,
     });
     await this.retire(parsed, stored, issued.token);
+    await this.assertNotRevokedMeanwhile(stored);
     return {
       userId: stored.userId,
       tenantId: stored.tenantId,
@@ -338,6 +339,30 @@ export class RefreshTokenService {
 
   async activeVenue(familyId: string): Promise<string | null> {
     return this.redis.get(this.venueKey(familyId));
+  }
+
+  /**
+   * Carrera con una revocación (revokeAllForUser / revokeFamily): si borró
+   * los refresh de la persona después de que este refresco leyera el suyo y
+   * antes de que emitiera el nuevo, el nuevo se libraba (30 días, y la marca
+   * de los tokens de acceso solo dura 65 min). Se mira DESPUÉS de emitir: las
+   * revocaciones ponen su marca antes de buscar los refresh, así que o la
+   * marca ya está y se ve aquí, o su búsqueda llega después y encuentra el
+   * nuevo. Cuenta la marca de la sesión y la de la persona contra el inicio
+   * de la sesión (login): una sesión empezada antes de «revocar todas» no
+   * sigue; quien entró después de revocar no se ve afectado. Redis sin
+   * respuesta → 503 (como el resto; el par nuevo ya se puede repetir en el margen).
+   */
+  private async assertNotRevokedMeanwhile(stored: StoredRefresh): Promise<void> {
+    const revoked = await this.revocations.isRevoked({
+      sub: stored.userId,
+      sid: stored.family,
+      iat: Math.floor(familyStartOf(stored) / 1000),
+    });
+    if (!revoked) return;
+    this.logger.warn(`Refresco de una sesión revocada mientras tanto (family=${shortId(stored.family)}): se cierra`);
+    await this.revokeFamily(stored.family);
+    throw invalidRefresh();
   }
 
   /** Marca atómica de "usado": devuelve false si otra petición lo marcó antes. */
