@@ -166,17 +166,18 @@ export async function createPayment(
 /**
  * Estado del cobro según el servidor (la misma consulta pública que la página
  * del cliente). Lanza si no hay respuesta válida: entonces no se sabe nada.
+ * El id solo llega ya pagado (de él sale el código del «Pagado»).
  */
 export async function fetchPaymentStatus(
   qrToken: string,
   signal?: AbortSignal,
-): Promise<{ id: string; status: PaymentStatus }> {
+): Promise<{ id?: string; status: PaymentStatus }> {
   const res = await client.publicFetch(`/v1/payments/public/${encodeURIComponent(qrToken)}`, {
     cache: 'no-store',
     signal,
   });
   if (!res.ok) throw new Error(commonError(res.status) ?? `No se pudo consultar el cobro (error ${res.status}).`);
-  return (await res.json()) as { id: string; status: PaymentStatus };
+  return (await res.json()) as { id?: string; status: PaymentStatus };
 }
 
 /** Anula un cobro que aún no se ha pagado: su QR deja de valer. */

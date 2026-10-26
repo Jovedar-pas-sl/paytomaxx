@@ -348,7 +348,6 @@ describe('getByToken — consulta pública por el QR', () => {
   it('solo importe, estado, local, datáfono y caducidad (nada del personal ni de la tarjeta)', async () => {
     const { service } = makeService({ payment: { status: 'CREATED' } });
     await expect(service.getByToken(QR)).resolves.toEqual({
-      id: PAYMENT_ID,
       amountCents: 4_500,
       currency: 'EUR',
       status: 'CREATED',
@@ -372,6 +371,28 @@ describe('getByToken — consulta pública por el QR', () => {
     const pending = makeService({ payment: { status: 'AUTHORIZING' } });
     await expect(pending.service.getByToken(QR)).resolves.not.toHaveProperty('tipCents');
   });
+
+  // El código de confirmación del «Pagado» son los 3 últimos caracteres del id
+  // (confirmation-code.ts): con el id, una página falsa lo enseñaría sin pagar.
+  it.each(['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING', 'ORPHAN', 'FAILED', 'EXPIRED', 'CANCELED'])(
+    'sin pagar (%s): ni el id ni nada de lo que salga el código',
+    async (status) => {
+      const { service } = makeService({ payment: { status } });
+      const view = await service.getByToken(QR);
+      expect(view).not.toHaveProperty('id');
+      const text = JSON.stringify(view).toLowerCase();
+      expect(text).not.toContain(PAYMENT_ID);
+      expect(text).not.toContain(PAYMENT_ID.replace(/-/g, '').slice(-3));
+    },
+  );
+
+  it.each(['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'])(
+    'pagado (%s): con el id, como antes (las apps del personal lo comparan en el sondeo)',
+    async (status) => {
+      const { service } = makeService({ payment: { status } });
+      await expect(service.getByToken(QR)).resolves.toMatchObject({ id: PAYMENT_ID, status });
+    },
+  );
 });
 
 describe('getPeanpeRedirectUrl — formulario de Peanpe', () => {

@@ -1288,7 +1288,12 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Lookup público por qrToken (cliente escanea, sin auth).
+   * Lookup público por qrToken (cliente escanea, sin auth; y el sondeo de las
+   * apps del personal). El id solo cuando ya está pagado: de él sale el código
+   * de confirmación del «Pagado» (confirmation-code.ts), y antes de pagar una
+   * página falsa lo enseñaría sin pagar. Las apps del personal comparan el id
+   * del sondeo con el suyo: las de ahora aceptan la respuesta sin id (es la de
+   * su QR); las de antes la ignoran hasta el pagado, que sí lo lleva.
    */
   async getByToken(qrToken: string): Promise<PublicPaymentView> {
     // Cross-tenant: el token es público pero único; bypass RLS
@@ -1303,8 +1308,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     );
     if (!payment) throw new NotFoundException('QR not found or expired');
 
+    const paid = PAID_STATES.has(payment.status as PaymentMachineState);
     return {
-      id: payment.id,
+      ...(paid ? { id: payment.id } : {}),
       amountCents: payment.amountCents,
       currency: payment.currency,
       status: payment.status,
@@ -1313,7 +1319,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       qrExpiresAt: payment.qrExpiresAt.toISOString(),
       ref: formatChargeRef(payment.ref),
       // Ya pagado: la propina que dejó (el PAGADO del personal sin tiempo real la necesita).
-      ...(PAID_STATES.has(payment.status as PaymentMachineState) ? { tipCents: payment.tipCents } : {}),
+      ...(paid ? { tipCents: payment.tipCents } : {}),
     };
   }
 

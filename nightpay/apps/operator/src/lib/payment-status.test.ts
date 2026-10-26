@@ -41,4 +41,9 @@ describe('el sondeo de respaldo (sin tiempo real)', () => {
   it('la respuesta de otro cobro no cuenta', () => {
     expect(pollUpdate({ id: 'otro', status: 'AUTHORIZED', tipCents: 200 }, ID)).toBeNull();
   });
+
+  it('sin pagar, el API ya no da el id (de él sale el código del «Pagado»): la respuesta de su QR vale', () => {
+    expect(pollUpdate({ status: 'AUTHORIZING' }, ID)).toEqual({ status: 'AUTHORIZING' });
+    expect(pollUpdate({ status: 'FAILED' }, ID)).toEqual({ status: 'FAILED' });
+  });
 });

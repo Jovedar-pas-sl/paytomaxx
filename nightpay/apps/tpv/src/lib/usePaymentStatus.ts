@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { advanceStatus, createPoller, isFinalStatus, type PaymentStatus, type Poller } from '@nightpay/ui';
+import { advanceStatus, createPoller, isFinalStatus, isPolledPayment, type PaymentStatus, type Poller } from '@nightpay/ui';
 import { fetchPaymentStatus, freshAccessToken, wsBase, type CreatedPayment } from './api';
 import { playBeep } from './beep';
 
@@ -71,7 +71,7 @@ export function usePaymentStatus(payment: CreatedPayment | null): LivePaymentSta
         try {
           const current = await fetchPaymentStatus(qrToken, signal);
           if (!closed) setPollOk(true);
-          if (current.id === id) emit(current.status);
+          if (isPolledPayment(current, id)) emit(current.status);
         } catch (err) {
           if (!closed) setPollOk(false);
           throw err;
