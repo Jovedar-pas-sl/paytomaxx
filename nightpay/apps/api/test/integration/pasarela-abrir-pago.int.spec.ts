@@ -22,7 +22,7 @@ const metrics = {
   duplicateCharges: { inc: vi.fn() },
 };
 const realtime = { emitPaymentUpdate: vi.fn(), emitPaymentCompleted: vi.fn() };
-const orphanQueue = { add: vi.fn(async () => undefined) };
+const orphanQueue = { getJob: vi.fn(async () => undefined), add: vi.fn(async () => undefined) };
 const FORM = { action: 'https://sis-t.redsys.es:25443/sis/realizarPago', method: 'POST' as const, fields: { Ds_Signature: 'x' } };
 /** La pasarela de mentira: cada prueba dice qué hace authorize(). */
 const authorize = vi.fn<(input: { paymentId: string }) => Promise<unknown>>();
