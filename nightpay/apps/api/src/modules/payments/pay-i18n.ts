@@ -1,3 +1,4 @@
+import { HttpException } from '@nestjs/common';
 import type { PayClosedReason } from './pay-redirect';
 
 /**
@@ -14,7 +15,14 @@ export function resolveLanguage(query: unknown, acceptLanguage: string | undefin
   return 'en';
 }
 
-export type PayErrorKey = 'expired' | 'notFound' | 'inProgress' | 'gateway' | 'generic';
+export type PayErrorKey =
+  | 'expired'
+  | 'notFound'
+  | 'inProgress'
+  | 'gateway'
+  | 'gatewayFailed'
+  | 'gatewayFailedAfterAttempt'
+  | 'generic';
 
 /**
  * Aviso que no asusta: qué ha pasado, «No se te ha cobrado nada» cuando es
@@ -259,6 +267,15 @@ const ES: PayText = {
       notCharged: true,
       retry: 'Intentar otra vez',
     },
+    // El cobro quedó FAILED sin llegar al banco: no se ofrece repetir.
+    gatewayFailed: { title: 'No se ha podido abrir el pago', body: '', notCharged: true, hint: ASK_STAFF_ES },
+    // Un intento anterior puede seguir en el banco: no se dice que no se cobró.
+    gatewayFailedAfterAttempt: {
+      title: 'No se ha podido abrir otro intento',
+      body: 'Si ves el cargo en tu app del banco, enséñaselo al personal.',
+      notCharged: false,
+      hint: 'Pide un cobro nuevo al personal.',
+    },
     generic: {
       title: 'No se ha podido continuar con el cobro',
       body: '',
@@ -417,6 +434,13 @@ const EN: PayText = {
       notCharged: true,
       retry: 'Try again',
     },
+    gatewayFailed: { title: 'The payment could not be opened', body: '', notCharged: true, hint: ASK_STAFF_EN },
+    gatewayFailedAfterAttempt: {
+      title: 'Another attempt could not be opened',
+      body: 'If you see the charge in your banking app, show it to the staff.',
+      notCharged: false,
+      hint: 'Ask the staff for a new payment.',
+    },
     generic: {
       title: 'The payment could not continue',
       body: '',
@@ -444,6 +468,28 @@ const EN: PayText = {
 };
 
 export const PAY_TEXT: Record<PayLanguage, PayText> = { es: ES, en: EN };
+
+/**
+ * Página de cada error de la pasarela por su `code` (payments.service.ts): el
+ * código va con el estado en que queda el cobro, así la página nunca ofrece
+ * reintentar un cobro muerto ni da por muerto uno que se puede pagar.
+ */
+const PAY_ERROR_CODES: Readonly<Record<string, PayErrorKey>> = {
+  GATEWAY_RETRY: 'gateway',
+  GATEWAY_FAILED: 'gatewayFailed',
+  GATEWAY_FAILED_AFTER_ATTEMPT: 'gatewayFailedAfterAttempt',
+};
+
+/** La página del error: por su `code` si es de la pasarela; si no, por el texto, como antes (payErrorKey). */
+export function payErrorKeyOf(err: unknown): PayErrorKey {
+  if (err instanceof HttpException) {
+    const body = err.getResponse();
+    const code = typeof body === 'object' && body !== null ? (body as { code?: unknown }).code : undefined;
+    const key = typeof code === 'string' ? PAY_ERROR_CODES[code] : undefined;
+    if (key) return key;
+  }
+  return payErrorKey((err as Error | null)?.message || 'Error');
+}
 
 /**
  * Traduce errores técnicos a una frase para el cliente. Nunca se muestran

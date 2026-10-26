@@ -24,7 +24,7 @@ import { WalletPasskeysService } from '../wallets/wallet-passkeys.service';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { PAID_STATES, confirmationCode, type CheckoutChoice, type PayRedirect } from './pay-redirect';
 import { detectPayDevice, type PayDevice } from './pay-device';
-import { payErrorKey, resolveLanguage, type PayLanguage } from './pay-i18n';
+import { payErrorKeyOf, resolveLanguage, type PayLanguage } from './pay-i18n';
 import {
   payHref,
   receiptHref,
@@ -422,7 +422,7 @@ export class PublicPayController {
     const message = (err as Error).message || 'Error';
     // Logueamos detalles técnicos pero NO los mostramos al cliente
     this.logger.warn(`/pay/${token.slice(0, 4)}… failed: ${message}`);
-    sendHtml(res, 409, renderErrorPage(payErrorKey(message), lang, payHref(token, lang)));
+    sendHtml(res, 409, renderErrorPage(payErrorKeyOf(err), lang, payHref(token, lang)));
   }
 
   private cookieSecret(): string {

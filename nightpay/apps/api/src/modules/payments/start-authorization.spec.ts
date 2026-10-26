@@ -1,7 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ConflictException } from '@nestjs/common';
-import { GATEWAY_ERROR_PUBLIC, PaymentsService } from './payments.service';
-import { payErrorKey } from './pay-i18n';
+import {
+  GATEWAY_ERROR_PUBLIC,
+  GATEWAY_FAILED_AFTER_ATTEMPT_PUBLIC,
+  GATEWAY_FAILED_PUBLIC,
+  PaymentsService,
+} from './payments.service';
+import { payErrorKey, payErrorKeyOf } from './pay-i18n';
+import { GatewayTransientError } from '../gateways/gateway-errors';
 
 /** POST /payments/public/:token/start-authorization es público: sin detalles de la pasarela (#59). */
 function makeService(authorizeError: Error) {
@@ -13,6 +19,7 @@ function makeService(authorizeError: Error) {
         amountCents: 1_000,
         tipCents: 0,
         currency: 'EUR',
+        status: 'CREATED',
         qrExpiresAt: new Date(Date.now() + 60_000),
       }),
       update: vi.fn().mockResolvedValue({}),
@@ -39,15 +46,46 @@ describe('startAuthorization — error de la pasarela', () => {
     const { service, logger, transition } = makeService(leaky);
     const err = await service.startAuthorization('qr-token').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
-    expect((err as Error).message).toBe(GATEWAY_ERROR_PUBLIC);
-    expect((err as Error).message).not.toMatch(/sent:|branchesRaw|Paytef/);
+    expect((err as Error).message).toBe(GATEWAY_FAILED_PUBLIC);
+    expect(JSON.stringify((err as ConflictException).getResponse())).not.toMatch(/sent:|branchesRaw|Paytef/);
     expect(logger.error.mock.calls[0]![0]).toContain('branchesRaw');
-    // El cobro queda FAILED como antes (saga).
-    expect(transition).toHaveBeenCalledWith('pay-1', { type: 'FAILED', reason: 'gateway-authorize-error' });
+    // Un 400 de Paytef no se arregla repitiendo: el cobro queda FAILED (nunca llegó al banco).
+    expect(transition).toHaveBeenCalledWith('pay-1', { type: 'CHECKOUT_FAILED', reason: 'gateway-authorize-error' });
   });
 
-  it('la página /pay lo sigue mostrando como "el banco no responde"', () => {
+  it('fallo pasajero: el mismo mensaje genérico, con reintento, y el cobro sin tocar', async () => {
+    const { service, transition } = makeService(new GatewayTransientError('Paytef /save sin respuesta: sent: {"key":"abc"}'));
+    const err = await service.startAuthorization('qr-token').catch((e: unknown) => e);
+    expect((err as Error).message).toBe(GATEWAY_ERROR_PUBLIC);
+    expect(JSON.stringify((err as ConflictException).getResponse())).not.toMatch(/sent:|abc/);
+    expect(transition).not.toHaveBeenCalled();
+  });
+});
+
+describe('qué página de /pay enseña cada error de la pasarela', () => {
+  it('pasajero (GATEWAY_RETRY) → «el banco no responde», con «Intentar otra vez»', () => {
     expect(payErrorKey(GATEWAY_ERROR_PUBLIC)).toBe('gateway');
+    expect(payErrorKeyOf(new ConflictException({ message: GATEWAY_ERROR_PUBLIC, code: 'GATEWAY_RETRY' }))).toBe('gateway');
+  });
+
+  it('definitivo (GATEWAY_FAILED) → no se pudo abrir: pedir otro cobro, sin reintentar', () => {
+    expect(payErrorKeyOf(new ConflictException({ message: GATEWAY_FAILED_PUBLIC, code: 'GATEWAY_FAILED' }))).toBe(
+      'gatewayFailed',
+    );
+  });
+
+  it('definitivo con un intento anterior en el banco → sin reintentar y sin decir que no se cobró', () => {
+    const err = new ConflictException({ message: GATEWAY_FAILED_AFTER_ATTEMPT_PUBLIC, code: 'GATEWAY_FAILED_AFTER_ATTEMPT' });
+    expect(payErrorKeyOf(err)).toBe('gatewayFailedAfterAttempt');
+  });
+
+  it('sin código conocido, por el texto como antes', () => {
+    expect(payErrorKeyOf(new ConflictException('QR expired'))).toBe('expired');
+    expect(payErrorKeyOf(new ConflictException('Payment cannot start authorization (already in progress?)'))).toBe(
+      'inProgress',
+    );
+    expect(payErrorKeyOf(new Error('Connection terminated'))).toBe('generic');
+    expect(payErrorKeyOf(new ConflictException({ message: 'x', code: 'OTRO' }))).toBe('generic');
   });
 });
 

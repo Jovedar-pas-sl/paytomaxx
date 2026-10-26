@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderQrChargePage } from './qr-charge-page';
+import { PAY_FAIL_JS, renderQrChargePage } from './qr-charge-page';
 import { renderPaidPage } from '../payments/public-pay.pages';
 
 const scripts = (html: string): string[] =>
@@ -107,10 +107,27 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(html).not.toContain('id="pay"');
   });
 
-  it('error al pagar: solo dice que no se cobró si el servidor contestó (y no es un 409)', () => {
+  it('error al pagar: solo dice que no se cobró si el servidor lo rechazó (4xx que no es 409)', () => {
+    const payFail = new Function(`${PAY_FAIL_JS}; return npPayFail;`)() as (e: unknown) => string;
+    // Sin respuesta o fallo del servidor (5xx): no se sabe si se cobró (el cobro pudo
+    // hacerse y fallar después). Nada de «No se te ha cobrado nada» ni de volver a pagar.
+    expect(payFail(null)).toBe('unknown');
+    expect(payFail({ name: 'TypeError' })).toBe('unknown');
+    expect(payFail({ status: 0 })).toBe('unknown');
+    expect(payFail({ status: 500 })).toBe('unknown');
+    expect(payFail({ status: 503, code: 'TRY_LATER' })).toBe('unknown');
+    // 409: ya no está pendiente, ya pagado, otro intento…: recargar enseña el estado real.
+    expect(payFail({ status: 409, code: 'CHARGE_NOT_PENDING' })).toBe('reload');
+    // Otro 4xx (Face ID, local en pausa…): rechazado antes de cobrar.
+    expect(payFail({ status: 403, code: 'FACE_ID_WRONG' })).toBe('notCharged');
+    expect(payFail({ status: 423, code: 'VENUE_PAUSED' })).toBe('notCharged');
+  });
+
+  it('si no se sabe si se cobró o ya no está pendiente, no deja pulsar «Pagar» otra vez: solo «Volver a cargar»', () => {
     const js = scripts(renderQrChargePage('tok-1', 'es', view, NOW)).join('\n');
-    expect(js).toContain('if(!e||!e.status)');
-    expect(js).toContain("if(e.status===409)$('reload').hidden=false;else $('notCharged').hidden=false;");
+    expect(js).toContain(PAY_FAIL_JS);
+    expect(js).toContain("if(k==='unknown'){show('error',T.unknown);$('reload').hidden=false;$('pay').hidden=true;return;}");
+    expect(js).toContain("if(k==='reload'){$('reload').hidden=false;$('pay').hidden=true;}else $('notCharged').hidden=false;");
   });
 
   it('un nombre con HTML no puede cerrar el <script>', () => {

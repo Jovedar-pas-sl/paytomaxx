@@ -587,6 +587,49 @@ describe('POST /pay/:token — el cliente pulsa un botón', () => {
     expect(sent.body).not.toContain('class="hint"');
   });
 
+  it('fallo pasajero de la pasarela (GATEWAY_RETRY) → «el banco no responde» y «Intentar otra vez»', async () => {
+    const { controller } = makeController({
+      checkout: new ConflictException({ message: 'No se pudo abrir el pago en la pasarela.', code: 'GATEWAY_RETRY' }),
+    });
+    const { reply, sent } = fakeReply();
+    await controller.startCheckout('qr-token-1', { tip: '0', method: 'card', lang: 'es' }, undefined, reply);
+    expect(sent.status).toBe(409);
+    expect(sent.body).toContain('El banco no responde ahora mismo');
+    expect(sent.body).toContain('No se te ha cobrado nada');
+    expect(sent.body).toContain('href="/pay/qr-token-1?lang=es">Intentar otra vez</a>');
+  });
+
+  it('fallo definitivo (GATEWAY_FAILED, el cobro quedó FAILED) → no ofrece reintentar: pedir uno nuevo al personal', async () => {
+    for (const lang of ['es', 'en'] as const) {
+      const { controller } = makeController({
+        checkout: new ConflictException({ message: 'No se pudo abrir el pago. Pide un cobro nuevo al personal.', code: 'GATEWAY_FAILED' }),
+      });
+      const { reply, sent } = fakeReply();
+      await controller.startCheckout('qr-token-1', { tip: '0', method: 'card', lang }, undefined, reply);
+      expect(sent.status).toBe(409);
+      expect(sent.body).not.toContain('class="btn"');
+      expect(sent.body).not.toContain('Intentar otra vez');
+      expect(sent.body).not.toContain('Try again');
+      expect(sent.body).not.toContain('El banco no responde');
+      expect(sent.body).toContain('class="hint"');
+      expect(sent.body).toContain(lang === 'es' ? 'Pide uno nuevo al personal.' : 'Ask the staff for a new one.');
+      // Nunca llegó al banco: aquí sí es verdad que no se cobró nada.
+      expect(sent.body).toContain(lang === 'es' ? 'No se te ha cobrado nada' : 'You have not been charged');
+    }
+  });
+
+  it('fallo definitivo al abrir OTRO intento (GATEWAY_FAILED_AFTER_ATTEMPT) → sin reintentar y sin decir que no se cobró', async () => {
+    const { controller } = makeController({
+      checkout: new ConflictException({ message: 'x', code: 'GATEWAY_FAILED_AFTER_ATTEMPT' }),
+    });
+    const { reply, sent } = fakeReply();
+    await controller.startCheckout('qr-token-1', { tip: '0', method: 'card', lang: 'es' }, undefined, reply);
+    expect(sent.body).not.toContain('class="btn"');
+    expect(sent.body).not.toContain('No se te ha cobrado nada');
+    expect(sent.body).toContain('Pide un cobro nuevo al personal.');
+    expect(sent.body).toContain('enséñaselo al personal');
+  });
+
   it('cobro en curso → no dice que no se cobró; una acción: comprobar otra vez', async () => {
     const { controller } = makeController({ checkout: new ConflictException('Payment already in progress') });
     const { reply, sent } = fakeReply();

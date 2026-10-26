@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
-import { GATEWAY_ERROR_PUBLIC, PaymentsService } from './payments.service';
+import { GATEWAY_ERROR_PUBLIC, GATEWAY_FAILED_AFTER_ATTEMPT_PUBLIC, GATEWAY_FAILED_PUBLIC, PaymentsService } from './payments.service';
+import { GatewayTransientError } from '../gateways/gateway-errors';
 import { InvalidTransitionError, type PaymentEvent } from './payment.machine';
+import type { TransitionOptions } from './payments.service';
 import type { CheckoutChoice } from './pay-redirect';
 
 /**
@@ -116,7 +118,7 @@ function makeService(setup: Setup = {}) {
   const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const service = new PaymentsService(
     prisma as never,
-    { get: () => ({ traceId: 'trace-pago-1' }) } as never,
+    { get: () => ({ traceId: 'trace-pago-1' }), set: vi.fn(), run: (_o: unknown, fn: () => unknown) => fn() } as never,
     { add: vi.fn() } as never,
     orphanQueue as never,
     { get: vi.fn(() => adapter) } as never,
@@ -126,10 +128,15 @@ function makeService(setup: Setup = {}) {
     {} as never,
   );
   Object.assign(service, { logger });
-  // La transición real (SELECT … FOR UPDATE) tiene sus propias pruebas: aquí solo mueve el estado.
-  const transition = vi.spyOn(service, 'transition').mockImplementation(async (_id: string, event: PaymentEvent) => {
-    if (event.type === 'AUTHORIZING') state.payment = { ...state.payment, status: 'AUTHORIZING' };
-  });
+  // La transición real (SELECT … FOR UPDATE) tiene sus propias pruebas: aquí
+  // ejecuta lo que el llamador guarda en la misma transacción y mueve el estado.
+  const transition = vi
+    .spyOn(service, 'transition')
+    .mockImplementation(async (_id: string, event: PaymentEvent, _tenant?: string, opts?: TransitionOptions) => {
+      if (opts?.prepare && state.payment) await opts.prepare(db as never, state.payment as never);
+      if (event.type === 'AUTHORIZING') state.payment = { ...state.payment, status: 'AUTHORIZING' };
+      if (event.type === 'CHECKOUT_FAILED') state.payment = { ...state.payment, status: 'FAILED' };
+    });
   return { service, db, state, written, locks, adapter, orphanQueue, logger, transition };
 }
 
@@ -267,7 +274,12 @@ describe('startCheckout — el cliente pulsa «Pagar»', () => {
   it('primer pago con Redsys: pedido por importe + propina, intento del navegador apuntado', async () => {
     const { service, adapter, written, state, orphanQueue, transition } = makeService();
     await expect(service.startCheckout(QR, choice({ tipCents: 500 }))).resolves.toEqual({ kind: 'checkout', order: '2610170130A1' });
-    expect(transition).toHaveBeenCalledWith(PAYMENT_ID, { type: 'AUTHORIZING' });
+    expect(transition).toHaveBeenCalledWith(
+      PAYMENT_ID,
+      { type: 'AUTHORIZING' },
+      TENANT,
+      expect.objectContaining({ prepare: expect.any(Function) }),
+    );
     expect(adapter.authorize).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: TENANT, amountCents: 5_000, payMethod: 'card', language: 'es' }),
     );
@@ -303,21 +315,60 @@ describe('startCheckout — el cliente pulsa «Pagar»', () => {
     expect(written[0]).toMatchObject({ provider: 'PAYTEF', amountCents: 4_500, tipCents: null });
   });
 
-  it('doble toque: el otro POST ya abrió el pedido → mismo formulario; otro navegador → 409', async () => {
-    // El otro POST ya movió el cobro a AUTHORIZING y abrió el pedido hace 5 s.
+  it('doble toque: el otro POST abrió el pedido mientras tanto → mismo formulario, nada de este; otro navegador → 409', async () => {
+    // El otro POST ganó: movió el cobro a AUTHORIZING con su pedido de hace 1 s.
     const tapped = () => {
       const s = makeService({
-        attempts: [{ providerTxId: '2610170130A1', status: 'PENDING', createdAt: secondsAgo(5), claimHash: 'huella-cliente' }],
+        attempts: [{ providerTxId: 'ORD-OTRO', status: 'PENDING', createdAt: secondsAgo(1), claimHash: 'huella-cliente' }],
       });
       s.transition.mockRejectedValueOnce(new InvalidTransitionError('AUTHORIZING', 'AUTHORIZING'));
       return s;
     };
     const same = tapped();
-    await expect(same.service.startCheckout(QR, choice())).resolves.toEqual({ kind: 'checkout', order: '2610170130A1' });
-    expect(same.adapter.authorize).not.toHaveBeenCalled();
+    await expect(same.service.startCheckout(QR, choice())).resolves.toEqual({ kind: 'checkout', order: 'ORD-OTRO' });
+    // El pedido que preparó este POST (solo firmado, sin red) no se guarda ni se enseña.
+    expect(same.written).toHaveLength(0);
+    expect(same.orphanQueue.add).not.toHaveBeenCalled();
     // Otro navegador con el mismo QR no se queda con el pedido del cliente.
     const other = tapped();
     await expect(other.service.startCheckout(QR, choice({ claimHash: 'huella-otro' }))).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe('startCheckout — la pasarela no abre el pago (primer intento)', () => {
+  it('fallo pasajero → «el banco no responde» con reintento, el cobro sigue igual y el reintento SÍ abre el pago', async () => {
+    let down = true;
+    const { service, state, written, transition } = makeService({
+      authorize: async () => {
+        if (down) throw new GatewayTransientError('Redsys: Breaker is open');
+        return { providerTxId: '2610170130A1', checkoutForm: REDSYS_FORM };
+      },
+    });
+    const err = await service.startCheckout(QR, choice()).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as Error).message).toBe(GATEWAY_ERROR_PUBLIC);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'GATEWAY_RETRY' });
+    expect(state.payment).toMatchObject({ status: 'CREATED', providerTxId: null });
+    expect(written).toHaveLength(0);
+    expect(transition).not.toHaveBeenCalled();
+    // «Intentar otra vez» → la página de pago de siempre y, con la pasarela ya bien, el banco.
+    await expect(service.getPayPage(QR)).resolves.toMatchObject({ kind: 'choose' });
+    down = false;
+    await expect(service.startCheckout(QR, choice())).resolves.toEqual({ kind: 'checkout', order: '2610170130A1' });
+    expect(state.payment).toMatchObject({ status: 'AUTHORIZING', providerTxId: '2610170130A1' });
+  });
+
+  it('fallo definitivo → el cobro queda FAILED y el mensaje no ofrece reintentar (la página después dice lo mismo)', async () => {
+    const { service, state } = makeService({
+      authorize: async () => {
+        throw new Error('REDSYS_SECRET_KEY no configurado');
+      },
+    });
+    const err = await service.startCheckout(QR, choice()).catch((e: unknown) => e);
+    expect((err as Error).message).toBe(GATEWAY_FAILED_PUBLIC);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'GATEWAY_FAILED' });
+    expect(state.payment).toMatchObject({ status: 'FAILED' });
+    await expect(service.getPayPage(QR)).resolves.toEqual({ kind: 'closed', reason: 'failed' });
   });
 });
 
@@ -423,8 +474,8 @@ describe('startCheckout — reintento con Redsys (pago en AUTHORIZING)', () => {
     expect(waiting.adapter.authorize).not.toHaveBeenCalled();
   });
 
-  it('la pasarela falla al reintentar → 409 genérico; lo enviado al banco solo va al log', async () => {
-    const { service, logger, written } = makeService({
+  it('la pasarela falla (definitivo) al reintentar → 409 sin reintento; el cobro sigue con sus intentos; el detalle solo al log', async () => {
+    const { service, logger, written, state, transition } = makeService({
       payment: inProgress,
       attempts: [{ providerTxId: 'ORD-1', status: 'DENIED', createdAt: secondsAgo(60) }],
       authorize: async () => {
@@ -433,10 +484,38 @@ describe('startCheckout — reintento con Redsys (pago en AUTHORIZING)', () => {
     });
     const err = await service.startCheckout(QR, choice()).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
-    expect((err as Error).message).toBe(GATEWAY_ERROR_PUBLIC);
-    expect((err as Error).message).not.toMatch(/SIS0051|Ds_Merchant/);
+    expect((err as Error).message).toBe(GATEWAY_FAILED_AFTER_ATTEMPT_PUBLIC);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'GATEWAY_FAILED_AFTER_ATTEMPT' });
+    expect(JSON.stringify((err as ConflictException).getResponse())).not.toMatch(/SIS0051|Ds_Merchant/);
     expect(String(logger.error.mock.calls[0]![0])).toContain('SIS0051');
     expect(written).toHaveLength(0);
+    // Un intento anterior puede seguir en el banco: no se mata el cobro.
+    expect(state.payment).toMatchObject({ status: 'AUTHORIZING', providerTxId: 'ORD-1' });
+    expect(transition).not.toHaveBeenCalled();
+  });
+
+  it('la pasarela o la base fallan de forma pasajera al reintentar → reintento de verdad (no se guardó nada)', async () => {
+    const gateway = makeService({
+      payment: inProgress,
+      attempts: [{ providerTxId: 'ORD-1', status: 'DENIED', createdAt: secondsAgo(60) }],
+      authorize: async () => {
+        throw Object.assign(new Error('Breaker is open'), { code: 'EOPENBREAKER' });
+      },
+    });
+    const e1 = await gateway.service.startCheckout(QR, choice()).catch((e: unknown) => e);
+    expect((e1 as ConflictException).getResponse()).toMatchObject({ code: 'GATEWAY_RETRY', message: GATEWAY_ERROR_PUBLIC });
+    // «Intentar otra vez» → la página de pago (intento anterior denegado: se puede volver a elegir).
+    await expect(gateway.service.getPayPage(QR)).resolves.toMatchObject({ kind: 'choose' });
+
+    const db = makeService({
+      payment: inProgress,
+      attempts: [{ providerTxId: 'ORD-1', status: 'DENIED', createdAt: secondsAgo(60) }],
+      authorize: async () => ({ providerTxId: 'ORD-2', checkoutForm: REDSYS_FORM }),
+    });
+    db.db.paymentAttempt.create.mockRejectedValueOnce(new Error('Connection terminated unexpectedly'));
+    const e2 = await db.service.startCheckout(QR, choice()).catch((e: unknown) => e);
+    expect((e2 as ConflictException).getResponse()).toMatchObject({ code: 'GATEWAY_RETRY' });
+    expect(db.written).toHaveLength(0);
   });
 
   it('pago en curso con otra pasarela → su enlace guardado, sin candado ni intento nuevo', async () => {

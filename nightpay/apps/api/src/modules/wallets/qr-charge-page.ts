@@ -83,6 +83,18 @@ const QR_CSS = `
 .after{max-width:26rem;margin:0 auto;padding:1rem;display:flex;flex-direction:column;align-items:center}
 `;
 
+/**
+ * Qué se enseña si el pago con el saldo falla (`e` es el error de pkPost):
+ *  - 'unknown': sin respuesta o fallo del servidor (5xx). El cobro pudo hacerse
+ *    y fallar después (p. ej. al leer el saldo que queda): no se sabe si se
+ *    cobró. Ni «No se te ha cobrado nada» ni «Pagar» otra vez: recargar.
+ *  - 'reload': 409 (ya no está pendiente, ya pagado, otro intento…): recargar
+ *    enseña el estado real, sin el botón de pagar.
+ *  - 'notCharged': otro 4xx: rechazado antes de cobrar (Face ID, pausa…).
+ */
+export const PAY_FAIL_JS =
+  "function npPayFail(e){if(!e||!e.status||e.status>=500)return 'unknown';return e.status===409?'reload':'notCharged';}";
+
 export function renderQrChargePage(
   token: string,
   lang: PayLanguage,
@@ -157,6 +169,7 @@ ${who ? `<p class="who">${h(who)}</p>` : ''}
 ${PASSKEY_BROWSER_JS}
 ${CLIENT_ERROR_JS}
 ${PAID_SCREEN_JS}
+${PAY_FAIL_JS}
 (function(){
 var C=JSON.parse(${config}),T=C.text,V=C.view,el=document.getElementById('paid');
 function $(id){return document.getElementById(id);}
@@ -189,10 +202,11 @@ $('pay').addEventListener('click',function(){
  k.then(function(k){return pkPost(C.base+'/pay',{response:k});})
   .then(paid)
   .catch(function(e){b.disabled=false;b.textContent=T.pay;if(pkCancelled(e))return;
-   if(!e||!e.status){show('error',T.unknown);$('reload').hidden=false;return;}
+   var k=npPayFail(e);
+   if(k==='unknown'){show('error',T.unknown);$('reload').hidden=false;$('pay').hidden=true;return;}
    show('error',npErr(e,C.errors));
    // 409: puede que un intento anterior sí se cobrara; recargar enseña el estado real.
-   if(e.status===409)$('reload').hidden=false;else $('notCharged').hidden=false;});
+   if(k==='reload'){$('reload').hidden=false;$('pay').hidden=true;}else $('notCharged').hidden=false;});
 });
 $('reload').addEventListener('click',function(){location.reload();});
 })();

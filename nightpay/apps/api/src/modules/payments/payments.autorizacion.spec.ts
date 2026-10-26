@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { GATEWAY_ERROR_PUBLIC, PaymentsService } from './payments.service';
+import { GATEWAY_ERROR_PUBLIC, GATEWAY_FAILED_PUBLIC, PaymentsService } from './payments.service';
 import { InvalidTransitionError } from './payment.machine';
+import { GatewayTransientError } from '../gateways/gateway-errors';
 
 /**
  * startAuthorization (endpoint público antiguo, sin página de pago) y las
@@ -68,7 +69,7 @@ function makeService(opts: Opts = {}) {
   const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const service = new PaymentsService(
     prisma as never,
-    { get: () => ({ traceId: 'trace-auth-1' }) } as never,
+    { get: () => ({ traceId: 'trace-auth-1' }), set: vi.fn(), run: (_o: unknown, fn: () => unknown) => fn() } as never,
     {} as never,
     orphanQueue as never,
     { get: vi.fn(() => adapter) } as never,
@@ -78,7 +79,11 @@ function makeService(opts: Opts = {}) {
     {} as never,
   );
   Object.assign(service, { logger });
-  const transition = vi.spyOn(service, 'transition').mockResolvedValue(undefined);
+  // La transición real (fila bloqueada, FSM) tiene sus pruebas: aquí ejecuta lo
+  // que el llamador guarda en su misma transacción (opts.prepare).
+  const transition = vi.spyOn(service, 'transition').mockImplementation(async (_id, _event, _tenant, opts) => {
+    if (opts?.prepare && payment) await opts.prepare(db as never, payment as never);
+  });
   return { service, db, updates, attempts, adapter, orphanQueue, logger, transition };
 }
 
@@ -104,17 +109,31 @@ describe('startAuthorization — antes de ir al banco', () => {
     expect(adapter.authorize).not.toHaveBeenCalled();
   });
 
-  it('local sin pasarela activa → 409', async () => {
-    const { service, transition } = makeService({ provider: null });
-    await expect(service.startAuthorization(QR)).rejects.toBeInstanceOf(ConflictException);
-    expect(transition).not.toHaveBeenCalled();
+  it('local sin pasarela activa → no se puede pagar con tarjeta: FAILED y 409 sin reintento', async () => {
+    const { service, transition, adapter } = makeService({ provider: null });
+    const err = await service.startAuthorization(QR).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'GATEWAY_FAILED', message: GATEWAY_FAILED_PUBLIC });
+    expect(transition).toHaveBeenCalledWith(PAYMENT_ID, { type: 'CHECKOUT_FAILED', reason: 'no-active-gateway' });
+    expect(adapter.authorize).not.toHaveBeenCalled();
   });
 
-  it('otro POST ya lo puso en AUTHORIZING → 409 sin llamar al banco', async () => {
-    const { service, transition, adapter } = makeService();
+  it('ya en AUTHORIZING (otro POST abrió el pago) o terminado → 409 sin llamar al banco ni tocar el cobro', async () => {
+    for (const status of ['AUTHORIZING', 'ORPHAN', 'FAILED', 'AUTHORIZED']) {
+      const { service, transition, adapter } = makeService({ payment: { status } });
+      await expect(service.startAuthorization(QR)).rejects.toBeInstanceOf(ConflictException);
+      expect(adapter.authorize).not.toHaveBeenCalled();
+      expect(transition).not.toHaveBeenCalled();
+    }
+  });
+
+  it('otro POST lo abrió mientras la pasarela preparaba este → 409 y de este no se guarda nada', async () => {
+    const { service, transition, attempts, updates, orphanQueue } = makeService();
     transition.mockRejectedValueOnce(new InvalidTransitionError('AUTHORIZING', 'AUTHORIZING'));
     await expect(service.startAuthorization(QR)).rejects.toBeInstanceOf(ConflictException);
-    expect(adapter.authorize).not.toHaveBeenCalled();
+    expect(attempts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(orphanQueue.add).not.toHaveBeenCalled();
   });
 
   it('fallo de la base al mover el cobro → sale ese error (no se disfraza de 409)', async () => {
@@ -147,10 +166,9 @@ describe('startAuthorization — lo que se cobra y se guarda', () => {
         claimHash: null,
       },
     ]);
-    // Primero la pasarela (por si la conciliación corre antes), luego pedido y formulario.
+    // Pasarela, pedido y formulario a la vez que el AUTHORIZING (misma transacción).
     expect(updates).toEqual([
-      { provider: 'REDSYS' },
-      { providerTxId: '2610170130A1', gatewayCheckoutForm: { action: 'https://sis.redsys.es', fields: {} } },
+      { provider: 'REDSYS', providerTxId: '2610170130A1', gatewayCheckoutForm: { action: 'https://sis.redsys.es', fields: {} } },
     ]);
     expect(orphanQueue.add).toHaveBeenCalledWith(
       'orphan-reconcile',
@@ -159,10 +177,20 @@ describe('startAuthorization — lo que se cobra y se guarda', () => {
     );
   });
 
-  it('la pasarela se apunta en el cobro ANTES de llamar al banco', async () => {
-    const { service, db, adapter } = makeService({ provider: 'PAYTEF' });
+  it('el cobro pasa a AUTHORIZING solo cuando la pasarela ya abrió el pago, con su pedido en la misma transacción', async () => {
+    const { service, db, adapter, transition } = makeService({ provider: 'PAYTEF' });
     await service.startAuthorization(QR);
-    expect(db.payment.update.mock.invocationCallOrder[0]!).toBeLessThan(adapter.authorize.mock.invocationCallOrder[0]!);
+    expect(adapter.authorize.mock.invocationCallOrder[0]!).toBeLessThan(transition.mock.invocationCallOrder[0]!);
+    expect(transition).toHaveBeenCalledTimes(1);
+    expect(transition).toHaveBeenCalledWith(
+      PAYMENT_ID,
+      { type: 'AUTHORIZING' },
+      TENANT,
+      expect.objectContaining({ prepare: expect.any(Function) }),
+    );
+    // Lo guarda el prepare de la transición (con la fila bloqueada), no antes.
+    expect(db.payment.update).toHaveBeenCalledTimes(1);
+    expect(db.paymentAttempt.create).toHaveBeenCalledTimes(1);
   });
 
   it('Paytef: al banco solo el importe (no cobra propina) y se guarda su enlace', async () => {
@@ -170,32 +198,81 @@ describe('startAuthorization — lo que se cobra y se guarda', () => {
     await service.startAuthorization(QR);
     expect(adapter.authorize.mock.calls[0]![0]).toMatchObject({ amountCents: 4_500 });
     expect(attempts[0]).toMatchObject({ provider: 'PAYTEF', amountCents: 4_500, tipCents: null });
-    expect(updates[1]).toEqual({ providerTxId: '2610170130A1', gatewayPaymentUrl: PAYTEF_URL });
+    expect(updates[0]).toEqual({ provider: 'PAYTEF', providerTxId: '2610170130A1', gatewayPaymentUrl: PAYTEF_URL });
   });
 
-  it('la pasarela falla y el aviso del banco ya lo cerró → igualmente 409 genérico', async () => {
-    const { service, transition, orphanQueue } = makeService({
+  it('fallo pasajero de la pasarela (sin respuesta, breaker abierto) → 409 que SÍ reintenta; el cobro ni se toca', async () => {
+    const transient = [
+      new GatewayTransientError('Paytef /save sin respuesta: fetch failed'),
+      Object.assign(new Error('Breaker is open'), { code: 'EOPENBREAKER' }),
+      Object.assign(new Error('Timed out after 5000ms'), { code: 'ETIMEDOUT' }),
+    ];
+    for (const cause of transient) {
+      const { service, transition, attempts, updates, orphanQueue } = makeService({
+        authorize: async () => {
+          throw cause;
+        },
+      });
+      const err = await service.startAuthorization(QR).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as Error).message).toBe(GATEWAY_ERROR_PUBLIC);
+      expect((err as ConflictException).getResponse()).toMatchObject({ code: 'GATEWAY_RETRY' });
+      // Sigue CREATED: ni AUTHORIZING ni FAILED, sin pedido ni intento.
+      expect(transition).not.toHaveBeenCalled();
+      expect(attempts).toHaveLength(0);
+      expect(updates).toHaveLength(0);
+      expect(orphanQueue.add).not.toHaveBeenCalled();
+    }
+  });
+
+  it('fallo definitivo de la pasarela → FAILED (no llegó al banco) y 409 sin reintento; el detalle solo al log', async () => {
+    const { service, transition, orphanQueue, logger } = makeService({
       authorize: async () => {
-        throw new Error('Paytef 502 sent: {"terminal":"T-0042"}');
+        throw new Error('Paytef /save failed: 422 sent: {"terminal":"T-0042"}');
       },
     });
-    transition
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new InvalidTransitionError('FAILED', 'FAILED'));
     const err = await service.startAuthorization(QR).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
-    expect((err as Error).message).toBe(GATEWAY_ERROR_PUBLIC);
+    expect((err as Error).message).toBe(GATEWAY_FAILED_PUBLIC);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'GATEWAY_FAILED' });
+    expect(JSON.stringify((err as ConflictException).getResponse())).not.toMatch(/T-0042|sent:/);
+    expect(String(logger.error.mock.calls[0]![0])).toContain('T-0042');
+    expect(transition).toHaveBeenCalledTimes(1);
+    expect(transition).toHaveBeenCalledWith(PAYMENT_ID, { type: 'CHECKOUT_FAILED', reason: 'gateway-authorize-error' });
     expect(orphanQueue.add).not.toHaveBeenCalled();
   });
 
-  it('la pasarela falla y además falla marcarlo FAILED → sale ese segundo error', async () => {
+  it('fallo definitivo y el cobro ya estaba FAILED (otra petición) → el mismo 409 sin reintento', async () => {
+    const { service, transition } = makeService({
+      authorize: async () => {
+        throw new Error('REDSYS_SECRET_KEY no configurado');
+      },
+    });
+    transition.mockRejectedValueOnce(new InvalidTransitionError('FAILED', 'CHECKOUT_FAILED'));
+    const err = await service.startAuthorization(QR).catch((e: unknown) => e);
+    expect((err as Error).message).toBe(GATEWAY_FAILED_PUBLIC);
+  });
+
+  it('fallo definitivo pero otro POST ya abrió el pago (AUTHORIZING) → ese sigue: «ya se está procesando», sin matarlo', async () => {
+    const { service, transition } = makeService({
+      authorize: async () => {
+        throw new Error('REDSYS_SECRET_KEY no configurado');
+      },
+    });
+    transition.mockRejectedValueOnce(new InvalidTransitionError('AUTHORIZING', 'CHECKOUT_FAILED'));
+    const err = await service.startAuthorization(QR).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as Error).message).toMatch(/already in progress/);
+  });
+
+  it('la pasarela falla y además falla marcarlo FAILED → sale ese segundo error (el cobro sigue como estaba)', async () => {
     const { service, transition } = makeService({
       authorize: async () => {
         throw new Error('timeout');
       },
     });
     const deadlock = new Error('deadlock detected');
-    transition.mockResolvedValueOnce(undefined).mockRejectedValueOnce(deadlock);
+    transition.mockRejectedValueOnce(deadlock);
     await expect(service.startAuthorization(QR)).rejects.toBe(deadlock);
   });
 });

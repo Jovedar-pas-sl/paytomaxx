@@ -30,6 +30,14 @@ export type PaymentEvent =
    */
   | { type: 'POS_CONFIRMED'; posReceiptRef?: string }
   | { type: 'FAILED'; reason: string }
+  /**
+   * La pasarela no pudo abrir el pago por un error definitivo (configuración,
+   * datos rechazados) ANTES de ir al banco: CREATED|AWAITING_CAPTURE → FAILED.
+   * Solo lo envía startAuthorization; un fallo pasajero no lo envía (el cobro
+   * se queda como estaba y se puede reintentar). Con un intento ya en el
+   * banco (AUTHORIZING) no vale: ese lo resuelven el aviso o la conciliación.
+   */
+  | { type: 'CHECKOUT_FAILED'; reason: string }
   | { type: 'TIMEOUT' }
   /**
    * Devolución (parcial o total): la total es la que deja el importe
@@ -68,7 +76,7 @@ export const paymentMachine = setup({
       context.provider = event.provider;
     },
     persistFailure: ({ context, event }) => {
-      if (event.type !== 'FAILED') return;
+      if (event.type !== 'FAILED' && event.type !== 'CHECKOUT_FAILED') return;
       context.failureReason = event.reason;
     },
     persistCancel: ({ context, event }) => {
@@ -104,6 +112,7 @@ export const paymentMachine = setup({
         QR_VIEWED: 'AWAITING_CAPTURE',
         TIMEOUT: 'EXPIRED',
         AUTHORIZING: 'AUTHORIZING',
+        CHECKOUT_FAILED: { target: 'FAILED', actions: 'persistFailure' },
         // POS flow: camarero confirma cobrado en datáfono externo → AUTHORIZED
         // directo (sin AUTHORIZING porque no hay roundtrip al PSP).
         POS_CONFIRMED: 'AUTHORIZED',
@@ -114,6 +123,7 @@ export const paymentMachine = setup({
     AWAITING_CAPTURE: {
       on: {
         AUTHORIZING: 'AUTHORIZING',
+        CHECKOUT_FAILED: { target: 'FAILED', actions: 'persistFailure' },
         TIMEOUT: 'EXPIRED',
         CANCELED: { target: 'CANCELED', actions: 'persistCancel' },
         PAID_WITH_SALDO: { target: 'CANCELED', actions: 'persistPaidWithSaldo' },

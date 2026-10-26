@@ -31,7 +31,7 @@ import { RefreshTokenService } from '../auth/refresh-token.service';
 import { TotpService } from '../auth/totp.service';
 import { operatorAppBaseUrl } from '../operators/operator-app-url';
 import { OperatorsService } from '../operators/operators.service';
-import { inVenue } from './in-venue';
+import { inVenue } from '../../common/context/in-venue';
 import { SuperAdminStepUpService } from './step-up.service';
 import { SuperAdminAuditService } from './superadmin-audit.service';
 import { generateTemporaryPassword, superAdminRemovalProblem } from './superadmin-rules';

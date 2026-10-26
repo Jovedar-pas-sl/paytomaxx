@@ -13,6 +13,7 @@ import type {
 } from '@nightpay/contracts';
 import type { ApprovalClaim, ApprovalProof, GatewayAdapter, WebhookFsmEvent } from './gateway.adapter';
 import { createBreaker, fetchWithTimeout, timedFire } from './circuit-breaker';
+import { gatewayFetch, gatewayHttpError } from './gateway-errors';
 import { pickHeader } from './header-utils';
 import { MetricsService } from '../metrics/metrics.service';
 import { BRAND_NAME } from '../../common/brand';
@@ -208,17 +209,23 @@ export class PaytefAdapter implements GatewayAdapter {
       },
     };
 
-    const saveRes = await fetchWithTimeout(
-      `${baseUrl}/payment-link/save`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: authHeader,
-        },
-        body: JSON.stringify(saveBody),
-      },
-      this.timeoutMs,
+    // Sin respuesta o con 5xx/429: pasajero (gateway-errors.ts). El enlace que
+    // Paytef pudiera haber creado no lo tiene nadie: no se puede cobrar.
+    const saveRes = await gatewayFetch(
+      () =>
+        fetchWithTimeout(
+          `${baseUrl}/payment-link/save`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: authHeader,
+            },
+            body: JSON.stringify(saveBody),
+          },
+          this.timeoutMs,
+        ),
+      'Paytef /save',
     );
     if (!saveRes.ok) {
       const text = await saveRes.text().catch(() => '');
@@ -226,7 +233,8 @@ export class PaytefAdapter implements GatewayAdapter {
       const branchDump = this.cachedBranchRaw
         ? ` | branchesRaw: ${this.cachedBranchRaw.slice(0, 800)}`
         : '';
-      throw new Error(
+      throw gatewayHttpError(
+        saveRes.status,
         `Paytef /save failed: ${saveRes.status} ${text.slice(0, 250)} | sent: ${sentBody}${branchDump}`,
       );
     }
@@ -246,24 +254,28 @@ export class PaytefAdapter implements GatewayAdapter {
     }
 
     // 2) Publicar para que sea visible al cliente (POST /payment-link/publish)
-    const publishRes = await fetchWithTimeout(
-      `${baseUrl}/payment-link/publish`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: authHeader,
-        },
-        body: JSON.stringify({
-          paymentID: saveData.paymentID,
-          sendEmailNotification: false,
-        }),
-      },
-      this.timeoutMs,
+    const publishRes = await gatewayFetch(
+      () =>
+        fetchWithTimeout(
+          `${baseUrl}/payment-link/publish`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: authHeader,
+            },
+            body: JSON.stringify({
+              paymentID: saveData.paymentID,
+              sendEmailNotification: false,
+            }),
+          },
+          this.timeoutMs,
+        ),
+      'Paytef /publish',
     );
     if (!publishRes.ok) {
       const text = await publishRes.text().catch(() => '');
-      throw new Error(`Paytef /publish failed: ${publishRes.status} ${text.slice(0, 200)}`);
+      throw gatewayHttpError(publishRes.status, `Paytef /publish failed: ${publishRes.status} ${text.slice(0, 200)}`);
     }
 
     this.logger.log(
@@ -474,14 +486,19 @@ export class PaytefAdapter implements GatewayAdapter {
 
     // Fetch from Paytef API. Schema tolerante a variaciones porque la doc no
     // es 100% canónica — buscamos campos plausibles en la respuesta.
-    const res = await fetchWithTimeout(
-      `${this.baseUrl()}/payment-link/getBranches`,
-      { method: 'GET', headers: { Authorization: this.authHeader() } },
-      this.timeoutMs,
+    const res = await gatewayFetch(
+      () =>
+        fetchWithTimeout(
+          `${this.baseUrl()}/payment-link/getBranches`,
+          { method: 'GET', headers: { Authorization: this.authHeader() } },
+          this.timeoutMs,
+        ),
+      'Paytef /getBranches',
     );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(
+      throw gatewayHttpError(
+        res.status,
         `Paytef /getBranches failed: ${res.status} ${text.slice(0, 200)}. ` +
           `Define PAYTEF_COMPANY_ID y PAYTEF_BRANCH_ID en env vars manualmente.`,
       );

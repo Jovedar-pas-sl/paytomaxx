@@ -52,7 +52,13 @@ export type ApprovalProof =
 export interface GatewayAdapter {
   readonly provider: Provider;
 
-  /** Inicia autorización en la pasarela. */
+  /**
+   * Abre el pago en la pasarela: prepara la página del banco (formulario
+   * firmado o enlace) para el cliente. NUNCA cobra: el dinero solo se mueve
+   * cuando el cliente paga en esa página, que no tiene hasta que esto sale
+   * bien. Errores pasajeros (sin respuesta, 5xx, breaker) como
+   * GatewayTransientError (gateway-errors.ts); el resto, definitivos.
+   */
   authorize(input: AuthorizeInput): Promise<AuthorizeResult>;
 
   /** Consulta estado actual (saga orphan-reconcile). */

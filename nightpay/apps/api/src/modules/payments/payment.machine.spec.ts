@@ -217,3 +217,19 @@ describe('isIdempotentTransition — qué avisos rechazados se dan por procesado
     expect(rejected('AWAITING_CAPTURE', 'AUTHORIZED')).toBe(false);
   });
 });
+
+describe('paymentMachine — la pasarela no pudo abrir el pago (CHECKOUT_FAILED)', () => {
+  it('CREATED o AWAITING_CAPTURE → FAILED con el motivo: nunca llegó al banco', () => {
+    for (const from of ['CREATED', 'AWAITING_CAPTURE'] as const) {
+      const r = applyEvent(from, baseCtx(), { type: 'CHECKOUT_FAILED', reason: 'gateway-authorize-error' });
+      expect(r?.nextState).toBe('FAILED');
+      expect(r?.nextContext.failureReason).toBe('gateway-authorize-error');
+    }
+  });
+
+  it('con un intento ya en el banco (AUTHORIZING, ORPHAN) o terminado, no vale', () => {
+    for (const from of ['AUTHORIZING', 'ORPHAN', 'AUTHORIZED', 'FAILED', 'EXPIRED', 'CANCELED'] as const) {
+      expect(applyEvent(from, baseCtx(), { type: 'CHECKOUT_FAILED', reason: 'x' })).toBeNull();
+    }
+  });
+});

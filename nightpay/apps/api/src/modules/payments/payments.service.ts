@@ -35,8 +35,10 @@ import {
   type PublicPaymentView,
 } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
+import { inVenue } from '../../common/context/in-venue';
 import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
 import { GatewayRegistry } from '../gateways/gateway.registry';
+import { isTransientGatewayError } from '../gateways/gateway-errors';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
@@ -48,7 +50,7 @@ import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './
 import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from './charge-store';
 import { invitationEarnings } from './invitation-lines';
 import { assertCanTopUp, tipsForbidden } from '../venues/charge-rights';
-import type { Provider } from '@nightpay/contracts';
+import type { AuthorizeResult, Provider } from '@nightpay/contracts';
 import {
   PAID_STATES,
   choosePayPage,
@@ -101,10 +103,53 @@ const POS_AUTH_CODE_REUSED =
 const POS_AUTH_CODE_WINDOW_MS = 24 * 3600 * 1000;
 
 /**
- * Error de la pasarela para quien paga (endpoints públicos). Dice "pasarela"
- * para que /pay enseñe su página de "el banco no responde" (payErrorKey).
+ * Errores de la pasarela para quien paga (endpoints públicos), sin el detalle
+ * (puede llevar lo que se mandó al banco: va al log). El `code` dice qué
+ * página enseña /pay (payErrorKeyOf) y el estado del cobro va con él:
+ *  - GATEWAY_RETRY: fallo pasajero y nada llegó al banco. El cobro sigue como
+ *    estaba (se puede pagar): «el banco no responde» con «Intentar otra vez».
+ *  - GATEWAY_FAILED: definitivo antes de ir al banco. El cobro queda FAILED:
+ *    «no se ha podido abrir el pago», pedir otro al personal (sin reintentar).
+ *  - GATEWAY_FAILED_AFTER_ATTEMPT: definitivo al abrir OTRO intento. El cobro
+ *    sigue AUTHORIZING (un intento anterior puede seguir en el banco): sin
+ *    reintentar y sin decir que no se cobró nada.
  */
 export const GATEWAY_ERROR_PUBLIC = 'No se pudo abrir el pago en la pasarela. Inténtalo de nuevo en unos segundos.';
+export const GATEWAY_FAILED_PUBLIC = 'No se pudo abrir el pago. Pide un cobro nuevo al personal.';
+export const GATEWAY_FAILED_AFTER_ATTEMPT_PUBLIC =
+  'No se pudo abrir otro intento de pago. Si ves el cargo en tu banco, enséñaselo al personal; si no, pide un cobro nuevo.';
+export const GATEWAY_RETRY_CODE = 'GATEWAY_RETRY';
+export const GATEWAY_FAILED_CODE = 'GATEWAY_FAILED';
+export const GATEWAY_FAILED_AFTER_ATTEMPT_CODE = 'GATEWAY_FAILED_AFTER_ATTEMPT';
+const PAYMENT_ALREADY_STARTED = 'Payment cannot start authorization (already in progress?)';
+
+const gatewayRetry = (): ConflictException =>
+  new ConflictException({ message: GATEWAY_ERROR_PUBLIC, code: GATEWAY_RETRY_CODE });
+const gatewayFailed = (): ConflictException =>
+  new ConflictException({ message: GATEWAY_FAILED_PUBLIC, code: GATEWAY_FAILED_CODE });
+const gatewayFailedAfterAttempt = (): ConflictException =>
+  new ConflictException({ message: GATEWAY_FAILED_AFTER_ATTEMPT_PUBLIC, code: GATEWAY_FAILED_AFTER_ATTEMPT_CODE });
+
+/** Estados desde los que se abre el primer pago en la pasarela. */
+const OPENABLE_STATES: ReadonlySet<string> = new Set(['CREATED', 'AWAITING_CAPTURE']);
+
+/** authorize() de la pasarela falló: pasajero o definitivo (gateway-errors.ts). */
+class CheckoutNotOpenedError extends Error {
+  readonly transient: boolean;
+
+  constructor(cause: unknown) {
+    super((cause as Error)?.message || 'unknown');
+    this.name = 'CheckoutNotOpenedError';
+    this.transient = isTransientGatewayError(cause);
+  }
+}
+
+/** Lo que abrió la pasarela, para guardarlo con el intento. */
+interface OpenedCheckout {
+  result: AuthorizeResult;
+  chargeCents: number;
+  tipCents: number | null;
+}
 
 const TIP_TOO_HIGH = 'La propina no puede pasar del importe del cobro ni de 500,00 €';
 const TIP_DESTINATION_NOT_ALLOWED = 'Desde tu app la propina solo puede ser para ti o para el local';
@@ -993,13 +1038,19 @@ export class PaymentsService implements OnApplicationBootstrap {
           switchingMethod,
         });
         if (decision !== 'retry') return { decision, order: null, attempts: attempts.length };
-        const { providerTxId } = await this.authorizeAttempt(payment, 'REDSYS', tx, choice);
-        return { decision, order: providerTxId, attempts: attempts.length };
+        const opened = await this.openCheckout(payment, 'REDSYS', choice);
+        await this.saveAttempt(tx, payment, 'REDSYS', opened, choice);
+        return { decision, order: opened.result.providerTxId, attempts: attempts.length };
       });
     } catch (err) {
-      this.logger.error(`Reintento Redsys falló para ${payment.id}: ${(err as Error).message}`);
       // El detalle (puede llevar lo enviado al banco) solo al log, nunca al cliente.
-      throw new ConflictException(GATEWAY_ERROR_PUBLIC);
+      this.logger.error(`Reintento Redsys falló para ${payment.id}: ${(err as Error).message}`);
+      // La transacción se deshizo: el intento nuevo no existe y el cobro sigue
+      // AUTHORIZING con los de antes. Definitivo de la pasarela: no se ofrece
+      // repetir (y un intento anterior puede seguir en el banco). Pasajero, o
+      // la base: repetir es seguro (Redsys solo firma, sin red) y funciona.
+      if (err instanceof CheckoutNotOpenedError && !err.transient) throw gatewayFailedAfterAttempt();
+      throw gatewayRetry();
     }
     if (outcome.order) {
       if (outcome.decision === 'retry') {
@@ -2001,15 +2052,21 @@ export class PaymentsService implements OnApplicationBootstrap {
    * cuando el cliente confirma "voy a pagar" en la pantalla del QR.
    *
    * Flujo:
-   *   CREATED|AWAITING_CAPTURE → AUTHORIZING (FSM)
+   *   gateway.authorize(): la pasarela prepara la página del banco (no cobra)
    *   ↓
-   *   gateway.authorize() (mock o real)
-   *   ↓
-   *   pasarela responde inmediato con providerTxId (PROCESSING)
+   *   CREATED|AWAITING_CAPTURE → AUTHORIZING (FSM) con pedido, URL/formulario
+   *   e intento, en la MISMA transacción (nunca un AUTHORIZING sin pedido)
    *   ↓
    *   webhook llegará despues → FSM AUTHORIZED/FAILED
    *
-   * Si el pago ya está en AUTHORIZING o terminal → 409.
+   * Si la pasarela no abre el pago:
+   *   - pasajero (sin respuesta, 5xx, breaker): el cobro no se toca y el
+   *     cliente reintenta de verdad (409 GATEWAY_RETRY);
+   *   - definitivo: CHECKOUT_FAILED → FAILED (nunca llegó al banco) y 409
+   *     GATEWAY_FAILED (pedir otro cobro).
+   * Si el pago ya está en AUTHORIZING o terminal → 409 sin ir a la pasarela.
+   * Dos POST a la vez: los dos preparan el pago (sin cobrar nada) y gana el
+   * primero en pasar a AUTHORIZING; el otro → 409 y no se guarda nada suyo.
    */
   async startAuthorization(
     qrToken: string,
@@ -2025,6 +2082,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       throw new ConflictException('QR expired');
     }
     await this.assertVenueStillCharges(payment);
+    // Otro POST ya lo abrió (o ya terminó): no se vuelve a la pasarela.
+    if (!OPENABLE_STATES.has(payment.status)) throw new ConflictException(PAYMENT_ALREADY_STARTED);
 
     // Resolver provider activo del venue
     const credential = await this.prisma.asSystem((tx) =>
@@ -2034,50 +2093,41 @@ export class PaymentsService implements OnApplicationBootstrap {
       }),
     );
     if (!credential) {
-      throw new ConflictException('Venue has no active gateway credential');
+      // Sin pasarela este cobro no se puede pagar con tarjeta: definitivo.
+      return this.checkoutNotOpened(payment.id, new Error('Venue has no active gateway credential'), 'no-active-gateway');
     }
 
-    // 1) Mover FSM a AUTHORIZING — fuente de verdad atomica.
-    //    Si otra request ya lo movio, esto lanza InvalidTransitionError → 409.
+    // 1) La pasarela abre el pago (timeouts y circuit breaker en el adapter).
+    //    No cobra: si falla, nada ha llegado al banco.
+    let opened: OpenedCheckout;
     try {
-      await this.transition(payment.id, { type: 'AUTHORIZING' });
+      opened = await this.openCheckout(payment, credential.provider, choice);
     } catch (err) {
-      if (err instanceof InvalidTransitionError) {
-        throw new ConflictException(`Payment cannot start authorization (already in progress?)`);
-      }
+      return this.checkoutNotOpened(payment.id, err, 'gateway-authorize-error');
+    }
+
+    // 2) AUTHORIZING + pasarela, pedido, URL/formulario e intento, todo en la
+    //    transacción de la FSM (fila bloqueada). Si otra request ya lo movió,
+    //    InvalidTransitionError → 409 y lo de esta se deshace. La petición es
+    //    pública (sin local): se hace en el local del cobro, así el middleware
+    //    de Prisma filtra por él lo que escribe el prepare.
+    try {
+      await inVenue(this.cls, payment.tenantId, () =>
+        this.transition(payment.id, { type: 'AUTHORIZING' }, payment.tenantId, {
+          prepare: async (tx, locked) => {
+            if (!OPENABLE_STATES.has(locked.status)) throw new InvalidTransitionError(locked.status, 'AUTHORIZING');
+            await this.saveAttempt(tx, payment, credential.provider, opened, choice);
+            return { provider: credential.provider, providerTxId: opened.result.providerTxId };
+          },
+        }),
+      );
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) throw new ConflictException(PAYMENT_ALREADY_STARTED);
       throw err;
     }
+    const { providerTxId } = opened.result;
 
-    // 2) Pre-persistir provider+placeholder providerTxId — cierra ventana donde
-    //    orphan-reconcile podria correr con providerTxId null si el authorize falla
-    //    antes de persistir el txId real. Se sobrescribe con el real abajo.
-    await this.prisma.asSystem((tx) =>
-      tx.payment.update({
-        where: { id: payment.id },
-        data: { provider: credential.provider },
-      }),
-    );
-
-    // 3) Llamar a la pasarela (timeouts y circuit breaker en el adapter) y
-    //    4) persistir providerTxId + URL/form + intento (payment_attempts).
-    let providerTxId: string;
-    try {
-      ({ providerTxId } = await this.authorizeAttempt(payment, credential.provider, undefined, choice));
-    } catch (err) {
-      const errMsg = (err as Error).message || 'unknown';
-      this.logger.error(`Gateway authorize failed for ${payment.id}: ${errMsg}`);
-      // Saga: si la pasarela rechaza inmediatamente, marcar FAILED.
-      try {
-        await this.transition(payment.id, { type: 'FAILED', reason: 'gateway-authorize-error' });
-      } catch (e2) {
-        if (!(e2 instanceof InvalidTransitionError)) throw e2;
-      }
-      // El detalle va al log de arriba: el error de la pasarela puede llevar lo
-      // que se le mandó (sent:/branchesRaw: de Paytef) y esto es público.
-      throw new ConflictException(GATEWAY_ERROR_PUBLIC);
-    }
-
-    // 5) Encolar orphan-reconcile (se autocancela si llega webhook antes)
+    // 3) Encolar orphan-reconcile (se autocancela si llega webhook antes)
     // Attempts + backoff: si la pasarela devuelve UNKNOWN reintenta 5 veces.
     // Tras agotar, el processor transiciona el pago a ORPHAN (visible en
     // admin para reconciliación manual).
@@ -2115,61 +2165,93 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Abre un intento en la pasarela: authorize() + guarda providerTxId,
-   * URL/form del checkout y la fila de payment_attempts. Cada intento es un
-   * pedido distinto, y el aviso del banco se resuelve por cualquiera de ellos.
+   * La pasarela abre un intento: authorize() prepara la página del banco
+   * (no cobra). Sus errores salen como CheckoutNotOpenedError, pasajero o no.
    *
    * Al banco va importe + propina: la que eligió el cliente en la página de
    * pago o, sin página (endpoint antiguo), la que ya tuviera el cobro.
    */
-  private async authorizeAttempt(
+  private async openCheckout(
     payment: { id: string; tenantId: string; amountCents: number; tipCents: number; currency: string },
     provider: Provider,
-    inTx?: TransactionalClient,
     choice?: CheckoutChoice,
-  ): Promise<{ providerTxId: string }> {
-    const adapter = this.gateways.get(provider);
+  ): Promise<OpenedCheckout> {
     // Solo Redsys cobra y reparte la propina (la del aprobado pasa al cobro
     // en transition). Las demás pasarelas cobran el importe, como antes.
     const tipCents = provider === 'REDSYS' ? (choice?.tipCents ?? payment.tipCents) : null;
     const chargeCents = payment.amountCents + (tipCents ?? 0);
-    const result = await adapter.authorize({
-      tenantId: payment.tenantId,
-      paymentId: payment.id,
-      amountCents: chargeCents,
-      currency: payment.currency,
-      terminalExternalId: '',
-      reference: payment.id,
-      ...(provider === 'REDSYS' && choice?.method ? { payMethod: choice.method } : {}),
-      ...(choice ? { language: choice.language } : {}),
+    try {
+      const result = await this.gateways.get(provider).authorize({
+        tenantId: payment.tenantId,
+        paymentId: payment.id,
+        amountCents: chargeCents,
+        currency: payment.currency,
+        terminalExternalId: '',
+        reference: payment.id,
+        ...(provider === 'REDSYS' && choice?.method ? { payMethod: choice.method } : {}),
+        ...(choice ? { language: choice.language } : {}),
+      });
+      return { result, chargeCents, tipCents };
+    } catch (err) {
+      throw new CheckoutNotOpenedError(err);
+    }
+  }
+
+  /**
+   * Guarda el intento abierto: pasarela, providerTxId y URL/form del checkout
+   * en el cobro, y la fila de payment_attempts. Cada intento es un pedido
+   * distinto, y el aviso del banco se resuelve por cualquiera de ellos.
+   */
+  private async saveAttempt(
+    tx: TransactionalClient,
+    payment: { id: string; tenantId: string },
+    provider: Provider,
+    opened: OpenedCheckout,
+    choice?: CheckoutChoice,
+  ): Promise<void> {
+    const { result, chargeCents, tipCents } = opened;
+    await tx.payment.update({
+      where: { id: payment.id },
+      data: {
+        provider,
+        providerTxId: result.providerTxId,
+        ...(result.paymentLinkUrl ? { gatewayPaymentUrl: result.paymentLinkUrl } : {}),
+        ...(result.checkoutForm ? { gatewayCheckoutForm: result.checkoutForm } : {}),
+      },
     });
-    const paymentLinkUrl = result.paymentLinkUrl ?? null;
-    const checkoutForm = result.checkoutForm ?? null;
-    const persist = async (tx: TransactionalClient): Promise<void> => {
-      await tx.payment.update({
-        where: { id: payment.id },
-        data: {
-          providerTxId: result.providerTxId,
-          ...(paymentLinkUrl ? { gatewayPaymentUrl: paymentLinkUrl } : {}),
-          ...(checkoutForm ? { gatewayCheckoutForm: checkoutForm } : {}),
-        },
-      });
-      await tx.paymentAttempt.create({
-        data: {
-          paymentId: payment.id,
-          tenantId: payment.tenantId,
-          provider,
-          providerTxId: result.providerTxId,
-          amountCents: chargeCents,
-          tipCents,
-          payMethod: choice?.method ?? null,
-          claimHash: choice?.claimHash ?? null,
-        },
-      });
-    };
-    if (inTx) await persist(inTx);
-    else await this.prisma.asSystem(persist);
-    return { providerTxId: result.providerTxId };
+    await tx.paymentAttempt.create({
+      data: {
+        paymentId: payment.id,
+        tenantId: payment.tenantId,
+        provider,
+        providerTxId: result.providerTxId,
+        amountCents: chargeCents,
+        tipCents,
+        payMethod: choice?.method ?? null,
+        claimHash: choice?.claimHash ?? null,
+      },
+    });
+  }
+
+  /**
+   * La pasarela no abrió el primer pago (nada llegó al banco). El detalle va
+   * al log: el error puede llevar lo que se le mandó (sent:/branchesRaw: de
+   * Paytef) y esto es público.
+   *  - pasajero: el cobro no se toca (sigue CREATED/AWAITING_CAPTURE) y el
+   *    «Intentar otra vez» abre el pago de verdad;
+   *  - definitivo: CHECKOUT_FAILED → FAILED, y el cliente pide otro cobro.
+   *    Si otra petición lo abrió mientras tanto (AUTHORIZING), ese sigue.
+   */
+  private async checkoutNotOpened(paymentId: string, err: unknown, reason: string): Promise<never> {
+    this.logger.error(`Gateway authorize failed for ${paymentId}: ${(err as Error)?.message || 'unknown'}`);
+    if (err instanceof CheckoutNotOpenedError && err.transient) throw gatewayRetry();
+    try {
+      await this.transition(paymentId, { type: 'CHECKOUT_FAILED', reason });
+    } catch (e2) {
+      if (!(e2 instanceof InvalidTransitionError)) throw e2;
+      if (e2.fromState !== 'FAILED') throw new ConflictException(PAYMENT_ALREADY_STARTED);
+    }
+    throw gatewayFailed();
   }
 
   /**

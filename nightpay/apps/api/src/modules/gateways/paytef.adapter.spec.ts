@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PaytefAdapter, paytefTestMode } from './paytef.adapter';
+import { isTransientGatewayError } from './gateway-errors';
 
 const TOKEN = 'fakePaytefTokenABCDEF123456';
 const SECRET = 'paytef-webhook-secret-32-bytes-padding-here';
@@ -138,6 +139,72 @@ describe('PaytefAdapter.authorize', () => {
     const saveCall = fetchSpy.mock.calls[0];
     const opts = saveCall![1] as any;
     expect(opts.headers.Authorization).toBe(`PAYTEF-TOKEN ${TOKEN}`);
+  });
+});
+
+describe('PaytefAdapter.authorize — fallos pasajeros y definitivos (el cobro se reintenta o no)', () => {
+  const input = {
+    tenantId: 'v1',
+    paymentId: 'p1',
+    amountCents: 100,
+    currency: 'EUR',
+    terminalExternalId: '',
+    reference: 'p1',
+  };
+  let adapter: PaytefAdapter;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  const saved = {
+    ok: true,
+    json: async () => ({ success: true, paymentID: 'pl-1', paymentURL: 'https://link.paytef.es/link/pl-1' }),
+    text: async () => '',
+  };
+
+  beforeEach(() => {
+    adapter = makeAdapter();
+    fetchSpy = vi.fn();
+    (globalThis as any).fetch = fetchSpy;
+  });
+
+  async function failure(): Promise<unknown> {
+    return adapter.authorize(input).then(
+      () => {
+        throw new Error('authorize tenía que fallar');
+      },
+      (err: unknown) => err,
+    );
+  }
+
+  it('sin respuesta de Paytef (red caída, tiempo agotado) → pasajero', async () => {
+    fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'));
+    expect(isTransientGatewayError(await failure())).toBe(true);
+    fetchSpy.mockRejectedValueOnce(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }));
+    expect(isTransientGatewayError(await failure())).toBe(true);
+  });
+
+  it('Paytef responde 5xx o 429 al crear o al publicar el enlace → pasajero', async () => {
+    fetchSpy.mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'Service Unavailable' });
+    expect(isTransientGatewayError(await failure())).toBe(true);
+    fetchSpy.mockResolvedValueOnce(saved).mockResolvedValueOnce({ ok: false, status: 502, text: async () => 'Bad Gateway' });
+    expect(isTransientGatewayError(await failure())).toBe(true);
+    fetchSpy.mockResolvedValueOnce({ ok: false, status: 429, text: async () => 'slow down' });
+    expect(isTransientGatewayError(await failure())).toBe(true);
+  });
+
+  it('Paytef rechaza los datos (4xx) o responde algo raro → definitivo', async () => {
+    fetchSpy.mockResolvedValueOnce({ ok: false, status: 422, text: async () => 'userEmail required' });
+    expect(isTransientGatewayError(await failure())).toBe(false);
+    fetchSpy.mockResolvedValueOnce({ ok: false, status: 401, text: async () => 'Invalid auth' });
+    expect(isTransientGatewayError(await failure())).toBe(false);
+    fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }), text: async () => '' });
+    expect(isTransientGatewayError(await failure())).toBe(false);
+  });
+
+  it('sin PAYTEF_COMPANY_ID/BRANCH_ID: getBranches sin respuesta → pasajero; 4xx → definitivo', async () => {
+    const noBranch = makeAdapter({ PAYTEF_COMPANY_ID: undefined, PAYTEF_BRANCH_ID: undefined });
+    fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'));
+    expect(isTransientGatewayError(await noBranch.authorize(input).catch((e: unknown) => e))).toBe(true);
+    fetchSpy.mockResolvedValueOnce({ ok: false, status: 403, text: async () => 'forbidden' });
+    expect(isTransientGatewayError(await noBranch.authorize(input).catch((e: unknown) => e))).toBe(false);
   });
 });
 
