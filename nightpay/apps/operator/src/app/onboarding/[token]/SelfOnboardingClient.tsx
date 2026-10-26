@@ -11,9 +11,10 @@ import {
   type WalletProvider,
   type WalletStatusKYC,
 } from '@/lib/api';
-import { normalizePayoutAddress, payoutFormProblem, type SavedPayout } from '@/lib/payout-address';
+import type { SavedPayout } from '@/lib/payout-address';
 import { ONBOARDING_LINK_NOTE, savedScreen, type SavedKind } from './onboarding-copy';
-import { PayoutSection, type PayoutValues } from './PayoutSection';
+import { EMPTY_PAYOUT, payoutDto, payoutProblem, type PayoutValues } from './onboarding-payout';
+import { PayoutSection } from './PayoutSection';
 
 const LATAM_COUNTRIES = [
   'Argentina', 'Bolivia', 'Brasil', 'Chile', 'Colombia',
@@ -68,7 +69,7 @@ export function SelfOnboardingClient({ token }: Props) {
   const [needsHelpWallet, setNeedsHelpWallet] = useState(false);
   const [needsHelpDocs, setNeedsHelpDocs] = useState(false);
   const [notes, setNotes] = useState('');
-  const [payout, setPayout] = useState<PayoutValues>({ method: '', address: '', confirm: '', label: '' });
+  const [payout, setPayout] = useState<PayoutValues>(EMPTY_PAYOUT);
   const [submitting, setSubmitting] = useState(false);
   // Tras el primer intento de guardar, los errores se marcan en su campo.
   const [triedSubmit, setTriedSubmit] = useState(false);
@@ -106,9 +107,9 @@ export function SelfOnboardingClient({ token }: Props) {
         setNeedsHelpDocs(p.needsHelpDocs);
         setNotes(p.onboardingNotes ?? '');
         setPayout({
+          ...EMPTY_PAYOUT,
           method: p.payoutMethod ?? '',
           address: p.payoutAddress ?? '',
-          confirm: '',
           label: p.payoutLabel ?? '',
         });
       })
@@ -122,11 +123,10 @@ export function SelfOnboardingClient({ token }: Props) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setTriedSubmit(true);
-    const payoutProblem = canSetPayout
-      ? payoutFormProblem(payout.method, payout.address, payout.confirm, savedPayout)
-      : null;
-    if (payoutProblem) {
-      setError(payoutProblem);
+    // Cada método con su forma (las mismas reglas que el API) y el SWIFT con su banco.
+    const problem = canSetPayout ? payoutProblem(payout, savedPayout) : null;
+    if (problem) {
+      setError(problem);
       return;
     }
     setSubmitting(true);
@@ -145,14 +145,8 @@ export function SelfOnboardingClient({ token }: Props) {
         needsHelpWallet,
         needsHelpDocs,
         onboardingNotes: notes.trim() || null,
-        ...(canSetPayout
-          ? {
-              // «No sé todavía»: sin método no se manda la dirección ni la etiqueta (ocultas).
-              payoutMethod: payout.method === '' ? null : payout.method,
-              payoutAddress: payout.method ? normalizePayoutAddress(payout.method, payout.address) || null : null,
-              payoutLabel: payout.method ? payout.label.trim() || null : null,
-            }
-          : {}),
+        // «No sé todavía»: sin método no se manda la dirección ni la etiqueta (ocultas).
+        ...(canSetPayout ? payoutDto(payout) : {}),
       };
       const saved = await submitSelfOnboarding(token, dto);
       setPayoutIgnored(saved.payoutIgnored === true);

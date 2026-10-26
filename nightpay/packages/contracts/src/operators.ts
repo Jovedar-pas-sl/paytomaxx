@@ -62,6 +62,8 @@ const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/;
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const IBAN_FORMAT = /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/;
+/** País y dígitos de control al principio: se trata como IBAN (también en la transferencia internacional). */
+const LOOKS_LIKE_IBAN = /^[A-Z]{2}\d{2}/;
 const EMAIL_PAYOUT_METHODS: ReadonlySet<PayoutMethod> = new Set<PayoutMethod>([
   'FASTERPAY_EMAIL',
   'PAYQUICKER_EMAIL',
@@ -81,10 +83,18 @@ export function isValidIban(raw: string): boolean {
   return remainder === 1;
 }
 
-/** Como se guarda: sin espacios alrededor; el IBAN, en mayúsculas y sin espacios. */
+/**
+ * Como se guarda: sin espacios alrededor; el IBAN, en mayúsculas y sin
+ * espacios (también el de una transferencia internacional, como el panel).
+ */
 export function normalizePayoutAddress(method: PayoutMethod | null | undefined, address: string): string {
   const trimmed = address.trim();
-  return method === 'SEPA_IBAN' ? trimmed.replace(/\s+/g, '').toUpperCase() : trimmed;
+  if (method === 'SEPA_IBAN') return trimmed.replace(/\s+/g, '').toUpperCase();
+  if (method === 'WIRE_INTERNATIONAL') {
+    const compact = trimmed.replace(/[\s-]+/g, '').toUpperCase();
+    if (LOOKS_LIKE_IBAN.test(compact)) return compact;
+  }
+  return trimmed;
 }
 
 /** null si la dirección vale para el método (o no hay regla); si no, el motivo. */
@@ -108,6 +118,156 @@ export function payoutAddressProblem(
       return EMAIL_PAYOUT_METHODS.has(method) && !z.string().email().safeParse(a).success
         ? 'Para este método la cuenta es un email'
         : null;
+  }
+}
+
+// ─── El alta por enlace: cada método con su forma ───────────────────
+// La chica lo teclea en el móvil: además de lo de arriba, la forma de cada
+// método y, en la transferencia internacional, los datos del banco. El panel
+// del dueño sigue con payoutAddressProblem (más permisivo: si algo raro no
+// cabe aquí, lo pone el dueño) y lo ya guardado no se revalida.
+
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const SWIFT_BIC = /^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PHONE = /^\+?\d{7,15}$/;
+const CO_MOBILE = /^(?:\+?57)?3\d{9}$/;
+const CBU_ALIAS = /^[A-Za-z0-9.-]{6,20}$/;
+const REVOLUT_TAG = /^@[A-Za-z0-9._-]{3,32}$/;
+const HYPERWALLET_TOKEN = /^[a-z]{3}-[0-9a-f-]{8,}$/i;
+const ACCOUNT_NUMBER = /^[A-Za-z0-9][A-Za-z0-9 -]{3,39}$/;
+
+function isEmail(value: string): boolean {
+  return z.string().email().safeParse(value).success;
+}
+
+/** Como se teclea un teléfono, un CPF o un CVU: sin espacios, puntos, guiones, barras ni paréntesis. */
+function compactNumber(value: string): string {
+  return value.replace(/[\s.\-/()]/g, '');
+}
+
+/** Cuántos bytes son una cadena en base58 (null si no es base58). */
+function base58ByteLength(value: string): number | null {
+  const bytes: number[] = [];
+  for (const ch of value) {
+    let carry = BASE58_ALPHABET.indexOf(ch);
+    if (carry < 0) return null;
+    for (let i = 0; i < bytes.length; i += 1) {
+      carry += (bytes[i] ?? 0) * 58;
+      bytes[i] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+  const leadingZeros = value.length - value.replace(/^1+/, '').length;
+  return leadingZeros + bytes.length;
+}
+
+/** Clave Pix: email, clave aleatoria, CPF (11), CNPJ (14) o teléfono (de Brasil si lleva +). */
+function isPixKey(value: string): boolean {
+  if (isEmail(value) || UUID.test(value)) return true;
+  const n = compactNumber(value);
+  return n.startsWith('+') ? /^\+55\d{10,11}$/.test(n) : /^\d{10,14}$/.test(n);
+}
+
+/** SWIFT/BIC: banco (4 letras), país (2), sitio (2) y, si lo lleva, la oficina (3). */
+export function isValidSwiftBic(raw: string): boolean {
+  return SWIFT_BIC.test(raw.replace(/\s+/g, '').toUpperCase());
+}
+
+/**
+ * null si la cuenta vale para el método en el alta; si no, el motivo. Lo de
+ * payoutAddressProblem y, además, la forma de cada método.
+ */
+export function payoutFormatProblem(method: PayoutMethod, address: string): string | null {
+  const base = payoutAddressProblem(method, address);
+  if (base) return base;
+  const a = normalizePayoutAddress(method, address);
+  switch (method) {
+    case 'USDC_SOL':
+      // Una de Tron o de Bitcoin también es base58 y cabe en 32-44 letras, pero no son 32 bytes.
+      return base58ByteLength(a) === 32 ? null : 'Esa no es una dirección de Solana (¿es de otra red?): copia la de USDC en Solana';
+    case 'BINANCE_PAY_ID':
+      return /^\d{6,12}$/.test(compactNumber(a)) ? null : 'El Binance Pay ID son solo números (de 6 a 12): lo ves en Binance → Pay';
+    case 'OKX_INTERNAL':
+    case 'BYBIT_INTERNAL':
+      return /^\d{5,20}$/.test(compactNumber(a)) || isEmail(a) || PHONE.test(compactNumber(a))
+        ? null
+        : 'Pon tu UID (solo números), o el email o el teléfono de tu cuenta';
+    case 'HYPERWALLET_TOKEN':
+      return HYPERWALLET_TOKEN.test(a) || isEmail(a) ? null : 'Pon el token de Hyperwallet (empieza por usr-) o el email de tu cuenta';
+    case 'REVOLUT_TAG':
+      return REVOLUT_TAG.test(a) || PHONE.test(compactNumber(a))
+        ? null
+        : 'Pon tu @tag de Revolut (p. ej. @ana123) o el teléfono de tu cuenta';
+    case 'MERCADOPAGO_CVU':
+      return /^\d{22}$/.test(compactNumber(a)) || CBU_ALIAS.test(a)
+        ? null
+        : 'El CVU (o CBU) son 22 números; o pon tu alias (de 6 a 20 letras, números, puntos o guiones)';
+    case 'PIX_KEY':
+      return isPixKey(a) ? null : 'Una clave Pix es tu CPF o CNPJ, tu teléfono (+55…), tu email o la clave aleatoria';
+    case 'NEQUI_PHONE':
+    case 'DAVIPLATA_PHONE':
+      return CO_MOBILE.test(compactNumber(a))
+        ? null
+        : 'Pon el móvil de Colombia de tu cuenta: 10 números que empiezan por 3 (con o sin +57)';
+    case 'WIRE_INTERNATIONAL':
+      if (LOOKS_LIKE_IBAN.test(a)) return isValidIban(a) ? null : 'Ese IBAN no es válido: revisa las letras y los números';
+      return ACCOUNT_NUMBER.test(a) ? null : 'Pon el IBAN o el número de cuenta (letras y números)';
+    default:
+      return null;
+  }
+}
+
+export type WireDetailField = 'bankName' | 'swiftBic' | 'accountHolder';
+
+/** Lo que falta en los datos del banco de una transferencia internacional (el país, opcional). */
+export function wireDetailsProblems(
+  meta: PayoutMetadata | null | undefined,
+): Array<{ field: WireDetailField; message: string }> {
+  const problems: Array<{ field: WireDetailField; message: string }> = [];
+  if (!meta?.bankName?.trim()) problems.push({ field: 'bankName', message: 'Falta el nombre del banco' });
+  const swift = meta?.swiftBic?.trim() ?? '';
+  if (!swift) problems.push({ field: 'swiftBic', message: 'Falta el SWIFT/BIC del banco' });
+  else if (!isValidSwiftBic(swift)) {
+    problems.push({ field: 'swiftBic', message: 'El SWIFT/BIC son 8 u 11 letras y números (p. ej. TBCBGE22)' });
+  }
+  if (!meta?.accountHolder?.trim()) problems.push({ field: 'accountHolder', message: 'Falta el titular de la cuenta' });
+  return problems;
+}
+
+/** Los datos del banco como se guardan: sin espacios sobrantes, el SWIFT junto y en mayúsculas, sin vacíos. */
+export function normalizeWireDetails(meta: PayoutMetadata | null | undefined): PayoutMetadata | null {
+  if (!meta) return null;
+  const clean: Record<string, string | undefined> = {
+    bankName: meta.bankName?.trim(),
+    swiftBic: meta.swiftBic?.replace(/\s+/g, '').toUpperCase(),
+    country: meta.country?.trim(),
+    accountHolder: meta.accountHolder?.trim(),
+  };
+  const entries = Object.entries(clean).filter((entry): entry is [string, string] => Boolean(entry[1]));
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
+/** El alta: con método, la cuenta es obligatoria (salvo efectivo) y con su forma; el SWIFT, con su banco. */
+function refineSelfOnboardingPayout(
+  v: { payoutMethod?: PayoutMethod | null; payoutAddress?: string | null; payoutMetadata?: PayoutMetadata | null },
+  ctx: z.RefinementCtx,
+): void {
+  const method = v.payoutMethod;
+  if (!method) return;
+  if (method !== 'MANUAL_CASH') {
+    const address = v.payoutAddress?.trim() ?? '';
+    const problem = address ? payoutFormatProblem(method, address) : 'Falta la dirección o la cuenta para este método';
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['payoutAddress'], message: problem });
+  }
+  if (method === 'WIRE_INTERNATIONAL') {
+    for (const p of wireDetailsProblems(v.payoutMetadata)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['payoutMetadata', p.field], message: p.message });
+    }
   }
 }
 
@@ -425,7 +585,9 @@ export const SelfOnboardingSubmitSchema = z.object({
   payoutMethod: PayoutMethodSchema.nullable().optional(),
   payoutAddress: z.string().min(1).max(200).nullable().optional(),
   payoutLabel: z.string().max(120).nullable().optional(),
-}).superRefine(refinePayoutAddress);
+  /** Transferencia internacional (SWIFT): banco, SWIFT/BIC, titular y, si quiere, el país del banco. */
+  payoutMetadata: PayoutMetadataSchema.nullable().optional(),
+}).superRefine(refineSelfOnboardingPayout);
 export type SelfOnboardingSubmitDto = z.infer<typeof SelfOnboardingSubmitSchema>;
 
 /** Respuesta del endpoint admin que crea el link. */

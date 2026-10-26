@@ -56,6 +56,7 @@ import type {
   SelfOnboardingSubmitDto,
   UpdateOperatorDto,
 } from '@nightpay/contracts';
+import { normalizeWireDetails } from '@nightpay/contracts';
 
 const INVITE_TTL_HOURS = 24;
 const SELF_ONBOARDING_TTL_HOURS = 72;
@@ -854,6 +855,9 @@ export class OperatorsService {
     } else {
       Object.assign(data, payoutRoutingChanges(existing, dto));
       if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
+      // Transferencia internacional: los datos del banco (los otros métodos no llevan).
+      const wire = dto.payoutMethod === 'WIRE_INTERNATIONAL' ? normalizeWireDetails(dto.payoutMetadata) : null;
+      if (wire) data.payoutMetadata = wire;
     }
 
     // Marca progreso de onboarding automáticamente si todavía está NEW
@@ -894,6 +898,7 @@ export class OperatorsService {
                 method: dto.payoutMethod ?? null,
                 address: dto.payoutAddress ?? null,
                 label: dto.payoutLabel ?? null,
+                ...(dto.payoutMetadata ? { metadata: dto.payoutMetadata } : {}),
               },
             }
           : {}),

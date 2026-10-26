@@ -207,6 +207,33 @@ describe('OperatorsService.submitSelfOnboarding — la chica pone su cuenta de c
       data: expect.objectContaining({ payoutMethod: 'USDT_TRC20', payoutAddress: TRON }),
     });
   });
+
+  it('transferencia internacional: IBAN junto y los datos del banco, limpios', async () => {
+    const { svc, prisma } = makeOps();
+    await svc.submitSelfOnboarding(TOKEN, {
+      payoutMethod: 'WIRE_INTERNATIONAL',
+      payoutAddress: ' ge29 nb00 0000 0101 9049 17 ',
+      payoutMetadata: { bankName: ' TBC Bank ', swiftBic: 'tbcb ge22', country: '', accountHolder: ' Camila Pérez ' },
+    });
+    expect(prisma.user.update.mock.calls[0]![0].data).toMatchObject({
+      payoutMethod: 'WIRE_INTERNATIONAL',
+      payoutAddress: 'GE29NB0000000101904917',
+      payoutMetadata: { bankName: 'TBC Bank', swiftBic: 'TBCBGE22', accountHolder: 'Camila Pérez' },
+    });
+  });
+
+  it('otros métodos no guardan datos de banco; si no se aplica la cuenta, van en la propuesta', async () => {
+    const plain = makeOps();
+    await plain.svc.submitSelfOnboarding(TOKEN, { payoutMethod: 'USDT_TRC20', payoutAddress: TRON });
+    expect(plain.prisma.user.update.mock.calls[0]![0].data).not.toHaveProperty('payoutMetadata');
+    const manager = makeOps({ tokenPayload: { sub: 'op-1', tenantId: 't-1', purpose: 'operator-self-onboarding', payout: false } });
+    const meta = { bankName: 'TBC Bank', swiftBic: 'TBCBGE22', accountHolder: 'Camila' };
+    await manager.svc.submitSelfOnboarding(TOKEN, { payoutMethod: 'WIRE_INTERNATIONAL', payoutAddress: '0012345678', payoutMetadata: meta });
+    expect(manager.prisma.user.update.mock.calls[0]![0].data).not.toHaveProperty('payoutMetadata');
+    expect(manager.audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ proposedPayout: expect.objectContaining({ metadata: meta }) }) }),
+    );
+  });
 });
 
 describe('Enlace de la chica — un solo uso, y un reintento con la respuesta perdida sabe que ya se guardó', () => {

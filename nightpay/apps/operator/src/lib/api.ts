@@ -7,6 +7,7 @@ import {
   SELF_ONBOARDING_ALREADY_SAVED,
   type CashTopUpDto,
   type CashTopUpResult,
+  type PayoutMetadata,
   type PostCode,
   type ReceptionOptions,
   type SectionCode,
@@ -838,6 +839,8 @@ export interface SelfOnboardingSubmitDto {
   payoutMethod?: PayoutMethod | null;
   payoutAddress?: string | null;
   payoutLabel?: string | null;
+  /** Transferencia internacional: banco, SWIFT/BIC, país y titular. */
+  payoutMetadata?: PayoutMetadata;
 }
 
 /**
