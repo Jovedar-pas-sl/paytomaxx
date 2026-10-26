@@ -17,7 +17,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { resolveLanguage } from '../payments/pay-i18n';
 import { renderQrChargePage } from './qr-charge-page';
-import { WalletChargesService, type QrChargePaid } from './wallet-charges.service';
+import { WalletChargesService, type QrChargeClientView, type QrChargePaid } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 
 /**
@@ -25,6 +25,7 @@ import { WalletPasskeysService } from './wallet-passkeys.service';
  *  - GET  /s/:token            → "Te cobran 60 € · Masaje" y el botón de pagar.
  *  - POST /s/:token/challenge  → reto para la llave del cliente (Face ID…).
  *  - POST /s/:token/pay        → su móvil lo firmó: se cobra de SU saldo.
+ *  - GET  /s/:token/state      → ¿sigue pendiente? (tras un fallo que no se sabe si cobró).
  * El token del QR solo dice qué cobro es; el saldo lo dice la llave del
  * cliente, que solo puede usar él desbloqueando su móvil.
  */
@@ -56,6 +57,20 @@ export class PublicSaldoController {
       .header('Content-Type', 'text/html; charset=utf-8')
       .header('Cache-Control', 'no-store')
       .send(renderQrChargePage(token, resolveLanguage(langQuery, acceptLanguage), view));
+  }
+
+  /**
+   * Tras un fallo del pago que no dice si se cobró (sin respuesta, 408, 429,
+   * 5xx), la página pregunta aquí antes de dejar pagar otra vez: si sigue
+   * pendiente, se puede; si no, recarga y enseña lo que pasó. Solo el estado.
+   */
+  @Public()
+  @Get(':token/state')
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'saldo-qr-state' })
+  async state(@Param('token') token: string): Promise<{ status: QrChargeClientView['status'] }> {
+    const view = await this.charges.qrChargeForClient(token);
+    return { status: view.status };
   }
 
   @Public()

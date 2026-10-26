@@ -116,6 +116,9 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(payFail({ status: 0 })).toBe('unknown');
     expect(payFail({ status: 500 })).toBe('unknown');
     expect(payFail({ status: 503, code: 'TRY_LATER' })).toBe('unknown');
+    // 408 y 429 (un proxy que corta, un reintento): tampoco dicen si se cobró.
+    expect(payFail({ status: 408 })).toBe('unknown');
+    expect(payFail({ status: 429, code: 'RATE_LIMITED' })).toBe('unknown');
     // 409: ya no está pendiente, ya pagado, otro intento…: recargar enseña el estado real.
     expect(payFail({ status: 409, code: 'CHARGE_NOT_PENDING' })).toBe('reload');
     // Otro 4xx (Face ID, local en pausa…): rechazado antes de cobrar.
@@ -123,11 +126,17 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(payFail({ status: 423, code: 'VENUE_PAUSED' })).toBe('notCharged');
   });
 
-  it('si no se sabe si se cobró o ya no está pendiente, no deja pulsar «Pagar» otra vez: solo «Volver a cargar»', () => {
+  it('si no se sabe si se cobró, pregunta el estado antes de dejar pagar otra vez (lo que ve el cliente: qr-charge-page.client.spec.ts)', () => {
     const js = scripts(renderQrChargePage('tok-1', 'es', view, NOW)).join('\n');
     expect(js).toContain(PAY_FAIL_JS);
-    expect(js).toContain("if(k==='unknown'){show('error',T.unknown);$('reload').hidden=false;$('pay').hidden=true;return;}");
+    expect(js).toContain("fetch(C.base+'/state',{cache:'no-store'");
     expect(js).toContain("if(k==='reload'){$('reload').hidden=false;$('pay').hidden=true;}else $('notCharged').hidden=false;");
+  });
+
+  it('la cuenta atrás lleva la hora del servidor (la del móvil puede ir mal)', () => {
+    const html = renderQrChargePage('tok-1', 'es', view, NOW);
+    expect(html).toContain(`\\"now\\":${NOW.getTime()}`);
+    expect(scripts(html).join('\n')).toContain('exp-Date.now()-skew');
   });
 
   it('un nombre con HTML no puede cerrar el <script>', () => {
