@@ -265,6 +265,36 @@ describe('devolver: el efectivo, en efectivo (Postgres real)', () => {
     );
     await expect(inVenue(norte.id, () => charges.payout(ownerActor(norte), w.walletId, { method: 'CASH' }))).rejects.toThrow(/a medias/);
     expect(await walletOf(w.walletId)).toMatchObject({ balanceCents: 10_000, status: 'ACTIVE' });
+    // El panel lo ve antes de confirmar: nada en efectivo, «A la tarjeta» termina la de 50 €.
+    await expect(inVenue(norte.id, () => charges.payoutPreview(ownerActor(norte), w.walletId))).resolves.toMatchObject({
+      cashOutCents: 0,
+      cardRefundCents: 5_000,
+      pendingCardCents: 5_000,
+    });
+  });
+
+  it('el panel ve antes de confirmar lo que se apunta; si el saldo se mueve entre medias, 409 y no sale nada', async () => {
+    const w = await newWallet(norte, 30_000);
+    await seed((tx) => tx.clientWallet.update({ where: { id: w.walletId }, data: { balanceCents: 50_000, closeRequestedAt: new Date() } }));
+    const seen = await inVenue(norte.id, () => charges.payoutPreview(managerActor(norte), w.walletId));
+    expect(seen).toEqual({ balanceCents: 50_000, cashOutCents: 30_000, cardRefundCents: 20_000, cashLaterCents: 0, pendingCardCents: null });
+    // Entre medias, otra persona le devuelve 100 € en efectivo (recepción).
+    await seed(async (tx) => {
+      await tx.walletPayout.create({
+        data: { tenantId: norte.id, walletId: w.walletId, amountCents: 10_000, method: 'CASH', status: 'DONE', paidByUserId: norte.owner },
+      });
+      await tx.clientWallet.update({ where: { id: w.walletId }, data: { balanceCents: 40_000 } });
+    });
+    const stale = { method: 'CASH' as const, totpCode: '123456', expectedAmountCents: seen.cashOutCents };
+    await expect(inVenue(norte.id, () => charges.payout(managerActor(norte), w.walletId, stale))).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PAYOUT_AMOUNT_CHANGED' }),
+    });
+    expect(await walletOf(w.walletId)).toMatchObject({ balanceCents: 40_000, status: 'ACTIVE' });
+    const now = await inVenue(norte.id, () => charges.payoutPreview(managerActor(norte), w.walletId));
+    expect(now).toMatchObject({ cashOutCents: 20_000, cardRefundCents: 20_000 });
+    await expect(
+      inVenue(norte.id, () => charges.payout(managerActor(norte), w.walletId, { ...stale, expectedAmountCents: now.cashOutCents })),
+    ).resolves.toEqual({ refundedCents: 20_000, method: 'CASH', remainingCents: 20_000 });
   });
 });
 

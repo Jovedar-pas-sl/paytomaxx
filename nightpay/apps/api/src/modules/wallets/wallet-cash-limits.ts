@@ -76,6 +76,26 @@ export function cardRefundCapCents(balanceCents: number, cash: Pick<WalletCash, 
   return Math.max(0, balanceCents - unspentCashCents(balanceCents, cash));
 }
 
+/** Lo que saldría hoy de un saldo por cada camino (lo mismo que apuntan payoutCash y claimCardPayout). */
+export interface PayoutAmounts {
+  /** En efectivo, ahora. */
+  cashOutCents: number;
+  /** A la tarjeta (el dueño, en el banco). */
+  cardRefundCents: number;
+  /** Efectivo que hoy no puede salir por el tope de 24 h: sale más tarde, en efectivo (no a la tarjeta). */
+  cashLaterCents: number;
+}
+
+export function payoutAmounts(balanceCents: number, cash: WalletCash): PayoutAmounts {
+  if (balanceCents <= 0) return { cashOutCents: 0, cardRefundCents: 0, cashLaterCents: 0 };
+  const cashOutCents = cashPayoutCapCents(balanceCents, cash);
+  return {
+    cashOutCents,
+    cardRefundCents: cardRefundCapCents(balanceCents, cash),
+    cashLaterCents: unspentCashCents(balanceCents, cash) - cashOutCents,
+  };
+}
+
 /** null si la recarga en efectivo cabe; si no, por qué no (el total de 24 h llegaría a 1.000 €). */
 export function cashTopUpOverLimit(amountCents: number, cash: Pick<WalletCash, 'inWindowCents'>): string | null {
   if (cash.inWindowCents + amountCents < CASH_LIMIT_CENTS) return null;

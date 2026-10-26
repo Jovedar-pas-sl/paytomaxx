@@ -1,6 +1,7 @@
 // Saldos de clientes (Phase 1B).
 
 import { apiError, authedFetch, totpAwareError } from '../http';
+import type { WalletPayoutPreview, WalletPayoutResult } from '../wallet-payout';
 
 // ─── Phase 1B — Wallets ─────────────────────────────────────────────
 
@@ -130,17 +131,35 @@ export async function relinkWallet(walletId: string): Promise<{ url: string; qrD
 }
 
 export type WalletPayoutMethod = 'CARD' | 'CASH';
+export type { WalletPayoutPreview };
+
+/**
+ * Antes de confirmar «Devolver saldo»: lo que el API devolvería ahora en
+ * efectivo y a la tarjeta (no el saldo entero) y lo que hoy no puede salir.
+ */
+export async function fetchPayoutPreview(walletId: string): Promise<WalletPayoutPreview> {
+  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/payout-preview`);
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
 
 /**
  * Devolver el saldo al cliente que se va. Efectivo: se lo das ahora (el
  * encargado, desde el umbral del local, con su código 2FA: 403 TOTP_REQUIRED).
  * Tarjeta (solo el dueño): primero se devuelve en el portal de BBVA y aquí se
- * apunta, repartido entre sus recargas.
+ * apunta, repartido entre sus recargas. expectedAmountCents: la cifra que se
+ * enseñó; si el API ya apuntaría otra, 409 PAYOUT_AMOUNT_CHANGED.
  */
 export async function payoutWallet(
   walletId: string,
-  input: { method: WalletPayoutMethod; bankReference?: string; note?: string; totpCode?: string },
-): Promise<{ refundedCents: number; method: WalletPayoutMethod; remainingCents?: number }> {
+  input: {
+    method: WalletPayoutMethod;
+    bankReference?: string;
+    note?: string;
+    totpCode?: string;
+    expectedAmountCents?: number;
+  },
+): Promise<WalletPayoutResult> {
   const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/payout`, {
     method: 'POST',
     body: JSON.stringify(input),
