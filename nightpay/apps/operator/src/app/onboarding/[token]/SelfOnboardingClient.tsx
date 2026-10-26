@@ -3,6 +3,7 @@
 import { useEffect, useId, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Logo, Select } from '@nightpay/ui';
 import {
+  SelfOnboardingSavedError,
   fetchSelfOnboardingProfile,
   submitSelfOnboarding,
   type SelfOnboardingProfile,
@@ -11,6 +12,7 @@ import {
   type WalletStatusKYC,
 } from '@/lib/api';
 import { normalizePayoutAddress, payoutFormProblem, type SavedPayout } from '@/lib/payout-address';
+import { ONBOARDING_LINK_NOTE, savedScreen, type SavedKind } from './onboarding-copy';
 import { PayoutSection, type PayoutValues } from './PayoutSection';
 
 const LATAM_COUNTRIES = [
@@ -50,7 +52,8 @@ export function SelfOnboardingClient({ token }: Props) {
   const [profile, setProfile] = useState<SelfOnboardingProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  /** Guardado ahora, o ya guardado antes con este enlace (se perdió la respuesta o lo vuelve a abrir). */
+  const [done, setDone] = useState<SavedKind | null>(null);
 
   // Form state
   const [phone, setPhone] = useState('');
@@ -109,7 +112,10 @@ export function SelfOnboardingClient({ token }: Props) {
           label: p.payoutLabel ?? '',
         });
       })
-      .catch((err) => setError((err as Error).message))
+      .catch((err) => {
+        if (err instanceof SelfOnboardingSavedError) setDone('before');
+        else setError((err as Error).message);
+      })
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -150,9 +156,11 @@ export function SelfOnboardingClient({ token }: Props) {
       };
       const saved = await submitSelfOnboarding(token, dto);
       setPayoutIgnored(saved.payoutIgnored === true);
-      setDone(true);
+      setDone('now');
     } catch (err) {
-      setError((err as Error).message);
+      // La primera vez sí se guardó (se perdió la respuesta): no es un error.
+      if (err instanceof SelfOnboardingSavedError) setDone('before');
+      else setError((err as Error).message);
     } finally {
       setSubmitting(false);
     }
@@ -176,14 +184,13 @@ export function SelfOnboardingClient({ token }: Props) {
     );
   }
   if (done) {
+    const screen = savedScreen(done);
     return (
       <main className="np-screen" style={pageStyle}>
         <Card style={{ ...cardStyle, textAlign: 'center', borderColor: 'var(--np-success)' }}>
           <Logo height="2rem" />
-          <h1 style={{ marginTop: '1rem', color: 'var(--np-success)', fontSize: '1.5rem' }}>✓ Guardado</h1>
-          <p style={{ color: 'var(--np-text-mute)', marginTop: '0.75rem' }}>
-            Hemos recibido tus datos. Si necesitas cambiarlos, pídele al admin un link nuevo.
-          </p>
+          <h1 style={{ marginTop: '1rem', color: 'var(--np-success)', fontSize: '1.5rem' }}>{screen.title}</h1>
+          <p style={{ color: 'var(--np-text-mute)', marginTop: '0.75rem' }}>{screen.text}</p>
           {payoutIgnored ? (
             <p role="status" style={{ marginTop: '0.75rem', color: 'var(--np-warning)' }}>
               Tu forma de cobro no se ha cambiado: la configura el admin del local. Si quieres otra, díselo.
@@ -391,10 +398,7 @@ export function SelfOnboardingClient({ token }: Props) {
           <Button type="submit" loading={submitting} size="lg">
             Guardar mi perfil
           </Button>
-          <p style={{ ...hintStyle, textAlign: 'center', marginTop: 0 }}>
-            Puedes volver a esta página y editar tus datos las próximas 72h. Después, el admin
-            te genera un link nuevo.
-          </p>
+          <p style={{ ...hintStyle, textAlign: 'center', marginTop: 0 }}>{ONBOARDING_LINK_NOTE}</p>
         </form>
       </Card>
     </main>

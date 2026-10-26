@@ -371,6 +371,13 @@ export type ResetOperatorPasswordDto = z.infer<typeof ResetOperatorPasswordSchem
 
 // ─── Self-onboarding (Phase 1A.2) ───────────────────────────────────
 // La chica recibe un link único 72h del admin y rellena su perfil ella sola.
+// Es de un solo uso: al guardar deja de valer.
+
+/**
+ * 409 del enlace ya usado para guardar (GET y POST): la respuesta pudo
+ * perderse; los datos están guardados y para cambiarlos hace falta otro enlace.
+ */
+export const SELF_ONBOARDING_ALREADY_SAVED = 'SELF_ONBOARDING_ALREADY_SAVED';
 
 /** Vista pre-fill que recibe la chica al abrir el link (solo lo que admin ya sabe). */
 export const SelfOnboardingProfileSchema = z.object({

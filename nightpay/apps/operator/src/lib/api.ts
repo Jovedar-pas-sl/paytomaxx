@@ -3,15 +3,16 @@
 // va en una cookie HttpOnly del API y el access token solo en la memoria de
 // la pestaña. Aquí, los textos para la chica y los endpoints de la app.
 
-import type {
-  CashTopUpDto,
-  CashTopUpResult,
-  PostCode,
-  ReceptionOptions,
-  SectionCode,
-  StaffQrView,
-  StockOutcome,
-  VenueSection,
+import {
+  SELF_ONBOARDING_ALREADY_SAVED,
+  type CashTopUpDto,
+  type CashTopUpResult,
+  type PostCode,
+  type ReceptionOptions,
+  type SectionCode,
+  type StaffQrView,
+  type StockOutcome,
+  type VenueSection,
 } from '@nightpay/contracts';
 import {
   ApiError,
@@ -839,12 +840,26 @@ export interface SelfOnboardingSubmitDto {
   payoutLabel?: string | null;
 }
 
+/**
+ * El enlace de alta ya se usó para guardar (es de un solo uso): la respuesta
+ * pudo perderse, pero los datos están guardados. No es «Link inválido».
+ */
+export class SelfOnboardingSavedError extends Error {}
+
+/** Error del enlace de alta: caducado o rehecho (401), ya usado para guardar (409) o el de siempre. */
+async function selfOnboardingError(res: Response, context: string, expiredText: string): Promise<Error> {
+  if (res.status === 401) return new Error(expiredText);
+  const text = await res.text().catch(() => '');
+  const { message, code } = parseProblemDetails(text);
+  if (res.status === 409 && code === SELF_ONBOARDING_ALREADY_SAVED) {
+    return new SelfOnboardingSavedError(message ?? 'Tus datos ya se guardaron con este enlace.');
+  }
+  return new Error(operatorErrorMessage(res.status, message ?? undefined, context, code));
+}
+
 export async function fetchSelfOnboardingProfile(token: string): Promise<SelfOnboardingProfile> {
   const res = await publicFetch(`/v1/operators/self-onboarding/${encodeURIComponent(token)}`);
-  if (!res.ok) {
-    if (res.status === 401) throw new Error('El link expiró o no es válido. Pide uno nuevo al admin.');
-    throw new Error(await parseOperatorApiError(res, 'Onboarding'));
-  }
+  if (!res.ok) throw await selfOnboardingError(res, 'Onboarding', 'El link expiró o no es válido. Pide uno nuevo al admin.');
   return res.json();
 }
 
@@ -857,10 +872,7 @@ export async function submitSelfOnboarding(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(dto),
   });
-  if (!res.ok) {
-    if (res.status === 401) throw new Error('El link expiró. Pide uno nuevo al admin.');
-    throw new Error(await parseOperatorApiError(res, 'Guardado'));
-  }
+  if (!res.ok) throw await selfOnboardingError(res, 'Guardado', 'El link expiró. Pide uno nuevo al admin.');
   return res.json();
 }
 

@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { Prisma } from '@nightpay/db';
 import { OperatorsService } from './operators.service';
 
 const TRON = 'TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV';
 const EVM = '0x55d398326f99059ff775485246999027b3197955';
+/** El enlace de la chica (lo que firma jwt.signAsync en makeOps) y lo que guarda la base de él. */
+const TOKEN = 'header.payload.signature-token';
+const TOKEN_HASH = createHash('sha256').update(TOKEN).digest('hex');
 
 const baseOperator = {
   id: 'op-1',
@@ -198,9 +203,64 @@ describe('OperatorsService.submitSelfOnboarding — la chica pone su cuenta de c
       payoutAddress: ` ${TRON} `,
     });
     expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 'op-1' },
+      where: { id: 'op-1', selfOnboardingToken: TOKEN_HASH },
       data: expect.objectContaining({ payoutMethod: 'USDT_TRC20', payoutAddress: TRON }),
     });
+  });
+});
+
+describe('Enlace de la chica — un solo uso, y un reintento con la respuesta perdida sabe que ya se guardó', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /** La base: el enlace activo (hash) o ya usado (used:hash); cualquier otro, nada. */
+  function withToken(stored: string | null) {
+    const made = makeOps();
+    made.prisma.user.findFirst.mockImplementation(async ({ where }: { where: { selfOnboardingToken?: string } }) =>
+      where.selfOnboardingToken !== undefined && where.selfOnboardingToken === stored ? { ...baseOperator, selfOnboardingToken: stored } : null,
+    );
+    return made;
+  }
+
+  it('al guardar, el enlace queda usado (no se borra): solo si sigue siendo el activo', async () => {
+    const { svc, prisma } = withToken(TOKEN_HASH);
+    await expect(svc.submitSelfOnboarding(TOKEN, { phone: '600000000' })).resolves.toEqual({ ok: true });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'op-1', selfOnboardingToken: TOKEN_HASH },
+      data: expect.objectContaining({ phone: '600000000', selfOnboardingToken: `used:${TOKEN_HASH}` }),
+    });
+  });
+
+  it('el mismo enlace otra vez (la respuesta se perdió y reintenta, o lo vuelve a abrir): 409 «ya se guardó», nada nuevo', async () => {
+    const { svc, prisma } = withToken(`used:${TOKEN_HASH}`);
+    const attempts = [() => svc.submitSelfOnboarding(TOKEN, { phone: '611111111' }), () => svc.getSelfOnboardingProfile(TOKEN)];
+    for (const attempt of attempts) {
+      const err = await attempt().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({
+        code: 'SELF_ONBOARDING_ALREADY_SAVED',
+        message: expect.stringMatching(/ya se guardaron.*enlace nuevo/),
+      });
+    }
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('un enlace que ya no es el de la chica (el admin hizo otro) sigue siendo inválido: 401', async () => {
+    const { svc } = withToken('otro-hash');
+    await expect(svc.submitSelfOnboarding(TOKEN, { phone: '600000000' })).rejects.toThrow(UnauthorizedException);
+    await expect(svc.getSelfOnboardingProfile(TOKEN)).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('dos «Guardar» a la vez con el mismo enlace: si el otro ganó, este dice «ya se guardó» (no lo guarda dos veces)', async () => {
+    const { svc, prisma } = withToken(TOKEN_HASH);
+    prisma.user.update.mockImplementationOnce(async () => {
+      // Entre medias, el otro guardó: el enlace ya está usado.
+      prisma.user.findFirst.mockImplementation(async ({ where }: { where: { selfOnboardingToken?: string } }) =>
+        where.selfOnboardingToken === `used:${TOKEN_HASH}` ? { ...baseOperator } : null,
+      );
+      throw new Prisma.PrismaClientKnownRequestError('Record to update not found.', { code: 'P2025', clientVersion: 'test' });
+    });
+    const err = await svc.submitSelfOnboarding(TOKEN, { phone: '600000000' }).catch((e: unknown) => e);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'SELF_ONBOARDING_ALREADY_SAVED' });
   });
 });
 
