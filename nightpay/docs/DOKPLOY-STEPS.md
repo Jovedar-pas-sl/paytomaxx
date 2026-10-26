@@ -192,9 +192,15 @@ Notas:
   entre con un rol sin superusuario (RLS de la base aísla los locales):
   [`DB-ROLE.md`](DB-ROLE.md).
 - `NODE_ENV` sin poner también arranca como producción; ponlo igual.
-- Sin `ORIGIN_AUTH_SECRET` o `METRICS_TOKEN` el API no arranca en producción.
-  Tampoco sin `CORS_ORIGINS` o con una dirección mal escrita (cada una
-  `https://dominio`, sin barra final ni ruta).
+- Sin `CORS_ORIGINS` o con una dirección mal escrita (cada una
+  `https://dominio`, sin barra final ni ruta) el API **no arranca** en
+  producción.
+- Sin `ORIGIN_AUTH_SECRET` o sin `METRICS_TOKEN` el API **sí arranca**, solo
+  con un aviso (`WARN`) en el log del arranque: sin el primero acepta
+  peticiones que no pasan por Cloudflare (y la IP de los límites por IP sale
+  de los rangos de Cloudflare: falsificable desde fuera); sin el segundo,
+  `/v1/metrics` queda cerrado para todos. Tras crear o recrear el servicio,
+  mira el log del arranque y que no salga ninguno de esos dos avisos.
 - `REALTIME_LEGACY_SUBSCRIBE_UNTIL` (opcional): hasta cuándo las apps
   antiguas pueden seguir un cobro en tiempo real sin sesión. Sin ponerla, el
   martes 2026-11-17 a las 12:00 (Madrid); después contestan «Inicia sesión otra
@@ -222,7 +228,13 @@ En **Advanced** (Swarm Settings) del servicio:
   contenedor nuevo arranca, aplica migraciones y tiene que estar *healthy*
   antes de quitar el viejo; si no llega a sano, se queda el viejo.
 - **Stop grace period**: `30s`. Al redesplegar, el API recibe SIGTERM y
-  termina lo que tiene entre manos antes de cerrarse.
+  termina lo que tiene entre manos antes de cerrarse, en este orden
+  (`apps/api/src/shutdown.ts`): deja de aceptar peticiones (503 a las que
+  lleguen por conexiones abiertas) y termina las que están en vuelo (tope
+  10 s); corta el tiempo real de ese contenedor (las apps reconectan solas, ya
+  al nuevo); para los workers de las colas, que terminan el trabajo en curso
+  (tope 10 s); y por último cierra Redis y la base. A los 27 s sale igual. En
+  el log: `SIGTERM recibido`, `Apagando: …` y `Apagado terminado`.
 
 `/v1/health/live` solo dice «el proceso responde» (no mira la base: reiniciar
 el API no arregla una base caída). `/v1/health` mira Postgres y Redis y da
