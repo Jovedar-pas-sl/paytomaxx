@@ -79,7 +79,11 @@ function openPage(opts: { phoneNow?: Date; pay?: Reply; state?: Reply[]; serverN
   const html = renderQrChargePage('tok-1', 'es', view, opts.serverNow ?? NOW);
   const els = new Map<string, FakeEl>();
   for (const m of html.matchAll(/<[a-z0-9]+ [^>]*\bid="([A-Za-z]+)"[^>]*>/g)) {
-    els.set(m[1]!, new FakeEl(m[1]!, / hidden>$/.test(m[0])));
+    const found = new FakeEl(m[1]!, / hidden>$/.test(m[0]));
+    // Lo que lee npPaid del HTML: cuánto dura el «Pagado» en verde.
+    const fresh = /\bdata-fresh="(\d+)"/.exec(m[0]);
+    if (fresh) found.setAttribute('data-fresh', fresh[1]!);
+    els.set(m[1]!, found);
   }
   const states = [...(opts.state ?? [])];
   const calls: string[] = [];
@@ -177,11 +181,23 @@ describe('/s en el móvil: un fallo que no se sabe si cobró no dice «no se ha 
       expect(page.reload).not.toHaveBeenCalled();
     });
 
-    it(`${name} pero ya estaba pagado: recarga y se ve el estado real (nada de «Pagar» otra vez)`, async () => {
-      const page = openPage({ pay, state: [{ status: 200, body: { status: 'ACCEPTED' } }] });
+    it(`${name} pero se cobró: el PAGADO normal de ese cobro, con su código (no el gris «No es un pago nuevo»)`, async () => {
+      const page = openPage({ pay, state: [{ status: 200, body: { status: 'ACCEPTED', code: '7QK' } }] });
+      await tapPay(page);
+      expect(page.reload).not.toHaveBeenCalled();
+      expect(page.el('paid').hidden).toBe(false);
+      expect(page.el('ask').hidden).toBe(true);
+      expect(page.el('paid').classList.contains('stale')).toBe(false);
+      expect(page.el('paid').querySelector('[data-title]').textContent).toBe('Pagado');
+      expect(page.el('paid').querySelector('[data-amount]').textContent).toMatch(/^60/);
+      expect(page.el('notCharged').hidden).toBe(true);
+    });
+
+    it(`${name} y el cobro ya no está (caducado, cancelado): recarga y se ve el estado real`, async () => {
+      const page = openPage({ pay, state: [{ status: 200, body: { status: 'EXPIRED' } }] });
       await tapPay(page);
       expect(page.reload).toHaveBeenCalledTimes(1);
-      expect(page.el('notCharged').hidden).toBe(true);
+      expect(page.el('paid').hidden).toBe(true);
     });
   }
 
@@ -204,11 +220,13 @@ describe('/s en el móvil: un fallo que no se sabe si cobró no dice «no se ha 
     expect(page.el('reload').hidden).toBe(true);
   });
 
-  it('un 200 sin lo cobrado (un proxy que contesta otra cosa) tampoco se da por pagado ni por no cobrado', async () => {
-    const page = openPage({ pay: { status: 200, body: {} }, state: [{ status: 200, body: { status: 'ACCEPTED' } }] });
+  it('un 200 sin lo cobrado (un proxy que contesta otra cosa) tampoco se da por pagado ni por no cobrado: decide el estado del servidor', async () => {
+    const page = openPage({ pay: { status: 200, body: {} }, state: [{ status: 200, body: { status: 'PENDING' } }] });
     await tapPay(page);
+    expect(page.calls.filter((u) => u.endsWith('/state'))).toHaveLength(1);
     expect(page.el('paid').hidden).toBe(true);
-    expect(page.reload).toHaveBeenCalledTimes(1);
+    expect(page.el('notCharged').hidden).toBe(true);
+    expect(page.el('pay').hidden).toBe(false);
   });
 
   it('un 4xx que es rechazo (Face ID, local en pausa…): «No se te ha cobrado nada» y se puede repetir, sin comprobar', async () => {

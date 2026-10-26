@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PublicSaldoController } from './public-saldo.controller';
 
 describe('/s/:token/state: la página pregunta si el cobro sigue pendiente tras un fallo que no se sabe si cobró', () => {
-  it('solo el estado (sin importes, saldo ni código del cobro)', async () => {
+  it('pagado: el estado y su código (el mismo que ya sale en la página del cobro pagado); nada de importes ni saldo', async () => {
     const charges = {
       qrChargeForClient: vi.fn(async () => ({
         status: 'ACCEPTED',
@@ -16,8 +16,14 @@ describe('/s/:token/state: la página pregunta si el cobro sigue pendiente tras 
       })),
     };
     const controller = new PublicSaldoController(charges as never, {} as never);
-    await expect(controller.state('tok-1')).resolves.toEqual({ status: 'ACCEPTED' });
+    await expect(controller.state('tok-1')).resolves.toEqual({ status: 'ACCEPTED', code: 'Z9Q' });
     expect(charges.qrChargeForClient).toHaveBeenCalledWith('tok-1');
+  });
+
+  it('antes de pagarse, solo el estado: el código nunca sale (un «Pagado» falso no lo tendría)', async () => {
+    const charges = { qrChargeForClient: vi.fn(async () => ({ status: 'PENDING', amountCents: 6000, code: 'Z9Q' })) };
+    const controller = new PublicSaldoController(charges as never, {} as never);
+    await expect(controller.state('tok-1')).resolves.toEqual({ status: 'PENDING' });
   });
 
   it('pagado con tarjeta (cobro único): el estado que ve la página al recargar (CANCELED)', async () => {

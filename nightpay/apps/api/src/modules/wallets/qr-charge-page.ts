@@ -206,19 +206,22 @@ var go=pkPrepare(C.base+'/challenge');
 function paid(r){stop('');$('ask').hidden=true;
  var t=Date.now();el.setAttribute('data-at',String(t));el.setAttribute('data-now',String(t));el.classList.remove('stale');
  el.querySelector('[data-title]').textContent=T.paidTitle;el.querySelector('[data-amount]').textContent=eur(r.amountCents);
- var line=document.createElement('p');line.className='pline';line.textContent=T.left+': '+eur(r.balanceCents);el.querySelector('[data-lines]').appendChild(line);
+ if(typeof r.balanceCents==='number'){var line=document.createElement('p');line.className='pline';line.textContent=T.left+': '+eur(r.balanceCents);el.querySelector('[data-lines]').appendChild(line);}
  if(r.code){var box=document.createElement('div');box.className='pcode';
   var lab=document.createElement('span');lab.textContent=T.codeLabel;var val=document.createElement('b');val.className='num';val.textContent=r.code;
   var hint=document.createElement('small');hint.textContent=T.codeHint;box.appendChild(lab);box.appendChild(val);box.appendChild(hint);
   el.insertBefore(box,el.querySelector('.pstale'));}
  el.hidden=false;window.scrollTo(0,0);npPaid(el,T.paid);}
 // No se sabe si se cobró: se pregunta el estado. Pendiente → se puede volver a
-// pagar; si no, recargar enseña lo que pasó; sin respuesta, «Volver a cargar».
+// pagar; cobrado → el PAGADO de este pago (no el gris de un QR que se vuelve a
+// abrir: lo acaba de pagar este móvil), con su código; si no, recargar enseña
+// lo que pasó; sin respuesta, «Volver a cargar».
 function lost(){show('error',T.unknown);$('reload').hidden=false;$('pay').hidden=true;}
 function check(n){
  fetch(C.base+'/state',{cache:'no-store',headers:{Accept:'application/json'}})
   .then(function(r){if(!r.ok)throw r;return r.json();})
   .then(function(s){if(!s||!s.status)throw s;
+   if(s.status==='ACCEPTED'){paid({amountCents:V.amountCents,code:s.code||null});return;}
    if(s.status!=='PENDING'){location.reload();return;}
    if(!over){show('error',T.stillPending);$('pay').hidden=false;}})
   .catch(function(){if(n>1)setTimeout(function(){check(n-1);},${STATE_RETRY_MS});else lost();});

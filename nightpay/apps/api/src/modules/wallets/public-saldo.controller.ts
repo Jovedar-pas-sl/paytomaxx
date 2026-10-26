@@ -62,15 +62,17 @@ export class PublicSaldoController {
   /**
    * Tras un fallo del pago que no dice si se cobró (sin respuesta, 408, 429,
    * 5xx), la página pregunta aquí antes de dejar pagar otra vez: si sigue
-   * pendiente, se puede; si no, recarga y enseña lo que pasó. Solo el estado.
+   * pendiente, se puede; si se cobró, enseña su PAGADO con el código (el mismo
+   * que ya sale en la página de un cobro pagado); si no, recarga y enseña lo
+   * que pasó. Antes de pagarse, solo el estado (el código no sale).
    */
   @Public()
   @Get(':token/state')
   @Header('Cache-Control', 'no-store')
   @IpRateLimit({ max: 60, windowSec: 60, scope: 'saldo-qr-state', failOpen: true })
-  async state(@Param('token') token: string): Promise<{ status: QrChargeClientView['status'] }> {
+  async state(@Param('token') token: string): Promise<{ status: QrChargeClientView['status']; code?: string }> {
     const view = await this.charges.qrChargeForClient(token);
-    return { status: view.status };
+    return view.status === 'ACCEPTED' && view.code ? { status: view.status, code: view.code } : { status: view.status };
   }
 
   @Public()
