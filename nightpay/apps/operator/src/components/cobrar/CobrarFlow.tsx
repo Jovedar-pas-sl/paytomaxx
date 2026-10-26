@@ -25,8 +25,10 @@ import {
   addAmount,
   addItem,
   chargeLinesOf,
+  cobrarYApuntar,
   cuentaTotals,
   cuentaWhat,
+  otroPlan,
   qtyOf,
   removeLine,
   setQty,
@@ -246,13 +248,13 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     }
   }
 
-  /** La cuenta → el cobro. */
-  function cobrarCuenta(c: Cuenta = cuenta) {
+  /** La cuenta → el cobro (true si se abrió). */
+  function cobrarCuenta(c: Cuenta = cuenta): Promise<boolean> {
     const totals = cuentaTotals(c);
     const sections = totals.bySection;
     const what = cuentaWhat(c);
     const top = [...sections].sort((a, b) => b.cents - a.cents)[0]?.section ?? 'VENUE_BAR';
-    void start({
+    return start({
       input: { lines: chargeLinesOf(c), tipCents: totals.tipCents },
       fromCuenta: true,
       view: {
@@ -344,13 +346,13 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   }
 
   function otroDone(section: CuentaSection, cents: number) {
-    const next = addAmount(cuenta, section, cents);
-    if (cuenta.length === 0 && section !== PROPINAS) {
-      setCuenta(next);
-      cobrarCuenta(next);
+    const plan = otroPlan(cuenta, section, cents);
+    if (plan.kind === 'cobrar') {
+      // A la cuenta solo si el cobro se abre: tras un fallo, el segundo toque cobra lo mismo (no el doble).
+      void cobrarYApuntar(plan.next, cobrarCuenta, setCuenta);
       return;
     }
-    setCuenta(next);
+    setCuenta(plan.next);
     go({ kind: 'carta' });
   }
 
@@ -462,7 +464,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           onRemove={(key) => setCuenta((c) => removeLine(c, key))}
           onAdd={backToCarta}
           onBack={backToCarta}
-          onCobrar={() => cobrarCuenta()}
+          onCobrar={() => void cobrarCuenta()}
           onPos={methods.pos ? () => void cobrarPos() : undefined}
           busy={busy}
           error={error}
@@ -526,7 +528,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
               go({ kind: 'otro' });
             }}
             onVerCuenta={() => go({ kind: 'cuenta' })}
-            onCobrar={() => cobrarCuenta()}
+            onCobrar={() => void cobrarCuenta()}
             undo={undo}
             onUndo={undoLast}
             busy={busy}

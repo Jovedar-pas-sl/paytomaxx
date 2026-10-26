@@ -6,6 +6,9 @@ import {
   addItem,
   chargeLinesOf,
   chargeable,
+  cobrarYApuntar,
+  otroPlan,
+  type Cuenta,
   cuentaSummary,
   cuentaTotals,
   cuentaWhat,
@@ -159,5 +162,48 @@ describe('los resúmenes dicen el nombre de la carta tal cual (nada de plurales 
       { serviceItemId: GIN.id, qty: 2 },
       { serviceItemId: NACHOS.id, qty: 1 },
     ]);
+  });
+});
+
+describe('«Otro importe» con la cuenta vacía (APP-01)', () => {
+  it('con la cuenta vacía se cobra ya; con algo en la cuenta, o una propina, se suma', () => {
+    expect(otroPlan(EMPTY_CUENTA, 'VENUE_BAR', 2000).kind).toBe('cobrar');
+    expect(otroPlan(EMPTY_CUENTA, PROPINAS, 200).kind).toBe('sumar');
+    expect(otroPlan(addItem(EMPTY_CUENTA, COPA), 'VENUE_BAR', 2000).kind).toBe('sumar');
+    expect(cuentaTotals(otroPlan(EMPTY_CUENTA, 'VENUE_BAR', 2000).next).totalCents).toBe(2000);
+  });
+
+  it('el cobro no se abre (sin red): la cuenta sigue vacía y el segundo toque cobra 20 €, no 40 €', async () => {
+    let cuenta: Cuenta = EMPTY_CUENTA;
+    const asked: number[] = [];
+    const open = async (c: Cuenta): Promise<boolean> => {
+      asked.push(cuentaTotals(c).totalCents);
+      return asked.length > 1;
+    };
+    const apuntar = (c: Cuenta): void => {
+      cuenta = c;
+    };
+    expect(await cobrarYApuntar(otroPlan(cuenta, 'VENUE_BAR', 2000).next, open, apuntar)).toBe(false);
+    expect(cuenta).toEqual(EMPTY_CUENTA);
+    // Otra vez «Cobrar 20 €»: la cuenta seguía vacía, así que se cobra lo mismo.
+    const again = otroPlan(cuenta, 'VENUE_BAR', 2000);
+    expect(again.kind).toBe('cobrar');
+    expect(await cobrarYApuntar(again.next, open, apuntar)).toBe(true);
+    expect(asked).toEqual([2000, 2000]);
+    expect(cuentaTotals(cuenta).totalCents).toBe(2000);
+  });
+
+  it('si la apertura revienta, la cuenta tampoco se toca', async () => {
+    let touched = false;
+    await expect(
+      cobrarYApuntar(
+        otroPlan(EMPTY_CUENTA, 'VENUE_BAR', 2000).next,
+        () => Promise.reject(new Error('sin red')),
+        () => {
+          touched = true;
+        },
+      ),
+    ).rejects.toThrow('sin red');
+    expect(touched).toBe(false);
   });
 });

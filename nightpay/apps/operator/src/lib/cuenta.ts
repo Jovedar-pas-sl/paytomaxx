@@ -57,6 +57,33 @@ export function addAmount(cuenta: Cuenta, section: CuentaSection, amountCents: n
   return [...cuenta, { kind: 'importe', key: nextKey('i'), category: section, amountCents }];
 }
 
+/**
+ * «Otro importe» tecleado: con la cuenta vacía (y si no es una propina) se
+ * cobra ya; si no, se suma a la cuenta y se vuelve a la carta. `next` es la
+ * cuenta con el importe, pero al cobrar no se apunta hasta que el cobro se abre.
+ */
+export type OtroPlan = { kind: 'cobrar' | 'sumar'; next: Cuenta };
+
+export function otroPlan(cuenta: Cuenta, section: CuentaSection, amountCents: number): OtroPlan {
+  const next = addAmount(cuenta, section, amountCents);
+  return { kind: cuenta.length === 0 && section !== PROPINAS ? 'cobrar' : 'sumar', next };
+}
+
+/**
+ * Cobra `next` y solo si el cobro se abrió la deja como la cuenta: un fallo
+ * (sin red, 5xx) deja la cuenta como estaba y el reintento cobra lo mismo, no
+ * el doble (APP-01).
+ */
+export async function cobrarYApuntar(
+  next: Cuenta,
+  open: (cuenta: Cuenta) => Promise<boolean>,
+  apuntar: (cuenta: Cuenta) => void,
+): Promise<boolean> {
+  const opened = await open(next);
+  if (opened) apuntar(next);
+  return opened;
+}
+
 export function removeLine(cuenta: Cuenta, key: string): Cuenta {
   return cuenta.filter((l) => l.key !== key);
 }
