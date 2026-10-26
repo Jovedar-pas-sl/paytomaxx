@@ -165,13 +165,26 @@ export function installGracefulShutdown(
   process.on('SIGINT', onSignal);
 }
 
+/** Lo que hace falta del `server` de un gateway: el Server de socket.io o, con `namespace`, su Namespace. */
+export interface SocketIoLike {
+  local: { disconnectSockets(close?: boolean): void };
+  /** Server raíz: su engine.io. */
+  engine?: { close(): unknown };
+  /** Namespace (`@WebSocketGateway({ namespace: '/rt' })`, como el gateway de verdad): su Server raíz. */
+  server?: { engine?: { close(): unknown } };
+}
+
 /**
  * Corta las conexiones de tiempo real de ESTA réplica (con el adaptador de
  * Redis, io.disconnectSockets() las cortaría en todas: también en la nueva).
- * engine.close() corta además las que aún no entraron en ningún espacio.
+ * engine.close() corta además las que aún no entraron en ningún espacio. El
+ * gateway de verdad usa `namespace: '/rt'`: su `server` es un Namespace, sin
+ * `.engine`; el engine.io es el de su Server raíz (`namespace.server`).
  */
-export function disconnectSocketIo(io: { local: { disconnectSockets(close?: boolean): void }; engine: { close(): unknown } } | undefined): void {
+export function disconnectSocketIo(io: SocketIoLike | undefined): void {
   if (!io) return;
   io.local.disconnectSockets(true);
-  io.engine.close();
+  const engine = io.engine ?? io.server?.engine;
+  if (!engine) throw new Error('el gateway de tiempo real no tiene engine.io (¿sin iniciar?)');
+  engine.close();
 }

@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import type { Server as IoServer } from 'socket.io';
+import type { Namespace, Server as IoServer } from 'socket.io';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { WorkerHost } from '@nestjs/bullmq';
@@ -191,6 +191,16 @@ class TestGateway {
 @Module({ imports: [FakeDbModule], controllers: [SlowController], providers: [TestGateway] })
 class RealtimeTestModule {}
 
+/** Como el de verdad (realtime.gateway.ts): con espacio propio, su `server` es un Namespace. */
+@WebSocketGateway({ namespace: '/rt' })
+class NamespacedTestGateway {
+  @WebSocketServer()
+  server!: Namespace;
+}
+
+@Module({ imports: [FakeDbModule], controllers: [SlowController], providers: [NamespacedTestGateway] })
+class NamespacedRealtimeTestModule {}
+
 function get(port: number, path: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = httpRequest({ host: '127.0.0.1', port, path, agent: false }, (res: IncomingMessage) => {
@@ -260,6 +270,21 @@ describe('apagado de una app Nest + Fastify de verdad', () => {
     await gracefulShutdown(nestShutdownSteps(app, () => disconnectSocketIo(io)), log, { httpDrainMs: 5_000, workersDrainMs: 1_000 });
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(log.warn).not.toHaveBeenCalled();
+    await longPoll;
+  });
+
+  it('con el gateway en su espacio (/rt, como el de verdad) también: sin error y sin esperar al tope', async () => {
+    const { app, port } = await startApp(NamespacedRealtimeTestModule, { realtime: true });
+    const hello = await get(port, '/socket.io/?EIO=4&transport=polling');
+    const sid = (JSON.parse(hello.body.slice(1)) as { sid: string }).sid;
+    const longPoll = get(port, `/socket.io/?EIO=4&transport=polling&sid=${sid}`).catch(() => null);
+    await sleep(50);
+    const io = app.get(NamespacedTestGateway).server;
+    const started = Date.now();
+    const log = logger();
+    await gracefulShutdown(nestShutdownSteps(app, () => disconnectSocketIo(io), log), log, { httpDrainMs: 5_000, workersDrainMs: 1_000 });
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(Date.now() - started).toBeLessThan(2_000);
     await longPoll;
   });
 
