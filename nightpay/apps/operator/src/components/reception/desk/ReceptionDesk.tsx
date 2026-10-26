@@ -8,7 +8,6 @@ import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
 import {
   receptionAttempt,
-  receptionWhat,
   staffBackend,
   stockOutcomeLine,
   walletOfTarget,
@@ -17,6 +16,8 @@ import {
   type ReceptionWallet,
 } from '@/lib/reception';
 import {
+  attemptOnStep,
+  deskRechargeWhat,
   deskRow,
   deskTarget,
   fetchFichaByNumber,
@@ -159,6 +160,8 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   const amounts = quickAmounts(night.receptionQuickAmountsCents);
 
   function go(next: Step): void {
+    // Volver a leer (la flecha atrás hasta el NFC, otro cliente): clave de recarga nueva (A2-04).
+    attempt.current = attemptOnStep(attempt.current, next.kind);
     setError(null);
     setStep(next);
   }
@@ -230,11 +233,9 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     if (next.length === 6) void run(async () => open(await fetchReceptionDesk({ code: next }), null));
   }
 
+  /** La clave va con lo que se recarga, también con la ficha nueva leída: la de un cliente no vale para otro. */
   function keyFor(amountCents: number, method: PayMethod, read: Read): string {
-    const what = read.number
-      ? `${amountCents}|${method}|numero:${read.number.printedNumber}`
-      : receptionWhat(amountCents, method, deskTarget(read.view, read.nfc));
-    attempt.current = receptionAttempt(attempt.current, what);
+    attempt.current = receptionAttempt(attempt.current, deskRechargeWhat(amountCents, method, read));
     return attempt.current.key;
   }
 

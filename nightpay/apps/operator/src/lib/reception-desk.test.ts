@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ReceptionDeskSaldo, ReceptionOptions } from '@nightpay/contracts';
+import { receptionAttempt } from './reception';
 import {
+  attemptOnStep,
   codeBoxes,
   codeInput,
+  deskRechargeWhat,
   deskRow,
   deskTarget,
   fichaText,
@@ -169,5 +173,54 @@ describe('el código tecleado (4.6)', () => {
     expect(codeInput('k7q-4m2x')).toBe('K7Q4M2');
     expect(codeInput(' r3d 8')).toBe('R3D8');
     expect(codeBoxes('K7Q4')).toEqual(['K', '7', 'Q', '4', '', '']);
+  });
+});
+
+describe('la clave de la recarga va con el cliente (A2-04)', () => {
+  const OTRA = { card: 'Zz9yX8wV7uT6sR5qP4oN3m', uid: '04FFEE00' };
+
+  it('dos clientes con ficha nueva, mismo importe y misma forma de pago: claves distintas (la ficha va en la clave)', () => {
+    const a = deskRechargeWhat(2_000, 'cash', { view: NUEVO, nfc: FICHA });
+    const b = deskRechargeWhat(2_000, 'cash', { view: NUEVO, nfc: OTRA });
+    expect(a).not.toBe(b);
+    expect(a).toBe(`2000|cash|nuevo:ficha:${FICHA.card}`);
+    // La misma ficha (un corte, un doble toque): lo mismo.
+    expect(deskRechargeWhat(2_000, 'cash', { view: NUEVO, nfc: FICHA })).toBe(a);
+  });
+
+  it('lo demás, como antes: su NFC con saldo, su código, un saldo nuevo sin NFC o por el número', () => {
+    expect(deskRechargeWhat(5_000, 'card', { view: saldo(), nfc: FICHA })).toBe(`5000|card|ficha:${FICHA.card}`);
+    expect(deskRechargeWhat(5_000, 'cash', { view: saldo(), nfc: null })).toBe('5000|cash|codigo:R3D-8LP');
+    expect(deskRechargeWhat(5_000, 'cash', { view: null, nfc: null })).toBe('5000|cash|nuevo');
+    const number = { kind: 'saldo', printedNumber: '0388' } as unknown as Parameters<typeof deskRechargeWhat>[2]['number'];
+    expect(deskRechargeWhat(5_000, 'cash', { view: null, nfc: null, number })).toBe('5000|cash|numero:0388');
+  });
+
+  it('volver a leer (la flecha atrás hasta el NFC, el código o el número) renueva la clave; dentro de la misma recarga, no', () => {
+    const attempt = receptionAttempt(null, deskRechargeWhat(2_000, 'cash', { view: null, nfc: null }));
+    for (const kind of ['tap', 'code', 'number'] as const) expect(attemptOnStep(attempt, kind)).toBeNull();
+    for (const kind of ['amount', 'keypad', 'method', 'card', 'loaded'] as const) expect(attemptOnStep(attempt, kind)).toBe(attempt);
+  });
+
+  it('el escenario: A sin respuesta, atrás hasta el NFC, llega B (saldo nuevo sin NFC, mismo importe): otra clave', () => {
+    const what = deskRechargeWhat(2_000, 'cash', { view: null, nfc: null });
+    const a = receptionAttempt(null, what);
+    const afterBack = attemptOnStep(a, 'tap');
+    const b = receptionAttempt(afterBack, what);
+    expect(b.key).not.toBe(a.key);
+  });
+});
+
+describe('la recarga del datáfono y de «Recargar saldo» (ReceptionFlow), igual (A2-04)', () => {
+  const src = readFileSync(new URL('../components/reception/ReceptionFlow.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+  it('volver al importe (el primer paso: otro cliente) renueva la clave', () => {
+    expect(src).toMatch(/attempt\.current = null;\s*setStep\(\{ kind: 'amount' \}\);\s*\}\}\s*>\s*Cambiar el importe/);
+  });
+
+  it('en ReceptionDesk, toda vuelta a leer pasa por go(), que renueva la clave', () => {
+    const desk = readFileSync(new URL('../components/reception/desk/ReceptionDesk.tsx', import.meta.url), 'utf8');
+    expect(desk).toMatch(/attempt\.current = attemptOnStep\(attempt\.current, next\.kind\)/);
+    expect(desk).not.toMatch(/setStep\(\{ kind: '(tap|code|number)' \}\)/);
   });
 });

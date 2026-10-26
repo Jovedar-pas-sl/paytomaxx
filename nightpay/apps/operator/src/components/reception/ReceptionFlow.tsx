@@ -383,7 +383,14 @@ export function ReceptionFlow({ on, onDone }: Props) {
           </Button>
           {options && !options.cash && options.cashBlockedReason ? <p style={note}>{options.cashBlockedReason}</p> : null}
           {amountCents > MAX_CASH_TOP_UP_CENTS ? <p style={note}>En efectivo, como mucho 999,99 € por recarga.</p> : null}
-          <Button variant="ghost" onClick={() => setStep({ kind: 'amount' })}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              // Al primer paso (puede ser otro cliente): clave de recarga nueva (A2-04).
+              attempt.current = null;
+              setStep({ kind: 'amount' });
+            }}
+          >
             Cambiar el importe
           </Button>
         </>
