@@ -2,16 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { invitationRulesOf } from '@nightpay/contracts';
 import {
   CHECKING_TEXT,
+  chargeWithFeeCents,
   failReasonOf,
+  paymentFeeLine,
+  posChargeLine,
   invitationSplit,
   methodLabel,
   paidAmounts,
+  paidBreakdown,
   paidMeta,
   pinExpected,
   pinFootnote,
   pinWarning,
   splitCells,
   tipLine,
+  waitingFeeHint,
   waitingLiveText,
   whoLine,
 } from './cobro-view';
@@ -141,5 +146,73 @@ describe('la espera «viva»', () => {
     expect(waitingLiveText('ending', true)).toBe(CHECKING_TEXT);
     expect(CHECKING_TEXT).toMatch(/^Comprobando si se ha cobrado/);
     expect(CHECKING_TEXT).not.toMatch(/No se ha cobrado/);
+  });
+});
+
+describe('con la «Comisión del servicio» (la paga el cliente encima si paga con tarjeta)', () => {
+  it('PAGADO con tarjeta: 33 € + 3,30 € comisión del servicio + 2 € propina = 38,30 €', () => {
+    const a = paidAmounts({ totalCents: 3300, serviceFeeCents: 330 }, { method: 'card', tipCents: 200 });
+    expect(a).toEqual({ baseCents: 3300, serviceFeeCents: 330, tipCents: 200, totalCents: 3830 });
+    expect(sp(paidBreakdown(a)!)).toBe('33 € + 3,30 € comisión del servicio + 2 € propina');
+  });
+
+  it('con la propina ya en la cuenta: la comisión va sobre lo vendido, no sobre la propina', () => {
+    const a = paidAmounts({ totalCents: 3500, tipCents: 200, serviceFeeCents: 330 }, { method: 'card', tipCents: 200 });
+    expect(a.totalCents).toBe(3830);
+    // Aún sin saber la propina del cliente: lo de la cuenta + la comisión.
+    expect(paidAmounts({ totalCents: 3500, tipCents: 200, serviceFeeCents: 330 }, { method: 'card', tipCents: null })).toEqual({
+      baseCents: 3300,
+      serviceFeeCents: 330,
+      tipCents: null,
+      totalCents: 3830,
+    });
+  });
+
+  it('pagado con el saldo: sin comisión (y sin línea)', () => {
+    const a = paidAmounts({ totalCents: 3300, serviceFeeCents: 330 }, { method: 'nfc_nopin', tipCents: 0 });
+    expect(a).toEqual({ baseCents: 3300, tipCents: 0, totalCents: 3300 });
+    expect(paidBreakdown(a)).toBeNull();
+  });
+
+  it('esperando: cuánto paga con tarjeta y cuánto con el saldo', () => {
+    const saldo = { chargeId: 'c1', expiresAt: '2026-10-26T23:00:00Z' };
+    expect(sp(waitingFeeHint({ totalCents: 3300, card: { serviceFeeCents: 330 }, saldo })!)).toBe(
+      'Con tarjeta, 36,30 € (33 € + 3,30 € comisión del servicio) · con el saldo, 33 €',
+    );
+    expect(sp(waitingFeeHint({ totalCents: 3500, tipCents: 200, card: { serviceFeeCents: 330 }, saldo: null })!)).toBe(
+      'Con tarjeta, 38,30 € (33 € + 3,30 € comisión del servicio + 2 € propina)',
+    );
+    expect(waitingFeeHint({ totalCents: 3300, card: { serviceFeeCents: 0 }, saldo })).toBeNull();
+    expect(waitingFeeHint({ totalCents: 3300, card: null, saldo })).toBeNull();
+  });
+});
+
+describe('el QR de un cobro (o de una recarga) con la comisión del servicio', () => {
+  it('pago directo: lo que paga con tarjeta; recarga: «Cobra 56 € (…)»; sin ella, nada', () => {
+    expect(sp(paymentFeeLine({ amountCents: 3300, serviceFeeCents: 330, walletId: null })!)).toBe(
+      'Con tarjeta, 36,30 € (33 € + 3,30 € comisión del servicio)',
+    );
+    expect(sp(paymentFeeLine({ amountCents: 5000, serviceFeeCents: 600, walletId: 'w1' })!)).toBe(
+      'Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)',
+    );
+    expect(paymentFeeLine({ amountCents: 3300 })).toBeNull();
+  });
+
+  it('en el datáfono se teclea el importe con la comisión', () => {
+    expect(chargeWithFeeCents({ amountCents: 3300, serviceFeeCents: 330 })).toBe(3630);
+    expect(chargeWithFeeCents({ amountCents: 3300 })).toBe(3300);
+  });
+});
+
+describe('el datáfono con la comisión del servicio (el API ya manda el total)', () => {
+  it('«Cobra 36,30 € (33 € + 3,30 € comisión del servicio)»; una recarga, con su saldo; sin ella, «Cobra 33 €»', () => {
+    expect(sp(posChargeLine({ amountCents: 3630, baseAmountCents: 3300, serviceFeeCents: 330 }))).toBe(
+      'Cobra 36,30 € (33 € + 3,30 € comisión del servicio)',
+    );
+    expect(sp(posChargeLine({ amountCents: 5600, baseAmountCents: 5000, serviceFeeCents: 600, topUp: true }))).toBe(
+      'Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)',
+    );
+    // Un API de antes: amountCents es lo que se cobra.
+    expect(sp(posChargeLine({ amountCents: 3300 }))).toBe('Cobra 33 €');
   });
 });

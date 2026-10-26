@@ -28,6 +28,7 @@ import {
 } from '@/lib/pax-flow';
 import { voidSaleOnReader } from '@/lib/pax-void';
 import { formatEur } from '@/lib/money';
+import { posChargeLine } from '@/lib/cobro-view';
 
 type Step =
   | { kind: 'reading' }
@@ -229,6 +230,8 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
       <p className="np-num" style={{ margin: 0, fontSize: '3rem', fontWeight: 700 }}>
         {formatEur(charge.amountCents)}
       </p>
+      {/* El lector pide el total: con la «Comisión del servicio», su desglose. */}
+      {charge.serviceFeeCents ? <p style={muted}>{posChargeLine(charge)}</p> : null}
 
       {step.kind === 'reading' ? (
         <>

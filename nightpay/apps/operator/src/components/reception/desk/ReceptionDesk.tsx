@@ -10,6 +10,7 @@ import {
   receptionAttempt,
   staffBackend,
   stockOutcomeLine,
+  topUpCharge,
   type PayMethod,
   type ReceptionAttempt,
   type ReceptionWallet,
@@ -276,13 +277,24 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   /** La recarga en efectivo con la clave de este intento: repetirla no carga dos veces. */
   async function sendCash(read: Read, amountCents: number): Promise<void> {
     if (read.number) {
-      const out = await topUpByNumber({ printedNumber: read.number.printedNumber, amountCents, idempotencyKey: keyFor(amountCents, 'cash', read) });
+      const out = await topUpByNumber({
+        printedNumber: read.number.printedNumber,
+        amountCents,
+        idempotencyKey: keyFor(amountCents, 'cash', read),
+        ...topUpCharge(options, amountCents).body,
+      });
       attempt.current = null;
       return go({ kind: 'loaded', done: { read, amountCents, method: 'cash', wallet: null, linked: true, warn: null, reference: out.codeHint } });
     }
     const target = deskTarget(read.view, read.nfc);
     // Un saldo nuevo lleva ya su ficha: el servidor la da en la misma operación.
-    const out = await staffBackend.cash({ amountCents, idempotencyKey: keyFor(amountCents, 'cash', read), wallet: cashTopUpWallet(target, read.nfc) });
+    const out = await staffBackend.cash({
+      amountCents,
+      idempotencyKey: keyFor(amountCents, 'cash', read),
+      wallet: cashTopUpWallet(target, read.nfc),
+      // La «Comisión del servicio» que se ha dicho (si cambió, el servidor no la apunta).
+      ...topUpCharge(options, amountCents).body,
+    });
     const hasPin = read.view?.kind === 'saldo' && read.view.hasPin;
     const wallet = { walletId: out.walletId, code: out.code, balanceCents: out.balanceCents, hasPin, hasCard: read.nfc !== null };
     await finish(read, amountCents, 'cash', wallet, out.cardLinked === true);
@@ -671,6 +683,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       <MethodStep
         chip={read.number ? `Recarga · ${fichaText(read.number.printedNumber)}` : rechargeChip(read.view)}
         amountCents={amountCents}
+        feeText={topUpCharge(options, amountCents).feeCents > 0 ? topUpCharge(options, amountCents).text : null}
         loading={options === null}
         blocked={null}
         buttons={buttons}

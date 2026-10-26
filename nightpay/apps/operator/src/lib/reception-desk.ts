@@ -19,7 +19,7 @@ import {
 import { ApiError } from '@nightpay/api-client';
 import { authedFetch, parseOperatorApiError } from './api';
 import { formatEur } from './money';
-import { payProblem, receptionWhat, walletOfTarget, type PayMethod, type Target } from './reception';
+import { payProblem, receptionWhat, topUpCharge, walletOfTarget, type PayMethod, type Target } from './reception';
 import type { TopUpWalletDto } from '@nightpay/contracts';
 
 export type { ReceptionDeskSaldo, ReceptionDeskView, ReceptionNumberView };
@@ -130,8 +130,15 @@ export function methodButtons(
   if (options.cash) offered.push('cash');
   if (options.card) offered.push('card');
   offered.sort((a, b) => (a === preferred ? -1 : b === preferred ? 1 : 0));
+  // El tope legal del efectivo es lo que paga el cliente: el saldo + la comisión del servicio.
+  const charge = topUpCharge(options, amountCents);
   return offered.map((method, i) => {
-    const tooBig = method === 'cash' && amountCents > MAX_CASH_TOP_UP_CENTS ? 'En efectivo, como mucho 999,99 € por recarga.' : null;
+    const tooBig =
+      method === 'cash' && charge.totalCents > MAX_CASH_TOP_UP_CENTS
+        ? charge.feeCents > 0
+          ? 'En efectivo, como mucho 999,99 € por pago (saldo + comisión del servicio).'
+          : 'En efectivo, como mucho 999,99 € por recarga.'
+        : null;
     return { method, primary: i === 0, problem: tooBig ?? payProblem(method, target, options) };
   });
 }

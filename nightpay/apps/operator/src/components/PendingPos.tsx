@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import { isAlertSoundMuted, playAlertBeep, setAlertSoundMuted } from '@/lib/alert-sound';
 import { formatEur, formatEurAmount } from '@/lib/money';
+import { posChargeLine } from '@/lib/cobro-view';
 import { newArrivals } from '@/lib/pending-pos';
 import { usePolling } from '@/lib/use-polling';
 
@@ -323,6 +324,11 @@ function ConfirmForm({
             .map((c) => (c === '.' ? '·' : c))
             .join(' ')}
         </p>
+        {payment.serviceFeeCents ? (
+          <p style={{ margin: '0.25rem 0 0', fontSize: 'var(--np-t-label)', color: 'var(--np-text-mute)' }}>
+            {posChargeLine(payment)}
+          </p>
+        ) : null}
         <p style={{ margin: '0.25rem 0 0', fontSize: 'var(--np-t-label)', color: 'var(--np-text-mute)' }}>
           Chica: {payment.createdByName}
         </p>
@@ -333,7 +339,7 @@ function ConfirmForm({
           Pasos:
         </p>
         <ol style={stepsListStyle}>
-          <li>Cobra {formatEur(payment.amountCents)} en el datáfono del bar.</li>
+          <li>{payment.serviceFeeCents ? posChargeLine(payment) : `Cobra ${formatEur(payment.amountCents)}`} en el datáfono del bar.</li>
           <li>Cliente paga con su tarjeta.</li>
           <li><strong>Teclea el código de autorización</strong> del ticket (6 caracteres, pone "AUT" o "Nº autorización").</li>
           <li>Foto del ticket (opcional pero recomendado).</li>

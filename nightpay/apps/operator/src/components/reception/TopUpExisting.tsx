@@ -10,6 +10,7 @@ import {
   receptionAttempt,
   receptionWhat,
   staffBackend,
+  topUpCharge,
   walletOfTarget,
   type PayMethod,
   type ReceptionAttempt,
@@ -170,7 +171,12 @@ export function TopUpExisting({ onExit, onDone }: Props) {
     if (!qrSettled) await retire(payment);
     setStep({ kind: 'qr', found: f, amountCents, payment: null });
     const target = deskTarget(f.view, f.nfc);
-    const out = await staffBackend.cash({ amountCents, idempotencyKey: keyFor(amountCents, 'cash', f), wallet: walletOfTarget(target) });
+    const out = await staffBackend.cash({
+      amountCents,
+      idempotencyKey: keyFor(amountCents, 'cash', f),
+      wallet: walletOfTarget(target),
+      ...topUpCharge(options, amountCents).body,
+    });
     onDone();
     attempt.current = null;
     go({ kind: 'done', amountCents, method: 'cash', code: out.code, detail: `Saldo ${out.code} · tiene ${formatEur(out.balanceCents, { compact: true })}` });

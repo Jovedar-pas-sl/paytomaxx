@@ -47,6 +47,11 @@ export interface PaxCharge {
   terminalLabel: string | null;
   code: string;
   forThisTerminal: boolean;
+  /** Con la «Comisión del servicio»: amountCents ya la lleva (lo que pide el lector); aquí, el desglose. */
+  baseAmountCents?: number;
+  serviceFeeCents?: number;
+  /** Una recarga del saldo (la comisión va sobre la recarga). */
+  topUp?: boolean;
 }
 
 export type SaleOutcome =

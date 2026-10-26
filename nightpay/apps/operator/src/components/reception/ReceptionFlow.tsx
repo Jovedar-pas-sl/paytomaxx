@@ -18,6 +18,7 @@ import {
   receptionDetail,
   receptionWhat,
   staffBackend,
+  topUpCharge,
   topUpCheck,
   walletAfterCash,
   walletOfTarget,
@@ -246,6 +247,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
           terminalLabel: null,
           code: '',
           forThisTerminal: true,
+          ...(sale.serviceFeeCents ? { baseAmountCents: sale.topUpCents, serviceFeeCents: sale.serviceFeeCents, topUp: true } : {}),
         }}
         start={() => Promise.resolve({ reference: sale.reference, amountCents: sale.amountCents })}
         onPaid={() =>
@@ -376,7 +378,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
           <Button
             size="lg"
             variant="ghost"
-            disabled={!options?.cash || amountCents > MAX_CASH_TOP_UP_CENTS}
+            disabled={!options?.cash || topUpCharge(options, amountCents).totalCents > MAX_CASH_TOP_UP_CENTS}
             onClick={() => setStep({ kind: 'target', method: 'cash' })}
           >
             Efectivo
@@ -437,7 +439,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
           <p className="np-num" style={amountStyle}>
             {formatEur(amountCents)}
           </p>
-          <p style={big}>Cobra {formatEur(amountCents)} en efectivo</p>
+          <p style={big}>{topUpCharge(options, amountCents).text} en efectivo</p>
           <p style={muted}>
             {step.target.kind === 'card' ? `A su saldo ${step.target.view.codeHint}.` : 'Saldo nuevo.'} Guarda el dinero en la caja y
             pulsa «Cobrado».
@@ -452,6 +454,8 @@ export function ReceptionFlow({ on, onDone }: Props) {
                   amountCents,
                   idempotencyKey: keyFor('cash', target),
                   wallet: walletOfTarget(target),
+                  // La «Comisión del servicio» que se ha dicho (si cambió, el servidor no la apunta).
+                  ...topUpCharge(options, amountCents).body,
                 });
                 if (target.kind === 'card') setStep(done(walletAfterCash(out, target.view), 'cash'));
                 else await paidThen(out.walletId, 'cash');

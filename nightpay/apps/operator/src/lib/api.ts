@@ -239,6 +239,12 @@ export interface CreatedPayment {
   ref?: string | null;
   /** Lo cobrado, cada línea en su sección (vacío en una recarga). */
   lines?: Array<{ category: string; label: string; qty: number; unitCents: number; amountCents: number }>;
+  /**
+   * «Comisión del servicio» que paga el cliente encima si paga con tarjeta o
+   * datáfono (en una recarga, encima de la recarga). Un API de antes no la manda: 0.
+   */
+  serviceFeeCents?: number;
+  serviceFeeBps?: number | null;
 }
 
 // ─── Sesión ───────────────────────────────────────────────────────
@@ -493,6 +499,9 @@ export interface PendingPosPayment {
   refCode: string;
   zone: string | null;
   terminalLabel: string | null;
+  /** Con la «Comisión del servicio»: amountCents ya la lleva (es lo que se cobra); aquí, el desglose. */
+  baseAmountCents?: number;
+  serviceFeeCents?: number;
 }
 
 export async function fetchPendingPos(zone?: string, signal?: AbortSignal): Promise<PendingPosPayment[]> {

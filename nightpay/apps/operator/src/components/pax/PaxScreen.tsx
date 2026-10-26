@@ -29,6 +29,7 @@ import {
 import { shiftSummaryText } from '@/lib/pax-flow';
 import { setVenueFeedback } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
+import { posChargeLine } from '@/lib/cobro-view';
 import { deviceBackend } from '@/lib/reception';
 import { VenueNightContext } from '@/lib/venue-methods';
 import { usePolling } from '@/lib/use-polling';
@@ -255,6 +256,7 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
                 {formatEur(c.amountCents)}
               </span>
               <span style={{ fontSize: '1.0625rem', fontWeight: 600 }}>{c.createdByName}</span>
+              {c.serviceFeeCents ? <span style={muted}>{posChargeLine(c)}</span> : null}
               <span style={muted}>
                 Código {c.code}
                 {c.zone ? ` · ${c.zone.toLowerCase()}` : ''} · hace {minutesAgo(c.createdAt)}

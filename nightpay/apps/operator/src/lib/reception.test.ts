@@ -13,6 +13,7 @@ import {
   receptionDetail,
   receptionWhat,
   stockOutcomeLine,
+  topUpCharge,
   topUpCheck,
   walletAfterCash,
   walletOfTarget,
@@ -225,6 +226,29 @@ describe('cómo quedó la recarga con tarjeta de una ficha que ya tenía saldo',
       expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toMatch(/\/v1\/pos-device\/reception\/topups\/p%201$/);
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('recargas con la «Comisión del servicio» (la paga el cliente encima)', () => {
+  const sp = (s: string) => s.replace(/\s/g, ' ');
+  const ON = { ...OPTIONS, serviceFee: { enabled: true, cardBps: 1000, topUpBps: 1200 } };
+
+  it('al 12 %: cobra 56 € (50 € de saldo + 6 €) y se manda la comisión que se enseñó', () => {
+    const c = topUpCharge(ON, 5_000);
+    expect(c).toMatchObject({ feeCents: 600, totalCents: 5_600, body: { serviceFeeCents: 600 } });
+    expect(sp(c.text)).toBe('Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)');
+  });
+
+  it('encendida al 0 %: no cobra nada encima, pero se dice que se sabe (serviceFeeCents 0)', () => {
+    const c = topUpCharge({ ...OPTIONS, serviceFee: { enabled: true, cardBps: 0, topUpBps: 0 } }, 5_000);
+    expect(c).toMatchObject({ feeCents: 0, totalCents: 5_000, body: { serviceFeeCents: 0 } });
+    expect(sp(c.text)).toBe('Cobra 50 €');
+  });
+
+  it('apagada o un API de antes (sin el campo): como siempre, y no se manda nada', () => {
+    for (const o of [OPTIONS, { ...OPTIONS, serviceFee: { enabled: false, cardBps: 1000, topUpBps: 1000 } }, null]) {
+      expect(topUpCharge(o, 5_000)).toMatchObject({ feeCents: 0, totalCents: 5_000, body: {} });
     }
   });
 });

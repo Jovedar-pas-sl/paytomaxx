@@ -107,6 +107,8 @@ const METHOD_TEXT = {
 export function MethodStep(props: {
   chip: string;
   amountCents: number;
+  /** Con la «Comisión del servicio»: «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)». */
+  feeText?: string | null;
   buttons: MethodButton[];
   /** null: no sale (ya tiene PIN). */
   pinNote: string | null;
@@ -123,6 +125,7 @@ export function MethodStep(props: {
           {props.chip}
         </span>
         <p className={s.bignum}>{formatEur(props.amountCents, { compact: true })}</p>
+        {props.feeText ? <p className={s.lbl}>{props.feeText}</p> : null}
       </div>
       <p className={s.q}>¿Cómo paga?</p>
       {props.loading ? <p className={s.lbl}>Cargando…</p> : null}

@@ -258,3 +258,14 @@ describe('recarga en efectivo a una ficha nueva con la respuesta perdida (prueba
     expect(cashTopUpUnsure(Object.assign(new Error('cancelado'), { name: 'AbortError' }))).toBe(false);
   });
 });
+
+describe('4.3 con la «Comisión del servicio»: el tope del efectivo es lo que paga (saldo + comisión)', () => {
+  const ON: ReceptionOptions = { ...OPTIONS, serviceFee: { enabled: true, cardBps: 1000, topUpBps: 1200 } };
+  it('900 € + 12 % = 1.008 €: en efectivo no; 890 € + 106,80 € = 996,80 €: sí', () => {
+    expect(methodButtons(ON, { kind: 'new' }, 90_000, 'cash')[0]).toMatchObject({
+      method: 'cash',
+      problem: expect.stringMatching(/999,99 € por pago \(saldo \+ comisión del servicio\)/),
+    });
+    expect(methodButtons(ON, { kind: 'new' }, 89_000, 'cash')[0]).toMatchObject({ method: 'cash', problem: null });
+  });
+});

@@ -5,6 +5,7 @@ import { AmountKeypad, outcomeKindOf, useWakeLock, type PaymentStatus } from '@n
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
 import { formatEur } from '@/lib/money';
+import { paymentFeeLine } from '@/lib/cobro-view';
 import { useOpenCharge, type ChargeSpot } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { StaffOutcome } from '../../StaffOutcome';
@@ -164,6 +165,7 @@ export function TopUpQr(props: Props) {
             )}
           </div>
           <p className={s.waitT}>Que lo pague en su móvil</p>
+          {payment && paymentFeeLine(payment) ? <p className={s.lbl}>{paymentFeeLine(payment)}</p> : null}
           <p className={s.lbl}>Tarjeta, Apple Pay o Google Pay. {props.forWhom}</p>
           <p className={s.note}>
             <Icon name="clock" />

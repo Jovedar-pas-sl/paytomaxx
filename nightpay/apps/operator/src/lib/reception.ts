@@ -4,12 +4,15 @@
 // móvil del personal (su sesión): cambia el «backend» de llamadas.
 // Lógica pura probada en reception.test.ts.
 
-import type {
-  CashTopUpDto,
-  CashTopUpResult,
-  ReceptionOptions,
-  StockOutcome,
-  TopUpWalletDto,
+import {
+  serviceFeeOf,
+  serviceFeeQuote,
+  topUpChargeText,
+  type CashTopUpDto,
+  type CashTopUpResult,
+  type ReceptionOptions,
+  type StockOutcome,
+  type TopUpWalletDto,
 } from '@nightpay/contracts';
 import { call } from './pax-api';
 import {
@@ -80,8 +83,12 @@ export function topUpCheck(view: ReceptionTopUpView): TopUpCheck {
 export interface DeviceCardSale {
   paymentId: string;
   reference: string;
+  /** Lo que pide el lector: la recarga + la comisión del servicio. */
   amountCents: number;
   walletId: string;
+  /** El desglose (un API de antes no lo manda). */
+  topUpCents?: number;
+  serviceFeeCents?: number;
 }
 
 /**
@@ -144,6 +151,33 @@ export const staffBackend: ReceptionBackend = {
 
 function receptionWalletOf(w: { walletId: string; code: string; balanceCents: number; hasPin: boolean; hasCard: boolean }): ReceptionWallet {
   return { walletId: w.walletId, code: w.code, balanceCents: w.balanceCents, hasPin: w.hasPin, hasCard: w.hasCard };
+}
+
+// ─── «Comisión del servicio» de una recarga ──────────────────────────────
+
+/** Lo que se cobra por una recarga: el saldo + la comisión del servicio del local (si la tiene). */
+export interface TopUpCharge {
+  feeCents: number;
+  totalCents: number;
+  /** «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)»; sin ella, «Cobra 50 €». */
+  text: string;
+  /**
+   * Lo que va en la recarga en efectivo: la comisión que se enseñó (si el
+   * local la tiene encendida, también a 0 %). Si cambió, el servidor no la
+   * apunta (409) y se vuelve a cobrar con la nueva.
+   */
+  body: { serviceFeeCents?: number };
+}
+
+/** Con las opciones de la recepción (un API de antes no la manda: apagada). */
+export function topUpCharge(options: Pick<ReceptionOptions, 'serviceFee'> | null | undefined, amountCents: number): TopUpCharge {
+  const quote = serviceFeeQuote(serviceFeeOf(options?.serviceFee), 'topUp', amountCents);
+  return {
+    feeCents: quote.feeCents,
+    totalCents: quote.totalCents,
+    text: topUpChargeText(amountCents, quote.feeCents),
+    body: quote.bps === null ? {} : { serviceFeeCents: quote.feeCents },
+  };
 }
 
 // ─── Pasos de la recepción ───────────────────────────────────────────────

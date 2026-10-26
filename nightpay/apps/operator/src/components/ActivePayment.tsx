@@ -20,6 +20,7 @@ import { confirmationCode } from '@nightpay/contracts';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
 import { useHealthReport } from '@/lib/connection-health';
 import { formatEur, formatEurAmount } from '@/lib/money';
+import { chargeWithFeeCents, paymentFeeLine } from '@/lib/cobro-view';
 import { useOpenCharge, type ChargeSpot } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { NewWalletCard } from './NewWalletCard';
@@ -154,6 +155,7 @@ export function ActivePayment({
           <OutcomeDetail
             label={label}
             tipCents={outcome === 'paid' ? tipCents : 0}
+            feeCents={outcome === 'paid' ? (payment.serviceFeeCents ?? 0) : 0}
             refLine={outcome === 'paid' ? refLine : null}
           />
         }
@@ -188,6 +190,8 @@ export function ActivePayment({
           <span style={{ fontSize: '0.95rem', color: 'var(--np-text-mute)', fontWeight: 500 }}>{payment.currency}</span>
         </p>
         {label ? <p style={{ margin: '0.25rem 0 0', fontWeight: 700, fontSize: '1.0625rem' }}>{label}</p> : null}
+        {/* Con la «Comisión del servicio»: lo que paga con tarjeta (o, en una recarga, lo que se cobra). */}
+        {!isPos && paymentFeeLine(payment) ? <p style={{ ...hintStyle, margin: '0.25rem 0 0' }}>{paymentFeeLine(payment)}</p> : null}
         {isPos ? (
           <p style={{ margin: '0.5rem 0 0', fontSize: '0.9375rem', color: 'var(--np-text-mute)' }}>
             Llama al camarero. Código: <strong style={refCodeStyle}>#{refCode}</strong>
@@ -220,7 +224,8 @@ export function ActivePayment({
           <p style={{ margin: 0, fontSize: '0.9375rem', lineHeight: 1.6 }}>
             <strong>Camarero:</strong> escanea el QR con tu móvil (o usa código <strong style={refCodeStyle}>#{refCode}</strong>).
             <br />
-            Cobra <strong>{formatEur(payment.amountCents)}</strong> en el datáfono, luego confirma en tu app.
+            Cobra <strong>{formatEur(chargeWithFeeCents(payment))}</strong> en el datáfono
+            {payment.serviceFeeCents ? ' (con la comisión del servicio)' : ''}, luego confirma en tu app.
           </p>
         </div>
       ) : (
@@ -281,8 +286,19 @@ function outcomeActions(
   };
 }
 
-function OutcomeDetail({ label, tipCents, refLine }: { label: string | null; tipCents: number; refLine: string | null }) {
-  if (!label && tipCents <= 0 && !refLine) return null;
+function OutcomeDetail({
+  label,
+  tipCents,
+  feeCents = 0,
+  refLine,
+}: {
+  label: string | null;
+  tipCents: number;
+  /** La «Comisión del servicio» que pagó encima (con tarjeta). */
+  feeCents?: number;
+  refLine: string | null;
+}) {
+  if (!label && tipCents <= 0 && feeCents <= 0 && !refLine) return null;
   return (
     <>
       {/* «C-0042 · Copas»: la referencia que ve el cliente en sus movimientos. */}
@@ -292,6 +308,7 @@ function OutcomeDetail({ label, tipCents, refLine }: { label: string | null; tip
         </p>
       ) : null}
       {label ? <p>{label}</p> : null}
+      {feeCents > 0 ? <p className="np-num">+ {formatEur(feeCents, { compact: true })} comisión del servicio</p> : null}
       {tipCents > 0 ? <p className="np-num">+ {formatEur(tipCents, { compact: true })} de propina</p> : null}
     </>
   );
@@ -310,6 +327,11 @@ function PaidBlock({ payment, tipCents, onNew }: { payment: CreatedPayment; tipC
       </p>
       <p style={{ ...hintStyle, textAlign: 'center' }}>Debe coincidir con el del móvil del cliente.</p>
       {payment.walletId ? <NewWalletCard walletId={payment.walletId} withCard={methods.nfc} /> : null}
+      {payment.serviceFeeCents ? (
+        <p className="np-num" style={tipStyle}>
+          + {formatEur(payment.serviceFeeCents, { compact: true })} comisión del servicio
+        </p>
+      ) : null}
       {tipCents > 0 ? (
         <p className="np-num" style={tipStyle}>
           + {formatEur(tipCents, { compact: true })} de propina

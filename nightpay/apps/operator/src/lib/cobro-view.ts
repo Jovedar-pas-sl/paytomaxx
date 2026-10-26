@@ -3,7 +3,9 @@
 // puras (se prueban sin pantalla).
 
 import {
+  chargeBreakdownText,
   invitationShares,
+  topUpChargeText,
   type ChargeAuthMethod,
   type InvitationRules,
   type VenueNightSettings,
@@ -34,6 +36,8 @@ export function paidMeta(parts: { who?: string | null; what?: string | null; met
 /** Lo que dice el PAGADO: lo vendido, la propina y lo que pagó el cliente. */
 export interface PaidAmounts {
   baseCents: number;
+  /** «Comisión del servicio» (solo si pagó con tarjeta y el local la tiene): va encima, es de OxioPay. */
+  serviceFeeCents?: number;
   /** null: con tarjeta, la propina del cliente aún no se sabe (solo llegó el estado). */
   tipCents: number | null;
   totalCents: number;
@@ -47,15 +51,74 @@ export interface PaidAmounts {
  * propina. Con el saldo, la de la cuenta (no se puede cambiar).
  */
 export function paidAmounts(
-  cobro: { totalCents: number; tipCents?: number | null },
+  cobro: { totalCents: number; tipCents?: number | null; serviceFeeCents?: number | null },
   outcome: { method: PaidMethod; tipCents: number | null },
 ): PaidAmounts {
   const accountTip = Math.max(0, cobro.tipCents ?? 0);
   const baseCents = cobro.totalCents - accountTip;
   if (outcome.method !== 'card') return { baseCents, tipCents: accountTip, totalCents: cobro.totalCents };
-  if (outcome.tipCents === null) return { baseCents, tipCents: null, totalCents: cobro.totalCents };
+  // Con tarjeta, la «Comisión del servicio» (sobre lo vendido, nunca sobre la propina).
+  const fee = Math.max(0, cobro.serviceFeeCents ?? 0);
+  const withFee = fee > 0 ? { serviceFeeCents: fee } : {};
+  if (outcome.tipCents === null) return { baseCents, ...withFee, tipCents: null, totalCents: cobro.totalCents + fee };
   const tipCents = Math.max(0, outcome.tipCents);
-  return { baseCents, tipCents, totalCents: baseCents + tipCents };
+  return { baseCents, ...withFee, tipCents, totalCents: baseCents + fee + tipCents };
+}
+
+/** PAGADO con la comisión del servicio: «33 € + 3,30 € comisión del servicio + 2 € propina»; sin ella, null (tipLine). */
+export function paidBreakdown(amounts: PaidAmounts): string | null {
+  const fee = amounts.serviceFeeCents ?? 0;
+  if (fee <= 0) return null;
+  return chargeBreakdownText({ baseCents: amounts.baseCents, feeCents: fee, tipCents: amounts.tipCents ?? 0 });
+}
+
+/**
+ * El datáfono: «Cobra 36,30 € (33 € + 3,30 € comisión del servicio)»; una
+ * recarga, «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)». El
+ * API ya manda en `amountCents` lo que se cobra (con la comisión); un API de
+ * antes, sin el desglose: «Cobra 33 €».
+ */
+export function posChargeLine(p: { amountCents: number; baseAmountCents?: number; serviceFeeCents?: number; topUp?: boolean }): string {
+  const fee = Math.max(0, p.serviceFeeCents ?? 0);
+  const base = p.baseAmountCents ?? p.amountCents - fee;
+  if (fee === 0) return `Cobra ${formatEur(p.amountCents, { compact: true })}`;
+  if (p.topUp) return topUpChargeText(base, fee);
+  return `Cobra ${formatEur(base + fee, { compact: true })} (${chargeBreakdownText({ baseCents: base, feeCents: fee, tipCents: 0 })})`;
+}
+
+/** Lo que se cobra con tarjeta o datáfono: el importe + la comisión del servicio (sin la propina). */
+export function chargeWithFeeCents(p: { amountCents: number; serviceFeeCents?: number | null }): number {
+  return p.amountCents + Math.max(0, p.serviceFeeCents ?? 0);
+}
+
+/**
+ * El QR de un cobro con la comisión del servicio: «Con tarjeta, 36,30 € (33 € +
+ * 3,30 € comisión del servicio)»; el de una recarga, «Cobra 56 € (50 € de
+ * saldo + 6 € de comisión del servicio)». Sin ella, null.
+ */
+export function paymentFeeLine(p: { amountCents: number; serviceFeeCents?: number | null; walletId?: string | null }): string | null {
+  const fee = Math.max(0, p.serviceFeeCents ?? 0);
+  if (fee === 0) return null;
+  if (p.walletId) return topUpChargeText(p.amountCents, fee);
+  return waitingFeeHint({ totalCents: p.amountCents, card: { serviceFeeCents: fee }, saldo: null });
+}
+
+/**
+ * Esperando, con la comisión del servicio: lo que paga con tarjeta (con ella)
+ * y lo que paga con el saldo (sin ella). Sin ella, null.
+ */
+export function waitingFeeHint(cobro: {
+  totalCents: number;
+  tipCents?: number | null;
+  card: { serviceFeeCents?: number | null } | null;
+  saldo: unknown;
+}): string | null {
+  const fee = Math.max(0, cobro.card?.serviceFeeCents ?? 0);
+  if (fee === 0) return null;
+  const tip = Math.max(0, cobro.tipCents ?? 0);
+  const short = (cents: number) => formatEur(cents, { compact: true });
+  const card = `Con tarjeta, ${short(cobro.totalCents + fee)} (${chargeBreakdownText({ baseCents: cobro.totalCents - tip, feeCents: fee, tipCents: tip })})`;
+  return cobro.saldo ? `${card} · con el saldo, ${short(cobro.totalCents)}` : card;
 }
 
 /** «33 € + 2 € de propina» (la propina, aparte para resaltarla); sin propina (o sin saberla), null. */

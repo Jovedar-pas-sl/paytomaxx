@@ -35,10 +35,12 @@ import {
   NOT_CHARGED_RETRY_TEXT,
   failReasonOf,
   paidAmounts,
+  paidBreakdown,
   paidMeta,
   pinExpected,
   pinWarning,
   tipLine,
+  waitingFeeHint,
   waitingLiveText,
   type FailReason,
 } from '@/lib/cobro-view';
@@ -297,8 +299,10 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const allSections = cobro.sections.map((s) => s.section);
 
   if (outcome.kind === 'paid') {
-    const amounts = paidAmounts(cobro, outcome);
+    // Con tarjeta, la «Comisión del servicio» del cobro (la dice el API al crearlo).
+    const amounts = paidAmounts({ ...cobro, serviceFeeCents: cobro.card?.serviceFeeCents }, outcome);
     const tip = tipLine(amounts);
+    const breakdown = paidBreakdown(amounts);
     // El mismo código que ve el cliente (el del cobro único, también si pagó con el saldo); sin cobro con tarjeta, ninguno.
     const code = cobro.card ? confirmationCode(cobro.card.id) : null;
     return (
@@ -314,7 +318,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         code={code}
         codeHint="El mismo que ve el cliente"
         summary={
-          tip ? (
+          breakdown ? (
+            <p className={styles.left}>{breakdown}</p>
+          ) : tip ? (
             <p className={styles.left}>
               {tip.base} + <b>{tip.tip}</b> de propina
             </p>
@@ -471,6 +477,8 @@ function Waiting({
       </div>
       <div className={styles.waitBody}>
         <p className={styles.amountXl}>{formatEur(cobro.totalCents, { compact: true })}</p>
+        {/* Con la «Comisión del servicio»: con tarjeta paga más (con el saldo, no). */}
+        {waitingFeeHint(cobro) ? <p className={styles.meta}>{waitingFeeHint(cobro)}</p> : null}
         {/* Viva: un punto que late y lo que pasa, también para el lector de pantalla (cambia solo al cambiar de fase). */}
         <p className={`${styles.live}${ending ? ` ${styles.liveEnding}` : ''}`} role="status" aria-live="polite">
           <i aria-hidden="true" />
