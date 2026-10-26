@@ -13,6 +13,7 @@
 #               Dokploy, construidas y arrancadas
 #   migraciones-orden  cada migración nueva se ordena después de la última de
 #               main (si no, una base nueva y producción las aplicarían en otro orden)
+#               y, desde 20261029, la que toma candados empieza con SET lock_timeout
 #
 # Las acciones de terceros van fijadas por commit (el comentario dice la versión).
 name: nightpay-ci
@@ -66,6 +67,8 @@ jobs:
         run: pnpm --filter @nightpay/db exec prisma generate
       - name: Identidad automática del código construido
         run: node --test scripts/build-info.test.mjs
+      - name: Las migraciones nuevas con candados llevan SET lock_timeout (las reglas de check-migration-order)
+        run: node --test scripts/check-migration-order.test.mjs
       - name: Tipos (las 5 apps y el cliente común del API)
         run: |
           for app in apps/api apps/admin apps/operator apps/tpv apps/web-client packages/api-client; do
@@ -107,7 +110,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - name: Migraciones nuevas después de la última de main
+      - name: Migraciones nuevas después de la última de main y con SET lock_timeout
         run: node scripts/check-migration-order.mjs
 
   # ESLint de la raíz sobre apps/** y packages/**. Hay ~100 avisos antiguos

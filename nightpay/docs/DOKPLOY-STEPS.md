@@ -259,10 +259,13 @@ contenedor:
 
 **Despliega fuera del horario de apertura** (de día, entre semana), sobre todo
 si el commit trae migraciones: corren con el API anterior todavía sirviendo
-(`start-first`). Las que hacen `ALTER` empiezan con `SET lock_timeout = '5s'`:
-si una transacción en curso tiene la tabla (un cobro, una recarga), la
-migración falla a los 5 s en vez de dejar en cola detrás de ella todas las
-escrituras de los saldos. Si pasa (`canceling statement due to lock
+(`start-first`). Las que toman candados (`ALTER TABLE`, `CREATE INDEX`,
+`ADD CONSTRAINT`…) empiezan con `SET lock_timeout = '5s'`: si una transacción
+en curso tiene la tabla (un cobro, una recarga), la migración falla a los 5 s
+en vez de dejar en cola detrás de ella todas las escrituras de los saldos.
+Desde las de `20261029…` lo exige el CI (`scripts/check-migration-order.mjs`,
+job «migraciones-orden»); alguna anterior ya aplicada no lo lleva
+(`20261022100000_datafono_recepcion`) y no se reescribe. Si pasa (`canceling statement due to lock
 timeout` en el log): sigue sirviendo el contenedor viejo; haz los pasos 3 y 4
 de D.8 (`migrate resolve --rolled-back <nombre>` y **Redeploy**) en un rato
 más tranquilo. Las migraciones son idempotentes: volver a aplicarlas es seguro.
