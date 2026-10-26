@@ -83,6 +83,7 @@ import { saldoCredits, serviceFeeSaldoCents, serviceFeeSpendCents } from './wall
 import { passChargeSecret, passChargeTokenValid, passChargeWalletId } from './google-wallet/pass-charge-token';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
 import type { RefundsService } from '../refunds/refunds.service';
+import { REFUNDS_SERVICE } from '../refunds/refunds.token';
 import {
   allocateCardRefund,
   decideAccept,
@@ -2321,7 +2322,7 @@ export class WalletChargesService {
   }
 
   private refunds(): RefundsService {
-    return this.moduleRef.get<RefundsService>('RefundsService', { strict: false });
+    return this.moduleRef.get<RefundsService>(REFUNDS_SERVICE, { strict: false });
   }
 
   // ─── Auxiliares ────────────────────────────────────────────────────────
