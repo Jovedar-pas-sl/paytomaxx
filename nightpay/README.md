@@ -129,7 +129,7 @@ docker compose down -v         # reset completo de volúmenes DB/Redis
 | POST | `/payments`                                 | auth    | TPV crea pago (idempotency-key required) |
 | GET  | `/payments/:id`                             | auth    | Detalle pago |
 | GET  | `/payments/public/:token`                   | publico | Cliente escanea QR |
-| POST | `/payments/public/:token/start-authorization` | publico | Cliente confirma pago |
+| POST | `/payments/public/:token/start-authorization` | publico | Retirado: 410 Gone (el cliente paga en `/pay/:token`) |
 | GET  | `/payments/:id/refunds`                     | auth    | Lista refunds |
 | POST | `/payments/:id/refunds`                     | auth    | OWNER/MANAGER (TOTP ≥100€) |
 | POST | `/webhooks/:provider`                       | publico | HMAC signed (Wipay/Peanpe) |

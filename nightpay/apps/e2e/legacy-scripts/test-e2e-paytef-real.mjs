@@ -98,10 +98,11 @@ async function main() {
   if (payment.status >= 200 && payment.status < 300) {
     ok('cobro Paytef creado en DB', `id=${payment.body.id.slice(0,8)}`);
 
-    // Iniciar autorización → debería llamar a Paytef api.paytef.es REAL
-    const start = await api(null, 'POST', `/v1/payments/public/${payment.body.qrToken}/start-authorization`);
-    if (start.status === 202 || start.status === 200) {
-      ok('start-authorization → Paytef API', `provider=${start.body.providerTxId ? 'OK' : 'PROCESSING'}`);
+    // Iniciar el pago como la página /pay (start-authorization está retirado:
+    // 410) → debería llamar a Paytef api.paytef.es REAL
+    const start = await api(null, 'POST', `/pay/${payment.body.qrToken}`, { tip: 0 });
+    if (start.status === 200 || start.status === 302 || start.status === 303) {
+      ok('POST /pay → Paytef API', `status=${start.status}`);
 
       // Esperar 2s — el adapter ya llamó a Paytef
       await new Promise((r) => setTimeout(r, 1500));
@@ -129,7 +130,7 @@ async function main() {
         fail('payment provider state', pInfo);
       }
     } else {
-      fail('start-authorization', `${start.status} ${JSON.stringify(start.body).slice(0,300)}`);
+      fail('POST /pay', `${start.status} ${JSON.stringify(start.body).slice(0,300)}`);
     }
   } else {
     fail('cobro Paytef create', `${payment.status} ${JSON.stringify(payment.body).slice(0,200)}`);
