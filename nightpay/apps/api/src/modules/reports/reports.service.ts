@@ -196,6 +196,7 @@ export class ReportsService {
       SELECT ct.id,
              ct."createdAt" AS "at",
              ct."amountCents",
+             ct."serviceFeeCents",
              ct."voidOfId",
              ct.reason,
              ct."createdWallet",
@@ -249,6 +250,8 @@ export class ReportsService {
              p.status::text AS status,
              p."amountCents",
              p."tipCents",
+             p."serviceFeeCents",
+             COALESCE(r."refundedFee", 0)::int AS "refundedServiceFeeCents",
              p."revenueCategory",
              pl.lines,
              p."captureMethod",
@@ -284,7 +287,7 @@ export class ReportsService {
         ) e ON true
         LEFT JOIN users eu ON eu.id = e."operatorId"
         LEFT JOIN LATERAL (
-          SELECT SUM(rf."amountCents") AS refunded
+          SELECT SUM(rf."amountCents") AS refunded, SUM(rf."serviceFeeCents") AS "refundedFee"
             FROM refunds rf
            WHERE rf."paymentId" = p.id AND rf.status = 'SUCCEEDED'
         ) r ON true
@@ -350,6 +353,7 @@ export class ReportsService {
       SELECT r.id,
              ${refundAt('r')} AS "refundedAt",
              r."amountCents",
+             r."serviceFeeCents",
              r.reason,
              r."providerRefundId",
              r."registeredManually",
@@ -358,7 +362,7 @@ export class ReportsService {
              p.id AS "paymentId",
              ${paymentAt('p')} AS "paidAt",
              p."providerTxId",
-             (p."amountCents" + p."tipCents")::int AS "chargedCents",
+             (p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "chargedCents",
              cu."displayName" AS "creatorName",
              cu.email AS "creatorEmail",
              eu."displayName" AS "chicaName",

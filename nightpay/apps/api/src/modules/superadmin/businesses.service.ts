@@ -235,6 +235,8 @@ function snapshot(b: BusinessRow): Record<string, unknown> {
     notes: b.notes,
     status: b.status,
     defaultPlatformCommissionBps: b.defaultPlatformCommissionBps,
+    defaultServiceFeeBps: b.defaultServiceFeeBps,
+    defaultTopUpServiceFeeBps: b.defaultTopUpServiceFeeBps,
   };
 }
 
@@ -251,6 +253,8 @@ export function toBusinessView(b: BusinessRow): BusinessView {
     pausedAt: b.pausedAt?.toISOString() ?? null,
     pausedReason: b.pausedReason,
     defaultPlatformCommissionBps: b.defaultPlatformCommissionBps,
+    defaultServiceFeeBps: b.defaultServiceFeeBps,
+    defaultTopUpServiceFeeBps: b.defaultTopUpServiceFeeBps,
     venueCount: b._count.venues,
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),

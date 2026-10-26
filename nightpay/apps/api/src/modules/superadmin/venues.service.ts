@@ -95,10 +95,16 @@ export class SuperAdminVenuesService {
       const clash = await tx.venue.findUnique({ where: { slug: dto.slug }, select: { id: true } });
       if (clash) throw new ConflictException(`El slug "${dto.slug}" ya está en uso`);
       const business = dto.businessId
-        ? await tx.business.findUnique({ where: { id: dto.businessId }, select: { defaultPlatformCommissionBps: true } })
+        ? await tx.business.findUnique({
+            where: { id: dto.businessId },
+            select: { defaultPlatformCommissionBps: true, defaultServiceFeeBps: true, defaultTopUpServiceFeeBps: true },
+          })
         : null;
       if (dto.businessId && !business) throw new NotFoundException('Negocio no encontrado');
       const commission = dto.platformCommissionBps ?? business?.defaultPlatformCommissionBps ?? undefined;
+      // La «Comisión del servicio» del negocio (sus % por defecto); el interruptor, apagado.
+      const serviceFeeBps = business?.defaultServiceFeeBps ?? undefined;
+      const topUpServiceFeeBps = business?.defaultTopUpServiceFeeBps ?? undefined;
       return tx.venue.create({
         data: {
           name: dto.name,
@@ -109,6 +115,8 @@ export class SuperAdminVenuesService {
           // Local nuevo: datáfono apagado de fábrica (los de antes no cambian).
           paymentMethods: { ...newVenuePaymentMethods() },
           ...(commission !== undefined ? { platformCommissionBps: commission } : {}),
+          ...(serviceFeeBps !== undefined ? { serviceFeeBps } : {}),
+          ...(topUpServiceFeeBps !== undefined ? { topUpServiceFeeBps } : {}),
         },
         include: venueInclude,
       });
@@ -118,7 +126,15 @@ export class SuperAdminVenuesService {
       tenantId: venue.id,
       targetType: 'Venue',
       targetId: venue.id,
-      after: { ...profileOf(venue), slug: venue.slug, businessId: venue.businessId, platformCommissionBps: venue.platformCommissionBps },
+      after: {
+        ...profileOf(venue),
+        slug: venue.slug,
+        businessId: venue.businessId,
+        platformCommissionBps: venue.platformCommissionBps,
+        serviceFeeEnabled: venue.serviceFeeEnabled,
+        serviceFeeBps: venue.serviceFeeBps,
+        topUpServiceFeeBps: venue.topUpServiceFeeBps,
+      },
     });
     return this.get(venue.id);
   }
@@ -280,6 +296,9 @@ export class SuperAdminVenuesService {
         effectivePayoutHoldDays: resolveHoldDays(v.payoutHoldDays, this.config.get('PAYOUT_HOLD_DAYS')),
         refundApprovalThresholdCents: v.refundApprovalThresholdCents,
         payoutRequiresApproval: v.payoutRequiresApproval,
+        serviceFeeEnabled: v.serviceFeeEnabled,
+        serviceFeeBps: v.serviceFeeBps,
+        topUpServiceFeeBps: v.topUpServiceFeeBps,
       },
       counts,
     };
@@ -316,5 +335,8 @@ function rulesOf(v: VenueRow): Record<string, unknown> {
     payoutHoldDays: v.payoutHoldDays,
     refundApprovalThresholdCents: v.refundApprovalThresholdCents,
     payoutRequiresApproval: v.payoutRequiresApproval,
+    serviceFeeEnabled: v.serviceFeeEnabled,
+    serviceFeeBps: v.serviceFeeBps,
+    topUpServiceFeeBps: v.topUpServiceFeeBps,
   };
 }

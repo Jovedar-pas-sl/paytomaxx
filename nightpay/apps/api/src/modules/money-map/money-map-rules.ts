@@ -7,6 +7,7 @@ import {
   type MoneyMapPayoutGroup,
   type MoneyMapScope,
   type MoneyMapSection,
+  type MoneyMapServiceFee,
 } from '@nightpay/contracts';
 import { chargeSections } from '../reports/charge-sections';
 import type { TimeWindow } from '../reports/report-period';
@@ -33,9 +34,11 @@ export interface SaleRow {
   /** Su sección principal (revenueCategory, o la del consumo): la de los cobros sin líneas y la de la propina. */
   category: string;
   method: SaleMethod;
-  /** % de OxioPay (bps): el fijado en el cobro o el del local. */
+  /** % de OxioPay (bps): el fijado en el cobro o el del local (0 con la «Comisión del servicio»). */
   platformBps: number;
   lines: readonly SaleLineLike[];
+  /** «Comisión del servicio» que pagó el cliente encima (pagos directos; 0 en el saldo). */
+  serviceFeeCents?: number;
 }
 
 /**
@@ -54,10 +57,11 @@ export interface MoneyMapInput {
   now: Date;
   frozen: boolean;
   sales: readonly SaleRow[];
-  topUps: { cardCents: number; cardCount: number; cashCents: number; cashCount: number };
+  /** Recargas (el saldo) y su «Comisión del servicio» (con tarjeta y en efectivo). */
+  topUps: { cardCents: number; cardCount: number; cashCents: number; cashCount: number; cardFeeCents?: number; cashFeeCents?: number };
   staff: { chicas: StaffShare; camareros: StaffShare };
-  /** Devoluciones hechas en el banco en el periodo (de cobros y de recargas). */
-  cardRefunds: { cents: number; count: number };
+  /** Devoluciones hechas en el banco en el periodo (de cobros y de recargas), con la comisión del servicio devuelta. */
+  cardRefunds: { cents: number; count: number; serviceFeeCents?: number };
   /** Saldo devuelto al cliente en el periodo (hechas). */
   walletPayouts: { cashCents: number; cashCount: number; cardCents: number };
   payouts: readonly MoneyMapPayoutGroup[];
@@ -110,6 +114,27 @@ export function platformCommissionCents(sales: readonly SaleRow[]): number {
   return sum(sales, (s) => Math.round((s.amountCents * s.platformBps) / BPS));
 }
 
+/**
+ * La «Comisión del servicio» del periodo: la de las ventas pagadas con tarjeta
+ * (las del saldo no la llevan), la de las recargas (tarjeta y efectivo), la
+ * devuelta y lo que se debe a OxioPay. Sin ella, todo a 0.
+ */
+export function serviceFeeOf(i: Pick<MoneyMapInput, 'sales' | 'topUps' | 'cardRefunds'>): MoneyMapServiceFee & { cardCents: number } {
+  const salesCents = sum(i.sales, (s) => s.serviceFeeCents ?? 0);
+  const cardTopUps = i.topUps.cardFeeCents ?? 0;
+  const cashCents = i.topUps.cashFeeCents ?? 0;
+  const refundedCents = i.cardRefunds.serviceFeeCents ?? 0;
+  return {
+    salesCents,
+    topUpsCents: cardTopUps + cashCents,
+    cashCents,
+    refundedCents,
+    owedCents: salesCents + cardTopUps + cashCents - refundedCents,
+    // La que entró por el banco (ventas con tarjeta y recargas con tarjeta).
+    cardCents: salesCents + cardTopUps,
+  };
+}
+
 export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
   const byMethod = (m: SaleMethod) => sum(i.sales.filter((s) => s.method === m), (s) => s.amountCents + s.tipCents);
   const cardCents = byMethod('CARD');
@@ -119,20 +144,26 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
   const cashCents = byMethod('CASH');
   const saldoCents = byMethod('SALDO');
   const salesCents = cardRailCents + cashCents + saldoCents;
+  const { cardCents: feeCardCents, ...serviceFee } = serviceFeeOf(i);
 
   const platformCents = platformCommissionCents(i.sales);
-  // El banco cobra sobre todo lo que pasa por él: ventas con tarjeta y recargas.
-  const bankCents = i.bankFeeBps === null ? null : Math.round(((cardRailCents + i.topUps.cardCents) * i.bankFeeBps) / BPS);
+  // El banco cobra sobre todo lo que pasa por él: ventas con tarjeta, recargas
+  // y la comisión del servicio que va con ellas.
+  const bankCents =
+    i.bankFeeBps === null ? null : Math.round(((cardRailCents + i.topUps.cardCents + feeCardCents) * i.bankFeeBps) / BPS);
   const commissionsCents = platformCents + (bankCents ?? 0);
   const chicasCents = i.staff.chicas.grossCents;
   const camarerosCents = i.staff.camareros.grossCents;
 
-  const bbvaCents = cardRailCents + i.topUps.cardCents - i.cardRefunds.cents;
+  // El dinero entra entero (también la comisión del servicio): al banco, la de tarjeta.
+  const bbvaCents = cardRailCents + i.topUps.cardCents + feeCardCents - i.cardRefunds.cents;
   const cashBoxCents = i.cashBox.expectedCents;
   const totalCents = bbvaCents + cashBoxCents;
   const staffCents = i.staff.chicas.unpaidCents + i.staff.camareros.unpaidCents;
   const topUpsCents = i.topUps.cardCents + i.topUps.cashCents;
   const saldoLeftCents = topUpsCents - saldoCents - i.walletPayouts.cashCents - i.walletPayouts.cardCents;
+  // …pero la comisión del servicio no es del local: se debe a OxioPay.
+  const oxioPayCents = serviceFee.owedCents;
 
   return {
     scope: i.scope,
@@ -155,6 +186,7 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
         cashCents: i.topUps.cashCents,
         count: i.topUps.cardCount + i.topUps.cashCount,
       },
+      serviceFeeCents: serviceFee.salesCents + serviceFee.topUpsCents,
     },
     sections: sectionsOf(i.sales),
     split: {
@@ -168,7 +200,7 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
       cashBoxCents,
       cashBox: { openingFloatCents: i.cashBox.openingFloatCents, inCents: i.cashBox.inCents, outCents: i.cashBox.outCents },
       totalCents,
-      owners: { venueCents: totalCents - staffCents - saldoLeftCents, staffCents, saldoCents: saldoLeftCents },
+      owners: { venueCents: totalCents - staffCents - saldoLeftCents - oxioPayCents, staffCents, saldoCents: saldoLeftCents, oxioPayCents },
       liveSaldoCents: i.liveSaldoCents,
       owed: i.owed,
     },
@@ -182,7 +214,9 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
         cashCount: i.walletPayouts.cashCount,
       },
       commissionsCents,
+      serviceFeeCents: oxioPayCents,
     },
+    serviceFee,
   };
 }
 

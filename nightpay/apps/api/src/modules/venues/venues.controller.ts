@@ -1,4 +1,5 @@
 import { Controller, Get, Inject, UseGuards } from '@nestjs/common';
+import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -33,7 +34,7 @@ export class VenuesController {
   async getMyVenue(@CurrentUser() user: JwtPayload) {
     // Query directa sin filtro: Venue NO está en TENANT_SCOPED_MODELS (no tiene tenantId;
     // ES el tenant). Filtramos por id explícito desde el JWT.
-    const [{ paymentMethods, nightSettings, sections, postRules, ...venue }, me] = await Promise.all([
+    const [{ paymentMethods, nightSettings, sections, postRules, serviceFeeEnabled, serviceFeeBps, topUpServiceFeeBps, ...venue }, me] = await Promise.all([
       this.prisma.venue.findUniqueOrThrow({
         where: { id: user.tenantId },
         select: {
@@ -46,6 +47,7 @@ export class VenuesController {
           nightSettings: true,
           sections: true,
           postRules: true,
+          ...VENUE_SERVICE_FEE_SELECT,
         },
       }),
       this.prisma.user.findFirst({ where: { id: user.sub }, select: { post: true } }),
@@ -62,6 +64,8 @@ export class VenuesController {
       myRights: { sections: rights.sections, tips: rights.tips, cash: rights.cash, topUps: rights.topUps },
       /** La sección que la app marca por defecto (la de su puesto, si la puede cobrar). */
       myDefaultCategory: initialOfferedSection(venueSections, rights),
+      /** «Comisión del servicio al cliente»: el interruptor y los % (las apps enseñan lo que paga el cliente). */
+      serviceFee: venueServiceFeeOf({ serviceFeeEnabled, serviceFeeBps, topUpServiceFeeBps }),
     };
   }
 

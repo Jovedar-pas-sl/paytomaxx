@@ -298,6 +298,7 @@ export class ApprovalRequestsService {
         select: {
           id: true,
           amountCents: true,
+          serviceFeeCents: true,
           tipCents: true,
           provider: true,
           providerTxId: true,
@@ -318,7 +319,8 @@ export class ApprovalRequestsService {
       const payload: RefundPayload = {
         paymentId: payment.id,
         reason: input.reason?.trim() || null,
-        paymentAmountCents: payment.amountCents + payment.tipCents,
+        // Lo cobrado: importe + comisión del servicio + propina.
+        paymentAmountCents: payment.amountCents + (payment.serviceFeeCents ?? 0) + payment.tipCents,
         paymentCreatedAt: payment.createdAt.toISOString(),
         cardLast4: payment.cardLast4,
         cardBrand: payment.cardBrand,

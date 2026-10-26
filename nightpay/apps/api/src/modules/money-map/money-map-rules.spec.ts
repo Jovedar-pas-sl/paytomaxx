@@ -146,7 +146,7 @@ describe('mapa del dinero: los carriles cuadran', () => {
     expect(m.salesCents).toBe(0);
     expect(m.sections.map((s) => s.code)).toEqual(['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'VENUE_ENTRY', MONEY_MAP_TIPS]);
     expect(venueSharePercent(m)).toBe(0);
-    expect(m.where.owners).toEqual({ venueCents: 0, staffCents: 0, saldoCents: 0 });
+    expect(m.where.owners).toEqual({ venueCents: 0, staffCents: 0, saldoCents: 0, oxioPayCents: 0 });
   });
 });
 
@@ -202,5 +202,57 @@ describe('el mapa congelado en el Z', () => {
   it('el % del local para el anillo, entre 0 y 100', () => {
     expect(venueSharePercent({ salesCents: 10_000, split: { venueCents: 5_840 } as never })).toBe(58);
     expect(venueSharePercent({ salesCents: 10_000, split: { venueCents: -100 } as never })).toBe(0);
+  });
+});
+
+describe('con la «Comisión del servicio» (la paga el cliente, se debe a OxioPay)', () => {
+  // 33 € con tarjeta + 3,30 € de comisión + 2 € de propina (sin el % antiguo);
+  // 20 € del saldo (sin comisión ni % antiguo); recarga con tarjeta 50 € + 6 €
+  // y en efectivo 50 € + 6 €; se devuelven 19,15 € del pago (1,65 € de comisión).
+  const feeInput = () =>
+    input({
+      sales: [
+        sale({ amountCents: 3_300, tipCents: 200, serviceFeeCents: 330, category: 'CHICA_SERVICE', method: 'CARD', platformBps: 0 }),
+        sale({ amountCents: 2_000, method: 'SALDO', platformBps: 0 }),
+      ],
+      topUps: { cardCents: 5_000, cardCount: 1, cashCents: 5_000, cashCount: 1, cardFeeCents: 600, cashFeeCents: 600 },
+      staff: { chicas: { grossCents: 3_170, unpaidCents: 3_170 }, camareros: { grossCents: 0, unpaidCents: 0 } },
+      cardRefunds: { cents: 1_915, count: 1, serviceFeeCents: 165 },
+      walletPayouts: { cashCents: 0, cashCount: 0, cardCents: 0 },
+      cashBox: { openingFloatCents: 0, inCents: 5_600, outCents: 0, expectedCents: 5_600 },
+    });
+
+  it('la comisión va aparte de lo vendido; el local ya no paga el % antiguo en esas ventas', () => {
+    const m = buildMoneyMap(feeInput());
+    expect(m.salesCents).toBe(3_300 + 200 + 2_000);
+    expect(m.split.commissions.platformCents).toBe(0);
+    expect(m.serviceFee).toEqual({ salesCents: 330, topUpsCents: 1_200, cashCents: 600, refundedCents: 165, owedCents: 1_365 });
+    expect(m.inflow.serviceFeeCents).toBe(1_530);
+    // Lo repartido sigue sumando lo vendido (la comisión no es venta del local).
+    const s = m.split;
+    expect(s.venueCents + s.chicasCents + s.camarerosCents + s.commissions.totalCents).toBe(m.salesCents);
+  });
+
+  it('el dinero entra entero (BBVA y caja) y se apunta lo de OxioPay: todo cuadra', () => {
+    const m = buildMoneyMap(feeInput());
+    // BBVA: 35 € de la venta + 3,30 € + 50 € + 6 € de la recarga − 19,15 € devueltos.
+    expect(m.where.bbvaCents).toBe(3_500 + 330 + 5_000 + 600 - 1_915);
+    expect(m.where.cashBoxCents).toBe(5_600);
+    const o = m.where.owners;
+    expect(o.oxioPayCents).toBe(1_365);
+    expect(o.venueCents + o.staffCents + o.saldoCents + (o.oxioPayCents ?? 0)).toBe(m.where.totalCents);
+    expect(m.outflow.serviceFeeCents).toBe(1_365);
+  });
+
+  it('el banco cobra su tasa también sobre la comisión que pasa por él', () => {
+    const m = buildMoneyMap({ ...feeInput(), bankFeeBps: 100 });
+    // 1 % de (35 + 3,30 + 50 + 6) €.
+    expect(m.split.commissions.bankCents).toBe(Math.round((3_500 + 330 + 5_000 + 600) / 100));
+  });
+
+  it('sin comisión, como siempre (todo a cero y nada se le resta al local)', () => {
+    const m = buildMoneyMap(input());
+    expect(m.serviceFee).toEqual({ salesCents: 0, topUpsCents: 0, cashCents: 0, refundedCents: 0, owedCents: 0 });
+    expect(m.where.owners.oxioPayCents).toBe(0);
   });
 });

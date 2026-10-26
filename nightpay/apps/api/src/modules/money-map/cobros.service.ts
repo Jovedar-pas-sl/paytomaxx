@@ -150,6 +150,7 @@ export class CobrosService {
         updatedAt: true,
         amountCents: true,
         tipCents: true,
+        serviceFeeCents: true,
         availableAmountCents: true,
         currency: true,
         status: true,

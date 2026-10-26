@@ -53,10 +53,16 @@ export interface NightCloseStep {
 export interface NightCash {
   /** Fondo de caja con el que empezó la noche (null = nadie lo apuntó). */
   openingFloatCents: number | null;
-  /** Efectivo que entra por OxioPay: las recargas en efectivo. */
+  /** Efectivo que entra por OxioPay: las recargas en efectivo (saldo + su comisión del servicio). */
   cashInCents: number;
   walletCashTopUpsCount: number;
+  /** El saldo de esas recargas. */
   walletCashTopUpsCents: number;
+  /**
+   * Su «Comisión del servicio»: entra en la caja (está en cashInCents) y se
+   * debe a OxioPay. Sin el campo (API anterior): 0.
+   */
+  walletCashTopUpFeesCents?: number;
   walletCashPayoutsCount: number;
   walletCashPayoutsCents: number;
   /** Pagos en efectivo a las chicas. */

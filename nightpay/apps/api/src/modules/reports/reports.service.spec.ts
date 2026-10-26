@@ -152,7 +152,7 @@ describe('devoluciones', () => {
     expect(sin).toContain(`r."tenantId" = <local>::uuid AND r.status = 'SUCCEEDED'`);
     expect(sin).toContain(`${REFUND_AT} >= ${iso(NIGHT.from)} AND ${REFUND_AT} < ${iso(NIGHT.to)} ORDER BY`);
     expect(con).toContain(`${REFUND_AT} < ${iso(NIGHT.to)} AND r."createdAt" < ${iso(Z_AT)}`);
-    expect(con).toContain('(p."amountCents" + p."tipCents")::int AS "chargedCents"');
+    expect(con).toContain('(p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "chargedCents"');
     calls.forEach((c) => {
       expect(c.viaTenant).toBe(TENANT);
       expectTenantScoped(c.q);

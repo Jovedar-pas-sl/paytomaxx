@@ -43,6 +43,13 @@ export interface CobroRow {
   status: string;
   amountCents: number;
   tipCents: number;
+  /**
+   * «Comisión del servicio» que pagó el cliente encima (service-fee.ts): se
+   * debe a OxioPay, no es del local. Sin el campo (filas de antes): 0.
+   */
+  serviceFeeCents?: number;
+  /** …de ella, lo devuelto con las devoluciones del cobro hasta hoy (refunds.serviceFeeCents). */
+  refundedServiceFeeCents?: number;
   revenueCategory: string;
   /** Sus líneas (payment_lines), cada una en su sección. Null/vacío: un cobro de antes (su revenueCategory). */
   lines?: LineAmount[] | null;
@@ -126,8 +133,13 @@ export interface PagoSaldoRow {
 export interface RecargaEfectivoRow {
   id: string;
   at: Date;
-  /** Negativo en una anulación (voidOfId: la recarga que anula). */
+  /** El saldo cargado. Negativo en una anulación (voidOfId: la recarga que anula). */
   amountCents: number;
+  /**
+   * «Comisión del servicio» cobrada encima del saldo (entra en la caja y se
+   * debe a OxioPay). Negativa en una anulación. Sin el campo: 0.
+   */
+  serviceFeeCents?: number;
   voidOfId?: string | null;
   /** Por qué se anuló. */
   reason?: string | null;
@@ -143,6 +155,8 @@ export interface DevolucionRow {
   id: string;
   refundedAt: Date;
   amountCents: number;
+  /** Parte de la devolución que era «Comisión del servicio» (deja de ser de OxioPay). Sin el campo: 0. */
+  serviceFeeCents?: number;
   reason: string | null;
   providerRefundId: string | null;
   registeredManually: boolean;
@@ -151,6 +165,7 @@ export interface DevolucionRow {
   paymentId: string;
   paidAt: Date;
   providerTxId: string | null;
+  /** Lo cobrado: importe + comisión del servicio + propina. */
   chargedCents: number;
   creatorName: string | null;
   creatorEmail: string | null;
@@ -335,6 +350,16 @@ export function refundStaff(r: DevolucionRow): RefundStaffPart[] {
   if (r.staff) return r.staff;
   if (r.reversedDeltaCents === null) return [];
   return [{ name: r.chicaName, email: r.chicaEmail, role: 'OPERATOR', reversedDeltaCents: r.reversedDeltaCents, afterPayout: Boolean(r.afterPayout) }];
+}
+
+/** «Comisión del servicio» de un cobro que se queda OxioPay: la cobrada − la devuelta. */
+export function cobroServiceFeeNetCents(r: Pick<CobroRow, 'serviceFeeCents' | 'refundedServiceFeeCents'>): number {
+  return (r.serviceFeeCents ?? 0) - (r.refundedServiceFeeCents ?? 0);
+}
+
+/** Lo que pagó el cliente por un cobro: importe + comisión del servicio + propina. */
+export function cobroChargedCents(r: Pick<CobroRow, 'amountCents' | 'serviceFeeCents' | 'tipCents'>): number {
+  return r.amountCents + (r.serviceFeeCents ?? 0) + r.tipCents;
 }
 
 /** Lo de una persona en un cobro: comisión + propina − lo descontado (también la deuda). */

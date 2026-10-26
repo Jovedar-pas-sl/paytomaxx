@@ -4,6 +4,7 @@ import type { Role } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { madridDay, madridStartOfDay, nextDay } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
+import { chargedCentsOf } from '../payments/service-fee';
 import { BankFileError, parseBankFile } from './bank-file';
 import {
   PROBLEM_STATUSES,
@@ -319,6 +320,7 @@ async function loadRedsys(
       id: true,
       tenantId: true,
       amountCents: true,
+      serviceFeeCents: true,
       tipCents: true,
       authCode: true,
       authorizedAt: true,
@@ -332,7 +334,7 @@ async function loadRedsys(
     references: uniq([...p.attempts.map((a) => a.providerTxId), p.providerTxId]),
     terminal: null,
     authCode: p.authCode,
-    amountCents: p.attempts[0]?.amountCents ?? p.amountCents + p.tipCents,
+    amountCents: p.attempts[0]?.amountCents ?? chargedCentsOf(p),
     at: p.authorizedAt!,
   }));
 
@@ -392,7 +394,7 @@ async function loadRedsys(
         paymentId: a.payment.id,
         tenantId: a.payment.tenantId,
         references: [a.providerTxId],
-        amountCents: a.amountCents ?? a.payment.amountCents + a.payment.tipCents,
+        amountCents: a.amountCents ?? chargedCentsOf(a.payment),
       })),
   };
 }
@@ -427,6 +429,7 @@ async function loadPaytef(
       id: true,
       tenantId: true,
       amountCents: true,
+      serviceFeeCents: true,
       tipCents: true,
       authCode: true,
       authorizedAt: true,
@@ -440,7 +443,7 @@ async function loadPaytef(
     references: p.posOperationNumber ? [p.posOperationNumber] : [],
     terminal: terminalOf(p.posTerminalId),
     authCode: p.authCode,
-    amountCents: p.amountCents + p.tipCents,
+    amountCents: chargedCentsOf(p),
     at: p.authorizedAt!,
   }));
 
@@ -487,7 +490,7 @@ async function loadPaytef(
       tenantId: p.tenantId,
       references: p.posOperationNumber ? [p.posOperationNumber] : [],
       terminal: terminalOf(p.posTerminalId),
-      amountCents: p.amountCents + p.tipCents,
+      amountCents: chargedCentsOf(p),
     })),
   };
 }
@@ -540,7 +543,7 @@ async function findStrayPayments(tx: TransactionalClient, venueIds: string[], re
           posOperationNumber: { in: referenceVariants(refs.slice(i, i + STRAY_REFS_PER_QUERY)) },
           status: { notIn: [...PAID_STATUSES] },
         },
-        select: { id: true, tenantId: true, amountCents: true, tipCents: true, posOperationNumber: true, posTerminalId: true },
+        select: { id: true, tenantId: true, amountCents: true, serviceFeeCents: true, tipCents: true, posOperationNumber: true, posTerminalId: true },
       })),
     );
   }

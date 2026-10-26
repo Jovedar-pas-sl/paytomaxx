@@ -91,6 +91,11 @@ const VenueSettingsUpdateSchema = z.object({
   payoutHoldDays: z.number().int().min(0).max(MAX_VENUE_PAYOUT_HOLD_DAYS).nullable().optional(),
   refundApprovalThresholdCents: z.number().int().min(0).max(MAX_OPERATOR_COBRO_CENTS).optional(),
   payoutRequiresApproval: z.boolean().optional(),
+  // «Comisión del servicio al cliente»: la enciende y fija OxioPay (super-admin,
+  // con 2FA). Aquí se acepta sin cambios; otro valor → 403, como la de la plataforma.
+  serviceFeeEnabled: z.boolean().optional(),
+  serviceFeeBps: z.number().int().min(0).max(10_000).optional(),
+  topUpServiceFeeBps: z.number().int().min(0).max(10_000).optional(),
   /** Reglas de dinero: con la 2FA activada, el código. */
   totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 });
@@ -108,6 +113,10 @@ const VENUE_SETTINGS_SELECT = {
   payoutHoldDays: true,
   refundApprovalThresholdCents: true,
   payoutRequiresApproval: true,
+  // «Comisión del servicio al cliente»: el dueño la ve (Ajustes → Reglas), no la cambia.
+  serviceFeeEnabled: true,
+  serviceFeeBps: true,
+  topUpServiceFeeBps: true,
 } as const;
 
 /** Con los días de espera que valen de verdad (los del local o los del entorno). */
@@ -116,6 +125,7 @@ function withEffectiveHoldDays<T extends { payoutHoldDays: number | null }>(v: T
 }
 
 const MSG_PLATFORM_COMMISSION_SA_ONLY = 'La comisión de OxioPay solo la cambia OxioPay (super-admin)';
+const MSG_SERVICE_FEE_SA_ONLY = 'La comisión del servicio solo la cambia OxioPay (super-admin)';
 
 const ListPaymentsQuerySchema = z.object({
   status: z
@@ -641,8 +651,9 @@ export class AdminController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(VenueSettingsUpdateSchema)) dto: VenueSettingsUpdate,
   ) {
-    const { platformCommissionBps, totpCode, ...rules } = dto;
-    if (Object.keys(rules).length === 0 && platformCommissionBps === undefined) {
+    const { platformCommissionBps, serviceFeeEnabled, serviceFeeBps, topUpServiceFeeBps, totpCode, ...rules } = dto;
+    const feeSent = serviceFeeEnabled !== undefined || serviceFeeBps !== undefined || topUpServiceFeeBps !== undefined;
+    if (Object.keys(rules).length === 0 && platformCommissionBps === undefined && !feeSent) {
       throw new NotFoundException('No hay campos a actualizar');
     }
     const { current, maxOverrideBps } = await this.prisma.asSystem(async (tx) => ({
@@ -655,6 +666,9 @@ export class AdminController {
           payoutHoldDays: true,
           refundApprovalThresholdCents: true,
           payoutRequiresApproval: true,
+          serviceFeeEnabled: true,
+          serviceFeeBps: true,
+          topUpServiceFeeBps: true,
         },
       }),
       maxOverrideBps: (
@@ -667,6 +681,11 @@ export class AdminController {
     if (platformCommissionBps !== undefined && platformCommissionBps !== current.platformCommissionBps) {
       throw new ForbiddenException(MSG_PLATFORM_COMMISSION_SA_ONLY);
     }
+    const feeChanged =
+      (serviceFeeEnabled !== undefined && serviceFeeEnabled !== current.serviceFeeEnabled) ||
+      (serviceFeeBps !== undefined && serviceFeeBps !== current.serviceFeeBps) ||
+      (topUpServiceFeeBps !== undefined && topUpServiceFeeBps !== current.topUpServiceFeeBps);
+    if (feeChanged) throw new ForbiddenException(MSG_SERVICE_FEE_SA_ONLY);
     // Las comisiones llegan PARCIALES (se mezclan con las guardadas) y lo que
     // queda tiene que cuadrar como en la consola: chica + plataforma ≤ 100 %.
     const plan = planVenueRulesChange(current, rules, maxOverrideBps ?? null);

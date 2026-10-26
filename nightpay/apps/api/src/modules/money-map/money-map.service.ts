@@ -49,6 +49,7 @@ const n = (v: Num | undefined): number => Number(v ?? 0);
 interface PaymentSaleRow {
   amountCents: number;
   tipCents: number;
+  serviceFeeCents: number;
   category: string;
   captureMethod: string | null;
   posOperationNumber: string | null;
@@ -61,6 +62,8 @@ interface ConsumptionSaleRow {
   amountCents: number;
   tipCents: number;
   category: string;
+  /** El % antiguo de OxioPay fijado en el consumo (0 con la comisión del servicio; null = el del local). */
+  platformBps: number | null;
   lines: SaleLineLike[] | null;
 }
 
@@ -194,6 +197,7 @@ export class MoneyMapService {
         (p): SaleRow => ({
           amountCents: p.amountCents,
           tipCents: p.tipCents,
+          serviceFeeCents: n(p.serviceFeeCents),
           category: p.category,
           method: saleMethodOf(p),
           platformBps: n(p.platformBps ?? venue.platformCommissionBps),
@@ -206,7 +210,8 @@ export class MoneyMapService {
           tipCents: c.tipCents,
           category: c.category,
           method: 'SALDO',
-          platformBps: venue.platformCommissionBps,
+          // Con la «Comisión del servicio» encendida al gastarlo, 0 (se cobró al recargar).
+          platformBps: n(c.platformBps ?? venue.platformCommissionBps),
           lines: c.lines ?? [],
         }),
       ),
@@ -251,7 +256,7 @@ export class MoneyMapService {
     consumed: Prisma.Sql,
   ): Promise<{ payments: PaymentSaleRow[]; consumptions: ConsumptionSaleRow[] }> {
     const payments = await tx.$queryRaw<PaymentSaleRow[]>`
-      SELECT p."amountCents", p."tipCents", p."revenueCategory" AS category, p."captureMethod",
+      SELECT p."amountCents", p."tipCents", p."serviceFeeCents", p."revenueCategory" AS category, p."captureMethod",
              p."posOperationNumber", p."platformCommissionBps" AS "platformBps",
              a."payMethod" AS "approvedPayMethod", l.lines
         FROM payments p
@@ -267,7 +272,7 @@ export class MoneyMapService {
        LIMIT ${MAX_EXPORT_ROWS + 1}
     `;
     const consumptions = await tx.$queryRaw<ConsumptionSaleRow[]>`
-      SELECT c."amountCents", c."tipCents", c.category, l.lines
+      SELECT c."amountCents", c."tipCents", c.category, c."platformCommissionBps" AS "platformBps", l.lines
         FROM wallet_consumptions c
         LEFT JOIN LATERAL (
           SELECT ${linesJson('pl')} AS lines
@@ -297,14 +302,17 @@ export class MoneyMapService {
     const recordedCash = asOf ? Prisma.sql`AND ct."createdAt" < ${asOf}` : Prisma.empty;
     const [totals] = await tx.$queryRaw<Array<Record<string, Num>>>`
       WITH recargas AS (
-        SELECT COUNT(*)::int AS "cardCount", COALESCE(SUM(p."amountCents" + p."tipCents"), 0)::bigint AS "cardCents"
+        SELECT COUNT(*)::int AS "cardCount", COALESCE(SUM(p."amountCents" + p."tipCents"), 0)::bigint AS "cardCents",
+               COALESCE(SUM(p."serviceFeeCents"), 0)::bigint AS "cardFeeCents"
           FROM payments p WHERE ${paid} AND p."walletId" IS NOT NULL
       ), efectivo AS (
-        SELECT ${cashTopUpCount('ct')}::int AS "cashCount", COALESCE(SUM(ct."amountCents"), 0)::bigint AS "cashCents"
+        SELECT ${cashTopUpCount('ct')}::int AS "cashCount", COALESCE(SUM(ct."amountCents"), 0)::bigint AS "cashCents",
+               COALESCE(SUM(ct."serviceFeeCents"), 0)::bigint AS "cashFeeCents"
           FROM wallet_cash_topups ct
          WHERE ct."tenantId" = ${tenantId}::uuid AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to} ${recordedCash}
       ), devoluciones AS (
-        SELECT COUNT(*)::int AS "refundCount", COALESCE(SUM(r."amountCents"), 0)::bigint AS "refundCents"
+        SELECT COUNT(*)::int AS "refundCount", COALESCE(SUM(r."amountCents"), 0)::bigint AS "refundCents",
+               COALESCE(SUM(r."serviceFeeCents"), 0)::bigint AS "refundFeeCents"
           FROM refunds r
          WHERE r."tenantId" = ${tenantId}::uuid AND r.status = 'SUCCEEDED'
            AND ${refundAt('r')} >= ${w.from} AND ${refundAt('r')} < ${w.to} ${recordedRefund}
@@ -371,9 +379,16 @@ export class MoneyMapService {
       cents: n(p.cents),
     }));
     return {
-      topUps: { cardCents: n(t.cardCents), cardCount: n(t.cardCount), cashCents: n(t.cashCents), cashCount: n(t.cashCount) },
+      topUps: {
+        cardCents: n(t.cardCents),
+        cardCount: n(t.cardCount),
+        cashCents: n(t.cashCents),
+        cashCount: n(t.cashCount),
+        cardFeeCents: n(t.cardFeeCents),
+        cashFeeCents: n(t.cashFeeCents),
+      },
       staff: { chicas: share(true), camareros: share(false) },
-      cardRefunds: { cents: n(t.refundCents), count: n(t.refundCount) },
+      cardRefunds: { cents: n(t.refundCents), count: n(t.refundCount), serviceFeeCents: n(t.refundFeeCents) },
       walletPayouts: { cashCents: n(t.walletCashCents), cashCount: n(t.walletCashCount), cardCents: n(t.walletCardCents) },
       payouts,
     };

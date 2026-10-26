@@ -9,7 +9,9 @@ import {
   cardTypeLabel,
   categoryLabel,
   chicaShareCents,
+  cobroChargedCents,
   cobroSections,
+  cobroServiceFeeNetCents,
   cobroType,
   isChicaPart,
   methodLabel,
@@ -25,6 +27,7 @@ import {
 import type { ExportSummary } from './export-summary';
 import type { ReportPeriod } from './report-period';
 import { BRAND_NAME } from '../../common/brand';
+import { SERVICE_FEE_LABEL } from '@nightpay/contracts';
 
 /**
  * Los cuatro CSV para la gestoría (Fase 1C): libro de cobros, devoluciones,
@@ -40,14 +43,18 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string, labe
   const header = [
     'Fecha', 'Hora', 'Local', 'Código', 'Concepto', 'Tipo', 'Cobrado por', 'Medio', 'Método',
     'Marca', 'Tipo tarjeta', 'País tarjeta', 'Autorización', 'Pedido banco', 'Importe', 'Propina',
-    'Total cobrado', 'Devuelto', 'Neto', 'Parte chica', 'Parte camarero', 'Parte local', 'Estado', `Referencia ${BRAND_NAME}`,
-    'Por sección',
+    // La «Comisión del servicio» que pagó el cliente encima (se debe a OxioPay).
+    SERVICE_FEE_LABEL,
+    'Total cobrado', 'Devuelto', 'Neto', 'Parte chica', 'Parte camarero', `Parte ${BRAND_NAME}`, 'Parte local', 'Estado',
+    `Referencia ${BRAND_NAME}`, 'Por sección',
   ];
   const body = rows.map((r): CsvCell[] => {
-    const charged = r.amountCents + r.tipCents;
+    const charged = cobroChargedCents(r);
     const net = charged - r.refundedCents;
     const chica = chicaShareCents(r);
     const camarero = camareroShareCents(r);
+    // Lo de OxioPay: la comisión del servicio que no se devolvió.
+    const oxio = cobroServiceFeeNetCents(r);
     return [
       date(r.paidAt),
       time(r.paidAt),
@@ -65,12 +72,14 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string, labe
       code(r.providerTxId),
       money(r.amountCents),
       money(r.tipCents),
+      money(r.serviceFeeCents ?? 0),
       money(charged),
       money(r.refundedCents),
       money(net),
       money(chica),
       money(camarero),
-      money(net - chica - camarero),
+      money(oxio),
+      money(net - chica - camarero - oxio),
       STATUS_LABEL[r.status] ?? r.status,
       r.id,
       text(bySection(r, labelOf)),
@@ -88,7 +97,7 @@ function bySection(r: CobroRow, labelOf: SectionLabeler): string {
 
 export function devolucionesCsv(rows: ReadonlyArray<DevolucionRow>): string {
   const header = [
-    'Fecha devolución', 'Importe devuelto', 'Motivo', 'Referencia banco', 'Registrada a mano',
+    'Fecha devolución', 'Importe devuelto', `${SERVICE_FEE_LABEL} devuelta`, 'Motivo', 'Referencia banco', 'Registrada a mano',
     'Registrada por', 'Fecha del cobro', 'Código del cobro', 'Pedido banco', 'Total cobrado',
     'Cobrado por', 'Descontado a la chica', 'Ya se le había pagado', 'Descontado al camarero', `Referencia ${BRAND_NAME}`,
   ];
@@ -100,6 +109,7 @@ export function devolucionesCsv(rows: ReadonlyArray<DevolucionRow>): string {
     return [
       date(r.refundedAt),
       money(r.amountCents),
+      money(r.serviceFeeCents ?? 0),
       text(r.reason),
       text(r.providerRefundId),
       r.registeredManually ? 'Sí' : 'No',
@@ -155,13 +165,16 @@ export function liquidacionesCsv(rows: ReadonlyArray<LiquidacionRow>): string {
  */
 export function recargasEfectivoCsv(rows: ReadonlyArray<RecargaEfectivoRow>): string {
   const header = [
-    'Fecha', 'Hora', 'Importe', 'Tipo', 'Anula a', 'Motivo', 'Saldo nuevo', 'Cobrada por', 'Datáfono',
+    'Fecha', 'Hora', 'Importe', SERVICE_FEE_LABEL, 'Cobrado', 'Tipo', 'Anula a', 'Motivo', 'Saldo nuevo', 'Cobrada por', 'Datáfono',
     `Referencia ${BRAND_NAME}`,
   ];
   const body = rows.map((r): CsvCell[] => [
     date(r.at),
     time(r.at),
+    // El saldo, la comisión del servicio (se debe a OxioPay) y lo que pagó el cliente.
     money(r.amountCents),
+    money(r.serviceFeeCents ?? 0),
+    money(r.amountCents + (r.serviceFeeCents ?? 0)),
     r.voidOfId ? 'Anulación' : 'Recarga',
     text(r.voidOfId ?? null),
     text(r.reason ?? null),
@@ -216,6 +229,7 @@ export function resumenCsv(args: {
     ...repartoRows(s),
     [],
     ...NOTES,
+    ...(hasServiceFee(s) ? [SERVICE_FEE_NOTE] : []),
     [],
     ...perChicaRows(s),
   ]);
@@ -227,12 +241,28 @@ function totalRows(s: ExportSummary): CsvCell[][] {
     ['Cobros (sin propinas)', money(s.grossCents), s.count],
     ['Propinas cobradas', money(s.tipsCents)],
     ['Recargas del saldo en efectivo', money(s.walletCashTopUpsCents ?? 0), s.walletCashTopUpsCount ?? 0],
+    ...(hasServiceFee(s) ? [[`${SERVICE_FEE_LABEL} cobrada`, money(s.serviceFeeCents ?? 0), serviceFeeCount(s)] as CsvCell[]] : []),
     ['Total cobrado', money(s.chargedCents)],
     ['Devoluciones del periodo', money(-s.refundsCents), s.refundsCount],
+    ...(hasServiceFee(s) ? [[`${SERVICE_FEE_LABEL} devuelta`, money(-(s.serviceFeeRefundedCents ?? 0))] as CsvCell[]] : []),
     ['Saldo devuelto en efectivo', money(-s.walletCashPayoutsCents), s.walletCashPayoutsCount],
     ['Neto cobrado', money(s.netCents)],
   ];
 }
+
+/** ¿Hubo comisión del servicio en el periodo? Sin ella, el resumen es el de siempre. */
+function hasServiceFee(s: ExportSummary): boolean {
+  return (s.serviceFeeCents ?? 0) !== 0 || (s.serviceFeeRefundedCents ?? 0) !== 0;
+}
+
+/** Cuántos cobros y recargas la llevaron (la línea «por tipo» de la comisión). */
+function serviceFeeCount(s: ExportSummary): number {
+  return s.byType.find((t) => t.label === SERVICE_FEE_LABEL)?.count ?? 0;
+}
+
+const SERVICE_FEE_NOTE: CsvCell[] = [
+  `La comisión del servicio la paga el cliente encima del precio y se debe a ${BRAND_NAME}: el dinero entra entero al local (su banco o su caja), pero no es del local. Va aparte del IVA del local; la parte de las chicas se calcula sobre el consumo, nunca sobre ella.`,
+];
 
 /** El saldo de los clientes: consumos (no son dinero nuevo) y lo que se les devolvió. */
 function saldoRows(s: ExportSummary): CsvCell[][] {
@@ -256,6 +286,7 @@ function repartoRows(s: ExportSummary): CsvCell[][] {
     ['Descontado a las chicas por devoluciones', money(-s.chicaReversalsCents)],
     ['Total para las chicas', money(s.chicaNetCents)],
     ...(camareros ? [['Total para los camareros (copas con invitación)', money(s.camareroNetCents ?? 0)] as CsvCell[]] : []),
+    ...(hasServiceFee(s) ? [[`${SERVICE_FEE_LABEL} · se debe a ${BRAND_NAME}`, money(s.serviceFeeNetCents ?? 0)] as CsvCell[]] : []),
     ['Propinas del local', money(s.venueTipsCents)],
     ['Total para el local', money(s.venueNetCents)],
     [],

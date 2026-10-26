@@ -113,6 +113,7 @@ export class CloseCheckService {
       Array<{
         topUpCount: number;
         topUpCents: number;
+        topUpFeeCents?: number;
         walletCount: number;
         walletCents: number;
         chicaCount: number;
@@ -135,6 +136,9 @@ export class CloseCheckService {
         (SELECT COALESCE(SUM(ct."amountCents"), 0)::int FROM wallet_cash_topups ct
           WHERE ct."tenantId" = ${tenantId}::uuid
             AND ct."createdAt" >= ${window.from} AND ct."createdAt" < ${window.to}) AS "topUpCents",
+        (SELECT COALESCE(SUM(ct."serviceFeeCents"), 0)::int FROM wallet_cash_topups ct
+          WHERE ct."tenantId" = ${tenantId}::uuid
+            AND ct."createdAt" >= ${window.from} AND ct."createdAt" < ${window.to}) AS "topUpFeeCents",
         (SELECT COUNT(*)::int FROM wallet_payouts wp
           WHERE wp."tenantId" = ${tenantId}::uuid AND wp.method = 'CASH' AND wp.status = 'DONE'
             AND wp."createdAt" >= ${window.from} AND wp."createdAt" < ${window.to}) AS "walletCount",
@@ -156,13 +160,16 @@ export class CloseCheckService {
       camareroCount: 0,
       camareroCents: 0,
     };
-    const cashInCents = r.topUpCents;
+    // Entra el saldo + la «Comisión del servicio» de las recargas en efectivo.
+    const feeCents = r.topUpFeeCents ?? 0;
+    const cashInCents = r.topUpCents + feeCents;
     const cashOutCents = r.walletCents + r.chicaCents + r.camareroCents;
     return {
       openingFloatCents,
       cashInCents,
       walletCashTopUpsCount: r.topUpCount,
       walletCashTopUpsCents: r.topUpCents,
+      walletCashTopUpFeesCents: feeCents,
       walletCashPayoutsCount: r.walletCount,
       walletCashPayoutsCents: r.walletCents,
       chicaCashPayoutsCount: r.chicaCount,
@@ -234,7 +241,7 @@ export class CloseCheckService {
         FROM (
           SELECT t.id AS "terminalId", t.label, t."deviceLastSeenAt" AS "lastSeenAt",
                  COUNT(p.id)::int AS sales,
-                 COALESCE(SUM(p."amountCents" + p."tipCents"), 0)::int AS cents,
+                 COALESCE(SUM(p."amountCents" + p."serviceFeeCents" + p."tipCents"), 0)::int AS cents,
                  MAX(${paymentAt('p')}) AS "lastSaleAt",
                  (SELECT MAX(o."reportedAt") FROM pos_terminal_ops o WHERE o."terminalId" = t.id) AS "lastReportAt"
             FROM terminals t

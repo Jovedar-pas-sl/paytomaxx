@@ -120,7 +120,7 @@ export class IncidentsService {
          LIMIT ${PER_KIND_LIMIT}
       `,
       () => this.prisma.$queryRaw<EventRow[]>`
-        SELECT e.id::text AS id, e."paymentId", (p."amountCents" + p."tipCents")::int AS "amountCents",
+        SELECT e.id::text AS id, e."paymentId", (p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "amountCents",
                e."occurredAt", e.payload
           FROM payment_events e
           JOIN payments p ON p.id = e."paymentId"
@@ -206,7 +206,7 @@ export class IncidentsService {
          LIMIT ${PER_KIND_LIMIT}
       `,
       () => this.prisma.$queryRaw<EventRow[]>`
-        SELECT p.id::text AS id, p.id AS "paymentId", (p."amountCents" + p."tipCents")::int AS "amountCents",
+        SELECT p.id::text AS id, p.id AS "paymentId", (p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "amountCents",
                p."authorizedAt" AS "occurredAt",
                jsonb_build_object('operationNumber', p."posOperationNumber") AS payload
           FROM payments p
@@ -218,7 +218,7 @@ export class IncidentsService {
                             WHERE o."terminalId" = p."posTerminalId"
                               AND o."operationNumber" = p."posOperationNumber"
                               AND (o."amountCents" IS NULL
-                                   OR o."amountCents" = p."amountCents" + p."tipCents"))
+                                   OR o."amountCents" = p."amountCents" + p."serviceFeeCents" + p."tipCents"))
          ORDER BY p."authorizedAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
@@ -270,7 +270,7 @@ export class IncidentsService {
       // "Sin comprobar" se quita sola cuando el cobro se resuelve.
       () => this.prisma.$queryRaw<PaymentAnomalyRow[]>`
         SELECT e.id::text AS id, e."eventType", e."paymentId",
-               (p."amountCents" + p."tipCents")::int AS "amountCents", e."occurredAt", e.payload
+               (p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "amountCents", e."occurredAt", e.payload
           FROM payment_events e
           JOIN payments p ON p.id = e."paymentId"
          WHERE e."tenantId" = ${tenantId}::uuid
@@ -289,7 +289,7 @@ export class IncidentsService {
       // mientras sigan PENDING reservan importe del cobro. Se quitan al resolverlas.
       () => this.prisma.$queryRaw<PendingRefundRow[]>`
         SELECT r.id::text AS id, r."paymentId"::text AS "paymentId", r."amountCents",
-               (p."amountCents" + p."tipCents")::int AS "paymentAmountCents",
+               (p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "paymentAmountCents",
                p.provider::text AS provider, p."providerTxId", r."createdAt",
                EXISTS (SELECT 1 FROM audit_events a
                         WHERE a.action = 'refund.settle_failed'
@@ -323,7 +323,7 @@ export class IncidentsService {
       // Venta anulada en el datáfono que era la que pagó el cobro, y el cobro
       // sigue pagado (sin devolver del todo): aquí nada lo deshizo.
       () => this.prisma.$queryRaw<EventRow[]>`
-        SELECT v.id::text AS id, v."paymentId", (p."amountCents" + p."tipCents")::int AS "amountCents",
+        SELECT v.id::text AS id, v."paymentId", (p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "amountCents",
                v."occurredAt", v.payload
           FROM payment_events v
           JOIN payments p ON p.id = v."paymentId"
@@ -343,7 +343,7 @@ export class IncidentsService {
       // datáfono lo dice), uno por noche; se quitan al cuadrarlos con el banco.
       () => this.prisma.$queryRaw<UnprovenSalesRow[]>`
         SELECT to_char(((e."occurredAt" AT TIME ZONE 'Europe/Madrid') - interval '8 hours')::date, 'YYYY-MM-DD') AS night,
-               COUNT(*)::int AS count, SUM(p."amountCents" + p."tipCents")::int AS "amountCents",
+               COUNT(*)::int AS count, SUM(p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "amountCents",
                MAX(e."occurredAt") AS "lastAt"
           FROM payment_events e
           JOIN payments p ON p.id = e."paymentId"

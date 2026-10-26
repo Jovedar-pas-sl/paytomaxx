@@ -1,4 +1,4 @@
-import { LEGACY_SECTION, SECTION_CODES } from '@nightpay/contracts';
+import { LEGACY_SECTION, SECTION_CODES, SERVICE_FEE_LABEL } from '@nightpay/contracts';
 import {
   WALLET_LABEL,
   categoryLabel,
@@ -57,6 +57,19 @@ export interface ExportSummary {
   /** Cobrado − devoluciones − saldo devuelto en efectivo. */
   netCents: number;
   /**
+   * «Comisión del servicio» (service-fee.ts) cobrada en el periodo: con
+   * tarjeta o datáfono (pagos directos y recargas) y en efectivo (recargas).
+   * Ya está en chargedCents; se debe a OxioPay. Los Z congelados antes del
+   * 2026-10-26 no lo traen (era 0).
+   */
+  serviceFeeCents?: number;
+  /** …de ella, la de las recargas en efectivo (está en la caja). */
+  serviceFeeCashCents?: number;
+  /** Lo devuelto de ella con las devoluciones del periodo (por su fecha). */
+  serviceFeeRefundedCents?: number;
+  /** Lo que se debe a OxioPay: la cobrada − la devuelta. No es del local. */
+  serviceFeeNetCents?: number;
+  /**
    * Recargas del saldo en efectivo (recepción): cobradas al cargarlas, como
    * las de tarjeta (no son cobros del banco: van aparte de `count`). Los Z
    * congelados antes del 21-oct-2026 no lo traen.
@@ -84,7 +97,7 @@ export interface ExportSummary {
   camareroReversalsCents?: number;
   camareroNetCents?: number;
   venueTipsCents: number;
-  /** Neto − lo de las chicas − lo de los camareros. */
+  /** Neto − lo de las chicas − lo de los camareros − lo que se debe a OxioPay (comisión del servicio). */
   venueNetCents: number;
   /** Pagado a las chicas en el periodo. */
   payoutsCount: number;
@@ -157,7 +170,8 @@ export function summarize(
   const cardTopUps = cobros.filter((r) => r.walletId);
   const saldo = saldoTotals(consumos, pagosSaldo);
   const { cardTipsCents, ...staff } = staffTotals(cobros, devoluciones, consumos);
-  const chargedCents = grossCents + tipsCents + cashTopUpsCents;
+  const fee = serviceFeeTotals(cobros, devoluciones, recargasEfectivo);
+  const chargedCents = grossCents + tipsCents + cashTopUpsCents + fee.serviceFeeCents;
   const netCents = chargedCents - refundsCents - saldo.walletCashPayoutsCents;
   const chicaPayouts = liquidaciones.filter((l) => !isWaiterPayout(l));
   const camareroPayouts = liquidaciones.filter(isWaiterPayout);
@@ -169,6 +183,10 @@ export function summarize(
     refundsCount: devoluciones.length,
     refundsCents,
     netCents,
+    serviceFeeCents: fee.serviceFeeCents,
+    serviceFeeCashCents: fee.serviceFeeCashCents,
+    serviceFeeRefundedCents: fee.serviceFeeRefundedCents,
+    serviceFeeNetCents: fee.serviceFeeNetCents,
     walletCashTopUpsCount: cashTopUpsN,
     walletCashTopUpsCents: cashTopUpsCents,
     walletCardTopUpsCount: cardTopUps.length,
@@ -178,11 +196,14 @@ export function summarize(
       ...(recargasEfectivo.length > 0
         ? [{ label: CASH_TOP_UP_LABEL, count: cashTopUpsN, chargedCents: cashTopUpsCents }]
         : []),
+      // Así el total por tipo es lo cobrado (solo si la hubo).
+      ...(fee.count > 0 ? [{ label: SERVICE_FEE_LABEL, count: fee.count, chargedCents: fee.serviceFeeCents }] : []),
     ],
     ...staff,
     // Propinas con tarjeta que se queda el local (las del saldo no entran aquí).
     venueTipsCents: tipsCents - cardTipsCents,
-    venueNetCents: netCents - staff.chicaNetCents - staff.camareroNetCents,
+    // Lo de OxioPay (comisión del servicio) no es del local.
+    venueNetCents: netCents - staff.chicaNetCents - staff.camareroNetCents - fee.serviceFeeNetCents,
     payoutsCount: chicaPayouts.length,
     payoutsCents: sum(chicaPayouts, (r) => r.totalCents),
     camareroPayoutsCount: camareroPayouts.length,
@@ -190,6 +211,32 @@ export function summarize(
     perChica: perChica(cobros, devoluciones, chicaPayouts, consumos),
     ...saldo,
     saldoByType: typeLines(consumos, consumoParts, labelOfKey),
+  };
+}
+
+/**
+ * La «Comisión del servicio» del periodo: la cobrada (cobros con tarjeta o
+ * datáfono, también las recargas, y recargas en efectivo, con sus
+ * anulaciones), la devuelta (por la fecha de cada devolución) y lo que se
+ * debe a OxioPay. `count`: cobros y recargas que la llevan.
+ */
+function serviceFeeTotals(
+  cobros: ReadonlyArray<CobroRow>,
+  devoluciones: ReadonlyArray<DevolucionRow>,
+  recargasEfectivo: ReadonlyArray<RecargaEfectivoRow>,
+) {
+  const card = sum(cobros, (r) => r.serviceFeeCents ?? 0);
+  const cash = sum(recargasEfectivo, (r) => r.serviceFeeCents ?? 0);
+  const refunded = sum(devoluciones, (r) => r.serviceFeeCents ?? 0);
+  const count =
+    cobros.filter((r) => (r.serviceFeeCents ?? 0) > 0).length +
+    sum(recargasEfectivo, (r) => ((r.serviceFeeCents ?? 0) === 0 ? 0 : (r.serviceFeeCents ?? 0) > 0 ? 1 : -1));
+  return {
+    count,
+    serviceFeeCents: card + cash,
+    serviceFeeCashCents: cash,
+    serviceFeeRefundedCents: refunded,
+    serviceFeeNetCents: card + cash - refunded,
   };
 }
 

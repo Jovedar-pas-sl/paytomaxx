@@ -19,6 +19,9 @@ export interface CurrentVenueRules {
   payoutHoldDays: number | null;
   refundApprovalThresholdCents: number;
   payoutRequiresApproval: boolean;
+  serviceFeeEnabled?: boolean;
+  serviceFeeBps?: number;
+  topUpServiceFeeBps?: number;
 }
 
 export interface VenueRulesChange {
@@ -28,6 +31,9 @@ export interface VenueRulesChange {
   payoutHoldDays?: number | null;
   refundApprovalThresholdCents?: number;
   payoutRequiresApproval?: boolean;
+  serviceFeeEnabled?: boolean;
+  serviceFeeBps?: number;
+  topUpServiceFeeBps?: number;
 }
 
 /** El mapa de comisiones guardado (JSON) con las categorías que falten a su valor por defecto. */
@@ -64,6 +70,10 @@ export function planVenueRulesChange(
   if (dto.payoutHoldDays !== undefined) change.payoutHoldDays = dto.payoutHoldDays;
   if (dto.refundApprovalThresholdCents !== undefined) change.refundApprovalThresholdCents = dto.refundApprovalThresholdCents;
   if (dto.payoutRequiresApproval !== undefined) change.payoutRequiresApproval = dto.payoutRequiresApproval;
+  // «Comisión del servicio al cliente»: el interruptor y sus % (0–12 %, ya validados por zod).
+  if (dto.serviceFeeEnabled !== undefined) change.serviceFeeEnabled = dto.serviceFeeEnabled;
+  if (dto.serviceFeeBps !== undefined) change.serviceFeeBps = dto.serviceFeeBps;
+  if (dto.topUpServiceFeeBps !== undefined) change.topUpServiceFeeBps = dto.topUpServiceFeeBps;
 
   const problem = commissionTotalsProblem({
     platformCommissionBps: change.platformCommissionBps ?? current.platformCommissionBps,

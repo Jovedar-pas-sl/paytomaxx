@@ -301,6 +301,9 @@ describe('PATCH /admin/venue/settings — comisiones del local', () => {
     payoutHoldDays: null,
     refundApprovalThresholdCents: 10_000,
     payoutRequiresApproval: false,
+    serviceFeeEnabled: false,
+    serviceFeeBps: 1000,
+    topUpServiceFeeBps: 1200,
   };
 
   function controller(maxOverrideBps: number | null = null) {
@@ -333,6 +336,18 @@ describe('PATCH /admin/venue/settings — comisiones del local', () => {
     expect(update).not.toHaveBeenCalled();
     await save({ platformCommissionBps: 1000, operatorMaxCobroCents: 30_000 });
     expect(update.mock.calls[0]![0].data).toEqual({ operatorMaxCobroCents: 30_000 });
+  });
+
+  it('la «Comisión del servicio» tampoco (403): ni encenderla ni cambiar sus %; la misma de siempre se ignora', async () => {
+    const { save, update, read } = controller();
+    expect(await statusOf(save({ serviceFeeEnabled: true }))).toBe(403);
+    expect(await statusOf(save({ serviceFeeBps: 800 }))).toBe(403);
+    expect(await statusOf(save({ topUpServiceFeeBps: 1000 }))).toBe(403);
+    expect(update).not.toHaveBeenCalled();
+    await save({ serviceFeeEnabled: false, serviceFeeBps: 1000, topUpServiceFeeBps: 1200, operatorMaxCobroCents: 30_000 });
+    expect(update.mock.calls[0]![0].data).toEqual({ operatorMaxCobroCents: 30_000 });
+    // El dueño la ve en Ajustes → Reglas.
+    await expect(read()).resolves.toMatchObject({ serviceFeeEnabled: false, serviceFeeBps: 1000, topUpServiceFeeBps: 1200 });
   });
 
   it('reglas de dinero: con la 2FA activada pide el código (antes de guardar); sin código válido no se guarda', async () => {

@@ -4,7 +4,7 @@ import type { OverviewBusiness, OverviewTotals, OverviewVenue, SuperAdminOvervie
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { IncidentsService } from '../incidents/incidents.service';
 import { payableSummary, resolveHoldDays, type BalanceSums } from '../operators/payout-math';
-import { PAID_STATUSES_SQL, paymentAt } from '../reports/reporting-sql';
+import { PAID_STATUSES_SQL, paymentAt, refundAt } from '../reports/reporting-sql';
 import { madridRecentDaysWindow, madridTodayWindow } from '../reports/reporting-window';
 import { venuePauseScope } from '../venues/venue-pause';
 
@@ -23,6 +23,13 @@ interface VenueRow {
   businessStatus: 'ACTIVE' | 'PAUSED' | null;
   pausedAt: Date | null;
   payoutHoldDays: number | null;
+  serviceFeeEnabled: boolean;
+}
+
+/** «Comisión del servicio» de la semana por local: cobrada − devuelta (lo que se debe a OxioPay). */
+interface FeeRow {
+  tenantId: string;
+  feeWeek: bigint;
 }
 
 interface ChargeRow {
@@ -81,10 +88,10 @@ export class SuperAdminOverviewService {
     const week = madridRecentDaysWindow(now, WEEK_PAST_DAYS);
     const envHoldDays = resolveHoldDays(null, this.config.get('PAYOUT_HOLD_DAYS'));
 
-    const { venues, charges, earnings, debts, wallets } = await this.prisma.acrossVenues(async (tx) => ({
+    const { venues, charges, earnings, debts, wallets, fees } = await this.prisma.acrossVenues(async (tx) => ({
       venues: await tx.$queryRaw<VenueRow[]>`
         SELECT v.id, v.name, v.slug, v."businessId", b.name AS "businessName", b.status::text AS "businessStatus",
-               v."pausedAt", v."payoutHoldDays"
+               v."pausedAt", v."payoutHoldDays", v."serviceFeeEnabled"
           FROM venues v
           LEFT JOIN businesses b ON b.id = v."businessId"
          WHERE v."deletedAt" IS NULL
@@ -93,8 +100,8 @@ export class SuperAdminOverviewService {
       charges: await tx.$queryRaw<ChargeRow[]>`
         SELECT p."tenantId",
                COUNT(*) FILTER (WHERE ${paymentAt('p')} >= ${today.from})::int AS "paymentsToday",
-               COALESCE(SUM(p."amountCents" + p."tipCents") FILTER (WHERE ${paymentAt('p')} >= ${today.from}), 0)::bigint AS "chargedToday",
-               COALESCE(SUM(p."amountCents" + p."tipCents"), 0)::bigint AS "chargedWeek"
+               COALESCE(SUM(p."amountCents" + p."serviceFeeCents" + p."tipCents") FILTER (WHERE ${paymentAt('p')} >= ${today.from}), 0)::bigint AS "chargedToday",
+               COALESCE(SUM(p."amountCents" + p."serviceFeeCents" + p."tipCents"), 0)::bigint AS "chargedWeek"
           FROM payments p
          WHERE p.status IN ${PAID_STATUSES_SQL}
            AND ${paymentAt('p')} >= ${week.from} AND ${paymentAt('p')} < ${now}
@@ -128,12 +135,34 @@ export class SuperAdminOverviewService {
          WHERE status = 'ACTIVE'
          GROUP BY "tenantId"
       `,
+      // «Comisión del servicio» de la semana: la de los cobros pagados con
+      // tarjeta o datáfono y la de las recargas en efectivo, menos la devuelta.
+      fees: await tx.$queryRaw<FeeRow[]>`
+        SELECT x."tenantId", COALESCE(SUM(x.cents), 0)::bigint AS "feeWeek"
+          FROM (
+            SELECT p."tenantId", p."serviceFeeCents" AS cents
+              FROM payments p
+             WHERE p.status IN ${PAID_STATUSES_SQL} AND p."serviceFeeCents" <> 0
+               AND ${paymentAt('p')} >= ${week.from} AND ${paymentAt('p')} < ${now}
+            UNION ALL
+            SELECT ct."tenantId", ct."serviceFeeCents"
+              FROM wallet_cash_topups ct
+             WHERE ct."serviceFeeCents" <> 0 AND ct."createdAt" >= ${week.from} AND ct."createdAt" < ${now}
+            UNION ALL
+            SELECT r."tenantId", -r."serviceFeeCents"
+              FROM refunds r
+             WHERE r.status = 'SUCCEEDED' AND r."serviceFeeCents" <> 0
+               AND ${refundAt('r')} >= ${week.from} AND ${refundAt('r')} < ${now}
+          ) x
+         GROUP BY x."tenantId"
+      `,
     }));
 
     const openIncidents = await this.incidentCounts(venues.map((v) => v.id), now);
     const balances = operatorBalancesByVenue(earnings, debts);
     const chargeBy = new Map(charges.map((c) => [c.tenantId, c]));
     const walletBy = new Map(wallets.map((w) => [w.tenantId, w]));
+    const feeBy = new Map((fees ?? []).map((f) => [f.tenantId, Number(f.feeWeek ?? 0)]));
 
     const venueViews: Array<OverviewVenue & { businessName: string | null; businessStatus: VenueRow['businessStatus'] }> =
       venues.map((v) => {
@@ -160,6 +189,8 @@ export class SuperAdminOverviewService {
           liveCustomerWallets: Number(w?.wallets ?? 0),
           openIncidents: openIncidents.get(v.id) ?? 0,
           payoutHoldDays: resolveHoldDays(v.payoutHoldDays, this.config.get('PAYOUT_HOLD_DAYS')),
+          serviceFeeEnabled: v.serviceFeeEnabled ?? false,
+          serviceFeeWeekCents: feeBy.get(v.id) ?? 0,
         };
       });
 
@@ -236,6 +267,7 @@ function emptyTotals(): OverviewTotals {
     openIncidents: 0,
     venues: 0,
     pausedVenues: 0,
+    serviceFeeWeekCents: 0,
   };
 }
 
@@ -252,5 +284,6 @@ function addVenue(t: OverviewTotals, v: OverviewVenue): OverviewTotals {
     openIncidents: t.openIncidents + v.openIncidents,
     venues: t.venues + 1,
     pausedVenues: t.pausedVenues + (v.paused ? 1 : 0),
+    serviceFeeWeekCents: (t.serviceFeeWeekCents ?? 0) + (v.serviceFeeWeekCents ?? 0),
   };
 }

@@ -33,6 +33,8 @@ function cobradoParts(s: ExportSummary): string | null {
     [s.grossCents - s.walletCardTopUpsCents, 'de ventas'],
     [s.tipsCents, 'de propinas'],
     [s.walletCardTopUpsCents + (s.walletCashTopUpsCents ?? 0), 'de recargas'],
+    // La paga el cliente encima y se debe a OxioPay (sin ella, no sale).
+    [s.serviceFeeCents ?? 0, 'de comisión del servicio'],
   ] as const;
   const shown = parts.filter(([cents]) => cents !== 0).map(([cents, what]) => `${eur(cents)} ${what}`);
   return shown.length > 0 ? shown.join(' + ') : null;
@@ -57,12 +59,14 @@ export function morningSummaryMessage(
   scope: SummaryScope = { kind: 'window' },
 ): string {
   const parts = cobradoParts(s);
+  // La comisión del servicio que pasó por la tarjeta (la de efectivo está en la caja).
+  const cardFeeCents = (s.serviceFeeCents ?? 0) - (s.serviceFeeCashCents ?? 0);
   const lines = [
     `☀️ ${venueName} — ${scopeLabel(scope)}`,
     parts ? `Cobrado: ${eur(s.chargedCents)} (${parts})` : `Cobrado: ${eur(s.chargedCents)}`,
     // Los pagos con tarjeta (también las recargas con tarjeta) y sus propinas:
     // lo pagado con el saldo no es dinero nuevo y no cuenta aquí.
-    `Con tarjeta: ${s.count} ${s.count === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents)}`,
+    `Con tarjeta: ${s.count} ${s.count === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents + cardFeeCents)}`,
   ];
   if (!parts && s.tipsCents > 0) lines.push(`Propinas: ${eur(s.tipsCents)}`);
   if (s.walletCardTopUpsCount) {
@@ -73,13 +77,18 @@ export function morningSummaryMessage(
     lines.push(`Recargas en efectivo: ${n} · ${eur(s.walletCashTopUpsCents ?? 0)} (en la caja)`);
   }
   if (s.refundsCents > 0) lines.push(`Devoluciones: −${eur(s.refundsCents)}`);
+  const oxio = s.serviceFeeNetCents ?? 0;
+  if (oxio !== 0 || (s.serviceFeeCents ?? 0) !== 0) {
+    const cash = s.serviceFeeCashCents ?? 0;
+    lines.push(`Comisión del servicio: ${eur(oxio)} (se debe a OxioPay${cash !== 0 ? `; ${eur(cash)} en la caja` : ''})`);
+  }
   // Lo de los camareros (su parte de las copas con invitación, si el local se
   // la da) va aparte: chicas + camareros + el resto = lo cobrado neto. Ese
   // resto no es «Para el local» del mapa del dinero (el reparto de lo
   // vendido): lleva las recargas (saldo de los clientes) y no resta comisiones.
   const camareros = s.camareroNetCents ?? 0;
   lines.push(
-    `Para las chicas: ${eur(s.chicaNetCents)}${camareros !== 0 ? ` · para los camareros: ${eur(camareros)}` : ''} · neto sin el personal: ${eur(s.venueNetCents)}`,
+    `Para las chicas: ${eur(s.chicaNetCents)}${camareros !== 0 ? ` · para los camareros: ${eur(camareros)}` : ''} · neto sin el personal${oxio !== 0 ? ' ni OxioPay' : ''}: ${eur(s.venueNetCents)}`,
   );
   if (s.perChica.length > 0) lines.push(`Chicas que cobraron: ${s.perChica.length} (detalle en el panel → Noches)`);
   if (cashDiffCents) lines.push(cashDiffLine(cashDiffCents));

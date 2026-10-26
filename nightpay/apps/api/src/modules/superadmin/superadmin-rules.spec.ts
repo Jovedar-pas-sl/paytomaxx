@@ -121,3 +121,31 @@ describe('generateTemporaryPassword', () => {
     expect(seen.size).toBe(50);
   });
 });
+
+describe('«Comisión del servicio» en las reglas del local (solo el super-admin, con 2FA)', () => {
+  it('el interruptor y los dos % se guardan tal cual', () => {
+    const plan = planVenueRulesChange(current, { serviceFeeEnabled: true, serviceFeeBps: 1000, topUpServiceFeeBps: 1200 }, null);
+    expect(plan).toEqual({ ok: true, change: { serviceFeeEnabled: true, serviceFeeBps: 1000, topUpServiceFeeBps: 1200 } });
+    expect(planVenueRulesChange(current, { serviceFeeEnabled: false }, null)).toEqual({ ok: true, change: { serviceFeeEnabled: false } });
+  });
+
+  it('de 0 a 12 %: fuera de eso, el esquema no lo deja pasar', async () => {
+    const { UpdateVenueRulesSchema } = await import('@nightpay/contracts');
+    const ok = (v: Record<string, unknown>) => UpdateVenueRulesSchema.safeParse({ ...v, totpCode: '123456' }).success;
+    expect(ok({ serviceFeeBps: 0 })).toBe(true);
+    expect(ok({ serviceFeeBps: 1200, topUpServiceFeeBps: 1200 })).toBe(true);
+    expect(ok({ serviceFeeBps: 1201 })).toBe(false);
+    expect(ok({ topUpServiceFeeBps: -1 })).toBe(false);
+    expect(ok({ serviceFeeEnabled: true })).toBe(true);
+  });
+
+  it('el valor por defecto del negocio: ponerlo o cambiarlo pide 2FA (como su comisión)', () => {
+    expect(businessCreateNeedsStepUp({ defaultServiceFeeBps: 1000 } as never)).toBe(true);
+    expect(businessCreateNeedsStepUp({ defaultTopUpServiceFeeBps: 1200 } as never)).toBe(true);
+    expect(businessCreateNeedsStepUp({} as never)).toBe(false);
+    const saved = { defaultPlatformCommissionBps: null, defaultServiceFeeBps: 1000, defaultTopUpServiceFeeBps: null };
+    expect(businessUpdateNeedsStepUp({ defaultServiceFeeBps: 1200 } as never, saved)).toBe(true);
+    expect(businessUpdateNeedsStepUp({ defaultServiceFeeBps: 1000 } as never, saved)).toBe(false);
+    expect(businessUpdateNeedsStepUp({ defaultTopUpServiceFeeBps: 800 } as never, saved)).toBe(true);
+  });
+});

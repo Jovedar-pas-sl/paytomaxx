@@ -167,6 +167,11 @@ export interface CobroRow {
   createdAt: string;
   amountCents: number;
   tipCents: number;
+  /**
+   * «Comisión del servicio» que pagó el cliente encima (cobros con tarjeta y
+   * recargas; los del saldo no la llevan). Opcional: API anterior (0).
+   */
+  serviceFeeCents?: number;
   currency: string;
   /** Estado del cobro (los del saldo: ACCEPTED, o REVERSED si se anuló el consumo). */
   status: string;
@@ -238,8 +243,10 @@ export interface WalletFichaTopUp {
   id: string;
   ref: string | null;
   at: string;
-  /** Negativo: una recarga en efectivo anulada. */
+  /** El saldo cargado. Negativo: una recarga en efectivo anulada. */
   amountCents: number;
+  /** Su «Comisión del servicio» (se cobró encima, no es saldo; negativa en una anulación). Opcional: API anterior. */
+  serviceFeeCents?: number;
   method: ChargeMethod;
   methodLabel: string;
   /** Quién la cobró (o el datáfono de recepción). */
@@ -294,7 +301,10 @@ export interface WalletFicha {
 
 
 /** Vista del historial del personal, sin datos de tarjeta ni referencias bancarias internas. */
-export type OwnCobro = Pick<CobroRow, 'kind' | 'id' | 'ref' | 'createdAt' | 'amountCents' | 'tipCents' | 'status' | 'methodLabel' | 'service' | 'isTopUp'> & {
+export type OwnCobro = Pick<
+  CobroRow,
+  'kind' | 'id' | 'ref' | 'createdAt' | 'amountCents' | 'tipCents' | 'serviceFeeCents' | 'status' | 'methodLabel' | 'service' | 'isTopUp'
+> & {
   via: string | null;
   invitedName: string | null;
   /** Lo devuelto (importe + propina) de un cobro con tarjeta devuelto del todo o en parte; si no, 0. */
@@ -310,8 +320,15 @@ export interface OwnCobrosPage {
   night?: { from: string; open: boolean } | null;
 }
 
-/** Lo devuelto de un cobro (importe + propina − lo que aún se puede devolver). */
-export function ownRefundedCents(row: Pick<CobroRow, 'status' | 'amountCents' | 'tipCents' | 'payment'>): number {
+/**
+ * Lo devuelto de un cobro (lo devolvible − lo que aún se puede devolver). Lo
+ * devolvible: importe + propina y la «Comisión del servicio» de un pago
+ * directo (la de una recarga no se devuelve).
+ */
+export function ownRefundedCents(
+  row: Pick<CobroRow, 'status' | 'amountCents' | 'tipCents' | 'payment'> & Partial<Pick<CobroRow, 'serviceFeeCents' | 'isTopUp'>>,
+): number {
   if (!row.payment || (row.status !== 'REFUNDED' && row.status !== 'PARTIALLY_REFUNDED')) return 0;
-  return Math.max(0, row.amountCents + row.tipCents - row.payment.availableAmountCents);
+  const fee = row.isTopUp ? 0 : (row.serviceFeeCents ?? 0);
+  return Math.max(0, row.amountCents + fee + row.tipCents - row.payment.availableAmountCents);
 }

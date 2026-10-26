@@ -122,10 +122,10 @@ describe('CSV para la gestoría: recargas en efectivo y saldo devuelto, línea a
       { id: 'ct-3', at: AT, amountCents: -3_000, voidOfId: 'ct-2', reason: 'mal tecleada', takenByName: 'Javi', takenByEmail: 'javi@bambu.es', terminalLabel: null },
     ]);
     const lines = csv.trim().split(/\r?\n/);
-    expect(lines[0]).toMatch(/^Fecha;Hora;Importe;Tipo;Anula a;Motivo;Saldo nuevo;Cobrada por;Datáfono;Referencia/);
-    expect(lines[1]).toMatch(/;50,00;Recarga;;;Sí;Javi/);
-    expect(lines[2]).toMatch(/;30,00;Recarga;;;No;Javi.*;Recepción;ct-2$/);
-    expect(lines[3]).toMatch(/;-30,00;Anulación;ct-2;mal tecleada;;Javi/);
+    expect(lines[0]).toMatch(/^Fecha;Hora;Importe;Comisión del servicio;Cobrado;Tipo;Anula a;Motivo;Saldo nuevo;Cobrada por;Datáfono;Referencia/);
+    expect(lines[1]).toMatch(/;50,00;0,00;50,00;Recarga;;;Sí;Javi/);
+    expect(lines[2]).toMatch(/;30,00;0,00;30,00;Recarga;;;No;Javi.*;Recepción;ct-2$/);
+    expect(lines[3]).toMatch(/;-30,00;0,00;-30,00;Anulación;ct-2;mal tecleada;;Javi/);
   });
 
   it('«saldo-devuelto»: efectivo y tarjeta, con la referencia del banco', () => {

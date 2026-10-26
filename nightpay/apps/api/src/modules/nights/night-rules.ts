@@ -61,6 +61,11 @@ export interface NightCaja {
   /** Recargas en efectivo (los Z congelados antes del 21-oct-2026 no lo traen). */
   walletCashTopUpsCount?: number;
   walletCashTopUpsCents?: number;
+  /**
+   * «Comisión del servicio» de esas recargas: está en la caja (en cashInCents)
+   * y se debe a OxioPay. Los Z congelados antes del 2026-10-26 no lo traen.
+   */
+  walletCashTopUpFeesCents?: number;
   walletCashPayoutsCount: number;
   walletCashPayoutsCents: number;
   chicaCashPayoutsCount: number;
@@ -129,6 +134,7 @@ export function buildNightCaja(cash: NightCash, outcome: CashOutcome, note: stri
     cashInCents: cash.cashInCents,
     walletCashTopUpsCount: cash.walletCashTopUpsCount,
     walletCashTopUpsCents: cash.walletCashTopUpsCents,
+    walletCashTopUpFeesCents: cash.walletCashTopUpFeesCents ?? 0,
     walletCashPayoutsCount: cash.walletCashPayoutsCount,
     walletCashPayoutsCents: cash.walletCashPayoutsCents,
     chicaCashPayoutsCount: cash.chicaCashPayoutsCount,
@@ -165,7 +171,10 @@ export function cashFromRows(
   // Sin el puesto (filas de antes): una chica, como en el resumen del Z.
   const camareroCash = staffCash.filter((l) => l.role === 'WAITER');
   const chicaCash = staffCash.filter((l) => l.role !== 'WAITER');
-  const cashInCents = sum(rows.recargasEfectivo, (r) => r.amountCents);
+  // Entra lo que pagó el cliente: el saldo + la «Comisión del servicio» (que se debe a OxioPay).
+  const walletCashTopUpsCents = sum(rows.recargasEfectivo, (r) => r.amountCents);
+  const walletCashTopUpFeesCents = sum(rows.recargasEfectivo, (r) => r.serviceFeeCents ?? 0);
+  const cashInCents = walletCashTopUpsCents + walletCashTopUpFeesCents;
   const walletCashPayoutsCents = sum(walletCash, (p) => p.amountCents);
   const chicaCashPayoutsCents = sum(chicaCash, (l) => l.totalCents);
   const camareroCashPayoutsCents = sum(camareroCash, (l) => l.totalCents);
@@ -174,7 +183,8 @@ export function cashFromRows(
     openingFloatCents,
     cashInCents,
     walletCashTopUpsCount: cashTopUpsCount(rows.recargasEfectivo),
-    walletCashTopUpsCents: cashInCents,
+    walletCashTopUpsCents,
+    walletCashTopUpFeesCents,
     walletCashPayoutsCount: walletCash.length,
     walletCashPayoutsCents,
     chicaCashPayoutsCount: chicaCash.length,

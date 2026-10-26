@@ -424,3 +424,31 @@ describe('avisos del saldo: «Saldos» (nunca «Wallets») y el código con guio
     }
   });
 });
+
+describe('resumen de las 9:00 con la «Comisión del servicio»', () => {
+  // 33 € + 3,30 € + 2 € con tarjeta; recarga en efectivo 50 € + 6 €; nada devuelto.
+  const s: ExportSummary = {
+    count: 1, grossCents: 3300, tipsCents: 200, chargedCents: 3300 + 200 + 5000 + 930, refundsCount: 0, refundsCents: 0,
+    netCents: 3300 + 200 + 5000 + 930,
+    walletCardTopUpsCount: 0, walletCardTopUpsCents: 0, walletCashTopUpsCount: 1, walletCashTopUpsCents: 5000,
+    serviceFeeCents: 930, serviceFeeCashCents: 600, serviceFeeRefundedCents: 0, serviceFeeNetCents: 930,
+    byType: [], chicaCommissionCents: 2970, chicaTipsCents: 200, chicaReversalsCents: 0, chicaNetCents: 3170,
+    venueTipsCents: 0, venueNetCents: 3300 + 200 + 5000 + 930 - 3170 - 930, payoutsCount: 0, payoutsCents: 0, perChica: [],
+    walletCashPayoutsCount: 0, walletCashPayoutsCents: 0, walletCardPayoutsCount: 0, walletCardPayoutsCents: 0,
+    consumptionsCount: 0, consumptionsCents: 0, saldoByType: [],
+  };
+
+  it('lo cobrado la desglosa, la tarjeta la incluye y se dice lo que se debe a OxioPay (aparte de lo del local)', () => {
+    const text = morningSummaryMessage('Sala Aurora', s, 0);
+    expect(text).toContain('Cobrado: 94,30 € (33,00 € de ventas + 2,00 € de propinas + 50,00 € de recargas + 9,30 € de comisión del servicio)');
+    expect(text).toContain('Con tarjeta: 1 pago · 38,30 €');
+    expect(text).toContain('Comisión del servicio: 9,30 € (se debe a OxioPay; 6,00 € en la caja)');
+    expect(text).toContain('Para las chicas: 31,70 € · neto sin el personal ni OxioPay: 53,30 €');
+  });
+
+  it('sin ella, el de siempre', () => {
+    const plain = { ...s, serviceFeeCents: 0, serviceFeeCashCents: 0, serviceFeeNetCents: 0 };
+    expect(morningSummaryMessage('Sala Aurora', plain, 0)).not.toContain('omisión del servicio');
+    expect(morningSummaryMessage('Sala Aurora', plain, 0)).toContain('neto sin el personal:');
+  });
+});

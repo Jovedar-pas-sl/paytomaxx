@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ServiceFeeBpsSchema } from './service-fee';
 import { RoleSchema } from './auth';
 import { UuidSchema } from './common';
 import {
@@ -188,6 +189,10 @@ export const OverviewVenueSchema = z.object({
   /** Incidencias abiertas (la bandeja del local, sin los avisos de copias). */
   openIncidents: z.number().int().nonnegative(),
   payoutHoldDays: z.number().int(),
+  /** «Comisión del servicio al cliente» encendida en el local. Opcional: API anterior. */
+  serviceFeeEnabled: z.boolean().optional(),
+  /** La comisión del servicio de hoy y los 7 días anteriores que se debe a OxioPay (cobrada − devuelta). */
+  serviceFeeWeekCents: z.number().int().optional(),
 });
 export type OverviewVenue = z.infer<typeof OverviewVenueSchema>;
 
@@ -203,6 +208,8 @@ export const OverviewTotalsSchema = z.object({
   openIncidents: z.number().int(),
   venues: z.number().int(),
   pausedVenues: z.number().int(),
+  /** «Comisión del servicio» de la semana que se debe a OxioPay. Opcional: API anterior. */
+  serviceFeeWeekCents: z.number().int().optional(),
 });
 export type OverviewTotals = z.infer<typeof OverviewTotalsSchema>;
 
@@ -252,6 +259,9 @@ const BusinessFields = {
   contactPhone: z.string().trim().max(40).nullable(),
   notes: z.string().max(4000).nullable(),
   defaultPlatformCommissionBps: BpsSchema.nullable(),
+  /** «Comisión del servicio» de sus locales nuevos (pagos con tarjeta / recargas). null = la de fábrica (10 %). */
+  defaultServiceFeeBps: ServiceFeeBpsSchema.nullable(),
+  defaultTopUpServiceFeeBps: ServiceFeeBpsSchema.nullable(),
 };
 
 export const CreateBusinessSchema = z.object({
@@ -262,6 +272,8 @@ export const CreateBusinessSchema = z.object({
   contactPhone: BusinessFields.contactPhone.optional(),
   notes: BusinessFields.notes.optional(),
   defaultPlatformCommissionBps: BusinessFields.defaultPlatformCommissionBps.optional(),
+  defaultServiceFeeBps: BusinessFields.defaultServiceFeeBps.optional(),
+  defaultTopUpServiceFeeBps: BusinessFields.defaultTopUpServiceFeeBps.optional(),
 });
 export type CreateBusinessDto = z.infer<typeof CreateBusinessSchema>;
 
@@ -311,6 +323,9 @@ export const BusinessViewSchema = z.object({
   pausedAt: IsoDate.nullable(),
   pausedReason: z.string().nullable(),
   defaultPlatformCommissionBps: z.number().int().nullable(),
+  /** «Comisión del servicio» por defecto de sus locales nuevos (null = la de fábrica). Opcional: API anterior. */
+  defaultServiceFeeBps: z.number().int().nullable().optional(),
+  defaultTopUpServiceFeeBps: z.number().int().nullable().optional(),
   venueCount: z.number().int().nonnegative(),
   createdAt: IsoDate,
   updatedAt: IsoDate,
@@ -391,17 +406,21 @@ export function venueCreateNeedsStepUp(dto: Pick<CreateVenueDto, 'walletGroup' |
   return Boolean(dto.walletGroup) || dto.platformCommissionBps !== undefined;
 }
 
-/** Alta de negocio con comisión por defecto propia (sin ella, sus locales llevan la general). */
-export function businessCreateNeedsStepUp(dto: Pick<CreateBusinessDto, 'defaultPlatformCommissionBps'>): boolean {
-  return dto.defaultPlatformCommissionBps !== undefined && dto.defaultPlatformCommissionBps !== null;
+/** Lo del negocio que es dinero (sus comisiones por defecto): ponerlo o cambiarlo pide 2FA. */
+const BUSINESS_MONEY_FIELDS = ['defaultPlatformCommissionBps', 'defaultServiceFeeBps', 'defaultTopUpServiceFeeBps'] as const;
+type BusinessMoneyField = (typeof BUSINESS_MONEY_FIELDS)[number];
+
+/** Alta de negocio con comisión por defecto propia (la de la plataforma o la del servicio). */
+export function businessCreateNeedsStepUp(dto: Partial<Pick<CreateBusinessDto, BusinessMoneyField>>): boolean {
+  return BUSINESS_MONEY_FIELDS.some((k) => dto[k] !== undefined && dto[k] !== null);
 }
 
-/** Cambiar la comisión por defecto del negocio (a otro valor); reenviar la misma, no. */
+/** Cambiar una comisión por defecto del negocio (a otro valor); reenviar la misma, no. */
 export function businessUpdateNeedsStepUp(
-  dto: Pick<UpdateBusinessDto, 'defaultPlatformCommissionBps'>,
-  current: { defaultPlatformCommissionBps: number | null },
+  dto: Partial<Pick<UpdateBusinessDto, BusinessMoneyField>>,
+  current: { defaultPlatformCommissionBps: number | null } & Partial<Record<Exclude<BusinessMoneyField, 'defaultPlatformCommissionBps'>, number | null>>,
 ): boolean {
-  return dto.defaultPlatformCommissionBps !== undefined && dto.defaultPlatformCommissionBps !== current.defaultPlatformCommissionBps;
+  return BUSINESS_MONEY_FIELDS.some((k) => dto[k] !== undefined && dto[k] !== (current[k] ?? null));
 }
 
 /**
@@ -419,6 +438,14 @@ export const UpdateVenueRulesSchema = z
     payoutHoldDays: z.number().int().min(0).max(MAX_VENUE_PAYOUT_HOLD_DAYS).nullable().optional(),
     refundApprovalThresholdCents: z.number().int().min(0).max(MAX_OPERATOR_COBRO_CENTS).optional(),
     payoutRequiresApproval: z.boolean().optional(),
+    /**
+     * «Comisión del servicio al cliente» (service-fee.ts): el interruptor
+     * (apagado de fábrica; encendido, el cliente paga encima y el local deja
+     * de pagar el % antiguo) y los dos %, de 0 a 12 %.
+     */
+    serviceFeeEnabled: z.boolean().optional(),
+    serviceFeeBps: ServiceFeeBpsSchema.optional(),
+    topUpServiceFeeBps: ServiceFeeBpsSchema.optional(),
     totpCode: SuperAdminTotpCodeSchema,
   })
   .refine((v) => Object.entries(v).some(([k, x]) => k !== 'totpCode' && x !== undefined), 'No hay nada que cambiar');
@@ -445,6 +472,10 @@ export const VenueRulesSchema = z.object({
   effectivePayoutHoldDays: z.number().int(),
   refundApprovalThresholdCents: z.number().int(),
   payoutRequiresApproval: z.boolean(),
+  /** «Comisión del servicio al cliente»: el interruptor y los dos %. Opcional: API anterior (apagada). */
+  serviceFeeEnabled: z.boolean().optional(),
+  serviceFeeBps: z.number().int().optional(),
+  topUpServiceFeeBps: z.number().int().optional(),
 });
 export type VenueRules = z.infer<typeof VenueRulesSchema>;
 

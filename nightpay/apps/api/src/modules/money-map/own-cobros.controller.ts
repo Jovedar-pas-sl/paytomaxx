@@ -29,7 +29,7 @@ export class OwnCobrosController {
       nextCursor: page.nextCursor,
       items: page.items.map((r) => ({
         kind: r.kind, id: r.id, ref: r.ref, createdAt: r.createdAt, amountCents: r.amountCents,
-        tipCents: r.tipCents, status: r.status, methodLabel: r.methodLabel, via: r.via ?? null,
+        tipCents: r.tipCents, serviceFeeCents: r.serviceFeeCents ?? 0, status: r.status, methodLabel: r.methodLabel, via: r.via ?? null,
         service: r.service, isTopUp: r.isTopUp, invitedName: r.invited?.name ?? null, refundedCents: ownRefundedCents(r),
       })),
       ...(night ? { night: { from: night.from.toISOString(), open: night.open } } : {}),

@@ -103,7 +103,7 @@ describe('refundServiceFeePart (lo devuelto de la comisión, en proporción)', (
 });
 
 /** Intl separa la cifra y el € con un espacio duro (U+00A0). */
-const sp = (s: string): string => s.replace(/ /g, ' ');
+const sp = (s: string): string => s.replace(/\u00a0/g, ' ');
 
 describe('textos', () => {
   it('se llama «Comisión del servicio»', () => {
@@ -121,5 +121,18 @@ describe('textos', () => {
   it('recepción: «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)»', () => {
     expect(sp(topUpChargeText(5000, 600))).toBe('Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)');
     expect(sp(topUpChargeText(5000, 0))).toBe('Cobra 50 €');
+  });
+});
+
+describe('lo devuelto de un cobro en el historial del personal', () => {
+  const pay = (availableAmountCents: number) => ({ availableAmountCents }) as never;
+  it('un pago directo devuelve también su comisión; una recarga, no', async () => {
+    const { ownRefundedCents } = await import('@nightpay/contracts');
+    // 33 + 3,30 + 2 = 38,30 €, quedan 19,15 € por devolver → devueltos 19,15 €.
+    expect(ownRefundedCents({ status: 'PARTIALLY_REFUNDED', amountCents: 3300, tipCents: 200, serviceFeeCents: 330, payment: pay(1915) })).toBe(1915);
+    // Recarga de 50 € (+6 € de comisión, no devolvible): quedan 30 € → devueltos 20 €.
+    expect(ownRefundedCents({ status: 'PARTIALLY_REFUNDED', amountCents: 5000, tipCents: 0, serviceFeeCents: 600, isTopUp: true, payment: pay(3000) })).toBe(2000);
+    // Sin comisión, como siempre.
+    expect(ownRefundedCents({ status: 'REFUNDED', amountCents: 3300, tipCents: 200, payment: pay(0) })).toBe(3500);
   });
 });

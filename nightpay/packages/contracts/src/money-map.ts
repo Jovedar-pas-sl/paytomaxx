@@ -50,6 +50,13 @@ export interface MoneyMapInflow {
   saldoCents: number;
   /** Recargas del saldo: dinero del cliente aún sin gastar, no es venta. */
   topUps: { totalCents: number; cardCents: number; cashCents: number; count: number };
+  /**
+   * «Comisión del servicio» que pagaron los clientes encima (pagos directos y
+   * recargas, con tarjeta y en efectivo): entra con el resto, pero se debe a
+   * OxioPay (serviceFee). No es venta. Los mapas congelados antes del
+   * 2026-10-26 no lo traen.
+   */
+  serviceFeeCents?: number;
 }
 
 /** 2 · Una sección (o MONEY_MAP_TIPS para las propinas, o EXTRA para los cobros antiguos). */
@@ -72,7 +79,10 @@ export interface MoneyMapSplit {
 }
 
 export interface MoneyMapCommissions {
-  /** OxioPay: su % sobre lo vendido (sin propinas). */
+  /**
+   * OxioPay: su % antiguo sobre lo vendido (sin propinas). Con la «Comisión
+   * del servicio» encendida, 0 en esas ventas (la paga el cliente: serviceFee).
+   */
   platformCents: number;
   /** El banco, con la tasa configurada (BANK_CARD_FEE_BPS); null = no se sabe: sale en el extracto de BBVA. */
   bankCents: number | null;
@@ -92,7 +102,13 @@ export interface MoneyMapWhere {
    * aún sin pagar, el saldo vivo que dejó el periodo (recargas − consumos −
    * saldo devuelto) y el resto, tuyo.
    */
-  owners: { venueCents: number; staffCents: number; saldoCents: number };
+  owners: {
+    venueCents: number;
+    staffCents: number;
+    saldoCents: number;
+    /** La «Comisión del servicio» de este periodo que se debe a OxioPay. Mapas de antes: sin el campo. */
+    oxioPayCents?: number;
+  };
   /** Saldo vivo de los clientes del local ahora (o al cerrar); null si no se sabe (periodo pasado). */
   liveSaldoCents: number | null;
   /** Lo que se debe al personal ahora (o al cerrar), de esta noche y de antes; null si no se sabe. */
@@ -115,6 +131,26 @@ export interface MoneyMapOutflow {
   pendingStaff: { chicasCents: number; camarerosCents: number };
   refunds: { cardCents: number; cardCount: number; cashCents: number; cashCount: number };
   commissionsCents: number;
+  /** La «Comisión del servicio» que se debe a OxioPay: sale al liquidársela. Mapas de antes: sin el campo. */
+  serviceFeeCents?: number;
+}
+
+/**
+ * «Comisión del servicio» del periodo (service-fee.ts): la pagó el cliente
+ * encima del precio, entra entera al local (su banco o su caja) y se debe a
+ * OxioPay.
+ */
+export interface MoneyMapServiceFee {
+  /** De los pagos directos con tarjeta, Apple Pay / Google Pay o datáfono. */
+  salesCents: number;
+  /** De las recargas del saldo (con tarjeta y en efectivo). */
+  topUpsCents: number;
+  /** …de ellas, en efectivo: está en la caja. */
+  cashCents: number;
+  /** Devuelta al cliente con las devoluciones del periodo. */
+  refundedCents: number;
+  /** Lo que se debe a OxioPay: la cobrada − la devuelta. */
+  owedCents: number;
 }
 
 export interface MoneyMap {
@@ -133,6 +169,8 @@ export interface MoneyMap {
   split: MoneyMapSplit;
   where: MoneyMapWhere;
   outflow: MoneyMapOutflow;
+  /** «Comisión del servicio» (se debe a OxioPay). Los mapas congelados antes del 2026-10-26 no la traen. */
+  serviceFee?: MoneyMapServiceFee;
 }
 
 /** % de lo vendido que se queda el local (para el anillo), de 0 a 100. */

@@ -42,6 +42,8 @@ export interface PaymentFeedRow {
   updatedAt: Date;
   amountCents: number;
   tipCents: number;
+  /** «Comisión del servicio» del cobro (sin el campo: 0). */
+  serviceFeeCents?: number;
   availableAmountCents: number;
   currency: string;
   status: string;
@@ -171,6 +173,7 @@ export function paymentCobroRow(p: PaymentFeedRow): CobroRow {
     createdAt: p.createdAt.toISOString(),
     amountCents: p.amountCents,
     tipCents: p.tipCents,
+    serviceFeeCents: p.serviceFeeCents ?? 0,
     currency: p.currency,
     status: p.status,
     person: personOf(p.createdBy),

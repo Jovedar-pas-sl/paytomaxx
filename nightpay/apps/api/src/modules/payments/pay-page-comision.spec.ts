@@ -8,7 +8,7 @@ import { renderChoosePage, renderPaidPage, renderReceiptPage } from './public-pa
  * justificante con su línea. Sin comisión, la página de siempre.
  */
 
-const sp = (s: string): string => s.replace(/ /g, ' ');
+const sp = (s: string): string => s.replace(/\u00a0/g, ' ');
 
 function payable(extra: Partial<PayablePayment> = {}): PayablePayment {
   return {
