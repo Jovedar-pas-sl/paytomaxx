@@ -40,6 +40,7 @@ import {
 import { PAYEE_ROLES, type PayeeRole } from './payee-roles';
 import { venueHoldDays } from './venue-hold-days';
 import { payoutRoutingChanges, touchesPayoutAccount } from './payout-routing';
+import { isRecordNotFound, selfOnboardingAlreadySaved, usedTokenMarker } from './self-onboarding-token';
 import type {
   CreateOperatorDto,
   CreateOperatorResponse,
@@ -55,6 +56,7 @@ import type {
   SelfOnboardingSubmitDto,
   UpdateOperatorDto,
 } from '@nightpay/contracts';
+import { normalizeWireDetails } from '@nightpay/contracts';
 
 const INVITE_TTL_HOURS = 24;
 const SELF_ONBOARDING_TTL_HOURS = 72;
@@ -810,12 +812,14 @@ export class OperatorsService {
    *
    * Antes el token quedaba activo 72h reutilizable — vector: link interceptado
    * permitía a un atacante cambiar payoutAddress hasta 72h. Ahora single-use.
+   * El token usado queda marcado (self-onboarding-token.ts): el mismo enlace
+   * otra vez da 409 «ya se guardaron tus datos», no «Token inválido».
    */
   async submitSelfOnboarding(
     token: string,
     dto: SelfOnboardingSubmitDto,
   ): Promise<{ ok: true; payoutIgnored?: 'existing' | 'owner_required' }> {
-    const { operator, payoutAllowed } = await this.validateSelfOnboardingToken(token);
+    const { operator, payoutAllowed, decoded, tokenHash } = await this.validateSelfOnboardingToken(token);
 
     const data: Record<string, unknown> = {};
     if (dto.phone !== undefined) data.phone = dto.phone;
@@ -851,6 +855,9 @@ export class OperatorsService {
     } else {
       Object.assign(data, payoutRoutingChanges(existing, dto));
       if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
+      // Transferencia internacional: los datos del banco (los otros métodos no llevan).
+      const wire = dto.payoutMethod === 'WIRE_INTERNATIONAL' ? normalizeWireDetails(dto.payoutMetadata) : null;
+      if (wire) data.payoutMetadata = wire;
     }
 
     // Marca progreso de onboarding automáticamente si todavía está NEW
@@ -859,12 +866,21 @@ export class OperatorsService {
       data.onboardingStatus = 'INVITE_ACTIVATED';
     }
 
-    // Single-use: invalidamos el token tras submit. La chica pide al admin un
-    // link nuevo si quiere volver a editar.
-    data.selfOnboardingToken = null;
+    // Un solo uso: el enlace queda «usado» (ya no deja guardar ni leer; un
+    // reintento con la respuesta perdida sabe que ya se guardó). La chica pide
+    // al admin un enlace nuevo si quiere volver a editar. Solo si sigue siendo
+    // el activo: dos «Guardar» a la vez no guardan dos veces.
+    data.selfOnboardingToken = usedTokenMarker(tokenHash);
 
     // Ruta pública (sin local en el contexto): como la lectura del token, con asSystem.
-    await this.prisma.asSystem((tx) => tx.user.update({ where: { id: operator.id }, data }));
+    try {
+      await this.prisma.asSystem((tx) =>
+        tx.user.update({ where: { id: operator.id, selfOnboardingToken: tokenHash }, data }),
+      );
+    } catch (err) {
+      if (isRecordNotFound(err)) throw await this.goneSelfOnboardingToken(decoded, tokenHash);
+      throw err;
+    }
 
     await this.audit.log({
       action: 'operator.self_onboarding.submitted',
@@ -882,6 +898,7 @@ export class OperatorsService {
                 method: dto.payoutMethod ?? null,
                 address: dto.payoutAddress ?? null,
                 label: dto.payoutLabel ?? null,
+                ...(dto.payoutMetadata ? { metadata: dto.payoutMetadata } : {}),
               },
             }
           : {}),
@@ -919,11 +936,29 @@ export class OperatorsService {
         },
       }),
     );
-    if (!operator) {
-      throw new UnauthorizedException('Token inválido o ya rotado');
-    }
+    if (!operator) throw await this.goneSelfOnboardingToken(decoded, tokenHash);
     // Enlaces de antes (sin el dato) cuentan como de encargado.
-    return { operator, payoutAllowed: decoded.payout === true };
+    return { operator, payoutAllowed: decoded.payout === true, decoded, tokenHash };
+  }
+
+  /**
+   * El enlace (bien firmado y sin caducar) ya no es el activo: si se usó para
+   * guardar, 409 «ya se guardaron tus datos»; si no (el admin hizo otro), 401.
+   */
+  private async goneSelfOnboardingToken(decoded: SelfOnboardingJwtPayload, tokenHash: string): Promise<Error> {
+    const used = await this.prisma.asSystem((tx) =>
+      tx.user.findFirst({
+        where: {
+          id: decoded.sub,
+          tenantId: decoded.tenantId,
+          role: 'OPERATOR',
+          selfOnboardingToken: usedTokenMarker(tokenHash),
+          deletedAt: null,
+        },
+        select: { id: true },
+      }),
+    );
+    return used ? selfOnboardingAlreadySaved() : new UnauthorizedException('Token inválido o ya rotado');
   }
 
   /**

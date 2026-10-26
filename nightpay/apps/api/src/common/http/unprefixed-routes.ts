@@ -34,6 +34,7 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 's/:token', method: RequestMethod.GET },
   { path: 's/:token/challenge', method: RequestMethod.POST },
   { path: 's/:token/pay', method: RequestMethod.POST },
+  { path: 's/:token/state', method: RequestMethod.GET },
   // Saldo: página del cliente y sus acciones.
   { path: 'w/:token', method: RequestMethod.GET },
   { path: 'w/:token/state', method: RequestMethod.GET },

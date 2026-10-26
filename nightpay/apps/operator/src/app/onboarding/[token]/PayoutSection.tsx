@@ -3,12 +3,10 @@
 import { useId, type CSSProperties } from 'react';
 import { Input, Select } from '@nightpay/ui';
 import type { PayoutMethod } from '@/lib/api';
-import {
-  needsPayoutConfirmation,
-  payoutAddressProblem,
-  payoutChanged,
-  type SavedPayout,
-} from '@/lib/payout-address';
+import { needsPayoutConfirmation, type SavedPayout } from '@/lib/payout-address';
+import { PAYOUT_HINTS, needsAddress, payoutFieldProblems, type PayoutValues } from './onboarding-payout';
+
+export type { PayoutValues } from './onboarding-payout';
 
 const PAYOUT_METHOD_LABELS: Record<PayoutMethod, string> = {
   USDT_TRC20: 'USDT en red Tron (recomendado, ~0.5€)',
@@ -32,14 +30,6 @@ const PAYOUT_METHOD_LABELS: Record<PayoutMethod, string> = {
   MANUAL_CASH: 'Efectivo en mano',
 };
 
-export interface PayoutValues {
-  method: PayoutMethod | '';
-  address: string;
-  /** La dirección otra vez, si es nueva (una letra mal puesta manda el dinero a otro sitio). */
-  confirm: string;
-  label: string;
-}
-
 interface Props {
   values: PayoutValues;
   onChange: (next: PayoutValues) => void;
@@ -50,13 +40,19 @@ interface Props {
   disabled: boolean;
 }
 
-/** "Cómo quieres cobrar": método, dirección (comprobada según el método) y etiqueta. */
+/**
+ * "Cómo quieres cobrar": método, dirección (comprobada según el método, con
+ * las mismas reglas que el API) y etiqueta; en la transferencia internacional,
+ * además, el banco, su SWIFT/BIC, el país y el titular.
+ */
 export function PayoutSection({ values, onChange, saved, showErrors, disabled }: Props) {
   const methodId = useId();
   const set = (patch: Partial<PayoutValues>) => onChange({ ...values, ...patch });
-  const changed = payoutChanged(values.method, values.address, saved);
-  const addressProblem = showErrors && changed ? payoutAddressProblem(values.method, values.address) : null;
-  const mustConfirm = needsPayoutConfirmation(values.method, values.address, saved.address);
+  const problems = showErrors ? payoutFieldProblems(values, saved) : {};
+  const method = values.method;
+  const withAddress = needsAddress(method);
+  const mustConfirm = withAddress && method !== '' && needsPayoutConfirmation(method, values.address, saved.address);
+  const hint = method ? PAYOUT_HINTS[method] : null;
 
   return (
     <section>
@@ -70,7 +66,7 @@ export function PayoutSection({ values, onChange, saved, showErrors, disabled }:
         </label>
         <Select
           id={methodId}
-          value={values.method}
+          value={method}
           onChange={(e) => set({ method: e.target.value as PayoutMethod | '' })}
           disabled={disabled}
         >
@@ -81,22 +77,26 @@ export function PayoutSection({ values, onChange, saved, showErrors, disabled }:
             </option>
           ))}
         </Select>
+        {method === 'MANUAL_CASH' && hint ? <p style={hintStyle}>{hint.hint}</p> : null}
       </div>
-      {values.method ? (
+      {method ? (
         <>
-          <div style={{ marginTop: '0.75rem' }}>
-            <Input
-              label="Dirección / IBAN / Email / Teléfono según método"
-              value={values.address}
-              onChange={(e) => set({ address: e.target.value })}
-              placeholder="TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV"
-              autoComplete="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              error={addressProblem ?? undefined}
-              disabled={disabled}
-            />
-          </div>
+          {withAddress && hint ? (
+            <div style={{ marginTop: '0.75rem' }}>
+              <Input
+                label="Dirección / IBAN / Email / Teléfono según método"
+                value={values.address}
+                onChange={(e) => set({ address: e.target.value })}
+                placeholder={hint.placeholder}
+                hint={hint.hint}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                error={problems.address}
+                disabled={disabled}
+              />
+            </div>
+          ) : null}
           {mustConfirm ? (
             <div style={{ marginTop: '0.75rem' }}>
               <Input
@@ -107,9 +107,13 @@ export function PayoutSection({ values, onChange, saved, showErrors, disabled }:
                 autoCapitalize="none"
                 spellCheck={false}
                 hint="Tiene que ser exactamente la misma: si hay una letra mal, el dinero no te llega."
+                error={problems.confirm}
                 disabled={disabled}
               />
             </div>
+          ) : null}
+          {method === 'WIRE_INTERNATIONAL' ? (
+            <WireFields values={values} set={set} problems={problems} disabled={disabled} />
           ) : null}
           <div style={{ marginTop: '0.75rem' }}>
             <Input
@@ -123,6 +127,67 @@ export function PayoutSection({ values, onChange, saved, showErrors, disabled }:
         </>
       ) : null}
     </section>
+  );
+}
+
+/** Transferencia internacional: sin estos datos el dueño no puede pagarle. */
+function WireFields({
+  values,
+  set,
+  problems,
+  disabled,
+}: {
+  values: PayoutValues;
+  set: (patch: Partial<PayoutValues>) => void;
+  problems: ReturnType<typeof payoutFieldProblems>;
+  disabled: boolean;
+}) {
+  return (
+    <>
+      <div style={{ marginTop: '0.75rem' }}>
+        <Input
+          label="Banco"
+          value={values.bankName}
+          onChange={(e) => set({ bankName: e.target.value })}
+          placeholder="TBC Bank"
+          error={problems.bankName}
+          disabled={disabled}
+        />
+      </div>
+      <div style={{ marginTop: '0.75rem' }}>
+        <Input
+          label="SWIFT/BIC del banco"
+          value={values.swiftBic}
+          onChange={(e) => set({ swiftBic: e.target.value })}
+          placeholder="TBCBGE22"
+          hint="8 u 11 letras y números: te lo da tu banco."
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          error={problems.swiftBic}
+          disabled={disabled}
+        />
+      </div>
+      <div style={{ marginTop: '0.75rem' }}>
+        <Input
+          label="País del banco (opcional)"
+          value={values.country}
+          onChange={(e) => set({ country: e.target.value })}
+          placeholder="Georgia"
+          disabled={disabled}
+        />
+      </div>
+      <div style={{ marginTop: '0.75rem' }}>
+        <Input
+          label="Titular de la cuenta"
+          value={values.accountHolder}
+          onChange={(e) => set({ accountHolder: e.target.value })}
+          placeholder="Nombre y apellidos como en el banco"
+          error={problems.accountHolder}
+          disabled={disabled}
+        />
+      </div>
+    </>
   );
 }
 

@@ -806,6 +806,118 @@ describe('devolver el saldo al cliente que se va', () => {
       expect(payoutMock.create).not.toHaveBeenCalled();
     });
   });
+
+  describe('lo que se devolvería, antes de confirmar (el panel enseña esas cifras, no el saldo entero)', () => {
+    const pendingCard = (amountCents: number, claimedAt = new Date()): PayoutRow => ({
+      id: 'po-1',
+      walletId: 'w-1',
+      amountCents,
+      status: 'PENDING',
+      method: 'CARD',
+      claimedAt,
+      createdAt: new Date(),
+      bankReference: null,
+    });
+
+    it('300 € de saldo con 100 € en efectivo: 100 € en efectivo ahora y 200 € a la tarjeta; no apunta nada', async () => {
+      const { svc, state, payoutMock, tx } = payoutService({ cashIn: 10_000 });
+      await expect(svc.payoutPreview(manager, 'w-1')).resolves.toEqual({
+        balanceCents: 30_000,
+        cashOutCents: 10_000,
+        cardRefundCents: 20_000,
+        cashLaterCents: 0,
+        pendingCardCents: null,
+      });
+      expect(payoutMock.create).not.toHaveBeenCalled();
+      expect(tx.clientWallet.update).not.toHaveBeenCalled();
+      expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
+    });
+
+    it('todo con tarjeta: nada en efectivo; todo en efectivo: nada a la tarjeta', async () => {
+      await expect(payoutService().svc.payoutPreview(owner, 'w-1')).resolves.toMatchObject({ cashOutCents: 0, cardRefundCents: 30_000 });
+      await expect(payoutService({ cashIn: 30_000 }).svc.payoutPreview(owner, 'w-1')).resolves.toMatchObject({
+        cashOutCents: 30_000,
+        cardRefundCents: 0,
+        cashLaterCents: 0,
+      });
+    });
+
+    it('el tope de 1.000 € en 24 h: lo que hoy no sale en efectivo queda para más tarde (en efectivo, no a la tarjeta)', async () => {
+      const big = payoutService({ wallet: { balanceCents: 150_000 }, cashIn: 150_000 });
+      await expect(big.svc.payoutPreview(owner, 'w-1')).resolves.toMatchObject({
+        cashOutCents: 99_999,
+        cardRefundCents: 0,
+        cashLaterCents: 50_001,
+      });
+    });
+
+    it('con una devolución a la tarjeta a medias: en efectivo nada y «A la tarjeta» termina la que quedó', async () => {
+      const { svc } = payoutService({ cashIn: 30_000, payouts: [pendingCard(5_000)] });
+      await expect(svc.payoutPreview(owner, 'w-1')).resolves.toMatchObject({
+        cashOutCents: 0,
+        cardRefundCents: 5_000,
+        cashLaterCents: 0,
+        pendingCardCents: 5_000,
+      });
+    });
+
+    it('un saldo cerrado no tiene nada que devolver', async () => {
+      const { svc } = payoutService({ wallet: { balanceCents: 0, status: 'REFUNDED' }, cashIn: 30_000 });
+      await expect(svc.payoutPreview(owner, 'w-1')).resolves.toEqual({
+        balanceCents: 0,
+        cashOutCents: 0,
+        cardRefundCents: 0,
+        cashLaterCents: 0,
+        pendingCardCents: null,
+      });
+    });
+
+    it('solo el encargado o el dueño, y de un saldo de su grupo de locales', async () => {
+      await expect(payoutService().svc.payoutPreview(chica, 'w-1')).rejects.toThrow(ForbiddenException);
+      const other = makeService({ venueGroup: 'otro-grupo' });
+      await expect(other.svc.payoutPreview({ ...owner, tenantId: 'other' }, 'w-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('con la cifra que vio el panel: si en efectivo ya es otra, 409 PAYOUT_AMOUNT_CHANGED y no se toca nada', async () => {
+      const { svc, state, payoutMock } = payoutService({ cashIn: 10_000 });
+      const err = await svc.payout(owner, 'w-1', { method: 'CASH', expectedAmountCents: 30_000 }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({ code: 'PAYOUT_AMOUNT_CHANGED' });
+      expect(payoutMock.create).not.toHaveBeenCalled();
+      expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
+      await expect(svc.payout(owner, 'w-1', { method: 'CASH', expectedAmountCents: 10_000 })).resolves.toEqual({
+        refundedCents: 10_000,
+        method: 'CASH',
+        remainingCents: 20_000,
+      });
+    });
+
+    it('a la tarjeta igual: otra cifra → 409 sin devolución PENDING ni nada en el banco', async () => {
+      const { svc, state, refunds } = payoutService({ cashIn: 10_000 });
+      const err = await svc.payout(owner, 'w-1', { method: 'CARD', expectedAmountCents: 30_000 }).catch((e: unknown) => e);
+      expect((err as ConflictException).getResponse()).toMatchObject({ code: 'PAYOUT_AMOUNT_CHANGED' });
+      expect(state.payouts).toEqual([]);
+      expect(refunds.registerBankRefund).not.toHaveBeenCalled();
+      expect(state.wallet).toMatchObject({ balanceCents: 30_000 });
+      await expect(svc.payout(owner, 'w-1', { method: 'CARD', expectedAmountCents: 20_000 })).resolves.toEqual({
+        refundedCents: 20_000,
+        method: 'CARD',
+      });
+    });
+
+    it('retomar la devolución a la tarjeta que quedó a medias: la cifra es la de aquella', async () => {
+      const { svc, refunds } = payoutService({
+        payouts: [pendingCard(5_000, new Date(Date.now() - 10 * 60 * 1000))],
+        wallet: { balanceCents: 25_000 },
+      });
+      await expect(svc.payout(owner, 'w-1', { method: 'CARD', expectedAmountCents: 25_000 })).rejects.toThrow(ConflictException);
+      expect(refunds.registerBankRefund).not.toHaveBeenCalled();
+      await expect(svc.payout(owner, 'w-1', { method: 'CARD', expectedAmountCents: 5_000 })).resolves.toEqual({
+        refundedCents: 5_000,
+        method: 'CARD',
+      });
+    });
+  });
 });
 
 describe('consola del super-admin: local en pausa y saldo bloqueado', () => {

@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { RequestMethod } from '@nestjs/common';
+import { BadRequestException, RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
+import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PublicWalletController } from './public-wallet.controller';
-import { WalletChargesController } from './wallet-charges.controller';
+import { PayoutSchema, WalletChargesController } from './wallet-charges.controller';
 import { WalletChargesService } from './wallet-charges.service';
 import { AdminWalletsController, WalletsController } from './wallets.controller';
 import { WalletsService } from './wallets.service';
@@ -40,6 +41,19 @@ describe('rutas de saldos para el personal', () => {
     expect(routesOf(WalletsController)).toEqual(
       expect.arrayContaining(['GET public/:qrToken', 'POST :id/consumptions/:consumptionId/reverse', 'GET :id']),
     );
+  });
+
+  it('«Devolver saldo»: antes de confirmar, el encargado o el dueño ven lo que saldría; al confirmar mandan esa cifra', () => {
+    expect(routesOf(WalletChargesController)).toEqual(
+      expect.arrayContaining(['GET wallets/:id/payout-preview', 'POST wallets/:id/payout']),
+    );
+    expect(rolesOf(WalletChargesController, 'payoutPreview')).toEqual(['OWNER', 'MANAGER']);
+    const body = new ZodValidationPipe(PayoutSchema);
+    expect(body.transform({ method: 'CASH', expectedAmountCents: 3_000 })).toEqual({ method: 'CASH', expectedAmountCents: 3_000 });
+    // Los paneles de antes no la mandan: sigue valiendo.
+    expect(body.transform({ method: 'CARD' })).toEqual({ method: 'CARD' });
+    expect(() => body.transform({ method: 'CASH', expectedAmountCents: 0 })).toThrow(BadRequestException);
+    expect(() => body.transform({ method: 'CASH', expectedAmountCents: 12.5 })).toThrow(BadRequestException);
   });
 
   it('la devolución vieja del saldo (siempre fallaba y pisaba el saldo) ya no existe', () => {

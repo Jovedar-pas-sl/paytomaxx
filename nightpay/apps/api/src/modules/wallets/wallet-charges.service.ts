@@ -54,7 +54,14 @@ import {
   returnWalletCards,
   type CardBy,
 } from './wallet-card-ops';
-import { cardRefundCapCents, cashPayoutCapCents, cashPayoutRefusal, walletCash } from './wallet-cash-limits';
+import {
+  cardRefundCapCents,
+  cashPayoutCapCents,
+  cashPayoutRefusal,
+  payoutAmounts,
+  walletCash,
+  type PayoutAmounts,
+} from './wallet-cash-limits';
 import { firstTopUp, isFreshTopUpBy, type TopUpBy } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
 import {
@@ -94,6 +101,25 @@ export interface WalletPayoutResult {
   refundedCents: number;
   method: WalletPayoutMethod;
   remainingCents?: number;
+}
+
+/**
+ * Lo que haría «Devolver saldo» ahora, sin tocar nada (GET …/payout-preview):
+ * el panel enseña estas cifras antes de confirmar, no el saldo entero.
+ */
+export interface WalletPayoutPreview extends PayoutAmounts {
+  balanceCents: number;
+  /** Una devolución a la tarjeta que quedó a medias: «A la tarjeta» la termina (y en efectivo, nada hasta entonces). */
+  pendingCardCents: number | null;
+}
+
+/** Lo que se pide al devolver el saldo; expectedAmountCents: la cifra que vio el panel (si ya es otra, 409). */
+export interface WalletPayoutInput {
+  method: WalletPayoutMethod;
+  bankReference?: string;
+  note?: string;
+  totpCode?: string;
+  expectedAmountCents?: number;
 }
 
 export interface WalletLookup {
@@ -1939,11 +1965,35 @@ export class WalletChargesService {
     await this.checkPin(walletId, pin, actor);
   }
 
-  async payout(
-    actor: Actor,
-    walletId: string,
-    input: { method: WalletPayoutMethod; bankReference?: string; note?: string; totpCode?: string },
-  ): Promise<WalletPayoutResult> {
+  /**
+   * Lo que haría «Devolver saldo» ahora, sin tocar nada: en efectivo, lo que
+   * entró en efectivo sin llegar a 1.000 € en 24 h; a la tarjeta, el resto; y
+   * lo que hoy no puede salir en efectivo. El panel lo enseña antes de
+   * confirmar y lo manda de vuelta (expectedAmountCents): si al confirmar ya
+   * es otra cifra, 409 en vez de apuntar otra cosa.
+   */
+  async payoutPreview(actor: Actor, walletId: string): Promise<WalletPayoutPreview> {
+    if (!isManager(actor)) throw new ForbiddenException('Solo el encargado o el dueño');
+    const venue = await this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: { walletGroup: true } });
+    return this.prisma.acrossVenues(async (tx) => {
+      const w = await tx.clientWallet.findUnique({ where: { id: walletId } });
+      if (!w || !sameWalletGroup(w, { id: actor.tenantId, walletGroup: venue?.walletGroup ?? null })) {
+        throw new NotFoundException('Saldo no encontrado');
+      }
+      const balanceCents = w.status === 'ACTIVE' ? Math.max(0, w.balanceCents) : 0;
+      const pending = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+      if (pending) {
+        // payoutCash no paga nada hasta terminarla; «A la tarjeta» la retoma con su importe.
+        return { balanceCents, cashOutCents: 0, cardRefundCents: pending.amountCents, cashLaterCents: 0, pendingCardCents: pending.amountCents };
+      }
+      const amounts = balanceCents > 0
+        ? payoutAmounts(balanceCents, await walletCash(tx, walletId))
+        : { cashOutCents: 0, cardRefundCents: 0, cashLaterCents: 0 };
+      return { balanceCents, ...amounts, pendingCardCents: null };
+    });
+  }
+
+  async payout(actor: Actor, walletId: string, input: WalletPayoutInput): Promise<WalletPayoutResult> {
     if (input.method === 'CARD' && actor.role !== 'OWNER') {
       throw new ForbiddenException('La devolución a la tarjeta la registra el dueño (se hace en el portal de BBVA)');
     }
@@ -1984,7 +2034,7 @@ export class WalletChargesService {
   private async payoutCash(
     actor: Actor,
     walletId: string,
-    input: { bankReference?: string; note?: string; totpCode?: string },
+    input: Omit<WalletPayoutInput, 'method'>,
     thresholdCents: number | undefined,
     closeRequestedAt: Date | null = null,
   ): Promise<WalletPayoutResult> {
@@ -2002,6 +2052,7 @@ export class WalletChargesService {
       const cash = await walletCash(tx, walletId);
       const cap = cashPayoutCapCents(w.balanceCents, cash);
       if (cap <= 0) throw new ConflictException(cashPayoutRefusal(w.balanceCents, cash));
+      assertExpectedPayout(input.expectedAmountCents, cap);
       const fromReception = actor.role === 'MANAGER' && (await receptionAskedManager(tx, walletId, closeRequestedAt));
       if (fromReception) {
         await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, `Devolver ${eur(cap)} en efectivo: recepción lo dejó para el encargado,`);
@@ -2061,7 +2112,7 @@ export class WalletChargesService {
   private async payoutCard(
     actor: Actor,
     walletId: string,
-    input: { bankReference?: string; note?: string },
+    input: Omit<WalletPayoutInput, 'method'>,
   ): Promise<WalletPayoutResult> {
     const pending = await this.claimCardPayout(actor, walletId, input);
     let outcome = { refunded: 0, remaining: pending.amountCents };
@@ -2102,7 +2153,7 @@ export class WalletChargesService {
   private async claimCardPayout(
     actor: Actor,
     walletId: string,
-    input: { bankReference?: string; note?: string },
+    input: Omit<WalletPayoutInput, 'method'>,
   ): Promise<{ id: string; amountCents: number; createdAt: Date; bankReference: string | null; resumed: boolean }> {
     return this.prisma.acrossVenues(async (tx) => {
       const w = await lockWallet(tx, walletId);
@@ -2112,6 +2163,7 @@ export class WalletChargesService {
         if (open.claimedAt && Date.now() - open.claimedAt.getTime() < PAYOUT_CLAIM_MS) {
           throw new ConflictException('Ya se está apuntando la devolución de este saldo: espera un momento');
         }
+        assertExpectedPayout(input.expectedAmountCents, open.amountCents);
         // Se quedó a medias (el proceso se cayó): se retoma con lo que ya se apuntó.
         await tx.walletPayout.update({ where: { id: open.id }, data: { claimedAt: new Date() } });
         this.logger.warn(`Saldo ${walletId}: se retoma la devolución a la tarjeta ${open.id} que quedó a medias`);
@@ -2123,6 +2175,7 @@ export class WalletChargesService {
       if (amount <= 0) {
         throw new ConflictException('Este saldo entró en efectivo: se devuelve en efectivo, no a la tarjeta');
       }
+      assertExpectedPayout(input.expectedAmountCents, amount);
       await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: w.balanceCents - amount } });
       const created = await tx.walletPayout.create({
         data: {
@@ -2369,6 +2422,19 @@ async function registeredSince(tx: RawTx, walletId: string, since: Date): Promis
 }
 
 /** Encargado o dueño del local. */
+/**
+ * La cifra que vio el panel (expectedAmountCents) tiene que ser la que se va a
+ * apuntar: si el saldo se movió entre medias, 409 y no se toca nada. Sin ella
+ * (paneles de antes), como siempre.
+ */
+function assertExpectedPayout(expectedCents: number | undefined, amountCents: number): void {
+  if (expectedCents === undefined || expectedCents === amountCents) return;
+  throw new ConflictException({
+    message: `Lo que se devuelve ahora es ${eur(amountCents)}, no ${eur(expectedCents)} (el saldo ha cambiado): mira la cifra nueva y confirma otra vez`,
+    code: 'PAYOUT_AMOUNT_CHANGED',
+  });
+}
+
 function isManager(actor: { role: Role }): boolean {
   return actor.role === 'MANAGER' || actor.role === 'OWNER';
 }

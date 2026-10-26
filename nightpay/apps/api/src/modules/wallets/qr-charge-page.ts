@@ -32,6 +32,10 @@ const TEXT: Record<
     askStaff: string;
     unsupported: string;
     unknown: string;
+    /** Mientras pregunta al servidor si se cobró. */
+    checking: string;
+    /** El servidor dice que sigue pendiente: se puede volver a pagar. */
+    stillPending: string;
     reload: string;
     expiresIn: string;
     other: { code: PayLanguage; label: string };
@@ -50,6 +54,8 @@ const TEXT: Record<
     askStaff: 'Pide al personal que lo repita.',
     unsupported: 'Tu móvil no puede pagar así: di tu código al personal y teclea tu PIN en su móvil.',
     unknown: 'No sabemos si se ha cobrado. Vuelve a cargar la página antes de pagar otra vez.',
+    checking: 'Comprobando si se ha cobrado…',
+    stillPending: 'Este cobro sigue sin pagar: puedes volver a intentarlo.',
     reload: 'Volver a cargar',
     expiresIn: 'Caduca en',
     other: { code: 'en', label: 'English' },
@@ -67,6 +73,8 @@ const TEXT: Record<
     askStaff: 'Ask the staff to repeat it.',
     unsupported: 'Your phone cannot pay this way: tell the staff your code and type your PIN on their phone.',
     unknown: 'We do not know whether it was charged. Reload the page before paying again.',
+    checking: 'Checking whether it was charged…',
+    stillPending: 'This charge is still unpaid: you can try again.',
     reload: 'Reload',
     expiresIn: 'Expires in',
     other: { code: 'es', label: 'Español' },
@@ -85,15 +93,20 @@ const QR_CSS = `
 
 /**
  * Qué se enseña si el pago con el saldo falla (`e` es el error de pkPost):
- *  - 'unknown': sin respuesta o fallo del servidor (5xx). El cobro pudo hacerse
- *    y fallar después (p. ej. al leer el saldo que queda): no se sabe si se
- *    cobró. Ni «No se te ha cobrado nada» ni «Pagar» otra vez: recargar.
+ *  - 'unknown': sin respuesta, 408 o 429 (de un proxy, un reintento…) o fallo
+ *    del servidor (5xx). El cobro pudo hacerse y fallar después (p. ej. al leer
+ *    el saldo que queda): no se sabe si se cobró. Ni «No se te ha cobrado
+ *    nada» ni «Pagar» a ciegas: la página pregunta el estado (/state).
  *  - 'reload': 409 (ya no está pendiente, ya pagado, otro intento…): recargar
  *    enseña el estado real, sin el botón de pagar.
  *  - 'notCharged': otro 4xx: rechazado antes de cobrar (Face ID, pausa…).
  */
 export const PAY_FAIL_JS =
-  "function npPayFail(e){if(!e||!e.status||e.status>=500)return 'unknown';return e.status===409?'reload':'notCharged';}";
+  "function npPayFail(e){var s=e&&e.status;if(!s||s>=500||s===408||s===429)return 'unknown';return s===409?'reload':'notCharged';}";
+
+/** Veces que la página pregunta el estado tras un fallo que no se sabe si cobró, y la espera entre una y otra. */
+const STATE_TRIES = 3;
+const STATE_RETRY_MS = 1500;
 
 export function renderQrChargePage(
   token: string,
@@ -119,6 +132,8 @@ export function renderQrChargePage(
     text: { ...t, paid: paidScreenJsText(p), paidTitle: p.paidTitle, codeLabel: p.codeLabel, codeHint: p.codeHint },
     errors: clientErrorConfig(lang),
     view: publicView,
+    // La hora del servidor: la cuenta atrás corrige la del móvil (como /pay).
+    now: now.getTime(),
   });
   const who = [view.serviceName, view.requestedByName, view.venueName].filter(Boolean).join(' · ');
   // Ya pagado (alguien vuelve a abrir el QR): el «Pagado» en gris, sin formulario.
@@ -178,9 +193,10 @@ function eur(c){return npMoney(c,C.locale,'EUR');}
 function show(id,text){$(id).textContent=text;$(id).hidden=!text;}
 if(!el.hidden){npPaid(el,T.paid);return;}
 if(V.status!=='PENDING')return;
-var over=false,exp=new Date(V.expiresAt).getTime(),iv;
+// Un móvil con la hora mal no da el cobro por caducado antes de tiempo (ni después).
+var skew=(+C.now||Date.now())-Date.now(),over=false,exp=new Date(V.expiresAt).getTime(),iv;
 function stop(text){over=true;clearInterval(iv);$('pay').hidden=true;$('clock').textContent='';if(text)show('error',text);}
-function tick(){var s=Math.max(0,Math.floor((exp-Date.now())/1000));
+function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000));
  $('clock').textContent=over?'':T.expiresIn+' '+Math.floor(s/60)+':'+('0'+s%60).slice(-2);
  if(s<=0&&!over)stop(T.expired+'. '+T.askStaff);}
 if(!pkSupported()){stop(T.unsupported);return;}
@@ -196,14 +212,26 @@ function paid(r){stop('');$('ask').hidden=true;
   var hint=document.createElement('small');hint.textContent=T.codeHint;box.appendChild(lab);box.appendChild(val);box.appendChild(hint);
   el.insertBefore(box,el.querySelector('.pstale'));}
  el.hidden=false;window.scrollTo(0,0);npPaid(el,T.paid);}
+// No se sabe si se cobró: se pregunta el estado. Pendiente → se puede volver a
+// pagar; si no, recargar enseña lo que pasó; sin respuesta, «Volver a cargar».
+function lost(){show('error',T.unknown);$('reload').hidden=false;$('pay').hidden=true;}
+function check(n){
+ fetch(C.base+'/state',{cache:'no-store',headers:{Accept:'application/json'}})
+  .then(function(r){if(!r.ok)throw r;return r.json();})
+  .then(function(s){if(!s||!s.status)throw s;
+   if(s.status!=='PENDING'){location.reload();return;}
+   if(!over){show('error',T.stillPending);$('pay').hidden=false;}})
+  .catch(function(){if(n>1)setTimeout(function(){check(n-1);},${STATE_RETRY_MS});else lost();});
+}
 $('pay').addEventListener('click',function(){
  var b=$('pay');if(b.disabled)return;b.disabled=true;b.textContent=T.paying;show('error','');$('notCharged').hidden=true;$('reload').hidden=true;
  var k=go?go():pkGet(C.base+'/challenge');go=null;
  k.then(function(k){return pkPost(C.base+'/pay',{response:k});})
-  .then(paid)
+  // Un 200 sin lo cobrado (un proxy que contesta otra cosa) no es un «Pagado».
+  .then(function(r){if(!r||typeof r.amountCents!=='number')throw new Error('?');paid(r);})
   .catch(function(e){b.disabled=false;b.textContent=T.pay;if(pkCancelled(e))return;
    var k=npPayFail(e);
-   if(k==='unknown'){show('error',T.unknown);$('reload').hidden=false;$('pay').hidden=true;return;}
+   if(k==='unknown'){$('pay').hidden=true;show('error',T.checking);check(${STATE_TRIES});return;}
    show('error',npErr(e,C.errors));
    // 409: puede que un intento anterior sí se cobrara; recargar enseña el estado real.
    if(k==='reload'){$('reload').hidden=false;$('pay').hidden=true;}else $('notCharged').hidden=false;});

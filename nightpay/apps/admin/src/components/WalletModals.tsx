@@ -4,16 +4,18 @@ import { useEffect, useId, useState, type CSSProperties, type FormEvent } from '
 import { Button, Card, Input, Modal } from '@nightpay/ui';
 import {
   approveQrCharge,
+  fetchPayoutPreview,
   fetchPendingQrCharges,
   lookupWalletCode,
   payoutWallet,
   relinkWallet,
   type PendingQrCharge,
   type WalletPayoutMethod,
+  type WalletPayoutPreview,
 } from '@/lib/api';
 import { totpRetryState } from '@/lib/api-errors';
 import { walletPayoutSummary } from '@/lib/confirm-summary';
-import { payoutDoneText } from '@/lib/wallet-payout';
+import { isPayoutAmountChanged, payoutDoneText, payoutPlan } from '@/lib/wallet-payout';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import { useLockActive } from '@/lib/use-lock';
@@ -92,6 +94,38 @@ export function CodeSearch({ onFound }: { onFound: (target: PayoutTarget) => voi
   );
 }
 
+/**
+ * Lo que el API devolvería ahora por cada camino (no el saldo entero). Se
+ * pide al abrir y otra vez si al confirmar el saldo ya se había movido.
+ */
+function usePayoutPreview(walletId: string) {
+  const [preview, setPreview] = useState<WalletPayoutPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    fetchPayoutPreview(walletId)
+      .then((p) => {
+        if (!cancelled) setPreview(p);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [walletId, attempt]);
+
+  function reload(): void {
+    setPreview(null);
+    setAttempt((n) => n + 1);
+  }
+
+  return { preview, previewError: error, reloadPreview: reload };
+}
+
 export function PayoutModal({
   target,
   isOwner,
@@ -120,11 +154,15 @@ export function PayoutModal({
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const locked = useLockActive(lockedUntil);
   const venue = useVenue();
-  const amount = formatEur(target.balanceCents);
+  const { preview, previewError, reloadPreview } = usePayoutPreview(target.walletId);
+  // Lo que hará el API por este camino: el botón, la confirmación y el texto dicen esa cifra.
+  const plan = preview ? payoutPlan(preview, method) : null;
+  const amountCents = plan?.amountCents ?? 0;
   const withCode = askedForCode && method === 'CASH';
+  const balanceCents = preview?.balanceCents ?? target.balanceCents;
 
   async function handleSubmit() {
-    if (submitting) return;
+    if (submitting || !plan || amountCents <= 0) return;
     if (withCode && !/^\d{6}$/.test(totp)) return setError('Pon los 6 números de tu app de verificación.');
     setSubmitting(true);
     setError(null);
@@ -134,15 +172,17 @@ export function PayoutModal({
         bankReference: method === 'CARD' ? bankReference.trim() || undefined : undefined,
         note: note.trim() || undefined,
         totpCode: withCode ? totp : undefined,
+        // Si el API ya apuntaría otra cifra (el saldo se movió), 409 y no se toca nada.
+        expectedAmountCents: amountCents,
       });
-      // En efectivo puede salir solo una parte (lo que entró en efectivo): se dice lo que queda.
-      setDone(payoutDoneText(res));
+      setDone(payoutDoneText(res, plan));
     } catch (err) {
       const retry = totpRetryState(err, Date.now());
       if (retry.lockedUntil !== null) setLockedUntil(retry.lockedUntil);
       if (retry.askCode) setAskedForCode(true);
       setTotp('');
       setError((err as Error).message);
+      if (isPayoutAmountChanged(err)) reloadPreview();
     } finally {
       setSubmitting(false);
     }
@@ -153,7 +193,7 @@ export function PayoutModal({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={summaryStyle}>
           <p style={{ margin: 0, fontSize: '0.85rem' }}>
-            Saldo a devolver: <strong className="np-num">{amount}</strong>
+            Saldo: <strong className="np-num">{formatEur(balanceCents)}</strong>
           </p>
           <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
             {[target.code, target.label].filter(Boolean).join(' · ')}
@@ -178,19 +218,19 @@ export function PayoutModal({
             <div role="radiogroup" aria-label="Cómo se devuelve" style={methodRowStyle}>
               <MethodOption
                 active={method === 'CASH'}
-                title="Efectivo"
+                title={preview ? `Efectivo · ${formatEur(preview.cashOutCents)}` : 'Efectivo'}
                 text="Se lo das ahora, de la caja de este local (solo lo que entró en efectivo)."
                 onClick={() => setMethod('CASH')}
               />
               <MethodOption
                 active={method === 'CARD'}
                 disabled={!canCard}
-                title="A su tarjeta"
+                title={preview && canCard ? `A su tarjeta · ${formatEur(preview.cardRefundCents)}` : 'A su tarjeta'}
                 text={
                   !isOwner
                     ? 'Solo el dueño.'
                     : canCard
-                      ? 'Lo devuelves en el portal de BBVA.'
+                      ? 'Lo devuelves en el portal de BBVA (lo que entró con tarjeta).'
                       : 'Desde el local donde cargó el saldo.'
                 }
                 onClick={() => setMethod('CARD')}
@@ -203,21 +243,31 @@ export function PayoutModal({
               </p>
             )}
 
-            {method === 'CASH' ? (
-              <p style={helpStyle}>Dale {amount} al cliente y confirma. El saldo queda cerrado.</p>
+            {previewError ? (
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
+                  No se ha podido calcular lo que se devuelve: {previewError}
+                </p>
+                <Button variant="ghost" onClick={reloadPreview}>
+                  Reintentar
+                </Button>
+              </div>
+            ) : !plan ? (
+              <p style={helpStyle}>Calculando lo que se devuelve…</p>
+            ) : plan.blocked ? (
+              <p style={{ ...helpStyle, color: 'var(--np-warning)' }}>{plan.blocked}</p>
             ) : (
               <>
-                <p style={helpStyle}>
-                  1. En el portal de BBVA, devuelve {amount} a las recargas de saldo del cliente (la más reciente
-                  primero). 2. Pon la referencia de la devolución y confirma: aquí se apunta igual, repartido entre
-                  sus recargas.
-                </p>
-                <Input
-                  label="Referencia de la devolución en BBVA"
-                  value={bankReference}
-                  onChange={(e) => setBankReference(e.target.value)}
-                  maxLength={60}
-                />
+                <p style={helpStyle}>{plan.instruction}</p>
+                {plan.remainder ? <p style={{ ...helpStyle, color: 'var(--np-warning)' }}>{plan.remainder}</p> : null}
+                {method === 'CARD' ? (
+                  <Input
+                    label="Referencia de la devolución en BBVA"
+                    value={bankReference}
+                    onChange={(e) => setBankReference(e.target.value)}
+                    maxLength={60}
+                  />
+                ) : null}
               </>
             )}
 
@@ -233,10 +283,10 @@ export function PayoutModal({
               maxLength={300}
               style={textareaStyle}
             />
-            {canPay ? (
+            {canPay && amountCents > 0 ? (
               <ConfirmLine>
                 {walletPayoutSummary({
-                  amountCents: target.balanceCents,
+                  amountCents,
                   method,
                   code: target.code,
                   venueName: venue.name ?? venue.slug,
@@ -262,8 +312,12 @@ export function PayoutModal({
               <Button variant="ghost" onClick={onClose} disabled={submitting}>
                 Cancelar
               </Button>
-              <Button onClick={handleSubmit} loading={submitting} disabled={!canPay || (withCode && locked)}>
-                Devolver {amount}
+              <Button
+                onClick={handleSubmit}
+                loading={submitting}
+                disabled={!canPay || amountCents <= 0 || (withCode && locked)}
+              >
+                {amountCents > 0 ? `Devolver ${formatEur(amountCents)}` : 'Devolver'}
               </Button>
             </div>
           </>

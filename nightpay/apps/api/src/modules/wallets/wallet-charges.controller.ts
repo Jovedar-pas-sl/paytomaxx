@@ -15,6 +15,7 @@ import {
   type QrChargeView,
   type StaffPassCheck,
   type WalletLookup,
+  type WalletPayoutPreview,
 } from './wallet-charges.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
@@ -92,12 +93,17 @@ const LinkCardSchema = z.object({
   uid: CardUid,
 });
 
-const PayoutSchema = z.object({
+export const PayoutSchema = z.object({
   method: z.enum(['CARD', 'CASH']),
   bankReference: z.string().trim().max(60).optional(),
   note: z.string().trim().max(300).optional(),
   /** El encargado en efectivo, desde el umbral del local. */
   totpCode: z.string().regex(/^\d{6}$/).optional(),
+  /**
+   * La cifra que enseñó el panel (GET …/payout-preview): si lo que se va a
+   * apuntar ya es otro importe, 409 PAYOUT_AMOUNT_CHANGED. Sin ella, como antes.
+   */
+  expectedAmountCents: z.number().int().positive().max(100_000_000).optional(),
 });
 
 /** Devolver el saldo en efectivo pide «dar efectivo»; a la tarjeta, «devolver». */
@@ -123,6 +129,7 @@ export function payoutPermission(req: { body?: unknown }): 'cash' | 'refund' {
  *  - POST /v1/wallet-charges/wallets/:id/card/block → (encargado) ficha perdida.
  *  - GET  /v1/wallet-charges/:id                → el cobro con QR: ¿ya lo pagó? (quien lo hizo o el encargado).
  *  - POST /v1/wallet-charges/:id/cancel         → retirar el cobro con QR (quien lo hizo o el encargado).
+ *  - GET  /v1/wallet-charges/wallets/:id/payout-preview → (encargado) lo que se devolvería en efectivo y a la tarjeta.
  *  - POST /v1/wallet-charges/wallets/:id/payout → devolver el saldo (tarjeta o efectivo).
  *  - POST /v1/wallet-charges/wallets/:id/relink → enlace nuevo para el cliente (dueño).
  */
@@ -334,6 +341,13 @@ export class WalletChargesController {
   @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
   async cancel(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<{ ok: true }> {
     return this.charges.cancelRequest({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id);
+  }
+
+  /** Antes de confirmar: lo que saldría en efectivo, a la tarjeta y lo que hoy no puede salir. */
+  @Get('wallets/:id/payout-preview')
+  @Roles('OWNER', 'MANAGER')
+  async payoutPreview(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) walletId: string): Promise<WalletPayoutPreview> {
+    return this.charges.payoutPreview({ userId: user.sub, role: user.role, tenantId: user.tenantId }, walletId);
   }
 
   @Post('wallets/:id/payout')
