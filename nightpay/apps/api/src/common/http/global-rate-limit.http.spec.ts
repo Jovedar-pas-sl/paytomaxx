@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { JwtService } from '@nestjs/jwt';
-import { createGlobalRateLimit } from './global-rate-limit';
+import { GLOBAL_LIMITS, createGlobalRateLimit } from './global-rate-limit';
 
 /**
  * El límite global con el plugin de verdad (@fastify/rate-limit, como en
@@ -91,4 +91,24 @@ describe('límite global con el plugin (SEC-02)', () => {
     expect(await statuses(6, () => call(undefined, '/v1/payments/public/qr-1'))).toEqual([200, 200, 200, 200, 200, 200]);
     expect(await statuses(3, () => call())).toEqual([200, 200, 429]);
   });
+});
+
+describe('límite global con los topes de verdad: la prueba real de punta a punta (FSD-01)', () => {
+  it('Paula manda 6.100 en un minuto (600 pasan, 5.500 se quedan en 429) y Carlos, Sergio y Camarero 01 siguen trabajando', async () => {
+    const [paula, carlos, sergio, camarero01] = [
+      '3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f',
+      '4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a',
+      '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
+      '6f7a8b9c-0d1e-4f2a-9b3c-4d5e6f7a8b9c',
+    ];
+    const { call } = await server({ ...GLOBAL_LIMITS });
+    const paulaToken = token(paula!);
+    const counts: Record<number, number> = {};
+    for (let i = 0; i < 6_100; i++) {
+      const { statusCode } = await call(paulaToken, '/v1/x');
+      counts[statusCode] = (counts[statusCode] ?? 0) + 1;
+    }
+    expect(counts).toEqual({ 200: 600, 429: 5_500 });
+    for (const who of [carlos, sergio, camarero01]) expect((await call(token(who!))).statusCode).toBe(200);
+  }, 120_000);
 });
