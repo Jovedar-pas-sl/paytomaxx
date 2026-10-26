@@ -275,7 +275,7 @@ export class RefreshTokenService {
         await this.redis.del(k);
       }
     }
-    // Y cada sesión por su sid, también para quien solo mire esa marca.
+    // Y cada sesión: también un token emitido en este mismo segundo, antes de revocar.
     for (const family of families) await this.revocations.revokeSession(family);
     if (count > 0) this.logger.log(`Revoked ${count} refresh tokens for user ${userId}`);
     return count;

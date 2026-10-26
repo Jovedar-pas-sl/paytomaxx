@@ -42,15 +42,16 @@ describe('AccessRevocationService — ¿sigue viva la sesión de este token?', (
     await expect(svc.isRevoked({ sub: USER, sid: SID_B, iat: sec(T0) })).resolves.toBe(false);
   });
 
-  it('revocar TODAS las sesiones de una persona corta los tokens emitidos hasta ese segundo; uno de un login nuevo, no', async () => {
+  it('revocar TODAS las sesiones de una persona corta los tokens emitidos antes; uno de un login nuevo, no', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(T0.getTime() + 700));
     const { svc } = make();
     const before = sec(T0) - 30;
     await svc.revokeUser(USER);
     await expect(svc.isRevoked({ sub: USER, sid: SID_A, iat: before })).resolves.toBe(true);
-    // Emitido en el mismo segundo (iat va en segundos: pudo salir justo antes): fuera.
-    await expect(svc.isRevoked({ sub: USER, sid: SID_A, iat: sec(T0) })).resolves.toBe(true);
+    // Del mismo segundo: la marca de la persona no basta (iat va en segundos y
+    // un login justo después vale); a ese lo corta la marca de su sesión.
+    await expect(svc.isRevoked({ sub: USER, sid: SID_B, iat: sec(T0) })).resolves.toBe(false);
     // También los de la forma antigua (sin sid) y los que no traen fecha.
     await expect(svc.isRevoked({ sub: USER, iat: before })).resolves.toBe(true);
     await expect(svc.isRevoked({ sub: USER, sid: SID_A })).resolves.toBe(true);

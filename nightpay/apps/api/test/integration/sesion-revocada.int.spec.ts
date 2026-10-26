@@ -246,6 +246,9 @@ describe('cerrar una sesión corta el token de acceso al momento (Postgres real)
       { expiresIn: 3_600 },
     );
     expect((await panel(legacy)).statusCode).toBe(200);
+    // Emitido antes (no en el mismo segundo que la revocación: ese lo corta la marca de su sesión).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 1_500);
     await refreshTokens.revokeAllForUser(u.id);
     expect((await panel(legacy)).statusCode).toBe(401);
   });

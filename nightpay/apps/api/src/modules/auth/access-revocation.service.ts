@@ -40,10 +40,9 @@ export interface AccessTokenRef {
  *                                               se cerró (logout, reuso,
  *                                               contraseña cambiada…);
  *   nightpay:access:revoked-before:<userId>   → los tokens de esa persona
- *                                               emitidos hasta este segundo
- *                                               (incluido) ya no valen
- *                                               (revocar todas sus sesiones,
- *                                               baja, reset).
+ *                                               emitidos antes de este segundo
+ *                                               ya no valen (revocar todas sus
+ *                                               sesiones, baja, reset).
  * Cada petición con sesión (AuthGuard, tiempo real) hace un MGET de esas dos
  * claves: sin consultas a la base ni SCAN. Sin caché a propósito: la
  * revocación se ve en todos los nodos en la petición siguiente.
@@ -77,10 +76,10 @@ export class AccessRevocationService {
   }
 
   /**
-   * Todas las sesiones de una persona: sus tokens emitidos hasta este segundo
-   * (incluido: `iat` va en segundos y uno de este mismo segundo pudo salir
-   * justo antes) dejan de valer; uno de un login de un segundo posterior, sí
-   * vale. Quien entrara en ese mismo segundo tendría que volver a entrar.
+   * Todas las sesiones de una persona: sus tokens emitidos ANTES de este
+   * segundo dejan de valer (`iat` va en segundos). Los de este mismo segundo
+   * los corta la marca de su sesión: RefreshTokenService.revokeAllForUser
+   * marca cada una. Así un login justo después (en el mismo segundo) vale.
    */
   async revokeUser(userId: string, nowMs: number = Date.now()): Promise<void> {
     await this.redis.set(userKey(userId), String(Math.floor(nowMs / 1000)), 'EX', ACCESS_REVOCATION_TTL_SECONDS);
@@ -103,7 +102,7 @@ export class AccessRevocationService {
     const cutoffSeconds = Number(cutoff);
     // Un valor raro o un token sin fecha de emisión: no se da por bueno.
     if (!Number.isFinite(cutoffSeconds) || typeof token.iat !== 'number') return true;
-    return token.iat <= cutoffSeconds;
+    return token.iat < cutoffSeconds;
   }
 
   /** 401 SESSION_REVOKED si la sesión de este token se cerró. */

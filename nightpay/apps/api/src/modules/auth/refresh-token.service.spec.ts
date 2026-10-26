@@ -398,6 +398,10 @@ describe('RefreshTokenService — cerrar sesiones corta también los tokens de a
     const other = await svc.issue('user-2', 'tenant-1');
     await expect(svc.revokeAllForUser('user-1')).resolves.toBe(2);
     await expect(revocations.isRevoked(access('user-1', a.family))).resolves.toBe(true);
+    // Uno emitido en este mismo segundo, antes de revocar: lo corta la marca de su sesión.
+    await expect(
+      revocations.isRevoked({ sub: 'user-1', sid: b.family, iat: Math.floor(Date.now() / 1000) }),
+    ).resolves.toBe(true);
     await expect(revocations.isRevoked(access('user-1', b.family))).resolves.toBe(true);
     // También un token suyo de una sesión que ya no tenía refresh (o sin sid).
     await expect(revocations.isRevoked({ sub: 'user-1', iat: Math.floor(Date.now() / 1000) - 60 })).resolves.toBe(true);
