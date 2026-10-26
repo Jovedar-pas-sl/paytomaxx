@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cobradoNote, metricsCobradoParts, zCobradoParts } from './cobrado';
+import { cobradoNote, metricsCobradoParts, zClosedLines, zCobradoParts } from './cobrado';
 import { formatEur } from './money';
 
 // «Hoy · cobrado» y el Z: lo cobrado incluye las recargas (con tarjeta, ya en
@@ -45,5 +45,28 @@ describe('lo cobrado, por partes', () => {
     expect(metricsCobradoParts(old)).toBeNull();
     expect(zCobradoParts({ grossCents: 63_300, tipsCents: 2_600, walletCashTopUpsCents: 45_000 })).toBeNull();
     expect(cobradoNote(null, formatEur)).toBeNull();
+  });
+});
+
+describe('la línea del Z congelado (prueba real: «17 pagos con tarjeta · cobrado 2.450 €» llevaba las recargas en efectivo)', () => {
+  const z = {
+    count: 17,
+    chargedCents: 245_000,
+    grossCents: 75_200,
+    tipsCents: 2_800,
+    walletCardTopUpsCents: 17_000,
+    walletCashTopUpsCents: 167_000,
+  };
+
+  it('como el resumen de las 9:00: «Cobrado» con su desglose y, aparte, «Con tarjeta» con su importe', () => {
+    expect(zClosedLines(z, formatEur)).toEqual({
+      cobrado: `Cobrado: ${formatEur(245_000)} (${formatEur(58_200)} de ventas + ${formatEur(2_800)} de propinas + ${formatEur(184_000)} de recargas)`,
+      card: `Con tarjeta: 17 pagos · ${formatEur(78_000)}`,
+    });
+  });
+
+  it('un pago; y un Z de antes sin las recargas con tarjeta aparte: «Cobrado» sin desglose', () => {
+    const old = { count: 1, chargedCents: 3_000, grossCents: 3_000, tipsCents: 0 };
+    expect(zClosedLines(old, formatEur)).toEqual({ cobrado: `Cobrado: ${formatEur(3_000)}`, card: `Con tarjeta: 1 pago · ${formatEur(3_000)}` });
   });
 });

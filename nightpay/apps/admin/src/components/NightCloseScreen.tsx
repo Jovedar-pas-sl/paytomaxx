@@ -8,6 +8,7 @@ import { NightCloseRefused, closeNight, fetchCloseCheck, type NightView, type Pa
 import { ApiError, totpRetryState } from '@/lib/api-errors';
 import { formatDateTime } from '@/lib/dates';
 import { sameValue } from '@/lib/diff';
+import { zClosedLines } from '@/lib/cobrado';
 import { formatEur } from '@/lib/money';
 import {
   STATUS_LABEL,
@@ -349,13 +350,15 @@ function StepCard({
 function ClosedResult({ night, onDone }: { night: NightView; onDone: () => void }) {
   const tz = useVenueTimezone();
   const s = night.z.summary;
+  // Como el resumen de las 9:00: lo cobrado con su desglose y, aparte, lo pagado con tarjeta.
+  const lines = zClosedLines(s, formatEur);
   return (
     <div className="np-close-done">
       <p className="np-close-done-lead">
-        Z congelado a las {night.closedAt ? formatDateTime(night.closedAt, tz, 'time') : '—'}: {s.count} {s.count === 1 ? 'pago' : 'pagos'} con tarjeta ·
-        cobrado <strong className="np-num">{formatEur(s.chargedCents)}</strong> · neto{' '}
+        Z congelado a las {night.closedAt ? formatDateTime(night.closedAt, tz, 'time') : '—'} · {lines.cobrado} · neto{' '}
         <strong className="np-num">{formatEur(s.netCents)}</strong>.
       </p>
+      <p className="np-close-done-lead">{lines.card}</p>
       {night.z.caja ? <NightCajaBlock caja={night.z.caja} /> : null}
       {night.pendingAtClose > 0 ? (
         <Notice tone="warning">

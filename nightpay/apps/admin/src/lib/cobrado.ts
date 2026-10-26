@@ -55,3 +55,21 @@ export function cobradoNote(p: CobradoParts | null, eur: (cents: number) => stri
   ].filter((x): x is string => x !== null);
   return parts.length > 0 ? parts.join(' + ') : null;
 }
+
+/**
+ * La línea del Z congelado (al cerrar la noche), como el resumen de las
+ * 9:00: «Cobrado» con su desglose (ventas + propinas + recargas, también en
+ * efectivo) y, aparte, «Con tarjeta» con su número e importe (lo que verá en
+ * el banco). Antes: «N pagos con tarjeta · cobrado X», y X llevaba las
+ * recargas en efectivo.
+ */
+export function zClosedLines(
+  s: { count: number; chargedCents: number; grossCents: number; tipsCents: number; walletCashTopUpsCents?: number; walletCardTopUpsCents?: number },
+  eur: (cents: number) => string,
+): { cobrado: string; card: string } {
+  const parts = cobradoNote(zCobradoParts(s), eur);
+  return {
+    cobrado: parts ? `Cobrado: ${eur(s.chargedCents)} (${parts})` : `Cobrado: ${eur(s.chargedCents)}`,
+    card: `Con tarjeta: ${s.count} ${s.count === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents)}`,
+  };
+}
