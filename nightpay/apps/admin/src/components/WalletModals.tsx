@@ -15,7 +15,7 @@ import {
 } from '@/lib/api';
 import { totpRetryState } from '@/lib/api-errors';
 import { walletPayoutSummary } from '@/lib/confirm-summary';
-import { isPayoutAmountChanged, payoutDoneText, payoutPlan } from '@/lib/wallet-payout';
+import { balanceAfterPayout, isPayoutAmountChanged, payoutDoneText, payoutPlan } from '@/lib/wallet-payout';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import { useLockActive } from '@/lib/use-lock';
@@ -148,6 +148,8 @@ export function PayoutModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  /** Lo que queda tras devolver: la cabecera lo dice (antes seguía con el saldo de antes). */
+  const [afterCents, setAfterCents] = useState<number | null>(null);
   /** El encargado en efectivo desde el umbral del local: el API pide su código 2FA. */
   const [askedForCode, setAskedForCode] = useState(false);
   const [totp, setTotp] = useState('');
@@ -159,7 +161,7 @@ export function PayoutModal({
   const plan = preview ? payoutPlan(preview, method) : null;
   const amountCents = plan?.amountCents ?? 0;
   const withCode = askedForCode && method === 'CASH';
-  const balanceCents = preview?.balanceCents ?? target.balanceCents;
+  const balanceCents = afterCents ?? preview?.balanceCents ?? target.balanceCents;
 
   async function handleSubmit() {
     if (submitting || !plan || amountCents <= 0) return;
@@ -176,6 +178,7 @@ export function PayoutModal({
         expectedAmountCents: amountCents,
       });
       setDone(payoutDoneText(res, plan));
+      setAfterCents(balanceAfterPayout(res, plan, balanceCents));
     } catch (err) {
       const retry = totpRetryState(err, Date.now());
       if (retry.lockedUntil !== null) setLockedUntil(retry.lockedUntil);

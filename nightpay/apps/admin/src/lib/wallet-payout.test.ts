@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '@nightpay/api-client';
-import { isPayoutAmountChanged, payoutDoneText, payoutPlan, type WalletPayoutPreview } from './wallet-payout';
+import { balanceAfterPayout, isPayoutAmountChanged, payoutDoneText, payoutPlan, type WalletPayoutPreview } from './wallet-payout';
 
 // Intl pone un espacio duro antes de «€».
 const eur = (s: string | null) => (s ?? '').replace(/\u00a0/g, ' ');
@@ -122,5 +122,14 @@ describe('el saldo se movió entre ver la cifra y confirmar', () => {
     expect(isPayoutAmountChanged(new ApiError('2FA', 403, 'TOTP_REQUIRED'))).toBe(false);
     expect(isPayoutAmountChanged(new Error('red'))).toBe(false);
     expect(isPayoutAmountChanged(null)).toBe(false);
+  });
+});
+
+describe('la cabecera «Saldo» del modal tras devolver (prueba real: seguía en 80 €)', () => {
+  it('lo que queda según el API; sin él, lo que dijo el plan; sin nada, saldo menos lo devuelto', () => {
+    expect(balanceAfterPayout({ refundedCents: 3_000, method: 'CASH', remainingCents: 5_000 }, undefined, 8_000)).toBe(5_000);
+    expect(balanceAfterPayout({ refundedCents: 3_000, method: 'CASH' }, { leftCents: 5_000 } as never, 8_000)).toBe(5_000);
+    expect(balanceAfterPayout({ refundedCents: 3_000, method: 'CASH' }, undefined, 8_000)).toBe(5_000);
+    expect(balanceAfterPayout({ refundedCents: 9_000, method: 'CARD' }, undefined, 8_000)).toBe(0);
   });
 });

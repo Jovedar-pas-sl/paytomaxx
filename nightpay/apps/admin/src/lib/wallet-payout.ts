@@ -131,3 +131,11 @@ export function payoutDoneText(res: WalletPayoutResult, plan?: PayoutPlan): stri
   const sameAsPlan = plan !== undefined && plan.leftCents === left && plan.remainder !== null;
   return `${done} ${sameAsPlan ? plan.remainder : `El saldo no se cierra: quedan ${formatEur(left)}.`}`;
 }
+
+/**
+ * El saldo que queda tras devolver (la cabecera del modal): lo que dice el
+ * API, si no lo que decía el plan, y si no, el saldo menos lo devuelto.
+ */
+export function balanceAfterPayout(res: WalletPayoutResult, plan: Pick<PayoutPlan, 'leftCents'> | undefined, beforeCents: number): number {
+  return Math.max(0, res.remainingCents ?? plan?.leftCents ?? beforeCents - res.refundedCents);
+}
