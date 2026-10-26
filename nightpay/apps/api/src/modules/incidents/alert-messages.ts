@@ -1,3 +1,4 @@
+import { Z_NET_WITHOUT_STAFF_LABEL } from '@nightpay/contracts';
 import type { ExportSummary } from '../reports/export-csv';
 import type { Incident } from './incident-rules';
 import { scopeLabel, type SummaryScope } from './morning-summary';
@@ -83,12 +84,13 @@ export function morningSummaryMessage(
     lines.push(`Comisión del servicio: ${eur(oxio)} (se debe a OxioPay${cash !== 0 ? `; ${eur(cash)} en la caja` : ''})`);
   }
   // Lo de los camareros (su parte de las copas con invitación, si el local se
-  // la da) va aparte: chicas + camareros + el resto = lo cobrado neto. Ese
-  // resto no es «Para el local» del mapa del dinero (el reparto de lo
-  // vendido): lleva las recargas (saldo de los clientes) y no resta comisiones.
+  // la da) va aparte: chicas + camareros + el resto = el «Neto (cobrado −
+  // devuelto)» del Z. Ese resto se llama como en el panel (Z_NET_WITHOUT_STAFF_LABEL)
+  // y no es «Para el local» del mapa del dinero (el reparto de lo vendido):
+  // lleva las recargas (saldo de los clientes) y no resta comisiones.
   const camareros = s.camareroNetCents ?? 0;
   lines.push(
-    `Para las chicas: ${eur(s.chicaNetCents)}${camareros !== 0 ? ` · para los camareros: ${eur(camareros)}` : ''} · neto sin el personal${oxio !== 0 ? ' ni OxioPay' : ''}: ${eur(s.venueNetCents)}`,
+    `Para las chicas: ${eur(s.chicaNetCents)}${camareros !== 0 ? ` · para los camareros: ${eur(camareros)}` : ''} · ${Z_NET_WITHOUT_STAFF_LABEL.toLowerCase()}${oxio !== 0 ? ' ni OxioPay' : ''}: ${eur(s.venueNetCents)}`,
   );
   if (s.perChica.length > 0) lines.push(`Chicas que cobraron: ${s.perChica.length} (detalle en el panel → Noches)`);
   if (cashDiffCents) lines.push(cashDiffLine(cashDiffCents));

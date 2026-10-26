@@ -23,6 +23,7 @@ import {
   CASH_UNSURE_LEFT_NOTICE,
   cashTopUpUnsure,
   cashTopUpWallet,
+  cashUnsureRow,
   cashUnsureText,
   deskRechargeWhat,
   deskRow,
@@ -630,7 +631,8 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     return (
       <div className={s.screen}>
         {head()}
-        <DeskRowView {...readRow(read)} />
+        {/* Ni «sin saldo» ni lo que le quedaba: puede que ya esté cargado. */}
+        <DeskRowView {...cashUnsureRow(read, amountCents, checking)} />
         {checking ? (
           <p className={s.q} role="status">
             Comprobando si se han cargado los {eur(amountCents)}…

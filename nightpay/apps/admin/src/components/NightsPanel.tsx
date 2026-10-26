@@ -19,7 +19,7 @@ import { formatEur } from '@/lib/money';
 import { diffLabel, parseCashInput } from '@/lib/night-close';
 import type { PanelTab, TabKey } from '@/lib/roles';
 import { useVenueTimezone } from '@/lib/venue-context';
-import { zNetLabel, zTypeLabel } from '@/lib/z-labels';
+import { Z_NET_LABEL, zNetLabel, zTypeLabel } from '@/lib/z-labels';
 import { NightMoneyMap } from './money-map/NightMoneyMap';
 import { NightCajaBlock } from './NightCajaBlock';
 import { NightCloseScreen } from './NightCloseScreen';
@@ -196,7 +196,7 @@ export function NightsPanel({
                 <th>Horario</th>
                 <th style={numHead}>Pagos con tarjeta</th>
                 <th style={numHead}>Cobrado</th>
-                <th style={numHead}>Neto</th>
+                <th style={numHead}>{Z_NET_LABEL}</th>
                 <th>Cierre</th>
                 <th aria-label="Acciones" />
               </tr>
@@ -216,7 +216,7 @@ export function NightsPanel({
                   <td data-label="Cobrado" data-card="amount" style={numTd}>
                     {n.chargedCents === null ? '—' : formatEur(n.chargedCents)}
                   </td>
-                  <td data-label="Neto" style={numTd}>
+                  <td data-label={Z_NET_LABEL} style={numTd}>
                     {n.netCents === null ? '—' : formatEur(n.netCents)}
                   </td>
                   <td data-label="Cierre">
@@ -293,7 +293,8 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
     ['Devoluciones', -s.refundsCents],
     // API nuevo: el saldo devuelto en efectivo resta del neto (los Z antiguos no lo traen).
     ...(s.walletCashPayoutsCents ? ([['Saldo devuelto en efectivo', -s.walletCashPayoutsCents]] as Array<[string, number]>) : []),
-    ['Neto', s.netCents],
+    // Lo cobrado menos lo devuelto; no es el «Neto sin el personal» de abajo (ni el del resumen de las 9:00).
+    [Z_NET_LABEL, s.netCents],
     ['Para las chicas', s.chicaNetCents],
     // Solo si el local da parte a los camareros de las copas con invitación (de fábrica, nada).
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
@@ -400,7 +401,7 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
   const totals: Array<[string, number]> = [
     ['Cobrado', s.chargedCents],
     ['Devoluciones', -s.refundsCents],
-    ['Neto', s.netCents],
+    [Z_NET_LABEL, s.netCents],
     ['Para las chicas', s.chicaNetCents],
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
     ...(s.serviceFeeNetCents ? ([['Comisión del servicio · se debe a OxioPay', s.serviceFeeNetCents]] as Array<[string, number]>) : []),

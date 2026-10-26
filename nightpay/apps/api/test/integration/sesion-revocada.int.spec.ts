@@ -254,13 +254,18 @@ describe('cerrar una sesión corta el token de acceso al momento (Postgres real)
   });
 
   it('Redis no responde → 503 (sin dejar pasar a ciegas) y la sesión NO se cierra: al volver, el mismo token vale', async () => {
-    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const logError = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const u = await newUser();
     const s = await login(u.email);
     vi.spyOn(redis, 'mget').mockRejectedValueOnce(new Error('Connection is closed.'));
     const down = await panel(s.access);
     expect(down.statusCode).toBe(503);
     expect(codeOf(down)).toBe('SESSION_CHECK_UNAVAILABLE');
+    // Prueba real: salía sin Retry-After y con un ERROR en el log.
+    expect(down.headers['retry-after']).toBe('2');
+    expect(JSON.stringify(warn.mock.calls)).toContain('Connection is closed.');
+    expect(JSON.stringify(logError.mock.calls)).not.toContain('Connection is closed.');
     expect((await panel(s.access)).statusCode).toBe(200);
   });
 });

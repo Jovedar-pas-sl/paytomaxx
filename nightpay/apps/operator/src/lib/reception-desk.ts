@@ -216,6 +216,30 @@ export function cashUnsureText(amount: string): string {
   return `No sabemos si se han cargado los ${amount}: se cortó la conexión. No pases al siguiente cliente: comprueba primero (no se cobra dos veces).`;
 }
 
+/**
+ * La fila de arriba mientras no se sabe si se cargó la recarga en efectivo:
+ * que se está comprobando, en vez de lo leído antes de cobrar («sin saldo» de
+ * una ficha nueva, «Le quedan 35 €» de una que ya tenía), que puede no ser
+ * verdad: el servidor quizá ya la cargó (prueba real). Lo demás, como readRow:
+ * la ficha (o su código) para saber de quién es.
+ */
+export function cashUnsureRow(
+  read: { view: ReceptionDeskView | null; nfc: { card: string; uid: string | null } | null; number?: NumberSaldo },
+  amountCents: number,
+  checking: boolean,
+): DeskRow {
+  const amount = formatEur(amountCents, { compact: true });
+  const status = checking ? `comprobando la recarga de ${amount}` : `recarga de ${amount} por comprobar`;
+  // Al principio de la línea, en mayúscula («Comprobando…»); detrás de la ficha, no.
+  const lead = status.charAt(0).toUpperCase() + status.slice(1);
+  if (read.number) return { title: fichaLabel(read.number.printedNumber), detail: `${lead} · ${read.number.codeHint}` };
+  const view = read.view;
+  if (!view) return { title: 'Saldo nuevo', detail: `Sin NFC · ${status}` };
+  if (view.kind === 'new') return { title: 'NFC nuevo', detail: `${fichaLabel(view.printedNumber)} · ${status}` };
+  if (view.fichaNumber === null) return { title: `Saldo ${view.code}`, detail: lead };
+  return { title: fichaLabel(view.printedNumber), detail: `${lead} · ${view.code}` };
+}
+
 /** Al salir sin saberlo: lo que puede haber pasado. */
 export const CASH_UNSURE_LEAVE_TEXT =
   'Puede que ya esté cargado (en su ficha, si se la acercaste). Si cobras otra vez a este cliente, se carga dos veces: compruébalo antes con el encargado.';

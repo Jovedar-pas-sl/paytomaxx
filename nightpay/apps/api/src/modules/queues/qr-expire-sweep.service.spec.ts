@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { RELEASE_LOCK_LUA } from '../../common/redis/release-lock';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import type { LockedPaymentRow, TransitionOptions } from '../payments/payments.service';
 import { QrExpireSweepService } from './qr-expire-sweep.service';
@@ -15,12 +16,41 @@ const A = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
 const B = '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
 const C = '9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8dabcd';
 
-function makeSweep(opts: { lock?: 'OK' | null; due?: string[]; status?: Record<string, string>; fail?: Record<string, Error> } = {}) {
+const LOCK = 'np:qr-expire-sweep:lock';
+
+/** El Redis compartido por las réplicas: SET NX y el borrado condicional del candado (RELEASE_LOCK_LUA). */
+function lockRedis(takenBy?: string) {
+  const store = new Map<string, string>(takenBy ? [[LOCK, takenBy]] : []);
+  return {
+    store,
+    set: vi.fn(async (key: string, value: string, ..._opts: Array<string | number>): Promise<'OK' | null> => {
+      if (store.has(key)) return null;
+      store.set(key, value);
+      return 'OK';
+    }),
+    eval: vi.fn(async (script: string, _keys: number, key: string, value: string): Promise<number> => {
+      if (script !== RELEASE_LOCK_LUA) throw new Error('script inesperado');
+      if (store.get(key) !== value) return 0;
+      store.delete(key);
+      return 1;
+    }),
+  };
+}
+
+function makeSweep(
+  opts: {
+    lockedBy?: string;
+    redis?: ReturnType<typeof lockRedis>;
+    due?: string[];
+    status?: Record<string, string>;
+    fail?: Record<string, Error>;
+  } = {},
+) {
   const tx = {
     payment: { findMany: vi.fn(async () => (opts.due ?? []).map((id) => ({ id }))) },
   };
   const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
-  const redis = { set: vi.fn(async () => (opts.lock === undefined ? 'OK' : opts.lock)) };
+  const redis = opts.redis ?? lockRedis(opts.lockedBy);
   const payments = {
     transition: vi.fn(async (id: string, _event: unknown, _tenant: unknown, o?: TransitionOptions) => {
       const failure = opts.fail?.[id];
@@ -74,21 +104,89 @@ describe('QrExpireSweepService — cobros sin pagar pasado su plazo', () => {
     expect(String(logger.error.mock.calls[0]![0])).toContain('deadlock detected');
   });
 
-  it('con dos réplicas (start-first) solo barre una: candado SET NX con caducidad menor que el intervalo', async () => {
-    const free = makeSweep({ due: [A] });
-    await free.service.tick(NOW);
-    expect(free.redis.set).toHaveBeenCalledWith('np:qr-expire-sweep:lock', '1', 'EX', 540, 'NX');
-    expect(free.payments.transition).toHaveBeenCalledTimes(1);
-
-    const taken = makeSweep({ lock: null, due: [A] });
-    await taken.service.tick(NOW);
-    expect(taken.payments.transition).not.toHaveBeenCalled();
-  });
-
   it('la base o Redis caídos en la vuelta: se registra y no tumba nada', async () => {
     const { service, redis, logger } = makeSweep();
     redis.set.mockRejectedValueOnce(new Error('ECONNREFUSED 6379'));
     await expect(service.tick(NOW)).resolves.toBeUndefined();
     expect(String(logger.error.mock.calls[0]![0])).toContain('ECONNREFUSED');
+  });
+});
+
+describe('QrExpireSweepService — el candado entre réplicas (SET NX con un valor único; se suelta al terminar)', () => {
+  it('tras arrancar, la vuelta de los 10 min barre: el barrido del arranque (a los 90 s) suelta su candado al terminar', async () => {
+    // Prueba real: el del arranque lo dejaba puesto 540 s y la vuelta de los
+    // 600 s (510 s después) lo encontraba: la primera caducidad, a los ~20 min.
+    const { service, redis, tx } = makeSweep();
+    await service.tick(NOW);
+    expect(redis.store.has(LOCK)).toBe(false);
+    await service.tick(new Date(NOW.getTime() + 510_000));
+    expect(tx.payment.findMany).toHaveBeenCalledTimes(2);
+    expect(redis.store.has(LOCK)).toBe(false);
+  });
+
+  it('cada vuelta pone un valor suyo (único), con caducidad por si la réplica se cae a mitad, y suelta solo ese', async () => {
+    const { service, redis } = makeSweep();
+    await service.tick(NOW);
+    await service.tick(NOW);
+    const [first, second] = redis.set.mock.calls.map((c) => c[1]);
+    expect(first).toMatch(/^[0-9a-f-]{36}$/);
+    expect(second).not.toBe(first);
+    expect(redis.set.mock.calls[0]).toEqual([LOCK, first, 'EX', 540, 'NX']);
+    expect(redis.eval.mock.calls).toEqual([
+      [RELEASE_LOCK_LUA, 1, LOCK, first],
+      [RELEASE_LOCK_LUA, 1, LOCK, second],
+    ]);
+  });
+
+  it('con dos réplicas (start-first) nunca barren a la vez: mientras una barre, la otra no; al terminar, ya puede', async () => {
+    const redis = lockRedis();
+    const one = makeSweep({ redis, due: [A] });
+    const other = makeSweep({ redis, due: [A] });
+    let finish!: () => void;
+    one.tx.payment.findMany.mockImplementationOnce(
+      () => new Promise<Array<{ id: string }>>((resolve) => (finish = () => resolve([{ id: A }]))),
+    );
+    const running = one.service.tick(NOW);
+    await vi.waitFor(() => expect(one.tx.payment.findMany).toHaveBeenCalled());
+    await other.service.tick(NOW);
+    expect(other.tx.payment.findMany).not.toHaveBeenCalled();
+    finish();
+    await running;
+    expect(one.payments.transition).toHaveBeenCalledTimes(1);
+    await other.service.tick(NOW);
+    expect(other.tx.payment.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('otra réplica con el candado puesto: no se barre ni se le quita', async () => {
+    const { service, redis, tx } = makeSweep({ lockedBy: 'la-otra' });
+    await service.tick(NOW);
+    expect(tx.payment.findMany).not.toHaveBeenCalled();
+    expect(redis.eval).not.toHaveBeenCalled();
+    expect(redis.store.get(LOCK)).toBe('la-otra');
+  });
+
+  it('si el suyo caducó a mitad de vuelta y lo tomó la otra réplica, al terminar no le quita el suyo', async () => {
+    const { service, redis, tx } = makeSweep();
+    tx.payment.findMany.mockImplementationOnce(async () => {
+      redis.store.set(LOCK, 'la-otra');
+      return [];
+    });
+    await service.tick(NOW);
+    expect(redis.store.get(LOCK)).toBe('la-otra');
+  });
+
+  it('si la vuelta falla, el candado se suelta igual (no hay que esperar a que caduque)', async () => {
+    const { service, redis, tx, logger } = makeSweep();
+    tx.payment.findMany.mockRejectedValueOnce(new Error('connection terminated'));
+    await expect(service.tick(NOW)).resolves.toBeUndefined();
+    expect(String(logger.error.mock.calls[0]![0])).toContain('connection terminated');
+    expect(redis.store.has(LOCK)).toBe(false);
+  });
+
+  it('Redis caído al soltarlo: se registra y no tumba nada (el candado caduca solo)', async () => {
+    const { service, redis, logger } = makeSweep({ due: [A] });
+    redis.eval.mockRejectedValueOnce(new Error('ECONNRESET'));
+    await expect(service.tick(NOW)).resolves.toBeUndefined();
+    expect(String(logger.error.mock.calls[0]![0])).toContain('ECONNRESET');
   });
 });

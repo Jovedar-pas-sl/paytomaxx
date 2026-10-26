@@ -54,7 +54,10 @@ export interface ExportSummary {
   chargedCents: number;
   refundsCount: number;
   refundsCents: number;
-  /** Cobrado − devoluciones − saldo devuelto en efectivo. */
+  /**
+   * Cobrado − devoluciones − saldo devuelto en efectivo. En el panel y el Z,
+   * «Neto (cobrado − devuelto)» (Z_NET_LABEL de @nightpay/contracts).
+   */
   netCents: number;
   /**
    * «Comisión del servicio» (service-fee.ts) cobrada en el periodo: con
@@ -97,7 +100,11 @@ export interface ExportSummary {
   camareroReversalsCents?: number;
   camareroNetCents?: number;
   venueTipsCents: number;
-  /** Neto − lo de las chicas − lo de los camareros − lo que se debe a OxioPay (comisión del servicio). */
+  /**
+   * netCents − lo de las chicas − lo de los camareros − lo que se debe a OxioPay
+   * (comisión del servicio). En el panel, el Z y el resumen de las 9:00, «Neto sin
+   * el personal» (Z_NET_WITHOUT_STAFF_LABEL).
+   */
   venueNetCents: number;
   /** Pagado a las chicas en el periodo. */
   payoutsCount: number;

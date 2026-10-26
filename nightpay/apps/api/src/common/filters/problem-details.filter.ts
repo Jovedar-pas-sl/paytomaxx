@@ -53,6 +53,7 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     // la response al cliente si !isProd.
     const diagExtra: Record<string, unknown> = {};
     const httpExtra: Record<string, unknown> = {};
+    let retryAfterS: number | undefined;
 
     // DIAGNOSTIC MARKER — confirma que esta versión del filter está activa.
     // Útil para post-deploy verification. Sin leak de internal info.
@@ -93,6 +94,10 @@ export class ProblemDetailsFilter implements ExceptionFilter {
         for (const k of Object.keys(r)) {
           if (!RESERVED_BODY_KEYS.has(k)) httpExtra[k] = r[k];
         }
+        // Un 503/429 que dice cuándo reintentar (`retryAfter`, s): también en
+        // la cabecera (prueba real: el 503 SESSION_CHECK_UNAVAILABLE no la llevaba).
+        retryAfterS = retryAfterOf(status, r.retryAfter);
+        if (retryAfterS !== undefined) res.header?.('Retry-After', retryAfterS);
       }
     } else if (isClientStatusError(exception)) {
       // Errores de Fastify y sus plugins con statusCode 4xx (límite global de
@@ -134,8 +139,10 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       });
     }
 
-    // Reportar también HttpException >= 500 (no las 4xx, que son cliente).
-    if (exception instanceof HttpException && exception.getStatus() >= 500) {
+    // Reportar también HttpException >= 500 (no las 4xx, que son cliente). Un
+    // 503 con Retry-After es pasajero y quien lo lanza ya avisa en el log, sin
+    // inundarlo (con mucha carga salen muchos a la vez): no es un fallo.
+    if (exception instanceof HttpException && exception.getStatus() >= 500 && retryAfterS === undefined) {
       reportError(exception, { tag: 'http.5xx' });
     }
 
@@ -168,6 +175,15 @@ const DB_BUSY_MESSAGE = 'Hay mucha gente a la vez: vuelve a probar en unos segun
 const DB_BUSY_RETRY_AFTER_S = 2;
 /** P2028: no se pudo empezar la transacción a tiempo; P2024: sin conexión del pool a tiempo. */
 const DB_BUSY_PRISMA_CODES: ReadonlySet<string> = new Set(['P2028', 'P2024']);
+
+/** Los códigos en los que Retry-After dice cuándo volver a probar (RFC 9110 §10.2.3). */
+const RETRY_AFTER_STATUSES: ReadonlySet<number> = new Set([HttpStatus.TOO_MANY_REQUESTS, HttpStatus.SERVICE_UNAVAILABLE]);
+
+/** El `retryAfter` (s) del cuerpo de un 429/503, si es un entero positivo; si no, nada. */
+function retryAfterOf(status: number, raw: unknown): number | undefined {
+  if (!RETRY_AFTER_STATUSES.has(status)) return undefined;
+  return typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : undefined;
+}
 
 function isDatabaseBusy(exception: unknown): exception is Error & { code: string } {
   if (!(exception instanceof Error) || !exception.name.startsWith('PrismaClient')) return false;

@@ -7,6 +7,7 @@ import {
   attemptOnStep,
   cashTopUpUnsure,
   cashTopUpWallet,
+  cashUnsureRow,
   codeBoxes,
   codeInput,
   deskRechargeWhat,
@@ -267,5 +268,45 @@ describe('4.3 con la «Comisión del servicio»: el tope del efectivo es lo que 
       problem: expect.stringMatching(/999,99 € por pago \(saldo \+ comisión del servicio\)/),
     });
     expect(methodButtons(ON, { kind: 'new' }, 89_000, 'cash')[0]).toMatchObject({ method: 'cash', problem: null });
+  });
+});
+
+describe('la fila de arriba mientras no se sabe si se cargó (prueba real: con «No sabemos si se han cargado» seguía diciendo «sin saldo»)', () => {
+  const row = (read: Parameters<typeof cashUnsureRow>[0], checking: boolean) => {
+    const r = cashUnsureRow(read, 5_000, checking);
+    return { title: r.title, detail: eur(r.detail) };
+  };
+
+  it('ficha nueva: ni «sin saldo» (el servidor puede haberla cargado ya) ni nada que no se sepa: que se está comprobando', () => {
+    expect(row({ view: NUEVO, nfc: FICHA }, true)).toEqual({ title: 'NFC nuevo', detail: 'Ficha nº 00736903 · comprobando la recarga de 50 €' });
+    expect(row({ view: NUEVO, nfc: FICHA }, false)).toEqual({ title: 'NFC nuevo', detail: 'Ficha nº 00736903 · recarga de 50 € por comprobar' });
+    expect(row({ view: NUEVO_SIN, nfc: FICHA }, true).detail).toBe('Ficha sin número impreso · comprobando la recarga de 50 €');
+  });
+
+  it('un saldo que ya tenía: tampoco «Le quedan 35 €» (puede que ya sean 85 €)', () => {
+    expect(row({ view: saldo(), nfc: FICHA }, true)).toEqual({ title: 'Ficha nº 0388', detail: 'Comprobando la recarga de 50 € · R3D-8LP' });
+    expect(row({ view: saldo({ fichaNumber: null }), nfc: null }, false)).toEqual({ title: 'Saldo R3D-8LP', detail: 'Recarga de 50 € por comprobar' });
+  });
+
+  it('por el número impreso (código tapado) y el saldo nuevo sin NFC', () => {
+    const porNumero = { kind: 'saldo' as const, printedNumber: '00017', codeHint: 'K7Q-•••', balanceCents: 3_500, cashOutCents: 3_500, cashOutNote: null,
+      hasPin: true, blocked: false, closeRequested: false, isHomeVenue: true };
+    expect(row({ view: null, nfc: null, number: porNumero }, true)).toEqual({ title: 'Ficha nº 00017', detail: 'Comprobando la recarga de 50 € · K7Q-•••' });
+    expect(row({ view: null, nfc: null }, true)).toEqual({ title: 'Saldo nuevo', detail: 'Sin NFC · comprobando la recarga de 50 €' });
+  });
+
+  it('nunca «sin saldo» ni «Le quedan»', () => {
+    for (const checking of [true, false]) {
+      for (const read of [{ view: NUEVO, nfc: FICHA }, { view: saldo(), nfc: FICHA }, { view: null, nfc: null }]) {
+        expect(row(read, checking).detail).not.toMatch(/sin saldo|Le quedan/i);
+      }
+    }
+  });
+
+  it('ReceptionDesk la usa en la pantalla «Comprobando» / «No sabemos si se han cargado»', () => {
+    const desk = readFileSync(new URL('../components/reception/desk/ReceptionDesk.tsx', import.meta.url), 'utf8');
+    const unsure = desk.slice(desk.indexOf('function renderCashUnsure'), desk.indexOf('function renderLoaded'));
+    expect(unsure).toMatch(/<DeskRowView \{\.\.\.cashUnsureRow\(read, amountCents, checking\)\} \/>/);
+    expect(unsure).not.toMatch(/readRow\(read\)/);
   });
 });
